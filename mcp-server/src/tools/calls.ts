@@ -8,10 +8,12 @@ import {
 import { listCycleCalls, requireCycle, segmentOf } from '../cycle-calls.ts';
 import { analysisOf, childrenOf, dbSummaries, loadCapture, nonNoteFindings } from '../db-capture.ts';
 import {
-  callTime, detectAndFormatBody, emptyResultOf, softFailureOf, toCallRecord, type CallEndpointSource, type SoftFailure, type CallRecord, type CallSummaryDto, type Comment, type CommentBlock,
+  callTime, detectAndFormatBody, emptyResultOf, softFailureOf, toCallRecord, type CallEndpointSource, type CallStatementFailures, type SoftFailure, type CallRecord, type CallSummaryDto, type Comment, type CommentBlock,
 } from '../frontend.ts';
 import { maskCall, maskCalls, maskContext, maskMeta, maskText, type MaskContext } from '../masking.ts';
 import { chunkText, fitItems, ok, preview, run } from '../reply.ts';
+import { GROUP_TITLES, outcomeOf, statementFailuresOf, triageOrNull } from '../triage.ts';
+import type { TriageEntry } from '../frontend.ts';
 import { FieldsSchema, MaskSchema, PathsSchema } from './cycles.ts';
 
 const SCAN_PAGE = 200;
@@ -69,6 +71,9 @@ export interface SearchInput {
   text?: string;
   status?: number | string;
   failed?: boolean;
+  needsAttention?: boolean;
+  dbFailed?: boolean;
+  minStatus?: number;
   slowMs?: number;
   from?: string;
   to?: string;
@@ -98,7 +103,15 @@ export interface CallFilters {
   project?: string;
   status?: number | string;
   failed?: boolean;
+  needsAttention?: boolean;
+  dbFailed?: boolean;
+  minStatus?: number;
   slowMs?: number;
+}
+
+/** Whether a filter needs the calls' saved marks (one request per page of calls). */
+export function wantsMarks(f: CallFilters): boolean {
+  return !!(f.failed || f.needsAttention || f.dbFailed);
 }
 
 /**
@@ -106,11 +119,18 @@ export interface CallFilters {
  * alike. `softFailed` reads the body only when it decides the outcome - a call already failing by
  * status or error never costs a body fetch.
  */
-export async function passesFilters(call: CallRecord, f: CallFilters, softFailed: () => Promise<boolean>): Promise<boolean> {
+export async function passesFilters(call: CallRecord, f: CallFilters, softFailed: () => Promise<boolean>, mark?: TriageEntry | null): Promise<boolean> {
   if (call.source === 'external' && f.project && call.service_name !== f.project) return false;
   if (!statusMatches(call, f.status)) return false;
   if (f.slowMs !== undefined && (call.duration_ms ?? 0) < f.slowMs) return false;
-  if (f.failed && !isFailed(call) && !(await softFailed())) return false;
+  // The saved mark answers "error inside a 200" without the body; a call with no mark is judged from its body.
+  const soft = async () => (mark ? !!mark.softFailure : softFailed());
+  if (f.failed && !isFailed(call) && !(await soft())) return false;
+  if (f.needsAttention) {
+    const own = mark ? mark.needsAttention : !!call.error || call.state === 'ERROR' || (call.response?.status ?? 0) >= (f.minStatus ?? 300);
+    if (!own && !(await soft())) return false;
+  }
+  if (f.dbFailed && !(mark && mark.failedStatements > 0)) return false;
   return true;
 }
 
@@ -137,6 +157,7 @@ export async function searchCalls(client: AlfredClient, input: SearchInput, want
       });
       scanned += page.calls.length;
       let pastWindow = false;
+      const marks = wantsMarks(input) ? await triageOrNull(client, page.calls.map((c) => c.id), input.minStatus) : null;
       for (const dto of page.calls) {
         const call = toCallRecord(dto, source);
         const t = callTime(call);
@@ -148,7 +169,7 @@ export async function searchCalls(client: AlfredClient, input: SearchInput, want
           softChecks++;
           const bodied = await withParts(client, { id: call.id, source }, call, ['response-body']).catch(() => call);
           return !!softFailureOf(bodied);
-        });
+        }, marks?.[call.id]);
         if (pass) matches.push(call);
       }
       if (pastWindow || matches.length >= want || page.calls.length < SCAN_PAGE || offset + SCAN_PAGE >= page.total) break;
@@ -170,6 +191,10 @@ export const SearchSchema = {
   text: z.string().optional().describe('Case-insensitive text in method, URL, status, error, headers or bodies'),
   status: z.union([z.number().int(), z.string().regex(/^([1-5]xx|\d{3})$/i)]).optional().describe('Exact status (404) or class (5xx)'),
   failed: z.boolean().optional().describe('Only failures: errors, status >= 400, and errors inside a successful response body (SOAP Fault, OTA Error, JSON errors)'),
+  needsAttention: z.boolean().optional().describe('Only calls needing attention: status >= minStatus (default 300, so redirects count), an error, '
+    + 'still running long after it started, or an error inside a successful body'),
+  dbFailed: z.boolean().optional().describe('Only inbound calls with a failed database statement (whatever their own status - a 200 can hide one)'),
+  minStatus: z.number().int().min(300).max(600).optional().describe('Threshold for needsAttention (default 300)'),
   slowMs: z.number().min(0).optional().describe('Only calls at least this slow'),
   from: z.string().datetime({ offset: true }).optional(),
   to: z.string().datetime({ offset: true }).optional(),
@@ -211,9 +236,34 @@ export function register(server: McpServer, client: AlfredClient): void {
       const sel = select(call, input.fields, input.paths, extras, input.bodyOffset, input.bodyLength);
       return ok({ id: call.id, ...sel.values, ...(call.response?.body ? flagsOf(call) : {}), ...(sel.missing.length ? { missing: sel.missing } : {}), ...maskMeta(ctx) });
     }
+    // The saved mark (priority and the failing supplier calls) and the failed statements from their index - no
+    // statement list is loaded for them.
+    const mark = (await triageOrNull(client, [call.id]))?.[call.id];
+    const failures = call.source === 'internal' && wants('db') ? (await statementFailuresOf(client, [call.id]).catch(() => ({} as Record<string, CallStatementFailures>)))[call.id] : undefined;
     return ok({
       ...toRow(call),
       originalUrl: call.original_url,
+      ...(mark ? {
+        attention: {
+          priority: mark.priority, group: GROUP_TITLES[mark.priority], needsAttention: mark.needsAttention,
+          ...(mark.failingSupplierCalls.length ? {
+            failingSupplierCalls: mark.failingSupplierCalls.map((s) => ({
+              id: s.callId, url: maskText(ctx, s.url ?? ''), outcome: maskText(ctx, outcomeOf(s)),
+              ...(s.softFailure ? { softFailure: { ...s.softFailure, message: maskText(ctx, s.softFailure.message) } } : {}),
+            })),
+          } : {}),
+        },
+      } : {}),
+      ...(failures ? {
+        dbFailures: {
+          failedCount: failures.failedCount, swallowedCount: failures.swallowedCount,
+          statements: failures.statements.slice(0, 10).map((st) => ({
+            id: st.id, seq: st.seq, kind: st.kind, table: st.table ?? null, sqlState: st.sqlState ?? null, message: maskText(ctx, st.message ?? ''),
+            swallowed: st.swallowed, undone: st.undone, at: st.callers?.[0] ?? st.codeLocation ?? null,
+          })),
+          more: 'db_statement statementId for one in full (its call chain resolves to project files); db_statements failedOnly for all of them.',
+        },
+      } : {}),
       state: call.state,
       ...(call.source === 'internal' ? {} : { supplier: call.supplierName ?? undefined }),
       ...flagsOf(call),

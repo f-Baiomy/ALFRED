@@ -1,6 +1,7 @@
 package com.fathy.alfred.backend.dbcapture.application.service;
 
 import com.fathy.alfred.backend.dbcapture.application.port.in.ExportCallStatementsUseCase;
+import com.fathy.alfred.backend.dbcapture.application.port.in.FindStatementFailuresUseCase;
 import com.fathy.alfred.backend.dbcapture.application.port.in.GetCallDbSummariesUseCase;
 import com.fathy.alfred.backend.dbcapture.application.port.in.GetCallStatementsUseCase;
 import com.fathy.alfred.backend.dbcapture.application.port.in.GetStatementUseCase;
@@ -9,9 +10,11 @@ import com.fathy.alfred.backend.dbcapture.application.port.out.DbCaptureStorePor
 import com.fathy.alfred.backend.dbcapture.domain.model.CallDbCaptureExport;
 import com.fathy.alfred.backend.dbcapture.domain.model.CallDbSummary;
 import com.fathy.alfred.backend.dbcapture.domain.model.CallMarker;
+import com.fathy.alfred.backend.dbcapture.domain.model.CallStatementFailures;
 import com.fathy.alfred.backend.dbcapture.domain.model.CallStatementsPage;
 import com.fathy.alfred.backend.dbcapture.domain.model.CapturedStatement;
 import com.fathy.alfred.backend.dbcapture.domain.model.ExportedStatement;
+import com.fathy.alfred.backend.dbcapture.domain.model.FailureCounts;
 import com.fathy.alfred.backend.dbcapture.domain.model.IncomingStatement;
 import com.fathy.alfred.backend.dbcapture.domain.model.IngestBatch;
 import com.fathy.alfred.backend.dbcapture.domain.model.MarkerType;
@@ -20,6 +23,7 @@ import com.fathy.alfred.backend.dbcapture.domain.model.StatementOutcome;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -27,7 +31,7 @@ import java.util.Optional;
 /** Reads for the ◆ DB chip and the database window. Every size the client asks for is clamped here. */
 @Service
 public class DbCaptureQueryService implements GetCallDbSummariesUseCase, GetCallStatementsUseCase, GetStatementUseCase,
-        ExportCallStatementsUseCase {
+        ExportCallStatementsUseCase, FindStatementFailuresUseCase {
 
     static final String RESULT = "RESULT";
     static final String BEFORE_IMAGE = "BEFORE_IMAGE";
@@ -44,13 +48,34 @@ public class DbCaptureQueryService implements GetCallDbSummariesUseCase, GetCall
 
     @Override
     public Map<String, CallDbSummary> summaries(List<String> callIds) {
-        List<String> ids = callIds.stream().filter(id -> id != null && !id.isBlank()).distinct().limit(MAX_IDS).toList();
+        List<String> ids = callIds.stream().filter(id -> id != null && !id.isBlank()).distinct().limit(GetCallDbSummariesUseCase.MAX_IDS).toList();
         if (ids.isEmpty()) {
             return Map.of();
         }
         // Calls flagged by older rules get the current ones on their first read - no new capture needed.
         store.withStaleFlags(ids).forEach(id -> DbCaptureFlagsListener.reflag(store, id));
         return store.summaries(ids);
+    }
+
+    @Override
+    public Map<String, CallStatementFailures> failures(List<String> callIds) {
+        List<String> ids = callIds.stream().filter(id -> id != null && !id.isBlank()).distinct().toList();
+        if (ids.size() > FindStatementFailuresUseCase.MAX_IDS) {
+            throw new IllegalArgumentException("At most " + FindStatementFailuresUseCase.MAX_IDS + " call ids per request, got " + ids.size());
+        }
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, CallStatementFailures> result = new LinkedHashMap<>();
+        store.failedStatements(ids, CallStatementFailures.MAX_PER_CALL).forEach((callId, statements) -> {
+            List<CallStatementFailures.FailedStatement> failed = statements.stream().map(CallStatementFailures.FailedStatement::of).toList();
+            // Under the cap the list is the whole story; at the cap the counts come from the index.
+            FailureCounts counts = statements.size() < CallStatementFailures.MAX_PER_CALL
+                    ? new FailureCounts(failed.size(), (int) failed.stream().filter(CallStatementFailures.FailedStatement::swallowed).count())
+                    : store.failureCounts(callId);
+            result.put(callId, new CallStatementFailures(callId, counts.failed(), counts.swallowed(), failed));
+        });
+        return result;
     }
 
     @Override

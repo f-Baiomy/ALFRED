@@ -7,6 +7,10 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
  * written down once so every session starts from it instead of rediscovering it.
  */
 
+/** Last: the calls that succeeded are read too - the groups order the work, they do not rule anything out. */
+const READ_THE_REST = 'Then read the group-6 calls related to the problem - first the ones just before a failing call (a login that set the '
+  + 'session the next call rejected, a search whose result the booking used): a call that succeeded can hold the cause.';
+
 const STEPS_AFTER_STORY = [
   'For every call marked ✖ (an error inside a successful response), ∅ (empty result) or with a failing status: open it with get_call '
     + '(fields responseBody / requestBody for just the bodies) and read the supplier calls listed under it (↳).',
@@ -35,8 +39,9 @@ export function registerPrompts(server: McpServer): void {
         text: [
           `Debug the Alfred session cycle "${cycle}"${problem ? ` - the problem: ${problem}` : ''}.`,
           '',
-          '1. Read it with get_cycle (page with nextOffset until you have all of it). Spacers name the steps of the flow.',
-          ...STEPS_AFTER_STORY.map((s, i) => `${i + 2}. ${s}`),
+          '1. Run triage on it: what needs attention first, in groups 1-6, with the failing supplier calls and failed statements attached.',
+          '2. Read it with get_cycle (page with nextOffset until you have all of it) for the flow around those calls. Spacers name its steps.',
+          ...[...STEPS_AFTER_STORY, READ_THE_REST].map((s, i) => `${i + 3}. ${s}`),
         ].join('\n'),
       },
     }],
@@ -57,8 +62,9 @@ export function registerPrompts(server: McpServer): void {
         text: [
           `Debug the Alfred call ${callId}${problem ? ` - the problem: ${problem}` : ''}.`,
           '',
-          '1. Read it with get_call: status, softFailure / emptyResult, bodies, the supplier calls it made (children) and its db summary.',
-          ...STEPS_AFTER_STORY.map((s, i) => `${i + 2}. ${s}`),
+          '1. Read it with get_call: status, attention (its triage group and failing supplier calls), softFailure / emptyResult, bodies, '
+            + 'the supplier calls it made (children), its db summary and dbFailures (the failed statements).',
+          ...[...STEPS_AFTER_STORY, READ_THE_REST].map((s, i) => `${i + 2}. ${s}`),
         ].join('\n'),
       },
     }],

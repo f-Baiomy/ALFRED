@@ -6,7 +6,8 @@ import { listSource, requireCycle } from '../cycle-calls.ts';
 import { callTime, softFailureOf, type CallEndpointSource } from '../frontend.ts';
 import { maskCall, maskContext, maskMeta } from '../masking.ts';
 import { fitItems, ok, run } from '../reply.ts';
-import { passesFilters } from './calls.ts';
+import { passesFilters, wantsMarks } from './calls.ts';
+import { triageOrNull } from '../triage.ts';
 import { FieldsSchema, MaskSchema, PathsSchema } from './cycles.ts';
 
 /**
@@ -18,7 +19,8 @@ import { FieldsSchema, MaskSchema, PathsSchema } from './cycles.ts';
 export function register(server: McpServer, client: AlfredClient): void {
   server.registerTool('search_cycle', {
     description: 'Search inside one session cycle (its own copies - still there after the live log dropped the calls): text in method, URL, '
-      + 'status, error, headers or bodies, direction, project, supplier, status/class, failed (errors inside 200s included), slow, time range. '
+      + 'status, error, headers or bodies, direction, project, supplier, status/class, failed (errors inside 200s included), needsAttention, '
+      + 'dbFailed (a failed database statement under a 200 too), slow, time range. '
       + 'Rows carry the call\'s number in the cycle (#n, as get_cycle shows it).',
     inputSchema: {
       cycle: z.string().min(1).describe('Cycle id, or text from its name'),
@@ -28,6 +30,9 @@ export function register(server: McpServer, client: AlfredClient): void {
       supplier: z.string().optional(),
       status: z.union([z.number().int(), z.string().regex(/^([1-5]xx|\d{3})$/i)]).optional(),
       failed: z.boolean().optional(),
+      needsAttention: z.boolean().optional().describe('Status >= minStatus (default 300), an error, still running, or an error inside a successful body'),
+      dbFailed: z.boolean().optional().describe('Inbound calls with a failed database statement, whatever their own status'),
+      minStatus: z.number().int().min(300).max(600).optional(),
       slowMs: z.number().min(0).optional(),
       from: z.string().datetime({ offset: true }).optional(),
       to: z.string().datetime({ offset: true }).optional(),
@@ -60,12 +65,14 @@ export function register(server: McpServer, client: AlfredClient): void {
       .filter((c) => input.includeOptions || c.method !== 'OPTIONS')
       .filter((c) => (fromMs === undefined || callTime(c) >= fromMs) && (toMs === undefined || callTime(c) <= toMs))
       .sort((a, b) => callTime(a) - callTime(b));
+    // The saved marks, one request per 500 calls, answer failed / needsAttention / dbFailed without reading bodies.
+    const marks = wantsMarks(input) ? await triageOrNull(client, candidates.map((c) => c.id), input.minStatus) : null;
     const matches = [];
     for (const call of candidates) {
       const pass = await passesFilters(call, input, async () => {
         const bodied = await withParts(client, { id: call.id, source: call.source ?? 'external', cycleId: cycle.id }, call, ['response-body']).catch(() => call);
         return !!softFailureOf(bodied);
-      });
+      }, marks?.[call.id]);
       if (pass) matches.push(call);
     }
 

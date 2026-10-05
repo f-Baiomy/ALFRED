@@ -2,13 +2,14 @@ import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { seg, type AlfredClient } from '../alfred-client.ts';
 import { liveSummary } from '../calls.ts';
-import { analysisOf, childrenOf, loadCapture } from '../db-capture.ts';
+import { analysisOf, childrenOf, dbSummaries, loadCapture } from '../db-capture.ts';
 import type {
   CallDbCapture, CallRecord, CapturedStatement, ExportedDbStatement, RecordedQueryResult, RowsPage, TraceHit, TypedValue,
 } from '../frontend.ts';
 import { maskCapture, maskContext, maskMeta, maskQueryResult, type MaskContext } from '../masking.ts';
-import { chunkText, fitItems, ok, run } from '../reply.ts';
+import { chunkText, fitItems, notFound, ok, run } from '../reply.ts';
 import { resolveFrames, sourceIndexInfo } from '../source.ts';
+import { statementFailuresOf } from '../triage.ts';
 import { MaskSchema } from './cycles.ts';
 
 const CELL_LIMIT = 300;
@@ -47,6 +48,28 @@ function statementRow(s: CapturedStatement) {
     sqlPreview: s.sql.length > 160 ? `${s.sql.slice(0, 160)}…` : s.sql,
     at: s.callers?.[0] ?? s.codeLocation ?? null,
   };
+}
+
+/**
+ * failedOnly with no other filter: the call's failed statements straight from db-capture's failed-statement index,
+ * instead of loading every statement the call ran. null when the index holds only part of them (over 50) - the full
+ * read answers then.
+ */
+async function failedFromIndex(client: AlfredClient, ctx: MaskContext, callId: string): Promise<{ capture: CallDbCapture & { statements: readonly CapturedStatement[] } } | null> {
+  const found = (await statementFailuresOf(client, [callId]).catch(() => null));
+  if (!found) return null;
+  const failures = found[callId];
+  if (failures && failures.failedCount > failures.statements.length) return null;
+  // No entry: no failed statement - or no capture at all, which is said as the full read would.
+  if (!failures && !(await dbSummaries(client, [callId]))[callId]) throw notFound(`Call ${callId} has no database capture.`);
+  const statements = (failures?.statements ?? []).map((st) => ({
+    id: st.id, callId, thread: '', seq: st.seq, kind: st.kind, sql: st.sql, fingerprint: null, table: st.table ?? null, params: [],
+    outcome: { kind: 'FAILED', sqlState: st.sqlState ?? null, vendorCode: st.vendorCode ?? null, message: st.message ?? null, chain: [], swallowed: st.swallowed },
+    startedAt: '', durationMicros: st.durationMicros, offsetMicros: 0, txId: null, connectionId: null, codeLocation: st.codeLocation ?? null,
+    callers: st.callers ?? null, undone: st.undone, expected: false, storedRows: 0, origin: null,
+  }) as unknown as CapturedStatement);
+  const capture = { statements, transactions: [] };
+  return { capture: maskCapture(ctx, stubCall(callId), capture) as typeof capture };
 }
 
 export function register(server: McpServer, client: AlfredClient): void {
@@ -94,7 +117,10 @@ export function register(server: McpServer, client: AlfredClient): void {
     },
   }, (input) => run(async () => {
     const ctx = await maskContext(client, input.mask);
-    const { capture } = await maskedCapture(client, ctx, input.callId, false);
+    const onlyFailed = input.failedOnly && input.slowMicros === undefined && !input.kind && !input.table && !input.text
+      && input.seqFrom === undefined && input.seqTo === undefined;
+    const fast = onlyFailed ? await failedFromIndex(client, ctx, input.callId) : null;
+    const { capture } = fast ?? await maskedCapture(client, ctx, input.callId, false);
     const matching = [...capture.statements].sort((a, b) => a.seq - b.seq)
       .filter((s) => !input.failedOnly || s.outcome.kind === 'FAILED')
       .filter((s) => input.slowMicros === undefined || s.durationMicros >= input.slowMicros)

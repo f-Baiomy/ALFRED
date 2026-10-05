@@ -2,6 +2,7 @@ package com.fathy.alfred.backend.dbcapture.adapter.in.web;
 
 import com.fathy.alfred.backend.dbcapture.application.port.in.DeleteCallStatementsUseCase;
 import com.fathy.alfred.backend.dbcapture.application.port.in.ExportCallStatementsUseCase;
+import com.fathy.alfred.backend.dbcapture.application.port.in.FindStatementFailuresUseCase;
 import com.fathy.alfred.backend.dbcapture.application.port.in.GetCallDbSummariesUseCase;
 import com.fathy.alfred.backend.dbcapture.application.port.in.GetCallStatementsUseCase;
 import com.fathy.alfred.backend.dbcapture.application.port.in.GetStatementUseCase;
@@ -39,9 +40,12 @@ public class DbCaptureController {
     private final DeleteCallStatementsUseCase delete;
     private final ExportCallStatementsUseCase export;
     private final InvestigateCallUseCase investigate;
+    private final FindStatementFailuresUseCase failures;
 
     public DbCaptureController(GetCallDbSummariesUseCase summaries, GetCallStatementsUseCase statements, GetStatementUseCase statement,
-                               DeleteCallStatementsUseCase delete, ExportCallStatementsUseCase export, InvestigateCallUseCase investigate) {
+                               DeleteCallStatementsUseCase delete, ExportCallStatementsUseCase export, InvestigateCallUseCase investigate,
+                               FindStatementFailuresUseCase failures) {
+        this.failures = failures;
         this.summaries = summaries;
         this.statements = statements;
         this.statement = statement;
@@ -100,6 +104,17 @@ public class DbCaptureController {
     public Map<String, CallDbSummary> summaries(@RequestParam(defaultValue = "") String callIds) {
         List<String> ids = Arrays.stream(callIds.split(",")).map(String::strip).filter(s -> !s.isEmpty()).toList();
         return summaries.summaries(ids);
+    }
+
+    /** The failed statements of up to 500 calls, from the failed-statement index; more ids is a 400. */
+    @GetMapping("/db-capture/failures")
+    public ResponseEntity<?> failures(@RequestParam(defaultValue = "") String callIds) {
+        List<String> ids = Arrays.stream(callIds.split(",")).map(String::strip).filter(s -> !s.isEmpty()).toList();
+        try {
+            return ResponseEntity.ok(failures.failures(ids));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
     }
 
     @GetMapping("/db-capture/calls/{callId}/statements")

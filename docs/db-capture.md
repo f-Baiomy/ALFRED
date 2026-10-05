@@ -22,7 +22,15 @@ caller ──► reverse-proxy ──X-Alfred-Call: id=…; db=1──► app (W
   and sets `db=1` in `X-Alfred-Call` only when the project's inbound logging AND database capture are on.
 - **Agent**: `db-agent/` (Java 8 bytecode, ByteBuddy shaded). Never blocks the application: it only enqueues;
   one daemon thread sends batches; when the queue is full statements are dropped and counted.
-- **Backend**: `backend-db-capture` slice, own SQLite file `db-capture.db`.
+- **Backend**: `backend-db-capture` slice, own SQLite file `db-capture.db`. A failed statement is marked in its own
+  `failed` column at insert, with a partial index (`ix_statements_failed`, failed rows only): a call's failed
+  statements, and "which of these calls had one", are one indexed read - `GET /db-capture/failures?callIds=…` (≤ 500
+  ids; per call `failedCount`, `swallowedCount` and up to 50 statements). The summary's `failed_count` is counted from
+  that column. After each batch that adds a failed statement, and when the call completes, the counts go out through
+  `StatementFailuresObserverPort` to triage's saved mark of the call (docs/mcp.md, "Triage").
+- **Frontend**: a failed statement turns the call's chip red (`✖ DB 41 · 1 failed · swallowed`, the statements named on
+  hover) - on a call that answered 200 most of all; the stats bar's "✖ DB failures" pill and the Filters menu's
+  "Has DB failures" narrow the list to those calls; the waterfall marks the row `✖ DB n`.
 - **Frontend**: `components/db-capture/*`, the `◆` switch in the Sources bar, "Log DB" in the cycle widget,
   Settings → Database capture.
 

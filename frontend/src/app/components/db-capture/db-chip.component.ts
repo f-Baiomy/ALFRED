@@ -18,10 +18,11 @@ import { DbWindowService } from './db-window.service';
       @if (s.statementCount === 0 && !live()) {
         <span class="db-chip off" title="The agent was attached and saw no statements for this call">◆ DB 0</span>
       } @else {
-        <button type="button" class="db-chip" [class.live]="live()" title="Open this call's database statements" (click)="open($event)">
-          ◆ DB {{ s.statementCount.toLocaleString() }}
+        <button type="button" class="db-chip" [class.live]="live()" [class.failed]="s.failedCount > 0" [title]="tooltip()" (click)="open($event)">
+          {{ s.failedCount ? '✖' : '◆' }} DB {{ s.statementCount.toLocaleString() }}
           @if (s.writeCount) {<span class="sep">·</span> <span class="w">{{ s.writeCount }} writes</span>}
           @if (s.failedCount) {<span class="sep">·</span> <span class="x">{{ s.failedCount }} failed</span>}
+          @if (swallowed()) {<span class="sep">·</span> <span class="x">swallowed</span>}
           @if (s.flags.length) {<span class="sep">·</span> {{ s.flags.length }} flags}
           @if (!s.writeCount && !s.failedCount && !s.flags.length) {<span class="sep">·</span> {{ ms(s.dbMicros) }}}
           @if (live()) {<span class="sep">·</span> live}
@@ -38,6 +39,25 @@ export class DbChipComponent implements OnInit {
   readonly call = input.required<CallRecord>();
 
   readonly summary = computed(() => this.dbState.summaries().get(this.call().id) ?? null);
+  /** Failed statements the call carried on past - it answered under 500 as if nothing happened. */
+  readonly swallowed = computed(() => !!this.summary()?.flags.some((f) => f.type === 'FAILED_SWALLOWED'));
+
+  /**
+   * Names the failed statements on hover (mock: "#42 CALL LOG_… failed (42000) and was swallowed - the call still
+   * answered 200"), from the flags the summary already carries - no extra request.
+   */
+  readonly tooltip = computed(() => {
+    const s = this.summary();
+    if (!s?.failedCount) return "Open this call's database statements";
+    const status = this.call().response?.status;
+    const lines = s.flags.filter((f) => f.type === 'FAILED' || f.type === 'FAILED_SWALLOWED').slice(0, 5).map((f) =>
+      `#${f.seqs.join(', #')}${f.detail?.['table'] ? ` ${f.detail['table']}` : ''} failed${f.detail?.['error'] ? ` (${f.detail['error']})` : ''}`
+      + (f.type === 'FAILED_SWALLOWED' ? ` and was swallowed - the call still answered ${status ?? 'normally'}` : ''));
+    const more = s.failedCount > lines.length ? `\n…and ${s.failedCount - lines.length} more` : '';
+    const what = lines.join('\n') || `${s.failedCount} statement${s.failedCount > 1 ? 's' : ''} failed`;
+    return `${what}${more}\nClick to open the database window.`;
+  });
+
   readonly live = computed(() => this.call().state === 'IN_PROGRESS' || (!!this.summary() && !this.summary()!.complete && !this.call().response && !this.call().error));
 
   ngOnInit(): void {

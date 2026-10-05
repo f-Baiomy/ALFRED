@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Triage mock</title>
+<style>
+:root{--bg:#0f1222;--card:#171b30;--inner:#1d2240;--border:#2a3150;--text:#e5e9f5;--dim:#9aa3bd;--faint:#7d86a3;--purple:#8b5cf6;--purple-l:#c4b5fd;--red:#f87171;--teal:#2dd4bf;--amber:#fbbf24;--green:#4ade80}
+body{margin:0;padding:16px;background:var(--bg);color:var(--text);font:13px system-ui,sans-serif;max-width:720px}
+h2{font-size:15px;margin:22px 0 8px;color:var(--purple-l)}
+.lbl{color:var(--dim);font-size:12px;margin:14px 0 6px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:10px 12px;margin-bottom:8px}
+.row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.b{font-size:11px;padding:2px 7px;border-radius:6px;border:1px solid var(--border);background:var(--inner)}
+.ok{color:var(--green)}.warn{color:var(--amber)}.bad{color:var(--red)}
+.db{border-color:color-mix(in srgb,var(--teal) 50%,transparent);color:var(--teal)}
+.dbbad{border-color:var(--red);color:#fecaca;background:color-mix(in srgb,var(--red) 18%,transparent);font-weight:600}
+.cm{border-color:var(--purple);color:var(--purple-l);background:color-mix(in srgb,var(--purple) 16%,transparent);font-weight:600}
+.m{font-family:Consolas,monospace;font-size:12px;color:var(--dim);margin-top:6px}
+.tip{font-size:11px;background:#232948;border:1px solid #3a4266;border-radius:8px;padding:7px 9px;color:#c7cde2;margin-top:8px;line-height:1.5}
+.menu{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:6px;width:250px}
+.mi{padding:6px 8px;border-radius:6px;color:var(--dim)}.mi.on{background:color-mix(in srgb,var(--red) 14%,transparent);color:#fecaca}
+.wf{display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid var(--border);font-size:12px}
+.bar{flex:1;height:8px;border-radius:4px;background:var(--inner);position:relative;min-width:40px}.bar i{position:absolute;height:8px;border-radius:4px;background:#5b8cff}
+pre{background:#0b0e1c;border:1px solid var(--border);border-radius:10px;padding:10px 12px;font:12px/1.5 Consolas,monospace;color:#d6dbef;white-space:pre-wrap;margin:0}
+.k{color:var(--purple-l)}.r{color:var(--red)}.a{color:var(--amber)}.g{color:var(--faint)}
+.note{color:var(--faint);font-size:11px;margin-top:6px}
+</style></head><body>
+
+<h2>1 · UI — Live Calls / Session Cycles (flat and nested views)</h2>
+<div class="lbl">Call succeeded (200) but a database statement failed → the ◆ DB chip turns red</div>
+<div class="card">
+  <div class="row"><span class="b">POST</span><span class="b ok">200</span><span class="b">20035 ms</span><span class="b">Odeysys</span>
+    <span class="b dbbad">✖ DB 41 · 1 failed · swallowed</span><span class="b cm">💬 1</span></div>
+  <div class="tip">On hover: <b>#42 CALL LOG_FLIGHTSEARCH_HIT_DETAILS_SP_V6</b> failed (42000: PROCEDURE … does not exist) and the error was swallowed — the call still answered 200, its transaction was rolled back. Click to open the database window at #42.</div>
+  <div class="m">/odeysysadmin/Booking2/flight-search/search</div>
+</div>
+<div class="lbl">Normal: no failed statement → chip unchanged (teal)</div>
+<div class="card"><div class="row"><span class="b">GET</span><span class="b ok">200</span><span class="b">53 ms</span><span class="b">Odeysys</span><span class="b db">◆ DB 2</span></div>
+  <div class="m">/odeysysadmin/Admin2/userDetails</div></div>
+<div class="lbl">Call failed AND had a failed statement → red chip as well (status already red)</div>
+<div class="card"><div class="row"><span class="b">POST</span><span class="b bad">500</span><span class="b">6465 ms</span><span class="b">Odeysys</span><span class="b dbbad">✖ DB 12 · 2 failed</span></div>
+  <div class="m">/odeysysadmin/v2/booking/fare-confirmation</div></div>
+
+<div class="lbl">Filters menu — new item</div>
+<div class="menu"><div class="mi">Status: errors / 5xx</div><div class="mi">Intercepted by a rule</div><div class="mi on">✖ Has DB failures (3)</div><div class="mi">Resent calls</div></div>
+<div class="note">From the saved, indexed marks (/triage/calls for the loaded page).</div>
+
+<div class="lbl">Waterfall view — same red mark on the compact row</div>
+<div style="border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--card)">
+  <div class="wf"><span class="b">POST</span><span class="b ok">200</span><span class="b dbbad">✖ DB 1</span><span class="m" style="margin:0;width:150px">flight-search/search</span><span class="bar"><i style="left:4%;width:80%"></i></span></div>
+  <div class="wf" style="border:none;padding-left:26px"><span class="b">POST</span><span class="b ok">200</span><span class="m" style="margin:0;width:124px">AAResWebServices</span><span class="bar"><i style="left:70%;width:7%"></i></span></div>
+</div>
+
+<h2>2 · MCP — <code>triage</code> on a cycle (what Claude gets)</h2>
+<pre><span class="k">triage</span> cycle "Session 2026-10-05 – user flow"   (minStatus 300)
+
+<span class="r">1 · Failed, with failing supplier calls</span>
+  #20 POST /v2/booking/save-pnr → 500
+      ↳ #21 POST api.cert.platform.sabre.com/v1/trip/orders/getBooking → 200 ✖ ERR.SWS.HOST: PNR not found
+      ↳ #22 POST api.cert.platform.sabre.com/v1/trip/orders/checkFlightTickets → 503
+
+<span class="r">2 · Failed, with failed DB statements</span>
+  #9  POST /v2/booking/fare-confirmation → 500
+      ✖ #31 UPDATE TT_BOOKING failed 23000 duplicate key   at BookingDaoImpl.java → odeysys/…/BookingDaoImpl.java:812
+
+<span class="r">3 · Other failed calls</span>
+  #2  POST /Admin2/loginAction → 401
+  #1  GET  /Admin2/userDetails → 307
+
+<span class="a">4 · Succeeded, but something under it failed (hidden failures)</span>
+  #15 POST /Booking2/flight-search/search → 200
+      ✖ DB #42 CALL LOG_FLIGHTSEARCH_HIT_DETAILS_SP_V6 failed 42000 · swallowed · rolled back
+        at GenericDAOImpl.java:927 → odeysys/common-odeysys/…/nc/core/dao/GenericDAOImpl.java:927
+      ↳ #16 g94.isaaviations.com → 200 ✖ 322: No availability
+      ∅ its own body is empty: searchOffers.offers, searchOffers.journeys, groupedOffers, bestPriceOffers
+
+<span class="a">5 · Succeeded, error inside body / empty result</span>
+  #11 GET /Master2/airline/ → 200 ✖ errors[0]: "Session expired"
+
+<span class="g">6 · Everything else (still read when related - succeeded calls can hold the cause)</span>
+  #13 GET /Booking2/flight-search/flight-airports?search=cai → 200  ◆ DB 3 duplicate queries
+  #12 POST /Admin2/agency/by-branch → 200  4439 ms (slowest)
+  #3 #4 #5 #6 #7 #8 #10 #14 → 200
+
+{"totals":{"1":1,"2":1,"3":2,"4":1,"5":1,"6":10},"calls":16,"requests":2,"bodiesRead":0}</pre>
+<div class="note">The groups are a reading order, not a filter: every call appears once, in its highest group (6 = the rest). A call is listed once, in its highest group, with all its evidence. Numbers (#n) are the cycle's own, as get_cycle shows them.</div>
+
+<h2>3 · MCP — <code>get_cycle</code> first line</h2>
+<pre>Cycle "Session 2026-10-05 – user flow" - paused, 16 calls (+13 OPTIONS hidden)
+<span class="r">Needs attention:</span> 3: #2 (401), #1 (307) · <span class="a">4: #15 (supplier #16 322; empty result)</span> — <span class="g">triage for the evidence</span>
+── 1. Open admin portal … ──
+#1 16:03:35.327 IN GET …/Admin2/userDetails → 307 (48 ms) …</pre>
+
+<h2>4 · MCP — <code>triage</code> on live calls</h2>
+<pre><span class="k">triage</span> project "odeysys", last 60 minutes
+<span class="a">4 · Succeeded, but something under it failed</span>
+  b8c8dbcd… POST /flight-search/search → 200   ↳ 09a52033… g94 → 200 ✖ 322
+  500d0cdc… POST /flight-search/search → 200   ✖ DB #42 failed · swallowed   <span class="g">(saved mark, found by /triage/live even if not on the first page)</span></pre>
+</body></html>

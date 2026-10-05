@@ -24,7 +24,11 @@ function makeCall(overrides: Partial<CallRecord> = {}): CallRecord {
  * client-side sorting logic (that's covered server-side by CallListSupportTest in the backend). */
 function makeView(
   pages: readonly CallRecord[][],
-  options: { defaultSortMode?: 'newest' | 'oldest' | 'newest-call' | 'oldest-call' | 'slowest' | 'fastest' | 'status' | 'custom'; customOrder?: ReturnType<typeof signal<readonly string[]>> } = {}
+  options: {
+    defaultSortMode?: 'newest' | 'oldest' | 'newest-call' | 'oldest-call' | 'slowest' | 'fastest' | 'status' | 'custom';
+    customOrder?: ReturnType<typeof signal<readonly string[]>>;
+    dbFailedIds?: ReturnType<typeof signal<ReadonlySet<string>>>;
+  } = {}
 ): { view: CallListView; queries: CallsQuery[] } {
   const queries: CallsQuery[] = [];
   let call = 0;
@@ -220,6 +224,44 @@ describe('createCallListView', () => {
       view.setNestedOnly(false);
 
       expect(view.mainListCalls().map((c) => c.id)).toEqual(['parent', 'child', 'standalone']);
+    });
+  });
+
+  describe('dbFailureFilter', () => {
+    const page = () => [
+      makeCall({ id: 'ok-swallowed', timestamp: 'a', response: { status: 200, headers: {}, body: '{}' } }),
+      makeCall({ id: 'failed-too', timestamp: 'b', response: { status: 500, headers: {}, body: '{}' } }),
+      makeCall({ id: 'clean', timestamp: 'c', response: { status: 200, headers: {}, body: '{}' } }),
+    ];
+
+    it('counts and keeps only calls with a failed statement, a 200 included, and combines with the status pill by AND', () => {
+      const failed = signal<ReadonlySet<string>>(new Set(['ok-swallowed', 'failed-too']));
+      const { view } = makeView([page()], { dbFailedIds: failed });
+
+      expect(view.stats().dbFailures).toBe(2);
+      expect(view.dbFailureFilter()).toBeFalse();
+      view.setDbFailureFilter(true);
+      expect(view.mainListCalls().map((c) => c.id)).toEqual(['ok-swallowed', 'failed-too']);
+      view.setStatusFilter('ok');
+      expect(view.mainListCalls().map((c) => c.id)).toEqual(['ok-swallowed']);
+      expect(view.stats().total).toBe(3);
+    });
+
+    it('follows summaries as they arrive, and clears', () => {
+      const failed = signal<ReadonlySet<string>>(new Set());
+      const { view } = makeView([page()], { dbFailedIds: failed });
+      view.setDbFailureFilter(true);
+      expect(view.mainListCalls()).toEqual([]);
+
+      failed.set(new Set(['clean']));
+      expect(view.mainListCalls().map((c) => c.id)).toEqual(['clean']);
+      view.setDbFailureFilter(false);
+      expect(view.mainListCalls().length).toBe(3);
+    });
+
+    it('a view without summaries counts none', () => {
+      const { view } = makeView([page()]);
+      expect(view.stats().dbFailures).toBe(0);
     });
   });
 

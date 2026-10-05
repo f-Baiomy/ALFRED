@@ -5,12 +5,13 @@ import { CallListControlsState, CALL_LIST_CONTROLS_STATE } from '../../core/stat
 import { CallStats, CallStatusFilter } from '../../core/state/calls-state.service';
 import { ALL_INTERCEPTION_FILTER, InterceptionFilter, ResendFilter } from '../../core/state/call-list-view';
 
-const EMPTY_STATS: CallStats = { total: 0, ok: 0, client: 0, failed: 0, inProgress: 0, intercepted: 0, resent: 0 };
+const EMPTY_STATS: CallStats = { total: 0, ok: 0, client: 0, failed: 0, inProgress: 0, intercepted: 0, resent: 0, dbFailures: 0 };
 
 describe('StatsBarComponent', () => {
   let setStatusFilterSpy: jasmine.Spy;
   let setInterceptionFilterSpy: jasmine.Spy;
   let setResendFilterSpy: jasmine.Spy;
+  let setDbFailureFilterSpy: jasmine.Spy;
   let interceptionFilterSignal: ReturnType<typeof signal<InterceptionFilter>>;
   let resendFilterSignal: ReturnType<typeof signal<ResendFilter>>;
 
@@ -25,6 +26,7 @@ describe('StatsBarComponent', () => {
     setStatusFilterSpy = jasmine.createSpy('setStatusFilter');
     setInterceptionFilterSpy = jasmine.createSpy('setInterceptionFilter');
     setResendFilterSpy = jasmine.createSpy('setResendFilter');
+    setDbFailureFilterSpy = jasmine.createSpy('setDbFailureFilter');
     interceptionFilterSignal = signal<InterceptionFilter>(ALL_INTERCEPTION_FILTER);
     resendFilterSignal = signal<ResendFilter>('all');
 
@@ -35,6 +37,8 @@ describe('StatsBarComponent', () => {
       resendFilter: resendFilterSignal,
       setInterceptionFilter: setInterceptionFilterSpy,
       setResendFilter: setResendFilterSpy,
+      dbFailureFilter: signal(false),
+      setDbFailureFilter: setDbFailureFilterSpy,
     };
 
     TestBed.configureTestingModule({
@@ -104,5 +108,21 @@ describe('StatsBarComponent', () => {
     button.click();
 
     expect(setResendFilterSpy).toHaveBeenCalledWith('resent');
+  });
+
+  it('hides the DB failures pill when no loaded call has one', () => {
+    const fixture = createComponent();
+    expect(fixture.nativeElement.querySelector('.stat-pill.db-failed')).toBeNull();
+  });
+
+  it('shows and toggles the DB failures pill', () => {
+    const fixture = createComponent({ ...EMPTY_STATS, dbFailures: 2 });
+    const button: HTMLButtonElement = fixture.nativeElement.querySelector('.stat-pill.db-failed');
+    expect(button.textContent).toContain('2');
+    expect(button.textContent).toContain('DB failures');
+
+    button.click();
+
+    expect(setDbFailureFilterSpy).toHaveBeenCalledWith(true);
   });
 });

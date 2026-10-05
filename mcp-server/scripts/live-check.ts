@@ -45,6 +45,28 @@ try {
   const detail = await h.call('db_statement', { statementId: st42?.id ?? 0, rowsLimit: 0 });
   check('db_statement #42: call chain present', !!(detail.json?.callers?.length || detail.json?.codeLocation), detail.json?.callers?.[0] ?? detail.json?.codeLocation);
 
+  // ---- triage: the saved marks (a 200 hiding a swallowed failed statement is priority 4)
+  const marked = await h.call('get_call', { id: CALL, fields: ['status'] });
+  const full = await h.call('get_call', { id: CALL, bodyLength: 256 });
+  check('get_call: the flight search is priority 4 (succeeded, a statement under it failed)', full.json?.attention?.priority === 4,
+    JSON.stringify(full.json?.attention ?? marked.text.slice(0, 120)));
+  check('get_call: dbFailures names #42 from the failed-statement index', full.json?.dbFailures?.statements?.some((s: { seq: number }) => s.seq === 42));
+  const flow = (await h.call('list_cycles', {})).json?.cycles?.find((c: { name: string }) => c.name.includes('user flow'));
+  if (flow) {
+    const triaged = await h.call('triage', { cycle: flow.id });
+    check('triage on the user-flow cycle: the 307 and the 401 are other failed calls',
+      /3 · Other failed calls[\s\S]*userDetails → 307[\s\S]*loginAction → 401|3 · Other failed calls[\s\S]*loginAction → 401[\s\S]*userDetails → 307/.test(triaged.text),
+      triaged.text.split('\n').slice(0, 3).join(' | '));
+    check('triage on the user-flow cycle: the flight search is a hidden failure with its failed statement',
+      /4 · Succeeded, but something under it failed[\s\S]*flight-search\/search → 200[\s\S]*✖ DB #\d+ CALL LOG_FLIGHTSEARCH_HIT_DETAILS_SP_V6 failed 42000/.test(triaged.text));
+    const story = await h.call('get_cycle', { cycle: flow.id, limit: 1, includeDb: false, includeComments: false });
+    check('get_cycle opens with the attention line', /^Needs attention - .*3: #\d+ \(307\)/m.test(story.text), story.text.split('\n')[1]);
+  } else {
+    process.stdout.write('SKIP  triage on the user-flow cycle - no cycle named "user flow"\n');
+  }
+  const live = await h.call('triage', { project: 'odeysys', minutes: 10_080 });
+  check('triage on live calls answers with groups and totals', !live.isError && typeof live.json?.totals === 'object', live.isError ? live.text : JSON.stringify(live.json?.totals));
+
   // ---- write: comment, cycle, copy, spacer
   const comment = await h.call('add_comment', { callId: CALL, block: 'request-body', lineMatch: 'DXB', comment: `mcp live check ${stamp}` });
   created.comment = comment.json?.id;

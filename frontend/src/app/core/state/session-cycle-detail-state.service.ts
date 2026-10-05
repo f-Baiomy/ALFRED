@@ -1,5 +1,6 @@
 import { Injectable, computed, effect, inject, signal, untracked } from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
+import { DbCaptureStateService } from './db-capture-state.service';
 import { ActivatedRoute } from '@angular/router';
 import { Observable, Subscription, forkJoin, map, of, tap } from 'rxjs';
 import {
@@ -35,6 +36,7 @@ import { callKey, EXTERNAL_SOURCE_KEY, sortCalls, sourceKeyOf, subtreeSelectionO
  */
 @Injectable()
 export class SessionCycleDetailStateService implements CallSelectionState, BulkSelectionState, CallListControlsState, CallRemovalState, CallReorderState {
+  private readonly dbState = inject(DbCaptureStateService);
   private readonly api = inject(SessionCyclesApiService);
   private readonly config = inject(AppConfigService);
   private readonly route = inject(ActivatedRoute);
@@ -104,6 +106,12 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
       onError: (message) => this.error.set(message),
       fetchPage: (query) => this.fetchPageForSource(query),
       fetchOverlaps: (query) => this.fetchOverlapsForSource(query),
+      dbFailedIds: this.dbState.failedCallIds,
+    });
+    // Every loaded inbound call's ◆ DB summary, not only those whose card is on screen: the "DB failures" pill and
+    // filter count calls the waterfall or a collapsed list never renders a chip for. Batched, one request per 500.
+    effect(() => {
+      for (const call of this.view.matchingCalls()) if (call.source === 'internal') this.dbState.requestSummary(call.id);
     });
 
     // This cycle's calls or spacers changed somewhere else - the session-cycle widget (often in its
@@ -561,6 +569,10 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
   get resendFilter() {
     return this.view.resendFilter;
   }
+
+  get dbFailureFilter() {
+    return this.view.dbFailureFilter;
+  }
   get interceptionRuleOptions() {
     return this.view.interceptionRuleOptions;
   }
@@ -676,6 +688,10 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
 
   setResendFilter(filter: ResendFilter): void {
     this.view.setResendFilter(filter);
+  }
+
+  setDbFailureFilter(value: boolean): void {
+    this.view.setDbFailureFilter(value);
   }
 
   setNestedOnly(value: boolean): void {

@@ -7,16 +7,19 @@ import com.fathy.alfred.backend.dbcapture.application.port.in.RecordAgentHeartbe
 import com.fathy.alfred.backend.dbcapture.application.port.out.DbCaptureNotificationPort;
 import com.fathy.alfred.backend.dbcapture.application.port.out.DbCaptureStorePort;
 import com.fathy.alfred.backend.dbcapture.application.port.out.DbCaptureTogglePort;
+import com.fathy.alfred.backend.dbcapture.application.port.out.StatementFailuresObserverPort;
 import com.fathy.alfred.backend.dbcapture.domain.DeletedRowsResolver;
 import com.fathy.alfred.backend.dbcapture.domain.model.AgentDirective;
 import com.fathy.alfred.backend.dbcapture.domain.model.AgentStatus;
 import com.fathy.alfred.backend.dbcapture.domain.model.BeforeImage;
 import com.fathy.alfred.backend.dbcapture.domain.model.CallMarker;
 import com.fathy.alfred.backend.dbcapture.domain.model.DbCaptureSettings;
+import com.fathy.alfred.backend.dbcapture.domain.model.FailureCounts;
 import com.fathy.alfred.backend.dbcapture.domain.model.IncomingStatement;
 import com.fathy.alfred.backend.dbcapture.domain.model.IngestBatch;
 import com.fathy.alfred.backend.dbcapture.domain.model.IngestResult;
 import com.fathy.alfred.backend.dbcapture.domain.model.StatementKind;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
@@ -49,14 +52,22 @@ public class DbCaptureService implements IngestStatementsUseCase, RecordAgentHea
     private final DbCaptureTogglePort toggle;
     private final List<IngestListener> listeners;
     private final Clock clock;
+    private final List<StatementFailuresObserverPort> failureObservers;
 
     public DbCaptureService(DbCaptureStorePort store, DbCaptureNotificationPort notifications, DbCaptureTogglePort toggle,
                             List<IngestListener> listeners, Optional<Clock> clock) {
+        this(store, notifications, toggle, listeners, clock, List.of());
+    }
+
+    @Autowired
+    public DbCaptureService(DbCaptureStorePort store, DbCaptureNotificationPort notifications, DbCaptureTogglePort toggle,
+                            List<IngestListener> listeners, Optional<Clock> clock, List<StatementFailuresObserverPort> failureObservers) {
         this.store = store;
         this.notifications = notifications;
         this.toggle = toggle;
         this.listeners = listeners;
         this.clock = clock.orElse(Clock.systemUTC());
+        this.failureObservers = failureObservers;
     }
 
     @Override
@@ -78,6 +89,10 @@ public class DbCaptureService implements IngestStatementsUseCase, RecordAgentHea
             }
         }
         store.addDropped(batch.droppedByCall());
+        // Only calls this batch gave a failed statement: a statement never stops having failed, so the counts of a
+        // call with none in this batch did not change.
+        statements.stream().filter(s -> s.callId() != null && s.outcome() != null && s.outcome().failed())
+                .map(IncomingStatement::callId).distinct().forEach(this::publishFailures);
         for (String callId : lastSeqByCall.keySet()) {
             listeners.forEach(listener -> listener.callIngested(callId));
             notifications.statementsAppended(callId, lastSeqByCall.get(callId), true);
@@ -132,6 +147,14 @@ public class DbCaptureService implements IngestStatementsUseCase, RecordAgentHea
         return new IncomingStatement(s.sid(), s.callId(), s.runTag(), s.thread(), s.seq(), s.kind(), s.sql(), s.fingerprint(), s.table(),
                 s.params(), s.outcome(), s.rows(), s.rowsFrom(), s.beforeImageRows(), image, s.startedAt(), s.durationMicros(),
                 s.offsetMicros(), s.txId(), s.connectionId(), s.codeLocation(), s.dataSource(), s.cascadesTo(), s.origin(), s.callers(), s.indexes());
+    }
+
+    private void publishFailures(String callId) {
+        if (failureObservers.isEmpty()) {
+            return;
+        }
+        FailureCounts counts = store.failureCounts(callId);
+        failureObservers.forEach(observer -> observer.failuresChanged(callId, counts.failed(), counts.swallowed()));
     }
 
     @Override
@@ -191,6 +214,7 @@ public class DbCaptureService implements IngestStatementsUseCase, RecordAgentHea
         boolean answered = status != null && status > 0;
         if (summary.get().failedCount() > 0) {
             store.markFailuresSwallowed(callId, answered && status < 500);
+            publishFailures(callId);
         }
         store.markComplete(callId, !answered && error != null && !error.isBlank() && !summary.get().complete());
         listeners.forEach(listener -> listener.callIngested(callId));

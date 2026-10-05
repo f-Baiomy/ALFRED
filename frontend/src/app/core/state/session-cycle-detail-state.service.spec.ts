@@ -1,3 +1,4 @@
+import { signal } from '@angular/core';
 import { TestBed, fakeAsync, tick, discardPeriodicTasks } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap } from '@angular/router';
 import { Observable, Subject, of, throwError } from 'rxjs';
@@ -8,6 +9,10 @@ import { InternalCallServiceDto, InternalLoggingApiService } from '../services/i
 import { CallEndpointSource, CallRecord, CallSummaryDto, CapturedCall } from '../models/call.model';
 import { CycleSpacer } from './call-selection.tokens';
 import { CallsQuery } from './call-list-view';
+import { DbCaptureStateService } from './db-capture-state.service';
+
+/** The ◆ DB summaries are not under test here: no summary, no failed statement. */
+const DB_STATE_STUB = { failedCallIds: signal<ReadonlySet<string>>(new Set()), summaries: signal(new Map()), requestSummary: () => undefined };
 
 /** The /ws/session-cycles "cycle-content-changed" signal, driven by hand (no real socket in a unit test). */
 const contentChanged = new Subject<string>();
@@ -96,6 +101,7 @@ function setupWithSources(
   };
   TestBed.configureTestingModule({
     providers: [
+      { provide: DbCaptureStateService, useValue: DB_STATE_STUB },
       SessionCycleDetailStateService,
       { provide: SessionCyclesApiService, useValue: apiStub },
       CYCLES_STATE_STUB,
@@ -298,6 +304,7 @@ function setupForSpacers(initialSpacers: CycleSpacer[] = []): {
   };
   TestBed.configureTestingModule({
     providers: [
+      { provide: DbCaptureStateService, useValue: DB_STATE_STUB },
       SessionCycleDetailStateService,
       { provide: SessionCyclesApiService, useValue: apiStub },
       CYCLES_STATE_STUB,
@@ -428,6 +435,7 @@ describe('SessionCycleDetailStateService initial fetch', () => {
     };
     TestBed.configureTestingModule({
       providers: [
+      { provide: DbCaptureStateService, useValue: DB_STATE_STUB },
         SessionCycleDetailStateService,
         { provide: SessionCyclesApiService, useValue: apiStub },
         CYCLES_STATE_STUB,

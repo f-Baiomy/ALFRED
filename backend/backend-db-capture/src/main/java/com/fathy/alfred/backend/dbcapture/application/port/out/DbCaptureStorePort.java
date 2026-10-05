@@ -7,6 +7,7 @@ import com.fathy.alfred.backend.dbcapture.domain.model.CapturedStatement;
 import com.fathy.alfred.backend.dbcapture.domain.model.Column;
 import com.fathy.alfred.backend.dbcapture.domain.model.DbCaptureSettings;
 import com.fathy.alfred.backend.dbcapture.domain.model.DbFlag;
+import com.fathy.alfred.backend.dbcapture.domain.model.FailureCounts;
 import com.fathy.alfred.backend.dbcapture.domain.model.IncomingStatement;
 import com.fathy.alfred.backend.dbcapture.domain.model.StatementTransaction;
 import com.fathy.alfred.backend.dbcapture.domain.model.TypedValue;
@@ -52,6 +53,12 @@ public interface DbCaptureStorePort {
     List<String> callIdsOfRuns(Collection<String> runIds);
 
     Map<String, CallDbSummary> summaries(Collection<String> callIds);
+
+    /** The failed statements of these calls, in seq order, at most {@code perCall} each - read from the failed index only. */
+    Map<String, List<CapturedStatement>> failedStatements(Collection<String> callIds, int perCall);
+
+    /** A call's failed and swallowed statement counts, from the failed index. */
+    FailureCounts failureCounts(String callId);
 
     Optional<CallDbSummary> summary(String callId);
 

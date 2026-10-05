@@ -31,6 +31,14 @@
   border-color: var(--cyan);
   background: color-mix(in srgb, var(--cyan) 18%, var(--card));
 }
+// Calls that ran a failed database statement - a 200 that swallowed one included (triage-mock.html).
+.stat-pill.db-failed b {
+  color: var(--red);
+}
+.stat-pill.db-failed.active {
+  border-color: var(--red);
+  background: color-mix(in srgb, var(--red) 18%, var(--card));
+}
 
 // ---- F1: Filters menu - Interception/Resend sections ----
 

@@ -1,0 +1,528 @@
+{
+  "about": "Shared vectors for the error-inside-a-2xx-body and empty-result rules. The frontend (shared/utils/soft-failure.ts) and the backend (backend-triage SoftFailures) both run every vector in their tests, so the two implementations cannot drift apart. Expectations were produced by the TypeScript; to add a case, add it here with the expectation the TypeScript gives.",
+  "vectors": [
+    {
+      "name": "json ok, nothing wrong",
+      "status": 200,
+      "error": null,
+      "body": "{\"data\":{\"id\":7},\"offers\":[{\"a\":1}]}",
+      "softFailure": null,
+      "emptyKeys": null
+    },
+    {
+      "name": "json errors list with code",
+      "status": 200,
+      "error": null,
+      "body": "{\"errors\":[{\"code\":\"322\",\"message\":\"No availability\"}]}",
+      "softFailure": {
+        "kind": "json-errors",
+        "code": "322",
+        "message": "No availability"
+      },
+      "emptyKeys": null
+    },
+    {
+      "name": "json Errors object, first value",
+      "status": 200,
+      "error": null,
+      "body": "{\"Errors\":{\"b\":{\"Code\":12,\"Message\":\"second\"},\"a\":\"first\"}}",
+      "softFailure": {
+        "kind": "json-errors",
+        "code": "12",
+        "message": "second"
+      },
+      "emptyKeys": null
+    },
+    {
+      "name": "json errors object with integer-like keys comes first",
+      "status": 200,
+      "error": null,
+      "body": "{\"errors\":{\"x\":\"later\",\"2\":\"two\",\"1\":\"one\"}}",
+      "softFailure": {
+        "kind": "json-errors",
+        "code": null,
+        "message": "one"
+      },
+      "emptyKeys": null
+    },
+    {
+      "name": "json errors empty list falls through",
+      "status": 200,
+      "error": null,
+      "body": "{\"errors\":[],\"result\":{\"ok\":true}}",
+      "softFailure": null,
+      "emptyKeys": null
+    },
+    {
+      "name": "json success false with message",
+      "status": 200,
+      "error": null,
+      "body": "{\"success\":false,\"message\":\"Session expired\",\"code\":401}",
+      "softFailure": {
+        "kind": "json-success-false",
+        "code": "401",
+        "message": "Session expired"
+      },
+      "emptyKeys": null
+    },
+    {
+      "name": "json Success false, no message",
+      "status": 200,
+      "error": null,
+      "body": "{\"Success\":false}",
+      "softFailure": {
+        "kind": "json-success-false",
+        "code": null,
+        "message": "success: false"
+      },
+      "emptyKeys": null
+    },
+    {
+      "name": "json ok false with null message uses error",
+      "status": 200,
+      "error": null,
+      "body": "{\"ok\":false,\"message\":null,\"error\":{\"detail\":\"bad token\"}}",
+      "softFailure": {
+        "kind": "json-success-false",
+        "code": null,
+        "message": "bad token"
+      },
+      "emptyKeys": null
+    },
+    {
+      "name": "json error string",
+      "status": 200,
+      "error": null,
+      "body": "{\"error\":\"Invalid PNR\"}",
+      "softFailure": {
+        "kind": "json-error",
+        "code": null,
+        "message": "Invalid PNR"
+      },
+      "emptyKeys": null
+    },
+    {
+      "name": "json error zero counts",
+      "status": 200,
+      "error": null,
+      "body": "{\"error\":0}",
+      "softFailure": {
+        "kind": "json-error",
+        "code": null,
+        "message": "0"
+      },
+      "emptyKeys": null
+    },
+    {
+      "name": "json error false does not count",
+      "status": 200,
+      "error": null,
+      "body": "{\"error\":false,\"Error\":\"\"}",
+      "softFailure": null,
+      "emptyKeys": null
+    },
+    {
+      "name": "json error empty object and empty array do not count",
+      "status": 200,
+      "error": null,
+      "body": "{\"error\":{},\"Error\":[]}",
+      "softFailure": null,
+      "emptyKeys": null
+    },
+    {
+      "name": "json error array is stringified",
+      "status": 200,
+      "error": null,
+      "body": "{\"error\":[\"a\",1.5,1e-7,100,true,null]}",
+      "softFailure": {
+        "kind": "json-error",
+        "code": null,
+        "message": "[\"a\",1.5,1e-7,100,true,null]"
+      },
+      "emptyKeys": null
+    },
+    {
+      "name": "json error object without a message key is stringified in JS key order",
+      "status": 200,
+      "error": null,
+      "body": "{\"error\":{\"z\":\"\\u0001x\\\"y\",\"10\":2,\"9\":1.0E21}}",
+      "softFailure": {
+        "kind": "json-error",
+        "code": null,
+        "message": "{\"9\":1e+21,\"10\":2,\"z\":\"\\u0001x\\\"y\"}"
+      },
+      "emptyKeys": null
+    },
+    {
+      "name": "json nested one level",
+      "status": 200,
+      "error": null,
+      "body": "{\"response\":{\"errors\":[{\"errorCode\":\"E42\",\"description\":\"Card declined\"}]}}",
+      "softFailure": {
+        "kind": "json-errors",
+        "code": "E42",
+        "message": "Card declined"
+      },
+      "emptyKeys": null
+    },
+    {
+      "name": "json nested two levels is ordinary data",
+      "status": 200,
+      "error": null,
+      "body": "{\"a\":{\"b\":{\"error\":\"deep\"}}}",
+      "softFailure": null,
+      "emptyKeys": null
+    },
+    {
+      "name": "json numeric code",
+      "status": 200,
+      "error": null,
+      "body": "{\"errors\":[{\"status\":503.0,\"title\":\"Upstream down\"}]}",
+      "softFailure": {
+        "kind": "json-errors",
+        "code": "503",
+        "message": "Upstream down"
+      },
+      "emptyKeys": null
+    },
+    {
+      "name": "json message whitespace collapsed and shortened",
+      "status": 200,
+      "error": null,
+      "body": "{\"errors\":[\"  line one\\n\\t line two xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx  \"]}",
+      "softFailure": {
+        "kind": "json-errors",
+        "code": null,
+        "message": "line one line two xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…"
+      },
+      "emptyKeys": null
+    },
+    {
+      "name": "json message primitive number",
+      "status": 200,
+      "error": null,
+      "body": "{\"errors\":[42]}",
+      "softFailure": {
+        "kind": "json-errors",
+        "code": null,
+        "message": "42"
+      },
+      "emptyKeys": null
+    },
+    {
+      "name": "json message null element",
+      "status": 200,
+      "error": null,
+      "body": "{\"errors\":[null]}",
+      "softFailure": {
+        "kind": "json-errors",
+        "code": null,
+        "message": "null"
+      },
+      "emptyKeys": null
+    },
+    {
+      "name": "json root array is not judged",
+      "status": 200,
+      "error": null,
+      "body": "[{\"error\":\"x\"}]",
+      "softFailure": null,
+      "emptyKeys": null
+    },
+    {
+      "name": "json invalid",
+      "status": 200,
+      "error": null,
+      "body": "{\"error\":\"x\"",
+      "softFailure": null,
+      "emptyKeys": null
+    },
+    {
+      "name": "json trailing garbage is invalid",
+      "status": 200,
+      "error": null,
+      "body": "{\"error\":\"x\"} trailing",
+      "softFailure": null,
+      "emptyKeys": null
+    },
+    {
+      "name": "json with leading BOM and spaces",
+      "status": 200,
+      "error": null,
+      "body": "﻿  \n{\"error\":\"after bom\"}",
+      "softFailure": {
+        "kind": "json-error",
+        "code": null,
+        "message": "after bom"
+      },
+      "emptyKeys": null
+    },
+    {
+      "name": "status 400 is not soft",
+      "status": 400,
+      "error": null,
+      "body": "{\"error\":\"x\"}",
+      "softFailure": null,
+      "emptyKeys": null
+    },
+    {
+      "name": "status 302 is still judged",
+      "status": 302,
+      "error": null,
+      "body": "{\"error\":\"x\"}",
+      "softFailure": {
+        "kind": "json-error",
+        "code": null,
+        "message": "x"
+      },
+      "emptyKeys": null
+    },
+    {
+      "name": "transport error is not soft",
+      "status": 200,
+      "error": "connection reset",
+      "body": "{\"error\":\"x\"}",
+      "softFailure": null,
+      "emptyKeys": null
+    },
+    {
+      "name": "no status",
+      "status": null,
+      "error": null,
+      "body": "{\"error\":\"x\"}",
+      "softFailure": null,
+      "emptyKeys": null
+    },
+    {
+      "name": "empty body",
+      "status": 200,
+      "error": null,
+      "body": "",
+      "softFailure": null,
+      "emptyKeys": null
+    },
+    {
+      "name": "plain text body",
+      "status": 200,
+      "error": null,
+      "body": "error: something",
+      "softFailure": null,
+      "emptyKeys": null
+    },
+    {
+      "name": "soap 1.1 fault",
+      "status": 200,
+      "error": null,
+      "body": "<soap:Envelope><soap:Body><soap:Fault><faultcode>soap:Server</faultcode><faultstring>Server &amp; database &lt;down&gt;</faultstring></soap:Fault></soap:Body></soap:Envelope>",
+      "softFailure": {
+        "kind": "soap-fault",
+        "code": "soap:Server",
+        "message": "Server & database <down>"
+      },
+      "emptyKeys": null
+    },
+    {
+      "name": "soap 1.2 fault",
+      "status": 200,
+      "error": null,
+      "body": "<env:Envelope><env:Body><env:Fault><env:Code><env:Value> env:Receiver </env:Value></env:Code><env:Reason><env:Text xml:lang=\"en\">Processing <b>error</b></env:Text></env:Reason></env:Fault></env:Body></env:Envelope>",
+      "softFailure": {
+        "kind": "soap-fault",
+        "code": "env:Receiver",
+        "message": "Processing error"
+      },
+      "emptyKeys": null
+    },
+    {
+      "name": "soap fault without text",
+      "status": 200,
+      "error": null,
+      "body": "<Fault></Fault>",
+      "softFailure": {
+        "kind": "soap-fault",
+        "code": null,
+        "message": "SOAP Fault"
+      },
+      "emptyKeys": null
+    },
+    {
+      "name": "ota error with ShortText",
+      "status": 200,
+      "error": null,
+      "body": "<OTA_AirAvailRS><Errors><Error Type=\"1\" Code=\"322\" ShortText=\"No availability\">ignored</Error></Errors></OTA_AirAvailRS>",
+      "softFailure": {
+        "kind": "xml-error",
+        "code": "322",
+        "message": "No availability"
+      },
+      "emptyKeys": null
+    },
+    {
+      "name": "ota error with empty ShortText keeps it",
+      "status": 200,
+      "error": null,
+      "body": "<RS><Error Code=\"9\" ShortText=\"\">text</Error></RS>",
+      "softFailure": {
+        "kind": "xml-error",
+        "code": "9",
+        "message": ""
+      },
+      "emptyKeys": null
+    },
+    {
+      "name": "xml error with text only",
+      "status": 200,
+      "error": null,
+      "body": "<RS><ns1:Error code='77'>  Flight <i>full</i> </ns1:Error></RS>",
+      "softFailure": {
+        "kind": "xml-error",
+        "code": "77",
+        "message": "Flight full"
+      },
+      "emptyKeys": null
+    },
+    {
+      "name": "xml self-closing error with Type",
+      "status": 200,
+      "error": null,
+      "body": "<RS><Error Type=\"Unknown\"/></RS>",
+      "softFailure": {
+        "kind": "xml-error",
+        "code": null,
+        "message": "Unknown"
+      },
+      "emptyKeys": null
+    },
+    {
+      "name": "xml self-closing error bare",
+      "status": 200,
+      "error": null,
+      "body": "<RS><Error/></RS>",
+      "softFailure": {
+        "kind": "xml-error",
+        "code": null,
+        "message": "Error element in the response"
+      },
+      "emptyKeys": null
+    },
+    {
+      "name": "xml warning only",
+      "status": 200,
+      "error": null,
+      "body": "<RS><Warnings><Warning Code=\"1\">careful</Warning></Warnings><Success/></RS>",
+      "softFailure": null,
+      "emptyKeys": null
+    },
+    {
+      "name": "xml ErrorList element is not an Error",
+      "status": 200,
+      "error": null,
+      "body": "<RS><ErrorList count=\"0\"></ErrorList></RS>",
+      "softFailure": null,
+      "emptyKeys": null
+    },
+    {
+      "name": "empty result: offers {}",
+      "status": 200,
+      "error": null,
+      "body": "{\"searchOffers\":{\"offers\":{},\"journeys\":{}},\"groupedOffers\":[],\"bestPriceOffers\":{\"00:00-05:59\":{},\"06:00-11:59\":[]}}",
+      "softFailure": null,
+      "emptyKeys": [
+        "searchOffers.offers",
+        "searchOffers.journeys",
+        "groupedOffers",
+        "bestPriceOffers"
+      ]
+    },
+    {
+      "name": "empty result: total 0",
+      "status": 200,
+      "error": null,
+      "body": "{\"total\":0,\"items\":[]}",
+      "softFailure": null,
+      "emptyKeys": [
+        "total",
+        "items"
+      ]
+    },
+    {
+      "name": "filled result is not empty",
+      "status": 200,
+      "error": null,
+      "body": "{\"total\":0,\"items\":[{\"id\":1}]}",
+      "softFailure": null,
+      "emptyKeys": null
+    },
+    {
+      "name": "bucket with a primitive counts as filled",
+      "status": 200,
+      "error": null,
+      "body": "{\"fareOptions\":{\"a\":0}}",
+      "softFailure": null,
+      "emptyKeys": null
+    },
+    {
+      "name": "empty result 3 levels down is not seen",
+      "status": 200,
+      "error": null,
+      "body": "{\"a\":{\"b\":{\"c\":{\"offers\":[]}}}}",
+      "softFailure": null,
+      "emptyKeys": null
+    },
+    {
+      "name": "empty result 2 levels down",
+      "status": 200,
+      "error": null,
+      "body": "{\"a\":{\"b\":{\"offers\":[]}}}",
+      "softFailure": null,
+      "emptyKeys": [
+        "a.b.offers"
+      ]
+    },
+    {
+      "name": "empty result needs status under 300",
+      "status": 302,
+      "error": null,
+      "body": "{\"offers\":[]}",
+      "softFailure": null,
+      "emptyKeys": null
+    },
+    {
+      "name": "no result keys at all",
+      "status": 200,
+      "error": null,
+      "body": "{\"name\":\"x\",\"value\":3}",
+      "softFailure": null,
+      "emptyKeys": null
+    },
+    {
+      "name": "count key case-insensitive",
+      "status": 200,
+      "error": null,
+      "body": "{\"TotalCount\":0,\"Hotels\":null}",
+      "softFailure": null,
+      "emptyKeys": [
+        "TotalCount"
+      ]
+    },
+    {
+      "name": "result key suffix with newline is not a match",
+      "status": 200,
+      "error": null,
+      "body": "{\"offers\\n\":[]}",
+      "softFailure": null,
+      "emptyKeys": null
+    },
+    {
+      "name": "integer keys order in empty result paths",
+      "status": 200,
+      "error": null,
+      "body": "{\"b\":{\"rows\":[]},\"1\":{\"hits\":[]}}",
+      "softFailure": null,
+      "emptyKeys": [
+        "1.hits",
+        "b.rows"
+      ]
+    }
+  ]
+}

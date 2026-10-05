@@ -37,4 +37,8 @@ export class StatsBarComponent {
   toggleResent(): void {
     this.controlsState.setResendFilter('resent');
   }
+
+  toggleDbFailures(): void {
+    this.controlsState.setDbFailureFilter(!this.controlsState.dbFailureFilter());
+  }
 }

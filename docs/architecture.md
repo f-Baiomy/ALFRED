@@ -55,6 +55,11 @@ backend-logs              Logs Explorer: JSON-per-line logs of any structure (up
                           into per-source SQLite tables (logs.db) with per-field and trigram indexes, grouping
                           levels, patterns, field-anchored comments. Leaf slice, depends on no other slice.
                           See docs/logs.md.
+backend-triage            the saved "needs attention" mark of every call (call_attention in its own triage.db): status,
+                          error inside a 2xx / empty result, failing supplier calls, failed statements, and the
+                          priority 1-6 they give, kept current as calls arrive (any order) by backend-app/triagebridge
+                          and read through indexes only (GET /triage/calls|live|counts). Leaf slice, depends on no
+                          other slice. See docs/mcp.md "Triage".
 backend-app               composition root, owns spring-boot-maven-plugin repackage, DatabaseStatsController,
                           the CallFilterAdapter bridging calls→settings, CommentCallIdMigration, the
                           interceptionbridge package (bridges backend-interception's RecordedCallLookupPort to
@@ -159,6 +164,6 @@ reads. It knows no other slice; everything cross-slice goes through `backend-app
 `InboundCallCompletionAdapter` (a `NewInternalCallObserverPort` - marks swallowed failures, "ended early"),
 `RetainedCallIdsAdapter` (calls a session cycle holds survive the size cap), `InboundProjectsAdapter` (projects and
 their inbound-logging switch), and `relivebridge/RelatedCallsDeletionAdapter` deletes a Relive run's statements by
-run tag. Queries over recorded data run in `InMemoryQuerySandbox` - a fresh in-memory SQLite per request, never
+run tag. `triagebridge/TriageStatementFailuresAdapter` takes its failed-statement counts to triage. Queries over recorded data run in `InMemoryQuerySandbox` - a fresh in-memory SQLite per request, never
 `db-capture.db`. The agent (`db-agent/`, Java 8 bytecode, ByteBuddy shaded) is not part of the reactor. See
 docs/db-capture.md.

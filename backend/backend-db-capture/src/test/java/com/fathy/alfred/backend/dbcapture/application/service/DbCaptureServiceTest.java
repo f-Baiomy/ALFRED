@@ -94,4 +94,28 @@ class DbCaptureServiceTest {
         assertThat(service.deleteForCalls(List.of())).isZero();
         verify(store, never()).deleteForCalls(anyList());
     }
+
+    @Test
+    void failureObserversHearOfABatchWithAFailedStatement_andOfTheCallCompleting() {
+        com.fathy.alfred.backend.dbcapture.application.port.out.StatementFailuresObserverPort observer =
+                mock(com.fathy.alfred.backend.dbcapture.application.port.out.StatementFailuresObserverPort.class);
+        DbCaptureService withObserver = new DbCaptureService(store, notifications, toggle, List.of(listener), Optional.of(clock), List.of(observer));
+        when(store.failureCounts("call-1")).thenReturn(new com.fathy.alfred.backend.dbcapture.domain.model.FailureCounts(1, 0));
+
+        withObserver.ingest(new IngestBatch("agent-1", "wallet-app", List.of(Fixtures.select("a:1", "call-2", 1, 1)), List.of(), Map.of()));
+        verify(observer, never()).failuresChanged(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyInt(),
+                org.mockito.ArgumentMatchers.anyInt());
+
+        withObserver.ingest(new IngestBatch("agent-1", "wallet-app", List.of(Fixtures.statement("a:2", "call-1", 2,
+                com.fathy.alfred.backend.dbcapture.domain.model.StatementKind.INSERT, "INSERT INTO t (a) VALUES (?)",
+                Fixtures.failed("23000", 1, "duplicate"), null, null)), List.of(), Map.of()));
+        verify(observer).failuresChanged("call-1", 1, 0);
+
+        when(store.summary("call-1")).thenReturn(Optional.of(new com.fathy.alfred.backend.dbcapture.domain.model.CallDbSummary(
+                "call-1", 2, 1, 0, 1, 0, 0, 100, 0, List.of(), 2, false, false)));
+        when(store.failureCounts("call-1")).thenReturn(new com.fathy.alfred.backend.dbcapture.domain.model.FailureCounts(1, 1));
+        withObserver.callCompleted("call-1", 200, null);
+        verify(store).markFailuresSwallowed("call-1", true);
+        verify(observer).failuresChanged("call-1", 1, 1);
+    }
 }

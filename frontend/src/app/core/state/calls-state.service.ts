@@ -1,5 +1,6 @@
-import { Injectable, computed, inject, signal } from '@angular/core';
+import { Injectable, computed, effect, inject, signal } from '@angular/core';
 import { Observable, Subscription, forkJoin, map, of } from 'rxjs';
+import { DbCaptureStateService } from './db-capture-state.service';
 import {
   CallDetail,
   CallDetailPart,
@@ -37,6 +38,7 @@ export type { CallStats, CallStatusFilter, SupplierGroup, SupplierOption } from 
  */
 @Injectable({ providedIn: 'root' })
 export class CallsStateService implements CallSelectionState, BulkSelectionState, CallListControlsState {
+  private readonly dbState = inject(DbCaptureStateService);
   private readonly api = inject(CallsApiService);
   private readonly pinService = inject(PinService);
   private readonly wsMessagesEvents = inject(WsMessagesEventsService);
@@ -95,8 +97,14 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
         fetchOverlaps: (query) => this.fetchOverlapsForSource(query),
         liveCalls: this.liveCalls,
         onError: (message) => this.error.set(message),
+        dbFailedIds: this.dbState.failedCallIds,
       }
     );
+    // Every loaded inbound call's ◆ DB summary, not only those whose card is on screen: the "DB failures" pill and
+    // filter count calls the waterfall or a collapsed list never renders a chip for. Batched, one request per 500.
+    effect(() => {
+      for (const call of this.view.matchingCalls()) if (call.source === 'internal') this.dbState.requestSummary(call.id);
+    });
 
     this.internalLoggingApi.getFeatureEnabled().subscribe((res) => {
       this.inboundLoggingFeatureEnabled.set(res.enabled);
@@ -326,6 +334,10 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
   get resendFilter() {
     return this.view.resendFilter;
   }
+
+  get dbFailureFilter() {
+    return this.view.dbFailureFilter;
+  }
   get interceptionRuleOptions() {
     return this.view.interceptionRuleOptions;
   }
@@ -445,6 +457,10 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
 
   setResendFilter(filter: ResendFilter): void {
     this.view.setResendFilter(filter);
+  }
+
+  setDbFailureFilter(value: boolean): void {
+    this.view.setDbFailureFilter(value);
   }
 
   setViewMode(mode: CallViewMode): void {

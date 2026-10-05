@@ -216,4 +216,66 @@ class SqliteDbCaptureRepositoryTest {
         repo.saveAgent(new AgentStatus("agent-1", "wallet-app", "1.0.0", "OpenJDK 1.8", "WildFly 26", 0, 0, "2026-10-04T18:00:00Z"));
         assertThat(repo.agents()).extracting(AgentStatus::agentId).containsExactly("agent-1");
     }
+
+    // ------------------------------------------------------------------ failed statements (triage)
+
+    private List<IncomingStatement> twoCallsOneFailing() {
+        return List.of(
+                Fixtures.select("a:1", "call-1", 1, 2),
+                statement("a:2", "call-1", 2, StatementKind.INSERT, "INSERT INTO loyalty_points (user_id) VALUES (?)",
+                        Fixtures.failed("23000", 1, "ORA-00001: unique constraint violated"), null, null),
+                statement("a:3", "call-1", 3, StatementKind.CALL, "CALL LOG_HIT(?)", Fixtures.failed("42000", 1305, "PROCEDURE does not exist"), null, null),
+                Fixtures.select("a:4", "call-2", 1, 2));
+    }
+
+    @Test
+    void aFailedStatementIsMarkedAtInsert_andReadBackFromTheFailedIndexOnly() {
+        repo.saveStatements(twoCallsOneFailing());
+        repo.refreshSummary("call-1");
+        repo.refreshSummary("call-2");
+
+        Map<String, List<CapturedStatement>> failed = repo.failedStatements(List.of("call-1", "call-2", "call-x"), 50);
+        assertThat(failed).containsOnlyKeys("call-1");
+        assertThat(failed.get("call-1")).extracting(CapturedStatement::seq).containsExactly(2, 3);
+        assertThat(repo.failedStatements(List.of("call-1"), 1).get("call-1")).extracting(CapturedStatement::seq).containsExactly(2);
+        assertThat(repo.summary("call-1").orElseThrow().failedCount()).isEqualTo(2);
+        assertThat(repo.summary("call-2").orElseThrow().failedCount()).isZero();
+
+        assertThat(repo.failureCounts("call-1")).isEqualTo(new com.fathy.alfred.backend.dbcapture.domain.model.FailureCounts(2, 0));
+        repo.markFailuresSwallowed("call-1", true);
+        assertThat(repo.failureCounts("call-1")).isEqualTo(new com.fathy.alfred.backend.dbcapture.domain.model.FailureCounts(2, 2));
+        assertThat(repo.failureCounts("call-2")).isEqualTo(com.fathy.alfred.backend.dbcapture.domain.model.FailureCounts.NONE);
+    }
+
+    @Test
+    void theFailedReadsUseThePartialIndex() throws Exception {
+        repo.saveStatements(twoCallsOneFailing());
+        try (var connection = java.sql.DriverManager.getConnection("jdbc:sqlite:" + tempDir.resolve("db-capture.db"));
+             var st = connection.createStatement()) {
+            StringBuilder plan = new StringBuilder();
+            try (var rs = st.executeQuery("EXPLAIN QUERY PLAN SELECT id FROM statements WHERE failed = 1 AND call_id IN ('call-1','call-2') ORDER BY call_id, seq")) {
+                while (rs.next()) {
+                    plan.append(rs.getString("detail")).append('\n');
+                }
+            }
+            assertThat(plan.toString()).contains("ix_statements_failed");
+        }
+    }
+
+    @Test
+    void anExistingDatabaseGetsItsFailedStatementsMarkedOnceWhenTheColumnIsAdded() throws Exception {
+        repo.saveStatements(twoCallsOneFailing());
+        repo.close();
+        Thread.sleep(50);
+        // Turn the file back into what an older version left: no failed column, no index.
+        try (var connection = java.sql.DriverManager.getConnection("jdbc:sqlite:" + tempDir.resolve("db-capture.db"));
+             var st = connection.createStatement()) {
+            st.execute("DROP INDEX ix_statements_failed");
+            st.execute("ALTER TABLE statements DROP COLUMN failed");
+        }
+        open();
+
+        assertThat(repo.failedStatements(List.of("call-1", "call-2"), 50)).containsOnlyKeys("call-1");
+        assertThat(repo.failureCounts("call-1").failed()).isEqualTo(2);
+    }
 }

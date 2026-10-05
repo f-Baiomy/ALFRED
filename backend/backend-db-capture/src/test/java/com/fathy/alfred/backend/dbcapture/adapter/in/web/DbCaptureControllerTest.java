@@ -45,6 +45,26 @@ class DbCaptureControllerTest {
     private com.fathy.alfred.backend.dbcapture.application.port.in.ExportCallStatementsUseCase export;
     @MockBean
     private com.fathy.alfred.backend.dbcapture.application.port.in.InvestigateCallUseCase investigate;
+    @MockBean
+    private com.fathy.alfred.backend.dbcapture.application.port.in.FindStatementFailuresUseCase failures;
+
+    @Test
+    void failuresAnswerPerCall_andTooManyIdsIs400() throws Exception {
+        when(failures.failures(List.of("c1", "c2"))).thenReturn(Map.of("c1", new com.fathy.alfred.backend.dbcapture.domain.model.CallStatementFailures(
+                "c1", 1, 1, List.of(new com.fathy.alfred.backend.dbcapture.domain.model.CallStatementFailures.FailedStatement(42, 42,
+                com.fathy.alfred.backend.dbcapture.domain.model.StatementKind.CALL, null, "CALL LOG_HIT(?)", "42000", 1305,
+                "PROCEDURE does not exist", true, true, 1200, "GenericDAOImpl.executeSQLQuery(GenericDAOImpl.java:927)", List.of())))));
+        mvc.perform(get("/db-capture/failures").param("callIds", "c1,c2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.c1.failedCount").value(1))
+                .andExpect(jsonPath("$.c1.statements[0].seq").value(42))
+                .andExpect(jsonPath("$.c1.statements[0].swallowed").value(true))
+                .andExpect(jsonPath("$.c2").doesNotExist());
+
+        when(failures.failures(org.mockito.ArgumentMatchers.anyList())).thenThrow(new IllegalArgumentException("At most 500 call ids per request, got 501"));
+        mvc.perform(get("/db-capture/failures").param("callIds", "x")).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("At most 500 call ids per request, got 501"));
+    }
 
     @Test
     void summariesSplitTheIdListAndAnswerOnlyCapturedCalls() throws Exception {

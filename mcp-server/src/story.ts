@@ -5,6 +5,8 @@ import { analysisOf, childrenOf, dbSummaries, loadCapture, nonNoteFindings } fro
 import { emptyResultOf, layoutSpacers, softFailureOf, type CallRecord, type Comment, type CommentCount, type CycleSpacer } from './frontend.ts';
 import { maskCall, maskContext, maskMeta, maskText, type MaskContext } from './masking.ts';
 import { ok, preview, REPLY_BUDGET, text, type ToolReply } from './reply.ts';
+import { attentionLine, triageOrNull } from './triage.ts';
+import type { TriageEntry } from './frontend.ts';
 
 /**
  * get_cycle's story: the cycle as a debugging narrative, one compact line per call in run order,
@@ -56,12 +58,15 @@ function hostOf(url: string): string {
   }
 }
 
-/** The flags a call's own body raises - the same detector the exports' "At a Glance" uses. */
-function bodyFlags(ctx: MaskContext, call: CallRecord): string {
-  const soft = softFailureOf(call);
-  const empty = call.source === 'internal' ? emptyResultOf(call) : null;
+/**
+ * The flags a call's own body raises - the same detector the exports' "At a Glance" uses. Read from the mark Alfred
+ * saved when the call completed (no body fetched); judged from the body only for a call with no mark.
+ */
+function bodyFlags(ctx: MaskContext, call: CallRecord, mark?: TriageEntry | null): string {
+  const soft = mark ? mark.softFailure ?? null : softFailureOf(call);
+  const emptyKeys = call.source !== 'internal' ? null : mark ? (mark.emptyKeys.length ? mark.emptyKeys : null) : emptyResultOf(call)?.emptyKeys ?? null;
   return (soft ? ` ✖ ${soft.code ? `${maskText(ctx, soft.code)}: ` : ''}${maskText(ctx, soft.message)}` : '')
-    + (empty ? ` ∅ empty: ${empty.emptyKeys.join(', ')}` : '');
+    + (emptyKeys ? ` ∅ empty: ${emptyKeys.join(', ')}` : '');
 }
 
 export async function cycleStory(client: AlfredClient, input: StoryInput): Promise<ToolReply> {
@@ -78,6 +83,8 @@ export async function cycleStory(client: AlfredClient, input: StoryInput): Promi
   const hiddenOptions = listed.entries.length - entries.length;
   const calls = entries.map((e) => e.call);
   const numberOf = new Map(calls.map((c, i) => [c.id, i + 1]));
+  // Saved marks: the attention line, and the ✖/∅ flags without reading every body. null on an Alfred without triage.
+  const marks = await triageOrNull(client, calls.map((c) => c.id));
 
   // Placement is layoutSpacers' alone (the invariant every view and export follows), over the WHOLE
   // cycle so a spacer anchored to a call on another page still lands where the UI shows it.
@@ -118,18 +125,18 @@ export async function cycleStory(client: AlfredClient, input: StoryInput): Promi
     }
     return found;
   };
-  const readBodies = input.checkBodies || input.bodyPreview > 0;
+  const needsBody = (call: CallRecord) => input.bodyPreview > 0 || (input.checkBodies && !marks?.[call.id]);
 
   const blocks = await Promise.all(pageEntries.map(async (entry, i): Promise<string[]> => {
     const n = input.offset + i + 1;
     const lines: string[] = [];
     for (const s of before.get(input.offset + i) ?? []) lines.push(`── ${maskText(ctx, s.label)} ── (spacer ${s.id})`);
 
-    let call = readBodies ? await bodied(entry.call) : entry.call;
+    let call = needsBody(entry.call) ? await bodied(entry.call) : entry.call;
     const parts = partsFor(input.fields, input.paths);
     if (parts.length) call = await withParts(client, { id: call.id, source: call.source ?? 'external', cycleId: cycle.id }, call, parts);
     call = maskCall(ctx, call);
-    const flags = input.checkBodies ? bodyFlags(ctx, call) : '';
+    const flags = input.checkBodies ? bodyFlags(ctx, call, marks?.[call.id]) : '';
 
     const comments: Comment[] = needsComments && commentCounts[call.id]
       ? await client.get<Comment[]>('/comments', { query: { callId: call.id } }) : [];
@@ -158,9 +165,9 @@ export async function cycleStory(client: AlfredClient, input: StoryInput): Promi
     }
     const childLines = await Promise.all([
       ...childEntries.map(async (e) => {
-        const child = maskCall(ctx, input.checkBodies ? await bodied(e.call) : e.call);
+        const child = maskCall(ctx, input.checkBodies && !marks?.[e.call.id] ? await bodied(e.call) : e.call);
         const n = numberOf.get(child.id);
-        return `${n ? `#${n}` : 'OPTIONS'} ${child.method} ${hostOf(child.url)} → ${child.response?.status ?? child.error ?? '-'}${input.checkBodies ? bodyFlags(ctx, child) : ''}`;
+        return `${n ? `#${n}` : 'OPTIONS'} ${child.method} ${hostOf(child.url)} → ${child.response?.status ?? child.error ?? '-'}${input.checkBodies ? bodyFlags(ctx, child, marks?.[child.id]) : ''}`;
       }),
       ...liveChildren.map(async (c) => `${c.method} ${hostOf(c.url)} → ${c.response?.status ?? c.error ?? '-'} (not in this cycle, id=${c.id})`),
     ]);
@@ -202,7 +209,9 @@ export async function cycleStory(client: AlfredClient, input: StoryInput): Promi
 
   const head = `Cycle "${cycle.name}" (${cycle.id}) - ${cycle.status === 'RECORDING' ? 'RECORDING' : 'paused'}, ${entries.length} calls`
     + `${hiddenOptions ? ` (+${hiddenOptions} OPTIONS preflights hidden - includeOptions: true shows them)` : ''}, created ${cycle.createdAt}`;
-  const out: string[] = [head, ''];
+  const attention = marks ? attentionLine(calls.flatMap((c) => (marks[c.id] ? [{ n: numberOf.get(c.id)!, entry: marks[c.id] }] : []))
+    .filter((x) => !(x.entry.direction === 'OUTBOUND' && x.entry.parentCallId && numberOf.has(x.entry.parentCallId)))) : '';
+  const out: string[] = attention ? [head, maskText(ctx, attention), ''] : [head, ''];
   let size = head.length + 400;
   let shown = 0;
   for (const block of blocks) {

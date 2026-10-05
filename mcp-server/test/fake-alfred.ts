@@ -2,8 +2,10 @@ import { createHash } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { Duplex } from 'node:stream';
 import type { AddressInfo } from 'node:net';
-import type {
-  CallDbSummary, CallRecord, CallStatementsPage, CapturedStatement, Comment, CycleSpacer, Redaction, SessionCycle, RowsPage, RecordedQueryResult,
+import {
+  emptyResultOf, softFailureOf,
+  type AttentionMark, type CallDbSummary, type CallRecord, type CallStatementsPage, type CapturedStatement, type Comment, type CycleSpacer,
+  type Redaction, type SessionCycle, type RowsPage, type RecordedQueryResult, type TriageEntry,
 } from '../src/frontend.ts';
 
 /**
@@ -37,6 +39,8 @@ export interface FakeState {
   runs: Map<string, Record<string, unknown>[]>;
   services: { name: string; listenPort: number | null; upstreamPort: number | null; enabled: boolean }[];
   captureProjects: { project: string; enabled: boolean; inboundLogging: boolean; attached: boolean; agent: null }[];
+  /** Calls triage has no saved mark for (recorded before triage existed, or past its row cap). */
+  unmarked: Set<string>;
 }
 
 export function emptyState(): FakeState {
@@ -54,6 +58,7 @@ export function emptyState(): FakeState {
       { project: 'odeysys', enabled: false, inboundLogging: true, attached: true, agent: null },
       { project: 'core-service', enabled: false, inboundLogging: false, attached: false, agent: null },
     ],
+    unmarked: new Set(),
   };
 }
 
@@ -108,6 +113,19 @@ function matchesSearch(r: CallRecord, q: string): boolean {
   const hay = [r.method, r.url, r.original_url, r.error, String(r.response?.status ?? ''), JSON.stringify(r.request?.headers ?? {}),
     r.request?.body, JSON.stringify(r.response?.headers ?? {}), r.response?.body].join('\n').toLowerCase();
   return hay.includes(q.toLowerCase());
+}
+
+const STALE_MS = 5 * 60_000;
+
+/** backend-triage's Priority, for the fake: the same groups from the same facts. */
+function needs(m: AttentionMark, minStatus: number, now: number): boolean {
+  return !!m.error || (m.status ?? -1) >= minStatus || (m.state === 'IN_PROGRESS' && now - m.startedAt > STALE_MS);
+}
+
+function priorityOf(m: AttentionMark, failingChildren: number, minStatus: number, now: number): TriageEntry['priority'] {
+  if (needs(m, minStatus, now)) return failingChildren ? 1 : m.failedStatements ? 2 : 3;
+  if (failingChildren || m.failedStatements) return 4;
+  return m.softFailure || m.emptyKeys.length ? 5 : 6;
 }
 
 export class FakeAlfred {
@@ -197,8 +215,75 @@ export class FakeAlfred {
     }
   }
 
+  /** Every call the fake knows - live first, then cycle copies - by id. */
+  private records(): Map<string, { source: 'internal' | 'external'; record: CallRecord }> {
+    const out = new Map<string, { source: 'internal' | 'external'; record: CallRecord }>();
+    for (const c of this.state.calls) out.set(c.record.id, c);
+    for (const list of this.state.cycleEntries.values()) for (const e of list) if (!out.has(e.record.id)) out.set(e.record.id, e);
+    return out;
+  }
+
+  /** The mark backend-triage would have saved for this call. */
+  private markOf(source: 'internal' | 'external', r: CallRecord): AttentionMark {
+    const statements = this.state.statements[r.id] ?? [];
+    return {
+      callId: r.id, direction: source === 'internal' ? 'INBOUND' : 'OUTBOUND', project: source === 'internal' ? r.service_name ?? null : null,
+      parentCallId: source === 'external' ? r.parentCallId ?? null : null, method: r.method, url: r.url,
+      status: r.response?.status ?? null, error: r.error ?? null, startedAt: Date.parse(r.timestamp), durationMs: r.duration_ms ?? null,
+      state: r.state ?? 'COMPLETED', softFailure: softFailureOf(r), emptyKeys: [...(emptyResultOf(r)?.emptyKeys ?? [])], failingChildren: 0,
+      failedStatements: this.state.dbSummaries[r.id]?.failedCount ?? 0,
+      swallowedStatements: statements.filter((st) => st.outcome.kind === 'FAILED' && st.outcome.swallowed).length,
+    };
+  }
+
+  private entryOf(id: string, minStatus: number): TriageEntry | null {
+    const all = this.records();
+    const found = all.get(id);
+    if (!found || this.state.unmarked.has(id)) return null;
+    const now = Date.now();
+    const mark = this.markOf(found.source, found.record);
+    const failing = [...all.values()].filter((c) => c.source === 'external' && c.record.parentCallId === id && !this.state.unmarked.has(c.record.id))
+      .map((c) => this.markOf(c.source, c.record)).filter((c) => needs(c, minStatus, now) || !!c.softFailure)
+      .sort((a, b) => a.startedAt - b.startedAt);
+    return {
+      ...mark, failingChildren: failing.length, priority: priorityOf(mark, failing.length, minStatus, now),
+      needsAttention: needs(mark, minStatus, now), failingSupplierCalls: failing,
+    };
+  }
+
+  /** Live calls with no parent in the window - what /triage/live and /triage/counts look at. */
+  private liveWindow(q: URLSearchParams, minStatus: number): TriageEntry[] {
+    const since = q.get('since') ? Date.parse(q.get('since')!) : Date.now() - 3_600_000;
+    const to = q.get('to') ? Date.parse(q.get('to')!) : Number.MAX_SAFE_INTEGER;
+    const project = q.get('project');
+    return this.state.calls
+      .filter((c) => c.source === 'internal' || !c.record.parentCallId)
+      .filter((c) => !project || (c.source === 'internal' && (c.record.service_name ?? null) === project))
+      .map((c) => this.entryOf(c.record.id, minStatus)).filter((e): e is TriageEntry => !!e)
+      .filter((e) => e.startedAt >= since && e.startedAt <= to)
+      .sort((a, b) => b.startedAt - a.startedAt);
+  }
+
   private route(method: string, p: string[], q: URLSearchParams, body: any): [number, unknown?] {
     const s = this.state;
+    // ---- triage (the saved marks of backend-triage)
+    if (p[0] === 'triage') {
+      const minStatus = Math.max(300, Math.min(600, Number(q.get('minStatus') ?? 300)));
+      if (p[1] === 'calls') {
+        const ids = [...new Set((q.get('callIds') ?? '').split(',').filter(Boolean))];
+        if (ids.length > 500) return [400, { error: `At most 500 call ids per request, got ${ids.length}` }];
+        return [200, Object.fromEntries(ids.map((id) => [id, this.entryOf(id, minStatus)]).filter(([, e]) => e))];
+      }
+      if (p[1] === 'live') {
+        const max = Number(q.get('maxPriority') ?? 5);
+        return [200, this.liveWindow(q, minStatus).filter((e) => e.priority <= max).slice(0, Number(q.get('limit') ?? 200))];
+      }
+      if (p[1] === 'counts') {
+        const counts: Record<string, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
+        for (const e of this.liveWindow(q, 300)) counts[e.priority]++;
+        return [200, counts];
+      }
+    }
     const live = (seg: string) => (seg === 'internal-calls' ? 'internal' : 'external');
     // ---- projects and their switches
     if (p[0] === 'internal-calls' && p[1] === 'feature-enabled') return [200, { enabled: true }];
@@ -368,6 +453,24 @@ export class FakeAlfred {
       if (p[1] === 'summaries') {
         const ids = (q.get('callIds') ?? '').split(',');
         return [200, Object.fromEntries(ids.filter((id) => s.dbSummaries[id]).map((id) => [id, s.dbSummaries[id]]))];
+      }
+      if (p[1] === 'failures') {
+        const ids = [...new Set((q.get('callIds') ?? '').split(',').filter(Boolean))];
+        if (ids.length > 500) return [400, { error: `At most 500 call ids per request, got ${ids.length}` }];
+        const out: Record<string, unknown> = {};
+        for (const id of ids) {
+          const failed = (s.statements[id] ?? []).filter((st) => st.outcome.kind === 'FAILED').sort((a, b) => a.seq - b.seq);
+          if (!failed.length) continue;
+          out[id] = {
+            callId: id, failedCount: failed.length, swallowedCount: failed.filter((st) => st.outcome.swallowed).length,
+            statements: failed.slice(0, 50).map((st) => ({
+              id: st.id, seq: st.seq, kind: st.kind, table: st.table, sql: st.sql, sqlState: st.outcome.sqlState ?? null,
+              vendorCode: st.outcome.vendorCode ?? null, message: st.outcome.message ?? null, swallowed: !!st.outcome.swallowed, undone: st.undone,
+              durationMicros: st.durationMicros, codeLocation: st.codeLocation, callers: st.callers ?? null,
+            })),
+          };
+        }
+        return [200, out];
       }
       if (p[1] === 'calls' && p[3] === 'statements' && p.length === 4) {
         const all = s.statements[p[2]] ?? [];

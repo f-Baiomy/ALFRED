@@ -53,6 +53,30 @@
 
   &.off { opacity: 0.45; cursor: default; }
   &.live { animation: db-pulse 1.6s ease-in-out infinite; }
+
+  // A failed statement turns the chip red - most of all on a call whose own status says it worked (mock: triage-mock.html).
+  &.failed {
+    color: var(--red);
+    border-color: var(--red);
+    background: color-mix(in srgb, var(--red) 14%, transparent);
+    .x { color: inherit; }
+    .sep { color: color-mix(in srgb, var(--red) 45%, transparent); }
+    &:hover { background: color-mix(in srgb, var(--red) 24%, transparent); }
+  }
+}
+
+// The waterfall's compact row: the same red mark, small.
+.db-fail-mark {
+  flex: none;
+  font-size: 0.66rem;
+  font-weight: 700;
+  color: var(--red);
+  border: 1px solid var(--red);
+  background: color-mix(in srgb, var(--red) 14%, transparent);
+  border-radius: 5px;
+  padding: 0 0.3rem;
+  line-height: 1.35;
+  white-space: nowrap;
 }
 
 @keyframes db-pulse {

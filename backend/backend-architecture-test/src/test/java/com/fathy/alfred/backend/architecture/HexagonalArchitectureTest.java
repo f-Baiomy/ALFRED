@@ -268,7 +268,7 @@ class HexagonalArchitectureTest {
                         "..backend.sessioncycles..", "..backend.profiles..", "..backend.settings..",
                         "..backend.internalcalls..", "..backend.calloverlap..", "..backend.redactions..",
                         "..backend.interception..", "..backend.resend..", "..backend.scenarios..",
-                        "..backend.relive..", "..backend.logs..")
+                        "..backend.relive..", "..backend.logs..", "..backend.triage..")
                 .check(classes);
     }
 
@@ -281,6 +281,32 @@ class HexagonalArchitectureTest {
                         "..backend.interception..", "..backend.resend..", "..backend.scenarios..",
                         "..backend.relive..", "..backend.logs..")
                 .should().dependOnClassesThat().resideInAPackage("..backend.dbcapture..")
+                .check(classes);
+    }
+
+    // triage is a leaf slice: the saved "needs attention" mark of every call, keyed by call id as a plain string. It is
+    // fed only by backend-app/triagebridge (call observers, db-capture's failed-statement port, cycle-held ids).
+    @Test
+    void triageSliceMustNotDependOnOtherSlices() {
+        noClasses().that().resideInAPackage("..backend.triage..")
+                .should().dependOnClassesThat().resideInAnyPackage(
+                        "..backend.calls..", "..backend.comments..", "..backend.export..",
+                        "..backend.sessioncycles..", "..backend.profiles..", "..backend.settings..",
+                        "..backend.internalcalls..", "..backend.calloverlap..", "..backend.redactions..",
+                        "..backend.interception..", "..backend.resend..", "..backend.scenarios..",
+                        "..backend.relive..", "..backend.logs..", "..backend.dbcapture..")
+                .check(classes);
+    }
+
+    @Test
+    void noOtherSliceDependsOnTriage() {
+        noClasses().that().resideInAnyPackage(
+                        "..backend.calls..", "..backend.comments..", "..backend.export..",
+                        "..backend.sessioncycles..", "..backend.profiles..", "..backend.settings..",
+                        "..backend.internalcalls..", "..backend.calloverlap..", "..backend.redactions..",
+                        "..backend.interception..", "..backend.resend..", "..backend.scenarios..",
+                        "..backend.relive..", "..backend.logs..", "..backend.dbcapture..")
+                .should().dependOnClassesThat().resideInAPackage("..backend.triage..")
                 .check(classes);
     }
 }

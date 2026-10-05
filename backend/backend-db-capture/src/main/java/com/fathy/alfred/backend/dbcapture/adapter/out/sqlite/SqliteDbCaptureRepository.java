@@ -13,6 +13,7 @@ import com.fathy.alfred.backend.dbcapture.domain.model.CapturedStatement;
 import com.fathy.alfred.backend.dbcapture.domain.model.Column;
 import com.fathy.alfred.backend.dbcapture.domain.model.DbCaptureSettings;
 import com.fathy.alfred.backend.dbcapture.domain.model.DbFlag;
+import com.fathy.alfred.backend.dbcapture.domain.model.FailureCounts;
 import com.fathy.alfred.backend.dbcapture.domain.model.IncomingStatement;
 import com.fathy.alfred.backend.dbcapture.domain.model.MarkerType;
 import com.fathy.alfred.backend.dbcapture.domain.model.StatementKind;
@@ -192,6 +193,13 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
         addColumnIfMissing("statements", "callers_json", "TEXT");
         addColumnIfMissing("statements", "indexes_json", "TEXT");
         addColumnIfMissing("transactions", "lifecycle_json", "TEXT");
+        // Failed statements are a column with their own partial index, so a call's failures (and "which of these calls
+        // had one") are one indexed read instead of a json_extract over every statement the call ran.
+        if (addColumnIfMissing("statements", "failed", "INTEGER NOT NULL DEFAULT 0")) {
+            int filled = jdbcTemplate.update("UPDATE statements SET failed = 1 WHERE failed = 0 AND json_extract(outcome_json, '$.kind') = 'FAILED'");
+            log.info("db-capture: marked {} stored statements as failed (one-time fill of the new column)", filled);
+        }
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS ix_statements_failed ON statements(call_id, seq) WHERE failed = 1");
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS ix_summary_first_seen ON call_db_summary(first_seen)");
         jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS capture_settings (project TEXT PRIMARY KEY, settings_json TEXT NOT NULL)");
         jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS agents (agent_id TEXT PRIMARY KEY, project TEXT NOT NULL, status_json TEXT NOT NULL, last_seen TEXT NOT NULL)");
@@ -241,8 +249,8 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
             try (PreparedStatement ps = connection.prepareStatement("""
                     INSERT INTO statements (agent_sid, call_id, thread_name, seq, kind, sql, fingerprint, table_name, params_json,
                       outcome_json, started_at, duration_us, offset_us, tx_id, connection_id, code_location, run_tag, data_source,
-                      before_json, cascades_json, origin_json, callers_json, indexes_json, approx_bytes)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)
+                      before_json, cascades_json, origin_json, callers_json, indexes_json, failed, approx_bytes)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)
                     """, Statement.RETURN_GENERATED_KEYS)) {
                 ps.setString(1, s.sid());
                 ps.setString(2, s.callId());
@@ -267,6 +275,7 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
                 ps.setString(21, origin);
                 ps.setString(22, callers);
                 ps.setString(23, indexes);
+                ps.setInt(24, failed(s.outcome()));
                 ps.executeUpdate();
                 try (ResultSet keys = ps.getGeneratedKeys()) {
                     keys.next();
@@ -285,8 +294,12 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
         long bytes = insertRows(id, RESULT, s.rowsFrom(), s.rows());
         long added = s.rows() == null ? 0 : s.rows().size();
         String outcome = json(s.outcome());
-        jdbcTemplate.update("UPDATE statements SET outcome_json = ?, stored_rows = stored_rows + ?, approx_bytes = approx_bytes + ?,"
-                + " duration_us = MAX(duration_us, ?) WHERE id = ?", outcome, added, bytes, s.durationMicros(), id);
+        jdbcTemplate.update("UPDATE statements SET outcome_json = ?, failed = ?, stored_rows = stored_rows + ?, approx_bytes = approx_bytes + ?,"
+                + " duration_us = MAX(duration_us, ?) WHERE id = ?", outcome, failed(s.outcome()), added, bytes, s.durationMicros(), id);
+    }
+
+    private static int failed(StatementOutcome outcome) {
+        return outcome != null && outcome.failed() ? 1 : 0;
     }
 
     private long insertRows(long statementId, String part, int from, List<List<TypedValue>> rows) {
@@ -375,7 +388,7 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
                 SELECT COUNT(*) AS statements,
                        COALESCE(SUM(CASE WHEN kind IN ('INSERT','UPDATE','DELETE','MERGE') THEN 1 ELSE 0 END), 0) AS writes,
                        COALESCE(SUM(CASE WHEN kind = 'DELETE' THEN 1 ELSE 0 END), 0) AS deletes,
-                       COALESCE(SUM(CASE WHEN json_extract(outcome_json, '$.kind') = 'FAILED' THEN 1 ELSE 0 END), 0) AS failed,
+                       COALESCE(SUM(failed), 0) AS failed,
                        COALESCE(SUM(duration_us), 0) AS db_us,
                        COALESCE(MAX(seq), 0) AS last_seq
                 FROM statements WHERE call_id = ?
@@ -402,11 +415,14 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
                 txCounts.get("tx"), txCounts.get("rolled"), counts.get("db_us"), lastSeq, Instant.now().toString());
     }
 
-    private void addColumnIfMissing(String table, String column, String type) {
+    /** @return true when the column was added just now. */
+    private boolean addColumnIfMissing(String table, String column, String type) {
         List<String> columns = jdbcTemplate.query("PRAGMA table_info(" + table + ")", (rs, n) -> rs.getString("name"));
         if (!columns.contains(column)) {
             jdbcTemplate.execute("ALTER TABLE " + table + " ADD COLUMN " + column + " " + type);
+            return true;
         }
+        return false;
     }
 
     @Override
@@ -433,7 +449,34 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
     @Override
     public void markFailuresSwallowed(String callId, boolean swallowed) {
         jdbcTemplate.update("UPDATE statements SET outcome_json = json_set(outcome_json, '$.swallowed', json(?)) "
-                + "WHERE call_id = ? AND json_extract(outcome_json, '$.kind') = 'FAILED'", swallowed ? "true" : "false", callId);
+                + "WHERE call_id = ? AND failed = 1", swallowed ? "true" : "false", callId);
+    }
+
+    @Override
+    public Map<String, List<CapturedStatement>> failedStatements(Collection<String> callIds, int perCall) {
+        Map<String, List<CapturedStatement>> result = new LinkedHashMap<>();
+        List<String> ids = new ArrayList<>(callIds);
+        for (int i = 0; i < ids.size(); i += IN_CHUNK) {
+            List<String> chunk = ids.subList(i, Math.min(ids.size(), i + IN_CHUNK));
+            String in = chunk.stream().map(x -> "?").collect(Collectors.joining(","));
+            // ix_statements_failed holds only failed rows: this never touches a call's successful statements.
+            jdbcTemplate.query("SELECT " + STATEMENT_COLUMNS + " FROM statements INDEXED BY ix_statements_failed WHERE failed = 1 AND call_id IN ("
+                            + in + ") ORDER BY call_id, seq", statementMapper, chunk.toArray())
+                    .forEach(st -> {
+                        List<CapturedStatement> list = result.computeIfAbsent(st.callId(), k -> new ArrayList<>());
+                        if (list.size() < perCall) {
+                            list.add(st);
+                        }
+                    });
+        }
+        return result;
+    }
+
+    @Override
+    public FailureCounts failureCounts(String callId) {
+        return jdbcTemplate.queryForObject("SELECT COUNT(*) AS failed, COALESCE(SUM(CASE WHEN json_extract(outcome_json, '$.swallowed') = 1 THEN 1 ELSE 0 END), 0)"
+                        + " AS swallowed FROM statements INDEXED BY ix_statements_failed WHERE call_id = ? AND failed = 1",
+                (rs, n) -> new FailureCounts(rs.getInt("failed"), rs.getInt("swallowed")), callId);
     }
 
     @Override

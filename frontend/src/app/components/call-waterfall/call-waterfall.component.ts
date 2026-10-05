@@ -1,5 +1,6 @@
 import { NgTemplateOutlet } from '@angular/common';
 import { CommentBadgeComponent } from '../comment-badge/comment-badge.component';
+import { DbCaptureStateService } from '../../core/state/db-capture-state.service';
 import { Component, ElementRef, computed, inject, input, signal } from '@angular/core';
 import { CdkDrag, CdkDragDrop, CdkDragHandle, CdkDropList, moveItemInArray } from '@angular/cdk/drag-drop';
 import { CallRecord } from '../../core/models/call.model';
@@ -300,6 +301,9 @@ interface WaterfallGroup {
             @if (row.kind !== 'response') {
               <!-- Once per call: a split call's request row carries it, its response row does not. -->
               <app-comment-badge [callId]="row.call.id" [mini]="true" />
+              @if (dbFailed(row.call.id); as failed) {
+                <span class="db-fail-mark" [title]="failed + ' database statement' + (failed > 1 ? 's' : '') + ' failed - open the call for the ✖ DB chip'">&#10006; DB {{ failed }}</span>
+              }
             }
             @if (row.interceptedCount > 0) {
               <!-- Indicator only - a button may not contain another, so the clickable badge that
@@ -627,6 +631,12 @@ export class CallWaterfallComponent {
   /** For the fold set, which the nested view shares - folding a call in one tree view folds it in
    * the other, since they're two drawings of the same tree rather than two different trees. */
   private readonly listState = inject(CALL_LIST_CONTROLS_STATE);
+  private readonly dbState = inject(DbCaptureStateService);
+
+  /** The red mark of a row whose call ran a failed database statement (its ◆ DB summary - the list states request one per loaded inbound call). */
+  dbFailed(callId: string): number {
+    return this.dbState.summaries().get(callId)?.failedCount ?? 0;
+  }
 
   isSelected(call: CallRecord): boolean {
     return this.selection.isSelected(call);

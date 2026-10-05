@@ -86,11 +86,12 @@ Check it: `claude mcp list` shows `alfred` connected; in a session, "list my Alf
 | Area | Tools |
 |---|---|
 | Session | `session_settings` - mask secrets in replies on/off; default export folder; `sourceRoot` (the project call chains resolve in) |
-| Cycles | `list_cycles`, `get_cycle` (the debugging story: ✖ errors inside 200 responses, ∅ empty results, ↳ each inbound call's supplier calls, optional `bodyPreview`, OPTIONS preflights hidden and counted), `wait_for_calls` (new calls in a recording cycle, event-driven, ≤ 60 s), `create_cycle` (empty or from live calls), `rename_cycle`, `start_recording`, `stop_recording`, `add_calls_to_cycle`, `remove_calls_from_cycle` |
-| Search / compare | `search_cycle` (inside one cycle, its own copies: text, direction, project, supplier, status, failed incl. errors inside 200s, slow, time - rows numbered as `get_cycle` numbers them), `diff_calls` (two calls: status/URL/duration, then headers and JSON/XML-aware body hunks; page with `hunkOffset`) |
+| Triage | `triage` - **start here**: what needs attention first, for a cycle or for a project's live calls in a time window, in six groups with the evidence attached (see "Triage" below) |
+| Cycles | `list_cycles`, `get_cycle` (opens with a "Needs attention" line; the debugging story: ✖ errors inside 200 responses, ∅ empty results, ↳ each inbound call's supplier calls, optional `bodyPreview`, OPTIONS preflights hidden and counted), `wait_for_calls` (new calls in a recording cycle, event-driven, ≤ 60 s), `create_cycle` (empty or from live calls), `rename_cycle`, `start_recording`, `stop_recording`, `add_calls_to_cycle`, `remove_calls_from_cycle` |
+| Search / compare | `search_cycle` (inside one cycle, its own copies: text, direction, project, supplier, status, failed incl. errors inside 200s, `needsAttention`, `dbFailed`, slow, time - rows numbered as `get_cycle` numbers them), `diff_calls` (two calls: status/URL/duration, then headers and JSON/XML-aware body hunks; page with `hunkOffset`) |
 | Spacers | `add_spacer`, `rename_spacer`, `move_spacer` (how a story is rearranged - calls stay in recorded-time order), `delete_spacer`, `suggest_spacers` (steps proposed from pauses and URL areas; writes nothing) |
-| Calls | `search_calls` (project, direction, supplier, text, status/class, failed - including errors inside 200s -, slow, time range), `get_call` (everything, or `fields`/`paths` such as `["method","url"]`), `get_call_body` (page through a body) |
-| Database | `db_overview` (summary line, time breakdown, query totals, findings), `db_statements` (filtered, paged), `db_statement` (SQL, params, rows, `callers` = call chain, origin HQL), `db_query` (the window's search/SQL over recorded statements), `trace_value` |
+| Calls | `search_calls` (project, direction, supplier, text, status/class, failed - including errors inside 200s -, `needsAttention` (>= `minStatus`, default 300), `dbFailed` (a failed statement, whatever the status), slow, time range), `get_call` (everything, or `fields`/`paths` such as `["method","url"]`; carries `attention` - its triage group and failing supplier calls - and `dbFailures`), `get_call_body` (page through a body) |
+| Database | `db_overview` (summary line, time breakdown, query totals, findings), `db_statements` (filtered, paged; `failedOnly` alone is read from the failed-statement index), `db_statement` (SQL, params, rows, `callers` = call chain, origin HQL), `db_query` (the window's search/SQL over recorded statements), `trace_value` |
 | Comments | `list_comments`, `add_comment` (a note on the whole call by default, or on a line of request/response headers or body; prefixed `🤖 Claude:`), `add_comments` (many at once), `delete_comment` |
 | Export | `export_calls` - .md / .json / .html of a cycle, chosen calls or a search; the export dialog's own files (masked, untruncated, .json re-importable), opening with "At a Glance" (steps, failures, errors inside 200s, empty results, notes); `includeDb: "summary"` for a report for people; environment `Local` |
 | Code | `locate_source` (call-chain frames → `path/in/project/File.java:line`); `db_statement` (`sources`), `db_statements` (`source`) and `db_overview` (`gapSources`) carry the same |
@@ -99,8 +100,44 @@ Check it: `claude mcp list` shows `alfred` connected; in a session, "list my Alf
 | Redactions | `add_default_redactions` - Authorization, Cookie, x-api-key, password (SOAP `wsse:Password` and form fields too), apiKey, tokens; only the missing ones, as normal global Redactions (ask the user first) |
 
 Prompts: `debug_cycle` and `debug_call` (in Claude Code, `/mcp__alfred__debug_cycle`) start a session with the steps that
-find a cause fastest - the story, the flagged calls, the database findings and their code, a diff of two attempts, the
-rules, then a comment.
+find a cause fastest - triage, the story, the flagged calls, the database findings and their code, a diff of two
+attempts, the rules, a comment - and end by reading the succeeded calls related to the problem.
+
+## Triage
+
+`triage` answers "what needs attention first" from marks Alfred **saves as calls arrive** (`backend-triage`, its own
+`triage.db`), so it costs the same for 10 calls or 10,000: one request for the marks (per 500 calls), one for the failed
+statements, and no body is read. A call "needs attention" when its status is at or over `minStatus` (default **300**, so
+redirects such as a 307 session check count), it has an error, or it is still running 5 minutes after it started.
+
+| Group | Calls |
+|---|---|
+| 1 | needs attention, and a supplier call it made needs attention too or hid an error inside a 2xx (e.g. OTA 322) |
+| 2 | needs attention, with failed database statements |
+| 3 | other calls that need attention |
+| 4 | succeeded, but a supplier call or a database statement under it failed - **hidden failures** |
+| 5 | succeeded, with an error inside its own body or an empty result |
+| 6 | everything else, never left out - commented, database-flagged (fan-out, duplicates, …) or much slower calls first |
+
+Every call is listed once, in its highest group, with its evidence: the failing supplier calls (by their number in the
+cycle), the failed statements (`#seq`, table, SQL state, message, swallowed / rolled back, the first call-chain frame
+resolved to a project file). A supplier call made by an inbound call of the cycle is evidence under it, not an entry; a
+supplier call with no known parent is an entry of its own. The groups are a **reading order, not a filter** - a call
+that succeeded can hold the cause (a login that set the session the next call rejected).
+
+How the marks stay current, whatever arrives first (backend-app/triagebridge): every inbound and outbound call is
+reported when it is intercepted and when it completes (the body is read once then, for an error inside a 2xx and an
+empty result - `backend-triage`'s `SoftFailures`, the Java twin of `soft-failure.ts`; both run
+`specs/007-alfred-mcp-server/soft-failure-vectors.json`); a supplier call re-counts its parent's failing supplier
+calls; db-capture reports a call's failed / swallowed statement counts after every batch that adds a failed statement
+and when the call completes. Writes run on one writer thread, so a webhook is never slowed down. Rows are capped
+(`alfred.triage.retention-rows`, default 100,000, oldest first) except calls a session cycle holds. Calls recorded
+before this version were marked once at the first start (a marker row in triage.db). A call with no mark (past the cap)
+is still listed, under 6, and the header says so; `get_cycle` then judges its body as before.
+
+Endpoints (read-only, behind the gateway): `GET /triage/calls?callIds=…&minStatus=` (≤ 500 ids),
+`GET /triage/live?project=&since=&to=&maxPriority=5&minStatus=&limit=` (newest first, ≤ 500),
+`GET /triage/counts?project=&since=&to=`; `/ws/triage` signals `attention-changed` with the call ids.
 
 Deliberately **not** offered: deleting or clearing a cycle, editing recorded call content, reordering calls, resend,
 editing interception rules, running Relive cycles - anything that changes live traffic or destroys recorded evidence in
@@ -109,7 +146,7 @@ bulk. (Switching a project's inbound logging or database capture is offered, beh
 Behaviour worth knowing:
 
 - **Everything Claude changes shows live in an open Alfred UI, without a reload**: cycles, recording state, copied/removed calls and spacers through `/ws/session-cycles`, and comments through `/ws/comments` (a call already open re-reads its comments when one is added or deleted anywhere).
-- **Errors inside successful responses** (`shared/utils/soft-failure.ts`): a SOAP `Fault`, an OTA `<Error Code=…>`, JSON `errors`/`error`/`success: false` in a response below 400. The same detector feeds `get_cycle`, `get_call`, `search_calls failed:true` and the exports' "At a Glance".
+- **Errors inside successful responses** (`shared/utils/soft-failure.ts`): a SOAP `Fault`, an OTA `<Error Code=…>`, JSON `errors`/`error`/`success: false` in a response below 400. The same detector feeds `get_call`, the exports' "At a Glance" and - through the saved triage marks - `triage`, `get_cycle` and the `failed`/`needsAttention` filters (which read a body only for a call with no mark).
 - `wait_for_calls` listens on the calls and session-cycles sockets, re-reads the cycle only when one fires, and returns after at most 60 s. Pass the previous reply's `lastCallId` as `sinceCallId` to continue.
 
 - `create_cycle` leaves the new cycle **paused** unless `record: true` (Alfred itself creates cycles recording - right

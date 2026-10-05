@@ -1,4 +1,4 @@
-import { DestroyRef, Injectable, Signal, inject, signal } from '@angular/core';
+import { DestroyRef, Injectable, Signal, computed, inject, signal } from '@angular/core';
 import { Observable, Subject, share } from 'rxjs';
 import { AppConfigService } from '../services/app-config.service';
 import { DbCaptureApiService } from '../services/db-capture-api.service';
@@ -42,6 +42,9 @@ export class DbCaptureStateService {
   private readonly queued = new Set<string>();
   private flushScheduled = false;
   readonly summaries: Signal<ReadonlyMap<string, CallDbSummary>> = this.summariesSignal.asReadonly();
+  /** Calls whose summary counts a failed statement - the call lists' "DB failures" pill and filter. */
+  readonly failedCallIds: Signal<ReadonlySet<string>> = computed(() =>
+    new Set([...this.summariesSignal().values()].filter((s) => s.failedCount > 0).map((s) => s.callId)));
 
   /** This viewer's choice to show the ◆ DB chip on call cards - a per-browser convenience, not a shared setting. */
   private readonly showChipsSignal = signal(readShowChips());
