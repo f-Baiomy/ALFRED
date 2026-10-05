@@ -147,7 +147,7 @@ function decodeRows(rows: readonly (readonly unknown[])[], columns: readonly DbC
 
 /** A call's statements, written one per line: values all of them share hoisted, shared origins referenced by id. */
 function encodeCapture(callId: string, capture: CallDbCapture): { header: Record<string, unknown>; statements: Record<string, unknown>[] } {
-  const { statements, layout: _layout, ...rest } = capture; // `analysis` rides along in `rest`: written, never read back
+  const { statements, layout: _layout, detail: _detail, ...rest } = capture; // `analysis` rides along in `rest`: written, never read back
   const common: Record<string, unknown> = {};
   for (const field of COMMON_STATEMENT_FIELDS) {
     const first = statements[0]?.[field];

@@ -8,7 +8,7 @@ import {
 import { listCycleCalls, requireCycle, segmentOf } from '../cycle-calls.ts';
 import { analysisOf, childrenOf, dbSummaries, loadCapture, nonNoteFindings } from '../db-capture.ts';
 import {
-  callTime, detectAndFormatBody, toCallRecord, type CallEndpointSource, type CallRecord, type CallSummaryDto, type Comment, type CommentBlock,
+  callTime, detectAndFormatBody, emptyResultOf, softFailureOf, toCallRecord, type CallEndpointSource, type SoftFailure, type CallRecord, type CallSummaryDto, type Comment, type CommentBlock,
 } from '../frontend.ts';
 import { maskCall, maskCalls, maskContext, maskMeta, maskText, type MaskContext } from '../masking.ts';
 import { chunkText, fitItems, ok, preview, run } from '../reply.ts';
@@ -16,6 +16,15 @@ import { FieldsSchema, MaskSchema, PathsSchema } from './cycles.ts';
 
 const SCAN_PAGE = 200;
 export const SCAN_CAP = 2000;
+/** Response bodies read per search to find errors inside successful responses (failed: true). */
+const SOFT_CHECK_LIMIT = 200;
+
+/** What a call's own bodies say went wrong despite its status - only present when there is something. */
+function flagsOf(call: CallRecord): { softFailure?: SoftFailure; emptyResult?: string[] } {
+  const soft = softFailureOf(call);
+  const empty = call.source === 'internal' ? emptyResultOf(call) : null;
+  return { ...(soft ? { softFailure: soft } : {}), ...(empty ? { emptyResult: [...empty.emptyKeys] } : {}) };
+}
 
 const Block = z.enum(['request-headers', 'request-body', 'response-headers', 'response-body']);
 
@@ -85,7 +94,7 @@ function isFailed(call: CallRecord): boolean {
  * are applied here while paging summaries (never bodies), bounded by SCAN_CAP rows per direction
  * and reported when hit (research R3).
  */
-export async function searchCalls(client: AlfredClient, input: SearchInput, want: number): Promise<{ calls: CallRecord[]; scanned: number; scanCapHit: boolean; more: boolean }> {
+export async function searchCalls(client: AlfredClient, input: SearchInput, want: number): Promise<{ calls: CallRecord[]; scanned: number; scanCapHit: boolean; softCapHit: boolean; more: boolean }> {
   const fromMs = input.from ? Date.parse(input.from) : undefined;
   const toMs = input.to ? Date.parse(input.to) : undefined;
   // A project names inbound traffic; with no supplier asked for, outbound would only be scanned to find nothing.
@@ -94,6 +103,8 @@ export async function searchCalls(client: AlfredClient, input: SearchInput, want
   const serverSort = input.sort === 'newest' ? 'newest-call' : input.sort === 'oldest' ? 'oldest-call' : 'slowest';
   let scanned = 0;
   let scanCapHit = false;
+  let softChecks = 0;
+  let softCapHit = false;
   const found: CallRecord[] = [];
   for (const source of sources) {
     const matches: CallRecord[] = [];
@@ -113,7 +124,13 @@ export async function searchCalls(client: AlfredClient, input: SearchInput, want
         if (toMs !== undefined && t > toMs) { if (input.sort === 'oldest') pastWindow = true; continue; }
         if (source === 'external' && input.project && call.service_name !== input.project) continue;
         if (!statusMatches(call, input.status)) continue;
-        if (input.failed && !isFailed(call)) continue;
+        if (input.failed && !isFailed(call)) {
+          // A 200 can still be a failure (an error in its body): read that body, within a budget.
+          if (softChecks >= SOFT_CHECK_LIMIT) { softCapHit = true; continue; }
+          softChecks++;
+          const bodied = await withParts(client, { id: call.id, source }, call, ['response-body']).catch(() => call);
+          if (!softFailureOf(bodied)) continue;
+        }
         if (input.slowMs !== undefined && (call.duration_ms ?? 0) < input.slowMs) continue;
         matches.push(call);
       }
@@ -126,7 +143,7 @@ export async function searchCalls(client: AlfredClient, input: SearchInput, want
     ? (a: CallRecord, b: CallRecord) => (b.duration_ms ?? -1) - (a.duration_ms ?? -1)
     : input.sort === 'oldest' ? (a: CallRecord, b: CallRecord) => callTime(a) - callTime(b) : (a: CallRecord, b: CallRecord) => callTime(b) - callTime(a);
   found.sort(order);
-  return { calls: found.slice(0, want), scanned, scanCapHit, more: found.length > want };
+  return { calls: found.slice(0, want), scanned, scanCapHit, softCapHit, more: found.length > want };
 }
 
 export const SearchSchema = {
@@ -135,7 +152,7 @@ export const SearchSchema = {
   supplier: z.string().optional().describe('Outbound supplier host, e.g. api.cert.platform.sabre.com'),
   text: z.string().optional().describe('Case-insensitive text in method, URL, status, error, headers or bodies'),
   status: z.union([z.number().int(), z.string().regex(/^([1-5]xx|\d{3})$/i)]).optional().describe('Exact status (404) or class (5xx)'),
-  failed: z.boolean().optional().describe('Only errors and status >= 400'),
+  failed: z.boolean().optional().describe('Only failures: errors, status >= 400, and errors inside a successful response body (SOAP Fault, OTA Error, JSON errors)'),
   slowMs: z.number().min(0).optional().describe('Only calls at least this slow'),
   from: z.string().datetime({ offset: true }).optional(),
   to: z.string().datetime({ offset: true }).optional(),
@@ -175,13 +192,14 @@ export function register(server: McpServer, client: AlfredClient): void {
     };
     if (selective) {
       const sel = select(call, input.fields, input.paths, extras, input.bodyOffset, input.bodyLength);
-      return ok({ id: call.id, ...sel.values, ...(sel.missing.length ? { missing: sel.missing } : {}), ...maskMeta(ctx) });
+      return ok({ id: call.id, ...sel.values, ...(call.response?.body ? flagsOf(call) : {}), ...(sel.missing.length ? { missing: sel.missing } : {}), ...maskMeta(ctx) });
     }
     return ok({
       ...toRow(call),
       originalUrl: call.original_url,
       state: call.state,
-      supplier: call.supplierName ?? undefined,
+      ...(call.source === 'internal' ? {} : { supplier: call.supplierName ?? undefined }),
+      ...flagsOf(call),
       parentCallId: call.parentCallId ?? undefined,
       timing: call.timing ?? undefined,
       request: { headers: call.request?.headers ?? {}, body: bodyView(call.request?.body, call.request?.headers, input.bodyOffset, input.bodyLength) },
@@ -252,7 +270,7 @@ export function register(server: McpServer, client: AlfredClient): void {
     const end = input.offset + fitted.items.length;
     return ok({
       calls: fitted.items, offset: input.offset, nextOffset: result.more || fitted.cut ? end : null,
-      scanned: result.scanned, scanCapHit: result.scanCapHit, ...maskMeta(ctx),
+      scanned: result.scanned, scanCapHit: result.scanCapHit, ...(result.softCapHit ? { softCheckCapHit: true } : {}), ...maskMeta(ctx),
     });
   }));
 }

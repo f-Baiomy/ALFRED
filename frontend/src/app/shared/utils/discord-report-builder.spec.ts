@@ -43,4 +43,9 @@ describe('buildDiscordReport', () => {
     const report = buildDiscordReport(makeForm({ environment: 'Production' }));
     expect(report).toContain('Environment (Production or Staging): PROD');
   });
+
+  it('abbreviates Local as LOCAL', () => {
+    const report = buildDiscordReport(makeForm({ environment: 'Local' }));
+    expect(report).toContain('Environment (Production or Staging): LOCAL');
+  });
 });

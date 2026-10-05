@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
-import { of } from 'rxjs';
-import { CommentsStore } from './comments-store.service';
+import { Subject, of } from 'rxjs';
+import { COMMENT_EVENTS, CommentsStore } from './comments-store.service';
 import { CommentsApiService } from '../services/comments-api.service';
 import { Comment } from '../models/comment.model';
 
@@ -22,9 +22,13 @@ function flush(ms = 30): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** Stands in for /ws/comments: tests push call ids into it instead of opening a real socket. */
+let events: Subject<string | null>;
+
 function setup(apiStub: Partial<CommentsApiService>): CommentsStore {
+  events = new Subject<string | null>();
   TestBed.configureTestingModule({
-    providers: [{ provide: CommentsApiService, useValue: apiStub }],
+    providers: [{ provide: CommentsApiService, useValue: apiStub }, { provide: COMMENT_EVENTS, useValue: events }],
   });
   return TestBed.inject(CommentsStore);
 }
@@ -96,5 +100,34 @@ describe('CommentsStore', () => {
     expect(del).toHaveBeenCalledWith('to-delete');
     expect(sender.cache().get('call-1')).toEqual([]);
     expect(receiver.cache().get('call-1')).toEqual([]);
+  });
+
+  describe('comments written by another client (/ws/comments)', () => {
+    it('re-fetches a loaded call when its id arrives', async () => {
+      const listForCall = jasmine.createSpy('listForCall').and.returnValues(of([]), of([makeComment({ comment: 'from Claude' })]));
+      const store = setup({ listForCall });
+      store.ensureLoaded('call-1');
+      events.next('call-1');
+      await flush();
+      expect(listForCall).toHaveBeenCalledTimes(2);
+      expect(store.cache().get('call-1')?.[0].comment).toBe('from Claude');
+    });
+
+    it('ignores a call it never loaded - that one is fetched fresh when shown', () => {
+      const listForCall = jasmine.createSpy('listForCall').and.returnValue(of([]));
+      setup({ listForCall });
+      events.next('call-elsewhere');
+      expect(listForCall).not.toHaveBeenCalled();
+    });
+
+    it('re-fetches every loaded call after a reconnect, since events sent meanwhile were missed', () => {
+      const listForCall = jasmine.createSpy('listForCall').and.returnValue(of([]));
+      const store = setup({ listForCall });
+      store.ensureLoaded('call-1');
+      store.ensureLoaded('call-2');
+      listForCall.calls.reset();
+      events.next(null);
+      expect(listForCall.calls.allArgs()).toEqual([['call-1'], ['call-2']]);
+    });
   });
 });

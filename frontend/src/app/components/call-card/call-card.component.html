@@ -93,7 +93,20 @@
         ↻ resend of {{ shortId(originalId) }}{{ resendBatchLabel() ? ' · ' + resendBatchLabel() : '' }}
       </a>
     }
+    @if (!notesLoaded()) {
+      <button type="button" class="call-id-chip" title="Load the notes on this whole call" (click)="loadNotes()">📌 Notes</button>
+    }
   </div>
+  @if (callNotes().length > 0) {
+    <ul class="call-notes">
+      @for (note of callNotes(); track note.id) {
+        <li class="call-note">
+          <span class="call-note-text">📌 {{ note.comment }}</span>
+          <button type="button" class="call-note-delete" title="Delete this note" (click)="deleteNote(note.id)">✕</button>
+        </li>
+      }
+    </ul>
+  }
 </ng-template>
 
 <ng-template #blocksStrip let-group>

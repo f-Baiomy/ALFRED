@@ -24,6 +24,7 @@ import { resendSummaryOf } from '../../shared/utils/resend-summary';
 import { WsMessagesComponent } from '../ws-messages/ws-messages.component';
 import { CallInterception, OriginalHttp, interceptionBodiesLoaded, wasEditedByHand } from '../../core/models/interception.model';
 import { CallsApiService } from '../../core/services/calls-api.service';
+import { CommentsStore } from '../../core/state/comments-store.service';
 import { JsonPanelComponent, PanelLoadState, PanelLoadTrigger } from '../json-panel/json-panel.component';
 import { CallDepthInfo } from '../../shared/utils/call-tree';
 import { CallPickerService } from '../../core/services/call-picker.service';
@@ -111,6 +112,25 @@ export class CallCardComponent {
   readonly bodiesPending = signal(false);
   private interceptionBodiesRequested = false;
   private readonly callsApi = inject(CallsApiService);
+
+  /**
+   * Notes on the whole call (block 'call' - e.g. Claude's findings), read from the same per-call
+   * cache the line comments use. Loaded only when asked or when any of the call's blocks opens:
+   * one request per card for a 200-call page would be 200 requests nobody asked for. Once loaded,
+   * a note added elsewhere (another browser, the MCP server) arrives live via /ws/comments.
+   */
+  private readonly commentsStore = inject(CommentsStore);
+  readonly notesLoaded = computed(() => this.commentsStore.cache().has(this.call().id));
+  readonly callNotes = computed(() => (this.commentsStore.cache().get(this.call().id) ?? []).filter((c) => c.block === 'call'));
+
+  loadNotes(): void {
+    this.commentsStore.ensureLoaded(this.call().id);
+  }
+
+  deleteNote(id: string): void {
+    this.commentsStore.deleteComment(this.call().id, id);
+  }
+
   readonly interceptionLogGroups = computed<readonly InterceptionLogGroup[]>(() => buildInterceptionLogGroups(this.interception()));
 
   /** Relive badge (FR-051) - reads straight off the call, like `interception` above; no separate

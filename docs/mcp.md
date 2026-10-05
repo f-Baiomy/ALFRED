@@ -84,18 +84,23 @@ Check it: `claude mcp list` shows `alfred` connected; in a session, "list my Alf
 | Area | Tools |
 |---|---|
 | Session | `session_settings` - mask secrets in replies on/off; default export folder |
-| Cycles | `list_cycles`, `get_cycle` (the debugging story), `create_cycle` (empty or from live calls), `rename_cycle`, `start_recording`, `stop_recording`, `add_calls_to_cycle`, `remove_calls_from_cycle` |
-| Spacers | `add_spacer`, `rename_spacer`, `move_spacer` (how a story is rearranged - calls stay in recorded-time order), `delete_spacer` |
-| Calls | `search_calls` (project, direction, supplier, text, status/class, failed, slow, time range), `get_call` (everything, or `fields`/`paths` such as `["method","url"]`), `get_call_body` (page through a body) |
+| Cycles | `list_cycles`, `get_cycle` (the debugging story: ✖ errors inside 200 responses, ∅ empty results, ↳ each inbound call's supplier calls, optional `bodyPreview`, OPTIONS preflights hidden and counted), `wait_for_calls` (new calls in a recording cycle, event-driven, ≤ 60 s), `create_cycle` (empty or from live calls), `rename_cycle`, `start_recording`, `stop_recording`, `add_calls_to_cycle`, `remove_calls_from_cycle` |
+| Spacers | `add_spacer`, `rename_spacer`, `move_spacer` (how a story is rearranged - calls stay in recorded-time order), `delete_spacer`, `suggest_spacers` (steps proposed from pauses and URL areas; writes nothing) |
+| Calls | `search_calls` (project, direction, supplier, text, status/class, failed - including errors inside 200s -, slow, time range), `get_call` (everything, or `fields`/`paths` such as `["method","url"]`), `get_call_body` (page through a body) |
 | Database | `db_overview` (summary line, time breakdown, query totals, findings), `db_statements` (filtered, paged), `db_statement` (SQL, params, rows, `callers` = call chain, origin HQL), `db_query` (the window's search/SQL over recorded statements), `trace_value` |
-| Comments | `list_comments`, `add_comment` (on a line of request/response headers or body; prefixed `🤖 Claude:`), `delete_comment` |
-| Export | `export_calls` - .md / .json / .html of a cycle, chosen calls or a search; the export dialog's own files (masked, untruncated, .json re-importable) |
+| Comments | `list_comments`, `add_comment` (a note on the whole call by default, or on a line of request/response headers or body; prefixed `🤖 Claude:`), `add_comments` (many at once), `delete_comment` |
+| Export | `export_calls` - .md / .json / .html of a cycle, chosen calls or a search; the export dialog's own files (masked, untruncated, .json re-importable), opening with "At a Glance" (steps, failures, errors inside 200s, empty results, notes); `includeDb: "summary"` for a report for people; environment `Local` |
+| Redactions | `add_default_redactions` - Authorization, Cookie, x-api-key, password (SOAP `wsse:Password` and form fields too), apiKey, tokens; only the missing ones, as normal global Redactions (ask the user first) |
 
 Deliberately **not** offered: deleting or clearing a cycle, editing recorded call content, reordering calls, resend,
 interception rules, switching proxy logging or database capture, Relive runs - anything that changes live traffic or
 destroys recorded evidence in bulk.
 
 Behaviour worth knowing:
+
+- **Everything Claude changes shows live in an open Alfred UI, without a reload**: cycles, recording state, copied/removed calls and spacers through `/ws/session-cycles`, and comments through `/ws/comments` (a call already open re-reads its comments when one is added or deleted anywhere).
+- **Errors inside successful responses** (`shared/utils/soft-failure.ts`): a SOAP `Fault`, an OTA `<Error Code=…>`, JSON `errors`/`error`/`success: false` in a response below 400. The same detector feeds `get_cycle`, `get_call`, `search_calls failed:true` and the exports' "At a Glance".
+- `wait_for_calls` listens on the calls and session-cycles sockets, re-reads the cycle only when one fires, and returns after at most 60 s. Pass the previous reply's `lastCallId` as `sinceCallId` to continue.
 
 - `create_cycle` leaves the new cycle **paused** unless `record: true` (Alfred itself creates cycles recording - right
   for "new cycle, then reproduce", wrong for a cycle assembled from chosen calls). Several cycles may record at once;

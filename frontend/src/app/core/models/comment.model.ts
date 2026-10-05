@@ -1,7 +1,12 @@
-/** Matches the four Flat-view panels a call renders - kept as a union rather than a free string so a typo can't silently create an orphaned comment block. */
-export type CommentBlock = 'request-headers' | 'request-body' | 'response-headers' | 'response-body';
+/**
+ * The four Flat-view panels a call renders, plus 'call': a note on the call as a whole (no line - its
+ * lineIndex is 0 and lineText empty), shown on the card and first in the exports' Flagged Issues.
+ * Kept as a union rather than a free string so a typo can't silently create an orphaned comment block.
+ */
+export type CommentBlock = 'call' | 'request-headers' | 'request-body' | 'response-headers' | 'response-body';
 
 export const COMMENT_BLOCK_LABELS: Record<CommentBlock, string> = {
+  call: 'Whole Call',
   'request-headers': 'Request Headers',
   'request-body': 'Request Body',
   'response-headers': 'Response Headers',

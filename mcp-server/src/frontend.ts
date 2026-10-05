@@ -26,3 +26,4 @@ export { redactCalls, redactSecrets, setSecretValues, REDACTED } from '../../fro
 export { detectAndFormatBody } from '../../frontend/src/app/shared/utils/body-format.ts';
 export type { ExportMetadata } from '../../frontend/src/app/core/models/export-metadata.model.ts';
 export { buildExportFile, type ExportBuildFormat, type BuiltExport } from '../../frontend/src/app/shared/utils/export-build.ts';
+export { softFailureOf, emptyResultOf, type SoftFailure } from '../../frontend/src/app/shared/utils/soft-failure.ts';

@@ -1,4 +1,5 @@
 import { CallOverlapCandidate, CallRecord } from '../../core/models/call.model';
+import { buildExportHighlights, highlightsHtml } from './export-highlights';
 import { ExportedCycle, ExportedSpacer, ExportFormData } from '../../core/models/export-metadata.model';
 import { Comment, CommentBlock, COMMENT_BLOCK_LABELS } from '../../core/models/comment.model';
 import { BodyLang, detectAndFormatBody } from './body-format';
@@ -182,7 +183,7 @@ function aboutSectionHtml(narrative: ExportNarrative, summaryHtml?: string): str
   return parts.join('');
 }
 
-const BLOCK_ORDER: readonly CommentBlock[] = ['request-headers', 'request-body', 'response-headers', 'response-body'];
+const BLOCK_ORDER: readonly CommentBlock[] = ['call', 'request-headers', 'request-body', 'response-headers', 'response-body'];
 
 /** Same grouping/order as markdown-builder's flaggedIssuesSection, rendered as HTML instead of Markdown headings. */
 function flaggedIssuesHtml(comments: readonly Comment[]): string {
@@ -193,9 +194,11 @@ function flaggedIssuesHtml(comments: readonly Comment[]): string {
     const blockComments = commentsForBlock(comments, block);
     for (const c of blockComments) {
       notes.push(
-        `<div class="note"><b>${escapeHtml(COMMENT_BLOCK_LABELS[block])}</b> — Line ${c.lineIndex + 1}: <code>${escapeHtml(
-          c.lineText
-        )}</code><blockquote>${escapeHtml(c.comment)}</blockquote></div>`
+        block === 'call'
+          ? `<div class="note"><b>${escapeHtml(COMMENT_BLOCK_LABELS[block])}</b><blockquote>${escapeHtml(c.comment)}</blockquote></div>`
+          : `<div class="note"><b>${escapeHtml(COMMENT_BLOCK_LABELS[block])}</b> — Line ${c.lineIndex + 1}: <code>${escapeHtml(
+              c.lineText
+            )}</code><blockquote>${escapeHtml(c.comment)}</blockquote></div>`
       );
     }
   }
@@ -1475,6 +1478,7 @@ export function buildBulkExportHtml(
     tilesHtml(overview),
     flagIndex,
     '</div>',
+    highlightsHtml(buildExportHighlights(calls, commentsByCallId, spacers), escapeHtml),
     '<a id="about"></a>',
     aboutSectionHtml(
       narrative,

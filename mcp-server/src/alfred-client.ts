@@ -43,7 +43,7 @@ export class AlfredClient {
   private inFlight = 0;
   private readonly waiting: (() => void)[] = [];
 
-  constructor(private readonly baseUrl: string = alfredUrl()) {}
+  constructor(readonly baseUrl: string = alfredUrl()) {}
 
   get<T>(path: string, options: RequestOptions = {}): Promise<T> {
     return this.request<T>('GET', path, options);

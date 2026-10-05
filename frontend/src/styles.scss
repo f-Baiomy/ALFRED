@@ -2455,6 +2455,49 @@ main {
   }
 }
 
+// Notes on the whole call (comment block 'call') - findings that are about no one line.
+.call-notes {
+  list-style: none;
+  margin: -0.35rem 0 0.65rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.call-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  color: var(--text);
+  background: color-mix(in srgb, var(--purple) 8%, var(--card-inner));
+  border: 1px solid color-mix(in srgb, var(--purple) 35%, transparent);
+  border-radius: 6px;
+  padding: 0.35rem 0.55rem;
+  // Readable and copyable like the rest of the card's data.
+  user-select: text;
+}
+
+.call-note-text {
+  flex: 1;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.call-note-delete {
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  font-size: 0.75rem;
+  padding: 0 0.15rem;
+
+  &:hover {
+    color: var(--red);
+  }
+}
+
 // The card as a whole is a click/drag selection target (see .call above),
 // but the URLs, JSON panel and before/after diff are exactly what a user copies out of this tool
 // most often, so they stay normally text-selectable.

@@ -125,10 +125,10 @@ export interface BulkExportPayload {
   readonly events: readonly BulkExportEvent[];
 }
 
-/** The capture as the file carries it - without the dialog's presentation-only layout choice. */
+/** The capture as the file carries it - without the presentation-only layout and detail choices. */
 function jsonCapture(call: CallRecord): CallDbCapture | undefined {
   if (!call.dbCapture) return undefined;
-  const { layout: _layout, analysis: _analysis, ...capture } = call.dbCapture;
+  const { layout: _layout, detail: _detail, analysis: _analysis, ...capture } = call.dbCapture;
   return capture;
 }
 

@@ -1,6 +1,6 @@
 import { CallRecord } from '../../core/models/call.model';
 import { Redaction, RedactionKind, RedactionScope } from '../../core/models/redaction.model';
-import { REDACTED, redactCall, redactCalls, redactSecrets, setSecretValues } from './redact';
+import { REDACTED, redactCall, redactCalls, redactSecrets, redactableNameOf, setSecretValues } from './redact';
 
 const TOKEN = 'Bearer eyJhbGciOiJIUzI1NiJ9.SUPERSECRET';
 const APIKEY = 'test_api_key_do_not_use_in_production';
@@ -127,11 +127,19 @@ describe('redactCall', () => {
     expect(out.response?.body).toBe(compact);
   });
 
-  it('leaves a non-JSON body alone instead of throwing', () => {
+  it('masks the same key in an XML body (a SOAP secret leaked into exports while only JSON was read)', () => {
     const c = call({ response: { status: 200, headers: {}, body: '<xml><token>abc</token></xml>' } });
     const { call: out, count } = redactCall(c, [redaction('response-body-key', 'token')]);
 
-    expect(out.response?.body).toBe('<xml><token>abc</token></xml>');
+    expect(out.response?.body).toBe(`<xml><token>${REDACTED}</token></xml>`);
+    expect(count).toBe(1);
+  });
+
+  it('leaves a body that is neither JSON, XML nor a form alone instead of throwing', () => {
+    const c = call({ response: { status: 200, headers: {}, body: 'token abc, plain text' } });
+    const { call: out, count } = redactCall(c, [redaction('response-body-key', 'token')]);
+
+    expect(out.response?.body).toBe('token abc, plain text');
     expect(count).toBe(0);
   });
 
@@ -260,5 +268,43 @@ describe('secret variable values (D6)', () => {
   it('redactSecrets masks free text', () => {
     setSecretValues(['s3cret-token']);
     expect(redactSecrets('curl -H "X: s3cret-token"')).toBe('curl -H "X: ***REDACTED***"');
+  });
+});
+
+describe('body keys in XML and form bodies', () => {
+  const soap = '<soapenv:Envelope><soapenv:Header><wsse:Security><wsse:UsernameToken><wsse:Username>agent</wsse:Username>'
+    + '<wsse:Password Type="PasswordText">s3cret-pw</wsse:Password></wsse:UsernameToken></wsse:Security></soapenv:Header>'
+    + '<soapenv:Body><OTA_AirAvailRQ Password="attr-secret" EchoToken="1"/></soapenv:Body></soapenv:Envelope>';
+
+  it('masks an element by its local name and an attribute of the same name, leaving the rest byte for byte', () => {
+    const { call: masked, count } = redactCall(call({ request: { headers: {}, body: soap } }), [redaction('request-body-key', 'password')]);
+    expect(masked.request?.body).not.toContain('s3cret-pw');
+    expect(masked.request?.body).not.toContain('attr-secret');
+    expect(masked.request?.body).toBe(soap.replace('s3cret-pw', REDACTED).replace('attr-secret', REDACTED));
+    expect(count).toBe(2);
+  });
+
+  it('matches a qualified name too', () => {
+    const { call: masked } = redactCall(call({ request: { headers: {}, body: soap } }), [redaction('request-body-key', 'wsse:Password')]);
+    expect(masked.request?.body).not.toContain('s3cret-pw');
+    expect(masked.request?.body).toContain('attr-secret');
+  });
+
+  it('masks a form-encoded body pair by pair', () => {
+    const { call: masked, count } = redactCall(call({ request: { headers: {}, body: 'user=agent&Password=hunter2&lang=en' } }), [redaction('request-body-key', 'password')]);
+    expect(masked.request?.body).toBe(`user=agent&Password=${REDACTED}&lang=en`);
+    expect(count).toBe(1);
+  });
+
+  it('leaves a body untouched when nothing matches', () => {
+    const { call: masked, count } = redactCall(call({ request: { headers: {}, body: soap } }), [redaction('request-body-key', 'apikey')]);
+    expect(masked.request?.body).toBe(soap);
+    expect(count).toBe(0);
+  });
+
+  it('offers the control on a pretty-printed XML value line, not on a container line', () => {
+    expect(redactableNameOf('    <wsse:Password Type="PasswordText">s3cret</wsse:Password>')).toBe('wsse:Password');
+    expect(redactableNameOf('  <wsse:UsernameToken>')).toBeNull();
+    expect(redactableNameOf('  "token": "x",')).toBe('token');
   });
 });

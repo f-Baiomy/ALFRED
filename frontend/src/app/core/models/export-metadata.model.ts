@@ -35,7 +35,8 @@ export interface ExportedSpacer {
   readonly anchorTimestamp?: string | null;
 }
 
-export type Environment = 'Production' | 'Staging';
+/** 'Local' is a developer's own machine (localhost) - neither a shared staging nor production system. */
+export type Environment = 'Production' | 'Staging' | 'Local';
 
 export interface ExportFormData {
   readonly supplierName: string;

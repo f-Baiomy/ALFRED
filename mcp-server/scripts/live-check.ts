@@ -85,7 +85,15 @@ try {
     const again = await h.call('start_recording', { cycleId: recId });
     check('start_recording again changes nothing', again.json?.changed === false);
     const marker = `/mcp-live-check-${stamp}`;
-    for (const n of [1, 2]) await fetch(`http://127.0.0.1:${project.listenPort}${marker}?n=${n}`).catch(() => undefined);
+    // wait_for_calls is started first and must wake on the socket signal of the first marker call.
+    const waiting = h.call('wait_for_calls', { cycleId: recId, timeoutSec: 30 });
+    await new Promise((r) => setTimeout(r, 1000));
+    const sentAt = Date.now();
+    await fetch(`http://127.0.0.1:${project.listenPort}${marker}?n=1`).catch(() => undefined);
+    const woke = await waiting;
+    check('wait_for_calls wakes on the new call (event, not timeout)', woke.json?.timedOut === false && woke.json.newCalls.some((c: { url: string }) => c.url.includes(`${marker}?n=1`)),
+      `${Date.now() - sentAt} ms after the request`);
+    await fetch(`http://127.0.0.1:${project.listenPort}${marker}?n=2`).catch(() => undefined);
     await new Promise((r) => setTimeout(r, 1500));
     const stopped = await h.call('stop_recording', { cycleId: recId });
     check('stop_recording', stopped.json?.cycle?.status === 'PAUSED');

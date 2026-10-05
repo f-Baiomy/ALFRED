@@ -1,8 +1,9 @@
 import { CallOverlapCandidate, CallRecord } from '../../core/models/call.model';
+import { buildExportHighlights, highlightsMarkdown } from './export-highlights';
 import { ExportedCycle, ExportedSpacer, ExportFormData } from '../../core/models/export-metadata.model';
 import { Comment, CommentBlock, COMMENT_BLOCK_LABELS } from '../../core/models/comment.model';
 import { detectAndFormatBody } from './body-format';
-import { dbSectionMarkdown, dbSummaryCell } from './db-export-section';
+import { dbSectionMarkdown, dbSummaryCell, mdCell } from './db-export-section';
 import { interceptionExportPart, interceptionHttpText } from './interception-export';
 import { CallStatusFilter, callKey, isInProgress, supplierOf, uriPath } from './call-utils';
 import { layoutSpacers, spacerSlots } from './spacer-gap-controller';
@@ -189,7 +190,7 @@ function headersBlock(headers: Readonly<Record<string, string>> | undefined, lin
   return codeBlock('Headers', JSON.stringify(headers ?? {}), lineComments);
 }
 
-const BLOCK_ORDER: readonly CommentBlock[] = ['request-headers', 'request-body', 'response-headers', 'response-body'];
+const BLOCK_ORDER: readonly CommentBlock[] = ['call', 'request-headers', 'request-body', 'response-headers', 'response-body'];
 
 /** `level` matches whatever heading depth "Request"/"Response" sit at in the caller - `##` at the top level of a single-call export, `####` once nested inside a bulk export's per-call `<details>`. */
 /**
@@ -247,6 +248,11 @@ function flaggedIssuesSection(comments: readonly Comment[], level = 2): string {
 
     lines.push(`${subheading} ${COMMENT_BLOCK_LABELS[block]}`, '');
     for (const c of blockComments) {
+      if (block === 'call') {
+        // A whole-call note has no line to point at.
+        lines.push(`- ${c.comment.replace(/\n/g, '\n  ')}`);
+        continue;
+      }
       lines.push(`- **Line ${c.lineIndex + 1}:** \`${c.lineText}\``);
       lines.push(`  > ${c.comment.replace(/\n/g, '\n  > ')}`);
     }
@@ -655,6 +661,7 @@ export function buildBulkExportMarkdown(
     lines.push(`🚩 Flagged lines in ${overview.flaggedCalls.map((fc) => `[call ${fc.number}](#call-${fc.number}) (${fc.count})`).join(', ')}`, '');
   }
   lines.push('---', '');
+  lines.push(...highlightsMarkdown(buildExportHighlights(calls, commentsByCallId, spacers), mdCell));
 
   // Closed by default (GFM <details>): one row per call (two per split call) is long, and the
   // table above already gives the counts. Only when calls nest does it carry the timing columns -

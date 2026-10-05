@@ -287,8 +287,14 @@ export function dbSectionHtml(call: CallRecord): string {
     `<p class="lead">Every statement the application ran while handling this call, <b>in the order it ran</b>, values filled in. Supplier calls are shown where they happened. ${
       capture.layout === 'flat' ? 'Listed one by one, not grouped by transaction' : 'Transactions and repeated queries start closed'} - open a row for its SQL, parameters and rows.</p>` +
     (analysisOf(call)?.findings ? findingsHtml(prefix, analysisOf(call)!) : flags) + analysisHtml(prefix, analysisOf(call)) +
+    (capture.detail === 'summary' ? `<p class="lead">${esc(summaryOnlyNote(s.statements))}</p></div></details>` :
     `<div class="tools"><button type="button" data-db-all="open">Open all statements</button><button type="button" data-db-all="close">Close all</button></div>` +
-    `<div class="stmts">${nodesHtml(treeOf(capture), prefix, bySeq, hasOrigins(capture.statements))}</div></div></details>`;
+    `<div class="stmts">${nodesHtml(treeOf(capture), prefix, bySeq, hasOrigins(capture.statements))}</div></div></details>`);
+}
+
+/** Said in the section itself, so a summary export can never pass for the whole capture. */
+function summaryOnlyNote(statements: number): string {
+  return `Summary only: the ${statements} statements themselves (SQL, parameters, rows) are not in this file. Export with full database detail, or as .json, to include them.`;
 }
 
 /** The DB column of the export's summary table: "◆ 49" for a call that carries statements. */
@@ -519,6 +525,10 @@ export function dbSectionMarkdown(call: CallRecord, level: number): string[] {
       lines.push(`| \`${mdCell(q.kind)}\` ${mdCell(q.sql.length > 160 ? q.sql.slice(0, 160) + '…' : q.sql)} | ${q.count} | ${q.distinctParams} | ${q.duplicates || ''} | ${q.totalMs} | ${q.rows || ''} | ${mdCell(q.callers[0] ?? '')} | #${q.seqs[0]} |`);
     }
     lines.push('');
+  }
+  if (capture.detail === 'summary') {
+    lines.push(`_${mdCell(summaryOnlyNote(s.statements))}_`, '', '</details>', '');
+    return lines;
   }
   lines.push('| # | Statement | Result | ms |', '|---|---|---|---|');
   overviewRows(treeOf(capture), lines);

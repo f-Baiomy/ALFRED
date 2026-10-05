@@ -206,3 +206,11 @@ description: "Task list for 007-alfred-mcp-server"
 - Found while testing live: Alfred creates a cycle already RECORDING, so `create_cycle` pauses it unless `record: true`; cycle `remove` takes the cycle's own entry id (mapped from the call id); Node `fetch` to `localhost` resolves IPv6 first, so the live check uses `127.0.0.1`.
 - Registration documented as `node <mcp-server>/node_modules/tsx/dist/cli.mjs <mcp-server>/src/index.ts` (no npm/npx, so no `cmd /c` on Windows); `scripts/stdio-check.ts` proves both launch forms over real stdio from another folder.
 - T042: frontend 2235/2235 tests, build OK; its bundle-budget warning (27.97 kB over) is identical without this change.
+
+## Follow-up: bug report from a real odeysys session (2026-10-05)
+
+- Bug 1 (`fields` bodies empty): a part request answers the other half with explicit nulls, which overwrote a body fetched by another part. Fixed in `withParts`; the fake Alfred now answers parts with the same nulls; regression test reads one body five ways.
+- Bug 2 (`get_cycle` children/db "missing"): extras now filled in the story.
+- Bug 3 (supplier calls missing): not a bug - one outbound call and one agent marker; the rest came from the app's cache.
+- Live UI for every MCP edit: cycles/spacers/calls were already signalled; comments were not. New `/ws/comments` (backend-comments `CommentNotificationPort`), `CommentsStore` re-reads a loaded call on the signal (`COMMENT_EVENTS`).
+- Improvements: soft failures and empty results (`shared/utils/soft-failure.ts`, shared with exports), supplier calls under inbound calls, body previews, OPTIONS hidden by default, compact field rows, `appHost` for inbound, whole-call comments (`block: 'call'` - card notes + exports), `add_comments`, `suggest_spacers`, `wait_for_calls` (WebSocket-driven, ≤ 60 s), `Local` environment, XML/form body redaction + `add_default_redactions`, `includeDb: "summary"` for .md/.html, "At a Glance" at the top of bulk exports (`export-highlights.ts`). No per-export `redact: false` (owner decision).

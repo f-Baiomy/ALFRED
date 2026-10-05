@@ -46,6 +46,10 @@
           <input type="radio" name="environment" [checked]="environment() === 'Production'" (change)="setEnvironment('Production')" />
           Production
         </label>
+        <label>
+          <input type="radio" name="environment" [checked]="environment() === 'Local'" (change)="setEnvironment('Local')" />
+          Local
+        </label>
       </fieldset>
 
       <label class="dialog-field">

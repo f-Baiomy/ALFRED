@@ -8,7 +8,8 @@ import {
   layoutSpacers, type CallEndpointSource, type CallRecord, type Comment, type CycleSpacer, type SessionCycle,
 } from '../frontend.ts';
 import { maskCall, maskContext, maskMeta, maskText } from '../masking.ts';
-import { invalid, ok, preview, run, REPLY_BUDGET, text } from '../reply.ts';
+import { invalid, ok, run } from '../reply.ts';
+import { cycleStory } from '../story.ts';
 
 export const CallRefSchema = z.object({
   id: z.string().min(1),
@@ -79,115 +80,6 @@ export async function copyIntoCycle(client: AlfredClient, cycleId: string, refs:
   return report;
 }
 
-interface StoryInput {
-  cycle: string; offset: number; limit: number; fields?: FieldName[]; paths?: string[];
-  includeDb: boolean; includeComments: boolean; mask?: boolean;
-}
-
-async function cycleStory(client: AlfredClient, input: StoryInput) {
-  const found = await findCycle(client, input.cycle);
-  if ('candidates' in found) {
-    return ok({ candidates: found.candidates }, `"${input.cycle}" matches ${found.candidates.length} cycles - ask which one, then call get_cycle with its id.`);
-  }
-  const cycle = found;
-  const ctx = await maskContext(client, input.mask);
-  const { entries, spacers } = await listCycleCalls(client, cycle.id);
-  const calls = entries.map((e) => e.call);
-
-  // Placement is layoutSpacers' alone (the invariant every view and export follows), over the WHOLE
-  // cycle so a spacer anchored to a call on another page still lands where the UI shows it.
-  const layout = layoutSpacers(calls, (c) => c, spacers, { descending: false, byTime: true });
-  const before = new Map<number, CycleSpacer[]>();
-  const tail: CycleSpacer[] = [];
-  let pending: CycleSpacer[] = [];
-  let index = 0;
-  for (const entry of layout.merged) {
-    if (entry.kind === 'spacer') {
-      pending.push(entry.spacer);
-    } else {
-      if (pending.length) before.set(index, pending);
-      pending = [];
-      index++;
-    }
-  }
-  tail.push(...pending);
-
-  const page = calls.slice(input.offset, input.offset + input.limit);
-  const pageEntries = entries.slice(input.offset, input.offset + input.limit);
-  const inbound = page.filter((c) => c.source === 'internal').map((c) => c.id);
-  const summaries = input.includeDb ? await dbSummaries(client, inbound) : {};
-
-  const blocks = await Promise.all(pageEntries.map(async (entry, i) => {
-    const n = input.offset + i + 1;
-    const lines: string[] = [];
-    for (const s of before.get(input.offset + i) ?? []) lines.push(`── ${maskText(ctx, s.label)} ── (spacer ${s.id})`);
-    let call = entry.call;
-    const parts = partsFor(input.fields, input.paths);
-    if (parts.length) call = await withParts(client, { id: call.id, source: call.source ?? 'external', cycleId: cycle.id }, call, parts);
-    call = maskCall(ctx, call);
-    lines.push(storyLine(n, call));
-    const wants = (f: FieldName) => !!input.fields?.includes(f);
-    const comments = input.includeComments || wants('comments') ? await commentsOf(client, call.id) : [];
-    let db: { summary: string; statements: number; findings: { severity: string; title: string; short: string; seqs: readonly number[] }[] } | null = null;
-    if ((input.includeDb || wants('db')) && call.source === 'internal') {
-      if (!input.includeDb && !(call.id in summaries)) Object.assign(summaries, await dbSummaries(client, [call.id]));
-      if (summaries[call.id]) {
-        const capture = await loadCapture(client, call.id);
-        const analysis = analysisOf(call, capture, await childrenOf(client, call.id));
-        db = {
-          summary: maskText(ctx, analysis.summary ?? `${capture.statements.length} statements`), statements: capture.statements.length,
-          findings: nonNoteFindings(analysis).map((f) => ({ severity: f.severity, title: maskText(ctx, f.title), short: maskText(ctx, f.short), seqs: f.seqs })),
-        };
-      }
-    }
-    if (input.fields?.length || input.paths?.length) {
-      // The supplier calls this inbound call made: its copies in this cycle, else the live parent link.
-      const inCycle = calls.filter((c) => c.parentCallId === call.id);
-      const children = wants('children') && call.source === 'internal'
-        ? (inCycle.length ? inCycle : await childrenOf(client, call.id)).map((c) => ({ ...toRow(maskCall(ctx, c)), inCycle: inCycle.includes(c) }))
-        : undefined;
-      const extras = {
-        children: wants('children') ? children ?? [] : undefined,
-        comments: wants('comments') ? comments.map((c) => ({ id: c.id, block: c.block, line: c.lineIndex + 1, comment: preview(maskText(ctx, c.comment), 300, `list_comments commentId ${c.id}`) })) : undefined,
-        db: wants('db') ? db : undefined,
-      };
-      const sel = select(call, input.fields, input.paths, extras, 0, 2000);
-      lines.push(`   ${JSON.stringify(sel.values)}${sel.missing.length ? ` missing=${JSON.stringify(sel.missing)}` : ''}`);
-    }
-    if (input.includeComments) {
-      for (const c of comments) {
-        // A comment can be a whole pasted stack trace; the story shows its start, list_comments the rest.
-        const note = preview(maskText(ctx, c.comment).replace(/\s*\n\s*/g, ' ⏎ '), 300, `list_comments callId ${call.id} commentId ${c.id}`);
-        lines.push(`   💬 [${c.block} L${c.lineIndex + 1}] ${note} (comment ${c.id})`);
-      }
-    }
-    if (db && input.includeDb) {
-      lines.push(`   ◆ DB: ${db.summary}`);
-      for (const f of db.findings) {
-        lines.push(`   ${f.severity === 'bad' ? '✖' : '⚠'} ${f.title} - ${f.short} [#${f.seqs.slice(0, 12).join(', #')}${f.seqs.length > 12 ? ', …' : ''}]`);
-      }
-    }
-    return lines;
-  }));
-
-  const head = `Cycle "${cycle.name}" (${cycle.id}) - ${cycle.status === 'RECORDING' ? 'RECORDING' : 'paused'}, ${entries.length} calls, created ${cycle.createdAt}`;
-  const out: string[] = [head, ''];
-  let size = head.length + 400;
-  let shown = 0;
-  for (const block of blocks) {
-    const blockSize = block.join('\n').length + 1;
-    if (shown > 0 && size + blockSize > REPLY_BUDGET) break;
-    out.push(...block);
-    size += blockSize;
-    shown++;
-  }
-  const end = input.offset + shown;
-  if (end >= entries.length) for (const s of tail) out.push(`── ${maskText(ctx, s.label)} ── (spacer ${s.id})`);
-  const nextOffset = end < entries.length ? end : null;
-  const meta = { cycleId: cycle.id, totalCalls: entries.length, offset: input.offset, shown, nextOffset, ...maskMeta(ctx) };
-  out.push('', JSON.stringify(meta));
-  return text(out.join('\n'));
-}
 
 export function register(server: McpServer, client: AlfredClient): void {
   server.registerTool('list_cycles', {
@@ -208,6 +100,7 @@ export function register(server: McpServer, client: AlfredClient): void {
 
   server.registerTool('get_cycle', {
     description: 'THE debugging view of a session cycle: its calls in run order (inbound and outbound together) with status and time, '
+      + 'errors hidden in 200 responses (✖ code: message), empty results (∅), the supplier calls each inbound call made (↳), '
       + 'spacers in place, comments under their call, and for calls with database capture the summary line and findings worth acting on. '
       + 'Pass a cycle id or part of its name. Page with offset/limit; nextOffset says where the next page starts.',
     inputSchema: {
@@ -218,6 +111,9 @@ export function register(server: McpServer, client: AlfredClient): void {
       paths: PathsSchema,
       includeDb: z.boolean().default(true),
       includeComments: z.boolean().default(true),
+      includeOptions: z.boolean().default(false).describe('Show CORS OPTIONS preflights (hidden and counted by default, as in the UI)'),
+      checkBodies: z.boolean().default(true).describe('Read each response body to flag errors inside 200s (✖) and empty results (∅)'),
+      bodyPreview: z.number().int().min(0).max(500).default(0).describe('Show the first N characters of each response body'),
       mask: MaskSchema,
     },
   }, (input) => run(() => cycleStory(client, input)));

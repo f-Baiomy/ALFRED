@@ -84,14 +84,56 @@ function redactBody(body: string | undefined, names: ReadonlySet<string>): { bod
   try {
     parsed = JSON.parse(body);
   } catch {
-    // Not JSON, so there is no key to find. The UI only offers a body redaction on a line it could
-    // derive a key from, so reaching here means the body changed shape since the redaction was made.
+    // Not JSON. A SOAP envelope (wsse:Password) or a form post (password=...) carries the same
+    // secrets under the same names, and a JSON-only redaction let them through into exports.
+    if (body.trimStart().startsWith('<')) return redactXml(body, names);
+    if (FORM_BODY.test(body.trim())) return redactForm(body, names);
     return { body, count: 0 };
   }
   const counter = { n: 0 };
   const result = redactJsonValue(parsed, names, counter);
   if (counter.n === 0) return { body, count: 0 };
   return { body: JSON.stringify(result, null, 2), count: counter.n };
+}
+
+/** `a=b&c=d`, nothing else: a body that merely contains '=' is not a form. */
+const FORM_BODY = /^[^\s=&]+=[^\s&]*(?:&[^\s=&]+=[^\s&]*)*$/;
+
+const XML_NAME = '[A-Za-z_][\\w.-]*(?::[A-Za-z_][\\w.-]*)?';
+const XML_ELEMENT = new RegExp(`<(${XML_NAME})(\\s[^>]*)?>([^<]*)</\\1\\s*>`, 'g');
+const XML_ATTRIBUTE = new RegExp(`(\\s)(${XML_NAME})(\\s*=\\s*)(["'])([^"']*)\\4`, 'g');
+const XML_VALUE_LINE = new RegExp(`^\\s*<(${XML_NAME})(?:\\s[^>]*)?>[^<]+</\\1\\s*>\\s*$`);
+
+/** A qualified XML name matches by itself (`wsse:Password`) or by its local part (`Password`). */
+function xmlNameMatches(qualified: string, names: ReadonlySet<string>): boolean {
+  const lower = qualified.toLowerCase();
+  return names.has(lower) || names.has(lower.slice(lower.indexOf(':') + 1));
+}
+
+/**
+ * Element text and attribute values whose name is redacted. Edited in place rather than parsed and
+ * re-serialised, for the same reason as JSON above: the export promises the body as it crossed
+ * the wire, and a round trip through a DOM would reformat all of it.
+ */
+function redactXml(body: string, names: ReadonlySet<string>): { body: string; count: number } {
+  let count = 0;
+  const elements = body.replace(XML_ELEMENT, (whole: string, name: string, attrs: string | undefined, text: string) => {
+    if (!xmlNameMatches(name, names) || text.length === 0) return whole;
+    count++;
+    return `<${name}${attrs ?? ''}>${REDACTED}</${name}>`;
+  });
+  const attributes = elements.replace(XML_ATTRIBUTE, (whole: string, space: string, name: string, eq: string, quote: string) => {
+    if (!xmlNameMatches(name, names)) return whole;
+    count++;
+    return `${space}${name}${eq}${quote}${REDACTED}${quote}`;
+  });
+  return { body: count ? attributes : body, count };
+}
+
+function redactForm(body: string, names: ReadonlySet<string>): { body: string; count: number } {
+  // redactUrl already masks a query string pair by pair without re-encoding the rest.
+  const masked = redactUrl(`?${body}`, names);
+  return masked.count && masked.url ? { body: masked.url.slice(1), count: masked.count } : { body, count: 0 };
 }
 
 function redactUrl(url: string | undefined, names: ReadonlySet<string>): { url: string | undefined; count: number } {
@@ -125,13 +167,17 @@ function redactUrl(url: string | undefined, names: ReadonlySet<string>): { url: 
  * element, a bare string). The UI only offers the control where this returns something, so a user
  * is never given a button that would silently do nothing.
  *
- * Both the headers and body panels render pretty-printed JSON, so one parse covers all four blocks.
+ * Both the headers and body panels render pretty-printed JSON, so one parse covers all four blocks;
+ * an XML body is pretty-printed one element per line, so a value element names its own key.
  */
 export function redactableNameOf(lineText: string): string | null {
   const match = /^\s*"((?:[^"\\]|\\.)*)"\s*:/.exec(lineText);
-  if (!match) return null;
-  const key = match[1].replace(/\\(.)/g, '$1').trim();
-  return key.length > 0 ? key : null;
+  if (match) {
+    const key = match[1].replace(/\\(.)/g, '$1').trim();
+    return key.length > 0 ? key : null;
+  }
+  // A pretty-printed XML body: an element holding a value on its own line, e.g. <wsse:Password>…</wsse:Password>.
+  return XML_VALUE_LINE.exec(lineText)?.[1] ?? null;
 }
 
 /**

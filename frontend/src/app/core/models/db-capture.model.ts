@@ -278,6 +278,12 @@ export interface CallDbCapture {
    */
   readonly layout?: 'grouped' | 'flat';
   /**
+   * 'summary': the .md/.html Database section shows the headline, findings, time and top queries but not each
+   * statement - for a report meant for people, where an N+1 call would otherwise add megabytes of SQL. Said so in
+   * the section itself, like rows: sample. Presentation only: never written into the .json, which is always whole.
+   */
+  readonly detail?: 'full' | 'summary';
+  /**
    * Where the call's time went and its per-query totals - derived (db-analysis.ts), attached by the export dialog
    * (which also has the supplier calls). Written into every export; never read back on import (recomputed instead).
    */

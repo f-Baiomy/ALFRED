@@ -1,5 +1,6 @@
 package com.fathy.alfred.backend.comments.application.service;
 
+import com.fathy.alfred.backend.comments.application.port.out.CommentNotificationPort;
 import com.fathy.alfred.backend.comments.application.port.out.CommentsStorePort;
 import com.fathy.alfred.backend.comments.domain.model.Comment;
 import com.fathy.alfred.backend.comments.domain.model.NewComment;
@@ -12,6 +13,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -25,7 +27,7 @@ class CommentsServiceTest {
     void assignsIdAndTimestampOnCreate() {
         CommentsStorePort store = mock(CommentsStorePort.class);
         when(store.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
-        CommentsService service = new CommentsService(store);
+        CommentsService service = new CommentsService(store, mock(CommentNotificationPort.class));
 
         Comment created = service.create(new NewComment("call-1", "request-body", 2, "line", "looks wrong"));
 
@@ -43,7 +45,7 @@ class CommentsServiceTest {
     void filtersByCallIdWhenListing() {
         CommentsStorePort store = mock(CommentsStorePort.class);
         when(store.findAll()).thenReturn(List.of(comment("c1", "call-a"), comment("c2", "call-b")));
-        CommentsService service = new CommentsService(store);
+        CommentsService service = new CommentsService(store, mock(CommentNotificationPort.class));
 
         List<Comment> result = service.listByCallId("call-a");
 
@@ -54,9 +56,36 @@ class CommentsServiceTest {
     void delegatesDeleteToTheStore() {
         CommentsStorePort store = mock(CommentsStorePort.class);
         when(store.deleteById(eq("c1"))).thenReturn(true);
-        CommentsService service = new CommentsService(store);
+        CommentsService service = new CommentsService(store, mock(CommentNotificationPort.class));
 
         assertThat(service.deleteById("c1")).isTrue();
         assertThat(service.deleteById("missing")).isFalse();
+    }
+
+    @Test
+    void createAndDeleteSignalTheCallWhoseCommentsChanged() {
+        CommentsStorePort store = mock(CommentsStorePort.class);
+        CommentNotificationPort notifications = mock(CommentNotificationPort.class);
+        when(store.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(store.findAll()).thenReturn(List.of(comment("c1", "call-a")));
+        when(store.deleteById(eq("c1"))).thenReturn(true);
+        CommentsService service = new CommentsService(store, notifications);
+
+        service.create(new NewComment("call-z", "request-body", 0, "{", "note"));
+        verify(notifications).notifyCommentsChanged("call-z");
+
+        service.deleteById("c1");
+        verify(notifications).notifyCommentsChanged("call-a");
+    }
+
+    @Test
+    void aDeleteThatRemovedNothingSignalsNothing() {
+        CommentsStorePort store = mock(CommentsStorePort.class);
+        CommentNotificationPort notifications = mock(CommentNotificationPort.class);
+        when(store.findAll()).thenReturn(List.of());
+        CommentsService service = new CommentsService(store, notifications);
+
+        assertThat(service.deleteById("missing")).isFalse();
+        verify(notifications, never()).notifyCommentsChanged(any());
     }
 }

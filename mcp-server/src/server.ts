@@ -8,6 +8,8 @@ import * as cycles from './tools/cycles.ts';
 import * as db from './tools/db.ts';
 import * as exportTool from './tools/export.ts';
 import * as spacers from './tools/spacers.ts';
+import * as watch from './tools/watch.ts';
+import * as redactions from './tools/redactions.ts';
 
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string };
 
@@ -19,6 +21,6 @@ export function createServer(client: AlfredClient = new AlfredClient()): McpServ
       + 'db_statements / db_statement (callers name the source file and line), record findings with add_comment. Ask before writing exports.',
   });
   registerSessionTool(server);
-  for (const module of [cycles, spacers, calls, db, comments, exportTool]) module.register(server, client);
+  for (const module of [cycles, spacers, calls, db, comments, exportTool, watch, redactions]) module.register(server, client);
   return server;
 }

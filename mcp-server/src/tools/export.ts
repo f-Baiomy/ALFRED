@@ -100,7 +100,7 @@ async function gatherSelection(client: AlfredClient, summaries: readonly CallRec
 }
 
 /** As ExportDialogComponent.loadDbCaptures: each inbound call's whole capture plus where its time went; 404 = not captured. */
-async function withDbCaptures(client: AlfredClient, calls: readonly CallRecord[]): Promise<CallRecord[]> {
+async function withDbCaptures(client: AlfredClient, calls: readonly CallRecord[], detail: 'full' | 'summary'): Promise<CallRecord[]> {
   return Promise.all(calls.map(async (call) => {
     const stripped: CallRecord = call.dbCapture ? { ...call, dbCapture: undefined } : call;
     if (call.source !== 'internal') return stripped;
@@ -108,7 +108,7 @@ async function withDbCaptures(client: AlfredClient, calls: readonly CallRecord[]
       const [capture, children] = await Promise.all([client.get<CallDbCapture>(`/db-capture/calls/${seg(call.id)}/export`), childrenOf(client, call.id)]);
       const analysis = call.duration_ms ? analysisOf(call, capture, children) : undefined;
       // 'grouped' is the dialog's default layout (its "Group by transaction" preference starts on).
-      return { ...stripped, dbCapture: { ...capture, analysis, layout: 'grouped' as const } };
+      return { ...stripped, dbCapture: { ...capture, analysis, layout: 'grouped' as const, detail } };
     } catch {
       return stripped;
     }
@@ -158,10 +158,11 @@ export function register(server: McpServer, client: AlfredClient): void {
       cycleId: z.string().min(1).optional().describe('Export this whole cycle'),
       calls: z.array(CallRefSchema).min(1).max(500).optional().describe('Or these calls, in this order'),
       search: z.object(SearchSchema).partial().optional().describe('Or every call a live search finds (same filters as search_calls)'),
-      includeDb: z.boolean().default(true).describe('Include database statements and analysis for captured inbound calls'),
+      includeDb: z.union([z.boolean(), z.literal('summary')]).default(true)
+        .describe('true: every statement with its rows; "summary": findings, time and top queries only (.md/.html - a file for people); false: none'),
       rows: z.enum(['all', 'sample']).default('all').describe('.json: every stored DB row, or the first rows per statement'),
       description: z.string().max(4000).optional(),
-      environment: z.enum(['Production', 'Staging']).optional(),
+      environment: z.enum(['Production', 'Staging', 'Local']).optional(),
       fileName: z.string().max(200).optional().describe('File name when saving into the export folder (default: Alfred\'s generated name)'),
     },
   }, (input) => run(async () => {
@@ -177,7 +178,10 @@ export function register(server: McpServer, client: AlfredClient): void {
       : await gatherSelection(client, input.calls
         ? await Promise.all(input.calls.map(async (ref) => (await liveSummary(client, ref.id, ref.direction)).call))
         : (await searchCalls(client, { direction: 'both', sort: 'newest', ...input.search }, SCAN_CAP)).calls);
-    const calls = input.includeDb ? await withDbCaptures(client, gathered.calls) : gathered.calls;
+    if (input.includeDb === 'summary' && input.format === 'json') {
+      throw invalid('The .json export is the re-import format and always carries whole captures - use rows: "sample" to make it smaller.');
+    }
+    const calls = input.includeDb ? await withDbCaptures(client, gathered.calls, input.includeDb === 'summary' ? 'summary' : 'full') : gathered.calls;
 
     const masking = await maskContext(client, true);
     const form: ExportFormData = {

@@ -1,6 +1,29 @@
-import { Injectable, inject, signal } from '@angular/core';
+import { DestroyRef, Injectable, InjectionToken, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { Observable, Subject } from 'rxjs';
 import { Comment, NewComment } from '../models/comment.model';
 import { CommentsApiService } from '../services/comments-api.service';
+import { AppConfigService } from '../services/app-config.service';
+import { reconnectingSocket } from './reconnecting-socket';
+
+/** A call whose comments changed, from any client - one id per message, or null for "anything may have changed" (a reconnect). */
+export const COMMENT_EVENTS = new InjectionToken<Observable<string | null>>('COMMENT_EVENTS', {
+  providedIn: 'root',
+  factory: () => {
+    const config = inject(AppConfigService);
+    const reconnected = new Subject<string | null>();
+    return new Observable<string | null>((subscriber) => {
+      const fromReconnect = reconnected.subscribe(subscriber);
+      const fromSocket = reconnectingSocket<{ type?: string; callId?: string }>(
+        `${config.backendUrl.replace(/^http/, 'ws')}/ws/comments`,
+        () => reconnected.next(null),
+      ).subscribe((m) => {
+        if (m?.type === 'comments-changed' && typeof m.callId === 'string') subscriber.next(m.callId);
+      });
+      return () => { fromReconnect.unsubscribe(); fromSocket.unsubscribe(); };
+    });
+  },
+});
 
 const COMMENTS_CHANNEL_NAME = 'alfred-comments';
 
@@ -23,6 +46,10 @@ interface CommentsSyncMessage {
  * same block open side by side. Applying an *incoming* broadcast never
  * re-broadcasts, or every tab would echo the same update back and forth
  * forever.
+ *
+ * A comment from ANOTHER client - another browser, or Claude through the MCP server - never reaches
+ * that channel. Those arrive as a call id on /ws/comments (COMMENT_EVENTS), and a call this store
+ * already holds is re-fetched; one it never loaded is ignored, since it is fetched fresh when shown.
  */
 @Injectable({ providedIn: 'root' })
 export class CommentsStore {
@@ -33,6 +60,10 @@ export class CommentsStore {
   readonly cache = this._cache.asReadonly();
 
   constructor() {
+    inject(COMMENT_EVENTS).pipe(takeUntilDestroyed(inject(DestroyRef))).subscribe((callId) => {
+      const loaded = callId === null ? [...this._cache().keys()] : this._cache().has(callId) ? [callId] : [];
+      for (const id of loaded) this.refetch(id);
+    });
     this.channel.addEventListener('message', (event: MessageEvent<CommentsSyncMessage>) => {
       const { callId, comments } = event.data ?? {};
       if (typeof callId === 'string' && Array.isArray(comments) && this._cache().has(callId)) {
@@ -49,6 +80,16 @@ export class CommentsStore {
       next: (comments) => this.setForCall(callId, comments, { broadcast: false }),
       error: () => {
         // leave it as an empty list rather than retrying in a loop
+      },
+    });
+  }
+
+  /** Re-reads one loaded call's comments from the backend - applied locally only, every other tab hears the same socket event. */
+  private refetch(callId: string): void {
+    this.api.listForCall(callId).subscribe({
+      next: (comments) => this.setForCall(callId, comments, { broadcast: false }),
+      error: () => {
+        // keep what is shown; the next event or a reload brings it up to date
       },
     });
   }

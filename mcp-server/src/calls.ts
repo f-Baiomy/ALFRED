@@ -200,7 +200,11 @@ export function select(call: CallRecord, fields: readonly FieldName[] | undefine
       case 'state': values[f] = call.state ?? null; break;
       case 'error': values[f] = call.error ?? null; break;
       case 'project': values[f] = call.service_name ?? null; break;
-      case 'supplier': values[f] = call.supplierName ?? supplierOf(call); break;
+      case 'supplier':
+        // An inbound call has no supplier: its URL host is the app Alfred forwarded it to (e.g. host.docker.internal).
+        if (call.source === 'internal') values['appHost'] = supplierOf(call);
+        else values[f] = call.supplierName ?? supplierOf(call);
+        break;
       case 'parentCallId': values[f] = call.parentCallId ?? null; break;
       case 'requestHeaders': values[f] = call.request?.headers ?? {}; break;
       case 'responseHeaders': values[f] = call.response?.headers ?? {}; break;
