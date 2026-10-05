@@ -286,10 +286,10 @@ class RouteAndLog:
         # decision already made not to forward (verdict.terminal set) never reverses into one.
         if relive_info:
             call_log['relive'] = relive_info
+            call_log['reachedUpstream'] = reached_upstream
         if parent_call_id:
             call_log['parent_call_id'] = parent_call_id
             call_log['parent_seq'] = parent_seq
-            call_log['reachedUpstream'] = reached_upstream
         _webhook_queue.put_nowait(('prepare', call_id, call_log))
 
         await self._carry_out(flow, verdict, call_id, service_name)

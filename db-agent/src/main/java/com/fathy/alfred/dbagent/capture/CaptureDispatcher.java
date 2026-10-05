@@ -73,6 +73,9 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
     private final ConcurrentHashMap<Class<?>, Method> headerGetters = new ConcurrentHashMap<>();
     /** The X-Alfred-Parent value given to each outbound connection/request object ("" = not ours to tag). */
     private final WeakIdentityMap<String> outboundTagged = new WeakIdentityMap<>();
+    /** The header outboundOpened gave a connection - under the object the code holds AND, for HTTPS, the JDK's inner
+     *  delegate, which is the object the connect/send hooks run on. */
+    private final WeakIdentityMap<String> outboundOpenedHeaders = new WeakIdentityMap<>();
 
     public CaptureDispatcher(StatementSink sink, AgentSettings settings, String agentId) {
         this.sink = sink;
@@ -848,14 +851,51 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
     }
 
     @Override
+    public void outboundOpened(Object connection) {
+        try {
+            CallContext context = ContextPropagation.current();
+            if (context == null) {
+                return;
+            }
+            java.net.HttpURLConnection http = (java.net.HttpURLConnection) connection;
+            String protocol = http.getURL().getProtocol();
+            if (!"http".equals(protocol) && !"https".equals(protocol)) {
+                return;
+            }
+            // The sequence number is taken now; the HTTP_OUT marker is recorded at the first connect/send hook,
+            // when the method is known (outboundHeaderFor finds this header and reuses its seq).
+            String header = context.callId + "; seq=" + context.nextSeq();
+            http.setRequestProperty(PARENT_HEADER, header);
+            outboundOpenedHeaders.put(connection, header);
+            Object delegate = httpsDelegate(connection);
+            if (delegate != null) {
+                outboundOpenedHeaders.put(delegate, header);
+            }
+        } catch (Throwable t) {
+            AgentLog.failure("outbound open", t);
+        }
+    }
+
+    @Override
     public String outboundHeaderFor(Object connection, String method, String url) {
         try {
             String known = outboundTagged.get(connection);
             if (known != null) {
                 return known.isEmpty() ? null : known;
             }
-            if (ContextPropagation.current() == null) {
+            CallContext context = ContextPropagation.current();
+            if (context == null) {
                 return null;
+            }
+            String opened = outboundOpenedHeaders.remove(connection);
+            if (opened == null || !opened.startsWith(context.callId + "; seq=")) {
+                opened = openedHeader(connection, context);
+            }
+            if (opened != null) {
+                int seq = Integer.parseInt(opened.substring(opened.lastIndexOf('=') + 1).trim());
+                sink.marker(new MarkerRecord(context.callId, seq, "HTTP_OUT", Instant.now().toString(), method, withoutQuery(url)));
+                outboundTagged.put(connection, opened);
+                return opened;
             }
             String header = outboundHeader(method, url);
             outboundTagged.put(connection, header == null ? "" : header);
@@ -864,6 +904,36 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
             AgentLog.failure("outbound header", t);
             return null;
         }
+    }
+
+    /** sun.net.www.protocol.https.HttpsURLConnectionImpl wraps the connection the hooks see in a "delegate" field. */
+    private static Object httpsDelegate(Object connection) {
+        for (Class<?> c = connection.getClass(); c != null && c != Object.class; c = c.getSuperclass()) {
+            try {
+                java.lang.reflect.Field f = c.getDeclaredField("delegate");
+                f.setAccessible(true);
+                return f.get(connection);
+            } catch (NoSuchFieldException next) {
+                // superclass
+            } catch (Throwable t) {
+                return null; // Java 9+ module rules may refuse; the getRequestProperty fallback remains
+            }
+        }
+        return null;
+    }
+
+    /** The header outboundOpened put on this connection for this call, if it did. */
+    private static String openedHeader(Object connection, CallContext context) {
+        if (!(connection instanceof java.net.HttpURLConnection)) {
+            return null;
+        }
+        String value;
+        try {
+            value = ((java.net.HttpURLConnection) connection).getRequestProperty(PARENT_HEADER);
+        } catch (IllegalStateException connected) {
+            return null;
+        }
+        return value != null && value.startsWith(context.callId + "; seq=") ? value : null;
     }
 
     @Override

@@ -101,6 +101,10 @@ public final class Bridge {
          *  HTTP_OUT marker at the same sequence number. */
         String outboundHeader(String method, String url);
 
+        /** URL.openConnection returned an HttpURLConnection: tag it now, while it cannot be connected yet. */
+        default void outboundOpened(Object connection) {
+        }
+
         /** {@link #outboundHeader} once per connection/request object: every later call for the same object returns the
          *  same value and records no further marker (a connection's hooks run on connect, getOutputStream and every
          *  getInputStream - one per response header read on HTTPS). */

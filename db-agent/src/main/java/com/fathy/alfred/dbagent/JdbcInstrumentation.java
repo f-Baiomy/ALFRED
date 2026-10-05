@@ -15,6 +15,7 @@ import com.fathy.alfred.dbagent.advice.ResultSetOpenedAdvice;
 import com.fathy.alfred.dbagent.advice.StatementCloseAdvice;
 import com.fathy.alfred.dbagent.advice.StatementCreatedAdvice;
 import com.fathy.alfred.dbagent.advice.TransactionAdvice;
+import com.fathy.alfred.dbagent.advice.UrlOpenConnectionAdvice;
 import com.fathy.alfred.dbagent.advice.WasNullAdvice;
 import net.bytebuddy.agent.builder.AgentBuilder;
 import net.bytebuddy.description.method.MethodDescription;
@@ -84,6 +85,8 @@ final class JdbcInstrumentation {
         builder = advise(builder, resultSets, WasNullAdvice.class, named("wasNull").and(takesArguments(0)));
         builder = advise(builder, resultSets, ResultSetCloseAdvice.class, named("close").and(takesArguments(0)));
 
+        builder = advise(builder, named("java.net.URL"), UrlOpenConnectionAdvice.class,
+                named("openConnection").and(takesArguments(0).or(takesArguments(1))));
         builder = advise(builder, named("sun.net.www.protocol.http.HttpURLConnection"), HttpUrlConnectionAdvice.class,
                 namedOneOf("connect", "getOutputStream", "getInputStream").and(takesArguments(0)));
         builder = advise(builder, hasSuperType(namedOneOf("org.apache.http.impl.client.CloseableHttpClient",
