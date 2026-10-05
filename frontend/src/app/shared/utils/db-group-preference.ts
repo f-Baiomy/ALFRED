@@ -19,3 +19,40 @@ export function saveGroupByTransaction(grouped: boolean): void {
     // private window / blocked storage: the choice lasts for this page only
   }
 }
+
+const QUERY_KEY = 'alfred.dbCapture.groupByQuery';
+const ROWS_AS_KEY = 'alfred.dbCapture.rowsAs';
+
+/** "Group by query" - the SQL statements one HQL query produced under that query. On by default. */
+export function readGroupByQuery(): boolean {
+  try {
+    return localStorage.getItem(QUERY_KEY) !== '0';
+  } catch {
+    return true;
+  }
+}
+
+export function saveGroupByQuery(grouped: boolean): void {
+  try {
+    localStorage.setItem(QUERY_KEY, grouped ? '1' : '0');
+  } catch {
+    // the choice lasts for this page only
+  }
+}
+
+/** "Show rows as": the query the code wrote (HQL, default) or the SQL that was sent. */
+export function readRowsAs(): 'hql' | 'sql' {
+  try {
+    return localStorage.getItem(ROWS_AS_KEY) === 'sql' ? 'sql' : 'hql';
+  } catch {
+    return 'hql';
+  }
+}
+
+export function saveRowsAs(rowsAs: 'hql' | 'sql'): void {
+  try {
+    localStorage.setItem(ROWS_AS_KEY, rowsAs);
+  } catch {
+    // the choice lasts for this page only
+  }
+}

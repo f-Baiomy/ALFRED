@@ -325,7 +325,35 @@ function redactStatement(s: ExportedDbStatement, names: ReadonlySet<string>, cou
     : s.params;
   const rows = redactRows(s.rows, s.outcome.columns, names, counter);
   const beforeImageRows = redactRows(s.beforeImageRows, s.beforeImage?.columns, names, counter);
-  return counter.n === before ? s : { ...s, params, rows, beforeImageRows };
+  const origin = redactOrigin(s, params, names, counter);
+  return counter.n === before ? s : { ...s, params, rows, beforeImageRows, origin };
+}
+
+/**
+ * The query the code wrote carries the same values by name (`:password = 'x'`): a parameter is masked when its name is
+ * a redacted column, or its value is one the SQL parameters just had masked.
+ */
+function redactOrigin(
+  s: ExportedDbStatement,
+  params: ExportedDbStatement['params'],
+  names: ReadonlySet<string>,
+  counter: { n: number },
+): ExportedDbStatement['origin'] {
+  const o = s.origin;
+  if (!o?.params?.length) return o;
+  const masked = new Set<string>();
+  s.params.forEach((set, i) => set.forEach((v, j) => {
+    if (v.value != null && params[i]?.[j]?.value === REDACTED) masked.add(v.value);
+  }));
+  let changed = false;
+  const originParams = o.params.map((p) => {
+    const raw = p.value?.replace(/^'(.*)'$/s, '$1');
+    if (p.value == null || !(names.has(p.name.replace(/^[:?]/, '').toLowerCase()) || (raw != null && masked.has(raw)))) return p;
+    changed = true;
+    counter.n++;
+    return { ...p, value: REDACTED };
+  });
+  return changed ? { ...o, params: originParams } : o;
 }
 
 /** `db-column` redactions over a call's captured statements. The live window is never masked - only exports. */

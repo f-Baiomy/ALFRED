@@ -3,6 +3,7 @@ package com.fathy.alfred.backend.dbcapture.adapter.in.web.dto;
 import com.fathy.alfred.backend.dbcapture.domain.model.BeforeImage;
 import com.fathy.alfred.backend.dbcapture.domain.model.IncomingStatement;
 import com.fathy.alfred.backend.dbcapture.domain.model.StatementKind;
+import com.fathy.alfred.backend.dbcapture.domain.model.StatementOrigin;
 import com.fathy.alfred.backend.dbcapture.domain.model.StatementOutcome;
 import com.fathy.alfred.backend.dbcapture.domain.model.TypedValue;
 import jakarta.validation.constraints.Min;
@@ -36,12 +37,13 @@ public record StatementDto(
         @Size(max = 200) String connectionId,
         @Size(max = 1000) String codeLocation,
         @Size(max = 300) String dataSource,
-        @Size(max = 200) List<String> cascadesTo
+        @Size(max = 200) List<String> cascadesTo,
+        StatementOrigin origin
 ) {
     public IncomingStatement toDomain() {
         return new IncomingStatement(sid, blankToNull(callId), blankToNull(runTag), thread, seq, kind, sql, fingerprint, table, params,
                 outcome, rows, rowsFrom, beforeImageRows, beforeImage, startedAt, durationMicros, offsetMicros, txId, connectionId,
-                codeLocation, dataSource, cascadesTo);
+                codeLocation, dataSource, cascadesTo, origin);
     }
 
     private static String blankToNull(String value) {

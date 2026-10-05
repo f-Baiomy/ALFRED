@@ -36,6 +36,7 @@ public record CapturedStatement(
         List<String> cascadesTo,
         boolean undone,
         boolean expected,
-        long storedRows
+        long storedRows,
+        StatementOrigin origin
 ) {
 }

@@ -221,3 +221,41 @@ function breaksBefore(word: string, raw: readonly RawToken[], spaceIndex: number
 export function sqlText(sql: string, params: readonly TypedValue[] | null | undefined, filled = true): string {
   return renderSql(sql, params, { filled }).map((t) => (t.kind === 'blob' && t.value != null ? sqlLiteral(params?.[t.param ?? 0]) : t.text)).join('');
 }
+
+/** A token of a query as the code wrote it - HQL/JPQL or native SQL with named (`:id`) or numbered (`?1`) parameters. */
+export interface QueryTextToken {
+  readonly kind: 'kw' | 'np' | 'text';
+  readonly text: string;
+}
+
+const HQL_KEYWORDS = new Set([...KEYWORDS, 'FETCH', 'MEMBER', 'OF', 'NEW', 'TREAT', 'SIZE', 'INDEX', 'KEY', 'VALUE', 'ENTRY', 'ELEMENTS', 'OBJECT', 'TYPE']);
+
+/** The code's query, keywords and parameters marked. `oneLine` collapses whitespace (a list row). */
+export function renderQueryText(text: string, oneLine = false): QueryTextToken[] {
+  const raw = scanSql(text ?? '');
+  const out: QueryTextToken[] = [];
+  const push = (token: QueryTextToken) => {
+    const last = out[out.length - 1];
+    if (token.kind === 'text' && last && last.kind === 'text') out[out.length - 1] = { kind: 'text', text: last.text + token.text };
+    else out.push(token);
+  };
+  for (let i = 0; i < raw.length; i++) {
+    const t = raw[i];
+    const next = raw[i + 1];
+    if (t.kind === 'space') {
+      push({ kind: 'text', text: oneLine ? ' ' : t.text });
+    } else if (t.kind === 'other' && t.text === ':' && next?.kind === 'word' && raw[i - 1]?.text !== ':') {
+      push({ kind: 'np', text: ':' + next.text });
+      i++;
+    } else if (t.kind === 'ph') {
+      let digits = '';
+      while (raw[i + 1]?.kind === 'other' && /^\d$/.test(raw[i + 1].text)) digits += raw[++i].text;
+      push({ kind: 'np', text: '?' + digits });
+    } else if (t.kind === 'word') {
+      push({ kind: HQL_KEYWORDS.has(t.text.toUpperCase()) ? 'kw' : 'text', text: t.text });
+    } else {
+      push({ kind: 'text', text: t.text });
+    }
+  }
+  return out;
+}

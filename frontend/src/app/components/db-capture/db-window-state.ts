@@ -2,6 +2,7 @@ import { Injectable, computed, signal } from '@angular/core';
 import { CallRecord } from '../../core/models/call.model';
 import { CapturedStatement } from '../../core/models/db-capture.model';
 import { isDelete, isFailed, isTxEnd, isWrite, valueText } from '../../shared/utils/db-statement-display';
+import { readRowsAs } from '../../shared/utils/db-group-preference';
 
 export type DbKindFilter = 'all' | 'read' | 'write' | 'delete' | 'fail';
 export type DbDetailTab = 'error' | 'deleted' | 'sql' | 'params' | 'rows' | 'keys' | 'before' | 'where';
@@ -16,6 +17,10 @@ export class DbWindowState {
   readonly kind = signal<DbKindFilter>('all');
   readonly table = signal('');
   readonly fill = signal(true);
+  /** "Show rows as": the query the code wrote (HQL/native) or the SQL that was sent - only matters when the call has origins. */
+  readonly rowsAs = signal<'hql' | 'sql'>(readRowsAs());
+  /** Some statement of this call came from an ORM - JDBC statements then say so, and the HQL controls show. */
+  readonly hasOrigins = signal(false);
   readonly showSuppliers = signal(true);
   readonly open = signal<ReadonlySet<number>>(new Set());
   readonly folded = signal<ReadonlySet<string>>(new Set());
@@ -81,7 +86,9 @@ export class DbWindowState {
     if (table && (s.table ?? '').toLowerCase() !== table.toLowerCase()) return false;
     const q = this.search().toLowerCase();
     if (!q) return true;
-    const text = `${s.sql} ${s.table ?? ''} ${s.params.flat().map(valueText).join(' ')}`.toLowerCase();
+    const o = s.origin;
+    const origin = o ? ` ${o.text ?? ''} ${o.name ?? ''} ${o.entity ?? ''} ${o.role ?? ''} ${(o.params ?? []).map((p) => `${p.name} ${p.value ?? ''}`).join(' ')}` : '';
+    const text = `${s.sql} ${s.table ?? ''} ${s.params.flat().map(valueText).join(' ')}${origin}`.toLowerCase();
     return text.includes(q);
   }
 }

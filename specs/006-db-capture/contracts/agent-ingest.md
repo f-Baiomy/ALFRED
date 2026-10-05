@@ -75,6 +75,20 @@ Request (≤ 2,000 statements, ≤ 32 MB):
 
 `outcome.kind` ∈ `ROWS | UPDATED | PROCEDURE | FAILED | TX_END` - fields per data-model `StatementOutcome`.
 
+A statement Hibernate made also carries `origin` (absent for plain JDBC) - see docs/db-capture.md:
+
+```json
+"origin": {
+  "id": "agent-1:q17", "kind": "HQL", "text": "from UserGroup g where g.branch.id = :branchId",
+  "name": "UserGroup.byBranch", "method": "list", "params": [{"name": ":branchId", "value": "948"}],
+  "firstResult": 100, "maxResults": 50
+}
+```
+
+`kind` ∈ `HQL | NATIVE | CRITERIA | LAZY_LOAD | LOAD | FLUSH | HIBERNATE`. Events carry `entity`, `entityId`, `role`,
+`action` (FLUSH: `INSERT | UPDATE | DELETE | COLLECTION`), `changed` (a flushed UPDATE's properties) and `parentId`
+(the query they ran inside). Statements of one query execution share `id`.
+
 The batch also carries call markers (data-model `CallMarker`):
 
 ```json

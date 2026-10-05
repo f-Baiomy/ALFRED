@@ -59,6 +59,36 @@ export interface BeforeImage {
   readonly columns?: readonly DbColumn[] | null;
 }
 
+/** One kind of origin - what in the application made a statement (when an ORM did). */
+export type OriginKind = 'HQL' | 'NATIVE' | 'CRITERIA' | 'LAZY_LOAD' | 'LOAD' | 'FLUSH' | 'HIBERNATE';
+
+/**
+ * Where a statement came from when Hibernate made it: the query the code wrote (HQL/JPQL, native SQL, Criteria) with
+ * its parameters, name and paging, or the event that made SQL on its own. Absent for plain JDBC. Statements of one
+ * query execution share `id`; an event that ran inside a query names it in `parentId`.
+ */
+export interface StatementOrigin {
+  readonly id: string;
+  readonly kind: OriginKind;
+  /** The query as the code wrote it (null for events). */
+  readonly text?: string | null;
+  /** A named query's name. */
+  readonly name?: string | null;
+  /** The method the code called: list, getResultList, executeUpdate ... */
+  readonly method?: string | null;
+  readonly params?: readonly { readonly name: string; readonly value?: string | null }[] | null;
+  readonly firstResult?: number | null;
+  readonly maxResults?: number | null;
+  readonly entity?: string | null;
+  readonly entityId?: string | null;
+  readonly role?: string | null;
+  /** FLUSH: INSERT, UPDATE, DELETE or COLLECTION. */
+  readonly action?: string | null;
+  /** A flushed UPDATE: the properties that changed. */
+  readonly changed?: readonly string[] | null;
+  readonly parentId?: string | null;
+}
+
 export interface CapturedStatement {
   readonly id: number;
   readonly callId: string | null;
@@ -88,6 +118,8 @@ export interface CapturedStatement {
   /** Marked expected by the user - raises no flag. */
   readonly expected: boolean;
   readonly storedRows: number;
+  /** The ORM query or event that made it; absent for plain JDBC. */
+  readonly origin?: StatementOrigin | null;
 }
 
 export interface StatementTransaction {

@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HQL origin mock</title>
+<style>
+:root {
+  --card-inner: #070a24; --popover-solid: #161c4a; --border: rgba(139, 92, 246, .22); --border-strong: rgba(139, 92, 246, .45);
+  --text: #e5e9f5; --text-dim: #93a0c2; --text-faint: #5c6690; --purple: #8b5cf6; --purple-light: #c4b5fd;
+  --cyan: #22d3ee; --green: #34d399; --amber: #fbbf24; --red: #f87171; --db: #2dd4bf; --hql: #f0abfc;
+  --mono: "Cascadia Code", "Fira Code", Consolas, monospace;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: radial-gradient(ellipse at top, #131a4a 0%, #0a0e2a 55%); background-color: #0a0e2a; color: var(--text); font-family: "Segoe UI", system-ui, sans-serif; font-size: 14px; min-height: 100vh; }
+.page { max-width: 1080px; margin: 0 auto; padding: 16px; }
+.note { color: var(--text-dim); font-size: 12.5px; line-height: 1.6; border-left: 3px solid var(--hql); padding: .4rem .8rem; margin: 0 0 1rem; background: rgba(240,171,252,.05); border-radius: 0 8px 8px 0; }
+.note b { color: var(--text); } .note .h { color: var(--hql); font-weight: 600; }
+.part { margin: 1.6rem 0 .6rem; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--text-faint); }
+.part b { color: var(--hql); }
+.win { background: color-mix(in srgb, var(--popover-solid) 92%, transparent); border: 1px solid var(--border-strong); border-radius: 14px; overflow: hidden; }
+.tools { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; padding: .6rem 1rem; border-bottom: 1px solid var(--border); }
+.chk { display: inline-flex; gap: .35rem; align-items: center; font-size: .74rem; color: var(--text-dim); white-space: nowrap; }
+.chk input { accent-color: var(--purple); }
+.toggle { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.toggle button { background: none; border: none; color: var(--text-dim); font-size: .72rem; padding: .3rem .7rem; cursor: pointer; font-family: inherit; }
+.toggle button.on { background: color-mix(in srgb, var(--purple) 25%, transparent); color: var(--text); font-weight: 600; }
+.lbl-sm { font-size: .72rem; color: var(--text-faint); }
+.body { padding: .5rem .8rem 1rem; }
+.r { border: 1px solid transparent; border-radius: 8px; }
+.r.open { border-color: var(--border); background: color-mix(in srgb, var(--purple) 5%, transparent); margin: .25rem 0; }
+.rh { display: grid; grid-template-columns: 14px 34px 84px minmax(0, 1fr) auto 56px; gap: .55rem; align-items: center; padding: .32rem .5rem; border-radius: 8px; cursor: pointer; font-size: .76rem; }
+.rh:hover { background: color-mix(in srgb, var(--purple) 10%, transparent); }
+.chev { color: var(--text-faint); font-size: .7rem; }
+.r.open > .rh .chev { color: var(--purple-light); }
+.num { font-family: var(--mono); font-size: .68rem; color: var(--text-faint); }
+.verb { font-size: .64rem; font-weight: 700; text-align: center; padding: .12rem .3rem; border-radius: 5px; white-space: nowrap; }
+.v-read { color: var(--db); background: color-mix(in srgb, var(--db) 10%, transparent); border: 1px solid color-mix(in srgb, var(--db) 28%, transparent); }
+.v-write { color: var(--amber); background: color-mix(in srgb, var(--amber) 13%, transparent); border: 1px solid color-mix(in srgb, var(--amber) 36%, transparent); }
+.sql1 { font-family: var(--mono); font-size: .74rem; color: #cfeee9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kw { color: #7dd3fc; } .val { color: var(--amber); } .np { color: var(--hql); }
+.res { font-size: .7rem; color: var(--text-dim); white-space: nowrap; }
+.ms { font-size: .7rem; font-weight: 600; color: var(--amber); text-align: right; }
+/* origin chip: where a statement came from */
+.orig { display: inline-block; font-size: .6rem; font-weight: 700; letter-spacing: .03em; padding: 0 .35rem; border-radius: 4px; margin-right: .4rem; vertical-align: 1px; }
+.orig.hql { color: #3b0a3f; background: var(--hql); }
+.orig.nat { color: #0b2a2a; background: var(--db); }
+.orig.auto { color: var(--text-dim); border: 1px solid var(--border-strong); }
+.hqltext { color: #f5d0fe; }
+/* HQL group: one query, the SQL it produced */
+.g { margin: .2rem 0; }
+.g > .rh { background: color-mix(in srgb, var(--hql) 7%, transparent); border: 1px solid color-mix(in srgb, var(--hql) 28%, transparent); }
+.g > .rh .lbl { font-family: var(--mono); font-size: .74rem; color: #f5d0fe; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.g > .rh .lbl .meta { color: var(--text-dim); font-family: "Segoe UI", system-ui, sans-serif; }
+.gb { margin: .15rem 0 .35rem 1.05rem; padding-left: 1rem; border-left: 2px solid color-mix(in srgb, var(--hql) 40%, transparent); }
+/* detail */
+.rd { padding: .3rem .7rem .8rem 2.4rem; }
+.tabs2 { display: flex; gap: .3rem; flex-wrap: wrap; margin-bottom: .55rem; }
+.tab2 { padding: .12rem .5rem; font-size: .72rem; color: var(--text-dim); background: none; border: 1px solid var(--border); border-radius: 5px; }
+.tab2.on { color: #0b0e22; background: var(--purple); border-color: var(--purple); }
+.pair { display: grid; grid-template-columns: minmax(0, 1fr); gap: .3rem; }
+.card { border: 1px solid var(--border); border-radius: 10px; background: var(--card-inner); overflow: hidden; }
+.card.h { border-color: color-mix(in srgb, var(--hql) 40%, transparent); }
+.card .hd { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; padding: .4rem .7rem; font-size: .72rem; color: var(--text-dim); border-bottom: 1px solid var(--border); }
+.card.h .hd { background: color-mix(in srgb, var(--hql) 8%, transparent); }
+.card .hd b { color: var(--text); font-size: .76rem; }
+.card .hd .r2 { margin-left: auto; }
+pre { margin: 0; padding: .55rem .7rem; font-family: var(--mono); font-size: .78rem; line-height: 1.6; white-space: pre-wrap; color: #d7f7f2; }
+.card.h pre { color: #f5d0fe; }
+.arrow { text-align: center; color: var(--text-faint); font-size: .72rem; padding: .1rem 0; }
+.arrow b { color: var(--hql); }
+table.kv { width: 100%; border-collapse: collapse; font-size: .74rem; }
+table.kv th { text-align: left; color: var(--text-dim); font-size: .64rem; text-transform: uppercase; letter-spacing: .04em; padding: .3rem .7rem; border-bottom: 1px solid var(--border); }
+table.kv td { padding: .28rem .7rem; border-bottom: 1px solid color-mix(in srgb, var(--purple) 10%, transparent); font-family: var(--mono); }
+table.kv td.dim { color: var(--text-dim); font-family: inherit; }
+.loc { color: var(--text-dim); font-size: .72rem; }
+.loc code { color: var(--text); font-family: var(--mono); }
+.btn { font-size: .68rem; font-weight: 600; padding: .2rem .55rem; border-radius: 6px; border: 1px solid var(--border); background: color-mix(in srgb, var(--purple) 12%, transparent); color: var(--purple-light); cursor: pointer; }
+.info { margin-top: .5rem; padding: .45rem .7rem; border-radius: 8px; font-size: .74rem; color: var(--text-dim); border: 1px dashed var(--border-strong); }
+.info b { color: var(--text); }
+/* export */
+.exp { background: #1b1b1d; border: 1px solid rgba(255,255,255,.09); border-radius: 12px; padding: .8rem 1rem; }
+.exp .st { border: 1px solid rgba(255,255,255,.09); border-radius: 8px; background: #141416; padding: .6rem .7rem; }
+.exp .t { font-size: 12.5px; color: #f2f2f5; margin-bottom: .5rem; }
+.exp .lbl { color: #5b5b63; font-size: 10.5px; letter-spacing: .07em; text-transform: uppercase; font-weight: 600; margin: .5rem 0 .3rem; }
+.exp pre { background: #0e0e10; border: 1px solid rgba(255,255,255,.09); border-radius: 8px; }
+@media (max-width: 720px) { .rh { grid-template-columns: 12px 28px 70px minmax(0, 1fr) 46px; } .rh .res { display: none; } .rd { padding-left: .6rem; } }
+</style>
+</head>
+<body>
+<div class="page">
+
+<div class="note"><b>Mock - where a statement came from.</b> Your code mostly writes <span class="h">HQL / JPQL</span> (or a Criteria / named query), and Hibernate turns it into the SQL the agent sees today. The agent would also record the <b>query as the code wrote it</b> - its text, its named parameters, the query name if it has one, and where in your code it was run - and tie each SQL statement to it. So every statement shows <b>both</b>: the HQL it started as, and the SQL Hibernate sent after transformation.</div>
+
+<!-- ======================= 1. statement list ======================= -->
+<div class="part"><b>1</b> · Database window - the statement list</div>
+<div class="win">
+  <div class="tools">
+    <div class="toggle"><button>Search</button><button>SQL</button></div>
+    <span class="lbl-sm">Show rows as</span>
+    <div class="toggle"><button class="on">HQL</button><button>SQL sent</button></div>
+    <label class="chk"><input type="checkbox" checked> Group by transaction</label>
+    <label class="chk"><input type="checkbox" checked> Group by query</label>
+  </div>
+  <div class="body">
+
+    <!-- one HQL query that produced one SQL statement: a single row, HQL shown -->
+    <div class="r">
+      <div class="rh"><span class="chev">▶</span><span class="num">#1</span><span class="verb v-read">SELECT</span>
+        <span class="sql1"><span class="orig hql">HQL</span><span class="hqltext"><span class="kw">select</span> g.groupId <span class="kw">as</span> id, g.groupName <span class="kw">as</span> name, org.countryId <span class="kw">as</span> countryId <span class="kw">from</span> UserGroup g <span class="kw">join</span> g.organization org <span class="kw">where</span> g.branch.id = <span class="np">:branchId</span></span></span>
+        <span class="res">54 rows</span><span class="ms">347 ms</span></div>
+    </div>
+
+    <!-- one HQL query whose fetches produced several SQL statements: a group -->
+    <div class="g">
+      <div class="rh"><span class="chev">▾</span><span class="num">#2</span><span class="verb v-read">HQL ×3</span>
+        <span class="lbl"><span class="kw">from</span> Organization o <span class="kw">left join fetch</span> o.products <span class="kw">where</span> o.group.id = <span class="np">:groupId</span> <span class="meta">· 1 query → 3 SQL statements</span></span>
+        <span class="res">#2–#4</span><span class="ms">174 ms</span></div>
+      <div class="gb">
+        <div class="r"><div class="rh"><span class="chev">▶</span><span class="num">#2</span><span class="verb v-read">SELECT</span><span class="sql1"><span class="kw">SELECT</span> B.PRODUCT_ID <span class="kw">FROM</span> TT_ORGANIZATION A, TT_ORG_PRODUCTS_MAP B <span class="kw">WHERE</span> A.GROUP_ID=<span class="val">'948'</span> …</span><span class="res">4 rows</span><span class="ms">53 ms</span></div></div>
+        <div class="r"><div class="rh"><span class="chev">▶</span><span class="num">#3</span><span class="verb v-read">SELECT</span><span class="sql1"><span class="kw">SELECT</span> … <span class="kw">FROM</span> TT_TS_PRODUCTS <span class="kw">WHERE</span> PRODUCT_ID <span class="kw">IN</span> (<span class="val">1</span>, <span class="val">2</span>, <span class="val">3</span>, <span class="val">4</span>)</span><span class="res">4 rows</span><span class="ms">58 ms</span></div></div>
+        <div class="r"><div class="rh"><span class="chev">▶</span><span class="num">#4</span><span class="verb v-read">SELECT</span><span class="sql1"><span class="kw">SELECT</span> … <span class="kw">FROM</span> TT_ORG_FIN_DETAIL <span class="kw">WHERE</span> ORGANIZATION_ID=<span class="val">948</span></span><span class="res">1 row</span><span class="ms">63 ms</span></div></div>
+      </div>
+    </div>
+
+    <!-- SQL Hibernate generated without any HQL: entity load / flush / lazy collection -->
+    <div class="r">
+      <div class="rh"><span class="chev">▶</span><span class="num">#5</span><span class="verb v-read">SELECT</span>
+        <span class="sql1"><span class="orig auto">LAZY LOAD</span><span style="color:var(--text-dim)">UserGroup.supplierSettings of UserGroup#948</span></span>
+        <span class="res">3 rows</span><span class="ms">57 ms</span></div>
+    </div>
+    <div class="r">
+      <div class="rh"><span class="chev">▶</span><span class="num">#6</span><span class="verb v-write">UPDATE</span>
+        <span class="sql1"><span class="orig auto">FLUSH</span><span style="color:var(--text-dim)">UserGroup#948 · changed: lastLogin</span></span>
+        <span class="res">1 updated</span><span class="ms">4 ms</span></div>
+    </div>
+    <div class="r">
+      <div class="rh"><span class="chev">▶</span><span class="num">#7</span><span class="verb v-read">SELECT</span>
+        <span class="sql1"><span class="orig nat">NATIVE</span><span class="kw">SELECT</span> distinct '' <span class="kw">as</span> agentID, '' <span class="kw">as</span> agentName, gm.GROUP… <span style="color:var(--text-faint)">(createNativeQuery - written as SQL)</span></span>
+        <span class="res">270 rows</span><span class="ms">238 ms</span></div>
+    </div>
+  </div>
+</div>
+<p class="note" style="margin-top:.6rem">"Show rows as <b>HQL</b>" (default when the app uses Hibernate) puts the query your code wrote on each row; "<b>SQL sent</b>" shows what reached the database, as today. "<b>Group by query</b>" folds the several SQL statements one HQL query produced (join fetches, batch loads) under that query - like "Group by transaction". Statements Hibernate made on its own say what they were: <b>LAZY LOAD</b> of a collection, <b>LOAD</b> of an entity by id, <b>FLUSH</b> of changed entities (with the changed fields), <b>NATIVE</b> for createNativeQuery, <b>CRITERIA</b> for the Criteria API.</p>
+
+<!-- ======================= 2. statement detail ======================= -->
+<div class="part"><b>2</b> · Database window - a statement opened</div>
+<div class="win"><div class="body">
+  <div class="r open">
+    <div class="rh"><span class="chev">▼</span><span class="num">#1</span><span class="verb v-read">SELECT</span>
+      <span class="sql1"><span class="orig hql">HQL</span><span class="hqltext"><span class="kw">select</span> g.groupId <span class="kw">as</span> id, g.groupName <span class="kw">as</span> name … <span class="kw">where</span> g.branch.id = <span class="np">:branchId</span></span></span>
+      <span class="res">54 rows</span><span class="ms">347 ms</span></div>
+    <div class="rd">
+      <div class="tabs2"><span class="tab2 on">Statement</span><span class="tab2">Params (1)</span><span class="tab2">Rows (54)</span><span class="tab2">Where in code</span></div>
+      <div class="pair">
+        <div class="card h">
+          <div class="hd"><b>1 · HQL - the query in your code</b><span>named query <code>UserGroup.byBranch</code></span><span class="r2"><button class="btn">Copy HQL</button></span></div>
+          <pre><span class="kw">select</span> g.groupId <span class="kw">as</span> id, g.groupName <span class="kw">as</span> name,
+       org.countryId <span class="kw">as</span> countryId, g.parentGroup <span class="kw">as</span> parent,
+       org.organizationId <span class="kw">as</span> organizationId, org.importPnr <span class="kw">as</span> importPnr
+<span class="kw">from</span> UserGroup g
+<span class="kw">join</span> g.organization org
+<span class="kw">where</span> g.branch.id = <span class="np">:branchId</span></pre>
+          <table class="kv"><tr><th>Parameter</th><th>Value</th><th>Bound to SQL</th></tr><tr><td><span class="np">:branchId</span></td><td>948</td><td class="dim">?1</td></tr></table>
+          <div class="hd" style="border-top:1px solid var(--border);border-bottom:none"><span class="loc">Run at <code>UserGroupDao.findByBranch(UserGroupDao.java:41)</code> · <code>query.list()</code></span></div>
+        </div>
+        <div class="arrow">↓ Hibernate translated it to <b>1 SQL statement</b> (this one)</div>
+        <div class="card">
+          <div class="hd"><b>2 · SQL - what was sent to the database</b><span>values filled in</span><span class="r2"><button class="btn">Copy SQL</button></span></div>
+          <pre><span class="kw">SELECT</span> g.GROUP_ID <span class="kw">AS</span> id, g.GROUP_NAME <span class="kw">AS</span> name, ORG.COUNTRY_ID <span class="kw">AS</span> countryId,
+       g.PARENT_GROUP <span class="kw">AS</span> parent, ORG.ORGANIZATION_ID <span class="kw">AS</span> organizationId,
+       ORG.IMPORT_PNR <span class="kw">AS</span> importPnr
+<span class="kw">FROM</span> TT_USER_GROUP <span class="kw">AS</span> g
+<span class="kw">INNER JOIN</span> TT_ORGANIZATION <span class="kw">AS</span> ORG <span class="kw">ON</span> ORG.GROUP_ID = g.GROUP_ID
+<span class="kw">WHERE</span> g.BRANCH_ID = <span class="val">948</span></pre>
+        </div>
+      </div>
+      <div class="info">Statements with no query of their own say why instead of the HQL card - e.g. <b>Lazy load</b> of <code>UserGroup.supplierSettings</code> for <code>UserGroup#948</code>, triggered at <code>BranchService.settings(BranchService.java:88)</code>; or <b>Flush</b> of <code>UserGroup#948</code>, fields changed: <code>lastLogin</code>.</div>
+    </div>
+  </div>
+</div></div>
+
+<!-- ======================= 2b. SQL written in code ======================= -->
+<div class="part"><b>2b</b> · When the code already wrote SQL</div>
+<div class="win"><div class="body">
+
+  <!-- native query through Hibernate: the code's SQL, then what Hibernate actually sent -->
+  <div class="r open">
+    <div class="rh"><span class="chev">▼</span><span class="num">#7</span><span class="verb v-read">SELECT</span>
+      <span class="sql1"><span class="orig nat">NATIVE</span><span class="kw">select</span> distinct '' <span class="kw">as</span> agentID, '' <span class="kw">as</span> agentName, gm.GROUP_ID <span class="kw">from</span> TT_GROUP_MEMBER gm <span class="kw">where</span> gm.GROUP_ID = <span class="np">:groupId</span></span>
+      <span class="res">270 rows</span><span class="ms">238 ms</span></div>
+    <div class="rd">
+      <div class="tabs2"><span class="tab2 on">Statement</span><span class="tab2">Params (3)</span><span class="tab2">Rows (270)</span><span class="tab2">Where in code</span></div>
+      <div class="pair">
+        <div class="card h" style="border-color:color-mix(in srgb,var(--db) 45%,transparent)">
+          <div class="hd" style="background:color-mix(in srgb,var(--db) 8%,transparent)"><b>1 · SQL in your code</b><span>native query (<code>createNativeQuery</code>) · not HQL</span><span class="r2"><button class="btn">Copy</button></span></div>
+          <pre style="color:#d7f7f2"><span class="kw">select</span> distinct '' <span class="kw">as</span> agentID, '' <span class="kw">as</span> agentName, gm.GROUP_ID
+<span class="kw">from</span> TT_GROUP_MEMBER gm
+<span class="kw">where</span> gm.GROUP_ID = <span class="np">:groupId</span>
+<span class="kw">order by</span> gm.GROUP_ID</pre>
+          <table class="kv"><tr><th>Parameter</th><th>Value</th><th>Bound to SQL</th></tr><tr><td><span class="np">:groupId</span></td><td>948</td><td class="dim">?1</td></tr><tr><td class="dim">page</td><td>first 50, from row 101</td><td class="dim">?2, ?3 - added by Hibernate</td></tr></table>
+          <div class="hd" style="border-top:1px solid var(--border);border-bottom:none"><span class="loc">Run at <code>AgentDao.membersOf(AgentDao.java:77)</code> · <code>query.setFirstResult(100).setMaxResults(50).getResultList()</code></span></div>
+        </div>
+        <div class="arrow">↓ Hibernate <b>rewrote</b> it: named parameter → <code>?</code>, paging wrapped around it (Oracle)</div>
+        <div class="card">
+          <div class="hd"><b>2 · SQL - what was sent to the database</b><span>values filled in · <span style="color:var(--amber)">differs from the code: paging added</span></span><span class="r2"><button class="btn">Copy SQL</button></span></div>
+          <pre><span class="kw">select</span> * <span class="kw">from</span> ( <span class="kw">select</span> row_.*, rownum rownum_ <span class="kw">from</span> (
+  <span class="kw">select</span> distinct '' <span class="kw">as</span> agentID, '' <span class="kw">as</span> agentName, gm.GROUP_ID
+  <span class="kw">from</span> TT_GROUP_MEMBER gm
+  <span class="kw">where</span> gm.GROUP_ID = <span class="val">948</span>
+  <span class="kw">order by</span> gm.GROUP_ID
+) row_ <span class="kw">where</span> rownum &lt;= <span class="val">150</span>) <span class="kw">where</span> rownum_ &gt; <span class="val">100</span></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- plain JDBC: written as SQL, sent as written - one card -->
+  <div class="r open" style="margin-top:.6rem">
+    <div class="rh"><span class="chev">▼</span><span class="num">#9</span><span class="verb v-write">UPDATE</span>
+      <span class="sql1"><span class="orig auto">JDBC</span><span class="kw">UPDATE</span> TT_USER <span class="kw">SET</span> LAST_LOGIN = <span class="val">TIMESTAMP '2026-10-05 02:12:44'</span> <span class="kw">WHERE</span> USER_ID = <span class="val">1042</span></span>
+      <span class="res">1 updated</span><span class="ms">4 ms</span></div>
+    <div class="rd">
+      <div class="tabs2"><span class="tab2 on">Statement</span><span class="tab2">Params (2)</span><span class="tab2">Where in code</span></div>
+      <div class="card">
+        <div class="hd"><b>SQL - written in your code and sent as written</b><span>plain JDBC (<code>prepareStatement</code>) - no Hibernate in between, so there is nothing to translate</span><span class="r2"><button class="btn">Copy SQL</button></span></div>
+        <pre><span class="kw">UPDATE</span> TT_USER
+<span class="kw">SET</span> LAST_LOGIN = <span class="val">TIMESTAMP '2026-10-05 02:12:44'</span>
+<span class="kw">WHERE</span> USER_ID = <span class="val">1042</span></pre>
+        <div class="hd" style="border-top:1px solid var(--border);border-bottom:none"><span class="loc">Run at <code>LoginAudit.touch(LoginAudit.java:23)</code></span></div>
+      </div>
+    </div>
+  </div>
+</div></div>
+<p class="note" style="margin-top:.6rem">Three cases, one rule - <b>what your code wrote</b> on top, <b>what the database received</b> below, and a line saying what changed in between:
+<br>· <span class="h">HQL</span> → translated to SQL (always different).
+<br>· <b>NATIVE</b> SQL through Hibernate → usually the same text with <code>:name</code> parameters turned into <code>?</code>; when Hibernate changed more (paging, <code>{alias.*}</code> expansion, a lock hint) the line says so and the SQL card is marked "differs from the code". When nothing changed but the parameters, the two cards collapse into one.
+<br>· <b>JDBC</b> (or Spring JdbcTemplate, MyBatis…) → written as SQL and sent as written: one card. The row shows the SQL either way, so "Show rows as HQL" only changes HQL rows.</p>
+
+<!-- ======================= 3. export ======================= -->
+<div class="part"><b>3</b> · .html / .md export - the same statement, opened</div>
+<div class="exp">
+  <div class="st">
+    <div class="t"><b>#1</b> SELECT · TT_USER_GROUP · 54 rows · 347 ms</div>
+    <div class="lbl">HQL - named query UserGroup.byBranch · :branchId = 948 · UserGroupDao.findByBranch(UserGroupDao.java:41)</div>
+    <pre style="color:#f5d0fe">select g.groupId as id, g.groupName as name, ... from UserGroup g join g.organization org where g.branch.id = :branchId</pre>
+    <div class="lbl">SQL sent (after transformation)</div>
+    <pre style="color:#d7f7f2">SELECT g.GROUP_ID AS id, ... FROM TT_USER_GROUP AS g INNER JOIN TT_ORGANIZATION AS ORG ON ORG.GROUP_ID = g.GROUP_ID WHERE g.BRANCH_ID = 948</pre>
+  </div>
+</div>
+<p class="note" style="margin-top:.6rem">In the .md the HQL is its own <code>```sql</code> block above the SQL one. The .sql script (Export .sql) stays SQL only - that is what runs - with the HQL as a comment above each statement.</p>
+
+<div class="note"><b>How the agent gets it.</b> Today it only sees JDBC. It would also watch Hibernate's query execution (Hibernate 5 - what WildFly 16 ships - and 6: <code>Query.list / getResultList / uniqueResult / executeUpdate / scroll</code>, named and native queries, Criteria), keep the query text, its name and its named parameters on the thread while the query runs, and tag every SQL statement executed inside with it. Lazy loads, entity loads and flushes are recognised from Hibernate's own events. Nothing changes for apps without Hibernate - the HQL parts simply don't appear. Same Java 8 agent; same "recording only" rule.</div>
+
+</div>
+</body>
+</html>

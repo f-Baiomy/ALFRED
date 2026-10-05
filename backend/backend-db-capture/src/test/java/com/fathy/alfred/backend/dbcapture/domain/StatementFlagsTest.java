@@ -33,7 +33,7 @@ class StatementFlagsTest {
     private static CapturedStatement stmt(int seq, StatementKind kind, String sql, StatementOutcome outcome, long micros, String tx, String param) {
         return new CapturedStatement(seq, "c1", "default task-1", seq, kind, sql, "fp-" + sql.hashCode(), "t",
                 List.of(List.of(TypedValue.of("BIGINT", param))), outcome, "2026-10-04T18:00:00Z", micros, seq * 1000L, tx, "pool-1",
-                null, null, null, null, null, false, false, 0);
+                null, null, null, null, null, false, false, 0, null);
     }
 
     private static CapturedStatement select(int seq, String sql, long rows, long micros, String param) {
@@ -110,7 +110,7 @@ class StatementFlagsTest {
         CapturedStatement delete = new CapturedStatement(1, "c1", "t", 1, StatementKind.DELETE, "DELETE FROM payment_holds WHERE id = ?", "fp", "payment_holds",
                 List.of(List.of(TypedValue.of("BIGINT", "7712"))), outcome(OutcomeKind.UPDATED, null, 1L, null, null), "2026-10-04T18:00:00Z", 100, 100,
                 null, null, null, null, null, new com.fathy.alfred.backend.dbcapture.domain.model.BeforeImage("AGENT_READ", null, 800L, null, 1, List.of()),
-                List.of("hold_items"), false, false, 0);
+                List.of("hold_items"), false, false, 0, null);
         List<DbFlag> flags = StatementFlags.compute(List.of(delete), List.of(), List.of(), DbCaptureSettings.defaults());
         assertThat(types(flags)).containsExactly(DbFlagType.CASCADE);
         assertThat(flags.get(0).detail()).containsEntry("table", "payment_holds").containsEntry("children", "hold_items");

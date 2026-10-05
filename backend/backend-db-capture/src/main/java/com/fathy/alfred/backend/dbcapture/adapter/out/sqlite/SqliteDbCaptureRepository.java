@@ -15,6 +15,7 @@ import com.fathy.alfred.backend.dbcapture.domain.model.DbFlag;
 import com.fathy.alfred.backend.dbcapture.domain.model.IncomingStatement;
 import com.fathy.alfred.backend.dbcapture.domain.model.MarkerType;
 import com.fathy.alfred.backend.dbcapture.domain.model.StatementKind;
+import com.fathy.alfred.backend.dbcapture.domain.model.StatementOrigin;
 import com.fathy.alfred.backend.dbcapture.domain.model.StatementOutcome;
 import com.fathy.alfred.backend.dbcapture.domain.model.StatementTransaction;
 import com.fathy.alfred.backend.dbcapture.domain.model.TraceHit;
@@ -82,7 +83,7 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
 
     private static final String STATEMENT_COLUMNS = "id, call_id, thread_name, seq, kind, sql, fingerprint, table_name, params_json, "
             + "outcome_json, started_at, duration_us, offset_us, tx_id, connection_id, code_location, run_tag, data_source, "
-            + "before_json, cascades_json, undone, expected, stored_rows";
+            + "before_json, cascades_json, undone, expected, stored_rows, origin_json";
 
     private final ObjectMapper objectMapper;
 
@@ -182,6 +183,7 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
                 )
                 """);
         addColumnIfMissing("call_db_summary", "project", "TEXT");
+        addColumnIfMissing("statements", "origin_json", "TEXT");
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS ix_summary_first_seen ON call_db_summary(first_seen)");
         jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS capture_settings (project TEXT PRIMARY KEY, settings_json TEXT NOT NULL)");
         jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS agents (agent_id TEXT PRIMARY KEY, project TEXT NOT NULL, status_json TEXT NOT NULL, last_seen TEXT NOT NULL)");
@@ -212,22 +214,24 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
         String outcome = json(s.outcome());
         String before = s.beforeImage() == null ? null : json(s.beforeImage());
         String cascades = s.cascadesTo() == null || s.cascadesTo().isEmpty() ? null : json(s.cascadesTo());
+        String origin = s.origin() == null ? null : json(s.origin());
         long rowsBytes = 0;
-        long id = insertReturningId(s, params, outcome, before, cascades);
+        long id = insertReturningId(s, params, outcome, before, cascades, origin);
         rowsBytes += insertRows(id, RESULT, s.rowsFrom(), s.rows());
         rowsBytes += insertRows(id, BEFORE_IMAGE, 0, s.beforeImageRows());
         long stored = s.rows() == null ? 0 : s.rows().size();
-        long bytes = s.sql().length() + params.length() + outcome.length() + (before == null ? 0 : before.length()) + rowsBytes;
+        long bytes = s.sql().length() + params.length() + outcome.length() + (before == null ? 0 : before.length())
+                + (origin == null ? 0 : origin.length()) + rowsBytes;
         jdbcTemplate.update("UPDATE statements SET stored_rows = ?, approx_bytes = ? WHERE id = ?", stored, bytes, id);
     }
 
-    private long insertReturningId(IncomingStatement s, String params, String outcome, String before, String cascades) {
+    private long insertReturningId(IncomingStatement s, String params, String outcome, String before, String cascades, String origin) {
         Long id = jdbcTemplate.execute((ConnectionCallback<Long>) connection -> {
             try (PreparedStatement ps = connection.prepareStatement("""
                     INSERT INTO statements (agent_sid, call_id, thread_name, seq, kind, sql, fingerprint, table_name, params_json,
                       outcome_json, started_at, duration_us, offset_us, tx_id, connection_id, code_location, run_tag, data_source,
-                      before_json, cascades_json, approx_bytes)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)
+                      before_json, cascades_json, origin_json, approx_bytes)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)
                     """, Statement.RETURN_GENERATED_KEYS)) {
                 ps.setString(1, s.sid());
                 ps.setString(2, s.callId());
@@ -249,6 +253,7 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
                 ps.setString(18, s.dataSource());
                 ps.setString(19, before);
                 ps.setString(20, cascades);
+                ps.setString(21, origin);
                 ps.executeUpdate();
                 try (ResultSet keys = ps.getGeneratedKeys()) {
                     keys.next();
@@ -464,7 +469,8 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
             rs.getString("connection_id"), rs.getString("code_location"), rs.getString("run_tag"), rs.getString("data_source"),
             readNullable(rs.getString("before_json"), BeforeImage.class),
             rs.getString("cascades_json") == null ? null : read(rs.getString("cascades_json"), STRINGS),
-            rs.getInt("undone") != 0, rs.getInt("expected") != 0, rs.getLong("stored_rows"));
+            rs.getInt("undone") != 0, rs.getInt("expected") != 0, rs.getLong("stored_rows"),
+            readNullable(rs.getString("origin_json"), StatementOrigin.class));
 
     @Override
     public List<CapturedStatement> statementsAfter(String callId, int afterSeq, int limit) {

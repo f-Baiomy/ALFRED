@@ -1,4 +1,5 @@
-import { CapturedStatement, StatementTransaction, SupplierMarker } from '../../core/models/db-capture.model';
+import { CapturedStatement, StatementOrigin, StatementTransaction, SupplierMarker } from '../../core/models/db-capture.model';
+import { queryKeyOf } from './db-origin';
 
 /**
  * The database window's tree (mock: "transactions / repeated queries are parent rows, their statements hang under
@@ -6,7 +7,9 @@ import { CapturedStatement, StatementTransaction, SupplierMarker } from '../../c
  * sequence with:
  *  - each transaction (from its first to its last seq, supplier calls in between included) as a group, and
  *  - each run of the same statement shape repeated at least `repeatThreshold` times in a row as a group, folded at
- *    first ("looks like N+1" / "could be cached").
+ *    first ("looks like N+1" / "could be cached"), and
+ *  - with `groupByQuery`, the SQL statements one HQL/native query produced (join fetches, eager loads during it) under
+ *    that query - only when it produced more than one.
  * Pure: the window re-runs it whenever a page of statements arrives.
  */
 
@@ -25,7 +28,7 @@ export interface DbSupplierNode {
 }
 
 export interface DbGroupNode {
-  readonly type: 'tx' | 'repeat';
+  readonly type: 'tx' | 'repeat' | 'query';
   readonly key: string;
   readonly seq: number;
   readonly children: readonly DbNode[];
@@ -33,6 +36,8 @@ export interface DbGroupNode {
   readonly tx?: StatementTransaction;
   /** Repeats only: the repeated SQL. */
   readonly sql?: string;
+  /** Query groups only: the query the code wrote. */
+  readonly origin?: StatementOrigin;
   readonly rolledBack: boolean;
 }
 
@@ -41,7 +46,10 @@ export function buildStatementTree(
   markers: readonly SupplierMarker[],
   transactions: readonly StatementTransaction[],
   repeatThreshold: number,
+  groupByQuery = false,
 ): DbNode[] {
+  const group = (members: readonly (DbStatementNode | DbSupplierNode)[]) =>
+    groupByQuery ? groupQueries(members, repeatThreshold) : groupRepeats(members, repeatThreshold);
   const flat: (DbStatementNode | DbSupplierNode)[] = [
     ...statements.map((s) => ({ type: 'stmt' as const, seq: s.seq, statement: s })),
     ...markers.map((m) => ({ type: 'supplier' as const, seq: m.seq, marker: m })),
@@ -63,14 +71,14 @@ export function buildStatementTree(
         key: `tx:${tx.txId}`,
         seq: members[0].seq,
         tx,
-        children: groupRepeats(members, repeatThreshold),
+        children: group(members),
         rolledBack: tx.outcome === 'ROLLED_BACK',
       });
       t++;
     } else {
       const members: (DbStatementNode | DbSupplierNode)[] = [];
       while (i < flat.length && !(tx && flat[i].seq >= tx.firstSeq)) members.push(flat[i++]);
-      out.push(...groupRepeats(members, repeatThreshold));
+      out.push(...group(members));
     }
   }
   return out;
@@ -81,6 +89,42 @@ function shapeOf(node: DbStatementNode | DbSupplierNode): string | null {
   const s = node.statement;
   if (s.kind === 'COMMIT' || s.kind === 'ROLLBACK') return null;
   return s.fingerprint || s.sql;
+}
+
+/** Runs of statements made by one query execution become a group (when more than one); the rest is grouped by repeats. */
+function groupQueries(nodes: readonly (DbStatementNode | DbSupplierNode)[], threshold: number): DbNode[] {
+  const out: DbNode[] = [];
+  let pending: (DbStatementNode | DbSupplierNode)[] = [];
+  const flush = () => {
+    out.push(...groupRepeats(pending, threshold));
+    pending = [];
+  };
+  let i = 0;
+  while (i < nodes.length) {
+    const node = nodes[i];
+    const key = node.type === 'stmt' ? queryKeyOf(node.statement) : null;
+    let j = i + 1;
+    if (key) while (j < nodes.length && nodes[j].type === 'stmt' && queryKeyOf((nodes[j] as DbStatementNode).statement) === key) j++;
+    if (key && j - i >= 2) {
+      flush();
+      const members = nodes.slice(i, j) as DbStatementNode[];
+      const query = members.find((m) => m.statement.origin?.id === key)?.statement.origin;
+      out.push({
+        type: 'query',
+        key: `q:${key}`,
+        seq: members[0].seq,
+        origin: query ?? members[0].statement.origin ?? undefined,
+        children: groupRepeats(members, threshold),
+        rolledBack: false,
+      });
+      i = j;
+    } else {
+      pending.push(node);
+      i++;
+    }
+  }
+  flush();
+  return out;
 }
 
 function groupRepeats(nodes: readonly (DbStatementNode | DbSupplierNode)[], threshold: number): DbNode[] {
@@ -119,7 +163,7 @@ export function statementsOf(node: DbNode): CapturedStatement[] {
 /** Group keys from the root down to the node holding `seq` - what must be unfolded to show it. */
 export function pathTo(nodes: readonly DbNode[], seq: number): string[] {
   for (const node of nodes) {
-    if (node.type === 'tx' || node.type === 'repeat') {
+    if (node.type === 'tx' || node.type === 'repeat' || node.type === 'query') {
       if (node.children.some((c) => c.seq === seq)) return [node.key];
       const inner = pathTo(node.children, seq);
       if (inner.length) return [node.key, ...inner];
@@ -134,7 +178,7 @@ export function initiallyFolded(nodes: readonly DbNode[]): Set<string> {
   const walk = (list: readonly DbNode[]) => {
     for (const n of list) {
       if (n.type === 'repeat' || n.type === 'tx') keys.add(n.key);
-      if (n.type === 'tx' || n.type === 'repeat') walk(n.children);
+      if (n.type === 'tx' || n.type === 'repeat' || n.type === 'query') walk(n.children);
     }
   };
   walk(nodes);

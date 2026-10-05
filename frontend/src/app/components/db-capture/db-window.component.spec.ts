@@ -92,4 +92,35 @@ describe('DbWindowComponent', () => {
     expect(fixture.nativeElement.querySelectorAll('.r').length).toBe(2);
     localStorage.removeItem('alfred.dbCapture.groupByTransaction');
   });
+
+  it('shows the HQL a statement came from, the SQL sent on request, and both in the detail', () => {
+    localStorage.removeItem('alfred.dbCapture.rowsAs');
+    const origin = { id: 'a:q1', kind: 'HQL' as const, text: 'from Org o where o.id = :id', method: 'list', params: [{ name: ':id', value: '948' }] };
+    statements = jasmine.createSpy('statements').and.returnValue(of({
+      ...pageOf(),
+      statements: [
+        stmt(1, 'SELECT', 'SELECT o.NAME FROM TT_ORG o WHERE o.ID = ?', { params: [[{ type: 'BIGINT', value: '948' }]], origin }),
+        stmt(2, 'UPDATE', 'UPDATE TT_USER SET X = 1'),
+      ],
+    }));
+    const fixture = create();
+    fixture.detectChanges(); // the window publishes "this call has origins" from an effect
+    const rows = fixture.nativeElement.querySelectorAll('.r .sql1');
+    expect(rows[0].textContent).toContain('HQL');
+    expect(rows[0].textContent).toContain('from Org o where o.id = :id');
+    expect(rows[1].textContent).toContain('JDBC');
+
+    fixture.componentInstance.setRowsAs('sql');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.r .sql1').textContent).toContain('WHERE o.ID = 948');
+
+    fixture.nativeElement.querySelector('.rh').click();
+    fixture.detectChanges();
+    const cards = fixture.nativeElement.querySelectorAll('.oc-card');
+    expect(cards.length).toBe(2);
+    expect(cards[0].textContent).toContain('HQL - the query in your code');
+    expect(cards[0].textContent).toContain(':id');
+    expect(cards[1].textContent).toContain('WHERE o.ID = 948');
+    localStorage.removeItem('alfred.dbCapture.rowsAs');
+  });
 });

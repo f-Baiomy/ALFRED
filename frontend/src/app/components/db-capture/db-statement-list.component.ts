@@ -1,9 +1,11 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, output } from '@angular/core';
 import { CallRecord } from '../../core/models/call.model';
-import { CapturedStatement } from '../../core/models/db-capture.model';
+import { CapturedStatement, StatementOrigin } from '../../core/models/db-capture.model';
 import { DbGroupNode, DbNode, DbSupplierNode, statementsOf } from '../../shared/utils/db-statement-tree';
 import { isWrite, msText, resultText, verbClass, verbOf } from '../../shared/utils/db-statement-display';
 import { DbSqlComponent } from './db-sql.component';
+import { DbQueryTextComponent } from './db-query-text.component';
+import { OriginBadge, originBadge, originSummary } from '../../shared/utils/db-origin';
 import { DbStatementDetailComponent } from './db-statement-detail.component';
 import { DbWindowState } from './db-window-state';
 
@@ -16,7 +18,7 @@ import { DbWindowState } from './db-window-state';
   standalone: true,
   selector: 'app-db-statement-list',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DbSqlComponent, DbStatementDetailComponent],
+  imports: [DbSqlComponent, DbQueryTextComponent, DbStatementDetailComponent],
   template: `
     @for (node of nodes(); track node.type + node.seq) {
       @switch (node.type) {
@@ -29,7 +31,7 @@ import { DbWindowState } from './db-window-state';
                 <span class="chev">▶</span>
                 <span class="num">#{{ s.seq }}</span>
                 <span class="verb" [class]="verbClass(s)">{{ verbOf(s) }}</span>
-                <span class="sql1">@if (s.params.length > 1) {<span class="mark bt" [title]="'executeBatch - ' + s.params.length + ' parameter sets in one round trip'">BATCH ×{{ s.params.length }}</span>}<app-db-sql [sql]="s.sql" [params]="s.params[0]" [filled]="state.fill()" /></span>
+                <span class="sql1">@if (badge(s); as b) {<span class="orig" [class]="b.cls" [title]="b.title">{{ b.label }}</span>}@if (s.params.length > 1) {<span class="mark bt" [title]="'executeBatch - ' + s.params.length + ' parameter sets in one round trip'">BATCH ×{{ s.params.length }}</span>}@if (asOrigin(s)) {@if (s.origin.text) {<span class="hqltext"><app-db-query-text [text]="s.origin.text" [oneLine]="true" /></span>} @else {<span class="dimtxt">{{ summary(s.origin) }}</span>}} @else {<app-db-sql [sql]="s.sql" [params]="s.params[0]" [filled]="state.fill()" />}</span>
                 <span class="res">{{ resultText(s) }}</span>
                 <span class="ms" [class.mid]="s.durationMicros > 5000">{{ msText(s.durationMicros) }}</span>
                 <span class="off">+{{ offset(s.offsetMicros) }} ms</span>
@@ -61,13 +63,16 @@ import { DbWindowState } from './db-window-state';
         @default {
           @let g = $any(node);
           @if (visibleCount(g) > 0) {
-            <div class="g" [class.repeat]="g.type === 'repeat'" [class.rolled]="g.rolledBack" [class.closed]="isFolded(g)">
+            <div class="g" [class.repeat]="g.type === 'repeat'" [class.query]="g.type === 'query'" [class.rolled]="g.rolledBack" [class.closed]="isFolded(g)">
               <div class="rh" (click)="state.toggleFold(g.key)" [attr.data-group]="g.key">
                 <span class="chev">▶</span>
                 <span class="num">#{{ g.seq }}</span>
                 @if (g.type === 'tx') {
                   <span class="verb" [class]="g.rolledBack ? 'v-fail' : 'v-tx'">TX</span>
                   <span class="lbl">{{ txLabel(g) }} <span class="meta">· {{ stmts(g).length }} statements · {{ writes(g) }} writes · held {{ msText(g.tx.heldMicros) }}</span></span>
+                } @else if (g.type === 'query') {
+                  <span class="verb v-hql">{{ queryLabel(g) }} ×{{ stmts(g).length }}</span>
+                  <span class="lbl">@if (g.origin?.text) {<app-db-query-text [text]="g.origin.text" [oneLine]="true" />} @else {{{ groupSummary(g) }}} <span class="meta">· 1 query → {{ stmts(g).length }} SQL statements</span></span>
                 } @else {
                   <span class="verb" [class]="verbClass(stmts(g)[0])">{{ verbOf(stmts(g)[0]) }}</span>
                   <span class="lbl"><app-db-sql [sql]="g.sql" [filled]="false" /> <span class="rep">×{{ stmts(g).length }}</span></span>
@@ -100,6 +105,28 @@ export class DbStatementListComponent {
   protected readonly msText = msText;
 
   private readonly anyFiltering = computed(() => this.state.filtering());
+
+  badge(s: CapturedStatement): OriginBadge | null {
+    return originBadge(s, this.state.hasOrigins());
+  }
+
+  /** "Show rows as HQL": the row shows what the code wrote (or what Hibernate did) instead of the SQL. */
+  asOrigin(s: CapturedStatement): boolean {
+    return this.state.rowsAs() === 'hql' && !!s.origin && s.origin.kind !== 'HIBERNATE';
+  }
+
+  summary(o: StatementOrigin): string {
+    return originSummary(o);
+  }
+
+  groupSummary(g: DbGroupNode): string {
+    return g.origin ? originSummary(g.origin) : 'query';
+  }
+
+  queryLabel(g: DbGroupNode): string {
+    const kind = g.origin?.kind;
+    return kind === 'NATIVE' ? 'NATIVE' : kind === 'CRITERIA' ? 'CRITERIA' : kind === 'HQL' ? 'HQL' : 'QUERY';
+  }
 
   isOpen(s: CapturedStatement): boolean {
     return this.state.open().has(s.seq);

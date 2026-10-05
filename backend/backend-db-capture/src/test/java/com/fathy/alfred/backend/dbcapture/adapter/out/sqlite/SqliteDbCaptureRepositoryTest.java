@@ -10,6 +10,7 @@ import com.fathy.alfred.backend.dbcapture.domain.model.DbCaptureSettings;
 import com.fathy.alfred.backend.dbcapture.domain.model.IncomingStatement;
 import com.fathy.alfred.backend.dbcapture.domain.model.MarkerType;
 import com.fathy.alfred.backend.dbcapture.domain.model.StatementKind;
+import com.fathy.alfred.backend.dbcapture.domain.model.StatementOrigin;
 import com.fathy.alfred.backend.dbcapture.domain.model.StatementTransaction;
 import com.fathy.alfred.backend.dbcapture.domain.model.TypedValue;
 import org.junit.jupiter.api.AfterEach;
@@ -60,13 +61,27 @@ class SqliteDbCaptureRepositoryTest {
     }
 
     @Test
+    void keepsTheOrmOriginOfAStatement() {
+        IncomingStatement plain = Fixtures.select("a:1", "call-1", 1, 1);
+        StatementOrigin origin = new StatementOrigin("a:q1", "HQL", "from Org o where o.id = :id", "Org.byId", "list",
+                List.of(new StatementOrigin.Param(":id", "948")), null, 50, null, null, null, null, null, null);
+        IncomingStatement hql = new IncomingStatement("a:2", "call-1", null, plain.thread(), 2, plain.kind(), plain.sql(), plain.fingerprint(),
+                plain.table(), plain.params(), plain.outcome(), plain.rows(), 0, null, null, plain.startedAt(), 10, 20, null, null, null, null,
+                null, origin);
+        repo.saveStatements(List.of(plain, hql));
+        List<CapturedStatement> stored = repo.allStatements("call-1", 10);
+        assertThat(stored.get(0).origin()).isNull();
+        assertThat(stored.get(1).origin()).isEqualTo(origin);
+    }
+
+    @Test
     void rowsArePagedAndContinuationChunksAppend() {
         IncomingStatement first = Fixtures.select("a:1", "call-1", 1, 500);
         repo.saveStatements(List.of(first));
         IncomingStatement more = new IncomingStatement(first.sid(), first.callId(), null, first.thread(), first.seq(), first.kind(), first.sql(),
                 first.fingerprint(), first.table(), first.params(), Fixtures.rows(first.outcome().columns(), 700),
                 Fixtures.select("x", "call-1", 1, 200).rows(), 500, null, null, first.startedAt(), first.durationMicros(),
-                first.offsetMicros(), null, first.connectionId(), first.codeLocation(), first.dataSource(), null);
+                first.offsetMicros(), null, first.connectionId(), first.codeLocation(), first.dataSource(), null, null);
         repo.saveStatements(List.of(more));
 
         long id = repo.allStatements("call-1", 10).get(0).id();

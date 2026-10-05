@@ -10,6 +10,7 @@ import { DbHideColumnComponent } from './db-hide-column.component';
 import { DbRowsTableComponent } from './db-rows-table.component';
 import { paramColumns } from '../../shared/utils/sql-param-columns';
 import { DbSqlComponent } from './db-sql.component';
+import { DbOriginCardsComponent } from './db-origin-cards.component';
 import { DbDetailTab, DbWindowState } from './db-window-state';
 
 interface TabDef {
@@ -25,7 +26,7 @@ interface TabDef {
   standalone: true,
   selector: 'app-db-statement-detail',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DbSqlComponent, DbRowsTableComponent, DbHideColumnComponent, NgTemplateOutlet],
+  imports: [DbSqlComponent, DbRowsTableComponent, DbHideColumnComponent, DbOriginCardsComponent, NgTemplateOutlet],
   template: `
     <div class="rd">
       <div class="tabs2">
@@ -86,9 +87,13 @@ interface TabDef {
           }
         }
         @case ('sql') {
+          @if (state.hasOrigins()) {
+            <app-db-origin-cards [statement]="statement()" />
+          } @else {
           <div class="sqlb"><app-db-sql [sql]="statement().sql" [params]="statement().params[0]" [filled]="state.fill()" [pretty]="true" /></div>
           @if (batch()) {
             <div class="dimline">Sent once with executeBatch - {{ statement().params.length }} parameter sets. Shown with set 1; see Params for all.</div>
+          }
           }
         }
         @case ('params') {

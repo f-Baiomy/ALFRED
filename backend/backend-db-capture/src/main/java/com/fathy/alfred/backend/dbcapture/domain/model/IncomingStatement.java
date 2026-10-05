@@ -30,6 +30,7 @@ public record IncomingStatement(
         String connectionId,
         String codeLocation,
         String dataSource,
-        List<String> cascadesTo
+        List<String> cascadesTo,
+        StatementOrigin origin
 ) {
 }

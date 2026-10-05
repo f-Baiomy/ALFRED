@@ -1,6 +1,7 @@
 import { CapturedStatement } from '../../core/models/db-capture.model';
 import { errorLabel, isTxEnd, msText, resultText } from './db-statement-display';
 import { sqlText } from './sql-render';
+import { isQueryOrigin, originExplanation, originExportLabel } from './db-origin';
 
 export interface SqlScriptHeader {
   readonly method?: string;
@@ -32,6 +33,7 @@ export function buildSqlScript(statements: readonly CapturedStatement[], header:
     }
     const meta = `-- #${s.seq} · ${resultText(s)} · ${msText(s.durationMicros)}${s.codeLocation ? ` · ${s.codeLocation}` : ''}`;
     lines.push(meta);
+    lines.push(...originComment(s));
     const sets = s.params.length ? s.params : [[]];
     const text = isTxEnd(s) && !s.sql.trim() ? s.kind : sets.map((set) => withSemicolon(sqlText(s.sql, set, true))).join('\n');
     if (s.outcome.kind === 'FAILED') {
@@ -49,4 +51,13 @@ export function buildSqlScript(statements: readonly CapturedStatement[], header:
 function withSemicolon(sql: string): string {
   const trimmed = sql.trimEnd();
   return trimmed.endsWith(';') ? trimmed : `${trimmed};`;
+}
+
+/** What the code wrote, as comments above the SQL - the script stays SQL only, since that is what runs. */
+function originComment(s: CapturedStatement): string[] {
+  const o = s.origin;
+  if (!o) return [];
+  if (!isQueryOrigin(o)) return [`-- ${originExplanation(o)}`];
+  const head = `-- ${originExportLabel(s).replace(` · ${s.codeLocation}`, '')}:`;
+  return [head, ...(o.text ?? '').split('\n').map((l) => `--   ${l}`)];
 }

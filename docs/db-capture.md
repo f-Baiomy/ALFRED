@@ -78,6 +78,38 @@ Redaction: values are never hidden in Alfred itself. A `db-column` redaction (�
 listed under Settings → Database capture) masks that column in exported result rows, before-images and the
 parameters bound to it (`sql-param-columns.ts`: INSERT column lists, `SET col = ?`, `WHERE col = ?`).
 
+## Where a statement came from (HQL, native SQL, JDBC)
+
+Design: `specs/006-db-capture/hql-mock.html`. When the application uses Hibernate (4, 5 or 6, directly or through
+JPA), the agent also records the query **as the code wrote it** and tags every SQL statement executed while it runs
+with that `origin`:
+
+- **Queries** - `list / getResultList / uniqueResult / getSingleResult / executeUpdate / scroll / stream / iterate` on
+  Hibernate's and JPA's query types: kind `HQL`, `NATIVE` (createNativeQuery/createSQLQuery, stored procedures) or
+  `CRITERIA`, the text (`getQueryString`), the named-query name (from `createNamedQuery/getNamedQuery`), the bound
+  parameters by name or position (from the `setParameter*` / typed setters), `setFirstResult/setMaxResults`, and the
+  method the code called. Getters are reached by reflection and class NAME - no Hibernate version is a dependency.
+- **Events** - Hibernate making SQL with no query of the code's: `LAZY_LOAD` (DefaultInitializeCollectionEventListener:
+  role + owner id), `LOAD` (DefaultLoadEventListener: entity + id), `FLUSH` (the flush listeners, and each
+  `EntityAction`/`CollectionAction.execute()` with INSERT/UPDATE/DELETE and, for an UPDATE, the changed properties).
+  An event that runs inside a query names it in `parentId` - "Group by query" folds it under that query.
+- **`HIBERNATE`** - SQL with Hibernate frames on the stack but no tracked query or event (a sequence's next value).
+- **No origin** - plain JDBC (JdbcTemplate, MyBatis, `session.doWork`): written as SQL and sent as written. The
+  window labels it `JDBC` only in a call where an ORM made other statements.
+
+Frames are a per-thread stack; the innermost wins. A nested execution of the same query (getResultList → list, a JPA
+wrapper → Hibernate's query) is folded into the outer frame. Parameter values are rendered without calling an
+application object's `toString` (an entity's could load lazily): JDK values print as they are, anything else as
+`<ClassName>`. Stored in `statements.origin_json`; exported in `.json` and re-imported; `db-column` redactions mask
+the named parameters too (by name, or by a value the SQL parameters had masked).
+
+The window: an `HQL`/`NATIVE`/`CRITERIA`/`LAZY LOAD`/`LOAD`/`FLUSH`/`JDBC` badge per row, "Show rows as HQL | SQL
+sent", "Group by query", and in the Statement tab the code's query on top, the SQL sent below and a line saying what
+Hibernate changed (a native query whose only change was `:name → ?` is one card). The .md/.html export shows the HQL
+block above the SQL; Export .sql keeps SQL only, with the HQL as a comment above each statement.
+
+Verified by `db-agent`'s `HibernateOriginIT` (Hibernate 5.6 + H2, Java 8 and 21).
+
 ## Exports
 
 `.md` and `.html` get a "Database" section per captured call (every statement with its values, transactions,

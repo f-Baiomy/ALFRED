@@ -83,6 +83,14 @@
       @if (call()) {
         <label class="chk" title="Off: every statement in one plain list, in the order it ran"><input type="checkbox" [checked]="grouped()" (change)="setGrouped(!grouped())"> Group by transaction</label>
       }
+      @if (hasOrigins()) {
+        <label class="chk" title="The several SQL statements one HQL query produced (join fetches, eager loads) under that query"><input type="checkbox" [checked]="groupedByQuery()" (change)="setGroupedByQuery(!groupedByQuery())"> Group by query</label>
+        <span class="lbl-sm">Show rows as</span>
+        <div class="toggle" title="HQL: the query your code wrote. SQL sent: what reached the database.">
+          <button type="button" [class.on]="state.rowsAs() === 'hql'" (click)="setRowsAs('hql')">HQL</button>
+          <button type="button" [class.on]="state.rowsAs() === 'sql'" (click)="setRowsAs('sql')">SQL sent</button>
+        </div>
+      }
       <button type="button" class="action-btn" (click)="expandAll()">Expand all</button>
       <button type="button" class="action-btn" (click)="collapseAll()">Collapse all</button>
     </div>

@@ -113,7 +113,7 @@ class SqliteDbCaptureLifecycleTest {
     @Test
     void reliveRunStatementsAreDeletedByRunAndSurviveTheSizeCap() {
         IncomingStatement tagged = new IncomingStatement("a:9", "run-call", "run_1/step-a", "t", 1, StatementKind.SELECT, "SELECT 1", "fp", null,
-                List.of(), Fixtures.updated(0), null, 0, null, null, "2026-10-04T18:00:00Z", 10, 10, null, null, null, null, null);
+                List.of(), Fixtures.updated(0), null, 0, null, null, "2026-10-04T18:00:00Z", 10, 10, null, null, null, null, null, null);
         ingest(List.of(Fixtures.select("a:1", "old", 1, 50), tagged), List.of());
 
         DbCaptureRetention retention = new DbCaptureRetention(repo, Optional.of(() -> Set.of()), Optional.empty(), 1);

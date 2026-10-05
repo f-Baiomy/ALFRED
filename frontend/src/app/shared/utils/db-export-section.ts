@@ -5,6 +5,9 @@ import { flagText } from './db-flags';
 import { msText, resultText, valueText, verbOf } from './db-statement-display';
 import { DbGroupNode, DbNode, buildStatementTree, statementsOf } from './db-statement-tree';
 import { renderSql, sqlText } from './sql-render';
+import {
+  hasOrigins, isQueryOrigin, nativeComparison, originBadge, originExplanation, originExportLabel, originSummary, translationLine,
+} from './db-origin';
 
 /**
  * The "Database" section of a call in the .md and .html exports (specs/006-db-capture/export-mock.html): ONE closed
@@ -30,10 +33,12 @@ function stats(capture: CallDbCapture) {
   };
 }
 
+/** Statements made by one HQL query are grouped under it whenever the capture has origins (as the window does by default). */
 function treeOf(capture: CallDbCapture): DbNode[] {
+  const byQuery = hasOrigins(capture.statements);
   return capture.layout === 'flat'
-    ? buildStatementTree(capture.statements, capture.supplierMarkers ?? [], [], Number.MAX_SAFE_INTEGER)
-    : buildStatementTree(capture.statements, capture.supplierMarkers ?? [], capture.transactions, REPEAT_THRESHOLD);
+    ? buildStatementTree(capture.statements, capture.supplierMarkers ?? [], [], Number.MAX_SAFE_INTEGER, byQuery)
+    : buildStatementTree(capture.statements, capture.supplierMarkers ?? [], capture.transactions, REPEAT_THRESHOLD, byQuery);
 }
 
 function statementSql(s: ExportedDbStatement): string {
@@ -62,6 +67,11 @@ function groupLabel(g: DbGroupNode): string {
   const all = statementsOf(g);
   const range = `#${g.seq}–#${all[all.length - 1]?.seq ?? g.seq}`;
   if (g.type === 'repeat') return `${verbOf(all[0])} ${all[0].table ?? ''} ×${all.length} · ${range}`.replace(/\s+/g, ' ');
+  if (g.type === 'query') {
+    const o = g.origin;
+    const what = o?.text ? o.text.replace(/\s+/g, ' ') : o ? originSummary(o) : 'query';
+    return `${o?.kind ?? 'Query'} ${what} · 1 query → ${all.length} SQL statements · ${range}`;
+  }
   const tx = g.tx!;
   const outcome = tx.outcome === 'ROLLED_BACK' ? 'rolled back - nothing in it was saved' : tx.outcome === 'OPEN' ? 'never ended' : 'committed';
   const writes = all.filter((x) => ['INSERT', 'UPDATE', 'DELETE', 'MERGE'].includes(x.kind)).length;
@@ -99,12 +109,28 @@ function verbClass(s: ExportedDbStatement): string {
   return 'v-read';
 }
 
-function statementHtml(s: ExportedDbStatement, id: string, bySeq: ReadonlyMap<number, ExportedDbStatement>): string {
+/** What the code wrote above the SQL (mock: hql-mock.html part 3) - or, for SQL Hibernate made itself, why. */
+function originHtml(s: ExportedDbStatement, orm: boolean, sqlCount: number): { before: string; sqlLabel: string } {
+  const o = s.origin;
+  if (!o) return { before: '', sqlLabel: orm ? 'SQL - written in the code and sent as written (JDBC)' : 'Statement' };
+  if (!isQueryOrigin(o)) return { before: `<div class="where">${esc(originExplanation(o))}</div>`, sqlLabel: 'SQL Hibernate sent' };
+  if (o.kind === 'NATIVE' && nativeComparison(o, s.sql) !== 'changed') {
+    return { before: `<div class="lbl ol">${esc(originExportLabel(s))}</div>`, sqlLabel: 'SQL - native query, sent as written (named parameters became ?)' };
+  }
+  return {
+    before: `<div class="lbl ol">${esc(originExportLabel(s))}</div><pre class="sql hql">${esc(o.text ?? '')}</pre>`,
+    sqlLabel: `SQL sent (after transformation) - ${translationLine(o, s.sql, sqlCount).replace(/^Hibernate /, '')}`,
+  };
+}
+
+function statementHtml(s: ExportedDbStatement, id: string, bySeq: ReadonlyMap<number, ExportedDbStatement>, orm: boolean): string {
   const failed = s.outcome.kind === 'FAILED';
   const noWhere = (s.kind === 'DELETE' || s.kind === 'UPDATE') && !/\bWHERE\b/i.test(s.sql.replace(/'(?:[^']|'')*'/g, "''"));
   const slow = s.durationMicros > 5000;
   const parts: string[] = [];
-  parts.push(`<div class="lbl">Statement</div><pre class="sql">${sqlHtml(s.sql, s.params[0], true)}</pre>`);
+  const sqlCount = s.origin ? [...bySeq.values()].filter((x) => x.origin?.id === s.origin!.id).length : 1;
+  const origin = originHtml(s, orm, sqlCount);
+  parts.push(`${origin.before}<div class="lbl">${esc(origin.sqlLabel)}</div><pre class="sql">${sqlHtml(s.sql, s.params[0], true)}</pre>`);
   if (s.params.length > 1) {
     parts.push(`<div class="lbl">Sent with executeBatch - ${s.params.length} parameter sets</div><pre class="sql">${esc(statementSql(s))}</pre>`);
   }
@@ -143,20 +169,22 @@ function statementHtml(s: ExportedDbStatement, id: string, bySeq: ReadonlyMap<nu
   if (s.codeLocation) parts.push(`<div class="where">Called from <code>${esc(s.codeLocation)}</code> · thread ${esc(s.thread)} · +${(s.offsetMicros / 1000).toFixed(0)} ms</div>`);
 
   const cls = ['st', failed || noWhere ? 'fail' : '', s.undone ? 'undone' : ''].filter(Boolean).join(' ');
+  const badge = originBadge(s, orm);
+  const mark = badge ? `<span class="orig ${badge.cls}" title="${esc(badge.title)}">${esc(badge.label)}</span>` : '';
   return `<details class="${cls}" id="${id}"><summary><span class="num">#${s.seq}</span><span class="verb ${verbClass(s)}">${esc(verbOf(s))}</span>` +
-    `<span class="sql1">${sqlHtml(s.sql, s.params[0], false)}</span><span class="res">${esc(resultText(s))}</span>` +
+    `<span class="sql1">${mark}${sqlHtml(s.sql, s.params[0], false)}</span><span class="res">${esc(resultText(s))}</span>` +
     `<span class="ms${slow ? ' slow' : ''}">${msText(s.durationMicros)}</span></summary><div class="d">${parts.join('')}</div></details>`;
 }
 
-function nodesHtml(nodes: readonly DbNode[], prefix: string, bySeq: ReadonlyMap<number, ExportedDbStatement>): string {
+function nodesHtml(nodes: readonly DbNode[], prefix: string, bySeq: ReadonlyMap<number, ExportedDbStatement>, orm: boolean): string {
   return nodes.map((n) => {
-    if (n.type === 'stmt') return statementHtml(n.statement as ExportedDbStatement, `${prefix}-s${n.seq}`, bySeq);
+    if (n.type === 'stmt') return statementHtml(n.statement as ExportedDbStatement, `${prefix}-s${n.seq}`, bySeq, orm);
     if (n.type === 'supplier') {
       return `<div class="sup" id="${prefix}-s${n.seq}"><span class="num">#${n.seq}</span>↗ ${esc(n.marker.method ?? 'HTTP')} ${esc(n.marker.url ?? '')}</div>`;
     }
-    const cls = n.type === 'repeat' ? 'grp rep' : `grp${n.rolledBack ? ' rolled' : ''}`;
-    const id = n.type === 'tx' ? `${prefix}-tx-${(n.tx?.txId ?? '').replace(/[^\w-]/g, '')}` : `${prefix}-rep${n.seq}`;
-    return `<details class="${cls}" id="${id}"><summary>${esc(groupLabel(n))}</summary>${nodesHtml(n.children, prefix, bySeq)}</details>`;
+    const cls = n.type === 'repeat' ? 'grp rep' : n.type === 'query' ? 'grp qry' : `grp${n.rolledBack ? ' rolled' : ''}`;
+    const id = n.type === 'tx' ? `${prefix}-tx-${(n.tx?.txId ?? '').replace(/[^\w-]/g, '')}` : n.type === 'query' ? `${prefix}-q${n.seq}` : `${prefix}-rep${n.seq}`;
+    return `<details class="${cls}" id="${id}"><summary>${esc(groupLabel(n))}</summary>${nodesHtml(n.children, prefix, bySeq, orm)}</details>`;
   }).join('');
 }
 
@@ -204,7 +232,7 @@ export function dbSectionHtml(call: CallRecord): string {
       capture.layout === 'flat' ? 'Listed one by one, not grouped by transaction' : 'Transactions and repeated queries start closed'} - open a row for its SQL, parameters and rows.</p>` +
     flags +
     `<div class="tools"><button type="button" data-db-all="open">Open all statements</button><button type="button" data-db-all="close">Close all</button></div>` +
-    `<div class="stmts">${nodesHtml(treeOf(capture), prefix, bySeq)}</div></div></details>`;
+    `<div class="stmts">${nodesHtml(treeOf(capture), prefix, bySeq, hasOrigins(capture.statements))}</div></div></details>`;
 }
 
 /** The DB column of the export's summary table: "◆ 49" for a call that carries statements. */
@@ -274,6 +302,13 @@ export const DB_SECTION_STYLE = `
 .dbx .grp > summary { cursor: pointer; list-style: none; font-size: 12.5px; padding: .3rem .2rem; color: var(--green); font-weight: 600; }
 .dbx .grp.rolled > summary { color: var(--red); }
 .dbx .grp.rep > summary { color: var(--amber); }
+.dbx .grp.qry { border-left-color: rgba(240,171,252,.55); }
+.dbx .grp.qry > summary { color: #f5d0fe; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dbx .orig { display: inline-block; font-family: inherit; font-size: 10px; font-weight: 700; padding: 0 5px; border-radius: 4px; margin-right: 6px; vertical-align: 1px; }
+.dbx .orig.hql { color: #3b0a3f; background: #f0abfc; } .dbx .orig.nat { color: #0b2a2a; background: #2dd4bf; }
+.dbx .orig.auto { color: var(--text-dim); border: 1px solid var(--border); }
+.dbx .lbl.ol { text-transform: none; letter-spacing: 0; font-size: 12px; font-weight: 500; color: #f5d0fe; }
+.dbx pre.sql.hql { color: #f5d0fe; border-color: rgba(240,171,252,.35); }
 .dbx .grp > summary::before { content: "▸ "; } .dbx .grp[open] > summary::before { content: "▾ "; }
 .dbx .sup { display: flex; gap: .6rem; align-items: center; font-size: 12px; padding: .3rem .6rem; margin: 4px 0; border-top: 1px dashed rgba(126,227,216,.35); border-bottom: 1px dashed rgba(126,227,216,.35); color: var(--cyan); font-family: "SFMono-Regular", Consolas, monospace; overflow-wrap: anywhere; }
 @media (max-width: 640px) { .dbx .st > summary { grid-template-columns: 34px 66px minmax(0,1fr) 54px; } .dbx .st > summary .res { display: none; } }
@@ -342,7 +377,16 @@ function overviewRows(nodes: readonly DbNode[], out: string[]): void {
 }
 
 function statementMd(s: ExportedDbStatement, bySeq: ReadonlyMap<number, ExportedDbStatement>): string[] {
-  const lines: string[] = ['<details>', `<summary>#${s.seq} ${mdCell(verbOf(s))} ${mdCell(s.table ?? '')} · ${mdCell(resultText(s))} · ${msText(s.durationMicros)}${s.undone ? ' · undone' : ''}</summary>`, ''];
+  const lines: string[] = ['<details>', `<summary>#${s.seq} ${s.origin ? mdCell(originBadge(s, true)?.label ?? '') + ' ' : ''}${mdCell(verbOf(s))} ${mdCell(s.table ?? '')} · ${mdCell(resultText(s))} · ${msText(s.durationMicros)}${s.undone ? ' · undone' : ''}</summary>`, ''];
+  const o = s.origin;
+  if (o && isQueryOrigin(o)) {
+    lines.push(`**${mdCell(originExportLabel(s))}**`, '');
+    if (o.kind !== 'NATIVE' || nativeComparison(o, s.sql) === 'changed') {
+      lines.push(fence(o.text ?? '', 'sql'), '', 'SQL sent (after transformation):', '');
+    }
+  } else if (o) {
+    lines.push(`_${mdCell(originExplanation(o))}_`, '');
+  }
   lines.push(fence(statementSql(s), 'sql'), '');
   const first = s.params[0] ?? [];
   if (first.length && s.params.length === 1) {

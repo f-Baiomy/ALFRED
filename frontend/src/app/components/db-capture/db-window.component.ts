@@ -16,7 +16,10 @@ import { buildStatementTree, initiallyFolded, pathTo } from '../../shared/utils/
 import { isDelete, isFailed, isWrite, msText } from '../../shared/utils/db-statement-display';
 import { flagTarget, flagText } from '../../shared/utils/db-flags';
 import { buildSqlScript } from '../../shared/utils/sql-export-builder';
-import { readGroupByTransaction, saveGroupByTransaction } from '../../shared/utils/db-group-preference';
+import {
+  readGroupByQuery, readGroupByTransaction, saveGroupByQuery, saveGroupByTransaction, saveRowsAs,
+} from '../../shared/utils/db-group-preference';
+import { hasOrigins } from '../../shared/utils/db-origin';
 import { DbStatementListComponent } from './db-statement-list.component';
 import { DbDetailTab, DbKindFilter, DbWindowState } from './db-window-state';
 import { DbWindowRequest } from './db-window.service';
@@ -97,9 +100,25 @@ export class DbWindowComponent implements OnInit {
    * order - no transaction or repeated-query groups, supplier calls still in place.
    */
   readonly grouped = signal(readGroupByTransaction());
-  readonly tree = computed(() => this.grouped()
-    ? buildStatementTree(this.statements(), this.markers(), this.transactions(), DEFAULT_REPEAT_THRESHOLD)
-    : buildStatementTree(this.statements(), this.markers(), [], Number.MAX_SAFE_INTEGER));
+  /** "Group by query": the several SQL statements one HQL query produced, under that query. Shown only with origins. */
+  readonly groupedByQuery = signal(readGroupByQuery());
+  readonly hasOrigins = computed(() => hasOrigins(this.statements()));
+  readonly tree = computed(() => {
+    const byQuery = this.groupedByQuery() && this.hasOrigins();
+    return this.grouped()
+      ? buildStatementTree(this.statements(), this.markers(), this.transactions(), DEFAULT_REPEAT_THRESHOLD, byQuery)
+      : buildStatementTree(this.statements(), this.markers(), [], Number.MAX_SAFE_INTEGER, byQuery);
+  });
+
+  setGroupedByQuery(grouped: boolean): void {
+    this.groupedByQuery.set(grouped);
+    saveGroupByQuery(grouped);
+  }
+
+  setRowsAs(rowsAs: 'hql' | 'sql'): void {
+    this.state.rowsAs.set(rowsAs);
+    saveRowsAs(rowsAs);
+  }
 
   setGrouped(grouped: boolean): void {
     this.grouped.set(grouped);
@@ -201,7 +220,10 @@ export class DbWindowComponent implements OnInit {
     });
     effect(() => {
       const all = this.statements();
-      untracked(() => this.state.statementBySeq.set(new Map(all.map((s) => [s.seq, s]))));
+      untracked(() => {
+        this.state.statementBySeq.set(new Map(all.map((s) => [s.seq, s])));
+        this.state.hasOrigins.set(hasOrigins(all));
+      });
     });
   }
 
