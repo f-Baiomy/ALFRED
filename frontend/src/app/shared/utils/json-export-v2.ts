@@ -1,10 +1,11 @@
 import { CallOverlapCandidate, CallRecord, HttpMessageData } from '../../core/models/call.model';
-import { CallDbCapture, DbColumn, DbFlag, ExportedDbStatement, StatementOrigin, TypedValue } from '../../core/models/db-capture.model';
+import { CallDbAnalysis, CallDbCapture, DbColumn, DbFlag, ExportedDbStatement, StatementOrigin, TypedValue } from '../../core/models/db-capture.model';
 import { Comment } from '../../core/models/comment.model';
 import { ExportedCycle, ExportFormData } from '../../core/models/export-metadata.model';
 import { buildBulkExportPayload } from './bulk-json-builder';
 import { CallStatusFilter, isInProgress } from './call-utils';
 import { flagText } from './db-flags';
+import { analyzeCapture, suppliersOf } from './db-analysis';
 
 /**
  * The .json export, version 2 ("alfred-calls/2") - the same data as version 1 (bulk-json-builder's event list), laid
@@ -122,7 +123,7 @@ function decodeRows(rows: readonly (readonly unknown[])[], columns: readonly DbC
 
 /** A call's statements, written one per line: values all of them share hoisted, shared origins referenced by id. */
 function encodeCapture(callId: string, capture: CallDbCapture): { header: Record<string, unknown>; statements: Record<string, unknown>[] } {
-  const { statements, layout: _layout, ...rest } = capture;
+  const { statements, layout: _layout, ...rest } = capture; // `analysis` rides along in `rest`: written, never read back
   const common: Record<string, unknown> = {};
   for (const field of COMMON_STATEMENT_FIELDS) {
     const first = statements[0]?.[field];
@@ -153,7 +154,8 @@ function encodeCapture(callId: string, capture: CallDbCapture): { header: Record
 }
 
 export function decodeCapture(header: Record<string, unknown>, lines: readonly Record<string, unknown>[]): CallDbCapture {
-  const { callId, common, origins, statements: _range, ...rest } = header as {
+  // `analysis` is derived (db-analysis.ts) - recomputed by whoever needs it, never imported.
+  const { callId, common, origins, statements: _range, analysis: _analysis, ...rest } = header as {
     callId: string; common?: Record<string, unknown>; origins?: Record<string, StatementOrigin>; statements?: unknown;
   } & Record<string, unknown>;
   const statements = lines.map((line) => {
@@ -188,10 +190,10 @@ function guide(counts: { calls: number; bodies: number; dbStatements: number }):
     sections: {
       layout: 'first/last line, byte offset and size of every section below',
       highlights: `what deserves attention first: failed or slow calls, database flags, comments - each with the line to read (at most ${MAX_HIGHLIGHTS}; the index has every call)`,
-      index: 'one line per call, in time order: id, direction, method, url, status, ms, parent link, comment count, and where its call record, request/response bodies and database statements are',
+      index: 'one line per call, in time order: id, direction, method, url, status, ms, parent link, comment count, where its call record, request/response bodies and database statements are, and for a call with statements `time` (db/outbound/gap/edge ms) and db counts (transactions, duplicates, queries, roundTripMs)',
       calls: 'one call per line: headers, status, timing, comments, interception, WebSocket messages, parent link. A body under 257 characters is inline; a longer one is `bodyRef` → `bodies`',
       bodies: 'one body per line: `json` (the body was compact JSON - embedded as is) or `text` (verbatim); `refs` = which calls/sides use it (the same body is stored once)',
-      dbCalls: 'one line per inbound call with captured database statements: summary (counts, flags), transactions, supplier calls in order (`supplierMarkers`), values all its statements share (`common`), HQL/query origins by id (`origins`)',
+      dbCalls: 'one line per inbound call with captured database statements: summary (counts, flags), transactions, supplier calls in order (`supplierMarkers`), values all its statements share (`common`), HQL/query origins by id (`origins`), and `analysis`: `time` (where the call\'s time went - dbMs, outboundMs, gapMs between statements, edgeMs, gap count/median/max, the largest gaps with the code that ran next, the database round trip) and `queries` (one entry per query, costliest first: runs, distinct params, exact duplicates, total ms, rows, called from, statement seqs). Start here for "why is this call slow".',
       dbStatements: 'one statement per line, `of` = its call, in run order (`seq`): SQL with `?` placeholders and `params` (one list per batch set), outcome, timing, transaction, where in code, `origin` (the HQL it came from, an id into its dbCalls `origins`). `rowValues`/`beforeValues` = rows as values under `outcome.columns`/`beforeImage.columns` types; a cell that is an object is a full {type,value,...}; {} = a null cell',
     },
     glossary: {
@@ -245,19 +247,22 @@ export function buildJsonExportV2(input: JsonExportV2Input): string[] {
     });
   }
 
-  // ---- database captures
+  // ---- database captures - each with where its time went (db-analysis.ts): attached by the export dialog, which
+  // also fetched the supplier calls, or derived from the supplier calls that are in this export.
+  const analyses = new Map(calls.filter((c) => c.dbCapture).map((c) => [c.id,
+    c.dbCapture!.analysis ?? (c.duration_ms ? analyzeCapture(c, c.dbCapture!, suppliersOf(c.id, calls)) : undefined)]));
   const captured = calls.filter((c) => c.dbCapture);
   const dbHeaders: Record<string, unknown>[] = [];
   const dbStatementsByCall = new Map<string, Record<string, unknown>[]>();
   for (const call of captured) {
-    const { header, statements } = encodeCapture(call.id, call.dbCapture!);
+    const { header, statements } = encodeCapture(call.id, { ...call.dbCapture!, analysis: analyses.get(call.id) });
     dbHeaders.push(header);
     dbStatementsByCall.set(call.id, statements);
   }
   const dbStatements = captured.flatMap((c) => dbStatementsByCall.get(c.id)!);
 
   // ---- line numbers: every section's size is known now, so every record's line is too
-  const highlights = buildHighlights(calls, input);
+  const highlights = buildHighlights(calls, input, analyses);
   const HEADER_LINES = 5; // first line, guide, layout, about, metadata
   const sectionSizes: [string, number][] = [
     ['highlights', Math.min(highlights.length, MAX_HIGHLIGHTS)], ['index', calls.length], ['calls', calls.length],
@@ -362,9 +367,16 @@ export function buildJsonExportV2(input: JsonExportV2Input): string[] {
       const first = dbFirstStatementLine.get(call.id)!;
       const count = dbStatementsByCall.get(call.id)!.length;
       const flags = call.dbCapture.summary?.flags?.length ?? 0;
+      const a = analyses.get(call.id);
+      const extra = a ? `,"transactions":${a.time.transactions},"duplicates":${a.queries.reduce((n, q) => n + q.duplicates, 0)},"queries":${a.queries.length}` +
+        `${a.time.baselineMs ? `,"roundTripMs":${a.time.baselineMs}` : ''}` : '';
       parts.push(`"db":{"line":${hl},"offset":${slot(`L${hl}`)},"statements":${count},"lines":[${count ? `${first},${first + count - 1}` : ''}]` +
         (count ? `,"statementsOffset":${slot(`L${first}`)},"statementsBytes":${slot(`R${first}-${first + count - 1}`)}` : '') +
-        `${flags ? `,"flags":${flags}` : ''}}`);
+        `${flags ? `,"flags":${flags}` : ''}${extra}}`);
+      if (a) {
+        const t = a.time;
+        parts.push(`"time":${JSON.stringify({ dbMs: t.dbMs, outboundMs: t.outboundMs, gapMs: t.gapMs, edgeMs: t.edgeMs, gaps: t.gaps, appTimeDominant: t.appTimeDominant || undefined })}`);
+      }
     }
     return `${parts.join(',')}}`;
   });
@@ -431,7 +443,7 @@ interface Highlight {
 }
 
 /** What to look at first, most important first. */
-function buildHighlights(calls: readonly CallRecord[], input: JsonExportV2Input): Highlight[] {
+function buildHighlights(calls: readonly CallRecord[], input: JsonExportV2Input, analyses: ReadonlyMap<string, CallDbAnalysis | undefined>): Highlight[] {
   const out: Highlight[] = [];
   const label = (c: CallRecord) => `${c.method} ${c.url}`;
   for (const c of calls) {
@@ -452,6 +464,13 @@ function buildHighlights(calls: readonly CallRecord[], input: JsonExportV2Input)
       } else {
         for (const flag of flags) out.push({ what: `DB_${type}`, callId: c.id, statementSeq: flag.seqs[0], note: `${flagText(flag)} (statements ${seqList(flag.seqs)})`, rank });
       }
+    }
+    const t = analyses.get(c.id)?.time;
+    if (t?.appTimeDominant) {
+      const top = t.topGaps[0];
+      out.push({ what: 'APP_TIME_DOMINANT', callId: c.id, statementSeq: top?.beforeSeq ?? undefined, rank: 2,
+        note: `${label(c)} - ${Math.round(((t.gapMs + t.edgeMs) / t.totalMs) * 100)}% of ${Math.round(t.totalMs)} ms is neither DB (${Math.round(t.dbMs)} ms) nor supplier calls: ` +
+          `${t.gaps.count} gaps between statements, median ${t.gaps.medianMs} ms${top ? `, largest ${top.ms} ms before #${top.beforeSeq}${top.callers?.length ? ` (${top.callers[0]})` : ''}` : ''}` });
     }
     for (const comment of input.commentsByCallId.get(c.id) ?? []) {
       out.push({ what: 'COMMENT', callId: c.id, note: `${comment.block}: ${comment.comment.slice(0, 200)}`, rank: 2 });

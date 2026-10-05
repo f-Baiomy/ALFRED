@@ -128,7 +128,7 @@ export interface BulkExportPayload {
 /** The capture as the file carries it - without the dialog's presentation-only layout choice. */
 function jsonCapture(call: CallRecord): CallDbCapture | undefined {
   if (!call.dbCapture) return undefined;
-  const { layout: _layout, ...capture } = call.dbCapture;
+  const { layout: _layout, analysis: _analysis, ...capture } = call.dbCapture;
   return capture;
 }
 

@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Capture enhancements mock</title>
+<style>
+:root {
+  --card-inner: #070a24; --popover-solid: #161c4a; --border: rgba(139, 92, 246, .22); --border-strong: rgba(139, 92, 246, .45);
+  --text: #e5e9f5; --text-dim: #93a0c2; --text-faint: #5c6690; --purple: #8b5cf6; --purple-light: #c4b5fd;
+  --cyan: #22d3ee; --green: #34d399; --amber: #fbbf24; --red: #f87171; --db: #2dd4bf; --hql: #f0abfc;
+  --mono: "Cascadia Code", "Fira Code", Consolas, monospace;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: radial-gradient(ellipse at top, #131a4a 0%, #0a0e2a 55%); background-color: #0a0e2a; color: var(--text); font-family: "Segoe UI", system-ui, sans-serif; font-size: 14px; min-height: 100vh; }
+.page { max-width: 1080px; margin: 0 auto; padding: 16px; }
+.note { color: var(--text-dim); font-size: 12.5px; line-height: 1.6; border-left: 3px solid var(--hql); padding: .4rem .8rem; margin: 0 0 1rem; background: rgba(240,171,252,.05); border-radius: 0 8px 8px 0; }
+.note b { color: var(--text); } .note .h { color: var(--hql); font-weight: 600; }
+.part { margin: 1.6rem 0 .6rem; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--text-faint); }
+.part b { color: var(--hql); }
+.win { background: color-mix(in srgb, var(--popover-solid) 92%, transparent); border: 1px solid var(--border-strong); border-radius: 14px; overflow: hidden; }
+.tools { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; padding: .6rem 1rem; border-bottom: 1px solid var(--border); }
+.chk { display: inline-flex; gap: .35rem; align-items: center; font-size: .74rem; color: var(--text-dim); white-space: nowrap; }
+.chk input { accent-color: var(--purple); }
+.toggle { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.toggle button { background: none; border: none; color: var(--text-dim); font-size: .72rem; padding: .3rem .7rem; cursor: pointer; font-family: inherit; }
+.toggle button.on { background: color-mix(in srgb, var(--purple) 25%, transparent); color: var(--text); font-weight: 600; }
+.lbl-sm { font-size: .72rem; color: var(--text-faint); }
+.body { padding: .5rem .8rem 1rem; }
+.r { border: 1px solid transparent; border-radius: 8px; }
+.r.open { border-color: var(--border); background: color-mix(in srgb, var(--purple) 5%, transparent); margin: .25rem 0; }
+.rh { display: grid; grid-template-columns: 14px 34px 84px minmax(0, 1fr) auto 56px; gap: .55rem; align-items: center; padding: .32rem .5rem; border-radius: 8px; cursor: pointer; font-size: .76rem; }
+.rh:hover { background: color-mix(in srgb, var(--purple) 10%, transparent); }
+.chev { color: var(--text-faint); font-size: .7rem; }
+.r.open > .rh .chev { color: var(--purple-light); }
+.num { font-family: var(--mono); font-size: .68rem; color: var(--text-faint); }
+.verb { font-size: .64rem; font-weight: 700; text-align: center; padding: .12rem .3rem; border-radius: 5px; white-space: nowrap; }
+.v-read { color: var(--db); background: color-mix(in srgb, var(--db) 10%, transparent); border: 1px solid color-mix(in srgb, var(--db) 28%, transparent); }
+.v-write { color: var(--amber); background: color-mix(in srgb, var(--amber) 13%, transparent); border: 1px solid color-mix(in srgb, var(--amber) 36%, transparent); }
+.sql1 { font-family: var(--mono); font-size: .74rem; color: #cfeee9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kw { color: #7dd3fc; } .val { color: var(--amber); } .np { color: var(--hql); }
+.res { font-size: .7rem; color: var(--text-dim); white-space: nowrap; }
+.ms { font-size: .7rem; font-weight: 600; color: var(--amber); text-align: right; }
+/* origin chip: where a statement came from */
+.orig { display: inline-block; font-size: .6rem; font-weight: 700; letter-spacing: .03em; padding: 0 .35rem; border-radius: 4px; margin-right: .4rem; vertical-align: 1px; }
+.orig.hql { color: #3b0a3f; background: var(--hql); }
+.orig.nat { color: #0b2a2a; background: var(--db); }
+.orig.auto { color: var(--text-dim); border: 1px solid var(--border-strong); }
+.hqltext { color: #f5d0fe; }
+/* HQL group: one query, the SQL it produced */
+.g { margin: .2rem 0; }
+.g > .rh { background: color-mix(in srgb, var(--hql) 7%, transparent); border: 1px solid color-mix(in srgb, var(--hql) 28%, transparent); }
+.g > .rh .lbl { font-family: var(--mono); font-size: .74rem; color: #f5d0fe; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.g > .rh .lbl .meta { color: var(--text-dim); font-family: "Segoe UI", system-ui, sans-serif; }
+.gb { margin: .15rem 0 .35rem 1.05rem; padding-left: 1rem; border-left: 2px solid color-mix(in srgb, var(--hql) 40%, transparent); }
+/* detail */
+.rd { padding: .3rem .7rem .8rem 2.4rem; }
+.tabs2 { display: flex; gap: .3rem; flex-wrap: wrap; margin-bottom: .55rem; }
+.tab2 { padding: .12rem .5rem; font-size: .72rem; color: var(--text-dim); background: none; border: 1px solid var(--border); border-radius: 5px; }
+.tab2.on { color: #0b0e22; background: var(--purple); border-color: var(--purple); }
+.pair { display: grid; grid-template-columns: minmax(0, 1fr); gap: .3rem; }
+.card { border: 1px solid var(--border); border-radius: 10px; background: var(--card-inner); overflow: hidden; }
+.card.h { border-color: color-mix(in srgb, var(--hql) 40%, transparent); }
+.card .hd { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; padding: .4rem .7rem; font-size: .72rem; color: var(--text-dim); border-bottom: 1px solid var(--border); }
+.card.h .hd { background: color-mix(in srgb, var(--hql) 8%, transparent); }
+.card .hd b { color: var(--text); font-size: .76rem; }
+.card .hd .r2 { margin-left: auto; }
+pre { margin: 0; padding: .55rem .7rem; font-family: var(--mono); font-size: .78rem; line-height: 1.6; white-space: pre-wrap; color: #d7f7f2; }
+.card.h pre { color: #f5d0fe; }
+.arrow { text-align: center; color: var(--text-faint); font-size: .72rem; padding: .1rem 0; }
+.arrow b { color: var(--hql); }
+table.kv { width: 100%; border-collapse: collapse; font-size: .74rem; }
+table.kv th { text-align: left; color: var(--text-dim); font-size: .64rem; text-transform: uppercase; letter-spacing: .04em; padding: .3rem .7rem; border-bottom: 1px solid var(--border); }
+table.kv td { padding: .28rem .7rem; border-bottom: 1px solid color-mix(in srgb, var(--purple) 10%, transparent); font-family: var(--mono); }
+table.kv td.dim { color: var(--text-dim); font-family: inherit; }
+.loc { color: var(--text-dim); font-size: .72rem; }
+.loc code { color: var(--text); font-family: var(--mono); }
+.btn { font-size: .68rem; font-weight: 600; padding: .2rem .55rem; border-radius: 6px; border: 1px solid var(--border); background: color-mix(in srgb, var(--purple) 12%, transparent); color: var(--purple-light); cursor: pointer; }
+.info { margin-top: .5rem; padding: .45rem .7rem; border-radius: 8px; font-size: .74rem; color: var(--text-dim); border: 1px dashed var(--border-strong); }
+.info b { color: var(--text); }
+/* export */
+.exp { background: #1b1b1d; border: 1px solid rgba(255,255,255,.09); border-radius: 12px; padding: .8rem 1rem; }
+.exp .st { border: 1px solid rgba(255,255,255,.09); border-radius: 8px; background: #141416; padding: .6rem .7rem; }
+.exp .t { font-size: 12.5px; color: #f2f2f5; margin-bottom: .5rem; }
+.exp .lbl { color: #5b5b63; font-size: 10.5px; letter-spacing: .07em; text-transform: uppercase; font-weight: 600; margin: .5rem 0 .3rem; }
+.exp pre { background: #0e0e10; border: 1px solid rgba(255,255,255,.09); border-radius: 8px; }
+@media (max-width: 720px) { .rh { grid-template-columns: 12px 28px 70px minmax(0, 1fr) 46px; } .rh .res { display: none; } .rd { padding-left: .6rem; } }
+</style>
+</head>
+<body>
+<style>
+.bar { display: flex; height: 18px; border-radius: 6px; overflow: hidden; border: 1px solid var(--border); margin: .4rem 0 .3rem; }
+.bar span { display: block; height: 100%; }
+.legend { display: flex; gap: 1rem; flex-wrap: wrap; font-size: .72rem; color: var(--text-dim); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: .3rem; vertical-align: -1px; }
+.chips { display: flex; gap: .4rem; flex-wrap: wrap; margin: .5rem 0; }
+.chip { font-size: .72rem; padding: .15rem .55rem; border-radius: 999px; border: 1px solid var(--border-strong); color: var(--text-dim); }
+.chip.warn { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 45%, transparent); }
+.chip.bad { color: var(--red); border-color: color-mix(in srgb, var(--red) 45%, transparent); }
+table.t { width: 100%; border-collapse: collapse; font-size: .74rem; }
+table.t th { text-align: left; color: var(--text-dim); font-size: .64rem; text-transform: uppercase; letter-spacing: .04em; padding: .35rem .6rem; border-bottom: 1px solid var(--border); }
+table.t td { padding: .32rem .6rem; border-bottom: 1px solid color-mix(in srgb, var(--purple) 10%, transparent); vertical-align: top; }
+table.t td.n { text-align: right; font-family: var(--mono); }
+.mono { font-family: var(--mono); }
+.dim { color: var(--text-dim); }
+.stack div { font-family: var(--mono); font-size: .74rem; padding: .18rem 0; }
+.stack .app { color: var(--text); } .stack .fw { color: var(--text-faint); }
+.tx { display: grid; grid-template-columns: 90px 1fr; gap: .2rem .8rem; font-size: .74rem; }
+.tx b { color: var(--text-dim); font-weight: 500; }
+.set { border: 1px solid var(--border); border-radius: 10px; padding: .6rem .8rem; margin: .4rem 0; font-size: .76rem; }
+.set code { font-family: var(--mono); color: var(--purple-light); }
+.set input[type=text] { width: 100%; background: var(--card-inner); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: .3rem .5rem; font-family: var(--mono); font-size: .74rem; margin-top: .3rem; }
+</style>
+<div class="page">
+
+<div class="note"><b>Mock - database capture: from "found the problem" to "know what to fix".</b> Based on the review of the OdeySys exports (alfred-export-format-enhancements.md). Each part says which proposal it implements. The <b>.json export</b> gets the same data (shown at the end).</div>
+
+<!-- ======================= A. time breakdown (#3) ======================= -->
+<div class="part"><b>A</b> · Database window header - where the call's time went (#3)</div>
+<div class="win"><div class="body">
+  <div style="font-size:.8rem"><b>agency/by-branch</b> <span class="dim">· 51,507 ms</span></div>
+  <div class="bar">
+    <span style="width:34.8%;background:var(--db)" title="DB 17,916 ms"></span>
+    <span style="width:0%;background:var(--cyan)"></span>
+    <span style="width:64.4%;background:color-mix(in srgb,var(--amber) 55%,transparent)" title="between statements 33,184 ms"></span>
+    <span style="width:.8%;background:var(--text-faint)"></span>
+  </div>
+  <div class="legend"><span><i style="background:var(--db)"></i>DB 17.9 s (35%)</span><span><i style="background:var(--cyan)"></i>Supplier calls 0 s</span>
+    <span><i style="background:color-mix(in srgb,var(--amber) 55%,transparent)"></i>Between statements 33.2 s (64%) · 306 gaps, median 160 ms, max 267 ms</span><span><i style="background:var(--text-faint)"></i>Before first / after last 0.4 s</span></div>
+  <div class="chips"><span class="chip warn">⚠ App time dominant - 64% of the call is between statements</span><span class="chip warn">⚠ Transaction per statement - 204 transactions for 306 statements</span>
+    <span class="chip warn">⚠ 129 exact duplicates (same SQL + params) - cache per request</span><span class="chip">DB round trip ≈ 54 ms (baseline) · remote DB: N+1 amplified</span></div>
+  <div class="dim" style="font-size:.72rem">Largest gaps: 6,454 ms after #30 (AgencyDetailService.setAgencyDetails:126) · 2,512 ms before #5 · … - click one to jump.</div>
+</div></div>
+
+<!-- ======================= B. Top queries tab (#5, #4) ======================= -->
+<div class="part"><b>B</b> · New "Top queries" tab - per-fingerprint totals, slowest first (#5, #4)</div>
+<div class="win">
+  <div class="tools"><div class="toggle"><button>Statements</button><button class="on">Top queries</button><button>Tables</button></div></div>
+  <div class="body">
+  <table class="t">
+    <tr><th>Query</th><th>Count</th><th>Distinct params</th><th>Exact dupes</th><th>Total</th><th>Rows</th><th>Called from (app)</th></tr>
+    <tr><td class="mono">SELECT … FROM TT_TS_AIRLINES_AUDIT_HISTORY WHERE AIRLINE_ID = ?</td><td class="n">755</td><td class="n">755</td><td class="n">0</td><td class="n">49.6 s</td><td class="n">1,210</td><td class="mono dim">AirlineHistoryService.populateAuditHistory:26</td></tr>
+    <tr><td class="mono">SELECT … FROM TT_TS_SUPPLIER_CREDENTIAL_VALUES WHERE CREDENTIAL_ID = ?</td><td class="n">88</td><td class="n">41</td><td class="n" style="color:var(--amber)">47</td><td class="n">4.9 s</td><td class="n">352</td><td class="mono dim">OrganizationService.getServiceConfigCredential:452</td></tr>
+    <tr><td class="mono">{call LOG_SUPPLIER_ACTION_SP_V1(?,…)}</td><td class="n">12</td><td class="n">12</td><td class="n">0</td><td class="n">0.7 s</td><td class="n">-</td><td class="mono dim">SupplierLogService.log:77</td></tr>
+  </table>
+  <div class="dim" style="font-size:.72rem;margin-top:.4rem">Click a row: filters the Statements tab to that query. "Exact dupes" = same SQL <b>and</b> same parameters in this call - a caching fix, not a batching one.</div>
+  </div>
+</div>
+
+<!-- ======================= C. Where in code (#1) ======================= -->
+<div class="part"><b>C</b> · A statement's "Where in code" tab - the application call chain, not just the DAO (#1)</div>
+<div class="win"><div class="body">
+  <div class="stack">
+    <div class="app">1 · OrganizationService.getServiceConfigCredential(OrganizationService.java:452)</div>
+    <div class="app">2 · AgencyDetailService.setAgencyDetails(AgencyDetailService.java:126)</div>
+    <div class="app">3 · FlightSearchAppServiceImpl.selectBranch(FlightSearchAppServiceImpl.java:98)</div>
+    <div class="fw">↑ via GenericDAOImpl.fetchWithSlaveHQL(GenericDAOImpl.java:425) - skipped (your "pass-through" list)</div>
+  </div>
+  <div class="dim" style="font-size:.72rem;margin-top:.3rem">Open in IntelliJ ↗ / VS Code ↗ on any line. Thread default task-14 · connection conn-3054d50.</div>
+</div></div>
+
+<!-- ======================= D. transactions (#2) ======================= -->
+<div class="part"><b>D</b> · A transaction group - its real lifecycle (#2)</div>
+<div class="win"><div class="body">
+  <div class="g"><div class="rh"><span class="chev">▾</span><span class="num">#31</span><span class="verb" style="color:var(--green);border:1px solid color-mix(in srgb,var(--green) 30%,transparent)">TX</span>
+    <span class="lbl" style="font-family:var(--mono);font-size:.74rem;color:var(--green)">tx-12 · conn-3054d50 · committed (JTA) <span class="dim">· 1 statement · held 223.5 ms</span></span><span class="res">#31–#31</span><span class="ms">223 ms</span></div></div>
+  <div class="tx" style="margin:.4rem 0 0 2.4rem">
+    <b>get connection</b><span>54.2 ms <span class="dim">(pool checkout incl. validation <code>SELECT 1</code> 53.8 ms)</span></span>
+    <b>begin</b><span>0.9 ms <span class="dim">setAutoCommit(false)</span></span>
+    <b>statements</b><span>55.1 ms</span>
+    <b>commit</b><span>56.0 ms <span class="dim">(JTA → XAResource.commit)</span></span>
+    <b>close</b><span>0.1 ms</span>
+    <b>overhead</b><span style="color:var(--amber)">167.3 ms of 223.5 ms is not the query - ×204 transactions ≈ 34 s</span>
+  </div>
+</div></div>
+
+<!-- ======================= E. statement row: slow vs baseline (#7) ======================= -->
+<div class="part"><b>E</b> · A statement row - slow means slow for this database, not slower than 50 ms (#7)</div>
+<div class="win"><div class="body">
+  <div class="r"><div class="rh"><span class="chev">▶</span><span class="num">#1</span><span class="verb v-read">SELECT</span><span class="sql1"><span class="kw">SELECT</span> … <span class="kw">FROM</span> TT_ORGANIZATION <span class="kw">WHERE</span> BRANCH_ID = <span class="val">948</span></span><span class="res">1 row</span><span class="ms">3,449 ms</span></div></div>
+  <div class="dim" style="font-size:.72rem;margin:.1rem 0 .4rem 2.4rem">≈ 54 ms round trip + <b style="color:var(--amber)">3,395 ms in the database</b> · flagged SLOW (round trip excluded) · indexes on TT_ORGANIZATION: PK(ORGANIZATION_ID), IX_ORG_GROUP(GROUP_ID) - <b>none on BRANCH_ID</b> (#9)</div>
+  <div class="r"><div class="rh"><span class="chev">▶</span><span class="num">#2</span><span class="verb v-read">SELECT</span><span class="sql1"><span class="kw">SELECT</span> … <span class="kw">FROM</span> TT_USER <span class="kw">WHERE</span> USER_ID = <span class="val">1042</span></span><span class="res">1 row</span><span class="ms" style="color:var(--green)">55 ms</span></div></div>
+  <div class="dim" style="font-size:.72rem;margin:.1rem 0 0 2.4rem">≈ 54 ms round trip + 1 ms in the database · not flagged (it used to be: everything over 50 ms was "slow")</div>
+</div></div>
+
+<!-- ======================= F. settings ======================= -->
+<div class="part"><b>F</b> · Settings → Database capture (per project) - new</div>
+<div class="win"><div class="body">
+  <div class="set"><b>Where in code - pass-through classes</b><div class="dim">Frames skipped when finding the application code that issued a statement (on top of JDK, drivers, pools, Hibernate, Spring). Prefix or class name, one per line.</div>
+    <input type="text" value="com.tbs.odeysys.dao.GenericDAOImpl, com.tbs.odeysys.dao.base."><div class="dim" style="margin-top:.3rem">Frames recorded per statement: <code>3</code></div></div>
+  <div class="set"><b>Slow statement</b> - more than <code>100</code> ms <b>after</b> the database round trip (measured from this call's fastest statements; currently ≈ 54 ms)</div>
+  <div class="set"><b>Index check for slow statements</b> - off · when on, the agent reads the touched table's index list once (metadata, no query of your data) <span class="dim">- EXPLAIN is not run</span></div>
+</div></div>
+
+<!-- ======================= G. export ======================= -->
+<div class="part"><b>G</b> · The .json export (alfred-calls/2 → /3)</div>
+<div class="exp"><div class="st">
+<div class="lbl">index line - a call</div>
+<pre style="white-space:pre-wrap">{"n":3,"callId":"…","method":"GET","url":"…/agency/by-branch","ms":51507,
+ "time":{"dbMs":17916,"outboundMs":0,"gapMs":33184,"gaps":{"count":306,"medianMs":160,"maxMs":267}},
+ "db":{"line":…,"statements":306,"transactions":204,"duplicates":129,"baselineMs":54, …}}</pre>
+<div class="lbl">dbCalls line - per call</div>
+<pre style="white-space:pre-wrap">"timeBreakdown":{…, "topGaps":[{"ms":6454,"afterSeq":30,"beforeSeq":31,"callers":["AgencyDetailService.setAgencyDetails(…:126)"]}]},
+"byFingerprint":[{"fingerprint":"…","table":"TT_TS_AIRLINES_AUDIT_HISTORY","count":755,"distinctParams":755,"duplicates":0,"totalMs":49572,"rows":1210,"callers":[…]}],
+"stacks":{"s1":["OrganizationService.getServiceConfigCredential(OrganizationService.java:452)","AgencyDetailService.setAgencyDetails(…:126)", …]},
+"transactions":[{"txId":"tx-12","connectionId":"conn-3054d50","acquireMicros":54210,"beginMicros":902,"commitMicros":56003,"closeMicros":120,"outcome":"COMMITTED","via":"JTA","heldMicros":223500}]</pre>
+<div class="lbl">dbStatements line - rows moved out, a sample kept (#6)</div>
+<pre style="white-space:pre-wrap">{"of":"…","seq":7,"stack":"s1","outcome":{"rowsRead":9110,…},"rowSample":[["DXB","Dubai"],…5 rows],"rowsAt":{"line":4120,"offset":…,"bytes":458112}}</pre>
+<div class="lbl">new last section - "dbRows": one line per statement's full rows (still exported, still lossless; skipped by readers that don't need them)</div>
+</div></div>
+<p class="note" style="margin-top:.6rem">Nothing is cut by default: full rows and bodies stay in the file - they just move to the end so reading a statement or the index never loads them. An export option <b>"Rows: all / sample only"</b> (default all) makes the smaller file explicitly, and says so in the header the way redaction does.</p>
+
+</div>
+</body>
+</html>

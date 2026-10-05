@@ -44,6 +44,34 @@
             </div>
           </div>
         }
+        @if (breakdown(); as b) {
+          <!-- where the call's time went (db-analysis.ts): DB / supplier calls / between statements / before-after -->
+          <div class="tb">
+            <div class="tb-bar">
+              <span class="db" [style.width.%]="pct(b.dbMs)" [title]="'DB ' + b.dbMs + ' ms'"></span>
+              <span class="out" [style.width.%]="pct(b.outboundMs)" [title]="'Supplier calls ' + b.outboundMs + ' ms'"></span>
+              <span class="gap" [style.width.%]="pct(b.gapMs)" [title]="'Between statements ' + b.gapMs + ' ms'"></span>
+              <span class="edge" [style.width.%]="pct(b.edgeMs)" [title]="'Before the first / after the last ' + b.edgeMs + ' ms'"></span>
+            </div>
+            <div class="tb-legend">
+              <span><i class="db"></i>DB {{ (b.dbMs / 1000).toFixed(1) }} s ({{ pct(b.dbMs).toFixed(0) }}%)</span>
+              <span><i class="out"></i>Supplier calls {{ (b.outboundMs / 1000).toFixed(1) }} s</span>
+              <span><i class="gap"></i>Between statements {{ (b.gapMs / 1000).toFixed(1) }} s ({{ pct(b.gapMs).toFixed(0) }}%)@if (b.gaps.count) { · {{ b.gaps.count }} gaps, median {{ b.gaps.medianMs }} ms, max {{ b.gaps.maxMs }} ms}</span>
+              <span><i class="edge"></i>Before / after {{ (b.edgeMs / 1000).toFixed(1) }} s</span>
+              @if (b.baselineMs) {<span title="The 10th percentile of this call's SELECTs - what any statement pays to reach the database. SLOW counts only the time beyond it.">DB round trip ≈ {{ b.baselineMs }} ms</span>}
+            </div>
+            @if (b.appTimeDominant) {
+              <div class="tb-note">⚠ {{ pct(b.gapMs + b.edgeMs).toFixed(0) }}% of this call is neither database nor supplier calls - application work, or per-statement overhead (connection checkout, commit) the statements don't show.</div>
+            }
+            @if (b.topGaps.length && b.topGaps[0].ms >= 50) {
+              <div class="tb-gaps">Largest gaps:
+                @for (g of b.topGaps.slice(0, 3); track $index) {
+                  <a (click)="g.beforeSeq != null && jump(g.beforeSeq)" [title]="g.callers?.join('\n') ?? ''">{{ g.ms.toLocaleString() }} ms before #{{ g.beforeSeq }}@if (g.callers?.length) {<span class="c">{{ shortFrame(g.callers![0]) }}</span>}</a>
+                }
+              </div>
+            }
+          </div>
+        }
       </div>
       <div style="display:flex;gap:.4rem;flex:0 0 auto">
         <button type="button" class="dbw-close" [attr.aria-label]="compact() ? 'Show summary' : 'Hide summary'"
@@ -54,6 +82,7 @@
     <div class="views">
       <button type="button" [class.on]="view() === 'stmts'" (click)="setView('stmts')">Statements<span class="count">{{ totalCount() }}</span></button>
       @if (call()) {
+        <button type="button" [class.on]="view() === 'queries'" (click)="setView('queries')" title="One row per query, costliest first">Top queries<span class="count">{{ queries().length }}</span></button>
         <button type="button" [class.on]="view() === 'tables'" (click)="setView('tables')">Tables<span class="count">{{ tableCount() }}</span></button>
       }
     </div>
@@ -115,7 +144,20 @@
     }
     }
     <div class="dbw-body" (scroll)="onBodyScroll($event)">
-      @if (view() === 'tables') {
+      @if (view() === 'queries') {
+        <p class="dialog-sub" style="margin:.3rem 0 .6rem">Every query this call ran, costliest first. <b>Duplicates</b> = the same query with the same parameters again - a per-request cache fixes those; many <b>distinct</b> parameters is an N+1 - a batch or a join fixes those. Click a row for its statements.</p>
+        <table class="kvt tbl-view q-view">
+          <tr><th>Query</th><th>Runs</th><th>Distinct params</th><th>Duplicates</th><th>Total</th><th>Slowest</th><th>Rows</th><th>Called from</th></tr>
+          @for (q of queries(); track q.fingerprint) {
+            <tr (click)="filterQuery(q)">
+              <td class="q"><span class="verb" [class]="q.kind === 'SELECT' ? 'v-read' : 'v-write'">{{ q.kind }}</span> {{ q.sql }}</td>
+              <td>{{ q.count }}</td><td>{{ q.distinctParams }}</td><td [class.w]="q.duplicates > 0">{{ q.duplicates || '' }}</td>
+              <td>{{ q.totalMs.toLocaleString() }} ms</td><td>{{ q.maxMs.toLocaleString() }} ms</td><td>{{ q.rows ? q.rows.toLocaleString() : '' }}</td>
+              <td class="c">{{ q.callers.length ? q.callers[0] : '' }}@if (q.callers.length > 1) { <span class="dimtxt">+{{ q.callers.length - 1 }}</span>}</td>
+            </tr>
+          }
+        </table>
+      } @else if (view() === 'tables') {
         <p class="dialog-sub" style="margin:.3rem 0 .6rem">What this call read and changed, per table. Click a table to see its statements.</p>
         @if (tableSummaries(); as tables) {
           <table class="kvt tbl-view">
@@ -132,6 +174,10 @@
           <div class="empty">Loading…</div>
         }
       } @else {
+      @if (queryFilter(); as q) {
+        <div class="sq-note"><b>{{ q.count }}</b>&nbsp;runs of <code>{{ q.sql.length > 90 ? q.sql.slice(0, 90) + '…' : q.sql }}</code>
+          <button type="button" class="action-btn" style="margin-left:auto" (click)="clearQueryFilter()">Back to all statements</button></div>
+      }
       @if (state.trace()) {
         <div class="trace">Tracing <b>{{ state.trace() }}</b> · found in {{ traceHits().length }} place{{ traceHits().length === 1 ? '' : 's' }}, in order:
           @for (h of traceHits(); track $index) {

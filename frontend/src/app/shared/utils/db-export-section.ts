@@ -4,6 +4,8 @@ import { beforeAfter } from './db-before-after';
 import { flagText } from './db-flags';
 import { msText, resultText, valueText, verbOf } from './db-statement-display';
 import { DbGroupNode, DbNode, buildStatementTree, statementsOf } from './db-statement-tree';
+import { analyzeCapture } from './db-analysis';
+import { CallDbAnalysis } from '../../core/models/db-capture.model';
 import { renderSql, sqlText } from './sql-render';
 import {
   hasOrigins, isQueryOrigin, nativeComparison, originBadge, originExplanation, originExportLabel, originSummary, translationLine,
@@ -206,6 +208,40 @@ function flagHref(prefix: string, f: { seqs: readonly number[]; group?: string |
   return `#${prefix}-s${f.seqs[0] ?? ''}`;
 }
 
+/** The capture's analysis - attached by the export dialog (with its supplier calls), else derived here without them. */
+function analysisOf(call: CallRecord): CallDbAnalysis | null {
+  const capture = call.dbCapture;
+  if (!capture || !call.duration_ms) return null;
+  return capture.analysis ?? analyzeCapture(call, capture, new Map());
+}
+
+const sec = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
+const share = (ms: number, total: number) => (total ? ` (${Math.round((ms / total) * 100)}%)` : '');
+
+/** "Where the time went" as one sentence plus its largest gaps - the same words in .md and .html. */
+function timeSentence(a: CallDbAnalysis): string {
+  const t = a.time;
+  return `${sec(t.totalMs)} in all: database ${sec(t.dbMs)}${share(t.dbMs, t.totalMs)}, supplier calls ${sec(t.outboundMs)}${share(t.outboundMs, t.totalMs)}, ` +
+    `between statements ${sec(t.gapMs)}${share(t.gapMs, t.totalMs)}${t.gaps.count ? ` (${t.gaps.count} gaps, median ${t.gaps.medianMs} ms, largest ${t.gaps.maxMs} ms)` : ''}, ` +
+    `before the first / after the last ${sec(t.edgeMs)}.${t.baselineMs ? ` Database round trip ≈ ${t.baselineMs} ms.` : ''}` +
+    (t.appTimeDominant ? ' Most of the call is neither database nor supplier calls - application work, or per-statement overhead (connection checkout, commit).' : '');
+}
+
+function gapsText(a: CallDbAnalysis): string[] {
+  return a.time.topGaps.filter((g) => g.ms >= 50).map((g) => `${g.ms.toLocaleString()} ms before #${g.beforeSeq}${g.callers?.length ? ` (${g.callers[0]})` : ''}`);
+}
+
+function analysisHtml(prefix: string, a: CallDbAnalysis | null): string {
+  if (!a) return '';
+  const gaps = gapsText(a);
+  const rows = a.queries.slice(0, 10).map((q) => `<tr><td class="sqlc">${esc(q.kind)} ${esc(q.sql.length > 160 ? q.sql.slice(0, 160) + '…' : q.sql)}</td><td>${q.count}</td><td>${q.distinctParams}</td>` +
+    `<td${q.duplicates ? ' class="chg"' : ''}>${q.duplicates || ''}</td><td>${q.totalMs.toLocaleString()} ms</td><td>${q.rows ? q.rows.toLocaleString() : ''}</td><td>${esc(q.callers[0] ?? '')}</td>` +
+    `<td><a href="#${prefix}-s${q.seqs[0]}" data-db-jump>#${q.seqs[0]}</a></td></tr>`).join('');
+  return `<div class="lbl">Where the time went</div><p class="lead">${esc(timeSentence(a))}${gaps.length ? `<br>Largest gaps: ${esc(gaps.join(' · '))}` : ''}</p>` +
+    `<div class="lbl">Top queries (costliest first${a.queries.length > 10 ? `, 10 of ${a.queries.length}` : ''})</div>` +
+    `<table class="kv"><thead><tr><th>query</th><th>runs</th><th>distinct params</th><th>duplicates</th><th>total</th><th>rows</th><th>called from</th><th>first</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
 export function dbSectionHtml(call: CallRecord): string {
   const capture = call.dbCapture;
   if (!capture) return '';
@@ -230,7 +266,7 @@ export function dbSectionHtml(call: CallRecord): string {
   return `<details class="dbx" id="${prefix}"><summary><span class="t">🗄 Database</span>${chips}</summary><div class="inner">` +
     `<p class="lead">Every statement the application ran while handling this call, <b>in the order it ran</b>, values filled in. Supplier calls are shown where they happened. ${
       capture.layout === 'flat' ? 'Listed one by one, not grouped by transaction' : 'Transactions and repeated queries start closed'} - open a row for its SQL, parameters and rows.</p>` +
-    flags +
+    flags + analysisHtml(prefix, analysisOf(call)) +
     `<div class="tools"><button type="button" data-db-all="open">Open all statements</button><button type="button" data-db-all="close">Close all</button></div>` +
     `<div class="stmts">${nodesHtml(treeOf(capture), prefix, bySeq, hasOrigins(capture.statements))}</div></div></details>`;
 }
@@ -295,6 +331,7 @@ export const DB_SECTION_STYLE = `
 .dbx .rows { max-height: 280px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
 .dbx .where { color: var(--text-dim); font-size: 12px; margin-top: .6rem; }
 .dbx .where code { color: var(--text); }
+.dbx td.sqlc { white-space: normal; max-width: 520px; word-break: break-word; }
 .dbx .err { color: var(--red); font-size: 12.5px; padding: .45rem .7rem; border: 1px solid rgba(227,106,106,.4); border-radius: 8px; background: rgba(227,106,106,.06); margin-top: .6rem; }
 .dbx .grp { border-left: 2px solid rgba(126,227,160,.45); padding-left: .6rem; margin: .4rem 0 .5rem; }
 .dbx .grp.rolled { border-left-color: rgba(227,106,106,.6); }
@@ -424,6 +461,17 @@ export function dbSectionMarkdown(call: CallRecord, level: number): string[] {
       const mark = g[0].severity === 'BAD' ? '✕' : '⚠';
       if (g.length < 3) lines.push(...g.map((f) => `- ${mark} ${mdCell(flagText(f))} (#${f.seqs.join(', #')})`));
       else lines.push(`- ${mark} ${mdCell(FLAG_GROUP_LABELS[g[0].type] ?? g[0].type)} × ${g.length}: ${g.map((f) => `#${f.seqs[0]}`).join(', ')}`);
+    }
+    lines.push('');
+  }
+  const analysis = analysisOf(call);
+  if (analysis) {
+    const gaps = gapsText(analysis);
+    lines.push('**Where the time went:** ' + mdCell(timeSentence(analysis)), '');
+    if (gaps.length) lines.push(`Largest gaps: ${mdCell(gaps.join(' · '))}`, '');
+    lines.push('**Top queries** (costliest first)', '', '| Query | Runs | Distinct params | Duplicates | Total ms | Rows | Called from | First |', '|---|---|---|---|---|---|---|---|');
+    for (const q of analysis.queries.slice(0, 10)) {
+      lines.push(`| \`${mdCell(q.kind)}\` ${mdCell(q.sql.length > 160 ? q.sql.slice(0, 160) + '…' : q.sql)} | ${q.count} | ${q.distinctParams} | ${q.duplicates || ''} | ${q.totalMs} | ${q.rows || ''} | ${mdCell(q.callers[0] ?? '')} | #${q.seqs[0]} |`);
     }
     lines.push('');
   }

@@ -47,7 +47,9 @@ export function flagText(flag: DbFlag): string {
     case 'CASCADE': return `Cascade${d['table'] ? ` · ${d['table']} → ${d['children'] ?? 'children'}` : ''} not visible`;
     case 'BEFORE_NOT_CAPTURED': return `Not captured${d['count'] ? ` · ${d['count']} writes have no before-image` : ' · no before-image'}`;
     case 'REPEATED_QUERY': return `${d['cacheable'] === 'true' ? 'Cacheable' : 'N+1'}${at('table')}${d['count'] ? ` ×${d['count']}` : ''}`;
-    case 'SLOW': return `Slow${d['ms'] ? ` · ${d['ms']} ms` : ''}${at('table')}`;
+    case 'SLOW': return `Slow${d['ms'] ? ` · ${d['ms']} ms` : ''}${d['baselineMs'] ? ` (round trip ≈ ${d['baselineMs']} ms)` : ''}${at('table')}`;
+    case 'DUPLICATE': return `Exact duplicates${at('table')}${d['duplicates'] ? ` · ${d['duplicates']} repeats of the same query + params` : ''} - cache per request`;
+    case 'TX_PER_STATEMENT': return `Transaction per statement${d['transactions'] ? ` · ${d['transactions']} transactions for ${d['statements']} statements` : ''}`;
     case 'HUGE_RESULT': return `Huge result${d['rows'] ? ` · ${d['rows']} rows` : ''}${at('table')}`;
     case 'LARGE_DELETE': return `Large delete${at('table')}${d['rows'] ? ` · ${d['rows']} rows` : ''}`;
     default: return flag.type;

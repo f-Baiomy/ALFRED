@@ -726,3 +726,26 @@
     &:hover { color: var(--text); background: color-mix(in srgb, var(--red) 14%, transparent); }
   }
 }
+
+// ---- where the call's time went (db-analysis.ts) and "Top queries" ----
+.db-window {
+  .tb { margin-top: 0.5rem; }
+  .tb-bar { display: flex; height: 12px; border-radius: 5px; overflow: hidden; border: 1px solid var(--border); }
+  .tb-bar span { display: block; height: 100%; }
+  .tb-bar .db, .tb-legend i.db { background: var(--db); }
+  .tb-bar .out, .tb-legend i.out { background: var(--cyan); }
+  .tb-bar .gap, .tb-legend i.gap { background: color-mix(in srgb, var(--amber) 55%, transparent); }
+  .tb-bar .edge, .tb-legend i.edge { background: var(--text-faint); }
+  .tb-legend { display: flex; gap: 0.3rem 0.9rem; flex-wrap: wrap; font-size: 0.7rem; color: var(--text-dim); margin-top: 0.3rem; }
+  .tb-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 0.3rem; vertical-align: -1px; }
+  .tb-note { font-size: 0.72rem; color: var(--amber); margin-top: 0.3rem; }
+  .tb-gaps { font-size: 0.7rem; color: var(--text-dim); margin-top: 0.25rem; display: flex; gap: 0.2rem 0.9rem; flex-wrap: wrap; align-items: baseline; }
+  .tb-gaps a { white-space: nowrap; }
+  .tb-gaps .c { margin-left: 0.3rem; }
+  .tb-gaps a { color: var(--purple-light); cursor: pointer; }
+  .tb-gaps .c { color: var(--text-faint); font-family: var(--db-mono); }
+  .q-view td.q { font-family: var(--db-mono); font-size: 0.72rem; max-width: 520px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .q-view td.c { font-family: var(--db-mono); font-size: 0.7rem; color: var(--text-dim); max-width: 280px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .q-view td.w { color: var(--amber); font-weight: 600; }
+  .q-view .verb { display: inline-block; min-width: 52px; margin-right: 0.4rem; }
+}

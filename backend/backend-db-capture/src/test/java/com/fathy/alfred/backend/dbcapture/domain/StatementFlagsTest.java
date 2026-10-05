@@ -120,11 +120,56 @@ class StatementFlagsTest {
     void anUnswallowedFailureIsPlainFailed_andAFloodIsCapped() {
         List<CapturedStatement> s = new ArrayList<>();
         for (int i = 0; i < 50; i++) {
-            s.add(select(i + 1, "SELECT x" + i + " FROM big", 5_000, 30_000, "1"));
+            s.add(select(i + 1, "SELECT x" + i + " FROM big", 5_000, 30_000 + i * 2_000L, "1")); // most well past the call's round trip
         }
         s.add(stmt(60, StatementKind.INSERT, "INSERT INTO t VALUES (?)", outcome(OutcomeKind.FAILED, null, null, "boom", null), 1000, null, "1"));
         List<DbFlag> flags = StatementFlags.compute(s, List.of(), List.of(), DbCaptureSettings.defaults());
         assertThat(types(flags)).contains(DbFlagType.FAILED).doesNotContain(DbFlagType.FAILED_SWALLOWED);
         assertThat(flags.stream().filter(f -> f.type() == DbFlagType.SLOW)).hasSize(StatementFlags.MAX_PER_TYPE);
+    }
+
+    @Test
+    void theSameStatementWithTheSameParamsAnywhereInTheCallIsADuplicate_notJustAnNPlusOne() {
+        List<CapturedStatement> s = new ArrayList<>();
+        s.add(select(1, "SELECT v FROM credential_values WHERE credential_id = ?", 1, 900, "394"));
+        s.add(select(2, "SELECT x FROM other WHERE id = ?", 1, 900, "1"));
+        s.add(select(3, "SELECT v FROM credential_values WHERE credential_id = ?", 1, 900, "394"));
+        s.add(select(4, "SELECT v FROM credential_values WHERE credential_id = ?", 1, 900, "395"));
+        s.add(select(5, "SELECT v FROM credential_values WHERE credential_id = ?", 1, 900, "395"));
+        s.add(select(6, "SELECT v FROM credential_values WHERE credential_id = ?", 1, 900, "396"));
+        List<DbFlag> flags = StatementFlags.compute(s, List.of(), List.of(), DbCaptureSettings.defaults());
+        DbFlag dup = flags.stream().filter(f -> f.type() == DbFlagType.DUPLICATE).findFirst().orElseThrow();
+        assertThat(dup.seqs()).containsExactly(1, 3, 4, 5);
+        assertThat(dup.detail()).containsEntry("duplicates", "2").containsEntry("values", "2");
+    }
+
+    @Test
+    void aTransactionPerStatementIsFlaggedOnceTheCallHasTenOrMore() {
+        List<CapturedStatement> s = new ArrayList<>();
+        List<StatementTransaction> txs = new ArrayList<>();
+        for (int i = 1; i <= 12; i++) {
+            s.add(stmt(i, StatementKind.SELECT, "SELECT a FROM t WHERE id = ?", outcome(OutcomeKind.ROWS, 1L, null, null, null), 900, "tx-" + i, String.valueOf(i)));
+            txs.add(new StatementTransaction("c1", "tx-" + i, "conn-1", i, i, "OPEN", 0, 1, 0));
+        }
+        List<DbFlag> flags = StatementFlags.compute(s, txs, List.of(), DbCaptureSettings.defaults());
+        DbFlag tx = flags.stream().filter(f -> f.type() == DbFlagType.TX_PER_STATEMENT).findFirst().orElseThrow();
+        assertThat(tx.detail()).containsEntry("transactions", "12").containsEntry("statements", "12");
+        assertThat(types(StatementFlags.compute(s.subList(0, 9), txs.subList(0, 9), List.of(), DbCaptureSettings.defaults())))
+                .doesNotContain(DbFlagType.TX_PER_STATEMENT);
+    }
+
+    @Test
+    void slowMeansSlowBeyondTheRoundTripEveryStatementOfTheCallPays() {
+        List<CapturedStatement> s = new ArrayList<>();
+        for (int i = 1; i <= 10; i++) {
+            s.add(select(i, "SELECT a FROM t" + i + " WHERE id = ?", 1, 55_000 + i * 100, String.valueOf(i))); // a remote database: ~55 ms each
+        }
+        s.add(select(11, "SELECT a FROM organization WHERE branch_id = ?", 1, 3_449_000, "948"));
+        List<DbFlag> flags = StatementFlags.compute(s, List.of(), List.of(), DbCaptureSettings.defaults());
+        List<DbFlag> slow = flags.stream().filter(f -> f.type() == DbFlagType.SLOW).toList();
+        assertThat(slow).hasSize(1);
+        assertThat(slow.get(0).seqs()).containsExactly(11);
+        assertThat(slow.get(0).detail()).containsEntry("baselineMs", "55");
+        assertThat(RoundTrip.baselineMicros(s.subList(0, 4))).isZero(); // too few to tell
     }
 }

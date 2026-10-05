@@ -85,10 +85,16 @@ public final class StatementFlags {
             flags.add(new DbFlag(DbFlagType.BEFORE_NOT_CAPTURED, DbFlag.WARN, blind.stream().map(CapturedStatement::seq).toList(), null,
                     detail("count", String.valueOf(blind.size()), "deletes", String.valueOf(deletes), "updates", String.valueOf(blind.size() - deletes))));
         }
-        flags.addAll(repeats(ordered, expected, t.repeatCount()));
+        Set<Integer> inCacheableRuns = new HashSet<>();
+        flags.addAll(repeats(ordered, expected, t.repeatCount(), inCacheableRuns));
+        flags.addAll(duplicates(flaggable.stream().filter(s -> !inCacheableRuns.contains(s.seq())).toList()));
+        flags.addAll(transactionPerStatement(ordered, transactions));
+        // Slow for the time spent BEYOND the round trip every statement of this call pays (RoundTrip).
+        long baseline = RoundTrip.baselineMicros(ordered);
         for (CapturedStatement s : flaggable) {
-            if (s.durationMicros() > t.slowMs() * 1000L && s.kind() != StatementKind.COMMIT && s.kind() != StatementKind.ROLLBACK) {
-                flags.add(flag(DbFlagType.SLOW, DbFlag.WARN, s, null, detail("ms", String.valueOf(Math.round(s.durationMicros() / 1000.0)), "table", s.table())));
+            if (s.durationMicros() - baseline > t.slowMs() * 1000L && s.kind() != StatementKind.COMMIT && s.kind() != StatementKind.ROLLBACK) {
+                flags.add(flag(DbFlagType.SLOW, DbFlag.WARN, s, null, detail("ms", String.valueOf(Math.round(s.durationMicros() / 1000.0)), "table", s.table(),
+                        "baselineMs", baseline > 0 ? String.valueOf(Math.round(baseline / 1000.0)) : null)));
             }
         }
         for (CapturedStatement s : flaggable) {
@@ -98,6 +104,47 @@ public final class StatementFlags {
             }
         }
         return capPerType(flags);
+    }
+
+    /**
+     * The same SQL with the same parameters run more than once anywhere in the call (not only back to back, unlike
+     * REPEATED_QUERY): one flag per statement shape, naming every repeat. Statements inside a back-to-back run already
+     * flagged "cacheable" are left out, so the same problem is not reported twice.
+     */
+    private static List<DbFlag> duplicates(List<CapturedStatement> flaggable) {
+        Map<String, List<CapturedStatement>> byShapeAndParams = new LinkedHashMap<>();
+        for (CapturedStatement s : flaggable) {
+            String shape = shapeOf(s);
+            if (shape == null || s.params().size() > 1 || s.outcome().kind() == OutcomeKind.FAILED) {
+                continue; // a batch is one round trip already; a failure is flagged on its own
+            }
+            byShapeAndParams.computeIfAbsent(shape + "\u0000" + s.params(), k -> new ArrayList<>()).add(s);
+        }
+        Map<String, List<List<CapturedStatement>>> byShape = new LinkedHashMap<>();
+        for (List<CapturedStatement> same : byShapeAndParams.values()) {
+            if (same.size() > 1) {
+                byShape.computeIfAbsent(shapeOf(same.get(0)), k -> new ArrayList<>()).add(same);
+            }
+        }
+        List<DbFlag> out = new ArrayList<>();
+        for (Map.Entry<String, List<List<CapturedStatement>>> e : byShape.entrySet()) {
+            List<CapturedStatement> all = e.getValue().stream().flatMap(List::stream).sorted(Comparator.comparingInt(CapturedStatement::seq)).toList();
+            int extra = e.getValue().stream().mapToInt(group -> group.size() - 1).sum();
+            out.add(new DbFlag(DbFlagType.DUPLICATE, DbFlag.WARN, all.stream().map(CapturedStatement::seq).toList(), e.getKey(),
+                    detail("table", all.get(0).table(), "duplicates", String.valueOf(extra), "values", String.valueOf(e.getValue().size()))));
+        }
+        return out;
+    }
+
+    /** Ten or more transactions, about one per statement: the per-transaction cost (checkout, begin, commit) dominates. */
+    private static List<DbFlag> transactionPerStatement(List<CapturedStatement> ordered, List<StatementTransaction> transactions) {
+        long statements = ordered.stream().filter(s -> shapeOf(s) != null).count();
+        long txs = transactions.stream().filter(tx -> tx.statementCount() > 0).count();
+        if (txs < 10 || txs * 2 < statements) {
+            return List.of();
+        }
+        return List.of(new DbFlag(DbFlagType.TX_PER_STATEMENT, DbFlag.WARN, List.of(transactions.get(0).firstSeq()), null,
+                detail("transactions", String.valueOf(txs), "statements", String.valueOf(statements))));
     }
 
     /** A supplier call made while this call's transaction held row locks (it had written, or read FOR UPDATE). */
@@ -122,7 +169,7 @@ public final class StatementFlags {
     }
 
     /** Runs of the same statement shape, back to back - N+1 when the parameters differ, "cacheable" when they do not. */
-    private static List<DbFlag> repeats(List<CapturedStatement> ordered, Set<String> expected, int threshold) {
+    private static List<DbFlag> repeats(List<CapturedStatement> ordered, Set<String> expected, int threshold, Set<Integer> inCacheableRuns) {
         List<DbFlag> out = new ArrayList<>();
         int i = 0;
         while (i < ordered.size()) {
@@ -138,6 +185,9 @@ public final class StatementFlags {
             if (shape != null && count >= Math.max(2, threshold) && (first.fingerprint() == null || !expected.contains(first.fingerprint()))) {
                 List<CapturedStatement> run = ordered.subList(i, j);
                 boolean sameParams = run.stream().map(CapturedStatement::params).distinct().count() == 1;
+                if (sameParams) {
+                    run.forEach(s -> inCacheableRuns.add(s.seq())); // already "cacheable" - not a DUPLICATE as well
+                }
                 out.add(new DbFlag(DbFlagType.REPEATED_QUERY, DbFlag.WARN, List.of(first.seq()), shape,
                         detail("table", first.table(), "count", String.valueOf(count), "cacheable", String.valueOf(sameParams))));
                 i = j;

@@ -21,7 +21,9 @@ import { readGroupByTransaction, saveGroupByTransaction } from '../../shared/uti
 import { DbCaptureApiService } from '../../core/services/db-capture-api.service';
 import { CallDbCapture, CallDbSummary } from '../../core/models/db-capture.model';
 import { CallRecord } from '../../core/models/call.model';
-import { catchError, from, map, mergeMap, of, toArray } from 'rxjs';
+import { catchError, forkJoin, from, map, mergeMap, of, toArray } from 'rxjs';
+import { CallsApiService } from '../../core/services/calls-api.service';
+import { analyzeCapture, suppliersOf } from '../../shared/utils/db-analysis';
 
 /** The two report formats a user can toggle between inside the dialog - distinct from
  * ExportFormat, which also includes 'json' (a separate, non-toggleable export the dialog still
@@ -45,6 +47,7 @@ export class ExportDialogComponent {
   private readonly dialogService = inject(ExportDialogService);
   private readonly redactions = inject(RedactionsStore);
   private readonly dbCaptureApi = inject(DbCaptureApiService);
+  private readonly callsApi = inject(CallsApiService);
   readonly state = this.dialogService.state;
 
   /**
@@ -198,8 +201,14 @@ export class ExportDialogComponent {
     this.loadingDb.set(true);
     from(inbound)
       .pipe(
-        mergeMap((call) => this.dbCaptureApi.exportCall(call.id).pipe(
-          map((capture): readonly [string, CallDbCapture | null] => [call.id, capture]),
+        // The capture, with where its time went (db-analysis.ts) - its supplier calls fetched by their parent link so
+        // their time counts even when they are not part of this export.
+        mergeMap((call) => forkJoin({
+          capture: this.dbCaptureApi.exportCall(call.id),
+          suppliers: this.callsApi.getChildren(call.id).pipe(catchError(() => of([] as CallRecord[]))),
+        }).pipe(
+          map(({ capture, suppliers }): readonly [string, CallDbCapture | null] =>
+            [call.id, { ...capture, analysis: call.duration_ms ? analyzeCapture(call, capture, suppliersOf(call.id, suppliers)) : undefined }]),
           catchError(() => of([call.id, null] as const)), // 404: not captured
         ), 4),
         toArray(),

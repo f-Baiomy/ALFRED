@@ -6,6 +6,7 @@ import { CallRecord } from '../../core/models/call.model';
 import { CallDbCapture } from '../../core/models/db-capture.model';
 import { ExportDialogService } from '../../core/services/export-dialog.service';
 import { DbCaptureApiService } from '../../core/services/db-capture-api.service';
+import { CallsApiService } from '../../core/services/calls-api.service';
 import { stmt } from '../../shared/utils/db-capture.fixtures.spec-helper';
 import { ExportDialogComponent } from './export-dialog.component';
 
@@ -30,6 +31,7 @@ describe('ExportDialogComponent - database statements', () => {
         provideHttpClient(),
         provideHttpClientTesting(),
         { provide: DbCaptureApiService, useValue: { exportCall, summaries: () => of({ 'in-1': { callId: 'in-1', statementCount: 1 } }) } },
+        { provide: CallsApiService, useValue: { getChildren: () => of([]) } },
       ],
     });
     written = [];

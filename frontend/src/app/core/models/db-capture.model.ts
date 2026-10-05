@@ -109,6 +109,8 @@ export interface CapturedStatement {
   readonly txId?: string | null;
   readonly connectionId?: string | null;
   readonly codeLocation?: string | null;
+  /** The application frames that issued it, innermost first, past the project's pass-through classes (db-agent). */
+  readonly callers?: readonly string[] | null;
   readonly runTag?: string | null;
   readonly dataSource?: string | null;
   readonly beforeImage?: BeforeImage | null;
@@ -158,6 +160,63 @@ export interface ExportedDbStatement extends CapturedStatement {
 }
 
 /** A call's whole database capture - `dbCapture` on its export event (contracts/export-format.md). */
+// ---- derived per call (shared/utils/db-analysis.ts): where the time went, and which queries cost it
+
+export interface TimeGap {
+  readonly ms: number;
+  /** The statement or supplier call just before the gap (null: the gap opens the call) and just after it. */
+  readonly afterSeq: number | null;
+  readonly beforeSeq: number | null;
+  /** Where in code the statement after the gap ran from - what the application was doing next. */
+  readonly callers?: readonly string[];
+}
+
+export interface TimeBreakdown {
+  readonly totalMs: number;
+  /** Time a statement was running and no supplier call was. */
+  readonly dbMs: number;
+  /** Time a supplier (outbound) call was running. */
+  readonly outboundMs: number;
+  /** Between the first and the last statement/supplier call, with neither running. */
+  readonly gapMs: number;
+  /** Before the first and after the last of them (request parsing, response writing). */
+  readonly edgeMs: number;
+  readonly gaps: { readonly count: number; readonly medianMs: number; readonly maxMs: number };
+  readonly topGaps: readonly TimeGap[];
+  /** The call's database round trip (RoundTrip.java's formula) - 0 when there are too few statements to tell. */
+  readonly baselineMs: number;
+  readonly statements: number;
+  readonly transactions: number;
+  /** Most of the call is neither DB nor supplier calls - the time is in the application (or unseen overhead). */
+  readonly appTimeDominant: boolean;
+}
+
+export interface QueryTotal {
+  readonly fingerprint: string;
+  readonly sql: string;
+  readonly table: string | null;
+  readonly kind: string;
+  readonly count: number;
+  readonly distinctParams: number;
+  /** Executions beyond the first of each parameter set - each one could have come from a cache. */
+  readonly duplicates: number;
+  readonly totalMs: number;
+  readonly maxMs: number;
+  readonly rows: number;
+  readonly failed: number;
+  /** The distinct places in code it ran from, most frequent first. */
+  readonly callers: readonly string[];
+  readonly seqs: readonly number[];
+  /** The HQL/native query it came from, when every execution came from the same one (text and kind only). */
+  readonly hql?: string;
+  readonly origin?: string;
+}
+
+export interface CallDbAnalysis {
+  readonly time: TimeBreakdown;
+  readonly queries: readonly QueryTotal[];
+}
+
 export interface CallDbCapture {
   readonly summary?: CallDbSummary | null;
   readonly transactions: readonly StatementTransaction[];
@@ -168,6 +227,11 @@ export interface CallDbCapture {
    * Presentation only, set by the export dialog; never written into the .json (bulk-json-builder drops it).
    */
   readonly layout?: 'grouped' | 'flat';
+  /**
+   * Where the call's time went and its per-query totals - derived (db-analysis.ts), attached by the export dialog
+   * (which also has the supplier calls). Written into every export; never read back on import (recomputed instead).
+   */
+  readonly analysis?: CallDbAnalysis;
 }
 
 export interface RowsPage {
@@ -183,7 +247,7 @@ export interface RowsPage {
 
 export type DbFlagType =
   | 'FAILED_SWALLOWED' | 'FAILED' | 'ROLLED_BACK' | 'NO_WHERE' | 'LARGE_DELETE' | 'REPEATED_QUERY' | 'SLOW'
-  | 'HUGE_RESULT' | 'LOCK_DURING_SUPPLIER_CALL' | 'CASCADE' | 'BEFORE_NOT_CAPTURED';
+  | 'HUGE_RESULT' | 'LOCK_DURING_SUPPLIER_CALL' | 'CASCADE' | 'BEFORE_NOT_CAPTURED' | 'DUPLICATE' | 'TX_PER_STATEMENT';
 
 export interface DbFlag {
   readonly type: DbFlagType;

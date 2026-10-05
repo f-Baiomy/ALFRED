@@ -20,6 +20,7 @@ import {
   readGroupByQuery, readGroupByTransaction, saveGroupByQuery, saveGroupByTransaction, saveRowsAs,
 } from '../../shared/utils/db-group-preference';
 import { hasOrigins } from '../../shared/utils/db-origin';
+import { QueryTotal, TimeBreakdown, queryTotals, timeBreakdown } from '../../shared/utils/db-analysis';
 import { DbStatementListComponent } from './db-statement-list.component';
 import { DbDetailTab, DbKindFilter, DbWindowState } from './db-window-state';
 import { DbWindowRequest, DbWindowService } from './db-window.service';
@@ -91,7 +92,17 @@ export class DbWindowComponent implements OnInit {
   private fetching = false;
 
   /** Statements | Tables (mock: the views row). */
-  readonly view = signal<'stmts' | 'tables'>('stmts');
+  readonly view = signal<'stmts' | 'queries' | 'tables'>('stmts');
+  /** Where the call's time went (db-analysis.ts) - from the loaded statements and the supplier calls they made. */
+  readonly breakdown = computed<TimeBreakdown | null>(() => {
+    const call = this.call();
+    if (!call || !this.statements().length || !call.duration_ms) return null;
+    return timeBreakdown(call, this.statements(), this.markers(), this.state.suppliersBySeq(), this.txCount());
+  });
+  /** "Top queries": one row per statement shape, costliest first. */
+  readonly queries = computed<QueryTotal[]>(() => queryTotals(this.statements()));
+  /** The query a "Top queries" click narrowed the list to. */
+  readonly queryFilter = signal<QueryTotal | null>(null);
   readonly tableSummaries = signal<readonly TableSummary[] | null>(null);
 
   /** The Search/SQL toggle over statements, and the last SQL result (null = showing all statements). */
@@ -268,7 +279,31 @@ export class DbWindowComponent implements OnInit {
     this.jump(location.seq, location.tab);
   }
 
-  setView(view: 'stmts' | 'tables'): void {
+  /** "Class.method(File.java:12)" → "Class.method:12" - enough to recognise it on one line; the tooltip has the rest. */
+  shortFrame(frame: string): string {
+    return frame.replace(/\([^:()]*:(\d+)\)$/, ':$1');
+  }
+
+  /** A share of the call's time, for the breakdown bar. */
+  pct(ms: number): number {
+    const total = this.breakdown()?.totalMs ?? 0;
+    return total ? Math.min(100, (ms / total) * 100) : 0;
+  }
+
+  /** "Top queries" → the Statements tab, showing every execution of that query. */
+  filterQuery(q: QueryTotal): void {
+    this.clearStatementSql();
+    this.queryFilter.set(q);
+    this.state.statementSeqs.set(new Set(q.seqs));
+    this.view.set('stmts');
+  }
+
+  clearQueryFilter(): void {
+    this.queryFilter.set(null);
+    this.state.statementSeqs.set(null);
+  }
+
+  setView(view: 'stmts' | 'queries' | 'tables'): void {
     this.view.set(view);
     const call = this.call();
     if (view === 'tables' && call && !this.tableSummaries()) {
