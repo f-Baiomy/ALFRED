@@ -79,6 +79,13 @@ public class CallsController {
     /** The list-row shape for one call known only by id - e.g. Relive's Live calls log (T074), which
      *  only stores a {@code loggedCallId} and needs a resend-/export-ready summary (method, url,
      *  status, timestamp) it never had from a list fetch. */
+    /** The supplier calls an inbound call made (the db-agent's parent link), whatever the list's filters - the
+     *  database window's supplier rows. */
+    @GetMapping("/calls/{id}/children")
+    public java.util.List<CallSummary> getChildren(@PathVariable String id) {
+        return getCallsUseCase.getChildren(id);
+    }
+
     @GetMapping("/calls/{id}/summary")
     public ResponseEntity<CallSummary> getSummary(@PathVariable String id) {
         return getCallDetailUseCase.getSummary(id)

@@ -53,3 +53,25 @@ describe('CallFocusService reveal', () => {
     expect(service.reveal()).toBeNull();
   });
 });
+
+describe('CallFocusService go', () => {
+  it('clears a leftover text search so the call asked for is not hidden by it - only for its own focus', () => {
+    TestBed.configureTestingModule({ providers: [provideRouter([])] });
+    const service = TestBed.inject(CallFocusService);
+    spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
+    const page = {
+      selectedSources: () => new Set(['external']),
+      toggleSource: jasmine.createSpy('toggleSource'),
+      setRequestIdFilter: jasmine.createSpy('setRequestIdFilter'),
+      setSearchQuery: jasmine.createSpy('setSearchQuery'),
+    };
+
+    service.applyTo(page, null, 'abc'); // a plain ?requestId= link keeps the user's search
+    expect(page.setSearchQuery).not.toHaveBeenCalled();
+
+    service.go({ callId: 'out-54', cycleId: null, direction: 'outbound', serviceName: null });
+    service.applyTo(page, null, 'out-54');
+    expect(page.setSearchQuery).toHaveBeenCalledWith('');
+    expect(page.setRequestIdFilter).toHaveBeenCalledWith('out-54');
+  });
+});

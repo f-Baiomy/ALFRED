@@ -82,6 +82,12 @@ export class CallsApiService {
     return this.http.get<CallSummaryDto>(`${this.config.backendUrl}/${endpointFor(source)}/${callId}/summary`).pipe(map((dto) => toCallRecord(dto, source)));
   }
 
+  /** The supplier calls an inbound call made (the db-agent's parent link), whatever the list's filters or page. */
+  getChildren(parentCallId: string): Observable<CallRecord[]> {
+    return this.http.get<CallSummaryDto[]>(`${this.config.backendUrl}/calls/${encodeURIComponent(parentCallId)}/children`)
+      .pipe(map((list) => list.map((dto) => toCallRecord(dto, 'external'))));
+  }
+
   /** Snapshot bodies the list leaves off. 404 when the call has no interception record. */
   getInterception(callId: string, source: CallEndpointSource = 'external'): Observable<CallInterception> {
     return this.http.get<CallInterception>(`${this.config.backendUrl}/${endpointFor(source)}/${callId}/interception`);

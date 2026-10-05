@@ -9,6 +9,9 @@ import { CallsStateService } from '../../core/state/calls-state.service';
 import { DbCaptureStateService } from '../../core/state/db-capture-state.service';
 import { stmt } from '../../shared/utils/db-capture.fixtures.spec-helper';
 import { DbWindowComponent } from './db-window.component';
+import { DbWindowService } from './db-window.service';
+import { CallsApiService } from '../../core/services/calls-api.service';
+import { CallFocusService } from '../../core/services/call-focus.service';
 
 const call: CallRecord = {
   id: 'call-1', original_url: '/wallet-app/api/wallet/pay', url: '/wallet-app/api/wallet/pay', method: 'POST',
@@ -22,8 +25,12 @@ const pageOf = (...seqs: number[]): CallStatementsPage => ({
 describe('DbWindowComponent', () => {
   let events: Subject<DbCaptureSocketEvent>;
   let statements: jasmine.Spy;
+  let children: jasmine.Spy;
+  let focusGo: jasmine.Spy;
 
   function create() {
+    children ??= jasmine.createSpy('children').and.returnValue(of([]));
+    focusGo = jasmine.createSpy('go');
     events = new Subject();
     TestBed.configureTestingModule({
       imports: [DbWindowComponent],
@@ -32,6 +39,8 @@ describe('DbWindowComponent', () => {
         { provide: DbCaptureStateService, useValue: { events$: events, reconnected$: new Subject(), summaries: signal(new Map()), requestSummary: () => undefined } },
         { provide: CallsStateService, useValue: { calls: signal([]) } },
         { provide: RedactionsStore, useValue: { all: signal([]) } },
+        { provide: CallsApiService, useValue: { getChildren: (...args: unknown[]) => children(...args) } },
+        { provide: CallFocusService, useValue: { go: (...args: unknown[]) => focusGo(...args) } },
       ],
     });
     const fixture = TestBed.createComponent(DbWindowComponent);
@@ -122,5 +131,38 @@ describe('DbWindowComponent', () => {
     expect(cards[0].textContent).toContain(':id');
     expect(cards[1].textContent).toContain('WHERE o.ID = 948');
     localStorage.removeItem('alfred.dbCapture.rowsAs');
+  });
+
+  it('loads the supplier calls by their parent link - never "not loaded" because the list is filtered', () => {
+    const supplier: CallRecord = {
+      id: 'out-54', original_url: 'https://ndc.example/api/FlightSearch/Search', url: 'https://ndc.example/api/FlightSearch/Search',
+      method: 'POST', timestamp: '2026-10-04T18:02:44Z', duration_ms: 4108, source: 'external', state: 'COMPLETED',
+      response: { status: 200, headers: {}, body: '' }, parentCallId: 'call-1', parentSeq: 2,
+    };
+    children = jasmine.createSpy('children').and.returnValue(of([supplier]));
+    statements = jasmine.createSpy('statements').and.returnValue(of({
+      ...pageOf(1, 3), supplierMarkers: [{ seq: 2, method: 'POST', url: 'https://ndc.example/api/FlightSearch/Search' }],
+    }));
+    const fixture = create();
+    fixture.detectChanges();
+    fixture.detectChanges();
+    expect(children).toHaveBeenCalledWith('call-1');
+    const sup = fixture.nativeElement.querySelector('div.sup');
+    expect(sup.textContent).toContain('4108');
+    expect(sup.textContent).toContain('show call');
+    expect(sup.textContent).not.toContain('not loaded');
+
+    // "show call": the window is put aside (not destroyed); the call is not on this page, so it is focused there
+    const windows = TestBed.inject(DbWindowService);
+    windows.openCall(call);
+    sup.querySelector('a').click();
+    expect(windows.aside()?.label).toContain('#2 POST ndc.example/…/Search');
+    expect(windows.request()).not.toBeNull();
+    expect(focusGo).toHaveBeenCalledWith({ callId: 'out-54', cycleId: null, direction: 'outbound', serviceName: null });
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(windows.request()).not.toBeNull(); // Escape belongs to the page while the window is aside
+    windows.back();
+    expect(windows.aside()).toBeNull();
+    children = undefined as unknown as jasmine.Spy;
   });
 });

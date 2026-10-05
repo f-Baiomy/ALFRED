@@ -111,6 +111,9 @@ class SqliteCallsRepositoryTest {
         assertThat(repo.query("", "", "oldest", 0, 50, true, "", "", "", "").items())
                 .extracting(CallSummary::parentCallId, CallSummary::parentSeq)
                 .containsExactly(org.assertj.core.groups.Tuple.tuple("inbound-1", 18), org.assertj.core.groups.Tuple.tuple(null, null));
+        // GET /calls/{id}/children: the inbound call's supplier calls, whatever the list filters say
+        assertThat(repo.findChildren("inbound-1")).extracting(CallSummary::id).containsExactly(linked.id());
+        assertThat(repo.findChildren("nobody")).isEmpty();
     }
 
     @Test

@@ -89,6 +89,15 @@ public interface CallLogPort {
         return new CallListSupport.Page<>(page.items().stream().map(CallSummary::of).toList(), page.total());
     }
 
+    /** The calls linked to {@code parentCallId} by the db-agent, ordered by their place in the parent's sequence.
+     *  The default scans {@link #readAll()} (the file adapter); the SQLite adapter queries the column. */
+    default List<CallSummary> findChildren(String parentCallId) {
+        return readAll().stream().filter(call -> parentCallId.equals(call.parentCallId()))
+                .sorted(java.util.Comparator.comparing(CallRecord::parentSeq, java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())))
+                .map(CallSummary::of)
+                .toList();
+    }
+
     /** Every call of one Relive run, full records, oldest first. */
     default List<CallRecord> findByReliveRunId(String runId) {
         return readAll().stream().filter(call -> ReliveFilter.matches(call.relive(), runId))

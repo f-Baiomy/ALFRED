@@ -22,9 +22,22 @@ import {
 import { hasOrigins } from '../../shared/utils/db-origin';
 import { DbStatementListComponent } from './db-statement-list.component';
 import { DbDetailTab, DbKindFilter, DbWindowState } from './db-window-state';
-import { DbWindowRequest } from './db-window.service';
+import { DbWindowRequest, DbWindowService } from './db-window.service';
+import { CallsApiService } from '../../core/services/calls-api.service';
+import { CallFocusService } from '../../core/services/call-focus.service';
 
 const PAGE = 500;
+
+/** "host/…/last-segment" - enough to tell supplier calls apart on the Back button. */
+function shortUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    const last = u.pathname.split('/').filter(Boolean).pop() ?? '';
+    return `${u.host}/…/${last}`;
+  } catch {
+    return url;
+  }
+}
 const DEFAULT_REPEAT_THRESHOLD = 5;
 
 interface StripSegment {
@@ -54,6 +67,12 @@ export class DbWindowComponent implements OnInit {
   private readonly api = inject(DbCaptureApiService);
   private readonly dbState = inject(DbCaptureStateService);
   private readonly calls = inject(CallsStateService, { optional: true });
+  private readonly callsApi = inject(CallsApiService);
+  private readonly focus = inject(CallFocusService);
+  private readonly windows = inject(DbWindowService);
+  /** The call's supplier calls fetched by their parent link - so a row is never "not loaded" because the list is
+   *  filtered or paged past it. */
+  private readonly children = signal<readonly CallRecord[]>([]);
   private readonly destroyRef = inject(DestroyRef);
   private readonly host = inject(ElementRef<HTMLElement>);
   protected readonly state = inject(DbWindowState);
@@ -309,12 +328,14 @@ export class DbWindowComponent implements OnInit {
     if (call) {
       this.dbState.requestSummary(call.id);
       this.state.suppliersBySeq.set(this.suppliersOf(call));
+      this.loadChildren(call);
     }
     this.fetchMore(true);
     const sub = this.dbState.events$.subscribe((event) => {
       if (event.type === 'statements-appended' && call && event.callId === call.id) {
         if (event.lastSeq > this.lastSeq()) this.fetchMore(false);
         this.state.suppliersBySeq.set(this.suppliersOf(call));
+        this.loadChildren(call);
       } else if (event.type === 'outside-appended' && !call && !this.hasMore()) {
         this.fetchMore(false);
       }
@@ -328,10 +349,24 @@ export class DbWindowComponent implements OnInit {
 
   private suppliersOf(call: CallRecord): Map<number, CallRecord> {
     const map = new Map<number, CallRecord>();
+    for (const c of this.children()) {
+      if (c.parentSeq != null) map.set(c.parentSeq, c);
+    }
+    // The list's copy wins: it is the live one (a call still in progress updates there first).
     for (const c of this.calls?.calls() ?? []) {
       if (c.parentCallId === call.id && c.parentSeq != null) map.set(c.parentSeq, c);
     }
     return map;
+  }
+
+  private loadChildren(call: CallRecord): void {
+    this.callsApi.getChildren(call.id).subscribe({
+      next: (list) => {
+        this.children.set(list);
+        this.state.suppliersBySeq.set(this.suppliersOf(call));
+      },
+      error: () => undefined,
+    });
   }
 
   private lastSeq(): number {
@@ -389,7 +424,12 @@ export class DbWindowComponent implements OnInit {
     if (this.hasMore() && body.scrollTop + body.clientHeight > body.scrollHeight - 200) this.fetchMore(false);
   }
 
+  /** Escape closes the window - not while it is put aside, when the key belongs to the page under it. */
   @HostListener('document:keydown.escape')
+  onEscape(): void {
+    if (!this.windows.aside()) this.close();
+  }
+
   close(): void {
     this.closed.emit();
   }
@@ -466,24 +506,36 @@ export class DbWindowComponent implements OnInit {
   }
 
   /**
-   * "show call ↗": close the window and point at the supplier call in the list - its waterfall row (the tree under
-   * the inbound call) or its card - with an outline and a "◆ #n · from database" label that stays until the next
-   * click, so it is clear which of several identical-looking calls it was.
+   * "show call ↗": put the window aside (kept as it is - "◆ Back to database" brings it back) and point at the
+   * supplier call in the list - its waterfall row or its card - with an outline and a "◆ #n · from database" label
+   * that stays until the next click. A call the page is not showing (filtered out, paged past, another page) is
+   * opened through CallFocusService, which shows Live Calls filtered to it.
    */
   showCall(call: CallRecord): void {
-    this.close();
-    setTimeout(() => {
+    const seq = call.parentSeq ?? null;
+    this.windows.putAside(`#${seq ?? ''} ${call.method} ${shortUrl(call.url)}`);
+    const find = () => {
       const id = CSS.escape(call.id);
-      const el = document.querySelector<HTMLElement>(`[data-call-row="${id}"]`) ?? document.querySelector<HTMLElement>(`[data-call-id="${id}"]`);
-      if (!el) return;
+      return document.querySelector<HTMLElement>(`[data-call-row="${id}"]`) ?? document.querySelector<HTMLElement>(`[data-call-id="${id}"]`);
+    };
+    if (!find()) this.focus.go({ callId: call.id, cycleId: null, direction: 'outbound', serviceName: null });
+    // The page may still be routing / rendering the call: look for it for a few seconds.
+    let tries = 0;
+    const mark = () => {
+      const el = find();
+      if (!el) {
+        if (++tries < 30) setTimeout(mark, 100);
+        return;
+      }
       document.querySelectorAll('.db-target').forEach((old) => old.classList.remove('db-target'));
       el.scrollIntoView({ block: 'center', behavior: 'smooth' });
-      el.setAttribute('data-db-mark', `◆ #${call.parentSeq ?? ''} · from database`);
+      el.setAttribute('data-db-mark', `◆ #${seq ?? ''} · from database`);
       el.classList.add('db-target');
       const clear = () => el.classList.remove('db-target');
       setTimeout(() => document.addEventListener('click', clear, { once: true, capture: true }), 0);
       setTimeout(clear, 15000);
-    });
+    };
+    setTimeout(mark);
   }
 
   copyAllSql(): void {

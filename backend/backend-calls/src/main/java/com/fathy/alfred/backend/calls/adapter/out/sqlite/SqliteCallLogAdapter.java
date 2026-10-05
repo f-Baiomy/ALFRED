@@ -125,6 +125,11 @@ public class SqliteCallLogAdapter implements CallLogPort {
     }
 
     @Override
+    public java.util.List<CallSummary> findChildren(String parentCallId) {
+        return repository.findChildren(parentCallId);
+    }
+
+    @Override
     public CallListSupport.Page<CallSummary> query(String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled) {
         return repository.query(search, supplier, sort, offset, limit, paginationEnabled);
     }

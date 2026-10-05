@@ -85,6 +85,11 @@ public class CallsService implements GetCallsUseCase, FindReliveRunCallsUseCase,
         return new CallsPage(page.items(), page.total());
     }
 
+    @Override
+    public List<CallSummary> getChildren(String parentCallId) {
+        return parentCallId == null || parentCallId.isBlank() ? List.of() : callLogPort.findChildren(parentCallId);
+    }
+
     /** Delegates to the port - an indexed lookup for the SQLite adapter, a linear scan over the in-memory cache for the file adapter. */
     @Override
     public Optional<CallDetail> getDetail(String callId) {

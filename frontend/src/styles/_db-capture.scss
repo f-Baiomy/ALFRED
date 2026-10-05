@@ -680,3 +680,49 @@
   .oc-info { padding: 0.45rem 0.7rem; border-radius: 8px; font-size: 0.74rem; color: var(--text-dim); border: 1px dashed var(--border); }
   .oc-info code { color: var(--text); font-family: var(--db-mono); }
 }
+
+// ---- the window put aside by "show call ↗", and the button that brings it back ----
+.db-window-slot.aside {
+  visibility: hidden;
+
+  // the backdrop must not dim or block the page while the window is aside
+  &, * { pointer-events: none !important; }
+}
+
+.db-back {
+  position: fixed;
+  left: 50%;
+  bottom: 1.2rem;
+  transform: translateX(-50%);
+  z-index: 1200;
+  display: flex;
+  align-items: stretch;
+  border-radius: 999px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--db) 60%, transparent);
+  background: var(--popover-solid, #161c4a);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45), 0 0 0 3px color-mix(in srgb, var(--db) 15%, transparent);
+
+  button { font: inherit; border: none; background: none; cursor: pointer; }
+
+  .db-back-btn {
+    padding: 0.5rem 0.9rem 0.5rem 1rem;
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: var(--db);
+    white-space: nowrap;
+    max-width: min(80vw, 640px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+
+    span { margin-left: 0.4rem; font-weight: 500; color: var(--text-dim); font-family: var(--db-mono); font-size: 0.74rem; }
+    &:hover { background: color-mix(in srgb, var(--db) 12%, transparent); }
+  }
+
+  .db-back-x {
+    padding: 0 0.8rem;
+    color: var(--text-dim);
+    border-left: 1px solid var(--border) !important;
+    &:hover { color: var(--text); background: color-mix(in srgb, var(--red) 14%, transparent); }
+  }
+}

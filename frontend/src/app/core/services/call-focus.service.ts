@@ -26,6 +26,8 @@ export interface FocusableList {
   selectedSources(): ReadonlySet<SourceKey>;
   toggleSource(key: SourceKey): void;
   setRequestIdFilter(requestId: string): void;
+  /** Cleared when a focus arrives - a text search left from before would hide the very call asked for. */
+  setSearchQuery?(query: string): void;
 }
 
 /**
@@ -59,9 +61,11 @@ export class CallFocusService {
    * works, not only this service's), and a pending focus for this page selects the call's source.
    */
   applyTo(list: FocusableList, cycleId: string | null, requestId: string | null): void {
-    if (requestId) list.setRequestIdFilter(requestId);
     const focus = this.pending();
-    if (!focus || (focus.cycleId ?? null) !== (cycleId ?? null)) return;
+    const forThisPage = !!focus && (focus.cycleId ?? null) === (cycleId ?? null);
+    if (forThisPage) list.setSearchQuery?.('');
+    if (requestId) list.setRequestIdFilter(requestId);
+    if (!focus || !forThisPage) return;
     this.pending.set(null);
     const key: SourceKey = focus.direction === 'inbound' && focus.serviceName ? focus.serviceName : EXTERNAL_SOURCE_KEY;
     if (!list.selectedSources().has(key)) list.toggleSource(key);

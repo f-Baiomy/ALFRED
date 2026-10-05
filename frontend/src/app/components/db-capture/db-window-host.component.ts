@@ -12,9 +12,18 @@ import { DbWindowService } from './db-window.service';
     <!-- keyed by the request object, so opening another call while one is open starts a fresh window -->
     @for (request of requests(); track request) {
       <!-- deferred: the window's code loads the first time a chip opens it, not with the app shell -->
-      @defer {
-        <app-db-window [request]="request" (closed)="service.close()" />
-      }
+      <!-- put aside, it stays rendered (hidden, not destroyed) so "Back" finds it exactly as it was -->
+      <div class="db-window-slot" [class.aside]="!!service.aside()">
+        @defer {
+          <app-db-window [request]="request" (closed)="service.close()" />
+        }
+      </div>
+    }
+    @if (service.aside(); as aside) {
+      <div class="db-back" role="status">
+        <button type="button" class="db-back-btn" (click)="service.back()" title="Back to the database window, where you were">◆ Back to database <span>{{ aside.label }}</span></button>
+        <button type="button" class="db-back-x" (click)="service.close()" title="Close the database window" aria-label="Close the database window">✕</button>
+      </div>
     }
   `,
 })

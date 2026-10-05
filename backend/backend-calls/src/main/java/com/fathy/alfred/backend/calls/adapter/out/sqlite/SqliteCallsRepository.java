@@ -406,6 +406,7 @@ public class SqliteCallsRepository {
         if (!columns.contains("parent_seq")) {
             jdbcTemplate.execute("ALTER TABLE call_metadata ADD COLUMN parent_seq INTEGER");
         }
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_call_metadata_parent ON call_metadata(parent_call_id) WHERE parent_call_id IS NOT NULL");
     }
 
     /** {@code service_name} postdates even session_id/operation_id - added explicitly via ALTER TABLE for a database created before this field existed, same pattern as {@link #addSessionOperationColumnsIfMissing}. */
@@ -829,6 +830,12 @@ public class SqliteCallsRepository {
 
     public CallListSupport.Page<CallSummary> query(String search, String supplier, String sort, int offset, int limit, boolean paginationEnabled) {
         return query(search, supplier, sort, offset, limit, paginationEnabled, "", "", "");
+    }
+
+    /** The calls the db-agent linked to one inbound call, in the parent's sequence order. */
+    public List<CallSummary> findChildren(String parentCallId) {
+        return jdbcTemplate.query(SUMMARY_SQL + "call_metadata WHERE parent_call_id = ? ORDER BY parent_seq, timestamp_millis",
+                SUMMARY_ROW_MAPPER, parentCallId);
     }
 
     /**
