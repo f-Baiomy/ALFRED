@@ -157,7 +157,7 @@ export class DbCaptureSettingsComponent implements OnInit {
     });
   }
 
-  setNumber(project: string, key: 'rowsPerResult', event: Event): void {
+  setNumber(project: string, key: 'rowsPerResult' | 'callerFrames', event: Event): void {
     const s = this.settingsOf(project);
     const value = Math.round(Number((event.target as HTMLInputElement).value));
     if (s && value > 0) this.save(project, { ...s, [key]: value });
