@@ -67,10 +67,16 @@ export async function withParts(client: AlfredClient, ref: CallRef, call: CallRe
   let request = call.request;
   let response = call.response;
   for (const detail of details) {
-    if (detail.request) request = { ...request, ...detail.request };
-    if (detail.response) response = { ...response, ...detail.response, status: detail.response.status ?? response?.status } as CallRecord['response'];
+    // A part request answers the other half of its side with explicit nulls (`?part=request-headers`
+    // gives `{headers: {...}, body: null}`); merging those would wipe a body fetched by another part.
+    if (detail.request) request = { ...request, ...present(detail.request) };
+    if (detail.response) response = { ...response, ...present(detail.response) } as CallRecord['response'];
   }
   return { ...call, request, response };
+}
+
+function present<T extends object>(value: T): Partial<T> {
+  return Object.fromEntries(Object.entries(value).filter(([, v]) => v !== null && v !== undefined)) as Partial<T>;
 }
 
 /** The complete record - summary plus request and response - as copying into a cycle and exporting need it. */

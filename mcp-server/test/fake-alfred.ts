@@ -58,11 +58,12 @@ export function summaryOf(record: CallRecord): Record<string, unknown> {
 function detailOf(record: CallRecord, part: string | null): Record<string, unknown> {
   const req = record.request ?? {};
   const res = record.response ?? { status: 0 };
+  // As the real backend answers a part: the other half of that side, and the other side, as explicit nulls.
   switch (part) {
-    case 'request-headers': return { request: { headers: req.headers } };
-    case 'request-body': return { request: { body: req.body } };
-    case 'response-headers': return { response: { status: res.status, headers: res.headers } };
-    case 'response-body': return { response: { status: res.status, body: res.body } };
+    case 'request-headers': return { request: { headers: req.headers ?? null, body: null }, response: null };
+    case 'request-body': return { request: { headers: null, body: req.body ?? null }, response: null };
+    case 'response-headers': return { request: null, response: { status: res.status, headers: res.headers ?? null, body: null } };
+    case 'response-body': return { request: null, response: { status: res.status, headers: null, body: res.body ?? null } };
     default: return { request: req, response: res, relive: null };
   }
 }

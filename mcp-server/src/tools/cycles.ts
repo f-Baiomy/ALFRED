@@ -126,27 +126,45 @@ async function cycleStory(client: AlfredClient, input: StoryInput) {
     if (parts.length) call = await withParts(client, { id: call.id, source: call.source ?? 'external', cycleId: cycle.id }, call, parts);
     call = maskCall(ctx, call);
     lines.push(storyLine(n, call));
+    const wants = (f: FieldName) => !!input.fields?.includes(f);
+    const comments = input.includeComments || wants('comments') ? await commentsOf(client, call.id) : [];
+    let db: { summary: string; statements: number; findings: { severity: string; title: string; short: string; seqs: readonly number[] }[] } | null = null;
+    if ((input.includeDb || wants('db')) && call.source === 'internal') {
+      if (!input.includeDb && !(call.id in summaries)) Object.assign(summaries, await dbSummaries(client, [call.id]));
+      if (summaries[call.id]) {
+        const capture = await loadCapture(client, call.id);
+        const analysis = analysisOf(call, capture, await childrenOf(client, call.id));
+        db = {
+          summary: maskText(ctx, analysis.summary ?? `${capture.statements.length} statements`), statements: capture.statements.length,
+          findings: nonNoteFindings(analysis).map((f) => ({ severity: f.severity, title: maskText(ctx, f.title), short: maskText(ctx, f.short), seqs: f.seqs })),
+        };
+      }
+    }
     if (input.fields?.length || input.paths?.length) {
-      const sel = select(call, input.fields, input.paths, {}, 0, 2000);
+      // The supplier calls this inbound call made: its copies in this cycle, else the live parent link.
+      const inCycle = calls.filter((c) => c.parentCallId === call.id);
+      const children = wants('children') && call.source === 'internal'
+        ? (inCycle.length ? inCycle : await childrenOf(client, call.id)).map((c) => ({ ...toRow(maskCall(ctx, c)), inCycle: inCycle.includes(c) }))
+        : undefined;
+      const extras = {
+        children: wants('children') ? children ?? [] : undefined,
+        comments: wants('comments') ? comments.map((c) => ({ id: c.id, block: c.block, line: c.lineIndex + 1, comment: preview(maskText(ctx, c.comment), 300, `list_comments commentId ${c.id}`) })) : undefined,
+        db: wants('db') ? db : undefined,
+      };
+      const sel = select(call, input.fields, input.paths, extras, 0, 2000);
       lines.push(`   ${JSON.stringify(sel.values)}${sel.missing.length ? ` missing=${JSON.stringify(sel.missing)}` : ''}`);
     }
     if (input.includeComments) {
-      for (const c of await commentsOf(client, call.id)) {
+      for (const c of comments) {
         // A comment can be a whole pasted stack trace; the story shows its start, list_comments the rest.
         const note = preview(maskText(ctx, c.comment).replace(/\s*\n\s*/g, ' ⏎ '), 300, `list_comments callId ${call.id} commentId ${c.id}`);
         lines.push(`   💬 [${c.block} L${c.lineIndex + 1}] ${note} (comment ${c.id})`);
       }
     }
-    if (summaries[call.id]) {
-      try {
-        const capture = await loadCapture(client, call.id);
-        const analysis = analysisOf(call, capture, await childrenOf(client, call.id));
-        lines.push(`   ◆ DB: ${analysis.summary ?? `${capture.statements.length} statements`}`);
-        for (const f of nonNoteFindings(analysis)) {
-          lines.push(`   ${f.severity === 'bad' ? '✖' : '⚠'} ${maskText(ctx, f.title)} - ${maskText(ctx, f.short)} [#${f.seqs.slice(0, 12).join(', #')}${f.seqs.length > 12 ? ', …' : ''}]`);
-        }
-      } catch (error) {
-        if (!(error instanceof AlfredError && error.kind === 'not_found')) throw error;
+    if (db && input.includeDb) {
+      lines.push(`   ◆ DB: ${db.summary}`);
+      for (const f of db.findings) {
+        lines.push(`   ${f.severity === 'bad' ? '✖' : '⚠'} ${f.title} - ${f.short} [#${f.seqs.slice(0, 12).join(', #')}${f.seqs.length > 12 ? ', …' : ''}]`);
       }
     }
     return lines;
