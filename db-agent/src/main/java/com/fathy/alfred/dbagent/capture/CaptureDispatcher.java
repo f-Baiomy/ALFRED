@@ -330,7 +330,9 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
             record.fingerprint = SqlShape.fingerprint(sql, params.isEmpty() ? Collections.<Value>emptyList() : params.get(0));
             record.startedAt = Instant.now().toString();
             record.offsetMicros = context == null ? 0 : context.offsetMicros(now);
-            record.codeLocation = CodeLocation.find();
+            CodeLocation.Where where = CodeLocation.find(settings.callerFrames(), settings.passThrough());
+            record.codeLocation = where.location;
+            record.callers = where.callers;
             record.origin = origins.current();
             if (record.origin == null && CodeLocation.sawHibernate()) {
                 record.origin = HIBERNATE_INTERNAL;

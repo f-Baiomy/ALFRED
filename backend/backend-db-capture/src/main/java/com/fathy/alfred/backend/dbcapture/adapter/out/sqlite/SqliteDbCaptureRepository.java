@@ -83,7 +83,7 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
 
     private static final String STATEMENT_COLUMNS = "id, call_id, thread_name, seq, kind, sql, fingerprint, table_name, params_json, "
             + "outcome_json, started_at, duration_us, offset_us, tx_id, connection_id, code_location, run_tag, data_source, "
-            + "before_json, cascades_json, undone, expected, stored_rows, origin_json";
+            + "before_json, cascades_json, undone, expected, stored_rows, origin_json, callers_json";
 
     private final ObjectMapper objectMapper;
 
@@ -184,6 +184,7 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
                 """);
         addColumnIfMissing("call_db_summary", "project", "TEXT");
         addColumnIfMissing("statements", "origin_json", "TEXT");
+        addColumnIfMissing("statements", "callers_json", "TEXT");
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS ix_summary_first_seen ON call_db_summary(first_seen)");
         jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS capture_settings (project TEXT PRIMARY KEY, settings_json TEXT NOT NULL)");
         jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS agents (agent_id TEXT PRIMARY KEY, project TEXT NOT NULL, status_json TEXT NOT NULL, last_seen TEXT NOT NULL)");
@@ -215,23 +216,25 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
         String before = s.beforeImage() == null ? null : json(s.beforeImage());
         String cascades = s.cascadesTo() == null || s.cascadesTo().isEmpty() ? null : json(s.cascadesTo());
         String origin = s.origin() == null ? null : json(s.origin());
+        String callers = s.callers() == null || s.callers().isEmpty() ? null : json(s.callers());
         long rowsBytes = 0;
-        long id = insertReturningId(s, params, outcome, before, cascades, origin);
+        long id = insertReturningId(s, params, outcome, before, cascades, origin, callers);
         rowsBytes += insertRows(id, RESULT, s.rowsFrom(), s.rows());
         rowsBytes += insertRows(id, BEFORE_IMAGE, 0, s.beforeImageRows());
         long stored = s.rows() == null ? 0 : s.rows().size();
         long bytes = s.sql().length() + params.length() + outcome.length() + (before == null ? 0 : before.length())
-                + (origin == null ? 0 : origin.length()) + rowsBytes;
+                + (origin == null ? 0 : origin.length()) + (callers == null ? 0 : callers.length()) + rowsBytes;
         jdbcTemplate.update("UPDATE statements SET stored_rows = ?, approx_bytes = ? WHERE id = ?", stored, bytes, id);
     }
 
-    private long insertReturningId(IncomingStatement s, String params, String outcome, String before, String cascades, String origin) {
+    private long insertReturningId(IncomingStatement s, String params, String outcome, String before, String cascades, String origin,
+                                   String callers) {
         Long id = jdbcTemplate.execute((ConnectionCallback<Long>) connection -> {
             try (PreparedStatement ps = connection.prepareStatement("""
                     INSERT INTO statements (agent_sid, call_id, thread_name, seq, kind, sql, fingerprint, table_name, params_json,
                       outcome_json, started_at, duration_us, offset_us, tx_id, connection_id, code_location, run_tag, data_source,
-                      before_json, cascades_json, origin_json, approx_bytes)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)
+                      before_json, cascades_json, origin_json, callers_json, approx_bytes)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)
                     """, Statement.RETURN_GENERATED_KEYS)) {
                 ps.setString(1, s.sid());
                 ps.setString(2, s.callId());
@@ -254,6 +257,7 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
                 ps.setString(19, before);
                 ps.setString(20, cascades);
                 ps.setString(21, origin);
+                ps.setString(22, callers);
                 ps.executeUpdate();
                 try (ResultSet keys = ps.getGeneratedKeys()) {
                     keys.next();
@@ -470,7 +474,8 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
             readNullable(rs.getString("before_json"), BeforeImage.class),
             rs.getString("cascades_json") == null ? null : read(rs.getString("cascades_json"), STRINGS),
             rs.getInt("undone") != 0, rs.getInt("expected") != 0, rs.getLong("stored_rows"),
-            readNullable(rs.getString("origin_json"), StatementOrigin.class));
+            readNullable(rs.getString("origin_json"), StatementOrigin.class),
+            rs.getString("callers_json") == null ? null : read(rs.getString("callers_json"), STRINGS));
 
     @Override
     public List<CapturedStatement> statementsAfter(String callId, int afterSeq, int limit) {

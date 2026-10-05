@@ -131,7 +131,7 @@ public class DbCaptureService implements IngestStatementsUseCase, RecordAgentHea
     private static IncomingStatement withBeforeImage(IncomingStatement s, BeforeImage image) {
         return new IncomingStatement(s.sid(), s.callId(), s.runTag(), s.thread(), s.seq(), s.kind(), s.sql(), s.fingerprint(), s.table(),
                 s.params(), s.outcome(), s.rows(), s.rowsFrom(), s.beforeImageRows(), image, s.startedAt(), s.durationMicros(),
-                s.offsetMicros(), s.txId(), s.connectionId(), s.codeLocation(), s.dataSource(), s.cascadesTo(), s.origin());
+                s.offsetMicros(), s.txId(), s.connectionId(), s.codeLocation(), s.dataSource(), s.cascadesTo(), s.origin(), s.callers());
     }
 
     @Override

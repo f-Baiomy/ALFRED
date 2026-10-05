@@ -28,6 +28,8 @@ public final class StatementRecord {
     public String txId;
     public String connectionId;
     public String codeLocation;
+    /** The application's call chain: up to N frames past the project's pass-through classes, innermost first. */
+    public List<String> callers;
     public String dataSource;
     public List<String> cascadesTo;
     /** The ORM query or event that made this statement; null for plain JDBC. */

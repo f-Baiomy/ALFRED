@@ -37,6 +37,7 @@ public record CapturedStatement(
         boolean undone,
         boolean expected,
         long storedRows,
-        StatementOrigin origin
+        StatementOrigin origin,
+        List<String> callers
 ) {
 }

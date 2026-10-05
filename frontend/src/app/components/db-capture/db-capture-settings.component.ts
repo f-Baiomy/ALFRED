@@ -4,7 +4,7 @@ import { DbCaptureApiService } from '../../core/services/db-capture-api.service'
 import { DbCaptureStateService } from '../../core/state/db-capture-state.service';
 import { RedactionsStore } from '../../core/state/redactions-store.service';
 
-type ListKey = 'beforeImageTables' | 'expectedFingerprints' | 'ignorePatterns';
+type ListKey = 'beforeImageTables' | 'expectedFingerprints' | 'ignorePatterns' | 'passThroughClasses';
 
 /**
  * Settings → Database capture (mock: "Settings → Database capture"): the same per-project switch as the Sources bar
@@ -69,8 +69,17 @@ type ListKey = 'beforeImageTables' | 'expectedFingerprints' | 'ignorePatterns';
                 <div class="dimtxt" style="margin-top:.3rem">For these tables the agent reads the rows just before each UPDATE or DELETE, so
                   "Deleted rows" and "Before → after" are always complete. Costs one extra read per write.</div>
               </div></div>
+            <div class="set-row"><div class="set-l">Where in code</div>
+              <div>
+                @for (c of s.passThroughClasses ?? []; track c) {<span class="tchip">{{ c }} <a (click)="removeFrom(p.project, 'passThroughClasses', c)">✕</a></span>}
+                <input class="mini wide" placeholder="+ pass-through class (e.g. GenericDAOImpl)" (keydown.enter)="addTo(p.project, 'passThroughClasses', $event)">
+                <div class="dimtxt" style="margin-top:.3rem">Each statement records the application code that issued it - up to
+                  <input class="mini" type="number" min="1" max="10" [value]="s.callerFrames ?? 3" (change)="setNumber(p.project, 'callerFrames', $event)"> frames,
+                  skipping these classes (a class name, or a package/class prefix like <code>com.acme.dao.</code>). A generic DAO every query goes through
+                  tells you nothing; the services above it do. JDK, drivers, pools, Hibernate and Spring are always skipped.</div>
+              </div></div>
             <div class="set-row"><div class="set-l">Flags</div>
-              <div class="dimtxt">Slow over <input class="mini" type="number" [value]="s.thresholds.slowMs" (change)="setThreshold(p.project, 'slowMs', $event)"> ms ·
+              <div class="dimtxt">Slow over <input class="mini" type="number" [value]="s.thresholds.slowMs" (change)="setThreshold(p.project, 'slowMs', $event)"> ms <span title="Measured from the call's fastest SELECTs - a remote database's network time is not counted">beyond the database round trip</span> ·
                 Huge result over <input class="mini" type="number" [value]="s.thresholds.hugeRows" (change)="setThreshold(p.project, 'hugeRows', $event)"> rows ·
                 N+1 from <input class="mini" type="number" [value]="s.thresholds.repeatCount" (change)="setThreshold(p.project, 'repeatCount', $event)"> repeats ·
                 Large delete over <input class="mini" type="number" [value]="s.thresholds.largeDeleteRows" (change)="setThreshold(p.project, 'largeDeleteRows', $event)"> rows ·
@@ -86,6 +95,9 @@ type ListKey = 'beforeImageTables' | 'expectedFingerprints' | 'ignorePatterns';
                 <input class="mini wide" placeholder="+ add (e.g. QRTZ_%)" (keydown.enter)="addTo(p.project, 'ignorePatterns', $event)">
                 <span class="dimtxt"> health checks and scheduler tables are not recorded</span>
               </div></div>
+            <div class="set-row"><div class="set-l">Index check</div>
+              <div><label class="chk"><input type="checkbox" [checked]="!!s.indexInfo" (change)="toggleIndexInfo(p.project)">
+                For a slow statement, read its table's index list once (database metadata - never a query of your data; EXPLAIN is not run)</label></div></div>
             <div class="set-row"><div class="set-l">Outside calls</div>
               <div><label class="chk"><input type="checkbox" [checked]="s.outsideCallCapture" (change)="toggleOutside(p.project)">
                 Also record statements no inbound call caused (scheduled jobs, message listeners, startup)</label></div></div>
@@ -163,12 +175,17 @@ export class DbCaptureSettingsComponent implements OnInit {
     const s = this.settingsOf(project);
     if (!s || !value) return;
     input.value = '';
-    this.save(project, { ...s, [key]: [...s[key], value] });
+    this.save(project, { ...s, [key]: [...(s[key] ?? []), value] });
   }
 
   removeFrom(project: string, key: ListKey, value: string): void {
     const s = this.settingsOf(project);
-    if (s) this.save(project, { ...s, [key]: s[key].filter((v) => v !== value) });
+    if (s) this.save(project, { ...s, [key]: (s[key] ?? []).filter((v) => v !== value) });
+  }
+
+  toggleIndexInfo(project: string): void {
+    const s = this.settingsOf(project);
+    if (s) this.save(project, { ...s, indexInfo: !s.indexInfo });
   }
 
   toggleOutside(project: string): void {

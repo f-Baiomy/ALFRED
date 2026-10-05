@@ -130,8 +130,11 @@ function encodeCapture(callId: string, capture: CallDbCapture): { header: Record
     if (statements.length > 1 && typeof first === 'string' && statements.every((s) => s[field] === first)) common[field] = first;
   }
   const origins: Record<string, StatementOrigin> = {};
+  // Call chains repeat across a call's statements (one service runs dozens of queries) - each written once.
+  const stacks: Record<string, readonly string[]> = {};
+  const stackIds = new Map<string, string>();
   const encoded = statements.map((s) => {
-    const { rows, beforeImageRows, origin, callId: ownCallId, ...fields } = s;
+    const { rows, beforeImageRows, origin, callId: ownCallId, callers, ...fields } = s;
     const out: Record<string, unknown> = { of: callId };
     for (const [k, v] of Object.entries(fields)) {
       if (!(k in common)) out[k] = v;
@@ -143,6 +146,16 @@ function encodeCapture(callId: string, capture: CallDbCapture): { header: Record
       if (!known) origins[origin.id] = origin;
       out['origin'] = !known || JSON.stringify(known) === JSON.stringify(origin) ? origin.id : origin;
     }
+    if (callers) {
+      const key = JSON.stringify(callers);
+      let id = stackIds.get(key);
+      if (!id) {
+        id = `s${stackIds.size + 1}`;
+        stackIds.set(key, id);
+        stacks[id] = callers;
+      }
+      out['stack'] = id;
+    }
     if (rows) out['rowValues'] = encodeRows(rows, s.outcome.columns);
     if (beforeImageRows) out['beforeValues'] = encodeRows(beforeImageRows, s.beforeImage?.columns);
     return out;
@@ -150,21 +163,23 @@ function encodeCapture(callId: string, capture: CallDbCapture): { header: Record
   const header: Record<string, unknown> = { callId, ...rest };
   if (Object.keys(common).length) header['common'] = common;
   if (Object.keys(origins).length) header['origins'] = origins;
+  if (Object.keys(stacks).length) header['stacks'] = stacks;
   return { header, statements: encoded };
 }
 
 export function decodeCapture(header: Record<string, unknown>, lines: readonly Record<string, unknown>[]): CallDbCapture {
   // `analysis` is derived (db-analysis.ts) - recomputed by whoever needs it, never imported.
-  const { callId, common, origins, statements: _range, analysis: _analysis, ...rest } = header as {
-    callId: string; common?: Record<string, unknown>; origins?: Record<string, StatementOrigin>; statements?: unknown;
+  const { callId, common, origins, stacks, statements: _range, analysis: _analysis, ...rest } = header as {
+    callId: string; common?: Record<string, unknown>; origins?: Record<string, StatementOrigin>; stacks?: Record<string, string[]>; statements?: unknown;
   } & Record<string, unknown>;
   const statements = lines.map((line) => {
-    const { of, noCallId, rowValues, beforeValues, origin, ...fields } = line as Record<string, unknown> & {
-      of: string; noCallId?: boolean; rowValues?: unknown[][]; beforeValues?: unknown[][]; origin?: string | StatementOrigin;
+    const { of, noCallId, rowValues, beforeValues, origin, stack, ...fields } = line as Record<string, unknown> & {
+      of: string; noCallId?: boolean; rowValues?: unknown[][]; beforeValues?: unknown[][]; origin?: string | StatementOrigin; stack?: string;
     };
     const s: Record<string, unknown> = { ...(common ?? {}), ...fields };
     if (!noCallId && !('callId' in fields)) s['callId'] = of;
     if (origin !== undefined) s['origin'] = typeof origin === 'string' ? origins?.[origin] : origin;
+    if (stack !== undefined) s['callers'] = stacks?.[stack];
     const outcome = s['outcome'] as ExportedDbStatement['outcome'];
     if (rowValues) s['rows'] = decodeRows(rowValues, outcome?.columns);
     if (beforeValues) s['beforeImageRows'] = decodeRows(beforeValues, (s['beforeImage'] as ExportedDbStatement['beforeImage'])?.columns);
@@ -193,8 +208,8 @@ function guide(counts: { calls: number; bodies: number; dbStatements: number }):
       index: 'one line per call, in time order: id, direction, method, url, status, ms, parent link, comment count, where its call record, request/response bodies and database statements are, and for a call with statements `time` (db/outbound/gap/edge ms) and db counts (transactions, duplicates, queries, roundTripMs)',
       calls: 'one call per line: headers, status, timing, comments, interception, WebSocket messages, parent link. A body under 257 characters is inline; a longer one is `bodyRef` → `bodies`',
       bodies: 'one body per line: `json` (the body was compact JSON - embedded as is) or `text` (verbatim); `refs` = which calls/sides use it (the same body is stored once)',
-      dbCalls: 'one line per inbound call with captured database statements: summary (counts, flags), transactions, supplier calls in order (`supplierMarkers`), values all its statements share (`common`), HQL/query origins by id (`origins`), and `analysis`: `time` (where the call\'s time went - dbMs, outboundMs, gapMs between statements, edgeMs, gap count/median/max, the largest gaps with the code that ran next, the database round trip) and `queries` (one entry per query, costliest first: runs, distinct params, exact duplicates, total ms, rows, called from, statement seqs). Start here for "why is this call slow".',
-      dbStatements: 'one statement per line, `of` = its call, in run order (`seq`): SQL with `?` placeholders and `params` (one list per batch set), outcome, timing, transaction, where in code, `origin` (the HQL it came from, an id into its dbCalls `origins`). `rowValues`/`beforeValues` = rows as values under `outcome.columns`/`beforeImage.columns` types; a cell that is an object is a full {type,value,...}; {} = a null cell',
+      dbCalls: 'one line per inbound call with captured database statements: summary (counts, flags), transactions, supplier calls in order (`supplierMarkers`), values all its statements share (`common`), HQL/query origins by id (`origins`), application call chains by id (`stacks`: innermost first, past the project pass-through classes), and `analysis`: `time` (where the call\'s time went - dbMs, outboundMs, gapMs between statements, edgeMs, gap count/median/max, the largest gaps with the code that ran next, the database round trip) and `queries` (one entry per query, costliest first: runs, distinct params, exact duplicates, total ms, rows, called from, statement seqs). Start here for "why is this call slow".',
+      dbStatements: 'one statement per line, `of` = its call, in run order (`seq`): SQL with `?` placeholders and `params` (one list per batch set), outcome, timing, transaction, where in code, `origin` (the HQL it came from, an id into its dbCalls `origins`), `stack` (the application code that issued it, an id into `stacks` - `codeLocation` is only the first application frame). `rowValues`/`beforeValues` = rows as values under `outcome.columns`/`beforeImage.columns` types; a cell that is an object is a full {type,value,...}; {} = a null cell',
     },
     glossary: {
       inbound: 'a request INTO the application, logged by Alfred\'s reverse proxy ("source":"internal")',

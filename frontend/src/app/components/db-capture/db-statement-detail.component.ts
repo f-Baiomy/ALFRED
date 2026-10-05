@@ -154,7 +154,19 @@ interface TabDef {
         @case ('where') {
           <table class="kvt">
             <tr><th>Thread</th><td>{{ statement().thread }}</td></tr>
-            <tr><th>Called from</th><td>{{ statement().codeLocation ?? 'not known' }}</td></tr>
+            @if (statement().callers?.length) {
+              <tr><th>Called from</th><td class="chain">
+                @for (c of statement().callers!; track $index) {
+                  <div><span class="dimtxt">{{ $index + 1 }} ·</span> {{ c }}
+                    @if (frameLink(c); as fl) { <a class="ide-mini" [href]="'idea://open?file=' + fl.file + '&line=' + fl.line" title="Open in IntelliJ">↗</a>}</div>
+                }
+                @if (statement().codeLocation && statement().codeLocation !== statement().callers![0]) {
+                  <div class="dimtxt">↑ via {{ statement().codeLocation }} (pass-through)</div>
+                }
+              </td></tr>
+            } @else {
+              <tr><th>Called from</th><td>{{ statement().codeLocation ?? 'not known' }}</td></tr>
+            }
             @if (statement().connectionId) {<tr><th>Connection</th><td>{{ statement().connectionId }}{{ statement().dataSource ? ' · ' + statement().dataSource : '' }}</td></tr>}
             @if (fileLine(); as fl) {
               <tr><th>Open</th><td class="ide"><a [href]="'idea://open?file=' + fl.file + '&line=' + fl.line">IntelliJ ↗</a><a [href]="'vscode://file/' + fl.file + ':' + fl.line">VS Code ↗</a></td></tr>
@@ -186,7 +198,11 @@ export class DbStatementDetailComponent implements OnInit {
   readonly rowCount = computed(() => rowCountOf(this.statement()).toLocaleString());
   /** The column each parameter is bound to, where the SQL says (INSERT list, SET/WHERE col = ?). */
   readonly paramColumns = computed(() => paramColumns(this.statement().sql));
-  readonly fileLine = computed(() => codeFileLine(this.statement().codeLocation));
+  readonly fileLine = computed(() => codeFileLine(this.statement().callers?.[0] ?? this.statement().codeLocation));
+
+  frameLink(frame: string): { readonly file: string; readonly line: number } | null {
+    return codeFileLine(frame);
+  }
   readonly extraReadMs = computed(() => ((this.statement().beforeImage?.extraReadMicros ?? 0) / 1000).toFixed(1));
 
   readonly tabs = computed<TabDef[]>(() => {

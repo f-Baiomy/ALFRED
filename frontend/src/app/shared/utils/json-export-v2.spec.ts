@@ -14,20 +14,21 @@ import { buildJsonExportV2, utf8Length } from './json-export-v2';
 const FORM = { supplierName: 'NDC', credentialsUsed: '', apiKey: '', url: '', environment: 'Staging' as const, description: 'flight search' };
 const v = (type: string, value: string | null): TypedValue => ({ type, value });
 const HQL: StatementOrigin = { id: 'a:q1', kind: 'HQL', text: 'from Org o where o.id = :id', method: 'list', params: [{ name: ':id', value: '948' }] };
+const CHAIN = ['OrgService.credential(OrgService.java:452)', 'AgencyService.setDetails(AgencyService.java:126)'];
 const OFFERS = JSON.stringify({ offers: Array.from({ length: 40 }, (_, i) => ({ id: i, price: 100 + i, carrier: 'EK' })) });
 const PRETTY = JSON.stringify({ error: 'x'.repeat(300) }, null, 2); // JSON, but not compact: must stay byte-for-byte text
 
 function makeCapture(): CallDbCapture {
   const rows = (n: number) => Array.from({ length: n }, (_, i) => [v('BIGINT', String(i)), v('VARCHAR', i === 3 ? null : `row ${i}`)]);
   const select: ExportedDbStatement = {
-    ...stmt(1, 'SELECT', 'SELECT id, name FROM t WHERE g = ?', { callId: 'in-1', params: [[v('BIGINT', '948')]], origin: HQL, connectionId: 'c1', dataSource: 'Oracle 19c', thread: 'task-1' }),
+    ...stmt(1, 'SELECT', 'SELECT id, name FROM t WHERE g = ?', { callId: 'in-1', params: [[v('BIGINT', '948')]], origin: HQL, connectionId: 'c1', dataSource: 'Oracle 19c', thread: 'task-1', callers: CHAIN }),
     outcome: { kind: 'ROWS', rowsRead: 50, columns: [{ name: 'id', type: 'BIGINT' }, { name: 'name', type: 'VARCHAR' }] },
     storedRows: 50,
     // odd cells: another type than its column, extra fields, a null cell
     rows: [...rows(50), [v('VARCHAR', '7'), { type: 'CLOB', value: 'abc', truncatedAt: 3 }], [null as unknown as TypedValue, v('VARCHAR', 'z')]],
   };
   const second: ExportedDbStatement = {
-    ...stmt(2, 'SELECT', 'SELECT 1 FROM t2', { callId: 'in-1', origin: HQL, connectionId: 'c2', dataSource: 'Oracle 19c', thread: 'task-1' }),
+    ...stmt(2, 'SELECT', 'SELECT 1 FROM t2', { callId: 'in-1', origin: HQL, connectionId: 'c2', dataSource: 'Oracle 19c', thread: 'task-1', callers: CHAIN }),
   };
   const update: ExportedDbStatement = {
     ...stmt(3, 'UPDATE', 'UPDATE t SET name = ? WHERE id = ?', {
@@ -170,6 +171,9 @@ describe('json export version 2', () => {
     expect(second.connectionId).toBe('c2');
     expect(third.origin.params[0].value).toBe('***REDACTED***');
     expect(third.beforeValues).toEqual([['old']]);
+    // a call chain shared by statements is written once
+    expect(header.stacks).toEqual({ s1: CHAIN });
+    expect([first.stack, second.stack, third.stack]).toEqual(['s1', 's1', undefined]);
   });
 
   it('opens with a guide, the layout and the highlights - failures first', () => {

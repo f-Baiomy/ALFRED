@@ -36,7 +36,7 @@ public final class Fixtures {
                                               List<List<TypedValue>> rows, String txId) {
         return new IncomingStatement(sid, callId, null, "default task-14", seq, kind, sql, "fp-" + sql.hashCode(), tableOf(sql),
                 List.of(List.of(TypedValue.of("BIGINT", "1042"))), outcome, rows, 0, null, null, "2026-10-04T18:02:43.205Z",
-                1000L * seq, 3000L * seq, txId, "pool-3", "WalletRepository.lockByUser(WalletRepository.java:88)", "Oracle 19c", null, null);
+                1000L * seq, 3000L * seq, txId, "pool-3", "WalletRepository.lockByUser(WalletRepository.java:88)", "Oracle 19c", null, null, null);
     }
 
     public static IncomingStatement select(String sid, String callId, int seq, int rowCount) {

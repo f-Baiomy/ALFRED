@@ -38,12 +38,13 @@ public record StatementDto(
         @Size(max = 1000) String codeLocation,
         @Size(max = 300) String dataSource,
         @Size(max = 200) List<String> cascadesTo,
-        StatementOrigin origin
+        StatementOrigin origin,
+        @Size(max = 20) List<@Size(max = 1000) String> callers
 ) {
     public IncomingStatement toDomain() {
         return new IncomingStatement(sid, blankToNull(callId), blankToNull(runTag), thread, seq, kind, sql, fingerprint, table, params,
                 outcome, rows, rowsFrom, beforeImageRows, beforeImage, startedAt, durationMicros, offsetMicros, txId, connectionId,
-                codeLocation, dataSource, cascadesTo, origin);
+                codeLocation, dataSource, cascadesTo, origin, callers == null || callers.isEmpty() ? null : callers);
     }
 
     private static String blankToNull(String value) {

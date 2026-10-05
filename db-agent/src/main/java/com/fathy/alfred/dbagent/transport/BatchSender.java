@@ -234,9 +234,19 @@ public final class BatchSender implements StatementSink {
                     tableSet.add(String.valueOf(o));
                 }
             }
+            List<String> passThrough = new ArrayList<>();
+            Object pass = map.get("passThroughClasses");
+            if (pass instanceof List) {
+                for (Object o : (List<Object>) pass) {
+                    passThrough.add(String.valueOf(o));
+                }
+            }
+            Object frames = map.get("callerFrames");
             settings.apply(rows instanceof Number ? ((Number) rows).intValue() : AgentSettings.DEFAULT_ROWS_PER_RESULT, tableSet,
                     Boolean.TRUE.equals(map.get("outsideCallCapture")), Boolean.TRUE.equals(map.get("captureEnabled")),
-                    ignore == null ? Collections.singletonList("SELECT 1") : ignoreStrings);
+                    ignore == null ? Collections.singletonList("SELECT 1") : ignoreStrings, passThrough,
+                    frames instanceof Number ? ((Number) frames).intValue() : AgentSettings.DEFAULT_CALLER_FRAMES,
+                    Boolean.TRUE.equals(map.get("indexInfo")));
         } catch (RuntimeException e) {
             AgentLog.warn("could not read ALFRED's settings answer");
         }

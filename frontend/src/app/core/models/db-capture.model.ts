@@ -288,6 +288,12 @@ export interface DbCaptureSettings {
   readonly thresholds: DbThresholds;
   readonly expectedFingerprints: readonly string[];
   readonly ignorePatterns: readonly string[];
+  /** Classes/packages the call chain skips (a generic DAO every query goes through). */
+  readonly passThroughClasses?: readonly string[];
+  /** Application frames recorded per statement (1-10, default 3). */
+  readonly callerFrames?: number;
+  /** Read a slow statement's table's index list once (metadata only, never a query of the data). */
+  readonly indexInfo?: boolean;
 }
 
 export interface AgentStatus {

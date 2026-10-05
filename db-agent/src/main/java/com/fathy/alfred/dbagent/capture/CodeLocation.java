@@ -1,16 +1,23 @@
 package com.fathy.alfred.dbagent.capture;
 
+import com.fathy.alfred.dbagent.transport.PassThrough;
+
 import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.List;
 import java.util.function.Function;
 import java.util.stream.Stream;
 
 /**
  * "Where in code": the first stack frame that belongs to the application - skipping the JDK, JDBC drivers, connection
- * pools, ORMs and the agent itself - as {@code Class.method(File.java:line)}.
+ * pools, ORMs and the agent itself - as {@code Class.method(File.java:line)}, and the application's CALL CHAIN: up to N
+ * application frames past the project's pass-through classes. A generic DAO every query goes through
+ * ({@code GenericDAOImpl.fetchWithSlaveHQL} ×757 in one real capture) says nothing about who asked; the services above
+ * it do.
  *
  * <p>Walking the stack is the costliest thing the agent does per statement, so it walks lazily: on Java 9+ through
- * {@code StackWalker} (frames are materialised one at a time and the walk stops at the first application frame), on
+ * {@code StackWalker} (frames are materialised one at a time and the walk stops as soon as the chain is complete), on
  * Java 8 through the JDK's own per-index accessor, so only the frames looked at become StackTraceElements. Both are
  * reached reflectively - the agent is compiled for Java 8 - and fall back to {@code Throwable.getStackTrace()}.
  */
@@ -33,7 +40,7 @@ final class CodeLocation {
     private static final java.util.concurrent.ConcurrentHashMap<String, Boolean> SKIPPED = new java.util.concurrent.ConcurrentHashMap<>();
     private static final int CACHE_LIMIT = 8192;
 
-    /** Whether the last {@link #find()} on this thread walked past a Hibernate frame - SQL Hibernate made on its own
+    /** Whether the last {@link #find} on this thread walked past a Hibernate frame - SQL Hibernate made on its own
      *  (an id from a sequence, a version check) outside any query or event the agent tracks. */
     private static final ThreadLocal<boolean[]> SAW_HIBERNATE = ThreadLocal.withInitial(() -> new boolean[1]);
 
@@ -42,23 +49,81 @@ final class CodeLocation {
     private CodeLocation() {
     }
 
-    static String find() {
-        SAW_HIBERNATE.get()[0] = false;
-        try {
-            return WALKER.find();
-        } catch (Throwable t) {
-            return fromThrowable();
+    /** One walk's answer: the first application frame, and the call chain (null when none was asked for or found). */
+    static final class Where {
+        final String location;
+        final List<String> callers;
+
+        Where(String location, List<String> callers) {
+            this.location = location;
+            this.callers = callers;
         }
     }
 
-    static String fromThrowable() {
-        for (StackTraceElement frame : new Throwable().getStackTrace()) {
-            String location = format(frame.getClassName(), frame.getMethodName(), frame.getFileName(), frame.getLineNumber());
-            if (location != null) {
-                return location;
+    /** Receives frames innermost first; returns false to stop the walk. */
+    interface Collector {
+        boolean accept(String cls, String method, String file, int line);
+    }
+
+    /** The first application frame and up to {@code frames} application frames past {@code passThrough}. */
+    static Where find(int frames, PassThrough passThrough) {
+        SAW_HIBERNATE.get()[0] = false;
+        ChainCollector chain = new ChainCollector(frames, passThrough);
+        try {
+            WALKER.walk(chain);
+        } catch (Throwable t) {
+            chain = new ChainCollector(frames, passThrough);
+            for (StackTraceElement frame : new Throwable().getStackTrace()) {
+                if (!chain.accept(frame.getClassName(), frame.getMethodName(), frame.getFileName(), frame.getLineNumber())) {
+                    break;
+                }
             }
         }
-        return null;
+        return new Where(chain.first, chain.callers);
+    }
+
+    /** Just the first application frame. */
+    static String find() {
+        return find(0, PassThrough.NONE).location;
+    }
+
+    private static final class ChainCollector implements Collector {
+        private final int frames;
+        private final PassThrough passThrough;
+        String first;
+        List<String> callers;
+
+        ChainCollector(int frames, PassThrough passThrough) {
+            this.frames = frames;
+            this.passThrough = passThrough;
+        }
+
+        @Override
+        public boolean accept(String cls, String method, String file, int line) {
+            if (skipped(cls)) {
+                if (first == null) {
+                    passed(cls); // only Hibernate frames BELOW the code that ran the statement make it Hibernate's own SQL
+                }
+                return true;
+            }
+            String location = cls.substring(cls.lastIndexOf('.') + 1) + "." + method + "(" + file + ":" + line + ")";
+            if (first == null) {
+                first = location;
+            }
+            if (frames <= 0) {
+                return false;
+            }
+            if (passThrough.matches(cls)) {
+                return true;
+            }
+            if (callers == null) {
+                callers = new ArrayList<>(frames);
+            }
+            if (callers.isEmpty() || !callers.get(callers.size() - 1).equals(location)) {
+                callers.add(location); // a recursive frame twice in a row says nothing new
+            }
+            return callers.size() < frames;
+        }
     }
 
     static boolean sawHibernate() {
@@ -97,7 +162,7 @@ final class CodeLocation {
     }
 
     private abstract static class Walker {
-        abstract String find() throws Exception;
+        abstract void walk(Collector collector) throws Exception;
 
         static Walker create() {
             try {
@@ -108,8 +173,12 @@ final class CodeLocation {
                 } catch (Throwable none) {
                     return new Walker() {
                         @Override
-                        String find() {
-                            return fromThrowable();
+                        void walk(Collector collector) {
+                            for (StackTraceElement frame : new Throwable().getStackTrace()) {
+                                if (!collector.accept(frame.getClassName(), frame.getMethodName(), frame.getFileName(), frame.getLineNumber())) {
+                                    return;
+                                }
+                            }
                         }
                     };
                 }
@@ -117,8 +186,8 @@ final class CodeLocation {
         }
     }
 
-    /** Java 9+: {@code StackWalker.getInstance().walk(stream -> first application frame)}. */
-    private static final class StackWalkerWalker extends Walker implements Function<Stream<?>, String> {
+    /** Java 9+: {@code StackWalker.getInstance().walk(stream -> ...)}, stopping when the collector has enough. */
+    private static final class StackWalkerWalker extends Walker {
         private final Object walker;
         private final Method walk;
         private final Method className;
@@ -135,31 +204,27 @@ final class CodeLocation {
             methodName = frame.getMethod("getMethodName");
             fileName = frame.getMethod("getFileName");
             lineNumber = frame.getMethod("getLineNumber");
-            find(); // fail now, not per statement, if anything here does not work
+            walk((cls, method, file, line) -> false); // fail now, not per statement, if anything here does not work
         }
 
         @Override
-        String find() throws Exception {
-            return (String) walk.invoke(walker, this);
-        }
-
-        @Override
-        public String apply(Stream<?> frames) {
-            try {
-                Iterator<?> it = frames.iterator();
-                while (it.hasNext()) {
-                    Object frame = it.next();
-                    String cls = (String) className.invoke(frame);
-                    if (skipped(cls)) {
-                        passed(cls);
-                        continue;
+        void walk(Collector collector) throws Exception {
+            Function<Stream<?>, Object> walking = frames -> {
+                try {
+                    Iterator<?> it = frames.iterator();
+                    while (it.hasNext()) {
+                        Object frame = it.next();
+                        if (!collector.accept((String) className.invoke(frame), (String) methodName.invoke(frame),
+                                (String) fileName.invoke(frame), (Integer) lineNumber.invoke(frame))) {
+                            break;
+                        }
                     }
-                    return format(cls, (String) methodName.invoke(frame), (String) fileName.invoke(frame), (Integer) lineNumber.invoke(frame));
+                    return null;
+                } catch (Exception e) {
+                    throw new IllegalStateException(e);
                 }
-                return null;
-            } catch (Exception e) {
-                throw new IllegalStateException(e);
-            }
+            };
+            walk.invoke(walker, walking);
         }
     }
 
@@ -175,21 +240,19 @@ final class CodeLocation {
             access = secrets;
             depth = accessClass.getMethod("getStackTraceDepth", Throwable.class);
             element = accessClass.getMethod("getStackTraceElement", Throwable.class, int.class);
-            find();
+            walk((cls, method, file, line) -> false);
         }
 
         @Override
-        String find() throws Exception {
+        void walk(Collector collector) throws Exception {
             Throwable t = new Throwable();
             int n = (Integer) depth.invoke(access, t);
             for (int i = 0; i < n; i++) {
                 StackTraceElement frame = (StackTraceElement) element.invoke(access, t, i);
-                String location = format(frame.getClassName(), frame.getMethodName(), frame.getFileName(), frame.getLineNumber());
-                if (location != null) {
-                    return location;
+                if (!collector.accept(frame.getClassName(), frame.getMethodName(), frame.getFileName(), frame.getLineNumber())) {
+                    return;
                 }
             }
-            return null;
         }
     }
 }

@@ -67,11 +67,13 @@ class SqliteDbCaptureRepositoryTest {
                 List.of(new StatementOrigin.Param(":id", "948")), null, 50, null, null, null, null, null, null);
         IncomingStatement hql = new IncomingStatement("a:2", "call-1", null, plain.thread(), 2, plain.kind(), plain.sql(), plain.fingerprint(),
                 plain.table(), plain.params(), plain.outcome(), plain.rows(), 0, null, null, plain.startedAt(), 10, 20, null, null, null, null,
-                null, origin);
+                null, origin, List.of("OrgService.get(OrgService.java:452)", "Agency.set(Agency.java:126)"));
         repo.saveStatements(List.of(plain, hql));
         List<CapturedStatement> stored = repo.allStatements("call-1", 10);
         assertThat(stored.get(0).origin()).isNull();
         assertThat(stored.get(1).origin()).isEqualTo(origin);
+        assertThat(stored.get(0).callers()).isNull();
+        assertThat(stored.get(1).callers()).containsExactly("OrgService.get(OrgService.java:452)", "Agency.set(Agency.java:126)");
     }
 
     @Test
@@ -81,7 +83,7 @@ class SqliteDbCaptureRepositoryTest {
         IncomingStatement more = new IncomingStatement(first.sid(), first.callId(), null, first.thread(), first.seq(), first.kind(), first.sql(),
                 first.fingerprint(), first.table(), first.params(), Fixtures.rows(first.outcome().columns(), 700),
                 Fixtures.select("x", "call-1", 1, 200).rows(), 500, null, null, first.startedAt(), first.durationMicros(),
-                first.offsetMicros(), null, first.connectionId(), first.codeLocation(), first.dataSource(), null, null);
+                first.offsetMicros(), null, first.connectionId(), first.codeLocation(), first.dataSource(), null, null, null);
         repo.saveStatements(List.of(more));
 
         long id = repo.allStatements("call-1", 10).get(0).id();

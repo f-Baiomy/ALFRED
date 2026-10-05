@@ -168,7 +168,10 @@ function statementHtml(s: ExportedDbStatement, id: string, bySeq: ReadonlyMap<nu
   if (s.outcome.generatedKeys?.length) {
     parts.push(`<div class="lbl">Generated keys</div><table class="kv"><tbody>${s.outcome.generatedKeys.map((r) => `<tr>${r.map((v) => `<td>${esc(valueText(v))}</td>`).join('')}</tr>`).join('')}</tbody></table>`);
   }
-  if (s.codeLocation) parts.push(`<div class="where">Called from <code>${esc(s.codeLocation)}</code> · thread ${esc(s.thread)} · +${(s.offsetMicros / 1000).toFixed(0)} ms</div>`);
+  if (s.callers?.length) {
+    parts.push(`<div class="where">Called from ${s.callers.map((c, i) => `<code>${esc(c)}</code>${i < s.callers!.length - 1 ? ' ← ' : ''}`).join('')}${
+      s.codeLocation && s.codeLocation !== s.callers[0] ? ` <span class="dim">(via ${esc(s.codeLocation)})</span>` : ''} · thread ${esc(s.thread)} · +${(s.offsetMicros / 1000).toFixed(0)} ms</div>`);
+  } else if (s.codeLocation) parts.push(`<div class="where">Called from <code>${esc(s.codeLocation)}</code> · thread ${esc(s.thread)} · +${(s.offsetMicros / 1000).toFixed(0)} ms</div>`);
 
   const cls = ['st', failed || noWhere ? 'fail' : '', s.undone ? 'undone' : ''].filter(Boolean).join(' ');
   const badge = originBadge(s, orm);
@@ -444,7 +447,8 @@ function statementMd(s: ExportedDbStatement, bySeq: ReadonlyMap<number, Exported
   if (s.beforeImageRows?.length) lines.push(`Rows before this ${s.kind.toLowerCase()} (${s.beforeImageRows.length.toLocaleString()}):`, '', ...mdTable(columnsOf(s, 'before'), s.beforeImageRows));
   if (s.outcome.generatedKeys?.length) lines.push(`Generated keys: ${s.outcome.generatedKeys.map((r) => r.map((v) => `\`${mdCell(valueText(v))}\``).join(', ')).join('; ')}`, '');
   for (const child of s.cascadesTo ?? []) lines.push(`⚠ ON DELETE CASCADE → ${mdCell(child)} (not visible to JDBC)`, '');
-  if (s.codeLocation) lines.push(mdCell(s.codeLocation), '');
+  if (s.callers?.length) lines.push(`Called from ${s.callers.map((c) => mdCell(c)).join(' ← ')}${s.codeLocation && s.codeLocation !== s.callers[0] ? ` (via ${mdCell(s.codeLocation)})` : ''}`, '');
+  else if (s.codeLocation) lines.push(mdCell(s.codeLocation), '');
   lines.push('</details>', '');
   return lines;
 }

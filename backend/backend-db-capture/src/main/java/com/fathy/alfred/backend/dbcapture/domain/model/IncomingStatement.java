@@ -31,6 +31,7 @@ public record IncomingStatement(
         String codeLocation,
         String dataSource,
         List<String> cascadesTo,
-        StatementOrigin origin
+        StatementOrigin origin,
+        List<String> callers
 ) {
 }
