@@ -99,6 +99,9 @@ describe('database capture in exports', () => {
     expect(bulk).toContain('| ◆ 4 |'); // the summary table's DB column
     expect(md).toContain(['### 🗄 Database', '', '<details>', '<summary><b>4 statements'].join('\n'));
     expect(md).toContain('| # | Statement | Result | ms |');
+    // the database window's summary line opens the section (db-findings.ts) - the same words in .md and .html
+    expect(md).toContain('**420 ms · ');
+    expect(html).toContain('<p class="dsum"><b>420 ms · ');
     expect(md).toContain('<summary>#2 INSERT ');
     expect(buildBulkExportHtml([inbound()], FORM, new Map(), '2026-10-05T00:00:00Z')).toContain('<td>row 4999</td>');
   });

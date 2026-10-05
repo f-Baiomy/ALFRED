@@ -247,6 +247,24 @@ export interface QueryTotal {
 export interface CallDbAnalysis {
   readonly time: TimeBreakdown;
   readonly queries: readonly QueryTotal[];
+  /** The window's summary line: "20.0 s · 51% inside the app - 2 idle stretches, the longest 2.5 s before #28". */
+  readonly summary?: string;
+  /** The window's findings (db-findings.ts), worst first - errors, then warnings by what they cost, then notes. */
+  readonly findings?: readonly DbFindingSummary[];
+}
+
+/** A finding as exports carry it: everything the window shows except its chips (`seqs` names the statements). */
+export interface DbFindingSummary {
+  readonly severity: 'bad' | 'warn' | 'note';
+  readonly title: string;
+  readonly short: string;
+  readonly why: string;
+  readonly fix?: string;
+  readonly impactMs: number | null;
+  readonly impact: string;
+  readonly count: string;
+  readonly seqs: readonly number[];
+  readonly source: string;
 }
 
 export interface CallDbCapture {
@@ -279,7 +297,8 @@ export interface RowsPage {
 
 export type DbFlagType =
   | 'FAILED_SWALLOWED' | 'FAILED' | 'ROLLED_BACK' | 'NO_WHERE' | 'LARGE_DELETE' | 'REPEATED_QUERY' | 'SLOW'
-  | 'HUGE_RESULT' | 'LOCK_DURING_SUPPLIER_CALL' | 'CASCADE' | 'BEFORE_NOT_CAPTURED' | 'DUPLICATE' | 'TX_PER_STATEMENT';
+  | 'HUGE_RESULT' | 'LOCK_DURING_SUPPLIER_CALL' | 'CASCADE' | 'BEFORE_NOT_CAPTURED' | 'DUPLICATE' | 'TX_PER_STATEMENT'
+  | 'QUERY_FAN_OUT';
 
 export interface DbFlag {
   readonly type: DbFlagType;

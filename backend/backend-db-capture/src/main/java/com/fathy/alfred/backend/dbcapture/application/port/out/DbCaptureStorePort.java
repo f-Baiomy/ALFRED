@@ -35,6 +35,9 @@ public interface DbCaptureStorePort {
 
     void saveFlags(String callId, List<DbFlag> flags);
 
+    /** Of these calls, the ones whose stored flags were computed by older rules (StatementFlags.VERSION). */
+    List<String> withStaleFlags(Collection<String> callIds);
+
     /** Records which project a call's statements came from (its agent's), once - settings and flags are per project. */
     void setCallProject(String callId, String project);
 

@@ -50,6 +50,7 @@ export function flagText(flag: DbFlag): string {
     case 'SLOW': return `Slow${d['ms'] ? ` · ${d['ms']} ms` : ''}${d['baselineMs'] ? ` (round trip ≈ ${d['baselineMs']} ms)` : ''}${at('table')}`;
     case 'DUPLICATE': return `Exact duplicates${at('table')}${d['duplicates'] ? ` · ${d['duplicates']} repeats of the same query + params` : ''} - cache per request`;
     case 'TX_PER_STATEMENT': return `Transaction per statement${d['transactions'] ? ` · ${d['transactions']} transactions for ${d['statements']} statements` : ''}`;
+    case 'QUERY_FAN_OUT': return `One query → ${d['statements'] ?? 'many'} statements${d['rows'] ? ` · its ${d['rows']} rows loaded ${d['perRow'] ?? '?'} more each` : ''}${at('table')}`;
     case 'HUGE_RESULT': return `Huge result${d['rows'] ? ` · ${d['rows']} rows` : ''}${at('table')}`;
     case 'LARGE_DELETE': return `Large delete${at('table')}${d['rows'] ? ` · ${d['rows']} rows` : ''}`;
     default: return flag.type;

@@ -140,6 +140,24 @@ Built from a review of real OdeySys exports by an AI agent (mock: `specs/006-db-
   `DatabaseMetaData.getIndexInfo(..., approximate = true)` - `false` makes Oracle's driver run ANALYZE, and the agent
   never changes the database. Cached per data source for 10 minutes. EXPLAIN is never run. The window says "no index
   starts with X" for a column the statement filters by (a hint; only the planner knows).
+- **`QUERY_FAN_OUT`**: one query whose returned rows each triggered more queries - Hibernate loading a collection per
+  row, an N+1 inside ONE execution, which `REPEATED_QUERY` cannot see because the follow-ups are different queries.
+  Found by the HQL origin (every SQL of one execution shares `origin.id`; a LAZY_LOAD/LOAD names it as `parentId`), 3+
+  statements with 2+ distinct follow-up parameter sets; without an origin, by the pattern "a SELECT returning R rows,
+  then R cycles of the same 1-5 other queries, each cycle bound to different values, and the run stops there". Its
+  statements are not also reported as `SLOW`. `SLOW` defaults to 100 ms beyond the round trip (a stored 20, the old
+  default, is read as 100).
+- **Flags are versioned** (`StatementFlags.VERSION`, `call_db_summary.flags_version`): a call flagged by older rules is
+  flagged again from its stored statements the first time its summary is read, so old captures get new rules.
+- **Summary line, timeline and findings** (`shared/utils/db-findings.ts`, mock `specs/006-db-capture/timeline-mock.html`):
+  the window opens with ONE closed line ("20.0 s · 56% inside the app - 2 idle stretches, the longest 2.5 s before
+  #28", error and to-fix counts); open (remembered per browser) it shows three timeline lanes - Database, Supplier calls
+  (overlapping calls on rows of their own), Idle (≥ 1 s with nothing running) - coloured by what each item is, and the
+  findings: one closed line each (title, short why, count, impact), opened the why, the fix and the statements as chips.
+  Findings are built from the backend flags plus what only the client sees (idle stretches, supplier errors and time,
+  the round trip), errors first, then warnings by what they cost, then notes. The same summary and findings
+  (`analysis.summary`/`analysis.findings`, without chips) open the .md/.html Database section and the .json `dbCalls`
+  line, the .json index carries each call's `findings` (severity, title, impactMs, seqs), and highlights come from them.
 
 ## Exports
 

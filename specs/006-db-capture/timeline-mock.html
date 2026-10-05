@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Timeline and findings mock</title>
+<style>
+:root {
+  --card: #1e1f23; --inner: #16171a; --border: rgba(255,255,255,.09); --border-strong: rgba(255,255,255,.16);
+  --text: #eceef3; --dim: #9aa0ad; --faint: #646a78; --link: #c4b5fd;
+  --db: #2dd4bf; --sup: #7dd3fc; --app: #e0a458; --slow: #f2b13c; --rep: #c084fc; --fan: #f472b6; --big: #fb923c; --red: #f07178; --tx: #4b5563; --green: #6ee7a8;
+  --mono: "Cascadia Code", Consolas, monospace;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: #0f1012; color: var(--text); font: 14px/1.45 "Segoe UI", system-ui, sans-serif; }
+.page { max-width: 1120px; margin: 0 auto; padding: 18px 16px 60px; }
+h1 { font-size: 19px; margin: 0 0 4px; }
+.intro { color: var(--dim); margin: 0 0 14px; }
+.win { background: var(--card); border: 1px solid var(--border-strong); border-radius: 14px; overflow: hidden; }
+.whead { padding: 14px 18px 8px; }
+.whead b { font-size: 16px; } .whead code { font-family: var(--mono); color: var(--sup); font-size: 12.5px; margin-left: 8px; }
+.whead .sub { color: var(--dim); font-size: 12.5px; }
+.mono { font-family: var(--mono); font-size: 12px; }
+.dim { color: var(--dim); } .faint { color: var(--faint); }
+.sec { font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--faint); margin: 10px 0 6px; display: flex; gap: 10px; align-items: baseline; }
+.sec .hint { text-transform: none; letter-spacing: 0; font-weight: 400; }
+
+/* summary line */
+.sumline { margin: 0 18px; display: flex; gap: 12px; align-items: center; padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--inner); font-size: 13.5px; }
+.sumline b { color: var(--app); }
+.panel { margin-bottom: 12px; }
+.vtxt { min-width: 0; flex: 1 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.panel > summary { list-style: none; cursor: pointer; }
+.panel > summary::-webkit-details-marker { display: none; }
+.panel > summary:hover { background: rgba(255,255,255,.035); }
+.pchev { color: var(--faint); font-size: 11px; display: inline-block; transition: transform .12s; }
+.panel[open] .pchev { transform: rotate(90deg); }
+.phint { color: var(--faint); font-size: 11.5px; }
+.panel[open] .phint::after { content: ''; }
+.c { font-size: 11.5px; font-weight: 700; border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
+.c.bad { background: rgba(240,113,120,.16); color: var(--red); } .c.warn { background: rgba(242,177,60,.15); color: var(--slow); }
+
+/* timeline */
+.tlbox { margin: 10px 18px 0; padding: 10px 12px 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--inner); }
+.tl { position: relative; user-select: none; }
+.axis { position: relative; height: 16px; margin-left: 112px; font-family: var(--mono); font-size: 10.5px; color: var(--faint); }
+.axis span { position: absolute; transform: translateX(-50%); }
+.lane { display: grid; grid-template-columns: 104px minmax(0,1fr); gap: 8px; align-items: center; margin: 3px 0; }
+.lane .name { font-size: 12px; color: var(--dim); text-align: right; white-space: nowrap; }
+.track { position: relative; height: 24px; border-radius: 5px; background: rgba(255,255,255,.025); border: 1px solid var(--border); overflow: hidden; cursor: crosshair; }
+.grid { position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(255,255,255,.05); }
+.seg { position: absolute; top: 3px; height: 16px; border-radius: 3px; min-width: 3px; cursor: pointer; transition: opacity .1s, outline-color .1s; outline: 2px solid transparent; outline-offset: 1px; }
+.seg:hover, .seg.hl { outline-color: #fff; z-index: 2; }
+.seg .lb { position: absolute; left: 4px; top: 0; font-size: 10.5px; line-height: 16px; font-weight: 700; color: #111; white-space: nowrap; overflow: hidden; max-width: calc(100% - 6px); pointer-events: none; }
+.seg.idle { background: repeating-linear-gradient(135deg, rgba(224,164,88,.55) 0 5px, rgba(224,164,88,.18) 5px 10px); }
+.seg.idle .lb { color: #fde6c4; }
+.dimmed .seg:not(.hl) { opacity: .18; }
+.brush { position: absolute; top: 0; bottom: 0; background: rgba(167,139,250,.18); border-left: 1px solid var(--link); border-right: 1px solid var(--link); pointer-events: none; display: none; }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; margin: 6px 0 0 112px; font-size: 11.5px; color: var(--dim); }
+.legend span { cursor: pointer; } .legend span:hover { color: var(--text); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+.zoombar { display: flex; gap: 8px; align-items: center; margin: 4px 0 0 112px; font-size: 11.5px; color: var(--faint); }
+.zoombar button { font: inherit; font-size: 11.5px; border: 1px solid var(--border-strong); background: none; color: var(--link); border-radius: 6px; padding: 1px 8px; cursor: pointer; }
+.tip { position: fixed; z-index: 50; pointer-events: none; display: none; max-width: 380px; background: #26282e; border: 1px solid var(--border-strong); border-radius: 9px; padding: 8px 10px; font-size: 12.5px; box-shadow: 0 10px 26px rgba(0,0,0,.5); }
+.tip b { font-size: 13px; } .tip .k { color: var(--faint); }
+
+/* findings */
+.findings { margin: 10px 18px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--inner); padding: 4px 12px 8px; }
+.f { border-top: 1px dashed var(--border); font-size: 13px; border-radius: 6px; }
+.f > summary { list-style: none; cursor: pointer; padding: 6px 4px; }
+.f > summary::-webkit-details-marker { display: none; }
+.f .fchev { color: var(--faint); font-size: 10px; display: inline-block; transition: transform .12s; width: 10px; }
+.f[open] .fchev { transform: rotate(90deg); }
+.f .cnt { font-size: 11px; color: var(--faint); white-space: nowrap; }
+.f .short { color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.f[open] .short { display: none; }
+.f .open { padding: 0 4px 8px 32px; }
+.f .open .why { color: var(--dim); }
+.ftools { display: flex; gap: 10px; justify-content: flex-end; font-size: 11.5px; padding: 4px 4px 0; }
+.ftools a { color: var(--link); cursor: pointer; }
+.f:first-child { border-top: none; }
+.f:hover { background: rgba(255,255,255,.03); }
+.f .head { display: grid; grid-template-columns: 10px 18px auto minmax(0,1fr) auto auto; gap: 8px; align-items: baseline; }
+.f .head b { font-weight: 600; } .f .why { color: var(--dim); }
+.f .imp { font-family: var(--mono); font-size: 12px; color: var(--dim); white-space: nowrap; }
+.f.bad .ic { color: var(--red); } .f.warn .ic { color: var(--slow); } .f.note .ic { color: var(--sup); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 0; }
+.chip { font-size: 11.5px; border-radius: 6px; padding: 2px 8px; border: 1px solid var(--border-strong); background: rgba(255,255,255,.03); cursor: pointer; white-space: nowrap; display: inline-flex; gap: 6px; align-items: center; }
+.chip:hover { border-color: var(--link); color: #fff; }
+.chip i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+.chip .n { font-family: var(--mono); color: var(--faint); }
+.chip .ms { font-family: var(--mono); color: var(--dim); }
+.chip.pair .arrow { color: var(--faint); }
+
+/* statement list */
+.rows { border-top: 1px solid var(--border); padding: 6px 18px 14px; max-height: 340px; overflow: auto; }
+.r { display: grid; grid-template-columns: 40px 70px minmax(0,1fr) 70px; gap: 10px; align-items: center; padding: 3px 6px; font-size: 12.5px; border-radius: 6px; scroll-margin: 60px; }
+.r .num { font-family: var(--mono); color: var(--faint); font-size: 11.5px; }
+.r .v { font-size: 10.5px; font-weight: 700; text-align: center; border-radius: 5px; padding: 1px 4px; border: 1px solid; }
+.r .sql { font-family: var(--mono); font-size: 12px; color: #cfeee9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.r .ms { text-align: right; font-family: var(--mono); font-size: 12px; color: var(--dim); }
+.r.sup .sql { color: var(--sup); }
+.r.flash { animation: flash 1.6s ease-out; }
+@keyframes flash { 0% { background: rgba(167,139,250,.45); } 100% { background: transparent; } }
+.toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: #26282e; border: 1px solid var(--border-strong); border-radius: 999px; padding: 6px 14px; font-size: 12.5px; display: none; }
+.note { color: var(--dim); font-size: 13px; margin-top: 14px; }
+.note b { color: var(--text); }
+@media (max-width: 760px) { .axis, .legend, .zoombar { margin-left: 0; } .lane { grid-template-columns: 70px minmax(0,1fr); } }
+</style>
+</head>
+<body>
+<div class="page">
+<h1>Timeline you can tell apart + findings with their statements in reach</h1>
+<p class="intro">Real data: request 500d0cdc (flight search, 20.0 s, 41 statements, 2 supplier calls). Try it: the window opens with the one summary line - click it for the timeline and the findings. Hover anything on the timeline, click to jump to it,
+drag across the timeline to zoom in. Findings are one line each - click one to open its statements, hover it to light them up on the timeline.</p>
+
+<div class="win">
+  <div class="whead"><b>Database · POST</b><code>/odeysysadmin/Booking2/flight-search/search</code><div class="sub">Request 500d0cdc · odeysys · 4:34:15 AM</div></div>
+  <details class="panel" id="panel">
+  <summary class="sumline"><span class="pchev">▶</span><span class="vtxt"><b style="color:var(--text)">20.0 s</b> · <b>51% inside the app</b> - 2 idle stretches, the longest 2.5 s before #28</span><span style="margin-left:auto" class="c bad">1 error</span><span class="c warn">5 to fix</span><span class="phint">details</span></summary>
+
+  <div class="tlbox">
+    <div class="sec">When it happened <span class="hint">hover = what it is · click = open it · drag = zoom</span></div>
+    <div class="tl" id="tl">
+      <div class="axis" id="axis"></div>
+      <div class="lane"><div class="name">Database</div><div class="track" id="lane-db"></div></div>
+      <div class="lane"><div class="name">Supplier calls</div><div class="track" id="lane-sup"></div></div>
+      <div class="lane"><div class="name">Idle (app only)</div><div class="track" id="lane-idle"></div></div>
+    </div>
+    <div class="legend" id="legend"></div>
+    <div class="zoombar" id="zoombar" style="display:none">Zoomed to <span id="zoomrange"></span><button id="zoomreset">Show all 20 s</button></div>
+  </div>
+
+  <div class="findings" id="findings"></div>
+  </details>
+
+  <div class="rows" id="rows"></div>
+</div>
+
+<p class="note"><b>What changed vs today.</b> One bar with 41 identical teal slivers becomes three lanes - <b>Database</b>, <b>Supplier calls</b>, <b>Idle</b> - where colour says
+<i>what kind</i> of thing it is (error, slow, repeated, huge read, normal, commit) and the big ones carry a label (host, table, "2.5 s idle"). Every item has a hover card and
+opens on click. Each finding lists its statements as chips right under it - grouped, no horizontal scrolling - and hovering a finding dims everything else on the timeline,
+so you see <i>where</i> the problem sits in time. Dragging zooms in when slivers are too close to tell apart.</p>
+</div>
+<div class="tip" id="tip"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+const STATEMENTS=[{"seq": 1, "k": "SELECT", "at": 69.5, "ms": 53.6, "t": "TT_USER", "sql": "select u.USER_ID as id, u.FIRST_NAME as name  from TT_USER u join TT_GROUP_USER_MAPPING gm on u.USER_ID = gm.U", "fail": false, "rows": 0, "code": "GenericDAOImpl.fetchWithSQLTransformers(GenericDAOImpl.java:537)"}, {"seq": 2, "k": "SELECT", "at": 282.5, "ms": 53.3, "t": "TT_ORGANIZATION", "sql": "SELECT B.PRODUCT_ID FROM TT_ORGANIZATION A,TT_ORG_PRODUCTS_MAP B WHERE A.GROUP_ID=? AND A.ORGANIZATION_ID=B.OR", "fail": false, "rows": 0, "code": "GenericDAOImpl.fetchWithSQL(GenericDAOImpl.java:396)"}, {"seq": 3, "k": "SELECT", "at": 499.2, "ms": 53.3, "t": "TT_USER_GROUP", "sql": "select groupmodal0_.GROUP_NAME as col_0_0_ from TT_USER_GROUP groupmodal0_ cross join TT_ORGANIZATION organiza", "fail": false, "rows": 1, "code": "GenericDAOImpl.fetchWithHQL(GenericDAOImpl.java:468)"}, {"seq": 4, "k": "SELECT", "at": 713.7, "ms": 53.2, "t": "TT_USER_GROUP", "sql": "select groupmodal0_.GROUP_NAME as col_0_0_ from TT_USER_GROUP groupmodal0_ cross join TT_ORGANIZATION organiza", "fail": false, "rows": 1, "code": "GenericDAOImpl.fetchWithHQL(GenericDAOImpl.java:468)"}, {"seq": 5, "k": "CALL", "at": 957.0, "ms": 64.6, "t": "LOG_FLIGHTSEARCH_HIT_SP", "sql": "CALL LOG_FLIGHTSEARCH_HIT_SP(?)", "fail": false, "rows": null, "code": "GenericDAOImpl.executeSQLQuery(GenericDAOImpl.java:927)"}, {"seq": 6, "k": "COMMIT", "at": 1077.1, "ms": 0.0, "t": "", "sql": "COMMIT", "fail": false, "rows": null, "code": ""}, {"seq": 7, "k": "SELECT", "at": 3136.5, "ms": 66.0, "t": "TT_TS_PREFER_AIRLINE", "sql": "select preferairl0_.ID as ID3818_, preferairl0_.AIRLINE_CODE as AIRLINE2_3818_, preferairl0_.AIRLINE_ID as AIR", "fail": false, "rows": 0, "code": "GenericDAOImpl.fetchWithSlaveHQL(GenericDAOImpl.java:438)"}, {"seq": 8, "k": "SELECT", "at": 3464.8, "ms": 180.5, "t": "TT_AIRPORT_DETAILS", "sql": "SELECT AD.AIRPORT_CODE AS airportCode,        ASC_TBL.SUPPLIER_CRED_ID AS supplierCredId,        CASE         ", "fail": false, "rows": 2, "code": "GenericDAOImpl.fetchWithSQLTransformerCreator(GenericDAOImpl.java:780)"}, {"seq": 9, "k": "COMMIT", "at": 3701.0, "ms": 0.0, "t": "", "sql": "COMMIT", "fail": false, "rows": null, "code": ""}, {"seq": 10, "k": "SELECT", "at": 3817.9, "ms": 55.1, "t": "TT_AIRPORT_DETAILS", "sql": "SELECT AD.AIRPORT_CODE AS airportCode,        ASC_TBL.SUPPLIER_CRED_ID AS supplierCredId,        CASE         ", "fail": false, "rows": 2, "code": "GenericDAOImpl.fetchWithSQLTransformerCreator(GenericDAOImpl.java:780)"}, {"seq": 11, "k": "COMMIT", "at": 3937.6, "ms": 0.0, "t": "", "sql": "COMMIT", "fail": false, "rows": null, "code": ""}, {"seq": 12, "k": "SELECT", "at": 4058.9, "ms": 54.4, "t": "TT_TS_SUPPLIER_CREDENTIAL_ROUTES", "sql": "select suppliercr0_.ID as ID995_, suppliercr0_.CREATION_TIME as CREATION2_995_, suppliercr0_.CREDENTIAL_ID as ", "fail": false, "rows": 0, "code": "SupplierCredentialRouteDaoImpl.findByCredentialIds(SupplierCredentialRouteDaoImpl.java:99)"}, {"seq": 13, "k": "COMMIT", "at": 4166.9, "ms": 0.0, "t": "", "sql": "COMMIT", "fail": false, "rows": null, "code": ""}, {"seq": 14, "k": "SELECT", "at": 4277.4, "ms": 54.7, "t": "TT_TS_SUPPLIER_CREDENTIAL_AIRLINES", "sql": "select suppliercr0_.ID as ID996_, suppliercr0_.AIRLINE_ID as AIRLINE2_996_, suppliercr0_.CREATION_TIME as CREA", "fail": false, "rows": 0, "code": "SupplierCredentialRouteDaoImpl.findAirlineByCredentialIds(SupplierCredentialRouteDaoImpl.java:144)"}, {"seq": 15, "k": "CALL", "at": 4832.5, "ms": 141.4, "t": "FLIGHTSEARCH_HIT_FILTER_SUPPLIER_CREDENTIALS", "sql": "CALL FLIGHTSEARCH_HIT_FILTER_SUPPLIER_CREDENTIALS(?,?,?,?) ;", "fail": false, "rows": 2, "code": "GenericDAOImpl.lambda$executeStoredProcedureWithTransaction$2(GenericDAOImpl.java:1086)"}, {"seq": 16, "k": "COMMIT", "at": 5027.3, "ms": 0.0, "t": "", "sql": "COMMIT", "fail": false, "rows": null, "code": ""}, {"seq": 17, "k": "SELECT", "at": 5173.4, "ms": 84.1, "t": "TT_TS_GDS_DEALCODE", "sql": "select gdsdealcod0_.DEAL_ID as DEAL1_1054_, gdsdealcod0_.AIRLINE_ID as AIRLINE2_1054_, gdsdealcod0_.APPROVAL_B", "fail": false, "rows": 0, "code": "GenericDAOImpl.fetchWithHQL(GenericDAOImpl.java:468)"}, {"seq": 18, "k": "SELECT", "at": 5493.4, "ms": 132.7, "t": "TT_TS_BLACKLIST_FLIGHTS", "sql": "select blackoutfl0_.BOFLIGHT_ID as BOFLIGHT1_965_, blackoutfl0_.AIRLINE_ID as AIRLINE2_965_, blackoutfl0_.APPR", "fail": false, "rows": 0, "code": "GenericDAOImpl.fetchWithHQL(GenericDAOImpl.java:468)"}, {"seq": 19, "k": "SELECT", "at": 5797.3, "ms": 237.7, "t": "TT_TS_FL_TAG", "sql": "select flighttagm0_.CONTENT_ID as CONTENT1_878_, flighttagm0_.CREATED_BY as CREATED2_878_, flighttagm0_.CREATI", "fail": false, "rows": 2, "code": "GenericDAOImpl.fetchWithHQL(GenericDAOImpl.java:468)"}, {"seq": 20, "k": "SELECT", "at": 6036.1, "ms": 106.3, "t": "TT_TS_FL_TAG_COUNTRY_POS", "sql": "select tagcountry0_.CONTENT_ID as CONTENT2_878_1_, tagcountry0_.POS_ID as POS1_1_, tagcountry0_.CONTENT_ID as ", "fail": false, "rows": 0, "code": "GenericDAOImpl.fetchWithHQL(GenericDAOImpl.java:468)"}, {"seq": 21, "k": "SELECT", "at": 6143.0, "ms": 140.5, "t": "TT_TS_FL_TAG_COUNTRY", "sql": "select flightcoun0_.CONTENT_ID as CONTENT3_878_1_, flightcoun0_.CONTENT_ID as CONTENT3_1_, flightcoun0_.COUNTR", "fail": false, "rows": 0, "code": "GenericDAOImpl.fetchWithHQL(GenericDAOImpl.java:468)"}, {"seq": 22, "k": "SELECT", "at": 6284.1, "ms": 166.7, "t": "TT_TS_FL_TAG_AIRPORT", "sql": "select flightcity0_.CONTENT_ID as CONTENT3_878_1_, flightcity0_.CONTENT_ID as CONTENT3_1_, flightcity0_.AIRPOR", "fail": false, "rows": 2, "code": "GenericDAOImpl.fetchWithHQL(GenericDAOImpl.java:468)"}, {"seq": 23, "k": "SELECT", "at": 6451.9, "ms": 54.3, "t": "TT_TS_FL_TAG_COUNTRY_POS", "sql": "select tagcountry0_.CONTENT_ID as CONTENT2_878_1_, tagcountry0_.POS_ID as POS1_1_, tagcountry0_.CONTENT_ID as ", "fail": false, "rows": 0, "code": "GenericDAOImpl.fetchWithHQL(GenericDAOImpl.java:468)"}, {"seq": 24, "k": "SELECT", "at": 6506.7, "ms": 54.1, "t": "TT_TS_FL_TAG_COUNTRY", "sql": "select flightcoun0_.CONTENT_ID as CONTENT3_878_1_, flightcoun0_.CONTENT_ID as CONTENT3_1_, flightcoun0_.COUNTR", "fail": false, "rows": 0, "code": "GenericDAOImpl.fetchWithHQL(GenericDAOImpl.java:468)"}, {"seq": 25, "k": "SELECT", "at": 6561.1, "ms": 54.7, "t": "TT_TS_FL_TAG_AIRPORT", "sql": "select flightcity0_.CONTENT_ID as CONTENT3_878_1_, flightcity0_.CONTENT_ID as CONTENT3_1_, flightcity0_.AIRPOR", "fail": false, "rows": 2, "code": "GenericDAOImpl.fetchWithHQL(GenericDAOImpl.java:468)"}, {"seq": 26, "k": "SELECT", "at": 6803.5, "ms": 524.0, "t": "TT_AIRPORT_DETAILS", "sql": "select airportmod0_.AIRPORT_ID as col_0_0_, airportmod0_.AIRPORT_CODE as col_1_0_, airportmod0_.AIRPORT_NAME a", "fail": false, "rows": 9110, "code": "GenericDAOImpl.fetchWithSlaveHQL(GenericDAOImpl.java:425)"}, {"seq": 27, "k": "SELECT", "at": 7609.6, "ms": 88.7, "t": "TT_TS_PRODUCTS", "sql": "select productmod0_.CONTENT_ID as CONTENT1_930_, productmod0_.APPROVAL_BY as APPROVAL2_930_, productmod0_.APPR", "fail": false, "rows": 1, "code": "GenericDAOImpl.fetchWithHQL(GenericDAOImpl.java:468)"}, {"seq": 28, "k": "SELECT", "at": 10241.1, "ms": 53.2, "t": "TT_TS_SETTINGS", "sql": "select systemsett0_.ACTION_VALUE as col_0_0_ from TT_TS_SETTINGS systemsett0_ where systemsett0_.ACTION_KEY=?", "fail": false, "rows": 0, "code": "GenericDAOImpl.fetchColumnByHqlQuery(GenericDAOImpl.java:1810)"}, {"seq": 31, "k": "CALL", "at": 16748.6, "ms": 126.9, "t": "LOG_SUPPLIER_ACTION_SP_V1", "sql": "CALL LOG_SUPPLIER_ACTION_SP_V1(?,?,?,?,?,?,?,?);", "fail": false, "rows": null, "code": "GenericDAOImpl.executeBulkSqlQuery(GenericDAOImpl.java:2059)"}, {"seq": 32, "k": "CALL", "at": 16877.0, "ms": 64.8, "t": "LOG_SUPPLIER_ACTION_SP_V1", "sql": "CALL LOG_SUPPLIER_ACTION_SP_V1(?,?,?,?,?,?,?,?);", "fail": false, "rows": null, "code": "GenericDAOImpl.executeBulkSqlQuery(GenericDAOImpl.java:2059)"}, {"seq": 33, "k": "COMMIT", "at": 17000.1, "ms": 0.0, "t": "", "sql": "COMMIT", "fail": false, "rows": null, "code": ""}, {"seq": 34, "k": "SELECT", "at": 17111.3, "ms": 82.8, "t": "TT_TS_SUPPLIER", "sql": "SELECT s.SUPPLIER_ID AS supplierId, s.SUPPLIER_NAME AS supplierName, s.RULE_ENGINE_STATUS AS ruleEngineEnabled", "fail": false, "rows": 45, "code": "GenericDAOImpl.fetchWithSQLTransformers(GenericDAOImpl.java:174)"}, {"seq": 35, "k": "SELECT", "at": 17363.0, "ms": 54.4, "t": "TT_TS_SUPPLIER_CREDENTIAL_ROUTES", "sql": "select suppliercr0_.ID as ID995_, suppliercr0_.CREATION_TIME as CREATION2_995_, suppliercr0_.CREDENTIAL_ID as ", "fail": false, "rows": 0, "code": "SupplierCredentialRouteDaoImpl.findByCredentialIds(SupplierCredentialRouteDaoImpl.java:99)"}, {"seq": 36, "k": "COMMIT", "at": 17477.2, "ms": 0.0, "t": "", "sql": "COMMIT", "fail": false, "rows": null, "code": ""}, {"seq": 37, "k": "SELECT", "at": 17651.6, "ms": 56.3, "t": "TT_TS_SUPPLIER", "sql": "SELECT s.SUPPLIER_ID AS supplierId, s.SUPPLIER_NAME AS supplierName, s.RULE_ENGINE_STATUS AS ruleEngineEnabled", "fail": false, "rows": 45, "code": "GenericDAOImpl.fetchWithSQLTransformers(GenericDAOImpl.java:174)"}, {"seq": 38, "k": "SELECT", "at": 18165.9, "ms": 53.7, "t": "TT_TS_AGENT_STAFF", "sql": "SELECT COUNT(*) FROM TT_TS_AGENT_STAFF WHERE status = 1 and USER_ID = 790", "fail": false, "rows": 1, "code": "GenericDAOImpl.fetchSQLSlaveCount(GenericDAOImpl.java:1388)"}, {"seq": 39, "k": "SELECT", "at": 18407.8, "ms": 124.6, "t": "TT_TS_OFFERS", "sql": "select this_.OFFER_ID as OFFER1_1189_2_, this_.APPROVAL_DATE as APPROVAL2_1189_2_, this_.APPROVAL_REMARKS as A", "fail": false, "rows": 1, "code": "OfferPricingDaoImpl.fetchAllActiveOffers(OfferPricingDaoImpl.java:204)"}, {"seq": 40, "k": "SELECT", "at": 18534.1, "ms": 54.7, "t": "TT_TS_OFFER_DEALCODE_MAP", "sql": "select offerdealc0_.OFFER_ID as OFFER2_1189_1_, offerdealc0_.OFFER_ID as OFFER2_1_, offerdealc0_.DEAL_ID as DE", "fail": false, "rows": 0, "code": "OfferPricingDaoImpl.fetchAllActiveOffers(OfferPricingDaoImpl.java:204)"}, {"seq": 41, "k": "SELECT", "at": 18754.6, "ms": 53.6, "t": "TT_TS_OFFER_DEALCODE_MAP", "sql": "select offerdealc0_.OFFER_ID as OFFER2_1190_, offerdealc0_.DEAL_ID as DEAL1_1190_ from TT_TS_OFFER_DEALCODE_MA", "fail": false, "rows": 0, "code": "GenericDAOImpl.fetchWithHQL(GenericDAOImpl.java:468)"}, {"seq": 42, "k": "CALL", "at": 18993.2, "ms": 235.6, "t": "LOG_FLIGHTSEARCH_HIT_DETAILS_SP_V6", "sql": "CALL LOG_FLIGHTSEARCH_HIT_DETAILS_SP_V6 (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", "fail": true, "rows": null, "code": "GenericDAOImpl.executeSQLQuery(GenericDAOImpl.java:927)"}, {"seq": 43, "k": "ROLLBACK", "at": 19284.6, "ms": 0.0, "t": "", "sql": "ROLLBACK", "fail": false, "rows": null, "code": ""}];
+const SUPPLIERS=[{"seq": 29, "host": "ndc-integration-stg-ne-3.azurewebsites.net", "path": "/api/FlightSearch/Search", "at": 11290.7, "ms": 2450.4, "status": 200}, {"seq": 30, "host": "ndc-integration-stg-ne-3.azurewebsites.net", "path": "/api/FlightSearch/Search", "at": 11306.6, "ms": 5579.1, "status": 200}];
+
+const TOTAL = 20035;
+const ROUND_TRIP = 53.3;
+// What each statement is - the same rules the findings use.
+const DUPS = [[3, 4], [8, 10], [12, 35], [34, 37]];
+const dupSeqs = new Set(DUPS.flat());
+const SLOW = new Set([8]);
+// One HQL execution (q178) whose follow-up queries repeat once per returned row: #19 returned 2 tags, then for each
+// tag Hibernate loaded 3 collections one by one (#20-#22 for tag 812, #23-#25 for tag 843).
+const FAN = new Set([19, 20, 21, 22, 23, 24, 25]);
+const BIG = new Set([26]);
+const kindOf = (s) => s.fail ? 'err' : (s.k === 'COMMIT' || s.k === 'ROLLBACK') ? 'tx' : BIG.has(s.seq) ? 'big' : FAN.has(s.seq) ? 'fan' : SLOW.has(s.seq) ? 'slow' : dupSeqs.has(s.seq) ? 'rep' : 'ok';
+const COLORS = { ok: 'var(--db)', slow: 'var(--slow)', rep: 'var(--rep)', fan: 'var(--fan)', big: 'var(--big)', err: 'var(--red)', tx: 'var(--tx)', sup: 'var(--sup)', idle: '' };
+const LABELS = { ok: 'Query', slow: 'Slow (>100 ms beyond round trip)', rep: 'Run twice', fan: 'Loaded per row (N+1 inside one query)', big: 'Huge read', err: 'Failed', tx: 'Commit / rollback', sup: 'Supplier call', idle: 'Idle ≥ 1 s' };
+
+// Idle stretches ≥ 1 s: gaps with neither a statement nor a supplier call running.
+const busy = [...STATEMENTS.map((s) => [s.at, s.at + s.ms, s.seq]), ...SUPPLIERS.map((c) => [c.at, c.at + c.ms, c.seq])].sort((a, b) => a[0] - b[0]);
+const merged = [];
+for (const [a, b, seq] of busy) {
+  const last = merged[merged.length - 1];
+  if (last && a <= last[1]) { last[1] = Math.max(last[1], b); } else merged.push([a, b, seq]);
+}
+const IDLE = [];
+for (let i = 1; i < merged.length; i++) {
+  const gap = merged[i][0] - merged[i - 1][1];
+  if (gap >= 1000) IDLE.push({ at: merged[i - 1][1], ms: gap, before: merged[i][2] });
+}
+
+let view = [0, TOTAL];
+const x = (ms) => ((ms - view[0]) / (view[1] - view[0])) * 100;
+const w = (ms) => (ms / (view[1] - view[0])) * 100;
+const fmt = (ms) => ms >= 1000 ? (ms / 1000).toFixed(1) + ' s' : Math.round(ms) + ' ms';
+const host = (h) => h.replace('.azurewebsites.net', '').replace('ndc-integration-', 'NDC ');
+
+function render() {
+  const axis = document.getElementById('axis');
+  axis.innerHTML = '';
+  const span = view[1] - view[0];
+  const step = span > 10000 ? 2000 : span > 4000 ? 1000 : span > 1500 ? 250 : 100;
+  for (let t = Math.ceil(view[0] / step) * step; t <= view[1]; t += step) axis.insertAdjacentHTML('beforeend', `<span style="left:${x(t)}%">${fmt(t)}</span>`);
+  const lane = (id, items) => {
+    const el = document.getElementById(id);
+    el.innerHTML = '';
+    for (let t = Math.ceil(view[0] / step) * step; t <= view[1]; t += step) el.insertAdjacentHTML('beforeend', `<div class="grid" style="left:${x(t)}%"></div>`);
+    for (const it of items) {
+      if (it.at + it.ms < view[0] || it.at > view[1]) continue;
+      const d = document.createElement('div');
+      d.className = 'seg' + (it.kind === 'idle' ? ' idle' : '');
+      d.style.left = x(it.at) + '%';
+      if (it.row != null) { d.style.top = 3 + it.row * 19 + 'px'; }
+      d.style.width = w(it.ms) + '%';
+      if (COLORS[it.kind]) d.style.background = COLORS[it.kind];
+      d.dataset.key = it.key;
+      if (it.label && w(it.ms) > 6) d.innerHTML = `<span class="lb">${it.label}</span>`;
+      d.addEventListener('mousemove', (e) => showTip(e, it));
+      d.addEventListener('mouseleave', hideTip);
+      d.addEventListener('click', (e) => { e.stopPropagation(); jump(it.jump, it.title); });
+      el.appendChild(d);
+    }
+  };
+  lane('lane-db', STATEMENTS.map((s) => ({ key: 's' + s.seq, kind: kindOf(s), at: s.at, ms: Math.max(s.ms, 1), jump: s.seq,
+    label: s.ms > 150 ? `#${s.seq} ${s.t}` : '', title: `#${s.seq} ${s.k} ${s.t}`,
+    lines: [`${fmt(s.ms)}${s.rows != null ? ` · ${s.rows.toLocaleString()} rows` : ''} · at ${fmt(s.at)}`, s.fail ? '✕ failed - procedure missing' : '', LABELS[kindOf(s)], s.code] })));
+  // calls that overlap in time get their own row, so parallel calls never hide each other
+  const rowsEnd = [];
+  const supRow = new Map();
+  for (const c of [...SUPPLIERS].sort((a, b) => a.at - b.at)) {
+    let r = rowsEnd.findIndex((end) => end <= c.at);
+    if (r < 0) { r = rowsEnd.length; rowsEnd.push(0); }
+    rowsEnd[r] = c.at + c.ms;
+    supRow.set(c.seq, r);
+  }
+  document.getElementById('lane-sup').style.height = 6 + Math.max(1, rowsEnd.length) * 19 + 'px';
+  lane('lane-sup', SUPPLIERS.map((c) => ({ key: 'c' + c.seq, kind: 'sup', at: c.at, ms: c.ms, jump: c.seq, row: supRow.get(c.seq),
+    label: `${host(c.host)} · ${fmt(c.ms)} · ${c.status}`, title: `#${c.seq} POST ${c.host}`,
+    lines: [`${c.path} · ${c.status} · ${fmt(c.ms)} · at ${fmt(c.at)}`, 'Supplier call - click to open the call'] })));
+  lane('lane-idle', IDLE.map((g) => ({ key: 'i' + g.before, kind: 'idle', at: g.at, ms: g.ms, jump: g.before,
+    label: `${fmt(g.ms)} idle`, title: `${fmt(g.ms)} with nothing running`,
+    lines: [`from ${fmt(g.at)} to ${fmt(g.at + g.ms)} - no SQL, no supplier call`, `next: #${g.before} - what the application did in between is not captured`] })));
+  document.getElementById('zoombar').style.display = view[0] === 0 && view[1] === TOTAL ? 'none' : 'flex';
+  document.getElementById('zoomrange').textContent = `${fmt(view[0])} - ${fmt(view[1])}`;
+}
+
+const tip = document.getElementById('tip');
+function showTip(e, it) {
+  tip.innerHTML = `<b>${it.title}</b>` + it.lines.filter(Boolean).map((l) => `<div class="k">${l}</div>`).join('') + '<div style="color:var(--link);margin-top:3px">click to open</div>';
+  tip.style.display = 'block';
+  tip.style.left = Math.min(e.clientX + 14, window.innerWidth - 400) + 'px';
+  tip.style.top = e.clientY + 14 + 'px';
+}
+function hideTip() { tip.style.display = 'none'; }
+
+function jump(seq, title) {
+  const row = document.getElementById('row' + seq);
+  if (!row) return;
+  row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  row.classList.remove('flash'); void row.offsetWidth; row.classList.add('flash');
+  const t = document.getElementById('toast');
+  t.textContent = `Opened ${title}`; t.style.display = 'block';
+  clearTimeout(t._h); t._h = setTimeout(() => (t.style.display = 'none'), 1400);
+}
+
+// drag to zoom
+const tl = document.getElementById('tl');
+let drag = null;
+document.querySelectorAll('.track').forEach((tr) => {
+  const brush = document.createElement('div'); brush.className = 'brush'; tr.appendChild(brush);
+  tr.addEventListener('mousedown', (e) => { const r = tr.getBoundingClientRect(); drag = { tr, r, from: e.clientX, brush }; });
+});
+window.addEventListener('mousemove', (e) => {
+  if (!drag) return;
+  const a = Math.min(drag.from, e.clientX) - drag.r.left, b = Math.max(drag.from, e.clientX) - drag.r.left;
+  Object.assign(drag.brush.style, { display: 'block', left: a + 'px', width: b - a + 'px' });
+});
+window.addEventListener('mouseup', (e) => {
+  if (!drag) return;
+  const { r, from, brush } = drag; drag = null; brush.style.display = 'none';
+  if (Math.abs(e.clientX - from) < 6) return;
+  const toMs = (px) => view[0] + ((px - r.left) / r.width) * (view[1] - view[0]);
+  view = [Math.max(0, toMs(Math.min(from, e.clientX))), Math.min(TOTAL, toMs(Math.max(from, e.clientX)))];
+  render();
+});
+document.getElementById('zoomreset').onclick = () => { view = [0, TOTAL]; render(); };
+
+// legend
+document.getElementById('legend').innerHTML = ['ok', 'fan', 'slow', 'rep', 'big', 'err', 'tx', 'sup', 'idle'].map((k) =>
+  `<span data-kind="${k}"><i style="background:${COLORS[k] || 'repeating-linear-gradient(135deg,var(--app) 0 3px,transparent 3px 6px)'}"></i>${LABELS[k]}</span>`).join('');
+
+// findings, each with its statements as chips
+const bySeq = new Map(STATEMENTS.map((s) => [s.seq, s]));
+const chip = (seq) => { const s = bySeq.get(seq); return `<span class="chip" data-jump="${seq}" data-key="s${seq}"><i style="background:${COLORS[kindOf(s)]}"></i><span class="n">#${seq}</span>${s.t}<span class="ms">${fmt(s.ms)}</span></span>`; };
+const FINDINGS = [
+  { sev: 'bad', ic: '✕', title: 'Missing procedure, error hidden', short: '#42 failed, rolled back, answered 200', cnt: '2 statements', why: '- #42 failed (FLIGHTSEARCH_HIT_FILTER_AND_LOG_INTERVAL_RATIO does not exist), rolled back, the call still answered 200', imp: 'search not logged',
+    keys: ['s42', 's43'], chips: [chip(42), chip(43)] },
+  { sev: 'warn', ic: '⏳', title: `${fmt(IDLE.reduce((n, g) => n + g.ms, 0))} idle in ${IDLE.length} stretches`, short: 'no SQL, no supplier call running', cnt: `${IDLE.length} stretches`, why: '- no SQL and no supplier call running', imp: fmt(IDLE.reduce((n, g) => n + g.ms, 0)),
+    keys: IDLE.map((g) => 'i' + g.before), chips: IDLE.map((g) => `<span class="chip" data-jump="${g.before}" data-key="i${g.before}"><i style="background:var(--app)"></i>${fmt(g.ms)} idle<span class="n">before #${g.before}</span></span>`) },
+  { sev: 'warn', ic: '🌿', title: '1 HQL query → 7 SQL statements', short: 'its 2 rows loaded 3 collections each, one by one', cnt: '7 statements', imp: '+0.58 s',
+    why: '- <span class="mono">from FlightTagModel fld where … ORDER BY fld.lastModTime DESC</span> (#19) returned 2 tags; for each tag Hibernate then loaded '
+      + 'TT_TS_FL_TAG_COUNTRY_POS, TT_TS_FL_TAG_COUNTRY and TT_TS_FL_TAG_AIRPORT with a query of its own - an N+1 inside one query. '
+      + 'With 100 tags that is 300 extra queries (≈ 16 s at this 53 ms round trip). '
+      + '<div style="color:var(--green);margin-top:4px">→ <span class="mono">join fetch</span> the three collections in this HQL, or put <span class="mono">@BatchSize(size = 50)</span> / <span class="mono">@Fetch(FetchMode.SUBSELECT)</span> on them - 7 queries become 1-4.</div>',
+    keys: [...FAN].map((s) => 's' + s),
+    chips: [chip(19), `<span class="chip pair" data-jump="20" data-key="s20"><i style="background:var(--fan)"></i><span class="n">#20-#22</span>tag 812 · 3 queries</span>`,
+      `<span class="chip pair" data-jump="23" data-key="s23"><i style="background:var(--fan)"></i><span class="n">#23-#25</span>tag 843 · 3 queries</span>`] },
+  { sev: 'warn', ic: '📦', title: '9,110 airports loaded per search', short: 'whole table every time - cache it', cnt: '1 statement', why: '- #26 reads the whole TT_AIRPORT_DETAILS table every time; cache it', imp: '0.52 s', keys: ['s26'], chips: [chip(26)] },
+  { sev: 'warn', ic: '♻', title: '4 queries run twice', short: 'same SQL, same parameters', cnt: '4 pairs', why: '- same SQL, same parameters; keep the first answer', imp: '−0.22 s',
+    keys: DUPS.flat().map((s) => 's' + s),
+    chips: DUPS.map(([a, b]) => `<span class="chip pair" data-jump="${b}" data-key="s${a}"><i style="background:var(--rep)"></i><span class="n">#${a}</span><span class="arrow">→</span><span class="n">#${b}</span>${bySeq.get(a).t}</span>`) },
+  { sev: 'warn', ic: '🐢', title: '1 slow query', short: 'beyond the 53 ms round trip', cnt: '1 statement', why: '- over 100 ms beyond the 53 ms round trip (#19 and #22 are counted in the HQL finding above)', imp: '0.13 s', keys: [...SLOW].map((s) => 's' + s), chips: [...SLOW].map(chip) },
+  { sev: 'note', ic: '🌐', title: 'NDC answered in 5.6 s', short: '2 calls in parallel, both 200', cnt: '2 calls', why: '- 2 calls in parallel, both 200', imp: '28%', keys: SUPPLIERS.map((c) => 'c' + c.seq),
+    chips: SUPPLIERS.map((c) => `<span class="chip" data-jump="${c.seq}" data-key="c${c.seq}"><i style="background:var(--sup)"></i><span class="n">#${c.seq}</span>${host(c.host)}<span class="ms">${fmt(c.ms)}</span></span>`) },
+];
+document.getElementById('findings').innerHTML = `<div class="ftools"><a id="fopen">Open all</a><a id="fclose">Close all</a></div>` + FINDINGS.map((f, i) =>
+  `<details class="f ${f.sev}" data-f="${i}"><summary><div class="head"><span class="fchev">▶</span><span class="ic">${f.ic}</span><b>${f.title}</b>
+     <span class="short">- ${f.short}</span><span class="cnt">${f.cnt}</span><span class="imp">${f.imp}</span></div></summary>
+   <div class="open"><span class="why">${f.why.replace(/^- /, '')}</span><div class="chips">${f.chips.join('')}</div></div></details>`).join('');
+document.getElementById('fopen').onclick = () => document.querySelectorAll('details.f').forEach((d) => (d.open = true));
+document.getElementById('fclose').onclick = () => document.querySelectorAll('details.f').forEach((d) => (d.open = false));
+document.querySelectorAll('.f').forEach((el) => {
+  const f = FINDINGS[+el.dataset.f];
+  el.addEventListener('mouseenter', () => { tl.classList.add('dimmed'); f.keys.forEach((k) => document.querySelectorAll(`.seg[data-key="${k}"]`).forEach((s) => s.classList.add('hl'))); });
+  el.addEventListener('mouseleave', () => { tl.classList.remove('dimmed'); document.querySelectorAll('.seg.hl').forEach((s) => s.classList.remove('hl')); });
+});
+document.querySelectorAll('.chip').forEach((c) => {
+  c.addEventListener('mouseenter', () => document.querySelectorAll(`.seg[data-key="${c.dataset.key}"]`).forEach((s) => s.classList.add('hl')));
+  c.addEventListener('mouseleave', () => document.querySelectorAll(`.seg[data-key="${c.dataset.key}"]`).forEach((s) => { if (!tl.classList.contains('dimmed')) s.classList.remove('hl'); }));
+  c.addEventListener('click', () => jump(+c.dataset.jump, c.textContent.trim()));
+});
+
+// the statement list (with the supplier calls in their place)
+const all = [...STATEMENTS.map((s) => ({ ...s, sup: false })), ...SUPPLIERS.map((c) => ({ seq: c.seq, k: 'POST', sql: c.host + c.path, ms: c.ms, sup: true }))].sort((a, b) => a.seq - b.seq);
+document.getElementById('rows').innerHTML = all.map((r) => {
+  const kind = r.sup ? 'sup' : kindOf(r);
+  return `<div class="r${r.sup ? ' sup' : ''}" id="row${r.seq}"><span class="num">#${r.seq}</span><span class="v" style="color:${COLORS[kind]};border-color:${COLORS[kind]}">${r.k}</span><span class="sql">${r.sql}</span><span class="ms">${fmt(r.ms)}</span></div>`;
+}).join('');
+render();
+</script>
+</body>
+</html>

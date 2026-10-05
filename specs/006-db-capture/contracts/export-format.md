@@ -20,8 +20,10 @@ that is an object is a full TypedValue, `{}` a null cell). `import-parser.ts` re
 capture from either, and the import stores it through the slice's ingest port.
 
 `.md` / `.html`: after a call's response section, a "Database" section - statements in run order (values filled in,
-kind, result, duration), transactions as headed groups, result rows and before-images as tables, flags listed at
-the top. Call data escaped as today. `export-narrative.ts` adds one sentence when statements are present.
+kind, result, duration), transactions as headed groups, result rows and before-images as tables, opened by the
+database window's summary line and its findings (`analysis.summary`/`analysis.findings`, db-findings.ts - the flags
+list when a call has no analysis). The .json `dbCalls` line carries the same `analysis`, and its index line each
+call's `findings` (severity, title, impactMs, first 20 seqs). Call data escaped as today. `export-narrative.ts` adds one sentence when statements are present.
 
 Redaction: `shared/utils/redact.ts` stays the single choke point. A new `RedactionKind` `db-column` masks, in
 every format, the values of result/before-image columns with that name and the parameters bound to that column

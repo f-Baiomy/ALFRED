@@ -45,7 +45,12 @@ public class DbCaptureQueryService implements GetCallDbSummariesUseCase, GetCall
     @Override
     public Map<String, CallDbSummary> summaries(List<String> callIds) {
         List<String> ids = callIds.stream().filter(id -> id != null && !id.isBlank()).distinct().limit(MAX_IDS).toList();
-        return ids.isEmpty() ? Map.of() : store.summaries(ids);
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        // Calls flagged by older rules get the current ones on their first read - no new capture needed.
+        store.withStaleFlags(ids).forEach(id -> DbCaptureFlagsListener.reflag(store, id));
+        return store.summaries(ids);
     }
 
     @Override

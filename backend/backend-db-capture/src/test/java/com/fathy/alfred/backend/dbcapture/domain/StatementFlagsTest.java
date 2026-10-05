@@ -8,6 +8,7 @@ import com.fathy.alfred.backend.dbcapture.domain.model.DbFlagType;
 import com.fathy.alfred.backend.dbcapture.domain.model.MarkerType;
 import com.fathy.alfred.backend.dbcapture.domain.model.OutcomeKind;
 import com.fathy.alfred.backend.dbcapture.domain.model.StatementKind;
+import com.fathy.alfred.backend.dbcapture.domain.model.StatementOrigin;
 import com.fathy.alfred.backend.dbcapture.domain.model.StatementOutcome;
 import com.fathy.alfred.backend.dbcapture.domain.model.StatementTransaction;
 import com.fathy.alfred.backend.dbcapture.domain.model.Thresholds;
@@ -51,7 +52,7 @@ class StatementFlagsTest {
         for (int i = 0; i < 12; i++) {
             s.add(select(seq++, "SELECT rule, fee FROM fare_rules WHERE route_id = ?", 2, 900, String.valueOf(500 + i)));
         }
-        s.add(select(seq++, "SELECT id, amount FROM transactions WHERE user_id = ?", 2431, 48_200, "1042"));       // slow + huge
+        s.add(select(seq++, "SELECT id, amount FROM transactions WHERE user_id = ?", 2431, 148_200, "1042"));      // slow + huge
         int lockSeq = seq;
         s.add(stmt(seq++, StatementKind.SELECT, "SELECT balance FROM wallet WHERE user_id = ? FOR UPDATE",
                 outcome(OutcomeKind.ROWS, 1L, null, null, null), 6200, "tx-7", "1042"));
@@ -120,7 +121,7 @@ class StatementFlagsTest {
     void anUnswallowedFailureIsPlainFailed_andAFloodIsCapped() {
         List<CapturedStatement> s = new ArrayList<>();
         for (int i = 0; i < 50; i++) {
-            s.add(select(i + 1, "SELECT x" + i + " FROM big", 5_000, 30_000 + i * 2_000L, "1")); // most well past the call's round trip
+            s.add(select(i + 1, "SELECT x" + i + " FROM big", 5_000, 30_000 + i * 8_000L, "1")); // most well past the call's round trip
         }
         s.add(stmt(60, StatementKind.INSERT, "INSERT INTO t VALUES (?)", outcome(OutcomeKind.FAILED, null, null, "boom", null), 1000, null, "1"));
         List<DbFlag> flags = StatementFlags.compute(s, List.of(), List.of(), DbCaptureSettings.defaults());
@@ -171,5 +172,83 @@ class StatementFlagsTest {
         assertThat(slow.get(0).seqs()).containsExactly(11);
         assertThat(slow.get(0).detail()).containsEntry("baselineMs", "55");
         assertThat(RoundTrip.baselineMicros(s.subList(0, 4))).isZero(); // too few to tell
+    }
+
+    private static CapturedStatement fromOrigin(int seq, String sql, long rows, long micros, String param, StatementOrigin origin) {
+        CapturedStatement plain = select(seq, sql, rows, micros, param);
+        return new CapturedStatement(plain.id(), plain.callId(), plain.thread(), seq, plain.kind(), sql, plain.fingerprint(), plain.table(),
+                plain.params(), plain.outcome(), plain.startedAt(), micros, plain.offsetMicros(), null, "pool-1",
+                null, null, null, null, null, false, false, 0, origin, null);
+    }
+
+    private static StatementOrigin origin(String id, String kind, String parentId) {
+        return new StatementOrigin(id, kind, "from FlightTagModel fld order by fld.lastModTime desc", null, null, null, null, null,
+                null, null, null, null, null, parentId);
+    }
+
+    @Test
+    void oneHqlQueryWhoseRowsEachLoadTheirCollectionsIsAFanOut_notSlow() {
+        List<CapturedStatement> s = new ArrayList<>();
+        s.add(fromOrigin(1, "SELECT * FROM TT_TS_FL_TAG WHERE x = ?", 2, 210_000, "1", origin("q178", "HQL", null)));
+        int seq = 2;
+        for (String tag : List.of("812", "843")) {
+            for (String table : List.of("TT_TS_FL_TAG_COUNTRY_POS", "TT_TS_FL_TAG_COUNTRY", "TT_TS_FL_TAG_AIRPORT")) {
+                s.add(fromOrigin(seq++, "SELECT * FROM " + table + " WHERE tag_id = ?", 1, 90_000, tag, origin("q178", "HQL", null)));
+            }
+        }
+        for (int i = 0; i < 6; i++) {
+            s.add(select(seq++, "SELECT a FROM other" + i + " WHERE id = ?", 1, 1_000, String.valueOf(i)));
+        }
+        List<DbFlag> flags = StatementFlags.compute(s, List.of(), List.of(), DbCaptureSettings.defaults());
+
+        assertThat(types(flags)).containsExactly(DbFlagType.QUERY_FAN_OUT);
+        DbFlag fan = flags.get(0);
+        assertThat(fan.seqs()).containsExactly(1, 2, 3, 4, 5, 6, 7);
+        assertThat(fan.detail()).containsEntry("rows", "2").containsEntry("extra", "6").containsEntry("parents", "2")
+                .containsEntry("perRow", "3").containsEntry("extraMs", "540")
+                .containsEntry("query", "from FlightTagModel fld order by fld.lastModTime desc");
+    }
+
+    @Test
+    void loadsThatNameTheirQueryAsParentBelongToItsFanOut() {
+        List<CapturedStatement> s = new ArrayList<>();
+        s.add(fromOrigin(1, "SELECT * FROM orders WHERE user_id = ?", 3, 1_000, "7", origin("q1", "HQL", null)));
+        for (int i = 0; i < 3; i++) {
+            s.add(fromOrigin(2 + i, "SELECT * FROM order_lines WHERE order_id = ?", 2, 1_000, String.valueOf(100 + i), origin("e" + i, "LAZY_LOAD", "q1")));
+        }
+        List<DbFlag> flags = StatementFlags.compute(s, List.of(), List.of(), DbCaptureSettings.defaults());
+        assertThat(types(flags)).containsExactly(DbFlagType.QUERY_FAN_OUT);
+        assertThat(flags.get(0).seqs()).containsExactly(1, 2, 3, 4);
+    }
+
+    @Test
+    void withoutAnOriginTheRowsThenOneCycleOfQueriesPerRowPatternIsAFanOut() {
+        List<CapturedStatement> s = new ArrayList<>();
+        s.add(select(1, "SELECT id FROM tags WHERE active = ?", 2, 1_000, "1"));
+        s.add(select(2, "SELECT * FROM tag_country WHERE tag_id = ?", 1, 1_000, "812"));
+        s.add(select(3, "SELECT * FROM tag_airport WHERE tag_id = ?", 1, 1_000, "812"));
+        s.add(select(4, "SELECT * FROM tag_country WHERE tag_id = ?", 1, 1_000, "843"));
+        s.add(select(5, "SELECT * FROM tag_airport WHERE tag_id = ?", 1, 1_000, "843"));
+        s.add(select(6, "SELECT name FROM users WHERE id = ?", 1, 1_000, "9"));
+        List<DbFlag> flags = StatementFlags.compute(s, List.of(), List.of(), DbCaptureSettings.defaults());
+        assertThat(types(flags)).containsExactly(DbFlagType.QUERY_FAN_OUT);
+        assertThat(flags.get(0).seqs()).containsExactly(1, 2, 3, 4, 5);
+        assertThat(flags.get(0).detail()).containsEntry("perRow", "2").containsEntry("extra", "4");
+
+        // The same query again with other values is a repeat, not a fan-out; nor is one whose run goes on past its rows.
+        List<CapturedStatement> repeat = new ArrayList<>();
+        repeat.add(select(1, "SELECT id FROM tags WHERE active = ?", 2, 1_000, "1"));
+        repeat.add(select(2, "SELECT id FROM tags WHERE active = ?", 2, 1_000, "2"));
+        repeat.add(select(3, "SELECT id FROM tags WHERE active = ?", 2, 1_000, "3"));
+        assertThat(types(StatementFlags.compute(repeat, List.of(), List.of(), DbCaptureSettings.defaults()))).doesNotContain(DbFlagType.QUERY_FAN_OUT);
+        List<CapturedStatement> longer = new ArrayList<>(s.subList(0, 5));
+        longer.add(select(6, "SELECT * FROM tag_country WHERE tag_id = ?", 1, 1_000, "900"));
+        assertThat(types(StatementFlags.compute(longer, List.of(), List.of(), DbCaptureSettings.defaults()))).doesNotContain(DbFlagType.QUERY_FAN_OUT);
+    }
+
+    @Test
+    void aStoredLegacySlowThresholdIsReadAsTheNewDefault() {
+        assertThat(new Thresholds(20, 1000, 5, 100).slowMs()).isEqualTo(100);
+        assertThat(new Thresholds(250, 1000, 5, 100).slowMs()).isEqualTo(250);
     }
 }

@@ -24,6 +24,11 @@ public class DbCaptureFlagsListener implements IngestListener {
 
     @Override
     public void callIngested(String callId) {
+        reflag(store, callId);
+    }
+
+    /** Flags the call again from its stored statements, with its project's current settings. */
+    static void reflag(DbCaptureStorePort store, String callId) {
         if (store.summary(callId).isEmpty()) {
             return;
         }

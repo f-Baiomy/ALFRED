@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Call summary options</title>
+<style>
+:root {
+  --bg: #16171a; --card: #1e1f23; --inner: #141518; --border: rgba(255,255,255,.09); --border-strong: rgba(255,255,255,.16);
+  --text: #eceef3; --dim: #9aa0ad; --faint: #646a78;
+  --db: #2dd4bf; --sup: #7dd3fc; --app: #e0a458; --edge: #6b7280; --red: #f07178; --amber: #f2b13c; --green: #6ee7a8; --purple: #a78bfa;
+  --mono: "Cascadia Code", Consolas, monospace;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: #0f1012; color: var(--text); font: 14px/1.5 "Segoe UI", system-ui, sans-serif; }
+.page { max-width: 1120px; margin: 0 auto; padding: 18px 16px 60px; }
+h1 { font-size: 20px; margin: 0 0 4px; }
+.intro { color: var(--dim); margin: 0 0 18px; max-width: 900px; }
+.opt { margin: 28px 0 10px; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.opt h2 { margin: 0; font-size: 17px; }
+.opt .tag { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--purple); color: #1a1033; }
+.opt p { margin: 0; color: var(--dim); flex-basis: 100%; }
+.win { background: var(--card); border: 1px solid var(--border-strong); border-radius: 14px; padding: 18px 20px; }
+.head { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+.head b { font-size: 17px; } .head code { font-family: var(--mono); color: var(--sup); font-size: 13px; }
+.sub { color: var(--dim); font-size: 12.5px; margin: 2px 0 14px; }
+.muted { color: var(--dim); } .faint { color: var(--faint); }
+.mono { font-family: var(--mono); font-size: 12.5px; }
+.btn { font: inherit; font-size: 12px; font-weight: 600; border: 1px solid var(--border-strong); background: rgba(167,139,250,.12); color: #c4b5fd; border-radius: 7px; padding: 3px 10px; cursor: pointer; white-space: nowrap; }
+.btn.ghost { background: none; color: var(--dim); }
+.pill { display: inline-block; font-size: 11px; font-weight: 700; padding: 1px 8px; border-radius: 999px; }
+.p-bad { background: rgba(240,113,120,.16); color: var(--red); } .p-warn { background: rgba(242,177,60,.15); color: var(--amber); }
+.p-info { background: rgba(125,211,252,.13); color: var(--sup); } .p-ok { background: rgba(110,231,168,.13); color: var(--green); }
+
+/* ---- A: diagnosis ---- */
+.verdict { border-left: 4px solid var(--app); background: rgba(224,164,88,.07); border-radius: 0 10px 10px 0; padding: 12px 16px; margin-bottom: 14px; }
+.verdict .q { font-size: 12px; color: var(--faint); text-transform: uppercase; letter-spacing: .06em; font-weight: 700; }
+.verdict .a { font-size: 16px; margin-top: 2px; }
+.verdict .a b { color: var(--app); }
+.split { display: flex; height: 26px; border-radius: 7px; overflow: hidden; margin: 6px 0 6px; }
+.split div { display: flex; align-items: center; justify-content: center; font-size: 11.5px; font-weight: 700; color: #111; white-space: nowrap; overflow: hidden; }
+.legend { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 10px; margin-bottom: 16px; }
+.legend div { border: 1px solid var(--border); border-radius: 9px; padding: 8px 10px; background: var(--inner); }
+.legend .k { font-size: 11.5px; color: var(--dim); display: flex; gap: 6px; align-items: center; }
+.legend .k i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.legend .v { font-size: 18px; font-weight: 700; } .legend .v small { font-size: 12px; color: var(--dim); font-weight: 500; }
+.legend .n { font-size: 11.5px; color: var(--faint); }
+.findings { display: flex; flex-direction: column; gap: 8px; }
+.find { display: grid; grid-template-columns: 28px minmax(0,1fr) auto; gap: 4px 12px; border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; background: var(--inner); }
+.find .ic { font-size: 18px; line-height: 1.2; }
+.find .t { font-weight: 600; } .find .t .imp { color: var(--faint); font-weight: 500; font-size: 12.5px; }
+.find .d { grid-column: 2 / 3; color: var(--dim); font-size: 13px; }
+.find .fix { grid-column: 2 / 3; font-size: 12.5px; color: var(--green); }
+.find .act { grid-row: 1 / span 3; grid-column: 3; display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
+.find.bad { border-color: rgba(240,113,120,.35); } .find.warn { border-color: rgba(242,177,60,.3); }
+.sect { font-size: 11.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--faint); margin: 16px 0 8px; }
+
+/* ---- B: phases ---- */
+.lanes { position: relative; margin: 8px 0 4px; }
+.axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--faint); font-family: var(--mono); margin-bottom: 4px; }
+.lane { display: grid; grid-template-columns: 120px minmax(0,1fr); align-items: center; gap: 10px; margin: 5px 0; }
+.lane .lab { font-size: 12.5px; color: var(--dim); text-align: right; }
+.track { position: relative; height: 22px; background: var(--inner); border-radius: 6px; border: 1px solid var(--border); }
+.seg { position: absolute; top: 3px; height: 14px; border-radius: 3px; }
+.phases { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 0; margin: 10px 0 6px 130px; border-top: 1px dashed var(--border-strong); }
+.phase { border-left: 1px dashed var(--border-strong); padding: 8px 10px 0; font-size: 12.5px; }
+.phase:first-child { border-left: none; }
+.phase b { display: block; font-size: 13px; }
+.phase .w { font-family: var(--mono); font-size: 11.5px; color: var(--faint); }
+.phase .x { color: var(--dim); }
+.phase.hot { background: linear-gradient(rgba(224,164,88,.12), transparent 70%); border-radius: 0 0 8px 8px; }
+.phase.hot b { color: var(--app); }
+.callout { margin: 12px 0 0 130px; padding: 8px 12px; border-radius: 8px; border: 1px dashed rgba(224,164,88,.5); color: var(--dim); font-size: 13px; }
+.callout b { color: var(--app); }
+
+/* ---- C: scorecard ---- */
+.tiles { display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap: 10px; margin-bottom: 14px; }
+.tile { border: 1px solid var(--border); border-radius: 11px; padding: 10px 12px; background: var(--inner); border-top-width: 3px; }
+.tile .k { font-size: 11.5px; color: var(--dim); }
+.tile .v { font-size: 22px; font-weight: 700; margin: 2px 0; }
+.tile .s { font-size: 11.5px; }
+.tile.ok { border-top-color: var(--green); } .tile.warn { border-top-color: var(--amber); } .tile.bad { border-top-color: var(--red); } .tile.info { border-top-color: var(--sup); }
+table.issues { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.issues th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--faint); padding: 6px 10px; border-bottom: 1px solid var(--border); }
+table.issues td { padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+table.issues td.r { text-align: right; white-space: nowrap; font-family: var(--mono); font-size: 12.5px; }
+
+.cmp { margin-top: 30px; }
+.cmp table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.cmp th, .cmp td { border: 1px solid var(--border); padding: 8px 10px; text-align: left; vertical-align: top; }
+.cmp th { background: var(--card); }
+@media (max-width: 760px) { .legend, .tiles { grid-template-columns: repeat(2, minmax(0,1fr)); } .phases, .callout { margin-left: 0; } .lane { grid-template-columns: 80px minmax(0,1fr); } .phases { grid-template-columns: repeat(2, minmax(0,1fr)); } }
+</style>
+</head>
+<body>
+<div class="page">
+<h1>The database window's summary - three ways to say what went wrong</h1>
+<p class="intro">Every number below is from the real call (flight search, request 090147a5, 21.0 s). Today's header shows the same data as two
+bars, a row of chips and "56 gaps, median 160.8 ms" - accurate, but you have to work out what it means. Each option answers, in this order:
+<b>where did the time go</b>, <b>what is wrong</b>, <b>what should I do about it</b>, and <b>show me</b>. The statement list below stays as it is.</p>
+
+<!-- ============================================================ A ============================================================ -->
+<div class="opt"><h2>A · Diagnosis</h2><span class="tag">Recommended</span>
+<p>One sentence answers "why was this call slow", then the time in four plain boxes, then a short ranked list of findings - each with what it
+costs, what it means, what to do, and a button to the exact statements. Reads top to bottom like a report.</p></div>
+<div class="win">
+  <div class="head"><b>Database · POST</b><code>/odeysysadmin/Booking2/flight-search/search</code></div>
+  <div class="sub">Request 090147a5 · odeysys · 10/5/2026 4:39:07 AM · took <b style="color:var(--text)">21.0 s</b></div>
+
+  <div class="verdict">
+    <div class="q">Why did this call take 21 s?</div>
+    <div class="a">Mostly <b>waiting inside the application</b> - 12.2 s (58%) passed with no database work and no supplier call running.
+      The biggest single wait is <b>5.6 s right after the supplier calls returned</b>, before the next query.</div>
+  </div>
+
+  <div class="split">
+    <div style="width:18%;background:var(--db)">DB 3.8 s</div>
+    <div style="width:20%;background:var(--sup)">Suppliers 4.2 s</div>
+    <div style="width:58%;background:var(--app)">Inside the application 12.2 s</div>
+    <div style="width:4%;background:var(--edge)"></div>
+  </div>
+  <div class="legend">
+    <div><div class="k"><i style="background:var(--db)"></i>Database</div><div class="v">3.8 s <small>18%</small></div><div class="n">74 statements · ≈ 54 ms each to reach the DB</div></div>
+    <div><div class="k"><i style="background:var(--sup)"></i>Supplier calls</div><div class="v">4.2 s <small>20%</small></div><div class="n">12 calls in parallel · slowest NDC stg-ne-3</div></div>
+    <div><div class="k"><i style="background:var(--app)"></i>Inside the application</div><div class="v">12.2 s <small>58%</small></div><div class="n">neither DB nor suppliers · 5.6 s in one stretch</div></div>
+    <div><div class="k"><i style="background:var(--edge)"></i>Before / after</div><div class="v">0.8 s <small>4%</small></div><div class="n">reading the request, writing the answer</div></div>
+  </div>
+
+  <div class="sect">Findings - biggest impact first</div>
+  <div class="findings">
+    <div class="find warn">
+      <div class="ic">⏳</div>
+      <div class="t">5.6 s with nothing happening after the supplier calls returned <span class="imp">· 27% of the call</span></div>
+      <div class="d">Between the last supplier response (#62, at 11.7 s) and the next query (#63, at 17.3 s) the application ran no SQL and called no supplier - so
+        it was computing: most likely parsing and merging the 12 supplier responses (1.7 MB of JSON).</div>
+      <div class="fix">→ Profile that step: <span class="mono">GenericDAOImpl.executeBulkSqlQuery:2059</span> is the code that ran next.</div>
+      <div class="act"><button class="btn">Show #62 → #63</button><button class="btn ghost">Open the supplier calls</button></div>
+    </div>
+    <div class="find bad">
+      <div class="ic">✕</div>
+      <div class="t">A stored procedure is missing - the error was swallowed <span class="imp">· the call still answered 200</span></div>
+      <div class="d">#84 <span class="mono">LOG_FLIGHTSEARCH_HIT_DETAILS_SP_V6</span> failed: <i>PROCEDURE wonderdb.FLIGHTSEARCH_HIT_FILTER_AND_LOG_INTERVAL_RATIO does not exist</i> (SQLState 42000).
+        The application caught it, so nothing was logged for this search - and nobody was told.</div>
+      <div class="fix">→ Create the procedure in this database, or stop calling it.</div>
+      <div class="act"><button class="btn">Show #84</button></div>
+    </div>
+    <div class="find warn">
+      <div class="ic">🔁</div>
+      <div class="t">Same procedure called 12 times, once per supplier <span class="imp">· 0.72 s · could be 1 call</span></div>
+      <div class="d"><span class="mono">LOG_SUPPLIER_ACTION_SP_V1</span> runs once per supplier response, back to back (#63-#74). Each call pays the ≈ 54 ms trip to the
+        database; the procedure itself takes ≈ 5 ms.</div>
+      <div class="fix">→ Batch the 12 rows into one call (or one executeBatch) - saves ≈ 0.65 s.</div>
+      <div class="act"><button class="btn">Show the 12 calls</button></div>
+    </div>
+    <div class="find warn">
+      <div class="ic">🔑</div>
+      <div class="t">2 Sabre calls were rejected - 401 Unauthorized <span class="imp">· results missing from this search</span></div>
+      <div class="d"><span class="mono">api.platform.sabre.com</span> (production) answered 401 to the token and to the shop request; the <b>cert</b> endpoint answered 200.
+        Production Sabre credentials are wrong or expired. Also: <span class="mono">ndc-supplier-integration-staging</span> disconnected.</div>
+      <div class="fix">→ Check the Sabre production credentials for this agency.</div>
+      <div class="act"><button class="btn">Show the 401s</button></div>
+    </div>
+    <div class="find">
+      <div class="ic">ℹ</div>
+      <div class="t">The database is far away: ≈ 54 ms per round trip <span class="imp">· 74 statements ≈ 4.0 s of it</span></div>
+      <div class="d">Even a primary-key lookup takes ≈ 54 ms here, so every extra query costs ≈ 54 ms. This makes the repeated calls above expensive; production may be faster.</div>
+      <div class="act"><button class="btn ghost">Why ≈ 54 ms?</button></div>
+    </div>
+  </div>
+  <div class="faint" style="font-size:12px;margin-top:10px">Also: 36 transactions · 1 rolled back · 3 queries over 100 ms (#48 508 ms, #35 140 ms, #84 116 ms) - <a style="color:#c4b5fd">all 7 notes</a></div>
+</div>
+
+<!-- ============================================================ B ============================================================ -->
+<div class="opt"><h2>B · The call as a story (phases)</h2>
+<p>One timeline with three lanes - Database, Supplier calls, Inside the application - split into the phases the call actually went through,
+each named and timed. Best for "what happened when"; findings sit under it as in A (shortened here).</p></div>
+<div class="win">
+  <div class="head"><b>Database · POST</b><code>/odeysysadmin/Booking2/flight-search/search</code></div>
+  <div class="sub">Request 090147a5 · odeysys · took <b style="color:var(--text)">21.0 s</b> · 74 statements · 12 supplier calls</div>
+  <div class="lanes">
+    <div class="lane"><div></div><div class="axis"><span>0 s</span><span>5 s</span><span>10 s</span><span>15 s</span><span>21 s</span></div></div>
+    <div class="lane"><div class="lab">Database</div><div class="track">
+      <div class="seg" style="left:0.3%;width:30%;background:repeating-linear-gradient(90deg,var(--db) 0 3px,transparent 3px 7px)"></div>
+      <div class="seg" style="left:82%;width:17%;background:repeating-linear-gradient(90deg,var(--db) 0 3px,transparent 3px 6px)"></div>
+      <div class="seg" style="left:94.7%;width:.6%;background:var(--red)"></div></div></div>
+    <div class="lane"><div class="lab">Supplier calls</div><div class="track">
+      <div class="seg" style="left:36%;width:20%;background:var(--sup)"></div></div></div>
+    <div class="lane"><div class="lab">Inside the app</div><div class="track">
+      <div class="seg" style="left:30.3%;width:5.7%;background:var(--app);opacity:.55"></div>
+      <div class="seg" style="left:55.8%;width:26.7%;background:var(--app)"></div></div></div>
+  </div>
+  <div class="phases">
+    <div class="phase"><b>1 · Load settings</b><span class="w">0 - 7.0 s</span><div class="x">50 queries: user, agency, airports, credentials. DB 2.5 s.</div></div>
+    <div class="phase"><b>2 · Ask suppliers</b><span class="w">7.5 - 11.7 s</span><div class="x">12 calls in parallel. Slowest NDC 4.2 s · 2× Sabre 401 · 1 disconnect.</div></div>
+    <div class="phase hot"><b>3 · Nothing observed</b><span class="w">11.7 - 17.3 s</span><div class="x">5.6 s - no SQL, no supplier call. Processing the responses?</div></div>
+    <div class="phase"><b>4 · Log the search</b><span class="w">17.3 - 21.0 s</span><div class="x">12× LOG_SUPPLIER_ACTION_SP_V1 · #84 failed (missing procedure).</div></div>
+  </div>
+  <div class="callout">Biggest single cost: <b>phase 3, 5.6 s (27%)</b> - the application was busy with something that touched neither the database nor a supplier.
+    Click a phase to show its statements.</div>
+  <div class="sect">Findings</div>
+  <div class="findings">
+    <div class="find bad"><div class="ic">✕</div><div class="t">Missing stored procedure, error swallowed (#84)</div><div class="d">FLIGHTSEARCH_HIT_FILTER_AND_LOG_INTERVAL_RATIO does not exist - the search was not logged.</div><div class="act"><button class="btn">Show</button></div></div>
+    <div class="find warn"><div class="ic">🔁</div><div class="t">12 single calls to LOG_SUPPLIER_ACTION_SP_V1 · 0.72 s</div><div class="d">Batch them - saves ≈ 0.65 s.</div><div class="act"><button class="btn">Show</button></div></div>
+  </div>
+</div>
+
+<!-- ============================================================ C ============================================================ -->
+<div class="opt"><h2>C · Scorecard</h2>
+<p>Five tiles with a traffic light each, then one table of issues with severity, impact in seconds and the fix. Quickest to scan and
+compare between calls; less explanation than A.</p></div>
+<div class="win">
+  <div class="head"><b>Database · POST</b><code>/odeysysadmin/Booking2/flight-search/search</code></div>
+  <div class="sub">Request 090147a5 · odeysys · 10/5/2026 4:39:07 AM</div>
+  <div class="tiles">
+    <div class="tile warn"><div class="k">Total</div><div class="v">21.0 s</div><div class="s muted">slow for a search</div></div>
+    <div class="tile ok"><div class="k">Database</div><div class="v">3.8 s</div><div class="s muted">18% · 74 statements</div></div>
+    <div class="tile ok"><div class="k">Supplier calls</div><div class="v">4.2 s</div><div class="s muted">20% · 12 in parallel</div></div>
+    <div class="tile bad"><div class="k">Inside the app</div><div class="v">12.2 s</div><div class="s" style="color:var(--red)">58% · 5.6 s in one stretch</div></div>
+    <div class="tile bad"><div class="k">Errors</div><div class="v">4</div><div class="s muted">1 SQL swallowed · 2× 401 · 1 disconnect</div></div>
+  </div>
+  <table class="issues">
+    <tr><th>Severity</th><th>Issue</th><th>Impact</th><th>Fix</th><th></th></tr>
+    <tr><td><span class="pill p-warn">Slow</span></td><td>5.6 s with no SQL and no supplier call, after the suppliers answered (#62 → #63)</td><td class="r">5.6 s</td><td>Profile response processing</td><td><button class="btn">Show</button></td></tr>
+    <tr><td><span class="pill p-bad">Error</span></td><td>#84 missing procedure FLIGHTSEARCH_HIT_FILTER_AND_LOG_INTERVAL_RATIO - swallowed</td><td class="r">search not logged</td><td>Create it / stop calling it</td><td><button class="btn">Show</button></td></tr>
+    <tr><td><span class="pill p-warn">Repeated</span></td><td>LOG_SUPPLIER_ACTION_SP_V1 × 12, one per supplier</td><td class="r">0.72 s</td><td>Batch into one call</td><td><button class="btn">Show</button></td></tr>
+    <tr><td><span class="pill p-bad">Supplier</span></td><td>Sabre production 401 ×2 · NDC staging disconnected</td><td class="r">missing results</td><td>Check credentials</td><td><button class="btn">Show</button></td></tr>
+    <tr><td><span class="pill p-info">Context</span></td><td>Database round trip ≈ 54 ms - every query pays it</td><td class="r">≈ 4.0 s total</td><td>-</td><td></td></tr>
+  </table>
+</div>
+
+<!-- ============================================================ compare ============================================================ -->
+<div class="cmp">
+  <div class="sect">Side by side</div>
+  <table>
+    <tr><th></th><th>A · Diagnosis</th><th>B · Story</th><th>C · Scorecard</th></tr>
+    <tr><td>Answers "why slow?"</td><td>In one sentence, first</td><td>By showing the phase</td><td>By the red tile</td></tr>
+    <tr><td>Explains what a finding means</td><td>Yes - and what to do</td><td>Short</td><td>One line</td></tr>
+    <tr><td>Shows when things happened</td><td>No (one split bar)</td><td>Yes - best</td><td>No</td></tr>
+    <tr><td>Space it takes</td><td>Most - can collapse to the sentence + bar</td><td>Medium</td><td>Least</td></tr>
+    <tr><td>Good for</td><td>Deciding what to fix</td><td>Understanding the flow</td><td>Comparing many calls</td></tr>
+  </table>
+  <p class="muted" style="margin-top:10px"><b>My suggestion: A</b>, with B's phase timeline as a small expandable "When did it happen?" under the four boxes.
+    Two more changes either way: the chip row becomes the findings list (the same flags, grouped and explained, worst first - "Slow ×20" becomes one line
+    saying "2 queries are slow beyond the round trip"), and the summary collapses to the one-sentence verdict + bar once you scroll into the statements.
+    The .md/.html export opens with the same verdict and findings, and the .json gets them as <code>findings</code> (kind, impact ms, statements, fix).</p>
+</div>
+</div>
+</body>
+</html>

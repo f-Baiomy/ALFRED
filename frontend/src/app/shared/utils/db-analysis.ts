@@ -4,6 +4,7 @@ import { CallDbAnalysis, CallDbCapture, CapturedStatement, QueryTotal, SupplierM
 export type { CallDbAnalysis, QueryTotal, TimeBreakdown, TimeGap };
 import { isTxEnd } from './db-statement-display';
 import { paramColumns } from './sql-param-columns';
+import { buildOverview, findingSummary, roundTripMs } from './db-findings';
 
 /**
  * Where an inbound call's time went, and which queries cost it - computed from what was captured (statement offsets
@@ -15,18 +16,9 @@ import { paramColumns } from './sql-param-columns';
  * agent cannot see), with the gaps' count, median and largest - a 6 s stall reads differently from 300 gaps of 160 ms.
  */
 
-const MIN_BASELINE_SAMPLES = 5;
 const TOP_GAPS = 5;
 
-/** RoundTrip.baselineMicros, mirrored: the 10th percentile of the call's successful SELECTs (5 or more), in ms. */
-export function roundTripMs(statements: readonly CapturedStatement[]): number {
-  const durations = statements
-    .filter((s) => s.kind === 'SELECT' && s.outcome.kind !== 'FAILED')
-    .map((s) => s.durationMicros)
-    .sort((a, b) => a - b);
-  if (durations.length < MIN_BASELINE_SAMPLES) return 0;
-  return durations[Math.floor(durations.length * 0.1)] / 1000;
-}
+export { roundTripMs };
 
 /** The application frames a statement ran from - its stack when the agent recorded one, else its one location. */
 export function callersOf(s: CapturedStatement): readonly string[] {
@@ -180,11 +172,18 @@ export function queryTotals(statements: readonly CapturedStatement[]): QueryTota
   return totals.sort((a, b) => b.totalMs - a.totalMs);
 }
 
-/** Both, for one captured call - what the export dialog attaches to a capture and every export writes. */
-export function analyzeCapture(call: Pick<CallRecord, 'timestamp' | 'duration_ms'>, capture: CallDbCapture, suppliers: ReadonlyMap<number, CallRecord>): CallDbAnalysis {
+/**
+ * All of it, for one captured call - what the export dialog attaches to a capture and every export writes: where the
+ * time went, the per-query totals, and the window's summary line and findings (db-findings.ts).
+ */
+export function analyzeCapture(call: Pick<CallRecord, 'timestamp' | 'duration_ms'> & { readonly response?: CallRecord['response'] }, capture: CallDbCapture,
+                               suppliers: ReadonlyMap<number, CallRecord>): CallDbAnalysis {
+  const overview = buildOverview(call, capture.statements, capture.supplierMarkers ?? [], suppliers, capture.summary?.flags ?? []);
   return {
     time: timeBreakdown(call, capture.statements, capture.supplierMarkers ?? [], suppliers, capture.transactions.length),
     queries: queryTotals(capture.statements),
+    summary: overview.summary,
+    findings: overview.findings.map(findingSummary),
   };
 }
 

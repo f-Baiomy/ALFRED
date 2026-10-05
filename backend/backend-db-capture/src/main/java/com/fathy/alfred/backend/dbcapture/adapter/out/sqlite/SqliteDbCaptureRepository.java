@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fathy.alfred.backend.dbcapture.application.port.out.DbCaptureStorePort;
+import com.fathy.alfred.backend.dbcapture.domain.StatementFlags;
 import com.fathy.alfred.backend.dbcapture.domain.model.AgentStatus;
 import com.fathy.alfred.backend.dbcapture.domain.model.BeforeImage;
 import com.fathy.alfred.backend.dbcapture.domain.model.CallDbSummary;
@@ -186,6 +187,7 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
                 )
                 """);
         addColumnIfMissing("call_db_summary", "project", "TEXT");
+        addColumnIfMissing("call_db_summary", "flags_version", "INTEGER NOT NULL DEFAULT 0");
         addColumnIfMissing("statements", "origin_json", "TEXT");
         addColumnIfMissing("statements", "callers_json", "TEXT");
         addColumnIfMissing("statements", "indexes_json", "TEXT");
@@ -420,7 +422,7 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
 
     @Override
     public void saveFlags(String callId, List<DbFlag> flags) {
-        jdbcTemplate.update("UPDATE call_db_summary SET flags_json = ? WHERE call_id = ?", json(flags), callId);
+        jdbcTemplate.update("UPDATE call_db_summary SET flags_json = ?, flags_version = ? WHERE call_id = ?", json(flags), StatementFlags.VERSION, callId);
     }
 
     @Override
@@ -459,6 +461,17 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
 
     private static final String SUMMARY_COLUMNS = "call_id, statement_count, write_count, delete_count, failed_count, tx_count, "
             + "rolled_back_count, db_us, dropped_count, flags_json, last_seq, complete, ended_early";
+
+    @Override
+    public List<String> withStaleFlags(Collection<String> callIds) {
+        if (callIds == null || callIds.isEmpty()) {
+            return List.of();
+        }
+        String in = String.join(",", java.util.Collections.nCopies(callIds.size(), "?"));
+        List<Object> args = new ArrayList<>(callIds);
+        args.add(StatementFlags.VERSION);
+        return jdbcTemplate.queryForList("SELECT call_id FROM call_db_summary WHERE call_id IN (" + in + ") AND flags_version < ?", String.class, args.toArray());
+    }
 
     @Override
     public Map<String, CallDbSummary> summaries(Collection<String> callIds) {

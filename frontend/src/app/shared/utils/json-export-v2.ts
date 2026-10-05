@@ -248,10 +248,10 @@ function guide(counts: { calls: number; bodies: number; dbStatements: number }):
     sections: {
       layout: 'first/last line, byte offset and size of every section below',
       highlights: `what deserves attention first: failed or slow calls, database flags, comments - each with the line to read (at most ${MAX_HIGHLIGHTS}; the index has every call)`,
-      index: 'one line per call, in time order: id, direction, method, url, status, ms, parent link, comment count, where its call record, request/response bodies and database statements are, and for a call with statements `time` (db/outbound/gap/edge ms) and db counts (transactions, duplicates, queries, roundTripMs)',
+      index: 'one line per call, in time order: id, direction, method, url, status, ms, parent link, comment count, where its call record, request/response bodies and database statements are, and for a call with statements `time` (db/outbound/gap/edge ms), db counts (transactions, duplicates, queries, roundTripMs) and `findings` (severity, title, impactMs, the first 20 statement seqs - the full text is in its dbCalls `analysis.findings`)',
       calls: 'one call per line: headers, status, timing, comments, interception, WebSocket messages, parent link. A body under 257 characters is inline; a longer one is `bodyRef` → `bodies`',
       bodies: 'one body per line: `shape` (a JSON body\'s outline - keys, types, array lengths - written BEFORE the body, so the first bytes of the line tell you what it holds), then `json` (the body was compact JSON - embedded as is) or `text` (verbatim); `refs` = which calls/sides use it (the same body is stored once)',
-      dbCalls: 'one line per inbound call with captured database statements: summary (counts, flags), transactions, supplier calls in order (`supplierMarkers`), values all its statements share (`common`), HQL/query origins by id (`origins`), application call chains by id (`stacks`: innermost first, past the project pass-through classes), table index lists (`indexes`, by table - when the project turned the Index check on), and `analysis`: `time` (where the call\'s time went - dbMs, outboundMs, gapMs between statements, edgeMs, gap count/median/max, the largest gaps with the code that ran next, the database round trip) and `queries` (one entry per query, costliest first: runs, distinct params, exact duplicates, total ms, rows, called from, statement seqs). Start here for "why is this call slow".',
+      dbCalls: 'one line per inbound call with captured database statements: summary (counts, flags), transactions, supplier calls in order (`supplierMarkers`), values all its statements share (`common`), HQL/query origins by id (`origins`), application call chains by id (`stacks`: innermost first, past the project pass-through classes), table index lists (`indexes`, by table - when the project turned the Index check on), and `analysis`: `time` (where the call\'s time went - dbMs, outboundMs, gapMs between statements, edgeMs, gap count/median/max, the largest gaps with the code that ran next, the database round trip) `queries` (one entry per query, costliest first: runs, distinct params, exact duplicates, total ms, rows, called from, statement seqs), `summary` (the one line the database window opens with) and `findings` (what to fix, worst first: severity bad/warn/note, title, short and full why, fix, impact, the statements by seq - errors, idle stretches, one HQL query fanning out into many SQL statements, huge reads, exact duplicates, slow queries, supplier time). Start here for "why is this call slow".',
       dbStatements: 'one statement per line, `of` = its call, in run order (`seq`): SQL with `?` placeholders and `params` (one list per batch set), outcome, timing, transaction, where in code, `origin` (the HQL it came from, an id into its dbCalls `origins`), `stack` (the application code that issued it, an id into `stacks` - `codeLocation` is only the first application frame), `indexes` (its table, a key into `indexes`). In `outcome`: `acquireMicros` (connection checkout before it), and on a COMMIT/ROLLBACK line `via` (JDBC/JTA), `beginMicros`, `commitMicros`, `closeMicros`; `transactions[].lifecycle` has the same per transaction. `analysis.time.overheadMs` sums them. `rowValues`/`beforeValues` = rows as values under `outcome.columns`/`beforeImage.columns` types; a cell that is an object is a full {type,value,...}; {} = a null cell. A statement with more than ${ROW_SAMPLE} rows carries `rowSample` (its first ${ROW_SAMPLE}) and `rowsAt` (line/offset/bytes/count of its full rows in `dbRows`) - or `rowsSampled: true` when this export kept samples only',
       dbRows: 'one line per statement with more than ' + ROW_SAMPLE + ' rows: `of`, `seq`, `rowValues` (every stored row). Last section on purpose - most questions never need it',
     },
@@ -439,6 +439,10 @@ export function buildJsonExportV2(input: JsonExportV2Input): string[] {
       method: call.method, url: call.url, status: call.response?.status, error: call.error ? call.error.slice(0, 120) : undefined,
       ms: call.duration_ms, at: call.timestamp, state: call.state, parent: call.parentCallId ?? undefined, parentSeq: call.parentSeq ?? undefined,
       comments: commentsOf(call.id).length || undefined,
+      // what the database window says about the call, worst first - the full text is in its dbCalls line
+      findings: analyses.get(call.id)?.findings?.length
+        ? analyses.get(call.id)!.findings!.map((f) => ({ severity: f.severity, title: f.title, impactMs: f.impactMs ?? undefined, seqs: f.seqs.slice(0, 20) }))
+        : undefined,
     };
     const parts = [JSON.stringify(head).slice(0, -1)];
     const cl = callLine.get(call.id)!;
@@ -539,10 +543,16 @@ function buildHighlights(calls: readonly CallRecord[], input: JsonExportV2Input,
     else if ((c.response?.status ?? 0) >= 500) out.push({ what: 'HTTP_5XX', callId: c.id, note: `${label(c)} → ${c.response!.status}`, rank: 1 });
     else if ((c.response?.status ?? 0) >= 400) out.push({ what: 'HTTP_4XX', callId: c.id, note: `${label(c)} → ${c.response!.status}`, rank: 2 });
     if (isInProgress(c)) out.push({ what: 'IN_PROGRESS', callId: c.id, note: `${label(c)} - still running when exported`, rank: 3 });
-    // One line per flag, but a call's flags of one type are a single line when there are more than 3 (20 "slow" lines
-    // would bury everything else).
+    // The database window's findings (db-findings.ts) when the call has them - the notes left out - else one line per
+    // flag, a call's flags of one type a single line when there are more than 3 (20 "slow" lines would bury the rest).
+    const findings = analyses.get(c.id)?.findings;
+    for (const f of findings ?? []) {
+      if (f.severity === 'note') continue;
+      out.push({ what: `DB_${f.source}`, callId: c.id, statementSeq: f.seqs[0], rank: f.severity === 'bad' ? 1 : 4,
+        note: `${label(c)} - ${f.title} - ${f.short}${f.impact ? ` (${f.impact})` : ''}${f.seqs.length ? ` · statements #${f.seqs.slice(0, 10).join(', #')}${f.seqs.length > 10 ? ' …' : ''}` : ''}` });
+    }
     const byType = new Map<string, DbFlag[]>();
-    for (const flag of c.dbCapture?.summary?.flags ?? []) byType.set(flag.type, [...(byType.get(flag.type) ?? []), flag]);
+    for (const flag of findings ? [] : c.dbCapture?.summary?.flags ?? []) byType.set(flag.type, [...(byType.get(flag.type) ?? []), flag]);
     for (const [type, flags] of byType) {
       const rank = flags.some((f) => f.severity === 'BAD') ? 1 : 4;
       const seqList = (seqs: readonly number[]) => `${seqs.slice(0, 10).map((s) => '#' + s).join(', ')}${seqs.length > 10 ? ' …' : ''}`;

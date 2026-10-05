@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Findings mock</title>
+<style>
+:root {
+  --card: #1e1f23; --inner: #16171a; --border: rgba(255,255,255,.09); --border-strong: rgba(255,255,255,.16);
+  --text: #eceef3; --dim: #9aa0ad; --faint: #646a78;
+  --db: #2dd4bf; --sup: #7dd3fc; --app: #e0a458; --edge: #4b5260; --red: #f07178; --amber: #f2b13c; --green: #6ee7a8; --purple: #a78bfa; --link: #c4b5fd;
+  --mono: "Cascadia Code", Consolas, monospace;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: #0f1012; color: var(--text); font: 14px/1.45 "Segoe UI", system-ui, sans-serif; }
+.page { max-width: 1080px; margin: 0 auto; padding: 18px 16px 60px; }
+h1 { font-size: 19px; margin: 0 0 4px; }
+.intro { color: var(--dim); margin: 0 0 6px; }
+.lbl { font-size: 11.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--faint); margin: 26px 0 8px; }
+.lbl b { color: var(--purple); }
+.win { background: var(--card); border: 1px solid var(--border-strong); border-radius: 14px; overflow: hidden; }
+.whead { padding: 14px 18px 10px; }
+.whead b { font-size: 16px; } .whead code { font-family: var(--mono); color: var(--sup); font-size: 12.5px; margin-left: 8px; }
+.whead .sub { color: var(--dim); font-size: 12.5px; }
+.mono { font-family: var(--mono); font-size: 12px; }
+.dim { color: var(--dim); } .faint { color: var(--faint); }
+
+/* today */
+.old { padding: 10px 18px; border-top: 1px solid var(--border); }
+.old .chips { display: flex; gap: 8px; overflow: hidden; white-space: nowrap; }
+.old .chip { font-size: 12px; border-radius: 7px; padding: 3px 9px; border: 1px solid rgba(242,177,60,.45); color: var(--amber); flex: 0 0 auto; }
+.old .chip.bad { border-color: rgba(240,113,120,.5); color: var(--red); }
+.old .stats { display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+.old .stats span { font-size: 12px; border: 1px solid var(--border); border-radius: 999px; padding: 2px 10px; color: var(--dim); }
+
+/* summary strip */
+.sum { margin: 0 18px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--inner); }
+.sum > summary { list-style: none; cursor: pointer; display: grid; grid-template-columns: auto minmax(100px, 200px) minmax(0,1fr) auto auto; gap: 12px; align-items: center; padding: 8px 12px; }
+.sum > summary::-webkit-details-marker { display: none; }
+.sum > summary:hover { background: rgba(255,255,255,.025); }
+.chev { color: var(--faint); font-size: 11px; transition: transform .12s; }
+details[open] > summary .chev { transform: rotate(90deg); }
+.bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--edge); }
+.bar span { display: block; height: 100%; }
+.verdict { font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.verdict .total { font-weight: 700; font-size: 15px; }
+.verdict b { color: var(--app); }
+.counts { display: flex; gap: 6px; }
+.c { font-size: 11.5px; font-weight: 700; border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
+.c.bad { background: rgba(240,113,120,.16); color: var(--red); } .c.warn { background: rgba(242,177,60,.15); color: var(--amber); } .c.note { background: rgba(125,211,252,.12); color: var(--sup); } .c.ok { background: rgba(110,231,168,.13); color: var(--green); }
+.hint { color: var(--faint); font-size: 11.5px; }
+
+.body { border-top: 1px solid var(--border); padding: 8px 12px 10px; }
+.split { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12.5px; color: var(--dim); padding: 2px 0 8px; }
+.split i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+.split b { color: var(--text); }
+.f { display: grid; grid-template-columns: 18px minmax(0,1fr) auto auto; gap: 10px; align-items: baseline; padding: 6px 4px; border-top: 1px dashed var(--border); font-size: 13px; position: relative; }
+.f .ic { text-align: center; }
+.f .t b { font-weight: 600; } .f .t .why { color: var(--dim); }
+.f .imp { font-family: var(--mono); font-size: 12px; color: var(--dim); white-space: nowrap; }
+.f a { color: var(--link); font-size: 12.5px; cursor: pointer; white-space: nowrap; }
+.f.bad .ic { color: var(--red); } .f.warn .ic { color: var(--amber); } .f.note .ic { color: var(--sup); }
+.f:hover { background: rgba(255,255,255,.025); }
+.more > summary { list-style: none; cursor: pointer; font-size: 12px; color: var(--link); padding: 6px 4px 0; }
+.more > summary::-webkit-details-marker { display: none; }
+
+/* hover card */
+.tip { position: relative; margin: 6px 0 0 30px; max-width: 640px; border: 1px solid var(--border-strong); border-radius: 10px; background: #23252a; padding: 10px 12px; font-size: 13px; box-shadow: 0 10px 28px rgba(0,0,0,.45); }
+.tip h4 { margin: 0 0 4px; font-size: 13.5px; }
+.tip .row { display: grid; grid-template-columns: 70px minmax(0,1fr); gap: 4px 10px; margin-top: 6px; }
+.tip .row span:nth-child(odd) { color: var(--faint); font-size: 12px; }
+.tip .acts { display: flex; gap: 8px; margin-top: 10px; }
+.btn { font: inherit; font-size: 12px; font-weight: 600; border: 1px solid var(--border-strong); background: rgba(167,139,250,.12); color: var(--link); border-radius: 7px; padding: 3px 10px; cursor: pointer; }
+.btn.ghost { background: none; color: var(--dim); }
+
+/* filtered list */
+.banner { display: flex; gap: 10px; align-items: center; margin: 0 18px 8px; padding: 7px 12px; border-radius: 8px; border: 1px solid rgba(242,177,60,.35); background: rgba(242,177,60,.07); font-size: 13px; }
+.banner .btn { margin-left: auto; }
+.rows { border-top: 1px solid var(--border); padding: 6px 18px 12px; }
+.r { display: grid; grid-template-columns: 38px 70px minmax(0,1fr) 70px 70px; gap: 10px; align-items: center; padding: 4px 6px; font-size: 12.5px; border-radius: 6px; }
+.r .num { font-family: var(--mono); color: var(--faint); font-size: 11.5px; }
+.r .v { font-size: 10.5px; font-weight: 700; text-align: center; border-radius: 5px; padding: 1px 4px; color: var(--db); border: 1px solid rgba(45,212,191,.35); }
+.r .sql { font-family: var(--mono); font-size: 12px; color: #cfeee9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.r .ms { text-align: right; font-family: var(--mono); font-size: 12px; color: var(--green); }
+.r .tag { font-size: 11px; color: var(--amber); }
+.r.dup { background: rgba(242,177,60,.07); }
+.pair { margin: 2px 0 8px; border-left: 2px solid rgba(242,177,60,.5); padding-left: 6px; }
+
+/* mapping */
+table.map { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.map th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--faint); padding: 6px 10px; border-bottom: 1px solid var(--border); }
+table.map td { padding: 7px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+table.map td:first-child { color: var(--amber); white-space: nowrap; }
+
+/* exports */
+.exp { background: #1b1b1d; border: 1px solid rgba(255,255,255,.09); border-radius: 12px; padding: 12px 14px; font-size: 13px; }
+.exp pre { margin: 0; white-space: pre-wrap; font-family: var(--mono); font-size: 12px; color: #d6d8de; line-height: 1.55; }
+.cols { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 12px; }
+@media (max-width: 760px) {
+  .sum > summary { grid-template-columns: auto minmax(0,1fr) auto; } .sum > summary .bar, .sum > summary .hint { display: none; }
+  .f { grid-template-columns: 18px minmax(0,1fr) auto; } .f .imp { display: none; } .cols { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<div class="page">
+<h1>Findings - the chip row, turned into a short ranked checklist</h1>
+<p class="intro">Real data: the call in your screenshot (flight search, request 500d0cdc, 20.0 s, 41 statements). Every finding below was computed from
+what was captured - nothing invented. Click the lines: the summary, "+4 more" and "Show" all work in this mock.</p>
+
+<!-- ============================================================ 0 ============================================================ -->
+<div class="lbl"><b>Today</b> · the header you sent</div>
+<div class="win">
+  <div class="old">
+    <div class="stats"><span><b style="color:var(--text)">41</b> statements</span><span>0 writes · 0 deletes</span><span style="color:var(--red)">1 failed</span><span>25 transactions · 1 rolled back</span><span>3435 ms in DB of 20035.45 ms</span></div>
+    <div class="chips"><span class="chip">⚠ Slow · 133 ms · TT_TS_BLACKLIST_FLIGHTS</span><span class="chip">⚠ Slow · 238 ms · TT_TS_FL_TAG</span><span class="chip">⚠ Slow · 106 ms · TT_TS_FL_TAG_COUNTRY_POS</span><span class="chip">⚠ Slow · 140 ms · TT_TS_FL_TAG_COUNTRY</span><span class="chip">⚠ Slow · 1…</span></div>
+  </div>
+</div>
+<p class="dim" style="font-size:12.5px;margin:6px 2px">Problems: one chip per slow query (most are 54 ms of network plus a little work), the real error is off-screen to the left of a scrollbar, nothing says what to do, and the row grows with every flag.</p>
+
+<!-- ============================================================ 1 ============================================================ -->
+<div class="lbl"><b>1</b> · Closed - the window opens like this</div>
+<div class="win">
+  <div class="whead"><b>Database · POST</b><code>/odeysysadmin/Booking2/flight-search/search</code><div class="sub">Request 500d0cdc · odeysys · 4:34:15 AM · 41 statements · 2 supplier calls</div></div>
+  <details class="sum">
+    <summary>
+      <span class="chev">▶</span>
+      <div class="bar" title="Database 3.4 s · Supplier calls 5.6 s · Inside the app 10.2 s · Before/after 0.8 s"><span style="width:17%;background:var(--db)"></span><span style="width:28%;background:var(--sup)"></span><span style="width:51%;background:var(--app)"></span></div>
+      <span class="verdict"><span class="total">20.0 s</span> &nbsp;· <b>51% inside the app</b> - 3 idle stretches, the longest 2.5 s before #28</span>
+      <span class="counts"><span class="c bad">1 error</span><span class="c warn">4 to fix</span></span>
+      <span class="hint">details</span>
+    </summary>
+    <div class="body">
+      <div class="split"><span><i style="background:var(--db)"></i>Database <b>3.4 s</b></span><span><i style="background:var(--sup)"></i>Supplier calls <b>5.6 s</b> (2 to NDC, in parallel)</span><span><i style="background:var(--app)"></i>Inside the app <b>10.2 s</b></span><span><i style="background:var(--edge)"></i>Before/after <b>0.8 s</b></span><span>DB round trip ≈ <b>53 ms</b></span></div>
+      <div class="f bad"><span class="ic">✕</span><span class="t"><b>Missing procedure, error hidden</b> <span class="why">- #42 failed, its transaction rolled back, the call still answered 200</span></span><span class="imp">search not logged</span><a>Show #42</a></div>
+      <div class="f warn"><span class="ic">⏳</span><span class="t"><b>5.6 s idle in 3 stretches</b> <span class="why">- no SQL, no supplier call: 2.5 s before #28, 2.1 s before #7, 1.0 s before the supplier calls</span></span><span class="imp">5.6 s</span><a>Show</a></div>
+      <div class="f warn"><span class="ic">📦</span><span class="t"><b>9,110 airports loaded per search</b> <span class="why">- #26 TT_AIRPORT_DETAILS reads the whole table every time; cache it</span></span><span class="imp">0.52 s</span><a>Show #26</a></div>
+      <div class="f warn"><span class="ic">♻</span><span class="t"><b>4 queries run twice</b> <span class="why">- same SQL, same parameters, same request; keep the first answer</span></span><span class="imp">−0.22 s</span><a>Show</a></div>
+      <details class="more"><summary>+4 more: 3 slow queries · 25 transactions · NDC 5.6 s · DB 53 ms away</summary>
+        <div class="f warn"><span class="ic">🐢</span><span class="t"><b>3 slow queries</b> <span class="why">- over 100 ms beyond the round trip: #19 TT_TS_FL_TAG 238 ms, #8 TT_AIRPORT_DETAILS 181 ms, #22 TT_TS_FL_TAG_AIRPORT 167 ms</span></span><span class="imp">0.42 s</span><a>Show</a></div>
+        <div class="f warn"><span class="ic">🔄</span><span class="t"><b>A transaction per statement</b> <span class="why">- 25 transactions for 41 statements; checkout and commit time not measured in this capture</span></span><span class="imp">not measured</span><a>Show</a></div>
+        <div class="f note"><span class="ic">🌐</span><span class="t"><b>NDC answered in 5.6 s</b> <span class="why">- 2 calls to ndc-integration-stg-ne-3 in parallel (2.5 s and 5.6 s); both 200</span></span><span class="imp">28%</span><a>Show</a></div>
+        <div class="f note"><span class="ic">ℹ</span><span class="t"><b>Database 53 ms away</b> <span class="why">- every statement pays it; 41 statements ≈ 2.2 s of round trips</span></span><span class="imp">≈ 2.2 s</span><a>Why?</a></div>
+      </details>
+    </div>
+  </details>
+  <div class="rows"><div class="r"><span class="num">#1</span><span class="v">SELECT</span><span class="sql">select u.USER_ID as id, u.FIRST_NAME as name from TT_USER u …</span><span class="ms">54 ms</span><span></span></div><div class="faint mono" style="padding:4px 6px">… the statement list starts right here</div></div>
+</div>
+
+<!-- ============================================================ 2 ============================================================ -->
+<div class="lbl"><b>2</b> · Hover (or tap) a finding - the full story, the fix, and what you can do</div>
+<div class="win" style="padding:12px 18px">
+  <div class="f warn" style="border-top:none"><span class="ic">♻</span><span class="t"><b>4 queries run twice</b> <span class="why">- same SQL, same parameters, same request; keep the first answer</span></span><span class="imp">−0.22 s</span><a>Show</a></div>
+  <div class="tip">
+    <h4>4 queries run twice with the same parameters</h4>
+    <div class="dim">The request asked the database the same question twice and got the same answer. Each repeat pays a full round trip (≈ 53 ms).</div>
+    <div class="row">
+      <span>Repeats</span><span class="mono">#3 → #4 TT_USER_GROUP · #8 → #10 TT_AIRPORT_DETAILS · #12 → #35 TT_TS_SUPPLIER_CREDENTIAL_ROUTES · #34 → #37 TT_TS_SUPPLIER</span>
+      <span>Code</span><span class="mono">GenericDAOImpl.fetchWithHQL:468 · fetchWithSQLTransformerCreator:780 · SupplierCredentialRouteDaoImpl.findByCredentialIds:99 · fetchWithSQLTransformers:174</span>
+      <span>Cost</span><span>0.22 s (the second run of each)</span>
+      <span>Fix</span><span style="color:var(--green)">Keep the first result for the rest of the request (a request-scoped cache, or pass it down).</span>
+    </div>
+    <div class="acts"><button class="btn">Show the 8 statements</button><button class="btn ghost">Mark expected - don't flag these again</button></div>
+  </div>
+</div>
+
+<!-- ============================================================ 3 ============================================================ -->
+<div class="lbl"><b>3</b> · "Show" - the statement list narrows to that finding, with a way back</div>
+<div class="win">
+  <div class="banner">♻ Showing <b>8 statements</b> for: 4 queries run twice<button class="btn">Back to all 41</button></div>
+  <div class="rows">
+    <div class="pair"><div class="r"><span class="num">#3</span><span class="v">SELECT</span><span class="sql">select groupmodal0_.GROUP_NAME … from TT_USER_GROUP … = 10888</span><span class="ms">53 ms</span><span class="tag">first</span></div>
+      <div class="r dup"><span class="num">#4</span><span class="v">SELECT</span><span class="sql">select groupmodal0_.GROUP_NAME … from TT_USER_GROUP … = 10888</span><span class="ms">53 ms</span><span class="tag">repeat</span></div></div>
+    <div class="pair"><div class="r"><span class="num">#8</span><span class="v">SELECT</span><span class="sql">SELECT AD.AIRPORT_CODE … FROM TT_AIRPORT_DETAILS … 'CAI', 'DXB'</span><span class="ms">181 ms</span><span class="tag">first</span></div>
+      <div class="r dup"><span class="num">#10</span><span class="v">SELECT</span><span class="sql">SELECT AD.AIRPORT_CODE … FROM TT_AIRPORT_DETAILS … 'CAI', 'DXB'</span><span class="ms">55 ms</span><span class="tag">repeat</span></div></div>
+    <div class="faint mono" style="padding:2px 6px">… #12 → #35, #34 → #37</div>
+  </div>
+</div>
+
+<!-- ============================================================ 4 ============================================================ -->
+<div class="lbl"><b>4</b> · A call with nothing to fix</div>
+<div class="win">
+  <details class="sum" style="margin-top:12px">
+    <summary><span class="chev">▶</span><div class="bar"><span style="width:62%;background:var(--db)"></span><span style="width:30%;background:var(--app)"></span></div>
+      <span class="verdict"><span class="total">0.9 s</span> &nbsp;· mostly database (62%) - 14 statements, no repeats</span><span class="counts"><span class="c ok">✓ nothing to fix</span></span><span class="hint">details</span></summary>
+    <div class="body"><div class="split"><span><i style="background:var(--db)"></i>Database <b>0.56 s</b></span><span><i style="background:var(--app)"></i>Inside the app <b>0.27 s</b></span><span>DB round trip ≈ <b>53 ms</b></span></div></div>
+  </details>
+</div>
+
+<!-- ============================================================ 5 ============================================================ -->
+<div class="lbl"><b>5</b> · Where every chip went</div>
+<div class="win" style="padding:6px 8px">
+  <table class="map">
+    <tr><th>Today</th><th>Becomes</th></tr>
+    <tr><td>✕ Failed and swallowed · 42000</td><td><b>Missing procedure, error hidden</b> - error, always first. Its ROLLBACK (#43) is part of it, not a separate "Rolled back" chip.</td></tr>
+    <tr><td>⚠ Slow × 20 shown, 33 matched (20 ms rule - nearly every query)</td><td><b>3 slow queries</b> - one line. Slow now means &gt; 100 ms <i>beyond the 53 ms round trip</i>, so a 106 ms lookup is not slow. #26 left this group: it has its own, more useful finding.</td></tr>
+    <tr><td>⚠ Huge result · 9,110 rows</td><td><b>9,110 airports loaded per search</b> - says what it is and the fix (cache).</td></tr>
+    <tr><td><i>(was invisible)</i> exact repeats</td><td><b>4 queries run twice</b> - new: same SQL + same parameters.</td></tr>
+    <tr><td><i>(was invisible)</i> 25 transactions</td><td><b>A transaction per statement</b> - new; its cost appears once the agent is restarted (it times checkout/commit now).</td></tr>
+    <tr><td><i>(was a gap number)</i> "56 gaps, median 160 ms"</td><td><b>5.6 s idle in 3 stretches</b> - only stretches ≥ 1 s, each named by the statement after it.</td></tr>
+    <tr><td>⚠ Not captured · before-image</td><td>A note under "+N more" (there were no writes in this call, so nothing here).</td></tr>
+  </table>
+  <p class="dim" style="font-size:12.5px;margin:8px 10px">Order: errors, then warnings by time lost, then notes. Top 4 show; the rest is "+N more". "Mark expected" on a SQL finding hides it for that query (the existing expected-statements setting).
+    Older captures get the new rules the first time they are opened (their flags are recomputed on read).</p>
+</div>
+
+<!-- ============================================================ 6 ============================================================ -->
+<div class="lbl"><b>6</b> · The same findings in the exports</div>
+<div class="cols">
+  <div class="exp"><div class="faint" style="font-size:11px;margin-bottom:6px">.md / .html - the Database section opens with</div><pre>🗄 Database - 20.0 s · 51% inside the app - 3 idle stretches, the longest 2.5 s before #28 · 1 error · 4 to fix
+
+✕ Missing procedure, error hidden - #42, rolled back · search not logged
+⏳ 5.6 s idle in 3 stretches - 2.5 s before #28, 2.1 s before #7, 1.0 s before the supplier calls
+📦 9,110 airports loaded per search - #26 · 0.52 s · cache it
+♻ 4 queries run twice - #3/#4, #8/#10, #12/#35, #34/#37 · 0.22 s
+🐢 3 slow queries - #19, #8, #22 · 0.42 s beyond the round trip
+🔄 A transaction per statement - 25 for 41 statements
+ℹ NDC answered in 5.6 s · Database 53 ms away</pre></div>
+  <div class="exp"><div class="faint" style="font-size:11px;margin-bottom:6px">.json - on the call's index line (an agent sees it without opening anything else)</div><pre>"findings":[
+ {"severity":"error","title":"Missing procedure, error hidden","seqs":[42,43],"impact":"search not logged"},
+ {"severity":"warning","title":"5.6 s idle in 3 stretches","impactMs":5640,"seqs":[28,7]},
+ {"severity":"warning","title":"9,110 airports loaded per search","impactMs":524,"seqs":[26],"fix":"cache it"},
+ {"severity":"warning","title":"4 queries run twice","impactMs":218,"seqs":[3,4,8,10,12,35,34,37]},
+ {"severity":"warning","title":"3 slow queries","impactMs":424,"seqs":[19,8,22]},
+ ...]</pre>
+    <div class="faint" style="font-size:11.5px;margin-top:6px">Full text (why, fix, code) in dbCalls.analysis.findings; highlights are built from these - one line per finding instead of one per flag.</div></div>
+</div>
+</div>
+</body>
+</html>

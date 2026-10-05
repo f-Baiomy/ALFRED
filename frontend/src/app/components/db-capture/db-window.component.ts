@@ -14,14 +14,16 @@ import { DbCaptureStateService } from '../../core/state/db-capture-state.service
 import { CallsStateService } from '../../core/state/calls-state.service';
 import { buildStatementTree, initiallyFolded, pathTo } from '../../shared/utils/db-statement-tree';
 import { isDelete, isFailed, isWrite, msText } from '../../shared/utils/db-statement-display';
-import { flagTarget, flagText } from '../../shared/utils/db-flags';
+import { DbFinding, DbOverview, buildOverview, fmtMs } from '../../shared/utils/db-findings';
 import { buildSqlScript } from '../../shared/utils/sql-export-builder';
 import {
-  readGroupByQuery, readGroupByTransaction, saveGroupByQuery, saveGroupByTransaction, saveRowsAs,
+  readGroupByQuery, readGroupByTransaction, readSummaryOpen, saveGroupByQuery, saveGroupByTransaction, saveRowsAs, saveSummaryOpen,
 } from '../../shared/utils/db-group-preference';
 import { hasOrigins } from '../../shared/utils/db-origin';
 import { QueryTotal, TimeBreakdown, queryTotals, timeBreakdown } from '../../shared/utils/db-analysis';
 import { DbStatementListComponent } from './db-statement-list.component';
+import { DbTimelineComponent } from './db-timeline.component';
+import { DbFindingsComponent } from './db-findings.component';
 import { DbDetailTab, DbKindFilter, DbWindowState } from './db-window-state';
 import { DbWindowRequest, DbWindowService } from './db-window.service';
 import { CallsApiService } from '../../core/services/calls-api.service';
@@ -41,14 +43,6 @@ function shortUrl(url: string): string {
 }
 const DEFAULT_REPEAT_THRESHOLD = 5;
 
-interface StripSegment {
-  readonly seq: number;
-  readonly kind: 'db' | 'sup' | 'fail';
-  readonly left: number;
-  readonly width: number;
-  readonly title: string;
-}
-
 /**
  * The database window (specs/006-db-capture/mock.html, "DATABASE WINDOW"): one inbound call's statements in the order
  * they ran, with its supplier calls between them, transactions and repeated queries as folded tree nodes, and each
@@ -60,7 +54,7 @@ interface StripSegment {
   standalone: true,
   selector: 'app-db-window',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DbStatementListComponent],
+  imports: [DbStatementListComponent, DbTimelineComponent, DbFindingsComponent],
   providers: [DbWindowState],
   templateUrl: './db-window.component.html',
 })
@@ -99,6 +93,48 @@ export class DbWindowComponent implements OnInit {
     if (!call || !this.statements().length || !call.duration_ms) return null;
     return timeBreakdown(call, this.statements(), this.markers(), this.state.suppliersBySeq(), this.txCount());
   });
+  /**
+   * The summary line, the timeline and the findings (db-findings.ts) - from the loaded statements, the backend's flags
+   * and the supplier calls. The panel under the line is closed by default; open or closed is remembered.
+   */
+  readonly overview = computed<DbOverview | null>(() => {
+    const call = this.call();
+    if (!call || !this.statements().length) return null;
+    return buildOverview(call, this.statements(), this.markers(), this.state.suppliersBySeq(), this.flags());
+  });
+  readonly panelOpen = signal(readSummaryOpen());
+  /** Timeline items a hovered finding or chip lights up. */
+  readonly highlight = signal<ReadonlySet<string> | null>(null);
+  /** The finding whose statements "Show" narrowed the list to. */
+  readonly findingFilter = signal<DbFinding | null>(null);
+  protected readonly fmt = fmtMs;
+
+  togglePanel(): void {
+    this.panelOpen.set(!this.panelOpen());
+    saveSummaryOpen(this.panelOpen());
+    this.highlight.set(null);
+  }
+
+  showFinding(f: DbFinding): void {
+    this.clearStatementSql();
+    this.queryFilter.set(null);
+    this.findingFilter.set(f);
+    this.state.statementSeqs.set(new Set(f.seqs));
+    this.view.set('stmts');
+  }
+
+  clearFindingFilter(): void {
+    this.findingFilter.set(null);
+    this.state.statementSeqs.set(null);
+  }
+
+  /** "Mark expected": every query shape of the finding stops being flagged for this project. */
+  markExpected(f: DbFinding): void {
+    const project = this.state.project();
+    if (!project) return;
+    for (const fingerprint of f.fingerprints) this.api.markExpected(project, fingerprint).subscribe({ error: () => undefined });
+  }
+
   /** "Top queries": one row per statement shape, costliest first. */
   readonly queries = computed<QueryTotal[]>(() => queryTotals(this.statements()));
   /** The query a "Top queries" click narrowed the list to. */
@@ -203,37 +239,6 @@ export class DbWindowComponent implements OnInit {
     { key: 'delete', label: 'Deletes' }, { key: 'fail', label: 'Failed' },
   ];
 
-  /** Time strip: statements (teal), supplier calls (cyan) and failures (red) across the call's duration. */
-  readonly strip = computed<StripSegment[]>(() => {
-    const call = this.call();
-    const statements = this.statements();
-    if (!call || !statements.length) return [];
-    const suppliers = this.state.suppliersBySeq();
-    const callStart = Date.parse(call.timestamp);
-    const lastEnd = Math.max(...statements.map((s) => s.offsetMicros + s.durationMicros)) / 1000;
-    const total = Math.max(this.callMs() ?? 0, lastEnd, 1);
-    const segments: StripSegment[] = statements.map((s) => ({
-      seq: s.seq,
-      kind: isFailed(s) ? 'fail' : 'db',
-      left: (s.offsetMicros / 1000 / total) * 100,
-      width: (s.durationMicros / 1000 / total) * 100,
-      title: `#${s.seq} · ${s.kind} ${s.table ?? ''} · ${msText(s.durationMicros)}`,
-    }));
-    for (const [seq, sup] of suppliers) {
-      const start = Date.parse(sup.timestamp) - callStart;
-      if (Number.isFinite(start)) {
-        segments.push({ seq, kind: 'sup', left: (Math.max(0, start) / total) * 100, width: ((sup.duration_ms ?? 0) / total) * 100, title: `#${seq} · ${sup.method} ${sup.url} · ${sup.duration_ms} ms` });
-      }
-    }
-    return segments;
-  });
-  readonly supplierMs = computed(() => [...this.state.suppliersBySeq().values()].reduce((a, c) => a + (c.duration_ms ?? 0), 0));
-  readonly stripTotalMs = computed(() => {
-    const statements = this.statements();
-    const lastEnd = statements.length ? Math.max(...statements.map((s) => s.offsetMicros + s.durationMicros)) / 1000 : 0;
-    return Math.round(Math.max(this.callMs() ?? 0, lastEnd));
-  });
-
   constructor() {
     // A clicked value is traced through the whole call - the server knows every statement and stored row; the
     // supplier calls' bodies are searched here.
@@ -284,15 +289,10 @@ export class DbWindowComponent implements OnInit {
     return frame.replace(/\([^:()]*:(\d+)\)$/, ':$1');
   }
 
-  /** A share of the call's time, for the breakdown bar. */
-  pct(ms: number): number {
-    const total = this.breakdown()?.totalMs ?? 0;
-    return total ? Math.min(100, (ms / total) * 100) : 0;
-  }
-
   /** "Top queries" → the Statements tab, showing every execution of that query. */
   filterQuery(q: QueryTotal): void {
     this.clearStatementSql();
+    this.findingFilter.set(null);
     this.queryFilter.set(q);
     this.state.statementSeqs.set(new Set(q.seqs));
     this.view.set('stmts');
@@ -491,12 +491,14 @@ export class DbWindowComponent implements OnInit {
     this.state.folded.set(initiallyFolded(this.tree()));
   }
 
-  /** Flag / time-strip / trace click: clear filters, unfold its groups, open it on the right tab and flash it. */
+  /** Timeline / finding / trace click: clear filters, unfold its groups, open it on the right tab and flash it. */
   jump(seq: number, tab?: DbDetailTab): void {
     this.state.search.set('');
     this.state.kind.set('all');
     this.state.table.set('');
     this.state.statementSeqs.set(null);
+    this.findingFilter.set(null);
+    this.queryFilter.set(null);
     const folded = new Set(this.state.folded());
     pathTo(this.tree(), seq).forEach((k) => folded.delete(k));
     this.state.folded.set(folded);
@@ -505,14 +507,6 @@ export class DbWindowComponent implements OnInit {
       if (tab) this.state.setTab(seq, tab);
     }
     this.flash(`[data-seq="${seq}"]`, seq);
-  }
-
-  private jumpGroup(txId: string): void {
-    const key = `tx:${txId}`;
-    const folded = new Set(this.state.folded());
-    folded.delete(key);
-    this.state.folded.set(folded);
-    this.flash(`[data-group="${CSS.escape(key)}"]`, null);
   }
 
   private flash(selector: string, seq: number | null): void {
@@ -527,17 +521,6 @@ export class DbWindowComponent implements OnInit {
       }
       setTimeout(() => this.state.flashSeq.set(null), 1400);
     });
-  }
-
-  jumpFlag(flag: DbFlag): void {
-    const target = flagTarget(flag);
-    if (!target) return;
-    if (target.groupTxId) this.jumpGroup(target.groupTxId);
-    else this.jump(target.seq, target.tab);
-  }
-
-  flagLabel(flag: DbFlag): string {
-    return flagText(flag);
   }
 
   /**

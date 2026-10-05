@@ -22,57 +22,29 @@
             <span class="stat" style="border-color:color-mix(in srgb,var(--red) 45%,transparent)" title="The call ended with an error while statements were still being captured - the application may have died mid-call">capture ended early</span>
           }
         </div>
-        @if (flags().length) {
-          <div class="flags">
-            @for (f of flags(); track $index) {
-              <span class="flag" [class.bad]="f.severity === 'BAD'" (click)="jumpFlag(f)">{{ f.severity === 'BAD' ? '✕' : '⚠' }} {{ flagLabel(f) }}</span>
-            }
-          </div>
-        }
-        @if (strip().length) {
-          <div class="strip-wrap">
-            <div class="strip">
-              @for (seg of strip(); track seg.kind + seg.seq) {
-                <span class="tseg" [class]="seg.kind" [style.left.%]="seg.left" [style.width.%]="seg.width" [title]="seg.title" (click)="jump(seg.seq)"></span>
-              }
+        @if (overview(); as o) {
+          <!-- the one summary line, closed by default (remembered); open: timeline + findings (db-findings.ts) -->
+          <div class="dbw-panel" [class.open]="panelOpen()">
+            <div class="dbw-sum" role="button" [attr.aria-expanded]="panelOpen()" (click)="togglePanel()">
+              <span class="pchev">▶</span>
+              <span class="vtxt"><b class="tot">{{ fmt(o.totalMs) }}</b> · <b>{{ o.share }}</b> - {{ o.detail }}</span>
+              @if (o.errors) {<span class="cnt bad">{{ o.errors }} {{ o.errors === 1 ? 'error' : 'errors' }}</span>}
+              @if (o.toFix) {<span class="cnt warn">{{ o.toFix }} to fix</span>}
+              <span class="phint">{{ panelOpen() ? 'hide' : 'details' }}</span>
             </div>
-            <div class="strip-legend">
-              <span><i style="background:var(--db)"></i>DB {{ msText(dbMicros()) }}</span>
-              <span><i style="background:var(--cyan)"></i>Suppliers {{ supplierMs() }} ms</span>
-              <span><i style="background:var(--red)"></i>Failed</span>
-              <span style="margin-left:auto">0 ms</span><span>{{ stripTotalMs() }} ms</span>
-            </div>
-          </div>
-        }
-        @if (breakdown(); as b) {
-          <!-- where the call's time went (db-analysis.ts): DB / supplier calls / between statements / before-after -->
-          <div class="tb">
-            <div class="tb-bar">
-              <span class="db" [style.width.%]="pct(b.dbMs)" [title]="'DB ' + b.dbMs + ' ms'"></span>
-              <span class="out" [style.width.%]="pct(b.outboundMs)" [title]="'Supplier calls ' + b.outboundMs + ' ms'"></span>
-              <span class="gap" [style.width.%]="pct(b.gapMs)" [title]="'Between statements ' + b.gapMs + ' ms'"></span>
-              <span class="edge" [style.width.%]="pct(b.edgeMs)" [title]="'Before the first / after the last ' + b.edgeMs + ' ms'"></span>
-            </div>
-            <div class="tb-legend">
-              <span><i class="db"></i>DB {{ (b.dbMs / 1000).toFixed(1) }} s ({{ pct(b.dbMs).toFixed(0) }}%)</span>
-              <span><i class="out"></i>Supplier calls {{ (b.outboundMs / 1000).toFixed(1) }} s</span>
-              <span><i class="gap"></i>Between statements {{ (b.gapMs / 1000).toFixed(1) }} s ({{ pct(b.gapMs).toFixed(0) }}%)@if (b.gaps.count) { · {{ b.gaps.count }} gaps, median {{ b.gaps.medianMs }} ms, max {{ b.gaps.maxMs }} ms}</span>
-              <span><i class="edge"></i>Before / after {{ (b.edgeMs / 1000).toFixed(1) }} s</span>
-              @if (b.baselineMs) {<span title="The 10th percentile of this call's SELECTs - what any statement pays to reach the database. SLOW counts only the time beyond it.">DB round trip ≈ {{ b.baselineMs }} ms</span>}
-            </div>
-            @if (b.overheadMs >= 1) {
-              <div class="tb-legend"><span title="Measured by the agent around the statements: DataSource.getConnection, setAutoCommit(false), commit/rollback (JDBC or JTA) and Connection.close">
-                Of the time between statements, ≈ {{ (b.overheadMs / 1000).toFixed(1) }} s ({{ pct(b.overheadMs).toFixed(0) }}%) is connection and transaction overhead · {{ b.checkouts }} connection checkouts · {{ b.transactions }} transactions</span></div>
-            }
-            @if (b.appTimeDominant) {
-              <div class="tb-note">⚠ {{ pct(b.gapMs + b.edgeMs).toFixed(0) }}% of this call is neither database nor supplier calls - application work, or per-statement overhead (connection checkout, commit) the statements don't show.</div>
-            }
-            @if (b.topGaps.length && b.topGaps[0].ms >= 50) {
-              <div class="tb-gaps">Largest gaps:
-                @for (g of b.topGaps.slice(0, 3); track $index) {
-                  <a (click)="g.beforeSeq != null && jump(g.beforeSeq)" [title]="g.callers?.join('\n') ?? ''">{{ g.ms.toLocaleString() }} ms before #{{ g.beforeSeq }}@if (g.callers?.length) {<span class="c">{{ shortFrame(g.callers![0]) }}</span>}</a>
+            @if (panelOpen()) {
+              <div class="tlbox">
+                <div class="sec">When it happened <span class="hint">hover = what it is · click = open it · drag = zoom</span></div>
+                <app-db-timeline [overview]="o" [statements]="statements()" [highlight]="highlight()" (jumpTo)="jump($event)" />
+                @if (breakdown(); as b) {
+                  @if (b.overheadMs >= 1) {
+                    <div class="tb-legend"><span title="Measured by the agent around the statements: DataSource.getConnection, setAutoCommit(false), commit/rollback (JDBC or JTA) and Connection.close">
+                      Connection and transaction overhead ≈ {{ (b.overheadMs / 1000).toFixed(1) }} s · {{ b.checkouts }} connection checkouts · {{ b.transactions }} transactions</span></div>
+                  }
                 }
               </div>
+              <app-db-findings [findings]="o.findings" [canMarkExpected]="!!state.project()" (jump)="jump($event)" (hover)="highlight.set($event)"
+                               (show)="showFinding($event)" (markExpected)="markExpected($event)" />
             }
           </div>
         }
@@ -178,6 +150,10 @@
           <div class="empty">Loading…</div>
         }
       } @else {
+      @if (findingFilter(); as f) {
+        <div class="sq-note">Showing <b>{{ f.seqs.length }}</b>&nbsp;statements for: {{ f.title }}
+          <button type="button" class="action-btn" style="margin-left:auto" (click)="clearFindingFilter()">Back to all</button></div>
+      }
       @if (queryFilter(); as q) {
         <div class="sq-note"><b>{{ q.count }}</b>&nbsp;runs of <code>{{ q.sql.length > 90 ? q.sql.slice(0, 90) + '…' : q.sql }}</code>
           <button type="button" class="action-btn" style="margin-left:auto" (click)="clearQueryFilter()">Back to all statements</button></div>

@@ -5,7 +5,7 @@ import { flagText } from './db-flags';
 import { msText, resultText, valueText, verbOf } from './db-statement-display';
 import { DbGroupNode, DbNode, buildStatementTree, statementsOf } from './db-statement-tree';
 import { analyzeCapture } from './db-analysis';
-import { CallDbAnalysis } from '../../core/models/db-capture.model';
+import { CallDbAnalysis, DbFindingSummary } from '../../core/models/db-capture.model';
 import { renderSql, sqlText } from './sql-render';
 import {
   hasOrigins, isQueryOrigin, nativeComparison, originBadge, originExplanation, originExportLabel, originSummary, translationLine,
@@ -215,6 +215,18 @@ function flagHref(prefix: string, f: { seqs: readonly number[]; group?: string |
   return `#${prefix}-s${f.seqs[0] ?? ''}`;
 }
 
+const FINDING_MARK: Record<DbFindingSummary['severity'], string> = { bad: '✕', warn: '⚠', note: 'ⓘ' };
+
+/** The findings as closed lines (title, short why, count, impact); opened: why, fix and links to the statements. */
+function findingsHtml(prefix: string, a: CallDbAnalysis): string {
+  if (!a.findings) return '';
+  const items = a.findings.map((f) => `<details class="fd ${f.severity}"><summary><span class="ic">${FINDING_MARK[f.severity]}</span><b>${esc(f.title)}</b>` +
+    `<span class="sh">- ${esc(f.short)}</span><span class="cn">${esc(f.count)}</span><span class="im">${esc(f.impact)}</span></summary>` +
+    `<div class="fo">${esc(f.why)}${f.fix ? `<div class="fx">→ ${esc(f.fix)}</div>` : ''}${f.seqs.length
+      ? `<div class="fs">${f.seqs.slice(0, 60).map((q) => `<a href="#${prefix}-s${q}" data-db-jump>#${q}</a>`).join(' ')}${f.seqs.length > 60 ? ` and ${f.seqs.length - 60} more` : ''}</div>` : ''}</div></details>`).join('');
+  return `${a.summary ? `<p class="dsum"><b>${esc(a.summary)}</b></p>` : ''}${a.findings.length ? `<div class="lbl">Findings</div><div class="fds">${items}</div>` : ''}`;
+}
+
 /** The capture's analysis - attached by the export dialog (with its supplier calls), else derived here without them. */
 function analysisOf(call: CallRecord): CallDbAnalysis | null {
   const capture = call.dbCapture;
@@ -274,7 +286,7 @@ export function dbSectionHtml(call: CallRecord): string {
   return `<details class="dbx" id="${prefix}"><summary><span class="t">🗄 Database</span>${chips}</summary><div class="inner">` +
     `<p class="lead">Every statement the application ran while handling this call, <b>in the order it ran</b>, values filled in. Supplier calls are shown where they happened. ${
       capture.layout === 'flat' ? 'Listed one by one, not grouped by transaction' : 'Transactions and repeated queries start closed'} - open a row for its SQL, parameters and rows.</p>` +
-    flags + analysisHtml(prefix, analysisOf(call)) +
+    (analysisOf(call)?.findings ? findingsHtml(prefix, analysisOf(call)!) : flags) + analysisHtml(prefix, analysisOf(call)) +
     `<div class="tools"><button type="button" data-db-all="open">Open all statements</button><button type="button" data-db-all="close">Close all</button></div>` +
     `<div class="stmts">${nodesHtml(treeOf(capture), prefix, bySeq, hasOrigins(capture.statements))}</div></div></details>`;
 }
@@ -299,6 +311,19 @@ export const DB_SECTION_STYLE = `
 .dbx .lead { color: var(--text-dim); font-size: 13px; margin: 0 0 .7rem; }
 .dbx .lead b { color: var(--text); }
 .dbx .flags { display: flex; flex-direction: column; gap: 4px; margin-bottom: .9rem; }
+.dbx .dsum { margin: 0 0 .5rem; }
+.dbx .fds { border: 1px solid rgba(255,255,255,.1); border-radius: 9px; padding: 2px 10px; margin-bottom: .9rem; }
+.dbx .fd { border-top: 1px dashed rgba(255,255,255,.1); font-size: 13px; }
+.dbx .fd:first-child { border-top: none; }
+.dbx .fd > summary { cursor: pointer; list-style: none; padding: 5px 2px; display: grid; grid-template-columns: 18px auto minmax(0,1fr) auto auto; gap: 8px; align-items: baseline; }
+.dbx .fd .sh { opacity: .75; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dbx .fd[open] .sh { display: none; }
+.dbx .fd .cn { font-size: 11px; opacity: .6; white-space: nowrap; }
+.dbx .fd .im { font-family: monospace; font-size: 12px; opacity: .8; white-space: nowrap; }
+.dbx .fd.bad .ic { color: var(--red); } .dbx .fd.warn .ic { color: var(--amber); } .dbx .fd.note .ic { color: #7dd3fc; }
+.dbx .fd .fo { padding: 0 2px 8px 26px; opacity: .9; }
+.dbx .fd .fx { color: #6ee7a8; margin-top: 3px; }
+.dbx .fd .fs { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 6px; font-family: monospace; font-size: 12px; }
 .dbx .flag { font-size: 12.5px; padding: 4px 10px; border-radius: 8px; border: 1px solid rgba(227,162,74,.4); background: rgba(227,162,74,.07); color: var(--amber); }
 .dbx .flag.bad { color: var(--red); border-color: rgba(227,106,106,.45); background: rgba(227,106,106,.07); }
 .dbx .flag a { margin-left: .4rem; font-size: 12px; }
@@ -464,7 +489,19 @@ export function dbSectionMarkdown(call: CallRecord, level: number): string[] {
   const s = stats(capture);
   const bySeq = new Map(capture.statements.map((x) => [x.seq, x]));
   const lines: string[] = [`${'#'.repeat(level)} 🗄 Database`, '', '<details>', `<summary><b>${mdCell(headlineText(capture))}</b></summary>`, ''];
-  if (s.flags.length) {
+  const analysis = analysisOf(call);
+  if (analysis?.findings) {
+    // The window's summary line and findings - the same words, worst first.
+    if (analysis.summary) lines.push(`**${mdCell(analysis.summary)}**`, '');
+    if (analysis.findings.length) {
+      lines.push('**Findings**', '');
+      for (const f of analysis.findings) {
+        lines.push(`- ${FINDING_MARK[f.severity]} **${mdCell(f.title)}** - ${mdCell(f.short)} · ${mdCell(f.count)}${f.impact ? ` · ${mdCell(f.impact)}` : ''}`,
+          `  ${mdCell(f.why)}${f.fix ? ` → ${mdCell(f.fix)}` : ''}${f.seqs.length ? ` (statements #${f.seqs.slice(0, 30).join(', #')}${f.seqs.length > 30 ? ` and ${f.seqs.length - 30} more` : ''})` : ''}`);
+      }
+      lines.push('');
+    }
+  } else if (s.flags.length) {
     lines.push('**Flags**', '');
     for (const g of flagGroups(s.flags)) {
       const mark = g[0].severity === 'BAD' ? '✕' : '⚠';
@@ -473,7 +510,6 @@ export function dbSectionMarkdown(call: CallRecord, level: number): string[] {
     }
     lines.push('');
   }
-  const analysis = analysisOf(call);
   if (analysis) {
     const gaps = gapsText(analysis);
     lines.push('**Where the time went:** ' + mdCell(timeSentence(analysis)), '');

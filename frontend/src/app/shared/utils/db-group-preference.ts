@@ -56,3 +56,22 @@ export function saveRowsAs(rowsAs: 'hql' | 'sql'): void {
     // the choice lasts for this page only
   }
 }
+
+const SUMMARY_KEY = 'alfred.dbCapture.summaryOpen';
+
+/** The database window's summary panel (timeline + findings) - closed by default, open or closed remembered. */
+export function readSummaryOpen(): boolean {
+  try {
+    return localStorage.getItem(SUMMARY_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function saveSummaryOpen(open: boolean): void {
+  try {
+    localStorage.setItem(SUMMARY_KEY, open ? '1' : '0');
+  } catch {
+    // the choice lasts for this page only
+  }
+}

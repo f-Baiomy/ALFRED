@@ -7,5 +7,10 @@ public enum DbFlagType {
     /** The same statement with the same parameters more than once in one call - a cache-per-request fix, not batching. */
     DUPLICATE,
     /** About as many transactions as statements - every statement pays connection checkout, begin and commit. */
-    TX_PER_STATEMENT
+    TX_PER_STATEMENT,
+    /**
+     * One query whose returned rows each triggered more queries - an N+1 inside one statement execution (Hibernate
+     * loading a collection per row, one query each). Found by the HQL origin, or by the per-row pattern in plain JDBC.
+     */
+    QUERY_FAN_OUT
 }
