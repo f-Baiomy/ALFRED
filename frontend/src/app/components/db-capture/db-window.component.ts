@@ -465,16 +465,24 @@ export class DbWindowComponent implements OnInit {
     return flagText(flag);
   }
 
-  /** "show call ↗": close the window and flash the supplier call's card in the list. */
+  /**
+   * "show call ↗": close the window and point at the supplier call in the list - its waterfall row (the tree under
+   * the inbound call) or its card - with an outline and a "◆ #n · from database" label that stays until the next
+   * click, so it is clear which of several identical-looking calls it was.
+   */
   showCall(call: CallRecord): void {
     this.close();
     setTimeout(() => {
-      const el = document.querySelector<HTMLElement>(`[data-call-id="${CSS.escape(call.id)}"]`);
+      const id = CSS.escape(call.id);
+      const el = document.querySelector<HTMLElement>(`[data-call-row="${id}"]`) ?? document.querySelector<HTMLElement>(`[data-call-id="${id}"]`);
       if (!el) return;
-      el.scrollIntoView({ block: 'center' });
-      el.classList.remove('db-flash');
-      void el.offsetWidth;
-      el.classList.add('db-flash');
+      document.querySelectorAll('.db-target').forEach((old) => old.classList.remove('db-target'));
+      el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      el.setAttribute('data-db-mark', `◆ #${call.parentSeq ?? ''} · from database`);
+      el.classList.add('db-target');
+      const clear = () => el.classList.remove('db-target');
+      setTimeout(() => document.addEventListener('click', clear, { once: true, capture: true }), 0);
+      setTimeout(clear, 15000);
     });
   }
 
