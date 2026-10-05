@@ -131,6 +131,11 @@ export interface CallDbCapture {
   readonly transactions: readonly StatementTransaction[];
   readonly supplierMarkers?: readonly SupplierMarker[] | null;
   readonly statements: readonly ExportedDbStatement[];
+  /**
+   * How the .md/.html Database section lays the statements out - grouped by transaction (default) or one plain list.
+   * Presentation only, set by the export dialog; never written into the .json (bulk-json-builder drops it).
+   */
+  readonly layout?: 'grouped' | 'flat';
 }
 
 export interface RowsPage {

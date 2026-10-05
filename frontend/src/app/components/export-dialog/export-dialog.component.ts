@@ -16,6 +16,7 @@ import { downloadText, downloadJson, resolveExportFilename } from '../../shared/
 import { copyToClipboard as writeTextToClipboard } from '../../shared/utils/clipboard';
 import { RedactionsStore } from '../../core/state/redactions-store.service';
 import { redactCalls } from '../../shared/utils/redact';
+import { readGroupByTransaction, saveGroupByTransaction } from '../../shared/utils/db-group-preference';
 import { DbCaptureApiService } from '../../core/services/db-capture-api.service';
 import { CallDbCapture, CallDbSummary } from '../../core/models/db-capture.model';
 import { CallRecord } from '../../core/models/call.model';
@@ -52,6 +53,8 @@ export class ExportDialogComponent {
    * a file written before they arrived would silently lack its Database sections.
    */
   readonly includeDb = signal(false);
+  /** How the included statements are laid out - the same remembered choice as the window's "Group by transaction". */
+  readonly groupDb = signal(readGroupByTransaction());
   readonly dbAvailable = signal<{ readonly calls: number; readonly statements: number } | null>(null);
   private readonly dbCaptures = signal<ReadonlyMap<string, CallDbCapture>>(new Map());
   readonly loadingDb = signal(false);
@@ -64,7 +67,8 @@ export class ExportDialogComponent {
     const calls = current.calls.map((c) => (c.dbCapture ? { ...c, dbCapture: undefined } : c));
     const captures = this.dbCaptures();
     if (!this.includeDb() || !captures.size) return calls;
-    return calls.map((c) => (captures.has(c.id) ? { ...c, dbCapture: captures.get(c.id) } : c));
+    const layout = this.groupDb() ? 'grouped' : 'flat';
+    return calls.map((c) => (captures.has(c.id) ? { ...c, dbCapture: { ...captures.get(c.id)!, layout } } : c));
   });
 
   /** How many values the current selection would have masked, so the dialog can say so before the user commits to sending the file. */
@@ -137,6 +141,7 @@ export class ExportDialogComponent {
         this.exportFeedback.set(false);
         this.reportFormat.set(current.format === 'html' ? 'html' : 'markdown');
         this.includeDb.set(false);
+        this.groupDb.set(readGroupByTransaction());
         this.dbCaptures.set(new Map());
         this.loadingDb.set(false);
         this.dbRequest++;
@@ -166,6 +171,11 @@ export class ExportDialogComponent {
         const found = pages.flatMap((p) => Object.values(p)).filter((s) => s.statementCount > 0);
         this.dbAvailable.set(found.length ? { calls: found.length, statements: found.reduce((n, s) => n + s.statementCount, 0) } : null);
       });
+  }
+
+  setGroupDb(grouped: boolean): void {
+    this.groupDb.set(grouped);
+    saveGroupByTransaction(grouped);
   }
 
   setIncludeDb(include: boolean): void {

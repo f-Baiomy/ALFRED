@@ -125,6 +125,13 @@ export interface BulkExportPayload {
   readonly events: readonly BulkExportEvent[];
 }
 
+/** The capture as the file carries it - without the dialog's presentation-only layout choice. */
+function jsonCapture(call: CallRecord): CallDbCapture | undefined {
+  if (!call.dbCapture) return undefined;
+  const { layout: _layout, ...capture } = call.dbCapture;
+  return capture;
+}
+
 /** Response event's timestamp is derived, not stored - the moment the response was actually received, not restated at the request's own timestamp. */
 function responseTimestamp(call: CallRecord): string {
   return new Date(new Date(call.timestamp).getTime() + (call.duration_ms ?? 0)).toISOString();
@@ -275,7 +282,7 @@ function eventsForCall(call: CallRecord, comments: readonly Comment[], staysSpli
     comments,
     interception: call.interception ?? undefined,
     wsMessages: call.wsMessages,
-    dbCapture: call.dbCapture,
+    dbCapture: jsonCapture(call),
   });
 
   if (call.source !== 'internal') {
@@ -302,7 +309,7 @@ function eventsForCall(call: CallRecord, comments: readonly Comment[], staysSpli
     wsMessages: call.wsMessages,
   };
 
-  if (!resolved) return [{ ...requestEvent, dbCapture: call.dbCapture }];
+  if (!resolved) return [{ ...requestEvent, dbCapture: jsonCapture(call) }];
   if (!staysSplitIds.has(call.id)) return [asCallEvent()];
 
   const responseEvent: BulkExportResponseEvent = {
@@ -314,7 +321,7 @@ function eventsForCall(call: CallRecord, comments: readonly Comment[], staysSpli
     timestamp: responseTimestamp(call),
     response: call.response,
     state: call.state,
-    dbCapture: call.dbCapture,
+    dbCapture: jsonCapture(call),
   };
   return [requestEvent, responseEvent];
 }

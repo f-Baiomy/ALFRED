@@ -31,7 +31,9 @@ function stats(capture: CallDbCapture) {
 }
 
 function treeOf(capture: CallDbCapture): DbNode[] {
-  return buildStatementTree(capture.statements, capture.supplierMarkers ?? [], capture.transactions, REPEAT_THRESHOLD);
+  return capture.layout === 'flat'
+    ? buildStatementTree(capture.statements, capture.supplierMarkers ?? [], [], Number.MAX_SAFE_INTEGER)
+    : buildStatementTree(capture.statements, capture.supplierMarkers ?? [], capture.transactions, REPEAT_THRESHOLD);
 }
 
 function statementSql(s: ExportedDbStatement): string {
@@ -198,7 +200,8 @@ export function dbSectionHtml(call: CallRecord): string {
       : `<details class="flag-group${g[0].severity === 'BAD' ? ' bad' : ''}"><summary>${g[0].severity === 'BAD' ? '✕' : '⚠'} ${esc(FLAG_GROUP_LABELS[g[0].type] ?? g[0].type)} × ${g.length}</summary>${g.map(flagLine).join('')}</details>`).join('')}</div>`
     : '';
   return `<details class="dbx" id="${prefix}"><summary><span class="t">🗄 Database</span>${chips}</summary><div class="inner">` +
-    `<p class="lead">Every statement the application ran while handling this call, <b>in the order it ran</b>, values filled in. Supplier calls are shown where they happened. Transactions and repeated queries start closed - open a row for its SQL, parameters and rows.</p>` +
+    `<p class="lead">Every statement the application ran while handling this call, <b>in the order it ran</b>, values filled in. Supplier calls are shown where they happened. ${
+      capture.layout === 'flat' ? 'Listed one by one, not grouped by transaction' : 'Transactions and repeated queries start closed'} - open a row for its SQL, parameters and rows.</p>` +
     flags +
     `<div class="tools"><button type="button" data-db-all="open">Open all statements</button><button type="button" data-db-all="close">Close all</button></div>` +
     `<div class="stmts">${nodesHtml(treeOf(capture), prefix, bySeq)}</div></div></details>`;

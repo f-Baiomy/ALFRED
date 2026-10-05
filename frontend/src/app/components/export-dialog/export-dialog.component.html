@@ -99,6 +99,12 @@
                 </small>
               </span>
             </label>
+            @if (includeDb() && effectiveFormat() !== 'json') {
+              <label class="dialog-db-sub">
+                <input type="checkbox" [checked]="groupDb()" (change)="setGroupDb($any($event.target).checked)" />
+                <span>Group by transaction <small class="dialog-hint">off: every statement in one plain list, in the order it ran</small></span>
+              </label>
+            }
             @if (includeDb() && loadingDb()) {<small class="dialog-hint">Loading database statements…</small>}
           </div>
         }

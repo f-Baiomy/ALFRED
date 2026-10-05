@@ -75,4 +75,20 @@ describe('ExportDialogComponent - database statements', () => {
     fixture.detectChanges();
     expect(fixture.componentInstance.includeDb()).toBeFalse();
   });
+
+  it('lays the included statements out as chosen - grouped by default, flat when unticked', async () => {
+    localStorage.removeItem('alfred.dbCapture.groupByTransaction');
+    const fixture = open();
+    fixture.componentInstance.setIncludeDb(true);
+    fixture.detectChanges();
+    const sub: HTMLInputElement = fixture.nativeElement.querySelector('.dialog-db-sub input');
+    expect(sub.checked).toBeTrue();
+    fixture.componentInstance.setGroupDb(false);
+    fixture.componentInstance.copyToClipboard();
+    await fixture.whenStable();
+    expect(written[0]).toContain('🗄 Database');
+    expect(localStorage.getItem('alfred.dbCapture.groupByTransaction')).toBe('0');
+    localStorage.removeItem('alfred.dbCapture.groupByTransaction');
+  });
 });
+

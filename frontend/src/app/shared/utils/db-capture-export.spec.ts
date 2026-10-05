@@ -126,4 +126,19 @@ describe('database capture in exports', () => {
     expect(md).not.toContain('tok_live_1');
     expect(md).not.toContain('row 17 |');
   });
+
+  it('lays the statements out flat when the export says so, and never writes that choice into the .json', () => {
+    const flat = { ...inbound(), dbCapture: { ...capture(), layout: 'flat' as const } };
+    const html = buildExportHtml(flat, FORM);
+    expect(html).not.toContain('class="grp');
+    expect(html).toContain('Listed one by one, not grouped by transaction');
+    expect(buildExportHtml(inbound(), FORM)).toContain('class="grp"');
+    expect(buildExportMarkdown(flat, FORM)).not.toContain('**Transaction tx-7');
+    expect(buildExportMarkdown(inbound(), FORM)).toContain('**Transaction tx-7');
+
+    const payload = JSON.parse(JSON.stringify(buildBulkExportPayload([flat], FORM, new Map(), '2026-10-05T00:00:00Z')));
+    const event = payload.events.find((e: { dbCapture?: unknown }) => e.dbCapture);
+    expect('layout' in event.dbCapture).toBeFalse();
+  });
 });
+

@@ -16,20 +16,12 @@ import { buildStatementTree, initiallyFolded, pathTo } from '../../shared/utils/
 import { isDelete, isFailed, isWrite, msText } from '../../shared/utils/db-statement-display';
 import { flagTarget, flagText } from '../../shared/utils/db-flags';
 import { buildSqlScript } from '../../shared/utils/sql-export-builder';
+import { readGroupByTransaction, saveGroupByTransaction } from '../../shared/utils/db-group-preference';
 import { DbStatementListComponent } from './db-statement-list.component';
 import { DbDetailTab, DbKindFilter, DbWindowState } from './db-window-state';
 import { DbWindowRequest } from './db-window.service';
 
 const PAGE = 500;
-const GROUPED_KEY = 'alfred.dbCapture.groupByTransaction';
-
-function readGrouped(): boolean {
-  try {
-    return localStorage.getItem(GROUPED_KEY) !== '0';
-  } catch {
-    return true;
-  }
-}
 const DEFAULT_REPEAT_THRESHOLD = 5;
 
 interface StripSegment {
@@ -104,7 +96,7 @@ export class DbWindowComponent implements OnInit {
    * "Group by transaction" (on by default, remembered per browser): off shows the statements as one plain list in run
    * order - no transaction or repeated-query groups, supplier calls still in place.
    */
-  readonly grouped = signal(readGrouped());
+  readonly grouped = signal(readGroupByTransaction());
   readonly tree = computed(() => this.grouped()
     ? buildStatementTree(this.statements(), this.markers(), this.transactions(), DEFAULT_REPEAT_THRESHOLD)
     : buildStatementTree(this.statements(), this.markers(), [], Number.MAX_SAFE_INTEGER));
@@ -112,11 +104,7 @@ export class DbWindowComponent implements OnInit {
   setGrouped(grouped: boolean): void {
     this.grouped.set(grouped);
     if (grouped) this.state.folded.set(initiallyFolded(this.tree()));
-    try {
-      localStorage.setItem(GROUPED_KEY, grouped ? '1' : '0');
-    } catch {
-      // private window / blocked storage: the choice lasts for this window only
-    }
+    saveGroupByTransaction(grouped);
   }
   /** Outside-call statements, one section per thread. */
   readonly threads = computed(() => {
