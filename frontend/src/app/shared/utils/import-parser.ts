@@ -2,6 +2,7 @@ import { CallEndpointSource, CallRecord } from '../../core/models/call.model';
 import { CallInterception } from '../../core/models/interception.model';
 import { WsMessage } from '../../core/models/ws-message.model';
 import { CallDbCapture } from '../../core/models/db-capture.model';
+import { v2ToCallRecords } from './json-export-v2';
 
 /**
  * Reads an Alfred .json export back into CallRecords - the inverse of bulk-json-builder.ts.
@@ -35,6 +36,8 @@ interface Partial_ {
   interception?: CallInterception;
   wsMessages?: readonly WsMessage[];
   dbCapture?: CallDbCapture;
+  parentCallId?: string;
+  parentSeq?: number;
 }
 
 export interface ImportParseResult {
@@ -89,6 +92,11 @@ export function parseImportedCalls(parsed: unknown): ImportParseResult {
   const declared = (parsed as { redactedValueCount?: unknown }).redactedValueCount;
   const redactedValueCount = typeof declared === 'number' && declared > 0 ? declared : 0;
   const cycleName = cycleNameOf(parsed);
+
+  // Version 2 (json-export-v2.ts): one record per call already - its bodies and database rows are put back first.
+  if ((parsed as { alfredExport?: unknown }).alfredExport === 2) {
+    return { ...mergeEvents(v2ToCallRecords(parsed as Record<string, unknown>)), redactedValueCount, cycleName };
+  }
 
   const events = (parsed as { events?: unknown }).events;
   if (Array.isArray(events)) return { ...mergeEvents(events), redactedValueCount, cycleName };
@@ -179,6 +187,7 @@ function mergeEvents(events: readonly unknown[]): ImportParseResult {
       interception: partial.interception,
       wsMessages: partial.wsMessages,
       dbCapture: partial.dbCapture,
+      ...(partial.parentCallId ? { parentCallId: partial.parentCallId, parentSeq: partial.parentSeq } : {}),
     });
   }
 
@@ -207,6 +216,9 @@ function fill(into: Partial_, raw: Record<string, unknown>): void {
   set('session_id', nullableStr(raw['session_id']));
   set('operation_id', nullableStr(raw['operation_id']));
   set('supplierName', nullableStr(raw['supplierName']));
+  // The db-agent's exact parent link (version 2 writes it; version 1 never did).
+  set('parentCallId', str(raw['parentCallId']));
+  set('parentSeq', num(raw['parentSeq']));
   const state = str(raw['state']);
   if (state) set('state', state as CallRecord['state']);
   if (raw['request'] !== undefined && raw['request'] !== null) set('request', raw['request'] as CallRecord['request']);

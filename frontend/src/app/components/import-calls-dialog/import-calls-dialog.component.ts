@@ -6,6 +6,7 @@ import { DbCaptureApiService } from '../../core/services/db-capture-api.service'
 import { SessionCyclesStateService } from '../../core/state/session-cycles-state.service';
 import { CallRecord, SessionCycle } from '../../core/models/call.model';
 import { parseImportedCalls } from '../../shared/utils/import-parser';
+import { readExportFile } from '../../shared/utils/export-file-io';
 import { ProfilePickerComponent } from '../profile-picker/profile-picker.component';
 
 /**
@@ -109,51 +110,46 @@ export class ImportCallsDialogComponent {
     this.parseError.set(null);
     this.parseWarning.set(null);
     this.resultMessage.set(null);
-    if (!file.name.toLowerCase().endsWith('.json')) {
-      this.parseError.set('Only .json files are supported.');
+    const name = file.name.toLowerCase();
+    if (!name.endsWith('.json') && !name.endsWith('.json.gz') && !name.endsWith('.gz')) {
+      this.parseError.set('Only .json and .json.gz files are supported.');
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(String(reader.result));
-      } catch {
-        this.parseError.set('This file is not valid JSON.');
-        return;
-      }
-      const { calls, inferredDirectionCount, redactedValueCount, cycleName } = parseImportedCalls(parsed);
-      if (calls.length === 0) {
-        this.parseError.set('No calls found in this file - expected an export produced by "Export as JSON".');
-        return;
-      }
-      this.parsedCalls.set([...calls]);
-      this.fileName.set(file.name);
-      // A whole-cycle export names the cycle it came from, which is almost always the name the
-      // importer wants to recreate it under - offered, never imposed: anything already typed wins.
-      if (cycleName && this.newCycleName().trim().length === 0) {
-        this.newCycleName.set(cycleName);
-        this.prefilledCycleName = cycleName;
-      }
-      if (redactedValueCount > 0) {
-        // Said first, and said even when nothing else is wrong: these calls will LOOK complete once
-        // imported, with ***REDACTED*** sitting where a token was. Nothing else about the file
-        // reveals that, and re-exporting from here would propagate the masked values as if real.
-        this.parseWarning.set(
-          `${redactedValueCount} value${redactedValueCount === 1 ? ' was' : 's were'} hidden before this file was exported, ` +
-            'so those calls import masked rather than complete. Import from an unredacted export if you need the real values.'
-        );
-      } else if (inferredDirectionCount > 0) {
-        // Worth saying out loud rather than importing quietly: a wrong guess files an inbound call
-        // as outbound, which loses its service and flattens anything nested under it.
-        this.parseWarning.set(
-          `${inferredDirectionCount} call${inferredDirectionCount === 1 ? '' : 's'} in this file predate Alfred recording inbound/outbound direction, ` +
-            'so it was inferred from the service name. Re-export to import them exactly.'
-        );
-      }
-    };
-    reader.onerror = () => this.parseError.set('Could not read this file.');
-    reader.readAsText(file);
+    // Streamed (export-file-io.ts): a .json.gz is unzipped on the way, and a large version-2 file is read one record
+    // at a time instead of as one string the browser could not hold.
+    readExportFile(file).then((parsed) => this.onParsed(file, parsed), () => this.parseError.set('This file is not valid JSON (or not a readable .json.gz).'));
+  }
+
+  private onParsed(file: File, parsed: unknown): void {
+    const { calls, inferredDirectionCount, redactedValueCount, cycleName } = parseImportedCalls(parsed);
+    if (calls.length === 0) {
+      this.parseError.set('No calls found in this file - expected an export produced by "Export as JSON".');
+      return;
+    }
+    this.parsedCalls.set([...calls]);
+    this.fileName.set(file.name);
+    // A whole-cycle export names the cycle it came from, which is almost always the name the
+    // importer wants to recreate it under - offered, never imposed: anything already typed wins.
+    if (cycleName && this.newCycleName().trim().length === 0) {
+      this.newCycleName.set(cycleName);
+      this.prefilledCycleName = cycleName;
+    }
+    if (redactedValueCount > 0) {
+      // Said first, and said even when nothing else is wrong: these calls will LOOK complete once
+      // imported, with ***REDACTED*** sitting where a token was. Nothing else about the file
+      // reveals that, and re-exporting from here would propagate the masked values as if real.
+      this.parseWarning.set(
+        `${redactedValueCount} value${redactedValueCount === 1 ? ' was' : 's were'} hidden before this file was exported, ` +
+          'so those calls import masked rather than complete. Import from an unredacted export if you need the real values.'
+      );
+    } else if (inferredDirectionCount > 0) {
+      // Worth saying out loud rather than importing quietly: a wrong guess files an inbound call
+      // as outbound, which loses its service and flattens anything nested under it.
+      this.parseWarning.set(
+        `${inferredDirectionCount} call${inferredDirectionCount === 1 ? '' : 's'} in this file predate Alfred recording inbound/outbound direction, ` +
+          'so it was inferred from the service name. Re-export to import them exactly.'
+      );
+    }
   }
 
   isSelected(cycle: SessionCycle): boolean {

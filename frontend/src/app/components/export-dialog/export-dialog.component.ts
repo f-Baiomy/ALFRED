@@ -9,10 +9,11 @@ import {
   bulkExportCycleFilename,
 } from '../../shared/utils/markdown-builder';
 import { buildExportHtml, buildBulkExportHtml, exportHtmlFilename, bulkExportHtmlFilename } from '../../shared/utils/html-builder';
-import { buildBulkExportPayload } from '../../shared/utils/bulk-json-builder';
+import { buildJsonExportV2 } from '../../shared/utils/json-export-v2';
+import { exportBlob } from '../../shared/utils/export-file-io';
 import { buildBulkPostmanCollection, bulkPostmanFilename } from '../../shared/utils/postman-builder';
 import { buildDiscordReport } from '../../shared/utils/discord-report-builder';
-import { downloadText, downloadJson, resolveExportFilename } from '../../shared/utils/download';
+import { downloadBlob, downloadText, downloadJson, resolveExportFilename } from '../../shared/utils/download';
 import { copyToClipboard as writeTextToClipboard } from '../../shared/utils/clipboard';
 import { RedactionsStore } from '../../core/state/redactions-store.service';
 import { redactCalls } from '../../shared/utils/redact';
@@ -53,6 +54,8 @@ export class ExportDialogComponent {
    * a file written before they arrived would silently lack its Database sections.
    */
   readonly includeDb = signal(false);
+  /** .json only: write it gzip-compressed (.json.gz) - a fraction of the size; Alfred's import reads either. */
+  readonly compressJson = signal(false);
   /** How the included statements are laid out - the same remembered choice as the window's "Group by transaction". */
   readonly groupDb = signal(readGroupByTransaction());
   readonly dbAvailable = signal<{ readonly calls: number; readonly statements: number } | null>(null);
@@ -233,7 +236,10 @@ export class ExportDialogComponent {
     const built = this.buildContent(this.effectiveFormat());
     if (!built) return;
 
-    if (built.isJson) {
+    if ('lines' in built) {
+      void exportBlob(built.lines, this.compressJson()).then((blob) =>
+        downloadBlob(blob, this.compressJson() ? `${built.filename}.gz` : built.filename));
+    } else if (built.isJson) {
       downloadJson(built.payload, built.filename);
     } else {
       downloadText(built.content, built.filename, built.mimeType);
@@ -254,7 +260,7 @@ export class ExportDialogComponent {
     const built = this.buildContent(this.isRawExportMode() ? this.state()!.format : 'markdown');
     if (!built) return;
 
-    const text = built.isJson ? JSON.stringify(built.payload, null, 2) : built.content;
+    const text = 'lines' in built ? built.lines.join('\n') : built.isJson ? JSON.stringify(built.payload, null, 2) : built.content;
     writeTextToClipboard(text).then(() => {
       this.copyFeedback.set(true);
       setTimeout(() => this.copyFeedback.set(false), 1200);
@@ -286,6 +292,7 @@ export class ExportDialogComponent {
    * downloaded" for whichever format is passed in - the caller decides which format that is,
    * since confirmExport respects the dialog's toggle while copyToClipboard deliberately doesn't. */
   private buildContent(format: ExportFormat):
+    | { isJson: true; lines: string[]; filename: string }
     | { isJson: true; payload: unknown; filename: string }
     | { isJson: false; content: string; filename: string; mimeType: string }
     | null {
@@ -301,9 +308,12 @@ export class ExportDialogComponent {
     const { calls, redactedValueCount } = redactCalls(this.callsWithDb(), this.redactions.all());
 
     if (format === 'json') {
-      const payload = buildBulkExportPayload(calls, form, commentsByCallId, new Date().toISOString(), overlapCandidates, statusFilter, redactedValueCount, current.cycle);
+      // Version 2 (json-export-v2.ts): one record per line with a guide and an index up front, normalised.
+      const lines = buildJsonExportV2({
+        calls, form, commentsByCallId, exportedAt: new Date().toISOString(), overlapCandidates, statusFilter, redactedValueCount, cycle: current.cycle,
+      });
       const name = current.cycle ? bulkExportCycleFilename(current.cycle, calls, 'json') : bulkExportFilename(calls, 'json');
-      return { isJson: true, payload, filename: this.resolveFilename(name, format) };
+      return { isJson: true, lines, filename: this.resolveFilename(name, format) };
     }
 
     if (format === 'postman') {

@@ -11,10 +11,13 @@ captured statements gains
 }
 ```
 
-Every stored row is written - nothing is cut (architectural invariant). A resolved internal call is still two
-events sharing a `callId`; `dbCapture` sits on the **complete** event only, so `groupBy(callId)` + merge stays
-correct. `import-parser.ts` restores it and the import stores it through the slice's ingest port. Fixtures are
-built with `buildBulkExportPayload`.
+Every stored row is written - nothing is cut (architectural invariant). That is the version-1 shape
+(`bulk-json-builder.ts`, still read on import). **Exports now write version 2** (`json-export-v2.ts`, see
+docs/frontend-architecture.md): one line per inbound call in `dbCalls` (summary, transactions, supplier markers,
+the values all its statements share in `common`, HQL origins by id in `origins`) and one line per statement in
+`dbStatements` (`of` = its call), rows as values under their columns' types (`rowValues`/`beforeValues`; a cell
+that is an object is a full TypedValue, `{}` a null cell). `import-parser.ts` rebuilds exactly the version-1
+capture from either, and the import stores it through the slice's ingest port.
 
 `.md` / `.html`: after a call's response section, a "Database" section - statements in run order (values filled in,
 kind, result, duration), transactions as headed groups, result rows and before-images as tables, flags listed at

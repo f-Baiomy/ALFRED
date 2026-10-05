@@ -18,7 +18,7 @@
           (click)="browseForFile()"
         >
           <p>Drop a .json file here, or click to browse</p>
-          <input #fileInput type="file" accept=".json,application/json" hidden (change)="onFileSelected($event)" />
+          <input #fileInput type="file" accept=".json,.gz,application/json,application/gzip" hidden (change)="onFileSelected($event)" />
         </div>
         @if (parseError(); as error) {
           <p class="dialog-sub dialog-error-note">{{ error }}</p>

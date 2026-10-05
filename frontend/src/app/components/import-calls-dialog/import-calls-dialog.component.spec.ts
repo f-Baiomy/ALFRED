@@ -7,6 +7,10 @@ import { SessionCyclesApiService } from '../../core/services/session-cycles-api.
 import { SessionCyclesStateService } from '../../core/state/session-cycles-state.service';
 import { CallRecord, SessionCycle } from '../../core/models/call.model';
 import { buildBulkExportPayload } from '../../shared/utils/bulk-json-builder';
+import { buildJsonExportV2 } from '../../shared/utils/json-export-v2';
+import { exportBlob } from '../../shared/utils/export-file-io';
+
+const FORM = { supplierName: '', credentialsUsed: '', apiKey: '', url: '', environment: 'Staging' as const, description: '' };
 
 function makeCall(id: string): CallRecord {
   return {
@@ -169,8 +173,24 @@ describe('ImportCallsDialogComponent', () => {
   it('rejects a non-.json file before even reading it', () => {
     (component as any).readFile(fileFrom('[]', 'export.txt'));
 
-    expect(component.parseError()).toContain('Only .json files');
+    expect(component.parseError()).toContain('Only .json and .json.gz files');
     expect(component.parsedCalls()).toBeNull();
+  });
+
+  it('reads the version-2 export - plain, and gzip-compressed - into the same calls', async () => {
+    const calls = [makeCall('call-1'), { ...makeCall('call-2'), response: { status: 200, headers: {}, body: JSON.stringify({ big: 'x'.repeat(400) }) } }];
+    const lines = buildJsonExportV2({ calls, form: FORM, commentsByCallId: new Map(), exportedAt: '2026-10-05T00:00:00Z' });
+
+    (component as any).readFile(fileFrom(lines.join('\n')));
+    await waitUntil(() => component.parsedCalls() !== null || component.parseError() !== null);
+    expect(component.parsedCalls()!.map((c) => c.id)).toEqual(['call-1', 'call-2']);
+    expect(component.parsedCalls()![1].response!.body).toBe(calls[1].response!.body);
+
+    component.parsedCalls.set(null);
+    const gz = await exportBlob(lines, true);
+    (component as any).readFile(new File([gz], 'export.json.gz', { type: 'application/gzip' }));
+    await waitUntil(() => component.parsedCalls() !== null || component.parseError() !== null);
+    expect(component.parsedCalls()!.map((c) => c.id)).toEqual(['call-1', 'call-2']);
   });
 
   it('skips malformed entries (missing id/url) instead of failing the whole import', async () => {

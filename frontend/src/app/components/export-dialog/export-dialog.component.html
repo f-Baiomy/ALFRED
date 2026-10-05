@@ -83,6 +83,17 @@
         </fieldset>
       }
 
+      @if (effectiveFormat() === 'json') {
+        <div class="dialog-db-option">
+          <label>
+            <input type="checkbox" [checked]="compressJson()" (change)="compressJson.set($any($event.target).checked)" />
+            <span><b>Compress (.json.gz)</b>
+              <small class="dialog-hint">A fraction of the size (often a tenth). Alfred's import reads it as it is; to read it yourself or hand it
+                to an AI agent, unzip it first - the plain .json opens with a guide and an index for exactly that.</small>
+            </span>
+          </label>
+        </div>
+      }
       @if (dbAvailable(); as db) {
         @if (effectiveFormat() !== 'postman') {
           <div class="dialog-db-option">
