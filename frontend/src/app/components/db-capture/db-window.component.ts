@@ -117,12 +117,29 @@ export class DbWindowComponent implements OnInit {
    * remembered; the size of the findings part dragged and remembered too. Stacked, the statements (with their tools) keep 330 px.
    */
   readonly layout = signal<'side' | 'stack'>(readDbPref('layout', '') === 'stack' || (readDbPref('layout', '') === '' && window.innerWidth < SIDE_MIN_WIDTH) ? 'stack' : 'side');
-  readonly sideWidth = signal(Number(readDbPref('sideWidth', '400')) || 400);
+  readonly sideWidth = signal(Number(readDbPref('sideWidth', '330')) || 330);
   readonly stackShare = signal(Number(readDbPref('stackShare', '0.4')) || 0.4);
   /** Closed by default like the summary line; open or closed and its dragged height remembered (null = its full height). */
   readonly timelineHidden = signal(readDbPref('timelineHidden', '1') === '1');
   readonly timelineHeight = signal<number | null>(Number(readDbPref('timelineHeight', '0')) || null);
   readonly draggingTimeline = signal(false);
+  /** The timeline as thin lanes (default) or labelled rows; remembered. */
+  readonly timelineMode = signal<'strip' | 'detail'>(readDbPref('timelineMode', 'strip') === 'detail' ? 'detail' : 'strip');
+  /** The statements toolbar's "View" menu: the display choices that used to take three rows. */
+  readonly viewMenu = signal(false);
+
+  setTimelineMode(mode: 'strip' | 'detail'): void {
+    this.timelineMode.set(mode);
+    saveDbPref('timelineMode', mode);
+    this.timelineHeight.set(null); // a height dragged for one mode is wrong for the other
+    saveDbPref('timelineHeight', '0');
+  }
+
+  /** A click outside the View menu closes it. */
+  @HostListener('document:click', ['$event'])
+  onDocumentClick(event: MouseEvent): void {
+    if (this.viewMenu() && !(event.target as HTMLElement | null)?.closest('.dbw-viewwrap')) this.viewMenu.set(false);
+  }
   /** Full window: the window fills the browser window. Remembered; Esc or F leaves it. */
   readonly full = signal(readDbPref('full', '0') === '1');
   readonly dragging = signal(false);

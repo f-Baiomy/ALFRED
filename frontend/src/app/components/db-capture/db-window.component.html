@@ -2,26 +2,28 @@
   <div class="dialog-card db-window" [class.compact]="compact()" [class.full]="full()" role="dialog" aria-label="Database statements">
     <div class="dbw-head">
       <div class="title">
-        @if (call(); as c) {
-          <h2>Database · {{ c.method }} <span class="url">{{ c.url }}</span></h2>
-          <p class="dialog-sub">Request {{ shortId(c.id) }}{{ c.service_name ? ' · ' + c.service_name : '' }} · {{ when(c.timestamp) }} · in the order they ran</p>
-        } @else {
-          <h2>Database · outside any call</h2>
-          <p class="dialog-sub">Scheduled jobs, message listeners and startup - statements no inbound call caused, grouped by thread</p>
-        }
-        <div class="stats">
-          <span class="stat"><b>{{ totalCount().toLocaleString() }}</b> statements</span>
-          <span class="stat w"><b>{{ writeCount() }}</b> writes · {{ deleteCount() }} deletes</span>
-          <span class="stat" [style.border-color]="failedCount() ? 'color-mix(in srgb,var(--red) 45%,transparent)' : null"><b style="color:var(--red)">{{ failedCount() }}</b> failed</span>
-          <span class="stat"><b>{{ txCount() }}</b> transactions · {{ rolledBackCount() }} rolled back</span>
-          <span class="stat"><b>{{ msText(dbMicros()) }}</b> in DB{{ callMs() != null ? ' of ' + callMs() + ' ms' : '' }}</span>
-          @if (droppedCount()) {
-            <span class="stat" style="border-color:color-mix(in srgb,var(--amber) 45%,transparent)" title="The agent's send queue was full - these statements were counted, not kept"><b style="color:var(--amber)">{{ droppedCount() }}</b> not kept</span>
-          }
-          @if (summary()?.endedEarly) {
-            <span class="stat" style="border-color:color-mix(in srgb,var(--red) 45%,transparent)" title="The call ended with an error while statements were still being captured - the application may have died mid-call">capture ended early</span>
+        <!-- two lines (compact-window-mock.html): what and when, then the counts beside the summary line -->
+        <div class="h-line">
+          @if (call(); as c) {
+            <h2>Database · {{ c.method }}</h2><span class="url" [title]="c.url">{{ c.url }}</span>
+            <span class="meta" title="In the order they ran">{{ shortId(c.id) }}{{ c.service_name ? ' · ' + c.service_name : '' }} · {{ when(c.timestamp) }}</span>
+          } @else {
+            <h2>Database · outside any call</h2>
+            <span class="meta">Scheduled jobs, message listeners and startup - statements no inbound call caused, grouped by thread</span>
           }
         </div>
+        <div class="h-line2">
+        <span class="stats-line">
+          <b>{{ totalCount().toLocaleString() }}</b> statements · <b>{{ writeCount() }}</b> writes · {{ deleteCount() }} deletes ·
+          <b [class.x]="failedCount()">{{ failedCount() }}</b> failed · <b>{{ txCount() }}</b> tx@if (rolledBackCount()) { ({{ rolledBackCount() }} rolled back)} ·
+          <b>{{ msText(dbMicros()) }}</b> DB{{ callMs() != null ? ' of ' + fmt(callMs()!) : '' }}
+          @if (droppedCount()) {
+            · <b class="w" title="The agent's send queue was full - these statements were counted, not kept">{{ droppedCount() }} not kept</b>
+          }
+          @if (summary()?.endedEarly) {
+            · <b class="x" title="The call ended with an error while statements were still being captured - the application may have died mid-call">capture ended early</b>
+          }
+        </span>
         @if (overview(); as o) {
           <!-- the one summary line, closed by default (remembered); open: timeline + findings (db-findings.ts) -->
           <div class="dbw-panel" [class.open]="panelOpen()">
@@ -30,10 +32,11 @@
               <span class="vtxt"><b class="tot">{{ fmt(o.totalMs) }}</b> · <b>{{ o.share }}</b> - {{ o.detail }}</span>
               @if (o.errors) {<span class="cnt bad">{{ o.errors }} {{ o.errors === 1 ? 'error' : 'errors' }}</span>}
               @if (o.toFix) {<span class="cnt warn">{{ o.toFix }} to fix</span>}
-              <span class="phint">{{ panelOpen() ? 'hide' : 'details' }}</span>
+              <span class="phint">{{ panelOpen() ? 'hide' : 'findings' }}</span>
             </div>
           </div>
         }
+        </div>
       </div>
       <div style="display:flex;gap:.4rem;flex:0 0 auto">
         <button type="button" class="dbw-close" [class.on]="full()" [attr.aria-label]="full() ? 'Leave full window' : 'Full window'"
@@ -55,11 +58,14 @@
               @if (showPanel()) {
                 <span class="lay">Findings: <a [class.on]="layout() === 'side'" (click)="setLayout('side')">Side by side</a><a [class.on]="layout() === 'stack'" (click)="setLayout('stack')">Stacked</a></span>
               }
+              @if (!timelineHidden()) {
+                <span class="lay"><a [class.on]="timelineMode() === 'strip'" (click)="setTimelineMode('strip')" title="Thin lanes - hover for what each item is">Strip</a><a [class.on]="timelineMode() === 'detail'" (click)="setTimelineMode('detail')" title="Labelled rows, every supplier call on its own row">Detailed</a></span>
+              }
               <a (click)="toggleTimeline()">{{ timelineHidden() ? 'show timeline' : 'hide timeline' }}</a>
             </span>
           </div>
           @if (!timelineHidden()) {
-            <app-db-timeline [overview]="o" [statements]="statements()" [highlight]="highlight()" (jumpTo)="jump($event)" />
+            <app-db-timeline [overview]="o" [statements]="statements()" [highlight]="highlight()" [strip]="timelineMode() === 'strip'" (jumpTo)="jump($event)" />
             @if (breakdown(); as b) {
               @if (b.overheadMs >= 1) {
                 <div class="tb-legend"><span title="Measured by the agent around the statements: DataSource.getConnection, setAutoCommit(false), commit/rollback (JDBC or JTA) and Connection.close">
@@ -83,50 +89,63 @@
       <div class="dbw-handle" [class.drag]="dragging()" (mousedown)="startResize($event)" title="Drag to resize"></div>
     }
     <div class="dbw-main">
-    <div class="views">
-      <button type="button" [class.on]="view() === 'stmts'" (click)="setView('stmts')">Statements<span class="count">{{ totalCount() }}</span></button>
-      @if (call()) {
-        <button type="button" [class.on]="view() === 'queries'" (click)="setView('queries')" title="One row per query, costliest first">Top queries<span class="count">{{ queries().length }}</span></button>
-        <button type="button" [class.on]="view() === 'tables'" (click)="setView('tables')">Tables<span class="count">{{ tableCount() }}</span></button>
+    <div class="dbw-bar">
+      <div class="views">
+        <button type="button" [class.on]="view() === 'stmts'" (click)="setView('stmts')">Statements<span class="count">{{ totalCount() }}</span></button>
+        @if (call()) {
+          <button type="button" [class.on]="view() === 'queries'" (click)="setView('queries')" title="One row per query, costliest first">Top queries<span class="count">{{ queries().length }}</span></button>
+          <button type="button" [class.on]="view() === 'tables'" (click)="setView('tables')">Tables<span class="count">{{ tableCount() }}</span></button>
+        }
+      </div>
+      @if (view() === 'stmts') {
+        @if (searchMode() === 'search') {
+          <input class="dbw-search" placeholder="Search SQL, table or value - e.g. wallet, 1042" [value]="state.search()" (input)="onSearch($event)">
+        } @else {
+          <span class="dbw-sqlmode">SQL over the statements, below · <a (click)="setSearchMode('search')">back to search</a></span>
+        }
+        @if (state.table()) {
+          <span class="table-chip" (click)="state.table.set('')">table: {{ state.table() }} ✕</span>
+        }
+        <div class="seg">
+          @for (k of kinds; track k.key) {
+            <button type="button" [class.on]="state.kind() === k.key" (click)="setKind(k.key)">{{ k.label }}</button>
+          }
+        </div>
+        <div class="dbw-viewwrap">
+          <button type="button" class="action-btn dbw-viewbtn" [class.on]="viewMenu()" (click)="viewMenu.set(!viewMenu())" aria-haspopup="true" [attr.aria-expanded]="viewMenu()">View ▾</button>
+          @if (viewMenu()) {
+            <div class="dbw-viewmenu" role="menu">
+              @if (call()) {
+                <label class="chk"><input type="checkbox" [checked]="state.showSuppliers()" (change)="state.showSuppliers.set(!state.showSuppliers())"> Supplier calls in the list</label>
+              }
+              <label class="chk"><input type="checkbox" [checked]="state.fill()" (change)="state.fill.set(!state.fill())"> Fill in values</label>
+              @if (call()) {
+                <label class="chk" title="Off: every statement in one plain list, in the order it ran"><input type="checkbox" [checked]="grouped()" (change)="setGrouped(!grouped())"> Group by transaction</label>
+              }
+              @if (hasOrigins()) {
+                <label class="chk" title="The several SQL statements one HQL query produced (join fetches, eager loads) under that query"><input type="checkbox" [checked]="groupedByQuery()" (change)="setGroupedByQuery(!groupedByQuery())"> Group by query</label>
+                <div class="vm-row" title="HQL: the query your code wrote. SQL sent: what reached the database.">Show rows as
+                  <div class="toggle">
+                    <button type="button" [class.on]="state.rowsAs() === 'hql'" (click)="setRowsAs('hql')">HQL</button>
+                    <button type="button" [class.on]="state.rowsAs() === 'sql'" (click)="setRowsAs('sql')">SQL sent</button>
+                  </div>
+                </div>
+              }
+              <div class="vm-sep"></div>
+              <div class="vm-row">
+                <button type="button" class="action-btn" (click)="expandAll()">Expand all</button>
+                <button type="button" class="action-btn" (click)="collapseAll()">Collapse all</button>
+                @if (call()) {
+                  <button type="button" class="action-btn" [class.on]="searchMode() === 'sql'" (click)="setSearchMode(searchMode() === 'sql' ? 'search' : 'sql'); viewMenu.set(false)"
+                          title="Query the statements with SQL">SQL search…</button>
+                }
+              </div>
+            </div>
+          }
+        </div>
       }
     </div>
     @if (view() === 'stmts') {
-    <div class="dbw-tools">
-      @if (call()) {
-        <div class="toggle">
-          <button type="button" [class.on]="searchMode() === 'search'" (click)="setSearchMode('search')">Search</button>
-          <button type="button" [class.on]="searchMode() === 'sql'" (click)="setSearchMode('sql')">SQL</button>
-        </div>
-      }
-      @if (searchMode() === 'search') {
-        <input class="dbw-search" placeholder="Search SQL, table or value - e.g. wallet, 1042" [value]="state.search()" (input)="onSearch($event)">
-      }
-      @if (state.table()) {
-        <span class="table-chip" (click)="state.table.set('')">table: {{ state.table() }} ✕</span>
-      }
-      <div class="seg">
-        @for (k of kinds; track k.key) {
-          <button type="button" [class.on]="state.kind() === k.key" (click)="setKind(k.key)">{{ k.label }}</button>
-        }
-      </div>
-      @if (call()) {
-        <label class="chk"><input type="checkbox" [checked]="state.showSuppliers()" (change)="state.showSuppliers.set(!state.showSuppliers())"> Supplier calls</label>
-      }
-      <label class="chk"><input type="checkbox" [checked]="state.fill()" (change)="state.fill.set(!state.fill())"> Fill in values</label>
-      @if (call()) {
-        <label class="chk" title="Off: every statement in one plain list, in the order it ran"><input type="checkbox" [checked]="grouped()" (change)="setGrouped(!grouped())"> Group by transaction</label>
-      }
-      @if (hasOrigins()) {
-        <label class="chk" title="The several SQL statements one HQL query produced (join fetches, eager loads) under that query"><input type="checkbox" [checked]="groupedByQuery()" (change)="setGroupedByQuery(!groupedByQuery())"> Group by query</label>
-        <span class="lbl-sm">Show rows as</span>
-        <div class="toggle" title="HQL: the query your code wrote. SQL sent: what reached the database.">
-          <button type="button" [class.on]="state.rowsAs() === 'hql'" (click)="setRowsAs('hql')">HQL</button>
-          <button type="button" [class.on]="state.rowsAs() === 'sql'" (click)="setRowsAs('sql')">SQL sent</button>
-        </div>
-      }
-      <button type="button" class="action-btn" (click)="expandAll()">Expand all</button>
-      <button type="button" class="action-btn" (click)="collapseAll()">Collapse all</button>
-    </div>
     @if (searchMode() === 'sql') {
       <div class="stmt-sql">
         <div class="rq-sql">

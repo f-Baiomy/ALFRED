@@ -20,6 +20,10 @@ const ROW_PX = 19;
 const SUP_ROW_PX = 14;
 const SUP_SEG_PX = 12;
 const SUP_MAX_ROWS = 4;
+/** Strip mode: thin lanes, every supplier call in one 20 px lane. */
+const STRIP_ROW_PX = 11;
+const STRIP_SEG_PX = 9;
+const STRIP_SUP_PX = 20;
 const LABEL_MIN_PCT = 6;
 
 /**
@@ -32,7 +36,7 @@ const LABEL_MIN_PCT = 6;
   selector: 'app-db-timeline',
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="dbt" [class.dimmed]="highlight()?.size">
+    <div class="dbt" [class.dimmed]="highlight()?.size" [class.strip]="strip()">
       <div class="dbt-axis">
         @for (t of ticks(); track t) {<span [style.left.%]="x(t)">{{ fmt(t) }}</span>}
       </div>
@@ -45,13 +49,14 @@ const LABEL_MIN_PCT = 6;
               <div class="dbt-seg" [class]="'dbt-seg k-' + it.kind" [class.hl]="highlight()?.has(it.key)"
                    [style.left.%]="x(it.atMs)" [style.width.%]="w(it.ms)" [style.top.px]="3 + it.row * lane.rowPx" [style.height.px]="lane.segPx"
                    (mousemove)="showTip($event, it)" (mouseleave)="tip.set(null)" (mousedown)="$event.stopPropagation()" (click)="jumpTo.emit(it.jump)">
-                @if (it.label && w(it.ms) > labelMin) {<span class="lb" [style.line-height.px]="lane.segPx">{{ it.label }}</span>}
+                @if (it.label && w(it.ms) > labelMin && lane.segPx >= 9 && (!strip() || it.kind === 'idle')) {<span class="lb" [style.line-height.px]="lane.segPx">{{ it.label }}</span>}
               </div>
             }
+            @if (lane.note) {<span class="dbt-note">{{ lane.note }}</span>}
             @if (lane.hidden.length) {
               <span class="dbt-more" [style.top.px]="3 + (lane.rows - 1) * lane.rowPx" (mousedown)="$event.stopPropagation()"
                     (mousemove)="showMore($event, lane.hidden)" (mouseleave)="tip.set(null)" (click)="supExpanded.set(true); tip.set(null)">+{{ lane.hidden.length }} parallel</span>
-            } @else if (lane.name === 'Supplier calls' && supExpanded()) {
+            } @else if (lane.name === 'Supplier calls' && supExpanded() && !strip()) {
               <span class="dbt-more" style="top:3px" (mousedown)="$event.stopPropagation()" (click)="supExpanded.set(false)">fewer rows</span>
             }
             @if (brush(); as b) {
@@ -60,9 +65,11 @@ const LABEL_MIN_PCT = 6;
           </div>
         </div>
       }
-      <div class="dbt-legend">
-        @for (k of legend(); track k) {<span><i [class]="'k-' + k"></i>{{ labels[k] }}</span>}
-      </div>
+      @if (!strip()) {
+        <div class="dbt-legend">
+          @for (k of legend(); track k) {<span><i [class]="'k-' + k"></i>{{ labels[k] }}</span>}
+        </div>
+      }
       @if (zoomed()) {
         <div class="dbt-zoom">Zoomed to {{ fmt(view()[0]) }} - {{ fmt(view()[1]) }}
           <button type="button" (click)="resetZoom()">Show all {{ fmt(overview().totalMs) }}</button></div>
@@ -82,6 +89,8 @@ export class DbTimelineComponent {
   readonly statements = input.required<readonly CapturedStatement[]>();
   /** Items a hovered finding or chip lights up - the rest dim. */
   readonly highlight = input<ReadonlySet<string> | null>(null);
+  /** Thin lanes: every supplier call in one lane as stacked slivers, no labels or legend - hover tells. */
+  readonly strip = input(false);
   readonly jumpTo = output<number>();
 
   protected readonly labelMin = LABEL_MIN_PCT;
@@ -133,13 +142,24 @@ export class DbTimelineComponent {
     const [a, b] = this.view();
     const visible = (items: Item[]) => items.filter((it) => it.atMs + it.ms >= a && it.atMs <= b);
     const supRows = Math.max(1, ...o.suppliers.map((c) => c.row + 1));
+    const none: TimelineSupplier[] = [];
+    if (this.strip()) {
+      // every supplier call in one 20 px lane, a row of slivers per call running at the same time
+      const per = Math.max(1, Math.min(STRIP_SUP_PX / 2, Math.floor(STRIP_SUP_PX / supRows)));
+      return [
+        { name: 'Database', items: visible(db), rows: 1, rowPx: STRIP_ROW_PX, segPx: STRIP_SEG_PX, hidden: none, note: '' },
+        { name: 'Suppliers', items: visible(sup), rows: Math.ceil(STRIP_SUP_PX / per), rowPx: per, segPx: Math.max(1, per - 1), hidden: none,
+          note: o.suppliers.length > 1 ? `${o.suppliers.length} calls${supRows > 1 ? `, up to ${supRows} at once` : ''}` : '' },
+        { name: 'Idle', items: visible(idle), rows: 1, rowPx: STRIP_ROW_PX, segPx: STRIP_SEG_PX, hidden: none, note: '' },
+      ].filter((l) => l.name === 'Database' || l.items.length || (l.name === 'Suppliers' && o.suppliers.length));
+    }
     const capped = !this.supExpanded() && supRows > SUP_MAX_ROWS;
     const hidden = capped ? o.suppliers.filter((c) => c.row >= SUP_MAX_ROWS) : [];
     const lanes = [
-      { name: 'Database', items: visible(db), rows: 1, rowPx: ROW_PX, segPx: 16, hidden: [] as TimelineSupplier[] },
+      { name: 'Database', items: visible(db), rows: 1, rowPx: ROW_PX, segPx: 16, hidden: none, note: '' },
       { name: 'Supplier calls', items: visible(sup.filter((it) => !capped || it.row < SUP_MAX_ROWS)), rows: capped ? SUP_MAX_ROWS : supRows,
-        rowPx: SUP_ROW_PX, segPx: SUP_SEG_PX, hidden },
-      { name: 'Idle (app only)', items: visible(idle), rows: 1, rowPx: ROW_PX, segPx: 16, hidden: [] as TimelineSupplier[] },
+        rowPx: SUP_ROW_PX, segPx: SUP_SEG_PX, hidden, note: '' },
+      { name: 'Idle (app only)', items: visible(idle), rows: 1, rowPx: ROW_PX, segPx: 16, hidden: none, note: '' },
     ];
     return lanes.filter((l) => l.name === 'Database' || l.items.length || (l.name === 'Supplier calls' && o.suppliers.length));
   });

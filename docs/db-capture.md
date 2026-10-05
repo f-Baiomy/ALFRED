@@ -164,7 +164,10 @@ Built from a review of real OdeySys exports by an AI agent (mock: `specs/006-db-
   default; the bar under the timeline drags its height (double-click: full height). Layout, sizes, the timeline's
   open state and full window (⛶ or F; the first Esc leaves it) are remembered per browser
   (`alfred.dbCapture.*`). Supplier calls stack at most 4 rows ("+N parallel" lists and expands the rest); several notes
-  share one line.
+  share one line. Compact by default (`specs/006-db-capture/compact-window-mock.html`): a two-line header, the
+  timeline as a "Strip" (thin lanes, every supplier call as slivers in one lane - "Detailed" restores labelled rows),
+  and the statements toolbar in one row with the display choices under "View ▾" - in a 730 px window the statement
+  list went from ~2 visible rows to 14.
 
 ## Exports
 
