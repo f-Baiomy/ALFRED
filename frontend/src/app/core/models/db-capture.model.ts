@@ -46,6 +46,29 @@ export interface StatementOutcome {
   readonly swallowed?: boolean | null;
   readonly txResult?: string | null;
   readonly heldMicros?: number | null;
+  /** First statement on a freshly checked-out connection: how long getConnection took. */
+  readonly acquireMicros?: number | null;
+  /** TX_END: JDBC (Connection.commit/rollback) or JTA (the container's transaction), and what ending it cost. */
+  readonly via?: 'JDBC' | 'JTA' | null;
+  readonly beginMicros?: number | null;
+  readonly commitMicros?: number | null;
+  readonly closeMicros?: number | null;
+}
+
+/** One index of a table, from database metadata (the agent's opt-in Index check). */
+export interface TableIndex {
+  readonly name: string;
+  readonly unique: boolean;
+  readonly columns: readonly string[];
+}
+
+/** A transaction's cost beyond its statements, and how it ended. Microseconds. */
+export interface TxLifecycle {
+  readonly via?: 'JDBC' | 'JTA' | null;
+  readonly acquireMicros?: number | null;
+  readonly beginMicros?: number | null;
+  readonly commitMicros?: number | null;
+  readonly closeMicros?: number | null;
 }
 
 export type BeforeImageSource = 'EARLIER_READ' | 'AGENT_READ' | 'NONE';
@@ -111,6 +134,8 @@ export interface CapturedStatement {
   readonly codeLocation?: string | null;
   /** The application frames that issued it, innermost first, past the project's pass-through classes (db-agent). */
   readonly callers?: readonly string[] | null;
+  /** Its table's indexes - on the first statement of each table in a call, when the project's Index check is on. */
+  readonly indexes?: readonly TableIndex[] | null;
   readonly runTag?: string | null;
   readonly dataSource?: string | null;
   readonly beforeImage?: BeforeImage | null;
@@ -134,6 +159,7 @@ export interface StatementTransaction {
   readonly heldMicros: number;
   readonly statementCount: number;
   readonly writeCount: number;
+  readonly lifecycle?: TxLifecycle | null;
 }
 
 /** Where a supplier call sits in the call's sequence (the agent's HTTP_OUT marker). */
@@ -189,6 +215,12 @@ export interface TimeBreakdown {
   readonly transactions: number;
   /** Most of the call is neither DB nor supplier calls - the time is in the application (or unseen overhead). */
   readonly appTimeDominant: boolean;
+  /**
+   * Connection checkouts, begins, commits and hand-backs the agent timed (inside the gaps - the statements do not
+   * include them): the per-transaction overhead that a remote database multiplies.
+   */
+  readonly overheadMs: number;
+  readonly checkouts: number;
 }
 
 export interface QueryTotal {

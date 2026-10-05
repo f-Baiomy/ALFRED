@@ -5,6 +5,7 @@ import com.fathy.alfred.backend.dbcapture.domain.model.IncomingStatement;
 import com.fathy.alfred.backend.dbcapture.domain.model.StatementKind;
 import com.fathy.alfred.backend.dbcapture.domain.model.StatementOrigin;
 import com.fathy.alfred.backend.dbcapture.domain.model.StatementOutcome;
+import com.fathy.alfred.backend.dbcapture.domain.model.TableIndex;
 import com.fathy.alfred.backend.dbcapture.domain.model.TypedValue;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -39,12 +40,14 @@ public record StatementDto(
         @Size(max = 300) String dataSource,
         @Size(max = 200) List<String> cascadesTo,
         StatementOrigin origin,
-        @Size(max = 20) List<@Size(max = 1000) String> callers
+        @Size(max = 20) List<@Size(max = 1000) String> callers,
+        @Size(max = 200) List<TableIndex> indexes
 ) {
     public IncomingStatement toDomain() {
         return new IncomingStatement(sid, blankToNull(callId), blankToNull(runTag), thread, seq, kind, sql, fingerprint, table, params,
                 outcome, rows, rowsFrom, beforeImageRows, beforeImage, startedAt, durationMicros, offsetMicros, txId, connectionId,
-                codeLocation, dataSource, cascadesTo, origin, callers == null || callers.isEmpty() ? null : callers);
+                codeLocation, dataSource, cascadesTo, origin, callers == null || callers.isEmpty() ? null : callers,
+                indexes == null || indexes.isEmpty() ? null : indexes);
     }
 
     private static String blankToNull(String value) {

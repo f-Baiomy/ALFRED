@@ -66,6 +66,34 @@ public final class Bridge {
 
         void autoCommit(Object connection, boolean autoCommit);
 
+        /** setAutoCommit(false) returned after {@code nanos} - the transaction's begin. */
+        default void autoCommitDone(Object connection, long nanos) {
+        }
+
+        /** DataSource.getConnection starts; token for {@link #acquireExit} (null when nested inside another one). */
+        default Object acquireEnter() {
+            return null;
+        }
+
+        default void acquireExit(Object token, Object connection) {
+        }
+
+        /** Connection.close starts; token for {@link #closeExit}. */
+        default Object closeEnter(Object connection) {
+            return null;
+        }
+
+        default void closeExit(Object token) {
+        }
+
+        /** A JTA commit/rollback starts (Transaction, TransactionManager, UserTransaction); token for {@link #jtaExit}. */
+        default Object jtaEnter(String method) {
+            return null;
+        }
+
+        default void jtaExit(Object token, Throwable thrown) {
+        }
+
         /** commit/rollback/setSavepoint/rollback(Savepoint) - token pattern like execute. */
         Object transactionEnter(Object connection, String method, Object[] args);
 

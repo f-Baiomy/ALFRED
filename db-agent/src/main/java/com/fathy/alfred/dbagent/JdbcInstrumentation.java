@@ -2,6 +2,9 @@ package com.fathy.alfred.dbagent;
 
 import com.fathy.alfred.dbagent.advice.AddBatchAdvice;
 import com.fathy.alfred.dbagent.advice.AutoCommitAdvice;
+import com.fathy.alfred.dbagent.advice.ConnectionCloseAdvice;
+import com.fathy.alfred.dbagent.advice.DataSourceAdvice;
+import com.fathy.alfred.dbagent.advice.JtaAdvice;
 import com.fathy.alfred.dbagent.advice.ClearParametersAdvice;
 import com.fathy.alfred.dbagent.advice.ExecuteAdvice;
 import com.fathy.alfred.dbagent.advice.HttpClientAdvice;
@@ -63,6 +66,15 @@ final class JdbcInstrumentation {
         builder = advise(builder, connections, StatementCreatedAdvice.class,
                 namedOneOf("prepareStatement", "prepareCall", "createStatement").and(isPublic()));
         builder = advise(builder, connections, AutoCommitAdvice.class, named("setAutoCommit").and(takesArguments(boolean.class)));
+        // Connection lifecycle: checkout, hand-back, and container-managed (JTA) commit - the per-transaction overhead
+        // a statement list cannot show.
+        builder = advise(builder, implementing(javax.sql.DataSource.class), DataSourceAdvice.class,
+                named("getConnection").and(isPublic()).and(takesArguments(0).or(takesArguments(2))));
+        builder = advise(builder, connections, ConnectionCloseAdvice.class, named("close").and(takesArguments(0)));
+        builder = advise(builder, hasSuperType(namedOneOf("javax.transaction.Transaction", "javax.transaction.TransactionManager",
+                        "javax.transaction.UserTransaction", "jakarta.transaction.Transaction", "jakarta.transaction.TransactionManager",
+                        "jakarta.transaction.UserTransaction")).and(not(isInterface())),
+                JtaAdvice.class, namedOneOf("commit", "rollback").and(takesArguments(0)).and(isPublic()));
         builder = advise(builder, connections, TransactionAdvice.class,
                 namedOneOf("commit", "rollback", "setSavepoint").and(takesArguments(0).or(takesArguments(1))));
 

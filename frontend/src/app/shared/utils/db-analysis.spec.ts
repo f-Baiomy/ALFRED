@@ -1,7 +1,7 @@
 import { CallRecord } from '../../core/models/call.model';
 import { CapturedStatement, TypedValue } from '../../core/models/db-capture.model';
 import { stmt } from './db-capture.fixtures.spec-helper';
-import { queryTotals, roundTripMs, suppliersOf, timeBreakdown } from './db-analysis';
+import { indexHint, queryTotals, roundTripMs, suppliersOf, timeBreakdown } from './db-analysis';
 
 const v = (value: string): TypedValue => ({ type: 'BIGINT', value });
 
@@ -53,5 +53,23 @@ describe('db-analysis', () => {
   it('finds a call\'s supplier calls among the exported calls by their parent link', () => {
     const calls = [{ id: 'a', parentCallId: 'in', parentSeq: 5 }, { id: 'b', parentCallId: 'other', parentSeq: 1 }, { id: 'c' }] as CallRecord[];
     expect([...suppliersOf('in', calls).keys()]).toEqual([5]);
+  });
+
+  it('sums the connection and transaction overhead the agent timed', () => {
+    const call = { timestamp: '2026-10-05T00:00:00.000Z', duration_ms: 1000 };
+    const statements = [
+      at(1, 0, 10, undefined, undefined, { outcome: { kind: 'ROWS', rowsRead: 1, acquireMicros: 54_000 } }),
+      stmt(2, 'COMMIT', 'COMMIT', { outcome: { kind: 'TX_END', txResult: 'COMMITTED', via: 'JTA', beginMicros: 1_000, commitMicros: 56_000, closeMicros: 200 } }),
+    ];
+    const t = timeBreakdown(call, statements, [], new Map(), 1);
+    expect(t.overheadMs).toBe(111.2);
+    expect(t.checkouts).toBe(1);
+  });
+
+  it('says when no index starts with a column the statement filters by', () => {
+    const hint = indexHint('SELECT * FROM tt_organization WHERE branch_id = ? AND status = ?', [
+      { name: 'PK', unique: true, columns: ['ORGANIZATION_ID'] }, { name: 'IX_STATUS', unique: false, columns: ['STATUS', 'NAME'] }]);
+    expect(hint.filterColumns).toEqual(['branch_id', 'status']);
+    expect(hint.unindexed).toEqual(['branch_id']);
   });
 });

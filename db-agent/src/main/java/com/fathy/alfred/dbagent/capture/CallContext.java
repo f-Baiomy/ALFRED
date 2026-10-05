@@ -16,6 +16,8 @@ public final class CallContext {
     final long startNanos;
     private final AtomicInteger seq = new AtomicInteger();
     private final AtomicInteger tx = new AtomicInteger();
+    /** Tables whose index list this call has already sent (Index check: once per table per call). */
+    private final java.util.Set<String> indexedTables = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     CallContext(String callId, String runTag, long startNanos) {
         this.callId = callId;
@@ -74,5 +76,10 @@ public final class CallContext {
             return null;
         }
         return new CallContext(id, run == null || run.isEmpty() ? null : run, nowNanos);
+    }
+
+    /** True the first time this call asks about {@code table}. */
+    boolean firstIndexLookup(String table) {
+        return indexedTables.add(table.toLowerCase(java.util.Locale.ROOT));
     }
 }

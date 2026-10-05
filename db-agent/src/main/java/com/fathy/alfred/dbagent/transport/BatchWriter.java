@@ -63,6 +63,13 @@ public final class BatchWriter {
         w.field("startedAt", s.startedAt).name("durationMicros").value(s.durationMicros).name("offsetMicros").value(s.offsetMicros)
                 .field("txId", s.txId).field("connectionId", s.connectionId).field("codeLocation", s.codeLocation)
                 .field("dataSource", s.dataSource).stringArray("cascadesTo", s.cascadesTo).stringArray("callers", s.callers);
+        if (s.indexes != null && !s.indexes.isEmpty()) {
+            w.name("indexes").beginArray();
+            for (IndexRecord ix : s.indexes) {
+                w.beginObject().name("name").value(ix.name).name("unique").value(ix.unique).stringArray("columns", ix.columns).endObject();
+            }
+            w.endArray();
+        }
         if (s.origin != null) {
             w.name("origin");
             origin(w, s.origin);
@@ -111,7 +118,8 @@ public final class BatchWriter {
             w.endArray();
         }
         w.field("sqlState", o.sqlState).field("vendorCode", o.vendorCode).field("message", o.message).stringArray("chain", o.chain)
-                .field("txResult", o.txResult).field("heldMicros", o.heldMicros);
+                .field("txResult", o.txResult).field("heldMicros", o.heldMicros).field("acquireMicros", o.acquireMicros)
+                .field("via", o.via).field("beginMicros", o.beginMicros).field("commitMicros", o.commitMicros).field("closeMicros", o.closeMicros);
         w.endObject();
     }
 

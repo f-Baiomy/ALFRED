@@ -11,6 +11,7 @@ import { DbRowsTableComponent } from './db-rows-table.component';
 import { paramColumns } from '../../shared/utils/sql-param-columns';
 import { DbSqlComponent } from './db-sql.component';
 import { DbOriginCardsComponent } from './db-origin-cards.component';
+import { indexHint, indexesByTable } from '../../shared/utils/db-analysis';
 import { DbDetailTab, DbWindowState } from './db-window-state';
 
 interface TabDef {
@@ -87,6 +88,12 @@ interface TabDef {
           }
         }
         @case ('sql') {
+          @if (indexInfo(); as ix) {
+            <div class="dimline ix-line">Indexes on <code>{{ statement().table }}</code>:
+              @for (i of ix.indexes; track i.name) {<code>{{ i.name }}({{ i.columns.join(', ') }}){{ i.unique ? ' unique' : '' }}</code>{{ $last ? '' : ' · ' }}}
+              @if (ix.hint.unindexed.length) { - <b style="color:var(--amber)">no index starts with {{ ix.hint.unindexed.join(', ').toUpperCase() }}</b>, which this statement filters by}
+            </div>
+          }
           @if (state.hasOrigins()) {
             <app-db-origin-cards [statement]="statement()" />
           } @else {
@@ -198,6 +205,13 @@ export class DbStatementDetailComponent implements OnInit {
   readonly rowCount = computed(() => rowCountOf(this.statement()).toLocaleString());
   /** The column each parameter is bound to, where the SQL says (INSERT list, SET/WHERE col = ?). */
   readonly paramColumns = computed(() => paramColumns(this.statement().sql));
+  /** The table's indexes (from whichever statement of it carried them) and whether this statement's filter columns lead one. */
+  readonly indexInfo = computed(() => {
+    const s = this.statement();
+    if (!s.table) return null;
+    const indexes = s.indexes ?? indexesByTable([...this.state.statementBySeq().values()]).get(s.table.toLowerCase());
+    return indexes?.length ? { indexes, hint: indexHint(s.sql, indexes) } : null;
+  });
   readonly fileLine = computed(() => codeFileLine(this.statement().callers?.[0] ?? this.statement().codeLocation));
 
   frameLink(frame: string): { readonly file: string; readonly line: number } | null {

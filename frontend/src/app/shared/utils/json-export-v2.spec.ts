@@ -35,8 +35,9 @@ function makeCapture(): CallDbCapture {
       callId: 'in-1', params: [[v('VARCHAR', 'n'), v('BIGINT', '1')]], dataSource: 'Oracle 19c', thread: 'task-1', connectionId: 'c1',
       origin: { ...HQL, params: [{ name: ':id', value: '***REDACTED***' }] }, // same id, different content: kept whole
       beforeImage: { source: 'AGENT_READ', rowCount: 1, columns: [{ name: 'name', type: 'VARCHAR' }] },
+      table: 't', indexes: [{ name: 'PK_T', unique: true, columns: ['ID'] }],
     }),
-    outcome: { kind: 'UPDATED', affected: 1 },
+    outcome: { kind: 'UPDATED', affected: 1, acquireMicros: 54_210 },
     beforeImageRows: [[v('VARCHAR', 'old')]],
   };
   return {
@@ -44,7 +45,8 @@ function makeCapture(): CallDbCapture {
       callId: 'in-1', statementCount: 3, writeCount: 1, deleteCount: 0, failedCount: 0, transactionCount: 1, rolledBackCount: 0, dbMicros: 3000,
       flags: [{ type: 'SLOW', severity: 'WARN', seqs: [1], detail: { ms: '61', table: 't' } }],
     } as never,
-    transactions: [{ callId: 'in-1', txId: 'tx-1', firstSeq: 1, lastSeq: 3, outcome: 'COMMITTED', heldMicros: 9000, statementCount: 3, writeCount: 1 }],
+    transactions: [{ callId: 'in-1', txId: 'tx-1', firstSeq: 1, lastSeq: 3, outcome: 'COMMITTED', heldMicros: 9000, statementCount: 3, writeCount: 1,
+      lifecycle: { via: 'JTA', acquireMicros: 54_210, beginMicros: 900, commitMicros: 56_003, closeMicros: 120 } }],
     supplierMarkers: [{ seq: 4, method: 'POST', url: 'https://ndc.example/api/FlightSearch/Search' }],
     statements: [select, second, update],
   };
@@ -174,6 +176,9 @@ describe('json export version 2', () => {
     // a call chain shared by statements is written once
     expect(header.stacks).toEqual({ s1: CHAIN });
     expect([first.stack, second.stack, third.stack]).toEqual(['s1', 's1', undefined]);
+    // a table's index list is written once and named by the statement
+    expect(header.indexes).toEqual({ t: [{ name: 'PK_T', unique: true, columns: ['ID'] }] });
+    expect(third.indexes).toBe('t');
   });
 
   it('opens with a guide, the layout and the highlights - failures first', () => {

@@ -32,6 +32,15 @@ public record IncomingStatement(
         String dataSource,
         List<String> cascadesTo,
         StatementOrigin origin,
-        List<String> callers
+        List<String> callers,
+        List<TableIndex> indexes
 ) {
+    public IncomingStatement(String sid, String callId, String runTag, String thread, int seq, StatementKind kind, String sql,
+                             String fingerprint, String table, List<List<TypedValue>> params, StatementOutcome outcome,
+                             List<List<TypedValue>> rows, int rowsFrom, List<List<TypedValue>> beforeImageRows, BeforeImage beforeImage,
+                             String startedAt, long durationMicros, long offsetMicros, String txId, String connectionId,
+                             String codeLocation, String dataSource, List<String> cascadesTo, StatementOrigin origin, List<String> callers) {
+        this(sid, callId, runTag, thread, seq, kind, sql, fingerprint, table, params, outcome, rows, rowsFrom, beforeImageRows, beforeImage,
+                startedAt, durationMicros, offsetMicros, txId, connectionId, codeLocation, dataSource, cascadesTo, origin, callers, null);
+    }
 }

@@ -18,7 +18,9 @@ import com.fathy.alfred.backend.dbcapture.domain.model.StatementKind;
 import com.fathy.alfred.backend.dbcapture.domain.model.StatementOrigin;
 import com.fathy.alfred.backend.dbcapture.domain.model.StatementOutcome;
 import com.fathy.alfred.backend.dbcapture.domain.model.StatementTransaction;
+import com.fathy.alfred.backend.dbcapture.domain.model.TableIndex;
 import com.fathy.alfred.backend.dbcapture.domain.model.TraceHit;
+import com.fathy.alfred.backend.dbcapture.domain.model.TxLifecycle;
 import com.fathy.alfred.backend.dbcapture.domain.model.TypedValue;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
@@ -80,10 +82,11 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
     private static final TypeReference<List<TypedValue>> VALUE_ROW = new TypeReference<>() { };
     private static final TypeReference<List<String>> STRINGS = new TypeReference<>() { };
     private static final TypeReference<List<DbFlag>> FLAGS = new TypeReference<>() { };
+    private static final TypeReference<List<TableIndex>> INDEXES = new TypeReference<>() { };
 
     private static final String STATEMENT_COLUMNS = "id, call_id, thread_name, seq, kind, sql, fingerprint, table_name, params_json, "
             + "outcome_json, started_at, duration_us, offset_us, tx_id, connection_id, code_location, run_tag, data_source, "
-            + "before_json, cascades_json, undone, expected, stored_rows, origin_json, callers_json";
+            + "before_json, cascades_json, undone, expected, stored_rows, origin_json, callers_json, indexes_json";
 
     private final ObjectMapper objectMapper;
 
@@ -185,6 +188,8 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
         addColumnIfMissing("call_db_summary", "project", "TEXT");
         addColumnIfMissing("statements", "origin_json", "TEXT");
         addColumnIfMissing("statements", "callers_json", "TEXT");
+        addColumnIfMissing("statements", "indexes_json", "TEXT");
+        addColumnIfMissing("transactions", "lifecycle_json", "TEXT");
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS ix_summary_first_seen ON call_db_summary(first_seen)");
         jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS capture_settings (project TEXT PRIMARY KEY, settings_json TEXT NOT NULL)");
         jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS agents (agent_id TEXT PRIMARY KEY, project TEXT NOT NULL, status_json TEXT NOT NULL, last_seen TEXT NOT NULL)");
@@ -217,8 +222,9 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
         String cascades = s.cascadesTo() == null || s.cascadesTo().isEmpty() ? null : json(s.cascadesTo());
         String origin = s.origin() == null ? null : json(s.origin());
         String callers = s.callers() == null || s.callers().isEmpty() ? null : json(s.callers());
+        String indexes = s.indexes() == null || s.indexes().isEmpty() ? null : json(s.indexes());
         long rowsBytes = 0;
-        long id = insertReturningId(s, params, outcome, before, cascades, origin, callers);
+        long id = insertReturningId(s, params, outcome, before, cascades, origin, callers, indexes);
         rowsBytes += insertRows(id, RESULT, s.rowsFrom(), s.rows());
         rowsBytes += insertRows(id, BEFORE_IMAGE, 0, s.beforeImageRows());
         long stored = s.rows() == null ? 0 : s.rows().size();
@@ -228,13 +234,13 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
     }
 
     private long insertReturningId(IncomingStatement s, String params, String outcome, String before, String cascades, String origin,
-                                   String callers) {
+                                   String callers, String indexes) {
         Long id = jdbcTemplate.execute((ConnectionCallback<Long>) connection -> {
             try (PreparedStatement ps = connection.prepareStatement("""
                     INSERT INTO statements (agent_sid, call_id, thread_name, seq, kind, sql, fingerprint, table_name, params_json,
                       outcome_json, started_at, duration_us, offset_us, tx_id, connection_id, code_location, run_tag, data_source,
-                      before_json, cascades_json, origin_json, callers_json, approx_bytes)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)
+                      before_json, cascades_json, origin_json, callers_json, indexes_json, approx_bytes)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)
                     """, Statement.RETURN_GENERATED_KEYS)) {
                 ps.setString(1, s.sid());
                 ps.setString(2, s.callId());
@@ -258,6 +264,7 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
                 ps.setString(20, cascades);
                 ps.setString(21, origin);
                 ps.setString(22, callers);
+                ps.setString(23, indexes);
                 ps.executeUpdate();
                 try (ResultSet keys = ps.getGeneratedKeys()) {
                     keys.next();
@@ -330,19 +337,26 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
             String outcome = StatementTransaction.OPEN;
             long held = 0;
             TxRow last = tx.get(tx.size() - 1);
+            StatementOutcome end = null;
             if (last.kind() == StatementKind.COMMIT || last.kind() == StatementKind.ROLLBACK) {
-                StatementOutcome end = read(last.outcomeJson(), StatementOutcome.class);
+                end = read(last.outcomeJson(), StatementOutcome.class);
                 outcome = last.kind() == StatementKind.COMMIT ? StatementTransaction.COMMITTED : StatementTransaction.ROLLED_BACK;
                 held = end.heldMicros() == null ? 0 : end.heldMicros();
             }
+            Long acquire = read(tx.get(0).outcomeJson(), StatementOutcome.class).acquireMicros();
+            TxLifecycle lifecycle = end == null && acquire == null ? null
+                    : new TxLifecycle(end == null ? null : end.via(), acquire, end == null ? null : end.beginMicros(),
+                    end == null ? null : end.commitMicros(), end == null ? null : end.closeMicros());
             int writes = (int) tx.stream().filter(r -> r.kind().isWrite()).count();
             jdbcTemplate.update("""
-                    INSERT INTO transactions (call_id, tx_id, connection_id, first_seq, last_seq, outcome, held_us, statement_count, write_count)
-                    VALUES (?,?,?,?,?,?,?,?,?)
+                    INSERT INTO transactions (call_id, tx_id, connection_id, first_seq, last_seq, outcome, held_us, statement_count, write_count,
+                      lifecycle_json)
+                    VALUES (?,?,?,?,?,?,?,?,?,?)
                     ON CONFLICT(call_id, tx_id) DO UPDATE SET connection_id = excluded.connection_id, first_seq = excluded.first_seq,
                       last_seq = excluded.last_seq, outcome = excluded.outcome, held_us = excluded.held_us,
-                      statement_count = excluded.statement_count, write_count = excluded.write_count
-                    """, callId, entry.getKey(), tx.get(0).connectionId(), tx.get(0).seq(), last.seq(), outcome, held, tx.size(), writes);
+                      statement_count = excluded.statement_count, write_count = excluded.write_count, lifecycle_json = excluded.lifecycle_json
+                    """, callId, entry.getKey(), tx.get(0).connectionId(), tx.get(0).seq(), last.seq(), outcome, held, tx.size(), writes,
+                    lifecycle == null ? null : json(lifecycle));
             if (StatementTransaction.ROLLED_BACK.equals(outcome)) {
                 jdbcTemplate.update("UPDATE statements SET undone = 1 WHERE call_id = ? AND tx_id = ? AND kind NOT IN ('COMMIT','ROLLBACK','SAVEPOINT','ROLLBACK_TO_SAVEPOINT')",
                         callId, entry.getKey());
@@ -475,7 +489,8 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
             rs.getString("cascades_json") == null ? null : read(rs.getString("cascades_json"), STRINGS),
             rs.getInt("undone") != 0, rs.getInt("expected") != 0, rs.getLong("stored_rows"),
             readNullable(rs.getString("origin_json"), StatementOrigin.class),
-            rs.getString("callers_json") == null ? null : read(rs.getString("callers_json"), STRINGS));
+            rs.getString("callers_json") == null ? null : read(rs.getString("callers_json"), STRINGS),
+            rs.getString("indexes_json") == null ? null : read(rs.getString("indexes_json"), INDEXES));
 
     @Override
     public List<CapturedStatement> statementsAfter(String callId, int afterSeq, int limit) {
@@ -500,11 +515,11 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
 
     @Override
     public List<StatementTransaction> transactions(String callId) {
-        return jdbcTemplate.query("SELECT call_id, tx_id, connection_id, first_seq, last_seq, outcome, held_us, statement_count, write_count "
-                        + "FROM transactions WHERE call_id = ? ORDER BY first_seq LIMIT 10000",
+        return jdbcTemplate.query("SELECT call_id, tx_id, connection_id, first_seq, last_seq, outcome, held_us, statement_count, write_count, "
+                        + "lifecycle_json FROM transactions WHERE call_id = ? ORDER BY first_seq LIMIT 10000",
                 (rs, n) -> new StatementTransaction(rs.getString("call_id"), rs.getString("tx_id"), rs.getString("connection_id"),
                         rs.getInt("first_seq"), rs.getInt("last_seq"), rs.getString("outcome"), rs.getLong("held_us"),
-                        rs.getInt("statement_count"), rs.getInt("write_count")), callId);
+                        rs.getInt("statement_count"), rs.getInt("write_count"), readNullable(rs.getString("lifecycle_json"), TxLifecycle.class)), callId);
     }
 
     @Override

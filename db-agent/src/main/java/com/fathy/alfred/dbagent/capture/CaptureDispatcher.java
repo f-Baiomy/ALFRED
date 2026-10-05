@@ -5,6 +5,7 @@ import com.fathy.alfred.dbagent.bootstrap.Bridge;
 import com.fathy.alfred.dbagent.jdbc.BeforeImageReader;
 import com.fathy.alfred.dbagent.jdbc.CaptureOnlyInterceptor;
 import com.fathy.alfred.dbagent.jdbc.CascadeInspector;
+import com.fathy.alfred.dbagent.jdbc.IndexInspector;
 import com.fathy.alfred.dbagent.jdbc.StatementInterceptor;
 import com.fathy.alfred.dbagent.sql.SqlShape;
 import com.fathy.alfred.dbagent.transport.AgentSettings;
@@ -63,6 +64,11 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
     private final WeakIdentityMap<ConnectionState> connections = new WeakIdentityMap<>();
     private final ThreadLocal<int[]> executeDepth = ThreadLocal.withInitial(() -> new int[1]);
     private final ThreadLocal<int[]> transactionDepth = ThreadLocal.withInitial(() -> new int[1]);
+    private final ThreadLocal<int[]> acquireDepth = ThreadLocal.withInitial(() -> new int[1]);
+    private final ThreadLocal<int[]> closeDepth = ThreadLocal.withInitial(() -> new int[1]);
+    private final ThreadLocal<int[]> jtaDepth = ThreadLocal.withInitial(() -> new int[1]);
+    /** Connections with a transaction begun on this thread and not ended - a JTA commit/rollback ends all of them. */
+    private final ThreadLocal<List<ConnectionState>> openTransactions = ThreadLocal.withInitial(ArrayList::new);
     /**
      * Set while the agent itself talks to the driver (result-set metadata, the data-source name, a before-image read,
      * cascade metadata). Drivers answer some of those with JDBC queries of their own - pgjdbc looks column types up in
@@ -137,6 +143,7 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
         } finally {
             if (token instanceof CallContext) {
                 ContextPropagation.set(null);
+                openTransactions.get().clear(); // a transaction nobody ended by now never will be on this (pooled) thread
             }
         }
     }
@@ -308,6 +315,7 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
             interceptor.before(context == null ? null : context.callId, context == null ? null : context.runTag, seq, sql);
 
             StatementRecord record = new StatementRecord();
+            Long acquireForNext = null;
             record.sid = agentId + ":" + sids.incrementAndGet();
             record.callId = context == null ? null : context.callId;
             record.runTag = context == null ? null : context.runTag;
@@ -343,6 +351,10 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
                 beginAgentWork();
                 try {
                     record.dataSource = dataSource(conn, state.connection);
+                    if (settings.indexInfo() && record.table != null && context != null && state.connection instanceof Connection
+                            && context.firstIndexLookup(record.table)) {
+                        record.indexes = IndexInspector.indexesOf((Connection) state.connection, record.dataSource, record.table);
+                    }
                 } finally {
                     endAgentWork();
                 }
@@ -351,12 +363,19 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
                         conn.txId = context.nextTxId();
                         conn.txStartNanos = now;
                         conn.txContext = context;
+                        conn.closeMicros = null;
+                        openTransactions.get().add(conn);
                     } else if (conn.txId == null) {
                         conn.txId = "tx-o" + outsideSeq.incrementAndGet();
                         conn.txStartNanos = now;
                         conn.txContext = null;
                     }
                     record.txId = conn.txId;
+                }
+                Long acquire = conn.pendingAcquireMicros;
+                if (acquire != null) {
+                    conn.pendingAcquireMicros = null;
+                    acquireForNext = acquire;
                 }
             }
             if (!batch && state.connection instanceof Connection && ("DELETE".equals(record.kind) || "UPDATE".equals(record.kind))) {
@@ -368,7 +387,9 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
                 }
             }
             // The statement's own time starts here - after any before-image read, which is reported on its own.
-            PendingStatement pending = new PendingStatement(record, context, System.nanoTime(), new Outcome("UPDATED"));
+            Outcome initial = new Outcome("UPDATED");
+            initial.acquireMicros = acquireForNext;
+            PendingStatement pending = new PendingStatement(record, context, System.nanoTime(), initial);
             return new Execution(statement, state, pending, batch);
         } catch (Throwable t) {
             AgentLog.failure("execute", t);
@@ -677,7 +698,7 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
                 return;
             }
             if (autoCommit && !conn.autoCommit && conn.txId != null) {
-                endTransaction(conn, "COMMIT", "COMMITTED"); // JDBC: switching auto-commit on commits
+                endTransaction(conn, "COMMIT", "COMMITTED", "JDBC", null); // JDBC: switching auto-commit on commits
             }
             conn.autoCommit = autoCommit;
         } catch (Throwable t) {
@@ -692,7 +713,7 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
         if (depth[0] > 1 || agentBusy()) {
             return NESTED;
         }
-        return new TxCall(connection, method, args != null && args.length > 0);
+        return new TxCall(connection, method, args != null && args.length > 0, System.nanoTime());
     }
 
     @Override
@@ -707,19 +728,20 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
             if (conn == null || conn.txId == null) {
                 return;
             }
+            long micros = (System.nanoTime() - call.startNanos) / 1000;
             switch (call.method) {
                 case "commit":
-                    endTransaction(conn, "COMMIT", "COMMITTED");
+                    endTransaction(conn, "COMMIT", "COMMITTED", "JDBC", micros);
                     break;
                 case "rollback":
                     if (call.hasArgs) {
-                        marker(conn, "ROLLBACK_TO_SAVEPOINT", "ROLLBACK TO SAVEPOINT", "ROLLED_BACK_TO_SAVEPOINT");
+                        marker(conn, "ROLLBACK_TO_SAVEPOINT", "ROLLBACK TO SAVEPOINT", "ROLLED_BACK_TO_SAVEPOINT", null, null);
                     } else {
-                        endTransaction(conn, "ROLLBACK", "ROLLED_BACK");
+                        endTransaction(conn, "ROLLBACK", "ROLLED_BACK", "JDBC", micros);
                     }
                     break;
                 case "setSavepoint":
-                    marker(conn, "SAVEPOINT", "SAVEPOINT", "SAVEPOINT");
+                    marker(conn, "SAVEPOINT", "SAVEPOINT", "SAVEPOINT", null, null);
                     break;
                 default:
                     break;
@@ -729,14 +751,17 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
         }
     }
 
-    private void endTransaction(ConnectionState conn, String kind, String result) {
-        marker(conn, kind, kind, result);
+    private void endTransaction(ConnectionState conn, String kind, String result, String via, Long commitMicros) {
+        marker(conn, kind, kind, result, via, commitMicros);
         conn.txId = null;
         conn.txContext = null;
+        conn.beginMicros = null;
+        conn.closeMicros = null;
+        openTransactions.get().remove(conn);
     }
 
     /** A COMMIT/ROLLBACK/SAVEPOINT shown as its own statement line, in the transaction it ends. */
-    private void marker(ConnectionState conn, String kind, String sql, String result) {
+    private void marker(ConnectionState conn, String kind, String sql, String result, String via, Long commitMicros) {
         CallContext context = conn.txContext != null ? conn.txContext : ContextPropagation.current();
         if (context == null && !settings.captureOutsideCalls()) {
             return;
@@ -760,6 +785,12 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
         Outcome outcome = new Outcome("TX_END");
         outcome.txResult = result;
         outcome.heldMicros = (now - conn.txStartNanos) / 1000;
+        if (via != null) {
+            outcome.via = via;
+            outcome.commitMicros = commitMicros;
+            outcome.beginMicros = conn.beginMicros;
+            outcome.closeMicros = conn.closeMicros;
+        }
         record.outcome = outcome;
         PendingStatement p = new PendingStatement(record, context, now, outcome);
         recorder.track(p);
@@ -831,6 +862,111 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
             origins.exit(token);
         } catch (Throwable t) {
             AgentLog.failure("origin exit", t);
+        }
+    }
+
+    // ------------------------------------------------------------------ connection lifecycle
+
+    @Override
+    public void autoCommitDone(Object connection, long nanos) {
+        if (agentBusy()) {
+            return;
+        }
+        try {
+            ConnectionState conn = connections.get(connection);
+            if (conn != null) {
+                conn.beginMicros = nanos / 1000;
+            }
+        } catch (Throwable t) {
+            AgentLog.failure("autoCommit timing", t);
+        }
+    }
+
+    @Override
+    public Object acquireEnter() {
+        int[] depth = acquireDepth.get();
+        depth[0]++;
+        if (depth[0] > 1 || agentBusy()) {
+            return NESTED;
+        }
+        return new long[]{System.nanoTime()};
+    }
+
+    @Override
+    public void acquireExit(Object token, Object connection) {
+        acquireDepth.get()[0]--;
+        if (!(token instanceof long[]) || connection == null) {
+            return;
+        }
+        try {
+            if (ContextPropagation.current() == null && !settings.captureOutsideCalls()) {
+                return;
+            }
+            ConnectionState conn = connection(connection);
+            if (conn != null) {
+                conn.pendingAcquireMicros = (System.nanoTime() - ((long[]) token)[0]) / 1000;
+            }
+        } catch (Throwable t) {
+            AgentLog.failure("getConnection", t);
+        }
+    }
+
+    @Override
+    public Object closeEnter(Object connection) {
+        int[] depth = closeDepth.get();
+        depth[0]++;
+        if (depth[0] > 1 || agentBusy()) {
+            return NESTED;
+        }
+        return new CloseCall(connection, System.nanoTime());
+    }
+
+    @Override
+    public void closeExit(Object token) {
+        closeDepth.get()[0]--;
+        if (!(token instanceof CloseCall)) {
+            return;
+        }
+        try {
+            CloseCall call = (CloseCall) token;
+            ConnectionState conn = connections.get(call.connection);
+            if (conn != null && conn.txId != null) {
+                conn.closeMicros = (System.nanoTime() - call.startNanos) / 1000; // reported when its transaction ends
+            }
+        } catch (Throwable t) {
+            AgentLog.failure("close", t);
+        }
+    }
+
+    @Override
+    public Object jtaEnter(String method) {
+        int[] depth = jtaDepth.get();
+        depth[0]++;
+        if (depth[0] > 1 || agentBusy() || openTransactions.get().isEmpty()) {
+            return NESTED;
+        }
+        return new TxCall(null, method, false, System.nanoTime());
+    }
+
+    /** The container committed (or rolled back): every transaction this thread had open ends with it. */
+    @Override
+    public void jtaExit(Object token, Throwable thrown) {
+        jtaDepth.get()[0]--;
+        if (!(token instanceof TxCall)) {
+            return;
+        }
+        try {
+            TxCall call = (TxCall) token;
+            long micros = (System.nanoTime() - call.startNanos) / 1000;
+            boolean committed = "commit".equals(call.method) && thrown == null;
+            for (ConnectionState conn : new ArrayList<>(openTransactions.get())) {
+                if (conn.txId != null) {
+                    endTransaction(conn, committed ? "COMMIT" : "ROLLBACK", committed ? "COMMITTED" : "ROLLED_BACK", "JTA", micros);
+                }
+            }
+            openTransactions.get().clear();
+        } catch (Throwable t) {
+            AgentLog.failure("jta", t);
         }
     }
 
@@ -1019,11 +1155,23 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
         final Object connection;
         final String method;
         final boolean hasArgs;
+        final long startNanos;
 
-        TxCall(Object connection, String method, boolean hasArgs) {
+        TxCall(Object connection, String method, boolean hasArgs, long startNanos) {
             this.connection = connection;
             this.method = method;
             this.hasArgs = hasArgs;
+            this.startNanos = startNanos;
+        }
+    }
+
+    private static final class CloseCall {
+        final Object connection;
+        final long startNanos;
+
+        CloseCall(Object connection, long startNanos) {
+            this.connection = connection;
+            this.startNanos = startNanos;
         }
     }
 }

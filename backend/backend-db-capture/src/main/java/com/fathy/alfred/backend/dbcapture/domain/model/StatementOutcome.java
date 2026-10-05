@@ -16,8 +16,10 @@ import java.util.List;
  *   <li>UPDATED - affected, perSet (a batch's count per parameter set), generatedKeys</li>
  *   <li>PROCEDURE - outParams, plus columns/rowsRead when it returned a result set</li>
  *   <li>FAILED - sqlState, vendorCode, message, chain; swallowed is decided when the call completes</li>
- *   <li>TX_END - txResult (COMMITTED / ROLLED_BACK), heldMicros</li>
+ *   <li>TX_END - txResult (COMMITTED / ROLLED_BACK), heldMicros, and how it ended: via (JDBC / JTA), beginMicros
+ *       (setAutoCommit(false)), commitMicros (the commit/rollback call), closeMicros (Connection.close before it)</li>
  * </ul>
+ * Any kind: acquireMicros - on the first statement of a freshly checked-out connection, how long getConnection took.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record StatementOutcome(
@@ -36,8 +38,20 @@ public record StatementOutcome(
         List<String> chain,
         Boolean swallowed,
         String txResult,
-        Long heldMicros
+        Long heldMicros,
+        Long acquireMicros,
+        String via,
+        Long beginMicros,
+        Long commitMicros,
+        Long closeMicros
 ) {
+    public StatementOutcome(OutcomeKind kind, List<Column> columns, Long rowsRead, Boolean partial, Boolean overLimit, Long affected,
+                            List<Long> perSet, List<List<TypedValue>> generatedKeys, List<TypedValue> outParams, String sqlState,
+                            Integer vendorCode, String message, List<String> chain, Boolean swallowed, String txResult, Long heldMicros) {
+        this(kind, columns, rowsRead, partial, overLimit, affected, perSet, generatedKeys, outParams, sqlState, vendorCode, message, chain,
+                swallowed, txResult, heldMicros, null, null, null, null, null);
+    }
+
     @JsonIgnore
     public boolean failed() {
         return kind == OutcomeKind.FAILED;
@@ -50,6 +64,6 @@ public record StatementOutcome(
 
     public StatementOutcome withSwallowed(boolean value) {
         return new StatementOutcome(kind, columns, rowsRead, partial, overLimit, affected, perSet, generatedKeys, outParams,
-                sqlState, vendorCode, message, chain, value, txResult, heldMicros);
+                sqlState, vendorCode, message, chain, value, txResult, heldMicros, acquireMicros, via, beginMicros, commitMicros, closeMicros);
     }
 }

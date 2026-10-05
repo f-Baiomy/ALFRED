@@ -173,7 +173,11 @@ export class DbStatementListComponent {
   txLabel(g: DbGroupNode): string {
     const tx = g.tx!;
     const outcome = tx.outcome === 'ROLLED_BACK' ? 'rolled back' : tx.outcome === 'OPEN' ? 'still open' : 'committed';
-    return `${tx.txId}${tx.connectionId ? ' · ' + tx.connectionId : ''} · ${outcome}`;
+    const l = tx.lifecycle;
+    const ms = (us?: number | null) => (us == null ? null : us >= 10_000 ? `${Math.round(us / 1000)} ms` : `${(us / 1000).toFixed(1)} ms`);
+    const parts = l ? [ms(l.acquireMicros) && `checkout ${ms(l.acquireMicros)}`, ms(l.beginMicros) && `begin ${ms(l.beginMicros)}`,
+      ms(l.commitMicros) && `${tx.outcome === 'ROLLED_BACK' ? 'rollback' : 'commit'} ${ms(l.commitMicros)}`, ms(l.closeMicros) && `close ${ms(l.closeMicros)}`].filter(Boolean) : [];
+    return `${tx.txId}${tx.connectionId ? ' · ' + tx.connectionId : ''} · ${outcome}${l?.via ? ` (${l.via})` : ''}${parts.length ? ' · ' + parts.join(' · ') : ''}`;
   }
 
   warning(g: DbGroupNode): string | null {

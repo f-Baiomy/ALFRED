@@ -1,8 +1,9 @@
 import { CallRecord } from '../../core/models/call.model';
-import { CallDbAnalysis, CallDbCapture, CapturedStatement, QueryTotal, SupplierMarker, TimeBreakdown, TimeGap } from '../../core/models/db-capture.model';
+import { CallDbAnalysis, CallDbCapture, CapturedStatement, QueryTotal, SupplierMarker, TableIndex, TimeBreakdown, TimeGap } from '../../core/models/db-capture.model';
 
 export type { CallDbAnalysis, QueryTotal, TimeBreakdown, TimeGap };
 import { isTxEnd } from './db-statement-display';
+import { paramColumns } from './sql-param-columns';
 
 /**
  * Where an inbound call's time went, and which queries cost it - computed from what was captured (statement offsets
@@ -112,6 +113,16 @@ export function timeBreakdown(
     gaps.push({ ms: round(ms), afterSeq: before?.seq ?? null, beforeSeq: after?.seq ?? null, callers: next ? callersOf(next) : undefined });
   }
   const gapValues = gaps.map((g) => g.ms);
+  let overheadMicros = 0;
+  let checkouts = 0;
+  for (const s of statements) {
+    const o = s.outcome;
+    if (o.acquireMicros != null) {
+      overheadMicros += o.acquireMicros;
+      checkouts++;
+    }
+    overheadMicros += (o.beginMicros ?? 0) + (o.commitMicros ?? 0) + (o.closeMicros ?? 0);
+  }
   return {
     totalMs: round(totalMs),
     dbMs: round(dbMs),
@@ -124,6 +135,8 @@ export function timeBreakdown(
     statements: statements.filter((s) => !isTxEnd(s)).length,
     transactions: transactionCount,
     appTimeDominant: totalMs >= 1000 && (gapMs + edgeMs) / totalMs > 0.5,
+    overheadMs: round(overheadMicros / 1000),
+    checkouts,
   };
 }
 
@@ -182,4 +195,24 @@ export function suppliersOf(callId: string, calls: readonly CallRecord[]): Map<n
     if (c.parentCallId === callId && c.parentSeq != null) map.set(c.parentSeq, c);
   }
   return map;
+}
+
+/** A table's indexes as one capture knows them: any statement of that table that carried them (agent Index check). */
+export function indexesByTable(statements: readonly CapturedStatement[]): Map<string, readonly TableIndex[]> {
+  const map = new Map<string, readonly TableIndex[]>();
+  for (const s of statements) {
+    if (s.table && s.indexes?.length && !map.has(s.table.toLowerCase())) map.set(s.table.toLowerCase(), s.indexes);
+  }
+  return map;
+}
+
+/**
+ * Whether a statement's filter columns (WHERE col = ?, as sql-param-columns finds them) start any index - the
+ * "is there one on BRANCH_ID?" question for a slow query. A hint, not a plan: only the database's planner knows.
+ */
+export function indexHint(sql: string, indexes: readonly TableIndex[]): { readonly filterColumns: readonly string[]; readonly leading: readonly string[]; readonly unindexed: readonly string[] } {
+  const where = sql.split(/\bWHERE\b/i)[1] ?? '';
+  const filterColumns = [...new Set(paramColumns(`SELECT x FROM t WHERE ${where}`).filter((c): c is string => !!c).map((c) => c.toLowerCase()))];
+  const leading = indexes.map((ix) => ix.columns[0]?.toLowerCase()).filter((c): c is string => !!c);
+  return { filterColumns, leading, unindexed: filterColumns.filter((c) => !leading.includes(c)) };
 }

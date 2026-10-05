@@ -38,6 +38,15 @@ public record CapturedStatement(
         boolean expected,
         long storedRows,
         StatementOrigin origin,
-        List<String> callers
+        List<String> callers,
+        List<TableIndex> indexes
 ) {
+    public CapturedStatement(long id, String callId, String thread, int seq, StatementKind kind, String sql, String fingerprint,
+                             String table, List<List<TypedValue>> params, StatementOutcome outcome, String startedAt, long durationMicros,
+                             long offsetMicros, String txId, String connectionId, String codeLocation, String runTag, String dataSource,
+                             BeforeImage beforeImage, List<String> cascadesTo, boolean undone, boolean expected, long storedRows,
+                             StatementOrigin origin, List<String> callers) {
+        this(id, callId, thread, seq, kind, sql, fingerprint, table, params, outcome, startedAt, durationMicros, offsetMicros, txId,
+                connectionId, codeLocation, runTag, dataSource, beforeImage, cascadesTo, undone, expected, storedRows, origin, callers, null);
+    }
 }

@@ -77,7 +77,11 @@ function groupLabel(g: DbGroupNode): string {
   const tx = g.tx!;
   const outcome = tx.outcome === 'ROLLED_BACK' ? 'rolled back - nothing in it was saved' : tx.outcome === 'OPEN' ? 'never ended' : 'committed';
   const writes = all.filter((x) => ['INSERT', 'UPDATE', 'DELETE', 'MERGE'].includes(x.kind)).length;
-  return `Transaction ${tx.txId} · ${outcome} · ${all.length} statements · ${writes} writes · held ${msText(tx.heldMicros)} · ${range}`;
+  const l = tx.lifecycle;
+  const ms = (us?: number | null) => (us == null ? null : `${(us / 1000).toFixed(us >= 10_000 ? 0 : 1)} ms`);
+  const life = l ? [l.via && `via ${l.via}`, ms(l.acquireMicros) && `checkout ${ms(l.acquireMicros)}`, ms(l.beginMicros) && `begin ${ms(l.beginMicros)}`,
+    ms(l.commitMicros) && `commit ${ms(l.commitMicros)}`, ms(l.closeMicros) && `close ${ms(l.closeMicros)}`].filter(Boolean).join(' · ') : '';
+  return `Transaction ${tx.txId} · ${outcome} · ${all.length} statements · ${writes} writes · held ${msText(tx.heldMicros)}${life ? ' · ' + life : ''} · ${range}`;
 }
 
 function headlineText(capture: CallDbCapture): string {
@@ -227,6 +231,7 @@ function timeSentence(a: CallDbAnalysis): string {
   return `${sec(t.totalMs)} in all: database ${sec(t.dbMs)}${share(t.dbMs, t.totalMs)}, supplier calls ${sec(t.outboundMs)}${share(t.outboundMs, t.totalMs)}, ` +
     `between statements ${sec(t.gapMs)}${share(t.gapMs, t.totalMs)}${t.gaps.count ? ` (${t.gaps.count} gaps, median ${t.gaps.medianMs} ms, largest ${t.gaps.maxMs} ms)` : ''}, ` +
     `before the first / after the last ${sec(t.edgeMs)}.${t.baselineMs ? ` Database round trip ≈ ${t.baselineMs} ms.` : ''}` +
+    (t.overheadMs >= 1 ? ` Connection and transaction overhead (checkout, begin, commit, close) ≈ ${sec(t.overheadMs)} - ${t.checkouts} checkouts, ${t.transactions} transactions.` : '') +
     (t.appTimeDominant ? ' Most of the call is neither database nor supplier calls - application work, or per-statement overhead (connection checkout, commit).' : '');
 }
 

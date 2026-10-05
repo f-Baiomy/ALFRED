@@ -118,7 +118,7 @@ public class DbCaptureQueryService implements GetCallDbSummariesUseCase, GetCall
                 statements.add(new IncomingStatement(IMPORT_AGENT + ":" + callId + ":" + s.seq(), callId, s.runTag(), s.thread(), s.seq(),
                         s.kind(), s.sql(), s.fingerprint(), s.table(), s.params(), s.outcome(), s.rows(), 0, s.beforeImageRows(),
                         s.beforeImage(), s.startedAt(), s.durationMicros(), s.offsetMicros(), s.txId(), s.connectionId(),
-                        s.codeLocation(), s.dataSource(), s.cascadesTo(), s.origin(), s.callers()));
+                        s.codeLocation(), s.dataSource(), s.cascadesTo(), s.origin(), s.callers(), s.indexes()));
             }
             List<CallMarker> markers = new ArrayList<>();
             markers.add(new CallMarker(callId, 0, MarkerType.CALL_OPEN, null, null, null));

@@ -76,6 +76,7 @@ final class PendingStatement {
         r.connectionId = base.connectionId;
         r.codeLocation = base.codeLocation;
         r.callers = base.callers;
+        r.indexes = base.indexes;
         r.origin = base.origin;
         r.dataSource = base.dataSource;
         r.cascadesTo = base.cascadesTo;

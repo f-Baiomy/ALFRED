@@ -30,6 +30,8 @@ public final class StatementRecord {
     public String codeLocation;
     /** The application's call chain: up to N frames past the project's pass-through classes, innermost first. */
     public List<String> callers;
+    /** The table's indexes - on the first statement of each table in a call, when the project's Index check is on. */
+    public List<IndexRecord> indexes;
     public String dataSource;
     public List<String> cascadesTo;
     /** The ORM query or event that made this statement; null for plain JDBC. */

@@ -10,6 +10,10 @@ import com.fathy.alfred.backend.dbcapture.domain.model.DbCaptureSettings;
 import com.fathy.alfred.backend.dbcapture.domain.model.IncomingStatement;
 import com.fathy.alfred.backend.dbcapture.domain.model.MarkerType;
 import com.fathy.alfred.backend.dbcapture.domain.model.StatementKind;
+import com.fathy.alfred.backend.dbcapture.domain.model.TxLifecycle;
+import com.fathy.alfred.backend.dbcapture.domain.model.TableIndex;
+import com.fathy.alfred.backend.dbcapture.domain.model.OutcomeKind;
+import com.fathy.alfred.backend.dbcapture.domain.model.StatementOutcome;
 import com.fathy.alfred.backend.dbcapture.domain.model.StatementOrigin;
 import com.fathy.alfred.backend.dbcapture.domain.model.StatementTransaction;
 import com.fathy.alfred.backend.dbcapture.domain.model.TypedValue;
@@ -74,6 +78,28 @@ class SqliteDbCaptureRepositoryTest {
         assertThat(stored.get(1).origin()).isEqualTo(origin);
         assertThat(stored.get(0).callers()).isNull();
         assertThat(stored.get(1).callers()).containsExactly("OrgService.get(OrgService.java:452)", "Agency.set(Agency.java:126)");
+    }
+
+    @Test
+    void aTransactionKeepsItsLifecycle_andAStatementItsTablesIndexes() {
+        StatementOutcome firstRead = new StatementOutcome(OutcomeKind.UPDATED, null, null, null, null, 1L, null, null, null, null, null, null, null,
+                null, null, null, 54_210L, null, null, null, null);
+        StatementOutcome jtaCommit = new StatementOutcome(OutcomeKind.TX_END, null, null, null, null, null, null, null, null, null, null, null, null,
+                null, "COMMITTED", 223_500L, null, "JTA", 902L, 56_003L, 120L);
+        IncomingStatement insert = statement("a:1", "call-1", 1, StatementKind.INSERT, "INSERT INTO agency VALUES (?)", firstRead, null, "tx-1");
+        IncomingStatement commit = statement("a:2", "call-1", 2, StatementKind.COMMIT, "COMMIT", jtaCommit, null, "tx-1");
+        List<TableIndex> indexes = List.of(new TableIndex("PK_AGENCY", true, List.of("ID")), new TableIndex("IX_AGENCY_BRANCH", false, List.of("BRANCH_ID", "NAME")));
+        IncomingStatement withIndexes = new IncomingStatement(insert.sid(), insert.callId(), null, insert.thread(), insert.seq(), insert.kind(), insert.sql(),
+                insert.fingerprint(), insert.table(), insert.params(), insert.outcome(), null, 0, null, null, insert.startedAt(), 10, 10, "tx-1",
+                insert.connectionId(), insert.codeLocation(), insert.dataSource(), null, null, null, indexes);
+        repo.saveStatements(List.of(withIndexes, commit));
+        repo.refreshTransactions("call-1");
+
+        StatementTransaction tx = repo.transactions("call-1").get(0);
+        assertThat(tx.outcome()).isEqualTo(StatementTransaction.COMMITTED);
+        assertThat(tx.lifecycle()).isEqualTo(new TxLifecycle("JTA", 54_210L, 902L, 56_003L, 120L));
+        assertThat(tx.lifecycle().overheadMicros()).isEqualTo(54_210 + 902 + 56_003 + 120);
+        assertThat(repo.allStatements("call-1", 10).get(0).indexes()).isEqualTo(indexes);
     }
 
     @Test

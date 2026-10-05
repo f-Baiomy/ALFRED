@@ -13,6 +13,11 @@ final class ConnectionState {
     volatile long txStartNanos;
     volatile CallContext txContext;
     volatile String dataSource;
+    /** Checkout time not yet reported - the next statement on this connection carries it. */
+    volatile Long pendingAcquireMicros;
+    /** setAutoCommit(false) and close() durations of the current transaction, reported on its TX_END line. */
+    volatile Long beginMicros;
+    volatile Long closeMicros;
 
     ConnectionState(String id) {
         this.id = id;

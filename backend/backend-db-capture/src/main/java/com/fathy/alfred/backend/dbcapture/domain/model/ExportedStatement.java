@@ -37,12 +37,13 @@ public record ExportedStatement(
         List<List<TypedValue>> rows,
         List<List<TypedValue>> beforeImageRows,
         StatementOrigin origin,
-        List<String> callers
+        List<String> callers,
+        List<TableIndex> indexes
 ) {
     public static ExportedStatement of(CapturedStatement s, List<List<TypedValue>> rows, List<List<TypedValue>> beforeImageRows) {
         return new ExportedStatement(s.id(), s.callId(), s.thread(), s.seq(), s.kind(), s.sql(), s.fingerprint(), s.table(), s.params(),
                 s.outcome(), s.startedAt(), s.durationMicros(), s.offsetMicros(), s.txId(), s.connectionId(), s.codeLocation(), s.runTag(),
                 s.dataSource(), s.beforeImage(), s.cascadesTo(), s.undone(), s.expected(), s.storedRows(),
-                rows.isEmpty() ? null : rows, beforeImageRows.isEmpty() ? null : beforeImageRows, s.origin(), s.callers());
+                rows.isEmpty() ? null : rows, beforeImageRows.isEmpty() ? null : beforeImageRows, s.origin(), s.callers(), s.indexes());
     }
 }
