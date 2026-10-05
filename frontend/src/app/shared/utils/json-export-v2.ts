@@ -27,7 +27,10 @@ import { analyzeCapture, suppliersOf } from './db-analysis';
  * Measured on a real capture (one inbound call, 12 supplier calls, 74 statements): 13.0 MB as version 1, 5.7 MB here.
  */
 
-export const EXPORT_V2_FORMAT = 'alfred-calls/2';
+export const EXPORT_V2_FORMAT = 'alfred-calls/3';
+export const EXPORT_V2_VERSION = 3;
+/** Rows kept on a statement's own line; the rest go to `dbRows` (or, in a "sample only" export, nowhere). */
+const ROW_SAMPLE = 5;
 /** Bodies up to this many characters stay inside their call record - a line of their own would cost more than it saves. */
 const INLINE_BODY_MAX = 256;
 /** Space-padded width of every byte offset/size in the header: fixed, so filling them in never moves a byte. */
@@ -45,6 +48,11 @@ export interface JsonExportV2Input {
   readonly statusFilter?: CallStatusFilter;
   readonly redactedValueCount?: number;
   readonly cycle?: ExportedCycle | null;
+  /**
+   * Database result rows: 'all' (default - every stored row, in the `dbRows` section at the end) or 'sample' (the first
+   * rows of each statement only - a smaller file, said so in the header the way redaction is).
+   */
+  readonly rows?: 'all' | 'sample';
 }
 
 // ------------------------------------------------------------------------------------------------ helpers
@@ -94,6 +102,22 @@ function compactJson(body: string): unknown | undefined {
   } catch {
     return undefined;
   }
+}
+
+/**
+ * A JSON body's outline - keys, value types, array lengths - so a reader sees what a multi-megabyte body holds from the
+ * first few hundred bytes of its line. Arrays: ["array", length, outline of the first item].
+ */
+export function jsonShape(value: unknown, depth = 0): unknown {
+  if (value === null) return 'null';
+  if (Array.isArray(value)) return ['array', value.length, ...(value.length && depth < 4 ? [jsonShape(value[0], depth + 1)] : [])];
+  if (typeof value !== 'object') return typeof value;
+  if (depth >= 4) return 'object';
+  const out: Record<string, unknown> = {};
+  const keys = Object.keys(value as object);
+  for (const k of keys.slice(0, 40)) out[k] = jsonShape((value as Record<string, unknown>)[k], depth + 1);
+  if (keys.length > 40) out['…'] = `${keys.length - 40} more keys`;
+  return out;
 }
 
 // ------------------------------------------------------------------------------------------------ database rows
@@ -180,14 +204,16 @@ function encodeCapture(callId: string, capture: CallDbCapture): { header: Record
   return { header, statements: encoded };
 }
 
-export function decodeCapture(header: Record<string, unknown>, lines: readonly Record<string, unknown>[]): CallDbCapture {
+export function decodeCapture(header: Record<string, unknown>, lines: readonly Record<string, unknown>[],
+                              fullRows: ReadonlyMap<number, unknown[][]> = new Map()): CallDbCapture {
   // `analysis` is derived (db-analysis.ts) - recomputed by whoever needs it, never imported.
   const { callId, common, origins, stacks, indexes: tableIndexes, statements: _range, analysis: _analysis, ...rest } = header as {
     callId: string; common?: Record<string, unknown>; origins?: Record<string, StatementOrigin>; stacks?: Record<string, string[]>;
     indexes?: Record<string, TableIndex[]>; statements?: unknown;
   } & Record<string, unknown>;
   const statements = lines.map((line) => {
-    const { of, noCallId, rowValues, beforeValues, origin, stack, indexes, ...fields } = line as Record<string, unknown> & {
+    const { of, noCallId, rowValues, beforeValues, origin, stack, indexes, rowSample, rowsAt: _at, rowsSampled: _sampled, ...fields } = line as Record<string, unknown> & {
+      rowSample?: unknown[][]; rowsAt?: unknown; rowsSampled?: boolean;
       of: string; noCallId?: boolean; rowValues?: unknown[][]; beforeValues?: unknown[][]; origin?: string | StatementOrigin; stack?: string;
       indexes?: string | TableIndex[];
     };
@@ -197,7 +223,8 @@ export function decodeCapture(header: Record<string, unknown>, lines: readonly R
     if (stack !== undefined) s['callers'] = stacks?.[stack];
     if (indexes !== undefined) s['indexes'] = typeof indexes === 'string' ? tableIndexes?.[indexes] : indexes;
     const outcome = s['outcome'] as ExportedDbStatement['outcome'];
-    if (rowValues) s['rows'] = decodeRows(rowValues, outcome?.columns);
+    const rows = rowValues ?? fullRows.get(fields['seq'] as number) ?? rowSample;
+    if (rows) s['rows'] = decodeRows(rows, outcome?.columns);
     if (beforeValues) s['beforeImageRows'] = decodeRows(beforeValues, (s['beforeImage'] as ExportedDbStatement['beforeImage'])?.columns);
     return s as unknown as ExportedDbStatement;
   });
@@ -223,15 +250,17 @@ function guide(counts: { calls: number; bodies: number; dbStatements: number }):
       highlights: `what deserves attention first: failed or slow calls, database flags, comments - each with the line to read (at most ${MAX_HIGHLIGHTS}; the index has every call)`,
       index: 'one line per call, in time order: id, direction, method, url, status, ms, parent link, comment count, where its call record, request/response bodies and database statements are, and for a call with statements `time` (db/outbound/gap/edge ms) and db counts (transactions, duplicates, queries, roundTripMs)',
       calls: 'one call per line: headers, status, timing, comments, interception, WebSocket messages, parent link. A body under 257 characters is inline; a longer one is `bodyRef` → `bodies`',
-      bodies: 'one body per line: `json` (the body was compact JSON - embedded as is) or `text` (verbatim); `refs` = which calls/sides use it (the same body is stored once)',
+      bodies: 'one body per line: `shape` (a JSON body\'s outline - keys, types, array lengths - written BEFORE the body, so the first bytes of the line tell you what it holds), then `json` (the body was compact JSON - embedded as is) or `text` (verbatim); `refs` = which calls/sides use it (the same body is stored once)',
       dbCalls: 'one line per inbound call with captured database statements: summary (counts, flags), transactions, supplier calls in order (`supplierMarkers`), values all its statements share (`common`), HQL/query origins by id (`origins`), application call chains by id (`stacks`: innermost first, past the project pass-through classes), table index lists (`indexes`, by table - when the project turned the Index check on), and `analysis`: `time` (where the call\'s time went - dbMs, outboundMs, gapMs between statements, edgeMs, gap count/median/max, the largest gaps with the code that ran next, the database round trip) and `queries` (one entry per query, costliest first: runs, distinct params, exact duplicates, total ms, rows, called from, statement seqs). Start here for "why is this call slow".',
-      dbStatements: 'one statement per line, `of` = its call, in run order (`seq`): SQL with `?` placeholders and `params` (one list per batch set), outcome, timing, transaction, where in code, `origin` (the HQL it came from, an id into its dbCalls `origins`), `stack` (the application code that issued it, an id into `stacks` - `codeLocation` is only the first application frame), `indexes` (its table, a key into `indexes`). In `outcome`: `acquireMicros` (connection checkout before it), and on a COMMIT/ROLLBACK line `via` (JDBC/JTA), `beginMicros`, `commitMicros`, `closeMicros`; `transactions[].lifecycle` has the same per transaction. `analysis.time.overheadMs` sums them. `rowValues`/`beforeValues` = rows as values under `outcome.columns`/`beforeImage.columns` types; a cell that is an object is a full {type,value,...}; {} = a null cell',
+      dbStatements: 'one statement per line, `of` = its call, in run order (`seq`): SQL with `?` placeholders and `params` (one list per batch set), outcome, timing, transaction, where in code, `origin` (the HQL it came from, an id into its dbCalls `origins`), `stack` (the application code that issued it, an id into `stacks` - `codeLocation` is only the first application frame), `indexes` (its table, a key into `indexes`). In `outcome`: `acquireMicros` (connection checkout before it), and on a COMMIT/ROLLBACK line `via` (JDBC/JTA), `beginMicros`, `commitMicros`, `closeMicros`; `transactions[].lifecycle` has the same per transaction. `analysis.time.overheadMs` sums them. `rowValues`/`beforeValues` = rows as values under `outcome.columns`/`beforeImage.columns` types; a cell that is an object is a full {type,value,...}; {} = a null cell. A statement with more than ${ROW_SAMPLE} rows carries `rowSample` (its first ${ROW_SAMPLE}) and `rowsAt` (line/offset/bytes/count of its full rows in `dbRows`) - or `rowsSampled: true` when this export kept samples only',
+      dbRows: 'one line per statement with more than ' + ROW_SAMPLE + ' rows: `of`, `seq`, `rowValues` (every stored row). Last section on purpose - most questions never need it',
     },
     glossary: {
       inbound: 'a request INTO the application, logged by Alfred\'s reverse proxy ("source":"internal")',
       outbound: 'a call the application made to another system ("source":"external")',
       parentCallId: 'on an outbound call: the inbound call that made it; parentSeq = its place in that call\'s sequence, shared with the database statements\' seq',
       redactedValueCount: 'values hidden before export (shown as ***REDACTED***); non-zero means the file is deliberately incomplete',
+      rowsSampled: 'present when the export kept only the first rows of that many statements (`outcome.rowsRead` is still the true count)',
     },
     counts,
   };
@@ -291,13 +320,31 @@ export function buildJsonExportV2(input: JsonExportV2Input): string[] {
     dbStatementsByCall.set(call.id, statements);
   }
   const dbStatements = captured.flatMap((c) => dbStatementsByCall.get(c.id)!);
+  // Rows past the first few leave the statement's line: reading statements never loads them. 'all' keeps them, one
+  // line per statement at the end (`dbRows`); 'sample' drops them and says so.
+  const dbRows: { of: string; seq: number; rowValues: unknown[][] }[] = [];
+  const rowsLineKey = new Map<Record<string, unknown>, number>();
+  let rowsSampled = 0;
+  for (const s of dbStatements) {
+    const rows = s['rowValues'] as unknown[][] | undefined;
+    if (!rows || rows.length <= ROW_SAMPLE) continue;
+    delete s['rowValues'];
+    s['rowSample'] = rows.slice(0, ROW_SAMPLE);
+    if (input.rows === 'sample') {
+      s['rowsSampled'] = true;
+      rowsSampled++;
+    } else {
+      rowsLineKey.set(s, dbRows.length);
+      dbRows.push({ of: s['of'] as string, seq: s['seq'] as number, rowValues: rows });
+    }
+  }
 
   // ---- line numbers: every section's size is known now, so every record's line is too
   const highlights = buildHighlights(calls, input, analyses);
   const HEADER_LINES = 5; // first line, guide, layout, about, metadata
   const sectionSizes: [string, number][] = [
     ['highlights', Math.min(highlights.length, MAX_HIGHLIGHTS)], ['index', calls.length], ['calls', calls.length],
-    ['bodies', bodies.length], ['dbCalls', dbHeaders.length], ['dbStatements', dbStatements.length],
+    ['bodies', bodies.length], ['dbCalls', dbHeaders.length], ['dbStatements', dbStatements.length], ['dbRows', dbRows.length],
   ];
   const firstLine = new Map<string, number>();
   let line = HEADER_LINES + 1;
@@ -359,8 +406,14 @@ export function buildJsonExportV2(input: JsonExportV2Input): string[] {
   });
   const bodyRecords = bodies.map((b) => {
     const json = compactJson(b.body);
-    return { body: b.id, refs: b.refs, contentType: b.contentType, chars: b.body.length, ...(json !== undefined ? { json } : { text: b.body }) };
+    // the outline first, so the head of a multi-megabyte line already says what is in it
+    return { body: b.id, refs: b.refs, contentType: b.contentType, chars: b.body.length,
+      ...(json !== undefined ? { shape: jsonShape(json), json } : { text: b.body }) };
   });
+  for (const [s, i] of rowsLineKey) {
+    const at = firstLine.get('dbRows')! + i;
+    s['rowsAt'] = { line: at, offset: `@@OFF:L${at}@@`, bytes: `@@OFF:B${at}@@`, count: (dbRows[i].rowValues).length };
+  }
   const dbHeaderRecords = dbHeaders.map((h) => {
     const id = h['callId'] as string;
     const first = dbFirstStatementLine.get(id)!;
@@ -371,6 +424,7 @@ export function buildJsonExportV2(input: JsonExportV2Input): string[] {
   const bodyTexts = bodyRecords.map((r) => JSON.stringify(r));
   const dbHeaderTexts = dbHeaderRecords.map((r) => JSON.stringify(r));
   const dbStatementTexts = dbStatements.map((r) => JSON.stringify(r));
+  const dbRowTexts = dbRows.map((r) => JSON.stringify(r));
 
   const indexTexts = calls.map((call, i) => {
     const refs = refsByCall.get(call.id)!;
@@ -417,10 +471,10 @@ export function buildJsonExportV2(input: JsonExportV2Input): string[] {
     return JSON.stringify({ what: h.what, callId: h.callId, line, note: h.note });
   });
 
-  const counts = { calls: calls.length, bodies: bodies.length, dbStatements: dbStatements.length };
+  const counts = { calls: calls.length, bodies: bodies.length, dbStatements: dbStatements.length, dbRows: dbRows.length };
   const sections: [string, string[]][] = [
     ['highlights', highlightTexts], ['index', indexTexts], ['calls', callTexts],
-    ['bodies', bodyTexts], ['dbCalls', dbHeaderTexts], ['dbStatements', dbStatementTexts],
+    ['bodies', bodyTexts], ['dbCalls', dbHeaderTexts], ['dbStatements', dbStatementTexts], ['dbRows', dbRowTexts],
   ];
   const layoutText = `"layout":{${sections.map(([name, texts]) => {
     const first = firstLine.get(name)!;
@@ -430,11 +484,11 @@ export function buildJsonExportV2(input: JsonExportV2Input): string[] {
   }).join(',')}},`;
 
   const lines: string[] = [
-    `{"alfredExport":2,"format":"${EXPORT_V2_FORMAT}","exportedAt":${JSON.stringify(v1.exportedAt)},`,
+    `{"alfredExport":${EXPORT_V2_VERSION},"format":"${EXPORT_V2_FORMAT}","exportedAt":${JSON.stringify(v1.exportedAt)},`,
     `"guide":${JSON.stringify(guide(counts))},`,
     layoutText,
     `"about":${JSON.stringify(v1.about)},`,
-    `"metadata":${JSON.stringify(v1.metadata)},"redactedValueCount":${v1.redactedValueCount},"summary":${JSON.stringify(v1.summary)},`,
+    `"metadata":${JSON.stringify(v1.metadata)},"redactedValueCount":${v1.redactedValueCount},${rowsSampled ? `"rowsSampled":${rowsSampled},` : ''}"summary":${JSON.stringify(v1.summary)},`,
   ];
   sections.forEach(([name, texts], s) => {
     lines.push(`"${name}":[`);
@@ -447,15 +501,18 @@ export function buildJsonExportV2(input: JsonExportV2Input): string[] {
   const sizes: number[] = [];
   let at = 0;
   for (const text of lines) {
-    const bytes = utf8Length(text.replace(/\u0000OFF[^\u0000]*\u0000/g, ' '.repeat(NUM_WIDTH)));
+    const bytes = utf8Length(text.replace(/\u0000OFF[^\u0000]*\u0000|"@@OFF:[^@]*@@"/g, ' '.repeat(NUM_WIDTH)));
     offsets.push(at);
     sizes.push(bytes);
     at += bytes + 1;
   }
   const lineOffset = (n: number) => offsets[n - 1];
   const lineBytes = (n: number) => sizes[n - 1];
-  return lines.map((text) => text.includes(OFFSET_TOKEN)
-    ? text.replace(/\u0000OFF([LBR])(\d+)(?:-(\d+))?\u0000/g, (_m, kind: string, a: string, b?: string) => {
+  return lines.map((text) => text.includes(OFFSET_TOKEN) || text.includes('"@@OFF:')
+    ? text.replace(/\u0000OFF([LBR])(\d+)(?:-(\d+))?\u0000|"@@OFF:([LBR])(\d+)(?:-(\d+))?@@"/g, (_m, k1?: string, a1?: string, b1?: string, k2?: string, a2?: string, b2?: string) => {
+      const kind = (k1 ?? k2)!;
+      const a = (a1 ?? a2)!;
+      const b = b1 ?? b2;
       const from = Number(a);
       if (kind === 'L') return pad(lineOffset(from));
       if (kind === 'B') return pad(lineBytes(from));
@@ -527,10 +584,16 @@ export function v2ToCallRecords(file: Record<string, unknown>): Record<string, u
     if (!statementsByCall.has(of)) statementsByCall.set(of, []);
     statementsByCall.get(of)!.push(s);
   }
+  const rowsByCall = new Map<string, Map<number, unknown[][]>>();
+  for (const r of (file['dbRows'] as Record<string, unknown>[] | undefined) ?? []) {
+    const of = r['of'] as string;
+    if (!rowsByCall.has(of)) rowsByCall.set(of, new Map());
+    rowsByCall.get(of)!.set(r['seq'] as number, r['rowValues'] as unknown[][]);
+  }
   const captures = new Map<string, CallDbCapture>();
   for (const h of (file['dbCalls'] as Record<string, unknown>[] | undefined) ?? []) {
     const id = h['callId'] as string;
-    captures.set(id, decodeCapture(h, statementsByCall.get(id) ?? []));
+    captures.set(id, decodeCapture(h, statementsByCall.get(id) ?? [], rowsByCall.get(id)));
   }
   const message = (msg: unknown): unknown => {
     if (!msg || typeof msg !== 'object') return msg;

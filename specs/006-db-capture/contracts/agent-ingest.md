@@ -85,6 +85,12 @@ A statement Hibernate made also carries `origin` (absent for plain JDBC) - see d
 }
 ```
 
+Newer fields (all optional - an older agent omits them, the backend stores what arrives): `callers` (the application
+call chain, innermost first), `indexes` ([{name, unique, columns}] - first statement of a table per call, Index check
+on), and in `outcome`: `acquireMicros` (connection checkout before this statement) and, on a COMMIT/ROLLBACK line,
+`via` (JDBC/JTA), `beginMicros`, `commitMicros`, `closeMicros`. The heartbeat answer adds `passThroughClasses`,
+`callerFrames` and `indexInfo`.
+
 `kind` ∈ `HQL | NATIVE | CRITERIA | LAZY_LOAD | LOAD | FLUSH | HIBERNATE`. Events carry `entity`, `entityId`, `role`,
 `action` (FLUSH: `INSERT | UPDATE | DELETE | COLLECTION`), `changed` (a flushed UPDATE's properties) and `parentId`
 (the query they ran inside). Statements of one query execution share `id`.

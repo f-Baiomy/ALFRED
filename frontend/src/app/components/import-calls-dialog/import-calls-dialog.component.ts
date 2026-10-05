@@ -121,7 +121,7 @@ export class ImportCallsDialogComponent {
   }
 
   private onParsed(file: File, parsed: unknown): void {
-    const { calls, inferredDirectionCount, redactedValueCount, cycleName } = parseImportedCalls(parsed);
+    const { calls, inferredDirectionCount, redactedValueCount, cycleName, sampledStatementCount } = parseImportedCalls(parsed);
     if (calls.length === 0) {
       this.parseError.set('No calls found in this file - expected an export produced by "Export as JSON".');
       return;
@@ -141,6 +141,11 @@ export class ImportCallsDialogComponent {
       this.parseWarning.set(
         `${redactedValueCount} value${redactedValueCount === 1 ? ' was' : 's were'} hidden before this file was exported, ` +
           'so those calls import masked rather than complete. Import from an unredacted export if you need the real values.'
+      );
+    } else if (sampledStatementCount) {
+      this.parseWarning.set(
+        `This file kept only the first rows of ${sampledStatementCount} database statement${sampledStatementCount === 1 ? '' : 's'} ("Rows: first 5 per statement only"), ` +
+          'so those import with their samples - row counts stay exact. Import from a full export if you need every row.'
       );
     } else if (inferredDirectionCount > 0) {
       // Worth saying out loud rather than importing quietly: a wrong guess files an inbound call

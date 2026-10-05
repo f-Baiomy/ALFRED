@@ -66,7 +66,7 @@ export async function readExportFile(file: Blob): Promise<unknown> {
     }
     if (first) {
       first = false;
-      if (!line.startsWith('{"alfredExport":2')) {
+      if (!/^\{"alfredExport":[23],/.test(line)) {
         version1 = [line];
         return;
       }

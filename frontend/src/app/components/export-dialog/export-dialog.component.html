@@ -110,6 +110,13 @@
                 </small>
               </span>
             </label>
+            @if (includeDb() && effectiveFormat() === 'json') {
+              <label class="dialog-db-sub">
+                <input type="checkbox" [checked]="rowsMode() === 'sample'" (change)="rowsMode.set($any($event.target).checked ? 'sample' : 'all')" />
+                <span>Rows: first 5 per statement only <small class="dialog-hint">off: every stored row (at the end of the file, so reading statements never loads them).
+                  On: a smaller file - row counts stay exact, the file says rows were cut, and a re-import gets the samples only.</small></span>
+              </label>
+            }
             @if (includeDb() && effectiveFormat() !== 'json') {
               <label class="dialog-db-sub">
                 <input type="checkbox" [checked]="groupDb()" (change)="setGroupDb($any($event.target).checked)" />

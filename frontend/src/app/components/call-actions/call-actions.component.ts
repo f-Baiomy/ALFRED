@@ -19,8 +19,9 @@ import { PickCallButtonComponent } from '../pick-call-button/pick-call-button.co
 import { CALL_ORIGIN } from '../../core/state/call-origin.token';
 import { buildCurlCommand } from '../../shared/utils/curl-builder';
 import { RedactionsStore } from '../../core/state/redactions-store.service';
-import { redactCall } from '../../shared/utils/redact';
-import { downloadJson } from '../../shared/utils/download';
+import { redactCall, redactCalls } from '../../shared/utils/redact';
+import { DbCaptureApiService } from '../../core/services/db-capture-api.service';
+import { downloadBlob } from '../../shared/utils/download';
 import { callKey } from '../../shared/utils/call-utils';
 import { copyToClipboard } from '../../shared/utils/clipboard';
 
@@ -51,6 +52,7 @@ export class CallActionsComponent {
   private readonly redactions = inject(RedactionsStore);
   private readonly controlsState = inject(CALL_LIST_CONTROLS_STATE);
   private readonly callsApi = inject(CallsApiService);
+  private readonly dbCaptureApi = inject(DbCaptureApiService);
   private readonly ruleDraft = inject(RuleDraftService);
   private readonly router = inject(Router);
   private readonly origin = inject(CALL_ORIGIN, { optional: true });
@@ -86,14 +88,35 @@ export class CallActionsComponent {
   }
 
   /** The JSON download is meant for reprocessing, so flagged issues ride along as a plain `comments` array rather than inline markers that would make the file invalid JSON. */
+  /**
+   * The same file as "Export as JSON" (json-export-v2.ts) for this one call - guide, index, normalised, re-importable -
+   * with its database statements and their analysis when it was captured. The builder is loaded on the click, so the
+   * Live Calls start-up bundle does not carry it.
+   */
   downloadAsJson(): void {
     this.downloadLoading.set(true);
     this.hydrated(this.call())
-      .pipe(switchMap((call) => forkJoin({ call: of(call), comments: this.fetchComments(call) })))
-      .subscribe(({ call, comments }) => {
-        this.downloadLoading.set(false);
-        const { call: safe } = redactCall(call, this.redactions.all());
-        downloadJson({ ...safe, comments }, `${callKey(call)}.json`);
+      .pipe(switchMap((call) => forkJoin({
+        call: of(call),
+        comments: this.fetchComments(call),
+        capture: call.source === 'internal' ? this.dbCaptureApi.exportCall(call.id).pipe(catchError(() => of(null))) : of(null),
+        suppliers: call.source === 'internal' ? this.callsApi.getChildren(call.id).pipe(catchError(() => of([] as CallRecord[]))) : of([] as CallRecord[]),
+      })))
+      .subscribe(({ call, comments, capture, suppliers }) => {
+        void Promise.all([import('../../shared/utils/json-export-v2'), import('../../shared/utils/db-analysis'), import('../../shared/utils/export-file-io')])
+          .then(([v2, analysis, io]) => {
+            const withDb = capture
+              ? { ...call, dbCapture: { ...capture, analysis: call.duration_ms ? analysis.analyzeCapture(call, capture, analysis.suppliersOf(call.id, suppliers)) : undefined } }
+              : call;
+            const { calls, redactedValueCount } = redactCalls([withDb], this.redactions.all());
+            const lines = v2.buildJsonExportV2({
+              calls, form: { supplierName: '', credentialsUsed: '', apiKey: '', url: '', environment: 'Staging', description: '' },
+              commentsByCallId: new Map([[call.id, comments]]), exportedAt: new Date().toISOString(), redactedValueCount,
+            });
+            return io.exportBlob(lines, false);
+          })
+          .then((blob) => downloadBlob(blob, `${callKey(call)}.json`))
+          .finally(() => this.downloadLoading.set(false));
       });
   }
 

@@ -59,6 +59,8 @@ export class ExportDialogComponent {
   readonly includeDb = signal(false);
   /** .json only: write it gzip-compressed (.json.gz) - a fraction of the size; Alfred's import reads either. */
   readonly compressJson = signal(false);
+  /** .json with database statements: every stored row (default), or the first rows of each statement only. */
+  readonly rowsMode = signal<'all' | 'sample'>('all');
   /** How the included statements are laid out - the same remembered choice as the window's "Group by transaction". */
   readonly groupDb = signal(readGroupByTransaction());
   readonly dbAvailable = signal<{ readonly calls: number; readonly statements: number } | null>(null);
@@ -320,6 +322,7 @@ export class ExportDialogComponent {
       // Version 2 (json-export-v2.ts): one record per line with a guide and an index up front, normalised.
       const lines = buildJsonExportV2({
         calls, form, commentsByCallId, exportedAt: new Date().toISOString(), overlapCandidates, statusFilter, redactedValueCount, cycle: current.cycle,
+        rows: this.rowsMode(),
       });
       const name = current.cycle ? bulkExportCycleFilename(current.cycle, calls, 'json') : bulkExportFilename(calls, 'json');
       return { isJson: true, lines, filename: this.resolveFilename(name, format) };

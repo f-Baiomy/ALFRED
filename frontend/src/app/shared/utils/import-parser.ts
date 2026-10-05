@@ -69,6 +69,8 @@ export interface ImportParseResult {
    * the copy hard to recognise later.
    */
   readonly cycleName: string | null;
+  /** Statements whose rows the exporter cut to a sample ("Rows: sample only") - their rows import incomplete. */
+  readonly sampledStatementCount?: number;
 }
 
 const EMPTY: ImportParseResult = { calls: [], inferredDirectionCount: 0, skippedCount: 0, redactedValueCount: 0, cycleName: null };
@@ -94,8 +96,11 @@ export function parseImportedCalls(parsed: unknown): ImportParseResult {
   const cycleName = cycleNameOf(parsed);
 
   // Version 2 (json-export-v2.ts): one record per call already - its bodies and database rows are put back first.
-  if ((parsed as { alfredExport?: unknown }).alfredExport === 2) {
-    return { ...mergeEvents(v2ToCallRecords(parsed as Record<string, unknown>)), redactedValueCount, cycleName };
+  const version = (parsed as { alfredExport?: unknown }).alfredExport;
+  if (version === 2 || version === 3) {
+    const sampled = (parsed as { rowsSampled?: unknown }).rowsSampled;
+    return { ...mergeEvents(v2ToCallRecords(parsed as Record<string, unknown>)), redactedValueCount, cycleName,
+      sampledStatementCount: typeof sampled === 'number' ? sampled : 0 };
   }
 
   const events = (parsed as { events?: unknown }).events;

@@ -113,7 +113,8 @@ describe('json export version 2', () => {
   it('is one valid JSON document whose every record is one line', () => {
     const lines = build();
     const file = JSON.parse(lines.join('\n'));
-    expect(file.alfredExport).toBe(2);
+    expect(file.alfredExport).toBe(3);
+    expect(file.format).toBe('alfred-calls/3');
     expect(Object.keys(file).slice(0, 4)).toEqual(['alfredExport', 'format', 'exportedAt', 'guide']);
     for (const [name, section] of Object.entries(file.layout as Record<string, { lines: number[]; count: number }>)) {
       if (!section.count) continue;
@@ -166,8 +167,15 @@ describe('json export version 2', () => {
     expect(header.common).toEqual({ thread: 'task-1', dataSource: 'Oracle 19c' });
     expect(header.origins['a:q1']).toEqual(HQL);
     const [first, second, third] = file.dbStatements;
-    expect(first.rowValues[0]).toEqual(['0', 'row 0']);
-    expect(first.rowValues[3]).toEqual(['3', null]);
+    // more than 5 rows: a sample on the statement's line, every row in `dbRows` at the end
+    expect(first.rowValues).toBeUndefined();
+    expect(first.rowSample[0]).toEqual(['0', 'row 0']);
+    expect(first.rowSample[3]).toEqual(['3', null]);
+    expect(first.rowsAt.count).toBe(52);
+    const full = file.dbRows.find((r: { seq: number }) => r.seq === 1);
+    expect(full.rowValues.length).toBe(52);
+    expect(full.rowValues[50]).toEqual([{ type: 'VARCHAR', value: '7' }, { type: 'CLOB', value: 'abc', truncatedAt: 3 }]);
+    expect(full.rowValues[51]).toEqual([{}, 'z']);
     expect(first.thread).toBeUndefined();
     expect(first.origin).toBe('a:q1');
     expect(second.connectionId).toBe('c2');
@@ -184,7 +192,7 @@ describe('json export version 2', () => {
   it('opens with a guide, the layout and the highlights - failures first', () => {
     const file = JSON.parse(build().join('\n'));
     expect(file.guide.readFirst).toContain('index');
-    expect(file.guide.counts).toEqual({ calls: 5, bodies: 2, dbStatements: 3 });
+    expect(file.guide.counts).toEqual({ calls: 5, bodies: 2, dbStatements: 3, dbRows: 1 });
     expect(file.highlights[0]).toEqual(jasmine.objectContaining({ what: 'FAILED', callId: 'out-2' }));
     const kinds = file.highlights.map((h: { what: string }) => h.what);
     expect(kinds).toContain('COMMENT');
@@ -213,5 +221,38 @@ describe('json export version 2', () => {
     // a version-1 file goes through the same reader
     const v1 = JSON.stringify(buildBulkExportPayload(calls(), FORM, COMMENTS, 'x'), null, 2);
     expect(parseImportedCalls(await readExportFile(new Blob([v1]))).calls.length).toBe(5);
+  });
+
+  it('points from a statement to its full rows by line and exact byte offset', () => {
+    const lines = build();
+    const bytes = new TextEncoder().encode(lines.join('\n'));
+    const file = JSON.parse(lines.join('\n'));
+    const at = file.dbStatements[0].rowsAt;
+    const row = JSON.parse(new TextDecoder().decode(bytes.subarray(at.offset, at.offset + at.bytes)).replace(/,$/, ''));
+    expect([row.of, row.seq, row.rowValues.length]).toEqual(['in-1', 1, 52]);
+    expect(JSON.parse(lines[at.line - 1].replace(/,$/, '')).seq).toBe(1);
+    expect(file.layout.dbRows.count).toBe(1);
+  });
+
+  it('keeps samples only when asked, says so, and imports the samples with a warning count', () => {
+    const lines = buildJsonExportV2({ calls: calls(), form: FORM, commentsByCallId: COMMENTS, exportedAt: 'x', rows: 'sample' });
+    const file = JSON.parse(lines.join('\n'));
+    expect(file.rowsSampled).toBe(1);
+    expect(file.dbRows).toEqual([]);
+    expect(file.dbStatements[0].rowsSampled).toBeTrue();
+    const back = parseImportedCalls(file);
+    expect(back.sampledStatementCount).toBe(1);
+    const st = back.calls.find((c) => c.id === 'in-1')!.dbCapture!.statements[0];
+    expect(st.rows!.length).toBe(5);
+    expect(st.outcome.rowsRead).toBe(50); // the true count stays
+  });
+
+  it('writes a JSON body outline before the body, so the head of its line says what it holds', () => {
+    const lines = build();
+    const file = JSON.parse(lines.join('\n'));
+    const offers = file.bodies.find((b: { json?: unknown }) => b.json);
+    expect(offers.shape).toEqual({ offers: ['array', 40, { id: 'number', price: 'number', carrier: 'string' }] });
+    const line = lines.find((l) => l.startsWith(`{"body":"${offers.body}"`))!;
+    expect(line.indexOf('"shape"')).toBeLessThan(line.indexOf('"json"'));
   });
 });

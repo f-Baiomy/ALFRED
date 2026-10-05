@@ -110,6 +110,37 @@ block above the SQL; Export .sql keeps SQL only, with the HQL as a comment above
 
 Verified by `db-agent`'s `HibernateOriginIT` (Hibernate 5.6 + H2, Java 8 and 21).
 
+## From "found the problem" to "know what to fix"
+
+Built from a review of real OdeySys exports by an AI agent (mock: `specs/006-db-capture/enhancements-mock.html`):
+
+- **Where the time went** (`shared/utils/db-analysis.ts`, one implementation for the window, the .json and the .md/.html):
+  database, supplier calls (their union - parallel calls are not double counted), the time BETWEEN statements (count,
+  median, largest - each named by the statement after it and the code that ran it), before/after, and the connection
+  and transaction overhead the agent timed. "App time dominant" when more than half the call is neither DB nor
+  supplier calls. The export dialog fetches each call's supplier calls by their parent link so their time counts.
+- **Top queries**: one row per statement shape, costliest first - runs, distinct parameters, exact duplicates, total,
+  rows, where it ran from. A window tab and `analysis.queries` in every export.
+- **Flags**: `DUPLICATE` (same SQL and same parameters anywhere in the call - a per-request cache fixes it, unlike an
+  N+1; statements already in a "cacheable" back-to-back run are left out), `TX_PER_STATEMENT` (10+ transactions, about
+  one per statement), and `SLOW` now counts only the time beyond the call's database round trip
+  (`RoundTrip.java`: the 10th percentile of the call's successful SELECTs, 5 or more - a remote database 55 ms away no
+  longer makes every lookup slow). No query is run for it.
+- **Call chain** (`callers`): the agent's single stack walk now collects up to N application frames (default 3,
+  Settings → Database capture → Where in code) past the project's pass-through classes (a generic DAO every query goes
+  through). `codeLocation` stays the first application frame; Hibernate's own SQL is recognised only by Hibernate frames
+  below the issuing code (a `session.doWork` lambda is still plain JDBC). ~23-25 µs per statement measured.
+- **Connection and transaction lifecycle**: the agent times `DataSource.getConnection` (the first statement on a fresh
+  connection carries `outcome.acquireMicros`), `setAutoCommit(false)`, commit/rollback and `Connection.close`, and hooks
+  JTA commit/rollback (javax and jakarta `Transaction`, `TransactionManager`, `UserTransaction`): a container-managed
+  transaction never calls `Connection.commit`, which is why every WildFly transaction used to stay OPEN with 0 ms held.
+  A JTA end closes every transaction the thread has open, "via JTA"; the per-thread list is cleared at the end of each
+  call. Stored per transaction as `transactions.lifecycle_json`.
+- **Index check** (opt-in per project): the first statement of each table in a call carries the table's indexes from
+  `DatabaseMetaData.getIndexInfo(..., approximate = true)` - `false` makes Oracle's driver run ANALYZE, and the agent
+  never changes the database. Cached per data source for 10 minutes. EXPLAIN is never run. The window says "no index
+  starts with X" for a column the statement filters by (a hint; only the planner knows).
+
 ## Exports
 
 `.md` and `.html` get a "Database" section per captured call (every statement with its values, transactions,
