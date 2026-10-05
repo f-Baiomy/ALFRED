@@ -14,6 +14,14 @@ import { DbWindowState } from './db-window-state';
  * statements). Recursive: a group renders its children with another of these. Filters (search, kind, table) hide
  * rows; a group with nothing left visible disappears, as do supplier markers while any filter is on.
  */
+/**
+ * A query whose text the agent could not read (an older agent on an app with two copies of Hibernate lost it): a bare
+ * "query" would hide what ran, so its row shows the SQL even in "Show rows as HQL".
+ */
+function textless(o: StatementOrigin): boolean {
+  return (o.kind === 'HQL' || o.kind === 'NATIVE' || o.kind === 'CRITERIA') && !o.text && !o.name;
+}
+
 @Component({
   standalone: true,
   selector: 'app-db-statement-list',
@@ -112,7 +120,7 @@ export class DbStatementListComponent {
 
   /** "Show rows as HQL": the row shows what the code wrote (or what Hibernate did) instead of the SQL. */
   asOrigin(s: CapturedStatement): boolean {
-    return this.state.rowsAs() === 'hql' && !!s.origin && s.origin.kind !== 'HIBERNATE';
+    return this.state.rowsAs() === 'hql' && !!s.origin && s.origin.kind !== 'HIBERNATE' && !textless(s.origin);
   }
 
   summary(o: StatementOrigin): string {
@@ -120,7 +128,7 @@ export class DbStatementListComponent {
   }
 
   groupSummary(g: DbGroupNode): string {
-    return g.origin ? originSummary(g.origin) : 'query';
+    return g.origin && !textless(g.origin) ? originSummary(g.origin) : 'query text not recorded - the SQL it ran is below';
   }
 
   queryLabel(g: DbGroupNode): string {

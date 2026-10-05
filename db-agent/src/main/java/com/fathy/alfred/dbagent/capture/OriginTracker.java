@@ -42,8 +42,25 @@ final class OriginTracker {
     private final AtomicLong ids = new AtomicLong();
     private final WeakIdentityMap<QueryState> queries = new WeakIdentityMap<>();
     private final ThreadLocal<ArrayList<Frame>> stack = ThreadLocal.withInitial(ArrayList::new);
-    private final ConcurrentHashMap<String, Method> methods = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<Class<?>, String> kinds = new ConcurrentHashMap<>();
+    /**
+     * Reflected methods, per CLASS - never per class name: an app server runs one copy of Hibernate per deployment
+     * (odeysys deploys odeysysadmin and odeysysportal, each with its own hibernate-core), so two different classes share
+     * the name org.hibernate.impl.QueryImpl. Keyed by name, the first deployment's Method was invoked on the other's
+     * queries, failed ("not an instance of declaring class") and every HQL text of that deployment was lost. ClassValue
+     * also lets a redeployed application's classes be unloaded.
+     */
+    private final ClassValue<ConcurrentHashMap<String, Method>> methods = new ClassValue<ConcurrentHashMap<String, Method>>() {
+        @Override
+        protected ConcurrentHashMap<String, Method> computeValue(Class<?> type) {
+            return new ConcurrentHashMap<>();
+        }
+    };
+    private final ClassValue<String> kinds = new ClassValue<String>() {
+        @Override
+        protected String computeValue(Class<?> type) {
+            return kindOfClass(type);
+        }
+    };
 
     OriginTracker(String agentId) {
         this.prefix = agentId + ":q";
@@ -249,23 +266,20 @@ final class OriginTracker {
 
     /** NATIVE (createNativeQuery/createSQLQuery, a stored procedure), CRITERIA or HQL - by the query's class. */
     private String kind(Object query) {
-        Class<?> type = query.getClass();
-        String kind = kinds.get(type);
-        if (kind == null) {
-            kind = "HQL";
-            for (Class<?> c = type; c != null && c != Object.class; c = c.getSuperclass()) {
-                String k = kindOf(c.getName());
-                for (int i = 0; k == null && i < c.getInterfaces().length; i++) {
-                    k = kindOf(c.getInterfaces()[i].getName());
-                }
-                if (k != null) {
-                    kind = k;
-                    break;
-                }
+        return kinds.get(query.getClass());
+    }
+
+    private static String kindOfClass(Class<?> type) {
+        for (Class<?> c = type; c != null && c != Object.class; c = c.getSuperclass()) {
+            String k = kindOf(c.getName());
+            for (int i = 0; k == null && i < c.getInterfaces().length; i++) {
+                k = kindOf(c.getInterfaces()[i].getName());
             }
-            kinds.put(type, kind);
+            if (k != null) {
+                return k;
+            }
         }
-        return kind;
+        return "HQL";
     }
 
     private static String kindOf(String name) {
@@ -295,11 +309,11 @@ final class OriginTracker {
         if (target == null) {
             return null;
         }
-        String key = target.getClass().getName() + '#' + name;
-        Method m = methods.get(key);
+        ConcurrentHashMap<String, Method> byName = methods.get(target.getClass());
+        Method m = byName.get(name);
         if (m == null) {
             m = find(target.getClass(), name);
-            methods.put(key, m == null ? NONE : m);
+            byName.put(name, m == null ? NONE : m);
         }
         if (m == NONE) {
             return null;

@@ -133,6 +133,21 @@ describe('DbWindowComponent', () => {
     localStorage.removeItem('alfred.dbCapture.rowsAs');
   });
 
+  it('shows the SQL, not a bare "query", for an HQL query whose text was not recorded', () => {
+    localStorage.removeItem('alfred.dbCapture.rowsAs');
+    const origin = { id: 'a:q4', kind: 'HQL' as const, method: 'list' };
+    statements = jasmine.createSpy('statements').and.returnValue(of({
+      ...pageOf(),
+      statements: [stmt(1, 'SELECT', 'select user0_.USER_ID from TT_USER user0_', { origin })],
+    }));
+    const fixture = create();
+    fixture.detectChanges();
+    const row = fixture.nativeElement.querySelector('.r .sql1');
+    expect(row.textContent).toContain('HQL');
+    expect(row.textContent).toContain('select user0_.USER_ID from TT_USER user0_');
+    localStorage.removeItem('alfred.dbCapture.rowsAs');
+  });
+
   it('loads the supplier calls by their parent link - never "not loaded" because the list is filtered', () => {
     const supplier: CallRecord = {
       id: 'out-54', original_url: 'https://ndc.example/api/FlightSearch/Search', url: 'https://ndc.example/api/FlightSearch/Search',
