@@ -1,5 +1,5 @@
 <div class="dialog-backdrop" (click)="onBackdrop($event)">
-  <div class="dialog-card db-window" [class.compact]="compact()" role="dialog" aria-label="Database statements">
+  <div class="dialog-card db-window" [class.compact]="compact()" [class.full]="full()" role="dialog" aria-label="Database statements">
     <div class="dbw-head">
       <div class="title">
         @if (call(); as c) {
@@ -32,29 +32,48 @@
               @if (o.toFix) {<span class="cnt warn">{{ o.toFix }} to fix</span>}
               <span class="phint">{{ panelOpen() ? 'hide' : 'details' }}</span>
             </div>
-            @if (panelOpen()) {
-              <div class="tlbox">
-                <div class="sec">When it happened <span class="hint">hover = what it is · click = open it · drag = zoom</span></div>
-                <app-db-timeline [overview]="o" [statements]="statements()" [highlight]="highlight()" (jumpTo)="jump($event)" />
-                @if (breakdown(); as b) {
-                  @if (b.overheadMs >= 1) {
-                    <div class="tb-legend"><span title="Measured by the agent around the statements: DataSource.getConnection, setAutoCommit(false), commit/rollback (JDBC or JTA) and Connection.close">
-                      Connection and transaction overhead ≈ {{ (b.overheadMs / 1000).toFixed(1) }} s · {{ b.checkouts }} connection checkouts · {{ b.transactions }} transactions</span></div>
-                  }
-                }
-              </div>
-              <app-db-findings [findings]="o.findings" [canMarkExpected]="!!state.project()" (jump)="jump($event)" (hover)="highlight.set($event)"
-                               (show)="showFinding($event)" (markExpected)="markExpected($event)" />
-            }
           </div>
         }
       </div>
       <div style="display:flex;gap:.4rem;flex:0 0 auto">
+        <button type="button" class="dbw-close" [class.on]="full()" [attr.aria-label]="full() ? 'Leave full window' : 'Full window'"
+                [title]="full() ? 'Leave full window (Esc or F)' : 'Full window (F)'" (click)="setFull(!full())">⛶</button>
         <button type="button" class="dbw-close" [attr.aria-label]="compact() ? 'Show summary' : 'Hide summary'"
                 [title]="compact() ? 'Show summary' : 'Hide summary - more room for statements'" (click)="compact.set(!compact())">{{ compact() ? '▾' : '▴' }}</button>
         <button type="button" class="dbw-close" aria-label="Close" (click)="close()">✕</button>
       </div>
     </div>
+    @if (showPanel() && overview(); as o) {
+      <!-- the timeline stays above the split - it never scrolls away with the findings -->
+      <div class="dbw-tl">
+        <div class="tlbox" [class.mini]="timelineHidden()">
+          <div class="sec">When it happened <span class="hint">hover = what it is · click = open it · drag = zoom</span>
+            <span class="sec-acts">
+              <span class="lay">Layout: <a [class.on]="layout() === 'side'" (click)="setLayout('side')">Side by side</a><a [class.on]="layout() === 'stack'" (click)="setLayout('stack')">Stacked</a></span>
+              <a (click)="toggleTimeline()">{{ timelineHidden() ? 'show timeline' : 'hide timeline' }}</a>
+            </span>
+          </div>
+          @if (!timelineHidden()) {
+            <app-db-timeline [overview]="o" [statements]="statements()" [highlight]="highlight()" (jumpTo)="jump($event)" />
+            @if (breakdown(); as b) {
+              @if (b.overheadMs >= 1) {
+                <div class="tb-legend"><span title="Measured by the agent around the statements: DataSource.getConnection, setAutoCommit(false), commit/rollback (JDBC or JTA) and Connection.close">
+                  Connection and transaction overhead ≈ {{ (b.overheadMs / 1000).toFixed(1) }} s · {{ b.checkouts }} connection checkouts · {{ b.transactions }} transactions</span></div>
+              }
+            }
+          }
+        </div>
+      </div>
+    }
+    <div class="dbw-split" [class.side]="layout() === 'side'" #split>
+    @if (showPanel() && overview(); as o) {
+      <div class="dbw-fpane" [style.width.px]="layout() === 'side' ? sideWidth() : null" [style.flex-basis.%]="layout() === 'stack' ? stackShare() * 100 : null">
+        <app-db-findings [findings]="o.findings" [canMarkExpected]="!!state.project()" [selected]="findingFilter()?.id ?? null" (jump)="jump($event)" (hover)="highlight.set($event)"
+                         (show)="showFinding($event)" (markExpected)="markExpected($event)" />
+      </div>
+      <div class="dbw-handle" [class.drag]="dragging()" (mousedown)="startResize($event)" title="Drag to resize"></div>
+    }
+    <div class="dbw-main">
     <div class="views">
       <button type="button" [class.on]="view() === 'stmts'" (click)="setView('stmts')">Statements<span class="count">{{ totalCount() }}</span></button>
       @if (call()) {
@@ -151,7 +170,7 @@
         }
       } @else {
       @if (findingFilter(); as f) {
-        <div class="sq-note">Showing <b>{{ f.seqs.length }}</b>&nbsp;statements for: {{ f.title }}
+        <div class="sq-note">Showing <b>{{ f.seqs.length }}</b>&nbsp;statements for:&nbsp;<b>{{ f.title }}</b>
           <button type="button" class="action-btn" style="margin-left:auto" (click)="clearFindingFilter()">Back to all</button></div>
       }
       @if (queryFilter(); as q) {
@@ -219,6 +238,8 @@
         <button type="button" class="action-btn" (click)="copyAllSql()">Copy all SQL</button>
         <button type="button" class="action-btn" (click)="exportSql()">Export .sql</button>
       </div>
+    </div>
+    </div>
     </div>
   </div>
 </div>

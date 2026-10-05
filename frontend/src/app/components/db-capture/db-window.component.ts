@@ -1,5 +1,5 @@
 import {
-  ChangeDetectionStrategy, Component, DestroyRef, ElementRef, HostListener, OnInit, computed, effect, inject, input, output, signal, untracked,
+  ChangeDetectionStrategy, Component, DestroyRef, ElementRef, HostListener, OnInit, computed, effect, inject, input, output, signal, untracked, viewChild,
 } from '@angular/core';
 import { EMPTY, Observable, catchError, expand, forkJoin, map, of, reduce } from 'rxjs';
 import { CallRecord } from '../../core/models/call.model';
@@ -17,7 +17,7 @@ import { isDelete, isFailed, isWrite, msText } from '../../shared/utils/db-state
 import { DbFinding, DbOverview, buildOverview, fmtMs } from '../../shared/utils/db-findings';
 import { buildSqlScript } from '../../shared/utils/sql-export-builder';
 import {
-  readGroupByQuery, readGroupByTransaction, readSummaryOpen, saveGroupByQuery, saveGroupByTransaction, saveRowsAs, saveSummaryOpen,
+  readDbPref, readGroupByQuery, readGroupByTransaction, readSummaryOpen, saveDbPref, saveGroupByQuery, saveGroupByTransaction, saveRowsAs, saveSummaryOpen,
 } from '../../shared/utils/db-group-preference';
 import { hasOrigins } from '../../shared/utils/db-origin';
 import { QueryTotal, TimeBreakdown, queryTotals, timeBreakdown } from '../../shared/utils/db-analysis';
@@ -42,6 +42,12 @@ function shortUrl(url: string): string {
   }
 }
 const DEFAULT_REPEAT_THRESHOLD = 5;
+/** Side by side by default from this browser-window width; the findings column and the statements' minimums. */
+const SIDE_MIN_WIDTH = 1100;
+const SIDE_MIN = 260;
+const MAIN_MIN_WIDTH = 420;
+const STACK_MIN = 60;
+const MAIN_MIN_HEIGHT = 330;
 
 /**
  * The database window (specs/006-db-capture/mock.html, "DATABASE WINDOW"): one inbound call's statements in the order
@@ -103,6 +109,70 @@ export class DbWindowComponent implements OnInit {
     return buildOverview(call, this.statements(), this.markers(), this.state.suppliersBySeq(), this.flags());
   });
   readonly panelOpen = signal(readSummaryOpen());
+  /** The timeline and findings show while the summary line is open (and the header is not hidden). */
+  readonly showPanel = computed(() => this.panelOpen() && !this.compact());
+  /**
+   * Findings beside the statements (side) or above them (stack) - side by default on a wide screen, the choice
+   * remembered; the size of the findings part dragged and remembered too. Stacked, the statements (with their tools) keep 330 px.
+   */
+  readonly layout = signal<'side' | 'stack'>(readDbPref('layout', '') === 'stack' || (readDbPref('layout', '') === '' && window.innerWidth < SIDE_MIN_WIDTH) ? 'stack' : 'side');
+  readonly sideWidth = signal(Number(readDbPref('sideWidth', '400')) || 400);
+  readonly stackShare = signal(Number(readDbPref('stackShare', '0.4')) || 0.4);
+  readonly timelineHidden = signal(readDbPref('timelineHidden', '0') === '1');
+  /** Full window: the window fills the browser window. Remembered; Esc or F leaves it. */
+  readonly full = signal(readDbPref('full', '0') === '1');
+  readonly dragging = signal(false);
+  private readonly split = viewChild<ElementRef<HTMLElement>>('split');
+
+  setLayout(layout: 'side' | 'stack'): void {
+    this.layout.set(layout);
+    saveDbPref('layout', layout);
+  }
+
+  toggleTimeline(): void {
+    this.timelineHidden.set(!this.timelineHidden());
+    saveDbPref('timelineHidden', this.timelineHidden() ? '1' : '0');
+  }
+
+  setFull(full: boolean): void {
+    this.full.set(full);
+    saveDbPref('full', full ? '1' : '0');
+  }
+
+  /** Dragging the bar between the findings and the statements. */
+  startResize(event: MouseEvent): void {
+    const split = this.split()?.nativeElement;
+    const pane = split?.querySelector<HTMLElement>('.dbw-fpane');
+    if (!split || !pane) return;
+    event.preventDefault();
+    const side = this.layout() === 'side';
+    const start = side ? event.clientX : event.clientY;
+    const startSize = side ? pane.offsetWidth : pane.offsetHeight;
+    this.dragging.set(true);
+    const move = (e: MouseEvent) => {
+      const size = startSize + (side ? e.clientX : e.clientY) - start;
+      if (side) this.sideWidth.set(Math.round(Math.max(SIDE_MIN, Math.min(split.clientWidth - MAIN_MIN_WIDTH, size))));
+      else this.stackShare.set(Math.max(STACK_MIN, Math.min(split.clientHeight - MAIN_MIN_HEIGHT, size)) / split.clientHeight);
+    };
+    const up = () => {
+      this.dragging.set(false);
+      document.removeEventListener('mousemove', move);
+      document.removeEventListener('mouseup', up);
+      saveDbPref('sideWidth', String(this.sideWidth()));
+      saveDbPref('stackShare', this.stackShare().toFixed(3));
+    };
+    document.addEventListener('mousemove', move);
+    document.addEventListener('mouseup', up);
+  }
+
+  /** F toggles full window - not while typing, and not while the window is put aside. */
+  @HostListener('document:keydown', ['$event'])
+  onKey(event: KeyboardEvent): void {
+    const target = event.target as HTMLElement | null;
+    if (event.key.toLowerCase() !== 'f' || event.ctrlKey || event.metaKey || event.altKey || this.windows.aside()) return;
+    if (target && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))) return;
+    this.setFull(!this.full());
+  }
   /** Timeline items a hovered finding or chip lights up. */
   readonly highlight = signal<ReadonlySet<string> | null>(null);
   /** The finding whose statements "Show" narrowed the list to. */
@@ -462,7 +532,10 @@ export class DbWindowComponent implements OnInit {
   /** Escape closes the window - not while it is put aside, when the key belongs to the page under it. */
   @HostListener('document:keydown.escape')
   onEscape(): void {
-    if (!this.windows.aside()) this.close();
+    if (this.windows.aside()) return;
+    // the first Esc leaves full window, the next one closes
+    if (this.full()) this.setFull(false);
+    else this.close();
   }
 
   close(): void {

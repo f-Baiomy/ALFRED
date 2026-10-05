@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, HostListener, computed, input, output, signal } from '@angular/core';
 import { CapturedStatement } from '../../core/models/db-capture.model';
-import { DbOverview, ITEM_LABELS, ItemKind, fmtMs, idleKey } from '../../shared/utils/db-findings';
+import { DbOverview, ITEM_LABELS, ItemKind, TimelineSupplier, fmtMs, idleKey } from '../../shared/utils/db-findings';
 
 interface Item {
   readonly key: string;
@@ -16,6 +16,10 @@ interface Item {
 
 const KINDS: readonly ItemKind[] = ['ok', 'fan', 'slow', 'rep', 'big', 'err', 'tx', 'sup', 'idle'];
 const ROW_PX = 19;
+/** Supplier calls are thinner and stacked at most this deep; the rest sit behind "+N parallel" until expanded. */
+const SUP_ROW_PX = 14;
+const SUP_SEG_PX = 12;
+const SUP_MAX_ROWS = 4;
 const LABEL_MIN_PCT = 6;
 
 /**
@@ -35,14 +39,20 @@ const LABEL_MIN_PCT = 6;
       @for (lane of lanes(); track lane.name) {
         <div class="dbt-lane">
           <div class="dbt-name">{{ lane.name }}</div>
-          <div class="dbt-track" [style.height.px]="6 + lane.rows * rowPx" (mousedown)="dragStart($event)">
+          <div class="dbt-track" [style.height.px]="6 + lane.rows * lane.rowPx" (mousedown)="dragStart($event)">
             @for (t of ticks(); track t) {<div class="dbt-grid" [style.left.%]="x(t)"></div>}
             @for (it of lane.items; track it.key) {
               <div class="dbt-seg" [class]="'dbt-seg k-' + it.kind" [class.hl]="highlight()?.has(it.key)"
-                   [style.left.%]="x(it.atMs)" [style.width.%]="w(it.ms)" [style.top.px]="3 + it.row * rowPx"
+                   [style.left.%]="x(it.atMs)" [style.width.%]="w(it.ms)" [style.top.px]="3 + it.row * lane.rowPx" [style.height.px]="lane.segPx"
                    (mousemove)="showTip($event, it)" (mouseleave)="tip.set(null)" (mousedown)="$event.stopPropagation()" (click)="jumpTo.emit(it.jump)">
-                @if (it.label && w(it.ms) > labelMin) {<span class="lb">{{ it.label }}</span>}
+                @if (it.label && w(it.ms) > labelMin) {<span class="lb" [style.line-height.px]="lane.segPx">{{ it.label }}</span>}
               </div>
+            }
+            @if (lane.hidden.length) {
+              <span class="dbt-more" [style.top.px]="3 + (lane.rows - 1) * lane.rowPx" (mousedown)="$event.stopPropagation()"
+                    (mousemove)="showMore($event, lane.hidden)" (mouseleave)="tip.set(null)" (click)="supExpanded.set(true); tip.set(null)">+{{ lane.hidden.length }} parallel</span>
+            } @else if (lane.name === 'Supplier calls' && supExpanded()) {
+              <span class="dbt-more" style="top:3px" (mousedown)="$event.stopPropagation()" (click)="supExpanded.set(false)">fewer rows</span>
             }
             @if (brush(); as b) {
               @if (b.track === lane.name) {<div class="dbt-brush" [style.left.px]="b.from" [style.width.px]="b.width"></div>}
@@ -62,7 +72,7 @@ const LABEL_MIN_PCT = 6;
       <div class="dbt-tip" [style.left.px]="t.x" [style.top.px]="t.y">
         <b>{{ t.item.title }}</b>
         @for (l of t.item.lines; track $index) {@if (l) {<div class="k">{{ l }}</div>}}
-        <div class="go">click to open</div>
+        @if (t.item.jump >= 0) {<div class="go">click to open</div>}
       </div>
     }
   `,
@@ -74,12 +84,13 @@ export class DbTimelineComponent {
   readonly highlight = input<ReadonlySet<string> | null>(null);
   readonly jumpTo = output<number>();
 
-  protected readonly rowPx = ROW_PX;
   protected readonly labelMin = LABEL_MIN_PCT;
   protected readonly labels = ITEM_LABELS;
   protected readonly fmt = fmtMs;
 
   readonly zoom = signal<readonly [number, number] | null>(null);
+  /** Every supplier row shown, not only the first four. */
+  readonly supExpanded = signal(false);
   readonly view = computed<readonly [number, number]>(() => this.zoom() ?? [0, Math.max(1, this.overview().totalMs)]);
   readonly zoomed = computed(() => this.zoom() != null);
   readonly tip = signal<{ x: number; y: number; item: Item } | null>(null);
@@ -121,10 +132,14 @@ export class DbTimelineComponent {
     })).filter((it) => it.jump != null);
     const [a, b] = this.view();
     const visible = (items: Item[]) => items.filter((it) => it.atMs + it.ms >= a && it.atMs <= b);
+    const supRows = Math.max(1, ...o.suppliers.map((c) => c.row + 1));
+    const capped = !this.supExpanded() && supRows > SUP_MAX_ROWS;
+    const hidden = capped ? o.suppliers.filter((c) => c.row >= SUP_MAX_ROWS) : [];
     const lanes = [
-      { name: 'Database', items: visible(db), rows: 1 },
-      { name: 'Supplier calls', items: visible(sup), rows: Math.max(1, ...o.suppliers.map((c) => c.row + 1)) },
-      { name: 'Idle (app only)', items: visible(idle), rows: 1 },
+      { name: 'Database', items: visible(db), rows: 1, rowPx: ROW_PX, segPx: 16, hidden: [] as TimelineSupplier[] },
+      { name: 'Supplier calls', items: visible(sup.filter((it) => !capped || it.row < SUP_MAX_ROWS)), rows: capped ? SUP_MAX_ROWS : supRows,
+        rowPx: SUP_ROW_PX, segPx: SUP_SEG_PX, hidden },
+      { name: 'Idle (app only)', items: visible(idle), rows: 1, rowPx: ROW_PX, segPx: 16, hidden: [] as TimelineSupplier[] },
     ];
     return lanes.filter((l) => l.name === 'Database' || l.items.length || (l.name === 'Supplier calls' && o.suppliers.length));
   });
@@ -146,6 +161,12 @@ export class DbTimelineComponent {
   w(ms: number): number {
     const [a, b] = this.view();
     return (ms / (b - a)) * 100;
+  }
+
+  /** The calls behind "+N parallel", listed on hover. */
+  showMore(event: MouseEvent, hidden: readonly TimelineSupplier[]): void {
+    this.showTip(event, { key: 'more', kind: 'sup', atMs: 0, ms: 0, jump: -1, row: 0, label: '', title: `${hidden.length} more calls in parallel`,
+      lines: [...hidden.map((c) => `#${c.seq} ${c.host} · ${fmtMs(c.ms)} · ${c.status ?? 'no answer'}`), 'click to show every row'] });
   }
 
   showTip(event: MouseEvent, item: Item): void {

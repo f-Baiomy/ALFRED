@@ -1,5 +1,8 @@
+import { NgTemplateOutlet } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
 import { CHIP_LIMIT, DbFinding, FindingChip, fmtMs } from '../../shared/utils/db-findings';
+
+const NOTES = 'notes';
 
 /**
  * The call's findings (specs/006-db-capture/timeline-mock.html): one closed line each - icon, title, short why,
@@ -11,14 +14,42 @@ import { CHIP_LIMIT, DbFinding, FindingChip, fmtMs } from '../../shared/utils/db
   standalone: true,
   selector: 'app-db-findings',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [NgTemplateOutlet],
   template: `
     <div class="dbf">
       <div class="dbf-tools">
         <span class="dbf-title">Findings</span>
         <a (click)="openAll()">Open all</a><a (click)="open.set(emptySet)">Close all</a>
       </div>
-      @for (f of findings(); track f.id) {
-        <div class="dbf-f" [class]="'dbf-f ' + f.severity" [class.on]="open().has(f.id)"
+      @for (f of main(); track f.id) {
+        <ng-container *ngTemplateOutlet="one; context: { $implicit: f }" />
+      }
+      @if (notes().length > 1) {
+        <!-- notes on one line: what they are, open for each -->
+        <div class="dbf-f note dbf-notes" [class.on]="open().has(NOTES)">
+          <div class="dbf-head" (click)="toggle(NOTES)" role="button" [attr.aria-expanded]="open().has(NOTES)">
+            <span class="chev">▶</span><span class="ic">ⓘ</span><b>{{ notes().length }} notes</b>
+            <span class="short">- {{ noteTitles() }}</span><span class="cnt"></span><span class="imp"></span>
+          </div>
+          @if (open().has(NOTES)) {
+            <div class="dbf-notes-in">
+              @for (f of notes(); track f.id) {
+                <ng-container *ngTemplateOutlet="one; context: { $implicit: f }" />
+              }
+            </div>
+          }
+        </div>
+      } @else {
+        @for (f of notes(); track f.id) {
+          <ng-container *ngTemplateOutlet="one; context: { $implicit: f }" />
+        }
+      }
+      @if (!findings().length) {
+        <div class="dimtxt dbf-none">Nothing to report - no errors, no slow, repeated or huge queries, no idle stretches.</div>
+      }
+    </div>
+    <ng-template #one let-f>
+        <div class="dbf-f" [class]="'dbf-f ' + f.severity" [class.on]="open().has(f.id)" [class.sel]="selected() === f.id"
              (mouseenter)="hover.emit(keysOf(f))" (mouseleave)="hover.emit(null)">
           <div class="dbf-head" (click)="toggle(f.id)" role="button" [attr.aria-expanded]="open().has(f.id)">
             <span class="chev">▶</span><span class="ic">{{ f.icon }}</span><b [title]="f.title">{{ f.title }}</b>
@@ -40,7 +71,7 @@ import { CHIP_LIMIT, DbFinding, FindingChip, fmtMs } from '../../shared/utils/db
               }
               <div class="dbf-acts">
                 @if (f.seqs.length > 1) {
-                  <button type="button" class="action-btn" (click)="show.emit(f)">Show these {{ f.seqs.length }} in the list</button>
+                  <button type="button" class="action-btn" (click)="show.emit(f)">Show these {{ f.seqs.length }} in the tree</button>
                 }
                 @if (f.fingerprints.length && canMarkExpected()) {
                   @if (marked().has(f.id)) {<span class="dimtxt">✓ Marked as expected - not flagged again for this project.</span>}
@@ -50,15 +81,14 @@ import { CHIP_LIMIT, DbFinding, FindingChip, fmtMs } from '../../shared/utils/db
             </div>
           }
         </div>
-      } @empty {
-        <div class="dimtxt dbf-none">Nothing to report - no errors, no slow, repeated or huge queries, no idle stretches.</div>
-      }
-    </div>
+    </ng-template>
   `,
 })
 export class DbFindingsComponent {
   readonly findings = input.required<readonly DbFinding[]>();
   readonly canMarkExpected = input(false);
+  /** The finding the statement list is narrowed to ("Show"). */
+  readonly selected = input<string | null>(null);
   readonly jump = output<number>();
   readonly hover = output<ReadonlySet<string> | null>();
   readonly show = output<DbFinding>();
@@ -69,7 +99,12 @@ export class DbFindingsComponent {
   protected readonly emptySet: ReadonlySet<string> = new Set();
   readonly open = signal<ReadonlySet<string>>(new Set());
   readonly marked = signal<ReadonlySet<string>>(new Set());
-  readonly ids = computed(() => this.findings().map((f) => f.id));
+  readonly ids = computed(() => [...this.findings().map((f) => f.id), NOTES]);
+  /** Errors and things to fix; the notes go on one line of their own when there are several. */
+  readonly main = computed(() => this.findings().filter((f) => f.severity !== 'note'));
+  readonly notes = computed(() => this.findings().filter((f) => f.severity === 'note'));
+  readonly noteTitles = computed(() => this.notes().map((f) => f.title).join(' · '));
+  protected readonly NOTES = NOTES;
 
   keysOf(f: DbFinding): ReadonlySet<string> {
     return new Set(f.keys);

@@ -75,3 +75,20 @@ export function saveSummaryOpen(open: boolean): void {
     // the choice lasts for this page only
   }
 }
+
+/** One of the database window's remembered layout choices (`alfred.dbCapture.<key>`); `fallback` when unset or blocked. */
+export function readDbPref(key: string, fallback: string): string {
+  try {
+    return localStorage.getItem(`alfred.dbCapture.${key}`) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+export function saveDbPref(key: string, value: string): void {
+  try {
+    localStorage.setItem(`alfred.dbCapture.${key}`, value);
+  } catch {
+    // the choice lasts for this page only
+  }
+}
