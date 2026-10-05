@@ -43,13 +43,18 @@
         <button type="button" class="dbw-close" aria-label="Close" (click)="close()">✕</button>
       </div>
     </div>
-    @if (showPanel() && overview(); as o) {
-      <!-- the timeline stays above the split - it never scrolls away with the findings -->
-      <div class="dbw-tl">
+    @if (!compact() && overview(); as o) {
+      <!-- the timeline: its own bar, opened and closed on its own (the summary line opens the findings), resized by
+           the bar under it; it stays above the split - it never scrolls away with the findings -->
+      <div class="dbw-tl" [style.height.px]="timelineHidden() ? null : timelineHeight()" [style.flex-shrink]="!timelineHidden() && timelineHeight() ? 0 : null">
         <div class="tlbox" [class.mini]="timelineHidden()">
-          <div class="sec">When it happened <span class="hint">hover = what it is · click = open it · drag = zoom</span>
-            <span class="sec-acts">
-              <span class="lay">Layout: <a [class.on]="layout() === 'side'" (click)="setLayout('side')">Side by side</a><a [class.on]="layout() === 'stack'" (click)="setLayout('stack')">Stacked</a></span>
+          <div class="sec tl-bar" role="button" [attr.aria-expanded]="!timelineHidden()" (click)="toggleTimeline()">
+            <span class="pchev" [class.open]="!timelineHidden()">▶</span> When it happened
+            @if (!timelineHidden()) {<span class="hint">hover = what it is · click = open it · drag = zoom</span>}
+            <span class="sec-acts" (click)="$event.stopPropagation()">
+              @if (showPanel()) {
+                <span class="lay">Findings: <a [class.on]="layout() === 'side'" (click)="setLayout('side')">Side by side</a><a [class.on]="layout() === 'stack'" (click)="setLayout('stack')">Stacked</a></span>
+              }
               <a (click)="toggleTimeline()">{{ timelineHidden() ? 'show timeline' : 'hide timeline' }}</a>
             </span>
           </div>
@@ -64,6 +69,10 @@
           }
         </div>
       </div>
+      @if (!timelineHidden()) {
+        <div class="dbw-handle dbw-tl-handle" [class.drag]="draggingTimeline()" (mousedown)="startTimelineResize($event)" (dblclick)="resetTimelineHeight()"
+             title="Drag to resize the timeline · double-click for its full height"></div>
+      }
     }
     <div class="dbw-split" [class.side]="layout() === 'side'" #split>
     @if (showPanel() && overview(); as o) {

@@ -48,6 +48,7 @@ const SIDE_MIN = 260;
 const MAIN_MIN_WIDTH = 420;
 const STACK_MIN = 60;
 const MAIN_MIN_HEIGHT = 330;
+const TIMELINE_MIN = 60;
 
 /**
  * The database window (specs/006-db-capture/mock.html, "DATABASE WINDOW"): one inbound call's statements in the order
@@ -109,7 +110,7 @@ export class DbWindowComponent implements OnInit {
     return buildOverview(call, this.statements(), this.markers(), this.state.suppliersBySeq(), this.flags());
   });
   readonly panelOpen = signal(readSummaryOpen());
-  /** The timeline and findings show while the summary line is open (and the header is not hidden). */
+  /** The findings show while the summary line is open (and the header is not hidden); the timeline opens on its own. */
   readonly showPanel = computed(() => this.panelOpen() && !this.compact());
   /**
    * Findings beside the statements (side) or above them (stack) - side by default on a wide screen, the choice
@@ -118,7 +119,10 @@ export class DbWindowComponent implements OnInit {
   readonly layout = signal<'side' | 'stack'>(readDbPref('layout', '') === 'stack' || (readDbPref('layout', '') === '' && window.innerWidth < SIDE_MIN_WIDTH) ? 'stack' : 'side');
   readonly sideWidth = signal(Number(readDbPref('sideWidth', '400')) || 400);
   readonly stackShare = signal(Number(readDbPref('stackShare', '0.4')) || 0.4);
-  readonly timelineHidden = signal(readDbPref('timelineHidden', '0') === '1');
+  /** Closed by default like the summary line; open or closed and its dragged height remembered (null = its full height). */
+  readonly timelineHidden = signal(readDbPref('timelineHidden', '1') === '1');
+  readonly timelineHeight = signal<number | null>(Number(readDbPref('timelineHeight', '0')) || null);
+  readonly draggingTimeline = signal(false);
   /** Full window: the window fills the browser window. Remembered; Esc or F leaves it. */
   readonly full = signal(readDbPref('full', '0') === '1');
   readonly dragging = signal(false);
@@ -132,6 +136,34 @@ export class DbWindowComponent implements OnInit {
   toggleTimeline(): void {
     this.timelineHidden.set(!this.timelineHidden());
     saveDbPref('timelineHidden', this.timelineHidden() ? '1' : '0');
+  }
+
+  /** Dragging the bar under the timeline: its height (it scrolls inside below its content's). */
+  startTimelineResize(event: MouseEvent): void {
+    const tl = this.host.nativeElement.querySelector('.dbw-tl') as HTMLElement | null;
+    if (!tl) return;
+    event.preventDefault();
+    const start = event.clientY;
+    const startHeight = tl.offsetHeight;
+    // up to its full content, and never so tall the statements lose their 330 px
+    const card = this.host.nativeElement.querySelector('.db-window') as HTMLElement;
+    const head = this.host.nativeElement.querySelector('.dbw-head') as HTMLElement;
+    const content = Math.min(tl.scrollHeight, card.clientHeight - head.offsetHeight - MAIN_MIN_HEIGHT);
+    this.draggingTimeline.set(true);
+    const move = (e: MouseEvent) => this.timelineHeight.set(Math.round(Math.max(TIMELINE_MIN, Math.min(content, startHeight + e.clientY - start))));
+    const up = () => {
+      this.draggingTimeline.set(false);
+      document.removeEventListener('mousemove', move);
+      document.removeEventListener('mouseup', up);
+      saveDbPref('timelineHeight', String(this.timelineHeight() ?? 0));
+    };
+    document.addEventListener('mousemove', move);
+    document.addEventListener('mouseup', up);
+  }
+
+  resetTimelineHeight(): void {
+    this.timelineHeight.set(null);
+    saveDbPref('timelineHeight', '0');
   }
 
   setFull(full: boolean): void {

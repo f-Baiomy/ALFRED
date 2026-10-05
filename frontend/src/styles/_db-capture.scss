@@ -179,7 +179,12 @@
   // ---- the timeline above, then findings | drag bar | statements (split-mock.html) ----
   // on a short window the timeline gives way (scrolls) before the findings and statements do
   .dbw-tl { flex: 0 1 auto; min-height: 2.6rem; overflow-y: auto; padding: 0.5rem 1.3rem 0; }
-  .tlbox.mini { padding-bottom: 0.2rem; .sec { margin-bottom: 0; } }
+  .tlbox.mini { padding-bottom: 0.45rem; .sec { margin-bottom: 0; } }
+  .tl-bar { cursor: pointer; align-items: center;
+    .pchev { color: var(--text-faint); font-size: 0.6rem; display: inline-block; transition: transform 0.12s; }
+    .pchev.open { transform: rotate(90deg); } }
+  .dbw-tl-handle { margin-top: 0.5rem; }
+  .dbw-tl-handle + .dbw-split { margin-top: 0; border-top: none; }
   .sec-acts {
     margin-left: auto; display: flex; gap: 0.9rem; align-items: baseline; text-transform: none; letter-spacing: 0; font-weight: 400;
     a { color: var(--purple-light); cursor: pointer; }
