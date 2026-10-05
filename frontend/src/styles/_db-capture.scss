@@ -199,7 +199,7 @@
   .dbw-viewbtn.on { border-color: var(--purple-light); }
   .dbw-viewmenu {
     position: absolute; right: 0; top: calc(100% + 4px); z-index: 30; width: 270px; padding: 0.5rem 0.65rem; border-radius: 10px;
-    background: var(--card); border: 1px solid var(--border-strong); box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45); font-size: 0.78rem;
+    background: var(--popover-solid); border: 1px solid var(--border-strong); box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45); font-size: 0.78rem;
     display: flex; flex-direction: column; gap: 0.25rem;
     .chk { display: flex; gap: 0.45rem; align-items: center; margin: 0; }
     .vm-row { display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap; color: var(--text-dim); }
@@ -321,7 +321,7 @@
     button { font: inherit; border: 1px solid var(--border-strong); background: none; color: var(--purple-light); border-radius: 6px; padding: 0 0.5rem; cursor: pointer; }
   }
   .dbt-tip {
-    position: fixed; z-index: 1000; pointer-events: none; max-width: 380px; background: var(--card); border: 1px solid var(--border-strong);
+    position: fixed; z-index: 1000; pointer-events: none; max-width: 380px; background: var(--popover-solid); border: 1px solid var(--border-strong);
     border-radius: 9px; padding: 0.45rem 0.6rem; font-size: 0.76rem; box-shadow: 0 10px 26px rgba(0, 0, 0, 0.45);
     .k { color: var(--text-dim); }
     .go { color: var(--purple-light); margin-top: 0.2rem; }
