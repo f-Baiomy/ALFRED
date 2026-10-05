@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
-import { Comment, NewComment } from '../models/comment.model';
+import { Comment, CommentCount, NewComment } from '../models/comment.model';
 import { AppConfigService } from './app-config.service';
 
 @Injectable({ providedIn: 'root' })
@@ -11,6 +11,11 @@ export class CommentsApiService {
 
   listForCall(callId: string): Observable<Comment[]> {
     return this.http.get<Comment[]>(`${this.config.backendUrl}/comments`, { params: { callId } });
+  }
+
+  /** Counts for those of `callIds` that have comments (at most 500 ids per request); a call without any is absent. */
+  counts(callIds: readonly string[]): Observable<Record<string, CommentCount>> {
+    return this.http.get<Record<string, CommentCount>>(`${this.config.backendUrl}/comments/counts`, { params: { callIds: callIds.join(',') } });
   }
 
   create(newComment: NewComment): Observable<Comment> {

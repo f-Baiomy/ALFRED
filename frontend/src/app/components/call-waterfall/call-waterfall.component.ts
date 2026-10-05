@@ -1,4 +1,5 @@
 import { NgTemplateOutlet } from '@angular/common';
+import { CommentBadgeComponent } from '../comment-badge/comment-badge.component';
 import { Component, ElementRef, computed, inject, input, signal } from '@angular/core';
 import { CdkDrag, CdkDragDrop, CdkDragHandle, CdkDropList, moveItemInArray } from '@angular/cdk/drag-drop';
 import { CallRecord } from '../../core/models/call.model';
@@ -166,7 +167,7 @@ interface WaterfallGroup {
 @Component({
   selector: 'app-call-waterfall',
   standalone: true,
-  imports: [CallCardComponent, PickCallButtonComponent, CallDiagnosticsComponent, SpacerChipComponent, CdkDropList, CdkDrag, CdkDragHandle, NgTemplateOutlet],
+  imports: [CallCardComponent, CommentBadgeComponent, PickCallButtonComponent, CallDiagnosticsComponent, SpacerChipComponent, CdkDropList, CdkDrag, CdkDragHandle, NgTemplateOutlet],
   template: `
     <ng-template #waterfallSpacerComposer>
       <div class="spacer-row">
@@ -295,6 +296,10 @@ interface WaterfallGroup {
               <span class="badge status-err">ERROR</span>
             } @else {
               <span class="badge" [class]="statusClassOf(row.call)">{{ row.call.response?.status ?? '?' }}</span>
+            }
+            @if (row.kind !== 'response') {
+              <!-- Once per call: a split call's request row carries it, its response row does not. -->
+              <app-comment-badge [callId]="row.call.id" [mini]="true" />
             }
             @if (row.interceptedCount > 0) {
               <!-- Indicator only - a button may not contain another, so the clickable badge that

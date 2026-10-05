@@ -88,4 +88,23 @@ class CommentsServiceTest {
         assertThat(service.deleteById("missing")).isFalse();
         verify(notifications, never()).notifyCommentsChanged(any());
     }
+
+    @Test
+    void countsCommentsPerCallAndBlockForTheAskedCallsOnly() {
+        CommentsStorePort store = mock(CommentsStorePort.class);
+        when(store.findAll()).thenReturn(List.of(
+                new Comment("c1", "call-a", "request-body", 0, "{", "x", "t"),
+                new Comment("c2", "call-a", "request-body", 3, "y", "x", "t"),
+                new Comment("c3", "call-a", "call", 0, "", "note", "t"),
+                new Comment("c4", "call-b", "response-headers", 1, "z", "x", "t"),
+                new Comment("c5", "call-c", "response-body", 1, "z", "x", "t")));
+        CommentsService service = new CommentsService(store, mock(CommentNotificationPort.class));
+
+        var counts = service.countByCallIds(List.of("call-a", "call-b", "call-none"));
+
+        assertThat(counts).containsOnlyKeys("call-a", "call-b");
+        assertThat(counts.get("call-a").total()).isEqualTo(3);
+        assertThat(counts.get("call-a").byBlock()).containsEntry("request-body", 2).containsEntry("call", 1);
+        assertThat(counts.get("call-b").byBlock()).containsOnly(java.util.Map.entry("response-headers", 1));
+    }
 }

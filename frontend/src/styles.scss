@@ -2455,6 +2455,40 @@ main {
   }
 }
 
+// "💬 N" - a call has comments (CommentBadgeComponent): on the card header, and mini on a waterfall row.
+.comment-badge {
+  color: var(--purple-light);
+  background: color-mix(in srgb, var(--purple) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--purple) 55%, transparent);
+  font-weight: 600;
+  white-space: nowrap;
+
+  &.mini {
+    font-size: 0.66rem;
+    padding: 0.05rem 0.35rem;
+  }
+}
+
+// The card's badge opens the commented blocks; only the badge itself shows, no button chrome.
+.comment-badge-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  display: inline-flex;
+
+  &:hover .comment-badge {
+    border-color: var(--purple);
+  }
+}
+
+// The per-block count inside a block chip ("▸ Body 💬2").
+.chip-comments {
+  margin-left: 0.3rem;
+  color: var(--purple-light);
+  font-weight: 600;
+}
+
 // Notes on the whole call (comment block 'call') - findings that are about no one line.
 .call-notes {
   list-style: none;

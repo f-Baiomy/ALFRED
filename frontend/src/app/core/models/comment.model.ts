@@ -31,3 +31,9 @@ export interface NewComment {
   readonly lineText: string;
   readonly comment: string;
 }
+
+/** GET /comments/counts: how many comments one call has, in all and per block - for badges, without loading any text. */
+export interface CommentCount {
+  readonly total: number;
+  readonly byBlock: Readonly<Partial<Record<CommentBlock, number>>>;
+}

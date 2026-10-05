@@ -25,6 +25,8 @@ import { WsMessagesComponent } from '../ws-messages/ws-messages.component';
 import { CallInterception, OriginalHttp, interceptionBodiesLoaded, wasEditedByHand } from '../../core/models/interception.model';
 import { CallsApiService } from '../../core/services/calls-api.service';
 import { CommentsStore } from '../../core/state/comments-store.service';
+import { CommentCountsState } from '../../core/state/comment-counts-state.service';
+import { CommentBadgeComponent } from '../comment-badge/comment-badge.component';
 import { JsonPanelComponent, PanelLoadState, PanelLoadTrigger } from '../json-panel/json-panel.component';
 import { CallDepthInfo } from '../../shared/utils/call-tree';
 import { CallPickerService } from '../../core/services/call-picker.service';
@@ -78,7 +80,7 @@ const SELECTION_EXEMPT_SELECTOR =
 @Component({
   selector: 'app-call-card',
   standalone: true,
-  imports: [CallActionsComponent, DbChipComponent, JsonPanelComponent, CdkDragHandle, NgTemplateOutlet, InterceptionPanelComponent, ResendPanelComponent, WsMessagesComponent],
+  imports: [CallActionsComponent, DbChipComponent, CommentBadgeComponent, JsonPanelComponent, CdkDragHandle, NgTemplateOutlet, InterceptionPanelComponent, ResendPanelComponent, WsMessagesComponent],
   templateUrl: './call-card.component.html',
   // The database window's "show call ↗" finds a supplier call's card by its id.
   host: { '[attr.data-call-id]': 'call().id' },
@@ -122,6 +124,26 @@ export class CallCardComponent {
   private readonly commentsStore = inject(CommentsStore);
   readonly notesLoaded = computed(() => this.commentsStore.cache().has(this.call().id));
   readonly callNotes = computed(() => (this.commentsStore.cache().get(this.call().id) ?? []).filter((c) => c.block === 'call'));
+
+  /** Counts from the batched per-screen request (CommentCountsState) - known before any comment is loaded. */
+  private readonly commentCounts = inject(CommentCountsState);
+  readonly commentCount = computed(() => this.commentCounts.counts().get(this.call().id) ?? null);
+  /** The card asks for its own count: the badge only renders once there is one to show. */
+  private readonly requestCommentCount = effect(() => this.commentCounts.request(this.call().id), { allowSignalWrites: true });
+
+  blockCommentCount(part: CallDetailPart): number {
+    return this.commentCount()?.byBlock[part] ?? 0;
+  }
+
+  /** The badge's click: open every block that has comments, and the whole-call notes. */
+  openCommented(): void {
+    const count = this.commentCount();
+    if (!count) return;
+    if (count.byBlock.call) this.loadNotes();
+    for (const chip of this.chipsFor()) {
+      if (!chip.open && this.blockCommentCount(chip.part) > 0) this.toggleBlock(chip);
+    }
+  }
 
   loadNotes(): void {
     this.commentsStore.ensureLoaded(this.call().id);

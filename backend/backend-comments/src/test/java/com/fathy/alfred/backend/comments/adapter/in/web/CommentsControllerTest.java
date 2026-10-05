@@ -1,9 +1,11 @@
 package com.fathy.alfred.backend.comments.adapter.in.web;
 
+import com.fathy.alfred.backend.comments.application.port.in.CountCommentsUseCase;
 import com.fathy.alfred.backend.comments.application.port.in.CreateCommentUseCase;
 import com.fathy.alfred.backend.comments.application.port.in.DeleteCommentUseCase;
 import com.fathy.alfred.backend.comments.application.port.in.ListCommentsUseCase;
 import com.fathy.alfred.backend.comments.domain.model.Comment;
+import com.fathy.alfred.backend.comments.domain.model.CommentCount;
 import com.fathy.alfred.backend.comments.domain.model.NewComment;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,6 +19,8 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -28,6 +32,8 @@ class CommentsControllerTest {
 
     @MockBean
     private ListCommentsUseCase listCommentsUseCase;
+    @MockBean
+    private CountCommentsUseCase countCommentsUseCase;
     @MockBean
     private CreateCommentUseCase createCommentUseCase;
     @MockBean
@@ -72,5 +78,23 @@ class CommentsControllerTest {
 
         mockMvc.perform(delete("/comments/c1"))
                 .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void countsReturnsPerCallTotalsAndBlocks() throws Exception {
+        when(countCommentsUseCase.countByCallIds(java.util.List.of("a", "b")))
+                .thenReturn(java.util.Map.of("a", new CommentCount(2, java.util.Map.of("call", 1, "request-body", 1))));
+
+        mockMvc.perform(get("/comments/counts").param("callIds", "a, b,,a"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.a.total").value(2))
+                .andExpect(jsonPath("$.a.byBlock.request-body").value(1))
+                .andExpect(jsonPath("$.b").doesNotExist());
+    }
+
+    @Test
+    void countsRefusesMoreIdsThanOneBatch() throws Exception {
+        String ids = String.join(",", java.util.stream.IntStream.range(0, 501).mapToObj(i -> "id" + i).toList());
+        mockMvc.perform(get("/comments/counts").param("callIds", ids)).andExpect(status().isBadRequest());
     }
 }

@@ -1,0 +1,35 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Comment counts mock</title>
+<style>
+body{margin:0;padding:16px;background:#0f1222;color:#e5e9f5;font:13px system-ui,sans-serif;max-width:420px}
+.lbl{color:#9aa3bd;font-size:12px;margin:16px 0 6px}
+.card{background:#171b30;border:1px solid #2a3150;border-radius:12px;padding:10px 12px;margin-bottom:8px}
+.row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.b{font-size:11px;padding:2px 7px;border-radius:6px;border:1px solid #2a3150;background:#1d2240}
+.m{font-family:Consolas,monospace;font-size:12px;color:#9aa3bd;margin-top:6px}
+.cm{background:#2c2350;border-color:#7c5cff;color:#c9b8ff;font-weight:600}
+.chip{font-size:11px;padding:2px 8px;border-radius:6px;border:1px solid #3a4266;color:#b9c0d8}
+.chip .n{color:#c9b8ff;font-weight:600;margin-left:4px}
+.tip{font-size:11px;background:#232948;border:1px solid #3a4266;border-radius:8px;padding:6px 9px;color:#c7cde2;margin:8px 0 0}
+.wf{display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid #2a3150;font-size:12px}
+.bar{flex:1;height:8px;border-radius:4px;background:#1d2240;position:relative;min-width:40px}
+.bar i{position:absolute;height:8px;border-radius:4px;background:#5b8cff}
+.g{color:#7d86a3;font-size:11px}
+</style></head><body>
+<div class="lbl">Flat + Nested view — collapsed card</div>
+<div class="card">
+  <div class="row"><span class="b">POST</span><span class="b">200</span><span class="b">25466 ms</span><span class="b">Odeysys</span><span class="b">◆ DB 181</span><span class="b cm">💬 4</span></div>
+  <div class="tip">On hover: 4 comments — 1 note on the call, 2 on request body, 1 on response body. Click to open them.</div>
+  <div class="m">/odeysysadmin/Booking2/flight-search/search</div>
+  <div class="row" style="margin-top:8px"><span class="g">REQ</span><span class="chip">▸ Headers</span><span class="chip">▸ Body<span class="n">💬2</span></span><span class="g">RES</span><span class="chip">▸ Headers</span><span class="chip">▸ Body<span class="n">💬1</span></span></div>
+</div>
+<div class="lbl">Nested view — child card under its parent</div>
+<div class="card" style="margin-left:24px"><div class="row"><span class="b">POST</span><span class="b">200</span><span class="b">1440 ms</span><span class="b">g94.isaaviations.com</span><span class="b cm">💬 1</span></div></div>
+<div class="lbl">Waterfall view — compact rows</div>
+<div style="border:1px solid #2a3150;border-radius:12px;overflow:hidden;background:#171b30">
+  <div class="wf"><span class="b">POST</span><span class="b">200</span><span class="b cm">💬 4</span><span class="m" style="margin:0;width:110px">flight-search/search</span><span class="bar"><i style="left:5%;width:80%"></i></span></div>
+  <div class="wf" style="padding-left:24px"><span class="b">POST</span><span class="b">200</span><span class="b cm">💬 1</span><span class="m" style="margin:0;width:96px">AAResWebServices</span><span class="bar"><i style="left:72%;width:8%"></i></span></div>
+  <div class="wf" style="border:none"><span class="b">GET</span><span class="b">200</span><span class="m" style="margin:0;width:140px">flight-airports?dxb</span><span class="bar"><i style="left:1%;width:3%"></i></span></div>
+</div>
+<div class="lbl">No comments → no badge. Counts update live.</div>
+</body></html>
