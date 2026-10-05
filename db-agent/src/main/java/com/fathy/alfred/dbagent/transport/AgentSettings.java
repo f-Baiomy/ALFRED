@@ -21,7 +21,7 @@ public final class AgentSettings {
     private volatile boolean outsideCallCapture;
     private volatile boolean captureEnabled;
     private volatile List<String> ignorePatterns = Collections.singletonList("SELECT 1");
-    public static final int DEFAULT_CALLER_FRAMES = 3;
+    public static final int DEFAULT_CALLER_FRAMES = 5;
     /** Application frames recorded per statement, past {@link #passThrough} (Settings → Database capture). */
     private volatile int callerFrames = DEFAULT_CALLER_FRAMES;
     private volatile PassThrough passThrough = PassThrough.NONE;

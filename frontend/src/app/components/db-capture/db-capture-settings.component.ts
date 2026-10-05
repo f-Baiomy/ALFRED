@@ -74,7 +74,7 @@ type ListKey = 'beforeImageTables' | 'expectedFingerprints' | 'ignorePatterns' |
                 @for (c of s.passThroughClasses ?? []; track c) {<span class="tchip">{{ c }} <a (click)="removeFrom(p.project, 'passThroughClasses', c)">✕</a></span>}
                 <input class="mini wide" placeholder="+ pass-through class (e.g. GenericDAOImpl)" (keydown.enter)="addTo(p.project, 'passThroughClasses', $event)">
                 <div class="dimtxt" style="margin-top:.3rem">Each statement records the application code that issued it - up to
-                  <input class="mini" type="number" min="1" max="10" [value]="s.callerFrames ?? 3" (change)="setNumber(p.project, 'callerFrames', $event)"> frames,
+                  <input class="mini" type="number" min="1" max="10" [value]="s.callerFrames ?? 5" (change)="setNumber(p.project, 'callerFrames', $event)"> frames,
                   skipping these classes (a class name, or a package/class prefix like <code>com.acme.dao.</code>). A generic DAO every query goes through
                   tells you nothing; the services above it do. JDK, drivers, pools, Hibernate and Spring are always skipped.</div>
               </div></div>

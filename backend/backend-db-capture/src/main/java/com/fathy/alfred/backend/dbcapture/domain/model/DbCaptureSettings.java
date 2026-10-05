@@ -25,7 +25,7 @@ public record DbCaptureSettings(
 ) {
     public static final int DEFAULT_ROWS_PER_RESULT = 50_000;
     public static final int MAX_ROWS_PER_RESULT = 1_000_000;
-    public static final int DEFAULT_CALLER_FRAMES = 3;
+    public static final int DEFAULT_CALLER_FRAMES = 5;
     public static final int MAX_CALLER_FRAMES = 10;
 
     public DbCaptureSettings {

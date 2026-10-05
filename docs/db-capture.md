@@ -126,7 +126,7 @@ Built from a review of real OdeySys exports by an AI agent (mock: `specs/006-db-
   one per statement), and `SLOW` now counts only the time beyond the call's database round trip
   (`RoundTrip.java`: the 10th percentile of the call's successful SELECTs, 5 or more - a remote database 55 ms away no
   longer makes every lookup slow). No query is run for it.
-- **Call chain** (`callers`): the agent's single stack walk now collects up to N application frames (default 3,
+- **Call chain** (`callers`): the agent's single stack walk now collects up to N application frames (default 5,
   Settings → Database capture → Where in code) past the project's pass-through classes (a generic DAO every query goes
   through). `codeLocation` stays the first application frame; Hibernate's own SQL is recognised only by Hibernate frames
   below the issuing code (a `session.doWork` lambda is still plain JDBC). ~23-25 µs per statement measured.
