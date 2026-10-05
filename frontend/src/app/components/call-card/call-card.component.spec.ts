@@ -286,6 +286,68 @@ describe('CallCardComponent', () => {
     expect(host.querySelector('.supplier-badge')).toBeFalsy();
   });
 
+  describe('whole-call notes (📌 Notes)', () => {
+    const commentsGet = (r: { method: string; url: string }) => r.method === 'GET' && /\/comments$/.test(r.url);
+
+    it('opens a note box on a call with no notes, adds the note, and keeps the chip with its count', () => {
+      const fixture = createCard();
+      const chip: HTMLButtonElement = fixture.nativeElement.querySelector('.call-notes-chip');
+      expect(chip).not.toBeNull();
+      chip.click();
+      fixture.detectChanges();
+      httpMock.match(commentsGet).forEach((req) => req.flush([]));
+      fixture.detectChanges();
+
+      const box: HTMLTextAreaElement = fixture.nativeElement.querySelector('.call-note-input');
+      expect(box).not.toBeNull();
+      const save: HTMLButtonElement = fixture.nativeElement.querySelector('.call-note-save');
+      expect(save.disabled).toBeTrue();
+      box.value = 'login form sent the password empty';
+      box.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      expect(save.disabled).toBeFalse();
+      save.click();
+
+      const post = httpMock.expectOne((r) => r.method === 'POST' && /\/comments$/.test(r.url));
+      expect(post.request.body).toEqual({ callId: 'call-1', block: 'call', lineIndex: 0, lineText: '', comment: 'login form sent the password empty' });
+      post.flush({ id: 'n1', callId: 'call-1', block: 'call', lineIndex: 0, lineText: '', comment: 'login form sent the password empty', createdAt: '' });
+      fixture.detectChanges();
+
+      expect(fixture.nativeElement.querySelector('.call-note-text').textContent).toContain('login form sent the password empty');
+      expect(fixture.nativeElement.querySelector('.call-notes-chip').textContent).toContain('· 1');
+      expect(box.value).toBe('');
+    });
+
+    it('saves with Ctrl+Enter, ignores a blank note, and closes on Escape or a second click', () => {
+      const fixture = createCard();
+      fixture.nativeElement.querySelector('.call-notes-chip').click();
+      fixture.detectChanges();
+      httpMock.match(commentsGet).forEach((req) => req.flush([]));
+      fixture.detectChanges();
+      const box: HTMLTextAreaElement = fixture.nativeElement.querySelector('.call-note-input');
+
+      box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true }));
+      httpMock.expectNone((r) => r.method === 'POST');
+
+      box.value = 'note';
+      box.dispatchEvent(new Event('input'));
+      box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true }));
+      httpMock.expectOne((r) => r.method === 'POST' && /\/comments$/.test(r.url))
+        .flush({ id: 'n2', callId: 'call-1', block: 'call', lineIndex: 0, lineText: '', comment: 'note', createdAt: '' });
+
+      box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('.call-note-input')).toBeNull();
+
+      fixture.nativeElement.querySelector('.call-notes-chip').click();
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('.call-note-input')).not.toBeNull();
+      fixture.nativeElement.querySelector('.call-notes-chip').click();
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('.call-note-input')).toBeNull();
+    });
+  });
+
   describe('variant', () => {
   it('shows a plain "Sent" badge, never a status/duration, for a resolved request row', () => {
       const fixture = createCard(makeCall({ response: { status: 500 } }), 'request');

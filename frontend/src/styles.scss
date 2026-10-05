@@ -2519,6 +2519,63 @@ main {
   overflow-wrap: anywhere;
 }
 
+.call-notes-chip.active {
+  color: var(--purple-light, #c4b5fd);
+  border-color: var(--purple);
+}
+
+// The note box under a call's ids row (📌 Notes): a whole-call note, saved with Add or Ctrl+Enter.
+.call-note-editor {
+  display: flex;
+  gap: 0.4rem;
+  align-items: stretch;
+  margin: -0.35rem 0 0.65rem;
+}
+
+.call-note-input {
+  flex: 1;
+  min-height: 2.2rem;
+  resize: vertical;
+  font: inherit;
+  font-size: 0.78rem;
+  color: var(--text);
+  background: var(--card-inner);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.35rem 0.55rem;
+
+  &:focus {
+    outline: none;
+    border-color: var(--purple);
+  }
+}
+
+.call-note-save,
+.call-note-cancel {
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: 6px;
+  padding: 0 0.75rem;
+  cursor: pointer;
+}
+
+.call-note-save {
+  background: var(--purple);
+  color: #fff;
+  border: 1px solid var(--purple);
+
+  &:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+}
+
+.call-note-cancel {
+  background: transparent;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+}
+
 .call-note-delete {
   background: none;
   border: none;

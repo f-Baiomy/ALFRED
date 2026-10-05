@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Call notes mock</title>
+<style>
+:root{--bg:#0f1222;--card:#171b30;--inner:#070a24;--border:#2a3150;--text:#e5e9f5;--dim:#9aa3bd;--faint:#5c6690;--purple:#8b5cf6;--purple-l:#c4b5fd;--red:#f87171}
+body{margin:0;padding:16px;background:var(--bg);color:var(--text);font:13px system-ui,sans-serif;max-width:720px}
+h2{font-size:14px;margin:20px 0 8px;color:var(--purple-l)}
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:10px 12px}
+.row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.chip{font-size:11px;padding:2px 7px;border-radius:5px;border:1px solid color-mix(in srgb,var(--purple) 22%,transparent);background:var(--inner);color:var(--faint);font-family:Consolas,monospace}
+.chip.on{color:var(--purple-l);border-color:var(--purple)}
+.url{font-family:Consolas,monospace;color:var(--purple-l);margin:4px 0 8px}
+ul{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:5px}
+li{display:flex;gap:8px;align-items:flex-start;background:var(--inner);border:1px solid var(--border);border-radius:8px;padding:6px 8px;font-size:12px}
+li span{flex:1}
+li small{color:var(--faint)}
+.x{color:var(--faint);cursor:pointer}
+.add{display:flex;gap:6px;margin-top:6px}
+textarea{flex:1;background:var(--inner);border:1px solid var(--border);border-radius:8px;color:var(--text);font:12px system-ui;padding:6px 8px;min-height:34px;resize:vertical}
+button.save{background:var(--purple);border:none;color:#fff;border-radius:8px;padding:0 12px;font-weight:600}
+button.cancel{background:transparent;border:1px solid var(--border);color:var(--dim);border-radius:8px;padding:0 10px}
+.note{color:var(--faint);font-size:11px;margin-top:6px}
+</style></head><body>
+
+<h2>1 · Today: the chip only loads notes - with none, it just disappears</h2>
+<div class="card"><div class="url">/odeysysadmin/Admin2/loginAction</div>
+<div class="row"><span class="chip">a511c176…</span><span class="chip">📌 Notes</span></div></div>
+
+<h2>2 · Proposed: clicking 📌 Notes opens the notes with an add box (focused)</h2>
+<div class="card"><div class="url">/odeysysadmin/Admin2/loginAction</div>
+<div class="row"><span class="chip">a511c176…</span><span class="chip on">📌 Notes · 1</span></div>
+<ul><li><span>📌 🤖 Claude: first attempt 401 - the password field was sent empty by the login form <small>· 16:03</small></span><span class="x">✕</span></li></ul>
+<div class="add"><textarea placeholder="Add a note on this whole call…  (Ctrl+Enter to save)"></textarea><button class="save">Add</button><button class="cancel">Close</button></div>
+<div class="note">Saved as a whole-call note (the same kind Claude's add_comment writes); shows live in every open view; counts in the 💬 badge.</div></div>
+
+<h2>3 · Closed again: the chip keeps the count, notes stay listed</h2>
+<div class="card"><div class="url">/odeysysadmin/Admin2/loginAction</div>
+<div class="row"><span class="chip">a511c176…</span><span class="chip">📌 Notes · 1</span></div>
+<ul><li><span>📌 🤖 Claude: first attempt 401 - the password field was sent empty by the login form <small>· 16:03</small></span><span class="x">✕</span></li></ul></div>
+</body></html>

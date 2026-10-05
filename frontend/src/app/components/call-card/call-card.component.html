@@ -93,9 +93,8 @@
         ↻ resend of {{ shortId(originalId) }}{{ resendBatchLabel() ? ' · ' + resendBatchLabel() : '' }}
       </a>
     }
-    @if (!notesLoaded()) {
-      <button type="button" class="call-id-chip" title="Load the notes on this whole call" (click)="loadNotes()">📌 Notes</button>
-    }
+    <button type="button" class="call-id-chip call-notes-chip" [class.active]="notesOpen()"
+      [title]="notesOpen() ? 'Close the note box' : 'Read and add notes on this whole call'" (click)="toggleNotes()">📌 Notes@if (noteCount()) { · {{ noteCount() }}}</button>
   </div>
   @if (callNotes().length > 0) {
     <ul class="call-notes">
@@ -106,6 +105,15 @@
         </li>
       }
     </ul>
+  }
+  @if (notesOpen()) {
+    <div class="call-note-editor">
+      <textarea #noteInput class="call-note-input" rows="2" placeholder="Add a note on this whole call…  (Ctrl+Enter to save)"
+        [value]="noteDraft()" (input)="noteDraft.set($any($event.target).value)"
+        (keydown)="onNoteKeydown($event)"></textarea>
+      <button type="button" class="call-note-save" [disabled]="!noteDraft().trim()" (click)="addNote()">Add</button>
+      <button type="button" class="call-note-cancel" (click)="closeNotes()">Close</button>
+    </div>
   }
 </ng-template>
 

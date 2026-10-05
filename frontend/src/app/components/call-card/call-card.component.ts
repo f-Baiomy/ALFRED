@@ -2,7 +2,7 @@ import { RuleDialogService } from '../../core/services/rule-dialog.service';
 import { InterceptionApiService } from '../../core/services/interception-api.service';
 import { CallFocusService } from '../../core/services/call-focus.service';
 import { refOf } from '../../core/models/call-ref.model';
-import { Component, DestroyRef, ElementRef, HostListener, computed, effect, inject, input, output, signal } from '@angular/core';
+import { Component, DestroyRef, ElementRef, HostListener, computed, effect, inject, input, output, signal, viewChild } from '@angular/core';
 import { CdkDragHandle } from '@angular/cdk/drag-drop';
 import { NgTemplateOutlet } from '@angular/common';
 import { CallDetail, CallDetailPart, CallRecord } from '../../core/models/call.model';
@@ -64,7 +64,7 @@ import { copyToClipboard } from '../../shared/utils/clipboard';
 /** Clicking/dragging on these (or their descendants) must never toggle selection - they're either already-interactive controls or areas the user expects to select/copy text from. */
 const SELECTION_EXEMPT_SELECTOR =
   'button, a, input, textarea, select, label, .uri-value, app-call-actions, app-json-panel, ' +
-  'app-interception-panel, app-resend-panel, .drag-handle';
+  'app-interception-panel, app-resend-panel, .drag-handle, .call-notes, .call-note-editor';
 
 /**
  * One logged request/response pair: selection checkbox, badges, from/to urls, actions, and the
@@ -147,6 +147,48 @@ export class CallCardComponent {
 
   loadNotes(): void {
     this.commentsStore.ensureLoaded(this.call().id);
+  }
+
+  /** The 📌 Notes chip's count: the loaded notes once there, else the batched count (known before loading). */
+  readonly noteCount = computed(() => (this.notesLoaded() ? this.callNotes().length : this.commentCount()?.byBlock.call ?? 0));
+  readonly notesOpen = signal(false);
+  readonly noteDraft = signal('');
+  private readonly noteInput = viewChild<ElementRef<HTMLTextAreaElement>>('noteInput');
+
+  /** Opens the note box (loading the call's notes) with the cursor in it; a second click closes it. */
+  toggleNotes(): void {
+    if (this.notesOpen()) {
+      this.closeNotes();
+      return;
+    }
+    this.loadNotes();
+    this.notesOpen.set(true);
+    setTimeout(() => this.noteInput()?.nativeElement.focus());
+  }
+
+  closeNotes(): void {
+    this.notesOpen.set(false);
+    this.noteDraft.set('');
+  }
+
+  /** Saved as a whole-call note - the same kind Claude adds over MCP; every open view shows it live (/ws/comments). */
+  addNote(): void {
+    const text = this.noteDraft().trim();
+    if (!text) return;
+    this.commentsStore.addComment({ callId: this.call().id, block: 'call', lineIndex: 0, lineText: '', comment: text });
+    this.noteDraft.set('');
+    this.noteInput()?.nativeElement.focus();
+  }
+
+  onNoteKeydown(event: KeyboardEvent): void {
+    // Typing here must not reach the list's keyboard shortcuts.
+    event.stopPropagation();
+    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault();
+      this.addNote();
+    } else if (event.key === 'Escape') {
+      this.closeNotes();
+    }
   }
 
   deleteNote(id: string): void {
