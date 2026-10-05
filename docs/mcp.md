@@ -38,6 +38,18 @@ Claude Code (any project) ──stdio──► mcp-server (node + tsx, local pro
 Prerequisites: Alfred running (`python3 start.py`), Node 22+, and `frontend/node_modules` installed
 (`cd frontend && npm ci`) - the server imports the frontend's utils, which resolve `@angular/core`/`rxjs` there.
 
+One command does it all - installs what is missing, registers (replacing an older registration), and starts the
+server once over stdio to prove it answers:
+
+```bash
+python setup_mcp.py
+```
+
+Options: `--scope project --project-dir C:/projects/odeysys` (writes that repo's `.mcp.json`), `--scope local
+--project-dir …` (only you, only there), `--alfred-url http://host:3000`, `--mask`, `--remove`, `--dry-run`.
+
+By hand, the same thing:
+
 ```bash
 cd mcp-server && npm ci
 ```
