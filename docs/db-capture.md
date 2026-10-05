@@ -160,8 +160,8 @@ Built from a review of real OdeySys exports by an AI agent (mock: `specs/006-db-
   line, the .json index carries each call's `findings` (severity, title, impactMs, seqs), and highlights come from them.
 - **Window layout** (mock `specs/006-db-capture/split-mock.html`): the timeline sits above a split - findings | drag bar |
   statements - side by side by default from a 1100 px browser window, stacked below that (the statements keep 330 px);
-  the summary line opens the findings and the timeline's own bar opens the timeline - independently, both closed by
-  default; the bar under the timeline drags its height (double-click: full height). Layout, sizes, the timeline's
+  the summary line (top) opens the timeline (top), as does the timeline's own bar; the findings pane folds from its own
+  "Findings" header - to a thin rail with the error/to-fix counts beside the statements, or its header line above them; the bar under the timeline drags its height (double-click: full height). Layout, sizes, the timeline's
   open state and full window (⛶ or F; the first Esc leaves it) are remembered per browser
   (`alfred.dbCapture.*`). Supplier calls stack at most 4 rows ("+N parallel" lists and expands the rest); several notes
   share one line. Compact by default (`specs/006-db-capture/compact-window-mock.html`): a two-line header, the

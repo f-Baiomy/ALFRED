@@ -26,13 +26,13 @@
         </span>
         @if (overview(); as o) {
           <!-- the one summary line, closed by default (remembered); open: timeline + findings (db-findings.ts) -->
-          <div class="dbw-panel" [class.open]="panelOpen()">
-            <div class="dbw-sum" role="button" [attr.aria-expanded]="panelOpen()" (click)="togglePanel()">
+          <div class="dbw-panel" [class.open]="!timelineHidden()">
+            <div class="dbw-sum" role="button" [attr.aria-expanded]="!timelineHidden()" (click)="toggleTimeline()" [title]="timelineHidden() ? 'Show the timeline' : 'Hide the timeline'">
               <span class="pchev">▶</span>
               <span class="vtxt"><b class="tot">{{ fmt(o.totalMs) }}</b> · <b>{{ o.share }}</b> - {{ o.detail }}</span>
               @if (o.errors) {<span class="cnt bad">{{ o.errors }} {{ o.errors === 1 ? 'error' : 'errors' }}</span>}
               @if (o.toFix) {<span class="cnt warn">{{ o.toFix }} to fix</span>}
-              <span class="phint">{{ panelOpen() ? 'hide' : 'findings' }}</span>
+              <span class="phint">{{ timelineHidden() ? 'timeline' : 'hide' }}</span>
             </div>
           </div>
         }
@@ -55,7 +55,7 @@
             <span class="pchev" [class.open]="!timelineHidden()">▶</span> When it happened
             @if (!timelineHidden()) {<span class="hint">hover = what it is · click = open it · drag = zoom</span>}
             <span class="sec-acts" (click)="$event.stopPropagation()">
-              @if (showPanel()) {
+              @if (panelOpen()) {
                 <span class="lay">Findings: <a [class.on]="layout() === 'side'" (click)="setLayout('side')">Side by side</a><a [class.on]="layout() === 'stack'" (click)="setLayout('stack')">Stacked</a></span>
               }
               @if (!timelineHidden()) {
@@ -81,12 +81,16 @@
       }
     }
     <div class="dbw-split" [class.side]="layout() === 'side'" #split>
-    @if (showPanel() && overview(); as o) {
-      <div class="dbw-fpane" [style.width.px]="layout() === 'side' ? sideWidth() : null" [style.flex-basis.%]="layout() === 'stack' ? stackShare() * 100 : null">
-        <app-db-findings [findings]="o.findings" [canMarkExpected]="!!state.project()" [selected]="findingFilter()?.id ?? null" (jump)="jump($event)" (hover)="highlight.set($event)"
-                         (show)="showFinding($event)" (markExpected)="markExpected($event)" />
+    @if (!compact() && overview(); as o) {
+      <div class="dbw-fpane" [class.folded]="!panelOpen()"
+           [style.width.px]="layout() === 'side' && panelOpen() ? sideWidth() : null" [style.flex-basis.%]="layout() === 'stack' && panelOpen() ? stackShare() * 100 : null">
+        <app-db-findings [findings]="o.findings" [canMarkExpected]="!!state.project()" [selected]="findingFilter()?.id ?? null"
+                         [folded]="!panelOpen()" [rail]="layout() === 'side'" (fold)="togglePanel()"
+                         (jump)="jump($event)" (hover)="highlight.set($event)" (show)="showFinding($event)" (markExpected)="markExpected($event)" />
       </div>
-      <div class="dbw-handle" [class.drag]="dragging()" (mousedown)="startResize($event)" title="Drag to resize"></div>
+      @if (panelOpen()) {
+        <div class="dbw-handle" [class.drag]="dragging()" (mousedown)="startResize($event)" title="Drag to resize"></div>
+      }
     }
     <div class="dbw-main">
     <div class="dbw-bar">

@@ -16,11 +16,26 @@ const NOTES = 'notes';
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [NgTemplateOutlet],
   template: `
-    <div class="dbf">
-      <div class="dbf-tools">
-        <span class="dbf-title">Findings</span>
-        <a (click)="openAll()">Open all</a><a (click)="open.set(emptySet)">Close all</a>
+    @if (folded() && rail()) {
+      <!-- folded beside the statements: a thin rail, click to unfold -->
+      <div class="dbf-rail" role="button" title="Show the findings" (click)="fold.emit()">
+        <span class="chev">▶</span><span class="rail-t">Findings</span>
+        @if (bad()) {<span class="cnt bad">{{ bad() }}</span>}
+        @if (warn()) {<span class="cnt warn">{{ warn() }}</span>}
       </div>
+    } @else {
+    <div class="dbf" [class.folded]="folded()">
+      <div class="dbf-tools">
+        <span class="dbf-title" role="button" [attr.aria-expanded]="!folded()" (click)="fold.emit()" [title]="folded() ? 'Show the findings' : 'Hide the findings'">
+          <span class="chev" [class.open]="!folded()">▶</span> Findings
+          @if (folded()) {
+            @if (bad()) {<span class="cnt bad">{{ bad() }} {{ bad() === 1 ? 'error' : 'errors' }}</span>}
+            @if (warn()) {<span class="cnt warn">{{ warn() }} to fix</span>}
+          }
+        </span>
+        @if (!folded()) {<a (click)="openAll()">Open all</a><a (click)="open.set(emptySet)">Close all</a>}
+      </div>
+      @if (!folded()) {
       @for (f of main(); track f.id) {
         <ng-container *ngTemplateOutlet="one; context: { $implicit: f }" />
       }
@@ -47,7 +62,9 @@ const NOTES = 'notes';
       @if (!findings().length) {
         <div class="dimtxt dbf-none">Nothing to report - no errors, no slow, repeated or huge queries, no idle stretches.</div>
       }
+      }
     </div>
+    }
     <ng-template #one let-f>
         <div class="dbf-f" [class]="'dbf-f ' + f.severity" [class.on]="open().has(f.id)" [class.sel]="selected() === f.id"
              (mouseenter)="hover.emit(keysOf(f))" (mouseleave)="hover.emit(null)">
@@ -89,6 +106,12 @@ export class DbFindingsComponent {
   readonly canMarkExpected = input(false);
   /** The finding the statement list is narrowed to ("Show"). */
   readonly selected = input<string | null>(null);
+  /** Folded: only the header (stacked) or a thin rail (side by side); `fold` asks the window to fold or unfold it. */
+  readonly folded = input(false);
+  readonly rail = input(false);
+  readonly fold = output<void>();
+  readonly bad = computed(() => this.findings().filter((f) => f.severity === 'bad').length);
+  readonly warn = computed(() => this.findings().filter((f) => f.severity === 'warn').length);
   readonly jump = output<number>();
   readonly hover = output<ReadonlySet<string> | null>();
   readonly show = output<DbFinding>();

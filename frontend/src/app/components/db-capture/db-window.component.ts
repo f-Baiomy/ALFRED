@@ -111,9 +111,8 @@ export class DbWindowComponent implements OnInit {
     if (!call || !this.statements().length) return null;
     return buildOverview(call, this.statements(), this.markers(), this.state.suppliersBySeq(), this.flags());
   });
+  /** The findings pane unfolded - its own header folds it (to a rail beside the statements); remembered. */
   readonly panelOpen = signal(readSummaryOpen());
-  /** The findings show while the summary line is open (and the header is not hidden); the timeline opens on its own. */
-  readonly showPanel = computed(() => this.panelOpen() && !this.compact());
   /**
    * Findings beside the statements (side) or above them (stack) - side by default on a wide screen, the choice
    * remembered; the size of the findings part dragged and remembered too. Stacked, the statements (with their tools) keep 330 px.
@@ -230,6 +229,7 @@ export class DbWindowComponent implements OnInit {
   readonly findingFilter = signal<DbFinding | null>(null);
   protected readonly fmt = fmtMs;
 
+  /** The findings pane's own header folds it; the summary line opens the timeline instead. */
   togglePanel(): void {
     this.panelOpen.set(!this.panelOpen());
     saveSummaryOpen(this.panelOpen());
