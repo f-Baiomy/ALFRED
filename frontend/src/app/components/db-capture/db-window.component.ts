@@ -49,6 +49,8 @@ const MAIN_MIN_WIDTH = 420;
 const STACK_MIN = 60;
 const MAIN_MIN_HEIGHT = 330;
 const TIMELINE_MIN = 60;
+/** On <html> while the window is open: the page behind it cannot scroll (styles/_db-capture.scss). */
+const SCROLL_LOCK = 'db-window-open';
 
 /**
  * The database window (specs/006-db-capture/mock.html, "DATABASE WINDOW"): one inbound call's statements in the order
@@ -359,6 +361,11 @@ export class DbWindowComponent implements OnInit {
   ];
 
   constructor() {
+    // While the window is up the page behind it does not scroll; put aside ("show call"), the page is the point again.
+    effect(() => {
+      document.documentElement.classList.toggle(SCROLL_LOCK, !this.windows.aside());
+    });
+    this.destroyRef.onDestroy(() => document.documentElement.classList.remove(SCROLL_LOCK));
     // A clicked value is traced through the whole call - the server knows every statement and stored row; the
     // supplier calls' bodies are searched here.
     effect(() => {

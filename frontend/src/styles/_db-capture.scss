@@ -882,3 +882,9 @@
   .q-view td.w { color: var(--amber); font-weight: 600; }
   .q-view .verb { display: inline-block; min-width: 52px; margin-right: 0.4rem; }
 }
+
+// the page behind an open database window does not scroll (DbWindowComponent toggles the class; not while put aside)
+html.db-window-open,
+html.db-window-open body {
+  overflow: hidden;
+}
