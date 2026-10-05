@@ -1,19 +1,10 @@
 import { Component, computed, effect, inject, signal } from '@angular/core';
 import { ExportDialogService, ExportFormat } from '../../core/services/export-dialog.service';
 import { Environment, ExportFormData } from '../../core/models/export-metadata.model';
-import {
-  buildExportMarkdown,
-  buildBulkExportMarkdown,
-  exportFilename,
-  bulkExportFilename,
-  bulkExportCycleFilename,
-} from '../../shared/utils/markdown-builder';
-import { buildExportHtml, buildBulkExportHtml, exportHtmlFilename, bulkExportHtmlFilename } from '../../shared/utils/html-builder';
-import { buildJsonExportV2 } from '../../shared/utils/json-export-v2';
+import { buildExportFile, EXPORT_EXTENSIONS } from '../../shared/utils/export-build';
 import { exportBlob } from '../../shared/utils/export-file-io';
-import { buildBulkPostmanCollection, bulkPostmanFilename } from '../../shared/utils/postman-builder';
 import { buildDiscordReport } from '../../shared/utils/discord-report-builder';
-import { downloadBlob, downloadText, downloadJson, resolveExportFilename } from '../../shared/utils/download';
+import { downloadBlob, downloadText, downloadJson } from '../../shared/utils/download';
 import { copyToClipboard as writeTextToClipboard } from '../../shared/utils/clipboard';
 import { RedactionsStore } from '../../core/state/redactions-store.service';
 import { redactCalls } from '../../shared/utils/redact';
@@ -114,7 +105,7 @@ export class ExportDialogComponent {
   readonly discordCopyFeedback = signal(false);
 
   private static readonly FORMAT_LABELS: Record<ExportFormat, string> = { markdown: 'Markdown', json: 'JSON', html: 'HTML', postman: 'Postman Collection' };
-  private static readonly FORMAT_EXTENSIONS: Record<ExportFormat, string> = { markdown: '.md', json: '.json', html: '.html', postman: '.postman_collection.json' };
+  private static readonly FORMAT_EXTENSIONS: Record<ExportFormat, string> = EXPORT_EXTENSIONS;
 
   readonly isBulk = computed(() => (this.state()?.calls.length ?? 0) > 1);
   /** 'json' and 'postman' exports (raw data/tooling formats, not a human-readable report) never
@@ -310,63 +301,24 @@ export class ExportDialogComponent {
     const current = this.state();
     if (!current) return null;
 
-    const form = this.currentFormData();
-    const { commentsByCallId, overlapCandidates, statusFilter } = current;
-    // The single place any export format gets its calls, so masking here covers markdown, HTML,
-    // JSON and Postman at once - and covers a format added later without its author knowing this
-    // exists. Deliberately not done inside the builders: six implementations is six chances to
-    // forget one, and forgetting ships the user's bearer token to whoever they sent the file to.
-    const { calls, redactedValueCount } = redactCalls(this.callsWithDb(), this.redactions.all());
-
-    if (format === 'json') {
-      // Version 2 (json-export-v2.ts): one record per line with a guide and an index up front, normalised.
-      const lines = buildJsonExportV2({
-        calls, form, commentsByCallId, exportedAt: new Date().toISOString(), overlapCandidates, statusFilter, redactedValueCount, cycle: current.cycle,
-        rows: this.rowsMode(),
-      });
-      const name = current.cycle ? bulkExportCycleFilename(current.cycle, calls, 'json') : bulkExportFilename(calls, 'json');
-      return { isJson: true, lines, filename: this.resolveFilename(name, format) };
-    }
-
-    if (format === 'postman') {
-      const payload = buildBulkPostmanCollection(calls, form, new Date().toISOString());
-      return { isJson: true, payload, filename: this.resolveFilename(bulkPostmanFilename(calls), format) };
-    }
-
-    if (format === 'html') {
-      // A whole-cycle export always takes the bulk path, even at one call: the single-call builders
-      // produce a report ABOUT that call, with no place to state which cycle it is or that the
-      // cycle is complete. A one-call cycle whose .json says "the complete cycle X" while its .md
-      // says nothing of the sort is the same capture contradicting itself.
-      if (calls.length === 1 && !current.cycle) {
-        const call = calls[0];
-        const html = buildExportHtml(call, form, commentsByCallId.get(call.id) ?? [], overlapCandidates);
-        return { isJson: false, content: html, filename: this.resolveFilename(exportHtmlFilename(call), format), mimeType: 'text/html' };
-      }
-      const html = buildBulkExportHtml(calls, form, commentsByCallId, new Date().toISOString(), overlapCandidates, statusFilter, current.cycle, current.spacers, current.listOrder);
-      const name = current.cycle ? bulkExportCycleFilename(current.cycle, calls, 'html') : bulkExportHtmlFilename(calls);
-      return { isJson: false, content: html, filename: this.resolveFilename(name, format), mimeType: 'text/html' };
-    }
-
-    // See the html branch above for why a cycle export never takes this path.
-    if (calls.length === 1 && !current.cycle) {
-      const call = calls[0];
-      const markdown = buildExportMarkdown(call, form, commentsByCallId.get(call.id) ?? [], overlapCandidates);
-      return { isJson: false, content: markdown, filename: this.resolveFilename(exportFilename(call), format), mimeType: 'text/markdown' };
-    }
-
-    const markdown = buildBulkExportMarkdown(calls, form, commentsByCallId, new Date().toISOString(), overlapCandidates, statusFilter, current.cycle, current.spacers, current.listOrder);
-    const name = current.cycle ? bulkExportCycleFilename(current.cycle, calls, 'md') : bulkExportFilename(calls, 'md');
-    return { isJson: false, content: markdown, filename: this.resolveFilename(name, format), mimeType: 'text/markdown' };
-  }
-
-  /** Applies whatever the user typed into the optional filename field, if anything, to a builder's
-   * generated name - see resolveExportFilename(). `format`, not the generated name, decides the
-   * real extension (FORMAT_EXTENSIONS), since a generated name routinely has its own dots earlier
-   * in it (e.g. a supplier host like `host.docker.internal`) that make parsing "the" extension out
-   * of the string itself unreliable. Copy-to-clipboard never downloads a file, so it has no
-   * filename to resolve; only confirmExport()'s buildContent() call needs this. */
-  private resolveFilename(defaultFilename: string, format: ExportFormat): string {
-    return resolveExportFilename(this.fileName(), defaultFilename, ExportDialogComponent.FORMAT_EXTENSIONS[format]);
+    // Builder choice, masking and file naming live in buildExportFile, the one path the MCP server's
+    // exports take too - so the two can never disagree on a file or skip Redactions.
+    const built = buildExportFile(format, {
+      calls: this.callsWithDb(),
+      form: this.currentFormData(),
+      commentsByCallId: current.commentsByCallId,
+      overlapCandidates: current.overlapCandidates,
+      statusFilter: current.statusFilter,
+      cycle: current.cycle,
+      spacers: current.spacers,
+      listOrder: current.listOrder,
+      redactions: this.redactions.all(),
+      rows: this.rowsMode(),
+      exportedAt: new Date().toISOString(),
+      fileName: this.fileName(),
+    });
+    if (built.kind === 'lines') return { isJson: true, lines: built.lines, filename: built.filename };
+    if (built.kind === 'payload') return { isJson: true, payload: built.payload, filename: built.filename };
+    return { isJson: false, content: built.content, filename: built.filename, mimeType: built.mimeType };
   }
 }

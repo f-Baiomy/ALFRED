@@ -30,6 +30,7 @@ db-agent/target/
 frontend/node_modules/
 frontend/dist/
 frontend/.angular/
+mcp-server/node_modules/
 npm-debug.log*
 
 # Generated at runtime - persisted call comments

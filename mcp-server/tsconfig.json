@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM"],
+    "strict": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "useDefineForClassFields": false,
+    "experimentalDecorators": true,
+    "types": ["node"],
+    "typeRoots": ["./node_modules/@types", "../frontend/node_modules/@types"],
+    "baseUrl": ".",
+    "paths": {
+      "@angular/*": ["../frontend/node_modules/@angular/*"],
+      "rxjs": ["../frontend/node_modules/rxjs"],
+      "rxjs/*": ["../frontend/node_modules/rxjs/*"]
+    }
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts", "scripts/**/*.ts"]
+}

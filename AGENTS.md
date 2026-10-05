@@ -98,5 +98,6 @@ cd frontend && npm test && npm run build  # Karma/Jasmine; ng build
 - `docs/relive.md` — Relive Cycle: the call-rule model, attribution, evaluation tiers, the snapshot, run history, the Live calls log
 - `docs/logs.md` — Logs Explorer: ingest pipeline, storage, LogQuery, settings, measured throughput
 - `docs/db-capture.md` — Database Capture: db-agent, proxy headers, switch flag file, storage, Relive-ready seams
+- `docs/mcp.md` — Using Alfred from Claude: `mcp-server/` is a local stdio MCP server (TypeScript, not a container or compose service) over the existing HTTP API; it imports the frontend's pure utils (findings, exports, masking, spacer layout) rather than re-implementing them
 - `wildfly-proxy-toggle/README.md` — the outbound Attach-API tool in full
 - `README.md` — human-facing setup/usage walkthrough

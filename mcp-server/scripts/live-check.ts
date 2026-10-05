@@ -1,0 +1,127 @@
+/**
+ * The spec's live scenario against the RUNNING Alfred (npm run live-check [-- --pause]). Everything it
+ * creates is named mcp-live-* and removed in `finally`, so a failed run leaves nothing behind.
+ * --pause stops after the writes so a person (or the browser pane) can check the open UI shows them
+ * without a reload, then cleans up on Enter.
+ */
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createInterface } from 'node:readline/promises';
+import { connect } from '../test/harness.ts';
+
+const BASE = process.env['ALFRED_URL'] || 'http://localhost:3000';
+const CALL = '500d0cdc-ed5b-459e-9afa-ef7c2996949f';
+// --pause waits for Enter; --pause=90 waits 90 s (for a run with no terminal, e.g. driven from a browser check).
+const pauseArg = process.argv.find((a) => a.startsWith('--pause'));
+const PAUSE = pauseArg !== undefined;
+const PAUSE_SECONDS = pauseArg?.includes('=') ? Number(pauseArg.split('=')[1]) : null;
+const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+
+let failures = 0;
+function check(label: string, ok: boolean, detail = ''): void {
+  if (!ok) failures++;
+  process.stdout.write(`${ok ? 'PASS' : 'FAIL'}  ${label}${detail ? ` - ${detail}` : ''}\n`);
+}
+
+async function raw(method: string, path: string): Promise<number> {
+  return (await fetch(BASE + path, { method })).status;
+}
+
+const h = await connect(BASE);
+const created: { comment?: string; cycles: string[]; dir?: string } = { cycles: [] };
+try {
+  // ---- read: the flight search call and its database findings (SC-002)
+  const overview = await h.call('db_overview', { callId: CALL });
+  const findings: { source: string; seqs: number[] }[] = overview.json?.findings ?? [];
+  const fanOut = findings.find((f) => f.source === 'QUERY_FAN_OUT');
+  const swallowed = findings.find((f) => f.source === 'FAILED_SWALLOWED');
+  check('overview: summary line', typeof overview.json?.summary === 'string' && overview.json.summary.length > 0, overview.json?.summary);
+  check('overview: HQL fan-out #19-#25', JSON.stringify(fanOut?.seqs) === JSON.stringify([19, 20, 21, 22, 23, 24, 25]));
+  check('overview: swallowed failure at #42', !!swallowed?.seqs.includes(42));
+  const failed = await h.call('db_statements', { callId: CALL, failedOnly: true });
+  const st42 = failed.json?.statements?.find((s: { seq: number }) => s.seq === 42);
+  check('db_statements: #42 listed as failed', !!st42);
+  const detail = await h.call('db_statement', { statementId: st42?.id ?? 0, rowsLimit: 0 });
+  check('db_statement #42: call chain present', !!(detail.json?.callers?.length || detail.json?.codeLocation), detail.json?.callers?.[0] ?? detail.json?.codeLocation);
+
+  // ---- write: comment, cycle, copy, spacer
+  const comment = await h.call('add_comment', { callId: CALL, block: 'request-body', lineMatch: 'DXB', comment: `mcp live check ${stamp}` });
+  created.comment = comment.json?.id;
+  check('add_comment', !comment.isError && comment.json?.comment?.startsWith('🤖 Claude: '), comment.isError ? comment.text : `line ${comment.json?.line}`);
+
+  const cycle = await h.call('create_cycle', { name: `mcp-live-check-${stamp}`, calls: [{ id: CALL }] });
+  const cycleId: string | undefined = cycle.json?.cycle?.id;
+  if (cycleId) created.cycles.push(cycleId);
+  check('create_cycle from a live call', cycle.json?.copy?.added === 1, cycle.text.slice(0, 200));
+  const spacer = await h.call('add_spacer', { cycleId, label: 'search', afterCallId: 'top' });
+  check('add_spacer above the call', !spacer.isError && spacer.json?.afterCallId == null, spacer.isError ? spacer.text : '');
+  const story = await h.call('get_cycle', { cycle: cycleId });
+  check('get_cycle: spacer, call, comment and DB line in the story',
+    /── search ──[\s\S]*#1 .*id=500d0cdc[\s\S]*💬[\s\S]*◆ DB:/.test(story.text), story.text.split('\n').length + ' lines');
+
+  // ---- export .md/.json/.html into a temp folder set for the session
+  created.dir = await mkdtemp(join(tmpdir(), 'mcp-live-'));
+  const noPath = await h.call('export_calls', { format: 'md', cycleId });
+  check('export without a location asks for one', noPath.json?.needsPath === true);
+  await h.call('session_settings', { exportFolder: created.dir });
+  for (const format of ['md', 'json', 'html'] as const) {
+    const r = await h.call('export_calls', { format, cycleId });
+    const content = r.json?.path ? await readFile(r.json.path, 'utf8') : '';
+    check(`export .${format}`, !r.isError && r.json.bytes > 1000 && content.includes('flight-search/search'), r.isError ? r.text : `${r.json.bytes} bytes`);
+  }
+
+  // ---- recording (SC-009): two marker requests between start and stop, one after
+  const services: { name: string; listenPort: number | null; enabled: boolean }[] = await (await fetch(`${BASE}/internal-calls/services`)).json();
+  const project = services.find((s) => s.enabled && s.listenPort);
+  if (!project) {
+    process.stdout.write('SKIP  recording - no project with inbound logging on\n');
+  } else {
+    const rec = await h.call('create_cycle', { name: `mcp-live-rec-${stamp}` });
+    const recId: string = rec.json.cycle.id;
+    created.cycles.push(recId);
+    const started = await h.call('start_recording', { cycleId: recId });
+    check('start_recording', started.json?.cycle?.status === 'RECORDING' && started.json?.changed === true);
+    const again = await h.call('start_recording', { cycleId: recId });
+    check('start_recording again changes nothing', again.json?.changed === false);
+    const marker = `/mcp-live-check-${stamp}`;
+    for (const n of [1, 2]) await fetch(`http://127.0.0.1:${project.listenPort}${marker}?n=${n}`).catch(() => undefined);
+    await new Promise((r) => setTimeout(r, 1500));
+    const stopped = await h.call('stop_recording', { cycleId: recId });
+    check('stop_recording', stopped.json?.cycle?.status === 'PAUSED');
+    await fetch(`http://127.0.0.1:${project.listenPort}${marker}?n=3`).catch(() => undefined);
+    await new Promise((r) => setTimeout(r, 2000));
+    const recorded = await h.call('get_cycle', { cycle: recId, limit: 200, includeDb: false, includeComments: false });
+    const has = (n: number) => recorded.text.includes(`${marker}?n=${n}`);
+    check('recording holds the calls made between start and stop', has(1) && has(2), `${recorded.json?.totalCalls} calls`);
+    check('recording does not hold the call made after stop', !has(3));
+  }
+
+  if (PAUSE) {
+    process.stdout.write(`\nPAUSED with test data in place (cycle mcp-live-check-${stamp}). ${PAUSE_SECONDS ? `Cleaning up in ${PAUSE_SECONDS} s.` : 'Check the UI, then press Enter to clean up.'}\n`);
+    if (PAUSE_SECONDS) {
+      await new Promise((r) => setTimeout(r, PAUSE_SECONDS * 1000));
+    } else {
+      const rl = createInterface({ input: process.stdin, output: process.stdout });
+      await rl.question('');
+      rl.close();
+    }
+  }
+} finally {
+  // ---- cleanup: comment through the tool, cycles directly (cycle deletion is deliberately not a tool)
+  if (created.comment) {
+    const del = await h.call('delete_comment', { commentId: created.comment });
+    check('cleanup: test comment deleted', !del.isError);
+  }
+  for (const id of created.cycles) {
+    await raw('POST', `/session-cycles/${id}/pause`);
+    const status = await raw('DELETE', `/session-cycles/${id}`);
+    check(`cleanup: test cycle ${id} deleted`, status === 204, String(status));
+  }
+  const left = await h.call('list_comments', { callId: CALL });
+  check('cleanup: no test comment left', !left.text.includes(`mcp live check ${stamp}`));
+  if (created.dir) await rm(created.dir, { recursive: true, force: true });
+  await h.close();
+}
+process.stdout.write(`\n${failures === 0 ? 'ALL PASSED' : `${failures} FAILED`}\n`);
+process.exit(failures === 0 ? 0 : 1);

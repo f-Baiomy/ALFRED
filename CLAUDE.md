@@ -79,3 +79,4 @@ After `docker compose up -d --build backend`, the gateway may keep the old conta
 - docs/relive.md — Relive Cycle: the call-rule model, attribution, evaluation tiers, the snapshot, run history, the Live calls log
 - docs/logs.md — Logs Explorer: ingest pipeline, per-source storage, LogQuery, settings, measured throughput
 - docs/db-capture.md — Database Capture: db-agent, X-Alfred-Call/X-Alfred-Parent headers, the switch flag file, backend-db-capture storage, Relive-ready seams
+- docs/mcp.md — Using Alfred from Claude (MCP): the local stdio `mcp-server/`, its tools, registration, session settings (masking, export folder)
