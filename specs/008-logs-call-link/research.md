@@ -5,14 +5,17 @@ All Technical Context unknowns are resolved below. Facts were read from the code
 ## R1 - Where the call identity comes from
 
 - **Decision**: reuse the `X-Alfred-Call` header the reverse proxy already adds to every logged inbound call
-  (`id=<callId>; db=0|1[; run=…]`, `proxy/log_and_route_reverse.py` `alfred_call_header`). No proxy change.
+  (`id=<callId>; db=0|1[; run=…]`, `proxy/log_and_route_reverse.py` `alfred_call_header`), adding `log=1` when the
+  project's **▤ switch** is on. The switch is a flag file exactly like ◆'s (`proxy/log-link-enabled.flag`,
+  one `project=on|off` line each, written by a `FileLogLinkToggleAdapter` beside `FileDbCaptureToggleAdapter`,
+  read mtime-cached by the proxy - `_ToggleState('LOG_LINK_TOGGLE_FILE', default=False)`). Live, no agent restart.
 - **Rationale**: the proxy already sends it for every logged inbound call, `db=0` included; only the agent's
   `CallContext.fromHeader` ignores `db=0` today.
 - **Alternatives**: a second header for logging (pointless - same id); a servlet filter in odeysys (an app code change, rejected by the owner).
 
 ## R2 - How the agent tags log lines (exact linking)
 
-- **Decision**: in `CaptureDispatcher.servletEnter`, when the project's settings say `logTagging=true`, parse the
+- **Decision**: in `CaptureDispatcher.servletEnter`, when the header says `log=1`, parse the
   header's `id` whatever `db` says and put `alfred.call=<id>` into every logging MDC visible to the request
   thread's context class loader, restoring the previous value in `servletExit` (finally). Candidates, each probed
   once per class loader and cached (`ClassValue`/weak map, the same reason `OriginTracker` caches per class -
@@ -54,7 +57,7 @@ All Technical Context unknowns are resolved below. Facts were read from the code
 - **Decision**: a composition-root bridge `backend-app/…/calllogsbridge` (like `triagebridge`,
   `relivebridge`): `CallLogsService` + `CallLogsController` under a new prefix `/call-logs`, using only use-case
   ports of `backend-internal-calls` (the call and its window), `backend-db-capture` (request thread, neighbours,
-  `logTagging`), `backend-logs` (project log settings, line queries, kept lines) and `backend-session-cycles`
+  the ▤ flag), `backend-logs` (project log settings, line queries, kept lines) and `backend-session-cycles`
   (is the call in a cycle). `backend-logs` stays a leaf slice; no new slice-to-slice edge.
 - **Gateway**: add `call-logs` to `gateway/nginx.conf`'s API prefix regex.
 - **Alternatives**: joining in the frontend (first idea) - rejected after clarification: kept lines (FR-005a),
@@ -81,9 +84,18 @@ All Technical Context unknowns are resolved below. Facts were read from the code
   `call_logs` tool using its existing session masking.
 - **Rationale**: same shape as `dbCapture` - one choke point for redaction, exports never truncate.
 
+## R9 - The ▤ switch gates reading too
+
+- **Decision**: the bridge checks the project's ▤ flag (and that its call logging is on) before any log query;
+  off → `setup: "LINKING_OFF"`, no counts, no markers. Kept lines (cycle calls, imports) are still served - they
+  are ALFRED's own copies, not a read of the logs.
+- **UI**: `sources-bar.component.html` gets a third `source-pill-switch log-sw` after `db-sw`, with the same
+  `blocked`/title/error handling as ◆ through a small `LogLinkStateService` mirroring `DbCaptureStateService`'s
+  switch API; the ▾ popover gains the Logs section (R8).
+
 ## R8 - Settings UI and storage
 
 - **Decision**: `backend-logs` stores project log settings (`project_logs`: project, source ids, thread field,
   time field, id field, clock difference ms) with a "lines carrying the id field" count from a cached field-values
-  query; `logTagging` lives in `DbCaptureSettings` (it is agent behaviour, delivered by `AgentSettingsResponse`).
-  The UI shows both in one "Logs" block under Settings → Database capture → project.
+  query; there is no `logTagging` setting - tagging follows the ▤ switch per request (R1, R9). The UI shows the mapping in a
+  Logs section of the ◆ popover / Settings → Database capture → project.

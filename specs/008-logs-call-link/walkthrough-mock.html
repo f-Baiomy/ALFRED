@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Logs linked to calls - walkthrough</title>
+<style>
+:root { --bg: #0b0f2e; --card: #141a45; --inner: #070a24; --border: rgba(255,255,255,.1); --strong: rgba(255,255,255,.18);
+  --text: #e8eaf6; --dim: #9aa3c7; --faint: #646c94; --link: #c4b5fd; --db: #2dd4bf; --sup: #7dd3fc; --log: #a3e635;
+  --red: #f07178; --amber: #f2b13c; --green: #6ee7a8; --fan: #f472b6; --mono: "Cascadia Code", Consolas, monospace; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 "Segoe UI", system-ui, sans-serif; }
+.page { max-width: 1240px; margin: 0 auto; padding: 14px 18px 30px; }
+.steps { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+.steps a { padding: 4px 11px; border-radius: 8px; border: 1px solid var(--border); color: var(--dim); cursor: pointer; font-size: 13px; text-decoration: none; }
+.steps a.on { color: var(--text); background: rgba(196,181,253,.15); border-color: rgba(196,181,253,.45); }
+h1 { font-size: 17px; margin: 0 0 4px; } .say { color: var(--dim); margin: 0 0 12px; font-size: 13.5px; max-width: 980px; } .say b { color: var(--text); }
+.scene { display: none; } .scene.on { display: block; }
+.mono { font-family: var(--mono); font-size: 12px; } .dim { color: var(--dim); } .faint { color: var(--faint); }
+.box { background: var(--card); border: 1px solid var(--strong); border-radius: 12px; }
+.chip { display: inline-flex; gap: 6px; align-items: center; font-size: 11.5px; border-radius: 7px; padding: 2px 8px; border: 1px solid; white-space: nowrap; }
+.chip.db { color: var(--db); border-color: rgba(45,212,191,.45); background: rgba(45,212,191,.08); }
+.chip.log { color: var(--log); border-color: rgba(163,230,53,.5); background: rgba(163,230,53,.08); }
+.chip .x { color: var(--red); } .chip .w { color: var(--amber); }
+.m { font-size: 11px; font-weight: 700; border-radius: 6px; padding: 1px 7px; background: rgba(196,181,253,.15); color: var(--link); }
+.s { font-size: 11px; font-weight: 700; border-radius: 6px; padding: 1px 7px; background: rgba(110,231,168,.13); color: var(--green); }
+.pill { font-size: 10.5px; border-radius: 999px; padding: 0 7px; border: 1px solid var(--strong); color: var(--dim); white-space: nowrap; }
+.pill.exact { color: var(--log); border-color: rgba(163,230,53,.5); }
+.btn { font: inherit; font-size: 12.5px; border-radius: 7px; padding: 3px 10px; border: 1px solid rgba(196,181,253,.45); background: rgba(196,181,253,.1); color: var(--link); }
+.hl { outline: 2px dashed #facc15; outline-offset: 3px; border-radius: 8px; }
+.callout { font-size: 12px; color: #facc15; margin: 6px 0 0; }
+/* settings */
+.set { padding: 14px 16px; max-width: 860px; }
+.set h3 { margin: 0 0 10px; font-size: 14px; } .set h4 { margin: 14px 0 8px; font-size: 13px; color: var(--log); }
+.row { display: grid; grid-template-columns: 210px minmax(0,1fr); gap: 6px 14px; align-items: center; font-size: 13px; margin: 6px 0; }
+.row .k { color: var(--dim); }
+.sel { background: var(--inner); border: 1px solid var(--border); border-radius: 7px; padding: 4px 8px; font-size: 12.5px; display: inline-block; min-width: 260px; }
+.tog { display: inline-flex; align-items: center; gap: 8px; }
+.sw { width: 34px; height: 18px; border-radius: 999px; background: rgba(163,230,53,.6); position: relative; display: inline-block; }
+.sw::after { content: ''; position: absolute; right: 2px; top: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; }
+.sw.off { background: rgba(255,255,255,.15); } .sw.off::after { left: 2px; right: auto; }
+.ok { color: var(--green); } .warnt { color: var(--amber); }
+/* list */
+.list { padding: 8px; }
+.card { display: flex; gap: 10px; align-items: center; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); margin: 6px 0; font-size: 13px; }
+.card .ms { margin-left: auto; color: var(--dim); font-family: var(--mono); font-size: 12px; }
+/* window */
+.win { overflow: hidden; }
+.wh { padding: 9px 14px 6px; border-bottom: 1px solid var(--border); }
+.wh .t { display: flex; gap: 10px; align-items: baseline; } .wh b { font-size: 15px; }
+.wh .st { font-size: 12px; color: var(--dim); margin-top: 3px; } .wh .st b { font-size: 12px; color: var(--text); }
+.tl { padding: 6px 14px; border-bottom: 1px solid var(--border); }
+.lane { display: grid; grid-template-columns: 74px minmax(0,1fr); gap: 8px; align-items: center; margin: 2px 0; }
+.lane .n { font-size: 11px; color: var(--dim); text-align: right; }
+.track { position: relative; height: 14px; border-radius: 4px; background: rgba(255,255,255,.03); border: 1px solid var(--border); }
+.seg { position: absolute; top: 2px; height: 9px; border-radius: 2px; min-width: 2px; }
+.tick { position: absolute; top: 1px; width: 3px; height: 11px; border-radius: 1px; }
+.split { display: grid; grid-template-columns: 270px minmax(0,1fr); min-height: 380px; }
+.fp { border-right: 1px solid var(--border); padding: 8px 10px; font-size: 12.5px; }
+.fp .f { padding: 4px 2px; border-top: 1px dashed var(--border); display: flex; gap: 6px; } .fp .f:first-of-type { border-top: none; }
+.main { min-width: 0; }
+.bar { display: flex; gap: 6px; align-items: center; padding: 6px 12px; border-bottom: 1px solid var(--border); font-size: 12.5px; flex-wrap: wrap; }
+.tab { padding: 3px 9px; border-radius: 6px; color: var(--dim); } .tab.on { background: rgba(196,181,253,.15); color: var(--text); }
+.tab .k { font-size: 11px; color: var(--faint); margin-left: 3px; } .tab.lg { color: var(--log); }
+.rows { padding: 4px 10px 10px; }
+.r { display: grid; grid-template-columns: 62px 70px minmax(0,1fr) 96px 62px; gap: 8px; align-items: center; padding: 3px 4px; font-size: 12.5px; border-radius: 6px; }
+.r .at { font-family: var(--mono); font-size: 11px; color: var(--faint); }
+.v { font-size: 10px; font-weight: 700; text-align: center; border-radius: 5px; padding: 1px 3px; border: 1px solid; }
+.r .t { font-family: var(--mono); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.r .how { font-size: 10.5px; color: var(--faint); text-align: right; }
+.r .ms { text-align: right; font-family: var(--mono); font-size: 12px; color: var(--dim); }
+.r.db .t { color: #cfeee9; } .r.sup .t { color: var(--sup); } .r.log .t { color: #e4f5c8; } .r.log { background: rgba(163,230,53,.04); }
+.r.err { background: rgba(240,113,120,.08); } .r.err .t { color: #ffc9cd; }
+.detail { margin: 2px 4px 8px 140px; border: 1px solid var(--border); border-radius: 8px; background: var(--inner); padding: 8px 10px; font-size: 12px; }
+.kv { display: grid; grid-template-columns: 150px minmax(0,1fr); gap: 2px 10px; font-family: var(--mono); font-size: 11.5px; } .kv span:nth-child(odd) { color: var(--faint); }
+.detail a, .lnk { color: var(--link); }
+.empty { padding: 26px; text-align: center; color: var(--dim); font-size: 13px; } .empty b { color: var(--text); }
+/* logs tab */
+.sb { display: flex; gap: 8px; align-items: center; padding: 10px 12px; flex-wrap: wrap; }
+.sb .lbl { font-size: 11px; font-weight: 700; letter-spacing: .07em; color: var(--faint); margin-right: 4px; }
+.sp { display: inline-flex; align-items: center; border: 1px solid rgba(196,181,253,.35); border-radius: 999px; background: rgba(196,181,253,.08); overflow: hidden; font-size: 13px; }
+.sp > span { padding: 3px 9px; border-left: 1px solid rgba(196,181,253,.2); display: inline-flex; align-items: center; }
+.sp > span:first-child { border-left: none; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--green); box-shadow: 0 0 6px var(--green); } .dot.off { background: #555; box-shadow: none; }
+.g { font-size: 12px; } .g.db { color: var(--db); } .g.lg { color: var(--log); } .g.offg { color: #555; } .g.blk { color: #3b3f5c; }
+.legend2 { display: grid; grid-template-columns: 140px minmax(0,1fr); gap: 6px 12px; font-size: 13px; padding: 4px 14px 14px; }
+.legend2 span:nth-child(odd) { color: var(--dim); }
+.lt { padding: 10px; } .lt .ln { display: grid; grid-template-columns: 100px 56px 130px minmax(0,1fr); gap: 8px; font-family: var(--mono); font-size: 12px; padding: 3px 6px; border-radius: 5px; }
+.lt .ln.on { background: rgba(196,181,253,.12); }
+/* export */
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+pre.md { margin: 0; background: var(--inner); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; font-family: var(--mono); font-size: 11.5px; white-space: pre-wrap; color: #cfd3dc; }
+.exp { padding: 10px 12px; } .exp .blk { border: 1px solid rgba(163,230,53,.35); border-radius: 10px; background: rgba(163,230,53,.04); }
+.exp .blk .hd { padding: 7px 10px; display: flex; gap: 8px; align-items: center; } .exp .blk .hd b { color: var(--log); }
+.exp .er { display: grid; grid-template-columns: 70px 56px minmax(0,1fr); gap: 8px; padding: 3px 10px; border-top: 1px dashed var(--border); font-size: 12.5px; }
+</style>
+</head>
+<body>
+<div class="page">
+<div class="steps" id="steps"></div>
+<div id="scenes"></div>
+</div>
+<script>
+const STEPS = [
+  ['switch', '0 · The ▤ switch'], ['settings', '1 · Set it up'], ['card', '2 · Call list'], ['together', '3 · Together'], ['logs', '4 · Logs + a line'],
+  ['nocap', '5 · Call without DB capture'], ['logstab', '6 · From a log line'], ['export', '7 · Export'],
+];
+const TOTAL = 20000, x = (ms) => (ms / TOTAL) * 100, fmt = (ms) => ms >= 1000 ? (ms / 1000).toFixed(2) + ' s' : Math.round(ms) + ' ms';
+const ST = [[70, 54], [282, 53], [499, 53], [714, 53], [957, 65], [3136, 66], [3465, 180], [3701, 1], [6000, 210], [6300, 90], [6400, 92], [6500, 85], [6600, 88], [6700, 70], [6800, 72], [7000, 524], [9500, 40], [17000, 60], [17200, 55], [19500, 236], [19760, 3]];
+const LOGS = [[40, 'INFO', 'search started for EK DXB-LHR 2 ADT (org 948, branch 12)'], [960, 'INFO', 'flight search hit logged, ratio check'],
+  [3300, 'DEBUG', 'loading prefer-airline list'], [5990, 'INFO', 'loading 2 flight tags'], [7600, 'INFO', 'calling suppliers: TravelportNdc, SabreNdc'],
+  [10100, 'WARN', 'SabreNdc slow: 2,451 ms'], [13300, 'WARN', 'TravelportNdc slow: 5,580 ms'], [13350, 'INFO', 'merging 412 offers'],
+  [15800, 'INFO', 'pricing rules applied (KieSession updated 4:01 AM)'], [19500, 'ERROR', 'LOG_FLIGHTSEARCH_HIT_DETAILS_SP_V6: PROCEDURE does not exist - ignored'],
+  [19780, 'INFO', 'search done: 412 offers, cheapest 1,240 AED, 20,035 ms']];
+const SUP = [[7700, 2450, 'SabreNdc'], [7720, 5580, 'TravelportNdc']];
+const COL = { INFO: '#a3e635', DEBUG: '#646c94', WARN: '#f2b13c', ERROR: '#f07178' };
+
+const header = (sub = '41 statements · 1 failed · 25 tx · 3.4 s DB of 20.0 s') => `<div class="wh"><div class="t"><b>Database · POST</b><span class="mono" style="color:var(--sup)">/odeysysadmin/Booking2/flight-search/search</span><span class="faint" style="margin-left:auto;font-size:12px">500d0cdc · odeysys · thread default task-4</span></div><div class="st">${sub}</div></div>`;
+const timeline = () => `<div class="tl">
+  <div class="lane"><div class="n">Database</div><div class="track">${ST.map(([a, ms], i) => `<div class="seg" style="left:${x(a)}%;width:${x(ms)}%;background:${i >= 9 && i <= 15 ? 'var(--fan)' : i === 19 ? 'var(--red)' : 'var(--db)'}"></div>`).join('')}</div></div>
+  <div class="lane"><div class="n">Suppliers</div><div class="track">${SUP.map(([a, ms], i) => `<div class="seg" style="left:${x(a)}%;width:${x(ms)}%;top:${2 + i * 5}px;height:4px;background:var(--sup)"></div>`).join('')}</div></div>
+  <div class="lane"><div class="n" style="color:var(--log)">Logs</div><div class="track hl">${LOGS.map(([a, lv]) => `<div class="tick" style="left:${x(a)}%;background:${COL[lv]}"></div>`).join('')}</div></div>
+</div>`;
+const findings = () => `<div class="fp"><div class="faint" style="font-size:11px;font-weight:700;letter-spacing:.07em;margin-bottom:4px">FINDINGS</div>
+  <div class="f"><span style="color:var(--red)">✕</span>Error hidden · LOG_FLIGHTSEARCH…</div><div class="f"><span>⏳</span>4.7 s idle in 2 stretches</div>
+  <div class="f"><span>🌿</span>1 HQL query → 7 SQL statements</div><div class="f"><span>📦</span>9,110 rows read from TT_AIRPORT…</div>
+  <div class="f"><span>♻</span>4 queries run twice</div><div class="f"><span>ⓘ</span>3 notes</div></div>`;
+const bar = (on) => `<div class="bar"><span class="tab${on === 'stmts' ? ' on' : ''}">Statements<span class="k">41</span></span><span class="tab lg${on === 'logs' ? ' on' : ''}">Logs<span class="k">11</span></span><span class="tab lg${on === 'all' ? ' on' : ''}">Together<span class="k">52</span></span><span class="tab">Top queries<span class="k">25</span></span><span class="tab">Tables<span class="k">23</span></span>
+  <span class="faint" style="margin-left:auto;font-size:11.5px">Logs from <b style="color:var(--text)">wildfly</b> · <span class="pill">same thread + time</span> · <span class="lnk">open in Logs ↗</span></span></div>`;
+function rowsOf(view, open) {
+  const items = [
+    ...ST.map(([a, ms], i) => ({ at: a, kind: 'db', v: i === 4 || i === 19 ? 'CALL' : i === 7 || i === 20 ? 'COMMIT' : 'SELECT', t: i === 19 ? 'CALL LOG_FLIGHTSEARCH_HIT_DETAILS_SP_V6(?, ?, ?)' : i === 4 ? 'CALL LOG_FLIGHTSEARCH_HIT_SP(790)' : i === 7 || i === 20 ? 'COMMIT' : `SELECT … FROM ${['TT_USER_GROUP', 'TT_ORGANIZATION', 'TT_TS_FL_TAG', 'TT_AIRPORT_DETAILS', 'TT_CURRENCY'][i % 5]} WHERE …`, ms, how: '#' + (i + 1), err: i === 19 })),
+    ...SUP.map(([a, ms, h]) => ({ at: a, kind: 'sup', v: 'POST', t: h + ' /search', ms, how: 'supplier' })),
+    ...LOGS.map(([a, lv, m], i) => ({ at: a, kind: 'log', v: lv, t: m, ms: null, how: 'same thread', i, err: lv === 'ERROR' })),
+  ].sort((p, q) => p.at - q.at).filter((it) => view === 'all' || it.kind === 'log');
+  return items.map((it) => {
+    const c = it.kind === 'log' ? COL[it.v] : it.kind === 'sup' ? 'var(--sup)' : it.v === 'CALL' ? 'var(--link)' : 'var(--db)';
+    const row = `<div class="r ${it.kind}${it.err ? ' err' : ''}"><span class="at">+${fmt(it.at)}</span><span class="v" style="color:${c};border-color:${c}">${it.kind === 'log' ? '▤ ' + it.v : it.v}</span><span class="t">${it.t}</span><span class="how">${it.how}</span><span class="ms">${it.ms != null ? fmt(it.ms) : ''}</span></div>`;
+    return row + (open && it.i === open ? `<div class="detail hl"><div class="kv"><span>timestamp</span><span>2026-10-05T04:34:34.812Z</span><span>log.level</span><span>ERROR</span><span>process.thread.name</span><span>default task-4</span><span>log.logger</span><span>FlightSearchService</span><span>mdc.alfred.call</span><span>500d0cdc-ed5b-459e-9afa-ef7c2996949f</span><span>message</span><span>${it.t}</span><span>exception</span><span>java.sql.SQLSyntaxErrorException: PROCEDURE odeysys.LOG_FLIGHTSEARCH_HIT_DETAILS_SP_V6 does not exist</span></div><div style="margin-top:6px"><span class="lnk">Open in Logs ↗</span> · matched by <span class="pill">same thread + time</span> · ±200 ms clock difference</div></div>` : '');
+  }).join('');
+}
+const SCENES = {
+  switch: ['A third switch on each service in the <b>Sources</b> bar (Live calls and Session cycles), next to the logging dot and <b>◆</b>: <b>▤ Logs</b>. On = Alfred reads this project’s logs for its calls, and the agent tags each recorded request’s log lines with its call id (exact linking) - live, like ◆, no restart (only the first time the new agent is loaded). Off = Alfred does not read the logs at all. When <b>logging</b> is off for the service, ▤ is blocked, just like ◆.',
+    `<div class="box sb"><span class="lbl">SOURCES</span><span class="sp"><span>External</span></span>
+      <span class="sp hl"><span>odeysys</span><span><i class="dot"></i></span><span class="g db">◆</span><span class="g lg">▤</span><span class="faint">▾</span></span>
+      <span class="sp"><span>core-service</span><span><i class="dot"></i></span><span class="g offg">◆</span><span class="g offg">▤</span><span class="faint">▾</span></span>
+      <span class="sp"><span>legacy-api</span><span><i class="dot off"></i></span><span class="g blk">◆</span><span class="g blk">▤</span><span class="faint">▾</span></span>
+      <span class="sp"><span>unknown</span><span><i class="dot"></i></span></span></div>
+     <div class="box" style="margin-top:10px"><div class="legend2" style="padding-top:12px">
+      <span>odeysys</span><span>logging on · ◆ DB capture on · <b style="color:var(--log)">▤ logs on</b> - calls get their log lines</span>
+      <span>core-service</span><span>logging on · ◆ off · ▤ off - Alfred does not read core-service logs</span>
+      <span>legacy-api</span><span>logging off - ◆ and ▤ are blocked ("turn logging on first"), nothing is recorded or read</span>
+      <span>hover ▤</span><span>"Logs are linked for odeysys - click to stop" · ▾ opens the same popover as ◆, now with a Logs section (source, fields)</span>
+     </div></div>`],
+  settings: ['Settings → Database capture → odeysys: a new <b>Logs</b> block. Pick the log source(s) already loaded in the Logs tab; thread and time fields are pre-filled from the log. Thread-and-time matching works right away. Turning linking on and off is the <b>▤</b> switch in the Sources bar; once it is on, the block shows how many lines carry the call id.',
+    `<div class="box set"><h3>odeysys <span class="faint" style="font-weight:400">· Database capture</span></h3>
+     <div class="row"><span class="k">Capture</span><span class="tog"><span class="sw"></span> on</span></div>
+     <div class="row"><span class="k">Rows per result</span><span class="sel" style="min-width:90px">50,000</span></div>
+     <h4>▤ Logs</h4>
+     <div class="hl" style="padding:6px 8px">
+     <div class="row"><span class="k">Log sources</span><span><span class="sel">✓ wildfly (5,406 lines) &nbsp; ☐ bench-sample</span></span></div>
+     <div class="row"><span class="k">Thread field</span><span class="sel">process.thread.name</span></div>
+     <div class="row"><span class="k">Time field</span><span class="sel">timestamp</span></div>
+     <div class="row"><span class="k">Clock difference allowed</span><span><span class="sel" style="min-width:60px">200</span> ms <span class="faint">- log clock vs Alfred</span></span></div>
+     <div class="row"><span class="k">Linking</span><span class="faint">on/off with <b style="color:var(--log)">▤</b> in the Sources bar - on: the agent also tags each request's lines (exact), live</span></div>
+     <div class="row"><span class="k">Call id field</span><span><span class="sel">mdc.alfred.call</span> <span class="warnt">found in 0 lines yet</span></span></div>
+     </div>
+     <div style="margin-top:12px;display:flex;gap:8px"><span class="btn">Save</span></div></div>`],
+  card: ['In Live calls (and cycles), a call with linked lines shows <b>▤ Logs</b> next to <b>◆ DB</b>, with its error and warning counts. Counts are fetched only for calls you open or expand, so the list stays fast. Click it to open the window on the Logs view.',
+    `<div class="list"><div class="card"><span class="m">POST</span><span class="s">200</span><span class="mono">/odeysysadmin/Booking2/flight-search/search</span><span class="chip db">◆ DB 41 <span class="x">1 failed</span></span><span class="chip log hl">▤ Logs 11 <span class="x">1 error</span> <span class="w">2 warn</span></span><span class="ms">20.0 s</span></div>
+     <div class="card"><span class="m">GET</span><span class="s">200</span><span class="mono">/odeysysadmin/flight-search/flight-airports?search=dxb</span><span class="chip db">◆ DB 3</span><span class="chip log">▤ Logs 2</span><span class="ms">120 ms</span></div>
+     <div class="card"><span class="m">POST</span><span class="s">200</span><span class="mono">/odeysysadmin/Admin2/loginAction</span><span class="chip log">▤ Logs 4 <span class="pill exact">exact</span></span><span class="faint" style="font-size:11.5px">no DB capture</span><span class="ms">830 ms</span></div></div>`],
+  together: ['The database window gets a <b>Logs</b> lane on the timeline (one mark per line, coloured by level) and two new views. <b>Together</b> puts statements, supplier calls and log lines in one list by time: the log says "search started", then the queries run, then the suppliers are called, the log warns they are slow, then the hidden error.',
+    `<div class="box win">${header()}${timeline()}<div class="split">${findings()}<div class="main">${bar('all')}<div class="rows">${rowsOf('all')}</div></div></div></div>`],
+  logs: ['The <b>Logs</b> view lists just the call\'s log lines. Click one: every field of the line, including the exception, with <b>Open in Logs ↗</b> to see it among its neighbours in the Logs tab.',
+    `<div class="box win">${header()}${timeline()}<div class="split">${findings()}<div class="main">${bar('logs')}<div class="rows">${rowsOf('logs', 9)}</div></div></div></div>`],
+  nocap: ['A call <b>without database capture</b> still gets its logs while ▤ is on (the agent tags its lines): the same window opens on its own Logs view. With ▤ off, it says Alfred is not reading this project’s logs and offers to turn ▤ on.',
+    `<div class="two"><div class="box win">${header('no database capture for this call · 4 log lines · <span class="pill exact">exact</span>').replace('Database · POST', 'Logs · POST').replace('/odeysysadmin/Booking2/flight-search/search', '/odeysysadmin/Admin2/loginAction').replace('500d0cdc · odeysys · thread default task-4', '93f6b4ed · odeysys')}
+       <div class="bar"><span class="tab lg on">Logs<span class="k">4</span></span></div><div class="rows">
+       ${[[5, 'INFO', 'login attempt for e.saady from 10.0.0.12'], [310, 'INFO', 'user 790 loaded, 3 roles'], [600, 'WARN', 'trusted device not found, OTP skipped by setting'], [820, 'INFO', 'session created (30 min)']].map(([a, lv, m]) => `<div class="r log"><span class="at">+${fmt(a)}</span><span class="v" style="color:${COL[lv]};border-color:${COL[lv]}">▤ ${lv}</span><span class="t">${m}</span><span class="how"><span class="pill exact">exact</span></span><span></span></div>`).join('')}</div></div>
+     <div class="box"><div class="empty">▤ <b>No log lines linked to this call</b><br><br>▤ Logs is off for <b>odeysys</b>, so Alfred does not read its logs.<br>Turn on <b>▤</b> next to odeysys in the Sources bar - from then on every recorded call is linked (exact).<br><br><span class="btn">Turn ▤ on</span></div></div></div>`],
+  logstab: ['From the other side: in the <b>Logs</b> tab, open any line written during a recorded call - it shows <b>During call</b> with the request, status and duration, and links to the call and its database statements.',
+    `<div class="box lt"><div class="faint" style="font-size:11.5px;margin-bottom:6px">Logs · wildfly · 5,406 lines</div>
+     ${LOGS.slice(7, 11).map(([a, lv, m], i) => `<div class="ln${i === 2 ? ' on' : ''}"><span class="faint">04:34:${(15 + a / 1000).toFixed(3)}</span><span style="color:${COL[lv]}">${lv}</span><span class="dim">default task-4</span><span>${m}</span></div>`).join('')}
+     <div class="detail hl" style="margin-left:0;margin-top:8px"><div class="kv"><span>timestamp</span><span>2026-10-05T04:34:34.812Z</span><span>process.thread.name</span><span>default task-4</span><span>log.level</span><span>ERROR</span></div>
+     <div style="margin-top:8px;font-size:13px">During call <span class="lnk">↗ POST /odeysysadmin/Booking2/flight-search/search · 200 · 20.0 s</span> <span class="pill">same thread + time</span> &nbsp; <span class="lnk">◆ its database statements</span></div></div></div>`],
+  export: ['Exports carry every linked line, whole. The <b>.html</b> gets a closed <b>📜 Logs</b> block per call (like the Database block); the <b>.md</b> gets a table; the <b>.json</b> gets a <span class="mono">logLines</span> section and re-imports them. Your redaction rules apply to log lines the same as to bodies.',
+    `<div class="two"><div class="box exp"><div class="faint" style="font-size:11.5px;margin-bottom:6px">.html export · call 1</div><div class="blk"><div class="hd">▾ <b>📜 Logs</b> <span class="dim">11 lines · same thread + time · 1 error · 2 warn</span></div>
+       ${LOGS.slice(0, 7).map(([a, lv, m]) => `<div class="er"><span class="mono faint">+${fmt(a)}</span><span style="color:${COL[lv]}">${lv}</span><span>${m}</span></div>`).join('')}<div class="er"><span class="faint">…</span></div></div></div>
+     <pre class="md">#### 📜 Logs (11 lines, matched by same thread + time)
+
+&lt;details open&gt;&lt;summary&gt;11 lines · 1 error · 2 warn&lt;/summary&gt;
+
+| +ms | Level | Thread | Message |
+|---|---|---|---|
+| +40 | INFO | default task-4 | search started for EK DXB-LHR 2 ADT (org 948, branch 12) |
+| +960 | INFO | default task-4 | flight search hit logged, ratio check |
+| +7600 | INFO | default task-4 | calling suppliers: TravelportNdc, SabreNdc |
+| +10100 | WARN | default task-4 | SabreNdc slow: 2,451 ms |
+| +19500 | **ERROR** | default task-4 | LOG_FLIGHTSEARCH_HIT_DETAILS_SP_V6: PROCEDURE does not exist - ignored |
+| … | | | |
+
+&lt;/details&gt;</pre></div>`],
+};
+document.getElementById('steps').innerHTML = STEPS.map(([k, l]) => `<a href="#${k}" data-k="${k}">${l}</a>`).join('');
+document.getElementById('scenes').innerHTML = STEPS.map(([k, l]) => `<div class="scene" id="s-${k}"><h1>${l}</h1><p class="say">${SCENES[k][0]}</p>${SCENES[k][1]}</div>`).join('');
+function show() {
+  const k = (location.hash || '#switch').slice(1);
+  document.querySelectorAll('.scene').forEach((s) => s.classList.toggle('on', s.id === 's-' + k));
+  document.querySelectorAll('.steps a').forEach((a) => a.classList.toggle('on', a.dataset.k === k));
+}
+addEventListener('hashchange', show); show();
+</script>
+</body>
+</html>

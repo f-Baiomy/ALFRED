@@ -17,8 +17,9 @@ This feature joins them: each call shows the log lines written while it ran, nex
 
 - Q: Which recorded calls get exact log linking? → A: Every recorded inbound call of the project, with or without database capture; calls without capture show their log lines in a Logs view opened from the call card.
 - Q: How are linked log lines treated in exports and Claude's tools, given they can hold secrets? → A: The same as request/response bodies - the project's redaction rules apply (none by default, so verbatim unless rules are set).
-- Q: Is exact linking on or off for a project by default? → A: Off until the user turns it on for the project (then one application restart); thread-and-time matching works without it.
+- Q: Is exact linking on or off for a project by default? → A: Off until the user turns it on for the project (since refined: it is the ▤ switch below - live; the application is restarted only once, to load the new agent); thread-and-time matching works without it.
 - Q: Does a call keep its linked log lines when the Logs tab later drops them? → A: Yes for calls in a session cycle - their linked lines are kept with the cycle; other calls link live only.
+- Q: How is linking turned on and off? → A: A per-service **▤ Logs** switch in the Sources bar of Live calls and Session cycles, next to the logging dot and ◆ (database capture), working like ◆: live, blocked while the service's call logging is off. On = ALFRED reads the project's logs for its calls and the agent tags each recorded request's log lines (exact). Off = ALFRED does not read that project's logs at all. It replaces the "exact linking" setting.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -42,19 +43,21 @@ A developer debugging a slow flight search opens the call in ALFRED and, beside 
 
 ---
 
-### User Story 2 - Exact linking, even across threads (Priority: P2)
+### User Story 2 - The ▤ switch and exact linking (Priority: P2)
 
-The application tags every log line it writes while handling a call with that call's identity, so ALFRED links lines exactly - including lines written by other classes and helper code, and without depending on clocks agreeing. The user turns this on once for the project; after the application is restarted, new calls are linked exactly.
+Each service in the Sources bar (Live calls and Session cycles) gets a **▤ Logs** switch next to its logging dot and ◆, working like ◆. While it is on, ALFRED reads that project's logs for its calls, and the application tags every log line it writes while handling a recorded call with that call's identity, so lines are linked exactly - including lines written by other classes and helper code, and without depending on clocks agreeing. While it is off, ALFRED does not read the project's logs at all. With the service's call logging off, the switch is blocked.
 
-**Why this priority**: Matching by thread and time (Story 1) is good but can miss lines or include a neighbour's when clocks drift; exact tagging removes the guesswork. It needs one application restart, so it comes second.
+**Why this priority**: Matching by thread and time (Story 1) is good but can miss lines or include a neighbour's when clocks drift; exact tagging removes the guesswork. The very first use needs the application restarted once to load the new agent; after that the switch is live.
 
-**Independent Test**: Turn exact linking on for odeysys, restart it, make a request; every log line written during that request carries the call's identity, and the call's Logs view marks its lines "exact".
+**Independent Test**: Turn ▤ on for odeysys, make a request; every log line written during that request carries the call's identity and the call's Logs view marks its lines "exact". Turn ▤ off: the next request's lines carry nothing and no call of odeysys shows log lines.
 
 **Acceptance Scenarios**:
 
-1. **Given** exact linking is on for a project and the application has been restarted, **When** any recorded inbound call of that project runs - with or without database capture - **Then** every log line it writes while handling that call carries the call's identity, and nothing else in the line changes.
+1. **Given** ▤ is on for a project (and the application runs the new agent), **When** any recorded inbound call of that project runs - with or without database capture - **Then** every log line it writes while handling that call carries the call's identity, and nothing else in the line changes.
 2. **Given** a call with exactly-linked lines, **When** the user opens its Logs view, **Then** those lines are shown with an "exact" marker and the thread-and-time match is not used for that call.
-3. **Given** exact linking is on but the application's log format does not write the identity, **When** the user opens the project's log settings, **Then** ALFRED says the identity was found in 0 lines and explains what the log format must include.
+3. **Given** ▤ is on but the application's log format does not write the identity, **When** the user opens the project's log settings, **Then** ALFRED says the identity was found in 0 lines and explains what the log format must include.
+5. **Given** ▤ is off for a project, **When** the user opens any of its calls, **Then** ALFRED does not query the logs, the Logs view says linking is off for the project and offers to turn ▤ on, and no "Logs" marker is shown; lines already kept for session-cycle calls are still shown.
+6. **Given** the service's call logging is off, **When** the user looks at its ▤ switch, **Then** it is blocked with "turn logging on first", like ◆.
 4. **Given** a request that ALFRED is not recording, **When** the application handles it, **Then** its log lines carry no identity and the application behaves exactly as without ALFRED.
 
 ---
@@ -98,7 +101,8 @@ When a call or cycle is exported (.md, .html, .json), each call carries its matc
 - A call has thousands of log lines: the Logs view and exports page through them; nothing is cut from exports.
 - Several log sources are linked to one project (e.g. two server logs): lines from all of them are shown, each marked with its source.
 - The project's log uses a different field name for the thread or time: the user picks the fields in the project's log settings.
-- A call without database capture has no recorded request thread: only exact linking can link it; with exact linking off, its Logs view says why there are none and that turning exact linking on would link it.
+- A call without database capture has no recorded request thread: only exact linking can link it; with ▤ off, its Logs view says linking is off for the project and offers to turn ▤ on.
+- ▤ is turned off while a call is running: the agent finishes that request as it started (tag kept until the request ends); the next request is untagged.
 
 ## Requirements *(mandatory)*
 
@@ -115,13 +119,13 @@ When a call or cycle is exported (.md, .html, .json), each call carries its matc
 
 **Exact linking**
 
-- **FR-006**: Exact linking MUST be off for every project until the user turns it on; users MUST be able to turn it on and off per project, and it takes effect for requests handled after the application's next restart. Thread-and-time matching works whether it is on or off.
-- **FR-007**: While handling any recorded inbound call of a project with exact linking on (whether or not database capture is on for it), the application side MUST make the call's identity available to the application's logging, so each line written during that call carries it; it MUST be removed when the call ends, so later work on the same thread is not tagged.
+- **FR-006**: Each service in the Sources bar of Live calls and Session cycles MUST have a **▤ Logs** switch beside ◆, off until the user turns it on, taking effect on the next request without a restart (like ◆), blocked while the service's call logging is off. While it is on, ALFRED links that project's calls to its log lines (exact, else same thread and time) and the application tags recorded requests' lines; while it is off, ALFRED MUST NOT read that project's logs (no queries, no counts, no markers) and the application tags nothing.
+- **FR-007**: While handling any recorded inbound call of a project whose ▤ switch is on (whether or not database capture is on for it), the application side MUST make the call's identity available to the application's logging, so each line written during that call carries it; it MUST be removed when the call ends, so later work on the same thread is not tagged.
 - **FR-008**: Exact linking MUST NOT change anything the application does or logs other than adding the identity, and MUST tag nothing for requests ALFRED is not recording.
 
 **Setup**
 
-- **FR-009**: Users MUST be able to choose, per project: which loaded log sources belong to it, which field holds the thread, which holds the time (defaulting to the source's time field), which holds the call identity, and the allowed clock difference.
+- **FR-009**: Users MUST be able to choose, per project (in the same popover/settings as ◆'s, a Logs section): which loaded log sources belong to it, which field holds the thread, which holds the time (defaulting to the source's time field), which holds the call identity, and the allowed clock difference.
 - **FR-010**: The settings MUST show, for the chosen identity field, how many loaded lines carry it, so the user can tell whether exact linking is working.
 
 **Viewing**
@@ -147,7 +151,8 @@ When a call or cycle is exported (.md, .html, .json), each call carries its matc
 
 - **Log line link**: a log line (source, line identity) related to one inbound call, with how it was matched (exact, same thread and time) and, for the time match, the clock difference allowed.
 - **Kept log lines**: the linked log lines of a call held by a session cycle, copied whole with how they were matched, so they outlive the log source; removed when the call leaves every cycle.
-- **Project log settings**: per project - the log sources that belong to it, the thread field, the time field, the call-identity field, the allowed clock difference, and whether exact linking is on.
+- **Project log settings**: per project - the log sources that belong to it, the thread field, the time field, the call-identity field and the allowed clock difference.
+- **▤ switch**: per project, on/off, like ◆ - a live switch the recording path reads on each request.
 - **Call's request thread and window**: the thread that handled an inbound call and the call's start and end times - what the time-and-thread match uses.
 
 ## Success Criteria *(mandatory)*
@@ -155,9 +160,9 @@ When a call or cycle is exported (.md, .html, .json), each call carries its matc
 ### Measurable Outcomes
 
 - **SC-001**: On a recorded odeysys flight search with its WildFly log loaded, the user sees the call's log lines next to its statements within 2 seconds of opening the call, with no manual searching.
-- **SC-002**: With exact linking on, 100% of log lines the application writes on the request thread during a recorded call are linked to that call, and none from other calls.
+- **SC-002**: With ▤ on, 100% of log lines the application writes on the request thread during a recorded call are linked to that call, and none from other calls.
 - **SC-003**: With thread-and-time matching and clocks within the allowed difference, at least 95% of a call's request-thread lines are linked to it and fewer than 1% of linked lines belong to another call.
-- **SC-004**: With exact linking on, a request's response time changes by less than 1 ms on average compared with exact linking off.
+- **SC-004**: With ▤ on, a request's response time changes by less than 1 ms on average compared with ▤ off.
 - **SC-005**: Every exported call contains all of its linked log lines (verified line for line against the source), and a re-imported export shows the same lines.
 - **SC-006**: A developer can go from a log error line to the call that caused it in one click.
 
@@ -167,7 +172,7 @@ When a call or cycle is exported (.md, .html, .json), each call carries its matc
 - Log lines record their time to at least the millisecond and the thread that wrote them (odeysys's WildFly JSON log does: `timestamp`, `process.thread.name`).
 - Database capture records the thread that handled each inbound call; calls without database capture can only be linked exactly.
 - The application's log format can include the logging context (MDC) - WildFly's JSON formatter does by default; if odeysys's format leaves it out, exact linking needs that format setting changed, which ALFRED reports but does not change.
-- Exact linking is done by ALFRED's existing database agent inside the application (it already knows each recorded call); the reverse proxy needs no change.
+- Exact linking is done by ALFRED's existing database agent inside the application (it already knows each recorded call); the reverse proxy tells it per request whether ▤ is on, the same way it already tells it whether ◆ is on.
 - Linking reads both stores on demand; the calls and the logs keep their own retention and storage as today, except that calls in session cycles keep a copy of their linked lines (FR-005a).
 - Outbound (supplier) calls are not linked directly; their log lines appear under the inbound call that made them.
 - Out of scope: linking logs of applications ALFRED does not record calls for, log formats other than one JSON object per line, and changing what or how the application logs beyond adding the call identity.

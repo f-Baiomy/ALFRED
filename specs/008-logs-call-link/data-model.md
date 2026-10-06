@@ -13,10 +13,12 @@
 
 Derived (not stored): `callIdFoundLines` per source - lines carrying `callIdField` (FR-010).
 
-## DbCaptureSettings.logTagging (`backend-db-capture`)
+## ▤ switch (`proxy/log-link-enabled.flag`, `backend-db-capture` toggle adapter)
 
-`boolean`, default `false` (clarified: off until turned on). Sent to the agent in `AgentSettingsResponse`
-(`logTagging`, `logTagKey` = `alfred.call`). Older agents ignore it.
+One `project=on|off` line per project, missing = off, written atomically like `db-capture-enabled.flag`; the reverse
+proxy adds `log=1` to `X-Alfred-Call` while on. Exposed through the same projects endpoint as ◆
+(`GET /db-capture/projects` gains `logsOn`; `PUT /db-capture/projects/{project}/logs` `{on}`). The MDC key is the
+constant `alfred.call`.
 
 ## call_db_summary.request_thread (`backend-db-capture`)
 
@@ -54,6 +56,6 @@ calls: when the import's cycle/calls are deleted). Outside the logs retention; b
 ## State
 
 ```
-exact linking:  off ──(user turns on)──▶ on, pending restart ──(first tagged line seen)──▶ on, working
+▤ switch:  off ──(click ▤)──▶ on (next request tagged + logs read) ──(click ▤ / logging turned off)──▶ off (nothing read)
 call ↔ kept lines: none ──(call joins a cycle / its lines read while in a cycle)──▶ kept ──(call leaves every cycle)──▶ none
 ```

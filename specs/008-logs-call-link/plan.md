@@ -9,10 +9,12 @@ Join the application's log lines (loaded in the Logs tab) to the inbound calls t
 in the database window (Logs / Together views, a Logs lane), on call cards, in the Logs tab (line → call), in
 exports and to Claude. Two ways to link: **same thread and time** (request thread recorded by the db-agent, call
 window from the calls slices, ± a clock difference) for logs that exist today, and **exact** - the db-agent puts
-the call id into the application's logging MDC (`alfred.call`) for every recorded inbound call when the project
-turns it on. The join lives in one composition-root bridge (`backend-app/calllogsbridge`, new `/call-logs`
+the call id into the application's logging MDC (`alfred.call`) for every recorded inbound call while the project's
+**▤ switch** is on. ▤ sits in the Sources bar (Live calls and Session cycles) beside ◆ and works like it: a flag file
+the reverse proxy reads per request (`log=1` in `X-Alfred-Call`), live, blocked while call logging is off; while it is
+off ALFRED does not read the project's logs at all. The join lives in one composition-root bridge (`backend-app/calllogsbridge`, new `/call-logs`
 routes); `backend-logs` gains project log settings and kept lines for session-cycle calls; `backend-db-capture`
-gains the request thread and the `logTagging` agent setting.
+gains the request thread and the ▤ flag-file toggle.
 
 ## Technical Context
 
@@ -72,14 +74,14 @@ specs/008-logs-call-link/
 ### Source Code (repository root)
 
 ```text
+proxy/log_and_route_reverse.py              # log=1 while ▤ is on (flag file, like ◆)
 db-agent/src/main/java/com/fathy/alfred/dbagent/
 ├── capture/CaptureDispatcher.java      # servletEnter/Exit: tag + restore; CALL_OPEN thread
 ├── capture/LogTagger.java              # NEW: MDC probing per class loader, put/restore
 ├── capture/CallContext.java            # parse id for db=0 too
-├── transport/AgentSettings.java        # logTagging, logTagKey
 └── transport/MarkerRecord.java         # + thread
 
-backend/backend-db-capture/             # logTagging in DbCaptureSettings/AgentSettingsResponse; request_thread column,
+backend/backend-db-capture/             # ▤ flag-file toggle (FileLogLinkToggleAdapter) + projects endpoint; request_thread column,
                                          # CallThreadUseCase (thread + neighbours) port
 backend/backend-logs/                   # ProjectLogSettings + KeptLogLine domain, ports, SqliteLogsRepository tables,
                                          # use cases ManageProjectLogsUseCase, KeptLinesUseCase
@@ -97,6 +99,8 @@ frontend/src/app/
 ├── components/db-capture/db-timeline.component.ts # Logs lane
 ├── components/db-capture/db-log-lines.component.ts# NEW list (shared by window, Together)
 ├── components/db-capture/db-capture-settings.*    # Logs block
+├── components/sources-bar/sources-bar.component.* # ▤ switch beside ◆
+├── core/state/log-link-state.service.ts           # NEW: ▤ switch state (mirrors DbCaptureStateService)
 ├── components/call-card/…                         # ▤ Logs marker (open/expanded cards only)
 ├── pages/logs/…                                   # "During call" on a line
 └── shared/utils/{json-export-v2,import-parser,redact,db-export-section,export-narrative}.ts
@@ -108,10 +112,11 @@ mcp-server/src/tools/                    # call_logs tool
 
 ## Phases (for /speckit-tasks)
 
-1. **Foundation**: agent `request thread` on CALL_OPEN + `request_thread` column; logs `project_logs` + Exact
-   switching; `/call-logs/settings`; gateway prefix; settings UI block.
+1. **Foundation**: ▤ flag file (backend toggle adapter + `/db-capture/projects` `logsOn`/`PUT …/logs`, proxy
+   `log=1`, Sources-bar ▤ switch); agent `request thread` on CALL_OPEN + `request_thread` column; logs `project_logs`
+   + Exact switching; `/call-logs/settings`; gateway prefix; Logs section in the ◆ popover.
 2. **US1 (P1)**: bridge thread+time join (overlap, skew, paging, `setup` states), counts, db-window Logs/Together/lane, card marker, logs-only window.
-3. **US2 (P2)**: `logTagging` setting → agent `LogTagger` (+ `wrapRunnable`), id parse for `db=0`; exact-first join; "found in N lines".
+3. **US2 (P2)**: agent `LogTagger` on `log=1` (+ `wrapRunnable`), id parse for `db=0`; exact-first join; reading gated by ▤ (`LINKING_OFF`); "found in N lines".
 4. **US3 (P3)**: `/call-logs/for-line` + Logs tab "During call".
 5. **US4 (P4)**: kept lines + cycle decorator; exports (.md/.html/.json), import; redaction; MCP `call_logs`.
 6. **Polish**: docs, full suites (backend, agent 8/21, frontend, mcp), prod build, live check (quickstart), commit per phase.

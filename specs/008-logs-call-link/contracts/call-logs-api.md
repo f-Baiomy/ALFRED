@@ -10,10 +10,10 @@ The call's linked log lines, oldest first. `limit` 1..500 (default 200), `after`
 ```json
 { "callId": "500d0cdc-…", "matchedBy": "THREAD_TIME", "thread": "default task-4", "windowMs": [0, 20035],
   "clockSkewMs": 200, "lines": [ /* LinkedLogLine */ ], "next": "c:…" | null,
-  "setup": "OK" | "NO_SOURCE" | "NO_THREAD" }
+  "setup": "OK" | "LINKING_OFF" | "NO_SOURCE" | "NO_THREAD" }
 ```
-`setup` drives the empty states: `NO_SOURCE` (project has no log source - FR-019), `NO_THREAD` (no capture and
-exact linking off - edge case).
+`setup` drives the empty states: `LINKING_OFF` (the project's ▤ switch or its call logging is off - nothing is
+read; kept lines still returned), `NO_SOURCE` (no log source - FR-019), `NO_THREAD` (no capture and no exact lines).
 
 ## GET /call-logs/counts?callIds=a,b,…
 
@@ -27,8 +27,11 @@ The call a log line was written during: `{ "call": { "id", "method", "url", "sta
 
 ## GET /call-logs/settings/{project} · PUT /call-logs/settings/{project}
 
-`ProjectLogSettings` + `logTagging` (read/written through to `DbCaptureSettings`) + derived
-`callIdFoundLines: { sourceId: n }`. `@Valid` DTO; unknown source ids / fields → 400.
+`ProjectLogSettings` + derived `callIdFoundLines: { sourceId: n }` (only counted while ▤ is on). `@Valid` DTO; unknown source ids / fields → 400.
+
+## The ▤ switch - `GET /db-capture/projects` (+ `logsOn`) · `PUT /db-capture/projects/{project}/logs` `{ "on": bool }`
+
+Same endpoint family and behaviour as ◆ (`…/enabled`): 409 while the project's call logging is off.
 
 ## POST /call-logs/import
 
