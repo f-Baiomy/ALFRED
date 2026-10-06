@@ -1,3 +1,5 @@
+import { LinkedLogLine } from '../../core/models/call-logs.model';
+import { CallLogsApiService } from '../../core/services/call-logs-api.service';
 import { Component, computed, inject, input, signal } from '@angular/core';
 import { Observable, forkJoin, of } from 'rxjs';
 import { catchError, map, switchMap } from 'rxjs/operators';
@@ -53,6 +55,7 @@ export class CallActionsComponent {
   private readonly controlsState = inject(CALL_LIST_CONTROLS_STATE);
   private readonly callsApi = inject(CallsApiService);
   private readonly dbCaptureApi = inject(DbCaptureApiService);
+  private readonly callLogsApi = inject(CallLogsApiService);
   private readonly ruleDraft = inject(RuleDraftService);
   private readonly router = inject(Router);
   private readonly origin = inject(CALL_ORIGIN, { optional: true });
@@ -101,8 +104,10 @@ export class CallActionsComponent {
         comments: this.fetchComments(call),
         capture: call.source === 'internal' ? this.dbCaptureApi.exportCall(call.id).pipe(catchError(() => of(null))) : of(null),
         suppliers: call.source === 'internal' ? this.callsApi.getChildren(call.id).pipe(catchError(() => of([] as CallRecord[]))) : of([] as CallRecord[]),
+        logLines: call.source === 'internal' ? this.callLogsApi.allLines(call.id, this.origin?.cycleId() ?? null) : of([] as readonly LinkedLogLine[]),
       })))
-      .subscribe(({ call, comments, capture, suppliers }) => {
+      .subscribe(({ call: plain, comments, capture, suppliers, logLines }) => {
+        const call = logLines.length ? { ...plain, logLines } : plain;
         void Promise.all([import('../../shared/utils/json-export-v2'), import('../../shared/utils/db-analysis'), import('../../shared/utils/export-file-io')])
           .then(([v2, analysis, io]) => {
             const withDb = capture

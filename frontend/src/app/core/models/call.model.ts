@@ -1,3 +1,4 @@
+import { LinkedLogLine } from './call-logs.model';
 import { CallInterception } from './interception.model';
 import { CallDbCapture } from './db-capture.model';
 import { WsMessage } from './ws-message.model';
@@ -116,6 +117,11 @@ export interface CallRecord {
    * like wsMessages, and read back by import-parser.ts. Undefined everywhere else: the window fetches its own pages.
    */
   readonly dbCapture?: CallDbCapture;
+  /**
+   * The application log lines written during this inbound call (specs/008-logs-call-link) - attached only when
+   * exporting, like dbCapture, redacted like bodies, and read back by import-parser.ts.
+   */
+  readonly logLines?: readonly LinkedLogLine[];
 }
 
 /**

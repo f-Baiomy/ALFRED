@@ -1,3 +1,4 @@
+import { LinkedLogLine } from '../../core/models/call-logs.model';
 import { CallRecord } from '../../core/models/call.model';
 import { Redaction, RedactionKind } from '../../core/models/redaction.model';
 import { OriginalHttp } from '../../core/models/interception.model';
@@ -272,8 +273,28 @@ function redactByName(call: CallRecord, redactions: readonly Redaction[]): { cal
   if (redactions.length === 0) return { call, count: 0 };
   const db = call.dbCapture ? redactDbCapture(call.dbCapture, namesOfKind(redactions, call.id, 'db-column')) : null;
   const httpPart = redactHttpByName(call, redactions);
-  if (!db || db.count === 0) return httpPart;
-  return { call: { ...httpPart.call, dbCapture: db.capture }, count: httpPart.count + db.count };
+  const withDb = !db || db.count === 0 ? httpPart : { call: { ...httpPart.call, dbCapture: db.capture }, count: httpPart.count + db.count };
+  const logs = call.logLines?.length ? redactLogLines(call.logLines, bodyNames(redactions, call.id)) : null;
+  if (!logs || logs.count === 0) return withDb;
+  return { call: { ...withDb.call, logLines: logs.lines }, count: withDb.count + logs.count };
+}
+
+/** Log lines are masked like bodies (specs/008-logs-call-link FR-017a): the body-key rules apply to each line's JSON. */
+function bodyNames(redactions: readonly Redaction[], callId: string): Set<string> {
+  return new Set([...namesOfKind(redactions, callId, 'request-body-key'), ...namesOfKind(redactions, callId, 'response-body-key')]);
+}
+
+function redactLogLines(lines: readonly LinkedLogLine[], names: ReadonlySet<string>): { lines: readonly LinkedLogLine[]; count: number } {
+  if (names.size === 0) return { lines, count: 0 };
+  let count = 0;
+  const out = lines.map((l) => {
+    const raw = redactBody(l.raw, names);
+    const message = redactBody(l.message, names);
+    if (raw.count === 0 && message.count === 0) return l;
+    count += raw.count + message.count;
+    return { ...l, raw: raw.body ?? l.raw, message: message.body ?? l.message };
+  });
+  return { lines: count ? out : lines, count };
 }
 
 function redactHttpByName(call: CallRecord, redactions: readonly Redaction[]): { call: CallRecord; count: number } {

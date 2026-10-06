@@ -1,17 +1,21 @@
 package com.fathy.alfred.backend.calllogsbridge;
 
+import com.fathy.alfred.backend.logs.application.port.in.KeptLogLinesUseCase;
 import com.fathy.alfred.backend.logs.application.port.in.LogsException;
 import com.fathy.alfred.backend.logs.application.port.in.ManageProjectLogsUseCase.ProjectLogsView;
 import com.fathy.alfred.backend.logs.domain.model.ProjectLogSettings;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -54,6 +58,16 @@ public class CallLogsController {
             throw new IllegalArgumentException("at most " + MAX_COUNT_IDS + " call ids");
         }
         return service.counts(ids);
+    }
+
+    /** An imported call's lines (.json export's logLines), kept as Alfred's own copies (FR-016). */
+    @PostMapping("/call-logs/import")
+    public Map<String, Integer> importLines(@Valid @RequestBody ImportDto body) {
+        return Map.of("kept", service.importLines(body.callId(), body.lines()));
+    }
+
+    public record ImportDto(@NotBlank @Size(max = 200) String callId,
+                            @NotNull @Size(max = KeptLogLinesUseCase.MAX_KEPT_PER_CALL) List<CallLogsModels.LinkedLogLine> lines) {
     }
 
     @GetMapping("/call-logs/settings/{project}")

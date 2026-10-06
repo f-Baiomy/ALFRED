@@ -4,6 +4,7 @@ import { ExportedCycle, ExportedSpacer, ExportFormData } from '../../core/models
 import { Comment, CommentBlock, COMMENT_BLOCK_LABELS } from '../../core/models/comment.model';
 import { detectAndFormatBody } from './body-format';
 import { dbSectionMarkdown, dbSummaryCell, mdCell } from './db-export-section';
+import { logSectionMarkdown } from './log-export-section';
 import { interceptionExportPart, interceptionHttpText } from './interception-export';
 import { CallStatusFilter, callKey, isInProgress, supplierOf, uriPath } from './call-utils';
 import { layoutSpacers, spacerSlots } from './spacer-gap-controller';
@@ -333,6 +334,7 @@ export function buildExportMarkdown(
   lines.push(...interceptionSection(call, 'response', 3));
   lines.push(...wsMessagesSection(call, 3));
   lines.push(...dbSectionMarkdown(call, 3));
+  lines.push(...logSectionMarkdown(call, 3));
   lines.push('---', '');
   lines.push(...glossaryMarkdown({ flagged: comments.length > 0, changed: !!call.interception }));
   lines.push('---', '');
@@ -587,6 +589,7 @@ function renderBlockBody(block: RenderBlock, allComments: readonly Comment[]): s
   // The database section follows the response - or, for a call still in progress, its request.
   if (variant !== 'request' || isInProgress(call)) {
     lines.push(...dbSectionMarkdown(call, 4));
+    lines.push(...logSectionMarkdown(call, 4));
   }
 
   return lines;

@@ -140,7 +140,7 @@
         <button type="button" class="dialog-btn secondary" (click)="copyToClipboard()">
           {{ copyFeedback() ? 'Copied!' : 'Copy to Clipboard' }}
         </button>
-        <button type="button" class="dialog-btn primary" [disabled]="includeDb() && loadingDb()" (click)="confirmExport()">{{ includeDb() && loadingDb() ? 'Loading database statements…' : exportFeedback() ? 'Saved!' : 'Export ' + formatExtension() }}</button>
+        <button type="button" class="dialog-btn primary" [disabled]="(includeDb() && loadingDb()) || loadingLogs()" (click)="confirmExport()">{{ includeDb() && loadingDb() ? 'Loading database statements…' : loadingLogs() ? 'Loading log lines…' : exportFeedback() ? 'Saved!' : 'Export ' + formatExtension() }}</button>
       </div>
     </div>
   </div>

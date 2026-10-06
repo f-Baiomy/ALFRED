@@ -4,7 +4,7 @@
   like `dbCapture`), redacted by `redact.ts` exactly like bodies (FR-017a).
 - **.json v3** (`json-export-v2.ts`, format stays `alfred-calls/3`, additive): a `logLines` section after
   `dbStatements` and before `dbRows` - one record per line `{ "of": <call line>, …LinkedLogLine }`; the call's index
-  line gets `logs: { lines, errors, warnings, matchedBy }`; `guide`/`layout` describe the section. Never cut.
+  line gets `logs: { count, errors, warnings, matchedBy, lines: [first, last], offset, bytes }`; `guide`/`layout` describe the section. Never cut.
   `import-parser.ts` reads it back onto the call; v1/v2 files have none.
 - **.md**: per call, after the Database section, a "📜 Logs (N lines, matched by …)" `<details>` with a table
   `| +ms | Level | Thread | Message |` (message whole, `mdCell`-escaped), each line's raw JSON in a nested

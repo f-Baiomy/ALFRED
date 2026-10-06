@@ -51,6 +51,20 @@ class CallLogsControllerTest {
     }
 
     @Test
+    void importKeepsTheLinesAndRejectsAMissingCallId() throws Exception {
+        when(service.importLines(eq("imp-1"), any())).thenReturn(1);
+        String line = "{\"sourceId\":\"s\",\"sourceName\":\"n\",\"lineId\":\"x:1\",\"at\":\"2026-10-06T10:00:00Z\",\"offsetMs\":0,\"level\":\"INFO\","
+                + "\"thread\":null,\"logger\":null,\"message\":\"m\",\"matchedBy\":\"EXACT\",\"kept\":false,\"raw\":\"{}\"}";
+
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/call-logs/import")
+                        .contentType("application/json").content("{\"callId\":\"imp-1\",\"lines\":[" + line + "]}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.kept").value(1));
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/call-logs/import")
+                        .contentType("application/json").content("{\"callId\":\"\",\"lines\":[]}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     void aLineWithNoCallIs204() throws Exception {
         when(service.forLine("s1", "in:1")).thenReturn(Optional.empty());
         when(service.forLine("s1", "in:2")).thenReturn(Optional.of(new CallLogsModels.LineCall(

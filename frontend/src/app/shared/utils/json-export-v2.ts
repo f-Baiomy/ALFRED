@@ -234,9 +234,9 @@ export function decodeCapture(header: Record<string, unknown>, lines: readonly R
 // ------------------------------------------------------------------------------------------------ the guide
 
 /** What an AI agent (or a person with a terminal) needs to read this file without loading it whole. */
-function guide(counts: { calls: number; bodies: number; dbStatements: number }): Record<string, unknown> {
+function guide(counts: { calls: number; bodies: number; dbStatements: number; logLines?: number }): Record<string, unknown> {
   return {
-    what: 'An Alfred capture: HTTP calls into an application (inbound) and the calls it made (outbound/supplier), with bodies, comments, interception and the database statements each inbound call ran. Nothing is truncated.',
+    what: 'An Alfred capture: HTTP calls into an application (inbound) and the calls it made (outbound/supplier), with bodies, comments, interception, the database statements each inbound call ran and the application log lines it wrote. Nothing is truncated.',
     readFirst: 'Lines 1-6 (this guide, layout, about, metadata), then `highlights` and `index`. Do NOT read the whole file: use the index to jump to what you need.',
     lines: 'One record per line. A record line is JSON followed by a comma (except the last line of a section): strip a trailing "," and JSON.parse it. Section lines are `"name":[` ... `],`. Line numbers are 1-based.',
     jump: {
@@ -253,6 +253,7 @@ function guide(counts: { calls: number; bodies: number; dbStatements: number }):
       bodies: 'one body per line: `shape` (a JSON body\'s outline - keys, types, array lengths - written BEFORE the body, so the first bytes of the line tell you what it holds), then `json` (the body was compact JSON - embedded as is) or `text` (verbatim); `refs` = which calls/sides use it (the same body is stored once)',
       dbCalls: 'one line per inbound call with captured database statements: summary (counts, flags), transactions, supplier calls in order (`supplierMarkers`), values all its statements share (`common`), HQL/query origins by id (`origins`), application call chains by id (`stacks`: innermost first, past the project pass-through classes), table index lists (`indexes`, by table - when the project turned the Index check on), and `analysis`: `time` (where the call\'s time went - dbMs, outboundMs, gapMs between statements, edgeMs, gap count/median/max, the largest gaps with the code that ran next, the database round trip) `queries` (one entry per query, costliest first: runs, distinct params, exact duplicates, total ms, rows, called from, statement seqs), `summary` (the one line the database window opens with) and `findings` (what to fix, worst first: severity bad/warn/note, title, short and full why, fix, impact, the statements by seq - errors, idle stretches, one HQL query fanning out into many SQL statements, huge reads, exact duplicates, slow queries, supplier time). Start here for "why is this call slow".',
       dbStatements: 'one statement per line, `of` = its call, in run order (`seq`): SQL with `?` placeholders and `params` (one list per batch set), outcome, timing, transaction, where in code, `origin` (the HQL it came from, an id into its dbCalls `origins`), `stack` (the application code that issued it, an id into `stacks` - `codeLocation` is only the first application frame), `indexes` (its table, a key into `indexes`). In `outcome`: `acquireMicros` (connection checkout before it), and on a COMMIT/ROLLBACK line `via` (JDBC/JTA), `beginMicros`, `commitMicros`, `closeMicros`; `transactions[].lifecycle` has the same per transaction. `analysis.time.overheadMs` sums them. `rowValues`/`beforeValues` = rows as values under `outcome.columns`/`beforeImage.columns` types; a cell that is an object is a full {type,value,...}; {} = a null cell. A statement with more than ${ROW_SAMPLE} rows carries `rowSample` (its first ${ROW_SAMPLE}) and `rowsAt` (line/offset/bytes/count of its full rows in `dbRows`) - or `rowsSampled: true` when this export kept samples only',
+      logLines: 'one application log line per line, `of` = the inbound call it was written during, oldest first: `offsetMs` from the call\'s start, `level`, `thread`, `logger`, `message`, `matchedBy` (EXACT = the line carries the call\'s id; THREAD_TIME = same request thread and inside the call\'s time window), `sourceName` (which log file), `raw` (the whole original line). The index line of a call with lines has `logs` (count, errors, warnings, where they are)',
       dbRows: 'one line per statement with more than ' + ROW_SAMPLE + ' rows: `of`, `seq`, `rowValues` (every stored row). Last section on purpose - most questions never need it',
     },
     glossary: {
@@ -339,12 +340,16 @@ export function buildJsonExportV2(input: JsonExportV2Input): string[] {
     }
   }
 
+  // ---- log lines (specs/008-logs-call-link): one record per line, by call, oldest first - never cut
+  const logged = calls.filter((c) => c.logLines?.length);
+  const logLines = logged.flatMap((c) => c.logLines!.map((l) => ({ of: c.id, ...l })));
+
   // ---- line numbers: every section's size is known now, so every record's line is too
   const highlights = buildHighlights(calls, input, analyses);
   const HEADER_LINES = 5; // first line, guide, layout, about, metadata
   const sectionSizes: [string, number][] = [
     ['highlights', Math.min(highlights.length, MAX_HIGHLIGHTS)], ['index', calls.length], ['calls', calls.length],
-    ['bodies', bodies.length], ['dbCalls', dbHeaders.length], ['dbStatements', dbStatements.length], ['dbRows', dbRows.length],
+    ['bodies', bodies.length], ['dbCalls', dbHeaders.length], ['dbStatements', dbStatements.length], ['logLines', logLines.length], ['dbRows', dbRows.length],
   ];
   const firstLine = new Map<string, number>();
   let line = HEADER_LINES + 1;
@@ -361,6 +366,14 @@ export function buildJsonExportV2(input: JsonExportV2Input): string[] {
     for (const c of captured) {
       dbFirstStatementLine.set(c.id, next);
       next += dbStatementsByCall.get(c.id)!.length;
+    }
+  }
+  const logFirstLine = new Map<string, number>();
+  {
+    let next = firstLine.get('logLines')!;
+    for (const c of logged) {
+      logFirstLine.set(c.id, next);
+      next += c.logLines!.length;
     }
   }
   const statementLine = (callId: string, seq: number): number | undefined => {
@@ -425,6 +438,7 @@ export function buildJsonExportV2(input: JsonExportV2Input): string[] {
   const dbHeaderTexts = dbHeaderRecords.map((r) => JSON.stringify(r));
   const dbStatementTexts = dbStatements.map((r) => JSON.stringify(r));
   const dbRowTexts = dbRows.map((r) => JSON.stringify(r));
+  const logLineTexts = logLines.map((r) => JSON.stringify(r));
 
   const indexTexts = calls.map((call, i) => {
     const refs = refsByCall.get(call.id)!;
@@ -467,6 +481,14 @@ export function buildJsonExportV2(input: JsonExportV2Input): string[] {
         parts.push(`"time":${JSON.stringify({ dbMs: t.dbMs, outboundMs: t.outboundMs, gapMs: t.gapMs, edgeMs: t.edgeMs, gaps: t.gaps, appTimeDominant: t.appTimeDominant || undefined })}`);
       }
     }
+    if (call.logLines?.length) {
+      const first = logFirstLine.get(call.id)!;
+      const last = first + call.logLines.length - 1;
+      const levels = call.logLines.map((l) => (l.level ?? '').toUpperCase());
+      parts.push(`"logs":{"count":${call.logLines.length},"errors":${levels.filter((l) => l === 'ERROR' || l === 'FATAL' || l === 'SEVERE').length},` +
+        `"warnings":${levels.filter((l) => l === 'WARN' || l === 'WARNING').length},"matchedBy":${JSON.stringify(call.logLines[0].matchedBy)},` +
+        `"lines":[${first},${last}],"offset":${slot(`L${first}`)},"bytes":${slot(`R${first}-${last}`)}}`);
+    }
     return `${parts.join(',')}}`;
   });
 
@@ -475,10 +497,10 @@ export function buildJsonExportV2(input: JsonExportV2Input): string[] {
     return JSON.stringify({ what: h.what, callId: h.callId, line, note: h.note });
   });
 
-  const counts = { calls: calls.length, bodies: bodies.length, dbStatements: dbStatements.length, dbRows: dbRows.length };
+  const counts = { calls: calls.length, bodies: bodies.length, dbStatements: dbStatements.length, logLines: logLines.length, dbRows: dbRows.length };
   const sections: [string, string[]][] = [
     ['highlights', highlightTexts], ['index', indexTexts], ['calls', callTexts],
-    ['bodies', bodyTexts], ['dbCalls', dbHeaderTexts], ['dbStatements', dbStatementTexts], ['dbRows', dbRowTexts],
+    ['bodies', bodyTexts], ['dbCalls', dbHeaderTexts], ['dbStatements', dbStatementTexts], ['logLines', logLineTexts], ['dbRows', dbRowTexts],
   ];
   const layoutText = `"layout":{${sections.map(([name, texts]) => {
     const first = firstLine.get(name)!;
@@ -605,6 +627,12 @@ export function v2ToCallRecords(file: Record<string, unknown>): Record<string, u
     const id = h['callId'] as string;
     captures.set(id, decodeCapture(h, statementsByCall.get(id) ?? [], rowsByCall.get(id)));
   }
+  const logLinesByCall = new Map<string, Record<string, unknown>[]>();
+  for (const l of (file['logLines'] as Record<string, unknown>[] | undefined) ?? []) {
+    const { of, ...line } = l;
+    if (!logLinesByCall.has(of as string)) logLinesByCall.set(of as string, []);
+    logLinesByCall.get(of as string)!.push(line);
+  }
   const message = (msg: unknown): unknown => {
     if (!msg || typeof msg !== 'object') return msg;
     const { bodyRef, ...rest } = msg as Record<string, unknown>;
@@ -613,6 +641,6 @@ export function v2ToCallRecords(file: Record<string, unknown>): Record<string, u
   return ((file['calls'] as Record<string, unknown>[] | undefined) ?? []).map((c) => {
     const { db: _db, request, response, ...rest } = c;
     const id = c['callId'] as string;
-    return { ...rest, request: message(request), response: message(response), dbCapture: captures.get(id) };
+    return { ...rest, request: message(request), response: message(response), dbCapture: captures.get(id), logLines: logLinesByCall.get(id) };
   });
 }

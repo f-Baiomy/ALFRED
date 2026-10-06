@@ -289,6 +289,50 @@ class CallLogsServiceTest {
         assertThat(byTime.pills()).extracting(LogQuery.Pill::op).containsExactly(LogQuery.Op.EQ, LogQuery.Op.NOT_EXISTS);
     }
 
+    // ------------------------------------------------------------------ kept lines
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void aCycleCallsLinesAreKeptAndMergedWithLiveOnesByLine() {
+        line("s1", "a", START + 10, THREAD);
+        line("s1", "b", START + 20, THREAD);
+        when(kept.kept(CALL)).thenReturn(List.of(
+                new KeptLogLine(CALL, "s1", "server.log", "a", START + 10, "INFO", THREAD, null, "old copy", "THREAD_TIME", "raw", KeptLogLine.Origin.CYCLE),
+                new KeptLogLine(CALL, "s1", "server.log", "gone", START + 5, "INFO", THREAD, null, "rotated away", "THREAD_TIME", "raw", KeptLogLine.Origin.CYCLE)));
+
+        CallLogsPage page = service.lines(CALL, "cy1", null, 0).orElseThrow();
+
+        assertThat(page.lines()).extracting(LinkedLogLine::lineId).containsExactly("gone", "a", "b");
+        assertThat(page.lines()).extracting(LinkedLogLine::kept).containsExactly(true, false, false);
+        ArgumentCaptor<List<KeptLogLine>> stored = ArgumentCaptor.forClass(List.class);
+        verify(kept).keep(stored.capture());
+        assertThat(stored.getValue()).extracting(KeptLogLine::lineId).containsExactly("a", "b");
+        assertThat(stored.getValue()).allMatch(k -> k.origin() == KeptLogLine.Origin.CYCLE && k.raw().equals("raw " + k.lineId()));
+    }
+
+    @Test
+    void aLiveCallReadOutsideACycleKeepsNothing() {
+        line("s1", "a", START + 10, THREAD);
+        service.lines(CALL, null, null, 0);
+        verify(kept, never()).keep(any());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void importedLinesAreKeptAsGiven() {
+        LinkedLogLine l = new LinkedLogLine("s9", "old.log", "x:1", "2026-10-06T10:00:00.050Z", 50, "WARN", "t", "a.B", "m", Match.EXACT, false, "{}");
+
+        assertThat(service.importLines("imp-1", List.of(l))).isEqualTo(1);
+
+        ArgumentCaptor<List<KeptLogLine>> stored = ArgumentCaptor.forClass(List.class);
+        verify(kept).keep(stored.capture());
+        KeptLogLine k = stored.getValue().get(0);
+        assertThat(k.callId()).isEqualTo("imp-1");
+        assertThat(k.origin()).isEqualTo(KeptLogLine.Origin.IMPORT);
+        assertThat(k.atMs()).isEqualTo(START + 50);
+        assertThat(k.matchedBy()).isEqualTo("EXACT");
+    }
+
     // ------------------------------------------------------------------ a line's call
 
     @Test

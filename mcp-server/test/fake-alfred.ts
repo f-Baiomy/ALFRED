@@ -41,11 +41,13 @@ export interface FakeState {
   captureProjects: { project: string; enabled: boolean; inboundLogging: boolean; attached: boolean; agent: null }[];
   /** Calls triage has no saved mark for (recorded before triage existed, or past its row cap). */
   unmarked: Set<string>;
+  /** /call-logs answers by call id (specs/008-logs-call-link); a missing call is 404. */
+  callLogs: Record<string, { setup: string; matchedBy: string | null; thread: string | null; lines: Record<string, unknown>[] }>;
 }
 
 export function emptyState(): FakeState {
   return {
-    calls: [], cycles: [], cycleEntries: new Map(), spacers: new Map(), comments: [], redactions: [],
+    calls: [], cycles: [], cycleEntries: new Map(), spacers: new Map(), comments: [], redactions: [], callLogs: {},
     variables: { variables: {}, fallbacks: {}, secrets: [] }, dbSummaries: {}, statements: {}, rows: {},
     query: { columns: [], rows: [], total: 0 }, trace: [],
     rules: [], interceptionEnabled: true, reliveCycles: [], runs: new Map(),
@@ -447,6 +449,15 @@ export class FakeAlfred {
       }
     }
     if (p[0] === 'redactions') return [200, s.redactions];
+    if (p[0] === 'call-logs' && p.length === 2) {
+      const found = s.callLogs[p[1]];
+      if (!found) return [404];
+      const offset = Number((q.get('after') ?? 'o:0').slice(2));
+      const limit = Number(q.get('limit') ?? 200);
+      const page = found.lines.slice(offset, offset + limit);
+      return [200, { callId: p[1], setup: found.setup, matchedBy: found.matchedBy, thread: found.thread, clockSkewMs: 200, lines: page,
+        next: offset + limit < found.lines.length ? `o:${offset + limit}` : null }];
+    }
     if (p[0] === 'settings' && p[1] === 'variables') return [200, s.variables];
     // ---- database capture
     if (p[0] === 'db-capture') {

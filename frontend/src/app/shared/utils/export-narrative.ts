@@ -1,3 +1,4 @@
+import { logLinesSentence } from './log-export-section';
 import { CallOverlapCandidate, CallRecord } from '../../core/models/call.model';
 import { Comment } from '../../core/models/comment.model';
 import { ExportedCycle } from '../../core/models/export-metadata.model';
@@ -746,7 +747,7 @@ function emptyNarrative(): ExportNarrative {
  */
 export function buildExportNarrative(input: NarrativeInput): ExportNarrative {
   const narrative = buildNarrative(input);
-  const sentence = dbCaptureSentence(input.calls);
+  const sentence = [dbCaptureSentence(input.calls), logLinesSentence(input.calls)].filter(Boolean).join(' ');
   return sentence ? { ...narrative, description: `${narrative.description} ${sentence}` } : narrative;
 }
 

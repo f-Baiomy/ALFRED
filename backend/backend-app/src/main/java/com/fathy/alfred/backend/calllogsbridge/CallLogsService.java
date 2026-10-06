@@ -110,6 +110,9 @@ public class CallLogsService {
             int from = offset(after);
             List<Hit> page = linked.hits().subList(Math.min(from, linked.hits().size()), Math.min(from + size, linked.hits().size()));
             List<LinkedLogLine> lines = page.stream().map(h -> h.line(call.startMs())).toList();
+            if (cycleId != null && !cycleId.isBlank() && linked.setup() == Setup.OK) {
+                keepLive(call, lines); // a cycle call's lines outlive the log source's retention (FR-005a)
+            }
             String next = from + size < linked.hits().size() ? CURSOR + (from + size) : null;
             return new CallLogsPage(call.id(), linked.setup(), linked.match(), linked.thread(), linked.skewMs(), lines, next);
         });
@@ -130,6 +133,66 @@ public class CallLogsService {
             });
         }
         return out;
+    }
+
+    // ------------------------------------------------------------------ kept lines (US4)
+
+    /**
+     * Keeps every live line of a cycle's call as Alfred's own copy (origin CYCLE), so the cycle still shows them after
+     * the log source has rotated them away. Returns how many lines were stored (already-kept ones are replaced).
+     */
+    public int keepForCycle(String callId, String cycleId) {
+        return resolve(callId, cycleId).map(call -> {
+            Linked linked = link(call);
+            if (linked.setup() != Setup.OK) {
+                return 0;
+            }
+            List<LinkedLogLine> live = linked.hits().stream().filter(h -> h.kept() == null).map(h -> h.line(call.startMs())).toList();
+            return keepLive(call, live);
+        }).orElse(0);
+    }
+
+    private int keepLive(CallInfo call, List<LinkedLogLine> lines) {
+        List<KeptLogLine> fresh = lines.stream().filter(l -> !l.kept()).map(l -> kept(call.id(), l, KeptLogLine.Origin.CYCLE)).toList();
+        if (!fresh.isEmpty()) {
+            keptLines.keep(fresh);
+        }
+        return fresh.size();
+    }
+
+    /** Lines of an imported call, kept as given (origin IMPORT) - they are the export's copy, not re-read from any log. */
+    public int importLines(String callId, List<LinkedLogLine> lines) {
+        List<KeptLogLine> kept = lines.stream().map(l -> kept(callId, l, KeptLogLine.Origin.IMPORT)).toList();
+        if (!kept.isEmpty()) {
+            keptLines.keep(kept);
+        }
+        log.debug("call-logs {}: {} imported lines kept", callId, kept.size());
+        return kept.size();
+    }
+
+    /** Drops the kept lines of these calls (of either origin). */
+    public int forget(java.util.Collection<String> callIds, KeptLogLine.Origin origin) {
+        return callIds.isEmpty() ? 0 : keptLines.remove(callIds, origin);
+    }
+
+    /** The call is in the live inbound list. */
+    boolean isLiveCall(String callId) {
+        return inboundCalls.getSummary(callId).isPresent();
+    }
+
+    List<String> callsWithKept(KeptLogLine.Origin origin, int limit) {
+        return keptLines.callsWithKept(origin, limit);
+    }
+
+    private static KeptLogLine kept(String callId, LinkedLogLine l, KeptLogLine.Origin origin) {
+        long at;
+        try {
+            at = Instant.parse(l.at()).toEpochMilli();
+        } catch (RuntimeException e) {
+            at = 0;
+        }
+        return new KeptLogLine(callId, l.sourceId(), l.sourceName(), l.lineId(), at, l.level(), l.thread(), l.logger(), l.message(),
+                l.matchedBy() == null ? Match.THREAD_TIME.name() : l.matchedBy().name(), l.raw(), origin);
     }
 
     // ------------------------------------------------------------------ a line's call (US3)

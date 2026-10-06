@@ -1,5 +1,6 @@
+import { CallLogsApiService } from '../../core/services/call-logs-api.service';
 import { Component, ElementRef, effect, inject, signal, viewChild } from '@angular/core';
-import { catchError, forkJoin, of } from 'rxjs';
+import { catchError, concat, forkJoin, map, of, toArray } from 'rxjs';
 import { ImportCallsDialogService } from '../../core/services/import-calls-dialog.service';
 import { SessionCyclesApiService } from '../../core/services/session-cycles-api.service';
 import { DbCaptureApiService } from '../../core/services/db-capture-api.service';
@@ -28,6 +29,7 @@ export class ImportCallsDialogComponent {
   private readonly service = inject(ImportCallsDialogService);
   private readonly api = inject(SessionCyclesApiService);
   private readonly dbCaptureApi = inject(DbCaptureApiService);
+  private readonly callLogsApi = inject(CallLogsApiService);
   private readonly cyclesState = inject(SessionCyclesStateService);
 
   readonly dialogState = this.service.state;
@@ -197,7 +199,18 @@ export class ImportCallsDialogComponent {
     const dbImport$ = captures.length
       ? this.dbCaptureApi.import(captures).pipe(catchError(() => of({ imported: -1 })))
       : of({ imported: 0 });
-    forkJoin({ results: forkJoin(ids.map((id) => this.api.copyCallsInto(id, calls))), db: dbImport$ }).subscribe(({ results, db }) => {
+    // Log lines too (specs/008-logs-call-link): kept as Alfred's own copies, by call id, in requests of at most 20,000.
+    const logRequests = calls.filter((c) => c.logLines?.length).flatMap((c) => {
+      const parts = [];
+      for (let i = 0; i < c.logLines!.length; i += 20_000) parts.push(this.callLogsApi.importLines(c.id, c.logLines!.slice(i, i + 20_000)));
+      return parts;
+    });
+    const logLineCount = calls.reduce((n, c) => n + (c.logLines?.length ?? 0), 0);
+    const logsImport$ = logRequests.length
+      ? concat(...logRequests).pipe(toArray(), map(() => logLineCount), catchError(() => of(-1)))
+      : of(0);
+    const plain = calls.map((c) => (c.logLines ? { ...c, logLines: undefined } : c));
+    forkJoin({ results: forkJoin(ids.map((id) => this.api.copyCallsInto(id, plain))), db: dbImport$, logs: logsImport$ }).subscribe(({ results, db, logs }) => {
       this.importing.set(false);
       const added = results.reduce((sum, r) => sum + r.added, 0);
       const skipped = results.reduce((sum, r) => sum + r.skipped, 0);
@@ -205,7 +218,9 @@ export class ImportCallsDialogComponent {
         `Imported ${added} call${added === 1 ? '' : 's'} into ${ids.length} cycle${ids.length === 1 ? '' : 's'}` +
           (skipped > 0 ? ` (skipped ${skipped} already there).` : '.') +
           (db.imported > 0 ? ` Restored ${db.imported} database statement${db.imported === 1 ? '' : 's'}.` : '') +
-          (db.imported < 0 ? ' The database statements in the file could not be restored.' : '')
+          (db.imported < 0 ? ' The database statements in the file could not be restored.' : '') +
+          (logs > 0 ? ` Restored ${logs} log line${logs === 1 ? '' : 's'}.` : '') +
+          (logs < 0 ? ' The log lines in the file could not be restored.' : '')
       );
     });
   }

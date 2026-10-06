@@ -1,6 +1,6 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
-import { Observable } from 'rxjs';
+import { EMPTY, Observable, catchError, expand, of, reduce } from 'rxjs';
 import { CallLogsPage, LineCall, LinkedLogLine, LogCounts, ProjectLogSettings, ProjectLogsView } from '../models/call-logs.model';
 import { AppConfigService } from './app-config.service';
 
@@ -20,6 +20,15 @@ export class CallLogsApiService {
     if (opts.after) params['after'] = opts.after;
     if (opts.limit) params['limit'] = String(opts.limit);
     return this.http.get<CallLogsPage>(`${this.base}/${encodeURIComponent(callId)}`, { params });
+  }
+
+  /** Every linked line of a call, all pages (oldest first); none when the call is unknown. For exports - never cut. */
+  allLines(callId: string, cycleId: string | null = null): Observable<readonly LinkedLogLine[]> {
+    return this.lines(callId, { cycleId, limit: 500 }).pipe(
+      expand((p) => (p.next && p.lines.length ? this.lines(callId, { cycleId, after: p.next, limit: 500 }) : EMPTY)),
+      reduce((all, p) => [...all, ...p.lines], [] as LinkedLogLine[]),
+      catchError(() => of([] as LinkedLogLine[])),
+    );
   }
 
   counts(callIds: readonly string[]): Observable<Readonly<Record<string, LogCounts>>> {

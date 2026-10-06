@@ -1,3 +1,4 @@
+import { LinkedLogLine } from '../../core/models/call-logs.model';
 import { CallEndpointSource, CallRecord } from '../../core/models/call.model';
 import { CallInterception } from '../../core/models/interception.model';
 import { WsMessage } from '../../core/models/ws-message.model';
@@ -36,6 +37,7 @@ interface Partial_ {
   interception?: CallInterception;
   wsMessages?: readonly WsMessage[];
   dbCapture?: CallDbCapture;
+  logLines?: readonly LinkedLogLine[];
   parentCallId?: string;
   parentSeq?: number;
 }
@@ -192,6 +194,7 @@ function mergeEvents(events: readonly unknown[]): ImportParseResult {
       interception: partial.interception,
       wsMessages: partial.wsMessages,
       dbCapture: partial.dbCapture,
+      logLines: partial.logLines,
       ...(partial.parentCallId ? { parentCallId: partial.parentCallId, parentSeq: partial.parentSeq } : {}),
     });
   }
@@ -242,6 +245,8 @@ function fill(into: Partial_, raw: Record<string, unknown>): void {
   }
 
   // Written by bulk-json-builder on the event that completes the call - accepted only in the shape it is written in.
+  const logLines = raw['logLines'];
+  if (Array.isArray(logLines) && logLines.length) set('logLines', logLines as LinkedLogLine[]);
   const dbCapture = raw['dbCapture'];
   if (dbCapture && typeof dbCapture === 'object' && Array.isArray((dbCapture as CallDbCapture).statements)) {
     set('dbCapture', dbCapture as CallDbCapture);

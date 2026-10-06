@@ -1,5 +1,7 @@
+import { LinkedLogLine } from '../../core/models/call-logs.model';
+import { CallLogsApiService } from '../../core/services/call-logs-api.service';
 import { Component, computed, effect, inject, signal } from '@angular/core';
-import { ExportDialogService, ExportFormat } from '../../core/services/export-dialog.service';
+import { ExportDialogService, ExportDialogState, ExportFormat } from '../../core/services/export-dialog.service';
 import { Environment, ExportFormData } from '../../core/models/export-metadata.model';
 import { buildExportFile, EXPORT_EXTENSIONS } from '../../shared/utils/export-build';
 import { exportBlob } from '../../shared/utils/export-file-io';
@@ -56,6 +58,10 @@ export class ExportDialogComponent {
   readonly groupDb = signal(readGroupByTransaction());
   readonly dbAvailable = signal<{ readonly calls: number; readonly statements: number } | null>(null);
   private readonly dbCaptures = signal<ReadonlyMap<string, CallDbCapture>>(new Map());
+  /** Each exported inbound call's linked log lines (specs/008-logs-call-link) - always part of the call, never cut. */
+  private readonly logLines = signal<ReadonlyMap<string, readonly LinkedLogLine[]>>(new Map());
+  readonly loadingLogs = signal(false);
+  private readonly callLogsApi = inject(CallLogsApiService);
   readonly loadingDb = signal(false);
   private dbRequest = 0;
 
@@ -63,7 +69,12 @@ export class ExportDialogComponent {
   private readonly callsWithDb = computed<readonly CallRecord[]>(() => {
     const current = this.state();
     if (!current) return [];
-    const calls = current.calls.map((c) => (c.dbCapture ? { ...c, dbCapture: undefined } : c));
+    const logs = this.logLines();
+    const calls = current.calls.map((c) => {
+      const lines = logs.get(c.id);
+      const plain = c.dbCapture ? { ...c, dbCapture: undefined } : c;
+      return lines?.length ? { ...plain, logLines: lines } : plain;
+    });
     const captures = this.dbCaptures();
     if (!this.includeDb() || !captures.size) return calls;
     const layout = this.groupDb() ? 'grouped' : 'flat';
@@ -145,6 +156,7 @@ export class ExportDialogComponent {
         this.loadingDb.set(false);
         this.dbRequest++;
         this.checkDbAvailable(current.calls, current.format);
+        this.loadLogLines(current);
       },
       { allowSignalWrites: true }
     );
@@ -169,6 +181,24 @@ export class ExportDialogComponent {
         if (request !== this.dbRequest) return;
         const found = pages.flatMap((p) => Object.values(p)).filter((s) => s.statementCount > 0);
         this.dbAvailable.set(found.length ? { calls: found.length, statements: found.reduce((n, s) => n + s.statementCount, 0) } : null);
+      });
+  }
+
+  private logRequest = 0;
+
+  private loadLogLines(current: ExportDialogState): void {
+    const request = ++this.logRequest;
+    this.logLines.set(new Map());
+    const inbound = this.capturable(current.calls, current.format);
+    if (!inbound.length) return;
+    this.loadingLogs.set(true);
+    const cycleId = current.cycle?.id ?? null;
+    from(inbound)
+      .pipe(mergeMap((call) => this.callLogsApi.allLines(call.id, cycleId).pipe(map((lines) => [call.id, lines] as const)), 4), toArray())
+      .subscribe((pairs) => {
+        if (request !== this.logRequest) return;
+        this.logLines.set(new Map(pairs.filter(([, lines]) => lines.length)));
+        this.loadingLogs.set(false);
       });
   }
 
