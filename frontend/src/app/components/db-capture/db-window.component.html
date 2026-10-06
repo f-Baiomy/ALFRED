@@ -5,7 +5,7 @@
         <!-- two lines (compact-window-mock.html): what and when, then the counts beside the summary line -->
         <div class="h-line">
           @if (call(); as c) {
-            <h2>Database · {{ c.method }}</h2><span class="url" [title]="c.url">{{ c.url }}</span>
+            <h2>{{ logsOnly() ? 'Logs' : 'Database' }} · {{ c.method }}</h2><span class="url" [title]="c.url">{{ c.url }}</span>
             <span class="meta" title="In the order they ran">{{ shortId(c.id) }}{{ c.service_name ? ' · ' + c.service_name : '' }} · {{ when(c.timestamp) }}</span>
           } @else {
             <h2>Database · outside any call</h2>
@@ -13,6 +13,9 @@
           }
         </div>
         <div class="h-line2">
+        @if (logsOnly()) {
+        <span class="stats-line">no database capture for this call · <b>{{ logLines().length.toLocaleString() }}</b> log lines</span>
+        } @else {
         <span class="stats-line">
           <b>{{ totalCount().toLocaleString() }}</b> statements · <b>{{ writeCount() }}</b> writes · {{ deleteCount() }} deletes ·
           <b [class.x]="failedCount()">{{ failedCount() }}</b> failed · <b>{{ txCount() }}</b> tx@if (rolledBackCount()) { ({{ rolledBackCount() }} rolled back)} ·
@@ -24,6 +27,7 @@
             · <b class="x" title="The call ended with an error while statements were still being captured - the application may have died mid-call">capture ended early</b>
           }
         </span>
+        }
         @if (overview(); as o) {
           <!-- the one summary line, closed by default (remembered); open: timeline + findings (db-findings.ts) -->
           <div class="dbw-panel" [class.open]="!timelineHidden()">
@@ -65,7 +69,8 @@
             </span>
           </div>
           @if (!timelineHidden()) {
-            <app-db-timeline [overview]="o" [statements]="statements()" [highlight]="highlight()" [strip]="timelineMode() === 'strip'" (jumpTo)="jump($event)" />
+            <app-db-timeline [overview]="o" [statements]="statements()" [highlight]="highlight()" [strip]="timelineMode() === 'strip'" [logs]="logTicks()"
+                             (jumpTo)="jump($event)" (logsClicked)="setView('logs')" />
             @if (breakdown(); as b) {
               @if (b.overheadMs >= 1) {
                 <div class="tb-legend"><span title="Measured by the agent around the statements: DataSource.getConnection, setAutoCommit(false), commit/rollback (JDBC or JTA) and Connection.close">
@@ -95,12 +100,29 @@
     <div class="dbw-main">
     <div class="dbw-bar">
       <div class="views">
-        <button type="button" [class.on]="view() === 'stmts'" (click)="setView('stmts')">Statements<span class="count">{{ totalCount() }}</span></button>
+        @if (!logsOnly()) {
+          <button type="button" [class.on]="view() === 'stmts'" (click)="setView('stmts')">Statements<span class="count">{{ totalCount() }}</span></button>
+        }
         @if (call()) {
+          <button type="button" class="lg" [class.on]="view() === 'logs'" (click)="setView('logs')" title="The application's log lines written during this call">Logs<span class="count">{{ logLines().length }}</span></button>
+          @if (!logsOnly()) {
+            <button type="button" class="lg" [class.on]="view() === 'together'" (click)="setView('together')" title="Statements, supplier calls and log lines in one list by time">Together<span class="count">{{ togetherList().length }}</span></button>
+          }
+        }
+        @if (call() && !logsOnly()) {
           <button type="button" [class.on]="view() === 'queries'" (click)="setView('queries')" title="One row per query, costliest first">Top queries<span class="count">{{ queries().length }}</span></button>
           <button type="button" [class.on]="view() === 'tables'" (click)="setView('tables')">Tables<span class="count">{{ tableCount() }}</span></button>
         }
       </div>
+      @if ((view() === 'logs' || view() === 'together') && logLines().length) {
+        <span class="dbw-logbar">Logs from <b>{{ logSources().join(', ') }}</b> ·
+          <span class="pill" [class.exact]="logInfo()?.matchedBy === 'EXACT'">{{ logInfo()?.matchedBy === 'EXACT' ? 'exact' : 'same thread + time' }}</span>
+          @if (logInfo()?.thread; as t) {<span>· thread {{ t }}</span>}
+          @if (logInfo()?.matchedBy === 'THREAD_TIME') {<span>· ±{{ logInfo()?.clockSkewMs }} ms clock</span>}
+          @if (logInfo()?.setup === 'LINKING_OFF') {<span title="▤ is off - these are the lines Alfred kept with this call">· kept copy</span>}
+          @if (firstLogLink(); as href) {<a [href]="href" target="_blank" rel="noopener">· open in Logs ↗</a>}
+        </span>
+      }
       @if (view() === 'stmts') {
         @if (searchMode() === 'search') {
           <input class="dbw-search" placeholder="Search SQL, table or value - e.g. wallet, 1042" [value]="state.search()" (input)="onSearch($event)">
@@ -200,6 +222,27 @@
         } @else {
           <div class="empty">Loading…</div>
         }
+      } @else if (view() === 'logs' || view() === 'together') {
+        @if (logsError()) {
+          <div class="dll-empty">{{ logsError() }}</div>
+        } @else if (logsLoading() && !logLines().length) {
+          <div class="dll-empty">Loading log lines…</div>
+        } @else if (!logLines().length) {
+          <div class="dll-empty">
+            @switch (logsWhy()) {
+              @case ('off') {
+                Alfred is not reading <b>{{ state.project() }}</b>’s logs - <b>▤</b> is off for it.
+                <button type="button" class="action-btn" (click)="turnLogsOn()">Turn ▤ on</button>
+              }
+              @case ('nosource') { No log source is linked to <b>{{ state.project() }}</b> yet - load its log in the Logs tab, then pick it under <b>▤ Logs</b> in the project’s ◆ ▾ settings. }
+              @case ('nothread') { No log line carries this call’s id, and it cannot be matched by thread: either no request thread was recorded (turn <b>◆</b> capture on, or load the new agent) or the linked log has no thread field (pick one under <b>▤ Logs</b> in the project’s ◆ ▾ settings). }
+              @default { No log lines were written during this call. }
+            }
+          </div>
+        }
+        @if (view() === 'together' || logLines().length) {
+          <app-db-log-lines [rows]="view() === 'logs' ? logRowList() : togetherList()" [multiSource]="logSources().length > 1" (jump)="jump($event)" />
+        }
       } @else {
       @if (findingFilter(); as f) {
         <div class="sq-note">Showing <b>{{ f.seqs.length }}</b>&nbsp;statements for:&nbsp;<b>{{ f.title }}</b>
@@ -257,6 +300,9 @@
       }
     </div>
     <div class="dbw-foot">
+      @if (view() === 'logs') {
+        <span>{{ logLines().length.toLocaleString() }} log lines</span>
+      }
       @if (view() === 'stmts') {
         @if (sqlResult() && !sqlResult()!.error && !sqlResult()!.statementSeqs) {
           <span>Summary of {{ totalCount().toLocaleString() }} statements</span>

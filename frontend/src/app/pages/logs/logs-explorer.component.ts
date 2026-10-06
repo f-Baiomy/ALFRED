@@ -71,6 +71,8 @@ const AGGREGATE_EVERY_MS = 15_000;
 /** A burst of live lines is shown after this short gathering delay (one-shot, not polling). */
 const LIVE_REFRESH_MS = 150;
 const PAGE = 200;
+/** A deep-linked line is shown with this much time either side of it. */
+const LINE_LINK_MARGIN_MS = 5_000;
 const MAX_FETCH_FOR_EXPORT = 5000;
 const MINIMAP_BUCKETS = 200;
 const GROUP_PAGE = 200;
@@ -108,6 +110,8 @@ export class LogsExplorerComponent implements OnInit {
   readonly id = this.route.snapshot.paramMap.get('id') ?? '';
   /** /logs/:id?session=<id>: the explorer shows one recorded session. */
   private readonly sessionParam = this.route.snapshot.queryParamMap.get('session');
+  /** `?line=<lineId>` (a call's log line, "Open in Logs ↗" - specs/008-logs-call-link): shown among its neighbours. */
+  private readonly lineParam = this.route.snapshot.queryParamMap.get('line');
 
   // ---- live reading and session recordings
   readonly liveRate = signal(0);
@@ -318,7 +322,9 @@ export class LogsExplorerComponent implements OnInit {
       this.api.lines(this.id, { pills: [], limit: 1 }).subscribe((p) => {
         this.newestTs.set(p.lines[0]?.ts ?? null);
         this.api.lines(this.id, { pills: [], limit: 1, sort: { field: null, ascending: true } }).subscribe((o) => this.oldestTs.set(o.lines[0]?.ts ?? null));
-        if (this.sessionParam) {
+        if (this.lineParam) {
+          this.showLine(this.lineParam);
+        } else if (this.sessionParam) {
           this.api.session(this.id, this.sessionParam).subscribe({
             next: (sv) => this.applySession(sv),
             error: () => {
@@ -1603,6 +1609,36 @@ export class LogsExplorerComponent implements OnInit {
   isListed(lineId: string): boolean {
     return this.rows().some((r) => r.lineId === lineId);
   }
+
+  /**
+   * The deep link: the line's own few seconds, no filter, so it is listed among its neighbours - then it is opened,
+   * scrolled to and highlighted. Paged in until it is listed (a burst of lines in those seconds).
+   */
+  async showLine(lineId: string): Promise<void> {
+    let ts: number;
+    try {
+      ts = (await firstValueFrom(this.api.line(this.id, lineId))).ts;
+    } catch {
+      this.error.set('That log line is not in this source (any more).');
+      this.refreshAll();
+      return;
+    }
+    this.pills.set([]);
+    this.customRange.set({ from: ts - LINE_LINK_MARGIN_MS, to: ts + LINE_LINK_MARGIN_MS });
+    this.refreshAll();
+    for (let guard = 0; guard < 50 && !this.isListed(lineId); guard++) {
+      await new Promise((r) => setTimeout(r, 50));
+      if (this.loading()) continue;
+      if (!this.cursor()) break;
+      this.fetchLines();
+    }
+    if (!this.isListed(lineId)) return;
+    this.flashIds.set(new Set([lineId]));
+    this.goToLine(lineId);
+  }
+
+  /** The deep-linked line, highlighted. */
+  readonly flashIds = signal<ReadonlySet<string>>(new Set());
 
   /** Jumps to a line of the list: opens its data and scrolls it into view. */
   goToLine(lineId: string): void {

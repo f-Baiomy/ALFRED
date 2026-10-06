@@ -1,27 +1,96 @@
 package com.fathy.alfred.backend.calllogsbridge;
 
+import com.fathy.alfred.backend.calllogsbridge.CallLogsModels.CallLogsPage;
+import com.fathy.alfred.backend.calllogsbridge.CallLogsModels.LinkedLogLine;
+import com.fathy.alfred.backend.calllogsbridge.CallLogsModels.LogCounts;
+import com.fathy.alfred.backend.calllogsbridge.CallLogsModels.Match;
+import com.fathy.alfred.backend.calllogsbridge.CallLogsModels.Setup;
+import com.fathy.alfred.backend.calllogsbridge.CallWindows.Window;
+import com.fathy.alfred.backend.dbcapture.application.port.in.CallThreadsUseCase;
 import com.fathy.alfred.backend.dbcapture.application.port.in.ManageDbCaptureUseCase;
+import com.fathy.alfred.backend.dbcapture.domain.model.CallOnThread;
+import com.fathy.alfred.backend.internalcalls.application.port.in.GetCallDetailUseCase;
+import com.fathy.alfred.backend.internalcalls.domain.model.CallSummary;
+import com.fathy.alfred.backend.internalcalls.domain.model.CallsQuery;
+import com.fathy.alfred.backend.logs.application.port.in.KeptLogLinesUseCase;
+import com.fathy.alfred.backend.logs.application.port.in.ManageLogSourcesUseCase;
 import com.fathy.alfred.backend.logs.application.port.in.ManageProjectLogsUseCase;
 import com.fathy.alfred.backend.logs.application.port.in.ManageProjectLogsUseCase.ProjectLogsView;
+import com.fathy.alfred.backend.logs.application.port.in.QueryLogsUseCase;
+import com.fathy.alfred.backend.logs.domain.model.FieldDef;
+import com.fathy.alfred.backend.logs.domain.model.KeptLogLine;
+import com.fathy.alfred.backend.logs.domain.model.LogLine;
+import com.fathy.alfred.backend.logs.domain.model.LogLineSummary;
+import com.fathy.alfred.backend.logs.domain.model.LogPage;
+import com.fathy.alfred.backend.logs.domain.model.LogQuery;
+import com.fathy.alfred.backend.logs.domain.model.LogStructure;
 import com.fathy.alfred.backend.logs.domain.model.ProjectLogSettings;
+import com.fathy.alfred.backend.logs.domain.model.Role;
+import com.fathy.alfred.backend.sessioncycles.application.port.in.ListCapturedInternalCallsUseCase;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Logs linked to calls (specs/008-logs-call-link): the one place that joins a project's inbound calls (their window),
  * database capture (their request thread, the ▤ switch) and the Logs tab (the project's log sources and their lines).
  * It lives in the composition root because it needs all three; each slice stays independent and is reached only
- * through its use-case ports. Logs are read only while the project's ▤ switch and inbound logging are on (FR-006).
+ * through its use-case ports. Logs are read only while the project's ▤ switch and inbound logging are on (FR-006);
+ * kept copies (session-cycle and imported calls) are served either way - they are ALFRED's own data.
+ *
+ * <p>Matching: lines carrying this call's id (exact) win; otherwise the lines of the call's request thread whose time
+ * falls in the call's window ± the clock difference, minus lines carrying any call id and lines nearer a neighbouring
+ * call on the same thread (FR-004). Times are the logs' typed epoch-ms values - UTC whatever the source's time zone.
+ * Nothing here logs line content (FR-018a): ids, counts and timings only.
  */
 @Service
 public class CallLogsService {
 
-    private final ManageProjectLogsUseCase projectLogs;
-    private final ManageDbCaptureUseCase capture;
+    private static final Logger log = LoggerFactory.getLogger(CallLogsService.class);
 
-    public CallLogsService(ManageProjectLogsUseCase projectLogs, ManageDbCaptureUseCase capture) {
+    /** Lines considered per call (all sources): a call is a bounded request, this is a seatbelt. */
+    static final int MAX_LINES_PER_CALL = 5_000;
+    static final int MAX_PAGE = 500;
+    static final int DEFAULT_PAGE = 200;
+    /** How far back to look for a neighbouring call on the same thread whose window could overlap this one. */
+    static final long NEIGHBOUR_LOOKBACK_MS = 10 * 60 * 1000L;
+    private static final String CURSOR = "o:";
+
+    private final ManageProjectLogsUseCase projectLogs;
+    private final KeptLogLinesUseCase keptLines;
+    private final ManageLogSourcesUseCase logSources;
+    private final QueryLogsUseCase logs;
+    private final ManageDbCaptureUseCase capture;
+    private final CallThreadsUseCase threads;
+    private final GetCallDetailUseCase inboundCalls;
+    private final ListCapturedInternalCallsUseCase cycleCalls;
+
+    public CallLogsService(ManageProjectLogsUseCase projectLogs, KeptLogLinesUseCase keptLines, ManageLogSourcesUseCase logSources,
+                           QueryLogsUseCase logs, ManageDbCaptureUseCase capture, CallThreadsUseCase threads,
+                           GetCallDetailUseCase inboundCalls, ListCapturedInternalCallsUseCase cycleCalls) {
         this.projectLogs = projectLogs;
+        this.keptLines = keptLines;
+        this.logSources = logSources;
+        this.logs = logs;
         this.capture = capture;
+        this.threads = threads;
+        this.inboundCalls = inboundCalls;
+        this.cycleCalls = cycleCalls;
     }
+
+    // ------------------------------------------------------------------ settings
 
     public ProjectLogsView settings(String project) {
         return projectLogs.view(project);
@@ -31,8 +100,254 @@ public class CallLogsService {
         return projectLogs.save(settings);
     }
 
+    // ------------------------------------------------------------------ a call's lines
+
+    /** The call's linked lines, oldest first, one page. Empty when the call is unknown. */
+    public Optional<CallLogsPage> lines(String callId, String cycleId, String after, int limit) {
+        return resolve(callId, cycleId).map(call -> {
+            Linked linked = link(call);
+            int size = limit <= 0 ? DEFAULT_PAGE : Math.min(limit, MAX_PAGE);
+            int from = offset(after);
+            List<Hit> page = linked.hits().subList(Math.min(from, linked.hits().size()), Math.min(from + size, linked.hits().size()));
+            List<LinkedLogLine> lines = page.stream().map(h -> h.line(call.startMs())).toList();
+            String next = from + size < linked.hits().size() ? CURSOR + (from + size) : null;
+            return new CallLogsPage(call.id(), linked.setup(), linked.match(), linked.thread(), linked.skewMs(), lines, next);
+        });
+    }
+
+    /** Counts per call - no line is read in full (FR-013). Unknown calls are left out. */
+    public Map<String, LogCounts> counts(List<String> callIds) {
+        Map<String, LogCounts> out = new LinkedHashMap<>();
+        for (String id : callIds) {
+            resolve(id, null).ifPresent(call -> {
+                Linked linked = link(call);
+                if (linked.hits().isEmpty()) {
+                    return;
+                }
+                int errors = (int) linked.hits().stream().filter(h -> "ERROR".equals(h.level())).count();
+                int warnings = (int) linked.hits().stream().filter(h -> "WARN".equals(h.level())).count();
+                out.put(id, new LogCounts(linked.hits().size(), errors, warnings, linked.match()));
+            });
+        }
+        return out;
+    }
+
     /** True while the project's ▤ switch and its inbound logging are both on - only then are its logs read. */
     boolean linked(String project) {
         return capture.logsLinked(project);
+    }
+
+    // ------------------------------------------------------------------ the join
+
+    /** A call and its window: the proxy's start time and duration (UTC epoch ms). */
+    record CallInfo(String id, String project, long startMs, long durationMs, String method, String url, Integer status) {
+        long endMs() {
+            return startMs + durationMs;
+        }
+    }
+
+    /** One matched line before it is read in full. {@code full} is filled for kept lines only. */
+    record Hit(String sourceId, String sourceName, String lineId, long atMs, String level, Match match, KeptLogLine kept,
+               SourceContext source, QueryLogsUseCase logs) {
+
+        LinkedLogLine line(long callStartMs) {
+            if (kept != null) {
+                return new LinkedLogLine(sourceId, sourceName, lineId, Instant.ofEpochMilli(atMs).toString(), atMs - callStartMs, kept.level(),
+                        kept.thread(), kept.logger(), kept.message(), match, true, kept.raw());
+            }
+            LogLine full = logs.line(sourceId, lineId);
+            return new LinkedLogLine(sourceId, sourceName, lineId, Instant.ofEpochMilli(atMs).toString(), atMs - callStartMs, full.level(),
+                    text(full.fields().get(source.threadField())), text(full.fields().get(source.loggerField())),
+                    text(full.fields().get(source.messageField())), match, false, full.raw());
+        }
+
+        private static String text(Object v) {
+            return v == null ? null : String.valueOf(v);
+        }
+    }
+
+    /** What a source's structure says about the project's fields. */
+    record SourceContext(String sourceId, String name, String threadField, String callIdField, String messageField, String loggerField,
+                         boolean hasThread, boolean hasCallId) {
+    }
+
+    record Linked(Setup setup, Match match, String thread, int skewMs, List<Hit> hits) {
+    }
+
+    Linked link(CallInfo call) {
+        List<Hit> kept = keptLines.kept(call.id()).stream().map(k -> new Hit(k.sourceId(), k.sourceName(), k.lineId(), k.atMs(),
+                normalisedLevel(k.level()), "EXACT".equals(k.matchedBy()) ? Match.EXACT : Match.THREAD_TIME, k, null, logs)).toList();
+        if (!capture.logsLinked(call.project())) {
+            return new Linked(Setup.LINKING_OFF, matchOf(kept), null, 0, kept);
+        }
+        ProjectLogSettings settings = projectLogs.settings(call.project());
+        if (settings.sourceIds().isEmpty()) {
+            return new Linked(Setup.NO_SOURCE, matchOf(kept), null, settings.clockSkewMs(), kept);
+        }
+        List<SourceContext> sources = settings.sourceIds().stream().map(id -> context(id, settings)).filter(Objects::nonNull).toList();
+
+        List<Hit> exact = new ArrayList<>();
+        for (SourceContext s : sources) {
+            if (s.hasCallId()) {
+                exact.addAll(query(s, List.of(eq(s.callIdField(), call.id())), null, null, Match.EXACT));
+            }
+        }
+        if (!exact.isEmpty()) {
+            log.debug("call-logs {}: {} exact lines", call.id(), exact.size());
+            return new Linked(Setup.OK, Match.EXACT, null, settings.clockSkewMs(), merge(exact, kept));
+        }
+
+        Optional<String> thread = sources.stream().anyMatch(SourceContext::hasThread) ? threads.requestThread(call.id()) : Optional.empty();
+        if (thread.isEmpty()) {
+            return new Linked(Setup.NO_THREAD, matchOf(kept), null, settings.clockSkewMs(), kept);
+        }
+        long skew = settings.clockSkewMs();
+        Window self = new Window(call.id(), call.startMs(), call.endMs());
+        List<Window> neighbours = neighbours(call, thread.get(), skew);
+        List<Hit> byTime = new ArrayList<>();
+        for (SourceContext s : sources) {
+            if (!s.hasThread()) {
+                continue;
+            }
+            List<LogQuery.Pill> pills = new ArrayList<>(List.of(eq(s.threadField(), thread.get())));
+            if (s.hasCallId()) {
+                // a line carrying any call's id is linked by that id only, never by time (FR-004)
+                pills.add(new LogQuery.Pill(LogQuery.Op.NOT_EXISTS, s.callIdField(), null, null, null, null));
+            }
+            for (Hit h : query(s, pills, call.startMs() - skew, call.endMs() + skew, Match.THREAD_TIME)) {
+                if (CallWindows.belongsTo(self, neighbours, h.atMs(), skew)) {
+                    byTime.add(h);
+                }
+            }
+        }
+        log.debug("call-logs {}: {} thread-and-time lines on {} sources", call.id(), byTime.size(), sources.size());
+        return new Linked(Setup.OK, Match.THREAD_TIME, thread.get(), settings.clockSkewMs(), merge(byTime, kept));
+    }
+
+    private static Match matchOf(List<Hit> hits) {
+        return hits.isEmpty() ? null : hits.get(0).match();
+    }
+
+    /** Live lines and kept copies by line id, oldest first, at most {@link #MAX_LINES_PER_CALL}. */
+    private static List<Hit> merge(List<Hit> live, List<Hit> kept) {
+        Map<String, Hit> byLine = new LinkedHashMap<>();
+        for (Hit h : live) {
+            byLine.put(h.sourceId() + '|' + h.lineId(), h);
+        }
+        for (Hit h : kept) {
+            byLine.putIfAbsent(h.sourceId() + '|' + h.lineId(), h);
+        }
+        return byLine.values().stream().sorted(Comparator.comparingLong(Hit::atMs).thenComparing(Hit::lineId))
+                .limit(MAX_LINES_PER_CALL).toList();
+    }
+
+    private List<Window> neighbours(CallInfo call, String thread, long skew) {
+        List<Window> out = new ArrayList<>();
+        Instant from = Instant.ofEpochMilli(call.startMs() - NEIGHBOUR_LOOKBACK_MS);
+        Instant to = Instant.ofEpochMilli(call.endMs() + skew);
+        for (CallOnThread other : threads.callsOnThread(thread, from, to)) {
+            if (other.callId().equals(call.id())) {
+                continue;
+            }
+            inboundCalls.getSummary(other.callId()).flatMap(CallLogsService::info)
+                    .ifPresent(o -> out.add(new Window(o.id(), o.startMs(), o.endMs())));
+        }
+        return out;
+    }
+
+    private SourceContext context(String sourceId, ProjectLogSettings settings) {
+        LogStructure structure;
+        String name;
+        try {
+            structure = logSources.structure(sourceId);
+            name = logSources.get(sourceId).source().name();
+        } catch (RuntimeException e) {
+            log.warn("call-logs: log source {} is linked to {} but cannot be read: {}", sourceId, settings.project(), e.getMessage());
+            return null;
+        }
+        Set<String> labels = structure.fields().stream().filter(FieldDef::stored).map(FieldDef::label).collect(Collectors.toSet());
+        String message = structure.fields().stream().filter(f -> f.role() == Role.MESSAGE).map(FieldDef::label).findFirst().orElse("message");
+        String logger = labels.stream().filter(l -> l.toLowerCase(Locale.ROOT).endsWith("logger")).sorted().findFirst().orElse(null);
+        return new SourceContext(sourceId, name, settings.threadField(), settings.callIdField(), message, logger,
+                settings.threadField() != null && labels.contains(settings.threadField()), labels.contains(settings.callIdField()));
+    }
+
+    /** One source's matching lines (summaries only), oldest first, paged through up to the per-call seatbelt. */
+    private List<Hit> query(SourceContext s, List<LogQuery.Pill> pills, Long fromMs, Long toMs, Match match) {
+        List<Hit> out = new ArrayList<>();
+        String cursor = null;
+        do {
+            LogPage page = logs.lines(s.sourceId(), new LogQuery(pills, fromMs, toMs, new LogQuery.Sort(null, true), cursor, LogQuery.MAX_LIMIT));
+            for (LogLineSummary line : page.lines()) {
+                out.add(new Hit(s.sourceId(), s.name(), line.lineId(), line.ts(), normalisedLevel(line.level()), match, null, s, logs));
+            }
+            cursor = page.nextCursor();
+        } while (cursor != null && out.size() < MAX_LINES_PER_CALL);
+        return out;
+    }
+
+    private static LogQuery.Pill eq(String field, String value) {
+        return new LogQuery.Pill(LogQuery.Op.EQ, field, value, null, null, null);
+    }
+
+    static String normalisedLevel(String level) {
+        if (level == null) {
+            return null;
+        }
+        String l = level.toUpperCase(Locale.ROOT);
+        return switch (l) {
+            case "WARNING" -> "WARN";
+            case "FATAL", "SEVERE", "CRITICAL" -> "ERROR";
+            default -> l;
+        };
+    }
+
+    private static int offset(String after) {
+        if (after == null || !after.startsWith(CURSOR)) {
+            return 0;
+        }
+        try {
+            return Math.max(0, Integer.parseInt(after.substring(CURSOR.length())));
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    // ------------------------------------------------------------------ resolving a call
+
+    /** The live inbound call, else the cycle's copy (a cycle keeps calls the live list has dropped). */
+    Optional<CallInfo> resolve(String callId, String cycleId) {
+        if (callId == null || callId.isBlank()) {
+            return Optional.empty();
+        }
+        Optional<CallInfo> live = inboundCalls.getSummary(callId).flatMap(CallLogsService::info);
+        if (live.isPresent() || cycleId == null || cycleId.isBlank()) {
+            return live;
+        }
+        return cycleCalls.listCalls(cycleId, new CallsQuery("", "", "oldest", 0, 50, "", "", callId))
+                .flatMap(page -> page.calls().stream().filter(c -> c.call() != null && callId.equals(c.call().id())).findFirst())
+                .flatMap(c -> info(c.call()));
+    }
+
+    /** The proxy writes "2026-10-06T00:17:44.891724+00:00"; older rows may be "...Z" or carry no zone (UTC). */
+    static long epochMs(String timestamp) {
+        try {
+            return java.time.OffsetDateTime.parse(timestamp).toInstant().toEpochMilli();
+        } catch (java.time.format.DateTimeParseException e) {
+            return java.time.LocalDateTime.parse(timestamp).toInstant(java.time.ZoneOffset.UTC).toEpochMilli();
+        }
+    }
+
+    static Optional<CallInfo> info(CallSummary s) {
+        if (s == null || s.timestamp() == null) {
+            return Optional.empty();
+        }
+        try {
+            long start = epochMs(s.timestamp());
+            long duration = s.durationMs() == null ? 0 : Math.round(s.durationMs());
+            return Optional.of(new CallInfo(s.id(), s.serviceName(), start, duration, s.method(), s.url(), s.status()));
+        } catch (RuntimeException e) {
+            return Optional.empty();
+        }
     }
 }

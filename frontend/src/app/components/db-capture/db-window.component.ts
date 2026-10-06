@@ -1,3 +1,4 @@
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import {
   ChangeDetectionStrategy, Component, DestroyRef, ElementRef, HostListener, OnInit, computed, effect, inject, input, output, signal, untracked, viewChild,
 } from '@angular/core';
@@ -25,11 +26,21 @@ import { DbStatementListComponent } from './db-statement-list.component';
 import { DbTimelineComponent } from './db-timeline.component';
 import { DbFindingsComponent } from './db-findings.component';
 import { DbDetailTab, DbKindFilter, DbWindowState } from './db-window-state';
-import { DbWindowRequest, DbWindowService } from './db-window.service';
+import { DbWindowRequest, DbWindowService, DbWindowView } from './db-window.service';
+import { DbLogLinesComponent } from './db-log-lines.component';
+import { CallLogsApiService } from '../../core/services/call-logs-api.service';
+import { LogsSocketService } from '../../core/services/logs-socket.service';
+import { CallLogsPage, LinkedLogLine } from '../../core/models/call-logs.model';
+import { TogetherRow, logRows, togetherRows } from '../../shared/utils/call-log-rows';
 import { CallsApiService } from '../../core/services/calls-api.service';
 import { CallFocusService } from '../../core/services/call-focus.service';
 
 const PAGE = 500;
+/** A call's log lines are read in pages of this many, at most {@link LOG_MAX} in all (the backend's per-call seatbelt). */
+const LOG_PAGE = 500;
+const LOG_MAX = 5000;
+/** A burst of `lines-added` is one refetch. */
+const LOG_REFETCH_MS = 1500;
 
 /** "host/…/last-segment" - enough to tell supplier calls apart on the Back button. */
 function shortUrl(url: string): string {
@@ -63,7 +74,7 @@ const SCROLL_LOCK = 'db-window-open';
   standalone: true,
   selector: 'app-db-window',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DbStatementListComponent, DbTimelineComponent, DbFindingsComponent],
+  imports: [DbStatementListComponent, DbTimelineComponent, DbFindingsComponent, DbLogLinesComponent],
   providers: [DbWindowState],
   templateUrl: './db-window.component.html',
 })
@@ -95,7 +106,33 @@ export class DbWindowComponent implements OnInit {
   private fetching = false;
 
   /** Statements | Tables (mock: the views row). */
-  readonly view = signal<'stmts' | 'queries' | 'tables'>('stmts');
+  readonly view = signal<DbWindowView>('stmts');
+
+  // ---- the call's log lines (specs/008-logs-call-link) ----
+  private readonly callLogs = inject(CallLogsApiService);
+  private readonly logsSocket = inject(LogsSocketService);
+  /** The first page's answer: why there are no lines, how they were matched, the request thread. */
+  readonly logInfo = signal<Omit<CallLogsPage, 'lines' | 'next'> | null>(null);
+  readonly logLines = signal<readonly LinkedLogLine[]>([]);
+  readonly logsLoading = signal(false);
+  readonly logsError = signal<string | null>(null);
+  private logRefetch: ReturnType<typeof setTimeout> | null = null;
+  readonly logSources = computed(() => [...new Set(this.logLines().map((l) => l.sourceName))]);
+  readonly logRowList = computed<TogetherRow[]>(() => logRows(this.logLines()));
+  readonly togetherList = computed<TogetherRow[]>(() => {
+    const call = this.call();
+    if (!call) return [];
+    return togetherRows(Date.parse(call.timestamp), this.statements(), this.markers(), this.state.suppliersBySeq(), this.logLines());
+  });
+  /** A call the agent recorded no statements for: the window is its log lines only (walkthrough "Call without DB capture"). */
+  readonly logsOnly = computed(() => !!this.call() && !this.loading() && !this.statements().length && !this.error() && this.view() === 'logs');
+  /** "open in Logs ↗" on the bar: the first line among its neighbours. */
+  readonly firstLogLink = computed(() => {
+    const l = this.logLines().find((x) => !x.kept);
+    return l ? `/logs/${encodeURIComponent(l.sourceId)}?line=${encodeURIComponent(l.lineId)}` : null;
+  });
+  /** Lane ticks for the timeline: each line's offset from the call's start and level. */
+  readonly logTicks = computed(() => this.logLines().map((l) => ({ atMs: l.offsetMs, level: l.level, message: l.message, key: `${l.sourceId}:${l.lineId}` })));
   /** Where the call's time went (db-analysis.ts) - from the loaded statements and the supplier calls they made. */
   readonly breakdown = computed<TimeBreakdown | null>(() => {
     const call = this.call();
@@ -361,6 +398,17 @@ export class DbWindowComponent implements OnInit {
   ];
 
   constructor() {
+    // ▤ turned on or off (here or in the Sources bar) while the window is open: the lines follow.
+    let logsWereOn: boolean | null = null;
+    effect(() => {
+      const project = this.state.project();
+      const on = project ? !!this.dbState.projectStatus(project)?.logsOn : null;
+      untracked(() => {
+        const call = this.call();
+        if (on !== null && logsWereOn !== null && on !== logsWereOn && call) this.loadLogs(call);
+        logsWereOn = on;
+      });
+    });
     // While the window is up the page behind it does not scroll; put aside ("show call"), the page is the point again.
     effect(() => {
       document.documentElement.classList.toggle(SCROLL_LOCK, !this.windows.aside());
@@ -429,7 +477,7 @@ export class DbWindowComponent implements OnInit {
     this.state.statementSeqs.set(null);
   }
 
-  setView(view: 'stmts' | 'queries' | 'tables'): void {
+  setView(view: DbWindowView): void {
     this.view.set(view);
     const call = this.call();
     if (view === 'tables' && call && !this.tableSummaries()) {
@@ -486,7 +534,14 @@ export class DbWindowComponent implements OnInit {
     const call = this.call();
     const request = this.request();
     this.state.project.set(call?.service_name ?? (request.kind === 'outside' ? request.project ?? null : null));
+    if (request.kind === 'call' && request.view) this.view.set(request.view);
     if (call) {
+      this.loadLogs(call);
+      this.logsSocket.events$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((e) => {
+        if (e.type === 'lines-added' && e.count > 0 && this.mayHaveNewLines(call, e.newestTs)) this.scheduleLogRefetch(call);
+      });
+      this.logsSocket.reconnected$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => this.loadLogs(call));
+      this.destroyRef.onDestroy(() => this.logRefetch && clearTimeout(this.logRefetch));
       this.dbState.requestSummary(call.id);
       this.state.suppliersBySeq.set(this.suppliersOf(call));
       this.loadChildren(call);
@@ -506,6 +561,64 @@ export class DbWindowComponent implements OnInit {
       sub.unsubscribe();
       reconnect.unsubscribe();
     });
+  }
+
+  /** Every page of the call's linked lines (oldest first), replacing what is shown once all have arrived. */
+  private loadLogs(call: CallRecord): void {
+    const request = this.request();
+    const cycleId = request.kind === 'call' ? request.cycleId ?? null : null;
+    this.logsLoading.set(true);
+    this.callLogs.lines(call.id, { cycleId, limit: LOG_PAGE }).pipe(
+      expand((p) => (p.next && p.lines.length ? this.callLogs.lines(call.id, { cycleId, after: p.next, limit: LOG_PAGE }) : EMPTY)),
+      reduce((acc, p) => ({ first: acc.first ?? p, lines: acc.lines.length >= LOG_MAX ? acc.lines : [...acc.lines, ...p.lines] }),
+        { first: null as CallLogsPage | null, lines: [] as LinkedLogLine[] }),
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe({
+      next: ({ first, lines }) => {
+        if (first) {
+          const { lines: _l, next: _n, ...info } = first;
+          this.logInfo.set(info);
+        }
+        this.logLines.set(lines.slice(0, LOG_MAX));
+        this.logsLoading.set(false);
+        this.logsError.set(null);
+      },
+      error: () => {
+        this.logsLoading.set(false);
+        this.logsError.set('Could not load the log lines.');
+      },
+    });
+  }
+
+  /** New lines can belong to this call only if they are not older than its start (minus the clock difference). */
+  private mayHaveNewLines(call: CallRecord, newestTs: number): boolean {
+    const info = this.logInfo();
+    if (info && info.setup !== 'OK') return false;
+    return newestTs >= Date.parse(call.timestamp) - (info?.clockSkewMs ?? 0);
+  }
+
+  private scheduleLogRefetch(call: CallRecord): void {
+    if (this.logRefetch) return;
+    this.logRefetch = setTimeout(() => {
+      this.logRefetch = null;
+      this.loadLogs(call);
+    }, LOG_REFETCH_MS);
+  }
+
+  /** The ▤ switch, from the window's own "Alfred is not reading these logs" note. */
+  turnLogsOn(): void {
+    const project = this.state.project();
+    if (!project) return;
+    this.dbState.setLogsOn(project, true); // the switch's change reloads the lines (constructor)
+  }
+
+  logsWhy(): string {
+    switch (this.logInfo()?.setup) {
+      case 'LINKING_OFF': return 'off';
+      case 'NO_SOURCE': return 'nosource';
+      case 'NO_THREAD': return 'nothread';
+      default: return 'none';
+    }
   }
 
   private suppliersOf(call: CallRecord): Map<number, CallRecord> {
@@ -622,6 +735,7 @@ export class DbWindowComponent implements OnInit {
 
   /** Timeline / finding / trace click: clear filters, unfold its groups, open it on the right tab and flash it. */
   jump(seq: number, tab?: DbDetailTab): void {
+    this.view.set('stmts');
     this.state.search.set('');
     this.state.kind.set('all');
     this.state.table.set('');

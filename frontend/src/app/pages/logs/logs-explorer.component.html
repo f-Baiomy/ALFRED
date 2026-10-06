@@ -487,7 +487,7 @@
 
 <!-- One row: summary or columns, level stripe, toggles, selection, duration (mock rowHtml) -->
 <ng-template #row let-r let-depth="depth" let-nodeInfo="node" let-sib="sib" let-mark="mark">
-  <div class="lg-lr" [id]="'lg-row-' + r.lineId" [class.fresh]="freshIds().has(r.lineId)" [class.sel]="current() === r.lineId" [style.grid-template-columns]="gridColumns()" [style.padding-left.px]="depth * 20" (click)="toggleData(r.lineId)">
+  <div class="lg-lr" [id]="'lg-row-' + r.lineId" [class.fresh]="freshIds().has(r.lineId)" [class.linked]="flashIds().has(r.lineId)" [class.sel]="current() === r.lineId" [style.grid-template-columns]="gridColumns()" [style.padding-left.px]="depth * 20" (click)="toggleData(r.lineId)">
     <span class="lg-stripe" [class]="'lg-stripe ' + levelOf(r)"></span>
     @if (nodeInfo && (nodeInfo.childCount || nodeInfo.skipped.length)) {
       <button class="lg-tg" (click)="$event.stopPropagation(); toggleKids(nodeInfo)" title="Show / hide children">{{ openKids().has(nodeInfo.path) ? '−' : '+' }}</button>

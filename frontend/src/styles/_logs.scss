@@ -347,6 +347,7 @@
 
 /* A line that just arrived live: a short fade, no layout change. */
 .lg-lr.fresh { animation: lg-fresh 1.5s ease-out; }
+.lg-lr.linked { box-shadow: inset 3px 0 0 #a3e635; background: rgba(163, 230, 53, .08); }
 @keyframes lg-fresh { from { background: color-mix(in srgb, var(--cyan) 18%, transparent); } to { background: transparent; } }
 
 // ---- filters and time (design B++): pills with on/off, AND/OR, counts; filter form; time panel; clock; timeline

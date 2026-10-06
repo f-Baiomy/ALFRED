@@ -13,6 +13,8 @@
   --db-mono: 'Cascadia Code', 'Fira Code', Consolas, monospace;
   --db-hql: #f0abfc;
   --db-hql-text: #f5d0fe;
+  --log: #a3e635; // logs linked to calls (specs/008-logs-call-link) - one colour means "log line"
+  --log-text: #e4f5c8;
 }
 
 [data-theme='light'],
@@ -23,6 +25,8 @@
   --db-sql-block: #1f2430;
   --db-kw: #0369a1;
   --db-hql: #a21caf;
+  --log: #4d7c0f;
+  --log-text: #1f2430;
   --db-hql-text: #86198f;
 }
 
@@ -938,4 +942,60 @@
 html.db-window-open,
 html.db-window-open body {
   overflow: hidden;
+}
+
+// ---- logs linked to calls (specs/008-logs-call-link): the Logs / Together lists, the Logs lane, the ▤ chip ----
+.db-window .dll { padding: 0.1rem 0 0.5rem; }
+.db-window .dll-r {
+  display: grid; grid-template-columns: 70px 78px minmax(0, 1fr) auto 64px; gap: 0.5rem; align-items: center;
+  padding: 0.18rem 0.3rem; font-size: 0.78rem; border-radius: 6px; cursor: pointer;
+  &:hover { background: color-mix(in srgb, var(--text) 5%, transparent); }
+  .at { font-family: var(--db-mono); font-size: 0.68rem; color: var(--text-faint); }
+  .v { font-size: 0.62rem; font-weight: 700; text-align: center; border-radius: 5px; padding: 1px 3px; border: 1px solid; white-space: nowrap; }
+  .t { font-family: var(--db-mono); font-size: 0.74rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .t .src { font-family: inherit; color: var(--text-faint); margin-right: 0.45rem; }
+  .how { font-size: 0.66rem; color: var(--text-faint); text-align: right; display: flex; gap: 0.3rem; justify-content: flex-end; }
+  .ms { text-align: right; font-family: var(--db-mono); font-size: 0.72rem; color: var(--text-dim); }
+  &.db .t { color: var(--db-sql); } &.sup .t { color: var(--cyan); }
+  &.log { background: color-mix(in srgb, var(--log) 4%, transparent); } &.log .t { color: var(--log-text); }
+  &.err { background: color-mix(in srgb, var(--red) 9%, transparent); } &.err .t { color: var(--red); }
+  .vdb { color: var(--db); border-color: var(--db); } .vsup { color: var(--cyan); border-color: var(--cyan); }
+}
+.lv-error { color: var(--red); border-color: var(--red); }
+.lv-warn { color: var(--amber); border-color: var(--amber); }
+.lv-info { color: var(--log); border-color: var(--log); }
+.lv-debug { color: var(--text-faint); border-color: var(--text-faint); }
+.db-window .dll .pill, .dbw-logbar .pill, .log-chip .pill {
+  font-size: 0.62rem; padding: 0 0.35rem; border-radius: 999px; border: 1px solid var(--border); color: var(--text-dim); white-space: nowrap;
+  &.exact { color: var(--log); border-color: color-mix(in srgb, var(--log) 50%, transparent); }
+  &.kept { color: var(--purple-light); }
+}
+.db-window .dll-detail {
+  margin: 0.15rem 0.3rem 0.5rem 150px; border: 1px solid color-mix(in srgb, var(--log) 35%, var(--border)); border-radius: 8px;
+  background: var(--card-inner); padding: 0.45rem 0.6rem; font-size: 0.74rem;
+  .kv { display: grid; grid-template-columns: minmax(120px, max-content) minmax(0, 1fr); gap: 0.1rem 0.7rem; font-family: var(--db-mono); font-size: 0.7rem; }
+  .kv span:nth-child(odd) { color: var(--text-faint); }
+  .kv span:nth-child(even) { white-space: pre-wrap; word-break: break-word; }
+  .raw { margin: 0; white-space: pre-wrap; word-break: break-word; font-family: var(--db-mono); font-size: 0.7rem; }
+  .foot { margin-top: 0.4rem; color: var(--text-dim); }
+  a { color: var(--cyan); }
+}
+@media (max-width: 700px) {
+  .db-window .dll-r { grid-template-columns: 58px 64px minmax(0, 1fr); .how, .ms { display: none; } }
+  .db-window .dll-detail { margin-left: 0.3rem; }
+}
+.db-window .views button.lg { color: var(--log); }
+.db-window .dbw-logbar { margin-left: auto; font-size: 0.7rem; color: var(--text-faint); display: flex; gap: 0.35rem; align-items: center; flex-wrap: wrap;
+  b { color: var(--text); } a { color: var(--cyan); cursor: pointer; } }
+.db-window .dll-empty { padding: 1.4rem; text-align: center; color: var(--text-dim); font-size: 0.82rem; b { color: var(--text); } }
+.db-window .dbt-name.lg { color: var(--log); }
+.db-window .dbt-track.lg { background: color-mix(in srgb, var(--log) 4%, transparent); }
+.db-window .dbt-tick { position: absolute; top: 3px; width: 2px; margin-left: -1px; border-radius: 1px; background: currentColor; cursor: pointer;
+  &:hover { width: 4px; margin-left: -2px; } }
+.db-chip.log-chip {
+  color: var(--log);
+  border-color: color-mix(in srgb, var(--log) 38%, transparent);
+  background: color-mix(in srgb, var(--log) 9%, transparent);
+  &:hover { background: color-mix(in srgb, var(--log) 18%, transparent); border-color: color-mix(in srgb, var(--log) 60%, transparent); }
+  .sep { color: color-mix(in srgb, var(--log) 45%, transparent); }
 }

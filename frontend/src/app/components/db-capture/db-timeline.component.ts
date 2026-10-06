@@ -1,6 +1,15 @@
 import { ChangeDetectionStrategy, Component, HostListener, computed, input, output, signal } from '@angular/core';
 import { CapturedStatement } from '../../core/models/db-capture.model';
 import { DbOverview, ITEM_LABELS, ItemKind, TimelineSupplier, fmtMs, idleKey } from '../../shared/utils/db-findings';
+import { logLevelClass } from '../../shared/utils/call-log-rows';
+
+/** One log line on the Logs lane (specs/008-logs-call-link): its offset from the call's start and level. */
+export interface LogTick {
+  readonly key: string;
+  readonly atMs: number;
+  readonly level: string | null;
+  readonly message: string;
+}
 
 interface Item {
   readonly key: string;
@@ -65,6 +74,18 @@ const LABEL_MIN_PCT = 6;
           </div>
         </div>
       }
+      @if (logLanes().length) {
+        <div class="dbt-lane">
+          <div class="dbt-name lg">Logs</div>
+          <div class="dbt-track lg" [style.height.px]="strip() ? 6 + STRIP_ROW : 6 + ROW" (mousedown)="dragStart($event)">
+            @for (t of ticks(); track t) {<div class="dbt-grid" [style.left.%]="x(t)"></div>}
+            @for (l of logLanes(); track l.key) {
+              <div class="dbt-tick" [class]="'dbt-tick lv-' + lv(l.level)" [style.left.%]="x(l.atMs)" [style.height.px]="strip() ? STRIP_SEG : 16"
+                   (mousemove)="showLogTip($event, l)" (mouseleave)="tip.set(null)" (mousedown)="$event.stopPropagation()" (click)="logsClicked.emit()"></div>
+            }
+          </div>
+        </div>
+      }
       @if (!strip()) {
         <div class="dbt-legend">
           @for (k of legend(); track k) {<span><i [class]="'k-' + k"></i>{{ labels[k] }}</span>}
@@ -92,6 +113,27 @@ export class DbTimelineComponent {
   /** Thin lanes: every supplier call in one lane as stacked slivers, no labels or legend - hover tells. */
   readonly strip = input(false);
   readonly jumpTo = output<number>();
+  /** The call's linked log lines - a lane of their own, one tick per line coloured by level. */
+  readonly logs = input<readonly LogTick[]>([]);
+  /** A log tick was clicked: the window shows its Logs view. */
+  readonly logsClicked = output<void>();
+  protected readonly ROW = ROW_PX;
+  protected readonly STRIP_ROW = STRIP_ROW_PX;
+  protected readonly STRIP_SEG = STRIP_SEG_PX;
+
+  readonly logLanes = computed(() => {
+    const [a, b] = this.view();
+    return this.logs().filter((l) => l.atMs >= a && l.atMs <= b);
+  });
+
+  lv(level: string | null): string {
+    return logLevelClass(level);
+  }
+
+  showLogTip(event: MouseEvent, l: LogTick): void {
+    this.showTip(event, { key: l.key, kind: 'ok', atMs: l.atMs, ms: 0, jump: -1, row: 0, label: '', title: `▤ ${l.level ?? 'LOG'} at ${fmtMs(l.atMs)}`,
+      lines: [l.message.length > 200 ? l.message.slice(0, 200) + '…' : l.message, 'click for the call’s log lines'] });
+  }
 
   protected readonly labelMin = LABEL_MIN_PCT;
   protected readonly labels = ITEM_LABELS;

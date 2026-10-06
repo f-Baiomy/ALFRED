@@ -1,9 +1,12 @@
 import { Injectable, signal } from '@angular/core';
 import { CallRecord } from '../../core/models/call.model';
 
+/** The window's views; Logs and Together are the call's linked log lines (specs/008-logs-call-link). */
+export type DbWindowView = 'stmts' | 'queries' | 'tables' | 'logs' | 'together';
+
 /** What the database window shows: one inbound call's statements, or the statements that ran outside any call. */
 export type DbWindowRequest =
-  | { readonly kind: 'call'; readonly call: CallRecord; readonly view?: 'stmts' | 'tables' }
+  | { readonly kind: 'call'; readonly call: CallRecord; readonly view?: DbWindowView; readonly cycleId?: string | null }
   | { readonly kind: 'outside'; readonly project?: string | null };
 
 /**
@@ -21,9 +24,9 @@ export class DbWindowService {
   private readonly asideSignal = signal<{ readonly label: string } | null>(null);
   readonly aside = this.asideSignal.asReadonly();
 
-  openCall(call: CallRecord, view: 'stmts' | 'tables' = 'stmts'): void {
+  openCall(call: CallRecord, view: DbWindowView = 'stmts', cycleId: string | null = null): void {
     this.asideSignal.set(null);
-    this.requestSignal.set({ kind: 'call', call, view });
+    this.requestSignal.set({ kind: 'call', call, view, cycleId });
   }
 
   openOutside(project?: string | null): void {

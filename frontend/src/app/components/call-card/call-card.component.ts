@@ -18,6 +18,7 @@ import {
 } from '../../shared/utils/call-utils';
 import { CallActionsComponent } from '../call-actions/call-actions.component';
 import { DbChipComponent } from '../db-capture/db-chip.component';
+import { LogChipComponent } from '../db-capture/log-chip.component';
 import { InterceptionPanelComponent } from '../interception-panel/interception-panel.component';
 import { ResendPanelComponent } from '../resend-panel/resend-panel.component';
 import { resendSummaryOf } from '../../shared/utils/resend-summary';
@@ -80,7 +81,7 @@ const SELECTION_EXEMPT_SELECTOR =
 @Component({
   selector: 'app-call-card',
   standalone: true,
-  imports: [CallActionsComponent, DbChipComponent, CommentBadgeComponent, JsonPanelComponent, CdkDragHandle, NgTemplateOutlet, InterceptionPanelComponent, ResendPanelComponent, WsMessagesComponent],
+  imports: [CallActionsComponent, DbChipComponent, LogChipComponent, CommentBadgeComponent, JsonPanelComponent, CdkDragHandle, NgTemplateOutlet, InterceptionPanelComponent, ResendPanelComponent, WsMessagesComponent],
   templateUrl: './call-card.component.html',
   // The database window's "show call ↗" finds a supplier call's card by its id.
   host: { '[attr.data-call-id]': 'call().id' },

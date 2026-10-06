@@ -12,6 +12,10 @@ import { DbWindowComponent } from './db-window.component';
 import { DbWindowService } from './db-window.service';
 import { CallsApiService } from '../../core/services/calls-api.service';
 import { CallFocusService } from '../../core/services/call-focus.service';
+import { CallLogsApiService } from '../../core/services/call-logs-api.service';
+import { LogsSocketService } from '../../core/services/logs-socket.service';
+import { CallLogsPage, LinkedLogLine } from '../../core/models/call-logs.model';
+import { LogsSocketEvent } from '../../core/models/logs.model';
 
 const call: CallRecord = {
   id: 'call-1', original_url: '/wallet-app/api/wallet/pay', url: '/wallet-app/api/wallet/pay', method: 'POST',
@@ -27,16 +31,27 @@ describe('DbWindowComponent', () => {
   let statements: jasmine.Spy;
   let children: jasmine.Spy;
   let focusGo: jasmine.Spy;
+  let logLines: jasmine.Spy;
+  let logEvents: Subject<LogsSocketEvent>;
 
-  function create() {
+  afterEach(() => {
+    logLines = undefined as unknown as jasmine.Spy;
+  });
+
+  function create(view?: 'logs' | 'together') {
     children ??= jasmine.createSpy('children').and.returnValue(of([]));
     focusGo = jasmine.createSpy('go');
     events = new Subject();
+    logEvents = new Subject();
+    logLines ??= jasmine.createSpy('lines').and.returnValue(of(logPage([])));
     TestBed.configureTestingModule({
       imports: [DbWindowComponent],
       providers: [
         { provide: DbCaptureApiService, useValue: { statements } },
-        { provide: DbCaptureStateService, useValue: { events$: events, reconnected$: new Subject(), summaries: signal(new Map()), requestSummary: () => undefined } },
+        { provide: DbCaptureStateService, useValue: { events$: events, reconnected$: new Subject(), summaries: signal(new Map()), requestSummary: () => undefined,
+          projectStatus: () => undefined, setLogsOn: jasmine.createSpy('setLogsOn') } },
+        { provide: CallLogsApiService, useValue: { lines: (...args: unknown[]) => logLines(...args) } },
+        { provide: LogsSocketService, useValue: { events$: logEvents, reconnected$: new Subject() } },
         { provide: CallsStateService, useValue: { calls: signal([]) } },
         { provide: RedactionsStore, useValue: { all: signal([]) } },
         { provide: CallsApiService, useValue: { getChildren: (...args: unknown[]) => children(...args) } },
@@ -44,7 +59,7 @@ describe('DbWindowComponent', () => {
       ],
     });
     const fixture = TestBed.createComponent(DbWindowComponent);
-    fixture.componentRef.setInput('request', { kind: 'call', call });
+    fixture.componentRef.setInput('request', { kind: 'call', call, view });
     fixture.detectChanges();
     return fixture;
   }
@@ -180,4 +195,73 @@ describe('DbWindowComponent', () => {
     expect(windows.aside()).toBeNull();
     children = undefined as unknown as jasmine.Spy;
   });
+
+  // ---- logs linked to calls (specs/008-logs-call-link) ----
+
+  it('lists the call’s log lines on the Logs view and opens one to its fields', () => {
+    statements = jasmine.createSpy('statements').and.returnValue(of(pageOf(1)));
+    logLines = jasmine.createSpy('lines').and.returnValue(of(logPage([line('a', 40, 'INFO', 'search started'), line('b', 300, 'ERROR', 'boom')])));
+    const fixture = create('logs');
+
+    const rows = fixture.nativeElement.querySelectorAll('.dll-r.log');
+    expect(rows.length).toBe(2);
+    expect(rows[1].textContent).toContain('boom');
+    expect(rows[1].classList).toContain('err');
+    expect(fixture.nativeElement.querySelector('.dbw-logbar').textContent).toContain('server.log');
+
+    rows[0].click();
+    fixture.detectChanges();
+    const detail = fixture.nativeElement.querySelector('.dll-detail');
+    expect(detail.textContent).toContain('process.thread.name');
+    expect(detail.querySelector('a').getAttribute('href')).toBe('/logs/s1?line=in%3Aa');
+  });
+
+  it('puts statements and log lines in one list by time on Together', () => {
+    statements = jasmine.createSpy('statements').and.returnValue(of({ ...pageOf(), statements: [stmt(1, 'SELECT', 'SELECT 1', { offsetMicros: 100_000 })] }));
+    logLines = jasmine.createSpy('lines').and.returnValue(of(logPage([line('a', 40, 'INFO', 'first'), line('b', 300, 'WARN', 'later')])));
+    const fixture = create('together');
+
+    const kinds = [...fixture.nativeElement.querySelectorAll('.dll-r')].map((r: Element) => r.classList.contains('log') ? 'log' : 'db');
+    expect(kinds).toEqual(['log', 'db', 'log']);
+  });
+
+  it('says Alfred is not reading the logs while ▤ is off, and offers to turn it on', () => {
+    statements = jasmine.createSpy('statements').and.returnValue(of(pageOf(1)));
+    logLines = jasmine.createSpy('lines').and.returnValue(of({ ...logPage([]), setup: 'LINKING_OFF', matchedBy: null }));
+    const fixture = create('logs');
+
+    expect(fixture.nativeElement.querySelector('.dll-empty').textContent).toContain('is not reading');
+    expect(fixture.nativeElement.querySelector('.dll-empty button').textContent).toContain('Turn ▤ on');
+  });
+
+  it('refetches the lines when the logs socket says new ones arrived - no polling', () => {
+    jasmine.clock().install();
+    try {
+      statements = jasmine.createSpy('statements').and.returnValue(of(pageOf(1)));
+      const fixture = create('logs');
+      expect(logLines).toHaveBeenCalledTimes(1);
+      logEvents.next({ type: 'lines-added', sourceId: 's1', count: 3, newestTs: Date.parse(call.timestamp) + 100 });
+      logEvents.next({ type: 'lines-added', sourceId: 's1', count: 2, newestTs: Date.parse(call.timestamp) + 200 });
+      jasmine.clock().tick(1600);
+      fixture.detectChanges();
+      expect(logLines).toHaveBeenCalledTimes(2);
+      logEvents.next({ type: 'lines-added', sourceId: 's1', count: 1, newestTs: Date.parse(call.timestamp) - 60_000 });
+      jasmine.clock().tick(1600);
+      expect(logLines).toHaveBeenCalledTimes(2);
+    } finally {
+      jasmine.clock().uninstall();
+    }
+  });
 });
+
+function line(id: string, offsetMs: number, level: string, message: string): LinkedLogLine {
+  return {
+    sourceId: 's1', sourceName: 'server.log', lineId: `in:${id}`, at: new Date(Date.parse(call.timestamp) + offsetMs).toISOString(), offsetMs, level,
+    thread: 'default task-4', logger: 'a.B', message, matchedBy: 'THREAD_TIME',
+    raw: JSON.stringify({ message, log: { level }, process: { thread: { name: 'default task-4' } } }),
+  };
+}
+
+function logPage(lines: LinkedLogLine[]): CallLogsPage {
+  return { callId: 'call-1', setup: 'OK', matchedBy: 'THREAD_TIME', thread: 'default task-4', clockSkewMs: 200, lines, next: null };
+}
