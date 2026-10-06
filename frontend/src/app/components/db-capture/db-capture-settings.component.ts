@@ -1,7 +1,6 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, effect, inject, signal, untracked } from '@angular/core';
 import { DbCaptureSettings, DbThresholds, ProjectCaptureStatus } from '../../core/models/db-capture.model';
 import { DbCaptureApiService } from '../../core/services/db-capture-api.service';
-import { ProjectLogsSettingsComponent } from './project-logs-settings.component';
 import { DbCaptureStateService } from '../../core/state/db-capture-state.service';
 import { RedactionsStore } from '../../core/state/redactions-store.service';
 
@@ -17,7 +16,6 @@ type ListKey = 'beforeImageTables' | 'expectedFingerprints' | 'ignorePatterns' |
   standalone: true,
   selector: 'app-db-capture-settings',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ProjectLogsSettingsComponent],
   template: `
     <section class="panel settings-panel db-settings">
       <h3>Database capture</h3>
@@ -104,7 +102,6 @@ type ListKey = 'beforeImageTables' | 'expectedFingerprints' | 'ignorePatterns' |
               <div><label class="chk"><input type="checkbox" [checked]="s.outsideCallCapture" (change)="toggleOutside(p.project)">
                 Also record statements no inbound call caused (scheduled jobs, message listeners, startup)</label></div></div>
             @if (errors().get(p.project); as err) {<div class="db-err">{{ err }}</div>}
-            <app-project-logs-settings [project]="p.project" [inboundOn]="p.inboundLogging" />
           </div>
         }
       }

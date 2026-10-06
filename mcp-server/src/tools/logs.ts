@@ -11,9 +11,8 @@ const MAX_LINES = 5000;
 const RAW_LIMIT = 4000;
 
 const WHY: Record<string, string> = {
-  LINKING_OFF: "Alfred is not reading this project's logs: its log-linking switch (▤ in the Sources bar) or its inbound logging is off. Kept lines (session-cycle or imported calls) are still listed.",
-  NO_SOURCE: "No log source is linked to this project yet: load its log in the Logs tab and pick it in the project's log settings.",
-  NO_THREAD: 'No line carries this call\'s id and it cannot be matched by thread: no request thread was recorded (database capture off, or an older agent) or the log has no thread field.',
+  LINKING_OFF: "Alfred is not catching this project's log lines: its ▤ switch (Sources bar) or its inbound logging is off.",
+  NO_AGENT: 'The agent caught no log lines for this call: ▤ is on, but the database agent was not attached (or was an older version) when the call ran.',
 };
 
 async function allLines(client: AlfredClient, callId: string, cycleId: string | undefined): Promise<{ first: CallLogsPage; lines: LinkedLogLine[] }> {

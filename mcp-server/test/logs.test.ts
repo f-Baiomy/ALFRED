@@ -66,7 +66,7 @@ test('call_logs says why a call has no lines, and an unknown call is not found',
     w.fake.state.callLogs[IN2] = { setup: 'LINKING_OFF', matchedBy: null, thread: null, lines: [] };
     const off = await w.call('call_logs', { callId: IN2 });
     assert.equal(off.json.setup, 'LINKING_OFF');
-    assert.match(off.json.why, /not reading this project's logs/);
+    assert.match(off.json.why, /not catching this project's log lines/);
 
     const missing = await w.call('call_logs', { callId: 'nope' });
     assert.equal(missing.json.error, 'not_found');

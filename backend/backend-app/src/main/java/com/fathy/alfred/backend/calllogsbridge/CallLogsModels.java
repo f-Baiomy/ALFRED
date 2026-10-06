@@ -8,7 +8,9 @@ public final class CallLogsModels {
     private CallLogsModels() {
     }
 
-    public enum Setup { OK, LINKING_OFF, NO_SOURCE, NO_THREAD }
+    /** OK: the agent caught the call's lines; LINKING_OFF: ▤ is off for its project; NO_AGENT: ▤ is on but the agent
+     *  caught nothing for the call (not attached, an older agent, or the call ran before ▤ was turned on). */
+    public enum Setup { OK, LINKING_OFF, NO_AGENT }
 
     /** EXACT / THREAD_TIME: a log-file line matched to the call (008); CAUGHT: caught by the agent inside the call (009). */
     public enum Match { EXACT, THREAD_TIME, CAUGHT }
@@ -39,9 +41,4 @@ public final class CallLogsModels {
     public record LogCounts(int lines, int errors, int warnings, Match matchedBy) {
     }
 
-    public record LineCall(CallRef call, Match matchedBy) {
-    }
-
-    public record CallRef(String id, String method, String url, Integer status, double durationMs, String service, String at) {
-    }
 }

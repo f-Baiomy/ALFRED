@@ -65,19 +65,8 @@ class CallLogsControllerTest {
     }
 
     @Test
-    void aLineWithNoCallIs204() throws Exception {
-        when(service.forLine("s1", "in:1")).thenReturn(Optional.empty());
-        when(service.forLine("s1", "in:2")).thenReturn(Optional.of(new CallLogsModels.LineCall(
-                new CallLogsModels.CallRef("c1", "POST", "/x", 200, 12.5, "odeysys", "2026-10-06T10:00:00Z"), Match.EXACT)));
-
-        mvc.perform(get("/call-logs/for-line").param("sourceId", "s1").param("lineId", "in:1")).andExpect(status().isNoContent());
-        mvc.perform(get("/call-logs/for-line").param("sourceId", "s1").param("lineId", "in:2"))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.call.id").value("c1")).andExpect(jsonPath("$.matchedBy").value("EXACT"));
-    }
-
-    @Test
     void countsSplitIdsAndCapAtOneHundred() throws Exception {
-        when(service.counts(List.of("a", "b"), null)).thenReturn(Map.of("a", new LogCounts(3, 1, 0, Match.EXACT)));
+        when(service.counts(List.of("a", "b"))).thenReturn(Map.of("a", new LogCounts(3, 1, 0, Match.EXACT)));
 
         mvc.perform(get("/call-logs/counts").param("callIds", "a, b,,a"))
                 .andExpect(status().isOk())
@@ -86,8 +75,8 @@ class CallLogsControllerTest {
 
         String many = IntStream.range(0, 101).mapToObj(i -> "c" + i).collect(Collectors.joining(","));
         mvc.perform(get("/call-logs/counts").param("callIds", many)).andExpect(status().isBadRequest());
-        verify(service, never()).counts(List.of(), null);
-        when(service.counts(List.of("c"), "cy1")).thenReturn(Map.of("c", new LogCounts(1, 0, 0, Match.EXACT)));
+        verify(service, never()).counts(List.of());
+        when(service.counts(List.of("c"))).thenReturn(Map.of("c", new LogCounts(1, 0, 0, Match.EXACT)));
         mvc.perform(get("/call-logs/counts").param("callIds", "c").param("cycleId", "cy1")).andExpect(jsonPath("$.c.lines").value(1));
     }
 }

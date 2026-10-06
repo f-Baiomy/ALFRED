@@ -96,10 +96,13 @@ public interface DbCaptureStorePort {
 
     void addDroppedLogs(Map<String, Long> droppedByCall);
 
+    /** Removes a call's lines and their counts. */
+    void deleteLogLines(String callId);
+
     /** Counts of the calls that have caught lines (absent = none). */
     Map<String, CaughtLogCounts> logCounts(Collection<String> callIds);
 
-    /** The agent caught this call's lines (its CALL_OPEN said so). */
+    /** The agent caught this call's lines (its CALL_OPEN said so), or it has stored lines (imported). */
     boolean catchesLogs(String callId);
 
     /** The last {@code limit} captured calls opened on {@code thread} strictly before the ISO instant, newest first. */

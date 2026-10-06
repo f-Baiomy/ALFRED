@@ -1,10 +1,10 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { EMPTY, Observable, catchError, expand, of, reduce } from 'rxjs';
-import { CallLogsPage, LineCall, LinkedLogLine, LogCounts, ProjectLogSettings, ProjectLogsView } from '../models/call-logs.model';
+import { CallLogsPage, LinkedLogLine, LogCounts } from '../models/call-logs.model';
 import { AppConfigService } from './app-config.service';
 
-/** `/call-logs` (specs/008-logs-call-link/contracts/call-logs-api.md). */
+/** `/call-logs`: a call's log lines, caught by the db-agent inside the application (specs/009-agent-log-capture). */
 @Injectable({ providedIn: 'root' })
 export class CallLogsApiService {
   private readonly http = inject(HttpClient);
@@ -38,17 +38,8 @@ export class CallLogsApiService {
     return this.http.get<Record<string, LogCounts>>(`${this.base}/counts`, { params });
   }
 
-  forLine(sourceId: string, lineId: string): Observable<LineCall | null> {
-    return this.http.get<LineCall | null>(`${this.base}/for-line`, { params: { sourceId, lineId } });
-  }
 
-  settings(project: string): Observable<ProjectLogsView> {
-    return this.http.get<ProjectLogsView>(`${this.base}/settings/${encodeURIComponent(project)}`);
-  }
 
-  saveSettings(project: string, settings: Omit<ProjectLogSettings, 'project'>): Observable<ProjectLogsView> {
-    return this.http.put<ProjectLogsView>(`${this.base}/settings/${encodeURIComponent(project)}`, settings);
-  }
 
   /** An imported call's lines, kept as ALFRED's own copies (at most 20,000 per request). */
   importLines(callId: string, lines: readonly LinkedLogLine[]): Observable<void> {

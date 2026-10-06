@@ -64,7 +64,17 @@ public class DbCaptureQueryService implements GetCallDbSummariesUseCase, GetCall
         if (callId == null || callId.isBlank()) {
             return List.of();
         }
-        return store.logLines(callId, Math.max(0, afterSeq), clampLogLimit(limit));
+        return store.logLines(callId, Math.max(-1, afterSeq), clampLogLimit(limit));
+    }
+
+    @Override
+    public void importLines(String callId, List<CaughtLogLine> lines) {
+        if (callId == null || callId.isBlank() || lines == null || lines.isEmpty()) {
+            return;
+        }
+        store.deleteLogLines(callId); // importing the same call again replaces its lines
+        store.saveLogLines(lines.stream().map(l -> new CaughtLogLine(0, callId, l.seq(), l.at(), l.level(), l.logger(), l.thread(), l.message(),
+                l.exceptionType(), l.exceptionMessage(), l.exceptionStack(), l.cut(), l.project())).limit(5_000).toList());
     }
 
     @Override

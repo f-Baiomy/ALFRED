@@ -4,27 +4,12 @@ import com.fathy.alfred.backend.calllogsbridge.CallLogsModels.CallLogsPage;
 import com.fathy.alfred.backend.calllogsbridge.CallLogsModels.LinkedLogLine;
 import com.fathy.alfred.backend.calllogsbridge.CallLogsModels.Match;
 import com.fathy.alfred.backend.calllogsbridge.CallLogsModels.Setup;
-import com.fathy.alfred.backend.calllogsbridge.CallWindows.Window;
-import com.fathy.alfred.backend.dbcapture.application.port.in.CallThreadsUseCase;
+import com.fathy.alfred.backend.dbcapture.application.port.in.CallLogLinesUseCase;
 import com.fathy.alfred.backend.dbcapture.application.port.in.ManageDbCaptureUseCase;
-import com.fathy.alfred.backend.dbcapture.domain.model.CallOnThread;
+import com.fathy.alfred.backend.dbcapture.domain.model.CaughtLogCounts;
+import com.fathy.alfred.backend.dbcapture.domain.model.CaughtLogLine;
 import com.fathy.alfred.backend.internalcalls.application.port.in.GetCallDetailUseCase;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallSummary;
-import com.fathy.alfred.backend.logs.application.port.in.KeptLogLinesUseCase;
-import com.fathy.alfred.backend.logs.application.port.in.ManageLogSourcesUseCase;
-import com.fathy.alfred.backend.logs.application.port.in.ManageLogSourcesUseCase.SourceView;
-import com.fathy.alfred.backend.logs.application.port.in.ManageProjectLogsUseCase;
-import com.fathy.alfred.backend.logs.application.port.in.QueryLogsUseCase;
-import com.fathy.alfred.backend.logs.domain.model.FieldDef;
-import com.fathy.alfred.backend.logs.domain.model.KeptLogLine;
-import com.fathy.alfred.backend.logs.domain.model.LogLine;
-import com.fathy.alfred.backend.logs.domain.model.LogLineSummary;
-import com.fathy.alfred.backend.logs.domain.model.LogPage;
-import com.fathy.alfred.backend.logs.domain.model.LogQuery;
-import com.fathy.alfred.backend.logs.domain.model.LogSource;
-import com.fathy.alfred.backend.logs.domain.model.LogStructure;
-import com.fathy.alfred.backend.logs.domain.model.ProjectLogSettings;
-import com.fathy.alfred.backend.logs.domain.model.Role;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.ListCapturedInternalCallsUseCase;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedInternalCallSummary;
 import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedInternalCallsPage;
@@ -33,519 +18,125 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+/** A call's lines come only from what the agent caught (specs/009-agent-log-capture) - no log file, no Logs tab. */
 class CallLogsServiceTest {
 
     private static final String PROJECT = "odeysys";
     private static final String CALL = "c1";
-    private static final String THREAD = "default task-7";
     private static final long START = Instant.parse("2026-10-06T10:00:00Z").toEpochMilli();
 
-    private final ManageProjectLogsUseCase projectLogs = mock(ManageProjectLogsUseCase.class);
-    private final KeptLogLinesUseCase kept = mock(KeptLogLinesUseCase.class);
-    private final ManageLogSourcesUseCase sources = mock(ManageLogSourcesUseCase.class);
-    private final QueryLogsUseCase logs = mock(QueryLogsUseCase.class);
     private final ManageDbCaptureUseCase capture = mock(ManageDbCaptureUseCase.class);
-    private final CallThreadsUseCase threads = mock(CallThreadsUseCase.class);
     private final GetCallDetailUseCase calls = mock(GetCallDetailUseCase.class);
     private final ListCapturedInternalCallsUseCase cycleCalls = mock(ListCapturedInternalCallsUseCase.class);
-    private final com.fathy.alfred.backend.dbcapture.application.port.in.CallLogLinesUseCase caughtLines =
-            mock(com.fathy.alfred.backend.dbcapture.application.port.in.CallLogLinesUseCase.class);
-
+    private final CallLogLinesUseCase caught = mock(CallLogLinesUseCase.class);
     private CallLogsService service;
-    /** sourceId -> lines in it; the fake applies the EQ / NOT_EXISTS pills and the time range like the logs slice would. */
-    private final Map<String, List<FakeLine>> data = new HashMap<>();
-
-    record FakeLine(String lineId, long ts, String level, Map<String, Object> fields) {
-    }
 
     @BeforeEach
     void setUp() {
-        service = new CallLogsService(projectLogs, kept, sources, logs, capture, threads, calls, cycleCalls, caughtLines);
-        when(capture.logsLinked(PROJECT)).thenReturn(true);
-        when(kept.kept(anyString())).thenReturn(List.of());
+        service = new CallLogsService(capture, calls, cycleCalls, caught);
         when(calls.getSummary(CALL)).thenReturn(Optional.of(summary(CALL, START, 1000)));
-        settings(List.of("s1"));
-        source("s1", "server.log", true);
-        when(logs.lines(anyString(), any())).thenAnswer(inv -> page(inv.getArgument(0), inv.getArgument(1)));
-        when(logs.line(anyString(), anyString())).thenAnswer(inv -> full(inv.getArgument(0), inv.getArgument(1)));
-        when(threads.requestThread(CALL)).thenReturn(Optional.of(THREAD));
-        onThread(new CallOnThread(CALL, Instant.ofEpochMilli(START).toString()));
+        when(capture.logsLinked(PROJECT)).thenReturn(true);
     }
 
-    // ------------------------------------------------------------------ thread and time
+    private static CaughtLogLine line(long id, int seq, long atMs, String level, String message) {
+        return new CaughtLogLine(id, CALL, seq, Instant.ofEpochMilli(atMs).toString(), level, "com.app.Search", "default task-4", message,
+                null, null, null, false, PROJECT);
+    }
 
     @Test
-    void linesOfTheRequestThreadInsideTheWindowPlusSkewAreLinked() {
-        line("s1", "before-skew", START - 201, THREAD);
-        line("s1", "skew-start", START - 200, THREAD);
-        line("s1", "inside", START + 500, THREAD);
-        line("s1", "skew-end", START + 1200, THREAD);
-        line("s1", "after-skew", START + 1201, THREAD);
-        line("s1", "other-thread", START + 500, "default task-9");
+    void aCaughtCallListsItsLinesInItsOwnOrder() {
+        when(caught.caughtFor(CALL)).thenReturn(true);
+        when(caught.lines(CALL, -1, 200)).thenReturn(List.of(line(7, 3, START + 40, "WARN", "slow supplier"),
+                new CaughtLogLine(8, CALL, 9, Instant.ofEpochMilli(START + 900).toString(), "ERROR", "com.app.Search", "default task-4", "boom",
+                        "java.lang.IllegalStateException", "bad", "java.lang.IllegalStateException: bad", true, PROJECT)));
+        when(caught.counts(List.of(CALL))).thenReturn(Map.of(CALL, new CaughtLogCounts(2, 1, 1, 4)));
 
         CallLogsPage page = service.lines(CALL, null, null, 0).orElseThrow();
 
         assertThat(page.setup()).isEqualTo(Setup.OK);
-        assertThat(page.matchedBy()).isEqualTo(Match.THREAD_TIME);
-        assertThat(page.thread()).isEqualTo(THREAD);
-        assertThat(page.lines()).extracting(LinkedLogLine::lineId).containsExactly("skew-start", "inside", "skew-end");
-        assertThat(page.lines().get(0).offsetMs()).isEqualTo(-200);
-        assertThat(page.lines().get(1).message()).isEqualTo("msg inside");
-        assertThat(page.lines().get(1).raw()).isEqualTo("raw inside");
+        assertThat(page.matchedBy()).isEqualTo(Match.CAUGHT);
+        assertThat(page.dropped()).isEqualTo(4);
+        assertThat(page.next()).isNull();
+        assertThat(page.lines()).extracting(LinkedLogLine::message).containsExactly("slow supplier", "boom");
+        assertThat(page.lines()).extracting(LinkedLogLine::offsetMs).containsExactly(40L, 900L);
+        assertThat(page.lines()).extracting(LinkedLogLine::seq).containsExactly(3, 9);
+        LinkedLogLine boom = page.lines().get(1);
+        assertThat(boom.lineId()).isEqualTo("c:8");
+        assertThat(boom.exception().type()).isEqualTo("java.lang.IllegalStateException");
+        assertThat(boom.raw()).contains("\"exception\"").contains("\"cut\":true");
     }
 
     @Test
-    void aLineNearerANeighbouringCallOnTheSameThreadGoesToThatCall() {
-        when(calls.getSummary("c2")).thenReturn(Optional.of(summary("c2", START + 1100, 1000)));
-        onThread(new CallOnThread(CALL, Instant.ofEpochMilli(START).toString()), new CallOnThread("c2", Instant.ofEpochMilli(START + 1100).toString()));
-        line("s1", "mine", START + 900, THREAD);       // middle 500 vs 1600: mine
-        line("s1", "theirs", START + 1150, THREAD);    // 650 vs 450: theirs
-
-        CallLogsPage page = service.lines(CALL, null, null, 0).orElseThrow();
-
-        assertThat(page.lines()).extracting(LinkedLogLine::lineId).containsExactly("mine");
-    }
-
-    @Test
-    void aBusyThreadStillFindsTheNeighbourJustBefore() {
-        // 300 earlier calls on the same pooled thread - the one right before ends 50 ms into our window's skew
-        List<CallOnThread> earlier = new ArrayList<>();
-        for (int i = 300; i >= 1; i--) {
-            String id = "old-" + i;
-            long start = START - i * 1000L + 50;
-            when(calls.getSummary(id)).thenReturn(Optional.of(summary(id, start, 1000)));
-            earlier.add(new CallOnThread(id, Instant.ofEpochMilli(start).toString()));
-        }
-        earlier.add(new CallOnThread(CALL, Instant.ofEpochMilli(START).toString()));
-        onThread(earlier.toArray(CallOnThread[]::new));
-        line("s1", "prev-tail", START - 150, THREAD); // old-1 runs START-950..START+50: nearer its middle than ours
-
-        assertThat(service.lines(CALL, null, null, 0).orElseThrow().lines()).extracting(LinkedLogLine::lineId).doesNotContain("prev-tail");
-    }
-
-    @Test
-    void aLineDeepInsideALongCallFindsIt() {
-        when(projectLogs.readingSource("s1")).thenReturn(List.of(new ProjectLogSettings(PROJECT, List.of("s1"), "thread", null, null, 200)));
-        when(calls.getSummary(CALL)).thenReturn(Optional.of(summary(CALL, START, 30 * 60 * 1000)));
-        onThread(new CallOnThread(CALL, Instant.ofEpochMilli(START).toString()));
-        line("s1", "late", START + 25 * 60 * 1000, THREAD);
-
-        assertThat(service.forLine("s1", "late").orElseThrow().call().id()).isEqualTo(CALL);
-    }
-
-    @Test
-    void timesAreCompardAsUtcInstantsWhateverTheSourceTimeZone() {
-        // the logs slice stores a +04:00 "14:00:00.300" as its UTC instant; the join only ever sees that instant
-        long dubaiLocalAsUtc = Instant.parse("2026-10-06T14:00:00.300+04:00").toEpochMilli();
-        line("s1", "dubai", dubaiLocalAsUtc, THREAD);
-
-        assertThat(service.lines(CALL, null, null, 0).orElseThrow().lines()).extracting(LinkedLogLine::offsetMs).containsExactly(300L);
-    }
-
-    @Test
-    void aLineTaggedWithAnotherCallsIdIsNeverTimeMatched() {
-        line("s1", "untagged", START + 100, THREAD);
-        line("s1", "tagged-other", START + 200, THREAD, Map.of("mdc.alfred.call", "c9"));
-
-        CallLogsPage page = service.lines(CALL, null, null, 0).orElseThrow();
-
-        assertThat(page.lines()).extracting(LinkedLogLine::lineId).containsExactly("untagged");
-    }
-
-    @Test
-    void everyLineCarriesItsSourceAcrossTwoSources() {
-        settings(List.of("s1", "s2"));
-        source("s2", "app.log", true);
-        line("s1", "a", START + 100, THREAD);
-        line("s2", "b", START + 50, THREAD);
-
-        CallLogsPage page = service.lines(CALL, null, null, 0).orElseThrow();
-
-        assertThat(page.lines()).extracting(LinkedLogLine::lineId).containsExactly("b", "a");
-        assertThat(page.lines()).extracting(LinkedLogLine::sourceName).containsExactly("app.log", "server.log");
-    }
-
-    @Test
-    void pagesWithACursorUntilTheLastLine() {
-        for (int i = 0; i < 5; i++) {
-            line("s1", "l" + i, START + i, THREAD);
-        }
+    void pagesByTheCallsSeq() {
+        when(caught.caughtFor(CALL)).thenReturn(true);
+        when(caught.lines(CALL, -1, 2)).thenReturn(List.of(line(1, 1, START, "INFO", "a"), line(2, 4, START, "INFO", "b")));
+        when(caught.lines(CALL, 4, 2)).thenReturn(List.of(line(3, 6, START, "INFO", "c")));
 
         CallLogsPage first = service.lines(CALL, null, null, 2).orElseThrow();
         CallLogsPage second = service.lines(CALL, null, first.next(), 2).orElseThrow();
-        CallLogsPage last = service.lines(CALL, null, second.next(), 2).orElseThrow();
 
-        assertThat(first.lines()).extracting(LinkedLogLine::lineId).containsExactly("l0", "l1");
-        assertThat(second.lines()).extracting(LinkedLogLine::lineId).containsExactly("l2", "l3");
-        assertThat(last.lines()).extracting(LinkedLogLine::lineId).containsExactly("l4");
-        assertThat(last.next()).isNull();
-    }
-
-    // ------------------------------------------------------------------ exact
-
-    @Test
-    void linesTaggedWithTheCallsIdWinOverTimeMatching() {
-        line("s1", "tagged", START + 5000, "worker-1", Map.of("mdc.alfred.call", CALL));
-        line("s1", "untagged", START + 100, THREAD);
-
-        CallLogsPage page = service.lines(CALL, null, null, 0).orElseThrow();
-
-        assertThat(page.matchedBy()).isEqualTo(Match.EXACT);
-        assertThat(page.lines()).extracting(LinkedLogLine::lineId).containsExactly("tagged");
-        assertThat(page.lines().get(0).matchedBy()).isEqualTo(Match.EXACT);
+        assertThat(first.next()).isEqualTo("s:4");
+        assertThat(second.lines()).extracting(LinkedLogLine::message).containsExactly("c");
+        assertThat(second.next()).isNull();
     }
 
     @Test
-    void aCallWithoutCaptureGetsItsTaggedLinesExactly() {
-        when(threads.requestThread(CALL)).thenReturn(Optional.empty()); // db=0: no CALL_OPEN, no thread
-        line("s1", "tagged", START + 10, "default task-3", Map.of("mdc.alfred.call", CALL));
-
-        CallLogsPage page = service.lines(CALL, null, null, 0).orElseThrow();
-
-        assertThat(page.setup()).isEqualTo(Setup.OK);
-        assertThat(page.matchedBy()).isEqualTo(Match.EXACT);
-        assertThat(page.lines()).extracting(LinkedLogLine::lineId).containsExactly("tagged");
-    }
-
-    @Test
-    void neighboursBeforeAndAfterTheSwitchWasTurnedOn() {
-        // c0 ran before the switch was on (its lines untagged), CALL after (tagged); both on the same thread
-        when(calls.getSummary("c0")).thenReturn(Optional.of(summary("c0", START - 1500, 1000)));
-        when(threads.requestThread("c0")).thenReturn(Optional.of(THREAD));
-        onThread(new CallOnThread("c0", Instant.ofEpochMilli(START - 1500).toString()), new CallOnThread(CALL, Instant.ofEpochMilli(START).toString()));
-        line("s1", "c0-untagged", START - 1000, THREAD);
-        line("s1", "c0-edge", START - 400, THREAD);
-        line("s1", "mine-tagged", START + 100, THREAD, Map.of("mdc.alfred.call", CALL));
-
-        assertThat(service.lines(CALL, null, null, 0).orElseThrow().lines()).extracting(LinkedLogLine::lineId).containsExactly("mine-tagged");
-        CallLogsPage before = service.lines("c0", null, null, 0).orElseThrow();
-        assertThat(before.matchedBy()).isEqualTo(Match.THREAD_TIME);
-        assertThat(before.lines()).extracting(LinkedLogLine::lineId).containsExactly("c0-untagged", "c0-edge");
-    }
-
-    // ------------------------------------------------------------------ setup states
-
-    @Test
-    void switchOffReadsNoLogsButServesKeptLines() {
+    void aCallNothingWasCaughtForSaysWhy() {
+        assertThat(service.lines(CALL, null, null, 0).orElseThrow().setup()).isEqualTo(Setup.NO_AGENT);
         when(capture.logsLinked(PROJECT)).thenReturn(false);
-        when(kept.kept(CALL)).thenReturn(List.of(new KeptLogLine(CALL, "s1", "server.log", "k1", START + 10, "INFO", THREAD, "a.B", "kept msg",
-                "THREAD_TIME", "raw k1", KeptLogLine.Origin.CYCLE)));
-
-        CallLogsPage page = service.lines(CALL, null, null, 0).orElseThrow();
-
-        assertThat(page.setup()).isEqualTo(Setup.LINKING_OFF);
-        assertThat(page.lines()).extracting(LinkedLogLine::lineId).containsExactly("k1");
-        assertThat(page.lines().get(0).kept()).isTrue();
-        verify(logs, never()).lines(anyString(), any());
-        verify(logs, never()).line(anyString(), anyString());
-        verify(sources, never()).structure(anyString());
-    }
-
-    @Test
-    void noSourceAndNoThreadAreReported() {
-        settings(List.of());
-        assertThat(service.lines(CALL, null, null, 0).orElseThrow().setup()).isEqualTo(Setup.NO_SOURCE);
-
-        settings(List.of("s1"));
-        when(threads.requestThread(CALL)).thenReturn(Optional.empty());
-        assertThat(service.lines(CALL, null, null, 0).orElseThrow().setup()).isEqualTo(Setup.NO_THREAD);
-
-        // a log without the thread field cannot be matched by thread either
-        when(threads.requestThread(CALL)).thenReturn(Optional.of(THREAD));
-        when(projectLogs.settings(PROJECT)).thenReturn(new ProjectLogSettings(PROJECT, List.of("s1"), "process.thread.name", null, null, 200));
-        assertThat(service.lines(CALL, null, null, 0).orElseThrow().setup()).isEqualTo(Setup.NO_THREAD);
+        assertThat(service.lines(CALL, null, null, 0).orElseThrow().setup()).isEqualTo(Setup.LINKING_OFF);
+        verify(caught, never()).lines(anyString(), anyInt(), anyInt());
     }
 
     @Test
     void anUnknownCallIsEmptyAndACycleCopyIsFoundById() {
         assertThat(service.lines("nope", null, null, 0)).isEmpty();
-
         when(cycleCalls.listCalls(eq("cy1"), any())).thenReturn(Optional.of(new CapturedInternalCallsPage(List.of(
-                new CapturedInternalCallSummary("x", "2026-10-06T10:00:00Z", summary("old-c1x", START, 100)),
-                new CapturedInternalCallSummary("y", "2026-10-06T10:00:00Z", summary("old-c1", START, 100))), 2)));
-        line("s1", "in", START + 50, THREAD);
-        when(threads.requestThread("old-c1")).thenReturn(Optional.of(THREAD));
+                new CapturedInternalCallSummary("y", "2026-10-06T10:00:00Z", summary("old-c1", START, 100))), 1)));
+        when(caught.caughtFor("old-c1")).thenReturn(true);
+        when(caught.lines("old-c1", -1, 200)).thenReturn(List.of());
 
-        CallLogsPage page = service.lines("old-c1", "cy1", null, 0).orElseThrow();
-
-        assertThat(page.callId()).isEqualTo("old-c1");
-        assertThat(page.lines()).extracting(LinkedLogLine::lineId).containsExactly("in");
+        assertThat(service.lines("old-c1", "cy1", null, 0).orElseThrow().callId()).isEqualTo("old-c1");
     }
 
     @Test
-    void countsUseSummariesOnly() {
-        line("s1", "e", START + 1, THREAD, Map.of(), "ERROR");
-        line("s1", "w", START + 2, THREAD, Map.of(), "WARNING");
-        line("s1", "i", START + 3, THREAD);
+    void countsComeFromWhatWasStoredAndLeaveOutCallsWithoutLines() {
+        when(caught.counts(List.of(CALL, "c2", "c3"))).thenReturn(Map.of(CALL, new CaughtLogCounts(12, 2, 3, 0), "c2", new CaughtLogCounts(0, 0, 0, 5)));
 
-        var counts = service.counts(List.of(CALL, "unknown"));
-
-        assertThat(counts).containsOnlyKeys(CALL);
-        assertThat(counts.get(CALL).lines()).isEqualTo(3);
-        assertThat(counts.get(CALL).errors()).isEqualTo(1);
-        assertThat(counts.get(CALL).warnings()).isEqualTo(1);
-        verify(logs, never()).line(anyString(), anyString());
-    }
-
-    @Test
-    void aCycleOnlyCallIsCountedThroughItsCycleAndItsKeptLines() {
-        when(cycleCalls.listCalls(eq("cy1"), any())).thenReturn(Optional.of(new CapturedInternalCallsPage(List.of(
-                new CapturedInternalCallSummary("y", "2026-10-06T10:00:00Z", summary("gone-from-live", START, 100))), 1)));
-        when(capture.logsLinked(PROJECT)).thenReturn(false);
-        when(kept.kept("gone-from-live")).thenReturn(List.of(new KeptLogLine("gone-from-live", "s1", "server.log", "k1", START + 10, "ERROR",
-                THREAD, null, "boom", "EXACT", "raw", KeptLogLine.Origin.CYCLE)));
-
-        assertThat(service.counts(List.of("gone-from-live"))).isEmpty();
-        assertThat(service.counts(List.of("gone-from-live"), "cy1").get("gone-from-live")).satisfies(c -> {
-            assertThat(c.lines()).isEqualTo(1);
-            assertThat(c.errors()).isEqualTo(1);
-        });
-    }
-
-    @Test
-    void timeQueryIsBoundedByTheWindowAndExcludesTaggedLines() {
-        line("s1", "x", START, THREAD);
-        service.lines(CALL, null, null, 0);
-
-        ArgumentCaptor<LogQuery> q = ArgumentCaptor.forClass(LogQuery.class);
-        verify(logs, atLeastOnce()).lines(eq("s1"), q.capture());
-        LogQuery byTime = q.getAllValues().stream().filter(x -> x.from() != null).findFirst().orElseThrow();
-        assertThat(byTime.from()).isEqualTo(START - 200);
-        assertThat(byTime.to()).isEqualTo(START + 1200);
-        assertThat(byTime.pills()).extracting(LogQuery.Pill::op).containsExactly(LogQuery.Op.EQ, LogQuery.Op.NOT_EXISTS);
-    }
-
-    // ------------------------------------------------------------------ caught by the agent (009)
-
-    @Test
-    void aCaughtCallServesItsCaughtLinesInSeqOrderAndReadsNoLog() {
-        when(caughtLines.caughtFor(CALL)).thenReturn(true);
-        when(caughtLines.lines(eq(CALL), org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyInt())).thenReturn(List.of(
-                new com.fathy.alfred.backend.dbcapture.domain.model.CaughtLogLine(7, CALL, 3, Instant.ofEpochMilli(START + 40).toString(), "WARN",
-                        "a.Search", THREAD, "slow supplier", null, null, null, false, PROJECT),
-                new com.fathy.alfred.backend.dbcapture.domain.model.CaughtLogLine(8, CALL, 9, Instant.ofEpochMilli(START + 900).toString(), "ERROR",
-                        "a.Search", THREAD, "boom", "java.lang.IllegalStateException", "bad", "java.lang.IllegalStateException: bad\n\tat a.B", true, PROJECT)));
-        when(caughtLines.counts(List.of(CALL))).thenReturn(java.util.Map.of(CALL,
-                new com.fathy.alfred.backend.dbcapture.domain.model.CaughtLogCounts(2, 1, 1, 4)));
-        line("s1", "file-line", START + 10, THREAD); // a log file is linked too - it must not be read for a caught call
-
-        CallLogsPage page = service.lines(CALL, null, null, 0).orElseThrow();
-
-        assertThat(page.matchedBy()).isEqualTo(Match.CAUGHT);
-        assertThat(page.dropped()).isEqualTo(4);
-        assertThat(page.lines()).extracting(LinkedLogLine::message).containsExactly("slow supplier", "boom");
-        assertThat(page.lines()).extracting(LinkedLogLine::offsetMs).containsExactly(40L, 900L);
-        LinkedLogLine boom = page.lines().get(1);
-        assertThat(boom.lineId()).isEqualTo("c:8");
-        assertThat(boom.logger()).isEqualTo("a.Search");
-        assertThat(boom.exception().type()).isEqualTo("java.lang.IllegalStateException");
-        assertThat(boom.raw()).contains("\"exception\"").contains("\"cut\":true").contains("boom");
-        verify(logs, never()).lines(anyString(), any());
-        verify(sources, never()).structure(anyString());
-    }
-
-    @Test
-    void countsOfCaughtCallsComeFromTheirSummaryAndReadNoLog() {
-        when(caughtLines.counts(List.of(CALL, "c-none"))).thenReturn(java.util.Map.of(CALL,
-                new com.fathy.alfred.backend.dbcapture.domain.model.CaughtLogCounts(12, 2, 3, 0)));
-        when(caughtLines.caughtFor("c-none")).thenReturn(true);
-
-        var counts = service.counts(List.of(CALL, "c-none"));
+        var counts = service.counts(List.of(CALL, "c2", "c3"));
 
         assertThat(counts).containsOnlyKeys(CALL);
         assertThat(counts.get(CALL)).isEqualTo(new CallLogsModels.LogCounts(12, 2, 3, Match.CAUGHT));
-        verify(logs, never()).lines(anyString(), any());
-    }
-
-    // ------------------------------------------------------------------ kept lines
-
-    @Test
-    @SuppressWarnings("unchecked")
-    void aCycleCallsLinesAreKeptAndMergedWithLiveOnesByLine() {
-        line("s1", "a", START + 10, THREAD);
-        line("s1", "b", START + 20, THREAD);
-        when(kept.kept(CALL)).thenReturn(List.of(
-                new KeptLogLine(CALL, "s1", "server.log", "a", START + 10, "INFO", THREAD, null, "old copy", "THREAD_TIME", "raw", KeptLogLine.Origin.CYCLE),
-                new KeptLogLine(CALL, "s1", "server.log", "gone", START + 5, "INFO", THREAD, null, "rotated away", "THREAD_TIME", "raw", KeptLogLine.Origin.CYCLE)));
-
-        CallLogsPage page = service.lines(CALL, "cy1", null, 0).orElseThrow();
-
-        assertThat(page.lines()).extracting(LinkedLogLine::lineId).containsExactly("gone", "a", "b");
-        assertThat(page.lines()).extracting(LinkedLogLine::kept).containsExactly(true, false, false);
-        ArgumentCaptor<List<KeptLogLine>> stored = ArgumentCaptor.forClass(List.class);
-        verify(kept).keep(stored.capture());
-        assertThat(stored.getValue()).extracting(KeptLogLine::lineId).containsExactly("a", "b");
-        assertThat(stored.getValue()).allMatch(k -> k.origin() == KeptLogLine.Origin.CYCLE && k.raw().equals("raw " + k.lineId()));
-    }
-
-    @Test
-    void aLiveCallReadOutsideACycleKeepsNothing() {
-        line("s1", "a", START + 10, THREAD);
-        service.lines(CALL, null, null, 0);
-        verify(kept, never()).keep(any());
     }
 
     @Test
     @SuppressWarnings("unchecked")
-    void importedLinesAreKeptAsGiven() {
-        LinkedLogLine l = new LinkedLogLine("s9", "old.log", "x:1", "2026-10-06T10:00:00.050Z", 50, "WARN", "t", "a.B", "m", Match.EXACT, false, "{}");
+    void importedLinesAreStoredWithTheCall() {
+        LinkedLogLine l = new LinkedLogLine("agent", "caught by the agent", "c:1", "2026-10-06T10:00:00.050Z", 50, "WARN", "t", "a.B", "m",
+                Match.CAUGHT, false, "{}", new CallLogsModels.LogException("java.lang.X", "x", "stack"), 7);
 
         assertThat(service.importLines("imp-1", List.of(l))).isEqualTo(1);
 
-        ArgumentCaptor<List<KeptLogLine>> stored = ArgumentCaptor.forClass(List.class);
-        verify(kept).keep(stored.capture());
-        KeptLogLine k = stored.getValue().get(0);
-        assertThat(k.callId()).isEqualTo("imp-1");
-        assertThat(k.origin()).isEqualTo(KeptLogLine.Origin.IMPORT);
-        assertThat(k.atMs()).isEqualTo(START + 50);
-        assertThat(k.matchedBy()).isEqualTo("EXACT");
-    }
-
-    // ------------------------------------------------------------------ a line's call
-
-    @Test
-    void aLineFindsItsCallByIdOrByThreadAndTime() {
-        when(projectLogs.readingSource("s1")).thenReturn(List.of(new ProjectLogSettings(PROJECT, List.of("s1"), "thread", null, null, 200)));
-        line("s1", "tagged", START + 9000, "other", Map.of("mdc.alfred.call", CALL));
-        line("s1", "timed", START + 400, THREAD);
-        line("s1", "elsewhere", START + 400, "default task-9");
-
-        assertThat(service.forLine("s1", "tagged").orElseThrow()).satisfies(c -> {
-            assertThat(c.call().id()).isEqualTo(CALL);
-            assertThat(c.matchedBy()).isEqualTo(Match.EXACT);
-        });
-        assertThat(service.forLine("s1", "timed").orElseThrow().matchedBy()).isEqualTo(Match.THREAD_TIME);
-        assertThat(service.forLine("s1", "elsewhere")).isEmpty();
-    }
-
-    @Test
-    void aLineOfAProjectWithTheSwitchOffFindsNothingAndIsNotRead() {
-        when(projectLogs.readingSource("s1")).thenReturn(List.of(new ProjectLogSettings(PROJECT, List.of("s1"), "thread", null, null, 200)));
-        when(capture.logsLinked(PROJECT)).thenReturn(false);
-        line("s1", "timed", START + 400, THREAD);
-
-        assertThat(service.forLine("s1", "timed")).isEmpty();
-        verify(logs, never()).line(anyString(), anyString());
-    }
-
-    // ------------------------------------------------------------------ the window rule directly
-
-    @Test
-    void windowRuleEdges() {
-        Window self = new Window("a", 1000, 2000);
-        assertThat(CallWindows.belongsTo(self, List.of(), 800, 200)).isTrue();
-        assertThat(CallWindows.belongsTo(self, List.of(), 799, 200)).isFalse();
-        assertThat(CallWindows.belongsTo(self, List.of(), 2200, 200)).isTrue();
-        assertThat(CallWindows.belongsTo(self, List.of(), 2201, 200)).isFalse();
-        Window next = new Window("b", 2100, 3100);
-        assertThat(CallWindows.belongsTo(self, List.of(next), 2050, 200)).isTrue();   // 550 vs 550: tie stays
-        assertThat(CallWindows.belongsTo(self, List.of(next), 2150, 200)).isFalse();
-        assertThat(CallWindows.belongsTo(self, List.of(self), 1500, 0)).isTrue();
-    }
-
-    // ------------------------------------------------------------------ fakes
-
-    /** The calls opened on THREAD, answered by time like the db-capture store would. */
-    private void onThread(CallOnThread... calls) {
-        List<CallOnThread> all = List.of(calls);
-        when(threads.callsOnThread(eq(THREAD), any(), any())).thenAnswer(inv -> {
-            Instant from = inv.getArgument(1);
-            Instant to = inv.getArgument(2);
-            return all.stream().filter(c -> !opened(c).isBefore(from) && !opened(c).isAfter(to)).sorted(java.util.Comparator.comparing(CallLogsServiceTest::opened)).toList();
-        });
-        when(threads.callsBefore(eq(THREAD), any(), org.mockito.ArgumentMatchers.anyInt())).thenAnswer(inv -> {
-            Instant before = inv.getArgument(1);
-            int limit = inv.getArgument(2);
-            return all.stream().filter(c -> opened(c).isBefore(before))
-                    .sorted(java.util.Comparator.comparing(CallLogsServiceTest::opened).reversed()).limit(limit).toList();
-        });
-    }
-
-    private static Instant opened(CallOnThread c) {
-        return Instant.parse(c.openedAt());
-    }
-
-    private void settings(List<String> sourceIds) {
-        when(projectLogs.settings(PROJECT)).thenReturn(new ProjectLogSettings(PROJECT, sourceIds, "thread", null, null, 200));
-    }
-
-    private void source(String id, String name, boolean hasCallId) {
-        List<FieldDef> fields = new ArrayList<>();
-        fields.add(field("thread", Role.CORRELATION));
-        fields.add(field("message", Role.MESSAGE));
-        fields.add(field("logger", null));
-        if (hasCallId) {
-            fields.add(field("mdc.alfred.call", null));
-        }
-        LogStructure structure = mock(LogStructure.class);
-        when(structure.fields()).thenReturn(fields);
-        when(sources.structure(id)).thenReturn(structure);
-        LogSource src = mock(LogSource.class);
-        when(src.name()).thenReturn(name);
-        SourceView view = mock(SourceView.class);
-        when(view.source()).thenReturn(src);
-        when(sources.get(id)).thenReturn(view);
-        data.putIfAbsent(id, new ArrayList<>());
-    }
-
-    private static FieldDef field(String label, Role role) {
-        FieldDef f = mock(FieldDef.class);
-        when(f.label()).thenReturn(label);
-        when(f.role()).thenReturn(role);
-        when(f.stored()).thenReturn(true);
-        return f;
-    }
-
-    private void line(String source, String id, long ts, String thread) {
-        line(source, id, ts, thread, Map.of(), "INFO");
-    }
-
-    private void line(String source, String id, long ts, String thread, Map<String, Object> extra) {
-        line(source, id, ts, thread, extra, "INFO");
-    }
-
-    private void line(String source, String id, long ts, String thread, Map<String, Object> extra, String level) {
-        Map<String, Object> fields = new HashMap<>(extra);
-        fields.put("thread", thread);
-        fields.put("message", "msg " + id);
-        fields.put("logger", "com.acme.Svc");
-        data.computeIfAbsent(source, k -> new ArrayList<>()).add(new FakeLine(id, ts, level, fields));
-    }
-
-    private LogPage page(String source, LogQuery q) {
-        List<LogLineSummary> out = data.getOrDefault(source, List.of()).stream()
-                .filter(l -> q.from() == null || l.ts() >= q.from())
-                .filter(l -> q.to() == null || l.ts() <= q.to())
-                .filter(l -> q.pills().stream().allMatch(p -> switch (p.op()) {
-                    case EQ -> p.value().equals(l.fields().get(p.field()));
-                    case NOT_EXISTS -> !l.fields().containsKey(p.field());
-                    default -> true;
-                }))
-                .sorted((a, b) -> Long.compare(a.ts(), b.ts()))
-                .map(l -> new LogLineSummary(l.lineId(), l.ts(), l.level(), 0, null, null, false, false, 0, l.fields(), 0))
-                .toList();
-        return new LogPage(out, out.size(), null, 1, false);
-    }
-
-    private LogLine full(String source, String lineId) {
-        FakeLine l = data.get(source).stream().filter(x -> x.lineId().equals(lineId)).findFirst().orElseThrow();
-        return new LogLine(l.lineId(), "in", 0, l.ts(), l.level(), 0, null, null, false, false, 0, l.fields(), "raw " + lineId, null);
+        ArgumentCaptor<List<CaughtLogLine>> stored = ArgumentCaptor.forClass(List.class);
+        verify(caught).importLines(eq("imp-1"), stored.capture());
+        CaughtLogLine s = stored.getValue().get(0);
+        assertThat(s.seq()).isEqualTo(7);
+        assertThat(s.exceptionType()).isEqualTo("java.lang.X");
+        assertThat(s.level()).isEqualTo("WARN");
     }
 
     private static CallSummary summary(String id, long startMs, double durationMs) {

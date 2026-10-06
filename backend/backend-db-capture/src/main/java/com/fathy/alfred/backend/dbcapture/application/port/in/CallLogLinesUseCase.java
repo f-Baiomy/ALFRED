@@ -11,13 +11,16 @@ public interface CallLogLinesUseCase {
 
     int MAX_PAGE = 500;
 
-    /** The agent caught this call's lines - they, not log files, are its lines. */
+    /** The agent caught this call's lines (or they were imported with it). */
     boolean caughtFor(String callId);
 
     /** A call's lines in its own order (seq), after {@code afterSeq}, at most {@code limit} (clamped to {@link #MAX_PAGE}). */
     List<CaughtLogLine> lines(String callId, int afterSeq, int limit);
 
     Map<String, CaughtLogCounts> counts(List<String> callIds);
+
+    /** An imported call's lines (.json export), stored with the call like caught lines. */
+    void importLines(String callId, List<CaughtLogLine> lines);
 
     /** Outside-call lines of a project, optionally one thread, oldest first. */
     List<CaughtLogLine> outside(String project, String thread, long afterId, int limit);

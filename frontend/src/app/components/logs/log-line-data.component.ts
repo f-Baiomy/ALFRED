@@ -60,12 +60,10 @@ interface TableRow {
  * text bindings only - never innerHTML (constitution I). Mock: `dataHtml()`, `tableHtml()`, `jsonLines()`,
  * `commentBlock()`.
  */
-import { LogLineCallComponent } from './log-line-call.component';
-
 @Component({
   selector: 'app-log-line-data',
   standalone: true,
-  imports: [FormsModule, NgTemplateOutlet, JsonTokensComponent, JsonTreeComponent, XmlTreeNodeComponent, LogLineCallComponent],
+  imports: [FormsModule, NgTemplateOutlet, JsonTokensComponent, JsonTreeComponent, XmlTreeNodeComponent],
   templateUrl: './log-line-data.component.html',
 })
 export class LogLineDataComponent {

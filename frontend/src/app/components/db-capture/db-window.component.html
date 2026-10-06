@@ -235,8 +235,7 @@
                 Alfred is not reading <b>{{ state.project() }}</b>’s logs - <b>▤</b> is off for it.
                 <button type="button" class="action-btn" (click)="turnLogsOn()">Turn ▤ on</button>
               }
-              @case ('nosource') { No log source is linked to <b>{{ state.project() }}</b> yet - load its log in the Logs tab, then pick it under <b>▤ Logs</b> in the project’s ◆ ▾ settings. }
-              @case ('nothread') { No log line carries this call’s id, and it cannot be matched by thread: either no request thread was recorded (turn <b>◆</b> capture on, or load the new agent) or the linked log has no thread field (pick one under <b>▤ Logs</b> in the project’s ◆ ▾ settings). }
+              @case ('noagent') { The agent caught no log lines for this call. Lines are caught while <b>▤</b> is on and the database agent is attached to <b>{{ state.project() }}</b> - a call that ran before, or with an older agent loaded (restart the application once after updating it), has none. }
               @default { No log lines were written during this call. }
             }
           </div>

@@ -13,8 +13,11 @@ export interface LogException {
   readonly stack: string | null;
 }
 
-/** Why a call shows no lines: LINKING_OFF = the project's ▤ switch or its logging is off (nothing is read). */
-export type CallLogsSetup = 'OK' | 'LINKING_OFF' | 'NO_SOURCE' | 'NO_THREAD';
+/**
+ * Why a call shows no lines: LINKING_OFF = the project's ▤ switch (or its call logging) is off; NO_AGENT = ▤ is on but
+ * the agent caught nothing for the call (not attached, an older agent, or the call ran before ▤ was turned on).
+ */
+export type CallLogsSetup = 'OK' | 'LINKING_OFF' | 'NO_AGENT';
 
 export interface LinkedLogLine {
   readonly sourceId: string;
@@ -59,23 +62,5 @@ export interface LogCounts {
   readonly matchedBy: LogMatch | null;
 }
 
-export interface ProjectLogSettings {
-  readonly project: string;
-  readonly sourceIds: readonly string[];
-  readonly threadField: string | null;
-  readonly timeField: string | null;
-  readonly callIdField: string;
-  readonly clockSkewMs: number;
-}
 
-export interface ProjectLogsView {
-  readonly settings: ProjectLogSettings;
-  /** Per linked source, lines carrying the call-id field - whether the agent's tag reaches the log. */
-  readonly callIdFoundLines: Readonly<Record<string, number>>;
-}
 
-/** The call a Logs-tab line was written during (GET /call-logs/for-line). */
-export interface LineCall {
-  readonly call: { readonly id: string; readonly method: string; readonly url: string; readonly status: number | null; readonly durationMs: number; readonly service: string | null; readonly at: string };
-  readonly matchedBy: LogMatch;
-}

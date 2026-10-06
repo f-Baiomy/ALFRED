@@ -26,13 +26,8 @@ describe('CallLogsApiService', () => {
     expect(req.request.params.get('limit')).toBe('50');
   });
 
-  it('asks counts for many calls in one request, and saves settings by project', () => {
+  it('asks counts for many calls in one request', () => {
     api.counts(['a', 'b']).subscribe();
     expect(http.expectOne((r) => r.url === `${BACKEND}/call-logs/counts`).request.params.get('callIds')).toBe('a,b');
-    api.saveSettings('odeysys', { sourceIds: ['s1'], threadField: 'process.thread.name', timeField: null, callIdField: 'mdc.alfred.call', clockSkewMs: 200 })
-      .subscribe();
-    const put = http.expectOne(`${BACKEND}/call-logs/settings/odeysys`);
-    expect(put.request.method).toBe('PUT');
-    expect(put.request.body.threadField).toBe('process.thread.name');
   });
 });

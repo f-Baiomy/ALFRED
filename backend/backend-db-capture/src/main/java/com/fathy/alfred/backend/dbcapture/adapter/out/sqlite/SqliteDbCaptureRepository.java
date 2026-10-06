@@ -441,7 +441,16 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
 
     @Override
     public boolean catchesLogs(String callId) {
-        return !jdbcTemplate.queryForList("SELECT 1 FROM call_markers WHERE call_id = ? AND seq = 0 AND logs = 1 LIMIT 1", Integer.class, callId).isEmpty();
+        return !jdbcTemplate.queryForList("SELECT 1 FROM call_markers WHERE call_id = ? AND seq = 0 AND logs = 1 LIMIT 1", Integer.class, callId).isEmpty()
+                || !jdbcTemplate.queryForList("SELECT 1 FROM call_log_lines WHERE call_id = ? LIMIT 1", Integer.class, callId).isEmpty();
+    }
+
+    @Override
+    public void deleteLogLines(String callId) {
+        transactions.executeWithoutResult(status -> {
+            jdbcTemplate.update("DELETE FROM call_log_lines WHERE call_id = ?", callId);
+            jdbcTemplate.update("DELETE FROM call_log_summary WHERE call_id = ?", callId);
+        });
     }
 
     private CaughtLogLine logLine(java.sql.ResultSet rs, int n) throws java.sql.SQLException {

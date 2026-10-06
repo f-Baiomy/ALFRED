@@ -656,8 +656,7 @@ export class DbWindowComponent implements OnInit {
   logsWhy(): string {
     switch (this.logInfo()?.setup) {
       case 'LINKING_OFF': return 'off';
-      case 'NO_SOURCE': return 'nosource';
-      case 'NO_THREAD': return 'nothread';
+      case 'NO_AGENT': return 'noagent';
       default: return 'none';
     }
   }

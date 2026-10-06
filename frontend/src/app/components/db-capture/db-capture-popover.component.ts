@@ -4,7 +4,6 @@ import { DbCaptureSettings } from '../../core/models/db-capture.model';
 import { DbCaptureApiService } from '../../core/services/db-capture-api.service';
 import { DbCaptureStateService } from '../../core/state/db-capture-state.service';
 import { DbWindowService } from './db-window.service';
-import { ProjectLogsSettingsComponent } from './project-logs-settings.component';
 
 /**
  * The ▾ panel next to a project's ◆ switch in the Sources bar (mock: ".db-pop"): the switch again, whether the
@@ -15,7 +14,6 @@ import { ProjectLogsSettingsComponent } from './project-logs-settings.component'
   standalone: true,
   selector: 'app-db-capture-popover',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ProjectLogsSettingsComponent],
   template: `
     <div class="db-pop" role="dialog" [attr.aria-label]="'Database capture for ' + project()" [style.top.px]="top()" [style.left.px]="left()">
       <h4>◆ Database capture · {{ project() }}
@@ -56,7 +54,6 @@ import { ProjectLogsSettingsComponent } from './project-logs-settings.component'
       <div class="pr"><span class="pl">Rows per result</span>
         <span><input class="mini" type="number" min="1" [value]="settings()?.rowsPerResult ?? 50000" (change)="setRows($event)"> <span class="dimtxt">then count only</span></span>
       </div>
-      <app-project-logs-settings [project]="project()" [inboundOn]="inboundOn()" />
       <div class="pr"><span class="pl">This page</span>
         <span><label class="chk"><input type="checkbox" [checked]="state.showChips()" (change)="state.setShowChips(!state.showChips())"> Show the ◆ DB chip on calls</label></span>
       </div>
