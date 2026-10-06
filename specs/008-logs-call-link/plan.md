@@ -110,6 +110,15 @@ mcp-server/src/tools/                    # call_logs tool
 
 **Structure Decision**: web application layout above; the cross-slice join in `backend-app` per Constitution III.
 
+## Decisions from /speckit-analyze (2026-10-06)
+
+- Times are joined as typed UTC instants (the logs time field's typed value, honouring the source's time zone).
+- A line carrying any call id is never time-matched to another call (FR-004).
+- The Logs explorer gains a shareable deep link `/logs/<sourceId>?line=<lineId>` opening at the line with context.
+- Claude's `call_logs` applies the same redaction rules as bodies, then the session masking.
+- The kept-lines decorator wraps the session-cycles socket adapter by its qualified bean name, not by type (no
+  circular/ambiguous injection); the bridge logs ids, counts and timings only.
+
 ## Phases (for /speckit-tasks)
 
 1. **Foundation**: ▤ flag file (backend toggle adapter + `/db-capture/projects` `logsOn`/`PUT …/logs`, proxy

@@ -11,13 +11,20 @@ ALFRED already records, for every inbound call into a project such as odeysys, t
 
 This feature joins them: each call shows the log lines written while it ran, next to its statements and supplier calls in time order, and each log line points back to its call.
 
+## Terms
+
+- **▤ switch** (▤ Logs): the per-service on/off switch in the Sources bar; while off, ALFRED reads none of that project's logs.
+- **Tagging**: the agent adding the call's identity to the application's log lines while ▤ is on.
+- **Exact** / **same thread and time**: the two ways a line is matched to a call (`matched by`).
+- **Linking**: matching log lines to calls (either way); **kept lines**: ALFRED's own copies for session-cycle and imported calls.
+
 ## Clarifications
 
 ### Session 2026-10-06
 
 - Q: Which recorded calls get exact log linking? → A: Every recorded inbound call of the project, with or without database capture; calls without capture show their log lines in a Logs view opened from the call card.
 - Q: How are linked log lines treated in exports and Claude's tools, given they can hold secrets? → A: The same as request/response bodies - the project's redaction rules apply (none by default, so verbatim unless rules are set).
-- Q: Is exact linking on or off for a project by default? → A: Off until the user turns it on for the project (since refined: it is the ▤ switch below - live; the application is restarted only once, to load the new agent); thread-and-time matching works without it.
+- Q: Is exact linking on or off for a project by default? → A: Off until the user turns it on for the project - superseded by the ▤ switch answer below.
 - Q: Does a call keep its linked log lines when the Logs tab later drops them? → A: Yes for calls in a session cycle - their linked lines are kept with the cycle; other calls link live only.
 - Q: How is linking turned on and off? → A: A per-service **▤ Logs** switch in the Sources bar of Live calls and Session cycles, next to the logging dot and ◆ (database capture), working like ◆: live, blocked while the service's call logging is off. On = ALFRED reads the project's logs for its calls and the agent tags each recorded request's log lines (exact). Off = ALFRED does not read that project's logs at all. It replaces the "exact linking" setting.
 
@@ -27,13 +34,13 @@ This feature joins them: each call shows the log lines written while it ran, nex
 
 A developer debugging a slow flight search opens the call in ALFRED and, beside its database statements and supplier calls, sees the log lines the application wrote while handling it: "search started", the warnings about slow suppliers, the swallowed error. They read the call's story in one place, in time order, without switching to the Logs tab and searching by time.
 
-**Why this priority**: It is the whole point of the feature and works on log files the user already has - no change to the application, no restart.
+**Why this priority**: It is the whole point of the feature and works on log files the user already has - no change to the application's code or logging, no restart; the user only turns ▤ on for the project.
 
-**Independent Test**: Load an odeysys log file covering a recorded call into the Logs tab, link that log source to the project, open the call: its log lines appear, each with its level and message, and the count matches the lines of that call's thread within the call's time window.
+**Independent Test**: Load an odeysys log file covering a recorded call into the Logs tab, link that log source to the project, turn ▤ on for it, open the call: its log lines appear, each with its level and message, and the count matches the lines of that call's thread within the call's time window.
 
 **Acceptance Scenarios**:
 
-1. **Given** a recorded inbound call with database capture and a loaded log source linked to its project, **When** the user opens the call's database window, **Then** a Logs view lists every log line of the call's request thread written between the call's start and end (within the allowed clock difference), oldest first, each showing time offset, level and message.
+1. **Given** a recorded inbound call with database capture, a loaded log source linked to its project and ▤ on for that project, **When** the user opens the call's database window, **Then** a Logs view lists every log line of the call's request thread written between the call's start and end (within the allowed clock difference), oldest first, each showing time offset, level and message.
 2. **Given** the same call, **When** the user chooses "Together", **Then** statements, supplier calls and log lines appear in one list ordered by time.
 3. **Given** the call's timeline, **When** the window is open, **Then** a Logs lane shows one mark per log line, coloured by level, and hovering a mark shows the line.
 4. **Given** a log line in the list, **When** the user opens it, **Then** every field of that line is shown, with a link that opens it in the Logs tab among its neighbouring lines.
@@ -111,9 +118,9 @@ When a call or cycle is exported (.md, .html, .json), each call carries its matc
 **Matching**
 
 - **FR-001**: The system MUST link a log line to an inbound call when the line carries that call's identity (exact).
-- **FR-002**: When a call has no exactly-linked lines, the system MUST link the lines of the call's request thread whose time falls within the call's start and end, widened by an allowed clock difference (default 200 ms), and mark them as matched by "same thread and time".
+- **FR-002**: When a call has no exactly-linked lines, the system MUST link the lines of the call's request thread whose time falls within the call's start and end, widened by an allowed clock difference (default 200 ms), and mark them as matched by "same thread and time". Times MUST be compared as absolute instants, honouring the log source's time zone setting.
 - **FR-003**: The system MUST show, for every linked line, how it was matched.
-- **FR-004**: A line MUST be linked to at most one call; when two calls' windows on the same thread both contain it, the call whose window it is nearer the middle of wins.
+- **FR-004**: A line MUST be linked to at most one call: a line carrying any call's identity is linked only by that identity (never time-matched to another call); otherwise, when two calls' windows on the same thread both contain it, the call whose window it is nearer the middle of wins.
 - **FR-005**: Linking MUST work on log lines already loaded and on lines loaded later, without reloading anything.
 - **FR-005a**: For a call held by a session cycle, its linked log lines MUST be kept with the cycle, so the cycle's views and exports still show them after the Logs tab's retention removes them from the log source; lines linked to a call after it joined the cycle are kept too. Calls in no cycle link live only.
 
@@ -125,26 +132,28 @@ When a call or cycle is exported (.md, .html, .json), each call carries its matc
 
 **Setup**
 
-- **FR-009**: Users MUST be able to choose, per project (in the same popover/settings as ◆'s, a Logs section): which loaded log sources belong to it, which field holds the thread, which holds the time (defaulting to the source's time field), which holds the call identity, and the allowed clock difference.
-- **FR-010**: The settings MUST show, for the chosen identity field, how many loaded lines carry it, so the user can tell whether exact linking is working.
+- **FR-009**: Users MUST be able to choose, per project (in the same popover/settings as ◆'s, a Logs section): which loaded log sources belong to it, which field holds the thread, which holds the time (defaulting to the source's time field), which holds the call identity, and the allowed clock difference. The chosen thread and identity fields become exact-searchable in the Logs tab (the settings say so), so a call's lines are found by an index, not a scan.
+- **FR-010**: The settings MUST show, for the chosen identity field, how many loaded lines of the linked sources carry it (whether ▤ is on or off - it reads the settings' own sources), so the user can tell whether tagging is working.
 
 **Viewing**
 
 - **FR-011**: The call's database window MUST offer a Logs view (the call's lines, oldest first) and a Together view (statements, supplier calls and log lines in one time-ordered list), plus a Logs lane on its timeline with one mark per line coloured by level. A call without database capture MUST offer the same Logs view on its own, opened from its call card.
-- **FR-012**: Each log line MUST open to all its fields, with a link that shows it in the Logs tab among its neighbouring lines.
+- **FR-011a**: When a project has several log sources, every listed line MUST show which source it came from.
+- **FR-012**: Each log line MUST open to all its fields, with a link that opens the Logs tab at that line (scrolled to and highlighted) among its neighbouring lines; the link is a shareable address.
 - **FR-013**: The calls list MUST show, on a call with linked lines, the number of lines and of error and warning lines; it MUST fetch these only for calls the user has open or expanded, not for every listed call.
 - **FR-014**: A log line in the Logs tab MUST show the call it was written during (method, path, status, duration, how matched) with links to the call and its database statements.
 
 **Exports and tools**
 
 - **FR-015**: The .md, .html and .json exports MUST include every linked log line of each exported call, whole, in time order, with time, level, thread, message and how it was matched; exports MUST NOT cut or summarise them.
-- **FR-016**: Importing a .json export MUST restore the calls' log lines.
+- **FR-016**: Importing a .json export MUST restore the calls' log lines (kept as ALFRED's own copies); deleting the imported calls MUST delete those copies.
 - **FR-017**: ALFRED's Claude tools MUST be able to list a call's log lines, in time order and paged.
-- **FR-017a**: Exports and Claude's tools MUST apply the project's redaction rules to log lines exactly as they apply them to request and response bodies (no rules = verbatim); the live views show lines unmasked, as they show bodies today.
+- **FR-017a**: Exports and Claude's tools MUST apply the project's redaction rules to log lines exactly as they apply them to request and response bodies (no rules = verbatim) - in addition to any masking the Claude session itself sets; the live views show lines unmasked, as they show bodies today.
 
 **General**
 
 - **FR-018**: Lists of log lines MUST update when new lines or calls arrive without polling, the same way the rest of ALFRED updates.
+- **FR-018a**: ALFRED's own logs MUST NOT print log-line content while linking - only ids, counts and timings.
 - **FR-019**: When a project has no log source set up, every place that would show log lines MUST say so and point to the setup instead of showing an empty list.
 
 ### Key Entities

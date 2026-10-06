@@ -52,6 +52,9 @@ All Technical Context unknowns are resolved below. Facts were read from the code
   `ManageLogSourcesUseCase`' structure update - one indexed lookup per call, no scan.
 - **Rationale**: one query implementation (`SqliteLogQueryTranslator`), already audited; no new SQL in logs.
 
+- **Time zones**: compare typed instants (`t<N>` of the TIME-role field, already UTC-normalised by the source's time
+  zone setting) with the call's UTC timestamp; never compare raw text.
+
 ## R5 - Where the joining lives (architecture)
 
 - **Decision**: a composition-root bridge `backend-app/…/calllogsbridge` (like `triagebridge`,
@@ -65,6 +68,9 @@ All Technical Context unknowns are resolved below. Facts were read from the code
 
 ## R6 - Kept lines for session-cycle calls (FR-005a)
 
+- **Wiring**: the decorator is `@Primary` and injects the session-cycles adapter by its qualified name
+  (`@Qualifier("webSocketSessionCycleNotificationAdapter")`), so session-cycles keeps calling its port and only
+  backend-app knows there are two beans.
 - **Decision**: `backend-logs` gains a `kept_lines` table (call id, source id, line id, the raw line, how matched,
   kept at). The bridge keeps a cycle call's lines (a) when a cycle's contents change - a `backend-app` decorator of
   `SessionCycleNotificationPort.notifyCycleContentChanged` hands the cycle's calls to an async keep job - and

@@ -27,7 +27,7 @@ The call a log line was written during: `{ "call": { "id", "method", "url", "sta
 
 ## GET /call-logs/settings/{project} · PUT /call-logs/settings/{project}
 
-`ProjectLogSettings` + derived `callIdFoundLines: { sourceId: n }` (only counted while ▤ is on). `@Valid` DTO; unknown source ids / fields → 400.
+`ProjectLogSettings` + derived `callIdFoundLines: { sourceId: n }` (counted whether ▤ is on or off). `@Valid` DTO; unknown source ids / fields → 400.
 
 ## The ▤ switch - `GET /db-capture/projects` (+ `logsOn`) · `PUT /db-capture/projects/{project}/logs` `{ "on": bool }`
 

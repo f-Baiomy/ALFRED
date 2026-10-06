@@ -11,7 +11,8 @@
 | callIdField | string? | default `mdc.alfred.call`; switched to Exact search on save |
 | clockSkewMs | int | 0..5000, default 200 |
 
-Derived (not stored): `callIdFoundLines` per source - lines carrying `callIdField` (FR-010).
+Derived (not stored): `callIdFoundLines` per source - lines carrying `callIdField` (FR-010), counted whether ▤ is
+on or off.
 
 ## ▤ switch (`proxy/log-link-enabled.flag`, `backend-db-capture` toggle adapter)
 
@@ -45,8 +46,9 @@ A line belongs to at most one call (FR-004).
 ## KeptLogLine (`backend-logs`, table `kept_lines`)
 
 `(call_id, source_id, line_id)` PK, `source_name`, `at`, `level`, `thread`, `matched_by`, `raw`, `kept_at`.
-Created for calls held by a session cycle and for imported calls; deleted when the call is in no cycle (imported
-calls: when the import's cycle/calls are deleted). Outside the logs retention; bounded by cycle contents
+Created for calls held by a session cycle and for imported calls (`origin` = `CYCLE` | `IMPORT`); deleted when a
+cycle call is in no cycle any more, and when an imported call is deleted (the calls/cycle deletion paths call
+`KeptLogLinesUseCase.removeForCalls`). Outside the logs retention; bounded by cycle contents
 (session-cycle capture is deliberately unbounded - same reason).
 
 ## LogCounts (wire, `GET /call-logs/counts?callIds=`)
