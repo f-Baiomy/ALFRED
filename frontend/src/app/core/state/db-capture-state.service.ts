@@ -158,8 +158,10 @@ export class DbCaptureStateService {
     this.flushScheduled = false;
     const ids = [...this.queued];
     this.queued.clear();
-    for (let i = 0; i < ids.length; i += 500) {
-      const chunk = ids.slice(i, i + 500);
+    // 100 ids a request: they travel in the URL, and a request line over 8 KB (~200 ids) is refused by the gateway
+    // with 414 - which dropped every ◆ chip and row mark of that batch (a 182-call cycle showed none).
+    for (let i = 0; i < ids.length; i += 100) {
+      const chunk = ids.slice(i, i + 100);
       this.api.summaries(chunk).subscribe({
         next: (found) => {
           const next = new Map(this.summariesSignal());

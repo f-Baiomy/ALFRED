@@ -34,10 +34,10 @@ describe('CommentCountsState', () => {
     expect(state.counts().has('none')).toBeFalse();
   });
 
-  it('splits a big screen into requests of 500 ids', async () => {
+  it('splits a big screen into requests of 100 ids - a longer URL is refused by the gateway', async () => {
     for (let i = 0; i < 1200; i++) state.request(`c${i}`);
     await flush();
-    expect(counts.calls.allArgs().map((args) => (args[0] as string[]).length)).toEqual([500, 500, 200]);
+    expect(counts.calls.allArgs().map((args) => (args[0] as string[]).length)).toEqual([100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100]);
   });
 
   it('re-counts a call when its comments change, and drops it when the last one is gone', async () => {

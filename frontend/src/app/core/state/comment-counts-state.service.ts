@@ -4,14 +4,17 @@ import { CommentCount } from '../models/comment.model';
 import { CommentsApiService } from '../services/comments-api.service';
 import { COMMENT_EVENTS } from './comments-store.service';
 
-/** The backend's per-request limit (CommentsController.MAX_COUNT_IDS). */
-const CHUNK = 500;
+/**
+ * Ids per request. The ids travel in the URL, and the gateway (and Tomcat) refuse a request line over 8 KB - about
+ * 200 ids - with 414/400, which silently dropped every badge of that batch (a 182-call cycle). 100 keeps it ~3.7 KB.
+ */
+const CHUNK = 100;
 
 /**
  * How many comments each call on screen has - what the 💬 badge on a card or waterfall row and the
  * per-block counts on a card's chips read. Same shape as DbCaptureStateService's summaries: every
  * badge that renders asks for its call, and the asks of one change-detection pass go out as ONE
- * request (per 500 ids), never one per card. Kept current without polling: a call whose comments
+ * request (per 100 ids), never one per card. Kept current without polling: a call whose comments
  * change anywhere (/ws/comments) is re-counted if something here asked for it; a reconnect re-counts
  * all of them, since events sent while the socket was away were missed.
  */

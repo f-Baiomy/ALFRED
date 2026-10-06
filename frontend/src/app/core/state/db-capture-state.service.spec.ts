@@ -88,4 +88,12 @@ describe('DbCaptureStateService', () => {
     expect(service.summaries().has('c1')).toBeTrue();
     expect(service.summaries().has('c2')).toBeFalse();
   });
+
+  it('asks at most 100 ids a request - a longer URL is refused by the gateway (414)', async () => {
+    for (let i = 0; i < 182; i++) service.requestSummary(`call-${i}`);
+    await Promise.resolve();
+    const reqs = http.match((r) => r.url === `${BACKEND}/db-capture/summaries`);
+    expect(reqs.map((r) => r.request.params.get('callIds')!.split(',').length)).toEqual([100, 82]);
+    reqs.forEach((r) => r.flush({}));
+  });
 });
