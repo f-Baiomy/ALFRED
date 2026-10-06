@@ -5,5 +5,10 @@ import java.util.Map;
 
 /** One POST from an agent: its statements, its call markers, and how many statements it had to drop per call. */
 public record IngestBatch(String agentId, String project, List<IncomingStatement> statements, List<CallMarker> markers,
-                          Map<String, Long> droppedByCall) {
+                          Map<String, Long> droppedByCall, List<CaughtLogLine> logs, Map<String, Long> droppedLogs) {
+
+    public IngestBatch(String agentId, String project, List<IncomingStatement> statements, List<CallMarker> markers,
+                       Map<String, Long> droppedByCall) {
+        this(agentId, project, statements, markers, droppedByCall, List.of(), Map.of());
+    }
 }

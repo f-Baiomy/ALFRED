@@ -1,5 +1,7 @@
 package com.fathy.alfred.backend.dbcapture.application.port.out;
 
+import com.fathy.alfred.backend.dbcapture.domain.model.CaughtLogCounts;
+import com.fathy.alfred.backend.dbcapture.domain.model.CaughtLogLine;
 import com.fathy.alfred.backend.dbcapture.domain.model.AgentStatus;
 import com.fathy.alfred.backend.dbcapture.domain.model.CallDbSummary;
 import com.fathy.alfred.backend.dbcapture.domain.model.CallMarker;
@@ -80,6 +82,25 @@ public interface DbCaptureStorePort {
 
     /** Captured calls opened on {@code thread} between the two ISO instants (inclusive), oldest first. */
     List<CallOnThread> callsOnThread(String thread, String fromInstant, String toInstant);
+
+    // ---- caught log lines (specs/009-agent-log-capture)
+
+    /** Stores lines (call lines and outside-call lines), updates the calls' counts, trims outside lines to their bound. */
+    void saveLogLines(List<CaughtLogLine> lines);
+
+    /** A call's lines in seq order after {@code afterSeq}, at most {@code limit}. */
+    List<CaughtLogLine> logLines(String callId, int afterSeq, int limit);
+
+    /** Outside-call lines of a project (optionally one thread) after {@code afterId}, oldest first, at most {@code limit}. */
+    List<CaughtLogLine> outsideLogLines(String project, String thread, long afterId, int limit);
+
+    void addDroppedLogs(Map<String, Long> droppedByCall);
+
+    /** Counts of the calls that have caught lines (absent = none). */
+    Map<String, CaughtLogCounts> logCounts(Collection<String> callIds);
+
+    /** The agent caught this call's lines (its CALL_OPEN said so). */
+    boolean catchesLogs(String callId);
 
     /** The last {@code limit} captured calls opened on {@code thread} strictly before the ISO instant, newest first. */
     List<CallOnThread> callsBefore(String thread, String beforeInstant, int limit);

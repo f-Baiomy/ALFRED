@@ -1,5 +1,6 @@
 package com.fathy.alfred.backend.dbcapture.application.service;
 
+import com.fathy.alfred.backend.dbcapture.domain.model.CaughtLogLine;
 import com.fathy.alfred.backend.dbcapture.application.port.in.CompleteCallCaptureUseCase;
 import com.fathy.alfred.backend.dbcapture.application.port.in.DeleteCallStatementsUseCase;
 import com.fathy.alfred.backend.dbcapture.application.port.in.IngestStatementsUseCase;
@@ -70,6 +71,14 @@ public class DbCaptureService implements IngestStatementsUseCase, RecordAgentHea
         this.failureObservers = failureObservers;
     }
 
+    /** The ▤ switch - outside-call lines are caught while it is on (specs/009-agent-log-capture). Optional for tests. */
+    private com.fathy.alfred.backend.dbcapture.application.port.out.LogLinkTogglePort logLink;
+
+    @Autowired(required = false)
+    void setLogLink(com.fathy.alfred.backend.dbcapture.application.port.out.LogLinkTogglePort logLink) {
+        this.logLink = logLink;
+    }
+
     @Override
     public IngestResult ingest(IngestBatch batch) {
         List<IncomingStatement> statements = withEarlierReads(batch.statements() == null ? List.of() : batch.statements());
@@ -89,6 +98,11 @@ public class DbCaptureService implements IngestStatementsUseCase, RecordAgentHea
             }
         }
         store.addDropped(batch.droppedByCall());
+        List<CaughtLogLine> logs = batch.logs() == null ? List.of() : batch.logs();
+        store.saveLogLines(logs);
+        store.addDroppedLogs(batch.droppedLogs());
+        logs.stream().map(l -> java.util.Arrays.asList(l.callId(), l.project())).distinct()
+                .forEach(k -> notifications.logsAppended(k.get(0), k.get(1)));
         // Only calls this batch gave a failed statement: a statement never stops having failed, so the counts of a
         // call with none in this batch did not change.
         statements.stream().filter(s -> s.callId() != null && s.outcome() != null && s.outcome().failed())
@@ -167,7 +181,8 @@ public class DbCaptureService implements IngestStatementsUseCase, RecordAgentHea
         if (!wasAttached) {
             notifications.agentStatusChanged(status.project(), true);
         }
-        return new AgentDirective(store.settings(status.project()), toggle.isEnabled(status.project()));
+        return new AgentDirective(store.settings(status.project()), toggle.isEnabled(status.project()),
+                logLink != null && logLink.isOn(status.project()));
     }
 
     static boolean isRecent(String lastSeen, Instant now) {

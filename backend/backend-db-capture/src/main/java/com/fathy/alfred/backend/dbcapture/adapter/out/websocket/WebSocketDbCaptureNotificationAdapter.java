@@ -30,6 +30,14 @@ public class WebSocketDbCaptureNotificationAdapter implements DbCaptureNotificat
     }
 
     @Override
+    public void logsAppended(String callId, String project) {
+        Map<String, Object> m = event("logs-appended");
+        m.put("callId", callId);
+        m.put("project", project);
+        send(m);
+    }
+
+    @Override
     public void outsideAppended(String thread, int count) {
         Map<String, Object> m = event("outside-appended");
         m.put("thread", thread);

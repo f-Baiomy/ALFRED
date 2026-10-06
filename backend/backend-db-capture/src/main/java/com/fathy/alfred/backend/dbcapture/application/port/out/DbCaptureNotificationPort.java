@@ -6,6 +6,10 @@ public interface DbCaptureNotificationPort {
 
     void outsideAppended(String thread, int count);
 
+    /** Caught log lines arrived for a call (null = outside any call) of a project (specs/009-agent-log-capture). */
+    default void logsAppended(String callId, String project) {
+    }
+
     void captureSettingsChanged(String project);
 
     void agentStatusChanged(String project, boolean attached);

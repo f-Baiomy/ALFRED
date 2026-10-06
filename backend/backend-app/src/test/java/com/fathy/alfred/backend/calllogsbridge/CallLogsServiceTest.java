@@ -64,6 +64,8 @@ class CallLogsServiceTest {
     private final CallThreadsUseCase threads = mock(CallThreadsUseCase.class);
     private final GetCallDetailUseCase calls = mock(GetCallDetailUseCase.class);
     private final ListCapturedInternalCallsUseCase cycleCalls = mock(ListCapturedInternalCallsUseCase.class);
+    private final com.fathy.alfred.backend.dbcapture.application.port.in.CallLogLinesUseCase caughtLines =
+            mock(com.fathy.alfred.backend.dbcapture.application.port.in.CallLogLinesUseCase.class);
 
     private CallLogsService service;
     /** sourceId -> lines in it; the fake applies the EQ / NOT_EXISTS pills and the time range like the logs slice would. */
@@ -74,7 +76,7 @@ class CallLogsServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new CallLogsService(projectLogs, kept, sources, logs, capture, threads, calls, cycleCalls);
+        service = new CallLogsService(projectLogs, kept, sources, logs, capture, threads, calls, cycleCalls, caughtLines);
         when(capture.logsLinked(PROJECT)).thenReturn(true);
         when(kept.kept(anyString())).thenReturn(List.of());
         when(calls.getSummary(CALL)).thenReturn(Optional.of(summary(CALL, START, 1000)));
@@ -327,6 +329,48 @@ class CallLogsServiceTest {
         assertThat(byTime.from()).isEqualTo(START - 200);
         assertThat(byTime.to()).isEqualTo(START + 1200);
         assertThat(byTime.pills()).extracting(LogQuery.Pill::op).containsExactly(LogQuery.Op.EQ, LogQuery.Op.NOT_EXISTS);
+    }
+
+    // ------------------------------------------------------------------ caught by the agent (009)
+
+    @Test
+    void aCaughtCallServesItsCaughtLinesInSeqOrderAndReadsNoLog() {
+        when(caughtLines.caughtFor(CALL)).thenReturn(true);
+        when(caughtLines.lines(eq(CALL), org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyInt())).thenReturn(List.of(
+                new com.fathy.alfred.backend.dbcapture.domain.model.CaughtLogLine(7, CALL, 3, Instant.ofEpochMilli(START + 40).toString(), "WARN",
+                        "a.Search", THREAD, "slow supplier", null, null, null, false, PROJECT),
+                new com.fathy.alfred.backend.dbcapture.domain.model.CaughtLogLine(8, CALL, 9, Instant.ofEpochMilli(START + 900).toString(), "ERROR",
+                        "a.Search", THREAD, "boom", "java.lang.IllegalStateException", "bad", "java.lang.IllegalStateException: bad\n\tat a.B", true, PROJECT)));
+        when(caughtLines.counts(List.of(CALL))).thenReturn(java.util.Map.of(CALL,
+                new com.fathy.alfred.backend.dbcapture.domain.model.CaughtLogCounts(2, 1, 1, 4)));
+        line("s1", "file-line", START + 10, THREAD); // a log file is linked too - it must not be read for a caught call
+
+        CallLogsPage page = service.lines(CALL, null, null, 0).orElseThrow();
+
+        assertThat(page.matchedBy()).isEqualTo(Match.CAUGHT);
+        assertThat(page.dropped()).isEqualTo(4);
+        assertThat(page.lines()).extracting(LinkedLogLine::message).containsExactly("slow supplier", "boom");
+        assertThat(page.lines()).extracting(LinkedLogLine::offsetMs).containsExactly(40L, 900L);
+        LinkedLogLine boom = page.lines().get(1);
+        assertThat(boom.lineId()).isEqualTo("c:8");
+        assertThat(boom.logger()).isEqualTo("a.Search");
+        assertThat(boom.exception().type()).isEqualTo("java.lang.IllegalStateException");
+        assertThat(boom.raw()).contains("\"exception\"").contains("\"cut\":true").contains("boom");
+        verify(logs, never()).lines(anyString(), any());
+        verify(sources, never()).structure(anyString());
+    }
+
+    @Test
+    void countsOfCaughtCallsComeFromTheirSummaryAndReadNoLog() {
+        when(caughtLines.counts(List.of(CALL, "c-none"))).thenReturn(java.util.Map.of(CALL,
+                new com.fathy.alfred.backend.dbcapture.domain.model.CaughtLogCounts(12, 2, 3, 0)));
+        when(caughtLines.caughtFor("c-none")).thenReturn(true);
+
+        var counts = service.counts(List.of(CALL, "c-none"));
+
+        assertThat(counts).containsOnlyKeys(CALL);
+        assertThat(counts.get(CALL)).isEqualTo(new CallLogsModels.LogCounts(12, 2, 3, Match.CAUGHT));
+        verify(logs, never()).lines(anyString(), any());
     }
 
     // ------------------------------------------------------------------ kept lines

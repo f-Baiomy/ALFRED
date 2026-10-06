@@ -5,6 +5,8 @@ import com.fathy.alfred.backend.dbcapture.Fixtures;
 import com.fathy.alfred.backend.dbcapture.domain.model.AgentStatus;
 import com.fathy.alfred.backend.dbcapture.domain.model.CallDbSummary;
 import com.fathy.alfred.backend.dbcapture.domain.model.CallMarker;
+import com.fathy.alfred.backend.dbcapture.domain.model.CaughtLogCounts;
+import com.fathy.alfred.backend.dbcapture.domain.model.CaughtLogLine;
 import com.fathy.alfred.backend.dbcapture.domain.model.CallOnThread;
 import com.fathy.alfred.backend.dbcapture.domain.model.CapturedStatement;
 import com.fathy.alfred.backend.dbcapture.domain.model.DbCaptureSettings;
@@ -195,6 +197,49 @@ class SqliteDbCaptureRepositoryTest {
         assertThat(repo.callsOnThread("default task-4", "2026-10-05T04:34:00Z", "2026-10-05T04:34:59Z"))
                 .extracting(CallOnThread::callId).containsExactly("call-a", "call-b");
         assertThat(repo.markers("call-a").get(0).thread()).isEqualTo("default task-4");
+    }
+
+    @Test
+    void caughtLogLinesAreStoredInCallOrderCountedAndDeletedWithTheirCall() {
+        repo.saveMarkers(List.of(new CallMarker("call-l", 0, MarkerType.CALL_OPEN, "2026-10-06T10:00:00Z", null, null, "t-1", true),
+                new CallMarker("call-n", 0, MarkerType.CALL_OPEN, "2026-10-06T10:00:00Z", null, null, "t-2")));
+        repo.saveLogLines(List.of(
+                new CaughtLogLine(0, "call-l", 5, "2026-10-06T10:00:00.500Z", "WARN", "a.B", "t-1", "slow", null, null, null, false, "odeysys"),
+                new CaughtLogLine(0, "call-l", 2, "2026-10-06T10:00:00Z", "ERROR", "a.B", "t-1", "boom", "java.lang.IllegalStateException", "bad",
+                        "java.lang.IllegalStateException: bad\n\tat a.B.c(B.java:1)", true, "odeysys"),
+                new CaughtLogLine(0, null, 0, "2026-10-06T10:00:01Z", "INFO", "job", "sched-1", "job fired", null, null, null, false, "odeysys")));
+        repo.addDroppedLogs(java.util.Map.of("call-l", 3L));
+
+        assertThat(repo.catchesLogs("call-l")).isTrue();
+        assertThat(repo.catchesLogs("call-n")).isFalse();
+        List<CaughtLogLine> lines = repo.logLines("call-l", 0, 100);
+        assertThat(lines).extracting(CaughtLogLine::message).containsExactly("boom", "slow");
+        assertThat(lines.get(0).at()).isEqualTo("2026-10-06T10:00:00.000Z"); // fixed fraction - text order is time order
+        assertThat(lines.get(0).exceptionType()).isEqualTo("java.lang.IllegalStateException");
+        assertThat(lines.get(0).exceptionStack()).contains("B.java:1");
+        assertThat(lines.get(0).cut()).isTrue();
+        assertThat(repo.logLines("call-l", 2, 100)).extracting(CaughtLogLine::message).containsExactly("slow");
+        assertThat(repo.logCounts(List.of("call-l", "call-n"))).containsOnlyKeys("call-l")
+                .extractingByKey("call-l").isEqualTo(new CaughtLogCounts(2, 1, 1, 3));
+        assertThat(repo.outsideLogLines("odeysys", null, 0, 10)).extracting(CaughtLogLine::message).containsExactly("job fired");
+        assertThat(repo.outsideLogLines("odeysys", "other", 0, 10)).isEmpty();
+
+        repo.deleteForCalls(List.of("call-l"));
+        assertThat(repo.logLines("call-l", 0, 100)).isEmpty();
+        assertThat(repo.logCounts(List.of("call-l"))).isEmpty();
+        assertThat(repo.outsideLogLines("odeysys", null, 0, 10)).hasSize(1); // outside lines have their own bound
+    }
+
+    @Test
+    void outsideLinesKeepOnlyTheNewestUpToTheirBound() {
+        List<CaughtLogLine> many = new java.util.ArrayList<>();
+        for (int i = 0; i < SqliteDbCaptureRepository.MAX_OUTSIDE_LOG_LINES + 5; i++) {
+            many.add(new CaughtLogLine(0, null, 0, "2026-10-06T10:00:00Z", "INFO", "job", "sched", "line " + i, null, null, null, false, "p"));
+        }
+        repo.saveLogLines(many);
+
+        List<CaughtLogLine> kept = repo.outsideLogLines("p", null, 0, 1);
+        assertThat(kept.get(0).message()).isEqualTo("line 5");
     }
 
     @Test

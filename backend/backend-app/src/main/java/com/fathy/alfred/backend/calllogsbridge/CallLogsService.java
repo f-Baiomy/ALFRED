@@ -6,7 +6,10 @@ import com.fathy.alfred.backend.calllogsbridge.CallLogsModels.LogCounts;
 import com.fathy.alfred.backend.calllogsbridge.CallLogsModels.Match;
 import com.fathy.alfred.backend.calllogsbridge.CallLogsModels.Setup;
 import com.fathy.alfred.backend.calllogsbridge.CallWindows.Window;
+import com.fathy.alfred.backend.dbcapture.application.port.in.CallLogLinesUseCase;
 import com.fathy.alfred.backend.dbcapture.application.port.in.CallThreadsUseCase;
+import com.fathy.alfred.backend.dbcapture.domain.model.CaughtLogCounts;
+import com.fathy.alfred.backend.dbcapture.domain.model.CaughtLogLine;
 import com.fathy.alfred.backend.dbcapture.application.port.in.ManageDbCaptureUseCase;
 import com.fathy.alfred.backend.dbcapture.domain.model.CallOnThread;
 import com.fathy.alfred.backend.internalcalls.application.port.in.GetCallDetailUseCase;
@@ -76,10 +79,13 @@ public class CallLogsService {
     private final CallThreadsUseCase threads;
     private final GetCallDetailUseCase inboundCalls;
     private final ListCapturedInternalCallsUseCase cycleCalls;
+    /** Lines the agent caught inside the call (specs/009-agent-log-capture) - they win over log files for that call. */
+    private final CallLogLinesUseCase caught;
 
     public CallLogsService(ManageProjectLogsUseCase projectLogs, KeptLogLinesUseCase keptLines, ManageLogSourcesUseCase logSources,
                            QueryLogsUseCase logs, ManageDbCaptureUseCase capture, CallThreadsUseCase threads,
-                           GetCallDetailUseCase inboundCalls, ListCapturedInternalCallsUseCase cycleCalls) {
+                           GetCallDetailUseCase inboundCalls, ListCapturedInternalCallsUseCase cycleCalls, CallLogLinesUseCase caught) {
+        this.caught = caught;
         this.projectLogs = projectLogs;
         this.keptLines = keptLines;
         this.logSources = logSources;
@@ -105,6 +111,9 @@ public class CallLogsService {
     /** The call's linked lines, oldest first, one page. Empty when the call is unknown. */
     public Optional<CallLogsPage> lines(String callId, String cycleId, String after, int limit) {
         return resolve(callId, cycleId).map(call -> {
+            if (caught.caughtFor(call.id())) {
+                return caughtPage(call, after, limit);
+            }
             Linked linked = link(call);
             int size = limit <= 0 ? DEFAULT_PAGE : Math.min(limit, MAX_PAGE);
             int from = offset(after);
@@ -123,13 +132,82 @@ public class CallLogsService {
         return counts(callIds, null);
     }
 
+    // ------------------------------------------------------------------ caught by the agent (specs/009-agent-log-capture)
+
+    private static final String SEQ_CURSOR = "s:";
+    private static final com.fasterxml.jackson.databind.ObjectMapper JSON = new com.fasterxml.jackson.databind.ObjectMapper();
+
+    /** A caught call's lines in its own order (seq) - the agent already attached them; no log is read. */
+    private CallLogsPage caughtPage(CallInfo call, String after, int limit) {
+        int size = limit <= 0 ? DEFAULT_PAGE : Math.min(limit, MAX_PAGE);
+        int afterSeq = after != null && after.startsWith(SEQ_CURSOR) ? parseInt(after.substring(SEQ_CURSOR.length())) : 0;
+        List<CaughtLogLine> page = caught.lines(call.id(), afterSeq, size);
+        List<LinkedLogLine> lines = page.stream().map(l -> caughtLine(call, l)).toList();
+        String next = page.size() == size ? SEQ_CURSOR + page.get(page.size() - 1).seq() : null;
+        CaughtLogCounts counts = caught.counts(List.of(call.id())).get(call.id());
+        return new CallLogsPage(call.id(), Setup.OK, Match.CAUGHT, null, 0, lines, next, counts == null ? 0 : counts.dropped());
+    }
+
+    static LinkedLogLine caughtLine(CallInfo call, CaughtLogLine l) {
+        long atMs;
+        try {
+            atMs = Instant.parse(l.at()).toEpochMilli();
+        } catch (RuntimeException e) {
+            atMs = call.startMs();
+        }
+        CallLogsModels.LogException exception = l.exceptionType() == null && l.exceptionStack() == null ? null
+                : new CallLogsModels.LogException(l.exceptionType(), l.exceptionMessage(), l.exceptionStack());
+        // the line as JSON: what exports print whole and what masking (like bodies) applies to
+        Map<String, Object> raw = new LinkedHashMap<>();
+        raw.put("timestamp", l.at());
+        raw.put("level", l.level());
+        raw.put("logger", l.logger());
+        raw.put("thread", l.thread());
+        raw.put("message", l.message());
+        if (exception != null) {
+            raw.put("exception", Map.of("type", String.valueOf(exception.type()), "message", String.valueOf(exception.message()),
+                    "stack", String.valueOf(exception.stack())));
+        }
+        if (l.cut()) {
+            raw.put("cut", true);
+        }
+        String rawText;
+        try {
+            rawText = JSON.writeValueAsString(raw);
+        } catch (Exception e) {
+            rawText = String.valueOf(l.message());
+        }
+        return new LinkedLogLine("agent", "caught by the agent", "c:" + l.id(), l.at(), atMs - call.startMs(), l.level(), l.thread(),
+                l.logger(), l.message(), Match.CAUGHT, false, rawText, exception);
+    }
+
+    private static int parseInt(String s) {
+        try {
+            return Math.max(0, Integer.parseInt(s));
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
     /**
      * Counts per call; with {@code cycleId} a call the live list no longer has is found through the cycle's copy, so a
      * cycle's cards (and imported calls) show their kept lines too.
      */
     public Map<String, LogCounts> counts(List<String> callIds, String cycleId) {
         Map<String, LogCounts> out = new LinkedHashMap<>();
+        // caught calls: their counts are kept as the lines arrive - no line, no log is read
+        Map<String, CaughtLogCounts> caughtCounts = callIds.isEmpty() ? Map.of() : caught.counts(callIds);
         for (String id : callIds) {
+            CaughtLogCounts c = caughtCounts.get(id);
+            if (c != null) {
+                if (c.lines() > 0) {
+                    out.put(id, new LogCounts(c.lines(), c.errors(), c.warnings(), Match.CAUGHT));
+                }
+                continue;
+            }
+            if (caught.caughtFor(id)) {
+                continue; // caught, none yet
+            }
             resolve(id, cycleId).ifPresent(call -> {
                 Linked linked = link(call);
                 if (linked.hits().isEmpty()) {
@@ -150,6 +228,9 @@ public class CallLogsService {
      * the log source has rotated them away. Returns how many lines were stored (already-kept ones are replaced).
      */
     public int keepForCycle(String callId, String cycleId) {
+        if (caught.caughtFor(callId)) {
+            return 0; // caught lines are stored with the call's statements, which a cycle already keeps
+        }
         return resolve(callId, cycleId).map(call -> {
             Linked linked = link(call);
             if (linked.setup() != Setup.OK) {

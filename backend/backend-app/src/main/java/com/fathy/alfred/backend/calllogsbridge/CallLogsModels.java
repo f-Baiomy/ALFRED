@@ -10,15 +10,30 @@ public final class CallLogsModels {
 
     public enum Setup { OK, LINKING_OFF, NO_SOURCE, NO_THREAD }
 
-    public enum Match { EXACT, THREAD_TIME }
+    /** EXACT / THREAD_TIME: a log-file line matched to the call (008); CAUGHT: caught by the agent inside the call (009). */
+    public enum Match { EXACT, THREAD_TIME, CAUGHT }
+
+    /** An exception a caught line carried, whole (cut only at the agent's per-line cap). */
+    public record LogException(String type, String message, String stack) {
+    }
 
     /** One log line linked to a call; {@code kept} = served from ALFRED's own copy. */
     public record LinkedLogLine(String sourceId, String sourceName, String lineId, String at, long offsetMs, String level, String thread,
-                                String logger, String message, Match matchedBy, boolean kept, String raw) {
+                                String logger, String message, Match matchedBy, boolean kept, String raw, LogException exception) {
+
+        public LinkedLogLine(String sourceId, String sourceName, String lineId, String at, long offsetMs, String level, String thread,
+                             String logger, String message, Match matchedBy, boolean kept, String raw) {
+            this(sourceId, sourceName, lineId, at, offsetMs, level, thread, logger, message, matchedBy, kept, raw, null);
+        }
     }
 
+    /** {@code dropped}: lines the agent did not keep for the call (caps, late) - 0 for file lines. */
     public record CallLogsPage(String callId, Setup setup, Match matchedBy, String thread, int clockSkewMs,
-                               List<LinkedLogLine> lines, String next) {
+                               List<LinkedLogLine> lines, String next, int dropped) {
+
+        public CallLogsPage(String callId, Setup setup, Match matchedBy, String thread, int clockSkewMs, List<LinkedLogLine> lines, String next) {
+            this(callId, setup, matchedBy, thread, clockSkewMs, lines, next, 0);
+        }
     }
 
     public record LogCounts(int lines, int errors, int warnings, Match matchedBy) {

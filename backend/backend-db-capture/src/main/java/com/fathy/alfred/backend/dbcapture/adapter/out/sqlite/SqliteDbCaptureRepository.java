@@ -9,6 +9,8 @@ import com.fathy.alfred.backend.dbcapture.domain.model.AgentStatus;
 import com.fathy.alfred.backend.dbcapture.domain.model.BeforeImage;
 import com.fathy.alfred.backend.dbcapture.domain.model.CallDbSummary;
 import com.fathy.alfred.backend.dbcapture.domain.model.CallMarker;
+import com.fathy.alfred.backend.dbcapture.domain.model.CaughtLogCounts;
+import com.fathy.alfred.backend.dbcapture.domain.model.CaughtLogLine;
 import com.fathy.alfred.backend.dbcapture.domain.model.CallOnThread;
 import com.fathy.alfred.backend.dbcapture.domain.model.CapturedStatement;
 import com.fathy.alfred.backend.dbcapture.domain.model.Column;
@@ -207,6 +209,23 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
         }
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS ix_statements_failed ON statements(call_id, seq) WHERE failed = 1");
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS ix_summary_first_seen ON call_db_summary(first_seen)");
+        // Log lines the agent caught (specs/009-agent-log-capture): next to the call's statements, evicted with them.
+        jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS call_log_lines (
+                  id INTEGER PRIMARY KEY, call_id TEXT, seq INTEGER NOT NULL, at TEXT NOT NULL, at_ms INTEGER NOT NULL,
+                  level TEXT, logger TEXT, thread TEXT, message TEXT, exception_json TEXT, cut INTEGER NOT NULL DEFAULT 0,
+                  project TEXT, approx_bytes INTEGER NOT NULL
+                )
+                """);
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS ix_log_lines_call ON call_log_lines(call_id, seq) WHERE call_id IS NOT NULL");
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS ix_log_lines_outside ON call_log_lines(project, thread, at_ms) WHERE call_id IS NULL");
+        jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS call_log_summary (
+                  call_id TEXT PRIMARY KEY, lines INTEGER NOT NULL DEFAULT 0, errors INTEGER NOT NULL DEFAULT 0,
+                  warnings INTEGER NOT NULL DEFAULT 0, dropped INTEGER NOT NULL DEFAULT 0
+                )
+                """);
+        addColumnIfMissing("call_markers", "logs", "INTEGER");
         jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS capture_settings (project TEXT PRIMARY KEY, settings_json TEXT NOT NULL)");
         jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS agents (agent_id TEXT PRIMARY KEY, project TEXT NOT NULL, status_json TEXT NOT NULL, last_seen TEXT NOT NULL)");
     }
@@ -329,9 +348,155 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
             return;
         }
         List<Object[]> args = markers.stream()
-                .map(m -> new Object[]{m.callId(), m.seq(), m.type().name(), m.at() == null ? Instant.now().toString() : m.at(), m.method(), m.url(), m.thread()})
+                .map(m -> new Object[]{m.callId(), m.seq(), m.type().name(), m.at() == null ? Instant.now().toString() : m.at(), m.method(), m.url(), m.thread(),
+                        Boolean.TRUE.equals(m.logs()) ? 1 : null})
                 .toList();
-        jdbcTemplate.batchUpdate("INSERT OR IGNORE INTO call_markers (call_id, seq, type, at, method, url, thread) VALUES (?,?,?,?,?,?,?)", args);
+        jdbcTemplate.batchUpdate("INSERT OR IGNORE INTO call_markers (call_id, seq, type, at, method, url, thread, logs) VALUES (?,?,?,?,?,?,?,?)", args);
+    }
+
+    // ------------------------------------------------------------------ caught log lines (specs/009-agent-log-capture)
+
+    /** Outside-call lines kept per project (spec FR-015) - the oldest go first. */
+    static final int MAX_OUTSIDE_LOG_LINES = 20_000;
+    private static final String LOG_COLUMNS = "id, call_id, seq, at, level, logger, thread, message, exception_json, cut, project";
+
+    @Override
+    public void saveLogLines(List<CaughtLogLine> lines) {
+        if (lines == null || lines.isEmpty()) {
+            return;
+        }
+        transactions.executeWithoutResult(status -> {
+            List<Object[]> args = lines.stream().map(l -> new Object[]{l.callId(), l.callId() == null ? 0 : l.seq(), at(l.at()), atMs(l.at()), l.level(),
+                    l.logger(), l.thread(), l.message(), exceptionJson(l), l.cut() ? 1 : 0, l.project(), approxBytes(l)}).toList();
+            jdbcTemplate.batchUpdate("INSERT INTO call_log_lines (call_id, seq, at, at_ms, level, logger, thread, message, exception_json, cut, project, approx_bytes) "
+                    + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", args);
+            Map<String, int[]> perCall = new LinkedHashMap<>();
+            for (CaughtLogLine l : lines) {
+                if (l.callId() != null) {
+                    int[] c = perCall.computeIfAbsent(l.callId(), k -> new int[3]);
+                    c[0]++;
+                    c[1] += l.error() ? 1 : 0;
+                    c[2] += l.warning() ? 1 : 0;
+                }
+            }
+            for (Map.Entry<String, int[]> e : perCall.entrySet()) {
+                jdbcTemplate.update("INSERT INTO call_log_summary (call_id, lines, errors, warnings) VALUES (?,?,?,?) ON CONFLICT(call_id) DO UPDATE SET "
+                        + "lines = lines + excluded.lines, errors = errors + excluded.errors, warnings = warnings + excluded.warnings",
+                        e.getKey(), e.getValue()[0], e.getValue()[1], e.getValue()[2]);
+            }
+        });
+        lines.stream().filter(l -> l.callId() == null).map(CaughtLogLine::project).distinct().forEach(this::trimOutsideLogLines);
+    }
+
+    private void trimOutsideLogLines(String project) {
+        Long cut = jdbcTemplate.query("SELECT id FROM call_log_lines WHERE call_id IS NULL AND project IS ? ORDER BY id DESC LIMIT 1 OFFSET ?",
+                (rs, n) -> rs.getLong(1), project, MAX_OUTSIDE_LOG_LINES).stream().findFirst().orElse(null);
+        if (cut != null) {
+            jdbcTemplate.update("DELETE FROM call_log_lines WHERE call_id IS NULL AND project IS ? AND id <= ?", project, cut);
+        }
+    }
+
+    @Override
+    public List<CaughtLogLine> logLines(String callId, int afterSeq, int limit) {
+        return jdbcTemplate.query("SELECT " + LOG_COLUMNS + " FROM call_log_lines WHERE call_id = ? AND seq > ? ORDER BY seq, id LIMIT ?",
+                this::logLine, callId, afterSeq, limit);
+    }
+
+    @Override
+    public List<CaughtLogLine> outsideLogLines(String project, String thread, long afterId, int limit) {
+        return thread == null || thread.isBlank()
+                ? jdbcTemplate.query("SELECT " + LOG_COLUMNS + " FROM call_log_lines WHERE call_id IS NULL AND project IS ? AND id > ? ORDER BY id LIMIT ?",
+                        this::logLine, project, afterId, limit)
+                : jdbcTemplate.query("SELECT " + LOG_COLUMNS + " FROM call_log_lines WHERE call_id IS NULL AND project IS ? AND thread = ? AND id > ? ORDER BY id LIMIT ?",
+                        this::logLine, project, thread, afterId, limit);
+    }
+
+    @Override
+    public void addDroppedLogs(Map<String, Long> droppedByCall) {
+        if (droppedByCall == null) {
+            return;
+        }
+        droppedByCall.forEach((callId, n) -> {
+            if (callId != null && n != null && n > 0) {
+                jdbcTemplate.update("INSERT INTO call_log_summary (call_id, dropped) VALUES (?,?) ON CONFLICT(call_id) DO UPDATE SET dropped = dropped + excluded.dropped",
+                        callId, n);
+            }
+        });
+    }
+
+    @Override
+    public Map<String, CaughtLogCounts> logCounts(Collection<String> callIds) {
+        Map<String, CaughtLogCounts> out = new LinkedHashMap<>();
+        List<String> ids = new ArrayList<>(callIds);
+        for (int i = 0; i < ids.size(); i += IN_CHUNK) {
+            List<String> chunk = ids.subList(i, Math.min(ids.size(), i + IN_CHUNK));
+            String in = chunk.stream().map(x -> "?").collect(Collectors.joining(","));
+            jdbcTemplate.query("SELECT call_id, lines, errors, warnings, dropped FROM call_log_summary WHERE call_id IN (" + in + ")",
+                    rs -> {
+                        out.put(rs.getString(1), new CaughtLogCounts(rs.getInt(2), rs.getInt(3), rs.getInt(4), rs.getInt(5)));
+                    }, chunk.toArray());
+        }
+        return out;
+    }
+
+    @Override
+    public boolean catchesLogs(String callId) {
+        return !jdbcTemplate.queryForList("SELECT 1 FROM call_markers WHERE call_id = ? AND seq = 0 AND logs = 1 LIMIT 1", Integer.class, callId).isEmpty();
+    }
+
+    private CaughtLogLine logLine(java.sql.ResultSet rs, int n) throws java.sql.SQLException {
+        String type = null;
+        String message = null;
+        String stack = null;
+        String exception = rs.getString("exception_json");
+        if (exception != null) {
+            try {
+                Map<?, ?> e = objectMapper.readValue(exception, Map.class);
+                type = (String) e.get("type");
+                message = (String) e.get("message");
+                stack = (String) e.get("stack");
+            } catch (Exception ignored) {
+                stack = exception;
+            }
+        }
+        return new CaughtLogLine(rs.getLong("id"), rs.getString("call_id"), rs.getInt("seq"), rs.getString("at"), rs.getString("level"),
+                rs.getString("logger"), rs.getString("thread"), rs.getString("message"), type, message, stack, rs.getInt("cut") == 1,
+                rs.getString("project"));
+    }
+
+    private String exceptionJson(CaughtLogLine l) {
+        if (l.exceptionType() == null && l.exceptionMessage() == null && l.exceptionStack() == null) {
+            return null;
+        }
+        Map<String, String> e = new LinkedHashMap<>();
+        e.put("type", l.exceptionType());
+        e.put("message", l.exceptionMessage());
+        e.put("stack", l.exceptionStack());
+        return json(e);
+    }
+
+    /** The agent writes a fixed 3-digit fraction already; anything else is normalised so text order stays time order. */
+    private static final java.time.format.DateTimeFormatter AT_MILLIS =
+            java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'").withZone(java.time.ZoneOffset.UTC);
+
+    private static String at(String at) {
+        return AT_MILLIS.format(Instant.ofEpochMilli(atMs(at)));
+    }
+
+    private static long atMs(String at) {
+        try {
+            return Instant.parse(at).toEpochMilli();
+        } catch (RuntimeException e) {
+            return Instant.now().toEpochMilli();
+        }
+    }
+
+    private static long approxBytes(CaughtLogLine l) {
+        long n = 64;
+        for (String s : new String[]{l.level(), l.logger(), l.thread(), l.message(), l.exceptionType(), l.exceptionMessage(), l.exceptionStack()}) {
+            n += s == null ? 0 : s.length() * 2L;
+        }
+        return n;
     }
 
     @Override
@@ -640,9 +805,10 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
 
     @Override
     public List<CallMarker> markers(String callId) {
-        return jdbcTemplate.query("SELECT call_id, seq, type, at, method, url, thread FROM call_markers WHERE call_id = ? ORDER BY seq LIMIT 10000",
+        return jdbcTemplate.query("SELECT call_id, seq, type, at, method, url, thread, logs FROM call_markers WHERE call_id = ? ORDER BY seq LIMIT 10000",
                 (rs, n) -> new CallMarker(rs.getString("call_id"), rs.getInt("seq"), MarkerType.valueOf(rs.getString("type")),
-                        rs.getString("at"), rs.getString("method"), rs.getString("url"), rs.getString("thread")), callId);
+                        rs.getString("at"), rs.getString("method"), rs.getString("url"), rs.getString("thread"),
+                        rs.getInt("logs") == 1 ? Boolean.TRUE : null), callId);
     }
 
     @Override
@@ -712,6 +878,8 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
                 jdbcTemplate.update("DELETE FROM transactions WHERE call_id IN (" + in + ")", args);
                 jdbcTemplate.update("DELETE FROM call_markers WHERE call_id IN (" + in + ")", args);
                 jdbcTemplate.update("DELETE FROM call_db_summary WHERE call_id IN (" + in + ")", args);
+                jdbcTemplate.update("DELETE FROM call_log_lines WHERE call_id IN (" + in + ")", args);
+                jdbcTemplate.update("DELETE FROM call_log_summary WHERE call_id IN (" + in + ")", args);
             });
         }
         return deleted[0];
@@ -725,6 +893,8 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
             jdbcTemplate.update("DELETE FROM transactions");
             jdbcTemplate.update("DELETE FROM call_markers");
             jdbcTemplate.update("DELETE FROM call_db_summary");
+            jdbcTemplate.update("DELETE FROM call_log_lines WHERE call_id IS NOT NULL");
+            jdbcTemplate.update("DELETE FROM call_log_summary");
         });
     }
 

@@ -1,5 +1,8 @@
 package com.fathy.alfred.backend.dbcapture.application.service;
 
+import com.fathy.alfred.backend.dbcapture.application.port.in.CallLogLinesUseCase;
+import com.fathy.alfred.backend.dbcapture.domain.model.CaughtLogCounts;
+import com.fathy.alfred.backend.dbcapture.domain.model.CaughtLogLine;
 import com.fathy.alfred.backend.dbcapture.application.port.in.CallThreadsUseCase;
 import com.fathy.alfred.backend.dbcapture.application.port.in.ExportCallStatementsUseCase;
 import com.fathy.alfred.backend.dbcapture.application.port.in.FindStatementFailuresUseCase;
@@ -33,7 +36,7 @@ import java.util.Optional;
 
 /** Reads for the ◆ DB chip and the database window. Every size the client asks for is clamped here. */
 @Service
-public class DbCaptureQueryService implements GetCallDbSummariesUseCase, GetCallStatementsUseCase, GetStatementUseCase, CallThreadsUseCase,
+public class DbCaptureQueryService implements GetCallDbSummariesUseCase, GetCallStatementsUseCase, GetStatementUseCase, CallThreadsUseCase, CallLogLinesUseCase,
         ExportCallStatementsUseCase, FindStatementFailuresUseCase {
 
     static final String RESULT = "RESULT";
@@ -47,6 +50,35 @@ public class DbCaptureQueryService implements GetCallDbSummariesUseCase, GetCall
     public DbCaptureQueryService(DbCaptureStorePort store, IngestStatementsUseCase ingest) {
         this.store = store;
         this.ingest = ingest;
+    }
+
+    // ---- caught log lines (specs/009-agent-log-capture)
+
+    @Override
+    public boolean caughtFor(String callId) {
+        return callId != null && !callId.isBlank() && store.catchesLogs(callId);
+    }
+
+    @Override
+    public List<CaughtLogLine> lines(String callId, int afterSeq, int limit) {
+        if (callId == null || callId.isBlank()) {
+            return List.of();
+        }
+        return store.logLines(callId, Math.max(0, afterSeq), clampLogLimit(limit));
+    }
+
+    @Override
+    public Map<String, CaughtLogCounts> counts(List<String> callIds) {
+        return callIds == null || callIds.isEmpty() ? Map.of() : store.logCounts(callIds.stream().limit(1000).toList());
+    }
+
+    @Override
+    public List<CaughtLogLine> outside(String project, String thread, long afterId, int limit) {
+        return store.outsideLogLines(project, thread, Math.max(0, afterId), clampLogLimit(limit));
+    }
+
+    private static int clampLogLimit(int limit) {
+        return limit <= 0 ? 200 : Math.min(limit, CallLogLinesUseCase.MAX_PAGE);
     }
 
     @Override
