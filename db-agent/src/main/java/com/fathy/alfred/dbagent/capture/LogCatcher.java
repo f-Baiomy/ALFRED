@@ -37,8 +37,12 @@ public final class LogCatcher {
     private final Map<String, Object> methods = new ConcurrentHashMap<>();
     private volatile long outsideMinute;
     private final java.util.concurrent.atomic.AtomicInteger outsideInMinute = new java.util.concurrent.atomic.AtomicInteger();
-    /** JUL's message formatting (parameters, resource bundles) - the same text a JUL handler would print. */
-    private final java.util.logging.SimpleFormatter julFormatter = new java.util.logging.SimpleFormatter();
+    /**
+     * JUL's message formatting (parameters, resource bundles) - the same text a JUL handler would print. Created on the
+     * first JUL event, never earlier: touching java.util.logging while the agent starts (premain) fixes the JVM's
+     * LogManager before an application server installs its own - WildFly then refuses to boot (WFLYLOG0078).
+     */
+    private volatile Object julFormatter;
 
     LogCatcher(StatementSink sink) {
         this.sink = sink;
@@ -150,7 +154,12 @@ public final class LogCatcher {
                     r.thread = Thread.currentThread().getName();
                     String text;
                     try {
-                        text = julFormatter.formatMessage(jul);
+                        Object formatter = julFormatter;
+                        if (formatter == null) {
+                            formatter = new java.util.logging.SimpleFormatter();
+                            julFormatter = formatter;
+                        }
+                        text = ((java.util.logging.Formatter) formatter).formatMessage(jul);
                     } catch (RuntimeException ex) {
                         text = jul.getMessage();
                     }
