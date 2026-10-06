@@ -2,6 +2,7 @@ import { DestroyRef, Injectable, inject, signal } from '@angular/core';
 import { LogCounts } from '../models/call-logs.model';
 import { CallLogsApiService } from '../services/call-logs-api.service';
 import { LogsSocketService } from '../services/logs-socket.service';
+import { DbCaptureStateService } from './db-capture-state.service';
 
 /** At most this many ids per counts request (the backend's cap). */
 const BATCH = 100;
@@ -35,9 +36,14 @@ export class CallLogCountsService {
       if (e.type === 'lines-added' && e.count > 0) this.scheduleRefetch();
     });
     const reconnect = socket.reconnected$.subscribe(() => this.scheduleRefetch());
+    // lines the agent caught (specs/009) arrive on the database-capture socket
+    const caught = inject(DbCaptureStateService).events$.subscribe((e) => {
+      if (e.type === 'logs-appended' && e.callId && this.shown.has(e.callId)) this.scheduleRefetch();
+    });
     inject(DestroyRef).onDestroy(() => {
       sub.unsubscribe();
       reconnect.unsubscribe();
+      caught.unsubscribe();
       if (this.refetchTimer) clearTimeout(this.refetchTimer);
     });
   }

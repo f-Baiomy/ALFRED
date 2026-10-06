@@ -31,6 +31,7 @@ import { DbLogLinesComponent } from './db-log-lines.component';
 import { CallLogsApiService } from '../../core/services/call-logs-api.service';
 import { LogsSocketService } from '../../core/services/logs-socket.service';
 import { CallLogsPage, LinkedLogLine } from '../../core/models/call-logs.model';
+import { OutsideLogLine } from '../../core/models/db-capture.model';
 import { TogetherRow, logRows, togetherRows } from '../../shared/utils/call-log-rows';
 import { CallsApiService } from '../../core/services/calls-api.service';
 import { CallFocusService } from '../../core/services/call-focus.service';
@@ -554,8 +555,13 @@ export class DbWindowComponent implements OnInit {
         this.loadChildren(call);
       } else if (event.type === 'outside-appended' && !call && !this.hasMore()) {
         this.fetchMore(false);
+      } else if (event.type === 'logs-appended') {
+        // lines the agent caught (specs/009): this call's, or - in the outside view - lines outside any call
+        if (call && event.callId === call.id) this.scheduleLogRefetch(call);
+        else if (!call && event.callId == null) this.loadOutsideLogs();
       }
     });
+    if (!call) this.loadOutsideLogs();
     const reconnect = this.dbState.reconnected$.subscribe(() => this.fetchMore(false));
     this.destroyRef.onDestroy(() => {
       sub.unsubscribe();
@@ -604,6 +610,41 @@ export class DbWindowComponent implements OnInit {
       this.loadLogs(call);
     }, LOG_REFETCH_MS);
   }
+
+  // ---- lines the agent caught outside any call (specs/009-agent-log-capture, US4)
+  readonly outsideLogs = signal<readonly OutsideLogLine[]>([]);
+
+  private loadOutsideLogs(): void {
+    const request = this.request();
+    const project = request.kind === 'outside' ? request.project ?? null : null;
+    this.api.outsideLogs(project, 0, 500).subscribe({ next: (lines) => this.outsideLogs.set(lines), error: () => this.outsideLogs.set([]) });
+  }
+
+  /** Each thread's caught lines, as the log list's rows (time from the thread's first line). */
+  readonly outsideLogRows = computed(() => {
+    const by = new Map<string, TogetherRow[]>();
+    const first = new Map<string, number>();
+    for (const l of this.outsideLogs()) {
+      const thread = l.thread ?? '?';
+      const at = Date.parse(l.at);
+      if (!first.has(thread)) first.set(thread, at);
+      const line: LinkedLogLine = {
+        sourceId: 'agent', sourceName: 'caught by the agent', lineId: `c:${l.id}`, at: l.at, offsetMs: at - first.get(thread)!,
+        level: l.level, thread: l.thread, logger: l.logger, message: l.message ?? '', matchedBy: 'CAUGHT', raw: JSON.stringify(l),
+        exception: l.exceptionType || l.exceptionStack ? { type: l.exceptionType ?? null, message: l.exceptionMessage ?? null, stack: l.exceptionStack ?? null } : null,
+      };
+      const rows = by.get(thread) ?? [];
+      rows.push(...logRows([line]));
+      by.set(thread, rows);
+    }
+    return by;
+  });
+
+  /** Threads with caught lines but no statements outside calls - listed after the statement threads. */
+  readonly logOnlyThreads = computed(() => {
+    const withStatements = new Set(this.threads().map((t) => t.thread));
+    return [...this.outsideLogRows().keys()].filter((t) => !withStatements.has(t));
+  });
 
   /** The ▤ switch, from the window's own "Alfred is not reading these logs" note. */
   turnLogsOn(): void {

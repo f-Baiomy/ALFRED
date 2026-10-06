@@ -115,11 +115,12 @@
         }
       </div>
       @if ((view() === 'logs' || view() === 'together') && logLines().length) {
-        <span class="dbw-logbar">Logs from <b>{{ logSources().join(', ') }}</b> ·
-          <span class="pill" [class.exact]="logInfo()?.matchedBy === 'EXACT'">{{ logInfo()?.matchedBy === 'EXACT' ? 'exact' : 'same thread + time' }}</span>
+        <span class="dbw-logbar">@if (logInfo()?.matchedBy !== 'CAUGHT') {Logs from <b>{{ logSources().join(', ') }}</b> ·}
+          <span class="pill" [class.exact]="logInfo()?.matchedBy !== 'THREAD_TIME'">{{ logInfo()?.matchedBy === 'CAUGHT' ? 'caught by the agent' : logInfo()?.matchedBy === 'EXACT' ? 'exact' : 'same thread + time' }}</span>
           @if (logInfo()?.thread; as t) {<span>· thread {{ t }}</span>}
           @if (logInfo()?.matchedBy === 'THREAD_TIME') {<span>· ±{{ logInfo()?.clockSkewMs }} ms clock</span>}
           @if (logInfo()?.setup === 'LINKING_OFF') {<span title="▤ is off - these are the lines Alfred kept with this call">· kept copy</span>}
+          @if (logInfo()?.dropped; as d) {<span class="w" title="Over the per-call limits (5,000 lines, 2 MB, 32 KB a line) or written after the call ended">· {{ d.toLocaleString() }} lines not kept</span>}
           @if (firstLogLink(); as href) {<a [href]="href" target="_blank" rel="noopener">· open in Logs ↗</a>}
         </span>
       }
@@ -277,7 +278,7 @@
         <div class="empty">{{ error() }}</div>
       } @else if (loading()) {
         <div class="empty">Loading statements…</div>
-      } @else if (!statements().length) {
+      } @else if (!statements().length && (call() || !outsideLogs().length)) {
         <div class="empty">{{ call() ? 'The agent saw no database statements for this call.' : 'No statements outside calls.' }}</div>
       } @else if (sqlResult() && !sqlResult()!.error && !sqlResult()!.statementSeqs) {
         <!-- a summary query: its table is the answer -->
@@ -292,6 +293,11 @@
         @for (t of threads(); track t.thread) {
           <div class="db-thread">{{ t.thread }}</div>
           <app-db-statement-list [nodes]="t.nodes" />
+          @if (outsideLogRows().get(t.thread); as rows) {<app-db-log-lines [rows]="rows" />}
+        }
+        @for (t of logOnlyThreads(); track t) {
+          <div class="db-thread">{{ t }} <span class="dimtxt">· log lines only</span></div>
+          <app-db-log-lines [rows]="outsideLogRows().get(t)!" />
         }
       }
       @if (hasMore()) {

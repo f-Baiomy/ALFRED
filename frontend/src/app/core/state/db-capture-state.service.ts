@@ -122,9 +122,12 @@ export class DbCaptureStateService {
 
   logsTitle(project: string, inboundOn: boolean): string {
     if (!inboundOn) return 'Turn logging on first - log lines are linked to recorded calls';
-    return this.projectStatus(project)?.logsOn
-      ? `Logs are linked for ${project} - click to stop (Alfred then reads none of its logs)`
-      : `Logs are not linked for ${project} - click to link its calls to its log lines`;
+    const status = this.projectStatus(project);
+    // with the agent attached its lines are caught inside the application (specs/009); without, read from log files (008)
+    const from = status?.attached ? 'caught by the agent' : 'from its log files';
+    return status?.logsOn
+      ? `Logs are linked for ${project}, ${from} - click to stop (Alfred then reads none of its logs)`
+      : `Logs are not linked for ${project} - click to link its calls to its log lines (${from})`;
   }
 
   setShowChips(show: boolean): void {

@@ -34,7 +34,8 @@ async function allLines(client: AlfredClient, callId: string, cycleId: string | 
 export function register(server: McpServer, client: AlfredClient): void {
   server.registerTool('call_logs', {
     description: 'The application log lines written while one inbound call ran (the Logs view of Alfred\'s database window): offset from the call\'s start, '
-      + 'level, thread, logger, message and how each line was linked - EXACT (it carries the call id) or THREAD_TIME (same request thread, inside the call\'s time). '
+      + 'level, thread, logger, message, exception and how each line was linked - CAUGHT (caught by the agent inside the application, in the call\'s own order), '
+      + 'EXACT (it carries the call id) or THREAD_TIME (same request thread, inside the call\'s time). '
       + 'Masked like bodies. Filter by level or text; raw: true adds each whole original line.',
     inputSchema: {
       callId: z.string().min(1),
@@ -62,6 +63,8 @@ export function register(server: McpServer, client: AlfredClient): void {
     const rows = matching.slice(input.offset, input.offset + input.limit).map((l) => ({
       offsetMs: l.offsetMs, at: l.at, level: l.level, thread: l.thread, logger: l.logger, message: l.message, matchedBy: l.matchedBy,
       source: l.sourceName, lineId: l.lineId, ...(l.kept ? { kept: true } : {}),
+      ...(l.exception ? { exception: { type: l.exception.type, message: l.exception.message,
+        stack: l.exception.stack && l.exception.stack.length > RAW_LIMIT ? `${l.exception.stack.slice(0, RAW_LIMIT)}… (${l.exception.stack.length} chars)` : l.exception.stack } } : {}),
       ...(input.raw ? { raw: l.raw.length > RAW_LIMIT ? `${l.raw.slice(0, RAW_LIMIT)}… (${l.raw.length} chars)` : l.raw } : {}),
     }));
     const fitted = fitItems(rows, 600);

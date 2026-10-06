@@ -45,6 +45,23 @@ describe('DbLogLinesComponent', () => {
     expect(rows[1].textContent).toContain('exact');
   });
 
+  it('shows a caught line with its logger and its exception, and no Logs-tab link (specs/009)', () => {
+    const caught = line('c1', 12, {
+      sourceId: 'agent', sourceName: 'caught by the agent', lineId: 'c:1', matchedBy: 'CAUGHT', level: 'ERROR', logger: 'com.tt.nc.FlightSearch',
+      message: 'search failed', exception: { type: 'java.lang.NullPointerException', message: null, stack: 'java.lang.NullPointerException at a.B(B.java:3)' },
+    });
+    const fixture = render(logRows([caught]));
+    const row = fixture.nativeElement.querySelector('.dll-r');
+    expect(row.textContent).toContain('FlightSearch');
+    expect(row.textContent).toContain('NullPointerException');
+    expect(row.textContent).toContain('caught');
+    row.click();
+    fixture.detectChanges();
+    const detail = fixture.nativeElement.querySelector('.dll-detail');
+    expect(detail.querySelector('.dll-ex pre').textContent).toContain('B.java:3');
+    expect(detail.querySelector('a')).toBeNull();
+  });
+
   it('emits the seq of a clicked statement row', () => {
     const fixture = render(togetherRows(0, [stmt(7, 'SELECT', 'SELECT 1')], [], new Map(), []));
     let seq = -1;
@@ -60,6 +77,13 @@ describe('call-log-rows', () => {
     const rows = togetherRows(start, [stmt(1, 'SELECT', 'SELECT 1', { offsetMicros: 50_000 })],
       [{ seq: 2, method: 'POST', url: 'http://sup/x', at: '2026-10-06T10:00:00.080Z' }], new Map(), [line('a', 50), line('b', 10)]);
     expect(rows.map((r) => r.key)).toEqual(['l:s1:in:b', 's:1', 'l:s1:in:a', 'p:2']);
+  });
+
+  it('puts caught lines in the call’s own order (seq), whatever their clock says', () => {
+    const start = Date.parse('2026-10-06T10:00:00Z');
+    const rows = togetherRows(start, [stmt(1, 'SELECT', 'SELECT 1', { offsetMicros: 50_000 }), stmt(3, 'SELECT', 'SELECT 3', { offsetMicros: 60_000 })],
+      [], new Map(), [line('a', 90, { seq: 2, matchedBy: 'CAUGHT' })]);
+    expect(rows.map((r) => r.key)).toEqual(['s:1', 'l:s1:in:a', 's:3']);
   });
 
   it('classes levels and flattens JSON lines, leaving other text alone', () => {

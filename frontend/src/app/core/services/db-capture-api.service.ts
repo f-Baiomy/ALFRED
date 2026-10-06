@@ -6,6 +6,7 @@ import {
   CallDbCapture,
   CallDbSummary,
   CallStatementsPage,
+  OutsideLogLine,
   CapturedStatement,
   DbCaptureSettings,
   ProjectCaptureStatus,
@@ -37,6 +38,13 @@ export class DbCaptureApiService {
     return this.http.get<CallStatementsPage>(`${this.base}/calls/${encodeURIComponent(callId)}/statements`, {
       params: new HttpParams().set('afterSeq', afterSeq).set('limit', limit),
     });
+  }
+
+  /** Lines the agent caught outside any call (specs/009-agent-log-capture), oldest first. */
+  outsideLogs(project: string | null, after = 0, limit = 500): Observable<readonly OutsideLogLine[]> {
+    const params: Record<string, string> = { after: String(after), limit: String(limit) };
+    if (project) params['project'] = project;
+    return this.http.get<OutsideLogLine[]>(`${this.base}/outside/logs`, { params });
   }
 
   outside(thread: string, offset = 0, limit = 200): Observable<CallStatementsPage> {

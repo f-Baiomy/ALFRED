@@ -38,7 +38,9 @@ describe('DbWindowComponent', () => {
     logLines = undefined as unknown as jasmine.Spy;
   });
 
-  function create(view?: 'logs' | 'together') {
+  let outsideLines: unknown[] = [];
+
+  function create(view?: 'logs' | 'together', outside = false) {
     children ??= jasmine.createSpy('children').and.returnValue(of([]));
     focusGo = jasmine.createSpy('go');
     events = new Subject();
@@ -47,7 +49,7 @@ describe('DbWindowComponent', () => {
     TestBed.configureTestingModule({
       imports: [DbWindowComponent],
       providers: [
-        { provide: DbCaptureApiService, useValue: { statements } },
+        { provide: DbCaptureApiService, useValue: { statements, outside: (...args: unknown[]) => statements(...args), outsideLogs: () => of(outsideLines) } },
         { provide: DbCaptureStateService, useValue: { events$: events, reconnected$: new Subject(), summaries: signal(new Map()), requestSummary: () => undefined,
           projectStatus: () => undefined, setLogsOn: jasmine.createSpy('setLogsOn') } },
         { provide: CallLogsApiService, useValue: { lines: (...args: unknown[]) => logLines(...args) } },
@@ -59,7 +61,7 @@ describe('DbWindowComponent', () => {
       ],
     });
     const fixture = TestBed.createComponent(DbWindowComponent);
-    fixture.componentRef.setInput('request', { kind: 'call', call, view });
+    fixture.componentRef.setInput('request', outside ? { kind: 'outside', project: 'wallet-app' } : { kind: 'call', call, view });
     fixture.detectChanges();
     return fixture;
   }
@@ -245,6 +247,49 @@ describe('DbWindowComponent', () => {
 
     expect(fixture.nativeElement.querySelector('.dll-empty').textContent).toContain('is not reading');
     expect(fixture.nativeElement.querySelector('.dll-empty button').textContent).toContain('Turn ▤ on');
+  });
+
+  it('refetches its lines when the agent caught more for this call (logs-appended), not for another call', () => {
+    jasmine.clock().install();
+    try {
+      statements = jasmine.createSpy('statements').and.returnValue(of(pageOf(1)));
+      create('logs');
+      expect(logLines).toHaveBeenCalledTimes(1);
+      events.next({ type: 'logs-appended', callId: 'other', project: 'wallet-app' });
+      jasmine.clock().tick(1600);
+      expect(logLines).toHaveBeenCalledTimes(1);
+      events.next({ type: 'logs-appended', callId: 'call-1', project: 'wallet-app' });
+      jasmine.clock().tick(1600);
+      expect(logLines).toHaveBeenCalledTimes(2);
+    } finally {
+      jasmine.clock().uninstall();
+    }
+  });
+
+  it('outside any call: each thread shows the lines the agent caught there, and threads with lines only', () => {
+    statements = jasmine.createSpy('statements').and.returnValue(of({ ...pageOf(), statements: [stmt(1, 'SELECT', 'SELECT 1', { thread: 'sched-1', callId: null })] }));
+    outsideLines = [
+      { id: 1, at: '2026-10-06T10:00:00.000Z', level: 'INFO', logger: 'org.quartz.Job', thread: 'sched-1', message: 'job fired' },
+      { id: 2, at: '2026-10-06T10:00:01.000Z', level: 'WARN', logger: 'boot', thread: 'ServerService Thread Pool -- 7', message: 'deployment slow' },
+    ];
+    const fixture = create(undefined, true);
+    fixture.detectChanges();
+
+    const text = fixture.nativeElement.textContent;
+    expect(text).toContain('job fired');
+    expect(text).toContain('deployment slow');
+    expect(text).toContain('log lines only');
+    outsideLines = [];
+  });
+
+  it('shows "lines not kept" for a caught call over its limits', () => {
+    statements = jasmine.createSpy('statements').and.returnValue(of(pageOf(1)));
+    logLines = jasmine.createSpy('lines').and.returnValue(of({ ...logPage([line('a', 5, 'INFO', 'x')]), matchedBy: 'CAUGHT', dropped: 12 }));
+    const fixture = create('logs');
+
+    const bar = fixture.nativeElement.querySelector('.dbw-logbar').textContent;
+    expect(bar).toContain('caught by the agent');
+    expect(bar).toContain('12 lines not kept');
   });
 
   it('refetches the lines when the logs socket says new ones arrived - no polling', () => {

@@ -416,4 +416,20 @@ export type DbCaptureSocketEvent =
   | { readonly type: 'statements-appended'; readonly callId: string; readonly lastSeq: number; readonly summaryChanged: boolean }
   | { readonly type: 'outside-appended'; readonly thread: string; readonly count: number }
   | { readonly type: 'capture-settings-changed'; readonly project: string }
-  | { readonly type: 'agent-status-changed'; readonly project: string; readonly attached: boolean };
+  | { readonly type: 'agent-status-changed'; readonly project: string; readonly attached: boolean }
+  /** Caught log lines arrived for a call (callId null: outside any call) - specs/009-agent-log-capture. */
+  | { readonly type: 'logs-appended'; readonly callId: string | null; readonly project: string | null };
+
+/** A log line the agent caught outside any call (GET /db-capture/outside/logs). */
+export interface OutsideLogLine {
+  readonly id: number;
+  readonly at: string;
+  readonly level: string | null;
+  readonly logger: string | null;
+  readonly thread: string | null;
+  readonly message: string | null;
+  readonly exceptionType?: string | null;
+  readonly exceptionMessage?: string | null;
+  readonly exceptionStack?: string | null;
+  readonly cut?: boolean;
+}

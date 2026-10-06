@@ -21,22 +21,30 @@ import { TogetherRow, lineFields, logLevelClass } from '../../shared/utils/call-
                  (click)="toggle(r.key)" (keydown.enter)="toggle(r.key)">
               <span class="at">{{ at(r.atMs) }}</span>
               <span [class]="'v lv-' + lv(r.line.level)">▤ {{ r.line.level ?? 'LOG' }}</span>
-              <span class="t" [title]="r.line.message">@if (multiSource()) {<span class="src">{{ r.line.sourceName }}</span>}{{ r.line.message }}</span>
-              <span class="how">@if (r.line.kept) {<span class="pill kept" title="Alfred's own copy - kept with the cycle or import">kept</span>}<span class="pill" [class.exact]="r.line.matchedBy === 'EXACT'">{{ how(r.line.matchedBy) }}</span></span>
+              <span class="t" [title]="r.line.message">@if (multiSource()) {<span class="src">{{ r.line.sourceName }}</span>}@if (r.line.matchedBy === 'CAUGHT' && r.line.logger) {<span class="src">{{ shortLogger(r.line.logger) }}</span>}{{ r.line.message }}@if (r.line.exception) {<span class="exm"> ⚠ {{ r.line.exception.type }}</span>}</span>
+              <span class="how">@if (r.line.kept) {<span class="pill kept" title="Alfred's own copy - kept with the cycle or import">kept</span>}<span class="pill" [class.exact]="r.line.matchedBy !== 'THREAD_TIME'">{{ how(r.line.matchedBy) }}</span></span>
               <span class="ms"></span>
             </div>
             @if (opened().has(r.key)) {
               <div class="dll-detail">
-                @if (fieldsOf(r.line); as fs) {
-                  <div class="kv">@for (f of fs; track f.key) {<span>{{ f.key }}</span><span>{{ f.value }}</span>}</div>
+                @if (r.line.matchedBy === 'CAUGHT') {
+                  <div class="kv"><span>logger</span><span>{{ r.line.logger }}</span><span>thread</span><span>{{ r.line.thread }}</span>
+                    <span>message</span><span>{{ r.line.message }}</span></div>
+                  @if (r.line.exception; as ex) {
+                    <div class="dll-ex"><b>{{ ex.type }}</b>@if (ex.message) {: {{ ex.message }}}<pre>{{ ex.stack }}</pre></div>
+                  }
                 } @else {
-                  <pre class="raw">{{ r.line.raw }}</pre>
+                  @if (fieldsOf(r.line); as fs) {
+                    <div class="kv">@for (f of fs; track f.key) {<span>{{ f.key }}</span><span>{{ f.value }}</span>}</div>
+                  } @else {
+                    <pre class="raw">{{ r.line.raw }}</pre>
+                  }
                 }
                 <div class="foot">
-                  @if (!r.line.kept) {
+                  @if (!r.line.kept && r.line.sourceId !== 'agent') {
                     <a [href]="logsLink(r.line)" target="_blank" rel="noopener">Open in Logs ↗</a> ·
                   }
-                  {{ r.line.sourceName }} · matched by <span class="pill" [class.exact]="r.line.matchedBy === 'EXACT'">{{ how(r.line.matchedBy) }}</span>
+                  {{ r.line.sourceName }} · matched by <span class="pill" [class.exact]="r.line.matchedBy !== 'THREAD_TIME'">{{ how(r.line.matchedBy) }}</span>
                   @if (r.line.thread) { · thread {{ r.line.thread }}}
                   @if (r.line.logger) { · {{ r.line.logger }}}
                 </div>
@@ -91,7 +99,12 @@ export class DbLogLinesComponent {
   }
 
   how(m: LogMatch): string {
-    return m === 'EXACT' ? 'exact' : 'same thread + time';
+    return m === 'CAUGHT' ? 'caught' : m === 'EXACT' ? 'exact' : 'same thread + time';
+  }
+
+  /** "com.tt.nc.FlightSearchService" → "FlightSearchService" - the full name is in the line's detail. */
+  shortLogger(logger: string): string {
+    return logger.slice(logger.lastIndexOf('.') + 1);
   }
 
   logsLink(line: LinkedLogLine): string {

@@ -50,6 +50,16 @@ describe('log lines in exports', () => {
     expect(html).toContain(LONG);
   });
 
+  it('.md/.html: caught lines say so and keep their exception whole (specs/009)', () => {
+    const stack = 'java.lang.IllegalStateException: bad\n' + '\tat a.B.c(B.java:1)\n'.repeat(400);
+    const caught = line('c', 5, { matchedBy: 'CAUGHT', sourceName: 'caught by the agent', logger: 'com.app.Search',
+      raw: JSON.stringify({ message: 'boom', exception: { type: 'java.lang.IllegalStateException', stack } }) });
+    const md = logSectionMarkdown(inbound([caught]), 3).join('\n');
+    expect(md).toContain('caught by the agent inside the application');
+    expect(md).toContain(JSON.stringify(stack).slice(1, -1));
+    expect(logSectionHtml(inbound([caught]))).toContain('com.app.Search · caught');
+  });
+
   it('says so in About This Document', () => {
     expect(logLinesSentence([inbound(LINES)])).toContain('2 in all');
     expect(logLinesSentence([inbound(undefined)])).toBe('');

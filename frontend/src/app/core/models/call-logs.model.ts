@@ -3,7 +3,15 @@
  * matched to the inbound calls they were written during - exactly (the db-agent's tag) or by request thread and time.
  */
 
-export type LogMatch = 'EXACT' | 'THREAD_TIME';
+/** EXACT / THREAD_TIME: a log-file line matched to the call (008); CAUGHT: caught by the agent inside the call (009). */
+export type LogMatch = 'EXACT' | 'THREAD_TIME' | 'CAUGHT';
+
+/** The exception a caught line carried. */
+export interface LogException {
+  readonly type: string | null;
+  readonly message: string | null;
+  readonly stack: string | null;
+}
 
 /** Why a call shows no lines: LINKING_OFF = the project's ▤ switch or its logging is off (nothing is read). */
 export type CallLogsSetup = 'OK' | 'LINKING_OFF' | 'NO_SOURCE' | 'NO_THREAD';
@@ -26,6 +34,10 @@ export interface LinkedLogLine {
   readonly kept?: boolean;
   /** The whole original line. */
   readonly raw: string;
+  /** A caught line's exception (specs/009-agent-log-capture). */
+  readonly exception?: LogException | null;
+  /** A caught line's place in the call's own order, shared with its statements and supplier calls. */
+  readonly seq?: number | null;
 }
 
 export interface CallLogsPage {
@@ -36,6 +48,8 @@ export interface CallLogsPage {
   readonly clockSkewMs: number;
   readonly lines: readonly LinkedLogLine[];
   readonly next: string | null;
+  /** Lines the agent did not keep for the call (its caps, or late) - 0 for log-file lines. */
+  readonly dropped?: number;
 }
 
 export interface LogCounts {

@@ -17,13 +17,13 @@ public final class CallLogsModels {
     public record LogException(String type, String message, String stack) {
     }
 
-    /** One log line linked to a call; {@code kept} = served from ALFRED's own copy. */
+    /** One log line linked to a call; {@code kept} = served from ALFRED's own copy; {@code seq} = a caught line's place in the call's own order. */
     public record LinkedLogLine(String sourceId, String sourceName, String lineId, String at, long offsetMs, String level, String thread,
-                                String logger, String message, Match matchedBy, boolean kept, String raw, LogException exception) {
+                                String logger, String message, Match matchedBy, boolean kept, String raw, LogException exception, Integer seq) {
 
         public LinkedLogLine(String sourceId, String sourceName, String lineId, String at, long offsetMs, String level, String thread,
                              String logger, String message, Match matchedBy, boolean kept, String raw) {
-            this(sourceId, sourceName, lineId, at, offsetMs, level, thread, logger, message, matchedBy, kept, raw, null);
+            this(sourceId, sourceName, lineId, at, offsetMs, level, thread, logger, message, matchedBy, kept, raw, null, null);
         }
     }
 

@@ -41,7 +41,7 @@ describe('LogChipComponent', () => {
       providers: [
         { provide: CallLogsApiService, useValue: { counts } },
         { provide: LogsSocketService, useValue: { events$: events, reconnected$: new Subject() } },
-        { provide: DbCaptureStateService, useValue: { projectStatus: () => ({ logsOn: true }), projects: signal([]) } },
+        { provide: DbCaptureStateService, useValue: { projectStatus: () => ({ logsOn: true }), projects: signal([]), events$: new Subject() } },
         { provide: DbWindowService, useValue: { openCall } },
       ],
     });

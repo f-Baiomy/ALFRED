@@ -178,7 +178,7 @@ public class CallLogsService {
             rawText = String.valueOf(l.message());
         }
         return new LinkedLogLine("agent", "caught by the agent", "c:" + l.id(), l.at(), atMs - call.startMs(), l.level(), l.thread(),
-                l.logger(), l.message(), Match.CAUGHT, false, rawText, exception);
+                l.logger(), l.message(), Match.CAUGHT, false, rawText, exception, l.seq());
     }
 
     private static int parseInt(String s) {

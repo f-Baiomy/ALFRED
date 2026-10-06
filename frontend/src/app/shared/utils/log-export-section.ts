@@ -9,6 +9,7 @@ import { mdCell } from './db-export-section';
  */
 
 function matchedText(lines: readonly LinkedLogLine[]): string {
+  if (lines.every((l) => l.matchedBy === 'CAUGHT')) return 'caught by the agent inside the application, in the call’s own order';
   const exact = lines.filter((l) => l.matchedBy === 'EXACT').length;
   if (exact === lines.length) return 'matched exactly by the call id';
   if (exact === 0) return 'matched by request thread and time';
@@ -81,7 +82,7 @@ export function logSectionHtml(call: CallRecord): string {
   const rows = lines.map((l) =>
     `<details class="lgl${levelClass(l.level)}"><summary><span class="at">${esc(offset(l.offsetMs))}</span><span class="lv">${esc(l.level ?? '')}</span>` +
     `<span class="msg">${esc(l.message)}</span></summary><div class="raw-meta">${esc(l.sourceName)}${l.thread ? ` · thread ${esc(l.thread)}` : ''}` +
-    `${l.logger ? ` · ${esc(l.logger)}` : ''} · ${l.matchedBy === 'EXACT' ? 'exact' : 'same thread + time'}${l.kept ? ' · kept copy' : ''}</div>` +
+    `${l.logger ? ` · ${esc(l.logger)}` : ''} · ${l.matchedBy === 'CAUGHT' ? 'caught' : l.matchedBy === 'EXACT' ? 'exact' : 'same thread + time'}${l.kept ? ' · kept copy' : ''}</div>` +
     `<pre>${esc(l.raw)}</pre></details>`).join('');
   return `<details class="lgx"><summary><span class="t">📜 Logs</span>${chips}</summary><div class="inner">` +
     `<p class="lead">The application log lines written while handling this call, oldest first, from ${esc(sources(lines))} - ${esc(matchedText(lines))}. Open a line for the whole of it.</p>` +

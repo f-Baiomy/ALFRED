@@ -999,3 +999,6 @@ html.db-window-open body {
   &:hover { background: color-mix(in srgb, var(--log) 18%, transparent); border-color: color-mix(in srgb, var(--log) 60%, transparent); }
   .sep { color: color-mix(in srgb, var(--log) 45%, transparent); }
 }
+.db-window .dll-r .t .exm { color: var(--red); font-family: inherit; }
+.db-window .dll-detail .dll-ex { margin-top: 0.35rem; color: var(--red); font-size: 0.72rem;
+  pre { margin: 0.2rem 0 0; white-space: pre-wrap; word-break: break-word; color: var(--text-dim); font-family: var(--db-mono); font-size: 0.68rem; max-height: 320px; overflow: auto; } }

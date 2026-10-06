@@ -49,6 +49,11 @@ export function togetherRows(
     });
   }
   rows.push(...logRows(lines));
+  // Caught lines (specs/009) carry the call's own sequence number: everything is then in its exact order, clocks aside.
+  const seqOf = (r: TogetherRow): number | null => (r.kind === 'log' ? r.line.seq ?? null : r.seq);
+  if (lines.length && lines.every((l) => l.seq != null)) {
+    return rows.sort((a, b) => (seqOf(a) ?? 0) - (seqOf(b) ?? 0) || a.atMs - b.atMs);
+  }
   const rank = (r: TogetherRow) => (r.kind === 'log' ? 1 : 0);
   return rows.sort((a, b) => a.atMs - b.atMs || rank(a) - rank(b) || ('seq' in a && 'seq' in b ? a.seq - b.seq : 0));
 }
