@@ -60,7 +60,7 @@ export class LogChipComponent implements OnInit {
   ngOnInit(): void {
     const id = this.call().id;
     if (typeof IntersectionObserver === 'undefined') {
-      this.countsState.show(id);
+      this.countsState.show(id, this.origin?.cycleId() ?? null);
       this.visible = true;
       this.destroyRef.onDestroy(() => this.countsState.hide(id));
       return;
@@ -69,7 +69,7 @@ export class LogChipComponent implements OnInit {
       const on = entries.some((e) => e.isIntersecting);
       if (on === this.visible) return;
       this.visible = on;
-      if (on) this.countsState.show(id);
+      if (on) this.countsState.show(id, this.origin?.cycleId() ?? null);
       else this.countsState.hide(id);
     }, { rootMargin: '200px 0px' });
     observer.observe(this.host.nativeElement);

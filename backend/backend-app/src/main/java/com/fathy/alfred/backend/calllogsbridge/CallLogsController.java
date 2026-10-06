@@ -52,12 +52,13 @@ public class CallLogsController {
 
     /** Counts for the calls the UI shows (at most {@value #MAX_COUNT_IDS} ids) - no line is read in full. */
     @GetMapping("/call-logs/counts")
-    public Map<String, CallLogsModels.LogCounts> counts(@RequestParam(defaultValue = "") String callIds) {
+    public Map<String, CallLogsModels.LogCounts> counts(@RequestParam(defaultValue = "") String callIds,
+                                                        @RequestParam(required = false) String cycleId) {
         List<String> ids = Arrays.stream(callIds.split(",")).map(String::trim).filter(id -> !id.isEmpty()).distinct().toList();
         if (ids.size() > MAX_COUNT_IDS) {
             throw new IllegalArgumentException("at most " + MAX_COUNT_IDS + " call ids");
         }
-        return service.counts(ids);
+        return service.counts(ids, cycleId);
     }
 
     /** An imported call's lines (.json export's logLines), kept as Alfred's own copies (FR-016). */

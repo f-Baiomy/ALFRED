@@ -31,8 +31,11 @@ export class CallLogsApiService {
     );
   }
 
-  counts(callIds: readonly string[]): Observable<Readonly<Record<string, LogCounts>>> {
-    return this.http.get<Record<string, LogCounts>>(`${this.base}/counts`, { params: { callIds: callIds.join(',') } });
+  /** With `cycleId`, calls the live list no longer has are found through that cycle's copies (and their kept lines). */
+  counts(callIds: readonly string[], cycleId: string | null = null): Observable<Readonly<Record<string, LogCounts>>> {
+    const params: Record<string, string> = { callIds: callIds.join(',') };
+    if (cycleId) params['cycleId'] = cycleId;
+    return this.http.get<Record<string, LogCounts>>(`${this.base}/counts`, { params });
   }
 
   forLine(sourceId: string, lineId: string): Observable<LineCall | null> {

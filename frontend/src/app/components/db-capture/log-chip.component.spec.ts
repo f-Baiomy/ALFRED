@@ -1,4 +1,5 @@
 import { signal } from '@angular/core';
+import { CALL_ORIGIN } from '../../core/state/call-origin.token';
 import { TestBed } from '@angular/core/testing';
 import { Subject, of } from 'rxjs';
 import { CallRecord } from '../../core/models/call.model';
@@ -67,6 +68,13 @@ describe('LogChipComponent', () => {
     expect(a.nativeElement.textContent).toContain('1 error');
     expect(a.nativeElement.textContent).toContain('2 warn');
     expect(none.nativeElement.querySelector('button')).toBeNull();
+  });
+
+  it('asks with the cycle id on a cycle card, so a call the live list dropped is still counted', async () => {
+    TestBed.overrideProvider(CALL_ORIGIN, { useValue: { cycleId: signal('cy1') } });
+    const [a] = await chips('a');
+    expect(counts).toHaveBeenCalledWith(['a'], 'cy1');
+    expect(a.nativeElement.textContent).toContain('▤ Logs 11');
   });
 
   it('opens the window on the Logs view', async () => {

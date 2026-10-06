@@ -64,8 +64,8 @@ public class CallLogsService {
     static final int MAX_LINES_PER_CALL = 5_000;
     static final int MAX_PAGE = 500;
     static final int DEFAULT_PAGE = 200;
-    /** How far back to look for a neighbouring call on the same thread whose window could overlap this one. */
-    static final long NEIGHBOUR_LOOKBACK_MS = 10 * 60 * 1000L;
+    /** Calls opened before a window that are still considered: a thread runs one request at a time, so the last two. */
+    static final int PREVIOUS_CALLS = 2;
     private static final String CURSOR = "o:";
 
     private final ManageProjectLogsUseCase projectLogs;
@@ -120,9 +120,17 @@ public class CallLogsService {
 
     /** Counts per call - no line is read in full (FR-013). Unknown calls are left out. */
     public Map<String, LogCounts> counts(List<String> callIds) {
+        return counts(callIds, null);
+    }
+
+    /**
+     * Counts per call; with {@code cycleId} a call the live list no longer has is found through the cycle's copy, so a
+     * cycle's cards (and imported calls) show their kept lines too.
+     */
+    public Map<String, LogCounts> counts(List<String> callIds, String cycleId) {
         Map<String, LogCounts> out = new LinkedHashMap<>();
         for (String id : callIds) {
-            resolve(id, null).ifPresent(call -> {
+            resolve(id, cycleId).ifPresent(call -> {
                 Linked linked = link(call);
                 if (linked.hits().isEmpty()) {
                     return;
@@ -226,8 +234,8 @@ public class CallLogsService {
             long at = line.ts();
             long skew = s.clockSkewMs();
             List<CallInfo> onThread = new ArrayList<>();
-            for (CallOnThread c : threads.callsOnThread(String.valueOf(thread), Instant.ofEpochMilli(at - NEIGHBOUR_LOOKBACK_MS),
-                    Instant.ofEpochMilli(at + skew))) {
+            // the calls opened on the line's thread last before its time (+ the clock difference): only they can hold it
+            for (CallOnThread c : threads.callsBefore(String.valueOf(thread), Instant.ofEpochMilli(at + skew + 1), PREVIOUS_CALLS + 1)) {
                 inboundCalls.getSummary(c.callId()).flatMap(CallLogsService::info).filter(i -> s.project().equals(i.project())).ifPresent(onThread::add);
             }
             List<Window> windows = onThread.stream().map(i -> new Window(i.id(), i.startMs(), i.endMs())).toList();
@@ -356,10 +364,15 @@ public class CallLogsService {
 
     private List<Window> neighbours(CallInfo call, String thread, long skew) {
         List<Window> out = new ArrayList<>();
-        Instant from = Instant.ofEpochMilli(call.startMs() - NEIGHBOUR_LOOKBACK_MS);
+        Instant from = Instant.ofEpochMilli(call.startMs() - skew);
         Instant to = Instant.ofEpochMilli(call.endMs() + skew);
-        for (CallOnThread other : threads.callsOnThread(thread, from, to)) {
-            if (other.callId().equals(call.id())) {
+        // A thread serves one request at a time: the calls opened inside this window, plus the last ones opened before
+        // it (one of them may still have been running) - never a fixed look-back that a busy thread could overflow.
+        Set<String> seen = new java.util.HashSet<>();
+        List<CallOnThread> candidates = new ArrayList<>(threads.callsBefore(thread, from, PREVIOUS_CALLS));
+        candidates.addAll(threads.callsOnThread(thread, from, to));
+        for (CallOnThread other : candidates) {
+            if (other.callId().equals(call.id()) || !seen.add(other.callId())) {
                 continue;
             }
             inboundCalls.getSummary(other.callId()).flatMap(CallLogsService::info)

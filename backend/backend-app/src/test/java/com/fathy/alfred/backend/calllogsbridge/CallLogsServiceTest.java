@@ -83,7 +83,7 @@ class CallLogsServiceTest {
         when(logs.lines(anyString(), any())).thenAnswer(inv -> page(inv.getArgument(0), inv.getArgument(1)));
         when(logs.line(anyString(), anyString())).thenAnswer(inv -> full(inv.getArgument(0), inv.getArgument(1)));
         when(threads.requestThread(CALL)).thenReturn(Optional.of(THREAD));
-        when(threads.callsOnThread(eq(THREAD), any(), any())).thenReturn(List.of(new CallOnThread(CALL, Instant.ofEpochMilli(START).toString())));
+        onThread(new CallOnThread(CALL, Instant.ofEpochMilli(START).toString()));
     }
 
     // ------------------------------------------------------------------ thread and time
@@ -111,14 +111,40 @@ class CallLogsServiceTest {
     @Test
     void aLineNearerANeighbouringCallOnTheSameThreadGoesToThatCall() {
         when(calls.getSummary("c2")).thenReturn(Optional.of(summary("c2", START + 1100, 1000)));
-        when(threads.callsOnThread(eq(THREAD), any(), any()))
-                .thenReturn(List.of(new CallOnThread(CALL, Instant.ofEpochMilli(START).toString()), new CallOnThread("c2", Instant.ofEpochMilli(START + 1100).toString())));
+        onThread(new CallOnThread(CALL, Instant.ofEpochMilli(START).toString()), new CallOnThread("c2", Instant.ofEpochMilli(START + 1100).toString()));
         line("s1", "mine", START + 900, THREAD);       // middle 500 vs 1600: mine
         line("s1", "theirs", START + 1150, THREAD);    // 650 vs 450: theirs
 
         CallLogsPage page = service.lines(CALL, null, null, 0).orElseThrow();
 
         assertThat(page.lines()).extracting(LinkedLogLine::lineId).containsExactly("mine");
+    }
+
+    @Test
+    void aBusyThreadStillFindsTheNeighbourJustBefore() {
+        // 300 earlier calls on the same pooled thread - the one right before ends 50 ms into our window's skew
+        List<CallOnThread> earlier = new ArrayList<>();
+        for (int i = 300; i >= 1; i--) {
+            String id = "old-" + i;
+            long start = START - i * 1000L + 50;
+            when(calls.getSummary(id)).thenReturn(Optional.of(summary(id, start, 1000)));
+            earlier.add(new CallOnThread(id, Instant.ofEpochMilli(start).toString()));
+        }
+        earlier.add(new CallOnThread(CALL, Instant.ofEpochMilli(START).toString()));
+        onThread(earlier.toArray(CallOnThread[]::new));
+        line("s1", "prev-tail", START - 150, THREAD); // old-1 runs START-950..START+50: nearer its middle than ours
+
+        assertThat(service.lines(CALL, null, null, 0).orElseThrow().lines()).extracting(LinkedLogLine::lineId).doesNotContain("prev-tail");
+    }
+
+    @Test
+    void aLineDeepInsideALongCallFindsIt() {
+        when(projectLogs.readingSource("s1")).thenReturn(List.of(new ProjectLogSettings(PROJECT, List.of("s1"), "thread", null, null, 200)));
+        when(calls.getSummary(CALL)).thenReturn(Optional.of(summary(CALL, START, 30 * 60 * 1000)));
+        onThread(new CallOnThread(CALL, Instant.ofEpochMilli(START).toString()));
+        line("s1", "late", START + 25 * 60 * 1000, THREAD);
+
+        assertThat(service.forLine("s1", "late").orElseThrow().call().id()).isEqualTo(CALL);
     }
 
     @Test
@@ -200,8 +226,7 @@ class CallLogsServiceTest {
         // c0 ran before the switch was on (its lines untagged), CALL after (tagged); both on the same thread
         when(calls.getSummary("c0")).thenReturn(Optional.of(summary("c0", START - 1500, 1000)));
         when(threads.requestThread("c0")).thenReturn(Optional.of(THREAD));
-        when(threads.callsOnThread(eq(THREAD), any(), any())).thenReturn(List.of(
-                new CallOnThread("c0", Instant.ofEpochMilli(START - 1500).toString()), new CallOnThread(CALL, Instant.ofEpochMilli(START).toString())));
+        onThread(new CallOnThread("c0", Instant.ofEpochMilli(START - 1500).toString()), new CallOnThread(CALL, Instant.ofEpochMilli(START).toString()));
         line("s1", "c0-untagged", START - 1000, THREAD);
         line("s1", "c0-edge", START - 400, THREAD);
         line("s1", "mine-tagged", START + 100, THREAD, Map.of("mdc.alfred.call", CALL));
@@ -274,6 +299,21 @@ class CallLogsServiceTest {
         assertThat(counts.get(CALL).errors()).isEqualTo(1);
         assertThat(counts.get(CALL).warnings()).isEqualTo(1);
         verify(logs, never()).line(anyString(), anyString());
+    }
+
+    @Test
+    void aCycleOnlyCallIsCountedThroughItsCycleAndItsKeptLines() {
+        when(cycleCalls.listCalls(eq("cy1"), any())).thenReturn(Optional.of(new CapturedInternalCallsPage(List.of(
+                new CapturedInternalCallSummary("y", "2026-10-06T10:00:00Z", summary("gone-from-live", START, 100))), 1)));
+        when(capture.logsLinked(PROJECT)).thenReturn(false);
+        when(kept.kept("gone-from-live")).thenReturn(List.of(new KeptLogLine("gone-from-live", "s1", "server.log", "k1", START + 10, "ERROR",
+                THREAD, null, "boom", "EXACT", "raw", KeptLogLine.Origin.CYCLE)));
+
+        assertThat(service.counts(List.of("gone-from-live"))).isEmpty();
+        assertThat(service.counts(List.of("gone-from-live"), "cy1").get("gone-from-live")).satisfies(c -> {
+            assertThat(c.lines()).isEqualTo(1);
+            assertThat(c.errors()).isEqualTo(1);
+        });
     }
 
     @Test
@@ -376,6 +416,26 @@ class CallLogsServiceTest {
     }
 
     // ------------------------------------------------------------------ fakes
+
+    /** The calls opened on THREAD, answered by time like the db-capture store would. */
+    private void onThread(CallOnThread... calls) {
+        List<CallOnThread> all = List.of(calls);
+        when(threads.callsOnThread(eq(THREAD), any(), any())).thenAnswer(inv -> {
+            Instant from = inv.getArgument(1);
+            Instant to = inv.getArgument(2);
+            return all.stream().filter(c -> !opened(c).isBefore(from) && !opened(c).isAfter(to)).sorted(java.util.Comparator.comparing(CallLogsServiceTest::opened)).toList();
+        });
+        when(threads.callsBefore(eq(THREAD), any(), org.mockito.ArgumentMatchers.anyInt())).thenAnswer(inv -> {
+            Instant before = inv.getArgument(1);
+            int limit = inv.getArgument(2);
+            return all.stream().filter(c -> opened(c).isBefore(before))
+                    .sorted(java.util.Comparator.comparing(CallLogsServiceTest::opened).reversed()).limit(limit).toList();
+        });
+    }
+
+    private static Instant opened(CallOnThread c) {
+        return Instant.parse(c.openedAt());
+    }
 
     private void settings(List<String> sourceIds) {
         when(projectLogs.settings(PROJECT)).thenReturn(new ProjectLogSettings(PROJECT, sourceIds, "thread", null, null, 200));

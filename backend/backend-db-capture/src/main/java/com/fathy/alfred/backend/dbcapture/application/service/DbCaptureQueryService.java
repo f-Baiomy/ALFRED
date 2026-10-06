@@ -131,6 +131,14 @@ public class DbCaptureQueryService implements GetCallDbSummariesUseCase, GetCall
     }
 
     @Override
+    public List<CallOnThread> callsBefore(String thread, Instant before, int limit) {
+        if (thread == null || thread.isBlank() || before == null || limit <= 0) {
+            return List.of();
+        }
+        return store.callsBefore(thread, before.toString(), Math.min(limit, 50));
+    }
+
+    @Override
     public Optional<CallDbCaptureExport> export(String callId) {
         Optional<CallDbSummary> summary = store.summary(callId);
         if (summary.isEmpty()) {

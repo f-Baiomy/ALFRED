@@ -198,6 +198,22 @@ class SqliteDbCaptureRepositoryTest {
     }
 
     @Test
+    void callsOnAThreadCompareAsTimesNotTextAndTheLatestOnesBeforeAnInstantComeFirst() {
+        // Instant.toString() drops a zero fraction: as text "…:00Z" sorts AFTER "…:00.500Z"
+        repo.saveMarkers(List.of(
+                new CallMarker("whole", 0, MarkerType.CALL_OPEN, "2026-10-05T04:35:00Z", null, null, "t"),
+                new CallMarker("half", 0, MarkerType.CALL_OPEN, "2026-10-05T04:35:00.500Z", null, null, "t"),
+                new CallMarker("next", 0, MarkerType.CALL_OPEN, "2026-10-05T04:35:01Z", null, null, "t")));
+
+        assertThat(repo.callsOnThread("t", "2026-10-05T04:35:00.100Z", "2026-10-05T04:35:00.900Z")).extracting(CallOnThread::callId)
+                .containsExactly("half");
+        assertThat(repo.callsOnThread("t", "2026-10-05T04:35:00Z", "2026-10-05T04:35:01Z")).extracting(CallOnThread::callId)
+                .containsExactly("whole", "half", "next");
+        assertThat(repo.callsBefore("t", "2026-10-05T04:35:01Z", 2)).extracting(CallOnThread::callId).containsExactly("half", "whole");
+        assertThat(repo.callsBefore("t", "2026-10-05T04:35:00.200Z", 5)).extracting(CallOnThread::callId).containsExactly("whole");
+    }
+
+    @Test
     void deletingCallsRemovesEverythingOfThemAndKeepsOutsideStatements() {
         repo.saveStatements(List.of(Fixtures.select("a:1", "call-1", 1, 5), Fixtures.select("a:2", "call-2", 1, 5),
                 Fixtures.select("a:3", null, 1, 2)));

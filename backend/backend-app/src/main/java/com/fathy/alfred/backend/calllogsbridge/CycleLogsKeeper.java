@@ -9,6 +9,8 @@ import com.fathy.alfred.backend.sessioncycles.domain.model.SessionCycleStatus;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -47,6 +49,23 @@ public class CycleLogsKeeper {
         this.callLogs = callLogs;
         this.cycles = cycles;
         this.cycleCalls = cycleCalls;
+    }
+
+    /**
+     * Notes every cycle's status once the application is up, so a recording that was already running at start-up
+     * is seen to stop - without it, the first sweep after a restart has nothing to compare with and keeps nothing.
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    public void started() {
+        worker.submit(() -> run(this::noteStatuses));
+    }
+
+    void noteStatuses() {
+        Map<String, SessionCycleStatus> now = new HashMap<>();
+        for (SessionCycle c : cycles.listAll()) {
+            now.put(c.id(), c.status());
+        }
+        lastStatus = now;
     }
 
     /** A cycle's contents changed: keep its calls' lines. */

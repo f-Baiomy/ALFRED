@@ -77,7 +77,7 @@ class CallLogsControllerTest {
 
     @Test
     void countsSplitIdsAndCapAtOneHundred() throws Exception {
-        when(service.counts(List.of("a", "b"))).thenReturn(Map.of("a", new LogCounts(3, 1, 0, Match.EXACT)));
+        when(service.counts(List.of("a", "b"), null)).thenReturn(Map.of("a", new LogCounts(3, 1, 0, Match.EXACT)));
 
         mvc.perform(get("/call-logs/counts").param("callIds", "a, b,,a"))
                 .andExpect(status().isOk())
@@ -86,6 +86,8 @@ class CallLogsControllerTest {
 
         String many = IntStream.range(0, 101).mapToObj(i -> "c" + i).collect(Collectors.joining(","));
         mvc.perform(get("/call-logs/counts").param("callIds", many)).andExpect(status().isBadRequest());
-        verify(service, never()).counts(List.of());
+        verify(service, never()).counts(List.of(), null);
+        when(service.counts(List.of("c"), "cy1")).thenReturn(Map.of("c", new LogCounts(1, 0, 0, Match.EXACT)));
+        mvc.perform(get("/call-logs/counts").param("callIds", "c").param("cycleId", "cy1")).andExpect(jsonPath("$.c.lines").value(1));
     }
 }

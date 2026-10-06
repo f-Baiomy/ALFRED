@@ -62,6 +62,18 @@ class CycleLogsKeeperTest {
     }
 
     @Test
+    void aRecordingRunningAtStartUpIsKeptWhenItStops() {
+        holds("cy1", "a");
+        when(cycles.listAll()).thenReturn(List.of(cycle("cy1", SessionCycleStatus.RECORDING)));
+        keeper.noteStatuses(); // what start-up does
+
+        when(cycles.listAll()).thenReturn(List.of(cycle("cy1", SessionCycleStatus.PAUSED)));
+        keeper.sweep(); // the first sweep after the restart is the stop itself
+
+        verify(callLogs).keepForCycle("a", "cy1");
+    }
+
+    @Test
     @SuppressWarnings("unchecked")
     void theDecoratorStillBroadcastsAndThenKeeps() {
         SessionCycleNotificationPort socket = mock(SessionCycleNotificationPort.class);

@@ -51,6 +51,7 @@ import java.sql.Statement;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -347,8 +348,44 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
 
     @Override
     public List<CallOnThread> callsOnThread(String thread, String fromInstant, String toInstant) {
-        return jdbcTemplate.query("SELECT call_id, at FROM call_markers WHERE seq = 0 AND thread = ? AND at BETWEEN ? AND ? ORDER BY at LIMIT 200",
-                (rs, i) -> new CallOnThread(rs.getString(1), rs.getString(2)), thread, fromInstant, toInstant);
+        Instant from = Instant.parse(fromInstant);
+        Instant to = Instant.parse(toInstant);
+        // `at` is Instant.toString(), whose fraction varies in length ("…:00Z" sorts after "…:00.5Z"): the rows are
+        // narrowed by their whole-second prefix (fixed length, so text order is time order), then compared exactly.
+        return jdbcTemplate.query("SELECT call_id, at FROM call_markers WHERE seq = 0 AND thread = ? AND substr(at, 1, 19) BETWEEN ? AND ? LIMIT ?",
+                        (rs, i) -> new CallOnThread(rs.getString(1), rs.getString(2)), thread, second(from), second(to), MAX_CALLS_ON_THREAD)
+                .stream().filter(c -> within(c, from, to)).sorted(Comparator.comparing(SqliteDbCaptureRepository::openedAt)).toList();
+    }
+
+    @Override
+    public List<CallOnThread> callsBefore(String thread, String beforeInstant, int limit) {
+        Instant before = Instant.parse(beforeInstant);
+        // a few more than asked: calls in the same second are ordered exactly here, not by their text
+        return jdbcTemplate.query("SELECT call_id, at FROM call_markers WHERE seq = 0 AND thread = ? AND substr(at, 1, 19) <= ? "
+                                + "ORDER BY substr(at, 1, 19) DESC LIMIT ?",
+                        (rs, i) -> new CallOnThread(rs.getString(1), rs.getString(2)), thread, second(before), limit + 20)
+                .stream().filter(c -> openedAt(c) != null && openedAt(c).isBefore(before))
+                .sorted(Comparator.comparing(SqliteDbCaptureRepository::openedAt).reversed()).limit(limit).toList();
+    }
+
+    /** At most this many calls on one thread in one window - windows are a call's length, so far fewer in practice. */
+    static final int MAX_CALLS_ON_THREAD = 1000;
+
+    private static String second(Instant instant) {
+        return instant.toString().substring(0, 19);
+    }
+
+    private static Instant openedAt(CallOnThread c) {
+        try {
+            return Instant.parse(c.openedAt());
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    private static boolean within(CallOnThread c, Instant from, Instant to) {
+        Instant at = openedAt(c);
+        return at != null && !at.isBefore(from) && !at.isAfter(to);
     }
 
     @Override

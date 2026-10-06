@@ -78,8 +78,11 @@ public interface DbCaptureStorePort {
     /** The thread that handled the call (its CALL_OPEN marker, else its first statement's), if captured. */
     Optional<String> requestThread(String callId);
 
-    /** Captured calls opened on {@code thread} between the two ISO instants, oldest first (at most 200). */
+    /** Captured calls opened on {@code thread} between the two ISO instants (inclusive), oldest first. */
     List<CallOnThread> callsOnThread(String thread, String fromInstant, String toInstant);
+
+    /** The last {@code limit} captured calls opened on {@code thread} strictly before the ISO instant, newest first. */
+    List<CallOnThread> callsBefore(String thread, String beforeInstant, int limit);
 
     Optional<CapturedStatement> statement(long id);
 

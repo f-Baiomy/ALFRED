@@ -2,6 +2,7 @@ package com.fathy.alfred.dbagent.capture;
 
 import com.fathy.alfred.dbagent.AgentLog;
 
+import java.lang.ref.SoftReference;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
@@ -30,7 +31,12 @@ public final class LogTagger {
 
     /** The call id this thread's lines are tagged with right now (the work handed to another thread takes it along). */
     private static final ThreadLocal<String> CURRENT = new ThreadLocal<>();
-    private static final Map<ClassLoader, Mdc[]> BY_LOADER = new WeakHashMap<>();
+    /**
+     * Probed MDCs by class loader. The value is held softly, never strongly: an application that bundles its own logging library
+     * has MDC methods whose class belongs to the very loader used as key, and a strong value would keep that loader -
+     * the whole deployment - alive after a redeploy. A value cleared under memory pressure is simply probed again.
+     */
+    private static final Map<ClassLoader, SoftReference<Mdc[]>> BY_LOADER = new WeakHashMap<>();
     private static final Mdc[] NONE = new Mdc[0];
 
     private LogTagger() {
@@ -99,10 +105,11 @@ public final class LogTagger {
     static Mdc[] mdcs(ClassLoader loader) {
         ClassLoader key = loader != null ? loader : ClassLoader.getSystemClassLoader();
         synchronized (BY_LOADER) {
-            Mdc[] found = BY_LOADER.get(key);
+            SoftReference<Mdc[]> ref = BY_LOADER.get(key);
+            Mdc[] found = ref == null ? null : ref.get();
             if (found == null) {
                 found = probe(key);
-                BY_LOADER.put(key, found);
+                BY_LOADER.put(key, new SoftReference<>(found));
             }
             return found;
         }
