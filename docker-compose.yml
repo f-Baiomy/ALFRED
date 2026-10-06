@@ -159,6 +159,9 @@ services:
       # its inbound logging is on, the X-Alfred-Call header this proxy adds tells the db-agent inside the
       # app to record that request's statements. A project with no line is OFF. See docs/db-capture.md.
       - DB_CAPTURE_TOGGLE_FILE=/home/mitmproxy/db-capture-enabled.flag
+      # The per-project ▤ Logs switch, written by backend like the one above. While a project is on here
+      # the X-Alfred-Call header also says log=1, and the db-agent tags that request's log lines with its call id.
+      - LOG_LINK_TOGGLE_FILE=/home/mitmproxy/log-link-enabled.flag
       # One "name:listenPort:upstreamPort" triple per project, comma-separated, no spaces - the
       # SAME list backend's INTERNAL_CALL_SERVICES below is given (single source of truth, baked
       # into .env from settings.properties's internal_call_services by start.py/restart.py -
@@ -198,6 +201,7 @@ services:
       - ./proxy/reverse-proxy-entrypoint.sh:/home/mitmproxy/reverse-proxy-entrypoint.sh:ro
       - ./proxy/reverse-proxy-enabled.flag:/home/mitmproxy/reverse-proxy-enabled.flag
       - ./proxy/db-capture-enabled.flag:/home/mitmproxy/db-capture-enabled.flag
+      - ./proxy/log-link-enabled.flag:/home/mitmproxy/log-link-enabled.flag
       - ./proxy/certs:/home/mitmproxy/.mitmproxy
     working_dir: /home/mitmproxy
     entrypoint: ["sh", "/home/mitmproxy/reverse-proxy-entrypoint.sh"]
@@ -325,6 +329,7 @@ services:
       # evicts the oldest calls' statements first, never those of calls a session cycle or Relive cycle holds.
       - DB_CAPTURE_DB_FILE=/dbcapturedb/db-capture.db
       - DB_CAPTURE_TOGGLE_FILE=/appdata/db-capture-enabled.flag
+      - LOG_LINK_TOGGLE_FILE=/appdata/log-link-enabled.flag
       - ALFRED_DB_CAPTURE_MAX_SIZE_BYTES=${ALFRED_DB_CAPTURE_MAX_SIZE_BYTES:-4294967296}
       # Watched log folders (settings.properties logs_watch_dirs), mounted at /watch/<name> by the
       # generated docker-compose.override.yml. LOGS_WATCH_MODE: events (kernel notifications) or agent
@@ -350,6 +355,7 @@ services:
       - ${ALFRED_LOGS_DIR:-./logs-drop}:/logs:ro
       - ./proxy/reverse-proxy-enabled.flag:/appdata/reverse-proxy-enabled.flag
       - ./proxy/db-capture-enabled.flag:/appdata/db-capture-enabled.flag
+      - ./proxy/log-link-enabled.flag:/appdata/log-link-enabled.flag
       # Writable here, read-only in both proxies - backend is the only writer.
       - ./proxy/interception:/appdata/interception
       # mitmproxy's CA, read-only, used only by backend-resend's own SSLContext to send HTTPS

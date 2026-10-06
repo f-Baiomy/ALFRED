@@ -11,6 +11,8 @@ proxy/reverse-proxy-enabled.flag
 # Same, for database capture's per-project switch (see docs/db-capture.md) - read by reverse-proxy,
 # written by backend-db-capture.
 proxy/db-capture-enabled.flag
+# Same, for the per-project ▤ Logs switch (specs/008-logs-call-link) - read by reverse-proxy, written by backend.
+proxy/log-link-enabled.flag
 
 # Python
 __pycache__/

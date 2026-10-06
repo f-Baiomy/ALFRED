@@ -11,9 +11,9 @@ Paths: `DBC` = `backend/backend-db-capture/src/main/java/com/fathy/alfred/backen
 
 ## Phase 1: Setup
 
-- [ ] T001 Add the `call-logs` prefix to the API regex in `gateway/nginx.conf` and to the prefix list in `CLAUDE.md`/`AGENTS.md`
-- [ ] T002 [P] Add the ▤ flag file like ◆'s: `proxy/log-link-enabled.flag` (empty, gitignored like `db-capture-enabled.flag`), its bind mounts and `LOG_LINK_TOGGLE_FILE` env for `reverse-proxy` and `backend` in `docker-compose.yml`, and its creation in `start.py` (`LOG_LINK_FLAG_FILE`, next to `DB_CAPTURE_FLAG_FILE`)
-- [ ] T003 Commit Phase 1
+- [X] T001 Add the `call-logs` prefix to the API regex in `gateway/nginx.conf` and to the prefix list in `CLAUDE.md`/`AGENTS.md`
+- [X] T002 [P] Add the ▤ flag file like ◆'s: `proxy/log-link-enabled.flag` (empty, gitignored like `db-capture-enabled.flag`), its bind mounts and `LOG_LINK_TOGGLE_FILE` env for `reverse-proxy` and `backend` in `docker-compose.yml`, and its creation in `start.py` (`LOG_LINK_FLAG_FILE`, next to `DB_CAPTURE_FLAG_FILE`)
+- [X] T003 Commit Phase 1
 
 ## Phase 2: Foundational (blocks every story)
 
