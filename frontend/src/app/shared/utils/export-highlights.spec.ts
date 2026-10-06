@@ -45,6 +45,37 @@ describe('buildExportHighlights', () => {
     expect(h.notes.map((n) => n.text)).toEqual(['Search returns nothing for CAI-DXB', '🤖 Claude: Air Arabia answers 322']);
   });
 
+  it('writes the .md as a table: steps as band rows, one row per note, then "Needs a look"', () => {
+    const md = highlightsMarkdown(h, (t) => t.replace(/\|/g, '\\|')).join('\n');
+    expect(md).toContain('**4 calls · 2 steps · 2 notes · 1 failed · 1 error inside a 200 · 1 empty result**');
+    expect(md).toContain('| Call | Request | Note |');
+    expect(md).toContain('| **0 · login** · call 1 · _no notes_ | | |');
+    expect(md).toContain('| **1 · search** · calls 2–4 | | |');
+    expect(md).toContain('| [2](#call-2) | `POST` app/search → 200 | Search returns nothing for CAI-DXB |');
+    expect(md).toContain('| [3](#call-3) | `POST` app/supplier → 200 | 🤖 Air Arabia answers 322 |');
+    expect(md).toContain('### Needs a look');
+    expect(md).toContain('| [4](#call-4) | `POST` app/pay → **500** | failed with 500 |');
+  });
+
+  it('writes the .html as a story: steps on a rail, each note a card under its call, Claude as a tag', () => {
+    const html = highlightsHtml(h, (t) => t);
+    expect(html).toContain('<div class="gl-step" data-n="0">login<span class="gl-rg">call 1</span></div><div class="gl-quiet">no notes</div>');
+    expect(html).toContain('<span class="gl-by">Claude</span><p>Air Arabia answers 322</p>');
+    expect(html).toContain('<a class="gl-cl" href="#call-3">call 3</a>');
+    expect(html).toContain('<div class="gl-sec">Needs a look</div>');
+  });
+
+  it('lifts the cycle overview note above the steps, whole, paragraphs kept', () => {
+    const text = '🤖 Claude: CYCLE OVERVIEW – This cycle shows the flow.\n\nSecond paragraph.';
+    const withOverview = buildExportHighlights(calls, new Map([['login', [comment('login', 'call', text)]]]), spacers);
+    expect(withOverview.overview?.n).toBe(1);
+    expect(withOverview.notes).toEqual([]);
+    const html = highlightsHtml(withOverview, (t) => t);
+    expect(html).toContain('cycle overview · on <a href="#call-1">call 1</a></div><p>This cycle shows the flow.</p><p>Second paragraph.</p>');
+    const md = highlightsMarkdown(withOverview, (t) => t).join('\n');
+    expect(md).toContain('> This cycle shows the flow.\n>\n> Second paragraph.');
+  });
+
   it('renders nothing when there is nothing to say', () => {
     const none = buildExportHighlights([login], new Map(), []);
     expect(highlightsMarkdown(none, (t) => t)).toEqual([]);

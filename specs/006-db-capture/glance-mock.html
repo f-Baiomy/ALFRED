@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>At a Glance redesign</title>
+<style>
+:root { --bg: #0f1012; --card: #1a1b1f; --inner: #141518; --border: rgba(255,255,255,.09); --strong: rgba(255,255,255,.16);
+  --text: #e9ebf0; --dim: #9aa0ad; --faint: #646a78; --link: #c4b5fd; --red: #f07178; --amber: #f2b13c; --green: #6ee7a8; --cyan: #7dd3fc;
+  --mono: "Cascadia Code", Consolas, monospace; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 "Segoe UI", system-ui, sans-serif; }
+.page { max-width: 1000px; margin: 0 auto; padding: 18px 16px 50px; }
+h1 { font-size: 18px; margin: 0 0 4px; } .intro { color: var(--dim); font-size: 13px; margin: 0 0 14px; }
+.tabs { display: flex; gap: 6px; margin-bottom: 12px; } .tabs a { padding: 4px 12px; border-radius: 8px; cursor: pointer; color: var(--dim); border: 1px solid var(--border); }
+.tabs a.on { color: var(--text); background: rgba(196,181,253,.14); border-color: rgba(196,181,253,.4); }
+
+/* ---- the export section ---- */
+.glance { background: var(--card); border: 1px solid var(--strong); border-radius: 12px; padding: 14px 18px 16px; }
+.glance h2 { margin: 0 0 10px; font-size: 17px; }
+.counts { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.cnt { font-size: 12px; border-radius: 999px; padding: 1px 10px; border: 1px solid var(--border); color: var(--dim); }
+.cnt b { color: var(--text); } .cnt.bad b { color: var(--red); } .cnt.warn b { color: var(--amber); }
+.overview { border-left: 3px solid var(--link); background: rgba(196,181,253,.06); border-radius: 0 8px 8px 0; padding: 8px 12px; margin-bottom: 14px; font-size: 13.5px; }
+.overview .who { font-size: 11px; color: var(--link); font-weight: 700; letter-spacing: .05em; text-transform: uppercase; margin-bottom: 2px; }
+.overview p { margin: 4px 0; }
+.sec { font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--faint); margin: 14px 0 6px; display: flex; gap: 10px; }
+.sec .vw { display: flex; gap: 4px; text-transform: none; letter-spacing: 0; font-weight: 400; }
+.sec .vw a { margin: 0; padding: 0 8px; border-radius: 6px; color: var(--dim); }
+.sec .vw a.on { background: rgba(196,181,253,.15); color: var(--text); }
+#openAll { margin-left: auto; }
+.ngroup { font-size: 12px; color: var(--faint); margin: 10px 0 2px; font-weight: 600; }
+.nline { display: grid; grid-template-columns: 54px minmax(0,1fr); gap: 8px; padding: 3px 0; border-top: 1px dashed var(--border); font-size: 13px; }
+.nline a { font-family: var(--mono); font-size: 11.5px; color: var(--link); text-decoration: none; }
+.nline .note { margin: 0; } .sec a { text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--link); cursor: pointer; }
+details.step { border: 1px solid var(--border); border-radius: 9px; margin: 6px 0; background: var(--inner); }
+details.step > summary { list-style: none; cursor: pointer; padding: 7px 12px; display: grid; grid-template-columns: 26px minmax(0,1fr) auto auto; gap: 10px; align-items: baseline; }
+details.step > summary::-webkit-details-marker { display: none; }
+.num { font-family: var(--mono); font-size: 12px; color: var(--faint); }
+.st { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+details.step[open] .st { white-space: normal; }
+.range { font-family: var(--mono); font-size: 11.5px; color: var(--faint); white-space: nowrap; }
+.badges { display: flex; gap: 4px; }
+.b { font-size: 10.5px; border-radius: 999px; padding: 0 7px; white-space: nowrap; }
+.b.n { background: rgba(196,181,253,.14); color: var(--link); } .b.x { background: rgba(240,113,120,.15); color: var(--red); }
+.calls { padding: 0 12px 8px 48px; }
+.call { border-top: 1px dashed var(--border); padding: 5px 0; }
+.call .h { display: grid; grid-template-columns: 54px 52px minmax(0,1fr) auto; gap: 8px; align-items: baseline; font-size: 12.5px; }
+.call .h a { font-family: var(--mono); font-size: 11.5px; color: var(--link); text-decoration: none; }
+.m { font-size: 10px; font-weight: 700; border-radius: 5px; padding: 0 5px; text-align: center; background: rgba(125,211,252,.12); color: var(--cyan); }
+.path { font-family: var(--mono); font-size: 12px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.st2 { font-family: var(--mono); font-size: 11.5px; } .ok { color: var(--green); } .bad { color: var(--red); }
+.note { margin: 4px 0 2px 62px; font-size: 13px; color: #d6d9e0; }
+.note .by { font-size: 10px; font-weight: 700; color: var(--link); background: rgba(196,181,253,.12); border-radius: 4px; padding: 0 5px; margin-right: 6px; vertical-align: 1px; }
+.note details summary { cursor: pointer; list-style: none; } .note details summary::-webkit-details-marker { display: none; }
+.note details summary .more { color: var(--link); font-size: 12px; margin-left: 4px; }
+.note details[open] summary .more { display: none; }
+.note .full { margin-top: 4px; color: var(--dim); }
+.issues { display: grid; grid-template-columns: 54px minmax(0,1fr); gap: 3px 10px; font-size: 13px; }
+.issues a { font-family: var(--mono); font-size: 11.5px; color: var(--link); text-decoration: none; }
+.issues .why { color: var(--dim); }
+
+/* ---- md ---- */
+pre.md { background: var(--inner); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; font-family: var(--mono); font-size: 12px; line-height: 1.55; white-space: pre-wrap; color: #cfd3dc; }
+.cmp { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.cmp h3 { font-size: 13px; color: var(--dim); margin: 0 0 6px; }
+.notes { color: var(--dim); font-size: 13px; margin-top: 14px; } .notes b { color: var(--text); }
+</style>
+</head>
+<body>
+<div class="page">
+<h1>"At a Glance" - clean, grouped, collapsible</h1>
+<p class="intro">Your cycle (30 calls, 7 steps, 31 notes). Steps become the spine: each step is one closed line with its call range and counts; open it for its calls, each call
+with its notes under it. The cycle overview note gets its own box at the top. Long notes show their first sentence; "more" opens the rest.</p>
+<div class="tabs"><a class="on" data-t="html">.html export</a><a data-t="md">.md export</a></div>
+
+<div id="html">
+<div class="glance">
+  <h2>🔎 At a Glance</h2>
+  <div class="counts"><span class="cnt"><b>30</b> calls</span><span class="cnt"><b>7</b> steps</span><span class="cnt"><b>31</b> notes</span><span class="cnt bad"><b>0</b> failed</span><span class="cnt warn"><b>1</b> error inside a 200</span></div>
+
+  <div class="overview"><div class="who">🤖 Claude · cycle overview · on call 1</div>
+    <p>This cycle shows only the successful flow of the 06-Oct session (times in UTC on 05-Oct). After login, the agent searches RUH→SHJ on 31-Oct-2026 for 1 adult twice.
+    Each search is followed by a fare confirmation of the offer the agent selected: <b>Basic</b> after search #1, <b>Ultimate</b> after search #2.</p>
+    <p>The selected offer is marked with a SELECTED OFFER note in two places: the search's inbound response and the Air Arabia outbound response that priced it. Both fare confirmations return fareStatus 2 (price unchanged). The failed CAI-DXB searches are in a separate cycle.</p>
+  </div>
+
+  <div class="sec">Steps &amp; notes <span class="vw"><a data-v="steps" class="on">By step</a><a data-v="notes">All notes (31)</a></span><a id="openAll">Open all</a><a id="closeAll">Close all</a></div>
+  <div id="steps"></div>
+  <div id="allnotes" style="display:none"></div>
+
+  <div class="sec">Needs a look</div>
+  <div class="issues"><a href="#">call 12</a><span>POST /Booking2/fare-confirm → 200 <span class="why">- ✖ PRICE_CHANGED: fare moved by 12 EGP</span></span></div>
+</div>
+</div>
+
+<div id="md" style="display:none">
+<div class="cmp">
+<div><h3>The .md file</h3><pre class="md" id="mdsrc"></pre></div>
+<div><h3>How GitHub / VS Code shows it</h3><div class="glance" id="mdview"></div></div>
+</div>
+</div>
+
+<p class="notes"><b>What changes:</b> one counts line up top · the overview note in its own box (any note starting "CYCLE OVERVIEW", or the first long Claude note on call 1) · steps as
+closed rows with call ranges and note counts, notes nested under their call inside the step · each note one line (its first sentence), "more" for the rest, paragraphs kept ·
+"🤖 Claude:" becomes a small <span style="color:var(--link)">Claude</span> tag · failures, errors-inside-200s and empty results merged into one short "Needs a look" list.
+Calls outside any step go under "Other calls". The .md uses <span style="font-family:var(--mono)">&lt;details&gt;</span> the same way (renders collapsed on GitHub, VS Code, most viewers) and stays readable as plain text.</p>
+</div>
+
+<script>
+const STEPS = [
+  ['Login (successful attempt)', 1, 1, [[1, 'POST', 'Admin2/loginAction', 200, ['Login attempt 4 of 4: succeeds (200), session created.']]]],
+  ['Open flight search page: branches, settings (Up-Selling, CHECK-SUPPLIER-REQUEST-RESPONSE), agencies', 2, 5, [
+    [2, 'GET', 'Master2/Branch/lookup/branches', 200, ['Flight search page opens: loads the branch dropdown (branch 948 used in every search).']],
+    [3, 'GET', 'v2/settings/Up-Selling', 200, ['Search page: reads the Up-Selling setting, which decides whether upgrade options are offered once a fare is picked.']],
+    [4, 'GET', 'v2/settings/CHECK-SUPPLIER-REQUEST-RESPONSE', 200, ['Search page: reads CHECK-SUPPLIER-REQUEST-RESPONSE, which decides whether supplier XML is viewable in the UI.']],
+    [5, 'POST', 'Admin2/agency/by-branch', 200, ['Search page: loads the agencies of the selected branch.']]]],
+  ['Select origin RUH and destination SHJ (airport autocomplete)', 6, 7, [[6, 'GET', 'flight-search/flight-airports?search=ruh', 200, []], [7, 'GET', 'flight-search/flight-airports?search=shj', 200, []]]],
+  ['Search #1 – RUH→SHJ 31-10-2026, 1 ADT: availability + 5 pricing calls → G9155, 5 fares', 8, 14, [[8, 'POST', 'Booking2/flight-search/search', 200, ['Search #1 starts: availability for RUH→SHJ on 31-Oct, 1 adult. The response lists G9155 with 5 fares. Pricing then runs once per fare (calls 9-13).']]]],
+  ['Fare confirm #1 – selected offer from search #1: Basic, class P, 15,707.95 EGP → price unchanged', 15, 17, [[15, 'POST', 'Booking2/fare-confirm', 200, ['SELECTED OFFER: Basic, class P. fareStatus 2 = price unchanged.']]]],
+  ['Back to search page (agencies, settings reload) → Search #2 RUH→SHJ 31-10-2026 again: availability + 5 pricing calls', 18, 27, []],
+  ['Fare confirm #2 – selected offer from search #2: Ultimate (bundle 66589), 17,195.16 EGP → price unchanged', 28, 30, [[28, 'POST', 'Booking2/fare-confirm', 200, ['SELECTED OFFER: Ultimate, bundle 66589. fareStatus 2 = price unchanged.']]]],
+];
+const first = (t) => { const m = t.match(/^.*?[.!?](\s|$)/); return m && m[0].length < t.length ? m[0].trim() : t; };
+const noteHtml = (t) => first(t) === t ? `<div class="note"><span class="by">Claude</span>${t}</div>`
+  : `<div class="note"><details><summary><span class="by">Claude</span>${first(t)}<span class="more">more ▾</span></summary><div class="full">${t.slice(first(t).length)}</div></details></div>`;
+document.getElementById('steps').innerHTML = STEPS.map(([label, a, b, calls], i) => {
+  const notes = calls.reduce((n, c) => n + c[4].length, 0);
+  return `<details class="step"${notes ? ' open' : ''}><summary><span class="num">${i}</span><span class="st">${label}</span><span class="badges">${notes ? `<span class="b n">${notes} note${notes > 1 ? 's' : ''}</span>` : ''}</span><span class="range">calls ${a}${b > a ? '–' + b : ''}</span></summary>
+    <div class="calls">${calls.map(([n, m, p, s, ns]) => `<div class="call"><div class="h"><a href="#">call ${n}</a><span class="m">${m}</span><span class="path">${p}</span><span class="st2 ${s < 400 ? 'ok' : 'bad'}">${s}</span></div>${ns.map(noteHtml).join('')}</div>`).join('') || '<div class="call" style="color:var(--faint);font-size:12.5px">no notes on these calls</div>'}</div></details>`;
+}).join('');
+document.getElementById('allnotes').innerHTML = STEPS.map(([label, a, b, calls], i) => {
+  const ns = calls.flatMap(([n, , , , xs]) => xs.map((t) => [n, t]));
+  return ns.length ? `<div class="ngroup">${i} · ${label}</div>` + ns.map(([n, t]) => `<div class="nline"><a href="#">call ${n}</a>${noteHtml(t)}</div>`).join('') : '';
+}).join('');
+document.querySelectorAll('.vw a').forEach((a) => (a.onclick = () => {
+  document.querySelectorAll('.vw a').forEach((b) => b.classList.toggle('on', b === a));
+  document.getElementById('steps').style.display = a.dataset.v === 'steps' ? '' : 'none';
+  document.getElementById('allnotes').style.display = a.dataset.v === 'notes' ? '' : 'none';
+}));
+document.getElementById('openAll').onclick = () => document.querySelectorAll('details.step').forEach((d) => (d.open = true));
+document.getElementById('closeAll').onclick = () => document.querySelectorAll('details.step').forEach((d) => (d.open = false));
+
+const MD = `## 🔎 At a Glance
+
+**30 calls · 7 steps · 31 notes · 0 failed · 1 error inside a 200**
+
+> **🤖 Claude · cycle overview** (on [call 1](#call-1))
+>
+> This cycle shows only the successful flow of the 06-Oct session (times in UTC on 05-Oct). After login, the agent searches RUH→SHJ on 31-Oct-2026 for 1 adult twice. …
+>
+> The selected offer is marked with a SELECTED OFFER note in two places: …
+
+### Steps
+
+<details><summary><b>0 · Login (successful attempt)</b> — call 1 · 1 note</summary>
+
+- [call 1](#call-1) \`POST\` Admin2/loginAction → **200**
+  - 🤖 Login attempt 4 of 4: succeeds (200), session created.
+
+</details>
+
+<details><summary><b>1 · Open flight search page: branches, settings, agencies</b> — calls 2–5 · 4 notes</summary>
+
+- [call 2](#call-2) \`GET\` Master2/Branch/lookup/branches → **200**
+  - 🤖 Flight search page opens: loads the branch dropdown (branch 948 used in every search).
+- [call 3](#call-3) \`GET\` v2/settings/Up-Selling → **200**
+  - 🤖 Search page: reads the Up-Selling setting, …
+
+</details>
+
+…
+
+### Needs a look
+
+| Call | What | Why |
+|---|---|---|
+| [12](#call-12) | POST /Booking2/fare-confirm → 200 | ✖ PRICE_CHANGED: fare moved by 12 EGP |
+
+---`;
+document.getElementById('mdsrc').textContent = MD;
+document.getElementById('mdview').innerHTML = `<h2>🔎 At a Glance</h2><p><b>30 calls · 7 steps · 31 notes · 0 failed · 1 error inside a 200</b></p>
+<div class="overview"><div class="who">🤖 Claude · cycle overview (on call 1)</div><p>This cycle shows only the successful flow of the 06-Oct session … After login, the agent searches RUH→SHJ on 31-Oct-2026 for 1 adult twice. …</p></div>
+<div class="sec">Steps</div>
+<details class="step"><summary><span class="num">0</span><span class="st">Login (successful attempt)</span><span></span><span class="range">call 1 · 1 note</span></summary><div class="calls"><div class="call"><div class="h"><a href="#">call 1</a><span class="m">POST</span><span class="path">Admin2/loginAction</span><span class="st2 ok">200</span></div><div class="note">🤖 Login attempt 4 of 4: succeeds (200), session created.</div></div></div></details>
+<details class="step"><summary><span class="num">1</span><span class="st">Open flight search page: branches, settings, agencies</span><span></span><span class="range">calls 2–5 · 4 notes</span></summary><div class="calls"><div class="call">…</div></div></details>
+<div class="sec">Needs a look</div><div class="issues"><a href="#">12</a><span>POST /Booking2/fare-confirm → 200 <span class="why">✖ PRICE_CHANGED: fare moved by 12 EGP</span></span></div>`;
+document.querySelectorAll('.tabs a').forEach((a) => (a.onclick = () => {
+  document.querySelectorAll('.tabs a').forEach((b) => b.classList.toggle('on', b === a));
+  document.getElementById('html').style.display = a.dataset.t === 'html' ? '' : 'none';
+  document.getElementById('md').style.display = a.dataset.t === 'md' ? '' : 'none';
+}));
+</script>
+</body>
+</html>

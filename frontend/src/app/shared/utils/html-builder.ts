@@ -1,5 +1,5 @@
 import { CallOverlapCandidate, CallRecord } from '../../core/models/call.model';
-import { buildExportHighlights, highlightsHtml } from './export-highlights';
+import { GLANCE_STYLE, buildExportHighlights, highlightsHtml } from './export-highlights';
 import { ExportedCycle, ExportedSpacer, ExportFormData } from '../../core/models/export-metadata.model';
 import { Comment, CommentBlock, COMMENT_BLOCK_LABELS } from '../../core/models/comment.model';
 import { BodyLang, detectAndFormatBody } from './body-format';
@@ -304,6 +304,7 @@ table.metadata td:first-child { color: var(--text-dim); width: 220px; font-weigh
 .about h2 { margin-top: 1.1rem; }
 .about p { color: var(--text-dim); }
 .about p b { color: var(--text); }
+${GLANCE_STYLE}
 .about-tree { background: var(--card-inner); border-radius: 8px; padding: 0.85rem 1rem; overflow-x: auto; font-family: "SFMono-Regular", Consolas, monospace; font-size: 12.5px; line-height: 1.65; color: var(--text); }
 .gantt { background: var(--card-inner); border-radius: 10px; padding: 0.8rem 1rem 0.6rem; margin-bottom: 0.7rem; border: 1px solid var(--border); }
 /* The rail ties a nested chart back to the row it expands, so the two are read as one thing. */
