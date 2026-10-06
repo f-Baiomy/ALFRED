@@ -218,13 +218,33 @@ describe('DbWindowComponent', () => {
     expect(detail.querySelector('a').getAttribute('href')).toBe('/logs/s1?line=in%3Aa');
   });
 
-  it('puts statements and log lines in one list by time on Together', () => {
-    statements = jasmine.createSpy('statements').and.returnValue(of({ ...pageOf(), statements: [stmt(1, 'SELECT', 'SELECT 1', { offsetMicros: 100_000 })] }));
-    logLines = jasmine.createSpy('lines').and.returnValue(of(logPage([line('a', 40, 'INFO', 'first'), line('b', 300, 'WARN', 'later')])));
+  it('Together is the statement list with the caught lines at their place - same toolbar, same filters', () => {
+    statements = jasmine.createSpy('statements').and.returnValue(of({ ...pageOf(),
+      statements: [stmt(2, 'SELECT', 'SELECT 1 FROM wallet'), stmt(5, 'UPDATE', 'UPDATE wallet SET x = 1')] }));
+    logLines = jasmine.createSpy('lines').and.returnValue(of({ ...logPage([
+      { ...line('a', 40, 'INFO', 'search started'), matchedBy: 'CAUGHT', seq: 1 },
+      { ...line('b', 300, 'ERROR', 'boom'), matchedBy: 'CAUGHT', seq: 4 },
+    ]), matchedBy: 'CAUGHT' }));
     const fixture = create('together');
+    const order = () => [...fixture.nativeElement.querySelectorAll('.r[data-seq], app-db-log-row .dll-r')]
+      .map((r: Element) => r.classList.contains('dll-r') ? 'log:' + r.querySelector('.t')!.getAttribute('title') : '#' + r.getAttribute('data-seq'));
 
-    const kinds = [...fixture.nativeElement.querySelectorAll('.dll-r')].map((r: Element) => r.classList.contains('log') ? 'log' : 'db');
-    expect(kinds).toEqual(['log', 'db', 'log']);
+    expect(order()).toEqual(['log:search started', '#2', 'log:boom', '#5']);
+    expect(fixture.nativeElement.querySelector('.dbw-search')).not.toBeNull(); // the statements toolbar
+    expect(fixture.nativeElement.querySelector('.dbw-viewbtn')).not.toBeNull();
+
+    // the same filters: "Failed" keeps error lines, "Writes" hides log lines, the search looks in messages
+    const component = fixture.componentInstance as unknown as { state: { kind: { set(k: string): void }; search: { set(q: string): void } } };
+    component.state.kind.set('fail');
+    fixture.detectChanges();
+    expect(order()).toEqual(['log:boom']);
+    component.state.kind.set('write');
+    fixture.detectChanges();
+    expect(order()).toEqual(['#5']);
+    component.state.kind.set('all');
+    component.state.search.set('started');
+    fixture.detectChanges();
+    expect(order()).toEqual(['log:search started']);
   });
 
   it('is a logs-only window for a call the agent captured no statements for', () => {

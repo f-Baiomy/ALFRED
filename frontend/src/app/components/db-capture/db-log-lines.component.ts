@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, input, output, signal } from '@angular/core';
 import { LinkedLogLine, LogMatch } from '../../core/models/call-logs.model';
 import { TogetherRow, lineFields, logLevelClass } from '../../shared/utils/call-log-rows';
+import { DbLogRowComponent } from './db-log-row.component';
 
 /**
  * The database window's Logs and Together lists (specs/008-logs-call-link, walkthrough "Together" and "Logs + a
@@ -12,44 +13,13 @@ import { TogetherRow, lineFields, logLevelClass } from '../../shared/utils/call-
   standalone: true,
   selector: 'app-db-log-lines',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [DbLogRowComponent],
   template: `
     <div class="dll">
       @for (r of rows(); track r.key) {
         @switch (r.kind) {
           @case ('log') {
-            <div class="dll-r log" [class.err]="lv(r.line.level) === 'error'" [class.open]="opened().has(r.key)" role="button" tabindex="0"
-                 (click)="toggle(r.key)" (keydown.enter)="toggle(r.key)">
-              <span class="at">{{ at(r.atMs) }}</span>
-              <span [class]="'v lv-' + lv(r.line.level)">▤ {{ r.line.level ?? 'LOG' }}</span>
-              <span class="t" [title]="r.line.message">@if (multiSource()) {<span class="src">{{ r.line.sourceName }}</span>}@if (r.line.matchedBy === 'CAUGHT' && r.line.logger) {<span class="src">{{ shortLogger(r.line.logger) }}</span>}{{ r.line.message }}@if (r.line.exception) {<span class="exm"> ⚠ {{ r.line.exception.type }}</span>}</span>
-              <span class="how">@if (r.line.kept) {<span class="pill kept" title="Alfred's own copy - kept with the cycle or import">kept</span>}<span class="pill" [class.exact]="r.line.matchedBy !== 'THREAD_TIME'">{{ how(r.line.matchedBy) }}</span></span>
-              <span class="ms"></span>
-            </div>
-            @if (opened().has(r.key)) {
-              <div class="dll-detail">
-                @if (r.line.matchedBy === 'CAUGHT') {
-                  <div class="kv"><span>logger</span><span>{{ r.line.logger }}</span><span>thread</span><span>{{ r.line.thread }}</span>
-                    <span>message</span><span>{{ r.line.message }}</span></div>
-                  @if (r.line.exception; as ex) {
-                    <div class="dll-ex"><b>{{ ex.type }}</b>@if (ex.message) {: {{ ex.message }}}<pre>{{ ex.stack }}</pre></div>
-                  }
-                } @else {
-                  @if (fieldsOf(r.line); as fs) {
-                    <div class="kv">@for (f of fs; track f.key) {<span>{{ f.key }}</span><span>{{ f.value }}</span>}</div>
-                  } @else {
-                    <pre class="raw">{{ r.line.raw }}</pre>
-                  }
-                }
-                <div class="foot">
-                  @if (!r.line.kept && r.line.sourceId !== 'agent') {
-                    <a [href]="logsLink(r.line)" target="_blank" rel="noopener">Open in Logs ↗</a> ·
-                  }
-                  {{ r.line.sourceName }} · matched by <span class="pill" [class.exact]="r.line.matchedBy !== 'THREAD_TIME'">{{ how(r.line.matchedBy) }}</span>
-                  @if (r.line.thread) { · thread {{ r.line.thread }}}
-                  @if (r.line.logger) { · {{ r.line.logger }}}
-                </div>
-              </div>
-            }
+            <app-db-log-row [line]="r.line" [atMs]="r.atMs" [showSource]="multiSource()" />
           }
           @case ('db') {
             <div class="dll-r db" [class.err]="r.failed" role="button" tabindex="0" title="Show this statement" (click)="jump.emit(r.seq)" (keydown.enter)="jump.emit(r.seq)">

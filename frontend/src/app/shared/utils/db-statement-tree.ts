@@ -1,5 +1,6 @@
 import { CapturedStatement, StatementOrigin, StatementTransaction, SupplierMarker } from '../../core/models/db-capture.model';
 import { queryKeyOf } from './db-origin';
+import { LinkedLogLine } from '../../core/models/call-logs.model';
 
 /**
  * The database window's tree (mock: "transactions / repeated queries are parent rows, their statements hang under
@@ -13,7 +14,16 @@ import { queryKeyOf } from './db-origin';
  * Pure: the window re-runs it whenever a page of statements arrives.
  */
 
-export type DbNode = DbStatementNode | DbSupplierNode | DbGroupNode;
+export type DbNode = DbStatementNode | DbSupplierNode | DbLogNode | DbGroupNode;
+
+/** A log line the agent caught, at its place in the call's sequence (specs/009-agent-log-capture - the Together view). */
+export interface DbLogNode {
+  readonly type: 'log';
+  readonly seq: number;
+  readonly line: LinkedLogLine;
+}
+
+type Leaf = DbStatementNode | DbSupplierNode | DbLogNode;
 
 export interface DbStatementNode {
   readonly type: 'stmt';
@@ -47,13 +57,16 @@ export function buildStatementTree(
   transactions: readonly StatementTransaction[],
   repeatThreshold: number,
   groupByQuery = false,
+  logs: readonly LinkedLogLine[] = [],
 ): DbNode[] {
-  const group = (members: readonly (DbStatementNode | DbSupplierNode)[]) =>
+  const group = (members: readonly Leaf[]) =>
     groupByQuery ? groupQueries(members, repeatThreshold) : groupRepeats(members, repeatThreshold);
-  const flat: (DbStatementNode | DbSupplierNode)[] = [
+  const rank = (n: Leaf) => (n.type === 'stmt' ? 0 : n.type === 'supplier' ? 1 : 2);
+  const flat: Leaf[] = [
     ...statements.map((s) => ({ type: 'stmt' as const, seq: s.seq, statement: s })),
     ...markers.map((m) => ({ type: 'supplier' as const, seq: m.seq, marker: m })),
-  ].sort((a, b) => a.seq - b.seq || (a.type === 'supplier' ? 1 : -1));
+    ...logs.filter((l) => l.seq != null).map((l) => ({ type: 'log' as const, seq: l.seq!, line: l })),
+  ].sort((a, b) => a.seq - b.seq || rank(a) - rank(b));
 
   // Every transaction that ran something is a group, in order; an overlapping one (another connection) stays flat.
   const txs = [...transactions].filter((t) => t.statementCount > 0).sort((a, b) => a.firstSeq - b.firstSeq);
@@ -64,7 +77,7 @@ export function buildStatementTree(
     while (t < txs.length && txs[t].lastSeq < flat[i].seq) t++;
     const tx = txs[t];
     if (tx && flat[i].seq >= tx.firstSeq && flat[i].seq <= tx.lastSeq) {
-      const members: (DbStatementNode | DbSupplierNode)[] = [];
+      const members: Leaf[] = [];
       while (i < flat.length && flat[i].seq <= tx.lastSeq) members.push(flat[i++]);
       out.push({
         type: 'tx',
@@ -76,7 +89,7 @@ export function buildStatementTree(
       });
       t++;
     } else {
-      const members: (DbStatementNode | DbSupplierNode)[] = [];
+      const members: Leaf[] = [];
       while (i < flat.length && !(tx && flat[i].seq >= tx.firstSeq)) members.push(flat[i++]);
       out.push(...group(members));
     }
@@ -84,7 +97,7 @@ export function buildStatementTree(
   return out;
 }
 
-function shapeOf(node: DbStatementNode | DbSupplierNode): string | null {
+function shapeOf(node: Leaf): string | null {
   if (node.type !== 'stmt') return null;
   const s = node.statement;
   if (s.kind === 'COMMIT' || s.kind === 'ROLLBACK') return null;
@@ -92,9 +105,9 @@ function shapeOf(node: DbStatementNode | DbSupplierNode): string | null {
 }
 
 /** Runs of statements made by one query execution become a group (when more than one); the rest is grouped by repeats. */
-function groupQueries(nodes: readonly (DbStatementNode | DbSupplierNode)[], threshold: number): DbNode[] {
+function groupQueries(nodes: readonly Leaf[], threshold: number): DbNode[] {
   const out: DbNode[] = [];
-  let pending: (DbStatementNode | DbSupplierNode)[] = [];
+  let pending: Leaf[] = [];
   const flush = () => {
     out.push(...groupRepeats(pending, threshold));
     pending = [];
@@ -127,7 +140,7 @@ function groupQueries(nodes: readonly (DbStatementNode | DbSupplierNode)[], thre
   return out;
 }
 
-function groupRepeats(nodes: readonly (DbStatementNode | DbSupplierNode)[], threshold: number): DbNode[] {
+function groupRepeats(nodes: readonly Leaf[], threshold: number): DbNode[] {
   const out: DbNode[] = [];
   let i = 0;
   while (i < nodes.length) {
@@ -156,8 +169,15 @@ function groupRepeats(nodes: readonly (DbStatementNode | DbSupplierNode)[], thre
 /** Every statement under a node, in order. */
 export function statementsOf(node: DbNode): CapturedStatement[] {
   if (node.type === 'stmt') return [node.statement];
-  if (node.type === 'supplier') return [];
+  if (node.type === 'supplier' || node.type === 'log') return [];
   return node.children.flatMap(statementsOf);
+}
+
+/** Every log line under a node, in order. */
+export function logsOf(node: DbNode): LinkedLogLine[] {
+  if (node.type === 'log') return [node.line];
+  if (node.type === 'stmt' || node.type === 'supplier') return [];
+  return node.children.flatMap(logsOf);
 }
 
 /** Group keys from the root down to the node holding `seq` - what must be unfolded to show it. */

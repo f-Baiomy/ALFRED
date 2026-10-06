@@ -106,7 +106,7 @@
         @if (call()) {
           <button type="button" class="lg" [class.on]="view() === 'logs'" (click)="setView('logs')" title="The application's log lines written during this call">Logs<span class="count">{{ logLines().length }}</span></button>
           @if (!logsOnly()) {
-            <button type="button" class="lg" [class.on]="view() === 'together'" (click)="setView('together')" title="Statements, supplier calls and log lines in one list by time">Together<span class="count">{{ togetherList().length }}</span></button>
+            <button type="button" class="lg" [class.on]="view() === 'together'" (click)="setView('together')" title="Statements, supplier calls and log lines in one list by time">Together<span class="count">{{ togetherCount() }}</span></button>
           }
         }
         @if (call() && !logsOnly()) {
@@ -124,7 +124,7 @@
           @if (firstLogLink(); as href) {<a [href]="href" target="_blank" rel="noopener">· open in Logs ↗</a>}
         </span>
       }
-      @if (view() === 'stmts') {
+      @if (statementsLike()) {
         @if (searchMode() === 'search') {
           <input class="dbw-search" placeholder="Search SQL, table or value - e.g. wallet, 1042" [value]="state.search()" (input)="onSearch($event)">
         } @else {
@@ -144,6 +144,9 @@
             <div class="dbw-viewmenu" role="menu">
               @if (call()) {
                 <label class="chk"><input type="checkbox" [checked]="state.showSuppliers()" (change)="state.showSuppliers.set(!state.showSuppliers())"> Supplier calls in the list</label>
+                @if (view() === 'together') {
+                  <label class="chk" title="The log lines the agent caught, at their place among the statements"><input type="checkbox" [checked]="state.showLogs()" (change)="state.showLogs.set(!state.showLogs())"> Log lines in the list</label>
+                }
               }
               <label class="chk"><input type="checkbox" [checked]="state.fill()" (change)="state.fill.set(!state.fill())"> Fill in values</label>
               @if (call()) {
@@ -172,7 +175,7 @@
         </div>
       }
     </div>
-    @if (view() === 'stmts') {
+    @if (statementsLike()) {
     @if (searchMode() === 'sql') {
       <div class="stmt-sql">
         <div class="rq-sql">
@@ -223,7 +226,7 @@
         } @else {
           <div class="empty">Loading…</div>
         }
-      } @else if (view() === 'logs' || view() === 'together') {
+      } @else if (view() === 'logs') {
         @if (logsError()) {
           <div class="dll-empty">{{ logsError() }}</div>
         } @else if (logsLoading() && !logLines().length) {
@@ -240,8 +243,8 @@
             }
           </div>
         }
-        @if (view() === 'together' || logLines().length) {
-          <app-db-log-lines [rows]="view() === 'logs' ? logRowList() : togetherList()" [multiSource]="logSources().length > 1" (jump)="jump($event)" />
+        @if (logLines().length) {
+          <app-db-log-lines [rows]="logRowList()" [multiSource]="logSources().length > 1" (jump)="jump($event)" />
         }
       } @else {
       @if (findingFilter(); as f) {
@@ -284,7 +287,7 @@
       } @else if (sqlOrdered()) {
         <app-db-statement-list [nodes]="orderedNodes()" (showCall)="showCall($event)" />
       } @else if (call()) {
-        <app-db-statement-list [nodes]="tree()" (showCall)="showCall($event)" />
+        <app-db-statement-list [nodes]="view() === 'together' ? togetherTree() : tree()" (showCall)="showCall($event)" />
         @if (!shownCount()) {
           <div class="empty">No statement matches.</div>
         }
@@ -308,7 +311,7 @@
       @if (view() === 'logs') {
         <span>{{ logLines().length.toLocaleString() }} log lines</span>
       }
-      @if (view() === 'stmts') {
+      @if (statementsLike()) {
         @if (sqlResult() && !sqlResult()!.error && !sqlResult()!.statementSeqs) {
           <span>Summary of {{ totalCount().toLocaleString() }} statements</span>
         } @else {

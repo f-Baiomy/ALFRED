@@ -1,7 +1,8 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, output } from '@angular/core';
 import { CallRecord } from '../../core/models/call.model';
 import { CapturedStatement, StatementOrigin } from '../../core/models/db-capture.model';
-import { DbGroupNode, DbNode, DbSupplierNode, statementsOf } from '../../shared/utils/db-statement-tree';
+import { DbGroupNode, DbNode, DbSupplierNode, logsOf, statementsOf } from '../../shared/utils/db-statement-tree';
+import { DbLogRowComponent } from './db-log-row.component';
 import { isWrite, msText, resultText, verbClass, verbOf } from '../../shared/utils/db-statement-display';
 import { DbSqlComponent } from './db-sql.component';
 import { DbQueryTextComponent } from './db-query-text.component';
@@ -26,7 +27,7 @@ function textless(o: StatementOrigin): boolean {
   standalone: true,
   selector: 'app-db-statement-list',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DbSqlComponent, DbQueryTextComponent, DbStatementDetailComponent],
+  imports: [DbSqlComponent, DbQueryTextComponent, DbStatementDetailComponent, DbLogRowComponent],
   template: `
     @for (node of nodes(); track node.type + node.seq) {
       @switch (node.type) {
@@ -48,6 +49,12 @@ function textless(o: StatementOrigin): boolean {
                 <app-db-statement-detail [statement]="s" />
               }
             </div>
+          }
+        }
+        @case ('log') {
+          @let lg = $any(node);
+          @if (state.matchesLog(lg.line)) {
+            <app-db-log-row class="tlog" [line]="lg.line" [atMs]="lg.line.offsetMs" [class.flash]="state.flashSeq() === lg.seq" />
           }
         }
         @case ('supplier') {
@@ -87,7 +94,7 @@ function textless(o: StatementOrigin): boolean {
                 }
                 <span class="res">#{{ g.seq }}–#{{ lastSeq(g) }}</span>
                 <span class="ms">{{ msText(totalMicros(g)) }}</span>
-                <span class="off">+{{ offset(stmts(g)[0].offsetMicros) }} ms</span>
+                <span class="off">@if (stmts(g)[0]; as first) {+{{ offset(first.offsetMicros) }} ms}</span>
                 @if (warning(g); as w) {
                   <span class="g-warn" [style.color]="g.rolledBack ? 'var(--red)' : null">⚠ {{ w }}</span>
                 }
@@ -158,7 +165,7 @@ export class DbStatementListComponent {
   }
 
   visibleCount(g: DbGroupNode): number {
-    return this.stmts(g).filter((s) => this.state.matches(s)).length;
+    return this.stmts(g).filter((s) => this.state.matches(s)).length + logsOf(g).filter((l) => this.state.matchesLog(l)).length;
   }
 
   writes(g: DbGroupNode): number {

@@ -1002,3 +1002,7 @@ html.db-window-open body {
 .db-window .dll-r .t .exm { color: var(--red); font-family: inherit; }
 .db-window .dll-detail .dll-ex { margin-top: 0.35rem; color: var(--red); font-size: 0.72rem;
   pre { margin: 0.2rem 0 0; white-space: pre-wrap; word-break: break-word; color: var(--text-dim); font-family: var(--db-mono); font-size: 0.68rem; max-height: 320px; overflow: auto; } }
+
+/* a caught log line inside the statement tree (Together) - the Logs list's own row */
+.db-window app-db-log-row.tlog { display: block; margin: 0.05rem 0; }
+.db-window app-db-log-row.tlog.flash .dll-r { outline: 1px solid var(--log); }

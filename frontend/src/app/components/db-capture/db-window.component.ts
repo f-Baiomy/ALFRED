@@ -120,6 +120,8 @@ export class DbWindowComponent implements OnInit {
   private logRefetch: ReturnType<typeof setTimeout> | null = null;
   readonly logSources = computed(() => [...new Set(this.logLines().map((l) => l.sourceName))]);
   readonly logRowList = computed<TogetherRow[]>(() => logRows(this.logLines()));
+  /** Together's count: statements, supplier calls and log lines. */
+  readonly togetherCount = computed(() => this.totalCount() + this.markers().length + this.logLines().length);
   readonly togetherList = computed<TogetherRow[]>(() => {
     const call = this.call();
     if (!call) return [];
@@ -328,12 +330,22 @@ export class DbWindowComponent implements OnInit {
   /** "Group by query": the several SQL statements one HQL query produced, under that query. Shown only with origins. */
   readonly groupedByQuery = signal(readGroupByQuery());
   readonly hasOrigins = computed(() => hasOrigins(this.statements()));
-  readonly tree = computed(() => {
+  readonly tree = computed(() => this.buildTree([]));
+  /**
+   * Together (specs/009): the very same statement tree, with the call's log lines placed by its sequence - so every
+   * control of the Statements view (search, kinds, View menu, HQL/SQL, groups) works here and any new one appears too.
+   */
+  readonly togetherTree = computed(() => this.buildTree(this.logLines()));
+
+  private buildTree(logs: readonly LinkedLogLine[]): DbNode[] {
     const byQuery = this.groupedByQuery() && this.hasOrigins();
     return this.grouped()
-      ? buildStatementTree(this.statements(), this.markers(), this.transactions(), DEFAULT_REPEAT_THRESHOLD, byQuery)
-      : buildStatementTree(this.statements(), this.markers(), [], Number.MAX_SAFE_INTEGER, byQuery);
-  });
+      ? buildStatementTree(this.statements(), this.markers(), this.transactions(), DEFAULT_REPEAT_THRESHOLD, byQuery, logs)
+      : buildStatementTree(this.statements(), this.markers(), [], Number.MAX_SAFE_INTEGER, byQuery, logs);
+  }
+
+  /** Statements and Together share the toolbar, the SQL search and the list. */
+  readonly statementsLike = computed(() => this.view() === 'stmts' || this.view() === 'together');
 
   setGroupedByQuery(grouped: boolean): void {
     this.groupedByQuery.set(grouped);
@@ -775,7 +787,7 @@ export class DbWindowComponent implements OnInit {
 
   /** Timeline / finding / trace click: clear filters, unfold its groups, open it on the right tab and flash it. */
   jump(seq: number, tab?: DbDetailTab): void {
-    this.view.set('stmts');
+    if (this.view() !== 'together') this.view.set('stmts');
     this.state.search.set('');
     this.state.kind.set('all');
     this.state.table.set('');

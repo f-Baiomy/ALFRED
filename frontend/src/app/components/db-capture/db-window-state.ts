@@ -1,3 +1,5 @@
+import { LinkedLogLine } from '../../core/models/call-logs.model';
+import { logLevelClass } from '../../shared/utils/call-log-rows';
 import { Injectable, computed, signal } from '@angular/core';
 import { CallRecord } from '../../core/models/call.model';
 import { CapturedStatement } from '../../core/models/db-capture.model';
@@ -22,6 +24,8 @@ export class DbWindowState {
   /** Some statement of this call came from an ORM - JDBC statements then say so, and the HQL controls show. */
   readonly hasOrigins = signal(false);
   readonly showSuppliers = signal(true);
+  /** Together: the call's log lines in the statement list (View menu). */
+  readonly showLogs = signal(true);
   readonly open = signal<ReadonlySet<number>>(new Set());
   readonly folded = signal<ReadonlySet<string>>(new Set());
   readonly tabs = signal<ReadonlyMap<number, DbDetailTab>>(new Map());
@@ -63,6 +67,24 @@ export class DbWindowState {
   toggleTrace(value: string | null | undefined): void {
     if (value == null) return;
     this.trace.set(this.trace() === value ? '' : value);
+  }
+
+  /**
+   * A log line under the statement filters (Together): All shows every line, Failed shows ERROR lines, the other kinds
+   * (reads, writes, deletes) and a table or query filter hide them; the search looks in message, logger, level, thread.
+   */
+  matchesLog(line: LinkedLogLine): boolean {
+    if (!this.showLogs() || this.statementSeqs() != null || this.table()) return false;
+    const kind = this.kind();
+    if (kind === 'fail') {
+      if (logLevelClass(line.level) !== 'error' && !line.exception) return false;
+    } else if (kind !== 'all') {
+      return false;
+    }
+    const q = this.search().toLowerCase();
+    if (!q) return true;
+    return `${line.message} ${line.logger ?? ''} ${line.level ?? ''} ${line.thread ?? ''} ${line.exception?.type ?? ''} ${line.exception?.message ?? ''}`
+      .toLowerCase().includes(q);
   }
 
   matches(s: CapturedStatement): boolean {
