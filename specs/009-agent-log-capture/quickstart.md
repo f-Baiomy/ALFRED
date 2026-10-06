@@ -7,7 +7,8 @@
 3. **Make a request** (login, flight search) and open the call: Logs view lists the lines of MainLogger, DetailLogger,
    Hibernate and the container for that request, each with logger and thread; an exception line shows its stack.
    Compare with `main.log`/`server.log` for that thread and time: every line is there (SC-001).
-4. **Together**: statements, supplier calls and lines interleaved in their exact order (seq).
+4. **Together**: statements, supplier calls and lines interleaved in their exact order (seq). With the window open, make
+   the request again: the lines appear within 2 s of the request ending (SC-004).
 5. **No capture**: turn ◆ off, keep ▤ on, make a request: the card's ▤ chip opens the logs-only window with caught lines.
 6. **Outside any call**: restart a deployment or let a scheduler fire: "outside any call" shows its lines by thread.
 7. **Caps**: a request logging > 5,000 lines shows "N lines not kept".

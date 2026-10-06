@@ -17,7 +17,7 @@ light, no-capture call context); without an agent, 008's file linking. Lines on 
 
 ## Technical Context
 
-**Language/Version**: Java 8 (db-agent), Java 21 (backend), TypeScript/Angular 20 (frontend), TypeScript/Node (mcp-server - no change expected)
+**Language/Version**: Java 8 (db-agent), Java 21 (backend), TypeScript/Angular 20 (frontend), TypeScript/Node (mcp-server: `call_logs` shows logger and exception)
 **Primary Dependencies**: ByteBuddy (agent, existing); logging frameworks read reflectively - none added at runtime; logback and log4j 2 as agent **test** dependencies only
 **Storage**: SQLite `db-capture.db` - new table `call_log_lines`, `call_db_summary` + 4 count columns, CALL_OPEN marker + `logs` flag
 **Testing**: agent ITs on JDK 8 and 21 (`LogCaptureIT` per framework, concurrency, caps, outside lines, `OverheadMeasurementIT` log case); JUnit5/Mockito/AssertJ + ArchUnit; Karma/Jasmine

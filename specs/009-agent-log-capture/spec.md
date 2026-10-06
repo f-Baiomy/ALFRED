@@ -99,7 +99,7 @@ Startup, scheduled jobs and message listeners log too. With ▤ on, those lines 
 
 - A call that logs enormously (a loop logging per row): lines over the per-call cap are not kept; the call says how many were dropped, like statements' "not kept".
 - A single huge line (a full response body logged): kept up to a per-line size cap, marked as cut in the stored line - the application's own output is never touched.
-- Work handed to another thread (an executor, an async task) logs after the request ended: lines are attached to the call while it is still open; lines arriving after it closed are attached until a short grace period ends, then dropped with a count.
+- Work handed to another thread (an executor, an async task) logs after the request ended: lines are attached to the call while it is still open; lines arriving after it closed are attached for 5 seconds (FR-013), then dropped with a count.
 - The same JVM logs through two frameworks (slf4j over jboss-logmanager, plus java.util.logging): each event is caught once.
 - The application logs while ALFRED's backend is unreachable: lines queue in the agent up to a bound, then are dropped and counted - the application is never slowed or blocked.
 - A burst of outside-call logging (a job logging per row, a startup storm): bounded separately from call lines; overflow is dropped and counted.
@@ -123,7 +123,7 @@ Startup, scheduled jobs and message listeners log too. With ▤ on, those lines 
 - **FR-012**: Caught lines MUST be masked like request/response bodies (the project's redaction rules, and Claude's session masking) wherever they leave ALFRED's own views.
 - **FR-013**: Lines handed to ALFRED after their call ended (late work on another thread) MUST be attached for up to 5 seconds after the call's end, then dropped and counted.
 - **FR-014**: The agent MUST log its own failures to catch (an unknown framework version, a formatting error) at most once per kind, never into the application's log output as an error the application did not cause.
-- **FR-015**: Outside-call lines MUST be shown in the database window's "outside any call" view grouped by thread, kept within their own bound (separate from the per-call caps) inside the same store and size cap as statements, with overflow dropped oldest-first and counted.
+- **FR-015**: Outside-call lines MUST be shown in the database window's "outside any call" view grouped by thread, ordered by time with that thread's statements, kept within their own bound (separate from the per-call caps) inside the same store and size cap as statements, with overflow dropped oldest-first and counted.
 
 ### Key Entities
 

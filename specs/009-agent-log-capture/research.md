@@ -16,6 +16,9 @@ filter checks and is about to go to its handlers/appenders:
 The advice code takes `Object` and reads the event reflectively through a per-class method cache (the agent has no
 compile dependency on any logging framework - same as the MDC tagging of 008).
 
+slf4j and jboss-logging need no hook of their own: they are APIs that forward to one of the frameworks above
+(slf4j-jboss-logmanager / logback / log4j-slf4j-impl; jboss-logging's providers), whose hook catches the event.
+
 **Rationale**: these points see each event once, after the application's own level/filter decision (FR-003: never log
 more), whatever handler/appender/file/format follows (FR-001). On WildFly every API funnels into logmanager, so one
 hook covers all.
@@ -38,7 +41,9 @@ runs under the dispatcher's existing agent-work guard, so its own logging (or a 
 `logs` (log=1). The reverse proxy already sends `log=1` while ▤ is on; a request with `log=1` and `db=0` now opens a
 context with `capture=false`, so it gets a CALL_OPEN marker (with its thread) and a seq counter but records no
 statements. Every statement-path check moves from `current() != null` to `current() != null && current().capture`.
-A caught line takes the context's `nextSeq()` - its exact order among the call's statements and supplier calls
+Outbound calls made inside any open context - with or without `capture` - get `X-Alfred-Parent` and an HTTP_OUT
+marker, so a logs-only call's supplier calls are linked exactly too (no time-window guess); only statements need
+`capture`. A caught line takes the context's `nextSeq()` - its exact order among the call's statements and supplier calls
 (FR-004). On a thread with no context: an outside-call line (FR-002, FR-015).
 
 **Alternatives**: a second ThreadLocal just for logs - rejected: two notions of "the current call" would drift, and
