@@ -193,3 +193,29 @@ export async function sourceIndexInfo(): Promise<{ root: string; files: number; 
   for (const list of idx.byName.values()) files += list.length;
   return { root: idx.root, files, truncated: idx.truncated };
 }
+
+/** Frames of libraries and the server - never where the application's own bug is (specs/010, exception_source). */
+const LIBRARY_PREFIXES = ['java.', 'javax.', 'jakarta.', 'jdk.', 'sun.', 'com.sun.', 'org.springframework.', 'org.hibernate.', 'org.jboss.',
+  'io.undertow.', 'org.wildfly.', 'org.apache.', 'com.fasterxml.', 'net.bytebuddy.', 'com.zaxxer.', 'org.postgresql.', 'oracle.', 'com.mysql.',
+  'ch.qos.', 'org.slf4j.', 'kotlin.', 'scala.', 'groovy.', 'org.glassfish.', 'io.netty.', 'reactor.', 'org.eclipse.', 'com.google.'];
+
+export interface StackFrames {
+  /** The application's frames, innermost first, as "Class.method(File.java:12)". */
+  readonly app: string[];
+  /** How many library/server frames were left out. */
+  readonly skipped: number;
+}
+
+/** The "at ..." frames of a Java stack trace, the application's apart from the libraries'. "Caused by" frames count too. */
+export function framesOfStack(stack: string | null | undefined): StackFrames {
+  const app: string[] = [];
+  let skipped = 0;
+  for (const raw of (stack ?? '').split(/\r?\n/)) {
+    const m = /^\s*at\s+(?:[\w.$]+\/)?(?:[\w.$-]+@[\w.$-]*\/)?([\w.$<>]+\([^)]*\))/.exec(raw);
+    if (!m) continue;
+    const frame = m[1];
+    if (LIBRARY_PREFIXES.some((p) => frame.startsWith(p))) skipped++;
+    else if (!app.includes(frame)) app.push(frame);
+  }
+  return { app, skipped };
+}

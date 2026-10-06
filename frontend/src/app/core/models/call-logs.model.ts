@@ -53,8 +53,10 @@ export interface CallLogsPage {
   readonly next: string | null;
   /** Lines the agent did not keep for the call (its caps, or late) - 0 for log-file lines. */
   readonly dropped?: number;
-  /** The project's Log level now (ERROR by default, APP = the app's own) - lines below it are not caught. */
+  /** The Log level that applied to this call (ERROR by default, APP = the app's own) - lines below it were not caught. */
   readonly logLevel?: LogLevelSetting | null;
+  /** The call predates per-call levels: logLevel is the project's current setting, not necessarily the one it ran under. */
+  readonly levelAssumed?: boolean | null;
 }
 
 /** The lowest level of line the agent catches with each call (Settings → Database capture, specs/009). */

@@ -16,7 +16,7 @@ export type {
 } from '../../frontend/src/app/core/models/db-capture.model.ts';
 export type { CallLogsPage, LinkedLogLine, LogCounts } from '../../frontend/src/app/core/models/call-logs.model.ts';
 export type { Comment, CommentBlock, CommentCount } from '../../frontend/src/app/core/models/comment.model.ts';
-export type { AttentionMark, CallStatementFailures, FailedStatement, TriageEntry } from '../../frontend/src/app/core/models/triage.model.ts';
+export type { AttentionMark, AttentionSignals, CallStatementFailures, FailedStatement, TriageEntry } from '../../frontend/src/app/core/models/triage.model.ts';
 export type { Redaction } from '../../frontend/src/app/core/models/redaction.model.ts';
 export type { ExportedCycle, ExportedSpacer, ExportFormData } from '../../frontend/src/app/core/models/export-metadata.model.ts';
 export type { CycleSpacer } from '../../frontend/src/app/core/state/call-selection.tokens.ts';

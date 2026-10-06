@@ -58,12 +58,23 @@ public class CallLogsService {
     // ------------------------------------------------------------------ a call's lines
 
     /** The project's Log level now (ERROR by default; APP = the application's own) - lines below it were not caught. */
-    private String logLevel(String project) {
-        try {
-            return project == null ? null : capture.settings(project).logLevel();
-        } catch (RuntimeException e) {
-            return null;
+    /**
+     * The Log level that applied to this call - from its CALL_OPEN (specs/010) - or, for a call caught before agents
+     * said, the project's current setting, marked assumed.
+     */
+    private CapturedLevel logLevel(String callId, String project) {
+        Optional<String> captured = caught.capturedLevel(callId);
+        if (captured.isPresent()) {
+            return new CapturedLevel(captured.get(), false);
         }
+        try {
+            return project == null ? new CapturedLevel(null, false) : new CapturedLevel(capture.settings(project).logLevel(), true);
+        } catch (RuntimeException e) {
+            return new CapturedLevel(null, false);
+        }
+    }
+
+    private record CapturedLevel(String level, boolean assumed) {
     }
 
     /** The call's caught lines in its own order (seq), one page. Empty when the call is unknown. */
@@ -80,8 +91,9 @@ public class CallLogsService {
             List<LinkedLogLine> lines = page.stream().map(l -> caughtLine(call, l)).toList();
             String next = page.size() == size ? SEQ_CURSOR + page.get(page.size() - 1).seq() : null;
             CaughtLogCounts counts = caught.counts(List.of(call.id())).get(call.id());
+            CapturedLevel level = logLevel(call.id(), call.project());
             return new CallLogsPage(call.id(), Setup.OK, Match.CAUGHT, null, 0, lines, next, counts == null ? 0 : counts.dropped(),
-                    logLevel(call.project()));
+                    level.level(), level.assumed() ? Boolean.TRUE : null);
         });
     }
 

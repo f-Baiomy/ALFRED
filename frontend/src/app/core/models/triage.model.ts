@@ -32,6 +32,17 @@ export interface AttentionMark {
   readonly failingChildren: number;
   readonly failedStatements: number;
   readonly swallowedStatements: number;
+  /** Its caught log lines' and database flags' signals (specs/010-mcp-log-investigation); absent on an older Alfred. */
+  readonly signals?: AttentionSignals;
+}
+
+export interface AttentionSignals {
+  readonly logErrors?: number;
+  readonly logWarnings?: number;
+  readonly logExceptions?: number;
+  readonly logStatus?: string | null;
+  readonly logLevel?: string | null;
+  readonly dbFlags?: readonly string[];
 }
 
 /**

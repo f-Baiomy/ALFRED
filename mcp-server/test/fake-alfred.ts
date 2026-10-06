@@ -5,8 +5,9 @@ import type { AddressInfo } from 'node:net';
 import {
   emptyResultOf, softFailureOf,
   type AttentionMark, type CallDbSummary, type CallRecord, type CallStatementsPage, type CapturedStatement, type Comment, type CycleSpacer,
-  type Redaction, type SessionCycle, type RowsPage, type RecordedQueryResult, type TriageEntry,
+  type Redaction, type SessionCycle, type RowsPage, type RecordedQueryResult, type TriageEntry, type AttentionSignals,
 } from '../src/frontend.ts';
+import { normaliseMessage, signalsOfEntry } from '../src/signals.ts';
 
 /**
  * An in-memory Alfred speaking the same HTTP shapes as the real backend (summaries without bodies,
@@ -38,16 +39,22 @@ export interface FakeState {
   /** Run details by relive cycle id, newest first. */
   runs: Map<string, Record<string, unknown>[]>;
   services: { name: string; listenPort: number | null; upstreamPort: number | null; enabled: boolean }[];
-  captureProjects: { project: string; enabled: boolean; inboundLogging: boolean; attached: boolean; agent: null }[];
+  captureProjects: { project: string; enabled: boolean; inboundLogging: boolean; attached: boolean; agent: null; logsOn: boolean; logLevel: string }[];
   /** Calls triage has no saved mark for (recorded before triage existed, or past its row cap). */
   unmarked: Set<string>;
   /** /call-logs answers by call id (specs/008-logs-call-link); a missing call is 404. */
-  callLogs: Record<string, { setup: string; matchedBy: string | null; thread: string | null; logLevel?: string; lines: Record<string, unknown>[] }>;
+  callLogs: Record<string, { setup: string; matchedBy: string | null; thread: string | null; logLevel?: string; levelAssumed?: boolean; lines: Record<string, unknown>[] }>;
+  /** Log and database signals on triage's marks (specs/010), by call id. */
+  signals: Record<string, AttentionSignals>;
+  /** Lines no call wrote, by project. */
+  outsideLogs: { project: string; at: string; level: string; logger: string; thread: string; message: string; exceptionType?: string }[];
+  /** Capture settings per project (only what the tools read and write). */
+  captureSettings: Record<string, Record<string, unknown>>;
 }
 
 export function emptyState(): FakeState {
   return {
-    calls: [], cycles: [], cycleEntries: new Map(), spacers: new Map(), comments: [], redactions: [], callLogs: {},
+    calls: [], cycles: [], cycleEntries: new Map(), spacers: new Map(), comments: [], redactions: [], callLogs: {}, signals: {}, outsideLogs: [], captureSettings: {},
     variables: { variables: {}, fallbacks: {}, secrets: [] }, dbSummaries: {}, statements: {}, rows: {},
     query: { columns: [], rows: [], total: 0 }, trace: [],
     rules: [], interceptionEnabled: true, reliveCycles: [], runs: new Map(),
@@ -57,8 +64,8 @@ export function emptyState(): FakeState {
       { name: 'unknown', listenPort: null, upstreamPort: null, enabled: true },
     ],
     captureProjects: [
-      { project: 'odeysys', enabled: false, inboundLogging: true, attached: true, agent: null },
-      { project: 'core-service', enabled: false, inboundLogging: false, attached: false, agent: null },
+      { project: 'odeysys', enabled: false, inboundLogging: true, attached: true, agent: null, logsOn: true, logLevel: 'ERROR' },
+      { project: 'core-service', enabled: false, inboundLogging: false, attached: false, agent: null, logsOn: false, logLevel: 'ERROR' },
     ],
     unmarked: new Set(),
   };
@@ -242,7 +249,132 @@ export class FakeAlfred {
       state: r.state ?? 'COMPLETED', softFailure: softFailureOf(r), emptyKeys: [...(emptyResultOf(r)?.emptyKeys ?? [])], failingChildren: 0,
       failedStatements: this.state.dbSummaries[r.id]?.failedCount ?? 0,
       swallowedStatements: statements.filter((st) => st.outcome.kind === 'FAILED' && st.outcome.swallowed).length,
+      ...(this.state.signals[r.id] ? { signals: this.state.signals[r.id] } : {}),
     };
+  }
+
+  // ---- specs/010: scopes and the cross-call answers, the way investigationbridge gives them
+
+  private resolveScope(body: any): { calls: Map<string, { record: CallRecord; heldIn: string[] }>; scope: Record<string, unknown>; unavailable: { project: string; why: string }[] } | [number, unknown] {
+    const scope = body?.scope ?? { kind: 'live' };
+    const kind = scope.kind ?? 'live';
+    const calls = new Map<string, { record: CallRecord; heldIn: string[] }>();
+    const add = (r: CallRecord, where: string) => {
+      if (body?.project && r.service_name !== body.project) return;
+      const at = Date.parse(r.timestamp);
+      if ((body?.from && at < Date.parse(body.from)) || (body?.to && at > Date.parse(body.to))) return;
+      const known = calls.get(r.id);
+      if (known) { if (!known.heldIn.includes(where)) known.heldIn.push(where); } else calls.set(r.id, { record: r, heldIn: [where] });
+    };
+    let cycles = kind === 'all' ? this.state.cycles : [];
+    if (kind === 'cycles') {
+      cycles = [];
+      for (const id of scope.cycleIds ?? []) {
+        const c = this.state.cycles.find((x) => x.id === id);
+        if (!c) return [404, { error: `no session cycle ${id}` }];
+        cycles.push(c);
+      }
+    }
+    const withLive = kind !== 'cycles' || !!scope.includeLive;
+    if (withLive) for (const c of this.state.calls) if (c.source === 'internal') add(c.record, 'live');
+    for (const c of cycles) for (const e of this.state.cycleEntries.get(c.id) ?? []) if (e.source === 'internal') add(e.record, `cycle:${c.name}`);
+    const projects = new Set([...calls.values()].map((c) => c.record.service_name).filter(Boolean));
+    const unavailable = this.state.captureProjects.filter((p) => projects.has(p.project))
+      .flatMap((p) => [...(!p.logsOn ? [{ project: p.project, why: 'LOGS_OFF' }] : []), ...(!p.enabled ? [{ project: p.project, why: 'DB_OFF' }] : [])]);
+    return { calls, scope: { kind, cycles: cycles.map((c) => ({ id: c.id, name: c.name })), includeLive: withLive, calls: calls.size }, unavailable };
+  }
+
+  private linesOf(callId: string): Record<string, any>[] {
+    return (this.state.callLogs[callId]?.lines ?? []) as Record<string, any>[];
+  }
+
+  private investigate(path: string, body: any): [number, unknown] {
+    const resolved = this.resolveScope(body);
+    if (Array.isArray(resolved)) return resolved as [number, unknown];
+    const { calls, scope, unavailable } = resolved;
+    const head = { scope, unavailable };
+    const pathOf = (r: CallRecord) => new URL(r.original_url, 'http://x').pathname;
+    if (path === 'triage/problem-calls') {
+      const counts: Record<string, number> = { HTTP_ERROR: 0, NO_ANSWER: 0, DB_FAILED: 0, SUPPLIER_FAILED: 0, LOG_ERROR: 0, LOG_EXCEPTION: 0, DB_WARNING: 0, LOG_WARNING: 0 };
+      const rows = [];
+      for (const { record, heldIn } of calls.values()) {
+        const entry = this.entryOf(record.id, 300);
+        if (!entry) continue;
+        const signals = signalsOfEntry(entry, body.minStatus ?? 400);
+        signals.forEach((x) => counts[x]++);
+        const all: string[] = body.all ?? [];
+        const any: string[] = body.any ?? [];
+        const none: string[] = body.none ?? [];
+        const keeps = !all.length && !any.length && !none.length ? signals.length > 0
+          : all.every((x) => signals.includes(x as never)) && (!any.length || any.some((x) => signals.includes(x as never))) && none.every((x) => !signals.includes(x as never));
+        if (!keeps) continue;
+        const sig = entry.signals ?? {};
+        rows.push({
+          callId: record.id, method: record.method, path: pathOf(record), status: entry.status ?? null, startedAt: record.timestamp, durationMs: record.duration_ms,
+          project: record.service_name ?? null, heldIn, signals, severity: signals.some((x) => x !== 'DB_WARNING' && x !== 'LOG_WARNING') ? 'error' : 'warning',
+          evidence: { failedStatements: entry.failedStatements, swallowed: entry.swallowedStatements > 0, dbFlags: sig.dbFlags ?? [], logErrors: sig.logErrors ?? 0,
+            logWarnings: sig.logWarnings ?? 0, logExceptions: sig.logExceptions ?? 0, failingSupplierCalls: entry.failingChildren, logStatus: sig.logStatus ?? null, logLevel: sig.logLevel ?? null },
+        });
+      }
+      rows.sort((a, b) => (a.severity === 'error' ? 0 : 1) - (b.severity === 'error' ? 0 : 1) || b.signals.length - a.signals.length);
+      const offset = body.offset ?? 0;
+      const limit = body.limit ?? 50;
+      return [200, { ...head, counts: { ...counts, total: calls.size }, matching: rows.length, calls: rows.slice(offset, offset + limit), next: offset + limit < rows.length ? offset + limit : null }];
+    }
+    if (path === 'triage/endpoints') {
+      const by = new Map<string, { calls: number; logErrors: number }>();
+      for (const { record } of calls.values()) {
+        const key = `${record.method} ${pathOf(record).replace(/\/\d+(?=\/|$)/g, '/{id}')}`;
+        const e = by.get(key) ?? { calls: 0, logErrors: 0 };
+        e.calls++;
+        if ((this.state.signals[record.id]?.logErrors ?? 0) > 0) e.logErrors++;
+        by.set(key, e);
+      }
+      return [200, { ...head, endpoints: [...by].map(([endpoint, e]) => ({ endpoint, ...e })) }];
+    }
+    if (path === 'triage/timeline') {
+      return [200, { ...head, bucketMinutes: body.bucketMinutes ?? 1, buckets: [{ start: '2026-10-05T00:00:00Z', calls: calls.size, counts: {} }], firstSeen: {} }];
+    }
+    if (path === 'call-logs/search') {
+      const needle = (body.text ?? '').toLowerCase();
+      const hits = [];
+      for (const { record, heldIn } of calls.values()) {
+        for (const l of this.linesOf(record.id)) {
+          const hay = `${l.message}\n${l.logger ?? ''}\n${l.thread ?? ''}\n${l.exception?.type ?? ''}\n${l.exception?.message ?? ''}`.toLowerCase();
+          if (needle && !hay.includes(needle)) continue;
+          if (body.minLevel && body.minLevel === 'ERROR' && !['ERROR', 'SEVERE', 'FATAL'].includes(String(l.level).toUpperCase())) continue;
+          hits.push({ callId: record.id, method: record.method, path: pathOf(record), status: record.response?.status ?? null, callAt: record.timestamp, heldIn, line: l });
+        }
+      }
+      return [200, { ...head, total: hits.length, hits: hits.slice(0, body.limit ?? 50), next: null }];
+    }
+    if (path === 'call-logs/problems' || path === 'call-logs/problems/calls') {
+      const levels: string[] = body.levels ?? ['ERROR'];
+      const groups = new Map<string, { lines: Record<string, any>[]; calls: Set<string> }>();
+      for (const { record } of calls.values()) {
+        for (const l of this.linesOf(record.id)) {
+          const lv = String(l.level).toUpperCase();
+          const isErr = ['ERROR', 'SEVERE', 'FATAL'].includes(lv);
+          if (!(isErr || (levels.includes('WARN') && (lv === 'WARN' || lv === 'WARNING')))) continue;
+          const fp = createHash('sha1').update(`${l.logger}|${l.exception?.type ?? ''}|${normaliseMessage(l.message)}`).digest('hex').slice(0, 16);
+          const g = groups.get(fp) ?? { lines: [], calls: new Set<string>() };
+          g.lines.push({ ...l, callId: record.id });
+          g.calls.add(record.id);
+          groups.set(fp, g);
+        }
+      }
+      if (path === 'call-logs/problems/calls') {
+        const g = groups.get(body.fingerprint);
+        return [200, { ...head, calls: [...(g?.calls ?? [])].map((callId) => ({ callId, lines: g!.lines.filter((l) => l.callId === callId).length, firstAt: '2026-10-05T00:00:00Z' })), next: null }];
+      }
+      const problems = [...groups].sort((a, b) => b[1].lines.length - a[1].lines.length).map(([fingerprint, g]) => ({
+        fingerprint, level: g.lines[0].level, logger: g.lines[0].logger, exceptionType: g.lines[0].exception?.type ?? null, message: g.lines[0].message,
+        lines: g.lines.length, calls: g.calls.size, firstAt: g.lines[0].at, lastAt: g.lines.at(-1)!.at, isNew: false, endpoints: [],
+        example: { callId: g.lines[0].callId, lineId: g.lines[0].lineId },
+      }));
+      return [200, { ...head, groups: problems.length, newSince: '2026-10-05T00:00:00Z', problems: problems.slice(0, body.limit ?? 30) }];
+    }
+    return [404, null];
   }
 
   private entryOf(id: string, minStatus: number): TriageEntry | null {
@@ -306,6 +438,29 @@ export class FakeAlfred {
       return [200, s.services];
     }
     if (p[0] === 'db-capture' && p[1] === 'projects' && p.length === 2) return [200, s.captureProjects];
+    if (p[0] === 'db-capture' && p[1] === 'projects' && p[3] === 'logs' && method === 'PUT') {
+      const cap = s.captureProjects.find((c) => c.project === p[2]);
+      if (!cap) return [400, { error: 'unknown project' }];
+      if (body.on && !cap.inboundLogging) return [409, { error: 'inbound logging is off' }];
+      cap.logsOn = !!body.on;
+      return [200, s.captureProjects];
+    }
+    if (p[0] === 'db-capture' && p[1] === 'projects' && p[3] === 'settings') {
+      const cap = s.captureProjects.find((c) => c.project === p[2]);
+      if (!cap) return [400, { error: 'unknown project' }];
+      if (method === 'PUT') {
+        s.captureSettings[p[2]] = body;
+        cap.logLevel = body.logLevel ?? 'ERROR';
+        return [200, body];
+      }
+      return [200, s.captureSettings[p[2]] ?? { rowsPerResult: 50000, logLevel: cap.logLevel }];
+    }
+    if (p[0] === 'db-capture' && p[1] === 'outside' && p[2] === 'logs') {
+      const from = q.get('from') ? Date.parse(q.get('from')!) : -Infinity;
+      const to = q.get('to') ? Date.parse(q.get('to')!) : Infinity;
+      return [200, s.outsideLogs.filter((l) => l.project === q.get('project') && Date.parse(l.at) >= from && Date.parse(l.at) <= to)
+        .map((l, i) => ({ id: i + 1, ...l }))];
+    }
     if (p[0] === 'db-capture' && p[1] === 'projects' && p[3] === 'enabled' && method === 'PUT') {
       const cap = s.captureProjects.find((c) => c.project === p[2]);
       if (!cap) return [400, { error: 'unknown project' }];
@@ -456,6 +611,10 @@ export class FakeAlfred {
       }
     }
     if (p[0] === 'redactions') return [200, s.redactions];
+    if (method === 'POST' && ((p[0] === 'triage' && ['problem-calls', 'endpoints', 'timeline'].includes(p[1]))
+        || (p[0] === 'call-logs' && (p[1] === 'search' || p[1] === 'problems')))) {
+      return this.investigate(p.join('/'), body);
+    }
     if (p[0] === 'call-logs' && p.length === 2) {
       const found = s.callLogs[p[1]];
       if (!found) return [404];
@@ -463,6 +622,7 @@ export class FakeAlfred {
       const limit = Number(q.get('limit') ?? 200);
       const page = found.lines.slice(offset, offset + limit);
       return [200, { callId: p[1], setup: found.setup, matchedBy: found.matchedBy, thread: found.thread, clockSkewMs: 200, lines: page, logLevel: found.logLevel ?? null,
+        ...(found.levelAssumed ? { levelAssumed: true } : {}),
         next: offset + limit < found.lines.length ? `o:${offset + limit}` : null }];
     }
     if (p[0] === 'settings' && p[1] === 'variables') return [200, s.variables];

@@ -8,19 +8,19 @@ import com.fathy.alfred.backend.sessioncycles.domain.model.CapturedInternalCallS
 import java.util.function.Consumer;
 
 /** Pages through every call a cycle captured (explicitly paged, whatever the UI pagination setting is). */
-final class CycleCallsReader {
+public final class CycleCallsReader {
 
     private static final int PAGE = 200;
 
     private final ListCapturedCallsUseCase capturedCalls;
     private final ListPagedCapturedInternalCallsUseCase capturedInternalCalls;
 
-    CycleCallsReader(ListCapturedCallsUseCase capturedCalls, ListPagedCapturedInternalCallsUseCase capturedInternalCalls) {
+    public CycleCallsReader(ListCapturedCallsUseCase capturedCalls, ListPagedCapturedInternalCallsUseCase capturedInternalCalls) {
         this.capturedCalls = capturedCalls;
         this.capturedInternalCalls = capturedInternalCalls;
     }
 
-    void inbound(String cycleId, Consumer<CapturedInternalCallSummary> each) {
+    public void inbound(String cycleId, Consumer<CapturedInternalCallSummary> each) {
         int offset = 0;
         while (true) {
             var page = capturedInternalCalls.listCalls(cycleId,
@@ -36,7 +36,7 @@ final class CycleCallsReader {
         }
     }
 
-    void outbound(String cycleId, Consumer<CapturedCallSummary> each) {
+    public void outbound(String cycleId, Consumer<CapturedCallSummary> each) {
         int offset = 0;
         while (true) {
             var page = capturedCalls.listCalls(cycleId,

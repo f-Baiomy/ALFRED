@@ -10,6 +10,7 @@ import { maskCapture, maskContext, maskMeta, maskQueryResult, type MaskContext }
 import { chunkText, fitItems, notFound, ok, run } from '../reply.ts';
 import { resolveFrames, sourceIndexInfo } from '../source.ts';
 import { statementFailuresOf } from '../triage.ts';
+import { callLines } from '../call-story.ts';
 import { MaskSchema } from './cycles.ts';
 
 const CELL_LIMIT = 300;
@@ -211,13 +212,26 @@ export function register(server: McpServer, client: AlfredClient): void {
   }));
 
   server.registerTool('trace_value', {
-    description: 'Where a value appears in one call\'s database capture: as a bound parameter, in result rows, before-images, generated keys or OUT parameters, by statement #seq.',
-    inputSchema: { callId: z.string().min(1), value: z.string().min(1), mask: MaskSchema },
+    description: 'Where a value appears in one call: in its database capture (a bound parameter, result rows, before-images, generated keys or '
+      + 'OUT parameters, by statement #seq) and in its caught log lines (message or exception, with level, logger and position) - so an id that '
+      + 'reaches a log message but never the database is still found.',
+    inputSchema: { callId: z.string().min(1), value: z.string().min(1), cycleId: z.string().optional(), mask: MaskSchema },
   }, (input) => run(async () => {
     const ctx = await maskContext(client, input.mask);
-    const result = await client.get<{ hits: TraceHit[] }>(`/db-capture/calls/${seg(input.callId)}/trace`, { query: { value: input.value } });
+    const [result, lines] = await Promise.all([
+      client.get<{ hits: TraceHit[] }>(`/db-capture/calls/${seg(input.callId)}/trace`, { query: { value: input.value } }).catch(() => ({ hits: [] as TraceHit[] })),
+      callLines(client, input.callId, input.cycleId).catch(() => null),
+    ]);
+    const needle = input.value.toLowerCase();
+    const inLogs = (lines?.lines ?? []).filter((l) => `${l.message}\n${l.exception?.message ?? ''}\n${l.exception?.stack ?? ''}`.toLowerCase().includes(needle))
+      .map((l) => ({ seq: l.seq, offsetMs: l.offsetMs, level: l.level, logger: l.logger, lineId: l.lineId,
+        where: l.message.toLowerCase().includes(needle) ? 'message' : 'exception' }));
     // The hits are positions only; the value itself is never echoed back, masked or not.
-    return ok({ callId: input.callId, hits: result.hits.slice(0, 500), total: result.hits.length, ...maskMeta(ctx) });
+    return ok({
+      callId: input.callId, hits: result.hits.slice(0, 500), total: result.hits.length,
+      logHits: inLogs.slice(0, 200), logTotal: inLogs.length, ...(lines && !lines.lines.length && lines.why ? { noLogLines: lines.why } : {}),
+      ...maskMeta(ctx),
+    });
   }));
 
   server.registerTool('locate_source', {

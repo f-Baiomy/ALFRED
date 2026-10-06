@@ -598,6 +598,10 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
             parts.add("json_extract(l.exception_json, '$.type') LIKE ? ESCAPE '\\'");
             args.add("%" + likeEscape(q.exceptionType().strip()) + "%");
         }
+        if (q.project() != null && !q.project().isBlank()) {
+            parts.add("l.project = ?");
+            args.add(q.project().strip());
+        }
         if (q.fromMs() != null) {
             parts.add("l.at_ms >= ?");
             args.add(q.fromMs());

@@ -6,9 +6,27 @@ import { listCycleCalls, requireCycle, type CycleEntry } from '../cycle-calls.ts
 import { maskCalls, maskContext, maskMeta } from '../masking.ts';
 import { ok, run } from '../reply.ts';
 import { MaskSchema } from './cycles.ts';
+import type { TriageEntry } from '../frontend.ts';
+import { signalsOfEntry, type SignalName } from '../signals.ts';
+import { triageOf } from '../triage.ts';
 
 /** Alfred's own "something changed" sockets: a captured call arrives on the calls sockets, cycle edits on session-cycles. */
 const SOCKETS = ['/ws/calls', '/ws/internal-calls', '/ws/session-cycles'];
+/** Waiting for a kind of trouble: a call's log lines and statements (and so its marks) settle a moment after it ends. */
+const SIGNAL_SOCKETS = ['/ws/db-capture', '/ws/triage'];
+
+/** What to wait for (specs/010): any new call, or the next one that logged an error / a warning, had a failed statement, or any problem. */
+export type Until = 'any' | 'logError' | 'logWarning' | 'dbFailed' | 'problem';
+
+function matches(until: Until, signals: SignalName[]): boolean {
+  switch (until) {
+    case 'logError': return signals.includes('LOG_ERROR') || signals.includes('LOG_EXCEPTION');
+    case 'logWarning': return signals.includes('LOG_WARNING');
+    case 'dbFailed': return signals.includes('DB_FAILED');
+    case 'problem': return signals.length > 0;
+    default: return true;
+  }
+}
 const SETTLE_MS = 400;
 const MAX_WAIT_S = 60;
 
@@ -18,7 +36,8 @@ const MAX_WAIT_S = 60;
  * signals the UI reloads on, re-reads the cycle only when one fires, and gives up after a bounded
  * wait (60 s at most), so a tool call can never hang.
  */
-export async function waitForCalls(client: AlfredClient, cycleId: string, sinceCallId: string | undefined, timeoutMs: number): Promise<{ newEntries: CycleEntry[]; total: number; timedOut: boolean; recording: boolean }> {
+export async function waitForCalls(client: AlfredClient, cycleId: string, sinceCallId: string | undefined, timeoutMs: number,
+                                   until: Until = 'any'): Promise<{ newEntries: CycleEntry[]; total: number; timedOut: boolean; recording: boolean; matched: CycleEntry[] }> {
   const cycle = await requireCycle(client, cycleId);
   const first = await listCycleCalls(client, cycle.id);
   const known = new Set(first.entries.map((e) => e.call.id));
@@ -29,14 +48,25 @@ export async function waitForCalls(client: AlfredClient, cycleId: string, sinceC
     }
     return entries.filter((e) => !known.has(e.call.id));
   };
+  /** The fresh calls that are what we wait for - by their triage marks when waiting for a kind of trouble. */
+  const wanted = async (fresh: CycleEntry[]): Promise<CycleEntry[]> => {
+    if (until === 'any') return fresh;
+    const inbound = fresh.filter((e) => e.call.source === 'internal');
+    if (!inbound.length) return [];
+    const marks = await triageOf(client, inbound.map((e) => e.call.id)).catch(() => ({}) as Record<string, TriageEntry>);
+    return inbound.filter((e) => marks[e.call.id] && matches(until, signalsOfEntry(marks[e.call.id])));
+  };
   const ready = sinceCallId ? after(first.entries) : [];
-  if (ready.length) return { newEntries: ready, total: first.entries.length, timedOut: false, recording: cycle.status === 'RECORDING' };
+  const readyMatched = ready.length ? await wanted(ready) : [];
+  if (readyMatched.length) {
+    return { newEntries: ready, total: first.entries.length, timedOut: false, recording: cycle.status === 'RECORDING', matched: readyMatched };
+  }
 
   return new Promise((resolve, reject) => {
     const sockets: WebSocket[] = [];
     let settle: ReturnType<typeof setTimeout> | undefined;
     let done = false;
-    const finish = (value: { newEntries: CycleEntry[]; total: number; timedOut: boolean } | Error) => {
+    const finish = (value: { newEntries: CycleEntry[]; total: number; timedOut: boolean; matched: CycleEntry[] } | Error) => {
       if (done) return;
       done = true;
       clearTimeout(timer);
@@ -46,14 +76,16 @@ export async function waitForCalls(client: AlfredClient, cycleId: string, sinceC
       else resolve({ ...value, recording: cycle.status === 'RECORDING' });
     };
     const check = () => {
-      listCycleCalls(client, cycle.id).then((now) => {
+      listCycleCalls(client, cycle.id).then(async (now) => {
         const fresh = after(now.entries);
-        if (fresh.length) finish({ newEntries: fresh, total: now.entries.length, timedOut: false });
+        if (!fresh.length) return;
+        const matched = await wanted(fresh);
+        if (matched.length) finish({ newEntries: fresh, total: now.entries.length, timedOut: false, matched });
       }).catch(finish);
     };
-    const timer = setTimeout(() => finish({ newEntries: [], total: first.entries.length, timedOut: true }), timeoutMs);
+    const timer = setTimeout(() => finish({ newEntries: [], total: first.entries.length, timedOut: true, matched: [] }), timeoutMs);
     const wsBase = client.baseUrl.replace(/^http/, 'ws');
-    for (const path of SOCKETS) {
+    for (const path of until === 'any' ? SOCKETS : [...SOCKETS, ...SIGNAL_SOCKETS]) {
       const socket = new WebSocket(wsBase + path);
       // A burst of calls arrives as a burst of messages: read the cycle once it settles, not per message.
       socket.addEventListener('message', () => {
@@ -69,21 +101,25 @@ export function register(server: McpServer, client: AlfredClient): void {
   server.registerTool('wait_for_calls', {
     description: 'Wait (up to timeoutSec, at most 60) until a session cycle captures new calls - e.g. while the user reproduces something with '
       + 'recording on - and return them with their numbers. Pass sinceCallId (the lastCallId of the previous reply) to continue where you left off. '
-      + 'Event-driven (Alfred\'s WebSocket signals), not polling; returns timedOut: true when nothing arrived.',
+      + 'Event-driven (Alfred\'s WebSocket signals), not polling; returns timedOut: true when nothing arrived. until waits for a kind of '
+      + 'trouble instead of any call: logError (an ERROR line or exception), logWarning, dbFailed, or problem (any error or warning) - matched '
+      + 'lists those calls.',
     inputSchema: {
       cycleId: z.string().min(1),
       sinceCallId: z.string().optional(),
       timeoutSec: z.number().int().min(1).max(MAX_WAIT_S).default(30),
       includeOptions: z.boolean().default(false),
+      until: z.enum(['any', 'logError', 'logWarning', 'dbFailed', 'problem']).default('any'),
       mask: MaskSchema,
     },
   }, (input) => run(async () => {
     const ctx = await maskContext(client, input.mask);
-    const result = await waitForCalls(client, input.cycleId, input.sinceCallId, input.timeoutSec * 1000);
+    const result = await waitForCalls(client, input.cycleId, input.sinceCallId, input.timeoutSec * 1000, input.until);
     const shown = result.newEntries.filter((e) => input.includeOptions || e.call.method !== 'OPTIONS');
     const rows = maskCalls(ctx, shown.map((e) => e.call)).map(toRow);
     return ok({
       newCalls: rows, newCount: result.newEntries.length, hiddenOptions: result.newEntries.length - shown.length,
+      ...(input.until !== 'any' ? { until: input.until, matched: maskCalls(ctx, result.matched.map((e) => e.call)).map(toRow) } : {}),
       totalCalls: result.total, timedOut: result.timedOut, recording: result.recording,
       lastCallId: result.newEntries.at(-1)?.call.id ?? input.sinceCallId ?? null,
       ...(result.recording ? {} : { note: 'The cycle is not recording - start_recording to capture new calls.' }),

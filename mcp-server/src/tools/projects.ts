@@ -4,15 +4,18 @@ import { seg, type AlfredClient } from '../alfred-client.ts';
 import { invalid, ok, run } from '../reply.ts';
 
 /**
- * The projects Alfred fronts, and the two switches that decide what it records for each: inbound
- * logging (the reverse proxy logs calls into the project) and database capture (the db-agent records
- * each inbound call's statements). Flipping either changes what Alfred records from the next call on,
- * for everyone using it - so both refuse to act without confirm: true, which Claude passes only after
- * the user said yes. Neither changes what the application itself does.
+ * The projects Alfred fronts, and the switches that decide what it records for each: inbound logging (the reverse
+ * proxy logs calls into the project), database capture ◆ (the db-agent records each inbound call's statements), log
+ * catching ▤ and its Log level (the agent catches the application's log lines). Inbound logging refuses to change
+ * without confirm: true. ◆, ▤ and the Log level Claude may change when an investigation needs it (the owner's decision,
+ * specs/010) - every reply says what changed, old and new. None changes what the application itself does.
  */
 
 interface InboundService { name: string; listenPort: number | null; upstreamPort: number | null; enabled: boolean }
-interface CaptureProject { project: string; enabled: boolean; inboundLogging: boolean; attached: boolean; agent?: { agentVersion?: string; lastSeen?: string } | null }
+interface CaptureProject {
+  project: string; enabled: boolean; inboundLogging: boolean; attached: boolean; logsOn?: boolean; logLevel?: string;
+  agent?: { agentVersion?: string; lastSeen?: string } | null;
+}
 
 async function projects(client: AlfredClient) {
   const [feature, services, capture] = await Promise.all([
@@ -30,6 +33,7 @@ async function projects(client: AlfredClient) {
         return {
           name: s.name, listenPort: s.listenPort, upstreamPort: s.upstreamPort, inboundLogging: s.enabled,
           dbCapture: db ? { enabled: db.enabled, agentAttached: db.attached, ...(db.agent?.lastSeen ? { agentLastSeen: db.agent.lastSeen } : {}) } : null,
+          logCatching: db ? { on: !!db.logsOn, logLevel: db.logLevel ?? 'ERROR' } : null,
         };
       }),
   };
@@ -74,26 +78,60 @@ export function register(server: McpServer, client: AlfredClient): void {
   }));
 
   server.registerTool('set_db_capture', {
-    description: 'Turn database capture for a project on or off (needs its inbound logging on, and the db-agent loaded in the app - see '
-      + 'list_projects). Changes Alfred for everyone: without confirm: true it only says what would happen.',
-    inputSchema: { project: z.string().min(1), enabled: z.boolean(), confirm: ConfirmSchema },
+    description: 'Turn database capture ◆ for a project on or off (needs its inbound logging on, and the db-agent loaded in the app - see '
+      + 'list_projects). You may do this when an investigation needs statements; tell the user what you changed (the reply says old and new).',
+    inputSchema: { project: z.string().min(1), enabled: z.boolean() },
   }, (input) => run(async () => {
     const project = await requireProject(client, input.project);
-    if (project.dbCapture?.enabled === input.enabled) return ok({ project: project.name, dbCapture: project.dbCapture, changed: false });
+    const was = project.dbCapture?.enabled ?? false;
+    if (was === input.enabled) return ok({ project: project.name, dbCapture: project.dbCapture, changed: [] });
     if (input.enabled && !project.inboundLogging) {
       throw invalid(`Inbound logging is off for ${project.name}; statements attach to inbound calls, so turn that on first (set_inbound_logging).`);
     }
-    if (!input.confirm) {
-      return ok({
-        needsConfirm: true,
-        effect: input.enabled
-          ? `Alfred will record the database statements of every inbound call into ${project.name}${project.dbCapture?.agentAttached ? '' : ' - but no agent is attached yet, so nothing is recorded until the db-agent is loaded (python3 start.py --db-capture on)'}.`
-          : `Alfred will stop recording database statements for ${project.name}; captures already recorded stay.`,
-        next: 'Ask the user; if they agree, call again with confirm: true.',
-      });
-    }
     await client.put(`/db-capture/projects/${seg(project.name)}/enabled`, { body: { enabled: input.enabled } });
     const after = await requireProject(client, project.name);
-    return ok({ project: after.name, dbCapture: after.dbCapture, changed: true });
+    return ok({
+      project: after.name, dbCapture: after.dbCapture, changed: [{ setting: 'dbCapture', from: was, to: input.enabled }],
+      ...(input.enabled && !after.dbCapture?.agentAttached ? { note: 'No agent is attached yet: nothing is recorded until the db-agent is loaded (python3 start.py --db-capture on).' } : {}),
+      tellTheUser: true,
+    });
+  }));
+
+  server.registerTool('set_log_capture', {
+    description: 'Turn log catching ▤ for a project on or off, and/or set its Log level - the lowest level of line the agent catches with each call: '
+      + 'ERROR (the default), WARN, INFO, DEBUG, TRACE or APP (whatever the application itself writes). It cannot go below the application level '
+      + 'level. Takes effect within about 10 s, for calls from then on - earlier calls keep what they had. You may do this when an investigation '
+      + 'needs more detail; tell the user what you changed (the reply says old and new).',
+    inputSchema: {
+      project: z.string().min(1),
+      on: z.boolean().optional(),
+      level: z.enum(['ERROR', 'WARN', 'INFO', 'DEBUG', 'TRACE', 'APP']).optional(),
+    },
+  }, (input) => run(async () => {
+    if (input.on === undefined && !input.level) throw invalid('Say what to change: on and/or level.');
+    const project = await requireProject(client, input.project);
+    const changed: { setting: string; from: unknown; to: unknown }[] = [];
+    const wasOn = project.logCatching?.on ?? false;
+    if (input.on !== undefined && input.on !== wasOn) {
+      if (input.on && !project.inboundLogging) {
+        throw invalid(`Inbound logging is off for ${project.name}; log lines attach to inbound calls, so turn that on first (set_inbound_logging).`);
+      }
+      await client.put(`/db-capture/projects/${seg(project.name)}/logs`, { body: { on: input.on } });
+      changed.push({ setting: 'logCatching', from: wasOn, to: input.on });
+    }
+    if (input.level) {
+      const settings = await client.get<Record<string, unknown>>(`/db-capture/projects/${seg(project.name)}/settings`);
+      const wasLevel = (settings['logLevel'] as string | undefined) ?? 'ERROR';
+      if (wasLevel !== input.level) {
+        await client.put(`/db-capture/projects/${seg(project.name)}/settings`, { body: { ...settings, logLevel: input.level } });
+        changed.push({ setting: 'logLevel', from: wasLevel, to: input.level });
+      }
+    }
+    const after = await requireProject(client, project.name);
+    return ok({
+      project: after.name, logCatching: after.logCatching, changed,
+      ...(changed.length ? { note: 'Applies to calls from now on (the agent picks it up within ~10 s); calls already recorded keep the lines they had.', tellTheUser: true } : {}),
+      ...(after.logCatching?.on && !after.dbCapture?.agentAttached ? { warning: 'No agent is attached to this project: no lines are caught until the db-agent is loaded.' } : {}),
+    });
   }));
 }

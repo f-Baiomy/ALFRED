@@ -69,6 +69,12 @@ class CallLogsServiceTest {
 
         CallLogsPage page = service.lines(CALL, null, null, 0).orElseThrow();
         assertThat(page.logLevel()).isEqualTo("ERROR");
+        assertThat(page.levelAssumed()).isTrue(); // no level on its CALL_OPEN: the project's current one
+
+        when(caught.capturedLevel(CALL)).thenReturn(java.util.Optional.of("WARN"));
+        CallLogsPage known = service.lines(CALL, null, null, 0).orElseThrow();
+        assertThat(known.logLevel()).isEqualTo("WARN");
+        assertThat(known.levelAssumed()).isNull();
 
         assertThat(page.setup()).isEqualTo(Setup.OK);
         assertThat(page.matchedBy()).isEqualTo(Match.CAUGHT);

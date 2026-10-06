@@ -6,6 +6,10 @@ import { diffHeaders, diffLines, sharedBodyKind, type CallRecord, type DiffLine 
 import { maskCall, maskContext, maskMeta } from '../masking.ts';
 import { ok, REPLY_BUDGET, run } from '../reply.ts';
 import { MaskSchema } from './cycles.ts';
+import { callLines } from '../call-story.ts';
+import { lineKey } from '../signals.ts';
+import { maskLines } from './logs.ts';
+import type { LinkedLogLine } from '../frontend.ts';
 import { resolveCall } from './calls.ts';
 
 /**
@@ -73,11 +77,48 @@ function sideDiff(a: CallRecord, b: CallRecord, side: 'request' | 'response', co
   };
 }
 
+/**
+ * The two calls' caught log lines compared by what they mean (logger, exception type, message with ids and numbers set
+ * aside): lines only one call wrote, and the first point where the two runs went separate ways (specs/010, US6).
+ */
+export function logDiff(a: readonly LinkedLogLine[], b: readonly LinkedLogLine[]): Record<string, unknown> {
+  const ka = a.map(lineKey);
+  const kb = b.map(lineKey);
+  // longest common subsequence of the keys - the lines both runs wrote, in order
+  const n = ka.length;
+  const m = kb.length;
+  const lcs: number[][] = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) lcs[i][j] = ka[i] === kb[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+  const onlyA: LinkedLogLine[] = [];
+  const onlyB: LinkedLogLine[] = [];
+  let firstDivergence: Record<string, unknown> | null = null;
+  let i = 0;
+  let j = 0;
+  while (i < n || j < m) {
+    if (i < n && j < m && ka[i] === kb[j]) { i++; j++; continue; }
+    if (!firstDivergence) firstDivergence = { afterSameLines: Math.min(i, j), a: a[i] ? brief(a[i]) : null, b: b[j] ? brief(b[j]) : null };
+    if (j >= m || (i < n && lcs[i + 1][j] >= lcs[i][j + 1])) onlyA.push(a[i++]);
+    else onlyB.push(b[j++]);
+  }
+  return {
+    lines: { a: a.length, b: b.length, inBoth: lcs[0][0] }, identical: !onlyA.length && !onlyB.length,
+    ...(firstDivergence ? { firstDivergence } : {}),
+    onlyInA: onlyA.slice(0, 30).map(brief), onlyInB: onlyB.slice(0, 30).map(brief),
+    ...(onlyA.length > 30 || onlyB.length > 30 ? { more: { onlyInA: onlyA.length, onlyInB: onlyB.length } } : {}),
+  };
+}
+
+function brief(l: LinkedLogLine): Record<string, unknown> {
+  const message = l.message.length > 300 ? `${l.message.slice(0, 300)}… (${l.message.length} chars)` : l.message;
+  return { offsetMs: l.offsetMs, level: l.level, logger: l.logger, message, ...(l.exception?.type ? { exception: l.exception.type } : {}), lineId: l.lineId };
+}
+
 export function register(server: McpServer, client: AlfredClient): void {
   server.registerTool('diff_calls', {
     description: 'Compare two calls (live or in cycles): method, URL, status, duration, then request and response headers and bodies as a '
       + 'unified diff (bodies pretty-printed as JSON/XML first, so one changed field is one changed line). A header that differs appears '
-      + 'twice: onlyIn a (its value there) and onlyIn b. Page long diffs with hunkOffset.',
+      + 'twice: onlyIn a (its value there) and onlyIn b. Page long diffs with hunkOffset. For two inbound calls, logs compares their caught log '
+      + 'lines by meaning: lines only one wrote and where the two runs first went separate ways.',
     inputSchema: {
       a: z.string().min(1).describe('First call id'),
       b: z.string().min(1).describe('Second call id'),
@@ -86,6 +127,7 @@ export function register(server: McpServer, client: AlfredClient): void {
       aCycleId: z.string().optional().describe('Read call a from this cycle'),
       bCycleId: z.string().optional(),
       part: z.enum(['request', 'response', 'both']).default('both'),
+      logs: z.boolean().default(true).describe('Compare the two calls\' caught log lines too (inbound calls)'),
       context: z.number().int().min(0).max(10).default(2).describe('Unchanged lines shown around each change'),
       hunkOffset: z.number().int().min(0).default(0).describe('Skip this many body hunks (per side) - for paging a long diff'),
       mask: MaskSchema,
@@ -118,6 +160,15 @@ export function register(server: McpServer, client: AlfredClient): void {
       }
       out[side] = { headers: diff.headers, body: { ...diff.body, hunks: kept, totalHunks: diff.body.hunks.length, ...(kept.length < hunks.length ? { nextHunkOffset: input.hunkOffset + kept.length } : {}) } };
     }
+    let logs: Record<string, unknown> | undefined;
+    if (input.logs && a.source === 'internal' && b.source === 'internal') {
+      const [la, lb] = await Promise.all([callLines(client, input.a, input.aCycleId).catch(() => null), callLines(client, input.b, input.bCycleId).catch(() => null)]);
+      if (la && lb) {
+        logs = la.lines.length || lb.lines.length
+          ? logDiff(maskLines(ctx, input.a, la.lines), maskLines(ctx, input.b, lb.lines))
+          : { note: `Neither call has caught log lines (${la.why ?? lb.why ?? 'none written'}).` };
+      }
+    }
     return ok({
       a: ra, b: rb,
       changes: {
@@ -127,6 +178,7 @@ export function register(server: McpServer, client: AlfredClient): void {
         durationMs: { a: ra.durationMs, b: rb.durationMs },
       },
       ...out,
+      ...(logs ? { logs } : {}),
       ...(cut ? { note: 'Some body hunks did not fit - call again with each side\'s nextHunkOffset.' } : {}),
       ...maskMeta(ctx),
     });

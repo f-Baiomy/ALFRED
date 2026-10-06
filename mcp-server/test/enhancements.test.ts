@@ -193,21 +193,20 @@ test('debug_cycle and debug_call prompts give the steps (7)', async () => {
   }
 });
 
-test('project switches: listed with capture status; changing one needs confirm; capture needs inbound logging (9)', async () => {
+test('project switches: listed with capture and log status; ◆ changes at once and says what changed; inbound logging needs confirm (9, specs/010)', async () => {
   const w = await world();
   try {
     const list = await w.call('list_projects');
     assert.deepEqual(list.json.projects.map((p: { name: string }) => p.name), ['odeysys', 'core-service'], 'the unknown bucket is not a project');
     assert.deepEqual(list.json.projects[0].dbCapture, { enabled: false, agentAttached: true });
 
-    const ask = await w.call('set_db_capture', { project: 'odeysys', enabled: true });
-    assert.equal(ask.json.needsConfirm, true);
-    assert.equal(w.fake.requests('PUT', '/db-capture/projects').length, 0, 'nothing changed without confirm');
-    const done = await w.call('set_db_capture', { project: 'odeysys', enabled: true, confirm: true });
-    assert.deepEqual([done.json.changed, done.json.dbCapture.enabled], [true, true]);
-    assert.equal((await w.call('set_db_capture', { project: 'odeysys', enabled: true })).json.changed, false);
+    const done = await w.call('set_db_capture', { project: 'odeysys', enabled: true });
+    assert.deepEqual(done.json.changed, [{ setting: 'dbCapture', from: false, to: true }]);
+    assert.equal(done.json.dbCapture.enabled, true);
+    assert.equal(done.json.tellTheUser, true);
+    assert.deepEqual((await w.call('set_db_capture', { project: 'odeysys', enabled: true })).json.changed, []);
 
-    const blocked = await w.call('set_db_capture', { project: 'core-service', enabled: true, confirm: true });
+    const blocked = await w.call('set_db_capture', { project: 'core-service', enabled: true });
     assert.equal(blocked.json.error, 'invalid');
     assert.match(blocked.json.message, /Inbound logging is off/);
 
