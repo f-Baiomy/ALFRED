@@ -110,6 +110,7 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
       fetchOverlaps: (query) => this.fetchOverlapsForSource(query),
       dbFailedIds: this.dbState.failedCallIds,
         logErrorIds: this.logCounts.errorCallIds,
+        logWarnIds: this.logCounts.warnCallIds,
     });
     // Every loaded inbound call's ◆ DB summary, not only those whose card is on screen: the "DB failures" pill and
     // filter count calls the waterfall or a collapsed list never renders a chip for. Batched, one request per 500.
@@ -584,6 +585,9 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
   get logErrorFilter() {
     return this.view.logErrorFilter;
   }
+  get logWarnFilter() {
+    return this.view.logWarnFilter;
+  }
   get interceptionRuleOptions() {
     return this.view.interceptionRuleOptions;
   }
@@ -707,6 +711,10 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
 
   setLogErrorFilter(value: boolean): void {
     this.view.setLogErrorFilter(value);
+  }
+
+  setLogWarnFilter(value: boolean): void {
+    this.view.setLogWarnFilter(value);
   }
 
   setNestedOnly(value: boolean): void {

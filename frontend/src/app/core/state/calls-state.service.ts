@@ -101,6 +101,7 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
         onError: (message) => this.error.set(message),
         dbFailedIds: this.dbState.failedCallIds,
         logErrorIds: this.logCounts.errorCallIds,
+        logWarnIds: this.logCounts.warnCallIds,
       }
     );
     // Every loaded inbound call's ◆ DB summary, not only those whose card is on screen: the "DB failures" pill and
@@ -349,6 +350,9 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
   get logErrorFilter() {
     return this.view.logErrorFilter;
   }
+  get logWarnFilter() {
+    return this.view.logWarnFilter;
+  }
   get interceptionRuleOptions() {
     return this.view.interceptionRuleOptions;
   }
@@ -476,6 +480,10 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
 
   setLogErrorFilter(value: boolean): void {
     this.view.setLogErrorFilter(value);
+  }
+
+  setLogWarnFilter(value: boolean): void {
+    this.view.setLogWarnFilter(value);
   }
 
   setViewMode(mode: CallViewMode): void {

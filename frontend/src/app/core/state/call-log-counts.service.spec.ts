@@ -36,6 +36,7 @@ describe('CallLogCountsService - counts of every loaded call', () => {
 
     expect(asked).toEqual([['a', 'b']]);
     expect([...service.errorCallIds()]).toEqual(['a']);
+    expect(service.warnCallIds().size).toBe(0);
   }));
 
   it('refetches a requested call when the agent caught new lines for it', fakeAsync(() => {

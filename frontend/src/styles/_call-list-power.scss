@@ -40,6 +40,15 @@
   background: color-mix(in srgb, var(--red) 18%, var(--card));
 }
 
+// Calls that wrote a WARN log line (agent-caught).
+.stat-pill.log-warn b {
+  color: var(--amber);
+}
+.stat-pill.log-warn.active {
+  border-color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 18%, var(--card));
+}
+
 // ---- F1: Filters menu - Interception/Resend sections ----
 
 .filter-section {

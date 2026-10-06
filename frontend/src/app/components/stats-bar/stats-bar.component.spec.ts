@@ -5,7 +5,7 @@ import { CallListControlsState, CALL_LIST_CONTROLS_STATE } from '../../core/stat
 import { CallStats, CallStatusFilter } from '../../core/state/calls-state.service';
 import { ALL_INTERCEPTION_FILTER, InterceptionFilter, ResendFilter } from '../../core/state/call-list-view';
 
-const EMPTY_STATS: CallStats = { total: 0, ok: 0, client: 0, failed: 0, inProgress: 0, intercepted: 0, resent: 0, dbFailures: 0, logErrors: 0 };
+const EMPTY_STATS: CallStats = { total: 0, ok: 0, client: 0, failed: 0, inProgress: 0, intercepted: 0, resent: 0, dbFailures: 0, logErrors: 0, logWarnings: 0 };
 
 describe('StatsBarComponent', () => {
   let setStatusFilterSpy: jasmine.Spy;
@@ -13,6 +13,7 @@ describe('StatsBarComponent', () => {
   let setResendFilterSpy: jasmine.Spy;
   let setDbFailureFilterSpy: jasmine.Spy;
   let setLogErrorFilterSpy: jasmine.Spy;
+  let setLogWarnFilterSpy: jasmine.Spy;
   let interceptionFilterSignal: ReturnType<typeof signal<InterceptionFilter>>;
   let resendFilterSignal: ReturnType<typeof signal<ResendFilter>>;
 
@@ -29,6 +30,7 @@ describe('StatsBarComponent', () => {
     setResendFilterSpy = jasmine.createSpy('setResendFilter');
     setDbFailureFilterSpy = jasmine.createSpy('setDbFailureFilter');
     setLogErrorFilterSpy = jasmine.createSpy('setLogErrorFilter');
+    setLogWarnFilterSpy = jasmine.createSpy('setLogWarnFilter');
     interceptionFilterSignal = signal<InterceptionFilter>(ALL_INTERCEPTION_FILTER);
     resendFilterSignal = signal<ResendFilter>('all');
 
@@ -43,6 +45,8 @@ describe('StatsBarComponent', () => {
       setDbFailureFilter: setDbFailureFilterSpy,
       logErrorFilter: signal(false),
       setLogErrorFilter: setLogErrorFilterSpy,
+      logWarnFilter: signal(false),
+      setLogWarnFilter: setLogWarnFilterSpy,
     };
 
     TestBed.configureTestingModule({
@@ -120,7 +124,7 @@ describe('StatsBarComponent', () => {
   });
 
   it('shows and toggles the DB failures pill', () => {
-    const fixture = createComponent({ ...EMPTY_STATS, dbFailures: 2, logErrors: 0 });
+    const fixture = createComponent({ ...EMPTY_STATS, dbFailures: 2, logErrors: 0, logWarnings: 0 });
     const button: HTMLButtonElement = fixture.nativeElement.querySelector('.stat-pill.db-failed');
     expect(button.textContent).toContain('2');
     expect(button.textContent).toContain('DB failures');
@@ -131,7 +135,7 @@ describe('StatsBarComponent', () => {
   });
 
   it('shows and toggles the Log errors pill', () => {
-    const fixture = createComponent({ ...EMPTY_STATS, logErrors: 3 });
+    const fixture = createComponent({ ...EMPTY_STATS, logErrors: 3, logWarnings: 0 });
     const button = [...fixture.nativeElement.querySelectorAll('.stat-pill.db-failed')]
       .find((b: HTMLButtonElement) => b.textContent!.includes('Log errors')) as HTMLButtonElement;
     expect(button.textContent).toContain('3');
@@ -139,5 +143,16 @@ describe('StatsBarComponent', () => {
     button.click();
 
     expect(setLogErrorFilterSpy).toHaveBeenCalledWith(true);
+  });
+
+  it('shows and toggles the Log warnings pill', () => {
+    const fixture = createComponent({ ...EMPTY_STATS, logWarnings: 4 });
+    const button: HTMLButtonElement = fixture.nativeElement.querySelector('.stat-pill.log-warn');
+    expect(button.textContent).toContain('4');
+    expect(button.textContent).toContain('Log warnings');
+
+    button.click();
+
+    expect(setLogWarnFilterSpy).toHaveBeenCalledWith(true);
   });
 });

@@ -26,6 +26,9 @@ export class CallLogCountsService {
   /** Calls with at least one ERROR line - the row mark, the "Log errors" pill and the "Has log errors" filter. */
   readonly errorCallIds: Signal<ReadonlySet<string>> = computed(() =>
     new Set([...this.countsSignal()].filter(([, c]) => c.errors > 0).map(([id]) => id)));
+  /** Calls with at least one WARN line - the row mark, the "Log warnings" pill and the "Has log warnings" filter. */
+  readonly warnCallIds: Signal<ReadonlySet<string>> = computed(() =>
+    new Set([...this.countsSignal()].filter(([, c]) => c.warnings > 0).map(([id]) => id)));
 
   /** Calls a list asked counts for (every loaded inbound call), with their cycle - kept while the page lives. */
   private readonly wanted = new Map<string, string | null>();

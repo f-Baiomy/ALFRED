@@ -113,6 +113,9 @@
           <button type="button" class="filter-option-item filter-option-db-failed" [class.active]="state.logErrorFilter()"
             title="Calls that wrote an ERROR log line the agent caught (▤) - a 200 included"
             (click)="state.setLogErrorFilter(!state.logErrorFilter())">&#10006; Has log errors <span class="filter-option-count">{{ state.stats().logErrors }}</span></button>
+          <button type="button" class="filter-option-item" [class.active]="state.logWarnFilter()"
+            title="Calls that wrote a WARN log line the agent caught"
+            (click)="state.setLogWarnFilter(!state.logWarnFilter())">&#9888; Has log warnings <span class="filter-option-count">{{ state.stats().logWarnings }}</span></button>
         </div>
         @if (activeFilters().length > 0) {
           <button type="button" class="filter-clear-all" (click)="clearAllFilters()">Clear all filters</button>

@@ -45,4 +45,8 @@ export class StatsBarComponent {
   toggleLogErrors(): void {
     this.controlsState.setLogErrorFilter(!this.controlsState.logErrorFilter());
   }
+
+  toggleLogWarnings(): void {
+    this.controlsState.setLogWarnFilter(!this.controlsState.logWarnFilter());
+  }
 }

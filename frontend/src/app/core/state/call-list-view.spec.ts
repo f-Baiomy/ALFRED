@@ -29,6 +29,7 @@ function makeView(
     customOrder?: ReturnType<typeof signal<readonly string[]>>;
     dbFailedIds?: ReturnType<typeof signal<ReadonlySet<string>>>;
     logErrorIds?: ReturnType<typeof signal<ReadonlySet<string>>>;
+    logWarnIds?: ReturnType<typeof signal<ReadonlySet<string>>>;
   } = {}
 ): { view: CallListView; queries: CallsQuery[] } {
   const queries: CallsQuery[] = [];
@@ -287,6 +288,17 @@ describe('createCallListView', () => {
       expect(view.mainListCalls().map((c) => c.id)).toEqual(['db-failed']);
       view.setLogErrorFilter(false);
       view.setDbFailureFilter(false);
+      expect(view.mainListCalls().length).toBe(3);
+    });
+
+    it('counts and keeps calls with a WARN log line the same way', () => {
+      const withWarnings = signal<ReadonlySet<string>>(new Set(['clean']));
+      const { view } = makeView([page()], { logWarnIds: withWarnings });
+
+      expect(view.stats().logWarnings).toBe(1);
+      view.setLogWarnFilter(true);
+      expect(view.mainListCalls().map((c) => c.id)).toEqual(['clean']);
+      view.setLogWarnFilter(false);
       expect(view.mainListCalls().length).toBe(3);
     });
   });

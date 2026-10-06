@@ -1,3 +1,5 @@
+import { LogCounts } from '../../core/models/call-logs.model';
+import { CallDbSummary } from '../../core/models/db-capture.model';
 import { CallLogCountsService } from '../../core/state/call-log-counts.service';
 import { NgTemplateOutlet } from '@angular/common';
 import { CommentBadgeComponent } from '../comment-badge/comment-badge.component';
@@ -302,11 +304,17 @@ interface WaterfallGroup {
             @if (row.kind !== 'response') {
               <!-- Once per call: a split call's request row carries it, its response row does not. -->
               <app-comment-badge [callId]="row.call.id" [mini]="true" />
-              @if (dbFailed(row.call.id); as failed) {
-                <span class="db-fail-mark" [title]="failed + ' database statement' + (failed > 1 ? 's' : '') + ' failed - open the call for the ✖ DB chip'">&#10006; DB {{ failed }}</span>
+              @if (dbSummary(row.call.id); as db) {
+                @if (db.failedCount) {
+                  <span class="db-fail-mark" [title]="db.statementCount + ' database statements, ' + db.failedCount + ' failed - open the call for the DB chip'">&#10006; DB {{ db.statementCount }} · {{ db.failedCount }} failed</span>
+                } @else if (db.statementCount) {
+                  <span class="db-fail-mark ok" [title]="db.statementCount + ' database statement' + (db.statementCount > 1 ? 's' : '') + ' - open the call for the DB chip'">&#9670; DB {{ db.statementCount }}</span>
+                }
               }
-              @if (logErrors(row.call.id); as errors) {
-                <span class="db-fail-mark" [title]="errors + ' error log line' + (errors > 1 ? 's' : '') + ' during this call - open the call for the ▤ Logs chip'">&#10006; Logs {{ errors }}</span>
+              @if (logCounts(row.call.id); as lc) {
+                @if (lc.errors || lc.warnings) {
+                  <span class="db-fail-mark" [class.warn]="!lc.errors" [title]="logTitle(lc)">&#9636;@if (lc.errors) { {{ lc.errors }} err}@if (lc.errors && lc.warnings) { ·}@if (lc.warnings) { {{ lc.warnings }} warn}</span>
+                }
               }
             }
             @if (row.interceptedCount > 0) {
@@ -636,16 +644,21 @@ export class CallWaterfallComponent {
    * the other, since they're two drawings of the same tree rather than two different trees. */
   private readonly listState = inject(CALL_LIST_CONTROLS_STATE);
   private readonly dbState = inject(DbCaptureStateService);
-  private readonly logCounts = inject(CallLogCountsService);
+  private readonly logCountsState = inject(CallLogCountsService);
 
-  /** The red mark of a row whose call ran a failed database statement (its ◆ DB summary - the list states request one per loaded inbound call). */
-  dbFailed(callId: string): number {
-    return this.dbState.summaries().get(callId)?.failedCount ?? 0;
+  /** A row's DB mark: its statement count, red with the failed ones (its ◆ DB summary - the list states request one per loaded inbound call). */
+  dbSummary(callId: string): CallDbSummary | undefined {
+    return this.dbState.summaries().get(callId);
   }
 
-  /** The red mark of a row whose call wrote ERROR log lines (its ▤ counts - the list states request one per loaded inbound call). */
-  logErrors(callId: string): number {
-    return this.logCounts.counts().get(callId)?.errors ?? 0;
+  /** A row's log mark: its ERROR and WARN line counts (the list states request counts for every loaded inbound call). */
+  logCounts(callId: string): LogCounts | undefined {
+    return this.logCountsState.counts().get(callId);
+  }
+
+  logTitle(c: LogCounts): string {
+    const parts = [c.errors ? `${c.errors} error` : '', c.warnings ? `${c.warnings} warning` : ''].filter(Boolean).join(' and ');
+    return `${parts} log line${c.errors + c.warnings > 1 ? 's' : ''} during this call (${c.lines} in all) - open the call for the Logs chip`;
   }
 
   isSelected(call: CallRecord): boolean {

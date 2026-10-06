@@ -83,6 +83,19 @@
   white-space: nowrap;
 }
 
+// The same mark when nothing failed (statement count, grey) and for warnings only (amber).
+.db-fail-mark.ok {
+  color: var(--text-dim);
+  border-color: var(--border-strong);
+  background: transparent;
+  font-weight: 600;
+}
+.db-fail-mark.warn {
+  color: var(--amber);
+  border-color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 14%, transparent);
+}
+
 @keyframes db-pulse {
   50% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--db) 25%, transparent); }
 }
