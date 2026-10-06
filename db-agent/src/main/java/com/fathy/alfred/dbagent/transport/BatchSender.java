@@ -35,6 +35,7 @@ public final class BatchSender implements StatementSink {
     static final long MAX_QUEUED_BYTES = 64L * 1024 * 1024;
     static final int MAX_STATEMENTS_PER_BATCH = 2_000;
     static final int MAX_MARKERS_PER_BATCH = 4_000;
+    static final int MAX_LOGS_PER_BATCH = 5_000;
     static final long FLUSH_EVERY_MILLIS = 250;
     static final int FLUSH_AT = 500;
     static final long HEARTBEAT_EVERY_MILLIS = 10_000;
@@ -51,6 +52,8 @@ public final class BatchSender implements StatementSink {
     private final AtomicLong queuedBytes = new AtomicLong();
     private final AtomicLong droppedTotal = new AtomicLong();
     private final ConcurrentHashMap<String, AtomicLong> droppedByCall = new ConcurrentHashMap<>();
+    /** Log lines not kept, per call (queue full, caps, late) - travel with the next batch (FR-007, FR-008). */
+    private final ConcurrentHashMap<String, AtomicLong> droppedLogsByCall = new ConcurrentHashMap<>();
     private volatile boolean running = true;
     private long lastHeartbeat;
     private Thread thread;
@@ -92,6 +95,23 @@ public final class BatchSender implements StatementSink {
     public void marker(MarkerRecord marker) {
         if (!queue.offer(marker)) {
             drop(marker.callId);
+        }
+    }
+
+    @Override
+    public void log(LogRecord record) {
+        long bytes = record.approxBytes();
+        if (queuedBytes.get() + bytes > MAX_QUEUED_BYTES || !queue.offer(record)) {
+            droppedLogs(record.callId, 1);
+            return;
+        }
+        queuedBytes.addAndGet(bytes);
+    }
+
+    @Override
+    public void droppedLogs(String callId, int count) {
+        if (count > 0) {
+            droppedLogsByCall.computeIfAbsent(callId == null ? OUTSIDE : callId, k -> new AtomicLong()).addAndGet(count);
         }
     }
 
@@ -146,14 +166,17 @@ public final class BatchSender implements StatementSink {
     private void drainInto(List<Object> drained) {
         int statements = 0;
         int markers = 0;
+        int logs = 0;
         for (Object o : drained) {
             if (o instanceof StatementRecord) {
                 statements++;
+            } else if (o instanceof LogRecord) {
+                logs++;
             } else {
                 markers++;
             }
         }
-        while (statements < MAX_STATEMENTS_PER_BATCH && markers < MAX_MARKERS_PER_BATCH) {
+        while (statements < MAX_STATEMENTS_PER_BATCH && markers < MAX_MARKERS_PER_BATCH && logs < MAX_LOGS_PER_BATCH) {
             Object next = queue.poll();
             if (next == null) {
                 return;
@@ -161,6 +184,8 @@ public final class BatchSender implements StatementSink {
             drained.add(next);
             if (next instanceof StatementRecord) {
                 statements++;
+            } else if (next instanceof LogRecord) {
+                logs++;
             } else {
                 markers++;
             }
@@ -171,17 +196,23 @@ public final class BatchSender implements StatementSink {
     void send(List<Object> drained) {
         List<StatementRecord> statements = new ArrayList<>();
         List<MarkerRecord> markers = new ArrayList<>();
+        List<LogRecord> logs = new ArrayList<>();
         for (Object o : drained) {
             if (o instanceof StatementRecord) {
                 StatementRecord s = (StatementRecord) o;
                 queuedBytes.addAndGet(-s.approxBytes());
                 statements.add(s);
+            } else if (o instanceof LogRecord) {
+                LogRecord l = (LogRecord) o;
+                queuedBytes.addAndGet(-l.approxBytes());
+                logs.add(l);
             } else {
                 markers.add((MarkerRecord) o);
             }
         }
         Map<String, Long> dropped = takeDropped();
-        String body = BatchWriter.write(agentId, project, statements, markers, dropped);
+        Map<String, Long> droppedLogs = take(droppedLogsByCall);
+        String body = BatchWriter.write(agentId, project, statements, markers, dropped, logs, droppedLogs);
         if (post("/db-capture/agent/batch", body) == null) {
             sleepQuietly(1000);
             if (post("/db-capture/agent/batch", body) == null) {
@@ -189,6 +220,17 @@ public final class BatchSender implements StatementSink {
                 AgentLog.warn("ALFRED did not accept a batch - captured statements are being dropped (the application is unaffected)");
             }
         }
+    }
+
+    private static Map<String, Long> take(ConcurrentHashMap<String, AtomicLong> counts) {
+        Map<String, Long> out = new HashMap<>();
+        for (Map.Entry<String, AtomicLong> e : counts.entrySet()) {
+            long n = e.getValue().getAndSet(0);
+            if (n > 0 && !e.getKey().equals(OUTSIDE)) {
+                out.put(e.getKey(), n);
+            }
+        }
+        return out;
     }
 
     private Map<String, Long> takeDropped() {
@@ -247,6 +289,7 @@ public final class BatchSender implements StatementSink {
                     ignore == null ? Collections.singletonList("SELECT 1") : ignoreStrings, passThrough,
                     frames instanceof Number ? ((Number) frames).intValue() : AgentSettings.DEFAULT_CALLER_FRAMES,
                     Boolean.TRUE.equals(map.get("indexInfo")));
+            settings.applyLogs(Boolean.TRUE.equals(map.get("logsOn")));
         } catch (RuntimeException e) {
             AgentLog.warn("could not read ALFRED's settings answer");
         }

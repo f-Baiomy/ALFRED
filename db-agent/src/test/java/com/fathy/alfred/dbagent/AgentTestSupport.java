@@ -66,6 +66,7 @@ public final class AgentTestSupport {
 
     public static void reset() {
         SETTINGS.apply(AgentSettings.DEFAULT_ROWS_PER_RESULT, Collections.emptySet(), false, false, Collections.singletonList("SELECT 1"));
+        SETTINGS.applyLogs(false);
         SINK.clear();
     }
 
@@ -113,6 +114,26 @@ public final class AgentTestSupport {
     public static final class CollectingSink implements StatementSink {
         private final List<StatementRecord> statements = new ArrayList<>();
         private final List<MarkerRecord> markers = new ArrayList<>();
+        private final List<com.fathy.alfred.dbagent.transport.LogRecord> logs = new ArrayList<>();
+        private final java.util.Map<String, Integer> droppedLogs = new java.util.HashMap<>();
+
+        @Override
+        public synchronized void log(com.fathy.alfred.dbagent.transport.LogRecord record) {
+            logs.add(record);
+        }
+
+        @Override
+        public synchronized void droppedLogs(String callId, int count) {
+            droppedLogs.merge(String.valueOf(callId), count, Integer::sum);
+        }
+
+        public synchronized List<com.fathy.alfred.dbagent.transport.LogRecord> logs() {
+            return new ArrayList<>(logs);
+        }
+
+        public synchronized int droppedLogsOf(String callId) {
+            return droppedLogs.getOrDefault(callId, 0);
+        }
 
         @Override
         public synchronized void statement(StatementRecord record) {
@@ -139,6 +160,8 @@ public final class AgentTestSupport {
         synchronized void clear() {
             statements.clear();
             markers.clear();
+            logs.clear();
+            droppedLogs.clear();
         }
     }
 }

@@ -1,0 +1,7 @@
+<!-- LogCaptureIT: INFO and up reach the appenders; DEBUG is filtered by logback itself and must not be caught. -->
+<configuration>
+  <appender name="NOP" class="ch.qos.logback.core.helpers.NOPAppender"/>
+  <root level="INFO">
+    <appender-ref ref="NOP"/>
+  </root>
+</configuration>

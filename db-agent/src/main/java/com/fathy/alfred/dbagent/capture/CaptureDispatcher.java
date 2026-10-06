@@ -83,7 +83,13 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
      *  delegate, which is the object the connect/send hooks run on. */
     private final WeakIdentityMap<String> outboundOpenedHeaders = new WeakIdentityMap<>();
 
+    /** Logging hooks entered on this thread - only the outermost one catches (bridges call one framework from another). */
+    private final ThreadLocal<int[]> logDepth = ThreadLocal.withInitial(() -> new int[1]);
+    private static final Object LOG_TOKEN = new Object();
+    private final LogCatcher logCatcher;
+
     public CaptureDispatcher(StatementSink sink, AgentSettings settings, String agentId) {
+        this.logCatcher = new LogCatcher(sink);
         this.sink = sink;
         this.settings = settings;
         this.agentId = agentId;
@@ -127,7 +133,8 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
                 return logRestore == null ? null : new Entered(null, logRestore);
             }
             ContextPropagation.set(context);
-            sink.marker(new MarkerRecord(context.callId, 0, "CALL_OPEN", Instant.now().toString(), null, null, Thread.currentThread().getName()));
+            sink.marker(new MarkerRecord(context.callId, 0, "CALL_OPEN", Instant.now().toString(), null, null, Thread.currentThread().getName(),
+                    context.logs));
             return logRestore == null ? context : new Entered(context, logRestore);
         } catch (Throwable t) {
             AgentLog.failure("servlet entry", t);
@@ -140,6 +147,7 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
         CallContext context = token instanceof Entered ? ((Entered) token).context : token instanceof CallContext ? (CallContext) token : null;
         try {
             if (context != null) {
+                context.closedAtNanos = System.nanoTime();
                 recorder.flushContext(context);
             }
         } catch (Throwable t) {
@@ -314,7 +322,7 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
         }
         try {
             CallContext context = ContextPropagation.current();
-            if (context == null && !settings.captureOutsideCalls()) {
+            if (!recordsStatements(context)) {
                 return SKIPPED;
             }
             StatementState state = state(statement);
@@ -781,7 +789,7 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
     /** A COMMIT/ROLLBACK/SAVEPOINT shown as its own statement line, in the transaction it ends. */
     private void marker(ConnectionState conn, String kind, String sql, String result, String via, Long commitMicros) {
         CallContext context = conn.txContext != null ? conn.txContext : ContextPropagation.current();
-        if (context == null && !settings.captureOutsideCalls()) {
+        if (!recordsStatements(context)) {
             return;
         }
         long now = System.nanoTime();
@@ -818,7 +826,15 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
     // ------------------------------------------------------------------ Hibernate / JPA
 
     private boolean originsWanted() {
-        return !agentBusy() && (ContextPropagation.current() != null || settings.captureOutsideCalls());
+        return !agentBusy() && recordsStatements(ContextPropagation.current());
+    }
+
+    /**
+     * Statements are recorded for a call with capture on (db=1), and outside any call when the project asks for it -
+     * never for a logs-only call (db=0; log=1), which is neither.
+     */
+    private boolean recordsStatements(CallContext context) {
+        return context != null ? context.capture : settings.captureOutsideCalls();
     }
 
     @Override
@@ -917,7 +933,7 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
             return;
         }
         try {
-            if (ContextPropagation.current() == null && !settings.captureOutsideCalls()) {
+            if (!recordsStatements(ContextPropagation.current())) {
                 return;
             }
             ConnectionState conn = connection(connection);
@@ -986,6 +1002,42 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
         } catch (Throwable t) {
             AgentLog.failure("jta", t);
         }
+    }
+
+    // ------------------------------------------------------------------ logging (specs/009-agent-log-capture)
+
+    @Override
+    public Object logEnter(String type, Object self, Object event) {
+        int[] depth = logDepth.get();
+        depth[0]++;
+        if (depth[0] > 1 || agentBusy()) {
+            return LOG_TOKEN;
+        }
+        try {
+            CallContext context = ContextPropagation.current();
+            boolean outside = settings.logsOutside();
+            if (context == null ? !outside : !context.logs) {
+                return LOG_TOKEN;
+            }
+            String kind = LogCatcher.kindOf(type);
+            if (kind == null || ("jul".equals(kind) && !LogCatcher.julLoggable(self, event))) {
+                return LOG_TOKEN;
+            }
+            beginAgentWork();
+            try {
+                logCatcher.caught(kind, event, context, outside);
+            } finally {
+                endAgentWork();
+            }
+        } catch (Throwable t) {
+            AgentLog.failure("log catching", t);
+        }
+        return LOG_TOKEN;
+    }
+
+    @Override
+    public void logExit(Object token) {
+        logDepth.get()[0]--;
     }
 
     // ------------------------------------------------------------------ outbound HTTP

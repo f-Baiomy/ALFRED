@@ -68,6 +68,7 @@ final class Instrumenter {
                 named("loadModuleClass").and(takesArgument(0, String.class)));
 
         builder = JdbcInstrumentation.add(builder);
+        builder = LogInstrumentation.add(builder);
         builder = HibernateInstrumentation.add(builder);
         builder.installOn(instrumentation);
     }

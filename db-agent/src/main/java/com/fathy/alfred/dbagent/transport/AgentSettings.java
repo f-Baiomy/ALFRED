@@ -27,6 +27,8 @@ public final class AgentSettings {
     private volatile PassThrough passThrough = PassThrough.NONE;
     /** Read a slow statement's table's index list (metadata only) - opt-in per project. */
     private volatile boolean indexInfo;
+    /** The project's ▤ is on: lines outside any call are caught too (specs/009-agent-log-capture). */
+    private volatile boolean logsOutside;
     /** Per-SQL answers of {@link #ignored}: matching compiles regexes, far too slow to repeat for every statement.
      *  Replaced (not cleared) when the patterns change, so a reader never mixes old and new answers. */
     private volatile Map<String, Boolean> ignoredCache = new ConcurrentHashMap<>();
@@ -38,6 +40,14 @@ public final class AgentSettings {
 
     public boolean beforeImageFor(String table) {
         return table != null && beforeImageTables.contains(table.toLowerCase(Locale.ROOT));
+    }
+
+    public boolean logsOutside() {
+        return logsOutside;
+    }
+
+    public void applyLogs(boolean on) {
+        this.logsOutside = on;
     }
 
     /** Outside-call statements are captured only when the project is switched on AND outside capture is on. */

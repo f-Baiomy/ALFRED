@@ -92,6 +92,20 @@
       <version>4.0.1</version>
       <scope>test</scope>
     </dependency>
+    <!-- LogCaptureIT (specs/009-agent-log-capture): real logback and log4j 2 on the TEST class path only - the agent
+         reads them reflectively and depends on neither (the shaded jar must contain no ch.qos / org.apache.logging). -->
+    <dependency>
+      <groupId>ch.qos.logback</groupId>
+      <artifactId>logback-classic</artifactId>
+      <version>1.2.13</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.logging.log4j</groupId>
+      <artifactId>log4j-core</artifactId>
+      <version>2.23.1</version>
+      <scope>test</scope>
+    </dependency>
     <dependency>
       <groupId>net.bytebuddy</groupId>
       <artifactId>byte-buddy-agent</artifactId>

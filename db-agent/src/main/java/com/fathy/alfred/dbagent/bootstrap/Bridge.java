@@ -142,5 +142,15 @@ public final class Bridge {
 
         /** Tags an Apache HttpClient request object (4.x or 5.x) - reflection, so no client is a dependency. */
         void tagHttpClientRequest(Object request);
+
+        // ---------------------------------------------------------------- logging (specs/009-agent-log-capture)
+
+        /** A logging framework dispatches {@code event} (declaring type {@code type}); token for {@link #logExit}. */
+        default Object logEnter(String type, Object self, Object event) {
+            return null;
+        }
+
+        default void logExit(Object token) {
+        }
     }
 }

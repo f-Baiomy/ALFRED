@@ -17,6 +17,31 @@ class BatchWriterTest {
     }
 
     @Test
+    void writesCaughtLogLinesAndTheirDropCounts() {
+        LogRecord l = new LogRecord();
+        l.callId = "call-1";
+        l.seq = 4;
+        l.at = "2026-10-06T14:08:54.035Z";
+        l.level = "WARN";
+        l.logger = "com.app.Search";
+        l.thread = "default task-4";
+        l.message = "slow \"supplier\"";
+        l.exceptionType = "java.lang.IllegalStateException";
+        l.cut = true;
+        Map<String, Long> dropped = new HashMap<>();
+        dropped.put("call-1", 12L);
+
+        String json = BatchWriter.write("a", "odeysys", Collections.<StatementRecord>emptyList(),
+                Collections.singletonList(new MarkerRecord("call-1", 0, "CALL_OPEN", "t", null, null, "default task-4", true)),
+                Collections.<String, Long>emptyMap(), Collections.singletonList(l), dropped);
+
+        assertThat(json).contains("\"logs\":true")
+                .contains("\"logs\":[{\"callId\":\"call-1\",\"seq\":4,\"at\":\"2026-10-06T14:08:54.035Z\",\"level\":\"WARN\"")
+                .contains("\"message\":\"slow \\\"supplier\\\"\"").contains("\"exceptionType\":\"java.lang.IllegalStateException\"")
+                .contains("\"cut\":true").contains("\"droppedLogs\":{\"call-1\":12}");
+    }
+
+    @Test
     void writesTheContractShape() {
         StatementRecord s = new StatementRecord();
         s.sid = "a:1";

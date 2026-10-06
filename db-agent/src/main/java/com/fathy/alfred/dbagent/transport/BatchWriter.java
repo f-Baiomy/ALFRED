@@ -11,6 +11,12 @@ public final class BatchWriter {
 
     public static String write(String agentId, String project, List<StatementRecord> statements, List<MarkerRecord> markers,
                                Map<String, Long> droppedByCall) {
+        return write(agentId, project, statements, markers, droppedByCall, java.util.Collections.<LogRecord>emptyList(),
+                java.util.Collections.<String, Long>emptyMap());
+    }
+
+    public static String write(String agentId, String project, List<StatementRecord> statements, List<MarkerRecord> markers,
+                               Map<String, Long> droppedByCall, List<LogRecord> logs, Map<String, Long> droppedLogs) {
         JsonWriter w = new JsonWriter();
         w.beginObject().name("agentId").value(agentId).name("project").value(project);
         w.name("statements").beginArray();
@@ -21,9 +27,30 @@ public final class BatchWriter {
         w.name("markers").beginArray();
         for (MarkerRecord m : markers) {
             w.beginObject().name("callId").value(m.callId).name("seq").value(m.seq).name("type").value(m.type)
-                    .field("at", m.at).field("method", m.method).field("url", m.url).field("thread", m.thread).endObject();
+                    .field("at", m.at).field("method", m.method).field("url", m.url).field("thread", m.thread);
+            if (m.logs) {
+                w.name("logs").value(true);
+            }
+            w.endObject();
         }
         w.endArray();
+        if (!logs.isEmpty()) {
+            w.name("logs").beginArray();
+            for (LogRecord l : logs) {
+                w.beginObject().field("callId", l.callId).name("seq").value(l.seq).field("at", l.at).field("level", l.level)
+                        .field("logger", l.logger).field("thread", l.thread).field("message", l.message)
+                        .field("exceptionType", l.exceptionType).field("exceptionMessage", l.exceptionMessage)
+                        .field("exceptionStack", l.exceptionStack);
+                if (l.cut) {
+                    w.name("cut").value(true);
+                }
+                w.endObject();
+            }
+            w.endArray();
+        }
+        if (!droppedLogs.isEmpty()) {
+            w.longMap("droppedLogs", droppedLogs);
+        }
         if (!droppedByCall.isEmpty()) {
             w.longMap("droppedByCall", droppedByCall);
         }

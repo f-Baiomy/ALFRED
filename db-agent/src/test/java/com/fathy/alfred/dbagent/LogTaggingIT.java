@@ -37,8 +37,9 @@ class LogTaggingIT {
 
         assertThat(seen).containsExactly("call-a", "call-b");
         assertThat(MDC.get(KEY)).isNull();
-        // db=0 opens no capture: no CALL_OPEN marker for call-a
-        assertThat(SINK.markers()).extracting(m -> m.callId).doesNotContain("call-a");
+        // db=0; log=1 is a logs-only call (specs/009): a CALL_OPEN that says so, and no statements
+        assertThat(SINK.markers()).filteredOn(m -> "call-a".equals(m.callId)).extracting(m -> m.logs).containsExactly(true);
+        assertThat(SINK.statementsOf("call-a")).isEmpty();
     }
 
     @Test

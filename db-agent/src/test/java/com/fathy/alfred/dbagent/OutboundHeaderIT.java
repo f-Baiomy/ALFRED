@@ -42,6 +42,21 @@ class OutboundHeaderIT {
     }
 
     @Test
+    void aLogsOnlyCallsSupplierCallsAreLinkedToo() throws Exception {
+        // db=0; log=1 (specs/009): no statements are recorded, but its supplier calls carry the exact parent link
+        AgentTestSupport.inCall("id=call-logs; db=0; log=1", () -> {
+            get("/v1/quote");
+            try (java.sql.Connection c = java.sql.DriverManager.getConnection("jdbc:h2:mem:logsonly"); java.sql.Statement s = c.createStatement()) {
+                s.execute("SELECT 2");
+            }
+        });
+
+        assertThat(seen).containsExactly("call-logs; seq=1");
+        assertThat(SINK.markers()).filteredOn(m -> "call-logs".equals(m.callId)).extracting(m -> m.type).containsExactly("CALL_OPEN", "HTTP_OUT");
+        assertThat(SINK.statementsOf("call-logs")).isEmpty();
+    }
+
+    @Test
     void insideACallTheHeaderAndMarkerShareTheSequence() throws Exception {
         AgentTestSupport.inCall("call-http", () -> {
             get("/v1/charge?amount=120");
