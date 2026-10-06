@@ -294,6 +294,9 @@ Body keys match by name at any depth including inside arrays, since a token nest
   batched by `CallLogCountsService`. A Logs-tab line shows its call through `log-line-call.component.ts`; the
   explorer's `?line=<lineId>` deep link opens a line among its neighbours. Exports: `CallRecord.logLines`,
   `log-export-section.ts` (.md/.html), `json-export-v2.ts` `logLines`, `redact.ts` (lines masked like bodies).
+  Lines caught by the agent (specs/009) come through the same `/call-logs` shape with `matchedBy: 'CAUGHT'`, `seq`
+  (Together orders them among statements by it) and `exception`; they refetch on `/ws/db-capture` `logs-appended`;
+  the "outside any call" view shows each thread's caught lines (`GET /db-capture/outside/logs`).
 
 - `DbCaptureStateService` (root) owns the one `/ws/db-capture` socket, the per-project switches (the same switch is
   rendered by the Sources bar, the cycle widget's Log DB column and Settings → Database capture - one signal, three

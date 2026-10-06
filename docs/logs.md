@@ -278,6 +278,10 @@ Linux host (or a named Docker volume) the numbers above apply.
 
 ## Linked to calls (specs/008-logs-call-link)
 
+**Caught lines win (specs/009-agent-log-capture):** with the db-agent attached and ▤ on, a call's lines are caught
+inside the application and stored with its statements (docs/db-capture.md "Log lines caught by the agent"); the file
+linking below then applies only to calls the agent did not catch (no agent, or recorded before).
+
 A project's log sources can be linked to its inbound calls, so a call shows the application log lines it wrote
 (the database window's **Logs** and **Together** views, the **▤ Logs N** chip on its card, the Logs lane on its
 timeline) and an opened Logs-tab line shows **During call ↗** the call it was written during.

@@ -69,10 +69,10 @@ Path shorthands: `AGENT` = `db-agent/src/main/java/com/fathy/alfred/dbagent`, `A
 
 ## Phase 7: Polish
 
-- [ ] T030 [P] `OverheadMeasurementIT` log case (100 lines per call through JUL, logback, log4j 2; catching on vs off; non-recorded call) in `AGENT_T/com/fathy/alfred/dbagent/OverheadMeasurementIT.java`; record SC-003 in `docs/db-capture.md`
-- [ ] T031 [P] Docs: `docs/db-capture.md` (log catching, hooks, caps, outside lines), `docs/logs.md` ("Linked to calls": caught lines win), CLAUDE.md note, `specs/009-agent-log-capture/quickstart.md` results
-- [ ] T032 Full suites once: backend `mvn test` (Docker JDK 21), agent `mvn test` on JDK 8 and 21 (never `verify` while WildFly uses the jar), frontend `ng test` + production build, mcp-server, proxy; fix failures
-- [ ] T033 Mark tasks done; final commit
+- [X] T030 [P] `OverheadMeasurementIT` log case (100 lines per call through JUL, logback, log4j 2; catching on vs off; non-recorded call) in `AGENT_T/com/fathy/alfred/dbagent/OverheadMeasurementIT.java`; record SC-003 in `docs/db-capture.md`
+- [X] T031 [P] Docs: `docs/db-capture.md` (log catching, hooks, caps, outside lines), `docs/logs.md` ("Linked to calls": caught lines win), CLAUDE.md note, `specs/009-agent-log-capture/quickstart.md` results
+- [X] T032 Full suites once: backend `mvn test` (Docker JDK 21), agent `mvn test` on JDK 8 and 21 (never `verify` while WildFly uses the jar), frontend `ng test` + production build, mcp-server, proxy; fix failures
+- [X] T033 Mark tasks done; final commit
 
 ## Dependencies
 

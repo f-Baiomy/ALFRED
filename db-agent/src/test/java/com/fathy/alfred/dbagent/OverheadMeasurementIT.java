@@ -112,6 +112,44 @@ class OverheadMeasurementIT {
         return System.nanoTime() - start;
     }
 
+    /** A request writing 100 log lines (logback to a no-op appender - the application's own cost kept tiny, so the
+     *  catching cost shows); with log=1 (▤ on) against the same call without it. SC-003 of specs/009-agent-log-capture. */
+    @Test
+    void catchingAddsLittleToEachLogLine() throws Exception {
+        org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger("overhead.app");
+        AgentTestSupport.ThrowingRunnable hundredLines = () -> {
+            for (int k = 0; k < 100; k++) {
+                log.info("searching {} of {}", k, 100);
+            }
+        };
+        for (int i = 0; i < 300; i++) { // warm up both paths
+            AgentTestSupport.inCall("id=lw-off-" + i, hundredLines);
+            AgentTestSupport.inCall("id=lw-on-" + i + "; log=1", hundredLines);
+        }
+        AgentTestSupport.reset();
+        long off = 0;
+        long on = 0;
+        for (int i = 0; i < ITERATIONS; i++) {
+            long a = System.nanoTime();
+            AgentTestSupport.inCall("id=lo-" + i, hundredLines);
+            off += System.nanoTime() - a;
+            long b = System.nanoTime();
+            AgentTestSupport.inCall("id=ln-" + i + "; log=1", hundredLines);
+            on += System.nanoTime() - b;
+            if (i % 50 == 49) {
+                AgentTestSupport.reset();
+            }
+        }
+        double offMicros = off / 1_000.0 / ITERATIONS;
+        double onMicros = on / 1_000.0 / ITERATIONS;
+        double perLine = (onMicros - offMicros) / 100;
+        System.out.printf("[overhead] 100-line call, Java %s: catching off %.1f us/call, on %.1f us/call, added %.2f us per line%n",
+                System.getProperty("java.version"), offMicros, onMicros, perLine);
+
+        // 100 lines in a request that takes milliseconds: a few microseconds a line stays well under SC-003's 5 %
+        assertThat(perLine).isLessThan(15.0);
+    }
+
     @Test
     void captureAddsLittleToEachStatement() throws Exception {
         for (int i = 0; i < 200; i++) { // warm up both paths

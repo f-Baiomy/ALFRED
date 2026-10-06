@@ -189,6 +189,28 @@ formatter writes the MDC by default, so the Logs tab sees the field `mdc.alfred.
 records the request thread's name (`call_markers.thread`), which thread-and-time matching uses. Cost: 1.5 us
 (Java 8) to 6.4 us (Java 21) per request (`LogTaggingIT`) - far under SC-004's 1 ms.
 
+## Log lines caught by the agent (specs/009-agent-log-capture)
+
+With ▤ on and the agent attached, the agent catches every log event the application emits while handling a recorded
+call - whichever logger wrote it and wherever it goes (file, console, any format) - and sends it with the call, so no
+log file is needed. One hook per framework, where the event has passed the application's own level check and is about
+to reach its handlers/appenders: `org.jboss.logmanager.Logger.logRaw` (WildFly - JUL, slf4j, jboss-logging and log4j
+all end there), `java.util.logging.Logger.log(LogRecord)` (only when JUL itself would publish it),
+`ch.qos.logback.classic.Logger.callAppenders`, `org.apache.logging.log4j.core.config.LoggerConfig.log(LogEvent)` and
+`org.apache.log4j.Category.callAppenders`. Events are read reflectively (no logging dependency); only the outermost
+hook on a thread records, so a line passing through a bridge is caught once; the agent's own work is never caught.
+
+- `log=1` alone (◆ off) opens a logs-only call: a CALL_OPEN with `logs=true`, no statements, and its supplier calls still
+  get `X-Alfred-Parent`. Each caught line takes the call's next `seq`, so Together shows statements, supplier calls and
+  lines in their exact order.
+- Caps per call: 5,000 lines, 2 MB of text, 32 KB per line (cut and marked); lines written more than 5 s after the call
+  ended are dropped; everything not kept is counted ("N lines not kept"). Lines outside any call are caught while ▤ is
+  on (the heartbeat's `logsOn`), at most 2,000 a minute per JVM, kept up to 20,000 per project.
+- Lines travel in the same bounded batch as statements (`logs`, `droppedLogs`) and are stored in `db-capture.db`
+  (`call_log_lines`, counts in `call_log_summary`), deleted with the call's statements - so the size cap and "session
+  cycles keep their calls" apply to them unchanged. `/call-logs` serves a caught call from them (`matchedBy: CAUGHT`)
+  and never reads a log file for it; calls without the agent keep 008's file linking.
+
 ## Exports
 
 `.md` and `.html` get a "Database" section per captured call (every statement with its values, transactions,
@@ -207,6 +229,7 @@ All measured on the development machine (Windows, Docker Desktop), 2026-10-05.
 | `db-capture.db` growth | ~19 MB per 1,000 calls of 20 statements with 5 rows each (~1 KB per statement incl. rows) |
 | Window: first page of a 500-statement call | ~20 ms server time |
 | Scrolling all 50,000 stored rows of one result, 100 at a time | ~3 ms per page server time |
+| Log catching with ▤ on vs off (`OverheadMeasurementIT`, a call writing 100 lines through logback, 1,000 iterations, 2026-10-06) | +2.8 us per line on Java 8, +2.4 us on Java 21 - about 0.25 ms for 100 lines (SC-003: < 5 % of a request) |
 | Log tagging with ▤ on vs off (`LogTaggingIT`, 2,000 requests, 2026-10-06) | +1.5 us per request on Java 8, +6.4 us on Java 21 (SC-004: < 1 ms) |
 
 What made the agent cheap: the regex passes over the SQL (kind, table, fingerprint, ignore patterns) are cached per
