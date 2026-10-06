@@ -210,6 +210,18 @@ hook on a thread records, so a line passing through a bridge is caught once; the
   others by name (FATAL/ERROR, WARN, INFO, DEBUG, TRACE); an unknown level is kept. It can never go below the
   application's own level - the hooks sit after its check. `/call-logs` returns the level (`logLevel`) so the window
   and Claude's `call_logs` (`capturedLevel`) can say which lines were never caught.
+- **Search and grouping** (specs/010-mcp-log-investigation): every line gets a `fingerprint` - logger, exception type
+  and message with ids, numbers, timestamps, quoted values, emails and IPs set aside (`LogFingerprint`, conservative:
+  unknown shapes stay literal; the MCP server holds a port tested on the same vectors) - indexed `(level, fingerprint,
+  at_ms)`, so repeated errors group into log problems. `call_log_text` is a contentless FTS5 trigram index over message,
+  logger, thread and exception, kept by triggers (deletes need nothing more). A text search goes through it; with an
+  ERROR/WARN level it reads the few level rows instead (measured: 2.3 s → < 0.1 s on 600,000 lines). A regex narrows by
+  its longest literal, then matches in Java over a deadline-checking `CharSequence` (2 s, 200,000 candidates, then
+  `cutShort`). Lines and summaries stored before this version get fingerprints and index rows in the background.
+- **Signals to triage**: `CallSignalsObserverPort` hands each call's log error/warning/exception counts
+  (`call_log_summary.exceptions`), the Log level it was caught at (`call_markers.log_level`, sent on CALL_OPEN by the
+  agent) and its database flags to triage's mark - after a batch, on completion, on import, and for every call of a
+  project when its thresholds, expected statements or ignore list change (`CallSignalsPublisher.reflagProject`).
 - Caps per call: 5,000 lines, 2 MB of text, 32 KB per line (cut and marked); lines written more than 5 s after the call
   ended are dropped; everything not kept is counted ("N lines not kept"). Lines outside any call are caught while ▤ is
   on (the heartbeat's `logsOn`), at most 2,000 a minute per JVM, kept up to 20,000 per project.

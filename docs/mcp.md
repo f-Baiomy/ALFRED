@@ -86,18 +86,19 @@ Check it: `claude mcp list` shows `alfred` connected; in a session, "list my Alf
 | Area | Tools |
 |---|---|
 | Session | `session_settings` - mask secrets in replies on/off; default export folder; `sourceRoot` (the project call chains resolve in) |
-| Triage | `triage` - **start here**: what needs attention first, for a cycle or for a project's live calls in a time window, in six groups with the evidence attached (see "Triage" below) |
+| Triage | `triage` - **start here**: what needs attention first, for a cycle, several cycles / everything (`scope`) or a project's live calls in a time window, in six groups with the evidence attached - failed statements, failing supplier calls, errors in 200 bodies, and the first ERROR log lines of each call (a 2xx that logged an error or an exception is a hidden failure); WARN lines and database flags as weaker evidence (see "Triage" below) |
+| Problems (specs/010) | `problem_calls` - every call with an error or a warning from HTTP, the database or the logs, counts per signal first, filters `all` / `any` / `none` over the signals `HTTP_ERROR`, `NO_ANSWER`, `DB_FAILED`, `SUPPLIER_FAILED`, `LOG_ERROR`, `LOG_EXCEPTION`, `DB_WARNING` (any database flag, `dbFlags` to narrow), `LOG_WARNING`; `investigate_call` (signals, first error with the five items before it, the exception's source line, failing supplier calls, a similar call that succeeded); `endpoint_health`; `problem_timeline` (signals per minute, first seen); `compare_cycles` (log problems new / gone / still, signals side by side) |
 | Cycles | `list_cycles`, `get_cycle` (opens with a "Needs attention" line; the debugging story: ✖ errors inside 200 responses, ∅ empty results, ↳ each inbound call's supplier calls, optional `bodyPreview`, OPTIONS preflights hidden and counted), `wait_for_calls` (new calls in a recording cycle, event-driven, ≤ 60 s), `create_cycle` (empty or from live calls), `rename_cycle`, `start_recording`, `stop_recording`, `add_calls_to_cycle`, `remove_calls_from_cycle` |
 | Search / compare | `search_cycle` (inside one cycle, its own copies: text, direction, project, supplier, status, failed incl. errors inside 200s, `needsAttention`, `dbFailed`, slow, time - rows numbered as `get_cycle` numbers them), `diff_calls` (two calls: status/URL/duration, then headers and JSON/XML-aware body hunks; page with `hunkOffset`) |
 | Spacers | `add_spacer`, `rename_spacer`, `move_spacer` (how a story is rearranged - calls stay in recorded-time order), `delete_spacer`, `suggest_spacers` (steps proposed from pauses and URL areas; writes nothing) |
 | Calls | `search_calls` (project, direction, supplier, text, status/class, failed - including errors inside 200s -, `needsAttention` (>= `minStatus`, default 300), `dbFailed` (a failed statement, whatever the status), slow, time range), `get_call` (everything, or `fields`/`paths` such as `["method","url"]`; carries `attention` - its triage group and failing supplier calls - and `dbFailures`), `get_call_body` (page through a body) |
-| Logs | `call_logs` - the application log lines one inbound call wrote (offset, level, thread, logger, message, `matchedBy` EXACT / THREAD_TIME), filtered by level or text, paged; `raw: true` adds each whole line; masked like bodies; `why` explains a call with none (▤ off, no source linked, no thread) |
+| Logs | `call_logs` - the application log lines one inbound call wrote (offset, level, thread, logger, message, exception, `matchedBy` CAUGHT), filtered by level or text, paged; `capturedLevel` is the Log level that applied to that call (`levelAssumed` when only the current setting is known); `call_story` (statements, supplier calls and lines in the call's own order - the Together view; `startAt: "firstError"`); `log_context` (the items around one line); `exception_source` (a logged exception's application frames → project file:line); `search_logs` (lines of many calls by text, regex, level, logger, exception type, time - each hit names its call; total exact; a regex stops after 2 s and says `cutShort`); `log_problems` (repeated ERROR/WARN lines grouped by meaning - ids and numbers set aside - with counts, first/last seen, endpoints, new or not; `fingerprint` lists a problem's calls); `outside_logs` (lines no call wrote around a moment, by thread). Masked like bodies; every one says why lines are missing (▤ off, no agent, below the Log level) |
 | Database | `db_overview` (summary line, time breakdown, query totals, findings), `db_statements` (filtered, paged; `failedOnly` alone is read from the failed-statement index), `db_statement` (SQL, params, rows, `callers` = call chain, origin HQL), `db_query` (the window's search/SQL over recorded statements), `trace_value` |
 | Comments | `list_comments`, `add_comment` (a note on the whole call by default, or on a line of request/response headers or body; prefixed `🤖 Claude:`), `add_comments` (many at once), `delete_comment` |
 | Export | `export_calls` - .md / .json / .html of a cycle, chosen calls or a search; the export dialog's own files (masked, untruncated, .json re-importable), opening with "At a Glance" (steps, failures, errors inside 200s, empty results, notes); `includeDb: "summary"` for a report for people; environment `Local` |
 | Code | `locate_source` (call-chain frames → `path/in/project/File.java:line`); `db_statement` (`sources`), `db_statements` (`source`) and `db_overview` (`gapSources`) carry the same |
 | Rules and Relive (read-only) | `list_rules`, `get_rule`, `list_relive_cycles`, `list_relive_runs`, `get_relive_run` (each step: state, status, error, what differed from the recording); a call a rule changed shows ⚡ with the rule name |
-| Projects | `list_projects` (listen ports, inbound logging, database capture and its agent), `set_inbound_logging`, `set_db_capture` - both change what Alfred records for everyone, so they only describe the effect unless called with `confirm: true` after the user agreed |
+| Projects | `list_projects` (listen ports, inbound logging, database capture and its agent, log catching and its Log level), `set_inbound_logging` (only with `confirm: true` after the user agreed), `set_db_capture` and `set_log_capture` (▤ on/off, Log level ERROR…TRACE or APP) - Claude may change these two when an investigation needs it (the owner's decision, specs/010); every reply lists `changed` (old → new) for Claude to tell the user |
 | Redactions | `add_default_redactions` - Authorization, Cookie, x-api-key, password (SOAP `wsse:Password` and form fields too), apiKey, tokens; only the missing ones, as normal global Redactions (ask the user first) |
 
 Prompts: `debug_cycle` and `debug_call` (in Claude Code, `/mcp__alfred__debug_cycle`) start a session with the steps that
@@ -107,7 +108,7 @@ attempts, the rules, a comment - and end by reading the succeeded calls related 
 ## Triage
 
 `triage` answers "what needs attention first" from marks Alfred **saves as calls arrive** (`backend-triage`, its own
-`triage.db`), so it costs the same for 10 calls or 10,000: one request for the marks (per 500 calls), one for the failed
+`triage.db`), so it costs the same for 10 calls or 10,000: one request for the marks (per 100 calls), one for the failed
 statements, and no body is read. A call "needs attention" when its status is at or over `minStatus` (default **300**, so
 redirects such as a 307 session check count), it has an error, or it is still running 5 minutes after it started.
 
@@ -142,13 +143,24 @@ Endpoints (read-only, behind the gateway): `GET /triage/calls?callIds=…&minSta
 
 Deliberately **not** offered: deleting or clearing a cycle, editing recorded call content, reordering calls, resend,
 editing interception rules, running Relive cycles - anything that changes live traffic or destroys recorded evidence in
-bulk. (Switching a project's inbound logging or database capture is offered, behind `confirm: true`.)
+bulk. (Switching a project's inbound logging is offered behind `confirm: true`; ◆ database capture, ▤ log catching and the
+Log level Claude may change itself, and says so.)
+
+**Scopes** (specs/010): every cross-call tool takes `scope` - `{live:true}` (default), `{cycle}`, `{cycles:[...], includeLive}`
+or `{all:true}`. The backend resolves it once (`backend-app/investigationbridge`): a call held live and in cycles counts
+once and says where it is held (`heldIn`). The endpoints are POSTs (`/triage/problem-calls`, `/triage/endpoints`,
+`/triage/timeline`, `/call-logs/search`, `/call-logs/problems`, `/call-logs/problems/calls`) - scopes and filters travel
+in the body, since the gateway refuses a request line over 8 KB (about 200 ids; the tools also send at most 100 ids per
+GET). Problem calls, endpoint health and the timeline read triage's saved marks, which carry each call's log
+error/warning/exception counts, the Log level it was caught at and its database flags (fed by db-capture through
+`triagebridge`, also for imported calls and when a project's thresholds change). Search and grouping read db-capture's
+caught lines through an FTS5 trigram index and a per-line fingerprint (`docs/db-capture.md`).
 
 Behaviour worth knowing:
 
 - **Everything Claude changes shows live in an open Alfred UI, without a reload**: cycles, recording state, copied/removed calls and spacers through `/ws/session-cycles`, and comments through `/ws/comments` (a call already open re-reads its comments when one is added or deleted anywhere).
 - **Errors inside successful responses** (`shared/utils/soft-failure.ts`): a SOAP `Fault`, an OTA `<Error Code=…>`, JSON `errors`/`error`/`success: false` in a response below 400. The same detector feeds `get_call`, the exports' "At a Glance" and - through the saved triage marks - `triage`, `get_cycle` and the `failed`/`needsAttention` filters (which read a body only for a call with no mark).
-- `wait_for_calls` listens on the calls and session-cycles sockets, re-reads the cycle only when one fires, and returns after at most 60 s. Pass the previous reply's `lastCallId` as `sinceCallId` to continue.
+- `wait_for_calls` listens on the calls and session-cycles sockets, re-reads the cycle only when one fires, and returns after at most 60 s. Pass the previous reply's `lastCallId` as `sinceCallId` to continue. `until: "logError" | "logWarning" | "dbFailed" | "problem"` waits for the next call with that kind of trouble (listening on `/ws/db-capture` and `/ws/triage` too, since lines and marks settle a moment after a call ends) and lists it under `matched`.
 
 - `create_cycle` leaves the new cycle **paused** unless `record: true` (Alfred itself creates cycles recording - right
   for "new cycle, then reproduce", wrong for a cycle assembled from chosen calls). Several cycles may record at once;

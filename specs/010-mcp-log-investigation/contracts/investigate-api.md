@@ -67,8 +67,8 @@ Body: common + `{ "fingerprint": "9f2câ€¦", "after": "cursor", "limit": 50 }` â†
 
 ## GET /call-logs/{callId} (existing) - extended
 
-Adds `capturedAtLevel` (the Log level that applied to this call, from its CALL_OPEN marker) and `levelAssumed: true`
-when the call predates per-call levels and the current setting is shown instead.
+`logLevel` is now the Log level that applied to this call (from its CALL_OPEN marker), with `levelAssumed: true` when
+the call predates per-call levels and the project's current setting is shown instead.
 
 ## GET /db-capture/outside/logs (existing) - extended
 

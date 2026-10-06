@@ -156,4 +156,28 @@ class TriageAnalysisServiceTest {
         assertThat(swallowed.signals()).containsExactly(Signal.DB_FAILED);
         assertThat(swallowed.severity()).isEqualTo("error");
     }
+
+    @Test
+    void twentyThousandMarksAnswerEachQuestionInUnderASecond() {
+        List<String> ids = new ArrayList<>();
+        for (int i = 0; i < 20_000; i++) {
+            ids.add("s" + i);
+            call("s" + i, "http://h/booking/" + i + "/confirm", i % 25 == 0 ? 500 : 200, T0 + i * 100L, i % 40 == 0 ? 1 : 0, 0,
+                    i % 9 == 0 ? logs(1, 2, 0, "SLOW") : CallSignals.NONE);
+        }
+        long started = System.nanoTime();
+        ProblemCallsPage page = analysis.problemCalls(ids, ProblemFilter.everything(), 0, 50);
+        long problem = (System.nanoTime() - started) / 1_000_000;
+        started = System.nanoTime();
+        List<EndpointHealth> endpoints = analysis.endpoints(ids, null, null, null, 10);
+        long health = (System.nanoTime() - started) / 1_000_000;
+        started = System.nanoTime();
+        SignalTimeline timeline = analysis.timeline(ids, null, null, null, 1);
+        long time = (System.nanoTime() - started) / 1_000_000;
+
+        assertThat(page.total()).isEqualTo(20_000);
+        assertThat(endpoints).hasSize(1);
+        assertThat(timeline.buckets()).isNotEmpty();
+        assertThat(List.of(problem, health, time)).allMatch(ms -> ms < 1_000);
+    }
 }

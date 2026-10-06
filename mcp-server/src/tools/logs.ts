@@ -58,8 +58,13 @@ export interface ScopeAnswer {
 
 /** The scope and the projects whose lines may be missing, as every cross-call answer opens with. */
 export function scopeMeta(answer: ScopeAnswer): Record<string, unknown> {
+  const { cycles, ...rest } = answer.scope;
+  // a scope of many cycles names a few - the reply budget is for the answer
+  const named = cycles.length > 3
+    ? { cycles: cycles.length, someCycles: cycles.slice(0, 3).map((c) => (c.name.length > 60 ? `${c.name.slice(0, 60)}…` : c.name)) }
+    : { cycles: cycles.map((c) => c.name) };
   return {
-    scope: answer.scope,
+    scope: { ...rest, ...named },
     ...(answer.unavailable?.length ? { unavailable: answer.unavailable.map((u) => ({ project: u.project, why: u.why, meaning: WHY[u.why] ?? u.why })) } : {}),
   };
 }

@@ -2,6 +2,7 @@ package com.fathy.alfred.backend.triagebridge;
 
 import com.fathy.alfred.backend.sessioncycles.application.port.out.CopiedCallsObserverPort;
 import com.fathy.alfred.backend.triage.application.port.in.RecordCallAttentionUseCase;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -16,7 +17,11 @@ public class TriageImportFeed implements CopiedCallsObserverPort {
 
     private final RecordCallAttentionUseCase record;
 
-    public TriageImportFeed(RecordCallAttentionUseCase record) {
+    /**
+     * Lazy: triage reads the ids cycles hold (TriageRetainedCallIdsAdapter → session cycles), and session cycles tell this
+     * feed what was copied in - resolved on first use, the two never wait for each other at start-up.
+     */
+    public TriageImportFeed(@Lazy RecordCallAttentionUseCase record) {
         this.record = record;
     }
 
