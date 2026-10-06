@@ -4,6 +4,7 @@ import { DbCaptureApiService } from '../../core/services/db-capture-api.service'
 import { DbCaptureStateService } from '../../core/state/db-capture-state.service';
 import { RedactionsStore } from '../../core/state/redactions-store.service';
 import { LogLevelSetting } from '../../core/models/call-logs.model';
+import { SelectPickerComponent } from '../select-picker/select-picker.component';
 import { LOG_LEVEL_CHOICES } from '../../shared/utils/call-log-rows';
 
 type ListKey = 'beforeImageTables' | 'expectedFingerprints' | 'ignorePatterns' | 'passThroughClasses';
@@ -18,6 +19,7 @@ type ListKey = 'beforeImageTables' | 'expectedFingerprints' | 'ignorePatterns' |
   standalone: true,
   selector: 'app-db-capture-settings',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [SelectPickerComponent],
   template: `
     <section class="panel settings-panel db-settings">
       <h3>Database capture</h3>
@@ -101,10 +103,8 @@ type ListKey = 'beforeImageTables' | 'expectedFingerprints' | 'ignorePatterns' |
               <div><label class="chk"><input type="checkbox" [checked]="!!s.indexInfo" (change)="toggleIndexInfo(p.project)">
                 For a slow statement, read its table's index list once (database metadata - never a query of your data; EXPLAIN is not run)</label></div></div>
             <div class="set-row"><div class="set-l">Log level</div>
-              <div><select class="mini" [value]="s.logLevel ?? 'ERROR'" (change)="setLogLevel(p.project, $event)"
-                           title="The lowest level of log line the agent catches with each call (▤)">
-                  @for (c of levelChoices; track c.value) {<option [value]="c.value" [selected]="(s.logLevel ?? 'ERROR') === c.value">{{ c.label }}</option>}
-                </select>
+              <div><app-select-picker class="db-level" ariaLabel="Log level" title="The lowest level of log line the agent catches with each call (▤)"
+                                      [options]="levelChoices" [value]="s.logLevel ?? 'ERROR'" (valueChange)="setLogLevel(p.project, $event)" />
                 <div class="dimtxt" style="margin-top:.3rem">Log lines caught with each call while <b>▤</b> is on. Can't go below the app's
                   own level - the agent catches after the app's check and never changes what it logs.</div></div></div>
             <div class="set-row"><div class="set-l">Outside calls</div>
@@ -193,9 +193,9 @@ export class DbCaptureSettingsComponent implements OnInit {
     if (s) this.save(project, { ...s, [key]: (s[key] ?? []).filter((v) => v !== value) });
   }
 
-  setLogLevel(project: string, event: Event): void {
+  setLogLevel(project: string, value: string): void {
     const s = this.settingsOf(project);
-    const level = (event.target as HTMLSelectElement).value as LogLevelSetting;
+    const level = value as LogLevelSetting;
     if (s && level !== (s.logLevel ?? 'ERROR')) this.save(project, { ...s, logLevel: level });
   }
 

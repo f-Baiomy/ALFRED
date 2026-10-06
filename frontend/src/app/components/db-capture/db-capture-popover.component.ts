@@ -5,6 +5,7 @@ import { DbCaptureApiService } from '../../core/services/db-capture-api.service'
 import { DbCaptureStateService } from '../../core/state/db-capture-state.service';
 import { DbWindowService } from './db-window.service';
 import { LogLevelSetting } from '../../core/models/call-logs.model';
+import { SelectPickerComponent } from '../select-picker/select-picker.component';
 import { LOG_LEVEL_CHOICES } from '../../shared/utils/call-log-rows';
 
 /**
@@ -16,6 +17,7 @@ import { LOG_LEVEL_CHOICES } from '../../shared/utils/call-log-rows';
   standalone: true,
   selector: 'app-db-capture-popover',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [SelectPickerComponent],
   template: `
     <div class="db-pop" role="dialog" [attr.aria-label]="'Database capture for ' + project()" [style.top.px]="top()" [style.left.px]="left()">
       <h4>◆ Database capture · {{ project() }}
@@ -58,9 +60,7 @@ import { LOG_LEVEL_CHOICES } from '../../shared/utils/call-log-rows';
       </div>
       <div class="pr" [class.dim]="!logsOn()"><span class="pl">▤ Log lines</span>
         <span [title]="logsOn() ? 'The lowest level of log line the agent catches with each call' : 'Turn ▤ on to catch log lines'">
-          <select class="mini" [value]="level()" (change)="setLevel($event)">
-            @for (c of levelChoices; track c.value) {<option [value]="c.value" [selected]="level() === c.value">{{ c.label }}</option>}
-          </select>
+          <app-select-picker class="db-level" ariaLabel="Log level" [options]="levelChoices" [value]="level()" (valueChange)="setLevel($event)" />
           <span class="dimtxt"> caught with each call while ▤ is on</span></span>
       </div>
       <div class="pr"><span class="pl">This page</span>
@@ -162,8 +162,8 @@ export class DbCapturePopoverComponent implements OnInit {
     if (s && rows > 0 && rows !== s.rowsPerResult) this.save({ ...s, rowsPerResult: rows });
   }
 
-  setLevel(event: Event): void {
-    const level = (event.target as HTMLSelectElement).value as LogLevelSetting;
+  setLevel(value: string): void {
+    const level = value as LogLevelSetting;
     const s = this.settings();
     if (s && level !== this.level()) this.save({ ...s, logLevel: level });
   }

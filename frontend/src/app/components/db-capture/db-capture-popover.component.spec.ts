@@ -41,16 +41,18 @@ describe('DbCapturePopoverComponent - ▤ Log lines', () => {
 
   it('shows the Log level - ERROR unless set - and saves the one picked', () => {
     const { fixture, saved } = create(true);
-    const select = fixture.nativeElement.querySelector('.db-pop select') as HTMLSelectElement;
-    expect(select.value).toBe('ERROR');
-    select.value = 'WARN';
-    select.dispatchEvent(new Event('change'));
+    const picker = fixture.nativeElement.querySelector('.db-pop .db-level') as HTMLElement;
+    const button = picker.querySelector('button') as HTMLButtonElement;
+    expect(button.textContent!.trim()).toBe('ERROR and above');
+    button.click();
+    fixture.detectChanges();
+    (picker.querySelectorAll('.filter-option-item')[1] as HTMLButtonElement).click();
     expect(saved.map((s) => s.logLevel)).toEqual(['WARN']);
   });
 
   it('dims the row while ▤ is off', () => {
     const { fixture } = create(false);
-    const row = (fixture.nativeElement.querySelector('.db-pop select') as HTMLElement).closest('.pr')!;
+    const row = (fixture.nativeElement.querySelector('.db-pop .db-level') as HTMLElement).closest('.pr')!;
     expect(row.classList).toContain('dim');
   });
 });

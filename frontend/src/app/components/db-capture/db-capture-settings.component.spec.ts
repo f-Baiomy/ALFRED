@@ -41,12 +41,15 @@ describe('DbCaptureSettingsComponent - Log level', () => {
 
   it('shows ERROR by default and saves the level picked', () => {
     const fixture = create();
-    const select = fixture.nativeElement.querySelector('.db-proj select') as HTMLSelectElement;
-    expect(select.value).toBe('ERROR');
-    expect(Array.from(select.options).map((o) => o.value)).toEqual(['ERROR', 'WARN', 'INFO', 'DEBUG', 'TRACE', 'APP']);
-
-    select.value = 'APP';
-    select.dispatchEvent(new Event('change'));
+    const picker = fixture.nativeElement.querySelector('.db-proj .db-level') as HTMLElement;
+    const button = picker.querySelector('button') as HTMLButtonElement;
+    expect(button.textContent!.trim()).toBe('ERROR and above');
+    button.click();
+    fixture.detectChanges();
+    const items = Array.from(picker.querySelectorAll('.filter-option-item')) as HTMLButtonElement[];
+    expect(items.map((i) => i.textContent!.trim())).toEqual(['ERROR and above', 'WARN and above', 'INFO and above', 'DEBUG and above',
+      'TRACE (everything)', "App's level - whatever the app writes"]);
+    items[5].click();
     expect(saved.map((s) => s.logLevel)).toEqual(['APP']);
   });
 
