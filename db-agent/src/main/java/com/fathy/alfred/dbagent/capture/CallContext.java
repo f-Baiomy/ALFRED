@@ -78,6 +78,33 @@ public final class CallContext {
         return new CallContext(id, run == null || run.isEmpty() ? null : run, nowNanos);
     }
 
+    /**
+     * The call id to tag the request's log lines with: set only when the header says {@code log=1} (the project's
+     * log-linking switch - specs/008-logs-call-link), whatever {@code db} says. Null otherwise.
+     */
+    public static String logTagId(String header) {
+        if (header == null || header.isEmpty()) {
+            return null;
+        }
+        String id = null;
+        boolean log = false;
+        for (String part : header.split(";")) {
+            String p = part.trim();
+            int eq = p.indexOf('=');
+            if (eq <= 0) {
+                continue;
+            }
+            String key = p.substring(0, eq).trim();
+            String value = p.substring(eq + 1).trim();
+            if (key.equals("id")) {
+                id = value;
+            } else if (key.equals("log")) {
+                log = value.equals("1");
+            }
+        }
+        return log && id != null && !id.isEmpty() ? id : null;
+    }
+
     /** True the first time this call asks about {@code table}. */
     boolean firstIndexLookup(String table) {
         return indexedTables.add(table.toLowerCase(java.util.Locale.ROOT));

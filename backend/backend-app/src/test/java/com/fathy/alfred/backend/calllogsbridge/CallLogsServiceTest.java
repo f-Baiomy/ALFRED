@@ -183,6 +183,35 @@ class CallLogsServiceTest {
         assertThat(page.lines().get(0).matchedBy()).isEqualTo(Match.EXACT);
     }
 
+    @Test
+    void aCallWithoutCaptureGetsItsTaggedLinesExactly() {
+        when(threads.requestThread(CALL)).thenReturn(Optional.empty()); // db=0: no CALL_OPEN, no thread
+        line("s1", "tagged", START + 10, "default task-3", Map.of("mdc.alfred.call", CALL));
+
+        CallLogsPage page = service.lines(CALL, null, null, 0).orElseThrow();
+
+        assertThat(page.setup()).isEqualTo(Setup.OK);
+        assertThat(page.matchedBy()).isEqualTo(Match.EXACT);
+        assertThat(page.lines()).extracting(LinkedLogLine::lineId).containsExactly("tagged");
+    }
+
+    @Test
+    void neighboursBeforeAndAfterTheSwitchWasTurnedOn() {
+        // c0 ran before the switch was on (its lines untagged), CALL after (tagged); both on the same thread
+        when(calls.getSummary("c0")).thenReturn(Optional.of(summary("c0", START - 1500, 1000)));
+        when(threads.requestThread("c0")).thenReturn(Optional.of(THREAD));
+        when(threads.callsOnThread(eq(THREAD), any(), any())).thenReturn(List.of(
+                new CallOnThread("c0", Instant.ofEpochMilli(START - 1500).toString()), new CallOnThread(CALL, Instant.ofEpochMilli(START).toString())));
+        line("s1", "c0-untagged", START - 1000, THREAD);
+        line("s1", "c0-edge", START - 400, THREAD);
+        line("s1", "mine-tagged", START + 100, THREAD, Map.of("mdc.alfred.call", CALL));
+
+        assertThat(service.lines(CALL, null, null, 0).orElseThrow().lines()).extracting(LinkedLogLine::lineId).containsExactly("mine-tagged");
+        CallLogsPage before = service.lines("c0", null, null, 0).orElseThrow();
+        assertThat(before.matchedBy()).isEqualTo(Match.THREAD_TIME);
+        assertThat(before.lines()).extracting(LinkedLogLine::lineId).containsExactly("c0-untagged", "c0-edge");
+    }
+
     // ------------------------------------------------------------------ setup states
 
     @Test

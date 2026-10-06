@@ -225,6 +225,19 @@ describe('DbWindowComponent', () => {
     expect(kinds).toEqual(['log', 'db', 'log']);
   });
 
+  it('is a logs-only window for a call the agent captured no statements for', () => {
+    statements = jasmine.createSpy('statements').and.returnValue(of(pageOf()));
+    logLines = jasmine.createSpy('lines').and.returnValue(of({ ...logPage([line('a', 5, 'INFO', 'login attempt')]), matchedBy: 'EXACT' }));
+    const fixture = create('logs');
+
+    expect(fixture.nativeElement.querySelector('h2').textContent).toContain('Logs · POST');
+    expect(fixture.nativeElement.textContent).toContain('no database capture for this call');
+    const views = [...fixture.nativeElement.querySelectorAll('.views button')].map((b: Element) => b.textContent!.trim());
+    expect(views.length).toBe(1);
+    expect(views[0]).toContain('Logs');
+    expect(fixture.nativeElement.querySelectorAll('.dll-r.log').length).toBe(1);
+  });
+
   it('says Alfred is not reading the logs while ▤ is off, and offers to turn it on', () => {
     statements = jasmine.createSpy('statements').and.returnValue(of(pageOf(1)));
     logLines = jasmine.createSpy('lines').and.returnValue(of({ ...logPage([]), setup: 'LINKING_OFF', matchedBy: null }));

@@ -119,13 +119,16 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
             if (ContextPropagation.current() != null) {
                 return null; // a forward/include inside a call already tracked
             }
-            CallContext context = CallContext.fromHeader(header(request, CallContext.HEADER), System.nanoTime());
+            String header = header(request, CallContext.HEADER);
+            CallContext context = CallContext.fromHeader(header, System.nanoTime());
+            // the request's log lines carry its call id while the project's log-linking switch is on (log=1), captured or not
+            Object logRestore = LogTagger.tag(CallContext.logTagId(header));
             if (context == null) {
-                return null;
+                return logRestore == null ? null : new Entered(null, logRestore);
             }
             ContextPropagation.set(context);
             sink.marker(new MarkerRecord(context.callId, 0, "CALL_OPEN", Instant.now().toString(), null, null, Thread.currentThread().getName()));
-            return context;
+            return logRestore == null ? context : new Entered(context, logRestore);
         } catch (Throwable t) {
             AgentLog.failure("servlet entry", t);
             return null;
@@ -134,17 +137,32 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
 
     @Override
     public void servletExit(Object token, Throwable thrown) {
+        CallContext context = token instanceof Entered ? ((Entered) token).context : token instanceof CallContext ? (CallContext) token : null;
         try {
-            if (token instanceof CallContext) {
-                recorder.flushContext((CallContext) token);
+            if (context != null) {
+                recorder.flushContext(context);
             }
         } catch (Throwable t) {
             AgentLog.failure("servlet exit", t);
         } finally {
-            if (token instanceof CallContext) {
+            if (context != null) {
                 ContextPropagation.set(null);
                 openTransactions.get().clear(); // a transaction nobody ended by now never will be on this (pooled) thread
             }
+            if (token instanceof Entered) {
+                LogTagger.restore(((Entered) token).logRestore);
+            }
+        }
+    }
+
+    /** What servletEnter opened when the request's log lines were tagged too: the call (null when db=0) and the tag. */
+    static final class Entered {
+        final CallContext context;
+        final Object logRestore;
+
+        Entered(CallContext context, Object logRestore) {
+            this.context = context;
+            this.logRestore = logRestore;
         }
     }
 
