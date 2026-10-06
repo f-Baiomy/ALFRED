@@ -106,6 +106,27 @@
       <version>2.23.1</version>
       <scope>test</scope>
     </dependency>
+    <!-- Redis capture ITs (specs/011-redis-capture): the three real clients on the TEST class path only - the agent
+         hooks them by name and depends on none (the shaded jar must contain no io.lettuce / redis.clients / org.redisson).
+         All three still run on Java 8. -->
+    <dependency>
+      <groupId>io.lettuce</groupId>
+      <artifactId>lettuce-core</artifactId>
+      <version>6.8.2.RELEASE</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>redis.clients</groupId>
+      <artifactId>jedis</artifactId>
+      <version>5.2.0</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.redisson</groupId>
+      <artifactId>redisson</artifactId>
+      <version>3.27.2</version>
+      <scope>test</scope>
+    </dependency>
     <dependency>
       <groupId>net.bytebuddy</groupId>
       <artifactId>byte-buddy-agent</artifactId>

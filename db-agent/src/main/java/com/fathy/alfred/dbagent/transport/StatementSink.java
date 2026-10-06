@@ -14,4 +14,11 @@ public interface StatementSink {
     /** Lines of a call that were not kept (caps, late) - counted, sent with the next batch. */
     default void droppedLogs(String callId, int count) {
     }
+
+    /**
+     * A Redis command (specs/011-redis-capture) with the parts of its bytes when it was too big for one record. Kept
+     * whole or not at all: when any part cannot be queued, nothing of it is, and the call's drop count grows.
+     */
+    default void redis(RedisCommandRecord record, java.util.List<RedisChunkRecord> chunks) {
+    }
 }

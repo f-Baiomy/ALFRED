@@ -87,9 +87,13 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
     private final ThreadLocal<int[]> logDepth = ThreadLocal.withInitial(() -> new int[1]);
     private static final Object LOG_TOKEN = new Object();
     private final LogCatcher logCatcher;
+    private final RedisCatcher redis;
+    private final RedisBeforeReader redisBefore;
 
     public CaptureDispatcher(StatementSink sink, AgentSettings settings, String agentId) {
         this.logCatcher = new LogCatcher(sink);
+        this.redis = new RedisCatcher(sink, settings, agentId);
+        this.redisBefore = new RedisBeforeReader(redis, settings);
         this.sink = sink;
         this.settings = settings;
         this.agentId = agentId;
@@ -110,7 +114,14 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
     }
 
     public void flushStale() {
-        recorder.flushStale(System.nanoTime());
+        long now = System.nanoTime();
+        recorder.flushStale(now);
+        redis.flushStale(now);
+    }
+
+    /** What the Redis hooks have seen - clients, connections, servers, Spring caches - for the heartbeat (Settings). */
+    public java.util.Map<String, Object> redisSeen() {
+        return redis.seenForHeartbeat();
     }
 
     int pendingCount() {
@@ -133,8 +144,10 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
                 return logRestore == null ? null : new Entered(null, logRestore);
             }
             ContextPropagation.set(context);
-            sink.marker(new MarkerRecord(context.callId, 0, "CALL_OPEN", Instant.now().toString(), null, null, Thread.currentThread().getName(),
-                    context.logs, context.logs ? settings.logLevelName() : null));
+            MarkerRecord open = new MarkerRecord(context.callId, 0, "CALL_OPEN", Instant.now().toString(), null, null, Thread.currentThread().getName(),
+                    context.logs, context.logs ? settings.logLevelName() : null);
+            open.redis = context.redis;
+            sink.marker(open);
             return logRestore == null ? context : new Entered(context, logRestore);
         } catch (Throwable t) {
             AgentLog.failure("servlet entry", t);
@@ -1242,6 +1255,216 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
         CloseCall(Object connection, long startNanos) {
             this.connection = connection;
             this.startNanos = startNanos;
+        }
+    }
+
+    // ------------------------------------------------------------------ Redis (specs/011-redis-capture)
+    // The agent's own before-write reads run under the agent-work guard: their sends are not recorded as the call's.
+
+    @Override
+    public void redisCommandCreated(String client, Object command, Object endpoint) {
+        if (agentBusy()) {
+            return;
+        }
+        try {
+            beginAgentWork();
+            try {
+                redisBefore.beforeLettuce(client, command, endpoint);
+            } finally {
+                endAgentWork();
+            }
+            redis.commandCreated(client, command, endpoint);
+        } catch (Throwable t) {
+            AgentLog.failure("redis command", t);
+        }
+    }
+
+    @Override
+    public Object redisEncodeEnter(String client, Object channelContext, Object msg, Object buffer) {
+        try {
+            return redis.encodeEnter(client, channelContext, msg, buffer);
+        } catch (Throwable t) {
+            AgentLog.failure("redis encode", t);
+            return null;
+        }
+    }
+
+    @Override
+    public void redisEncodeExit(Object token) {
+        try {
+            redis.encodeExit(token);
+        } catch (Throwable t) {
+            AgentLog.failure("redis encode", t);
+        }
+    }
+
+    @Override
+    public Object redisDecodeEnter(String client, Object command, Object buffer) {
+        try {
+            return redis.decodeEnter(client, command, buffer);
+        } catch (Throwable t) {
+            AgentLog.failure("redis decode", t);
+            return null;
+        }
+    }
+
+    @Override
+    public void redisDecodeExit(Object token, boolean done, Throwable thrown) {
+        try {
+            redis.decodeExit(token, done, thrown);
+        } catch (Throwable t) {
+            AgentLog.failure("redis decode", t);
+        }
+    }
+
+    @Override
+    public Object redisJedisSend(Object connection, Object command, Object args) {
+        if (agentBusy()) {
+            return null;
+        }
+        try {
+            beginAgentWork();
+            try {
+                redisBefore.beforeJedis(connection, command, args);
+            } finally {
+                endAgentWork();
+            }
+            return redis.jedisSend(connection, command, args);
+        } catch (Throwable t) {
+            AgentLog.failure("redis send", t);
+            return null;
+        }
+    }
+
+    @Override
+    public void redisJedisSendExit(Object token, Throwable thrown) {
+        try {
+            redis.jedisSendExit(token, thrown);
+        } catch (Throwable t) {
+            AgentLog.failure("redis send", t);
+        }
+    }
+
+    @Override
+    public Object redisJedisReadEnter(Object connection) {
+        if (agentBusy()) {
+            return null;
+        }
+        try {
+            return redis.jedisReadEnter(connection);
+        } catch (Throwable t) {
+            AgentLog.failure("redis read", t);
+            return null;
+        }
+    }
+
+    @Override
+    public void redisJedisReply(Object token, Object result, Throwable thrown) {
+        try {
+            redis.jedisReply(token, result, thrown);
+        } catch (Throwable t) {
+            AgentLog.failure("redis read", t);
+        }
+    }
+
+    @Override
+    public void redisJedisFill(Object stream) {
+        try {
+            redis.jedisFill(stream);
+        } catch (Throwable t) {
+            AgentLog.failure("redis read", t);
+        }
+    }
+
+    @Override
+    public void redisAutoFlush(Object endpoint, boolean on) {
+        try {
+            redis.autoFlush(endpoint, on);
+        } catch (Throwable t) {
+            AgentLog.failure("redis pipeline", t);
+        }
+    }
+
+    @Override
+    public void redisFlush(Object endpoint) {
+        try {
+            redis.flush(endpoint);
+        } catch (Throwable t) {
+            AgentLog.failure("redis pipeline", t);
+        }
+    }
+
+    @Override
+    public void redisExecutorCreated(Object executor) {
+        try {
+            redis.executorCreated(executor);
+        } catch (Throwable t) {
+            AgentLog.failure("redis executor", t);
+        }
+    }
+
+    @Override
+    public Object redisExecutorSendEnter(Object executor, Object connection) {
+        if (agentBusy()) {
+            return null;
+        }
+        try {
+            beginAgentWork();
+            try {
+                redisBefore.beforeRedisson(executor, connection);
+            } finally {
+                endAgentWork();
+            }
+            return redis.executorSendEnter(executor);
+        } catch (Throwable t) {
+            AgentLog.failure("redis executor", t);
+            return null;
+        }
+    }
+
+    @Override
+    public void redisExecutorSendExit(Object token) {
+        try {
+            redis.executorSendExit(token);
+        } catch (Throwable t) {
+            AgentLog.failure("redis executor", t);
+        }
+    }
+
+    @Override
+    public Object redisOriginEnter(String kind, Object self, Object[] args) {
+        try {
+            return redis.originEnter(kind, self, args);
+        } catch (Throwable t) {
+            AgentLog.failure("redis origin", t);
+            return null;
+        }
+    }
+
+    @Override
+    public void redisOriginExit(Object token) {
+        try {
+            redis.originExit(token);
+        } catch (Throwable t) {
+            AgentLog.failure("redis origin", t);
+        }
+    }
+
+    @Override
+    public Object redisPoolEnter(Object pool) {
+        try {
+            return redis.poolEnter(pool);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    @Override
+    public void redisPoolExit(Object token, Object resource) {
+        try {
+            redis.poolExit(token, resource);
+        } catch (Throwable t) {
+            AgentLog.failure("redis pool", t);
         }
     }
 }

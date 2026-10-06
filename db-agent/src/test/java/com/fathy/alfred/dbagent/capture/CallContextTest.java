@@ -23,4 +23,16 @@ class CallContextTest {
         assertThat(CallContext.fromHeader(null, 0)).isNull();
         assertThat(CallContext.fromHeader("garbage", 0)).isNull();
     }
+
+    @Test
+    void redisOneAloneOpensACallThatRecordsOnlyRedis() {
+        CallContext c = CallContext.fromHeader("id=7c1e; db=0; redis=1; run=r1/s1", 0);
+        assertThat(c).isNotNull();
+        assertThat(c.redis).isTrue();
+        assertThat(c.capture).isFalse();
+        assertThat(c.logs).isFalse();
+        assertThat(c.runTag()).isEqualTo("r1/s1");
+        assertThat(CallContext.fromHeader("id=7c1e; db=1", 0).redis).isFalse();
+        assertThat(CallContext.fromHeader("id=7c1e; db=0; redis=0", 0)).isNull();
+    }
 }

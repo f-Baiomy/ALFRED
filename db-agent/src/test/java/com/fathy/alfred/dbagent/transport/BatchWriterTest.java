@@ -86,4 +86,49 @@ class BatchWriterTest {
         assertThat(json).contains("\"origin\":{\"id\":\"a:q1\",\"kind\":\"HQL\",\"text\":\"select o.name from Org o where o.id = :orgId\","
                 + "\"method\":\"list\",\"params\":[{\"name\":\":orgId\",\"value\":\"948\"}],\"maxResults\":50}");
     }
+
+    @Test
+    void writesRedisCommandsTheirPartsAndDropCounts() {
+        RedisCommandRecord r = new RedisCommandRecord();
+        r.sid = "a1-r9";
+        r.callId = "call-1";
+        r.runTag = "run/step";
+        r.seq = 12;
+        r.at = "2026-10-06T21:36:47.082Z";
+        r.micros = 310;
+        r.command = "GET";
+        r.keys = Collections.singletonList("fare:rule:EK");
+        r.keysTotal = 1;
+        r.args = "*2\r\n$3\r\nGET\r\n".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        r.reply = "$-1\r\n".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        r.replyType = "NIL";
+        r.client = "lettuce 6.8.2";
+        r.connection = "conn-r-1a07";
+        r.server = "redis:6379";
+        r.thread = "default task-4";
+        r.originCache = "fareRules";
+        r.originOperation = "@Cacheable";
+        r.originMethod = "FareRuleService.load(\"EK\")";
+        r.groupKind = "tx";
+        r.groupId = "g1";
+        r.groupSize = 4;
+        r.fingerprint = "GET fare:rule:* [k]";
+        MarkerRecord open = new MarkerRecord("call-1", 0, "CALL_OPEN", "2026-10-06T21:36:47Z", null, null, "t");
+        open.redis = true;
+        RedisChunkRecord part = new RedisChunkRecord("a1-r10", "reply", 0, 2, new byte[]{1, 2, 3});
+        Map<String, Long> dropped = new HashMap<>();
+        dropped.put("call-1", 2L);
+        String json = BatchWriter.write("a1", "odeysys", Collections.<StatementRecord>emptyList(), Collections.singletonList(open),
+                Collections.<String, Long>emptyMap(), Collections.<LogRecord>emptyList(), Collections.<String, Long>emptyMap(),
+                Collections.singletonList(r), Collections.singletonList(part), dropped);
+        assertThat(json).contains("\"redis\":true");
+        assertThat(json).contains("\"sid\":\"a1-r9\"").contains("\"seq\":12").contains("\"command\":\"GET\"")
+                .contains("\"keys\":[\"fare:rule:EK\"]").contains("\"replyType\":\"NIL\"").contains("\"runTag\":\"run/step\"")
+                .contains("\"args\":\"KjINCiQzDQpHRVQNCg==\"").contains("\"reply\":\"JC0xDQo=\"")
+                .contains("\"origin\":{\"store\":\"spring-cache\",\"cache\":\"fareRules\"")
+                .contains("\"group\":{\"kind\":\"tx\",\"id\":\"g1\",\"index\":0,\"size\":4}")
+                .contains("\"redisChunks\":[{\"sid\":\"a1-r10\",\"which\":\"reply\",\"part\":0,\"of\":2,\"data\":\"AQID\"}]")
+                .contains("\"droppedRedis\":{\"call-1\":2}");
+        assertThat(json).doesNotContain("poolWaitMicros"); // -1 = no pool, not sent
+    }
 }

@@ -31,7 +31,10 @@ final class CodeLocation {
             "org.jboss.weld.", "org.jboss.invocation.", "org.jboss.ejb", "io.agroal.", "com.zaxxer.", "org.apache.commons.dbcp",
             "org.apache.tomcat.jdbc.", "com.mchange.", "org.mybatis.", "org.apache.ibatis.", "org.jooq.", "org.eclipse.persistence.",
             "oracle.", "org.postgresql.", "com.mysql.", "org.mariadb.", "com.microsoft.sqlserver.", "org.h2.", "org.hsqldb.",
-            "com.ibm.db2.", "org.junit.", "org.apache.maven.", "jdk.internal."
+            "com.ibm.db2.", "org.junit.", "org.apache.maven.", "jdk.internal.",
+            // Redis clients and what is built on them (specs/011-redis-capture): the code line is the application's
+            "io.lettuce.", "redis.clients.", "org.redisson.", "io.netty.", "reactor.", "org.springframework.data.redis.",
+            "org.springframework.cache.", "org.apache.commons.pool2.", "com.fathy.alfred.dbagent.redis."
     };
 
     /** Per class name: an application frame or not. A stack is mostly the same few hundred classes, and the prefix

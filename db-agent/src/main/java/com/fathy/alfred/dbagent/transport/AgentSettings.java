@@ -175,4 +175,24 @@ public final class AgentSettings {
             this.ignoredCache = new ConcurrentHashMap<>();
         }
     }
+
+    // ------------------------------------------------------------------ Redis (specs/011-redis-capture)
+
+    /** Read each key's value before a write - the agent's one own command, off by default (research R7). */
+    private volatile boolean redisBeforeImage;
+    /** Record PING / AUTH / HELLO / CLIENT / SELECT … too (credentials are hidden whatever this says). */
+    private volatile boolean redisHousekeeping;
+
+    public boolean redisBeforeImage() {
+        return redisBeforeImage;
+    }
+
+    public boolean redisHousekeeping() {
+        return redisHousekeeping;
+    }
+
+    public void applyRedis(boolean beforeImage, boolean housekeeping) {
+        this.redisBeforeImage = beforeImage;
+        this.redisHousekeeping = housekeeping;
+    }
 }

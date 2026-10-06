@@ -54,7 +54,8 @@ def write_flag(tmp, name, lines):
 
 class ReverseProxyStampsAlfredCall(unittest.TestCase):
 
-    def _forward(self, flow, logging_on=True, db_flag_lines=None, relive_info=None, db_flag_missing=False, log_flag_lines=None):
+    def _forward(self, flow, logging_on=True, db_flag_lines=None, relive_info=None, db_flag_missing=False, log_flag_lines=None,
+                 redis_flag_lines=None):
         sent = []
 
         async def inbound(flow, name, addresses, engine):
@@ -64,6 +65,7 @@ class ReverseProxyStampsAlfredCall(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             db_flag = os.path.join(tmp, 'absent.flag') if db_flag_missing else write_flag(tmp, 'db.flag', db_flag_lines or [])
             log_flag = write_flag(tmp, 'log.flag', log_flag_lines) if log_flag_lines is not None else os.path.join(tmp, 'absent-log.flag')
+            redis_flag = write_flag(tmp, 'redis.flag', redis_flag_lines) if redis_flag_lines is not None else os.path.join(tmp, 'absent-redis.flag')
             # A fresh reader per test: _ToggleState caches by mtime, and two files written in the same second
             # by consecutive tests could share one.
             with patch.object(log_and_route_reverse, 'WEBHOOK_URL', 'http://backend/webhook'), \
@@ -71,6 +73,8 @@ class ReverseProxyStampsAlfredCall(unittest.TestCase):
                     patch.object(log_and_route_reverse, '_db_capture', log_and_route_reverse._ToggleState('DB_CAPTURE_TOGGLE_FILE', default=False)), \
                     patch.object(log_and_route_reverse, 'LOG_LINK_TOGGLE_FILE', log_flag), \
                     patch.object(log_and_route_reverse, '_log_link', log_and_route_reverse._ToggleState('LOG_LINK_TOGGLE_FILE', default=False)), \
+                    patch.object(log_and_route_reverse, 'REDIS_CAPTURE_TOGGLE_FILE', redis_flag), \
+                    patch.object(log_and_route_reverse, '_redis_capture', log_and_route_reverse._ToggleState('REDIS_CAPTURE_TOGGLE_FILE', default=False)), \
                     patch.object(log_and_route_reverse._toggle, 'enabled', lambda name: logging_on), \
                     patch.object(relive, 'apply_inbound', inbound), \
                     patch.object(log_and_route_reverse.ENGINE, 'apply_request', plain_verdict), \
@@ -126,6 +130,26 @@ class ReverseProxyStampsAlfredCall(unittest.TestCase):
             self._forward(flow, log_flag_lines=lines)
             self.assertNotIn('log=1', flow.request.headers.get('X-Alfred-Call'))
 
+    def test_redis_switch_adds_redis_1_with_or_without_db_capture(self):
+        flow = FakeFlow(request=FakeRequest(method='GET', host='localhost', path='/x'))
+        self._forward(flow, db_flag_lines=['wallet-app=on'], redis_flag_lines=['wallet-app=on'])
+        self.assertTrue(flow.request.headers.get('X-Alfred-Call').endswith('; db=1; redis=1'))
+
+        flow = FakeFlow(request=FakeRequest(method='GET', host='localhost', path='/x'))
+        self._forward(flow, redis_flag_lines=['wallet-app=on'], log_flag_lines=['wallet-app=on'])
+        self.assertTrue(flow.request.headers.get('X-Alfred-Call').endswith('; db=0; log=1; redis=1'))
+
+    def test_redis_switch_off_missing_line_or_missing_file_adds_nothing(self):
+        for lines in (['wallet-app=off'], ['other-app=on'], None):
+            flow = FakeFlow(request=FakeRequest(method='GET', host='localhost', path='/x'))
+            self._forward(flow, redis_flag_lines=lines)
+            self.assertNotIn('redis=1', flow.request.headers.get('X-Alfred-Call'))
+
+    def test_logging_off_adds_no_header_even_with_the_redis_switch_on(self):
+        flow = FakeFlow(request=FakeRequest(method='GET', host='localhost', path='/x'))
+        self._forward(flow, logging_on=False, redis_flag_lines=['wallet-app=on'])
+        self.assertIsNone(flow.request.headers.get('X-Alfred-Call'))
+
     def test_logging_off_adds_no_header_even_with_the_logs_switch_on(self):
         flow = FakeFlow(request=FakeRequest(method='GET', host='localhost', path='/x'))
         self._forward(flow, logging_on=False, log_flag_lines=['wallet-app=on'])
@@ -156,6 +180,9 @@ class AlfredCallHeaderValue(unittest.TestCase):
         self.assertEqual('id=c1; db=1; run=r/s', log_and_route_reverse.alfred_call_header('c1', True, {'runId': 'r', 'stepKey': 's'}))
         self.assertEqual('id=c1; db=0; log=1', log_and_route_reverse.alfred_call_header('c1', False, None, True))
         self.assertEqual('id=c1; db=1; log=1; run=r/s', log_and_route_reverse.alfred_call_header('c1', True, {'runId': 'r', 'stepKey': 's'}, True))
+        self.assertEqual('id=c1; db=0; redis=1', log_and_route_reverse.alfred_call_header('c1', False, None, False, True))
+        self.assertEqual('id=c1; db=1; log=1; redis=1; run=r/s',
+                         log_and_route_reverse.alfred_call_header('c1', True, {'runId': 'r', 'stepKey': 's'}, True, True))
 
 
 class ForwardProxyPopsAlfredParent(unittest.TestCase):

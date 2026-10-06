@@ -6,7 +6,7 @@ import java.util.List;
 import java.util.Map;
 
 /** Reads the heartbeat's small JSON answer - objects, arrays, strings, numbers, booleans, null. Nothing else. */
-final class MiniJson {
+public final class MiniJson {
 
     private final String s;
     private int i;
@@ -15,7 +15,7 @@ final class MiniJson {
         this.s = s;
     }
 
-    static Object parse(String json) {
+    public static Object parse(String json) {
         MiniJson p = new MiniJson(json);
         Object value = p.value();
         p.ws();

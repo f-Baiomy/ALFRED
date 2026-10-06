@@ -152,5 +152,87 @@ public final class Bridge {
 
         default void logExit(Object token) {
         }
+
+        // ---------------------------------------------------------------- Redis (specs/011-redis-capture)
+        // Clients are reached by name and reflection only: {@code client} is "lettuce", "jedis" or "redisson".
+
+        /** A Lettuce command is handed to its endpoint, or a Redisson CommandData is created - on the sending side. */
+        default void redisCommandCreated(String client, Object command, Object endpoint) {
+        }
+
+        /** A client starts writing {@code msg} (one command or a collection) into {@code buffer}; token for {@link #redisEncodeExit}. */
+        default Object redisEncodeEnter(String client, Object channelContext, Object msg, Object buffer) {
+            return null;
+        }
+
+        default void redisEncodeExit(Object token) {
+        }
+
+        /** A client starts decoding the reply of {@code command} from {@code buffer}; token for {@link #redisDecodeExit}. */
+        default Object redisDecodeEnter(String client, Object command, Object buffer) {
+            return null;
+        }
+
+        /** {@code done}: the reply is complete (Lettuce returns false while more bytes are needed). */
+        default void redisDecodeExit(Object token, boolean done, Throwable thrown) {
+        }
+
+        /** Jedis Connection.sendCommand starts - {@code command} is a ProtocolCommand or CommandArguments, {@code args}
+         *  the byte[] arguments when given separately; token for {@link #redisJedisSendExit}. */
+        default Object redisJedisSend(Object connection, Object command, Object args) {
+            return null;
+        }
+
+        default void redisJedisSendExit(Object token, Throwable thrown) {
+        }
+
+        /** Jedis starts reading one reply on {@code connection}; token for {@link #redisJedisReply}. */
+        default Object redisJedisReadEnter(Object connection) {
+            return null;
+        }
+
+        /** The reply was read: {@code result}, or {@code thrown} (an error reply raises in Jedis). */
+        default void redisJedisReply(Object token, Object result, Throwable thrown) {
+        }
+
+        /** Jedis RedisInputStream is about to refill its buffer - the bytes read so far must be kept first. */
+        default void redisJedisFill(Object stream) {
+        }
+
+        /** Lettuce auto-flush switched (false = the application pipelines until flushCommands). */
+        default void redisAutoFlush(Object endpoint, boolean on) {
+        }
+
+        /** Lettuce flushCommands: a pipeline ends. */
+        default void redisFlush(Object endpoint) {
+        }
+
+        /** A Redisson RedisExecutor was created (on the caller's thread) / starts / ends sending. */
+        default void redisExecutorCreated(Object executor) {
+        }
+
+        default Object redisExecutorSendEnter(Object executor, Object connection) {
+            return null;
+        }
+
+        default void redisExecutorSendExit(Object token) {
+        }
+
+        /** Spring Cache: {@code kind} "aspect" (CacheAspectSupport.execute: args[2] the Method, args[3] its arguments) or
+         *  the RedisCache method name ("lookup", "put", …) with {@code self} the cache; token for {@link #redisOriginExit}. */
+        default Object redisOriginEnter(String kind, Object self, Object[] args) {
+            return null;
+        }
+
+        default void redisOriginExit(Object token) {
+        }
+
+        /** A Redis connection pool hands out a connection (JedisPool.getResource, commons-pool2 borrowObject). */
+        default Object redisPoolEnter(Object pool) {
+            return null;
+        }
+
+        default void redisPoolExit(Object token, Object resource) {
+        }
     }
 }

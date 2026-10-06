@@ -103,6 +103,8 @@ REVERSE_PROXY_FLAG_FILE = os.path.join(SCRIPT_DIR, "proxy", "reverse-proxy-enabl
 DB_CAPTURE_FLAG_FILE = os.path.join(SCRIPT_DIR, "proxy", "db-capture-enabled.flag")
 # The per-project ▤ Logs switch (specs/008-logs-call-link): same bind-mount trap, empty = every project off.
 LOG_LINK_FLAG_FILE = os.path.join(SCRIPT_DIR, "proxy", "log-link-enabled.flag")
+# The per-project ⬢ Redis switch (specs/011-redis-capture): same bind-mount trap, empty = every project off.
+REDIS_CAPTURE_FLAG_FILE = os.path.join(SCRIPT_DIR, "proxy", "redis-capture-enabled.flag")
 
 
 def ensure_reverse_proxy_flag_file():
@@ -148,6 +150,15 @@ def ensure_reverse_proxy_flag_file():
             return
     if not os.path.exists(LOG_LINK_FLAG_FILE):
         with open(LOG_LINK_FLAG_FILE, "w", encoding="utf-8") as f:
+            f.write("")
+    if os.path.isdir(REDIS_CAPTURE_FLAG_FILE):
+        try:
+            os.rmdir(REDIS_CAPTURE_FLAG_FILE)
+        except OSError as e:
+            print(f"Could not remove the directory {REDIS_CAPTURE_FLAG_FILE}: {e} - remove it by hand, then re-run.")
+            return
+    if not os.path.exists(REDIS_CAPTURE_FLAG_FILE):
+        with open(REDIS_CAPTURE_FLAG_FILE, "w", encoding="utf-8") as f:
             f.write("")
 
 

@@ -68,6 +68,7 @@ public final class AgentTestSupport {
         SETTINGS.apply(AgentSettings.DEFAULT_ROWS_PER_RESULT, Collections.emptySet(), false, false, Collections.singletonList("SELECT 1"));
         SETTINGS.applyLogs(false);
         SETTINGS.applyLogLevel("APP"); // tests below see every level unless they set one
+        SETTINGS.applyRedis(false, false);
         SINK.clear();
     }
 
@@ -158,7 +159,50 @@ public final class AgentTestSupport {
             return new ArrayList<>(markers);
         }
 
+        private final List<com.fathy.alfred.dbagent.transport.RedisCommandRecord> redis = new ArrayList<>();
+        private final java.util.Map<String, List<com.fathy.alfred.dbagent.transport.RedisChunkRecord>> chunks = new java.util.HashMap<>();
+
+        @Override
+        public synchronized void redis(com.fathy.alfred.dbagent.transport.RedisCommandRecord record,
+                                       List<com.fathy.alfred.dbagent.transport.RedisChunkRecord> parts) {
+            redis.add(record);
+            if (!parts.isEmpty()) {
+                chunks.put(record.sid, new ArrayList<>(parts));
+            }
+            notifyAll();
+        }
+
+        public synchronized List<com.fathy.alfred.dbagent.transport.RedisCommandRecord> redisOf(String callId) {
+            return redis.stream().filter(r -> callId.equals(r.callId)).sorted(java.util.Comparator.comparingInt(r -> r.seq))
+                    .collect(Collectors.toList());
+        }
+
+        /** Waits until the call has at least {@code n} commands (replies of async clients arrive on other threads). */
+        public synchronized List<com.fathy.alfred.dbagent.transport.RedisCommandRecord> awaitRedis(String callId, int n) throws InterruptedException {
+            long until = System.currentTimeMillis() + 5_000;
+            while (redisOf(callId).size() < n && System.currentTimeMillis() < until) {
+                wait(50);
+            }
+            return redisOf(callId);
+        }
+
+        /** The full bytes of a command's args/reply/before - from the record or assembled from its parts. */
+        public synchronized byte[] bytesOf(com.fathy.alfred.dbagent.transport.RedisCommandRecord r, String which) {
+            if (!r.chunked) {
+                return "args".equals(which) ? r.args : "reply".equals(which) ? r.reply : r.before;
+            }
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            for (com.fathy.alfred.dbagent.transport.RedisChunkRecord c : chunks.getOrDefault(r.sid, java.util.Collections.emptyList())) {
+                if (c.which.equals(which)) {
+                    out.write(c.data, 0, c.data.length);
+                }
+            }
+            return out.toByteArray();
+        }
+
         synchronized void clear() {
+            redis.clear();
+            chunks.clear();
             statements.clear();
             markers.clear();
             logs.clear();

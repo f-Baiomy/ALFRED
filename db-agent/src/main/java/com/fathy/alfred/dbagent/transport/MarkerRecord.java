@@ -14,6 +14,8 @@ public final class MarkerRecord {
     public final boolean logs;
     /** CALL_OPEN with logs only: the Log level the agent applied to this call (specs/010-mcp-log-investigation). */
     public final String logLevel;
+    /** CALL_OPEN only: the call's Redis commands are recorded (redis=1 - specs/011-redis-capture). */
+    public boolean redis;
 
     public MarkerRecord(String callId, int seq, String type, String at, String method, String url) {
         this(callId, seq, type, at, method, url, null);

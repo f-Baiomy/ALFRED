@@ -36,6 +36,11 @@ public final class BatchSender implements StatementSink {
     static final int MAX_STATEMENTS_PER_BATCH = 2_000;
     static final int MAX_MARKERS_PER_BATCH = 4_000;
     static final int MAX_LOGS_PER_BATCH = 5_000;
+    /** Redis (specs/011-redis-capture): commands and big-value parts per batch, and the batch's byte budget for them -
+     *  well under ALFRED's 32 MB request limit once base64 and JSON are added. */
+    static final int MAX_REDIS_PER_BATCH = 2_000;
+    static final int MAX_REDIS_CHUNKS_PER_BATCH = 64;
+    static final long MAX_REDIS_BYTES_PER_BATCH = 20L * 1024 * 1024;
     static final long FLUSH_EVERY_MILLIS = 250;
     static final int FLUSH_AT = 500;
     static final long HEARTBEAT_EVERY_MILLIS = 10_000;
@@ -54,6 +59,10 @@ public final class BatchSender implements StatementSink {
     private final ConcurrentHashMap<String, AtomicLong> droppedByCall = new ConcurrentHashMap<>();
     /** Log lines not kept, per call (queue full, caps, late) - travel with the next batch (FR-007, FR-008). */
     private final ConcurrentHashMap<String, AtomicLong> droppedLogsByCall = new ConcurrentHashMap<>();
+    /** Redis commands not kept (queue full) per call - travel with the next batch. */
+    private final ConcurrentHashMap<String, AtomicLong> droppedRedisByCall = new ConcurrentHashMap<>();
+    /** What the Redis hooks saw (clients, Spring caches) - reported with each heartbeat. */
+    private volatile java.util.function.Supplier<Map<String, Object>> redisSeen;
     private volatile boolean running = true;
     private long lastHeartbeat;
     private Thread thread;
@@ -106,6 +115,59 @@ public final class BatchSender implements StatementSink {
             return;
         }
         queuedBytes.addAndGet(bytes);
+    }
+
+    /**
+     * A command and its parts are queued together or not at all (research R4): a value is never shortened, and a
+     * partial one would never become visible. Not kept - counted for its call.
+     */
+    @Override
+    public void redis(RedisCommandRecord record, List<RedisChunkRecord> chunks) {
+        long bytes = record.approxBytes();
+        for (RedisChunkRecord c : chunks) {
+            bytes += c.approxBytes();
+        }
+        synchronized (droppedRedisByCall) {
+            if (queuedBytes.get() + bytes > MAX_QUEUED_BYTES || queue.remainingCapacity() < 1 + chunks.size()) {
+                droppedRedis(record.callId);
+                return;
+            }
+            List<Object> offered = new ArrayList<>(chunks.size() + 1);
+            for (Object o : chunks) {
+                if (!queue.offer(o)) {
+                    undo(offered);
+                    droppedRedis(record.callId);
+                    return;
+                }
+                offered.add(o);
+            }
+            if (!queue.offer(record)) {
+                undo(offered);
+                droppedRedis(record.callId);
+                return;
+            }
+            queuedBytes.addAndGet(bytes);
+        }
+    }
+
+    private void undo(List<Object> offered) {
+        for (Object o : offered) {
+            queue.remove(o);
+        }
+    }
+
+    private void droppedRedis(String callId) {
+        droppedTotal.incrementAndGet();
+        droppedRedisByCall.computeIfAbsent(callId == null ? OUTSIDE : callId, k -> new AtomicLong()).incrementAndGet();
+    }
+
+    long droppedRedisOf(String callId) {
+        AtomicLong n = droppedRedisByCall.get(callId);
+        return n == null ? 0 : n.get();
+    }
+
+    public void redisSeen(java.util.function.Supplier<Map<String, Object>> supplier) {
+        this.redisSeen = supplier;
     }
 
     @Override
@@ -163,32 +225,36 @@ public final class BatchSender implements StatementSink {
         }
     }
 
-    private void drainInto(List<Object> drained) {
-        int statements = 0;
-        int markers = 0;
-        int logs = 0;
+    void drainInto(List<Object> drained) {
+        int[] counts = new int[5]; // statements, markers, logs, redis commands, redis parts
+        long[] redisBytes = {0};
         for (Object o : drained) {
-            if (o instanceof StatementRecord) {
-                statements++;
-            } else if (o instanceof LogRecord) {
-                logs++;
-            } else {
-                markers++;
-            }
+            count(o, counts, redisBytes);
         }
-        while (statements < MAX_STATEMENTS_PER_BATCH && markers < MAX_MARKERS_PER_BATCH && logs < MAX_LOGS_PER_BATCH) {
+        while (counts[0] < MAX_STATEMENTS_PER_BATCH && counts[1] < MAX_MARKERS_PER_BATCH && counts[2] < MAX_LOGS_PER_BATCH
+                && counts[3] < MAX_REDIS_PER_BATCH && counts[4] < MAX_REDIS_CHUNKS_PER_BATCH && redisBytes[0] < MAX_REDIS_BYTES_PER_BATCH) {
             Object next = queue.poll();
             if (next == null) {
                 return;
             }
             drained.add(next);
-            if (next instanceof StatementRecord) {
-                statements++;
-            } else if (next instanceof LogRecord) {
-                logs++;
-            } else {
-                markers++;
-            }
+            count(next, counts, redisBytes);
+        }
+    }
+
+    private static void count(Object o, int[] counts, long[] redisBytes) {
+        if (o instanceof StatementRecord) {
+            counts[0]++;
+        } else if (o instanceof LogRecord) {
+            counts[2]++;
+        } else if (o instanceof RedisCommandRecord) {
+            counts[3]++;
+            redisBytes[0] += ((RedisCommandRecord) o).approxBytes();
+        } else if (o instanceof RedisChunkRecord) {
+            counts[4]++;
+            redisBytes[0] += ((RedisChunkRecord) o).approxBytes();
+        } else {
+            counts[1]++;
         }
     }
 
@@ -197,6 +263,8 @@ public final class BatchSender implements StatementSink {
         List<StatementRecord> statements = new ArrayList<>();
         List<MarkerRecord> markers = new ArrayList<>();
         List<LogRecord> logs = new ArrayList<>();
+        List<RedisCommandRecord> redis = new ArrayList<>();
+        List<RedisChunkRecord> chunks = new ArrayList<>();
         for (Object o : drained) {
             if (o instanceof StatementRecord) {
                 StatementRecord s = (StatementRecord) o;
@@ -206,13 +274,22 @@ public final class BatchSender implements StatementSink {
                 LogRecord l = (LogRecord) o;
                 queuedBytes.addAndGet(-l.approxBytes());
                 logs.add(l);
+            } else if (o instanceof RedisCommandRecord) {
+                RedisCommandRecord r = (RedisCommandRecord) o;
+                queuedBytes.addAndGet(-r.approxBytes());
+                redis.add(r);
+            } else if (o instanceof RedisChunkRecord) {
+                RedisChunkRecord c = (RedisChunkRecord) o;
+                queuedBytes.addAndGet(-c.approxBytes());
+                chunks.add(c);
             } else {
                 markers.add((MarkerRecord) o);
             }
         }
         Map<String, Long> dropped = takeDropped();
         Map<String, Long> droppedLogs = take(droppedLogsByCall);
-        String body = BatchWriter.write(agentId, project, statements, markers, dropped, logs, droppedLogs);
+        Map<String, Long> droppedRedis = take(droppedRedisByCall);
+        String body = BatchWriter.write(agentId, project, statements, markers, dropped, logs, droppedLogs, redis, chunks, droppedRedis);
         if (post("/db-capture/agent/batch", body) == null) {
             sleepQuietly(1000);
             if (post("/db-capture/agent/batch", body) == null) {
@@ -250,7 +327,12 @@ public final class BatchSender implements StatementSink {
                 .name("agentVersion").value(agentVersion)
                 .name("jvm").value(System.getProperty("java.vm.name", "") + " " + System.getProperty("java.version", ""))
                 .field("appServer", appServer())
-                .name("droppedSinceStart").value(droppedTotal.get()).name("queuedStatements").value(queue.size()).endObject();
+                .name("droppedSinceStart").value(droppedTotal.get()).name("queuedStatements").value(queue.size());
+        java.util.function.Supplier<Map<String, Object>> seen = redisSeen;
+        if (seen != null) {
+            BatchWriter.redisSeen(w, seen.get());
+        }
+        w.endObject();
         String answer = post("/db-capture/agent/heartbeat", w.toString());
         if (answer != null) {
             applySettings(answer);
@@ -292,6 +374,7 @@ public final class BatchSender implements StatementSink {
             settings.applyLogs(Boolean.TRUE.equals(map.get("logsOn")));
             Object level = map.get("logLevel");
             settings.applyLogLevel(level == null ? null : String.valueOf(level));
+            settings.applyRedis(Boolean.TRUE.equals(map.get("redisBeforeImage")), Boolean.TRUE.equals(map.get("redisHousekeeping")));
         } catch (RuntimeException e) {
             AgentLog.warn("could not read ALFRED's settings answer");
         }

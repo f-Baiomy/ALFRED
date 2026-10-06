@@ -18,6 +18,8 @@ public final class CallContext {
     public final boolean capture;
     /** log=1: the call's log lines are caught (specs/009-agent-log-capture). */
     public final boolean logs;
+    /** redis=1: the call's Redis commands are recorded (specs/011-redis-capture). */
+    public final boolean redis;
     /** Caught lines and their text so far, and lines not kept - the per-call caps (research R6). */
     final java.util.concurrent.atomic.AtomicInteger logLines = new java.util.concurrent.atomic.AtomicInteger();
     final java.util.concurrent.atomic.AtomicLong logChars = new java.util.concurrent.atomic.AtomicLong();
@@ -33,6 +35,11 @@ public final class CallContext {
     }
 
     CallContext(String callId, String runTag, long startNanos, boolean capture, boolean logs) {
+        this(callId, runTag, startNanos, capture, logs, false);
+    }
+
+    CallContext(String callId, String runTag, long startNanos, boolean capture, boolean logs, boolean redis) {
+        this.redis = redis;
         this.callId = callId;
         this.runTag = runTag;
         this.startNanos = startNanos;
@@ -61,8 +68,8 @@ public final class CallContext {
     }
 
     /**
-     * Parses the header; null unless it names a call AND says {@code db=1} or {@code log=1} (a logs-only call records no
-     * statements - {@link #capture} is false). Unknown parts are ignored so a newer proxy can add more.
+     * Parses the header; null unless it names a call AND says {@code db=1}, {@code log=1} or {@code redis=1} (a call
+     * without db=1 records no statements - {@link #capture} is false). Unknown parts are ignored so a newer proxy can add more.
      */
     public static CallContext fromHeader(String header, long nowNanos) {
         if (header == null || header.isEmpty()) {
@@ -72,6 +79,7 @@ public final class CallContext {
         String run = null;
         boolean db = false;
         boolean log = false;
+        boolean redis = false;
         for (String part : header.split(";")) {
             String p = part.trim();
             int eq = p.indexOf('=');
@@ -82,6 +90,8 @@ public final class CallContext {
             String value = p.substring(eq + 1).trim();
             if (key.equals("id")) {
                 id = value;
+            } else if (key.equals("redis")) {
+                redis = value.equals("1");
             } else if (key.equals("db")) {
                 db = value.equals("1");
             } else if (key.equals("run")) {
@@ -90,10 +100,10 @@ public final class CallContext {
                 log = value.equals("1");
             }
         }
-        if (id == null || id.isEmpty() || !(db || log)) {
+        if (id == null || id.isEmpty() || !(db || log || redis)) {
             return null;
         }
-        return new CallContext(id, run == null || run.isEmpty() ? null : run, nowNanos, db, log);
+        return new CallContext(id, run == null || run.isEmpty() ? null : run, nowNanos, db, log, redis);
     }
 
     /**

@@ -17,6 +17,13 @@ public final class BatchWriter {
 
     public static String write(String agentId, String project, List<StatementRecord> statements, List<MarkerRecord> markers,
                                Map<String, Long> droppedByCall, List<LogRecord> logs, Map<String, Long> droppedLogs) {
+        return write(agentId, project, statements, markers, droppedByCall, logs, droppedLogs, java.util.Collections.<RedisCommandRecord>emptyList(),
+                java.util.Collections.<RedisChunkRecord>emptyList(), java.util.Collections.<String, Long>emptyMap());
+    }
+
+    public static String write(String agentId, String project, List<StatementRecord> statements, List<MarkerRecord> markers,
+                               Map<String, Long> droppedByCall, List<LogRecord> logs, Map<String, Long> droppedLogs,
+                               List<RedisCommandRecord> redis, List<RedisChunkRecord> chunks, Map<String, Long> droppedRedis) {
         JsonWriter w = new JsonWriter();
         w.beginObject().name("agentId").value(agentId).name("project").value(project);
         w.name("statements").beginArray();
@@ -33,6 +40,9 @@ public final class BatchWriter {
                 if (m.logLevel != null) {
                     w.name("logLevel").value(m.logLevel);
                 }
+            }
+            if (m.redis) {
+                w.name("redis").value(true);
             }
             w.endObject();
         }
@@ -54,10 +64,109 @@ public final class BatchWriter {
         if (!droppedLogs.isEmpty()) {
             w.longMap("droppedLogs", droppedLogs);
         }
+        if (!redis.isEmpty()) {
+            w.name("redis").beginArray();
+            for (RedisCommandRecord r : redis) {
+                redis(w, r);
+            }
+            w.endArray();
+        }
+        if (!chunks.isEmpty()) {
+            w.name("redisChunks").beginArray();
+            for (RedisChunkRecord c : chunks) {
+                w.beginObject().name("sid").value(c.sid).name("which").value(c.which).name("part").value(c.part).name("of").value(c.of)
+                        .name("data").value(BASE64.encodeToString(c.data)).endObject();
+            }
+            w.endArray();
+        }
+        if (!droppedRedis.isEmpty()) {
+            w.longMap("droppedRedis", droppedRedis);
+        }
         if (!droppedByCall.isEmpty()) {
             w.longMap("droppedByCall", droppedByCall);
         }
         return w.endObject().toString();
+    }
+
+    private static final java.util.Base64.Encoder BASE64 = java.util.Base64.getEncoder();
+
+    /** One Redis command (contracts/agent-redis-capture.md). */
+    static void redis(JsonWriter w, RedisCommandRecord r) {
+        w.beginObject().name("sid").value(r.sid).field("callId", r.callId).field("runTag", r.runTag).name("seq").value(r.seq)
+                .field("at", r.at).name("micros").value(r.micros).field("command", r.command);
+        w.stringArray("keys", r.keys == null ? java.util.Collections.<String>emptyList() : r.keys);
+        w.name("keysTotal").value(r.keysTotal);
+        if (r.args != null) {
+            w.name("args").value(BASE64.encodeToString(r.args));
+        }
+        if (r.reply != null) {
+            w.name("reply").value(BASE64.encodeToString(r.reply));
+        }
+        w.field("replyType", r.replyType).name("resp").value(r.resp).field("error", r.error)
+                .name("argsBytes").value(r.argsBytes).name("replyBytes").value(r.replyBytes);
+        if (r.chunked) {
+            w.name("chunked").value(true);
+        }
+        w.field("client", r.client).field("connection", r.connection).field("server", r.server).name("db").value(r.db)
+                .field("thread", r.thread).field("code", r.code);
+        if (r.callers != null && !r.callers.isEmpty()) {
+            w.stringArray("callers", r.callers);
+        }
+        if (r.originCache != null || r.originMethod != null) {
+            w.name("origin").beginObject().name("store").value("spring-cache").field("cache", r.originCache)
+                    .field("operation", r.originOperation).field("method", r.originMethod).endObject();
+        }
+        if (r.groupKind != null) {
+            w.name("group").beginObject().name("kind").value(r.groupKind).name("id").value(r.groupId)
+                    .name("index").value(r.groupIndex).name("size").value(r.groupSize).endObject();
+        }
+        if (r.poolWaitMicros >= 0) {
+            w.name("poolWaitMicros").value(r.poolWaitMicros);
+        }
+        if (r.before != null) {
+            w.name("before").value(BASE64.encodeToString(r.before));
+        }
+        w.field("beforeType", r.beforeType).field("beforeNote", r.beforeNote);
+        if (r.beforeBytes > 0) {
+            w.name("beforeBytes").value(r.beforeBytes);
+        }
+        w.field("fingerprint", r.fingerprint).endObject();
+    }
+
+    /** The heartbeat's "redis": {clients: [...], springCaches: [...]} (contracts/agent-redis-capture.md). */
+    @SuppressWarnings("unchecked")
+    static void redisSeen(JsonWriter w, Map<String, Object> seen) {
+        if (seen == null) {
+            return;
+        }
+        w.name("redis").beginObject().name("clients").beginArray();
+        Object clients = seen.get("clients");
+        if (clients instanceof List) {
+            for (Object o : (List<Object>) clients) {
+                Map<String, Object> c = (Map<String, Object>) o;
+                w.beginObject().field("client", (String) c.get("client")).field("version", (String) c.get("version"))
+                        .name("connections").value(((Number) c.get("connections")).longValue());
+                java.util.List<String> servers = new java.util.ArrayList<>();
+                for (Object s : (List<Object>) c.get("servers")) {
+                    servers.add(String.valueOf(s));
+                }
+                w.stringArray("servers", servers);
+                w.name("dbs").beginArray();
+                for (Object d : (List<Object>) c.get("dbs")) {
+                    w.value(((Number) d).longValue());
+                }
+                w.endArray().endObject();
+            }
+        }
+        w.endArray();
+        java.util.List<String> caches = new java.util.ArrayList<>();
+        Object names = seen.get("springCaches");
+        if (names instanceof List) {
+            for (Object n : (List<Object>) names) {
+                caches.add(String.valueOf(n));
+            }
+        }
+        w.stringArray("springCaches", caches).endObject();
     }
 
     static void statement(JsonWriter w, StatementRecord s) {

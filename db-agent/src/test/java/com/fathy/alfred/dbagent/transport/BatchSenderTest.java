@@ -107,4 +107,55 @@ class BatchSenderTest {
         }
         return new String(out.toByteArray(), StandardCharsets.UTF_8);
     }
+
+    @Test
+    void aBigRedisCommandIsQueuedWholeOrDroppedWholeAndCounted() throws Exception {
+        String url = start("{}");
+        BatchSender sender = new BatchSender(url, "s", "p", "a", "1", new AgentSettings(), () -> { });
+        RedisCommandRecord r = new RedisCommandRecord();
+        r.sid = "a-r1";
+        r.callId = "call-big";
+        r.chunked = true;
+        List<RedisChunkRecord> parts = new ArrayList<>();
+        // more than the 64 MB queue can hold: nothing of it may be queued
+        for (int i = 0; i < 300; i++) {
+            parts.add(new RedisChunkRecord("a-r1", "args", i, 300, new byte[RedisChunkRecord.PART_BYTES]));
+        }
+        sender.redis(r, parts);
+        assertThat(sender.queued()).isZero();
+        assertThat(sender.droppedRedisOf("call-big")).isEqualTo(1);
+
+        RedisCommandRecord small = new RedisCommandRecord();
+        small.sid = "a-r2";
+        small.callId = "call-ok";
+        sender.redis(small, Collections.singletonList(new RedisChunkRecord("a-r2", "reply", 0, 1, new byte[10])));
+        assertThat(sender.queued()).isEqualTo(2);
+        List<Object> drained = new ArrayList<>();
+        sender.drainInto(drained);
+        sender.send(drained);
+        String batch = bodies.stream().filter(b -> b.startsWith("/db-capture/agent/batch")).findFirst().orElse("");
+        assertThat(batch).contains("\"redisChunks\"").contains("\"sid\":\"a-r2\"").contains("\"droppedRedis\":{\"call-big\":1}");
+    }
+
+    @Test
+    void heartbeatAppliesTheRedisSettingsAndReportsWhatTheHooksSaw() throws Exception {
+        String url = start("{\"redisBeforeImage\":true,\"redisHousekeeping\":true}");
+        AgentSettings settings = new AgentSettings();
+        BatchSender sender = new BatchSender(url, "s", "p", "a", "1", settings, () -> { });
+        java.util.Map<String, Object> client = new java.util.LinkedHashMap<>();
+        client.put("client", "lettuce");
+        client.put("version", "6.8.2");
+        client.put("connections", 1);
+        client.put("servers", Collections.singletonList("redis:6379"));
+        client.put("dbs", Collections.singletonList(0));
+        java.util.Map<String, Object> seen = new java.util.LinkedHashMap<>();
+        seen.put("clients", Collections.singletonList(client));
+        seen.put("springCaches", Collections.singletonList("fareRules"));
+        sender.redisSeen(() -> seen);
+        sender.heartbeat();
+        assertThat(settings.redisBeforeImage()).isTrue();
+        assertThat(settings.redisHousekeeping()).isTrue();
+        String hb = bodies.stream().filter(b -> b.startsWith("/db-capture/agent/heartbeat")).findFirst().orElse("");
+        assertThat(hb).contains("\"redis\":{\"clients\":[{\"client\":\"lettuce\",\"version\":\"6.8.2\",\"connections\":1,\"servers\":[\"redis:6379\"],\"dbs\":[0]}],\"springCaches\":[\"fareRules\"]}");
+    }
 }

@@ -70,6 +70,7 @@ final class Instrumenter {
         builder = JdbcInstrumentation.add(builder);
         builder = LogInstrumentation.add(builder);
         builder = HibernateInstrumentation.add(builder);
+        builder = RedisInstrumentation.add(builder);
         builder.installOn(instrumentation);
     }
 
@@ -83,7 +84,7 @@ final class Instrumenter {
     private static final class ErrorListener extends AgentBuilder.Listener.Adapter {
         @Override
         public void onError(String typeName, ClassLoader classLoader, JavaModule module, boolean loaded, Throwable throwable) {
-            AgentLog.warn("could not instrument a class (" + throwable.getClass().getSimpleName() + ")");
+            AgentLog.warn("could not instrument " + typeName + " (" + throwable.getClass().getSimpleName() + ")");
         }
     }
 }

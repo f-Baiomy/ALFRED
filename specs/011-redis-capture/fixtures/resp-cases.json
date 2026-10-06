@@ -1,0 +1,35 @@
+{
+  "_about": "Shared by the agent's RespFrameTest and the backend's RespTest (specs/011-redis-capture T030/T023) so both RESP readers agree. 'resp' strings are the exact wire bytes (JSON-escaped).",
+  "replies": [
+    {"resp": "+OK\r\n", "type": "SIMPLE", "version": 2},
+    {"resp": "-NOSCRIPT No matching script. Please use EVAL.\r\n", "type": "ERROR", "version": 2, "error": "NOSCRIPT No matching script. Please use EVAL."},
+    {"resp": ":38\r\n", "type": "INTEGER", "version": 2},
+    {"resp": "$3\r\n1.5\r\n", "type": "BULK", "version": 2},
+    {"resp": "$0\r\n\r\n", "type": "BULK", "version": 2},
+    {"resp": "$-1\r\n", "type": "NIL", "version": 2},
+    {"resp": "*-1\r\n", "type": "NIL_ARRAY", "version": 2},
+    {"resp": "*2\r\n$1\r\na\r\n:1\r\n", "type": "ARRAY", "version": 2},
+    {"resp": "*0\r\n", "type": "ARRAY", "version": 2},
+    {"resp": "%1\r\n+currency\r\n+AED\r\n", "type": "MAP", "version": 3},
+    {"resp": "~1\r\n+x\r\n", "type": "SET", "version": 3},
+    {"resp": ",3.5\r\n", "type": "DOUBLE", "version": 3},
+    {"resp": "#t\r\n", "type": "BOOLEAN", "version": 3},
+    {"resp": "(3492890328409238509324850943850943825024385\r\n", "type": "BIG_NUMBER", "version": 3},
+    {"resp": "=15\r\ntxt:Some string\r\n", "type": "VERBATIM", "version": 3},
+    {"resp": "_\r\n", "type": "NIL", "version": 3},
+    {"resp": "!21\r\nSYNTAX invalid syntax\r\n", "type": "ERROR", "version": 3, "error": "SYNTAX invalid syntax"},
+    {"resp": ">2\r\n+message\r\n+hi\r\n", "type": "PUSH", "version": 3}
+  ],
+  "requests": [
+    {"args": ["SET", "fare:rule:EK", "1.5"], "command": "SET", "keys": ["fare:rule:EK"], "pattern": "fare:rule:EK", "fingerprint": "SET fare:rule:EK [k,n]"},
+    {"args": ["GET", "session:odeysys:9f2a41c7"], "command": "GET", "keys": ["session:odeysys:9f2a41c7"], "pattern": "session:odeysys:*", "fingerprint": "GET session:odeysys:* [k]"},
+    {"args": ["MSET", "a", "1", "b", "2"], "command": "MSET", "keys": ["a", "b"], "pattern": "a", "fingerprint": "MSET a [k,n,k,n]"},
+    {"args": ["EVALSHA", "3f1c9ea2", "1", "lock:upsell:948", "a5b4f2f0"], "command": "EVALSHA", "keys": ["lock:upsell:948"], "pattern": "lock:upsell:*", "fingerprint": "EVALSHA lock:upsell:* [blob,n,k,blob]"},
+    {"args": ["SET", "upsell:a5b4f2f0", "{}", "EX", "900"], "command": "SET", "keys": ["upsell:a5b4f2f0"], "pattern": "upsell:*", "fingerprint": "SET upsell:* [k,blob,EX,n]"},
+    {"args": ["BLPOP", "queue:jobs", "5"], "command": "BLPOP", "keys": ["queue:jobs"], "pattern": "queue:jobs", "fingerprint": "BLPOP queue:jobs [k,n]"},
+    {"args": ["CLIENT", "SETNAME", "app"], "command": "CLIENT SETNAME", "keys": [], "pattern": null, "fingerprint": "CLIENT SETNAME [blob]"},
+    {"args": ["RENAME", "user:790:prefs", "user:791:prefs"], "command": "RENAME", "keys": ["user:790:prefs", "user:791:prefs"], "pattern": "user:*:prefs", "fingerprint": "RENAME user:*:prefs [k,k]"},
+    {"args": ["PUBLISH", "search.upsell.done", "{}"], "command": "PUBLISH", "keys": ["search.upsell.done"], "pattern": "search.upsell.done", "fingerprint": "PUBLISH search.upsell.done [k,blob]"},
+    {"args": ["PING"], "command": "PING", "keys": [], "pattern": null, "fingerprint": "PING []"}
+  ]
+}

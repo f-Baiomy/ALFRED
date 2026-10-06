@@ -25,6 +25,8 @@ public final class AgentRuntime {
         BatchSender sender = new BatchSender(config.alfredUrl, config.secret, config.project, agentId, AlfredDbAgent.VERSION, settings,
                 holder::flushStale);
         holder.dispatcher = install(instrumentation, sender, settings, agentId);
+        CaptureDispatcher dispatcher = holder.dispatcher;
+        sender.redisSeen(dispatcher::redisSeen);
         sender.start();
         AgentLog.info("v" + AlfredDbAgent.VERSION + " capturing database statements for project '" + config.project + "', reporting to " + config.alfredUrl);
     }
