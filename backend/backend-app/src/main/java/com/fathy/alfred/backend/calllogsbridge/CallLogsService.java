@@ -24,6 +24,7 @@ import com.fathy.alfred.backend.logs.domain.model.LogLineSummary;
 import com.fathy.alfred.backend.logs.domain.model.LogPage;
 import com.fathy.alfred.backend.logs.domain.model.LogQuery;
 import com.fathy.alfred.backend.logs.domain.model.LogStructure;
+import com.fathy.alfred.backend.logs.domain.model.ProjectLogFields;
 import com.fathy.alfred.backend.logs.domain.model.ProjectLogSettings;
 import com.fathy.alfred.backend.logs.domain.model.Role;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.ListCapturedInternalCallsUseCase;
@@ -41,7 +42,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Logs linked to calls (specs/008-logs-call-link): the one place that joins a project's inbound calls (their window),
@@ -219,7 +219,11 @@ public class CallLogsService {
             if (line == null) {
                 line = logs.line(sourceId, lineId);
             }
-            Object tagged = line.fields().get(s.callIdField());
+            SourceContext ctx = context(sourceId, s);
+            if (ctx == null) {
+                continue;
+            }
+            Object tagged = ctx.hasCallId() ? line.fields().get(ctx.callIdField()) : null;
             if (tagged != null) {
                 Optional<CallInfo> call = resolve(String.valueOf(tagged), null);
                 if (call.isPresent()) {
@@ -227,7 +231,7 @@ public class CallLogsService {
                 }
                 continue; // tagged for a call Alfred no longer has: never time-matched to another one
             }
-            Object thread = s.threadField() == null ? null : line.fields().get(s.threadField());
+            Object thread = ctx.hasThread() ? line.fields().get(ctx.threadField()) : null;
             if (thread == null) {
                 continue;
             }
@@ -391,11 +395,14 @@ public class CallLogsService {
             log.warn("call-logs: log source {} is linked to {} but cannot be read: {}", sourceId, settings.project(), e.getMessage());
             return null;
         }
-        Set<String> labels = structure.fields().stream().filter(FieldDef::stored).map(FieldDef::label).collect(Collectors.toSet());
+        // the fields by label or path, auto-detected when unset (WildFly writes "alfred.call" and "process.thread.name")
+        String thread = ProjectLogFields.thread(structure, settings.threadField()).map(FieldDef::label).orElse(null);
+        String callId = ProjectLogFields.callId(structure, settings.callIdField()).map(FieldDef::label).orElse(null);
         String message = structure.fields().stream().filter(f -> f.role() == Role.MESSAGE).map(FieldDef::label).findFirst().orElse("message");
-        String logger = labels.stream().filter(l -> l.toLowerCase(Locale.ROOT).endsWith("logger")).sorted().findFirst().orElse(null);
-        return new SourceContext(sourceId, name, settings.threadField(), settings.callIdField(), message, logger,
-                settings.threadField() != null && labels.contains(settings.threadField()), labels.contains(settings.callIdField()));
+        String logger = structure.fields().stream().filter(FieldDef::stored)
+                .filter(f -> (f.path() == null ? f.label() : f.path()).toLowerCase(Locale.ROOT).endsWith("logger"))
+                .map(FieldDef::label).sorted().findFirst().orElse(null);
+        return new SourceContext(sourceId, name, thread, callId, message, logger, thread != null, callId != null);
     }
 
     /** One source's matching lines (summaries only), oldest first, paged through up to the per-call seatbelt. */

@@ -10,6 +10,7 @@ import com.fathy.alfred.backend.logs.domain.model.FieldDef;
 import com.fathy.alfred.backend.logs.domain.model.KeptLogLine;
 import com.fathy.alfred.backend.logs.domain.model.LogQuery;
 import com.fathy.alfred.backend.logs.domain.model.LogStructure;
+import com.fathy.alfred.backend.logs.domain.model.ProjectLogFields;
 import com.fathy.alfred.backend.logs.domain.model.ProjectLogSettings;
 import com.fathy.alfred.backend.logs.domain.model.SearchMode;
 import org.springframework.stereotype.Service;
@@ -20,6 +21,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -71,7 +73,11 @@ public class ProjectLogsService implements ManageProjectLogsUseCase, KeptLogLine
         }
         store.saveSettings(settings);
         for (String sourceId : settings.sourceIds()) {
-            makeExact(sourceId, Set.of(Objects.requireNonNullElse(settings.threadField(), ""), settings.callIdField()));
+            LogStructure structure = sources.structure(sourceId);
+            Set<String> labels = new java.util.HashSet<>();
+            ProjectLogFields.thread(structure, settings.threadField()).ifPresent(f -> labels.add(f.label()));
+            ProjectLogFields.callId(structure, settings.callIdField()).ifPresent(f -> labels.add(f.label()));
+            makeExact(sourceId, labels);
         }
         return new ProjectLogsView(settings, foundLines(settings));
     }
@@ -100,12 +106,12 @@ public class ProjectLogsService implements ManageProjectLogsUseCase, KeptLogLine
     private Map<String, Long> foundLines(ProjectLogSettings settings) {
         Map<String, Long> out = new LinkedHashMap<>();
         for (String sourceId : settings.sourceIds()) {
-            boolean known = sources.structure(sourceId).fields().stream().anyMatch(f -> f.label().equals(settings.callIdField()));
-            if (!known) {
+            Optional<FieldDef> field = ProjectLogFields.callId(sources.structure(sourceId), settings.callIdField());
+            if (field.isEmpty()) {
                 out.put(sourceId, 0L);
                 continue;
             }
-            LogQuery exists = new LogQuery(List.of(new LogQuery.Pill(LogQuery.Op.EXISTS, settings.callIdField(), null, null, null, null)),
+            LogQuery exists = new LogQuery(List.of(new LogQuery.Pill(LogQuery.Op.EXISTS, field.get().label(), null, null, null, null)),
                     null, null, null, null, 1);
             out.put(sourceId, query.lines(sourceId, exists).total());
         }

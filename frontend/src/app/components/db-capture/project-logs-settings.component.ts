@@ -98,7 +98,8 @@ export class ProjectLogsSettingsComponent implements OnInit {
   readonly fields = computed(() => {
     const labels = new Set<string>();
     for (const id of this.sourceIds()) {
-      for (const f of this.structures().get(id)?.fields ?? []) if (!f.duplicateOf) labels.add(f.label);
+      // by path: the label is only the last segment ("name" for process.thread.name); the backend takes either
+      for (const f of this.structures().get(id)?.fields ?? []) if (!f.duplicateOf) labels.add(f.path || f.label);
     }
     return [...labels].sort();
   });
@@ -171,7 +172,7 @@ export class ProjectLogsSettingsComponent implements OnInit {
       list.forEach((st, i) => st && next.set(missing[i], st));
       this.structures.set(next);
       if (!this.threadField()) {
-        const thread = this.fields().find((f) => /thread/i.test(f));
+        const thread = this.fields().find((f) => /(^|[._])thread([._]?name)?$/i.test(f)) ?? this.fields().find((f) => /thread/i.test(f));
         if (thread) this.threadField.set(thread);
       }
     });
