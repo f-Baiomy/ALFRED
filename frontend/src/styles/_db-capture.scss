@@ -735,6 +735,7 @@
   .cw-spacer { flex: 1; min-width: 0; }
   .pr { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 0.6rem; padding: 0.4rem 0; border-top: 1px solid var(--border); align-items: center; }
   .pl { color: var(--text-dim); font-size: 0.74rem; }
+  .pr.dim > span:not(.pl) { opacity: 0.55; }
   .foot { display: flex; gap: 0.6rem; align-items: center; border-top: 1px solid var(--border); padding-top: 0.5rem; margin-top: 0.2rem; }
   .db-how { font-size: 0.72rem; color: var(--text-dim); line-height: 1.5; padding: 0.3rem 0 0.4rem; }
   .db-how code { font-family: var(--db-mono); color: var(--purple-light); }

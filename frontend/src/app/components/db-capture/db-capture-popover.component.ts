@@ -4,10 +4,12 @@ import { DbCaptureSettings } from '../../core/models/db-capture.model';
 import { DbCaptureApiService } from '../../core/services/db-capture-api.service';
 import { DbCaptureStateService } from '../../core/state/db-capture-state.service';
 import { DbWindowService } from './db-window.service';
+import { LogLevelSetting } from '../../core/models/call-logs.model';
+import { LOG_LEVEL_CHOICES } from '../../shared/utils/call-log-rows';
 
 /**
  * The ▾ panel next to a project's ◆ switch in the Sources bar (mock: ".db-pop"): the switch again, whether the
- * agent is attached, the before-image tables and rows kept per result, the per-viewer "show the chip" choice, and
+ * agent is attached, the before-image tables, rows kept per result and ▤ Log level, the per-viewer "show the chip" choice, and
  * the way to the full settings. Positioned under the button that opened it (fixed, so no ancestor clips it).
  */
 @Component({
@@ -54,6 +56,13 @@ import { DbWindowService } from './db-window.service';
       <div class="pr"><span class="pl">Rows per result</span>
         <span><input class="mini" type="number" min="1" [value]="settings()?.rowsPerResult ?? 50000" (change)="setRows($event)"> <span class="dimtxt">then count only</span></span>
       </div>
+      <div class="pr" [class.dim]="!logsOn()"><span class="pl">▤ Log lines</span>
+        <span [title]="logsOn() ? 'The lowest level of log line the agent catches with each call' : 'Turn ▤ on to catch log lines'">
+          <select class="mini" [value]="level()" (change)="setLevel($event)">
+            @for (c of levelChoices; track c.value) {<option [value]="c.value" [selected]="level() === c.value">{{ c.label }}</option>}
+          </select>
+          <span class="dimtxt"> caught with each call while ▤ is on</span></span>
+      </div>
       <div class="pr"><span class="pl">This page</span>
         <span><label class="chk"><input type="checkbox" [checked]="state.showChips()" (change)="state.setShowChips(!state.showChips())"> Show the ◆ DB chip on calls</label></span>
       </div>
@@ -89,6 +98,10 @@ export class DbCapturePopoverComponent implements OnInit {
   readonly left = signal(0);
 
   readonly status = computed(() => this.state.projectStatus(this.project()));
+  /** The Log level - the same setting as Settings → Database capture (specs/009). */
+  protected readonly levelChoices = LOG_LEVEL_CHOICES;
+  readonly level = computed<LogLevelSetting>(() => this.settings()?.logLevel ?? 'ERROR');
+  readonly logsOn = computed(() => this.state.logsOn(this.project(), this.inboundOn()));
   readonly enabled = computed(() => !!this.status()?.enabled && this.inboundOn());
   readonly agentLine = computed(() => {
     const a = this.status()?.agent;
@@ -147,6 +160,12 @@ export class DbCapturePopoverComponent implements OnInit {
     const rows = Math.round(Number((event.target as HTMLInputElement).value));
     const s = this.settings();
     if (s && rows > 0 && rows !== s.rowsPerResult) this.save({ ...s, rowsPerResult: rows });
+  }
+
+  setLevel(event: Event): void {
+    const level = (event.target as HTMLSelectElement).value as LogLevelSetting;
+    const s = this.settings();
+    if (s && level !== this.level()) this.save({ ...s, logLevel: level });
   }
 
   openOutside(): void {
