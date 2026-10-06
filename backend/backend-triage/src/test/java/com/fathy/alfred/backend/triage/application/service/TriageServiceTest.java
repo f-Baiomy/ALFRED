@@ -215,4 +215,22 @@ class TriageServiceTest {
         service.callObserved(inbound("t", 200, "{}", "2026-10-05T16:03:35.327"));
         assertThat(repo.find("t").orElseThrow().startedAt()).isEqualTo(Instant.parse("2026-10-05T16:03:35.327Z").toEpochMilli());
     }
+
+    @Test
+    void logErrorsMakeASuccessfulCallAHiddenFailureWarningsAndFlagsDoNotAndSignalsSurviveLaterWrites() {
+        service.signals("early", new com.fathy.alfred.backend.triage.domain.model.CallSignals(1, 0, 1, "CAUGHT", "ERROR", List.of()));
+        service.callObserved(inbound("early", 200, "{}", "2026-10-05T16:03:40Z")); // signals arrived first: kept
+        service.callObserved(inbound("warned", 200, "{}", "2026-10-05T16:03:41Z"));
+        service.signals("warned", new com.fathy.alfred.backend.triage.domain.model.CallSignals(0, 3, 0, "CAUGHT", "WARN", List.of("REPEATED_QUERY")));
+        service.callObserved(inbound("failed", 500, "{}", "2026-10-05T16:03:42Z"));
+        service.signals("failed", new com.fathy.alfred.backend.triage.domain.model.CallSignals(2, 0, 0, "CAUGHT", "ERROR", List.of()));
+
+        assertThat(entry("early").priority()).isEqualTo(4);
+        assertThat(entry("early").call().signals().logErrors()).isEqualTo(1);
+        assertThat(entry("warned").priority()).isEqualTo(6);
+        assertThat(entry("warned").call().signals().dbFlags()).containsExactly("REPEATED_QUERY");
+        assertThat(entry("failed").priority()).isEqualTo(3); // already failing: its group is unchanged, counted once
+        assertThat(com.fathy.alfred.backend.triage.domain.model.Signal.of(entry("failed").call(), 400)).containsExactly(
+                com.fathy.alfred.backend.triage.domain.model.Signal.HTTP_ERROR, com.fathy.alfred.backend.triage.domain.model.Signal.LOG_ERROR);
+    }
 }

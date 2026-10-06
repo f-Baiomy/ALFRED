@@ -119,4 +119,33 @@ class TriageBridgeTest {
         verify(record).statementFailures("in-1", 1, 1);
         verify(record).backfillDone(3);
     }
+
+    @Test
+    void dbCapturesSignalsReachTheMarkAndCallsCopiedIntoACycleGetMarksToo() {
+        new TriageCallSignalsAdapter(record).signalsChanged("in-9", 5, 1, 2, "CAUGHT", "WARN", List.of("SLOW"));
+        verify(record).signals("in-9", new com.fathy.alfred.backend.triage.domain.model.CallSignals(5, 1, 2, "CAUGHT", "WARN", List.of("SLOW")));
+
+        TriageImportFeed feed = new TriageImportFeed(record);
+        feed.inboundCopied("cycle-1", List.of(inbound("imp-in", 200, "{}")));
+        feed.outboundCopied("cycle-1", List.of(outbound("imp-out", "imp-in", 503, "down")));
+        ArgumentCaptor<ObservedCall> seen = ArgumentCaptor.forClass(ObservedCall.class);
+        verify(record, times(2)).callObserved(seen.capture());
+        assertThat(seen.getAllValues()).extracting(ObservedCall::callId).containsExactly("imp-in", "imp-out");
+        assertThat(seen.getAllValues().get(1).parentCallId()).isEqualTo("imp-in");
+    }
+
+    @Test
+    void signalsOfCallsCapturedBeforeThisVersionAreFedOnce() {
+        com.fathy.alfred.backend.dbcapture.application.port.in.RepublishCallSignalsUseCase republish =
+                mock(com.fathy.alfred.backend.dbcapture.application.port.in.RepublishCallSignalsUseCase.class);
+        when(republish.republishAll()).thenReturn(42);
+        when(record.signalsBackfillNeeded()).thenReturn(true);
+
+        new TriageSignalsBackfill(record, republish).run();
+        verify(record).signalsBackfillDone(42);
+
+        when(republish.republishAll()).thenThrow(new IllegalStateException("db gone"));
+        new TriageSignalsBackfill(record, republish).run();
+        verify(record, times(1)).signalsBackfillDone(org.mockito.ArgumentMatchers.anyInt()); // a failure is not marked done
+    }
 }

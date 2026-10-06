@@ -3,12 +3,15 @@ import type { AttentionMark, CallStatementFailures, TriageEntry } from './fronte
 
 /**
  * Reads of triage's saved marks (backend-triage) and db-capture's failed-statement index. Both are written as calls
- * arrive, so "what needs attention" costs one indexed request per 500 calls - no body is read, no statement list
+ * arrive, so "what needs attention" costs one indexed request per 100 calls - no body is read, no statement list
  * loaded.
  */
 
-/** The ids one request may name (the backend answers 400 above it). */
-const MAX_IDS = 500;
+/**
+ * The ids one GET may name. They travel in the URL, and the gateway refuses a request line over 8 KB (about 200 ids)
+ * with 414 - 500 ids failed every triage of a big cycle.
+ */
+export const MAX_IDS = 100;
 
 export const GROUP_TITLES: Record<number, string> = {
   1: 'Failed, with failing supplier calls',
@@ -19,7 +22,7 @@ export const GROUP_TITLES: Record<number, string> = {
   6: 'Everything else - still read the ones related to the problem: a call that succeeded can hold the cause',
 };
 
-function chunks<T>(list: readonly T[], size: number): T[][] {
+export function chunks<T>(list: readonly T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size));
   return out;

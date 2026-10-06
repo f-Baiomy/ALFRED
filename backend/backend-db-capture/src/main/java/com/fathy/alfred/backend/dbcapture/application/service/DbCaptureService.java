@@ -71,6 +71,14 @@ public class DbCaptureService implements IngestStatementsUseCase, RecordAgentHea
         this.failureObservers = failureObservers;
     }
 
+    /** Hands changed calls' log and database signals to triage (specs/010). Optional for tests. */
+    private CallSignalsPublisher signals;
+
+    @Autowired(required = false)
+    void setSignals(CallSignalsPublisher signals) {
+        this.signals = signals;
+    }
+
     /** The ▤ switch - outside-call lines are caught while it is on (specs/009-agent-log-capture). Optional for tests. */
     private com.fathy.alfred.backend.dbcapture.application.port.out.LogLinkTogglePort logLink;
 
@@ -115,6 +123,12 @@ public class DbCaptureService implements IngestStatementsUseCase, RecordAgentHea
                 .forEach(thread -> notifications.outsideAppended(thread,
                         (int) statements.stream().filter(s -> s.callId() == null && thread.equals(s.thread())).count()));
         listeners.forEach(IngestListener::batchIngested);
+        if (signals != null) {
+            // after the listeners: flags are recomputed by then. Calls whose lines or statements this batch brought.
+            java.util.Set<String> changed = new java.util.LinkedHashSet<>(lastSeqByCall.keySet());
+            logs.stream().map(CaughtLogLine::callId).filter(Objects::nonNull).forEach(changed::add);
+            signals.publish(changed);
+        }
         return new IngestResult(fresh, statements.size() - fresh);
     }
 
@@ -234,5 +248,8 @@ public class DbCaptureService implements IngestStatementsUseCase, RecordAgentHea
         store.markComplete(callId, !answered && error != null && !error.isBlank() && !summary.get().complete());
         listeners.forEach(listener -> listener.callIngested(callId));
         notifications.statementsAppended(callId, summary.get().lastSeq(), true);
+        if (signals != null) {
+            signals.publish(List.of(callId)); // flags are final now
+        }
     }
 }

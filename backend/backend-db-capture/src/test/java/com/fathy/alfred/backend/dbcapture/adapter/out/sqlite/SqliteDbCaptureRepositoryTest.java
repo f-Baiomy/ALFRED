@@ -220,7 +220,7 @@ class SqliteDbCaptureRepositoryTest {
         assertThat(lines.get(0).cut()).isTrue();
         assertThat(repo.logLines("call-l", 2, 100)).extracting(CaughtLogLine::message).containsExactly("slow");
         assertThat(repo.logCounts(List.of("call-l", "call-n"))).containsOnlyKeys("call-l")
-                .extractingByKey("call-l").isEqualTo(new CaughtLogCounts(2, 1, 1, 3));
+                .extractingByKey("call-l").isEqualTo(new CaughtLogCounts(2, 1, 1, 3, 1));
         assertThat(repo.outsideLogLines("odeysys", null, 0, 10)).extracting(CaughtLogLine::message).containsExactly("job fired");
         assertThat(repo.outsideLogLines("odeysys", "other", 0, 10)).isEmpty();
 

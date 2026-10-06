@@ -5,7 +5,7 @@ import { analysisOf, childrenOf, dbSummaries, loadCapture, nonNoteFindings } fro
 import { emptyResultOf, layoutSpacers, softFailureOf, type CallRecord, type Comment, type CommentCount, type CycleSpacer } from './frontend.ts';
 import { maskCall, maskContext, maskMeta, maskText, type MaskContext } from './masking.ts';
 import { ok, preview, REPLY_BUDGET, text, type ToolReply } from './reply.ts';
-import { attentionLine, triageOrNull } from './triage.ts';
+import { attentionLine, chunks, MAX_IDS, triageOrNull } from './triage.ts';
 import type { TriageEntry } from './frontend.ts';
 
 /**
@@ -109,8 +109,9 @@ export async function cycleStory(client: AlfredClient, input: StoryInput): Promi
   const summaries = needsDb ? await dbSummaries(client, pageEntries.filter((e) => e.call.source === 'internal').map((e) => e.call.id)) : {};
   // One counts request for the whole page; comment text is fetched only for calls that have some.
   const needsComments = input.includeComments || wants('comments');
-  const commentCounts = needsComments && pageEntries.length
-    ? await client.get<Record<string, CommentCount>>('/comments/counts', { query: { callIds: pageEntries.map((e) => e.call.id).join(',') } })
+  const commentCounts: Record<string, CommentCount> = needsComments && pageEntries.length
+    ? Object.assign({}, ...await Promise.all(chunks(pageEntries.map((e) => e.call.id), MAX_IDS).map((ids) =>
+      client.get<Record<string, CommentCount>>('/comments/counts', { query: { callIds: ids.join(',') } }))))
     : {};
 
   // Response bodies are read once per call and shared: the page's own calls and the supplier calls

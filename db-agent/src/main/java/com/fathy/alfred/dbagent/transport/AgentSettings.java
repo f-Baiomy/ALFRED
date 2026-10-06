@@ -35,6 +35,8 @@ public final class AgentSettings {
      * after its check, and the agent never changes what it logs.
      */
     private volatile int logMinRank = LOG_ERROR;
+    /** The setting's name as applied (ERROR when none or unknown) - sent on each CALL_OPEN (specs/010, per-call level). */
+    private volatile String logLevelName = "ERROR";
     public static final int LOG_ERROR = 5;
     /** Per-SQL answers of {@link #ignored}: matching compiles regexes, far too slow to repeat for every statement.
      *  Replaced (not cleared) when the patterns change, so a reader never mixes old and new answers. */
@@ -62,8 +64,14 @@ public final class AgentSettings {
     }
 
     /** ERROR, WARN, INFO, DEBUG, TRACE or APP (the application's own level); anything else, or none, is ERROR. */
+    public String logLevelName() {
+        return logLevelName;
+    }
+
     public void applyLogLevel(String level) {
-        this.logMinRank = levelSetting(level);
+        int rank = levelSetting(level);
+        this.logMinRank = rank;
+        this.logLevelName = rank == 0 ? "APP" : new String[]{"APP", "TRACE", "DEBUG", "INFO", "WARN", "ERROR"}[rank];
     }
 
     static int levelSetting(String level) {

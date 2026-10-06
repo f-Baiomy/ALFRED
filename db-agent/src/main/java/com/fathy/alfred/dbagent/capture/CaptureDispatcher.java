@@ -134,7 +134,7 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
             }
             ContextPropagation.set(context);
             sink.marker(new MarkerRecord(context.callId, 0, "CALL_OPEN", Instant.now().toString(), null, null, Thread.currentThread().getName(),
-                    context.logs));
+                    context.logs, context.logs ? settings.logLevelName() : null));
             return logRestore == null ? context : new Entered(context, logRestore);
         } catch (Throwable t) {
             AgentLog.failure("servlet entry", t);

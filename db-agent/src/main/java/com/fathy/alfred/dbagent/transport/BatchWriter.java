@@ -30,6 +30,9 @@ public final class BatchWriter {
                     .field("at", m.at).field("method", m.method).field("url", m.url).field("thread", m.thread);
             if (m.logs) {
                 w.name("logs").value(true);
+                if (m.logLevel != null) {
+                    w.name("logLevel").value(m.logLevel);
+                }
             }
             w.endObject();
         }

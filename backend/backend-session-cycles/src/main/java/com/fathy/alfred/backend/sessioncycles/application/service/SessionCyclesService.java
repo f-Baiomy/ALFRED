@@ -76,6 +76,14 @@ public class SessionCyclesService implements
         MoveCycleSpacerUseCase,
         DeleteCycleSpacerUseCase {
 
+    /** Told about calls copied in (imports): triage marks them like recorded ones (specs/010, FR-018). */
+    private List<com.fathy.alfred.backend.sessioncycles.application.port.out.CopiedCallsObserverPort> copiedObservers = List.of();
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setCopiedObservers(List<com.fathy.alfred.backend.sessioncycles.application.port.out.CopiedCallsObserverPort> observers) {
+        this.copiedObservers = observers == null ? List.of() : observers;
+    }
+
     private final SessionCycleMetadataStorePort metadataStore;
     private final CapturedCallsStorePort capturedCallsStore;
     private final CycleSpacersStorePort spacersStore;
@@ -393,16 +401,19 @@ public class SessionCyclesService implements
 
             int added = 0;
             int skipped = 0;
+            List<CallRecord> copied = new java.util.ArrayList<>();
             for (CallRecord call : calls) {
                 if (!existingIds.add(call.id())) {
                     skipped++;
                     continue;
                 }
+                copied.add(call);
                 capturedCallsStore.append(cycleId, call);
                 added++;
             }
             if (added > 0) {
                 notificationPort.notifyCycleContentChanged(cycleId);
+                copiedObservers.forEach(observer -> observer.outboundCopied(cycleId, copied));
             }
             return new CopyCallsResult(added, skipped);
         });

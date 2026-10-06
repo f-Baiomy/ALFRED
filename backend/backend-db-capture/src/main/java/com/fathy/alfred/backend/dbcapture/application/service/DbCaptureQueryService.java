@@ -1,5 +1,10 @@
 package com.fathy.alfred.backend.dbcapture.application.service;
 
+import com.fathy.alfred.backend.dbcapture.domain.DeadlineCharSequence;
+import com.fathy.alfred.backend.dbcapture.domain.LogLevels;
+import com.fathy.alfred.backend.dbcapture.domain.model.LogSearchPage;
+import com.fathy.alfred.backend.dbcapture.domain.model.LogSearchQuery;
+import com.fathy.alfred.backend.dbcapture.domain.model.LogProblemCall;
 import com.fathy.alfred.backend.dbcapture.application.port.in.CallLogLinesUseCase;
 import com.fathy.alfred.backend.dbcapture.domain.model.CaughtLogCounts;
 import com.fathy.alfred.backend.dbcapture.domain.model.CaughtLogLine;
@@ -31,6 +36,9 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.regex.PatternSyntaxException;
+import java.util.regex.Pattern;
+import java.util.Collection;
 import java.util.Map;
 import java.util.Optional;
 
@@ -54,6 +62,14 @@ public class DbCaptureQueryService implements GetCallDbSummariesUseCase, GetCall
 
     // ---- caught log lines (specs/009-agent-log-capture)
 
+    /** Imported calls hand their signals on like recorded ones (FR-018). Optional for tests. */
+    private CallSignalsPublisher signals;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setSignals(CallSignalsPublisher signals) {
+        this.signals = signals;
+    }
+
     @Override
     public boolean caughtFor(String callId) {
         return callId != null && !callId.isBlank() && store.catchesLogs(callId);
@@ -75,6 +91,9 @@ public class DbCaptureQueryService implements GetCallDbSummariesUseCase, GetCall
         store.deleteLogLines(callId); // importing the same call again replaces its lines
         store.saveLogLines(lines.stream().map(l -> new CaughtLogLine(0, callId, l.seq(), l.at(), l.level(), l.logger(), l.thread(), l.message(),
                 l.exceptionType(), l.exceptionMessage(), l.exceptionStack(), l.cut(), l.project())).limit(5_000).toList());
+        if (signals != null) {
+            signals.publish(List.of(callId));
+        }
     }
 
     @Override
@@ -85,6 +104,135 @@ public class DbCaptureQueryService implements GetCallDbSummariesUseCase, GetCall
     @Override
     public List<CaughtLogLine> outside(String project, String thread, long afterId, int limit) {
         return store.outsideLogLines(project, thread, Math.max(0, afterId), clampLogLimit(limit));
+    }
+
+    // ------------------------------------------------------------------ cross-call log reads (specs/010)
+
+    @Override
+    public LogSearchPage search(Collection<String> scope, LogSearchQuery query) {
+        if (query.text() != null && query.text().length() > LogSearchQuery.MAX_TEXT) {
+            throw new IllegalArgumentException("text is limited to " + LogSearchQuery.MAX_TEXT + " characters");
+        }
+        LogLevels.atOrAbove(query.minLevel()); // an unknown level is refused before any read
+        if (query.pattern() == null || query.pattern().isBlank()) {
+            return store.searchLogLines(scope, query);
+        }
+        if (query.pattern().length() > LogSearchQuery.MAX_PATTERN) {
+            throw new IllegalArgumentException("pattern is limited to " + LogSearchQuery.MAX_PATTERN + " characters");
+        }
+        Pattern pattern;
+        try {
+            pattern = Pattern.compile(query.pattern(), Pattern.CASE_INSENSITIVE);
+        } catch (PatternSyntaxException e) {
+            throw new IllegalArgumentException("not a valid pattern: " + e.getDescription());
+        }
+        return patternSearch(scope, query, pattern);
+    }
+
+    /**
+     * A pattern narrows through the text index by its longest literal run, then each candidate is matched in Java over
+     * a deadline-checking text - 2 s and 200,000 candidates at most, said in {@code cutShort} (research R3).
+     */
+    private LogSearchPage patternSearch(Collection<String> scope, LogSearchQuery query, Pattern pattern) {
+        String literal = longestLiteral(query.pattern());
+        long deadline = System.nanoTime() + PATTERN_BUDGET_MS * 1_000_000L;
+        List<CaughtLogLine> page = new ArrayList<>();
+        long total = 0;
+        long scanned = 0;
+        Long before = query.beforeId();
+        Long next = null;
+        String reason = null;
+        scan:
+        while (true) {
+            List<CaughtLogLine> batch = store.logCandidates(scope, query, literal, before, 1_000);
+            if (batch.isEmpty()) {
+                break;
+            }
+            for (CaughtLogLine line : batch) {
+                if (scanned >= PATTERN_MAX_CANDIDATES) {
+                    reason = "CANDIDATES";
+                    break scan;
+                }
+                scanned++;
+                boolean hit;
+                try {
+                    hit = pattern.matcher(new DeadlineCharSequence(searchText(line), deadline)).find();
+                } catch (DeadlineCharSequence.Expired e) {
+                    reason = "TIME";
+                    break scan;
+                }
+                if (hit) {
+                    total++;
+                    if (page.size() < query.limit()) {
+                        page.add(line);
+                    } else if (next == null) {
+                        next = page.get(page.size() - 1).id();
+                    }
+                }
+                if (System.nanoTime() > deadline) {
+                    reason = "TIME";
+                    break scan;
+                }
+            }
+            before = batch.get(batch.size() - 1).id();
+        }
+        return new LogSearchPage(total, List.copyOf(page), next, reason == null ? null : new LogSearchPage.CutShort(scanned, reason));
+    }
+
+    private static String searchText(CaughtLogLine l) {
+        return String.join("\n", Optional.ofNullable(l.message()).orElse(""), Optional.ofNullable(l.logger()).orElse(""),
+                Optional.ofNullable(l.thread()).orElse(""), Optional.ofNullable(l.exceptionType()).orElse(""),
+                Optional.ofNullable(l.exceptionMessage()).orElse(""));
+    }
+
+    /** The longest run of plain characters in a regex - what the text index can look for first; null when under 3. */
+    static String longestLiteral(String regex) {
+        String best = "";
+        StringBuilder run = new StringBuilder();
+        for (int i = 0; i < regex.length(); i++) {
+            char c = regex.charAt(i);
+            boolean quantified = i + 1 < regex.length() && "*?{".indexOf(regex.charAt(i + 1)) >= 0;
+            if (c == '\\' || "^$.|?*+()[]{}".indexOf(c) >= 0 || quantified) {
+                if (run.length() > best.length()) {
+                    best = run.toString();
+                }
+                run.setLength(0);
+                if (c == '\\') {
+                    i++; // an escape: \d, \w or an escaped character - never part of a literal run
+                }
+                continue;
+            }
+            run.append(c);
+        }
+        if (run.length() > best.length()) {
+            best = run.toString();
+        }
+        return best.length() >= 3 ? best : null;
+    }
+
+    @Override
+    public LogProblemsPage problems(Collection<String> scope, boolean withWarnings, Long fromMs, Long toMs, int limit) {
+        List<String> levels = withWarnings ? List.of("ERROR", "WARN") : List.of("ERROR");
+        int clamped = limit <= 0 ? 30 : Math.min(limit, MAX_PROBLEMS);
+        return new LogProblemsPage(store.logProblems(scope, levels, fromMs, toMs, clamped), store.logProblemCount(scope, levels, fromMs, toMs));
+    }
+
+    @Override
+    public List<LogProblemCall> problemCalls(Collection<String> scope, String fingerprint, int offset, int limit) {
+        if (fingerprint == null || !fingerprint.matches("[0-9a-f]{16}")) {
+            throw new IllegalArgumentException("fingerprint must be the 16 hex characters log_problems gives");
+        }
+        return store.logProblemCalls(scope, fingerprint, offset, limit <= 0 ? 50 : Math.min(limit, 200));
+    }
+
+    @Override
+    public List<CaughtLogLine> outside(String project, String thread, long afterId, int limit, Long fromMs, Long toMs, String minLevel) {
+        return store.outsideLogLines(project, thread, Math.max(0, afterId), clampLogLimit(limit), fromMs, toMs, LogLevels.atOrAbove(minLevel));
+    }
+
+    @Override
+    public Optional<String> capturedLevel(String callId) {
+        return callId == null || callId.isBlank() ? Optional.empty() : store.callLogLevel(callId);
     }
 
     private static int clampLogLimit(int limit) {

@@ -200,6 +200,13 @@ export class FakeAlfred {
 
   private async handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url!, 'http://x');
+    // The gateway (nginx) refuses a request line over 8 KB - about 200 call ids in a query string.
+    if (req.url!.length > 8_000) {
+      this.log.push({ method: req.method!, path: url.pathname, query: url.searchParams, body: undefined });
+      res.writeHead(414, { 'Content-Type': 'text/html' });
+      res.end('<html>414 Request-URI Too Large</html>');
+      return;
+    }
     const chunks: Buffer[] = [];
     for await (const chunk of req) chunks.push(chunk as Buffer);
     const raw = Buffer.concat(chunks).toString('utf8');

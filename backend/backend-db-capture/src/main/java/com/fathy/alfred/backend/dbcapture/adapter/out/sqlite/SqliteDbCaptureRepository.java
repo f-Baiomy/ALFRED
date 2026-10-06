@@ -11,6 +11,10 @@ import com.fathy.alfred.backend.dbcapture.domain.model.CallDbSummary;
 import com.fathy.alfred.backend.dbcapture.domain.model.CallMarker;
 import com.fathy.alfred.backend.dbcapture.domain.model.CaughtLogCounts;
 import com.fathy.alfred.backend.dbcapture.domain.model.CaughtLogLine;
+import com.fathy.alfred.backend.dbcapture.domain.model.LogProblemCall;
+import com.fathy.alfred.backend.dbcapture.domain.model.LogProblem;
+import com.fathy.alfred.backend.dbcapture.domain.model.LogSearchQuery;
+import com.fathy.alfred.backend.dbcapture.domain.model.LogSearchPage;
 import com.fathy.alfred.backend.dbcapture.domain.model.CallOnThread;
 import com.fathy.alfred.backend.dbcapture.domain.model.CapturedStatement;
 import com.fathy.alfred.backend.dbcapture.domain.model.Column;
@@ -226,6 +230,14 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
                 )
                 """);
         addColumnIfMissing("call_markers", "logs", "INTEGER");
+        // specs/010-mcp-log-investigation: grouping (fingerprint), search (FTS5 trigram), exception counts, per-call level
+        addColumnIfMissing("call_markers", "log_level", "TEXT");
+        addColumnIfMissing("call_log_summary", "exceptions", "INTEGER NOT NULL DEFAULT 0");
+        addColumnIfMissing("call_log_lines", "fingerprint", "TEXT");
+        // grouping reads only ERROR/WARN lines: by level first, so a range of them is read, never every INFO line
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS ix_log_lines_fp ON call_log_lines(level, fingerprint, at_ms)");
+        boolean freshText = createLogTextIndex();
+        startLogBackfill(freshText);
         jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS capture_settings (project TEXT PRIMARY KEY, settings_json TEXT NOT NULL)");
         jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS agents (agent_id TEXT PRIMARY KEY, project TEXT NOT NULL, status_json TEXT NOT NULL, last_seen TEXT NOT NULL)");
     }
@@ -349,9 +361,9 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
         }
         List<Object[]> args = markers.stream()
                 .map(m -> new Object[]{m.callId(), m.seq(), m.type().name(), m.at() == null ? Instant.now().toString() : m.at(), m.method(), m.url(), m.thread(),
-                        Boolean.TRUE.equals(m.logs()) ? 1 : null})
+                        Boolean.TRUE.equals(m.logs()) ? 1 : null, m.logLevel()})
                 .toList();
-        jdbcTemplate.batchUpdate("INSERT OR IGNORE INTO call_markers (call_id, seq, type, at, method, url, thread, logs) VALUES (?,?,?,?,?,?,?,?)", args);
+        jdbcTemplate.batchUpdate("INSERT OR IGNORE INTO call_markers (call_id, seq, type, at, method, url, thread, logs, log_level) VALUES (?,?,?,?,?,?,?,?,?)", args);
     }
 
     // ------------------------------------------------------------------ caught log lines (specs/009-agent-log-capture)
@@ -367,25 +379,112 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
         }
         transactions.executeWithoutResult(status -> {
             List<Object[]> args = lines.stream().map(l -> new Object[]{l.callId(), l.callId() == null ? 0 : l.seq(), at(l.at()), atMs(l.at()), l.level(),
-                    l.logger(), l.thread(), l.message(), exceptionJson(l), l.cut() ? 1 : 0, l.project(), approxBytes(l)}).toList();
-            jdbcTemplate.batchUpdate("INSERT INTO call_log_lines (call_id, seq, at, at_ms, level, logger, thread, message, exception_json, cut, project, approx_bytes) "
-                    + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", args);
+                    l.logger(), l.thread(), l.message(), exceptionJson(l), l.cut() ? 1 : 0, l.project(), approxBytes(l),
+                    fingerprintOf(l.logger(), l.exceptionType(), l.message())}).toList();
+            jdbcTemplate.batchUpdate("INSERT INTO call_log_lines (call_id, seq, at, at_ms, level, logger, thread, message, exception_json, cut, project, approx_bytes, fingerprint) "
+                    + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", args);
             Map<String, int[]> perCall = new LinkedHashMap<>();
             for (CaughtLogLine l : lines) {
                 if (l.callId() != null) {
-                    int[] c = perCall.computeIfAbsent(l.callId(), k -> new int[3]);
+                    int[] c = perCall.computeIfAbsent(l.callId(), k -> new int[4]);
                     c[0]++;
                     c[1] += l.error() ? 1 : 0;
                     c[2] += l.warning() ? 1 : 0;
+                    c[3] += l.exceptionType() != null ? 1 : 0;
                 }
             }
             for (Map.Entry<String, int[]> e : perCall.entrySet()) {
-                jdbcTemplate.update("INSERT INTO call_log_summary (call_id, lines, errors, warnings) VALUES (?,?,?,?) ON CONFLICT(call_id) DO UPDATE SET "
-                        + "lines = lines + excluded.lines, errors = errors + excluded.errors, warnings = warnings + excluded.warnings",
-                        e.getKey(), e.getValue()[0], e.getValue()[1], e.getValue()[2]);
+                jdbcTemplate.update("INSERT INTO call_log_summary (call_id, lines, errors, warnings, exceptions) VALUES (?,?,?,?,?) ON CONFLICT(call_id) DO UPDATE SET "
+                        + "lines = lines + excluded.lines, errors = errors + excluded.errors, warnings = warnings + excluded.warnings, "
+                        + "exceptions = exceptions + excluded.exceptions",
+                        e.getKey(), e.getValue()[0], e.getValue()[1], e.getValue()[2], e.getValue()[3]);
             }
         });
         lines.stream().filter(l -> l.callId() == null).map(CaughtLogLine::project).distinct().forEach(this::trimOutsideLogLines);
+    }
+
+    /**
+     * call_log_text: a contentless FTS5 trigram index over each line's message, logger, thread and exception (type and
+     * message), keyed by the line's id - substring search over millions of lines without a scan (research R3). Triggers
+     * keep it in step, so every delete of lines (retention, a call re-imported, outside-line trimming) needs no extra
+     * statement. Contentless: the text stays in call_log_lines only.
+     *
+     * @return true when the index was created just now (existing lines still to be added)
+     */
+    private boolean createLogTextIndex() {
+        boolean exists = !jdbcTemplate.queryForList("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'call_log_text'", String.class).isEmpty();
+        if (!exists) {
+            jdbcTemplate.execute("CREATE VIRTUAL TABLE call_log_text USING fts5(message, logger, thread, exception, "
+                    + "content='', contentless_delete=1, tokenize='trigram')");
+        }
+        jdbcTemplate.execute("CREATE TRIGGER IF NOT EXISTS call_log_text_ai AFTER INSERT ON call_log_lines BEGIN "
+                + "INSERT INTO call_log_text(rowid, message, logger, thread, exception) VALUES (new.id, new.message, new.logger, new.thread, "
+                + LOG_EXCEPTION_TEXT.replace("$row", "new") + "); END");
+        jdbcTemplate.execute("CREATE TRIGGER IF NOT EXISTS call_log_text_ad AFTER DELETE ON call_log_lines BEGIN "
+                + "DELETE FROM call_log_text WHERE rowid = old.id; END");
+        return !exists;
+    }
+
+    /** The exception's searchable text: its type and message from exception_json. */
+    private static final String LOG_EXCEPTION_TEXT =
+            "CASE WHEN $row.exception_json IS NULL THEN NULL ELSE coalesce(json_extract($row.exception_json, '$.type'), '') || ' ' "
+            + "|| coalesce(json_extract($row.exception_json, '$.message'), '') END";
+    private static final int BACKFILL_BATCH = 5_000;
+
+    /**
+     * Lines stored before this version get their fingerprint (and, when the text index is new, their index rows) in the
+     * background, a batch at a time - start-up is never held by a big db-capture.db.
+     */
+    private void startLogBackfill(boolean fillText) {
+        long maxId = Optional.ofNullable(jdbcTemplate.queryForObject("SELECT max(id) FROM call_log_lines", Long.class)).orElse(0L);
+        boolean fingerprints = !jdbcTemplate.queryForList("SELECT 1 FROM call_log_lines WHERE fingerprint IS NULL LIMIT 1", Integer.class).isEmpty();
+        if (maxId == 0 || (!fillText && !fingerprints)) {
+            return;
+        }
+        Thread t = new Thread(() -> {
+            try {
+                backfillLogs(fillText, maxId);
+            } catch (RuntimeException e) {
+                log.warn("Backfilling log fingerprints/search index stopped: {}", e.getMessage());
+            }
+        }, "db-capture-log-backfill");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    void backfillLogs(boolean fillText, long maxId) {
+        for (long from = 0; from < maxId; from += BACKFILL_BATCH) {
+            long lo = from;
+            long hi = from + BACKFILL_BATCH;
+            transactions.executeWithoutResult(status -> {
+                List<Object[]> fps = jdbcTemplate.query("SELECT id, logger, exception_json, message FROM call_log_lines "
+                                + "WHERE id > ? AND id <= ? AND fingerprint IS NULL",
+                        (rs, n) -> new Object[]{fingerprintOf(rs.getString(2), exceptionTypeOf(rs.getString(3)), rs.getString(4)), rs.getLong(1)}, lo, hi);
+                if (!fps.isEmpty()) {
+                    jdbcTemplate.batchUpdate("UPDATE call_log_lines SET fingerprint = ? WHERE id = ?", fps);
+                }
+                if (fillText) {
+                    jdbcTemplate.update("INSERT INTO call_log_text(rowid, message, logger, thread, exception) SELECT id, message, logger, thread, "
+                            + LOG_EXCEPTION_TEXT.replace("$row", "call_log_lines") + " FROM call_log_lines WHERE id > ? AND id <= ?", lo, hi);
+                }
+            });
+        }
+    }
+
+    private String exceptionTypeOf(String exceptionJson) {
+        if (exceptionJson == null) {
+            return null;
+        }
+        try {
+            Object type = objectMapper.readValue(exceptionJson, Map.class).get("type");
+            return type == null ? null : type.toString();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static String fingerprintOf(String logger, String exceptionType, String message) {
+        return com.fathy.alfred.backend.dbcapture.domain.LogFingerprint.of(logger, exceptionType, message);
     }
 
     private void trimOutsideLogLines(String project) {
@@ -431,9 +530,9 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
         for (int i = 0; i < ids.size(); i += IN_CHUNK) {
             List<String> chunk = ids.subList(i, Math.min(ids.size(), i + IN_CHUNK));
             String in = chunk.stream().map(x -> "?").collect(Collectors.joining(","));
-            jdbcTemplate.query("SELECT call_id, lines, errors, warnings, dropped FROM call_log_summary WHERE call_id IN (" + in + ")",
+            jdbcTemplate.query("SELECT call_id, lines, errors, warnings, dropped, exceptions FROM call_log_summary WHERE call_id IN (" + in + ")",
                     rs -> {
-                        out.put(rs.getString(1), new CaughtLogCounts(rs.getInt(2), rs.getInt(3), rs.getInt(4), rs.getInt(5)));
+                        out.put(rs.getString(1), new CaughtLogCounts(rs.getInt(2), rs.getInt(3), rs.getInt(4), rs.getInt(5), rs.getInt(6)));
                     }, chunk.toArray());
         }
         return out;
@@ -443,6 +542,273 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
     public boolean catchesLogs(String callId) {
         return !jdbcTemplate.queryForList("SELECT 1 FROM call_markers WHERE call_id = ? AND seq = 0 AND logs = 1 LIMIT 1", Integer.class, callId).isEmpty()
                 || !jdbcTemplate.queryForList("SELECT 1 FROM call_log_lines WHERE call_id = ? LIMIT 1", Integer.class, callId).isEmpty();
+    }
+
+    // ------------------------------------------------------------------ cross-call log reads (specs/010)
+
+    /**
+     * Runs {@code query} on one connection with the scope's call ids in a TEMP table (scope_ids) - a scope of thousands
+     * of calls is joined, never spelled out as an IN list. A null scope leaves the table out ({@code scoped} false).
+     */
+    private <T> T withScope(Collection<String> scope, java.util.function.BiFunction<JdbcTemplate, Boolean, T> query) {
+        if (scope == null) {
+            return query.apply(jdbcTemplate, false);
+        }
+        return jdbcTemplate.execute((org.springframework.jdbc.core.ConnectionCallback<T>) connection -> {
+            var single = new JdbcTemplate(new org.springframework.jdbc.datasource.SingleConnectionDataSource(connection, true));
+            single.execute("CREATE TEMP TABLE IF NOT EXISTS scope_ids (call_id TEXT PRIMARY KEY)");
+            single.execute("DELETE FROM temp.scope_ids");
+            List<String> ids = new ArrayList<>(new java.util.LinkedHashSet<>(scope));
+            for (int i = 0; i < ids.size(); i += IN_CHUNK) {
+                List<String> chunk = ids.subList(i, Math.min(ids.size(), i + IN_CHUNK));
+                single.update("INSERT OR IGNORE INTO temp.scope_ids (call_id) VALUES " + chunk.stream().map(x -> "(?)").collect(Collectors.joining(",")),
+                        chunk.toArray());
+            }
+            try {
+                return query.apply(single, true);
+            } finally {
+                single.execute("DELETE FROM temp.scope_ids");
+            }
+        });
+    }
+
+    /** The WHERE of a log search (without its text) and its arguments. */
+    private record LogWhere(String sql, List<Object> args) {
+    }
+
+    private LogWhere logWhere(LogSearchQuery q, boolean scoped) {
+        List<String> parts = new ArrayList<>();
+        List<Object> args = new ArrayList<>();
+        if (scoped) {
+            parts.add(q.outside() ? "(l.call_id IN (SELECT call_id FROM temp.scope_ids) OR l.call_id IS NULL)"
+                    : "l.call_id IN (SELECT call_id FROM temp.scope_ids)");
+        } else if (!q.outside()) {
+            parts.add("l.call_id IS NOT NULL");
+        }
+        List<String> levels = com.fathy.alfred.backend.dbcapture.domain.LogLevels.atOrAbove(q.minLevel());
+        if (levels != null) {
+            parts.add("upper(l.level) IN (" + levels.stream().map(x -> "?").collect(Collectors.joining(",")) + ")");
+            args.addAll(levels);
+        }
+        if (q.logger() != null && !q.logger().isBlank()) {
+            parts.add("l.logger LIKE ? ESCAPE '\\'");
+            args.add("%" + likeEscape(q.logger().strip()) + "%");
+        }
+        if (q.exceptionType() != null && !q.exceptionType().isBlank()) {
+            parts.add("json_extract(l.exception_json, '$.type') LIKE ? ESCAPE '\\'");
+            args.add("%" + likeEscape(q.exceptionType().strip()) + "%");
+        }
+        if (q.fromMs() != null) {
+            parts.add("l.at_ms >= ?");
+            args.add(q.fromMs());
+        }
+        if (q.toMs() != null) {
+            parts.add("l.at_ms <= ?");
+            args.add(q.toMs());
+        }
+        return new LogWhere(parts.isEmpty() ? "1" : String.join(" AND ", parts), args);
+    }
+
+    private static String likeEscape(String s) {
+        return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+    }
+
+    /** The text condition: the trigram index for 3+ characters (a quoted phrase - input is always literal), LIKE below. */
+    private static void addText(String text, List<String> parts, List<Object> args) {
+        if (text == null || text.isBlank()) {
+            return;
+        }
+        if (text.codePointCount(0, text.length()) >= 3) {
+            parts.add("l.id IN (SELECT rowid FROM call_log_text WHERE call_log_text MATCH ?)");
+            args.add("\"" + text.replace("\"", "\"\"") + "\"");
+        } else {
+            String like = "%" + likeEscape(text) + "%";
+            parts.add("(l.message LIKE ? ESCAPE '\\' OR l.logger LIKE ? ESCAPE '\\' OR l.thread LIKE ? ESCAPE '\\' OR l.exception_json LIKE ? ESCAPE '\\')");
+            args.addAll(List.of(like, like, like, like));
+        }
+    }
+
+    private static final String LOG_COLUMNS_L = "l.id, l.call_id, l.seq, l.at, l.level, l.logger, l.thread, l.message, l.exception_json, l.cut, l.project";
+
+    @Override
+    public LogSearchPage searchLogLines(Collection<String> scope, LogSearchQuery q) {
+        return withScope(scope, (jdbc, scoped) -> {
+            LogWhere where = logWhere(q, scoped);
+            List<String> parts = new ArrayList<>(List.of(where.sql()));
+            List<Object> args = new ArrayList<>(where.args());
+            addText(q.text(), parts, args);
+            String condition = String.join(" AND ", parts);
+            Long total = jdbc.queryForObject("SELECT count(*) FROM call_log_lines l WHERE " + condition, Long.class, args.toArray());
+            List<Object> pageArgs = new ArrayList<>(args);
+            String cursor = "";
+            if (q.beforeId() != null) {
+                cursor = " AND l.id < ?";
+                pageArgs.add(q.beforeId());
+            }
+            pageArgs.add(q.limit() + 1);
+            List<CaughtLogLine> lines = jdbc.query("SELECT " + LOG_COLUMNS_L + " FROM call_log_lines l WHERE " + condition + cursor
+                    + " ORDER BY l.id DESC LIMIT ?", this::logLine, pageArgs.toArray());
+            Long next = null;
+            if (lines.size() > q.limit()) {
+                lines = lines.subList(0, q.limit());
+                next = lines.get(lines.size() - 1).id();
+            }
+            return new LogSearchPage(total == null ? 0 : total, List.copyOf(lines), next, null);
+        });
+    }
+
+    @Override
+    public List<CaughtLogLine> logCandidates(Collection<String> scope, LogSearchQuery q, String literal, Long beforeId, int batch) {
+        return withScope(scope, (jdbc, scoped) -> {
+            LogWhere where = logWhere(q, scoped);
+            List<String> parts = new ArrayList<>(List.of(where.sql()));
+            List<Object> args = new ArrayList<>(where.args());
+            if (literal != null && literal.codePointCount(0, literal.length()) >= 3) {
+                addText(literal, parts, args);
+            }
+            if (beforeId != null) {
+                parts.add("l.id < ?");
+                args.add(beforeId);
+            }
+            args.add(batch);
+            return jdbc.query("SELECT " + LOG_COLUMNS_L + " FROM call_log_lines l WHERE " + String.join(" AND ", parts) + " ORDER BY l.id DESC LIMIT ?",
+                    this::logLine, args.toArray());
+        });
+    }
+
+    private static String levelIn(Collection<String> levels, List<Object> args) {
+        List<String> names = levels.stream().map(x -> x.toUpperCase(java.util.Locale.ROOT)).toList();
+        args.addAll(names);
+        return "l.level IN (" + names.stream().map(x -> "?").collect(Collectors.joining(",")) + ")";
+    }
+
+    /** The WHERE of a grouping read: problems are lines of a call or outside one, with a fingerprint, at these levels. */
+    private static String problemWhere(Collection<String> levels, Long fromMs, Long toMs, boolean scoped, List<Object> args) {
+        StringBuilder sql = new StringBuilder(levelIn(levels, args)).append(" AND l.fingerprint IS NOT NULL");
+        if (scoped) {
+            sql.append(" AND l.call_id IN (SELECT call_id FROM temp.scope_ids)");
+        }
+        if (fromMs != null) {
+            sql.append(" AND l.at_ms >= ?");
+            args.add(fromMs);
+        }
+        if (toMs != null) {
+            sql.append(" AND l.at_ms <= ?");
+            args.add(toMs);
+        }
+        return sql.toString();
+    }
+
+    /** The spellings of exactly these ranks: ERROR = ERROR/FATAL/SEVERE, WARN = WARN/WARNING. */
+    private static List<String> withLevelSpellings(Collection<String> levels) {
+        java.util.Set<String> out = new java.util.LinkedHashSet<>();
+        for (String level : levels) {
+            List<String> upTo = com.fathy.alfred.backend.dbcapture.domain.LogLevels.atOrAbove(level);
+            out.addAll(upTo);
+        }
+        return List.copyOf(out);
+    }
+
+    @Override
+    public List<LogProblem> logProblems(Collection<String> scope, Collection<String> levels, Long fromMs, Long toMs, int limit) {
+        List<String> names = withLevelSpellings(levels);
+        return withScope(scope, (jdbc, scoped) -> {
+            List<Object> args = new ArrayList<>();
+            String where = problemWhere(names, fromMs, toMs, scoped, args);
+            args.add(limit);
+            List<Object[]> groups = jdbc.query("SELECT l.fingerprint, max(l.id), count(*), count(DISTINCT l.call_id), min(l.at_ms), max(l.at_ms) "
+                    + "FROM call_log_lines l WHERE " + where
+                    + " GROUP BY l.fingerprint ORDER BY count(*) DESC, max(l.at_ms) DESC LIMIT ?",
+                    (rs, n) -> new Object[]{rs.getString(1), rs.getLong(2), rs.getLong(3), rs.getLong(4), rs.getLong(5), rs.getLong(6)}, args.toArray());
+            List<LogProblem> out = new ArrayList<>();
+            for (Object[] g : groups) {
+                CaughtLogLine sample = jdbc.query("SELECT " + LOG_COLUMNS + " FROM call_log_lines WHERE id = ?", this::logLine, g[1]).stream()
+                        .findFirst().orElse(null);
+                List<Object> callArgs = new ArrayList<>();
+                callArgs.add(g[0]);
+                String scopePart = scoped ? " AND call_id IN (SELECT call_id FROM temp.scope_ids)" : "";
+                List<String> callIds = jdbc.queryForList("SELECT call_id FROM call_log_lines WHERE fingerprint = ? "
+                        + "AND level IN (" + names.stream().map(x -> "?").collect(Collectors.joining(",")) + ") AND call_id IS NOT NULL" + scopePart
+                        + " GROUP BY call_id ORDER BY max(at_ms) DESC LIMIT 200", String.class,
+                        java.util.stream.Stream.concat(callArgs.stream(), names.stream()).toArray());
+                out.add(new LogProblem((String) g[0], sample, (Long) g[2], (Long) g[3], (Long) g[4], (Long) g[5], callIds));
+            }
+            return out;
+        });
+    }
+
+    @Override
+    public long logProblemCount(Collection<String> scope, Collection<String> levels, Long fromMs, Long toMs) {
+        List<String> names = withLevelSpellings(levels);
+        return withScope(scope, (jdbc, scoped) -> {
+            List<Object> args = new ArrayList<>();
+            String where = problemWhere(names, fromMs, toMs, scoped, args);
+            Long n = jdbc.queryForObject("SELECT count(DISTINCT l.fingerprint) FROM call_log_lines l WHERE " + where,
+                    Long.class, args.toArray());
+            return n == null ? 0L : n;
+        });
+    }
+
+    @Override
+    public List<LogProblemCall> logProblemCalls(Collection<String> scope, String fingerprint, int offset, int limit) {
+        List<String> names = withLevelSpellings(List.of("ERROR", "WARN"));
+        String levels = names.stream().map(x -> "'" + x + "'").collect(Collectors.joining(","));
+        return withScope(scope, (jdbc, scoped) -> jdbc.query("SELECT call_id, count(*), min(at_ms) FROM call_log_lines WHERE level IN (" + levels
+                        + ") AND fingerprint = ? AND call_id IS NOT NULL"
+                        + (scoped ? " AND call_id IN (SELECT call_id FROM temp.scope_ids)" : "")
+                        + " GROUP BY call_id ORDER BY min(at_ms) DESC LIMIT ? OFFSET ?",
+                (rs, n) -> new LogProblemCall(rs.getString(1), rs.getLong(2), rs.getLong(3)), fingerprint, limit, Math.max(0, offset)));
+    }
+
+    @Override
+    public List<CaughtLogLine> outsideLogLines(String project, String thread, long afterId, int limit, Long fromMs, Long toMs, Collection<String> levels) {
+        StringBuilder sql = new StringBuilder("SELECT " + LOG_COLUMNS + " FROM call_log_lines WHERE call_id IS NULL AND project IS ? AND id > ?");
+        List<Object> args = new ArrayList<>(List.of(project == null ? "" : project, afterId));
+        if (project == null) {
+            args.set(0, null);
+        }
+        if (thread != null && !thread.isBlank()) {
+            sql.append(" AND thread = ?");
+            args.add(thread);
+        }
+        if (fromMs != null) {
+            sql.append(" AND at_ms >= ?");
+            args.add(fromMs);
+        }
+        if (toMs != null) {
+            sql.append(" AND at_ms <= ?");
+            args.add(toMs);
+        }
+        if (levels != null && !levels.isEmpty()) {
+            sql.append(" AND upper(level) IN (").append(levels.stream().map(x -> "?").collect(Collectors.joining(","))).append(")");
+            args.addAll(levels);
+        }
+        sql.append(" ORDER BY id LIMIT ?");
+        args.add(limit);
+        return jdbcTemplate.query(sql.toString(), this::logLine, args.toArray());
+    }
+
+    @Override
+    public List<String> callIdsOfProject(String project, long afterRowId, int limit) {
+        return jdbcTemplate.queryForList("SELECT call_id FROM call_db_summary WHERE project = ? AND rowid > ? ORDER BY rowid LIMIT ?",
+                String.class, project, afterRowId, limit);
+    }
+
+    @Override
+    public List<String> callIdsWithSignals(String afterCallId, int limit) {
+        return jdbcTemplate.queryForList("SELECT call_id FROM (SELECT call_id FROM call_db_summary UNION SELECT call_id FROM call_log_summary) "
+                + "WHERE call_id > ? ORDER BY call_id LIMIT ?", String.class, afterCallId == null ? "" : afterCallId, limit);
+    }
+
+    @Override
+    public long summaryRowId(String callId) {
+        return jdbcTemplate.queryForList("SELECT rowid FROM call_db_summary WHERE call_id = ?", Long.class, callId).stream().findFirst().orElse(0L);
+    }
+
+    @Override
+    public Optional<String> callLogLevel(String callId) {
+        return jdbcTemplate.queryForList("SELECT log_level FROM call_markers WHERE call_id = ? AND seq = 0 AND log_level IS NOT NULL LIMIT 1",
+                String.class, callId).stream().findFirst();
     }
 
     @Override

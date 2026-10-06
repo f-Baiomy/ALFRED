@@ -2,6 +2,10 @@ package com.fathy.alfred.backend.dbcapture.application.port.out;
 
 import com.fathy.alfred.backend.dbcapture.domain.model.CaughtLogCounts;
 import com.fathy.alfred.backend.dbcapture.domain.model.CaughtLogLine;
+import com.fathy.alfred.backend.dbcapture.domain.model.LogProblemCall;
+import com.fathy.alfred.backend.dbcapture.domain.model.LogProblem;
+import com.fathy.alfred.backend.dbcapture.domain.model.LogSearchQuery;
+import com.fathy.alfred.backend.dbcapture.domain.model.LogSearchPage;
 import com.fathy.alfred.backend.dbcapture.domain.model.AgentStatus;
 import com.fathy.alfred.backend.dbcapture.domain.model.CallDbSummary;
 import com.fathy.alfred.backend.dbcapture.domain.model.CallMarker;
@@ -104,6 +108,40 @@ public interface DbCaptureStorePort {
 
     /** The agent caught this call's lines (its CALL_OPEN said so), or it has stored lines (imported). */
     boolean catchesLogs(String callId);
+
+    // ---- cross-call reads of caught lines (specs/010-mcp-log-investigation). scope null = every stored line.
+
+    /** One page of lines matching the query's SQL filters and its literal {@code text} (not its pattern), newest first. */
+    LogSearchPage searchLogLines(Collection<String> scope, LogSearchQuery query);
+
+    /**
+     * Candidates for a pattern search: the query's SQL filters, narrowed through the text index by {@code literal}
+     * (≥ 3 characters, or null for none), newest first before {@code beforeId}.
+     */
+    List<CaughtLogLine> logCandidates(Collection<String> scope, LogSearchQuery query, String literal, Long beforeId, int batch);
+
+    /** ERROR/WARN lines grouped by fingerprint (levels: the level names to include), most lines first; [0] = groups in all. */
+    List<LogProblem> logProblems(Collection<String> scope, Collection<String> levels, Long fromMs, Long toMs, int limit);
+
+    long logProblemCount(Collection<String> scope, Collection<String> levels, Long fromMs, Long toMs);
+
+    /** The calls that had a log problem, newest first. */
+    List<LogProblemCall> logProblemCalls(Collection<String> scope, String fingerprint, int offset, int limit);
+
+    /** Outside-call lines of a project in a time window at or above a level (names), oldest first. */
+    List<CaughtLogLine> outsideLogLines(String project, String thread, long afterId, int limit, Long fromMs, Long toMs, Collection<String> levels);
+
+    /** Up to {@code limit} call ids of a project's summaries, in storage order after the summary row {@code afterRowId}. */
+    List<String> callIdsOfProject(String project, long afterRowId, int limit);
+
+    /** Call ids with a statement summary or caught log lines, in id order after {@code afterCallId} ("" for the start). */
+    List<String> callIdsWithSignals(String afterCallId, int limit);
+
+    /** The storage position of a call's summary row (for {@link #callIdsOfProject} paging); 0 when absent. */
+    long summaryRowId(String callId);
+
+    /** The Log level the agent applied when the call opened (its CALL_OPEN marker), if known. */
+    Optional<String> callLogLevel(String callId);
 
     /** The last {@code limit} captured calls opened on {@code thread} strictly before the ISO instant, newest first. */
     List<CallOnThread> callsBefore(String thread, String beforeInstant, int limit);

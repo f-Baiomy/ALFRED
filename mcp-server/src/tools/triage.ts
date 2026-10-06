@@ -8,7 +8,7 @@ import type { CallRecord, CallStatementFailures, CommentCount, TriageEntry } fro
 import { maskCall, maskContext, maskMeta, maskText, type MaskContext } from '../masking.ts';
 import { invalid, ok, REPLY_BUDGET, run, text } from '../reply.ts';
 import { resolveFrames } from '../source.ts';
-import { GROUP_TITLES, outcomeOf, statementFailuresOf, triageCounts, triageLive, triageOf } from '../triage.ts';
+import { GROUP_TITLES, MAX_IDS, outcomeOf, statementFailuresOf, triageCounts, triageLive, triageOf } from '../triage.ts';
 import { MaskSchema } from './cycles.ts';
 
 /**
@@ -99,14 +99,14 @@ async function signalsOf(client: AlfredClient, items: readonly Item[]): Promise<
   const ids = items.map((i) => i.entry?.callId ?? i.call?.id).filter((x): x is string => !!x);
   if (!ids.length) return signals;
   const counts: Record<string, CommentCount> = {};
-  for (let i = 0; i < ids.length; i += 500) {
-    Object.assign(counts, await client.get<Record<string, CommentCount>>('/comments/counts', { query: { callIds: ids.slice(i, i + 500).join(',') } }).catch(() => ({})));
+  for (let i = 0; i < ids.length; i += MAX_IDS) {
+    Object.assign(counts, await client.get<Record<string, CommentCount>>('/comments/counts', { query: { callIds: ids.slice(i, i + MAX_IDS).join(',') } }).catch(() => ({})));
   }
   for (const [id, c] of Object.entries(counts)) if (c.total) add(id, `💬 ${c.total}`);
   const inbound = items.filter((i) => (i.entry?.direction ?? (i.call?.source === 'internal' ? 'INBOUND' : 'OUTBOUND')) === 'INBOUND')
     .map((i) => i.entry?.callId ?? i.call!.id);
-  for (let i = 0; i < inbound.length; i += 500) {
-    const summaries = await dbSummaries(client, inbound.slice(i, i + 500)).catch(() => ({}));
+  for (let i = 0; i < inbound.length; i += MAX_IDS) {
+    const summaries = await dbSummaries(client, inbound.slice(i, i + MAX_IDS)).catch(() => ({}));
     for (const [id, s] of Object.entries(summaries)) {
       const flags = [...new Set(s.flags.filter((f) => SIGNAL_DB_FLAGS.has(f.type)).map((f) => f.type.toLowerCase().replace(/_/g, ' ')))];
       if (flags.length) add(id, `◆ DB ${flags.join(', ')}`);

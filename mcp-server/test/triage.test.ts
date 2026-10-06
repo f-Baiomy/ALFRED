@@ -214,3 +214,23 @@ test('the shared soft-failure vectors: the TypeScript gives what the file says (
     assert.deepEqual(empty ? [...empty.emptyKeys] : null, v.emptyKeys, v.name);
   }
 });
+
+test('triage over a big cycle never sends more call ids in one URL than the gateway accepts (414)', async () => {
+  const w = await world();
+  try {
+    const entries = w.fake.state.cycleEntries.get(CYCLE)!;
+    for (let i = 0; i < 250; i++) {
+      const record: CallRecord = {
+        id: `bulk-${String(i).padStart(4, '0')}-0000-0000-0000-000000000000`, method: 'GET', timestamp: at(100_000 + i), duration_ms: 5,
+        state: 'COMPLETED', source: 'internal', service_name: 'odeysys', original_url: 'http://localhost:8080/x', url: 'http://h:9001/x',
+        request: { headers: {}, body: '' }, response: { status: 200, headers: {}, body: '' },
+      };
+      w.fake.addCall('internal', record);
+      entries.push({ capturedId: `cap-${record.id}`, capturedAt: record.timestamp, source: 'internal', record });
+    }
+    const r = await w.call('triage', { cycle: 'at payment' });
+    assert.equal(r.isError, false, r.text);
+    const tooLong = w.fake.log.filter((q) => (q.query.get('callIds') ?? '').split(',').filter(Boolean).length > 100);
+    assert.deepEqual(tooLong.map((q) => q.path), []);
+  } finally { await w.close(); }
+});

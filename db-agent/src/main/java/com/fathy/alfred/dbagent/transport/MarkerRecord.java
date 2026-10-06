@@ -12,6 +12,8 @@ public final class MarkerRecord {
     public final String thread;
     /** CALL_OPEN only: the agent catches this call's log lines (log=1 - specs/009-agent-log-capture). */
     public final boolean logs;
+    /** CALL_OPEN with logs only: the Log level the agent applied to this call (specs/010-mcp-log-investigation). */
+    public final String logLevel;
 
     public MarkerRecord(String callId, int seq, String type, String at, String method, String url) {
         this(callId, seq, type, at, method, url, null);
@@ -22,7 +24,12 @@ public final class MarkerRecord {
     }
 
     public MarkerRecord(String callId, int seq, String type, String at, String method, String url, String thread, boolean logs) {
+        this(callId, seq, type, at, method, url, thread, logs, null);
+    }
+
+    public MarkerRecord(String callId, int seq, String type, String at, String method, String url, String thread, boolean logs, String logLevel) {
         this.logs = logs;
+        this.logLevel = logLevel;
         this.callId = callId;
         this.seq = seq;
         this.type = type;

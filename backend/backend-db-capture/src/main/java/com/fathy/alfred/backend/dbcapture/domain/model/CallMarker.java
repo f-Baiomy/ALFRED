@@ -11,15 +11,21 @@ import com.fasterxml.jackson.annotation.JsonInclude;
  * <p>{@code thread} (CALL_OPEN only): the request thread that handled the call - log lines of that thread within the
  * call's window belong to it (specs/008-logs-call-link). Null from agents before that. {@code logs} (CALL_OPEN only):
  * the agent caught this call's log lines (specs/009-agent-log-capture) - its lines come from here, not from log files.
+ * {@code logLevel} (CALL_OPEN with logs only): the Log level the agent applied to this call (specs/010).
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public record CallMarker(String callId, int seq, MarkerType type, String at, String method, String url, String thread, Boolean logs) {
+public record CallMarker(String callId, int seq, MarkerType type, String at, String method, String url, String thread, Boolean logs,
+                         String logLevel) {
+
+    public CallMarker(String callId, int seq, MarkerType type, String at, String method, String url, String thread, Boolean logs) {
+        this(callId, seq, type, at, method, url, thread, logs, null);
+    }
 
     public CallMarker(String callId, int seq, MarkerType type, String at, String method, String url) {
-        this(callId, seq, type, at, method, url, null, null);
+        this(callId, seq, type, at, method, url, null, null, null);
     }
 
     public CallMarker(String callId, int seq, MarkerType type, String at, String method, String url, String thread) {
-        this(callId, seq, type, at, method, url, thread, null);
+        this(callId, seq, type, at, method, url, thread, null, null);
     }
 }

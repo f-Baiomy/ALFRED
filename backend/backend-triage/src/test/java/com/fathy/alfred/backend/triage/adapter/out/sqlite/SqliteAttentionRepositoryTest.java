@@ -62,6 +62,16 @@ class SqliteAttentionRepositoryTest {
     }
 
     @Test
+    void signalsRoundTripAndAnOlderDatabaseGetsTheirColumns() {
+        CallAttention row = row("s1", "odeysys", null, 200, 1000, "COMPLETED", 4)
+                .withSignals(new com.fathy.alfred.backend.triage.domain.model.CallSignals(2, 1, 1, "CAUGHT", "WARN", List.of("SLOW", "REPEATED_QUERY")));
+        repo.save(row);
+        assertThat(repo.find("s1")).contains(row);
+        repo.save(row("s2", "odeysys", null, 200, 1000, "COMPLETED", 6));
+        assertThat(repo.find("s2").orElseThrow().signals()).isEqualTo(com.fathy.alfred.backend.triage.domain.model.CallSignals.NONE);
+    }
+
+    @Test
     void childrenAndFindAllReadManyCallsAtOnce() {
         repo.save(row("p1", "odeysys", null, 200, 1000, "COMPLETED", 6));
         repo.save(row("p2", "odeysys", null, 200, 2000, "COMPLETED", 6));

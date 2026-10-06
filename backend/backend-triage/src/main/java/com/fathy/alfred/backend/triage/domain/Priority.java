@@ -13,7 +13,8 @@ import java.util.Collection;
  *   <li>needs attention, and a supplier call of it needs attention too (or has an error inside a 2xx body)</li>
  *   <li>needs attention, with failed database statements</li>
  *   <li>needs attention, nothing under it failed</li>
- *   <li>succeeded, but a supplier call or a database statement under it failed - a hidden failure</li>
+ *   <li>succeeded, but a supplier call or a database statement under it failed, or it logged an ERROR line or an
+ *   exception (specs/010) - a hidden failure</li>
  *   <li>succeeded, with an error inside its own body or an empty result</li>
  *   <li>everything else</li>
  * </ol>
@@ -58,7 +59,7 @@ public final class Priority {
             }
             return statementsFailed ? 2 : 3;
         }
-        if (failingChildren > 0 || statementsFailed) {
+        if (failingChildren > 0 || statementsFailed || call.signals().logErrors() > 0 || call.signals().logExceptions() > 0) {
             return 4;
         }
         if (call.softFailure() != null || !call.emptyKeys().isEmpty()) {

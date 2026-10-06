@@ -89,6 +89,10 @@ class LogCaptureIT {
         assertThat(of("c-app")).hasSize(8);
         // a line below the level counts toward no cap: nothing dropped, the kept lines number from the call's start
         assertThat(SINK.droppedLogsOf("c-err")).isZero();
+        // each call says which level applied to it (specs/010: "below the level" names that call's level)
+        assertThat(SINK.markers()).filteredOn(m -> "CALL_OPEN".equals(m.type) && m.callId.startsWith("c-"))
+                .filteredOn(m -> m.callId.equals("c-err") || m.callId.equals("c-warn") || m.callId.equals("c-app"))
+                .extracting(m -> m.callId + "=" + m.logLevel).containsExactly("c-err=ERROR", "c-warn=WARN", "c-app=APP");
     }
 
     @Test

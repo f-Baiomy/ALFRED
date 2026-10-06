@@ -5,6 +5,8 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fathy.alfred.backend.triage.application.port.out.AttentionStorePort;
 import com.fathy.alfred.backend.triage.domain.model.CallAttention;
+import com.fathy.alfred.backend.triage.domain.model.Signal;
+import com.fathy.alfred.backend.triage.domain.model.CallSignals;
 import com.fathy.alfred.backend.triage.domain.model.CallDirection;
 import com.fathy.alfred.backend.triage.domain.model.SoftFailure;
 import com.zaxxer.hikari.HikariConfig;
@@ -56,7 +58,8 @@ public class SqliteAttentionRepository implements AttentionStorePort {
     static final int INDEXED_MAX_PRIORITY = 5;
 
     private static final String COLUMNS = "call_id, direction, project, parent_call_id, method, url, status, error, started_at, duration_ms, "
-            + "state, soft_kind, soft_code, soft_message, empty_keys, failing_children, failed_statements, swallowed_statements, priority";
+            + "state, soft_kind, soft_code, soft_message, empty_keys, failing_children, failed_statements, swallowed_statements, priority, "
+            + "log_errors, log_warnings, log_exceptions, log_status, log_level, db_flags";
 
     private final ObjectMapper objectMapper;
 
@@ -119,6 +122,22 @@ public class SqliteAttentionRepository implements AttentionStorePort {
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS ix_attention_progress ON call_attention(started_at) WHERE state = 'IN_PROGRESS'");
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS ix_attention_started ON call_attention(started_at)");
         jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS triage_markers (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
+        // specs/010-mcp-log-investigation: log and database signals; signal_rank 2 error / 1 warning / 0 none
+        addColumnIfMissing("log_errors", "INTEGER NOT NULL DEFAULT 0");
+        addColumnIfMissing("log_warnings", "INTEGER NOT NULL DEFAULT 0");
+        addColumnIfMissing("log_exceptions", "INTEGER NOT NULL DEFAULT 0");
+        addColumnIfMissing("log_status", "TEXT");
+        addColumnIfMissing("log_level", "TEXT");
+        addColumnIfMissing("db_flags", "TEXT");
+        addColumnIfMissing("signal_rank", "INTEGER NOT NULL DEFAULT 0");
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS ix_attention_signals ON call_attention(signal_rank, started_at) WHERE signal_rank > 0");
+    }
+
+    private void addColumnIfMissing(String column, String type) {
+        List<String> columns = jdbcTemplate.query("PRAGMA table_info(call_attention)", (rs, n) -> rs.getString("name"));
+        if (!columns.contains(column)) {
+            jdbcTemplate.execute("ALTER TABLE call_attention ADD COLUMN " + column + " " + type);
+        }
     }
 
     // ------------------------------------------------------------------ reads
@@ -133,7 +152,13 @@ public class SqliteAttentionRepository implements AttentionStorePort {
                 rs.getString("error"), rs.getLong("started_at"), nullableDouble(rs, "duration_ms"), rs.getString("state"),
                 softKind == null ? null : new SoftFailure(softKind, rs.getString("soft_code"), rs.getString("soft_message")),
                 emptyKeys == null ? List.of() : read(emptyKeys), rs.getInt("failing_children"), rs.getInt("failed_statements"),
-                rs.getInt("swallowed_statements"), rs.getInt("priority"));
+                rs.getInt("swallowed_statements"), rs.getInt("priority"),
+                new CallSignals(rs.getInt("log_errors"), rs.getInt("log_warnings"), rs.getInt("log_exceptions"), rs.getString("log_status"),
+                        rs.getString("log_level"), splitFlags(rs.getString("db_flags"))));
+    }
+
+    private static List<String> splitFlags(String flags) {
+        return flags == null || flags.isBlank() ? List.of() : List.of(flags.split(","));
     }
 
     private static Integer nullableInt(ResultSet rs, String column) throws SQLException {
@@ -232,20 +257,25 @@ public class SqliteAttentionRepository implements AttentionStorePort {
         SoftFailure soft = row.softFailure();
         jdbcTemplate.update("""
                 INSERT INTO call_attention (call_id, direction, project, parent_call_id, method, url, status, error, started_at, duration_ms,
-                  state, soft_kind, soft_code, soft_message, empty_keys, failing_children, failed_statements, swallowed_statements, priority, updated_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                  state, soft_kind, soft_code, soft_message, empty_keys, failing_children, failed_statements, swallowed_statements, priority, updated_at,
+                  log_errors, log_warnings, log_exceptions, log_status, log_level, db_flags, signal_rank)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(call_id) DO UPDATE SET direction = excluded.direction, project = excluded.project,
                   parent_call_id = excluded.parent_call_id, method = excluded.method, url = excluded.url, status = excluded.status,
                   error = excluded.error, started_at = excluded.started_at, duration_ms = excluded.duration_ms, state = excluded.state,
                   soft_kind = excluded.soft_kind, soft_code = excluded.soft_code, soft_message = excluded.soft_message,
                   empty_keys = excluded.empty_keys, failing_children = excluded.failing_children,
                   failed_statements = excluded.failed_statements, swallowed_statements = excluded.swallowed_statements,
-                  priority = excluded.priority, updated_at = excluded.updated_at
+                  priority = excluded.priority, updated_at = excluded.updated_at, log_errors = excluded.log_errors,
+                  log_warnings = excluded.log_warnings, log_exceptions = excluded.log_exceptions, log_status = excluded.log_status,
+                  log_level = excluded.log_level, db_flags = excluded.db_flags, signal_rank = excluded.signal_rank
                 """,
                 row.callId(), row.direction().name(), row.project(), row.parentCallId(), row.method(), row.url(), row.status(), row.error(),
                 row.startedAt(), row.durationMs(), row.state(), soft == null ? null : soft.kind(), soft == null ? null : soft.code(),
                 soft == null ? null : soft.message(), row.emptyKeys().isEmpty() ? null : json(row.emptyKeys()), row.failingChildren(),
-                row.failedStatements(), row.swallowedStatements(), row.priority(), Instant.now().toEpochMilli());
+                row.failedStatements(), row.swallowedStatements(), row.priority(), Instant.now().toEpochMilli(),
+                row.signals().logErrors(), row.signals().logWarnings(), row.signals().logExceptions(), row.signals().logStatus(),
+                row.signals().logLevel(), row.signals().dbFlags().isEmpty() ? null : String.join(",", row.signals().dbFlags()), Signal.rank(row));
     }
 
     @Override

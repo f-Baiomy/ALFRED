@@ -57,6 +57,20 @@ public class DbCaptureProjectsService implements ManageDbCaptureUseCase {
         this.clock = clock.orElse(Clock.systemUTC());
     }
 
+    /** Re-flags a project's calls when its thresholds change (specs/010). Optional for tests. */
+    private CallSignalsPublisher signals;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setSignals(CallSignalsPublisher signals) {
+        this.signals = signals;
+    }
+
+    private static boolean flagsMayChange(DbCaptureSettings before, DbCaptureSettings after) {
+        return before == null || !java.util.Objects.equals(before.thresholds(), after.thresholds())
+                || !java.util.Objects.equals(before.expectedFingerprints(), after.expectedFingerprints())
+                || !java.util.Objects.equals(before.ignorePatterns(), after.ignorePatterns());
+    }
+
     @Override
     public List<ProjectCaptureStatus> projects() {
         Map<String, Boolean> logging = new LinkedHashMap<>();
@@ -133,8 +147,12 @@ public class DbCaptureProjectsService implements ManageDbCaptureUseCase {
     public DbCaptureSettings saveSettings(String project, DbCaptureSettings settings) {
         String name = requireProject(project);
         DbCaptureSettings valid = validate(settings);
+        DbCaptureSettings before = store.settings(name);
         store.saveSettings(name, valid);
         notifications.captureSettingsChanged(name);
+        if (signals != null && flagsMayChange(before, valid)) {
+            signals.reflagProject(name); // stored flags follow the current thresholds (FR-022)
+        }
         return valid;
     }
 

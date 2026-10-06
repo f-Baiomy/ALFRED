@@ -1,4 +1,5 @@
 import { seg, type AlfredClient } from './alfred-client.ts';
+import { chunks, MAX_IDS } from './triage.ts';
 import {
   analyzeCapture, suppliersOf, toCallRecord,
   type CallDbAnalysis, type CallDbCapture, type CallDbSummary, type CallRecord, type CallStatementsPage, type CallSummaryDto,
@@ -10,7 +11,10 @@ const STATEMENT_PAGE = 500;
 
 export async function dbSummaries(client: AlfredClient, callIds: readonly string[]): Promise<Record<string, CallDbSummary>> {
   if (callIds.length === 0) return {};
-  return client.get<Record<string, CallDbSummary>>('/db-capture/summaries', { query: { callIds: callIds.join(',') } });
+  // ids travel in the URL: at most MAX_IDS per request, or the gateway answers 414
+  const parts = await Promise.all(chunks([...callIds], MAX_IDS).map((chunk) =>
+    client.get<Record<string, CallDbSummary>>('/db-capture/summaries', { query: { callIds: chunk.join(',') } })));
+  return Object.assign({}, ...parts);
 }
 
 /**

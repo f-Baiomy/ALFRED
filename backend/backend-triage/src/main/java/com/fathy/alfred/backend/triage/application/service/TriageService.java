@@ -8,6 +8,7 @@ import com.fathy.alfred.backend.triage.application.port.out.RetainedCallIdsPort;
 import com.fathy.alfred.backend.triage.domain.Priority;
 import com.fathy.alfred.backend.triage.domain.SoftFailures;
 import com.fathy.alfred.backend.triage.domain.model.CallAttention;
+import com.fathy.alfred.backend.triage.domain.model.CallSignals;
 import com.fathy.alfred.backend.triage.domain.model.CallDirection;
 import com.fathy.alfred.backend.triage.domain.model.ObservedCall;
 import com.fathy.alfred.backend.triage.domain.model.SoftFailure;
@@ -50,6 +51,7 @@ public class TriageService implements RecordCallAttentionUseCase, QueryAttention
 
     private static final Logger log = LoggerFactory.getLogger(TriageService.class);
     static final String BACKFILL_MARKER = "backfill-v2";
+    static final String SIGNALS_BACKFILL_MARKER = "signals-backfill-done";
     /** Rows written between two checks of the row cap. */
     static final int PRUNE_EVERY = 200;
 
@@ -115,6 +117,30 @@ public class TriageService implements RecordCallAttentionUseCase, QueryAttention
     }
 
     @Override
+    public void signals(String callId, CallSignals signals) {
+        if (callId == null || callId.isBlank() || signals == null) {
+            return;
+        }
+        writer.execute(() -> guarded(() -> {
+            CallAttention row = store.find(callId).orElseGet(() -> placeholder(callId));
+            written(Set.of(rerank(row.withSignals(signals))));
+        }));
+    }
+
+    @Override
+    public boolean signalsBackfillNeeded() {
+        return !store.hasMarker(SIGNALS_BACKFILL_MARKER);
+    }
+
+    @Override
+    public void signalsBackfillDone(int calls) {
+        writer.execute(() -> guarded(() -> {
+            store.setMarker(SIGNALS_BACKFILL_MARKER, clock.instant().toString());
+            log.info("triage: took the log and database signals of {} calls captured before this version", calls);
+        }));
+    }
+
+    @Override
     public boolean backfillNeeded() {
         return !store.hasMarker(BACKFILL_MARKER);
     }
@@ -151,7 +177,8 @@ public class TriageService implements RecordCallAttentionUseCase, QueryAttention
                 call.project() != null ? call.project() : before == null ? null : before.project(), parent,
                 call.method(), call.url(), call.status(), call.error(), epochMillis(call.startedAt()), call.durationMs(),
                 call.state() == null ? "COMPLETED" : call.state(), soft, empty,
-                0, before == null ? 0 : before.failedStatements(), before == null ? 0 : before.swallowedStatements(), 6);
+                0, before == null ? 0 : before.failedStatements(), before == null ? 0 : before.swallowedStatements(), 6,
+                before == null ? CallSignals.NONE : before.signals());
         Set<String> changed = new LinkedHashSet<>();
         changed.add(rerank(row));
         if (parent != null) {
