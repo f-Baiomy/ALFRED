@@ -99,6 +99,34 @@ export class DbCaptureStateService {
     return 'Database capture is off - click to turn on';
   }
 
+  /**
+   * The ▤ Logs switch beside ◆ (specs/008-logs-call-link): it rides in the same project list, so the Sources bar, the
+   * cycle widget and Settings all read one state. While it is off ALFRED reads none of the project's logs.
+   */
+  setLogsOn(project: string, on: boolean): void {
+    this.switchError.set(null);
+    this.api.setLogsOn(project, on).subscribe({
+      next: (projects) => this.projectsSignal.set(projects),
+      error: (e) => this.switchError.set(e?.error?.error ?? 'Could not change log linking.'),
+    });
+  }
+
+  toggleLogs(project: string, inboundOn: boolean): void {
+    if (!inboundOn) return;
+    this.setLogsOn(project, !this.projectStatus(project)?.logsOn);
+  }
+
+  logsOn(project: string, inboundOn: boolean): boolean {
+    return inboundOn && !!this.projectStatus(project)?.logsOn;
+  }
+
+  logsTitle(project: string, inboundOn: boolean): string {
+    if (!inboundOn) return 'Turn logging on first - log lines are linked to recorded calls';
+    return this.projectStatus(project)?.logsOn
+      ? `Logs are linked for ${project} - click to stop (Alfred then reads none of its logs)`
+      : `Logs are not linked for ${project} - click to link its calls to its log lines`;
+  }
+
   setShowChips(show: boolean): void {
     this.showChipsSignal.set(show);
     try {

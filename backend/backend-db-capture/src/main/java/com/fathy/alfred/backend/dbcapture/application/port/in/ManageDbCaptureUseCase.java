@@ -13,6 +13,16 @@ public interface ManageDbCaptureUseCase {
     /** @throws com.fathy.alfred.backend.dbcapture.domain.model.InboundLoggingOffException when switching on with inbound logging off */
     List<ProjectCaptureStatus> setEnabled(String project, boolean enabled);
 
+    /**
+     * The ▤ Logs switch (specs/008-logs-call-link) - like {@link #setEnabled}, refused while inbound logging is off.
+     *
+     * @throws com.fathy.alfred.backend.dbcapture.domain.model.InboundLoggingOffException when switching on with inbound logging off
+     */
+    List<ProjectCaptureStatus> setLogsOn(String project, boolean on);
+
+    /** True while the project's ▤ switch AND its inbound logging are on - only then may its logs be read. */
+    boolean logsLinked(String project);
+
     DbCaptureSettings settings(String project);
 
     /** @throws IllegalArgumentException when a value is out of range (400) */

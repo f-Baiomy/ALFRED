@@ -3,6 +3,7 @@ package com.fathy.alfred.backend.dbcapture.application.service;
 import com.fathy.alfred.backend.dbcapture.application.port.out.DbCaptureNotificationPort;
 import com.fathy.alfred.backend.dbcapture.application.port.out.DbCaptureStorePort;
 import com.fathy.alfred.backend.dbcapture.application.port.out.DbCaptureTogglePort;
+import com.fathy.alfred.backend.dbcapture.application.port.out.LogLinkTogglePort;
 import com.fathy.alfred.backend.dbcapture.application.port.out.InboundProjectsPort;
 import com.fathy.alfred.backend.dbcapture.domain.model.AgentStatus;
 import com.fathy.alfred.backend.dbcapture.domain.model.DbCaptureSettings;
@@ -31,11 +32,12 @@ class DbCaptureProjectsServiceTest {
 
     private final DbCaptureStorePort store = mock(DbCaptureStorePort.class);
     private final DbCaptureTogglePort toggle = mock(DbCaptureTogglePort.class);
+    private final LogLinkTogglePort logLink = mock(LogLinkTogglePort.class);
     private final DbCaptureNotificationPort notifications = mock(DbCaptureNotificationPort.class);
     private final InboundProjectsPort inbound = () -> List.of(new InboundProject("wallet-app", true), new InboundProject("core-service", false),
             new InboundProject("unknown", true));
     private final Clock clock = Clock.fixed(Instant.parse("2026-10-05T10:00:00Z"), ZoneOffset.UTC);
-    private final DbCaptureProjectsService service = new DbCaptureProjectsService(store, toggle, notifications, Optional.of(inbound), Optional.of(clock));
+    private final DbCaptureProjectsService service = new DbCaptureProjectsService(store, toggle, logLink, notifications, Optional.of(inbound), Optional.of(clock));
 
     @Test
     void listsFrontedProjectsWithTheirSwitchAgentAndInboundState_plusAgentOnlyProjects() {
@@ -66,6 +68,23 @@ class DbCaptureProjectsServiceTest {
         verify(toggle).setEnabled("core-service", false);
         verify(toggle).setEnabled("wallet-app", true);
         verify(notifications).captureSettingsChanged("wallet-app");
+    }
+
+    @Test
+    void theLogsSwitchNeedsInboundLogging_andLogsAreLinkedOnlyWhileBothAreOn() {
+        assertThatThrownBy(() -> service.setLogsOn("core-service", true)).isInstanceOf(InboundLoggingOffException.class);
+        verify(logLink, never()).setOn(anyString(), anyBoolean());
+
+        service.setLogsOn("wallet-app", true);
+        verify(logLink).setOn("wallet-app", true);
+        verify(notifications).captureSettingsChanged("wallet-app");
+
+        when(logLink.isOn("wallet-app")).thenReturn(true);
+        when(logLink.isOn("core-service")).thenReturn(true); // switched on earlier, logging turned off since
+        assertThat(service.logsLinked("wallet-app")).isTrue();
+        assertThat(service.logsLinked("core-service")).isFalse();
+        assertThat(service.logsLinked("batch-jobs")).isFalse();
+        assertThat(service.projects().get(0).logsOn()).isTrue();
     }
 
     @Test

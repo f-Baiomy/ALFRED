@@ -37,6 +37,12 @@ public class DbCaptureProjectsController {
         return manage.setEnabled(project, body != null && body.enabled());
     }
 
+    /** The ▤ Logs switch (specs/008-logs-call-link) - 409 while the project's inbound logging is off, like ◆. */
+    @PutMapping("/db-capture/projects/{project}/logs")
+    public List<ProjectCaptureStatus> setLogsOn(@PathVariable String project, @RequestBody LogsOnDto body) {
+        return manage.setLogsOn(project, body != null && body.on());
+    }
+
     @GetMapping("/db-capture/projects/{project}/settings")
     public DbCaptureSettings settings(@PathVariable String project) {
         return manage.settings(project);
@@ -66,5 +72,8 @@ public class DbCaptureProjectsController {
     }
 
     public record ExpectedDto(String fingerprint) {
+    }
+
+    public record LogsOnDto(boolean on) {
     }
 }

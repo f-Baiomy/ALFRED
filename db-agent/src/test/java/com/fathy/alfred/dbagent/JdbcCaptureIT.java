@@ -80,6 +80,9 @@ class JdbcCaptureIT {
         assertThat(update.outcome.affected).isEqualTo(1L);
         assertThat(update.params.get(0)).extracting(v -> v.value).containsExactly("380.00", "1042");
         assertThat(SINK.markers()).extracting(m -> m.type + ":" + m.seq).contains("CALL_OPEN:0");
+        // the request thread rides on CALL_OPEN - log lines are matched to the call by it (specs/008-logs-call-link)
+        assertThat(SINK.markers()).filteredOn(m -> m.type.equals("CALL_OPEN")).extracting(m -> m.thread)
+                .containsOnly(Thread.currentThread().getName());
     }
 
     @Test

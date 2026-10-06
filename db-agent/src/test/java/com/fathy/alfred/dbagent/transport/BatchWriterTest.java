@@ -33,12 +33,12 @@ class BatchWriterTest {
         Map<String, Long> dropped = new HashMap<>();
         dropped.put("call-1", 2L);
         String json = BatchWriter.write("a", "wallet-app", Collections.singletonList(s),
-                Collections.singletonList(new MarkerRecord("call-1", 0, "CALL_OPEN", "t0", null, null)), dropped);
+                Collections.singletonList(new MarkerRecord("call-1", 0, "CALL_OPEN", "t0", null, null, "default task-4")), dropped);
         Object parsed = MiniJson.parse(json);
         assertThat(parsed).isInstanceOf(Map.class);
         assertThat(json).contains("\"kind\":\"ROWS\"", "\"columns\":[{\"name\":\"balance\",\"type\":\"DECIMAL\"}]",
                 "\"rows\":[[{\"type\":\"DECIMAL\",\"value\":\"500.00\"},null]]", "\"droppedByCall\":{\"call-1\":2}",
-                "\"markers\":[{\"callId\":\"call-1\",\"seq\":0,\"type\":\"CALL_OPEN\",\"at\":\"t0\"}]");
+                "\"markers\":[{\"callId\":\"call-1\",\"seq\":0,\"type\":\"CALL_OPEN\",\"at\":\"t0\",\"thread\":\"default task-4\"}]");
     }
 
     @Test

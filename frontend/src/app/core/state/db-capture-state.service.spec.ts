@@ -43,6 +43,26 @@ describe('DbCaptureStateService', () => {
     expect(service.isOn('wallet-app', true)).toBeTrue();
   });
 
+  it('flips the ▤ Logs switch beside ◆ - blocked while inbound logging is off, refusals shown', () => {
+    service.toggleLogs('core-service', false);
+    http.expectNone(`${BACKEND}/db-capture/projects/core-service/logs`);
+    expect(service.logsOn('core-service', false)).toBeFalse();
+    expect(service.logsTitle('core-service', false)).toContain('Turn logging on first');
+
+    service.toggleLogs('wallet-app', true);
+    const req = http.expectOne(`${BACKEND}/db-capture/projects/wallet-app/logs`);
+    expect(req.request.body).toEqual({ on: true });
+    req.flush([{ ...project('wallet-app', false), logsOn: true }, project('core-service', false, false)]);
+    expect(service.logsOn('wallet-app', true)).toBeTrue();
+    expect(service.isOn('wallet-app', true)).toBeFalse(); // ◆ untouched
+    expect(service.logsTitle('wallet-app', true)).toContain('click to stop');
+
+    service.setLogsOn('wallet-app', true);
+    http.expectOne(`${BACKEND}/db-capture/projects/wallet-app/logs`)
+      .flush({ error: 'Inbound logging is off for wallet-app' }, { status: 409, statusText: 'Conflict' });
+    expect(service.switchError()).toContain('Inbound logging is off');
+  });
+
   it('shows the server\'s refusal next to the switch', () => {
     service.setEnabled('wallet-app', true);
     http.expectOne(`${BACKEND}/db-capture/projects/wallet-app/enabled`)

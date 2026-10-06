@@ -4,6 +4,7 @@ import com.fathy.alfred.backend.dbcapture.application.port.in.ManageDbCaptureUse
 import com.fathy.alfred.backend.dbcapture.application.port.out.DbCaptureNotificationPort;
 import com.fathy.alfred.backend.dbcapture.application.port.out.DbCaptureStorePort;
 import com.fathy.alfred.backend.dbcapture.application.port.out.DbCaptureTogglePort;
+import com.fathy.alfred.backend.dbcapture.application.port.out.LogLinkTogglePort;
 import com.fathy.alfred.backend.dbcapture.application.port.out.InboundProjectsPort;
 import com.fathy.alfred.backend.dbcapture.domain.model.AgentStatus;
 import com.fathy.alfred.backend.dbcapture.domain.model.DbCaptureSettings;
@@ -41,14 +42,16 @@ public class DbCaptureProjectsService implements ManageDbCaptureUseCase {
 
     private final DbCaptureStorePort store;
     private final DbCaptureTogglePort toggle;
+    private final LogLinkTogglePort logLink;
     private final DbCaptureNotificationPort notifications;
     private final Optional<InboundProjectsPort> inbound;
     private final Clock clock;
 
-    public DbCaptureProjectsService(DbCaptureStorePort store, DbCaptureTogglePort toggle, DbCaptureNotificationPort notifications,
-                                    Optional<InboundProjectsPort> inbound, Optional<Clock> clock) {
+    public DbCaptureProjectsService(DbCaptureStorePort store, DbCaptureTogglePort toggle, LogLinkTogglePort logLink,
+                                    DbCaptureNotificationPort notifications, Optional<InboundProjectsPort> inbound, Optional<Clock> clock) {
         this.store = store;
         this.toggle = toggle;
+        this.logLink = logLink;
         this.notifications = notifications;
         this.inbound = inbound;
         this.clock = clock.orElse(Clock.systemUTC());
@@ -76,7 +79,7 @@ public class DbCaptureProjectsService implements ManageDbCaptureUseCase {
         for (String name : names) {
             AgentStatus agent = latestAgent.get(name);
             boolean attached = agent != null && DbCaptureService.isRecent(agent.lastSeen(), now);
-            out.add(new ProjectCaptureStatus(name, toggle.isEnabled(name), logging.getOrDefault(name, false), attached, agent));
+            out.add(new ProjectCaptureStatus(name, toggle.isEnabled(name), logging.getOrDefault(name, false), attached, agent, logLink.isOn(name)));
         }
         return out;
     }
@@ -84,15 +87,40 @@ public class DbCaptureProjectsService implements ManageDbCaptureUseCase {
     @Override
     public List<ProjectCaptureStatus> setEnabled(String project, boolean enabled) {
         String name = requireProject(project);
-        if (enabled && inbound.isPresent()) {
+        if (enabled) {
+            requireInboundLogging(name);
+        }
+        toggle.setEnabled(name, enabled);
+        notifications.captureSettingsChanged(name);
+        return projects();
+    }
+
+    @Override
+    public List<ProjectCaptureStatus> setLogsOn(String project, boolean on) {
+        String name = requireProject(project);
+        if (on) {
+            requireInboundLogging(name);
+        }
+        logLink.setOn(name, on);
+        notifications.captureSettingsChanged(name);
+        return projects();
+    }
+
+    @Override
+    public boolean logsLinked(String project) {
+        if (project == null || project.isBlank() || !logLink.isOn(project)) {
+            return false;
+        }
+        return inbound.map(port -> port.projects().stream().anyMatch(p -> p.name().equals(project) && p.inboundLogging())).orElse(true);
+    }
+
+    private void requireInboundLogging(String name) {
+        if (inbound.isPresent()) {
             boolean loggingOn = inbound.get().projects().stream().anyMatch(p -> p.name().equals(name) && p.inboundLogging());
             if (!loggingOn) {
                 throw new InboundLoggingOffException(name);
             }
         }
-        toggle.setEnabled(name, enabled);
-        notifications.captureSettingsChanged(name);
-        return projects();
     }
 
     @Override

@@ -7,7 +7,14 @@ import com.fasterxml.jackson.annotation.JsonInclude;
  * call, so a call that ran no statements still has a zero summary ("◆ DB 0", distinct from "not captured").
  * HTTP_OUT is each outbound request the agent tagged with X-Alfred-Parent, at the same seq - so supplier calls'
  * positions are known here without reading another slice. URLs carry no query string.
+ *
+ * <p>{@code thread} (CALL_OPEN only): the request thread that handled the call - log lines of that thread within the
+ * call's window belong to it (specs/008-logs-call-link). Null from agents before that.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public record CallMarker(String callId, int seq, MarkerType type, String at, String method, String url) {
+public record CallMarker(String callId, int seq, MarkerType type, String at, String method, String url, String thread) {
+
+    public CallMarker(String callId, int seq, MarkerType type, String at, String method, String url) {
+        this(callId, seq, type, at, method, url, null);
+    }
 }

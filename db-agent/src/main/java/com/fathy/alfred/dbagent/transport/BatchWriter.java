@@ -21,7 +21,7 @@ public final class BatchWriter {
         w.name("markers").beginArray();
         for (MarkerRecord m : markers) {
             w.beginObject().name("callId").value(m.callId).name("seq").value(m.seq).name("type").value(m.type)
-                    .field("at", m.at).field("method", m.method).field("url", m.url).endObject();
+                    .field("at", m.at).field("method", m.method).field("url", m.url).field("thread", m.thread).endObject();
         }
         w.endArray();
         if (!droppedByCall.isEmpty()) {

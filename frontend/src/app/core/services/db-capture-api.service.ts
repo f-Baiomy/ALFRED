@@ -81,6 +81,11 @@ export class DbCaptureApiService {
     return this.http.put<readonly ProjectCaptureStatus[]>(`${this.base}/projects/${encodeURIComponent(project)}/enabled`, { enabled });
   }
 
+  /** The ▤ Logs switch - 409 while the project's inbound logging is off, like ◆. */
+  setLogsOn(project: string, on: boolean): Observable<readonly ProjectCaptureStatus[]> {
+    return this.http.put<readonly ProjectCaptureStatus[]>(`${this.base}/projects/${encodeURIComponent(project)}/logs`, { on });
+  }
+
   settings(project: string): Observable<DbCaptureSettings> {
     return this.http.get<DbCaptureSettings>(`${this.base}/projects/${encodeURIComponent(project)}/settings`);
   }

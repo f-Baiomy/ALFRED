@@ -3,6 +3,7 @@ package com.fathy.alfred.backend.dbcapture.application.port.out;
 import com.fathy.alfred.backend.dbcapture.domain.model.AgentStatus;
 import com.fathy.alfred.backend.dbcapture.domain.model.CallDbSummary;
 import com.fathy.alfred.backend.dbcapture.domain.model.CallMarker;
+import com.fathy.alfred.backend.dbcapture.domain.model.CallOnThread;
 import com.fathy.alfred.backend.dbcapture.domain.model.CapturedStatement;
 import com.fathy.alfred.backend.dbcapture.domain.model.Column;
 import com.fathy.alfred.backend.dbcapture.domain.model.DbCaptureSettings;
@@ -73,6 +74,12 @@ public interface DbCaptureStorePort {
     List<StatementTransaction> transactions(String callId);
 
     List<CallMarker> markers(String callId);
+
+    /** The thread that handled the call (its CALL_OPEN marker, else its first statement's), if captured. */
+    Optional<String> requestThread(String callId);
+
+    /** Captured calls opened on {@code thread} between the two ISO instants, oldest first (at most 200). */
+    List<CallOnThread> callsOnThread(String thread, String fromInstant, String toInstant);
 
     Optional<CapturedStatement> statement(long id);
 

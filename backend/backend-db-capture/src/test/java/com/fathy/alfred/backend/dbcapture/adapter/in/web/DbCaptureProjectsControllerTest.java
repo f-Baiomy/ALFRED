@@ -37,6 +37,17 @@ class DbCaptureProjectsControllerTest {
     }
 
     @Test
+    void theLogsSwitchAnswersTheUpdatedList_and409sWithInboundLoggingOff() throws Exception {
+        when(manage.setLogsOn("wallet-app", true)).thenReturn(List.of(new ProjectCaptureStatus("wallet-app", false, true, true, null, true)));
+        mvc.perform(put("/db-capture/projects/wallet-app/logs").contentType(MediaType.APPLICATION_JSON).content("{\"on\":true}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].logsOn").value(true));
+        when(manage.setLogsOn("core-service", true)).thenThrow(new InboundLoggingOffException("core-service"));
+        mvc.perform(put("/db-capture/projects/core-service/logs").contentType(MediaType.APPLICATION_JSON).content("{\"on\":true}"))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
     void switchingOnWithInboundLoggingOffIs409_andBadSettingsAre400() throws Exception {
         when(manage.setEnabled("core-service", true)).thenThrow(new InboundLoggingOffException("core-service"));
         mvc.perform(put("/db-capture/projects/core-service/enabled").contentType(MediaType.APPLICATION_JSON).content("{\"enabled\":true}"))

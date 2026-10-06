@@ -157,6 +157,38 @@ public class SqliteLogsRepository {
                   created_at TEXT NOT NULL
                 )
                 """);
+        // Logs linked to calls (specs/008-logs-call-link): which sources belong to which project, and ALFRED's own copies
+        // of the lines linked to calls a session cycle holds or that were imported - outside every source's retention.
+        jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS project_logs (
+                  project TEXT PRIMARY KEY,
+                  source_ids TEXT NOT NULL,
+                  thread_field TEXT,
+                  time_field TEXT,
+                  call_id_field TEXT,
+                  clock_skew_ms INTEGER NOT NULL
+                )
+                """);
+        jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS kept_log_lines (
+                  call_id TEXT NOT NULL,
+                  source_id TEXT NOT NULL,
+                  source_name TEXT,
+                  line_id TEXT NOT NULL,
+                  at_ms INTEGER NOT NULL,
+                  level TEXT,
+                  thread TEXT,
+                  logger TEXT,
+                  message TEXT,
+                  matched_by TEXT,
+                  raw TEXT,
+                  origin TEXT NOT NULL,
+                  kept_at INTEGER NOT NULL,
+                  PRIMARY KEY (call_id, source_id, line_id)
+                )
+                """);
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_kept_log_lines_call ON kept_log_lines(call_id, at_ms)");
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_kept_log_lines_origin ON kept_log_lines(origin, call_id)");
         // Sources created before lines carried their structure get the column and table now; their
         // lines are given a structure in the background (ShapeBackfillService).
         for (String id : jdbcTemplate.queryForList("SELECT id FROM log_source", String.class)) {

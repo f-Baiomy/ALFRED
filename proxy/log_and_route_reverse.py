@@ -69,6 +69,10 @@ TOGGLE_FILE = os.environ.get('TOGGLE_FILE', '/home/mitmproxy/reverse-proxy-enabl
 # work is something the user turns on, never a side effect of adding a project.
 DB_CAPTURE_TOGGLE_FILE = os.environ.get('DB_CAPTURE_TOGGLE_FILE', '/home/mitmproxy/db-capture-enabled.flag')
 
+# The per-project ▤ Logs switch (specs/008-logs-call-link) - same format, written by backend, a project with no line
+# is OFF. While on, X-Alfred-Call also says log=1 and the db-agent tags that request's log lines with its call id.
+LOG_LINK_TOGGLE_FILE = os.environ.get('LOG_LINK_TOGGLE_FILE', '/home/mitmproxy/log-link-enabled.flag')
+
 # Stamped on every request forwarded for a project whose inbound logging is on, read by the db-agent inside the
 # application (specs/006-db-capture/contracts/proxy-headers.md). A client-sent copy is always removed first so a
 # caller can never attach its statements to someone else's call.
@@ -167,13 +171,16 @@ class _ToggleState:
 
 _toggle = _ToggleState()
 _db_capture = _ToggleState('DB_CAPTURE_TOGGLE_FILE', default=False)
+_log_link = _ToggleState('LOG_LINK_TOGGLE_FILE', default=False)
 
 
-def alfred_call_header(call_id, db_on, relive_info):
+def alfred_call_header(call_id, db_on, relive_info, log_on=False):
     """The X-Alfred-Call value for a logged inbound call: its id, whether the db-agent should record its
-    statements, and - for a Relive step - the run tag the agent stores on them (FR-043, unused until Relive
-    replays statements)."""
+    statements, whether it should tag the request's log lines (the ▤ switch), and - for a Relive step - the run tag
+    the agent stores on them (FR-043, unused until Relive replays statements)."""
     value = f'id={call_id}; db={1 if db_on else 0}'
+    if log_on:
+        value += '; log=1'
     if relive_info and relive_info.get('runId') and relive_info.get('stepKey'):
         value += f"; run={relive_info['runId']}/{relive_info['stepKey']}"
     return value
@@ -272,7 +279,7 @@ class RouteAndLog:
             call_log['reachedUpstream'] = reached_upstream
         # Added after call_log captured the headers, so the recorded request is what the client sent - the
         # header is ALFRED's own plumbing, re-added on every forward (including a resend of this call).
-        flow.request.headers[ALFRED_CALL_HEADER] = alfred_call_header(call_id, _db_capture.enabled(name), relive_info)
+        flow.request.headers[ALFRED_CALL_HEADER] = alfred_call_header(call_id, _db_capture.enabled(name), relive_info, _log_link.enabled(name))
         if relive_info and reached_upstream:
             # The application can issue a supplier call as soon as this inbound request arrives.
             # Register the parent with Relive before forwarding so that child is replayed instead

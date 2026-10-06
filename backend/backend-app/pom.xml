@@ -20,6 +20,14 @@
   </description>
 
   <dependencies>
+    <!-- the bridges' own architecture rule (CallLogsBridgeArchitectureTest): backend-architecture-test cannot see
+         backend-app's classes -->
+    <dependency>
+      <groupId>com.tngtech.archunit</groupId>
+      <artifactId>archunit-junit5</artifactId>
+      <version>${archunit.version}</version>
+      <scope>test</scope>
+    </dependency>
     <dependency>
       <groupId>com.fathy.alfred</groupId>
       <artifactId>backend-platform</artifactId>

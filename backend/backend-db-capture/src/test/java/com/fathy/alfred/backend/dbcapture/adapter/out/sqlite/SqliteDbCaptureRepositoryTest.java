@@ -5,6 +5,7 @@ import com.fathy.alfred.backend.dbcapture.Fixtures;
 import com.fathy.alfred.backend.dbcapture.domain.model.AgentStatus;
 import com.fathy.alfred.backend.dbcapture.domain.model.CallDbSummary;
 import com.fathy.alfred.backend.dbcapture.domain.model.CallMarker;
+import com.fathy.alfred.backend.dbcapture.domain.model.CallOnThread;
 import com.fathy.alfred.backend.dbcapture.domain.model.CapturedStatement;
 import com.fathy.alfred.backend.dbcapture.domain.model.DbCaptureSettings;
 import com.fathy.alfred.backend.dbcapture.domain.model.IncomingStatement;
@@ -177,6 +178,23 @@ class SqliteDbCaptureRepositoryTest {
 
         assertThat(repo.markers("call-1")).extracting(CallMarker::seq).containsExactly(0, 7);
         assertThat(repo.summary("call-1").orElseThrow().lastSeq()).isEqualTo(7);
+    }
+
+    @Test
+    void theRequestThreadComesFromCallOpen_elseTheFirstStatement_andCallsAreFoundByThreadAndTime() {
+        repo.saveMarkers(List.of(
+                new CallMarker("call-a", 0, MarkerType.CALL_OPEN, "2026-10-05T04:34:15.000Z", null, null, "default task-4"),
+                new CallMarker("call-b", 0, MarkerType.CALL_OPEN, "2026-10-05T04:34:40.000Z", null, null, "default task-4"),
+                new CallMarker("call-c", 0, MarkerType.CALL_OPEN, "2026-10-05T04:34:20.000Z", null, null, "default task-9"),
+                new CallMarker("call-old", 0, MarkerType.CALL_OPEN, "2026-10-05T04:00:00.000Z", null, null)));
+        repo.saveStatements(List.of(Fixtures.select("a:9", "call-old", 1, 5)));
+
+        assertThat(repo.requestThread("call-a")).contains("default task-4");
+        assertThat(repo.requestThread("call-old")).isPresent(); // the first statement's thread
+        assertThat(repo.requestThread("call-none")).isEmpty();
+        assertThat(repo.callsOnThread("default task-4", "2026-10-05T04:34:00Z", "2026-10-05T04:34:59Z"))
+                .extracting(CallOnThread::callId).containsExactly("call-a", "call-b");
+        assertThat(repo.markers("call-a").get(0).thread()).isEqualTo("default task-4");
     }
 
     @Test

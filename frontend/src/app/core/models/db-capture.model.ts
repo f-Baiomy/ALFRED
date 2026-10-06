@@ -371,6 +371,8 @@ export interface ProjectCaptureStatus {
   readonly inboundLogging: boolean;
   readonly attached: boolean;
   readonly agent?: AgentStatus | null;
+  /** The project's ▤ Logs switch (specs/008-logs-call-link): while on, its calls are linked to its log lines. */
+  readonly logsOn?: boolean;
 }
 
 export interface RecordedQueryRequest {

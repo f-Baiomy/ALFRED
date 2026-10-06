@@ -14,9 +14,10 @@ public record MarkerDto(
         @NotNull MarkerType type,
         @Size(max = 64) String at,
         @Size(max = 20) String method,
-        @Size(max = 4000) String url
+        @Size(max = 4000) String url,
+        @Size(max = 300) String thread
 ) {
     public CallMarker toDomain() {
-        return new CallMarker(callId, seq, type, at, method, url);
+        return new CallMarker(callId, seq, type, at, method, url, thread);
     }
 }

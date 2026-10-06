@@ -1,5 +1,6 @@
 package com.fathy.alfred.backend.dbcapture.application.service;
 
+import com.fathy.alfred.backend.dbcapture.application.port.in.CallThreadsUseCase;
 import com.fathy.alfred.backend.dbcapture.application.port.in.ExportCallStatementsUseCase;
 import com.fathy.alfred.backend.dbcapture.application.port.in.FindStatementFailuresUseCase;
 import com.fathy.alfred.backend.dbcapture.application.port.in.GetCallDbSummariesUseCase;
@@ -10,6 +11,7 @@ import com.fathy.alfred.backend.dbcapture.application.port.out.DbCaptureStorePor
 import com.fathy.alfred.backend.dbcapture.domain.model.CallDbCaptureExport;
 import com.fathy.alfred.backend.dbcapture.domain.model.CallDbSummary;
 import com.fathy.alfred.backend.dbcapture.domain.model.CallMarker;
+import com.fathy.alfred.backend.dbcapture.domain.model.CallOnThread;
 import com.fathy.alfred.backend.dbcapture.domain.model.CallStatementFailures;
 import com.fathy.alfred.backend.dbcapture.domain.model.CallStatementsPage;
 import com.fathy.alfred.backend.dbcapture.domain.model.CapturedStatement;
@@ -22,6 +24,7 @@ import com.fathy.alfred.backend.dbcapture.domain.model.RowsPage;
 import com.fathy.alfred.backend.dbcapture.domain.model.StatementOutcome;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -30,7 +33,7 @@ import java.util.Optional;
 
 /** Reads for the ◆ DB chip and the database window. Every size the client asks for is clamped here. */
 @Service
-public class DbCaptureQueryService implements GetCallDbSummariesUseCase, GetCallStatementsUseCase, GetStatementUseCase,
+public class DbCaptureQueryService implements GetCallDbSummariesUseCase, GetCallStatementsUseCase, GetStatementUseCase, CallThreadsUseCase,
         ExportCallStatementsUseCase, FindStatementFailuresUseCase {
 
     static final String RESULT = "RESULT";
@@ -112,6 +115,19 @@ public class DbCaptureQueryService implements GetCallDbSummariesUseCase, GetCall
                     store.rowCount(id, safePart), result ? outcome.rowsRead() : null, result ? outcome.partial() : null,
                     result ? outcome.overLimit() : null);
         });
+    }
+
+    @Override
+    public Optional<String> requestThread(String callId) {
+        return callId == null || callId.isBlank() ? Optional.empty() : store.requestThread(callId);
+    }
+
+    @Override
+    public List<CallOnThread> callsOnThread(String thread, Instant from, Instant to) {
+        if (thread == null || thread.isBlank() || from == null || to == null || to.isBefore(from)) {
+            return List.of();
+        }
+        return store.callsOnThread(thread, from.toString(), to.toString());
     }
 
     @Override

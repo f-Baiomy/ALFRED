@@ -695,11 +695,21 @@
 .db-glyph { font-size: 0.72rem; line-height: 1; color: var(--text-faint); }
 .source-pill-switch.db-sw.on .db-glyph { color: var(--db); text-shadow: 0 0 6px color-mix(in srgb, var(--db) 60%, transparent); }
 .source-pill-switch.db-sw.blocked { cursor: not-allowed; opacity: 0.4; }
+// the ▤ Logs switch beside ◆ (specs/008-logs-call-link) - same states, its own colour
+.log-glyph { font-size: 0.72rem; line-height: 1; color: var(--text-faint); }
+.source-pill-switch.log-sw.on .log-glyph { color: #a3e635; text-shadow: 0 0 6px rgba(163, 230, 53, 0.55); }
+.source-pill-switch.log-sw.blocked { cursor: not-allowed; opacity: 0.4; }
 .source-pill-switch.db-more { font-size: 0.7rem; padding: 0.4rem 0.55rem; }
 .source-pill-switch.db-more[aria-expanded='true'] { color: var(--purple-light); background: color-mix(in srgb, var(--purple) 20%, transparent); }
 .db-switch-err { font-size: 0.72rem; color: var(--amber); cursor: pointer; }
 
 .cw-switch.db.on { background: var(--db); }
+// the ▤ Logs switch and its settings section (specs/008-logs-call-link)
+.cw-switch.log.on { background: #a3e635; }
+.pls { border-top: 1px dashed var(--border); margin-top: 0.4rem; padding-top: 0.4rem; }
+.pls .pr > span { display: flex; flex-wrap: wrap; gap: 0.2rem 0.6rem; align-items: center; }
+.pls-note { font-size: 0.72rem; margin: 0.15rem 0 0.3rem; }
+.pls .warnt { color: var(--amber); }
 .cw-switch.blocked { opacity: 0.35; cursor: not-allowed; }
 .cw-col-log.db { width: 54px; }
 .cw-sources-head .cw-col-log.db { color: var(--db); }

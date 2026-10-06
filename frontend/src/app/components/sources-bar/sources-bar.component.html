@@ -36,6 +36,17 @@
           <span class="db-glyph">◆</span>
         </button>
         <button
+          type="button"
+          class="source-pill-switch log-sw"
+          [class.on]="db.logsOn(service.name, service.enabled)"
+          [class.blocked]="!service.enabled"
+          [title]="db.logsTitle(service.name, service.enabled)"
+          [attr.aria-label]="db.logsTitle(service.name, service.enabled)"
+          (click)="db.toggleLogs(service.name, service.enabled); $event.stopPropagation()"
+        >
+          <span class="log-glyph">▤</span>
+        </button>
+        <button
           #more
           type="button"
           class="source-pill-switch db-more"

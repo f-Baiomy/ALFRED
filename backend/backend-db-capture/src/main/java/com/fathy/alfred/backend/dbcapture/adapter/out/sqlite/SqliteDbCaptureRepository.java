@@ -9,6 +9,7 @@ import com.fathy.alfred.backend.dbcapture.domain.model.AgentStatus;
 import com.fathy.alfred.backend.dbcapture.domain.model.BeforeImage;
 import com.fathy.alfred.backend.dbcapture.domain.model.CallDbSummary;
 import com.fathy.alfred.backend.dbcapture.domain.model.CallMarker;
+import com.fathy.alfred.backend.dbcapture.domain.model.CallOnThread;
 import com.fathy.alfred.backend.dbcapture.domain.model.CapturedStatement;
 import com.fathy.alfred.backend.dbcapture.domain.model.Column;
 import com.fathy.alfred.backend.dbcapture.domain.model.DbCaptureSettings;
@@ -54,6 +55,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -188,6 +190,9 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
                 )
                 """);
         addColumnIfMissing("call_db_summary", "project", "TEXT");
+        // The request thread on the CALL_OPEN row: log lines are matched to a call by it (specs/008-logs-call-link).
+        addColumnIfMissing("call_markers", "thread", "TEXT");
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS ix_markers_open_thread ON call_markers(thread, at) WHERE seq = 0");
         addColumnIfMissing("call_db_summary", "flags_version", "INTEGER NOT NULL DEFAULT 0");
         addColumnIfMissing("statements", "origin_json", "TEXT");
         addColumnIfMissing("statements", "callers_json", "TEXT");
@@ -323,9 +328,27 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
             return;
         }
         List<Object[]> args = markers.stream()
-                .map(m -> new Object[]{m.callId(), m.seq(), m.type().name(), m.at() == null ? Instant.now().toString() : m.at(), m.method(), m.url()})
+                .map(m -> new Object[]{m.callId(), m.seq(), m.type().name(), m.at() == null ? Instant.now().toString() : m.at(), m.method(), m.url(), m.thread()})
                 .toList();
-        jdbcTemplate.batchUpdate("INSERT OR IGNORE INTO call_markers (call_id, seq, type, at, method, url) VALUES (?,?,?,?,?,?)", args);
+        jdbcTemplate.batchUpdate("INSERT OR IGNORE INTO call_markers (call_id, seq, type, at, method, url, thread) VALUES (?,?,?,?,?,?,?)", args);
+    }
+
+    @Override
+    public Optional<String> requestThread(String callId) {
+        List<String> open = jdbcTemplate.queryForList(
+                "SELECT thread FROM call_markers WHERE call_id = ? AND seq = 0 AND thread IS NOT NULL LIMIT 1", String.class, callId);
+        if (!open.isEmpty()) {
+            return Optional.of(open.get(0));
+        }
+        // Captured before the CALL_OPEN marker carried it: the thread of the call's first statement.
+        return jdbcTemplate.queryForList("SELECT thread_name FROM statements WHERE call_id = ? ORDER BY seq LIMIT 1", String.class, callId)
+                .stream().filter(Objects::nonNull).findFirst();
+    }
+
+    @Override
+    public List<CallOnThread> callsOnThread(String thread, String fromInstant, String toInstant) {
+        return jdbcTemplate.query("SELECT call_id, at FROM call_markers WHERE seq = 0 AND thread = ? AND at BETWEEN ? AND ? ORDER BY at LIMIT 200",
+                (rs, i) -> new CallOnThread(rs.getString(1), rs.getString(2)), thread, fromInstant, toInstant);
     }
 
     @Override
@@ -580,9 +603,9 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
 
     @Override
     public List<CallMarker> markers(String callId) {
-        return jdbcTemplate.query("SELECT call_id, seq, type, at, method, url FROM call_markers WHERE call_id = ? ORDER BY seq LIMIT 10000",
+        return jdbcTemplate.query("SELECT call_id, seq, type, at, method, url, thread FROM call_markers WHERE call_id = ? ORDER BY seq LIMIT 10000",
                 (rs, n) -> new CallMarker(rs.getString("call_id"), rs.getInt("seq"), MarkerType.valueOf(rs.getString("type")),
-                        rs.getString("at"), rs.getString("method"), rs.getString("url")), callId);
+                        rs.getString("at"), rs.getString("method"), rs.getString("url"), rs.getString("thread")), callId);
     }
 
     @Override
