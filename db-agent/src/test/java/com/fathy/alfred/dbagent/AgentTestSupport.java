@@ -67,6 +67,7 @@ public final class AgentTestSupport {
     public static void reset() {
         SETTINGS.apply(AgentSettings.DEFAULT_ROWS_PER_RESULT, Collections.emptySet(), false, false, Collections.singletonList("SELECT 1"));
         SETTINGS.applyLogs(false);
+        SETTINGS.applyLogLevel("APP"); // tests below see every level unless they set one
         SINK.clear();
     }
 

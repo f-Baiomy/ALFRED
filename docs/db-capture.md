@@ -203,6 +203,13 @@ hook on a thread records, so a line passing through a bridge is caught once; the
 - `log=1` alone (◆ off) opens a logs-only call: a CALL_OPEN with `logs=true`, no statements, and its supplier calls still
   get `X-Alfred-Parent`. Each caught line takes the call's next `seq`, so Together shows statements, supplier calls and
   lines in their exact order.
+- **Log level** (Settings → Database capture, per project, `DbCaptureSettings.logLevel`): ERROR (the default), WARN,
+  INFO, DEBUG, TRACE or APP (whatever the application writes). It reaches the agent in the heartbeat (`logLevel`; ERROR
+  until the first one) and `LogCatcher` drops a line below it before reading anything else - it counts toward no cap.
+  Levels map to one scale: JUL/jboss-logmanager by `intValue` (≥1000 ERROR, ≥900 WARN, ≥700 INFO, ≥500 DEBUG), the
+  others by name (FATAL/ERROR, WARN, INFO, DEBUG, TRACE); an unknown level is kept. It can never go below the
+  application's own level - the hooks sit after its check. `/call-logs` returns the level (`logLevel`) so the window
+  and Claude's `call_logs` (`capturedLevel`) can say which lines were never caught.
 - Caps per call: 5,000 lines, 2 MB of text, 32 KB per line (cut and marked); lines written more than 5 s after the call
   ended are dropped; everything not kept is counted ("N lines not kept"). Lines outside any call are caught while ▤ is
   on (the heartbeat's `logsOn`), at most 2,000 a minute per JVM, kept up to 20,000 per project.

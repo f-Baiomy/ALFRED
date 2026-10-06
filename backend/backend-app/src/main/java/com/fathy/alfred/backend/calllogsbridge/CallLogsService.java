@@ -57,6 +57,15 @@ public class CallLogsService {
 
     // ------------------------------------------------------------------ a call's lines
 
+    /** The project's Log level now (ERROR by default; APP = the application's own) - lines below it were not caught. */
+    private String logLevel(String project) {
+        try {
+            return project == null ? null : capture.settings(project).logLevel();
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
     /** The call's caught lines in its own order (seq), one page. Empty when the call is unknown. */
     public Optional<CallLogsPage> lines(String callId, String cycleId, String after, int limit) {
         return resolve(callId, cycleId).map(call -> {
@@ -71,7 +80,8 @@ public class CallLogsService {
             List<LinkedLogLine> lines = page.stream().map(l -> caughtLine(call, l)).toList();
             String next = page.size() == size ? SEQ_CURSOR + page.get(page.size() - 1).seq() : null;
             CaughtLogCounts counts = caught.counts(List.of(call.id())).get(call.id());
-            return new CallLogsPage(call.id(), Setup.OK, Match.CAUGHT, null, 0, lines, next, counts == null ? 0 : counts.dropped());
+            return new CallLogsPage(call.id(), Setup.OK, Match.CAUGHT, null, 0, lines, next, counts == null ? 0 : counts.dropped(),
+                    logLevel(call.project()));
         });
     }
 

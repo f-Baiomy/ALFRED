@@ -53,7 +53,12 @@ export interface CallLogsPage {
   readonly next: string | null;
   /** Lines the agent did not keep for the call (its caps, or late) - 0 for log-file lines. */
   readonly dropped?: number;
+  /** The project's Log level now (ERROR by default, APP = the app's own) - lines below it are not caught. */
+  readonly logLevel?: LogLevelSetting | null;
 }
+
+/** The lowest level of line the agent catches with each call (Settings → Database capture, specs/009). */
+export type LogLevelSetting = 'ERROR' | 'WARN' | 'INFO' | 'DEBUG' | 'TRACE' | 'APP';
 
 export interface LogCounts {
   readonly lines: number;

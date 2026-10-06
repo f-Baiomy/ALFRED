@@ -29,6 +29,13 @@ public final class AgentSettings {
     private volatile boolean indexInfo;
     /** The project's ▤ is on: lines outside any call are caught too (specs/009-agent-log-capture). */
     private volatile boolean logsOutside;
+    /**
+     * The lowest level of line caught (Settings → Database capture → Log level): 5 ERROR (the default), 4 WARN, 3 INFO,
+     * 2 DEBUG, 1 TRACE, 0 whatever the application writes. Never below the application's own level - the hooks sit
+     * after its check, and the agent never changes what it logs.
+     */
+    private volatile int logMinRank = LOG_ERROR;
+    public static final int LOG_ERROR = 5;
     /** Per-SQL answers of {@link #ignored}: matching compiles regexes, far too slow to repeat for every statement.
      *  Replaced (not cleared) when the patterns change, so a reader never mixes old and new answers. */
     private volatile Map<String, Boolean> ignoredCache = new ConcurrentHashMap<>();
@@ -48,6 +55,35 @@ public final class AgentSettings {
 
     public void applyLogs(boolean on) {
         this.logsOutside = on;
+    }
+
+    public int logMinRank() {
+        return logMinRank;
+    }
+
+    /** ERROR, WARN, INFO, DEBUG, TRACE or APP (the application's own level); anything else, or none, is ERROR. */
+    public void applyLogLevel(String level) {
+        this.logMinRank = levelSetting(level);
+    }
+
+    static int levelSetting(String level) {
+        if (level == null) {
+            return LOG_ERROR;
+        }
+        switch (level.trim().toUpperCase(Locale.ROOT)) {
+            case "APP":
+                return 0;
+            case "TRACE":
+                return 1;
+            case "DEBUG":
+                return 2;
+            case "INFO":
+                return 3;
+            case "WARN":
+                return 4;
+            default:
+                return LOG_ERROR;
+        }
     }
 
     /** Outside-call statements are captured only when the project is switched on AND outside capture is on. */

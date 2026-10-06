@@ -290,6 +290,8 @@ public final class BatchSender implements StatementSink {
                     frames instanceof Number ? ((Number) frames).intValue() : AgentSettings.DEFAULT_CALLER_FRAMES,
                     Boolean.TRUE.equals(map.get("indexInfo")));
             settings.applyLogs(Boolean.TRUE.equals(map.get("logsOn")));
+            Object level = map.get("logLevel");
+            settings.applyLogLevel(level == null ? null : String.valueOf(level));
         } catch (RuntimeException e) {
             AgentLog.warn("could not read ALFRED's settings answer");
         }

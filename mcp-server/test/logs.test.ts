@@ -37,12 +37,13 @@ test('call_logs lists a call\'s lines, paged across the backend\'s pages, filter
 test('call_logs shows a caught line\'s logger and exception', async () => {
   const w = await world();
   try {
-    w.fake.state.callLogs[IN1] = { setup: 'OK', matchedBy: 'CAUGHT', thread: null, lines: [{ ...line(1, 'ERROR', 'boom'), matchedBy: 'CAUGHT',
+    w.fake.state.callLogs[IN1] = { setup: 'OK', matchedBy: 'CAUGHT', thread: null, logLevel: 'ERROR', lines: [{ ...line(1, 'ERROR', 'boom'), matchedBy: 'CAUGHT',
       logger: 'com.app.Search', exception: { type: 'java.lang.IllegalStateException', message: 'bad', stack: 'java.lang.IllegalStateException: bad' } }] };
     const r = await w.call('call_logs', { callId: IN1 });
     assert.equal(r.json.matchedBy, 'CAUGHT');
     assert.equal(r.json.lines[0].logger, 'com.app.Search');
     assert.equal(r.json.lines[0].exception.type, 'java.lang.IllegalStateException');
+    assert.equal(r.json.capturedLevel, 'ERROR and above');
   } finally { await w.close(); }
 });
 

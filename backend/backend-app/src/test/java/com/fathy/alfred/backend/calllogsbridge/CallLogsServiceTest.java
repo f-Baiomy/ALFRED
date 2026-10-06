@@ -8,6 +8,7 @@ import com.fathy.alfred.backend.dbcapture.application.port.in.CallLogLinesUseCas
 import com.fathy.alfred.backend.dbcapture.application.port.in.ManageDbCaptureUseCase;
 import com.fathy.alfred.backend.dbcapture.domain.model.CaughtLogCounts;
 import com.fathy.alfred.backend.dbcapture.domain.model.CaughtLogLine;
+import com.fathy.alfred.backend.dbcapture.domain.model.DbCaptureSettings;
 import com.fathy.alfred.backend.internalcalls.application.port.in.GetCallDetailUseCase;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallSummary;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.ListCapturedInternalCallsUseCase;
@@ -64,8 +65,10 @@ class CallLogsServiceTest {
                 new CaughtLogLine(8, CALL, 9, Instant.ofEpochMilli(START + 900).toString(), "ERROR", "com.app.Search", "default task-4", "boom",
                         "java.lang.IllegalStateException", "bad", "java.lang.IllegalStateException: bad", true, PROJECT)));
         when(caught.counts(List.of(CALL))).thenReturn(Map.of(CALL, new CaughtLogCounts(2, 1, 1, 4)));
+        when(capture.settings(PROJECT)).thenReturn(DbCaptureSettings.defaults());
 
         CallLogsPage page = service.lines(CALL, null, null, 0).orElseThrow();
+        assertThat(page.logLevel()).isEqualTo("ERROR");
 
         assertThat(page.setup()).isEqualTo(Setup.OK);
         assertThat(page.matchedBy()).isEqualTo(Match.CAUGHT);

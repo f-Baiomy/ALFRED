@@ -90,6 +90,7 @@ class DbCaptureAgentControllerTest {
                 .andExpect(jsonPath("$.rowsPerResult").value(50000))
                 .andExpect(jsonPath("$.outsideCallCapture").value(true))
                 .andExpect(jsonPath("$.captureEnabled").value(true))
+                .andExpect(jsonPath("$.logLevel").value("ERROR"))
                 .andExpect(jsonPath("$.thresholds").doesNotExist());
     }
 }

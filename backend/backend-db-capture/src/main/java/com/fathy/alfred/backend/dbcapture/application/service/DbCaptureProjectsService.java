@@ -79,7 +79,8 @@ public class DbCaptureProjectsService implements ManageDbCaptureUseCase {
         for (String name : names) {
             AgentStatus agent = latestAgent.get(name);
             boolean attached = agent != null && DbCaptureService.isRecent(agent.lastSeen(), now);
-            out.add(new ProjectCaptureStatus(name, toggle.isEnabled(name), logging.getOrDefault(name, false), attached, agent, logLink.isOn(name)));
+            out.add(new ProjectCaptureStatus(name, toggle.isEnabled(name), logging.getOrDefault(name, false), attached, agent, logLink.isOn(name),
+                    logLevelOf(name)));
         }
         return out;
     }
@@ -150,7 +151,13 @@ public class DbCaptureProjectsService implements ManageDbCaptureUseCase {
         List<String> expected = new ArrayList<>(current.expectedFingerprints());
         expected.add(fingerprint);
         return saveSettings(name, new DbCaptureSettings(current.rowsPerResult(), current.beforeImageTables(), current.outsideCallCapture(),
-                current.thresholds(), expected, current.ignorePatterns(), current.passThroughClasses(), current.callerFrames(), current.indexInfo()));
+                current.thresholds(), expected, current.ignorePatterns(), current.passThroughClasses(), current.callerFrames(), current.indexInfo(),
+                current.logLevel()));
+    }
+
+    private String logLevelOf(String project) {
+        DbCaptureSettings settings = store.settings(project);
+        return settings == null ? DbCaptureSettings.DEFAULT_LOG_LEVEL : settings.logLevel();
     }
 
     private static String requireProject(String project) {
@@ -184,8 +191,11 @@ public class DbCaptureProjectsService implements ManageDbCaptureUseCase {
         if (s.callerFrames() > DbCaptureSettings.MAX_CALLER_FRAMES) {
             throw new IllegalArgumentException("frames per statement must be 1 to " + DbCaptureSettings.MAX_CALLER_FRAMES);
         }
+        if (!DbCaptureSettings.LOG_LEVELS.contains(s.logLevel())) {
+            throw new IllegalArgumentException("log level must be one of " + String.join(", ", DbCaptureSettings.LOG_LEVELS));
+        }
         return new DbCaptureSettings(s.rowsPerResult(), tables.stream().map(x -> x.toLowerCase(Locale.ROOT)).distinct().toList(),
-                s.outsideCallCapture(), t, expected, ignore, passThrough, s.callerFrames(), s.indexInfo());
+                s.outsideCallCapture(), t, expected, ignore, passThrough, s.callerFrames(), s.indexInfo(), s.logLevel());
     }
 
     private static List<String> clean(List<String> values, String what) {

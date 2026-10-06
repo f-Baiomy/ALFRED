@@ -1,3 +1,4 @@
+import { LogLevelSetting } from './call-logs.model';
 /**
  * Database Capture (docs/db-capture.md, specs/006-db-capture/data-model.md) - the statements the db-agent records
  * inside the application, tied to their inbound call. Mirrors backend-db-capture's domain records.
@@ -351,6 +352,8 @@ export interface DbCaptureSettings {
   readonly callerFrames?: number;
   /** Read a slow statement's table's index list once (metadata only, never a query of the data). */
   readonly indexInfo?: boolean;
+  /** The lowest level of log line the agent catches with each call - ERROR unless set (specs/009). */
+  readonly logLevel?: LogLevelSetting;
 }
 
 export interface AgentStatus {
@@ -373,6 +376,8 @@ export interface ProjectCaptureStatus {
   readonly agent?: AgentStatus | null;
   /** The project's ▤ Logs switch (specs/008-logs-call-link): while on, its calls are linked to its log lines. */
   readonly logsOn?: boolean;
+  /** The lowest level of line the agent catches for it (Settings → Database capture). */
+  readonly logLevel?: LogLevelSetting;
 }
 
 export interface RecordedQueryRequest {

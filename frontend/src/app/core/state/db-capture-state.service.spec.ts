@@ -56,6 +56,7 @@ describe('DbCaptureStateService', () => {
     expect(service.logsOn('wallet-app', true)).toBeTrue();
     expect(service.isOn('wallet-app', true)).toBeFalse(); // ◆ untouched
     expect(service.logsTitle('wallet-app', true)).toContain('click to stop');
+    expect(service.logsTitle('wallet-app', true)).toContain('ERROR and above'); // the default Log level
 
     service.setLogsOn('wallet-app', true);
     http.expectOne(`${BACKEND}/db-capture/projects/wallet-app/logs`)

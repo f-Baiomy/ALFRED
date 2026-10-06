@@ -29,9 +29,17 @@ public final class CallLogsModels {
         }
     }
 
-    /** {@code dropped}: lines the agent did not keep for the call (caps, late) - 0 for file lines. */
+    /**
+     * {@code dropped}: lines the agent did not keep for the call (caps, late) - 0 for file lines. {@code logLevel}: the
+     * project's Log level now (ERROR by default, APP = the application's own) - lines below it are not caught.
+     */
     public record CallLogsPage(String callId, Setup setup, Match matchedBy, String thread, int clockSkewMs,
-                               List<LinkedLogLine> lines, String next, int dropped) {
+                               List<LinkedLogLine> lines, String next, int dropped, String logLevel) {
+
+        public CallLogsPage(String callId, Setup setup, Match matchedBy, String thread, int clockSkewMs, List<LinkedLogLine> lines, String next,
+                            int dropped) {
+            this(callId, setup, matchedBy, thread, clockSkewMs, lines, next, dropped, null);
+        }
 
         public CallLogsPage(String callId, Setup setup, Match matchedBy, String thread, int clockSkewMs, List<LinkedLogLine> lines, String next) {
             this(callId, setup, matchedBy, thread, clockSkewMs, lines, next, 0);

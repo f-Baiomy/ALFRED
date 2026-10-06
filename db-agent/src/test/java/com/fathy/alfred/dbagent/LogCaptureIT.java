@@ -65,6 +65,33 @@ class LogCaptureIT {
     }
 
     @Test
+    void theProjectsLogLevelKeepsOnlyLinesAtOrAboveIt() throws Exception {
+        SETTINGS.applyLogLevel(null); // what an agent has before its first heartbeat: ERROR
+        Runnable everyFramework = () -> {
+            java.util.logging.Logger.getLogger("jul.app").warning("jul warn");
+            java.util.logging.Logger.getLogger("jul.app").severe("jul severe");
+            org.slf4j.LoggerFactory.getLogger("logback.app").info("logback info");
+            org.slf4j.LoggerFactory.getLogger("logback.app").warn("logback warn");
+            org.slf4j.LoggerFactory.getLogger("logback.app").error("logback error");
+            org.apache.logging.log4j.LogManager.getLogger("log4j2.app").error("log4j2 error");
+            new org.jboss.logmanager.Logger().logRaw(new ExtLogRecord(Level.INFO, "logmanager info", "jboss.app"));
+            new org.jboss.logmanager.Logger().logRaw(new ExtLogRecord(Level.SEVERE, "logmanager error", "jboss.app"));
+        };
+        AgentTestSupport.inCall("id=c-err; db=0; log=1", everyFramework::run);
+        SETTINGS.applyLogLevel("WARN");
+        AgentTestSupport.inCall("id=c-warn; db=0; log=1", everyFramework::run);
+        SETTINGS.applyLogLevel("APP");
+        AgentTestSupport.inCall("id=c-app; db=0; log=1", everyFramework::run);
+
+        assertThat(of("c-err")).extracting(l -> l.message).containsExactly("jul severe", "logback error", "log4j2 error", "logmanager error");
+        assertThat(of("c-warn")).extracting(l -> l.message)
+                .containsExactly("jul warn", "jul severe", "logback warn", "logback error", "log4j2 error", "logmanager error");
+        assertThat(of("c-app")).hasSize(8);
+        // a line below the level counts toward no cap: nothing dropped, the kept lines number from the call's start
+        assertThat(SINK.droppedLogsOf("c-err")).isZero();
+    }
+
+    @Test
     void nothingIsCaughtWithoutLogOneOrOutsideAnyCallWhenNotAsked() throws Exception {
         AgentTestSupport.inCall("id=c-db; db=1", () -> java.util.logging.Logger.getLogger("x").warning("not linked"));
         java.util.logging.Logger.getLogger("x").warning("outside, not asked");

@@ -104,6 +104,18 @@ class DbCaptureProjectsServiceTest {
     }
 
     @Test
+    void theLogLevelIsErrorUnlessSetAndMustBeAKnownOne() {
+        assertThat(DbCaptureSettings.defaults().logLevel()).isEqualTo("ERROR");
+        DbCaptureSettings warn = service.saveSettings("wallet-app", new DbCaptureSettings(10, List.of(), true, null, List.of(), List.of(),
+                List.of(), 5, false, " warn "));
+        assertThat(warn.logLevel()).isEqualTo("WARN");
+        assertThat(service.saveSettings("wallet-app", new DbCaptureSettings(10, List.of(), true, null, List.of(), List.of(),
+                List.of(), 5, false, "app")).logLevel()).isEqualTo("APP");
+        assertThatThrownBy(() -> service.saveSettings("wallet-app", new DbCaptureSettings(10, List.of(), true, null, List.of(), List.of(),
+                List.of(), 5, false, "LOUD"))).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     void markingExpectedAddsTheFingerprintOnce() {
         when(store.settings("wallet-app")).thenReturn(DbCaptureSettings.defaults());
         service.markExpected("wallet-app", "a1b2c3d4e5f60718");

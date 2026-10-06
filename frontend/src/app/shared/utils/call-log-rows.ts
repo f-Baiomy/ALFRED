@@ -1,5 +1,5 @@
 import { CallRecord } from '../../core/models/call.model';
-import { LinkedLogLine } from '../../core/models/call-logs.model';
+import { LinkedLogLine, LogLevelSetting } from '../../core/models/call-logs.model';
 import { CapturedStatement, SupplierMarker } from '../../core/models/db-capture.model';
 import { isFailed } from './db-statement-display';
 
@@ -89,4 +89,21 @@ function pathOf(url: string): string {
   } catch {
     return url;
   }
+}
+
+/** The Log level choices, lowest-kept-level first (Settings → Database capture, specs/009-agent-log-capture). */
+export const LOG_LEVEL_CHOICES: readonly { readonly value: LogLevelSetting; readonly label: string }[] = [
+  { value: 'ERROR', label: 'ERROR and above' },
+  { value: 'WARN', label: 'WARN and above' },
+  { value: 'INFO', label: 'INFO and above' },
+  { value: 'DEBUG', label: 'DEBUG and above' },
+  { value: 'TRACE', label: 'TRACE (everything)' },
+  { value: 'APP', label: "App's level - whatever the app writes" },
+];
+
+/** "ERROR and above", "the app's own level" - the words a title or note uses for a Log level (ERROR when unknown). */
+export function logLevelWords(level: LogLevelSetting | null | undefined): string {
+  if (level === 'APP') return "the app's own level";
+  if (level === 'TRACE') return 'every level';
+  return `${level ?? 'ERROR'} and above`;
 }

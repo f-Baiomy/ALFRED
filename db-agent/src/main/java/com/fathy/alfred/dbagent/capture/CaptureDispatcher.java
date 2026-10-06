@@ -1025,7 +1025,7 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
             }
             beginAgentWork();
             try {
-                logCatcher.caught(kind, event, context, outside);
+                logCatcher.caught(kind, event, context, outside, settings.logMinRank());
             } finally {
                 endAgentWork();
             }

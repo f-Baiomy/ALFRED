@@ -35,7 +35,8 @@ export function register(server: McpServer, client: AlfredClient): void {
     description: 'The application log lines written while one inbound call ran (the Logs view of Alfred\'s database window): offset from the call\'s start, '
       + 'level, thread, logger, message, exception and how each line was linked - CAUGHT (caught by the agent inside the application, in the call\'s own order), '
       + 'EXACT (it carries the call id) or THREAD_TIME (same request thread, inside the call\'s time). '
-      + 'Masked like bodies. Filter by level or text; raw: true adds each whole original line.',
+      + 'Masked like bodies. Filter by level or text; raw: true adds each whole original line. capturedLevel is the project Log level '
+      + '(Settings → Database capture; ERROR by default): lines below it were never caught, so their absence proves nothing.',
     inputSchema: {
       callId: z.string().min(1),
       cycleId: z.string().optional().describe('The session cycle holding the call, for a call the live list no longer has'),
@@ -71,6 +72,7 @@ export function register(server: McpServer, client: AlfredClient): void {
     return ok({
       callId: input.callId, setup: first.setup, ...(WHY[first.setup] && !lines.length ? { why: WHY[first.setup] } : {}),
       matchedBy: first.matchedBy, thread: first.thread, clockSkewMs: first.clockSkewMs,
+      ...(first.logLevel ? { capturedLevel: first.logLevel === 'APP' ? "APP (the application's own level)" : `${first.logLevel} and above` } : {}),
       total: matching.length, ...(matching.length !== lines.length ? { allLines: lines.length } : {}),
       offset: input.offset, nextOffset: end < matching.length ? end : null, lines: fitted.items, ...maskMeta(ctx),
     });

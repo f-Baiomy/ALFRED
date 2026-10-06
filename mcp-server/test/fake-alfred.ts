@@ -42,7 +42,7 @@ export interface FakeState {
   /** Calls triage has no saved mark for (recorded before triage existed, or past its row cap). */
   unmarked: Set<string>;
   /** /call-logs answers by call id (specs/008-logs-call-link); a missing call is 404. */
-  callLogs: Record<string, { setup: string; matchedBy: string | null; thread: string | null; lines: Record<string, unknown>[] }>;
+  callLogs: Record<string, { setup: string; matchedBy: string | null; thread: string | null; logLevel?: string; lines: Record<string, unknown>[] }>;
 }
 
 export function emptyState(): FakeState {
@@ -455,7 +455,7 @@ export class FakeAlfred {
       const offset = Number((q.get('after') ?? 'o:0').slice(2));
       const limit = Number(q.get('limit') ?? 200);
       const page = found.lines.slice(offset, offset + limit);
-      return [200, { callId: p[1], setup: found.setup, matchedBy: found.matchedBy, thread: found.thread, clockSkewMs: 200, lines: page,
+      return [200, { callId: p[1], setup: found.setup, matchedBy: found.matchedBy, thread: found.thread, clockSkewMs: 200, lines: page, logLevel: found.logLevel ?? null,
         next: offset + limit < found.lines.length ? `o:${offset + limit}` : null }];
     }
     if (p[0] === 'settings' && p[1] === 'variables') return [200, s.variables];

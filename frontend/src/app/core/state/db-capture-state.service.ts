@@ -1,3 +1,4 @@
+import { logLevelWords } from '../../shared/utils/call-log-rows';
 import { DestroyRef, Injectable, Signal, computed, inject, signal } from '@angular/core';
 import { Observable, Subject, share } from 'rxjs';
 import { AppConfigService } from '../services/app-config.service';
@@ -124,7 +125,7 @@ export class DbCaptureStateService {
     if (!inboundOn) return 'Turn logging on first - log lines are linked to recorded calls';
     const status = this.projectStatus(project);
     // with the agent attached its lines are caught inside the application (specs/009); without, read from log files (008)
-    const from = status?.attached ? 'caught by the agent' : 'from its log files';
+    const from = status?.attached ? `caught by the agent (${logLevelWords(status.logLevel)})` : 'caught by the agent once attached';
     return status?.logsOn
       ? `Logs are linked for ${project}, ${from} - click to stop (Alfred then reads none of its logs)`
       : `Logs are not linked for ${project} - click to link its calls to its log lines (${from})`;

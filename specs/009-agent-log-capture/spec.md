@@ -24,6 +24,7 @@ This feature removes the files from the path: the agent, already inside the appl
 - Q: How is log catching switched on per project? → A: The existing ▤ switch: while the agent is attached to the project, ▤ on means caught lines; log files are used only for a project with no agent loaded. No separate switch, no source choice.
 - Q: Are lines written outside any recorded call (startup, scheduled jobs, message listeners) caught? → A: Yes - shown like the database window's "outside any call" view, grouped by thread.
 - Q: Which log levels are caught? → A: Exactly what the application's own logging configuration lets through; catching never makes it log more.
+- Q (2026-10-06, after first use): Can the caught level be chosen? → A: Yes - a per-project Log level in Settings → Database capture: ERROR (default), WARN, INFO, DEBUG, TRACE, or the app's own level. It only narrows what the app lets through, never widens it.
 - Q: How long are caught lines kept? → A: With the database statements: the same store and size cap, and as long as a session cycle holds the call.
 
 ## User Scenarios & Testing *(mandatory)*

@@ -32,7 +32,7 @@ import { CallLogsApiService } from '../../core/services/call-logs-api.service';
 import { LogsSocketService } from '../../core/services/logs-socket.service';
 import { CallLogsPage, LinkedLogLine } from '../../core/models/call-logs.model';
 import { OutsideLogLine } from '../../core/models/db-capture.model';
-import { TogetherRow, logRows, togetherRows } from '../../shared/utils/call-log-rows';
+import { TogetherRow, logLevelWords, logRows, togetherRows } from '../../shared/utils/call-log-rows';
 import { CallsApiService } from '../../core/services/calls-api.service';
 import { CallFocusService } from '../../core/services/call-focus.service';
 
@@ -663,6 +663,11 @@ export class DbWindowComponent implements OnInit {
     const project = this.state.project();
     if (!project) return;
     this.dbState.setLogsOn(project, true); // the switch's change reloads the lines (constructor)
+  }
+
+  /** "ERROR and above" - the project's Log level, as the lines were served. */
+  levelWords(): string {
+    return logLevelWords(this.logInfo()?.logLevel);
   }
 
   logsWhy(): string {

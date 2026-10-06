@@ -3,13 +3,15 @@ import { DbCaptureSettings, DbThresholds, ProjectCaptureStatus } from '../../cor
 import { DbCaptureApiService } from '../../core/services/db-capture-api.service';
 import { DbCaptureStateService } from '../../core/state/db-capture-state.service';
 import { RedactionsStore } from '../../core/state/redactions-store.service';
+import { LogLevelSetting } from '../../core/models/call-logs.model';
+import { LOG_LEVEL_CHOICES } from '../../shared/utils/call-log-rows';
 
 type ListKey = 'beforeImageTables' | 'expectedFingerprints' | 'ignorePatterns' | 'passThroughClasses';
 
 /**
  * Settings → Database capture (mock: "Settings → Database capture"): the same per-project switch as the Sources bar
  * and the cycle widget, the agent's status, and each project's capture settings - rows kept per result, before-image
- * tables, flag thresholds, expected statements, ignored statements, outside-call capture - plus which database
+ * tables, flag thresholds, expected statements, ignored statements, the Log level of caught lines, outside-call capture - plus which database
  * columns are hidden in exports. Changes save as they are made and reach the agent on its next heartbeat.
  */
 @Component({
@@ -98,6 +100,13 @@ type ListKey = 'beforeImageTables' | 'expectedFingerprints' | 'ignorePatterns' |
             <div class="set-row"><div class="set-l">Index check</div>
               <div><label class="chk"><input type="checkbox" [checked]="!!s.indexInfo" (change)="toggleIndexInfo(p.project)">
                 For a slow statement, read its table's index list once (database metadata - never a query of your data; EXPLAIN is not run)</label></div></div>
+            <div class="set-row"><div class="set-l">Log level</div>
+              <div><select class="mini" [value]="s.logLevel ?? 'ERROR'" (change)="setLogLevel(p.project, $event)"
+                           title="The lowest level of log line the agent catches with each call (▤)">
+                  @for (c of levelChoices; track c.value) {<option [value]="c.value" [selected]="(s.logLevel ?? 'ERROR') === c.value">{{ c.label }}</option>}
+                </select>
+                <div class="dimtxt" style="margin-top:.3rem">Log lines caught with each call while <b>▤</b> is on. Can't go below the app's
+                  own level - the agent catches after the app's check and never changes what it logs.</div></div></div>
             <div class="set-row"><div class="set-l">Outside calls</div>
               <div><label class="chk"><input type="checkbox" [checked]="s.outsideCallCapture" (change)="toggleOutside(p.project)">
                 Also record statements no inbound call caused (scheduled jobs, message listeners, startup)</label></div></div>
@@ -115,6 +124,7 @@ export class DbCaptureSettingsComponent implements OnInit {
 
   private readonly settings = signal<ReadonlyMap<string, DbCaptureSettings>>(new Map());
   readonly errors = signal<ReadonlyMap<string, string>>(new Map());
+  protected readonly levelChoices = LOG_LEVEL_CHOICES;
   readonly hiddenColumns = computed(() => this.redactions.all().filter((r) => r.kind === 'db-column'));
 
   constructor() {
@@ -181,6 +191,12 @@ export class DbCaptureSettingsComponent implements OnInit {
   removeFrom(project: string, key: ListKey, value: string): void {
     const s = this.settingsOf(project);
     if (s) this.save(project, { ...s, [key]: (s[key] ?? []).filter((v) => v !== value) });
+  }
+
+  setLogLevel(project: string, event: Event): void {
+    const s = this.settingsOf(project);
+    const level = (event.target as HTMLSelectElement).value as LogLevelSetting;
+    if (s && level !== (s.logLevel ?? 'ERROR')) this.save(project, { ...s, logLevel: level });
   }
 
   toggleIndexInfo(project: string): void {

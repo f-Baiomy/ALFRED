@@ -120,6 +120,7 @@
           @if (logInfo()?.thread; as t) {<span>· thread {{ t }}</span>}
           @if (logInfo()?.matchedBy === 'THREAD_TIME') {<span>· ±{{ logInfo()?.clockSkewMs }} ms clock</span>}
           @if (logInfo()?.setup === 'LINKING_OFF') {<span title="▤ is off - these are the lines Alfred kept with this call">· kept copy</span>}
+          @if (logInfo()?.matchedBy === 'CAUGHT') {<span title="Settings → Database capture → Log level">· {{ levelWords() }}</span>}
           @if (logInfo()?.dropped; as d) {<span class="w" title="Over the per-call limits (5,000 lines, 2 MB, 32 KB a line) or written after the call ended">· {{ d.toLocaleString() }} lines not kept</span>}
           @if (firstLogLink(); as href) {<a [href]="href" target="_blank" rel="noopener">· open in Logs ↗</a>}
         </span>
@@ -239,7 +240,11 @@
                 <button type="button" class="action-btn" (click)="turnLogsOn()">Turn ▤ on</button>
               }
               @case ('noagent') { The agent caught no log lines for this call. Lines are caught while <b>▤</b> is on and the database agent is attached to <b>{{ state.project() }}</b> - a call that ran before, or with an older agent loaded (restart the application once after updating it), has none. }
-              @default { No log lines were written during this call. }
+              @default {
+                @if (logInfo()?.matchedBy === 'CAUGHT' && logInfo()?.logLevel !== 'APP') {
+                  No log lines at {{ levelWords() }} were written during this call. Change the level in Settings → Database capture → Log level.
+                } @else { No log lines were written during this call. }
+              }
             }
           </div>
         }

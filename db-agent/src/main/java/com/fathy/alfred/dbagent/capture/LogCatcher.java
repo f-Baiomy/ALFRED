@@ -88,7 +88,15 @@ public final class LogCatcher {
      * outside-call lines are wanted (▤ on for the project).
      */
     void caught(String kind, Object event, CallContext context, boolean outside) {
+        caught(kind, event, context, outside, 0);
+    }
+
+    /** {@code minRank}: the project's Log level ({@link #rank}); a line below it is not caught and counts toward no cap. */
+    void caught(String kind, Object event, CallContext context, boolean outside, int minRank) {
         if (event == null) {
+            return;
+        }
+        if (minRank > 0 && rankOf(kind, event) < minRank) {
             return;
         }
         if (context != null) {
@@ -121,6 +129,46 @@ public final class LogCatcher {
             r.seq = context.nextSeq();
         }
         sink.log(r);
+    }
+
+    /** The event's level on one scale: 5 ERROR, 4 WARN, 3 INFO, 2 DEBUG, 1 TRACE; an unreadable level keeps the line (5). */
+    private int rankOf(String kind, Object event) {
+        try {
+            Object level = "jul".equals(kind) ? ((java.util.logging.LogRecord) event).getLevel() : call(event, "getLevel");
+            return rank(level);
+        } catch (Throwable t) {
+            return 5;
+        }
+    }
+
+    static int rank(Object level) {
+        if (level == null) {
+            return 5;
+        }
+        if (level instanceof java.util.logging.Level) {
+            // JUL and jboss-logmanager (ERROR 1000, WARN 900, INFO 800, CONFIG 700, DEBUG/FINE 500, TRACE 400, FINER/FINEST)
+            int v = ((java.util.logging.Level) level).intValue();
+            return v >= 1000 ? 5 : v >= 900 ? 4 : v >= 700 ? 3 : v >= 500 ? 2 : 1;
+        }
+        switch (level.toString().trim().toUpperCase(java.util.Locale.ROOT)) {
+            case "TRACE":
+            case "FINER":
+            case "FINEST":
+            case "ALL":
+                return 1;
+            case "DEBUG":
+            case "FINE":
+                return 2;
+            case "INFO":
+            case "CONFIG":
+            case "NOTICE":
+                return 3;
+            case "WARN":
+            case "WARNING":
+                return 4;
+            default:
+                return 5; // ERROR, FATAL, SEVERE and anything unknown - never lose a line we cannot place
+        }
     }
 
     private boolean outsideAllowed() {
