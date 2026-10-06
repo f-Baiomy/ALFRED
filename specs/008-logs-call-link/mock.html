@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Logs linked to calls</title>
+<style>
+:root {
+  --card: #1e1f23; --inner: #16171a; --border: rgba(255,255,255,.09); --border-strong: rgba(255,255,255,.16);
+  --text: #eceef3; --dim: #9aa0ad; --faint: #646a78; --link: #c4b5fd;
+  --db: #2dd4bf; --sup: #7dd3fc; --log: #a3e635; --warn: #f2b13c; --red: #f07178; --app: #e0a458; --fan: #f472b6;
+  --mono: "Cascadia Code", Consolas, monospace;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: #0f1012; color: var(--text); font: 14px/1.45 "Segoe UI", system-ui, sans-serif; }
+.page { max-width: 1180px; margin: 0 auto; padding: 16px 16px 40px; }
+h1 { font-size: 18px; margin: 0 0 4px; } h2 { font-size: 14px; margin: 22px 0 8px; color: var(--dim); text-transform: uppercase; letter-spacing: .06em; }
+.intro { color: var(--dim); margin: 0 0 10px; font-size: 13px; }
+.box { background: var(--card); border: 1px solid var(--border-strong); border-radius: 12px; padding: 12px 14px; }
+.mono { font-family: var(--mono); font-size: 12px; }
+.dim { color: var(--dim); } .faint { color: var(--faint); }
+.chip { display: inline-flex; gap: 6px; align-items: center; font-size: 11.5px; border-radius: 7px; padding: 2px 8px; border: 1px solid; cursor: pointer; white-space: nowrap; }
+.chip.db { color: var(--db); border-color: rgba(45,212,191,.45); background: rgba(45,212,191,.08); }
+.chip.log { color: var(--log); border-color: rgba(163,230,53,.45); background: rgba(163,230,53,.07); }
+.chip .x { color: var(--red); } .chip .w { color: var(--warn); }
+.card { display: flex; gap: 10px; align-items: center; font-size: 13px; }
+.m { font-size: 11px; font-weight: 700; border-radius: 6px; padding: 1px 7px; background: rgba(196,181,253,.15); color: var(--link); }
+.s { font-size: 11px; font-weight: 700; border-radius: 6px; padding: 1px 7px; background: rgba(110,231,168,.13); color: #6ee7a8; }
+/* window */
+.win { margin-top: 10px; border: 1px solid var(--border-strong); border-radius: 12px; overflow: hidden; background: var(--card); }
+.wh { padding: 8px 14px; border-bottom: 1px solid var(--border); font-size: 12.5px; display: flex; gap: 10px; align-items: baseline; }
+.wh b { font-size: 15px; }
+.tl { padding: 6px 14px; border-bottom: 1px solid var(--border); }
+.lane { display: grid; grid-template-columns: 70px minmax(0,1fr); gap: 8px; align-items: center; margin: 2px 0; }
+.lane .n { font-size: 11px; color: var(--dim); text-align: right; }
+.track { position: relative; height: 14px; border-radius: 4px; background: rgba(255,255,255,.025); border: 1px solid var(--border); }
+.seg { position: absolute; top: 2px; height: 9px; border-radius: 2px; min-width: 2px; }
+.tick { position: absolute; top: 1px; width: 2px; height: 11px; border-radius: 1px; }
+.bar { display: flex; gap: 6px; align-items: center; padding: 6px 12px; border-bottom: 1px solid var(--border); font-size: 12.5px; flex-wrap: wrap; }
+.tab { padding: 3px 9px; border-radius: 6px; color: var(--dim); cursor: pointer; }
+.tab.on { background: rgba(196,181,253,.15); color: var(--text); }
+.tab .k { font-size: 11px; color: var(--faint); margin-left: 3px; }
+.tab.newt { color: var(--log); }
+.rows { max-height: 420px; overflow: auto; padding: 4px 10px 10px; }
+.r { display: grid; grid-template-columns: 62px 64px minmax(0,1fr) 92px 64px; gap: 8px; align-items: center; padding: 3px 4px; font-size: 12.5px; border-radius: 6px; }
+.r .at { font-family: var(--mono); font-size: 11px; color: var(--faint); }
+.v { font-size: 10px; font-weight: 700; text-align: center; border-radius: 5px; padding: 1px 3px; border: 1px solid; }
+.r .t { font-family: var(--mono); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.r .how { font-size: 10.5px; color: var(--faint); text-align: right; }
+.r .ms { text-align: right; font-family: var(--mono); font-size: 12px; color: var(--dim); }
+.r.db .t { color: #cfeee9; } .r.sup .t { color: var(--sup); } .r.log .t { color: #e4f5c8; }
+.r.log { background: rgba(163,230,53,.035); }
+.r.log.err { background: rgba(240,113,120,.07); } .r.log.err .t { color: #ffc9cd; }
+.r.open { outline: 1px solid rgba(163,230,53,.4); }
+.detail { margin: 2px 4px 8px 134px; border: 1px solid var(--border); border-radius: 8px; background: var(--inner); padding: 8px 10px; font-size: 12px; }
+.detail .kv { display: grid; grid-template-columns: 140px minmax(0,1fr); gap: 2px 10px; font-family: var(--mono); font-size: 11.5px; }
+.detail .kv span:nth-child(odd) { color: var(--faint); }
+.detail a { color: var(--link); cursor: pointer; }
+.note { color: var(--dim); font-size: 13px; } .note b { color: var(--text); }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.how-pill { font-size: 10.5px; border-radius: 999px; padding: 0 7px; border: 1px solid var(--border-strong); color: var(--dim); }
+.how-pill.exact { color: var(--log); border-color: rgba(163,230,53,.45); }
+.set { display: grid; grid-template-columns: 170px minmax(0,1fr); gap: 6px 12px; font-size: 12.5px; align-items: center; }
+.set select, .set input { background: var(--inner); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 3px 6px; font: inherit; font-size: 12px; }
+.lx { font-family: var(--mono); font-size: 11.5px; }
+</style>
+</head>
+<body>
+<div class="page">
+<h1>Logs linked to calls</h1>
+<p class="intro">The odeysys WildFly log (JSON lines: <span class="mono">timestamp · log.level · process.thread.name · log.logger · message</span>) loaded in the Logs tab,
+joined to the calls it was written during - next to the database statements and supplier calls of that call, in time order.</p>
+
+<h2>1 · On the call card - beside ◆ DB</h2>
+<div class="box card">
+  <span class="m">POST</span><span class="s">200</span><span class="mono">/odeysysadmin/Booking2/flight-search/search</span>
+  <span class="chip db">◆ DB 41 <span class="x">1 failed</span></span>
+  <span class="chip log">▤ Logs 14 <span class="x">1 error</span> <span class="w">2 warn</span></span>
+  <span class="faint" style="margin-left:auto;font-size:12px">20.0 s · 4:34:15 AM</span>
+</div>
+<p class="note">Click <b>▤ Logs</b> → the database window opens on its <b>Logs</b> tab (or <b>Together</b>). A call with no matched lines shows no chip.</p>
+
+<h2>2 · In the database window - a Logs lane, a Logs tab and everything Together</h2>
+<div class="win">
+  <div class="wh"><b>Database · POST</b><span class="mono" style="color:var(--sup)">/odeysysadmin/Booking2/flight-search/search</span><span class="faint">500d0cdc · thread default task-4</span></div>
+  <div class="tl">
+    <div class="lane"><div class="n">Database</div><div class="track" id="l-db"></div></div>
+    <div class="lane"><div class="n">Suppliers</div><div class="track" id="l-sup"></div></div>
+    <div class="lane"><div class="n" style="color:var(--log)">Logs</div><div class="track" id="l-log"></div></div>
+  </div>
+  <div class="bar">
+    <span class="tab" data-v="stmts">Statements<span class="k">41</span></span>
+    <span class="tab newt" data-v="logs">Logs<span class="k">14</span></span>
+    <span class="tab on newt" data-v="all">Together<span class="k">57</span></span>
+    <span class="tab">Top queries<span class="k">25</span></span>
+    <span class="tab">Tables<span class="k">23</span></span>
+    <span class="faint" style="margin-left:auto;font-size:11.5px">Logs from <b style="color:var(--text)">wildfly</b> · matched by <span class="how-pill">same thread + time</span> · <a style="color:var(--link);cursor:pointer">open in Logs ↗</a></span>
+  </div>
+  <div class="rows" id="rows"></div>
+</div>
+<p class="note"><b>Together</b> interleaves statements, supplier calls and log lines by time - "the log said <i>search started</i>, then these 7 queries ran, then TravelportNdc was called, then the log warned …".
+Click a log line for all its fields; <b>Open in Logs ↗</b> shows it in the Logs explorer with the lines around it.</p>
+
+<h2>3 · From the Logs explorer back to the call</h2>
+<div class="box">
+  <div class="lx"><span class="faint">10:25:51.678</span> <span style="color:#6ee7a8">INFO</span> <span class="dim">default task-4 · DetailLogger</span> &nbsp;search started for EK DXB-LHR …</div>
+  <div class="detail" style="margin-left:0;margin-top:8px">
+    <div class="kv"><span>timestamp</span><span>2026-10-05T04:34:15.312Z</span><span>process.thread.name</span><span>default task-4</span><span>log.logger</span><span>DetailLogger</span></div>
+    <div style="margin-top:6px">During call <a>↗ POST /Booking2/flight-search/search · 200 · 20.0 s</a> <span class="how-pill">same thread + time</span> &nbsp; <a>◆ its database statements</a></div>
+  </div>
+</div>
+
+<h2>4 · How a line is matched - and where you set it up</h2>
+<div class="grid2">
+  <div class="box note">
+    <b>a) Exact - the agent tags the log.</b> The db-agent already knows each call (the <span class="mono">X-Alfred-Call</span> header). It also puts the call id in the
+    logging MDC (<span class="mono">alfred.call</span>) for the time the request runs - WildFly/JBoss Logging, SLF4J/Logback and Log4j2 all read it - so a JSON log
+    that writes the MDC carries <span class="mono">"mdc": {"alfred.call": "500d0cdc-…"}</span> on every line of that call, even from other classes. No guessing.
+    Only odeysys's log format has to include the MDC (WildFly's JSON formatter does by default). <span class="how-pill exact">exact</span><br><br>
+    <b>b) Same thread + time - for logs already written.</b> A WildFly request runs on one thread (<span class="mono">default task-4</span>, which the agent records with every
+    statement): lines of that thread between the call's start and end belong to it. Works on today's files with no change; a call that hands work to
+    another thread (async) loses those lines, and the log and Alfred clocks must agree (an allowed skew, default 200 ms). <span class="how-pill">same thread + time</span><br><br>
+    <b>c) Shared value</b> (optional): a field the app logs that also appears in the call - a booking reference, a session id. <span class="how-pill">mentions BKG-4411</span>
+  </div>
+  <div class="box">
+    <div style="font-weight:600;margin-bottom:8px">Settings → Database capture → odeysys · Logs</div>
+    <div class="set">
+      <span class="dim">Log source</span><select><option>wildfly (5,406 lines)</option></select>
+      <span class="dim">Thread field</span><select><option>process.thread.name</option></select>
+      <span class="dim">Time field</span><span class="mono">timestamp</span>
+      <span class="dim">Call id field (exact)</span><select><option>mdc.alfred.call - found in 0 lines yet</option></select>
+      <span class="dim">Clock skew allowed</span><span><input value="200" style="width:60px"> ms</span>
+      <span class="dim">Agent tags the MDC</span><span><input type="checkbox" checked> on (needs a WildFly restart once)</span>
+    </div>
+  </div>
+</div>
+</div>
+
+<script>
+const TOTAL = 20000;
+const x = (ms) => (ms / TOTAL) * 100;
+const ST = [[70, 54], [282, 53], [499, 53], [714, 53], [957, 65], [3136, 66], [3465, 180], [3701, 1], [6000, 210], [6300, 90], [6400, 92], [6500, 85], [6600, 88], [6700, 70], [6800, 72], [7000, 524], [9500, 40], [17000, 60], [17200, 55], [19500, 236], [19760, 3]];
+const LOGS = [
+  [40, 'INFO', 'search started for EK DXB-LHR 2 ADT (org 948, branch 12)'],
+  [960, 'INFO', 'flight search hit logged, ratio check'],
+  [3300, 'DEBUG', 'loading prefer-airline list'],
+  [5990, 'INFO', 'loading 2 flight tags'],
+  [7600, 'INFO', 'calling suppliers: TravelportNdc, SabreNdc'],
+  [10100, 'WARN', 'SabreNdc slow: 2,451 ms'],
+  [13300, 'WARN', 'TravelportNdc slow: 5,580 ms'],
+  [13350, 'INFO', 'merging 412 offers'],
+  [15800, 'INFO', 'pricing rules applied (KieSession updated 4:01 AM)'],
+  [19500, 'ERROR', 'LOG_FLIGHTSEARCH_HIT_DETAILS_SP_V6: PROCEDURE does not exist - ignored'],
+  [19780, 'INFO', 'search done: 412 offers, cheapest 1,240 AED, 20,035 ms'],
+];
+const SUP = [[7700, 2450, 'SabreNdc'], [7720, 5580, 'TravelportNdc']];
+const COL = { INFO: '#a3e635', DEBUG: '#646a78', WARN: '#f2b13c', ERROR: '#f07178' };
+const put = (id, html) => (document.getElementById(id).innerHTML = html);
+put('l-db', ST.map(([a, ms], i) => `<div class="seg" style="left:${x(a)}%;width:${x(ms)}%;background:${i >= 9 && i <= 15 ? 'var(--fan)' : i === 19 ? 'var(--red)' : 'var(--db)'}"></div>`).join(''));
+put('l-sup', SUP.map(([a, ms], i) => `<div class="seg" style="left:${x(a)}%;width:${x(ms)}%;top:${2 + i * 5}px;height:4px;background:var(--sup)"></div>`).join(''));
+put('l-log', LOGS.map(([a, lv]) => `<div class="tick" title="${lv}" style="left:${x(a)}%;background:${COL[lv]}"></div>`).join(''));
+
+const fmt = (ms) => ms >= 1000 ? (ms / 1000).toFixed(2) + ' s' : Math.round(ms) + ' ms';
+const items = [
+  ...ST.map(([a, ms], i) => ({ at: a, kind: 'db', v: i === 4 ? 'CALL' : i === 7 || i === 20 ? 'COMMIT' : 'SELECT', t: i === 19 ? 'CALL LOG_FLIGHTSEARCH_HIT_DETAILS_SP_V6(?, ?, ?)' : `SELECT … FROM ${['TT_USER_GROUP', 'TT_ORGANIZATION', 'TT_TS_FL_TAG', 'TT_AIRPORT_DETAILS', 'TT_CURRENCY'][i % 5]} WHERE …`, ms, how: '#' + (i + 1) })),
+  ...SUP.map(([a, ms, h]) => ({ at: a, kind: 'sup', v: 'POST', t: h + ' /search', ms, how: 'supplier' })),
+  ...LOGS.map(([a, lv, m], i) => ({ at: a, kind: 'log', v: lv, t: m, ms: null, how: 'same thread', i })),
+].sort((p, q) => p.at - q.at);
+let view = 'all';
+function render() {
+  const list = items.filter((it) => view === 'all' || (view === 'logs' ? it.kind === 'log' : it.kind !== 'log'));
+  put('rows', list.map((it) => {
+    const color = it.kind === 'log' ? COL[it.v] : it.kind === 'sup' ? 'var(--sup)' : it.v === 'CALL' ? 'var(--link)' : 'var(--db)';
+    return `<div class="r ${it.kind}${it.v === 'ERROR' ? ' err' : ''}" data-i="${it.i ?? ''}"><span class="at">+${fmt(it.at)}</span><span class="v" style="color:${color};border-color:${color}">${it.kind === 'log' ? '▤ ' + it.v : it.v}</span><span class="t">${it.t}</span><span class="how">${it.how}</span><span class="ms">${it.ms != null ? fmt(it.ms) : ''}</span></div>`;
+  }).join(''));
+  document.querySelectorAll('.r.log').forEach((r) => (r.onclick = () => {
+    const open = r.nextElementSibling?.classList.contains('detail');
+    document.querySelectorAll('.detail').forEach((d) => d.remove());
+    document.querySelectorAll('.r.open').forEach((d) => d.classList.remove('open'));
+    if (open) return;
+    const l = LOGS[+r.dataset.i];
+    r.classList.add('open');
+    r.insertAdjacentHTML('afterend', `<div class="detail"><div class="kv"><span>timestamp</span><span>2026-10-05T04:34:${(15 + l[0] / 1000).toFixed(3)}Z</span><span>log.level</span><span>${l[1]}</span><span>process.thread.name</span><span>default task-4</span><span>log.logger</span><span>DetailLogger</span><span>message</span><span>${l[2]}</span></div><div style="margin-top:6px"><a>Open in Logs ↗</a> · matched by <span class="how-pill">same thread + time</span></div></div>`);
+  }));
+}
+document.querySelectorAll('.tab[data-v]').forEach((t) => (t.onclick = () => { view = t.dataset.v; document.querySelectorAll('.tab[data-v]').forEach((u) => u.classList.toggle('on', u === t)); render(); }));
+render();
+</script>
+</body>
+</html>
