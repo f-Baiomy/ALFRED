@@ -62,6 +62,6 @@ export interface ProjectLogsView {
 
 /** The call a Logs-tab line was written during (GET /call-logs/for-line). */
 export interface LineCall {
-  readonly call: { readonly id: string; readonly method: string; readonly url: string; readonly status: number | null; readonly durationMs: number; readonly service: string | null };
+  readonly call: { readonly id: string; readonly method: string; readonly url: string; readonly status: number | null; readonly durationMs: number; readonly service: string | null; readonly at: string };
   readonly matchedBy: LogMatch;
 }

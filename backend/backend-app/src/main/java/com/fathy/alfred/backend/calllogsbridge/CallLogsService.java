@@ -132,6 +132,56 @@ public class CallLogsService {
         return out;
     }
 
+    // ------------------------------------------------------------------ a line's call (US3)
+
+    /**
+     * The call a Logs-tab line was written during: the call its id field names (exact), else the call on the line's
+     * thread whose window holds the line's time (the same nearest-middle rule). Only projects reading this source
+     * with ▤ on are considered. Empty when no call fits.
+     */
+    public Optional<CallLogsModels.LineCall> forLine(String sourceId, String lineId) {
+        LogLine line = null;
+        for (ProjectLogSettings s : projectLogs.readingSource(sourceId)) {
+            if (!capture.logsLinked(s.project())) {
+                continue;
+            }
+            if (line == null) {
+                line = logs.line(sourceId, lineId);
+            }
+            Object tagged = line.fields().get(s.callIdField());
+            if (tagged != null) {
+                Optional<CallInfo> call = resolve(String.valueOf(tagged), null);
+                if (call.isPresent()) {
+                    return Optional.of(new CallLogsModels.LineCall(ref(call.get()), Match.EXACT));
+                }
+                continue; // tagged for a call Alfred no longer has: never time-matched to another one
+            }
+            Object thread = s.threadField() == null ? null : line.fields().get(s.threadField());
+            if (thread == null) {
+                continue;
+            }
+            long at = line.ts();
+            long skew = s.clockSkewMs();
+            List<CallInfo> onThread = new ArrayList<>();
+            for (CallOnThread c : threads.callsOnThread(String.valueOf(thread), Instant.ofEpochMilli(at - NEIGHBOUR_LOOKBACK_MS),
+                    Instant.ofEpochMilli(at + skew))) {
+                inboundCalls.getSummary(c.callId()).flatMap(CallLogsService::info).filter(i -> s.project().equals(i.project())).ifPresent(onThread::add);
+            }
+            List<Window> windows = onThread.stream().map(i -> new Window(i.id(), i.startMs(), i.endMs())).toList();
+            for (CallInfo c : onThread) {
+                Window self = new Window(c.id(), c.startMs(), c.endMs());
+                if (CallWindows.belongsTo(self, windows, at, skew)) {
+                    return Optional.of(new CallLogsModels.LineCall(ref(c), Match.THREAD_TIME));
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    private static CallLogsModels.CallRef ref(CallInfo c) {
+        return new CallLogsModels.CallRef(c.id(), c.method(), c.url(), c.status(), c.durationMs(), c.project(), Instant.ofEpochMilli(c.startMs()).toString());
+    }
+
     /** True while the project's ▤ switch and its inbound logging are both on - only then are its logs read. */
     boolean linked(String project) {
         return capture.logsLinked(project);

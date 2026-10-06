@@ -14,6 +14,9 @@ public interface ProjectLogsStorePort {
 
     void saveSettings(ProjectLogSettings settings);
 
+    /** Every project's saved settings. */
+    List<ProjectLogSettings> allSettings();
+
     /** Inserts or replaces by (call id, source id, line id). */
     void keep(List<KeptLogLine> lines);
 

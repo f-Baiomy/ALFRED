@@ -554,3 +554,13 @@
 .lg-qp.dragging { opacity: 0.35; }
 .lg-qp.drop-before { box-shadow: -3px 0 0 0 var(--cyan); }
 .lg-qp.drop-after { box-shadow: 3px 0 0 0 var(--cyan); }
+
+/* "During call" on an opened line (specs/008-logs-call-link) */
+.lg-during { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; margin: 0 0 6px; padding: 4px 8px; border-radius: 6px;
+  border: 1px solid color-mix(in srgb, #a3e635 35%, var(--border)); background: color-mix(in srgb, #a3e635 6%, transparent); font-size: 0.78rem;
+  .lbl { font-size: 0.66rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #a3e635; }
+  .u { font-family: var(--db-mono, monospace); color: var(--cyan); max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pill { font-size: 0.62rem; padding: 0 0.35rem; border-radius: 999px; border: 1px solid var(--border); color: var(--text-dim); }
+  .pill.exact { color: #a3e635; }
+  a { color: var(--cyan); cursor: pointer; }
+}

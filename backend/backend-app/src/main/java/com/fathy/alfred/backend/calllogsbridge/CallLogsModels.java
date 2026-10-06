@@ -27,6 +27,6 @@ public final class CallLogsModels {
     public record LineCall(CallRef call, Match matchedBy) {
     }
 
-    public record CallRef(String id, String method, String url, Integer status, double durationMs, String service) {
+    public record CallRef(String id, String method, String url, Integer status, double durationMs, String service, String at) {
     }
 }

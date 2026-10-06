@@ -289,6 +289,33 @@ class CallLogsServiceTest {
         assertThat(byTime.pills()).extracting(LogQuery.Pill::op).containsExactly(LogQuery.Op.EQ, LogQuery.Op.NOT_EXISTS);
     }
 
+    // ------------------------------------------------------------------ a line's call
+
+    @Test
+    void aLineFindsItsCallByIdOrByThreadAndTime() {
+        when(projectLogs.readingSource("s1")).thenReturn(List.of(new ProjectLogSettings(PROJECT, List.of("s1"), "thread", null, null, 200)));
+        line("s1", "tagged", START + 9000, "other", Map.of("mdc.alfred.call", CALL));
+        line("s1", "timed", START + 400, THREAD);
+        line("s1", "elsewhere", START + 400, "default task-9");
+
+        assertThat(service.forLine("s1", "tagged").orElseThrow()).satisfies(c -> {
+            assertThat(c.call().id()).isEqualTo(CALL);
+            assertThat(c.matchedBy()).isEqualTo(Match.EXACT);
+        });
+        assertThat(service.forLine("s1", "timed").orElseThrow().matchedBy()).isEqualTo(Match.THREAD_TIME);
+        assertThat(service.forLine("s1", "elsewhere")).isEmpty();
+    }
+
+    @Test
+    void aLineOfAProjectWithTheSwitchOffFindsNothingAndIsNotRead() {
+        when(projectLogs.readingSource("s1")).thenReturn(List.of(new ProjectLogSettings(PROJECT, List.of("s1"), "thread", null, null, 200)));
+        when(capture.logsLinked(PROJECT)).thenReturn(false);
+        line("s1", "timed", START + 400, THREAD);
+
+        assertThat(service.forLine("s1", "timed")).isEmpty();
+        verify(logs, never()).line(anyString(), anyString());
+    }
+
     // ------------------------------------------------------------------ the window rule directly
 
     @Test

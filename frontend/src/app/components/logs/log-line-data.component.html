@@ -16,6 +16,8 @@
     <button class="lg-btn xs" [disabled]="line().raw === null" (click)="copy()">{{ copied() ? 'Copied' : 'Copy' }}</button>
   </div>
 }
+<!-- the inbound call this line was written during (specs/008-logs-call-link) -->
+<app-log-line-call [sourceId]="sourceId()" [lineId]="line().lineId" />
 
 @if (line().rawUnavailable) {
   <div class="lg-note" style="margin: 0 0 6px; color: var(--amber)">Raw line unavailable: {{ line().rawUnavailable }}. The stored fields are shown.</div>

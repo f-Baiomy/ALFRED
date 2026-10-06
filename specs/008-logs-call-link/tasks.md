@@ -73,8 +73,8 @@ Paths: `DBC` = `backend/backend-db-capture/src/main/java/com/fathy/alfred/backen
 **Goal**: a Logs tab line shows the call it was written during.
 **Independent test**: open an odeysys line inside a recorded call → "During call ↗ …" opens it.
 
-- [ ] T032 [US3] `GET /call-logs/for-line?sourceId=&lineId=` in `BRIDGE/CallLogsService.java`/`CallLogsController.java`: exact id field → that call; else the line's thread + time → `callsOnThread` → window check (same overlap rule); only for projects with ▤ on; 204 when none; tests
-- [ ] T033 [US3] "During call" block (method, path, status, duration, how matched, links to the call and its database window) in `FE/components/logs/log-line-data.component.html/.ts`; spec
+- [X] T032 [US3] `GET /call-logs/for-line?sourceId=&lineId=` in `BRIDGE/CallLogsService.java`/`CallLogsController.java`: exact id field → that call; else the line's thread + time → `callsOnThread` → window check (same overlap rule); only for projects with ▤ on; 204 when none; tests
+- [X] T033 [US3] "During call" block (method, path, status, duration, how matched, links to the call and its database window) in `FE/components/logs/log-line-data.component.html/.ts`; spec
 - [ ] T034 [US3] Live check (quickstart 5), commit Phase 5
 
 ## Phase 6: User Story 4 - Logs in exports and for Claude (P4)

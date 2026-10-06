@@ -1,3 +1,5 @@
+import { CallLogsApiService } from '../../core/services/call-logs-api.service';
+import { CallFocusService } from '../../core/services/call-focus.service';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ApplicationRef } from '@angular/core';
 import { of } from 'rxjs';
@@ -34,6 +36,8 @@ describe('LogLineDataComponent - long values', () => {
       imports: [LogLineDataComponent],
       providers: [
         { provide: LogsApiService, useValue: {} },
+        { provide: CallLogsApiService, useValue: { forLine: () => of(null) } },
+        { provide: CallFocusService, useValue: {} },
         { provide: ProfilesApiService, useValue: { list: () => of([]) } },
       ],
     });
@@ -116,6 +120,8 @@ describe('LogLineDataComponent - value window formats', () => {
       imports: [LogLineDataComponent],
       providers: [
         { provide: LogsApiService, useValue: {} },
+        { provide: CallLogsApiService, useValue: { forLine: () => of(null) } },
+        { provide: CallFocusService, useValue: {} },
         { provide: ProfilesApiService, useValue: { list: () => of([]) } },
       ],
     });

@@ -41,6 +41,11 @@ public class ProjectLogsService implements ManageProjectLogsUseCase, KeptLogLine
     }
 
     @Override
+    public List<ProjectLogSettings> readingSource(String sourceId) {
+        return store.allSettings().stream().filter(s -> s.sourceIds().contains(sourceId)).toList();
+    }
+
+    @Override
     public ProjectLogSettings settings(String project) {
         String name = requireProject(project);
         return store.settings(name).orElseGet(() -> ProjectLogSettings.defaults(name));

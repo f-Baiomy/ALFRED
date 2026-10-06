@@ -37,6 +37,13 @@ public class SqliteProjectLogsStoreAdapter implements ProjectLogsStorePort {
     }
 
     @Override
+    public List<ProjectLogSettings> allSettings() {
+        return repository.jdbc().query("SELECT project, source_ids, thread_field, time_field, call_id_field, clock_skew_ms FROM project_logs",
+                (rs, i) -> new ProjectLogSettings(rs.getString(1), readList(rs.getString(2)), rs.getString(3), rs.getString(4), rs.getString(5),
+                        rs.getInt(6)));
+    }
+
+    @Override
     public Optional<ProjectLogSettings> settings(String project) {
         return repository.jdbc().query("SELECT project, source_ids, thread_field, time_field, call_id_field, clock_skew_ms FROM project_logs WHERE project = ?",
                 (rs, i) -> new ProjectLogSettings(rs.getString(1), readList(rs.getString(2)), rs.getString(3), rs.getString(4), rs.getString(5),

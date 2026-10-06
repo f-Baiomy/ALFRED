@@ -2,6 +2,7 @@ package com.fathy.alfred.backend.logs.application.port.in;
 
 import com.fathy.alfred.backend.logs.domain.model.ProjectLogSettings;
 
+import java.util.List;
 import java.util.Map;
 
 /** Which log sources belong to a project and how their lines match its calls (specs/008-logs-call-link FR-009/FR-010). */
@@ -17,6 +18,9 @@ public interface ManageProjectLogsUseCase {
     ProjectLogSettings settings(String project);
 
     ProjectLogsView view(String project);
+
+    /** The projects whose calls read this log source (a Logs-tab line's possible calls). */
+    List<ProjectLogSettings> readingSource(String sourceId);
 
     /**
      * Saves after checking every source exists; the thread and call-id fields become exact-searchable (B-tree indexed)

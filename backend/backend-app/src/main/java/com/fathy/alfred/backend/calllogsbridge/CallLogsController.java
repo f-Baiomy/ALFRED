@@ -40,6 +40,12 @@ public class CallLogsController {
         return service.lines(callId, cycleId, after, limit).map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
     }
 
+    /** The call a Logs-tab line was written during; 204 when none. */
+    @GetMapping("/call-logs/for-line")
+    public ResponseEntity<CallLogsModels.LineCall> forLine(@RequestParam String sourceId, @RequestParam String lineId) {
+        return service.forLine(sourceId, lineId).map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.noContent().build());
+    }
+
     /** Counts for the calls the UI shows (at most {@value #MAX_COUNT_IDS} ids) - no line is read in full. */
     @GetMapping("/call-logs/counts")
     public Map<String, CallLogsModels.LogCounts> counts(@RequestParam(defaultValue = "") String callIds) {
