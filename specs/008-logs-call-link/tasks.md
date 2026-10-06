@@ -92,10 +92,10 @@ Paths: `DBC` = `backend/backend-db-capture/src/main/java/com/fathy/alfred/backen
 
 ## Phase 7: Polish
 
-- [ ] T042 Terminology pass: the terms of spec.md "Terms" (▤ switch, tagging, exact / same thread and time, linking, kept lines) used consistently in UI text (`sources-bar`, settings, db-window, log-chip) and docs
-- [ ] T043 [P] Docs: `docs/logs.md` (linking, kept lines), `docs/db-capture.md` (▤ flag, `log=1`, MDC tagging, request thread), `docs/mcp.md` (`call_logs`), `docs/frontend-architecture.md` (Logs/Together views), CLAUDE.md note on `/call-logs` and the ▤ flag
-- [ ] T044 Full suites once: backend `mvn test` (Docker JDK 21), agent on JDK 8 and 21, frontend `ng test` + `ng build --configuration production`, mcp-server tests; fix failures
-- [ ] T045 Measure SC-004 (▤ on vs off request time) with `OverheadMeasurementIT` and record it in `docs/db-capture.md`; mark tasks done here; final commit
+- [X] T042 Terminology pass: the terms of spec.md "Terms" (▤ switch, tagging, exact / same thread and time, linking, kept lines) used consistently in UI text (`sources-bar`, settings, db-window, log-chip) and docs
+- [X] T043 [P] Docs: `docs/logs.md` (linking, kept lines), `docs/db-capture.md` (▤ flag, `log=1`, MDC tagging, request thread), `docs/mcp.md` (`call_logs`), `docs/frontend-architecture.md` (Logs/Together views), CLAUDE.md note on `/call-logs` and the ▤ flag
+- [X] T044 Full suites once: backend `mvn test` (Docker JDK 21), agent on JDK 8 and 21, frontend `ng test` + `ng build --configuration production`, mcp-server tests; fix failures
+- [X] T045 Measure SC-004 (▤ on vs off request time) with `OverheadMeasurementIT` and record it in `docs/db-capture.md`; mark tasks done here; final commit
 
 ## Dependencies
 

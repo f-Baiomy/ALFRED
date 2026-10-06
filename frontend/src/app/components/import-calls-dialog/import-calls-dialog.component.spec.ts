@@ -1,3 +1,4 @@
+import { CallLogsApiService } from '../../core/services/call-logs-api.service';
 import { TestBed } from '@angular/core/testing';
 import { DbCaptureApiService } from '../../core/services/db-capture-api.service';
 import { of } from 'rxjs';
@@ -62,6 +63,7 @@ describe('ImportCallsDialogComponent', () => {
         { provide: SessionCyclesApiService, useValue: apiStub },
         { provide: SessionCyclesStateService, useValue: stateStub },
         { provide: DbCaptureApiService, useValue: { import: () => of({ imported: 0 }) } },
+        { provide: CallLogsApiService, useValue: { importLines: () => of(undefined) } },
       ],
     });
 

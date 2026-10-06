@@ -275,3 +275,32 @@ batching inserts with row ids assigned up front plus group aggregates summed per
 **Docker Desktop on Windows:** with `logs.db` on the `./backend/data` bind mount the same load ran at ~700 lines/s
 and a histogram over 200k lines took 10 s - SQLite on a Windows bind mount is the bottleneck, not the code. On a
 Linux host (or a named Docker volume) the numbers above apply.
+
+## Linked to calls (specs/008-logs-call-link)
+
+A project's log sources can be linked to its inbound calls, so a call shows the application log lines it wrote
+(the database window's **Logs** and **Together** views, the **▤ Logs N** chip on its card, the Logs lane on its
+timeline) and an opened Logs-tab line shows **During call ↗** the call it was written during.
+
+- **The ▤ switch** (Sources bar, beside ◆; Settings → Database capture → ▤ Logs) is per project, live, and blocked
+  while the project's inbound logging is off. Off = Alfred reads none of that project's logs. The project's log
+  settings (`project_logs` in `logs.db`) name its sources, the thread / time / call-id fields and the allowed clock
+  difference (default 200 ms); the thread and call-id fields are switched to exact search so a call's lines come from
+  an index.
+- **Matching**, in `backend-app/calllogsbridge/CallLogsService` (the only place that reads calls, database capture
+  and logs together): lines carrying the call's id (`mdc.alfred.call`, put there by the agent's tagging) win -
+  **exact**. Otherwise **same thread and time**: lines of the call's request thread (the agent's CALL_OPEN marker)
+  inside the call's window ± the clock difference, minus lines carrying any call id, and minus lines nearer the
+  middle of a neighbouring call on the same thread. Times are compared as UTC instants (the source's own time zone is
+  applied when the line is loaded). A call without database capture can only be matched exactly.
+- **Kept lines** (`kept_log_lines` in `logs.db`): a session-cycle call's lines are copied into Alfred's own store
+  when the cycle's contents change, when its recording stops and whenever its lines are read in a cycle
+  (`CycleLogsKeeper`, behind `CycleContentKeepDecorator` over the session-cycle notifications); imported calls'
+  lines arrive through `POST /call-logs/import`. They are served even while ▤ is off and after the log source rotated
+  the lines away, and are dropped once no cycle (and, for imports, no live call) holds the call.
+- **API** (`/call-logs`, a gateway prefix): `GET /call-logs/{callId}?cycleId=&after=&limit=`,
+  `GET /call-logs/counts?callIds=` (≤ 100), `GET /call-logs/for-line?sourceId=&lineId=` (204 when none),
+  `GET|PUT /call-logs/settings/{project}`, `POST /call-logs/import`. Nothing logs line content - ids, counts and
+  timings only.
+- **Exports** carry every linked line, masked like bodies: `.json` v3 `logLines` (+ `logs` on the call's index line,
+  re-imported), `.md`/`.html` a "📜 Logs" section per call. Claude reads them with the MCP `call_logs` tool.

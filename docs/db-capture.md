@@ -177,6 +177,18 @@ Built from a review of real OdeySys exports by an AI agent (mock: `specs/006-db-
   and the statements toolbar in one row with the display choices under "View ▾" - in a 730 px window the statement
   list went from ~2 visible rows to 14.
 
+## Log tagging (the ▤ switch, specs/008-logs-call-link)
+
+While a project's ▤ switch is on (`proxy/log-link-enabled.flag`, one `project=on|off` line per project, written by
+the backend, read live by the reverse proxy), `X-Alfred-Call` also says `log=1`. The agent then puts the call id
+under `alfred.call` in every logging MDC the request thread can see - `org.jboss.logmanager.MDC`, `org.slf4j.MDC`,
+log4j 2's `ThreadContext`, log4j 1's `MDC`, `org.jboss.logging.MDC` (found through the context class loader, probed
+once per class loader; missing ones skipped) - restores the previous value when the request ends, and carries it
+into work handed to pool threads. Calls with `db=0` are tagged too (no capture is opened for them). WildFly's JSON
+formatter writes the MDC by default, so the Logs tab sees the field `mdc.alfred.call`. The CALL_OPEN marker also
+records the request thread's name (`call_markers.thread`), which thread-and-time matching uses. Cost: 1.5 us
+(Java 8) to 6.4 us (Java 21) per request (`LogTaggingIT`) - far under SC-004's 1 ms.
+
 ## Exports
 
 `.md` and `.html` get a "Database" section per captured call (every statement with its values, transactions,
@@ -195,6 +207,7 @@ All measured on the development machine (Windows, Docker Desktop), 2026-10-05.
 | `db-capture.db` growth | ~19 MB per 1,000 calls of 20 statements with 5 rows each (~1 KB per statement incl. rows) |
 | Window: first page of a 500-statement call | ~20 ms server time |
 | Scrolling all 50,000 stored rows of one result, 100 at a time | ~3 ms per page server time |
+| Log tagging with ▤ on vs off (`LogTaggingIT`, 2,000 requests, 2026-10-06) | +1.5 us per request on Java 8, +6.4 us on Java 21 (SC-004: < 1 ms) |
 
 What made the agent cheap: the regex passes over the SQL (kind, table, fingerprint, ignore patterns) are cached per
 SQL text; "where in code" walks the stack lazily (`StackWalker` on 9+, per-frame access on 8) and caches each class's

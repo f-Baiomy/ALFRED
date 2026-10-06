@@ -285,6 +285,16 @@ Body keys match by name at any depth including inside arrays, since a token nest
 
 ## Database capture (`components/db-capture/*`)
 
+- Logs linked to calls (specs/008-logs-call-link): the ▤ switch is a second per-project signal in
+  `DbCaptureStateService` (`logsOn`), rendered beside ◆ in the Sources bar and in the shared
+  `project-logs-settings.component.ts`. The database window loads the call's lines (`CallLogsApiService`, every page)
+  into its **Logs** and **Together** views (`db-log-lines.component.ts`, rows from `call-log-rows.ts`) and a Logs lane
+  on the timeline; with no statements it is a logs-only window. Refetches follow `/ws/logs` `lines-added` and the ▤
+  switch - no timers. `log-chip.component.ts` shows "▤ Logs N" on cards that are on screen (IntersectionObserver),
+  batched by `CallLogCountsService`. A Logs-tab line shows its call through `log-line-call.component.ts`; the
+  explorer's `?line=<lineId>` deep link opens a line among its neighbours. Exports: `CallRecord.logLines`,
+  `log-export-section.ts` (.md/.html), `json-export-v2.ts` `logLines`, `redact.ts` (lines masked like bodies).
+
 - `DbCaptureStateService` (root) owns the one `/ws/db-capture` socket, the per-project switches (the same switch is
   rendered by the Sources bar, the cycle widget's Log DB column and Settings → Database capture - one signal, three
   views) and the ◆ DB chip summaries, batched: every chip on a page asks in the same microtask and one
