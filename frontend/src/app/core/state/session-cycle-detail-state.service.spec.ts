@@ -1,3 +1,4 @@
+import { CallLogCountsService } from './call-log-counts.service';
 import { signal } from '@angular/core';
 import { TestBed, fakeAsync, tick, discardPeriodicTasks } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap } from '@angular/router';
@@ -12,6 +13,8 @@ import { CallsQuery } from './call-list-view';
 import { DbCaptureStateService } from './db-capture-state.service';
 
 /** The ◆ DB summaries are not under test here: no summary, no failed statement. */
+/** The ▤ counts every loaded inbound call asks for (specs/009) - none here. */
+const LOG_COUNTS_STUB = { request: () => undefined, errorCallIds: signal<ReadonlySet<string>>(new Set()), counts: signal(new Map()) };
 const DB_STATE_STUB = { failedCallIds: signal<ReadonlySet<string>>(new Set()), summaries: signal(new Map()), requestSummary: () => undefined };
 
 /** The /ws/session-cycles "cycle-content-changed" signal, driven by hand (no real socket in a unit test). */
@@ -102,6 +105,7 @@ function setupWithSources(
   TestBed.configureTestingModule({
     providers: [
       { provide: DbCaptureStateService, useValue: DB_STATE_STUB },
+      { provide: CallLogCountsService, useValue: LOG_COUNTS_STUB },
       SessionCycleDetailStateService,
       { provide: SessionCyclesApiService, useValue: apiStub },
       CYCLES_STATE_STUB,
@@ -305,6 +309,7 @@ function setupForSpacers(initialSpacers: CycleSpacer[] = []): {
   TestBed.configureTestingModule({
     providers: [
       { provide: DbCaptureStateService, useValue: DB_STATE_STUB },
+      { provide: CallLogCountsService, useValue: LOG_COUNTS_STUB },
       SessionCycleDetailStateService,
       { provide: SessionCyclesApiService, useValue: apiStub },
       CYCLES_STATE_STUB,
@@ -436,6 +441,7 @@ describe('SessionCycleDetailStateService initial fetch', () => {
     TestBed.configureTestingModule({
       providers: [
       { provide: DbCaptureStateService, useValue: DB_STATE_STUB },
+      { provide: CallLogCountsService, useValue: LOG_COUNTS_STUB },
         SessionCycleDetailStateService,
         { provide: SessionCyclesApiService, useValue: apiStub },
         CYCLES_STATE_STUB,

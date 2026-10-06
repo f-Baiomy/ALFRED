@@ -1,3 +1,4 @@
+import { CallLogCountsService } from '../../core/state/call-log-counts.service';
 import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
@@ -205,6 +206,16 @@ describe('CallWaterfallComponent', () => {
     (host.querySelectorAll('.waterfall-row-main')[1] as HTMLButtonElement).click();
     fixture.detectChanges();
     expect(host.querySelector('app-call-card')).toBeNull();
+  });
+
+  it('marks a row whose call wrote ERROR log lines, beside the DB mark', () => {
+    const counts = (TestBed.inject(CallLogCountsService) as unknown as { countsSignal: { set(m: Map<string, unknown>): void } }).countsSignal;
+    counts.set(new Map([['solo', { lines: 30, errors: 5, warnings: 1, matchedBy: 'CAUGHT' }]]));
+    const host: HTMLElement = createWaterfall([call('solo', 0, 10, { source: 'internal' })]).nativeElement;
+
+    const mark = Array.from(host.querySelectorAll('.db-fail-mark')).find((m) => m.textContent!.includes('Logs'));
+    expect(mark?.textContent).toContain('5');
+    expect(mark?.getAttribute('title')).toContain('5 error log lines');
   });
 
   it('shows an error row without a duration rather than a bogus timing', () => {

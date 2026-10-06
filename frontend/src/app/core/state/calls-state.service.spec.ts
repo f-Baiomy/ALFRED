@@ -1,3 +1,4 @@
+import { CallLogCountsService } from './call-log-counts.service';
 import { signal } from '@angular/core';
 import { TestBed, fakeAsync, tick, discardPeriodicTasks } from '@angular/core/testing';
 import { of } from 'rxjs';
@@ -9,6 +10,8 @@ import { CallsQuery } from './call-list-view';
 import { DbCaptureStateService } from './db-capture-state.service';
 
 /** The ◆ DB summaries are not under test here: no summary, no failed statement. */
+/** The ▤ counts every loaded inbound call asks for (specs/009) - none here. */
+const LOG_COUNTS_STUB = { request: () => undefined, errorCallIds: signal<ReadonlySet<string>>(new Set()), counts: signal(new Map()) };
 const DB_STATE_STUB = { failedCallIds: signal<ReadonlySet<string>>(new Set()), summaries: signal(new Map()), requestSummary: () => undefined };
 
 const PIN_STORAGE_KEY = 'alfred_pinned_calls';
@@ -59,6 +62,7 @@ function setup(calls: CallRecord[], total = calls.length): { state: CallsStateSe
   TestBed.configureTestingModule({
     providers: [
       { provide: DbCaptureStateService, useValue: DB_STATE_STUB },
+      { provide: CallLogCountsService, useValue: LOG_COUNTS_STUB },
       { provide: CallsApiService, useValue: apiStub },
       { provide: InternalLoggingApiService, useValue: FEATURE_DISABLED_STUB },
     ],
@@ -89,6 +93,7 @@ function setupWithSources(
   TestBed.configureTestingModule({
     providers: [
       { provide: DbCaptureStateService, useValue: DB_STATE_STUB },
+      { provide: CallLogCountsService, useValue: LOG_COUNTS_STUB },
       { provide: CallsApiService, useValue: apiStub },
       { provide: InternalLoggingApiService, useValue: FEATURE_DISABLED_STUB },
     ],
@@ -130,6 +135,7 @@ function setupPaged(
   TestBed.configureTestingModule({
     providers: [
       { provide: DbCaptureStateService, useValue: DB_STATE_STUB },
+      { provide: CallLogCountsService, useValue: LOG_COUNTS_STUB },
       { provide: CallsApiService, useValue: apiStub },
       { provide: InternalLoggingApiService, useValue: FEATURE_DISABLED_STUB },
     ],
@@ -256,7 +262,7 @@ describe('CallsStateService', () => {
     const { state } = setup([ok, clientErr, serverErr]);
     tick();
 
-    expect(state.stats()).toEqual({ total: 3, ok: 1, client: 1, failed: 1, inProgress: 0, intercepted: 0, resent: 0, dbFailures: 0 });
+    expect(state.stats()).toEqual({ total: 3, ok: 1, client: 1, failed: 1, inProgress: 0, intercepted: 0, resent: 0, dbFailures: 0, logErrors: 0 });
     discardPeriodicTasks();
   }));
 
@@ -266,7 +272,7 @@ describe('CallsStateService', () => {
     const { state } = setup([pending, ok]);
     tick();
 
-    expect(state.stats()).toEqual({ total: 2, ok: 1, client: 0, failed: 0, inProgress: 1, intercepted: 0, resent: 0, dbFailures: 0 });
+    expect(state.stats()).toEqual({ total: 2, ok: 1, client: 0, failed: 0, inProgress: 1, intercepted: 0, resent: 0, dbFailures: 0, logErrors: 0 });
     discardPeriodicTasks();
   }));
 
@@ -453,6 +459,7 @@ describe('CallsStateService', () => {
       TestBed.configureTestingModule({
         providers: [
       { provide: DbCaptureStateService, useValue: DB_STATE_STUB },
+      { provide: CallLogCountsService, useValue: LOG_COUNTS_STUB },
           { provide: CallsApiService, useValue: apiStub },
           { provide: InternalLoggingApiService, useValue: FEATURE_DISABLED_STUB },
         ],

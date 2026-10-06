@@ -28,6 +28,7 @@ function makeView(
     defaultSortMode?: 'newest' | 'oldest' | 'newest-call' | 'oldest-call' | 'slowest' | 'fastest' | 'status' | 'custom';
     customOrder?: ReturnType<typeof signal<readonly string[]>>;
     dbFailedIds?: ReturnType<typeof signal<ReadonlySet<string>>>;
+    logErrorIds?: ReturnType<typeof signal<ReadonlySet<string>>>;
   } = {}
 ): { view: CallListView; queries: CallsQuery[] } {
   const queries: CallsQuery[] = [];
@@ -262,6 +263,31 @@ describe('createCallListView', () => {
     it('a view without summaries counts none', () => {
       const { view } = makeView([page()]);
       expect(view.stats().dbFailures).toBe(0);
+    });
+  });
+
+  describe('logErrorFilter', () => {
+    const page = () => [
+      makeCall({ id: 'ok-logged-error', timestamp: 'a', response: { status: 200, headers: {}, body: '{}' } }),
+      makeCall({ id: 'db-failed', timestamp: 'b', response: { status: 200, headers: {}, body: '{}' } }),
+      makeCall({ id: 'clean', timestamp: 'c', response: { status: 200, headers: {}, body: '{}' } }),
+    ];
+
+    it('counts and keeps only calls with an ERROR log line, follows counts as they arrive, and ANDs with the DB filter', () => {
+      const withErrors = signal<ReadonlySet<string>>(new Set(['ok-logged-error']));
+      const failed = signal<ReadonlySet<string>>(new Set(['db-failed']));
+      const { view } = makeView([page()], { logErrorIds: withErrors, dbFailedIds: failed });
+
+      expect(view.stats().logErrors).toBe(1);
+      view.setLogErrorFilter(true);
+      expect(view.mainListCalls().map((c) => c.id)).toEqual(['ok-logged-error']);
+      withErrors.set(new Set(['ok-logged-error', 'db-failed']));
+      expect(view.mainListCalls().map((c) => c.id)).toEqual(['ok-logged-error', 'db-failed']);
+      view.setDbFailureFilter(true);
+      expect(view.mainListCalls().map((c) => c.id)).toEqual(['db-failed']);
+      view.setLogErrorFilter(false);
+      view.setDbFailureFilter(false);
+      expect(view.mainListCalls().length).toBe(3);
     });
   });
 

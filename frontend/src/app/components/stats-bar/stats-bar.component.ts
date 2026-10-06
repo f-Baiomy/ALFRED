@@ -41,4 +41,8 @@ export class StatsBarComponent {
   toggleDbFailures(): void {
     this.controlsState.setDbFailureFilter(!this.controlsState.dbFailureFilter());
   }
+
+  toggleLogErrors(): void {
+    this.controlsState.setLogErrorFilter(!this.controlsState.logErrorFilter());
+  }
 }

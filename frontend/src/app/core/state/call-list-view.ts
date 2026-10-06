@@ -83,6 +83,8 @@ export interface CallStats {
   readonly resent: number;
   /** How many of the scoped calls ran a database statement that failed - whatever their own status (see `dbFailureFilter`). */
   readonly dbFailures: number;
+  /** How many of the scoped calls wrote an ERROR log line the agent caught (their ▤ counts - see `logErrorFilter`). */
+  readonly logErrors: number;
 }
 
 /** One rule that touched at least one currently-loaded call, and how many - what the Filters
@@ -222,6 +224,8 @@ export interface CallListView {
    * other filters by AND; not persisted, like them.
    */
   readonly dbFailureFilter: Signal<boolean>;
+  /** Client-side narrowing to calls with an ERROR log line (CallListViewOptions.logErrorIds); AND with the others. */
+  readonly logErrorFilter: Signal<boolean>;
   /** The rules currently appearing on loaded calls, for the Filters menu's "By rule…" submenu -
    * scoped like `supplierOptions` (see InterceptionRuleOption's doc). */
   readonly interceptionRuleOptions: Signal<readonly InterceptionRuleOption[]>;
@@ -296,6 +300,7 @@ export interface CallListView {
   /** Same toggle-off-on-repeat rule as setInterceptionFilter/setStatusFilter. */
   setResendFilter(filter: ResendFilter): void;
   setDbFailureFilter(value: boolean): void;
+  setLogErrorFilter(value: boolean): void;
   /** Picking a tree view ('nested'/'waterfall') while a non-chronological sort is active also moves
    * the list back to a chronological sort - a tree can't be drawn over an order that scatters a
    * parent away from its children (see CallViewMode's doc). */
@@ -347,6 +352,8 @@ export interface CallListViewOptions {
   readonly fetchOnCreate?: boolean;
   /** Calls with a failed database statement (their ◆ DB summary's failedCount) - what `dbFailureFilter` keeps. */
   readonly dbFailedIds?: Signal<ReadonlySet<string>>;
+  /** Calls with an ERROR log line (their ▤ counts) - what `logErrorFilter` keeps. */
+  readonly logErrorIds?: Signal<ReadonlySet<string>>;
 }
 
 /**
@@ -368,6 +375,8 @@ export function createCallListView(pinnedIds: Signal<ReadonlySet<string>>, optio
   const resendFilter = signal<ResendFilter>('all');
   const dbFailureFilter = signal(false);
   const dbFailedIds = options.dbFailedIds ?? signal<ReadonlySet<string>>(new Set());
+  const logErrorFilter = signal(false);
+  const logErrorIds = options.logErrorIds ?? signal<ReadonlySet<string>>(new Set());
   const viewMode = signal<CallViewMode>(loadViewMode());
   const expanded = signal(true);
   const collapseAllVersion = signal(0);
@@ -529,6 +538,10 @@ export function createCallListView(pinnedIds: Signal<ReadonlySet<string>>, optio
       const failed = dbFailedIds();
       calls = calls.filter((c) => failed.has(c.id));
     }
+    if (logErrorFilter()) {
+      const withErrors = logErrorIds();
+      calls = calls.filter((c) => withErrors.has(c.id));
+    }
     return calls;
   });
 
@@ -630,6 +643,7 @@ export function createCallListView(pinnedIds: Signal<ReadonlySet<string>>, optio
       intercepted: list.filter((c) => c.interception != null).length,
       resent: list.filter((c) => c.resendOf != null).length,
       dbFailures: list.filter((c) => dbFailedIds().has(c.id)).length,
+      logErrors: list.filter((c) => logErrorIds().has(c.id)).length,
     };
   });
 
@@ -674,6 +688,7 @@ export function createCallListView(pinnedIds: Signal<ReadonlySet<string>>, optio
     interceptionFilter,
     resendFilter,
     dbFailureFilter,
+    logErrorFilter,
     interceptionRuleOptions,
     expanded,
     collapseAllVersion,
@@ -763,6 +778,9 @@ export function createCallListView(pinnedIds: Signal<ReadonlySet<string>>, optio
     },
     setDbFailureFilter(value: boolean) {
       dbFailureFilter.set(value);
+    },
+    setLogErrorFilter(value: boolean) {
+      logErrorFilter.set(value);
     },
     setViewMode(mode: CallViewMode) {
       viewMode.set(mode);

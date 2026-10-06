@@ -1,4 +1,4 @@
-import { DestroyRef, Injectable, inject, signal } from '@angular/core';
+import { DestroyRef, Injectable, Signal, computed, inject, signal } from '@angular/core';
 import { LogCounts } from '../models/call-logs.model';
 import { CallLogsApiService } from '../services/call-logs-api.service';
 import { LogsSocketService } from '../services/logs-socket.service';
@@ -14,7 +14,8 @@ const REFETCH_MS = 2000;
 /**
  * The ▤ chip's numbers (specs/008-logs-call-link FR-013/FR-018): line, error and warning counts per call, fetched
  * only for the cards that are on screen, batched - a screen of cards costs one request. Counts are refetched for the
- * cards still shown when the logs socket says lines arrived (no polling).
+ * cards still shown when the logs socket says lines arrived (no polling). The call lists also ask for every loaded
+ * inbound call ({@link request}), so the "✖ Logs" row mark, the "Log errors" pill and filter see calls no card shows.
  */
 @Injectable({ providedIn: 'root' })
 export class CallLogCountsService {
@@ -22,6 +23,14 @@ export class CallLogCountsService {
 
   private readonly countsSignal = signal<ReadonlyMap<string, LogCounts>>(new Map());
   readonly counts = this.countsSignal.asReadonly();
+  /** Calls with at least one ERROR line - the row mark, the "Log errors" pill and the "Has log errors" filter. */
+  readonly errorCallIds: Signal<ReadonlySet<string>> = computed(() =>
+    new Set([...this.countsSignal()].filter(([, c]) => c.errors > 0).map(([id]) => id)));
+
+  /** Calls a list asked counts for (every loaded inbound call), with their cycle - kept while the page lives. */
+  private readonly wanted = new Map<string, string | null>();
+  /** Calls the agent caught new lines for, refetched together after a short wait. */
+  private readonly changed = new Set<string>();
 
   /** Cards showing a chip right now, by call id (several cards can show one call), with the cycle they are in. */
   private readonly shown = new Map<string, { count: number; cycleId: string | null }>();
@@ -38,7 +47,7 @@ export class CallLogCountsService {
     const reconnect = socket.reconnected$.subscribe(() => this.scheduleRefetch());
     // lines the agent caught (specs/009) arrive on the database-capture socket
     const caught = inject(DbCaptureStateService).events$.subscribe((e) => {
-      if (e.type === 'logs-appended' && e.callId && this.shown.has(e.callId)) this.scheduleRefetch();
+      if (e.type === 'logs-appended' && e.callId && (this.shown.has(e.callId) || this.wanted.has(e.callId))) this.changedLater(e.callId);
     });
     inject(DestroyRef).onDestroy(() => {
       sub.unsubscribe();
@@ -55,6 +64,13 @@ export class CallLogCountsService {
     if (!was && !this.countsSignal().has(callId)) this.enqueue(callId, cycleId);
   }
 
+  /** A list loaded this call (not necessarily on screen): its counts are fetched once, and again when lines arrive. */
+  request(callId: string, cycleId: string | null = null): void {
+    if (this.wanted.has(callId)) return;
+    this.wanted.set(callId, cycleId);
+    if (!this.countsSignal().has(callId) && !this.shown.has(callId)) this.enqueue(callId, cycleId);
+  }
+
   /** It left the screen (or was destroyed). */
   hide(callId: string): void {
     const was = this.shown.get(callId);
@@ -67,12 +83,22 @@ export class CallLogCountsService {
     this.enqueue(callId, this.shown.get(callId)?.cycleId ?? cycleId);
   }
 
+  private changedLater(callId: string): void {
+    this.changed.add(callId);
+    if (this.refetchTimer) return;
+    this.refetchTimer = setTimeout(() => this.refetchNow(), REFETCH_MS);
+  }
+
   private scheduleRefetch(): void {
-    if (this.refetchTimer || !this.shown.size) return;
-    this.refetchTimer = setTimeout(() => {
-      this.refetchTimer = null;
-      for (const [id, card] of this.shown) this.enqueue(id, card.cycleId);
-    }, REFETCH_MS);
+    for (const id of this.shown.keys()) this.changed.add(id);
+    if (this.refetchTimer || !this.changed.size) return;
+    this.refetchTimer = setTimeout(() => this.refetchNow(), REFETCH_MS);
+  }
+
+  private refetchNow(): void {
+    this.refetchTimer = null;
+    for (const id of this.changed) this.enqueue(id, this.shown.get(id)?.cycleId ?? this.wanted.get(id) ?? null);
+    this.changed.clear();
   }
 
   private enqueue(callId: string, cycleId: string | null): void {

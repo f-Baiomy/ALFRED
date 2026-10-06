@@ -110,6 +110,9 @@
           <button type="button" class="filter-option-item filter-option-db-failed" [class.active]="state.dbFailureFilter()"
             title="Calls that ran a database statement that failed - a 200 that swallowed one included"
             (click)="state.setDbFailureFilter(!state.dbFailureFilter())">&#10006; Has DB failures <span class="filter-option-count">{{ state.stats().dbFailures }}</span></button>
+          <button type="button" class="filter-option-item filter-option-db-failed" [class.active]="state.logErrorFilter()"
+            title="Calls that wrote an ERROR log line the agent caught (▤) - a 200 included"
+            (click)="state.setLogErrorFilter(!state.logErrorFilter())">&#10006; Has log errors <span class="filter-option-count">{{ state.stats().logErrors }}</span></button>
         </div>
         @if (activeFilters().length > 0) {
           <button type="button" class="filter-clear-all" (click)="clearAllFilters()">Clear all filters</button>

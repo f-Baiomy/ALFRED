@@ -6,7 +6,7 @@
   <button type="button" class="stat-pill ok" [class.active]="controlsState.statusFilter() === 'ok'" title="Show 2xx/3xx calls" (click)="showFilter('ok')"><b>{{ stats().ok }}</b> 2xx/3xx</button>
   <button type="button" class="stat-pill warn" [class.active]="controlsState.statusFilter() === 'client'" title="Show 4xx calls" (click)="showFilter('client')"><b>{{ stats().client }}</b> 4xx</button>
   <button type="button" class="stat-pill err" [class.active]="controlsState.statusFilter() === 'failed'" title="Show error/5xx calls" (click)="showFilter('failed')"><b>{{ stats().failed }}</b> errors/5xx</button>
-  @if (stats().intercepted > 0 || stats().resent > 0 || stats().dbFailures > 0) {
+  @if (stats().intercepted > 0 || stats().resent > 0 || stats().dbFailures > 0 || stats().logErrors > 0) {
     <span class="stat-pill-sep" aria-hidden="true"></span>
   }
   @if (stats().intercepted > 0) {
@@ -35,5 +35,14 @@
       title="Show calls that ran a failed database statement - a 200 that swallowed one included; combines with the status pill above"
       (click)="toggleDbFailures()"
     ><b>{{ stats().dbFailures }}</b> &#10006; DB failures</button>
+  }
+  @if (stats().logErrors > 0) {
+    <button
+      type="button"
+      class="stat-pill db-failed"
+      [class.active]="controlsState.logErrorFilter()"
+      title="Show calls that wrote an ERROR log line (▤, caught by the agent) - a 200 included; combines with the status pill above"
+      (click)="toggleLogErrors()"
+    ><b>{{ stats().logErrors }}</b> &#10006; Log errors</button>
   }
 </div>

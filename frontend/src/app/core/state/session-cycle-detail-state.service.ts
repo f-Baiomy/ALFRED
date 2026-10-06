@@ -1,3 +1,4 @@
+import { CallLogCountsService } from './call-log-counts.service';
 import { Injectable, computed, effect, inject, signal, untracked } from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { DbCaptureStateService } from './db-capture-state.service';
@@ -37,6 +38,7 @@ import { callKey, EXTERNAL_SOURCE_KEY, sortCalls, sourceKeyOf, subtreeSelectionO
 @Injectable()
 export class SessionCycleDetailStateService implements CallSelectionState, BulkSelectionState, CallListControlsState, CallRemovalState, CallReorderState {
   private readonly dbState = inject(DbCaptureStateService);
+  private readonly logCounts = inject(CallLogCountsService);
   private readonly api = inject(SessionCyclesApiService);
   private readonly config = inject(AppConfigService);
   private readonly route = inject(ActivatedRoute);
@@ -107,11 +109,17 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
       fetchPage: (query) => this.fetchPageForSource(query),
       fetchOverlaps: (query) => this.fetchOverlapsForSource(query),
       dbFailedIds: this.dbState.failedCallIds,
+        logErrorIds: this.logCounts.errorCallIds,
     });
     // Every loaded inbound call's ◆ DB summary, not only those whose card is on screen: the "DB failures" pill and
     // filter count calls the waterfall or a collapsed list never renders a chip for. Batched, one request per 500.
     effect(() => {
       for (const call of this.view.matchingCalls()) if (call.source === 'internal') this.dbState.requestSummary(call.id);
+    });
+    // ...and its ▤ counts, for the "✖ Logs" row mark and the "Log errors" pill and filter (specs/009).
+    effect(() => {
+      const cycleId = this.cycleId();
+      for (const call of this.view.matchingCalls()) if (call.source === 'internal') this.logCounts.request(call.id, cycleId);
     });
 
     // This cycle's calls or spacers changed somewhere else - the session-cycle widget (often in its
@@ -573,6 +581,9 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
   get dbFailureFilter() {
     return this.view.dbFailureFilter;
   }
+  get logErrorFilter() {
+    return this.view.logErrorFilter;
+  }
   get interceptionRuleOptions() {
     return this.view.interceptionRuleOptions;
   }
@@ -692,6 +703,10 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
 
   setDbFailureFilter(value: boolean): void {
     this.view.setDbFailureFilter(value);
+  }
+
+  setLogErrorFilter(value: boolean): void {
+    this.view.setLogErrorFilter(value);
   }
 
   setNestedOnly(value: boolean): void {

@@ -1,3 +1,4 @@
+import { CallLogCountsService } from '../../core/state/call-log-counts.service';
 import { NgTemplateOutlet } from '@angular/common';
 import { CommentBadgeComponent } from '../comment-badge/comment-badge.component';
 import { DbCaptureStateService } from '../../core/state/db-capture-state.service';
@@ -303,6 +304,9 @@ interface WaterfallGroup {
               <app-comment-badge [callId]="row.call.id" [mini]="true" />
               @if (dbFailed(row.call.id); as failed) {
                 <span class="db-fail-mark" [title]="failed + ' database statement' + (failed > 1 ? 's' : '') + ' failed - open the call for the ✖ DB chip'">&#10006; DB {{ failed }}</span>
+              }
+              @if (logErrors(row.call.id); as errors) {
+                <span class="db-fail-mark" [title]="errors + ' error log line' + (errors > 1 ? 's' : '') + ' during this call - open the call for the ▤ Logs chip'">&#10006; Logs {{ errors }}</span>
               }
             }
             @if (row.interceptedCount > 0) {
@@ -632,10 +636,16 @@ export class CallWaterfallComponent {
    * the other, since they're two drawings of the same tree rather than two different trees. */
   private readonly listState = inject(CALL_LIST_CONTROLS_STATE);
   private readonly dbState = inject(DbCaptureStateService);
+  private readonly logCounts = inject(CallLogCountsService);
 
   /** The red mark of a row whose call ran a failed database statement (its ◆ DB summary - the list states request one per loaded inbound call). */
   dbFailed(callId: string): number {
     return this.dbState.summaries().get(callId)?.failedCount ?? 0;
+  }
+
+  /** The red mark of a row whose call wrote ERROR log lines (its ▤ counts - the list states request one per loaded inbound call). */
+  logErrors(callId: string): number {
+    return this.logCounts.counts().get(callId)?.errors ?? 0;
   }
 
   isSelected(call: CallRecord): boolean {
