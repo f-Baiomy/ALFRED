@@ -244,6 +244,15 @@ def split_listen(address, default_host="127.0.0.1"):
     return default_host, int(address)
 
 
+def native_forward_proxy_port_map(services):
+    """FORWARD_PROXY_PORT_MAP for the native install: "name:host:port" per project with outbound attribution. Natively
+    each listener binds outboundHost:outboundPort itself, and two projects may share a port on different loopback
+    addresses, so log_and_route.py matches the (host, port) a flow arrived on rather than the port alone."""
+    return ",".join(
+        f'{e["name"]}:{e["outbound_host"]}:{e["outbound_port"]}' for e in parse_service_entries(services) if e["outbound_host"]
+    )
+
+
 def proxy_command_lines(env, mitmdump, addon_dir, confdir, upstream_host="127.0.0.1"):
     """The OUTBOUND and REVERSE mitmdump argument lists for the native install
     (contracts/supervisor-and-agent.md), built from the effective settings in `env`.

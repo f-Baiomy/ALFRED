@@ -1,0 +1,14 @@
+#!/bin/sh
+# The "alfred" command of a native install: runs the bundled Python on app/launcher/alfred.py.
+# Resolves its own folder through a symlink (/usr/local/bin/alfred -> <home>/alfred).
+self=$0
+while [ -L "$self" ]; do
+  target=$(readlink "$self")
+  case "$target" in
+    /*) self=$target ;;
+    *) self=$(dirname "$self")/$target ;;
+  esac
+done
+ALFRED_HOME=$(cd "$(dirname "$self")" && pwd)
+export ALFRED_HOME
+exec "$ALFRED_HOME/runtime/python/bin/python3" "$ALFRED_HOME/app/launcher/alfred.py" "$@"

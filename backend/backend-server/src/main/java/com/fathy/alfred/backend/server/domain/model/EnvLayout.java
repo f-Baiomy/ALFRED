@@ -9,8 +9,8 @@ import java.util.Map;
 /**
  * The .env a native install starts with (FR-011): every catalog setting at its default, grouped under the same
  * "# --- Group" headers {@link EnvDocument#set} files new keys under, each with its help text as a comment.
- * WEBHOOK_SECRET is the one value not taken from the defaults: it is generated, so no two installs share it and none
- * runs on the old Docker placeholder.
+ * Secrets are the values not taken from the defaults: they are generated, so no two installs share them and none runs
+ * on the old Docker placeholder.
  */
 public final class EnvLayout {
 
@@ -35,7 +35,7 @@ public final class EnvLayout {
                 lines.add(group.envHeader());
             }
             lines.add("# " + definition.label() + ": " + definition.help());
-            String value = "WEBHOOK_SECRET".equals(definition.key())
+            String value = definition.secret()
                     ? newSecret()
                     : defaults.getOrDefault(definition.key(), "");
             lines.add(definition.key() + "=" + value);

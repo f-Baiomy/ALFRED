@@ -212,7 +212,7 @@ class ForwardProxyPopsAlfredParent(unittest.TestCase):
                 patch.object(log_and_route.ENGINE, 'apply_request', plain_verdict), \
                 patch.object(log_and_route._webhook_queue, 'put_nowait', lambda item: sent.append(item)), \
                 patch.object(addon, '_carry_out', nothing), \
-                patch.object(addon, '_listen_port', lambda flow: 0):
+                patch.object(addon, '_attributed_service', lambda flow: None):
             run(addon.request(flow))
         self.assertIsNone(flow.request.headers.get('X-Alfred-Parent'))
         logged = sent[0][2]

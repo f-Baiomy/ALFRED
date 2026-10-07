@@ -93,15 +93,29 @@ PREPARE_TIMEOUT_SECONDS = float(os.environ.get('PREPARE_TIMEOUT_SECONDS', '2'))
 # assignment matters here; the public outboundProxyHost:outboundProxyPort a project's own client
 # actually points at is resolved to this internal port entirely by Docker's own port publish
 # (docker-compose.override.yml), so this addon never needs to know it.
-FORWARD_PORT_MAP = {}
-for _pair in os.environ.get('FORWARD_PROXY_PORT_MAP', '').split(','):
-    _pair = _pair.strip()
-    if not _pair:
-        continue
-    _name, _, _port = _pair.rpartition(':')
-    if not _name or not _port.isdigit():
-        continue
-    FORWARD_PORT_MAP[int(_port)] = _name
+#
+# The native install (specs/012-server-program) has no port publish in between: each project's listener binds its own
+# outboundProxyHost:outboundProxyPort directly, and two projects may share a port on different loopback addresses
+# (127.0.0.2:443, 127.0.0.3:443). Those entries come as "name:host:port" and are keyed by (host, port) in
+# FORWARD_ADDRESS_MAP; "name:port" entries keep working exactly as before.
+def parse_forward_proxy_port_map(value):
+    """FORWARD_PROXY_PORT_MAP -> ({port: name}, {(host, port): name})."""
+    by_port, by_address = {}, {}
+    for pair in (value or '').split(','):
+        pair = pair.strip()
+        if not pair:
+            continue
+        parts = pair.split(':')
+        if len(parts) == 3 and parts[0] and parts[1] and parts[2].isdigit():
+            by_address[(parts[1], int(parts[2]))] = parts[0]
+            continue
+        name, _, port = pair.rpartition(':')
+        if name and port.isdigit():
+            by_port[int(port)] = name
+    return by_port, by_address
+
+
+FORWARD_PORT_MAP, FORWARD_ADDRESS_MAP = parse_forward_proxy_port_map(os.environ.get('FORWARD_PROXY_PORT_MAP', ''))
 
 # Resolved once at import, not per-request - see interception.take_resend_headers for why this is
 # how a resend from backend-resend is told apart from a client forging the same headers.
@@ -189,7 +203,7 @@ class RouteAndLog:
         # regardless of WEBHOOK_URL below purely for parity with log_and_route_reverse.py; unlike
         # that file there's no per-project logging toggle to honour here, so this is only used
         # for the service_name tag on the payload further down.
-        service_name = FORWARD_PORT_MAP.get(self._listen_port(flow))
+        service_name = self._attributed_service(flow)
         if service_name:
             flow.metadata['service_name'] = service_name
 
@@ -566,18 +580,13 @@ class RouteAndLog:
         close_code = getattr(flow.websocket, 'close_code', None) if flow.websocket else None
         ws['batcher'].stop(closed=True, close_code=close_code)
 
-    def _listen_port(self, flow):
-        """Which of this process's listeners the flow came in on - client_conn.sockname is OUR
-        side of the client connection, so its port is the --mode listen port (mirrors
-        log_and_route_reverse.py's _listen_port() exactly). Unlike that file there's no Host-header
-        fallback here: forward mode's Host header (or CONNECT target) reflects the real
-        destination the client asked for, not anything about which of our own listeners it used,
-        so there's nothing meaningful to fall back to - an unresolvable sockname just returns -1,
-        which never matches a configured internal port and so resolves no service_name."""
+    def _attributed_service(self, flow):
+        """The project whose outbound-attribution listener this flow came in on, or None for the default listener."""
         try:
-            return int(flow.client_conn.sockname[1])
+            host, port = flow.client_conn.sockname[0], int(flow.client_conn.sockname[1])
         except (AttributeError, IndexError, TypeError, ValueError):
-            return -1
+            return None
+        return FORWARD_ADDRESS_MAP.get((host, port)) or FORWARD_PORT_MAP.get(port)
 
     def _phase_timing(self, flow):
         """Splits one call's duration into connect / TLS / waiting / download.

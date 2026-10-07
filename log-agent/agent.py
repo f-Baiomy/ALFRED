@@ -63,6 +63,11 @@ def read_env():
                     env[k.strip()] = v.strip()
     except OSError:
         pass
+    # The native install's supervisor (specs/012-server-program) passes these in the environment, from its own .env
+    # in the install folder; they win over a .env next to this repo.
+    for key in ("ALFRED_LOGS_WATCH_DIRS", "ALFRED_LOGS_AGENT_SECRET", "BACKEND_PORT"):
+        if os.environ.get(key):
+            env[key] = os.environ[key]
     return env
 
 
