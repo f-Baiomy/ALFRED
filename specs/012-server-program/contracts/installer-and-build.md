@@ -30,10 +30,16 @@ sudo ./alfred-setup-<version>-linux-x64.run [--dir /opt/alfred] [--user root] [-
 
 - A wizard (folder, port), or silent:
   `alfred-setup-<version>-windows-x64.exe /S [/DIR=C:\alfred] [/UIPORT=3000] [/SERVICEUSER=LocalSystem] [/IMPORTDOCKER=<folder>]`.
-- Same steps as Linux. The service is registered with WinSW (`alfred` service, LocalSystem by default or the
-  chosen account, restart on failure). `alfred.cmd` is added to the machine `PATH`. An uninstaller
-  entry appears in Programs and Features.
-- Needs administrator rights (UAC prompt in wizard mode; silent mode fails with exit `5`).
+- Same steps as Linux: every step checks its result and a failed `.env` or service start is reported (a
+  dialog, or exit code `1` when silent) instead of "installed and started". On an upgrade the previous
+  `runtime\` and `app\` are kept as `*.previous` until the new ones are in place; a failure puts them back
+  and starts the service again. The service is registered with WinSW (`alfred` service, LocalSystem,
+  restart on failure). `/SERVICEUSER=` only prints a note: WinSW needs that account's password, so another
+  account is set afterwards in `services.msc` (Alfred > Log On). `alfred.cmd` is added to the machine `PATH`.
+  An uninstaller entry appears in Programs and Features.
+- Needs administrator rights (UAC prompt in wizard mode; silent mode fails with exit `5`). Afterwards,
+  every `alfred` command except `version` and `jvms` needs an Administrator prompt too: `data\` and `.env`
+  are readable only by Administrators and the service.
 
 ## Build script `build_dist.py` (repo root)
 

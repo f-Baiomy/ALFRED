@@ -42,8 +42,15 @@ Sizes accept `500MB`, `2GB`, or raw bytes. Errors print the same message the UI 
 ### Internal (used by the installer and launcher, not documented for users)
 
 `ServerConfigCli init` (create `.env` from defaults plus a random `WEBHOOK_SECRET`),
-`merge-docker-env <file>` (Docker import), `check-env` (print unknown or malformed lines at start).
-These are the only native code paths that write `.env` outside the settings API.
+`merge-docker-env <file>` (Docker import), `check-env` (print unknown or malformed lines at start),
+`record-upgrade OLD NEW` (the `UPGRADE` history entry an installer writes after replacing the program files).
+These are the only native code paths that write `.env` outside the settings API. The launcher exposes them as
+`alfred _init-env`, `alfred _record-upgrade OLD NEW`, plus `alfred _wait-health` (wait up to 60 s for `/health`
+and print the UI addresses - the Windows installer's last step).
+
+Every command except `version` and `jvms` needs root / an Administrator prompt or the service account: `data/`
+and `.env` are readable only by them. Otherwise it is refused with exit `5` and a message naming the folder
+and how to run it - never answered wrongly ("not running", "No log yet").
 
 HTTP calls made by `alfred config` carry `X-Alfred-Cli-User: <OS user>`. The backend trusts it only
 from a loopback peer and records the history source as `CLI`.

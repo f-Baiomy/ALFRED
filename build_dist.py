@@ -8,7 +8,7 @@ contracts/installer-and-build.md):
     dist/SHA256SUMS
 
 Usage:
-    python build_dist.py [--target linux|windows|all] [--skip-tests] [--clean] [--reuse] [--dns 8.8.8.8]
+    python build_dist.py [--target linux|windows|all] [--skip-tests] [--clean] [--reuse] [--dns 8.8.8.8] [--verbose]
 
 Prerequisites on this machine: Python 3.10+ and Docker. Every build step runs in a container, so the result does not
 depend on the JDK, Node or Python on the PATH (a bare `mvn` here silently runs JDK 8 - see CLAUDE.md). Runtimes and
@@ -21,14 +21,19 @@ bits a Windows checkout cannot hold. The Windows installer is staged on the host
 """
 
 import argparse
+import collections
 import hashlib
 import io
 import json
 import os
+import re
 import shutil
+import stat
 import subprocess
 import sys
 import tarfile
+import threading
+import time
 import zipfile
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -59,17 +64,115 @@ EXECUTABLE_PREFIXES = ("runtime/python/bin/", "runtime/java/bin/", "runtime/node
                        "runtime/java/lib/jexec")
 
 
+# --verbose: every line every tool prints (Maven per-module output, npm http log). Otherwise Maven is filtered down
+# to its progress lines - the full output is still kept and printed if the step fails.
+VERBOSE = False
+# Printed while a command has said nothing for this long, so a slow step never looks like a hang.
+HEARTBEAT_SECONDS = 15
+# Maven lines worth showing without --verbose: which module it is on, test counts, the result, and any problem.
+MAVEN_PROGRESS = re.compile(r"Building |Reactor Summary|BUILD |Tests run:|ERROR|FAIL|WARN.*(deprecat|fail)|^>> ")
+
+IN_CONTAINER = False
+_build_start = time.monotonic()
+_step_start = None
+
+
+def elapsed(seconds):
+    seconds = int(seconds)
+    return f"{seconds // 60}m{seconds % 60:02d}s" if seconds >= 60 else f"{seconds}s"
+
+
 def step(number, name, detail=""):
-    print(f"[{number}/6] {name:<11} {detail}", flush=True)
+    global _step_start
+    now = time.monotonic()
+    if _step_start is not None:
+        print(f"        done in {elapsed(now - _step_start)}", flush=True)
+    _step_start = now
+    print(f"[{number}/6] {name:<11} {detail}   (total {elapsed(now - _build_start)})", flush=True)
 
 
-def run(command, cwd=ROOT, env=None):
-    result = subprocess.run(command, cwd=cwd, env=env)
-    if result.returncode != 0:
-        raise SystemExit(f"\nFAILED ({result.returncode}): {' '.join(command)}")
+def run(command, cwd=ROOT, env=None, show=None):
+    """Runs a command, streaming its output as it comes, each line stamped with the time since the step began.
+
+    `show` (a regex) hides lines that do not match - unless --verbose. Hidden lines are not lost: the last ones are
+    printed if the command fails. While the command is silent, a heartbeat line says it is still working and what
+    it last printed."""
+    if IN_CONTAINER:
+        # Inside the Linux installer container: the host's run() already stamps and heartbeats every line it relays.
+        result = subprocess.run(command, cwd=cwd, env=env)
+        if result.returncode != 0:
+            raise SystemExit(f"\nFAILED ({result.returncode}): {' '.join(command)}")
+        return
+    started = time.monotonic()
+    process = subprocess.Popen(command, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                               bufsize=1, text=True, encoding="utf-8", errors="replace")
+    state = {"last_output": time.monotonic(), "last_line": "", "done": False}
+    tail = collections.deque(maxlen=200)
+    lock = threading.Lock()
+
+    def stamp():
+        return f"  [+{elapsed(time.monotonic() - started):>6}]"
+
+    def heartbeat():
+        while not state["done"]:
+            time.sleep(1)
+            with lock:
+                if state["done"] or time.monotonic() - state["last_output"] < HEARTBEAT_SECONDS:
+                    continue
+                last = state["last_line"][:110]
+                print(f"{stamp()} ... still working" + (f" - last: {last}" if last else ""), flush=True)
+                state["last_output"] = time.monotonic()
+
+    beat = threading.Thread(target=heartbeat, daemon=True)
+    beat.start()
+    try:
+        for raw in process.stdout:
+            line = raw.rstrip("\r\n")
+            if not line.strip():
+                continue
+            tail.append(line)
+            with lock:
+                state["last_line"] = line.strip()
+                if VERBOSE or show is None or show.search(line):
+                    print(f"{stamp()} {line}", flush=True)
+                    state["last_output"] = time.monotonic()
+        process.wait()
+    finally:
+        state["done"] = True
+    if process.returncode != 0:
+        if show is not None and not VERBOSE:
+            print("\n--- last output of the failed command ---", flush=True)
+            for line in tail:
+                print(f"  {line}")
+        raise SystemExit(f"\nFAILED ({process.returncode}) after {elapsed(time.monotonic() - started)}: {' '.join(command)}")
 
 
-def docker(image, script, mounts, dns=None, env=None):
+def remove_tree(path):
+    """shutil.rmtree that works on Windows and says so when it cannot.
+
+    jlink writes the runtime's legal/ files read-only, and on Windows rmtree cannot delete a read-only file. With
+    ignore_errors=True it used to give up quietly and leave the previous build's stage behind, so the next
+    os.makedirs failed with FileExistsError on build/stage/windows-x64/runtime."""
+    def make_writable_and_retry(function, target, _):
+        os.chmod(target, stat.S_IWRITE)
+        function(target)
+    if os.path.exists(path):
+        shutil.rmtree(path, onerror=make_writable_and_retry)
+    if os.path.exists(path):
+        raise SystemExit(f"\nFAILED: could not remove {path} - is a program (Explorer, an editor, a running Alfred) using it?")
+
+
+def ensure_image(image):
+    """Pulls a missing image in its own visible step - otherwise a first build sits silent through the download."""
+    if image.startswith("alfred-build-"):
+        return
+    if subprocess.run(["docker", "image", "inspect", image], capture_output=True).returncode != 0:
+        print(f"  pulling Docker image {image} (first build only)", flush=True)
+        run(["docker", "pull", image])
+
+
+def docker(image, script, mounts, dns=None, env=None, show=None):
+    ensure_image(image)
     command = ["docker", "run", "--rm"]
     if dns:
         command += ["--dns", dns]
@@ -78,7 +181,7 @@ def docker(image, script, mounts, dns=None, env=None):
     for key, value in (env or {}).items():
         command += ["-e", f"{key}={value}"]
     command += [image, "sh", "-c", script]
-    run(command, env=dict(os.environ, MSYS_NO_PATHCONV="1"))
+    run(command, env=dict(os.environ, MSYS_NO_PATHCONV="1"), show=show)
 
 
 def sha256(path):
@@ -105,11 +208,29 @@ TAR_SOURCES = ("tar --exclude=./frontend/node_modules --exclude=./mcp-server/nod
                "--exclude=./frontend/.angular -cf - . | tar -xf - -C /b")
 
 
+def npm_ci(extra=""):
+    """`npm ci`, saying how many packages it added (notice level) - or every request it makes with --verbose."""
+    level = "http" if VERBOSE else "notice"
+    return f"npm ci {extra} --no-audit --no-fund --loglevel={level}".replace("  ", " ")
+
+
+def mvn(tests):
+    """No -q: its "Building <module> [n/m]" lines are the progress (filtered by MAVEN_PROGRESS unless --verbose).
+    -ntp keeps the dependency-download lines out either way."""
+    return f"mvn -B -ntp package {tests}"
+
+
+def say(text):
+    """A phase marker printed from inside a container script, so the log says what the container is doing now."""
+    return f"echo '>> {text}'"
+
+
 def build_frontend(out, dns):
     os.makedirs(out, exist_ok=True)
     docker(NODE_IMAGE, (
-        f"set -e; mkdir -p /b && cd /repo && {TAR_SOURCES} && cd /b/frontend && "
-        "npm ci --no-audit --no-fund --loglevel=error && npx ng build --configuration production && "
+        f"set -e; {say('copying sources')} && mkdir -p /b && cd /repo && {TAR_SOURCES} && cd /b/frontend && "
+        f"{say('npm ci (installing frontend packages - a few minutes on a first build)')} && {npm_ci()} && "
+        f"{say('ng build --configuration production')} && npx ng build --configuration production && "
         "rm -rf /out/browser && cp -r dist/frontend/browser /out/browser && "
         # Same-origin, like the Docker image's entrypoint does: the backend serves the UI and the API on one port.
         "printf 'window.BACKEND_URL = window.location.origin;\\n' > /out/browser/env.js"
@@ -120,13 +241,13 @@ def build_java(frontend_dist, out, skip_tests, dns):
     os.makedirs(out, exist_ok=True)
     tests = "-DskipTests" if skip_tests else ""
     docker(MAVEN_IMAGE, (
-        f"set -e; mkdir -p /b && cd /repo && {TAR_SOURCES} && "
-        f"cd /b/backend && mvn -B -q package {tests} -Dalfred.frontend.dist=/frontend && "
+        f"set -e; {say('copying sources')} && mkdir -p /b && cd /repo && {TAR_SOURCES} && "
+        f"{say('backend: mvn package')} && cd /b/backend && {mvn(tests)} -Dalfred.frontend.dist=/frontend && "
         "cp backend-app/target/backend.jar /out/alfred.jar && "
-        f"cd /b/db-agent && mvn -B -q package {tests} && cp target/alfred-agent.jar /out/alfred-agent.jar && "
-        f"cd /b/attach-cli && mvn -B -q package {tests} && cp target/attach-cli.jar /out/attach-cli.jar"
+        f"{say('db-agent: mvn package')} && cd /b/db-agent && {mvn(tests)} && cp target/alfred-agent.jar /out/alfred-agent.jar && "
+        f"{say('attach-cli: mvn package')} && cd /b/attach-cli && {mvn(tests)} && cp target/attach-cli.jar /out/attach-cli.jar"
     ), [(ROOT, "/repo", "ro"), (frontend_dist, "/frontend", "ro"), (out, "/out", "rw"), ("alfred-m2", "/root/.m2", "rw")],
-        dns=dns)
+        dns=dns, show=MAVEN_PROGRESS)
 
 
 def build_mcp(out, dns):
@@ -134,10 +255,12 @@ def build_mcp(out, dns):
     the folder is copied to Windows too, which cannot hold node_modules/.bin symlinks."""
     os.makedirs(out, exist_ok=True)
     docker(NODE_IMAGE, (
-        f"set -e; mkdir -p /b && cd /repo && {TAR_SOURCES} && (cd /b/frontend && npm ci --no-audit --no-fund --loglevel=error) && "
-        "cd /b/mcp-server && npm ci --no-audit --no-fund --loglevel=error && rm -rf /out/mcp && "
-        "node scripts/bundle.mjs /out/mcp/dist/mcp-server.mjs && cp package.json package-lock.json /out/mcp/ && "
-        "cd /out/mcp && npm ci --omit=dev --no-bin-links --no-audit --no-fund --loglevel=error"
+        f"set -e; {say('copying sources')} && mkdir -p /b && cd /repo && {TAR_SOURCES} && "
+        f"{say('npm ci (frontend packages the bundle imports)')} && (cd /b/frontend && {npm_ci()}) && "
+        f"{say('npm ci (mcp-server)')} && cd /b/mcp-server && {npm_ci()} && rm -rf /out/mcp && "
+        f"{say('esbuild bundle')} && node scripts/bundle.mjs /out/mcp/dist/mcp-server.mjs && "
+        "cp package.json package-lock.json /out/mcp/ && "
+        f"{say('npm ci --omit=dev (production node_modules)')} && cd /out/mcp && {npm_ci('--omit=dev --no-bin-links')}"
     ), [(ROOT, "/repo", "ro"), (out, "/out", "rw")], dns=dns)
 
 
@@ -151,6 +274,7 @@ def fetch(url, expected, dns):
     name = url.rsplit("/", 1)[1].replace("%2B", "+")
     path = os.path.join(DOWNLOADS, name)
     if not os.path.exists(path) or sha256(path) != expected:
+        print(f"  downloading {name}", flush=True)
         docker(PYTHON_IMAGE, (
             "python -c \"import sys,urllib.request as u;"
             "r=u.urlopen(u.Request(sys.argv[1],headers={'User-Agent':'alfred-build'}));"
@@ -161,6 +285,7 @@ def fetch(url, expected, dns):
     if actual != expected:
         os.remove(path)
         raise SystemExit(f"\nFAILED: checksum of {name} is {actual}, build-versions.json expects {expected}")
+    print(f"  {name}  {os.path.getsize(path) // (1024 * 1024)} MB, checksum ok", flush=True)
     return path
 
 
@@ -180,7 +305,7 @@ def fetch_all(targets, dns):
 
 def extract(archive, into):
     """Unpacks an archive whose content is one top folder and returns that folder."""
-    shutil.rmtree(into, ignore_errors=True)
+    remove_tree(into)
     os.makedirs(into)
     if archive.endswith(".zip"):
         with zipfile.ZipFile(archive) as z:
@@ -316,8 +441,10 @@ def container_linux(version_text, jdk_archive, python_archive, node_archive):
     work = "/work"
     root = os.path.join(work, "stage")
     os.makedirs(root)
+    print("  linux: jlink Java runtime", flush=True)
     jdk = extract(os.path.join("/downloads", jdk_archive), os.path.join(work, "jdk"))
     run(jlink_command(os.path.join(jdk, "bin", "jlink"), os.path.join(jdk, "jmods"), os.path.join(root, "runtime", "java")))
+    print("  linux: Python + mitmproxy (uv)", flush=True)
     python = extract(os.path.join("/downloads", python_archive), os.path.join(work, "python"))
     site = os.path.join(python, "lib", f"python{python_minor()}", "site-packages")
     run(["sh", "-c", uv_install_command(site, "linux-x64", [f"mitmproxy=={VERSIONS['mitmproxy']}"])])
@@ -325,6 +452,7 @@ def container_linux(version_text, jdk_archive, python_archive, node_archive):
     shutil.move(python, os.path.join(root, "runtime", "python"))
     node = extract(os.path.join("/downloads", node_archive), os.path.join(work, "node"))
     shutil.move(node, os.path.join(root, "runtime", "node"))
+    print("  linux: staging app + writing .run", flush=True)
     stage_app(root, "linux-x64", version_text, "/java", "/mcp")
     write_run(root, os.path.join(ROOT, "packaging", "linux", "installer-header.sh"),
               os.path.join("/dist", f"alfred-setup-{version_text}-linux-x64.run"))
@@ -332,18 +460,20 @@ def container_linux(version_text, jdk_archive, python_archive, node_archive):
 
 def windows_installer(version_text, java_out, mcp_out, paths, dns):
     root = os.path.join(BUILD, "stage", "windows-x64")
-    shutil.rmtree(root, ignore_errors=True)
+    remove_tree(root)
     os.makedirs(os.path.join(root, "runtime"))
     work = os.path.join(BUILD, "windows-runtimes")
-    shutil.rmtree(work, ignore_errors=True)
+    remove_tree(work)
     os.makedirs(work)
     # jlink from the Linux JDK with the Windows jmods (same release).
+    print("  windows: jlink Java runtime", flush=True)
     jdk_win = extract(paths[("jdk", "windows-x64")], os.path.join(work, "jdk-win"))
     docker(PYTHON_IMAGE, (
         "set -e; mkdir -p /j && tar -xzf /downloads/" + os.path.basename(paths[("jdk", "linux-x64")]) + " -C /j && "
         "J=$(ls -d /j/*) && $J/bin/jlink " + " ".join(jlink_command("", "/win-jmods", "/out/java")[1:])
     ), [(DOWNLOADS, "/downloads", "ro"), (os.path.join(jdk_win, "jmods"), "/win-jmods", "ro"), (work, "/out", "rw")], dns=dns)
     shutil.move(os.path.join(work, "java"), os.path.join(root, "runtime", "java"))
+    print("  windows: Python + mitmproxy (uv)", flush=True)
     python = extract(paths[("python", "windows-x64")], os.path.join(work, "python"))
     rel_site = os.path.relpath(os.path.join(python, "Lib", "site-packages"), work).replace("\\", "/")
     docker(PYTHON_IMAGE, uv_install_command("/work/" + rel_site, "windows-x64",
@@ -358,10 +488,11 @@ def windows_installer(version_text, java_out, mcp_out, paths, dns):
 
     out = os.path.join(DIST, f"alfred-setup-{version_text}-windows-x64.exe")
     nsis = os.path.join(BUILD, "nsis")
-    shutil.rmtree(nsis, ignore_errors=True)
+    remove_tree(nsis)
     os.makedirs(nsis)
     write_text(os.path.join(ROOT, "packaging", "windows", "installer.nsi"), os.path.join(nsis, "installer.nsi"), "\r\n")
     ensure_nsis_image(dns)
+    print("  windows: makensis (packing the .exe)", flush=True)
     numeric = ".".join((numeric_version(version_text) + ["0"] * 4)[:4])
     docker(NSIS_IMAGE, (
         f"makensis -V2 -DVERSION={version_text} -DVERSION_NUMERIC={numeric} -DSTAGE=/stage "
@@ -380,6 +511,7 @@ def ensure_nsis_image(dns):
     """A small Debian image with makensis (NSIS builds Windows installers from any OS), made once."""
     if subprocess.run(["docker", "image", "inspect", NSIS_IMAGE], capture_output=True).returncode == 0:
         return
+    print(f"  building {NSIS_IMAGE} (first build only)", flush=True)
     container = "alfred-build-nsis-setup"
     subprocess.run(["docker", "rm", "-f", container], capture_output=True)
     command = ["docker", "run", "--name", container]
@@ -400,6 +532,8 @@ def checksums(files):
 
 def main(argv):
     if argv and argv[0] == "--in-container-linux":
+        global IN_CONTAINER
+        IN_CONTAINER = True
         container_linux(*argv[1:5])
         return 0
     parser = argparse.ArgumentParser(description="Build the native Alfred installers from the current code.")
@@ -409,11 +543,15 @@ def main(argv):
     parser.add_argument("--dns", default=os.environ.get("ALFRED_BUILD_DNS"), help="DNS server for the build containers")
     parser.add_argument("--reuse", action="store_true",
                         help="reuse the frontend, jars and MCP bundle of the previous build (installer work only)")
+    parser.add_argument("--verbose", action="store_true",
+                        help="print every line of every tool (full Maven output, npm http log)")
     args = parser.parse_args(argv)
+    global VERBOSE
+    VERBOSE = args.verbose
     targets = TARGETS if args.target == "all" else tuple(t for t in TARGETS if t.startswith(args.target))
 
     if args.clean:
-        shutil.rmtree(BUILD, ignore_errors=True)
+        remove_tree(BUILD)
     for folder in (BUILD, DIST, DOWNLOADS):
         os.makedirs(folder, exist_ok=True)
 
@@ -444,6 +582,8 @@ def main(argv):
     if "windows-x64" in targets:
         outputs.append(windows_installer(version_text, java_out, mcp_out, paths, args.dns))
     checksums(outputs)
+    print(f"        done in {elapsed(time.monotonic() - _step_start)}")
+    print(f"built in {elapsed(time.monotonic() - _build_start)}:")
     for path in outputs + [os.path.join(DIST, "SHA256SUMS")]:
         print(f"  {os.path.relpath(path, ROOT)}  {os.path.getsize(path) // (1024 * 1024)} MB")
     return 0

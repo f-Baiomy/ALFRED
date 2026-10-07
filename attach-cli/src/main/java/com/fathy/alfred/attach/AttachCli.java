@@ -86,7 +86,9 @@ public final class AttachCli {
             err.println("error: " + e.getMessage());
             return USAGE;
         } catch (Exception e) {
-            err.println("error: " + e.getMessage());
+            // The class too: an attach failure without a message (an IOException from the target JVM, a
+            // NullPointerException) would otherwise print just "error: null".
+            err.println("error: " + e.getClass().getSimpleName() + (e.getMessage() == null ? "" : ": " + e.getMessage()));
             return ERROR;
         }
     }

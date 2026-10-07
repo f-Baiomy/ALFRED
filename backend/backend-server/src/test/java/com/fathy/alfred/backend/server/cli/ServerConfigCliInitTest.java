@@ -55,6 +55,21 @@ class ServerConfigCliInitTest {
     }
 
     @Test
+    void recordUpgradeAddsOneHistoryEntryAndLeavesEnvAlone() throws Exception {
+        Files.writeString(home.resolve(".env"), "ALFRED_UI_PORT=3100\n");
+        assertThat(run("record-upgrade", "1.2.0", "1.3.0")).isZero();
+        assertThat(out.toString(StandardCharsets.UTF_8)).contains("Recorded upgrade 1.2.0").contains("1.3.0");
+        assertThat(Files.readString(home.resolve(".env"))).isEqualTo("ALFRED_UI_PORT=3100\n");
+
+        String history = Files.readString(home.resolve("data").resolve("env-history.jsonl"));
+        assertThat(history.lines()).hasSize(1);
+        assertThat(history).contains("\"UPGRADE\"").contains("1.2.0").contains("1.3.0");
+        // Without both versions it is a usage error, and nothing is recorded.
+        assertThat(run("record-upgrade", "1.2.0")).isEqualTo(2);
+        assertThat(Files.readString(home.resolve("data").resolve("env-history.jsonl")).lines()).hasSize(1);
+    }
+
+    @Test
     void initLeavesAnExistingFileAlone() throws Exception {
         Files.writeString(home.resolve(".env"), "A=1\n");
         assertThat(run("init")).isZero();

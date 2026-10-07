@@ -91,6 +91,12 @@ alfred jvms | attach PID [--proxy] [--db] [--logs] [--redis] [--project NAME] | 
 alfred uninstall [--keep-data]
 ```
 
+**Run every command except `version` and `jvms` as root (`sudo alfred ...`) or from an Administrator prompt on
+Windows** - `status` and `logs` included. `data/` and `.env` are readable only by the service account and root /
+Administrators, so another account cannot even see whether Alfred runs. Such a command is refused with exit code 5
+and says how to run it; it used to answer wrongly instead ("not running", "No log yet", or on Windows a
+`FileExistsError` on `data\appdata`, because Windows hides a locked folder's contents).
+
 `alfred config` goes through the running backend (the change applies live, exactly as from the UI, and the history
 records it as a CLI change by your OS user); with Alfred stopped it writes `.env` itself and the change takes effect
 at the next start. Exit codes: 0 ok, 1 error, 2 usage, 3 a value refused, 4 `.env` changed meanwhile, 5 not allowed

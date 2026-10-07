@@ -124,12 +124,23 @@ chmod 755 "$DIR/alfred"
 ok "program files in $DIR"
 
 # ---- settings: .env is created once and never overwritten ---------------------------------------------------------
+# Output is kept and shown on failure: with >/dev/null a failed .env said only "Could not create", never why.
 if [ ! -f "$DIR/.env" ]; then
-  "$DIR/alfred" _init-env >/dev/null || fail "Could not create $DIR/.env"
-  ok ".env created with defaults"
+  if INIT_OUT=$("$DIR/alfred" _init-env 2>&1); then
+    ok ".env created with defaults"
+  else
+    printf '%s\n' "$INIT_OUT" >&2
+    fail "Could not create $DIR/.env (see above)"
+  fi
 fi
 if [ -n "$UI_PORT" ]; then
-  "$DIR/alfred" config set ALFRED_UI_PORT "$UI_PORT" >/dev/null && ok "UI port $UI_PORT"
+  # A refused port (in use, not a number) used to be skipped without a word.
+  if PORT_OUT=$("$DIR/alfred" config set ALFRED_UI_PORT "$UI_PORT" 2>&1); then
+    ok "UI port $UI_PORT"
+  else
+    printf '%s\n' "$PORT_OUT" >&2
+    say "  UI port $UI_PORT was refused (see above) - Alfred keeps its current port. Change it later: sudo alfred config set ALFRED_UI_PORT <port>"
+  fi
 fi
 
 # ---- importing an existing Docker install (FR-002d) ---------------------------------------------------------------
@@ -160,6 +171,16 @@ ROLLBACK=0
 for d in runtime app service; do rm -rf "${DIR:?}/$d.previous"; done
 rm -f "$DIR/settings.properties.previous"
 
+# ---- the upgrade in the settings history (contracts/installer-and-build.md) -------------------------------------
+if [ "$UPGRADE" -eq 1 ] && [ "${OLD_VERSION:-}" != "$NEW_VERSION" ]; then
+  if UPGRADE_OUT=$("$DIR/alfred" _record-upgrade "$OLD_VERSION" "$NEW_VERSION" 2>&1); then
+    ok "upgrade recorded in the settings history"
+  else
+    printf '%s\n' "$UPGRADE_OUT" >&2
+    say "  (the upgrade could not be recorded in the settings history - Alfred works regardless)"
+  fi
+fi
+
 # ---- service ------------------------------------------------------------------------------------------------------
 ln -sf "$DIR/alfred" /usr/local/bin/alfred
 if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
@@ -177,7 +198,8 @@ else
 fi
 
 if [ "$NO_START" -eq 0 ]; then
-  "$DIR/runtime/python/bin/python3" - "$DIR" <<'PY' || say "  Alfred did not answer within 60 s - see: alfred logs supervisor"
+  # "started" only when it answered: this used to print "started" right after saying it had not.
+  if "$DIR/runtime/python/bin/python3" - "$DIR" <<'PY'
 import sys, time, urllib.request
 sys.path.insert(0, sys.argv[1] + "/app/launcher")
 from layout import Layout
@@ -190,7 +212,11 @@ for _ in range(60):
         time.sleep(1)
 sys.exit(1)
 PY
-  ok "started. $("$DIR/alfred" status | tail -n 1)"
+  then
+    ok "started. $("$DIR/alfred" status | tail -n 1)"
+  else
+    say "  Alfred did not answer within 60 s - see: sudo alfred logs supervisor"
+  fi
 fi
 say "  Next: 'alfred jvms' lists Java apps, 'alfred attach <pid>' logs one. 'alfred status' shows what runs."
 exit 0

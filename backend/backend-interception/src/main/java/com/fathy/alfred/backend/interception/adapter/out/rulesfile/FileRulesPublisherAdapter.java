@@ -13,6 +13,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.nio.file.AccessDeniedException;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -174,7 +175,31 @@ public class FileRulesPublisherAdapter implements RulesPublisherPort {
         }
     }
 
+    /**
+     * Windows (the native install) refuses to replace a file another process has open, with
+     * AccessDeniedException - and the proxy opens rules.json to read it whenever it changed. That
+     * read takes milliseconds, so a few short retries succeed; without them the publish failed and
+     * the UI and the traffic disagreed until the next edit. Measured on Windows 10: a replace while
+     * a Python reader held the file failed with "Access is denied" every time.
+     */
+    static final int REPLACE_ATTEMPTS = 40;
+    static final long REPLACE_RETRY_MS = 25;
+
     private void move(Path temp, Path target) throws IOException {
+        for (int attempt = 1; ; attempt++) {
+            try {
+                moveOnce(temp, target);
+                return;
+            } catch (AccessDeniedException e) {
+                if (attempt >= REPLACE_ATTEMPTS) {
+                    throw e;
+                }
+                sleepBeforeRetry(e);
+            }
+        }
+    }
+
+    private static void moveOnce(Path temp, Path target) throws IOException {
         try {
             Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
         } catch (AtomicMoveNotSupportedException e) {
@@ -182,6 +207,15 @@ public class FileRulesPublisherAdapter implements RulesPublisherPort {
             // move across the mount boundary. A plain replace is still far better than an
             // in-place rewrite, and the proxy tolerates the much smaller window.
             Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING);
+        }
+    }
+
+    private static void sleepBeforeRetry(AccessDeniedException cause) throws IOException {
+        try {
+            Thread.sleep(REPLACE_RETRY_MS);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw cause;
         }
     }
 }

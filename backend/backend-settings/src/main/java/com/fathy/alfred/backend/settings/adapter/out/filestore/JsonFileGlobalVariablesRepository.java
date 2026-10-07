@@ -56,8 +56,19 @@ public class JsonFileGlobalVariablesRepository implements GlobalVariablesStorePo
             Path temp = Files.createTempFile(target.getParent(), ".variables", ".tmp");
             try {
                 mapper.writeValue(temp.toFile(), onDisk);
-                try { Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE); }
-                catch (AtomicMoveNotSupportedException e) { Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING); }
+                // Retried: on Windows a replace fails while the proxy has the file open to read it (see
+                // GlobalVariablesRepository.replace, the SQLite mode's publish).
+                for (int attempt = 1; ; attempt++) {
+                    try {
+                        try { Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE); }
+                        catch (AtomicMoveNotSupportedException e) { Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING); }
+                        break;
+                    } catch (java.nio.file.AccessDeniedException e) {
+                        if (attempt >= 40) throw e;
+                        try { Thread.sleep(25); }
+                        catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); throw e; }
+                    }
+                }
             } finally { Files.deleteIfExists(temp); }
             return state;
         } catch (IOException e) { throw new UncheckedIOException("Could not save global variables", e); }

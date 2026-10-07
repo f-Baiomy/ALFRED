@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.nio.file.AccessDeniedException;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -166,11 +167,34 @@ public class FileRunSnapshotPublisher implements RunSnapshotPublisherPort {
         }
     }
 
+    /**
+     * Windows (the native install) refuses to replace a file another process has open, with
+     * AccessDeniedException - and the proxy opens the snapshot to read it whenever it changed. That read
+     * takes milliseconds, so a few short retries succeed instead of the run's snapshot silently going stale.
+     */
+    static final int REPLACE_ATTEMPTS = 40;
+    static final long REPLACE_RETRY_MS = 25;
+
     private void move(Path temp, Path target) throws IOException {
-        try {
-            Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-        } catch (AtomicMoveNotSupportedException e) {
-            Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING);
+        for (int attempt = 1; ; attempt++) {
+            try {
+                try {
+                    Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+                } catch (AtomicMoveNotSupportedException e) {
+                    Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING);
+                }
+                return;
+            } catch (AccessDeniedException e) {
+                if (attempt >= REPLACE_ATTEMPTS) {
+                    throw e;
+                }
+                try {
+                    Thread.sleep(REPLACE_RETRY_MS);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw e;
+                }
+            }
         }
     }
 }

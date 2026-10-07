@@ -21,7 +21,10 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -119,19 +122,38 @@ public class MachineAdapter implements MachinePort {
         return (name == null || name.isEmpty() || name.startsWith("INFO") ? "a process" : name) + " (pid " + pid + ")";
     }
 
+    /**
+     * The command's output, or null when it fails or takes longer than COMMAND_TIMEOUT_SECONDS. The output is read on
+     * another thread: reading it here first (as this did) blocks until the command exits, so the timeout never applied
+     * and a hung netstat held the settings check - and the request behind it - forever. Reading it at all is still
+     * needed, or a command whose output fills the pipe would never exit.
+     */
     private static String run(String... command) {
+        Process process;
         try {
-            Process process = new ProcessBuilder(command).redirectErrorStream(true).start();
-            byte[] out = process.getInputStream().readAllBytes();
-            if (!process.waitFor(COMMAND_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-                process.destroyForcibly();
-                return null;
-            }
-            return new String(out, StandardCharsets.UTF_8);
+            process = new ProcessBuilder(command).redirectErrorStream(true).start();
         } catch (IOException e) {
             log.debug("{} failed: {}", command[0], e.getMessage());
             return null;
+        }
+        CompletableFuture<byte[]> output = CompletableFuture.supplyAsync(() -> {
+            try {
+                return process.getInputStream().readAllBytes();
+            } catch (IOException e) {
+                return new byte[0];
+            }
+        });
+        try {
+            if (!process.waitFor(COMMAND_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                process.destroyForcibly();
+                log.debug("{} did not finish within {} s", command[0], COMMAND_TIMEOUT_SECONDS);
+                return null;
+            }
+            return new String(output.get(COMMAND_TIMEOUT_SECONDS, TimeUnit.SECONDS), StandardCharsets.UTF_8);
+        } catch (ExecutionException | TimeoutException e) {
+            return null;
         } catch (InterruptedException e) {
+            process.destroyForcibly();
             Thread.currentThread().interrupt();
             return null;
         }

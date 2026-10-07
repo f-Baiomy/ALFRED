@@ -506,10 +506,14 @@ def write_control_file(path, port, token):
         json.dump({"port": port, "token": token, "pid": os.getpid()}, f)
     os.replace(temp, path)
     if WINDOWS:
-        user = os.environ.get("USERNAME", "")
-        # Owner-only ACL: drop inherited entries, grant the running account (LocalSystem by default) and Administrators.
-        subprocess.run(["icacls", path, "/inheritance:r", "/grant:r", f"{user}:F", "/grant:r", "*S-1-5-32-544:F",
-                        "/grant:r", "*S-1-5-18:F"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # Owner-only ACL: drop inherited entries, grant the file's owner (the running account), Administrators and
+        # LocalSystem. By SID: the account was named from %USERNAME% before, which under LocalSystem is "MACHINE$" -
+        # icacls refused it, and the refusal was thrown away.
+        result = subprocess.run(["icacls", path, "/inheritance:r", "/grant:r", "*S-1-3-4:F", "/grant:r",
+                                 "*S-1-5-32-544:F", "/grant:r", "*S-1-5-18:F"], capture_output=True, text=True)
+        if result.returncode != 0:
+            log.warning("Could not restrict %s to its owner and Administrators: %s", path,
+                        (result.stdout + result.stderr).strip())
 
 
 def check_env(layout):

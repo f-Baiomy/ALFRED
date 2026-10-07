@@ -76,7 +76,11 @@ public class EnvFileAdapter implements EnvFilePort {
         Path folder = file.getParent();
         Path temp = null;
         try {
-            Set<PosixFilePermission> permissions = exists() ? posixPermissions(file) : OWNER_ONLY;
+            // A new .env is owner-only - where the file system has POSIX permissions at all. On Windows it has none
+            // (setPosixFilePermissions throws UnsupportedOperationException, which failed every first start there);
+            // the install folder's ACL, set by the installer, protects it instead.
+            Set<PosixFilePermission> permissions = exists() ? posixPermissions(file)
+                    : supportsPosix(folder) ? OWNER_ONLY : null;
             temp = Files.createTempFile(folder, ".env.", ".tmp");
             try (FileChannel channel = FileChannel.open(temp, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING)) {
                 channel.write(ByteBuffer.wrap(document.render().getBytes(StandardCharsets.UTF_8)));
@@ -116,6 +120,10 @@ public class EnvFileAdapter implements EnvFilePort {
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
+    }
+
+    static boolean supportsPosix(Path folder) throws IOException {
+        return Files.getFileStore(folder).supportsFileAttributeView(PosixFileAttributeView.class);
     }
 
     /** The file's POSIX permissions, or null where the file system has none (Windows). */

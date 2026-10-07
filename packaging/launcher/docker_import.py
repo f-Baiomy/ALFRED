@@ -137,7 +137,10 @@ def place(layout, tmp):
 
 def merge_settings(layout, repo):
     result = subprocess.run(layout.config_cli("merge-docker-env", repo), capture_output=True, text=True)
-    print("  " + (result.stdout or result.stderr).strip().replace("\n", "\n  "))
+    # Both streams: "stdout or stderr" dropped the error text whenever the command had printed anything first.
+    output = "\n".join(part for part in (result.stdout.strip(), result.stderr.strip()) if part)
+    if output:
+        print("  " + output.replace("\n", "\n  "))
     if result.returncode != 0:
         raise ImportFailed("settings could not be merged")
 
@@ -160,7 +163,12 @@ def import_docker(layout, repo):
         print(f"  Copying recorded data from {repo} ...")
         copy_pass(repo, project, tmp)
         print("  Stopping the Docker containers ...")
-        subprocess.run([DOCKER, "compose", "stop"], cwd=repo, capture_output=True)
+        stop = subprocess.run([DOCKER, "compose", "stop"], cwd=repo, capture_output=True, text=True)
+        if stop.returncode != 0:
+            # Copying the databases of containers that are still writing them can give a torn copy - and this
+            # used to go on regardless and then report the containers as stopped.
+            raise ImportFailed("could not stop the Docker containers: "
+                               + ((stop.stderr or stop.stdout).strip() or f"exit {stop.returncode}"))
         stopped = True
         copy_pass(repo, project, tmp)
         merge_settings(layout, repo)

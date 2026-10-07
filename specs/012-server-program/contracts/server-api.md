@@ -88,5 +88,6 @@ restart drops the socket, which `reconnectingSocket` re-opens. In Docker mode: `
 ## Supervisor → backend
 
 ### `POST /server/supervisor-events`
-Header `X-Webhook-Secret` (same check as other webhooks). Body `{"process": "OUTBOUND"|"REVERSE"|"MCP",
-"state": "...", "pid", "at"}`. The backend re-broadcasts it as `server-status-changed`.
+Header `X-Webhook-Secret` (same check as other webhooks). Body `{"name": "OUTBOUND"|"REVERSE"|"MCP"|"LOG_AGENT",
+"state": "...", "pid", "startedAt", "restarts", "listeners", "detail", "at"}` - the child's `/status` entry.
+The backend re-broadcasts it as `server-status-changed`.

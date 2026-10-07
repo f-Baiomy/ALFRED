@@ -2604,7 +2604,17 @@ def _save_global(name: str, value: object, variables_path: str, rule=None) -> bo
             json.dump(state, f, ensure_ascii=False, indent=2)
         # mkstemp creates 0600; the backend (another container) must still read the file.
         os.chmod(tmp, 0o644)
-        os.replace(tmp, variables_path)
+        with _REPLACE_LOCK:
+            _LATEST_REPLACE[variables_path] = tmp
+        try:
+            os.replace(tmp, variables_path)
+        except PermissionError:
+            if os.name != 'nt':
+                raise
+            # Windows refuses to replace a file another process has open - and the other proxy
+            # reads variables.json whenever it changed. Retried off the event loop (a sleep here
+            # would freeze every connection this proxy carries).
+            _replace_later(tmp, variables_path)
         return True
     except OSError as e:
         if tmp is not None:
@@ -2617,6 +2627,45 @@ def _save_global(name: str, value: object, variables_path: str, rule=None) -> bo
         # the rule worked, and variables.json simply never changed).
         print(f"[interception] GLOBAL capture of {name!r} not persisted to {variables_path}: {e}")
         return False
+
+
+_REPLACE_LOCK = threading.Lock()
+# path -> the temp file of the newest write to it. A retry only lands while it is still the
+# newest, so a slow retry can never put older variables on top of a newer write.
+_LATEST_REPLACE = {}
+_REPLACE_RETRIES = 40
+_REPLACE_RETRY_SECONDS = 0.025
+
+
+def _replace_later(tmp, path):
+    def attempt():
+        for _ in range(_REPLACE_RETRIES):
+            time.sleep(_REPLACE_RETRY_SECONDS)
+            with _REPLACE_LOCK:
+                if _LATEST_REPLACE.get(path) != tmp:
+                    _discard(tmp)
+                    return
+                try:
+                    os.replace(tmp, path)
+                    return
+                except PermissionError:
+                    continue
+                except OSError as e:
+                    print(f"[interception] GLOBAL capture not persisted to {path}: {e}")
+                    _discard(tmp)
+                    return
+        print(f"[interception] GLOBAL capture not persisted to {path}: still in use after "
+              f"{_REPLACE_RETRIES * _REPLACE_RETRY_SECONDS:.0f} s")
+        _discard(tmp)
+
+    threading.Thread(target=attempt, name='variables-replace', daemon=True).start()
+
+
+def _discard(tmp):
+    try:
+        os.unlink(tmp)
+    except OSError:
+        pass
 
 
 def _capture_rule_variable(flow, rule, action, kind, verdict, values, phase, rules_cache=None):

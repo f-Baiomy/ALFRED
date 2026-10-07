@@ -138,6 +138,9 @@ public final class ServerConfigCli {
                         default -> checkEnv(service);
                     };
                 }
+                case "record-upgrade" -> {
+                    return params.size() == 2 ? recordUpgrade(home, params.get(0), params.get(1)) : usage();
+                }
                 default -> {
                     return settings(command, params, new Options(home, backend, user));
                 }
@@ -148,7 +151,8 @@ public final class ServerConfigCli {
             err.println(marks.error + " " + e.getMessage());
             return ERROR;
         } catch (RuntimeException e) {
-            err.println("error: " + e.getMessage());
+            // The class too: an exception without a message used to print just "error: null".
+            err.println("error: " + e.getClass().getSimpleName() + (e.getMessage() == null ? "" : ": " + e.getMessage()));
             return ERROR;
         }
     }
@@ -177,6 +181,22 @@ public final class ServerConfigCli {
         if (!outcome.dropped().isEmpty()) {
             out.println("  Skipped (Docker only or unknown): " + String.join(", ", outcome.dropped()));
         }
+        return OK;
+    }
+
+    /**
+     * The installers call this after an upgrade (contracts/installer-and-build.md): one UPGRADE entry in the
+     * settings history, so "when did this server move to version X" can be answered from the Server section's
+     * History like any other change. .env itself is not touched, so before and after are the same content.
+     */
+    private int recordUpgrade(Path home, String from, String to) {
+        EnvFileAdapter envFile = new EnvFileAdapter(home.resolve(".env"));
+        String content = envFile.exists() ? envFile.read().render() : "";
+        ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule())
+                .disable(com.fasterxml.jackson.databind.SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+        long id = new EnvHistoryFileAdapter(home.resolve("data"), mapper, Clock.systemUTC())
+                .append(HistoryEntry.HistorySource.UPGRADE, from + " " + marks.arrow + " " + to, List.of(), content, content);
+        out.println("Recorded upgrade " + from + " " + marks.arrow + " " + to + " (history #" + id + ").");
         return OK;
     }
 

@@ -14,7 +14,8 @@ request needs `X-Alfred-Control-Token: <token>`; without it the answer is `401`.
 | POST | `/reload` | `200 {restarted: [...]}`; re-reads `.env`, restarts only the processes whose inputs changed |
 
 When a child changes state, the supervisor posts `POST {backend}/server/supervisor-events` with
-`X-Webhook-Secret`.
+`X-Webhook-Secret`; the body is that child's `/status` entry (`name`, `state`, `pid`, `startedAt`, `restarts`,
+`listeners`, `detail`) plus `at`.
 
 A crashed child is restarted with back-off of 1 s, 2 s, 5 s, 10 s, then 30 s. After 5 crashes in 5
 minutes it stays `CRASHED` and reports that; it does not loop forever.

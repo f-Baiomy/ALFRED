@@ -5,7 +5,7 @@ alfred.py - the "alfred" command of a native install (specs/012-server-program c
     alfred restart --proxies                 restart only the two proxies (the backend and the UI stay up)
     alfred status                            what runs, since when, and the UI addresses
     alfred run                               the supervisor in the foreground (what the service runs)
-    alfred logs [backend|outbound|reverse|mcp|log_agent|supervisor] [-f]
+    alfred logs [backend|outbound|reverse|mcp|log_agent|supervisor] [-f]   (proxy = outbound)
     alfred version
     alfred uninstall [--keep-data]
     alfred config ... / project ...          settings (see config_cli.py)
@@ -51,9 +51,12 @@ def ensure_env(layout):
     layout.make_dirs()
     if not os.path.exists(layout.env_file):
         result = server_config_cli(layout, "init", capture=True)
-        print(result.stdout.strip() or result.stderr.strip())
+        output = "\n".join(part for part in (result.stdout.strip(), result.stderr.strip()) if part)
         if result.returncode != 0:
+            # Both streams and the file: "error: null" on its own once hid a whole failed first start.
+            print(f"Could not create {layout.env_file}:\n{output or '(no output)'}", file=sys.stderr)
             raise SystemExit(ERROR)
+        print(output)
 
 
 def control(layout):
@@ -125,6 +128,25 @@ def cmd_init_env(layout, args):
     return OK
 
 
+def cmd_record_upgrade(layout, args):
+    """Used by the installers after an upgrade: `_record-upgrade OLD NEW` adds one UPGRADE entry to the settings
+    history (ServerConfigCli record-upgrade)."""
+    if len(args) != 2:
+        print("usage: alfred _record-upgrade OLD_VERSION NEW_VERSION", file=sys.stderr)
+        return USAGE
+    return server_config_cli(layout, "record-upgrade", *args).returncode
+
+
+def cmd_wait_health(layout, args):
+    """Used by the Windows installer after starting the service: wait up to 60 s for /health, print the UI
+    addresses (the Linux installer does the same inline). Exit 1 when Alfred did not answer."""
+    if wait_for_health(layout):
+        print("UI at " + " · ".join(ui_addresses(layout)))
+        return OK
+    print("Alfred did not answer within 60 s - see: alfred logs supervisor", file=sys.stderr)
+    return ERROR
+
+
 def cmd_run(layout, args):
     ensure_env(layout)
     import supervisor
@@ -194,7 +216,7 @@ def cmd_status(layout, args):
         return ERROR
     print(f"Alfred {status['version']}  ·  supervisor pid {status['pid']}  ·  {layout.home}")
     for p in status["processes"]:
-        line = f"  {p['name']:<10} {p['state']:<10} pid {p['pid'] or '-':<7} since {p['startedAt'] or '-'}"
+        line = f"  {p['name']:<10} {p['state']:<10} pid {p['pid'] or '-':<7} up {uptime(p['startedAt']) if p['pid'] else '-':<8}"
         if p["restarts"]:
             line += f"  restarts {p['restarts']}"
         print(line)
@@ -206,10 +228,29 @@ def cmd_status(layout, args):
     return OK
 
 
+def uptime(started_at):
+    """"3d 02:15:07" / "02:15:07" from the supervisor's ISO start time (contracts/cli.md: status shows uptime)."""
+    if not started_at:
+        return "-"
+    try:
+        from datetime import datetime, timezone
+        seconds = int((datetime.now(timezone.utc) - datetime.fromisoformat(started_at)).total_seconds())
+    except ValueError:
+        return "-"
+    days, rest = divmod(max(seconds, 0), 86400)
+    clock = f"{rest // 3600:02d}:{rest % 3600 // 60:02d}:{rest % 60:02d}"
+    return f"{days}d {clock}" if days else clock
+
+
+# contracts/cli.md names the outbound proxy's log "proxy"; the file is outbound.log. Both names work.
+LOG_ALIASES = {"proxy": "outbound", "log-agent": "log_agent"}
+
+
 def cmd_logs(layout, args):
     follow = "-f" in args
     names = [a for a in args if not a.startswith("-")]
-    path = os.path.join(layout.logs, (names[0] if names else "supervisor").lower() + ".log")
+    name = (names[0] if names else "supervisor").lower()
+    path = os.path.join(layout.logs, LOG_ALIASES.get(name, name) + ".log")
     if not os.path.exists(path):
         print(f"No log yet: {path}")
         return ERROR
@@ -233,8 +274,12 @@ def cmd_version(layout, args):
 def cmd_uninstall(layout, args):
     if WINDOWS:
         uninstaller = os.path.join(layout.home, "uninstall.exe")
-        return subprocess.run([uninstaller]).returncode if os.path.exists(uninstaller) else ERROR
-    if os.geteuid() != 0:
+        if not os.path.exists(uninstaller):
+            print(f"error: {uninstaller} is missing - remove Alfred from Settings > Apps instead.", file=sys.stderr)
+            return ERROR
+        # The uninstaller asks about data/ in its own dialog; silent mode keeps it, which is what --keep-data means.
+        return subprocess.run([uninstaller] + (["/S"] if "--keep-data" in args else [])).returncode
+    if not is_admin():
         print("Run as root: sudo alfred uninstall")
         return NOT_ALLOWED
     keep = "--keep-data" in args
@@ -263,7 +308,59 @@ def cmd_uninstall(layout, args):
 COMMANDS = {
     "run": cmd_run, "start": cmd_start, "stop": cmd_stop, "restart": cmd_restart, "status": cmd_status,
     "logs": cmd_logs, "version": cmd_version, "uninstall": cmd_uninstall, "_init-env": cmd_init_env,
+    "_wait-health": cmd_wait_health, "_record-upgrade": cmd_record_upgrade,
 }
+
+
+# Commands that work without reading data/ or .env. Every other one needs the account that may read them.
+NO_DATA_NEEDED = {"version", "jvms"}
+
+
+def is_admin():
+    """Windows: an elevated (Run as administrator) prompt. Elsewhere: root."""
+    if not WINDOWS:
+        return os.geteuid() == 0
+    try:
+        import ctypes
+        return bool(ctypes.windll.shell32.IsUserAnAdmin())
+    except (AttributeError, OSError):
+        return False
+
+
+def owner_name(path):
+    try:
+        import pwd
+        return pwd.getpwuid(os.stat(path).st_uid).pw_name
+    except (ImportError, KeyError, OSError):
+        return "root"
+
+
+def access_problem(layout, name):
+    """Why this account cannot run `alfred <name>`, or None.
+
+    data/ and .env are readable only by the service account and root / Administrators (the installers set that, the
+    token in data/run/control.json can restart Alfred and .env holds secrets). Without that check every command gave
+    a WRONG answer instead of a refusal: status said "not running" while Alfred ran, logs said "No log yet", and start
+    failed with "FileExistsError ... data\\appdata" - Windows hides a locked folder's contents, so creating a folder that
+    is already there looks like it is missing."""
+    blocked = None
+    for path in (layout.data, layout.env_file):
+        try:
+            if os.path.isdir(path):
+                os.listdir(path)
+            elif os.path.exists(path):
+                open(path, "rb").close()
+        except PermissionError:
+            blocked = path
+            break
+    if blocked is None:
+        return None
+    if WINDOWS:
+        return (f"alfred {name} needs an Administrator prompt: {blocked} is readable only by Administrators and the "
+                "Alfred service.\nOpen Command Prompt or PowerShell with 'Run as administrator' and run it again.")
+    owner = owner_name(blocked)
+    hint = "sudo alfred " + name if owner == "root" else f"sudo alfred {name}  (or as {owner}: sudo -u {owner} alfred {name})"
+    return f"alfred {name} needs root: {blocked} is readable only by {owner}.\nRun: {hint}"
 
 
 def main(argv):
@@ -272,6 +369,11 @@ def main(argv):
         print(__doc__.strip())
         return OK if argv else USAGE
     name, args = argv[0], argv[1:]
+    if name not in NO_DATA_NEEDED and not (args and args[0] in ("-h", "--help", "help")):
+        problem = access_problem(layout, name)
+        if problem:
+            print(problem, file=sys.stderr)
+            return NOT_ALLOWED
     if name in ("config", "project"):
         import config_cli
         return config_cli.main(layout, name, args)
@@ -283,7 +385,13 @@ def main(argv):
         print(f"Unknown command: {name}\n")
         print(__doc__.strip())
         return USAGE
-    return command(layout, args)
+    try:
+        return command(layout, args)
+    except PermissionError as e:
+        # A file the check above did not look at (a log, a database) - still a refusal, not a traceback.
+        print(f"alfred {name}: not allowed to use {e.filename}. "
+              + ("Run it from an Administrator prompt." if WINDOWS else "Run it with sudo."), file=sys.stderr)
+        return NOT_ALLOWED
 
 
 if __name__ == "__main__":

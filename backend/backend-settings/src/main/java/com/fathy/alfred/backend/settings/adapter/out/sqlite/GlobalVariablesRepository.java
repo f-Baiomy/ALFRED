@@ -109,9 +109,27 @@ public class GlobalVariablesRepository implements GlobalVariablesStorePort {
             Path temp = Files.createTempFile(parent, ".variables", ".tmp");
             try {
                 mapper.writeValue(temp.toFile(), published);
-                try { Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE); }
-                catch (AtomicMoveNotSupportedException e) { Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING); }
+                replace(temp, target);
             } finally { Files.deleteIfExists(temp); }
         } catch (IOException e) { throw new UncheckedIOException("Could not publish global variables to " + target, e); }
+    }
+
+    /**
+     * Windows (the native install) refuses to replace a file another process has open, with AccessDeniedException -
+     * and the proxies open variables.json to read it whenever it changed. That read takes milliseconds, so a few
+     * short retries succeed instead of the save failing.
+     */
+    static void replace(Path temp, Path target) throws IOException {
+        for (int attempt = 1; ; attempt++) {
+            try {
+                try { Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE); }
+                catch (AtomicMoveNotSupportedException e) { Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING); }
+                return;
+            } catch (java.nio.file.AccessDeniedException e) {
+                if (attempt >= 40) throw e;
+                try { Thread.sleep(25); }
+                catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); throw e; }
+            }
+        }
     }
 }

@@ -104,6 +104,29 @@ class DockerImportTest(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.layout.appdata, "calls.db")))
         self.assertEqual(self.compose_calls, ["stop", "start"])
 
+    def test_containers_that_will_not_stop_fail_the_import_instead_of_copying_live_databases(self):
+        docker_patch, _ = self.stub_docker()
+
+        class Refused:
+            returncode = 1
+            stdout = ""
+            stderr = "permission denied while trying to connect to the Docker daemon"
+
+        def refuse_stop(command, **kwargs):
+            if command[:3] == [docker_import.DOCKER, "compose", "stop"]:
+                self.compose_calls.append("stop")
+                return Refused()
+            self.compose_calls.append(command[2])
+            return Refused()
+
+        with docker_patch, patch.object(docker_import.subprocess, "run", refuse_stop), \
+                self.assertRaises(docker_import.ImportFailed) as failure:
+            docker_import.import_docker(self.layout, self.repo)
+        self.assertIn("could not stop the Docker containers", str(failure.exception))
+        self.assertIn("permission denied", str(failure.exception))
+        self.assertFalse(os.path.exists(os.path.join(self.layout.appdata, "calls.db")))
+        self.assertEqual(self.compose_calls, ["stop"])
+
     def test_existing_native_data_is_moved_aside_not_deleted(self):
         write(os.path.join(self.layout.appdata, "old.db"), "old")
         docker_patch, run_patch = self.stub_docker()
