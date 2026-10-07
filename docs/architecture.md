@@ -60,6 +60,14 @@ backend-triage            the saved "needs attention" mark of every call (call_a
                           priority 1-6 they give, kept current as calls arrive (any order) by backend-app/triagebridge
                           and read through indexes only (GET /triage/calls|live|counts). Leaf slice, depends on no
                           other slice. See docs/mcp.md "Triage".
+backend-server            the native install's server settings (specs/012-server-program): the setting catalog,
+                          .env as an EnvDocument that keeps comments and line order (atomic, owner-only writes,
+                          conflict check by content hash), defaults from settings.properties, validation and
+                          probes, history, who may change settings, restart requests to the supervisor. Leaf
+                          slice; other slices' data and runtime setters are reached only through out-ports that
+                          backend-app/serverbridge implements. Its domain and application layers are also free
+                          of Spring (ArchUnit-enforced) because server.cli.ServerConfigCli runs them without a
+                          context for the installer, the launcher and "alfred config". See docs/server.md.
 backend-app               composition root, owns spring-boot-maven-plugin repackage, DatabaseStatsController,
                           the CallFilterAdapter bridging calls→settings, CommentCallIdMigration, the
                           interceptionbridge package (bridges backend-interception's RecordedCallLookupPort to

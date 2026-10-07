@@ -190,6 +190,12 @@ folders Alfred LISTENS ON - separate from `logs_drop_dir`, which is only for loa
 (a missing folder is skipped with a warning - Compose would refuse to start backend). Changing the list needs
 `restart.py`.
 
+**Native install** (`ALFRED_RUNTIME=native`, specs/012-server-program): there are no mounts - the backend runs on the
+host and `LocalWatchFolders` reads each configured host path directly (still resolving every file inside its folder).
+The list is edited in the Settings tab's Server section (one row per folder: name and path) or with
+`alfred config add/remove ALFRED_LOGS_WATCH_DIRS`, and applies live. On Windows the supervisor runs the same
+`log-agent/agent.py` for file-change notices.
+
 - A **WATCH** input owns one **WATCHED_FILE** input per matching file (`LogWatchService`), so every file uses the
   normal pipeline: positions saved per batch, restart without loss or duplicates, rotation.
 - **Start with:** everything / the last N lines (across files newest first, or per file -

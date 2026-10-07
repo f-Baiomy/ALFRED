@@ -139,4 +139,28 @@
     </plugins>
   </build>
 
+  <!-- Native install (specs/012-server-program): build_dist.py passes -Dalfred.frontend.dist=<Angular browser output>
+       so the jar also serves the UI from classpath:/static (SpaPageFilter). Without the property (a normal build or
+       mvn test) nothing changes and no frontend build is needed. -->
+  <profiles>
+    <profile>
+      <id>bundle-frontend</id>
+      <activation>
+        <property>
+          <name>alfred.frontend.dist</name>
+        </property>
+      </activation>
+      <build>
+        <resources>
+          <resource>
+            <directory>src/main/resources</directory>
+          </resource>
+          <resource>
+            <directory>${alfred.frontend.dist}</directory>
+            <targetPath>static</targetPath>
+          </resource>
+        </resources>
+      </build>
+    </profile>
+  </profiles>
 </project>

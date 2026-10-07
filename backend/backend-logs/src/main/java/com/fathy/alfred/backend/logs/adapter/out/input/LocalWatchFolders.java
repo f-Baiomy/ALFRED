@@ -20,9 +20,10 @@ import java.util.stream.Stream;
 
 /**
  * {@code LOGS_WATCH_DIRS} ("name:hostPath,name:hostPath" - settings.properties {@code logs_watch_dirs},
- * overridable in .env) names the folders; each is mounted at {@code LOGS_WATCH_ROOT}/‹name› (start.py
- * writes the mounts). Names are checked against a strict pattern and every path is resolved inside its
- * folder, so nothing outside a configured folder is ever read (constitution I).
+ * overridable in .env) names the folders. In Docker each is mounted at {@code LOGS_WATCH_ROOT}/‹name› (start.py
+ * writes the mounts); in the native install ({@code ALFRED_RUNTIME=native}, specs/012-server-program) the backend
+ * runs on the host and reads the host path itself. Names are checked against a strict pattern and every path is
+ * resolved inside its folder, so nothing outside a configured folder is ever read (constitution I).
  */
 @Component
 public class LocalWatchFolders implements WatchFoldersPort {
@@ -38,6 +39,8 @@ public class LocalWatchFolders implements WatchFoldersPort {
     private String watchDirs;
     @Value("${LOGS_WATCH_ROOT:/watch}")
     private String watchRoot;
+    @Value("${ALFRED_RUNTIME:docker}")
+    private String runtime;
 
     /** name → host path, in configured order; invalid entries are skipped. */
     Map<String, String> configured() {
@@ -59,7 +62,16 @@ public class LocalWatchFolders implements WatchFoldersPort {
         return out;
     }
 
+    private boolean nativeInstall() {
+        return "native".equalsIgnoreCase(runtime);
+    }
+
+    /** Docker: the mount under LOGS_WATCH_ROOT. Native: the configured host path. Null for an unknown folder natively. */
     private Path folderPath(String folder) {
+        if (nativeInstall()) {
+            String host = configured().get(folder);
+            return host == null ? null : Path.of(host).toAbsolutePath().normalize();
+        }
         return Path.of(watchRoot).toAbsolutePath().normalize().resolve(folder).normalize();
     }
 
@@ -77,7 +89,9 @@ public class LocalWatchFolders implements WatchFoldersPort {
         }
         Path p = folderPath(folder);
         if (!Files.isDirectory(p)) {
-            throw new IllegalArgumentException("Watched folder " + folder + " is not mounted yet - run restart.py after changing logs_watch_dirs");
+            throw new IllegalArgumentException(nativeInstall()
+                    ? "Watched folder " + folder + " (" + p + ") does not exist or is not a folder"
+                    : "Watched folder " + folder + " is not mounted yet - run restart.py after changing logs_watch_dirs");
         }
         return p.toString();
     }
@@ -109,6 +123,9 @@ public class LocalWatchFolders implements WatchFoldersPort {
             return null;
         }
         Path root = folderPath(folder);
+        if (root == null) {
+            return null;
+        }
         Path p = root.resolve(rel).normalize();
         if (!p.startsWith(root)) {
             return null; // never outside the folder
