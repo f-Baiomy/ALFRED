@@ -54,10 +54,15 @@ code, preview = call("POST", "/server/settings/preview", {"baseHash": settings["
     {"key": "REVERSE_PROXY_ENABLED", "value": "true"}, {"key": "INTERNAL_CALL_SERVICES", "value": "demo:9001:8080"},
     {"key": "INTERNAL_CALLS_RETENTION_ROWS", "value": "3000"}, {"key": "ALFRED_MEMORY", "value": "1g"}]})
 results.append(step("preview shows the .env lines", code == 200 and any(d["after"] == "INTERNAL_CALL_SERVICES=demo:9001:8080" for d in preview["diff"]), preview))
+started = time.time()
 code, saved = call("PUT", "/server/settings", {"baseHash": settings["envHash"], "edits": [
     {"key": "REVERSE_PROXY_ENABLED", "value": "true"}, {"key": "INTERNAL_CALL_SERVICES", "value": "demo:9001:8080"},
     {"key": "INTERNAL_CALLS_RETENTION_ROWS", "value": "3000"}, {"key": "ALFRED_MEMORY", "value": "1g"}]})
 outcomes = {a["key"]: a["outcome"] for a in saved.get("applied", [])} if code == 200 else saved
+if code == 200:
+    print("TIME save_request_s %.2f" % (time.time() - started))
+    for a in saved["applied"]:
+        print("TIME applied %s %s %d ms" % (a["key"], a["outcome"], a.get("tookMs", 0)))
 results.append(step("save applies live / restarts proxies / waits for restart", code == 200
                     and outcomes.get("INTERNAL_CALLS_RETENTION_ROWS") == "APPLIED"
                     and outcomes.get("INTERNAL_CALL_SERVICES") == "PROXIES_RESTARTED"
@@ -83,9 +88,11 @@ results.append(step("write through the tunnel refused with 403", code == 403, co
 
 # Restart the backend from the API: proxies keep running; the backend comes back with the new memory.
 outbound_pid = [p["pid"] for p in call("GET", "/server/status")[1]["processes"] if p["name"] == "OUTBOUND"][0]
+restart_started = time.time()
 code, _ = call("POST", "/server/restart", {"what": "BACKEND"})
 time.sleep(3)
 back = wait(lambda: call("GET", "/health")[0] == 200, 90)
+print("TIME backend_restart_to_health_s %.1f" % (time.time() - restart_started))
 status = call("GET", "/server/status")[1] if back else {}
 same_proxy = back and [p["pid"] for p in status["processes"] if p["name"] == "OUTBOUND"][0] == outbound_pid
 heap_ok = back and status["heapMaxBytes"] <= 1100 * 1024 * 1024

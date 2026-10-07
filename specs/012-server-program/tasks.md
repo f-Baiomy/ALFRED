@@ -116,9 +116,9 @@ description: "Task list for 012-server-program"
 - [X] T043 [US1] Create `packaging/linux/installer-header.sh` (POSIX sh) with the steps and flags of `contracts/installer-and-build.md`. It extracts to a temp folder and moves into place, handles upgrade by `app/VERSION` (keeps `.env` and `data/`, refuses a downgrade without `--allow-downgrade`), defaults the service account to `root` (`--user`), creates owner-only permissions, installs `/usr/local/bin/alfred`, runs `systemctl enable --now`, waits for `/health`, and prints the addresses. `uninstall` asks before deleting `data/`.
 - [X] T044 [P] [US1] Create `packaging/linux/alfred.service`: `ExecStart=<dir>/alfred run`, `Restart=always`, `User=` from the installer, and `AmbientCapabilities=CAP_NET_BIND_SERVICE` when the account is not root.
 - [X] T045 [US1] In `build_dist.py`, write the `.run` file: header plus `tar.gz` built with Python `tarfile`, `0755` on the launchers and `installer-header.sh`, LF endings checked.
-- [ ] T046 [P] [US1] Create `packaging/windows/installer.nsi`: wizard (folder, port, service account, default LocalSystem) and silent `/S /DIR= /UIPORT= /SERVICEUSER= /IMPORTDOCKER=`. Same steps as Linux, an uninstaller entry, and `alfred.cmd` added to the machine `PATH`. Needs admin; silent mode exits `5` without it.
-- [ ] T047 [P] [US1] Create `packaging/windows/alfred-service.xml` (WinSW): runs `alfred.cmd run`, `onfailure restart`, logs to `data/log`.
-- [ ] T048 [US1] In `build_dist.py`, run `makensis` (from `build-cache/`) to produce the `.exe`, then write `dist/SHA256SUMS`.
+- [X] T046 [P] [US1] Create `packaging/windows/installer.nsi`: wizard (folder, port, service account, default LocalSystem) and silent `/S /DIR= /UIPORT= /SERVICEUSER= /IMPORTDOCKER=`. Same steps as Linux, an uninstaller entry, and `alfred.cmd` added to the machine `PATH`. Needs admin; silent mode exits `5` without it.
+- [X] T047 [P] [US1] Create `packaging/windows/alfred-service.xml` (WinSW): runs `alfred.cmd run`, `onfailure restart`, logs to `data/log`.
+- [X] T048 [US1] In `build_dist.py`, run `makensis` (from `build-cache/`) to produce the `.exe`, then write `dist/SHA256SUMS`.
 - [X] T049 [P] [US1] Add `tests/python/test_build_dist.py`: from a fake stage folder, the `.run` tar has `0755` launchers and LF line endings, the version string comes from git, and a failure leaves no file in `dist/`.
 
 ### Docker import (FR-002d, research R17)
