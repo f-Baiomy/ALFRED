@@ -132,7 +132,12 @@ it). `alfred attach PID` loads `alfred-agent.jar` into a running app through the
 
 Attaching again changes the features; `detach` turns them off (an agent cannot be unloaded; off is a switch). The
 webhook secret and the CA are passed in the environment, never on a command line. On Linux a JVM owned by another user
-is attached as that user (`runuser`): a direct cross-user attach fails and makes the app dump its threads.
+is attached as that user (`runuser`): a direct cross-user attach fails and makes the app dump its threads. On Windows
+the service runs as LocalSystem while a developer's app (WildFly from the IDE) runs as them, and a JVM lists and accepts
+attaches only from its own user: the service borrows the app process's own token and runs attach-cli as its owner, in
+the owner's environment plus the `ALFRED_AGENT_*` values (`packaging/launcher/win_runas.py`, no password, nothing
+logged on). Unprivileged callers still may not attach to another user's app; the supervisor's detail - shown on the
+Server card and in the ◆ popover - then names both users.
 
 ### The agent attaches itself
 

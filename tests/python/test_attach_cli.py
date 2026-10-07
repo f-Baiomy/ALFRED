@@ -156,5 +156,56 @@ class OwnerTest(unittest.TestCase):
             self.assertEqual(attach_cli.main(layout, "attach", ["4242"]), attach_cli.NOT_ALLOWED)
 
 
+
+class WindowsOwnerTest(unittest.TestCase):
+    """The Windows service runs as LocalSystem; a developer's app runs as them. Attach-cli must run as the app's owner."""
+
+    def test_a_service_attaches_as_the_apps_owner_with_only_the_agents_values_added(self):
+        layout = make_layout(["ALFRED_UI_PORT=3001", "INTERNAL_CALL_SERVICES=odeysys:8080:9001", "WEBHOOK_SECRET=s3cret"])
+        runs = []
+
+        class FakeRunas:
+            @staticmethod
+            def run_as_owner(pid, argv, extra_env=None, cwd=None):
+                runs.append((pid, argv, extra_env, cwd))
+                return attach_cli.subprocess.CompletedProcess(argv, 0, "PID 53628 (java): Alfred db\n", "")
+
+        with patch.object(attach_cli, "posix", lambda: False), patch.dict(sys.modules, {"win_runas": FakeRunas}), \
+                patch.object(attach_cli, "owner_of", lambda pid: "DESKTOP\\work"), \
+                patch.object(attach_cli, "current_user", lambda: "NT AUTHORITY\\SYSTEM"), \
+                patch.object(attach_cli.subprocess, "run", side_effect=AssertionError("not as the service")):
+            ok, detail = attach_cli.attach_pid(layout, layout.settings(), 53628, {"name": "odeysys"}, ["db"])
+        self.assertTrue(ok)
+        pid, argv, extra, cwd = runs[0]
+        self.assertEqual(53628, pid)
+        self.assertEqual(["attach", "53628"], argv[3:5])
+        self.assertEqual("s3cret", extra["ALFRED_AGENT_SECRET"])
+        self.assertTrue(all(k.startswith("ALFRED_AGENT_") for k in extra), "the service's own environment stays behind")
+        self.assertEqual(layout.app, cwd)
+
+    def test_an_app_missing_from_the_services_jvm_list_is_looked_up_as_its_owner(self):
+        layout = make_layout([])
+        lists = []
+
+        def jvm_pids(layout, owner=None, pid=None):
+            lists.append(owner)
+            return {53628: {}} if owner == "DESKTOP\\work" else {}
+        with patch.object(attach_cli, "jvm_pids", jvm_pids), patch.object(attach_cli, "owner_of", lambda pid: "DESKTOP\\work"), \
+                patch.object(attach_cli, "current_user", lambda: "NT AUTHORITY\\SYSTEM"):
+            with patch.object(attach_cli, "privileged", lambda: True):
+                self.assertTrue(attach_cli.visible_jvm(layout, 53628))
+            self.assertEqual([None, "DESKTOP\\work"], lists)
+            with patch.object(attach_cli, "privileged", lambda: False):
+                self.assertFalse(attach_cli.visible_jvm(layout, 53628))
+
+    @unittest.skipUnless(os.name == "nt", "Windows tokens")
+    def test_this_process_is_owned_by_the_current_user(self):
+        import win_runas
+        me = win_runas.current_user()
+        self.assertTrue(me)
+        self.assertEqual(me, win_runas.process_user(os.getpid()))
+        self.assertIsInstance(win_runas.is_privileged(), bool)
+
+
 if __name__ == "__main__":
     unittest.main()

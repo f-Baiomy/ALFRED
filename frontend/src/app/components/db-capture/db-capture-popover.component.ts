@@ -4,6 +4,7 @@ import { ATTACH_MODE_CHOICES, AttachMode, DbCaptureSettings, agentLacks } from '
 import { DbCaptureApiService } from '../../core/services/db-capture-api.service';
 import { DbCaptureStateService } from '../../core/state/db-capture-state.service';
 import { ServerSettingsService } from '../../core/services/server-settings.service';
+import { AgentAttach } from '../../core/models/server-settings.model';
 import { ATTACH_NOTES, attachFeatures } from '../../shared/utils/attach-features';
 import { DbWindowService } from './db-window.service';
 import { LogLevelSetting } from '../../core/models/call-logs.model';
@@ -39,6 +40,9 @@ import { LOG_LEVEL_CHOICES } from '../../shared/utils/call-log-rows';
           }
         </span>
       </div>
+      @if (whyNotAttached(); as why) {
+        <div class="db-how db-why" title="The supervisor's last attach attempt (Settings → Server has every project's)">Last attempt: {{ why }}</div>
+      }
       @if (lacking().length) {
         <div class="db-how db-lacking">⚠ {{ lacking().join(' and ') }} capture is switched on, but the agent in {{ project() }}'s JVM was loaded
           without it - nothing is recorded until it is loaded: <code>python3 start.py --db-capture on</code> (Docker; the proxy-on step alone
@@ -128,6 +132,14 @@ export class DbCapturePopoverComponent implements OnInit {
   readonly attachMode = computed<AttachMode>(() => this.settings()?.attachMode ?? 'WHEN_ASKED');
   /** What the last ask came to (the Server card has the supervisor's full account). */
   readonly attachNote = signal('');
+  /** The supervisor's last attempt for this project (native installs only), read when the panel opens. */
+  readonly lastAttempt = signal<AgentAttach | null>(null);
+  /** Why the supervisor could not attach - e.g. the app runs as another Windows user than Alfred's service. */
+  readonly whyNotAttached = computed(() => {
+    const a = this.lastAttempt();
+    if (this.status()?.attached || !a || !a.detail || a.state === 'ATTACHED' || a.state === 'ATTACHING') return '';
+    return a.detail;
+  });
   readonly level = computed<LogLevelSetting>(() => this.settings()?.logLevel ?? 'ERROR');
   readonly logsOn = computed(() => this.state.logsOn(this.project(), this.inboundOn()));
   readonly enabled = computed(() => !!this.status()?.enabled && this.inboundOn());
@@ -144,6 +156,10 @@ export class DbCapturePopoverComponent implements OnInit {
   ngOnInit(): void {
     this.place();
     this.api.settings(this.project()).subscribe({ next: (s) => this.settings.set(s), error: () => this.error.set('Could not load the settings.') });
+    this.server.status().subscribe({
+      next: (st) => this.lastAttempt.set(st.agents?.find((a) => a.project === this.project()) ?? null),
+      error: () => this.lastAttempt.set(null),
+    });
   }
 
   private place(): void {

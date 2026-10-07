@@ -601,10 +601,8 @@ class AgentAttacher:
                     and ",".join(features) == known.get("features", "") and known.get("at") \
                     and (time.time() - _iso_to_epoch(known["at"])) < self.RETRY_SECONDS:
                 return
-            jvms = attach_cli.jvm_pids(self.supervisor.layout)
-            if jvms is not None and pid not in jvms:
-                self._set(project, port=port, pid=pid, state="NOT_A_JVM", features="",
-                          detail=f"pid {pid} on port {port} is not a Java process this user can see")
+            if attach_cli.visible_jvm(self.supervisor.layout, pid) is False:
+                self._set(project, port=port, pid=pid, state="NOT_A_JVM", features="", detail=_not_a_jvm(pid, port))
                 return
             self._set(project, port=port, pid=pid, state="ATTACHING", detail="", features=",".join(features))
             ok, detail = attach_cli.attach_pid(self.supervisor.layout, settings, pid, {"name": project, **_project_fields(settings, project)},
@@ -616,6 +614,18 @@ class AgentAttacher:
         finally:
             with self.lock:
                 self.busy.discard(project)
+
+
+def _not_a_jvm(pid, port):
+    """Why {pid} cannot be attached to, naming both users when they differ - the usual cause on Windows is Alfred's
+    service and the app running as different users without Alfred being allowed to act as the app's owner."""
+    import attach_cli
+    owner, me = attach_cli.owner_of(pid), attach_cli.current_user()
+    if owner and me and owner != me and not attach_cli.privileged():
+        return f"pid {pid} on port {port} runs as {owner}, Alfred as {me}: run Alfred as {owner} or as a service"
+    if owner is None and me:
+        return f"pid {pid} on port {port} is not a Java process {me} can see (another user's, or not Java)"
+    return f"pid {pid} on port {port} is not a Java process"
 
 
 class AppWatcher:

@@ -8,6 +8,7 @@ import { DbCaptureStateService } from '../../core/state/db-capture-state.service
 import { DbWindowService } from './db-window.service';
 import { ServerSettingsService } from '../../core/services/server-settings.service';
 import { DbCaptureSettings } from '../../core/models/db-capture.model';
+import { AgentAttach } from '../../core/models/server-settings.model';
 
 describe('DbCapturePopoverComponent - ▤ Log lines', () => {
   const settings: DbCaptureSettings = {
@@ -16,7 +17,7 @@ describe('DbCapturePopoverComponent - ▤ Log lines', () => {
     expectedFingerprints: [], ignorePatterns: ['SELECT 1'],
   };
 
-  function create(logsOn: boolean, agentFeatures?: string) {
+  function create(logsOn: boolean, agentFeatures?: string, attached = true, agents: AgentAttach[] = []) {
     const saved: DbCaptureSettings[] = [];
     const asked: { project: string; features: readonly string[] }[] = [];
     const agent = agentFeatures === undefined ? undefined : { agentId: 'a1', project: 'odeysys', droppedSinceStart: 0, queuedStatements: 0, features: agentFeatures };
@@ -28,13 +29,14 @@ describe('DbCapturePopoverComponent - ▤ Log lines', () => {
           saveSettings: (_p: string, s: DbCaptureSettings) => { saved.push(s); return of(s); },
         } },
         { provide: DbCaptureStateService, useValue: {
-          projectStatus: () => ({ project: 'odeysys', enabled: true, inboundLogging: true, attached: true, logsOn, agent }),
+          projectStatus: () => ({ project: 'odeysys', enabled: true, inboundLogging: true, attached, logsOn, agent }),
           switchTitle: () => '', toggle: () => undefined, showChips: signal(true), setShowChips: () => undefined,
           logsOn: () => logsOn,
         } },
         { provide: DbWindowService, useValue: { openOutside: () => undefined } },
         { provide: Router, useValue: { navigate: () => Promise.resolve(true) } },
         { provide: ServerSettingsService, useValue: {
+          status: () => of({ agents }),
           attachAgent: (project: string, features: readonly string[]) => { asked.push({ project, features }); return of({ accepted: true }); },
         } },
       ],
@@ -97,6 +99,22 @@ describe('DbCapturePopoverComponent - ▤ Log lines', () => {
   it('says nothing about features when the agent is too old to report them', () => {
     const { fixture } = create(true);
     expect((fixture.nativeElement as HTMLElement).querySelector('.db-lacking')).toBeNull();
+  });
+
+  it('says why the supervisor could not attach - the app runs as another user than Alfred', () => {
+    const why = 'pid 53628 on port 9001 runs as PC\\work, Alfred as PC\\bob: run Alfred as PC\\work or as a service';
+    const { fixture } = create(true, undefined, false, [
+      { project: 'core-service', port: 9003, pid: 0, state: 'NO_JVM', detail: 'nothing listens on port 9003', at: null, features: '' },
+      { project: 'odeysys', port: 9001, pid: 53628, state: 'NOT_A_JVM', detail: why, at: null, features: '' },
+    ]);
+    expect((fixture.nativeElement as HTMLElement).querySelector('.db-why')!.textContent).toContain(why);
+  });
+
+  it('says nothing about the last attempt once the agent is attached', () => {
+    const { fixture } = create(true, undefined, true, [
+      { project: 'odeysys', port: 9001, pid: 1, state: 'FAILED', detail: 'old failure', at: null, features: '' },
+    ]);
+    expect((fixture.nativeElement as HTMLElement).querySelector('.db-why')).toBeNull();
   });
 
   it('dims the row while ▤ is off', () => {

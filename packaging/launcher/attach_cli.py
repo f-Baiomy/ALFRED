@@ -4,8 +4,9 @@ contracts/cli.md, research R12/R16).
 
 The work is done by app/attach-cli.jar on the bundled JDK. This module adds what needs the install: the agent's
 arguments from .env (Alfred's address, the project, the forward proxy to use), the webhook secret and Alfred's CA
-(passed in the environment, never on a command line), and - on Linux - running the attach step AS THE APP'S OWNER
-when that is another user: attaching across users fails and makes the app dump every thread to its console (spike S2).
+(passed in the environment, never on a command line), and running the attach step AS THE APP'S OWNER when that is
+another user: attaching across users fails and makes the app dump every thread to its console (spike S2). Linux:
+runuser/su as root. Windows: the service (LocalSystem) borrows the app process's own token (win_runas.py).
 """
 
 import json
@@ -39,9 +40,10 @@ def posix():
 
 
 def owner_of(pid):
-    """The user name a process runs as (Linux), or None when unknown."""
+    """The user name a process runs as (DOMAIN\\name on Windows), or None when unknown."""
     if not posix():
-        return None
+        import win_runas
+        return win_runas.process_user(pid)
     try:
         import pwd
         return pwd.getpwuid(os.stat(f"/proc/{pid}").st_uid).pw_name
@@ -51,13 +53,28 @@ def owner_of(pid):
 
 def current_user():
     if not posix():
-        return None
+        import win_runas
+        return win_runas.current_user()
     import pwd
     return pwd.getpwuid(os.geteuid()).pw_name
 
 
+def privileged():
+    """May run a command as another user: root, or on Windows LocalSystem / an elevated administrator."""
+    if not posix():
+        import win_runas
+        return win_runas.is_privileged()
+    return current_user() == "root"
+
+
+def other_owner(pid):
+    """The owner of {pid} when that is not us, else None."""
+    owner = owner_of(pid)
+    return owner if owner and owner != current_user() else None
+
+
 def as_user(owner, command):
-    """The command run as {owner}, keeping the environment (the secret and the CA travel in it)."""
+    """The command run as {owner} (Linux), keeping the environment (the secret and the CA travel in it)."""
     if owner is None or owner == current_user():
         return command
     if shutil.which("runuser"):
@@ -187,9 +204,9 @@ def _proc_listening_pid(port):
     return None
 
 
-def jvm_pids(layout):
-    """The pids attach-cli can see as Java processes (its own user's; others are listed as unreadable)."""
-    result = run_attach_cli(layout, ["jvms", "--json"], capture=True)
+def jvm_pids(layout, owner=None, pid=None):
+    """The pids attach-cli can see as Java processes - its own user's, or {owner}'s (whose process {pid} is)."""
+    result = run_attach_cli(layout, ["jvms", "--json"], owner=owner, capture=True, pid=pid)
     if result.returncode != 0:
         return None
     try:
@@ -198,26 +215,63 @@ def jvm_pids(layout):
         return None
 
 
+def visible_jvm(layout, pid):
+    """True when {pid} is a JVM attach-cli can attach to - as us, or, privileged, as its owner; False when it is not
+    one; None when the list could not be read. A JVM lists only its own user's JVMs, so a service running as
+    LocalSystem never sees a developer's app in its own list."""
+    mine = jvm_pids(layout)
+    if mine is not None and pid in mine:
+        return True
+    owner = other_owner(pid)
+    if owner and privileged():
+        theirs = jvm_pids(layout, owner=owner, pid=pid)
+        return None if theirs is None else pid in theirs
+    return None if mine is None else False
+
+
 def attach_pid(layout, settings, pid, project, features):
     """Loads the agent into {pid} for {project} with exactly {features} (proxy/db/logs/redis), as "alfred attach"
     does: the install's URL, project and proxy as arguments, the secret and CA in the environment, as the app's
     owner on Linux. Returns (ok, detail) - detail is the CLI's last line when it failed."""
-    owner = owner_of(pid)
+    owner = other_owner(pid)
     command = ["attach", str(pid), "--agent", agent_jar(layout), "--args", base_args(layout, settings, project)]
     if features:
         command += ["--add", ",".join(features)]
-    result = run_attach_cli(layout, command, owner=owner, env=secrets_env(layout, settings), capture=True)
+    result = run_attach_cli(layout, command, owner=owner, env=secrets_env(layout, settings), capture=True, pid=pid)
     if result.returncode == 0:
         return True, ((result.stdout or "").strip().splitlines() or [""])[-1]
     text = ((result.stderr or "") + "\n" + (result.stdout or "")).strip().splitlines()
     return False, (text[-1] if text else f"attach-cli exited with {result.returncode}")
 
 
-def run_attach_cli(layout, command, owner=None, env=None, capture=False):
-    full = as_user(owner, [layout.java, "-jar", attach_jar(layout), *command])
+def run_attach_cli(layout, command, owner=None, env=None, capture=False, pid=None):
+    argv = [layout.java, "-jar", attach_jar(layout), *command]
+    if not posix():
+        if owner and owner != current_user() and pid is not None:
+            return _run_as_windows_owner(layout, pid, argv, env, capture)
+        full = argv
+    else:
+        full = as_user(owner, argv)
     if capture:
         return subprocess.run(full, env=env, capture_output=True, text=True)
     return subprocess.run(full, env=env)
+
+
+def _run_as_windows_owner(layout, pid, argv, env, capture):
+    """Windows: as the user {pid} runs as, in that user's own environment plus ours for the agent (ALFRED_AGENT_*)."""
+    import win_runas
+    extra = {k: v for k, v in (env or {}).items() if k.startswith("ALFRED_AGENT_")}
+    try:
+        result = win_runas.run_as_owner(pid, argv, extra, cwd=layout.app)
+    except OSError as e:
+        result = subprocess.CompletedProcess(argv, ERROR, "", f"cannot run attach-cli as the app's owner: {e}\n")
+    if result is None:
+        result = subprocess.CompletedProcess(argv, NOT_ALLOWED, "", f"cannot act as the owner of pid {pid}: "
+                                                                    "run Alfred as a service or from an administrator prompt\n")
+    if not capture:
+        sys.stdout.write(result.stdout)
+        sys.stderr.write(result.stderr)
+    return result
 
 
 def jvms(layout):
@@ -229,8 +283,8 @@ def jvms(layout):
     me = current_user()
     for i, row in enumerate(rows):
         owner = owner_of(row["pid"])
-        if not row["readable"] and posix() and owner and owner != me and me == "root":
-            detail = run_attach_cli(layout, ["info", row["pid"], "--json"], owner=owner, capture=True)
+        if not row["readable"] and owner and owner != me and privileged():
+            detail = run_attach_cli(layout, ["info", row["pid"], "--json"], owner=owner, capture=True, pid=row["pid"])
             if detail.returncode == 0:
                 try:
                     rows[i] = json.loads(detail.stdout)[0]
@@ -261,16 +315,16 @@ def load(layout, attach, args):
     except LookupError as e:
         print(f"error: {e}", file=sys.stderr)
         return USAGE
-    owner = owner_of(pid)
-    me = current_user()
-    if posix() and owner and owner != me and me != "root":
-        print(f"PID {pid} belongs to {owner}: run 'sudo alfred {'attach' if attach else 'detach'} ...'.", file=sys.stderr)
+    owner = other_owner(pid)
+    if owner and not privileged():
+        how = f"'sudo alfred {'attach' if attach else 'detach'} ...'" if posix() else "it from an administrator prompt"
+        print(f"PID {pid} belongs to {owner}: run {how}.", file=sys.stderr)
         return NOT_ALLOWED
     command = ["attach" if attach else "detach", pid, "--agent", agent_jar(layout), "--args",
                base_args(layout, settings, project)]
     if features:
         command += ["--add" if attach else "--remove", ",".join(features)]
-    return run_attach_cli(layout, command, owner=owner, env=secrets_env(layout, settings)).returncode
+    return run_attach_cli(layout, command, owner=owner, env=secrets_env(layout, settings), pid=pid).returncode
 
 
 def main(layout, name, args):
