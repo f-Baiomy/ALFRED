@@ -4,6 +4,7 @@ import { of } from 'rxjs';
 import { DbCaptureSettingsComponent } from './db-capture-settings.component';
 import { DbCaptureApiService } from '../../core/services/db-capture-api.service';
 import { DbCaptureStateService } from '../../core/state/db-capture-state.service';
+import { ServerSettingsService } from '../../core/services/server-settings.service';
 import { RedactionsStore } from '../../core/state/redactions-store.service';
 import { DbCaptureSettings, ProjectCaptureStatus } from '../../core/models/db-capture.model';
 import { logLevelWords } from '../../shared/utils/call-log-rows';
@@ -31,6 +32,7 @@ describe('DbCaptureSettingsComponent - Log level', () => {
           isOn: () => true, switchTitle: () => '', toggle: () => undefined, redisOn: () => false, redisTitle: () => '', toggleRedis: () => undefined, logsOn: () => true, logsTitle: () => '', toggleLogs: () => undefined,
         } },
         { provide: RedactionsStore, useValue: { all: signal([]) } },
+        { provide: ServerSettingsService, useValue: { attachAgent: () => of({ accepted: true }) } },
       ],
     });
     const fixture = TestBed.createComponent(DbCaptureSettingsComponent);
@@ -51,6 +53,20 @@ describe('DbCaptureSettingsComponent - Log level', () => {
       'TRACE (everything)', "App's level - whatever the app writes"]);
     items[5].click();
     expect(saved.map((s) => s.logLevel)).toEqual(['APP']);
+  });
+
+  it('offers the three attach modes, defaults to When asked, and asks the supervisor when a mode other than Off is picked', () => {
+    const fixture = create();
+    const picker = fixture.nativeElement.querySelector('.db-proj .db-attach-mode') as HTMLElement;
+    const button = picker.querySelector('button') as HTMLButtonElement;
+    expect(button.textContent!.trim()).toContain('When asked');
+    button.click();
+    fixture.detectChanges();
+    const items = Array.from(picker.querySelectorAll('.filter-option-item')) as HTMLButtonElement[];
+    expect(items.map((i) => i.textContent!.trim().split(' - ')[0])).toEqual(['When asked', 'Automatic', 'Off']);
+    items[1].click();
+    expect(saved.map((s) => s.attachMode)).toEqual(['AUTOMATIC']);
+    expect(fixture.componentInstance.attachNote('wallet-app')).toContain('ask');
   });
 
   it('names a level in words', () => {

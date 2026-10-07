@@ -8,10 +8,13 @@ request needs `X-Alfred-Control-Token: <token>`; without it the answer is `401`.
 
 | Method | Path | Response |
 |---|---|---|
-| GET | `/status` | `{processes: [{name: BACKEND\|OUTBOUND\|REVERSE\|MCP\|LOG_AGENT, state, pid, startedAt, restarts, listeners}]}` |
+| GET | `/status` | `{processes: [{name: BACKEND\|OUTBOUND\|REVERSE\|MCP\|LOG_AGENT, state, pid, startedAt, restarts, listeners}], agents: [{project, port, pid, state: ATTACHED\|ATTACHING\|NO_JVM\|NOT_A_JVM\|FAILED\|NO_PROJECT, detail, at, features}]}` |
+| GET | `/agents` | the `agents` list alone |
+| POST | `/agents/attach` | body `{project, features: [proxy\|db\|logs\|redis...], force?}`; `202 {accepted}`: the supervisor finds the JVM on the project's upstream port and loads the agent with exactly these features on its own thread; the outcome is posted as a supervisor event named `AGENTS` and shown on `/status`. A pid that failed is not retried within 5 minutes unless `force`. `400` for an unknown feature. |
 | POST | `/restart/backend` | `202`; graceful stop (20 s), start with current `.env` |
 | POST | `/restart/proxies` | `202`; restarts OUTBOUND and REVERSE with arguments rebuilt from `.env` |
 | POST | `/reload` | `200 {restarted: [...]}`; re-reads `.env`, restarts only the processes whose inputs changed |
+| GET | `/status` (cont.) | also `apps: [{project, port, listening, pid, since}]` - the app watcher: a TCP connect probe on every project's upstream port every 2 s, the pid re-read every 15 s while listening. The port opening (or a new pid, an app restart) and the port closing are posted as supervisor events named `APP` (`state` LISTENING \| GONE, `project`, `port`, `pid`); the backend attaches in AUTOMATIC mode, ignores it otherwise. |
 | GET | `/update` | `{state: IDLE\|DOWNLOADING\|VERIFYING\|INSTALLING\|FAILED, version, downloadedBytes, totalBytes, error}` |
 | POST | `/update` | body `{version, url, sha256, size}`; `202` and the job runs: download to `data/updates/`, sha256 check, installer launched detached (Windows `/S /DIR=`, breakaway from the job object; Linux `systemd-run --unit alfred-update-<ts> ... --unattended --dir`). `400` without a checksum or with a non-http(s)/file URL, `409` while one runs. Progress is posted as a supervisor event named `UPDATE`. |
 

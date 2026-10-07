@@ -55,6 +55,25 @@ class DbCaptureAgentControllerTest {
     }
 
     @Test
+    void theKeyTheReverseProxyStampedIsAcceptedInPlaceOfTheSecret() throws Exception {
+        when(ingest.ingest(any())).thenReturn(new IngestResult(1, 0));
+        String key = AgentKey.make("s3cret", java.time.Instant.now());
+        mvc.perform(post("/db-capture/agent/batch").header("X-Webhook-Secret", "stale").header("X-Alfred-Agent-Key", key)
+                        .contentType(MediaType.APPLICATION_JSON).content(BATCH))
+                .andExpect(status().isAccepted());
+        // a key made under another secret, an expired one, or garbage: 401 as before
+        mvc.perform(post("/db-capture/agent/batch").header("X-Alfred-Agent-Key", AgentKey.make("other", java.time.Instant.now()))
+                        .contentType(MediaType.APPLICATION_JSON).content(BATCH))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(post("/db-capture/agent/batch").header("X-Alfred-Agent-Key", AgentKey.make("s3cret", java.time.Instant.now().minusSeconds(2 * 24 * 3600)))
+                        .contentType(MediaType.APPLICATION_JSON).content(BATCH))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(post("/db-capture/agent/batch").header("X-Alfred-Agent-Key", "nonsense")
+                        .contentType(MediaType.APPLICATION_JSON).content(BATCH))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void aValidBatchIsAcceptedAndMapped() throws Exception {
         when(ingest.ingest(any())).thenReturn(new IngestResult(1, 0));
         mvc.perform(post("/db-capture/agent/batch").header("X-Webhook-Secret", "s3cret").contentType(MediaType.APPLICATION_JSON).content(BATCH))

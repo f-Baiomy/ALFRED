@@ -51,7 +51,15 @@ public class ServerRuntimeService implements ServerRuntimeUseCase {
                     runtime.startedAt(), 0, List.of(), "", -1));
         }
         return new ServerStatus(runtime.version(), runtime.installDir(), mode, runtime.startedAt(), runtime.pid(),
-                runtime.heapUsedBytes(), runtime.heapMaxBytes(), processes);
+                runtime.heapUsedBytes(), runtime.heapMaxBytes(), processes, supervisor.agents().orElse(List.of()));
+    }
+
+    @Override
+    public boolean attachAgent(String project, List<String> features, boolean force) {
+        if (mode != RuntimeMode.NATIVE || !supervisor.available()) {
+            return false;
+        }
+        return supervisor.attachAgent(project, features, force);
     }
 
     @Override

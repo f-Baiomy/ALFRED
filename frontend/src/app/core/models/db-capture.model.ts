@@ -359,6 +359,26 @@ export interface DbCaptureSettings {
   readonly logLevel?: LogLevelSetting;
   /** Redis capture settings (specs/011-redis-capture) - nothing here limits what is stored. */
   readonly redis?: import('./store-command.model').RedisSettings;
+  /**
+   * Native install: how the supervisor loads the agent into the project's app by itself. WHEN_ASKED (the default):
+   * at Alfred's start, when a call arrives and no agent reports, on "Attach now". AUTOMATIC: also the moment the
+   * app's port opens or its pid changes. OFF: never by itself.
+   */
+  readonly attachMode?: AttachMode;
+  /** ...and routes the app's outbound calls through Alfred's forward proxy while doing so. */
+  readonly attachProxy?: boolean;
+}
+
+export type AttachMode = 'OFF' | 'WHEN_ASKED' | 'AUTOMATIC';
+
+export const ATTACH_MODE_CHOICES: readonly { readonly value: AttachMode; readonly label: string }[] = [
+  { value: 'WHEN_ASKED', label: 'When asked - at start, when calls arrive and no agent reports, or on Attach now' },
+  { value: 'AUTOMATIC', label: 'Automatic - the moment the app starts or restarts, before its first call' },
+  { value: 'OFF', label: 'Off - never by itself (alfred attach still works)' },
+];
+
+export function attachModeWords(mode: AttachMode | undefined): string {
+  return ATTACH_MODE_CHOICES.find(c => c.value === (mode ?? 'WHEN_ASKED'))?.label.split(' - ')[0] ?? 'When asked';
 }
 
 export interface AgentStatus {

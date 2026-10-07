@@ -22,6 +22,18 @@ public interface SupervisorPort {
     /** The supervised processes, as the supervisor sees them. */
     Optional<List<ServerStatus.ProcessStatus>> processes();
 
+    /** The agents it attached to the projects' applications (its last attempt per project), if it runs at all. */
+    Optional<List<ServerStatus.AgentAttach>> agents();
+
+    /**
+     * Attach Alfred's agent to the JVM on {@code project}'s upstream port with exactly {@code features}
+     * (proxy, db, logs, redis). The supervisor finds the JVM itself and answers at once; the outcome arrives as a
+     * supervisor event and on {@link #agents()}. {@code force} retries a pid that failed recently.
+     *
+     * @return false when no supervisor runs (Docker, or stopped)
+     */
+    boolean attachAgent(String project, List<String> features, boolean force);
+
     /**
      * Download the installer, verify its sha256 and run it detached from Alfred (which it stops and starts).
      *

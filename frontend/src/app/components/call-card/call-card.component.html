@@ -235,6 +235,7 @@
         }
         <span class="badge" [class]="sourceBadgeClass()">{{ sourceLabel() }}</span>
         @if (call().source === 'internal') {<app-db-chip [call]="call()" /><app-log-chip [call]="call()" /><app-redis-chip [call]="call()" />}
+        @if (agentMissing()) {<span class="db-chip off agent-missing" [title]="agentMissingTitle()">⚠ agent not reporting here</span>}
         @if (commentCount()) {
           <button type="button" class="comment-badge-btn" title="Open the parts that have comments" (click)="openCommented(); $event.stopPropagation()"><app-comment-badge [callId]="call().id" /></button>
         }
@@ -365,6 +366,7 @@
       }
       <span class="badge" [class]="sourceBadgeClass()">{{ sourceLabel() }}</span>
         @if (call().source === 'internal') {<app-db-chip [call]="call()" /><app-log-chip [call]="call()" /><app-redis-chip [call]="call()" />}
+        @if (agentMissing()) {<span class="db-chip off agent-missing" [title]="agentMissingTitle()">⚠ agent not reporting here</span>}
         @if (commentCount()) {
           <button type="button" class="comment-badge-btn" title="Open the parts that have comments" (click)="openCommented(); $event.stopPropagation()"><app-comment-badge [callId]="call().id" /></button>
         }

@@ -117,6 +117,19 @@ export interface ProcessStatus {
   callsLastHour: number;
 }
 
+export type AgentAttachState = 'ATTACHED' | 'ATTACHING' | 'NO_JVM' | 'NOT_A_JVM' | 'FAILED' | 'NO_PROJECT' | 'UNKNOWN';
+
+/** The supervisor's last attach attempt for a project: the JVM on its upstream port and what came of it. */
+export interface AgentAttach {
+  project: string;
+  port: number;
+  pid: number;
+  state: AgentAttachState;
+  detail: string;
+  at: string | null;
+  features: string;
+}
+
 export interface ServerStatus {
   version: string;
   installDir: string;
@@ -126,6 +139,8 @@ export interface ServerStatus {
   heapUsedBytes: number;
   heapMaxBytes: number;
   processes: ProcessStatus[];
+  /** Agents the supervisor attached by itself - empty in Docker mode. */
+  agents?: AgentAttach[];
 }
 
 export type UpdateMode = 'OFF' | 'CHECK' | 'AUTO';

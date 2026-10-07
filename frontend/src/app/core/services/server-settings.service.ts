@@ -61,6 +61,11 @@ export class ServerSettingsService {
     return this.http.post<{ accepted: boolean }>(`${this.baseUrl}/restart`, { what });
   }
 
+  /** Ask the supervisor to attach Alfred's agent to the project's app (the JVM on its upstream port) now. */
+  attachAgent(project: string, features: readonly string[], force = true): Observable<{ accepted: boolean }> {
+    return this.http.post<{ accepted: boolean }>(`${this.baseUrl}/agents/attach`, { project, features, force });
+  }
+
   /** The last update check's result, without reading the feed. */
   updateStatus(): Observable<UpdateStatus> {
     return this.http.get<UpdateStatus>(`${this.baseUrl}/update`);

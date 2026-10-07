@@ -136,6 +136,83 @@ def choose_project(settings, wanted, features):
     return None
 
 
+def listening_pid(port, run=None):
+    """The pid listening on TCP {port} on this machine, or None. A project's app IS the JVM bound to its upstream
+    port (internal_call_services "name:listenPort:upstreamPort"), which is how the supervisor finds what to attach
+    to without being told. Windows: netstat; Linux: ss, then /proc when ss is missing."""
+    run = run or (lambda argv: subprocess.run(argv, capture_output=True, text=True, timeout=15).stdout)
+    port = int(port)
+    try:
+        if not posix():
+            for line in run(["netstat", "-ano", "-p", "tcp"]).splitlines():
+                parts = line.split()
+                if len(parts) >= 5 and parts[0].upper() == "TCP" and parts[3].upper() == "LISTENING" \
+                        and parts[1].rpartition(":")[2] == str(port):
+                    return int(parts[4])
+            return None
+        if shutil.which("ss"):
+            for line in run(["ss", "-ltnpH"]).splitlines():
+                parts = line.split()
+                if len(parts) >= 4 and parts[3].rpartition(":")[2] == str(port) and "pid=" in line:
+                    return int(line.split("pid=", 1)[1].split(",", 1)[0])
+            return None
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+    return _proc_listening_pid(port)
+
+
+def _proc_listening_pid(port):
+    """/proc/net/tcp{,6}: the socket inode listening on {port}, then the process holding that inode."""
+    inodes = set()
+    for table in ("/proc/net/tcp", "/proc/net/tcp6"):
+        try:
+            with open(table, encoding="utf-8") as f:
+                next(f)
+                for line in f:
+                    cols = line.split()
+                    if len(cols) > 9 and cols[3] == "0A" and int(cols[1].rpartition(":")[2], 16) == port:
+                        inodes.add(cols[9])
+        except OSError:
+            continue
+    if not inodes:
+        return None
+    for pid in (p for p in os.listdir("/proc") if p.isdigit()):
+        try:
+            for fd in os.listdir(f"/proc/{pid}/fd"):
+                link = os.readlink(f"/proc/{pid}/fd/{fd}")
+                if link.startswith("socket:[") and link[8:-1] in inodes:
+                    return int(pid)
+        except OSError:
+            continue
+    return None
+
+
+def jvm_pids(layout):
+    """The pids attach-cli can see as Java processes (its own user's; others are listed as unreadable)."""
+    result = run_attach_cli(layout, ["jvms", "--json"], capture=True)
+    if result.returncode != 0:
+        return None
+    try:
+        return {int(row["pid"]): row for row in json.loads(result.stdout or "[]")}
+    except (ValueError, KeyError, TypeError):
+        return None
+
+
+def attach_pid(layout, settings, pid, project, features):
+    """Loads the agent into {pid} for {project} with exactly {features} (proxy/db/logs/redis), as "alfred attach"
+    does: the install's URL, project and proxy as arguments, the secret and CA in the environment, as the app's
+    owner on Linux. Returns (ok, detail) - detail is the CLI's last line when it failed."""
+    owner = owner_of(pid)
+    command = ["attach", str(pid), "--agent", agent_jar(layout), "--args", base_args(layout, settings, project)]
+    if features:
+        command += ["--add", ",".join(features)]
+    result = run_attach_cli(layout, command, owner=owner, env=secrets_env(layout, settings), capture=True)
+    if result.returncode == 0:
+        return True, ((result.stdout or "").strip().splitlines() or [""])[-1]
+    text = ((result.stderr or "") + "\n" + (result.stdout or "")).strip().splitlines()
+    return False, (text[-1] if text else f"attach-cli exited with {result.returncode}")
+
+
 def run_attach_cli(layout, command, owner=None, env=None, capture=False):
     full = as_user(owner, [layout.java, "-jar", attach_jar(layout), *command])
     if capture:

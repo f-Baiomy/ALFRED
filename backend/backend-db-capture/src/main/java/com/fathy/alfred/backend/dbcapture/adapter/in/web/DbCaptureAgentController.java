@@ -17,12 +17,14 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.time.Instant;
 
 /**
  * Where the db-agent inside the user's application sends what it captured (contracts/agent-ingest.md). Protected by
  * the same {@code alfred.webhook.secret} the proxies' webhooks use - the agent reads it from .env through
- * {@code secretFile}, never from a command line. The gateway publishes this on the one host port, so the check is
- * what stops anyone else posting statements.
+ * {@code secretFile}, never from a command line - or by the {@link AgentKey} the reverse proxy stamped into the
+ * call's X-Alfred-Call, which an agent loaded with stale arguments follows (the secret itself never reaches the
+ * application). The gateway publishes this on the one host port, so the check is what stops anyone else posting.
  */
 @RestController
 public class DbCaptureAgentController {
@@ -44,10 +46,11 @@ public class DbCaptureAgentController {
     @PostMapping("/db-capture/agent/batch")
     public ResponseEntity<IngestResult> batch(
             @RequestHeader(name = "X-Webhook-Secret", required = false) String providedSecret,
+            @RequestHeader(name = "X-Alfred-Agent-Key", required = false) String agentKey,
             HttpServletRequest request,
             @Valid @RequestBody BatchRequestDto body
     ) {
-        if (!secretMatches(providedSecret)) {
+        if (!secretMatches(providedSecret) && !AgentKey.valid(webhookSecret, agentKey, Instant.now())) {
             return ResponseEntity.status(401).build();
         }
         if (request.getContentLengthLong() > MAX_BATCH_BYTES) {
@@ -59,9 +62,10 @@ public class DbCaptureAgentController {
     @PostMapping("/db-capture/agent/heartbeat")
     public ResponseEntity<AgentSettingsResponse> heartbeat(
             @RequestHeader(name = "X-Webhook-Secret", required = false) String providedSecret,
+            @RequestHeader(name = "X-Alfred-Agent-Key", required = false) String agentKey,
             @Valid @RequestBody HeartbeatRequestDto body
     ) {
-        if (!secretMatches(providedSecret)) {
+        if (!secretMatches(providedSecret) && !AgentKey.valid(webhookSecret, agentKey, Instant.now())) {
             return ResponseEntity.status(401).build();
         }
         return ResponseEntity.ok(AgentSettingsResponse.of(recordAgentHeartbeatUseCase.heartbeat(body.toDomain())));

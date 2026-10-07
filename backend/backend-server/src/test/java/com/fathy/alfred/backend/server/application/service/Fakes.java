@@ -186,6 +186,23 @@ final class Fakes {
         public Optional<List<ServerStatus.ProcessStatus>> processes() {
             return Optional.empty();
         }
+
+        final List<String> attachesAsked = new ArrayList<>();
+        List<ServerStatus.AgentAttach> agents = List.of();
+
+        @Override
+        public Optional<List<ServerStatus.AgentAttach>> agents() {
+            return available ? Optional.of(agents) : Optional.empty();
+        }
+
+        @Override
+        public boolean attachAgent(String project, List<String> features, boolean force) {
+            if (!available) {
+                return false;
+            }
+            attachesAsked.add(project + " " + String.join(",", features) + (force ? " force" : ""));
+            return true;
+        }
     }
 
     static final class Events implements ServerEventsPort {

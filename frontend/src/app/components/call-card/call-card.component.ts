@@ -28,6 +28,7 @@ import { CallInterception, OriginalHttp, interceptionBodiesLoaded, wasEditedByHa
 import { CallsApiService } from '../../core/services/calls-api.service';
 import { CommentsStore } from '../../core/state/comments-store.service';
 import { CommentCountsState } from '../../core/state/comment-counts-state.service';
+import { DbCaptureStateService } from '../../core/state/db-capture-state.service';
 import { CommentBadgeComponent } from '../comment-badge/comment-badge.component';
 import { JsonPanelComponent, PanelLoadState, PanelLoadTrigger } from '../json-panel/json-panel.component';
 import { CallDepthInfo } from '../../shared/utils/call-tree';
@@ -97,6 +98,25 @@ export class CallCardComponent {
   readonly removalState = inject(CALL_REMOVAL_STATE, { optional: true });
 
   readonly call = input.required<CallRecord>();
+
+  /**
+   * An inbound call whose project has ◆ ▤ or ⬢ on while no agent has reported to THIS Alfred in the last 30 s: the
+   * chips stay away silently otherwise, and the reader is left wondering where the statements and log lines went
+   * (an agent loaded for another port or install, or none at all). One muted chip says so, and where to look.
+   */
+  private readonly dbState = inject(DbCaptureStateService);
+  readonly agentMissing = computed(() => {
+    const c = this.call();
+    if (c.source !== 'internal' || !c.service_name) return false;
+    const p = this.dbState.projectStatus(c.service_name);
+    return !!p && !p.attached && !!(p.enabled || p.logsOn || p.redisOn);
+  });
+  readonly agentMissingTitle = computed(() => {
+    const project = this.call().service_name;
+    return `Database, log or Redis capture is on for ${project}, but no agent has reported to this Alfred in the last 30 s - ` +
+      `nothing can show for this call. On a native install the supervisor attaches the agent by itself (Settings → Database capture → Agent; ` +
+      `the outcome is on Settings → Server). Otherwise attach with 'alfred attach' or -javaagent, and check that its alfredUrl is this Alfred's address.`;
+  });
 
   /** Outlines every card while something is picking (see CallPickerService), and marks the picked one. */
   readonly picker = inject(CallPickerService);

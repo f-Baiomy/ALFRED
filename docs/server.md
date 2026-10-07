@@ -134,6 +134,34 @@ Attaching again changes the features; `detach` turns them off (an agent cannot b
 webhook secret and the CA are passed in the environment, never on a command line. On Linux a JVM owned by another user
 is attached as that user (`runuser`): a direct cross-user attach fails and makes the app dump its threads.
 
+### The agent attaches itself
+
+Nobody has to run `alfred attach` for a project's capture to work: **a project's app is the JVM listening on its
+upstream port** (`internal_call_services` = `name:listenPort:upstreamPort`), so the supervisor finds it by itself.
+Each project has an **attach mode** (Settings → Database capture → Agent):
+
+- **When asked** (the default): the backend asks the supervisor (`POST /agents/attach` on the control API, through
+  `backend-app/agentbridge/AgentAutoAttachBridge`) when Alfred starts, whenever an inbound call arrives for a
+  project whose agent has not reported in 30 s (one ask per project per 30 s), and when a mode is picked or "Attach
+  now" is clicked.
+- **Automatic**: all of the above, and the supervisor **watches the project's upstream port** (a TCP connect probe
+  every 2 s, the pid re-read every 15 s): the moment the app's port opens, or its pid changes (a restart), it tells
+  the backend (`APP` event) and the agent is loaded within seconds - before the app's first call, forced past the
+  retry window. For an app that starts after Alfred, or restarts often.
+- **Off**: never by itself; `alfred attach` still works.
+
+The supervisor looks up the pid on the port, checks it is a
+Java process, loads `alfred-agent.jar` with the features the project's settings say (`db,logs,redis`, plus `proxy`
+when "route its outbound calls through Alfred" is on - the default), as the app's owner on Linux. The outcome per
+project is on the Server card (`attached by itself` / `no app to attach to` / `attach failed: <why>` with an
+"Attach again"), pushed as a supervisor event named `AGENTS`. A pid that failed is not retried for 5 minutes unless
+forced. Both settings are per project (`attachMode`, `attachProxy` in the project's capture settings; the proxy
+feature on by default); Docker installs have no supervisor and keep `start.py --db-capture on`.
+
+Independently of who attached it, the agent reports to the Alfred whose reverse proxy delivers its calls
+(`alfred=`/`key=` in `X-Alfred-Call`, docs/db-capture.md), so a stale `-javaagent` line can no longer send captures
+to a port nothing listens on.
+
 ### Attach limits
 
 - An app with its own `X509TrustManager` or certificate pinning does not use the JDK's trust manager; it needs
@@ -141,6 +169,8 @@ is attached as that user (`runuser`): a direct cross-user attach fails and makes
 - Clients that ignore the proxy properties (a JDK `HttpClient` built without a `ProxySelector`, Apache clients without
   `useSystemProperties`, OkHttp with its own proxy) are not routed. Check with one test call.
 - On Windows, a JVM running in another session may need `alfred attach` run from that session as Administrator.
+  The service attaches as LocalSystem (which holds the debug privilege the Attach API needs); if that fails for an
+  app in an interactive session, the Server card says so and `alfred attach` from that session is the fallback.
 - JDK 21 prints a warning when an agent is loaded dynamically; `-XX:+EnableDynamicAgentLoading` silences it.
 
 `wildfly-proxy-toggle/*.sh|bat` hand over to these commands when a native install is found.

@@ -1,8 +1,9 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, effect, inject, signal, untracked } from '@angular/core';
-import { DbCaptureSettings, DbThresholds, ProjectCaptureStatus } from '../../core/models/db-capture.model';
+import { ATTACH_MODE_CHOICES, AttachMode, DbCaptureSettings, DbThresholds, ProjectCaptureStatus } from '../../core/models/db-capture.model';
 import { DbCaptureApiService } from '../../core/services/db-capture-api.service';
 import { DbCaptureStateService } from '../../core/state/db-capture-state.service';
 import { RedactionsStore } from '../../core/state/redactions-store.service';
+import { ServerSettingsService } from '../../core/services/server-settings.service';
 import { LogLevelSetting } from '../../core/models/call-logs.model';
 import { SelectPickerComponent } from '../select-picker/select-picker.component';
 import { LOG_LEVEL_CHOICES } from '../../shared/utils/call-log-rows';
@@ -111,6 +112,17 @@ type ListKey = 'beforeImageTables' | 'expectedFingerprints' | 'ignorePatterns' |
             <div class="set-row"><div class="set-l">Outside calls</div>
               <div><label class="chk"><input type="checkbox" [checked]="s.outsideCallCapture" (change)="toggleOutside(p.project)">
                 Also record statements no inbound call caused (scheduled jobs, message listeners, startup)</label></div></div>
+            <div class="set-row"><div class="set-l">Agent</div>
+              <div>
+                <app-select-picker class="db-attach-mode" ariaLabel="Attach mode"
+                                   title="The supervisor finds the app (the JVM listening on this project's upstream port) and loads Alfred's agent into it. When asked: at start, when calls arrive and no agent reports, on Attach now. Automatic: also the moment the app's port opens or its pid changes - the supervisor watches the port."
+                                   [options]="attachModeChoices" [value]="s.attachMode ?? 'WHEN_ASKED'" (valueChange)="setAttachMode(p.project, $event)" />
+                <label class="chk" title="Also route the app's outbound calls through Alfred's forward proxy (the proxy feature)">
+                  <input type="checkbox" [checked]="s.attachProxy !== false" [disabled]="s.attachMode === 'OFF'" (change)="toggleAttachProxy(p.project)"> and route its outbound calls through Alfred</label>
+                <button type="button" class="link-btn" [disabled]="s.attachMode === 'OFF'" (click)="attachNow(p.project)" title="Ask the supervisor to attach now">Attach now</button>
+                <div class="dimtxt" style="margin-top:.3rem">{{ agentText(p) }}@if (attachNote(p.project); as note) { · {{ note }}}
+                  Native install only; the outcome shows on Settings → Server. The agent also follows the reverse proxy: a call it serves tells it where this Alfred is.</div>
+              </div></div>
             <!-- ⬢ Redis capture (specs/011-redis-capture, mock section 5): nothing here limits what is stored -->
             <h4 class="rd-h"><span class="redis-glyph">⬢</span> Redis capture</h4>
             <div class="set-row"><div class="set-l">Capture</div>
@@ -166,9 +178,13 @@ export class DbCaptureSettingsComponent implements OnInit {
   protected readonly state = inject(DbCaptureStateService);
   protected readonly redactions = inject(RedactionsStore);
 
+  private readonly server = inject(ServerSettingsService);
   private readonly settings = signal<ReadonlyMap<string, DbCaptureSettings>>(new Map());
   readonly errors = signal<ReadonlyMap<string, string>>(new Map());
+  /** What the last "attach now" came to, per project (the Server card has the supervisor's full account). */
+  private readonly attachNotes = signal<ReadonlyMap<string, string>>(new Map());
   protected readonly levelChoices = LOG_LEVEL_CHOICES;
+  protected readonly attachModeChoices = ATTACH_MODE_CHOICES;
   readonly hiddenColumns = computed(() => this.redactions.all().filter((r) => r.kind === 'db-column'));
 
   constructor() {
@@ -193,6 +209,35 @@ export class DbCaptureSettingsComponent implements OnInit {
     return `agent attached to ${p.project} (${[p.agent.appServer, p.agent.jvm].filter(Boolean).join(' · ')})${seen != null ? ` - seen ${seen} s ago` : ''}`;
   }
 
+  attachNote(project: string): string {
+    return this.attachNotes().get(project) ?? '';
+  }
+
+  /** A mode other than OFF asks the supervisor right away, so the switch has an effect the user can see on the Server card. */
+  setAttachMode(project: string, mode: string): void {
+    const s = this.settingsOf(project);
+    if (!s) return;
+    const attachMode = mode as AttachMode;
+    this.save(project, { ...s, attachMode }, attachMode !== 'OFF' ? () => this.attachNow(project) : undefined);
+  }
+
+  toggleAttachProxy(project: string): void {
+    const s = this.settingsOf(project);
+    if (!s) return;
+    this.save(project, { ...s, attachProxy: s.attachProxy === false }, () => this.attachNow(project));
+  }
+
+  /** Asks the supervisor now, with the features the settings say - the answer is only "asked"; the Server card shows the outcome. */
+  attachNow(project: string): void {
+    const s = this.settingsOf(project);
+    const features = s?.attachProxy === false ? ['db', 'logs', 'redis'] : ['proxy', 'db', 'logs', 'redis'];
+    this.attachNotes.set(new Map(this.attachNotes()).set(project, 'asking the supervisor…'));
+    this.server.attachAgent(project, features).subscribe({
+      next: () => this.attachNotes.set(new Map(this.attachNotes()).set(project, 'asked - see Settings → Server for the outcome')),
+      error: (e) => this.attachNotes.set(new Map(this.attachNotes()).set(project, e?.error?.message ?? 'Could not ask the supervisor.')),
+    });
+  }
+
   private load(project: string): void {
     this.api.settings(project).subscribe({ next: (s) => this.put(project, s), error: () => undefined });
   }
@@ -201,12 +246,15 @@ export class DbCaptureSettingsComponent implements OnInit {
     this.settings.set(new Map(this.settings()).set(project, s));
   }
 
-  private save(project: string, next: DbCaptureSettings): void {
+  private save(project: string, next: DbCaptureSettings, then?: () => void): void {
     const errors = new Map(this.errors());
     errors.delete(project);
     this.errors.set(errors);
     this.api.saveSettings(project, next).subscribe({
-      next: (s) => this.put(project, s),
+      next: (s) => {
+        this.put(project, s);
+        then?.();
+      },
       error: (e) => this.errors.set(new Map(this.errors()).set(project, e?.error?.error ?? 'Could not save.')),
     });
   }

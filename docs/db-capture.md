@@ -62,6 +62,16 @@ JVM**, so it stays loaded and records nothing until the JVM restarts. Loading it
 `restart.py`, name services before the flag (`restart.py backend --db-capture on wallet-app`) - a word after
 `on|off` is taken as the project.
 
+**The agent follows the proxy that delivers its calls.** Every request the reverse proxy forwards says where this
+Alfred is (`alfred=` and `key=` in `X-Alfred-Call`, specs/006 `proxy-headers.md`): from the first stamped request on,
+the agent reports there, whatever `alfredUrl` it was loaded with, and proves itself with the key (an hourly HMAC of
+the webhook secret, valid a day - the secret itself never reaches the application). A `-javaagent` line left pointing
+at a port nothing listens on, or at a Docker install replaced by a native one, used to send every statement and log
+line into the void while the calls themselves were logged; now it cannot. Attaching again with other arguments
+(`alfred attach`) also redirects the running sender. On a native install the supervisor loads the agent by itself -
+docs/server.md "The agent attaches itself". When a project captures but no agent reports to this Alfred, each of its
+inbound calls shows a muted "⚠ agent not reporting here" chip instead of nothing.
+
 The agent reports in every 10 s (`/db-capture/agent/heartbeat`); a project counts as "agent attached" while it was
 heard from in the last 30 s. Its answer carries the project's settings and switch, so a settings change reaches the
 agent within one heartbeat. JBoss Modules: the agent puts its bridge on the boot class path and opens it to every

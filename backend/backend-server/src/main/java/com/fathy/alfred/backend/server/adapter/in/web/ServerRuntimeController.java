@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.security.MessageDigest;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -31,17 +32,27 @@ public class ServerRuntimeController {
 
     private final ServerRuntimeUseCase runtime;
     private final String webhookSecret;
+    private final org.springframework.context.ApplicationEventPublisher publisher;
 
-    public ServerRuntimeController(ServerRuntimeUseCase runtime, @Value("${alfred.webhook.secret:}") String webhookSecret) {
+    public ServerRuntimeController(ServerRuntimeUseCase runtime, @Value("${alfred.webhook.secret:}") String webhookSecret,
+                                   org.springframework.context.ApplicationEventPublisher publisher) {
         this.runtime = runtime;
         this.webhookSecret = webhookSecret;
+        this.publisher = publisher;
     }
 
     public record RestartRequest(@NotNull ServerRuntimeUseCase.Target what) {
     }
 
+    /**
+     * What the supervisor reports: a child's state ({@code name} is the process), {@code UPDATE}, {@code AGENTS}, or
+     * {@code APP} - a project's application appeared on / left its upstream port ({@code project}, {@code port},
+     * {@code pid}, {@code state} LISTENING or GONE).
+     */
     public record SupervisorEvent(@NotNull @Size(max = 32) @Pattern(regexp = "[A-Z_]+") String name,
-                                  @Size(max = 32) String state) {
+                                  @Size(max = 32) String state,
+                                  @Size(max = 100) @Pattern(regexp = "[A-Za-z0-9._-]*") String project,
+                                  Integer port, Long pid) {
     }
 
     @GetMapping("/status")
@@ -55,12 +66,32 @@ public class ServerRuntimeController {
         return ResponseEntity.accepted().body(Map.of("accepted", true));
     }
 
+    /** The Settings switch or the auto-attach bridge asking for the agent; the supervisor does the finding and loading. */
+    public record AttachRequest(@NotNull @Size(max = 100) @Pattern(regexp = "[A-Za-z0-9._-]+") String project,
+                                @Size(max = 4) List<@Pattern(regexp = "proxy|db|logs|redis") String> features, boolean force) {
+    }
+
+    @PostMapping("/agents/attach")
+    public ResponseEntity<Map<String, Object>> attachAgent(@Valid @RequestBody AttachRequest body) {
+        List<String> features = body.features() == null || body.features().isEmpty() ? List.of("db", "logs", "redis") : body.features();
+        boolean accepted = runtime.attachAgent(body.project(), features, body.force());
+        if (!accepted) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("accepted", false,
+                    "message", "No supervisor is running here (Docker, or Alfred was not started with 'alfred start') - attach with 'alfred attach' or -javaagent."));
+        }
+        return ResponseEntity.accepted().body(Map.of("accepted", true));
+    }
+
     @PostMapping("/supervisor-events")
     public ResponseEntity<Void> supervisorEvent(@RequestHeader(value = "X-Webhook-Secret", required = false) String secret,
                                                 @Valid @RequestBody SupervisorEvent event) {
         if (webhookSecret.isEmpty() || secret == null
                 || !MessageDigest.isEqual(webhookSecret.getBytes(StandardCharsets.UTF_8), secret.getBytes(StandardCharsets.UTF_8))) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        if ("APP".equals(event.name()) && event.project() != null && !event.project().isBlank()) {
+            publisher.publishEvent(new ServerRuntimeUseCase.AppSeen(event.project(), event.port() == null ? 0 : event.port(),
+                    event.pid() == null ? 0 : event.pid(), "LISTENING".equals(event.state())));
         }
         runtime.processChanged(event.name());
         return ResponseEntity.noContent().build();

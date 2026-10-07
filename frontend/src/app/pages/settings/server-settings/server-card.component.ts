@@ -2,7 +2,7 @@ import { Component, DestroyRef, inject, input, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ServerSettingsService } from '../../../core/services/server-settings.service';
 import { ServerSocketService } from '../../../core/services/server-socket.service';
-import { ProcessStatus, ServerStatus, UpdateStatus } from '../../../core/models/server-settings.model';
+import { AgentAttach, ProcessStatus, ServerStatus, UpdateStatus } from '../../../core/models/server-settings.model';
 import { formatBytes } from '../../../shared/utils/server-settings';
 
 type RestartKind = 'BACKEND' | 'PROXIES' | 'UPDATE';
@@ -58,6 +58,28 @@ export class ServerCardComponent {
 
   label(p: ProcessStatus): string {
     return PROCESS_LABELS[p.name] ?? p.name;
+  }
+
+  /** The supervisor's last attach attempt for a project, in words (docs/server.md "The agent attaches itself"). */
+  agentState(a: AgentAttach): string {
+    switch (a.state) {
+      case 'ATTACHED': return 'attached by itself';
+      case 'ATTACHING': return 'attaching…';
+      case 'NO_JVM': return 'no app to attach to';
+      case 'NOT_A_JVM': return 'not a Java process';
+      case 'FAILED': return 'attach failed';
+      case 'NO_PROJECT': return 'unknown project';
+      default: return a.state.toLowerCase();
+    }
+  }
+
+  /** A forced retry of the last attempt, with the features it was asked for. */
+  attachAgain(a: AgentAttach): void {
+    this.failure.set(null);
+    const features = a.features ? a.features.split(',').filter(Boolean) : ['proxy', 'db', 'logs', 'redis'];
+    this.api.attachAgent(a.project, features, true).subscribe({
+      error: e => this.failure.set(e?.error?.message ?? 'The attach could not be started.'),
+    });
   }
 
   jobText(u: UpdateStatus): string {

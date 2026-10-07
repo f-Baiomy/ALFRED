@@ -46,8 +46,13 @@ public final class BatchSender implements StatementSink {
     static final long HEARTBEAT_EVERY_MILLIS = 10_000;
     private static final String OUTSIDE = "";
 
-    private final String baseUrl;
-    private final String secret;
+    /** Where ALFRED is and how to prove this is its agent - both can change after the start (see {@link #follow}). */
+    private volatile String baseUrl;
+    private volatile String secret;
+    /** The key the reverse proxy stamped into the last call (X-Alfred-Agent-Key) - accepted by backend in place of the secret. */
+    private volatile String agentKey;
+    /** Warned about a 401 at most once a minute: a wrong secret must not fill the application's log four times a second. */
+    private volatile long lastRejectedWarning;
     private final String project;
     private final String agentId;
     private final String agentVersion;
@@ -75,6 +80,45 @@ public final class BatchSender implements StatementSink {
         this.agentVersion = agentVersion;
         this.settings = settings;
         this.onTick = onTick;
+    }
+
+    /**
+     * The reverse proxy said where ALFRED is (specs/006 proxy-headers: {@code alfred=}/{@code key=}). A different
+     * address wins over the one the agent was loaded with - that one may name a port nothing listens on any more -
+     * and is followed at once: the next tick heartbeats there, so the project shows "attached" within a second.
+     */
+    @Override
+    public void follow(String url, String key) {
+        if (key != null && !key.equals(agentKey)) {
+            agentKey = key;
+        }
+        if (url != null && !url.equals(baseUrl)) {
+            String was = baseUrl;
+            baseUrl = url;
+            lastHeartbeat = 0;
+            AgentLog.info("ALFRED is at " + url + " (said by the reverse proxy that delivered the call) - reporting there instead of " + was);
+        }
+    }
+
+    /** A new attach gave other arguments (URL, secret): use them from now on - the agent cannot be loaded twice. */
+    public void retarget(String url, String newSecret) {
+        boolean changed = false;
+        if (url != null && !url.equals(baseUrl)) {
+            AgentLog.info("reporting to " + url + " instead of " + baseUrl + " (attached again with other arguments)");
+            baseUrl = url;
+            changed = true;
+        }
+        if (newSecret != null && !newSecret.equals(secret)) {
+            secret = newSecret;
+            changed = true;
+        }
+        if (changed) {
+            lastHeartbeat = 0;
+        }
+    }
+
+    String baseUrl() {
+        return baseUrl;
     }
 
     public void start() {
@@ -396,6 +440,10 @@ public final class BatchSender implements StatementSink {
             connection.setDoOutput(true);
             connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
             connection.setRequestProperty("X-Webhook-Secret", secret);
+            String key = agentKey;
+            if (key != null) {
+                connection.setRequestProperty("X-Alfred-Agent-Key", key);
+            }
             byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
             connection.setFixedLengthStreamingMode(bytes.length);
             try (OutputStream out = connection.getOutputStream()) {
@@ -403,7 +451,13 @@ public final class BatchSender implements StatementSink {
             }
             int status = connection.getResponseCode();
             if (status == 401) {
-                AgentLog.warn("ALFRED rejected the agent's secret (401) - check secretFile/secret");
+                long now = System.currentTimeMillis();
+                if (now - lastRejectedWarning > 60_000) {
+                    lastRejectedWarning = now;
+                    AgentLog.warn("ALFRED at " + baseUrl + " rejected the agent (401): the secret is not its WEBHOOK_SECRET"
+                            + (key == null ? " and no call carried a key yet - check secretFile/secret, or let a request through the reverse proxy"
+                            : " and the key the reverse proxy stamped is not accepted - is that proxy this ALFRED's?"));
+                }
                 return null;
             }
             if (status / 100 != 2) {

@@ -5,6 +5,7 @@ import com.fathy.alfred.backend.server.application.port.out.RuntimeInfoPort;
 import com.fathy.alfred.backend.server.domain.model.HistoryEntry;
 import com.fathy.alfred.backend.server.domain.model.PendingRestart;
 import com.fathy.alfred.backend.server.domain.model.RuntimeMode;
+import com.fathy.alfred.backend.server.domain.model.ServerStatus;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -63,6 +64,24 @@ class ServerRuntimeServiceTest {
         assertThat(pending.list).isEmpty();
         assertThat(history.entries).singleElement().satisfies(e -> assertThat(e.source()).isEqualTo(HistoryEntry.HistorySource.INSTALL));
         assertThat(history.lastKnownContent()).contains("ALFRED_MEMORY=3g\n");
+    }
+
+    @Test
+    void attachingGoesThroughTheSupervisorAndIsRefusedWithoutOne() {
+        assertThat(service(RuntimeMode.NATIVE).attachAgent("odeysys", List.of("proxy", "db"), true)).isTrue();
+        assertThat(supervisor.attachesAsked).containsExactly("odeysys proxy,db force");
+        assertThat(service(RuntimeMode.DOCKER).attachAgent("odeysys", List.of("db"), false)).isFalse();
+        supervisor.available = false;
+        assertThat(service(RuntimeMode.NATIVE).attachAgent("odeysys", List.of("db"), false)).isFalse();
+        assertThat(supervisor.attachesAsked).hasSize(1);
+    }
+
+    @Test
+    void statusCarriesTheSupervisorsAgents() {
+        supervisor.agents = List.of(new ServerStatus.AgentAttach("odeysys", 9001, 68108, ServerStatus.AgentAttachState.ATTACHED, "", Instant.EPOCH, "db,logs"));
+        assertThat(service(RuntimeMode.NATIVE).status().agents()).singleElement().satisfies(a -> assertThat(a.pid()).isEqualTo(68108));
+        supervisor.available = false;
+        assertThat(service(RuntimeMode.NATIVE).status().agents()).isEmpty();
     }
 
     @Test

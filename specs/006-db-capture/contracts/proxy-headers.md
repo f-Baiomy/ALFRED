@@ -6,7 +6,7 @@ Added by `proxy/log_and_route_reverse.py` to every request it forwards for a pro
 on** (exactly when a `call_id` is created today). Never added when logging is off.
 
 ```
-X-Alfred-Call: id=<callId>; db=<0|1>[; run=<runId>/<stepKey>]
+X-Alfred-Call: id=<callId>; db=<0|1>[; log=1][; redis=1][; run=<runId>/<stepKey>][; alfred=<url>; key=<issued>.<hmac>]
 ```
 
 | Part | Meaning |
@@ -14,6 +14,8 @@ X-Alfred-Call: id=<callId>; db=<0|1>[; run=<runId>/<stepKey>]
 | `id` | the inbound call id the proxy just assigned (same value it POSTs to `/internal-calls/webhook/prepare`) |
 | `db` | `1` when `db-capture-enabled.flag` says `<project>=on`, else `0`. The agent captures only when `1` |
 | `run` | present when the request is a Relive step (`flow.metadata['relive']`); stored by the agent on statements (FR-043), unused now |
+| `alfred` | where this Alfred is, as the application's host reaches it (`ALFRED_AGENT_URL`: the supervisor sets the UI address natively, compose the gateway's host port). The agent reports THERE from the first stamped request on, whatever its own `alfredUrl` said - a `-javaagent` line written for a port nothing listens on, or for an install that is gone, no longer loses every statement and log line |
+| `key` | `<issued>.<HMAC-SHA256(WEBHOOK_SECRET, "agent:<issued>")>`, `issued` = the epoch second of the current hour. The agent presents it as `X-Alfred-Agent-Key`; backend accepts it in place of the secret for 24 h from `issued`. The secret itself never reaches the application; absent when the proxy has no secret |
 
 Rules:
 - An `X-Alfred-Call` header arriving **from the client** is removed before the proxy adds its own (a client cannot

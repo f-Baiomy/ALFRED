@@ -81,6 +81,34 @@ public class SupervisorControlAdapter implements SupervisorPort {
         });
     }
 
+    @Override
+    public Optional<List<ServerStatus.AgentAttach>> agents() {
+        return call("GET", "/status").map(body -> {
+            List<ServerStatus.AgentAttach> out = new ArrayList<>();
+            for (JsonNode a : body.path("agents")) {
+                String at = a.path("at").asText(null);
+                ServerStatus.AgentAttachState state;
+                try {
+                    state = ServerStatus.AgentAttachState.valueOf(a.path("state").asText(""));
+                } catch (IllegalArgumentException e) {
+                    state = ServerStatus.AgentAttachState.UNKNOWN;
+                }
+                out.add(new ServerStatus.AgentAttach(a.path("project").asText(""), a.path("port").asInt(), a.path("pid").asLong(), state,
+                        a.path("detail").asText(""), at == null || at.isEmpty() ? null : Instant.parse(at), a.path("features").asText("")));
+            }
+            return out;
+        });
+    }
+
+    @Override
+    public boolean attachAgent(String project, List<String> features, boolean force) {
+        var body = mapper.createObjectNode();
+        body.put("project", project).put("force", force);
+        var list = body.putArray("features");
+        features.forEach(list::add);
+        return call("POST", "/agents/attach", body).isPresent();
+    }
+
     private static ServerStatus.ProcessState state(String text) {
         try {
             return ServerStatus.ProcessState.valueOf(text);

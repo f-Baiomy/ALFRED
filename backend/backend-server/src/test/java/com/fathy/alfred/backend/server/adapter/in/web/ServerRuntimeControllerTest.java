@@ -67,6 +67,20 @@ class ServerRuntimeControllerTest {
     }
 
     @Test
+    void anAttachIsPassedOnOrSaysWhyItCannotBe() throws Exception {
+        when(runtime.attachAgent("odeysys", java.util.List.of("proxy", "db", "logs", "redis"), false)).thenReturn(true);
+        mvc.perform(post("/server/agents/attach").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"project\":\"odeysys\",\"features\":[\"proxy\",\"db\",\"logs\",\"redis\"]}"))
+                .andExpect(status().isAccepted()).andExpect(jsonPath("$.accepted").value(true));
+        when(runtime.attachAgent("core", java.util.List.of("db", "logs", "redis"), false)).thenReturn(false);
+        mvc.perform(post("/server/agents/attach").contentType(MediaType.APPLICATION_JSON).content("{\"project\":\"core\"}"))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("alfred attach")));
+        mvc.perform(post("/server/agents/attach").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"project\":\"odeysys\",\"features\":[\"rm -rf\"]}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     void supervisorEventsNeedTheWebhookSecretNotTheAccessRule() throws Exception {
         String body = "{\"name\":\"OUTBOUND\",\"state\":\"CRASHED\",\"pid\":12,\"listeners\":[]}";
         mvc.perform(post("/server/supervisor-events").contentType(MediaType.APPLICATION_JSON).content(body)
@@ -76,5 +90,34 @@ class ServerRuntimeControllerTest {
                         .header("X-Webhook-Secret", "s3cret"))
                 .andExpect(status().isNoContent());
         verify(runtime).processChanged("OUTBOUND");
+    }
+
+    @Autowired
+    private AppSeenListener appSeen;
+
+    @Test
+    void anAppEventFromTheSupervisorIsPublishedForTheAttachDecision() throws Exception {
+        String body = "{\"name\":\"APP\",\"state\":\"LISTENING\",\"project\":\"odeysys\",\"port\":9001,\"pid\":68108}";
+        mvc.perform(post("/server/supervisor-events").contentType(MediaType.APPLICATION_JSON).content(body)
+                        .header("X-Webhook-Secret", "s3cret"))
+                .andExpect(status().isNoContent());
+        org.assertj.core.api.Assertions.assertThat(appSeen.seen)
+                .containsExactly(new ServerRuntimeUseCase.AppSeen("odeysys", 9001, 68108, true));
+        mvc.perform(post("/server/supervisor-events").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"APP\",\"state\":\"GONE\",\"project\":\"odeysys\",\"port\":9001,\"pid\":0}")
+                        .header("X-Webhook-Secret", "s3cret"))
+                .andExpect(status().isNoContent());
+        org.assertj.core.api.Assertions.assertThat(appSeen.seen).hasSize(2);
+        org.assertj.core.api.Assertions.assertThat(appSeen.seen.get(1).listening()).isFalse();
+    }
+
+    @org.springframework.boot.test.context.TestConfiguration
+    static class AppSeenListener {
+        final java.util.List<ServerRuntimeUseCase.AppSeen> seen = new java.util.concurrent.CopyOnWriteArrayList<>();
+
+        @org.springframework.context.event.EventListener
+        void on(ServerRuntimeUseCase.AppSeen event) {
+            seen.add(event);
+        }
     }
 }

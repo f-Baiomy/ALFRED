@@ -21,6 +21,8 @@ public final class AgentRuntime {
     public static final String VERSION_PROPERTY = "alfred.agent.version";
 
     private static boolean captureStarted;
+    /** The one sender, kept so a later attach with other arguments can redirect it (the agent cannot be loaded twice). */
+    private static BatchSender sender;
 
     private AgentRuntime() {
     }
@@ -39,6 +41,8 @@ public final class AgentRuntime {
         if (config.captures() && !captureStarted) {
             start(config, instrumentation);
             captureStarted = true;
+        } else if (config.captures() && sender != null) {
+            sender.retarget(config.alfredUrl, config.secret);
         }
         if (config.has("proxy")) {
             ProxySwitch.on(config.proxy);
@@ -76,6 +80,7 @@ public final class AgentRuntime {
         CaptureDispatcher dispatcher = holder.dispatcher;
         sender.redisSeen(dispatcher::redisSeen);
         sender.start();
+        AgentRuntime.sender = sender;
         AgentLog.info("v" + AlfredDbAgent.VERSION + " capturing database statements for project '" + config.project + "', reporting to " + config.alfredUrl);
     }
 

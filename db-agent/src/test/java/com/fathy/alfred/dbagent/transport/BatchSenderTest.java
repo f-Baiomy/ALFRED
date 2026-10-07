@@ -18,13 +18,17 @@ import static org.assertj.core.api.Assertions.assertThat;
 class BatchSenderTest {
 
     private HttpServer server;
+    private HttpServer second;
     private final List<String> bodies = Collections.synchronizedList(new ArrayList<>());
     private final List<String> secrets = Collections.synchronizedList(new ArrayList<>());
+    private final List<String> keys = Collections.synchronizedList(new ArrayList<>());
+    private final List<String> secondBodies = Collections.synchronizedList(new ArrayList<>());
 
     private String start(String heartbeatAnswer) throws Exception {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/", exchange -> {
             secrets.add(exchange.getRequestHeaders().getFirst("X-Webhook-Secret"));
+            keys.add(exchange.getRequestHeaders().getFirst("X-Alfred-Agent-Key"));
             bodies.add(exchange.getRequestURI().getPath() + " " + read(exchange.getRequestBody()));
             byte[] answer = (exchange.getRequestURI().getPath().endsWith("heartbeat") ? heartbeatAnswer : "{\"accepted\":1}").getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(202, answer.length);
@@ -41,6 +45,45 @@ class BatchSenderTest {
         if (server != null) {
             server.stop(0);
         }
+        if (second != null) {
+            second.stop(0);
+        }
+    }
+
+    private String startSecond() throws Exception {
+        second = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        second.createContext("/", exchange -> {
+            secondBodies.add(exchange.getRequestURI().getPath() + " key=" + exchange.getRequestHeaders().getFirst("X-Alfred-Agent-Key"));
+            byte[] answer = "{}".getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, answer.length);
+            try (OutputStream out = exchange.getResponseBody()) {
+                out.write(answer);
+            }
+        });
+        second.start();
+        return "http://127.0.0.1:" + second.getAddress().getPort();
+    }
+
+    @Test
+    void followsTheAlfredTheReverseProxyNamesAndPresentsItsKey() throws Exception {
+        String url = start("{}");
+        String other = startSecond();
+        BatchSender sender = new BatchSender("http://127.0.0.1:1", "stale-secret", "wallet-app", "agent-1", "1.0.0", new AgentSettings(), () -> { });
+        // loaded with arguments nothing listens on: the first stamped request says where ALFRED really is
+        sender.follow(other, "1759860000.abc");
+        assertThat(sender.baseUrl()).isEqualTo(other);
+        sender.heartbeat();
+        assertThat(secondBodies).singleElement().isEqualTo("/db-capture/agent/heartbeat key=1759860000.abc");
+        // the same address again is a no-op; a different one is followed again, the key kept
+        sender.follow(other, null);
+        sender.follow(url, null);
+        sender.heartbeat();
+        assertThat(keys).containsExactly("1759860000.abc");
+        assertThat(secrets).containsExactly("stale-secret");
+        // a later attach with the right secret replaces it
+        sender.retarget(null, "s3cret");
+        sender.heartbeat();
+        assertThat(secrets).containsExactly("stale-secret", "s3cret");
     }
 
     @Test

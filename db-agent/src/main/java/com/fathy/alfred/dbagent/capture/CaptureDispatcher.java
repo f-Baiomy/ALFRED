@@ -137,6 +137,11 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
                 return null; // a forward/include inside a call already tracked
             }
             String header = header(request, CallContext.HEADER);
+            // every stamped request says where the Alfred that delivered it is: report there, whatever the arguments said
+            AlfredTarget target = AlfredTarget.fromHeader(header);
+            if (target != null) {
+                sink.follow(target.url, target.key);
+            }
             CallContext context = CallContext.fromHeader(header, System.nanoTime());
             // the request's log lines carry its call id while the project's log-linking switch is on (log=1), captured or not
             Object logRestore = LogTagger.tag(CallContext.logTagId(header));

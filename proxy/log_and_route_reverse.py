@@ -29,6 +29,8 @@ calls get recorded; other projects' toggles are unaffected.
 
 import asyncio
 import base64
+import hashlib
+import hmac
 import json
 import os
 import queue
@@ -50,6 +52,14 @@ BODY_LIMIT = int(os.environ.get('BODY_LIMIT', '0'))
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL')
 WEBHOOK_SECRET = os.environ.get('WEBHOOK_SECRET', '')
 WEBHOOK_TIMEOUT_SECONDS = 2
+# Where the db-agent inside the application should report, as the application's host reaches it - stamped into
+# X-Alfred-Call (alfred=) so an agent loaded with stale arguments (another port, a Docker install that is gone)
+# follows the Alfred whose proxy actually delivers its calls. Natively the supervisor sets it to the UI address;
+# with Docker it is the gateway's published port on the host.
+AGENT_URL = os.environ.get('ALFRED_AGENT_URL', '')
+# How long an agent key stamped into X-Alfred-Call stays valid (backend checks the same window).
+AGENT_KEY_VALID_SECONDS = 24 * 3600
+AGENT_KEY_ROTATE_SECONDS = 3600
 PREPARE_TIMEOUT_SECONDS = float(os.environ.get('PREPARE_TIMEOUT_SECONDS', '2'))
 
 # Fallback label for a flow whose arrival port isn't in PORT_MAP. Shouldn't normally happen
@@ -179,11 +189,24 @@ _log_link = _ToggleState('LOG_LINK_TOGGLE_FILE', default=False)
 _redis_capture = _ToggleState('REDIS_CAPTURE_TOGGLE_FILE', default=False)
 
 
-def alfred_call_header(call_id, db_on, relive_info, log_on=False, redis_on=False):
+def agent_key(secret, now=None):
+    """A key the db-agent may present instead of the webhook secret (X-Alfred-Agent-Key): the hour it was issued
+    and HMAC-SHA256(secret, "agent:<issued>"), hex. Rotated hourly, accepted by backend for AGENT_KEY_VALID_SECONDS.
+    It travels to the application in a request header, so it is never the secret itself and never lives long: an
+    agent that saw it can post captures for a day, nothing more. None without a secret."""
+    if not secret:
+        return None
+    issued = int(time.time() if now is None else now) // AGENT_KEY_ROTATE_SECONDS * AGENT_KEY_ROTATE_SECONDS
+    digest = hmac.new(secret.encode('utf-8'), f'agent:{issued}'.encode('utf-8'), hashlib.sha256).hexdigest()
+    return f'{issued}.{digest}'
+
+
+def alfred_call_header(call_id, db_on, relive_info, log_on=False, redis_on=False, agent_url=None, key=None):
     """The X-Alfred-Call value for a logged inbound call: its id, whether the db-agent should record its
     statements, whether it should tag the request's log lines (the ▤ switch), whether it should record the call's
-    Redis commands (the ⬢ switch), and - for a Relive step - the run tag the agent stores on them (FR-043, unused
-    until Relive replays statements)."""
+    Redis commands (the ⬢ switch), for a Relive step the run tag the agent stores on them (FR-043, unused until
+    Relive replays statements), and where this Alfred is (alfred=, with a key the agent may report with) so the
+    agent follows the proxy that delivers its calls whatever its own arguments say."""
     value = f'id={call_id}; db={1 if db_on else 0}'
     if log_on:
         value += '; log=1'
@@ -191,6 +214,10 @@ def alfred_call_header(call_id, db_on, relive_info, log_on=False, redis_on=False
         value += '; redis=1'
     if relive_info and relive_info.get('runId') and relive_info.get('stepKey'):
         value += f"; run={relive_info['runId']}/{relive_info['stepKey']}"
+    if agent_url:
+        value += f'; alfred={agent_url}'
+        if key:
+            value += f'; key={key}'
     return value
 
 
@@ -288,7 +315,7 @@ class RouteAndLog:
         # Added after call_log captured the headers, so the recorded request is what the client sent - the
         # header is ALFRED's own plumbing, re-added on every forward (including a resend of this call).
         flow.request.headers[ALFRED_CALL_HEADER] = alfred_call_header(call_id, _db_capture.enabled(name), relive_info, _log_link.enabled(name),
-                                                                    _redis_capture.enabled(name))
+                                                                    _redis_capture.enabled(name), AGENT_URL, agent_key(WEBHOOK_SECRET))
         if relive_info and reached_upstream:
             # The application can issue a supplier call as soon as this inbound request arrives.
             # Register the parent with Relive before forwarding so that child is replayed instead

@@ -9,6 +9,7 @@ const STATUS: ServerStatus = {
   version: '1.4.0', installDir: 'C:\\alfred', mode: 'NATIVE', startedAt: '2026-10-08T10:00:00Z', backendPid: 1,
   heapUsedBytes: 1, heapMaxBytes: 2,
   processes: [{ name: 'BACKEND', state: 'RUNNING', pid: 1, startedAt: null, restarts: 0, listeners: [], detail: '', callsLastHour: -1 }],
+  agents: [],
 };
 
 function update(over: Partial<UpdateStatus> = {}): UpdateStatus {

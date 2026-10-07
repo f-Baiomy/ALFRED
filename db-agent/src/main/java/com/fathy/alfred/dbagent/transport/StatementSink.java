@@ -7,6 +7,13 @@ public interface StatementSink {
 
     void marker(MarkerRecord marker);
 
+    /**
+     * The reverse proxy said where Alfred is ({@code alfred=}/{@code key=} in X-Alfred-Call): report there from now
+     * on. Called on every stamped request, so it must be a cheap comparison when nothing changed.
+     */
+    default void follow(String url, String key) {
+    }
+
     /** A caught log line (specs/009-agent-log-capture). */
     default void log(LogRecord record) {
     }

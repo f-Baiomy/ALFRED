@@ -172,6 +172,42 @@ class ReverseProxyStampsAlfredCall(unittest.TestCase):
         self.assertNotIn('someone-else', flow.request.headers.get('X-Alfred-Call'))
 
 
+class ReverseProxyTellsTheAgentWhereAlfredIs(unittest.TestCase):
+    """alfred= and key= in X-Alfred-Call: the agent follows the proxy that delivers its calls, whatever its own
+    arguments say (a stale -javaagent pointing at a port nothing listens on, a Docker install that is gone)."""
+
+    def test_agent_url_and_key_are_stamped_when_the_proxy_knows_them(self):
+        value = log_and_route_reverse.alfred_call_header('c1', True, None, log_on=True, agent_url='http://127.0.0.1:3001',
+                                                         key='1759860000.abc')
+        self.assertEqual('id=c1; db=1; log=1; alfred=http://127.0.0.1:3001; key=1759860000.abc', value)
+
+    def test_nothing_is_stamped_without_an_agent_url(self):
+        self.assertEqual('id=c1; db=0', log_and_route_reverse.alfred_call_header('c1', False, None, agent_url='', key='x'))
+        self.assertEqual('id=c1; db=0; alfred=http://h:1',
+                         log_and_route_reverse.alfred_call_header('c1', False, None, agent_url='http://h:1', key=None))
+
+    def test_key_is_an_hourly_hmac_of_the_secret_and_never_the_secret(self):
+        a = log_and_route_reverse.agent_key('s3cret', now=1759860000)
+        b = log_and_route_reverse.agent_key('s3cret', now=1759860000 + 1799)
+        c = log_and_route_reverse.agent_key('s3cret', now=1759860000 + 3600)
+        self.assertEqual(a, b)
+        self.assertNotEqual(a, c)
+        issued, digest = a.split('.')
+        self.assertEqual('1759860000', issued)
+        self.assertEqual(64, len(digest))
+        self.assertNotIn('s3cret', a)
+        self.assertNotEqual(a, log_and_route_reverse.agent_key('other', now=1759860000))
+        self.assertIsNone(log_and_route_reverse.agent_key('', now=1759860000))
+
+    def test_the_forwarded_request_carries_them(self):
+        flow = FakeFlow(request=FakeRequest(method='GET', host='localhost', path='/x'))
+        with patch.object(log_and_route_reverse, 'AGENT_URL', 'http://127.0.0.1:3001'),                 patch.object(log_and_route_reverse, 'WEBHOOK_SECRET', 's3cret'):
+            ReverseProxyStampsAlfredCall._forward(self, flow)
+        header = flow.request.headers.get('X-Alfred-Call')
+        self.assertIn('; alfred=http://127.0.0.1:3001; key=', header)
+        self.assertNotIn('s3cret', header)
+
+
 class AlfredCallHeaderValue(unittest.TestCase):
 
     def test_formats(self):

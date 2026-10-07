@@ -203,7 +203,7 @@ public class DbCaptureProjectsService implements ManageDbCaptureUseCase {
         expected.add(fingerprint);
         return saveSettings(name, new DbCaptureSettings(current.rowsPerResult(), current.beforeImageTables(), current.outsideCallCapture(),
                 current.thresholds(), expected, current.ignorePatterns(), current.passThroughClasses(), current.callerFrames(), current.indexInfo(),
-                current.logLevel(), current.redis()));
+                current.logLevel(), current.redis(), current.attachMode(), current.attachProxy()));
     }
 
     private String logLevelOf(String project) {
@@ -256,7 +256,7 @@ public class DbCaptureProjectsService implements ManageDbCaptureUseCase {
         return new DbCaptureSettings(s.rowsPerResult(), tables.stream().map(x -> x.toLowerCase(Locale.ROOT)).distinct().toList(),
                 s.outsideCallCapture(), t, expected, ignore, passThrough, s.callerFrames(), s.indexInfo(), s.logLevel(),
                 new com.fathy.alfred.backend.dbcapture.domain.model.RedisSettings(masks, r.showValues(), r.beforeImage(), r.slowMillis(),
-                        r.housekeeping()));
+                        r.housekeeping()), s.attachMode(), s.attachProxy());
     }
 
     private static List<String> clean(List<String> values, String what) {

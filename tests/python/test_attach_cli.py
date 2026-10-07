@@ -74,6 +74,72 @@ class ArgsTest(unittest.TestCase):
         self.assertEqual(run.call_args[1]["env"]["ALFRED_AGENT_SECRET"], "abc")
 
 
+class FindTheAppTest(unittest.TestCase):
+    """A project's app is the JVM listening on its upstream port - found without being told a pid."""
+
+    NETSTAT = """
+  Proto  Local Address          Foreign Address        State           PID
+  TCP    0.0.0.0:135            0.0.0.0:0              LISTENING       1234
+  TCP    0.0.0.0:9001           0.0.0.0:0              LISTENING       68108
+  TCP    127.0.0.1:9001         127.0.0.1:52000        ESTABLISHED     68108
+  TCP    [::]:9001              [::]:0                 LISTENING       68108
+"""
+    SS = """LISTEN 0 128 0.0.0.0:22 0.0.0.0:* users:(("sshd",pid=800,fd=3))
+LISTEN 0 4096 *:9001 *:* users:(("java",pid=4242,fd=321))
+"""
+
+    def test_windows_netstat_names_the_listening_pid(self):
+        with patch.object(attach_cli, "posix", lambda: False):
+            self.assertEqual(68108, attach_cli.listening_pid(9001, run=lambda argv: self.NETSTAT))
+            self.assertIsNone(attach_cli.listening_pid(9002, run=lambda argv: self.NETSTAT))
+
+    def test_linux_ss_names_the_listening_pid(self):
+        with patch.object(attach_cli, "posix", lambda: True), patch.object(attach_cli.shutil, "which", lambda name: "/usr/bin/ss"):
+            self.assertEqual(4242, attach_cli.listening_pid("9001", run=lambda argv: self.SS))
+            self.assertIsNone(attach_cli.listening_pid(22000, run=lambda argv: self.SS))
+
+    def test_a_tool_that_fails_means_not_found_not_a_crash(self):
+        def boom(argv):
+            raise OSError("no netstat")
+        with patch.object(attach_cli, "posix", lambda: False):
+            self.assertIsNone(attach_cli.listening_pid(9001, run=boom))
+
+    def test_attach_pid_runs_the_cli_like_alfred_attach_does(self):
+        layout = make_layout(["ALFRED_UI_PORT=3001", "INTERNAL_CALL_SERVICES=odeysys:8080:9001", "WEBHOOK_SECRET=s3cret"])
+        calls = []
+
+        class Done:
+            returncode = 0
+            stdout = "PID 68108 (java): Alfred proxy,db,logs,redis\n"
+            stderr = ""
+
+        def fake_run(argv, env=None, capture_output=False, text=False, timeout=None):
+            calls.append((argv, env))
+            return Done()
+        with patch.object(attach_cli.subprocess, "run", fake_run), patch.object(attach_cli, "owner_of", lambda pid: None):
+            ok, detail = attach_cli.attach_pid(layout, layout.settings(), 68108, {"name": "odeysys"}, ["proxy", "db", "logs", "redis"])
+        self.assertTrue(ok)
+        self.assertEqual("PID 68108 (java): Alfred proxy,db,logs,redis", detail)
+        argv, env = calls[0]
+        self.assertEqual(["attach", "68108", "--agent", attach_cli.agent_jar(layout), "--args",
+                          "alfredUrl=http://127.0.0.1:3001;project=odeysys;proxy=127.0.0.2:443", "--add", "proxy,db,logs,redis"], argv[3:])
+        self.assertEqual("s3cret", env["ALFRED_AGENT_SECRET"])
+        self.assertNotIn("s3cret", " ".join(argv))
+
+    def test_a_failed_attach_reports_the_last_line(self):
+        layout = make_layout(["INTERNAL_CALL_SERVICES=odeysys:8080:9001"])
+
+        class Failed:
+            returncode = 1
+            stdout = ""
+            stderr = "error: pid 68108: Unable to open socket file\n"
+
+        with patch.object(attach_cli.subprocess, "run", lambda *a, **k: Failed()), patch.object(attach_cli, "owner_of", lambda pid: None):
+            ok, detail = attach_cli.attach_pid(layout, layout.settings(), 68108, {"name": "odeysys"}, ["db"])
+        self.assertFalse(ok)
+        self.assertEqual("error: pid 68108: Unable to open socket file", detail)
+
+
 @unittest.skipIf(os.name == "nt", "user switching is Linux only")
 class OwnerTest(unittest.TestCase):
 

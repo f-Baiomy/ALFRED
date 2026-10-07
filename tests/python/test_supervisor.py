@@ -72,6 +72,8 @@ class ProcessSpecsTest(unittest.TestCase):
                                    "INTERNAL_CALL_SERVICES=a:9001:8080:127.0.0.3,b:9002:8081:127.0.0.4")
         self.assertIn("reverse:http://127.0.0.1:8080@9001", specs["REVERSE"]["argv"])
         self.assertEqual(specs["REVERSE"]["env"]["REVERSE_PROXY_UPSTREAM_HOST"], "127.0.0.1")
+        # the agent inside the app is told where this Alfred is on every request it serves
+        self.assertEqual(specs["REVERSE"]["env"]["ALFRED_AGENT_URL"], layout.local_url(layout.settings()))
         self.assertEqual(specs["OUTBOUND"]["env"]["FORWARD_PROXY_PORT_MAP"], "a:127.0.0.3:443,b:127.0.0.4:443")
         self.assertIn("regular@127.0.0.3:443", specs["OUTBOUND"]["argv"])
 
@@ -168,6 +170,55 @@ class SupervisionTest(unittest.TestCase):
         self.assertEqual(self.sup.children["BACKEND"].proc.pid, backend_pid)
         self.assertEqual(self.sup.children["REVERSE"].state, "RUNNING")
 
+    def test_the_agent_is_attached_to_the_jvm_on_the_projects_upstream_port(self):
+        """POST /agents/attach: the supervisor finds the app by its port, attaches, and reports on /status."""
+        import attach_cli
+        with open(os.path.join(self.layout.home, ".env"), "a", encoding="utf-8") as f:
+            f.write("INTERNAL_CALL_SERVICES=odeysys:8080:9001\n")
+        self.sup.refresh_specs()
+        attached = []
+        events = []
+        with patch.object(attach_cli, "listening_pid", lambda port: 68108 if int(port) == 9001 else None), \
+                patch.object(attach_cli, "jvm_pids", lambda layout: {68108: {"pid": 68108}}), \
+                patch.object(attach_cli, "attach_pid", lambda layout, settings, pid, project, features: (attached.append((pid, project["name"], features)) or (True, "ok"))), \
+                patch.object(supervisor.Supervisor, "_post_event", lambda self, payload: events.append(payload)):
+            port = self.sup.serve_control()
+            with open(self.layout.control_file, encoding="utf-8") as f:
+                token = json.load(f)["token"]
+            request = urllib.request.Request(f"http://127.0.0.1:{port}/agents/attach", method="POST",
+                                             data=json.dumps({"project": "odeysys", "features": ["proxy", "db", "logs", "redis"]}).encode(),
+                                             headers={"X-Alfred-Control-Token": token, "Content-Type": "application/json"})
+            with urllib.request.urlopen(request, timeout=5) as response:
+                self.assertEqual(202, response.status)
+            self.assertTrue(self.wait_for(lambda: any(a["state"] == "ATTACHED" for a in self.sup.agents.status())))
+            self.assertEqual([(68108, "odeysys", ["proxy", "db", "logs", "redis"])], attached)
+            agent = self.sup.agents.status()[0]
+            self.assertEqual(("odeysys", 9001, 68108, "proxy,db,logs,redis", ""), (agent["project"], agent["port"], agent["pid"], agent["features"], agent["detail"]))
+            self.assertIn("AGENTS", [e.get("name") for e in events])
+            # the same pid with the same features is not attached again within the retry window
+            self.sup.agents.ask("odeysys", ["proxy", "db", "logs", "redis"])
+            self.assertFalse(self.wait_for(lambda: len(attached) > 1, seconds=0.5))
+            # forced, it is
+            self.sup.agents.ask("odeysys", ["proxy", "db", "logs", "redis"], force=True)
+            self.assertTrue(self.wait_for(lambda: len(attached) == 2))
+            # the status answer carries the agents
+            request = urllib.request.Request(f"http://127.0.0.1:{port}/status", headers={"X-Alfred-Control-Token": token})
+            with urllib.request.urlopen(request, timeout=5) as response:
+                self.assertEqual("odeysys", json.loads(response.read())["agents"][0]["project"])
+
+    def test_no_jvm_on_the_port_and_an_unknown_project_are_reported_not_retried_forever(self):
+        import attach_cli
+        with open(os.path.join(self.layout.home, ".env"), "a", encoding="utf-8") as f:
+            f.write("INTERNAL_CALL_SERVICES=odeysys:8080:9001\n")
+        self.sup.refresh_specs()
+        with patch.object(attach_cli, "listening_pid", lambda port: None), \
+                patch.object(supervisor.Supervisor, "_post_event", lambda self, payload: None):
+            self.assertTrue(self.sup.agents.ask("odeysys", ["db"]))
+            self.assertTrue(self.wait_for(lambda: any(a["state"] == "NO_JVM" for a in self.sup.agents.status())))
+            self.assertIn("9001", self.sup.agents.status()[0]["detail"])
+            self.assertFalse(self.sup.agents.ask("nope", ["db"]))
+            self.assertEqual("NO_PROJECT", next(a for a in self.sup.agents.status() if a["project"] == "nope")["state"])
+
     def test_the_control_api_needs_the_token(self):
         port = self.sup.serve_control()
         with open(self.layout.control_file, encoding="utf-8") as f:
@@ -183,6 +234,68 @@ class SupervisionTest(unittest.TestCase):
         if os.name == "posix":
             self.assertEqual(os.stat(self.layout.control_file).st_mode & 0o777, 0o600)
 
+
+
+class AppWatcherTest(unittest.TestCase):
+    """The supervisor notices a project's app starting, restarting and stopping, and tells the backend each time."""
+
+    def setUp(self):
+        self.layout = make_home(("INTERNAL_CALL_SERVICES=odeysys:8080:9001,core:8083:9003",))
+        self.addCleanup(shutil.rmtree, self.layout.home, True)
+        self.sup = supervisor.Supervisor(self.layout)
+        self.sup.refresh_specs()
+        self.events = []
+        self.listening = {9001: False, 9003: False}
+        self.pids = {9001: 68108, 9003: 777}
+        self.watcher = supervisor.AppWatcher(self.sup, probe=lambda port: self.listening[port], pid_of=lambda port: self.pids[port])
+        patcher = patch.object(supervisor.Supervisor, "_post_event", lambda sup, payload: self.events.append(payload))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_an_app_appearing_on_its_port_is_reported_once_with_its_pid(self):
+        self.assertEqual(self.watcher.tick(now=100.0), [])
+        self.listening[9001] = True
+        events = self.watcher.tick(now=102.0)
+        self.assertEqual([(e["name"], e["state"], e["project"], e["port"], e["pid"]) for e in events], [("APP", "LISTENING", "odeysys", 9001, 68108)])
+        self.assertEqual(self.watcher.tick(now=104.0), [], "still listening, same pid: nothing new")
+        self.assertEqual(self.events, events)
+        app = next(a for a in self.watcher.status() if a["project"] == "odeysys")
+        self.assertEqual((app["listening"], app["pid"], app["port"]), (True, 68108, 9001))
+
+    def test_a_restart_is_a_new_pid_on_the_same_port(self):
+        self.listening[9001] = True
+        self.watcher.tick(now=100.0)
+        self.pids[9001] = 68200
+        self.assertEqual(self.watcher.tick(now=105.0), [], "the pid is re-read only every PID_SECONDS")
+        events = self.watcher.tick(now=100.0 + supervisor.AppWatcher.PID_SECONDS)
+        self.assertEqual([(e["state"], e["pid"]) for e in events], [("LISTENING", 68200)])
+
+    def test_the_app_going_away_is_reported_and_its_return_again(self):
+        self.listening[9001] = True
+        self.watcher.tick(now=100.0)
+        self.listening[9001] = False
+        self.assertEqual([e["state"] for e in self.watcher.tick(now=102.0)], ["GONE"])
+        self.listening[9001] = True
+        self.assertEqual([e["state"] for e in self.watcher.tick(now=104.0)], ["LISTENING"])
+
+    def test_probes_run_every_two_seconds_and_follow_the_project_list(self):
+        self.assertTrue(self.watcher.due(now=10.0))
+        self.watcher.tick(now=10.0)
+        self.assertFalse(self.watcher.due(now=11.0))
+        self.assertTrue(self.watcher.due(now=12.0))
+        self.assertEqual(sorted(a["project"] for a in self.watcher.status()), ["core", "odeysys"])
+        self.sup.settings = {"INTERNAL_CALL_SERVICES": "core:8083:9003"}
+        self.watcher.tick(now=14.0)
+        self.assertEqual([a["project"] for a in self.watcher.status()], ["core"])
+
+    def test_a_real_probe_tells_a_listening_port_from_a_closed_one(self):
+        import socket
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            s.listen(1)
+            port = s.getsockname()[1]
+            self.assertTrue(supervisor._port_listening(port))
+        self.assertFalse(supervisor._port_listening(port))
 
 if __name__ == "__main__":
     unittest.main()

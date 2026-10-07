@@ -29,6 +29,23 @@
         </div>
       </div>
     }
+    @for (a of s.agents ?? []; track a.project) {
+      <div class="server-row">
+        <div class="server-label">Agent · {{ a.project }}@if (a.pid) { <small>pid {{ a.pid }}</small> }</div>
+        <div class="server-value">
+          <span [class]="'apply ' + (a.state === 'ATTACHED' ? 'live' : a.state === 'ATTACHING' ? 'restart' : 'down')">● {{ agentState(a) }}</span>
+          @if (a.port) { <span class="dim">app on port {{ a.port }}</span> }
+          @if (a.features && a.state === 'ATTACHED') { <span class="dim">{{ a.features }}</span> }
+          @if (a.at) { <span class="dim">{{ relativeDate(a.at) }}</span> }
+          @if (a.detail) { <span class="hint bad">{{ a.detail }}</span> }
+        </div>
+        <div>
+          @if (editable() && mode() === 'NATIVE' && a.state !== 'ATTACHING') {
+            <button type="button" class="action-btn" (click)="attachAgain(a)">Attach again</button>
+          }
+        </div>
+      </div>
+    }
   } @else {
     <div class="empty">Loading...</div>
   }

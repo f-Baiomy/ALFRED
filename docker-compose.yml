@@ -173,6 +173,10 @@ services:
       # this compose stack - host.docker.internal resolves to the host from inside the container.
       # Override only if some project's upstream lives elsewhere.
       - REVERSE_PROXY_UPSTREAM_HOST=host.docker.internal
+      # Where the db-agent inside the application should report, as the application's host reaches this
+      # Alfred - stamped into X-Alfred-Call (alfred=) so the agent follows the proxy that delivers its calls
+      # even when its own -javaagent arguments name another port or an install that is gone.
+      - ALFRED_AGENT_URL=${ALFRED_AGENT_URL:-http://localhost:3000}
       # Same interception rule set as the forward proxy - one file, both directions. A rule scopes
       # itself to a direction with its own `source` matcher rather than by living in a different
       # file (see proxy/interception.py's Match).

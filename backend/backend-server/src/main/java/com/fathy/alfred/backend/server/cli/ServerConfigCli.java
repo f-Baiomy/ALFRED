@@ -338,6 +338,16 @@ public final class ServerConfigCli {
         public Optional<List<ServerStatus.ProcessStatus>> processes() {
             return Optional.empty();
         }
+
+        @Override
+        public Optional<List<ServerStatus.AgentAttach>> agents() {
+            return Optional.empty();
+        }
+
+        @Override
+        public boolean attachAgent(String project, List<String> features, boolean force) {
+            return false;
+        }
     }
 
     private static SettingDefinition definition(String key) {

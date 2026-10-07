@@ -241,6 +241,8 @@ def proxy_env(layout, settings, kind):
         env["WEBHOOK_URL"] = base + "/internal-calls/webhook"
         env["REVERSE_PROXY_PORT_MAP"] = settings.get("INTERNAL_CALL_SERVICES", "")
         env["REVERSE_PROXY_UPSTREAM_HOST"] = "127.0.0.1"
+        # stamped into X-Alfred-Call so the db-agent reports to THIS Alfred whatever its own arguments say
+        env["ALFRED_AGENT_URL"] = base
         env["TOGGLE_FILE"] = os.path.join(layout.proxy_data, FLAG_FILES["REVERSE_PROXY_TOGGLE_FILE"])
         env["DB_CAPTURE_TOGGLE_FILE"] = os.path.join(layout.proxy_data, FLAG_FILES["DB_CAPTURE_TOGGLE_FILE"])
         env["LOG_LINK_TOGGLE_FILE"] = os.path.join(layout.proxy_data, FLAG_FILES["LOG_LINK_TOGGLE_FILE"])
@@ -542,6 +544,169 @@ def launch_installer(path, home, log_path):
         subprocess.Popen(command, start_new_session=True, stdin=subprocess.DEVNULL, stdout=log_file, stderr=subprocess.STDOUT)
 
 
+class AgentAttacher:
+    """Attaches Alfred's agent to a project's application by itself (docs/server.md "The agent attaches itself"):
+    a project's app is the JVM listening on its upstream port, so no pid, no -javaagent line and no project name
+    is ever typed. Backend asks (POST /agents/attach) when it sees calls for a project whose agent is not reporting,
+    at its start, and when the Settings switch is turned on; one attempt per project at a time, a failed pid is not
+    retried for RETRY_SECONDS unless forced. Every outcome is kept per project for the Server card and pushed as a
+    supervisor event named AGENTS."""
+
+    STATES = ("ATTACHED", "ATTACHING", "NO_JVM", "NOT_A_JVM", "FAILED", "NO_PROJECT")
+    RETRY_SECONDS = 300
+
+    def __init__(self, supervisor):
+        self.supervisor = supervisor
+        self.lock = threading.Lock()
+        self.projects = {}
+        self.busy = set()
+
+    def status(self):
+        with self.lock:
+            return [dict(v, project=k) for k, v in sorted(self.projects.items())]
+
+    def _set(self, project, **fields):
+        with self.lock:
+            entry = self.projects.setdefault(project, {"port": 0, "pid": 0, "state": "NO_JVM", "detail": "", "at": None, "features": ""})
+            entry.update(fields, at=now_iso())
+        log.info("agent %s: %s%s", project, fields.get("state", "").lower(), f" - {fields['detail']}" if fields.get("detail") else "")
+        self.supervisor.changed_agents()
+
+    def ask(self, project, features, force=False):
+        """False when the same pid failed recently (and not forced) or an attempt is already running."""
+        import attach_cli
+        settings = getattr(self.supervisor, "settings", None) or self.supervisor.layout.settings()
+        entry = next((p for p in attach_cli.projects(settings) if p["name"] == project), None)
+        if entry is None:
+            self._set(project, state="NO_PROJECT", detail=f"no project named {project} in INTERNAL_CALL_SERVICES")
+            return False
+        with self.lock:
+            if project in self.busy:
+                return False
+            self.busy.add(project)
+        threading.Thread(target=self._run, args=(project, int(entry["upstream_port"]), list(features), force, settings),
+                         name=f"attach-{project}", daemon=True).start()
+        return True
+
+    def _run(self, project, port, features, force, settings):
+        import attach_cli
+        try:
+            pid = attach_cli.listening_pid(port)
+            if not pid:
+                self._set(project, port=port, pid=0, state="NO_JVM", detail=f"nothing listens on port {port}", features="")
+                return
+            with self.lock:
+                known = self.projects.get(project) or {}
+            if not force and known.get("pid") == pid and known.get("state") in ("ATTACHED", "FAILED", "NOT_A_JVM") \
+                    and ",".join(features) == known.get("features", "") and known.get("at") \
+                    and (time.time() - _iso_to_epoch(known["at"])) < self.RETRY_SECONDS:
+                return
+            jvms = attach_cli.jvm_pids(self.supervisor.layout)
+            if jvms is not None and pid not in jvms:
+                self._set(project, port=port, pid=pid, state="NOT_A_JVM", features="",
+                          detail=f"pid {pid} on port {port} is not a Java process this user can see")
+                return
+            self._set(project, port=port, pid=pid, state="ATTACHING", detail="", features=",".join(features))
+            ok, detail = attach_cli.attach_pid(self.supervisor.layout, settings, pid, {"name": project, **_project_fields(settings, project)},
+                                               features)
+            self._set(project, port=port, pid=pid, state="ATTACHED" if ok else "FAILED", detail="" if ok else detail,
+                      features=",".join(features))
+        except Exception as e:  # noqa: BLE001 - an attach must never take the supervisor down
+            self._set(project, port=port, pid=0, state="FAILED", detail=f"{type(e).__name__}: {e}", features="")
+        finally:
+            with self.lock:
+                self.busy.discard(project)
+
+
+class AppWatcher:
+    """Watches every project's upstream port, so an app that starts (or restarts) is noticed within seconds - the
+    AUTOMATIC attach mode (docs/server.md "The agent attaches itself"). A TCP connect to 127.0.0.1:<upstreamPort> every
+    PROBE_SECONDS says whether something listens (milliseconds, no netstat); on not-listening -> listening the pid is
+    looked up and an APP event is posted to the backend, which decides by the project's mode. While listening the pid
+    is re-read every PID_SECONDS: a new pid is a restarted app, posted again. The watcher never attaches by itself and
+    knows nothing about modes - watching is cheap, deciding is the backend's."""
+
+    PROBE_SECONDS = 2
+    PID_SECONDS = 15
+
+    def __init__(self, supervisor, probe=None, pid_of=None):
+        self.supervisor = supervisor
+        self.probe = probe or _port_listening
+        self.pid_of = pid_of
+        self.lock = threading.Lock()
+        self.apps = {}       # project -> {"port", "listening", "pid", "since", "pidCheckedAt"}
+        self._last_tick = 0.0
+
+    def status(self):
+        with self.lock:
+            return [dict(v, project=k) for k, v in sorted(self.apps.items())]
+
+    def due(self, now=None):
+        now = time.monotonic() if now is None else now
+        return now - self._last_tick >= self.PROBE_SECONDS
+
+    def tick(self, now=None):
+        """One pass over the projects. Returns the events it posted (for tests)."""
+        import attach_cli
+        now = time.monotonic() if now is None else now
+        self._last_tick = now
+        settings = getattr(self.supervisor, "settings", None) or {}
+        projects = {p["name"]: int(p["upstream_port"]) for p in attach_cli.projects(settings)}
+        pid_of = self.pid_of or attach_cli.listening_pid
+        events = []
+        with self.lock:
+            for gone in [name for name in self.apps if name not in projects]:
+                del self.apps[gone]
+        for name, port in projects.items():
+            listening = bool(self.probe(port))
+            with self.lock:
+                app = self.apps.setdefault(name, {"port": port, "listening": False, "pid": 0, "since": None, "pidCheckedAt": 0.0})
+                app["port"] = port
+                was = app["listening"]
+                old_pid = app["pid"]
+            if listening and (not was or now - app["pidCheckedAt"] >= self.PID_SECONDS):
+                pid = pid_of(port) or 0
+                with self.lock:
+                    app["pidCheckedAt"] = now
+                if not was or (pid and old_pid and pid != old_pid):
+                    with self.lock:
+                        app.update(listening=True, pid=pid, since=now_iso())
+                    events.append({"name": "APP", "state": "LISTENING", "project": name, "port": port, "pid": pid, "at": now_iso()})
+                elif pid and not old_pid:
+                    with self.lock:
+                        app["pid"] = pid
+            elif not listening and was:
+                with self.lock:
+                    app.update(listening=False, pid=0, since=now_iso())
+                events.append({"name": "APP", "state": "GONE", "project": name, "port": port, "pid": 0, "at": now_iso()})
+        for event in events:
+            log.info("app %s: %s on port %s%s", event["project"], event["state"].lower(), event["port"],
+                     f" (pid {event['pid']})" if event["pid"] else "")
+            self.supervisor._post_event(event)
+        return events
+
+
+def _port_listening(port, timeout=0.3):
+    import socket
+    try:
+        with socket.create_connection(("127.0.0.1", int(port)), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def _iso_to_epoch(text):
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp()
+    except (ValueError, AttributeError):
+        return 0
+
+
+def _project_fields(settings, project):
+    import attach_cli
+    return next((p for p in attach_cli.projects(settings) if p["name"] == project), {})
+
+
 class Supervisor:
 
     ORDER = ["BACKEND", "OUTBOUND", "REVERSE", "MCP", "LOG_AGENT"]
@@ -557,6 +722,8 @@ class Supervisor:
         self.mcp_port = free_port(MCP_PORT_DEFAULT)
         self.job = job_object()
         self.update = UpdateJob(self)
+        self.agents = AgentAttacher(self)
+        self.apps = AppWatcher(self)
 
     def spec_for(self, name):
         return self.specs.get(name)
@@ -616,6 +783,7 @@ class Supervisor:
     def status(self):
         with self.lock:
             return {"processes": [self.children[n].status() for n in self.ORDER if n in self.children],
+                    "agents": self.agents.status(), "apps": self.apps.status(),
                     "version": self.layout.version(), "home": self.layout.home, "pid": os.getpid()}
 
     def changed(self, child):
@@ -629,6 +797,12 @@ class Supervisor:
         if self.stopping.is_set():
             return
         self._post_event(dict(self.update.status(), name="UPDATE", at=now_iso()))
+
+    def changed_agents(self):
+        """An attach attempt ended (or started): the Server card re-fetches /server/status."""
+        if self.stopping.is_set():
+            return
+        self._post_event({"name": "AGENTS", "state": "CHANGED", "at": now_iso()})
 
     def _post_event(self, payload):
         settings = getattr(self, "settings", None) or {}
@@ -675,6 +849,8 @@ class Supervisor:
                     self._reply(200, supervisor.status())
                 elif self.path == "/update":
                     self._reply(200, supervisor.update.status())
+                elif self.path == "/agents":
+                    self._reply(200, supervisor.agents.status())
                 else:
                     self._reply(404, {"error": "not found"})
 
@@ -708,6 +884,20 @@ class Supervisor:
                     self._reply(202, {"accepted": True})
                 elif self.path == "/reload":
                     self._reply(200, {"restarted": supervisor.reload()})
+                elif self.path == "/agents/attach":
+                    try:
+                        length = int(self.headers.get("Content-Length") or 0)
+                        body = json.loads(self.rfile.read(length) or b"{}")
+                        project = str(body["project"])
+                        features = [str(f) for f in body.get("features") or ["db", "logs", "redis"]]
+                        force = bool(body.get("force"))
+                    except (ValueError, KeyError, TypeError) as e:
+                        self._reply(400, {"error": f"bad request: {e}"})
+                        return
+                    if not project or any(f not in ("proxy", "db", "logs", "redis") for f in features):
+                        self._reply(400, {"error": "project and features (proxy, db, logs, redis) are required"})
+                        return
+                    self._reply(202, {"accepted": supervisor.agents.ask(project, features, force)})
                 else:
                     self._reply(404, {"error": "not found"})
 
@@ -782,9 +972,13 @@ def main(home):
     settings = supervisor.settings
     log.info("UI: %s", layout.local_url(settings).replace("127.0.0.1", "localhost"))
     # A short wait so Ctrl+C and service stop requests are seen promptly on Windows too, where a long Event.wait
-    # cannot be interrupted by a signal. Nothing is checked on each wake-up.
+    # cannot be interrupted by a signal. The only work per wake-up is the app watcher's probe, every PROBE_SECONDS.
     while not done.wait(1):
-        pass
+        if supervisor.apps.due():
+            try:
+                supervisor.apps.tick()
+            except Exception as e:  # noqa: BLE001 - watching must never take the supervisor down
+                log.warning("app watcher: %s", e)
     supervisor.stop_all()
     if supervisor.server:
         supervisor.server.shutdown()

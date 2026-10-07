@@ -1011,6 +1011,9 @@ html.db-window-open body {
 .db-window .dbt-track.lg { background: color-mix(in srgb, var(--log) 4%, transparent); }
 .db-window .dbt-tick { position: absolute; top: 3px; width: 2px; margin-left: -1px; border-radius: 1px; background: currentColor; cursor: pointer;
   &:hover { width: 4px; margin-left: -2px; } }
+/* An inbound call whose project captures, while no agent reports to this Alfred: a muted warning, never a button. */
+.db-chip.agent-missing { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 38%, transparent); background: color-mix(in srgb, var(--amber) 9%, transparent); cursor: help; }
+
 .db-chip.log-chip {
   color: var(--log);
   border-color: color-mix(in srgb, var(--log) 38%, transparent);
