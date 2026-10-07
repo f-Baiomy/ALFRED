@@ -1,0 +1,192 @@
+<section class="panel settings-panel server-settings">
+  <h3>Server</h3>
+  <p class="sub">Alfred's own settings, kept in <code>{{ data()?.envLocation || '.env' }}</code>. Changes are reviewed, then saved to that file.</p>
+
+  @if (loading() && !data()) {
+    <div class="empty">Loading...</div>
+  }
+  @if (data(); as d) {
+
+    @if (access(); as a) {
+      @if (editable()) {
+        <div class="server-banner ok">You can change these settings from here ({{ a.reason === 'LOCAL' ? 'this machine' : a.reason === 'LAN' ? 'the local network' : 'an allowed address' }}). Comments and line order in the file are kept.</div>
+      } @else {
+        <div class="server-banner readonly"><b>Read-only.</b> {{ a.howToEdit }}</div>
+      }
+    }
+
+    @if (error(); as message) {
+      <div class="server-banner error">{{ message }} <button type="button" class="link-btn" (click)="error.set(null)">Dismiss</button></div>
+    }
+
+    @if (conflict(); as c) {
+      <div class="server-banner error">
+        <span><b>.env was changed on the server</b> since this page loaded{{ c.changedKeys.length ? ' (' + c.changedKeys.join(', ') + ')' : '' }}. Saving is blocked so neither change is lost.</span>
+        <button type="button" class="action-btn" (click)="loadServerValuesKeepMine()">Load server values, keep my edits</button>
+      </div>
+    }
+
+    @if (d.pendingRestart.length) {
+      <div class="server-banner pending">
+        <span><b>Saved, waiting for a restart:</b>
+          @for (p of d.pendingRestart; track p.key; let last = $last) {
+            <code>{{ p.key }}</code> {{ p.before }} → {{ p.after }}{{ last ? '' : ', ' }}
+          }
+          . Alfred keeps using the old value until it restarts.</span>
+      </div>
+    }
+
+    @if (editable() && d.missingFromEnv.length) {
+      <div class="server-banner info">
+        <span>This version has {{ d.missingFromEnv.length }} {{ d.missingFromEnv.length === 1 ? 'setting' : 'settings' }} that {{ d.missingFromEnv.length === 1 ? "isn't" : "aren't" }} in your .env yet ({{ d.missingFromEnv.join(', ') }}). {{ d.missingFromEnv.length === 1 ? 'It uses its' : 'They use their' }} default until saved.</span>
+        <button type="button" class="action-btn" (click)="addMissing()">Add to .env with defaults</button>
+      </div>
+    }
+
+    @if (d.unknownLines.length) {
+      <div class="server-banner info">
+        <span>.env has {{ d.unknownLines.length }} {{ d.unknownLines.length === 1 ? 'line' : 'lines' }} Alfred does not use:
+          @for (p of d.unknownLines; track p.line) {
+            <span class="server-unknown">line {{ p.line }}: <code>{{ p.text }}</code> ({{ p.reason }})</span>
+          }
+        </span>
+      </div>
+    }
+
+    @if (saved(); as s) {
+      <div class="server-banner ok">
+        <span><b>Saved to .env.</b>
+          @for (a of s.applied; track a.key) {
+            <span class="server-outcome"><code>{{ a.key }}</code>: {{ outcomeText(a.outcome, a.detail) }}</span>
+          }
+        </span>
+        <button type="button" class="link-btn" (click)="saved.set(null)">Dismiss</button>
+      </div>
+    }
+
+    <app-server-card [editable]="editable()" [mode]="d.mode" [pendingRestart]="d.pendingRestart.length > 0" />
+
+    <div class="server-toolbar">
+      <input type="search" class="server-search" placeholder="Search settings: name, key or value (e.g. port, LOGS, 9001)"
+             [value]="query()" (input)="query.set($any($event.target).value)" />
+      <label class="server-check"><input type="checkbox" [checked]="changedOnly()" (change)="changedOnly.set($any($event.target).checked)" /> Only changed from default</label>
+    </div>
+
+    @for (g of groups(); track g.group) {
+      <div class="server-card">
+        <header><h4>{{ groupTitles[g.group] }}</h4></header>
+        @for (s of g.settings; track s.key) {
+          <div class="server-row" [class.changed]="changed(s)">
+            <div class="server-label">
+              {{ s.label }} <span class="help" [title]="s.help">?</span>
+              <small>{{ s.key }}</small>
+            </div>
+            <div class="server-value">
+              @switch (s.kind) {
+                @case ('BOOLEAN') {
+                  <button type="button" class="switch" [class.on]="form()[s.key] === 'true'" [disabled]="!editable()" (click)="toggle(s.key)"
+                          [attr.aria-pressed]="form()[s.key] === 'true'" [attr.aria-label]="s.label"><span class="switch-knob"></span></button>
+                }
+                @case ('ENUM') {
+                  <select [disabled]="!editable()" [value]="form()[s.key]" (change)="setField(s.key, $any($event.target).value)">
+                    @for (o of s.enumValues; track o) { <option [value]="o">{{ o }}</option> }
+                  </select>
+                }
+                @case ('PROJECT_LIST') {
+                  <table class="server-projects">
+                    <thead><tr><th>Project name</th><th>Listen port</th><th>App port</th><th>Outbound address <span class="help" title="Optional: the address this app sends its OWN outbound calls to (e.g. 127.0.0.3), so they are tagged with its name.">?</span></th><th>Callers use</th><th></th></tr></thead>
+                    <tbody>
+                      @for (p of projects(); track $index; let i = $index) {
+                        <tr>
+                          <td><input type="text" [value]="p.name" [disabled]="!editable()" (input)="setProject(i, 'name', $any($event.target).value)" /></td>
+                          <td><input type="text" class="short" [value]="p.listenPort" [disabled]="!editable()" (input)="setProject(i, 'listenPort', $any($event.target).value)" /></td>
+                          <td><input type="text" class="short" [value]="p.upstreamPort" [disabled]="!editable()" (input)="setProject(i, 'upstreamPort', $any($event.target).value)" /></td>
+                          <td><input type="text" class="short" placeholder="optional" [value]="p.outbound" [disabled]="!editable()" (input)="setProject(i, 'outbound', $any($event.target).value)" /></td>
+                          <td class="dim">localhost:{{ p.listenPort }}</td>
+                          <td>@if (editable()) { <button type="button" class="x" title="Remove project" (click)="removeProject(i)">✕</button> }</td>
+                        </tr>
+                      } @empty {
+                        <tr><td colspan="6" class="dim">No projects yet.</td></tr>
+                      }
+                    </tbody>
+                  </table>
+                  @if (editable()) { <button type="button" class="action-btn small" (click)="addProject()">+ Add project</button> }
+                }
+                @case ('FOLDER_LIST') {
+                  <div class="server-folders">
+                    @for (f of folders(); track $index; let i = $index) {
+                      <div class="server-folder">
+                        <input type="text" class="short" placeholder="name" [value]="f.name" [disabled]="!editable()" (input)="setFolder(i, 'name', $any($event.target).value)" />
+                        <input type="text" placeholder="/path/to/logs" [value]="f.path" [disabled]="!editable()" (input)="setFolder(i, 'path', $any($event.target).value)" />
+                        @if (editable()) { <button type="button" class="x" title="Remove folder" (click)="removeFolder(i)">✕</button> }
+                      </div>
+                    } @empty {
+                      <span class="dim">No watched folders.</span>
+                    }
+                    @if (editable()) { <button type="button" class="action-btn small" (click)="addFolder()">+ Add folder</button> }
+                  </div>
+                }
+                @case ('SECRET') {
+                  <span class="dim">{{ s.isSet ? 'set' : 'not set' }} (edit .env on the server to change it)</span>
+                }
+                @default {
+                  <input type="text" [class.short]="s.kind !== 'PATH' && s.kind !== 'ACCESS_LIST' && s.kind !== 'HOST_PORT'"
+                         [value]="form()[s.key]" [disabled]="!editable()" (input)="setField(s.key, $any($event.target).value)" />
+                }
+              }
+              <span class="src" [class.env]="s.source === 'ENV_FILE'">
+                {{ s.source === 'ENV_FILE' ? '.env' : s.source === 'DEFAULT' ? 'default, not in .env' : 'container' }}
+              </span>
+              @if (editable() && s.source === 'ENV_FILE' && s.differsFromDefault && s.kind !== 'SECRET') {
+                <button type="button" class="link-btn" (click)="resetToDefault(s)">reset to default{{ defaultText(s) ? ' (' + defaultText(s) + ')' : '' }}</button>
+              }
+              @if (fieldErrors()[s.key]; as message) {
+                <span class="hint bad">✗ {{ message }}</span>
+              }
+            </div>
+            <div><span [class]="'apply ' + s.applies.toLowerCase()">{{ applyLabel(s.applies) }}</span></div>
+          </div>
+        }
+      </div>
+    } @empty {
+      <p class="dim">No settings match.</p>
+    }
+
+    @if (editable()) {
+      <div class="server-savebar">
+        <span class="dim">
+          @if (edits().length === 0) { No changes }
+          @else { {{ edits().length }} unsaved {{ edits().length === 1 ? 'change' : 'changes' }}@if (needsRestart()) { · <span class="warn">includes a setting that needs a restart</span> } }
+        </span>
+        <span class="actions">
+          <button type="button" class="action-btn" [disabled]="edits().length === 0" (click)="discard()">Discard</button>
+          <button type="button" class="action-btn primary" [disabled]="edits().length === 0 || !!conflict()" (click)="openReview()">Review and save…</button>
+        </span>
+      </div>
+    }
+
+    @if (review(); as r) {
+      <div class="dialog-backdrop" (click)="review.set(null)">
+        <div class="dialog-card server-review" (click)="$event.stopPropagation()" role="dialog" aria-label="Review changes to .env">
+          <h3>Review changes to .env</h3>
+          <pre class="server-diff">@for (line of r.diff; track line.key) {@if (line.before) {<span class="del">- {{ line.before }}</span>
+}@if (line.after) {<span class="add">+ {{ line.after }}</span>
+}@if (!line.after) {<span class="dim">  (line removed: the default applies)</span>
+}}</pre>
+          <ul class="server-effects">
+            @for (e of r.effects; track e.key) {
+              <li><code>{{ e.key }}</code>: {{ e.applies === 'LIVE' ? 'applies live' : e.applies === 'PROXIES' ? 'restarts the proxies (a few seconds)' : 'needs a restart of Alfred' }}</li>
+            }
+            <li class="dim">The previous .env is kept in the history.</li>
+          </ul>
+          @for (w of reviewWarnings(); track $index) { <p class="hint warn">⚠ <code>{{ w.key }}</code>: {{ w.message }}</p> }
+          @for (e of reviewErrors(); track $index) { <p class="hint bad">✗ <code>{{ e.key }}</code>: {{ e.message }}</p> }
+          <div class="actions">
+            <button type="button" class="action-btn" (click)="review.set(null)">Back</button>
+            <button type="button" class="action-btn primary" [disabled]="saving() || reviewErrors().length > 0" (click)="save()">{{ saving() ? 'Saving…' : 'Save' }}</button>
+          </div>
+        </div>
+      </div>
+    }
+  }
+</section>

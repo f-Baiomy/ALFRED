@@ -9,6 +9,14 @@
       <button
         type="button"
         class="settings-nav-item"
+        [class.active]="activePartition() === 'server'"
+        (click)="setActivePartition('server')"
+      >
+        Server
+      </button>
+      <button
+        type="button"
+        class="settings-nav-item"
         [class.active]="activePartition() === 'call-filtering'"
         (click)="setActivePartition('call-filtering')"
       >
@@ -43,7 +51,9 @@
     </nav>
 
     <div class="settings-content">
-      @if (activePartition() === 'database') {
+      @if (activePartition() === 'server') {
+        <app-server-settings />
+      } @else if (activePartition() === 'database') {
         <section class="panel settings-panel">
           <h3>Database</h3>
           <p class="sub">Storage usage across every backend datastore, and destructive maintenance actions.</p>

@@ -1,3 +1,4 @@
+import { ServerSettingsComponent } from './server-settings/server-settings.component';
 import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { FilterMode } from '../../core/models/call-filter-settings.model';
 import { CallFilterSettingsStateService } from '../../core/state/call-filter-settings-state.service';
@@ -8,12 +9,12 @@ import { InternalCallServiceDto, InternalLoggingApiService } from '../../core/se
 import { DbCaptureSettingsComponent } from '../../components/db-capture/db-capture-settings.component';
 import { ActivatedRoute } from '@angular/router';
 
-type Partition = 'call-filtering' | 'database' | 'inbound-logging' | 'database-capture';
+type Partition = 'server' | 'call-filtering' | 'database' | 'inbound-logging' | 'database-capture';
 
 @Component({
   selector: 'app-settings',
   standalone: true,
-  imports: [ConfirmDialogComponent, DbCaptureSettingsComponent],
+  imports: [ConfirmDialogComponent, DbCaptureSettingsComponent, ServerSettingsComponent],
   templateUrl: './settings.component.html',
 })
 export class SettingsComponent implements OnInit {
@@ -50,7 +51,11 @@ export class SettingsComponent implements OnInit {
   ngOnInit(): void {
     this.state.loadIfNeeded();
     // "All database settings →" from the Sources bar lands here (?section=database-capture).
-    if (this.route?.snapshot.queryParamMap.get('section') === 'database-capture') {
+    const section = this.route?.snapshot.queryParamMap.get('section');
+    if (section === 'server') {
+      this.activePartition.set('server');
+    }
+    if (section === 'database-capture') {
       this.activePartition.set('database-capture');
     }
 

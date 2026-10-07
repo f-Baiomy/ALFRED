@@ -162,7 +162,7 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>Server settings: mock v4</h1>
+  <h1>Server settings: mock v5</h1>
   <p class="sub">All settings live in one <code>.env</code> file. The Settings tab and <code>alfred config</code> both edit that file. Items marked <span class="new-tag">NEW</span> are this round's additions.</p>
 
   <div class="whatsnew">
@@ -180,6 +180,7 @@
       <li><b>Download / upload .env</b> to copy settings to another server</li>
       <li><b>Check everything</b> button: runs every check at once</li>
       <li><b>Help (?)</b> on every setting</li>
+      <li><b>v5 corrections</b>: watched folders have a name; projects an optional outbound address; drop folder, watch mode and WildFly need a restart; neutral defaults (calls 10 GB, inbound off, no projects)</li>
       <li><b>Watched folders</b>: one field per folder, + Add / ✕ remove, each checked</li>
     </ol>
   </div>
@@ -282,12 +283,13 @@
           <span class="src env">.env</span>
         </div>
         <table class="proj">
-          <thead><tr><th>Project name</th><th>Listen port</th><th>App port</th><th>App status <span class="new-tag">NEW</span></th><th></th></tr></thead>
+          <thead><tr><th>Project name</th><th>Listen port</th><th>App port</th><th>Outbound address <span class="help" title="Optional: the address this app sends its OWN outbound calls to, so they are tagged with its name (e.g. 127.0.0.3:443).">?</span></th><th>App status</th><th></th></tr></thead>
           <tbody id="projects">
             <tr>
               <td><input type="text" value="odeysys"></td>
               <td><input type="text" class="short lport" value="9001"></td>
               <td><input type="text" class="short uport" value="8080"></td>
+              <td><input type="text" class="short" value="" placeholder="optional"></td>
               <td><span class="apply live">● answering</span><span class="hint">HTTP 200 in 12 ms · callers use localhost:9001</span></td>
               <td><button class="x">✕</button></td>
             </tr>
@@ -295,6 +297,7 @@
               <td><input type="text" value="core-service"></td>
               <td><input type="text" class="short lport" value="9002"></td>
               <td><input type="text" class="short uport" value="8083"></td>
+              <td><input type="text" class="short" value="127.0.0.3:443"></td>
               <td><span class="apply down">● not answering</span><span class="hint bad">nothing listening on 8083. Is the app running?</span></td>
               <td><button class="x">✕</button></td>
             </tr>
@@ -371,24 +374,24 @@
         <div class="label">Drop folder<small>ALFRED_LOGS_DIR</small></div>
         <div class="val"><input type="text" class="folder" value="./logs-drop"><span class="src env">.env</span>
           <span class="hint ok foldermsg">✓ /opt/alfred/logs-drop · 3 files · readable</span></div>
-        <div><span class="apply live">● applies live</span></div>
+        <div><span class="apply restart">⚠ restart needed</span></div>
       </div>
       <div class="row" data-changed="1" data-search="watched folders logs ALFRED_LOGS_WATCH_DIRS wildfly">
-        <div class="label">Watched folders<span class="help" title="Alfred follows every log file in these folders. Stored in .env as one comma-separated line.">?</span><small>ALFRED_LOGS_WATCH_DIRS</small></div>
+        <div class="label">Watched folders<span class="help" title="Alfred follows every log file in these folders. Each has a short name (letters, digits, - and _) and a path; stored in .env as name:path pairs.">?</span><small>ALFRED_LOGS_WATCH_DIRS</small></div>
         <div class="val" style="align-items:flex-start">
           <div class="multi" id="watchdirs" style="display:flex;flex-direction:column;gap:6px;flex:1 1 100%">
-            <div class="mrow"><div class="val"><input type="text" class="folder" value="/opt/wildfly/standalone/log"><button class="x mx" title="Remove folder">✕</button><span class="hint ok foldermsg">✓ 4 files · readable · server.log updated 3 s ago</span></div></div>
-            <div class="mrow"><div class="val"><input type="text" class="folder" value="/var/log/odeysys"><button class="x mx" title="Remove folder">✕</button><span class="hint ok foldermsg">✓ 2 files · readable · app.json.log updated 1 min ago</span></div></div>
+            <div class="mrow"><div class="val"><input type="text" class="short fname" value="wildfly" title="Name"><input type="text" class="folder" value="/opt/wildfly/standalone/log"><button class="x mx" title="Remove folder">✕</button><span class="hint ok foldermsg">✓ 4 files · readable · server.log updated 3 s ago</span></div></div>
+            <div class="mrow"><div class="val"><input type="text" class="short fname" value="odeysys" title="Name"><input type="text" class="folder" value="/var/log/odeysys"><button class="x mx" title="Remove folder">✕</button><span class="hint ok foldermsg">✓ 2 files · readable · app.json.log updated 1 min ago</span></div></div>
           </div>
           <button class="btn small" id="add-dir">+ Add folder</button><span class="src env">.env</span><button class="reset" data-def="">reset to default (none)</button>
         </div>
         <div><span class="apply live">● applies live</span></div>
       </div>
-      <div class="row" data-search="watch mode logs ALFRED_LOGS_WATCH_MODE auto events poll">
-        <div class="label">Watch mode<span class="help" title="auto picks events where the file system supports them, else poll. Use poll for network drives.">?</span><small>ALFRED_LOGS_WATCH_MODE</small></div>
-        <div class="val"><select style="max-width:140px" id="watchmode"><option>auto</option><option>events</option><option>poll</option></select><span class="src env">.env</span>
+      <div class="row" data-search="watch mode logs ALFRED_LOGS_WATCH_MODE auto events agent">
+        <div class="label">Watch mode<span class="help" title="auto: events on Linux, the log agent on Windows (Windows does not report writes to files a logger keeps open).">?</span><small>ALFRED_LOGS_WATCH_MODE</small></div>
+        <div class="val"><select style="max-width:140px" id="watchmode"><option>auto</option><option>events</option><option>agent</option></select><span class="src env">.env</span>
           <span class="hint">auto is using: events</span></div>
-        <div><span class="apply live">● applies live</span></div>
+        <div><span class="apply restart">⚠ restart needed</span></div>
       </div>
     </div>
 
@@ -398,13 +401,13 @@
       <div class="row" data-search="port offset sync WILDFLY_PORT_OFFSET_ENABLED">
         <div class="label">Port offset sync<small>WILDFLY_PORT_OFFSET_ENABLED</small></div>
         <div class="val"><span class="switch"></span><span class="src env">.env</span></div>
-        <div><span class="apply live">● applies live</span></div>
+        <div><span class="apply restart">⚠ restart needed</span></div>
       </div>
       <div class="row" data-changed="1" data-search="wildfly home WILDFLY_HOME">
         <div class="label">WildFly home<small>WILDFLY_HOME</small></div>
         <div class="val"><input type="text" class="folder" value="/opt/wildfly"><span class="src env">.env</span>
           <span class="hint ok foldermsg">✓ WildFly 26.1.3 found · running (pid 3120)</span></div>
-        <div><span class="apply live">● applies live</span></div>
+        <div><span class="apply restart">⚠ restart needed</span></div>
       </div>
     </div>
 
@@ -707,7 +710,7 @@ Starting Alfred... UI at http://localhost:3000 (pid 48390)
       const k = keyOf(r); if (!k) return;
       const sw = r.querySelector('.switch'), inp = r.querySelector('input'), sel = r.querySelector('select');
       const multi = r.querySelector('.multi');
-      if (multi) { v[k] = [...multi.querySelectorAll('.mrow:not(.removed) input')].map(i => i.value.trim()).filter(Boolean).join(','); return; }
+      if (multi) { v[k] = [...multi.querySelectorAll('.mrow:not(.removed)')].map(m => m.querySelector('.fname').value.trim() + ':' + m.querySelector('.folder').value.trim()).filter(x => x !== ':').join(','); return; }
       if (sw) v[k] = String(sw.classList.contains('on'));
       else if (inp && inp.classList.contains('size')) v[k] = inp.value.trim() + ' ' + sel.value;
       else if (inp) v[k] = inp.value.trim();
@@ -745,7 +748,7 @@ Starting Alfred... UI at http://localhost:3000 (pid 48390)
     // app ports: health on edit
     $$('#projects tr:not(.removed)').forEach(tr => {
       const u = tr.querySelector('.uport'); if (u.value === u.defaultValue && !tr.classList.contains('new')) return;
-      const cell = tr.children[3]; const v = u.value.trim();
+      const cell = tr.children[4]; const v = u.value.trim();
       if (!v) { cell.innerHTML = '<span class="hint">enter the app port</span>'; return; }
       cell.innerHTML = v === '8085' || v === '8083'
         ? `<span class="apply down">● not answering</span><span class="hint warn">nothing listening on ${v} yet. You can still save.</span>`
@@ -856,7 +859,7 @@ Starting Alfred... UI at http://localhost:3000 (pid 48390)
   // projects
   function addProject(name = '', lp = '9003', up = '') {
     const tr = document.createElement('tr'); tr.className = 'new';
-    tr.innerHTML = `<td><input type="text" placeholder="name" value="${name}" class="dirty"></td><td><input type="text" class="short lport dirty" value="${lp}"></td><td><input type="text" class="short uport dirty" placeholder="8085" value="${up}"></td><td><span class="hint">enter the app port</span></td><td><button class="x">✕</button></td>`;
+    tr.innerHTML = `<td><input type="text" placeholder="name" value="${name}" class="dirty"></td><td><input type="text" class="short lport dirty" value="${lp}"></td><td><input type="text" class="short uport dirty" placeholder="8085" value="${up}"></td><td><input type="text" class="short" placeholder="optional"></td><td><span class="hint">enter the app port</span></td><td><button class="x">✕</button></td>`;
     $('#projects').appendChild(tr); wire(tr);
     tr.querySelector('.x').onclick = () => { tr.remove(); refresh(); };
     refresh(); return tr;
@@ -880,7 +883,7 @@ Starting Alfred... UI at http://localhost:3000 (pid 48390)
   $$('#watchdirs .mrow').forEach(wireDirRow);
   $('#add-dir').onclick = () => {
     const m = document.createElement('div'); m.className = 'mrow added';
-    m.innerHTML = '<div class="val"><input type="text" class="folder dirty" placeholder="/path/to/logs" value=""><button class="x mx" title="Remove folder">✕</button><span class="hint foldermsg">enter a folder</span></div>';
+    m.innerHTML = '<div class="val"><input type="text" class="short fname dirty" placeholder="name" value=""><input type="text" class="folder dirty" placeholder="/path/to/logs" value=""><button class="x mx" title="Remove folder">✕</button><span class="hint foldermsg">enter a folder</span></div>';
     $('#watchdirs').appendChild(m); wire(m); wireDirRow(m); m.querySelector('input').focus(); refresh();
   };
 

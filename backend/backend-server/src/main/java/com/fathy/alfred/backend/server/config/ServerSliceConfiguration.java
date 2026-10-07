@@ -5,6 +5,7 @@ import com.fathy.alfred.backend.server.adapter.out.envfile.EnvFileAdapter;
 import com.fathy.alfred.backend.server.adapter.out.envfile.SettingsPropertiesDefaultsAdapter;
 import com.fathy.alfred.backend.server.adapter.out.history.EnvHistoryFileAdapter;
 import com.fathy.alfred.backend.server.adapter.out.history.PendingRestartFileAdapter;
+import com.fathy.alfred.backend.server.adapter.out.runtime.JvmRuntimeInfoAdapter;
 import com.fathy.alfred.backend.server.adapter.out.runtime.NetworkInterfacesAdapter;
 import com.fathy.alfred.backend.server.adapter.out.runtime.ProcessEnvDockerSettingsAdapter;
 import com.fathy.alfred.backend.server.adapter.out.supervisor.SupervisorControlAdapter;
@@ -18,6 +19,7 @@ import com.fathy.alfred.backend.server.application.port.out.PendingRestartPort;
 import com.fathy.alfred.backend.server.application.port.out.ServerEventsPort;
 import com.fathy.alfred.backend.server.application.port.out.SupervisorPort;
 import com.fathy.alfred.backend.server.application.service.EditAccessService;
+import com.fathy.alfred.backend.server.application.service.ServerRuntimeService;
 import com.fathy.alfred.backend.server.application.service.ServerSettingsService;
 import com.fathy.alfred.backend.server.application.service.SettingsProbes;
 import com.fathy.alfred.backend.server.domain.model.RuntimeMode;
@@ -92,6 +94,16 @@ public class ServerSliceConfiguration implements WebSocketConfigurer {
                                                        RuntimeMode mode, ObjectMapper mapper, SettingsProbes probes) {
         return new ServerSettingsService(envFile, defaults, history, pending, live, supervisor,
                 new ProcessEnvDockerSettingsAdapter(mapper), events, mode, Clock.systemUTC(), probes::check);
+    }
+
+    @Bean
+    public ServerRuntimeService serverRuntimeService(SupervisorPort supervisor, PendingRestartPort pending, HistoryPort history,
+                                                     EnvFilePort envFile, ServerEventsPort events, RuntimeMode mode,
+                                                     ServerSettingsService settings,
+                                                     @Value("${ALFRED_VERSION:}") String version,
+                                                     @Value("${ALFRED_HOME:}") String home) {
+        return new ServerRuntimeService(supervisor, new JvmRuntimeInfoAdapter(version, home), pending, history, envFile,
+                events, mode, settings.saveLock());
     }
 
     @Bean

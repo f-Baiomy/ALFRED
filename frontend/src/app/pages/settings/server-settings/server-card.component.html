@@ -1,0 +1,78 @@
+<div class="server-card">
+  <header>
+    <h4>Server</h4>
+    @if (status(); as s) {
+      <span class="dim">Alfred {{ s.version }} · {{ s.mode === 'DOCKER' ? 'Docker' : 'native install' }}{{ s.installDir ? ' · ' + s.installDir : '' }}</span>
+    }
+  </header>
+  @if (status(); as s) {
+    @for (p of s.processes; track p.name) {
+      <div class="server-row">
+        <div class="server-label">{{ label(p) }}@if (p.pid) { <small>pid {{ p.pid }}</small> }</div>
+        <div class="server-value">
+          <span [class]="'apply ' + (p.state === 'RUNNING' ? 'live' : p.state === 'CRASHED' ? 'down' : 'restart')">● {{ p.state.toLowerCase() }}</span>
+          @if (p.name === 'BACKEND') {
+            <span class="dim">heap {{ formatBytes(s.heapUsedBytes) }} of {{ formatBytes(s.heapMaxBytes) }}</span>
+          }
+          @for (l of p.listeners; track l) { <span class="dim">{{ l }}</span> }
+          @if (p.restarts) { <span class="dim">restarted {{ p.restarts }}×</span> }
+          @if (p.detail) { <span class="hint bad">{{ p.detail }}</span> }
+        </div>
+        <div>
+          @if (editable() && mode() === 'NATIVE') {
+            @if (p.name === 'BACKEND') {
+              <button type="button" class="action-btn" [class.warn]="pendingRestart()" (click)="ask('BACKEND')">Restart Alfred</button>
+            } @else if (p.name === 'OUTBOUND') {
+              <button type="button" class="action-btn" (click)="ask('PROXIES')">Restart proxies</button>
+            }
+          }
+        </div>
+      </div>
+    }
+  } @else {
+    <div class="empty">Loading...</div>
+  }
+  @if (failure(); as f) { <p class="hint bad">{{ f }}</p> }
+</div>
+
+@if (confirm(); as kind) {
+  <div class="dialog-backdrop" (click)="confirm.set(null)">
+    <div class="dialog-card" (click)="$event.stopPropagation()" role="dialog" [attr.aria-label]="kind === 'BACKEND' ? 'Restart Alfred?' : 'Restart proxies?'">
+      @if (kind === 'BACKEND') {
+        <h2>Restart Alfred?</h2>
+        <p>Alfred will be unavailable for about 10 seconds.</p>
+        <ul class="server-effects">
+          <li>The proxies keep running, so your apps keep working.</li>
+          <li class="warn">Calls made while the backend is down are not logged.</li>
+          <li>Recordings, cycles and settings are kept.</li>
+          <li>This page reconnects by itself.</li>
+        </ul>
+      } @else {
+        <h2>Restart proxies?</h2>
+        <p>Both proxies stop for about 2 seconds. Your apps' calls fail during that time.</p>
+        <ul class="server-effects">
+          <li>The backend and this page stay up.</li>
+          <li>Recordings, cycles and settings are kept.</li>
+        </ul>
+      }
+      <div class="actions">
+        <button type="button" class="action-btn" (click)="confirm.set(null)">Cancel</button>
+        <button type="button" class="action-btn primary" (click)="restart()">Restart</button>
+      </div>
+    </div>
+  </div>
+}
+
+@if (progress(); as steps) {
+  <div class="dialog-backdrop">
+    <div class="dialog-card" role="dialog" aria-label="Restarting">
+      <h2>{{ progressKind() === 'BACKEND' ? 'Restarting Alfred' : 'Restarting proxies' }}</h2>
+      <ul class="server-effects">
+        @for (step of steps; track $index) { <li [class.ok]="step.startsWith('✓')">{{ step }}</li> }
+      </ul>
+      @if (done()) {
+        <div class="actions"><button type="button" class="action-btn primary" (click)="closeProgress()">Close</button></div>
+      }
+    </div>
+  </div>
+}
