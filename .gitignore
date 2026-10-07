@@ -69,3 +69,9 @@ logs-drop/
 log-agent/agent.pid
 log-agent/agent.log
 logs-watch-demo/
+
+# Native installers (specs/012-server-program): download cache, staging folders and output of build_dist.py
+build-cache/
+build/
+dist/
+attach-cli/target/

@@ -1,5 +1,8 @@
 <!--
 Sync Impact Report
+- Version change: 1.0.0 -> 1.0.1 (PATCH, 2026-10-07): Architectural Invariants - host-side setup
+  paths now include the native installers and `alfred` launcher (feature 012-server-program).
+  Templates: no change needed.
 - Version change: (template, unversioned) → 1.0.0
 - Modified principles: n/a (first ratification; all placeholders replaced)
 - Added principles:
@@ -166,7 +169,9 @@ These are fixed facts of the system; a change that breaks one needs an explicit 
   snapshot, never in the backend on the request path.
 - Session-cycle spacers anchor to the call above them; all placement goes through `layoutSpacers`.
 - Callers stay on `localhost`; reverse-proxy routing is port-based, never hostname-based.
-- Docker never touches the host; host changes happen only via `start.py`/`start.sh`/`start.ps1`.
+- Docker never touches the host; host changes happen only via the host-side setup paths:
+  `start.py`/`start.sh`/`start.ps1` for the Docker install, and the installers plus the `alfred`
+  launcher under `packaging/` for the native install.
 - `settings.properties` only fills gaps in `.env`; it never overwrites an adopted value.
 - A new backend route prefix is added to the `app-gateway` regex (`gateway/nginx.conf`).
 
@@ -194,4 +199,4 @@ These are fixed facts of the system; a change that breaks one needs an explicit 
 - Compliance: every plan runs the Constitution Check gate before research and again after design;
   every review verifies compliance. Unjustified complexity is rejected.
 
-**Version**: 1.0.0 | **Ratified**: 2026-09-23 | **Last Amended**: 2026-09-23
+**Version**: 1.0.1 | **Ratified**: 2026-09-23 | **Last Amended**: 2026-10-07

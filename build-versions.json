@@ -1,0 +1,50 @@
+{
+  "_comment": "Pinned runtimes and build tools for build_dist.py (specs/012-server-program research R2-R4). Every download is checked against its sha256; change a version only together with its checksum.",
+  "mitmproxy": "12.2.3",
+  "uv": "0.12.23",
+  "python": {
+    "version": "3.13.16",
+    "linux-x64": {
+      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261003/cpython-3.13.16%2B20261003-x86_64-unknown-linux-gnu-install_only.tar.gz",
+      "sha256": "0a0272910b10417c659a9312fb3f2d7a6d774da7bd510999be7a3ba83273dc1f",
+      "uvPlatform": "x86_64-unknown-linux-gnu"
+    },
+    "windows-x64": {
+      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261003/cpython-3.13.16%2B20261003-x86_64-pc-windows-msvc-install_only.tar.gz",
+      "sha256": "5e100ee3d592ff500f4408a624f054d202e32d9dba8a12b2226bef81083fd778",
+      "uvPlatform": "x86_64-pc-windows-msvc"
+    }
+  },
+  "jdk": {
+    "version": "21.0.12.1+1",
+    "linux-x64": {
+      "url": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12.1%2B1/OpenJDK21U-jdk_x64_linux_hotspot_21.0.12.1_1.tar.gz",
+      "sha256": "ce79869e1307ed8ee1e2baa86a412b1eb5b75d10a01006d788a6f968bcfaee94"
+    },
+    "windows-x64": {
+      "url": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12.1%2B1/OpenJDK21U-jdk_x64_windows_hotspot_21.0.12.1_1.zip",
+      "sha256": "f9d6e191ab098c0d416e7d588a24420a8621cd2f4720dab2459b8b7b2d2d8b4e"
+    }
+  },
+  "node": {
+    "version": "22.23.3",
+    "linux-x64": {
+      "url": "https://nodejs.org/dist/v22.23.3/node-v22.23.3-linux-x64.tar.xz",
+      "sha256": "df450af89261115ef9f9e3830c3eeb2cc9213b63c720b1af623cb5dcbe2e02de"
+    },
+    "windows-x64": {
+      "url": "https://nodejs.org/dist/v22.23.3/node-v22.23.3-win-x64.zip",
+      "sha256": "2b0ff57b049cda1bbcea2240eec20467018713c1efe1f7360c2681859b90ed71"
+    }
+  },
+  "winsw": {
+    "version": "2.12.0",
+    "url": "https://github.com/winsw/winsw/releases/download/v2.12.0/WinSW-x64.exe",
+    "sha256": "05b82d46ad331cc16bdc00de5c6332c1ef818df8ceefcd49c726553209b3a0da"
+  },
+  "buildImage": {
+    "_comment": "Tools that run inside Docker during the build: JDK 21 for Maven and jlink, NSIS (makensis) for the Windows installer, uv for cross-platform Python installs.",
+    "base": "maven:3.9-eclipse-temurin-21",
+    "nsisPackage": "nsis"
+  }
+}

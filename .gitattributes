@@ -1,2 +1,6 @@
 * text=auto eol=lf
 *.sh text eol=lf
+packaging/linux/* text eol=lf
+packaging/linux/alfred text eol=lf
+*.cmd text eol=crlf
+*.nsi text eol=crlf
