@@ -74,7 +74,12 @@ backend-app               composition root, owns spring-boot-maven-plugin repack
                           the calls/internal-calls/session-cycles detail use cases) and the resendbridge package
                           (bridges backend-resend's CallSourcePort/SessionValueLookupPort the same way);
                           both find the call through callrefbridge's one CallRefResolver and only
-                          project their half (response vs. request) of its ResolvedCall
+                          project their half (response vs. request) of its ResolvedCall. Native install
+                          (docs/server.md): serverbridge applies live settings to the owning slices
+                          (retention, storage budgets, watched folders, inbound projects) and reports storage
+                          use for the Server section's checks; mcpbridge relays /mcp to the MCP process on
+                          127.0.0.1 (streamed, 10 MB cap, 502 when down) and serves /mcp-exports/<name>;
+                          web/SpaPageFilter serves the bundled SPA where there is no nginx gateway
 backend-architecture-test test-only, holds the ArchUnit suite (see docs/testing.md)
 ```
 

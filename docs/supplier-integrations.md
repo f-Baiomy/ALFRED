@@ -75,6 +75,10 @@ Alfred runs **two** mitmproxy services in `docker-compose.yml`, one per traffic 
   `backend-interception`'s `PatternSafety` for the save-time filter that keeps most dangerous
   patterns from ever reaching here.
 
+- **Native install: `alfred attach PID --proxy` trusts Alfred's CA inside the running JVM** (no restart, no trust-store
+  change): the agent advises the JDK's own `X509TrustManagerImpl` so a chain signed by Alfred's CA is accepted, and only
+  that. Apps with their own trust manager or pinning still need the CA in their trust store. See docs/server.md
+  "Attach limits" and specs/012-server-program/spikes/S3-trust.md.
 - **A running JVM does not pick up truststore changes live** — restart the Java app after its JDK's cert import, unless you're injecting proxy properties into an already-running JVM specifically to avoid a restart, in which case make sure that JVM's JDK already trusted this CA *before* you started it.
 
 ## Host-side setup (Docker cannot touch the OS cert store)
