@@ -38,7 +38,7 @@ import { LOG_LEVEL_CHOICES } from '../../shared/utils/call-log-rows';
       </div>
       @if (showHow() && !status()?.attached) {
         <div class="db-how">Run <code>python3 start.py --db-capture on</code> on the machine running {{ project() }} (WildFly found
-          automatically), or start the JVM with <code>-javaagent:alfred-db-agent.jar=alfredUrl=…,project={{ project() }}</code>.
+          automatically), or start the JVM with <code>-javaagent:alfred-agent.jar=alfredUrl=…,project={{ project() }}</code>.
           See docs/db-capture.md.</div>
       }
       <div class="pr"><span class="pl">Before-image</span>

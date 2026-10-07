@@ -56,6 +56,8 @@ class ServerSettingsControllerTest {
     private CheckSettingsUseCase check;
     @MockBean
     private SettingsHistoryUseCase history;
+    @MockBean
+    private com.fathy.alfred.backend.server.application.port.in.ImportEnvUseCase importEnv;
 
     private static final String BODY = "{\"baseHash\":\"h\",\"edits\":[{\"key\":\"ALFRED_MEMORY\",\"value\":\"3g\"}]}";
 
@@ -161,5 +163,33 @@ class ServerSettingsControllerTest {
         mvc.perform(post("/server/settings/history/3/revert").header("Cf-Ray", "x")).andExpect(status().isForbidden());
         when(history.revert(3)).thenThrow(new java.util.NoSuchElementException("History entry 3 is no longer kept"));
         mvc.perform(post("/server/settings/history/3/revert")).andExpect(status().isNotFound());
+    }
+
+    @Test
+    void theEnvFileDownloadsOnlyWithEditRights() throws Exception {
+        when(importEnv.maskedEnvFile()).thenReturn("WEBHOOK_SECRET=<set on server>\n");
+        mvc.perform(get("/server/settings/env-file"))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
+                        .string("Content-Disposition", org.hamcrest.Matchers.startsWith("attachment; filename=alfred-")))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content().string("WEBHOOK_SECRET=<set on server>\n"));
+        mvc.perform(get("/server/settings/env-file").header("Cf-Ray", "x")).andExpect(status().isForbidden());
+    }
+
+    @Test
+    void anUploadIsReadIntoValuesAndABigOneIsRefused() throws Exception {
+        when(importEnv.read("ALFRED_MEMORY=3g\n")).thenReturn(new com.fathy.alfred.backend.server.application.port.in.ImportEnvUseCase.Imported(
+                List.of(new com.fathy.alfred.backend.server.application.port.in.ImportEnvUseCase.ImportedValue("ALFRED_MEMORY", "3g", "2g", true, "")),
+                List.of(), List.of()));
+        var file = new org.springframework.mock.web.MockMultipartFile("file", "a.env", "text/plain", "ALFRED_MEMORY=3g\n".getBytes());
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart("/server/settings/import").file(file))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.values[0].key").value("ALFRED_MEMORY"))
+                .andExpect(jsonPath("$.values[0].valid").value(true));
+        var big = new org.springframework.mock.web.MockMultipartFile("file", "a.env", "text/plain", new byte[70 * 1024]);
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart("/server/settings/import").file(big))
+                .andExpect(status().isBadRequest());
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart("/server/settings/import").file(file)
+                .header("Cf-Ray", "x")).andExpect(status().isForbidden());
     }
 }

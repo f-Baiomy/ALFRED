@@ -78,7 +78,7 @@ public final class BatchSender implements StatementSink {
     }
 
     public void start() {
-        thread = new Thread(this::loop, "alfred-db-agent-sender");
+        thread = new Thread(this::loop, "alfred-agent-sender");
         thread.setDaemon(true);
         thread.start();
     }

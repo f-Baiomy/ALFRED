@@ -16,8 +16,12 @@ PROJECT="${1:?usage: db-capture-on.sh <project>}"
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$DIR/.." && pwd)"
 ALFRED_URL="${ALFRED_URL:-http://localhost:3000}"
-JAR="$ROOT/db-agent/target/alfred-db-agent.jar"
+JAR="$ROOT/db-agent/target/alfred-agent.jar"
 
+. "$DIR/native.sh"
+if native_alfred; then
+    native_run attach --db --logs --redis --project "$PROJECT"
+else
 if [ ! -f "$JAR" ]; then
     echo "Building the database capture agent..."
     if command -v mvn >/dev/null 2>&1; then
@@ -30,7 +34,7 @@ fi
 
 # Same reason as proxy-on.sh: a loaded jar stays open (locked on Windows) for the JVM's lifetime.
 mkdir -p "$DIR/out"
-COPY="$DIR/out/alfred-db-agent-$$.jar"
+COPY="$DIR/out/alfred-agent-$$.jar"
 cp "$JAR" "$COPY"
 
 BOOT_JAVA="${JAVA_HOME:+$JAVA_HOME/bin/}java"
@@ -45,6 +49,7 @@ TOOLS_JAR="$JDK8_HOME/lib/tools.jar"
 "$JDK8_HOME/bin/javac" -cp "$TOOLS_JAR" -d "$DIR/out" "$DIR/WildFlyProxyController.java"
 "$JDK8_HOME/bin/java" -cp "$DIR/out:$TOOLS_JAR" WildFlyProxyController load-agent "$COPY" \
     "alfredUrl=$ALFRED_URL;project=$PROJECT;secretFile=$ROOT/.env"
+fi
 
 echo "Switching database capture on for $PROJECT..."
 curl -fsS -X PUT -H 'Content-Type: application/json' -d '{"enabled":true}' \

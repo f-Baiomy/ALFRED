@@ -53,6 +53,8 @@ class ServerErrorsWithPlatformHandlerTest {
     private CheckSettingsUseCase check;
     @MockBean
     private SettingsHistoryUseCase history;
+    @MockBean
+    private com.fathy.alfred.backend.server.application.port.in.ImportEnvUseCase importEnv;
 
     private static final String BODY = "{\"edits\":[{\"key\":\"ALFRED_UI_PORT\",\"value\":\"70000\"}]}";
 

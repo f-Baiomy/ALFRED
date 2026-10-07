@@ -14,7 +14,14 @@ set "PROJECT=%~1"
 set "DIR=%~dp0"
 for %%I in ("%DIR%..") do set "ROOT=%%~fI"
 if "%ALFRED_URL%"=="" set "ALFRED_URL=http://localhost:3000"
-set "JAR=%ROOT%\db-agent\target\alfred-db-agent.jar"
+set "JAR=%ROOT%\db-agent\target\alfred-agent.jar"
+
+if not defined ALFRED_HOME set "ALFRED_HOME=C:\alfred"
+if exist "%ALFRED_HOME%\app\attach-cli.jar" (
+    call "%DIR%native.bat" attach --db --logs --redis --project "%PROJECT%"
+    if errorlevel 1 exit /b 1
+    goto switch_on
+)
 
 if not exist "%JAR%" (
     echo Building the database capture agent...
@@ -28,7 +35,7 @@ if not exist "%JAR%" (
 )
 
 if not exist "%DIR%out" mkdir "%DIR%out"
-set "COPY=%DIR%out\alfred-db-agent-%RANDOM%.jar"
+set "COPY=%DIR%out\alfred-agent-%RANDOM%.jar"
 copy /y "%JAR%" "%COPY%" >nul
 
 set "BOOT_JAVA=java"
@@ -54,6 +61,7 @@ if errorlevel 1 exit /b 1
 "%JDK8_HOME%\bin\java.exe" -cp "%DIR%out;%TOOLS_JAR%" WildFlyProxyController load-agent "%COPY%" "alfredUrl=%ALFRED_URL%;project=%PROJECT%;secretFile=%ROOT%\.env"
 if errorlevel 1 exit /b 1
 
+:switch_on
 echo Switching database capture on for %PROJECT%...
 curl -fsS -X PUT -H "Content-Type: application/json" -d "{\"enabled\":true}" "%ALFRED_URL%/db-capture/projects/%PROJECT%/enabled" >nul
 if errorlevel 1 (

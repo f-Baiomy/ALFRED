@@ -2,6 +2,13 @@
 
 Routes an **already-running** WildFly JVM's HTTP **and** HTTPS traffic through Alfred's forward-mode proxy (`127.0.0.2:443` by default), and back off again — without restarting WildFly, without editing `standalone.xml` (not even transiently), and without touching your IntelliJ run configuration, `pom.xml`, or application code.
 
+**On a native install** (Alfred installed as a program, specs/012-server-program - see docs/server.md), every script
+here is a thin wrapper over `alfred attach` / `alfred detach` / `alfred jvms`: the attach runs on Alfred's bundled JDK
+21 (no JDK 8 or `tools.jar` needed), loads `alfred-agent.jar` with the settings from Alfred's `.env`, and the agent also
+trusts Alfred's CA inside the JVM, so no restart for cert trust is needed either. `native.sh` / `native.bat` detect the
+install (`ALFRED_HOME`, default `/opt/alfred` or `C:\alfred`) and pick the one running WildFly (or `WILDFLY_PID`). Everything
+below describes the Docker install / dev checkout path, which works as before.
+
 ## How it works
 
 Two small Java 8 classes, no dependencies beyond the JDK:
@@ -72,6 +79,6 @@ The same detection loads Alfred's **database capture agent** (`db-agent/`, see `
 ./wildfly-proxy-toggle/db-capture-off.sh wallet-app
 ```
 
-- `on` builds `db-agent/target/alfred-db-agent.jar` the first time (local Maven, else Docker Maven), loads a fresh copy of it (same jar-locking reason as above) with `alfredUrl` (env `ALFRED_URL`, default `http://localhost:3000`), the project name and `secretFile` = this repo's `.env` (the agent reads `WEBHOOK_SECRET` from it - the secret never appears on a command line), then switches capture on for that project - the same switch as the ◆ in Live Calls' Sources bar, the cycle widget's **Log DB** column and Settings → Database capture.
+- `on` builds `db-agent/target/alfred-agent.jar` the first time (local Maven, else Docker Maven), loads a fresh copy of it (same jar-locking reason as above) with `alfredUrl` (env `ALFRED_URL`, default `http://localhost:3000`), the project name and `secretFile` = this repo's `.env` (the agent reads `WEBHOOK_SECRET` from it - the secret never appears on a command line), then switches capture on for that project - the same switch as the ◆ in Live Calls' Sources bar, the cycle widget's **Log DB** column and Settings → Database capture.
 - `off` only switches capture off through Alfred's API. **An agent cannot be unloaded from a running JVM** (the Attach API has no unload): it stays loaded and records nothing for that project; a WildFly restart removes it completely. Loading it a second time is harmless - the agent notices it is already running and ignores the second load.
 - Inbound logging must be on for the project (statements are attached to inbound calls); `on` tells you if it is not.

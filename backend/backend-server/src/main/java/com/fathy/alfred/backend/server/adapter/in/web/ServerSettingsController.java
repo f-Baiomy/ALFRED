@@ -4,6 +4,7 @@ import com.fathy.alfred.backend.server.adapter.in.web.dto.SettingsDtos;
 import com.fathy.alfred.backend.server.application.port.in.CheckSettingsUseCase;
 import com.fathy.alfred.backend.server.application.port.in.EditAccessUseCase;
 import com.fathy.alfred.backend.server.application.port.in.GetSettingsUseCase;
+import com.fathy.alfred.backend.server.application.port.in.ImportEnvUseCase;
 import com.fathy.alfred.backend.server.application.port.in.PreviewSettingsUseCase;
 import com.fathy.alfred.backend.server.application.port.in.SaveSettingsUseCase;
 import com.fathy.alfred.backend.server.application.port.in.SettingsHistoryUseCase;
@@ -13,6 +14,9 @@ import com.fathy.alfred.backend.server.domain.model.SettingsChange;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Size;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -21,6 +25,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 
@@ -42,16 +49,49 @@ public class ServerSettingsController {
     private final EditAccessUseCase editAccess;
     private final CheckSettingsUseCase checkSettings;
     private final SettingsHistoryUseCase history;
+    private final ImportEnvUseCase importEnv;
+
+    static final int MAX_IMPORT_BYTES = 64 * 1024;
 
     public ServerSettingsController(GetSettingsUseCase getSettings, PreviewSettingsUseCase previewSettings,
                                     SaveSettingsUseCase saveSettings, EditAccessUseCase editAccess,
-                                    CheckSettingsUseCase checkSettings, SettingsHistoryUseCase history) {
+                                    CheckSettingsUseCase checkSettings, SettingsHistoryUseCase history,
+                                    ImportEnvUseCase importEnv) {
         this.getSettings = getSettings;
         this.previewSettings = previewSettings;
         this.saveSettings = saveSettings;
         this.editAccess = editAccess;
         this.checkSettings = checkSettings;
         this.history = history;
+        this.importEnv = importEnv;
+    }
+
+    /** .env with secrets hidden. A GET, so the interceptor lets it through: it is checked here, the file shows paths. */
+    @GetMapping("/settings/env-file")
+    public ResponseEntity<byte[]> envFile(HttpServletRequest request) {
+        EditAccess access = EditAccessInterceptor.check(request, editAccess);
+        if (!access.allowed()) {
+            throw new EditAccessInterceptor.EditNotAllowedException(access);
+        }
+        String host;
+        try {
+            host = java.net.InetAddress.getLocalHost().getHostName().replaceAll("[^A-Za-z0-9.-]", "");
+        } catch (java.io.IOException e) {
+            host = "server";
+        }
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=alfred-" + (host.isEmpty() ? "server" : host) + ".env")
+                .contentType(new MediaType("text", "plain", StandardCharsets.UTF_8))
+                .body(importEnv.maskedEnvFile().getBytes(StandardCharsets.UTF_8));
+    }
+
+    /** An uploaded .env read into values for the form; nothing is written (FR-028). */
+    @PostMapping(value = "/settings/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ImportEnvUseCase.Imported importEnv(@RequestParam("file") MultipartFile file) throws java.io.IOException {
+        if (file.getSize() > MAX_IMPORT_BYTES) {
+            throw new IllegalArgumentException("The file is larger than 64 KB - it is not an Alfred .env");
+        }
+        return importEnv.read(new String(file.getBytes(), StandardCharsets.UTF_8));
     }
 
     public record CheckRequest(@Size(max = SettingsDtos.MAX_EDITS) List<SettingsDtos.@Valid EditDto> edits, boolean all) {

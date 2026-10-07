@@ -73,6 +73,27 @@ class ServerSettingsServiceTest {
                 HistoryEntry.HistorySource.UI, "x")).isInstanceOf(IllegalStateException.class);
     }
 
+    // ---- download / import (US8) ---------------------------------------------------------------------------------------
+
+    @Test
+    void theDownloadHidesSecretsAndKeepsEverythingElse() {
+        String file = new Fakes.Rig(ENV).service.maskedEnvFile();
+        assertThat(file).contains("WEBHOOK_SECRET=<set on server>").doesNotContain("abc")
+                .contains("INTERNAL_CALLS_RETENTION_ROWS=5000").contains("# --- Inbound projects ---");
+    }
+
+    @Test
+    void anImportIsCheckedValueByValueAndWritesNothing() {
+        var rig = new Fakes.Rig(ENV);
+        var imported = rig.service.read("ALFRED_MEMORY=3g\nALFRED_UI_PORT=70000\nWEBHOOK_SECRET=x\nFOO=1\n");
+        assertThat(imported.values()).extracting(v -> v.key() + "=" + v.value() + " current=" + v.current() + " valid=" + v.valid())
+                .containsExactly("ALFRED_MEMORY=3g current=2g valid=true", "ALFRED_UI_PORT=70000 current=3000 valid=false");
+        assertThat(imported.values().get(1).message()).isNotBlank();
+        assertThat(imported.unknown()).containsExactly("FOO");
+        assertThat(imported.secrets()).containsExactly("WEBHOOK_SECRET");
+        assertThat(rig.env.content).isEqualTo(ENV);
+    }
+
     // ---- preview / save (US3) -----------------------------------------------------------------------------------------
 
     @Test

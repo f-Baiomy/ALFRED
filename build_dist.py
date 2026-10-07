@@ -123,9 +123,8 @@ def build_java(frontend_dist, out, skip_tests, dns):
         f"set -e; mkdir -p /b && cd /repo && {TAR_SOURCES} && "
         f"cd /b/backend && mvn -B -q package {tests} -Dalfred.frontend.dist=/frontend && "
         "cp backend-app/target/backend.jar /out/alfred.jar && "
-        f"cd /b/db-agent && mvn -B -q package {tests} && cp target/alfred-db-agent.jar /out/alfred-agent.jar && "
-        f"if [ -f /b/attach-cli/pom.xml ]; then cd /b/attach-cli && mvn -B -q package {tests} && "
-        "cp target/attach-cli.jar /out/attach-cli.jar; fi"
+        f"cd /b/db-agent && mvn -B -q package {tests} && cp target/alfred-agent.jar /out/alfred-agent.jar && "
+        f"cd /b/attach-cli && mvn -B -q package {tests} && cp target/attach-cli.jar /out/attach-cli.jar"
     ), [(ROOT, "/repo", "ro"), (frontend_dist, "/frontend", "ro"), (out, "/out", "rw"), ("alfred-m2", "/root/.m2", "rw")],
         dns=dns)
 
@@ -235,8 +234,7 @@ def stage_app(root, target, version_text, java_out, mcp_out):
     app = os.path.join(root, "app")
     os.makedirs(os.path.join(app, "proxy"), exist_ok=True)
     for jar in ("alfred.jar", "alfred-agent.jar", "attach-cli.jar"):
-        if os.path.exists(os.path.join(java_out, jar)):
-            shutil.copy2(os.path.join(java_out, jar), os.path.join(app, jar))
+        shutil.copy2(os.path.join(java_out, jar), os.path.join(app, jar))
     shutil.copytree(os.path.join(mcp_out, "mcp"), os.path.join(app, "mcp"), dirs_exist_ok=True, symlinks=True)
     for name in os.listdir(os.path.join(ROOT, "proxy")):
         if name.endswith(".py") and not name.startswith("test_"):

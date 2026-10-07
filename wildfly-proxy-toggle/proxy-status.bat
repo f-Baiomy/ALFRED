@@ -9,6 +9,12 @@ rem A JDK 8 install is needed (tools.jar, for the Attach API) - auto-detected vi
 rem regardless of what JAVA_HOME currently points at, unless JDK8_HOME is set explicitly.
 
 set "DIR=%~dp0"
+
+if not defined ALFRED_HOME set "ALFRED_HOME=C:\alfred"
+if exist "%ALFRED_HOME%\app\attach-cli.jar" (
+    call "%~dp0native.bat" status
+    exit /b %ERRORLEVEL%
+)
 set "BOOT_JAVA=java"
 set "BOOT_JAVAC=javac"
 if not "%JAVA_HOME%"=="" (

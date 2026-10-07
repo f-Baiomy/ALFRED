@@ -42,7 +42,17 @@ caller ──► reverse-proxy ──X-Alfred-Call: id=…; db=1──► app (W
      `wildfly-proxy-toggle/db-capture-on.sh|.bat <project>` directly) - finds WildFly through the Attach API like
      the outbound proxy toggle, builds the agent jar on first use, passes `secretFile=<repo>/.env` so the webhook
      secret never appears on a command line; or
-   - at JVM start: `-javaagent:/path/alfred-db-agent.jar=alfredUrl=http://localhost:3000;project=<project>;secretFile=/path/.env`.
+   - at JVM start: `-javaagent:/path/alfred-agent.jar=alfredUrl=http://localhost:3000;project=<project>;secretFile=/path/.env`;
+   - on a native install: `alfred attach <pid> --db --logs --redis --project <project>` (docs/server.md).
+
+   The agent's arguments are `key=value` pairs separated by `;`. Besides `alfredUrl`, `project` and `secretFile` (or
+   `secret`), native installs send `features=proxy,db,logs,redis` - the whole desired set, applied again on every
+   load, so a second attach switches features on and off without re-instrumenting (a feature that is off is a gate:
+   a call asking for `db=1` records nothing) - plus `proxy=host:port` (routes the JVM's outbound calls through the
+   forward proxy) and `caFile=` (Alfred's CA, trusted inside the JVM while `proxy` is on, by advice on the JDK's own
+   trust manager - only chains that verify against that CA are accepted). Without `features` the agent captures db,
+   logs and redis, as it always did. The agent publishes `alfred.agent.features` and `alfred.agent.version` as
+   system properties, which `alfred jvms` reads. The jar is `alfred-agent.jar` (it was `alfred-db-agent.jar`).
 3. Switch capture on: the `◆` next to the project's inbound-logging dot in Live Calls' Sources bar, the **Log DB**
    column in the cycle widget's Sources popover, or Settings → Database capture. One setting, three places; every
    change is broadcast on `/ws/db-capture`, so all three (and every other open tab) follow it.

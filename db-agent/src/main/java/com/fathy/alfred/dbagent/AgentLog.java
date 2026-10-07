@@ -13,7 +13,7 @@ public final class AgentLog {
     }
 
     public static void info(String message) {
-        System.err.println("[alfred-db-agent] " + message);
+        System.err.println("[alfred-agent] " + message);
     }
 
     /** Rate-limited per message. */
@@ -22,7 +22,7 @@ public final class AgentLog {
         Long last = LAST.get(message);
         if (last == null || now - last > QUIET_MILLIS) {
             LAST.put(message, now);
-            System.err.println("[alfred-db-agent] WARN " + message);
+            System.err.println("[alfred-agent] WARN " + message);
         }
     }
 

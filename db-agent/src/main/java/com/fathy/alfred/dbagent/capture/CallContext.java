@@ -100,6 +100,9 @@ public final class CallContext {
                 log = value.equals("1");
             }
         }
+        db &= AgentFeatures.db;
+        log &= AgentFeatures.logs;
+        redis &= AgentFeatures.redis;
         if (id == null || id.isEmpty() || !(db || log || redis)) {
             return null;
         }
@@ -130,7 +133,7 @@ public final class CallContext {
                 log = value.equals("1");
             }
         }
-        return log && id != null && !id.isEmpty() ? id : null;
+        return log && AgentFeatures.logs && id != null && !id.isEmpty() ? id : null;
     }
 
     /** True the first time this call asks about {@code table}. */

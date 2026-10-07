@@ -2,6 +2,7 @@ package com.fathy.alfred.backend.server.application.service;
 
 import com.fathy.alfred.backend.server.application.port.in.CheckSettingsUseCase;
 import com.fathy.alfred.backend.server.application.port.in.GetSettingsUseCase;
+import com.fathy.alfred.backend.server.application.port.in.ImportEnvUseCase;
 import com.fathy.alfred.backend.server.application.port.in.SettingsHistoryUseCase;
 import com.fathy.alfred.backend.server.application.port.in.PreviewSettingsUseCase;
 import com.fathy.alfred.backend.server.application.port.in.SaveSettingsUseCase;
@@ -51,7 +52,7 @@ import java.util.function.BiFunction;
  * every start reads.
  */
 public class ServerSettingsService implements GetSettingsUseCase, PreviewSettingsUseCase, SaveSettingsUseCase,
-        CheckSettingsUseCase, SettingsHistoryUseCase {
+        CheckSettingsUseCase, SettingsHistoryUseCase, ImportEnvUseCase {
 
     static final String MASKED = "<set>";
 
@@ -134,6 +135,55 @@ public class ServerSettingsService implements GetSettingsUseCase, PreviewSetting
         Map<String, String> out = new LinkedHashMap<>(defaults.defaults());
         out.putAll(envFile.read().entries());
         return out;
+    }
+
+    // ------------------------------------------------------------------------------------------------------------------
+    // download / import (FR-027/028)
+    // ------------------------------------------------------------------------------------------------------------------
+
+    @Override
+    public String maskedEnvFile() {
+        requireNative();
+        EnvDocument document = envFile.read();
+        for (SettingDefinition definition : SettingCatalog.all()) {
+            if (definition.secret() && document.get(definition.key()).isPresent()) {
+                document = document.set(definition.key(), SECRET_PLACEHOLDER, definition.group().envHeader());
+            }
+        }
+        return document.render();
+    }
+
+    @Override
+    public Imported read(String envText) {
+        EnvDocument incoming = EnvDocument.parse(envText == null ? "" : envText);
+        Map<String, String> current = mode == RuntimeMode.NATIVE ? effective() : dockerValues();
+        List<String> unknown = new ArrayList<>();
+        List<String> secrets = new ArrayList<>();
+        List<SettingsChange.Edit> edits = new ArrayList<>();
+        for (Map.Entry<String, String> entry : incoming.entries().entrySet()) {
+            Optional<SettingDefinition> definition = SettingCatalog.find(entry.getKey());
+            if (definition.isEmpty()) {
+                unknown.add(entry.getKey());
+            } else if (definition.get().secret()) {
+                secrets.add(entry.getKey());
+            } else {
+                edits.add(SettingsChange.Edit.set(entry.getKey(), entry.getValue()));
+            }
+        }
+        // All values checked together, as one save of them would be (some rules compare two settings).
+        Map<String, List<ValidationResult>> byKey = new HashMap<>();
+        if (!edits.isEmpty()) {
+            check(edits, false).forEach(r -> byKey.computeIfAbsent(r.key(), k -> new ArrayList<>()).add(r));
+        }
+        List<ImportedValue> values = new ArrayList<>();
+        for (SettingsChange.Edit edit : edits) {
+            List<ValidationResult> results = byKey.getOrDefault(edit.key(), List.of());
+            Optional<ValidationResult> error = results.stream().filter(r -> r.level() == ValidationResult.Level.ERROR).findFirst();
+            String message = error.map(ValidationResult::message).orElse(results.stream()
+                    .filter(r -> r.level() == ValidationResult.Level.WARNING).map(ValidationResult::message).findFirst().orElse(""));
+            values.add(new ImportedValue(edit.key(), edit.value(), current.getOrDefault(edit.key(), ""), error.isEmpty(), message));
+        }
+        return new Imported(values, unknown, secrets);
     }
 
     // ------------------------------------------------------------------------------------------------------------------

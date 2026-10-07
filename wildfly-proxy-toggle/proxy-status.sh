@@ -10,6 +10,12 @@
 set -eo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+. "$DIR/native.sh"
+if native_alfred; then
+    "$ALFRED_HOME/alfred" jvms
+    exit $?
+fi
 BOOT_JAVA="${JAVA_HOME:+$JAVA_HOME/bin/}java"
 BOOT_JAVAC="${JAVA_HOME:+$JAVA_HOME/bin/}javac"
 

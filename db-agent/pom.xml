@@ -136,7 +136,7 @@
   </dependencies>
 
   <build>
-    <finalName>alfred-db-agent</finalName>
+    <finalName>alfred-agent</finalName>
     <plugins>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>

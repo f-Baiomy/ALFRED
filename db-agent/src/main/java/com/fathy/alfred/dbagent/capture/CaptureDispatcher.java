@@ -847,7 +847,7 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
      * never for a logs-only call (db=0; log=1), which is neither.
      */
     private boolean recordsStatements(CallContext context) {
-        return context != null ? context.capture : settings.captureOutsideCalls();
+        return context != null ? context.capture : AgentFeatures.db && settings.captureOutsideCalls();
     }
 
     @Override
