@@ -11,6 +11,8 @@ import os
 import platform
 import subprocess
 
+import alfred_settings
+
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 FLAG = "--db-capture"
 
@@ -39,15 +41,8 @@ def take_flag(argv):
 
 
 def _env_projects():
-    path = os.path.join(SCRIPT_DIR, ".env")
-    if not os.path.exists(path):
-        return []
-    with open(path, encoding="utf-8") as f:
-        for line in f:
-            if line.startswith("INTERNAL_CALL_SERVICES="):
-                value = line.split("=", 1)[1].strip()
-                return [entry.split(":")[0].strip() for entry in value.split(",") if entry.strip()]
-    return []
+    env = alfred_settings.read_env_file(os.path.join(SCRIPT_DIR, ".env"))
+    return [entry["name"] for entry in alfred_settings.parse_service_entries(env.get("INTERNAL_CALL_SERVICES", ""))]
 
 
 def toggle(action, project):

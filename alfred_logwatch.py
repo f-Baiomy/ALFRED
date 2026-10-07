@@ -24,29 +24,17 @@ import signal
 import subprocess
 import sys
 
+import alfred_settings
+
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 AGENT = os.path.join(SCRIPT_DIR, "log-agent", "agent.py")
 AGENT_PID = os.path.join(SCRIPT_DIR, "log-agent", "agent.pid")
 AGENT_LOG = os.path.join(SCRIPT_DIR, "log-agent", "agent.log")
-NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$")
 
 
 def parse_dirs(value):
-    """'name:path,name:path' -> [(name, path)]. Windows paths keep their drive letter (split on the FIRST colon)."""
-    out = []
-    for entry in (value or "").split(","):
-        entry = entry.strip()
-        if ":" not in entry:
-            continue
-        name, path = entry.split(":", 1)
-        name, path = name.strip(), path.strip()
-        if not NAME.match(name):
-            print(f"logs_watch_dirs: skipping '{entry}' - a name is letters, digits, '-' or '_' (max 40)")
-            continue
-        if not path:
-            continue
-        out.append((name, path))
-    return out
+    """'name:path,name:path' -> [(name, path)] - see alfred_settings.parse_watch_dirs (shared with the native install)."""
+    return alfred_settings.parse_watch_dirs(value)
 
 
 def sync_env(env, settings):

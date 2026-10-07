@@ -1,0 +1,170 @@
+{
+  "_comment": "Shared test vectors for the project and watched-folder grammars: run by tests/python/test_alfred_settings.py (alfred_settings.py) and ServicesGrammarTest (backend-server). Expected values come from the original start.py / alfred_logwatch.py behavior. Duplicate watch-folder names are kept by the parser; uniqueness is a validation rule, not a parse rule.",
+  "services": [
+    {
+      "input": "odeysys:9001:8080",
+      "entries": [
+        {
+          "name": "odeysys",
+          "listenPort": "9001",
+          "upstreamPort": "8080",
+          "outboundHost": null,
+          "outboundPort": null
+        }
+      ],
+      "forwardProxyPortMap": ""
+    },
+    {
+      "input": "odeysys:9001:8080,core-service:9002:8083",
+      "entries": [
+        {
+          "name": "odeysys",
+          "listenPort": "9001",
+          "upstreamPort": "8080",
+          "outboundHost": null,
+          "outboundPort": null
+        },
+        {
+          "name": "core-service",
+          "listenPort": "9002",
+          "upstreamPort": "8083",
+          "outboundHost": null,
+          "outboundPort": null
+        }
+      ],
+      "forwardProxyPortMap": ""
+    },
+    {
+      "input": "a:9001:8080:outbound.local,b:9002:8081:out2.local:8443",
+      "entries": [
+        {
+          "name": "a",
+          "listenPort": "9001",
+          "upstreamPort": "8080",
+          "outboundHost": "outbound.local",
+          "outboundPort": "443"
+        },
+        {
+          "name": "b",
+          "listenPort": "9002",
+          "upstreamPort": "8081",
+          "outboundHost": "out2.local",
+          "outboundPort": "8443"
+        }
+      ],
+      "forwardProxyPortMap": "a:20000,b:20001"
+    },
+    {
+      "input": "a:9001:8080:outbound.local:notaport",
+      "entries": [
+        {
+          "name": "a",
+          "listenPort": "9001",
+          "upstreamPort": "8080",
+          "outboundHost": null,
+          "outboundPort": null
+        }
+      ],
+      "forwardProxyPortMap": ""
+    },
+    {
+      "input": "a:9001:8080,b:9001:8081",
+      "entries": [
+        {
+          "name": "a",
+          "listenPort": "9001",
+          "upstreamPort": "8080",
+          "outboundHost": null,
+          "outboundPort": null
+        }
+      ],
+      "forwardProxyPortMap": ""
+    },
+    {
+      "input": " a : 9001 : 8080 , ,bad,c:x:1,d:9003:y,:9004:1",
+      "entries": [
+        {
+          "name": "a",
+          "listenPort": "9001",
+          "upstreamPort": "8080",
+          "outboundHost": null,
+          "outboundPort": null
+        }
+      ],
+      "forwardProxyPortMap": ""
+    },
+    {
+      "input": "a:9001:8080:h:1:extra",
+      "entries": [],
+      "forwardProxyPortMap": ""
+    },
+    {
+      "input": "",
+      "entries": [],
+      "forwardProxyPortMap": ""
+    }
+  ],
+  "watchDirs": [
+    {
+      "input": "app:/var/log/app",
+      "folders": [
+        {
+          "name": "app",
+          "path": "/var/log/app"
+        }
+      ]
+    },
+    {
+      "input": "app:C:\\logs\\app,web:D:/x/y",
+      "folders": [
+        {
+          "name": "app",
+          "path": "C:\\logs\\app"
+        },
+        {
+          "name": "web",
+          "path": "D:/x/y"
+        }
+      ]
+    },
+    {
+      "input": "bad name:/x,ok:/y",
+      "folders": [
+        {
+          "name": "ok",
+          "path": "/y"
+        }
+      ]
+    },
+    {
+      "input": "-x:/a,ok2:",
+      "folders": []
+    },
+    {
+      "input": "noColon,b:/b",
+      "folders": [
+        {
+          "name": "b",
+          "path": "/b"
+        }
+      ]
+    },
+    {
+      "input": "a:/x,a:/y",
+      "folders": [
+        {
+          "name": "a",
+          "path": "/x"
+        },
+        {
+          "name": "a",
+          "path": "/y"
+        }
+      ]
+    },
+    {
+      "input": "",
+      "folders": []
+    }
+  ]
+}

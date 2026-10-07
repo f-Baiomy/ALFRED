@@ -45,6 +45,7 @@ import socket
 import subprocess
 
 import alfred_dbcapture
+import alfred_settings
 import alfred_logwatch
 import sys
 
@@ -164,6 +165,29 @@ def ensure_reverse_proxy_flag_file():
 
 SETTINGS_FILE = os.path.join(SCRIPT_DIR, "settings.properties")
 ENV_FILE = os.path.join(SCRIPT_DIR, ".env")
+
+# The settings grammar lives in alfred_settings.py (shared with the native install's supervisor,
+# specs/012-server-program); these names stay so the rest of this script reads as before.
+FORWARD_PROXY_INTERNAL_PORT_BASE = alfred_settings.FORWARD_PROXY_INTERNAL_PORT_BASE
+DEFAULT_INBOUND_RETENTION_ROWS = alfred_settings.DEFAULT_INBOUND_RETENTION_ROWS
+_service_listen_ports = alfred_settings.service_listen_ports
+_parse_service_entries = alfred_settings.parse_service_entries
+_forward_proxy_assignments = alfred_settings.forward_proxy_assignments
+_forward_proxy_port_map_env = alfred_settings.forward_proxy_port_map_env
+_inbound_retention_rows = alfred_settings.inbound_retention_rows
+_resolve_placeholders = alfred_settings.resolve_placeholders
+
+
+def _parse_settings_properties():
+    return alfred_settings.parse_settings_properties(SETTINGS_FILE)
+
+
+def _read_env_file():
+    return alfred_settings.read_env_file(ENV_FILE)
+
+
+def _write_env_file(env):
+    alfred_settings.write_env_file(ENV_FILE, env)
 COMPOSE_OVERRIDE_FILE = os.path.join(SCRIPT_DIR, "docker-compose.override.yml")
 
 # Header of the generated docker-compose.override.yml - see sync_compose_override() below.
@@ -177,104 +201,6 @@ COMPOSE_OVERRIDE_HEADER = """\
 # from an environment variable - so the port publishes are generated here instead of being
 # hardcoded in docker-compose.yml. Bound to 127.0.0.1 only, same as every other Alfred port.
 """
-
-
-def _service_listen_ports(services):
-    """Pulls (name, listenPort) out of each "name:listenPort:upstreamPort[...]" entry in
-    internal_call_services, preserving order and dropping duplicates/malformed entries - same
-    format proxy/reverse-proxy-entrypoint.sh and log_and_route_reverse.py parse themselves. The
-    optional 4th/5th (outbound) fields, if present, ride along inside parts[2] here (maxsplit=2)
-    and are simply never looked at - this function only ever needed name+listenPort."""
-    ports = []
-    seen = set()
-    for triple in services.split(","):
-        triple = triple.strip()
-        if not triple:
-            continue
-        parts = triple.split(":", 2)
-        if len(parts) != 3:
-            continue
-        name, listen_port = parts[0].strip(), parts[1].strip()
-        if not name or not listen_port.isdigit() or listen_port in seen:
-            continue
-        seen.add(listen_port)
-        ports.append((name, listen_port))
-    return ports
-
-
-# Internal container ports on the "proxy" service assigned to per-project outbound-attribution
-# listeners start here - see _forward_proxy_assignments() below for why.
-FORWARD_PROXY_INTERNAL_PORT_BASE = 20000
-
-
-def _parse_service_entries(services):
-    """Parses internal_call_services into structured entries, preserving order and dropping
-    duplicates/malformed entries - each entry is "name:listenPort:upstreamPort" (the original,
-    still fully supported format) optionally followed by ":outboundProxyHost" and then
-    ":outboundProxyPort" (only meaningful if outboundProxyHost is present too; defaults to "443",
-    matching the existing forward-proxy's conventional port, when the host is given but the port
-    isn't). A project may freely mix 3/4/5-field entries with others in the same comma-separated
-    value - each entry is parsed independently. Returns a list of dicts with keys name,
-    listen_port, upstream_port, outbound_host (str or None), outbound_port (str or None)."""
-    entries = []
-    seen_listen_ports = set()
-    for entry in services.split(","):
-        entry = entry.strip()
-        if not entry:
-            continue
-        parts = [p.strip() for p in entry.split(":")]
-        if len(parts) < 3 or len(parts) > 5:
-            continue
-        name, listen_port, upstream_port = parts[0], parts[1], parts[2]
-        if not name or not listen_port.isdigit() or not upstream_port.isdigit():
-            continue
-        if listen_port in seen_listen_ports:
-            continue
-
-        outbound_host = parts[3] if len(parts) >= 4 and parts[3] else None
-        outbound_port = None
-        if outbound_host:
-            outbound_port = parts[4] if len(parts) == 5 and parts[4] else "443"
-            if not outbound_port.isdigit():
-                # Malformed port - drop the outbound config for this entry rather than the
-                # whole entry, so a typo in the 5th field doesn't also cost it inbound logging.
-                outbound_host = None
-                outbound_port = None
-
-        seen_listen_ports.add(listen_port)
-        entries.append({
-            "name": name,
-            "listen_port": listen_port,
-            "upstream_port": upstream_port,
-            "outbound_host": outbound_host,
-            "outbound_port": outbound_port,
-        })
-    return entries
-
-
-def _forward_proxy_assignments(services):
-    """Assigns each outbound-attribution-configured project its own internal container port on
-    the "proxy" service, deterministically: FORWARD_PROXY_INTERNAL_PORT_BASE (20000) + its index
-    in internal_call_services' own order - counting over ALL entries, not just the outbound-
-    configured ones, so a given project's internal port doesn't shift just because some other,
-    unrelated project earlier in the list gains or loses outbound config. 20000+ is comfortably
-    clear of every listenPort/upstreamPort a project would plausibly use (every documented
-    example is four digits) and of the forward-proxy's own default internal port (8080); even if
-    a collision somehow occurred, Docker would simply fail to publish the duplicate host port and
-    that failure would surface immediately in "docker compose up" output, rather than silently
-    misrouting traffic. Returns a list of dicts: name, outbound_host, outbound_port,
-    internal_port."""
-    assignments = []
-    for index, entry in enumerate(_parse_service_entries(services)):
-        if not entry["outbound_host"]:
-            continue
-        assignments.append({
-            "name": entry["name"],
-            "outbound_host": entry["outbound_host"],
-            "outbound_port": entry["outbound_port"],
-            "internal_port": FORWARD_PROXY_INTERNAL_PORT_BASE + index,
-        })
-    return assignments
 
 
 def sync_compose_override(services, reverse_proxy_enabled=True):
@@ -329,101 +255,6 @@ def sync_compose_override(services, reverse_proxy_enabled=True):
             for a in forward_assignments
         ]
     print(f"Wrote docker-compose.override.yml publishing {', '.join(published)}")
-
-
-def _forward_proxy_port_map_env(services):
-    """Builds the FORWARD_PROXY_PORT_MAP env var value - "name:internalPort" pairs, comma-
-    separated - consumed by proxy/forward-proxy-entrypoint.sh (turns each pair into an extra
-    "--mode regular@<internalPort>" listener) and by proxy/log_and_route.py (resolves
-    service_name from the internal port a flow arrived on). Independent of
-    reverse_proxy_enabled - outbound attribution has no such feature flag, since the "proxy"
-    service is always running regardless."""
-    return ",".join(
-        f'{a["name"]}:{a["internal_port"]}' for a in _forward_proxy_assignments(services)
-    )
-
-
-DEFAULT_INBOUND_RETENTION_ROWS = "1500"
-
-
-def _inbound_retention_rows(settings):
-    """settings.properties's inbound_calls_retention_rows, as a string for .env.
-
-    Falls back to the default on anything unusable (missing, blank, non-numeric, zero or
-    negative) rather than passing it through: an empty or malformed value reaching the backend
-    would either fail its @Value binding at startup or, worse, bind to 0 and make the ring buffer
-    discard every inbound call the instant it was written. A typo in a config file should not be
-    able to silently turn off inbound logging."""
-    raw = settings.get("inbound_calls_retention_rows", "").strip()
-    try:
-        rows = int(raw)
-    except ValueError:
-        if raw:
-            print(f"  [warn] inbound_calls_retention_rows={raw!r} is not a number - using {DEFAULT_INBOUND_RETENTION_ROWS}")
-        return DEFAULT_INBOUND_RETENTION_ROWS
-    if rows < 1:
-        print(f"  [warn] inbound_calls_retention_rows={rows} would keep nothing - using {DEFAULT_INBOUND_RETENTION_ROWS}")
-        return DEFAULT_INBOUND_RETENTION_ROWS
-    return str(rows)
-
-
-_PLACEHOLDER_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::([^}]*))?\}")
-
-
-def _resolve_placeholders(value):
-    """Resolves ${ENV_VAR} / ${ENV_VAR:default} placeholders in a settings.properties value
-    against the process environment - the same ${x:default} syntax application.properties already
-    uses for Spring, so a setting here can pull from the environment (e.g. differs per machine, or
-    is injected by CI) instead of a value hardcoded into the file everyone shares.
-
-    A placeholder whose variable is unset and has no ":default" is left as the literal
-    "${VAR}" text rather than resolved to an empty string, so a required-but-missing value stays
-    visibly wrong (and easy to grep for) instead of silently blank."""
-
-    def replace(match):
-        var, default = match.group(1), match.group(2)
-        if var in os.environ:
-            return os.environ[var]
-        return default if default is not None else match.group(0)
-
-    return _PLACEHOLDER_RE.sub(replace, value)
-
-
-def _parse_settings_properties():
-    """Extracts every key=value line from settings.properties (see its own doc) - blank lines,
-    lines starting with #, and anything without an "=" are ignored. A value may reference
-    ${ENV_VAR} or ${ENV_VAR:default} - see _resolve_placeholders."""
-    settings = {}
-    if not os.path.exists(SETTINGS_FILE):
-        return settings
-    with open(SETTINGS_FILE, encoding="utf-8") as f:
-        for line in f:
-            line = line.split("#", 1)[0].strip()
-            if not line or "=" not in line:
-                continue
-            key, _, value = line.partition("=")
-            settings[key.strip()] = _resolve_placeholders(value.strip())
-    return settings
-
-
-def _read_env_file():
-    env = {}
-    if not os.path.exists(ENV_FILE):
-        return env
-    with open(ENV_FILE, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, _, value = line.partition("=")
-            env[key.strip()] = value.strip()
-    return env
-
-
-def _write_env_file(env):
-    with open(ENV_FILE, "w", encoding="utf-8") as f:
-        for key, value in env.items():
-            f.write(f"{key}={value}\n")
 
 
 def sync_wildfly_port_offset():
