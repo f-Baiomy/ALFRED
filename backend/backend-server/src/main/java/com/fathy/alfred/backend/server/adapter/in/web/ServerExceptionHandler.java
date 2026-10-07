@@ -1,6 +1,8 @@
 package com.fathy.alfred.backend.server.adapter.in.web;
 
 import com.fathy.alfred.backend.server.application.port.in.SaveSettingsUseCase;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -12,7 +14,11 @@ import java.util.Map;
 /**
  * The server slice's error answers (contracts/server-api.md). Scoped to this slice's controllers; everything else
  * (validation of request bodies, unexpected errors) still goes through the platform's GlobalExceptionHandler.
+ *
+ * <p>Ordered first: the platform handler also catches {@code Exception}, and between two advices that both match,
+ * Spring takes the first in order - without this, a refused save (422) or a refused write (403) came back as 500.
  */
+@Order(Ordered.HIGHEST_PRECEDENCE)
 @RestControllerAdvice(basePackageClasses = ServerSettingsController.class)
 public class ServerExceptionHandler {
 
