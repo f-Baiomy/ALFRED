@@ -210,10 +210,19 @@ def version():
 # node_modules, and never let target/ folders or the Maven cache touch the checkout)
 # ---------------------------------------------------------------------------------------------------------------------
 
-TAR_SOURCES = ("tar --exclude=./frontend/node_modules --exclude=./mcp-server/node_modules --exclude=./build "
-               "--exclude=./build-cache --exclude=./dist --exclude=./.git --exclude='./backend/*/target' "
-               "--exclude=./db-agent/target --exclude=./attach-cli/target --exclude=./frontend/dist "
-               "--exclude=./frontend/.angular -cf - . | tar -xf - -C /b")
+# Also left out: what a running Alfred or the tools around the checkout keep writing (logs, pid files, the CodeGraph
+# index, Claude's worktrees - a second copy of the repo). Docker Desktop's file share answers a read of a file another
+# Windows process is writing with "tar: read error: I/O error", which failed a build started right after start.py
+# (its log agent and proxies write log-agent/agent.log and proxy/logs/calls.log). A copy that still hits one is
+# retried twice from scratch before the step fails.
+TAR_EXCLUDES = ("--exclude=./frontend/node_modules --exclude=./mcp-server/node_modules --exclude=./build "
+                "--exclude=./build-cache --exclude=./dist --exclude=./.git --exclude='./backend/*/target' "
+                "--exclude=./db-agent/target --exclude=./attach-cli/target --exclude=./frontend/dist "
+                "--exclude=./frontend/.angular --exclude=./.claude --exclude=./.codegraph --exclude=__pycache__ "
+                "--exclude='*.log' --exclude='*.pid'")
+TAR_SOURCES = ("(for try in 1 2 3; do rm -rf /b && mkdir -p /b && "
+               f"if tar {TAR_EXCLUDES} -cf - . | tar -xf - -C /b; then break; fi; "
+               "[ \"$try\" = 3 ] && exit 1; echo \">> copy failed (a file in use?) - trying again\"; sleep 3; done)")
 
 
 def npm_ci(extra=""):
