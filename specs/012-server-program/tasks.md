@@ -106,8 +106,8 @@ description: "Task list for 012-server-program"
 ### Native path for the proxies and the MCP server
 
 - [X] T038 [US1] Make `proxy/log_and_route.py` and `proxy/log_and_route_reverse.py` take every path and host from their existing environment variables only: no `/home/mitmproxy` literal and no `host.docker.internal` default when `REVERSE_PROXY_UPSTREAM_HOST` is set. Verify the Docker path is unchanged with the existing `proxy/test_*.py`.
-- [ ] T039 [US1] Add `ALFRED_MCP_TRANSPORT=http` to `mcp-server/src/index.ts`: `StreamableHTTPServerTransport` on `127.0.0.1:${ALFRED_MCP_PORT}`. Stdio stays the default. Document the HTTP transport in `docs/mcp.md` in the same change.
-- [ ] T040 [US1] Add an esbuild bundle script `mcp-server/scripts/bundle.mjs` that produces one `mcp-server.mjs`, including the imported `frontend/src` code. Add a `bundle` npm script to `mcp-server/package.json`.
+- [X] T039 [US1] Add `ALFRED_MCP_TRANSPORT=http` to `mcp-server/src/index.ts`: `StreamableHTTPServerTransport` on `127.0.0.1:${ALFRED_MCP_PORT}`. Stdio stays the default. Document the HTTP transport in `docs/mcp.md` in the same change.
+- [X] T040 [US1] Add an esbuild bundle script `mcp-server/scripts/bundle.mjs` that produces one `mcp-server.mjs`, including the imported `frontend/src` code. Add a `bundle` npm script to `mcp-server/package.json`.
 
 ### Build script and installers
 

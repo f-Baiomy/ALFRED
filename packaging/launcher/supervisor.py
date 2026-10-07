@@ -192,7 +192,7 @@ def process_specs(layout, settings, env_map, mcp_port=MCP_PORT_DEFAULT):
         "OUTBOUND": {"argv": lines["OUTBOUND"], "env": proxy_env(layout, settings, "OUTBOUND"), "listeners": outbound_listeners},
         "REVERSE": None,
         "MCP": {
-            "argv": [layout.node, os.path.join(layout.app, "mcp-server.mjs")],
+            "argv": [layout.node, os.path.join(layout.app, "mcp", "dist", "mcp-server.mjs")],
             "env": {"ALFRED_MCP_TRANSPORT": "http", "ALFRED_MCP_PORT": str(mcp_port),
                     "ALFRED_URL": layout.local_url(settings), "ALFRED_EXPORT_DIR": layout.exports},
             "listeners": [f"127.0.0.1:{mcp_port} (behind /mcp)"],

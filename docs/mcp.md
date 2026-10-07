@@ -81,6 +81,22 @@ Per-project alternative - a `.mcp.json` in the odeysys repo root:
 
 Check it: `claude mcp list` shows `alfred` connected; in a session, "list my Alfred cycles".
 
+### Over HTTP (native install, Alfred on another machine)
+
+The native install (specs/012-server-program, docs/server.md) runs this same server with
+`ALFRED_MCP_TRANSPORT=http` on `127.0.0.1` (port in `ALFRED_MCP_PORT`), and the backend relays `/mcp` on the UI port
+to it - so nothing is installed on your machine. Register the URL you reach the UI on:
+
+```bash
+claude mcp add --transport http alfred http://localhost:3000/mcp
+```
+
+`localhost:3000` through an SSH tunnel (`ssh -L 3000:localhost:3000 staging`), a LAN address, or the Cloudflare
+tunnel URL all work: `/mcp` is reachable wherever the UI is (FR-082), so anyone with the tunnel URL can use these
+tools. Each client connection gets its own MCP session; the server never listens beyond loopback, and request bodies
+over 10 MB are refused. In the install it is a bundle: `app/mcp/dist/mcp-server.mjs` (src plus the frontend utils
+it imports, built by `npm run bundle`) next to `app/mcp/node_modules` (production dependencies only).
+
 ## Tools
 
 | Area | Tools |
