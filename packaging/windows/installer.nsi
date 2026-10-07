@@ -134,6 +134,31 @@ Function .onInstFailed
   ${EndIf}
 FunctionEnd
 
+; "1" when the text is a version NUMBER (1.2.3, from a git tag), "0" for anything else - a bare commit hash from
+; `git describe --always` on an untagged checkout (49c0c7b8-dirty). Only numbers can be ordered: VersionCompare read
+; "49c0c7b8" as 49 and "f9a2d152" as 0 and refused a newer build as a downgrade.
+Function IsVersionNumber
+  Exch $0
+  Push $1
+  Push $2
+  StrCpy $1 $0 1
+  IntOp $2 $1 + 0
+  ${If} "$2" != "$1"
+    StrCpy $0 "0"
+  ${Else}
+    ClearErrors
+    ${WordFind} "$0" "." "E+1{" $2
+    ${If} ${Errors}
+      StrCpy $0 "0"
+    ${Else}
+      StrCpy $0 "1"
+    ${EndIf}
+  ${EndIf}
+  Pop $2
+  Pop $1
+  Exch $0
+FunctionEnd
+
 Section "Alfred" SecMain
   SetShellVarContext all
   StrCpy $Upgrading "0"
@@ -146,13 +171,23 @@ Section "Alfred" SecMain
     ${TrimNewLines} $1 $1
     StrCpy $OldVersion $1
     ${If} $1 != "${VERSION}"
-      ${VersionCompare} "$1" "${VERSION}" $2
-      ${If} $2 == "1"
-      ${AndIf} $AllowDowngrade != "1"
-        IfSilent +2
-          MessageBox MB_ICONSTOP "Installed version $1 is newer than ${VERSION}. Run with /ALLOWDOWNGRADE to install it anyway."
-        SetErrorLevel 6
-        Quit
+      ; The downgrade check needs two version numbers; a commit hash on either side cannot be ordered.
+      Push "$1"
+      Call IsVersionNumber
+      Pop $3
+      Push "${VERSION}"
+      Call IsVersionNumber
+      Pop $4
+      ${If} $3 == "1"
+      ${AndIf} $4 == "1"
+        ${VersionCompare} "$1" "${VERSION}" $2
+        ${If} $2 == "1"
+        ${AndIf} $AllowDowngrade != "1"
+          IfSilent +2
+            MessageBox MB_ICONSTOP "Installed version $1 is newer than ${VERSION}. Run with /ALLOWDOWNGRADE to install it anyway."
+          SetErrorLevel 6
+          Quit
+        ${EndIf}
       ${EndIf}
       DetailPrint "Upgrading $1 -> ${VERSION} (settings and recorded data are kept)"
     ${Else}

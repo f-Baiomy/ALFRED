@@ -19,6 +19,7 @@ NO_START=0
 ALLOW_DOWNGRADE=0
 
 say() { printf '%s\n' "$*"; }
+is_version_number() { case "$1" in [0-9]*.*) return 0 ;; *) return 1 ;; esac; }
 ok() { printf '  \342\234\223 %s\n' "$*"; }
 fail() { printf '  \342\234\227 %s\n' "$*" >&2; exit "${2:-1}"; }
 usage() { sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
@@ -91,9 +92,13 @@ if [ -f "$DIR/app/VERSION" ]; then
   OLD_VERSION=$(cat "$DIR/app/VERSION")
   UPGRADE=1
   if [ "$OLD_VERSION" != "$NEW_VERSION" ]; then
-    NEWEST=$(printf '%s\n%s\n' "$OLD_VERSION" "$NEW_VERSION" | sort -V | tail -n 1)
-    if [ "$NEWEST" = "$OLD_VERSION" ] && [ "$ALLOW_DOWNGRADE" -ne 1 ]; then
-      fail "Installed version $OLD_VERSION is newer than $NEW_VERSION. Use --allow-downgrade to install it anyway." 6
+    # Only version NUMBERS (1.2.3, from a git tag) can be ordered. A bare commit hash (git describe --always on an
+    # untagged checkout, e.g. 49c0c7b8-dirty) sorts by its first character, which says nothing about age.
+    if is_version_number "$OLD_VERSION" && is_version_number "$NEW_VERSION"; then
+      NEWEST=$(printf '%s\n%s\n' "$OLD_VERSION" "$NEW_VERSION" | sort -V | tail -n 1)
+      if [ "$NEWEST" = "$OLD_VERSION" ] && [ "$ALLOW_DOWNGRADE" -ne 1 ]; then
+        fail "Installed version $OLD_VERSION is newer than $NEW_VERSION. Use --allow-downgrade to install it anyway." 6
+      fi
     fi
     say "  Upgrading $OLD_VERSION -> $NEW_VERSION (settings and recorded data are kept)"
   else
