@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, effect, inject, signal, untracked } from '@angular/core';
-import { ATTACH_MODE_CHOICES, AttachMode, DbCaptureSettings, DbThresholds, ProjectCaptureStatus } from '../../core/models/db-capture.model';
+import { ATTACH_MODE_CHOICES, AttachMode, DbCaptureSettings, DbThresholds, ProjectCaptureStatus, agentLacks } from '../../core/models/db-capture.model';
 import { DbCaptureApiService } from '../../core/services/db-capture-api.service';
 import { DbCaptureStateService } from '../../core/state/db-capture-state.service';
 import { RedactionsStore } from '../../core/state/redactions-store.service';
@@ -207,7 +207,10 @@ export class DbCaptureSettingsComponent implements OnInit {
   agentText(p: ProjectCaptureStatus): string {
     if (!p.attached || !p.agent) return `${p.project} - agent not attached`;
     const seen = p.agent.lastSeen ? Math.max(0, Math.round((Date.now() - Date.parse(p.agent.lastSeen)) / 1000)) : null;
-    return `agent attached to ${p.project} (${[p.agent.appServer, p.agent.jvm].filter(Boolean).join(' · ')})${seen != null ? ` - seen ${seen} s ago` : ''}`;
+    const lacking = agentLacks(p);
+    return `agent attached to ${p.project} (${[p.agent.appServer, p.agent.jvm].filter(Boolean).join(' · ')})${seen != null ? ` - seen ${seen} s ago` : ''}`
+      + (p.agent.features != null ? ` - runs ${p.agent.features || 'nothing'}` : '')
+      + (lacking.length ? ` - ⚠ ${lacking.join(' and ')} capture is on but not loaded in that JVM: Attach now, or python3 start.py --db-capture on` : '');
   }
 
   attachNote(project: string): string {

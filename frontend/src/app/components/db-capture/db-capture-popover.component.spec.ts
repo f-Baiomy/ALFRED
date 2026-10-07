@@ -16,9 +16,10 @@ describe('DbCapturePopoverComponent - ▤ Log lines', () => {
     expectedFingerprints: [], ignorePatterns: ['SELECT 1'],
   };
 
-  function create(logsOn: boolean) {
+  function create(logsOn: boolean, agentFeatures?: string) {
     const saved: DbCaptureSettings[] = [];
     const asked: { project: string; features: readonly string[] }[] = [];
+    const agent = agentFeatures === undefined ? undefined : { agentId: 'a1', project: 'odeysys', droppedSinceStart: 0, queuedStatements: 0, features: agentFeatures };
     TestBed.configureTestingModule({
       imports: [DbCapturePopoverComponent],
       providers: [
@@ -27,7 +28,7 @@ describe('DbCapturePopoverComponent - ▤ Log lines', () => {
           saveSettings: (_p: string, s: DbCaptureSettings) => { saved.push(s); return of(s); },
         } },
         { provide: DbCaptureStateService, useValue: {
-          projectStatus: () => ({ project: 'odeysys', enabled: true, inboundLogging: true, attached: true, logsOn }),
+          projectStatus: () => ({ project: 'odeysys', enabled: true, inboundLogging: true, attached: true, logsOn, agent }),
           switchTitle: () => '', toggle: () => undefined, showChips: signal(true), setShowChips: () => undefined,
           logsOn: () => logsOn,
         } },
@@ -78,6 +79,24 @@ describe('DbCapturePopoverComponent - ▤ Log lines', () => {
     proxy.dispatchEvent(new Event('change'));
     expect(saved.map((s) => s.attachProxy)).toEqual([false]);
     expect(asked[0].features).toEqual(['db', 'logs', 'redis']);
+  });
+
+  it('says when the agent runs without a capture that is switched on here (a proxy-only attach)', () => {
+    const { fixture } = create(true, 'proxy');
+    const text = (fixture.nativeElement as HTMLElement).textContent!;
+    expect(text).toContain('runs proxy');
+    expect(text).toContain('◆ database and ▤ log capture is switched on, but the agent');
+    expect(text).toContain('start.py --db-capture on');
+  });
+
+  it('says nothing about features when the agent runs them all', () => {
+    const { fixture } = create(true, 'proxy,db,logs,redis');
+    expect((fixture.nativeElement as HTMLElement).querySelector('.db-lacking')).toBeNull();
+  });
+
+  it('says nothing about features when the agent is too old to report them', () => {
+    const { fixture } = create(true);
+    expect((fixture.nativeElement as HTMLElement).querySelector('.db-lacking')).toBeNull();
   });
 
   it('dims the row while ▤ is off', () => {

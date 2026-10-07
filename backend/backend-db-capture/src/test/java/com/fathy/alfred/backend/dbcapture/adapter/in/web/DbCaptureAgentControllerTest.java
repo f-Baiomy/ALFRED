@@ -104,13 +104,16 @@ class DbCaptureAgentControllerTest {
     void theHeartbeatReturnsTheAgentsSettings() throws Exception {
         when(heartbeat.heartbeat(any())).thenReturn(new AgentDirective(DbCaptureSettings.defaults(), true));
         mvc.perform(post("/db-capture/agent/heartbeat").header("X-Webhook-Secret", "s3cret").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"agentId\":\"agent-1\",\"project\":\"wallet-app\",\"agentVersion\":\"1.0.0\"}"))
+                        .content("{\"agentId\":\"agent-1\",\"project\":\"wallet-app\",\"agentVersion\":\"1.0.0\",\"features\":\"proxy\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.rowsPerResult").value(50000))
                 .andExpect(jsonPath("$.outsideCallCapture").value(true))
                 .andExpect(jsonPath("$.captureEnabled").value(true))
                 .andExpect(jsonPath("$.logLevel").value("ERROR"))
                 .andExpect(jsonPath("$.thresholds").doesNotExist());
+        // the features the JVM runs reach the status: a proxy-only agent lacks db, an older agent (no field) says nothing
+        org.mockito.Mockito.verify(heartbeat).heartbeat(org.mockito.ArgumentMatchers.argThat(s -> "proxy".equals(s.features()) && s.lacks("db")));
+        assertThat(new com.fathy.alfred.backend.dbcapture.domain.model.AgentStatus("a", "p", null, null, null, 0, 0, null).lacks("db")).isFalse();
     }
 
     @org.junit.jupiter.api.Test

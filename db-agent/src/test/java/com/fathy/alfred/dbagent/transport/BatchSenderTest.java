@@ -113,6 +113,37 @@ class BatchSenderTest {
     }
 
     @Test
+    void theHeartbeatSaysWhichFeaturesTheJvmRuns() throws Exception {
+        String url = start("{}");
+        String before = com.fathy.alfred.dbagent.capture.AgentFeatures.published;
+        try {
+            com.fathy.alfred.dbagent.capture.AgentFeatures.published = "proxy";
+            BatchSender sender = new BatchSender(url, "s", "p", "a", "1", new AgentSettings(), () -> { });
+            sender.heartbeat();
+            String hb = bodies.stream().filter(b -> b.startsWith("/db-capture/agent/heartbeat")).findFirst().orElse("");
+            assertThat(hb).contains("\"features\":\"proxy\"");
+        } finally {
+            com.fathy.alfred.dbagent.capture.AgentFeatures.published = before;
+        }
+    }
+
+    @Test
+    void whatIsStillQueuedWhenTheJvmExitsIsPostedFirst() throws Exception {
+        String url = start("{}");
+        BatchSender sender = new BatchSender(url, "s", "p", "a", "1", new AgentSettings(), () -> { });
+        StatementRecord s = new StatementRecord();
+        s.sid = "a:1";
+        s.thread = "t";
+        s.kind = "SELECT";
+        s.sql = "SELECT 7";
+        s.outcome = new Outcome("ROWS");
+        sender.statement(s); // never started: nothing drains the queue but the exit flush
+        sender.flushOnExit();
+        assertThat(sender.queued()).isZero();
+        assertThat(bodies).anyMatch(b -> b.startsWith("/db-capture/agent/batch") && b.contains("\"sql\":\"SELECT 7\""));
+    }
+
+    @Test
     void aDeadBackendNeverBlocksTheApplicationThread() {
         BatchSender sender = new BatchSender("http://127.0.0.1:1", "s", "p", "a", "1", new AgentSettings(), () -> { });
         long start = System.nanoTime();

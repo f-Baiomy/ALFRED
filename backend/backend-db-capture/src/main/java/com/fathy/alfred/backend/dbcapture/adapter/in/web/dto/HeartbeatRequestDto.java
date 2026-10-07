@@ -14,7 +14,9 @@ public record HeartbeatRequestDto(
         @Size(max = 300) String appServer,
         @Min(0) long droppedSinceStart,
         @Min(0) long queuedStatements,
-        RedisSeenDto redis
+        RedisSeenDto redis,
+        /** The features the agent runs, "proxy,db,logs,redis" order; null from an agent too old to say. */
+        @Size(max = 60) String features
 ) {
     /** What the agent's Redis hooks have seen (specs/011-redis-capture) - bounded: 16 clients, 256 cache names. */
     public record RedisSeenDto(@Size(max = 16) java.util.List<java.util.Map<String, Object>> clients, @Size(max = 256) java.util.List<String> springCaches) {
@@ -27,6 +29,6 @@ public record HeartbeatRequestDto(
             seen.put("clients", redis.clients() == null ? java.util.List.of() : redis.clients());
             seen.put("springCaches", redis.springCaches() == null ? java.util.List.of() : redis.springCaches());
         }
-        return new AgentStatus(agentId, project, agentVersion, jvm, appServer, droppedSinceStart, queuedStatements, null, seen);
+        return new AgentStatus(agentId, project, agentVersion, jvm, appServer, droppedSinceStart, queuedStatements, null, seen, features);
     }
 }

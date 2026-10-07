@@ -44,6 +44,7 @@ public final class BatchSender implements StatementSink {
     static final long FLUSH_EVERY_MILLIS = 250;
     static final int FLUSH_AT = 500;
     static final long HEARTBEAT_EVERY_MILLIS = 10_000;
+    static final int EXIT_FLUSH_BATCHES = 3;
     private static final String OUTSIDE = "";
 
     /** Where ALFRED is and how to prove this is its agent - both can change after the start (see {@link #follow}). */
@@ -125,6 +126,30 @@ public final class BatchSender implements StatementSink {
         thread = new Thread(this::loop, "alfred-agent-sender");
         thread.setDaemon(true);
         thread.start();
+        try {
+            // The application stopping (a WildFly restart from the IDE is routine) must not take the last calls'
+            // captures with it: what is still queued is posted now, bounded - the hooks' own timeouts, a few batches.
+            Runtime.getRuntime().addShutdownHook(new Thread(this::flushOnExit, "alfred-agent-flush"));
+        } catch (IllegalStateException | SecurityException e) {
+            AgentLog.failure("shutdown hook", e);
+        }
+    }
+
+    /** Visible for the tests: posts everything queued, at most {@link #EXIT_FLUSH_BATCHES} batches, then stops the sender. */
+    void flushOnExit() {
+        running = false;
+        if (thread != null) {
+            thread.interrupt();
+        }
+        try {
+            for (int i = 0; i < EXIT_FLUSH_BATCHES && !queue.isEmpty(); i++) {
+                List<Object> drained = new ArrayList<>();
+                drainInto(drained);
+                send(drained);
+            }
+        } catch (Throwable t) {
+            AgentLog.failure("flush on exit", t);
+        }
     }
 
     public void stop() {
@@ -371,6 +396,7 @@ public final class BatchSender implements StatementSink {
                 .name("agentVersion").value(agentVersion)
                 .name("jvm").value(System.getProperty("java.vm.name", "") + " " + System.getProperty("java.version", ""))
                 .field("appServer", appServer())
+                .name("features").value(com.fathy.alfred.dbagent.capture.AgentFeatures.published)
                 .name("droppedSinceStart").value(droppedTotal.get()).name("queuedStatements").value(queue.size());
         java.util.function.Supplier<Map<String, Object>> seen = redisSeen;
         if (seen != null) {

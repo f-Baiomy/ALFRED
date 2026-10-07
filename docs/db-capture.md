@@ -52,7 +52,17 @@ caller ──► reverse-proxy ──X-Alfred-Call: id=…; db=1──► app (W
    forward proxy) and `caFile=` (Alfred's CA, trusted inside the JVM while `proxy` is on, by advice on the JDK's own
    trust manager - only chains that verify against that CA are accepted). Without `features` the agent captures db,
    logs and redis, as it always did. The agent publishes `alfred.agent.features` and `alfred.agent.version` as
-   system properties, which `alfred jvms` reads. The jar is `alfred-agent.jar` (it was `alfred-db-agent.jar`).
+   system properties, which `alfred jvms` reads, and **says the set in every heartbeat** (`features`), so a switch
+   that is on here for a feature the JVM does not run is explained on the call ("⚠ agent without ◆ database") and in
+   the ◆ popover instead of looking like capture silently gone. The hooks and the heartbeat are installed on the
+   FIRST load whatever the features (gated by them), so a JVM loaded by `start.py`'s proxy-on step alone
+   (`alfred attach --proxy` → `features=proxy`) still reports and still follows the reverse proxy. That proxy-only
+   load is the usual way chips vanish on a machine with both a Docker and a native Alfred: `proxy-on.bat/.sh`
+   delegates to the native `alfred attach --proxy`, which adds the proxy to what the JVM already runs - nothing, when
+   WildFly was started without `-javaagent` - so the agent runs with the proxy alone until `start.py --db-capture on`
+   or Attach now loads the rest. On JVM exit a shutdown hook posts what is still queued (a few batches, bounded by
+   the HTTP timeouts), so a WildFly restart from the IDE no longer loses the last calls' captures. The jar is
+   `alfred-agent.jar` (it was `alfred-db-agent.jar`).
 3. Switch capture on: the `◆` next to the project's inbound-logging dot in Live Calls' Sources bar, the **Log DB**
    column in the cycle widget's Sources popover, or Settings → Database capture. One setting, three places; every
    change is broadcast on `/ws/db-capture`, so all three (and every other open tab) follow it. The ◆'s ▾ popover

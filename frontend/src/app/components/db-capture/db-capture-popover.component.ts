@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, ElementRef, HostListener, OnInit, computed, inject, input, output, signal } from '@angular/core';
 import { Router } from '@angular/router';
-import { ATTACH_MODE_CHOICES, AttachMode, DbCaptureSettings } from '../../core/models/db-capture.model';
+import { ATTACH_MODE_CHOICES, AttachMode, DbCaptureSettings, agentLacks } from '../../core/models/db-capture.model';
 import { DbCaptureApiService } from '../../core/services/db-capture-api.service';
 import { DbCaptureStateService } from '../../core/state/db-capture-state.service';
 import { ServerSettingsService } from '../../core/services/server-settings.service';
@@ -39,6 +39,11 @@ import { LOG_LEVEL_CHOICES } from '../../shared/utils/call-log-rows';
           }
         </span>
       </div>
+      @if (lacking().length) {
+        <div class="db-how db-lacking">⚠ {{ lacking().join(' and ') }} capture is switched on, but the agent in {{ project() }}'s JVM was loaded
+          without it - nothing is recorded until it is loaded: <code>python3 start.py --db-capture on</code> (Docker; the proxy-on step alone
+          loads only the proxy), or Attach now below on a native install.</div>
+      }
       @if (showHow() && !status()?.attached) {
         <div class="db-how">Run <code>python3 start.py --db-capture on</code> on the machine running {{ project() }} (WildFly found
           automatically), or start the JVM with <code>-javaagent:alfred-agent.jar=alfredUrl=…,project={{ project() }}</code>.
@@ -130,8 +135,11 @@ export class DbCapturePopoverComponent implements OnInit {
     const a = this.status()?.agent;
     if (!a) return '';
     const seen = a.lastSeen ? Math.max(0, Math.round((Date.now() - Date.parse(a.lastSeen)) / 1000)) : null;
-    return [a.appServer, a.jvm, seen != null ? `seen ${seen} s ago` : null].filter(Boolean).join(' · ');
+    return [a.appServer, a.jvm, seen != null ? `seen ${seen} s ago` : null, a.features != null ? `runs ${a.features || 'nothing'}` : null]
+      .filter(Boolean).join(' · ');
   });
+  /** Switches on here that the attached agent does not run - the capture is not in the JVM, whatever the switch says. */
+  readonly lacking = computed(() => agentLacks(this.status()));
 
   ngOnInit(): void {
     this.place();

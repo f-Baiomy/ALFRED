@@ -29,6 +29,7 @@ import { CallsApiService } from '../../core/services/calls-api.service';
 import { CommentsStore } from '../../core/state/comments-store.service';
 import { CommentCountsState } from '../../core/state/comment-counts-state.service';
 import { DbCaptureStateService } from '../../core/state/db-capture-state.service';
+import { agentLacks } from '../../core/models/db-capture.model';
 import { CommentBadgeComponent } from '../comment-badge/comment-badge.component';
 import { JsonPanelComponent, PanelLoadState, PanelLoadTrigger } from '../json-panel/json-panel.component';
 import { CallDepthInfo } from '../../shared/utils/call-tree';
@@ -116,6 +117,24 @@ export class CallCardComponent {
     return `Database, log or Redis capture is on for ${project}, but no agent has reported to this Alfred in the last 30 s - ` +
       `nothing can show for this call. On a native install the supervisor attaches the agent by itself (Settings → Database capture → Agent; ` +
       `the outcome is on Settings → Server). Otherwise attach with 'alfred attach' or -javaagent, and check that its alfredUrl is this Alfred's address.`;
+  });
+  /**
+   * The agent IS reporting, but was loaded without a feature that is switched on here (its heartbeat says what it
+   * runs): the capture is simply not in the JVM, so nothing can show for this call until it is loaded.
+   */
+  readonly agentLacking = computed(() => {
+    const c = this.call();
+    if (c.source !== 'internal' || !c.service_name) return [] as readonly string[];
+    return agentLacks(this.dbState.projectStatus(c.service_name));
+  });
+  readonly agentLackingTitle = computed(() => {
+    const c = this.call();
+    const p = this.dbState.projectStatus(c.service_name ?? '');
+    const runs = p?.agent?.features || 'none';
+    return `${this.agentLacking().join(' and ')} capture is on for ${c.service_name}, but the agent in its JVM runs with features '${runs}' - ` +
+      `that capture is not loaded there, so nothing can show for this call. Load it: 'python3 start.py --db-capture on' (Docker; ` +
+      `the proxy-on step alone loads only the proxy), or on a native install Settings → Database capture → Attach now, or ` +
+      `'alfred attach <pid> --db,logs,redis'.`;
   });
 
   /** Outlines every card while something is picking (see CallPickerService), and marks the picked one. */

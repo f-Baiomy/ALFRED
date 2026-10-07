@@ -38,10 +38,14 @@ public final class AgentRuntime {
         AgentFeatures.db = config.has("db");
         AgentFeatures.logs = config.has("logs");
         AgentFeatures.redis = config.has("redis");
-        if (config.captures() && !captureStarted) {
+        AgentFeatures.published = config.featureList();
+        // Installed on the first load whatever the features: the hooks are gated by AgentFeatures, and a JVM loaded
+        // with the proxy alone must still heartbeat (saying "features: proxy") and follow the reverse proxy that
+        // delivers its calls - otherwise an Alfred with ◆ switched on sees an agent that is simply not there.
+        if (!captureStarted) {
             start(config, instrumentation);
             captureStarted = true;
-        } else if (config.captures() && sender != null) {
+        } else if (sender != null) {
             sender.retarget(config.alfredUrl, config.secret);
         }
         if (config.has("proxy")) {
@@ -81,7 +85,8 @@ public final class AgentRuntime {
         sender.redisSeen(dispatcher::redisSeen);
         sender.start();
         AgentRuntime.sender = sender;
-        AgentLog.info("v" + AlfredDbAgent.VERSION + " capturing database statements for project '" + config.project + "', reporting to " + config.alfredUrl);
+        AgentLog.info("v" + AlfredDbAgent.VERSION + (config.captures() ? " capturing for project '" : " loaded for project '") + config.project
+                + "', reporting to " + config.alfredUrl);
     }
 
     /** Installs the instrumentation with a given sink - the agent's own start path, and the tests'. */

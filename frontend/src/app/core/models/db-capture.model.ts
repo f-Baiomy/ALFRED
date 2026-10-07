@@ -391,6 +391,24 @@ export interface AgentStatus {
   readonly droppedSinceStart: number;
   readonly queuedStatements: number;
   readonly lastSeen?: string | null;
+  /** The features the agent runs ("proxy,db,logs,redis" order, "" for none); absent from an agent too old to say. */
+  readonly features?: string | null;
+}
+
+/**
+ * The switches on for a project that the attached agent in its JVM does NOT run - e.g. ◆ on here while the agent was
+ * loaded by a `start.py` proxy-on step alone (`features=proxy`). Empty when nothing is missing, the agent is not
+ * attached, or it did not say what it runs.
+ */
+export function agentLacks(p: ProjectCaptureStatus | null | undefined): readonly string[] {
+  const features = p?.agent?.features;
+  if (!p?.attached || features == null) return [];
+  const has = new Set(features.split(',').map((f) => f.trim()).filter(Boolean));
+  const missing: string[] = [];
+  if (p.enabled && !has.has('db')) missing.push('◆ database');
+  if (p.logsOn && !has.has('logs')) missing.push('▤ log');
+  if (p.redisOn && !has.has('redis')) missing.push('⬢ Redis');
+  return missing;
 }
 
 /** One project's switch and agent - what the Sources bar, the cycle widget and Settings show. */

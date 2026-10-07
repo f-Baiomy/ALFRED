@@ -11,6 +11,12 @@ public final class AgentFeatures {
     public static volatile boolean db = true;
     public static volatile boolean logs = true;
     public static volatile boolean redis = true;
+    /**
+     * The whole set as loaded ("proxy,db,logs,redis" order, "" for none) - what the heartbeat tells Alfred, so a
+     * project whose ◆/▤/⬢ is on while the agent in its JVM runs without that feature (a {@code start.py} proxy-on step
+     * alone loads only the proxy) is explained on the call instead of silently showing nothing.
+     */
+    public static volatile String published = "db,logs,redis";
 
     private AgentFeatures() {
     }
