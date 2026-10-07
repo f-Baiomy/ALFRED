@@ -1,0 +1,20 @@
+<service>
+  <!-- WinSW configuration of the "alfred" Windows service (specs/012-server-program research R3). -->
+  <id>alfred</id>
+  <name>Alfred</name>
+  <description>HTTP/HTTPS call logging for Java apps (native install)</description>
+  <executable>%BASE%\..\runtime\python\python.exe</executable>
+  <arguments>"%BASE%\..\app\launcher\alfred.py" run</arguments>
+  <workingdirectory>%BASE%\..</workingdirectory>
+  <env name="ALFRED_HOME" value="%BASE%\.."/>
+  <startmode>Automatic</startmode>
+  <stoptimeout>60 sec</stoptimeout>
+  <onfailure action="restart" delay="2 sec"/>
+  <onfailure action="restart" delay="10 sec"/>
+  <resetfailure>1 hour</resetfailure>
+  <logpath>%BASE%\..\data\log</logpath>
+  <log mode="roll-by-size">
+    <sizeThreshold>10240</sizeThreshold>
+    <keepFiles>3</keepFiles>
+  </log>
+</service>

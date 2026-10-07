@@ -1,0 +1,21 @@
+[Unit]
+Description=Alfred - HTTP/HTTPS call logging for Java apps (native install)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@USER@
+Environment=ALFRED_HOME=@HOME@
+WorkingDirectory=@HOME@
+ExecStart=@HOME@/alfred run
+Restart=always
+RestartSec=2
+# Let the supervisor stop its children itself (it waits up to 20 s for each).
+KillMode=mixed
+TimeoutStopSec=60
+# Only filled in for a non-root account: lets the outbound proxy listen on port 443.
+@CAPS@
+
+[Install]
+WantedBy=multi-user.target
