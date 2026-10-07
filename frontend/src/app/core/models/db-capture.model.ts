@@ -371,14 +371,15 @@ export interface DbCaptureSettings {
 
 export type AttachMode = 'OFF' | 'WHEN_ASKED' | 'AUTOMATIC';
 
-export const ATTACH_MODE_CHOICES: readonly { readonly value: AttachMode; readonly label: string }[] = [
-  { value: 'WHEN_ASKED', label: 'When asked - at start, when calls arrive and no agent reports, or on Attach now' },
-  { value: 'AUTOMATIC', label: 'Automatic - the moment the app starts or restarts, before its first call' },
-  { value: 'OFF', label: 'Off - never by itself (alfred attach still works)' },
+/** The list shows the full account; the closed picker shows the mode's name alone (`buttonLabel`), so it fits the ◆ popover. */
+export const ATTACH_MODE_CHOICES: readonly { readonly value: AttachMode; readonly label: string; readonly buttonLabel: string }[] = [
+  { value: 'WHEN_ASKED', buttonLabel: 'When asked', label: 'When asked - at start, when calls arrive and no agent reports, or on Attach now' },
+  { value: 'AUTOMATIC', buttonLabel: 'Automatic', label: 'Automatic - the moment the app starts or restarts, before its first call' },
+  { value: 'OFF', buttonLabel: 'Off', label: 'Off - never by itself (alfred attach still works)' },
 ];
 
 export function attachModeWords(mode: AttachMode | undefined): string {
-  return ATTACH_MODE_CHOICES.find(c => c.value === (mode ?? 'WHEN_ASKED'))?.label.split(' - ')[0] ?? 'When asked';
+  return ATTACH_MODE_CHOICES.find(c => c.value === (mode ?? 'WHEN_ASKED'))?.buttonLabel ?? 'When asked';
 }
 
 export interface AgentStatus {

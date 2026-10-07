@@ -4,6 +4,8 @@ import { computeFixedPanelPosition, trackPopoverPosition } from '../../shared/ut
 export interface SelectOption {
   readonly value: string;
   readonly label: string;
+  /** Shown on the closed button instead of `label` when the list's labels are too long for the button's place. */
+  readonly buttonLabel?: string;
 }
 
 const PANEL_MAX_WIDTH = 320; // must match .select-picker-panel's max-width in styles.scss
@@ -39,7 +41,10 @@ export class SelectPickerComponent {
   readonly panelOpen = signal(false);
   readonly panelPosition = signal({ top: 0, left: 0 });
 
-  readonly currentLabel = computed(() => this.options().find((o) => o.value === this.value())?.label ?? this.value());
+  readonly currentLabel = computed(() => {
+    const current = this.options().find((o) => o.value === this.value());
+    return current?.buttonLabel ?? current?.label ?? this.value();
+  });
 
   private stopTracking: (() => void) | null = null;
 

@@ -772,6 +772,8 @@
   input.mini { width: 70px; background: var(--card-inner); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 0.2rem 0.4rem; font-size: 0.74rem; font-family: var(--db-mono); }
   input.mini.wide { width: 150px; }
   .db-level .theme-picker-btn { font-size: 0.74rem; padding: 0.2rem 0.6rem; }
+  .db-attach-mode .theme-picker-btn { font-size: 0.74rem; padding: 0.2rem 0.6rem; }
+  .db-attach-note { display: block; font-size: 0.72rem; padding-top: 0.15rem; }
 }
 
 // ---- Settings → Database capture ----

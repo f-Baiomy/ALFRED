@@ -55,7 +55,9 @@ caller ──► reverse-proxy ──X-Alfred-Call: id=…; db=1──► app (W
    system properties, which `alfred jvms` reads. The jar is `alfred-agent.jar` (it was `alfred-db-agent.jar`).
 3. Switch capture on: the `◆` next to the project's inbound-logging dot in Live Calls' Sources bar, the **Log DB**
    column in the cycle widget's Sources popover, or Settings → Database capture. One setting, three places; every
-   change is broadcast on `/ws/db-capture`, so all three (and every other open tab) follow it.
+   change is broadcast on `/ws/db-capture`, so all three (and every other open tab) follow it. The ◆'s ▾ popover
+   also carries the project's **attach mode** (When asked / Automatic / Off, the proxy feature, Attach now) - the
+   same setting as Settings → Database capture → Agent, see docs/server.md "The agent attaches itself".
 
 `--db-capture off` / `db-capture-off` / the switch only stop capture: **an agent cannot be unloaded from a running
 JVM**, so it stays loaded and records nothing until the JVM restarts. Loading it twice is harmless. With

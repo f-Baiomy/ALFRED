@@ -138,7 +138,8 @@ is attached as that user (`runuser`): a direct cross-user attach fails and makes
 
 Nobody has to run `alfred attach` for a project's capture to work: **a project's app is the JVM listening on its
 upstream port** (`internal_call_services` = `name:listenPort:upstreamPort`), so the supervisor finds it by itself.
-Each project has an **attach mode** (Settings → Database capture → Agent):
+Each project has an **attach mode** (Settings → Database capture → Agent, and the same picker in the ◆ popover of
+the Sources bar on Live Calls - one setting, two places; both share `shared/utils/attach-features.ts`):
 
 - **When asked** (the default): the backend asks the supervisor (`POST /agents/attach` on the control API, through
   `backend-app/agentbridge/AgentAutoAttachBridge`) when Alfred starts, whenever an inbound call arrives for a

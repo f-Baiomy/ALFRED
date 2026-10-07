@@ -6,6 +6,7 @@ import { DbCapturePopoverComponent } from './db-capture-popover.component';
 import { DbCaptureApiService } from '../../core/services/db-capture-api.service';
 import { DbCaptureStateService } from '../../core/state/db-capture-state.service';
 import { DbWindowService } from './db-window.service';
+import { ServerSettingsService } from '../../core/services/server-settings.service';
 import { DbCaptureSettings } from '../../core/models/db-capture.model';
 
 describe('DbCapturePopoverComponent - ▤ Log lines', () => {
@@ -17,6 +18,7 @@ describe('DbCapturePopoverComponent - ▤ Log lines', () => {
 
   function create(logsOn: boolean) {
     const saved: DbCaptureSettings[] = [];
+    const asked: { project: string; features: readonly string[] }[] = [];
     TestBed.configureTestingModule({
       imports: [DbCapturePopoverComponent],
       providers: [
@@ -31,12 +33,15 @@ describe('DbCapturePopoverComponent - ▤ Log lines', () => {
         } },
         { provide: DbWindowService, useValue: { openOutside: () => undefined } },
         { provide: Router, useValue: { navigate: () => Promise.resolve(true) } },
+        { provide: ServerSettingsService, useValue: {
+          attachAgent: (project: string, features: readonly string[]) => { asked.push({ project, features }); return of({ accepted: true }); },
+        } },
       ],
     });
     const fixture = TestBed.createComponent(DbCapturePopoverComponent);
     fixture.componentRef.setInput('project', 'odeysys');
     fixture.detectChanges();
-    return { fixture, saved };
+    return { fixture, saved, asked };
   }
 
   it('shows the Log level - ERROR unless set - and saves the one picked', () => {
@@ -48,6 +53,31 @@ describe('DbCapturePopoverComponent - ▤ Log lines', () => {
     fixture.detectChanges();
     (picker.querySelectorAll('.filter-option-item')[1] as HTMLButtonElement).click();
     expect(saved.map((s) => s.logLevel)).toEqual(['WARN']);
+  });
+
+  it('offers the attach mode - When asked unless set - and picking Automatic saves it and asks the supervisor with every feature', () => {
+    const { fixture, saved, asked } = create(true);
+    const picker = fixture.nativeElement.querySelector('.db-pop .db-attach-mode') as HTMLElement;
+    const button = picker.querySelector('button') as HTMLButtonElement;
+    expect(button.textContent!.trim()).toContain('When asked');
+    button.click();
+    fixture.detectChanges();
+    const items = Array.from(picker.querySelectorAll('.filter-option-item')) as HTMLButtonElement[];
+    expect(items.map((i) => i.textContent!.trim().split(' - ')[0])).toEqual(['When asked', 'Automatic', 'Off']);
+    items[1].click();
+    expect(saved.map((s) => s.attachMode)).toEqual(['AUTOMATIC']);
+    expect(asked).toEqual([{ project: 'odeysys', features: ['proxy', 'db', 'logs', 'redis'] }]);
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).querySelector('.db-attach-note')!.textContent).toContain('asked');
+  });
+
+  it('turning the proxy feature off saves attachProxy=false and re-asks without proxy', () => {
+    const { fixture, saved, asked } = create(true);
+    const proxy = (fixture.nativeElement as HTMLElement).querySelector('.db-pop .pr input[type=checkbox]') as HTMLInputElement;
+    expect(proxy.checked).toBeTrue();
+    proxy.dispatchEvent(new Event('change'));
+    expect(saved.map((s) => s.attachProxy)).toEqual([false]);
+    expect(asked[0].features).toEqual(['db', 'logs', 'redis']);
   });
 
   it('dims the row while ▤ is off', () => {

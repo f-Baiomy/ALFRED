@@ -8,6 +8,7 @@ import { LogLevelSetting } from '../../core/models/call-logs.model';
 import { SelectPickerComponent } from '../select-picker/select-picker.component';
 import { LOG_LEVEL_CHOICES } from '../../shared/utils/call-log-rows';
 import { DEFAULT_REDIS_SETTINGS, RedisSettings } from '../../core/models/store-command.model';
+import { ATTACH_NOTES, attachFeatures } from '../../shared/utils/attach-features';
 
 type ListKey = 'beforeImageTables' | 'expectedFingerprints' | 'ignorePatterns' | 'passThroughClasses';
 
@@ -229,12 +230,10 @@ export class DbCaptureSettingsComponent implements OnInit {
 
   /** Asks the supervisor now, with the features the settings say - the answer is only "asked"; the Server card shows the outcome. */
   attachNow(project: string): void {
-    const s = this.settingsOf(project);
-    const features = s?.attachProxy === false ? ['db', 'logs', 'redis'] : ['proxy', 'db', 'logs', 'redis'];
-    this.attachNotes.set(new Map(this.attachNotes()).set(project, 'asking the supervisor…'));
-    this.server.attachAgent(project, features).subscribe({
-      next: () => this.attachNotes.set(new Map(this.attachNotes()).set(project, 'asked - see Settings → Server for the outcome')),
-      error: (e) => this.attachNotes.set(new Map(this.attachNotes()).set(project, e?.error?.message ?? 'Could not ask the supervisor.')),
+    this.attachNotes.set(new Map(this.attachNotes()).set(project, ATTACH_NOTES.asking));
+    this.server.attachAgent(project, attachFeatures(this.settingsOf(project))).subscribe({
+      next: () => this.attachNotes.set(new Map(this.attachNotes()).set(project, ATTACH_NOTES.asked)),
+      error: (e) => this.attachNotes.set(new Map(this.attachNotes()).set(project, e?.error?.message ?? ATTACH_NOTES.failed)),
     });
   }
 

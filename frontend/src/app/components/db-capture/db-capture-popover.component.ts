@@ -1,8 +1,10 @@
 import { ChangeDetectionStrategy, Component, ElementRef, HostListener, OnInit, computed, inject, input, output, signal } from '@angular/core';
 import { Router } from '@angular/router';
-import { DbCaptureSettings } from '../../core/models/db-capture.model';
+import { ATTACH_MODE_CHOICES, AttachMode, DbCaptureSettings } from '../../core/models/db-capture.model';
 import { DbCaptureApiService } from '../../core/services/db-capture-api.service';
 import { DbCaptureStateService } from '../../core/state/db-capture-state.service';
+import { ServerSettingsService } from '../../core/services/server-settings.service';
+import { ATTACH_NOTES, attachFeatures } from '../../shared/utils/attach-features';
 import { DbWindowService } from './db-window.service';
 import { LogLevelSetting } from '../../core/models/call-logs.model';
 import { SelectPickerComponent } from '../select-picker/select-picker.component';
@@ -10,8 +12,9 @@ import { LOG_LEVEL_CHOICES } from '../../shared/utils/call-log-rows';
 
 /**
  * The ▾ panel next to a project's ◆ switch in the Sources bar (mock: ".db-pop"): the switch again, whether the
- * agent is attached, the before-image tables, rows kept per result and ▤ Log level, the per-viewer "show the chip" choice, and
- * the way to the full settings. Positioned under the button that opened it (fixed, so no ancestor clips it).
+ * agent is attached and how it attaches itself (the attach mode, with the proxy feature and Attach now - the same
+ * setting as Settings → Database capture), the before-image tables, rows kept per result and ▤ Log level, the
+ * per-viewer "show the chip" choice, and the way to the full settings. Positioned under the button that opened it (fixed, so no ancestor clips it).
  */
 @Component({
   standalone: true,
@@ -41,6 +44,20 @@ import { LOG_LEVEL_CHOICES } from '../../shared/utils/call-log-rows';
           automatically), or start the JVM with <code>-javaagent:alfred-agent.jar=alfredUrl=…,project={{ project() }}</code>.
           See docs/db-capture.md.</div>
       }
+      <!-- The same attach setting as Settings → Database capture → Agent (specs/012): the supervisor loads the agent into the app's JVM -->
+      <div class="pr"><span class="pl">Attach</span>
+        <span>
+          <app-select-picker class="db-attach-mode" ariaLabel="Attach mode"
+                             title="The supervisor finds the app (the JVM listening on this project's upstream port) and loads Alfred's agent into it. When asked: at start, when calls arrive and no agent reports, on Attach now. Automatic: also the moment the app's port opens or its pid changes."
+                             [options]="attachModeChoices" [value]="attachMode()" (valueChange)="setAttachMode($event)" />
+          <label class="chk" title="Also route the app's outbound calls through Alfred's forward proxy (the proxy feature)">
+            <input type="checkbox" [checked]="settings()?.attachProxy !== false" [disabled]="attachMode() === 'OFF'" (change)="toggleAttachProxy()"> route outbound through Alfred</label>
+          <button type="button" class="link-btn" [disabled]="attachMode() === 'OFF'" (click)="attachNow()" title="Ask the supervisor to attach now">Attach now</button>
+          @if (attachNote(); as note) {
+            <span class="dimtxt db-attach-note">{{ note }}</span>
+          }
+        </span>
+      </div>
       <div class="pr"><span class="pl">Before-image</span>
         <span>
           @for (t of settings()?.beforeImageTables ?? []; track t) {
@@ -82,6 +99,7 @@ export class DbCapturePopoverComponent implements OnInit {
   private readonly api = inject(DbCaptureApiService);
   private readonly router = inject(Router);
   private readonly window = inject(DbWindowService);
+  private readonly server = inject(ServerSettingsService);
   private readonly host = inject(ElementRef<HTMLElement>);
   protected readonly state = inject(DbCaptureStateService);
 
@@ -100,6 +118,11 @@ export class DbCapturePopoverComponent implements OnInit {
   readonly status = computed(() => this.state.projectStatus(this.project()));
   /** The Log level - the same setting as Settings → Database capture (specs/009). */
   protected readonly levelChoices = LOG_LEVEL_CHOICES;
+  /** The attach mode - the same setting as Settings → Database capture → Agent (specs/012). */
+  protected readonly attachModeChoices = ATTACH_MODE_CHOICES;
+  readonly attachMode = computed<AttachMode>(() => this.settings()?.attachMode ?? 'WHEN_ASKED');
+  /** What the last ask came to (the Server card has the supervisor's full account). */
+  readonly attachNote = signal('');
   readonly level = computed<LogLevelSetting>(() => this.settings()?.logLevel ?? 'ERROR');
   readonly logsOn = computed(() => this.state.logsOn(this.project(), this.inboundOn()));
   readonly enabled = computed(() => !!this.status()?.enabled && this.inboundOn());
@@ -134,11 +157,36 @@ export class DbCapturePopoverComponent implements OnInit {
     if (!this.host.nativeElement.contains(target) && !this.anchor()?.contains(target)) this.closed.emit();
   }
 
-  private save(next: DbCaptureSettings): void {
+  private save(next: DbCaptureSettings, then?: () => void): void {
     this.error.set(null);
     this.api.saveSettings(this.project(), next).subscribe({
-      next: (s) => this.settings.set(s),
+      next: (s) => {
+        this.settings.set(s);
+        then?.();
+      },
       error: (e) => this.error.set(e?.error?.error ?? 'Could not save.'),
+    });
+  }
+
+  /** A mode other than OFF asks the supervisor right away, so the pick has an effect the user can see. */
+  setAttachMode(value: string): void {
+    const attachMode = value as AttachMode;
+    const s = this.settings();
+    if (!s || attachMode === this.attachMode()) return;
+    this.save({ ...s, attachMode }, attachMode !== 'OFF' ? () => this.attachNow() : undefined);
+  }
+
+  toggleAttachProxy(): void {
+    const s = this.settings();
+    if (s) this.save({ ...s, attachProxy: s.attachProxy === false }, () => this.attachNow());
+  }
+
+  /** Asks the supervisor now with the features the settings say - the answer is only "asked"; the Server card shows the outcome. */
+  attachNow(): void {
+    this.attachNote.set(ATTACH_NOTES.asking);
+    this.server.attachAgent(this.project(), attachFeatures(this.settings())).subscribe({
+      next: () => this.attachNote.set(ATTACH_NOTES.asked),
+      error: (e) => this.attachNote.set(e?.error?.message ?? ATTACH_NOTES.failed),
     });
   }
 
