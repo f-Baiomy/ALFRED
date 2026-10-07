@@ -27,10 +27,16 @@ class HttpSettingsClientTest {
     private String base;
     private final List<String> seen = new CopyOnWriteArrayList<>();
 
+    /** Which install the fake backend claims to be: this test's home, or another folder. */
+    private volatile String installDir;
+
     @BeforeEach
     void start() throws IOException {
+        installDir = home.toString();
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/health", x -> reply(x, 200, "{\"status\":\"UP\"}"));
+        server.createContext("/server/status", x -> reply(x, 200,
+                "{\"installDir\":" + (installDir == null ? "null" : "\"" + installDir.replace("\\", "\\\\") + "\"") + ",\"processes\":[]}"));
         server.createContext("/server/settings", x -> {
             seen.add(x.getRequestMethod() + " " + x.getRequestURI() + " user=" + x.getRequestHeaders().getFirst("X-Alfred-Cli-User"));
             if (x.getRequestMethod().equals("GET")) {
@@ -66,11 +72,41 @@ class HttpSettingsClientTest {
         x.close();
     }
 
+    private ServerConfigCli cli(java.io.ByteArrayOutputStream err) {
+        return new ServerConfigCli(new java.io.PrintStream(new java.io.ByteArrayOutputStream()),
+                new java.io.PrintStream(err, true, StandardCharsets.UTF_8));
+    }
+
     @Test
     void theRunningBackendIsUsedWhenItAnswersAndTheFilesOtherwise() {
-        assertThat(ServerConfigCli.client(new ServerConfigCli.Options(home, base, "ops")).where()).isEqualTo("live");
-        assertThat(ServerConfigCli.client(new ServerConfigCli.Options(home, "http://127.0.0.1:1", "ops")).where()).isEqualTo("files");
-        assertThat(ServerConfigCli.client(new ServerConfigCli.Options(home, null, "ops")).where()).isEqualTo("files");
+        java.io.ByteArrayOutputStream err = new java.io.ByteArrayOutputStream();
+        assertThat(cli(err).client(new ServerConfigCli.Options(home, base, "ops")).where()).isEqualTo("live");
+        assertThat(cli(err).client(new ServerConfigCli.Options(home, "http://127.0.0.1:1", "ops")).where()).isEqualTo("files");
+        assertThat(cli(err).client(new ServerConfigCli.Options(home, null, "ops")).where()).isEqualTo("files");
+        assertThat(err.toString(StandardCharsets.UTF_8)).isEmpty();
+    }
+
+    @Test
+    void anotherAlfredAnsweringOnThePortIsNotThisInstall() {
+        // The Docker install, or a second native one, answers /health the same way - a save must not land in ITS .env.
+        installDir = home.resolveSibling("other-alfred").toString();
+        java.io.ByteArrayOutputStream err = new java.io.ByteArrayOutputStream();
+        assertThat(cli(err).client(new ServerConfigCli.Options(home, base, "ops")).where()).isEqualTo("files");
+        assertThat(err.toString(StandardCharsets.UTF_8)).contains("another install").contains("other-alfred");
+
+        // A backend that does not say where it lives (Docker mode) is not this install either.
+        installDir = null;
+        err.reset();
+        assertThat(cli(err).client(new ServerConfigCli.Options(home, base, "ops")).where()).isEqualTo("files");
+        assertThat(err.toString(StandardCharsets.UTF_8)).contains("not this install");
+    }
+
+    @Test
+    void sameFolderIgnoresSpellingDifferencesOfOneFolder() throws IOException {
+        assertThat(ServerConfigCli.sameFolder(home.toString(), home)).isTrue();
+        assertThat(ServerConfigCli.sameFolder(home.resolve("app").resolve("..").toString(), home)).isTrue();
+        assertThat(ServerConfigCli.sameFolder(home.resolveSibling("elsewhere").toString(), home)).isFalse();
+        assertThat(ServerConfigCli.sameFolder("", home)).isFalse();
     }
 
     @Test

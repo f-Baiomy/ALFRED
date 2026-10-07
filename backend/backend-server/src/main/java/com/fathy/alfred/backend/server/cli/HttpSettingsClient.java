@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * The running backend's /server API on 127.0.0.1 (always allowed: this machine). Saves carry X-Alfred-Cli-User, so
@@ -49,6 +50,29 @@ final class HttpSettingsClient implements SettingsClient {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return false;
+        }
+    }
+
+    /**
+     * The install folder of the backend answering on {@code base} (ServerStatus.installDir), or empty when it does
+     * not answer. The CLI compares it with its own home: whatever answers on the UI port is not necessarily this
+     * install - another Alfred (the Docker one, or a second native install) on the same machine answers the same way,
+     * and a `config set` once edited that other install's .env while reporting success.
+     */
+    static Optional<String> installDir(String base) {
+        try {
+            HttpRequest request = HttpRequest.newBuilder(URI.create(base + "/server/status")).timeout(Duration.ofSeconds(3)).GET().build();
+            HttpResponse<String> response = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build()
+                    .send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() != 200) {
+                return Optional.empty();
+            }
+            return Optional.ofNullable(new ObjectMapper().readTree(response.body()).path("installDir").asText(null));
+        } catch (IOException | IllegalArgumentException e) {
+            return Optional.empty();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return Optional.empty();
         }
     }
 

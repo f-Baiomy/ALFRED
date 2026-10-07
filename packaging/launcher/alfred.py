@@ -106,16 +106,47 @@ def ui_addresses(layout):
     return addresses
 
 
+def own_backend(layout, timeout=2):
+    """Who answers on this install's UI port: (True, None) when THIS install's backend does, (False, folder) when
+    another Alfred does - its install folder -, (False, None) when nothing answers.
+
+    /health alone was the check before, and another Alfred on the same machine (the Docker one, a second native
+    install) answers it the same way: `alfred start` then printed "UI at ..." while this install's backend had
+    crashed on the port the other one holds."""
+    try:
+        with urllib.request.urlopen(layout.local_url() + "/server/status", timeout=timeout) as response:
+            status = json.load(response)
+    except (urllib.error.URLError, OSError, ValueError):
+        return False, None
+    other = status.get("installDir") or ""
+    if other and os.path.normcase(os.path.realpath(other)) == os.path.normcase(os.path.realpath(layout.home)):
+        return True, None
+    return False, other or "an install that does not say where it is (Docker?)"
+
+
 def wait_for_health(layout, seconds=60):
     deadline = time.monotonic() + seconds
-    url = layout.local_url() + "/health"
     while time.monotonic() < deadline:
-        try:
-            with urllib.request.urlopen(url, timeout=2):
-                return True
-        except (urllib.error.URLError, OSError):
-            time.sleep(1)
+        if own_backend(layout)[0]:
+            return True
+        time.sleep(1)
     return False
+
+
+def explain_not_answering(layout):
+    """Why this install's backend is not answering, as far as can be told from outside: another Alfred on the port,
+    and the supervisor's own account of each process."""
+    lines = []
+    _, other = own_backend(layout)
+    if other:
+        lines.append(f"  Port {layout.ui_port()} is answered by another Alfred: {other}. This install ({layout.home}) "
+                     "cannot listen there - change ALFRED_UI_PORT or stop that other install.")
+    status = call_supervisor(layout, "GET", "/status")
+    for p in (status or {}).get("processes", []):
+        if p["state"] != "RUNNING" or p["detail"]:
+            lines.append(f"  {p['name']}: {p['state'].lower()}" + (f" - {p['detail']}" if p["detail"] else ""))
+    lines.append("  Logs: alfred logs supervisor, alfred logs backend")
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -143,7 +174,7 @@ def cmd_wait_health(layout, args):
     if wait_for_health(layout):
         print("UI at " + " · ".join(ui_addresses(layout)))
         return OK
-    print("Alfred did not answer within 60 s - see: alfred logs supervisor", file=sys.stderr)
+    print("Alfred did not answer within 60 s.\n" + explain_not_answering(layout), file=sys.stderr)
     return ERROR
 
 
@@ -169,9 +200,13 @@ def cmd_start(layout, args):
         code = OK
     if code != OK:
         return ERROR
-    print("Starting Alfred...", "UI at " + " · ".join(ui_addresses(layout)) if wait_for_health(layout) else
-          "it did not answer within 60 s - see `alfred logs supervisor`")
-    return OK
+    if wait_for_health(layout):
+        print("Starting Alfred... UI at " + " · ".join(ui_addresses(layout)))
+        return OK
+    # Say WHY when it can be told (a port in use names the setting to change), not only where the logs are.
+    print("Starting Alfred... it did not answer within 60 s.")
+    print(explain_not_answering(layout))
+    return ERROR
 
 
 def cmd_stop(layout, args):
@@ -395,4 +430,8 @@ def main(argv):
 
 
 if __name__ == "__main__":
+    # Output may be piped (the installer captures it) in the ANSI code page: never let a "·" or "✓" raise.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="replace")
     sys.exit(main(sys.argv[1:]))

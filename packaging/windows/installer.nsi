@@ -187,7 +187,7 @@ Section "Alfred" SecMain
   ; Every step from here checks its result and says what failed. The first Windows builds popped the exit codes and
   ; went on, so a failed .env still ended with "installed and started" although nothing could ever start.
   ${IfNot} ${FileExists} "$INSTDIR\.env"
-    nsExec::ExecToStack '"$INSTDIR\alfred.cmd" _init-env'
+    nsExec::ExecToStack '"$INSTDIR\runtime\python\python.exe" "$INSTDIR\app\launcher\alfred.py" _init-env'
     Pop $0
     Pop $1
     ${If} $0 != "0"
@@ -202,7 +202,7 @@ Section "Alfred" SecMain
     StrCpy $UiPort "3000"
   ${EndIf}
   ${If} $UiPort != "3000"
-    nsExec::ExecToStack '"$INSTDIR\alfred.cmd" config set ALFRED_UI_PORT $UiPort'
+    nsExec::ExecToStack '"$INSTDIR\runtime\python\python.exe" "$INSTDIR\app\launcher\alfred.py" config set ALFRED_UI_PORT $UiPort'
     Pop $0
     Pop $1
     ${If} $0 != "0"
@@ -288,7 +288,7 @@ Section "Alfred" SecMain
     DetailPrint "Service $\"alfred$\" installed and started (starts at boot)"
     ; Started is not answering: wait for /health like the Linux installer, so "installed" means it works.
     DetailPrint "Waiting for Alfred to answer..."
-    nsExec::ExecToStack '"$INSTDIR\alfred.cmd" _wait-health'
+    nsExec::ExecToStack '"$INSTDIR\runtime\python\python.exe" "$INSTDIR\app\launcher\alfred.py" _wait-health'
     Pop $0
     Pop $1
     ${TrimNewLines} $1 $1
@@ -313,7 +313,7 @@ Section "Alfred" SecMain
     RMDir /r "$INSTDIR\runtime.previous"
     RMDir /r "$INSTDIR\app.previous"
     ${If} $OldVersion != "${VERSION}"
-      nsExec::ExecToStack '"$INSTDIR\alfred.cmd" _record-upgrade "$OldVersion" "${VERSION}"'
+      nsExec::ExecToStack '"$INSTDIR\runtime\python\python.exe" "$INSTDIR\app\launcher\alfred.py" _record-upgrade "$OldVersion" "${VERSION}"'
       Pop $0
       Pop $1
       ${If} $0 != "0"

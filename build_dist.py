@@ -36,6 +36,13 @@ import threading
 import time
 import zipfile
 
+# The tools' output is relayed as it comes, and ng build prints characters (❯, ✔) a Windows console in cp1252
+# cannot encode - which made the relay itself raise UnicodeEncodeError and kill the build mid-step. Unencodable
+# characters are replaced instead of fatal; the tools' own exit codes still decide success.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(errors="replace")
+
 ROOT = os.path.dirname(os.path.abspath(__file__))
 CACHE = os.path.join(ROOT, "build-cache")
 DOWNLOADS = os.path.join(CACHE, "downloads")

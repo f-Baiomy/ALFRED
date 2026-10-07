@@ -30,6 +30,7 @@ import java.io.InputStreamReader;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.ZoneId;
@@ -76,7 +77,7 @@ public final class ServerConfigCli {
     private final BufferedReader in;
     private final Marks marks;
     /** Builds the settings client; replaced by tests. */
-    Function<Options, SettingsClient> clients = ServerConfigCli::client;
+    Function<Options, SettingsClient> clients = this::client;
 
     record Options(Path home, String backend, String user) {
     }
@@ -244,12 +245,34 @@ public final class ServerConfigCli {
         };
     }
 
-    /** The running backend when it answers, else the same service on the files. */
-    static SettingsClient client(Options options) {
+    /**
+     * The running backend when it answers AND is this install's, else the same service on the files. Another Alfred
+     * on the same machine (Docker, or a second native install) answers the UI port the same way; without the
+     * identity check a `config set` edited that other install's .env and reported success.
+     */
+    SettingsClient client(Options options) {
         if (options.backend() != null && HttpSettingsClient.answers(options.backend())) {
-            return new HttpSettingsClient(options.backend(), options.user());
+            Optional<String> installDir = HttpSettingsClient.installDir(options.backend());
+            if (installDir.isPresent() && sameFolder(installDir.get(), options.home())) {
+                return new HttpSettingsClient(options.backend(), options.user());
+            }
+            err.println("note: the Alfred answering on " + options.backend() + " is "
+                    + installDir.filter(d -> !d.isBlank()).map(d -> "another install (" + d + ")").orElse("not this install")
+                    + ". This install is stopped - its files are edited directly.");
         }
         return new LocalSettingsClient(localService(options.home()), options.user());
+    }
+
+    static boolean sameFolder(String reported, Path home) {
+        try {
+            Path other = Path.of(reported);
+            if (Files.exists(other) && Files.exists(home)) {
+                return Files.isSameFile(other, home);
+            }
+            return other.toAbsolutePath().normalize().toString().equalsIgnoreCase(home.toAbsolutePath().normalize().toString());
+        } catch (IOException | InvalidPathException e) {
+            return false;
+        }
     }
 
     static ServerSettingsService localService(Path home) {

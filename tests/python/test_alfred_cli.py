@@ -2,6 +2,7 @@
 message - not answered wrongly ("not running", "No log yet") or with a traceback (FileExistsError on data\\appdata)."""
 
 import io
+import json
 import os
 import shutil
 import sys
@@ -128,6 +129,72 @@ class ContractNamesTest(unittest.TestCase):
         code, _, err = run_main(home, ["_record-upgrade", "only-one"])
         self.assertEqual(code, alfred.USAGE)
         self.assertIn("OLD_VERSION NEW_VERSION", err)
+
+
+class OwnBackendTest(unittest.TestCase):
+    """Whatever answers on the UI port is not necessarily this install: /server/status must name this home."""
+
+    def setUp(self):
+        self.home = make_home()
+        self.addCleanup(shutil.rmtree, self.home, ignore_errors=True)
+
+    def answering(self, payload):
+        import io as _io
+        body = json.dumps(payload).encode()
+
+        class Response(_io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+        return mock.patch.object(alfred.urllib.request, "urlopen", lambda url, timeout=0: Response(body))
+
+    def test_this_installs_backend_is_recognised_by_its_install_folder(self):
+        with self.answering({"installDir": self.home, "processes": []}):
+            self.assertEqual(alfred.own_backend(Layout(self.home)), (True, None))
+            self.assertTrue(alfred.wait_for_health(Layout(self.home), seconds=2))
+
+    def test_another_install_on_the_port_is_not_this_one(self):
+        with self.answering({"installDir": r"C:\other-alfred", "processes": []}):
+            ok, other = alfred.own_backend(Layout(self.home))
+            self.assertFalse(ok)
+            self.assertEqual(other, r"C:\other-alfred")
+            self.assertFalse(alfred.wait_for_health(Layout(self.home), seconds=1))
+            explanation = alfred.explain_not_answering(Layout(self.home))
+            self.assertIn("another Alfred", explanation)
+            self.assertIn(r"C:\other-alfred", explanation)
+
+    def test_a_docker_backend_without_an_install_folder_is_not_this_one_either(self):
+        with self.answering({"installDir": "", "processes": []}):
+            ok, other = alfred.own_backend(Layout(self.home))
+            self.assertFalse(ok)
+            self.assertIn("Docker", other)
+
+    def test_nothing_answering(self):
+        def refuse(url, timeout=0):
+            raise alfred.urllib.error.URLError("refused")
+        with mock.patch.object(alfred.urllib.request, "urlopen", refuse):
+            self.assertEqual(alfred.own_backend(Layout(self.home)), (False, None))
+
+
+class StartReportsWhyTest(unittest.TestCase):
+
+    def test_a_start_that_does_not_answer_prints_the_crashed_processes_reason(self):
+        home = make_home()
+        self.addCleanup(shutil.rmtree, home, ignore_errors=True)
+        status = {"processes": [
+            {"name": "BACKEND", "state": "CRASHED", "detail": "cannot listen on 0.0.0.0:3000: address in use. Change ALFRED_UI_PORT"},
+            {"name": "OUTBOUND", "state": "RUNNING", "detail": ""},
+        ]}
+        with mock.patch.object(alfred, "ensure_env"), mock.patch.object(alfred, "service_installed", return_value=True), \
+                mock.patch.object(alfred, "service", return_value=0), mock.patch.object(alfred, "wait_for_health", return_value=False), \
+                mock.patch.object(alfred, "call_supervisor", return_value=status):
+            code, out, _ = run_main(home, ["start"])
+        self.assertEqual(code, alfred.ERROR)
+        self.assertIn("BACKEND: crashed - cannot listen on 0.0.0.0:3000", out)
+        self.assertIn("ALFRED_UI_PORT", out)
+        self.assertNotIn("OUTBOUND", out)
 
 
 class EnsureEnvTest(unittest.TestCase):

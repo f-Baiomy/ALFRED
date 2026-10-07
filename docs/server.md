@@ -34,6 +34,15 @@ offers to import an existing Docker install, and registers the service: systemd 
 systemd it says so - start it with `alfred start`), WinSW on Windows. **The service runs as root / LocalSystem by
 default**, because the Java apps Alfred attaches to usually do; `--user` / `/SERVICEUSER=` picks another account.
 
+**Same machine as a Docker install?** The Docker install holds `3000` and `127.0.0.2:443` too. Either import it
+(below - its containers are stopped), stop it (`docker compose stop` in its folder), or give the native install
+other addresses: `--ui-port 3017` at install, then `alfred config set ALFRED_OUTBOUND_PROXY_LISTEN 127.0.0.3:443`
+and `alfred restart`. A clash is reported by `alfred start` / `alfred status` with the setting to change.
+
+**Windows firewall:** the installer changes nothing system-wide, so the UI is reachable from the LAN only after
+the firewall allows `runtime\java\bin\java.exe` (Windows Defender Firewall > Allow an app); localhost and SSH
+tunnels work without it.
+
 ### Importing a Docker install
 
 `--import-docker <repo folder>` (or the wizard's question) stops the Docker containers, copies their recorded data

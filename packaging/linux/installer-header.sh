@@ -198,23 +198,12 @@ else
 fi
 
 if [ "$NO_START" -eq 0 ]; then
-  # "started" only when it answered: this used to print "started" right after saying it had not.
-  if "$DIR/runtime/python/bin/python3" - "$DIR" <<'PY'
-import sys, time, urllib.request
-sys.path.insert(0, sys.argv[1] + "/app/launcher")
-from layout import Layout
-url = Layout(sys.argv[1]).local_url() + "/health"
-for _ in range(60):
-    try:
-        urllib.request.urlopen(url, timeout=2).close()
-        sys.exit(0)
-    except Exception:
-        time.sleep(1)
-sys.exit(1)
-PY
-  then
-    ok "started. $("$DIR/alfred" status | tail -n 1)"
+  # The launcher's own wait: THIS install's backend must answer (another Alfred on the port does not count), and on
+  # failure it says why. "started" only when it did - this used to print "started" right after saying it had not.
+  if HEALTH_OUT=$("$DIR/alfred" _wait-health 2>&1); then
+    ok "started. $HEALTH_OUT"
   else
+    printf '%s\n' "$HEALTH_OUT" >&2
     say "  Alfred did not answer within 60 s - see: sudo alfred logs supervisor"
   fi
 fi

@@ -112,13 +112,24 @@ public class ServerSliceConfiguration implements WebSocketConfigurer {
     @Bean
     public SettingsProbes serverSettingsProbes(StorageStatsPort storage, EnvFilePort envFile, DefaultsPort defaults,
                                                @Value("${ALFRED_DATA_DIR:data}") String dataDir,
-                                               @Value("${ALFRED_HOME:.}") String home) {
-        // "Running" settings: what .env says now, which is what the processes were started with or are about to be.
-        return new MachineProbes(new MachineAdapter(Path.of(dataDir)), storage, () -> {
-            java.util.Map<String, String> effective = new java.util.LinkedHashMap<>(defaults.defaults());
-            effective.putAll(envFile.read().entries());
-            return effective;
-        }, Path.of(home));
+                                               @Value("${ALFRED_HOME:.}") String home,
+                                               @Value("${server.port:3000}") int serverPort) {
+        return new MachineProbes(new MachineAdapter(Path.of(dataDir)), storage,
+                () -> runningSettings(defaults.defaults(), envFile.read().entries(), serverPort), Path.of(home));
+    }
+
+    /**
+     * The settings the running processes use now - a port they hold is "in use by Alfred itself", not by another
+     * process. That is what .env says (the proxies restart on every save, so .env and the running proxies agree),
+     * except the UI port: it changes only at a restart, so until then .env and the running backend differ - and
+     * setting it BACK to the running port was refused as "in use by java.exe (pid ...)", Alfred's own backend.
+     */
+    static java.util.Map<String, String> runningSettings(java.util.Map<String, String> defaults,
+                                                         java.util.Map<String, String> env, int serverPort) {
+        java.util.Map<String, String> effective = new java.util.LinkedHashMap<>(defaults);
+        effective.putAll(env);
+        effective.put("ALFRED_UI_PORT", String.valueOf(serverPort));
+        return effective;
     }
 
     @Bean

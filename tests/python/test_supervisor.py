@@ -75,6 +75,13 @@ class ProcessSpecsTest(unittest.TestCase):
         self.assertEqual(specs["OUTBOUND"]["env"]["FORWARD_PROXY_PORT_MAP"], "a:127.0.0.3:443,b:127.0.0.4:443")
         self.assertIn("regular@127.0.0.3:443", specs["OUTBOUND"]["argv"])
 
+    def test_proxies_find_their_own_modules_from_a_child_process(self):
+        # The regex worker is spawned later and imports regex_worker by name - only PYTHONPATH makes that work
+        # when the working directory is the install folder rather than the addon folder.
+        layout, specs = self.specs("REVERSE_PROXY_ENABLED=true", "INTERNAL_CALL_SERVICES=a:9001:8080")
+        for name in ("OUTBOUND", "REVERSE"):
+            self.assertEqual(specs[name]["env"]["PYTHONPATH"], os.path.join(layout.app, "proxy"), name)
+
     def test_log_agent_only_when_folders_exist_and_mode_is_agent(self):
         _, specs = self.specs("ALFRED_LOGS_WATCH_DIRS=app:/var/log/app", "ALFRED_LOGS_WATCH_MODE=agent")
         self.assertIsNotNone(specs["LOG_AGENT"])
@@ -142,6 +149,16 @@ class SupervisionTest(unittest.TestCase):
         child = self.sup.children["OUTBOUND"]
         self.assertTrue(self.wait_for(lambda: "cannot listen" in child.detail), child.detail)
         self.assertIn("ALFRED_OUTBOUND_PROXY_LISTEN", child.detail)
+
+    def test_the_backends_port_clash_names_the_ui_port_setting(self):
+        # Spring Boot's wording, not the OS's: "Port 3000 was already in use".
+        spring = [sys.executable, "-c", "import sys; print('Web server failed to start. Port 3000 was already in use.'); sys.exit(1)"]
+        self.fake["BACKEND"] = {"argv": spring, "env": {}, "listeners": ["0.0.0.0:3000 (UI, API, /mcp)"]}
+        self.sup.start_all()
+        child = self.sup.children["BACKEND"]
+        self.assertTrue(self.wait_for(lambda: "cannot listen" in child.detail), child.detail)
+        self.assertIn("ALFRED_UI_PORT", child.detail)
+        self.assertIn("Docker", child.detail)
 
     def test_reload_restarts_only_what_changed(self):
         self.sup.start_all()

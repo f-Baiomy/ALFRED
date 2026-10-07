@@ -49,7 +49,19 @@ LOG_FILES = 3
 MCP_PORT_DEFAULT = 3009
 MITMDUMP_PROGRAM = "from mitmproxy.tools.main import mitmdump; mitmdump()"
 BIND_FAILURES = ("address already in use", "permission denied", "only one usage of each socket address",
-                 "cannot assign requested address", "an attempt was made to access a socket")
+                 "cannot assign requested address", "an attempt was made to access a socket",
+                 # Spring Boot's own wording for the UI port ("Port 3000 was already in use").
+                 "was already in use", "failed to bind", "eaddrinuse")
+# What to change when a child cannot listen - the setting, not a generic hint. The Docker install on the same
+# machine is the common cause: it holds 3000 and 127.0.0.2:443 too.
+BIND_HINTS = {
+    "BACKEND": "Change ALFRED_UI_PORT (alfred config set ALFRED_UI_PORT <port>), or stop whatever holds the port - "
+               "an Alfred Docker install on this machine does.",
+    "OUTBOUND": "Change ALFRED_OUTBOUND_PROXY_LISTEN (e.g. 127.0.0.3:443) or a project's outbound address, or stop "
+                "whatever holds the port - an Alfred Docker install on this machine does.",
+    "REVERSE": "Change the project's listen port (alfred project add NAME LISTEN_PORT APP_PORT).",
+    "MCP": "The MCP port is chosen by the supervisor; restart Alfred to pick another.",
+}
 
 # The backend's own files, under data/appdata unless noted: the same files docker-compose.yml points at /appdata.
 APPDATA_FILES = {
@@ -73,6 +85,56 @@ FLAG_FILES = {
 
 def now_iso():
     return datetime.now(timezone.utc).isoformat()
+
+
+def job_object():
+    """Windows: a job every child is assigned to, set to kill its processes when the job's last handle closes - that
+    is, when the supervisor itself dies, however it dies (killed, crashed, the service stopped hard). Without it a
+    java/python/node left behind keeps the UI and proxy ports, and the next start crashes on every one of them.
+    Children of children (the regex worker mitmproxy spawns) are in the job too. None where it cannot be made."""
+    if not WINDOWS:
+        return None
+    try:
+        import ctypes
+        import ctypes.wintypes as wintypes
+        kernel32 = ctypes.windll.kernel32
+        job = kernel32.CreateJobObjectW(None, None)
+        if not job:
+            return None
+
+        class BasicLimits(ctypes.Structure):
+            _fields_ = [("PerProcessUserTimeLimit", ctypes.c_int64), ("PerJobUserTimeLimit", ctypes.c_int64),
+                        ("LimitFlags", wintypes.DWORD), ("MinimumWorkingSetSize", ctypes.c_size_t),
+                        ("MaximumWorkingSetSize", ctypes.c_size_t), ("ActiveProcessLimit", wintypes.DWORD),
+                        ("Affinity", ctypes.c_size_t), ("PriorityClass", wintypes.DWORD), ("SchedulingClass", wintypes.DWORD)]
+
+        class IoCounters(ctypes.Structure):
+            _fields_ = [(name, ctypes.c_uint64) for name in ("ReadOperationCount", "WriteOperationCount", "OtherOperationCount",
+                                                             "ReadTransferCount", "WriteTransferCount", "OtherTransferCount")]
+
+        class ExtendedLimits(ctypes.Structure):
+            _fields_ = [("BasicLimitInformation", BasicLimits), ("IoInfo", IoCounters), ("ProcessMemoryLimit", ctypes.c_size_t),
+                        ("JobMemoryLimit", ctypes.c_size_t), ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                        ("PeakJobMemoryUsed", ctypes.c_size_t)]
+
+        limits = ExtendedLimits()
+        limits.BasicLimitInformation.LimitFlags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        job_object_extended_limit_information = 9
+        if not kernel32.SetInformationJobObject(job, job_object_extended_limit_information, ctypes.byref(limits), ctypes.sizeof(limits)):
+            kernel32.CloseHandle(job)
+            return None
+        return job
+    except (AttributeError, OSError):
+        return None
+
+
+def assign_to_job(job, proc):
+    """Puts a just-started child into the job. A failure is logged, not fatal: the child runs as before."""
+    if job is None:
+        return
+    import ctypes
+    if not ctypes.windll.kernel32.AssignProcessToJobObject(job, ctypes.c_void_p(int(proc._handle))):
+        log.debug("could not assign pid %s to the job object (error %s)", proc.pid, ctypes.GetLastError())
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -163,6 +225,12 @@ def proxy_env(layout, settings, kind):
         "INTERCEPTION_ANSWER_CACHE_BYTES": "33554432",
         "BACKEND_HOST": "127.0.0.1",
         "PYTHONUNBUFFERED": "1",
+        # The addon folder on the import path for the whole process, not only while mitmproxy loads the script
+        # (it restores sys.path afterwards). The regex worker is a separate process started later (spawn on
+        # Windows, forkserver on Linux) that imports regex_worker by name: Docker finds it through the working
+        # directory, natively the working directory is the install folder, so a regex rule's first use failed
+        # with ModuleNotFoundError.
+        "PYTHONPATH": os.path.join(layout.app, "proxy"),
     }
     if kind == "OUTBOUND":
         env["WEBHOOK_URL"] = base + "/calls/webhook"
@@ -268,6 +336,7 @@ class Child:
                 log.error("%s: %s", self.name, self.detail)
                 self.supervisor.changed(self)
                 return
+            assign_to_job(self.supervisor.job, self.proc)
             self.state = "RUNNING"
             self.detail = ""
             self.started_at = now_iso()
@@ -319,7 +388,7 @@ class Child:
             if any(marker in text for marker in BIND_FAILURES):
                 listen = ", ".join(self.spec.get("listeners") or [])
                 self.detail = (f"cannot listen on {listen}: address in use or not permitted. "
-                               "Change ALFRED_OUTBOUND_PROXY_LISTEN or the project's ports.")
+                               + BIND_HINTS.get(self.name, "Change the port setting."))
             else:
                 self.detail = f"exited with code {code}"
             now = time.monotonic()
@@ -364,6 +433,7 @@ class Supervisor:
         self.server = None
         self.specs = {}
         self.mcp_port = free_port(MCP_PORT_DEFAULT)
+        self.job = job_object()
 
     def spec_for(self, name):
         return self.specs.get(name)
@@ -529,6 +599,11 @@ def check_env(layout):
 
 
 def main(home):
+    # Under the Windows service stdout is a pipe in the ANSI code page; a character outside it (a check mark from
+    # a tool's output) must not become a logging error. Replaced, not fatal.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="replace")
     layout = Layout(home)
     layout.make_dirs()
     handler = logging.handlers.RotatingFileHandler(os.path.join(layout.logs, "supervisor.log"), maxBytes=LOG_BYTES,
