@@ -1,7 +1,12 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { AlfredClient } from '../src/alfred-client.ts';
+import { serveHttp } from '../src/http.ts';
 import { createServer } from '../src/server.ts';
+
+/** ALFRED_MCP_TRANSPORT=http (npm run test:http): every test talks to the server over the native install's HTTP transport. */
+const overHttp = (process.env['ALFRED_MCP_TRANSPORT'] || '').toLowerCase() === 'http';
 
 export interface ToolResult {
   readonly text: string;
@@ -12,10 +17,18 @@ export interface ToolResult {
 
 /** An MCP client connected in-process to a fresh server pointed at `baseUrl` (a fake Alfred, or the real one). */
 export async function connect(baseUrl: string): Promise<{ call: (name: string, args?: Record<string, unknown>) => Promise<ToolResult>; close: () => Promise<void>; client: Client }> {
-  const server = createServer(new AlfredClient(baseUrl));
-  const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: 'alfred-tests', version: '0' });
-  await Promise.all([server.connect(serverSide), client.connect(clientSide)]);
+  let closeServer: () => Promise<void>;
+  if (overHttp) {
+    const http = await serveHttp(0, () => createServer(new AlfredClient(baseUrl)));
+    await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${http.port}/mcp`)));
+    closeServer = http.close;
+  } else {
+    const server = createServer(new AlfredClient(baseUrl));
+    const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+    await Promise.all([server.connect(serverSide), client.connect(clientSide)]);
+    closeServer = () => server.close();
+  }
   return {
     client,
     async call(name, args = {}) {
@@ -25,7 +38,7 @@ export async function connect(baseUrl: string): Promise<{ call: (name: string, a
     },
     async close() {
       await client.close();
-      await server.close();
+      await closeServer();
     },
   };
 }
@@ -49,6 +62,7 @@ export async function world(): Promise<{ fake: FakeAlfred; call: (name: string, 
   seed(fake);
   session.maskSecrets = false;
   session.exportFolder = null;
+  session.exportPin = null;
   const h = await connect(fake.url);
   return { fake, call: h.call, close: async () => { await h.close(); await fake.stop(); } };
 }

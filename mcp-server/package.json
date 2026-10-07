@@ -10,6 +10,7 @@
   "scripts": {
     "start": "tsx src/index.ts",
     "test": "tsx --test --test-timeout=60000 test/*.test.ts",
+    "test:http": "node scripts/test-http.mjs",
     "typecheck": "tsc --noEmit",
     "live-check": "tsx scripts/live-check.ts",
     "bundle": "node scripts/bundle.mjs"

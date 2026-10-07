@@ -1,6 +1,6 @@
 import { createWriteStream } from 'node:fs';
 import { rename, stat, unlink } from 'node:fs/promises';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { seg, type AlfredClient } from '../alfred-client.ts';
@@ -115,8 +115,18 @@ async function withDbCaptures(client: AlfredClient, calls: readonly CallRecord[]
   }));
 }
 
-/** Absolute path → used. Relative or none → under the session's export folder. Neither → ask. */
-export function resolveTarget(path: string | undefined, suggestedName: string): { path: string } | { needsPath: true } {
+/**
+ * Absolute path → used. Relative or none → under the session's export folder. Neither → ask. With a pinned folder
+ * (HTTP mode), the file must land directly in it - its download link names one file, never a sub-folder.
+ */
+export function resolveTarget(path: string | undefined, suggestedName: string): { path: string } | { needsPath: true } | { refused: string } {
+  if (session.exportPin) {
+    const target = path && isAbsolute(path) ? resolve(path) : resolve(join(session.exportPin, path || suggestedName));
+    if (dirname(target) !== session.exportPin) {
+      return { refused: `Exports on this server are saved in ${session.exportPin} only - give just a file name.` };
+    }
+    return { path: target };
+  }
   if (path && isAbsolute(path)) return { path: resolve(path) };
   if (!session.exportFolder) return { needsPath: true };
   return { path: resolve(join(session.exportFolder, path || suggestedName)) };
@@ -200,11 +210,17 @@ export function register(server: McpServer, client: AlfredClient): void {
 
     const target = resolveTarget(input.fileName && !input.path ? input.fileName : input.path, built.filename);
     if ('needsPath' in target) return ok({ needsPath: true, suggestedName: built.filename });
+    if ('refused' in target) throw invalid(target.refused);
     const existing = await stat(target.path).catch(() => null);
     if (existing && !input.overwrite) throw invalid(`${target.path} already exists. Ask the user, then pass overwrite: true or another path.`);
     const parent = await stat(dirname(target.path)).catch(() => null);
     if (!parent?.isDirectory()) throw invalid(`Folder does not exist: ${dirname(target.path)}`);
     const bytes = await writeExport(target.path, built);
+    if (session.exportPin) {
+      const download = `/mcp-exports/${encodeURIComponent(basename(target.path))}`;
+      return ok({ download, bytes, format: input.format, calls: calls.length, redactedValues: built.redactedValueCount,
+        message: `Saved on the Alfred server. Download it from the same address as /mcp, at ${download} (kept 7 days).` });
+    }
     return ok({ path: target.path, bytes, format: input.format, calls: calls.length, redactedValues: built.redactedValueCount });
   }));
 }

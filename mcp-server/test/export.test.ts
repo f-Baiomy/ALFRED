@@ -9,6 +9,7 @@ import { analyzeCapture, buildExportFile, suppliersOf, toCallRecord, type CallDb
 import { summaryOf } from './fake-alfred.ts';
 import { world } from './harness.ts';
 import { CYCLE, IN1, OUT1, TOKEN } from './fixtures.ts';
+import { session } from '../src/session.ts';
 
 const dto = (v: unknown) => v as CallSummaryDto;
 
@@ -124,4 +125,30 @@ test('exactly one source is required', async () => {
     const r = await w.call('export_calls', { format: 'md', cycleId: CYCLE, calls: [{ id: IN1 }], path: join(dir, 'a.md') });
     assert.equal(r.json.error, 'invalid');
   } finally { await w.close(); }
+});
+
+test('on a server reached over HTTP, exports stay in the pinned folder and come back as a download link', async () => {
+  const w = await world();
+  try {
+    const dir = await mkdtemp(join(tmpdir(), 'mcp-pinned-'));
+    session.exportPin = dir;
+    session.exportFolder = dir;
+    const saved = await w.call('export_calls', { format: 'md', calls: [{ id: IN1 }], fileName: 'repro one.md' });
+    assert.equal(saved.isError, false, saved.text);
+    assert.equal(saved.json.download, '/mcp-exports/repro%20one.md');
+    assert.equal(saved.json.path, undefined, 'the server path is not handed out');
+    assert.deepEqual(await readdir(dir), ['repro one.md']);
+
+    const outside = await w.call('export_calls', { format: 'md', calls: [{ id: IN1 }], path: join(tmpdir(), 'elsewhere.md') });
+    assert.match(outside.json.message, /saved in .* only/);
+    const climbing = await w.call('export_calls', { format: 'md', calls: [{ id: IN1 }], fileName: '../up.md' });
+    assert.match(climbing.json.message, /saved in .* only/);
+    const moved = await w.call('session_settings', { exportFolder: tmpdir() });
+    assert.equal(moved.isError, true);
+    const rooted = await w.call('session_settings', { sourceRoot: tmpdir() });
+    assert.equal(rooted.isError, true);
+  } finally {
+    session.exportPin = null;
+    await w.close();
+  }
 });

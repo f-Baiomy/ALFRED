@@ -11,13 +11,23 @@ import { invalid, ok, run } from './reply.ts';
 export interface SessionSettings {
   maskSecrets: boolean;
   exportFolder: string | null;
+  /**
+   * HTTP mode (the native install, research R13): exports are written only here - data/exports, served as
+   * /mcp-exports/<name> - because a remote Claude cannot read the server's disk and must not choose where on it to write.
+   */
+  exportPin: string | null;
   /** The project whose source files call-chain frames resolve to - the folder Claude Code started this server in. */
   sourceRoot: string;
 }
 
+const pinned = (process.env['ALFRED_MCP_TRANSPORT'] || '').toLowerCase() === 'http' && process.env['ALFRED_EXPORT_DIR']
+  ? resolve(process.env['ALFRED_EXPORT_DIR'])
+  : null;
+
 export const session: SessionSettings = {
   maskSecrets: process.env['ALFRED_MCP_MASK'] === '1',
-  exportFolder: null,
+  exportFolder: pinned,
+  exportPin: pinned,
   sourceRoot: process.env['ALFRED_SOURCE_ROOT'] || process.cwd(),
 };
 
@@ -35,6 +45,9 @@ export function registerSessionTool(server: McpServer): void {
       sourceRoot: z.string().min(1).optional(),
     },
   }, (input) => run(async () => {
+    if (input.exportFolder !== undefined && session.exportPin) {
+      throw invalid(`On this Alfred server exports are always saved in ${session.exportPin} and offered as a download link.`);
+    }
     if (input.exportFolder !== undefined) {
       if (input.exportFolder === null) {
         session.exportFolder = null;
@@ -44,6 +57,10 @@ export function registerSessionTool(server: McpServer): void {
         if (!info?.isDirectory()) throw invalid(`Not an existing folder: ${folder}`);
         session.exportFolder = folder;
       }
+    }
+    if (input.sourceRoot !== undefined && session.exportPin) {
+      // Over HTTP the caller may be on another machine: it must not point file reads at the server's own folders.
+      throw invalid('sourceRoot cannot be changed on an Alfred server reached over HTTP: source files are read on your machine.');
     }
     if (input.sourceRoot !== undefined) {
       const folder = resolve(input.sourceRoot);

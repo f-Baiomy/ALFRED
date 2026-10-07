@@ -97,6 +97,20 @@ tools. Each client connection gets its own MCP session; the server never listens
 over 10 MB are refused. In the install it is a bundle: `app/mcp/dist/mcp-server.mjs` (src plus the frontend utils
 it imports, built by `npm run bundle`) next to `app/mcp/node_modules` (production dependencies only).
 
+The relay is `backend-app/mcpbridge/McpRelayController`: it streams the server-sent events chunk by chunk, passes the
+`Mcp-Session-Id` header both ways, and answers `502` with a clear message when the MCP process is down (the Docker
+install has no `/mcp`; run `mcp-server` locally there). Differences from the local stdio server:
+
+- **Exports are downloads.** A caller on another machine cannot read the server's disk, so `export_calls` always saves
+  into `data/exports` (`ALFRED_EXPORT_DIR`, pinned; only a file name is accepted) and answers with
+  `download: /mcp-exports/<name>` instead of a path - open it on the same address as `/mcp`. `McpExportsController`
+  serves one file by name, never a path, and deletes exports older than 7 days when the backend starts.
+- **`exportFolder` and `sourceRoot` cannot be changed** through `session_settings`: neither may point the server at its
+  own folders on a remote caller's behalf.
+- Session settings (`maskSecrets`) are per MCP process, so they are shared by every client of that Alfred.
+
+`npm run test:http` runs the whole test suite a second time with every tool call going over this HTTP transport.
+
 ## Tools
 
 | Area | Tools |

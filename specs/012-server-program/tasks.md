@@ -268,10 +268,10 @@ description: "Task list for 012-server-program"
 **Goal**: `/mcp` on the UI port, reachable wherever the UI is; exports downloadable.
 **Independent test**: quickstart US10.
 
-- [ ] T112 [US10] Create `APP/mcpbridge/McpRelayController.java`: relays `/mcp` (GET/POST/DELETE) to `127.0.0.1:${ALFRED_MCP_PORT}`, streaming with flush per chunk for SSE, passing the MCP session headers both ways, and 502 with a clear message when the MCP process is down. No `EditAccessFilter` on this path (FR-082). Cap the relayed request body at 10 MB (413 above it). Update `docs/mcp.md` (remote use, export links, open wherever the UI is) in the same change.
-- [ ] T113 [US10] Add `GET /mcp-exports/{name}` to `APP/mcpbridge/McpExportsController.java`: the name is validated as a single path segment and served from `data/exports/` as an attachment. Delete files older than 7 days at start.
-- [ ] T114 [US10] In `mcp-server/src/session.ts` and `mcp-server/src/tools/export.ts`, in HTTP mode pin `exportFolder` to `ALFRED_EXPORT_DIR` (`data/exports`), refuse paths that resolve outside it, and return the `/mcp-exports/<name>` download URL in the tool result.
-- [ ] T115 [P] [US10] Add `APPT/mcpbridge/McpRelayControllerTest.java` (fake upstream: streaming passes chunks in order; down gives 502) and `McpExportsControllerTest.java` (`../` refused, attachment header). Run the whole existing `mcp-server/test/*.test.ts` suite a second time in HTTP mode (an `ALFRED_MCP_TRANSPORT=http` run added to `mcp-server/package.json` as `test:http`), so every tool is covered (SC-008).
+- [X] T112 [US10] Create `APP/mcpbridge/McpRelayController.java`: relays `/mcp` (GET/POST/DELETE) to `127.0.0.1:${ALFRED_MCP_PORT}`, streaming with flush per chunk for SSE, passing the MCP session headers both ways, and 502 with a clear message when the MCP process is down. No `EditAccessFilter` on this path (FR-082). Cap the relayed request body at 10 MB (413 above it). Update `docs/mcp.md` (remote use, export links, open wherever the UI is) in the same change.
+- [X] T113 [US10] Add `GET /mcp-exports/{name}` to `APP/mcpbridge/McpExportsController.java`: the name is validated as a single path segment and served from `data/exports/` as an attachment. Delete files older than 7 days at start.
+- [X] T114 [US10] In `mcp-server/src/session.ts` and `mcp-server/src/tools/export.ts`, in HTTP mode pin `exportFolder` to `ALFRED_EXPORT_DIR` (`data/exports`), refuse paths that resolve outside it, and return the `/mcp-exports/<name>` download URL in the tool result.
+- [X] T115 [P] [US10] Add `APPT/mcpbridge/McpRelayControllerTest.java` (fake upstream: streaming passes chunks in order; down gives 502) and `McpExportsControllerTest.java` (`../` refused, attachment header). Run the whole existing `mcp-server/test/*.test.ts` suite a second time in HTTP mode (an `ALFRED_MCP_TRANSPORT=http` run added to `mcp-server/package.json` as `test:http`), so every tool is covered (SC-008).
 
 ---
 
