@@ -145,10 +145,26 @@ public class ServerSliceConfiguration implements WebSocketConfigurer {
         return effective;
     }
 
-    /** The daily check, and in AUTO mode the install inside the window. A minute after start, then hourly. */
-    @Scheduled(initialDelayString = "${alfred.update.initial-delay-ms:60000}", fixedDelayString = "${alfred.update.tick-ms:3600000}")
-    public void updateTick(UpdateUseCase updates) {
-        updates.tick();
+    /**
+     * The daily check, and in AUTO mode the install inside the window: a minute after start, then hourly. Its own
+     * bean because a @Scheduled method takes no arguments (one with a parameter kept the whole context from starting).
+     */
+    @Bean
+    public UpdateTicker serverUpdateTicker(UpdateUseCase updates) {
+        return new UpdateTicker(updates);
+    }
+
+    public static final class UpdateTicker {
+        private final UpdateUseCase updates;
+
+        UpdateTicker(UpdateUseCase updates) {
+            this.updates = updates;
+        }
+
+        @Scheduled(initialDelayString = "${alfred.update.initial-delay-ms:60000}", fixedDelayString = "${alfred.update.tick-ms:3600000}")
+        public void tick() {
+            updates.tick();
+        }
     }
 
     @Bean
