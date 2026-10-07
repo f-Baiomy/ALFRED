@@ -37,4 +37,14 @@ public interface WatchFoldersUseCase {
      * report writes to a file its writer keeps open (a logger) until the file is closed.
      */
     List<FollowedFile> followed();
+
+    /**
+     * Replaces the watched folders while running (ALFRED_LOGS_WATCH_DIRS saved in the Server section, a LIVE setting):
+     * the folders' change notifications are re-registered and every followed folder is rescanned.
+     */
+    void replaceFolders(String watchDirs);
+
+    /** Published after {@link #replaceFolders}: the change-notification adapter re-registers its folders. */
+    record FoldersReplaced() {
+    }
 }

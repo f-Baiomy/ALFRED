@@ -78,7 +78,7 @@ description: "Task list for 012-server-program"
 
 ### Native runtime wiring (backend runs without Docker)
 
-- [ ] T026 Add `ALFRED_RUNTIME` (`native` | `docker`, default `docker`) to the backend config. Create `SRV/domain/model/RuntimeMode.java` and read it in `SRV/adapter/out/runtime/RuntimeModeAdapter.java`.
+- [X] T026 Add `ALFRED_RUNTIME` (`native` | `docker`, default `docker`) to the backend config. Create `SRV/domain/model/RuntimeMode.java` and read it in `SRV/adapter/out/runtime/RuntimeModeAdapter.java`.
 - [X] T027 Create `APP/web/SpaPageFilter.java` (active only when `ALFRED_RUNTIME=native`). It holds one constant list of API prefixes (the gateway regex list plus `server`, `mcp`, `mcp-exports`) and the `$spa_page` rule for `/profiles`, `/interception`, `/settings` and `/logs/**` with `Accept: text/html`. Everything else that is not a static file is forwarded to `/index.html`.
 - [X] T028 Add `server|mcp|mcp-exports` to the location regex in `gateway/nginx.conf`. In the same change, add the three prefixes to the gateway prefix list in `CLAUDE.md` and `AGENTS.md`, and note there that `SpaPageFilter` must stay in step (native mode).
 - [X] T029 [P] Add `APPT/web/SpaPageFilterTest.java`: parses `gateway/nginx.conf` and fails if its prefix list or `$spa_page` patterns differ from `SpaPageFilter`'s constants. Also checks page loads vs API calls for `/settings`, `/logs/x`, `/calls`, and `/` with an unknown deep link.
@@ -136,9 +136,9 @@ description: "Task list for 012-server-program"
 **Goal**: `.env` is the single source, defaults come from `settings.properties`, and the file is read and written without losing comments.
 **Independent test**: delete `.env`, start, and it is created with all keys. Remove one line: the key reports `DEFAULT`. A malformed line is reported with its line number.
 
-- [ ] T053 [US2] Create `SRV/application/port/in/GetSettingsUseCase.java` and implement it in `SRV/application/service/ServerSettingsService.java`: effective value per key (`.env`, else default; `PROCESS_ENV` in Docker mode), `differsFromDefault`, `missingFromEnv`, `unknownLines`, secrets masked.
-- [ ] T054 [P] [US2] Add `SRVT/application/service/ServerSettingsServiceGetTest.java` with fake ports: missing key gives DEFAULT, unknown line reported, secret never returned, Docker mode gives PROCESS_ENV.
-- [ ] T055 [US2] Create `SRV/adapter/in/web/ServerSettingsController.java` with `GET /server/settings` (contract shape), plus a thin `SRVT/adapter/in/web/ServerSettingsControllerGetTest.java` (`@WebMvcTest`).
+- [X] T053 [US2] Create `SRV/application/port/in/GetSettingsUseCase.java` and implement it in `SRV/application/service/ServerSettingsService.java`: effective value per key (`.env`, else default; `PROCESS_ENV` in Docker mode), `differsFromDefault`, `missingFromEnv`, `unknownLines`, secrets masked.
+- [X] T054 [P] [US2] Add `SRVT/application/service/ServerSettingsServiceGetTest.java` with fake ports: missing key gives DEFAULT, unknown line reported, secret never returned, Docker mode gives PROCESS_ENV.
+- [X] T055 [US2] Create `SRV/adapter/in/web/ServerSettingsController.java` with `GET /server/settings` (contract shape), plus a thin `SRVT/adapter/in/web/ServerSettingsControllerGetTest.java` (`@WebMvcTest`).
 
 **Checkpoint**: settings are readable through the API in native and Docker mode.
 
@@ -149,10 +149,10 @@ description: "Task list for 012-server-program"
 **Goal**: writes allowed from local and LAN only, never through the Cloudflare tunnel, never in Docker mode, enforced by the server.
 **Independent test**: quickstart US5. A `curl -X PUT` through the tunnel or with Cloudflare headers gets `403 TUNNEL`; from a LAN address it is allowed; Docker mode gets `403 DOCKER_MODE`.
 
-- [ ] T056 [US5] Create `SRV/domain/model/AccessRule.java`: parses `ALFRED_SETTINGS_EDIT_FROM` (`local`, `lan`, IPv4/IPv6 addresses, CIDR) and `decide(peerAddress, headers, localAddresses, runtimeMode) → EditAccess`. Cloudflare headers (`Cf-Connecting-IP`, `Cf-Ray`, `Cdn-Loop: cloudflare`) mean TUNNEL. `X-Forwarded-For` is ignored.
-- [ ] T057 [P] [US5] Add `SRVT/domain/model/AccessRuleTest.java`: loopback, own interface address, 10/172.16/192.168 ranges, `fc00::/7`, explicit CIDR, tunnel headers on loopback refused, XFF spoofing ignored, Docker mode always refused, invalid token rejected.
-- [ ] T058 [US5] Create `SRV/application/port/in/EditAccessUseCase.java` and `SRV/adapter/in/web/EditAccessFilter.java`: guards every non-GET under `/server/**` except `/server/supervisor-events` (webhook secret instead), returns `403 {reason, howToEdit}` through `GlobalExceptionHandler`, and serves `GET /server/access`. The rule reloads live when `ALFRED_SETTINGS_EDIT_FROM` changes.
-- [ ] T059 [P] [US5] Add `SRVT/adapter/in/web/EditAccessFilterTest.java` (`@WebMvcTest`): PUT with Cloudflare headers gets 403 TUNNEL, PUT from a non-listed address gets 403 NOT_LISTED, GET is always allowed, `/server/access` has the right shape.
+- [X] T056 [US5] Create `SRV/domain/model/AccessRule.java`: parses `ALFRED_SETTINGS_EDIT_FROM` (`local`, `lan`, IPv4/IPv6 addresses, CIDR) and `decide(peerAddress, headers, localAddresses, runtimeMode) → EditAccess`. Cloudflare headers (`Cf-Connecting-IP`, `Cf-Ray`, `Cdn-Loop: cloudflare`) mean TUNNEL. `X-Forwarded-For` is ignored.
+- [X] T057 [P] [US5] Add `SRVT/domain/model/AccessRuleTest.java`: loopback, own interface address, 10/172.16/192.168 ranges, `fc00::/7`, explicit CIDR, tunnel headers on loopback refused, XFF spoofing ignored, Docker mode always refused, invalid token rejected.
+- [X] T058 [US5] Create `SRV/application/port/in/EditAccessUseCase.java` and `SRV/adapter/in/web/EditAccessFilter.java`: guards every non-GET under `/server/**` except `/server/supervisor-events` (webhook secret instead), returns `403 {reason, howToEdit}` through `GlobalExceptionHandler`, and serves `GET /server/access`. The rule reloads live when `ALFRED_SETTINGS_EDIT_FROM` changes.
+- [X] T059 [P] [US5] Add `SRVT/adapter/in/web/EditAccessFilterTest.java` (`@WebMvcTest`): PUT with Cloudflare headers gets 403 TUNNEL, PUT from a non-listed address gets 403 NOT_LISTED, GET is always allowed, `/server/access` has the right shape.
 
 ---
 
@@ -163,17 +163,17 @@ description: "Task list for 012-server-program"
 
 ### Backend
 
-- [ ] T060 [US3] Create `SRV/domain/model/SettingsValidator.java`: format rules per `SettingKind` (data-model "Validation rules by kind"), min/max, enum values, list grammar through `ServicesGrammar`, cross-field rules (listen port ≠ upstream port, duplicate names and ports). Probe-based rules are added in US7.
-- [ ] T061 [P] [US3] Add `SRVT/domain/model/SettingsValidatorTest.java`: one case per kind and rule; sizes `500MB`/`2GB`/raw bytes normalised to bytes; memory `2g`/`1536m`.
-- [ ] T062 [US3] Create `SRV/application/port/in/PreviewSettingsUseCase.java` and `SaveSettingsUseCase.java` in `ServerSettingsService`. Preview returns the diff lines and effects without writing. Save: validate (refuse on ERROR, 422), write with `baseHash` (409 with changed keys on mismatch), append history (US7 port, no-op fake until then), apply by `ApplyMode` through `LiveSettingsPort` (LIVE) or `SupervisorPort.reload()` (PROXIES), record `PendingRestart` (RESTART). Edits are capped at 64.
-- [ ] T063 [P] [US3] Add `SRVT/application/service/ServerSettingsServiceSaveTest.java`: 422 writes nothing, 409 on hash mismatch, reset removes the line, a LIVE key calls `LiveSettingsPort`, a PROXIES key calls reload once per save, a RESTART key records pending, and `settings.properties` is byte-identical after every save and reset (FR-013).
-- [ ] T064 [US3] Add `PUT /server/settings`, `POST /server/settings/preview` and `POST /server/settings/add-missing` to `SRV/adapter/in/web/ServerSettingsController.java`, with `@Valid` request DTOs in `SRV/adapter/in/web/dto/`, plus a `@WebMvcTest` in `SRVT/adapter/in/web/ServerSettingsControllerWriteTest.java`.
-- [ ] T065 [US3] Create `SRV/application/port/out/LiveSettingsPort.java` and `SupervisorPort.java`. Adapter `SRV/adapter/out/supervisor/SupervisorControlAdapter.java` reads `data/run/control.json` and calls the control API with the token. In Docker mode it is a no-op that reports `DOCKER_MODE`.
-- [ ] T066 [P] [US3] Add `SetRetentionUseCase` to `backend/backend-internal-calls/src/main/java/com/fathy/alfred/backend/internalcalls/application/port/in/SetRetentionUseCase.java` (implemented by its retention-owning service, used by `InternalCallsFileLogAdapter` on the next save) and a reload of the `INTERNAL_CALL_SERVICES` project list. Add tests in that slice.
-- [ ] T067 [P] [US3] Add `SetStorageBudgetUseCase` to `backend/backend-calls` (max size used by `SqliteCallsRepository`'s periodic size check) with a test.
-- [ ] T068 [P] [US3] Add a storage budget use case to `backend/backend-db-capture` (database and Redis caps) with a test.
-- [ ] T069 [P] [US3] Add a replace-watch-folders use case to `backend/backend-logs` (`LocalWatchFolders` plus `WatchServiceEvents` re-registration) with a test.
-- [ ] T070 [US3] Create `APP/serverbridge/LiveSettingsBridge.java`, implementing `LiveSettingsPort` by calling the use cases from T066–T069. Add `APPT/serverbridge/LiveSettingsBridgeTest.java`.
+- [X] T060 [US3] Create `SRV/domain/model/SettingsValidator.java`: format rules per `SettingKind` (data-model "Validation rules by kind"), min/max, enum values, list grammar through `ServicesGrammar`, cross-field rules (listen port ≠ upstream port, duplicate names and ports). Probe-based rules are added in US7.
+- [X] T061 [P] [US3] Add `SRVT/domain/model/SettingsValidatorTest.java`: one case per kind and rule; sizes `500MB`/`2GB`/raw bytes normalised to bytes; memory `2g`/`1536m`.
+- [X] T062 [US3] Create `SRV/application/port/in/PreviewSettingsUseCase.java` and `SaveSettingsUseCase.java` in `ServerSettingsService`. Preview returns the diff lines and effects without writing. Save: validate (refuse on ERROR, 422), write with `baseHash` (409 with changed keys on mismatch), append history (US7 port, no-op fake until then), apply by `ApplyMode` through `LiveSettingsPort` (LIVE) or `SupervisorPort.reload()` (PROXIES), record `PendingRestart` (RESTART). Edits are capped at 64.
+- [X] T063 [P] [US3] Add `SRVT/application/service/ServerSettingsServiceSaveTest.java`: 422 writes nothing, 409 on hash mismatch, reset removes the line, a LIVE key calls `LiveSettingsPort`, a PROXIES key calls reload once per save, a RESTART key records pending, and `settings.properties` is byte-identical after every save and reset (FR-013).
+- [X] T064 [US3] Add `PUT /server/settings`, `POST /server/settings/preview` and `POST /server/settings/add-missing` to `SRV/adapter/in/web/ServerSettingsController.java`, with `@Valid` request DTOs in `SRV/adapter/in/web/dto/`, plus a `@WebMvcTest` in `SRVT/adapter/in/web/ServerSettingsControllerWriteTest.java`.
+- [X] T065 [US3] Create `SRV/application/port/out/LiveSettingsPort.java` and `SupervisorPort.java`. Adapter `SRV/adapter/out/supervisor/SupervisorControlAdapter.java` reads `data/run/control.json` and calls the control API with the token. In Docker mode it is a no-op that reports `DOCKER_MODE`.
+- [X] T066 [P] [US3] Add `SetRetentionUseCase` to `backend/backend-internal-calls/src/main/java/com/fathy/alfred/backend/internalcalls/application/port/in/SetRetentionUseCase.java` (implemented by its retention-owning service, used by `InternalCallsFileLogAdapter` on the next save) and a reload of the `INTERNAL_CALL_SERVICES` project list. Add tests in that slice.
+- [X] T067 [P] [US3] Add `SetStorageBudgetUseCase` to `backend/backend-calls` (max size used by `SqliteCallsRepository`'s periodic size check) with a test.
+- [X] T068 [P] [US3] Add a storage budget use case to `backend/backend-db-capture` (database and Redis caps) with a test.
+- [X] T069 [P] [US3] Add a replace-watch-folders use case to `backend/backend-logs` (`LocalWatchFolders` plus `WatchServiceEvents` re-registration) with a test.
+- [X] T070 [US3] Create `APP/serverbridge/LiveSettingsBridge.java`, implementing `LiveSettingsPort` by calling the use cases from T066–T069. Add `APPT/serverbridge/LiveSettingsBridgeTest.java`.
 
 ### Frontend
 

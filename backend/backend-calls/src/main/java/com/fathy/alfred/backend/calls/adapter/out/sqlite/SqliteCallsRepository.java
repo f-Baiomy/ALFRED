@@ -1,5 +1,6 @@
 package com.fathy.alfred.backend.calls.adapter.out.sqlite;
 
+import com.fathy.alfred.backend.calls.application.port.out.StorageBudgetPort;
 import com.fathy.alfred.backend.calls.application.service.CallListSupport;
 import com.fathy.alfred.backend.calls.domain.model.CallBaseline;
 import com.fathy.alfred.backend.calls.domain.model.CallLifecycleStatus;
@@ -65,7 +66,7 @@ import java.util.UUID;
  */
 @Component
 @ConditionalOnProperty(prefix = "alfred.storage.calls", name = "type", havingValue = "sqlite", matchIfMissing = true)
-public class SqliteCallsRepository {
+public class SqliteCallsRepository implements StorageBudgetPort {
 
     private static final Logger log = LoggerFactory.getLogger(SqliteCallsRepository.class);
 
@@ -79,7 +80,7 @@ public class SqliteCallsRepository {
 
     /** Once the on-disk file exceeds this, the oldest rows are dropped until back under it - the actual mechanism behind the "up to 100GB" retention target. Override via ALFRED_CALLS_MAX_SIZE_BYTES. */
     @Value("${alfred.storage.calls.max-size-bytes:107374182400}")
-    private long maxSizeBytes;
+    private volatile long maxSizeBytes;
 
     /** Per-call cap on retained WebSocket messages - see data-model.md §8. */
     @Value("${alfred.calls.ws-max-messages:1000}")
@@ -1547,5 +1548,17 @@ public class SqliteCallsRepository {
     public static CallRecord withGeneratedIdIfMissing(CallRecord call) {
         return call.id() != null ? call : new CallRecord(UUID.randomUUID().toString(), call.originalUrl(), call.url(),
                 call.method(), call.request(), call.timestamp(), call.durationMs(), call.response(), call.error());
+    }
+
+    /**
+     * Changes the size cap while running (specs/012-server-program, a LIVE setting). The next periodic size check
+     * (every SIZE_CHECK_EVERY_N_SAVES saves) trims to it; nothing is deleted here.
+     */
+    @Override
+    public void setMaxSizeBytes(long bytes) {
+        if (bytes < 1) {
+            throw new IllegalArgumentException("the size cap must be positive");
+        }
+        this.maxSizeBytes = bytes;
     }
 }

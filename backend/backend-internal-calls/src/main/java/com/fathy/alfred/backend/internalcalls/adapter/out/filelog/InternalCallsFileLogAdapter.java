@@ -1,6 +1,7 @@
 package com.fathy.alfred.backend.internalcalls.adapter.out.filelog;
 
 import com.fathy.alfred.backend.internalcalls.application.port.out.CallLogPort;
+import com.fathy.alfred.backend.internalcalls.application.port.out.RetentionPort;
 import com.fathy.alfred.backend.internalcalls.application.service.CallListSupport;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallLifecycleStatus;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallBaseline;
@@ -53,7 +54,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * than silently ignored. Per-instance, never static.
  */
 @Component
-public class InternalCallsFileLogAdapter implements CallLogPort {
+public class InternalCallsFileLogAdapter implements CallLogPort, RetentionPort {
 
     private static final Logger log = LoggerFactory.getLogger(InternalCallsFileLogAdapter.class);
 
@@ -79,7 +80,7 @@ public class InternalCallsFileLogAdapter implements CallLogPort {
      * filter cost, not write amplification.
      */
     @Value("${alfred.internal-calls.retention-rows:1500}")
-    private int retentionRows;
+    private volatile int retentionRows;
 
     /**
      * How many lines the file is actually allowed to hold before {@link #save} compacts it back
@@ -94,6 +95,19 @@ public class InternalCallsFileLogAdapter implements CallLogPort {
      */
     private int compactionThreshold() {
         return retentionRows + Math.max(retentionRows / 2, 50);
+    }
+
+    /**
+     * Changes the cap while running (specs/012-server-program, a LIVE setting). Taken under the same lock as
+     * {@link #save}, so it never lands between a save's read and its write; the next save trims the cached view and
+     * the next compaction trims the file.
+     */
+    @Override
+    public synchronized void setRetentionRows(int rows) {
+        if (rows < 1) {
+            throw new IllegalArgumentException("retention must be at least 1 row");
+        }
+        this.retentionRows = rows;
     }
 
     /**

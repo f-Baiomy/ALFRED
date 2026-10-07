@@ -54,6 +54,24 @@ public class WatchServiceEvents {
             log.error("Change notifications are not available: {}", e.toString());
             return;
         }
+        registerAll();
+        thread = new Thread(this::loop, "logs-watch-events");
+        thread.setDaemon(true);
+        thread.start();
+    }
+
+    /** The watched folders were replaced while running (native install, a LIVE setting): watch the new list. */
+    @EventListener(WatchFoldersUseCase.FoldersReplaced.class)
+    public synchronized void foldersReplaced() {
+        if (service == null) {
+            return;
+        }
+        keys.keySet().forEach(WatchKey::cancel);
+        keys.clear();
+        registerAll();
+    }
+
+    private synchronized void registerAll() {
         for (WatchFoldersPort.Folder f : folders.folders()) {
             if (!f.available()) {
                 log.warn("Watched folder {} ({}) is not mounted - run restart.py after changing logs_watch_dirs", f.name(), f.hostPath());
@@ -66,9 +84,6 @@ public class WatchServiceEvents {
                 log.warn("Watched folder {} could not be listed: {}", f.name(), e.toString());
             }
         }
-        thread = new Thread(this::loop, "logs-watch-events");
-        thread.setDaemon(true);
-        thread.start();
     }
 
     private void register(String folder, Path root, Path dir) {

@@ -1,5 +1,6 @@
 package com.fathy.alfred.backend.dbcapture.application.service;
 
+import com.fathy.alfred.backend.dbcapture.application.port.in.SetCaptureBudgetUseCase;
 import com.fathy.alfred.backend.dbcapture.application.port.out.DbCaptureStorePort;
 import com.fathy.alfred.backend.dbcapture.application.port.out.RetainedCallIdsPort;
 import org.slf4j.Logger;
@@ -20,7 +21,7 @@ import java.util.Set;
  * fifth of the cap, so they can never crowd out calls.
  */
 @Component
-public class DbCaptureRetention implements IngestListener {
+public class DbCaptureRetention implements IngestListener, SetCaptureBudgetUseCase {
 
     private static final Logger log = LoggerFactory.getLogger(DbCaptureRetention.class);
     static final Duration OUTSIDE_MAX_AGE = Duration.ofDays(7);
@@ -29,12 +30,12 @@ public class DbCaptureRetention implements IngestListener {
     private final DbCaptureStorePort store;
     private final Optional<RetainedCallIdsPort> retained;
     private final Clock clock;
-    private final long maxBytes;
+    private volatile long maxBytes;
     private long batchesSinceCheck;
     /** Redis commands' own budget (specs/011-redis-capture FR-036, clarification Q2): 2 GB, oldest calls' commands out whole. */
     static final Duration INCOMPLETE_MAX_AGE = Duration.ofMinutes(10);
     private Optional<com.fathy.alfred.backend.dbcapture.application.port.out.StoreCommandsPort> storeCommands = Optional.empty();
-    private long maxRedisBytes = 2_147_483_648L;
+    private volatile long maxRedisBytes = 2_147_483_648L;
 
     public DbCaptureRetention(DbCaptureStorePort store, Optional<RetainedCallIdsPort> retained, Optional<Clock> clock,
                               @Value("${ALFRED_DB_CAPTURE_MAX_SIZE_BYTES:4294967296}") long maxBytes) {
@@ -49,6 +50,23 @@ public class DbCaptureRetention implements IngestListener {
                           @Value("${ALFRED_REDIS_CAPTURE_MAX_SIZE_BYTES:2147483648}") long maxRedisBytes) {
         this.storeCommands = Optional.ofNullable(storeCommands);
         this.maxRedisBytes = maxRedisBytes;
+    }
+
+    /** A LIVE setting (specs/012-server-program): the next size check (after at most 20 batches) uses it. */
+    @Override
+    public void setStatementsMaxBytes(long bytes) {
+        if (bytes < 1) {
+            throw new IllegalArgumentException("the size cap must be positive");
+        }
+        this.maxBytes = bytes;
+    }
+
+    @Override
+    public void setRedisMaxBytes(long bytes) {
+        if (bytes < 1) {
+            throw new IllegalArgumentException("the size cap must be positive");
+        }
+        this.maxRedisBytes = bytes;
     }
 
     @Override

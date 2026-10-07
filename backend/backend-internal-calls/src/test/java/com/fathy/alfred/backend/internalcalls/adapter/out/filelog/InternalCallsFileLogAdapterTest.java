@@ -116,6 +116,25 @@ class InternalCallsFileLogAdapterTest {
     }
 
     @Test
+    void theRetentionCanBeLoweredWhileRunning() throws Exception {
+        InternalCallsFileLogAdapter adapter = adapterFor(tempDir.resolve("internal-calls.log"), 10);
+        for (int i = 0; i < 5; i++) {
+            String id = UUID.randomUUID().toString();
+            adapter.prepare(prepared(id));
+            adapter.complete(id, new ResponseData(200, null, "ok"), null, 1.0);
+        }
+        assertThat(adapter.readAll()).hasSize(5);
+
+        adapter.setRetentionRows(2);
+        String id = UUID.randomUUID().toString();
+        adapter.prepare(prepared(id));
+        adapter.complete(id, new ResponseData(200, null, "ok"), null, 1.0);
+
+        assertThat(adapter.readAll()).hasSize(2);
+        assertThat(adapter.readAll().get(1).id()).isEqualTo(id);
+    }
+
+    @Test
     void prepareWritesNothingToDiskUntilCompleteIsCalled() throws Exception {
         InternalCallsFileLogAdapter adapter = adapterFor(tempDir.resolve("internal-calls.log"));
         String id = UUID.randomUUID().toString();

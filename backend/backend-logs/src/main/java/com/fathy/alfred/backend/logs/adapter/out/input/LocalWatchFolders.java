@@ -36,7 +36,7 @@ public class LocalWatchFolders implements WatchFoldersPort {
     private static final int SCAN = 64 * 1024;
 
     @Value("${LOGS_WATCH_DIRS:}")
-    private String watchDirs;
+    private volatile String watchDirs;
     @Value("${LOGS_WATCH_ROOT:/watch}")
     private String watchRoot;
     @Value("${ALFRED_RUNTIME:docker}")
@@ -60,6 +60,11 @@ public class LocalWatchFolders implements WatchFoldersPort {
             }
         }
         return out;
+    }
+
+    @Override
+    public void replace(String watchDirs) {
+        this.watchDirs = watchDirs;
     }
 
     private boolean nativeInstall() {

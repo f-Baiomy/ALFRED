@@ -27,6 +27,11 @@ public interface WatchFoldersPort {
 
     List<Folder> folders();
 
+    /** Replaces the configured list ("name:path,..."), e.g. after it was saved in the Server section (native install). */
+    default void replace(String watchDirs) {
+        throw new UnsupportedOperationException("this watch-folder source cannot be changed while running");
+    }
+
     /** Absolute folder path; IllegalArgumentException when the name is not a configured, mounted folder. */
     String dir(String folder);
 

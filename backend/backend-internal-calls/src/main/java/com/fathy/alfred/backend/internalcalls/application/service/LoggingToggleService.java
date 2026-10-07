@@ -1,6 +1,7 @@
 package com.fathy.alfred.backend.internalcalls.application.service;
 
 import com.fathy.alfred.backend.internalcalls.application.port.in.LoggingToggleUseCase;
+import com.fathy.alfred.backend.internalcalls.application.port.in.ReloadProjectsUseCase;
 import com.fathy.alfred.backend.internalcalls.application.port.out.LoggingTogglePort;
 import com.fathy.alfred.backend.internalcalls.domain.model.InternalCallService;
 import org.slf4j.Logger;
@@ -12,7 +13,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Service
-public class LoggingToggleService implements LoggingToggleUseCase {
+public class LoggingToggleService implements LoggingToggleUseCase, ReloadProjectsUseCase {
 
     private static final Logger log = LoggerFactory.getLogger(LoggingToggleService.class);
 
@@ -24,13 +25,14 @@ public class LoggingToggleService implements LoggingToggleUseCase {
 
     /** Deploy-time flag - see LoggingToggleUseCase.isFeatureEnabled's doc. */
     @Value("${alfred.internal-calls.feature-enabled:false}")
-    private boolean featureEnabled;
+    private volatile boolean featureEnabled;
 
     /** "name:listenPort:upstreamPort" triples, comma-separated - the SAME format/env var
      * (INTERNAL_CALL_SERVICES, baked from settings.properties's internal_call_services) that
      * proxy/reverse-proxy-entrypoint.sh and log_and_route_reverse.py parse independently. Parsed
-     * once at construction since this list is deploy-time, not live. */
-    private final List<ServiceConfig> configuredServices;
+     * at construction; the native install replaces it when the list is saved in the Server section
+     * (specs/012-server-program, {@link #reload}). */
+    private volatile List<ServiceConfig> configuredServices;
 
     public LoggingToggleService(LoggingTogglePort loggingTogglePort,
                                  @Value("${alfred.internal-calls.services:}") String servicesConfig) {
@@ -60,6 +62,12 @@ public class LoggingToggleService implements LoggingToggleUseCase {
         return featureEnabled;
     }
 
+    @Override
+    public void reload(String servicesConfig, boolean enabled) {
+        this.configuredServices = parseServicesConfig(servicesConfig);
+        this.featureEnabled = enabled;
+    }
+
     private static List<ServiceConfig> parseServicesConfig(String servicesConfig) {
         List<ServiceConfig> configs = new ArrayList<>();
         if (servicesConfig == null || servicesConfig.isBlank()) {
@@ -70,8 +78,10 @@ public class LoggingToggleService implements LoggingToggleUseCase {
             if (triple.isEmpty()) {
                 continue;
             }
-            String[] parts = triple.split(":", 3);
-            if (parts.length != 3) {
+            // name:listenPort:upstreamPort[:outboundHost[:outboundPort]] - the optional outbound fields are the
+            // forward proxy's business; only the first three matter here.
+            String[] parts = triple.split(":");
+            if (parts.length < 3 || parts.length > 5) {
                 continue;
             }
             String name = parts[0].strip();

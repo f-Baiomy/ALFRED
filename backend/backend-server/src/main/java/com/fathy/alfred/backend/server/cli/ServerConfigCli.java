@@ -2,9 +2,9 @@ package com.fathy.alfred.backend.server.cli;
 
 import com.fathy.alfred.backend.server.adapter.out.envfile.EnvFileAdapter;
 import com.fathy.alfred.backend.server.adapter.out.envfile.SettingsPropertiesDefaultsAdapter;
-import com.fathy.alfred.backend.server.application.port.in.CheckEnvUseCase;
 import com.fathy.alfred.backend.server.application.port.in.MergeDockerEnvUseCase;
 import com.fathy.alfred.backend.server.application.service.EnvBootstrapService;
+import com.fathy.alfred.backend.server.domain.model.EnvProblem;
 
 import java.io.PrintStream;
 import java.nio.file.Path;
@@ -90,12 +90,12 @@ public final class ServerConfigCli {
     }
 
     private int checkEnv(EnvBootstrapService service) {
-        List<CheckEnvUseCase.EnvProblem> problems = service.problems();
+        List<EnvProblem> problems = service.problems();
         if (problems.isEmpty()) {
             return OK;
         }
         out.println(".env: " + problems.size() + (problems.size() == 1 ? " line" : " lines") + " not used:");
-        for (CheckEnvUseCase.EnvProblem problem : problems) {
+        for (EnvProblem problem : problems) {
             out.println("  line " + problem.line() + ": \"" + problem.text() + "\" (" + problem.reason() + ")");
         }
         return OK;

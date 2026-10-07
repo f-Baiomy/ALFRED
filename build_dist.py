@@ -8,7 +8,7 @@ contracts/installer-and-build.md):
     dist/SHA256SUMS
 
 Usage:
-    python build_dist.py [--target linux|windows|all] [--skip-tests] [--clean] [--dns 8.8.8.8]
+    python build_dist.py [--target linux|windows|all] [--skip-tests] [--clean] [--reuse] [--dns 8.8.8.8]
 
 Prerequisites on this machine: Python 3.10+ and Docker. Every build step runs in a container, so the result does not
 depend on the JDK, Node or Python on the PATH (a bare `mvn` here silently runs JDK 8 - see CLAUDE.md). Runtimes and
@@ -213,7 +213,9 @@ def uv_install_command(site, target, packages):
 
 
 def jlink_command(jlink, jmods, output):
-    return [jlink, "--module-path", jmods, "--add-modules", ",".join(JLINK_MODULES), "--strip-debug",
+    # --strip-java-debug-attributes, not --strip-debug: the latter also strips native libraries with objcopy, which a
+    # build container does not have (and the Windows libraries are not ELF anyway).
+    return [jlink, "--module-path", jmods, "--add-modules", ",".join(JLINK_MODULES), "--strip-java-debug-attributes",
             "--no-header-files", "--no-man-pages", "--compress", "zip-6", "--output", output]
 
 
@@ -407,6 +409,8 @@ def main(argv):
     parser.add_argument("--skip-tests", action="store_true")
     parser.add_argument("--clean", action="store_true", help="rebuild from scratch (downloads stay cached)")
     parser.add_argument("--dns", default=os.environ.get("ALFRED_BUILD_DNS"), help="DNS server for the build containers")
+    parser.add_argument("--reuse", action="store_true",
+                        help="reuse the frontend, jars and MCP bundle of the previous build (installer work only)")
     args = parser.parse_args(argv)
     targets = TARGETS if args.target == "all" else tuple(t for t in TARGETS if t.startswith(args.target))
 
@@ -417,15 +421,22 @@ def main(argv):
 
     version_text = version()
     step(1, "version", version_text)
-    step(2, "frontend", "npm ci + ng build")
     frontend_out = os.path.join(BUILD, "frontend")
-    build_frontend(frontend_out, args.dns)
-    step(3, "backend", "mvn package, JDK 21 in Docker" + (" (tests skipped)" if args.skip_tests else ""))
     java_out = os.path.join(BUILD, "java")
-    build_java(os.path.join(frontend_out, "browser"), java_out, args.skip_tests, args.dns)
-    step(4, "mcp", "esbuild bundle + production node_modules")
     mcp_out = os.path.join(BUILD, "mcp-out")
-    build_mcp(mcp_out, args.dns)
+    reuse = args.reuse and all(os.path.exists(p) for p in (os.path.join(frontend_out, "browser"),
+                                                           os.path.join(java_out, "alfred.jar"), os.path.join(mcp_out, "mcp")))
+    if reuse:
+        step(2, "frontend", "reused")
+        step(3, "backend", "reused")
+        step(4, "mcp", "reused")
+    else:
+        step(2, "frontend", "npm ci + ng build")
+        build_frontend(frontend_out, args.dns)
+        step(3, "backend", "mvn package, JDK 21 in Docker" + (" (tests skipped)" if args.skip_tests else ""))
+        build_java(os.path.join(frontend_out, "browser"), java_out, args.skip_tests, args.dns)
+        step(4, "mcp", "esbuild bundle + production node_modules")
+        build_mcp(mcp_out, args.dns)
     step(5, "runtimes", "Java 21 (jlink), Python + mitmproxy (uv), Node - " + ", ".join(targets))
     paths = fetch_all(targets, args.dns)
     step(6, "installers", ", ".join(targets))

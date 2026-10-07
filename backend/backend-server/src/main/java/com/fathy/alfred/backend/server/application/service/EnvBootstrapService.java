@@ -8,11 +8,9 @@ import com.fathy.alfred.backend.server.application.port.out.EnvFilePort;
 import com.fathy.alfred.backend.server.domain.model.DockerEnvImport;
 import com.fathy.alfred.backend.server.domain.model.EnvDocument;
 import com.fathy.alfred.backend.server.domain.model.EnvLayout;
-import com.fathy.alfred.backend.server.domain.model.SettingCatalog;
+import com.fathy.alfred.backend.server.domain.model.EnvProblem;
 
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 
@@ -51,22 +49,6 @@ public class EnvBootstrapService implements InitEnvUseCase, MergeDockerEnvUseCas
 
     @Override
     public List<EnvProblem> problems() {
-        EnvDocument document = envFile.read();
-        List<EnvProblem> problems = new ArrayList<>();
-        for (EnvDocument.Unknown unknown : document.unknownLines()) {
-            problems.add(new EnvProblem(unknown.lineNumber(), unknown.text(), "not KEY=value"));
-        }
-        int lineNumber = 0;
-        for (EnvDocument.Line line : document.lines()) {
-            lineNumber++;
-            if (line instanceof EnvDocument.Entry entry && SettingCatalog.find(entry.key()).isEmpty()) {
-                String reason = DockerEnvImport.DOCKER_ONLY.contains(entry.key())
-                        ? "only used by the Docker install, ignored here"
-                        : "unknown key, ignored";
-                problems.add(new EnvProblem(lineNumber, entry.text(), reason));
-            }
-        }
-        problems.sort(Comparator.comparingInt(EnvProblem::line));
-        return problems;
+        return EnvProblem.of(envFile.read());
     }
 }

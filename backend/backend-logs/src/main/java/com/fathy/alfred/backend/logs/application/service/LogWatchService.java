@@ -13,7 +13,9 @@ import com.fathy.alfred.backend.logs.domain.model.LogSource;
 import com.fathy.alfred.backend.logs.domain.model.WatchOptions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
@@ -57,6 +59,14 @@ public class LogWatchService implements WatchFoldersUseCase {
 
     @Value("${LOGS_WATCH_MODE:events}")
     private String mode;
+
+    /** Set by Spring; tests that build this service directly get a no-op. */
+    private ApplicationEventPublisher events = event -> { };
+
+    @Autowired(required = false)
+    void setEvents(ApplicationEventPublisher events) {
+        this.events = events;
+    }
 
     public LogWatchService(WatchFoldersPort folders, LogInputStorePort inputs, LogIngestService ingest, FileChangeSignals signals,
                            LogNotificationPort notifications, ObjectMapper mapper) {
@@ -212,6 +222,18 @@ public class LogWatchService implements WatchFoldersUseCase {
     /** A watch was added, paused, resumed or removed. */
     public void invalidate() {
         activeWatches = null;
+    }
+
+    @Override
+    public void replaceFolders(String watchDirs) {
+        folders.replace(watchDirs);
+        invalidate();
+        events.publishEvent(new FoldersReplaced());
+        for (WatchFoldersPort.Folder folder : folders.folders()) {
+            if (folder.available()) {
+                rescan(folder.name());
+            }
+        }
     }
 
     private List<LogInput> watchesOn(String folder) {
