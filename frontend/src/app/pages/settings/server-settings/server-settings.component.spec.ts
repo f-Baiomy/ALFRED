@@ -33,7 +33,7 @@ describe('ServerSettingsComponent', () => {
 
   function setUp(access: EditAccess): void {
     api = jasmine.createSpyObj<ServerSettingsService>('ServerSettingsService',
-      ['access', 'settings', 'preview', 'save', 'addMissing', 'status', 'restart']);
+      ['access', 'settings', 'preview', 'save', 'addMissing', 'status', 'restart', 'importEnv', 'downloadEnv']);
     api.access.and.returnValue(of(access));
     api.settings.and.returnValue(of(DATA));
     api.preview.and.returnValue(of(PREVIEW));
@@ -80,5 +80,36 @@ describe('ServerSettingsComponent', () => {
     expect(el().querySelector('.server-savebar')).toBeNull();
     expect(Array.from(el().querySelectorAll('input[type="text"]')).every(i => (i as HTMLInputElement).disabled)).toBeTrue();
     expect(Array.from(el().querySelectorAll('button')).some(b => b.textContent?.includes('Add project'))).toBeFalse();
+  });
+
+  it('puts the picked values of an uploaded .env in the form, never an invalid one', () => {
+    setUp({ allowed: true, reason: 'LOCAL', clientAddress: '127.0.0.1', howToEdit: '' });
+    api.importEnv.and.returnValue(of({
+      values: [
+        { key: 'ALFRED_MEMORY', value: '3g', current: '2g', valid: true, message: '' },
+        { key: 'INTERNAL_CALL_SERVICES', value: 'a:70000:1', current: 'a:9001:8080', valid: false, message: 'a port is 1-65535' },
+        { key: 'ALFRED_UI_PORT', value: '3000', current: '3000', valid: true, message: '' },
+      ],
+      unknown: ['FOO'], secrets: ['WEBHOOK_SECRET'],
+    }));
+    const input = el().querySelector('.server-upload input[type="file"]') as HTMLInputElement;
+    const file = new File(['ALFRED_MEMORY=3g'], 'other.env', { type: 'text/plain' });
+    Object.defineProperty(input, 'files', { value: [file] });
+    input.dispatchEvent(new Event('change'));
+    fixture.detectChanges();
+
+    const dialog = el().querySelector('[aria-label="Upload .env"]') as HTMLElement;
+    expect(dialog.textContent).toContain('ALFRED_MEMORY');
+    expect(dialog.textContent).not.toContain('ALFRED_UI_PORT');
+    expect(dialog.textContent).toContain('a port is 1-65535');
+    expect(dialog.textContent).toContain('Secrets are never imported: WEBHOOK_SECRET');
+    const boxes = Array.from(dialog.querySelectorAll('input[type="checkbox"]')) as HTMLInputElement[];
+    expect(boxes.map(b => [b.checked, b.disabled])).toEqual([[true, false], [false, true]]);
+
+    const take = Array.from(dialog.querySelectorAll('button')).find(b => b.textContent?.includes('Put 1 value')) as HTMLButtonElement;
+    take.click();
+    fixture.detectChanges();
+    expect(el().querySelector('[aria-label="Upload .env"]')).toBeNull();
+    expect(el().textContent).toContain('1 unsaved change');
   });
 });

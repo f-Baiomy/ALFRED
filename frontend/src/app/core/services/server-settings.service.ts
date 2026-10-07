@@ -1,9 +1,10 @@
 import { Injectable, inject } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpResponse } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { AppConfigService } from './app-config.service';
 import {
   EditAccess,
+  EnvImport,
   HistoryEntry,
   ServerSettingsResponse,
   ServerStatus,
@@ -57,6 +58,18 @@ export class ServerSettingsService {
 
   restart(what: 'BACKEND' | 'PROXIES'): Observable<{ accepted: boolean }> {
     return this.http.post<{ accepted: boolean }>(`${this.baseUrl}/restart`, { what });
+  }
+
+  /** .env with its secrets hidden, as a file (allowed only where editing is). */
+  downloadEnv(): Observable<HttpResponse<Blob>> {
+    return this.http.get(`${this.baseUrl}/settings/env-file`, { responseType: 'blob', observe: 'response' });
+  }
+
+  /** Reads an uploaded .env into values for the form; writes nothing. */
+  importEnv(file: File): Observable<EnvImport> {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    return this.http.post<EnvImport>(`${this.baseUrl}/settings/import`, form);
   }
 
   addMissing(): Observable<SettingsSaved> {

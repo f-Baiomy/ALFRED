@@ -72,7 +72,14 @@
       <label class="server-check"><input type="checkbox" [checked]="changedOnly()" (change)="changedOnly.set($any($event.target).checked)" /> Only changed from default</label>
       <button type="button" class="action-btn" [disabled]="checking()" (click)="checkEverything()">{{ checking() ? 'Checking…' : '✓ Check everything' }}</button>
       <button type="button" class="action-btn" (click)="openHistory()">History</button>
+      @if (editable()) {
+        <button type="button" class="action-btn" (click)="downloadEnv()">&#x2913; Download .env</button>
+        <label class="action-btn server-upload">&#x2912; Upload .env<input type="file" accept=".env,text/plain" (change)="uploadEnv($event)" /></label>
+      }
     </div>
+    @if (uploadError(); as message) {
+      <div class="server-banner error"><span>{{ message }}</span><button type="button" class="link-btn" (click)="uploadError.set(null)">Dismiss</button></div>
+    }
     @if (checkSummary(); as summary) {
       <div class="server-banner info"><span>{{ summary }}</span><button type="button" class="link-btn" (click)="checkSummary.set(null)">Dismiss</button></div>
     }
@@ -207,6 +214,38 @@
             }
           </table>
           <div class="actions"><button type="button" class="action-btn" (click)="historyEntries.set(null)">Close</button></div>
+        </div>
+      </div>
+    }
+
+    @if (upload(); as u) {
+      <div class="dialog-backdrop" (click)="upload.set(null)">
+        <div class="dialog-card server-review" (click)="$event.stopPropagation()" role="dialog" aria-label="Upload .env">
+          <h2>Upload .env</h2>
+          <p class="dim">{{ u.name }}. Nothing is saved yet. These values differ from this server. Pick which to take:</p>
+          @for (v of u.data.values; track v.key) {
+            <label class="server-pick">
+              <input type="checkbox" [checked]="u.picked.has(v.key)" [disabled]="!v.valid" (change)="togglePick(v.key)" />
+              <code>{{ v.key }}</code> &rarr; {{ importShown(v) || '(empty)' }}
+              @if (!v.valid) { <span class="hint bad">&#x2717; {{ v.message }}</span> }
+              @else if (v.message) { <span class="hint warn">&#x26a0; {{ v.message }}</span> }
+            </label>
+          } @empty {
+            <p class="dim">Every value in this file is already what this server uses.</p>
+          }
+          @if (u.data.secrets.length) {
+            <p class="dim">Secrets are never imported: {{ u.data.secrets.join(', ') }}.</p>
+          }
+          @if (u.data.unknown.length) {
+            <p class="dim">Not settings, ignored: {{ u.data.unknown.join(', ') }}.</p>
+          }
+          <p class="dim">Picked values go into the form as unsaved changes, so you still review them before saving.</p>
+          <div class="actions">
+            <button type="button" class="action-btn" (click)="upload.set(null)">Cancel</button>
+            <button type="button" class="action-btn primary" [disabled]="u.picked.size === 0" (click)="takeUpload()">
+              Put {{ u.picked.size }} {{ u.picked.size === 1 ? 'value' : 'values' }} in the form
+            </button>
+          </div>
         </div>
       </div>
     }

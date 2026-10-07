@@ -128,6 +128,23 @@ export interface ServerStatus {
   processes: ProcessStatus[];
 }
 
+/** One value of an uploaded .env, checked as the editor would check it (POST /server/settings/import). */
+export interface ImportedValue {
+  key: string;
+  value: string;
+  current: string;
+  valid: boolean;
+  message: string;
+}
+
+export interface EnvImport {
+  values: ImportedValue[];
+  /** Keys that are not settings. */
+  unknown: string[];
+  /** Secret keys: never imported. */
+  secrets: string[];
+}
+
 export interface HistoryEntry {
   id: number;
   at: string;

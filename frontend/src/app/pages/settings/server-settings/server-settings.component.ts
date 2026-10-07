@@ -5,8 +5,10 @@ import { ServerSettingsService } from '../../../core/services/server-settings.se
 import { ServerSocketService } from '../../../core/services/server-socket.service';
 import {
   EditAccess,
+  EnvImport,
   FolderRow,
   HistoryEntry,
+  ImportedValue,
   ProjectRow,
   ServerSetting,
   ServerSettingsResponse,
@@ -87,6 +89,9 @@ export class ServerSettingsComponent {
   readonly checking = signal(false);
   readonly checkSummary = signal<string | null>(null);
   readonly historyEntries = signal<HistoryEntry[] | null>(null);
+  /** An uploaded .env: the values that differ from this server, and which of them are picked. */
+  readonly upload = signal<{ name: string; data: EnvImport; picked: Set<string> } | null>(null);
+  readonly uploadError = signal<string | null>(null);
   private readonly pendingChecks = new Map<string, ReturnType<typeof setTimeout>>();
 
   readonly editable = computed(() => !!this.access()?.allowed && this.data()?.mode === 'NATIVE');
@@ -265,22 +270,95 @@ export class ServerSettingsComponent {
   revert(entry: HistoryEntry): void {
     this.api.revert(entry.id).subscribe(r => {
       this.historyEntries.set(null);
-      for (const edit of r.edits) {
-        const setting = this.setting(edit.key);
-        if (!setting) {
-          continue;
-        }
-        if (edit.reset) {
-          this.resetToDefault(setting);
-        } else if (setting.kind === 'PROJECT_LIST') {
-          this.projects.set(parseProjects(edit.value ?? ''));
-        } else if (setting.kind === 'FOLDER_LIST') {
-          this.folders.set(parseFolders(edit.value ?? ''));
-        } else {
-          this.setField(edit.key, setting.kind === 'SIZE_BYTES' ? displayValue({ ...setting, value: edit.value ?? '' }) : edit.value ?? '');
-        }
-      }
+      this.putInForm(r.edits);
     });
+  }
+
+  /** Edits from elsewhere (a revert, an upload) become unsaved changes in the form. */
+  private putInForm(edits: SettingEdit[]): void {
+    for (const edit of edits) {
+      const setting = this.setting(edit.key);
+      if (!setting) {
+        continue;
+      }
+      if (edit.reset) {
+        this.resetToDefault(setting);
+      } else if (setting.kind === 'PROJECT_LIST') {
+        this.projects.set(parseProjects(edit.value ?? ''));
+      } else if (setting.kind === 'FOLDER_LIST') {
+        this.folders.set(parseFolders(edit.value ?? ''));
+      } else {
+        this.setField(edit.key, setting.kind === 'SIZE_BYTES' ? displayValue({ ...setting, value: edit.value ?? '' }) : edit.value ?? '');
+      }
+    }
+  }
+
+  // ---- download / upload .env (FR-027/028) -----------------------------------------------------------------------
+
+  downloadEnv(): void {
+    this.api.downloadEnv().subscribe(response => {
+      const disposition = response.headers.get('Content-Disposition') ?? '';
+      const name = /filename=([^;]+)/.exec(disposition)?.[1]?.trim() ?? 'alfred.env';
+      const url = URL.createObjectURL(response.body!);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = name;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    });
+  }
+
+  uploadEnv(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) {
+      return;
+    }
+    this.uploadError.set(null);
+    if (file.size > 64 * 1024) {
+      this.uploadError.set(file.name + ' is larger than 64 KB - it is not an Alfred .env.');
+      return;
+    }
+    this.api.importEnv(file).subscribe({
+      next: data => {
+        const differing = data.values.filter(v => v.value !== v.current);
+        this.upload.set({
+          name: file.name,
+          data: { ...data, values: differing },
+          picked: new Set(differing.filter(v => v.valid).map(v => v.key)),
+        });
+      },
+      error: () => this.uploadError.set('Could not read ' + file.name + '.'),
+    });
+  }
+
+  togglePick(key: string): void {
+    const current = this.upload();
+    if (!current) {
+      return;
+    }
+    const picked = new Set(current.picked);
+    if (picked.has(key)) {
+      picked.delete(key);
+    } else {
+      picked.add(key);
+    }
+    this.upload.set({ ...current, picked });
+  }
+
+  takeUpload(): void {
+    const current = this.upload();
+    if (!current) {
+      return;
+    }
+    this.putInForm(current.data.values.filter(v => current.picked.has(v.key)).map(v => ({ key: v.key, value: v.value })));
+    this.upload.set(null);
+  }
+
+  importShown(value: ImportedValue): string {
+    const setting = this.setting(value.key);
+    return setting?.kind === 'SIZE_BYTES' ? displayValue({ ...setting, value: value.value }) : value.value;
   }
 
   sourceText(entry: HistoryEntry): string {

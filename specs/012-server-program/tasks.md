@@ -259,7 +259,7 @@ description: "Task list for 012-server-program"
 
 - [X] T109 [US8] Add `GET /server/settings/env-file` (secrets replaced by `<set on server>`, attachment, allowed only when access allows) and `POST /server/settings/import` (multipart, 64 KB max, per-value validation, secrets excluded, unknown keys listed, nothing written) to `ServerSettingsController` through new `ImportEnvUseCase`. Add a `@WebMvcTest`.
 - [X] T110 [P] [US8] Add `filterSettings(settings, query, changedOnly)` to `FE/shared/utils/server-settings.ts` (matches label, key or value; hides empty groups) with spec cases.
-- [ ] T111 [US8] Frontend: search box, the "Only changed from default" checkbox, the Download button, and the Upload dialog (per-value checkboxes, invalid values unselected and flagged, "Put N values in the form") in `FE/pages/settings/server-settings/`.
+- [X] T111 [US8] Frontend: search box, the "Only changed from default" checkbox, the Download button, and the Upload dialog (per-value checkboxes, invalid values unselected and flagged, "Put N values in the form") in `FE/pages/settings/server-settings/`.
 
 ---
 

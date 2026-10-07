@@ -370,3 +370,26 @@
 .server-settings .hint.ok {
   color: var(--green);
 }
+
+// ---- download / upload .env (FR-027/028) -------------------------------------------------------------------------
+
+.server-toolbar .server-upload {
+  cursor: pointer;
+
+  input[type='file'] {
+    display: none;
+  }
+}
+
+.server-settings .server-pick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+  margin: 0.4rem 0;
+  font-size: 0.85rem;
+
+  .hint {
+    flex-basis: auto;
+  }
+}
