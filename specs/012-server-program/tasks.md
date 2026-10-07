@@ -218,8 +218,8 @@ description: "Task list for 012-server-program"
 - [X] T091 [US7] Create `SRV/application/port/out/HistoryPort.java` and adapter `SRV/adapter/out/history/EnvHistoryFileAdapter.java`: append to `data/env-history.jsonl` and snapshot to `data/env-history/<ts>.env`, keep the last 50 (delete older), record secrets as set/changed only. Detect a hand edit when the stored hash differs from the file on read and record `HAND_EDIT` with the diff. A save carrying `X-Alfred-Cli-User` from a loopback peer is recorded as source `CLI` with that OS user; the header is ignored from any other peer.
 - [X] T092 [P] [US7] Add `SRVT/adapter/out/history/EnvHistoryFileAdapterTest.java` (`@TempDir`): retention of 50, secrets never written, hand edit detected once.
 - [X] T093 [US7] Create `SettingsHistoryUseCase` (list with `limit` clamped to 1..50; revert returns edits and does not write). Add `GET /server/settings/history` and `POST /server/settings/history/{id}/revert`. A `.env` file watcher in `SRV/adapter/in/watch/EnvFileWatcher.java` sends `server-status-changed` when `.env` changes on disk.
-- [ ] T094 [US7] Frontend in `FE/pages/settings/server-settings/`: debounced check calls per changed field showing hints and meters as in the mock, the "Check everything" button with a summary toast, the History dialog with Revert (puts the values in the form), and the conflict banner on a 409 or on a `.env` change signal ("Load server values, keep my edits").
-- [ ] T095 [P] [US7] Extend `FE/shared/utils/server-settings.spec.ts` with the merge "server values + my edits" and the retention text formatting.
+- [X] T094 [US7] Frontend in `FE/pages/settings/server-settings/`: debounced check calls per changed field showing hints and meters as in the mock, the "Check everything" button with a summary toast, the History dialog with Revert (puts the values in the form), and the conflict banner on a 409 or on a `.env` change signal ("Load server values, keep my edits").
+- [X] T095 [P] [US7] Extend `FE/shared/utils/server-settings.spec.ts` with the merge "server values + my edits" and the retention text formatting.
 
 ---
 

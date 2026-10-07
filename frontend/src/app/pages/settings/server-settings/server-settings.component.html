@@ -70,7 +70,12 @@
       <input type="search" class="server-search" placeholder="Search settings: name, key or value (e.g. port, LOGS, 9001)"
              [value]="query()" (input)="query.set($any($event.target).value)" />
       <label class="server-check"><input type="checkbox" [checked]="changedOnly()" (change)="changedOnly.set($any($event.target).checked)" /> Only changed from default</label>
+      <button type="button" class="action-btn" [disabled]="checking()" (click)="checkEverything()">{{ checking() ? 'Checking…' : '✓ Check everything' }}</button>
+      <button type="button" class="action-btn" (click)="openHistory()">History</button>
     </div>
+    @if (checkSummary(); as summary) {
+      <div class="server-banner info"><span>{{ summary }}</span><button type="button" class="link-btn" (click)="checkSummary.set(null)">Dismiss</button></div>
+    }
 
     @for (g of groups(); track g.group) {
       <div class="server-card">
@@ -102,7 +107,12 @@
                           <td><input type="text" class="short" [value]="p.listenPort" [disabled]="!editable()" (input)="setProject(i, 'listenPort', $any($event.target).value)" /></td>
                           <td><input type="text" class="short" [value]="p.upstreamPort" [disabled]="!editable()" (input)="setProject(i, 'upstreamPort', $any($event.target).value)" /></td>
                           <td><input type="text" class="short" placeholder="optional" [value]="p.outbound" [disabled]="!editable()" (input)="setProject(i, 'outbound', $any($event.target).value)" /></td>
-                          <td class="dim">localhost:{{ p.listenPort }}</td>
+                          <td class="dim">
+                            localhost:{{ p.listenPort }}
+                            @if (projectHealth(p.name); as h) {
+                              <span [class]="'apply ' + (h.answering ? 'live' : 'down')">● {{ h.answering ? 'answering' : 'not answering' }}</span>
+                            }
+                          </td>
                           <td>@if (editable()) { <button type="button" class="x" title="Remove project" (click)="removeProject(i)">✕</button> }</td>
                         </tr>
                       } @empty {
@@ -143,6 +153,14 @@
               @if (fieldErrors()[s.key]; as message) {
                 <span class="hint bad">✗ {{ message }}</span>
               }
+              @for (h of hints(s.key); track $index) {
+                <span class="hint" [class.bad]="h.level === 'ERROR'" [class.warn]="h.level === 'WARNING'" [class.ok]="h.level === 'OK'">
+                  {{ h.level === 'ERROR' ? '✗' : h.level === 'WARNING' ? '⚠' : '✓' }} {{ h.message }}
+                </span>
+              }
+              @if (extraHint(s); as extra) {
+                <span class="hint">{{ extra }}</span>
+              }
             </div>
             <div><span [class]="'apply ' + s.applies.toLowerCase()">{{ applyLabel(s.applies) }}</span></div>
           </div>
@@ -162,6 +180,34 @@
           <button type="button" class="action-btn" [disabled]="edits().length === 0" (click)="discard()">Discard</button>
           <button type="button" class="action-btn primary" [disabled]="edits().length === 0 || !!conflict()" (click)="openReview()">Review and save…</button>
         </span>
+      </div>
+    }
+
+    @if (historyEntries(); as entries) {
+      <div class="dialog-backdrop" (click)="historyEntries.set(null)">
+        <div class="dialog-card server-review" (click)="$event.stopPropagation()" role="dialog" aria-label="History of .env">
+          <h2>History of .env</h2>
+          <p class="dim">The last 50 changes. Revert puts the old values in the form as unsaved changes, to review and save.</p>
+          <table class="server-history">
+            @for (e of entries; track e.id) {
+              <tr>
+                <td class="dim">{{ e.at.replace('T', ' ').slice(0, 16) }}</td>
+                <td>
+                  @for (c of e.changes; track c.key) {
+                    <div><code>{{ c.key }}</code> {{ c.before ?? '(not set)' }} → {{ c.after ?? '(default)' }}</div>
+                  } @empty {
+                    <div class="dim">.env as it was</div>
+                  }
+                  <div class="dim">{{ sourceText(e) }}</div>
+                </td>
+                <td>@if (editable() && e.changes.length) { <button type="button" class="action-btn small" (click)="revert(e)">Revert</button> }</td>
+              </tr>
+            } @empty {
+              <tr><td class="dim">No changes recorded yet.</td></tr>
+            }
+          </table>
+          <div class="actions"><button type="button" class="action-btn" (click)="historyEntries.set(null)">Close</button></div>
+        </div>
       </div>
     }
 

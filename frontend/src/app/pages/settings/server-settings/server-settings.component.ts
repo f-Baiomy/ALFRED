@@ -6,6 +6,7 @@ import { ServerSocketService } from '../../../core/services/server-socket.servic
 import {
   EditAccess,
   FolderRow,
+  HistoryEntry,
   ProjectRow,
   ServerSetting,
   ServerSettingsResponse,
@@ -26,10 +27,19 @@ import {
   keepEdits,
   parseFolders,
   parseProjects,
+  retentionText,
   sameValue,
   serializeFolders,
   serializeProjects,
+  usageText,
 } from '../../../shared/utils/server-settings';
+
+interface ProjectHealth {
+  answering: boolean;
+  statusCode?: number;
+  latencyMs?: number;
+  reason?: string;
+}
 import { ServerCardComponent } from './server-card.component';
 
 /**
@@ -72,6 +82,12 @@ export class ServerSettingsComponent {
   readonly saved = signal<SettingsSaved | null>(null);
   readonly conflict = signal<SettingsConflict['conflict'] | null>(null);
   readonly fieldErrors = signal<Record<string, string>>({});
+  /** Results of the last check per key: problems, warnings, and the probe facts the hints show. */
+  readonly checks = signal<Record<string, ValidationResult[]>>({});
+  readonly checking = signal(false);
+  readonly checkSummary = signal<string | null>(null);
+  readonly historyEntries = signal<HistoryEntry[] | null>(null);
+  private readonly pendingChecks = new Map<string, ReturnType<typeof setTimeout>>();
 
   readonly editable = computed(() => !!this.access()?.allowed && this.data()?.mode === 'NATIVE');
 
@@ -104,6 +120,7 @@ export class ServerSettingsComponent {
 
   constructor() {
     this.reload();
+    this.destroyRef.onDestroy(() => this.pendingChecks.forEach(t => clearTimeout(t)));
     this.socket.events$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(event => {
       if (event.what === 'settings') {
         this.onServerChanged();
@@ -173,6 +190,114 @@ export class ServerSettingsComponent {
   setField(key: string, value: string): void {
     this.form.update(f => ({ ...f, [key]: value }));
     this.unreset(key);
+    this.checkSoon(key);
+  }
+
+  // ---- checks (FR-030..033) --------------------------------------------------------------------------------------
+
+  /** Checks one field a moment after the last keystroke - one request per pause in typing, never on a timer. */
+  checkSoon(key: string): void {
+    clearTimeout(this.pendingChecks.get(key));
+    this.pendingChecks.set(key, setTimeout(() => {
+      this.pendingChecks.delete(key);
+      const edit = this.edits().find(e => e.key === key);
+      const value = key === 'INTERNAL_CALL_SERVICES' ? serializeProjects(this.projects())
+        : key === 'ALFRED_LOGS_WATCH_DIRS' ? serializeFolders(this.folders()) : this.form()[key];
+      this.api.check([edit ?? { key, value }]).subscribe(r => this.storeChecks([key], r.results));
+    }, 400));
+  }
+
+  checkEverything(): void {
+    this.checking.set(true);
+    this.api.check(this.edits(), true).subscribe({
+      next: r => {
+        this.checking.set(false);
+        this.storeChecks((this.data()?.settings ?? []).map(s => s.key), r.results);
+        const errors = r.results.filter(x => x.level === 'ERROR').length;
+        const warnings = r.results.filter(x => x.level === 'WARNING').length;
+        this.checkSummary.set(errors + warnings === 0
+          ? '✓ Every setting checked - no problems.'
+          : 'Checked every setting: ' + errors + (errors === 1 ? ' problem, ' : ' problems, ') + warnings
+            + (warnings === 1 ? ' warning' : ' warnings') + ' (shown next to each setting).');
+      },
+      error: () => this.checking.set(false),
+    });
+  }
+
+  private storeChecks(keys: string[], results: ValidationResult[]): void {
+    this.checks.update(current => {
+      const next = { ...current };
+      for (const key of keys) {
+        next[key] = results.filter(r => r.key === key);
+      }
+      return next;
+    });
+  }
+
+  hints(key: string): ValidationResult[] {
+    return (this.checks()[key] ?? []).filter(r => r.message);
+  }
+
+  extraHint(setting: ServerSetting): string {
+    const detail = (this.checks()[setting.key] ?? []).find(r => r.level === 'OK')?.detail ?? {};
+    if (setting.key === 'INTERNAL_CALLS_RETENTION_ROWS') {
+      return retentionText(detail);
+    }
+    if (setting.kind === 'SIZE_BYTES') {
+      return usageText(detail, this.form()[setting.key] ?? '');
+    }
+    return '';
+  }
+
+  projectHealth(name: string): ProjectHealth | null {
+    const detail = (this.checks()['INTERNAL_CALL_SERVICES'] ?? []).find(r => r.level === 'OK')?.detail ?? {};
+    const health = detail['health'] as Record<string, ProjectHealth> | undefined;
+    return health?.[name] ?? null;
+  }
+
+  // ---- history (FR-034/035) --------------------------------------------------------------------------------------
+
+  openHistory(): void {
+    this.api.history().subscribe(entries => this.historyEntries.set(entries));
+  }
+
+  /** Puts the values from before that entry into the form, unsaved - reviewed and saved like any edit. */
+  revert(entry: HistoryEntry): void {
+    this.api.revert(entry.id).subscribe(r => {
+      this.historyEntries.set(null);
+      for (const edit of r.edits) {
+        const setting = this.setting(edit.key);
+        if (!setting) {
+          continue;
+        }
+        if (edit.reset) {
+          this.resetToDefault(setting);
+        } else if (setting.kind === 'PROJECT_LIST') {
+          this.projects.set(parseProjects(edit.value ?? ''));
+        } else if (setting.kind === 'FOLDER_LIST') {
+          this.folders.set(parseFolders(edit.value ?? ''));
+        } else {
+          this.setField(edit.key, setting.kind === 'SIZE_BYTES' ? displayValue({ ...setting, value: edit.value ?? '' }) : edit.value ?? '');
+        }
+      }
+    });
+  }
+
+  sourceText(entry: HistoryEntry): string {
+    switch (entry.source) {
+      case 'UI':
+        return 'Settings tab, from ' + entry.sourceDetail;
+      case 'CLI':
+        return 'alfred config (' + entry.sourceDetail + ')';
+      case 'HAND_EDIT':
+        return 'edited by hand on the server';
+      case 'INSTALL':
+        return 'first start';
+      case 'IMPORT':
+        return 'imported from ' + entry.sourceDetail;
+      default:
+        return entry.source.toLowerCase();
+    }
   }
 
   toggle(key: string): void {
@@ -218,6 +343,7 @@ export class ServerSettingsComponent {
   setProject(index: number, field: keyof ProjectRow, value: string): void {
     this.projects.update(rows => rows.map((r, i) => (i === index ? { ...r, [field]: value } : r)));
     this.unreset('INTERNAL_CALL_SERVICES');
+    this.checkSoon('INTERNAL_CALL_SERVICES');
   }
 
   addProject(): void {
@@ -234,6 +360,7 @@ export class ServerSettingsComponent {
   setFolder(index: number, field: keyof FolderRow, value: string): void {
     this.folders.update(rows => rows.map((r, i) => (i === index ? { ...r, [field]: value } : r)));
     this.unreset('ALFRED_LOGS_WATCH_DIRS');
+    this.checkSoon('ALFRED_LOGS_WATCH_DIRS');
   }
 
   addFolder(): void {

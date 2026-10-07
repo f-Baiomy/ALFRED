@@ -127,3 +127,12 @@ export interface ServerStatus {
   heapMaxBytes: number;
   processes: ProcessStatus[];
 }
+
+export interface HistoryEntry {
+  id: number;
+  at: string;
+  source: 'UI' | 'CLI' | 'HAND_EDIT' | 'INSTALL' | 'UPGRADE' | 'IMPORT' | 'REVERT';
+  sourceDetail: string | null;
+  changes: { key: string; before: string | null; after: string | null }[];
+  snapshotFile: string;
+}

@@ -349,3 +349,24 @@
     color: var(--amber);
   }
 }
+
+.server-history {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  margin: 0.5rem 0 1rem;
+
+  td {
+    padding: 0.45rem 0.5rem;
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
+    vertical-align: top;
+  }
+
+  td:first-child {
+    white-space: nowrap;
+  }
+}
+
+.server-settings .hint.ok {
+  color: var(--green);
+}

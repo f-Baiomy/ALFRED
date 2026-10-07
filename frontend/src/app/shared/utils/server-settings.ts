@@ -155,3 +155,30 @@ export function keepEdits(serverForm: Record<string, string>, previousServer: Re
   }
   return merged;
 }
+
+/** "≈ 3 h 54 min of traffic at the current rate (1 284 calls/hour). Uses about 140 MB of memory." */
+export function retentionText(detail: Record<string, unknown>): string {
+  const memory = Number(detail['memoryBytes'] ?? NaN);
+  const perHour = Number(detail['callsPerHour'] ?? -1);
+  const hours = Number(detail['retentionHours'] ?? NaN);
+  const parts: string[] = [];
+  if (Number.isFinite(hours) && perHour > 0) {
+    const h = Math.floor(hours);
+    const m = Math.round((hours - h) * 60);
+    parts.push(`≈ ${h} h ${m} min of traffic at the current rate (${perHour.toLocaleString('en-US').replace(/,/g, ' ')} calls/hour).`);
+  }
+  if (Number.isFinite(memory)) {
+    parts.push(`Uses about ${formatBytes(Math.round(memory / (1024 * 1024)) * 1024 * 1024)} of memory.`);
+  }
+  return parts.join(' ');
+}
+
+/** "1.6 GB used of 2 GB (80%)" for a size cap, from a check's detail; '' when the use is unknown. */
+export function usageText(detail: Record<string, unknown>, capText: string): string {
+  const used = Number(detail['usedBytes'] ?? -1);
+  const cap = parseSize(capText);
+  if (used < 0 || cap === null || cap === 0) {
+    return '';
+  }
+  return `${formatBytes(used) || '0 B'} used of ${formatBytes(cap)} (${Math.round((used / cap) * 100)}%)`;
+}

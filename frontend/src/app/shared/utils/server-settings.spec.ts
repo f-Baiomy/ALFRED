@@ -10,6 +10,8 @@ import {
   sameValue,
   serializeFolders,
   serializeProjects,
+  retentionText,
+  usageText,
 } from './server-settings';
 
 function setting(key: string, kind: ServerSetting['kind'], value: string | null, extra: Partial<ServerSetting> = {}): ServerSetting {
@@ -84,5 +86,16 @@ describe('server-settings utils', () => {
     const mine = { A: '1', B: '5' };
     const server = { A: '9', B: '2' };
     expect(keepEdits(server, before, mine)).toEqual({ A: '9', B: '5' });
+  });
+
+  it('describes the retention in hours and memory', () => {
+    expect(retentionText({ retentionHours: 3.9, callsPerHour: 1284, memoryBytes: 5000 * 28 * 1024 }))
+      .toBe('≈ 3 h 54 min of traffic at the current rate (1 284 calls/hour). Uses about 137 MB of memory.');
+    expect(retentionText({ callsPerHour: -1, memoryBytes: 1500 * 28 * 1024 })).toBe('Uses about 41 MB of memory.');
+  });
+
+  it('describes how full a size cap is', () => {
+    expect(usageText({ usedBytes: 1717986918 }, '2 GB')).toBe('1.6 GB used of 2 GB (80%)');
+    expect(usageText({ usedBytes: -1 }, '2 GB')).toBe('');
   });
 });

@@ -4,11 +4,13 @@ import { Observable } from 'rxjs';
 import { AppConfigService } from './app-config.service';
 import {
   EditAccess,
+  HistoryEntry,
   ServerSettingsResponse,
   ServerStatus,
   SettingEdit,
   SettingsPreview,
   SettingsSaved,
+  ValidationResult,
 } from '../models/server-settings.model';
 
 /** /server/** - the native install's settings (specs/012-server-program contracts/server-api.md). */
@@ -35,6 +37,18 @@ export class ServerSettingsService {
 
   save(baseHash: string, edits: SettingEdit[]): Observable<SettingsSaved> {
     return this.http.put<SettingsSaved>(`${this.baseUrl}/settings`, { baseHash, edits });
+  }
+
+  check(edits: SettingEdit[], all = false): Observable<{ results: ValidationResult[] }> {
+    return this.http.post<{ results: ValidationResult[] }>(`${this.baseUrl}/settings/check`, { edits, all });
+  }
+
+  history(limit = 50): Observable<HistoryEntry[]> {
+    return this.http.get<HistoryEntry[]>(`${this.baseUrl}/settings/history`, { params: { limit } });
+  }
+
+  revert(id: number): Observable<{ edits: SettingEdit[] }> {
+    return this.http.post<{ edits: SettingEdit[] }>(`${this.baseUrl}/settings/history/${id}/revert`, {});
   }
 
   status(): Observable<ServerStatus> {
