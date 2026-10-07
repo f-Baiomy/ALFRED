@@ -309,4 +309,40 @@ class HexagonalArchitectureTest {
                 .should().dependOnClassesThat().resideInAPackage("..backend.triage..")
                 .check(classes);
     }
+
+    // server is a leaf slice: the native install's settings (.env), checks, history and restart requests
+    // (specs/012-server-program). It reaches other slices' data and runtime setters only through out-ports that
+    // backend-app/serverbridge implements, and nothing depends on it except backend-app.
+    @Test
+    void serverSliceMustNotDependOnOtherSlices() {
+        noClasses().that().resideInAPackage("..backend.server..")
+                .should().dependOnClassesThat().resideInAnyPackage(
+                        "..backend.calls..", "..backend.comments..", "..backend.export..",
+                        "..backend.sessioncycles..", "..backend.profiles..", "..backend.settings..",
+                        "..backend.internalcalls..", "..backend.calloverlap..", "..backend.redactions..",
+                        "..backend.interception..", "..backend.resend..", "..backend.scenarios..",
+                        "..backend.relive..", "..backend.logs..", "..backend.dbcapture..", "..backend.triage..")
+                .check(classes);
+    }
+
+    @Test
+    void noOtherSliceDependsOnServer() {
+        noClasses().that().resideInAnyPackage(
+                        "..backend.calls..", "..backend.comments..", "..backend.export..",
+                        "..backend.sessioncycles..", "..backend.profiles..", "..backend.settings..",
+                        "..backend.internalcalls..", "..backend.calloverlap..", "..backend.redactions..",
+                        "..backend.interception..", "..backend.resend..", "..backend.scenarios..",
+                        "..backend.relive..", "..backend.logs..", "..backend.dbcapture..", "..backend.triage..")
+                .should().dependOnClassesThat().resideInAPackage("..backend.server..")
+                .check(classes);
+    }
+
+    // The server slice's domain and application layers are also run without Spring by ServerConfigCli
+    // (the alfred config command line while the backend is stopped), so they must not need a Spring context.
+    @Test
+    void serverDomainAndApplicationDoNotUseSpring() {
+        noClasses().that().resideInAnyPackage("..backend.server.domain..", "..backend.server.application..")
+                .should().dependOnClassesThat().resideInAPackage("org.springframework..")
+                .check(classes);
+    }
 }

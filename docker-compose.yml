@@ -280,7 +280,7 @@ services:
       # ~117,000). A cap above your free space is not a cap. 10GB is ~45,000 calls at that average;
       # raise it only to something the volume can genuinely hold, and remember call sizes vary
       # hugely (measured 396 bytes to 640KB), which is why this is bytes and not a row count.
-      - ALFRED_CALLS_MAX_SIZE_BYTES=10737418240
+      - ALFRED_CALLS_MAX_SIZE_BYTES=${ALFRED_CALLS_MAX_SIZE_BYTES:-10737418240}
       # Must match the proxy's WEBHOOK_SECRET above - validates POST /calls/webhook.
       - WEBHOOK_SECRET=change-me-in-production
       # Separate store for calls captured by reverse-proxy (frontend/other clients -> whichever

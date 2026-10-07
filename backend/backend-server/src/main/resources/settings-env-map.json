@@ -1,0 +1,22 @@
+{
+  "_comment": "How each .env setting reaches the processes of a native install (specs/012-server-program data-model 'Setting -> process variable map'). Read by the backend-server slice (effective values in Docker mode, tests) and by packaging/launcher/supervisor.py (the environment of each child). backendEnv: variables the backend is started with (value copied, or transformed as named). docker: where the Docker install takes the value from today.",
+  "settings": {
+    "REVERSE_PROXY_ENABLED": {"backendEnv": ["REVERSE_PROXY_ENABLED"], "supervisor": "starts/stops REVERSE", "docker": "REVERSE_PROXY_ENABLED"},
+    "INTERNAL_CALL_SERVICES": {"backendEnv": ["INTERNAL_CALL_SERVICES"], "supervisor": "REVERSE --mode args; OUTBOUND extra listeners", "docker": "INTERNAL_CALL_SERVICES"},
+    "INTERNAL_CALLS_RETENTION_ROWS": {"backendEnv": ["INTERNAL_CALLS_RETENTION_ROWS"], "docker": "INTERNAL_CALLS_RETENTION_ROWS"},
+    "ALFRED_UI_PORT": {"backendEnv": ["SERVER_PORT"], "supervisor": "proxies WEBHOOK_URL and INTERCEPTION_API_URL, MCP ALFRED_URL", "docker": null},
+    "ALFRED_OUTBOUND_PROXY_LISTEN": {"backendEnv": ["FORWARD_PROXY_DEFAULT_PORT", "ALFRED_RESEND_FORWARD_PROXY_HOST"], "transform": "listenPortAndHost", "supervisor": "OUTBOUND --mode regular@<addr>", "docker": null},
+    "ALFRED_SETTINGS_EDIT_FROM": {"backendEnv": ["ALFRED_SETTINGS_EDIT_FROM"], "docker": null},
+    "ALFRED_CALLS_MAX_SIZE_BYTES": {"backendEnv": ["ALFRED_CALLS_MAX_SIZE_BYTES"], "docker": "ALFRED_CALLS_MAX_SIZE_BYTES"},
+    "ALFRED_DB_CAPTURE_MAX_SIZE_BYTES": {"backendEnv": ["ALFRED_DB_CAPTURE_MAX_SIZE_BYTES"], "docker": "ALFRED_DB_CAPTURE_MAX_SIZE_BYTES"},
+    "ALFRED_REDIS_CAPTURE_MAX_SIZE_BYTES": {"backendEnv": ["ALFRED_REDIS_CAPTURE_MAX_SIZE_BYTES"], "docker": "ALFRED_REDIS_CAPTURE_MAX_SIZE_BYTES"},
+    "ALFRED_MEMORY": {"backendEnv": [], "jvmOption": "-Xmx", "docker": null},
+    "ALFRED_LOGS_DIR": {"backendEnv": ["LOGS_ROOT_DIR"], "transform": "absolutePath", "docker": null},
+    "ALFRED_LOGS_WATCH_DIRS": {"backendEnv": ["LOGS_WATCH_DIRS"], "supervisor": "LOG_AGENT ALFRED_LOGS_WATCH_DIRS (Windows)", "docker": "LOGS_WATCH_DIRS"},
+    "ALFRED_LOGS_WATCH_MODE": {"backendEnv": ["LOGS_WATCH_MODE"], "transform": "resolveWatchMode", "docker": "LOGS_WATCH_MODE"},
+    "WILDFLY_PORT_OFFSET_ENABLED": {"backendEnv": [], "supervisor": "port offset sync at start", "docker": null},
+    "WILDFLY_HOME": {"backendEnv": [], "supervisor": "port offset sync at start", "docker": null},
+    "WEBHOOK_SECRET": {"backendEnv": ["WEBHOOK_SECRET"], "supervisor": "OUTBOUND and REVERSE WEBHOOK_SECRET", "docker": "WEBHOOK_SECRET"},
+    "ALFRED_LOGS_AGENT_SECRET": {"backendEnv": ["LOGS_AGENT_SECRET"], "supervisor": "LOG_AGENT", "docker": "LOGS_AGENT_SECRET"}
+  }
+}
