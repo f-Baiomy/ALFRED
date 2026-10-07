@@ -228,10 +228,10 @@ description: "Task list for 012-server-program"
 **Goal**: `alfred config ...` with the same results as the UI, whether the backend runs or not.
 **Independent test**: quickstart US6.
 
-- [ ] T096 [US6] Extend `SRV/adapter/in/cli/ServerConfigCli.java` (created in T024). It wires `ServerSettingsService` with the file adapters and local probes, and implements list/get/set/reset/add/remove/add-missing/check/diff/history/revert/import with the output and exit codes of `contracts/cli.md`.
-- [ ] T097 [US6] In `packaging/launcher/alfred.py`, add `config ...` and `project add/remove`. When the backend answers on `127.0.0.1`, call `/server/settings*`; else run `runtime/java -cp app/alfred.jar ...ServerConfigCli`. Prompts (`[y/N]`) for revert and import happen in Python. HTTP calls send `X-Alfred-Cli-User: <OS user>`.
-- [ ] T098 [P] [US6] Add `SRVT/adapter/in/cli/ServerConfigCliTest.java` (`@TempDir` install folder): set a valid value, refuse an invalid one (exit 3), reset, add/remove a list item, diff output, and the same messages as the API, and `settings.properties` is unchanged after every command.
-- [ ] T099 [P] [US6] Add `tests/python/test_launcher_config.py`: the HTTP path is used when the backend is up and the Java path when it is down (both stubbed), and arguments pass through.
+- [X] T096 [US6] Extend `SRV/adapter/in/cli/ServerConfigCli.java` (created in T024). It wires `ServerSettingsService` with the file adapters and local probes, and implements list/get/set/reset/add/remove/add-missing/check/diff/history/revert/import with the output and exit codes of `contracts/cli.md`.
+- [X] T097 [US6] In `packaging/launcher/alfred.py`, add `config ...` and `project add/remove`. When the backend answers on `127.0.0.1`, call `/server/settings*`; else run `runtime/java -cp app/alfred.jar ...ServerConfigCli`. Prompts (`[y/N]`) for revert and import happen in Python. HTTP calls send `X-Alfred-Cli-User: <OS user>`. *(As built: `packaging/launcher/config_cli.py` passes `--backend http://127.0.0.1:<ui port>` and `--user`; ServerConfigCli itself picks the HTTP path (`HttpSettingsClient`) when the backend answers, else the files (`LocalSettingsClient`), and asks the `[y/N]` prompts, so both paths share one implementation.)*
+- [X] T098 [P] [US6] Add `SRVT/adapter/in/cli/ServerConfigCliTest.java` (`@TempDir` install folder): set a valid value, refuse an invalid one (exit 3), reset, add/remove a list item, diff output, and the same messages as the API, and `settings.properties` is unchanged after every command.
+- [X] T099 [P] [US6] Add `tests/python/test_config_cli.py` *(as built; the HTTP/files choice is tested in `HttpSettingsClientTest`)*: the HTTP path is used when the backend is up and the Java path when it is down (both stubbed), and arguments pass through.
 
 ---
 
@@ -258,7 +258,7 @@ description: "Task list for 012-server-program"
 **Independent test**: quickstart US8.
 
 - [ ] T109 [US8] Add `GET /server/settings/env-file` (secrets replaced by `<set on server>`, attachment, allowed only when access allows) and `POST /server/settings/import` (multipart, 64 KB max, per-value validation, secrets excluded, unknown keys listed, nothing written) to `ServerSettingsController` through new `ImportEnvUseCase`. Add a `@WebMvcTest`.
-- [ ] T110 [P] [US8] Add `filterSettings(settings, query, changedOnly)` to `FE/shared/utils/server-settings.ts` (matches label, key or value; hides empty groups) with spec cases.
+- [X] T110 [P] [US8] Add `filterSettings(settings, query, changedOnly)` to `FE/shared/utils/server-settings.ts` (matches label, key or value; hides empty groups) with spec cases.
 - [ ] T111 [US8] Frontend: search box, the "Only changed from default" checkbox, the Download button, and the Upload dialog (per-value checkboxes, invalid values unselected and flagged, "Put N values in the form") in `FE/pages/settings/server-settings/`.
 
 ---

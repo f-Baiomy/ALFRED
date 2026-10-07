@@ -73,8 +73,8 @@ public class MachineProbes extends SettingsProbes {
                     case "INTERNAL_CALLS_RETENTION_ROWS" -> retention(key, value, effective, out);
                     default -> { }
                 }
-            } catch (SettingsValidator.InvalidValue | NumberFormatException e) {
-                // the format rule already reports it
+            } catch (SettingsValidator.InvalidValue | IllegalArgumentException e) {
+                // the format rule already reports it (a bad number, a port out of range)
             }
         }
         return out;
