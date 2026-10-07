@@ -147,7 +147,11 @@ is attached as that user (`runuser`): a direct cross-user attach fails and makes
 
 ## Updates
 
-A release is a git tag: `git tag -a v1.5.0 -m "Faster exports" && git push origin v1.5.0`. The `release` workflow
+A release is a git tag. `python release.py` cuts one: it shows the latest release and the commits since, suggests
+the next version (patch; type a minor or major one), asks for release notes, refuses from a branch other than
+master, with uncommitted changes or with master out of sync with GitHub, then tags `vX.Y.Z` and pushes (`--here` builds and
+publishes from your machine with `gh` instead). Installers for your own use come from `python build.py`, which asks
+Windows / Linux / both, tests or not, and the build DNS (remembered in `.env`). The `release` workflow
 (`.github/workflows/release.yml`) builds both installers with `build_dist.py`, tests included, and publishes them
 with `SHA256SUMS` and **`latest.json`** as a GitHub Release. `latest.json` names the version, the tag's annotation
 as release notes, and per target the installer's URL, sha256 and size. Untagged builds are named by commit hash and

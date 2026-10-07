@@ -40,6 +40,8 @@ docker compose up -d --build   # rebuild without redoing hosts/certs
 python3 deploy.py [service]    # on a set-up server: git pull + rebuild
 cd backend && mvn test          # JUnit5/Mockito/AssertJ + ArchUnit
 cd frontend && npm test && npm run build   # Karma/Jasmine; ng build
+python build.py                 # native installers (asks Windows/Linux/both, tests, DNS; wraps build_dist.py)
+python release.py               # cut a release: suggests the next version, tags vX.Y.Z, pushes; GitHub Actions publishes
 ```
 
 Single tests / environment quirks:
