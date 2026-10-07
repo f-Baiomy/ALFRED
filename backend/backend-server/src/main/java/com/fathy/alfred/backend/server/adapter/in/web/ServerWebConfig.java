@@ -6,7 +6,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
-/** Puts {@link EditAccessInterceptor} in front of every /server/** request except the supervisor's webhook. */
+/** Puts {@link EditAccessInterceptor} in front of every /server/** write except the supervisor's webhook and the read-only POSTs. */
 @Configuration
 public class ServerWebConfig implements WebMvcConfigurer {
 
@@ -20,6 +20,7 @@ public class ServerWebConfig implements WebMvcConfigurer {
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(new EditAccessInterceptor(editAccess::getObject))
                 .addPathPatterns("/server/**")
-                .excludePathPatterns("/server/supervisor-events");
+                // Checks and previews compute answers and write nothing: read-only viewers may use them too.
+                .excludePathPatterns("/server/supervisor-events", "/server/settings/check", "/server/settings/preview");
     }
 }

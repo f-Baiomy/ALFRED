@@ -1,20 +1,28 @@
 package com.fathy.alfred.backend.server.adapter.in.web;
 
 import com.fathy.alfred.backend.server.adapter.in.web.dto.SettingsDtos;
+import com.fathy.alfred.backend.server.application.port.in.CheckSettingsUseCase;
 import com.fathy.alfred.backend.server.application.port.in.EditAccessUseCase;
 import com.fathy.alfred.backend.server.application.port.in.GetSettingsUseCase;
 import com.fathy.alfred.backend.server.application.port.in.PreviewSettingsUseCase;
 import com.fathy.alfred.backend.server.application.port.in.SaveSettingsUseCase;
+import com.fathy.alfred.backend.server.application.port.in.SettingsHistoryUseCase;
 import com.fathy.alfred.backend.server.domain.model.EditAccess;
 import com.fathy.alfred.backend.server.domain.model.HistoryEntry;
+import com.fathy.alfred.backend.server.domain.model.SettingsChange;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Size;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import java.util.List;
+import java.util.Map;
 
 /**
  * The Server section's settings (contracts/server-api.md). Writes are guarded by {@link EditAccessInterceptor}; this
@@ -32,13 +40,37 @@ public class ServerSettingsController {
     private final PreviewSettingsUseCase previewSettings;
     private final SaveSettingsUseCase saveSettings;
     private final EditAccessUseCase editAccess;
+    private final CheckSettingsUseCase checkSettings;
+    private final SettingsHistoryUseCase history;
 
     public ServerSettingsController(GetSettingsUseCase getSettings, PreviewSettingsUseCase previewSettings,
-                                    SaveSettingsUseCase saveSettings, EditAccessUseCase editAccess) {
+                                    SaveSettingsUseCase saveSettings, EditAccessUseCase editAccess,
+                                    CheckSettingsUseCase checkSettings, SettingsHistoryUseCase history) {
         this.getSettings = getSettings;
         this.previewSettings = previewSettings;
         this.saveSettings = saveSettings;
         this.editAccess = editAccess;
+        this.checkSettings = checkSettings;
+        this.history = history;
+    }
+
+    public record CheckRequest(@Size(max = SettingsDtos.MAX_EDITS) List<SettingsDtos.@Valid EditDto> edits, boolean all) {
+    }
+
+    @PostMapping("/settings/check")
+    public Map<String, Object> check(@Valid @RequestBody CheckRequest body) {
+        List<SettingsChange.Edit> edits = body.edits() == null ? List.of() : body.edits().stream().map(SettingsDtos.EditDto::toDomain).toList();
+        return Map.of("results", checkSettings.check(edits, body.all()));
+    }
+
+    @GetMapping("/settings/history")
+    public List<HistoryEntry> history(@RequestParam(defaultValue = "50") int limit) {
+        return history.history(limit);
+    }
+
+    @PostMapping("/settings/history/{id}/revert")
+    public Map<String, Object> revert(@PathVariable long id) {
+        return Map.of("edits", history.revert(id));
     }
 
     @GetMapping("/access")

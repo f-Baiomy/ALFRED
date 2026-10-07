@@ -1,6 +1,8 @@
 package com.fathy.alfred.backend.server.adapter.in.web;
 
+import com.fathy.alfred.backend.server.application.port.in.CheckSettingsUseCase;
 import com.fathy.alfred.backend.server.application.port.in.EditAccessUseCase;
+import com.fathy.alfred.backend.server.application.port.in.SettingsHistoryUseCase;
 import com.fathy.alfred.backend.server.application.port.in.GetSettingsUseCase;
 import com.fathy.alfred.backend.server.application.port.in.PreviewSettingsUseCase;
 import com.fathy.alfred.backend.server.application.port.in.SaveSettingsUseCase;
@@ -50,6 +52,10 @@ class ServerSettingsControllerTest {
     private SaveSettingsUseCase save;
     @MockBean
     private EditAccessUseCase editAccess;
+    @MockBean
+    private CheckSettingsUseCase check;
+    @MockBean
+    private SettingsHistoryUseCase history;
 
     private static final String BODY = "{\"baseHash\":\"h\",\"edits\":[{\"key\":\"ALFRED_MEMORY\",\"value\":\"3g\"}]}";
 
@@ -137,5 +143,23 @@ class ServerSettingsControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.allowed").value(false))
                 .andExpect(jsonPath("$.reason").value(EditAccess.Reason.NOT_LISTED.name()));
+    }
+
+    @Test
+    void checksArePublicEvenThroughTheTunnelBecauseTheyWriteNothing() throws Exception {
+        when(check.check(any(), org.mockito.ArgumentMatchers.eq(true))).thenReturn(List.of(ValidationResult.warning("ALFRED_MEMORY", "low")));
+        mvc.perform(post("/server/settings/check").contentType(MediaType.APPLICATION_JSON).content("{\"all\":true}")
+                        .header("Cf-Ray", "x"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.results[0].level").value("WARNING"));
+    }
+
+    @Test
+    void historyIsReadableAndARevertNeedsEditRights() throws Exception {
+        when(history.history(50)).thenReturn(List.of());
+        mvc.perform(get("/server/settings/history")).andExpect(status().isOk());
+        mvc.perform(post("/server/settings/history/3/revert").header("Cf-Ray", "x")).andExpect(status().isForbidden());
+        when(history.revert(3)).thenThrow(new java.util.NoSuchElementException("History entry 3 is no longer kept"));
+        mvc.perform(post("/server/settings/history/3/revert")).andExpect(status().isNotFound());
     }
 }

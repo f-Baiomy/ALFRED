@@ -1,6 +1,8 @@
 package com.fathy.alfred.backend.server.application.service;
 
+import com.fathy.alfred.backend.server.application.port.in.CheckSettingsUseCase;
 import com.fathy.alfred.backend.server.application.port.in.GetSettingsUseCase;
+import com.fathy.alfred.backend.server.application.port.in.SettingsHistoryUseCase;
 import com.fathy.alfred.backend.server.application.port.in.PreviewSettingsUseCase;
 import com.fathy.alfred.backend.server.application.port.in.SaveSettingsUseCase;
 import com.fathy.alfred.backend.server.application.port.out.DefaultsPort;
@@ -48,7 +50,8 @@ import java.util.function.BiFunction;
  * LIVE setting that fails to apply is reported, and is in effect after the next restart anyway, because .env is what
  * every start reads.
  */
-public class ServerSettingsService implements GetSettingsUseCase, PreviewSettingsUseCase, SaveSettingsUseCase {
+public class ServerSettingsService implements GetSettingsUseCase, PreviewSettingsUseCase, SaveSettingsUseCase,
+        CheckSettingsUseCase, SettingsHistoryUseCase {
 
     static final String MASKED = "<set>";
 
@@ -165,6 +168,66 @@ public class ServerSettingsService implements GetSettingsUseCase, PreviewSetting
             return null;
         }
         return definition.key() + "=" + (definition.secret() && !value.isEmpty() ? MASKED : value);
+    }
+
+    // ------------------------------------------------------------------------------------------------------------------
+    // check (FR-030..033) and history (FR-034/035)
+    // ------------------------------------------------------------------------------------------------------------------
+
+    /** Edits per check request, like a save (Constitution I). */
+    static final int MAX_CHECK_EDITS = 64;
+
+    @Override
+    public List<ValidationResult> check(List<SettingsChange.Edit> edits, boolean all) {
+        if (edits.size() > MAX_CHECK_EDITS) {
+            throw new IllegalArgumentException("At most " + MAX_CHECK_EDITS + " values per check");
+        }
+        EnvDocument document = mode == RuntimeMode.NATIVE ? envFile.read() : EnvDocument.empty();
+        List<SettingsChange.Edit> toCheck = new ArrayList<>(edits);
+        if (all) {
+            Map<String, String> effective = mode == RuntimeMode.NATIVE ? effective() : dockerValues();
+            Set<String> edited = new LinkedHashSet<>();
+            edits.forEach(e -> edited.add(e.key()));
+            for (SettingDefinition definition : SettingCatalog.all()) {
+                if (!edited.contains(definition.key()) && !definition.secret()) {
+                    toCheck.add(SettingsChange.Edit.set(definition.key(), effective.getOrDefault(definition.key(), "")));
+                }
+            }
+        }
+        return plan(document, new SettingsChange(document.contentHash(), toCheck)).results();
+    }
+
+    private Map<String, String> dockerValues() {
+        Map<String, String> out = new LinkedHashMap<>(defaults.defaults());
+        for (SettingDefinition definition : SettingCatalog.all()) {
+            docker.effectiveValue(definition.key()).ifPresent(v -> out.put(definition.key(), v));
+        }
+        return out;
+    }
+
+    @Override
+    public List<HistoryEntry> history(int limit) {
+        if (mode == RuntimeMode.NATIVE) {
+            recordHandEdit(envFile.read());
+        }
+        return history.recent(Math.max(1, Math.min(MAX_LIMIT, limit)));
+    }
+
+    @Override
+    public List<SettingsChange.Edit> revert(long id) {
+        HistoryEntry entry = history.find(id).orElseThrow(() -> new java.util.NoSuchElementException("History entry " + id + " is no longer kept"));
+        Map<String, String> before = EnvDocument.parse(history.contentBefore(id).orElse("")).entries();
+        List<SettingsChange.Edit> edits = new ArrayList<>();
+        for (HistoryEntry.Change change : entry.changes()) {
+            SettingDefinition definition = SettingCatalog.find(change.key()).orElse(null);
+            if (definition == null || definition.secret()) {
+                continue;
+            }
+            edits.add(before.containsKey(change.key())
+                    ? SettingsChange.Edit.set(change.key(), before.get(change.key()))
+                    : SettingsChange.Edit.reset(change.key()));
+        }
+        return edits;
     }
 
     // ------------------------------------------------------------------------------------------------------------------

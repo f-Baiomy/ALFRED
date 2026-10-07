@@ -5,6 +5,7 @@ import com.fathy.alfred.backend.server.adapter.out.envfile.EnvFileAdapter;
 import com.fathy.alfred.backend.server.adapter.out.envfile.SettingsPropertiesDefaultsAdapter;
 import com.fathy.alfred.backend.server.adapter.out.history.EnvHistoryFileAdapter;
 import com.fathy.alfred.backend.server.adapter.out.history.PendingRestartFileAdapter;
+import com.fathy.alfred.backend.server.adapter.out.probe.MachineAdapter;
 import com.fathy.alfred.backend.server.adapter.out.runtime.JvmRuntimeInfoAdapter;
 import com.fathy.alfred.backend.server.adapter.out.runtime.NetworkInterfacesAdapter;
 import com.fathy.alfred.backend.server.adapter.out.runtime.ProcessEnvDockerSettingsAdapter;
@@ -17,8 +18,10 @@ import com.fathy.alfred.backend.server.application.port.out.HistoryPort;
 import com.fathy.alfred.backend.server.application.port.out.LiveSettingsPort;
 import com.fathy.alfred.backend.server.application.port.out.PendingRestartPort;
 import com.fathy.alfred.backend.server.application.port.out.ServerEventsPort;
+import com.fathy.alfred.backend.server.application.port.out.StorageStatsPort;
 import com.fathy.alfred.backend.server.application.port.out.SupervisorPort;
 import com.fathy.alfred.backend.server.application.service.EditAccessService;
+import com.fathy.alfred.backend.server.application.service.MachineProbes;
 import com.fathy.alfred.backend.server.application.service.ServerRuntimeService;
 import com.fathy.alfred.backend.server.application.service.ServerSettingsService;
 import com.fathy.alfred.backend.server.application.service.SettingsProbes;
@@ -107,8 +110,15 @@ public class ServerSliceConfiguration implements WebSocketConfigurer {
     }
 
     @Bean
-    public SettingsProbes serverSettingsProbes() {
-        return SettingsProbes.none();
+    public SettingsProbes serverSettingsProbes(StorageStatsPort storage, EnvFilePort envFile, DefaultsPort defaults,
+                                               @Value("${ALFRED_DATA_DIR:data}") String dataDir,
+                                               @Value("${ALFRED_HOME:.}") String home) {
+        // "Running" settings: what .env says now, which is what the processes were started with or are about to be.
+        return new MachineProbes(new MachineAdapter(Path.of(dataDir)), storage, () -> {
+            java.util.Map<String, String> effective = new java.util.LinkedHashMap<>(defaults.defaults());
+            effective.putAll(envFile.read().entries());
+            return effective;
+        }, Path.of(home));
     }
 
     @Bean
