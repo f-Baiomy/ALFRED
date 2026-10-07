@@ -1,4 +1,5 @@
 import { LogCounts } from '../../core/models/call-logs.model';
+import { msText } from '../../shared/utils/db-statement-display';
 import { CallDbSummary } from '../../core/models/db-capture.model';
 import { CallLogCountsService } from '../../core/state/call-log-counts.service';
 import { NgTemplateOutlet } from '@angular/common';
@@ -308,7 +309,7 @@ interface WaterfallGroup {
                 @if (db.failedCount) {
                   <span class="db-fail-mark" [title]="db.statementCount + ' database statements, ' + db.failedCount + ' failed - open the call for the DB chip'">&#10006; DB {{ db.statementCount }} · {{ db.failedCount }} failed</span>
                 } @else if (db.statementCount) {
-                  <span class="db-fail-mark ok" [title]="db.statementCount + ' database statement' + (db.statementCount > 1 ? 's' : '') + ' - open the call for the DB chip'">&#9670; DB {{ db.statementCount }}</span>
+                  <span class="db-fail-mark ok" [title]="db.statementCount + ' database statement' + (db.statementCount > 1 ? 's' : '') + ' - open the call for the DB chip'">&#9670; DB {{ db.statementCount }} · {{ dbMs(db.dbMicros) }}</span>
                 }
               }
               @if (logCounts(row.call.id); as lc) {
@@ -647,6 +648,10 @@ export class CallWaterfallComponent {
   private readonly logCountsState = inject(CallLogCountsService);
 
   /** A row's DB mark: its statement count, red with the failed ones (its ◆ DB summary - the list states request one per loaded inbound call). */
+  dbMs(micros: number): string {
+    return msText(micros);
+  }
+
   dbSummary(callId: string): CallDbSummary | undefined {
     return this.dbState.summaries().get(callId);
   }

@@ -89,6 +89,21 @@ describe('DbCaptureStateService', () => {
     expect(service.summaries().has('c2')).toBeFalse();
   });
 
+  it('asks again after a failed summaries request (backend restarting) instead of leaving the cards without a chip', async () => {
+    jasmine.clock().install();
+    try {
+      service.requestSummary('c1');
+      await Promise.resolve();
+      http.expectOne((r) => r.url === `${BACKEND}/db-capture/summaries`).flush('', { status: 502, statusText: 'Bad Gateway' });
+      jasmine.clock().tick(3000);
+      await Promise.resolve();
+      http.expectOne((r) => r.url === `${BACKEND}/db-capture/summaries`).flush({ c1: { callId: 'c1', statementCount: 1 } });
+      expect(service.summaries().has('c1')).toBeTrue();
+    } finally {
+      jasmine.clock().uninstall();
+    }
+  });
+
   it('asks at most 100 ids a request - a longer URL is refused by the gateway (414)', async () => {
     for (let i = 0; i < 182; i++) service.requestSummary(`call-${i}`);
     await Promise.resolve();

@@ -20,6 +20,7 @@ const call: CallRecord = {
 
 describe('DbChipComponent', () => {
   const summaries = signal<ReadonlyMap<string, CallDbSummary>>(new Map());
+  let refreshSummary: jasmine.Spy;
 
   function render(s: CallDbSummary): HTMLButtonElement {
     summaries.set(new Map([['c1', s]]));
@@ -30,10 +31,11 @@ describe('DbChipComponent', () => {
   }
 
   beforeEach(() => {
+    refreshSummary = jasmine.createSpy('refreshSummary');
     TestBed.configureTestingModule({
       imports: [DbChipComponent],
       providers: [
-        { provide: DbCaptureStateService, useValue: { summaries, showChips: signal(true), requestSummary: () => undefined } },
+        { provide: DbCaptureStateService, useValue: { summaries, showChips: signal(true), requestSummary: () => undefined, refreshSummary } },
         { provide: DbWindowService, useValue: { openCall: () => undefined } },
       ],
     });
@@ -54,6 +56,21 @@ describe('DbChipComponent', () => {
     expect(chip.textContent).toContain('1 failed');
     expect(chip.textContent).toContain('swallowed');
     expect(chip.title).toContain('#42 LOG_FLIGHTSEARCH_HIT_DETAILS_SP_V6 failed (42000) and was swallowed - the call still answered 200');
+  });
+
+  it('always says the database time - with writes, failures or flags too', () => {
+    const chip = render(summary({ writeCount: 3, dbMicros: 500 }));
+    expect(chip.textContent).toContain('3 writes');
+    expect(chip.textContent).toContain('0.5 ms');
+  });
+
+  it('asks again when a finished call still has no summary (its first answer came too early or was lost)', () => {
+    summaries.set(new Map());
+    const fixture = TestBed.createComponent(DbChipComponent);
+    fixture.componentRef.setInput('call', call);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('button.db-chip')).toBeNull();
+    expect(refreshSummary).toHaveBeenCalledWith('c1');
   });
 
   it('says how many more failed than the flags name', () => {

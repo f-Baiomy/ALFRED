@@ -69,7 +69,7 @@ describe('DbWindowComponent', () => {
           storeCommands: (...args: unknown[]) => storeCommands(...args), storeKeys: () => of([]), settings: () => of({}), redisCli: () => of(''),
           storeCommand: (id: number) => of({ row: redis(id), args: [], resp: 2 }), keyHistory: () => of([]) } },
         { provide: CallStoreCountsService, useValue: { summaries: signal(new Map()), refresh: () => undefined } },
-        { provide: DbCaptureStateService, useValue: { events$: events, reconnected$: new Subject(), summaries: signal(new Map()), requestSummary: () => undefined,
+        { provide: DbCaptureStateService, useValue: { events$: events, reconnected$: new Subject(), summaries: signal(new Map()), requestSummary: () => undefined, refreshSummary: () => undefined,
           projectStatus: () => undefined, setLogsOn: jasmine.createSpy('setLogsOn') } },
         { provide: CallLogsApiService, useValue: { lines: (...args: unknown[]) => logLines(...args) } },
         { provide: LogsSocketService, useValue: { events$: logEvents, reconnected$: new Subject() } },

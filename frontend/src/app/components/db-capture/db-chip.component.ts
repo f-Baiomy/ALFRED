@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, OnInit, computed, inject, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnInit, computed, effect, inject, input, untracked } from '@angular/core';
 import { CallRecord } from '../../core/models/call.model';
 import { DbCaptureStateService } from '../../core/state/db-capture-state.service';
 import { msText } from '../../shared/utils/db-statement-display';
@@ -24,7 +24,7 @@ import { DbWindowService } from './db-window.service';
           @if (s.failedCount) {<span class="sep">·</span> <span class="x">{{ s.failedCount }} failed</span>}
           @if (swallowed()) {<span class="sep">·</span> <span class="x">swallowed</span>}
           @if (s.flags.length) {<span class="sep">·</span> {{ s.flags.length }} flags}
-          @if (!s.writeCount && !s.failedCount && !s.flags.length) {<span class="sep">·</span> {{ ms(s.dbMicros) }}}
+          <span class="sep">·</span> {{ ms(s.dbMicros) }}
           @if (live()) {<span class="sep">·</span> live}
           @if (s.endedEarly) {<span class="sep">·</span> <span class="x">capture ended early</span>}
         </button>
@@ -59,6 +59,16 @@ export class DbChipComponent implements OnInit {
   });
 
   readonly live = computed(() => this.call().state === 'IN_PROGRESS' || (!!this.summary() && !this.summary()!.complete && !this.call().response && !this.call().error));
+
+  constructor() {
+    // The card can come on screen before the agent's first batch for the call has arrived (or while backend was
+    // restarting): when the call finishes and there is still no summary, ask once more instead of showing no chip.
+    effect(() => {
+      const call = this.call();
+      const done = call.state !== 'IN_PROGRESS' && (!!call.response || !!call.error);
+      if (done && untracked(() => !this.summary())) this.dbState.refreshSummary(call.id);
+    });
+  }
 
   ngOnInit(): void {
     this.dbState.requestSummary(this.call().id);

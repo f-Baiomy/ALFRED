@@ -14,7 +14,7 @@ import { DbCaptureStateService } from './db-capture-state.service';
 /** The ▤ counts every loaded inbound call asks for (specs/009) - none here. */
 const LOG_COUNTS_STUB = { request: () => undefined, errorCallIds: signal<ReadonlySet<string>>(new Set()), counts: signal(new Map()) };
 const STORE_COUNTS_STUB = { request: () => undefined, failedCallIds: signal<ReadonlySet<string>>(new Set()), summaries: signal(new Map()) };
-const DB_STATE_STUB = { failedCallIds: signal<ReadonlySet<string>>(new Set()), summaries: signal(new Map()), requestSummary: () => undefined };
+const DB_STATE_STUB = { failedCallIds: signal<ReadonlySet<string>>(new Set()), summaries: signal(new Map()), requestSummary: () => undefined, refreshSummary: () => undefined };
 
 const PIN_STORAGE_KEY = 'alfred_pinned_calls';
 

@@ -219,14 +219,14 @@ describe('CallWaterfallComponent', () => {
     const db = (TestBed.inject(DbCaptureStateService) as unknown as { summariesSignal: { set(m: Map<string, unknown>): void } }).summariesSignal;
     db.set(new Map<string, unknown>([
       ['both', { callId: 'both', statementCount: 56, failedCount: 1 }],
-      ['warn', { callId: 'warn', statementCount: 12, failedCount: 0 }],
+      ['warn', { callId: 'warn', statementCount: 12, failedCount: 0, dbMicros: 1500 }],
     ]));
     const host: HTMLElement = createWaterfall([
       call('both', 0, 10, { source: 'internal' }), call('warn', 20, 10, { source: 'internal' }), call('info', 40, 10, { source: 'internal' }),
     ]).nativeElement;
 
     const marks = Array.from(host.querySelectorAll('.db-fail-mark')).map((m) => `${m.className.replace('db-fail-mark', '').trim() || 'red'}:${m.textContent!.replace(/\s+/g, ' ').trim()}`);
-    expect(marks).toEqual(['red:✖ DB 56 · 1 failed', 'red:▤ 5 err · 1 warn', 'ok:◆ DB 12', 'warn:▤ 2 warn']);
+    expect(marks).toEqual(['red:✖ DB 56 · 1 failed', 'red:▤ 5 err · 1 warn', 'ok:◆ DB 12 · 1.5 ms', 'warn:▤ 2 warn']);
   });
 
   it('shows an error row without a duration rather than a bogus timing', () => {

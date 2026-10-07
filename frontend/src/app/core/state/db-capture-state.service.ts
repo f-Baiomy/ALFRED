@@ -13,6 +13,8 @@ import { CallDbSummary, DbCaptureSocketEvent, ProjectCaptureStatus } from '../mo
  * timers - a change on the socket is what triggers a re-fetch.
  */
 const SHOW_CHIPS_KEY = 'alfred.dbCapture.showChips';
+/** A lost summaries request is asked again after this long. */
+const RETRY_MS = 3000;
 
 function readShowChips(): boolean {
   try {
@@ -176,6 +178,12 @@ export class DbCaptureStateService {
     this.enqueue(callId);
   }
 
+  /** Ask again for a summary already asked for (the call finished, or the first answer was lost). */
+  refreshSummary(callId: string): void {
+    this.requested.add(callId);
+    this.enqueue(callId);
+  }
+
   private enqueue(callId: string): void {
     this.queued.add(callId);
     if (this.flushScheduled) return;
@@ -200,7 +208,12 @@ export class DbCaptureStateService {
           }
           this.summariesSignal.set(next);
         },
-        error: () => undefined,
+        // A failed request (backend restarting, the gateway's 502 meanwhile) must not leave these cards without a
+        // chip for good: forget them so the next card render or socket message asks again, and retry once shortly.
+        error: () => {
+          chunk.forEach((id) => this.requested.delete(id));
+          setTimeout(() => chunk.forEach((id) => this.requestSummary(id)), RETRY_MS);
+        },
       });
     }
   }
