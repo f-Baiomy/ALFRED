@@ -142,6 +142,21 @@ class LaunchCommandTest(unittest.TestCase):
         self.assertTrue(kwargs["creationflags"] & 0x01000000)  # CREATE_BREAKAWAY_FROM_JOB
         self.assertTrue(kwargs["creationflags"] & 0x00000008)  # DETACHED_PROCESS
 
+    def test_windows_falls_back_to_a_plain_detached_launch_when_breakaway_is_refused(self):
+        calls = []
+
+        def popen(argv, **kwargs):
+            calls.append((argv, kwargs))
+            if kwargs["creationflags"] & 0x01000000:
+                raise PermissionError(5, "Access is denied")
+        with mock.patch.object(supervisor, "WINDOWS", True), mock.patch.object(supervisor.subprocess, "Popen", popen), \
+                mock.patch("builtins.open", mock.mock_open()):
+            supervisor.launch_installer(r"C:\alfred\data\updates\setup.exe", r"C:\alfred", r"C:\alfred\data\log\update.log")
+        self.assertEqual(len(calls), 2)
+        self.assertFalse(calls[1][1]["creationflags"] & 0x01000000)
+        self.assertTrue(calls[1][1]["creationflags"] & 0x00000008)
+        self.assertEqual(calls[1][0], calls[0][0])
+
     def test_linux_uses_a_transient_systemd_unit_when_there_is_systemd(self):
         calls = []
         with mock.patch.object(supervisor, "WINDOWS", False), \

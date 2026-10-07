@@ -518,9 +518,18 @@ def launch_installer(path, home, log_path):
     plain child in the service's cgroup, KillMode=mixed or not), else a new session."""
     with open(log_path, "ab") as log_file:
         if WINDOWS:
-            flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_BREAKAWAY_FROM_JOB
-            subprocess.Popen([path, "/S", f"/DIR={home}"], creationflags=flags, close_fds=True, stdin=subprocess.DEVNULL,
-                             stdout=log_file, stderr=subprocess.STDOUT)
+            argv = [path, "/S", f"/DIR={home}"]
+            flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+            try:
+                subprocess.Popen(argv, creationflags=flags | subprocess.CREATE_BREAKAWAY_FROM_JOB, close_fds=True,
+                                 stdin=subprocess.DEVNULL, stdout=log_file, stderr=subprocess.STDOUT)
+            except PermissionError:
+                # The supervisor itself sits in a job that forbids breaking away (a terminal's, a test harness's, some
+                # service managers'): Windows answers "Access is denied" to the flag. Without it the installer is still
+                # a detached process outside Alfred's own job object - it only shares whatever job the supervisor is in.
+                log.info("update: the installer could not break away from the supervisor's job - launched detached without it")
+                subprocess.Popen(argv, creationflags=flags, close_fds=True, stdin=subprocess.DEVNULL,
+                                 stdout=log_file, stderr=subprocess.STDOUT)
             return
         os.chmod(path, 0o755)
         command = ["sh", path, "--unattended", "--dir", home]
