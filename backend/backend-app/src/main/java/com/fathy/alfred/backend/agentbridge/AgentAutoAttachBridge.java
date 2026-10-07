@@ -43,6 +43,8 @@ public class AgentAutoAttachBridge implements NewInternalCallObserverPort {
     private final ExecutorService asks;
     private final Map<String, Instant> lastAsked = new ConcurrentHashMap<>();
 
+    /** Two constructors (the test's takes a clock and executor): Spring must be told which one is its. */
+    @org.springframework.beans.factory.annotation.Autowired
     public AgentAutoAttachBridge(ManageDbCaptureUseCase capture, ServerRuntimeUseCase runtime) {
         this(capture, runtime, Clock.systemUTC(), Executors.newSingleThreadExecutor(r -> {
             Thread t = new Thread(r, "agent-auto-attach");
