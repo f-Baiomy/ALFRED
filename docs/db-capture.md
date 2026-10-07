@@ -242,9 +242,9 @@ sent it. It is a capture for Relive later: nothing is shortened, sampled or redu
   `redis=1`; the agent records Redis commands only for those calls. `PUT /db-capture/projects/{p}/redis` writes the
   line; the backend never reaches into the proxy.
 - **Hooks** (all in `RedisInstrumentation`, read reflectively - the shaded agent jar carries no client class):
-  Lettuce - `DefaultEndpoint.write` takes the call on the request thread, `CommandEncoder.encode` /
+  Lettuce 5+ - `DefaultEndpoint.write` takes the call on the request thread, `CommandEncoder.encode` /
   `CommandHandler.decode` tee the exact RESP bytes on the Netty thread, `setAutoFlushCommands`/`flushCommands` mark a
-  pipeline; Jedis - `Connection.sendCommand` and the reply read (`RedisInputStream.ensureFill` teed, FIFO per
+  pipeline; Jedis 2.x-5 - `Connection.sendCommand` (2.x: `Protocol.Command` with a `raw` field, no `getRaw()`; stream and pool in `redis.clients.util`) and the reply read (`RedisInputStream.ensureFill` teed, FIFO per
   connection), `Pool.getResource` for pool wait; Redisson - `RedisExecutor`/`CommandData` constructors and
   `sendCommand`, its `CommandEncoder`/`CommandDecoder`. Spring Cache (`CacheAspectSupport.execute`, `RedisCache`
   lookup/put/evict/clear) names the cache and operation a command came from. Each command takes the call's next `seq`,

@@ -144,6 +144,27 @@
         <version>3.13.0</version>
       </plugin>
       <plugin>
+        <!-- Jedis 2.x (what Spring Data Redis 1.x apps ship) for RedisCaptureJedis2IT, kept off the test classpath -
+             Jedis 5 is on it - and loaded there through a class loader of its own. -->
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-dependency-plugin</artifactId>
+        <version>3.6.1</version>
+        <executions>
+          <execution>
+            <id>legacy-redis-clients</id>
+            <phase>generate-test-resources</phase>
+            <goals><goal>copy</goal></goals>
+            <configuration>
+              <outputDirectory>${project.build.directory}/legacy-redis</outputDirectory>
+              <artifactItems>
+                <artifactItem><groupId>redis.clients</groupId><artifactId>jedis</artifactId><version>2.9.0</version></artifactItem>
+                <artifactItem><groupId>org.apache.commons</groupId><artifactId>commons-pool2</artifactId><version>2.4.2</version></artifactItem>
+              </artifactItems>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-surefire-plugin</artifactId>
         <version>3.2.5</version>

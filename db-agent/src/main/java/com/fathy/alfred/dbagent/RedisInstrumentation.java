@@ -51,9 +51,9 @@ final class RedisInstrumentation {
                         .or(takesArguments(2).and(takesArgument(1, byte[][].class)))));
         builder = Instrumenter.advise(builder, named("redis.clients.jedis.Connection"), JedisReplyAdvice.class,
                 named("readProtocolWithCheckingBroken").and(takesArguments(0)));
-        builder = Instrumenter.advise(builder, named("redis.clients.jedis.util.RedisInputStream"), JedisFillAdvice.class,
+        builder = Instrumenter.advise(builder, named("redis.clients.jedis.util.RedisInputStream").or(named("redis.clients.util.RedisInputStream")), JedisFillAdvice.class,
                 named("ensureFill").and(takesArguments(0)));
-        builder = Instrumenter.advise(builder, named("redis.clients.jedis.JedisPool").or(named("redis.clients.jedis.util.Pool")),
+        builder = Instrumenter.advise(builder, named("redis.clients.jedis.JedisPool").or(named("redis.clients.jedis.util.Pool")).or(named("redis.clients.util.Pool")),
                 RedisPoolAdvice.class, named("getResource").and(takesArguments(0)));
         // commons-pool2 (Lettuce's ConnectionPoolSupport, Jedis 4/5's Pool): only a Redis connection handed out counts
         builder = Instrumenter.advise(builder, named("org.apache.commons.pool2.impl.GenericObjectPool"), RedisPoolAdvice.class,

@@ -127,7 +127,7 @@ final class RedisBeforeReader {
         }
     }
 
-    /** Connection.executeCommand(CommandArguments) (Jedis 4/5), or sendCommand + getOne (Jedis 3). Raw protocol objects. */
+    /** Connection.executeCommand(CommandArguments) (Jedis 4/5), or sendCommand + getOne (Jedis 2 and 3). Raw protocol objects. */
     private Object jedisRun(Object connection, String cmd, byte[] key) throws Exception {
         ClassLoader loader = connection.getClass().getClassLoader();
         Class<?> protocolCommand = loader.loadClass("redis.clients.jedis.Protocol$Command");
@@ -146,9 +146,24 @@ final class RedisBeforeReader {
             List<byte[]> params = new ArrayList<>();
             params.add(key);
             params.addAll(extra);
-            Method send = connection.getClass().getMethod("sendCommand", loader.loadClass("redis.clients.jedis.commands.ProtocolCommand"), byte[][].class);
+            // sendCommand(ProtocolCommand, byte[]...) public in Jedis 3, sendCommand(Protocol.Command, byte[]...) protected in 2
+            Method send = null;
+            for (Class<?> c = connection.getClass(); c != null && send == null; c = c.getSuperclass()) {
+                for (Method m : c.getDeclaredMethods()) {
+                    Class<?>[] p = m.getParameterTypes();
+                    if (m.getName().equals("sendCommand") && p.length == 2 && p[1] == byte[][].class && p[0].isAssignableFrom(protocolCommand)) {
+                        send = m;
+                        break;
+                    }
+                }
+            }
+            if (send == null) {
+                throw new NoSuchMethodException("sendCommand");
+            }
+            send.setAccessible(true);
             send.invoke(connection, type, params.toArray(new byte[0][]));
-            return connection.getClass().getMethod("getOne").invoke(connection);
+            Method getOne = connection.getClass().getMethod("getOne");
+            return getOne.invoke(connection);
         }
     }
 

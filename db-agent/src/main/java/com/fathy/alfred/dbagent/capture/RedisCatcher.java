@@ -724,14 +724,14 @@ public final class RedisCatcher {
         List<byte[]> out = new ArrayList<>();
         if (command instanceof Iterable && command.getClass().getName().endsWith("CommandArguments")) {
             for (Object rawable : (Iterable<?>) command) {
-                Object raw = invoke(rawable, "getRaw");
+                Object raw = rawOf(rawable);
                 if (raw instanceof byte[]) {
                     out.add((byte[]) raw);
                 }
             }
             return out;
         }
-        Object raw = invoke(command, "getRaw");
+        Object raw = rawOf(command);
         if (!(raw instanceof byte[])) {
             return null;
         }
@@ -743,12 +743,19 @@ public final class RedisCatcher {
                 out.add(s == null ? new byte[0] : s.getBytes(StandardCharsets.UTF_8));
             }
         } else if (args != null) {
-            Object r = invoke(args, "getRaw");
+            Object r = rawOf(args);
             if (r instanceof byte[]) {
                 out.add((byte[]) r);
             }
         }
         return out;
+    }
+
+    /** A command's or argument's bytes: {@code getRaw()} (Jedis 3+), or the public {@code raw} field Jedis 2.x's
+     *  {@code Protocol.Command} and {@code Protocol.Keyword} have instead of the method. */
+    private Object rawOf(Object target) {
+        Object raw = invoke(target, "getRaw");
+        return raw instanceof byte[] ? raw : field(target, "raw");
     }
 
     private String jedisServer(Object connection) {
