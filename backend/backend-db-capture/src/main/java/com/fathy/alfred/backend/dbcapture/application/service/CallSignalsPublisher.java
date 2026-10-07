@@ -44,21 +44,31 @@ public class CallSignalsPublisher implements com.fathy.alfred.backend.dbcapture.
         this.observers = observers;
     }
 
+    /** Redis commands (specs/011-redis-capture): failed commands and cold misses join the call's signals. Optional. */
+    private StoreCommandsService redis;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setRedis(StoreCommandsService redis) {
+        this.redis = redis;
+    }
+
     public void publish(Collection<String> callIds) {
         if (observers.isEmpty() || callIds == null || callIds.isEmpty()) {
             return;
         }
         List<String> ids = callIds.stream().filter(Objects::nonNull).distinct().toList();
         Map<String, CaughtLogCounts> counts = store.logCounts(ids);
+        Map<String, int[]> redisSignals = redis == null ? Map.of() : redis.signals(ids);
         for (String callId : ids) {
             CaughtLogCounts c = counts.get(callId);
             List<String> flags = store.summary(callId).map(CallDbSummary::flags).orElse(List.of()).stream()
                     .map(DbFlag::type).filter(t -> !NOT_WARNINGS.contains(t)).map(Enum::name).distinct().toList();
             String status = c != null || store.catchesLogs(callId) ? "CAUGHT" : null;
             String level = store.callLogLevel(callId).orElse(null);
+            int[] r = redisSignals.getOrDefault(callId, new int[2]);
             for (CallSignalsObserverPort observer : observers) {
                 observer.signalsChanged(callId, c == null ? 0 : c.errors(), c == null ? 0 : c.warnings(), c == null ? 0 : c.exceptions(),
-                        status, level, flags);
+                        status, level, flags, r[0], r[1]);
             }
         }
     }

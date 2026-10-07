@@ -58,4 +58,17 @@ class DbCaptureProjectsControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").value("rowsPerResult must be between 1 and 1000000"));
     }
+
+    @org.junit.jupiter.api.Test
+    void theRedisSwitchIs409WhileInboundLoggingIsOff() throws Exception {
+        org.mockito.Mockito.when(manage.setRedisOn("wallet-app", true)).thenReturn(java.util.List.of());
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put("/db-capture/projects/wallet-app/redis")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON).content("{\"on\":true}"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk());
+        org.mockito.Mockito.when(manage.setRedisOn("core-service", true))
+                .thenThrow(new com.fathy.alfred.backend.dbcapture.domain.model.InboundLoggingOffException("core-service"));
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put("/db-capture/projects/core-service/redis")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON).content("{\"on\":true}"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isConflict());
+    }
 }

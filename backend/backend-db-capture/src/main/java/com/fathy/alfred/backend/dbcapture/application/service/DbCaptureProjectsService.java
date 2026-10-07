@@ -43,6 +43,13 @@ public class DbCaptureProjectsService implements ManageDbCaptureUseCase {
     private final DbCaptureStorePort store;
     private final DbCaptureTogglePort toggle;
     private final LogLinkTogglePort logLink;
+    /** The ⬢ Redis switch (specs/011-redis-capture). Optional for tests built before it. */
+    private com.fathy.alfred.backend.dbcapture.application.port.out.RedisCaptureTogglePort redis;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setRedis(com.fathy.alfred.backend.dbcapture.application.port.out.RedisCaptureTogglePort redis) {
+        this.redis = redis;
+    }
     private final DbCaptureNotificationPort notifications;
     private final Optional<InboundProjectsPort> inbound;
     private final Clock clock;
@@ -94,7 +101,7 @@ public class DbCaptureProjectsService implements ManageDbCaptureUseCase {
             AgentStatus agent = latestAgent.get(name);
             boolean attached = agent != null && DbCaptureService.isRecent(agent.lastSeen(), now);
             out.add(new ProjectCaptureStatus(name, toggle.isEnabled(name), logging.getOrDefault(name, false), attached, agent, logLink.isOn(name),
-                    logLevelOf(name)));
+                    logLevelOf(name), redis != null && redis.isOn(name), redisClients(agent), springCaches(agent)));
         }
         return out;
     }
@@ -119,6 +126,32 @@ public class DbCaptureProjectsService implements ManageDbCaptureUseCase {
         logLink.setOn(name, on);
         notifications.captureSettingsChanged(name);
         return projects();
+    }
+
+    @Override
+    public List<ProjectCaptureStatus> setRedisOn(String project, boolean on) {
+        String name = requireProject(project);
+        if (on) {
+            requireInboundLogging(name);
+        }
+        if (redis == null) {
+            throw new IllegalStateException("the Redis switch is not available");
+        }
+        redis.setOn(name, on);
+        notifications.captureSettingsChanged(name);
+        return projects();
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<Map<String, Object>> redisClients(AgentStatus agent) {
+        Object clients = agent == null || agent.redis() == null ? null : agent.redis().get("clients");
+        return clients instanceof List<?> l ? (List<Map<String, Object>>) l : List.of();
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<String> springCaches(AgentStatus agent) {
+        Object caches = agent == null || agent.redis() == null ? null : agent.redis().get("springCaches");
+        return caches instanceof List<?> l ? (List<String>) l : List.of();
     }
 
     @Override
@@ -170,7 +203,7 @@ public class DbCaptureProjectsService implements ManageDbCaptureUseCase {
         expected.add(fingerprint);
         return saveSettings(name, new DbCaptureSettings(current.rowsPerResult(), current.beforeImageTables(), current.outsideCallCapture(),
                 current.thresholds(), expected, current.ignorePatterns(), current.passThroughClasses(), current.callerFrames(), current.indexInfo(),
-                current.logLevel()));
+                current.logLevel(), current.redis()));
     }
 
     private String logLevelOf(String project) {
@@ -212,8 +245,18 @@ public class DbCaptureProjectsService implements ManageDbCaptureUseCase {
         if (!DbCaptureSettings.LOG_LEVELS.contains(s.logLevel())) {
             throw new IllegalArgumentException("log level must be one of " + String.join(", ", DbCaptureSettings.LOG_LEVELS));
         }
+        com.fathy.alfred.backend.dbcapture.domain.model.RedisSettings r = s.redis();
+        List<String> masks = clean(r.maskPatterns(), "masked key pattern");
+        if (!com.fathy.alfred.backend.dbcapture.domain.model.RedisSettings.SHOW_VALUES.contains(r.showValues())) {
+            throw new IllegalArgumentException("show values must be DECODED or RAW");
+        }
+        if (r.slowMillis() > com.fathy.alfred.backend.dbcapture.domain.model.RedisSettings.MAX_SLOW_MILLIS) {
+            throw new IllegalArgumentException("slow Redis command must be 1 to 60000 ms");
+        }
         return new DbCaptureSettings(s.rowsPerResult(), tables.stream().map(x -> x.toLowerCase(Locale.ROOT)).distinct().toList(),
-                s.outsideCallCapture(), t, expected, ignore, passThrough, s.callerFrames(), s.indexInfo(), s.logLevel());
+                s.outsideCallCapture(), t, expected, ignore, passThrough, s.callerFrames(), s.indexInfo(), s.logLevel(),
+                new com.fathy.alfred.backend.dbcapture.domain.model.RedisSettings(masks, r.showValues(), r.beforeImage(), r.slowMillis(),
+                        r.housekeeping()));
     }
 
     private static List<String> clean(List<String> values, String what) {

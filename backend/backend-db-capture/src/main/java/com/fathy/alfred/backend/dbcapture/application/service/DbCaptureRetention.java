@@ -31,6 +31,10 @@ public class DbCaptureRetention implements IngestListener {
     private final Clock clock;
     private final long maxBytes;
     private long batchesSinceCheck;
+    /** Redis commands' own budget (specs/011-redis-capture FR-036, clarification Q2): 2 GB, oldest calls' commands out whole. */
+    static final Duration INCOMPLETE_MAX_AGE = Duration.ofMinutes(10);
+    private Optional<com.fathy.alfred.backend.dbcapture.application.port.out.StoreCommandsPort> storeCommands = Optional.empty();
+    private long maxRedisBytes = 2_147_483_648L;
 
     public DbCaptureRetention(DbCaptureStorePort store, Optional<RetainedCallIdsPort> retained, Optional<Clock> clock,
                               @Value("${ALFRED_DB_CAPTURE_MAX_SIZE_BYTES:4294967296}") long maxBytes) {
@@ -38,6 +42,13 @@ public class DbCaptureRetention implements IngestListener {
         this.retained = retained;
         this.clock = clock.orElse(Clock.systemUTC());
         this.maxBytes = maxBytes;
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setStoreCommands(com.fathy.alfred.backend.dbcapture.application.port.out.StoreCommandsPort storeCommands,
+                          @Value("${ALFRED_REDIS_CAPTURE_MAX_SIZE_BYTES:2147483648}") long maxRedisBytes) {
+        this.storeCommands = Optional.ofNullable(storeCommands);
+        this.maxRedisBytes = maxRedisBytes;
     }
 
     @Override
@@ -51,6 +62,7 @@ public class DbCaptureRetention implements IngestListener {
     }
 
     synchronized void enforce() {
+        storeCommands.ifPresent(this::enforceRedis);
         store.trimOutside(clock.instant().minus(OUTSIDE_MAX_AGE).toString(), maxBytes / 5);
         if (store.totalBytes() <= maxBytes) {
             return;
@@ -66,5 +78,28 @@ public class DbCaptureRetention implements IngestListener {
             evicted += store.deleteForCalls(oldest);
         }
         log.info("db-capture.db size cap: evicted {} statements of the oldest calls", evicted);
+    }
+
+    /**
+     * Redis commands kept under their own cap: parts that never completed go after 10 minutes; then, while over the cap,
+     * the oldest calls lose all their commands together - never part of them, never a call a cycle holds, never a value
+     * shortened.
+     */
+    void enforceRedis(com.fathy.alfred.backend.dbcapture.application.port.out.StoreCommandsPort commands) {
+        commands.purgeIncomplete(clock.instant().minus(INCOMPLETE_MAX_AGE).toEpochMilli());
+        if (commands.bytes() <= maxRedisBytes) {
+            return;
+        }
+        Set<String> keep = retained.map(RetainedCallIdsPort::retainedCallIds).orElse(Set.of());
+        int evicted = 0;
+        while (commands.bytes() > maxRedisBytes) {
+            List<String> oldest = commands.oldestCallIds(EVICT_BATCH, keep);
+            if (oldest.isEmpty()) {
+                log.warn("Redis commands are over their {} byte cap but every remaining call is held by a session or Relive cycle", maxRedisBytes);
+                return;
+            }
+            evicted += commands.deleteForCalls(oldest);
+        }
+        log.info("Redis size cap: removed {} commands of the oldest calls", evicted);
     }
 }

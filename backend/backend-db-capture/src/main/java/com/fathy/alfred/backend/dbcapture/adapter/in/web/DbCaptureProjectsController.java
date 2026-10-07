@@ -43,6 +43,12 @@ public class DbCaptureProjectsController {
         return manage.setLogsOn(project, body != null && body.on());
     }
 
+    /** The ⬢ Redis switch (specs/011-redis-capture) - 409 while the project's inbound logging is off, like ◆ and ▤. */
+    @PutMapping("/db-capture/projects/{project}/redis")
+    public List<ProjectCaptureStatus> setRedisOn(@PathVariable String project, @RequestBody LogsOnDto body) {
+        return manage.setRedisOn(project, body != null && body.on());
+    }
+
     @GetMapping("/db-capture/projects/{project}/settings")
     public DbCaptureSettings settings(@PathVariable String project) {
         return manage.settings(project);

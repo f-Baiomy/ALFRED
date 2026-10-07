@@ -93,4 +93,31 @@ class DbCaptureAgentControllerTest {
                 .andExpect(jsonPath("$.logLevel").value("ERROR"))
                 .andExpect(jsonPath("$.thresholds").doesNotExist());
     }
+
+    @org.junit.jupiter.api.Test
+    void redisCommandsAndPartsAreMappedAndAnUnreadableCommandNeverRejectsTheBatch() throws Exception {
+        when(ingest.ingest(any())).thenReturn(new IngestResult(1, 0));
+        String batch = """
+                {"agentId":"agent-1","project":"odeysys","statements":[],
+                 "markers":[{"callId":"call-1","seq":0,"type":"CALL_OPEN","redis":true}],
+                 "redis":[{"sid":"a-r1","callId":"call-1","seq":1,"command":"GET","keys":["fare:rule:EK"],"args":"KjINCg==","reply":"JC0xDQo=",
+                           "replyType":"NIL","origin":{"store":"spring-cache","cache":"fareRules"},"group":{"kind":"tx","id":"g1","index":0,"size":2}},
+                          {"sid":"a-r2","callId":"call-1","seq":2,"command":"GET","keys":["k"],"args":"%%%not-base64"}],
+                 "redisChunks":[{"sid":"a-r3","which":"reply","part":0,"of":1,"data":"AQID"}],
+                 "droppedRedis":{"call-1":1}}
+                """;
+        mvc.perform(post("/db-capture/agent/batch").header("X-Webhook-Secret", "s3cret").contentType(MediaType.APPLICATION_JSON).content(batch))
+                .andExpect(status().isAccepted());
+        org.mockito.ArgumentCaptor<com.fathy.alfred.backend.dbcapture.domain.model.IngestBatch> captor =
+                org.mockito.ArgumentCaptor.forClass(com.fathy.alfred.backend.dbcapture.domain.model.IngestBatch.class);
+        org.mockito.Mockito.verify(ingest).ingest(captor.capture());
+        var b = captor.getValue();
+        org.assertj.core.api.Assertions.assertThat(b.markers().get(0).redis()).isTrue();
+        org.assertj.core.api.Assertions.assertThat(b.redis()).hasSize(2);
+        org.assertj.core.api.Assertions.assertThat(b.redis().get(0).command().origin().cache()).isEqualTo("fareRules");
+        org.assertj.core.api.Assertions.assertThat(b.redis().get(0).command().reply()).isEqualTo("$-1\r\n".getBytes());
+        org.assertj.core.api.Assertions.assertThat(b.redis().get(1).invalid()).startsWith("invalid record");
+        org.assertj.core.api.Assertions.assertThat(b.redisChunks().get(0).data()).containsExactly(1, 2, 3);
+        org.assertj.core.api.Assertions.assertThat(b.droppedRedis()).containsEntry("call-1", 1L);
+    }
 }

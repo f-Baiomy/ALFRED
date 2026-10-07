@@ -38,6 +38,13 @@ public class WebSocketDbCaptureNotificationAdapter implements DbCaptureNotificat
     }
 
     @Override
+    public void storeCommandsAppended(java.util.Collection<String> callIds) {
+        Map<String, Object> m = event("store-commands");
+        m.put("callIds", new java.util.ArrayList<>(callIds));
+        send(m);
+    }
+
+    @Override
     public void outsideAppended(String thread, int count) {
         Map<String, Object> m = event("outside-appended");
         m.put("thread", thread);

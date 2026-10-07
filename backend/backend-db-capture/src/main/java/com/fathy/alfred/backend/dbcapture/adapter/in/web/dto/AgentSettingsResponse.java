@@ -10,12 +10,12 @@ import java.util.List;
  */
 public record AgentSettingsResponse(int rowsPerResult, List<String> beforeImageTables, boolean outsideCallCapture, boolean captureEnabled,
                                     List<String> ignorePatterns, List<String> passThroughClasses, int callerFrames, boolean indexInfo,
-                                    boolean logsOn, String logLevel) {
+                                    boolean logsOn, String logLevel, boolean redisBeforeImage, boolean redisHousekeeping) {
 
     public static AgentSettingsResponse of(AgentDirective directive) {
         var settings = directive.settings();
         return new AgentSettingsResponse(settings.rowsPerResult(), settings.beforeImageTables(), settings.outsideCallCapture(),
                 directive.captureEnabled(), settings.ignorePatterns(), settings.passThroughClasses(), settings.callerFrames(), settings.indexInfo(),
-                directive.logsOn(), settings.logLevel());
+                directive.logsOn(), settings.logLevel(), settings.redis().beforeImage(), settings.redis().housekeeping());
     }
 }

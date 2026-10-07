@@ -26,4 +26,11 @@ public class TriageCallSignalsAdapter implements CallSignalsObserverPort {
                                List<String> dbFlags) {
         record.signals(callId, new CallSignals(logErrors, logWarnings, logExceptions, logStatus, logLevel, dbFlags));
     }
+
+    /** With the call's Redis signals (specs/011-redis-capture): failed commands are a problem, cold misses a warning. */
+    @Override
+    public void signalsChanged(String callId, int logErrors, int logWarnings, int logExceptions, String logStatus, String logLevel,
+                               List<String> dbFlags, int redisFailed, int redisCold) {
+        record.signals(callId, new CallSignals(logErrors, logWarnings, logExceptions, logStatus, logLevel, dbFlags, redisFailed, redisCold));
+    }
 }

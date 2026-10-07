@@ -52,7 +52,7 @@ class CallSignalsPublisherTest {
 
         publisher.publish(List.of("c1"));
 
-        verify(observer).signalsChanged("c1", 5, 1, 2, "CAUGHT", "WARN", List.of("REPEATED_QUERY", "SLOW"));
+        verify(observer).signalsChanged("c1", 5, 1, 2, "CAUGHT", "WARN", List.of("REPEATED_QUERY", "SLOW"), 0, 0);
     }
 
     @Test
@@ -63,7 +63,7 @@ class CallSignalsPublisherTest {
 
         publisher.publish(List.of("c2"));
 
-        verify(observer).signalsChanged("c2", 0, 0, 0, null, null, List.of());
+        verify(observer).signalsChanged("c2", 0, 0, 0, null, null, List.of(), 0, 0);
     }
 
     @Test
@@ -78,11 +78,11 @@ class CallSignalsPublisherTest {
         service.ingest(new IngestBatch("agent-1", "odeysys", List.of(), List.of(), Map.of(), List.of(
                 new CaughtLogLine(0, "c-log", 1, "2026-10-06T10:00:00Z", "ERROR", "L", "t", "boom", null, null, null, false, "odeysys"),
                 new CaughtLogLine(0, null, 0, "2026-10-06T10:00:00Z", "ERROR", "L", "t", "outside", null, null, null, false, "odeysys")), Map.of()));
-        verify(observer).signalsChanged(eq("c-log"), anyInt(), anyInt(), anyInt(), any(), any(), any());
+        verify(observer).signalsChanged(eq("c-log"), anyInt(), anyInt(), anyInt(), any(), any(), any(), anyInt(), anyInt());
 
         when(store.summary("c-done")).thenReturn(Optional.of(summary("c-done", List.of())));
         service.callCompleted("c-done", 200, null);
-        verify(observer).signalsChanged(eq("c-done"), anyInt(), anyInt(), anyInt(), any(), any(), any());
+        verify(observer).signalsChanged(eq("c-done"), anyInt(), anyInt(), anyInt(), any(), any(), any(), anyInt(), anyInt());
     }
 
     @Test
@@ -95,8 +95,8 @@ class CallSignalsPublisherTest {
         when(store.callLogLevel(anyString())).thenReturn(Optional.empty());
 
         publisher.reflagNow("odeysys");
-        verify(observer).signalsChanged(eq("a"), anyInt(), anyInt(), anyInt(), any(), any(), any());
-        verify(observer).signalsChanged(eq("b"), anyInt(), anyInt(), anyInt(), any(), any(), any());
+        verify(observer).signalsChanged(eq("a"), anyInt(), anyInt(), anyInt(), any(), any(), any(), anyInt(), anyInt());
+        verify(observer).signalsChanged(eq("b"), anyInt(), anyInt(), anyInt(), any(), any(), any(), anyInt(), anyInt());
 
         // through the settings save: only a change that can move flags starts a re-flag
         CallSignalsPublisher spy = mock(CallSignalsPublisher.class);

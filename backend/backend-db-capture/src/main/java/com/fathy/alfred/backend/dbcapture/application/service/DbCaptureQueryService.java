@@ -54,6 +54,13 @@ public class DbCaptureQueryService implements GetCallDbSummariesUseCase, GetCall
 
     private final DbCaptureStorePort store;
     private final IngestStatementsUseCase ingest;
+    /** Redis commands travel with the call's export (specs/011-redis-capture FR-030). Optional for tests built before it. */
+    private StoreCommandsService storeCommands;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setStoreCommands(StoreCommandsService storeCommands) {
+        this.storeCommands = storeCommands;
+    }
 
     public DbCaptureQueryService(DbCaptureStorePort store, IngestStatementsUseCase ingest) {
         this.store = store;
@@ -331,8 +338,11 @@ public class DbCaptureQueryService implements GetCallDbSummariesUseCase, GetCall
     @Override
     public Optional<CallDbCaptureExport> export(String callId) {
         Optional<CallDbSummary> summary = store.summary(callId);
+        Optional<com.fathy.alfred.backend.dbcapture.domain.model.CallStoreSummary> redisSummary =
+                storeCommands == null ? Optional.empty() : storeCommands.summary(callId);
         if (summary.isEmpty()) {
-            return Optional.empty();
+            // a call with only Redis commands recorded (⬢ on, ◆ off) still exports them
+            return redisSummary.map(rs -> new CallDbCaptureExport(null, List.of(), List.of(), List.of(), storeCommands.export(callId), rs));
         }
         List<ExportedStatement> statements = store.allStatements(callId, Integer.MAX_VALUE).stream()
                 .map(s -> ExportedStatement.of(s,
@@ -340,7 +350,8 @@ public class DbCaptureQueryService implements GetCallDbSummariesUseCase, GetCall
                         s.beforeImage() != null ? store.rows(s.id(), BEFORE_IMAGE, 0, Integer.MAX_VALUE) : List.of()))
                 .toList();
         List<CallMarker> supplierMarkers = store.markers(callId).stream().filter(m -> m.type() == MarkerType.HTTP_OUT).toList();
-        return Optional.of(new CallDbCaptureExport(summary.get(), store.transactions(callId), supplierMarkers, statements));
+        return Optional.of(new CallDbCaptureExport(summary.get(), store.transactions(callId), supplierMarkers, statements,
+                redisSummary.isPresent() ? storeCommands.export(callId) : null, redisSummary.orElse(null)));
     }
 
     /**
@@ -369,8 +380,21 @@ public class DbCaptureQueryService implements GetCallDbSummariesUseCase, GetCall
             for (CallMarker m : capture.supplierMarkers() == null ? List.<CallMarker>of() : capture.supplierMarkers()) {
                 markers.add(new CallMarker(callId, m.seq(), MarkerType.HTTP_OUT, m.at(), m.method(), m.url()));
             }
-            stored += ingest.ingest(new IngestBatch(IMPORT_AGENT, null, statements, markers, Map.of())).accepted();
+            List<IngestBatch.RedisIn> redis = new ArrayList<>();
+            for (var r : capture.redis() == null ? List.<com.fathy.alfred.backend.dbcapture.domain.model.ExportedStoreCommand>of() : capture.redis()) {
+                if (r != null) {
+                    redis.add(StoreCommandsService.imported(callId, r));
+                }
+            }
+            if (capture.redisSummary() != null || !redis.isEmpty()) {
+                markers.set(0, new CallMarker(callId, 0, MarkerType.CALL_OPEN, null, null, null, null, null, null, Boolean.TRUE));
+            }
+            stored += ingest.ingest(new IngestBatch(IMPORT_AGENT, null, statements, markers, Map.of(), List.of(), Map.of(), redis, List.of(),
+                    Map.of())).accepted();
             store.markComplete(callId, capture.summary() != null && capture.summary().endedEarly());
+            if (storeCommands != null && (capture.redisSummary() != null || !redis.isEmpty())) {
+                storeCommands.callCompleted(callId, capture.redisSummary() != null && capture.redisSummary().endedEarly());
+            }
         }
         return stored;
     }

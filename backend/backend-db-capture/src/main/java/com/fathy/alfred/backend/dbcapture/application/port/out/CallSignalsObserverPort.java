@@ -15,4 +15,13 @@ import java.util.List;
 public interface CallSignalsObserverPort {
 
     void signalsChanged(String callId, int logErrors, int logWarnings, int logExceptions, String logStatus, String logLevel, List<String> dbFlags);
+
+    /**
+     * The same with the call's Redis signals (specs/011-redis-capture): failed Redis commands and cold cache misses. An
+     * observer that does not keep them gets the call without.
+     */
+    default void signalsChanged(String callId, int logErrors, int logWarnings, int logExceptions, String logStatus, String logLevel,
+                                List<String> dbFlags, int redisFailed, int redisCold) {
+        signalsChanged(callId, logErrors, logWarnings, logExceptions, logStatus, logLevel, dbFlags);
+    }
 }

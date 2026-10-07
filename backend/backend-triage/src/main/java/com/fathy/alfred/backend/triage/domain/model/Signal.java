@@ -10,7 +10,11 @@ import java.util.List;
  */
 public enum Signal {
     HTTP_ERROR(true), NO_ANSWER(true), DB_FAILED(true), SUPPLIER_FAILED(true), LOG_ERROR(true), LOG_EXCEPTION(true),
-    DB_WARNING(false), LOG_WARNING(false);
+    DB_WARNING(false), LOG_WARNING(false),
+    /** A Redis command of the call failed (specs/011-redis-capture). */
+    REDIS_FAILED(true),
+    /** A Redis read missed a key a recorded call wrote earlier whose TTL had run out (specs/011-redis-capture). */
+    CACHE_COLD(false);
 
     private final boolean error;
 
@@ -51,6 +55,12 @@ public enum Signal {
         }
         if (s.logWarnings() > 0) {
             out.add(LOG_WARNING);
+        }
+        if (s.redisFailed() > 0) {
+            out.add(REDIS_FAILED);
+        }
+        if (s.redisCold() > 0) {
+            out.add(CACHE_COLD);
         }
         return out;
     }

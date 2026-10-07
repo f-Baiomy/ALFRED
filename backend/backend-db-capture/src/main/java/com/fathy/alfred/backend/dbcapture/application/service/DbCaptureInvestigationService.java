@@ -38,6 +38,14 @@ public class DbCaptureInvestigationService implements InvestigateCallUseCase {
     private final DbCaptureStorePort store;
     private final QuerySandboxPort sandbox;
 
+    /** Redis hits join the trace (specs/011-redis-capture FR-026). Optional for tests built before it. */
+    private StoreCommandsService storeCommands;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setStoreCommands(StoreCommandsService storeCommands) {
+        this.storeCommands = storeCommands;
+    }
+
     public DbCaptureInvestigationService(DbCaptureStorePort store, QuerySandboxPort sandbox) {
         this.store = store;
         this.sandbox = sandbox;
@@ -138,6 +146,9 @@ public class DbCaptureInvestigationService implements InvestigateCallUseCase {
             }
         }
         hits.addAll(store.rowsContaining(callId, value, MAX_TRACE_HITS));
+        if (storeCommands != null) {
+            hits.addAll(storeCommands.trace(callId, value, MAX_TRACE_HITS));
+        }
         hits.sort((a, b) -> a.seq() != b.seq() ? Integer.compare(a.seq(), b.seq()) : a.where().compareTo(b.where()));
         return hits.size() > MAX_TRACE_HITS ? hits.subList(0, MAX_TRACE_HITS) : hits;
     }

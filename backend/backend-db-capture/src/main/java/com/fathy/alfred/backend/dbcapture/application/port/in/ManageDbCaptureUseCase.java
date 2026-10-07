@@ -20,6 +20,13 @@ public interface ManageDbCaptureUseCase {
      */
     List<ProjectCaptureStatus> setLogsOn(String project, boolean on);
 
+    /**
+     * The ⬢ Redis switch (specs/011-redis-capture) - like {@link #setEnabled}, refused while inbound logging is off.
+     *
+     * @throws com.fathy.alfred.backend.dbcapture.domain.model.InboundLoggingOffException when switching on with inbound logging off
+     */
+    List<ProjectCaptureStatus> setRedisOn(String project, boolean on);
+
     /** True while the project's ▤ switch AND its inbound logging are on - only then may its logs be read. */
     boolean logsLinked(String project);
 

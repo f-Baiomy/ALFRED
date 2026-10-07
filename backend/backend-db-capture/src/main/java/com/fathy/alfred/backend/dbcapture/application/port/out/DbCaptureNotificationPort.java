@@ -10,6 +10,10 @@ public interface DbCaptureNotificationPort {
     default void logsAppended(String callId, String project) {
     }
 
+    /** Redis commands of these calls were stored, or their summary changed (specs/011-redis-capture). */
+    default void storeCommandsAppended(java.util.Collection<String> callIds) {
+    }
+
     void captureSettingsChanged(String project);
 
     void agentStatusChanged(String project, boolean attached);

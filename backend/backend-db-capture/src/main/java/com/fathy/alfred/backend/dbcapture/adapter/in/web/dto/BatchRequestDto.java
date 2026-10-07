@@ -16,7 +16,10 @@ public record BatchRequestDto(
         @Valid @Size(max = 4000) List<MarkerDto> markers,
         @Size(max = 4000) Map<String, Long> droppedByCall,
         @Valid @Size(max = 5000) List<LogLineDto> logs,
-        @Size(max = 4000) Map<String, Long> droppedLogs
+        @Size(max = 4000) Map<String, Long> droppedLogs,
+        @Size(max = 2000) List<RedisCommandDto> redis,
+        @Valid @Size(max = 100) List<RedisChunkDto> redisChunks,
+        @Size(max = 4000) Map<String, Long> droppedRedis
 ) {
     public IngestBatch toDomain() {
         return new IngestBatch(agentId, project,
@@ -24,6 +27,21 @@ public record BatchRequestDto(
                 markers == null ? List.of() : markers.stream().map(MarkerDto::toDomain).toList(),
                 droppedByCall == null ? Map.of() : droppedByCall,
                 logs == null ? List.of() : logs.stream().map(l -> l.toDomain(project)).toList(),
-                droppedLogs == null ? Map.of() : droppedLogs);
+                droppedLogs == null ? Map.of() : droppedLogs,
+                redis == null ? List.of() : redis.stream().map(BatchRequestDto::redisCommand).toList(),
+                redisChunks == null ? List.of() : redisChunks.stream().map(RedisChunkDto::toDomain).toList(),
+                droppedRedis == null ? Map.of() : droppedRedis);
+    }
+
+    /** A command whose fields cannot even be read (bad base64) is kept as an invalid record, never dropped silently. */
+    private static IngestBatch.RedisIn redisCommand(RedisCommandDto dto) {
+        if (dto == null) {
+            return new IngestBatch.RedisIn(null, "invalid record: empty");
+        }
+        try {
+            return new IngestBatch.RedisIn(dto.toDomain(), null);
+        } catch (IllegalArgumentException e) {
+            return new IngestBatch.RedisIn(dto.withoutBytes().toDomain(), "invalid record: " + e.getMessage());
+        }
     }
 }

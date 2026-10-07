@@ -79,6 +79,14 @@ public class DbCaptureService implements IngestStatementsUseCase, RecordAgentHea
         this.signals = signals;
     }
 
+    /** Redis commands of calls (specs/011-redis-capture). Optional for tests built before it. */
+    private StoreCommandsService storeCommands;
+
+    @Autowired(required = false)
+    void setStoreCommands(StoreCommandsService storeCommands) {
+        this.storeCommands = storeCommands;
+    }
+
     /** The ▤ switch - outside-call lines are caught while it is on (specs/009-agent-log-capture). Optional for tests. */
     private com.fathy.alfred.backend.dbcapture.application.port.out.LogLinkTogglePort logLink;
 
@@ -122,11 +130,13 @@ public class DbCaptureService implements IngestStatementsUseCase, RecordAgentHea
         statements.stream().filter(s -> s.callId() == null).map(IncomingStatement::thread).filter(Objects::nonNull).distinct()
                 .forEach(thread -> notifications.outsideAppended(thread,
                         (int) statements.stream().filter(s -> s.callId() == null && thread.equals(s.thread())).count()));
+        java.util.Set<String> redisChanged = storeCommands == null ? java.util.Set.of() : storeCommands.ingest(batch);
         listeners.forEach(IngestListener::batchIngested);
         if (signals != null) {
-            // after the listeners: flags are recomputed by then. Calls whose lines or statements this batch brought.
+            // after the listeners: flags are recomputed by then. Calls whose lines, statements or Redis commands this batch brought.
             java.util.Set<String> changed = new java.util.LinkedHashSet<>(lastSeqByCall.keySet());
             logs.stream().map(CaughtLogLine::callId).filter(Objects::nonNull).forEach(changed::add);
+            changed.addAll(redisChanged);
             signals.publish(changed);
         }
         return new IngestResult(fresh, statements.size() - fresh);
@@ -236,8 +246,16 @@ public class DbCaptureService implements IngestStatementsUseCase, RecordAgentHea
         if (callId == null || callId.isBlank()) {
             return;
         }
+        boolean answeredAtAll = status != null && status > 0;
+        if (storeCommands != null) {
+            // the ⬢ chip stops being "live"; a call whose application died mid-call ended its capture early
+            storeCommands.callCompleted(callId, !answeredAtAll && error != null && !error.isBlank());
+        }
         Optional<com.fathy.alfred.backend.dbcapture.domain.model.CallDbSummary> summary = store.summary(callId);
         if (summary.isEmpty()) {
+            if (signals != null && storeCommands != null) {
+                signals.publish(List.of(callId));
+            }
             return;
         }
         boolean answered = status != null && status > 0;

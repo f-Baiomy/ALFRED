@@ -26,7 +26,8 @@ public record DbCaptureSettings(
         List<String> passThroughClasses,
         int callerFrames,
         boolean indexInfo,
-        String logLevel
+        String logLevel,
+        RedisSettings redis
 ) {
     public static final int DEFAULT_ROWS_PER_RESULT = 50_000;
     public static final int MAX_ROWS_PER_RESULT = 1_000_000;
@@ -39,6 +40,20 @@ public record DbCaptureSettings(
         passThroughClasses = passThroughClasses == null ? List.of() : passThroughClasses;
         callerFrames = callerFrames <= 0 ? DEFAULT_CALLER_FRAMES : callerFrames;
         logLevel = logLevel == null || logLevel.isBlank() ? DEFAULT_LOG_LEVEL : logLevel.strip().toUpperCase(java.util.Locale.ROOT);
+        redis = redis == null ? RedisSettings.defaults() : redis; // settings stored before Redis capture read back with its defaults
+    }
+
+    public DbCaptureSettings(int rowsPerResult, List<String> beforeImageTables, boolean outsideCallCapture, Thresholds thresholds,
+                             List<String> expectedFingerprints, List<String> ignorePatterns, List<String> passThroughClasses,
+                             int callerFrames, boolean indexInfo, String logLevel) {
+        this(rowsPerResult, beforeImageTables, outsideCallCapture, thresholds, expectedFingerprints, ignorePatterns, passThroughClasses,
+                callerFrames, indexInfo, logLevel, null);
+    }
+
+    /** The same settings with other Redis settings. */
+    public DbCaptureSettings withRedis(RedisSettings redisSettings) {
+        return new DbCaptureSettings(rowsPerResult, beforeImageTables, outsideCallCapture, thresholds, expectedFingerprints, ignorePatterns,
+                passThroughClasses, callerFrames, indexInfo, logLevel, redisSettings);
     }
 
     public DbCaptureSettings(int rowsPerResult, List<String> beforeImageTables, boolean outsideCallCapture, Thresholds thresholds,

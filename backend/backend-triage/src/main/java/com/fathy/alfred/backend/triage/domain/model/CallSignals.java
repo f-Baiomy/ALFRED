@@ -11,11 +11,17 @@ import java.util.List;
  * database flags raised for it (every flag the database window raises except failures, which triage counts itself).
  */
 @JsonInclude(JsonInclude.Include.NON_EMPTY)
-public record CallSignals(int logErrors, int logWarnings, int logExceptions, String logStatus, String logLevel, List<String> dbFlags) {
+public record CallSignals(int logErrors, int logWarnings, int logExceptions, String logStatus, String logLevel, List<String> dbFlags,
+                          int redisFailed, int redisCold) {
 
     public static final CallSignals NONE = new CallSignals(0, 0, 0, null, null, List.of());
 
     public CallSignals {
         dbFlags = dbFlags == null ? List.of() : List.copyOf(dbFlags);
+    }
+
+    /** Without Redis signals ({@code redisFailed}: failed Redis commands; {@code redisCold}: cold cache misses - specs/011-redis-capture). */
+    public CallSignals(int logErrors, int logWarnings, int logExceptions, String logStatus, String logLevel, List<String> dbFlags) {
+        this(logErrors, logWarnings, logExceptions, logStatus, logLevel, dbFlags, 0, 0);
     }
 }

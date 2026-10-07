@@ -119,6 +119,8 @@ public class InvestigationService {
         evidence.put("failingSupplierCalls", mark.failingChildren());
         evidence.put("logStatus", mark.signals().logStatus());
         evidence.put("logLevel", mark.signals().logLevel());
+        evidence.put("redisFailed", mark.signals().redisFailed());
+        evidence.put("cacheCold", mark.signals().redisCold());
         row.put("evidence", evidence);
         return row;
     }
@@ -126,7 +128,44 @@ public class InvestigationService {
     public Map<String, Object> endpoints(EndpointsRequest r) {
         ResolvedScope scope = scopes.resolve(r.scope(), r.project(), r.from(), r.to());
         Map<String, Object> out = answer(scope);
-        out.put("endpoints", analysis.endpoints(scope.ids(), null, null, null, r.limit() == null ? 50 : r.limit()));
+        List<com.fathy.alfred.backend.triage.domain.model.EndpointHealth> health =
+                analysis.endpoints(scope.ids(), null, null, null, r.limit() == null ? 50 : r.limit());
+        out.put("endpoints", redis == null ? health : withRedis(health, scope));
+        return out;
+    }
+
+    /** Redis per endpoint (specs/011-redis-capture FR-034): commands per call, hit rate, misses filled per call, failed calls. */
+    private com.fathy.alfred.backend.dbcapture.application.port.in.StoreSummariesUseCase redis;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setRedis(com.fathy.alfred.backend.dbcapture.application.port.in.StoreSummariesUseCase redis) {
+        this.redis = redis;
+    }
+
+    private List<Map<String, Object>> withRedis(List<com.fathy.alfred.backend.triage.domain.model.EndpointHealth> health, ResolvedScope scope) {
+        Map<String, List<String>> idsByEndpoint = new LinkedHashMap<>();
+        scope.calls().values().forEach(c -> idsByEndpoint
+                .computeIfAbsent(com.fathy.alfred.backend.triage.domain.EndpointPattern.of(c.method(), c.path()), k -> new java.util.ArrayList<>())
+                .add(c.callId()));
+        com.fasterxml.jackson.databind.ObjectMapper json = new com.fasterxml.jackson.databind.ObjectMapper();
+        List<Map<String, Object>> out = new java.util.ArrayList<>();
+        for (com.fathy.alfred.backend.triage.domain.model.EndpointHealth e : health) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> row = json.convertValue(e, LinkedHashMap.class);
+            List<String> ids = idsByEndpoint.getOrDefault(e.endpoint(), List.of());
+            var a = redis.aggregate(ids);
+            if (a.callsWithRedis() > 0) {
+                Map<String, Object> r = new LinkedHashMap<>();
+                r.put("callsWithRedis", a.callsWithRedis());
+                r.put("redisPerCall", Math.round(10.0 * a.commands() / a.callsWithRedis()) / 10.0);
+                r.put("hitRate", a.hits() + a.misses() == 0 ? null : Math.round(100.0 * a.hits() / (a.hits() + a.misses())));
+                r.put("missToDbPerCall", Math.round(10.0 * a.missToDb() / a.callsWithRedis()) / 10.0);
+                r.put("failedCalls", a.failedCalls());
+                r.put("redisMs", Math.round(a.micros() / 1000.0));
+                row.put("redis", r);
+            }
+            out.add(row);
+        }
         return out;
     }
 

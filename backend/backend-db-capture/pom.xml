@@ -42,6 +42,14 @@
       <artifactId>spring-boot-starter-test</artifactId>
       <scope>test</scope>
     </dependency>
+    <!-- Test only (specs/011-redis-capture): real Kryo output, so the structural Kryo reader is tested on bytes Kryo
+         actually writes. Never on the runtime class path - ALFRED reads Kryo values without Kryo. -->
+    <dependency>
+      <groupId>com.esotericsoftware</groupId>
+      <artifactId>kryo</artifactId>
+      <version>5.6.2</version>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 
 </project>

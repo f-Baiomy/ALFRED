@@ -147,7 +147,17 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
         }
     }
 
+    /** The store-command adapter shares this file, pool and transactions (specs/011-redis-capture). */
+    JdbcTemplate jdbc() {
+        return jdbcTemplate;
+    }
+
+    TransactionTemplate transactions() {
+        return transactions;
+    }
+
     private void createSchema() {
+        StoreCommandsSchema.create(jdbcTemplate);
         jdbcTemplate.execute("""
                 CREATE TABLE IF NOT EXISTS statements (
                   id INTEGER PRIMARY KEY,
@@ -1272,6 +1282,8 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
                 jdbcTemplate.update("DELETE FROM call_db_summary WHERE call_id IN (" + in + ")", args);
                 jdbcTemplate.update("DELETE FROM call_log_lines WHERE call_id IN (" + in + ")", args);
                 jdbcTemplate.update("DELETE FROM call_log_summary WHERE call_id IN (" + in + ")", args);
+                // the call's Redis commands go with it (FR-036) - and count, so a Redis-only call is "found" too
+                deleted[0] += StoreCommandsSchema.deleteForCalls(jdbcTemplate, in, args);
             });
         }
         return deleted[0];
@@ -1287,6 +1299,7 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
             jdbcTemplate.update("DELETE FROM call_db_summary");
             jdbcTemplate.update("DELETE FROM call_log_lines WHERE call_id IS NOT NULL");
             jdbcTemplate.update("DELETE FROM call_log_summary");
+            StoreCommandsSchema.deleteAll(jdbcTemplate);
         });
     }
 

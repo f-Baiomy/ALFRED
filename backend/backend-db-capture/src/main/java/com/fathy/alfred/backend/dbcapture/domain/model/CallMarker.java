@@ -15,7 +15,13 @@ import com.fasterxml.jackson.annotation.JsonInclude;
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record CallMarker(String callId, int seq, MarkerType type, String at, String method, String url, String thread, Boolean logs,
-                         String logLevel) {
+                         String logLevel, Boolean redis) {
+
+    /** {@code redis} (CALL_OPEN only): the agent records this call's Redis commands (specs/011-redis-capture). */
+    public CallMarker(String callId, int seq, MarkerType type, String at, String method, String url, String thread, Boolean logs,
+                      String logLevel) {
+        this(callId, seq, type, at, method, url, thread, logs, logLevel, null);
+    }
 
     public CallMarker(String callId, int seq, MarkerType type, String at, String method, String url, String thread, Boolean logs) {
         this(callId, seq, type, at, method, url, thread, logs, null);

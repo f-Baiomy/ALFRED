@@ -17,9 +17,11 @@ public record MarkerDto(
         @Size(max = 4000) String url,
         @Size(max = 300) String thread,
         Boolean logs,
-        @Size(max = 10) String logLevel
+        @Size(max = 10) String logLevel,
+        Boolean redis
 ) {
     public CallMarker toDomain() {
-        return new CallMarker(callId, seq, type, at, method, url, thread, Boolean.TRUE.equals(logs) ? Boolean.TRUE : null, logLevel);
+        return new CallMarker(callId, seq, type, at, method, url, thread, Boolean.TRUE.equals(logs) ? Boolean.TRUE : null, logLevel,
+                Boolean.TRUE.equals(redis) ? Boolean.TRUE : null);
     }
 }

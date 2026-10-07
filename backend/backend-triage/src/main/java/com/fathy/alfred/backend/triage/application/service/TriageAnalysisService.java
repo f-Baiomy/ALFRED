@@ -109,7 +109,8 @@ public class TriageAnalysisService implements AnalyseCallsUseCase {
             Double max = durations.isEmpty() ? null : durations.get(durations.size() - 1);
             out.add(new EndpointHealth(endpoint, rows.size(), errorCalls, warningCalls,
                     n[Signal.HTTP_ERROR.ordinal()] + n[Signal.NO_ANSWER.ordinal()], n[Signal.DB_FAILED.ordinal()], n[Signal.DB_WARNING.ordinal()],
-                    n[Signal.LOG_ERROR.ordinal()], n[Signal.LOG_WARNING.ordinal()], n[Signal.SUPPLIER_FAILED.ordinal()], median, max));
+                    n[Signal.LOG_ERROR.ordinal()], n[Signal.LOG_WARNING.ordinal()], n[Signal.SUPPLIER_FAILED.ordinal()], median, max,
+                    n[Signal.REDIS_FAILED.ordinal()], n[Signal.CACHE_COLD.ordinal()]));
         });
         out.sort(Comparator.comparing((EndpointHealth e) -> -e.errorCalls()).thenComparing(e -> -e.warningCalls())
                 .thenComparing(e -> -e.calls()));
