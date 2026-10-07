@@ -22,7 +22,6 @@ ManifestSupportedOS all
 !define SERVICE_EXE "$INSTDIR\service\alfred-service.exe"
 !define UNINSTALL_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\Alfred"
 !define ENV_KEY "SYSTEM\CurrentControlSet\Control\Session Manager\Environment"
-!define CONFIG_CLI "com.fathy.alfred.backend.server.cli.ServerConfigCli"
 
 Name "${APP} ${VERSION}"
 OutFile "${OUTFILE}"
@@ -141,7 +140,7 @@ Section "Alfred" SecMain
 
   ; ---- settings: .env created once, by the Java settings engine -----------------------------------------------------
   ${IfNot} ${FileExists} "$INSTDIR\.env"
-    nsExec::ExecToLog '"$INSTDIR\runtime\java\bin\java.exe" -cp "$INSTDIR\app\alfred.jar" ${CONFIG_CLI} --home "$INSTDIR" init'
+    nsExec::ExecToLog '"$INSTDIR\alfred.cmd" _init-env'
     Pop $0
   ${EndIf}
   ${If} $UiPort != ""

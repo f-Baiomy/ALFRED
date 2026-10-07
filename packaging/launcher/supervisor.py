@@ -516,8 +516,7 @@ def check_env(layout):
     """Print .env lines that are not used (FR-016), through the Java settings engine - Python never parses .env
     rules on its own beyond reading values."""
     try:
-        result = subprocess.run([layout.java, "-cp", layout.jar, "com.fathy.alfred.backend.server.cli.ServerConfigCli",
-                                 "--home", layout.home, "check-env"], capture_output=True, text=True, timeout=60)
+        result = subprocess.run(layout.config_cli("check-env"), capture_output=True, text=True, timeout=60)
         for line in (result.stdout + result.stderr).splitlines():
             if line.strip():
                 log.warning("%s", line)

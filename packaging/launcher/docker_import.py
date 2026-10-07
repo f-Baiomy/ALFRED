@@ -26,7 +26,6 @@ from layout import Layout  # noqa: E402
 DOCKER = os.environ.get("ALFRED_DOCKER", "docker")
 VOLUMES = {"logs-db": "logs.db", "db-capture-db": "db-capture.db"}
 FLAGS = ("reverse-proxy-enabled.flag", "db-capture-enabled.flag", "log-link-enabled.flag", "redis-capture-enabled.flag")
-SERVER_CONFIG_CLI = "com.fathy.alfred.backend.server.cli.ServerConfigCli"
 
 
 class ImportFailed(Exception):
@@ -137,8 +136,7 @@ def place(layout, tmp):
 
 
 def merge_settings(layout, repo):
-    result = subprocess.run([layout.java, "-cp", layout.jar, SERVER_CONFIG_CLI, "--home", layout.home,
-                             "merge-docker-env", repo], capture_output=True, text=True)
+    result = subprocess.run(layout.config_cli("merge-docker-env", repo), capture_output=True, text=True)
     print("  " + (result.stdout or result.stderr).strip().replace("\n", "\n  "))
     if result.returncode != 0:
         raise ImportFailed("settings could not be merged")

@@ -32,7 +32,6 @@ from layout import WINDOWS, Layout, home_from_here  # noqa: E402
 
 OK, ERROR, USAGE, REFUSED, CONFLICT, NOT_ALLOWED = 0, 1, 2, 3, 4, 5
 SERVICE = "alfred"
-SERVER_CONFIG_CLI = "com.fathy.alfred.backend.server.cli.ServerConfigCli"
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -41,7 +40,7 @@ SERVER_CONFIG_CLI = "com.fathy.alfred.backend.server.cli.ServerConfigCli"
 
 def server_config_cli(layout, *args, capture=False):
     """The Java settings engine (research R7) - the only native writer of .env."""
-    command = [layout.java, "-cp", layout.jar, SERVER_CONFIG_CLI, "--home", layout.home, *args]
+    command = layout.config_cli(*args)
     if capture:
         return subprocess.run(command, capture_output=True, text=True)
     return subprocess.run(command)
@@ -119,6 +118,12 @@ def wait_for_health(layout, seconds=60):
 # ---------------------------------------------------------------------------------------------------------------------
 # commands
 # ---------------------------------------------------------------------------------------------------------------------
+
+def cmd_init_env(layout, args):
+    """Used by the installers: create .env with defaults when missing (never overwrites)."""
+    ensure_env(layout)
+    return OK
+
 
 def cmd_run(layout, args):
     ensure_env(layout)
@@ -257,7 +262,7 @@ def cmd_uninstall(layout, args):
 
 COMMANDS = {
     "run": cmd_run, "start": cmd_start, "stop": cmd_stop, "restart": cmd_restart, "status": cmd_status,
-    "logs": cmd_logs, "version": cmd_version, "uninstall": cmd_uninstall,
+    "logs": cmd_logs, "version": cmd_version, "uninstall": cmd_uninstall, "_init-env": cmd_init_env,
 }
 
 

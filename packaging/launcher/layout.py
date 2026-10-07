@@ -61,6 +61,13 @@ class Layout:
     def jar(self):
         return os.path.join(self.app, "alfred.jar")
 
+    def config_cli(self, *args):
+        """The command line of ServerConfigCli, the Java settings engine (research R7). alfred.jar is a Spring Boot jar
+        (classes under BOOT-INF/), so a plain -cp cannot see them: Spring Boot's PropertiesLauncher loads the jar's own
+        classpath and then runs the given main class."""
+        return [self.java, "-Dloader.main=com.fathy.alfred.backend.server.cli.ServerConfigCli", "-cp", self.jar,
+                "org.springframework.boot.loader.launch.PropertiesLauncher", "--home", self.home, *args]
+
     def version(self):
         try:
             with open(os.path.join(self.app, "VERSION"), encoding="utf-8") as f:

@@ -55,14 +55,24 @@ id "$SERVICE_USER" >/dev/null 2>&1 || fail "No such user: $SERVICE_USER" 2
 # ---- extract to a temp folder first: an interrupted install never touches the existing one -------------------------
 TMP=$(mktemp -d /tmp/alfred-setup.XXXXXX)
 ROLLBACK=0
+UPGRADE=0
 cleanup() {
   status=$?
   if [ "$ROLLBACK" -eq 1 ] && [ "$status" -ne 0 ]; then
     for d in runtime app service; do
-      if [ -d "$DIR/$d.previous" ]; then rm -rf "${DIR:?}/$d"; mv "$DIR/$d.previous" "$DIR/$d"; fi
+      rm -rf "${DIR:?}/$d"
+      if [ -d "$DIR/$d.previous" ]; then mv "$DIR/$d.previous" "$DIR/$d"; fi
     done
-    [ -f "$DIR/settings.properties.previous" ] && mv "$DIR/settings.properties.previous" "$DIR/settings.properties"
-    say "  Setup failed - the previous install was put back."
+    if [ -f "$DIR/settings.properties.previous" ]; then
+      mv "$DIR/settings.properties.previous" "$DIR/settings.properties"
+    elif [ "$UPGRADE" -eq 0 ]; then
+      rm -f "$DIR/settings.properties" "$DIR/alfred"
+    fi
+    if [ "$UPGRADE" -eq 1 ]; then
+      say "  Setup failed - the previous install was put back."
+    else
+      say "  Setup failed - nothing was left installed (recorded data, if any, is untouched)."
+    fi
     if [ "${WAS_RUNNING:-0}" -eq 1 ] && command -v systemctl >/dev/null 2>&1; then systemctl start alfred || true; fi
   fi
   rm -rf "$TMP"
@@ -114,9 +124,8 @@ chmod 755 "$DIR/alfred"
 ok "program files in $DIR"
 
 # ---- settings: .env is created once and never overwritten ---------------------------------------------------------
-JAVA="$DIR/runtime/java/bin/java"
 if [ ! -f "$DIR/.env" ]; then
-  "$JAVA" -cp "$DIR/app/alfred.jar" com.fathy.alfred.backend.server.cli.ServerConfigCli --home "$DIR" init >/dev/null
+  "$DIR/alfred" _init-env >/dev/null || fail "Could not create $DIR/.env"
   ok ".env created with defaults"
 fi
 if [ -n "$UI_PORT" ]; then
