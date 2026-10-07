@@ -1320,7 +1320,7 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
     @Override
     public Object redisJedisSend(Object connection, Object command, Object args) {
         if (agentBusy()) {
-            return null;
+            return null; // the agent's own read (value before a write)
         }
         try {
             beginAgentWork();

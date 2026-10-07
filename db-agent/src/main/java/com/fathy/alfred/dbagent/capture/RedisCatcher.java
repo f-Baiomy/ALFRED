@@ -212,6 +212,15 @@ public final class RedisCatcher {
 
     // ================================================================== sending side
 
+    /** Once per client per JVM: its hooks run - so "Redis 0" can be told apart from "hooks never ran". */
+    private final java.util.Set<String> hooksSeen = java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<>());
+
+    void hookSeen(String client) {
+        if (hooksSeen.add(client)) {
+            AgentLog.info("redis: " + client + " hooks are active");
+        }
+    }
+
     private CallContext callContext() {
         CallContext context = ContextPropagation.current();
         if (context == null) {
@@ -222,6 +231,7 @@ public final class RedisCatcher {
 
     /** A command exists on the sending side (Lettuce endpoint write, Redisson CommandData) - see Bridge. */
     void commandCreated(String client, Object command, Object endpoint) {
+        hookSeen(client);
         if (command instanceof Collection) {
             Collection<?> all = (Collection<?>) command;
             Conn conn = endpoint == null ? null : conn(endpoint);
@@ -551,12 +561,19 @@ public final class RedisCatcher {
             return NESTED;
         }
         try {
+            hookSeen("jedis");
             CallContext context = callContext();
             if (context == null) {
+                CallContext any = ContextPropagation.current();
+                if (any != null) {
+                    AgentLog.warn("redis: Jedis commands ran during a call not marked redis=1 (⬢ off for its project?) - not recorded");
+                }
                 return NONE;
             }
             List<byte[]> all = jedisArgs(command, args);
             if (all == null || all.isEmpty()) {
+                AgentLog.warn("redis: could not read a Jedis command (" + (command == null ? "null" : command.getClass().getName())
+                        + ", args " + (args == null ? "null" : args.getClass().getName()) + ") - not recorded");
                 return NONE;
             }
             if (!settings.redisHousekeeping() && RespFrame.housekeeping(all)) {
@@ -1215,7 +1232,8 @@ public final class RedisCatcher {
     }
 
     private Method method(Class<?> type, String name, Class<?>... params) {
-        String key = type.getName() + "#" + name + "/" + params.length;
+        // by class identity, not name: two deployments (or two Jedis versions) have same-named classes that differ
+        String key = type.getName() + "@" + System.identityHashCode(type) + "#" + name + "/" + params.length;
         Object cached = methods.get(key);
         if (cached == NONE) {
             return null;
@@ -1250,7 +1268,7 @@ public final class RedisCatcher {
         if (target == null) {
             return null;
         }
-        String key = target.getClass().getName() + "." + name;
+        String key = target.getClass().getName() + "@" + System.identityHashCode(target.getClass()) + "." + name;
         Object cached = methods.get(key);
         if (cached == NONE) {
             return null;
