@@ -32,12 +32,52 @@
   } @else {
     <div class="empty">Loading...</div>
   }
+
+  @if (update(); as u) {
+    <div class="server-row server-update" [class.available]="u.available">
+      <div class="server-label">Updates</div>
+      <div class="server-value">
+        @if (u.job.state === 'DOWNLOADING' || u.job.state === 'VERIFYING' || u.job.state === 'INSTALLING') {
+          <span class="apply restart">● {{ jobText(u) }}</span>
+        } @else if (u.job.state === 'FAILED') {
+          <span class="hint bad">✗ Update to {{ u.job.version }} failed: {{ u.job.error }}. The previous version was kept.</span>
+        } @else if (u.mode === 'OFF') {
+          <span class="dim">Update checks are off (ALFRED_UPDATE_MODE).</span>
+        } @else if (u.available) {
+          <span class="apply live">● Alfred {{ u.latestVersion }} available</span>
+          <span class="dim">{{ formatBytes(u.sizeBytes) }}{{ u.publishedAt ? ' · released ' + relativeDate(u.publishedAt) : '' }}</span>
+          @if (u.runtimeMode === 'DOCKER') {
+            <span class="hint">Docker install: update with <code>python3 deploy.py</code> in the Alfred folder.</span>
+          }
+        } @else if (u.error) {
+          <span class="hint warn">⚠ {{ u.error }}</span>
+        } @else if (u.latestVersion) {
+          <span class="dim">Up to date ({{ u.currentVersion }} is the newest release).</span>
+        } @else {
+          <span class="dim">Not checked yet.</span>
+        }
+        @if (u.checkedAt) { <span class="dim">checked {{ relativeDate(u.checkedAt) }}</span> }
+        @if (u.mode === 'AUTO') { <span class="dim">auto-update {{ u.window ? u.window : 'any time' }}</span> }
+        @if (u.available && u.notes) {
+          <details class="server-notes"><summary>Release notes</summary><pre>{{ u.notes }}</pre></details>
+        }
+      </div>
+      <div class="server-update-actions">
+        @if (u.mode !== 'OFF') {
+          <button type="button" class="action-btn" [disabled]="checking()" (click)="checkNow()">{{ checking() ? 'Checking…' : 'Check now' }}</button>
+        }
+        @if (editable() && u.canInstall) {
+          <button type="button" class="action-btn primary" (click)="askUpdate()">Install update</button>
+        }
+      </div>
+    </div>
+  }
   @if (failure(); as f) { <p class="hint bad">{{ f }}</p> }
 </div>
 
 @if (confirm(); as kind) {
   <div class="dialog-backdrop" (click)="confirm.set(null)">
-    <div class="dialog-card" (click)="$event.stopPropagation()" role="dialog" [attr.aria-label]="kind === 'BACKEND' ? 'Restart Alfred?' : 'Restart proxies?'">
+    <div class="dialog-card" (click)="$event.stopPropagation()" role="dialog" [attr.aria-label]="kind === 'BACKEND' ? 'Restart Alfred?' : kind === 'PROXIES' ? 'Restart proxies?' : 'Install update?'">
       @if (kind === 'BACKEND') {
         <h2>Restart Alfred?</h2>
         <p>Alfred will be unavailable for about 10 seconds.</p>
@@ -47,17 +87,26 @@
           <li>Recordings, cycles and settings are kept.</li>
           <li>This page reconnects by itself.</li>
         </ul>
-      } @else {
+      } @else if (kind === 'PROXIES') {
         <h2>Restart proxies?</h2>
         <p>Both proxies stop for about 2 seconds. Your apps' calls fail during that time.</p>
         <ul class="server-effects">
           <li>The backend and this page stay up.</li>
           <li>Recordings, cycles and settings are kept.</li>
         </ul>
+      } @else {
+        <h2>Install Alfred {{ update()?.latestVersion }}?</h2>
+        <p>The installer ({{ formatBytes(update()?.sizeBytes) }}) is downloaded and its checksum verified. Then Alfred stops, replaces its program files and starts again - about a minute.</p>
+        <ul class="server-effects">
+          <li>Settings (.env) and recorded data are kept.</li>
+          <li class="warn">All of Alfred stops during the install: calls made meanwhile are not logged, and your apps' calls through the proxies fail for those seconds.</li>
+          <li>If the install fails, the previous version is put back and started.</li>
+          <li>This page reconnects by itself.</li>
+        </ul>
       }
       <div class="actions">
         <button type="button" class="action-btn" (click)="confirm.set(null)">Cancel</button>
-        <button type="button" class="action-btn primary" (click)="restart()">Restart</button>
+        <button type="button" class="action-btn primary" (click)="restart()">{{ kind === 'UPDATE' ? 'Install and restart' : 'Restart' }}</button>
       </div>
     </div>
   </div>
@@ -66,9 +115,9 @@
 @if (progress(); as steps) {
   <div class="dialog-backdrop">
     <div class="dialog-card" role="dialog" aria-label="Restarting">
-      <h2>{{ progressKind() === 'BACKEND' ? 'Restarting Alfred' : 'Restarting proxies' }}</h2>
+      <h2>{{ progressKind() === 'BACKEND' ? 'Restarting Alfred' : progressKind() === 'PROXIES' ? 'Restarting proxies' : 'Installing Alfred ' + (update()?.latestVersion ?? '') }}</h2>
       <ul class="server-effects">
-        @for (step of steps; track $index) { <li [class.ok]="step.startsWith('✓')">{{ step }}</li> }
+        @for (step of steps; track $index) { <li [class.ok]="step.startsWith('✓')" [class.warn]="step.startsWith('✗')">{{ step }}</li> }
       </ul>
       @if (done()) {
         <div class="actions"><button type="button" class="action-btn primary" (click)="closeProgress()">Close</button></div>

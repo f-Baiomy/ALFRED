@@ -157,6 +157,21 @@ final class Fakes {
             return List.of("REVERSE");
         }
 
+        final List<String> updatesAsked = new ArrayList<>();
+        boolean acceptUpdates = true;
+        com.fathy.alfred.backend.server.domain.model.UpdateJob job = com.fathy.alfred.backend.server.domain.model.UpdateJob.idle();
+
+        @Override
+        public boolean installUpdate(String version, String url, String sha256, long size) {
+            updatesAsked.add(version + " " + url + " " + sha256 + " " + size);
+            return acceptUpdates;
+        }
+
+        @Override
+        public Optional<com.fathy.alfred.backend.server.domain.model.UpdateJob> updateJob() {
+            return available ? Optional.of(job) : Optional.empty();
+        }
+
         @Override
         public void restartBackend() {
             backendRestarts++;

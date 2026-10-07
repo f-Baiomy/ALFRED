@@ -85,6 +85,24 @@ excluded.
 restart drops the socket, which `reconnectingSocket` re-opens. In Docker mode: `409 {"reason":
 "DOCKER_MODE"}`.
 
+## Updates
+
+### `GET /server/update`
+`200 {mode: OFF|CHECK|AUTO, runtimeMode, target: "windows-x64"|"linux-x64", currentVersion, latestVersion, available,
+checkedAt, feedUrl, notes, publishedAt, installerUrl, sizeBytes, window, canInstall,
+job: {state: IDLE|DOWNLOADING|VERIFYING|INSTALLING|FAILED, version, downloadedBytes, totalBytes, error}, error}`.
+The last check's result; reads nothing. `error` is the last check's failure ("" when it succeeded).
+
+### `POST /server/update/check`
+Reads `ALFRED_UPDATE_URL` now and answers like GET. Open to read-only viewers (it writes nothing).
+
+### `POST /server/update/install` (guarded)
+`202 {"accepted": true}`: the supervisor downloads, verifies and runs the installer of `latestVersion`.
+`409 {"message": ...}` with no update available, in Docker mode, with no supervisor, or while one is in progress.
+
+The feed is `latest.json` as `build_dist.py` writes it:
+`{"version": "1.5.0", "notes": "...", "publishedAt": "...", "assets": {"windows-x64": {"url", "sha256", "size"}, "linux-x64": {...}}}`.
+
 ## Supervisor → backend
 
 ### `POST /server/supervisor-events`

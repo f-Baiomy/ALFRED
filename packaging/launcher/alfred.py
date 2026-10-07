@@ -7,6 +7,7 @@ alfred.py - the "alfred" command of a native install (specs/012-server-program c
     alfred run                               the supervisor in the foreground (what the service runs)
     alfred logs [backend|outbound|reverse|mcp|log_agent|supervisor] [-f]   (proxy = outbound)
     alfred version
+    alfred update [--check]                  check the release feed; without --check, install the update
     alfred uninstall [--keep-data]
     alfred config ... / project ...          settings (see config_cli.py)
     alfred jvms / attach / detach            Java apps (see attach_cli.py)
@@ -260,7 +261,27 @@ def cmd_status(layout, args):
         if p["detail"]:
             print(f"             {p['detail']}")
     print("UI: " + " · ".join(ui_addresses(layout)))
+    update = update_line(layout)
+    if update:
+        print(update)
     return OK
+
+
+def update_line(layout):
+    """One line when the running backend knows of a newer release (or a failed/in-progress install); else None."""
+    try:
+        with urllib.request.urlopen(layout.local_url() + "/server/update", timeout=3) as response:
+            status = json.load(response)
+    except (urllib.error.URLError, OSError, ValueError):
+        return None
+    job = status.get("job") or {}
+    if job.get("state") in ("DOWNLOADING", "VERIFYING", "INSTALLING"):
+        return f"Update: Alfred {job.get('version')} is {job['state'].lower()} - Alfred restarts when it is done."
+    if job.get("state") == "FAILED":
+        return f"Update: the install of {job.get('version')} failed ({job.get('error')}); the previous version was kept."
+    if status.get("available"):
+        return f"Update available: Alfred {status['latestVersion']} - install it with 'alfred update' or from the Settings tab."
+    return None
 
 
 def uptime(started_at):
@@ -306,6 +327,72 @@ def cmd_version(layout, args):
     return OK
 
 
+def backend_json(layout, method, path, timeout=30):
+    """A call to THIS install's running backend, as the OS user (the identity check of own_backend first)."""
+    ok, other = own_backend(layout)
+    if not ok:
+        raise SystemExit("Alfred is not running here" + (f" (another Alfred answers on its port: {other})" if other else "")
+                         + " - start it with 'alfred start'; updates are checked and installed by the running Alfred.")
+    import getpass
+    request = urllib.request.Request(layout.local_url() + path, method=method, data=b"{}" if method == "POST" else None,
+                                     headers={"Content-Type": "application/json", "X-Alfred-Cli-User": getpass.getuser()})
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return json.load(response)
+    except urllib.error.HTTPError as e:
+        try:
+            detail = json.loads(e.read().decode("utf-8", "replace")).get("message") or f"HTTP {e.code}"
+        except ValueError:
+            detail = f"HTTP {e.code}"
+        raise SystemExit(f"error: {detail}")
+
+
+def describe_update(status):
+    lines = []
+    job = status.get("job") or {}
+    if status.get("mode") == "OFF":
+        lines.append("Update checks are off (ALFRED_UPDATE_MODE=off).")
+    elif status.get("available"):
+        size = status.get("sizeBytes") or 0
+        lines.append(f"Update available: Alfred {status['latestVersion']} (running {status['currentVersion']}, "
+                     f"{size // (1024 * 1024)} MB)" + (f", released {status['publishedAt']}" if status.get("publishedAt") else ""))
+        if status.get("notes"):
+            lines.append("  " + status["notes"].strip().replace("\n", "\n  "))
+    elif status.get("error"):
+        lines.append(f"Update check failed: {status['error']}")
+    elif status.get("latestVersion"):
+        lines.append(f"Alfred {status['currentVersion']} is up to date (newest release {status['latestVersion']}).")
+    else:
+        lines.append("No update check has run yet.")
+    if job.get("state") in ("DOWNLOADING", "VERIFYING", "INSTALLING"):
+        lines.append(f"An update to {job.get('version')} is {job['state'].lower()}"
+                     + (f" ({job['downloadedBytes'] // (1024 * 1024)} of {job['totalBytes'] // (1024 * 1024)} MB)"
+                        if job["state"] == "DOWNLOADING" and job.get("totalBytes") else "") + ".")
+    elif job.get("state") == "FAILED":
+        lines.append(f"The last update ({job.get('version')}) failed: {job.get('error')}. The previous version was kept.")
+    if status.get("checkedAt"):
+        lines.append(f"Checked {status['checkedAt']} from {status.get('feedUrl', '')}.")
+    return "\n".join(lines)
+
+
+def cmd_update(layout, args):
+    """alfred update [--check]: read the feed now and say what it found; without --check also install it."""
+    if any(a not in ("--check",) for a in args):
+        print("usage: alfred update [--check]", file=sys.stderr)
+        return USAGE
+    status = backend_json(layout, "POST", "/server/update/check", timeout=60)
+    print(describe_update(status))
+    if "--check" in args or not status.get("available"):
+        return OK if not status.get("error") else ERROR
+    if not status.get("canInstall"):
+        print("It cannot be installed from here right now" + (" - an update is already in progress." if (status.get("job") or {}).get("state") in ("DOWNLOADING", "VERIFYING", "INSTALLING") else "."))
+        return ERROR
+    backend_json(layout, "POST", "/server/update/install")
+    print(f"Installing Alfred {status['latestVersion']}: the installer is downloaded, verified and run. Alfred stops and starts "
+          "again in about a minute; 'alfred status' then shows the new version, 'alfred update --check' the outcome.")
+    return OK
+
+
 def cmd_uninstall(layout, args):
     if WINDOWS:
         uninstaller = os.path.join(layout.home, "uninstall.exe")
@@ -342,7 +429,7 @@ def cmd_uninstall(layout, args):
 
 COMMANDS = {
     "run": cmd_run, "start": cmd_start, "stop": cmd_stop, "restart": cmd_restart, "status": cmd_status,
-    "logs": cmd_logs, "version": cmd_version, "uninstall": cmd_uninstall, "_init-env": cmd_init_env,
+    "logs": cmd_logs, "version": cmd_version, "update": cmd_update, "uninstall": cmd_uninstall, "_init-env": cmd_init_env,
     "_wait-health": cmd_wait_health, "_record-upgrade": cmd_record_upgrade,
 }
 

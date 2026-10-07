@@ -33,11 +33,13 @@ describe('ServerSettingsComponent', () => {
 
   function setUp(access: EditAccess): void {
     api = jasmine.createSpyObj<ServerSettingsService>('ServerSettingsService',
-      ['access', 'settings', 'preview', 'save', 'addMissing', 'status', 'restart', 'importEnv', 'downloadEnv']);
+      ['access', 'settings', 'preview', 'save', 'addMissing', 'status', 'restart', 'importEnv', 'downloadEnv',
+        'updateStatus', 'checkUpdate', 'installUpdate']);
     api.access.and.returnValue(of(access));
     api.settings.and.returnValue(of(DATA));
     api.preview.and.returnValue(of(PREVIEW));
     api.status.and.returnValue(NEVER);
+    api.updateStatus.and.returnValue(NEVER);
     TestBed.configureTestingModule({
       imports: [ServerSettingsComponent],
       providers: [

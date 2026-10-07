@@ -23,11 +23,13 @@ import logging
 import logging.handlers
 import os
 import secrets
+import shutil
 import signal
 import subprocess
 import sys
 import threading
 import time
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -420,6 +422,117 @@ class Child:
                     "listeners": (self.spec or {}).get("listeners", []), "detail": self.detail}
 
 
+class UpdateJob:
+    """One update the backend asked for (POST /update): download the installer into data/updates, verify its sha256,
+    run it detached from Alfred. Detached matters: the installer stops the service - this very process and, on
+    Windows, the job object every child dies with - so it must not be a child of the supervisor, or it would be
+    killed before it could replace anything. Progress is served on GET /update and pushed as a supervisor event.
+    One job at a time; a finished one stays readable until the next start (the installer restarts Alfred anyway)."""
+
+    STATES = ("IDLE", "DOWNLOADING", "VERIFYING", "INSTALLING", "FAILED")
+
+    def __init__(self, supervisor):
+        self.supervisor = supervisor
+        self.lock = threading.Lock()
+        self.state = "IDLE"
+        self.version = ""
+        self.downloaded = 0
+        self.total = 0
+        self.error = ""
+
+    def status(self):
+        with self.lock:
+            return {"state": self.state, "version": self.version, "downloadedBytes": self.downloaded,
+                    "totalBytes": self.total, "error": self.error}
+
+    def busy(self):
+        with self.lock:
+            return self.state in ("DOWNLOADING", "VERIFYING", "INSTALLING")
+
+    def start(self, version, url, sha256_hex, size):
+        """False when a job is already running. Otherwise the work happens on its own thread."""
+        with self.lock:
+            if self.state in ("DOWNLOADING", "VERIFYING", "INSTALLING"):
+                return False
+            self.state, self.version, self.downloaded, self.total, self.error = "DOWNLOADING", version, 0, int(size or 0), ""
+        threading.Thread(target=self._run, args=(url, sha256_hex), name="update", daemon=True).start()
+        return True
+
+    def _set(self, state, error=""):
+        with self.lock:
+            self.state, self.error = state, error
+        log.info("update %s: %s%s", self.version, state.lower(), f" - {error}" if error else "")
+        self.supervisor.changed_update()
+
+    def _run(self, url, sha256_hex):
+        import hashlib
+        layout = self.supervisor.layout
+        folder = os.path.join(layout.data, "updates")
+        os.makedirs(folder, exist_ok=True)
+        name = os.path.basename(urllib.parse.urlparse(url).path) or f"alfred-setup-{self.version}"
+        target = os.path.join(folder, name)
+        part = target + ".part"
+        try:
+            self._download(url, part)
+            self._set("VERIFYING")
+            digest = hashlib.sha256()
+            with open(part, "rb") as f:
+                for chunk in iter(lambda: f.read(1 << 20), b""):
+                    digest.update(chunk)
+            if digest.hexdigest().lower() != (sha256_hex or "").strip().lower():
+                os.remove(part)
+                self._set("FAILED", f"the downloaded installer's checksum is {digest.hexdigest()[:12]}…, "
+                                    f"the release says {(sha256_hex or '')[:12]}… - not running it")
+                return
+            os.replace(part, target)
+            self._set("INSTALLING")
+            launch_installer(target, layout.home, os.path.join(layout.logs, "update.log"))
+        except Exception as e:  # noqa: BLE001 - every failure must end in the status, never in a dead thread
+            try:
+                if os.path.exists(part):
+                    os.remove(part)
+            except OSError:
+                pass
+            self._set("FAILED", f"{type(e).__name__}: {e}")
+
+    def _download(self, url, part):
+        request = urllib.request.Request(url, headers={"User-Agent": "alfred-update"})
+        with urllib.request.urlopen(request, timeout=60) as response, open(part, "wb") as out:
+            length = response.headers.get("Content-Length")
+            if length and length.isdigit():
+                with self.lock:
+                    self.total = int(length)
+            while True:
+                chunk = response.read(1 << 20)
+                if not chunk:
+                    break
+                out.write(chunk)
+                with self.lock:
+                    self.downloaded += len(chunk)
+
+
+def launch_installer(path, home, log_path):
+    """Runs the downloaded installer unattended, outside Alfred's process tree. Windows: a detached process that
+    breaks away from the job object (it would die with the supervisor otherwise); the NSIS installer stops the
+    service itself. Linux: a transient systemd unit where there is systemd (stopping alfred.service would kill a
+    plain child in the service's cgroup, KillMode=mixed or not), else a new session."""
+    with open(log_path, "ab") as log_file:
+        if WINDOWS:
+            flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_BREAKAWAY_FROM_JOB
+            subprocess.Popen([path, "/S", f"/DIR={home}"], creationflags=flags, close_fds=True, stdin=subprocess.DEVNULL,
+                             stdout=log_file, stderr=subprocess.STDOUT)
+            return
+        os.chmod(path, 0o755)
+        command = ["sh", path, "--unattended", "--dir", home]
+        if shutil.which("systemd-run") and os.path.isdir("/run/systemd/system"):
+            unit = f"alfred-update-{int(time.time())}"
+            subprocess.Popen(["systemd-run", "--unit", unit, "--collect", "--quiet", "--property=StandardOutput=append:" + log_path,
+                              "--property=StandardError=append:" + log_path, *command], stdin=subprocess.DEVNULL,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return
+        subprocess.Popen(command, start_new_session=True, stdin=subprocess.DEVNULL, stdout=log_file, stderr=subprocess.STDOUT)
+
+
 class Supervisor:
 
     ORDER = ["BACKEND", "OUTBOUND", "REVERSE", "MCP", "LOG_AGENT"]
@@ -434,6 +547,7 @@ class Supervisor:
         self.specs = {}
         self.mcp_port = free_port(MCP_PORT_DEFAULT)
         self.job = job_object()
+        self.update = UpdateJob(self)
 
     def spec_for(self, name):
         return self.specs.get(name)
@@ -499,8 +613,17 @@ class Supervisor:
         """Tell the backend a child changed state (it re-broadcasts it as a server-status-changed signal)."""
         if child.name == "BACKEND" or self.stopping.is_set():
             return
+        self._post_event(dict(child.status(), at=now_iso()))
+
+    def changed_update(self):
+        """The update job moved on: the backend re-broadcasts it, the Server card re-fetches /server/update."""
+        if self.stopping.is_set():
+            return
+        self._post_event(dict(self.update.status(), name="UPDATE", at=now_iso()))
+
+    def _post_event(self, payload):
         settings = getattr(self, "settings", None) or {}
-        body = json.dumps(dict(child.status(), at=now_iso())).encode("utf-8")
+        body = json.dumps(payload).encode("utf-8")
         request = urllib.request.Request(self.layout.local_url(settings) + "/server/supervisor-events", data=body,
                                          method="POST", headers={"Content-Type": "application/json",
                                                                  "X-Webhook-Secret": settings.get("WEBHOOK_SECRET", "")})
@@ -541,13 +664,34 @@ class Supervisor:
                     return
                 if self.path == "/status":
                     self._reply(200, supervisor.status())
+                elif self.path == "/update":
+                    self._reply(200, supervisor.update.status())
                 else:
                     self._reply(404, {"error": "not found"})
 
             def do_POST(self):
                 if not self._authorized():
                     return
-                if self.path == "/restart/backend":
+                if self.path == "/update":
+                    try:
+                        length = int(self.headers.get("Content-Length") or 0)
+                        body = json.loads(self.rfile.read(length) or b"{}")
+                        version, url = str(body["version"]), str(body["url"])
+                        sha256_hex, size = str(body.get("sha256", "")), int(body.get("size") or 0)
+                    except (ValueError, KeyError, TypeError) as e:
+                        self._reply(400, {"error": f"bad request: {e}"})
+                        return
+                    if not url.lower().startswith(("https://", "http://", "file:")):
+                        self._reply(400, {"error": "the installer URL must be http(s) or file"})
+                        return
+                    if not sha256_hex:
+                        self._reply(400, {"error": "no checksum - the installer would run unverified"})
+                        return
+                    if supervisor.update.start(version, url, sha256_hex, size):
+                        self._reply(202, {"accepted": True})
+                    else:
+                        self._reply(409, {**supervisor.update.status(), "error": "an update is already in progress"})
+                elif self.path == "/restart/backend":
                     threading.Thread(target=supervisor.restart, args=(["BACKEND"],), daemon=True).start()
                     self._reply(202, {"accepted": True})
                 elif self.path == "/restart/proxies":

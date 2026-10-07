@@ -7,6 +7,7 @@ public enum SettingGroup {
     STORAGE("Storage limits"),
     LOGS("Logs"),
     WILDFLY("WildFly"),
+    UPDATES("Updates"),
     SECRETS("Secrets");
 
     private final String title;

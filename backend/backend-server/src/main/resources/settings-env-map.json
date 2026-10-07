@@ -16,6 +16,9 @@
     "ALFRED_LOGS_WATCH_MODE": {"backendEnv": ["LOGS_WATCH_MODE"], "transform": "resolveWatchMode", "docker": "LOGS_WATCH_MODE"},
     "WILDFLY_PORT_OFFSET_ENABLED": {"backendEnv": [], "supervisor": "port offset sync at start", "docker": null},
     "WILDFLY_HOME": {"backendEnv": [], "supervisor": "port offset sync at start", "docker": null},
+    "ALFRED_UPDATE_MODE": {"backendEnv": [], "note": "read from .env by the backend-server slice on every scheduled pass", "docker": "ALFRED_UPDATE_MODE"},
+    "ALFRED_UPDATE_URL": {"backendEnv": [], "note": "read from .env by the backend-server slice on every scheduled pass", "docker": "ALFRED_UPDATE_URL"},
+    "ALFRED_UPDATE_WINDOW": {"backendEnv": [], "note": "read from .env by the backend-server slice on every scheduled pass", "docker": "ALFRED_UPDATE_WINDOW"},
     "WEBHOOK_SECRET": {"backendEnv": ["WEBHOOK_SECRET"], "supervisor": "OUTBOUND and REVERSE WEBHOOK_SECRET", "docker": "WEBHOOK_SECRET"},
     "ALFRED_LOGS_AGENT_SECRET": {"backendEnv": ["LOGS_AGENT_SECRET"], "supervisor": "LOG_AGENT", "docker": "LOGS_AGENT_SECRET"}
   }

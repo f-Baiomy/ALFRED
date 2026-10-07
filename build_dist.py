@@ -22,6 +22,7 @@ bits a Windows checkout cannot hold. The Windows installer is staged on the host
 
 import argparse
 import collections
+import datetime
 import hashlib
 import io
 import json
@@ -537,6 +538,49 @@ def checksums(files):
             f.write(f"{sha256(path)}  {os.path.basename(path)}\n")
 
 
+RELEASE_URL_BASE = "https://github.com/f-Baiomy/ALFRED/releases/download"
+
+
+def target_of(installer_name):
+    """alfred-setup-1.4.0-windows-x64.exe -> windows-x64 (the key an installed Alfred looks itself up by)."""
+    for target in TARGETS:
+        if target in installer_name:
+            return target
+    return None
+
+
+def release_notes(version_text):
+    """The tag's annotation when HEAD is tagged (git tag -a ... -m), else empty - the notes an update shows."""
+    if not re.match(r"^\d+\.\d+", version_text) or "-" in version_text:
+        return ""
+    result = subprocess.run(["git", "tag", "-l", "--format=%(contents)", "v" + version_text], cwd=ROOT,
+                            capture_output=True, text=True, encoding="utf-8", errors="replace")
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def manifest(version_text, files, url_base=RELEASE_URL_BASE, notes="", published=None):
+    """latest.json: what an installed Alfred reads to learn about this release (backend-server UpdateService) -
+    the version, and per target the installer's URL, sha256 and size. The URL is where the release workflow uploads
+    the file; a server without internet gets the same file from a share, with ALFRED_UPDATE_URL pointing there."""
+    assets = {}
+    for path in files:
+        name = os.path.basename(path)
+        target = target_of(name)
+        if target:
+            assets[target] = {"url": f"{url_base}/v{version_text}/{name}", "sha256": sha256(path), "size": os.path.getsize(path)}
+    return {"version": version_text, "notes": notes,
+            "publishedAt": published or datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
+            "assets": assets}
+
+
+def write_manifest(version_text, files, url_base=RELEASE_URL_BASE):
+    path = os.path.join(DIST, "latest.json")
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        json.dump(manifest(version_text, files, url_base, release_notes(version_text)), f, indent=2)
+        f.write("\n")
+    return path
+
+
 def main(argv):
     if argv and argv[0] == "--in-container-linux":
         global IN_CONTAINER
@@ -552,6 +596,8 @@ def main(argv):
                         help="reuse the frontend, jars and MCP bundle of the previous build (installer work only)")
     parser.add_argument("--verbose", action="store_true",
                         help="print every line of every tool (full Maven output, npm http log)")
+    parser.add_argument("--release-url-base", default=os.environ.get("ALFRED_RELEASE_URL_BASE", RELEASE_URL_BASE),
+                        help="where the installers will be downloadable, for dist/latest.json (default: GitHub Releases)")
     args = parser.parse_args(argv)
     global VERBOSE
     VERBOSE = args.verbose
@@ -589,6 +635,7 @@ def main(argv):
     if "windows-x64" in targets:
         outputs.append(windows_installer(version_text, java_out, mcp_out, paths, args.dns))
     checksums(outputs)
+    outputs.append(write_manifest(version_text, outputs, args.release_url_base))
     print(f"        done in {elapsed(time.monotonic() - _step_start)}")
     print(f"built in {elapsed(time.monotonic() - _build_start)}:")
     for path in outputs + [os.path.join(DIST, "SHA256SUMS")]:

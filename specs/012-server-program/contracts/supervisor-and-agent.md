@@ -12,6 +12,8 @@ request needs `X-Alfred-Control-Token: <token>`; without it the answer is `401`.
 | POST | `/restart/backend` | `202`; graceful stop (20 s), start with current `.env` |
 | POST | `/restart/proxies` | `202`; restarts OUTBOUND and REVERSE with arguments rebuilt from `.env` |
 | POST | `/reload` | `200 {restarted: [...]}`; re-reads `.env`, restarts only the processes whose inputs changed |
+| GET | `/update` | `{state: IDLE\|DOWNLOADING\|VERIFYING\|INSTALLING\|FAILED, version, downloadedBytes, totalBytes, error}` |
+| POST | `/update` | body `{version, url, sha256, size}`; `202` and the job runs: download to `data/updates/`, sha256 check, installer launched detached (Windows `/S /DIR=`, breakaway from the job object; Linux `systemd-run --unit alfred-update-<ts> ... --unattended --dir`). `400` without a checksum or with a non-http(s)/file URL, `409` while one runs. Progress is posted as a supervisor event named `UPDATE`. |
 
 When a child changes state, the supervisor posts `POST {backend}/server/supervisor-events` with
 `X-Webhook-Secret`; the body is that child's `/status` entry (`name`, `state`, `pid`, `startedAt`, `restarts`,

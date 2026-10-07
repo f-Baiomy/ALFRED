@@ -14,6 +14,7 @@ The same commands on Linux (`/opt/alfred/alfred`, linked as `/usr/local/bin/alfr
 | `alfred run` | the supervisor itself, in the foreground (what the service runs) |
 | `alfred logs [backend\|proxy\|reverse\|supervisor] [-f]` | tail `data/log/*` |
 | `alfred version` | version and commit |
+| `alfred update [--check]` | through the running backend: read the release feed now and say what it found; without `--check`, install the update (exit 1 when the check failed or it cannot be installed now) |
 | `alfred uninstall [--keep-data]` | remove service and program; asks before deleting `data/` |
 
 ## Settings (`alfred config`)

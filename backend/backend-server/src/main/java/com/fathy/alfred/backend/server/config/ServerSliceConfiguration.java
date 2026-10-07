@@ -10,6 +10,12 @@ import com.fathy.alfred.backend.server.adapter.out.runtime.JvmRuntimeInfoAdapter
 import com.fathy.alfred.backend.server.adapter.out.runtime.NetworkInterfacesAdapter;
 import com.fathy.alfred.backend.server.adapter.out.runtime.ProcessEnvDockerSettingsAdapter;
 import com.fathy.alfred.backend.server.adapter.out.supervisor.SupervisorControlAdapter;
+import com.fathy.alfred.backend.server.adapter.out.update.HttpUpdateFeedAdapter;
+import com.fathy.alfred.backend.server.application.port.in.UpdateUseCase;
+import com.fathy.alfred.backend.server.application.port.out.UpdateFeedPort;
+import com.fathy.alfred.backend.server.application.service.UpdateService;
+import com.fathy.alfred.backend.server.domain.model.VersionOrder;
+import org.springframework.scheduling.annotation.Scheduled;
 import com.fathy.alfred.backend.server.adapter.out.websocket.ServerEventsWebSocketHandler;
 import com.fathy.alfred.backend.server.adapter.out.websocket.WebSocketServerEventsAdapter;
 import com.fathy.alfred.backend.server.application.port.out.DefaultsPort;
@@ -107,6 +113,42 @@ public class ServerSliceConfiguration implements WebSocketConfigurer {
                                                      @Value("${ALFRED_HOME:}") String home) {
         return new ServerRuntimeService(supervisor, new JvmRuntimeInfoAdapter(version, home), pending, history, envFile,
                 events, mode, settings.saveLock());
+    }
+
+    @Bean
+    public UpdateFeedPort serverUpdateFeed() {
+        return new HttpUpdateFeedAdapter();
+    }
+
+    @Bean
+    public UpdateService serverUpdateService(UpdateFeedPort feed, SupervisorPort supervisor, EnvFilePort envFile,
+                                             DefaultsPort defaults, ServerEventsPort events, RuntimeMode mode,
+                                             @Value("${ALFRED_VERSION:}") String version,
+                                             @Value("${ALFRED_HOME:}") String home,
+                                             @Value("${server.port:3000}") int serverPort) {
+        // The three update settings are LIVE: read from .env on every pass (Docker: from the container's environment).
+        java.util.function.Supplier<java.util.Map<String, String>> settings = () -> mode == RuntimeMode.NATIVE
+                ? runningSettings(defaults.defaults(), envFile.read().entries(), serverPort)
+                : dockerUpdateSettings(defaults.defaults());
+        return new UpdateService(feed, supervisor, new JvmRuntimeInfoAdapter(version, home), settings, events, mode,
+                Clock.systemDefaultZone(), VersionOrder.installTarget());
+    }
+
+    static java.util.Map<String, String> dockerUpdateSettings(java.util.Map<String, String> defaults) {
+        java.util.Map<String, String> effective = new java.util.LinkedHashMap<>(defaults);
+        for (String key : java.util.List.of("ALFRED_UPDATE_MODE", "ALFRED_UPDATE_URL", "ALFRED_UPDATE_WINDOW")) {
+            String value = System.getenv(key);
+            if (value != null && !value.isBlank()) {
+                effective.put(key, value);
+            }
+        }
+        return effective;
+    }
+
+    /** The daily check, and in AUTO mode the install inside the window. A minute after start, then hourly. */
+    @Scheduled(initialDelayString = "${alfred.update.initial-delay-ms:60000}", fixedDelayString = "${alfred.update.tick-ms:3600000}")
+    public void updateTick(UpdateUseCase updates) {
+        updates.tick();
     }
 
     @Bean

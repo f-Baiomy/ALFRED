@@ -147,7 +147,7 @@
                   <span class="dim">{{ s.isSet ? 'set' : 'not set' }} (edit .env on the server to change it)</span>
                 }
                 @default {
-                  <input type="text" [class.short]="s.kind !== 'PATH' && s.kind !== 'ACCESS_LIST' && s.kind !== 'HOST_PORT'"
+                  <input type="text" [class.short]="s.kind !== 'PATH' && s.kind !== 'ACCESS_LIST' && s.kind !== 'HOST_PORT' && s.kind !== 'URL'"
                          [value]="form()[s.key]" [disabled]="!editable()" (input)="setField(s.key, $any($event.target).value)" />
                 }
               }

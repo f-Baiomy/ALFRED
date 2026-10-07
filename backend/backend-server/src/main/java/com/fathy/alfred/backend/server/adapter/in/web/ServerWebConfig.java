@@ -20,7 +20,9 @@ public class ServerWebConfig implements WebMvcConfigurer {
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(new EditAccessInterceptor(editAccess::getObject))
                 .addPathPatterns("/server/**")
-                // Checks and previews compute answers and write nothing: read-only viewers may use them too.
-                .excludePathPatterns("/server/supervisor-events", "/server/settings/check", "/server/settings/preview");
+                // Checks and previews compute answers and write nothing: read-only viewers may use them too. An
+                // update CHECK reads the release feed and writes nothing either; installing stays guarded.
+                .excludePathPatterns("/server/supervisor-events", "/server/settings/check", "/server/settings/preview",
+                        "/server/update/check");
     }
 }

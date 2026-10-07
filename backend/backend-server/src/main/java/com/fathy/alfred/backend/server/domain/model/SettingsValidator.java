@@ -142,6 +142,8 @@ public final class SettingsValidator {
                         out.add(ValidationResult.error(key, "no spaces or quotes"));
                     }
                 }
+                case URL -> url(key, value, out);
+                case TIME_WINDOW -> timeWindow(key, value, out);
             }
             if (d.kind() == SettingKind.MEMORY && memoryInMegabytes(value) < MIN_MEMORY_MB) {
                 out.add(ValidationResult.error(key, "at least 512m"));
@@ -150,6 +152,34 @@ public final class SettingsValidator {
             out.add(ValidationResult.error(key, e instanceof InvalidValue ? e.getMessage() : "not a number"));
         }
         return out;
+    }
+
+    private static void url(String key, String value, List<ValidationResult> out) {
+        String text = value == null ? "" : value.strip();
+        if (text.isEmpty()) {
+            out.add(ValidationResult.error(key, "empty - use the GitHub feed or a file URL"));
+            return;
+        }
+        try {
+            java.net.URI uri = java.net.URI.create(text);
+            String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
+            if (!scheme.equals("https") && !scheme.equals("http") && !scheme.equals("file")) {
+                out.add(ValidationResult.error(key, "use an https://, http:// or file:// URL"));
+            } else if (!scheme.equals("file") && (uri.getHost() == null || uri.getHost().isEmpty())) {
+                out.add(ValidationResult.error(key, "the URL names no host"));
+            }
+        } catch (IllegalArgumentException e) {
+            out.add(ValidationResult.error(key, "not a URL"));
+        }
+    }
+
+    private static final Pattern TIME_WINDOW = Pattern.compile("^([01]\\d|2[0-3]):[0-5]\\d-([01]\\d|2[0-3]):[0-5]\\d$");
+
+    private static void timeWindow(String key, String value, List<ValidationResult> out) {
+        String text = value == null ? "" : value.strip();
+        if (!text.isEmpty() && !TIME_WINDOW.matcher(text).matches()) {
+            out.add(ValidationResult.error(key, "use HH:MM-HH:MM, e.g. 02:00-04:00, or leave it empty"));
+        }
     }
 
     private static void range(SettingDefinition d, long value, List<ValidationResult> out) {

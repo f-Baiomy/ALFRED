@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fathy.alfred.backend.server.application.port.out.SupervisorPort;
 import com.fathy.alfred.backend.server.domain.model.RuntimeMode;
 import com.fathy.alfred.backend.server.domain.model.ServerStatus;
+import com.fathy.alfred.backend.server.domain.model.UpdateJob;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -88,7 +89,33 @@ public class SupervisorControlAdapter implements SupervisorPort {
         }
     }
 
+    @Override
+    public boolean installUpdate(String version, String url, String sha256, long size) {
+        var body = mapper.createObjectNode();
+        body.put("version", version).put("url", url).put("sha256", sha256).put("size", size);
+        return call("POST", "/update", body).isPresent();
+    }
+
+    @Override
+    public Optional<UpdateJob> updateJob() {
+        return call("GET", "/update").map(body -> new UpdateJob(
+                jobState(body.path("state").asText("IDLE")), body.path("version").asText(""),
+                body.path("downloadedBytes").asLong(0), body.path("totalBytes").asLong(0), body.path("error").asText("")));
+    }
+
+    private static UpdateJob.State jobState(String text) {
+        try {
+            return UpdateJob.State.valueOf(text);
+        } catch (IllegalArgumentException e) {
+            return UpdateJob.State.IDLE;
+        }
+    }
+
     private Optional<JsonNode> call(String method, String path) {
+        return call(method, path, null);
+    }
+
+    private Optional<JsonNode> call(String method, String path, JsonNode body) {
         if (!available()) {
             return Optional.empty();
         }
@@ -97,7 +124,9 @@ public class SupervisorControlAdapter implements SupervisorPort {
             HttpRequest request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + control.path("port").asInt() + path))
                     .timeout(TIMEOUT)
                     .header("X-Alfred-Control-Token", control.path("token").asText())
-                    .method(method, HttpRequest.BodyPublishers.noBody())
+                    .header("Content-Type", "application/json")
+                    .method(method, body == null ? HttpRequest.BodyPublishers.noBody()
+                            : HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body)))
                     .build();
             HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() >= 300) {

@@ -1,9 +1,9 @@
 /** Wire shapes of /server/** (specs/012-server-program contracts/server-api.md). */
 
-export type SettingGroup = 'PROJECTS' | 'NETWORK' | 'STORAGE' | 'LOGS' | 'WILDFLY' | 'SECRETS';
+export type SettingGroup = 'PROJECTS' | 'NETWORK' | 'STORAGE' | 'LOGS' | 'WILDFLY' | 'UPDATES' | 'SECRETS';
 export type SettingKind =
   | 'BOOLEAN' | 'INTEGER' | 'SIZE_BYTES' | 'MEMORY' | 'PORT' | 'HOST_PORT' | 'PATH' | 'ENUM'
-  | 'PROJECT_LIST' | 'FOLDER_LIST' | 'ACCESS_LIST' | 'SECRET';
+  | 'PROJECT_LIST' | 'FOLDER_LIST' | 'ACCESS_LIST' | 'SECRET' | 'URL' | 'TIME_WINDOW';
 export type ApplyMode = 'LIVE' | 'PROXIES' | 'RESTART';
 export type SettingSource = 'ENV_FILE' | 'DEFAULT' | 'PROCESS_ENV';
 
@@ -126,6 +126,39 @@ export interface ServerStatus {
   heapUsedBytes: number;
   heapMaxBytes: number;
   processes: ProcessStatus[];
+}
+
+export type UpdateMode = 'OFF' | 'CHECK' | 'AUTO';
+export type UpdateJobState = 'IDLE' | 'DOWNLOADING' | 'VERIFYING' | 'INSTALLING' | 'FAILED';
+
+/** The supervisor's account of an install it was asked for (GET /server/update → job). */
+export interface UpdateJob {
+  state: UpdateJobState;
+  version: string;
+  downloadedBytes: number;
+  totalBytes: number;
+  error: string;
+}
+
+/** GET /server/update: the last check's result and the install in progress, if any. */
+export interface UpdateStatus {
+  mode: UpdateMode;
+  runtimeMode: 'NATIVE' | 'DOCKER';
+  target: string;
+  currentVersion: string;
+  latestVersion: string;
+  available: boolean;
+  checkedAt: string | null;
+  feedUrl: string;
+  notes: string;
+  publishedAt: string;
+  installerUrl: string;
+  sizeBytes: number;
+  window: string;
+  canInstall: boolean;
+  job: UpdateJob;
+  /** The last check's failure, or "". */
+  error: string;
 }
 
 /** One value of an uploaded .env, checked as the editor would check it (POST /server/settings/import). */

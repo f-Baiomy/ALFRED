@@ -5,7 +5,7 @@
  */
 import { FolderRow, ProjectRow, ServerSetting, SettingEdit, SettingGroup } from '../../core/models/server-settings.model';
 
-export const GROUP_ORDER: SettingGroup[] = ['PROJECTS', 'NETWORK', 'STORAGE', 'LOGS', 'WILDFLY'];
+export const GROUP_ORDER: SettingGroup[] = ['PROJECTS', 'NETWORK', 'STORAGE', 'LOGS', 'WILDFLY', 'UPDATES'];
 
 export const GROUP_TITLES: Record<SettingGroup, string> = {
   PROJECTS: 'Inbound projects (reverse proxy)',
@@ -13,6 +13,7 @@ export const GROUP_TITLES: Record<SettingGroup, string> = {
   STORAGE: 'Storage limits',
   LOGS: 'Logs',
   WILDFLY: 'WildFly',
+  UPDATES: 'Updates',
   SECRETS: 'Secrets',
 };
 

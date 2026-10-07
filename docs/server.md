@@ -93,6 +93,7 @@ In the Docker install the section is read-only and explains how to change `.env`
 
 ```bash
 alfred start | stop | restart [--proxies] | status | run | logs [backend|outbound|reverse|mcp|supervisor] [-f] | version
+alfred update [--check]          read the release feed now; without --check, install the update (Alfred restarts)
 alfred config list [--changed] | get KEY | set KEY VALUE | reset KEY | add KEY ITEM | remove KEY ITEM
 alfred config add-missing | check | diff | history | revert ID [--yes] | import FILE [--yes]
 alfred project add NAME LISTEN_PORT APP_PORT [--outbound HOST[:PORT]] | project remove NAME
@@ -143,6 +144,35 @@ is attached as that user (`runuser`): a direct cross-user attach fails and makes
 - JDK 21 prints a warning when an agent is loaded dynamically; `-XX:+EnableDynamicAgentLoading` silences it.
 
 `wildfly-proxy-toggle/*.sh|bat` hand over to these commands when a native install is found.
+
+## Updates
+
+A release is a git tag: `git tag -a v1.5.0 -m "Faster exports" && git push origin v1.5.0`. The `release` workflow
+(`.github/workflows/release.yml`) builds both installers with `build_dist.py`, tests included, and publishes them
+with `SHA256SUMS` and **`latest.json`** as a GitHub Release. `latest.json` names the version, the tag's annotation
+as release notes, and per target the installer's URL, sha256 and size. Untagged builds are named by commit hash and
+are never offered as updates.
+
+Each native install reads `ALFRED_UPDATE_URL` (default: this repository's
+`releases/latest/download/latest.json`) a minute after it starts and once a day after that - one small HTTPS GET,
+no installer is downloaded. The result is in the Server card's **Updates** row, in `alfred status`'s neighbour
+`alfred update --check`, and is pushed to open pages over `/ws/server`. Settings, all live (Settings tab > Updates,
+or `alfred config set`):
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `ALFRED_UPDATE_MODE` | `check` | `off`: never look. `check`: look and show. `auto`: look and install, inside the window. |
+| `ALFRED_UPDATE_URL` | GitHub Releases | The `latest.json` to read. A `file://` URL to a folder on a share serves servers without internet: copy the release's files there. |
+| `ALFRED_UPDATE_WINDOW` | `02:00-04:00` | When an automatic install may stop and start Alfred (server time zone, may wrap midnight; empty = any time). |
+
+**Installing** (the card's *Install update*, or `alfred update`) is a settings write: allowed from the machine and
+the LAN, never through the tunnel. The backend asks the supervisor; the supervisor downloads the installer into
+`data/updates/`, verifies its sha256 against `latest.json` (a mismatch or a missing checksum is refused), and runs
+it detached from Alfred - Windows: silently, outside the job object; Linux: as a transient `systemd-run` unit - so
+stopping the service does not kill the installer. The installer does what it always does: stop, replace the program
+files, keep `.env` and `data/`, start, record `UPGRADE` in the history; a failure puts the previous version back.
+The page reconnects by itself and reports the running version; `data/log/update.log` has the installer's output.
+In Docker mode the row shows the release and points at `python3 deploy.py`; nothing is downloaded.
 
 ## Claude (MCP) on another machine
 

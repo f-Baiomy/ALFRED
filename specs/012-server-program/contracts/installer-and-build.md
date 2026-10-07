@@ -53,7 +53,10 @@ python build_dist.py [--target linux|windows|all] [--skip-tests] [--clean]
   dist/alfred-setup-<version>-linux-x64.run
   dist/alfred-setup-<version>-windows-x64.exe
   dist/SHA256SUMS
+  dist/latest.json      the release manifest an installed Alfred reads (version, notes, per-target url/sha256/size)
   ```
+- A release is a tag `v<version>`: `.github/workflows/release.yml` runs this script and publishes `dist/*` as a
+  GitHub Release; installed Alfreds find it at `releases/latest/download/latest.json`.
 - `<version>` = `git describe --tags --always --dirty`, also written to `app/VERSION` and shown by
   `alfred version` and the Server card.
 - Fails loudly with the failing step's name. Never leaves a partial file in `dist/`: it writes to

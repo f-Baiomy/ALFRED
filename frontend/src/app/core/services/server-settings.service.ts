@@ -11,6 +11,7 @@ import {
   SettingEdit,
   SettingsPreview,
   SettingsSaved,
+  UpdateStatus,
   ValidationResult,
 } from '../models/server-settings.model';
 
@@ -58,6 +59,21 @@ export class ServerSettingsService {
 
   restart(what: 'BACKEND' | 'PROXIES'): Observable<{ accepted: boolean }> {
     return this.http.post<{ accepted: boolean }>(`${this.baseUrl}/restart`, { what });
+  }
+
+  /** The last update check's result, without reading the feed. */
+  updateStatus(): Observable<UpdateStatus> {
+    return this.http.get<UpdateStatus>(`${this.baseUrl}/update`);
+  }
+
+  /** Reads the release feed now (open to read-only viewers: it writes nothing). */
+  checkUpdate(): Observable<UpdateStatus> {
+    return this.http.post<UpdateStatus>(`${this.baseUrl}/update/check`, {});
+  }
+
+  /** Asks the supervisor to download, verify and run the installer; Alfred restarts. */
+  installUpdate(): Observable<{ accepted: boolean }> {
+    return this.http.post<{ accepted: boolean }>(`${this.baseUrl}/update/install`, {});
   }
 
   /** .env with its secrets hidden, as a file (allowed only where editing is). */

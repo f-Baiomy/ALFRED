@@ -325,6 +325,16 @@ public final class ServerConfigCli {
         }
 
         @Override
+        public boolean installUpdate(String version, String url, String sha256, long size) {
+            return false;
+        }
+
+        @Override
+        public Optional<com.fathy.alfred.backend.server.domain.model.UpdateJob> updateJob() {
+            return Optional.empty();
+        }
+
+        @Override
         public Optional<List<ServerStatus.ProcessStatus>> processes() {
             return Optional.empty();
         }

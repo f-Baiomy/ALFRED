@@ -177,6 +177,27 @@ Alfred serves its Claude (MCP) tools from the same port as the UI. The developer
 
 ---
 
+### User Story 11 - Check for updates and auto-update (Priority: P3, added 2026-10-08)
+
+A release is a git tag; the repository's release workflow publishes both installers with a manifest (`latest.json`).
+Each native install reads that manifest once a day and on demand, shows a newer release in the Server card and in
+`alfred update --check`, and installs it on request (card button or `alfred update`) or, when set to `auto`, by
+itself inside a time window. The install goes through the supervisor: download, sha256 check, the installer run
+detached so that stopping Alfred does not kill it. Nothing is downloaded by a check. Docker installs are told to use
+`deploy.py`. Settings: `ALFRED_UPDATE_MODE` (off | check | auto, default check), `ALFRED_UPDATE_URL` (GitHub
+Releases by default; a `file://` folder for offline servers), `ALFRED_UPDATE_WINDOW` (default 02:00-04:00).
+
+**Acceptance Scenarios**:
+
+1. **Given** a newer tagged release, **When** the daily check runs, **Then** the Server card and `alfred status` say which version is available, without downloading it.
+2. **Given** an available update, **When** an editor installs it, **Then** the installer is downloaded, its checksum verified, Alfred is replaced, restarted, `.env` and data kept, and the page reconnects showing the new version.
+3. **Given** a checksum that does not match, **When** the install runs, **Then** nothing is installed and the card says why.
+4. **Given** `auto` mode and a window, **When** the check finds an update outside the window, **Then** nothing happens until the window; inside it the install runs once.
+5. **Given** a request through the tunnel, **When** it tries to install, **Then** it is refused like every other settings write.
+
+- **FR-100**: A check MUST read only the manifest; an install MUST verify the installer's sha256 before running it and MUST run it detached from Alfred's processes.
+- **FR-101**: Hash-named (untagged) builds MUST never be offered as updates, and a release MUST never be offered to a build newer than it.
+
 ### Edge Cases
 
 - Port 443 (default outbound proxy address) needs elevated rights on some systems: Alfred reports clearly that it cannot listen there and suggests a different address via the setting.

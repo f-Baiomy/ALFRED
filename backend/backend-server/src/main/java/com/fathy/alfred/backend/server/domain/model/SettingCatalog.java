@@ -70,6 +70,19 @@ public final class SettingCatalog {
                     "WildFly install folder, used by the port offset sync. Empty when not used.",
                     SettingKind.PATH, RESTART),
 
+            new SettingDefinition("ALFRED_UPDATE_MODE", SettingGroup.UPDATES, "Updates",
+                    "off: never look for new releases. check: look once a day and show an update in the Server card. "
+                    + "auto: also install it, inside the window below.",
+                    SettingKind.ENUM, LIVE, List.of("off", "check", "auto"), null, null),
+            def("ALFRED_UPDATE_URL", SettingGroup.UPDATES, "Release feed",
+                    "The latest.json a release publishes next to its installers. GitHub Releases by default; a file URL "
+                    + "to a folder on a share works for servers without internet.",
+                    SettingKind.URL, LIVE),
+            def("ALFRED_UPDATE_WINDOW", SettingGroup.UPDATES, "Auto-update window",
+                    "When an automatic update may stop and start Alfred, as HH:MM-HH:MM in the server's time zone. "
+                    + "Empty: any time.",
+                    SettingKind.TIME_WINDOW, LIVE),
+
             def("WEBHOOK_SECRET", SettingGroup.SECRETS, "Webhook secret",
                     "Shared between the proxies, the agent and the backend. Generated at install.",
                     SettingKind.SECRET, RESTART),

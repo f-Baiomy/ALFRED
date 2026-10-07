@@ -191,6 +191,39 @@
   }
 }
 
+// The update row: a release waiting is a quiet highlight, not an alarm; the actions sit where the restart buttons do.
+.server-update {
+  border-top: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
+
+  &.available {
+    background: color-mix(in srgb, var(--purple) 7%, transparent);
+  }
+
+  .server-update-actions {
+    display: flex;
+    gap: 0.4rem;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
+
+  .server-notes {
+    flex-basis: 100%;
+    font-size: 0.85rem;
+
+    summary {
+      cursor: pointer;
+      color: var(--purple-light);
+    }
+
+    pre {
+      margin: 0.35rem 0 0;
+      white-space: pre-wrap;
+      font: inherit;
+      color: var(--text-dim);
+    }
+  }
+}
+
 .server-label {
   font-weight: 500;
 

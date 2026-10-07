@@ -45,8 +45,8 @@ public class LiveSettingsBridge implements LiveSettingsPort {
             case "INTERNAL_CALL_SERVICES", "REVERSE_PROXY_ENABLED" -> projects.reload(
                     effective.getOrDefault("INTERNAL_CALL_SERVICES", ""),
                     "true".equalsIgnoreCase(effective.getOrDefault("REVERSE_PROXY_ENABLED", "false")));
-            // Read on every request by the server slice itself.
-            case "ALFRED_SETTINGS_EDIT_FROM" -> { }
+            // Read on every request / every scheduled pass by the server slice itself.
+            case "ALFRED_SETTINGS_EDIT_FROM", "ALFRED_UPDATE_MODE", "ALFRED_UPDATE_URL", "ALFRED_UPDATE_WINDOW" -> { }
             default -> throw new IllegalArgumentException(key + " is applied at the next restart");
         }
     }

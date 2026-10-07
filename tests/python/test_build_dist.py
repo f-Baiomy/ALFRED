@@ -1,5 +1,6 @@
 """build_dist.py packaging pieces that run on any OS: the .run file, executable bits, line endings, versions."""
 
+import hashlib
 import io
 import os
 import shutil
@@ -84,6 +85,30 @@ class VersionTest(unittest.TestCase):
     def test_numeric_versions_for_the_windows_file_version(self):
         self.assertEqual(build_dist.numeric_version("1.4.0-12-g87159af"), ["1", "4", "0"])
         self.assertEqual(build_dist.numeric_version("87159af-dirty"), ["0"])
+
+    def test_the_manifest_names_each_installer_by_target_with_its_checksum_and_release_url(self):
+        folder = tempfile.mkdtemp(prefix="alfred-dist-")
+        self.addCleanup(shutil.rmtree, folder, ignore_errors=True)
+        win = os.path.join(folder, "alfred-setup-1.4.0-windows-x64.exe")
+        lin = os.path.join(folder, "alfred-setup-1.4.0-linux-x64.run")
+        sums = os.path.join(folder, "SHA256SUMS")
+        for path, content in ((win, b"win"), (lin, b"linux!"), (sums, b"x")):
+            with open(path, "wb") as f:
+                f.write(content)
+        m = build_dist.manifest("1.4.0", [win, lin, sums], "https://example/dl", "Faster exports", "2026-10-08T10:00:00+00:00")
+        self.assertEqual(m["version"], "1.4.0")
+        self.assertEqual(m["notes"], "Faster exports")
+        self.assertEqual(m["publishedAt"], "2026-10-08T10:00:00+00:00")
+        self.assertEqual(sorted(m["assets"]), ["linux-x64", "windows-x64"])
+        self.assertEqual(m["assets"]["windows-x64"]["url"], "https://example/dl/v1.4.0/alfred-setup-1.4.0-windows-x64.exe")
+        self.assertEqual(m["assets"]["windows-x64"]["size"], 3)
+        self.assertEqual(m["assets"]["linux-x64"]["sha256"], hashlib.sha256(b"linux!").hexdigest())
+        # SHA256SUMS is no installer and names no target.
+        self.assertIsNone(build_dist.target_of("SHA256SUMS"))
+
+    def test_release_notes_only_for_a_tagged_release_version(self):
+        self.assertEqual(build_dist.release_notes("87159af-dirty"), "")
+        self.assertEqual(build_dist.release_notes("1.4.0-12-g87159af"), "")
 
     def test_every_pinned_download_has_a_checksum(self):
         for kind in ("python", "jdk", "node"):
