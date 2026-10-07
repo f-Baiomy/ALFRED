@@ -1,5 +1,6 @@
 import { CallOverlapCandidate, CallRecord, HttpMessageData } from '../../core/models/call.model';
 import { CallDbAnalysis, CallDbCapture, DbColumn, DbFlag, ExportedDbStatement, StatementOrigin, TableIndex, TypedValue } from '../../core/models/db-capture.model';
+import { ExportedStoreCommand } from '../../core/models/store-command.model';
 import { Comment } from '../../core/models/comment.model';
 import { ExportedCycle, ExportFormData } from '../../core/models/export-metadata.model';
 import { buildBulkExportPayload } from './bulk-json-builder';
@@ -147,7 +148,8 @@ function decodeRows(rows: readonly (readonly unknown[])[], columns: readonly DbC
 
 /** A call's statements, written one per line: values all of them share hoisted, shared origins referenced by id. */
 function encodeCapture(callId: string, capture: CallDbCapture): { header: Record<string, unknown>; statements: Record<string, unknown>[] } {
-  const { statements, layout: _layout, detail: _detail, ...rest } = capture; // `analysis` rides along in `rest`: written, never read back
+  // `analysis` rides along in `rest`: written, never read back; Redis commands have their own `redis` section
+  const { statements, layout: _layout, detail: _detail, redis: _redis, ...rest } = capture;
   const common: Record<string, unknown> = {};
   for (const field of COMMON_STATEMENT_FIELDS) {
     const first = statements[0]?.[field];
@@ -234,7 +236,7 @@ export function decodeCapture(header: Record<string, unknown>, lines: readonly R
 // ------------------------------------------------------------------------------------------------ the guide
 
 /** What an AI agent (or a person with a terminal) needs to read this file without loading it whole. */
-function guide(counts: { calls: number; bodies: number; dbStatements: number; logLines?: number }): Record<string, unknown> {
+function guide(counts: { calls: number; bodies: number; dbStatements: number; logLines?: number; redis?: number }): Record<string, unknown> {
   return {
     what: 'An Alfred capture: HTTP calls into an application (inbound) and the calls it made (outbound/supplier), with bodies, comments, interception, the database statements each inbound call ran and the application log lines it wrote. Nothing is truncated.',
     readFirst: 'Lines 1-6 (this guide, layout, about, metadata), then `highlights` and `index`. Do NOT read the whole file: use the index to jump to what you need.',
@@ -254,6 +256,7 @@ function guide(counts: { calls: number; bodies: number; dbStatements: number; lo
       dbCalls: 'one line per inbound call with captured database statements: summary (counts, flags), transactions, supplier calls in order (`supplierMarkers`), values all its statements share (`common`), HQL/query origins by id (`origins`), application call chains by id (`stacks`: innermost first, past the project pass-through classes), table index lists (`indexes`, by table - when the project turned the Index check on), and `analysis`: `time` (where the call\'s time went - dbMs, outboundMs, gapMs between statements, edgeMs, gap count/median/max, the largest gaps with the code that ran next, the database round trip) `queries` (one entry per query, costliest first: runs, distinct params, exact duplicates, total ms, rows, called from, statement seqs), `summary` (the one line the database window opens with) and `findings` (what to fix, worst first: severity bad/warn/note, title, short and full why, fix, impact, the statements by seq - errors, idle stretches, one HQL query fanning out into many SQL statements, huge reads, exact duplicates, slow queries, supplier time). Start here for "why is this call slow".',
       dbStatements: 'one statement per line, `of` = its call, in run order (`seq`): SQL with `?` placeholders and `params` (one list per batch set), outcome, timing, transaction, where in code, `origin` (the HQL it came from, an id into its dbCalls `origins`), `stack` (the application code that issued it, an id into `stacks` - `codeLocation` is only the first application frame), `indexes` (its table, a key into `indexes`). In `outcome`: `acquireMicros` (connection checkout before it), and on a COMMIT/ROLLBACK line `via` (JDBC/JTA), `beginMicros`, `commitMicros`, `closeMicros`; `transactions[].lifecycle` has the same per transaction. `analysis.time.overheadMs` sums them. `rowValues`/`beforeValues` = rows as values under `outcome.columns`/`beforeImage.columns` types; a cell that is an object is a full {type,value,...}; {} = a null cell. A statement with more than ${ROW_SAMPLE} rows carries `rowSample` (its first ${ROW_SAMPLE}) and `rowsAt` (line/offset/bytes/count of its full rows in `dbRows`) - or `rowsSampled: true` when this export kept samples only',
       logLines: 'one application log line per line, `of` = the inbound call it was written during, oldest first: `offsetMs` from the call\'s start, `level`, `thread`, `logger`, `message`, `matchedBy` (EXACT = the line carries the call\'s id; THREAD_TIME = same request thread and inside the call\'s time window), `sourceName` (which log file), `raw` (the whole original line). The index line of a call with lines has `logs` (count, errors, warnings, where they are)',
+      redis: 'one Redis command per line (specs/011-redis-capture), `of` = the inbound call that sent it, in the call\'s order (`seq` - shared with its statements and supplier calls): `command`, `keys`, `rw` (r/w), `outcome` (OK/HIT/MISS/FAILED), `micros`, `at`, `args`/`reply`/`before` (the exact bytes as sent and received, base64 - absent for a masked key, `masked: true`), `argsText`/`replyText`/`valueText`/`beforeText` (the same decoded for reading, `valueFormat` says how), `client`, `connection`, `server`, `db`, `thread`, `code`/`callers` (the application code that sent it), `origin` (Spring Cache), `group` (MULTI/EXEC or pipeline), `poolWaitMicros`. The index line of a call with commands has `redis` (count, failed, misses, where they are); its dbCalls line has `redisSummary`',
       dbRows: 'one line per statement with more than ' + ROW_SAMPLE + ' rows: `of`, `seq`, `rowValues` (every stored row). Last section on purpose - most questions never need it',
     },
     glossary: {
@@ -344,12 +347,16 @@ export function buildJsonExportV2(input: JsonExportV2Input): string[] {
   const logged = calls.filter((c) => c.logLines?.length);
   const logLines = logged.flatMap((c) => c.logLines!.map((l) => ({ of: c.id, ...l })));
 
+  // ---- Redis commands (specs/011-redis-capture): one record per command, by call, in the call's order - never cut
+  const withRedis = calls.filter((c) => c.dbCapture?.redis?.length);
+  const redis = withRedis.flatMap((c) => [...c.dbCapture!.redis!].sort((a, b) => a.seq - b.seq).map((r) => ({ of: c.id, ...r })));
+
   // ---- line numbers: every section's size is known now, so every record's line is too
   const highlights = buildHighlights(calls, input, analyses);
   const HEADER_LINES = 5; // first line, guide, layout, about, metadata
   const sectionSizes: [string, number][] = [
     ['highlights', Math.min(highlights.length, MAX_HIGHLIGHTS)], ['index', calls.length], ['calls', calls.length],
-    ['bodies', bodies.length], ['dbCalls', dbHeaders.length], ['dbStatements', dbStatements.length], ['logLines', logLines.length], ['dbRows', dbRows.length],
+    ['bodies', bodies.length], ['dbCalls', dbHeaders.length], ['dbStatements', dbStatements.length], ['logLines', logLines.length], ['redis', redis.length], ['dbRows', dbRows.length],
   ];
   const firstLine = new Map<string, number>();
   let line = HEADER_LINES + 1;
@@ -374,6 +381,14 @@ export function buildJsonExportV2(input: JsonExportV2Input): string[] {
     for (const c of logged) {
       logFirstLine.set(c.id, next);
       next += c.logLines!.length;
+    }
+  }
+  const redisFirstLine = new Map<string, number>();
+  {
+    let next = firstLine.get('redis')!;
+    for (const c of withRedis) {
+      redisFirstLine.set(c.id, next);
+      next += c.dbCapture!.redis!.length;
     }
   }
   const statementLine = (callId: string, seq: number): number | undefined => {
@@ -439,6 +454,7 @@ export function buildJsonExportV2(input: JsonExportV2Input): string[] {
   const dbStatementTexts = dbStatements.map((r) => JSON.stringify(r));
   const dbRowTexts = dbRows.map((r) => JSON.stringify(r));
   const logLineTexts = logLines.map((r) => JSON.stringify(r));
+  const redisTexts = redis.map((r) => JSON.stringify(r));
 
   const indexTexts = calls.map((call, i) => {
     const refs = refsByCall.get(call.id)!;
@@ -489,6 +505,13 @@ export function buildJsonExportV2(input: JsonExportV2Input): string[] {
         `"warnings":${levels.filter((l) => l === 'WARN' || l === 'WARNING').length},"matchedBy":${JSON.stringify(call.logLines[0].matchedBy)},` +
         `"lines":[${first},${last}],"offset":${slot(`L${first}`)},"bytes":${slot(`R${first}-${last}`)}}`);
     }
+    const cmds = call.dbCapture?.redis;
+    if (cmds?.length) {
+      const first = redisFirstLine.get(call.id)!;
+      const last = first + cmds.length - 1;
+      parts.push(`"redis":{"count":${cmds.length},"failed":${cmds.filter((r) => r.outcome === 'FAILED').length},"misses":${cmds.filter((r) => r.outcome === 'MISS').length},` +
+        `"lines":[${first},${last}],"offset":${slot(`L${first}`)},"bytes":${slot(`R${first}-${last}`)}}`);
+    }
     return `${parts.join(',')}}`;
   });
 
@@ -497,10 +520,10 @@ export function buildJsonExportV2(input: JsonExportV2Input): string[] {
     return JSON.stringify({ what: h.what, callId: h.callId, line, note: h.note });
   });
 
-  const counts = { calls: calls.length, bodies: bodies.length, dbStatements: dbStatements.length, logLines: logLines.length, dbRows: dbRows.length };
+  const counts = { calls: calls.length, bodies: bodies.length, dbStatements: dbStatements.length, logLines: logLines.length, redis: redis.length, dbRows: dbRows.length };
   const sections: [string, string[]][] = [
     ['highlights', highlightTexts], ['index', indexTexts], ['calls', callTexts],
-    ['bodies', bodyTexts], ['dbCalls', dbHeaderTexts], ['dbStatements', dbStatementTexts], ['logLines', logLineTexts], ['dbRows', dbRowTexts],
+    ['bodies', bodyTexts], ['dbCalls', dbHeaderTexts], ['dbStatements', dbStatementTexts], ['logLines', logLineTexts], ['redis', redisTexts], ['dbRows', dbRowTexts],
   ];
   const layoutText = `"layout":{${sections.map(([name, texts]) => {
     const first = firstLine.get(name)!;
@@ -632,6 +655,16 @@ export function v2ToCallRecords(file: Record<string, unknown>): Record<string, u
     const { of, ...line } = l;
     if (!logLinesByCall.has(of as string)) logLinesByCall.set(of as string, []);
     logLinesByCall.get(of as string)!.push(line);
+  }
+  const redisByCall = new Map<string, ExportedStoreCommand[]>();
+  for (const r of (file['redis'] as Record<string, unknown>[] | undefined) ?? []) {
+    const { of, ...command } = r;
+    if (!redisByCall.has(of as string)) redisByCall.set(of as string, []);
+    redisByCall.get(of as string)!.push(command as unknown as ExportedStoreCommand);
+  }
+  for (const [id, cmds] of redisByCall) {
+    const capture = captures.get(id);
+    captures.set(id, capture ? { ...capture, redis: cmds } : ({ statements: [], redis: cmds } as unknown as CallDbCapture));
   }
   const message = (msg: unknown): unknown => {
     if (!msg || typeof msg !== 'object') return msg;

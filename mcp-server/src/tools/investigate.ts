@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { AlfredClient } from '../alfred-client.ts';
 import { callStory, callLines, isErrorLine } from '../call-story.ts';
-import type { CallSummaryDto, TriageEntry } from '../frontend.ts';
+import type { CallStoreSummary, CallSummaryDto, TriageEntry } from '../frontend.ts';
 import { maskContext, maskMeta, maskText } from '../masking.ts';
 import { fitItems, ok, run } from '../reply.ts';
 import { heldInText, scopeBody, ScopeSchema, type Scope } from '../scope.ts';
@@ -35,7 +35,7 @@ interface ProblemCallRow {
   readonly severity: 'error' | 'warning';
   readonly evidence: {
     failedStatements: number; swallowed: boolean; dbFlags: string[]; logErrors: number; logWarnings: number; logExceptions: number;
-    failingSupplierCalls: number; logStatus: string | null; logLevel: string | null;
+    failingSupplierCalls: number; logStatus: string | null; logLevel: string | null; redisFailed?: number; cacheCold?: number;
   };
 }
 
@@ -51,7 +51,8 @@ function evidenceText(row: ProblemCallRow): string {
   if (row.error) parts.push(`no answer: ${row.error}`);
   if (e.failedStatements) parts.push(`✖ DB ${e.failedStatements} failed${e.swallowed ? ' (swallowed)' : ''}`);
   if (e.failingSupplierCalls) parts.push(`${e.failingSupplierCalls} supplier call${e.failingSupplierCalls > 1 ? 's' : ''} failed`);
-  const sig = signalEvidence({ logErrors: e.logErrors, logWarnings: e.logWarnings, logExceptions: e.logExceptions, logLevel: e.logLevel, dbFlags: e.dbFlags });
+  const sig = signalEvidence({ logErrors: e.logErrors, logWarnings: e.logWarnings, logExceptions: e.logExceptions, logLevel: e.logLevel, dbFlags: e.dbFlags,
+    redisFailed: e.redisFailed, redisCold: e.cacheCold });
   if (sig) parts.push(sig);
   return parts.join(' · ');
 }
@@ -100,8 +101,8 @@ export function register(server: McpServer, client: AlfredClient): void {
 
   server.registerTool('endpoint_health', {
     description: 'Which endpoints are unhealthy: per endpoint (method and path, ids in the path grouped as {id}) its calls and how many had an HTTP '
-      + 'error, a failed statement, a database flag, an ERROR or WARN log line or a failing supplier call, with median and slowest duration - '
-      + 'worst first, over any scope.',
+      + 'error, a failed statement, a database flag, an ERROR or WARN log line, a failed Redis command, a cold cache miss or a failing supplier call, with median and slowest duration - '
+      + 'worst first, over any scope. Endpoints with captured Redis commands carry `redis`: commands per call, hit rate, misses filled from the database per call, Redis time.',
     inputSchema: {
       scope: ScopeSchema, project: z.string().optional(), from: z.string().optional(), to: z.string().optional(),
       limit: z.number().int().min(1).max(200).default(30),
@@ -201,6 +202,14 @@ export function register(server: McpServer, client: AlfredClient): void {
     }
 
     const similar = entry && !signals.some(isError) ? null : await similarSuccess(client, input.callId, entry);
+    // the call's Redis at a glance (specs/011-redis-capture) - no summary = ⬢ was off for it
+    const redisSummary = (await client.get<Record<string, CallStoreSummary>>('/db-capture/store/summaries', { query: { callIds: input.callId } })
+      .catch(() => ({}) as Record<string, CallStoreSummary>))[input.callId];
+    const redis = redisSummary ? {
+      commands: redisSummary.commands, hits: redisSummary.hits, misses: redisSummary.misses, failed: redisSummary.failed,
+      ms: Math.round(redisSummary.micros / 100) / 10, ...(redisSummary.dropped ? { notKept: redisSummary.dropped } : {}),
+      next: redisSummary.failed || redisSummary.misses ? 'redis_overview for the findings, redis_commands filter:"failed" / "misses"' : 'redis_commands',
+    } : null;
     return ok({
       callId: input.callId,
       ...(entry ? {
@@ -216,6 +225,7 @@ export function register(server: McpServer, client: AlfredClient): void {
         ...(s.softFailure ? { softFailure: maskText(ctx, `${s.softFailure.code ? `${s.softFailure.code}: ` : ''}${s.softFailure.message}`) } : {}),
       })),
       ...(similar ? { similarSuccess: similar } : {}),
+      ...(redis ? { redis } : {}),
       ...(story.statementsWhy ? { noStatements: story.statementsWhy } : {}), ...(story.linesWhy ? { noLogLines: story.linesWhy } : {}),
       next: 'call_story startAt:"firstError", log_context on the error line, exception_source, diff_calls with similarSuccess.',
       ...maskMeta(ctx),

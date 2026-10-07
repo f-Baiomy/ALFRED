@@ -23,10 +23,11 @@ returned as `{"masked": true, "bytes": n}` with no data - in every endpoint belo
 
 ## Lists and filters
 
-- `GET /db-capture/summaries?ids=…` (existing, ≤ 100 ids) - each summary gains
-  `redis: {commands, misses, failed, micros, dropped, live}` (absent when no command was recorded for the call and ⬢ was
-  off; `commands: 0` when the agent saw none).
-- `GET /db-capture/failures?…` (existing) gains `redisFailedCallIds` (for the `✖ Redis failures` pill, same paging).
+- `GET /db-capture/store/summaries?callIds=…` (≤ 100 ids) → `{callId: CallStoreSummary}` - `{commands, reads, writes,
+  hits, misses, failed, micros, dropped, live, endedEarly}`; absent when ⬢ was off for the call, `commands: 0` when the
+  agent saw none. (As built: its own endpoint beside the statement summaries, so neither response changes shape.)
+- `GET /db-capture/store/failures?callIds=…` (≤ 500 ids) → the ids among them with a failed Redis command (for the
+  `✖ Redis failures` pill and filter).
 
 ## Trace
 

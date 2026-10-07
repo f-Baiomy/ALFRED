@@ -17,6 +17,7 @@ import * as projects from './tools/projects.ts';
 import * as triage from './tools/triage.ts';
 import * as logs from './tools/logs.ts';
 import * as investigate from './tools/investigate.ts';
+import * as redis from './tools/redis.ts';
 import { registerPrompts } from './prompts.ts';
 
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string };
@@ -34,7 +35,7 @@ export function createServer(client: AlfredClient = new AlfredClient()): McpServ
       + 'what you changed (old -> new). Record findings with add_comment. Ask before writing exports.',
   });
   registerSessionTool(server);
-  for (const module of [cycles, spacers, calls, db, comments, exportTool, watch, redactions, cycleSearch, diff, rulesRelive, projects, triage, logs, investigate]) module.register(server, client);
+  for (const module of [cycles, spacers, calls, db, comments, exportTool, watch, redactions, cycleSearch, diff, rulesRelive, projects, triage, logs, investigate, redis]) module.register(server, client);
   registerPrompts(server);
   return server;
 }

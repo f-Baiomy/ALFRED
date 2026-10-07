@@ -87,6 +87,8 @@ export interface CallStats {
   readonly logErrors: number;
   /** How many of the scoped calls wrote a WARN log line - see `logWarnFilter`. */
   readonly logWarnings: number;
+  /** How many of the scoped calls had a failed Redis command - see `redisFailureFilter` (specs/011-redis-capture). */
+  readonly redisFailures: number;
 }
 
 /** One rule that touched at least one currently-loaded call, and how many - what the Filters
@@ -230,6 +232,8 @@ export interface CallListView {
   readonly logErrorFilter: Signal<boolean>;
   /** Client-side narrowing to calls with a WARN log line (CallListViewOptions.logWarnIds); AND with the others. */
   readonly logWarnFilter: Signal<boolean>;
+  /** Client-side narrowing to calls with a failed Redis command (CallListViewOptions.redisFailedIds); AND with the others. */
+  readonly redisFailureFilter: Signal<boolean>;
   /** The rules currently appearing on loaded calls, for the Filters menu's "By rule…" submenu -
    * scoped like `supplierOptions` (see InterceptionRuleOption's doc). */
   readonly interceptionRuleOptions: Signal<readonly InterceptionRuleOption[]>;
@@ -306,6 +310,7 @@ export interface CallListView {
   setDbFailureFilter(value: boolean): void;
   setLogErrorFilter(value: boolean): void;
   setLogWarnFilter(value: boolean): void;
+  setRedisFailureFilter(value: boolean): void;
   /** Picking a tree view ('nested'/'waterfall') while a non-chronological sort is active also moves
    * the list back to a chronological sort - a tree can't be drawn over an order that scatters a
    * parent away from its children (see CallViewMode's doc). */
@@ -361,6 +366,8 @@ export interface CallListViewOptions {
   readonly logErrorIds?: Signal<ReadonlySet<string>>;
   /** Calls with a WARN log line (their counts) - what `logWarnFilter` keeps. */
   readonly logWarnIds?: Signal<ReadonlySet<string>>;
+  /** Calls with a failed Redis command (their ⬢ summary) - what `redisFailureFilter` keeps. */
+  readonly redisFailedIds?: Signal<ReadonlySet<string>>;
 }
 
 /**
@@ -386,6 +393,8 @@ export function createCallListView(pinnedIds: Signal<ReadonlySet<string>>, optio
   const logErrorIds = options.logErrorIds ?? signal<ReadonlySet<string>>(new Set());
   const logWarnFilter = signal(false);
   const logWarnIds = options.logWarnIds ?? signal<ReadonlySet<string>>(new Set());
+  const redisFailureFilter = signal(false);
+  const redisFailedIds = options.redisFailedIds ?? signal<ReadonlySet<string>>(new Set());
   const viewMode = signal<CallViewMode>(loadViewMode());
   const expanded = signal(true);
   const collapseAllVersion = signal(0);
@@ -555,6 +564,10 @@ export function createCallListView(pinnedIds: Signal<ReadonlySet<string>>, optio
       const withWarnings = logWarnIds();
       calls = calls.filter((c) => withWarnings.has(c.id));
     }
+    if (redisFailureFilter()) {
+      const failed = redisFailedIds();
+      calls = calls.filter((c) => failed.has(c.id));
+    }
     return calls;
   });
 
@@ -658,6 +671,7 @@ export function createCallListView(pinnedIds: Signal<ReadonlySet<string>>, optio
       dbFailures: list.filter((c) => dbFailedIds().has(c.id)).length,
       logErrors: list.filter((c) => logErrorIds().has(c.id)).length,
       logWarnings: list.filter((c) => logWarnIds().has(c.id)).length,
+      redisFailures: list.filter((c) => redisFailedIds().has(c.id)).length,
     };
   });
 
@@ -704,6 +718,7 @@ export function createCallListView(pinnedIds: Signal<ReadonlySet<string>>, optio
     dbFailureFilter,
     logErrorFilter,
     logWarnFilter,
+    redisFailureFilter,
     interceptionRuleOptions,
     expanded,
     collapseAllVersion,
@@ -799,6 +814,9 @@ export function createCallListView(pinnedIds: Signal<ReadonlySet<string>>, optio
     },
     setLogWarnFilter(value: boolean) {
       logWarnFilter.set(value);
+    },
+    setRedisFailureFilter(value: boolean) {
+      redisFailureFilter.set(value);
     },
     setViewMode(mode: CallViewMode) {
       viewMode.set(mode);

@@ -131,6 +131,35 @@ export class DbCaptureStateService {
       : `Logs are not linked for ${project} - click to link its calls to its log lines (${from})`;
   }
 
+  /**
+   * The ⬢ Redis switch beside ▤ (specs/011-redis-capture): the same project list, so the Sources bar, the cycle widget
+   * and Settings read one state; refused (and shown) while inbound logging is off.
+   */
+  setRedisOn(project: string, on: boolean): void {
+    this.switchError.set(null);
+    this.api.setRedisOn(project, on).subscribe({
+      next: (projects) => this.projectsSignal.set(projects),
+      error: (e) => this.switchError.set(e?.error?.error ?? 'Could not change Redis capture.'),
+    });
+  }
+
+  toggleRedis(project: string, inboundOn: boolean): void {
+    if (!inboundOn) return;
+    this.setRedisOn(project, !this.projectStatus(project)?.redisOn);
+  }
+
+  redisOn(project: string, inboundOn: boolean): boolean {
+    return inboundOn && !!this.projectStatus(project)?.redisOn;
+  }
+
+  redisTitle(project: string, inboundOn: boolean): string {
+    if (!inboundOn) return 'Turn logging on first - Redis commands are recorded with inbound calls';
+    const status = this.projectStatus(project);
+    if (status?.redisOn) return `Redis capture is on for ${project} - every command the app sends during a call is recorded with it. Click to stop`;
+    if (!status?.attached) return `Redis capture is off for ${project} - turning it on waits for the agent (not attached yet)`;
+    return `Redis capture is off for ${project} - click to turn on`;
+  }
+
   setShowChips(show: boolean): void {
     this.showChipsSignal.set(show);
     try {

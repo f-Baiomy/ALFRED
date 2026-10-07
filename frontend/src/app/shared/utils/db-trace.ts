@@ -33,6 +33,19 @@ export function traceLocations(hits: readonly TraceHit[], statements: readonly C
       case 'BEFORE_IMAGE':
         location = { seq: h.seq, tab: 'deleted', text: `#${h.seq}${table} · row before the ${s?.kind?.toLowerCase() ?? 'write'}` };
         break;
+      // a Redis command (specs/011-redis-capture): its key, an argument, its reply or the value it replaced
+      case 'REDIS_KEY':
+        location = { seq: h.seq, text: `#${h.seq} Redis · key ${h.column ?? ''}`.trim() };
+        break;
+      case 'REDIS_ARG':
+        location = { seq: h.seq, text: `#${h.seq} Redis · argument ${h.index}${h.column ? ' ' + h.column : ''}` };
+        break;
+      case 'REDIS_REPLY':
+        location = { seq: h.seq, text: `#${h.seq} Redis · reply${h.column ? ' ' + h.column : ''}` };
+        break;
+      case 'REDIS_BEFORE':
+        location = { seq: h.seq, text: `#${h.seq} Redis · value before the write` };
+        break;
       default:
         location = { seq: h.seq, tab: 'rows', text: `#${h.seq}${table} · rows` };
     }

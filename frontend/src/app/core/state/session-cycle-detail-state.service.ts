@@ -1,4 +1,5 @@
 import { CallLogCountsService } from './call-log-counts.service';
+import { CallStoreCountsService } from './call-store-counts.service';
 import { Injectable, computed, effect, inject, signal, untracked } from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { DbCaptureStateService } from './db-capture-state.service';
@@ -39,6 +40,8 @@ import { callKey, EXTERNAL_SOURCE_KEY, sortCalls, sourceKeyOf, subtreeSelectionO
 export class SessionCycleDetailStateService implements CallSelectionState, BulkSelectionState, CallListControlsState, CallRemovalState, CallReorderState {
   private readonly dbState = inject(DbCaptureStateService);
   private readonly logCounts = inject(CallLogCountsService);
+  /** ⬢ Redis summaries (specs/011-redis-capture) - the "Redis failures" pill and filter. */
+  private readonly storeCounts = inject(CallStoreCountsService);
   private readonly api = inject(SessionCyclesApiService);
   private readonly config = inject(AppConfigService);
   private readonly route = inject(ActivatedRoute);
@@ -111,6 +114,7 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
       dbFailedIds: this.dbState.failedCallIds,
         logErrorIds: this.logCounts.errorCallIds,
         logWarnIds: this.logCounts.warnCallIds,
+        redisFailedIds: this.storeCounts.failedCallIds,
     });
     // Every loaded inbound call's ◆ DB summary, not only those whose card is on screen: the "DB failures" pill and
     // filter count calls the waterfall or a collapsed list never renders a chip for. Batched, one request per 500.
@@ -121,6 +125,10 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
     effect(() => {
       const cycleId = this.cycleId();
       for (const call of this.view.matchingCalls()) if (call.source === 'internal') this.logCounts.request(call.id, cycleId);
+    });
+    // ...and its ⬢ Redis summary, for the "Redis failures" pill and filter (specs/011-redis-capture).
+    effect(() => {
+      for (const call of this.view.matchingCalls()) if (call.source === 'internal') this.storeCounts.request(call.id);
     });
 
     // This cycle's calls or spacers changed somewhere else - the session-cycle widget (often in its
@@ -588,6 +596,9 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
   get logWarnFilter() {
     return this.view.logWarnFilter;
   }
+  get redisFailureFilter() {
+    return this.view.redisFailureFilter;
+  }
   get interceptionRuleOptions() {
     return this.view.interceptionRuleOptions;
   }
@@ -715,6 +726,10 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
 
   setLogWarnFilter(value: boolean): void {
     this.view.setLogWarnFilter(value);
+  }
+
+  setRedisFailureFilter(value: boolean): void {
+    this.view.setRedisFailureFilter(value);
   }
 
   setNestedOnly(value: boolean): void {

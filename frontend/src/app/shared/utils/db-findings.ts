@@ -71,7 +71,7 @@ export interface DbFinding {
   readonly keys: readonly string[];
   readonly chips: readonly FindingChip[];
   /** The flag type it came from, or what the client found. */
-  readonly source: DbFlagType | 'IDLE' | 'SUPPLIER_FAILED' | 'SUPPLIER_TIME' | 'ROUND_TRIP';
+  readonly source: DbFlagType | 'IDLE' | 'SUPPLIER_FAILED' | 'SUPPLIER_TIME' | 'ROUND_TRIP' | 'REDIS';
   /** Statement shapes "Mark expected" silences (empty: nothing to mark). */
   readonly fingerprints: readonly string[];
 }

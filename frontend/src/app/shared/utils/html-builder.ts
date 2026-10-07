@@ -12,6 +12,7 @@ import { buildWaterfallBands, waterfallAxisTicks, waterfallFormatMs, waterfallSt
 import { REPORT_CHROME_SCRIPT, REPORT_CHROME_STYLE, TOC_OPEN_HTML, TOC_TOGGLE_HTML } from './report-chrome';
 import { DB_SECTION_SCRIPT, DB_SECTION_STYLE, dbSectionHtml, dbSummaryCell } from './db-export-section';
 import { LOG_SECTION_STYLE, logSectionHtml } from './log-export-section';
+import { STORE_SECTION_STYLE, storeSectionHtml } from './store-export-section';
 import { CallExportOverview, ExportListOrder, GlossaryUse, orderBlocksAsShown, SPLIT_PARENT_NOTE, childNumbersByCallId, framedSplitParents, glossaryFor, parentFacts, callDirection, callExportOverview, callLabel, callSucceeded, directionText } from './call-export-summary';
 
 /** Exported so every HTML export (calls, log lines) escapes through this one function. */
@@ -902,7 +903,7 @@ function documentShell(title: string, tocHtml: string, bodyHtml: string, blocks:
 <head>
 <meta charset="UTF-8" />
 <title>${escapeHtml(title)}</title>
-<style>${STYLE}${REPORT_CHROME_STYLE}${DB_SECTION_STYLE}${LOG_SECTION_STYLE}</style>
+<style>${STYLE}${REPORT_CHROME_STYLE}${DB_SECTION_STYLE}${STORE_SECTION_STYLE}${LOG_SECTION_STYLE}</style>
 </head>
 <body>
   <div class="doc">
@@ -1054,6 +1055,7 @@ function responsePartHtml(call: CallRecord, comments: readonly Comment[], idPref
   const ws = wsMessagesPartHtml(call, idPrefix);
   parts.push(ws.html);
   parts.push(dbSectionHtml(call));
+  parts.push(storeSectionHtml(call));
   parts.push(logSectionHtml(call));
 
   return { html: parts.join(''), blocks: [resHeaders, resBody, ...changed.blocks, ...ws.blocks] };

@@ -132,7 +132,7 @@ frontend/src/
     ├── components/call-card/…                                 # <app-redis-chip>
     ├── components/db-capture/{redis-chip,store-command-list,store-command-detail,store-keys}.component.ts  # NEW
     ├── components/db-capture/{db-window.*,db-timeline.component.ts,db-findings.component.ts,db-capture-settings.component.ts}
-    └── shared/utils/{store-command-tree,store-findings,store-export-section,redis-cli}.ts (NEW) + db-findings, db-trace, json-export-v2, import-parser, export-narrative
+    └── shared/utils/{store-command-tree,store-findings,store-export-section}.ts (NEW; redis-cli text is built by the backend endpoint, as built) + db-findings, db-trace, json-export-v2, import-parser, export-narrative
 
 mcp-server/src/tools/redis.ts (NEW), investigate.ts, triage.ts, calls.ts (trace_value), projects.ts (health/compare)
 docs/db-capture.md, docs/mcp.md, CLAUDE.md, AGENTS.md

@@ -1,6 +1,7 @@
 import { CapturedStatement, StatementOrigin, StatementTransaction, SupplierMarker } from '../../core/models/db-capture.model';
 import { queryKeyOf } from './db-origin';
 import { LinkedLogLine } from '../../core/models/call-logs.model';
+import { StoreItem } from './store-command-tree';
 
 /**
  * The database window's tree (mock: "transactions / repeated queries are parent rows, their statements hang under
@@ -14,7 +15,24 @@ import { LinkedLogLine } from '../../core/models/call-logs.model';
  * Pure: the window re-runs it whenever a page of statements arrives.
  */
 
-export type DbNode = DbStatementNode | DbSupplierNode | DbLogNode | DbGroupNode;
+export type DbNode = DbStatementNode | DbSupplierNode | DbLogNode | DbGroupNode | DbRedisNode;
+
+/** A Redis command or Redis group at its place in the call's sequence (specs/011-redis-capture - Together). */
+export interface DbRedisNode {
+  readonly type: 'redis';
+  readonly seq: number;
+  readonly item: StoreItem;
+}
+
+/**
+ * Together with Redis: the statement tree with the call's Redis commands (and their groups) placed by the call's one
+ * sequence, at the top level - a database transaction's group is never split by a Redis command sent while it was open.
+ */
+export function withRedis(nodes: readonly DbNode[], items: readonly StoreItem[]): DbNode[] {
+  if (!items.length) return [...nodes];
+  const redis: DbRedisNode[] = items.map((item) => ({ type: 'redis' as const, seq: item.seq, item }));
+  return [...nodes, ...redis].sort((a, b) => a.seq - b.seq || (a.type === 'redis' ? 1 : 0) - (b.type === 'redis' ? 1 : 0));
+}
 
 /** A log line the agent caught, at its place in the call's sequence (specs/009-agent-log-capture - the Together view). */
 export interface DbLogNode {
@@ -169,14 +187,14 @@ function groupRepeats(nodes: readonly Leaf[], threshold: number): DbNode[] {
 /** Every statement under a node, in order. */
 export function statementsOf(node: DbNode): CapturedStatement[] {
   if (node.type === 'stmt') return [node.statement];
-  if (node.type === 'supplier' || node.type === 'log') return [];
+  if (node.type === 'supplier' || node.type === 'log' || node.type === 'redis') return [];
   return node.children.flatMap(statementsOf);
 }
 
 /** Every log line under a node, in order. */
 export function logsOf(node: DbNode): LinkedLogLine[] {
   if (node.type === 'log') return [node.line];
-  if (node.type === 'stmt' || node.type === 'supplier') return [];
+  if (node.type === 'stmt' || node.type === 'supplier' || node.type === 'redis') return [];
   return node.children.flatMap(logsOf);
 }
 

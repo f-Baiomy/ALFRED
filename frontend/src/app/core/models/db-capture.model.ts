@@ -270,6 +270,9 @@ export interface DbFindingSummary {
 
 export interface CallDbCapture {
   readonly summary?: CallDbSummary | null;
+  /** The call's Redis commands, whole (specs/011-redis-capture FR-030) - travel with the export and come back on import. */
+  readonly redis?: readonly import('./store-command.model').ExportedStoreCommand[] | null;
+  readonly redisSummary?: import('./store-command.model').CallStoreSummary | null;
   readonly transactions: readonly StatementTransaction[];
   readonly supplierMarkers?: readonly SupplierMarker[] | null;
   readonly statements: readonly ExportedDbStatement[];
@@ -354,6 +357,8 @@ export interface DbCaptureSettings {
   readonly indexInfo?: boolean;
   /** The lowest level of log line the agent catches with each call - ERROR unless set (specs/009). */
   readonly logLevel?: LogLevelSetting;
+  /** Redis capture settings (specs/011-redis-capture) - nothing here limits what is stored. */
+  readonly redis?: import('./store-command.model').RedisSettings;
 }
 
 export interface AgentStatus {
@@ -378,6 +383,12 @@ export interface ProjectCaptureStatus {
   readonly logsOn?: boolean;
   /** The lowest level of line the agent catches for it (Settings → Database capture). */
   readonly logLevel?: LogLevelSetting;
+  /** The project's ⬢ Redis switch (specs/011-redis-capture). */
+  readonly redisOn?: boolean;
+  /** Redis clients the agent saw (Settings → Clients found). */
+  readonly redisClients?: readonly import('./store-command.model').RedisClientSeen[];
+  /** Spring Cache names the agent saw. */
+  readonly springCaches?: readonly string[];
 }
 
 export interface RecordedQueryRequest {
@@ -401,7 +412,8 @@ export interface RecordedQueryResult {
 
 export interface TraceHit {
   readonly seq: number;
-  readonly where: 'PARAM' | 'ROW' | 'BEFORE_IMAGE' | 'KEY' | 'OUT';
+  /** REDIS_*: a Redis command's key, argument, reply or value before the write (specs/011-redis-capture); `column` the key or JSON path. */
+  readonly where: 'PARAM' | 'ROW' | 'BEFORE_IMAGE' | 'KEY' | 'OUT' | 'REDIS_KEY' | 'REDIS_ARG' | 'REDIS_REPLY' | 'REDIS_BEFORE';
   readonly index: number;
   readonly column?: string | null;
 }
@@ -423,7 +435,9 @@ export type DbCaptureSocketEvent =
   | { readonly type: 'capture-settings-changed'; readonly project: string }
   | { readonly type: 'agent-status-changed'; readonly project: string; readonly attached: boolean }
   /** Caught log lines arrived for a call (callId null: outside any call) - specs/009-agent-log-capture. */
-  | { readonly type: 'logs-appended'; readonly callId: string | null; readonly project: string | null };
+  | { readonly type: 'logs-appended'; readonly callId: string | null; readonly project: string | null }
+  /** Redis commands of these calls were stored or their summary changed (specs/011-redis-capture). */
+  | { readonly type: 'store-commands'; readonly callIds: readonly string[] };
 
 /** A log line the agent caught outside any call (GET /db-capture/outside/logs). */
 export interface OutsideLogLine {

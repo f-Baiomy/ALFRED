@@ -1,8 +1,9 @@
 import { Injectable, signal } from '@angular/core';
 import { CallRecord } from '../../core/models/call.model';
 
-/** The window's views; Logs and Together are the call's linked log lines (specs/008-logs-call-link). */
-export type DbWindowView = 'stmts' | 'queries' | 'tables' | 'logs' | 'together';
+/** The window's views; Logs and Together are the call's linked log lines (specs/008-logs-call-link), Redis and Keys its
+ *  Redis commands (specs/011-redis-capture). */
+export type DbWindowView = 'stmts' | 'queries' | 'tables' | 'logs' | 'together' | 'redis' | 'keys';
 
 /** What the database window shows: one inbound call's statements, or the statements that ran outside any call. */
 export type DbWindowRequest =

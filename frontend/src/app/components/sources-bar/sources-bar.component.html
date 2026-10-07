@@ -46,6 +46,18 @@
         >
           <span class="log-glyph">▤</span>
         </button>
+        <!-- ⬢ Redis (specs/011-redis-capture): the call's Redis commands are recorded with it while on -->
+        <button
+          type="button"
+          class="source-pill-switch redis-sw"
+          [class.on]="db.redisOn(service.name, service.enabled)"
+          [class.blocked]="!service.enabled"
+          [title]="db.redisTitle(service.name, service.enabled)"
+          [attr.aria-label]="db.redisTitle(service.name, service.enabled)"
+          (click)="db.toggleRedis(service.name, service.enabled); $event.stopPropagation()"
+        >
+          <span class="redis-glyph">⬢</span>
+        </button>
         <button
           #more
           type="button"

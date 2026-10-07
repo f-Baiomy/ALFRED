@@ -11,6 +11,17 @@ export interface LogTick {
   readonly message: string;
 }
 
+/** One Redis command on the Redis lane (specs/011-redis-capture): offset from the call's start, its time, how it went. */
+export interface RedisTick {
+  readonly key: string;
+  readonly seq: number;
+  readonly atMs: number;
+  readonly ms: number;
+  readonly outcome: string;
+  readonly title: string;
+  readonly lines: readonly string[];
+}
+
 interface Item {
   readonly key: string;
   readonly kind: ItemKind;
@@ -86,6 +97,20 @@ const LABEL_MIN_PCT = 6;
           </div>
         </div>
       }
+      @if (redisLane().length) {
+        <div class="dbt-lane">
+          <div class="dbt-name" style="color:var(--redis)">Redis</div>
+          <div class="dbt-track" [style.height.px]="strip() ? 6 + STRIP_ROW : 6 + ROW" (mousedown)="dragStart($event)">
+            @for (t of ticks(); track t) {<div class="dbt-grid" [style.left.%]="x(t)"></div>}
+            @for (r of redisLane(); track r.key) {
+              <div class="dbt-seg" [class]="'dbt-seg ' + (r.outcome === 'FAILED' ? 'k-redis-fail' : r.outcome === 'MISS' ? 'k-redis-miss' : 'k-redis')"
+                   [class.hl]="highlight()?.has(r.key)"
+                   [style.left.%]="x(r.atMs)" [style.width.%]="w(r.ms)" style="top:3px" [style.height.px]="strip() ? STRIP_SEG : 16"
+                   (mousemove)="showRedisTip($event, r)" (mouseleave)="tip.set(null)" (mousedown)="$event.stopPropagation()" (click)="redisClicked.emit(r.seq)"></div>
+            }
+          </div>
+        </div>
+      }
       @if (!strip()) {
         <div class="dbt-legend">
           @for (k of legend(); track k) {<span><i [class]="'k-' + k"></i>{{ labels[k] }}</span>}
@@ -117,6 +142,19 @@ export class DbTimelineComponent {
   readonly logs = input<readonly LogTick[]>([]);
   /** A log tick was clicked: the window shows its Logs view. */
   readonly logsClicked = output<void>();
+  /** The call's Redis commands - a lane of their own (specs/011-redis-capture). */
+  readonly redis = input<readonly RedisTick[]>([]);
+  /** A Redis command was clicked: the window opens it in its Redis view. */
+  readonly redisClicked = output<number>();
+
+  readonly redisLane = computed(() => {
+    const [a, b] = this.view();
+    return this.redis().filter((r) => r.atMs + r.ms >= a && r.atMs <= b);
+  });
+
+  showRedisTip(event: MouseEvent, r: RedisTick): void {
+    this.showTip(event, { key: r.key, kind: 'ok', atMs: r.atMs, ms: r.ms, jump: r.seq, row: 0, label: '', title: r.title, lines: r.lines });
+  }
   protected readonly ROW = ROW_PX;
   protected readonly STRIP_ROW = STRIP_ROW_PX;
   protected readonly STRIP_SEG = STRIP_SEG_PX;

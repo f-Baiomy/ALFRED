@@ -1,4 +1,5 @@
 import { CallLogCountsService } from './call-log-counts.service';
+import { CallStoreCountsService } from './call-store-counts.service';
 import { Injectable, computed, effect, inject, signal } from '@angular/core';
 import { Observable, Subscription, forkJoin, map, of } from 'rxjs';
 import { DbCaptureStateService } from './db-capture-state.service';
@@ -41,6 +42,8 @@ export type { CallStats, CallStatusFilter, SupplierGroup, SupplierOption } from 
 export class CallsStateService implements CallSelectionState, BulkSelectionState, CallListControlsState {
   private readonly dbState = inject(DbCaptureStateService);
   private readonly logCounts = inject(CallLogCountsService);
+  /** ⬢ Redis summaries (specs/011-redis-capture) - the "Redis failures" pill and filter. */
+  private readonly storeCounts = inject(CallStoreCountsService);
   private readonly api = inject(CallsApiService);
   private readonly pinService = inject(PinService);
   private readonly wsMessagesEvents = inject(WsMessagesEventsService);
@@ -102,6 +105,7 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
         dbFailedIds: this.dbState.failedCallIds,
         logErrorIds: this.logCounts.errorCallIds,
         logWarnIds: this.logCounts.warnCallIds,
+        redisFailedIds: this.storeCounts.failedCallIds,
       }
     );
     // Every loaded inbound call's ◆ DB summary, not only those whose card is on screen: the "DB failures" pill and
@@ -113,6 +117,10 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
     effect(() => {
       const cycleId = null;
       for (const call of this.view.matchingCalls()) if (call.source === 'internal') this.logCounts.request(call.id, cycleId);
+    });
+    // ...and its ⬢ Redis summary, for the "Redis failures" pill and filter (specs/011-redis-capture).
+    effect(() => {
+      for (const call of this.view.matchingCalls()) if (call.source === 'internal') this.storeCounts.request(call.id);
     });
 
     this.internalLoggingApi.getFeatureEnabled().subscribe((res) => {
@@ -353,6 +361,9 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
   get logWarnFilter() {
     return this.view.logWarnFilter;
   }
+  get redisFailureFilter() {
+    return this.view.redisFailureFilter;
+  }
   get interceptionRuleOptions() {
     return this.view.interceptionRuleOptions;
   }
@@ -484,6 +495,10 @@ export class CallsStateService implements CallSelectionState, BulkSelectionState
 
   setLogWarnFilter(value: boolean): void {
     this.view.setLogWarnFilter(value);
+  }
+
+  setRedisFailureFilter(value: boolean): void {
+    this.view.setRedisFailureFilter(value);
   }
 
   setViewMode(mode: CallViewMode): void {

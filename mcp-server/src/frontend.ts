@@ -30,3 +30,8 @@ export type { ExportMetadata } from '../../frontend/src/app/core/models/export-m
 export { buildExportFile, type ExportBuildFormat, type BuiltExport } from '../../frontend/src/app/shared/utils/export-build.ts';
 export { softFailureOf, emptyResultOf, type SoftFailure } from '../../frontend/src/app/shared/utils/soft-failure.ts';
 export { diffHeaders, diffLines, sharedBodyKind, type DiffLine, type HeaderDiffRow } from '../../frontend/src/app/shared/utils/interception-diff.ts';
+export type {
+  StoreCommandSummary, StoreCommandsPage, StoreCommand, DecodedValue, KeyPatternRow, KeyHistoryRow, CallStoreSummary,
+} from '../../frontend/src/app/core/models/store-command.model.ts';
+export { storeFindings } from '../../frontend/src/app/shared/utils/store-findings.ts';
+export { buildStoreItems } from '../../frontend/src/app/shared/utils/store-command-tree.ts';

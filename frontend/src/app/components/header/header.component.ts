@@ -38,7 +38,7 @@ const VIEW_MODE_OPTIONS: readonly SelectOption[] = [
   { value: 'waterfall', label: 'Waterfall' },
 ];
 
-type ActiveFilterKey = 'supplier' | 'session' | 'operation' | 'request' | 'nested' | 'interception' | 'resend' | 'db' | 'logs' | 'logwarn';
+type ActiveFilterKey = 'supplier' | 'session' | 'operation' | 'request' | 'nested' | 'interception' | 'resend' | 'db' | 'logs' | 'logwarn' | 'redis';
 
 interface ActiveFilter {
   readonly key: ActiveFilterKey;
@@ -128,6 +128,7 @@ export class HeaderComponent implements AfterViewInit, OnDestroy {
     if (this.state.dbFailureFilter()) chips.push({ key: 'db', label: 'Has DB failures' });
     if (this.state.logErrorFilter()) chips.push({ key: 'logs', label: 'Has log errors' });
     if (this.state.logWarnFilter()) chips.push({ key: 'logwarn', label: 'Has log warnings' });
+    if (this.state.redisFailureFilter()) chips.push({ key: 'redis', label: 'Has Redis failures' });
     return chips;
   });
 
@@ -162,6 +163,9 @@ export class HeaderComponent implements AfterViewInit, OnDestroy {
         return;
       case 'logwarn':
         this.state.setLogWarnFilter(false);
+        return;
+      case 'redis':
+        this.state.setRedisFailureFilter(false);
         return;
     }
   }

@@ -230,11 +230,73 @@ hook on a thread records, so a line passing through a bridge is caught once; the
   cycles keep their calls" apply to them unchanged. `/call-logs` serves a caught call from them (`matchedBy: CAUGHT`)
   and never reads a log file for it; calls without the agent keep 008's file linking.
 
+## Redis commands linked to calls (⬢, specs/011-redis-capture)
+
+With ⬢ on for a project (Sources bar, or Settings → Database capture → Redis capture) and the agent attached, every
+Redis command the application sends while handling a recorded call is stored with that call - the command and every
+argument, the reply (or the error), byte for byte, with its time, connection, database, thread and the code line that
+sent it. It is a capture for Relive later: nothing is shortened, sampled or reduced to keys.
+
+- **The switch**: `proxy/redis-capture-enabled.flag` (one `project=on|off` line each, missing = off), read by the reverse
+  proxy like the ◆ and ▤ flags. When the project's inbound logging is on and its line says `on`, `X-Alfred-Call` gets
+  `redis=1`; the agent records Redis commands only for those calls. `PUT /db-capture/projects/{p}/redis` writes the
+  line; the backend never reaches into the proxy.
+- **Hooks** (all in `RedisInstrumentation`, read reflectively - the shaded agent jar carries no client class):
+  Lettuce - `DefaultEndpoint.write` takes the call on the request thread, `CommandEncoder.encode` /
+  `CommandHandler.decode` tee the exact RESP bytes on the Netty thread, `setAutoFlushCommands`/`flushCommands` mark a
+  pipeline; Jedis - `Connection.sendCommand` and the reply read (`RedisInputStream.ensureFill` teed, FIFO per
+  connection), `Pool.getResource` for pool wait; Redisson - `RedisExecutor`/`CommandData` constructors and
+  `sendCommand`, its `CommandEncoder`/`CommandDecoder`. Spring Cache (`CacheAspectSupport.execute`, `RedisCache`
+  lookup/put/evict/clear) names the cache and operation a command came from. Each command takes the call's next `seq`,
+  shared with statements, supplier calls and log lines, so Together shows all of them in their exact order.
+- **Groups**: MULTI … EXEC (Lettuce/Jedis/Redisson transactions) and pipelines are parked until they close (EXEC/DISCARD,
+  the flush, the Jedis queue drained, or 30 s stale) and sent together with `group {kind, id, index, size}`.
+- **Value before a write** (off by default, per project): before a write the agent reads the key's TYPE, value and PTTL
+  on the same client (Jedis `executeCommand`, Lettuce async with `ArrayOutput`, Redisson `RedisConnection.sync`) - never
+  inside a transaction, a pipeline, a subscriber connection or on an event loop thread (`beforeNote` says why not).
+  Like the database before-image, it is the agent's only own command.
+- **Housekeeping** (PING, AUTH, HELLO, CLIENT ...) is not recorded unless the project asks for it. AUTH/HELLO credentials
+  are scrubbed in the agent before anything leaves the JVM.
+- **Transport**: commands go in the same bounded batch as statements (`redis`, `redisChunks`, `droppedRedis`). A part
+  over 256 KB travels as chunks (`RedisChunkRecord`) and is reassembled in the backend; a command is queued whole or
+  dropped whole and counted ("N not kept") - a value is never cut. The heartbeat carries which clients the agent saw
+  (`redisSeen`: client, version, connections, servers, dbs, Spring caches) and returns the project's Redis settings.
+- **Storage** (`backend-db-capture`, `db-capture.db`, store-generic so another key-value store can share it):
+  `store_commands` (one row per command, no bytes), `store_command_data` (args, reply and before bytes by sid),
+  `store_keys` (each key a command touched, for key history and "written by"), `call_store_summary` (counts per call:
+  commands, reads, writes, hits, misses, failed, time, dropped). Redis commands have their own size budget,
+  `ALFRED_REDIS_CAPTURE_MAX_SIZE_BYTES` (default 2 GB, all projects together): past it the oldest calls' commands go
+  first; calls in a session cycle are kept. They are deleted with the call's statements.
+- **Decoding is Alfred's, never the application's**: `StoreValueDecoder` reads JSON, text, numbers, gzip, Snappy,
+  Java serialization (`JdkStreamReader` - a structural reader, no `ObjectInputStream`, no class loaded) and Kryo
+  (`KryoReader`, structural) and names the format; anything else is shown as hex. The bytes stored are always the raw
+  bytes; "Show values as Raw" changes only the display.
+- **Masking is display-only**: keys matching a project's mask patterns (none by default) are stored in full and shown
+  as `‹masked · n B›` in the window, the exports and Claude.
+- **API**: `GET /db-capture/calls/{id}/store-commands` (pages of 500, with `cold` seqs and the summary),
+  `/db-capture/store-commands/{id}` (one command: args, reply, value decoded, before, `writtenBy`; `?raw=true` adds the
+  bytes), `/db-capture/calls/{id}/store-keys` (key patterns), `/db-capture/store-keys/history?key=&project=`,
+  `/db-capture/calls/{id}/store-commands/redis-cli` (text, `seq=` to pick), `/db-capture/store/summaries` (≤ 100 call
+  ids) and `/db-capture/store/failures` (≤ 500). The socket says `store-commands` with the call ids; no polling.
+- **Signals**: `REDIS_FAILED` (an error) and `CACHE_COLD` (a warning - a miss on a key a recorded call wrote earlier
+  whose TTL had run out) reach triage's mark through `CallSignalsObserverPort`, so `problem_calls`, `triage` and
+  `endpoint_health` see them. The window's Findings add failed commands, single reads one by one, a miss filled from
+  the database, big values, cold cache, KEYS/FLUSH in the request path and slow commands (`store-findings.ts`).
+- **Overhead** (`RedisOverheadIT`, 100-command call, ⬢ off vs on, MiniRedis on the loopback, 300 iterations): Jedis
+  +41 µs per command on Java 8 (+46 µs on 21), Lettuce +55 µs (+62 µs on 21) - inside SC-003's 0.2 ms per command.
+  About 30-40 µs of it is the code-line walk (the same `CodeLocation` statements use); the test's stack has almost no
+  application frames, so every walk runs to the bottom - in an application the walk stops after `callerFrames`
+  application frames. Against a loopback round trip of 50-100 µs that is 40-80 %; against a network Redis (0.3-1 ms per
+  round trip) plus the call's own work it is a few per cent. SC-003's 5 % holds for a 100-command call taking 120 ms or
+  more; a call that is nothing but back-to-back Redis commands on a fast LAN sees more.
+
 ## Exports
 
 `.md` and `.html` get a "Database" section per captured call (every statement with its values, transactions,
-supplier calls where they ran, every stored row); `.json` carries `dbCapture` on the event that completes the call
-and re-imports it (`POST /db-capture/import`); Export .sql in the window writes a runnable script. Nothing is cut.
+supplier calls where they ran, every stored row) and a "⬢ Redis" section (every command, its arguments and its value
+in full; `store-export-section.ts`); `.json` carries `dbCapture` on the event that completes the call (version 3: Redis
+commands in their own `redis` section, bytes base64) and re-imports it (`POST /db-capture/import`); Export .sql in the
+window writes a runnable script, Export .redis / Copy as redis-cli the call's commands. Nothing is cut.
 
 ## Measurements
 

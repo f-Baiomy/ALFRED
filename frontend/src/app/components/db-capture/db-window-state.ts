@@ -1,3 +1,4 @@
+import { StoreCommandSummary } from '../../core/models/store-command.model';
 import { LinkedLogLine } from '../../core/models/call-logs.model';
 import { logLevelClass } from '../../shared/utils/call-log-rows';
 import { Injectable, computed, signal } from '@angular/core';
@@ -7,6 +8,8 @@ import { isDelete, isFailed, isTxEnd, isWrite, valueText } from '../../shared/ut
 import { readRowsAs } from '../../shared/utils/db-group-preference';
 
 export type DbKindFilter = 'all' | 'read' | 'write' | 'delete' | 'fail';
+/** The Redis view's filter (specs/011-redis-capture mock section 3). */
+export type RedisKindFilter = 'all' | 'r' | 'w' | 'miss' | 'fail';
 export type DbDetailTab = 'error' | 'deleted' | 'sql' | 'params' | 'rows' | 'keys' | 'before' | 'where';
 
 /**
@@ -112,5 +115,54 @@ export class DbWindowState {
     const origin = o ? ` ${o.text ?? ''} ${o.name ?? ''} ${o.entity ?? ''} ${o.role ?? ''} ${(o.params ?? []).map((p) => `${p.name} ${p.value ?? ''}`).join(' ')}` : '';
     const text = `${s.sql} ${s.table ?? ''} ${s.params.flat().map(valueText).join(' ')}${origin}`.toLowerCase();
     return text.includes(q);
+  }
+
+  // ---- Redis (specs/011-redis-capture) ----
+
+  /** The call the window shows - the Redis detail searches its bodies when a value is traced. */
+  readonly call = signal<CallRecord | null>(null);
+  readonly redisKind = signal<RedisKindFilter>('all');
+  /** Opened commands (by seq) and unfolded groups (by key) of the Redis list - groups start folded. */
+  readonly redisOpen = signal<ReadonlySet<number>>(new Set());
+  readonly redisUnfolded = signal<ReadonlySet<string>>(new Set());
+  /** The project's slow-command threshold (Settings → Redis), ms. */
+  readonly redisSlowMillis = signal(10);
+  /** The project's "show values as" (DECODED by default) - display only. */
+  readonly redisShowRaw = signal(false);
+
+  toggleRedisOpen(seq: number): void {
+    const next = new Set(this.redisOpen());
+    if (next.has(seq)) next.delete(seq);
+    else next.add(seq);
+    this.redisOpen.set(next);
+  }
+
+  toggleRedisFold(key: string): void {
+    const next = new Set(this.redisUnfolded());
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    this.redisUnfolded.set(next);
+  }
+
+  /** A Redis command under the Redis filters: kind, then the search over command, keys, arguments, reply and cache. */
+  matchesRedis(c: StoreCommandSummary): boolean {
+    switch (this.redisKind()) {
+      case 'r':
+        if (c.rw !== 'r') return false;
+        break;
+      case 'w':
+        if (c.rw !== 'w') return false;
+        break;
+      case 'miss':
+        if (c.outcome !== 'MISS') return false;
+        break;
+      case 'fail':
+        if (c.outcome !== 'FAILED') return false;
+        break;
+    }
+    const q = this.search().toLowerCase();
+    if (!q) return true;
+    return `${c.command} ${c.keys.join(' ')} ${c.argsText ?? ''} ${c.replyPreview ?? ''} ${c.origin?.cache ?? ''} ${c.origin?.method ?? ''} ${c.code ?? ''}`
+      .toLowerCase().includes(q);
   }
 }

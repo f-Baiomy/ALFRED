@@ -28,7 +28,7 @@ describe('DbCaptureSettingsComponent - Log level', () => {
         } },
         { provide: DbCaptureStateService, useValue: {
           projects: signal([project]), refreshProjects: () => undefined, switchError: signal(null),
-          isOn: () => true, switchTitle: () => '', toggle: () => undefined, logsOn: () => true, logsTitle: () => '', toggleLogs: () => undefined,
+          isOn: () => true, switchTitle: () => '', toggle: () => undefined, redisOn: () => false, redisTitle: () => '', toggleRedis: () => undefined, logsOn: () => true, logsTitle: () => '', toggleLogs: () => undefined,
         } },
         { provide: RedactionsStore, useValue: { all: signal([]) } },
       ],
@@ -57,5 +57,19 @@ describe('DbCaptureSettingsComponent - Log level', () => {
     expect(logLevelWords(undefined)).toBe('ERROR and above');
     expect(logLevelWords('WARN')).toBe('WARN and above');
     expect(logLevelWords('APP')).toBe("the app's own level");
+  });
+
+  it('Redis: defaults when the backend sent none, saves a mask and the raw view without touching anything stored', () => {
+    const fixture = create();
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.textContent).toContain('Redis capture');
+    expect(el.textContent).toContain('share a 2 GB budget');
+    const mask = el.querySelector('input[placeholder^="+ key pattern"]') as HTMLInputElement;
+    mask.value = 'session:*';
+    mask.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    expect(saved[0].redis).toEqual({ maskPatterns: ['session:*'], showValues: 'DECODED', beforeImage: false, slowMillis: 10, housekeeping: false });
+    const raw = Array.from(el.querySelectorAll('input[type=radio]'))[1] as HTMLInputElement;
+    raw.dispatchEvent(new Event('change'));
+    expect(saved[1].redis?.showValues).toBe('RAW');
   });
 });

@@ -17,6 +17,7 @@ import {
   TableSummary,
   TraceHit,
 } from '../models/db-capture.model';
+import { CallStoreSummary, KeyHistoryRow, KeyPatternRow, StoreCommand, StoreCommandsPage } from '../models/store-command.model';
 
 /** /db-capture (specs/006-db-capture/contracts/rest-api.md). Every list is paged; rows load on demand. */
 @Injectable({ providedIn: 'root' })
@@ -100,6 +101,45 @@ export class DbCaptureApiService {
 
   saveSettings(project: string, settings: DbCaptureSettings): Observable<DbCaptureSettings> {
     return this.http.put<DbCaptureSettings>(`${this.base}/projects/${encodeURIComponent(project)}/settings`, settings);
+  }
+
+  // ---- Redis (specs/011-redis-capture, contracts/store-commands-api.md)
+
+  setRedisOn(project: string, on: boolean): Observable<readonly ProjectCaptureStatus[]> {
+    return this.http.put<readonly ProjectCaptureStatus[]>(`${this.base}/projects/${encodeURIComponent(project)}/redis`, { on });
+  }
+
+  storeCommands(callId: string, offset = 0, limit = 500): Observable<StoreCommandsPage> {
+    return this.http.get<StoreCommandsPage>(`${this.base}/calls/${encodeURIComponent(callId)}/store-commands`, {
+      params: new HttpParams().set('offset', offset).set('limit', limit),
+    });
+  }
+
+  storeCommand(id: number, raw = false): Observable<StoreCommand> {
+    return this.http.get<StoreCommand>(`${this.base}/store-commands/${id}`, { params: new HttpParams().set('raw', raw) });
+  }
+
+  storeKeys(callId: string): Observable<readonly KeyPatternRow[]> {
+    return this.http.get<readonly KeyPatternRow[]>(`${this.base}/calls/${encodeURIComponent(callId)}/store-keys`);
+  }
+
+  keyHistory(project: string | null, key: string, limit = 50): Observable<readonly KeyHistoryRow[]> {
+    let params = new HttpParams().set('key', key).set('limit', limit);
+    if (project) params = params.set('project', project);
+    return this.http.get<readonly KeyHistoryRow[]>(`${this.base}/store-keys/history`, { params });
+  }
+
+  /** redis-cli lines for the call's commands (all, or these seqs) - quoted and escaped by the backend's one implementation. */
+  redisCli(callId: string, seqs: readonly number[] = []): Observable<string> {
+    return this.http.get(`${this.base}/calls/${encodeURIComponent(callId)}/store-commands/redis-cli`, {
+      params: new HttpParams().set('seq', seqs.join(',')), responseType: 'text',
+    });
+  }
+
+  storeSummaries(callIds: readonly string[]): Observable<Record<string, CallStoreSummary>> {
+    return this.http.get<Record<string, CallStoreSummary>>(`${this.base}/store/summaries`, {
+      params: new HttpParams().set('callIds', callIds.join(',')),
+    });
   }
 
   markExpected(project: string, fingerprint: string): Observable<DbCaptureSettings> {

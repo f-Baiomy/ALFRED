@@ -54,4 +54,13 @@
       (click)="toggleLogWarnings()"
     ><b>{{ stats().logWarnings }}</b> &#9888; Log warnings</button>
   }
+  @if (stats().redisFailures > 0) {
+    <button
+      type="button"
+      class="stat-pill db-failed"
+      [class.active]="controlsState.redisFailureFilter()"
+      title="Show calls where a Redis command failed (an error reply or a timeout) - a 200 included; combines with the status pill above"
+      (click)="toggleRedisFailures()"
+    ><b>{{ stats().redisFailures }}</b> &#10006; Redis failures</button>
+  }
 </div>

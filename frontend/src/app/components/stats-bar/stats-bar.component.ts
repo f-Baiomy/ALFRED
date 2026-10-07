@@ -49,4 +49,8 @@ export class StatsBarComponent {
   toggleLogWarnings(): void {
     this.controlsState.setLogWarnFilter(!this.controlsState.logWarnFilter());
   }
+
+  toggleRedisFailures(): void {
+    this.controlsState.setRedisFailureFilter(!this.controlsState.redisFailureFilter());
+  }
 }

@@ -9,7 +9,15 @@ import {
 } from '../../core/models/db-capture.model';
 import { QueryExample, STATEMENT_QUERY_COLUMNS, statementQueryExamples } from '../../shared/utils/db-row-query-examples';
 import { DbTraceLocation, supplierBodyHits, traceLocations } from '../../shared/utils/db-trace';
-import { DbNode } from '../../shared/utils/db-statement-tree';
+import { DbNode, withRedis } from '../../shared/utils/db-statement-tree';
+import { KeyPatternRow, StoreCommandSummary, StoreCommandsPage } from '../../core/models/store-command.model';
+import { StoreItem, buildStoreItems } from '../../shared/utils/store-command-tree';
+import { storeFindings } from '../../shared/utils/store-findings';
+import { StoreCommandListComponent } from './store-command-list.component';
+import { StoreKeysComponent } from './store-keys.component';
+import { RedisTick } from './db-timeline.component';
+import { CallStoreCountsService } from '../../core/state/call-store-counts.service';
+import { RedisKindFilter } from './db-window-state';
 import { DbCaptureApiService } from '../../core/services/db-capture-api.service';
 import { DbCaptureStateService } from '../../core/state/db-capture-state.service';
 import { CallsStateService } from '../../core/state/calls-state.service';
@@ -75,7 +83,7 @@ const SCROLL_LOCK = 'db-window-open';
   standalone: true,
   selector: 'app-db-window',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DbStatementListComponent, DbTimelineComponent, DbFindingsComponent, DbLogLinesComponent],
+  imports: [DbStatementListComponent, DbTimelineComponent, DbFindingsComponent, DbLogLinesComponent, StoreCommandListComponent, StoreKeysComponent],
   providers: [DbWindowState],
   templateUrl: './db-window.component.html',
 })
@@ -120,8 +128,58 @@ export class DbWindowComponent implements OnInit {
   private logRefetch: ReturnType<typeof setTimeout> | null = null;
   readonly logSources = computed(() => [...new Set(this.logLines().map((l) => l.sourceName))]);
   readonly logRowList = computed<TogetherRow[]>(() => logRows(this.logLines()));
-  /** Together's count: statements, supplier calls and log lines. */
-  readonly togetherCount = computed(() => this.totalCount() + this.markers().length + this.logLines().length);
+  /** Together's count: statements, supplier calls, log lines and Redis commands. */
+  readonly togetherCount = computed(() => this.totalCount() + this.markers().length + this.logLines().length + this.redisCommands().length);
+
+  // ---- the call's Redis commands (specs/011-redis-capture) ----
+  private readonly storeCounts = inject(CallStoreCountsService);
+  readonly redisPage = signal<StoreCommandsPage | null>(null);
+  readonly redisCommands = computed<readonly StoreCommandSummary[]>(() => this.redisPage()?.commands ?? []);
+  readonly redisItems = computed<StoreItem[]>(() => buildStoreItems(this.redisCommands(), this.grouped()));
+  readonly redisSummary = computed(() => {
+    const c = this.call();
+    return this.redisPage()?.summary ?? (c ? this.storeCounts.summaries().get(c.id) ?? null : null);
+  });
+  /** ⬢ was on for the call (a summary exists) or commands came with an import. */
+  readonly hasRedis = computed(() => !!this.redisSummary() || this.redisCommands().length > 0);
+  readonly redisCount = computed(() => Math.max(this.redisSummary()?.commands ?? 0, this.redisCommands().length));
+  readonly redisMicros = computed(() => this.redisSummary()?.micros ?? this.redisCommands().reduce((n, c) => n + c.micros, 0));
+  readonly redisFailed = computed(() => this.redisSummary()?.failed ?? this.redisCommands().filter((c) => c.outcome === 'FAILED').length);
+  readonly redisShown = computed(() => this.redisCommands().filter((c) => this.state.matchesRedis(c)).length);
+  /** A call with Redis commands and no statements: the window is its Redis commands. */
+  readonly redisOnly = computed(() => this.hasRedis() && !this.loading() && !this.statements().length && !this.error() && (this.view() === 'redis' || this.view() === 'keys'));
+  readonly redisKinds: readonly { readonly key: RedisKindFilter; readonly label: string }[] = [
+    { key: 'all', label: 'All' }, { key: 'r', label: 'Reads' }, { key: 'w', label: 'Writes' }, { key: 'miss', label: 'Misses' }, { key: 'fail', label: 'Failed' },
+  ];
+  readonly keyRows = signal<readonly KeyPatternRow[] | null>(null);
+  /** "1 shared connection (lettuce 6.8.2) · no pool wait · 22 commands in 21 round trips (1 MULTI … EXEC)". */
+  readonly redisLegend = computed(() => {
+    const cmds = this.redisCommands();
+    if (!cmds.length) return '';
+    const conns = new Set(cmds.map((c) => c.connection).filter((x) => !!x));
+    const clients = [...new Set(cmds.map((c) => c.client).filter((x): x is string => !!x))];
+    const groups = new Map<string, { kind: string; size: number }>();
+    for (const c of cmds) if (c.group) groups.set(c.group.id, { kind: c.group.kind, size: Math.max(groups.get(c.group.id)?.size ?? 0, c.group.size) });
+    const roundTrips = cmds.length - [...groups.values()].reduce((n, g) => n + g.size - 1, 0);
+    const pooled = cmds.filter((c) => c.poolWaitMicros != null);
+    const wait = pooled.length ? `pool wait ${msText(pooled.reduce((n, c) => n + (c.poolWaitMicros ?? 0), 0))}` : 'no pool wait';
+    const tx = [...groups.values()].filter((g) => g.kind === 'tx').length;
+    const pipes = [...groups.values()].filter((g) => g.kind === 'pipeline').length;
+    const groupWords = [tx ? `${tx} MULTI … EXEC` : '', pipes ? `${pipes} pipeline${pipes > 1 ? 's' : ''}` : ''].filter((x) => !!x).join(', ');
+    return `Redis: ${conns.size || 1} ${conns.size > 1 ? 'connections' : 'connection'}${clients.length ? ` (${clients.join(', ')})` : ''} · ${wait} · `
+      + `${cmds.length} commands in ${roundTrips} round trips${groupWords ? ` (${groupWords})` : ''}`;
+  });
+  /** The Redis lane: each command at its offset from the call's start. */
+  readonly redisTicks = computed<RedisTick[]>(() => {
+    const call = this.call();
+    if (!call) return [];
+    const start = Date.parse(call.timestamp);
+    return this.redisCommands().map((c) => ({
+      key: `r${c.seq}`, seq: c.seq, atMs: Math.max(0, Date.parse(c.at) - start), ms: Math.max(0.3, c.micros / 1000), outcome: c.outcome,
+      title: `#${c.seq} ${c.command} ${c.keys[0] ?? ''}`.trim(),
+      lines: [`${c.outcome === 'FAILED' ? (c.error ?? 'failed') : c.replyPreview ?? ''} · ${fmtMs(c.micros / 1000)}`, c.origin?.cache ? `Spring Cache ${c.origin.cache}` : '', c.code ?? ''],
+    }));
+  });
   readonly togetherList = computed<TogetherRow[]>(() => {
     const call = this.call();
     if (!call) return [];
@@ -146,10 +204,23 @@ export class DbWindowComponent implements OnInit {
    * The summary line, the timeline and the findings (db-findings.ts) - from the loaded statements, the backend's flags
    * and the supplier calls. The panel under the line is closed by default; open or closed is remembered.
    */
-  readonly overview = computed<DbOverview | null>(() => {
+  private readonly baseOverview = computed<DbOverview | null>(() => {
     const call = this.call();
-    if (!call || !this.statements().length) return null;
+    if (!call || (!this.statements().length && !this.redisCommands().length)) return null;
     return buildOverview(call, this.statements(), this.markers(), this.state.suppliersBySeq(), this.flags());
+  });
+  /** The Redis checks (store-findings.ts) join the database's findings, worst first. */
+  readonly redisFindings = computed<DbFinding[]>(() => storeFindings(this.redisCommands(), this.redisPage()?.cold ?? [], this.statements(), this.logLines(),
+    this.state.redisSlowMillis()));
+  readonly overview = computed<DbOverview | null>(() => {
+    const o = this.baseOverview();
+    if (!o) return null;
+    const redis = this.redisFindings();
+    if (!redis.length) return o;
+    return {
+      ...o, findings: [...redis.filter((f) => f.severity === 'bad'), ...o.findings, ...redis.filter((f) => f.severity !== 'bad')],
+      errors: o.errors + redis.filter((f) => f.severity === 'bad').length, toFix: o.toFix + redis.filter((f) => f.severity === 'warn').length,
+    };
   });
   /** The findings pane unfolded - its own header folds it (to a rail beside the statements); remembered. */
   readonly panelOpen = signal(readSummaryOpen());
@@ -335,7 +406,7 @@ export class DbWindowComponent implements OnInit {
    * Together (specs/009): the very same statement tree, with the call's log lines placed by its sequence - so every
    * control of the Statements view (search, kinds, View menu, HQL/SQL, groups) works here and any new one appears too.
    */
-  readonly togetherTree = computed(() => this.buildTree(this.logLines()));
+  readonly togetherTree = computed(() => withRedis(this.buildTree(this.logLines()), this.redisItems()));
 
   private buildTree(logs: readonly LinkedLogLine[]): DbNode[] {
     const byQuery = this.groupedByQuery() && this.hasOrigins();
@@ -496,6 +567,57 @@ export class DbWindowComponent implements OnInit {
     if (view === 'tables' && call && !this.tableSummaries()) {
       this.api.tables(call.id).subscribe({ next: (t) => this.tableSummaries.set(t), error: () => this.tableSummaries.set([]) });
     }
+    if (view === 'keys' && call) this.loadKeys(call);
+  }
+
+  setRedisKind(kind: RedisKindFilter): void {
+    this.state.redisKind.set(kind);
+  }
+
+  /** The call's Redis commands - every page (500 each, the call's commands are bounded by its runtime). */
+  private loadRedis(call: CallRecord): void {
+    const size = 500;
+    let offset = 0;
+    const page = (): Observable<StoreCommandsPage> => this.api.storeCommands(call.id, offset, size);
+    page().pipe(
+      expand((p) => {
+        offset += size;
+        return p.commands.length === size ? page() : EMPTY;
+      }),
+      reduce((acc: StoreCommandsPage | null, p) => (acc ? { ...p, commands: [...acc.commands, ...p.commands], cold: [...acc.cold, ...p.cold] } : p), null),
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe({
+      next: (all) => {
+        this.redisPage.set(all);
+        if (all && this.view() === 'keys') this.loadKeys(call);
+      },
+      error: () => undefined,
+    });
+  }
+
+  private loadKeys(call: CallRecord): void {
+    this.api.storeKeys(call.id).subscribe({ next: (rows) => this.keyRows.set(rows), error: () => this.keyRows.set([]) });
+  }
+
+  copyRedisCli(): void {
+    const call = this.call();
+    if (!call) return;
+    const seqs = this.redisShown() < this.redisCommands().length ? this.redisCommands().filter((c) => this.state.matchesRedis(c)).map((c) => c.seq) : [];
+    this.api.redisCli(call.id, seqs).subscribe((text) => void navigator.clipboard?.writeText(text).then(() => this.note('Copied as redis-cli')));
+  }
+
+  exportRedis(): void {
+    const call = this.call();
+    if (!call) return;
+    this.api.redisCli(call.id).subscribe((text) => {
+      const blob = new Blob([text], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `alfred-redis-${call.id}.redis`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    });
   }
 
   filterTable(table: string): void {
@@ -548,7 +670,19 @@ export class DbWindowComponent implements OnInit {
     const request = this.request();
     this.state.project.set(call?.service_name ?? (request.kind === 'outside' ? request.project ?? null : null));
     if (request.kind === 'call' && request.view) this.view.set(request.view);
+    this.state.call.set(call);
     if (call) {
+      this.loadRedis(call);
+      this.storeCounts.refresh(call.id);
+      if (call.service_name) {
+        this.api.settings(call.service_name).subscribe({
+          next: (s) => {
+            this.state.redisSlowMillis.set(s.redis?.slowMillis ?? 10);
+            this.state.redisShowRaw.set(s.redis?.showValues === 'RAW');
+          },
+          error: () => undefined,
+        });
+      }
       this.loadLogs(call);
       this.logsSocket.events$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((e) => {
         if (e.type === 'lines-added' && e.count > 0 && this.mayHaveNewLines(call, e.newestTs)) this.scheduleLogRefetch(call);
@@ -567,6 +701,8 @@ export class DbWindowComponent implements OnInit {
         this.loadChildren(call);
       } else if (event.type === 'outside-appended' && !call && !this.hasMore()) {
         this.fetchMore(false);
+      } else if (event.type === 'store-commands' && call && event.callIds.includes(call.id)) {
+        this.loadRedis(call);
       } else if (event.type === 'logs-appended') {
         // lines the agent caught (specs/009): this call's, or - in the outside view - lines outside any call
         if (call && event.callId === call.id) this.scheduleLogRefetch(call);
@@ -792,6 +928,18 @@ export class DbWindowComponent implements OnInit {
 
   /** Timeline / finding / trace click: clear filters, unfold its groups, open it on the right tab and flash it. */
   jump(seq: number, tab?: DbDetailTab): void {
+    const redis = this.redisCommands().find((c) => c.seq === seq);
+    if (redis) {
+      // a Redis command (timeline, finding, trace): the Redis view - or Together - with it open and its group unfolded
+      if (this.view() !== 'together') this.view.set('redis');
+      this.state.search.set('');
+      this.state.redisKind.set('all');
+      const group = this.redisItems().find((i) => i.kind === 'group' && i.commands.some((c) => c.seq === seq));
+      if (group && group.kind === 'group') this.state.redisUnfolded.set(new Set(this.state.redisUnfolded()).add(group.key));
+      this.state.redisOpen.set(new Set(this.state.redisOpen()).add(seq));
+      this.flash(`[data-seq="${seq}"]`, seq);
+      return;
+    }
     if (this.view() !== 'together') this.view.set('stmts');
     this.state.search.set('');
     this.state.kind.set('all');

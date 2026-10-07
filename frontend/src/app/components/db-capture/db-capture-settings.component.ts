@@ -6,6 +6,7 @@ import { RedactionsStore } from '../../core/state/redactions-store.service';
 import { LogLevelSetting } from '../../core/models/call-logs.model';
 import { SelectPickerComponent } from '../select-picker/select-picker.component';
 import { LOG_LEVEL_CHOICES } from '../../shared/utils/call-log-rows';
+import { DEFAULT_REDIS_SETTINGS, RedisSettings } from '../../core/models/store-command.model';
 
 type ListKey = 'beforeImageTables' | 'expectedFingerprints' | 'ignorePatterns' | 'passThroughClasses';
 
@@ -110,6 +111,49 @@ type ListKey = 'beforeImageTables' | 'expectedFingerprints' | 'ignorePatterns' |
             <div class="set-row"><div class="set-l">Outside calls</div>
               <div><label class="chk"><input type="checkbox" [checked]="s.outsideCallCapture" (change)="toggleOutside(p.project)">
                 Also record statements no inbound call caused (scheduled jobs, message listeners, startup)</label></div></div>
+            <!-- ⬢ Redis capture (specs/011-redis-capture, mock section 5): nothing here limits what is stored -->
+            <h4 class="rd-h"><span class="redis-glyph">⬢</span> Redis capture</h4>
+            <div class="set-row"><div class="set-l">Capture</div>
+              <div><label class="chk" [title]="state.redisTitle(p.project, p.inboundLogging)">
+                <input type="checkbox" [checked]="state.redisOn(p.project, p.inboundLogging)" [disabled]="!p.inboundLogging"
+                       (change)="state.toggleRedis(p.project, p.inboundLogging)"> on</label>
+                <span class="dimtxt"> same as the ⬢ switch</span></div></div>
+            <div class="set-row"><div class="set-l">Clients found</div>
+              <div class="dimtxt">
+                @for (c of p.redisClients ?? []; track c.client) {
+                  <div><span style="color:var(--redis)">●</span> {{ c.client }}@if (c.version) { {{ c.version }}} · {{ c.connections }}
+                    {{ c.connections === 1 ? 'connection' : 'connections' }}@if (c.servers.length) { · {{ c.servers.join(', ') }}}@if (c.dbs.length) { db {{ c.dbs.join(', ') }}}</div>
+                } @empty {
+                  None seen yet - the agent reports a client once the app sends its first command during a call.
+                }
+              </div></div>
+            <div class="set-row"><div class="set-l">Stored</div>
+              <div class="dimtxt">Every command and its full reply, as sent and received - nothing shortened. All projects' Redis commands
+                share a 2 GB budget; past it the oldest calls' commands go first, calls in a session cycle are kept.</div></div>
+            <div class="set-row"><div class="set-l">Mask on screen</div>
+              <div>
+                @for (m of redisOf(s).maskPatterns; track m) {<span class="tchip">{{ m }} <a (click)="removeMask(p.project, m)">✕</a></span>}
+                <input class="mini wide" placeholder="+ key pattern (e.g. session:*)" (keydown.enter)="addMask(p.project, $event)">
+                <div class="dimtxt" style="margin-top:.3rem">Values of these keys are stored in full; they are masked in the window, exports and Claude
+                  (‹masked · 1,412 B›). None by default.</div>
+              </div></div>
+            <div class="set-row"><div class="set-l">Show values as</div>
+              <div><label class="chk"><input type="radio" [name]="'rv-' + p.project" [checked]="redisOf(s).showValues === 'DECODED'"
+                                             (change)="setRedis(p.project, { showValues: 'DECODED' })"> Decoded - auto (JDK · Kryo · Jackson · gzip · Snappy)</label>&nbsp;
+                <label class="chk"><input type="radio" [name]="'rv-' + p.project" [checked]="redisOf(s).showValues === 'RAW'"
+                                          (change)="setRedis(p.project, { showValues: 'RAW' })"> Raw bytes</label>
+                <span class="dimtxt"> display only - the raw bytes are always stored</span></div></div>
+            <div class="set-row"><div class="set-l">Spring Cache names</div>
+              <div class="dimtxt">@if (p.springCaches?.length) {{{ p.springCaches!.length }} found · {{ p.springCaches!.join(', ') }}} @else {None seen yet}</div></div>
+            <div class="set-row"><div class="set-l">Value before a write</div>
+              <div><label class="chk"><input type="checkbox" [checked]="redisOf(s).beforeImage" (change)="setRedis(p.project, { beforeImage: !redisOf(s).beforeImage })">
+                read it first</label><span class="dimtxt"> · one extra TYPE / read / TTL per write, sent by the agent - off by default, like the database before-image</span></div></div>
+            <div class="set-row"><div class="set-l">Slow command</div>
+              <div class="dimtxt">over <input class="mini" type="number" min="1" [value]="redisOf(s).slowMillis" (change)="setRedisSlow(p.project, $event)"> ms
+                shown amber, counted in Findings</div></div>
+            <div class="set-row"><div class="set-l">Housekeeping</div>
+              <div><label class="chk"><input type="checkbox" [checked]="redisOf(s).housekeeping" (change)="setRedis(p.project, { housekeeping: !redisOf(s).housekeeping })">
+                Also record PING / AUTH / CLIENT / HELLO</label></div></div>
             @if (errors().get(p.project); as err) {<div class="db-err">{{ err }}</div>}
           </div>
         }
@@ -197,6 +241,35 @@ export class DbCaptureSettingsComponent implements OnInit {
     const s = this.settingsOf(project);
     const level = value as LogLevelSetting;
     if (s && level !== (s.logLevel ?? 'ERROR')) this.save(project, { ...s, logLevel: level });
+  }
+
+  redisOf(s: DbCaptureSettings): RedisSettings {
+    return s.redis ?? DEFAULT_REDIS_SETTINGS;
+  }
+
+  setRedis(project: string, change: Partial<RedisSettings>): void {
+    const s = this.settingsOf(project);
+    if (s) this.save(project, { ...s, redis: { ...this.redisOf(s), ...change } });
+  }
+
+  setRedisSlow(project: string, event: Event): void {
+    const value = Math.round(Number((event.target as HTMLInputElement).value));
+    if (value > 0) this.setRedis(project, { slowMillis: value });
+  }
+
+  addMask(project: string, event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const value = input.value.trim();
+    const s = this.settingsOf(project);
+    if (!s || !value) return;
+    input.value = '';
+    const masks = this.redisOf(s).maskPatterns;
+    if (!masks.includes(value)) this.setRedis(project, { maskPatterns: [...masks, value] });
+  }
+
+  removeMask(project: string, value: string): void {
+    const s = this.settingsOf(project);
+    if (s) this.setRedis(project, { maskPatterns: this.redisOf(s).maskPatterns.filter((m) => m !== value) });
   }
 
   toggleIndexInfo(project: string): void {

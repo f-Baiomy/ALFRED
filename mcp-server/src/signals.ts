@@ -6,7 +6,7 @@ import type { AttentionMark, AttentionSignals } from './frontend.ts';
  * The kinds of trouble a call can carry (specs/010-mcp-log-investigation) - from HTTP, the database or the
  * application's logs - and the words the tools use for them. Mirrors backend-triage's Signal: errors outrank warnings.
  */
-export const SIGNALS = ['HTTP_ERROR', 'NO_ANSWER', 'DB_FAILED', 'SUPPLIER_FAILED', 'LOG_ERROR', 'LOG_EXCEPTION', 'DB_WARNING', 'LOG_WARNING'] as const;
+export const SIGNALS = ['HTTP_ERROR', 'NO_ANSWER', 'DB_FAILED', 'SUPPLIER_FAILED', 'LOG_ERROR', 'LOG_EXCEPTION', 'REDIS_FAILED', 'DB_WARNING', 'LOG_WARNING', 'CACHE_COLD'] as const;
 export type SignalName = typeof SIGNALS[number];
 
 export const SIGNAL_TEXT: Record<SignalName, string> = {
@@ -18,10 +18,12 @@ export const SIGNAL_TEXT: Record<SignalName, string> = {
   LOG_EXCEPTION: 'logged an exception',
   DB_WARNING: 'raised a database flag (slow, N+1, huge result, no WHERE...)',
   LOG_WARNING: 'logged a WARN line',
+  REDIS_FAILED: 'a Redis command failed (error reply or no reply)',
+  CACHE_COLD: 'a Redis read missed a key an earlier recorded call wrote - its TTL ran out',
 };
 
 export function isError(signal: SignalName): boolean {
-  return signal !== 'DB_WARNING' && signal !== 'LOG_WARNING';
+  return signal !== 'DB_WARNING' && signal !== 'LOG_WARNING' && signal !== 'CACHE_COLD';
 }
 
 /** Why lines or statements may be missing for a project or call - said instead of "none". */
@@ -30,6 +32,7 @@ export const WHY: Record<string, string> = {
   NO_AGENT: 'the db-agent was not attached to this project, so no log lines or statements were caught',
   DB_OFF: "database statements are not captured for this project: its ◆ switch is off (set_db_capture can turn it on)",
   BELOW_LEVEL: 'lines below the Log level that applied were not caught',
+  REDIS_OFF: "Redis commands are not captured for this project: its ⬢ switch is off (Sources bar)",
 };
 
 /** A call's caught log and database signals as triage keeps them on its mark (absent on an older Alfred). */
@@ -45,8 +48,10 @@ export function signalsOfEntry(e: AttentionMark, minStatus = 400): SignalName[] 
   const s = e.signals ?? {};
   if ((s.logErrors ?? 0) > 0) out.push('LOG_ERROR');
   if ((s.logExceptions ?? 0) > 0) out.push('LOG_EXCEPTION');
+  if ((s.redisFailed ?? 0) > 0) out.push('REDIS_FAILED');
   if ((s.dbFlags ?? []).length > 0) out.push('DB_WARNING');
   if ((s.logWarnings ?? 0) > 0) out.push('LOG_WARNING');
+  if ((s.redisCold ?? 0) > 0) out.push('CACHE_COLD');
   return out;
 }
 
@@ -59,7 +64,9 @@ export function signalEvidence(s: MarkSignals | undefined): string | null {
   if (s.logExceptions) parts.push(`${s.logExceptions} exception${s.logExceptions > 1 ? 's' : ''}`);
   const log = parts.length ? `▤ ${parts.join(' · ')}${s.logLevel ? ` (caught at ${s.logLevel})` : ''}` : null;
   const db = s.dbFlags?.length ? `DB flags ${s.dbFlags.join(', ')}` : null;
-  return [log, db].filter(Boolean).join(' · ') || null;
+  const redis = [s.redisFailed ? `⬢ ${s.redisFailed} Redis command${s.redisFailed > 1 ? 's' : ''} failed` : '',
+    s.redisCold ? `⬢ cache cold (${s.redisCold} miss${s.redisCold > 1 ? 'es' : ''} on expired keys)` : ''].filter(Boolean).join(' · ') || null;
+  return [log, db, redis].filter(Boolean).join(' · ') || null;
 }
 
 /** A log line's message shortened for an evidence line, masked like bodies. */

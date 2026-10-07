@@ -191,7 +191,7 @@ function nodesHtml(nodes: readonly DbNode[], prefix: string, bySeq: ReadonlyMap<
     if (n.type === 'supplier') {
       return `<div class="sup" id="${prefix}-s${n.seq}"><span class="num">#${n.seq}</span>↗ ${esc(n.marker.method ?? 'HTTP')} ${esc(n.marker.url ?? '')}</div>`;
     }
-    if (n.type === 'log') return ''; // exports carry log lines in their own section
+    if (n.type === 'log' || n.type === 'redis') return ''; // exports carry log lines and Redis commands in their own sections
     const cls = n.type === 'repeat' ? 'grp rep' : n.type === 'query' ? 'grp qry' : `grp${n.rolledBack ? ' rolled' : ''}`;
     const id = n.type === 'tx' ? `${prefix}-tx-${(n.tx?.txId ?? '').replace(/[^\w-]/g, '')}` : n.type === 'query' ? `${prefix}-q${n.seq}` : `${prefix}-rep${n.seq}`;
     return `<details class="${cls}" id="${id}"><summary>${esc(groupLabel(n))}</summary>${nodesHtml(n.children, prefix, bySeq, orm)}</details>`;
@@ -446,8 +446,8 @@ function overviewRows(nodes: readonly DbNode[], out: string[]): void {
       const all = statementsOf(n);
       const micros = all.reduce((a, x) => a + x.durationMicros, 0);
       out.push(`| ${n.seq}–${all[all.length - 1].seq} | \`${mdCell(verbOf(all[0]))}\` ${mdCell(all[0].table ?? '')} ×${all.length} | ${mdCell(resultText(all[0]))} each | ${(micros / 1000).toFixed(1)} |`);
-    } else if (n.type === 'log') {
-      // exports carry log lines in their own section
+    } else if (n.type === 'log' || n.type === 'redis') {
+      // exports carry log lines and Redis commands in their own sections
     } else {
       out.push(`| | **${mdCell(groupLabel(n))}** | | |`);
       overviewRows(n.children, out);

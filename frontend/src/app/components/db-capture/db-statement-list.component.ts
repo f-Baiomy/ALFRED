@@ -9,6 +9,7 @@ import { DbQueryTextComponent } from './db-query-text.component';
 import { OriginBadge, originBadge, originSummary } from '../../shared/utils/db-origin';
 import { DbStatementDetailComponent } from './db-statement-detail.component';
 import { DbWindowState } from './db-window-state';
+import { StoreCommandListComponent } from './store-command-list.component';
 
 /**
  * The window's statement tree (mock: ".r" rows, ".g" groups with branch lines, ".sup" supplier markers between
@@ -27,7 +28,7 @@ function textless(o: StatementOrigin): boolean {
   standalone: true,
   selector: 'app-db-statement-list',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DbSqlComponent, DbQueryTextComponent, DbStatementDetailComponent, DbLogRowComponent],
+  imports: [DbSqlComponent, DbQueryTextComponent, DbStatementDetailComponent, DbLogRowComponent, StoreCommandListComponent],
   template: `
     @for (node of nodes(); track node.type + node.seq) {
       @switch (node.type) {
@@ -55,6 +56,12 @@ function textless(o: StatementOrigin): boolean {
           @let lg = $any(node);
           @if (state.matchesLog(lg.line)) {
             <app-db-log-row class="tlog" [line]="lg.line" [atMs]="lg.line.offsetMs" [class.flash]="state.flashSeq() === lg.seq" />
+          }
+        }
+        @case ('redis') {
+          <!-- a Redis command or group in Together (specs/011-redis-capture): the Redis view's own rows -->
+          @if (!state.statementSeqs() && !state.table() && (state.kind() === 'all' || state.kind() === 'fail')) {
+            <app-store-command-list [items]="[$any(node).item]" />
           }
         }
         @case ('supplier') {

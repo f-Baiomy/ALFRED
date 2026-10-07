@@ -9,7 +9,10 @@ import { CallsStateService } from '../../core/state/calls-state.service';
 import { DbCaptureStateService } from '../../core/state/db-capture-state.service';
 import { stmt } from '../../shared/utils/db-capture.fixtures.spec-helper';
 import { DbWindowComponent } from './db-window.component';
-import { DbWindowService } from './db-window.service';
+import { DbWindowState } from './db-window-state';
+import { DbWindowService, DbWindowView } from './db-window.service';
+import { CallStoreCountsService } from '../../core/state/call-store-counts.service';
+import { StoreCommandsPage, StoreCommandSummary } from '../../core/models/store-command.model';
 import { CallsApiService } from '../../core/services/calls-api.service';
 import { CallFocusService } from '../../core/services/call-focus.service';
 import { CallLogsApiService } from '../../core/services/call-logs-api.service';
@@ -22,6 +25,16 @@ const call: CallRecord = {
   timestamp: '2026-10-04T18:02:43Z', duration_ms: 420, source: 'internal', service_name: 'wallet-app', state: 'IN_PROGRESS',
 };
 
+const EMPTY_REDIS: StoreCommandsPage = { total: 0, commands: [], cold: [], dropped: 0, summary: null };
+const redis = (seq: number, over: Partial<StoreCommandSummary> = {}): StoreCommandSummary => ({
+  id: seq, store: 'redis', seq, at: `2026-10-04T18:02:43.${String(seq * 10).padStart(3, '0')}Z`, micros: 300, command: 'GET', keys: [`wallet:${seq}`],
+  keysTotal: 1, rw: 'r', outcome: 'HIT', replyType: 'BULK', bytes: 10, replyBytes: 20, hasBefore: false, replyPreview: '"ok"', ...over,
+});
+const redisPage = (...commands: StoreCommandSummary[]): StoreCommandsPage => ({
+  total: commands.length, commands, cold: [], dropped: 0,
+  summary: { callId: 'call-1', commands: commands.length, reads: 1, writes: 1, hits: 1, misses: 0, failed: commands.filter((c) => c.outcome === 'FAILED').length,
+    micros: 600, dropped: 0, live: false, endedEarly: false },
+});
 const pageOf = (...seqs: number[]): CallStatementsPage => ({
   statements: seqs.map((s) => stmt(s, 'SELECT', `SELECT ${s} FROM t`)), transactions: [], supplierMarkers: [], hasMore: false,
 });
@@ -33,14 +46,17 @@ describe('DbWindowComponent', () => {
   let focusGo: jasmine.Spy;
   let logLines: jasmine.Spy;
   let logEvents: Subject<LogsSocketEvent>;
+  let storeCommands: jasmine.Spy;
 
   afterEach(() => {
     logLines = undefined as unknown as jasmine.Spy;
+    storeCommands = undefined as unknown as jasmine.Spy;
   });
 
   let outsideLines: unknown[] = [];
 
-  function create(view?: 'logs' | 'together', outside = false) {
+  function create(view?: DbWindowView, outside = false) {
+    storeCommands ??= jasmine.createSpy('storeCommands').and.returnValue(of(EMPTY_REDIS));
     children ??= jasmine.createSpy('children').and.returnValue(of([]));
     focusGo = jasmine.createSpy('go');
     events = new Subject();
@@ -49,7 +65,10 @@ describe('DbWindowComponent', () => {
     TestBed.configureTestingModule({
       imports: [DbWindowComponent],
       providers: [
-        { provide: DbCaptureApiService, useValue: { statements, outside: (...args: unknown[]) => statements(...args), outsideLogs: () => of(outsideLines) } },
+        { provide: DbCaptureApiService, useValue: { statements, outside: (...args: unknown[]) => statements(...args), outsideLogs: () => of(outsideLines),
+          storeCommands: (...args: unknown[]) => storeCommands(...args), storeKeys: () => of([]), settings: () => of({}), redisCli: () => of(''),
+          storeCommand: (id: number) => of({ row: redis(id), args: [], resp: 2 }), keyHistory: () => of([]) } },
+        { provide: CallStoreCountsService, useValue: { summaries: signal(new Map()), refresh: () => undefined } },
         { provide: DbCaptureStateService, useValue: { events$: events, reconnected$: new Subject(), summaries: signal(new Map()), requestSummary: () => undefined,
           projectStatus: () => undefined, setLogsOn: jasmine.createSpy('setLogsOn') } },
         { provide: CallLogsApiService, useValue: { lines: (...args: unknown[]) => logLines(...args) } },
@@ -245,6 +264,50 @@ describe('DbWindowComponent', () => {
     component.state.search.set('started');
     fixture.detectChanges();
     expect(order()).toEqual(['log:search started']);
+  });
+
+  it('Redis: its own view with the count, the commands in call order in Together, refetched on a store-commands message for this call', () => {
+    statements = jasmine.createSpy('statements').and.returnValue(of(pageOf(1, 3)));
+    storeCommands = jasmine.createSpy('storeCommands').and.returnValue(of(redisPage(redis(2), redis(4, { command: 'SET', rw: 'w', outcome: 'FAILED', error: 'OOM command not allowed' }))));
+    const fixture = create();
+    const el = fixture.nativeElement as HTMLElement;
+    const tab = Array.from(el.querySelectorAll('.views button')).find((b) => b.textContent!.includes('Redis')) as HTMLButtonElement;
+    expect(tab.textContent).toContain('2');
+    expect(el.textContent).toContain('2 Redis');
+    // the timeline's Redis lane: one segment per command, a failed one red; a click opens it in the Redis view
+    fixture.componentInstance.timelineHidden.set(false);
+    fixture.detectChanges();
+    const segs = el.querySelectorAll('.dbt-seg.k-redis, .dbt-seg.k-redis-fail');
+    expect(segs.length).toBe(2);
+    (el.querySelector('.dbt-seg.k-redis-fail') as HTMLElement).click();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.view()).toBe('redis');
+    expect((fixture.componentInstance as unknown as { state: DbWindowState }).state.redisOpen().has(4)).toBeTrue();
+    fixture.componentInstance.setView('stmts');
+    fixture.detectChanges();
+    tab.click();
+    fixture.detectChanges();
+    expect(el.querySelectorAll('.rd-row').length).toBe(2);
+    expect(el.querySelector('.rd-row.fail')?.textContent).toContain('SET');
+    expect(el.textContent).toContain('Showing 2 of 2 Redis commands');
+    expect(el.textContent).toContain('Copy as redis-cli');
+
+    fixture.componentInstance.setView('together');
+    fixture.detectChanges();
+    const order = Array.from(el.querySelectorAll('[data-seq]')).map((n) => Number(n.getAttribute('data-seq')));
+    expect(order.filter((s, i) => order.indexOf(s) === i)).toEqual([1, 2, 3, 4]);
+
+    events.next({ type: 'store-commands', callIds: ['other'] } as DbCaptureSocketEvent);
+    expect(storeCommands).toHaveBeenCalledTimes(1);
+    events.next({ type: 'store-commands', callIds: ['call-1'] } as DbCaptureSocketEvent);
+    expect(storeCommands).toHaveBeenCalledTimes(2);
+  });
+
+  it('no Redis tab for a call ⬢ was off for', () => {
+    statements = jasmine.createSpy('statements').and.returnValue(of(pageOf(1)));
+    const fixture = create();
+    const views = [...fixture.nativeElement.querySelectorAll('.views button')].map((b: Element) => b.textContent!.trim());
+    expect(views.some((v) => v.startsWith('Redis') || v.startsWith('Keys'))).toBeFalse();
   });
 
   it('is a logs-only window for a call the agent captured no statements for', () => {

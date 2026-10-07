@@ -192,7 +192,7 @@ describe('json export version 2', () => {
   it('opens with a guide, the layout and the highlights - failures first', () => {
     const file = JSON.parse(build().join('\n'));
     expect(file.guide.readFirst).toContain('index');
-    expect(file.guide.counts).toEqual({ calls: 5, bodies: 2, dbStatements: 3, logLines: 0, dbRows: 1 });
+    expect(file.guide.counts).toEqual({ calls: 5, bodies: 2, dbStatements: 3, logLines: 0, redis: 0, dbRows: 1 });
     expect(file.highlights[0]).toEqual(jasmine.objectContaining({ what: 'FAILED', callId: 'out-2' }));
     const kinds = file.highlights.map((h: { what: string }) => h.what);
     expect(kinds).toContain('COMMENT');

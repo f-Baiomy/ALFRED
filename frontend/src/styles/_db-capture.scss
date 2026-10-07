@@ -15,6 +15,8 @@
   --db-hql-text: #f5d0fe;
   --log: #a3e635; // logs linked to calls (specs/008-logs-call-link) - one colour means "log line"
   --log-text: #e4f5c8;
+  --redis: #ff7a59; // Redis commands (specs/011-redis-capture) - one colour means "Redis"
+  --redis-text: #ffd9cc;
 }
 
 [data-theme='light'],
@@ -28,6 +30,8 @@
   --log: #4d7c0f;
   --log-text: #1f2430;
   --db-hql-text: #86198f;
+  --redis: #c2410c;
+  --redis-text: #1f2430;
 }
 
 // ---- the ◆ DB chip on a call card ----
@@ -1021,3 +1025,75 @@ html.db-window-open body {
 /* a caught log line inside the statement tree (Together) - the Logs list's own row */
 .db-window app-db-log-row.tlog { display: block; margin: 0.05rem 0; }
 .db-window app-db-log-row.tlog.flash .dll-r { outline: 1px solid var(--log); }
+
+// ---- Redis (specs/011-redis-capture) - the "NEW - Redis" block of specs/011-redis-capture/mock.html, class names unchanged ----
+.db-chip.redis-chip { color: var(--redis); border-color: color-mix(in srgb, var(--redis) 38%, transparent); background: color-mix(in srgb, var(--redis) 9%, transparent); }
+.db-chip.redis-chip .m { color: var(--amber); }
+.redis-glyph { font-size: 0.74rem; line-height: 1; color: var(--text-faint); }
+.source-pill-switch.redis-sw.on .redis-glyph { color: var(--redis); text-shadow: 0 0 6px color-mix(in srgb, var(--redis) 55%, transparent); }
+.source-pill-switch.redis-sw.blocked { cursor: not-allowed; opacity: 0.4; }
+.stat-pill.redis-miss b { color: var(--redis); }
+.db-window .views button.rd, .db-window .views button.rd.on { color: var(--redis); }
+.db-window .v-rr { color: var(--redis); background: color-mix(in srgb, var(--redis) 10%, transparent); border: 1px solid color-mix(in srgb, var(--redis) 30%, transparent); }
+.db-window .v-rw { color: var(--amber); background: color-mix(in srgb, var(--amber) 13%, transparent); border: 1px solid color-mix(in srgb, var(--amber) 36%, transparent); }
+.db-window .v-rx { color: var(--red); background: color-mix(in srgb, var(--red) 12%, transparent); border: 1px solid color-mix(in srgb, var(--red) 40%, transparent); }
+.db-window .k-redis { background: var(--redis); }
+.db-window .k-redis-miss { background: transparent; outline: 1px solid var(--redis) !important; outline-offset: -1px; }
+.db-window .k-redis-fail { background: var(--red); }
+.db-window .rd-row > .rh { background: color-mix(in srgb, var(--redis) 4%, transparent); }
+.db-window .rd-row.fail > .rh { background: color-mix(in srgb, var(--red) 15%, transparent) !important; border: 1px solid color-mix(in srgb, var(--red) 35%, transparent); }
+.db-window .rkey { font-family: var(--db-mono); color: var(--redis-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.db-window .rkey .arg { color: var(--text-faint); margin-left: 0.45rem; }
+.db-window .rres { font-family: var(--db-mono); font-size: 0.7rem; white-space: nowrap; }
+.db-window .rres.r-hit { color: var(--green); }
+.db-window .rres.r-miss { color: var(--amber); }
+.db-window .rres.r-err { color: var(--red); }
+.db-window .rres.r-plain { color: var(--text-dim); }
+.db-window .orig.spc { display: inline-block; font-family: inherit; font-size: 0.58rem; font-weight: 700; letter-spacing: 0.04em; border-radius: 4px; padding: 0 0.3rem; margin-right: 0.45rem; color: #86efac; border: 1px solid color-mix(in srgb, #86efac 40%, transparent); background: color-mix(in srgb, #86efac 8%, transparent); vertical-align: 1px; }
+.db-window .rd-detail { margin: 0.15rem 0.5rem 0.55rem 150px; border: 1px solid color-mix(in srgb, var(--redis) 35%, var(--border)); border-radius: 8px; background: var(--card-inner); padding: 0.5rem 0.65rem; font-size: 0.74rem; }
+.db-window .rd-detail .kv { display: grid; grid-template-columns: minmax(110px, max-content) minmax(0, 1fr); gap: 0.12rem 0.7rem; font-family: var(--db-mono); font-size: 0.7rem; }
+.db-window .rd-detail .kv > span:nth-child(odd) { color: var(--text-faint); }
+.db-window .rd-detail .kv > span:nth-child(2n) { white-space: pre-wrap; word-break: break-word; }
+.db-window .rd-detail pre { margin: 0.35rem 0 0; max-height: 260px; overflow: auto; background: color-mix(in srgb, var(--text) 3%, transparent); border: 1px solid var(--border); border-radius: 6px; padding: 0.4rem 0.5rem; font-family: var(--db-mono); font-size: 0.7rem; color: var(--redis-text); white-space: pre-wrap; word-break: break-word; }
+.db-window .rd-detail .foot { margin-top: 0.45rem; color: var(--text-dim); display: flex; gap: 0.7rem; flex-wrap: wrap; align-items: baseline; }
+.db-window .rd-detail a { color: var(--cyan); cursor: pointer; }
+.db-window .rd-detail .code { color: var(--purple-light); }
+.db-window .rd-detail .tag { font-size: 0.62rem; border-radius: 999px; padding: 0 0.4rem; border: 1px solid var(--border-strong); color: var(--text-dim); }
+.db-window .rd-detail .tag.warn { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 50%, transparent); }
+.db-window .rd-detail .tag.ok { color: var(--green); border-color: color-mix(in srgb, var(--green) 45%, transparent); }
+.db-window .rd-detail .nw { color: inherit; }
+.db-window .rd-src { margin-top: 0.45rem; padding: 0.3rem 0.5rem; border-radius: 6px; background: color-mix(in srgb, var(--cyan) 6%, transparent); font-size: 0.72rem; display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: baseline; }
+.db-window .rd-src b { font-weight: 600; font-family: var(--db-mono); font-size: 0.7rem; }
+.db-window .faint { color: var(--text-faint); }
+.db-window .rd-fmt { display: flex; gap: 0.3rem; align-items: center; margin-top: 0.45rem; font-size: 0.7rem; }
+.db-window .rd-fmt a { padding: 0.05rem 0.5rem; border-radius: 6px; color: var(--text-dim); border: 1px solid var(--border); cursor: pointer; }
+.db-window .rd-fmt a.on { color: var(--text); background: color-mix(in srgb, var(--purple) 22%, transparent); border-color: var(--border-strong); }
+.db-window .rd-fmt .faint { margin-left: 0.4rem; }
+.db-window .rd-trace { margin-top: 0.45rem; display: flex; gap: 0.35rem; flex-wrap: wrap; align-items: baseline; font-size: 0.72rem; }
+.db-window .rd-trace .tv { font-family: var(--db-mono); font-size: 0.7rem; border-radius: 6px; padding: 0 0.45rem; border: 1px dashed color-mix(in srgb, var(--purple-light) 55%, transparent); color: var(--purple-light) !important; cursor: pointer; }
+.db-window .rd-trace .tv.on { background: color-mix(in srgb, var(--purple) 25%, transparent); border-style: solid; }
+.db-window .rd-trace .tr-out { flex-basis: 100%; font-size: 0.72rem; color: var(--text-dim); }
+.db-window .rd-trace .tr-out:not(:empty) { padding: 0.35rem 0.5rem; border-left: 2px solid var(--purple-light); margin-top: 0.2rem; }
+.db-window .rd-trace .tr-out .w { display: inline-block; min-width: 96px; font-family: var(--db-mono); font-size: 0.68rem; color: var(--purple-light); }
+.db-window .rd-keys { width: 100%; border-collapse: collapse; font-size: 0.76rem; }
+.db-window .rd-keys th { text-align: left; font-size: 0.64rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-faint); padding: 0.35rem 0.5rem; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.db-window .rd-keys td { padding: 0.32rem 0.5rem; border-bottom: 1px dashed var(--border); white-space: nowrap; }
+.db-window .rd-keys td.k { font-family: var(--db-mono); color: var(--redis-text); }
+.db-window .rd-keys td.n { font-family: var(--db-mono); text-align: right; color: var(--text-dim); }
+.db-window .rd-keys td.lw { font-size: 0.7rem; color: var(--text-dim); }
+.db-window .rd-keys td .bar { display: inline-block; height: 6px; border-radius: 3px; background: var(--green); vertical-align: middle; }
+.db-window .rd-keys td .bar.m { background: var(--amber); }
+.db-window .rd-keys tr:hover td { background: color-mix(in srgb, var(--text) 3%, transparent); }
+.db-window .rd-bar { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; padding: 0.1rem 0.5rem 0.5rem; font-size: 0.72rem; color: var(--text-faint); }
+.db-window .rd-bar b { color: var(--text); font-weight: 600; }
+.db-window .rd-hist { margin-top: 0.4rem; border-top: 1px dashed var(--border); padding-top: 0.35rem; font-size: 0.7rem; }
+.db-window .rd-hist div { display: flex; gap: 0.5rem; }
+.db-window .rd-hist .op { font-family: var(--db-mono); width: 1.2rem; color: var(--redis); }
+.rd-pop .row { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 0.5rem; align-items: center; padding: 0.3rem 0; border-top: 1px dashed var(--border); font-size: 0.8rem; }
+.rd-pop .row > span:first-child { color: var(--text-dim); }
+.rd-pop .hint { color: var(--text-faint); font-size: 0.7rem; }
+.rd-pop .ok { color: var(--green); }
+@media (max-width: 720px) {
+  .db-window .rd-detail { margin-left: 0.3rem; }
+}
+.db-proj .rd-h { margin-top: .8rem; } .db-proj .rd-h .redis-glyph { color: var(--redis); }

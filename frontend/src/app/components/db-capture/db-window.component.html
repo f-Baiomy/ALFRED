@@ -5,7 +5,7 @@
         <!-- two lines (compact-window-mock.html): what and when, then the counts beside the summary line -->
         <div class="h-line">
           @if (call(); as c) {
-            <h2>{{ logsOnly() ? 'Logs' : 'Database' }} · {{ c.method }}</h2><span class="url" [title]="c.url">{{ c.url }}</span>
+            <h2>{{ logsOnly() ? 'Logs' : redisOnly() ? 'Redis' : 'Database' }} · {{ c.method }}</h2><span class="url" [title]="c.url">{{ c.url }}</span>
             <span class="meta" title="In the order they ran">{{ shortId(c.id) }}{{ c.service_name ? ' · ' + c.service_name : '' }} · {{ when(c.timestamp) }}</span>
           } @else {
             <h2>Database · outside any call</h2>
@@ -26,6 +26,10 @@
           @if (summary()?.endedEarly) {
             · <b class="x" title="The call ended with an error while statements were still being captured - the application may have died mid-call">capture ended early</b>
           }
+          @if (hasRedis()) {
+            · <b>{{ redisCount().toLocaleString() }}</b> Redis · <b>{{ msText(redisMicros()) }}</b>@if (redisFailed()) { · <b class="x">{{ redisFailed() }}</b> failed}
+            @if (redisSummary()?.dropped; as d) {· <b class="w" title="The agent's queue was full - these commands were counted, not kept (a value is never shortened)">{{ d }} not kept</b>}
+          }
         </span>
         }
         @if (overview(); as o) {
@@ -33,7 +37,7 @@
           <div class="dbw-panel" [class.open]="!timelineHidden()">
             <div class="dbw-sum" role="button" [attr.aria-expanded]="!timelineHidden()" (click)="toggleTimeline()" [title]="timelineHidden() ? 'Show the timeline' : 'Hide the timeline'">
               <span class="pchev">▶</span>
-              <span class="vtxt"><b class="tot">{{ fmt(o.totalMs) }}</b> · <b>{{ o.share }}</b> - {{ o.detail }}</span>
+              <span class="vtxt"><b class="tot">{{ fmt(o.totalMs) }}</b> · <b>{{ o.share }}</b> - {{ o.detail }}@if (hasRedis()) { · <span style="color:var(--redis)">Redis {{ fmt(redisMicros() / 1000) }}</span>}</span>
               @if (o.errors) {<span class="cnt bad">{{ o.errors }} {{ o.errors === 1 ? 'error' : 'errors' }}</span>}
               @if (o.toFix) {<span class="cnt warn">{{ o.toFix }} to fix</span>}
               <span class="phint">{{ timelineHidden() ? 'timeline' : 'hide' }}</span>
@@ -70,12 +74,16 @@
           </div>
           @if (!timelineHidden()) {
             <app-db-timeline [overview]="o" [statements]="statements()" [highlight]="highlight()" [strip]="timelineMode() === 'strip'" [logs]="logTicks()"
-                             (jumpTo)="jump($event)" (logsClicked)="setView('logs')" />
+                             [redis]="redisTicks()" (jumpTo)="jump($event)" (logsClicked)="setView('logs')" (redisClicked)="jump($event)" />
             @if (breakdown(); as b) {
               @if (b.overheadMs >= 1) {
                 <div class="tb-legend"><span title="Measured by the agent around the statements: DataSource.getConnection, setAutoCommit(false), commit/rollback (JDBC or JTA) and Connection.close">
-                  Connection and transaction overhead ≈ {{ (b.overheadMs / 1000).toFixed(1) }} s · {{ b.checkouts }} connection checkouts · {{ b.transactions }} transactions</span></div>
+                  Connection and transaction overhead ≈ {{ (b.overheadMs / 1000).toFixed(1) }} s · {{ b.checkouts }} connection checkouts · {{ b.transactions }} transactions</span>@if (redisLegend()) {<span> · {{ redisLegend() }}</span>}</div>
+              } @else if (redisLegend()) {
+                <div class="tb-legend"><span>{{ redisLegend() }}</span></div>
               }
+            } @else if (redisLegend()) {
+              <div class="tb-legend"><span>{{ redisLegend() }}</span></div>
             }
           }
         </div>
@@ -109,9 +117,15 @@
             <button type="button" class="lg" [class.on]="view() === 'together'" (click)="setView('together')" title="Statements, supplier calls and log lines in one list by time">Together<span class="count">{{ togetherCount() }}</span></button>
           }
         }
-        @if (call() && !logsOnly()) {
+        @if (call() && hasRedis()) {
+          <button type="button" class="rd" [class.on]="view() === 'redis'" (click)="setView('redis')" title="Redis commands the application sent during this call">Redis<span class="count">{{ redisCount() }}</span></button>
+        }
+        @if (call() && !logsOnly() && statements().length) {
           <button type="button" [class.on]="view() === 'queries'" (click)="setView('queries')" title="One row per query, costliest first">Top queries<span class="count">{{ queries().length }}</span></button>
           <button type="button" [class.on]="view() === 'tables'" (click)="setView('tables')">Tables<span class="count">{{ tableCount() }}</span></button>
+        }
+        @if (call() && hasRedis()) {
+          <button type="button" class="rd" [class.on]="view() === 'keys'" (click)="setView('keys')" title="One row per key pattern - hits, misses, time, last writer">Keys<span class="count">{{ keyRows()?.length ?? '' }}</span></button>
         }
       </div>
       @if ((view() === 'logs' || view() === 'together') && logLines().length) {
@@ -125,9 +139,17 @@
           @if (firstLogLink(); as href) {<a [href]="href" target="_blank" rel="noopener">· open in Logs ↗</a>}
         </span>
       }
+      @if (view() === 'redis') {
+        <input class="dbw-search" placeholder="Search SQL, key, value or log - e.g. fare:rule, 948" [value]="state.search()" (input)="onSearch($event)">
+        <div class="seg">
+          @for (k of redisKinds; track k.key) {
+            <button type="button" [class.on]="state.redisKind() === k.key" (click)="setRedisKind(k.key)">{{ k.label }}</button>
+          }
+        </div>
+      }
       @if (statementsLike()) {
         @if (searchMode() === 'search') {
-          <input class="dbw-search" placeholder="Search SQL, table or value - e.g. wallet, 1042" [value]="state.search()" (input)="onSearch($event)">
+          <input class="dbw-search" placeholder="Search SQL, key, value or log - e.g. fare:rule, 948" [value]="state.search()" (input)="onSearch($event)">
         } @else {
           <span class="dbw-sqlmode">SQL over the statements, below · <a (click)="setSearchMode('search')">back to search</a></span>
         }
@@ -198,7 +220,18 @@
     }
     }
     <div class="dbw-body" (scroll)="onBodyScroll($event)">
-      @if (view() === 'queries') {
+      @if (view() === 'redis') {
+        @if (!redisPage()) {
+          <div class="empty">Loading Redis commands…</div>
+        } @else if (!redisCommands().length) {
+          <div class="empty">{{ redisSummary()?.dropped ? 'The agent could not keep this call’s Redis commands (its queue was full).' : 'The agent saw no Redis command for this call.' }}</div>
+        } @else {
+          <app-store-command-list [items]="redisItems()" />
+          @if (!redisShown()) {<div class="empty">No command matches.</div>}
+        }
+      } @else if (view() === 'keys') {
+        <app-store-keys [rows]="keyRows()" />
+      } @else if (view() === 'queries') {
         <p class="dialog-sub" style="margin:.3rem 0 .6rem">Every query this call ran, costliest first. <b>Duplicates</b> = the same query with the same parameters again - a per-request cache fixes those; many <b>distinct</b> parameters is an N+1 - a batch or a join fixes those. Click a row for its statements.</p>
         <table class="kvt tbl-view q-view">
           <tr><th>Query</th><th>Runs</th><th>Distinct params</th><th>Duplicates</th><th>Total</th><th>Slowest</th><th>Rows</th><th>Called from</th></tr>
@@ -316,6 +349,12 @@
       @if (view() === 'logs') {
         <span>{{ logLines().length.toLocaleString() }} log lines</span>
       }
+      @if (view() === 'redis') {
+        <span>Showing {{ redisShown().toLocaleString() }} of {{ redisCommands().length.toLocaleString() }} Redis commands</span>
+      }
+      @if (view() === 'keys') {
+        <span>{{ keyRows()?.length ?? 0 }} key patterns · {{ redisCommands().length.toLocaleString() }} commands</span>
+      }
       @if (statementsLike()) {
         @if (sqlResult() && !sqlResult()!.error && !sqlResult()!.statementSeqs) {
           <span>Summary of {{ totalCount().toLocaleString() }} statements</span>
@@ -323,11 +362,16 @@
           <span>Showing {{ shownCount().toLocaleString() }} of {{ totalCount().toLocaleString() }} statements</span>
         }
       }
-      <span>· Click any value to trace it · included in this call's .md / .json / .html exports</span>
+      <span>· {{ view() === 'redis' || view() === 'keys' ? 'Click a command for its full value' : 'Click any value to trace it' }} · included in this call's .md / .json / .html exports</span>
       <div class="right">
         @if (exportNote()) {<span class="dimtxt">{{ exportNote() }}</span>}
-        <button type="button" class="action-btn" (click)="copyAllSql()">Copy all SQL</button>
-        <button type="button" class="action-btn" (click)="exportSql()">Export .sql</button>
+        @if (view() === 'redis' || view() === 'keys') {
+          <button type="button" class="action-btn" (click)="copyRedisCli()">Copy as redis-cli</button>
+          <button type="button" class="action-btn" (click)="exportRedis()">Export .redis</button>
+        } @else {
+          <button type="button" class="action-btn" (click)="copyAllSql()">Copy all SQL</button>
+          <button type="button" class="action-btn" (click)="exportSql()">Export .sql</button>
+        }
       </div>
     </div>
     </div>

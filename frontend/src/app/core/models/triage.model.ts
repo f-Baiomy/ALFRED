@@ -43,6 +43,9 @@ export interface AttentionSignals {
   readonly logStatus?: string | null;
   readonly logLevel?: string | null;
   readonly dbFlags?: readonly string[];
+  /** Failed Redis commands / cold cache misses of the call (specs/011-redis-capture). */
+  readonly redisFailed?: number;
+  readonly redisCold?: number;
 }
 
 /**

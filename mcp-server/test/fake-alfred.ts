@@ -6,6 +6,7 @@ import {
   emptyResultOf, softFailureOf,
   type AttentionMark, type CallDbSummary, type CallRecord, type CallStatementsPage, type CapturedStatement, type Comment, type CycleSpacer,
   type Redaction, type SessionCycle, type RowsPage, type RecordedQueryResult, type TriageEntry, type AttentionSignals,
+  type StoreCommandSummary, type CallStoreSummary, type StoreCommand, type KeyPatternRow, type KeyHistoryRow,
 } from '../src/frontend.ts';
 import { normaliseMessage, signalsOfEntry } from '../src/signals.ts';
 
@@ -50,11 +51,15 @@ export interface FakeState {
   outsideLogs: { project: string; at: string; level: string; logger: string; thread: string; message: string; exceptionType?: string }[];
   /** Capture settings per project (only what the tools read and write). */
   captureSettings: Record<string, Record<string, unknown>>;
+  /** Redis commands by call id (specs/011-redis-capture) - a call missing here had ⬢ off. */
+  redis: Record<string, { commands: StoreCommandSummary[]; cold: number[]; summary: CallStoreSummary; details?: Record<number, StoreCommand>; keys?: KeyPatternRow[] }>;
+  redisHistory: KeyHistoryRow[];
 }
 
 export function emptyState(): FakeState {
   return {
     calls: [], cycles: [], cycleEntries: new Map(), spacers: new Map(), comments: [], redactions: [], callLogs: {}, signals: {}, outsideLogs: [], captureSettings: {},
+    redis: {}, redisHistory: [],
     variables: { variables: {}, fallbacks: {}, secrets: [] }, dbSummaries: {}, statements: {}, rows: {},
     query: { columns: [], rows: [], total: 0 }, trace: [],
     rules: [], interceptionEnabled: true, reliveCycles: [], runs: new Map(),
@@ -628,6 +633,26 @@ export class FakeAlfred {
     if (p[0] === 'settings' && p[1] === 'variables') return [200, s.variables];
     // ---- database capture
     if (p[0] === 'db-capture') {
+      // ---- Redis (specs/011-redis-capture)
+      if (p[1] === 'calls' && p[3] === 'store-commands' && p.length === 4) {
+        const r = s.redis[p[2]];
+        const offset = Number(q.get('offset') ?? 0);
+        const limit = Number(q.get('limit') ?? 500);
+        if (!r) return [200, { total: 0, commands: [], cold: [], dropped: 0, summary: null }];
+        return [200, { total: r.commands.length, commands: r.commands.slice(offset, offset + limit), cold: offset ? [] : r.cold, dropped: r.summary.dropped, summary: r.summary }];
+      }
+      if (p[1] === 'calls' && p[3] === 'store-keys') return [200, s.redis[p[2]]?.keys ?? []];
+      if (p[1] === 'store-commands') {
+        const d = Object.values(s.redis).flatMap((r) => Object.values(r.details ?? {})).find((x) => x.row.id === Number(p[2]));
+        return d ? [200, d] : [404];
+      }
+      if (p[1] === 'store-keys' && p[2] === 'history') {
+        return [200, s.redisHistory.slice(0, Number(q.get('limit') ?? 50))];
+      }
+      if (p[1] === 'store' && p[2] === 'summaries') {
+        const ids = (q.get('callIds') ?? '').split(',');
+        return [200, Object.fromEntries(ids.filter((id) => s.redis[id]).map((id) => [id, s.redis[id].summary]))];
+      }
       if (p[1] === 'summaries') {
         const ids = (q.get('callIds') ?? '').split(',');
         return [200, Object.fromEntries(ids.filter((id) => s.dbSummaries[id]).map((id) => [id, s.dbSummaries[id]]))];
