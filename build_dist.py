@@ -188,8 +188,19 @@ def docker(image, script, mounts, dns=None, env=None, show=None):
         command += ["-v", f"{source}:{target}:{mode}"]
     for key, value in (env or {}).items():
         command += ["-e", f"{key}={value}"]
-    command += [image, "sh", "-c", script]
+    command += [image, "sh", "-c", owned_by_caller(script, [target for _, target, mode in mounts if mode == "rw"])]
     run(command, env=dict(os.environ, MSYS_NO_PATHCONV="1"), show=show)
+
+
+def owned_by_caller(script, writable, ids=None):
+    """On a Linux host a container writes its rw mounts as root, and the build user can then neither move nor delete
+    what it wrote (the release workflow failed moving the Windows jlink runtime out of build/windows-runtimes). The
+    container hands them back to the caller's uid:gid on exit - a failed script too. Docker Desktop on Windows/macOS
+    has no host ownership to fix: unchanged there."""
+    ids = ids if ids is not None else ((os.getuid(), os.getgid()) if hasattr(os, "getuid") else None)
+    if not writable or ids is None or ids[0] == 0:
+        return script
+    return f"trap 'chown -R {ids[0]}:{ids[1]} {' '.join(writable)} 2>/dev/null || true' EXIT; {script}"
 
 
 def sha256(path):

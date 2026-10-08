@@ -21,6 +21,19 @@ def write(path, text, newline="\n"):
         f.write(text)
 
 
+class ContainerOwnershipTest(unittest.TestCase):
+    """On a Linux host (the release workflow) a container's root-owned output could not be moved by the build user."""
+
+    def test_rw_mounts_are_handed_back_to_the_caller_even_when_the_script_fails(self):
+        script = build_dist.owned_by_caller("set -e; jlink", ["/out", "/dist"], ids=(1001, 121))
+        self.assertEqual("trap 'chown -R 1001:121 /out /dist 2>/dev/null || true' EXIT; set -e; jlink", script)
+
+    def test_unchanged_without_host_ownership_or_writable_mounts(self):
+        self.assertEqual("x", build_dist.owned_by_caller("x", ["/out"], ids=None))   # Docker Desktop on Windows
+        self.assertEqual("x", build_dist.owned_by_caller("x", ["/out"], ids=(0, 0)))  # already root
+        self.assertEqual("x", build_dist.owned_by_caller("x", [], ids=(1001, 121)))
+
+
 class RunFileTest(unittest.TestCase):
 
     def setUp(self):
