@@ -77,6 +77,12 @@ public class BreakpointService implements BreakpointUseCase {
     private final InterceptionNotificationPort notifications;
 
     private final Map<String, PausedCall> paused = new ConcurrentHashMap<>();
+    /**
+     * Arrival order of the cards, the tie-break when finished cards are trimmed: many calls are paused within the same
+     * millisecond, pausedAt alone ties, and the map has no order - which card fell off was a coin toss.
+     */
+    private final Map<String, Long> arrival = new ConcurrentHashMap<>();
+    private final java.util.concurrent.atomic.AtomicLong arrivals = new java.util.concurrent.atomic.AtomicLong();
     private final Map<String, Waiter> handoffs = new ConcurrentHashMap<>();
 
     /**
@@ -100,6 +106,7 @@ public class BreakpointService implements BreakpointUseCase {
 
     @Override
     public void register(PausedCall call) {
+        arrival.putIfAbsent(call.callId(), arrivals.incrementAndGet());
         // A followed call comes back here for its response half. Everything learned on the way -
         // that it was followed, when it was released, what was edited into the request - lives on
         // the existing entry, and overwriting it wholesale would lose the first half of the very
@@ -380,11 +387,13 @@ public class BreakpointService implements BreakpointUseCase {
     private void trimFinished() {
         List<PausedCall> finished = paused.values().stream()
                 .filter(call -> call.stage() == PauseStage.FINISHED)
-                .sorted(Comparator.comparingLong(PausedCall::pausedAt))
+                .sorted(Comparator.comparingLong(PausedCall::pausedAt)
+                        .thenComparingLong(call -> arrival.getOrDefault(call.callId(), Long.MAX_VALUE)))
                 .toList();
         for (int i = 0; i < finished.size() - MAX_FINISHED_CARDS; i++) {
             paused.remove(finished.get(i).callId());
         }
+        arrival.keySet().retainAll(paused.keySet());
     }
 
     @Override
