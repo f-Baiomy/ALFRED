@@ -10429,3 +10429,178 @@ app-name-suggest {
 @import "styles/logs";
 @import "styles/db-capture";
 @import "styles/server-settings";
+
+/* Server card progress dialog (Restart Alfred / Restart proxies / Install update): steps that move on real events,
+   the overall bar, and the download's own bar (shared/utils/server-progress.ts). */
+@keyframes srv-pop {
+  from { opacity: 0; transform: translateY(8px) scale(0.96); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes srv-spin { to { transform: rotate(360deg); } }
+@keyframes srv-draw { to { stroke-dashoffset: 0; } }
+@keyframes srv-row { from { opacity: 0; transform: translateX(-6px); } to { opacity: 1; transform: none; } }
+@keyframes srv-stripes { to { background-position: 24px 0; } }
+@keyframes srv-shake {
+  20%, 60% { transform: translateX(-5px); }
+  40%, 80% { transform: translateX(5px); }
+}
+
+.dialog-card.srv-progress {
+  animation: srv-pop 0.35s ease both;
+
+  &.failed { animation: srv-shake 0.4s ease; }
+
+  .srv-progress-head {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-bottom: 0.9rem;
+
+    h2 { margin: 0; }
+  }
+
+  .srv-progress-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.6rem;
+    height: 1.6rem;
+    border-radius: 50%;
+    font-weight: 700;
+    color: var(--cyan);
+    border: 1px solid var(--border-strong);
+    transition: color 0.3s, border-color 0.3s;
+
+    &.ok { color: var(--green); border-color: var(--green); }
+    &.failed { color: var(--red); border-color: var(--red); }
+  }
+
+  .srv-progress-time {
+    margin-left: auto;
+    font-family: var(--font-mono, monospace);
+    font-size: 0.75rem;
+    color: var(--text-faint);
+  }
+
+  .srv-progress-meter {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.78rem;
+    color: var(--text-dim);
+    margin-bottom: 0.35rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .srv-progress-pct { color: var(--text); font-weight: 600; }
+
+  .srv-bar {
+    display: block;
+    position: relative;
+    height: 10px;
+    border-radius: 5px;
+    background: var(--card-inner);
+    border: 1px solid var(--border);
+    overflow: hidden;
+    margin-bottom: 1rem;
+
+    &.small { height: 6px; margin: 0.35rem 0 0.15rem; max-width: 18rem; }
+  }
+
+  .srv-bar-fill {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background-color: var(--purple);
+    background-image: linear-gradient(45deg, rgba(255, 255, 255, 0.18) 25%, transparent 25%, transparent 50%,
+      rgba(255, 255, 255, 0.18) 50%, rgba(255, 255, 255, 0.18) 75%, transparent 75%);
+    background-size: 24px 24px;
+    animation: srv-stripes 0.8s linear infinite;
+    transition: width 0.45s ease, background-color 0.3s;
+
+    &.ok { background-color: var(--green); background-image: none; animation: none; }
+    &.failed { background-color: var(--red); background-image: none; animation: none; }
+  }
+
+  .srv-bar.small .srv-bar-fill { background-color: var(--cyan); }
+
+  .srv-steps { list-style: none; margin: 0; padding: 0; }
+
+  .srv-step {
+    display: flex;
+    gap: 0.75rem;
+    align-items: flex-start;
+    padding: 0.4rem 0;
+    animation: srv-row 0.35s ease both;
+  }
+
+  .srv-step-icon {
+    flex: none;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1.5px solid var(--border-strong);
+    font-size: 0.7rem;
+    transition: background-color 0.3s, border-color 0.3s;
+
+    svg path {
+      fill: none;
+      stroke: var(--green);
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-dasharray: 20;
+      stroke-dashoffset: 20;
+      animation: srv-draw 0.35s ease forwards;
+    }
+  }
+
+  .srv-step-body { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+  .srv-step-label { font-size: 0.9rem; color: var(--text-faint); transition: color 0.3s; }
+  .srv-step-detail { font-size: 0.75rem; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+
+  .srv-step.active {
+    .srv-step-icon { border-color: var(--cyan); border-top-color: transparent; animation: srv-spin 0.8s linear infinite; }
+    .srv-step-label { color: var(--text); }
+    .srv-step-detail { color: var(--text-dim); }
+  }
+
+  .srv-step.done {
+    .srv-step-icon { border-color: var(--green); background: color-mix(in srgb, var(--green) 18%, transparent); }
+    .srv-step-label { color: var(--text-dim); }
+  }
+
+  .srv-step.fail {
+    .srv-step-icon { border-color: var(--red); color: var(--red); background: color-mix(in srgb, var(--red) 15%, transparent); }
+    .srv-step-label, .srv-step-detail { color: var(--red); }
+  }
+
+  .srv-progress-foot {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-top: 0.9rem;
+    animation: srv-row 0.3s ease both;
+  }
+
+  .srv-progress-msg {
+    flex: 1;
+    font-size: 0.85rem;
+    color: var(--text-dim);
+
+    &.ok { color: var(--green); font-weight: 600; }
+    small { display: block; font-weight: 400; color: var(--text-dim); }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dialog-card.srv-progress,
+  .dialog-card.srv-progress .srv-step,
+  .dialog-card.srv-progress .srv-bar-fill,
+  .dialog-card.srv-progress .srv-step.active .srv-step-icon,
+  .dialog-card.srv-progress .srv-progress-foot {
+    animation: none;
+  }
+  .dialog-card.srv-progress .srv-step-icon svg path { animation: none; stroke-dashoffset: 0; }
+}

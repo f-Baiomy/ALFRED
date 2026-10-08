@@ -1,9 +1,11 @@
-import { Component, DestroyRef, inject, input, signal } from '@angular/core';
+import { Component, DestroyRef, computed, inject, input, signal } from '@angular/core';
+import { DecimalPipe } from '@angular/common';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ServerSettingsService } from '../../../core/services/server-settings.service';
 import { ServerSocketService } from '../../../core/services/server-socket.service';
 import { AgentAttach, ProcessStatus, ServerStatus, UpdateStatus } from '../../../core/models/server-settings.model';
 import { formatBytes } from '../../../shared/utils/server-settings';
+import { ProgressInput, ProgressView, progressPhase, progressView } from '../../../shared/utils/server-progress';
 
 type RestartKind = 'BACKEND' | 'PROXIES' | 'UPDATE';
 
@@ -23,6 +25,7 @@ const PROCESS_LABELS: Record<string, string> = {
 @Component({
   selector: 'app-server-card',
   standalone: true,
+  imports: [DecimalPipe],
   templateUrl: './server-card.component.html',
 })
 export class ServerCardComponent {
@@ -37,9 +40,25 @@ export class ServerCardComponent {
   readonly update = signal<UpdateStatus | null>(null);
   readonly checking = signal(false);
   readonly confirm = signal<RestartKind | null>(null);
-  readonly progress = signal<string[] | null>(null);
   readonly progressKind = signal<RestartKind | null>(null);
   readonly done = signal(false);
+  readonly accepted = signal(false);
+  readonly dropped = signal(false);
+  readonly back = signal(false);
+  readonly progressError = signal<string | null>(null);
+  readonly finalMessage = signal('');
+  readonly startedAt = signal(0);
+  readonly now = signal(0);
+  /** The progress dialog as steps and bars (shared/utils/server-progress.ts), recomputed on every event and tick. */
+  readonly view = computed<ProgressView | null>(() => {
+    const input = this.input();
+    return input ? progressView(input) : null;
+  });
+
+  private phase = '';
+  private phaseStartedAt = 0;
+  private clock: ReturnType<typeof setInterval> | undefined;
+  private speed = { bytes: 0, at: 0, perSecond: 0 };
   readonly failure = signal<string | null>(null);
 
   readonly formatBytes = formatBytes;
@@ -49,11 +68,19 @@ export class ServerCardComponent {
     const destroyRef = inject(DestroyRef);
     this.socket.events$.pipe(takeUntilDestroyed(destroyRef)).subscribe(() => this.load());
     this.socket.reconnected$.pipe(takeUntilDestroyed(destroyRef)).subscribe(() => this.backAfterRestart());
+    this.socket.disconnected$.pipe(takeUntilDestroyed(destroyRef)).subscribe(() => this.stoppedForRestart());
+    destroyRef.onDestroy(() => this.stopClock());
   }
 
   load(): void {
     this.api.status().subscribe({ next: s => this.status.set(s), error: () => undefined });
-    this.api.updateStatus().subscribe({ next: u => this.update.set(u), error: () => undefined });
+    this.api.updateStatus().subscribe({
+      next: u => {
+        this.update.set(u);
+        this.jobChanged(u);
+      },
+      error: () => undefined,
+    });
   }
 
   label(p: ProcessStatus): string {
@@ -148,59 +175,179 @@ export class ServerCardComponent {
       return;
     }
     this.confirm.set(null);
+    this.failure.set(null);
     this.progressKind.set(kind);
     this.done.set(false);
-    if (kind === 'UPDATE') {
-      this.progress.set(['Downloading the installer and verifying its checksum…',
-        'Running the installer: Alfred stops, its program files are replaced, it starts again…',
-        'Waiting for Alfred to answer…']);
-      this.api.installUpdate().subscribe({
-        error: e => {
-          this.progress.set(null);
-          this.failure.set(e?.error?.message ?? 'The update could not be started.');
-        },
-      });
-      return;
-    }
-    this.progress.set(kind === 'PROXIES'
-      ? ['Restarting the outbound and reverse proxies…']
-      : ['Stopping the backend…', 'Starting it with the current .env (Alfred is unavailable for a moment)…', 'Waiting for Alfred to answer…']);
-    this.api.restart(kind).subscribe({
+    this.accepted.set(false);
+    this.dropped.set(false);
+    this.back.set(false);
+    this.progressError.set(null);
+    this.finalMessage.set('');
+    this.speed = { bytes: 0, at: 0, perSecond: 0 };
+    this.startedAt.set(Date.now());
+    this.now.set(Date.now());
+    this.syncPhase();
+    this.startClock();
+    const request = kind === 'UPDATE' ? this.api.installUpdate() : this.api.restart(kind);
+    request.subscribe({
       next: () => {
+        this.accepted.set(true);
+        this.syncPhase();
         if (kind === 'PROXIES') {
-          this.finish('Proxies running again.');
+          this.finish('Proxies running again');
         }
       },
-      error: e => {
-        this.progress.set(null);
-        this.failure.set(e?.error?.message ?? 'The restart could not be started.');
-      },
+      error: e => this.fail(e?.error?.message ?? (kind === 'UPDATE' ? 'The update could not be started.' : 'The restart could not be started.')),
     });
   }
 
-  /** The socket reconnected: after a backend restart or an update, Alfred is back. */
-  private backAfterRestart(): void {
-    this.load();
-    if (this.progressKind() === 'BACKEND' && !this.done()) {
-      this.finish('Alfred is back. Reconnected.');
-    } else if (this.progressKind() === 'UPDATE' && !this.done()) {
-      this.api.status().subscribe({
-        next: s => this.finish(`Alfred ${s.version} is running. Reconnected.`),
-        error: () => this.finish('Alfred is back. Reconnected.'),
-      });
+  /**
+   * The socket closed while a restart or an install runs: Alfred stopped - but only once it can have: the installer
+   * running, or the restart accepted. A close during the download is a network blip (or a socket that never
+   * connected), not the installer stopping Alfred.
+   */
+  private stoppedForRestart(): void {
+    const kind = this.progressKind();
+    if (!kind || kind === 'PROXIES' || this.done()) {
+      return;
+    }
+    const canHaveStopped = kind === 'UPDATE' ? this.update()?.job.state === 'INSTALLING' : this.accepted();
+    if (canHaveStopped) {
+      this.dropped.set(true);
+      this.syncPhase();
     }
   }
 
-  private finish(message: string): void {
-    this.progress.update(steps => [...(steps ?? []), `✓ ${message}`]);
+  /**
+   * The socket reconnected: after a backend restart or an update, Alfred is back. A reconnect before Alfred went
+   * away (a network blip during the download) is not the end of an install - only one after the drop, the installer
+   * starting or an accepted backend restart counts.
+   */
+  private backAfterRestart(): void {
+    this.load();
+    const kind = this.progressKind();
+    if (!kind || kind === 'PROXIES' || this.done()) {
+      return;
+    }
+    const installing = this.update()?.job.state === 'INSTALLING';
+    if (!this.dropped() && !(kind === 'UPDATE' && installing) && !(kind === 'BACKEND' && this.accepted())) {
+      return;
+    }
+    this.back.set(true);
+    this.syncPhase();
+    if (kind === 'BACKEND') {
+      this.finish('Alfred is back');
+      return;
+    }
+    // Back on the old version means the installer did not replace it - green "running" would hide that.
+    const wanted = this.update()?.job.version || this.update()?.latestVersion || '';
+    this.api.status().subscribe({
+      next: s => wanted && s.version !== wanted
+        ? this.fail(`Alfred came back on ${s.version}, not ${wanted} - the installer did not replace it. See data/log/update.log.`)
+        : this.finish(`Alfred ${s.version} is running`),
+      error: () => this.finish('Alfred is back'),
+    });
+  }
+
+  private fail(message: string): void {
+    this.progressError.set(message);
+    this.syncPhase();
     this.done.set(true);
+    this.stopClock();
+  }
+
+  private finish(message: string): void {
+    this.finalMessage.set(message);
+    this.done.set(true);
+    this.stopClock();
     this.load();
   }
 
+  /** The update job as fetched: a FAILED one ends the dialog; the bytes feed the download speed. */
+  private jobChanged(u: UpdateStatus): void {
+    if (this.progressKind() !== 'UPDATE' || this.done()) {
+      return;
+    }
+    const now = Date.now();
+    if (u.job.state === 'DOWNLOADING') {
+      if (this.speed.at && u.job.downloadedBytes > this.speed.bytes && now > this.speed.at) {
+        const sample = (u.job.downloadedBytes - this.speed.bytes) * 1000 / (now - this.speed.at);
+        this.speed.perSecond = this.speed.perSecond ? this.speed.perSecond * 0.6 + sample * 0.4 : sample;
+      }
+      this.speed.bytes = u.job.downloadedBytes;
+      this.speed.at = now;
+    }
+    this.syncPhase();
+    if (u.job.state === 'FAILED') {
+      this.fail(u.job.error || 'The update failed.');
+    }
+  }
+
+  private input(): ProgressInput | null {
+    const kind = this.progressKind();
+    if (!kind) {
+      return null;
+    }
+    return {
+      kind,
+      job: kind === 'UPDATE' ? this.update()?.job ?? null : null,
+      sizeBytes: this.update()?.sizeBytes ?? 0,
+      accepted: this.accepted(),
+      dropped: this.dropped(),
+      back: this.back(),
+      error: this.progressError(),
+      phaseMs: this.now() - this.phaseStartedAt,
+      bytesPerSecond: this.speed.perSecond || undefined,
+    };
+  }
+
+  /** Restarts the phase clock when the phase changed - each stretch's creep starts from its own beginning. */
+  private syncPhase(): void {
+    const input = this.input();
+    const phase = input ? progressPhase(input) : '';
+    if (phase !== this.phase) {
+      this.phase = phase;
+      this.phaseStartedAt = Date.now();
+      this.now.set(this.phaseStartedAt);
+    }
+  }
+
+  /** The dialog's own clock: the elapsed time and the creep. A UI timer - nothing is fetched on it. */
+  private startClock(): void {
+    this.stopClock();
+    this.clock = setInterval(() => this.now.set(Date.now()), 250);
+  }
+
+  private stopClock(): void {
+    if (this.clock) {
+      clearInterval(this.clock);
+      this.clock = undefined;
+    }
+  }
+
+  elapsed(): string {
+    const seconds = Math.max(0, Math.round((this.now() - this.startedAt()) / 1000));
+    return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+  }
+
+  progressTitle(): string {
+    const kind = this.progressKind();
+    const failed = this.view()?.outcome === 'failed';
+    if (kind === 'UPDATE') {
+      return failed ? 'Update failed' : `Installing Alfred ${this.update()?.latestVersion ?? ''}`.trim();
+    }
+    if (failed) {
+      return 'Restart failed';
+    }
+    return kind === 'PROXIES' ? 'Restarting proxies' : 'Restarting Alfred';
+  }
+
   closeProgress(): void {
-    this.progress.set(null);
+    const reload = this.done() && this.view()?.outcome === 'ok' && this.progressKind() !== 'PROXIES';
+    this.stopClock();
     this.progressKind.set(null);
-    if (this.done()) {
+    this.done.set(false);
+    if (reload) {
       window.location.reload();
     }
   }

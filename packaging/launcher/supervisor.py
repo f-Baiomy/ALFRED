@@ -432,6 +432,7 @@ class UpdateJob:
     One job at a time; a finished one stays readable until the next start (the installer restarts Alfred anyway)."""
 
     STATES = ("IDLE", "DOWNLOADING", "VERIFYING", "INSTALLING", "FAILED")
+    PROGRESS_EVERY = 0.5  # seconds between download-progress events
 
     def __init__(self, supervisor):
         self.supervisor = supervisor
@@ -504,6 +505,7 @@ class UpdateJob:
             if length and length.isdigit():
                 with self.lock:
                     self.total = int(length)
+            told = 0.0
             while True:
                 chunk = response.read(1 << 20)
                 if not chunk:
@@ -511,6 +513,10 @@ class UpdateJob:
                 out.write(chunk)
                 with self.lock:
                     self.downloaded += len(chunk)
+                # The Server card's download bar re-fetches on each event: a few a second, not one per chunk.
+                if time.monotonic() - told >= self.PROGRESS_EVERY:
+                    told = time.monotonic()
+                    self.supervisor.changed_update()
 
 
 def launch_installer(path, home, log_path):

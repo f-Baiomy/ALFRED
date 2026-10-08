@@ -19,12 +19,18 @@ export class ServerSocketService {
   private readonly config = inject(AppConfigService);
   /** Fires after a reconnect - after a restart of Alfred, this is the "it is back" signal. */
   readonly reconnected$ = new Subject<void>();
+  /** Fires when the socket closes - after "Restart Alfred" or an update, the "it stopped" signal. */
+  readonly disconnected$ = new Subject<void>();
   readonly events$: Observable<ServerSocketEvent> = reconnectingSocket<ServerSocketEvent>(
     `${this.config.backendUrl.replace(/^http/, 'ws')}/ws/server`,
     () => this.reconnected$.next(),
+    () => this.disconnected$.next(),
   ).pipe(share());
 
   constructor() {
-    inject(DestroyRef).onDestroy(() => this.reconnected$.complete());
+    inject(DestroyRef).onDestroy(() => {
+      this.reconnected$.complete();
+      this.disconnected$.complete();
+    });
   }
 }

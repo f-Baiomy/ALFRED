@@ -24,7 +24,7 @@ const RECONNECT_DELAY_MS = 3000;
  * while the socket was away. Deliberately not the first open: every caller already fetches once on
  * construction, and firing there would just double it on every page load.
  */
-export function reconnectingSocket<T>(url: string, onReconnect?: () => void): Observable<T> {
+export function reconnectingSocket<T>(url: string, onReconnect?: () => void, onClose?: () => void): Observable<T> {
   let opened = false;
   return webSocket<T>({
     url,
@@ -34,6 +34,8 @@ export function reconnectingSocket<T>(url: string, onReconnect?: () => void): Ob
         opened = true;
       },
     },
+    // Every close, clean or not - the Server card's "Alfred stopped" (a restart or an update going through).
+    closeObserver: { next: () => onClose?.() },
   }).pipe(
     retry({ delay: () => timer(RECONNECT_DELAY_MS) }),
     repeat({ delay: () => timer(RECONNECT_DELAY_MS) })

@@ -26,6 +26,7 @@ describe('ServerCardComponent - updates', () => {
   let fixture: ComponentFixture<ServerCardComponent>;
   let api: jasmine.SpyObj<ServerSettingsService>;
   const reconnected = new Subject<void>();
+  const disconnected = new Subject<void>();
 
   function setUp(status: UpdateStatus, editable = true): void {
     api = jasmine.createSpyObj<ServerSettingsService>('ServerSettingsService', ['status', 'updateStatus', 'checkUpdate', 'installUpdate', 'restart']);
@@ -37,7 +38,7 @@ describe('ServerCardComponent - updates', () => {
       imports: [ServerCardComponent],
       providers: [
         { provide: ServerSettingsService, useValue: api },
-        { provide: ServerSocketService, useValue: { events$: new Subject(), reconnected$: reconnected } },
+        { provide: ServerSocketService, useValue: { events$: new Subject(), reconnected$: reconnected, disconnected$: disconnected } },
       ],
     });
     fixture = TestBed.createComponent(ServerCardComponent);
@@ -99,10 +100,65 @@ describe('ServerCardComponent - updates', () => {
     fixture.detectChanges();
     expect(api.installUpdate).toHaveBeenCalled();
     expect(text()).toContain('Installing Alfred 1.5.0');
+    expect(text()).toContain('Downloading the installer');
+    api.updateStatus.and.returnValue(of(update({ job: { state: 'INSTALLING', version: '1.5.0', downloadedBytes: 1, totalBytes: 1, error: '' } })));
+    fixture.componentInstance.load();
     api.status.and.returnValue(of({ ...STATUS, version: '1.5.0' }));
+    disconnected.next();
     reconnected.next();
     fixture.detectChanges();
-    expect(text()).toContain('✓ Alfred 1.5.0 is running');
+    expect(text()).toContain('Alfred 1.5.0 is running');
+    expect(text()).toContain('100%');
+    expect(button('Reload')).toBeTruthy();
+  });
+
+  it('the dialog follows the job: the download bar with its bytes, then verifying, then a failure with its reason', () => {
+    setUp(update());
+    fixture.componentInstance.askUpdate();
+    fixture.componentInstance.restart();
+    api.updateStatus.and.returnValue(of(update({ job: { state: 'DOWNLOADING', version: '1.5.0', downloadedBytes: 75 * 1024 * 1024, totalBytes: 150 * 1024 * 1024, error: '' } })));
+    fixture.componentInstance.load();
+    fixture.detectChanges();
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('.srv-bar.small')?.getAttribute('aria-valuenow')).toBe('50');
+    expect(el.querySelector('.srv-bar:not(.small)')?.getAttribute('aria-valuenow')).toBe('30');
+    expect(text()).toContain('75 MB of 150 MB');
+    api.updateStatus.and.returnValue(of(update({ job: { state: 'FAILED', version: '1.5.0', downloadedBytes: 0, totalBytes: 0, error: "the downloaded installer's checksum is ab12…" } })));
+    fixture.componentInstance.load();
+    fixture.detectChanges();
+    expect(text()).toContain('Update failed');
+    expect(text()).toContain('checksum is ab12');
+    expect(text()).toContain('Nothing was installed');
+    expect(el.querySelector('.srv-step.fail')).toBeTruthy();
+  });
+
+  it('Alfred coming back on the old version is a failure, not "running"', () => {
+    setUp(update());
+    fixture.componentInstance.askUpdate();
+    fixture.componentInstance.restart();
+    api.updateStatus.and.returnValue(of(update({ job: { state: 'INSTALLING', version: '1.5.0', downloadedBytes: 1, totalBytes: 1, error: '' } })));
+    fixture.componentInstance.load();
+    disconnected.next();
+    reconnected.next();
+    fixture.detectChanges();
+    expect(text()).toContain('Alfred came back on 1.4.0, not 1.5.0');
+    expect(text()).toContain('Alfred is running the version it had');
+    expect(button('Reload')).toBeUndefined();
+  });
+
+  it('a drop and reconnect during the download (a network blip) does not end the install', () => {
+    setUp(update());
+    fixture.componentInstance.askUpdate();
+    fixture.componentInstance.restart();
+    api.updateStatus.and.returnValue(of(update({ job: { state: 'DOWNLOADING', version: '1.5.0', downloadedBytes: 1, totalBytes: 150 * 1024 * 1024, error: '' } })));
+    fixture.componentInstance.load();
+    disconnected.next();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.dropped()).toBeFalse();
+    reconnected.next();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.view()?.outcome).toBe('running');
+    expect(text()).not.toContain('is running');
   });
 
   it('a refused install shows the backend reason', () => {

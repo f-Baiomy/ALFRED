@@ -44,7 +44,7 @@ describe('ServerSettingsComponent', () => {
       imports: [ServerSettingsComponent],
       providers: [
         { provide: ServerSettingsService, useValue: api },
-        { provide: ServerSocketService, useValue: { events$: new Subject(), reconnected$: new Subject() } },
+        { provide: ServerSocketService, useValue: { events$: new Subject(), reconnected$: new Subject(), disconnected$: new Subject() } },
       ],
     });
     fixture = TestBed.createComponent(ServerSettingsComponent);

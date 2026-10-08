@@ -129,15 +129,50 @@
   </div>
 }
 
-@if (progress(); as steps) {
+@if (view(); as v) {
   <div class="dialog-backdrop">
-    <div class="dialog-card" role="dialog" aria-label="Restarting">
-      <h2>{{ progressKind() === 'BACKEND' ? 'Restarting Alfred' : progressKind() === 'PROXIES' ? 'Restarting proxies' : 'Installing Alfred ' + (update()?.latestVersion ?? '') }}</h2>
-      <ul class="server-effects">
-        @for (step of steps; track $index) { <li [class.ok]="step.startsWith('✓')" [class.warn]="step.startsWith('✗')">{{ step }}</li> }
-      </ul>
+    <div class="dialog-card srv-progress" role="dialog" [attr.aria-label]="progressTitle()" [class.failed]="v.outcome === 'failed'">
+      <div class="srv-progress-head">
+        <span class="srv-progress-icon" [class]="'srv-progress-icon ' + v.outcome" aria-hidden="true">{{ v.outcome === 'ok' ? '✓' : v.outcome === 'failed' ? '!' : progressKind() === 'UPDATE' ? '↓' : '↻' }}</span>
+        <h2>{{ progressTitle() }}</h2>
+        <span class="srv-progress-time">{{ elapsed() }}</span>
+      </div>
+      <div class="srv-progress-meter">
+        <span class="srv-progress-phase">{{ v.phase }}</span>
+        <span class="srv-progress-pct">{{ v.percent | number: '1.0-0' }}%</span>
+      </div>
+      <div class="srv-bar" role="progressbar" aria-label="Overall progress" aria-valuemin="0" aria-valuemax="100" [attr.aria-valuenow]="v.percent">
+        <div class="srv-bar-fill" [class.ok]="v.outcome === 'ok'" [class.failed]="v.outcome === 'failed'" [style.width.%]="v.percent"></div>
+      </div>
+      <ol class="srv-steps">
+        @for (step of v.steps; track step.label; let i = $index) {
+          <li class="srv-step" [class]="'srv-step ' + step.state" [style.animation-delay.ms]="i * 80">
+            <span class="srv-step-icon" aria-hidden="true">
+              @if (step.state === 'done') { <svg viewBox="0 0 12 12" width="12" height="12"><path d="M2 6.5l2.5 2.5L10 3.5" /></svg> }
+              @if (step.state === 'fail') { ✕ }
+            </span>
+            <span class="srv-step-body">
+              <span class="srv-step-label">{{ step.label }}</span>
+              @if (step.bar !== undefined) {
+                <span class="srv-bar small" role="progressbar" aria-label="Download" aria-valuemin="0" aria-valuemax="100" [attr.aria-valuenow]="step.bar">
+                  <span class="srv-bar-fill" [style.width.%]="step.bar"></span>
+                </span>
+              }
+              @if (step.detail) { <span class="srv-step-detail">{{ step.detail }}@if (step.bar !== undefined) { · {{ step.bar | number: '1.0-0' }}%}</span> }
+            </span>
+          </li>
+        }
+      </ol>
       @if (done()) {
-        <div class="actions"><button type="button" class="action-btn primary" (click)="closeProgress()">Close</button></div>
+        <div class="srv-progress-foot">
+          @if (v.outcome === 'ok') {
+            <span class="srv-progress-msg ok">{{ finalMessage() }}<small>{{ progressKind() === 'PROXIES' ? '' : 'Reload to load it.' }}</small></span>
+            <button type="button" class="action-btn primary" (click)="closeProgress()">{{ progressKind() === 'PROXIES' ? 'Close' : 'Reload' }}</button>
+          } @else {
+            <span class="srv-progress-msg">{{ progressKind() !== 'UPDATE' ? 'Alfred keeps running as it was.' : back() ? 'Alfred is running the version it had.' : 'Nothing was installed. Alfred keeps running the current version.' }}</span>
+            <button type="button" class="action-btn" (click)="closeProgress()">Close</button>
+          }
+        </div>
       }
     </div>
   </div>

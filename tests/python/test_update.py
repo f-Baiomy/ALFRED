@@ -98,6 +98,19 @@ class UpdateJobTest(unittest.TestCase):
         self.assertEqual(home, self.layout.home)
         self.assertTrue(log.endswith("update.log"))
 
+    def test_the_download_reports_its_progress_while_it_runs_not_only_at_the_end(self):
+        """The Server card's download bar re-fetches on each event: bytes must be told during the download."""
+        seen = []
+        events = mock.patch.object(supervisor.Supervisor, "changed_update",
+                                   lambda sup: seen.append((sup.update.status()["state"], sup.update.status()["downloadedBytes"])))
+        events.start()
+        self.addCleanup(events.stop)
+        with mock.patch.object(supervisor.UpdateJob, "PROGRESS_EVERY", 0):
+            self.control("POST", "/update", {"version": "9.9.9", "url": self.url, "sha256": self.sha256, "size": 3 * 1024 * 1024 + 17})
+            self.assertTrue(wait_for(lambda: self.sup.update.status()["state"] == "INSTALLING"), self.sup.update.status())
+        during = [n for state, n in seen if state == "DOWNLOADING"]
+        self.assertEqual([1 << 20, 2 << 20, 3 << 20, 3 * 1024 * 1024 + 17], during)
+
     def test_a_wrong_checksum_never_runs_the_installer(self):
         status, _ = self.control("POST", "/update", {"version": "9.9.9", "url": self.url, "sha256": "00" * 32, "size": 1})
         self.assertEqual(status, 202)
