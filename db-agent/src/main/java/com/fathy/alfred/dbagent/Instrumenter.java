@@ -14,6 +14,8 @@ import net.bytebuddy.matcher.ElementMatcher;
 import net.bytebuddy.utility.JavaModule;
 
 import java.lang.instrument.Instrumentation;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Callable;
 
 import static net.bytebuddy.matcher.ElementMatchers.isAbstract;
@@ -35,6 +37,9 @@ import static net.bytebuddy.matcher.ElementMatchers.takesArguments;
  */
 final class Instrumenter {
 
+    /** Classes per retransformClasses call when attaching to a running app. */
+    static final int RETRANSFORM_BATCH = 50;
+
     private Instrumenter() {
     }
 
@@ -43,10 +48,18 @@ final class Instrumenter {
         AgentBuilder builder = new AgentBuilder.Default()
                 .disableClassFormatChanges()
                 .with(AgentBuilder.RedefinitionStrategy.RETRANSFORMATION)
+                // Attached to a running server, every matching loaded class is retransformed. ByteBuddy's default is
+                // ONE batch for all of them, and the JVM rejects a batch whole: one class it will not retransform (a
+                // generated class, one another agent changed) and no JDBC or servlet class got its advice - with no
+                // word, as the default redefinition listener says nothing. Small batches, split again on failure until
+                // only the class that fails is left out, and a count of what was and was not instrumented.
+                .with(AgentBuilder.RedefinitionStrategy.BatchAllocator.ForFixedSize.ofSize(RETRANSFORM_BATCH))
                 // Classes loaded WHILE others are being retransformed (a driver's ResultSet, loaded to verify its
                 // Statement) slip past the first pass - ByteBuddy will not transform from inside a transformation.
                 // Reiterating discovers again until nothing new is found, so attaching to a running server misses none.
                 .with(AgentBuilder.RedefinitionStrategy.DiscoveryStrategy.Reiterating.INSTANCE)
+                .with(AgentBuilder.RedefinitionStrategy.Listener.BatchReallocator.splitting())
+                .with(new RetransformReport())
                 .with(new ErrorListener())
                 .ignore(nameStartsWith("net.bytebuddy.").or(nameStartsWith("com.fathy.alfred.dbagent.")).or(isSynthetic()))
                 .assureReadEdgeTo(instrumentation, Bridge.class);
@@ -78,6 +91,37 @@ final class Instrumenter {
                                ElementMatcher<? super MethodDescription> methods) {
         return builder.type(types).transform((DynamicType.Builder<?> b, TypeDescription type, ClassLoader loader, JavaModule module,
                                                java.security.ProtectionDomain domain) -> b.visit(Advice.to(advice).on(not(isAbstract()).and(methods))));
+    }
+
+    /**
+     * Says what retransforming the already-loaded classes came to - one line, only when there were any (an attach to a
+     * running app). A batch the JVM refused is split by {@code BatchReallocator} until the refused class is alone; the
+     * classes left in {@code failures} at the end are the ones that run without capture.
+     */
+    static final class RetransformReport extends AgentBuilder.RedefinitionStrategy.Listener.Adapter {
+        @Override
+        public void onComplete(int amount, List<Class<?>> types, Map<List<Class<?>>, Throwable> failures) {
+            if (types.isEmpty()) {
+                return;
+            }
+            AgentLog.info(summary(types.size(), failures));
+        }
+
+        static String summary(int total, Map<List<Class<?>>, Throwable> failures) {
+            int failed = 0;
+            StringBuilder names = new StringBuilder();
+            for (Map.Entry<List<Class<?>>, Throwable> e : failures.entrySet()) {
+                failed += e.getKey().size();
+                for (Class<?> type : e.getKey()) {
+                    if (names.length() < 300) {
+                        names.append(names.length() == 0 ? "" : ", ").append(type.getName())
+                                .append(" (").append(e.getValue().getClass().getSimpleName()).append(')');
+                    }
+                }
+            }
+            String line = "instrumented " + (total - failed) + " of " + total + " already-loaded classes";
+            return failed == 0 ? line : line + " - not instrumented, so not captured: " + names;
+        }
     }
 
     /** Instrumentation failures are reported, never thrown - a class the agent cannot handle is simply not captured. */
