@@ -6,7 +6,21 @@ reach over SSH. The Docker install (`start.py`, `docker-compose.yml`) keeps work
 
 ## Install
 
-On the developer machine, build both installers from the current code (needs only Docker and Python):
+**From a published release, one command** (the machine needs nothing else; `install.sh` / `install.ps1` at the repo
+root read `releases/latest/download/latest.json`, download the target's installer, check its sha256 and run it
+unattended - `ALFRED_RELEASE_URL` points them at another `latest.json`):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/f-Baiomy/ALFRED/master/install.sh | sudo sh                 # Linux x86_64
+curl -fsSL https://raw.githubusercontent.com/f-Baiomy/ALFRED/master/install.sh | sudo sh -s -- --ui-port 3017
+```
+
+```powershell
+irm https://raw.githubusercontent.com/f-Baiomy/ALFRED/master/install.ps1 | iex     # Windows, administrator PowerShell
+$env:ALFRED_INSTALL_ARGS = '/DIR=D:\alfred /UIPORT=3017'; irm https://raw.githubusercontent.com/f-Baiomy/ALFRED/master/install.ps1 | iex
+```
+
+**Building the installers yourself:** on the developer machine, build both installers from the current code (needs only Docker and Python):
 
 ```bash
 python build_dist.py                       # dist/alfred-setup-<version>-linux-x64.run and -windows-x64.exe, SHA256SUMS

@@ -7,7 +7,35 @@ Alfred logs every HTTP/HTTPS request and response around a Java app running on W
 
 See [AGENTS.md](AGENTS.md) for the full architecture map (services, backend modules, frontend structure) — this file only covers day-to-day setup and usage. Agents (Claude Code or otherwise) should start at `AGENTS.md`, not here.
 
-## Quick start
+## Install on any machine (one command)
+
+No Docker, Java, Python or Node needed - the installer brings its own. It installs the latest release as a service
+(UI on **http://localhost:3000**) and upgrades an existing install in place, keeping its settings and data.
+
+**Linux** (x86_64, as root):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/f-Baiomy/ALFRED/master/install.sh | sudo sh
+```
+
+Installer options go after `-s --`, e.g. `... | sudo sh -s -- --dir /opt/alfred --ui-port 3017`
+(also `--user <account>`, `--import-docker <folder>`, `--no-import`).
+
+**Windows** (64-bit, in an **administrator** PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/f-Baiomy/ALFRED/master/install.ps1 | iex
+```
+
+Installer options go in an environment variable first, e.g.
+`$env:ALFRED_INSTALL_ARGS = '/DIR=D:\alfred /UIPORT=3017'` (also `/SERVICEUSER=`, `/IMPORTDOCKER=`).
+
+Both scripts read the latest release's `latest.json`, download the installer it names, **refuse it unless its sha256
+matches**, and run it unattended. For a machine without GitHub access, set `ALFRED_RELEASE_URL` to a `latest.json` on a
+share or mirror. Then: `alfred status`, `alfred config`, `alfred attach` - see [docs/server.md](docs/server.md).
+A release must exist first: `python release.py` cuts one (GitHub Actions builds and publishes the installers).
+
+## Quick start (Docker, from this checkout)
 
 ```bash
 python3 start.py          # one-time+idempotent: WildFly port-offset (if inbound logging is on),
