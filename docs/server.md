@@ -222,10 +222,13 @@ or `alfred config set`):
 **Installing** (the card's *Install update*, or `alfred update`) is a settings write: allowed from the machine and
 the LAN, never through the tunnel. The backend asks the supervisor; the supervisor downloads the installer into
 `data/updates/`, verifies its sha256 against `latest.json` (a mismatch or a missing checksum is refused), and runs
-it detached from Alfred - Windows: silently, outside the job object; Linux: as a transient `systemd-run` unit - so
-stopping the service does not kill the installer. The installer does what it always does: stop, replace the program
-files, keep `.env` and `data/`, start, record `UPGRADE` in the history; a failure puts the previous version back.
-The page reconnects by itself and reports the running version; `data/log/update.log` has the installer's output.
+it outside Alfred's process tree - Windows: started through WMI (`Win32_Process.Create`, its parent is the WMI host),
+because WinSW kills the service's whole process tree by parent pid when the service stops, and a detached child
+of the supervisor died the moment the installer stopped the service; Linux: as a transient `systemd-run` unit. The
+installer does what it always does: stop, replace the program files, keep `.env` and `data/`, start, record
+`UPGRADE` in the history; a failure puts the previous version back. The page reconnects by itself and reports the
+running version - Alfred back on the old version is reported as a failed update. `data/log/update.log` gets a line
+when the installer starts and one with its exit code (0 ok, 1 failed, 5 not an administrator, 6 refused downgrade).
 In Docker mode the row shows the release and points at `python3 deploy.py`; nothing is downloaded.
 
 ## Claude (MCP) on another machine

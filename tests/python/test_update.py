@@ -111,6 +111,39 @@ class UpdateJobTest(unittest.TestCase):
         during = [n for state, n in seen if state == "DOWNLOADING"]
         self.assertEqual([1 << 20, 2 << 20, 3 << 20, 3 * 1024 * 1024 + 17], during)
 
+    def test_on_windows_the_installer_starts_through_wmi_outside_the_services_process_tree(self):
+        """WinSW kills the service's process tree on stop; the installer stops the service first - as our child it died."""
+        calls = []
+
+        class Ok:
+            returncode, stdout, stderr = 0, "", ""
+        folder = os.path.join(self.layout.data, "updates")
+        os.makedirs(folder, exist_ok=True)
+        exe = os.path.join(folder, "alfred-setup-9.9.9-windows-x64.exe")
+        log_path = os.path.join(self.layout.logs, "update.log")
+        started = supervisor._launch_installer_via_wmi(exe, r"C:\alfred", log_path, run=lambda argv, env: calls.append((argv, env)) or Ok())
+        self.assertTrue(started)
+        argv, env = calls[0]
+        self.assertEqual("powershell.exe", argv[0])
+        self.assertIn("Win32_Process", argv[-1])
+        script = os.path.join(folder, "run-installer.cmd")
+        self.assertEqual(f'cmd.exe /c "{script}"', env["ALFRED_UPDATE_COMMAND"])
+        with open(script, encoding="utf-8") as f:
+            text = f.read()
+        self.assertIn(f'start "" /wait "{exe}" /S /DIR=C:\\alfred', text)
+        self.assertIn("exited with %errorlevel%", text)
+        self.assertIn(log_path, text)
+
+    def test_when_wmi_refuses_the_installer_is_launched_directly(self):
+        class Refused:
+            returncode, stdout, stderr = 1, "", "Access denied"
+        exe = os.path.join(self.layout.data, "x.exe")
+        self.assertFalse(supervisor._launch_installer_via_wmi(exe, r"C:\alfred", os.path.join(self.layout.logs, "u.log"),
+                                                               run=lambda argv, env: Refused()))
+
+    def test_a_folder_with_spaces_is_quoted_for_the_installer(self):
+        self.assertIn('/S /DIR="C:\\Program Files\\Alfred"', supervisor.installer_script("x.exe", r"C:\Program Files\Alfred", "u.log"))
+
     def test_a_wrong_checksum_never_runs_the_installer(self):
         status, _ = self.control("POST", "/update", {"version": "9.9.9", "url": self.url, "sha256": "00" * 32, "size": 1})
         self.assertEqual(status, 202)
@@ -144,9 +177,10 @@ class UpdateJobTest(unittest.TestCase):
 class LaunchCommandTest(unittest.TestCase):
     """What is executed, per OS - the processes themselves are not started."""
 
-    def test_windows_runs_the_exe_silently_outside_the_job(self):
+    def test_windows_without_wmi_runs_the_exe_silently_outside_the_job(self):
         calls = []
         with mock.patch.object(supervisor, "WINDOWS", True), \
+                mock.patch.object(supervisor, "_launch_installer_via_wmi", lambda *a: False), \
                 mock.patch.object(supervisor.subprocess, "Popen", lambda *a, **k: calls.append((a, k))), \
                 mock.patch("builtins.open", mock.mock_open()):
             supervisor.launch_installer(r"C:\alfred\data\updates\setup.exe", r"C:\alfred", r"C:\alfred\data\log\update.log")
@@ -163,6 +197,7 @@ class LaunchCommandTest(unittest.TestCase):
             if kwargs["creationflags"] & 0x01000000:
                 raise PermissionError(5, "Access is denied")
         with mock.patch.object(supervisor, "WINDOWS", True), mock.patch.object(supervisor.subprocess, "Popen", popen), \
+                mock.patch.object(supervisor, "_launch_installer_via_wmi", lambda *a: False), \
                 mock.patch("builtins.open", mock.mock_open()):
             supervisor.launch_installer(r"C:\alfred\data\updates\setup.exe", r"C:\alfred", r"C:\alfred\data\log\update.log")
         self.assertEqual(len(calls), 2)

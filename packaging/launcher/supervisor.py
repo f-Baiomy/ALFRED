@@ -524,6 +524,8 @@ def launch_installer(path, home, log_path):
     breaks away from the job object (it would die with the supervisor otherwise); the NSIS installer stops the
     service itself. Linux: a transient systemd unit where there is systemd (stopping alfred.service would kill a
     plain child in the service's cgroup, KillMode=mixed or not), else a new session."""
+    if WINDOWS and _launch_installer_via_wmi(path, home, log_path):
+        return
     with open(log_path, "ab") as log_file:
         if WINDOWS:
             argv = [path, "/S", f"/DIR={home}"]
@@ -548,6 +550,48 @@ def launch_installer(path, home, log_path):
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             return
         subprocess.Popen(command, start_new_session=True, stdin=subprocess.DEVNULL, stdout=log_file, stderr=subprocess.STDOUT)
+
+
+def installer_script(path, home, log_path):
+    """The .cmd that runs the installer and writes to update.log when it started and how it ended - NSIS /S prints
+    nothing, so without it a failed update left an empty log. %errorlevel% in a .cmd is read per line, after the
+    `start /wait`; on a cmd /c line it would be expanded before the installer ran."""
+    folder = f'/DIR="{home}"' if " " in home else f"/DIR={home}"  # the installer's GetOptions takes a quoted value
+    return "\r\n".join([
+        "@echo off",
+        f'echo %date% %time% running "{path}" /S {folder}>> "{log_path}"',
+        f'start "" /wait "{path}" /S {folder}',
+        f'echo %date% %time% the installer exited with %errorlevel% (0 ok, 1 failed, 5 not an administrator, 6 refused downgrade)>> "{log_path}"',
+        "",
+    ])
+
+
+def _launch_installer_via_wmi(path, home, log_path, run=None):
+    """Windows: starts the installer through WMI (Win32_Process.Create), so its parent is the WMI host, not this
+    supervisor. WinSW kills the service's whole process tree when the service stops - by parent pid, which neither
+    DETACHED_PROCESS nor breaking away from the job changes - and the installer's first act is stopping the service:
+    launched as our child, it died right there, before replacing a file (Alfred 3.0.0, 2026-10-08: "Stopping alfred",
+    then nothing, the old version started again). False when WMI is unavailable; the caller then launches directly."""
+    script = os.path.join(os.path.dirname(path), "run-installer.cmd")
+    try:
+        with open(script, "w", encoding="utf-8", newline="") as f:
+            f.write(installer_script(path, home, log_path))
+        command = (
+            "$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create "
+            "-Arguments @{CommandLine = $env:ALFRED_UPDATE_COMMAND}; exit [int]$r.ReturnValue"
+        )
+        env = dict(os.environ, ALFRED_UPDATE_COMMAND=f'cmd.exe /c "{script}"')
+        run = run or (lambda argv, env: subprocess.run(argv, env=env, capture_output=True, text=True, timeout=60))
+        result = run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command], env)
+    except (OSError, subprocess.SubprocessError) as e:
+        log.info("update: could not start the installer through WMI (%s) - launching it directly", e)
+        return False
+    if result.returncode != 0:
+        log.info("update: WMI did not start the installer (%s) - launching it directly",
+                 (result.stderr or result.stdout or f"return value {result.returncode}").strip()[:300])
+        return False
+    log.info("update: installer started through WMI, outside the service's process tree")
+    return True
 
 
 class AgentAttacher:

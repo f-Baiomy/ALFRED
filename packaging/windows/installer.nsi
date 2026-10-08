@@ -88,6 +88,14 @@ Function .onInit
   ${If} $1 != ""
     StrCpy $INSTDIR $1
   ${EndIf}
+  ; /DIR= (documented, and what install.ps1 and the supervisor's update pass) wins over the registry - it used to be
+  ; read by nothing, so a silent install always went to the default folder.
+  ClearErrors
+  ${GetOptions} $R0 "/DIR=" $1
+  ${IfNot} ${Errors}
+  ${AndIf} $1 != ""
+    StrCpy $INSTDIR $1
+  ${EndIf}
 FunctionEnd
 
 Function PortPage
