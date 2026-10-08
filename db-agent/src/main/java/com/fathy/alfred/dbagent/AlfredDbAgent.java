@@ -26,7 +26,22 @@ import java.util.jar.JarOutputStream;
  */
 public final class AlfredDbAgent {
 
-    public static final String VERSION = "1.0.0";
+    /**
+     * "1.0.0", plus "+<content digest>" when loaded from a native install's agents/alfred-agent-<digest>.jar - so Alfred
+     * can tell that the agent in a JVM is an older build than the one it would attach now (a JVM keeps the agent it
+     * first got until it restarts: the same class names cannot be loaded twice).
+     */
+    public static final String VERSION = "1.0.0" + jarSuffix();
+
+    static String jarSuffix() {
+        try {
+            String path = AlfredDbAgent.class.getProtectionDomain().getCodeSource().getLocation().getPath();
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("alfred-agent-([0-9a-f]{16})\\.jar$").matcher(path);
+            return m.find() ? "+" + m.group(1) : "";
+        } catch (Throwable t) {
+            return "";
+        }
+    }
     private AlfredDbAgent() {
     }
 

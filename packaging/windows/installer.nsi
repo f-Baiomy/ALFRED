@@ -386,6 +386,7 @@ Section "Uninstall"
   RMDir /r "$INSTDIR\runtime"
   RMDir /r "$INSTDIR\app"
   RMDir /r "$INSTDIR\service"
+  RMDir /r "$INSTDIR\agents" ; agent copies given to apps (a running app keeps its open copy)
   Delete "$INSTDIR\alfred.cmd"
   Delete "$INSTDIR\settings.properties"
   IfSilent keep

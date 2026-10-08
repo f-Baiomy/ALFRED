@@ -17,10 +17,10 @@ describe('DbCapturePopoverComponent - ▤ Log lines', () => {
     expectedFingerprints: [], ignorePatterns: ['SELECT 1'],
   };
 
-  function create(logsOn: boolean, agentFeatures?: string, attached = true, agents: AgentAttach[] = []) {
+  function create(logsOn: boolean, agentFeatures?: string, attached = true, agents: AgentAttach[] = [], agentVersion?: string) {
     const saved: DbCaptureSettings[] = [];
     const asked: { project: string; features: readonly string[] }[] = [];
-    const agent = agentFeatures === undefined ? undefined : { agentId: 'a1', project: 'odeysys', droppedSinceStart: 0, queuedStatements: 0, features: agentFeatures };
+    const agent = agentFeatures === undefined ? undefined : { agentId: 'a1', project: 'odeysys', droppedSinceStart: 0, queuedStatements: 0, features: agentFeatures, agentVersion };
     TestBed.configureTestingModule({
       imports: [DbCapturePopoverComponent],
       providers: [
@@ -108,6 +108,25 @@ describe('DbCapturePopoverComponent - ▤ Log lines', () => {
       { project: 'odeysys', port: 9001, pid: 53628, state: 'NOT_A_JVM', detail: why, at: null, features: '' },
     ]);
     expect((fixture.nativeElement as HTMLElement).querySelector('.db-why')!.textContent).toContain(why);
+  });
+
+  it('says when the app runs an older agent build than Alfred attaches now - capture works, the new one comes with the next start', () => {
+    TestBed.resetTestingModule();
+    const { fixture } = create(true, 'proxy,db,logs,redis', true, [
+      { project: 'odeysys', port: 9001, pid: 1, state: 'ATTACHED', detail: '', at: null, features: '', jar: 'bbbbbbbbbbbbbbbb' },
+    ]);
+    expect(fixture.componentInstance.olderAgent()).toBeFalse(); // no digest in its version: an agent from before copies
+    TestBed.resetTestingModule();
+    const older = create(true, 'proxy,db,logs,redis', true, [
+      { project: 'odeysys', port: 9001, pid: 1, state: 'ATTACHED', detail: '', at: null, features: '', jar: 'bbbbbbbbbbbbbbbb' },
+    ], '1.0.0+aaaaaaaaaaaaaaaa').fixture;
+    older.detectChanges();
+    expect((older.nativeElement as HTMLElement).querySelector('.db-older')!.textContent).toContain('older build');
+    TestBed.resetTestingModule();
+    const same = create(true, 'proxy,db,logs,redis', true, [
+      { project: 'odeysys', port: 9001, pid: 1, state: 'ATTACHED', detail: '', at: null, features: '', jar: 'bbbbbbbbbbbbbbbb' },
+    ], '1.0.0+bbbbbbbbbbbbbbbb').fixture;
+    expect(same.componentInstance.olderAgent()).toBeFalse();
   });
 
   it('says nothing about the last attempt once the agent is attached', () => {

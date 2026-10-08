@@ -121,7 +121,7 @@ LISTEN 0 4096 *:9001 *:* users:(("java",pid=4242,fd=321))
         self.assertTrue(ok)
         self.assertEqual("PID 68108 (java): Alfred proxy,db,logs,redis", detail)
         argv, env = calls[0]
-        self.assertEqual(["attach", "68108", "--agent", attach_cli.agent_jar(layout), "--args",
+        self.assertEqual(["attach", "68108", "--agent", attach_cli.attached_agent_jar(layout), "--args",
                           "alfredUrl=http://127.0.0.1:3001;project=odeysys;proxy=127.0.0.2:443", "--add", "proxy,db,logs,redis"], argv[3:])
         self.assertEqual("s3cret", env["ALFRED_AGENT_SECRET"])
         self.assertNotIn("s3cret", " ".join(argv))
@@ -155,6 +155,32 @@ class OwnerTest(unittest.TestCase):
         with patch.object(attach_cli, "owner_of", return_value="app"), patch.object(attach_cli, "current_user", return_value="bob"):
             self.assertEqual(attach_cli.main(layout, "attach", ["4242"]), attach_cli.NOT_ALLOWED)
 
+
+
+class AttachedJarTest(unittest.TestCase):
+    """A JVM must never be given the installed jar: an update replacing it under a running agent muted that agent."""
+
+    def test_the_jvm_gets_a_copy_named_by_content_that_an_update_does_not_touch(self):
+        layout = make_layout([])
+        with open(attach_cli.agent_jar(layout), "wb") as f:
+            f.write(b"agent version one")
+        first = attach_cli.attached_agent_jar(layout)
+        self.assertEqual(os.path.join(layout.home, "agents"), os.path.dirname(first))
+        self.assertRegex(os.path.basename(first), r"^alfred-agent-[0-9a-f]{16}\.jar$")
+        self.assertEqual(first, attach_cli.attached_agent_jar(layout), "the same content is the same copy")
+        # an update replaces the installed jar: the running JVM's copy stays as it was, the next JVM gets a new one
+        with open(attach_cli.agent_jar(layout), "wb") as f:
+            f.write(b"agent version two")
+        second = attach_cli.attached_agent_jar(layout)
+        self.assertNotEqual(first, second)
+        with open(first, "rb") as f:
+            self.assertEqual(b"agent version one", f.read())
+        self.assertEqual([], [n for n in os.listdir(os.path.dirname(first)) if n.endswith(".part")])
+
+    def test_without_a_writable_install_folder_the_installed_jar_is_used(self):
+        layout = make_layout([])
+        with patch.object(attach_cli.os, "makedirs", side_effect=PermissionError("denied")):
+            self.assertEqual(attach_cli.agent_jar(layout), attach_cli.attached_agent_jar(layout))
 
 
 class WindowsOwnerTest(unittest.TestCase):

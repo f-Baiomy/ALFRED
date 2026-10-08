@@ -22,9 +22,15 @@ public record ServerStatus(String version, String installDir, RuntimeMode mode, 
 
     /**
      * The supervisor's account of one project's agent: the JVM it found on the project's upstream {@code port}
-     * ({@code pid}, 0 when none), what happened, and the features it loaded ("proxy,db,logs,redis").
+     * ({@code pid}, 0 when none), what happened, the features it loaded ("proxy,db,logs,redis") and {@code jar}: the
+     * content digest of the agent build Alfred attaches now - an agent whose version ends in another digest is an
+     * older build its JVM keeps until it restarts.
      */
-    public record AgentAttach(String project, int port, long pid, AgentAttachState state, String detail, Instant at, String features) {
+    public record AgentAttach(String project, int port, long pid, AgentAttachState state, String detail, Instant at, String features,
+                              String jar) {
+        public AgentAttach(String project, int port, long pid, AgentAttachState state, String detail, Instant at, String features) {
+            this(project, port, pid, state, detail, at, features, "");
+        }
     }
 
     /**

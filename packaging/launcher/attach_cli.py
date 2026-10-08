@@ -31,6 +31,43 @@ def agent_jar(layout):
     return os.path.join(layout.app, "alfred-agent.jar")
 
 
+def agent_digest(path):
+    import hashlib
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()[:16]
+
+
+def attached_agent_jar(layout):
+    """The agent jar a JVM is given: a copy named by its content in <install>/agents, never the installed file.
+
+    A JVM keeps loading the agent's classes from the jar it was given for as long as it runs. Pointed at
+    app/alfred-agent.jar, an Alfred update replaced that file under it: the classes not loaded yet failed with
+    NoClassDefFoundError and the JVM remembers a failed link for good - the agent stayed mute until the app restarted
+    (2026-10-08, 3.0.1 installed under a running WildFly). Installers replace app/ and runtime/, never agents/, so
+    every JVM keeps the copy it got. agents/ sits next to app/ (readable by every user, like app/), not in data/
+    (Administrators and the service only), because the app's own user opens the file. Copies stay: a JVM may run for
+    months on an older one. Falls back to the installed file when the copy cannot be made."""
+    source = agent_jar(layout)
+    try:
+        name = f"alfred-agent-{agent_digest(source)}.jar"
+        folder = os.path.join(layout.home, "agents")
+        target = os.path.join(folder, name)
+        if not os.path.isfile(target):
+            os.makedirs(folder, exist_ok=True)
+            part = target + f".{os.getpid()}.part"
+            shutil.copyfile(source, part)
+            if posix():
+                os.chmod(part, 0o644)
+                os.chmod(folder, 0o755)
+            os.replace(part, target)
+        return target
+    except OSError:
+        return source
+
+
 def ca_file(layout):
     return os.path.join(layout.certs, "mitmproxy-ca-cert.pem")
 
@@ -234,7 +271,7 @@ def attach_pid(layout, settings, pid, project, features):
     does: the install's URL, project and proxy as arguments, the secret and CA in the environment, as the app's
     owner on Linux. Returns (ok, detail) - detail is the CLI's last line when it failed."""
     owner = other_owner(pid)
-    command = ["attach", str(pid), "--agent", agent_jar(layout), "--args", base_args(layout, settings, project)]
+    command = ["attach", str(pid), "--agent", attached_agent_jar(layout), "--args", base_args(layout, settings, project)]
     if features:
         command += ["--add", ",".join(features)]
     result = run_attach_cli(layout, command, owner=owner, env=secrets_env(layout, settings), capture=True, pid=pid)
@@ -320,7 +357,7 @@ def load(layout, attach, args):
         how = f"'sudo alfred {'attach' if attach else 'detach'} ...'" if posix() else "it from an administrator prompt"
         print(f"PID {pid} belongs to {owner}: run {how}.", file=sys.stderr)
         return NOT_ALLOWED
-    command = ["attach" if attach else "detach", pid, "--agent", agent_jar(layout), "--args",
+    command = ["attach" if attach else "detach", pid, "--agent", attached_agent_jar(layout), "--args",
                base_args(layout, settings, project)]
     if features:
         command += ["--add" if attach else "--remove", ",".join(features)]

@@ -155,6 +155,26 @@ Server card and in the ◆ popover - then names both users.
 
 ### The agent attaches itself
 
+**Any order, no restarts.** The app may start before or after Alfred, and Alfred may be updated or reinstalled
+while the app runs:
+- **Never the installed file.** A JVM is never given `app/alfred-agent.jar`. The supervisor attaches a copy named by
+  its content, `agents/alfred-agent-<sha256:16>.jar`. Installers replace `app/` and `runtime/` and never touch
+  `agents/`, so every JVM keeps reading the copy it got.
+- **What went wrong before.** On 2026-10-08 the 3.0.1 installer replaced the jar under a running WildFly. The
+  agent's not-yet-loaded classes failed with `NoClassDefFoundError`, and since a JVM remembers a failed link, that
+  app captured nothing until it restarted.
+- **Where it lives.** `agents/` sits next to `app/`, readable by every user like `app/`, and not in `data/`,
+  because the app's own user opens the file.
+- **A newer build cannot replace an older one in a running JVM.** The same class names can't load twice, so the
+  JVM keeps the older agent, which keeps capturing. The agent's version is `1.0.0+<digest>`; when it differs from the
+  build Alfred attaches now (`jar` on the supervisor's agent entry), the ◆ popover says the current one loads on the
+  app's next start.
+- **Self-heal.** A hook that ever fails between its enter and exit can't mute a server thread for good: the next
+  inbound call on that thread resets the agent's per-thread depths.
+- **Tests.** `db-agent` `LateAttachIT` covers these orders end to end, in a separate JVM over the real Attach API
+  and HTTP sender: attach long after the app started, attach the moment it is up, and a newer build attached into a
+  JVM that already runs one.
+
 Nobody has to run `alfred attach` for a project's capture to work: **a project's app is the JVM listening on its
 upstream port** (`internal_call_services` = `name:listenPort:upstreamPort`), so the supervisor finds it by itself.
 Each project has an **attach mode** (Settings → Database capture → Agent, and the same picker in the ◆ popover of

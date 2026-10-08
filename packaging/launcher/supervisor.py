@@ -617,7 +617,8 @@ class AgentAttacher:
 
     def _set(self, project, **fields):
         with self.lock:
-            entry = self.projects.setdefault(project, {"port": 0, "pid": 0, "state": "NO_JVM", "detail": "", "at": None, "features": ""})
+            entry = self.projects.setdefault(project, {"port": 0, "pid": 0, "state": "NO_JVM", "detail": "", "at": None, "features": "",
+                                                            "jar": ""})
             entry.update(fields, at=now_iso())
         log.info("agent %s: %s%s", project, fields.get("state", "").lower(), f" - {fields['detail']}" if fields.get("detail") else "")
         self.supervisor.changed_agents()
@@ -658,12 +659,22 @@ class AgentAttacher:
             ok, detail = attach_cli.attach_pid(self.supervisor.layout, settings, pid, {"name": project, **_project_fields(settings, project)},
                                                features)
             self._set(project, port=port, pid=pid, state="ATTACHED" if ok else "FAILED", detail="" if ok else detail,
-                      features=",".join(features))
+                      features=",".join(features), jar=_current_agent_digest(self.supervisor.layout))
         except Exception as e:  # noqa: BLE001 - an attach must never take the supervisor down
             self._set(project, port=port, pid=0, state="FAILED", detail=f"{type(e).__name__}: {e}", features="")
         finally:
             with self.lock:
                 self.busy.discard(project)
+
+
+def _current_agent_digest(layout):
+    """The content digest of the agent build Alfred attaches now - an agent reporting another one in its version
+    ("1.0.0+<digest>") is an older build the app keeps until it restarts."""
+    import attach_cli
+    try:
+        return attach_cli.agent_digest(attach_cli.agent_jar(layout))
+    except OSError:
+        return ""
 
 
 def _not_a_jvm(pid, port):

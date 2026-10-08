@@ -40,6 +40,10 @@ import { LOG_LEVEL_CHOICES } from '../../shared/utils/call-log-rows';
           }
         </span>
       </div>
+      @if (olderAgent()) {
+        <div class="db-how db-older" title="A JVM keeps the agent it first got: the same classes cannot be loaded twice">This app runs an older build of Alfred's agent -
+          capture works; the current one loads by itself the next time {{ project() }} starts.</div>
+      }
       @if (whyNotAttached(); as why) {
         <div class="db-how db-why" title="The supervisor's last attach attempt (Settings → Server has every project's)">Last attempt: {{ why }}</div>
       }
@@ -134,6 +138,13 @@ export class DbCapturePopoverComponent implements OnInit {
   readonly attachNote = signal('');
   /** The supervisor's last attempt for this project (native installs only), read when the panel opens. */
   readonly lastAttempt = signal<AgentAttach | null>(null);
+  /** The agent in the app is an older build than the one Alfred attaches now (versions "1.0.0+<content digest>"). */
+  readonly olderAgent = computed(() => {
+    const version = this.status()?.agent?.agentVersion ?? '';
+    const current = this.lastAttempt()?.jar ?? '';
+    const running = version.includes('+') ? version.slice(version.indexOf('+') + 1) : '';
+    return !!this.status()?.attached && !!running && !!current && running !== current;
+  });
   /** Why the supervisor could not attach - e.g. the app runs as another Windows user than Alfred's service. */
   readonly whyNotAttached = computed(() => {
     const a = this.lastAttempt();

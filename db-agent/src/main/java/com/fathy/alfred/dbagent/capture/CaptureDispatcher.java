@@ -101,6 +101,28 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
         this.origins = new OriginTracker(agentId);
     }
 
+    /**
+     * A new inbound call starts on this thread with nothing open: every per-thread depth is 0 by definition. One left
+     * above 0 means a hook failed between its enter and its exit (an agent jar replaced under the JVM gave
+     * NoClassDefFoundError there) - and a pooled server thread would skip every statement for the rest of its life.
+     * Set back here, so one bad moment costs at most that one call.
+     */
+    void resetThreadDepths() {
+        boolean healed = false;
+        for (ThreadLocal<int[]> depth : java.util.Arrays.asList(executeDepth, transactionDepth, acquireDepth, closeDepth, jtaDepth,
+                agentWork, logDepth)) {
+            int[] value = depth.get();
+            if (value[0] != 0) {
+                value[0] = 0;
+                healed = true;
+            }
+        }
+        if (healed) {
+            openTransactions.get().clear();
+            AgentLog.warn("a thread was left inside an unfinished hook - reset, capture continues on it");
+        }
+    }
+
     private boolean agentBusy() {
         return agentWork.get()[0] > 0;
     }
@@ -136,6 +158,7 @@ public final class CaptureDispatcher implements Bridge.Dispatcher {
             if (ContextPropagation.current() != null) {
                 return null; // a forward/include inside a call already tracked
             }
+            resetThreadDepths();
             String header = header(request, CallContext.HEADER);
             // every stamped request says where the Alfred that delivered it is: report there, whatever the arguments said
             AlfredTarget target = AlfredTarget.fromHeader(header);

@@ -128,6 +128,8 @@ export interface AgentAttach {
   detail: string;
   at: string | null;
   features: string;
+  /** Content digest of the agent build Alfred attaches now; an agent version ending in another one is older. */
+  jar?: string;
 }
 
 export interface ServerStatus {

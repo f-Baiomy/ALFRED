@@ -413,7 +413,7 @@ def cmd_uninstall(layout, args):
         if os.path.lexists(path):
             os.remove(path)
     subprocess.run(["systemctl", "daemon-reload"])
-    for folder in ("runtime", "app", "service"):
+    for folder in ("runtime", "app", "service", "agents"):
         shutil.rmtree(os.path.join(layout.home, folder), ignore_errors=True)
     for name in ("alfred", "settings.properties"):
         path = os.path.join(layout.home, name)

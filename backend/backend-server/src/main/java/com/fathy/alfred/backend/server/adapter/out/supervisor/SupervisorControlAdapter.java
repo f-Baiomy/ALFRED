@@ -94,7 +94,8 @@ public class SupervisorControlAdapter implements SupervisorPort {
                     state = ServerStatus.AgentAttachState.UNKNOWN;
                 }
                 out.add(new ServerStatus.AgentAttach(a.path("project").asText(""), a.path("port").asInt(), a.path("pid").asLong(), state,
-                        a.path("detail").asText(""), at == null || at.isEmpty() ? null : Instant.parse(at), a.path("features").asText("")));
+                        a.path("detail").asText(""), at == null || at.isEmpty() ? null : Instant.parse(at), a.path("features").asText(""),
+                        a.path("jar").asText("")));
             }
             return out;
         });
