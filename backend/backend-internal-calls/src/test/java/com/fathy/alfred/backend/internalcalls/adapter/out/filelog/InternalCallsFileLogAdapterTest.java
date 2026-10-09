@@ -571,12 +571,38 @@ class InternalCallsFileLogAdapterTest {
     }
 
     @Test
-    void anOrdinaryPrepareIsNotMergedAndAnOrdinaryCompletionLeavesNoMark() throws Exception {
+    void anOrdinaryPrepareAndCompletionAreStoredOnceAndHoldNothing() throws Exception {
         InternalCallsFileLogAdapter adapter = adapterFor(tempDir.resolve("internal-calls.log"));
         assertThat(adapter.prepareOrMerge(prepared("x"))).isFalse();
         assertThat(adapter.complete("x", new ResponseData(200, null, "ok"), null, 1.0)).isTrue();
-        // A second prepare reusing the id (a client re-sending its X-Request-Id) is held as usual, not merged.
-        assertThat(adapter.prepareOrMerge(prepared("x"))).isFalse();
-        assertThat(pending(adapter)).containsKey("x");
+        assertThat(pending(adapter)).isEmpty();
+        assertThat(adapter.readAll()).extracting(CallRecord::id).containsExactly("x");
+    }
+
+    @Test
+    void aRepeatedCompletionNeverStoresASecondRow() throws Exception {
+        // The proxy retries a completion whose answer it never got - the first attempt may already be stored.
+        InternalCallsFileLogAdapter adapter = adapterFor(tempDir.resolve("internal-calls.log"));
+        adapter.prepare(prepared("x"));
+        assertThat(adapter.complete("x", new ResponseData(200, null, "ok"), null, 1.0)).isTrue();
+
+        assertThat(adapter.complete("x", new ResponseData(200, null, "ok"), null, 1.0)).isTrue();
+
+        assertThat(adapterFor(tempDir.resolve("internal-calls.log")).readAll()).extracting(CallRecord::id).containsExactly("x");
+    }
+
+    @Test
+    void aRepeatedPrepareAfterItsCompletionIsNeverHeldForever() throws Exception {
+        // A prepare that timed out on the proxy side but reached us, retried after the call completed.
+        InternalCallsFileLogAdapter adapter = adapterFor(tempDir.resolve("internal-calls.log"));
+        adapter.prepare(prepared("x"));
+        adapter.complete("x", new ResponseData(200, null, "ok"), null, 1.0);
+
+        assertThat(adapter.prepareOrMerge(prepared("x"))).isTrue();
+        assertThat(adapter.prepareOrMerge(prepared("x"))).isTrue();
+
+        assertThat(pending(adapter)).isEmpty();
+        assertThat(adapter.readAll()).extracting(CallRecord::id).containsExactly("x");
+        assertThat(adapter.findById("x").orElseThrow().response().body()).isEqualTo("ok");
     }
 }

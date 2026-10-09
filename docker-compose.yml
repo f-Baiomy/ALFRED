@@ -29,6 +29,9 @@ services:
       # behaves the same.
       - "127.0.0.2:443:8080"
     environment:
+      # Report failures must show when they happen: under Docker stdout is a pipe and Python block-buffers it,
+      # so on 2026-10-09 they only appeared at the container restart (specs/013-inbound-calls-store).
+      - PYTHONUNBUFFERED=1
       # The proxy only calls the webhook now - backend owns persistence (RECENT_CALLS.log).
       # Container-name DNS works because both services share alfred-net. WEBHOOK_SECRET is a
       # placeholder - use a real secret for any deployment reachable outside a trusted docker
@@ -92,6 +95,7 @@ services:
       - 1.1.1.1
     volumes:
       - ./proxy/log_and_route.py:/home/mitmproxy/log_and_route.py:ro
+      - ./proxy/webhooks.py:/home/mitmproxy/webhooks.py:ro
       - ./proxy/interception.py:/home/mitmproxy/interception.py:ro
       - ./proxy/relive.py:/home/mitmproxy/relive.py:ro
       - ./proxy/regex_worker.py:/home/mitmproxy/regex_worker.py:ro
@@ -152,6 +156,9 @@ services:
     profiles:
       - inbound-logging
     environment:
+      # Report failures must show when they happen: under Docker stdout is a pipe and Python block-buffers it,
+      # so on 2026-10-09 they only appeared at the container restart (specs/013-inbound-calls-store).
+      - PYTHONUNBUFFERED=1
       - WEBHOOK_URL=http://backend:5000/internal-calls/webhook
       - WEBHOOK_SECRET=change-me-in-production
       - TOGGLE_FILE=/home/mitmproxy/reverse-proxy-enabled.flag
@@ -195,6 +202,7 @@ services:
       - BACKEND_HOST=backend
     volumes:
       - ./proxy/log_and_route_reverse.py:/home/mitmproxy/log_and_route_reverse.py:ro
+      - ./proxy/webhooks.py:/home/mitmproxy/webhooks.py:ro
       - ./proxy/interception.py:/home/mitmproxy/interception.py:ro
       - ./proxy/relive.py:/home/mitmproxy/relive.py:ro
       - ./proxy/regex_worker.py:/home/mitmproxy/regex_worker.py:ro

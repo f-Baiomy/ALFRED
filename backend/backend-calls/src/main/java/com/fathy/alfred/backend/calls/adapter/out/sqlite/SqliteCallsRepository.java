@@ -552,11 +552,15 @@ public class SqliteCallsRepository implements StorageBudgetPort {
                                session_id, operation_id, service_name, resend_of, resend_edits, relive_json,
                                parent_call_id, parent_seq)
             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(id) DO NOTHING
             """;
 
-    private static final String INSERT_REQUEST_SQL = "INSERT INTO call_request (call_id, headers, body) VALUES (?,?,?)";
+    // ON CONFLICT DO NOTHING: the proxy retries a prepare whose answer it never got (specs/013-inbound-calls-store), and
+    // the first attempt may already be stored. A plain INSERT failed the repeat on the primary key with a 500 - which the
+    // proxy then retried three more times - while the call itself was already there.
+    private static final String INSERT_REQUEST_SQL = "INSERT INTO call_request (call_id, headers, body) VALUES (?,?,?) ON CONFLICT(call_id) DO NOTHING";
 
-    private static final String INSERT_RESPONSE_SQL = "INSERT INTO call_response (call_id, headers, body) VALUES (?,?,?)";
+    private static final String INSERT_RESPONSE_SQL = "INSERT INTO call_response (call_id, headers, body) VALUES (?,?,?) ON CONFLICT(call_id) DO NOTHING";
 
     /** Binds one call's metadata-table columns - runs on insertWriter's single dedicated thread. */
     private void bindMetadata(PreparedStatement ps, CallRecord call) throws SQLException {

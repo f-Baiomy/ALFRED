@@ -66,6 +66,7 @@ from mitmproxy import ctx, http
 import breakpoints
 import interception
 import relive
+import webhooks
 import ws_messages
 
 # Max characters to log per body. 0 (the default) means no truncation -
@@ -79,11 +80,12 @@ BODY_LIMIT = int(os.environ.get('BODY_LIMIT', '0'))
 # async via the one shared background queue+thread below (see module docstring).
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL')
 WEBHOOK_SECRET = os.environ.get('WEBHOOK_SECRET', '')
-WEBHOOK_TIMEOUT_SECONDS = 2
+# How long one report attempt waits - see webhooks.py for why it is 15 s and retried, not 2 s once.
+WEBHOOK_TIMEOUT_SECONDS = float(os.environ.get('WEBHOOK_TIMEOUT_SECONDS', '15'))
 # Kept as a separate, still-overridable constant even though prepare is no
 # longer on the blocking path, since it's a distinct request shape/endpoint
 # from complete and may warrant a different timeout later.
-PREPARE_TIMEOUT_SECONDS = float(os.environ.get('PREPARE_TIMEOUT_SECONDS', '2'))
+PREPARE_TIMEOUT_SECONDS = float(os.environ.get('PREPARE_TIMEOUT_SECONDS', '15'))
 
 # "name:internalPort" pairs, comma-separated - built by start.py/restart.py from
 # settings.properties's internal_call_services (its optional 4th/5th fields,
@@ -128,34 +130,14 @@ _webhook_queue = queue.Queue()
 
 def _webhook_worker():
     while True:
-        phase, call_id, data = _webhook_queue.get()
-        if phase == 'prepare':
-            url = f'{WEBHOOK_URL}/prepare'
-        elif phase == 'ws-messages':
-            url = f'{WEBHOOK_URL}/{call_id}/ws-messages'
-        else:
-            url = f'{WEBHOOK_URL}/{call_id}/complete'
+        item = _webhook_queue.get()
+        if item is None:  # stop (tests)
+            return
+        phase, call_id, data = item
         timeout = PREPARE_TIMEOUT_SECONDS if phase == 'prepare' else WEBHOOK_TIMEOUT_SECONDS
-        try:
-            request = urllib.request.Request(
-                url,
-                data=json.dumps(data).encode('utf-8'),
-                headers={
-                    'Content-Type': 'application/json',
-                    'X-Webhook-Secret': WEBHOOK_SECRET,
-                },
-                method='POST',
-            )
-            urllib.request.urlopen(request, timeout=timeout)
-        except Exception as e:
-            # A webhook failure must never affect proxying - it just means
-            # this particular call's outcome never reaches backend. For
-            # complete specifically, the call then stays logged as
-            # in-progress forever - see the two-phase logging plan for why
-            # that's an accepted gap, not handled here. A prepare failure
-            # means a later complete() call for the same id just 404s
-            # (backend never saw the prepare), logged the same harmless way.
-            print(f"[webhook] {phase} failed to notify {WEBHOOK_URL} for {call_id}: {e}")
+        # A report that still fails after its retries never affects proxying - the call's outcome just never reaches
+        # backend (an outbound complete without its prepare 404s; the call stays in progress). See webhooks.py.
+        webhooks.send(WEBHOOK_URL, WEBHOOK_SECRET, phase, call_id, data, timeout)
 
 
 if WEBHOOK_URL:

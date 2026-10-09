@@ -84,6 +84,12 @@ class ProcessSpecsTest(unittest.TestCase):
         for name in ("OUTBOUND", "REVERSE"):
             self.assertEqual(specs[name]["env"]["PYTHONPATH"], os.path.join(layout.app, "proxy"), name)
 
+    def test_proxies_print_report_failures_as_they_happen(self):
+        # specs/013-inbound-calls-store: a buffered stdout hid failed reports until the process stopped.
+        _, specs = self.specs("REVERSE_PROXY_ENABLED=true", "INTERNAL_CALL_SERVICES=a:9001:8080")
+        for name in ("OUTBOUND", "REVERSE"):
+            self.assertEqual(specs[name]["env"]["PYTHONUNBUFFERED"], "1", name)
+
     def test_log_agent_only_when_folders_exist_and_mode_is_agent(self):
         _, specs = self.specs("ALFRED_LOGS_WATCH_DIRS=app:/var/log/app", "ALFRED_LOGS_WATCH_MODE=agent")
         self.assertIsNotNone(specs["LOG_AGENT"])

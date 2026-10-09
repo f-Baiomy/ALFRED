@@ -813,6 +813,23 @@ class SqliteCallsRepositoryTest {
     }
 
     @Test
+    void aRepeatedPrepareOrCompletionKeepsOneRowAndItsOutcome() throws Exception {
+        // The proxy retries a report whose answer it never got; the first attempt may already be stored.
+        SqliteCallsRepository repo = repositoryFor(tempDir.resolve("calls.db"));
+        CallRecord prepared = preparedCall(UUID.randomUUID().toString(), "https://a.com/x");
+        repo.save(prepared);
+        assertThat(repo.complete(prepared.id(), new ResponseData(200, null, "ok"), null, 5.0, null, null, null)).isTrue();
+
+        repo.save(prepared);
+        assertThat(repo.complete(prepared.id(), new ResponseData(200, null, "ok"), null, 5.0, null, null, null)).isTrue();
+
+        assertThat(repo.readAll()).extracting(CallRecord::id).containsExactly(prepared.id());
+        CallRecord found = repo.findById(prepared.id()).orElseThrow();
+        assertThat(found.state()).isEqualTo(CallLifecycleStatus.COMPLETED);
+        assertThat(found.response().body()).isEqualTo("ok");
+    }
+
+    @Test
     void savingAPreparedCallPersistsItInProgressWithNoResponseYet() throws Exception {
         SqliteCallsRepository repo = repositoryFor(tempDir.resolve("calls.db"));
         CallRecord prepared = preparedCall(UUID.randomUUID().toString(), "https://a.com/x");

@@ -411,13 +411,18 @@ public class InternalCallsFileLogAdapter implements CallLogPort, RetentionPort {
     }
 
     /**
-     * Calls whose completion was stored without their prepare (newest last, bounded). The proxy sends prepare, then
-     * complete, one after the other - but prepare has a 2 s timeout, and when the backend stalls past it (a long GC
-     * pause) the proxy gives up and sends complete while the late prepare is still on its way: the two then race,
-     * complete stored a bare response (no URL, method or time - one such row failed every log search), and the late
-     * prepare sat in {@link #pendingById} forever, waiting for a completion that had already happened.
+     * Calls completed recently (newest last, bounded): a completion seen here again, or a prepare arriving for one of
+     * them, is a repeat of a report already stored - never a new call.
+     *
+     * <p>The proxy sends prepare, then complete, one after the other, and retries a report that failed (timeout,
+     * 5xx). Two things follow. A prepare that timed out on the proxy side may still reach the backend - after its
+     * completion: complete found nothing pending and stored the call from the completion alone, and the late prepare
+     * used to sit in {@link #pendingById} forever, waiting for a completion that had already happened. And a retried
+     * report may repeat one the backend already stored: a second complete used to append a second line for the same
+     * call. A late prepare now fills the request into the stored line when it is still missing; any other repeat is
+     * acknowledged without writing.
      */
-    private final Map<String, Boolean> completedWithoutPrepare = Collections.synchronizedMap(new java.util.LinkedHashMap<>() {
+    private final Map<String, Boolean> recentlyCompleted = Collections.synchronizedMap(new java.util.LinkedHashMap<>() {
         @Override
         protected boolean removeEldestEntry(Map.Entry<String, Boolean> eldest) {
             return size() > 1000;
@@ -433,14 +438,15 @@ public class InternalCallsFileLogAdapter implements CallLogPort, RetentionPort {
     /**
      * Not synchronized, like prepare always was (a prepare must not wait for another call's disk write). Each side
      * writes its own mark before reading the other's - this one {@link #pendingById}, {@link #complete}
-     * {@link #completedWithoutPrepare} - so at least one of them sees the other, and the atomic remove from
+     * {@link #recentlyCompleted} - so at least one of them sees the other, and the atomic remove from
      * pendingById decides which one carries on.
      */
     @Override
     public boolean prepareOrMerge(CallRecord call) {
         pendingById.put(call.id(), call);
-        if (completedWithoutPrepare.containsKey(call.id()) && pendingById.remove(call.id(), call)) {
-            return mergeLatePrepare(call);
+        if (recentlyCompleted.containsKey(call.id()) && pendingById.remove(call.id(), call)) {
+            mergeLatePrepare(call);
+            return true;
         }
         return false;
     }
@@ -466,10 +472,12 @@ public class InternalCallsFileLogAdapter implements CallLogPort, RetentionPort {
             pendingById.remove(id);
             return false;
         }
-        completedWithoutPrepare.put(id, Boolean.TRUE);
+        boolean repeat = recentlyCompleted.put(id, Boolean.TRUE) != null;
         CallRecord partial = pendingById.remove(id);
-        if (partial != null) {
-            completedWithoutPrepare.remove(id);
+        if (partial == null && repeat) {
+            // A retried completion of a call already stored (its first attempt reached us, the answer did not reach the
+            // proxy): acknowledged, not written twice.
+            return true;
         }
         boolean wasPending = partial != null;
         boolean hasError = error != null && !error.isBlank();
@@ -486,7 +494,7 @@ public class InternalCallsFileLogAdapter implements CallLogPort, RetentionPort {
                         partial.timestamp(), durationMs, response, error, state, partial.sessionId(), partial.operationId(), partial.serviceName(),
                         null, partial.resendOf(), partial.resendEdits(), partial.relive(), reachedUpstream)
                 // Degraded fallback: this process never saw the matching prepare() (restarted in between, or the
-                // prepare is late - see completedWithoutPrepare). The proxy's own view of the call names it; only
+                // prepare is late - see recentlyCompleted). The proxy's own view of the call names it; only
                 // the request headers and body are missing (a late prepare fills them in). relive unknown here.
                 : known != null
                 ? new CallRecord(id, known.originalUrl(), known.url(), known.method(), null, known.timestamp(), durationMs,
@@ -504,7 +512,6 @@ public class InternalCallsFileLogAdapter implements CallLogPort, RetentionPort {
      * row is gone (trimmed, deleted).
      */
     private synchronized boolean mergeLatePrepare(CallRecord prepared) {
-        completedWithoutPrepare.remove(prepared.id());
         List<CachedLine> lines = loadLines();
         int at = -1;
         for (int i = lines.size() - 1; i >= 0; i--) {
@@ -518,6 +525,9 @@ public class InternalCallsFileLogAdapter implements CallLogPort, RetentionPort {
             return false;
         }
         CallRecord stored = lines.get(at).record();
+        if (stored.request() != null) {
+            return false; // a repeat of a prepare already in the line - nothing to add
+        }
         CallRecord merged = new CallRecord(stored.id(), prepared.originalUrl(), prepared.url(), prepared.method(), prepared.request(),
                 prepared.timestamp(), stored.durationMs(), stored.response(), stored.error(), stored.state(),
                 prepared.sessionId(), prepared.operationId(), prepared.serviceName(), stored.interception(),
@@ -810,6 +820,7 @@ public class InternalCallsFileLogAdapter implements CallLogPort, RetentionPort {
         }
         invalidateCache();
         pendingById.clear();
+        recentlyCompleted.clear();
         // The log is gone - tombstones have nothing left to hide.
         reliveDeletedCallIds.clear();
         try {

@@ -1,0 +1,76 @@
+# Inbound E2E stack (specs/013-inbound-calls-store, research R9) - an isolated copy of the real docker-compose.yml:
+#
+#   docker compose -p alfred-e2e --env-file tests/e2e/e2e.env -f docker-compose.yml -f tests/e2e/compose.e2e.yml up -d
+#
+# It reuses the shipped service definitions and only renames, re-ports and re-homes them, so the owner's running
+# Alfred is never touched: own container names, own host ports, own data under tests/e2e/.work/ (the project name
+# prefixes the named volumes and the network). Frontend and gateway are not started - the suite talks to the API.
+# Paths are relative to the repo root (the first -f file's folder).
+
+services:
+  proxy:
+    container_name: !override alfred-e2e-proxy
+    restart: !override "no"
+    ports: !override
+      - "127.0.0.3:18443:8080"
+    environment:
+      - WEBHOOK_SECRET=e2e
+    volumes:
+      - ./tests/e2e/.work/interception:/home/mitmproxy/interception:rw
+      - ./tests/e2e/.work/certs:/home/mitmproxy/.mitmproxy
+
+  reverse-proxy:
+    container_name: !override alfred-e2e-reverse-proxy
+    restart: !override "no"
+    ports: !override
+      - "127.0.0.1:18080:18080"
+    environment:
+      - WEBHOOK_SECRET=e2e
+      - REVERSE_PROXY_UPSTREAM_HOST=e2e-upstream
+      - ALFRED_AGENT_URL=http://127.0.0.1:15000
+    volumes:
+      - ./tests/e2e/.work/interception:/home/mitmproxy/interception:rw
+      - ./tests/e2e/.work/flags/reverse-proxy-enabled.flag:/home/mitmproxy/reverse-proxy-enabled.flag
+      - ./tests/e2e/.work/flags/db-capture-enabled.flag:/home/mitmproxy/db-capture-enabled.flag
+      - ./tests/e2e/.work/flags/log-link-enabled.flag:/home/mitmproxy/log-link-enabled.flag
+      - ./tests/e2e/.work/flags/redis-capture-enabled.flag:/home/mitmproxy/redis-capture-enabled.flag
+      - ./tests/e2e/.work/certs:/home/mitmproxy/.mitmproxy
+    depends_on:
+      - e2e-upstream
+
+  backend:
+    container_name: !override alfred-e2e-backend
+    restart: !override "no"
+    ports: !override
+      - "127.0.0.1:15000:5000"
+    environment:
+      - WEBHOOK_SECRET=e2e
+      - INTERNAL_CALLS_STORAGE=${INTERNAL_CALLS_STORAGE:-sqlite}
+      - INTERNAL_CALLS_MAX_SIZE_BYTES=${INTERNAL_CALLS_MAX_SIZE_BYTES:-10737418240}
+    volumes:
+      - ./tests/e2e/.work/data:/appdata
+      - ./tests/e2e/.work/logs:/logs:ro
+      - ./tests/e2e/.work/flags/reverse-proxy-enabled.flag:/appdata/reverse-proxy-enabled.flag
+      - ./tests/e2e/.work/flags/db-capture-enabled.flag:/appdata/db-capture-enabled.flag
+      - ./tests/e2e/.work/flags/log-link-enabled.flag:/appdata/log-link-enabled.flag
+      - ./tests/e2e/.work/flags/redis-capture-enabled.flag:/appdata/redis-capture-enabled.flag
+      - ./tests/e2e/.work/interception:/appdata/interception
+      - ./tests/e2e/.work/certs:/appdata/mitm-certs:ro
+
+  frontend:
+    container_name: !override alfred-e2e-frontend
+    profiles: !override ["never"]
+
+  app-gateway:
+    container_name: !override alfred-e2e-app-gateway
+    profiles: !override ["never"]
+    ports: !override []
+
+  e2e-upstream:
+    image: python:3.12-alpine
+    container_name: alfred-e2e-upstream
+    command: ["python", "/app/upstream_app.py"]
+    volumes:
+      - ./tests/e2e/upstream_app.py:/app/upstream_app.py:ro
+    networks:
+      - alfred-net

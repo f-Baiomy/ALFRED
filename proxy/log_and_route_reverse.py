@@ -46,13 +46,15 @@ from mitmproxy import ctx, http
 import breakpoints
 import interception
 import relive
+import webhooks
 import ws_messages
 
 BODY_LIMIT = int(os.environ.get('BODY_LIMIT', '0'))
 
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL')
 WEBHOOK_SECRET = os.environ.get('WEBHOOK_SECRET', '')
-WEBHOOK_TIMEOUT_SECONDS = 2
+# How long one report attempt waits - see webhooks.py for why it is 15 s and retried, not 2 s once.
+WEBHOOK_TIMEOUT_SECONDS = float(os.environ.get('WEBHOOK_TIMEOUT_SECONDS', '15'))
 # Where the db-agent inside the application should report, as the application's host reaches it - stamped into
 # X-Alfred-Call (alfred=) so an agent loaded with stale arguments (another port, a Docker install that is gone)
 # follows the Alfred whose proxy actually delivers its calls. Natively the supervisor sets it to the UI address;
@@ -61,7 +63,7 @@ AGENT_URL = os.environ.get('ALFRED_AGENT_URL', '')
 # How long an agent key stamped into X-Alfred-Call stays valid (backend checks the same window).
 AGENT_KEY_VALID_SECONDS = 24 * 3600
 AGENT_KEY_ROTATE_SECONDS = 3600
-PREPARE_TIMEOUT_SECONDS = float(os.environ.get('PREPARE_TIMEOUT_SECONDS', '2'))
+PREPARE_TIMEOUT_SECONDS = float(os.environ.get('PREPARE_TIMEOUT_SECONDS', '15'))
 
 # Fallback label for a flow whose arrival port isn't in PORT_MAP. Shouldn't normally happen
 # (this process only listens on ports that ARE in the map), so it exists to keep an unexpected
@@ -113,36 +115,17 @@ BACKEND_ADDRESSES = interception.resolve_backend_addresses()
 _webhook_queue = queue.Queue()
 
 
-def _send_webhook(phase, call_id, data):
-    if phase == 'prepare':
-        url = f'{WEBHOOK_URL}/prepare'
-    elif phase == 'ws-messages':
-        url = f'{WEBHOOK_URL}/{call_id}/ws-messages'
-    else:
-        url = f'{WEBHOOK_URL}/{call_id}/complete'
+def _send_webhook(phase, call_id, data, retries=True):
     timeout = PREPARE_TIMEOUT_SECONDS if phase == 'prepare' else WEBHOOK_TIMEOUT_SECONDS
-    try:
-        request = urllib.request.Request(
-            url,
-            data=json.dumps(data).encode('utf-8'),
-            headers={
-                'Content-Type': 'application/json',
-                'X-Webhook-Secret': WEBHOOK_SECRET,
-            },
-            method='POST',
-        )
-        urllib.request.urlopen(request, timeout=timeout)
-    except urllib.error.HTTPError as e:
-        print(f"[webhook] {phase} failed to notify {WEBHOOK_URL} for {call_id}: HTTP {e.code} {e.reason}")
-    except Exception as e:
-        # A timeout names itself: a prepare that timed out may still reach the backend, after its completion.
-        kind = 'timed out' if isinstance(e, TimeoutError) or 'timed out' in str(e) else type(e).__name__
-        print(f"[webhook] {phase} failed to notify {WEBHOOK_URL} for {call_id}: {kind}: {e}")
+    return webhooks.send(WEBHOOK_URL, WEBHOOK_SECRET, phase, call_id, data, timeout, retries=retries)
 
 
 def _webhook_worker():
     while True:
-        phase, call_id, data = _webhook_queue.get()
+        item = _webhook_queue.get()
+        if item is None:  # stop (tests)
+            return
+        phase, call_id, data = item
         _send_webhook(phase, call_id, data)
 
 
@@ -330,7 +313,10 @@ class RouteAndLog:
             # The application can issue a supplier call as soon as this inbound request arrives.
             # Register the parent with Relive before forwarding so that child is replayed instead
             # of escaping as an unattributed real call.
-            await asyncio.to_thread(_send_webhook, 'prepare', call_id, call_log)
+            # Tried once here - a retry would hold the request; a failure goes to the worker for its retries, still
+            # ahead of this call's complete (one FIFO worker).
+            if await asyncio.to_thread(_send_webhook, 'prepare', call_id, call_log, False) == webhooks.RETRYABLE:
+                _webhook_queue.put_nowait(('prepare', call_id, call_log))
         else:
             _webhook_queue.put_nowait(('prepare', call_id, call_log))
 

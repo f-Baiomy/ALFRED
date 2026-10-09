@@ -72,6 +72,8 @@ logs-watch-demo/
 
 # Native installers (specs/012-server-program): download cache, staging folders and output of build_dist.py
 build-cache/
+# inbound E2E stack data (tests/e2e/run_inbound_e2e.sh), recreated every run
+tests/e2e/.work/
 build/
 dist/
 attach-cli/target/
