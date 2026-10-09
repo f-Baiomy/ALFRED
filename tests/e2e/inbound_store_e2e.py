@@ -280,6 +280,9 @@ def e6():
 
     if not step("E6 stack with a legacy inbound file starts", fresh_stack(seed=seed)):
         return
+    # The move runs in the background (the backend answers from the start); it is done when the file is renamed.
+    done = wait(lambda: os.path.exists(os.path.join(WORK, "data", "internal-calls.log.migrated")), 300)
+    step("E6 the backend answers while the move runs, and the move finishes", done)
     code, page = call("GET", "/internal-calls?sort=oldest&limit=200")
     ids = [c["id"] for c in page.get("calls", [])]
     # The file store served its newest 50 lines (30..79); of those, line 40 is malformed and legacy-078 was deleted

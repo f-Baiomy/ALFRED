@@ -46,6 +46,9 @@ public class SqliteInternalCallLogAdapter implements CallLogPort, RetentionPort 
 
     private static final Logger log = LoggerFactory.getLogger(SqliteInternalCallLogAdapter.class);
 
+    /** Calls per migration transaction - kept small so the write lock is never held long while new calls arrive. */
+    private static final int MIGRATION_BATCH = 100;
+
     private final SqliteInternalCallsRepository repository;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -61,14 +64,27 @@ public class SqliteInternalCallLogAdapter implements CallLogPort, RetentionPort 
     }
 
     /**
-     * Moves internal-calls.log into the database once (research R6). Only the calls the file store was serving are
-     * moved - its newest {@code retentionRows} lines (older lines were only waiting for the next compaction) - minus
-     * the ones a Relive run delete tombstoned. The lines are located by byte offset in one streaming pass, so the
-     * 467 MB file is never held in memory; each is then parsed and inserted oldest first. An id already in the
-     * database is skipped, and renaming the file to *.migrated is the completion mark: a move interrupted half way is
-     * finished on the next start without duplicates.
+     * Moves internal-calls.log into the database once (research R6), in the background: the backend answers - and
+     * stores new calls - from the start. The first move on the owner's install (6,751 calls, 467 MB, Docker Desktop
+     * bind mount) took 18-23 minutes, all of it with the backend not answering and the proxies giving up reports.
      */
     @PostConstruct
+    void migrateInBackground() {
+        if (!Files.exists(Path.of(legacyFile))) {
+            return;
+        }
+        Thread mover = new Thread(this::migrateLegacyFileIfPresent, "internal-calls-migration");
+        mover.setDaemon(true);
+        mover.start();
+    }
+
+    /**
+     * Only the calls the file store was serving are moved - its newest {@code retentionRows} lines (older lines were
+     * only waiting for the next compaction) - minus the ones a Relive run delete tombstoned. The lines are located by
+     * byte offset in one streaming pass, so the file is never held in memory; each is parsed and inserted oldest first
+     * at a negative rowid fixed by its position, so moved calls sort before every new call and a move interrupted half
+     * way, run again, puts each call back on its own row. Renaming the file to *.migrated marks the move done.
+     */
     void migrateLegacyFileIfPresent() {
         Path path = Path.of(legacyFile);
         if (!Files.exists(path)) {
@@ -88,8 +104,13 @@ public class SqliteInternalCallLogAdapter implements CallLogPort, RetentionPort 
                 }
             }
             int keep = Math.max(1, repository.retentionRows());
+            List<CallRecord> batch = new ArrayList<>(MIGRATION_BATCH);
+            List<long[]> spans = lastNonEmptyLines(path, keep);
+            long rowid = -spans.size();
+            long batchRowid = rowid;
             try (SeekableByteChannel channel = Files.newByteChannel(path, StandardOpenOption.READ)) {
-                for (long[] span : lastNonEmptyLines(path, keep)) {
+                for (long[] span : spans) {
+                    long lineRowid = rowid++;
                     ByteBuffer buffer = ByteBuffer.allocate((int) span[1]);
                     channel.position(span[0]);
                     while (buffer.hasRemaining() && channel.read(buffer) > 0) {
@@ -107,11 +128,26 @@ public class SqliteInternalCallLogAdapter implements CallLogPort, RetentionPort 
                     } else if (deleted.contains(call.id())) {
                         continue;
                     }
-                    repository.insertMigrated(call);
-                    moved++;
+                    if (batch.isEmpty()) {
+                        batchRowid = lineRowid;
+                    } else if (lineRowid != batchRowid + batch.size()) {
+                        // a skipped line (malformed, deleted) breaks the run of rowids: write what is consecutive
+                        repository.insertMigrated(batch, batchRowid);
+                        moved += batch.size();
+                        batch.clear();
+                        batchRowid = lineRowid;
+                    }
+                    batch.add(call);
+                    if (batch.size() == MIGRATION_BATCH) {
+                        repository.insertMigrated(batch, batchRowid);
+                        moved += batch.size();
+                        batch.clear();
+                    }
                 }
             }
-        } catch (IOException e) {
+            repository.insertMigrated(batch, batchRowid);
+            moved += batch.size();
+        } catch (IOException | RuntimeException e) {
             log.error("Could not move {} into internal-calls.db (will retry on the next start): {}", path, e.getMessage());
             return;
         }

@@ -137,8 +137,13 @@ public class SqliteInternalCallsRepository {
         HikariConfig config = new HikariConfig();
         // Per-connection pragmas go in the URL - this driver only runs the first statement of a compound
         // connectionInitSql (see backend-calls' SqliteCallsRepository.init for how that was found).
-        config.setJdbcUrl("jdbc:sqlite:" + path + "?journal_mode=WAL&synchronous=NORMAL&busy_timeout=10000&foreign_keys=true");
-        config.setMaximumPoolSize(20);
+        // cache_size: 16 MB per connection instead of SQLite's 2 MB. On the Docker Desktop bind mount every page read
+        // crosses the VM boundary, and with the metadata of 6,751 calls (~5 MB) not fitting the default cache, paging
+        // the live list took 5.5 s for 34 pages; 8-16 MB made it 0.38 s (measured 2026-10-09). Ten connections keep
+        // the worst case at 160 MB outside the heap - the container leaves 512 MB there.
+        config.setJdbcUrl("jdbc:sqlite:" + path + "?journal_mode=WAL&synchronous=NORMAL&busy_timeout=10000&foreign_keys=true"
+                + "&cache_size=-16000");
+        config.setMaximumPoolSize(10);
         config.setPoolName("internal-calls-sqlite-pool");
         this.dataSource = new HikariDataSource(config);
         this.jdbcTemplate = new JdbcTemplate(dataSource);
@@ -298,11 +303,19 @@ public class SqliteInternalCallsRepository {
             + " FROM internal_call_metadata m LEFT JOIN internal_call_request q ON q.call_id = m.id"
             + " LEFT JOIN internal_call_response r ON r.call_id = m.id WHERE m.id = ?";
 
+    /**
+     * The rowid a new call gets: always positive. Calls moved from internal-calls.log sit at negative rowids (see
+     * insertMigrated), and SQLite's own choice - max + 1 - would land a new call inside that range while only moved
+     * calls exist, colliding with a call the move has yet to write.
+     */
+    private static final String NEXT_ROWID = "(SELECT max(coalesce(max(rowid), 0), 0) + 1 FROM internal_call_metadata)";
+
     /** The request side only; an outcome already stored (the completion came first) is kept. */
     private static final String UPSERT_PREPARED_SQL = """
-            INSERT INTO internal_call_metadata (id, original_url, url, method, timestamp, timestamp_millis, status_state,
+            INSERT INTO internal_call_metadata (rowid, id, original_url, url, method, timestamp, timestamp_millis, status_state,
                 session_id, operation_id, service_name, supplier, supplier_name, resend_of, resend_edits, relive_json, prepared)
-            VALUES (?,?,?,?,?,?,'IN_PROGRESS',?,?,?,?,?,?,?,?,1)
+            VALUES (""" + NEXT_ROWID + """
+            ,?,?,?,?,?,?,'IN_PROGRESS',?,?,?,?,?,?,?,?,1)
             ON CONFLICT(id) DO UPDATE SET original_url = excluded.original_url, url = excluded.url, method = excluded.method,
                 timestamp = excluded.timestamp, timestamp_millis = excluded.timestamp_millis, session_id = excluded.session_id,
                 operation_id = excluded.operation_id, service_name = excluded.service_name, supplier = excluded.supplier,
@@ -315,10 +328,11 @@ public class SqliteInternalCallsRepository {
 
     /** The outcome side only; the identity fills in only what a prepare has not already written. */
     private static final String UPSERT_COMPLETED_SQL = """
-            INSERT INTO internal_call_metadata (id, original_url, url, method, timestamp, timestamp_millis, session_id,
+            INSERT INTO internal_call_metadata (rowid, id, original_url, url, method, timestamp, timestamp_millis, session_id,
                 operation_id, service_name, supplier, duration_ms, status, status_rank, status_state, error, interception,
                 reached_upstream, completed)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)
+            VALUES (""" + NEXT_ROWID + """
+            ,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)
             ON CONFLICT(id) DO UPDATE SET duration_ms = excluded.duration_ms, status = excluded.status,
                 status_rank = excluded.status_rank, status_state = excluded.status_state, error = excluded.error,
                 interception = excluded.interception, reached_upstream = excluded.reached_upstream, completed = 1,
@@ -372,33 +386,89 @@ public class SqliteInternalCallsRepository {
         }
     }
 
-    /** One call copied from internal-calls.log on the first start (an existing id is left as it is). */
-    public void insertMigrated(CallRecord call) {
-        if (single("SELECT 1 FROM internal_call_metadata WHERE id = ?", Integer.class, call.id()) != null) {
+    /** The request side of a call moved from internal-calls.log, at an explicit (negative) rowid - see insertMigrated. */
+    private static final String UPSERT_MIGRATED_SQL = UPSERT_PREPARED_SQL.replace(NEXT_ROWID, "?");
+
+    /**
+     * Calls copied from internal-calls.log, oldest first, in one short transaction, at rowids {@code firstRowid},
+     * {@code firstRowid + 1}, ... The move runs while new calls are being stored, so the moved ones get negative rowids:
+     * they sort before every new call (rowid is the list's order) and retention removes them first. Upserts, so a call
+     * already copied by an interrupted run keeps its row and is simply written again.
+     */
+    public void insertMigrated(List<CallRecord> calls, long firstRowid) {
+        if (calls.isEmpty()) {
             return;
         }
-        prepareWriter.submit(call);
-        if (call.response() != null || call.error() != null || call.durationMs() != null) {
-            completionWriter.submit(new Completion(call.id(), call.response(), call.error(), call.durationMs(),
-                    call.interception(), call.reachedUpstream(), call));
-        }
+        jdbcTemplate.execute((ConnectionCallback<Void>) connection -> {
+            boolean autoCommit = connection.getAutoCommit();
+            connection.setAutoCommit(false);
+            try (PreparedStatement prepared = connection.prepareStatement(UPSERT_MIGRATED_SQL);
+                 PreparedStatement request = connection.prepareStatement(UPSERT_REQUEST_SQL);
+                 PreparedStatement completed = connection.prepareStatement(UPSERT_COMPLETED_SQL);
+                 PreparedStatement response = connection.prepareStatement(UPSERT_RESPONSE_SQL);
+                 PreparedStatement ftsDelete = ftsAvailable ? connection.prepareStatement(FTS_DELETE_SQL) : null;
+                 PreparedStatement ftsInsert = ftsAvailable ? connection.prepareStatement(FTS_INSERT_SQL) : null) {
+                long rowid = firstRowid;
+                for (CallRecord call : calls) {
+                    prepared.setLong(1, rowid++);
+                    bindPrepared(prepared, call, 1);
+                    prepared.addBatch();
+                    bindRequest(request, call);
+                    request.addBatch();
+                    if (call.response() != null || call.error() != null || call.durationMs() != null) {
+                        Completion c = new Completion(call.id(), call.response(), call.error(), call.durationMs(),
+                                call.interception(), call.reachedUpstream(), call);
+                        bindCompleted(completed, c);
+                        completed.addBatch();
+                        bindResponse(response, c);
+                        response.addBatch();
+                    }
+                }
+                prepared.executeBatch();
+                request.executeBatch();
+                completed.executeBatch();
+                response.executeBatch();
+                if (ftsAvailable) {
+                    for (CallRecord call : calls) {
+                        ftsDelete.setString(1, call.id());
+                        ftsDelete.addBatch();
+                        ftsInsert.setString(1, call.id());
+                        ftsInsert.addBatch();
+                    }
+                    ftsDelete.executeBatch();
+                    ftsInsert.executeBatch();
+                }
+                connection.commit();
+            } catch (SQLException e) {
+                connection.rollback();
+                throw e;
+            } finally {
+                connection.setAutoCommit(autoCommit);
+            }
+            return null;
+        });
     }
 
     private void bindPrepared(PreparedStatement ps, CallRecord c) throws SQLException {
-        ps.setString(1, c.id());
-        ps.setString(2, c.originalUrl());
-        ps.setString(3, c.url());
-        ps.setString(4, c.method());
-        ps.setString(5, c.timestamp());
-        setLong(ps, 6, millisOf(c.timestamp()));
-        ps.setString(7, c.sessionId());
-        ps.setString(8, c.operationId());
-        ps.setString(9, c.serviceName());
-        ps.setString(10, CallListSupport.supplierOf(c));
-        ps.setString(11, CallSummary.supplierNameOf(c));
-        ps.setString(12, c.resendOf());
-        ps.setString(13, c.resendEdits() == null ? null : toJson(c.resendEdits()));
-        ps.setString(14, c.relive() == null || c.relive().isNull() ? null : c.relive().toString());
+        bindPrepared(ps, c, 0);
+    }
+
+    /** Binds the prepare columns after {@code shift} leading parameters (the migration's explicit rowid). */
+    private void bindPrepared(PreparedStatement ps, CallRecord c, int shift) throws SQLException {
+        ps.setString(shift + 1, c.id());
+        ps.setString(shift + 2, c.originalUrl());
+        ps.setString(shift + 3, c.url());
+        ps.setString(shift + 4, c.method());
+        ps.setString(shift + 5, c.timestamp());
+        setLong(ps, shift + 6, millisOf(c.timestamp()));
+        ps.setString(shift + 7, c.sessionId());
+        ps.setString(shift + 8, c.operationId());
+        ps.setString(shift + 9, c.serviceName());
+        ps.setString(shift + 10, CallListSupport.supplierOf(c));
+        ps.setString(shift + 11, CallSummary.supplierNameOf(c));
+        ps.setString(shift + 12, c.resendOf());
+        ps.setString(shift + 13, c.resendEdits() == null ? null : toJson(c.resendEdits()));
+        ps.setString(shift + 14, c.relive() == null || c.relive().isNull() ? null : c.relive().toString());
     }
 
     private void bindRequest(PreparedStatement ps, CallRecord c) throws SQLException {

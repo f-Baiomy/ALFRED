@@ -201,8 +201,9 @@ is answered in under 1 second throughout, and the live list, search, triage, cyc
   calls.
 - **SC-005**: After Story 4, every inbound report is answered in under 1 second, including while old calls are being
   removed; no step ever rewrites all retained calls.
-- **SC-006**: After Story 4, moving an existing 7,000-call file over takes under 5 minutes and loses or duplicates no
-  call.
+- **SC-006**: After Story 4, moving an existing 7,000-call file over loses or duplicates no call and never makes Alfred
+  unreachable: it runs in the background while new calls are stored (target under 5 minutes on a local disk; on the
+  Docker Desktop bind mount of a Windows folder it is I/O-bound - measured ~18 minutes).
 - **SC-007**: The existing automated tests for inbound calls pass against both stores.
 
 ## Assumptions

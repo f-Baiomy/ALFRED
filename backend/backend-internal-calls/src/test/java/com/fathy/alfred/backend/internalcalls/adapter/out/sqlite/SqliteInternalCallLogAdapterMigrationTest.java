@@ -92,16 +92,22 @@ class SqliteInternalCallLogAdapterMigrationTest {
     void anIdlessLineGetsAnIdAndAnInterruptedMoveFinishesWithoutDuplicates() throws Exception {
         writeLegacyFile();
         SqliteInternalCallsRepository repo = SqliteInternalCallsRepositoryTest.repository(dir, 100, 1000, Long.MAX_VALUE);
-        // A first run that stopped half way: three calls already copied, the file not yet renamed.
-        for (String id : List.of("legacy-00", "legacy-01", "legacy-02")) {
-            repo.insertMigrated(JSON.readValue(JSON.writeValueAsString(line(Integer.parseInt(id.substring(7)))), CallRecord.class));
+        // A first run that stopped half way: lines 0-2 copied at their positional rowids (-12..-10 of 12 lines), a call
+        // stored since (the backend serves while the move runs), the file not yet renamed.
+        List<CallRecord> firstThree = new ArrayList<>();
+        for (int i = 0; i < 3; i++) {
+            firstThree.add(JSON.readValue(JSON.writeValueAsString(line(i)), CallRecord.class));
         }
+        repo.insertMigrated(firstThree, -12);
+        repo.prepare(JSON.readValue(JSON.writeValueAsString(line(99)), CallRecord.class));
         SqliteInternalCallLogAdapter adapter = SqliteInternalCallsRepositoryTest.adapterOver(repo, dir);
         try {
             List<String> ids = storedIds(adapter);
             assertThat(ids).doesNotHaveDuplicates();
-            assertThat(ids).hasSize(10); // 12 lines - 1 malformed - 1 deleted
-            assertThat(ids).containsSubsequence("legacy-00", "legacy-01", "legacy-02", "legacy-05", "legacy-11");
+            assertThat(ids).hasSize(11); // 12 lines - 1 malformed - 1 deleted, plus the new call
+            // Moved calls keep the file's order and come before the call stored while the move ran.
+            assertThat(ids).containsSubsequence("legacy-00", "legacy-01", "legacy-02", "legacy-05", "legacy-11", "legacy-99");
+            assertThat(ids.get(ids.size() - 1)).isEqualTo("legacy-99");
             assertThat(ids.stream().filter(id -> !id.startsWith("legacy-"))).hasSize(1); // the id-less line, now with one
         } finally {
             repo.close();

@@ -99,3 +99,30 @@ Fallback: `INTERNAL_CALLS_STORAGE=file` in `.env`, restart backend - today's fil
 - E9 PASS: MaxHeapSize 1,610,612,736 = 75.0 % of the 2 GB limit.
 - Owner's install after rebuild, 7,000 retained inbound calls, forced full GC: 689 MB used of 1.5 GB max - **55 %
   free** (SC-003 target >= 40 %; baseline 15 %).
+
+### US4 SQLite store, 2026-10-09
+
+- Tests: `backend-internal-calls` 106/106 (store contract 20 scenarios on both stores, SQLite-only 7, migration 2,
+  webhook controller 3); full reactor + ArchUnit green in Docker JDK 21; launcher 106 passed.
+- Load (throwaway container, 60 KB bodies, concurrency 8): 1,500 then 18,500 more calls - **live heap after forced GC
+  26.0 MB at 1,500 retained vs 25.8 MB at 20,000** (SC-004: flat); report p50 18 ms, p95 49 ms; 2 of 37,000 requests
+  failed client-side (Windows WinError 10060 through Docker Desktop's port forward, not the backend). Database 1.56 GB
+  for 20,000 calls = ~78 KB per call incl. the trigram index.
+- Burst: 200 calls at concurrency 200 - **200/200 stored, max report 729 ms** (SC-005), no OOM, no store errors.
+- Owner's install migrated: **6,751 calls** = the file's last 7,000 lines minus 249 tombstoned by Relive deletes,
+  no duplicates; old file kept as `internal-calls.log.migrated`. Reads after: newest list 9 ms, slowest sort 0.45 s,
+  body search 0.37 s; MCP `search_calls`, `search_logs` (all scopes, 6,944 calls, 58 cycles) and `triage` answer.
+- Migration time on the Docker Desktop bind mount (I/O-bound, 12.7 % CPU): 22.7 min inline at startup (backend
+  unreachable - fixed), 17.7 min batched, **13.7 min with the 16 MB page cache**, now **in the background** with the
+  backend serving throughout (moved calls at negative rowids, new calls positive).
+- Page cache: paging the live list for an all-scope log search took 5.5 s with SQLite's 2 MB default (each page read
+  crosses the VM); **0.48-0.73 s** with 16 MB per connection (pool 10).
+- Export check: E7 compares a recording cycle's captured calls (what exports are built from) across the two stores;
+  the .json export itself is built in the browser and its builders are unchanged.
+
+### E2E results (final code, 2026-10-09)
+
+`sh tests/e2e/run_inbound_e2e.sh` - 22 PASS, 0 FAIL: E1; E2 (attempt line at 16.0 s, 20/20 after a 20 s stall); E3
+30/30 across a restart; E4 traffic in 0.04 s while down, give-ups logged; E5; E10 400; E9 heap 75.0 %; E8 newest 50
+kept, max report 0.49 s; E6 background move finishes, 48 calls in order, `.migrated` kept, restart idempotent; E7 file
+and SQLite stores give the same answers.

@@ -123,8 +123,13 @@ All figures measured on the running Docker install on 2026-10-09 unless marked o
   - Malformed lines are skipped with a WARN (count logged), id-less lines get a generated id - same rules as today.
 - **Measured budget**: reading the 467 MB file takes 2.5 s; 7,000 inserts in 500-row group commits are seconds. SC-006
   (< 5 min) has wide margin; the backend logs the migrated count and duration.
-- **Startup**: migration runs before the webhook controller accepts traffic (bean init), so no report races it; the
-  proxy's 15 s timeout + retries (R2) cover a migration that runs longer.
+- **Startup (revised after the real move)**: the move runs in a background thread and the backend serves from the
+  start. Measured on the owner's install (6,751 calls, 467 MB, Docker Desktop bind mount of a Windows folder): 22.7 min
+  run inline at startup - backend unreachable, reports given up - and still ~18 min with batched transactions, because
+  the work is I/O-bound across the mount (12.7 % CPU), not commit-bound. Moved calls are written at negative rowids fixed
+  by their line position, new calls always get positive ones (`max(max(rowid), 0) + 1`), so the list order and
+  retention stay right while both happen at once, and a re-run puts each call back on its own row. Each migration
+  connection also uses the 16 MB page cache (below).
 
 ## R7. What reads inbound calls (FR-010 regression surface)
 
