@@ -307,6 +307,12 @@ services:
       # writes it. NOT the same as alfred.internal-calls.max-limit, which is only the largest
       # page GET /internal-calls will serve - see docs/architecture.md.
       - INTERNAL_CALLS_RETENTION_ROWS=${INTERNAL_CALLS_RETENTION_ROWS:-1500}
+      # Inbound calls live in internal-calls.db (specs/013-inbound-calls-store); the old internal-calls.log above is
+      # moved into it once on first start and kept as internal-calls.log.migrated. INTERNAL_CALLS_STORAGE=file keeps the
+      # file store. The size cap applies alongside the count above - whichever is reached first.
+      - INTERNAL_CALLS_STORAGE=${INTERNAL_CALLS_STORAGE:-sqlite}
+      - INTERNAL_CALLS_DB_FILE=/appdata/internal-calls.db
+      - INTERNAL_CALLS_MAX_SIZE_BYTES=${INTERNAL_CALLS_MAX_SIZE_BYTES:-10737418240}
       # Same file reverse-proxy's TOGGLE_FILE points at (bind-mounted a second time here,
       # at a different in-container path) - lets GET/POST /internal-calls/services/{name}/
       # logging-enabled flip the same per-project lines toggle-wildfly-reverse-proxy.sh/.bat

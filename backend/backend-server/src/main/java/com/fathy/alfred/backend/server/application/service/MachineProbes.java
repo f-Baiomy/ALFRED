@@ -31,7 +31,8 @@ public class MachineProbes extends SettingsProbes {
     /** Memory per retained inbound call, as measured for the ring buffer (CLAUDE.md: ~28 KB per real call). */
     static final long BYTES_PER_INBOUND_CALL = 28 * 1024;
     private static final List<String> SIZE_KEYS = List.of(
-            "ALFRED_CALLS_MAX_SIZE_BYTES", "ALFRED_DB_CAPTURE_MAX_SIZE_BYTES", "ALFRED_REDIS_CAPTURE_MAX_SIZE_BYTES");
+            "ALFRED_CALLS_MAX_SIZE_BYTES", "INTERNAL_CALLS_MAX_SIZE_BYTES", "ALFRED_DB_CAPTURE_MAX_SIZE_BYTES",
+            "ALFRED_REDIS_CAPTURE_MAX_SIZE_BYTES");
 
     private final MachinePort machine;
     private final StorageStatsPort storage;
@@ -67,7 +68,8 @@ public class MachineProbes extends SettingsProbes {
                     case "INTERNAL_CALL_SERVICES" -> projects(key, value, now, out, deadline);
                     case "ALFRED_LOGS_DIR", "WILDFLY_HOME" -> folder(key, value, out);
                     case "ALFRED_LOGS_WATCH_DIRS" -> folders(key, value, out);
-                    case "ALFRED_CALLS_MAX_SIZE_BYTES", "ALFRED_DB_CAPTURE_MAX_SIZE_BYTES", "ALFRED_REDIS_CAPTURE_MAX_SIZE_BYTES" ->
+                    case "ALFRED_CALLS_MAX_SIZE_BYTES", "INTERNAL_CALLS_MAX_SIZE_BYTES", "ALFRED_DB_CAPTURE_MAX_SIZE_BYTES",
+                         "ALFRED_REDIS_CAPTURE_MAX_SIZE_BYTES" ->
                             size(key, value, effective, out);
                     case "ALFRED_MEMORY" -> memory(key, value, out);
                     case "INTERNAL_CALLS_RETENTION_ROWS" -> retention(key, value, effective, out);
@@ -204,7 +206,10 @@ public class MachineProbes extends SettingsProbes {
     private void retention(String key, String value, Map<String, String> effective, List<ValidationResult> out) {
         long rows = Long.parseLong(value);
         long perHour = storage.inboundCallsLastHour();
-        long memoryBytes = rows * BYTES_PER_INBOUND_CALL;
+        // Only the file store holds its retained calls in memory; the database store (the default since
+        // specs/013-inbound-calls-store) keeps them on disk, whatever the count.
+        boolean inMemory = "file".equalsIgnoreCase(effective.getOrDefault("INTERNAL_CALLS_STORAGE", "sqlite").strip());
+        long memoryBytes = inMemory ? rows * BYTES_PER_INBOUND_CALL : 0L;
         Map<String, Object> detail = new LinkedHashMap<>();
         detail.put("memoryBytes", memoryBytes);
         detail.put("callsPerHour", perHour);

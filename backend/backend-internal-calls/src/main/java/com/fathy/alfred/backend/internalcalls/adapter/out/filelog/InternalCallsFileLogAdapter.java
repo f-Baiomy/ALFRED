@@ -16,6 +16,7 @@ import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.io.BufferedReader;
@@ -45,8 +46,9 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * Owns internal-calls.log end to end - the only place in this slice that knows calls live in a
  * flat file. Unlike backend-calls, this slice has only ever had one storage adapter (no
- * SQLite/file @ConditionalOnProperty switch), so this is a plain @Component - the ring-buffer cap
- * ({@code alfred.internal-calls.max-limit}) is this slice's only retention mechanism.
+ * SQLite/file switch) - until specs/013-inbound-calls-store, which made SqliteInternalCallLogAdapter the default.
+ * This store is now the opt-out ({@code alfred.storage.internal-calls.type=file}), still fully working: its retained
+ * window lives in memory, which is why the database became the default (835 MB live at 7,000 calls).
  *
  * <p>Mirrors FileCallLogAdapter's exact caching idiom: reads are served from an in-memory cache
  * rather than re-parsing the file on every request, validated against the file's size and
@@ -54,6 +56,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * than silently ignored. Per-instance, never static.
  */
 @Component
+@ConditionalOnProperty(prefix = "alfred.storage.internal-calls", name = "type", havingValue = "file")
 public class InternalCallsFileLogAdapter implements CallLogPort, RetentionPort {
 
     private static final Logger log = LoggerFactory.getLogger(InternalCallsFileLogAdapter.class);
@@ -856,7 +859,7 @@ public class InternalCallsFileLogAdapter implements CallLogPort, RetentionPort {
         Path path = Path.of(internalCallsFile);
         if (!Files.exists(path)) {
             synchronized (this) {
-                pendingById.values().removeIf(call -> belongsToRun(call, ids));
+                tombstone(removePendingOfRuns(ids));
             }
             return 0;
         }
@@ -885,14 +888,40 @@ public class InternalCallsFileLogAdapter implements CallLogPort, RetentionPort {
             throw new UncheckedIOException(e);
         }
         synchronized (this) {
-            pendingById.values().removeIf(call -> belongsToRun(call, ids));
-            if (deletedIds.isEmpty()) {
+            List<String> inFlight = removePendingOfRuns(ids);
+            if (deletedIds.isEmpty() && inFlight.isEmpty()) {
                 return 0;
             }
-            reliveDeletedCallIds.addAll(deletedIds);
-            appendDeletedJournal(deletedIds);
+            List<String> all = new ArrayList<>(deletedIds);
+            all.addAll(inFlight);
+            tombstone(all);
             return deletedIds.size();
         }
+    }
+
+    /**
+     * Drops the deleted runs' calls still in flight and returns their ids. They are tombstoned like the stored ones:
+     * otherwise their completion, finding nothing pending, was stored from the completion alone - the deleted call
+     * came back (caught by InternalCallStoreContractTest).
+     */
+    private List<String> removePendingOfRuns(java.util.Set<String> runIds) {
+        List<String> removed = new ArrayList<>();
+        pendingById.values().removeIf(call -> {
+            boolean of = belongsToRun(call, runIds);
+            if (of) {
+                removed.add(call.id());
+            }
+            return of;
+        });
+        return removed;
+    }
+
+    private void tombstone(List<String> ids) {
+        if (ids.isEmpty()) {
+            return;
+        }
+        reliveDeletedCallIds.addAll(ids);
+        appendDeletedJournal(ids);
     }
 
     /** Parses a scanned line only when its bytes mention run attribution at all, and collects the

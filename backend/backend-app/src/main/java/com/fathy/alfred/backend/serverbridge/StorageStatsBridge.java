@@ -35,6 +35,7 @@ public class StorageStatsBridge implements StorageStatsPort {
     public long usedBytes(String key) {
         return switch (key) {
             case "ALFRED_CALLS_MAX_SIZE_BYTES" -> calls.storageSizeBytes();
+            case "INTERNAL_CALLS_MAX_SIZE_BYTES" -> inbound.storageSizeBytes();
             case "ALFRED_DB_CAPTURE_MAX_SIZE_BYTES" -> statements.totalBytes();
             case "ALFRED_REDIS_CAPTURE_MAX_SIZE_BYTES" -> redis.map(StoreCommandsPort::bytes).orElse(-1L);
             default -> -1;

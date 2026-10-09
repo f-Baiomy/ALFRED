@@ -19,6 +19,23 @@ No test suite/linter for `proxy` beyond the Docker build itself.
 - `npm run build` (`ng build`) is the production build; output in `dist/frontend/browser`.
 - **`call-card.component.spec.ts` is the first full-component (`TestBed.createComponent` + `HttpTestingController`) test in this codebase** - everything else tests pure functions or services in isolation. Justified here because the behavior under test (an `IntersectionObserver`-gated fetch) only exists as an interaction between a real DOM element, a real component lifecycle, and a real HTTP call - there's no smaller unit to extract it into. It mocks the global `window.IntersectionObserver` (capturing each instance's callback so a test can invoke it manually) since Karma's test fixtures aren't attached to a visible viewport, so a real browser `IntersectionObserver` never reports true intersection there - a bug gated on "don't fetch until visible" would otherwise pass its tests while being broken live (which is exactly what happened once - see docs/frontend-architecture.md).
 
+## Inbound E2E (`sh tests/e2e/run_inbound_e2e.sh [E1 ... E10]`)
+
+- Drives the real proxies and backend end to end on an **isolated Docker stack**: the shipped `docker-compose.yml`
+  plus `tests/e2e/compose.e2e.yml` under project `alfred-e2e` - its own container names (`alfred-e2e-*`), host ports
+  (backend 15000, reverse proxy 18080, forward proxy 127.0.0.3:18443), data under `tests/e2e/.work/` (gitignored,
+  recreated per run) and an echo app `e2e-upstream` as the project behind the reverse proxy. The owner's running Alfred
+  and its `.env`/`docker-compose.override.yml` are never used; the stack is always torn down (`down -v`).
+- Scenarios (specs/013-inbound-calls-store, research R9): E1 a call is stored complete · E2 20 s backend stall - all
+  stored, failure lines visible while stalled · E3 backend restart · E4 backend down 90 s - traffic still answered,
+  reports given up and logged · E5 forward proxy during a stall · E6 migration of a seeded `internal-calls.log` ·
+  E7 the same calls through the file and the SQLite store give the same answers · E8 retention and < 1 s reports ·
+  E9 heap is 75 % of the container · E10 an oversized call identity is refused.
+- `inbound_store_e2e.py` is stdlib-only and prints `PASS`/`FAIL` lines (style of `native_install_e2e.py`); the exit
+  code is the number of failures. A full run takes several minutes (E4 waits for retries to give up), so it is run
+  at story checkpoints rather than on every edit.
+- Load and burst (`scripts/inbound_load.py`) go only to a throwaway backend container - never the real store.
+
 ## Database capture agent (`db-agent/`, `mvn verify`)
 
 - The agent is tested by **installing it into the test JVM** (ByteBuddy self-attach - the same Attach-API path

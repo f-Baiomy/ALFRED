@@ -7,6 +7,7 @@ import com.fathy.alfred.backend.internalcalls.application.port.in.ReceiveComplet
 import com.fathy.alfred.backend.internalcalls.application.port.in.ReceivePreparedCallUseCase;
 import com.fathy.alfred.backend.internalcalls.application.port.in.ReceiveWsMessagesUseCase;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallRecord;
+import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -70,7 +71,7 @@ public class InternalCallsWebhookController {
     public ResponseEntity<Void> complete(
             @RequestHeader(name = "X-Webhook-Secret", required = false) String providedSecret,
             @PathVariable String id,
-            @RequestBody CompleteInternalCallRequestDto body
+            @Valid @RequestBody CompleteInternalCallRequestDto body
     ) {
         if (!secretMatches(providedSecret)) {
             return ResponseEntity.status(401).build();

@@ -3,6 +3,8 @@ package com.fathy.alfred.backend.internalcalls.adapter.in.web.dto;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fathy.alfred.backend.internalcalls.domain.model.CallInterception;
 import com.fathy.alfred.backend.internalcalls.domain.model.ResponseData;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Size;
 
 /**
  * POST /internal-calls/webhook/{id}/complete's body, plus the proxy's own wall-clock duration
@@ -21,13 +23,14 @@ public record CompleteInternalCallRequestDto(
          * session_id, operation_id; no headers or body. Lets a call whose prepare never reached the backend still be
          * stored as that call. Null from an older proxy.
          */
-        CallIdentityDto call
+        @Valid CallIdentityDto call
 ) {
 
+    /** Bounded (FR-015): the proxy's view of a URL and method, never a body - anything larger is not a real call. */
     public record CallIdentityDto(
-            @JsonProperty("original_url") String originalUrl,
-            String url,
-            String method,
+            @Size(max = 8192) @JsonProperty("original_url") String originalUrl,
+            @Size(max = 8192) String url,
+            @Size(max = 16) String method,
             String timestamp,
             @JsonProperty("service_name") String serviceName,
             @JsonProperty("session_id") String sessionId,

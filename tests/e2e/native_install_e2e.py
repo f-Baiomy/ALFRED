@@ -1,6 +1,7 @@
 """End-to-end check of a native install inside a clean container (specs/012-server-program quickstart US1/US3/US4).
 Run with the bundled Python after the installer: python3 e2e-linux.py"""
 import json
+import os
 import subprocess
 import sys
 import time
@@ -77,6 +78,12 @@ call("POST", "/internal-calls/services/demo/logging-enabled", {"enabled": True})
 inbound_status = wait(lambda: u.urlopen("http://127.0.0.1:9001/", timeout=10).status == 200, 20)
 inbound_logged = wait(lambda: len(call("GET", "/internal-calls?limit=5")[1]["calls"]) > 0, 20)
 results.append(step("inbound call through localhost:9001 is logged", inbound_status and inbound_logged, call("GET", "/internal-calls?limit=1")[1]))
+# specs/013-inbound-calls-store: inbound calls are stored in the database in the data folder, request and response whole.
+first = call("GET", "/internal-calls?limit=1")[1]["calls"]
+detail = call("GET", "/internal-calls/%s/detail" % first[0]["id"])[1] if first else {}
+results.append(step("inbound call stored in <data>/internal-calls.db with request and response",
+                    os.path.exists("/opt/alfred/data/appdata/internal-calls.db") and bool(detail.get("request")) and bool(detail.get("response")),
+                    sorted(os.listdir("/opt/alfred/data/appdata")) if os.path.isdir("/opt/alfred/data/appdata") else "no data folder"))
 
 # A bad value is refused, nothing written.
 code, refused = call("PUT", "/server/settings", {"baseHash": call("GET", "/server/settings")[1]["envHash"],

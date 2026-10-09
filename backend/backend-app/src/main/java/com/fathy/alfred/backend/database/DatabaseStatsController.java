@@ -10,6 +10,7 @@ import com.fathy.alfred.backend.sessioncycles.application.port.out.CapturedCalls
 import com.fathy.alfred.backend.sessioncycles.application.port.out.SessionCycleMetadataStorePort;
 import com.fathy.alfred.backend.sessioncycles.application.port.out.SessionCycleNotificationPort;
 import com.fathy.alfred.backend.settings.application.port.out.FilterSettingsStorePort;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -40,6 +41,10 @@ public class DatabaseStatsController {
     private final RedactionsStorePort redactionsStorePort;
     private final FilterSettingsStorePort filterSettingsStorePort;
     private final LogSourceStorePort logSourceStorePort;
+
+    /** Which inbound store is running - the file on disk the Database card names (specs/013-inbound-calls-store). */
+    @Value("${alfred.storage.internal-calls.type:sqlite}")
+    private String internalCallsStore = "sqlite";
 
     public DatabaseStatsController(
             CallLogPort callLogPort,
@@ -80,7 +85,7 @@ public class DatabaseStatsController {
                 // this table entirely - which made them impossible to account for: the file was the
                 // third-largest store on disk and the busiest evictor, while the page showed neither
                 // its size nor the fact that it was full and dropping calls.
-                new DatabaseFileStats("internal-calls.log", internalCallLogPort.statusBreakdown().total(), internalCallLogPort.storageSizeBytes()),
+                new DatabaseFileStats("file".equals(internalCallsStore) ? "internal-calls.log" : "internal-calls.db", internalCallLogPort.statusBreakdown().total(), internalCallLogPort.storageSizeBytes()),
                 new DatabaseFileStats("session-cycles.db", cycleCount + capturedCallCount, capturedCallsStorePort.storageSizeBytes()),
                 new DatabaseFileStats("profiles.db", profileStorePort.findAll().size(), profileStorePort.storageSizeBytes()),
                 new DatabaseFileStats("comments.db", commentsStorePort.findAll().size(), commentsStorePort.storageSizeBytes()),

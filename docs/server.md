@@ -74,6 +74,11 @@ Docker install is left as it was.
   service, with a history of every change) and the installer's first-start/import step. A hand edit is detected and
   recorded in the history as "edited by hand".
 
+- Inbound calls are stored in `<data>/internal-calls.db` (specs/013-inbound-calls-store): `INTERNAL_CALLS_RETENTION_ROWS`
+  (count, live) and `INTERNAL_CALLS_MAX_SIZE_BYTES` (total size, restart) both apply - whichever is reached first.
+  `INTERNAL_CALLS_STORAGE=file` (in `.env` only) keeps the older `internal-calls.log` store, which holds its retained
+  calls in memory - the only case where the retention count is a memory question (the Server section warns then).
+
 ## The Server section (Settings tab)
 
 Every deploy-time setting with its value, where it came from, and what a change needs:

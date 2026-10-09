@@ -91,9 +91,18 @@ class MachineProbesTest {
     @Test
     void memoryAboveTheFreeRamAndTheRetentionEstimate() {
         assertThat(level(check(Map.of("ALFRED_MEMORY", "8g"), "ALFRED_MEMORY"), ValidationResult.Level.WARNING)).hasSize(1);
-        ValidationResult retention = check(Map.of("INTERNAL_CALLS_RETENTION_ROWS", "5000", "ALFRED_MEMORY", "2g"),
-                "INTERNAL_CALLS_RETENTION_ROWS").get(0);
+        ValidationResult retention = check(Map.of("INTERNAL_CALLS_RETENTION_ROWS", "5000", "ALFRED_MEMORY", "2g",
+                "INTERNAL_CALLS_STORAGE", "file"), "INTERNAL_CALLS_RETENTION_ROWS").get(0);
         assertThat(retention.detail()).containsEntry("retentionHours", 5.0).containsEntry("memoryBytes", 5000L * 28 * 1024);
+    }
+
+    @Test
+    void theDatabaseStoreKeepsNoInboundCallsInMemory() {
+        // specs/013-inbound-calls-store: the default store keeps retained calls on disk, so a big count is not a memory warning.
+        ValidationResult retention = check(Map.of("INTERNAL_CALLS_RETENTION_ROWS", "100000", "ALFRED_MEMORY", "1g"),
+                "INTERNAL_CALLS_RETENTION_ROWS").get(0);
+        assertThat(retention.level()).isEqualTo(ValidationResult.Level.OK);
+        assertThat(retention.detail()).containsEntry("memoryBytes", 0L);
     }
 
     @Test

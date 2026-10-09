@@ -8,6 +8,7 @@
     "ALFRED_OUTBOUND_PROXY_LISTEN": {"backendEnv": ["FORWARD_PROXY_DEFAULT_PORT", "ALFRED_RESEND_FORWARD_PROXY_HOST"], "transform": "listenPortAndHost", "supervisor": "OUTBOUND --mode regular@<addr>", "docker": null},
     "ALFRED_SETTINGS_EDIT_FROM": {"backendEnv": ["ALFRED_SETTINGS_EDIT_FROM"], "docker": null},
     "ALFRED_CALLS_MAX_SIZE_BYTES": {"backendEnv": ["ALFRED_CALLS_MAX_SIZE_BYTES"], "docker": "ALFRED_CALLS_MAX_SIZE_BYTES"},
+    "INTERNAL_CALLS_MAX_SIZE_BYTES": {"backendEnv": ["INTERNAL_CALLS_MAX_SIZE_BYTES"], "docker": "INTERNAL_CALLS_MAX_SIZE_BYTES"},
     "ALFRED_DB_CAPTURE_MAX_SIZE_BYTES": {"backendEnv": ["ALFRED_DB_CAPTURE_MAX_SIZE_BYTES"], "docker": "ALFRED_DB_CAPTURE_MAX_SIZE_BYTES"},
     "ALFRED_REDIS_CAPTURE_MAX_SIZE_BYTES": {"backendEnv": ["ALFRED_REDIS_CAPTURE_MAX_SIZE_BYTES"], "docker": "ALFRED_REDIS_CAPTURE_MAX_SIZE_BYTES"},
     "ALFRED_MEMORY": {"backendEnv": [], "jvmOption": "-Xmx", "docker": null},
