@@ -177,20 +177,33 @@ def ensure_image(image):
         return
     if subprocess.run(["docker", "image", "inspect", image], capture_output=True).returncode != 0:
         print(f"  pulling Docker image {image} (first build only)", flush=True)
-        pulled = subprocess.run(["docker", "pull", "-q", image], capture_output=True, text=True, errors="replace")
-        if pulled.returncode == 0:
-            return
-        # Docker Hub limits unauthenticated pulls per IP, and GitHub's runners share IPs: v3.0.8's release build failed
-        # twice on "toomanyrequests". Google's mirror of Docker Hub serves the same images without that limit.
-        mirror = mirror_name(image)
-        print(f"  Docker Hub refused ({(pulled.stderr or pulled.stdout).strip()[:120]}) - pulling {mirror}", flush=True)
-        run(["docker", "pull", mirror])
-        run(["docker", "tag", mirror, image])
+        # Docker Hub limits anonymous pulls per IP, and GitHub's runners share IPs: v3.0.8's release build failed three
+        # times on "toomanyrequests". The same official images come from Google's and Amazon's public copies of Docker
+        # Hub, which have no such limit - Docker Hub itself is only the last resort.
+        failures = []
+        for source in pull_sources(image):
+            pulled = subprocess.run(["docker", "pull", "-q", source], capture_output=True, text=True, errors="replace")
+            if pulled.returncode == 0:
+                if source != image:
+                    run(["docker", "tag", source, image])
+                print(f"  pulled {source}", flush=True)
+                return
+            failures.append(f"{source}: {(pulled.stderr or pulled.stdout).strip()[:160]}")
+            print(f"  could not pull {source} - trying the next source", flush=True)
+        raise SystemExit("\nFAILED: no source had " + image + ":\n  " + "\n  ".join(failures))
 
 
-def mirror_name(image):
-    """The same image on mirror.gcr.io: official images (no slash) live under library/."""
-    return "mirror.gcr.io/" + (image if "/" in image.split(":")[0] else "library/" + image)
+def pull_sources(image):
+    """Where an image is pulled from, in order: mirror.gcr.io, public.ecr.aws (official images live under library/
+    and docker/library/), then Docker Hub. Images from another registry (a dot in the first part) are pulled as named."""
+    first = image.split("/")[0]
+    if "/" in image and ("." in first or ":" in first):
+        return [image]
+    path = image if "/" in image else "library/" + image
+    sources = ["mirror.gcr.io/" + path]
+    if "/" not in image:
+        sources.append("public.ecr.aws/docker/library/" + image)
+    return sources + [image]
 
 
 def docker(image, script, mounts, dns=None, env=None, show=None):

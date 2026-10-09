@@ -8,6 +8,8 @@ import sys
 import tarfile
 import tempfile
 import unittest
+from contextlib import redirect_stdout
+from unittest import mock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, ROOT)
@@ -21,15 +23,39 @@ def write(path, text, newline="\n"):
         f.write(text)
 
 
-class MirrorTest(unittest.TestCase):
-    """Docker Hub's pull limit stopped the v3.0.8 release build: the same images come from mirror.gcr.io instead."""
+class PullSourcesTest(unittest.TestCase):
+    """Docker Hub's pull limit stopped the v3.0.8 release build three times: images come from Google's and Amazon's
+    copies first, Docker Hub last."""
 
-    def test_official_images_live_under_library(self):
-        self.assertEqual("mirror.gcr.io/library/node:20-alpine", build_dist.mirror_name("node:20-alpine"))
-        self.assertEqual("mirror.gcr.io/library/python:3.13-slim", build_dist.mirror_name(build_dist.PYTHON_IMAGE))
+    def test_official_images_come_from_google_then_amazon_then_docker_hub(self):
+        self.assertEqual(["mirror.gcr.io/library/node:20-alpine", "public.ecr.aws/docker/library/node:20-alpine",
+                          "node:20-alpine"], build_dist.pull_sources("node:20-alpine"))
 
-    def test_other_images_keep_their_namespace(self):
-        self.assertEqual("mirror.gcr.io/someone/tool:1", build_dist.mirror_name("someone/tool:1"))
+    def test_every_image_the_build_uses_tries_docker_hub_only_last(self):
+        for image in (build_dist.NODE_IMAGE, build_dist.PYTHON_IMAGE, build_dist.MAVEN_IMAGE, "debian:bookworm-slim"):
+            sources = build_dist.pull_sources(image)
+            self.assertTrue(sources[0].startswith("mirror.gcr.io/library/"), sources)
+            self.assertEqual(image, sources[-1])
+
+    def test_other_docker_hub_images_keep_their_namespace(self):
+        self.assertEqual(["mirror.gcr.io/someone/tool:1", "someone/tool:1"], build_dist.pull_sources("someone/tool:1"))
+
+    def test_an_image_of_another_registry_is_pulled_as_named(self):
+        self.assertEqual(["ghcr.io/someone/tool:1"], build_dist.pull_sources("ghcr.io/someone/tool:1"))
+
+    def test_a_refused_source_falls_through_to_the_next(self):
+        calls = []
+
+        def fake(argv, **kwargs):
+            calls.append(argv)
+            code = 1 if argv[:2] == ["docker", "image"] or argv[-1].startswith("mirror.gcr.io") else 0
+            return mock.Mock(returncode=code, stdout="", stderr="toomanyrequests")
+        with mock.patch.object(build_dist.subprocess, "run", fake), mock.patch.object(build_dist, "run") as run, \
+                redirect_stdout(io.StringIO()):
+            build_dist.ensure_image("node:20-alpine")
+        pulls = [c[-1] for c in calls if c[:2] == ["docker", "pull"]]
+        self.assertEqual(["mirror.gcr.io/library/node:20-alpine", "public.ecr.aws/docker/library/node:20-alpine"], pulls)
+        run.assert_called_once_with(["docker", "tag", "public.ecr.aws/docker/library/node:20-alpine", "node:20-alpine"])
 
 
 class ContainerOwnershipTest(unittest.TestCase):
