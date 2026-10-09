@@ -142,6 +142,16 @@ supervisor reports it up, `stop` each one as it stops, `update` follows the inst
 `logs` colours levels (each line otherwise exactly as in the file). Piped, with `NO_COLOR` or `TERM=dumb`: plain lines,
 one per finished step, no escape codes (packaging/launcher/term.py). A mistyped command suggests the closest one.
 
+**`alfred` alone, in a terminal, opens the live panel** (`alfred panel` too; piped or as a non-administrator it prints
+the help): processes with state, uptime and restarts, the Java apps and their agent, storage per store, inbound and
+outbound calls in the last minute (sparklines), how many calls of the last hour need attention, the latest calls, and
+one-key actions - `s` stop/start, `r` restart, `p` proxies, `l` logs, `t` the calls that need attention, `a` attach,
+`u` update, `d` doctor, `o` open the UI, `q` quit. Anything that stops Alfred asks first; actions that print leave the
+panel's screen, run the ordinary command, and come back on a key. It refreshes when the backend's WebSockets
+(`/ws/calls`, `/ws/internal-calls`, `/ws/server`, `/ws/triage`) say something changed - no polling; the screen is
+redrawn once a second for the clock and the 60 s window from what it already read. Narrow windows stack the two
+columns, and a frame is never taller than the window (the oldest calls go first, the keys always stay).
+
 **`alfred doctor`** checks, read-only: the processes (and restarts), who answers on the UI port (this install, another
 Alfred, or another program - named), the outbound proxy listening, each project's reverse port and whether its app
 answers on the upstream port, the agent the supervisor attached per project, free disk (warning under 10 % or 10 GB,

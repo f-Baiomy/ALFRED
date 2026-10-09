@@ -1124,6 +1124,12 @@ def doctor_checks(layout, t):
     return checks
 
 
+def cmd_panel(layout, args):
+    """The live control panel (packaging/launcher/panel.py); None when stdout is not a terminal."""
+    import panel
+    return panel.run(layout, sys.modules[__name__])
+
+
 def cmd_doctor(layout, args):
     """alfred doctor [--json]: checks this install and machine, says what is wrong and how to fix it. Exit 1 when a
     check failed (warnings alone are 0)."""
@@ -1155,7 +1161,7 @@ def cmd_doctor(layout, args):
 COMMANDS = {
     "run": cmd_run, "start": cmd_start, "stop": cmd_stop, "restart": cmd_restart, "status": cmd_status,
     "logs": cmd_logs, "version": cmd_version, "update": cmd_update, "uninstall": cmd_uninstall, "_init-env": cmd_init_env,
-    "doctor": cmd_doctor,
+    "doctor": cmd_doctor, "panel": lambda layout, args: cmd_panel(layout, args) or USAGE,
     "_wait-health": cmd_wait_health, "_record-upgrade": cmd_record_upgrade,
 }
 
@@ -1213,7 +1219,8 @@ def access_problem(layout, name):
 
 EXIT_CODES = "Exit codes: 0 ok, 1 error, 2 usage, 3 validation refused, 4 conflict, 5 not allowed."
 HELP_GROUPS = [
-    ("Run Alfred", [("start", "", "start Alfred (the service, when installed)"),
+    ("Run Alfred", [("panel", "", "the live control panel (also: just alfred, in a terminal)"),
+                    ("start", "", "start Alfred (the service, when installed)"),
                     ("stop", "", "stop it"),
                     ("restart", "[--proxies]", "restart everything, or only the two proxies"),
                     ("status", "", "what runs, since when, the UI addresses"),
@@ -1257,6 +1264,10 @@ def unknown_command(name):
 
 def main(argv):
     layout = Layout(home_from_here())
+    if not argv and interactive() and access_problem(layout, "panel") is None:
+        code = cmd_panel(layout, [])
+        if code is not None:
+            return code
     if not argv or argv[0] in ("-h", "--help", "help"):
         if argv[1:2] == ["--codes"]:
             print(EXIT_CODES)
