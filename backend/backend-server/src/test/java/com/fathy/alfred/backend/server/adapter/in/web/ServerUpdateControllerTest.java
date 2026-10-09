@@ -66,7 +66,7 @@ class ServerUpdateControllerTest {
     @Test
     void installIsAWriteLocalYesForeignNo() throws Exception {
         mvc.perform(post("/server/update/install")).andExpect(status().isAccepted());
-        verify(updates).install();
+        verify(updates).install(null);
         mvc.perform(post("/server/update/install").with(r -> { r.setRemoteAddr("203.0.113.9"); return r; }))
                 .andExpect(status().isForbidden());
         verify(updates, never()).check();
@@ -74,8 +74,30 @@ class ServerUpdateControllerTest {
 
     @Test
     void aRefusedInstallIs409WithTheReason() throws Exception {
-        doThrow(new IllegalStateException("Alfred 1.5.0 is up to date")).when(updates).install();
+        doThrow(new IllegalStateException("Alfred 1.5.0 is up to date")).when(updates).install(null);
         mvc.perform(post("/server/update/install")).andExpect(status().isConflict())
                 .andExpect(jsonPath("$.message").value("Alfred 1.5.0 is up to date"));
+    }
+
+    @Test
+    void aChosenVersionIsPassedOn() throws Exception {
+        mvc.perform(post("/server/update/install").contentType("application/json").content("{\"version\":\"1.4.5\"}"))
+                .andExpect(status().isAccepted());
+        verify(updates).install("1.4.5");
+    }
+
+    @Test
+    void pauseAndCancelAreWritesLocalYesForeignNo() throws Exception {
+        mvc.perform(post("/server/update/pause")).andExpect(status().isAccepted());
+        mvc.perform(post("/server/update/cancel")).andExpect(status().isAccepted());
+        verify(updates).pause();
+        verify(updates).cancel();
+        mvc.perform(post("/server/update/pause").with(r -> { r.setRemoteAddr("203.0.113.9"); return r; }))
+                .andExpect(status().isForbidden());
+        mvc.perform(post("/server/update/cancel").with(r -> { r.setRemoteAddr("203.0.113.9"); return r; }))
+                .andExpect(status().isForbidden());
+        doThrow(new IllegalStateException("No update is downloading")).when(updates).pause();
+        mvc.perform(post("/server/update/pause")).andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value("No update is downloading"));
     }
 }

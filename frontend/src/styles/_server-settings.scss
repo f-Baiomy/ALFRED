@@ -224,6 +224,52 @@
   }
 }
 
+// The update dialog's release choice: one row per newer release, newest first.
+.server-releases {
+  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem 0.6rem;
+  margin: 0 0 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+
+  legend {
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    padding: 0 0.3rem;
+  }
+
+  small {
+    margin-top: 0.2rem;
+  }
+}
+
+.server-release {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+
+  input {
+    margin: 0;
+  }
+
+  .server-release-version {
+    font-weight: 600;
+    min-width: 4.5rem;
+  }
+
+  .server-release-notes {
+    flex-basis: 100%;
+    padding-left: 1.6rem;
+    color: var(--text-dim);
+    font-size: 0.82rem;
+  }
+}
+
 .server-label {
   font-weight: 500;
 

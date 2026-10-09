@@ -51,4 +51,14 @@ public interface SupervisorPort {
 
     /** The update the supervisor is working on, if it is running at all. */
     Optional<UpdateJob> updateJob();
+
+    /** Stops the running download, keeping its pieces. False when nothing is downloading or no supervisor runs. */
+    default boolean pauseUpdate() {
+        return false;
+    }
+
+    /** Stops the running download, or drops a paused one, deleting the pieces. False when neither, or no supervisor. */
+    default boolean cancelUpdate() {
+        return false;
+    }
 }

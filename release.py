@@ -197,7 +197,9 @@ def main(argv):
         return 0
 
     print("Building the installers here...")
-    build = subprocess.run([sys.executable, os.path.join(ROOT, "build_dist.py")], cwd=ROOT)
+    # latest.json lists the releases before this one too, read from the current latest.json (still the previous one).
+    env = dict(os.environ, ALFRED_PREVIOUS_MANIFEST=os.environ.get("ALFRED_PREVIOUS_MANIFEST") or f"{REPO_URL}/releases/latest/download/latest.json")
+    build = subprocess.run([sys.executable, os.path.join(ROOT, "build_dist.py")], cwd=ROOT, env=env)
     if build.returncode != 0:
         print(f"The build failed - the tag {tag} is pushed; fix the build and run: gh release create {tag} dist/* --notes-from-tag")
         return 1

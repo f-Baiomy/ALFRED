@@ -35,6 +35,7 @@ import sys
 import tarfile
 import threading
 import time
+import urllib.request
 import zipfile
 
 # The tools' output is relayed as it comes, and ng build prints characters (❯, ✔) a Windows console in cp1252
@@ -593,10 +594,51 @@ def manifest(version_text, files, url_base=RELEASE_URL_BASE, notes="", published
             "assets": assets}
 
 
+KEEP_RELEASES = 10  # older releases listed in latest.json
+
+
+def with_history(current, previous, keep=KEEP_RELEASES):
+    """`current` plus a "releases" list: the release `previous` (the latest.json this one replaces) and the ones IT
+    listed, newest first, `keep` at most, each with its installers and the first line of its notes. An installed Alfred
+    several releases behind then sees every release it would skip and can install any of them - the installers stay
+    on GitHub. A previous manifest that is missing or not one adds nothing."""
+    if not isinstance(previous, dict) or not previous.get("version"):
+        return current
+    older = [{k: v for k, v in previous.items() if k != "releases"}] + [r for r in previous.get("releases") or [] if isinstance(r, dict)]
+    seen, releases = {current["version"]}, []
+    for release in older:
+        version = release.get("version")
+        if not version or version in seen or not release.get("assets"):
+            continue
+        seen.add(version)
+        releases.append({"version": version, "notes": (release.get("notes") or "").strip().split("\n")[0],
+                         "publishedAt": release.get("publishedAt", ""), "assets": release["assets"]})
+    return {**current, "releases": releases[:keep]} if releases else current
+
+
+def previous_manifest(source):
+    """The latest.json this release replaces (ALFRED_PREVIOUS_MANIFEST: a URL or a file), or None - a build never
+    fails over it: it only means the new latest.json lists no older releases."""
+    if not source:
+        return None
+    try:
+        if source.startswith(("http://", "https://")):
+            request = urllib.request.Request(source, headers={"User-Agent": "alfred-build"})
+            with urllib.request.urlopen(request, timeout=30) as response:
+                return json.loads(response.read().decode("utf-8"))
+        with open(source, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError) as e:
+        print(f"  (the previous latest.json could not be read from {source}: {e} - listing no older releases)")
+        return None
+
+
 def write_manifest(version_text, files, url_base=RELEASE_URL_BASE):
     path = os.path.join(DIST, "latest.json")
+    current = manifest(version_text, files, url_base, release_notes(version_text))
+    current = with_history(current, previous_manifest(os.environ.get("ALFRED_PREVIOUS_MANIFEST", "")))
     with open(path, "w", encoding="utf-8", newline="\n") as f:
-        json.dump(manifest(version_text, files, url_base, release_notes(version_text)), f, indent=2)
+        json.dump(current, f, indent=2)
         f.write("\n")
     return path
 

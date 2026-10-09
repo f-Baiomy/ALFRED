@@ -87,15 +87,25 @@ public class HttpUpdateFeedAdapter implements UpdateFeedPort {
         if (root == null || !root.isObject() || !root.hasNonNull("version")) {
             throw new IOException("not an Alfred release manifest (no \"version\")");
         }
+        java.util.List<UpdateManifest> releases = new java.util.ArrayList<>();
+        for (JsonNode older : root.path("releases")) {
+            if (older.isObject() && older.hasNonNull("version")) {
+                releases.add(release(older, java.util.List.of()));
+            }
+        }
+        return release(root, releases);
+    }
+
+    /** One release: its version, notes, date and installers ({@code releases} only on the top one). */
+    private static UpdateManifest release(JsonNode node, java.util.List<UpdateManifest> releases) {
         Map<String, UpdateManifest.Asset> assets = new LinkedHashMap<>();
-        JsonNode list = root.path("assets");
-        for (Iterator<Map.Entry<String, JsonNode>> it = list.fields(); it.hasNext(); ) {
+        for (Iterator<Map.Entry<String, JsonNode>> it = node.path("assets").fields(); it.hasNext(); ) {
             Map.Entry<String, JsonNode> entry = it.next();
             JsonNode a = entry.getValue();
             assets.put(entry.getKey(), new UpdateManifest.Asset(a.path("url").asText(""), a.path("sha256").asText(""),
                     a.path("size").asLong(0)));
         }
-        return new UpdateManifest(root.path("version").asText(), root.path("notes").asText(""),
-                root.path("publishedAt").asText(""), assets);
+        return new UpdateManifest(node.path("version").asText(), node.path("notes").asText(""),
+                node.path("publishedAt").asText(""), assets, releases);
     }
 }

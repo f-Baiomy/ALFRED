@@ -294,8 +294,31 @@ of the supervisor died the moment the installer stopped the service; Linux: as a
 installer does what it always does: stop, replace the program files, keep `.env` and `data/`, start, record
 `UPGRADE` in the history; a failure puts the previous version back. The page reconnects by itself and reports the
 running version - Alfred back on the old version is reported as a failed update. `data/log/update.log` gets a line
-when the installer starts and one with its exit code (0 ok, 1 failed, 5 not an administrator, 6 refused downgrade).
+when the installer starts and one with its exit code (0 ok, 1 failed, 5 not an administrator, 6 refused downgrade,
+7 did not start - the previous version was put back).
 In Docker mode the row shows the release and points at `python3 deploy.py`; nothing is downloaded.
+
+**A new version that installs but does not start** (its port taken by another program, say) is undone too: on an
+upgrade both installers keep the previous program files aside until the new version *answers*, not only until it is
+copied. If it does not answer within 60 s, the previous version is put back and started (exit code 7), and
+`data/updates/failed-start.txt` (the version, then the reason - `_wait-health` names the program holding the port)
+lets the supervisor that starts next show the update as FAILED with that reason. `alfred update` then offers: retry,
+another UI port (it lists free ones nearby, sets `ALFRED_UI_PORT`, restarts) then retry, or keep the running version.
+
+**Pause, cancel, the download cache.** While the installer downloads, the card's dialog has *Pause* and *Cancel*,
+and `alfred update` asks on Ctrl+C. *Pause* stops and keeps the pieces (`<installer>.part` plus `.part.json`: version,
+sha256, size, the pieces that are complete); the next install of the same release - *Resume* on the card, or
+`alfred update` - fetches only the missing pieces, also after Alfred restarted. *Cancel* (or `alfred update --cancel`,
+or *Discard* on a paused one) deletes them, so the next update starts from 0. A verified installer stays in
+`data/updates` (the newest two): installing that release again - a retry after a failed start - needs no download,
+only the sha256 checked again. Installing can't be paused: by then Alfred is being replaced.
+
+**Choosing a release.** `latest.json` also lists the ten releases before it (`releases`: version, date, the first line
+of the notes, the installers), written by `build_dist.py` from the `latest.json` it replaces
+(`ALFRED_PREVIOUS_MANIFEST`, set by the release workflow and `release.py --here`). A server several releases behind sees
+them all: the card's dialog and `alfred update` list them newest first - the newest contains the others, and picking
+it drops a paused download of an older one - and `alfred update --version X` installs one directly. Only releases
+newer than the running one are offered.
 
 ## Claude (MCP) on another machine
 

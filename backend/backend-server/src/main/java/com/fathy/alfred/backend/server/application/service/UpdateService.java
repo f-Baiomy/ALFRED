@@ -20,6 +20,8 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalTime;
 import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Supplier;
@@ -76,14 +78,28 @@ public class UpdateService implements UpdateUseCase {
         Optional<UpdateManifest.Asset> asset = manifest == null ? Optional.empty() : manifest.asset(target);
         boolean available = manifest != null && asset.isPresent() && VersionOrder.isNewer(manifest.version(), current);
         UpdateJob job = mode == RuntimeMode.NATIVE ? supervisor.updateJob().orElse(UpdateJob.idle()) : UpdateJob.idle();
-        boolean canInstall = available && mode == RuntimeMode.NATIVE && supervisor.available()
-                && job.state() != UpdateJob.State.DOWNLOADING && job.state() != UpdateJob.State.VERIFYING
-                && job.state() != UpdateJob.State.INSTALLING;
+        boolean canInstall = available && mode == RuntimeMode.NATIVE && supervisor.available() && !job.running();
         return new UpdateStatus(updateMode, mode, target, current,
                 manifest == null ? "" : manifest.version(), available, checkedAt, feedUrl(now),
                 manifest == null ? "" : nullToEmpty(manifest.notes()), manifest == null ? "" : nullToEmpty(manifest.publishedAt()),
                 asset.map(UpdateManifest.Asset::url).orElse(""), asset.map(UpdateManifest.Asset::size).orElse(0L),
-                now.getOrDefault("ALFRED_UPDATE_WINDOW", ""), canInstall, job, error);
+                now.getOrDefault("ALFRED_UPDATE_WINDOW", ""), canInstall, job, error, newer(manifest, current));
+    }
+
+    /** The releases the feed lists that are newer than {@code current} and have an installer for this target. */
+    private List<UpdateStatus.Release> newer(UpdateManifest manifest, String current) {
+        if (manifest == null) {
+            return List.of();
+        }
+        List<UpdateStatus.Release> list = new ArrayList<>();
+        for (UpdateManifest release : manifest.all()) {
+            Optional<UpdateManifest.Asset> asset = release.asset(target);
+            if (asset.isPresent() && VersionOrder.isNewer(release.version(), current)) {
+                list.add(new UpdateStatus.Release(release.version(), nullToEmpty(release.publishedAt()),
+                        nullToEmpty(release.notes()), asset.get().size()));
+            }
+        }
+        return list;
     }
 
     @Override
@@ -114,7 +130,7 @@ public class UpdateService implements UpdateUseCase {
     }
 
     @Override
-    public void install() {
+    public void install(String version) {
         if (mode != RuntimeMode.NATIVE) {
             throw new IllegalStateException("Alfred runs with Docker here: update it with python3 deploy.py");
         }
@@ -126,12 +142,35 @@ public class UpdateService implements UpdateUseCase {
         if (!supervisor.available()) {
             throw new IllegalStateException("No supervisor is running - start Alfred with 'alfred start' to update it from here");
         }
-        UpdateManifest.Asset asset = latest.asset(target).orElseThrow();
+        String wanted = version == null || version.isBlank() ? latest.version() : version.strip();
+        UpdateManifest release = latest.all().stream().filter(r -> r.version().equals(wanted)).findFirst()
+                .orElseThrow(() -> new IllegalStateException("The release feed does not list Alfred " + wanted));
+        if (!VersionOrder.isNewer(release.version(), status.currentVersion())) {
+            throw new IllegalStateException("Alfred " + wanted + " is not newer than " + status.currentVersion() + " - not installing it");
+        }
+        UpdateManifest.Asset asset = release.asset(target)
+                .orElseThrow(() -> new IllegalStateException("Alfred " + wanted + " has no installer for " + target));
         if (asset.sha256() == null || asset.sha256().isBlank()) {
             throw new IllegalStateException("The release carries no checksum for " + target + " - not installing it");
         }
-        if (!supervisor.installUpdate(latest.version(), asset.url(), asset.sha256(), asset.size())) {
+        if (!supervisor.installUpdate(release.version(), asset.url(), asset.sha256(), asset.size())) {
             throw new IllegalStateException("The supervisor did not accept the update (is one already in progress?)");
+        }
+        events.serverChanged("update");
+    }
+
+    @Override
+    public void pause() {
+        if (mode != RuntimeMode.NATIVE || !supervisor.pauseUpdate()) {
+            throw new IllegalStateException("No update is downloading");
+        }
+        events.serverChanged("update");
+    }
+
+    @Override
+    public void cancel() {
+        if (mode != RuntimeMode.NATIVE || !supervisor.cancelUpdate()) {
+            throw new IllegalStateException("No update is downloading or paused");
         }
         events.serverChanged("update");
     }

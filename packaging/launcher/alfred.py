@@ -158,8 +158,64 @@ def explain_not_answering(layout):
     for p in (status or {}).get("processes", []):
         if p["state"] != "RUNNING" or p["detail"]:
             lines.append(f"  {p['name']}: {p['state'].lower()}" + (f" - {p['detail']}" if p["detail"] else ""))
+    if not other:
+        owner = port_owner(layout.ui_port(), layout)
+        if owner and not owner["ours"]:
+            lines.append(f"  Port {layout.ui_port()} is in use by {owner['name']} (pid {owner['pid']}).")
     lines.append("  Logs: alfred logs supervisor, alfred logs backend")
     return "\n".join(lines)
+
+
+def port_owner(port, layout=None):
+    """Who listens on a TCP port: {"name", "pid", "ours"} - ours when the program lives in this install - or None.
+    netstat + tasklist on Windows, ss elsewhere; None when neither can tell."""
+    home = os.path.normcase(os.path.realpath(layout.home)) if layout else None
+    try:
+        if WINDOWS:
+            out = subprocess.run(["netstat", "-ano", "-p", "TCP"], capture_output=True, text=True, errors="replace", timeout=10).stdout
+            pid = next((int(cols[4]) for cols in (line.split() for line in out.splitlines())
+                        if len(cols) == 5 and cols[3] == "LISTENING" and cols[1].rsplit(":", 1)[-1] == str(port)), None)
+            if not pid:
+                return None
+            row = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"], capture_output=True, text=True,
+                                 errors="replace", timeout=10).stdout.strip().split('","')
+            name = row[0].strip('"') if row and row[0] else "a process"
+            path = ""
+            try:
+                path = subprocess.run(["powershell", "-NoProfile", "-Command", f"(Get-Process -Id {pid}).Path"],
+                                      capture_output=True, text=True, timeout=10).stdout.strip()
+            except (OSError, subprocess.SubprocessError):
+                pass
+        else:
+            out = subprocess.run(["ss", "-Hltnp", f"sport = :{port}"], capture_output=True, text=True, timeout=10).stdout
+            line = out.strip().splitlines()[0] if out.strip() else ""
+            match = re.search(r'\(\("([^"]+)",pid=(\d+)', line)
+            if not match:
+                return None
+            name, pid = match.group(1), int(match.group(2))
+            try:
+                path = os.readlink(f"/proc/{pid}/exe")
+            except OSError:
+                path = ""
+    except (OSError, subprocess.SubprocessError, ValueError, IndexError):
+        return None
+    ours = bool(home and path and os.path.normcase(os.path.realpath(path)).startswith(home))
+    return {"name": name, "pid": pid, "ours": ours}
+
+
+def free_ports(start, count=3, limit=50):
+    """The first `count` ports from `start` up that nothing listens on (bind test on all addresses)."""
+    found = []
+    for port in range(start, start + limit):
+        with socket.socket() as s:
+            try:
+                s.bind(("0.0.0.0", port))
+            except OSError:
+                continue
+        found.append(port)
+        if len(found) == count:
+            break
+    return found
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -444,8 +500,16 @@ def update_line(layout, t=None):
     job = status.get("job") or {}
     if job.get("state") in ("DOWNLOADING", "VERIFYING", "INSTALLING"):
         return t.c(f"{t.g['up']} Update: Alfred {job.get('version')} is {job['state'].lower()}", "yellow", "bold") + t.c(" - Alfred restarts when it is done.", "dim")
+    if job.get("state") == "PAUSED" and job.get("totalBytes"):
+        return (t.c(f"{t.g['pause']} Update to {job.get('version')} paused at {job['downloadedBytes'] * 100 // job['totalBytes']}%", "yellow", "bold")
+                + t.c(f" {t.g['dot']} ", "dim") + t.cmd("alfred update") + t.c(" continues · ", "dim") + t.cmd("alfred update --cancel") + t.c(" discards", "dim"))
     if job.get("state") == "FAILED":
-        return t.fail(f"Update: the install of {job.get('version')} failed ({job.get('error')}); the previous version was kept.")
+        error = job.get("error") or ""
+        return t.fail(f"Update: {error}" if "was put back" in error else
+                      f"Update: the install of {job.get('version')} failed ({error}); the previous version was kept.")
+    if len(status.get("releases") or []) > 1:
+        return (t.c(f"{t.g['up']} {len(status['releases'])} newer releases, newest {status['latestVersion']}", "yellow", "bold")
+                + t.c(" - choose with ", "dim") + t.cmd("alfred update"))
     if status.get("available"):
         return (t.c(f"{t.g['up']} Update available: Alfred {status['latestVersion']}", "yellow", "bold")
                 + t.c(" - install it with ", "dim") + t.cmd("alfred update") + t.c(" or from the Settings tab.", "dim"))
@@ -523,14 +587,15 @@ def cmd_version(layout, args):
     return OK
 
 
-def backend_json(layout, method, path, timeout=30):
+def backend_json(layout, method, path, timeout=30, body=None):
     """A call to THIS install's running backend, as the OS user (the identity check of own_backend first)."""
     ok, other = own_backend(layout)
     if not ok:
         raise SystemExit("Alfred is not running here" + (f" (another Alfred answers on its port: {other})" if other else "")
                          + " - start it with 'alfred start'; updates are checked and installed by the running Alfred.")
     import getpass
-    request = urllib.request.Request(layout.local_url() + path, method=method, data=b"{}" if method == "POST" else None,
+    data = json.dumps(body).encode() if body is not None else (b"{}" if method == "POST" else None)
+    request = urllib.request.Request(layout.local_url() + path, method=method, data=data,
                                      headers={"Content-Type": "application/json", "X-Alfred-Cli-User": getpass.getuser()})
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
@@ -573,81 +638,278 @@ def describe_update(status, t=None):
     return "\n".join(lines)
 
 
-def follow_update(layout, t, version, size):
+def interactive():
+    """Someone at a terminal who can answer a question (never in a pipe, CI, or the installers' capture)."""
+    try:
+        return sys.stdin.isatty() and sys.stdout.isatty()
+    except (AttributeError, ValueError):
+        return False
+
+
+def ask(t, prompt, choices, default):
+    """One key from `choices` (Enter = `default`); `default` when nobody can answer or input ends."""
+    if not interactive():
+        return default
+    try:
+        answer = input("    " + t.c(prompt, "dim")).strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return default
+    return answer if answer in choices else default
+
+
+def follow_update(layout, t, version, size, old_version=None):
     """Watches the supervisor's update job to the end: download (bar, speed, time left), checksum, install, and the
-    new version answering. True when it runs; False when the job failed or the new version never answered."""
+    new version answering. Returns "ok", "failed" (the job failed, or the new version did not start and the old one
+    was put back - the job then says why), "paused", "cancelled", or None when there is no supervisor to follow.
+    Ctrl+C while downloading asks: pause (keep the pieces), cancel (delete them), or go on."""
+    old_version = old_version or layout.version()
     with t.steps(f"Installing Alfred {version}", label_width=14) as steps:
         download, verify = steps.add("Downloading"), steps.add("Checksum")
         install, answer = steps.add("Installing"), steps.add(f"Alfred {version}")
-        samples, deadline = [], None
+        samples, deadline, seen_job = [], None, False
         while True:
-            job = call_supervisor(layout, "GET", "/update", timeout=2)
-            state = (job or {}).get("state")
-            if state == "DOWNLOADING":
-                got, total = job["downloadedBytes"], job["totalBytes"] or size or 0
-                now = time.monotonic()
-                samples = [s for s in samples if now - s[0] < 5] + [(now, got)]
-                rate = (samples[-1][1] - samples[0][1]) / max(0.5, samples[-1][0] - samples[0][0])
-                left = f" {t.g['dot']} {int((total - got) / rate)} s left" if rate > 0 and total else ""
-                fraction = got / total if total else 0
-                download.run(t.bar(fraction) + f" {fraction * 100:3.0f}%  {got // 1048576} of {total // 1048576} MB"
-                             + (f" {t.g['dot']} {rate / 1048576:.1f} MB/s" if rate > 0 else "") + left)
-            elif state == "VERIFYING":
-                download.done(f"{(job.get('totalBytes') or size) // 1048576} MB {t.g['dot']} {termlib.duration(download.elapsed())}")
-                verify.run("sha256")
-            elif state == "INSTALLING" or (state is None and install.state == "run"):
-                download.done(f"{(size or 0) // 1048576} MB")
-                verify.done("matches the release")
-                install.run(f"Alfred stops here, its files are replaced {t.g['dot']} {int(install.elapsed())} s")
-                deadline = deadline or time.monotonic() + INSTALL_SECONDS
-                if state is None:  # the installer stopped the old Alfred; wait for the new one
-                    if own_backend(layout, timeout=1)[0] and layout.version() == version:
-                        install.done(termlib.duration(install.elapsed()))
-                        answer.done("answers")
-                        return True
-                    if time.monotonic() > deadline:
-                        install.fail(f"Alfred {version} did not answer within {INSTALL_SECONDS // 60} min",
-                                     [t.c("what the installer did: ", "dim") + t.cmd("alfred logs update")])
-                        return False
-            elif state == "FAILED":
-                failed = next(s for s in (download, verify, install) if s.state != "ok")
-                failed.fail(job.get("error") or "failed", [t.c("Alfred keeps running the version it had.", "dim")])
-                return False
-            elif state is None and download.state == "wait":
-                return None  # no supervisor to follow (a backend without one): the caller says what happens next
-            time.sleep(POLL_SECONDS)
+            try:
+                job = call_supervisor(layout, "GET", "/update", timeout=2)
+                state = (job or {}).get("state")
+                if job and job.get("version") not in (None, "", version) and state != "FAILED":
+                    state = None if install.state == "run" else state
+                seen_job = seen_job or state in ("DOWNLOADING", "VERIFYING", "INSTALLING")
+                if state == "DOWNLOADING":
+                    got, total = job["downloadedBytes"], job["totalBytes"] or size or 0
+                    now = time.monotonic()
+                    samples = [s for s in samples if now - s[0] < 5] + [(now, got)]
+                    rate = (samples[-1][1] - samples[0][1]) / max(0.5, samples[-1][0] - samples[0][0])
+                    left = f" {t.g['dot']} {int((total - got) / rate)} s left" if rate > 0 and total else ""
+                    fraction = got / total if total else 0
+                    resumed = f" {t.g['dot']} resumed at {job['resumedBytes'] // 1048576} MB" if job.get("resumedBytes") else ""
+                    download.run(t.bar(fraction) + f" {fraction * 100:3.0f}%  {got // 1048576} of {total // 1048576} MB"
+                                 + (f" {t.g['dot']} {rate / 1048576:.1f} MB/s" if rate > 0 else "") + left + resumed)
+                elif state == "PAUSED":
+                    download.warn(f"paused at {job['downloadedBytes'] // 1048576} of {(job['totalBytes'] or size) // 1048576} MB"
+                                  " - the pieces are kept")
+                    return "paused"
+                elif state == "IDLE" and seen_job:
+                    download.fail("cancelled - what was downloaded is deleted")
+                    return "cancelled"
+                elif state == "VERIFYING":
+                    if job.get("cached"):
+                        download.done(f"{t.c('already here', 'teal')} {t.g['dot']} from the download cache, no download")
+                    else:
+                        download.done(f"{(job.get('totalBytes') or size) // 1048576} MB {t.g['dot']} {termlib.duration(download.elapsed())}"
+                                      + (f" {t.g['dot']} {job['resumedBytes'] // 1048576} MB were already here" if job.get("resumedBytes") else ""))
+                    verify.run("sha256")
+                elif state == "INSTALLING" or (state is None and install.state == "run"):
+                    download.done(f"{(size or 0) // 1048576} MB" if not (job or {}).get("cached") else "from the download cache")
+                    verify.done("matches the release")
+                    install.run(f"Alfred stops here, its files are replaced {t.g['dot']} {int(install.elapsed())} s")
+                    deadline = deadline or time.monotonic() + INSTALL_SECONDS
+                    if state is None:  # the installer stopped the old Alfred; wait for the new one
+                        if own_backend(layout, timeout=1)[0]:
+                            if layout.version() == version:
+                                install.done(termlib.duration(install.elapsed()))
+                                answer.done("answers")
+                                return "ok"
+                            # The old version answers again: the installer put it back (failed-start.txt says why).
+                            back, until = {}, time.monotonic() + 10  # its supervisor may need a moment to say why
+                            while time.monotonic() < until:
+                                back = call_supervisor(layout, "GET", "/update", timeout=2) or {}
+                                if back.get("state") == "FAILED":
+                                    break
+                                time.sleep(POLL_SECONDS or 0.05)
+                            if back.get("state") == "FAILED" or layout.version() == old_version:
+                                install.done(termlib.duration(install.elapsed()))
+                                answer.fail("did not start", [t.c(back.get("error") or
+                                            f"Alfred {old_version} answers again: the installer put it back.", "dim")])
+                                return "failed"
+                        if time.monotonic() > deadline:
+                            install.fail(f"Alfred {version} did not answer within {INSTALL_SECONDS // 60} min",
+                                         [t.c("what the installer did: ", "dim") + t.cmd("alfred logs update")])
+                            return "failed"
+                elif state == "FAILED":
+                    failed = next(s for s in (download, verify, install) if s.state != "ok")
+                    failed.fail(job.get("error") or "failed", [t.c("Alfred keeps running the version it had.", "dim")])
+                    return "failed"
+                elif state is None and download.state == "wait":
+                    return None  # no supervisor to follow (a backend without one): the caller says what happens next
+                time.sleep(POLL_SECONDS)
+            except KeyboardInterrupt:
+                if install.state == "run":
+                    install.detail("Installing can't be paused: Alfred is being replaced. About a minute.")
+                    continue
+                choice = halt_choice(layout, t, steps)
+                if choice is None:
+                    continue
+                return choice
+
+
+def halt_choice(layout, t, steps):
+    """Ctrl+C during a download: pause (keep the pieces), cancel (delete them), or go on. None = go on."""
+    if not interactive():
+        backend_json(layout, "POST", "/server/update/pause")
+        return "paused-asked"
+    steps.stop.set()  # hold the live view still while the question is asked
+    if steps.thread:
+        steps.thread.join(1)
+        steps.thread = None
+        steps.term.stream.write("\x1b[?25h\n")
+    t.print("  " + t.c("Stop the update?", "white", "bold"))
+    t.print("    " + t.c("p", "white", "bold") + "  " + f"{'Pause':<9}" + t.c("stop now, keep what was downloaded · alfred update continues from there", "dim"))
+    t.print("    " + t.c("c", "white", "bold") + "  " + f"{'Cancel':<9}" + t.c("stop now and delete what was downloaded · the next update starts over", "dim"))
+    t.print("    " + t.c("↵" if t.unicode else "Enter", "white", "bold") + "  " + f"{'Continue':<9}" + t.c("keep downloading", "dim"))
+    choice = ask(t, "choose: ", ("p", "c"), "")
+    if choice == "p":
+        backend_json(layout, "POST", "/server/update/pause")
+        return "paused-asked"
+    if choice == "c":
+        backend_json(layout, "POST", "/server/update/cancel")
+        return "cancelled-asked"
+    # go on: a fresh live view below the question
+    steps.stop.clear()
+    steps.drawn = 0
+    if steps.term.live:
+        steps.term.stream.write("\x1b[?25l")
+        steps.thread = threading.Thread(target=steps._animate, name="steps", daemon=True)
+        steps.thread.start()
+    return None
+
+
+def wait_job(layout, *states, seconds=30):
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        job = call_supervisor(layout, "GET", "/update", timeout=2) or {}
+        if job.get("state") in states:
+            return job
+        time.sleep(POLL_SECONDS)
+    return call_supervisor(layout, "GET", "/update", timeout=2) or {}
+
+
+def choose_release(t, status, wanted):
+    """Which release to install: --version, else - with more than one newer release and someone to ask - a menu,
+    else the newest. A paused download is marked; choosing another release drops it."""
+    releases = status.get("releases") or ([{"version": status["latestVersion"], "publishedAt": status.get("publishedAt", ""),
+                                            "notes": status.get("notes", ""), "sizeBytes": status.get("sizeBytes", 0)}]
+                                          if status.get("available") else [])
+    if wanted:
+        return wanted if any(r["version"] == wanted for r in releases) else None
+    if len(releases) < 2 or not interactive():
+        return releases[0]["version"] if releases else None
+    job = status.get("job") or {}
+    t.print()
+    t.print("  " + t.c(f"{len(releases)} newer releases", "white", "bold"))
+    for i, r in enumerate(releases, 1):
+        note = (r.get("notes") or "").strip().split("\n")[0][:70]
+        tag = t.c("  newest · recommended", "teal") if i == 1 else ""
+        if job.get("state") == "PAUSED" and job.get("version") == r["version"] and job.get("totalBytes"):
+            tag += t.c(f"  {t.g['pause']} paused here at {job['downloadedBytes'] * 100 // job['totalBytes']}%", "yellow")
+        t.print(f"    {t.c(str(i), 'white', 'bold')}  {t.c(r['version'].ljust(8), 'white')}{t.c((r.get('publishedAt') or '')[:10].ljust(12), 'dim')}{note}{tag}")
+    t.print("    " + t.c(f"Each installer brings everything up to its version: {releases[0]['version']} also contains the others.", "dim"))
+    pick = ask(t, "choose [1], q = not now: ", tuple(str(i) for i in range(1, len(releases) + 1)) + ("q",), "1")
+    if pick == "q":
+        return ""
+    return releases[int(pick) - 1]["version"]
+
+
+def after_failed_start(layout, t, version):
+    """The new version installed but did not start and the old one was put back. Offer: retry (the installer is in
+    the cache, no download), another UI port then retry, or keep the running version."""
+    if not interactive():
+        t.print("  " + t.c("The installer is kept: ", "dim") + t.cmd("alfred update") + t.c(" tries again without downloading.", "dim"))
+        return ERROR
+    t.print()
+    t.print("  " + t.c(f"{version} couldn't start. What now?", "white", "bold") + t.c("  (the installer is cached: no download needed)", "dim"))
+    t.print("    " + t.c("r", "white", "bold") + "  " + f"{'Retry':<15}" + t.c("after you have fixed what it says", "dim"))
+    t.print("    " + t.c("p", "white", "bold") + "  " + f"{'Another port':<15}" + t.c("pick a free UI port for Alfred, then retry", "dim"))
+    t.print("    " + t.c("k", "white", "bold") + "  " + f"{'Keep ' + layout.version():<15}" + t.c("stop here · alfred update retries later from the cache", "dim"))
+    choice = ask(t, "choose [k]: ", ("r", "p", "k"), "k")
+    if choice == "k":
+        return ERROR
+    if choice == "p":
+        ports = free_ports(layout.ui_port() + 1)
+        t.print("    " + t.c("free ports nearby: ", "dim") + t.c(", ".join(map(str, ports)), "teal"))
+        try:
+            port = input("    " + t.c(f"UI port [{ports[0] if ports else ''}]: ", "dim")).strip() or (str(ports[0]) if ports else "")
+        except (EOFError, KeyboardInterrupt):
+            return ERROR
+        if not port.isdigit():
+            return ERROR
+        import config_cli
+        if config_cli.main(layout, "config", ["set", "ALFRED_UI_PORT", port]) != OK:
+            return ERROR
+        if cmd_restart(layout, []) != OK:
+            return ERROR
+    return cmd_update(layout, ["--version", version])
 
 
 def cmd_update(layout, args):
-    """alfred update [--check]: read the feed now and say what it found; without --check also install it."""
-    if any(a not in ("--check",) for a in args):
-        print("usage: alfred update [--check]", file=sys.stderr)
+    """alfred update [--check | --cancel | --version X]: read the feed now and say what it found; without --check also
+    install it (the newest, or the one chosen). A paused download of the same release goes on where it stopped."""
+    wanted, rest = None, list(args)
+    if "--version" in rest:
+        i = rest.index("--version")
+        if i + 1 >= len(rest):
+            print("usage: alfred update [--check | --cancel | --version X]", file=sys.stderr)
+            return USAGE
+        wanted = rest[i + 1]
+        del rest[i:i + 2]
+    if any(a not in ("--check", "--cancel") for a in rest):
+        print("usage: alfred update [--check | --cancel | --version X]", file=sys.stderr)
         return USAGE
     t = ui()
+    if "--cancel" in rest:
+        backend_json(layout, "POST", "/server/update/cancel")
+        job = wait_job(layout, "IDLE")
+        t.print("  " + t.c(t.g["fail"], "white", "bold") + " " + t.c("Update cancelled", "white", "bold")
+                + t.c(f" {t.g['dot']} what was downloaded is deleted {t.g['dot']} Alfred {layout.version()} keeps running", "dim")
+                if job.get("state") == "IDLE" else t.fail("The update could not be cancelled: " + str(job.get("error") or job.get("state"))))
+        return OK if job.get("state") == "IDLE" else ERROR
     status = backend_json(layout, "POST", "/server/update/check", timeout=60)
     t.print(describe_update(status, t))
-    if "--check" in args or not status.get("available"):
+    if "--check" in rest or not status.get("available"):
         return OK if not status.get("error") else ERROR
     if not status.get("canInstall"):
         t.print(t.fail("It cannot be installed from here right now" + (" - an update is already in progress." if (status.get("job") or {}).get("state") in ("DOWNLOADING", "VERIFYING", "INSTALLING") else ".")))
         return ERROR
-    backend_json(layout, "POST", "/server/update/install")
-    version, began = status["latestVersion"], time.monotonic()
-    try:
-        outcome = follow_update(layout, t, version, status.get("sizeBytes") or 0)
-    except KeyboardInterrupt:
-        t.print()
-        t.print("  " + t.c("Stopped watching; the update keeps going. ", "dim") + t.cmd("alfred status") + t.c(" shows how far it is.", "dim"))
+    version = choose_release(t, status, wanted)
+    if version == "":
         return OK
+    if version is None:
+        t.print(t.fail(f"Alfred {wanted} is not one of the newer releases the feed lists."))
+        return ERROR
+    job = status.get("job") or {}
+    if job.get("state") == "PAUSED" and job.get("version") == version:
+        t.print("  " + t.c(f"{t.g['pause']} Going on with the paused download", "yellow") + t.c(f" ({job['downloadedBytes'] // 1048576} MB already here)", "dim"))
+    backend_json(layout, "POST", "/server/update/install", body={"version": version})
+    size = next((r.get("sizeBytes", 0) for r in status.get("releases") or [] if r["version"] == version), status.get("sizeBytes") or 0)
+    began, old = time.monotonic(), layout.version()
+    outcome = follow_update(layout, t, version, size, old)
+    if outcome == "paused-asked":
+        job = wait_job(layout, "PAUSED", "IDLE")
+        outcome = "paused" if job.get("state") == "PAUSED" else outcome
+    if outcome == "cancelled-asked":
+        job = wait_job(layout, "IDLE")
+        outcome = "cancelled"
     t.print()
     if outcome is None:
         t.print(f"Installing Alfred {version}: the installer is downloaded, verified and run. Alfred stops and starts "
                 "again in about a minute; 'alfred status' then shows the new version, 'alfred update --check' the outcome.")
         return OK
-    if outcome:
+    if outcome == "ok":
         t.print("  " + t.c(f"{t.g['ok']} Alfred {version} is running", "green", "bold")
                 + t.c(f" {t.g['dot']} updated in {termlib.duration(time.monotonic() - began)} {t.g['dot']} ", "dim") + t.url(ui_addresses(layout)[0]))
         return OK
+    if outcome == "paused":
+        job = call_supervisor(layout, "GET", "/update") or {}
+        t.print("  " + t.c(f"{t.g['pause']} Update paused", "yellow", "bold")
+                + t.c(f" at {job.get('downloadedBytes', 0) // 1048576} of {job.get('totalBytes', 0) // 1048576} MB {t.g['dot']} kept in {os.path.join(layout.data, 'updates')}", "dim"))
+        t.print("    " + t.c("continue: ", "dim") + t.cmd("alfred update") + t.c("    discard: ", "dim") + t.cmd("alfred update --cancel"))
+        return OK
+    if outcome == "cancelled":
+        t.print("  " + t.c(t.g["fail"] + " Update cancelled", "white", "bold") + t.c(f" {t.g['dot']} what was downloaded is deleted {t.g['dot']} Alfred {layout.version()} keeps running", "dim"))
+        t.print("    " + t.c("the next ", "dim") + t.cmd("alfred update") + t.c(" starts from 0 MB", "dim"))
+        return OK
+    if layout.version() == old and own_backend(layout)[0]:
+        return after_failed_start(layout, t, version)
     t.print("  " + t.fail(t.c("The update did not finish", "red", "bold")) + t.c(" · ", "dim") + t.cmd("alfred update --check") + t.c(" shows the outcome", "dim"))
     return ERROR
 

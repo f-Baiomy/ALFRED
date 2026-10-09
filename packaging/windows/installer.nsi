@@ -142,6 +142,31 @@ Function .onInstFailed
   ${EndIf}
 FunctionEnd
 
+; An upgrade whose new version installed but did not start or answer ($1 = why): the previous program files come
+; back and start again, so an update never leaves a server down. data\updates\failed-start.txt (the version, then the
+; reason) is how the supervisor that starts next - the previous version's - learns why, and shows the update as
+; FAILED with that reason instead of "up to date". Exit code 7. Settings and recorded data were never touched.
+Function RollBackFailedStart
+  DetailPrint "Alfred ${VERSION} did not start ($1) - putting $OldVersion back"
+  nsExec::ExecToLog '"${SERVICE_EXE}" stop'
+  Pop $0
+  RMDir /r "$INSTDIR\runtime"
+  RMDir /r "$INSTDIR\app"
+  Rename "$INSTDIR\runtime.previous" "$INSTDIR\runtime"
+  Rename "$INSTDIR\app.previous" "$INSTDIR\app"
+  CreateDirectory "$INSTDIR\data\updates"
+  FileOpen $9 "$INSTDIR\data\updates\failed-start.txt" w
+  FileWrite $9 "${VERSION}$\r$\n$1$\r$\n"
+  FileClose $9
+  nsExec::ExecToLog '"${SERVICE_EXE}" start'
+  Pop $0
+  StrCpy $Upgrading "0"   ; nothing kept aside any more: the copy-dropping step below must not run
+  DetailPrint "Alfred $OldVersion was put back and started again."
+  IfSilent +2
+    MessageBox MB_ICONEXCLAMATION "Alfred ${VERSION} was installed but did not start:$\r$\n$1$\r$\n$\r$\nAlfred $OldVersion was put back and runs again."
+  SetErrorLevel 7
+FunctionEnd
+
 ; "1" when the text is a version NUMBER (1.2.3, from a git tag), "0" for anything else - a bare commit hash from
 ; `git describe --always` on an untagged checkout (49c0c7b8-dirty). Only numbers can be ordered: VersionCompare read
 ; "49c0c7b8" as 49 and "f9a2d152" as 0 and refused a newer build as a downgrade.
@@ -337,12 +362,18 @@ Section "Alfred" SecMain
     ${TrimNewLines} $1 $1
     ${If} $0 == "0"
       DetailPrint "$1"
+    ${ElseIf} $Upgrading == "1"
+      ; An upgrade that installed but does not answer is undone: the previous version comes back (exit code 7).
+      Call RollBackFailedStart
     ${Else}
       DetailPrint "Alfred did not answer within 60 s. Logs: $INSTDIR\data\log (from an Administrator prompt: alfred logs supervisor)"
       IfSilent +2
         MessageBox MB_ICONEXCLAMATION "Alfred was installed and its service started, but it did not answer within 60 s.$\r$\nFrom an Administrator prompt: alfred status, alfred logs supervisor"
       SetErrorLevel 1
     ${EndIf}
+  ${ElseIf} $Upgrading == "1"
+    StrCpy $1 "its service did not start: $1"
+    Call RollBackFailedStart
   ${Else}
     DetailPrint "Logs: $INSTDIR\data\log (alfred-service.err.log, supervisor.log) - readable from an Administrator prompt."
     IfSilent +2

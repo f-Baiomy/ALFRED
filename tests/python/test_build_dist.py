@@ -119,6 +119,25 @@ class VersionTest(unittest.TestCase):
         # SHA256SUMS is no installer and names no target.
         self.assertIsNone(build_dist.target_of("SHA256SUMS"))
 
+    def test_the_manifest_lists_the_releases_before_it_newest_first(self):
+        asset = {"windows-x64": {"url": "u", "sha256": "s", "size": 1}}
+        current = {"version": "1.5.0", "notes": "n", "publishedAt": "p", "assets": asset}
+        previous = {"version": "1.4.5", "notes": "Fixes only\n\nlong details", "publishedAt": "2026-10-05", "assets": asset,
+                    "releases": [{"version": "1.4.2", "notes": "x", "assets": asset},
+                                 {"version": "1.5.0", "assets": asset},            # the current one again: not listed twice
+                                 {"version": "1.4.1", "assets": {}},              # no installers: nothing to install
+                                 "junk"]}
+        m = build_dist.with_history(current, previous)
+        self.assertEqual([r["version"] for r in m["releases"]], ["1.4.5", "1.4.2"])
+        self.assertEqual(m["releases"][0]["notes"], "Fixes only")
+        self.assertNotIn("releases", m["releases"][0])
+        self.assertEqual(m["version"], "1.5.0")
+        # at most KEEP_RELEASES, and nothing when there is no previous manifest
+        many = {"version": "1.4.99", "assets": asset, "releases": [{"version": f"1.4.{i}", "assets": asset} for i in range(30)]}
+        self.assertEqual(len(build_dist.with_history(current, many)["releases"]), build_dist.KEEP_RELEASES)
+        self.assertEqual(build_dist.with_history(current, None), current)
+        self.assertIsNone(build_dist.previous_manifest(os.path.join(tempfile.gettempdir(), "no-such-latest.json")))
+
     def test_release_notes_only_for_a_tagged_release_version(self):
         self.assertEqual(build_dist.release_notes("87159af-dirty"), "")
         self.assertEqual(build_dist.release_notes("1.4.0-12-g87159af"), "")

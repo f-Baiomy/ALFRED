@@ -29,11 +29,13 @@ describe('ServerCardComponent - updates', () => {
   const disconnected = new Subject<void>();
 
   function setUp(status: UpdateStatus, editable = true): void {
-    api = jasmine.createSpyObj<ServerSettingsService>('ServerSettingsService', ['status', 'updateStatus', 'checkUpdate', 'installUpdate', 'restart']);
+    api = jasmine.createSpyObj<ServerSettingsService>('ServerSettingsService', ['status', 'updateStatus', 'checkUpdate', 'installUpdate', 'pauseUpdate', 'cancelUpdate', 'restart']);
     api.status.and.returnValue(of(STATUS));
     api.updateStatus.and.returnValue(of(status));
     api.checkUpdate.and.returnValue(of(status));
     api.installUpdate.and.returnValue(NEVER);
+    api.pauseUpdate.and.returnValue(of({ accepted: true }));
+    api.cancelUpdate.and.returnValue(of({ accepted: true }));
     TestBed.configureTestingModule({
       imports: [ServerCardComponent],
       providers: [
@@ -177,5 +179,70 @@ describe('ServerCardComponent - updates', () => {
     fixture.detectChanges();
     expect(api.checkUpdate).toHaveBeenCalled();
     expect(text()).toContain('Alfred 1.5.0 available');
+  });
+
+  const job = (state: any, over: any = {}) => ({ state, version: '1.5.0', downloadedBytes: 58, totalBytes: 100, error: '', ...over });
+  const releases = [
+    { version: '1.6.0', publishedAt: '', notes: 'Relive SQL replay\nthe second line is not shown', sizeBytes: 151 * 1024 * 1024 },
+    { version: '1.5.0', publishedAt: '', notes: 'Fixes only', sizeBytes: 150 * 1024 * 1024 },
+  ];
+
+  it('with several newer releases the dialog lets you choose, the newest first, and installs the one chosen', () => {
+    setUp(update({ latestVersion: '1.6.0', releases }));
+    expect(text()).toContain('2 newer releases');
+    button('Install update')!.click();
+    fixture.detectChanges();
+    expect(text()).toContain('Install Alfred 1.6.0?');
+    const radios = (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLInputElement>('input[name=release]');
+    expect(radios.length).toBe(2);
+    expect(text()).toContain('Relive SQL replay');
+    expect(text()).not.toContain('the second line');
+    radios[1].click();
+    radios[1].dispatchEvent(new Event('change'));
+    fixture.detectChanges();
+    expect(text()).toContain('Install Alfred 1.5.0?');
+    button('Install and restart')!.click();
+    expect(api.installUpdate).toHaveBeenCalledWith('1.5.0');
+  });
+
+  it('a running download can be paused or cancelled from the dialog, and the dialog ends with it', () => {
+    setUp(update());
+    fixture.componentInstance.askUpdate();
+    fixture.componentInstance.restart();
+    api.updateStatus.and.returnValue(of(update({ canInstall: false, job: job('DOWNLOADING') })));
+    fixture.componentInstance.load();
+    fixture.detectChanges();
+    expect(button('Pause')).toBeTruthy();
+    expect(button('Cancel')).toBeTruthy();
+    api.updateStatus.and.returnValue(of(update({ job: job('PAUSED') })));
+    button('Pause')!.click();
+    fixture.detectChanges();
+    expect(api.pauseUpdate).toHaveBeenCalled();
+    expect(fixture.componentInstance.progressKind()).toBeNull();
+    expect(text()).toContain('update to 1.5.0 paused at 58%');
+    expect(button('Resume')).toBeTruthy();
+    expect(button('Discard')).toBeTruthy();
+  });
+
+  it('a paused download resumes as the same release, or is discarded', () => {
+    setUp(update({ job: job('PAUSED') }));
+    button('Resume')!.click();
+    fixture.detectChanges();
+    expect(text()).toContain('Install Alfred 1.5.0?');
+    button('Install and restart')!.click();
+    expect(api.installUpdate).toHaveBeenCalledWith('1.5.0');
+    fixture.destroy();
+    TestBed.resetTestingModule();
+    setUp(update({ job: job('PAUSED') }));
+    button('Discard')!.click();
+    expect(api.cancelUpdate).toHaveBeenCalled();
+  });
+
+  it('a version that did not start says so, once, and that a retry needs no download', () => {
+    const error = 'Alfred 1.5.0 was installed but did not start: port 3000 is in use by node.exe (pid 4410). Alfred 1.4.0 was put back.';
+    setUp(update({ job: job('FAILED', { error }) }));
+    expect(text()).toContain('port 3000 is in use by node.exe');
+    expect(text()).not.toContain('The previous version was kept');
+    expect(text()).toContain('installing again needs no download');
   });
 });

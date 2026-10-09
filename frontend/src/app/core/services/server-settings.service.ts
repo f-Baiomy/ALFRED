@@ -76,9 +76,19 @@ export class ServerSettingsService {
     return this.http.post<UpdateStatus>(`${this.baseUrl}/update/check`, {});
   }
 
-  /** Asks the supervisor to download, verify and run the installer; Alfred restarts. */
-  installUpdate(): Observable<{ accepted: boolean }> {
-    return this.http.post<{ accepted: boolean }>(`${this.baseUrl}/update/install`, {});
+  /** Asks the supervisor to download, verify and run the installer of `version` (default: the newest); Alfred restarts. */
+  installUpdate(version?: string): Observable<{ accepted: boolean }> {
+    return this.http.post<{ accepted: boolean }>(`${this.baseUrl}/update/install`, version ? { version } : {});
+  }
+
+  /** Stops the download and keeps its pieces: the next install of the same release goes on from there. */
+  pauseUpdate(): Observable<{ accepted: boolean }> {
+    return this.http.post<{ accepted: boolean }>(`${this.baseUrl}/update/pause`, {});
+  }
+
+  /** Stops the download, or drops a paused one, and deletes what was downloaded. */
+  cancelUpdate(): Observable<{ accepted: boolean }> {
+    return this.http.post<{ accepted: boolean }>(`${this.baseUrl}/update/cancel`, {});
   }
 
   /** .env with its secrets hidden, as a file (allowed only where editing is). */

@@ -147,7 +147,7 @@ export interface ServerStatus {
 }
 
 export type UpdateMode = 'OFF' | 'CHECK' | 'AUTO';
-export type UpdateJobState = 'IDLE' | 'DOWNLOADING' | 'VERIFYING' | 'INSTALLING' | 'FAILED';
+export type UpdateJobState = 'IDLE' | 'DOWNLOADING' | 'VERIFYING' | 'INSTALLING' | 'PAUSED' | 'FAILED';
 
 /** The supervisor's account of an install it was asked for (GET /server/update → job). */
 export interface UpdateJob {
@@ -156,6 +156,18 @@ export interface UpdateJob {
   downloadedBytes: number;
   totalBytes: number;
   error: string;
+  /** The installer came from the download cache: nothing was downloaded. */
+  cached?: boolean;
+  /** A resumed download: the bytes it already had when it went on. */
+  resumedBytes?: number;
+}
+
+/** One release newer than the running one (GET /server/update → releases, newest first). */
+export interface UpdateRelease {
+  version: string;
+  publishedAt: string;
+  notes: string;
+  sizeBytes: number;
 }
 
 /** GET /server/update: the last check's result and the install in progress, if any. */
@@ -177,6 +189,8 @@ export interface UpdateStatus {
   job: UpdateJob;
   /** The last check's failure, or "". */
   error: string;
+  /** Every release newer than this one the feed lists, newest first; more than one means the newest skips the others. */
+  releases?: UpdateRelease[];
 }
 
 /** One value of an uploaded .env, checked as the editor would check it (POST /server/settings/import). */

@@ -129,7 +129,18 @@ public class SupervisorControlAdapter implements SupervisorPort {
     public Optional<UpdateJob> updateJob() {
         return call("GET", "/update").map(body -> new UpdateJob(
                 jobState(body.path("state").asText("IDLE")), body.path("version").asText(""),
-                body.path("downloadedBytes").asLong(0), body.path("totalBytes").asLong(0), body.path("error").asText("")));
+                body.path("downloadedBytes").asLong(0), body.path("totalBytes").asLong(0), body.path("error").asText(""),
+                body.path("cached").asBoolean(false), body.path("resumedBytes").asLong(0)));
+    }
+
+    @Override
+    public boolean pauseUpdate() {
+        return call("POST", "/update/pause").isPresent();
+    }
+
+    @Override
+    public boolean cancelUpdate() {
+        return call("POST", "/update/cancel").isPresent();
     }
 
     private static UpdateJob.State jobState(String text) {

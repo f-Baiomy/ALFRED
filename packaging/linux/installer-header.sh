@@ -60,6 +60,11 @@ UPGRADE=0
 cleanup() {
   status=$?
   if [ "$ROLLBACK" -eq 1 ] && [ "$status" -ne 0 ]; then
+    # the new version may be running (an upgrade that started but did not answer): stop it before its files go
+    if [ "${STARTED_NEW:-0}" -eq 1 ]; then
+      if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then systemctl stop alfred || true
+      else "$DIR/alfred" stop >/dev/null 2>&1 || true; fi
+    fi
     for d in runtime app service; do
       rm -rf "${DIR:?}/$d"
       if [ -d "$DIR/$d.previous" ]; then mv "$DIR/$d.previous" "$DIR/$d"; fi
@@ -172,19 +177,23 @@ chmod 700 "$DIR/data"
 chmod 600 "$DIR/.env"
 ok "owned by $SERVICE_USER"
 
-ROLLBACK=0
-for d in runtime app service; do rm -rf "${DIR:?}/$d.previous"; done
-rm -f "$DIR/settings.properties.previous"
-
-# ---- the upgrade in the settings history (contracts/installer-and-build.md) -------------------------------------
-if [ "$UPGRADE" -eq 1 ] && [ "${OLD_VERSION:-}" != "$NEW_VERSION" ]; then
-  if UPGRADE_OUT=$("$DIR/alfred" _record-upgrade "$OLD_VERSION" "$NEW_VERSION" 2>&1); then
-    ok "upgrade recorded in the settings history"
-  else
-    printf '%s\n' "$UPGRADE_OUT" >&2
-    say "  (the upgrade could not be recorded in the settings history - Alfred works regardless)"
+# The previous version stays aside (runtime.previous, ...) until the new one ANSWERS: an upgrade that installs but
+# does not start is undone - see the health check below. A fresh install has nothing to go back to.
+keep_new_version() {
+  ROLLBACK=0
+  for d in runtime app service; do rm -rf "${DIR:?}/$d.previous"; done
+  rm -f "$DIR/settings.properties.previous"
+  # ---- the upgrade in the settings history (contracts/installer-and-build.md) -----------------------------------
+  if [ "$UPGRADE" -eq 1 ] && [ "${OLD_VERSION:-}" != "$NEW_VERSION" ]; then
+    if UPGRADE_OUT=$("$DIR/alfred" _record-upgrade "$OLD_VERSION" "$NEW_VERSION" 2>&1); then
+      ok "upgrade recorded in the settings history"
+    else
+      printf '%s\n' "$UPGRADE_OUT" >&2
+      say "  (the upgrade could not be recorded in the settings history - Alfred works regardless)"
+    fi
   fi
-fi
+}
+[ "$UPGRADE" -eq 1 ] || keep_new_version
 
 # ---- service ------------------------------------------------------------------------------------------------------
 ln -sf "$DIR/alfred" /usr/local/bin/alfred
@@ -196,10 +205,10 @@ if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
   systemctl daemon-reload
   systemctl enable alfred >/dev/null 2>&1
   ok "service \"alfred\" installed (starts at boot)"
-  if [ "$NO_START" -eq 0 ]; then systemctl restart alfred; fi
+  if [ "$NO_START" -eq 0 ]; then STARTED_NEW=1; systemctl restart alfred; fi
 else
   say "  No systemd here: Alfred will not start at boot. Start it with: alfred start"
-  if [ "$NO_START" -eq 0 ]; then "$DIR/alfred" start >/dev/null 2>&1 & fi
+  if [ "$NO_START" -eq 0 ]; then STARTED_NEW=1; "$DIR/alfred" start >/dev/null 2>&1 & fi
 fi
 
 if [ "$NO_START" -eq 0 ]; then
@@ -207,10 +216,19 @@ if [ "$NO_START" -eq 0 ]; then
   # failure it says why. "started" only when it did - this used to print "started" right after saying it had not.
   if HEALTH_OUT=$("$DIR/alfred" _wait-health 2>&1); then
     ok "started. $HEALTH_OUT"
+  elif [ "$UPGRADE" -eq 1 ]; then
+    # Installed but not answering: put the previous version back (cleanup does it on this exit), and leave the reason
+    # where the supervisor that starts next - the previous version's - reads it (data/updates/failed-start.txt).
+    printf '%s\n' "$HEALTH_OUT" >&2
+    mkdir -p "$DIR/data/updates"
+    printf '%s\n%s\n' "$NEW_VERSION" "$(printf '%s' "$HEALTH_OUT" | tr '\n' ' ')" > "$DIR/data/updates/failed-start.txt"
+    [ "$SERVICE_USER" != root ] && chown -R "$SERVICE_USER": "$DIR/data/updates"
+    fail "Alfred $NEW_VERSION did not answer within 60 s - putting $OLD_VERSION back" 7
   else
     printf '%s\n' "$HEALTH_OUT" >&2
     say "  Alfred did not answer within 60 s - see: sudo alfred logs supervisor"
   fi
 fi
+[ "$ROLLBACK" -eq 0 ] || keep_new_version
 say "  Next: 'alfred jvms' lists Java apps, 'alfred attach <pid>' logs one. 'alfred status' shows what runs."
 exit 0

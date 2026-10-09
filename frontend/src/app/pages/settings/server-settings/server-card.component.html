@@ -56,12 +56,20 @@
       <div class="server-value">
         @if (u.job.state === 'DOWNLOADING' || u.job.state === 'VERIFYING' || u.job.state === 'INSTALLING') {
           <span class="apply restart">● {{ jobText(u) }}</span>
+        } @else if (u.job.state === 'PAUSED') {
+          <span class="apply restart">‖ {{ jobText(u) }}</span>
         } @else if (u.job.state === 'FAILED') {
-          <span class="hint bad">✗ Update to {{ u.job.version }} failed: {{ u.job.error }}. The previous version was kept.</span>
+          @if (u.job.error.includes('was put back')) {
+            <span class="hint bad">✗ {{ u.job.error }}</span>
+            <span class="dim">The installer is in the download cache: installing again needs no download.</span>
+          } @else {
+            <span class="hint bad">✗ Update to {{ u.job.version }} failed: {{ u.job.error }}. The previous version was kept.</span>
+          }
         } @else if (u.mode === 'OFF') {
           <span class="dim">Update checks are off (ALFRED_UPDATE_MODE).</span>
         } @else if (u.available) {
           <span class="apply live">● Alfred {{ u.latestVersion }} available</span>
+          @if (releases(u).length > 1) { <span class="dim">{{ releases(u).length }} newer releases - the newest contains the others</span> }
           <span class="dim">{{ formatBytes(u.sizeBytes) }}{{ u.publishedAt ? ' · released ' + relativeDate(u.publishedAt) : '' }}</span>
           @if (u.runtimeMode === 'DOCKER') {
             <span class="hint">Docker install: update with <code>python3 deploy.py</code> in the Alfred folder.</span>
@@ -83,7 +91,10 @@
         @if (u.mode !== 'OFF') {
           <button type="button" class="action-btn" [disabled]="checking()" (click)="checkNow()">{{ checking() ? 'Checking…' : 'Check now' }}</button>
         }
-        @if (editable() && u.canInstall) {
+        @if (editable() && u.job.state === 'PAUSED') {
+          <button type="button" class="action-btn primary" (click)="resume()">Resume</button>
+          <button type="button" class="action-btn" [disabled]="halting() !== null" (click)="halt('cancel')" title="Delete what was downloaded: the next update starts over">Discard</button>
+        } @else if (editable() && u.canInstall) {
           <button type="button" class="action-btn primary" (click)="askUpdate()">Install update</button>
         }
       </div>
@@ -112,12 +123,29 @@
           <li>Recordings, cycles and settings are kept.</li>
         </ul>
       } @else {
-        <h2>Install Alfred {{ update()?.latestVersion }}?</h2>
-        <p>The installer ({{ formatBytes(update()?.sizeBytes) }}) is downloaded and its checksum verified. Then Alfred stops, replaces its program files and starts again - about a minute.</p>
+        <h2>Install Alfred {{ chosenVersion() }}?</h2>
+        @if (releases(update()).length > 1) {
+          <fieldset class="server-releases">
+            <legend>Which release</legend>
+            @for (r of releases(update()); track r.version; let first = $first) {
+              <label class="server-release">
+                <input type="radio" name="release" [value]="r.version" [checked]="r.version === chosenVersion()" (change)="chosenVersion.set(r.version)" />
+                <span class="server-release-version">{{ r.version }}</span>
+                <span class="dim">{{ r.publishedAt ? relativeDate(r.publishedAt) : '' }}</span>
+                @if (first) { <span class="apply live">newest</span> }
+                @if (update()?.job?.state === 'PAUSED' && update()?.job?.version === r.version) { <span class="apply restart">paused here</span> }
+                <span class="server-release-notes">{{ firstLine(r.notes) }}</span>
+              </label>
+            }
+            <small class="dim">Each installer brings everything up to its version: the newest also contains the others.</small>
+          </fieldset>
+        }
+        <p>The installer ({{ formatBytes(chosenSize()) }}) is downloaded - or taken from the download cache - and its checksum verified. Then Alfred stops, replaces its program files and starts again - about a minute.</p>
         <ul class="server-effects">
           <li>Settings (.env) and recorded data are kept.</li>
           <li class="warn">All of Alfred stops during the install: calls made meanwhile are not logged, and your apps' calls through the proxies fail for those seconds.</li>
-          <li>If the install fails, the previous version is put back and started.</li>
+          <li>If the install fails, or the new version does not start, the previous version is put back and started.</li>
+          <li>While it downloads you can pause (the pieces are kept) or cancel (they are deleted).</li>
           <li>This page reconnects by itself.</li>
         </ul>
       }
@@ -163,6 +191,13 @@
           </li>
         }
       </ol>
+      @if (!done() && progressKind() === 'UPDATE' && update()?.job?.state === 'DOWNLOADING') {
+        <div class="srv-progress-foot">
+          <span class="srv-progress-msg">{{ halting() === 'pause' ? 'Pausing…' : halting() === 'cancel' ? 'Cancelling…' : 'Pause keeps what was downloaded; cancel deletes it.' }}</span>
+          <button type="button" class="action-btn" [disabled]="halting() !== null" (click)="halt('pause')">Pause</button>
+          <button type="button" class="action-btn" [disabled]="halting() !== null" (click)="halt('cancel')">Cancel</button>
+        </div>
+      }
       @if (done()) {
         <div class="srv-progress-foot">
           @if (v.outcome === 'ok') {

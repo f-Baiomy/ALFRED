@@ -39,6 +39,25 @@ class HttpUpdateFeedAdapterTest {
     }
 
     @Test
+    void readsTheRecentReleasesListedBeforeTheNewestOne() throws IOException {
+        Path file = dir.resolve("latest.json");
+        Files.writeString(file, """
+                {"version": "1.5.0", "assets": {"linux-x64": {"url": "https://dl/1.5.0.run", "sha256": "a", "size": 3}},
+                 "releases": [
+                   {"version": "1.4.5", "notes": "fixes only", "publishedAt": "2026-10-05",
+                    "assets": {"linux-x64": {"url": "https://dl/1.4.5.run", "sha256": "b", "size": 2}}},
+                   {"notes": "no version: skipped"},
+                   "not an object"
+                 ]}
+                """);
+        UpdateManifest manifest = adapter.fetch(file.toUri().toString());
+        assertThat(manifest.releases()).hasSize(1);
+        assertThat(manifest.all()).extracting(UpdateManifest::version).containsExactly("1.5.0", "1.4.5");
+        assertThat(manifest.releases().get(0).asset("linux-x64")).hasValueSatisfying(a -> assertThat(a.sha256()).isEqualTo("b"));
+        assertThat(manifest.releases().get(0).notes()).isEqualTo("fixes only");
+    }
+
+    @Test
     void saysWhatIsWrongWithTheFeedInsteadOfAStackTrace() throws IOException {
         assertThatThrownBy(() -> adapter.fetch("")).isInstanceOf(IOException.class).hasMessageContaining("empty");
         assertThatThrownBy(() -> adapter.fetch("ftp://x/latest.json")).isInstanceOf(IOException.class).hasMessageContaining("http(s)");

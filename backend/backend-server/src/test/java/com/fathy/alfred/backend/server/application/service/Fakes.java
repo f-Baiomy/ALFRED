@@ -179,6 +179,22 @@ final class Fakes {
             return available ? Optional.of(job) : Optional.empty();
         }
 
+        int pauses;
+        int cancels;
+        boolean acceptHalt = true;
+
+        @Override
+        public boolean pauseUpdate() {
+            pauses++;
+            return available && acceptHalt;
+        }
+
+        @Override
+        public boolean cancelUpdate() {
+            cancels++;
+            return available && acceptHalt;
+        }
+
         @Override
         public void restartBackend() {
             backendRestarts++;

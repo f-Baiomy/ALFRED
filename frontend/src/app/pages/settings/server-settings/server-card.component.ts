@@ -60,6 +60,10 @@ export class ServerCardComponent {
   private clock: ReturnType<typeof setInterval> | undefined;
   private speed = { bytes: 0, at: 0, perSecond: 0 };
   readonly failure = signal<string | null>(null);
+  /** The release the update dialog installs: the newest unless another was chosen. */
+  readonly chosenVersion = signal<string>('');
+  /** Pause or Cancel was pressed in the progress dialog: the next job state closes it. */
+  readonly halting = signal<'pause' | 'cancel' | null>(null);
 
   readonly formatBytes = formatBytes;
 
@@ -121,6 +125,11 @@ export class ServerCardComponent {
         return `verifying the installer of ${u.job.version}`;
       case 'INSTALLING':
         return `installing Alfred ${u.job.version} - it restarts in a moment`;
+      case 'PAUSED': {
+        const total = u.job.totalBytes || u.sizeBytes;
+        const pct = total ? ` at ${Math.min(100, Math.round((u.job.downloadedBytes / total) * 100))}%` : '';
+        return `update to ${u.job.version} paused${pct} - its pieces are kept`;
+      }
       default:
         return u.job.state.toLowerCase();
     }
@@ -166,8 +175,46 @@ export class ServerCardComponent {
     this.confirm.set(kind);
   }
 
-  askUpdate(): void {
+  askUpdate(version?: string): void {
+    this.chosenVersion.set(version || this.update()?.latestVersion || '');
     this.ask('UPDATE');
+  }
+
+  /** The releases newer than the running one (an older backend sends none: then the one it names). */
+  releases(u: UpdateStatus | null): { version: string; publishedAt: string; notes: string; sizeBytes: number }[] {
+    if (!u) {
+      return [];
+    }
+    if (u.releases?.length) {
+      return u.releases;
+    }
+    return u.available ? [{ version: u.latestVersion, publishedAt: u.publishedAt, notes: u.notes, sizeBytes: u.sizeBytes }] : [];
+  }
+
+  chosenSize(): number {
+    return this.releases(this.update()).find(r => r.version === this.chosenVersion())?.sizeBytes ?? this.update()?.sizeBytes ?? 0;
+  }
+
+  firstLine(text: string): string {
+    return (text || '').trim().split('\n')[0];
+  }
+
+  /** A paused download goes on from where it stopped (the same release). */
+  resume(): void {
+    this.askUpdate(this.update()?.job.version);
+  }
+
+  /** Pause (keep the pieces) or cancel (delete them) the download - in the progress dialog or on the row. */
+  halt(how: 'pause' | 'cancel'): void {
+    this.failure.set(null);
+    this.halting.set(how);
+    (how === 'pause' ? this.api.pauseUpdate() : this.api.cancelUpdate()).subscribe({
+      next: () => this.load(),
+      error: e => {
+        this.halting.set(null);
+        this.failure.set(e?.error?.message ?? `The update could not be ${how === 'pause' ? 'paused' : 'cancelled'}.`);
+      },
+    });
   }
 
   restart(): void {
@@ -189,7 +236,8 @@ export class ServerCardComponent {
     this.now.set(Date.now());
     this.syncPhase();
     this.startClock();
-    const request = kind === 'UPDATE' ? this.api.installUpdate() : this.api.restart(kind);
+    this.halting.set(null);
+    const request = kind === 'UPDATE' ? this.api.installUpdate(this.chosenVersion() || undefined) : this.api.restart(kind);
     request.subscribe({
       next: () => {
         this.accepted.set(true);
@@ -282,6 +330,13 @@ export class ServerCardComponent {
     if (u.job.state === 'FAILED') {
       this.fail(u.job.error || 'The update failed.');
     }
+    // Paused or cancelled (here or from `alfred update`): the dialog ends; the row says what is left.
+    if (u.job.state === 'PAUSED' || (u.job.state === 'IDLE' && this.halting() === 'cancel')) {
+      this.halting.set(null);
+      this.stopClock();
+      this.progressKind.set(null);
+      this.done.set(false);
+    }
   }
 
   private input(): ProgressInput | null {
@@ -335,7 +390,7 @@ export class ServerCardComponent {
     const kind = this.progressKind();
     const failed = this.view()?.outcome === 'failed';
     if (kind === 'UPDATE') {
-      return failed ? 'Update failed' : `Installing Alfred ${this.update()?.latestVersion ?? ''}`.trim();
+      return failed ? 'Update failed' : `Installing Alfred ${this.update()?.job.version || this.chosenVersion() || this.update()?.latestVersion || ''}`.trim();
     }
     if (failed) {
       return 'Restart failed';

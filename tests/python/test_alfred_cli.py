@@ -238,7 +238,7 @@ class FollowTest(unittest.TestCase):
             {"state": "INSTALLING"},
             None,
         ])
-        self.assertTrue(result)
+        self.assertEqual(result, "ok")
         self.assertIn("Installing Alfred 1.5.0", out)
         for row in ("ok   Downloading    150 MB", "ok   Checksum       matches the release", "ok   Installing", "ok   Alfred 1.5.0   answers"):
             self.assertIn(row, out)
@@ -248,10 +248,43 @@ class FollowTest(unittest.TestCase):
             {"state": "DOWNLOADING", "downloadedBytes": 1, "totalBytes": 10},
             {"state": "FAILED", "error": "the downloaded installer's checksum is 00…, the release says ab…"},
         ])
-        self.assertFalse(result)
+        self.assertEqual(result, "failed")
         self.assertIn("FAIL Downloading", out)
         self.assertIn("checksum is 00", out)
         self.assertIn("keeps running the version it had", out)
+
+    def test_a_pause_from_elsewhere_ends_the_watch_as_paused(self):
+        result, out = self.follow([
+            {"state": "DOWNLOADING", "version": "1.5.0", "downloadedBytes": 50 * 1048576, "totalBytes": 150 * 1048576},
+            {"state": "PAUSED", "version": "1.5.0", "downloadedBytes": 60 * 1048576, "totalBytes": 150 * 1048576},
+        ])
+        self.assertEqual(result, "paused")
+        self.assertIn("WARN Downloading    paused at 60 of 150 MB", out)
+
+    def test_an_installer_from_the_cache_says_so(self):
+        result, out = self.follow([
+            {"state": "VERIFYING", "version": "1.5.0", "downloadedBytes": 150 * 1048576, "totalBytes": 150 * 1048576, "cached": True},
+            {"state": "INSTALLING", "version": "1.5.0", "cached": True},
+            None,
+        ])
+        self.assertEqual(result, "ok")
+        self.assertIn("already here", out)
+
+    def test_a_new_version_that_did_not_start_is_reported_with_the_installers_reason(self):
+        queue = [{"state": "INSTALLING", "version": "1.5.0"}, None, None,
+                 {"state": "FAILED", "version": "1.5.0", "error": "Alfred 1.5.0 was installed but did not start: port 3000 is "
+                                                                   "in use by node.exe (pid 4410). Alfred 1.4.0 was put back."}]
+
+        def supervisor(layout, method, path, timeout=10):
+            return queue.pop(0) if len(queue) > 1 else queue[0]
+        out = io.StringIO()
+        with mock.patch.object(alfred, "call_supervisor", supervisor), \
+                mock.patch.object(alfred, "own_backend", lambda layout, timeout=2: (queue[0] is None or queue[0].get("state") == "FAILED", None)), \
+                mock.patch.object(self.layout, "version", lambda: "1.4.0"), redirect_stdout(out):
+            result = alfred.follow_update(self.layout, alfred.ui(), "1.5.0", 1, "1.4.0")
+        self.assertEqual(result, "failed")
+        self.assertIn("FAIL Alfred 1.5.0   did not start", out.getvalue())
+        self.assertIn("node.exe (pid 4410)", out.getvalue())
 
     def test_without_a_supervisor_to_follow_it_says_so(self):
         result, _ = self.follow([None])

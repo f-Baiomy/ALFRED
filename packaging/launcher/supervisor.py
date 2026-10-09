@@ -430,15 +430,32 @@ class Child:
                     "listeners": (self.spec or {}).get("listeners", []), "detail": self.detail}
 
 
+class _Halted(Exception):
+    """The download was paused or cancelled (POST /update/pause, /update/cancel): not a failure."""
+
+
 class UpdateJob:
     """One update the backend asked for (POST /update): download the installer into data/updates, verify its sha256,
     run it detached from Alfred. Detached matters: the installer stops the service - this very process and, on
     Windows, the job object every child dies with - so it must not be a child of the supervisor, or it would be
     killed before it could replace anything. Progress is served on GET /update and pushed as a supervisor event.
-    One job at a time; a finished one stays readable until the next start (the installer restarts Alfred anyway)."""
+    One job at a time; a finished one stays readable until the next start (the installer restarts Alfred anyway).
 
-    STATES = ("IDLE", "DOWNLOADING", "VERIFYING", "INSTALLING", "FAILED")
+    data/updates is also a cache, and a download can stop and go on later:
+      - a verified installer stays there (the newest two): installing that release again - after a failed start, say -
+        needs no download, only the sha256 checked again;
+      - PAUSE stops a download and keeps its pieces: `<installer>.part` plus `<installer>.part.json` (version, sha256,
+        size, piece size, the pieces that are complete). The next start of the SAME release fetches only the missing
+        pieces; a different release, or a list that does not fit the file, starts over. A paused download survives a
+        restart of Alfred (it is on disk);
+      - CANCEL stops it and deletes what was downloaded, so the next update starts from 0;
+      - the installers leave `failed-start.txt` when the new version installed but did not answer and the previous one
+        was put back: the next supervisor reads it, so the update shows FAILED with the reason, not "up to date"."""
+
+    STATES = ("IDLE", "DOWNLOADING", "VERIFYING", "INSTALLING", "PAUSED", "FAILED")
     PROGRESS_EVERY = 0.5  # seconds between download-progress events
+    KEEP_INSTALLERS = 2
+    FAILED_START = "failed-start.txt"
 
     def __init__(self, supervisor):
         self.supervisor = supervisor
@@ -448,11 +465,43 @@ class UpdateJob:
         self.downloaded = 0
         self.total = 0
         self.error = ""
+        self.cached = False     # the installer came from the cache, no download
+        self.resumed = 0        # bytes a resumed download already had
+        self.halt = None        # None, "pause" or "cancel" - asked of a running download
+        self.halted = threading.Event()
+        self._restore()
+
+    def folder(self):
+        folder = os.path.join(self.supervisor.layout.data, "updates")
+        os.makedirs(folder, exist_ok=True)
+        return folder
+
+    def _restore(self):
+        """At start: a paused download on disk is PAUSED again; a start the installer gave up on is FAILED."""
+        try:
+            folder = self.folder()
+            for name in sorted(os.listdir(folder)):
+                if name.endswith(".part.json"):
+                    meta = _read_json(os.path.join(folder, name))
+                    if meta and os.path.exists(os.path.join(folder, name[:-5])):
+                        self.state, self.version, self.total = "PAUSED", meta.get("version", ""), int(meta.get("size") or 0)
+                        self.downloaded = _done_bytes(meta)
+            failed = os.path.join(folder, self.FAILED_START)
+            if os.path.exists(failed):
+                with open(failed, encoding="utf-8", errors="replace") as f:
+                    lines = [line.strip() for line in f.read().splitlines() if line.strip()]
+                if lines:
+                    version, reason = lines[0], " ".join(lines[1:]) or "it did not answer"
+                    self.state, self.version = "FAILED", version
+                    self.error = (f"Alfred {version} was installed but did not start: {reason} "
+                                  f"Alfred {self.supervisor.layout.version()} was put back.")
+        except OSError as e:
+            log.warning("update folder not readable: %s", e)
 
     def status(self):
         with self.lock:
             return {"state": self.state, "version": self.version, "downloadedBytes": self.downloaded,
-                    "totalBytes": self.total, "error": self.error}
+                    "totalBytes": self.total, "error": self.error, "cached": self.cached, "resumedBytes": self.resumed}
 
     def busy(self):
         with self.lock:
@@ -464,8 +513,52 @@ class UpdateJob:
             if self.state in ("DOWNLOADING", "VERIFYING", "INSTALLING"):
                 return False
             self.state, self.version, self.downloaded, self.total, self.error = "DOWNLOADING", version, 0, int(size or 0), ""
+            self.cached, self.resumed, self.halt = False, 0, None
+            self.halted.clear()
+        try:
+            os.remove(os.path.join(self.folder(), self.FAILED_START))  # a new attempt: the old failure is history
+        except OSError:
+            pass
         threading.Thread(target=self._run, args=(url, sha256_hex), name="update", daemon=True).start()
         return True
+
+    def pause(self):
+        """Stops a running download and keeps its pieces. False when nothing is downloading."""
+        with self.lock:
+            if self.state != "DOWNLOADING":
+                return False
+            self.halt = "pause"
+        self.halted.set()
+        return True
+
+    def cancel(self):
+        """Stops a running download, or drops a paused one, and deletes what was downloaded. False when neither."""
+        with self.lock:
+            if self.state == "DOWNLOADING":
+                self.halt = "cancel"
+                running = True
+            elif self.state == "PAUSED":
+                running = False
+            else:
+                return False
+        if running:
+            self.halted.set()
+            return True
+        self._drop_parts()
+        with self.lock:
+            self.state, self.version, self.downloaded, self.total, self.error = "IDLE", "", 0, 0, ""
+        log.info("update: the paused download was cancelled and deleted")
+        self.supervisor.changed_update()
+        return True
+
+    def _drop_parts(self, keep=None):
+        folder = self.folder()
+        for name in os.listdir(folder):
+            if (name.endswith(".part") or name.endswith(".part.json")) and name not in (keep or ()):
+                try:
+                    os.remove(os.path.join(folder, name))
+                except OSError:
+                    pass
 
     def _set(self, state, error=""):
         with self.lock:
@@ -474,35 +567,81 @@ class UpdateJob:
         self.supervisor.changed_update()
 
     def _run(self, url, sha256_hex):
-        import hashlib
         layout = self.supervisor.layout
-        folder = os.path.join(layout.data, "updates")
-        os.makedirs(folder, exist_ok=True)
+        folder = self.folder()
         name = os.path.basename(urllib.parse.urlparse(url).path) or f"alfred-setup-{self.version}"
         target = os.path.join(folder, name)
         part = target + ".part"
+        meta_path = part + ".json"
+        expected = (sha256_hex or "").strip().lower()
+        self._done_pieces = None
+        # Another release's paused pieces are of no use to this one.
+        self._drop_parts(keep=(name + ".part", name + ".part.json"))
         try:
-            self._download(url, part)
-            self._set("VERIFYING")
-            digest = hashlib.sha256()
-            with open(part, "rb") as f:
-                for chunk in iter(lambda: f.read(1 << 20), b""):
-                    digest.update(chunk)
-            if digest.hexdigest().lower() != (sha256_hex or "").strip().lower():
-                os.remove(part)
-                self._set("FAILED", f"the downloaded installer's checksum is {digest.hexdigest()[:12]}…, "
-                                    f"the release says {(sha256_hex or '')[:12]}… - not running it")
-                return
-            os.replace(part, target)
+            if os.path.exists(target) and _sha256(target) == expected:
+                with self.lock:
+                    self.cached, self.downloaded = True, os.path.getsize(target)
+                    self.total = self.total or self.downloaded
+                log.info("update %s: the installer is in the cache (%s), no download", self.version, target)
+                self._set("VERIFYING")
+            else:
+                meta = _read_json(meta_path) or {}
+                fits = (meta.get("version") == self.version and meta.get("sha256") == expected
+                        and int(meta.get("pieceBytes") or 0) == self.PIECE_BYTES and os.path.exists(part)
+                        and (not self.total or int(meta.get("size") or 0) == self.total))
+                done = set(int(s) for s in meta.get("done", [])) if fits else set()
+                if not fits:
+                    self._drop_parts()
+                try:
+                    self._download(url, part, done)
+                except _Halted:
+                    if self.halt == "pause" and done is not None:
+                        _write_json(meta_path, {"version": self.version, "sha256": expected, "size": self.total,
+                                                "pieceBytes": self.PIECE_BYTES, "done": sorted(done)})
+                        with self.lock:
+                            self.downloaded = sum(min(self.PIECE_BYTES, self.total - s) for s in done)
+                        self._set("PAUSED")
+                    else:
+                        self._drop_parts()
+                        with self.lock:
+                            self.version, self.downloaded, self.total = "", 0, 0
+                        self._set("IDLE")
+                    return
+                self._set("VERIFYING")
+                digest = _sha256(part)
+                if digest != expected:
+                    self._drop_parts()
+                    self._set("FAILED", f"the downloaded installer's checksum is {digest[:12]}…, "
+                                        f"the release says {expected[:12]}… - not running it")
+                    return
+                os.replace(part, target)
+                try:
+                    os.remove(meta_path)
+                except OSError:
+                    pass
+                self._prune(folder, target)
             self._set("INSTALLING")
             launch_installer(target, layout.home, os.path.join(layout.logs, "update.log"))
         except Exception as e:  # noqa: BLE001 - every failure must end in the status, never in a dead thread
+            # A failed download keeps its pieces when it can be resumed (a network failure); the next start goes on.
+            done_now = self._done_pieces
+            if done_now and os.path.exists(part):
+                _write_json(meta_path, {"version": self.version, "sha256": expected, "size": self.total,
+                                        "pieceBytes": self.PIECE_BYTES, "done": sorted(done_now)})
+            else:
+                self._drop_parts()
+            self._set("FAILED", f"{type(e).__name__}: {e}")
+
+    def _prune(self, folder, keep):
+        """The newest KEEP_INSTALLERS verified installers stay; older ones go."""
+        installers = [os.path.join(folder, n) for n in os.listdir(folder)
+                      if n.startswith("alfred-setup-") and not n.endswith((".part", ".json", ".cmd"))]
+        installers.sort(key=lambda p: (p == keep, os.path.getmtime(p)), reverse=True)
+        for old in installers[self.KEEP_INSTALLERS:]:
             try:
-                if os.path.exists(part):
-                    os.remove(part)
+                os.remove(old)
             except OSError:
                 pass
-            self._set("FAILED", f"{type(e).__name__}: {e}")
 
     # Some lines shape each connection to ~16 KB/s after its first second (2026-10-09: 146 MB from GitHub's release
     # CDN took over an hour); many range requests at once add up, roughly linearly, until TLS handshakes start timing
@@ -515,17 +654,20 @@ class UpdateJob:
     PIECE_BYTES = 512 << 10
     RETRY_DELAYS = (2, 5, 10)  # seconds before each retry of a piece whose connection failed
 
-    def _download(self, url, part):
+    def _download(self, url, part, done):
+        """`done`: piece starts already in `part` (a resumed download) - updated in place as pieces complete."""
         self._told = 0.0
+        self._done_pieces = done
         # The first request asks for a range: a 206 with the total size means the server can be read in pieces.
         request = urllib.request.Request(url, headers={"User-Agent": "alfred-update", "Range": "bytes=0-"})
         with urllib.request.urlopen(request, timeout=60) as response:
             total = _range_total(response)
             if total is None or total <= 2 * self.PIECE_BYTES:
+                done.clear()  # one stream cannot be resumed
                 self._download_whole(response, part)
                 return
             final = response.geturl()
-        self._download_in_pieces(url, final, part, total)
+        self._download_in_pieces(url, final, part, total, done)
 
     def _download_whole(self, response, part):
         """One stream: a server without ranges (or file:// in the tests), or a file too small to split."""
@@ -535,36 +677,50 @@ class UpdateJob:
                 self.total = int(length)
         with open(part, "wb") as out:
             while True:
+                if self.halted.is_set():
+                    raise _Halted()
                 chunk = response.read(1 << 20)
                 if not chunk:
                     break
                 out.write(chunk)
                 self._count(len(chunk))
 
-    def _download_in_pieces(self, url, final, part, total):
+    def _download_in_pieces(self, url, final, part, total, done):
         """`url` is the release link, `final` where its redirects ended (the same when there were none)."""
         import queue
         with self.lock:
             self.total = total
-        with open(part, "wb") as out:
-            out.truncate(total)
+        if not done or not os.path.exists(part) or os.path.getsize(part) != total:
+            done.clear()
+            with open(part, "wb") as out:
+                out.truncate(total)
+        already = sum(min(self.PIECE_BYTES, total - s) for s in done)
+        with self.lock:
+            self.downloaded, self.resumed = already, already
+        if already:
+            log.info("update %s: resuming - %d of %d bytes are already here", self.version, already, total)
         pieces = queue.Queue()
         for start in range(0, total, self.PIECE_BYTES):
-            pieces.put((start, min(start + self.PIECE_BYTES, total) - 1))
+            if start not in done:
+                pieces.put((start, min(start + self.PIECE_BYTES, total) - 1))
         failed = []
         stop = threading.Event()
         target = _PieceTarget(url, final)
+        done_lock = threading.Lock()
 
         def work():
             connection = None
             try:
                 with open(part, "r+b") as out:
-                    while not stop.is_set():
+                    while not stop.is_set() and not self.halted.is_set():
                         try:
                             start, end = pieces.get_nowait()
                         except queue.Empty:
                             return
-                        connection = self._fetch_piece(target, connection, out, start, end, stop)
+                        connection, finished = self._fetch_piece(target, connection, out, start, end, stop)
+                        if finished:
+                            with done_lock:
+                                done.add(start)
             except Exception as e:  # noqa: BLE001 - the first failure ends the download, the others stop with it
                 failed.append(e)
                 stop.set()
@@ -572,21 +728,30 @@ class UpdateJob:
                 if connection is not None:
                     connection.close()
 
+        def watch():
+            self.halted.wait()
+            stop.set()
+
+        threading.Thread(target=watch, name="update-halt", daemon=True).start()
         workers = [threading.Thread(target=work, name=f"update-{i}", daemon=True) for i in range(self.CONNECTIONS)]
         for worker in workers:
             worker.start()
         for worker in workers:
             worker.join()
+        if self.halted.is_set():
+            raise _Halted()
+        self.halted.set()  # ends the watcher
+        self.halted.clear()
         if failed:
             raise failed[0]
-        with self.lock:
-            downloaded = self.downloaded
-        if downloaded != total:
-            raise IOError(f"downloaded {downloaded} of {total} bytes")
+        complete = sum(min(self.PIECE_BYTES, total - s) for s in done)
+        if complete != total:
+            raise IOError(f"downloaded {complete} of {total} bytes")
 
     def _fetch_piece(self, target, connection, out, start, end, stop):
-        """Bytes start..end into the file at their place, over `connection` when it is still open (returns the
-        connection to use next, None once it is spent). A dropped connection is retried from where it stopped."""
+        """Bytes start..end into the file at their place, over `connection` when it is still open. Returns (the
+        connection to use next - None once it is spent -, whether the piece is complete). A dropped connection is
+        retried from where it stopped."""
         at = start
         attempt = stale = 0
         while True:
@@ -611,7 +776,7 @@ class UpdateJob:
                     self._count(len(chunk))
                 if at > end or stop.is_set():
                     response.close()
-                    return None if response.will_close else connection
+                    return (None if response.will_close else connection), at > end
                 raise IOError(f"the connection closed at byte {at} of {start}-{end}")
             except (OSError, http.client.HTTPException, _StaleLink) as e:
                 if connection is not None:
@@ -627,7 +792,7 @@ class UpdateJob:
                     raise
                 log.info("update %s: bytes %d-%d failed (%s), retrying", self.version, at, end, e)
                 if stop.wait(self.RETRY_DELAYS[attempt]):
-                    return None
+                    return None, False
                 attempt += 1
 
     def _count(self, n):
@@ -639,6 +804,36 @@ class UpdateJob:
                 self._told = time.monotonic()
         if due:
             self.supervisor.changed_update()
+
+
+def _sha256(path):
+    import hashlib
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest().lower()
+
+
+def _read_json(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            value = json.load(f)
+        return value if isinstance(value, dict) else None
+    except (OSError, ValueError):
+        return None
+
+
+def _write_json(path, value):
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(value, f)
+    os.replace(tmp, path)
+
+
+def _done_bytes(meta):
+    size, piece = int(meta.get("size") or 0), int(meta.get("pieceBytes") or 0)
+    return sum(min(piece, size - int(s)) for s in meta.get("done", [])) if size and piece else 0
 
 
 class _StaleLink(Exception):
@@ -731,7 +926,7 @@ def installer_script(path, home, log_path):
         "@echo off",
         f'echo %date% %time% running "{path}" /S {folder}>> "{log_path}"',
         f'start "" /wait "{path}" /S {folder}',
-        f'echo %date% %time% the installer exited with %errorlevel% (0 ok, 1 failed, 5 not an administrator, 6 refused downgrade)>> "{log_path}"',
+        f'echo %date% %time% the installer exited with %errorlevel% (0 ok, 1 failed, 5 not an administrator, 6 refused downgrade, 7 did not start - the previous version was put back)>> "{log_path}"',
         "",
     ])
 
@@ -1172,6 +1367,16 @@ class Supervisor:
                         self._reply(202, {"accepted": True})
                     else:
                         self._reply(409, {**supervisor.update.status(), "error": "an update is already in progress"})
+                elif self.path == "/update/pause":
+                    if supervisor.update.pause():
+                        self._reply(202, {"accepted": True})
+                    else:
+                        self._reply(409, {**supervisor.update.status(), "error": "no download is running"})
+                elif self.path == "/update/cancel":
+                    if supervisor.update.cancel():
+                        self._reply(202, {"accepted": True})
+                    else:
+                        self._reply(409, {**supervisor.update.status(), "error": "no download is running or paused"})
                 elif self.path == "/restart/backend":
                     threading.Thread(target=supervisor.restart, args=(["BACKEND"],), daemon=True).start()
                     self._reply(202, {"accepted": True})

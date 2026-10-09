@@ -165,7 +165,7 @@ class UpdateJobTest(unittest.TestCase):
         self.assertEqual([n for n in os.listdir(os.path.join(self.layout.data, "updates")) if n.endswith(".part")], [])
 
     def test_only_one_update_at_a_time(self):
-        slow = mock.patch.object(supervisor.UpdateJob, "_download", lambda self, url, part: time.sleep(1))
+        slow = mock.patch.object(supervisor.UpdateJob, "_download", lambda self, url, part, done: time.sleep(1))
         slow.start()
         self.addCleanup(slow.stop)
         self.assertEqual(self.control("POST", "/update", {"version": "9.9.9", "url": self.url, "sha256": self.sha256})[0], 202)
@@ -178,12 +178,12 @@ class RangeServer:
     """A release host over HTTP that answers Range requests, like GitHub's CDN. `drop` connections are cut after
     half their bytes; `ranges` set False makes it ignore Range and send the whole file with a 200."""
 
-    def __init__(self, data, ranges=True, drop=0, expire_after=None):
+    def __init__(self, data, ranges=True, drop=0, expire_after=None, pace=0.002):
         import http.server
         import threading
         outer = self
         self.data, self.ranges, self.drop, self.requests, self.active, self.most_active = data, ranges, drop, [], 0, 0
-        self.expire_after, self.generation, self.served = expire_after, 0, 0
+        self.expire_after, self.generation, self.served, self.pace = expire_after, 0, 0, pace
         self.lock = threading.Lock()
 
         class Handler(http.server.BaseHTTPRequestHandler):
@@ -235,7 +235,7 @@ class RangeServer:
                         return
                     for i in range(0, len(body), 1 << 16):
                         self.wfile.write(body[i:i + (1 << 16)])
-                        time.sleep(0.002)  # slow enough that the pieces overlap
+                        time.sleep(outer.pace)  # slow enough that the pieces overlap
                 except (ConnectionError, OSError):
                     pass
                 finally:
@@ -380,6 +380,136 @@ class LaunchCommandTest(unittest.TestCase):
         self.assertTrue(kwargs["start_new_session"])
 
 
+class PauseCacheTest(unittest.TestCase):
+    """Pause keeps the pieces (and survives a restart), the next start fetches only the missing ones; cancel deletes
+    them; a verified installer is reused without a download; a failed start left by the installer shows as FAILED."""
+
+    def setUp(self):
+        self.layout = make_layout()
+        self.addCleanup(shutil.rmtree, self.layout.home, True)
+        for target, name, value in ((supervisor.Supervisor, "_post_event", lambda self, payload: None),
+                                    (supervisor, "launch_installer", lambda path, home, log: None),
+                                    (supervisor.UpdateJob, "RETRY_DELAYS", (0, 0, 0)),
+                                    (supervisor.UpdateJob, "PIECE_BYTES", 256 * 1024),
+                                    (supervisor.UpdateJob, "CONNECTIONS", 2)):
+            patch = mock.patch.object(target, name, value)
+            patch.start()
+            self.addCleanup(patch.stop)
+        self.data = os.urandom(5 * 1024 * 1024 + 123)
+        self.sha256 = hashlib.sha256(self.data).hexdigest()
+        self.updates = os.path.join(self.layout.data, "updates")
+
+    def supervisor(self):
+        sup = supervisor.Supervisor(self.layout)
+        sup.settings = {}
+        return sup
+
+    def server(self, pace=0.01):
+        server = RangeServer(self.data, pace=pace)
+        self.addCleanup(server.close)
+        return server
+
+    def wait_state(self, job, *states):
+        self.assertTrue(wait_for(lambda: job.status()["state"] in states, 30), job.status())
+        return job.status()
+
+    def paused_halfway(self, server):
+        job = self.supervisor().update
+        self.assertTrue(job.start("9.9.9", server.url, self.sha256, len(self.data)))
+        self.assertTrue(wait_for(lambda: job.status()["downloadedBytes"] > 1024 * 1024, 30), job.status())
+        self.assertTrue(job.pause())
+        return job, self.wait_state(job, "PAUSED")
+
+    def files(self):
+        return sorted(os.listdir(self.updates))
+
+    def test_pause_keeps_the_pieces_and_the_next_start_fetches_only_the_missing_ones(self):
+        server = self.server()
+        _, paused = self.paused_halfway(server)
+        self.assertIn("alfred-setup-9.9.9-test.bin.part.json", self.files())
+        done = json.load(open(os.path.join(self.updates, "alfred-setup-9.9.9-test.bin.part.json")))["done"]
+        self.assertTrue(done)
+        self.assertEqual(paused["downloadedBytes"], sum(min(256 * 1024, len(self.data) - s) for s in done))
+
+        # Alfred restarts: the paused download is still paused.
+        job = self.supervisor().update
+        self.assertEqual(("PAUSED", "9.9.9", paused["downloadedBytes"]),
+                         (job.status()["state"], job.status()["version"], job.status()["downloadedBytes"]))
+        before = len(server.requests)
+        self.assertTrue(job.start("9.9.9", server.url, self.sha256, len(self.data)))
+        final = self.wait_state(job, "INSTALLING", "FAILED")
+        self.assertEqual(("INSTALLING", ""), (final["state"], final["error"]))
+        self.assertEqual(paused["downloadedBytes"], final["resumedBytes"])
+        pieces = -(-len(self.data) // (256 * 1024))
+        self.assertEqual(1 + pieces - len(done), len(server.requests) - before)  # the probe, then only what was missing
+        with open(os.path.join(self.updates, "alfred-setup-9.9.9-test.bin"), "rb") as f:
+            self.assertEqual(self.data, f.read())
+        self.assertNotIn("alfred-setup-9.9.9-test.bin.part.json", self.files())
+
+    def test_cancel_deletes_what_was_downloaded(self):
+        server = self.server()
+        job, _ = self.paused_halfway(server)
+        self.assertTrue(job.cancel())
+        self.assertEqual("IDLE", job.status()["state"])
+        self.assertEqual([], [n for n in self.files() if ".part" in n])
+        # and while it runs
+        self.assertTrue(job.start("9.9.9", server.url, self.sha256, len(self.data)))
+        self.assertTrue(wait_for(lambda: job.status()["downloadedBytes"] > 0, 30))
+        self.assertTrue(job.cancel())
+        self.assertEqual("IDLE", self.wait_state(job, "IDLE")["state"])
+        self.assertEqual([], [n for n in self.files() if ".part" in n])
+        self.assertFalse(job.cancel())  # nothing left to cancel
+
+    def test_a_newer_release_drops_the_paused_pieces_of_the_older_one(self):
+        server = self.server()
+        job, _ = self.paused_halfway(server)
+        other = RangeServer(self.data[::-1], pace=0)
+        self.addCleanup(other.close)
+        other_url = other.url.replace("9.9.9", "9.9.10")
+        self.assertTrue(job.start("9.9.10", other_url, hashlib.sha256(self.data[::-1]).hexdigest(), len(self.data)))
+        final = self.wait_state(job, "INSTALLING", "FAILED")
+        self.assertEqual(("INSTALLING", 0), (final["state"], final["resumedBytes"]))
+        self.assertNotIn("alfred-setup-9.9.9-test.bin.part", self.files())
+
+    def test_a_verified_installer_is_installed_again_from_the_cache(self):
+        server = self.server(pace=0)
+        job = self.supervisor().update
+        job.start("9.9.9", server.url, self.sha256, len(self.data))
+        self.wait_state(job, "INSTALLING")
+        before = len(server.requests)
+        job = self.supervisor().update
+        job.start("9.9.9", server.url, self.sha256, len(self.data))
+        final = self.wait_state(job, "INSTALLING", "FAILED")
+        self.assertEqual(("INSTALLING", True), (final["state"], final["cached"]))
+        self.assertEqual(before, len(server.requests))
+
+    def test_the_cache_keeps_the_newest_two_installers(self):
+        os.makedirs(self.updates, exist_ok=True)
+        for i, name in enumerate(("alfred-setup-1.0.0-x.exe", "alfred-setup-1.0.1-x.exe")):
+            path = os.path.join(self.updates, name)
+            open(path, "wb").close()
+            os.utime(path, (1000 + i, 1000 + i))
+        server = self.server(pace=0)
+        job = self.supervisor().update
+        job.start("9.9.9", server.url, self.sha256, len(self.data))
+        self.wait_state(job, "INSTALLING")
+        self.assertEqual(["alfred-setup-1.0.1-x.exe", "alfred-setup-9.9.9-test.bin"],
+                         [n for n in self.files() if n.startswith("alfred-setup-")])
+
+    def test_a_start_the_installer_gave_up_on_is_failed_with_its_reason_until_the_next_try(self):
+        os.makedirs(self.updates, exist_ok=True)
+        with open(os.path.join(self.updates, "failed-start.txt"), "w", encoding="utf-8") as f:
+            f.write("9.9.9\nport 3000 is in use by node.exe (pid 4410).\n")
+        job = self.supervisor().update
+        status = job.status()
+        self.assertEqual(("FAILED", "9.9.9"), (status["state"], status["version"]))
+        self.assertIn("port 3000 is in use by node.exe", status["error"])
+        self.assertIn("was put back", status["error"])
+        server = self.server(pace=0)
+        job.start("9.9.9", server.url, self.sha256, len(self.data))
+        self.assertNotIn("failed-start.txt", self.files())
+
+
 class AlfredUpdateCommandTest(unittest.TestCase):
 
     def setUp(self):
@@ -390,8 +520,8 @@ class AlfredUpdateCommandTest(unittest.TestCase):
         """answers: {(method, path): json} of this install's backend."""
         calls = []
 
-        def backend_json(layout, method, path, timeout=30):
-            calls.append((method, path))
+        def backend_json(layout, method, path, timeout=30, body=None):
+            calls.append((method, path) if body is None else (method, path, body))
             return answers[(method, path)]
         out, err = io.StringIO(), io.StringIO()
         with mock.patch.object(alfred, "backend_json", backend_json), redirect_stdout(out), redirect_stderr(err):
@@ -412,7 +542,41 @@ class AlfredUpdateCommandTest(unittest.TestCase):
         code, out, _, calls = self.run_update([], {("POST", "/server/update/check"): status, ("POST", "/server/update/install"): {"accepted": True}})
         self.assertEqual(code, alfred.OK)
         self.assertIn("Installing Alfred 1.5.0", out)
-        self.assertEqual(calls[-1], ("POST", "/server/update/install"))
+        self.assertEqual(calls[-1], ("POST", "/server/update/install", {"version": "1.5.0"}))
+
+    def test_with_several_newer_releases_and_nobody_to_ask_the_newest_is_installed(self):
+        status = {"mode": "CHECK", "available": True, "latestVersion": "1.6.0", "currentVersion": "1.4.0", "canInstall": True,
+                  "job": {"state": "IDLE"}, "releases": [{"version": "1.6.0"}, {"version": "1.5.0"}]}
+        answers = {("POST", "/server/update/check"): status, ("POST", "/server/update/install"): {"accepted": True}}
+        code, _, _, calls = self.run_update([], answers)
+        self.assertEqual(calls[-1], ("POST", "/server/update/install", {"version": "1.6.0"}))
+        code, _, _, calls = self.run_update(["--version", "1.5.0"], answers)
+        self.assertEqual(calls[-1], ("POST", "/server/update/install", {"version": "1.5.0"}))
+        code, out, _, calls = self.run_update(["--version", "1.3.0"], answers)
+        self.assertEqual(code, alfred.ERROR)
+        self.assertIn("not one of the newer releases", out)
+
+    def test_cancel_discards_the_paused_download(self):
+        with mock.patch.object(alfred, "wait_job", return_value={"state": "IDLE"}):
+            code, out, _, calls = self.run_update(["--cancel"], {("POST", "/server/update/cancel"): {"accepted": True}})
+        self.assertEqual(code, alfred.OK)
+        self.assertEqual(calls, [("POST", "/server/update/cancel")])
+        self.assertIn("Update cancelled", out)
+
+    def test_a_paused_update_shows_in_status(self):
+        payload = json.dumps({"available": True, "latestVersion": "1.5.0", "releases": [{"version": "1.5.0"}],
+                              "job": {"state": "PAUSED", "version": "1.5.0", "downloadedBytes": 58, "totalBytes": 100}}).encode()
+
+        class Answer(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+        with mock.patch.object(alfred.urllib.request, "urlopen", lambda url, timeout=0: Answer(payload)):
+            line = alfred.update_line(self.layout)
+        self.assertIn("paused at 58%", line)
+        self.assertIn("alfred update --cancel", line)
 
     def test_up_to_date_installs_nothing(self):
         status = {"mode": "CHECK", "available": False, "latestVersion": "1.4.0", "currentVersion": "1.4.0", "job": {"state": "IDLE"}}

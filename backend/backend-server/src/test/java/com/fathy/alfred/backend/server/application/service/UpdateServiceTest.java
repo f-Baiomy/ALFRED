@@ -134,6 +134,56 @@ class UpdateServiceTest {
         assertThatThrownBy(service::install).isInstanceOf(IllegalStateException.class).hasMessageContaining("alfred start");
     }
 
+    static UpdateManifest release(String version) {
+        return new UpdateManifest(version, "notes " + version, "2026-10-0" + version.charAt(version.length() - 1), Map.of(
+                "linux-x64", new UpdateManifest.Asset("https://dl/alfred-" + version + "-linux-x64.run", "sha" + version, 200)));
+    }
+
+    @Test
+    void theStatusListsEveryNewerReleaseNewestFirstAndAnyOfThemCanBeInstalled() {
+        // 1.5.0 is the newest; the feed also lists 1.4.5, 1.4.2 and the running 1.4.0 (not offered) and 1.3.9.
+        feedAnswer = new UpdateManifest("1.5.0", "n", "2026-10-09", release("1.5.0").assets(),
+                List.of(release("1.4.2"), release("1.4.5"), release("1.4.0"), release("1.3.9")));
+        UpdateService service = service(RuntimeMode.NATIVE);
+        service.check();
+        assertThat(service.status().releases()).extracting(UpdateStatus.Release::version).containsExactly("1.5.0", "1.4.5", "1.4.2");
+        service.install("1.4.5");
+        assertThat(supervisor.updatesAsked).containsExactly("1.4.5 https://dl/alfred-1.4.5-linux-x64.run sha1.4.5 200");
+        assertThatThrownBy(() -> service.install("1.3.9")).isInstanceOf(IllegalStateException.class).hasMessageContaining("not newer");
+        assertThatThrownBy(() -> service.install("9.9.9")).isInstanceOf(IllegalStateException.class).hasMessageContaining("does not list");
+    }
+
+    @Test
+    void anOlderManifestWithoutReleasesStillOffersItsOne() {
+        UpdateService service = service(RuntimeMode.NATIVE);
+        service.check();
+        assertThat(service.status().releases()).extracting(UpdateStatus.Release::version).containsExactly("1.5.0");
+    }
+
+    @Test
+    void aPausedDownloadCanBeInstalledAgainARunningOneCannot() {
+        UpdateService service = service(RuntimeMode.NATIVE);
+        service.check();
+        supervisor.job = new UpdateJob(UpdateJob.State.PAUSED, "1.5.0", 120, 241, "", false, 0);
+        assertThat(service.status().canInstall()).isTrue();
+        supervisor.job = new UpdateJob(UpdateJob.State.VERIFYING, "1.5.0", 241, 241, "");
+        assertThat(service.status().canInstall()).isFalse();
+    }
+
+    @Test
+    void pauseAndCancelGoToTheSupervisorAndSayWhenThereIsNothingToStop() {
+        UpdateService service = service(RuntimeMode.NATIVE);
+        service.pause();
+        service.cancel();
+        assertThat(supervisor.pauses).isEqualTo(1);
+        assertThat(supervisor.cancels).isEqualTo(1);
+        assertThat(events).contains("update");
+        supervisor.acceptHalt = false;
+        assertThatThrownBy(service::pause).isInstanceOf(IllegalStateException.class).hasMessageContaining("No update is downloading");
+        assertThatThrownBy(service::cancel).isInstanceOf(IllegalStateException.class).hasMessageContaining("downloading or paused");
+        assertThatThrownBy(() -> service(RuntimeMode.DOCKER).pause()).isInstanceOf(IllegalStateException.class);
+    }
+
     @Test
     void aReleaseWithoutAChecksumIsNeverInstalled() {
         feedAnswer = new UpdateManifest("1.5.0", "", "", Map.of("linux-x64", new UpdateManifest.Asset("https://dl/x.run", "", 1)));
