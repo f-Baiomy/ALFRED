@@ -948,9 +948,214 @@ def cmd_uninstall(layout, args):
     return OK
 
 
+# ---------------------------------------------------------------------------------------------------------------------
+# alfred doctor
+# ---------------------------------------------------------------------------------------------------------------------
+
+def tcp_answers(host, port, timeout=1.5):
+    try:
+        with socket.create_connection((host, int(port)), timeout=timeout):
+            return True
+    except (OSError, ValueError):
+        return False
+
+
+def gb(n):
+    return f"{n / 1073741824:.1f} GB"
+
+
+def size_text(n):
+    return gb(n) if n >= 1073741824 else f"{n / 1048576:.0f} MB"
+
+
+def folder_bytes(path):
+    total = 0
+    for root, _, files in os.walk(path):
+        for name in files:
+            try:
+                total += os.path.getsize(os.path.join(root, name))
+            except OSError:
+                pass
+    return total
+
+
+def doctor_checks(layout, t):
+    """Each check: (label, "ok" | "warn" | "fail", detail, [fix hints]). Every one is read-only and quick; a check that
+    cannot look says so (warn), it never guesses ok."""
+    dot = t.g["dot"]
+    checks = []
+    status = call_supervisor(layout, "GET", "/status", timeout=3)
+    running = bool(status)
+
+    # 1. the processes
+    if not status:
+        checks.append(("Alfred runs", "fail", "no supervisor answers - Alfred is stopped",
+                       [t.c("start it: ", "dim") + t.cmd("alfred start") + t.c("   why it stopped: ", "dim") + t.cmd("alfred logs supervisor")]))
+    else:
+        processes = status.get("processes", [])
+        bad = [p for p in processes if p["state"] != "RUNNING"]
+        oldest = min((p["startedAt"] for p in processes if p.get("pid") and p.get("startedAt")), default=None)
+        if bad:
+            checks.append(("Alfred runs", "fail", ", ".join(f"{p['name'].lower()} {p['state'].lower()}" + (f" ({p['detail']})" if p["detail"] else "") for p in bad),
+                           [t.c("details: ", "dim") + t.cmd(f"alfred logs {bad[0]['name'].lower()}")]))
+        else:
+            restarts = sum(p.get("restarts", 0) for p in processes)
+            checks.append(("Alfred runs", "warn" if restarts > 3 else "ok",
+                           f"{len(processes)} process{'es' if len(processes) != 1 else ''} {dot} up {uptime(oldest)}" + (f" {dot} {restarts} restarts" if restarts else ""),
+                           [t.c("why they restarted: ", "dim") + t.cmd("alfred logs supervisor")] if restarts > 3 else []))
+
+    # 2. the UI port
+    port = layout.ui_port()
+    ok, other = own_backend(layout, timeout=2)
+    if ok:
+        checks.append((f"UI port {port}", "ok", "answered by this install", []))
+    elif other:
+        checks.append((f"UI port {port}", "fail", f"answered by another Alfred: {other}",
+                       [t.c("use another port: ", "dim") + t.cmd("alfred config set ALFRED_UI_PORT <port>") + t.c(", or stop that install", "dim")]))
+    else:
+        owner = port_owner(port, layout)
+        if owner and not owner["ours"]:
+            checks.append((f"UI port {port}", "fail", f"in use by {owner['name']} (pid {owner['pid']})",
+                           [t.c("stop it, or move Alfred: ", "dim") + t.cmd(f"alfred config set ALFRED_UI_PORT {(free_ports(port + 1, 1) or [port + 1])[0]}")]))
+        else:
+            checks.append((f"UI port {port}", "fail" if running else "warn", "nothing answers", [t.c("logs: ", "dim") + t.cmd("alfred logs backend")]))
+
+    settings = {}
+    try:
+        settings = layout.settings()
+    except Exception:  # noqa: BLE001 - a broken .env is reported by the Settings check, not as a traceback
+        pass
+    import alfred_settings
+
+    # 3. the outbound proxy
+    listen = settings.get("ALFRED_OUTBOUND_PROXY_LISTEN") or "127.0.0.2:443"
+    try:
+        host, proxy_port = alfred_settings.split_listen(listen)
+    except ValueError:
+        host, proxy_port = "127.0.0.2", 443
+    if tcp_answers(host, proxy_port):
+        checks.append((f"Outbound :{proxy_port}", "ok", f"listening on {host} {dot} Java apps reach it as http.proxyHost/https.proxyHost", []))
+    elif running:
+        owner = port_owner(proxy_port, layout)
+        checks.append((f"Outbound :{proxy_port}", "fail", f"not listening on {host}" + (f" - {owner['name']} (pid {owner['pid']}) holds the port" if owner and not owner["ours"] else ""),
+                       [t.c("move it: ", "dim") + t.cmd(f"alfred config set ALFRED_OUTBOUND_PROXY_LISTEN {host}:8443") + t.c(" · logs: ", "dim") + t.cmd("alfred logs outbound")]))
+
+    # 4. each project's reverse proxy and its app
+    projects = alfred_settings.parse_service_entries(settings.get("INTERNAL_CALL_SERVICES", ""))
+    inbound_on = (settings.get("REVERSE_PROXY_ENABLED") or "false").lower() == "true"
+    for p in projects:
+        label = f"Reverse :{p['listen_port']}"
+        app_up = tcp_answers("127.0.0.1", p["upstream_port"])
+        proxy_up = tcp_answers("127.0.0.1", p["listen_port"])
+        if not app_up:
+            checks.append((label, "fail", f"{t.g['arrow']} {p['name']} :{p['upstream_port']}: nothing answers",
+                           [t.c(f"start {p['name']}, or stop routing to it: ", "dim") + t.cmd(f"alfred project remove {p['name']}")]))
+        elif not proxy_up and running and inbound_on:
+            checks.append((label, "warn", f"{t.g['arrow']} {p['name']} :{p['upstream_port']} answers, but nothing listens on :{p['listen_port']}",
+                           [t.c("logs: ", "dim") + t.cmd("alfred logs reverse")]))
+        else:
+            checks.append((label, "ok", f"{t.g['arrow']} {p['name']} :{p['upstream_port']} answers", []))
+
+    # 5. the agent in each project's app
+    agents = call_supervisor(layout, "GET", "/agents", timeout=3) if running else None
+    for a in (agents if isinstance(agents, list) else (agents or {}).get("agents", []) if agents else []):
+        name, state = a.get("project", "?"), a.get("state", "")
+        if state == "ATTACHED":
+            checks.append((f"Agent {name}", "ok", f"pid {a.get('pid')} {dot} {a.get('features') or 'loaded'}", []))
+        elif state in ("FAILED", "NOT_A_JVM", "ELSEWHERE"):
+            checks.append((f"Agent {name}", "warn", f"{state.lower().replace('_', ' ')}" + (f": {a['detail']}" if a.get("detail") else ""),
+                           [t.c("try again: ", "dim") + t.cmd("alfred jvms") + t.c(", then ", "dim") + t.cmd("alfred attach <pid>")]))
+
+    # 6. disk
+    try:
+        usage = shutil.disk_usage(layout.data)
+        free_share = usage.free / usage.total if usage.total else 1
+        data_size = folder_bytes(layout.data)
+        detail = f"{gb(usage.free)} free ({free_share * 100:.0f}%) {dot} Alfred's data uses {size_text(data_size)}"
+        if usage.free < 2 * 1073741824 or free_share < 0.05:
+            checks.append(("Disk", "fail", detail, [t.c("lower a storage cap: ", "dim") + t.cmd("alfred config set ALFRED_CALLS_MAX_SIZE_BYTES 5GB")]))
+        elif usage.free < 10 * 1073741824 or free_share < 0.10:
+            checks.append(("Disk", "warn", detail, [t.c("lower a storage cap: ", "dim") + t.cmd("alfred config set ALFRED_CALLS_MAX_SIZE_BYTES 5GB")]))
+        else:
+            checks.append(("Disk", "ok", detail, []))
+    except OSError as e:
+        checks.append(("Disk", "warn", f"could not be read: {e}", []))
+
+    # 7. storage, as the backend counts it
+    if ok:
+        try:
+            stats = backend_json(layout, "GET", "/database/stats", timeout=10)
+            files = stats.get("files", [])
+            total = sum(f.get("sizeBytes", 0) for f in files)
+            biggest = sorted(files, key=lambda f: f.get("sizeBytes", 0), reverse=True)[:3]
+            checks.append(("Storage", "ok", f"{size_text(total)} in {len(files)} store{'s' if len(files) != 1 else ''} {dot} "
+                           + ", ".join(f"{f['name']} {size_text(f.get('sizeBytes', 0))}" for f in biggest), []))
+        except SystemExit as e:
+            checks.append(("Storage", "warn", f"the backend did not say ({e})", []))
+
+    # 8. updates
+    if ok:
+        try:
+            update = backend_json(layout, "GET", "/server/update", timeout=10)
+            job = update.get("job") or {}
+            cache = os.path.join(layout.data, "updates")
+            cached = folder_bytes(cache) if os.path.isdir(cache) else 0
+            tail = f" {dot} download cache {size_text(cached)}" if cached else ""
+            if job.get("state") == "FAILED":
+                checks.append(("Updates", "warn", job.get("error") or "the last update failed", [t.c("try again: ", "dim") + t.cmd("alfred update")]))
+            elif job.get("state") == "PAUSED":
+                checks.append(("Updates", "ok", f"update to {job.get('version')} paused{tail}", [t.c("continue: ", "dim") + t.cmd("alfred update")]))
+            elif update.get("error"):
+                checks.append(("Updates", "warn", update["error"], []))
+            elif update.get("available"):
+                checks.append(("Updates", "ok", f"running {update.get('currentVersion')} {dot} {t.c(update.get('latestVersion', '') + ' available', 'yellow')}{tail}", []))
+            else:
+                checks.append(("Updates", "ok", f"running {update.get('currentVersion')}" + (" - the newest" if update.get("latestVersion") else " - not checked yet") + tail, []))
+        except SystemExit as e:
+            checks.append(("Updates", "warn", f"the backend did not say ({e})", []))
+
+    # 9. settings
+    problem = access_problem(layout, "doctor")
+    if problem:
+        checks.append(("Settings", "fail", problem.splitlines()[0], problem.splitlines()[1:]))
+    else:
+        edit_from = settings.get("ALFRED_SETTINGS_EDIT_FROM", "local")
+        checks.append(("Settings", "ok", f".env readable {dot} {len(projects)} project{'s' if len(projects) != 1 else ''} {dot} edits allowed from: {edit_from}", []))
+    return checks
+
+
+def cmd_doctor(layout, args):
+    """alfred doctor [--json]: checks this install and machine, says what is wrong and how to fix it. Exit 1 when a
+    check failed (warnings alone are 0)."""
+    if any(a != "--json" for a in args):
+        print("usage: alfred doctor [--json]", file=sys.stderr)
+        return USAGE
+    t = ui() if "--json" not in args else termlib.Term(env={"NO_COLOR": "1"})
+    if "--json" in args:
+        checks = doctor_checks(layout, t)
+        print(json.dumps([{"check": label, "status": state, "detail": termlib.ANSI.sub("", detail),
+                           "fix": [termlib.ANSI.sub("", h) for h in hints]} for label, state, detail, hints in checks], indent=2))
+        return ERROR if any(c[1] == "fail" for c in checks) else OK
+    with t.steps("Alfred doctor", label_width=16) as steps:
+        row = steps.add("checking").run("processes, ports, projects, agent, disk, storage, updates, settings")
+        checks = doctor_checks(layout, t)
+        row.label = "checked"
+        row.done(f"{len(checks)} checks")
+        for label, state, detail, hints in checks:
+            step = steps.add(label)
+            {"ok": lambda: step.done(detail), "warn": lambda: step.warn(detail, hints), "fail": lambda: step.fail(detail, hints)}[state]()
+    counts = {s: sum(1 for c in checks if c[1] == s) for s in ("ok", "warn", "fail")}
+    t.print()
+    t.print("  " + t.c(f"{counts['ok']} ok", "green") + t.c(" · ", "dim") + t.c(f"{counts['warn']} warning{'s' if counts['warn'] != 1 else ''}", "yellow")
+            + t.c(" · ", "dim") + t.c(f"{counts['fail']} problem{'s' if counts['fail'] != 1 else ''}", "red")
+            + t.c(f"   exit code {1 if counts['fail'] else 0} · ", "dim") + t.cmd("alfred doctor --json") + t.c(" for scripts", "dim"))
+    return ERROR if counts["fail"] else OK
+
+
 COMMANDS = {
     "run": cmd_run, "start": cmd_start, "stop": cmd_stop, "restart": cmd_restart, "status": cmd_status,
     "logs": cmd_logs, "version": cmd_version, "update": cmd_update, "uninstall": cmd_uninstall, "_init-env": cmd_init_env,
+    "doctor": cmd_doctor,
     "_wait-health": cmd_wait_health, "_record-upgrade": cmd_record_upgrade,
 }
 
@@ -1018,7 +1223,8 @@ HELP_GROUPS = [
                            ("detach", "<pid>", "let it go")]),
     ("Settings", [("config", "list | get | set <KEY> <value>", "settings in .env"),
                   ("project", "list | add | remove ...", "the projects the reverse proxy fronts")]),
-    ("Look after it", [("update", "[--check]", "check for a new release; without --check, install it"),
+    ("Look after it", [("doctor", "[--json]", "check processes, ports, projects, agent, disk, storage, updates"),
+                       ("update", "[--check | --cancel | --version X]", "install a new release · Ctrl+C pauses or cancels"),
                        ("version", "", "the version here"),
                        ("uninstall", "[--keep-data]", "remove Alfred"),
                        ("run", "", "the supervisor in the foreground (what the service runs)")]),
@@ -1035,7 +1241,7 @@ def render_help(layout):
     lines = ["", head]
     for title, rows in HELP_GROUPS:
         lines += ["", "  " + t.c(title, "white", "bold")]
-        lines += ["    " + t.c(f"{name:<10}", "white") + t.c(f"{usage:<31}", "teal") + t.c(what, "dim") for name, usage, what in rows]
+        lines += ["    " + t.c(f"{name:<10}", "white") + t.c(f"{usage:<34}", "teal") + t.c(what, "dim") for name, usage, what in rows]
     lines += ["", "  " + t.c("More: ", "dim") + t.cmd("alfred <command> --help") + t.c(f" {t.g['dot']} exit codes: ", "dim") + t.cmd("alfred help --codes"), ""]
     return "\n".join(lines)
 

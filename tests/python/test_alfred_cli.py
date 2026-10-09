@@ -305,6 +305,77 @@ class FollowTest(unittest.TestCase):
         self.assertLess(text.index("outbound"), text.index("backend"))  # the order the supervisor stops them in
 
 
+class DoctorTest(unittest.TestCase):
+    """alfred doctor: one pass over what people troubleshoot one at a time, each problem with its fix; exit 1 only for
+    problems, warnings alone are 0; --json for scripts."""
+
+    def setUp(self):
+        self.home = make_home()
+        self.addCleanup(shutil.rmtree, self.home, ignore_errors=True)
+        self.layout = Layout(self.home)
+
+    def run_doctor(self, args=(), supervisor=None, own=(True, None), settings=None, disk=None, backend=None, answers=()):
+        def call(layout, method, path, timeout=10):
+            return (supervisor or {}).get(path)
+
+        def backend_json(layout, method, path, timeout=30, body=None):
+            return (backend or {})[path]
+        usage = disk or shutil.disk_usage(self.home)
+        out = io.StringIO()
+        with mock.patch.object(alfred, "call_supervisor", call), mock.patch.object(alfred, "own_backend", lambda layout, timeout=2: own), \
+                mock.patch.object(self.layout, "settings", lambda: settings or {}), mock.patch.object(alfred, "backend_json", backend_json), \
+                mock.patch.object(alfred, "tcp_answers", lambda host, port, timeout=1.5: int(port) in answers), \
+                mock.patch.object(alfred, "port_owner", lambda port, layout=None: None), \
+                mock.patch.object(alfred.shutil, "disk_usage", lambda path: usage), redirect_stdout(out):
+            code = alfred.cmd_doctor(self.layout, list(args))
+        return code, out.getvalue()
+
+    HEALTHY = {"/status": {"processes": [{"name": "BACKEND", "state": "RUNNING", "pid": 1, "startedAt": None, "restarts": 0, "detail": "", "listeners": []}]},
+               "/agents": [{"project": "odeysys", "state": "ATTACHED", "pid": 7720, "features": "db,logs", "detail": ""}]}
+    BACKEND = {"/database/stats": {"files": [{"name": "calls.db", "rows": 10, "sizeBytes": 2 * 1073741824}]},
+               "/server/update": {"currentVersion": "3.0.5", "latestVersion": "3.0.6", "available": True, "job": {"state": "IDLE"}}}
+
+    def test_a_healthy_install_is_all_ok_with_exit_code_0(self):
+        code, out = self.run_doctor(supervisor=self.HEALTHY, backend=self.BACKEND, answers=(443, 8081, 8080),
+                                    settings={"INTERNAL_CALL_SERVICES": "odeysys:8081:8080", "REVERSE_PROXY_ENABLED": "true"})
+        self.assertEqual(code, alfred.OK, out)
+        for row in ("ok   Alfred runs", "ok   UI port 3000", "ok   Outbound :443", "ok   Reverse :8081", "ok   Agent odeysys",
+                    "ok   Storage", "ok   Updates", "ok   Settings"):
+            self.assertIn(row, out)
+        self.assertIn("3.0.6 available", out)
+        self.assertIn("0 problems", out)
+
+    def test_a_projects_app_that_does_not_answer_is_a_problem_with_its_fix(self):
+        code, out = self.run_doctor(supervisor=self.HEALTHY, backend=self.BACKEND, answers=(443, 8081),
+                                    settings={"INTERNAL_CALL_SERVICES": "billing:8082:9090"})
+        self.assertEqual(code, alfred.ERROR)
+        self.assertIn("FAIL Reverse :8082", out)
+        self.assertIn("billing :9090: nothing answers", out)
+        self.assertIn("alfred project remove billing", out)
+
+    def test_little_disk_left_is_a_warning_and_warnings_alone_exit_0(self):
+        import collections
+        usage = collections.namedtuple("usage", "total used free")(100 * 1073741824, 92 * 1073741824, 8 * 1073741824)
+        code, out = self.run_doctor(supervisor=self.HEALTHY, backend=self.BACKEND, answers=(443,), disk=usage)
+        self.assertIn("WARN Disk", out)
+        self.assertIn("8.0 GB free (8%)", out)
+        self.assertEqual(code, alfred.OK)
+
+    def test_a_stopped_alfred_says_how_to_start_it(self):
+        code, out = self.run_doctor(supervisor={}, own=(False, None))
+        self.assertEqual(code, alfred.ERROR)
+        self.assertIn("FAIL Alfred runs", out)
+        self.assertIn("alfred start", out)
+
+    def test_json_for_scripts(self):
+        code, out = self.run_doctor(["--json"], supervisor=self.HEALTHY, backend=self.BACKEND, answers=(443,))
+        rows = json.loads(out)
+        self.assertEqual({"check", "status", "detail", "fix"}, set(rows[0]))
+        self.assertIn("Alfred runs", [r["check"] for r in rows])
+        self.assertNotIn("\x1b", out)
+        self.assertEqual(code, alfred.OK)
+
+
 class EnsureEnvTest(unittest.TestCase):
 
     def test_a_failed_env_creation_says_what_failed(self):

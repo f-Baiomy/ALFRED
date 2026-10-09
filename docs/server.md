@@ -122,7 +122,8 @@ In the Docker install the section is read-only and explains how to change `.env`
 
 ```bash
 alfred start | stop | restart [--proxies] | status | run | logs [backend|outbound|reverse|mcp|supervisor] [-f] | version
-alfred update [--check]          read the release feed now; without --check, install the update (Alfred restarts)
+alfred update [--check | --cancel | --version X]   read the release feed now; without --check, install (Alfred restarts)
+alfred doctor [--json]           check processes, ports, each project's app, the agent, disk, storage, updates, settings
 alfred config list [--changed] | get KEY | set KEY VALUE | reset KEY | add KEY ITEM | remove KEY ITEM
 alfred config add-missing | check | diff | history | revert ID [--yes] | import FILE [--yes]
 alfred project add NAME LISTEN_PORT APP_PORT [--outbound HOST[:PORT]] | project remove NAME
@@ -135,6 +136,18 @@ Windows** - `status` and `logs` included. `data/` and `.env` are readable only b
 Administrators, so another account cannot even see whether Alfred runs. Such a command is refused with exit code 5
 and says how to run it; it used to answer wrongly instead ("not running", "No log yet", or on Windows a
 `FileExistsError` on `data\appdata`, because Windows hides a locked folder's contents).
+
+**Output.** In a terminal every command shows its steps live, in colour: `start` ticks off each process as the
+supervisor reports it up, `stop` each one as it stops, `update` follows the install to the end, `status` is a table,
+`logs` colours levels (each line otherwise exactly as in the file). Piped, with `NO_COLOR` or `TERM=dumb`: plain lines,
+one per finished step, no escape codes (packaging/launcher/term.py). A mistyped command suggests the closest one.
+
+**`alfred doctor`** checks, read-only: the processes (and restarts), who answers on the UI port (this install, another
+Alfred, or another program - named), the outbound proxy listening, each project's reverse port and whether its app
+answers on the upstream port, the agent the supervisor attached per project, free disk (warning under 10 % or 10 GB,
+problem under 5 % or 2 GB), storage per store, the update state and download cache, and settings access. Each problem
+comes with the command that fixes it. Exit code 1 when a check failed, 0 otherwise (warnings included); `--json` gives
+`[{check, status, detail, fix}]`.
 
 `alfred config` goes through the running backend (the change applies live, exactly as from the UI, and the history
 records it as a CLI change by your OS user); with Alfred stopped it writes `.env` itself and the change takes effect
