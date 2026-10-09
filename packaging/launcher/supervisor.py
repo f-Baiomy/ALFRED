@@ -29,6 +29,8 @@ import subprocess
 import sys
 import threading
 import time
+import http.client
+import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
@@ -502,25 +504,189 @@ class UpdateJob:
                 pass
             self._set("FAILED", f"{type(e).__name__}: {e}")
 
+    # Some lines shape each connection to ~16 KB/s after its first second (2026-10-09: 146 MB from GitHub's release
+    # CDN took over an hour); many range requests at once add up, roughly linearly, until TLS handshakes start timing
+    # out. So each worker keeps ONE connection to the redirect target and reads piece after piece over it, and the
+    # release URL's redirect is resolved once, not per piece (it expires within minutes: re-resolved on a 4xx).
+    # Measured on that line, whole file: 1 stream 1 h+; 128 fresh connections x 256 KB 120 s; 256 kept-alive x 512 KB
+    # (this) 104 s; 384 x 256 KB 99 s with reads timing out. Pieces come from a queue, so a slow connection never
+    # holds back the end.
+    CONNECTIONS = 256
+    PIECE_BYTES = 512 << 10
+    RETRY_DELAYS = (2, 5, 10)  # seconds before each retry of a piece whose connection failed
+
     def _download(self, url, part):
-        request = urllib.request.Request(url, headers={"User-Agent": "alfred-update"})
-        with urllib.request.urlopen(request, timeout=60) as response, open(part, "wb") as out:
-            length = response.headers.get("Content-Length")
-            if length and length.isdigit():
-                with self.lock:
-                    self.total = int(length)
-            told = 0.0
+        self._told = 0.0
+        # The first request asks for a range: a 206 with the total size means the server can be read in pieces.
+        request = urllib.request.Request(url, headers={"User-Agent": "alfred-update", "Range": "bytes=0-"})
+        with urllib.request.urlopen(request, timeout=60) as response:
+            total = _range_total(response)
+            if total is None or total <= 2 * self.PIECE_BYTES:
+                self._download_whole(response, part)
+                return
+            final = response.geturl()
+        self._download_in_pieces(url, final, part, total)
+
+    def _download_whole(self, response, part):
+        """One stream: a server without ranges (or file:// in the tests), or a file too small to split."""
+        length = response.headers.get("Content-Length")
+        if length and length.isdigit():
+            with self.lock:
+                self.total = int(length)
+        with open(part, "wb") as out:
             while True:
                 chunk = response.read(1 << 20)
                 if not chunk:
                     break
                 out.write(chunk)
-                with self.lock:
-                    self.downloaded += len(chunk)
-                # The Server card's download bar re-fetches on each event: a few a second, not one per chunk.
-                if time.monotonic() - told >= self.PROGRESS_EVERY:
-                    told = time.monotonic()
-                    self.supervisor.changed_update()
+                self._count(len(chunk))
+
+    def _download_in_pieces(self, url, final, part, total):
+        """`url` is the release link, `final` where its redirects ended (the same when there were none)."""
+        import queue
+        with self.lock:
+            self.total = total
+        with open(part, "wb") as out:
+            out.truncate(total)
+        pieces = queue.Queue()
+        for start in range(0, total, self.PIECE_BYTES):
+            pieces.put((start, min(start + self.PIECE_BYTES, total) - 1))
+        failed = []
+        stop = threading.Event()
+        target = _PieceTarget(url, final)
+
+        def work():
+            connection = None
+            try:
+                with open(part, "r+b") as out:
+                    while not stop.is_set():
+                        try:
+                            start, end = pieces.get_nowait()
+                        except queue.Empty:
+                            return
+                        connection = self._fetch_piece(target, connection, out, start, end, stop)
+            except Exception as e:  # noqa: BLE001 - the first failure ends the download, the others stop with it
+                failed.append(e)
+                stop.set()
+            finally:
+                if connection is not None:
+                    connection.close()
+
+        workers = [threading.Thread(target=work, name=f"update-{i}", daemon=True) for i in range(self.CONNECTIONS)]
+        for worker in workers:
+            worker.start()
+        for worker in workers:
+            worker.join()
+        if failed:
+            raise failed[0]
+        with self.lock:
+            downloaded = self.downloaded
+        if downloaded != total:
+            raise IOError(f"downloaded {downloaded} of {total} bytes")
+
+    def _fetch_piece(self, target, connection, out, start, end, stop):
+        """Bytes start..end into the file at their place, over `connection` when it is still open (returns the
+        connection to use next, None once it is spent). A dropped connection is retried from where it stopped."""
+        at = start
+        attempt = stale = 0
+        while True:
+            try:
+                if connection is None:
+                    connection = target.connect()
+                connection.request("GET", target.path, headers={"User-Agent": "alfred-update", "Range": f"bytes={at}-{end}"})
+                response = connection.getresponse()
+                if response.status != 206 or not (response.headers.get("Content-Range") or "").startswith(f"bytes {at}-"):
+                    body = response.read(1 << 16)  # whatever it is, it is not our bytes: never into the file
+                    if 400 <= response.status < 500 and target.refresh(connection.alfred_final):
+                        raise _StaleLink(f"the link answered {response.status}, resolved the release URL again")
+                    raise IOError(f"the server answered {response.status} {response.headers.get('Content-Range')!r} "
+                                  f"to a request for bytes {at}-{end}: {body[:80]!r}")
+                while at <= end and not stop.is_set():
+                    chunk = response.read(min(1 << 16, end + 1 - at))
+                    if not chunk:
+                        break
+                    out.seek(at)
+                    out.write(chunk)
+                    at += len(chunk)
+                    self._count(len(chunk))
+                if at > end or stop.is_set():
+                    response.close()
+                    return None if response.will_close else connection
+                raise IOError(f"the connection closed at byte {at} of {start}-{end}")
+            except (OSError, http.client.HTTPException, _StaleLink) as e:
+                if connection is not None:
+                    connection.close()
+                    connection = None
+                if isinstance(e, _StaleLink):
+                    # not a failure of the network: retried at once, apart from the connection retries - but not forever
+                    stale += 1
+                    if stale > 10:
+                        raise
+                    continue
+                if isinstance(e, urllib.error.HTTPError) and e.code < 500 or attempt == len(self.RETRY_DELAYS):
+                    raise
+                log.info("update %s: bytes %d-%d failed (%s), retrying", self.version, at, end, e)
+                if stop.wait(self.RETRY_DELAYS[attempt]):
+                    return None
+                attempt += 1
+
+    def _count(self, n):
+        with self.lock:
+            self.downloaded += n
+            # The Server card's download bar re-fetches on each event: a few a second, not one per chunk.
+            due = time.monotonic() - self._told >= self.PROGRESS_EVERY
+            if due:
+                self._told = time.monotonic()
+        if due:
+            self.supervisor.changed_update()
+
+
+class _StaleLink(Exception):
+    """The redirect target stopped answering our ranges (GitHub's signed links expire): resolved again, retry now."""
+
+
+class _PieceTarget:
+    """Where the pieces are fetched from: the release URL's redirect target, resolved once and shared by every
+    worker, re-resolved (by whichever worker notices first) when it expires."""
+
+    def __init__(self, url, final):
+        self.url = url
+        self.lock = threading.Lock()
+        self._set(final)
+
+    def _set(self, final):
+        parts = urllib.parse.urlsplit(final)
+        self.final = final
+        self.scheme, self.host, self.port = parts.scheme, parts.hostname, parts.port
+        self.path = urllib.parse.urlunsplit(("", "", parts.path or "/", parts.query, ""))
+
+    def connect(self):
+        with self.lock:
+            scheme, host, port, final = self.scheme, self.host, self.port, self.final
+        maker = http.client.HTTPSConnection if scheme == "https" else http.client.HTTPConnection
+        connection = maker(host, port, timeout=60)
+        connection.alfred_final = final  # which link this connection was made for, for refresh()
+        return connection
+
+    def refresh(self, used):
+        """True when there is a newer link than `used`, the one a worker's connection was made for - resolved
+        now, or already by another worker. False means the link is current and the answer was a real refusal."""
+        with self.lock:
+            if self.final != used:
+                return True
+            request = urllib.request.Request(self.url, headers={"User-Agent": "alfred-update", "Range": "bytes=0-0"})
+            with urllib.request.urlopen(request, timeout=60) as response:
+                response.read()
+                self._set(response.geturl())
+            return self.final != used
+
+
+def _range_total(response):
+    """The full size from a 206's Content-Range ("bytes 0-99/100"), None when the server sent the whole file."""
+    if getattr(response, "status", None) != 206:
+        return None
+    total = (response.headers.get("Content-Range") or "").rpartition("/")[2]
+    return int(total) if total.isdigit() else None
 
 
 def launch_installer(path, home, log_path):

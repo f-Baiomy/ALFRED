@@ -174,6 +174,154 @@ class UpdateJobTest(unittest.TestCase):
         self.assertIn("already in progress", body["error"])
 
 
+class RangeServer:
+    """A release host over HTTP that answers Range requests, like GitHub's CDN. `drop` connections are cut after
+    half their bytes; `ranges` set False makes it ignore Range and send the whole file with a 200."""
+
+    def __init__(self, data, ranges=True, drop=0, expire_after=None):
+        import http.server
+        import threading
+        outer = self
+        self.data, self.ranges, self.drop, self.requests, self.active, self.most_active = data, ranges, drop, [], 0, 0
+        self.expire_after, self.generation, self.served = expire_after, 0, 0
+        self.lock = threading.Lock()
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_GET(self):
+                spec = self.headers.get("Range")
+                with outer.lock:
+                    # /release redirects to a signed-looking link that expires after `expire_after` pieces, like GitHub's
+                    if self.path == "/release":
+                        self.send_response(302)
+                        self.send_header("Location", f"/signed-{outer.generation}/alfred-setup-9.9.9-test.bin")
+                        self.send_header("Content-Length", "0")
+                        self.end_headers()
+                        return
+                    if outer.expire_after is not None and self.path.startswith("/signed-"):
+                        if self.path.split("/")[1] != f"signed-{outer.generation}":
+                            self.send_response(403)
+                            self.send_header("Content-Length", "7")
+                            self.end_headers()
+                            self.wfile.write(b"expired")
+                            return
+                        outer.served += 1
+                        if outer.served % outer.expire_after == 0:
+                            outer.generation += 1
+                    outer.requests.append(spec)
+                    outer.active += 1
+                    outer.most_active = max(outer.most_active, outer.active)
+                    cut = outer.drop > 0 and spec != "bytes=0-"
+                    if cut:
+                        outer.drop -= 1
+                try:
+                    if outer.ranges and spec:
+                        start, _, end = spec[len("bytes="):].partition("-")
+                        start, end = int(start), int(end) if end else len(outer.data) - 1
+                        body = outer.data[start:end + 1]
+                        self.send_response(206)
+                        self.send_header("Content-Range", f"bytes {start}-{end}/{len(outer.data)}")
+                    else:
+                        body = outer.data
+                        self.send_response(200)
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    if cut:
+                        self.wfile.write(body[:len(body) // 2])
+                        self.wfile.flush()
+                        self.connection.shutdown(2)
+                        return
+                    for i in range(0, len(body), 1 << 16):
+                        self.wfile.write(body[i:i + (1 << 16)])
+                        time.sleep(0.002)  # slow enough that the pieces overlap
+                except (ConnectionError, OSError):
+                    pass
+                finally:
+                    with outer.lock:
+                        outer.active -= 1
+
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.url = f"http://127.0.0.1:{self.server.server_address[1]}/alfred-setup-9.9.9-test.bin"
+
+    def close(self):
+        self.server.shutdown()
+        self.server.server_close()
+
+
+class PieceDownloadTest(unittest.TestCase):
+    """Over HTTP the installer comes down over several range requests at once, each retried where it stopped."""
+
+    def setUp(self):
+        self.layout = make_layout()
+        self.addCleanup(shutil.rmtree, self.layout.home, True)
+        self.sup = supervisor.Supervisor(self.layout)
+        self.sup.settings = {}
+        for target, name, value in ((supervisor.Supervisor, "_post_event", lambda self, payload: None),
+                                    (supervisor, "launch_installer", lambda path, home, log: None),
+                                    (supervisor.UpdateJob, "RETRY_DELAYS", (0, 0, 0)),
+                                    (supervisor.UpdateJob, "PIECE_BYTES", 256 * 1024)):
+            patch = mock.patch.object(target, name, value)
+            patch.start()
+            self.addCleanup(patch.stop)
+        self.data = os.urandom(5 * 1024 * 1024 + 123)
+        self.sha256 = hashlib.sha256(self.data).hexdigest()
+
+    def run_update(self, server):
+        self.addCleanup(server.close)
+        self.assertTrue(self.sup.update.start("9.9.9", server.url, self.sha256, 0))
+        self.assertTrue(wait_for(lambda: self.sup.update.status()["state"] in ("INSTALLING", "FAILED"), 30))
+        return self.sup.update.status()
+
+    def installed(self, name="alfred-setup-9.9.9-test.bin"):
+        with open(os.path.join(self.layout.data, "updates", name), "rb") as f:
+            return f.read()
+
+    def test_the_installer_comes_down_in_pieces_over_several_connections_at_once(self):
+        server = RangeServer(self.data)
+        status = self.run_update(server)
+        self.assertEqual(("INSTALLING", ""), (status["state"], status["error"]))
+        self.assertEqual((len(self.data), len(self.data)), (status["downloadedBytes"], status["totalBytes"]))
+        self.assertEqual(self.data, self.installed())
+        self.assertEqual(1 + -(-len(self.data) // (256 * 1024)), len(server.requests))  # the probe, then each piece once
+        self.assertGreater(server.most_active, 1)
+
+    def test_a_dropped_connection_is_retried_from_where_it_stopped(self):
+        server = RangeServer(self.data, drop=3)
+        status = self.run_update(server)
+        self.assertEqual(("INSTALLING", ""), (status["state"], status["error"]))
+        self.assertEqual(len(self.data), status["downloadedBytes"])
+        self.assertEqual(self.data, self.installed())
+        resumed = [r for r in server.requests if r and not r.endswith("-") and int(r[6:].split("-")[0]) % (256 * 1024)]
+        self.assertEqual(3, len(resumed), server.requests)
+
+    def test_an_expired_link_is_resolved_again_from_the_release_url(self):
+        """GitHub's release URL redirects to a signed link that stops answering within minutes; the long tail of a
+        slow download must not fail on it, and never writes the refusal's body into the installer."""
+        server = RangeServer(self.data, expire_after=5)
+        server.url = server.url.replace("/alfred-setup-9.9.9-test.bin", "/release")
+        status = self.run_update(server)
+        self.assertEqual(("INSTALLING", ""), (status["state"], status["error"]))
+        self.assertEqual(self.data, self.installed("release"))
+        self.assertGreater(server.generation, 2)
+
+    def test_a_server_without_ranges_is_read_in_one_stream(self):
+        server = RangeServer(self.data, ranges=False)
+        status = self.run_update(server)
+        self.assertEqual(("INSTALLING", ""), (status["state"], status["error"]))
+        self.assertEqual(self.data, self.installed())
+        self.assertEqual(["bytes=0-"], server.requests)
+
+    def test_a_piece_that_keeps_failing_fails_the_update_and_leaves_no_part_file(self):
+        server = RangeServer(self.data, drop=1000)
+        status = self.run_update(server)
+        self.assertEqual("FAILED", status["state"])
+        self.assertNotEqual("", status["error"])
+        self.assertEqual([n for n in os.listdir(os.path.join(self.layout.data, "updates")) if n.endswith(".part")], [])
+
+
 class LaunchCommandTest(unittest.TestCase):
     """What is executed, per OS - the processes themselves are not started."""
 
