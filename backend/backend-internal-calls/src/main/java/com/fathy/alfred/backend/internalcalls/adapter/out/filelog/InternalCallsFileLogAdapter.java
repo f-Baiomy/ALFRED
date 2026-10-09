@@ -410,16 +410,55 @@ public class InternalCallsFileLogAdapter implements CallLogPort, RetentionPort {
         }
     }
 
+    /**
+     * Calls whose completion was stored without their prepare (newest last, bounded). The proxy sends prepare, then
+     * complete, one after the other - but prepare has a 2 s timeout, and when the backend stalls past it (a long GC
+     * pause) the proxy gives up and sends complete while the late prepare is still on its way: the two then race,
+     * complete stored a bare response (no URL, method or time - one such row failed every log search), and the late
+     * prepare sat in {@link #pendingById} forever, waiting for a completion that had already happened.
+     */
+    private final Map<String, Boolean> completedWithoutPrepare = Collections.synchronizedMap(new java.util.LinkedHashMap<>() {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<String, Boolean> eldest) {
+            return size() > 1000;
+        }
+    });
+
     /** Holds the partial call in memory only - nothing is written to internal-calls.log until {@link #complete} - see the class-level doc on {@link #pendingById}. */
     @Override
     public void prepare(CallRecord call) {
-        pendingById.put(call.id(), call);
+        prepareOrMerge(call);
     }
 
-    /** Merges the outcome into the pending call (if this process is still the one that prepared it) and performs the one, single-shot disk write. */
+    /**
+     * Not synchronized, like prepare always was (a prepare must not wait for another call's disk write). Each side
+     * writes its own mark before reading the other's - this one {@link #pendingById}, {@link #complete}
+     * {@link #completedWithoutPrepare} - so at least one of them sees the other, and the atomic remove from
+     * pendingById decides which one carries on.
+     */
+    @Override
+    public boolean prepareOrMerge(CallRecord call) {
+        pendingById.put(call.id(), call);
+        if (completedWithoutPrepare.containsKey(call.id()) && pendingById.remove(call.id(), call)) {
+            return mergeLatePrepare(call);
+        }
+        return false;
+    }
+
+    @Override
+    public boolean complete(String id, ResponseData response, String error, Double durationMs,
+                            CallInterception interception, Boolean reachedUpstream) {
+        return complete(id, response, error, durationMs, interception, reachedUpstream, null);
+    }
+
+    /**
+     * Merges the outcome into the pending call (if this process is still the one that prepared it) and performs the
+     * one, single-shot disk write. Without a pending call, {@code known} (the call as the proxy saw it, sent with the
+     * completion) still says which call this was.
+     */
     @Override
     public synchronized boolean complete(String id, ResponseData response, String error, Double durationMs,
-                                         CallInterception interception, Boolean reachedUpstream) {
+                                         CallInterception interception, Boolean reachedUpstream, CallRecord known) {
         loadDeletedJournal();
         if (reliveDeletedCallIds.contains(id)) {
             // The call was deleted by a relive history delete while it was still in flight - its
@@ -427,7 +466,11 @@ public class InternalCallsFileLogAdapter implements CallLogPort, RetentionPort {
             pendingById.remove(id);
             return false;
         }
+        completedWithoutPrepare.put(id, Boolean.TRUE);
         CallRecord partial = pendingById.remove(id);
+        if (partial != null) {
+            completedWithoutPrepare.remove(id);
+        }
         boolean wasPending = partial != null;
         boolean hasError = error != null && !error.isBlank();
         CallLifecycleStatus state = hasError ? CallLifecycleStatus.ERROR : CallLifecycleStatus.COMPLETED;
@@ -442,13 +485,102 @@ public class InternalCallsFileLogAdapter implements CallLogPort, RetentionPort {
                 ? new CallRecord(partial.id(), partial.originalUrl(), partial.url(), partial.method(), partial.request(),
                         partial.timestamp(), durationMs, response, error, state, partial.sessionId(), partial.operationId(), partial.serviceName(),
                         null, partial.resendOf(), partial.resendEdits(), partial.relive(), reachedUpstream)
-                // Degraded fallback: this process never saw the matching prepare() (e.g. restarted
-                // in between) - persist what the completion payload alone can offer rather than
-                // silently dropping it. serviceName/relive unknown too in this narrow, accepted-gap case.
+                // Degraded fallback: this process never saw the matching prepare() (restarted in between, or the
+                // prepare is late - see completedWithoutPrepare). The proxy's own view of the call names it; only
+                // the request headers and body are missing (a late prepare fills them in). relive unknown here.
+                : known != null
+                ? new CallRecord(id, known.originalUrl(), known.url(), known.method(), null, known.timestamp(), durationMs,
+                        response, error, state, known.sessionId(), known.operationId(), known.serviceName(),
+                        null, null, null, null, reachedUpstream)
                 : new CallRecord(id, null, null, null, null, null, durationMs, response, error, state, null, null, null,
                         null, null, null, null, reachedUpstream);
         save(resolved.withInterception(interception));
         return wasPending;
+    }
+
+    /**
+     * A prepare that arrived after its completion: its request side goes into the stored row - the line is replaced
+     * in place, streamed through a temp file like compaction (rare: only after a prepare timeout). False when the
+     * row is gone (trimmed, deleted).
+     */
+    private synchronized boolean mergeLatePrepare(CallRecord prepared) {
+        completedWithoutPrepare.remove(prepared.id());
+        List<CachedLine> lines = loadLines();
+        int at = -1;
+        for (int i = lines.size() - 1; i >= 0; i--) {
+            CallRecord r = lines.get(i).record();
+            if (r != null && prepared.id().equals(r.id())) {
+                at = i;
+                break;
+            }
+        }
+        if (at < 0) {
+            return false;
+        }
+        CallRecord stored = lines.get(at).record();
+        CallRecord merged = new CallRecord(stored.id(), prepared.originalUrl(), prepared.url(), prepared.method(), prepared.request(),
+                prepared.timestamp(), stored.durationMs(), stored.response(), stored.error(), stored.state(),
+                prepared.sessionId(), prepared.operationId(), prepared.serviceName(), stored.interception(),
+                prepared.resendOf(), prepared.resendEdits(), prepared.relive(), stored.reachedUpstream());
+        Path path = Path.of(internalCallsFile);
+        try {
+            replaceLine(path, stored.id(), objectMapper.writeValueAsString(merged));
+        } catch (IOException e) {
+            invalidateCache();
+            log.error("Failed to merge a late prepare into {}: {}", internalCallsFile, e.getMessage());
+            return false;
+        }
+        List<CachedLine> next = new ArrayList<>(cachedLines != null ? cachedLines : lines);
+        for (int i = next.size() - 1; i >= 0; i--) {
+            CallRecord r = next.get(i).record();
+            if (r != null && stored.id().equals(r.id())) {
+                next.set(i, new CachedLine(merged));
+                break;
+            }
+        }
+        rememberCache(path, next);
+        return true;
+    }
+
+    /**
+     * Copies the file through a temp file, one line at a time, with the last line of call {@code id} replaced by
+     * {@code json}. Every line is written with its id first, so only each line's head is looked at.
+     */
+    private void replaceLine(Path path, String id, String json) throws IOException {
+        String marker = "{\"id\":\"" + id + "\"";
+        int target = -1;
+        int index = 0;
+        try (BufferedReader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
+            String rawLine;
+            while ((rawLine = reader.readLine()) != null) {
+                if (rawLine.isBlank()) {
+                    continue;
+                }
+                if (rawLine.strip().startsWith(marker)) {
+                    target = index;
+                }
+                index++;
+            }
+        }
+        if (target < 0) {
+            throw new IOException("no line for call " + id);
+        }
+        Path temp = path.resolveSibling(path.getFileName() + ".compacting");
+        try (BufferedReader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8);
+             BufferedWriter writer = Files.newBufferedWriter(temp, StandardCharsets.UTF_8,
+                     StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)) {
+            String rawLine;
+            index = 0;
+            while ((rawLine = reader.readLine()) != null) {
+                if (rawLine.isBlank()) {
+                    continue;
+                }
+                writer.write(index == target ? json : rawLine);
+                writer.newLine();
+                index++;
+            }
+        }
+        moveIntoPlace(temp, path);
     }
 
     /** Returns the cached lines minus any tombstoned by the relive history delete, re-reading and

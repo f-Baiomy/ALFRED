@@ -15,6 +15,24 @@ public record CompleteInternalCallRequestDto(
         /** What an interception rule did, sent by the reverse proxy only when a rule touched the call. */
         CallInterception interception,
         /** Whether this call actually reached a real external system - only known once it settles. Drives Relive's Live-calls log (FR-015b). */
-        @JsonProperty("reached_upstream") Boolean reachedUpstream
+        @JsonProperty("reached_upstream") Boolean reachedUpstream,
+        /**
+         * The call as the proxy saw it at request time - original_url, url, method, timestamp, service_name,
+         * session_id, operation_id; no headers or body. Lets a call whose prepare never reached the backend still be
+         * stored as that call. Null from an older proxy.
+         */
+        CallIdentityDto call
 ) {
+
+    public record CallIdentityDto(
+            @JsonProperty("original_url") String originalUrl,
+            String url,
+            String method,
+            String timestamp,
+            @JsonProperty("service_name") String serviceName,
+            @JsonProperty("session_id") String sessionId,
+            @JsonProperty("operation_id") String operationId
+    ) {
+    }
+
 }

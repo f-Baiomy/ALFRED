@@ -36,6 +36,7 @@ import os
 import queue
 import threading
 import time
+import urllib.error
 import urllib.request
 import uuid
 from datetime import datetime, timezone
@@ -131,8 +132,12 @@ def _send_webhook(phase, call_id, data):
             method='POST',
         )
         urllib.request.urlopen(request, timeout=timeout)
+    except urllib.error.HTTPError as e:
+        print(f"[webhook] {phase} failed to notify {WEBHOOK_URL} for {call_id}: HTTP {e.code} {e.reason}")
     except Exception as e:
-        print(f"[webhook] {phase} failed to notify {WEBHOOK_URL} for {call_id}: {e}")
+        # A timeout names itself: a prepare that timed out may still reach the backend, after its completion.
+        kind = 'timed out' if isinstance(e, TimeoutError) or 'timed out' in str(e) else type(e).__name__
+        print(f"[webhook] {phase} failed to notify {WEBHOOK_URL} for {call_id}: {kind}: {e}")
 
 
 def _webhook_worker():
@@ -300,6 +305,11 @@ class RouteAndLog:
             # each call and filter by source without re-deriving it from the URL/port.
             'service_name': name,
         }
+        # Sent again with the completion: when the backend stalls past PREPARE_TIMEOUT_SECONDS, the prepare can reach
+        # it after the completion (or not at all), and a completion alone used to be stored as a bare response with no
+        # URL, method or time - one such row failed every log search. Small fields only, never headers or body.
+        flow.metadata['call_identity'] = {key: call_log[key] for key in
+                                          ('original_url', 'url', 'method', 'timestamp', 'service_name', 'session_id', 'operation_id')}
         applied = verdict.as_log()
         if applied:
             call_log['interception'] = applied
@@ -477,7 +487,7 @@ class RouteAndLog:
         if applied:
             data['interception'] = applied
         relive.mark_reached_upstream(flow, verdict, data)
-        self._write(call_id, data)
+        self._write(flow, call_id, data)
 
         if ctx.options.flow_detail > 0:
             print(f"[{datetime.now(timezone.utc).isoformat()}] {flow.request.method} {flow.request.pretty_url} "
@@ -505,7 +515,7 @@ class RouteAndLog:
                 'body': self._safe_body(flow.response),
             }
         relive.mark_reached_upstream(flow, verdict, data)
-        self._write(call_id, data)
+        self._write(flow, call_id, data)
 
     async def websocket_start(self, flow):
         """See log_and_route.py's identical hook - the inbound counterpart, same reasoning."""
@@ -579,7 +589,10 @@ class RouteAndLog:
             text = text[:limit] + '...[truncated]'
         return text
 
-    def _write(self, call_id, data):
+    def _write(self, flow, call_id, data):
+        identity = flow.metadata.get('call_identity')
+        if identity:
+            data['call'] = identity
         _webhook_queue.put_nowait(('complete', call_id, data))
 
 

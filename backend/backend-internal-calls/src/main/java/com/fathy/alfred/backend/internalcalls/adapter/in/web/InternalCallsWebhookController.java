@@ -75,8 +75,12 @@ public class InternalCallsWebhookController {
         if (!secretMatches(providedSecret)) {
             return ResponseEntity.status(401).build();
         }
+        var call = body.call();
+        CallRecord known = call == null ? null : new CallRecord(id, call.originalUrl(), call.url(), call.method(), null,
+                call.timestamp(), null, null, null, null, call.sessionId(), call.operationId(), call.serviceName(),
+                null, null, null, null, null);
         boolean found = receiveCompletedCallUseCase.receiveCompletedCall(id, body.response(), body.error(), body.durationMs(),
-                body.interception(), body.reachedUpstream());
+                body.interception(), body.reachedUpstream(), known);
         return found ? ResponseEntity.noContent().build() : ResponseEntity.notFound().build();
     }
 

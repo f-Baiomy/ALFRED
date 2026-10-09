@@ -172,6 +172,35 @@ class ReverseProxyStampsAlfredCall(unittest.TestCase):
         self.assertNotIn('someone-else', flow.request.headers.get('X-Alfred-Call'))
 
 
+class ReverseProxyCompletionNamesItsCall(unittest.TestCase):
+    """A prepare that timed out may reach the backend after the completion, or never: the completion carries the
+    call's URL, method, time and project so it is never stored as a bare response (one failed every log search)."""
+
+    def test_the_completion_carries_what_the_prepare_said_about_the_call_but_no_headers_or_body(self):
+        flow = FakeFlow(request=FakeRequest(method='OPTIONS', host='localhost', path='/odeysysadmin/Admin2/userDetails',
+                                            headers={'Origin': 'http://localhost:8500'}))
+        sent = ReverseProxyStampsAlfredCall._forward(self, flow)
+        prepare = next(item for item in sent if item[0] == 'prepare')[2]
+        written = []
+        addon = log_and_route_reverse.RouteAndLog()
+        with patch.object(log_and_route_reverse._webhook_queue, 'put_nowait', lambda item: written.append(item)):
+            addon._write(flow, prepare['id'], {'response': {'status': 200}, 'duration_ms': 29.9})
+        phase, call_id, data = written[0]
+        self.assertEqual(('complete', prepare['id']), (phase, call_id))
+        self.assertEqual({key: prepare[key] for key in ('original_url', 'url', 'method', 'timestamp', 'service_name',
+                                                        'session_id', 'operation_id')}, data['call'])
+        self.assertEqual('OPTIONS', data['call']['method'])
+        self.assertNotIn('request', data['call'])
+        self.assertEqual(200, data['response']['status'])
+
+    def test_a_flow_that_was_never_logged_adds_nothing(self):
+        flow = FakeFlow(request=FakeRequest(method='GET', host='localhost', path='/x'))
+        written = []
+        with patch.object(log_and_route_reverse._webhook_queue, 'put_nowait', lambda item: written.append(item)):
+            log_and_route_reverse.RouteAndLog()._write(flow, 'c1', {'error': 'boom'})
+        self.assertNotIn('call', written[0][2])
+
+
 class ReverseProxyTellsTheAgentWhereAlfredIs(unittest.TestCase):
     """alfred= and key= in X-Alfred-Call: the agent follows the proxy that delivers its calls, whatever its own
     arguments say (a stale -javaagent pointing at a port nothing listens on, a Docker install that is gone)."""

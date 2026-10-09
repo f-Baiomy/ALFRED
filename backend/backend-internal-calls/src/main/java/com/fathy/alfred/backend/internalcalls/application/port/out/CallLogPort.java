@@ -27,6 +27,16 @@ public interface CallLogPort {
     void prepare(CallRecord call);
 
     /**
+     * {@link #prepare}, except when this call's {@link #complete} already ran without it (the proxy's prepare webhook
+     * timed out and reached the backend after the completion): the request is then merged into the stored row instead
+     * of being held for a completion that already happened. Returns true when it merged.
+     */
+    default boolean prepareOrMerge(CallRecord call) {
+        prepare(call);
+        return false;
+    }
+
+    /**
      * Second half: fills in the outcome of a previously-{@link #prepare}d call - either
      * {@code response} (a real HTTP reply, any status code) or {@code error} (the proxy never got
      * one).
@@ -51,6 +61,16 @@ public interface CallLogPort {
     /** As above, plus whether the call actually reached a real external system - only known once it settles. Drives Relive's Live-calls log (FR-015b). */
     boolean complete(String id, ResponseData response, String error, Double durationMs,
                      CallInterception interception, Boolean reachedUpstream);
+
+    /**
+     * As above, plus {@code known}: the call as the proxy saw it (URL, method, time, project - no headers or body),
+     * which the completion carries so a call whose prepare never arrived is still stored as that call rather than as
+     * a bare response. Null from a proxy that predates it.
+     */
+    default boolean complete(String id, ResponseData response, String error, Double durationMs,
+                             CallInterception interception, Boolean reachedUpstream, CallRecord known) {
+        return complete(id, response, error, durationMs, interception, reachedUpstream);
+    }
 
     /**
      * Filtered/searched/sorted/paginated call summaries, plus the total count matching before

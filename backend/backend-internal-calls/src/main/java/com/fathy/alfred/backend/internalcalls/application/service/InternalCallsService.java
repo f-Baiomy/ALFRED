@@ -131,7 +131,13 @@ public class InternalCallsService implements GetCallsUseCase, FindInternalRelive
                 partial.request(), partial.timestamp(), null, null, null, CallLifecycleStatus.IN_PROGRESS,
                 partial.sessionId(), partial.operationId(), partial.serviceName(), null,
                 partial.resendOf(), partial.resendEdits(), partial.relive(), null);
-        callLogPort.prepare(prepared);
+        if (callLogPort.prepareOrMerge(prepared)) {
+            // Its completion already arrived and was stored without the request: the row now has it. Shown as the
+            // completed call it is - a "prepared" push would leave an in-progress row nothing ever completes.
+            log.warn("Prepare for internal call {} arrived after its completion - merged into the stored call", id);
+            callLogPort.findById(id).ifPresent(call -> notificationPort.notifyCallCompleted(call, List.of()));
+            return Optional.of(id);
+        }
         observers.forEach(observer -> observer.onCallPrepared(prepared));
         notificationPort.notifyCallPrepared(prepared);
         return Optional.of(id);
@@ -147,7 +153,15 @@ public class InternalCallsService implements GetCallsUseCase, FindInternalRelive
     @Override
     public boolean receiveCompletedCall(String id, ResponseData response, String error, Double durationMs,
                                         CallInterception interception, Boolean reachedUpstream) {
-        boolean updated = callLogPort.complete(id, response, error, durationMs, interception, reachedUpstream);
+        return receiveCompletedCall(id, response, error, durationMs, interception, reachedUpstream, null);
+    }
+
+    @Override
+    public boolean receiveCompletedCall(String id, ResponseData response, String error, Double durationMs,
+                                        CallInterception interception, Boolean reachedUpstream, CallRecord known) {
+        boolean updated = known == null
+                ? callLogPort.complete(id, response, error, durationMs, interception, reachedUpstream)
+                : callLogPort.complete(id, response, error, durationMs, interception, reachedUpstream, known);
         if (!updated) {
             log.warn("Received a completion for unknown/already-trimmed internal call id {}", id);
             return false;

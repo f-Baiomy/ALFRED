@@ -514,4 +514,69 @@ class InternalCallsFileLogAdapterTest {
         field.setAccessible(true);
         return field.get(adapter);
     }
+
+    private static CallRecord known(String id) {
+        return new CallRecord(id, "http://localhost:9001/odeysysadmin/Admin2/userDetails", "http://wildfly:8080/odeysysadmin/Admin2/userDetails",
+                "OPTIONS", null, "2026-10-06T21:49:47.2+00:00", null, null, null, null, "s1", "o1", "odeysys",
+                null, null, null, null, null);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static java.util.Map<String, CallRecord> pending(InternalCallsFileLogAdapter adapter) throws Exception {
+        Field field = InternalCallsFileLogAdapter.class.getDeclaredField("pendingById");
+        field.setAccessible(true);
+        return (java.util.Map<String, CallRecord>) field.get(adapter);
+    }
+
+    @Test
+    void aCompletionWithoutItsPrepareIsStillStoredAsThatCall() throws Exception {
+        InternalCallsFileLogAdapter adapter = adapterFor(tempDir.resolve("internal-calls.log"));
+
+        boolean wasPending = adapter.complete("late", new ResponseData(200, null, ""), null, 29.9, null, null, known("late"));
+
+        assertThat(wasPending).isFalse();
+        CallRecord stored = adapter.findById("late").orElseThrow();
+        assertThat(stored.url()).isEqualTo("http://wildfly:8080/odeysysadmin/Admin2/userDetails");
+        assertThat(stored.method()).isEqualTo("OPTIONS");
+        assertThat(stored.timestamp()).isEqualTo("2026-10-06T21:49:47.2+00:00");
+        assertThat(stored.serviceName()).isEqualTo("odeysys");
+        assertThat(stored.request()).isNull();
+        assertThat(stored.response().status()).isEqualTo(200);
+    }
+
+    @Test
+    void aPrepareArrivingAfterItsCompletionFillsInTheStoredRowAndIsNotHeldForever() throws Exception {
+        Path file = tempDir.resolve("internal-calls.log");
+        InternalCallsFileLogAdapter adapter = adapterFor(file);
+        adapter.prepare(prepared("before"));
+        adapter.complete("before", new ResponseData(200, null, "a"), null, 1.0);
+        adapter.complete("late", new ResponseData(204, null, null), null, 29.9, null, null, known("late"));
+        adapter.prepare(prepared("after"));
+        adapter.complete("after", new ResponseData(200, null, "b"), null, 1.0);
+
+        CallRecord late = new CallRecord("late", "http://localhost:9001/x", "http://wildfly/x", "OPTIONS",
+                new RequestData(java.util.Map.of("Origin", "http://localhost:8500"), null), "2026-10-06T21:49:47.2+00:00",
+                null, null, null, CallLifecycleStatus.IN_PROGRESS, "s1", "o1", "odeysys", null, null, null, null, null);
+        assertThat(adapter.prepareOrMerge(late)).isTrue();
+
+        assertThat(pending(adapter)).isEmpty();
+        CallRecord merged = adapter.findById("late").orElseThrow();
+        assertThat(merged.request().headers()).containsEntry("Origin", "http://localhost:8500");
+        assertThat(merged.response().status()).isEqualTo(204);
+        assertThat(merged.durationMs()).isEqualTo(29.9);
+        assertThat(merged.state()).isEqualTo(CallLifecycleStatus.COMPLETED);
+        // The file says the same after a cold read, with every other call where it was.
+        assertThat(adapterFor(file).readAll()).extracting(CallRecord::id).containsExactly("before", "late", "after");
+        assertThat(adapterFor(file).findById("late").orElseThrow().request().headers()).containsEntry("Origin", "http://localhost:8500");
+    }
+
+    @Test
+    void anOrdinaryPrepareIsNotMergedAndAnOrdinaryCompletionLeavesNoMark() throws Exception {
+        InternalCallsFileLogAdapter adapter = adapterFor(tempDir.resolve("internal-calls.log"));
+        assertThat(adapter.prepareOrMerge(prepared("x"))).isFalse();
+        assertThat(adapter.complete("x", new ResponseData(200, null, "ok"), null, 1.0)).isTrue();
+        // A second prepare reusing the id (a client re-sending its X-Request-Id) is held as usual, not merged.
+        assertThat(adapter.prepareOrMerge(prepared("x"))).isFalse();
+        assertThat(pending(adapter)).containsKey("x");
+    }
 }

@@ -148,7 +148,7 @@ class InternalCallsServiceTest {
 
         assertThat(id).isPresent();
         ArgumentCaptor<CallRecord> prepared = ArgumentCaptor.forClass(CallRecord.class);
-        verify(port).prepare(prepared.capture());
+        verify(port).prepareOrMerge(prepared.capture());
         assertThat(prepared.getValue().id()).isEqualTo(id.get());
         assertThat(prepared.getValue().state()).isEqualTo(CallLifecycleStatus.IN_PROGRESS);
         assertThat(prepared.getValue().response()).isNull();
@@ -157,7 +157,7 @@ class InternalCallsServiceTest {
         assertThat(prepared.getValue().sessionId()).isNull();
         assertThat(prepared.getValue().operationId()).isNull();
         var order = inOrder(port, notificationPort);
-        order.verify(port).prepare(prepared.getValue());
+        order.verify(port).prepareOrMerge(prepared.getValue());
         order.verify(notificationPort).notifyCallPrepared(prepared.getValue());
     }
 
@@ -172,7 +172,7 @@ class InternalCallsServiceTest {
 
         assertThat(id).contains("proxy-generated-id");
         ArgumentCaptor<CallRecord> prepared = ArgumentCaptor.forClass(CallRecord.class);
-        verify(port).prepare(prepared.capture());
+        verify(port).prepareOrMerge(prepared.capture());
         assertThat(prepared.getValue().id()).isEqualTo("proxy-generated-id");
     }
 
@@ -187,7 +187,7 @@ class InternalCallsServiceTest {
         service.receivePreparedCall(partial);
 
         ArgumentCaptor<CallRecord> prepared = ArgumentCaptor.forClass(CallRecord.class);
-        verify(port).prepare(prepared.capture());
+        verify(port).prepareOrMerge(prepared.capture());
         assertThat(prepared.getValue().sessionId()).isEqualTo("proxy-session-id");
         assertThat(prepared.getValue().operationId()).isEqualTo("proxy-operation-id");
     }
@@ -266,5 +266,35 @@ class InternalCallsServiceTest {
 
         assertThat(result).isTrue();
         verify(port).complete("call-1", response, null, 5.0, interception, null);
+    }
+
+    @Test
+    void aPrepareMergedIntoItsAlreadyStoredCompletionIsPushedAsCompletedNeverAsInProgress() {
+        CallLogPort port = mock(CallLogPort.class);
+        CallNotificationPort notificationPort = mock(CallNotificationPort.class);
+        NewInternalCallObserverPort observer = mock(NewInternalCallObserverPort.class);
+        CallRecord merged = new CallRecord("late", "https://wildfly-proxy/x", "https://wildfly/x", "OPTIONS", null, "t", 29.9, null, null);
+        when(port.prepareOrMerge(org.mockito.ArgumentMatchers.any())).thenReturn(true);
+        when(port.findById("late")).thenReturn(Optional.of(merged));
+
+        Optional<String> id = serviceWith(port, notificationPort, List.of(observer))
+                .receivePreparedCall(new CallRecord("late", "https://wildfly-proxy/x", "https://wildfly/x", "OPTIONS", null, "t", null, null, null, null));
+
+        assertThat(id).contains("late");
+        verify(notificationPort).notifyCallCompleted(merged, List.of());
+        verify(notificationPort, never()).notifyCallPrepared(org.mockito.ArgumentMatchers.any());
+        verifyNoInteractions(observer);
+    }
+
+    @Test
+    void theCallAsTheProxySawItGoesToTheStoreWithTheCompletion() {
+        CallLogPort port = mock(CallLogPort.class);
+        CallRecord known = new CallRecord("late", "https://wildfly-proxy/x", "https://wildfly/x", "OPTIONS", null, "t", null, null, null, null);
+        ResponseData response = new ResponseData(200, null, "");
+
+        boolean result = serviceWith(port).receiveCompletedCall("late", response, null, 29.9, null, null, known);
+
+        assertThat(result).isFalse();
+        verify(port).complete("late", response, null, 29.9, null, null, known);
     }
 }
