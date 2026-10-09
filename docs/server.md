@@ -20,6 +20,16 @@ irm https://raw.githubusercontent.com/f-Baiomy/ALFRED/master/install.ps1 | iex  
 $env:ALFRED_INSTALL_ARGS = '/DIR=D:\alfred /UIPORT=3017'; irm https://raw.githubusercontent.com/f-Baiomy/ALFRED/master/install.ps1 | iex
 ```
 
+Both scripts show a step list that ticks off. Before downloading anything they check the machine: an install to
+upgrade, free disk space, and who listens on the UI port and the outbound proxy's port. A UI port held by another
+program stops the install before the download, naming the program; a busy proxy port is a warning, since the backend
+still starts. The download runs over many connections (see "Updates") with a live line - bar, MB, speed, time left,
+retried pieces - and, in Windows Terminal, progress on the taskbar icon. Installers are kept in a **download cache**
+(`C:\ProgramData\Alfred\downloads`, `/var/cache/alfred`; the newest two): running the one-liner again, after a failed
+install for example, takes the cached installer once its sha256 matches the release again. Under Linux, the `.run`
+installer's own lines appear under "Installing" as they happen. The end is a box with the UI addresses; on Windows,
+Enter opens the UI. Output redirected, `NO_COLOR` or `TERM=dumb`: plain lines, one per finished step, no escape codes.
+
 **Building the installers yourself:** on the developer machine, build both installers from the current code (needs only Docker and Python):
 
 ```bash
