@@ -49,6 +49,10 @@ EXPOSE 5000
 # G1 stays the collector (short pauses are not the problem here; CPU bursts were). Without a CPU limit
 # the JVM sizes its GC thread pools to every core of the host (13 parallel GC threads on a 16-core
 # machine), so each collection briefly lit up most of the CPU; 4 + 2 threads are plenty for a 1 GB heap.
+# MaxRAMPercentage=75 (1.5 GB of the 2 GB container), raised from 50 on 2026-10-09: with 7,000 inbound calls held in
+# memory, 835 MB stayed live after a full GC in a 1 GB heap - five full GCs in twenty quiet minutes, and stalls long
+# enough to time out the proxies' reports (specs/013-inbound-calls-store). Measured non-heap use is well under the
+# 512 MB that leaves (metaspace ~55 MB plus thread stacks, code cache and SQLite page caches).
 # ExitOnOutOfMemoryError: after an OutOfMemoryError a JVM keeps running but half-broken (threads died
 # mid-work, every request fails); exiting lets Docker's restart policy bring up a clean backend instead.
-CMD ["java", "-XX:MaxRAMPercentage=50", "-XX:InitialRAMPercentage=25", "-XX:+UseG1GC", "-XX:ParallelGCThreads=4", "-XX:ConcGCThreads=2", "-XX:+ExitOnOutOfMemoryError", "-jar", "app.jar"]
+CMD ["java", "-XX:MaxRAMPercentage=75", "-XX:InitialRAMPercentage=25", "-XX:+UseG1GC", "-XX:ParallelGCThreads=4", "-XX:ConcGCThreads=2", "-XX:+ExitOnOutOfMemoryError", "-jar", "app.jar"]

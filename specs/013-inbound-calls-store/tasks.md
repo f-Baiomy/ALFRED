@@ -103,10 +103,10 @@ no "given up" line.
 
 **Independent Test**: quickstart "Story 3" - MaxHeapSize 1.5 GB, old gen <= 60 % after forced GC with 7,000 calls.
 
-- [ ] T017 [US3] In `backend/Dockerfile` change `-XX:MaxRAMPercentage=50` to `75` in the `CMD`, with a comment citing the 2026-10-09 measurement (835 MB live of 1 GB)
-- [ ] T018 [P] [US3] Update the `mem_limit` comments in `docker-compose.yml` (around the `backend` service, "Gives the JVM's -XX:MaxRAMPercentage ...") to say 75 % / 1.5 GB heap / 512 MB outside it
-- [ ] T018a [US3] Add **E9** to `tests/e2e/inbound_store_e2e.py`: the backend container's memory limit (`docker inspect alfred-e2e-backend --format '{{.HostConfig.Memory}}'`) and the running JVM's max heap (`docker run --rm --pid=container:alfred-e2e-backend maven:3.9-eclipse-temurin-21 jcmd 1 VM.flags`, field `MaxHeapSize`) -> heap = 75 % of the limit (within 1 %); run E9: PASS
-- [ ] T019 [US3] Rebuild (`docker compose up -d --build backend && docker compose restart app-gateway`), run the Story 3 commands, record MaxHeapSize and old-gen % in `specs/013-inbound-calls-store/quickstart.md`; SC-003 met when free >= 40 %
+- [X] T017 [US3] In `backend/Dockerfile` change `-XX:MaxRAMPercentage=50` to `75` in the `CMD`, with a comment citing the 2026-10-09 measurement (835 MB live of 1 GB)
+- [X] T018 [P] [US3] Update the `mem_limit` comments in `docker-compose.yml` (around the `backend` service, "Gives the JVM's -XX:MaxRAMPercentage ...") to say 75 % / 1.5 GB heap / 512 MB outside it
+- [X] T018a [US3] Add **E9** to `tests/e2e/inbound_store_e2e.py`: the backend container's memory limit (`docker inspect alfred-e2e-backend --format '{{.HostConfig.Memory}}'`) and the running JVM's max heap (`docker run --rm --pid=container:alfred-e2e-backend maven:3.9-eclipse-temurin-21 jcmd 1 VM.flags`, field `MaxHeapSize`) -> heap = 75 % of the limit (within 1 %); run E9: PASS
+- [X] T019 [US3] Rebuild (`docker compose up -d --build backend && docker compose restart app-gateway`), run the Story 3 commands, record MaxHeapSize and old-gen % in `specs/013-inbound-calls-store/quickstart.md`; SC-003 met when free >= 40 %
 
 **Checkpoint**: commit; US3 independent of US1/US2.
 

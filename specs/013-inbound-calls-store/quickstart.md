@@ -93,3 +93,9 @@ Fallback: `INTERNAL_CALLS_STORAGE=file` in `.env`, restart backend - today's fil
 - Deployed to the owner's Docker install (proxy + reverse-proxy recreated: `webhooks.py` mounted,
   `PYTHONUNBUFFERED=1`). The stop-the-backend check (T016) was run on the isolated stack (E2/E4) rather than on the
   owner's live stack, so their Alfred was not taken down.
+
+### US3 heap share, 2026-10-09
+
+- E9 PASS: MaxHeapSize 1,610,612,736 = 75.0 % of the 2 GB limit.
+- Owner's install after rebuild, 7,000 retained inbound calls, forced full GC: 689 MB used of 1.5 GB max - **55 %
+  free** (SC-003 target >= 40 %; baseline 15 %).
