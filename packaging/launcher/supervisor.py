@@ -48,6 +48,9 @@ MAX_CRASHES_IN_WINDOW = 5
 STOP_TIMEOUT_SECONDS = 20
 LOG_BYTES = 10 * 1024 * 1024
 LOG_FILES = 3
+# Short console tools (icacls, powershell, the config CLI) run without a window: the supervisor itself has no
+# console, so without this each one flashed a window of its own on the desktop.
+NO_WINDOW = {"creationflags": subprocess.CREATE_NO_WINDOW} if WINDOWS else {}
 MCP_PORT_DEFAULT = 3009
 MITMDUMP_PROGRAM = "from mitmproxy.tools.main import mitmdump; mitmdump()"
 BIND_FAILURES = ("address already in use", "permission denied", "only one usage of each socket address",
@@ -582,7 +585,8 @@ def _launch_installer_via_wmi(path, home, log_path, run=None):
             "-Arguments @{CommandLine = $env:ALFRED_UPDATE_COMMAND}; exit [int]$r.ReturnValue"
         )
         env = dict(os.environ, ALFRED_UPDATE_COMMAND=f'cmd.exe /c "{script}"')
-        run = run or (lambda argv, env: subprocess.run(argv, env=env, capture_output=True, text=True, timeout=60))
+        run = run or (lambda argv, env: subprocess.run(argv, env=env, capture_output=True, text=True, timeout=60,
+                                                         **NO_WINDOW))
         result = run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command], env)
     except (OSError, subprocess.SubprocessError) as e:
         log.info("update: could not start the installer through WMI (%s) - launching it directly", e)
@@ -1049,7 +1053,7 @@ def write_control_file(path, port, token):
         # LocalSystem. By SID: the account was named from %USERNAME% before, which under LocalSystem is "MACHINE$" -
         # icacls refused it, and the refusal was thrown away.
         result = subprocess.run(["icacls", path, "/inheritance:r", "/grant:r", "*S-1-3-4:F", "/grant:r",
-                                 "*S-1-5-32-544:F", "/grant:r", "*S-1-5-18:F"], capture_output=True, text=True)
+                                 "*S-1-5-32-544:F", "/grant:r", "*S-1-5-18:F"], capture_output=True, text=True, **NO_WINDOW)
         if result.returncode != 0:
             log.warning("Could not restrict %s to its owner and Administrators: %s", path,
                         (result.stdout + result.stderr).strip())
@@ -1059,7 +1063,8 @@ def check_env(layout):
     """Print .env lines that are not used (FR-016), through the Java settings engine - Python never parses .env
     rules on its own beyond reading values."""
     try:
-        result = subprocess.run(layout.config_cli("check-env"), capture_output=True, text=True, timeout=60)
+        result = subprocess.run(layout.config_cli("check-env"), capture_output=True, text=True, timeout=60,
+                                **NO_WINDOW)
         for line in (result.stdout + result.stderr).splitlines():
             if line.strip():
                 log.warning("%s", line)

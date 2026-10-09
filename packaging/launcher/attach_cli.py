@@ -76,6 +76,13 @@ def posix():
     return os.name != "nt"
 
 
+def no_window():
+    """subprocess keyword arguments that keep a short console tool (netstat, attach-cli) from opening a window on
+    Windows. The supervisor runs without a console (DETACHED_PROCESS), so every console program it starts got a
+    window of its own: netstat every 15 s flashed one on the desktop while a project's app was listening."""
+    return {} if posix() else {"creationflags": subprocess.CREATE_NO_WINDOW}
+
+
 def owner_of(pid):
     """The user name a process runs as (DOMAIN\\name on Windows), or None when unknown."""
     if not posix():
@@ -202,7 +209,8 @@ def listening_pid(port, run=None):
     """The pid listening on TCP {port} on this machine, or None. A project's app IS the JVM bound to its upstream
     port (internal_call_services "name:listenPort:upstreamPort"), which is how the supervisor finds what to attach
     to without being told. Windows: netstat; Linux: ss, then /proc when ss is missing."""
-    run = run or (lambda argv: subprocess.run(argv, capture_output=True, text=True, timeout=15).stdout)
+    run = run or (lambda argv: subprocess.run(argv, capture_output=True, text=True, timeout=15,
+                                                **no_window()).stdout)
     port = int(port)
     try:
         if not posix():
@@ -323,7 +331,7 @@ def run_attach_cli(layout, command, owner=None, env=None, capture=False, pid=Non
     else:
         full = as_user(owner, argv)
     if capture:
-        return subprocess.run(full, env=env, capture_output=True, text=True)
+        return subprocess.run(full, env=env, capture_output=True, text=True, **no_window())
     return subprocess.run(full, env=env)
 
 

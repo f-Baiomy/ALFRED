@@ -110,6 +110,23 @@ LISTEN 0 4096 *:9001 *:* users:(("java",pid=4242,fd=321))
             self.assertEqual(4242, attach_cli.listening_pid("9001", run=lambda argv: self.SS))
             self.assertIsNone(attach_cli.listening_pid(22000, run=lambda argv: self.SS))
 
+    def test_windows_netstat_opens_no_window(self):
+        # The supervisor has no console: without CREATE_NO_WINDOW each netstat flashed a window every 15 s.
+        if os.name != "nt":
+            self.skipTest("CREATE_NO_WINDOW exists on Windows only")
+        seen = {}
+
+        def fake_run(argv, **kwargs):
+            seen.update(kwargs)
+            return type("Done", (), {"stdout": self.NETSTAT})()
+        with patch.object(attach_cli, "posix", lambda: False), patch.object(attach_cli.subprocess, "run", fake_run):
+            self.assertEqual(68108, attach_cli.listening_pid(9001))
+        self.assertEqual(attach_cli.subprocess.CREATE_NO_WINDOW, seen.get("creationflags"))
+
+    def test_no_window_adds_nothing_on_posix(self):
+        with patch.object(attach_cli, "posix", lambda: True):
+            self.assertEqual({}, attach_cli.no_window())
+
     def test_a_tool_that_fails_means_not_found_not_a_crash(self):
         def boom(argv):
             raise OSError("no netstat")
@@ -125,7 +142,7 @@ LISTEN 0 4096 *:9001 *:* users:(("java",pid=4242,fd=321))
             stdout = "PID 68108 (java): Alfred proxy,db,logs,redis\n"
             stderr = ""
 
-        def fake_run(argv, env=None, capture_output=False, text=False, timeout=None):
+        def fake_run(argv, env=None, capture_output=False, text=False, timeout=None, creationflags=0):
             calls.append((argv, env))
             return Done()
         with patch.object(attach_cli.subprocess, "run", fake_run), patch.object(attach_cli, "owner_of", lambda pid: None):
