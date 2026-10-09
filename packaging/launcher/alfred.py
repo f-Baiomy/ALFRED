@@ -17,10 +17,12 @@ Exit codes: 0 ok, 1 error, 2 usage, 3 validation refused, 4 conflict, 5 not allo
 
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -29,10 +31,19 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.dirname(HERE))
 
+import term as termlib  # noqa: E402
 from layout import WINDOWS, Layout, home_from_here  # noqa: E402
 
 OK, ERROR, USAGE, REFUSED, CONFLICT, NOT_ALLOWED = 0, 1, 2, 3, 4, 5
 SERVICE = "alfred"
+START_SECONDS = 60      # how long start/restart wait for every process (contracts/cli.md: 60 s)
+POLL_SECONDS = 0.3      # how often start/stop/update ask the local supervisor while they run - only while they run
+INSTALL_SECONDS = 300   # how long `alfred update` waits for the new version to answer after the installer starts
+
+
+def ui():
+    """Colour, glyphs and live redraws for stdout, decided per call (tests redirect stdout: plain)."""
+    return termlib.Term()
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -89,9 +100,10 @@ def service_installed():
 
 
 def service(layout, action):
-    if WINDOWS:
-        return subprocess.run([os.path.join(layout.home, "service", "alfred-service.exe"), action]).returncode
-    return subprocess.run(["systemctl", action, SERVICE]).returncode
+    """(exit code, what the service manager printed). Captured: its lines would tear through a live step list."""
+    argv = [os.path.join(layout.home, "service", "alfred-service.exe"), action] if WINDOWS else ["systemctl", action, SERVICE]
+    result = subprocess.run(argv, capture_output=True, text=True, errors="replace")
+    return result.returncode, "\n".join(part for part in (result.stdout.strip(), result.stderr.strip()) if part)
 
 
 def ui_addresses(layout):
@@ -185,90 +197,245 @@ def cmd_run(layout, args):
     return supervisor.main(layout.home)
 
 
+def listen_text(t, process):
+    """The first listener as shown in a row: "0.0.0.0:3000 (UI, API, /mcp)", "8081 → 8080 (odeysys)"."""
+    listeners = process.get("listeners") or []
+    return listeners[0].replace(" -> ", f" {t.g['arrow']} ") if listeners else ""
+
+
+def follow_processes(layout, t, steps, deadline):
+    """Rows for the supervisor's processes, ticked off as each comes up (the backend when THIS install's backend
+    answers); True once everything runs, False at the deadline - a row still waiting then says why."""
+    rows, last = {}, {}
+    while True:
+        status = call_supervisor(layout, "GET", "/status", timeout=2) or {}
+        healthy = own_backend(layout, timeout=1)[0]
+        processes = status.get("processes", [])
+        for p in processes:
+            name = p["name"].lower()
+            last[name] = p
+            row = rows.get(name)
+            if row is None:
+                row = rows[name] = steps.add(name)
+            listen = listen_text(t, p)
+            if p["state"] == "RUNNING" and (name != "backend" or healthy):
+                row.done(f"{listen} {t.g['dot']} {termlib.duration(row.elapsed())}" if listen else termlib.duration(row.elapsed()))
+            elif p["state"] == "CRASHED":
+                row.fail(f"{listen} crashed" + (f" - {p['detail']}" if p["detail"] else ""))
+            else:
+                waiting = "starting" if p["state"] in ("RUNNING", "STOPPED") else p["state"].lower()
+                note = f" {t.g['dot']} {p['detail']}" if p["detail"] and p["state"] == "RESTARTING" else ""
+                row.run(f"{listen}  {waiting} {t.g['dot']} {int(row.elapsed())} s{note}".strip())
+        # STOPPED is not an end state here: a process the supervisor has not started YET reports it too.
+        if healthy and processes and all(p["state"] == "RUNNING" for p in processes):
+            return True
+        if any(p["state"] == "CRASHED" for p in processes) or time.monotonic() > deadline:
+            for name, row in rows.items():
+                p = last[name]
+                if row.state in ("wait", "run"):
+                    reason = p["detail"] or ("not answering" if name == "backend" else p["state"].lower())
+                    row.fail(f"{listen_text(t, p)} {reason}".strip() + f" after {START_SECONDS} s" * (not p["detail"]))
+            return False
+        time.sleep(POLL_SECONDS)
+
+
+def start_failure_hints(layout, t):
+    """What to do when start did not come up: another Alfred on the port, the logs."""
+    lines = []
+    _, other = own_backend(layout)
+    if other:
+        lines.append("  " + t.warn(f"Port {layout.ui_port()} is answered by another Alfred: {other}."))
+        lines.append(f"    This install ({layout.home}) cannot listen there. Use another port: "
+                     + t.cmd(f"alfred config set ALFRED_UI_PORT <port>") + ", or stop that other install.")
+    lines.append("  " + t.c("Details: ", "dim") + t.cmd("alfred logs supervisor") + t.c(", ", "dim") + t.cmd("alfred logs backend"))
+    return lines
+
+
 def cmd_start(layout, args):
     ensure_env(layout)
-    if service_installed():
-        code = service(layout, "start")
-    elif control(layout) and call_supervisor(layout, "GET", "/status"):
-        print("Alfred is already running.")
+    t = ui()
+    if not service_installed() and control(layout) and call_supervisor(layout, "GET", "/status"):
+        t.print("  " + t.ok("Alfred is already running") + t.c(f" {t.g['dot']} ", "dim") + t.url(ui_addresses(layout)[0]))
         return OK
-    else:
-        log_file = open(os.path.join(layout.logs, "supervisor.out"), "ab")
-        kwargs = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS} if WINDOWS \
-            else {"start_new_session": True}
-        subprocess.Popen([sys.executable, os.path.join(HERE, "supervisor.py")], cwd=layout.home, stdin=subprocess.DEVNULL,
-                         stdout=log_file, stderr=subprocess.STDOUT, env=dict(os.environ, ALFRED_HOME=layout.home), **kwargs)
-        code = OK
-    if code != OK:
-        return ERROR
-    if wait_for_health(layout):
-        print("Starting Alfred... UI at " + " · ".join(ui_addresses(layout)))
+    began = time.monotonic()
+    with t.steps(f"Starting Alfred {layout.version()}", label_width=10) as steps:
+        if service_installed():
+            row = steps.add("service").run('asking the system to start "alfred"')
+            code, output = service(layout, "start")
+            if code != 0:
+                row.fail(f"the service did not start (exit code {code})", output.splitlines()[-3:])
+                ok = False
+            else:
+                row.done(f"started {t.g['dot']} {termlib.duration(row.elapsed())}")
+                ok = follow_processes(layout, t, steps, began + START_SECONDS)
+        else:
+            row = steps.add("supervisor").run("starting it in the background")
+            log_file = open(os.path.join(layout.logs, "supervisor.out"), "ab")
+            kwargs = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS} if WINDOWS \
+                else {"start_new_session": True}
+            subprocess.Popen([sys.executable, os.path.join(HERE, "supervisor.py")], cwd=layout.home, stdin=subprocess.DEVNULL,
+                             stdout=log_file, stderr=subprocess.STDOUT, env=dict(os.environ, ALFRED_HOME=layout.home), **kwargs)
+            row.done("started in the background")
+            ok = follow_processes(layout, t, steps, began + START_SECONDS)
+    if ok:
+        t.print()
+        t.print("  " + t.c(t.g["ok"] + " Alfred is up", "green", "bold") + t.c(f" in {termlib.duration(time.monotonic() - began)} {t.g['dot']} ", "dim")
+                + t.c(f" {t.g['dot']} ", "dim").join(t.url(a) for a in ui_addresses(layout)))
         return OK
-    # Say WHY when it can be told (a port in use names the setting to change), not only where the logs are.
-    print("Starting Alfred... it did not answer within 60 s.")
-    print(explain_not_answering(layout))
+    t.print()
+    for line in start_failure_hints(layout, t):
+        t.print(line)
+    t.print()
+    t.print("  " + t.fail(t.c("Alfred did not start", "red", "bold")) + t.c(" · exit code 1", "dim"))
     return ERROR
 
 
+def stop_alfred(layout, t, title):
+    """Stops Alfred with a row per process, each ticked off as the supervisor reports it stopped. True when stopped."""
+    status = call_supervisor(layout, "GET", "/status", timeout=2) or {}
+    processes = [p for p in status.get("processes", []) if p["state"] != "STOPPED"]
+    if not processes and not service_installed() and not control(layout):
+        return None  # nothing was running
+    began = time.monotonic()
+    with t.steps(title, label_width=10) as steps:
+        rows = {p["name"]: steps.add(p["name"].lower()).run("stopping") for p in reversed(processes)}
+        result = {}
+
+        def stop():
+            if service_installed():
+                result["code"], result["output"] = service(layout, "stop")
+                return
+            info = control(layout)
+            try:
+                if info and WINDOWS:
+                    subprocess.run(["taskkill", "/PID", str(info["pid"]), "/T", "/F"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                elif info:
+                    os.kill(info["pid"], 15)
+            except OSError:
+                pass
+            result["code"], result["output"] = 0, ""
+
+        worker = threading.Thread(target=stop, daemon=True)
+        worker.start()
+        while worker.is_alive():
+            now = call_supervisor(layout, "GET", "/status", timeout=1) or {}
+            for p in now.get("processes", []):
+                row = rows.get(p["name"])
+                if row and p["state"] == "STOPPED":
+                    row.done("stopped")
+            worker.join(POLL_SECONDS)
+        if result.get("code"):
+            for row in rows.values():
+                row.fail("still running")
+            failed = steps.add("service")
+            failed.fail(f"the service did not stop (exit code {result['code']})", (result.get("output") or "").splitlines()[-3:])
+            return False
+        for row in rows.values():
+            row.done("stopped")
+        if service_installed():
+            steps.add("service").done("stopped")
+    t.print()
+    t.print("  " + t.c(t.g["ok"] + " Alfred stopped", "green", "bold") + t.c(f" in {termlib.duration(time.monotonic() - began)}", "dim"))
+    return True
+
+
 def cmd_stop(layout, args):
-    if service_installed():
-        return OK if service(layout, "stop") == 0 else ERROR
-    info = control(layout)
-    if not info:
-        print("Alfred is not running.")
+    t = ui()
+    stopped = stop_alfred(layout, t, f"Stopping Alfred {layout.version()}")
+    if stopped is None:
+        t.print("  " + t.c(t.g["wait"], "dim") + " Alfred is not running.")
         return OK
-    try:
-        if WINDOWS:
-            subprocess.run(["taskkill", "/PID", str(info["pid"]), "/T", "/F"], stdout=subprocess.DEVNULL)
-        else:
-            os.kill(info["pid"], 15)
-    except OSError:
-        pass
-    print("Stopping Alfred... done")
+    if stopped:
+        t.print("    " + t.c("start it again: ", "dim") + t.cmd("alfred start"))
+    return OK if stopped else ERROR
+
+
+def restart_proxies(layout, t):
+    before = {p["name"]: p for p in (call_supervisor(layout, "GET", "/status") or {}).get("processes", [])}
+    if call_supervisor(layout, "POST", "/restart/proxies") is None:
+        t.print("  " + t.c(t.g["wait"], "dim") + " Alfred is not running " + t.c(f"{t.g['dot']} start it: ", "dim") + t.cmd("alfred start"))
+        return ERROR
+    names = [n for n in ("OUTBOUND", "REVERSE") if n in before]
+    deadline = time.monotonic() + START_SECONDS
+    with t.steps("Restarting the proxies", label_width=10) as steps:
+        rows = {n: steps.add(n.lower()).run("restarting") for n in names}
+        while any(r.state == "run" for r in rows.values()):
+            now = {p["name"]: p for p in (call_supervisor(layout, "GET", "/status") or {}).get("processes", [])}
+            for name, row in rows.items():
+                p = now.get(name)
+                if not p:
+                    continue
+                fresh = p["startedAt"] != before[name]["startedAt"] or p["restarts"] != before[name]["restarts"]
+                if p["state"] == "RUNNING" and fresh:
+                    row.done(f"{listen_text(t, p)} {t.g['dot']} up again {t.g['dot']} {termlib.duration(row.elapsed())}")
+                elif p["state"] == "CRASHED":
+                    row.fail(p["detail"] or "crashed")
+                else:
+                    row.detail(f"{p['state'].lower()} {t.g['dot']} {row.elapsed():.1f} s")
+            if time.monotonic() > deadline:
+                for row in rows.values():
+                    row.fail(f"not back after {START_SECONDS} s")
+                break
+            time.sleep(POLL_SECONDS)
+    failed = any(r.state == "fail" for r in rows.values())
+    t.print()
+    if failed:
+        t.print("  " + t.fail(t.c("A proxy did not come back", "red", "bold")) + t.c(" · ", "dim") + t.cmd("alfred logs outbound") + t.c(", ", "dim") + t.cmd("alfred logs reverse"))
+        return ERROR
+    t.print("  " + t.c(t.g["ok"] + " Proxies restarted", "green", "bold") + t.c(" · the backend and the UI stayed up", "dim"))
     return OK
 
 
 def cmd_restart(layout, args):
+    t = ui()
     if "--proxies" in args:
-        if call_supervisor(layout, "POST", "/restart/proxies") is None:
-            print("Alfred is not running.")
-            return ERROR
-        print("Restarting proxies...")
-        return OK
-    if service_installed():
-        code = service(layout, "restart")
-        if code == OK and wait_for_health(layout):
-            print("Alfred restarted. UI at " + " · ".join(ui_addresses(layout)))
-        return OK if code == 0 else ERROR
-    cmd_stop(layout, [])
-    time.sleep(2)
-    return cmd_start(layout, [])
+        return restart_proxies(layout, t)
+    began = time.monotonic()
+    if stop_alfred(layout, t, f"Restarting Alfred {layout.version()}: stopping") is False:
+        return ERROR
+    code = cmd_start(layout, [])
+    if code == OK:
+        t.print("  " + t.c(f"restarted in {termlib.duration(time.monotonic() - began)}", "dim"))
+    return code
 
 
 def cmd_status(layout, args):
+    t = ui()
     status = call_supervisor(layout, "GET", "/status")
     if not status:
-        print(f"Alfred {layout.version()} is not running (home {layout.home}).")
+        t.print("  " + t.brand(f"Alfred {layout.version()}") + "   " + t.state("STOPPED") + t.c(f" {t.g['dot']} {layout.home}", "dim"))
+        t.print("    " + t.c("start it: ", "dim") + t.cmd("alfred start") + t.c("     why it stopped: ", "dim") + t.cmd("alfred logs supervisor"))
         return ERROR
-    print(f"Alfred {status['version']}  ·  supervisor pid {status['pid']}  ·  {layout.home}")
-    for p in status["processes"]:
-        line = f"  {p['name']:<10} {p['state']:<10} pid {p['pid'] or '-':<7} up {uptime(p['startedAt']) if p['pid'] else '-':<8}"
+    processes = status["processes"]
+    oldest = min((p["startedAt"] for p in processes if p["pid"] and p["startedAt"]), default=None)
+    t.print("  " + t.brand(f"Alfred {status['version']}") + "   "
+            + (t.state("RUNNING") + t.c(f" {uptime(oldest)}", "dim") if oldest else t.state("STOPPED"))
+            + t.c(f"   {layout.home} {t.g['dot']} supervisor pid {status['pid']}", "dim"))
+    t.print()
+    t.print("   " + t.c(f"{'PROCESS':<11}{'STATE':<13}{'PID':<8}{'UP':<11}LISTENS", "dim"))
+    for p in processes:
+        listeners = [l.replace(" -> ", f" {t.g['arrow']} ") for l in p["listeners"]]
+        line = ("   " + f"{p['name'].lower():<11}" + termlib.pad(t.state(p["state"]), 13) + t.c(f"{p['pid'] or '-':<8}", "dim")
+                + f"{uptime(p['startedAt']) if p['pid'] else '-':<11}" + (listeners[0] if listeners else ""))
         if p["restarts"]:
-            line += f"  restarts {p['restarts']}"
-        print(line)
-        for listener in p["listeners"]:
-            print(f"             {listener}")
+            line += "   " + t.c(f"{t.g['retry']} restarted {p['restarts']}x", "yellow")
+        t.print(line)
+        for listener in listeners[1:]:
+            t.print(" " * 46 + listener)
         if p["detail"]:
-            print(f"             {p['detail']}")
-    print("UI: " + " · ".join(ui_addresses(layout)))
-    update = update_line(layout)
+            t.print(" " * 14 + (t.c(p["detail"], "red") if p["state"] == "CRASHED" else t.c(p["detail"], "dim")))
+    t.print()
+    t.print("   " + t.c("UI      ", "dim") + t.c(f"  {t.g['dot']}  ", "dim").join(t.url(a) for a in ui_addresses(layout)))
+    update = update_line(layout, t)
     if update:
-        print(update)
+        t.print()
+        t.print("   " + update)
     return OK
 
 
-def update_line(layout):
+def update_line(layout, t=None):
     """One line when the running backend knows of a newer release (or a failed/in-progress install); else None."""
+    t = t or termlib.Term(env={"NO_COLOR": "1"})
     try:
         with urllib.request.urlopen(layout.local_url() + "/server/update", timeout=3) as response:
             status = json.load(response)
@@ -276,11 +443,12 @@ def update_line(layout):
         return None
     job = status.get("job") or {}
     if job.get("state") in ("DOWNLOADING", "VERIFYING", "INSTALLING"):
-        return f"Update: Alfred {job.get('version')} is {job['state'].lower()} - Alfred restarts when it is done."
+        return t.c(f"{t.g['up']} Update: Alfred {job.get('version')} is {job['state'].lower()}", "yellow", "bold") + t.c(" - Alfred restarts when it is done.", "dim")
     if job.get("state") == "FAILED":
-        return f"Update: the install of {job.get('version')} failed ({job.get('error')}); the previous version was kept."
+        return t.fail(f"Update: the install of {job.get('version')} failed ({job.get('error')}); the previous version was kept.")
     if status.get("available"):
-        return f"Update available: Alfred {status['latestVersion']} - install it with 'alfred update' or from the Settings tab."
+        return (t.c(f"{t.g['up']} Update available: Alfred {status['latestVersion']}", "yellow", "bold")
+                + t.c(" - install it with ", "dim") + t.cmd("alfred update") + t.c(" or from the Settings tab.", "dim"))
     return None
 
 
@@ -300,25 +468,53 @@ def uptime(started_at):
 
 # contracts/cli.md names the outbound proxy's log "proxy"; the file is outbound.log. Both names work.
 LOG_ALIASES = {"proxy": "outbound", "log-agent": "log_agent"}
+LOG_LEVEL = re.compile(r"\b(ERROR|FATAL|SEVERE|WARN(?:ING)?|INFO|DEBUG|TRACE)\b")
+LOG_TIME = re.compile(r"^(\d{4}-\d\d-\d\d[ T]\d\d:\d\d:\d\d(?:[.,]\d+)?|\d\d:\d\d:\d\d(?:[.,]\d+)?)")
+
+
+def color_log_line(t, line):
+    """The line exactly as in the file, with its timestamp dimmed and its level coloured - nothing cut or removed."""
+    if not t.color:
+        return line
+    m = LOG_TIME.match(line)
+    head, rest = (line[:m.end()], line[m.end():]) if m else ("", line)
+    level = LOG_LEVEL.search(rest)
+    if not level:
+        return t.c(head, "dim") + rest
+    word = level.group(1)
+    style = ("red", "bold") if word in ("ERROR", "FATAL", "SEVERE") else ("yellow", "bold") if word.startswith("WARN") else ("blue",)
+    body = rest[level.end():]
+    if word in ("ERROR", "FATAL", "SEVERE"):
+        body = t.c(body, "red")
+    return t.c(head, "dim") + rest[:level.start()] + t.c(word, *style) + body
 
 
 def cmd_logs(layout, args):
+    t = ui()
     follow = "-f" in args
     names = [a for a in args if not a.startswith("-")]
     name = (names[0] if names else "supervisor").lower()
     path = os.path.join(layout.logs, LOG_ALIASES.get(name, name) + ".log")
     if not os.path.exists(path):
-        print(f"No log yet: {path}")
+        known = sorted(os.path.splitext(n)[0] for n in os.listdir(layout.logs) if n.endswith(".log")) if os.path.isdir(layout.logs) else []
+        print(f"No log yet: {path}" + (f"\n  logs here: {', '.join(known)}" if known else ""))
         return ERROR
-    with open(path, encoding="utf-8", errors="replace") as f:
-        for line in f.readlines()[-200:]:
-            print(line, end="")
-        while follow:
-            line = f.readline()
-            if line:
-                print(line, end="", flush=True)
-            else:
-                time.sleep(0.5)
+    if t.live:
+        t.print("  " + t.brand(os.path.basename(path), f"{path} {t.g['dot']} last 200 lines" + (f", then live {t.g['dot']} Ctrl+C to stop" if follow else "")))
+        t.print()
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            for line in f.readlines()[-200:]:
+                print(color_log_line(t, line.rstrip("\n")) if t.color else line, end="\n" if t.color else "")
+            while follow:
+                line = f.readline()
+                if line:
+                    print(color_log_line(t, line.rstrip("\n")) if t.color else line, end="\n" if t.color else "", flush=True)
+                else:
+                    time.sleep(0.5)
+    except KeyboardInterrupt:
+        print()
+        t.print("  " + t.c(f"stopped following {os.path.basename(path)}", "dim"))
     return OK
 
 
@@ -347,32 +543,79 @@ def backend_json(layout, method, path, timeout=30):
         raise SystemExit(f"error: {detail}")
 
 
-def describe_update(status):
+def describe_update(status, t=None):
+    t = t or termlib.Term(env={"NO_COLOR": "1"})
     lines = []
     job = status.get("job") or {}
     if status.get("mode") == "OFF":
-        lines.append("Update checks are off (ALFRED_UPDATE_MODE=off).")
+        lines.append(t.c(t.g["wait"], "dim") + " Update checks are off (ALFRED_UPDATE_MODE=off).")
     elif status.get("available"):
         size = status.get("sizeBytes") or 0
-        lines.append(f"Update available: Alfred {status['latestVersion']} (running {status['currentVersion']}, "
-                     f"{size // (1024 * 1024)} MB)" + (f", released {status['publishedAt']}" if status.get("publishedAt") else ""))
+        lines.append(t.c(t.g["up"], "yellow", "bold") + " " + t.c(f"Update available: Alfred {status['latestVersion']}", "white", "bold")
+                     + t.c(f" (running {status['currentVersion']}, {size // (1024 * 1024)} MB)"
+                           + (f", released {status['publishedAt']}" if status.get("publishedAt") else ""), "dim"))
         if status.get("notes"):
-            lines.append("  " + status["notes"].strip().replace("\n", "\n  "))
+            lines.append("  " + t.c(status["notes"].strip().replace("\n", "\n  "), "dim"))
     elif status.get("error"):
-        lines.append(f"Update check failed: {status['error']}")
+        lines.append(t.fail(f"Update check failed: {status['error']}"))
     elif status.get("latestVersion"):
-        lines.append(f"Alfred {status['currentVersion']} is up to date (newest release {status['latestVersion']}).")
+        lines.append(t.ok(f"Alfred {status['currentVersion']} is up to date") + t.c(f" (newest release {status['latestVersion']}).", "dim"))
     else:
-        lines.append("No update check has run yet.")
+        lines.append(t.c(t.g["wait"], "dim") + " No update check has run yet.")
     if job.get("state") in ("DOWNLOADING", "VERIFYING", "INSTALLING"):
-        lines.append(f"An update to {job.get('version')} is {job['state'].lower()}"
-                     + (f" ({job['downloadedBytes'] // (1024 * 1024)} of {job['totalBytes'] // (1024 * 1024)} MB)"
-                        if job["state"] == "DOWNLOADING" and job.get("totalBytes") else "") + ".")
+        lines.append(t.c(f"An update to {job.get('version')} is {job['state'].lower()}"
+                         + (f" ({job['downloadedBytes'] // (1024 * 1024)} of {job['totalBytes'] // (1024 * 1024)} MB)"
+                            if job["state"] == "DOWNLOADING" and job.get("totalBytes") else "") + ".", "yellow"))
     elif job.get("state") == "FAILED":
-        lines.append(f"The last update ({job.get('version')}) failed: {job.get('error')}. The previous version was kept.")
+        lines.append(t.fail(f"The last update ({job.get('version')}) failed: {job.get('error')}. The previous version was kept."))
     if status.get("checkedAt"):
-        lines.append(f"Checked {status['checkedAt']} from {status.get('feedUrl', '')}.")
+        lines.append(t.c(f"Checked {status['checkedAt']} from {status.get('feedUrl', '')}.", "dim"))
     return "\n".join(lines)
+
+
+def follow_update(layout, t, version, size):
+    """Watches the supervisor's update job to the end: download (bar, speed, time left), checksum, install, and the
+    new version answering. True when it runs; False when the job failed or the new version never answered."""
+    with t.steps(f"Installing Alfred {version}", label_width=14) as steps:
+        download, verify = steps.add("Downloading"), steps.add("Checksum")
+        install, answer = steps.add("Installing"), steps.add(f"Alfred {version}")
+        samples, deadline = [], None
+        while True:
+            job = call_supervisor(layout, "GET", "/update", timeout=2)
+            state = (job or {}).get("state")
+            if state == "DOWNLOADING":
+                got, total = job["downloadedBytes"], job["totalBytes"] or size or 0
+                now = time.monotonic()
+                samples = [s for s in samples if now - s[0] < 5] + [(now, got)]
+                rate = (samples[-1][1] - samples[0][1]) / max(0.5, samples[-1][0] - samples[0][0])
+                left = f" {t.g['dot']} {int((total - got) / rate)} s left" if rate > 0 and total else ""
+                fraction = got / total if total else 0
+                download.run(t.bar(fraction) + f" {fraction * 100:3.0f}%  {got // 1048576} of {total // 1048576} MB"
+                             + (f" {t.g['dot']} {rate / 1048576:.1f} MB/s" if rate > 0 else "") + left)
+            elif state == "VERIFYING":
+                download.done(f"{(job.get('totalBytes') or size) // 1048576} MB {t.g['dot']} {termlib.duration(download.elapsed())}")
+                verify.run("sha256")
+            elif state == "INSTALLING" or (state is None and install.state == "run"):
+                download.done(f"{(size or 0) // 1048576} MB")
+                verify.done("matches the release")
+                install.run(f"Alfred stops here, its files are replaced {t.g['dot']} {int(install.elapsed())} s")
+                deadline = deadline or time.monotonic() + INSTALL_SECONDS
+                if state is None:  # the installer stopped the old Alfred; wait for the new one
+                    if own_backend(layout, timeout=1)[0] and layout.version() == version:
+                        install.done(termlib.duration(install.elapsed()))
+                        answer.done("answers")
+                        return True
+                    if time.monotonic() > deadline:
+                        install.fail(f"Alfred {version} did not answer within {INSTALL_SECONDS // 60} min",
+                                     [t.c("what the installer did: ", "dim") + t.cmd("alfred logs update")])
+                        return False
+            elif state == "FAILED":
+                failed = next(s for s in (download, verify, install) if s.state != "ok")
+                failed.fail(job.get("error") or "failed", [t.c("Alfred keeps running the version it had.", "dim")])
+                return False
+            elif state is None and download.state == "wait":
+                return None  # no supervisor to follow (a backend without one): the caller says what happens next
+            time.sleep(POLL_SECONDS)
 
 
 def cmd_update(layout, args):
@@ -380,17 +623,33 @@ def cmd_update(layout, args):
     if any(a not in ("--check",) for a in args):
         print("usage: alfred update [--check]", file=sys.stderr)
         return USAGE
+    t = ui()
     status = backend_json(layout, "POST", "/server/update/check", timeout=60)
-    print(describe_update(status))
+    t.print(describe_update(status, t))
     if "--check" in args or not status.get("available"):
         return OK if not status.get("error") else ERROR
     if not status.get("canInstall"):
-        print("It cannot be installed from here right now" + (" - an update is already in progress." if (status.get("job") or {}).get("state") in ("DOWNLOADING", "VERIFYING", "INSTALLING") else "."))
+        t.print(t.fail("It cannot be installed from here right now" + (" - an update is already in progress." if (status.get("job") or {}).get("state") in ("DOWNLOADING", "VERIFYING", "INSTALLING") else ".")))
         return ERROR
     backend_json(layout, "POST", "/server/update/install")
-    print(f"Installing Alfred {status['latestVersion']}: the installer is downloaded, verified and run. Alfred stops and starts "
-          "again in about a minute; 'alfred status' then shows the new version, 'alfred update --check' the outcome.")
-    return OK
+    version, began = status["latestVersion"], time.monotonic()
+    try:
+        outcome = follow_update(layout, t, version, status.get("sizeBytes") or 0)
+    except KeyboardInterrupt:
+        t.print()
+        t.print("  " + t.c("Stopped watching; the update keeps going. ", "dim") + t.cmd("alfred status") + t.c(" shows how far it is.", "dim"))
+        return OK
+    t.print()
+    if outcome is None:
+        t.print(f"Installing Alfred {version}: the installer is downloaded, verified and run. Alfred stops and starts "
+                "again in about a minute; 'alfred status' then shows the new version, 'alfred update --check' the outcome.")
+        return OK
+    if outcome:
+        t.print("  " + t.c(f"{t.g['ok']} Alfred {version} is running", "green", "bold")
+                + t.c(f" {t.g['dot']} updated in {termlib.duration(time.monotonic() - began)} {t.g['dot']} ", "dim") + t.url(ui_addresses(layout)[0]))
+        return OK
+    t.print("  " + t.fail(t.c("The update did not finish", "red", "bold")) + t.c(" · ", "dim") + t.cmd("alfred update --check") + t.c(" shows the outcome", "dim"))
+    return ERROR
 
 
 def cmd_uninstall(layout, args):
@@ -485,12 +744,60 @@ def access_problem(layout, name):
     return f"alfred {name} needs root: {blocked} is readable only by {owner}.\nRun: {hint}"
 
 
+EXIT_CODES = "Exit codes: 0 ok, 1 error, 2 usage, 3 validation refused, 4 conflict, 5 not allowed."
+HELP_GROUPS = [
+    ("Run Alfred", [("start", "", "start Alfred (the service, when installed)"),
+                    ("stop", "", "stop it"),
+                    ("restart", "[--proxies]", "restart everything, or only the two proxies"),
+                    ("status", "", "what runs, since when, the UI addresses"),
+                    ("logs", "[name] [-f]", "backend, outbound, reverse, mcp, log_agent, supervisor (proxy = outbound)")]),
+    ("Connect Java apps", [("jvms", "", "list the Java apps on this machine"),
+                           ("attach", "<pid> [--db-capture on]", "log one app's calls, statements and log lines"),
+                           ("detach", "<pid>", "let it go")]),
+    ("Settings", [("config", "list | get | set <KEY> <value>", "settings in .env"),
+                  ("project", "list | add | remove ...", "the projects the reverse proxy fronts")]),
+    ("Look after it", [("update", "[--check]", "check for a new release; without --check, install it"),
+                       ("version", "", "the version here"),
+                       ("uninstall", "[--keep-data]", "remove Alfred"),
+                       ("run", "", "the supervisor in the foreground (what the service runs)")]),
+]
+PUBLIC_COMMANDS = [name for _, rows in HELP_GROUPS for name, _, _ in rows]
+
+
+def render_help(layout):
+    t = ui()
+    info = control(layout)
+    running = bool(info) and call_supervisor(layout, "GET", "/status", timeout=1) is not None
+    head = "  " + t.brand(f"Alfred {layout.version()}") + "   " + (t.state("RUNNING") + t.c(f" {t.g['dot']} ", "dim") + t.url(ui_addresses(layout)[0])
+                                                              if running else t.state("STOPPED"))
+    lines = ["", head]
+    for title, rows in HELP_GROUPS:
+        lines += ["", "  " + t.c(title, "white", "bold")]
+        lines += ["    " + t.c(f"{name:<10}", "white") + t.c(f"{usage:<31}", "teal") + t.c(what, "dim") for name, usage, what in rows]
+    lines += ["", "  " + t.c("More: ", "dim") + t.cmd("alfred <command> --help") + t.c(f" {t.g['dot']} exit codes: ", "dim") + t.cmd("alfred help --codes"), ""]
+    return "\n".join(lines)
+
+
+def unknown_command(name):
+    import difflib
+    t = ui()
+    close = difflib.get_close_matches(name, PUBLIC_COMMANDS, n=1, cutoff=0.6)
+    print("  " + t.fail(f"No command {t.c(name, 'white', 'bold')}." + (f" Did you mean {t.c(close[0], 'teal', 'bold')}?" if close else "")))
+    print("    " + (t.c("run: ", "dim") + t.cmd(f"alfred {close[0]}") + "     " if close else "") + t.c("all commands: ", "dim") + t.cmd("alfred help"))
+    return USAGE
+
+
 def main(argv):
     layout = Layout(home_from_here())
     if not argv or argv[0] in ("-h", "--help", "help"):
-        print(__doc__.strip())
+        if argv[1:2] == ["--codes"]:
+            print(EXIT_CODES)
+            return OK
+        print(render_help(layout))
         return OK if argv else USAGE
     name, args = argv[0], argv[1:]
+    if name not in COMMANDS and name not in ("config", "project", "jvms", "attach", "detach"):
+        return unknown_command(name)
     if name not in NO_DATA_NEEDED and not (args and args[0] in ("-h", "--help", "help")):
         problem = access_problem(layout, name)
         if problem:
@@ -502,11 +809,7 @@ def main(argv):
     if name in ("jvms", "attach", "detach"):
         import attach_cli
         return attach_cli.main(layout, name, args)
-    command = COMMANDS.get(name)
-    if not command:
-        print(f"Unknown command: {name}\n")
-        print(__doc__.strip())
-        return USAGE
+    command = COMMANDS[name]
     try:
         return command(layout, args)
     except PermissionError as e:

@@ -184,17 +184,92 @@ class StartReportsWhyTest(unittest.TestCase):
         home = make_home()
         self.addCleanup(shutil.rmtree, home, ignore_errors=True)
         status = {"processes": [
-            {"name": "BACKEND", "state": "CRASHED", "detail": "cannot listen on 0.0.0.0:3000: address in use. Change ALFRED_UI_PORT"},
-            {"name": "OUTBOUND", "state": "RUNNING", "detail": ""},
+            {"name": "BACKEND", "state": "CRASHED", "detail": "cannot listen on 0.0.0.0:3000: address in use. Change ALFRED_UI_PORT",
+             "listeners": ["0.0.0.0:3000 (UI, API, /mcp)"]},
+            {"name": "OUTBOUND", "state": "RUNNING", "detail": "", "listeners": ["127.0.0.2:443"]},
         ]}
         with mock.patch.object(alfred, "ensure_env"), mock.patch.object(alfred, "service_installed", return_value=True), \
-                mock.patch.object(alfred, "service", return_value=0), mock.patch.object(alfred, "wait_for_health", return_value=False), \
+                mock.patch.object(alfred, "service", return_value=(0, "")), mock.patch.object(alfred, "own_backend", return_value=(False, None)), \
                 mock.patch.object(alfred, "call_supervisor", return_value=status):
             code, out, _ = run_main(home, ["start"])
         self.assertEqual(code, alfred.ERROR)
-        self.assertIn("BACKEND: crashed - cannot listen on 0.0.0.0:3000", out)
+        # Plain output (not a terminal): one line per finished row, the crashed one with its reason - and no wait for the
+        # 60 s limit, because CRASHED is the supervisor giving up.
+        self.assertIn("FAIL backend", out)
+        self.assertIn("cannot listen on 0.0.0.0:3000", out)
         self.assertIn("ALFRED_UI_PORT", out)
-        self.assertNotIn("OUTBOUND", out)
+        self.assertIn("ok   outbound", out)
+        self.assertNotIn("FAIL outbound", out)
+        self.assertIn("Alfred did not start", out)
+
+
+class FollowTest(unittest.TestCase):
+    """update and stop show each step; piped, that is one line per finished step."""
+
+    def setUp(self):
+        self.home = make_home()
+        self.addCleanup(shutil.rmtree, self.home, ignore_errors=True)
+        self.layout = Layout(self.home)
+        poll = mock.patch.object(alfred, "POLL_SECONDS", 0)
+        poll.start()
+        self.addCleanup(poll.stop)
+
+    def follow(self, jobs, answers=True):
+        """jobs: the supervisor's /update answers in order (None = the supervisor is gone, the installer runs)."""
+        queue = list(jobs)
+
+        def supervisor(layout, method, path, timeout=10):
+            return queue.pop(0) if len(queue) > 1 else queue[0]
+
+        def version():
+            return "1.5.0" if not queue or queue[0] is None else "1.4.0"
+        out = io.StringIO()
+        with mock.patch.object(alfred, "call_supervisor", supervisor), \
+                mock.patch.object(alfred, "own_backend", lambda layout, timeout=2: (answers and queue[0] is None, None)), \
+                mock.patch.object(self.layout, "version", version), redirect_stdout(out):
+            result = alfred.follow_update(self.layout, alfred.ui(), "1.5.0", 150 * 1048576)
+        return result, out.getvalue()
+
+    def test_an_update_is_followed_until_the_new_version_answers(self):
+        result, out = self.follow([
+            {"state": "DOWNLOADING", "downloadedBytes": 50 * 1048576, "totalBytes": 150 * 1048576},
+            {"state": "DOWNLOADING", "downloadedBytes": 150 * 1048576, "totalBytes": 150 * 1048576},
+            {"state": "VERIFYING", "downloadedBytes": 150 * 1048576, "totalBytes": 150 * 1048576},
+            {"state": "INSTALLING"},
+            None,
+        ])
+        self.assertTrue(result)
+        self.assertIn("Installing Alfred 1.5.0", out)
+        for row in ("ok   Downloading    150 MB", "ok   Checksum       matches the release", "ok   Installing", "ok   Alfred 1.5.0   answers"):
+            self.assertIn(row, out)
+
+    def test_a_failed_job_marks_the_step_it_failed_on(self):
+        result, out = self.follow([
+            {"state": "DOWNLOADING", "downloadedBytes": 1, "totalBytes": 10},
+            {"state": "FAILED", "error": "the downloaded installer's checksum is 00…, the release says ab…"},
+        ])
+        self.assertFalse(result)
+        self.assertIn("FAIL Downloading", out)
+        self.assertIn("checksum is 00", out)
+        self.assertIn("keeps running the version it had", out)
+
+    def test_without_a_supervisor_to_follow_it_says_so(self):
+        result, _ = self.follow([None])
+        self.assertIsNone(result)
+
+    def test_stop_ticks_off_each_process(self):
+        running = {"processes": [{"name": n, "state": "RUNNING", "listeners": []} for n in ("BACKEND", "OUTBOUND")]}
+        out = io.StringIO()
+        with mock.patch.object(alfred, "call_supervisor", side_effect=[running] + [None] * 50), \
+                mock.patch.object(alfred, "service_installed", return_value=True), \
+                mock.patch.object(alfred, "service", return_value=(0, "")), redirect_stdout(out):
+            code = alfred.cmd_stop(self.layout, [])
+        self.assertEqual(code, alfred.OK)
+        text = out.getvalue()
+        self.assertIn("ok   outbound   stopped", text)
+        self.assertIn("ok   backend    stopped", text)
+        self.assertIn("Alfred stopped", text)
+        self.assertLess(text.index("outbound"), text.index("backend"))  # the order the supervisor stops them in
 
 
 class EnsureEnvTest(unittest.TestCase):

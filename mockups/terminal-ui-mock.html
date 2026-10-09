@@ -1,0 +1,1157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alfred Terminal Mock</title>
+<style>
+  :root {
+    --page: #f4f5f7; --ink: #1d2330; --muted: #5d6676; --card: #ffffff; --line: #dfe3ea;
+    --term: #0f1218; --term-line: #232a36; --t-fg: #d3d9e3; --t-dim: #6b7586; --t-teal: #4fd1c5;
+    --t-green: #4cc38a; --t-yellow: #e3b341; --t-red: #f47067; --t-blue: #6cb6ff; --t-white: #f5f7fa;
+    --chip-before: #e9ecf1; --chip-after: #d9f5f1; --chip-after-ink: #0b6b60;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --page: #12151b; --ink: #e6e9ef; --muted: #98a1b0; --card: #1a1f27; --line: #2a313d;
+      --chip-before: #262c36; --chip-after: #10332f; --chip-after-ink: #6fe0d2;
+    }
+  }
+  :root[data-theme="dark"] {
+    --page: #12151b; --ink: #e6e9ef; --muted: #98a1b0; --card: #1a1f27; --line: #2a313d;
+    --chip-before: #262c36; --chip-after: #10332f; --chip-after-ink: #6fe0d2;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--page); color: var(--ink); font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 1380px; margin: 0 auto; padding: 32px 16px 80px; }
+  h1 { font-size: 26px; margin: 0 0 6px; letter-spacing: -0.01em; }
+  .lede { color: var(--muted); margin: 0 0 22px; max-width: 900px; }
+  nav { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 28px; }
+  nav a { font-size: 13px; color: var(--ink); text-decoration: none; padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); }
+  nav a:hover { border-color: var(--t-teal); }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px 18px 20px; margin-bottom: 22px; }
+  section h2 { font-size: 18px; margin: 0 0 4px; }
+  section h2 code { font-size: 15px; }
+  section p.why { margin: 0 0 14px; color: var(--muted); font-size: 14px; max-width: 980px; }
+  .pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 14px; }
+  @media (max-width: 980px) { .pair { grid-template-columns: minmax(0, 1fr); } }
+  .pair.stack { grid-template-columns: minmax(0, 1fr); }
+  .chip { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; padding: 2px 8px; border-radius: 6px; margin-bottom: 6px; }
+  .chip.before { background: var(--chip-before); color: var(--muted); }
+  .chip.after { background: var(--chip-after); color: var(--chip-after-ink); }
+  .term { background: var(--term); border: 1px solid var(--term-line); border-radius: 10px; overflow: hidden; }
+  .term .bar { display: flex; align-items: center; gap: 6px; padding: 7px 10px; background: #171c25; border-bottom: 1px solid var(--term-line); }
+  .term .bar i { width: 10px; height: 10px; border-radius: 50%; background: #39414f; display: inline-block; }
+  .term .bar span { margin-left: 8px; font: 12px/1 system-ui, sans-serif; color: var(--t-dim); }
+  .term pre { margin: 0; padding: 12px 14px 14px; min-height: 120px; overflow-x: auto; color: var(--t-fg);
+              font: 13px/1.5 "Cascadia Mono", "Cascadia Code", Consolas, "SFMono-Regular", Menlo, monospace; white-space: pre; }
+  .dim { color: var(--t-dim); } .teal { color: var(--t-teal); } .green { color: var(--t-green); } .yellow { color: var(--t-yellow); }
+  .red { color: var(--t-red); } .blue { color: var(--t-blue); } .white { color: var(--t-white); } .b { font-weight: 700; }
+  .u { text-decoration: underline; text-underline-offset: 2px; }
+  .notes { margin: 12px 0 0; padding-left: 18px; color: var(--muted); font-size: 13.5px; }
+  .notes li { margin: 2px 0; }
+  .controls { display: flex; gap: 8px; margin: 0 0 18px; flex-wrap: wrap; }
+  .controls button { font: inherit; font-size: 13px; padding: 5px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; }
+  .controls button:hover { border-color: var(--t-teal); }
+  .rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; margin-top: 4px; }
+  .rule { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font-size: 13.5px; }
+  .rule b { display: block; margin-bottom: 2px; }
+  .taskbar { display: flex; align-items: center; gap: 10px; margin-top: 8px; padding: 6px 10px; border-radius: 8px; background: #1b2230; color: #aab4c3; font-size: 12px; }
+  .tb-label { opacity: 0.7; }
+  .tb-icon { position: relative; width: 40px; height: 34px; border-radius: 6px; background: #2a3344; display: inline-flex; align-items: center; justify-content: center; overflow: hidden; }
+  .tb-glyph { font: 700 12px/1 Consolas, monospace; color: #dfe6ef; }
+  .tb-progress { position: absolute; left: 0; bottom: 0; height: 3px; background: #4cc38a; transition: width 0.2s linear; }
+  .tb-progress.busy { background: #4fd1c5; }
+  .tb-progress.done { background: #4cc38a; animation: tbflash 1s ease-in-out 2; }
+  @keyframes tbflash { 50% { opacity: 0.2; } }
+  .term.tall pre { min-height: 520px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Alfred in the terminal: before and after</h1>
+  <p class="lede">Every screen the install one-liners and the <code>alfred</code> command show today, next to the proposed version.
+    "After" screens play on a loop with times compressed: the real download takes about 90 s, here about 6 s.
+    Colours and animation appear only in a real terminal. Piped output and <code>NO_COLOR</code> get plain lines (last section).</p>
+  <div class="controls">
+    <button id="restart">Restart all animations</button>
+    <button id="pause">Pause</button>
+  </div>
+  <nav>
+    <a href="#ps1">install.ps1</a><a href="#sh">install.sh</a><a href="#panel">control panel (new)</a><a href="#doctor">alfred doctor (new)</a>
+    <a href="#start">alfred start</a><a href="#startfail">start fails</a>
+    <a href="#stop">alfred stop</a><a href="#restartcmd">alfred restart</a><a href="#status">alfred status</a><a href="#update">alfred update</a><a href="#updatestop">update: pause / cancel</a><a href="#updatefail">update: fails, cache, versions</a><a href="#cache">install: blocked, cached</a>
+    <a href="#jvms">jvms / attach</a><a href="#help">alfred help</a><a href="#typo">did you mean</a><a href="#logs">alfred logs -f</a><a href="#ps1fail">install fails</a><a href="#plain">plain / old console</a><a href="#rules">rules</a>
+  </nav>
+
+  <section id="ps1">
+    <h2>Windows one-liner: <code>irm …/install.ps1 | iex</code></h2>
+    <p class="why">Today: five <code>&gt;&gt;</code> lines, then about 40 s of silence while the installer runs, and no address at the end.
+      After: a step list that ticks off; a progress bar with speed and time left; elapsed time while the installer runs; the script waits for Alfred to answer and ends with the address.</p>
+    <div class="pair">
+      <div><span class="chip before">Before</span><div class="term"><div class="bar"><i></i><i></i><i></i><span>Administrator: Windows PowerShell</span></div><pre id="ps1-before"></pre></div></div>
+      <div><span class="chip after">After</span><div class="term"><div class="bar"><i></i><i></i><i></i><span>Administrator: Windows PowerShell</span></div><pre data-scene="ps1"></pre></div><div class="taskbar"></div></div>
+    </div>
+    <ul class="notes">
+      <li><b>Pre-checks before downloading anything:</b> an existing install (upgrade, keeping settings and data), free disk space, ports 3000 and 443 free or held by Alfred. A blocker stops here, before 146 MB is spent.</li>
+      <li><b>Window title</b> shows the percentage, and in Windows Terminal the <b>taskbar icon</b> fills as it downloads (escape <code>OSC 9;4</code>), so it's visible while the window is behind others.</li>
+      <li><b>Retries are visible</b> (yellow ↻ line) instead of silent.</li>
+      <li><b>At the end:</b> what was kept, and Enter opens the UI. Only asked when interactive; <code>ALFRED_INSTALL_ARGS</code> runs never wait.</li>
+    </ul>
+  </section>
+
+  <section id="sh">
+    <h2>Linux one-liner: <code>curl -fsSL …/install.sh | sudo sh</code></h2>
+    <p class="why">Today the download script and the <code>.run</code> installer each speak in their own style (<code>&gt;&gt;</code> lines, then <code>Alfred setup</code> with ✓ lines).
+      After: one step list. The installer's own steps nest under "Installing" as they happen.</p>
+    <div class="pair">
+      <div><span class="chip before">Before</span><div class="term"><div class="bar"><i></i><i></i><i></i><span>bash — ubuntu@build-01</span></div><pre id="sh-before"></pre></div></div>
+      <div><span class="chip after">After</span><div class="term"><div class="bar"><i></i><i></i><i></i><span>bash — ubuntu@build-01</span></div><pre data-scene="sh"></pre></div></div>
+    </div>
+  </section>
+
+  <section id="panel">
+    <h2>New: <code>alfred</code> in a terminal opens a live control panel</h2>
+    <p class="why">Typing <code>alfred</code> with nothing after it, in a real terminal, opens a full-screen panel: processes, Java apps and their agent, storage against its caps, traffic in the last minute, the latest calls, and one-key actions.
+      The simulated key press here is <b>r</b> (restart): it asks first, then the rows change state in place.
+      Piped, or with <code>alfred help</code>, you get the command list as before.</p>
+    <div class="pair stack">
+      <div><span class="chip before">Before</span><div class="term"><div class="bar"><i></i><i></i><i></i><span>Command Prompt</span></div><pre id="panel-before"></pre></div></div>
+      <div><span class="chip after">After</span><div class="term tall"><div class="bar"><i></i><i></i><i></i><span>Alfred — Command Prompt</span></div><pre data-scene="panel"></pre></div></div>
+    </div>
+    <ul class="notes">
+      <li><b>Data it reads, all existing:</b> supervisor <code>/status</code> and <code>/agents</code>; backend <code>/database/stats</code> (storage), <code>/triage/counts</code> (attention), and the latest page of outbound and inbound calls.</li>
+      <li><b>No polling:</b> it refreshes when the backend's WebSocket (<code>/ws/</code>, the same signal the web UI uses) says something changed. "Last 60 s" counts the calls that arrive while the panel is open.</li>
+      <li><b>Keys:</b> <code>s</code> stop/start · <code>r</code> restart · <code>p</code> proxies · <code>l</code> logs (follow, Esc back) · <code>t</code> triage list · <code>a</code> attach (picks from the Java apps) · <code>u</code> update (with pause/cancel) · <code>d</code> doctor · <code>o</code> open the UI · <code>q</code> quit. Anything that stops Alfred asks first.</li>
+      <li>It adapts to the window: below 100 columns the two columns stack; below 24 rows "latest calls" shrinks first.</li>
+    </ul>
+  </section>
+
+  <section id="doctor">
+    <h2>New: <code>alfred doctor</code></h2>
+    <p class="why">One command that checks everything people usually troubleshoot one at a time: processes, ports, each project's upstream, the agent, disk space, storage caps, the update feed, settings access.
+      Each problem comes with the command that fixes it. Exit code 0 when all is well, 1 when something's wrong. <code>--json</code> is for scripts and for Claude's MCP tools.</p>
+    <div class="pair">
+      <div><span class="chip before">Before</span><div class="term"><div class="bar"><i></i><i></i><i></i><span>Command Prompt</span></div><pre id="doctor-before"></pre></div></div>
+      <div><span class="chip after">After</span><div class="term"><div class="bar"><i></i><i></i><i></i><span>Command Prompt</span></div><pre data-scene="doctor"></pre></div></div>
+    </div>
+  </section>
+
+  <section id="start">
+    <h2><code>alfred start</code></h2>
+    <p class="why">Today: up to 60 s of silence, then one line. After: each process appears as the supervisor reports it, with a timer on the one still starting.</p>
+    <div class="pair">
+      <div><span class="chip before">Before</span><div class="term"><div class="bar"><i></i><i></i><i></i><span>Command Prompt</span></div><pre id="start-before"></pre></div></div>
+      <div><span class="chip after">After</span><div class="term"><div class="bar"><i></i><i></i><i></i><span>Command Prompt</span></div><pre data-scene="start"></pre></div></div>
+    </div>
+  </section>
+
+  <section id="startfail">
+    <h2><code>alfred start</code> when something is wrong</h2>
+    <p class="why">The reasons are already worked out in <code>explain_not_answering</code>. After: they're attached to the process that failed, with the fix as a command you can copy.</p>
+    <div class="pair">
+      <div><span class="chip before">Before</span><div class="term"><div class="bar"><i></i><i></i><i></i><span>Command Prompt</span></div><pre id="startfail-before"></pre></div></div>
+      <div><span class="chip after">After</span><div class="term"><div class="bar"><i></i><i></i><i></i><span>Command Prompt</span></div><pre data-scene="startfail"></pre></div></div>
+    </div>
+  </section>
+
+  <section id="stop">
+    <h2><code>alfred stop</code></h2>
+    <p class="why">Today, with the service installed (the usual case), it prints nothing at all. After: each process is ticked off as it stops.</p>
+    <div class="pair">
+      <div><span class="chip before">Before</span><div class="term"><div class="bar"><i></i><i></i><i></i><span>Command Prompt</span></div><pre id="stop-before"></pre></div></div>
+      <div><span class="chip after">After</span><div class="term"><div class="bar"><i></i><i></i><i></i><span>Command Prompt</span></div><pre data-scene="stop"></pre></div></div>
+    </div>
+  </section>
+
+  <section id="restartcmd">
+    <h2><code>alfred restart</code> and <code>alfred restart --proxies</code></h2>
+    <p class="why">Today: silence, then one line (or "Restarting proxies..." and nothing to confirm they came back). After: a stop phase and a start phase, and the proxies restart is confirmed.</p>
+    <div class="pair">
+      <div><span class="chip before">Before</span><div class="term"><div class="bar"><i></i><i></i><i></i><span>Command Prompt</span></div><pre id="restart-before"></pre></div></div>
+      <div><span class="chip after">After</span><div class="term"><div class="bar"><i></i><i></i><i></i><span>Command Prompt</span></div><pre data-scene="restart"></pre></div></div>
+    </div>
+  </section>
+
+  <section id="status">
+    <h2><code>alfred status</code></h2>
+    <p class="why">After: a table with a header row, a coloured state dot plus a word (never colour alone), listeners on the same row, uptime for the whole of Alfred, and the update line highlighted.</p>
+    <div class="pair">
+      <div><span class="chip before">Before</span><div class="term"><div class="bar"><i></i><i></i><i></i><span>Command Prompt</span></div><pre id="status-before"></pre></div></div>
+      <div><span class="chip after">After</span><div class="term"><div class="bar"><i></i><i></i><i></i><span>Command Prompt</span></div><pre data-scene="status"></pre></div></div>
+    </div>
+  </section>
+
+  <section id="update">
+    <h2><code>alfred update</code></h2>
+    <p class="why">Today it starts the update and returns, telling you to come back later. After: it follows the install to the end (progress from the supervisor, then waiting for the new version to answer).</p>
+    <div class="pair">
+      <div><span class="chip before">Before</span><div class="term"><div class="bar"><i></i><i></i><i></i><span>Administrator: Command Prompt</span></div><pre id="update-before"></pre></div></div>
+      <div><span class="chip after">After</span><div class="term"><div class="bar"><i></i><i></i><i></i><span>Administrator: Command Prompt</span></div><pre data-scene="update"></pre></div></div>
+    </div>
+  </section>
+
+  <section id="updatestop">
+    <h2><code>alfred update</code>: Ctrl+C gives a choice — pause or cancel</h2>
+    <p class="why">While downloading or checking, Ctrl+C stops the download and asks.
+      <b>Pause</b> keeps the pieces already downloaded; the next <code>alfred update</code> (or the Settings card) continues from there, if the release is still the same one.
+      <b>Cancel</b> deletes them, so the next update starts from 0.
+      Once the installer runs, it can't be stopped: Alfred is mid-replacement.
+      Today Ctrl+C only stops the waiting; the update carries on and there's no way to stop it.</p>
+    <div class="pair">
+      <div><span class="chip after">After — Pause, then continue later</span><div class="term"><div class="bar"><i></i><i></i><i></i><span>Administrator: Command Prompt</span></div><pre data-scene="updatePause"></pre></div></div>
+      <div><span class="chip after">After — Cancel, start over next time</span><div class="term"><div class="bar"><i></i><i></i><i></i><span>Administrator: Command Prompt</span></div><pre data-scene="updateCancel"></pre></div></div>
+    </div>
+    <ul class="notes">
+      <li>Supervisor: new <code>POST /update/pause</code> and <code>POST /update/cancel</code>; a new state <code>PAUSED</code> next to <code>DOWNLOADING</code>/<code>VERIFYING</code>/<code>INSTALLING</code>/<code>FAILED</code>.</li>
+      <li>A paused download keeps its <code>.part</code> file plus a small list of finished pieces (<code>.part.json</code>: version, sha256, size, pieces done), so a resume fetches only the missing pieces. A different release, or a missing or changed list, means starting over. Nothing is trusted without the final sha256 check.</li>
+      <li>Restarting Alfred keeps a paused download paused (it's on disk). <code>alfred update --cancel</code> discards a paused one without starting anything.</li>
+      <li>The Settings → Server card gets the same two buttons, so the terminal and the UI agree.</li>
+    </ul>
+  </section>
+
+  <section id="updatefail">
+    <h2>Update failures, the download cache, and choosing a version</h2>
+    <p class="why"><b>Left:</b> 3.0.6 installs but can't start because port 3000 is taken by another program. Alfred names the program, puts 3.0.5 back (nothing lost), and offers retry, another port, or keep 3.0.5. The retry installs <b>from the cache</b>, with no download.
+      <b>Right:</b> 3.0.6 was paused, and meanwhile 3.0.7 and 3.1.0 came out. <code>alfred update</code> lists them; picking the newest jumps straight there and drops the paused 3.0.6 download.</p>
+    <div class="pair">
+      <div><span class="chip after">After — the new version can't start</span><div class="term tall"><div class="bar"><i></i><i></i><i></i><span>Administrator: Command Prompt</span></div><pre data-scene="updateFail"></pre></div></div>
+      <div><span class="chip after">After — newer releases than the paused one</span><div class="term tall"><div class="bar"><i></i><i></i><i></i><span>Administrator: Command Prompt</span></div><pre data-scene="updateVersions"></pre></div></div>
+    </div>
+    <ul class="notes">
+      <li><b>Put back on a failed start:</b> both installers already restore the previous files when copying fails. New: the update keeps the previous version aside until the new one <i>answers</i>, so a version that installs but can't start is also undone.</li>
+      <li><b>Why it failed, in words:</b> the port's owner (process name, pid, its command line) comes from the OS, the same way <code>doctor</code> finds it.</li>
+      <li><b>Download cache:</b> finished and paused installers stay in <code>data\updates</code> (in-app update), and in <code>C:\ProgramData\Alfred\downloads</code> or <code>/var/cache/alfred</code> for the one-liners (not %TEMP%, which Windows clears). Every use checks sha256 again. The newest two releases are kept; <code>alfred update --clear-cache</code> empties it. <code>doctor</code> shows its size.</li>
+      <li><b>Versions to choose from:</b> <code>latest.json</code> gains a short list of recent releases (version, date, one-line notes, url, sha256), written by the release workflow. Older installers stay on GitHub, so any listed version can be installed: <code>alfred update --version 3.0.7</code>.</li>
+      <li><b>Skip:</b> <code>s</code> hides the skipped releases from <code>status</code>, the panel and the Settings card until something newer than them is out.</li>
+    </ul>
+  </section>
+
+  <section id="cache">
+    <h2>Install one-liner: a blocker found before downloading, and the second run uses the cache</h2>
+    <p class="why">The port check runs before the download, so a blocked install costs seconds, not 146 MB. When something fails after the download, the installer is already in the cache: running the one-liner again skips straight to installing.</p>
+    <div class="pair">
+      <div><span class="chip before">Before</span><div class="term"><div class="bar"><i></i><i></i><i></i><span>Administrator: Windows PowerShell</span></div><pre id="cache-before"></pre></div></div>
+      <div><span class="chip after">After</span><div class="term tall"><div class="bar"><i></i><i></i><i></i><span>Administrator: Windows PowerShell</span></div><pre data-scene="cache"></pre></div></div>
+    </div>
+  </section>
+
+  <section id="jvms">
+    <h2><code>alfred jvms</code> and <code>alfred attach</code></h2>
+    <p class="why">After: the table names each app and the project it belongs to (matched by port), with the agent's state coloured.
+      <code>attach</code> shows each step, then waits for the first call to prove capture works, instead of stopping at "loaded".</p>
+    <div class="pair">
+      <div><span class="chip before">Before</span><div class="term"><div class="bar"><i></i><i></i><i></i><span>Command Prompt</span></div><pre id="jvms-before"></pre></div></div>
+      <div><span class="chip after">After</span><div class="term"><div class="bar"><i></i><i></i><i></i><span>Command Prompt</span></div><pre data-scene="jvms"></pre></div></div>
+    </div>
+  </section>
+
+  <section id="typo">
+    <h2>Typos and a stopped Alfred</h2>
+    <p class="why">Today a mistyped command prints the whole help text again. After: one line with the closest command. A stopped Alfred says how to start it and where to look.</p>
+    <div class="pair">
+      <div><span class="chip before">Before</span><div class="term"><div class="bar"><i></i><i></i><i></i><span>Command Prompt</span></div><pre id="typo-before"></pre></div></div>
+      <div><span class="chip after">After</span><div class="term"><div class="bar"><i></i><i></i><i></i><span>Command Prompt</span></div><pre data-scene="typo"></pre></div></div>
+    </div>
+  </section>
+
+  <section id="help">
+    <h2><code>alfred help</code></h2>
+    <p class="why">Today: the module docstring, with exit codes and internal notes. After: commands grouped by what you want to do, the running state on top, and exit codes kept for <code>alfred help --codes</code>.</p>
+    <div class="pair">
+      <div><span class="chip before">Before</span><div class="term"><div class="bar"><i></i><i></i><i></i><span>Command Prompt</span></div><pre id="help-before"></pre></div></div>
+      <div><span class="chip after">After</span><div class="term"><div class="bar"><i></i><i></i><i></i><span>Command Prompt</span></div><pre data-scene="help"></pre></div></div>
+    </div>
+  </section>
+
+  <section id="logs">
+    <h2><code>alfred logs backend -f</code></h2>
+    <p class="why">After: a header naming the file and how to stop, dim timestamps, coloured levels (only for lines that carry one), and Ctrl+C exits cleanly instead of with a traceback. Each line stays exactly as in the file: nothing is shortened or removed.</p>
+    <div class="pair">
+      <div><span class="chip before">Before</span><div class="term"><div class="bar"><i></i><i></i><i></i><span>Command Prompt</span></div><pre id="logs-before"></pre></div></div>
+      <div><span class="chip after">After</span><div class="term"><div class="bar"><i></i><i></i><i></i><span>Command Prompt</span></div><pre data-scene="logs"></pre></div></div>
+    </div>
+  </section>
+
+  <section id="ps1fail">
+    <h2>Install fails: checksum mismatch, or the download stalls</h2>
+    <p class="why">After: the failed step is marked where it happened, followed by what was not done and what to try. Nothing is left half-installed (unchanged).</p>
+    <div class="pair">
+      <div><span class="chip before">Before</span><div class="term"><div class="bar"><i></i><i></i><i></i><span>Administrator: Windows PowerShell</span></div><pre id="ps1fail-before"></pre></div></div>
+      <div><span class="chip after">After</span><div class="term"><div class="bar"><i></i><i></i><i></i><span>Administrator: Windows PowerShell</span></div><pre data-scene="ps1fail"></pre></div></div>
+    </div>
+  </section>
+
+  <section id="plain">
+    <h2>Fallbacks: old console, piped output, <code>NO_COLOR</code></h2>
+    <p class="why">The classic Windows console (conhost with Consolas) lacks the braille spinner and several symbols, so it gets an ASCII set; Windows Terminal, VS Code and Linux terminals get Unicode.
+      When output isn't a terminal (the installers capture <code>alfred _wait-health</code>; CI; <code>| tee</code>), there's no colour and no redraw: one line per finished step, the same words.</p>
+    <div class="pair">
+      <div><span class="chip after">After — classic console (ASCII set)</span><div class="term"><div class="bar"><i></i><i></i><i></i><span>Administrator: Windows PowerShell (conhost)</span></div><pre data-scene="ascii"></pre></div></div>
+      <div><span class="chip after">After — piped / NO_COLOR</span><div class="term"><div class="bar"><i></i><i></i><i></i><span>alfred start | tee start.log</span></div><pre id="plain-after"></pre></div></div>
+    </div>
+  </section>
+
+  <section id="rules">
+    <h2>Rules the implementation follows</h2>
+    <div class="rules">
+      <div class="rule"><b>Never colour alone</b>Every state is a symbol plus a word (✓ done, ✗ failed, ● running, ○ waiting), so it reads the same without colour.</div>
+      <div class="rule"><b>Plain when not a terminal</b>No ANSI codes and no <code>\r</code> redraws when stdout isn't a TTY, when <code>NO_COLOR</code> is set, or when <code>TERM=dumb</code>. Same words, one line per step.</div>
+      <div class="rule"><b>Glyphs by terminal</b>Unicode in Windows Terminal (<code>WT_SESSION</code>), VS Code and UTF-8 terminals; an ASCII set (<code>| / - \</code>, <code>[x]</code>, <code>#</code> bar, <code>+--+</code> box) elsewhere.</div>
+      <div class="rule"><b>No new dependency</b>A small <code>term.py</code> next to <code>alfred.py</code> (bundled Python, standard library only). The install scripts carry their own few helpers.</div>
+      <div class="rule"><b>Windows VT mode</b><code>alfred</code> turns on virtual-terminal processing via <code>SetConsoleMode</code>. PowerShell 5.1 uses <code>Write-Host -ForegroundColor</code>, which works in every console.</div>
+      <div class="rule"><b>Ctrl+C is clean</b>A spinner or bar restores the cursor and line. <code>update</code> says the install keeps running; <code>logs -f</code> just stops.</div>
+      <div class="rule"><b>Words unchanged where tests or people rely on them</b>Refusal texts ("needs an Administrator prompt") and exit codes stay as they are. The installers' captured lines stay one line each.</div>
+      <div class="rule"><b>Live progress only while something runs</b><code>start</code>/<code>restart</code>/<code>update</code> ask the local supervisor every 0.3 s until done or the existing 60 s limit. Nothing polls in the background.</div>
+    </div>
+  </section>
+</main>
+
+<script>
+(() => {
+  const esc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const c = (cls, s) => `<span class="${cls}">${esc(s)}</span>`;
+  const pad = (s, n) => { s = String(s); return s.length >= n ? s : s + " ".repeat(n - s.length); };
+  const lpad = (s, n) => { s = String(s); return s.length >= n ? s : " ".repeat(n - s.length) + s; };
+  const SPIN = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏", SPIN_ASCII = "|/-\\";
+  const spin = (t, ascii) => ascii ? SPIN_ASCII[Math.floor(t * 8) % 4] : SPIN[Math.floor(t * 12) % 10];
+  const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+  const bar = (f, w, ascii) => {
+    const n = Math.round(clamp(f, 0, 1) * w);
+    return ascii ? "[" + c("teal", "#".repeat(n)) + c("dim", "-".repeat(w - n)) + "]"
+                 : c("teal", "━".repeat(n)) + c("dim", "─".repeat(w - n));
+  };
+  const secs = s => s >= 60 ? `${Math.floor(s / 60)} min ${lpad(Math.round(s % 60), 2)} s` : `${Math.round(s)} s`;
+
+  // A step list: each step waits (○), runs (spinner + live detail), then is done (✓ + final detail) or fails (✗).
+  function steps(t, list, o = {}) {
+    const ascii = o.ascii, W = o.labelWidth || 17;
+    const out = [];
+    for (const s of list) {
+      if (t < s.start) {
+        if (!s.hideUntilStart) out.push("  " + c("dim", (ascii ? "o" : "○") + " " + s.label));
+        continue;
+      }
+      const running = t < s.end;
+      const frac = clamp((t - s.start) / (s.end - s.start), 0, 1);
+      if (running) {
+        out.push("  " + c("teal", spin(t, ascii)) + " " + c("white b", pad(s.label, W)) + (s.live ? " " + s.live(frac, t - s.start) : ""));
+        if (s.liveSub) out.push(...s.liveSub(frac, t - s.start));
+      } else if (s.warn) {
+        out.push("  " + c("yellow b", "!") + " " + c("white b", pad(s.label, W)) + (s.warnText ? " " + s.warnText : ""));
+        if (s.warnSub) out.push(...s.warnSub);
+      } else if (s.fail) {
+        out.push("  " + c("red b", ascii ? "x" : "✗") + " " + c("white b", pad(s.label, W)) + (s.failText ? " " + s.failText : ""));
+        if (s.failSub) out.push(...s.failSub);
+      } else {
+        out.push("  " + c("green", ascii ? "+" : "✓") + " " + pad(s.label, W) + (s.done ? " " + s.done : ""));
+        if (s.doneSub) out.push(...s.doneSub);
+      }
+    }
+    return out;
+  }
+
+  function box(title, rows, ascii, color = "teal") {
+    const width = Math.max(title.length + 4, ...rows.map(r => r.text.length)) + 4;
+    const h = ascii ? "-" : "─";
+    const [tl, tr, bl, br, v] = ascii ? ["+", "+", "+", "+", "|"] : ["╭", "╮", "╰", "╯", "│"];
+    const out = [];
+    out.push("  " + c(color, tl + h + " ") + c("white b", title) + c(color, " " + h.repeat(width - title.length - 3) + tr));
+    for (const r of rows) out.push("  " + c(color, v) + "  " + (r.html || esc(r.text)) + " ".repeat(width - r.text.length - 2) + c(color, v));
+    out.push("  " + c(color, bl + h.repeat(width) + br));
+    return out;
+  }
+
+  const banner = (ascii, sub) => [
+    "",
+    "  " + c("teal b", ascii ? "<>" : "◆") + " " + c("white b", "Alfred") + c("dim", "  " + sub),
+    ""
+  ];
+
+  // ---- scenes --------------------------------------------------------------------------------------------------
+  const MB = 146;
+  function downloadLive(ascii, conns) {
+    return (f, el) => {
+      const got = Math.round(f * MB), rate = (1.55 + 0.25 * Math.sin(el * 3)).toFixed(1);
+      const left = Math.max(1, Math.round((1 - f) * 86));
+      return bar(f, 24, ascii) + " " + c("white", lpad(Math.round(f * 100), 3) + "%") + c("dim", `  ${lpad(got, 3)} of ${MB} MB · ${rate} MB/s · ${left} s left`);
+    };
+  }
+
+  const scenes = {
+    ps1: { loop: 20,
+      phase(t) {
+        if (t < 2.4) return { label: "Checking", f: null };
+        if (t < 2.9) return { label: "Release", f: null };
+        if (t < 9.6) return { label: "Downloading", f: (t - 2.9) / 6.7 };
+        if (t < 10.3) return { label: "Verifying", f: 1 };
+        if (t < 13.6) return { label: "Installing", f: null };
+        if (t < 14.6) return { label: "Starting", f: null };
+        return { label: "Done", f: 1, done: true };
+      },
+      title(t) {
+        const p = this.phase(t);
+        if (p.done) return "✓ Alfred 3.0.5 installed — Administrator: Windows PowerShell";
+        return (p.f !== null ? `${Math.round(p.f * 100)}% · ` : "") + `${p.label} Alfred 3.0.5 — Administrator: Windows PowerShell`;
+      },
+      taskbar(t) {
+        const p = this.phase(t);
+        const state = p.done ? "done" : p.f === null ? "busy" : "progress";
+        const width = p.done ? 100 : p.f === null ? 35 : Math.round(p.f * 100);
+        const left = p.f === null && !p.done ? (t * 60) % 65 : 0;
+        return `<span class="tb-label">Windows taskbar</span><span class="tb-icon"><span class="tb-glyph">&gt;_</span>` +
+               `<span class="tb-progress ${state}" style="width:${width}%;margin-left:${left}%"></span></span>` +
+               `<span class="tb-note">${p.done ? "finished: the icon flashes once" : p.f === null ? "busy: pulsing" : "download progress on the icon"}</span>`;
+      },
+      render(t) {
+      const prompt = [c("blue", "PS C:\\Users\\fathy>") + " irm https://raw.githubusercontent.com/f-Baiomy/ALFRED/master/install.ps1 | iex"];
+      const list = [
+        { label: "Administrator", start: 0.2, end: 0.6, done: c("dim", "yes · 64-bit Windows 10 · PowerShell 5.1") },
+        { label: "Existing install", start: 0.6, end: 1.2, live: () => c("dim", "looking for Alfred"), done: c("white", "Alfred 3.0.4") + c("dim", " in C:\\Program Files\\Alfred → ") + c("teal", "upgrade") + c("dim", ", settings and data kept") },
+        { label: "Disk space", start: 1.2, end: 1.7, done: c("dim", "12.4 GB free on C: · needs 0.6 GB") },
+        { label: "Ports", start: 1.7, end: 2.4, live: () => c("dim", "3000, 443"), done: c("dim", "3000 and 443 held by Alfred 3.0.4 · freed during the upgrade") },
+        { label: "Latest release", start: 2.4, end: 2.9, live: () => c("dim", "reading latest.json"), done: c("white", "Alfred 3.0.5") + c("dim", " · released 2026-10-09 · 146 MB") },
+        { label: "Downloading", start: 2.9, end: 9.6, live: downloadLive(false),
+          liveSub: (f) => f > 0.45 && f < 0.8 ? ["      " + c("yellow", "↻") + c("dim", " 3 pieces retried after dropped connections · no data lost")] : [],
+          done: c("dim", "146 MB in 1 min 26 s · 1.7 MB/s · 192 connections · 3 retries") },
+        { label: "Checksum", start: 9.6, end: 10.3, live: () => c("dim", "sha256"), done: c("dim", "917367c9…bce0da matches the release") },
+        { label: "Installing", start: 10.3, end: 13.6, live: (f, el) => c("dim", `stopping 3.0.4, replacing its files · ${Math.round(el * 12)} s`), done: c("dim", "C:\\Program Files\\Alfred · 41 s") },
+        { label: "Alfred answers", start: 13.6, end: 14.6, live: (f, el) => c("dim", `waiting for http://localhost:3000 · ${Math.round(el * 6)} s`), done: c("dim", "in 6 s · 4 processes running") },
+      ];
+      const out = [...prompt, ...banner(false, "installer · HTTP traffic in and out of your Java app"), ...steps(t, list)];
+      if (t >= 14.8) {
+        out.push("");
+        out.push(...box("Alfred 3.0.4 → 3.0.5 is running", [
+          { text: "UI       http://localhost:3000", html: c("dim", "UI     ") + "  " + c("teal u", "http://localhost:3000") },
+          { text: "         http://192.168.1.20:3000", html: "         " + c("teal u", "http://192.168.1.20:3000") },
+          { text: "Kept     settings, 18,424 calls, 2 projects", html: c("dim", "Kept   ") + "  settings, 18,424 calls, 2 projects" },
+          { text: "Next     alfred · alfred status · alfred doctor", html: c("dim", "Next   ") + "  " + c("white", "alfred") + c("dim", " · ") + c("white", "alfred status") + c("dim", " · ") + c("white", "alfred doctor") },
+          { text: "Took     2 min 18 s", html: c("dim", "Took   ") + "  2 min 18 s" },
+        ]));
+        out.push("", "  " + c("white b", "Enter") + c("dim", " opens the UI in your browser · any other key finishes"));
+        if (t >= 17.2) out.push("  " + c("green", "✓") + c("dim", " opened http://localhost:3000"), "", c("blue", "PS C:\\Users\\fathy>") + " " + (Math.floor(t * 2) % 2 ? "▌" : " "));
+      }
+      return out;
+    }},
+
+    sh: { loop: 18, render(t) {
+      const list = [
+        { label: "Checks", start: 0.2, end: 0.7, done: c("dim", "root via sudo · Linux x86_64 · curl, sha256sum") },
+        { label: "Latest release", start: 0.7, end: 1.4, live: () => c("dim", "reading latest.json"), done: c("white", "Alfred 3.0.5") + c("dim", " · 145 MB") },
+        { label: "Downloading", start: 1.4, end: 7.6, live: downloadLive(false), done: c("dim", "145 MB in 2 min 16 s · 1.1 MB/s · 128 connections") },
+        { label: "Checksum", start: 7.6, end: 8.2, live: () => c("dim", "sha256"), done: c("dim", "matches the release") },
+        { label: "Installing", start: 8.2, end: 13.4,
+          live: (f, el) => c("dim", `${Math.round(el * 7)} s`),
+          liveSub: f => {
+            const subs = ["unpacked Alfred 3.0.5", "upgrading 3.0.4 → 3.0.5 · settings and data kept", "stopped the running service",
+                          "program files in /opt/alfred", "owned by alfred", "upgrade recorded in the settings history", "service \"alfred\" installed · starts at boot"];
+            const n = Math.min(subs.length, Math.floor(f * (subs.length + 1)));
+            return subs.slice(0, n).map(s => "      " + c("green", "✓") + " " + c("dim", s));
+          },
+          done: c("dim", "/opt/alfred · 22 s"),
+          doneSub: ["      " + c("dim", "upgraded 3.0.4 → 3.0.5 · settings and data kept · service starts at boot")] },
+        { label: "Alfred answers", start: 13.4, end: 14.4, live: (f, el) => c("dim", `waiting for http://localhost:3000 · ${Math.round(el * 5)} s`), done: c("dim", "in 5 s") },
+      ];
+      const out = [c("green", "ubuntu@build-01") + ":" + c("blue", "~") + "$ curl -fsSL https://raw.githubusercontent.com/f-Baiomy/ALFRED/master/install.sh | sudo sh",
+                   ...banner(false, "installer · HTTP traffic in and out of your Java app"), ...steps(t, list)];
+      if (t >= 14.6) {
+        out.push("");
+        out.push(...box("Alfred 3.0.5 is running", [
+          { text: "UI       http://localhost:3000", html: c("dim", "UI     ") + "  " + c("teal u", "http://localhost:3000") },
+          { text: "         http://10.0.0.12:3000", html: "         " + c("teal u", "http://10.0.0.12:3000") },
+          { text: "Next     alfred status · alfred jvms · alfred attach <pid>", html: c("dim", "Next   ") + "  " + c("white", "alfred status") + c("dim", " · ") + c("white", "alfred jvms") + c("dim", " · ") + c("white", "alfred attach <pid>") },
+          { text: "Took     2 min 44 s", html: c("dim", "Took   ") + "  2 min 44 s" },
+        ]));
+      }
+      return out;
+    }},
+
+    start: { loop: 10, render(t) {
+      const proc = (name, port, s, e, took) => ({ label: name, start: s, end: e, hideUntilStart: false,
+        live: (f, el) => c("dim", `${pad(port, 7)} starting · ${(el * 3).toFixed(0)} s`), done: c("dim", pad(port, 7)) + " " + c("dim", took) });
+      const list = [
+        { label: "service", start: 0.2, end: 0.6, live: () => c("dim", "asking Windows to start \"alfred\""), done: c("dim", "started · 0.4 s") },
+        proc("backend", ":3000", 0.6, 4.8, "11.2 s"),
+        proc("outbound", ":443", 0.8, 1.6, "1.1 s"),
+        proc("reverse", ":8081", 0.9, 2.2, "1.9 s · odeysys"),
+        proc("mcp", "", 4.8, 5.4, "0.6 s"),
+      ];
+      const out = ["C:\\>alfred start", "", "  " + c("teal b", "◆") + " " + c("white b", "Starting Alfred 3.0.5"), "", ...steps(t, list, { labelWidth: 10 })];
+      if (t >= 5.6) out.push("", "  " + c("green b", "✓ Alfred is up") + c("dim", " in 14 s · ") + c("teal u", "http://localhost:3000") + c("dim", " · ") + c("teal u", "http://192.168.1.20:3000"));
+      return out;
+    }},
+
+    startfail: { loop: 11, render(t) {
+      const list = [
+        { label: "service", start: 0.2, end: 0.6, done: c("dim", "started · 0.4 s") },
+        { label: "outbound", start: 0.6, end: 1.4, done: c("dim", ":443    1.1 s") },
+        { label: "reverse", start: 0.7, end: 1.6, done: c("dim", ":8081   1.9 s · odeysys") },
+        { label: "backend", start: 0.6, end: 6, fail: t >= 6, live: (f, el) => c("dim", `:3000   starting · ${Math.round(el * 11)} s`),
+          failText: c("red", ":3000   not answering after 60 s"),
+          failSub: ["      " + c("yellow", "port 3000 is answered by another Alfred: ") + c("white", "C:\\alfred-old (3.0.2)"),
+                    "      " + c("dim", "this install (C:\\Program Files\\Alfred) can't listen there."),
+                    "",
+                    "  " + c("white b", "Fix it with one of:"),
+                    "    " + c("teal", "alfred config set ALFRED_UI_PORT 3017") + c("dim", "   use another port"),
+                    "    " + c("teal", "C:\\alfred-old\\alfred stop") + c("dim", "                stop the other install"),
+                    "  " + c("dim", "Details: ") + c("white", "alfred logs backend")] },
+        { label: "mcp", start: 99, end: 100 },
+      ];
+      return ["C:\\>alfred start", "", "  " + c("teal b", "◆") + " " + c("white b", "Starting Alfred 3.0.5"), "", ...steps(t, list, { labelWidth: 10 }),
+              ...(t >= 6.2 ? ["", "  " + c("red b", "✗ Alfred did not start") + c("dim", " · exit code 1")] : [])];
+    }},
+
+    stop: { loop: 7, render(t) {
+      const list = [
+        { label: "mcp", start: 0.2, end: 0.6, done: c("dim", "stopped") },
+        { label: "reverse", start: 0.3, end: 1.0, done: c("dim", "stopped · :8081 free") },
+        { label: "outbound", start: 0.3, end: 1.1, done: c("dim", "stopped · :443 free") },
+        { label: "backend", start: 0.4, end: 2.6, live: (f, el) => c("dim", `saving · ${(el * 1.6).toFixed(1)} s`), done: c("dim", "stopped · :3000 free") },
+        { label: "service", start: 2.6, end: 3.0, done: c("dim", "stopped") },
+      ];
+      return ["C:\\>alfred stop", "", "  " + c("teal b", "◆") + " " + c("white b", "Stopping Alfred 3.0.5"), "", ...steps(t, list, { labelWidth: 10 }),
+              ...(t >= 3.2 ? ["", "  " + c("green b", "✓ Alfred stopped") + c("dim", " in 2.8 s · start it again with ") + c("white", "alfred start")] : [])];
+    }},
+
+    restart: { loop: 12, render(t) {
+      const out = ["C:\\>alfred restart", "", "  " + c("teal b", "◆") + " " + c("white b", "Restarting Alfred 3.0.5"), ""];
+      out.push(...steps(t, [
+        { label: "stop", start: 0.2, end: 1.8, live: (f) => c("dim", `${Math.min(4, Math.floor(f * 5))} of 4 processes stopped`), done: c("dim", "4 processes · 2.8 s") },
+        { label: "start", start: 1.8, end: 5.2, live: (f, el) => c("dim", `${Math.min(4, Math.floor(f * 5))} of 4 running · ${Math.round(el * 4)} s`), done: c("dim", "4 processes · 12 s") },
+      ], { labelWidth: 10 }));
+      if (t >= 5.4) out.push("", "  " + c("green b", "✓ Alfred restarted") + c("dim", " in 15 s · ") + c("teal u", "http://localhost:3000"));
+      if (t >= 6.4) {
+        out.push("", "C:\\>alfred restart --proxies", "");
+        out.push(...steps(t, [
+          { label: "outbound", start: 6.8, end: 8.2, live: (f, el) => c("dim", `restarting · ${(el * 0.8).toFixed(1)} s`), done: c("dim", ":443    up again · 1.1 s") },
+          { label: "reverse", start: 6.8, end: 8.6, live: (f, el) => c("dim", `restarting · ${(el * 0.8).toFixed(1)} s`), done: c("dim", ":8081   up again · 1.4 s") },
+        ], { labelWidth: 10 }));
+        if (t >= 8.8) out.push("", "  " + c("green b", "✓ Proxies restarted") + c("dim", " · backend and UI stayed up"));
+      }
+      return out;
+    }},
+
+    status: { loop: 4, render(t) {
+      const dot = c("green", "●");
+      const row = (name, state, pid, up, listens, extra = "") =>
+        "   " + pad(name, 10) + " " + state + "  " + c("dim", pad(pid, 6)) + " " + pad(up, 10) + " " + listens + extra;
+      return [
+        "C:\\>alfred status", "",
+        "  " + c("teal b", "◆") + " " + c("white b", "Alfred 3.0.5") + "   " + dot + c("green", " running") + c("dim", " 2d 04:11:52   C:\\Program Files\\Alfred"),
+        "",
+        "   " + c("dim", pad("PROCESS", 10) + " " + pad("STATE", 10) + "  " + pad("PID", 6) + " " + pad("UP", 10) + " LISTENS"),
+        row("backend", dot + " " + pad("running", 8), "5528", "02:15:07", ":3000"),
+        row("outbound", dot + " " + pad("running", 8), "6110", "02:15:05", ":443"),
+        row("reverse", dot + " " + pad("running", 8), "6114", "02:15:05", ":8081 " + c("dim", "→") + " odeysys", c("yellow", "   ↻ restarted 1×")),
+        row("mcp", dot + " " + pad("running", 8), "6200", "02:15:04", c("dim", "127.0.0.1 · via /mcp")),
+        "",
+        "   " + c("dim", "UI      ") + c("teal u", "http://localhost:3000") + c("dim", "  ·  ") + c("teal u", "http://192.168.1.20:3000"),
+        "   " + c("dim", "Agent   ") + "attached to 1 JVM " + c("dim", "(odeysys · pid 7720)"),
+        "",
+        "   " + c("yellow b", (Math.floor(t * 1.5) % 2 ? "↑" : "⇡") + " Alfred 3.0.6 is out") + c("dim", "  ·  install it: ") + c("white", "alfred update"),
+      ];
+    }},
+
+    update: { loop: 18, render(t) {
+      const list = [
+        { label: "Release feed", start: 0.2, end: 1.0, live: () => c("dim", "github.com/f-Baiomy/ALFRED"), done: c("white", "3.0.6 is out") + c("dim", " · running 3.0.5 · 146 MB · released 2026-10-12"),
+          doneSub: ["      " + c("dim", "perf(install): the installer comes down over many connections at once"),
+                    "      " + c("dim", "fix(status): …  (alfred update --check shows all notes)")] },
+        { label: "Downloading", start: 1.4, end: 8.0, live: downloadLive(false), done: c("dim", "146 MB in 1 min 44 s · 1.4 MB/s") },
+        { label: "Checksum", start: 8.0, end: 8.7, live: () => c("dim", "sha256"), done: c("dim", "matches the release") },
+        { label: "Installing", start: 8.7, end: 12.6, live: (f, el) => c("dim", `Alfred stops here, its files are replaced · ${Math.round(el * 11)} s`), done: c("dim", "43 s") },
+        { label: "Alfred 3.0.6", start: 12.6, end: 13.6, live: (f, el) => c("dim", `waiting for it to answer · ${Math.round(el * 7)} s`), done: c("dim", "answers · all 4 processes running") },
+      ];
+      const out = ["C:\\>alfred update", "", "  " + c("teal b", "◆") + " " + c("white b", "Updating Alfred"), "", ...steps(t, list, { labelWidth: 14 })];
+      if (t > 1.4 && t < 8) out.push("", "  " + c("white", "Ctrl+C") + c("dim", " pause or cancel"));
+      if (t >= 8.7 && t < 12.6) out.push("", "  " + c("dim", "Installing can't be paused: Alfred is being replaced. It takes about a minute."));
+      if (t >= 13.8) out.push("", "  " + c("green b", "✓ Alfred 3.0.6 is running") + c("dim", " · updated in 2 min 31 s · ") + c("teal u", "http://localhost:3000"));
+      return out;
+    }},
+
+    // Ctrl+C during the download: a choice, then (later) resume from where it paused.
+    updatePause: { loop: 22, render(t) {
+      const out = ["C:\\>alfred update", "", "  " + c("teal b", "◆") + " " + c("white b", "Updating Alfred"), "",
+                   "  " + c("green", "✓") + " " + pad("Release feed", 14) + " " + c("white", "3.0.6 is out") + c("dim", " · 146 MB")];
+      const pausedAt = 0.58;
+      if (t < 3.5) {
+        const f = clamp(t / 6, 0, pausedAt);
+        out.push("  " + c("teal", spin(t)) + " " + c("white b", pad("Downloading", 14)) + " " + downloadLive(false)(f, t));
+        out.push("", "  " + c("white", "Ctrl+C") + c("dim", " pause or cancel"));
+        return out;
+      }
+      out.push("  " + c("yellow", "‖") + " " + c("white b", pad("Downloading", 14)) + " " + bar(pausedAt, 24) + " " + c("white", " 58%") + c("dim", "   85 of 146 MB · on hold"));
+      out.push("^C", "");
+      out.push("  " + c("white b", "Stop the update?"));
+      const choice = t < 6.2 ? null : "p";
+      const opt = (key, name, what, picked) => "    " + (picked ? c("teal b", "›") : " ") + " " + c(picked ? "teal b" : "white b", key) + "  " + c(picked ? "white b" : "white", pad(name, 8)) + c("dim", what);
+      out.push(opt("p", "Pause", "stop now, keep the 85 MB downloaded · alfred update continues from there", choice === "p"));
+      out.push(opt("c", "Cancel", "stop now and delete what was downloaded · the next update starts over", false));
+      out.push(opt("↵", "Continue", "keep downloading", false));
+      out.push("    " + c("dim", "choose: ") + (choice ? c("white", choice) : (Math.floor(t * 2) % 2 ? "▌" : " ")));
+      if (t < 6.6) return out;
+      out.push("", "  " + c("yellow b", "‖ Update paused") + c("dim", " at 85 of 146 MB (58%) · kept in C:\\Program Files\\Alfred\\data\\updates"));
+      out.push("    " + c("dim", "continue: ") + c("white", "alfred update") + c("dim", "    discard: ") + c("white", "alfred update --cancel"));
+      if (t < 9) return out;
+      out.push("", "C:\\>alfred status", c("dim", "  … (process table) …"),
+               "   " + c("yellow b", "‖ Update to 3.0.6 paused at 58%") + c("dim", " · ") + c("white", "alfred update") + c("dim", " continues · ") + c("white", "alfred update --cancel") + c("dim", " discards"));
+      if (t < 11.5) return out;
+      out.push("", "C:\\>alfred update", "");
+      const f2 = clamp(pausedAt + (t - 12.2) / 10, pausedAt, 1);
+      out.push("  " + c("green", "✓") + " " + pad("Release feed", 14) + " " + c("white", "3.0.6") + c("dim", " · same release as the paused download"));
+      if (t < 12.2) out.push("  " + c("teal", spin(t)) + " " + c("white b", pad("Resuming", 14)) + " " + c("dim", "checking the 85 MB already here"));
+      else if (f2 < 1) out.push("  " + c("teal", spin(t)) + " " + c("white b", pad("Downloading", 14)) + " " + downloadLive(false)(f2, t) + c("teal", "  resumed"));
+      else out.push("  " + c("green", "✓") + " " + pad("Downloading", 14) + " " + c("dim", "146 MB · 85 MB were already here, 61 MB fetched now"));
+      return out;
+    }},
+
+    updateCancel: { loop: 12, render(t) {
+      const out = ["C:\\>alfred update", "", "  " + c("teal b", "◆") + " " + c("white b", "Updating Alfred"), "",
+                   "  " + c("green", "✓") + " " + pad("Release feed", 14) + " " + c("white", "3.0.6 is out") + c("dim", " · 146 MB")];
+      if (t < 2.5) {
+        out.push("  " + c("teal", spin(t)) + " " + c("white b", pad("Downloading", 14)) + " " + downloadLive(false)(clamp(t / 6, 0, 0.31), t));
+        return out;
+      }
+      out.push("  " + c("yellow", "‖") + " " + c("white b", pad("Downloading", 14)) + " " + bar(0.31, 24) + " " + c("white", " 31%") + c("dim", "   45 of 146 MB · on hold"));
+      out.push("^C", "", "  " + c("white b", "Stop the update?"));
+      const picked = t >= 4.6;
+      out.push("      " + c("white b", "p") + "  " + c("white", pad("Pause", 8)) + c("dim", "stop now, keep the 45 MB downloaded · alfred update continues from there"));
+      out.push("    " + (picked ? c("teal b", "›") : " ") + " " + c(picked ? "teal b" : "white b", "c") + "  " + c(picked ? "white b" : "white", pad("Cancel", 8)) + c("dim", "stop now and delete what was downloaded · the next update starts over"));
+      out.push("      " + c("white b", "↵") + "  " + c("white", pad("Continue", 8)) + c("dim", "keep downloading"));
+      out.push("    " + c("dim", "choose: ") + (picked ? c("white", "c") : (Math.floor(t * 2) % 2 ? "▌" : " ")));
+      if (t < 5) return out;
+      out.push("", "  " + c("white b", "✗ Update cancelled") + c("dim", " · deleted 45 MB from data\\updates · Alfred 3.0.5 keeps running"));
+      out.push("    " + c("dim", "the next ") + c("white", "alfred update") + c("dim", " starts from 0 MB"));
+      return out;
+    }},
+
+    help: { loop: 4, render(t) {
+      const cmd = (name, args, what) => "    " + c("white", pad(name, 9)) + c("teal", pad(args, 26)) + c("dim", what);
+      return [
+        "C:\\>alfred help", "",
+        "  " + c("teal b", "◆") + " " + c("white b", "Alfred 3.0.5") + "   " + c("green", "●") + c("green", " running") + c("dim", " · ") + c("teal u", "http://localhost:3000"),
+        "",
+        "  " + c("white b", "Run Alfred") + c("dim", "                    (just ") + c("white", "alfred") + c("dim", " opens the live panel)"),
+        cmd("start", "", "start Alfred (the service, when installed)"),
+        cmd("stop", "", "stop it"),
+        cmd("restart", "[--proxies]", "restart everything, or only the two proxies"),
+        cmd("status", "", "what runs, since when, the UI addresses"),
+        cmd("logs", "[name] [-f]", "backend, outbound, reverse, mcp, log_agent, supervisor"),
+        "",
+        "  " + c("white b", "Connect Java apps"),
+        cmd("jvms", "", "list the Java apps on this machine"),
+        cmd("attach", "<pid> [--db-capture on]", "log one app's calls, statements and log lines"),
+        cmd("detach", "<pid>", "let it go"),
+        "",
+        "  " + c("white b", "Settings"),
+        cmd("config", "list | get | set <KEY> <value>", "settings in .env"),
+        cmd("project", "list | add | remove …", "the projects the reverse proxy fronts"),
+        "",
+        "  " + c("white b", "Look after it"),
+        cmd("", "", ""),
+        cmd("doctor", "[--json]", "check processes, ports, agent, disk, storage, updates"),
+        cmd("update", "[--check | --cancel]", "install a new release · Ctrl+C pauses or cancels"),
+        cmd("version", "", "the version here"),
+        cmd("uninstall", "[--keep-data]", "remove Alfred"),
+        "",
+        "  " + c("dim", "More: ") + c("white", "alfred <command> --help") + c("dim", " · exit codes: ") + c("white", "alfred help --codes"),
+      ];
+    }},
+
+    logs: { loop: 9, render(t) {
+      // Each line exactly as in the file; only the timestamp is dimmed and the level coloured.
+      const lines = [
+        ["2026-10-12 12:41:07.112", " INFO", " 5528 --- [nio-5000-exec-3] c.f.a.b.calls.CallsService : stored call 18422 POST /api/orders → 201 (212 ms)"],
+        ["2026-10-12 12:41:07.530", " INFO", " 5528 --- [   triage-1] c.f.a.b.triage.TriageService : marked 18422: ok"],
+        ["2026-10-12 12:41:08.004", " WARN", " 5528 --- [  retention] c.f.a.b.internal.Retention : retention pass deleted 200 calls (count cap 1500)"],
+        ["2026-10-12 12:41:09.881", " INFO", " 5528 --- [nio-5000-exec-7] c.f.a.b.calls.CallsService : stored call 18423 GET /api/orders/77 → 200 (35 ms)"],
+        ["2026-10-12 12:41:10.240", "ERROR", " 5528 --- [   ingest-2] c.f.a.b.dbcapture.Ingest : batch from agent 7720 rejected: key expired (agent will retry)"],
+        ["2026-10-12 12:41:11.003", " INFO", " 5528 --- [nio-5000-exec-1] c.f.a.b.calls.CallsService : stored call 18424 GET /health → 200 (2 ms)"],
+      ];
+      const shown = Math.min(lines.length, Math.floor(t * 1.2) + 2);
+      const lvl = l => l.includes("ERROR") ? c("red b", l) : l.includes("WARN") ? c("yellow b", l) : c("blue", l);
+      const out = ["C:\\>alfred logs backend -f", "",
+                   "  " + c("teal b", "◆") + " " + c("white b", "backend.log") + c("dim", "  C:\\Program Files\\Alfred\\data\\log\\backend.log · last 200 lines, then live · Ctrl+C to stop"), ""];
+      for (const [ts, l, rest] of lines.slice(0, shown)) out.push(c("dim", ts) + " " + lvl(l) + (l.includes("ERROR") ? c("red", rest) : esc(rest)));
+      if (shown >= lines.length && t > 7.2) out.push("^C", "  " + c("dim", "stopped following backend.log"));
+      return out;
+    }},
+
+    ps1fail: { loop: 11, render(t) {
+      const list = [
+        { label: "Checks", start: 0.2, end: 0.6, done: c("dim", "administrator · 64-bit Windows · PowerShell 5.1") },
+        { label: "Latest release", start: 0.6, end: 1.2, done: c("white", "Alfred 3.0.5") + c("dim", " · 146 MB") },
+        { label: "Downloading", start: 1.2, end: 5.6, live: downloadLive(false), done: c("dim", "146 MB in 1 min 26 s") },
+        { label: "Checksum", start: 5.6, end: 6.4, live: () => c("dim", "sha256"), fail: t >= 6.4,
+          failText: c("red", "does not match the release"),
+          failSub: ["      " + c("dim", "expected ") + c("white", "917367c9…bce0da"),
+                    "      " + c("dim", "got      ") + c("red", "4be1f0a2…09d7c1"),
+                    "",
+                    "  " + c("white b", "Nothing was installed") + c("dim", " · the download was deleted."),
+                    "  " + c("dim", "Try again in a minute. If it keeps happening, a proxy or antivirus may be changing the file:"),
+                    "    " + c("teal", "$env:ALFRED_RELEASE_URL") + c("dim", " = a mirror's latest.json, then run the one-liner again.")] },
+        { label: "Installing", start: 99, end: 100 },
+        { label: "Alfred answers", start: 99, end: 100 },
+      ];
+      return [c("blue", "PS C:\\Users\\fathy>") + " irm https://raw.githubusercontent.com/f-Baiomy/ALFRED/master/install.ps1 | iex",
+              ...banner(false, "installer · HTTP traffic in and out of your Java app"), ...steps(t, list)];
+    }},
+
+    ascii: { loop: 14, render(t) {
+      const list = [
+        { label: "Checks", start: 0.2, end: 0.8, done: c("dim", "administrator, 64-bit Windows, PowerShell 5.1") },
+        { label: "Latest release", start: 0.8, end: 1.6, live: () => c("dim", "reading latest.json"), done: c("white", "Alfred 3.0.5") + c("dim", ", 146 MB") },
+        { label: "Downloading", start: 1.6, end: 7, live: (f, el) => bar(f, 20, true) + " " + c("white", lpad(Math.round(f * 100), 3) + "%") + c("dim", `  ${Math.round(f * MB)} of ${MB} MB, 1.7 MB/s, ${Math.max(1, Math.round((1 - f) * 86))} s left`), done: c("dim", "146 MB in 1 min 26 s, 1.7 MB/s") },
+        { label: "Checksum", start: 7, end: 7.6, done: c("dim", "matches the release") },
+        { label: "Installing", start: 7.6, end: 10, live: (f, el) => c("dim", `${Math.round(el * 16)} s`), done: c("dim", "C:\\Program Files\\Alfred, 41 s") },
+        { label: "Alfred answers", start: 10, end: 10.8, done: c("dim", "in 6 s") },
+      ];
+      const out = [c("white", "PS C:\\Users\\fathy>") + " irm https://raw.githubusercontent.com/f-Baiomy/ALFRED/master/install.ps1 | iex",
+                   ...banner(true, "installer"), ...steps(t, list, { ascii: true })];
+      if (t >= 11) {
+        out.push("");
+        out.push(...box("Alfred 3.0.5 is running", [
+          { text: "UI    http://localhost:3000", html: c("dim", "UI  ") + "  " + c("teal", "http://localhost:3000") },
+          { text: "Next  alfred status", html: c("dim", "Next") + "  " + c("white", "alfred status") },
+        ], true));
+      }
+      return out;
+    }},
+  };
+
+  // ---- new screens -----------------------------------------------------------------------------------------------
+  const vis = s => s.replace(/<[^>]+>/g, "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&").length;
+  const padH = (html, n) => html + " ".repeat(Math.max(0, n - vis(html)));
+  const SPARK = "▁▂▃▄▅▆▇█";
+  const spark = (seed, t, n) => {
+    let s = "";
+    for (let i = 0; i < n; i++) {
+      const x = i + Math.floor(t * 2);
+      const v = (Math.sin(x * 0.9 + seed) + Math.sin(x * 0.37 + seed * 2) + 2) / 4;
+      s += SPARK[Math.min(7, Math.floor(v * 8))];
+    }
+    return s;
+  };
+
+  Object.assign(scenes, {
+    panel: { loop: 18, render(t) {
+      const W = 104, LW = 51;
+      const clock = new Date(Date.UTC(2026, 9, 12, 12, 41, 7 + Math.floor(t))).toISOString().slice(11, 19);
+      const restart = t >= 9.4 && t < 14.2;
+      const procState = (i) => {
+        if (!restart) return [c("green", "●"), c("green", "running")];
+        const k = t - 9.4, stopAt = 0.4 + i * 0.3, startAt = 2.2 + i * 0.5;
+        if (k < stopAt) return [c("green", "●"), c("green", "running")];
+        if (k < startAt) return [c("yellow", "◐"), c("yellow", k < 2 ? "stopping" : "starting")];
+        return [c("green", "●"), c("green", "running")];
+      };
+      const procs = [["backend", ":3000", "02:15:07"], ["outbound", ":443", "02:15:05"], ["reverse", ":8081 → odeysys", "02:15:05"], ["mcp", "local, /mcp", "02:15:04"]];
+      const up = s => restart || t >= 14.2 ? "00:00:" + lpad(Math.max(0, Math.floor((t - 11.6) * 3)), 2).replace(/ /g, "0") : s;
+      const left = [c("dim b", "PROCESSES")];
+      procs.forEach(([n, l, u], i) => { const [d, w] = procState(i); left.push(`${d} ${pad(n, 9)} ${padH(w, 9)} ${c("dim", pad(up(u), 9))}${c("dim", l)}`); });
+      left.push("", c("dim b", "JAVA APPS"),
+        c("green", "●") + " " + pad("odeysys", 9) + c("dim", "pid 7720 · ") + c("teal", "◆ db ▤ logs ⬢ redis"),
+        c("dim", "○") + " " + pad("billing", 9) + c("dim", "pid 9012 · not attached · ") + c("white", "a") + c("dim", " attach"),
+        "", c("dim b", "STORAGE"),
+        pad("calls", 11) + bar(0.21, 14) + c("dim", "  2.1 of 10 GB"),
+        pad("inbound", 11) + bar(0.61, 14) + c("dim", "  912 of 1500 calls"),
+        pad("db capture", 11) + bar(0.2, 14) + c("dim", "  0.4 of 2 GB"));
+      const calls = [
+        ["IN ", "POST", "/api/orders", "201", "212 ms"], ["OUT", "GET ", "payments.example/v2/charge", "200", "88 ms"],
+        ["IN ", "GET ", "/api/orders/77", "500", "35 ms"], ["IN ", "GET ", "/api/customers?page=2", "200", "41 ms"],
+        ["OUT", "POST", "sms.example/send", "202", "120 ms"], ["IN ", "PUT ", "/api/orders/77/status", "200", "64 ms"],
+        ["IN ", "GET ", "/health", "200", "2 ms"], ["OUT", "GET ", "fx.example/rates", "504", "15.0 s"],
+      ];
+      const offset = Math.floor(t * 0.9) % calls.length;
+      const right = [c("dim b", "TRAFFIC") + c("dim", "  last 60 s"),
+        pad("inbound", 10) + c("teal", spark(1, t, 24)) + c("white", "  42/min"),
+        pad("outbound", 10) + c("blue", spark(4, t, 24)) + c("white", "  18/min"),
+        pad("attention", 10) + c("red", "▲ 3 errors") + c("dim", " · ") + c("yellow", "7 slow") + c("dim", " · ") + c("white", "t") + c("dim", " triage"),
+        "", c("dim b", "LATEST CALLS")];
+      for (let i = 0; i < 7; i++) {
+        const [dir, m, path, code, ms] = calls[(offset + i) % calls.length];
+        const sec = 7 + Math.floor(t) - i;
+        const codeC = code.startsWith("5") ? c("red b", code) : code.startsWith("4") ? c("yellow", code) : c("green", code);
+        right.push(c("dim", "12:41:" + lpad(((sec % 60) + 60) % 60, 2).replace(/ /g, "0")) + " " + c(dir === "IN " ? "teal" : "blue", dir) + " " + c("white", m) + " " + pad(path.length > 24 ? path.slice(0, 23) + "…" : path, 24) + " " + codeC + " " + c("dim", lpad(ms, 7)));
+      }
+      const head = "  " + c("teal b", "◆") + " " + c("white b", "Alfred 3.0.5") + "  " + (restart ? c("yellow", "◐ restarting") : c("green", "● running") + c("dim", " 2d 04:11")) + "   " +
+                   c("teal u", "http://localhost:3000") + "   " + c("yellow", "↑ 3.0.6") + c("dim", "  u update");
+      const out = ["C:\\>alfred", "", padH(head, W - 9) + c("dim", clock), "  " + c("dim", "─".repeat(W - 2))];
+      const rows = Math.max(left.length, right.length);
+      for (let i = 0; i < rows; i++) out.push("  " + padH(left[i] || "", LW) + (right[i] || ""));
+      out.push("  " + c("dim", "─".repeat(W - 2)));
+      if (t >= 8 && t < 9.4) out.push("  " + c("white b", "Restart Alfred?") + c("dim", "  every process stops and starts, about 15 s   ") + c("white b", "y") + c("dim", " yes  ") + c("white b", "n") + c("dim", " no   ") + (t >= 8.9 ? c("white", "y") : (Math.floor(t * 2) % 2 ? "▌" : " ")));
+      else if (restart) out.push("  " + c("teal", spin(t)) + " " + c("white b", "Restarting") + c("dim", ` · ${Math.round((t - 9.4) * 3)} s · the panel keeps working; keys wait until it's done`));
+      else if (t >= 14.2 && t < 17) out.push("  " + c("green b", "✓ Restarted") + c("dim", " in 15 s · all 4 processes running"));
+      else {
+        const k = (key, what) => c("teal b", key) + " " + c("dim", what);
+        out.push("  " + [k("s", "stop"), k("r", "restart"), k("p", "proxies"), k("l", "logs"), k("t", "triage"), k("a", "attach"), k("u", "update"), k("d", "doctor"), k("o", "open UI"), k("q", "quit")].join("   "));
+      }
+      return out;
+    }},
+
+    doctor: { loop: 12, render(t) {
+      const ok = (label, s, e, done) => ({ label, start: s, end: e, done });
+      const list = [
+        ok("Alfred runs", 0.2, 0.6, c("dim", "4 processes · up 2d 04:11")),
+        ok("UI port 3000", 0.6, 1.0, c("dim", "answered by this install")),
+        ok("Outbound :443", 1.0, 1.4, c("dim", "listening · Java apps reach it via http.proxyHost")),
+        ok("Reverse :8081", 1.4, 1.9, c("dim", "→ odeysys :8080 answers")),
+        { label: "Reverse :8082", start: 1.9, end: 2.6, fail: t >= 2.6, live: () => c("dim", "→ billing :9090"), failText: c("red", "→ billing :9090: nothing answers"),
+          failSub: ["      " + c("dim", "start billing, or stop routing to it: ") + c("teal", "alfred project remove billing")] },
+        ok("Agent", 2.6, 3.2, c("dim", "odeysys pid 7720 reports · last batch 3 s ago")),
+        { label: "Disk", start: 3.2, end: 3.7, warn: t >= 3.7, warnText: c("yellow", "C: 8% free (9.6 GB)") + c("dim", " · Alfred's data uses 41 GB"),
+          warnSub: ["      " + c("dim", "lower a storage cap: ") + c("teal", "alfred config set ALFRED_CALLS_MAX_SIZE_BYTES 5GB")] },
+        ok("Storage", 3.7, 4.2, c("dim", "calls 2.1/10 GB · inbound 912/1500 · db capture 0.4/2 GB")),
+        ok("Updates", 4.2, 4.9, c("dim", "running 3.0.5 · ") + c("yellow", "3.0.6 available") + c("dim", " · feed reachable")),
+        ok("Settings", 4.9, 5.3, c("dim", ".env readable · 2 projects · edits allowed from 127.0.0.1")),
+      ];
+      const out = ["C:\\>alfred doctor", "", "  " + c("teal b", "◆") + " " + c("white b", "Alfred doctor") + c("dim", "  checking this install and machine"), "", ...steps(t, list, { labelWidth: 15 })];
+      if (t >= 5.5) out.push("", "  " + c("green", "8 ok") + c("dim", " · ") + c("yellow", "1 warning") + c("dim", " · ") + c("red", "1 problem") + c("dim", "   exit code 1 · ") + c("white", "alfred doctor --json") + c("dim", " for scripts"));
+      return out;
+    }},
+
+    jvms: { loop: 14, render(t) {
+      const out = ["C:\\>alfred jvms", "",
+        "  " + c("teal b", "◆") + " " + c("white b", "Java apps on this machine"), "",
+        "   " + c("dim", pad("PID", 7) + pad("APP", 30) + pad("PORT", 8) + pad("PROJECT", 10) + "ALFRED"),
+        "   " + pad("7720", 7) + pad("odeysys (WildFly 26)", 30) + pad("8080", 8) + pad("odeysys", 10) + c("green", "● attached") + c("dim", " · ") + c("teal", "◆ db ▤ logs"),
+        "   " + pad("9012", 7) + pad("billing-service.jar", 30) + pad("9090", 8) + pad("billing", 10) + c("dim", "○ not attached"),
+        "   " + c("dim", pad("3344", 7) + pad("IntelliJ IDEA", 30) + pad("-", 8) + pad("-", 10) + "— not a project's app"),
+        "", "   " + c("dim", "attach one: ") + c("white", "alfred attach 9012"), ""];
+      if (t < 2) return out;
+      out.push("C:\\>alfred attach 9012 --db-capture on", "");
+      out.push(...steps(t, [
+        { label: "Found", start: 2.3, end: 2.8, done: c("white", "billing-service.jar") + c("dim", " · pid 9012 · Java 21 · same user") },
+        { label: "Agent loaded", start: 2.8, end: 4.0, live: (f, el) => c("dim", `alfred-agent.jar 3.0.5 · ${(el * 1.5).toFixed(1)} s`), done: c("dim", "alfred-agent.jar 3.0.5 · 1.6 s") },
+        { label: "CA trusted", start: 4.0, end: 4.5, done: c("dim", "inside the JVM, no trust store changed") },
+        { label: "Turned on", start: 4.5, end: 4.9, done: c("teal", "◆ db") + c("dim", " (the project's ▤ logs and ⬢ redis stay off)") },
+        { label: "First call", start: 4.9, end: 9.5, live: (f, el) => c("dim", `waiting for a request through :8082 · ${Math.round(el * 3)} s · Ctrl+C stops waiting, the agent stays`), done: c("dim", "POST /invoices · 6 statements caught") },
+      ], { labelWidth: 13 }));
+      if (t >= 9.7) out.push("", "  " + c("green b", "✓ billing is attached") + c("dim", " · see its calls: ") + c("teal u", "http://localhost:3000/?project=billing"));
+      return out;
+    }},
+
+    // An update whose new version installs but can't start (port taken): it is put back, the installer stays cached.
+    updateFail: { loop: 20, render(t) {
+      const list = [
+        { label: "Release feed", start: 0.2, end: 0.8, done: c("white", "3.0.6") + c("dim", " · 146 MB") },
+        { label: "Downloading", start: 0.8, end: 4.4, live: downloadLive(false), done: c("dim", "146 MB · kept in the download cache") },
+        { label: "Checksum", start: 4.4, end: 4.9, done: c("dim", "matches the release") },
+        { label: "Installing", start: 4.9, end: 7.4, live: (f, el) => c("dim", `Alfred stops here, its files are replaced · ${Math.round(el * 12)} s`), done: c("dim", "files in place · 3.0.5 kept aside until 3.0.6 answers") },
+        { label: "Alfred 3.0.6", start: 7.4, end: 10.4, fail: t >= 10.4, live: (f, el) => c("dim", `waiting for it to answer · ${Math.round(el * 20)} s`),
+          failText: c("red", "did not start: port 3000 is in use"),
+          failSub: ["      " + c("dim", "held by ") + c("white", "node.exe (pid 4410)") + c("dim", " · C:\\work\\dashboard\\server.js")] },
+        { label: "Put 3.0.5 back", start: 10.4, end: 11.6, live: () => c("dim", "restoring the previous files"), done: c("green", "3.0.5 is running again") + c("dim", " · nothing was lost") },
+      ];
+      const out = ["C:\\>alfred update", "", "  " + c("teal b", "◆") + " " + c("white b", "Updating Alfred"), "", ...steps(t, list, { labelWidth: 14 })];
+      if (t < 11.8) return out;
+      const pick = t >= 14 ? "p" : null;
+      const opt = (key, name, what) => "    " + (pick === key ? c("teal b", "›") : " ") + " " + c(pick === key ? "teal b" : "white b", key) + "  " + c(pick === key ? "white b" : "white", pad(name, 15)) + c("dim", what);
+      out.push("", "  " + c("white b", "3.0.6 couldn't start. What now?") + c("dim", "  (the installer is cached: no download needed)"),
+        opt("r", "Retry", "after you free port 3000 · about 45 s"),
+        opt("p", "Another port", "pick a free UI port for Alfred, then retry"),
+        opt("k", "Keep 3.0.5", "stop here · alfred update retries later from the cache"),
+        "    " + c("dim", "choose: ") + (pick ? c("white", pick) : (Math.floor(t * 2) % 2 ? "▌" : " ")));
+      if (t < 14.4) return out;
+      out.push("", "  " + c("white", "Free ports nearby: ") + c("teal", "3001") + c("dim", ", 3002, 3005 · ") + c("white", "UI port [3001]: ") + (t >= 15.4 ? c("white", "3001") : ""));
+      if (t < 15.8) return out;
+      out.push(...steps(t, [
+        { label: "UI port", start: 15.8, end: 16.2, done: c("dim", "3000 → 3001 · saved in .env") },
+        { label: "Installing", start: 16.2, end: 17.8, live: (f, el) => c("dim", `from the cache · no download · ${Math.round(el * 14)} s`), done: c("dim", "from the cache · 38 s") },
+        { label: "Alfred 3.0.6", start: 17.8, end: 18.6, live: () => c("dim", "waiting for it to answer"), done: c("dim", "answers on :3001") },
+      ], { labelWidth: 14 }));
+      if (t >= 18.8) out.push("", "  " + c("green b", "✓ Alfred 3.0.6 is running") + c("dim", " · ") + c("teal u", "http://localhost:3001") + c("dim", " (the port changed)"));
+      return out;
+    }},
+
+    // A newer release came out while 3.0.6 was paused: choose, and skip straight to the newest.
+    updateVersions: { loop: 15, render(t) {
+      const out = ["C:\\>alfred update", "", "  " + c("teal b", "◆") + " " + c("white b", "Updating Alfred") + c("dim", "  running 3.0.5"), ""];
+      const pick = t >= 4.2 ? "1" : null;
+      const row = (key, ver, when, note, tag) => "    " + (pick === key ? c("teal b", "›") : " ") + " " + c(pick === key ? "teal b" : "white b", key) + "  " +
+        c(pick === key ? "white b" : "white", pad(ver, 7)) + c("dim", pad(when, 12)) + note + (tag ? "  " + tag : "");
+      out.push("  " + c("white b", "3 newer releases"),
+        row("1", "3.1.0", "2026-10-20", c("white", "Relive SQL replay, faster triage"), c("teal", "newest · recommended")),
+        row("2", "3.0.7", "2026-10-15", c("dim", "fixes only")),
+        row("3", "3.0.6", "2026-10-12", c("dim", "install speed"), c("yellow", "‖ paused here at 58%")),
+        "    " + c("dim", "Each installer brings everything up to its version: 3.1.0 also contains 3.0.6 and 3.0.7."),
+        "    " + c("white b", "s") + c("dim", "  skip 3.0.6 and 3.0.7 and don't mention them again    ") + c("white b", "q") + c("dim", "  not now"),
+        "    " + c("dim", "choose [1]: ") + (pick ? c("white", pick) : (Math.floor(t * 2) % 2 ? "▌" : " ")), "");
+      if (t < 4.6) return out;
+      out.push(...steps(t, [
+        { label: "Download cache", start: 4.6, end: 5.2, done: c("dim", "removed the paused 3.0.6 (85 MB) · not needed for 3.1.0") },
+        { label: "Downloading", start: 5.2, end: 11, live: downloadLive(false), done: c("dim", "3.1.0 · 151 MB · kept in the download cache") },
+        { label: "Checksum", start: 11, end: 11.5, done: c("dim", "matches the release") },
+        { label: "Installing", start: 11.5, end: 13.4, live: (f, el) => c("dim", `${Math.round(el * 20)} s`), done: c("dim", "42 s") },
+        { label: "Alfred 3.1.0", start: 13.4, end: 14, done: c("dim", "answers · skipped 3.0.6 and 3.0.7") },
+      ], { labelWidth: 14 }));
+      return out;
+    }},
+
+    // The download cache: a second try (or the one-liner run again) never downloads twice.
+    cache: { loop: 13, render(t) {
+      const out = [c("blue", "PS C:\\Users\\fathy>") + " irm https://raw.githubusercontent.com/f-Baiomy/ALFRED/master/install.ps1 | iex", "",
+        "  " + c("teal b", "◆") + " " + c("white b", "Alfred") + c("dim", "  installer"), ""];
+      out.push(...steps(t, [
+        { label: "Administrator", start: 0.2, end: 0.5, done: c("dim", "yes · 64-bit Windows 10") },
+        { label: "Existing install", start: 0.5, end: 0.9, done: c("dim", "none") },
+        { label: "Ports", start: 0.9, end: 1.6, fail: t >= 1.6, failText: c("red", "443 is in use by ") + c("white", "httpd.exe (pid 2210, Apache)"),
+          failSub: ["      " + c("dim", "Alfred's outbound proxy needs 443. Stop that program, or install with another port:"),
+                    "      " + c("teal", "$env:ALFRED_INSTALL_ARGS = '/PROXYPORT=8443'") + c("dim", "; then the one-liner again"),
+                    "",
+                    "  " + c("white b", "Stopped before downloading") + c("dim", " · nothing changed on this machine"),
+                    ""] },
+      ]));
+      if (t < 4) return out;
+      out.push(c("blue", "PS C:\\Users\\fathy>") + " Stop-Service Apache2.4; irm …/install.ps1 | iex", "");
+      out.push(...steps(t, [
+        { label: "Ports", start: 4.4, end: 4.9, done: c("dim", "3000 and 443 free") },
+        { label: "Latest release", start: 4.9, end: 5.4, done: c("white", "Alfred 3.0.5") + c("dim", " · 146 MB") },
+        { label: "Downloading", start: 5.4, end: 6.0, live: () => c("dim", "checking the cache"), done: c("teal", "already here") + c("dim", " · cached 10 min ago · C:\\ProgramData\\Alfred\\downloads") },
+        { label: "Checksum", start: 6.0, end: 6.6, done: c("dim", "matches the release (checked again, never trusted blindly)") },
+        { label: "Installing", start: 6.6, end: 9.4, live: (f, el) => c("dim", `${Math.round(el * 14)} s`), done: c("dim", "41 s") },
+        { label: "Alfred answers", start: 9.4, end: 10, done: c("dim", "in 6 s") },
+      ]));
+      if (t >= 10.2) out.push("", "  " + c("green b", "✓ Alfred 3.0.5 is running") + c("dim", " · took 52 s, no download"));
+      return out;
+    }},
+
+    typo: { loop: 8, render(t) {
+      const out = ["C:\\>alfred stauts", "",
+        "  " + c("red b", "✗") + " " + c("white", "No command ") + c("white b", "stauts") + c("white", ". Did you mean ") + c("teal b", "status") + c("white", "?"),
+        "    " + c("dim", "run: ") + c("white", "alfred status") + c("dim", "     all commands: ") + c("white", "alfred help"), ""];
+      if (t > 2.5) out.push("C:\\>alfred status", "", "  " + c("teal b", "◆") + " " + c("white b", "Alfred 3.0.5") + "   " + c("dim", "○ stopped") + c("dim", " · C:\\Program Files\\Alfred"),
+        "    " + c("dim", "start it: ") + c("white", "alfred start") + c("dim", "     why it stopped: ") + c("white", "alfred logs supervisor"));
+      return out;
+    }},
+  });
+
+  // ---- before screens (what the code prints today) ------------------------------------------------------------
+  const before = {
+    "ps1-before": [
+      c("blue", "PS C:\\Users\\fathy>") + " irm https://raw.githubusercontent.com/f-Baiomy/ALFRED/master/install.ps1 | iex",
+      ">> reading https://github.com/f-Baiomy/ALFRED/releases/latest/download/latest.json",
+      ">> downloading Alfred 3.0.5",
+      "   146 of 146 MB  1.7 MB/s",
+      ">> checksum ok",
+      ">> running the installer",
+      c("dim", "   (about 40 s with no output)"),
+      c("green", '>> Alfred is installed. Run "alfred status" in a new terminal for its address.'),
+      c("blue", "PS C:\\Users\\fathy>"),
+    ],
+    "sh-before": [
+      c("green", "ubuntu@build-01") + ":" + c("blue", "~") + "$ curl -fsSL https://raw.githubusercontent.com/f-Baiomy/ALFRED/master/install.sh | sudo sh",
+      ">> reading https://github.com/f-Baiomy/ALFRED/releases/latest/download/latest.json",
+      ">> downloading Alfred 3.0.5",
+      "   145 of 145 MB",
+      ">> checksum ok",
+      ">> running the installer",
+      "Alfred setup",
+      "  ✓ unpacked Alfred 3.0.5",
+      "  Upgrading 3.0.4 -> 3.0.5 (settings and recorded data are kept)",
+      "  ✓ stopped the running service",
+      "  ✓ program files in /opt/alfred",
+      "  ✓ owned by alfred",
+      "  ✓ upgrade recorded in the settings history",
+      '  ✓ service "alfred" installed (starts at boot)',
+      "  ✓ started. UI at http://localhost:3000 · http://10.0.0.12:3000",
+      "  Next: 'alfred jvms' lists Java apps, 'alfred attach <pid>' logs one. 'alfred status' shows what runs.",
+    ],
+    "start-before": [
+      "C:\\>alfred start",
+      c("dim", "(up to 60 s with no output)"),
+      "Starting Alfred... UI at http://localhost:3000 · http://192.168.1.20:3000",
+      "",
+      "C:\\>",
+    ],
+    "startfail-before": [
+      "C:\\>alfred start",
+      c("dim", "(60 s with no output)"),
+      "Starting Alfred... it did not answer within 60 s.",
+      "  Port 3000 is answered by another Alfred: C:\\alfred-old (3.0.2). This install (C:\\Program Files\\Alfred) cannot listen there - change ALFRED_UI_PORT or stop that other install.",
+      "  BACKEND: starting",
+      "  Logs: alfred logs supervisor, alfred logs backend",
+    ],
+    "stop-before": [
+      "C:\\>alfred stop",
+      c("dim", "(a few seconds, then nothing is printed)"),
+      "",
+      "C:\\>",
+    ],
+    "restart-before": [
+      "C:\\>alfred restart",
+      c("dim", "(15-60 s with no output)"),
+      "Alfred restarted. UI at http://localhost:3000 · http://192.168.1.20:3000",
+      "",
+      "C:\\>alfred restart --proxies",
+      "Restarting proxies...",
+      "",
+      "C:\\>",
+    ],
+    "status-before": [
+      "C:\\>alfred status",
+      "Alfred 3.0.5  ·  supervisor pid 4120  ·  C:\\Program Files\\Alfred",
+      "  BACKEND    RUNNING    pid 5528    up 02:15:07",
+      "             http://127.0.0.1:3000",
+      "  OUTBOUND   RUNNING    pid 6110    up 02:15:05",
+      "             127.0.0.1:443",
+      "  REVERSE    RUNNING    pid 6114    up 02:15:05  restarts 1",
+      "             0.0.0.0:8081 -> odeysys",
+      "  MCP        RUNNING    pid 6200    up 02:15:04",
+      "UI: http://localhost:3000 · http://192.168.1.20:3000",
+      "Update available: Alfred 3.0.6 - install it with 'alfred update' or from the Settings tab.",
+    ],
+    "update-before": [
+      "C:\\>alfred update",
+      "Update available: Alfred 3.0.6 (running 3.0.5, 146 MB), released 2026-10-12",
+      "  perf(install): the installer comes down over many connections at once",
+      "  …",
+      "Checked 2026-10-12T09:58:11Z from https://github.com/f-Baiomy/ALFRED/releases/latest/download/latest.json.",
+      "Installing Alfred 3.0.6: the installer is downloaded, verified and run. Alfred stops and starts again in about a minute; 'alfred status' then shows the new version, 'alfred update --check' the outcome.",
+      "",
+      "C:\\>",
+    ],
+    "help-before": [
+      "C:\\>alfred",
+      'alfred.py - the "alfred" command of a native install (specs/012-server-program contracts/cli.md).',
+      "",
+      "    alfred start | stop | restart            through the system service when installed, else a background supervisor",
+      "    alfred restart --proxies                 restart only the two proxies (the backend and the UI stay up)",
+      "    alfred status                            what runs, since when, and the UI addresses",
+      "    alfred run                               the supervisor in the foreground (what the service runs)",
+      "    alfred logs [backend|outbound|reverse|mcp|log_agent|supervisor] [-f]   (proxy = outbound)",
+      "    alfred version",
+      "    alfred update [--check]                  check the release feed; without --check, install the update",
+      "    alfred uninstall [--keep-data]",
+      "    alfred config ... / project ...          settings (see config_cli.py)",
+      "    alfred jvms / attach / detach            Java apps (see attach_cli.py)",
+      "",
+      "Exit codes: 0 ok, 1 error, 2 usage, 3 validation refused, 4 conflict, 5 not allowed.",
+    ],
+    "logs-before": [
+      "C:\\>alfred logs backend -f",
+      "2026-10-12 12:41:07.112  INFO 5528 --- [nio-5000-exec-3] c.f.a.b.calls.CallsService : stored call 18422 POST /api/orders → 201 (212 ms)",
+      "2026-10-12 12:41:07.530  INFO 5528 --- [   triage-1] c.f.a.b.triage.TriageService : marked 18422: ok",
+      "2026-10-12 12:41:08.004  WARN 5528 --- [  retention] c.f.a.b.internal.Retention : retention pass deleted 200 calls (count cap 1500)",
+      "2026-10-12 12:41:09.881  INFO 5528 --- [nio-5000-exec-7] c.f.a.b.calls.CallsService : stored call 18423 GET /api/orders/77 → 200 (35 ms)",
+      "2026-10-12 12:41:10.240 ERROR 5528 --- [   ingest-2] c.f.a.b.dbcapture.Ingest : batch from agent 7720 rejected: key expired (agent will retry)",
+      "^CTraceback (most recent call last):",
+      '  File "C:\\Program Files\\Alfred\\app\\launcher\\alfred.py", line 318, in cmd_logs',
+      "    time.sleep(0.5)",
+      "KeyboardInterrupt",
+    ],
+    "ps1fail-before": [
+      c("blue", "PS C:\\Users\\fathy>") + " irm https://raw.githubusercontent.com/f-Baiomy/ALFRED/master/install.ps1 | iex",
+      ">> reading https://github.com/f-Baiomy/ALFRED/releases/latest/download/latest.json",
+      ">> downloading Alfred 3.0.5",
+      "   146 of 146 MB  1.7 MB/s",
+      c("red", "alfred install: checksum mismatch - expected 917367c9254594e49ee36b34ad4b764cd66a8c381713bf7130e77db3ddbce0da, got 4be1f0a2…09d7c1. Nothing was installed."),
+    ],
+    "cache-before": [
+      c("blue", "PS C:\\Users\\fathy>") + " irm https://raw.githubusercontent.com/f-Baiomy/ALFRED/master/install.ps1 | iex",
+      ">> reading https://github.com/f-Baiomy/ALFRED/releases/latest/download/latest.json",
+      ">> downloading Alfred 3.0.5",
+      "   146 of 146 MB  1.7 MB/s",
+      ">> checksum ok",
+      ">> running the installer",
+      c("red", "alfred install: the installer exited with 2."),
+      c("dim", "(no reason given; the download in %TEMP% is deleted)"),
+      "",
+      c("blue", "PS C:\\Users\\fathy>") + " irm …/install.ps1 | iex",
+      ">> reading https://github.com/f-Baiomy/ALFRED/releases/latest/download/latest.json",
+      ">> downloading Alfred 3.0.5",
+      c("dim", "(all 146 MB again)"),
+    ],
+    "jvms-before": [
+      "C:\\>alfred jvms",
+      "PID      NAME                                     USER         ALFRED           NOTE",
+      "7720     org.jboss.modules.Main                   fathy        db,logs",
+      "9012     billing-service.jar                      fathy        -",
+      "3344     com.intellij.idea.Main                   fathy        -",
+      "",
+      "C:\\>alfred attach 9012 --db-capture on",
+      "PID 9012 (billing-service.jar): Alfred [db]",
+      "",
+      "C:\\>",
+    ],
+    "typo-before": [
+      "C:\\>alfred stauts",
+      "Unknown command: stauts",
+      "",
+      'alfred.py - the "alfred" command of a native install (specs/012-server-program contracts/cli.md).',
+      "",
+      "    alfred start | stop | restart            through the system service when installed, else a background supervisor",
+      "    …  (the whole help text again)",
+      "",
+      "C:\\>alfred status",
+      "Alfred 3.0.5 is not running (home C:\\Program Files\\Alfred).",
+    ],
+    "panel-before": [
+      "C:\\>alfred",
+      'alfred.py - the "alfred" command of a native install (specs/012-server-program contracts/cli.md).',
+      "",
+      "    alfred start | stop | restart            through the system service when installed, else a background supervisor",
+      "    …",
+      "",
+      c("dim", "(no live view in the terminal: status is a one-off snapshot,"),
+      c("dim", " traffic and storage are only in the web UI)"),
+    ],
+    "doctor-before": [
+      "C:\\>alfred doctor",
+      "Unknown command: doctor",
+      "",
+      'alfred.py - the "alfred" command of a native install (specs/012-server-program contracts/cli.md).',
+      "    …",
+      "",
+      c("dim", "(no single check: problems show up one at a time,"),
+      c("dim", " in the UI, in alfred status, or in the logs)"),
+    ],
+    "plain-after": [
+      "$ alfred start | tee start.log",
+      "Starting Alfred 3.0.5",
+      "  ok   service    started, 0.4 s",
+      "  ok   outbound   :443, 1.1 s",
+      "  ok   reverse    :8081, 1.9 s, odeysys",
+      "  ok   backend    :3000, 11.2 s",
+      "  ok   mcp        0.6 s",
+      "Alfred is up in 14 s: http://localhost:3000 · http://192.168.1.20:3000",
+      "",
+      c("dim", "(no colour codes, no redraws: one line per finished step,"),
+      c("dim", " what the installers capture and what CI logs show)"),
+    ],
+  };
+  for (const [id, lines] of Object.entries(before)) document.getElementById(id).innerHTML = lines.map(l => l.includes("<span") ? l : esc(l)).join("\n");
+
+  // ---- animation loop -----------------------------------------------------------------------------------------
+  const nodes = [...document.querySelectorAll("pre[data-scene]")];
+  let origin = performance.now(), paused = false, pausedAt = 0;
+  const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function frame(now) {
+    const elapsed = ((paused ? pausedAt : now) - origin) / 1000;
+    for (const node of nodes) {
+      const scene = scenes[node.dataset.scene];
+      const t = reduce ? scene.loop - 0.01 : elapsed % scene.loop;
+      node.innerHTML = scene.render(t).join("\n");
+      if (scene.title) {
+        const title = node.parentElement.querySelector(".bar span");
+        title.textContent = scene.title(t);
+      }
+      if (scene.taskbar) {
+        const strip = node.parentElement.parentElement.querySelector(".taskbar");
+        if (strip) strip.innerHTML = scene.taskbar(t);
+      }
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+  document.getElementById("restart").onclick = () => { origin = performance.now(); if (paused) pausedAt = origin; };
+  const pauseBtn = document.getElementById("pause");
+  pauseBtn.onclick = () => {
+    if (paused) { origin += performance.now() - pausedAt; paused = false; pauseBtn.textContent = "Pause"; }
+    else { pausedAt = performance.now(); paused = true; pauseBtn.textContent = "Play"; }
+  };
+})();
+</script>
+</body>
+</html>
