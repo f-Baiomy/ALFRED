@@ -60,7 +60,7 @@ export class CallListComponent {
   /** Non-null only on a session-cycle detail page - see CALL_REORDER_STATE. Not private: the template reads it directly to wire a spacer chip's rename output straight to the store. */
   readonly reorderState = inject(CALL_REORDER_STATE, { optional: true });
 
-  /** Auto-load the next page on scroll instead of a manual "Load more" button - the dashboard's default. The session-cycle detail page opts out (still gets a button, no infinite scroll) since backend pagination is deliberately not enabled for captured calls - see SessionCyclesService.paginationEnabled's doc. */
+  /** Auto-load the next page on scroll instead of a manual "Load more" button - the default for every list. */
   readonly infiniteScroll = input(true);
 
   readonly trackByCallKey = callKey;

@@ -84,7 +84,9 @@ function setupWithSources(
   const apiStub: Pick<SessionCyclesApiService, 'listCalls' | 'removeCall' | 'removeCalls' | 'clearCalls' | 'getDetail' | 'getCallOverlaps' | 'listSpacers'> = {
     listCalls: (_id, query, source = 'external') => {
       listCalls.push({ query, source });
-      return of(source === 'internal' ? { calls: internalCaptured, total: internalTotal } : { calls: externalCaptured, total: externalTotal });
+      // Pages like the real backend with paged=true: offset/limit honoured, total unchanged.
+      const all = source === 'internal' ? internalCaptured : externalCaptured;
+      return of({ calls: all.slice(query.offset, query.offset + query.limit), total: source === 'internal' ? internalTotal : externalTotal });
     },
     removeCall: (id, callId, source) => {
       removeCalls.push({ id, callId, source });
@@ -191,6 +193,24 @@ describe('SessionCycleDetailStateService', () => {
     tick();
 
     expect(state.calls().length).toBe(1);
+    discardPeriodicTasks();
+  }));
+
+  it('loadMore past 200 calls fetches the next page - the backend caps a page at 200 and must be asked with an offset', fakeAsync(() => {
+    const calls = Array.from({ length: 250 }, (_, i) =>
+      makeCaptured(makeCall({ id: `ext-${i}`, timestamp: new Date(Date.UTC(2026, 0, 1, 0, 0, i)).toISOString() }))
+    );
+    const { state, listCalls } = setupWithSources(calls, [], 250);
+    tick();
+    expect(state.calls().length).toBe(200);
+
+    listCalls.length = 0;
+    state.loadMore();
+    tick();
+
+    expect(listCalls.every((c) => c.query.offset >= 200)).toBe(true);
+    expect(state.calls().length).toBe(250);
+    expect(new Set(state.calls().map((c) => c.id)).size).toBe(250);
     discardPeriodicTasks();
   }));
 

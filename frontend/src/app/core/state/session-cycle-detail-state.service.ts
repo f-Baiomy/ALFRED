@@ -4,7 +4,7 @@ import { Injectable, computed, effect, inject, signal, untracked } from '@angula
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { DbCaptureStateService } from './db-capture-state.service';
 import { ActivatedRoute } from '@angular/router';
-import { Observable, Subscription, forkJoin, map, of, tap } from 'rxjs';
+import { Observable, Subscription, forkJoin, map, of, switchMap, tap } from 'rxjs';
 import {
   CallDetail,
   CallDetailPart,
@@ -28,6 +28,9 @@ import { reconnectingSocket } from './reconnecting-socket';
 import { SessionCyclesStateService } from './session-cycles-state.service';
 import { CallViewMode } from '../../shared/utils/call-tree';
 import { callKey, EXTERNAL_SOURCE_KEY, sortCalls, sourceKeyOf, subtreeSelectionOf, toCallRecord } from '../../shared/utils/call-utils';
+
+/** Largest page fetchRange asks for - the backend's default alfred.calls.max-limit. */
+const RANGE_CHUNK = 200;
 
 /**
  * Per-open-cycle state for the session-cycle detail page - component-provided (see
@@ -212,8 +215,12 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
    * wrapper is peeled off here, with every returned CapturedCall - from either source - recorded
    * into capturedByKey along the way, exactly like the single-source code this replaced did).
    *
-   * Selecting both external and internal sources fetches the same offset/limit from each of the
-   * two independently-paginated backends in parallel and merges them. sortCalls only operates on
+   * Every request is `paged` (see fetchRange): unpaged, the backend ignores `offset` and returns at
+   * most alfred.calls.max-limit (200) calls, so a cycle past 200 calls could never show the rest -
+   * "Load more" re-fetched the same first 200 and added nothing.
+   *
+   * Selecting both external and internal sources fetches each source's first offset+limit calls
+   * in parallel and merges them, so the merged page is exact, not approximate. sortCalls only operates on
    * bare CallRecord[], so the merge sorts the unwrapped `.call` side and maps back to the matching
    * CapturedCall via callKey (sortCalls reorders in place rather than cloning, but a lookup by
    * content-key is simpler than relying on that implementation detail). See CallsStateService's
@@ -235,12 +242,13 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
       return { calls: page.calls.map((c) => c.call), total: page.total };
     };
 
-    if (wantExternal && !wantInternal) return this.api.listCalls(id, query, 'external').pipe(map(recordAndUnwrap));
-    if (wantInternal && !wantExternal) return this.api.listCalls(id, query, 'internal', internalNames).pipe(map(recordAndUnwrap));
+    if (wantExternal && !wantInternal) return this.fetchRange(id, query, 'external').pipe(map(recordAndUnwrap));
+    if (wantInternal && !wantExternal) return this.fetchRange(id, query, 'internal', internalNames).pipe(map(recordAndUnwrap));
     if (!wantExternal && !wantInternal) return of({ calls: [], total: 0 });
 
     const mergeSort: SortMode = query.sort === 'newest' ? 'newest-call' : query.sort === 'oldest' ? 'oldest-call' : query.sort;
-    return forkJoin([this.api.listCalls(id, query, 'external'), this.api.listCalls(id, query, 'internal', internalNames)]).pipe(
+    const head: CallsQuery = { ...query, offset: 0, limit: query.offset + query.limit };
+    return forkJoin([this.fetchRange(id, head, 'external'), this.fetchRange(id, head, 'internal', internalNames)]).pipe(
       map(([external, internal]) => {
         const allCaptured = [...external.calls, ...internal.calls];
         for (const c of allCaptured) {
@@ -248,18 +256,35 @@ export class SessionCycleDetailStateService implements CallSelectionState, BulkS
         }
         const byKey = new Map(allCaptured.map((c) => [callKey(c.call), c]));
         const sortedCalls = sortCalls(allCaptured.map((c) => c.call), mergeSort);
-        // Unlike the dashboard's identical-looking merge, this can't just take slice(0, limit):
-        // session-cycles disables server-side pagination (alfred.session-cycles.pagination-
-        // enabled=false), so BOTH sources always return their *complete* sorted list regardless
-        // of the requested offset - every "page" would otherwise re-slice from the very start and
-        // "Load more" would just re-show page one forever (confirmed live). Since each source's
-        // result here is already the full set, slicing by the requested offset/limit ourselves
-        // produces an exact (not approximate) globally-sorted page - a nicer guarantee than the
-        // dashboard can make, precisely because pagination is off for this feature.
+        // Each source returned its own first offset+limit calls, so the global [offset, offset+limit)
+        // window lies entirely inside their union - slicing it here is exact.
         const merged = sortedCalls.slice(query.offset, query.offset + query.limit).map((call) => byKey.get(callKey(call))!.call);
         return { calls: merged, total: external.total + internal.total };
       })
     );
+  }
+
+  /**
+   * Calls [offset, offset+limit) of one source, as paged requests of at most RANGE_CHUNK each: the
+   * backend clamps a page to alfred.calls.max-limit, and a refresh asks for every loaded call at
+   * once. Stops at the source's total or at an empty page.
+   */
+  private fetchRange(
+    id: string,
+    query: CallsQuery,
+    source: CallEndpointSource,
+    serviceNames?: readonly string[]
+  ): Observable<{ calls: readonly CapturedCall[]; total: number }> {
+    const end = query.offset + query.limit;
+    const next = (offset: number, acc: readonly CapturedCall[]): Observable<{ calls: readonly CapturedCall[]; total: number }> =>
+      this.api.listCalls(id, { ...query, offset, limit: Math.min(RANGE_CHUNK, end - offset) }, source, serviceNames, true).pipe(
+        switchMap((page) => {
+          const calls = [...acc, ...page.calls];
+          const reached = offset + page.calls.length;
+          return page.calls.length === 0 || reached >= Math.min(end, page.total) ? of({ calls, total: page.total }) : next(reached, calls);
+        })
+      );
+    return next(query.offset, []);
   }
 
   /** Mirrors CallsStateService.fetchOverlapsForSource, scoped to this cycle - see its doc. */
