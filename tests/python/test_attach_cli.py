@@ -236,7 +236,7 @@ class WindowsOwnerTest(unittest.TestCase):
         self.assertEqual(["attach", "53628"], argv[3:5])
         self.assertEqual("s3cret", extra["ALFRED_AGENT_SECRET"])
         self.assertTrue(all(k.startswith("ALFRED_AGENT_") for k in extra), "the service's own environment stays behind")
-        self.assertEqual(layout.app, cwd)
+        self.assertEqual(layout.home, cwd)  # never inside app or runtime: an update moves those
 
     def test_an_app_missing_from_the_services_jvm_list_is_looked_up_as_its_owner(self):
         layout = make_layout([])

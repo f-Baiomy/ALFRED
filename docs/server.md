@@ -333,6 +333,40 @@ copied. If it does not answer within 60 s, the previous version is put back and 
 lets the supervisor that starts next show the update as FAILED with that reason. `alfred update` then offers: retry,
 another UI port (it lists free ones nearby, sets `ALFRED_UI_PORT`, restarts) then retry, or keep the running version.
 
+**An update never leaves Alfred stopped (Windows).** 3.0.6 → 3.0.7 from the panel (2026-10-09): the installer
+stopped the service, could not move `app\` aside, aborted - and nothing started Alfred again. What held `app\` was a
+process outside the service: attach-cli, which the supervisor starts as the app's owner (`win_runas`) with its
+working directory in `app\` and which can wait for good on a JVM paused in a debugger (WildFly with `suspend=y`). A
+process's working directory locks that folder against a move; a running program's `.exe` and DLLs do not (measured:
+a python.exe from `runtime\` running, `runtime\` still moves). Now:
+- attach-cli runs with its working directory in the install folder itself, which is never moved.
+- Before moving the folders the installer runs `make_way.py` (extracted next to the installer, run with the OLD
+  install's python, so it works from any version): it stops every process still running a program from `runtime\`
+  or `app\` - a leftover attach-cli, an old `alfred` window. Again after 5 failed tries.
+- It tries the move for 30 s (15 tries, 2 s apart), putting back whichever folder had moved. If a folder stays in use
+  (a terminal or an editor opened inside it - not Alfred's to stop), it starts the previous version again and writes
+  `failed-start.txt` ending in `not-installed`: the update shows FAILED - "was not installed: its program folders
+  were in use..." - instead of Alfred staying stopped.
+- `alfred update` and the panel hand the end of an update to a script and exit, so the window that started it is not
+  one of the programs `make_way.py` stops. `alfred.cmd` gives each run a follow-up script path
+  (`ALFRED_FOLLOW_SCRIPT`); once the installer runs, the CLI writes there a PowerShell script that watches the rest
+  (Alfred down, the new version answering, or the old one back with `/server/update`'s reason) and exits with code
+  75; `alfred.cmd` then runs it. From the panel - also for an update started on the web UI - the script opens the
+  panel again from the new install. The script runs inside one parenthesised block of `alfred.cmd`, which cmd parses
+  whole before running it: the installer replaces `alfred.cmd` meanwhile, and cmd would read on from the old offset.
+
+**Restart from the web UI or the terminal.** `POST /restart/backend` restarts the backend 1 s after the supervisor
+answered (`BACKEND_RESTART_DELAY_SECONDS`): the backend asks from inside the Server card's request, and on Windows a
+stop is TerminateProcess - the page read the cut connection as "the restart could not be started". Without a service,
+`alfred stop`/`alfred restart` wait until the supervisor has exited (SIGTERM only asks); `alfred restart` used to find
+it still answering, say "already running", start nothing - and Alfred stopped a moment later.
+
+`tests/e2e/restart_update_e2e.py` checks all of it - restart and update from the terminal and the web UI, a leftover
+program of the install with its working directory in `app\`, a folder held by something else - against a copy of the
+staged Windows install (no service, no admin; port 3017), with a stand-in installer that moves the folders and runs
+`make_way.py` the way `installer.nsi` does. In the Linux container (`tests/e2e/run_in_container.sh`) it runs after
+the real installer.
+
 **Pause, cancel, the download cache.** While the installer downloads, the card's dialog has *Pause* and *Cancel*,
 and `alfred update` asks on Ctrl+C. *Pause* stops and keeps the pieces (`<installer>.part` plus `.part.json`: version,
 sha256, size, the pieces that are complete); the next install of the same release - *Resume* on the card, or

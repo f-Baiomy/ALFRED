@@ -14,3 +14,5 @@ alfred config set INTERNAL_CALLS_RETENTION_ROWS 2000 || true
 alfred config history | head -5
 echo "--- e2e"
 /opt/alfred/runtime/python/bin/python3 /e2e/native_install_e2e.py
+echo "--- restart and update (terminal and web UI)"
+/opt/alfred/runtime/python/bin/python3 /e2e/restart_update_e2e.py --home /opt/alfred

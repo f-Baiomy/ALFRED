@@ -423,6 +423,10 @@ def run(layout, alfred):
                 size = os.get_terminal_size() if t.stream.isatty() else os.terminal_size((100, 30))
                 screen.draw(render(t, snap, size.columns, size.lines, alfred, note), size.columns, size.lines,
                             footer=1 + (1 if note else len(key_lines(t, size.columns))))
+                job = (snap.update or {}).get("job") or {}
+                if job.get("state") == "INSTALLING" and alfred.can_hand_off():
+                    # An update started elsewhere (the web UI): this window holds Alfred's Python - let go of it.
+                    return alfred.hand_off(layout, job.get("version") or "", layout.version(), reopen=True)
                 key = keys.read(1.0)
                 if key is None:
                     continue
@@ -448,7 +452,8 @@ def run(layout, alfred):
                 screen.leave()
                 with suspended(keys):
                     try:
-                        action(layout, alfred, snap)
+                        if action(layout, alfred, snap) == alfred.HANDED_OFF:
+                            return alfred.HANDED_OFF  # alfred.cmd follows the install, then opens the panel again
                     except KeyboardInterrupt:
                         pass
                     except SystemExit as e:
@@ -533,7 +538,7 @@ ACTIONS = {
     "r": lambda layout, alfred, snap: alfred.cmd_restart(layout, []),
     "p": lambda layout, alfred, snap: alfred.cmd_restart(layout, ["--proxies"]),
     "l": lambda layout, alfred, snap: alfred.cmd_logs(layout, ["backend", "-f"]),
-    "u": lambda layout, alfred, snap: alfred.cmd_update(layout, []),
+    "u": lambda layout, alfred, snap: alfred.cmd_update(layout, ["--panel"]),
     "d": lambda layout, alfred, snap: alfred.cmd_doctor(layout, []),
     "a": _attach,
     "t": _triage,

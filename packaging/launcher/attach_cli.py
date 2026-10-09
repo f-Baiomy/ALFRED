@@ -341,7 +341,9 @@ def _run_as_windows_owner(layout, pid, argv, env, capture):
     import win_runas
     extra = {k: v for k, v in (env or {}).items() if k.startswith("ALFRED_AGENT_")}
     try:
-        result = win_runas.run_as_owner(pid, argv, extra, cwd=layout.app)
+        # Not app\: a process's working directory locks that folder, and an attach that hangs (a JVM paused in a
+        # debugger) kept app\ from being moved by the next update. The install folder itself is never moved.
+        result = win_runas.run_as_owner(pid, argv, extra, cwd=layout.home)
     except OSError as e:
         result = subprocess.CompletedProcess(argv, ERROR, "", f"cannot run attach-cli as the app's owner: {e}\n")
     if result is None:

@@ -243,6 +243,20 @@ class FollowTest(unittest.TestCase):
         for row in ("ok   Downloading    150 MB", "ok   Checksum       matches the release", "ok   Installing", "ok   Alfred 1.5.0   answers"):
             self.assertIn(row, out)
 
+    def test_the_new_supervisors_idle_job_is_not_read_as_a_cancel(self):
+        # The supervisor that starts after the installer has no job (IDLE, no version): the update succeeded, and
+        # `alfred update` used to print "Update cancelled · Alfred 1.5.0 keeps running" (restart_update_e2e.py).
+        queue = [{"state": "INSTALLING", "version": "1.5.0"}, {"state": "IDLE", "version": ""}]
+
+        def supervisor(layout, method, path, timeout=10):
+            return queue.pop(0) if len(queue) > 1 else queue[0]
+        out = io.StringIO()
+        with mock.patch.object(alfred, "call_supervisor", supervisor), \
+                mock.patch.object(alfred, "own_backend", lambda layout, timeout=2: (len(queue) == 1, None)), \
+                mock.patch.object(self.layout, "version", lambda: "1.5.0" if len(queue) == 1 else "1.4.0"), redirect_stdout(out):
+            result = alfred.follow_update(self.layout, alfred.ui(), "1.5.0", 1, "1.4.0")
+        self.assertEqual(result, "ok", out.getvalue())
+
     def test_a_failed_job_marks_the_step_it_failed_on(self):
         result, out = self.follow([
             {"state": "DOWNLOADING", "downloadedBytes": 1, "totalBytes": 10},
@@ -303,6 +317,27 @@ class FollowTest(unittest.TestCase):
         self.assertIn("ok   backend    stopped", text)
         self.assertIn("Alfred stopped", text)
         self.assertLess(text.index("outbound"), text.index("backend"))  # the order the supervisor stops them in
+
+    def test_without_a_service_stop_waits_until_the_supervisor_is_gone(self):
+        # SIGTERM only asks: `alfred restart` used to find the old supervisor still answering ("already running"),
+        # start nothing - and then it exited. Alfred stayed stopped (found by tests/e2e/restart_update_e2e.py).
+        running = {"processes": [{"name": "BACKEND", "state": "RUNNING", "listeners": []}]}
+        answers = [running] + [running] * 4 + [None] * 50
+        stopped_at = []
+
+        def call(layout, method, path, timeout=10):
+            return answers.pop(0) if answers else None
+        with mock.patch.object(alfred, "call_supervisor", call), \
+                mock.patch.object(alfred, "service_installed", return_value=False), \
+                mock.patch.object(alfred, "control", return_value={"pid": 4242}), \
+                mock.patch.object(alfred, "POLL_SECONDS", 0), \
+                mock.patch.object(alfred, "WINDOWS", False), \
+                mock.patch.object(alfred.os, "kill", lambda pid, sig: stopped_at.append((pid, sig, len(answers)))), \
+                mock.patch.object(alfred, "_zombie", return_value=True), redirect_stdout(io.StringIO()):
+            self.assertTrue(alfred.stop_alfred(self.layout, alfred.ui(), "Stopping"))
+        self.assertEqual((4242, 15), stopped_at[0][:2])
+        self.assertNotIn(running, answers)  # it asked until the supervisor no longer answered
+        self.assertNotIn(9, [sig for _, sig, _ in stopped_at])  # gone in time: never killed
 
 
 class DoctorTest(unittest.TestCase):

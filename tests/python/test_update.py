@@ -496,6 +496,16 @@ class PauseCacheTest(unittest.TestCase):
         self.assertEqual(["alfred-setup-1.0.1-x.exe", "alfred-setup-9.9.9-test.bin"],
                          [n for n in self.files() if n.startswith("alfred-setup-")])
 
+    def test_an_update_the_installer_could_not_install_says_so_and_that_the_old_version_runs(self):
+        os.makedirs(self.updates, exist_ok=True)
+        with open(os.path.join(self.updates, "failed-start.txt"), "w", encoding="utf-8") as f:
+            f.write("9.9.9\r\nits program files were in use - an alfred window was open.\r\nnot-installed\r\n")
+        status = self.supervisor().update.status()
+        self.assertEqual(("FAILED", "9.9.9"), (status["state"], status["version"]))
+        self.assertIn("was not installed: its program files were in use", status["error"])
+        self.assertIn("runs again", status["error"])
+        self.assertNotIn("not-installed", status["error"])
+
     def test_a_start_the_installer_gave_up_on_is_failed_with_its_reason_until_the_next_try(self):
         os.makedirs(self.updates, exist_ok=True)
         with open(os.path.join(self.updates, "failed-start.txt"), "w", encoding="utf-8") as f:
@@ -590,6 +600,34 @@ class AlfredUpdateCommandTest(unittest.TestCase):
         code, out, _, _ = self.run_update(["--check"], {("POST", "/server/update/check"): status})
         self.assertEqual(code, alfred.ERROR)
         self.assertIn("HTTP 503", out)
+
+    def test_on_windows_the_cli_lets_go_of_the_runtime_once_the_installer_runs(self):
+        # The open CLI window ran on runtime\python\python.exe: the installer could not move it and Alfred stayed stopped.
+        status = {"mode": "CHECK", "available": True, "latestVersion": "1.5.0", "currentVersion": "1.4.0", "canInstall": True, "job": {"state": "IDLE"}}
+        script = os.path.join(self.layout.home, "follow.ps1")
+        jobs = iter([{"state": "VERIFYING", "version": "1.5.0"}, {"state": "INSTALLING", "version": "1.5.0"}])
+        with mock.patch.dict(os.environ, {"ALFRED_FOLLOW_SCRIPT": script}), mock.patch.object(alfred, "WINDOWS", True),                 mock.patch.object(alfred, "POLL_SECONDS", 0),                 mock.patch.object(alfred, "call_supervisor", lambda layout, method, path, timeout=2, body=None: next(jobs)):
+            code, out, _, _ = self.run_update(["--panel"], {("POST", "/server/update/check"): status,
+                                                            ("POST", "/server/update/install"): {"accepted": True}})
+        self.assertEqual(code, alfred.HANDED_OFF)
+        self.assertIn("lets go of Alfred's files", out)
+        with open(script, encoding="utf-8-sig") as f:
+            text = f.read()
+        self.assertIn("$version = '1.5.0'", text)
+        self.assertIn("$reopen = $true", text)
+        self.assertIn(self.layout.local_url(), text)
+
+    def test_without_alfred_cmd_the_cli_follows_the_install_itself(self):
+        with mock.patch.dict(os.environ, {"ALFRED_FOLLOW_SCRIPT": ""}), mock.patch.object(alfred, "WINDOWS", True):
+            self.assertFalse(alfred.can_hand_off())
+        with mock.patch.dict(os.environ, {"ALFRED_FOLLOW_SCRIPT": "x.ps1"}), mock.patch.object(alfred, "WINDOWS", False):
+            self.assertFalse(alfred.can_hand_off())
+
+    def test_the_follow_script_quotes_its_values_for_powershell(self):
+        text = alfred.follow_script("http://127.0.0.1:3000", "1.5.0", "1.4.0", r"C:\Al'fred", reopen=False)
+        self.assertIn(r"$alfredHome = 'C:\Al''fred'", text)
+        self.assertIn("$reopen = $false", text)
+        self.assertIn("Remove-Item -LiteralPath $PSCommandPath", text)
 
     def test_a_stopped_alfred_is_told_to_start_first(self):
         with mock.patch.object(alfred, "own_backend", lambda layout, timeout=2: (False, None)):

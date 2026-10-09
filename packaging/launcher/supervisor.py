@@ -48,6 +48,7 @@ BACKOFF_SECONDS = [1, 2, 5, 10, 30]
 CRASH_WINDOW_SECONDS = 300
 MAX_CRASHES_IN_WINDOW = 5
 STOP_TIMEOUT_SECONDS = 20
+BACKEND_RESTART_DELAY_SECONDS = 1.0  # POST /restart/backend: time for the backend to answer the request that asked
 LOG_BYTES = 10 * 1024 * 1024
 LOG_FILES = 3
 # Short console tools (icacls, powershell, the config CLI) run without a window: the supervisor itself has no
@@ -491,10 +492,14 @@ class UpdateJob:
                 with open(failed, encoding="utf-8", errors="replace") as f:
                     lines = [line.strip() for line in f.read().splitlines() if line.strip()]
                 if lines:
-                    version, reason = lines[0], " ".join(lines[1:]) or "it did not answer"
+                    # "not-installed" last: the installer gave up before replacing anything (files in use).
+                    not_installed = lines[-1] == "not-installed"
+                    version, reason = lines[0], " ".join(lines[1:-1] if not_installed else lines[1:]) or "it did not answer"
                     self.state, self.version = "FAILED", version
-                    self.error = (f"Alfred {version} was installed but did not start: {reason} "
-                                  f"Alfred {self.supervisor.layout.version()} was put back.")
+                    current = self.supervisor.layout.version()
+                    self.error = (f"Alfred {version} was not installed: {reason} Alfred {current} runs again."
+                                  if not_installed else
+                                  f"Alfred {version} was installed but did not start: {reason} Alfred {current} was put back.")
         except OSError as e:
             log.warning("update folder not readable: %s", e)
 
@@ -1378,7 +1383,12 @@ class Supervisor:
                     else:
                         self._reply(409, {**supervisor.update.status(), "error": "no download is running or paused"})
                 elif self.path == "/restart/backend":
-                    threading.Thread(target=supervisor.restart, args=(["BACKEND"],), daemon=True).start()
+                    # The backend asks from inside a request (the Server card's Restart): it must get to answer it
+                    # first. On Windows stopping is TerminateProcess - immediate - and the page read the cut
+                    # connection as "the restart could not be started" while Alfred restarted anyway.
+                    timer = threading.Timer(BACKEND_RESTART_DELAY_SECONDS, supervisor.restart, args=(["BACKEND"],))
+                    timer.daemon = True
+                    timer.start()
                     self._reply(202, {"accepted": True})
                 elif self.path == "/restart/proxies":
                     threading.Thread(target=supervisor.restart, args=(["OUTBOUND", "REVERSE"],), daemon=True).start()

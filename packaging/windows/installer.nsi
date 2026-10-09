@@ -142,6 +142,29 @@ Function .onInstFailed
   ${EndIf}
 FunctionEnd
 
+; Stops the processes that run a program from the old runtime\ or app\ (make_way.py says why), with the old python.
+Function MakeWay
+  ${If} ${FileExists} "$INSTDIR\runtime\python\python.exe"
+    InitPluginsDir
+    File "/oname=$PLUGINSDIR\make_way.py" "make_way.py"
+    nsExec::ExecToLog '"$INSTDIR\runtime\python\python.exe" "$PLUGINSDIR\make_way.py" "$INSTDIR"'
+    Pop $0
+  ${EndIf}
+FunctionEnd
+
+; One folder moved aside and the other stayed (a file in it is in use): the moved one comes back, so the install
+; stays whole whether the move is tried again or given up.
+Function PutBackInUse
+  ${If} ${FileExists} "$INSTDIR\runtime.previous\*.*"
+  ${AndIfNot} ${FileExists} "$INSTDIR\runtime\*.*"
+    Rename "$INSTDIR\runtime.previous" "$INSTDIR\runtime"
+  ${EndIf}
+  ${If} ${FileExists} "$INSTDIR\app.previous\*.*"
+  ${AndIfNot} ${FileExists} "$INSTDIR\app\*.*"
+    Rename "$INSTDIR\app.previous" "$INSTDIR\app"
+  ${EndIf}
+FunctionEnd
+
 ; An upgrade whose new version installed but did not start or answer ($1 = why): the previous program files come
 ; back and start again, so an update never leaves a server down. data\updates\failed-start.txt (the version, then the
 ; reason) is how the supervisor that starts next - the previous version's - learns why, and shows the update as
@@ -230,18 +253,45 @@ Section "Alfred" SecMain
       nsExec::ExecToLog '"${SERVICE_EXE}" stop'
       Pop $0
     ${EndIf}
+    ; Whatever still runs the old install's programs outside the service (attach-cli as the app's owner, its working
+    ; directory in app\ - a folder some process works in cannot be moved; an old alfred window) is stopped first.
+    Call MakeWay
     RMDir /r "$INSTDIR\runtime.previous"
     RMDir /r "$INSTDIR\app.previous"
-    Rename "$INSTDIR\runtime" "$INSTDIR\runtime.previous"
-    Rename "$INSTDIR\app" "$INSTDIR\app.previous"
-    ${If} ${FileExists} "$INSTDIR\runtime\*.*"
-    ${OrIf} ${FileExists} "$INSTDIR\app\*.*"
-      ; Still there: a file is in use (the service did not stop, or a terminal sits in the folder).
-      IfSilent +2
-        MessageBox MB_ICONSTOP "The current install is in use: stop the Alfred service (alfred stop) and close any window in $INSTDIR, then run setup again."
-      SetErrorLevel 1
-      Abort "Program files in use"
-    ${EndIf}
+    ; A file in use keeps a folder where it is: the service still stopping, or an alfred window (the panel, `alfred
+    ; logs -f`) running on runtime\python. Windows started from alfred.cmd let go by themselves once the installer
+    ; runs (alfred.py HANDED_OFF), so the move is tried again for 30 s before giving up.
+    StrCpy $R5 0
+    ${Do}
+      Rename "$INSTDIR\runtime" "$INSTDIR\runtime.previous"
+      Rename "$INSTDIR\app" "$INSTDIR\app.previous"
+      ${IfNot} ${FileExists} "$INSTDIR\runtime\*.*"
+      ${AndIfNot} ${FileExists} "$INSTDIR\app\*.*"
+        ${Break}
+      ${EndIf}
+      Call PutBackInUse
+      IntOp $R5 $R5 + 1
+      ${If} $R5 == 5
+        Call MakeWay ; something started meanwhile
+      ${EndIf}
+      ${If} $R5 >= 15
+        ; Given up: the previous install is whole again and runs - an update never leaves Alfred stopped.
+        ${If} ${FileExists} "${SERVICE_EXE}"
+          nsExec::ExecToLog '"${SERVICE_EXE}" start'
+          Pop $0
+        ${EndIf}
+        CreateDirectory "$INSTDIR\data\updates"
+        FileOpen $9 "$INSTDIR\data\updates\failed-start.txt" w
+        FileWrite $9 "${VERSION}$\r$\nits program folders were in use - a program works in a folder inside $INSTDIR\app or $INSTDIR\runtime (a terminal or an editor opened there). Close it and update again.$\r$\nnot-installed$\r$\n"
+        FileClose $9
+        DetailPrint "Program files in use - Alfred $OldVersion was started again."
+        IfSilent +2
+          MessageBox MB_ICONSTOP "The current install is in use: close any terminal or editor opened in a folder inside $INSTDIR\app or $INSTDIR\runtime, then run setup again.$\r$\n$\r$\nAlfred $OldVersion was started again."
+        SetErrorLevel 1
+        Abort "Program files in use"
+      ${EndIf}
+      Sleep 2000
+    ${Loop}
     StrCpy $Upgrading "1"
   ${EndIf}
 

@@ -38,7 +38,12 @@ OK, ERROR, USAGE, REFUSED, CONFLICT, NOT_ALLOWED = 0, 1, 2, 3, 4, 5
 SERVICE = "alfred"
 START_SECONDS = 60      # how long start/restart wait for every process (contracts/cli.md: 60 s)
 POLL_SECONDS = 0.3      # how often start/stop/update ask the local supervisor while they run - only while they run
+STOP_SECONDS = 90       # how long stop/restart wait for a supervisor without a service to exit before killing it
 INSTALL_SECONDS = 300   # how long `alfred update` waits for the new version to answer after the installer starts
+# Windows: this process ran on runtime\python\python.exe, which the installer must move aside - an open CLI window
+# (the panel, `alfred update` itself) locked it and the update stopped Alfred and failed. So once the installer runs,
+# the CLI writes a PowerShell script that watches the rest, and exits with this code; alfred.cmd then runs the script.
+HANDED_OFF = 75
 
 
 def ui():
@@ -346,6 +351,32 @@ def cmd_start(layout, args):
     return ERROR
 
 
+def _zombie(pid):
+    """Exited but not reaped (its parent - a container's init shell, say - never waits): gone for our purpose."""
+    try:
+        with open(f"/proc/{pid}/stat", encoding="ascii", errors="replace") as f:
+            return f.read().rsplit(")", 1)[1].split()[0] == "Z"
+    except (OSError, IndexError):
+        return False
+
+
+def supervisor_gone(layout, pid, seconds):
+    """Waits until the supervisor `pid` has exited and no longer answers. True when it is gone."""
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        alive = False
+        if not WINDOWS:
+            try:
+                os.kill(pid, 0)
+                alive = not _zombie(pid)
+            except OSError:
+                pass
+        if not alive and call_supervisor(layout, "GET", "/status", timeout=1) is None:
+            return True
+        time.sleep(POLL_SECONDS or 0.05)
+    return False
+
+
 def stop_alfred(layout, t, title):
     """Stops Alfred with a row per process, each ticked off as the supervisor reports it stopped. True when stopped."""
     status = call_supervisor(layout, "GET", "/status", timeout=2) or {}
@@ -369,6 +400,14 @@ def stop_alfred(layout, t, title):
                     os.kill(info["pid"], 15)
             except OSError:
                 pass
+            # SIGTERM only asks: the supervisor then stops its children one by one. Returning before it is gone made
+            # `alfred restart` find it still answering ("already running") - and then it exited: Alfred stayed down.
+            if info and not supervisor_gone(layout, info["pid"], STOP_SECONDS):
+                try:
+                    os.kill(info["pid"], 9)  # Windows: TerminateProcess
+                except OSError:
+                    pass
+                supervisor_gone(layout, info["pid"], 5)
             result["code"], result["output"] = 0, ""
 
         worker = threading.Thread(target=stop, daemon=True)
@@ -658,6 +697,73 @@ def ask(t, prompt, choices, default):
     return answer if answer in choices else default
 
 
+def can_hand_off():
+    """True when alfred.cmd started this process and runs a follow-up script after it (see HANDED_OFF)."""
+    return WINDOWS and bool(os.environ.get("ALFRED_FOLLOW_SCRIPT"))
+
+
+def _ps_text(value):
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def follow_script(url, version, old_version, home, seconds=INSTALL_SECONDS, reopen=False):
+    """The PowerShell that follows an update after the CLI exited: waits for Alfred to go down and for the new version
+    to answer on `url`, or for the old one to be back (the installer put it back - /server/update says why). With
+    `reopen` it opens the panel again from the NEW install's alfred.cmd. Exit code 0 = updated, 1 = not."""
+    return "\r\n".join([
+        "$ErrorActionPreference = 'SilentlyContinue'",
+        "Remove-Item -LiteralPath $PSCommandPath -Force",
+        f"$url = {_ps_text(url)}; $version = {_ps_text(version)}; $old = {_ps_text(old_version)}",
+        f"$alfredHome = {_ps_text(home)}; $seconds = {int(seconds)}; $reopen = {'$true' if reopen else '$false'}",
+        "$began = Get-Date; $down = $false; $backAt = $null; $outcome = 'timeout'; $why = ''",
+        "Write-Host \"  This window let go of Alfred's files so the installer can replace them.\"",
+        "while (((Get-Date) - $began).TotalSeconds -lt $seconds) {",
+        "  $n = [int]((Get-Date) - $began).TotalSeconds",
+        "  $status = $null",
+        "  try { $status = Invoke-RestMethod -Uri \"$url/server/status\" -TimeoutSec 2 } catch { }",
+        "  if ($null -eq $status) {",
+        "    $down = $true",
+        "    Write-Host -NoNewline \"`r  - Installing      Alfred stopped, its files are replaced - $n s   \"",
+        "  } elseif ($status.version -eq $version) {",
+        "    $outcome = 'ok'; break",
+        "  } else {",
+        "    $job = $null",
+        "    try { $job = (Invoke-RestMethod -Uri \"$url/server/update\" -TimeoutSec 2).job } catch { }",
+        "    if ($job -and $job.state -eq 'FAILED') { $outcome = 'failed'; $why = $job.error; break }",
+        "    if ($down) {",
+        "      if ($null -eq $backAt) { $backAt = Get-Date }",
+        "      if (((Get-Date) - $backAt).TotalSeconds -gt 15) {",
+        "        $outcome = 'failed'; $why = \"Alfred $old answers again: the installer put it back.\"; break",
+        "      }",
+        "    }",
+        "    Write-Host -NoNewline \"`r  - Installing      waiting for the installer to stop Alfred $old - $n s   \"",
+        "  }",
+        "  Start-Sleep -Seconds 1",
+        "}",
+        "$n = [int]((Get-Date) - $began).TotalSeconds",
+        "Write-Host ''",
+        "if ($outcome -eq 'ok') {",
+        "  Write-Host \"  + Alfred $version is running - updated in $n s - $url\" -ForegroundColor Green",
+        "} elseif ($outcome -eq 'failed') {",
+        "  Write-Host \"  x The update did not finish: $why\" -ForegroundColor Red",
+        "  Write-Host '    what the installer did: alfred logs update'",
+        "} else {",
+        "  Write-Host \"  x Alfred $version did not answer within $([int]($seconds / 60)) min\" -ForegroundColor Red",
+        "  Write-Host '    what the installer did: alfred logs update   start it: alfred start'",
+        "}",
+        "if ($reopen -and $outcome -ne 'timeout') { & (Join-Path $alfredHome 'alfred.cmd'); exit $LASTEXITCODE }",
+        "if ($outcome -eq 'ok') { exit 0 } else { exit 1 }",
+        "",
+    ])
+
+
+def hand_off(layout, version, old_version, reopen=False):
+    """Writes the follow-up script where alfred.cmd looks for it; the caller then exits with HANDED_OFF."""
+    with open(os.environ["ALFRED_FOLLOW_SCRIPT"], "w", encoding="utf-8-sig", newline="") as f:
+        f.write(follow_script(layout.local_url(), version, old_version, layout.home, reopen=reopen))
+    return HANDED_OFF
+
+
 def follow_update(layout, t, version, size, old_version=None):
     """Watches the supervisor's update job to the end: download (bar, speed, time left), checksum, install, and the
     new version answering. Returns "ok", "failed" (the job failed, or the new version did not start and the old one
@@ -674,6 +780,8 @@ def follow_update(layout, t, version, size, old_version=None):
                 state = (job or {}).get("state")
                 if job and job.get("version") not in (None, "", version) and state != "FAILED":
                     state = None if install.state == "run" else state
+                if state == "IDLE" and install.state == "run":
+                    state = None  # the supervisor after the installer has no job yet: not a cancel - who answers says
                 seen_job = seen_job or state in ("DOWNLOADING", "VERIFYING", "INSTALLING")
                 if state == "DOWNLOADING":
                     got, total = job["downloadedBytes"], job["totalBytes"] or size or 0
@@ -702,6 +810,9 @@ def follow_update(layout, t, version, size, old_version=None):
                 elif state == "INSTALLING" or (state is None and install.state == "run"):
                     download.done(f"{(size or 0) // 1048576} MB" if not (job or {}).get("cached") else "from the download cache")
                     verify.done("matches the release")
+                    if can_hand_off():
+                        install.done("the installer runs - this window lets go of Alfred's files")
+                        return "handoff"
                     install.run(f"Alfred stops here, its files are replaced {t.g['dot']} {int(install.elapsed())} s")
                     deadline = deadline or time.monotonic() + INSTALL_SECONDS
                     if state is None:  # the installer stopped the old Alfred; wait for the new one
@@ -845,6 +956,8 @@ def cmd_update(layout, args):
     """alfred update [--check | --cancel | --version X]: read the feed now and say what it found; without --check also
     install it (the newest, or the one chosen). A paused download of the same release goes on where it stopped."""
     wanted, rest = None, list(args)
+    from_panel = "--panel" in rest  # the panel's u key: after a handed-off install the panel opens again
+    rest = [a for a in rest if a != "--panel"]
     if "--version" in rest:
         i = rest.index("--version")
         if i + 1 >= len(rest):
@@ -883,6 +996,8 @@ def cmd_update(layout, args):
     size = next((r.get("sizeBytes", 0) for r in status.get("releases") or [] if r["version"] == version), status.get("sizeBytes") or 0)
     began, old = time.monotonic(), layout.version()
     outcome = follow_update(layout, t, version, size, old)
+    if outcome == "handoff":
+        return hand_off(layout, version, old, reopen=from_panel)
     if outcome == "paused-asked":
         job = wait_job(layout, "PAUSED", "IDLE")
         outcome = "paused" if job.get("state") == "PAUSED" else outcome

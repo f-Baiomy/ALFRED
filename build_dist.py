@@ -520,6 +520,7 @@ def windows_installer(version_text, java_out, mcp_out, paths, dns):
     remove_tree(nsis)
     os.makedirs(nsis)
     write_text(os.path.join(ROOT, "packaging", "windows", "installer.nsi"), os.path.join(nsis, "installer.nsi"), "\r\n")
+    shutil.copy2(os.path.join(ROOT, "packaging", "windows", "make_way.py"), os.path.join(nsis, "make_way.py"))
     ensure_nsis_image(dns)
     print("  windows: makensis (packing the .exe)", flush=True)
     numeric = ".".join((numeric_version(version_text) + ["0"] * 4)[:4])
