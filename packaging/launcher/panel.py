@@ -523,14 +523,9 @@ def _triage(layout, alfred, snap):
 
 
 def _attach(layout, alfred, snap):
+    """The Java apps numbered: a row number picks one, or type any PID (alfred attach without a PID)."""
     import attach_cli
-    attach_cli.main(layout, "jvms", [])
-    try:
-        pid = input("\n  pid to attach (Enter = none): ").strip()
-    except EOFError:
-        return
-    if pid.isdigit():
-        attach_cli.main(layout, "attach", [pid])
+    attach_cli.main(layout, "attach", [])
 
 
 ACTIONS = {

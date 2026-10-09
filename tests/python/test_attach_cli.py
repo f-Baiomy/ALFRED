@@ -262,5 +262,53 @@ class WindowsOwnerTest(unittest.TestCase):
         self.assertIsInstance(win_runas.is_privileged(), bool)
 
 
+class ChooseTest(unittest.TestCase):
+    """alfred attach without a PID lists the Java apps numbered: a row number picks one, any other number is a PID."""
+
+    ROWS = [{"pid": 7720, "name": "org.jboss.modules.Main", "user": "fathy", "features": "db,logs", "readable": True, "project": "odeysys", "port": "8080"},
+            {"pid": 9012, "name": "billing-service.jar", "user": "fathy", "features": None, "readable": True}]
+
+    def setUp(self):
+        self.layout = make_layout(["ALFRED_UI_PORT=3000"])
+        self.addCleanup(shutil.rmtree, self.layout.home, True)
+
+    def choose(self, answer):
+        import io
+        from contextlib import redirect_stdout
+        out = io.StringIO()
+        with patch.object(attach_cli, "jvm_rows", return_value=(attach_cli.OK, self.ROWS)),                 patch("builtins.input", return_value=answer), redirect_stdout(out):
+            return attach_cli.choose_pid(self.layout), out.getvalue()
+
+    def test_a_row_number_picks_that_app(self):
+        pid, out = self.choose("2")
+        self.assertEqual(pid, "9012")
+        self.assertIn("billing-service.jar", out)
+        self.assertIn("odeysys :8080", out)   # the project the app serves, found by its listening port
+
+    def test_any_other_number_is_taken_as_a_pid(self):
+        self.assertEqual(self.choose("54321")[0], "54321")
+
+    def test_enter_or_text_chooses_nothing(self):
+        self.assertIsNone(self.choose("")[0])
+        self.assertIsNone(self.choose("billing")[0])
+
+    def test_attach_without_a_pid_at_a_terminal_asks_then_attaches_the_chosen_one(self):
+        ran = []
+        with patch.object(attach_cli, "choose_pid", return_value="9012"),                 patch.object(attach_cli.sys.stdin, "isatty", return_value=True),                 patch.object(attach_cli.sys.stdout, "isatty", return_value=True),                 patch.object(attach_cli, "other_owner", return_value=None),                 patch.object(attach_cli, "run_attach_cli", lambda layout, command, **kw: ran.append(command) or type("R", (), {"returncode": 0})()),                 patch.object(attach_cli, "attached_agent_jar", return_value="agent.jar"):
+            code = attach_cli.load(self.layout, True, ["--proxy"])
+        self.assertEqual(code, 0)
+        self.assertEqual(ran[0][:2], ["attach", "9012"])
+        self.assertIn("proxy", ran[0][-1])
+
+    def test_attach_without_a_pid_in_a_pipe_is_still_a_usage_error(self):
+        import io
+        from contextlib import redirect_stderr
+        err = io.StringIO()
+        with patch.object(attach_cli.sys.stdin, "isatty", return_value=False), redirect_stderr(err):
+            code = attach_cli.load(self.layout, True, [])
+        self.assertEqual(code, attach_cli.USAGE)
+        self.assertIn("no PID = choose from a list", err.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()

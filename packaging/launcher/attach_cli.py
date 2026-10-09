@@ -19,7 +19,8 @@ OK, ERROR, USAGE, REFUSED, CONFLICT, NOT_ALLOWED = 0, 1, 2, 3, 4, 5
 FEATURE_FLAGS = ("--proxy", "--db", "--logs", "--redis")
 
 USAGE_TEXT = """usage: alfred jvms
-       alfred attach PID [--proxy] [--db] [--logs] [--redis] [--project NAME]   (no flags = --proxy)
+       alfred attach [PID] [--proxy] [--db] [--logs] [--redis] [--project NAME]   (no flags = --proxy;
+                                                                                  no PID = choose from a list)
        alfred detach PID [--proxy] [--db] [--logs] [--redis]                    (no flags = all)"""
 
 
@@ -352,11 +353,13 @@ def _run_as_windows_owner(layout, pid, argv, env, capture):
     return result
 
 
-def jvms(layout):
+def jvm_rows(layout):
+    """(exit code, rows): every Java app attach-cli can see - another user's too when we may act as them - each with
+    the project whose app port it listens on ("project"/"port"), when one does."""
     result = run_attach_cli(layout, ["jvms", "--json"], capture=True)
     if result.returncode != 0:
         sys.stderr.write(result.stderr)
-        return result.returncode
+        return result.returncode, []
     rows = json.loads(result.stdout or "[]")
     me = current_user()
     for i, row in enumerate(rows):
@@ -368,20 +371,86 @@ def jvms(layout):
                     rows[i] = json.loads(detail.stdout)[0]
                 except (ValueError, IndexError):
                     pass
+    try:
+        apps = {str(listening_pid(int(p["upstream_port"]))): p for p in projects(layout.settings())}
+    except Exception:  # noqa: BLE001 - without settings the table just names no projects
+        apps = {}
+    for row in rows:
+        project = apps.get(str(row["pid"]))
+        if project:
+            row["project"], row["port"] = project["name"], project["upstream_port"]
+    return OK, rows
+
+
+def alfred_column(row):
+    features = row.get("features")
+    return ("-" if row.get("readable") else "?") if features is None else (features or "loaded, off")
+
+
+def print_jvms(rows, numbered=False):
+    """The table: PID, app, the project it serves (and its port), user, what Alfred does in it. Plain when piped."""
+    import term as termlib
+    t = termlib.Term()
     if not rows:
         print("No Java applications found.")
-        return OK
-    print(f"{'PID':<8} {'NAME':<40} {'USER':<12} {'ALFRED':<16} NOTE")
-    for row in rows:
-        features = row.get("features")
-        alfred = ("-" if row.get("readable") else "?") if features is None else (features or "loaded, off")
+        return
+    if t.live:
+        t.print("  " + t.brand("Java apps on this machine"))
+        t.print()
+    head = (f"{'#':<4}" if numbered else "") + f"{'PID':<8} {'NAME':<40} {'PROJECT':<16} {'USER':<12} {'ALFRED':<16} NOTE"
+    t.print((" " if t.live else "") + t.c(head, "dim") if t.live else head)
+    for i, row in enumerate(rows, 1):
         name = row.get("name") or ""
         name = name if len(name) <= 40 else "..." + name[-37:]
-        print(f"{row['pid']:<8} {name:<40} {(row.get('user') or ''):<12} {alfred:<16} {row.get('note') or ''}")
+        project = f"{row['project']} :{row['port']}" if row.get("project") else "-"
+        alfred = alfred_column(row)
+        attached = row.get("features") not in (None, "")
+        shown = "not attached" if alfred == "-" else "unreadable" if alfred == "?" else alfred
+        alfred_text = (t.c(t.g["run"] + " " + shown, "green") if attached else t.c(t.g["wait"] + " " + shown, "dim")) if t.live else alfred
+        line = (f"{i:<4}" if numbered else "") + f"{row['pid']:<8} {name:<40} {project:<16} {(row.get('user') or ''):<12} "
+        t.print((" " if t.live else "") + line + (termlib.pad(alfred_text, 17) if t.live else f"{alfred:<16} ") + (row.get("note") or ""))
+
+
+def jvms(layout):
+    code, rows = jvm_rows(layout)
+    if code != OK:
+        return code
+    print_jvms(rows)
+    if rows and sys.stdout.isatty():
+        print()
+        print("  attach one: alfred attach  (lists them to choose from)")
     return OK
 
 
+def choose_pid(layout):
+    """No PID given, someone at the terminal: the Java apps numbered - a row number picks one, any other number is
+    taken as a PID (an app the list does not show, another user's say). None = nothing chosen."""
+    code, rows = jvm_rows(layout)
+    if code != OK:
+        return None
+    print_jvms(rows, numbered=True)
+    print()
+    hint = f"a row number (1-{len(rows)}), or any PID" if rows else "a PID"
+    try:
+        answer = input(f"  Attach to which app? {hint}, Enter = none: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return None
+    if not answer.isdigit():
+        if answer:
+            print(f"  not a number: {answer}", file=sys.stderr)
+        return None
+    if rows and 1 <= int(answer) <= len(rows):
+        return str(rows[int(answer) - 1]["pid"])
+    return answer
+
+
 def load(layout, attach, args):
+    if (not args or args[0].startswith("--")) and sys.stdin.isatty() and sys.stdout.isatty():
+        pid = choose_pid(layout)
+        if pid is None:
+            return OK
+        args = [pid] + list(args)
     parsed = parse_load_args(args)
     if parsed is None:
         print(USAGE_TEXT, file=sys.stderr)

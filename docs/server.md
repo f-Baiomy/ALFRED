@@ -174,6 +174,11 @@ Logs are in `data/log/`.
 
 ## Java apps: `alfred jvms`, `attach`, `detach`
 
+`alfred jvms` names, per Java app, the project whose app port it listens on. **`alfred attach` without a PID**, in a
+terminal, lists the Java apps numbered and asks: a row number picks that app, any other number is taken as a PID (an
+app the list does not show - another user's, say); Enter attaches nothing. The panel's `a` key does the same. Piped,
+a missing PID is still a usage error.
+
 `alfred jvms` lists the Java processes on the machine (PID, name - WildFly by its home -, user, what Alfred does in
 it). `alfred attach PID` loads `alfred-agent.jar` into a running app through the Attach API, without a restart:
 
