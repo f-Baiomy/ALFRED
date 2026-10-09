@@ -61,7 +61,8 @@ class InstallScriptDownloadTest(unittest.TestCase):
         the installer's own file server: raised any later, the download ran on 2-3 connections - 0.2 MB/s instead of
         2 MB/s (3.0.6). The tests' hosts are 127.0.0.1, which .NET never limits, so this order is checked here."""
         with open(os.path.join(ROOT, "install.ps1"), encoding="utf-8") as f:
-            text = f.read()
+            # code only: comments name these commands too
+            text = "\n".join(line.split("#", 1)[0] for line in f.read().splitlines())
         limit = text.index("[Net.ServicePointManager]::DefaultConnectionLimit = 512")
         for first_request in ("Invoke-RestMethod", "CreateHttp(", "Invoke-WebRequest"):
             if first_request in text:
