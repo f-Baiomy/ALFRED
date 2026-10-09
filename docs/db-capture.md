@@ -95,7 +95,26 @@ module; if a deployment still cannot see it, add `-Djboss.modules.system.pkgs=co
 |---|---|---|
 | `DB_CAPTURE_DB_FILE` | `/dbcapturedb/db-capture.db` (named volume `db-capture-db`) | the store |
 | `DB_CAPTURE_TOGGLE_FILE` | `/appdata/db-capture-enabled.flag` (backend), `/home/mitmproxy/db-capture-enabled.flag` (reverse-proxy) | the per-project switch |
-| `ALFRED_DB_CAPTURE_MAX_SIZE_BYTES` | `4294967296` (4 GiB) | size cap; oldest calls' statements evicted first, never those held by a session cycle or Relive cycle |
+| `ALFRED_DB_CAPTURE_MAX_SIZE_BYTES` | `4294967296` (4 GiB) | size cap, counted in bytes on disk (compressed rows, each shared text once); oldest calls' statements evicted first, never those held by a session cycle or Relive cycle |
+
+### How statements are stored
+
+Measured on a real 1 GB capture (2026-10-09): result rows were 550 MB of plain JSON, and most of the statements'
+200 MB was the same text repeated (`sql` 58.5 MB of which 0.5 MB distinct, `callers` 36.5 of 0.2, the result's
+column list most of `outcome` 52.8 of 2.5). So, since format 2 (`PRAGMA user_version`):
+
+- **Rows** go in `row_blocks`: block `k` holds rows `k*100 .. k*100+99` of one statement's part (`RESULT` or
+  `BEFORE_IMAGE`) as one zstd-compressed JSON array - about 6% of the JSON. Pure-Java zstd (aircompressor), no native
+  library. A page of the Rows view decompresses one block; the statement list never reads rows at all. A continuation
+  chunk from the agent completes and rewrites the last block; a row already stored is never replaced, so a retried
+  batch changes nothing.
+- **Repeated text** - SQL, callers, origin, the result's column list - goes in `shared_text`, keyed by the first 16
+  bytes of the SHA-256 of its exact text, and is joined back on read. Only identical text is shared: each run keeps its
+  own row, parameters, outcome (rows read, time, error) and results. Texts no statement points to are deleted after an
+  eviction.
+- **Click-to-trace** inside rows decompresses the call's blocks one by one (SQL cannot look inside them).
+- **An older file is deleted once** on the first start of format 2 - statements, caught log lines and Redis commands
+  together - keeping only the per-project capture settings. The backend logs one line saying how much it removed.
 
 ## Relive-ready seams
 

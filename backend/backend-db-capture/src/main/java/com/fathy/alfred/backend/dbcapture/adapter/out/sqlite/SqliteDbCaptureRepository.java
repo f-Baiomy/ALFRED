@@ -41,6 +41,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.jdbc.core.ConnectionCallback;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.ResultSetExtractor;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.stereotype.Component;
@@ -71,8 +72,13 @@ import java.util.stream.Collectors;
  * db-capture.db - its own SQLite file (named volume, like logs.db) so capture volume never slows alfred.db.
  *
  * <p>Statement summary columns and their JSON (params, outcome, before-image) live in {@code statements}; rows live
- * in {@code result_rows}, keyed by (statement, part, index), so a 50,000-row result is paged 100 at a time and never
- * read whole. List reads name their columns and never touch {@code result_rows}; every read has a LIMIT.
+ * in {@code row_blocks}, {@link RowBlocks#SIZE} rows per zstd-compressed block keyed by (statement, part, first row),
+ * so a 50,000-row result is paged 100 at a time and never read whole. Text repeated across statements (SQL, callers,
+ * origin, result columns) is stored once in {@code shared_text} and joined back on read. List reads name their columns
+ * and never touch {@code row_blocks}; every read has a LIMIT.
+ *
+ * <p>Format {@link #FORMAT}: a file written by an older format is deleted once on start (its captures were plain JSON
+ * rows), keeping only the per-project capture settings.
  *
  * <p>Ingest is idempotent on the agent's own statement id ({@code agent_sid}): a batch the agent retried after a
  * timeout stores nothing twice, and the continuation chunks of a long result append to the statement with the same
@@ -90,14 +96,24 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
     private static final int IN_CHUNK = 400;
 
     private static final TypeReference<List<List<TypedValue>>> VALUE_ROWS = new TypeReference<>() { };
-    private static final TypeReference<List<TypedValue>> VALUE_ROW = new TypeReference<>() { };
+    private static final TypeReference<List<Column>> COLUMNS = new TypeReference<>() { };
     private static final TypeReference<List<String>> STRINGS = new TypeReference<>() { };
     private static final TypeReference<List<DbFlag>> FLAGS = new TypeReference<>() { };
     private static final TypeReference<List<TableIndex>> INDEXES = new TypeReference<>() { };
 
-    private static final String STATEMENT_COLUMNS = "id, call_id, thread_name, seq, kind, sql, fingerprint, table_name, params_json, "
-            + "outcome_json, started_at, duration_us, offset_us, tx_id, connection_id, code_location, run_tag, data_source, "
-            + "before_json, cascades_json, undone, expected, stored_rows, origin_json, callers_json, indexes_json";
+    /** PRAGMA user_version of the current layout: 2 = compressed row blocks and shared text. */
+    static final int FORMAT = 2;
+
+    /** Every read of statements names its table {@code s}: the shared text is joined back by hash. */
+    private static final String STATEMENT_COLUMNS = "s.id, s.call_id, s.thread_name, s.seq, s.kind, " + shared("sql_hash", "sql")
+            + ", s.fingerprint, s.table_name, s.params_json, "
+            + "s.outcome_json, s.started_at, s.duration_us, s.offset_us, s.tx_id, s.connection_id, s.code_location, s.run_tag, s.data_source, "
+            + "s.before_json, s.cascades_json, s.undone, s.expected, s.stored_rows, " + shared("origin_hash", "origin_json") + ", "
+            + shared("callers_hash", "callers_json") + ", s.indexes_json, " + shared("columns_hash", "columns_json");
+
+    private static String shared(String hashColumn, String as) {
+        return "(SELECT t.text FROM shared_text t WHERE t.hash = s." + hashColumn + ") AS " + as;
+    }
 
     private final ObjectMapper objectMapper;
 
@@ -122,6 +138,7 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
         } catch (IOException e) {
             throw new UncheckedIOException("Could not create directory for " + dbFile, e);
         }
+        Map<String, String> keptSettings = wipeOlderFormat(path);
         HikariConfig config = new HikariConfig();
         // IMMEDIATE: ingest reads (does this sid exist?) then writes. Every pragma goes in the URL, never a compound
         // connectionInitSql - the driver runs only the FIRST statement of that string, which left busy_timeout at its
@@ -135,9 +152,63 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
         this.jdbcTemplate = new JdbcTemplate(dataSource);
         this.transactions = new TransactionTemplate(new DataSourceTransactionManager(dataSource));
         createSchema();
+        keptSettings.forEach((project, settings) -> jdbcTemplate.update(
+                "INSERT OR IGNORE INTO capture_settings (project, settings_json) VALUES (?, ?)", project, settings));
+        jdbcTemplate.execute("PRAGMA user_version = " + FORMAT);
         if (!Files.isWritable(path)) {
             throw new IllegalStateException(dbFile + " is not writable");
         }
+    }
+
+    /**
+     * A db-capture.db written before {@link #FORMAT} is deleted once, before the pool opens: its rows are plain JSON
+     * and its statements carry their own copy of every text, and converting a gigabyte in place would cost more than
+     * the captures are worth. Only the per-project capture settings survive (returned, put back after the schema).
+     * A file already at FORMAT, or a new one, is left alone.
+     */
+    private static Map<String, String> wipeOlderFormat(Path path) {
+        Map<String, String> settings = new LinkedHashMap<>();
+        if (!Files.exists(path)) {
+            return settings;
+        }
+        try (java.sql.Connection c = java.sql.DriverManager.getConnection("jdbc:sqlite:" + path);
+             Statement st = c.createStatement()) {
+            int version;
+            try (ResultSet rs = st.executeQuery("PRAGMA user_version")) {
+                version = rs.next() ? rs.getInt(1) : 0;
+            }
+            boolean hasStatements;
+            try (ResultSet rs = st.executeQuery("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'statements'")) {
+                hasStatements = rs.next();
+            }
+            if (version >= FORMAT || !hasStatements) {
+                return settings;
+            }
+            try (ResultSet rs = st.executeQuery("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'capture_settings'")) {
+                if (rs.next()) {
+                    try (ResultSet s = c.createStatement().executeQuery("SELECT project, settings_json FROM capture_settings")) {
+                        while (s.next()) {
+                            settings.put(s.getString(1), s.getString(2));
+                        }
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("Could not read the format of " + path, e);
+        }
+        long bytes = 0;
+        for (String suffix : List.of("", "-wal", "-shm", "-journal")) {
+            Path file = Path.of(path + suffix);
+            try {
+                bytes += Files.exists(file) ? Files.size(file) : 0;
+                Files.deleteIfExists(file);
+            } catch (IOException e) {
+                throw new UncheckedIOException("Could not delete " + file + " (older db-capture format)", e);
+            }
+        }
+        log.info("db-capture: {} used an older format - deleted it once ({} MB of statements, log lines and Redis commands); "
+                + "kept the capture settings of {} project(s)", path, bytes / 1_000_000, settings.size());
+        return settings;
     }
 
     @PreDestroy
@@ -163,26 +234,36 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
                   id INTEGER PRIMARY KEY,
                   agent_sid TEXT NOT NULL UNIQUE,
                   call_id TEXT, thread_name TEXT NOT NULL, seq INTEGER NOT NULL,
-                  kind TEXT NOT NULL, sql TEXT NOT NULL, fingerprint TEXT, table_name TEXT,
+                  kind TEXT NOT NULL, sql_hash BLOB NOT NULL, fingerprint TEXT, table_name TEXT,
                   params_json TEXT NOT NULL, outcome_json TEXT NOT NULL,
                   started_at TEXT NOT NULL, duration_us INTEGER NOT NULL, offset_us INTEGER NOT NULL,
                   tx_id TEXT, connection_id TEXT, code_location TEXT, run_tag TEXT, data_source TEXT,
                   before_json TEXT, cascades_json TEXT,
                   undone INTEGER NOT NULL DEFAULT 0, expected INTEGER NOT NULL DEFAULT 0,
                   stored_rows INTEGER NOT NULL DEFAULT 0,
-                  approx_bytes INTEGER NOT NULL
+                  approx_bytes INTEGER NOT NULL,
+                  origin_hash BLOB, callers_hash BLOB, columns_hash BLOB, indexes_json TEXT,
+                  failed INTEGER NOT NULL DEFAULT 0
                 )
                 """);
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS ix_statements_call_seq ON statements(call_id, seq) WHERE call_id IS NOT NULL");
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS ix_statements_outside ON statements(thread_name, started_at) WHERE call_id IS NULL");
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS ix_statements_started ON statements(started_at)");
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS ix_statements_run ON statements(run_tag) WHERE run_tag IS NOT NULL");
+        // Each shared text is stored once; these let the sweep after an eviction find the texts nothing points to.
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS ix_statements_sql_hash ON statements(sql_hash)");
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS ix_statements_origin_hash ON statements(origin_hash) WHERE origin_hash IS NOT NULL");
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS ix_statements_callers_hash ON statements(callers_hash) WHERE callers_hash IS NOT NULL");
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS ix_statements_columns_hash ON statements(columns_hash) WHERE columns_hash IS NOT NULL");
+        jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS shared_text (hash BLOB PRIMARY KEY, text TEXT NOT NULL) WITHOUT ROWID");
+        // A rowid table: a block is a few KB, which WITHOUT ROWID stores badly (sqlite.org/withoutrowid.html).
         jdbcTemplate.execute("""
-                CREATE TABLE IF NOT EXISTS result_rows (
-                  statement_id INTEGER NOT NULL, part TEXT NOT NULL, row_index INTEGER NOT NULL, values_json TEXT NOT NULL,
-                  PRIMARY KEY (statement_id, part, row_index)
-                ) WITHOUT ROWID
+                CREATE TABLE IF NOT EXISTS row_blocks (
+                  statement_id INTEGER NOT NULL, part TEXT NOT NULL, row_from INTEGER NOT NULL, row_count INTEGER NOT NULL,
+                  raw_bytes INTEGER NOT NULL, data BLOB NOT NULL
+                )
                 """);
+        jdbcTemplate.execute("CREATE UNIQUE INDEX IF NOT EXISTS ix_row_blocks ON row_blocks(statement_id, part, row_from)");
         jdbcTemplate.execute("""
                 CREATE TABLE IF NOT EXISTS transactions (
                   call_id TEXT NOT NULL, tx_id TEXT NOT NULL, connection_id TEXT,
@@ -211,16 +292,9 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
         addColumnIfMissing("call_markers", "thread", "TEXT");
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS ix_markers_open_thread ON call_markers(thread, at) WHERE seq = 0");
         addColumnIfMissing("call_db_summary", "flags_version", "INTEGER NOT NULL DEFAULT 0");
-        addColumnIfMissing("statements", "origin_json", "TEXT");
-        addColumnIfMissing("statements", "callers_json", "TEXT");
-        addColumnIfMissing("statements", "indexes_json", "TEXT");
         addColumnIfMissing("transactions", "lifecycle_json", "TEXT");
         // Failed statements are a column with their own partial index, so a call's failures (and "which of these calls
         // had one") are one indexed read instead of a json_extract over every statement the call ran.
-        if (addColumnIfMissing("statements", "failed", "INTEGER NOT NULL DEFAULT 0")) {
-            int filled = jdbcTemplate.update("UPDATE statements SET failed = 1 WHERE failed = 0 AND json_extract(outcome_json, '$.kind') = 'FAILED'");
-            log.info("db-capture: marked {} stored statements as failed (one-time fill of the new column)", filled);
-        }
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS ix_statements_failed ON statements(call_id, seq) WHERE failed = 1");
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS ix_summary_first_seen ON call_db_summary(first_seen)");
         // Log lines the agent caught (specs/009-agent-log-capture): next to the call's statements, evicted with them.
@@ -274,37 +348,52 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
 
     private void insertStatement(IncomingStatement s) {
         String params = json(s.params() == null ? List.of() : s.params());
-        String outcome = json(s.outcome());
+        String outcome = json(ownOutcome(s.outcome()));
         String before = s.beforeImage() == null ? null : json(s.beforeImage());
         String cascades = s.cascadesTo() == null || s.cascadesTo().isEmpty() ? null : json(s.cascadesTo());
-        String origin = s.origin() == null ? null : json(s.origin());
-        String callers = s.callers() == null || s.callers().isEmpty() ? null : json(s.callers());
         String indexes = s.indexes() == null || s.indexes().isEmpty() ? null : json(s.indexes());
+        byte[] sql = sharedText(s.sql());
+        byte[] origin = s.origin() == null ? null : sharedText(json(s.origin()));
+        byte[] callers = s.callers() == null || s.callers().isEmpty() ? null : sharedText(json(s.callers()));
+        List<Column> columns = s.outcome() == null ? null : s.outcome().columns();
+        byte[] columnsHash = columns == null ? null : sharedText(json(columns));
         long rowsBytes = 0;
-        long id = insertReturningId(s, params, outcome, before, cascades, origin, callers, indexes);
+        long id = insertReturningId(s, params, outcome, before, cascades, sql, origin, callers, columnsHash, indexes);
         rowsBytes += insertRows(id, RESULT, s.rowsFrom(), s.rows());
         rowsBytes += insertRows(id, BEFORE_IMAGE, 0, s.beforeImageRows());
         long stored = s.rows() == null ? 0 : s.rows().size();
-        long bytes = s.sql().length() + params.length() + outcome.length() + (before == null ? 0 : before.length())
-                + (origin == null ? 0 : origin.length()) + (callers == null ? 0 : callers.length()) + rowsBytes;
+        // what this statement adds on disk: its own columns and its compressed rows - shared text counts once, in totalBytes
+        long bytes = params.length() + outcome.length() + (before == null ? 0 : before.length()) + rowsBytes;
         jdbcTemplate.update("UPDATE statements SET stored_rows = ?, approx_bytes = ? WHERE id = ?", stored, bytes, id);
     }
 
-    private long insertReturningId(IncomingStatement s, String params, String outcome, String before, String cascades, String origin,
-                                   String callers, String indexes) {
+    /** The outcome as stored on the statement row: without its column list, which lives in shared_text. */
+    private static StatementOutcome ownOutcome(StatementOutcome outcome) {
+        return outcome == null || outcome.columns() == null ? outcome : outcome.withColumns(null);
+    }
+
+    /** Stores {@code text} once (an identical text is already there) and returns its key. */
+    private byte[] sharedText(String text) {
+        byte[] hash = RowBlocks.hash(text);
+        jdbcTemplate.update("INSERT OR IGNORE INTO shared_text (hash, text) VALUES (?, ?)", hash, text);
+        return hash;
+    }
+
+    private long insertReturningId(IncomingStatement s, String params, String outcome, String before, String cascades, byte[] sql,
+                                   byte[] origin, byte[] callers, byte[] columns, String indexes) {
         Long id = jdbcTemplate.execute((ConnectionCallback<Long>) connection -> {
             try (PreparedStatement ps = connection.prepareStatement("""
-                    INSERT INTO statements (agent_sid, call_id, thread_name, seq, kind, sql, fingerprint, table_name, params_json,
+                    INSERT INTO statements (agent_sid, call_id, thread_name, seq, kind, sql_hash, fingerprint, table_name, params_json,
                       outcome_json, started_at, duration_us, offset_us, tx_id, connection_id, code_location, run_tag, data_source,
-                      before_json, cascades_json, origin_json, callers_json, indexes_json, failed, approx_bytes)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)
+                      before_json, cascades_json, origin_hash, callers_hash, indexes_json, failed, columns_hash, approx_bytes)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)
                     """, Statement.RETURN_GENERATED_KEYS)) {
                 ps.setString(1, s.sid());
                 ps.setString(2, s.callId());
                 ps.setString(3, s.thread());
                 ps.setInt(4, s.seq());
                 ps.setString(5, s.kind().name());
-                ps.setString(6, s.sql());
+                ps.setBytes(6, sql);
                 ps.setString(7, s.fingerprint());
                 ps.setString(8, s.table());
                 ps.setString(9, params);
@@ -319,10 +408,11 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
                 ps.setString(18, s.dataSource());
                 ps.setString(19, before);
                 ps.setString(20, cascades);
-                ps.setString(21, origin);
-                ps.setString(22, callers);
+                ps.setBytes(21, origin);
+                ps.setBytes(22, callers);
                 ps.setString(23, indexes);
                 ps.setInt(24, failed(s.outcome()));
+                ps.setBytes(25, columns);
                 ps.executeUpdate();
                 try (ResultSet keys = ps.getGeneratedKeys()) {
                     keys.next();
@@ -340,28 +430,64 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
     private void appendRows(long id, IncomingStatement s) {
         long bytes = insertRows(id, RESULT, s.rowsFrom(), s.rows());
         long added = s.rows() == null ? 0 : s.rows().size();
-        String outcome = json(s.outcome());
+        String outcome = json(ownOutcome(s.outcome()));
+        List<Column> columns = s.outcome() == null ? null : s.outcome().columns();
+        byte[] columnsHash = columns == null ? null : sharedText(json(columns));
         jdbcTemplate.update("UPDATE statements SET outcome_json = ?, failed = ?, stored_rows = stored_rows + ?, approx_bytes = approx_bytes + ?,"
-                + " duration_us = MAX(duration_us, ?) WHERE id = ?", outcome, failed(s.outcome()), added, bytes, s.durationMicros(), id);
+                        + " duration_us = MAX(duration_us, ?), columns_hash = COALESCE(?, columns_hash) WHERE id = ?",
+                outcome, failed(s.outcome()), added, bytes, s.durationMicros(), columnsHash, id);
     }
 
     private static int failed(StatementOutcome outcome) {
         return outcome != null && outcome.failed() ? 1 : 0;
     }
 
+    /**
+     * Puts rows {@code from..} into their blocks: a block that already holds some of its rows (the agent sends a long
+     * result in chunks) is read, completed and rewritten; a row already stored is kept as it was (a retried batch
+     * changes nothing). Returns how many compressed bytes the statement grew by.
+     */
     private long insertRows(long statementId, String part, int from, List<List<TypedValue>> rows) {
         if (rows == null || rows.isEmpty()) {
             return 0;
         }
-        List<Object[]> args = new ArrayList<>(rows.size());
-        long bytes = 0;
-        for (int i = 0; i < rows.size(); i++) {
-            String values = json(rows.get(i));
-            bytes += values.length();
-            args.add(new Object[]{statementId, part, from + i, values});
+        long grew = 0;
+        int i = 0;
+        while (i < rows.size()) {
+            long start = RowBlocks.blockStart((long) from + i);
+            List<List<TypedValue>> block = new ArrayList<>(RowBlocks.SIZE);
+            long oldBytes = 0;
+            List<Map<String, Object>> existing = jdbcTemplate.queryForList(
+                    "SELECT raw_bytes, data FROM row_blocks WHERE statement_id = ? AND part = ? AND row_from = ?", statementId, part, start);
+            if (!existing.isEmpty()) {
+                byte[] data = (byte[]) existing.get(0).get("data");
+                oldBytes = data.length;
+                block.addAll(readBlock(data, ((Number) existing.get(0).get("raw_bytes")).intValue()));
+            }
+            for (; i < rows.size() && from + i < start + RowBlocks.SIZE; i++) {
+                int at = (int) (from + i - start);
+                while (block.size() <= at) {
+                    block.add(null);
+                }
+                if (block.get(at) == null) {
+                    block.set(at, rows.get(i));
+                }
+            }
+            String raw = json(block);
+            byte[] data = RowBlocks.compress(raw);
+            int count = (int) block.stream().filter(Objects::nonNull).count();
+            jdbcTemplate.update("INSERT INTO row_blocks (statement_id, part, row_from, row_count, raw_bytes, data) VALUES (?,?,?,?,?,?) "
+                            + "ON CONFLICT(statement_id, part, row_from) DO UPDATE SET row_count = excluded.row_count, raw_bytes = excluded.raw_bytes, "
+                            + "data = excluded.data",
+                    statementId, part, start, count, raw.getBytes(java.nio.charset.StandardCharsets.UTF_8).length, data);
+            grew += data.length - oldBytes;
         }
-        jdbcTemplate.batchUpdate("INSERT OR IGNORE INTO result_rows (statement_id, part, row_index, values_json) VALUES (?,?,?,?)", args);
-        return bytes;
+        return grew;
+    }
+
+    /** One block of rows: list index = row index - the block's first row, null where no row was sent. */
+    private List<List<TypedValue>> readBlock(byte[] data, int rawBytes) {
+        return read(RowBlocks.decompress(data, rawBytes), VALUE_ROWS);
     }
 
     @Override
@@ -1087,7 +1213,7 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
             List<String> chunk = ids.subList(i, Math.min(ids.size(), i + IN_CHUNK));
             String in = chunk.stream().map(x -> "?").collect(Collectors.joining(","));
             // ix_statements_failed holds only failed rows: this never touches a call's successful statements.
-            jdbcTemplate.query("SELECT " + STATEMENT_COLUMNS + " FROM statements INDEXED BY ix_statements_failed WHERE failed = 1 AND call_id IN ("
+            jdbcTemplate.query("SELECT " + STATEMENT_COLUMNS + " FROM statements s INDEXED BY ix_statements_failed WHERE failed = 1 AND call_id IN ("
                             + in + ") ORDER BY call_id, seq", statementMapper, chunk.toArray())
                     .forEach(st -> {
                         List<CapturedStatement> list = result.computeIfAbsent(st.callId(), k -> new ArrayList<>());
@@ -1165,7 +1291,8 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
     private final RowMapper<CapturedStatement> statementMapper = (rs, n) -> new CapturedStatement(
             rs.getLong("id"), rs.getString("call_id"), rs.getString("thread_name"), rs.getInt("seq"),
             StatementKind.valueOf(rs.getString("kind")), rs.getString("sql"), rs.getString("fingerprint"), rs.getString("table_name"),
-            read(rs.getString("params_json"), VALUE_ROWS), read(rs.getString("outcome_json"), StatementOutcome.class),
+            read(rs.getString("params_json"), VALUE_ROWS), withSharedColumns(read(rs.getString("outcome_json"), StatementOutcome.class),
+                    rs.getString("columns_json")),
             rs.getString("started_at"), rs.getLong("duration_us"), rs.getLong("offset_us"), rs.getString("tx_id"),
             rs.getString("connection_id"), rs.getString("code_location"), rs.getString("run_tag"), rs.getString("data_source"),
             readNullable(rs.getString("before_json"), BeforeImage.class),
@@ -1177,7 +1304,7 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
 
     @Override
     public List<CapturedStatement> statementsAfter(String callId, int afterSeq, int limit) {
-        return jdbcTemplate.query("SELECT " + STATEMENT_COLUMNS + " FROM statements WHERE call_id = ? AND seq > ? ORDER BY seq LIMIT ?",
+        return jdbcTemplate.query("SELECT " + STATEMENT_COLUMNS + " FROM statements s WHERE call_id = ? AND seq > ? ORDER BY seq LIMIT ?",
                 statementMapper, callId, afterSeq, limit);
     }
 
@@ -1189,10 +1316,10 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
     @Override
     public List<CapturedStatement> outsideStatements(String thread, int offset, int limit) {
         if (thread == null || thread.isBlank()) {
-            return jdbcTemplate.query("SELECT " + STATEMENT_COLUMNS + " FROM statements WHERE call_id IS NULL ORDER BY started_at DESC, id DESC LIMIT ? OFFSET ?",
+            return jdbcTemplate.query("SELECT " + STATEMENT_COLUMNS + " FROM statements s WHERE call_id IS NULL ORDER BY started_at DESC, id DESC LIMIT ? OFFSET ?",
                     statementMapper, limit, offset);
         }
-        return jdbcTemplate.query("SELECT " + STATEMENT_COLUMNS + " FROM statements WHERE call_id IS NULL AND thread_name = ? ORDER BY started_at DESC, id DESC LIMIT ? OFFSET ?",
+        return jdbcTemplate.query("SELECT " + STATEMENT_COLUMNS + " FROM statements s WHERE call_id IS NULL AND thread_name = ? ORDER BY started_at DESC, id DESC LIMIT ? OFFSET ?",
                 statementMapper, thread, limit, offset);
     }
 
@@ -1215,7 +1342,7 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
 
     @Override
     public Optional<CapturedStatement> statement(long id) {
-        return jdbcTemplate.query("SELECT " + STATEMENT_COLUMNS + " FROM statements WHERE id = ? LIMIT 1", statementMapper, id).stream().findFirst();
+        return jdbcTemplate.query("SELECT " + STATEMENT_COLUMNS + " FROM statements s WHERE id = ? LIMIT 1", statementMapper, id).stream().findFirst();
     }
 
     @Override
@@ -1232,35 +1359,80 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
         return outcome == null || outcome.columns() == null ? List.of() : outcome.columns();
     }
 
-    @Override
-    public List<List<TypedValue>> rows(long statementId, String part, int offset, int limit) {
-        return jdbcTemplate.query("SELECT values_json FROM result_rows WHERE statement_id = ? AND part = ? AND row_index >= ? ORDER BY row_index LIMIT ?",
-                (rs, n) -> read(rs.getString("values_json"), VALUE_ROW), statementId, part, offset, limit);
+    private StatementOutcome withSharedColumns(StatementOutcome outcome, String columnsJson) {
+        return outcome == null || columnsJson == null ? outcome : outcome.withColumns(read(columnsJson, COLUMNS));
     }
 
+    /** Rows {@code offset..} of one part, read block by block: a page of 100 decompresses one or two blocks. */
     @Override
-    public List<TraceHit> rowsContaining(String callId, String value, int limit) {
-        // A cheap LIKE narrows to rows that mention the value; the exact cell match happens here.
-        String needle = "%" + value.replace("!", "!!").replace("%", "!%").replace("_", "!_") + "%";
-        List<TraceHit> hits = new ArrayList<>();
-        jdbcTemplate.query("""
-                SELECT s.seq, r.part, r.row_index, r.values_json FROM result_rows r JOIN statements s ON s.id = r.statement_id
-                WHERE s.call_id = ? AND r.values_json LIKE ? ESCAPE '!' ORDER BY s.seq, r.part, r.row_index LIMIT ?
-                """, rs -> {
-            List<TypedValue> row = read(rs.getString("values_json"), VALUE_ROW);
-            for (int i = 0; i < row.size(); i++) {
-                if (value.equals(row.get(i).value())) {
-                    hits.add(new TraceHit(rs.getInt("seq"), BEFORE_IMAGE.equals(rs.getString("part")) ? TraceHit.BEFORE_IMAGE : TraceHit.ROW,
-                            rs.getInt("row_index"), String.valueOf(i)));
+    public List<List<TypedValue>> rows(long statementId, String part, int offset, int limit) {
+        List<List<TypedValue>> result = new ArrayList<>();
+        long from = RowBlocks.blockStart(Math.max(0, offset));
+        while (result.size() < limit) {
+            List<Map<String, Object>> found = jdbcTemplate.queryForList(
+                    "SELECT row_from, raw_bytes, data FROM row_blocks WHERE statement_id = ? AND part = ? AND row_from >= ? ORDER BY row_from LIMIT 1",
+                    statementId, part, from);
+            if (found.isEmpty()) {
+                break;
+            }
+            long start = ((Number) found.get(0).get("row_from")).longValue();
+            List<List<TypedValue>> block = readBlock((byte[]) found.get(0).get("data"), ((Number) found.get(0).get("raw_bytes")).intValue());
+            for (int i = 0; i < block.size() && result.size() < limit; i++) {
+                if (block.get(i) != null && start + i >= offset) {
+                    result.add(block.get(i));
                 }
             }
-        }, callId, needle, limit);
+            from = start + RowBlocks.SIZE;
+        }
+        return result;
+    }
+
+    /**
+     * The cells of the call's rows equal to {@code value}. Rows are compressed, so SQL cannot look inside them: each of
+     * the call's blocks is decompressed in turn, skipped unless its text mentions the value, and matched cell by cell.
+     * Stops after {@code limit} matching rows, as the LIKE it replaces did.
+     */
+    @Override
+    public List<TraceHit> rowsContaining(String callId, String value, int limit) {
+        List<TraceHit> hits = new ArrayList<>();
+        // the text check is a shortcut only where JSON writes the value as it is (no quote, backslash or control char)
+        boolean literal = value.chars().noneMatch(ch -> ch == '"' || ch == '\\' || ch < 0x20);
+        jdbcTemplate.query("""
+                SELECT s.seq, b.part, b.row_from, b.raw_bytes, b.data FROM row_blocks b JOIN statements s ON s.id = b.statement_id
+                WHERE s.call_id = ? ORDER BY s.seq, b.part, b.row_from
+                """, (ResultSetExtractor<Void>) rs -> {
+            int matchedRows = 0;
+            while (matchedRows < limit && rs.next()) {
+                String text = RowBlocks.decompress(rs.getBytes("data"), rs.getInt("raw_bytes"));
+                if (literal && !text.contains(value)) {
+                    continue;
+                }
+                List<List<TypedValue>> block = read(text, VALUE_ROWS);
+                String kind = BEFORE_IMAGE.equals(rs.getString("part")) ? TraceHit.BEFORE_IMAGE : TraceHit.ROW;
+                for (int r = 0; r < block.size() && matchedRows < limit; r++) {
+                    List<TypedValue> row = block.get(r);
+                    if (row == null) {
+                        continue;
+                    }
+                    boolean matched = false;
+                    for (int i = 0; i < row.size(); i++) {
+                        if (value.equals(row.get(i).value())) {
+                            hits.add(new TraceHit(rs.getInt("seq"), kind, rs.getInt("row_from") + r, String.valueOf(i)));
+                            matched = true;
+                        }
+                    }
+                    matchedRows += matched ? 1 : 0;
+                }
+            }
+            return null;
+        }, callId);
         return hits;
     }
 
     @Override
     public long rowCount(long statementId, String part) {
-        Long count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM result_rows WHERE statement_id = ? AND part = ?", Long.class, statementId, part);
+        Long count = jdbcTemplate.queryForObject("SELECT COALESCE(SUM(row_count), 0) FROM row_blocks WHERE statement_id = ? AND part = ?",
+                Long.class, statementId, part);
         return count == null ? 0 : count;
     }
 
@@ -1275,7 +1447,7 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
             String in = chunk.stream().map(x -> "?").collect(Collectors.joining(","));
             Object[] args = chunk.toArray();
             transactions.executeWithoutResult(status -> {
-                jdbcTemplate.update("DELETE FROM result_rows WHERE statement_id IN (SELECT id FROM statements WHERE call_id IN (" + in + "))", args);
+                jdbcTemplate.update("DELETE FROM row_blocks WHERE statement_id IN (SELECT id FROM statements WHERE call_id IN (" + in + "))", args);
                 deleted[0] += jdbcTemplate.update("DELETE FROM statements WHERE call_id IN (" + in + ")", args);
                 jdbcTemplate.update("DELETE FROM transactions WHERE call_id IN (" + in + ")", args);
                 jdbcTemplate.update("DELETE FROM call_markers WHERE call_id IN (" + in + ")", args);
@@ -1286,13 +1458,24 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
                 deleted[0] += StoreCommandsSchema.deleteForCalls(jdbcTemplate, in, args);
             });
         }
+        sweepSharedText();
         return deleted[0];
+    }
+
+    /** Deletes the shared texts no statement points to any more - after statements were deleted, never during ingest. */
+    private void sweepSharedText() {
+        jdbcTemplate.update("""
+                DELETE FROM shared_text WHERE NOT EXISTS (SELECT 1 FROM statements WHERE sql_hash = shared_text.hash)
+                  AND NOT EXISTS (SELECT 1 FROM statements WHERE origin_hash = shared_text.hash)
+                  AND NOT EXISTS (SELECT 1 FROM statements WHERE callers_hash = shared_text.hash)
+                  AND NOT EXISTS (SELECT 1 FROM statements WHERE columns_hash = shared_text.hash)
+                """);
     }
 
     @Override
     public void deleteAllCallStatements() {
         transactions.executeWithoutResult(status -> {
-            jdbcTemplate.update("DELETE FROM result_rows WHERE statement_id IN (SELECT id FROM statements WHERE call_id IS NOT NULL)");
+            jdbcTemplate.update("DELETE FROM row_blocks WHERE statement_id IN (SELECT id FROM statements WHERE call_id IS NOT NULL)");
             jdbcTemplate.update("DELETE FROM statements WHERE call_id IS NOT NULL");
             jdbcTemplate.update("DELETE FROM transactions");
             jdbcTemplate.update("DELETE FROM call_markers");
@@ -1301,11 +1484,14 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
             jdbcTemplate.update("DELETE FROM call_log_summary");
             StoreCommandsSchema.deleteAll(jdbcTemplate);
         });
+        sweepSharedText();
     }
 
+    /** Bytes on disk the size cap counts: each statement's own share (compressed rows included) plus each shared text once. */
     @Override
     public long totalBytes() {
-        Long bytes = jdbcTemplate.queryForObject("SELECT COALESCE(SUM(approx_bytes), 0) FROM statements", Long.class);
+        Long bytes = jdbcTemplate.queryForObject("SELECT COALESCE(SUM(approx_bytes), 0) + (SELECT COALESCE(SUM(length(CAST(text AS BLOB))), 0) "
+                + "FROM shared_text) FROM statements", Long.class);
         return bytes == null ? 0 : bytes;
     }
 
@@ -1334,25 +1520,34 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
 
     @Override
     public void trimOutside(String beforeInstant, long maxBytes) {
-        transactions.executeWithoutResult(status -> {
-            jdbcTemplate.update("DELETE FROM result_rows WHERE statement_id IN (SELECT id FROM statements WHERE call_id IS NULL AND started_at < ?)", beforeInstant);
-            jdbcTemplate.update("DELETE FROM statements WHERE call_id IS NULL AND started_at < ?", beforeInstant);
+        if (trimOutsideStatements(beforeInstant, maxBytes) > 0) {
+            sweepSharedText();
+        }
+    }
+
+    /** @return how many outside-call statements were deleted. */
+    private int trimOutsideStatements(String beforeInstant, long maxBytes) {
+        Integer aged = transactions.execute(status -> {
+            jdbcTemplate.update("DELETE FROM row_blocks WHERE statement_id IN (SELECT id FROM statements WHERE call_id IS NULL AND started_at < ?)", beforeInstant);
+            return jdbcTemplate.update("DELETE FROM statements WHERE call_id IS NULL AND started_at < ?", beforeInstant);
         });
+        int deleted = aged == null ? 0 : aged;
         while (true) {
             Long bytes = jdbcTemplate.queryForObject("SELECT COALESCE(SUM(approx_bytes), 0) FROM statements WHERE call_id IS NULL", Long.class);
             if (bytes == null || bytes <= maxBytes) {
-                return;
+                return deleted;
             }
             List<Long> oldest = jdbcTemplate.queryForList("SELECT id FROM statements WHERE call_id IS NULL ORDER BY started_at, id LIMIT 500", Long.class);
             if (oldest.isEmpty()) {
-                return;
+                return deleted;
             }
             String in = oldest.stream().map(x -> "?").collect(Collectors.joining(","));
             Object[] args = oldest.toArray();
             transactions.executeWithoutResult(status -> {
-                jdbcTemplate.update("DELETE FROM result_rows WHERE statement_id IN (" + in + ")", args);
+                jdbcTemplate.update("DELETE FROM row_blocks WHERE statement_id IN (" + in + ")", args);
                 jdbcTemplate.update("DELETE FROM statements WHERE id IN (" + in + ")", args);
             });
+            deleted += oldest.size();
         }
     }
 

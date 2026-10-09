@@ -341,20 +341,4 @@ class SqliteDbCaptureRepositoryTest {
         }
     }
 
-    @Test
-    void anExistingDatabaseGetsItsFailedStatementsMarkedOnceWhenTheColumnIsAdded() throws Exception {
-        repo.saveStatements(twoCallsOneFailing());
-        repo.close();
-        Thread.sleep(50);
-        // Turn the file back into what an older version left: no failed column, no index.
-        try (var connection = java.sql.DriverManager.getConnection("jdbc:sqlite:" + tempDir.resolve("db-capture.db"));
-             var st = connection.createStatement()) {
-            st.execute("DROP INDEX ix_statements_failed");
-            st.execute("ALTER TABLE statements DROP COLUMN failed");
-        }
-        open();
-
-        assertThat(repo.failedStatements(List.of("call-1", "call-2"), 50)).containsOnlyKeys("call-1");
-        assertThat(repo.failureCounts("call-1").failed()).isEqualTo(2);
-    }
 }

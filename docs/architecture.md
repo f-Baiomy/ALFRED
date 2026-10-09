@@ -172,7 +172,8 @@ answer "what's the newest header this host has seen."
 ## Database capture (`backend-db-capture`, `db-agent/`)
 
 A leaf slice with its own SQLite file (`db-capture.db`, SQLite only - no file adapter): statements, their stored rows
-(`result_rows`, paged), transactions, per-call markers (CALL_OPEN, HTTP_OUT) and a per-call summary that the ◆ DB chip
+(`row_blocks`: 100 rows per zstd-compressed block, a page = one block; text repeated across statements - SQL, callers,
+origin, result columns - stored once in `shared_text`), transactions, per-call markers (CALL_OPEN, HTTP_OUT) and a per-call summary that the ◆ DB chip
 reads. It knows no other slice; everything cross-slice goes through `backend-app/dbcapturebridge`:
 `InboundCallCompletionAdapter` (a `NewInternalCallObserverPort` - marks swallowed failures, "ended early"),
 `RetainedCallIdsAdapter` (calls a session cycle holds survive the size cap), `InboundProjectsAdapter` (projects and

@@ -62,6 +62,12 @@ public record StatementOutcome(
         return kind == OutcomeKind.TX_END && "ROLLED_BACK".equals(txResult);
     }
 
+    /** The same outcome with other columns - storage keeps the column list apart, shared by every run of the statement. */
+    public StatementOutcome withColumns(List<Column> value) {
+        return new StatementOutcome(kind, value, rowsRead, partial, overLimit, affected, perSet, generatedKeys, outParams,
+                sqlState, vendorCode, message, chain, swallowed, txResult, heldMicros, acquireMicros, via, beginMicros, commitMicros, closeMicros);
+    }
+
     public StatementOutcome withSwallowed(boolean value) {
         return new StatementOutcome(kind, columns, rowsRead, partial, overLimit, affected, perSet, generatedKeys, outParams,
                 sqlState, vendorCode, message, chain, value, txResult, heldMicros, acquireMicros, via, beginMicros, commitMicros, closeMicros);
