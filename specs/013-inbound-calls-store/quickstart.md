@@ -126,3 +126,9 @@ Fallback: `INTERNAL_CALLS_STORAGE=file` in `.env`, restart backend - today's fil
 30/30 across a restart; E4 traffic in 0.04 s while down, give-ups logged; E5; E10 400; E9 heap 75.0 %; E8 newest 50
 kept, max report 0.49 s; E6 background move finishes, 48 calls in order, `.migrated` kept, restart idempotent; E7 file
 and SQLite stores give the same answers.
+
+### Native install E2E (2026-10-09)
+
+`python build.py --target linux --skip-tests --yes` then `tests/e2e/run_in_container.sh` in a clean
+`debian:bookworm-slim` with no network: **12 of 12 passed**, install to healthy 21 s, an inbound call through the native
+reverse proxy stored in `<data>/appdata/internal-calls.db` with request and response (FR-012).

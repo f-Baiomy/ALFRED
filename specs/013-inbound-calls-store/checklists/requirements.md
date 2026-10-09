@@ -36,3 +36,5 @@
   library, table or class; the choice of database engine is left to the plan (assumed: the one outbound calls use).
 - Measured figures in Background (835 MB of 1 GB, 6.7 s copy, 3,500-call rewrite cycle) come from the running Docker
   install on 2026-10-09 and are the baseline for SC-001, SC-003 and SC-005.
+- Implementation verified 2026-10-09: proxy 465, backend-internal-calls 106, full reactor + ArchUnit, launcher 106,
+  inbound E2E 22/22, native E2E 12/12; measured results in quickstart.md "Results".
