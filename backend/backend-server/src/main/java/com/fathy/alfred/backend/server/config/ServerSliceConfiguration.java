@@ -9,6 +9,7 @@ import com.fathy.alfred.backend.server.adapter.out.probe.MachineAdapter;
 import com.fathy.alfred.backend.server.adapter.out.runtime.JvmRuntimeInfoAdapter;
 import com.fathy.alfred.backend.server.adapter.out.runtime.NetworkInterfacesAdapter;
 import com.fathy.alfred.backend.server.adapter.out.runtime.ProcessEnvDockerSettingsAdapter;
+import com.fathy.alfred.backend.server.adapter.out.supervisor.AgentHostAdapter;
 import com.fathy.alfred.backend.server.adapter.out.supervisor.SupervisorControlAdapter;
 import com.fathy.alfred.backend.server.adapter.out.update.HttpUpdateFeedAdapter;
 import com.fathy.alfred.backend.server.application.port.in.UpdateUseCase;
@@ -87,7 +88,12 @@ public class ServerSliceConfiguration implements WebSocketConfigurer {
 
     @Bean
     public SupervisorPort serverSupervisor(@Value("${ALFRED_CONTROL_FILE:data/run/control.json}") String controlFile,
+                                           @Value("${ALFRED_AGENT_HOST_URL:}") String agentHostUrl,
+                                           @Value("${ALFRED_AGENT_HOST_TOKEN:}") String agentHostToken,
                                            RuntimeMode mode, ObjectMapper mapper) {
+        if (mode == RuntimeMode.DOCKER) {
+            return new AgentHostAdapter(agentHostUrl, agentHostToken, mapper);
+        }
         return new SupervisorControlAdapter(Path.of(controlFile), mode, mapper);
     }
 

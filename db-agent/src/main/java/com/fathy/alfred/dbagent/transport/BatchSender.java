@@ -44,6 +44,12 @@ public final class BatchSender implements StatementSink {
     static final long FLUSH_EVERY_MILLIS = 250;
     static final int FLUSH_AT = 500;
     static final long HEARTBEAT_EVERY_MILLIS = 10_000;
+    /** A missed heartbeat is retried this soon, and this many missed in a row mean Alfred is gone (~15 s after it stops). */
+    static final long HEARTBEAT_RETRY_MILLIS = 2_000;
+    static final int GONE_AFTER_MISSED = 3;
+    /** The Alfred this agent reports to now, as a system property: "alfred jvms" shows it, and an Alfred that finds
+     *  the agent already reporting to another (running) Alfred leaves it there - the first one keeps it. */
+    public static final String URL_PROPERTY = "alfred.agent.url";
     static final int EXIT_FLUSH_BATCHES = 3;
     private static final String OUTSIDE = "";
 
@@ -72,9 +78,17 @@ public final class BatchSender implements StatementSink {
     private volatile boolean running = true;
     private long lastHeartbeat;
     private Thread thread;
+    /** Whether the last post reached ALFRED: false when nothing accepted the connection, or a gateway answered for a
+     *  backend that is not there (502-504). A slow or refusing ALFRED is still there. */
+    private volatile boolean reached = true;
+    private int missedHeartbeats;
+    private volatile boolean gone;
+    private volatile java.util.function.Consumer<String> onGone = why -> { };
+    private volatile Runnable onBack = () -> { };
 
     public BatchSender(String baseUrl, String secret, String project, String agentId, String agentVersion, AgentSettings settings, Runnable onTick) {
         this.baseUrl = baseUrl;
+        publishUrl(baseUrl);
         this.secret = secret;
         this.project = project;
         this.agentId = agentId;
@@ -96,6 +110,7 @@ public final class BatchSender implements StatementSink {
         if (url != null && !url.equals(baseUrl)) {
             String was = baseUrl;
             baseUrl = url;
+            publishUrl(url);
             lastHeartbeat = 0;
             AgentLog.info("ALFRED is at " + url + " (said by the reverse proxy that delivered the call) - reporting there instead of " + was);
         }
@@ -107,6 +122,7 @@ public final class BatchSender implements StatementSink {
         if (url != null && !url.equals(baseUrl)) {
             AgentLog.info("reporting to " + url + " instead of " + baseUrl + " (attached again with other arguments)");
             baseUrl = url;
+            publishUrl(url);
             changed = true;
         }
         if (newSecret != null && !newSecret.equals(secret)) {
@@ -116,6 +132,25 @@ public final class BatchSender implements StatementSink {
         if (changed) {
             lastHeartbeat = 0;
         }
+        // Attached again: whoever attached is Alfred, so the count of missed heartbeats starts over.
+        gone = false;
+        missedHeartbeats = 0;
+    }
+
+    private static void publishUrl(String url) {
+        if (url != null) {
+            System.setProperty(URL_PROPERTY, url);
+        }
+    }
+
+    /** Told when Alfred stops answering (why) and when it answers again - the agent stands down and resumes. */
+    public void presence(java.util.function.Consumer<String> gone, Runnable back) {
+        this.onGone = gone;
+        this.onBack = back;
+    }
+
+    boolean gone() {
+        return gone;
     }
 
     String baseUrl() {
@@ -274,7 +309,8 @@ public final class BatchSender implements StatementSink {
                     drainInto(drained);
                     send(drained);
                 }
-                if (System.currentTimeMillis() - lastHeartbeat >= HEARTBEAT_EVERY_MILLIS) {
+                long every = missedHeartbeats > 0 && !gone ? HEARTBEAT_RETRY_MILLIS : HEARTBEAT_EVERY_MILLIS;
+                if (System.currentTimeMillis() - lastHeartbeat >= every) {
                     heartbeat();
                 }
             } catch (InterruptedException e) {
@@ -404,8 +440,33 @@ public final class BatchSender implements StatementSink {
         }
         w.endObject();
         String answer = post("/db-capture/agent/heartbeat", w.toString());
-        if (answer != null) {
-            applySettings(answer);
+        if (answer != null || reached) {
+            missedHeartbeats = 0;
+            if (gone) {
+                gone = false;
+                tell(onBack);
+            }
+            if (answer != null) {
+                applySettings(answer);
+            }
+            return;
+        }
+        missedHeartbeats++;
+        if (!gone && missedHeartbeats >= GONE_AFTER_MISSED) {
+            gone = true;
+            // Nothing queued can be delivered to an Alfred that is not there, and nothing new is captured.
+            queue.clear();
+            queuedBytes.set(0);
+            String why = "Alfred unreachable at " + baseUrl + " (" + missedHeartbeats + " heartbeats missed)";
+            tell(() -> onGone.accept(why));
+        }
+    }
+
+    private static void tell(Runnable listener) {
+        try {
+            listener.run();
+        } catch (Throwable t) {
+            AgentLog.failure("presence", t);
         }
     }
 
@@ -472,10 +533,18 @@ public final class BatchSender implements StatementSink {
             }
             byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
             connection.setFixedLengthStreamingMode(bytes.length);
+            try {
+                connection.connect();
+            } catch (IOException e) {
+                reached = false;
+                throw e;
+            }
+            reached = true;
             try (OutputStream out = connection.getOutputStream()) {
                 out.write(bytes);
             }
             int status = connection.getResponseCode();
+            reached = status < 502 || status > 504;
             if (status == 401) {
                 long now = System.currentTimeMillis();
                 if (now - lastRejectedWarning > 60_000) {
@@ -487,14 +556,18 @@ public final class BatchSender implements StatementSink {
                 return null;
             }
             if (status / 100 != 2) {
-                AgentLog.warn("ALFRED answered " + status + " to " + path);
+                if (!gone) {
+                    AgentLog.warn("ALFRED answered " + status + " to " + path);
+                }
                 return null;
             }
             try (InputStream in = connection.getInputStream()) {
                 return read(in);
             }
         } catch (IOException e) {
-            AgentLog.warn("cannot reach ALFRED at " + baseUrl + " (" + e.getClass().getSimpleName() + ")");
+            if (!gone) { // standing down says it once; a warning every 10 s after would only fill the app's log
+                AgentLog.warn("cannot reach ALFRED at " + baseUrl + " (" + e.getClass().getSimpleName() + ")");
+            }
             return null;
         } finally {
             if (connection != null) {

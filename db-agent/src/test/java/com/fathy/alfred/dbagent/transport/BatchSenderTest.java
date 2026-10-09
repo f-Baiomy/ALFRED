@@ -87,6 +87,59 @@ class BatchSenderTest {
     }
 
     @Test
+    void threeMissedHeartbeatsMeanAlfredIsGoneAndTheFirstAnswerMeansItIsBack() throws Exception {
+        java.util.concurrent.atomic.AtomicInteger status = new java.util.concurrent.atomic.AtomicInteger(200);
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/", exchange -> {
+            byte[] answer = "{}".getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(status.get(), answer.length);
+            try (OutputStream out = exchange.getResponseBody()) {
+                out.write(answer);
+            }
+        });
+        server.start();
+        String url = "http://127.0.0.1:" + server.getAddress().getPort();
+        List<String> events = Collections.synchronizedList(new ArrayList<>());
+        BatchSender sender = new BatchSender(url, "s", "p", "a", "1", new AgentSettings(), () -> { });
+        sender.presence(why -> events.add("gone: " + why), () -> events.add("back"));
+        sender.heartbeat();
+        assertThat(events).isEmpty();
+
+        // the gateway is up, the backend behind it is not: 502 is "not there", like a refused connection
+        status.set(502);
+        sender.heartbeat();
+        sender.heartbeat();
+        assertThat(events).isEmpty();
+        sender.marker(new MarkerRecord("c1", 1, "START", "t", "GET", "/x"));
+        sender.heartbeat();
+        assertThat(events).singleElement().asString().startsWith("gone: Alfred unreachable at " + url);
+        assertThat(sender.queued()).isZero();
+        sender.heartbeat();
+        assertThat(events).hasSize(1);
+
+        // a refusal (401) or a server error is an Alfred that is there
+        status.set(401);
+        sender.heartbeat();
+        assertThat(events).containsExactly(events.get(0), "back");
+    }
+
+    @Test
+    void nothingListeningIsGoneAndAnAttachStartsTheCountOver() {
+        List<String> events = Collections.synchronizedList(new ArrayList<>());
+        BatchSender sender = new BatchSender("http://127.0.0.1:1", "s", "p", "a", "1", new AgentSettings(), () -> { });
+        sender.presence(why -> events.add("gone"), () -> events.add("back"));
+        sender.heartbeat();
+        sender.heartbeat();
+        sender.retarget("http://127.0.0.1:1", null);
+        sender.heartbeat();
+        sender.heartbeat();
+        assertThat(events).isEmpty();
+        sender.heartbeat();
+        assertThat(events).containsExactly("gone");
+        assertThat(sender.gone()).isTrue();
+    }
+
+    @Test
     void postsBatchesWithTheSecretAndAppliesHeartbeatSettings() throws Exception {
         String url = start("{\"rowsPerResult\":7,\"beforeImageTables\":[\"Payment_Holds\"],\"outsideCallCapture\":true,\"captureEnabled\":true,\"ignorePatterns\":[\"QRTZ_%\"]}");
         AgentSettings settings = new AgentSettings();

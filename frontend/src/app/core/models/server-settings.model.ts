@@ -117,7 +117,8 @@ export interface ProcessStatus {
   callsLastHour: number;
 }
 
-export type AgentAttachState = 'ATTACHED' | 'ATTACHING' | 'NO_JVM' | 'NOT_A_JVM' | 'FAILED' | 'NO_PROJECT' | 'UNKNOWN';
+/** ELSEWHERE: the app's agent reports to another running Alfred, which keeps it until it stops. */
+export type AgentAttachState = 'ATTACHED' | 'ATTACHING' | 'NO_JVM' | 'NOT_A_JVM' | 'FAILED' | 'NO_PROJECT' | 'ELSEWHERE' | 'UNKNOWN';
 
 /** The supervisor's last attach attempt for a project: the JVM on its upstream port and what came of it. */
 export interface AgentAttach {

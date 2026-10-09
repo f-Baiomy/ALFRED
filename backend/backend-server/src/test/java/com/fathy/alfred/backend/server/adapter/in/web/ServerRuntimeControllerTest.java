@@ -19,6 +19,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -64,6 +65,23 @@ class ServerRuntimeControllerTest {
         mvc.perform(post("/server/restart").contentType(MediaType.APPLICATION_JSON).content("{\"what\":\"BACKEND\"}"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.reason").value("DOCKER_MODE"));
+    }
+
+    @Test
+    void dockerLetsAnAttachThroughButNoOtherWriteAndNothingFromTheTunnel() throws Exception {
+        org.mockito.Mockito.doAnswer(inv -> AccessRule.parse("local")
+                .decide(inv.getArgument(0), inv.getArgument(1), Set.of(), RuntimeMode.DOCKER)).when(editAccess).access(anyString(), any());
+        when(runtime.attachAgent("odeysys", java.util.List.of("db"), true)).thenReturn(true);
+        mvc.perform(post("/server/agents/attach").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"project\":\"odeysys\",\"features\":[\"db\"],\"force\":true}"))
+                .andExpect(status().isAccepted());
+        mvc.perform(post("/server/agents/attach").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"project\":\"odeysys\",\"features\":[\"db\"],\"force\":true}").header("Cf-Ray", "1"))
+                .andExpect(status().isForbidden());
+        mvc.perform(post("/server/restart").contentType(MediaType.APPLICATION_JSON).content("{\"what\":\"BACKEND\"}"))
+                .andExpect(status().isForbidden());
+        verify(runtime, times(1)).attachAgent(any(), any(), org.mockito.ArgumentMatchers.anyBoolean());
+        verify(runtime, never()).restart(any());
     }
 
     @Test

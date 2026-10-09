@@ -144,15 +144,27 @@ public class SupervisorControlAdapter implements SupervisorPort {
         return call(method, path, null);
     }
 
-    private Optional<JsonNode> call(String method, String path, JsonNode body) {
+    /** Where the control API is and its token: data/run/control.json, which the supervisor rewrites at each start. */
+    protected record Endpoint(String baseUrl, String token) {
+    }
+
+    protected Optional<Endpoint> endpoint() throws IOException {
         if (!available()) {
             return Optional.empty();
         }
+        JsonNode control = mapper.readTree(Files.readString(controlFile));
+        return Optional.of(new Endpoint("http://127.0.0.1:" + control.path("port").asInt(), control.path("token").asText()));
+    }
+
+    private Optional<JsonNode> call(String method, String path, JsonNode body) {
         try {
-            JsonNode control = mapper.readTree(Files.readString(controlFile));
-            HttpRequest request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + control.path("port").asInt() + path))
+            Optional<Endpoint> endpoint = endpoint();
+            if (endpoint.isEmpty()) {
+                return Optional.empty();
+            }
+            HttpRequest request = HttpRequest.newBuilder(URI.create(endpoint.get().baseUrl() + path))
                     .timeout(TIMEOUT)
-                    .header("X-Alfred-Control-Token", control.path("token").asText())
+                    .header("X-Alfred-Control-Token", endpoint.get().token())
                     .header("Content-Type", "application/json")
                     .method(method, body == null ? HttpRequest.BodyPublishers.noBody()
                             : HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body)))

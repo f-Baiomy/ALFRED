@@ -145,6 +145,13 @@ final class Fakes {
         int backendRestarts;
         int proxyRestarts;
         boolean available = true;
+        /** Docker's agent host: attaches although no supervisor runs. Null: as {@link #available}. */
+        Boolean attaches;
+
+        @Override
+        public boolean attaches() {
+            return attaches == null ? available : attaches;
+        }
 
         @Override
         public boolean available() {
@@ -197,7 +204,7 @@ final class Fakes {
 
         @Override
         public boolean attachAgent(String project, List<String> features, boolean force) {
-            if (!available) {
+            if (!attaches()) {
                 return false;
             }
             attachesAsked.add(project + " " + String.join(",", features) + (force ? " force" : ""));

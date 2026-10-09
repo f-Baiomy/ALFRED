@@ -27,8 +27,9 @@ import java.util.concurrent.Executors;
  * agent into the JVM on that project's upstream port, with the features the project's settings say. The ask is
  * cheap and answered at once (the supervisor finds and loads on its own thread), but it is still an HTTP call, so
  * it never runs on the webhook thread. One ask per project per {@link #ASK_EVERY}: a JVM that is not there, or an
- * attach that fails, is reported on the Server card, not retried on every call. Nothing happens in Docker mode or
- * with the project's attach mode {@code OFF}. In {@code AUTOMATIC} mode the supervisor's app watcher adds the moment
+ * attach that fails, is reported on the Server card, not retried on every call. In Docker mode the agent host on the
+ * machine (alfred_agent_host.py) does the attaching instead of the supervisor; nothing happens with the project's
+ * attach mode {@code OFF}. In {@code AUTOMATIC} mode the supervisor's app watcher adds the moment
  * the app's port opens ({@link #appSeen}).
  */
 @Component

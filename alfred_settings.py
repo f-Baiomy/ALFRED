@@ -282,3 +282,18 @@ def proxy_command_lines(env, mitmdump, addon_dir, confdir, upstream_host="127.0.
         reverse += ["--set", f"confdir={confdir}", "--set", "connection_strategy=lazy",
                     "--set", "keep_host_header=true"]
     return {"OUTBOUND": outbound, "REVERSE": reverse}
+
+
+# The WEBHOOK_SECRET docker-compose.yml gives proxy, reverse-proxy and backend.
+DOCKER_WEBHOOK_SECRET = "change-me-in-production"
+
+
+def docker_attach_env(env_file):
+    """The environment for start.py/restart.py's proxy-on step. When a native install is also on the machine,
+    proxy-on borrows its `alfred attach` (no JDK 8 needed), which would point the agent at the native Alfred's port -
+    stopped while the Docker one runs. These name the Docker Alfred instead (attach_cli.attach_url)."""
+    env = dict(os.environ)
+    docker = read_env_file(env_file) if os.path.exists(env_file) else {}
+    env.setdefault("ALFRED_ATTACH_URL", docker.get("ALFRED_AGENT_URL") or "http://localhost:3000")
+    env.setdefault("ALFRED_ATTACH_SECRET", DOCKER_WEBHOOK_SECRET)
+    return env

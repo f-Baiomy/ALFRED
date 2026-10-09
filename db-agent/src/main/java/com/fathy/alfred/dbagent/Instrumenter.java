@@ -46,7 +46,40 @@ final class Instrumenter {
 
     static void install(Instrumentation instrumentation, Bridge.Dispatcher dispatcher) {
         Bridge.dispatcher = dispatcher;
-        AgentBuilder builder = new AgentBuilder.Default()
+        // JBoss Modules first, alone: a WildFly deployment cannot see the bootstrap Bridge until Module answers for its
+        // package. Retransforming a class compiled before Java 6 (log4j 1.2's Category, c3p0 0.9's NewProxy* - no stack
+        // maps) runs the JVM's old verifier, which loads every type the inlined advice names through that class's own
+        // loader. Attached to a running WildFly, a deployment class retransformed before Module failed with
+        // VerifyError and ran without capture until the next restart (2026-10-09). With -javaagent at startup Module
+        // is not loaded yet, and this installs the transformer that advises it when it is.
+        advise(builder(instrumentation), named("org.jboss.modules.Module"), JBossModulesAdvice.class,
+                named("loadModuleClass").and(takesArgument(0, String.class))).installOn(instrumentation);
+
+        AgentBuilder builder = builder(instrumentation);
+
+        builder = advise(builder, namedOneOf("javax.servlet.http.HttpServlet", "jakarta.servlet.http.HttpServlet"),
+                ServletAdvice.class, named("service").and(takesArguments(2))
+                        .and(takesArgument(0, namedOneOf("javax.servlet.http.HttpServletRequest", "jakarta.servlet.http.HttpServletRequest"))));
+
+        builder = advise(builder, named("java.util.concurrent.ThreadPoolExecutor").or(named("java.util.concurrent.ForkJoinPool")),
+                RunnableArgumentAdvice.class, namedOneOf("execute", "submit").and(takesArgument(0, Runnable.class)));
+        builder = advise(builder, named("java.util.concurrent.ForkJoinPool"),
+                CallableArgumentAdvice.class, named("submit").and(takesArgument(0, Callable.class)));
+        builder = advise(builder, named("java.util.concurrent.ScheduledThreadPoolExecutor"),
+                RunnableArgumentAdvice.class, named("schedule").and(takesArgument(0, Runnable.class)));
+        builder = advise(builder, named("java.util.concurrent.ScheduledThreadPoolExecutor"),
+                CallableArgumentAdvice.class, named("schedule").and(takesArgument(0, Callable.class)));
+
+        builder = JdbcInstrumentation.add(builder);
+        builder = LogInstrumentation.add(builder);
+        builder = HibernateInstrumentation.add(builder);
+        builder = RedisInstrumentation.add(builder);
+        builder.installOn(instrumentation);
+    }
+
+    /** The shared configuration: retransformation in small split batches, the report, the ignore list. */
+    private static AgentBuilder builder(Instrumentation instrumentation) {
+        return new AgentBuilder.Default()
                 .disableClassFormatChanges()
                 .with(AgentBuilder.RedefinitionStrategy.RETRANSFORMATION)
                 // Attached to a running server, every matching loaded class is retransformed. ByteBuddy's default is
@@ -64,28 +97,6 @@ final class Instrumenter {
                 .with(new ErrorListener())
                 .ignore(nameStartsWith("net.bytebuddy.").or(nameStartsWith("com.fathy.alfred.dbagent.")).or(isSynthetic()))
                 .assureReadEdgeTo(instrumentation, Bridge.class);
-
-        builder = advise(builder, namedOneOf("javax.servlet.http.HttpServlet", "jakarta.servlet.http.HttpServlet"),
-                ServletAdvice.class, named("service").and(takesArguments(2))
-                        .and(takesArgument(0, namedOneOf("javax.servlet.http.HttpServletRequest", "jakarta.servlet.http.HttpServletRequest"))));
-
-        builder = advise(builder, named("java.util.concurrent.ThreadPoolExecutor").or(named("java.util.concurrent.ForkJoinPool")),
-                RunnableArgumentAdvice.class, namedOneOf("execute", "submit").and(takesArgument(0, Runnable.class)));
-        builder = advise(builder, named("java.util.concurrent.ForkJoinPool"),
-                CallableArgumentAdvice.class, named("submit").and(takesArgument(0, Callable.class)));
-        builder = advise(builder, named("java.util.concurrent.ScheduledThreadPoolExecutor"),
-                RunnableArgumentAdvice.class, named("schedule").and(takesArgument(0, Runnable.class)));
-        builder = advise(builder, named("java.util.concurrent.ScheduledThreadPoolExecutor"),
-                CallableArgumentAdvice.class, named("schedule").and(takesArgument(0, Callable.class)));
-
-        builder = advise(builder, named("org.jboss.modules.Module"), JBossModulesAdvice.class,
-                named("loadModuleClass").and(takesArgument(0, String.class)));
-
-        builder = JdbcInstrumentation.add(builder);
-        builder = LogInstrumentation.add(builder);
-        builder = HibernateInstrumentation.add(builder);
-        builder = RedisInstrumentation.add(builder);
-        builder.installOn(instrumentation);
     }
 
     static AgentBuilder advise(AgentBuilder builder, ElementMatcher<? super TypeDescription> types, Class<?> advice,
@@ -109,19 +120,31 @@ final class Instrumenter {
         }
 
         static String summary(int total, Map<List<Class<?>>, Throwable> failures) {
-            int failed = 0;
-            StringBuilder names = new StringBuilder();
+            // The splitting reallocator records every batch the JVM refused - the whole batch, then each half it retried,
+            // down to the one class that fails alone. Only those single-class entries are classes left without advice:
+            // the others got theirs in a smaller batch. Counting every entry once printed "instrumented -260 of 105".
+            java.util.LinkedHashMap<Class<?>, Throwable> refused = new java.util.LinkedHashMap<>();
             for (Map.Entry<List<Class<?>>, Throwable> e : failures.entrySet()) {
-                failed += e.getKey().size();
-                for (Class<?> type : e.getKey()) {
-                    if (names.length() < 300) {
-                        names.append(names.length() == 0 ? "" : ", ").append(type.getName())
-                                .append(" (").append(e.getValue().getClass().getSimpleName()).append(')');
-                    }
+                if (e.getKey().size() == 1) {
+                    refused.putIfAbsent(e.getKey().get(0), e.getValue());
+                }
+            }
+            int failed = refused.size();
+            StringBuilder names = new StringBuilder();
+            for (Map.Entry<Class<?>, Throwable> e : refused.entrySet()) {
+                if (names.length() < 300) {
+                    names.append(names.length() == 0 ? "" : ", ").append(e.getKey().getName())
+                            .append(" (").append(e.getValue().getClass().getSimpleName()).append(')');
                 }
             }
             String line = "instrumented " + (total - failed) + " of " + total + " already-loaded classes";
-            return failed == 0 ? line : line + " - not instrumented, so not captured: " + names;
+            if (failed == 0) {
+                return line;
+            }
+            // The first refusal's own words, when the JVM gives any (a retransform's VerifyError usually has none).
+            String reason = refused.values().iterator().next().getMessage();
+            return line + " - not instrumented, so not captured: " + names
+                    + (reason == null ? "" : "; first reason: " + (reason.length() > 400 ? reason.substring(0, 400) + "..." : reason));
         }
     }
 

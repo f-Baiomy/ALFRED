@@ -25,11 +25,17 @@ class RetransformReportTest {
     @Test
     void theClassesTheJvmRefusedAreNamed() {
         Map<List<Class<?>>, Throwable> failures = new LinkedHashMap<>();
+        // a refused batch is split and retried down to the class that fails alone; the batches it was in are recorded
+        // too, and a class that failed in two passes is one class
+        failures.put(Arrays.asList(String.class, Integer.class, Long.class, Short.class), new InternalError());
+        failures.put(Arrays.asList(String.class, Integer.class), new InternalError());
         failures.put(Collections.singletonList(String.class), new UnsupportedOperationException());
-        failures.put(Arrays.asList(Integer.class, Long.class), new InternalError());
+        failures.put(Arrays.asList(Long.class, Short.class), new InternalError());
+        failures.put(Collections.singletonList(Long.class), new InternalError());
+        failures.put(Collections.singletonList(String.class), new UnsupportedOperationException());
         assertThat(Instrumenter.RetransformReport.summary(120, failures))
-                .isEqualTo("instrumented 117 of 120 already-loaded classes - not instrumented, so not captured: "
-                        + "java.lang.String (UnsupportedOperationException), java.lang.Integer (InternalError), java.lang.Long (InternalError)");
+                .isEqualTo("instrumented 118 of 120 already-loaded classes - not instrumented, so not captured: "
+                        + "java.lang.String (UnsupportedOperationException), java.lang.Long (InternalError)");
     }
 
     @Test

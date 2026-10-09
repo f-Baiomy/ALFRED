@@ -162,6 +162,19 @@
               </artifactItems>
             </configuration>
           </execution>
+          <execution>
+            <!-- log4j 1.2 (class files older than Java 6, no stack maps) for ModuleVisibilityIT: loaded in another JVM
+                 through a stand-in JBoss module, never on the test class path. -->
+            <id>legacy-log4j</id>
+            <phase>generate-test-resources</phase>
+            <goals><goal>copy</goal></goals>
+            <configuration>
+              <outputDirectory>${project.build.directory}/legacy-log4j</outputDirectory>
+              <artifactItems>
+                <artifactItem><groupId>log4j</groupId><artifactId>log4j</artifactId><version>1.2.17</version></artifactItem>
+              </artifactItems>
+            </configuration>
+          </execution>
         </executions>
       </plugin>
       <plugin>

@@ -12,6 +12,14 @@ public interface SupervisorPort {
     /** False in Docker mode, or when no supervisor is running. */
     boolean available();
 
+    /**
+     * True when something here can attach Alfred's agent: the native supervisor, or for Docker the agent host on the
+     * machine (alfred_agent_host.py), which runs no Alfred process and so is not {@link #available()}.
+     */
+    default boolean attaches() {
+        return available();
+    }
+
     /** Re-read .env and restart the children whose command or environment changed; returns their names. */
     List<String> reload();
 

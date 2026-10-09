@@ -17,8 +17,11 @@ public record ServerStatus(String version, String installDir, RuntimeMode mode, 
 
     public enum ProcessState { RUNNING, STOPPED, RESTARTING, CRASHED, UNKNOWN }
 
-    /** What the supervisor's last attach attempt for a project came to. */
-    public enum AgentAttachState { ATTACHED, ATTACHING, NO_JVM, NOT_A_JVM, FAILED, NO_PROJECT, UNKNOWN }
+    /**
+     * What the supervisor's last attach attempt for a project came to. ELSEWHERE: the app's agent reports to another
+     * running Alfred, which keeps it - this one takes it over once that one stops.
+     */
+    public enum AgentAttachState { ATTACHED, ATTACHING, NO_JVM, NOT_A_JVM, FAILED, NO_PROJECT, ELSEWHERE, UNKNOWN }
 
     /**
      * The supervisor's account of one project's agent: the JVM it found on the project's upstream {@code port}

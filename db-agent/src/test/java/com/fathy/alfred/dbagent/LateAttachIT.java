@@ -47,6 +47,8 @@ class LateAttachIT {
     private final List<String> batches = new CopyOnWriteArrayList<>();
     private final StringBuffer console = new StringBuffer();
     private HttpServer alfred;
+    /** What the stand-in Alfred answers: 502 is a gateway whose backend is gone (Alfred stopped). */
+    private final java.util.concurrent.atomic.AtomicInteger alfredStatus = new java.util.concurrent.atomic.AtomicInteger(200);
     private Process app;
     private Path work;
 
@@ -62,7 +64,7 @@ class LateAttachIT {
             byte[] answer = "{\"rowsPerResult\":50000,\"beforeImageTables\":[],\"ignorePatterns\":[],\"outsideCallCapture\":false,\"captureEnabled\":true}"
                     .getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().add("Content-Type", "application/json");
-            exchange.sendResponseHeaders(200, answer.length);
+            exchange.sendResponseHeaders(alfredStatus.get(), answer.length);
             try (OutputStream out = exchange.getResponseBody()) {
                 out.write(answer);
             }
@@ -113,6 +115,51 @@ class LateAttachIT {
         load(agentJar(work.resolve("agents"), "build-1"), "db");
         assertThat(waitForCapturedCall(0)).isPositive();
         assertThat(console.toString()).doesNotContain("failed:").doesNotContain("NoClassDefFoundError");
+    }
+
+    @Test
+    void whenAlfredGoesAwayTheProxyAndCaptureGoOffTogether_andComeBackWhenItReturns() throws Exception {
+        app = startApp();
+        load(agentJar(work.resolve("agents"), "build-1"), "proxy,db", "proxy=127.0.0.1:9");
+        int before = waitForCapturedCall(0);
+        assertThat(appProperty("https.proxyHost")).isEqualTo("127.0.0.1");
+
+        alfredStatus.set(502);
+        waitFor(() -> appProperty("https.proxyHost") == null, "the proxy settings go off once Alfred is gone");
+        assertThat(appProperty("alfred.agent.standby")).startsWith("Alfred unreachable at ");
+        assertThat(appProperty("http.proxyPort")).isNull();
+
+        alfredStatus.set(200);
+        waitFor(() -> "127.0.0.1".equals(appProperty("https.proxyHost")), "the proxy comes back with Alfred");
+        assertThat(appProperty("alfred.agent.standby")).isNull();
+        assertThat(waitForCapturedCall(before)).as("capture resumed").isGreaterThan(before);
+        assertThat(console.toString()).contains("Alfred is back").doesNotContain("failed:");
+    }
+
+    private interface Check {
+        boolean ok() throws Exception;
+    }
+
+    private void waitFor(Check check, String what) throws Exception {
+        long deadline = System.currentTimeMillis() + 40_000;
+        while (System.currentTimeMillis() < deadline) {
+            if (check.ok()) {
+                return;
+            }
+            Thread.sleep(250);
+        }
+        throw new AssertionError(what + "\n--- app console ---\n" + console);
+    }
+
+    /** A system property of the app, read through the Attach API like "alfred jvms" does. */
+    private String appProperty(String name) throws Exception {
+        Class<?> vmClass = Class.forName("com.sun.tools.attach.VirtualMachine");
+        Object vm = vmClass.getMethod("attach", String.class).invoke(null, String.valueOf(pid(app)));
+        try {
+            return ((java.util.Properties) vmClass.getMethod("getSystemProperties").invoke(vm)).getProperty(name);
+        } finally {
+            vmClass.getMethod("detach").invoke(vm);
+        }
     }
 
     /** The highest call number above {@code after} that has a captured statement, waiting up to 15 s for one. */
@@ -171,10 +218,15 @@ class LateAttachIT {
 
     /** VirtualMachine.attach(pid).loadAgent(jar, args), by reflection: this module compiles for Java 8. */
     private void load(Path jar, String features) throws Exception {
+        load(jar, features, null);
+    }
+
+    private void load(Path jar, String features, String extra) throws Exception {
         Class<?> vmClass = Class.forName("com.sun.tools.attach.VirtualMachine");
         Object vm = vmClass.getMethod("attach", String.class).invoke(null, String.valueOf(pid(app)));
         try {
-            String args = "alfredUrl=http://127.0.0.1:" + alfred.getAddress().getPort() + ";project=late;secret=late-secret;features=" + features;
+            String args = "alfredUrl=http://127.0.0.1:" + alfred.getAddress().getPort() + ";project=late;secret=late-secret;features=" + features
+                    + (extra == null ? "" : ";" + extra);
             vmClass.getMethod("loadAgent", String.class, String.class).invoke(vm, jar.toString(), args);
         } finally {
             vmClass.getMethod("detach").invoke(vm);
@@ -189,7 +241,7 @@ class LateAttachIT {
      * An agent jar as the release builds it, from this build's classes: Agent-Class and retransformation in the
      * manifest, ByteBuddy through Class-Path (the release shades it in). {@code build} makes two builds' bytes differ.
      */
-    private static Path agentJar(Path folder, String build) throws Exception {
+    static Path agentJar(Path folder, String build) throws Exception {
         Files.createDirectories(folder);
         Path jar = folder.resolve("alfred-agent.jar");
         Manifest manifest = new Manifest();
@@ -218,11 +270,11 @@ class LateAttachIT {
         return jar;
     }
 
-    private static String codeSource(Class<?> type) throws Exception {
+    static String codeSource(Class<?> type) throws Exception {
         return new File(type.getProtectionDomain().getCodeSource().getLocation().toURI()).getPath();
     }
 
-    private static boolean samePath(String a, String b) {
+    static boolean samePath(String a, String b) {
         try {
             return new File(a).getCanonicalPath().equals(new File(b).getCanonicalPath());
         } catch (Exception e) {

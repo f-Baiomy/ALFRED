@@ -31,10 +31,26 @@ public class EditAccessInterceptor implements HandlerInterceptor {
             return true;
         }
         EditAccess access = check(request, editAccess.get());
+        if (!access.allowed() && dockerAttach(request, access)) {
+            return true;
+        }
         if (!access.allowed()) {
             throw new EditNotAllowedException(access);
         }
         return true;
+    }
+
+    /**
+     * Docker refuses every server write because its settings live in .env and apply with restart.py. Attaching the
+     * agent changes no setting - it asks the agent host on the machine, like the ◆ switch and the capture settings,
+     * which Docker does not guard either - so it is let through, except from the Cloudflare tunnel.
+     */
+    static boolean dockerAttach(HttpServletRequest request, EditAccess access) {
+        if (access.reason() != EditAccess.Reason.DOCKER_MODE || !"/server/agents/attach".equals(request.getRequestURI())) {
+            return false;
+        }
+        return Collections.list(request.getHeaderNames()).stream()
+                .noneMatch(h -> com.fathy.alfred.backend.server.domain.model.AccessRule.TUNNEL_HEADERS.contains(h.toLowerCase(java.util.Locale.ROOT)));
     }
 
     /** The TCP peer (getRemoteAddr - never X-Forwarded-For) and the request's header names. */

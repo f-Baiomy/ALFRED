@@ -50,6 +50,7 @@ import socket
 import subprocess
 
 import alfred_dbcapture
+import alfred_agent_host
 import alfred_settings
 import alfred_logwatch
 import sys
@@ -356,7 +357,7 @@ def toggle_wildfly_proxy(action):
         cmd = ["bash", os.path.join(toggle_dir, f"proxy-{action}.sh")]
 
     print(f"$ {' '.join(cmd)}")
-    result = subprocess.run(cmd, cwd=toggle_dir)
+    result = subprocess.run(cmd, cwd=toggle_dir, env=alfred_settings.docker_attach_env(ENV_FILE))
     if result.returncode != 0:
         print("WildFly proxy toggle failed (see above) - continuing anyway, since this is a")
         print("convenience step, not required for the restart itself to succeed.")
@@ -403,10 +404,16 @@ def main():
     ensure_backend_port()
     ensure_reverse_proxy_flag_file()
     sync_env_from_settings()
+    alfred_agent_host.ensure_env(ENV_FILE)
 
     print(f"Restarting: {', '.join(services)}")
     run(["docker", "compose", "up", "-d", "--build"] + services)
     alfred_logwatch.ensure_agent(_read_env_file())
+
+    print()
+    print("=== Step: agent host (attaches Alfred's agent to the projects' apps for Docker) ===")
+    alfred_agent_host.build_jars()
+    alfred_agent_host.start_detached()
 
     print()
     print("=== Step: WildFly proxy (outbound, JVM Attach API) ===")

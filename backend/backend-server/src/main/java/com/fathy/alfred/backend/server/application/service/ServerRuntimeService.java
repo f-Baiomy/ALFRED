@@ -56,7 +56,8 @@ public class ServerRuntimeService implements ServerRuntimeUseCase {
 
     @Override
     public boolean attachAgent(String project, List<String> features, boolean force) {
-        if (mode != RuntimeMode.NATIVE || !supervisor.available()) {
+        // Natively the supervisor attaches; in Docker the agent host on the machine does (alfred_agent_host.py).
+        if (!supervisor.attaches()) {
             return false;
         }
         return supervisor.attachAgent(project, features, force);

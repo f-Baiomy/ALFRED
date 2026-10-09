@@ -133,12 +133,20 @@ def local_address(listen):
     return f"{host}:{port}"
 
 
+def attach_url(layout, settings):
+    """The Alfred the agent reports to: this install, unless the caller names another one. The Docker install's
+    start.py/restart.py borrow this CLI for their proxy-on step (it needs no JDK 8) and set ALFRED_ATTACH_URL and
+    ALFRED_ATTACH_SECRET to the Docker Alfred - otherwise the agent reported to this install's port while it was
+    stopped, until an inbound call through the Docker reverse proxy redirected it."""
+    return os.environ.get("ALFRED_ATTACH_URL") or layout.local_url(settings)
+
+
 def base_args(layout, settings, project):
     """alfredUrl, project and proxy; ServerConfigCli-level settings only, nothing secret."""
     proxy = local_address(settings.get("ALFRED_OUTBOUND_PROXY_LISTEN") or "127.0.0.2:443")
     if project is not None and project.get("outbound_host"):
         proxy = f"{project['outbound_host']}:{project.get('outbound_port') or '443'}"
-    parts = [f"alfredUrl={layout.local_url(settings)}"]
+    parts = [f"alfredUrl={attach_url(layout, settings)}"]
     if project is not None:
         parts.append(f"project={project['name']}")
     parts.append(f"proxy={proxy}")
@@ -147,7 +155,7 @@ def base_args(layout, settings, project):
 
 def secrets_env(layout, settings):
     env = dict(os.environ)
-    env["ALFRED_AGENT_SECRET"] = settings.get("WEBHOOK_SECRET", "")
+    env["ALFRED_AGENT_SECRET"] = os.environ.get("ALFRED_ATTACH_SECRET") or settings.get("WEBHOOK_SECRET", "")
     try:
         with open(ca_file(layout), encoding="utf-8") as f:
             env["ALFRED_AGENT_CA"] = f.read()
@@ -250,6 +258,31 @@ def jvm_pids(layout, owner=None, pid=None):
         return {int(row["pid"]): row for row in json.loads(result.stdout or "[]")}
     except (ValueError, KeyError, TypeError):
         return None
+
+
+def jvm_row(layout, pid):
+    """What attach-cli says about {pid} ("alfred jvms --json"): features, reportsTo, standby... - None when unknown."""
+    mine = jvm_pids(layout)
+    if mine is not None and pid in mine:
+        return mine[pid]
+    owner = other_owner(pid)
+    if owner and privileged():
+        theirs = jvm_pids(layout, owner=owner, pid=pid)
+        return (theirs or {}).get(pid)
+    return None
+
+
+def same_alfred(a, b):
+    """True when two Alfred URLs name the same one: same port, and the same host once localhost spellings are one."""
+    from urllib.parse import urlparse
+
+    def key(url):
+        parsed = urlparse(url or "")
+        host = (parsed.hostname or "").lower()
+        if host in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
+            host = "loopback"
+        return host, parsed.port or (443 if parsed.scheme == "https" else 80)
+    return key(a) == key(b)
 
 
 def visible_jvm(layout, pid):

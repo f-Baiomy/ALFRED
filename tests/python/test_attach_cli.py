@@ -57,6 +57,18 @@ class ArgsTest(unittest.TestCase):
         self.assertEqual(attach_cli.base_args(layout, settings, projects[1]),
                          "alfredUrl=http://127.0.0.1:3100;project=b;proxy=out.local:8443")
 
+    def test_the_docker_scripts_point_the_agent_at_the_docker_alfred(self):
+        layout = make_layout(["ALFRED_UI_PORT=3001", "WEBHOOK_SECRET=native"])
+        settings = layout.settings()
+        with patch.dict(os.environ, {"ALFRED_ATTACH_URL": "http://localhost:3000", "ALFRED_ATTACH_SECRET": "docker"}):
+            self.assertTrue(attach_cli.base_args(layout, settings, None).startswith("alfredUrl=http://localhost:3000;"))
+            self.assertEqual(attach_cli.secrets_env(layout, settings)["ALFRED_AGENT_SECRET"], "docker")
+        env_file = os.path.join(tempfile.mkdtemp(prefix="alfred-docker-"), ".env")
+        import alfred_settings
+        env = alfred_settings.docker_attach_env(env_file)
+        self.assertEqual(env["ALFRED_ATTACH_URL"], os.environ.get("ALFRED_ATTACH_URL", "http://localhost:3000"))
+        self.assertEqual(env["ALFRED_ATTACH_SECRET"], os.environ.get("ALFRED_ATTACH_SECRET", "change-me-in-production"))
+
     def test_secret_and_ca_travel_in_the_environment_only(self):
         layout = make_layout(["WEBHOOK_SECRET=abc"])
         with open(attach_cli.ca_file(layout), "w", encoding="utf-8") as f:

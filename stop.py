@@ -84,6 +84,11 @@ def main():
     remove_wildfly_port_offset()
 
     print()
+    print("=== Step: agent host - stopping ===")
+    import alfred_agent_host
+    alfred_agent_host.stop_running()
+
+    print()
     print("=== Step: docker compose down ===")
     stop_docker_compose()
 

@@ -158,6 +158,31 @@ the owner's environment plus the `ALFRED_AGENT_*` values (`packaging/launcher/wi
 logged on). Unprivileged callers still may not attach to another user's app; the supervisor's detail - shown on the
 Server card and in the ◆ popover - then names both users.
 
+### When Alfred stops, the agent lets go
+
+Whatever attached the agent (auto-attach, "Attach now", `alfred attach`, `proxy-on`), it lets go of the app when
+Alfred goes away, and everything it switched on goes off together. Before this, an app attached with `proxy` kept
+sending its outbound calls to `127.0.0.2:443` after Alfred stopped, and every supplier call failed until the app
+restarted.
+
+- **How the agent knows.** It heartbeats Alfred every 10 s. A miss is retried after 2 s, and 3 misses in a row
+  (about 15 s after Alfred stops) mean Alfred is gone. A miss is a connection nothing accepts, or 502-504 from a
+  gateway whose backend is down. A slow answer or a 401/5xx means Alfred is there.
+- **What it does** (`AgentRuntime.standDown`). The app's own proxy settings come back, so outbound calls go direct.
+  Alfred's CA is no longer trusted. Database, log and Redis capture pause and the unsent queue is dropped. The
+  hooks stay loaded but switched off: a JVM cannot unload an agent.
+- **It comes back by itself.** While stood down the agent keeps heartbeating every 10 s. The first answer puts
+  back the features of the last attach, unchanged. A new attach also resumes at once, with its own arguments.
+- **`alfred jvms`** shows `stood down - Alfred unreachable at <url> (3 heartbeats missed) since HH:MM` in the NOTE
+  column while it lasts (system property `alfred.agent.standby`).
+- **Proxy-only attach.** The old `wildfly-proxy-toggle/WildFlyProxyAgent` (`proxy-on` without a native install) has
+  no heartbeat. It checks the proxy port instead, every 5 s with a 1 s timeout: 3 refusals mean stand down, and the
+  first accepted connection means resume. Its `off` now restores the proxy the JVM had before `on` instead of
+  clearing it.
+- **Tests.** `BatchSenderTest` covers the counting. `LateAttachIT` covers the whole cycle in a real JVM: attach with
+  `proxy,db`, Alfred answers 502, the proxy properties are restored, Alfred answers 200, then the proxy and capture
+  are back.
+
 ### The agent attaches itself
 
 **Any order, no restarts.** The app may start before or after Alfred, and Alfred may be updated or reinstalled
@@ -176,6 +201,12 @@ while the app runs:
   app's next start.
 - **Self-heal.** A hook that ever fails between its enter and exit can't mute a server thread for good: the next
   inbound call on that thread resets the agent's per-thread depths.
+- **JBoss Modules first.** `Instrumenter` advises `org.jboss.modules.Module` in a pass of its own, before anything
+  else, so WildFly deployments can see the bootstrap `Bridge`. Classes compiled before Java 6 have no stack maps,
+  such as log4j 1.2's `Category` and c3p0 0.9's `NewProxy*`. Retransforming one runs the JVM's old verifier, which
+  loads the types the inlined advice names through that class's own module loader. Before 2026-10-09, a late
+  attach to WildFly rejected them with `VerifyError`, and they ran without capture until a restart.
+  `ModuleVisibilityIT` loads log4j 1.2.17 through a stand-in module in another JVM, then attaches the agent.
 - **Tests.** `db-agent` `LateAttachIT` covers these orders end to end, in a separate JVM over the real Attach API
   and HTTP sender: attach long after the app started, attach the moment it is up, and a newer build attached into a
   JVM that already runs one.

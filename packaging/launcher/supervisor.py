@@ -603,14 +603,18 @@ class AgentAttacher:
     retried for RETRY_SECONDS unless forced. Every outcome is kept per project for the Server card and pushed as a
     supervisor event named AGENTS."""
 
-    STATES = ("ATTACHED", "ATTACHING", "NO_JVM", "NOT_A_JVM", "FAILED", "NO_PROJECT")
+    STATES = ("ATTACHED", "ATTACHING", "NO_JVM", "NOT_A_JVM", "FAILED", "NO_PROJECT", "ELSEWHERE")
     RETRY_SECONDS = 300
+    # While another Alfred keeps the app's agent (ELSEWHERE), how often it is looked at again: once that Alfred
+    # stops, its agent stands down and this one attaches - the first Alfred keeps the agent, the other takes over.
+    ELSEWHERE_SECONDS = 20
 
     def __init__(self, supervisor):
         self.supervisor = supervisor
         self.lock = threading.Lock()
         self.projects = {}
         self.busy = set()
+        self.watching = set()
 
     def status(self):
         with self.lock:
@@ -640,6 +644,47 @@ class AgentAttacher:
                          name=f"attach-{project}", daemon=True).start()
         return True
 
+    def _held_elsewhere(self, pid, settings):
+        """The URL of another Alfred whose agent runs in {pid} and has not stood down, else None."""
+        import attach_cli
+        row = attach_cli.jvm_row(self.supervisor.layout, pid)
+        if not row or row.get("features") is None or row.get("standby") or not row.get("reportsTo"):
+            return None
+        mine = attach_cli.attach_url(self.supervisor.layout, settings)
+        return None if attach_cli.same_alfred(row["reportsTo"], mine) else row["reportsTo"]
+
+    def _watch_elsewhere(self, project, pid, features):
+        """Looks again every ELSEWHERE_SECONDS while the agent stays with the other Alfred and the app keeps its pid;
+        asks again (which attaches) once that Alfred lets go of it."""
+        def watch():
+            import attach_cli
+            while not self.supervisor.stopping.wait(self.ELSEWHERE_SECONDS):
+                with self.lock:
+                    entry = self.projects.get(project) or {}
+                if entry.get("state") != "ELSEWHERE" or entry.get("pid") != pid:
+                    return
+                settings = getattr(self.supervisor, "settings", None) or self.supervisor.layout.settings()
+                port = entry.get("port") or 0
+                if attach_cli.listening_pid(port) != pid:
+                    return
+                if not self._held_elsewhere(pid, settings):
+                    self.ask(project, features, force=True)
+                    return
+
+        with self.lock:
+            if project in self.watching:
+                return
+            self.watching.add(project)
+
+        def run():
+            try:
+                watch()
+            finally:
+                with self.lock:
+                    self.watching.discard(project)
+
+        threading.Thread(target=run, name=f"elsewhere-{project}", daemon=True).start()
+
     def _run(self, project, port, features, force, settings):
         import attach_cli
         try:
@@ -655,6 +700,15 @@ class AgentAttacher:
                 return
             if attach_cli.visible_jvm(self.supervisor.layout, pid) is False:
                 self._set(project, port=port, pid=pid, state="NOT_A_JVM", features="", detail=_not_a_jvm(pid, port))
+                return
+            holder = self._held_elsewhere(pid, settings)
+            if holder:
+                # The first Alfred keeps the agent, even when asked again with force: two Alfreds re-attaching the
+                # same JVM in turn would move it back and forth on every call.
+                self._set(project, port=port, pid=pid, state="ELSEWHERE", features=",".join(features),
+                          detail=f"the agent reports to the Alfred at {holder}, which keeps it - this Alfred takes it "
+                                 "over once that one stops")
+                self._watch_elsewhere(project, pid, features)
                 return
             self._set(project, port=port, pid=pid, state="ATTACHING", detail="", features=",".join(features))
             ok, detail = attach_cli.attach_pid(self.supervisor.layout, settings, pid, {"name": project, **_project_fields(settings, project)},

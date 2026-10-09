@@ -49,6 +49,10 @@ public final class AttachCli {
     static final int NOT_ALLOWED = 5;
 
     static final String FEATURES = "alfred.agent.features";
+    /** Set by the agent while Alfred is unreachable and everything it switched on is off (AgentRuntime.standDown). */
+    static final String STANDBY = "alfred.agent.standby";
+    /** The Alfred the agent reports to now (AgentRuntime) - it follows the reverse proxy, so not always its arguments. */
+    static final String AGENT_URL = "alfred.agent.url";
     static final String VERSION = "alfred.agent.version";
     static final List<String> ALL_FEATURES = List.of("proxy", "db", "logs", "redis");
 
@@ -97,9 +101,17 @@ public final class AttachCli {
     // jvms / info
     // ------------------------------------------------------------------------------------------------------------------
 
-    /** One Java process as "alfred jvms" shows it. {@code features} is null when Alfred's agent is not loaded. */
+    /**
+     * One Java process as "alfred jvms" shows it. {@code features} is null when Alfred's agent is not loaded;
+     * {@code reportsTo} is the Alfred its agent reports to and {@code standby} why it stands down (null when it does
+     * not) - what an attacher reads to leave an agent to the Alfred that already has it.
+     */
     record Jvm(String pid, String name, String user, String javaVersion, String features, String agentVersion,
-               boolean readable, String note) {
+               boolean readable, String note, String reportsTo, String standby) {
+        Jvm(String pid, String name, String user, String javaVersion, String features, String agentVersion,
+            boolean readable, String note) {
+            this(pid, name, user, javaVersion, features, agentVersion, readable, note, null, null);
+        }
     }
 
     private int jvms(boolean json) {
@@ -142,7 +154,8 @@ public final class AttachCli {
         try {
             Properties props = withVm(pid, VirtualMachine::getSystemProperties);
             return new Jvm(pid, name(props, fallbackName), owner, props.getProperty("java.version", ""),
-                    props.getProperty(FEATURES), props.getProperty(VERSION), true, note(props));
+                    props.getProperty(FEATURES), props.getProperty(VERSION), true, note(props), props.getProperty(AGENT_URL),
+                    props.getProperty(STANDBY));
         } catch (Exception e) {
             return new Jvm(pid, fallbackName, owner, "", null, null, false, "cannot attach: " + e.getMessage());
         }
@@ -163,7 +176,10 @@ public final class AttachCli {
             notes.add("own trust store: HTTPS relies on the agent trusting Alfred's CA");
         }
         String features = props.getProperty(FEATURES);
-        if (features != null && features.contains("proxy")) {
+        String standby = props.getProperty(STANDBY);
+        if (standby != null) {
+            notes.add("stood down - " + standby);
+        } else if (features != null && features.contains("proxy")) {
             String proxy = props.getProperty("https.proxyHost");
             notes.add("outbound through " + proxy + ":" + props.getProperty("https.proxyPort"));
         }
@@ -360,7 +376,9 @@ public final class AttachCli {
                     .append("\"features\":").append(quote(j.features())).append(',')
                     .append("\"agentVersion\":").append(quote(j.agentVersion())).append(',')
                     .append("\"readable\":").append(j.readable()).append(',')
-                    .append("\"note\":").append(quote(j.note())).append('}');
+                    .append("\"note\":").append(quote(j.note())).append(',')
+                    .append("\"reportsTo\":").append(quote(j.reportsTo())).append(',')
+                    .append("\"standby\":").append(quote(j.standby())).append('}');
         }
         return json.append(']').toString();
     }

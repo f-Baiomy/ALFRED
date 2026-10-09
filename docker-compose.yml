@@ -239,6 +239,10 @@ services:
       context: ./backend
     container_name: backend
     restart: unless-stopped
+    extra_hosts:
+      # The agent host runs on the host (see ALFRED_AGENT_HOST_URL); Docker Desktop resolves this name already,
+      # host-gateway makes it work on Linux too.
+      - "host.docker.internal:host-gateway"
     ports:
       # BACKEND_PORT lets a deployment whose default 5000 is already taken by something else
       # (confirmed live: gunicorn already listening on stg-app-210) pick a different host port via
@@ -328,6 +332,11 @@ services:
       # "Inbound logging" panel entirely; reverse-proxy itself is gated separately, by the
       # profiles: key above - both read the same setting, kept in sync by start.py/restart.py.
       - REVERSE_PROXY_ENABLED=${REVERSE_PROXY_ENABLED:-false}
+      # The agent host (alfred_agent_host.py, started on the host by start.py/restart.py) attaches Alfred's agent to
+      # the projects' apps for this Docker install - a container cannot reach a JVM on the host. Backend asks it
+      # like the native supervisor: GET /status and POST /agents/attach, with this token (start.py writes it to .env).
+      - ALFRED_AGENT_HOST_URL=http://host.docker.internal:${ALFRED_AGENT_HOST_PORT:-3098}
+      - ALFRED_AGENT_HOST_TOKEN=${ALFRED_AGENT_HOST_TOKEN:-}
       # Interception rules: authored and stored here, published as a snapshot both proxies read.
       # The .db is the store of record (it keeps disabled rules, descriptions and timestamps);
       # rules.json holds only what the engine needs to evaluate, and is rewritten on every change

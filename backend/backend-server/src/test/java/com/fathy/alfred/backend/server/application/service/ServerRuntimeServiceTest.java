@@ -70,10 +70,21 @@ class ServerRuntimeServiceTest {
     void attachingGoesThroughTheSupervisorAndIsRefusedWithoutOne() {
         assertThat(service(RuntimeMode.NATIVE).attachAgent("odeysys", List.of("proxy", "db"), true)).isTrue();
         assertThat(supervisor.attachesAsked).containsExactly("odeysys proxy,db force");
-        assertThat(service(RuntimeMode.DOCKER).attachAgent("odeysys", List.of("db"), false)).isFalse();
         supervisor.available = false;
         assertThat(service(RuntimeMode.NATIVE).attachAgent("odeysys", List.of("db"), false)).isFalse();
         assertThat(supervisor.attachesAsked).hasSize(1);
+    }
+
+    @Test
+    void dockerAttachesThroughTheAgentHostButStillRefusesRestarts() {
+        supervisor.available = false;
+        supervisor.attaches = true;
+        assertThat(service(RuntimeMode.DOCKER).attachAgent("odeysys", List.of("proxy", "db"), false)).isTrue();
+        assertThat(supervisor.attachesAsked).containsExactly("odeysys proxy,db");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service(RuntimeMode.DOCKER).restart(ServerRuntimeUseCase.Target.BACKEND))
+                .isInstanceOf(IllegalStateException.class);
+        supervisor.attaches = false;
+        assertThat(service(RuntimeMode.DOCKER).attachAgent("odeysys", List.of("db"), false)).isFalse();
     }
 
     @Test

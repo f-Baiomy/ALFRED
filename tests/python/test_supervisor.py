@@ -303,5 +303,67 @@ class AppWatcherTest(unittest.TestCase):
             self.assertTrue(supervisor._port_listening(port))
         self.assertFalse(supervisor._port_listening(port))
 
+class FirstAlfredKeepsTheAgentTest(unittest.TestCase):
+    """Two Alfreds on one machine (Docker and native): the one whose agent the app already runs keeps it; the other
+    attaches once that one stops and its agent stands down."""
+
+    def setUp(self):
+        import attach_cli
+        self.attach_cli = attach_cli
+        self.layout = make_home(("INTERNAL_CALL_SERVICES=odeysys:8080:9001", "ALFRED_UI_PORT=3001"))
+        self.addCleanup(shutil.rmtree, self.layout.home, True)
+        self.sup = supervisor.Supervisor(self.layout)
+        self.sup.refresh_specs()
+        self.row = {"pid": "4348", "features": "proxy,db", "reportsTo": "http://localhost:3000", "standby": None}
+        self.attached = []
+        for name, value in (("listening_pid", lambda port: 4348), ("visible_jvm", lambda layout, pid: True),
+                            ("jvm_row", lambda layout, pid: dict(self.row)),
+                            ("attach_pid", lambda *a: self.attached.append(a[-1]) or (True, "ok"))):
+            p = patch.object(attach_cli, name, value)
+            p.start()
+            self.addCleanup(p.stop)
+        p = patch.object(supervisor.Supervisor, "_post_event", lambda sup, payload: None)
+        p.start()
+        self.addCleanup(p.stop)
+        self.agents = supervisor.AgentAttacher(self.sup)
+
+    def run_attach(self, force=True):
+        self.agents._run("odeysys", 9001, ["proxy", "db", "logs", "redis"], force, self.sup.settings)
+        return next(a for a in self.agents.status() if a["project"] == "odeysys")
+
+    def test_an_agent_reporting_to_another_running_alfred_is_left_there_even_when_forced(self):
+        with patch.object(supervisor.AgentAttacher, "_watch_elsewhere", lambda *a: None):
+            entry = self.run_attach(force=True)
+        self.assertEqual(entry["state"], "ELSEWHERE")
+        self.assertIn("http://localhost:3000", entry["detail"])
+        self.assertEqual(self.attached, [])
+
+    def test_an_agent_that_stood_down_or_reports_here_is_attached(self):
+        self.row["standby"] = "Alfred unreachable at http://localhost:3000 since 13:42"
+        self.assertEqual(self.run_attach()["state"], "ATTACHED")
+        self.row.update(standby=None, reportsTo="http://localhost:3001")
+        self.assertEqual(self.run_attach()["state"], "ATTACHED", "127.0.0.1:3001 and localhost:3001 are the same Alfred")
+        self.row.update(features=None, reportsTo=None)
+        self.assertEqual(self.run_attach()["state"], "ATTACHED", "no agent loaded yet")
+        self.assertEqual(len(self.attached), 3)
+
+    def test_the_watch_takes_over_once_the_other_alfred_lets_go(self):
+        supervisor.AgentAttacher.ELSEWHERE_SECONDS = 0.05
+        self.addCleanup(setattr, supervisor.AgentAttacher, "ELSEWHERE_SECONDS", 20)
+        self.assertEqual(self.run_attach()["state"], "ELSEWHERE")
+        time.sleep(0.2)
+        self.assertEqual(self.attached, [], "still held by the other Alfred")
+        self.row["standby"] = "Alfred unreachable at http://localhost:3000 since 13:42"
+        deadline = time.time() + 5
+        while not self.attached and time.time() < deadline:
+            time.sleep(0.05)
+        self.assertEqual(self.attached, [["proxy", "db", "logs", "redis"]])
+
+    def test_same_alfred_treats_localhost_spellings_as_one(self):
+        same = self.attach_cli.same_alfred
+        self.assertTrue(same("http://localhost:3000", "http://127.0.0.1:3000/"))
+        self.assertFalse(same("http://localhost:3000", "http://127.0.0.1:3001"))
+
+
 if __name__ == "__main__":
     unittest.main()

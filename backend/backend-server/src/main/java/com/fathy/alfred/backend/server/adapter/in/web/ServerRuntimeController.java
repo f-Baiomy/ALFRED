@@ -77,7 +77,7 @@ public class ServerRuntimeController {
         boolean accepted = runtime.attachAgent(body.project(), features, body.force());
         if (!accepted) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("accepted", false,
-                    "message", "No supervisor is running here (Docker, or Alfred was not started with 'alfred start') - attach with 'alfred attach' or -javaagent."));
+                    "message", "Nothing here can attach the agent: natively the supervisor ('alfred start'), with Docker the agent host that start.py/restart.py start on the machine - or attach with 'alfred attach' or -javaagent."));
         }
         return ResponseEntity.accepted().body(Map.of("accepted", true));
     }

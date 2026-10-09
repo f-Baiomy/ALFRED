@@ -96,6 +96,7 @@ export class ServerCardComponent {
       case 'NOT_A_JVM': return 'not a Java process';
       case 'FAILED': return 'attach failed';
       case 'NO_PROJECT': return 'unknown project';
+      case 'ELSEWHERE': return 'kept by another Alfred';
       default: return a.state.toLowerCase();
     }
   }
