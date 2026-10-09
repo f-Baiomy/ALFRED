@@ -177,7 +177,20 @@ def ensure_image(image):
         return
     if subprocess.run(["docker", "image", "inspect", image], capture_output=True).returncode != 0:
         print(f"  pulling Docker image {image} (first build only)", flush=True)
-        run(["docker", "pull", image])
+        pulled = subprocess.run(["docker", "pull", "-q", image], capture_output=True, text=True, errors="replace")
+        if pulled.returncode == 0:
+            return
+        # Docker Hub limits unauthenticated pulls per IP, and GitHub's runners share IPs: v3.0.8's release build failed
+        # twice on "toomanyrequests". Google's mirror of Docker Hub serves the same images without that limit.
+        mirror = mirror_name(image)
+        print(f"  Docker Hub refused ({(pulled.stderr or pulled.stdout).strip()[:120]}) - pulling {mirror}", flush=True)
+        run(["docker", "pull", mirror])
+        run(["docker", "tag", mirror, image])
+
+
+def mirror_name(image):
+    """The same image on mirror.gcr.io: official images (no slash) live under library/."""
+    return "mirror.gcr.io/" + (image if "/" in image.split(":")[0] else "library/" + image)
 
 
 def docker(image, script, mounts, dns=None, env=None, show=None):
@@ -541,6 +554,7 @@ def ensure_nsis_image(dns):
     """A small Debian image with makensis (NSIS builds Windows installers from any OS), made once."""
     if subprocess.run(["docker", "image", "inspect", NSIS_IMAGE], capture_output=True).returncode == 0:
         return
+    ensure_image("debian:bookworm-slim")
     print(f"  building {NSIS_IMAGE} (first build only)", flush=True)
     container = "alfred-build-nsis-setup"
     subprocess.run(["docker", "rm", "-f", container], capture_output=True)

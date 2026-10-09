@@ -21,6 +21,17 @@ def write(path, text, newline="\n"):
         f.write(text)
 
 
+class MirrorTest(unittest.TestCase):
+    """Docker Hub's pull limit stopped the v3.0.8 release build: the same images come from mirror.gcr.io instead."""
+
+    def test_official_images_live_under_library(self):
+        self.assertEqual("mirror.gcr.io/library/node:20-alpine", build_dist.mirror_name("node:20-alpine"))
+        self.assertEqual("mirror.gcr.io/library/python:3.13-slim", build_dist.mirror_name(build_dist.PYTHON_IMAGE))
+
+    def test_other_images_keep_their_namespace(self):
+        self.assertEqual("mirror.gcr.io/someone/tool:1", build_dist.mirror_name("someone/tool:1"))
+
+
 class ContainerOwnershipTest(unittest.TestCase):
     """On a Linux host (the release workflow) a container's root-owned output could not be moved by the build user."""
 
