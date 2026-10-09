@@ -134,8 +134,14 @@ public class SqliteCallsRepository implements StorageBudgetPort {
         // them there rather than via connectionInitSql. A 10s busy_timeout means a second concurrent
         // writer waits for the first to finish instead of failing outright, and foreign_keys=true is
         // what makes retention/deleteAll's cascade-delete of call_request/call_response actually happen.
-        config.setJdbcUrl("jdbc:sqlite:" + path + "?journal_mode=WAL&synchronous=NORMAL&busy_timeout=10000&foreign_keys=true");
-        config.setMaximumPoolSize(20);
+        // cache_size: 16 MB per connection instead of SQLite's 2 MB (specs/013-inbound-calls-store). On the Docker Desktop
+        // bind mount every page read crosses the VM, and call_metadata carries each call's search text (~6 KB), so its
+        // pages outgrow the default cache quickly: paging 2,855 calls read ~30% faster with 16 MB (measured 2026-10-09;
+        // 32 MB gained ~40% but did not fit). Ten connections - the writers plus reads - keep the worst case at 160 MB
+        // outside the heap, which the backend already uses ~400 MB of (metaspace, threads, the other databases).
+        config.setJdbcUrl("jdbc:sqlite:" + path + "?journal_mode=WAL&synchronous=NORMAL&busy_timeout=10000&foreign_keys=true"
+                + "&cache_size=-16000");
+        config.setMaximumPoolSize(10);
         config.setPoolName("calls-sqlite-pool");
         this.dataSource = new HikariDataSource(config);
         this.jdbcTemplate = new JdbcTemplate(dataSource);
