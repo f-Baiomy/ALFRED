@@ -19,6 +19,11 @@
     $ErrorActionPreference = 'Stop'
     $ProgressPreference = 'SilentlyContinue'   # Invoke-RestMethod is many times slower while drawing its bar
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+    # Before the FIRST request: .NET allows 2 connections per host by default, and a host's limit is fixed when it is
+    # first contacted. latest.json redirects to the same file server as the installer, so raising the limit later (in
+    # Save-AlfredRelease) left the download on 2-3 connections: 0.2 MB/s instead of 2 MB/s (3.0.6, 2026-10-09). Tests
+    # missed it - their hosts were 127.0.0.1, which .NET never limits, or they skipped reading latest.json.
+    [Net.ServicePointManager]::DefaultConnectionLimit = 512
 
     # ---- output ------------------------------------------------------------------------------------------------
     $plain = [Console]::IsOutputRedirected -or [bool]$env:NO_COLOR -or $env:TERM -eq 'dumb'
@@ -140,6 +145,11 @@
         if ([int]$answer.StatusCode -eq 206 -and $answer.Headers['Content-Range'] -match '/(\d+)$') { $total = [long]$Matches[1] }
         $final = $answer.ResponseUri.AbsoluteUri
         $answer.Close()
+        # And on the pools themselves: a host already contacted keeps the limit it had then (see the top of the script).
+        foreach ($uri in @($Url, $final)) {
+            $point = [Net.ServicePointManager]::FindServicePoint([Uri]$uri)
+            if ($point.ConnectionLimit -lt $Connections * 2) { $point.ConnectionLimit = $Connections * 2 }
+        }
 
         if ($total -lt 2 * $PieceBytes) {
             $whole = [Net.WebRequest]::CreateHttp($Url)

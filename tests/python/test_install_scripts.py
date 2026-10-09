@@ -56,6 +56,18 @@ class InstallScriptDownloadTest(unittest.TestCase):
             self.addCleanup(server.close)
             self.assertEqual(self.data, runner(server.url))
 
+    def test_install_ps1_raises_the_connection_limit_before_its_first_request(self):
+        """.NET fixes a host's connection limit (2 by default) when it is first contacted, and latest.json redirects to
+        the installer's own file server: raised any later, the download ran on 2-3 connections - 0.2 MB/s instead of
+        2 MB/s (3.0.6). The tests' hosts are 127.0.0.1, which .NET never limits, so this order is checked here."""
+        with open(os.path.join(ROOT, "install.ps1"), encoding="utf-8") as f:
+            text = f.read()
+        limit = text.index("[Net.ServicePointManager]::DefaultConnectionLimit = 512")
+        for first_request in ("Invoke-RestMethod", "CreateHttp(", "Invoke-WebRequest"):
+            if first_request in text:
+                self.assertLess(limit, text.index(first_request), first_request)
+        self.assertIn("FindServicePoint", text)  # and the pools already made are raised too
+
     @unittest.skipUnless(POWERSHELL, "no powershell.exe here")
     def test_install_ps1_downloads_in_pieces(self):
         self.check(self.powershell)
