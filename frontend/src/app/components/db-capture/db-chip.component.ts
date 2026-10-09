@@ -1,8 +1,11 @@
-import { ChangeDetectionStrategy, Component, OnInit, computed, effect, inject, input, untracked } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, effect, inject, input, untracked } from '@angular/core';
 import { CallRecord } from '../../core/models/call.model';
 import { DbCaptureStateService } from '../../core/state/db-capture-state.service';
 import { msText } from '../../shared/utils/db-statement-display';
 import { DbWindowService } from './db-window.service';
+
+/** The backend calls a call silent only 20 s after it completed (GetCallDbSummariesUseCase.SILENT_AFTER_SECONDS). */
+const SILENT_ASK_MS = 22_000;
 
 /**
  * The one thing database capture adds to a call card (mock: "◆ DB 49 · 9 writes · 1 failed · 10 flags"). No chip when
@@ -63,10 +66,20 @@ export class DbChipComponent implements OnInit {
   constructor() {
     // The card can come on screen before the agent's first batch for the call has arrived (or while backend was
     // restarting): when the call finishes and there is still no summary, ask once more instead of showing no chip.
+    // A call that just finished is asked once more after the backend's 20 s grace: by then the agent's batch is in, or
+    // the agent never answered and the card can say so (one timer per finished call, not polling).
+    let lateAsk: ReturnType<typeof setTimeout> | undefined;
+    inject(DestroyRef).onDestroy(() => clearTimeout(lateAsk));
     effect(() => {
       const call = this.call();
       const done = call.state !== 'IN_PROGRESS' && (!!call.response || !!call.error);
-      if (done && untracked(() => !this.summary())) this.dbState.refreshSummary(call.id);
+      if (done && untracked(() => !this.summary())) {
+        this.dbState.refreshSummary(call.id);
+        clearTimeout(lateAsk);
+        lateAsk = setTimeout(() => {
+          if (!this.summary()) this.dbState.refreshSummary(call.id);
+        }, SILENT_ASK_MS);
+      }
     });
   }
 

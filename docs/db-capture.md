@@ -84,6 +84,14 @@ line into the void while the calls themselves were logged; now it cannot. Attach
 docs/server.md "The agent attaches itself". When a project captures but no agent reports to this Alfred, each of its
 inbound calls shows a muted "⚠ agent not reporting here" chip instead of nothing.
 
+That chip is live: it goes once an agent reports again, also from calls it never saw. So each completed inbound call
+also remembers what it asked the agent for (`capture_asked` in db-capture.db: the project's ◆ ▤ ⬢ switches when it
+completed, written through `dbcapturebridge/InboundCallCompletionAdapter`). A call that asked and of which the agent
+sent no CALL_OPEN marker 20 s after it completed is answered by `GET /db-capture/silent?callIds=` and shows
+"⚠ agent sent nothing for this call" for good - its statements, log lines and Redis commands were never recorded. The
+◆ chip asks once more 22 s after a call finishes, so a fresh call gets the chip without polling. `capture_asked` keeps
+the latest 20,000 calls and goes with a call's other captures when it is deleted.
+
 The agent reports in every 10 s (`/db-capture/agent/heartbeat`); a project counts as "agent attached" while it was
 heard from in the last 30 s. Its answer carries the project's settings and switch, so a settings change reaches the
 agent within one heartbeat. JBoss Modules: the agent puts its bridge on the boot class path and opens it to every

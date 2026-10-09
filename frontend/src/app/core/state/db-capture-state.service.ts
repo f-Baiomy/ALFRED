@@ -45,6 +45,9 @@ export class DbCaptureStateService {
   private readonly queued = new Set<string>();
   private flushScheduled = false;
   readonly summaries: Signal<ReadonlyMap<string, CallDbSummary>> = this.summariesSignal.asReadonly();
+  private readonly silentSignal = signal<ReadonlyMap<string, string>>(new Map());
+  /** Calls that asked the agent for capture and of which it sent nothing: callId → "db,logs,redis" (what was asked). */
+  readonly silent: Signal<ReadonlyMap<string, string>> = this.silentSignal.asReadonly();
   /** Calls whose summary counts a failed statement - the call lists' "DB failures" pill and filter. */
   readonly failedCallIds: Signal<ReadonlySet<string>> = computed(() =>
     new Set([...this.summariesSignal().values()].filter((s) => s.failedCount > 0).map((s) => s.callId)));
@@ -207,6 +210,7 @@ export class DbCaptureStateService {
             if (summary) next.set(id, summary);
           }
           this.summariesSignal.set(next);
+          this.askSilent(chunk.filter((id) => !found[id]));
         },
         // A failed request (backend restarting, the gateway's 502 meanwhile) must not leave these cards without a
         // chip for good: forget them so the next card render or socket message asks again, and retry once shortly.
@@ -216,6 +220,34 @@ export class DbCaptureStateService {
         },
       });
     }
+  }
+
+  /**
+   * Of calls with no summary, those that asked the agent for capture and never heard back - the backend answers only
+   * for calls completed 20 s ago or more. A call that gets its summary later (the agent's backlog arrived) leaves it.
+   */
+  private askSilent(ids: readonly string[]): void {
+    const next = new Map(this.silentSignal());
+    let changed = false;
+    for (const [id] of next) {
+      if (this.summariesSignal().has(id)) {
+        next.delete(id);
+        changed = true;
+      }
+    }
+    if (changed) this.silentSignal.set(next);
+    if (!ids.length) return;
+    this.api.silent(ids).subscribe({
+      next: (found) => {
+        const after = new Map(this.silentSignal());
+        for (const id of ids) {
+          if (found[id] && !this.summariesSignal().has(id)) after.set(id, found[id]);
+          else after.delete(id);
+        }
+        this.silentSignal.set(after);
+      },
+      error: () => undefined, // the warning is a hint: it simply shows on the next ask
+    });
   }
 
   private onEvent(event: DbCaptureSocketEvent): void {

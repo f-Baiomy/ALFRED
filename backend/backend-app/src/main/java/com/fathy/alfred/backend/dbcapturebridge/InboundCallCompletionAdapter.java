@@ -23,7 +23,7 @@ public class InboundCallCompletionAdapter implements NewInternalCallObserverPort
 
     @Override
     public List<String> onCallCompleted(CallRecord call) {
-        completeCallCapture.callCompleted(call.id(), call.response() == null ? null : call.response().status(), call.error());
+        completeCallCapture.callCompleted(call.id(), call.response() == null ? null : call.response().status(), call.error(), call.serviceName());
         return List.of();
     }
 }

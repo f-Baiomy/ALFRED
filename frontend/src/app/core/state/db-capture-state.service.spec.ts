@@ -104,6 +104,23 @@ describe('DbCaptureStateService', () => {
     }
   });
 
+  it('asks which calls without a summary the agent never answered, and drops one once its summary arrives', async () => {
+    service.requestSummary('c1');
+    service.requestSummary('c2');
+    await Promise.resolve();
+    http.expectOne((r) => r.url === `${BACKEND}/db-capture/summaries`).flush({ c1: { callId: 'c1', statementCount: 2 } });
+    const silent = http.expectOne((r) => r.url === `${BACKEND}/db-capture/silent`);
+    expect(silent.request.params.get('callIds')).toBe('c2');
+    silent.flush({ c2: 'db,logs' });
+    expect(service.silent().get('c2')).toBe('db,logs');
+
+    // the agent's backlog arrived later: the call has a summary now, and is no longer silent
+    service.refreshSummary('c2');
+    await Promise.resolve();
+    http.expectOne((r) => r.url === `${BACKEND}/db-capture/summaries`).flush({ c2: { callId: 'c2', statementCount: 1 } });
+    expect(service.silent().has('c2')).toBeFalse();
+  });
+
   it('asks at most 100 ids a request - a longer URL is refused by the gateway (414)', async () => {
     for (let i = 0; i < 182; i++) service.requestSummary(`call-${i}`);
     await Promise.resolve();

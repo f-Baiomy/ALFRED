@@ -174,4 +174,19 @@ class SqliteDbCaptureCompactStorageTest {
         open();
         assertThat(repo.allStatements("call-1", 10)).hasSize(1);
     }
+
+    @Test
+    void aCallThatAskedForCaptureAndNeverHeardFromTheAgentIsSilent() {
+        repo.recordCaptureAsked("asked-heard", "odeysys", "db,logs", "2026-10-09T10:00:00Z");
+        repo.recordCaptureAsked("asked-silent", "odeysys", "db,logs,redis", "2026-10-09T10:00:00Z");
+        repo.recordCaptureAsked("asked-just-now", "odeysys", "db", "2026-10-09T10:05:00Z");
+        repo.saveMarkers(List.of(new com.fathy.alfred.backend.dbcapture.domain.model.CallMarker("asked-heard", 0,
+                com.fathy.alfred.backend.dbcapture.domain.model.MarkerType.CALL_OPEN, "2026-10-09T10:00:00Z", null, null)));
+
+        assertThat(repo.silentCalls(List.of("asked-heard", "asked-silent", "asked-just-now", "never-asked"), "2026-10-09T10:01:00Z"))
+                .containsExactly(java.util.Map.entry("asked-silent", "db,logs,redis"));
+
+        repo.deleteForCalls(List.of("asked-silent"));
+        assertThat(repo.silentCalls(List.of("asked-silent"), "2026-10-09T10:01:00Z")).isEmpty();
+    }
 }

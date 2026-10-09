@@ -258,6 +258,15 @@ public class DbCaptureQueryService implements GetCallDbSummariesUseCase, GetCall
     }
 
     @Override
+    public Map<String, String> silentCalls(List<String> callIds) {
+        List<String> ids = callIds.stream().filter(id -> id != null && !id.isBlank()).distinct().limit(GetCallDbSummariesUseCase.MAX_IDS).toList();
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        return store.silentCalls(ids, java.time.Instant.now().minusSeconds(GetCallDbSummariesUseCase.SILENT_AFTER_SECONDS).toString());
+    }
+
+    @Override
     public Map<String, CallStatementFailures> failures(List<String> callIds) {
         List<String> ids = callIds.stream().filter(id -> id != null && !id.isBlank()).distinct().toList();
         if (ids.size() > FindStatementFailuresUseCase.MAX_IDS) {

@@ -108,9 +108,25 @@ export class CallCardComponent {
   private readonly dbState = inject(DbCaptureStateService);
   readonly agentMissing = computed(() => {
     const c = this.call();
-    if (c.source !== 'internal' || !c.service_name) return false;
+    if (c.source !== 'internal' || !c.service_name || this.agentSilent()) return false;
     const p = this.dbState.projectStatus(c.service_name);
     return !!p && !p.attached && !!(p.enabled || p.logsOn || p.redisOn);
+  });
+  /**
+   * What THIS call asked the agent for, when the agent sent nothing at all for it ("db,logs,redis" or part) - a fact
+   * of the call, so it stays after an agent starts reporting again, unlike the live warning above.
+   */
+  readonly agentSilent = computed(() => {
+    const c = this.call();
+    return c.source === 'internal' ? this.dbState.silent().get(c.id) ?? null : null;
+  });
+  readonly agentSilentTitle = computed(() => {
+    const asked = (this.agentSilent() ?? '').split(',').filter(Boolean)
+      .map((f) => ({ db: 'database statements', logs: 'log lines', redis: 'Redis commands' })[f] ?? f);
+    return `This call asked the agent for its ${asked.join(', ')}, and the agent sent nothing for it - no statements, log lines ` +
+      `or Redis commands exist for this call, and none can be recovered. Usually: no agent was loaded in ${this.call().service_name} ` +
+      `then, it reported to another Alfred (an old -javaagent line or 'alfred attach' with another alfredUrl), or it was ` +
+      `loaded without that feature. Settings → Database capture shows the agent now.`;
   });
   readonly agentMissingTitle = computed(() => {
     const project = this.call().service_name;

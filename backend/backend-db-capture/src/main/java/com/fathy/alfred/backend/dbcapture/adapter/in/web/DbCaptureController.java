@@ -106,6 +106,13 @@ public class DbCaptureController {
         return summaries.summaries(ids);
     }
 
+    /** Calls that asked for capture but of which the agent sent nothing: {callId: "db,logs,redis"}. */
+    @GetMapping("/db-capture/silent")
+    public Map<String, String> silent(@RequestParam(defaultValue = "") String callIds) {
+        List<String> ids = Arrays.stream(callIds.split(",")).map(String::strip).filter(s -> !s.isEmpty()).toList();
+        return summaries.silentCalls(ids);
+    }
+
     /** The failed statements of up to 500 calls, from the failed-statement index; more ids is a 400. */
     @GetMapping("/db-capture/failures")
     public ResponseEntity<?> failures(@RequestParam(defaultValue = "") String callIds) {

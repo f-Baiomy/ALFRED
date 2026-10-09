@@ -8,4 +8,9 @@ package com.fathy.alfred.backend.dbcapture.application.port.in;
 public interface CompleteCallCaptureUseCase {
 
     void callCompleted(String callId, Integer status, String error);
+
+    /** As above, for a call of {@code project}: also remembers whether the call asked the agent for anything. */
+    default void callCompleted(String callId, Integer status, String error, String project) {
+        callCompleted(callId, status, error);
+    }
 }

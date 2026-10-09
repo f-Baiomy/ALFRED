@@ -35,6 +35,13 @@ export class DbCaptureApiService {
     });
   }
 
+  /** Calls that asked the agent for capture but of which it sent nothing: callId → what they asked for ("db,logs"). */
+  silent(callIds: readonly string[]): Observable<Record<string, string>> {
+    return this.http.get<Record<string, string>>(`${this.base}/silent`, {
+      params: new HttpParams().set('callIds', callIds.join(',')),
+    });
+  }
+
   statements(callId: string, afterSeq = 0, limit = 500): Observable<CallStatementsPage> {
     return this.http.get<CallStatementsPage>(`${this.base}/calls/${encodeURIComponent(callId)}/statements`, {
       params: new HttpParams().set('afterSeq', afterSeq).set('limit', limit),

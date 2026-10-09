@@ -272,6 +272,20 @@ describe('CallCardComponent', () => {
     requests.forEach((r) => r.flush({ request: { headers: {} }, response: { status: 200, headers: {} } }));
   });
 
+  it('says for good that the agent sent nothing for an inbound call that asked for capture', async () => {
+    const fixture = createCard(makeCall({ id: 'in-1', source: 'internal', service_name: 'odeysys' }));
+    await Promise.resolve();
+    httpMock.expectOne((r) => r.url.endsWith('/db-capture/summaries')).flush({});
+    httpMock.expectOne((r) => r.url.endsWith('/db-capture/silent')).flush({ 'in-1': 'db,logs' });
+    fixture.detectChanges();
+
+    const chip = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('.agent-missing'))
+      .find((el) => el.textContent?.includes('agent sent nothing for this call')) as HTMLElement | undefined;
+    expect(chip).toBeTruthy();
+    expect(chip!.title).toContain('database statements, log lines');
+    expect((fixture.nativeElement as HTMLElement).textContent).not.toContain('agent not reporting here');
+  });
+
   it('shows the supplier name badge when the summary carries one', () => {
     const fixture = createCard(makeCall({ supplierName: 'FlyNas' }));
     const host: HTMLElement = fixture.nativeElement;

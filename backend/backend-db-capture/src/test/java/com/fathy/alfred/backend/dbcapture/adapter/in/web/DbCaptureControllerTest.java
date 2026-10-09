@@ -77,6 +77,15 @@ class DbCaptureControllerTest {
     }
 
     @Test
+    void silentAnswersTheCallsTheAgentNeverReportedWithWhatTheyAskedFor() throws Exception {
+        when(summaries.silentCalls(List.of("c1", "c2"))).thenReturn(Map.of("c2", "db,logs"));
+        mvc.perform(get("/db-capture/silent").param("callIds", "c1, c2,"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.c2").value("db,logs"))
+                .andExpect(jsonPath("$.c1").doesNotExist());
+    }
+
+    @Test
     void statementsPassThePagingParameters() throws Exception {
         when(statements.statements("c1", 40, 100)).thenReturn(new CallStatementsPage(List.of(), List.of(), List.of(), false));
         mvc.perform(get("/db-capture/calls/c1/statements").param("afterSeq", "40").param("limit", "100"))

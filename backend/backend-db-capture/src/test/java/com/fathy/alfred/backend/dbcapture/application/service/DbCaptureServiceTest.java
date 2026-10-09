@@ -118,4 +118,25 @@ class DbCaptureServiceTest {
         verify(store).markFailuresSwallowed("call-1", true);
         verify(observer).failuresChanged("call-1", 1, 1);
     }
+
+    @Test
+    void aCompletedCallRemembersWhatItAskedTheAgentFor() {
+        var logLink = mock(com.fathy.alfred.backend.dbcapture.application.port.out.LogLinkTogglePort.class);
+        service.setLogLink(logLink);
+        when(toggle.isEnabled("odeysys")).thenReturn(true);
+        when(logLink.isOn("odeysys")).thenReturn(true);
+
+        service.callCompleted("call-1", 200, null, "odeysys");
+
+        verify(store).recordCaptureAsked("call-1", "odeysys", "db,logs", "2026-10-04T18:00:00Z");
+    }
+
+    @Test
+    void aCallOfAProjectWithEveryCaptureOffAskedForNothing() {
+        service.callCompleted("call-1", 200, null, "odeysys");
+        service.callCompleted("call-2", 200, null, null);
+
+        verify(store, org.mockito.Mockito.never()).recordCaptureAsked(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString());
+    }
 }

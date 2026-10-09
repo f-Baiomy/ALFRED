@@ -61,6 +61,21 @@ public interface DbCaptureStorePort {
 
     Map<String, CallDbSummary> summaries(Collection<String> callIds);
 
+    /**
+     * The call completed while its project had ◆, ▤ or ⬢ on ({@code features}: "db,logs,redis" or part of it) - so its
+     * request carried a capture ask, and the agent should have answered with a CALL_OPEN marker.
+     */
+    default void recordCaptureAsked(String callId, String project, String features, String completedAt) {
+    }
+
+    /**
+     * Of these calls, those that asked for capture, completed before {@code completedBefore}, and of which the agent
+     * never reported anything (no CALL_OPEN) - with the features they asked for.
+     */
+    default Map<String, String> silentCalls(Collection<String> callIds, String completedBefore) {
+        return Map.of();
+    }
+
     /** The failed statements of these calls, in seq order, at most {@code perCall} each - read from the failed index only. */
     Map<String, List<CapturedStatement>> failedStatements(Collection<String> callIds, int perCall);
 

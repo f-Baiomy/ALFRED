@@ -95,6 +95,39 @@ public class DbCaptureService implements IngestStatementsUseCase, RecordAgentHea
         this.logLink = logLink;
     }
 
+    /** The ⬢ switch - part of what a call asks the agent for. Optional for tests. */
+    private com.fathy.alfred.backend.dbcapture.application.port.out.RedisCaptureTogglePort redisToggle;
+
+    @Autowired(required = false)
+    void setRedisToggle(com.fathy.alfred.backend.dbcapture.application.port.out.RedisCaptureTogglePort redisToggle) {
+        this.redisToggle = redisToggle;
+    }
+
+    /**
+     * Remembers what the call asked the agent for - the project's switches as the reverse proxy read them - so a call
+     * the agent never answered can say so for good, not only while no agent is reporting (the card's live warning).
+     */
+    @Override
+    public void callCompleted(String callId, Integer status, String error, String project) {
+        callCompleted(callId, status, error);
+        if (callId == null || callId.isBlank() || project == null || project.isBlank()) {
+            return;
+        }
+        List<String> asked = new ArrayList<>();
+        if (toggle.isEnabled(project)) {
+            asked.add("db");
+        }
+        if (logLink != null && logLink.isOn(project)) {
+            asked.add("logs");
+        }
+        if (redisToggle != null && redisToggle.isOn(project)) {
+            asked.add("redis");
+        }
+        if (!asked.isEmpty()) {
+            store.recordCaptureAsked(callId, project, String.join(",", asked), clock.instant().toString());
+        }
+    }
+
     @Override
     public IngestResult ingest(IngestBatch batch) {
         List<IncomingStatement> statements = withEarlierReads(batch.statements() == null ? List.of() : batch.statements());

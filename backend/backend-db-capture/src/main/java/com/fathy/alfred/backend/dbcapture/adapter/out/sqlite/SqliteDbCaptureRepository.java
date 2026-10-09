@@ -322,6 +322,10 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS ix_log_lines_fp ON call_log_lines(level, fingerprint, at_ms)");
         boolean freshText = createLogTextIndex();
         startLogBackfill(freshText);
+        // What each completed call asked the agent for: a call with a row here and no CALL_OPEN was never answered.
+        jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS capture_asked (call_id TEXT PRIMARY KEY, project TEXT, features TEXT NOT NULL, "
+                + "completed_at TEXT NOT NULL) WITHOUT ROWID");
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS ix_capture_asked_at ON capture_asked(completed_at)");
         jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS capture_settings (project TEXT PRIMARY KEY, settings_json TEXT NOT NULL)");
         jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS agents (agent_id TEXT PRIMARY KEY, project TEXT NOT NULL, status_json TEXT NOT NULL, last_seen TEXT NOT NULL)");
     }
@@ -1282,6 +1286,39 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
         return result;
     }
 
+    /** capture_asked rows kept - well over the live list's inbound calls; a silent call has no statements to be evicted with. */
+    static final int MAX_CAPTURE_ASKED = 20_000;
+    private final java.util.concurrent.atomic.AtomicInteger askedSinceTrim = new java.util.concurrent.atomic.AtomicInteger();
+
+    @Override
+    public void recordCaptureAsked(String callId, String project, String features, String completedAt) {
+        jdbcTemplate.update("INSERT OR IGNORE INTO capture_asked (call_id, project, features, completed_at) VALUES (?,?,?,?)",
+                callId, project, features, completedAt);
+        if (askedSinceTrim.incrementAndGet() >= 500) {
+            askedSinceTrim.set(0);
+            jdbcTemplate.update("DELETE FROM capture_asked WHERE completed_at < (SELECT completed_at FROM capture_asked "
+                    + "ORDER BY completed_at DESC LIMIT 1 OFFSET ?)", MAX_CAPTURE_ASKED);
+        }
+    }
+
+    @Override
+    public Map<String, String> silentCalls(Collection<String> callIds, String completedBefore) {
+        Map<String, String> result = new LinkedHashMap<>();
+        List<String> ids = new ArrayList<>(callIds);
+        for (int i = 0; i < ids.size(); i += IN_CHUNK) {
+            List<String> chunk = ids.subList(i, Math.min(ids.size(), i + IN_CHUNK));
+            String in = chunk.stream().map(x -> "?").collect(Collectors.joining(","));
+            List<Object> args = new ArrayList<>(chunk);
+            args.add(completedBefore);
+            jdbcTemplate.query("SELECT a.call_id, a.features FROM capture_asked a WHERE a.call_id IN (" + in + ") AND a.completed_at < ? "
+                            + "AND NOT EXISTS (SELECT 1 FROM call_markers m WHERE m.call_id = a.call_id AND m.seq = 0)",
+                    rs -> {
+                        result.put(rs.getString("call_id"), rs.getString("features"));
+                    }, args.toArray());
+        }
+        return result;
+    }
+
     @Override
     public Optional<CallDbSummary> summary(String callId) {
         return jdbcTemplate.query("SELECT " + SUMMARY_COLUMNS + " FROM call_db_summary WHERE call_id = ? LIMIT 1", summaryMapper, callId)
@@ -1452,6 +1489,7 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
                 jdbcTemplate.update("DELETE FROM transactions WHERE call_id IN (" + in + ")", args);
                 jdbcTemplate.update("DELETE FROM call_markers WHERE call_id IN (" + in + ")", args);
                 jdbcTemplate.update("DELETE FROM call_db_summary WHERE call_id IN (" + in + ")", args);
+                jdbcTemplate.update("DELETE FROM capture_asked WHERE call_id IN (" + in + ")", args);
                 jdbcTemplate.update("DELETE FROM call_log_lines WHERE call_id IN (" + in + ")", args);
                 jdbcTemplate.update("DELETE FROM call_log_summary WHERE call_id IN (" + in + ")", args);
                 // the call's Redis commands go with it (FR-036) - and count, so a Redis-only call is "found" too
@@ -1480,6 +1518,7 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
             jdbcTemplate.update("DELETE FROM transactions");
             jdbcTemplate.update("DELETE FROM call_markers");
             jdbcTemplate.update("DELETE FROM call_db_summary");
+            jdbcTemplate.update("DELETE FROM capture_asked");
             jdbcTemplate.update("DELETE FROM call_log_lines WHERE call_id IS NOT NULL");
             jdbcTemplate.update("DELETE FROM call_log_summary");
             StoreCommandsSchema.deleteAll(jdbcTemplate);
