@@ -128,8 +128,15 @@ public class ScopeResolver {
                 call.error(), call.timestamp(), call.durationMs(), call.serviceName(), List.of(heldIn)));
     }
 
-    /** The URL's path and query - what a reader recognises the call by - without scheme and host. */
-    private static String pathOf(String url) {
+    /**
+     * The URL's path and query - what a reader recognises the call by - without scheme and host. Null for a stored call
+     * that has only its response (its request webhook never arrived): it has no URL, and one such row used to fail every
+     * log search over the live calls with a NullPointerException.
+     */
+    static String pathOf(String url) {
+        if (url == null) {
+            return null;
+        }
         try {
             java.net.URI uri = java.net.URI.create(url);
             return uri.getHost() == null ? url : uri.getRawPath() + (uri.getRawQuery() == null ? "" : "?" + uri.getRawQuery());

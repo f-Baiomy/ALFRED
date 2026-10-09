@@ -160,6 +160,20 @@ class InvestigationBridgeTest {
     }
 
     @Test
+    void aStoredCallWithOnlyItsResponseDoesNotFailTheSearch() throws Exception {
+        // Its request webhook never arrived: no URL, no method, no time. One such row made every search a 500.
+        CallSummary responseOnly = new CallSummary("r", null, null, null, null, 29.9, 200, null, null, null, null, null, null);
+        when(live.getCalls(any())).thenReturn(new CallsPage(List.of(summary("a", "odeysys", "2026-10-06T10:00:00Z"), responseOnly), 2));
+        when(capture.projects()).thenReturn(List.of());
+        when(logs.search(any(), any())).thenReturn(new LogSearchPage(0, List.of(), null, null));
+
+        assertThat(resolver.resolve(null, null, null, null).calls().get("r").path()).isNull();
+        mvc.perform(post("/call-logs/search").contentType(MediaType.APPLICATION_JSON).content("{\"text\":\"could not instrument\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(0));
+    }
+
+    @Test
     void theBridgeReachesSlicesOnlyThroughTheirPortsAndDomain() {
         JavaClasses classes = new ClassFileImporter().withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
                 .importPackages("com.fathy.alfred.backend");
