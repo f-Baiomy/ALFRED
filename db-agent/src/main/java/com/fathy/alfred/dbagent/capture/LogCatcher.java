@@ -93,7 +93,7 @@ public final class LogCatcher {
 
     /** {@code minRank}: the project's Log level ({@link #rank}); a line below it is not caught and counts toward no cap. */
     void caught(String kind, Object event, CallContext context, boolean outside, int minRank) {
-        if (event == null) {
+        if (event == null || AgentLog.printing()) {
             return;
         }
         if (minRank > 0 && rankOf(kind, event) < minRank) {
@@ -116,7 +116,7 @@ public final class LogCatcher {
             return;
         }
         LogRecord r = read(kind, event);
-        if (r == null) {
+        if (r == null || AgentLog.isOwn(r.message)) {
             return;
         }
         int chars = cap(r);

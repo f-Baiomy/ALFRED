@@ -11,6 +11,7 @@ import net.bytebuddy.description.method.MethodDescription;
 import net.bytebuddy.description.type.TypeDescription;
 import net.bytebuddy.dynamic.DynamicType;
 import net.bytebuddy.matcher.ElementMatcher;
+import net.bytebuddy.pool.TypePool;
 import net.bytebuddy.utility.JavaModule;
 
 import java.lang.instrument.Instrumentation;
@@ -126,9 +127,53 @@ final class Instrumenter {
 
     /** Instrumentation failures are reported, never thrown - a class the agent cannot handle is simply not captured. */
     private static final class ErrorListener extends AgentBuilder.Listener.Adapter {
+        private final UnreadableTypes unreadable = new UnreadableTypes();
+
         @Override
         public void onError(String typeName, ClassLoader classLoader, JavaModule module, boolean loaded, Throwable throwable) {
+            if (UnreadableTypes.is(throwable)) {
+                String line = unreadable.add(typeName, System.currentTimeMillis());
+                if (line != null) {
+                    AgentLog.info(line);
+                }
+                return;
+            }
             AgentLog.warn("could not instrument " + typeName + " (" + throwable.getClass().getSimpleName() + ")");
+        }
+    }
+
+    /**
+     * Classes generated in memory (Drools rule consequences, other runtime compilers) have no class file a type pool can
+     * read, so matching them against the JDBC/servlet supertypes fails with {@code NoSuchTypeException}. The class is
+     * then defined unchanged - nothing is wrong with it or the application - but a rule base compiles hundreds, each
+     * with its own name, and a WARN line per class flooded the console. One summary line instead, at most once a minute.
+     */
+    static final class UnreadableTypes {
+        static final long QUIET_MILLIS = 60_000;
+
+        private long printedAt;
+        private int skipped;
+
+        static boolean is(Throwable t) {
+            for (Throwable c = t; c != null; c = c.getCause() == c ? null : c.getCause()) {
+                if (c instanceof TypePool.Resolution.NoSuchTypeException) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /** The line to print for this class, or null while the last one is under a minute old (the class is counted). */
+        synchronized String add(String typeName, long now) {
+            skipped++;
+            if (printedAt != 0 && now - printedAt < QUIET_MILLIS) {
+                return null;
+            }
+            String line = "left " + skipped + (skipped == 1 ? " class" : " classes") + " uninstrumented whose supertypes"
+                    + " cannot be read (generated in memory, e.g. " + typeName + ") - they run unchanged";
+            printedAt = now;
+            skipped = 0;
+            return line;
         }
     }
 }
