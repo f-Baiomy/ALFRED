@@ -10783,6 +10783,14 @@ app-name-suggest {
 .board-editor { position: relative;
   textarea { width: 100%; box-sizing: border-box; resize: vertical; background: var(--card-inner); color: var(--text); border: 1px solid var(--border-strong); border-radius: 8px; padding: 0.45rem 0.6rem; font: inherit; font-size: 0.82rem; }
 }
+/* The comment/description box: plain text with each mention as one small pill (mention-editor, shared/utils/mention-dom.ts). */
+.board-editor-box { width: 100%; box-sizing: border-box; max-height: 22rem; overflow-y: auto; background: var(--card-inner); color: var(--text); border: 1px solid var(--border-strong); border-radius: 8px; padding: 0.45rem 0.6rem; font: inherit; font-size: 0.82rem; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; outline: none; cursor: text;
+  &:focus { border-color: var(--purple); }
+  &:empty::before { content: attr(data-placeholder); color: var(--text-faint); pointer-events: none; }
+}
+.board-mention-pill { max-width: 18rem; overflow: hidden; text-overflow: ellipsis; display: inline-block; vertical-align: bottom; line-height: 1.35; margin: 0 0.05rem; cursor: default; user-select: all; }
+.board-ev.sys app-mention-chip { display: inline-block; max-width: 100%; min-width: 0; vertical-align: bottom; }
+.board-ev.sys .board-mention { display: inline-block; max-width: 22rem; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
 .board-editor-hint { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap; color: var(--text-faint); font-size: 0.7rem; margin-top: 0.25rem; }
 .board-editor-actions { display: inline-flex; gap: 0.35rem; }
 .board-picker { background: var(--popover-solid); border: 1px solid var(--border-strong); border-radius: 12px; box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.5); margin-bottom: 0.4rem; overflow: hidden; }

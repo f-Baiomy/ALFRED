@@ -1,13 +1,15 @@
 import { Component, input } from '@angular/core';
-import { ActivityEntry } from '../../../core/models/board.models';
+import { ActivityEntry, MentionRef } from '../../../core/models/board.models';
 import { ClaudeParts, changeText, claudeParts } from '../../../shared/utils/board-activity';
 import { MarkdownViewComponent } from '../markdown-view/markdown-view.component';
+import { MentionChipComponent } from '../mention-chip/mention-chip.component';
+import { parseMentions } from '../../../shared/utils/mention-syntax';
 
 /** A card's history, oldest first (FR-027, FR-028): comments in full, every change in one line. */
 @Component({
   selector: 'app-activity-timeline',
   standalone: true,
-  imports: [MarkdownViewComponent],
+  imports: [MarkdownViewComponent, MentionChipComponent],
   template: `
     <div class="board-timeline">
       @for (e of entries(); track e.id) {
@@ -25,7 +27,11 @@ import { MarkdownViewComponent } from '../markdown-view/markdown-view.component'
             </div>
           </div>
         } @else {
-          <div class="board-ev sys">{{ change(e) }} · {{ when(e.at) }}</div>
+          <div class="board-ev sys">
+            @for (seg of change(e); track $index) {
+              @if (seg.mention; as m) { <app-mention-chip [mention]="m" [showPreview]="false" /> } @else { {{ seg.text }} }
+            } · {{ when(e.at) }}
+          </div>
         }
       } @empty {
         <div class="board-dim">No history yet.</div>
@@ -39,8 +45,9 @@ export class ActivityTimelineComponent {
     return claudeParts(text);
   }
 
-  change(e: ActivityEntry): string {
-    return changeText(e);
+  /** The one-line change, its mentions (a link added or removed) as pills rather than their `@[...]` text. */
+  change(e: ActivityEntry): { text?: string; mention?: MentionRef }[] {
+    return parseMentions(changeText(e)).map((s) => ('mention' in s ? { mention: s.mention } : { text: s.text }));
   }
 
   when(iso: string): string {
