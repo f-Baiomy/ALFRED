@@ -273,8 +273,9 @@ fetch "$MANIFEST_URL" "$WORK/latest.json" 2>/dev/null || fail_ "Latest release" 
 # latest.json: {"version": "...", "assets": {"linux-x64": {"url": "...", "sha256": "...", "size": N}, ...}}
 # No jq on a bare machine: flatten it and cut the one object out.
 FLAT="$(tr -d '\t\r\n' < "$WORK/latest.json" | sed 's/" *: */":/g; s/, *"/,"/g; s/{ *"/{"/g')"
-VERSION="$(printf '%s' "$FLAT" | sed -n 's/.*"version":"\([^"]*\)".*/\1/p')"
-ASSET="$(printf '%s' "$FLAT" | grep -o "\"$TARGET\":{[^}]*}" || true)"
+# The file lists older releases under "releases", each with its own linux-x64 entry: take the first of each (the current release comes first).
+VERSION="$(printf '%s' "$FLAT" | sed -n 's/^{"version":"\([^"]*\)".*/\1/p')"
+ASSET="$(printf '%s' "$FLAT" | grep -o "\"$TARGET\":{[^}]*}" | head -n 1 || true)"
 URL="$(printf '%s' "$ASSET" | sed -n 's/.*"url":"\([^"]*\)".*/\1/p')"
 SHA="$(printf '%s' "$ASSET" | sed -n 's/.*"sha256":"\([^"]*\)".*/\1/p')"
 SIZE="$(printf '%s' "$ASSET" | sed -n 's/.*"size":\([0-9]*\).*/\1/p')"
