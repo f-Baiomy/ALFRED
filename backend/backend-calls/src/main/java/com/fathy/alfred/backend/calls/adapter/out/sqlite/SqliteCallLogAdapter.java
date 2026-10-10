@@ -177,6 +177,22 @@ public class SqliteCallLogAdapter implements CallLogPort {
     }
 
     @Override
+    public int deleteByIds(java.util.Collection<String> callIds) {
+        return repository.deleteByIds(callIds);
+    }
+
+    @Override
+    public List<com.fathy.alfred.backend.calls.domain.model.CleanupCandidate> cleanupCandidates(
+            com.fathy.alfred.backend.calls.domain.model.CleanupFilter filter, int limit) {
+        return repository.cleanupCandidates(filter, limit);
+    }
+
+    @Override
+    public java.util.Optional<String> oldestTimestamp() {
+        return repository.oldestTimestamp();
+    }
+
+    @Override
     public List<com.fathy.alfred.backend.calls.domain.model.RecentRequestHeaders> recentRequestHeaders(String host, int limit) {
         return repository.recentRequestHeaders(host, limit);
     }

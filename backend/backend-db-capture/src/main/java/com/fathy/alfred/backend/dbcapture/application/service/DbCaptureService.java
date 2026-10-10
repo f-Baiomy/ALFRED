@@ -257,6 +257,39 @@ public class DbCaptureService implements IngestStatementsUseCase, RecordAgentHea
         return store.deleteForCalls(callIds);
     }
 
+    /** The calls session cycles hold - asked at most every 30 s, since the live list trims a few calls at a time. */
+    private java.util.Optional<com.fathy.alfred.backend.dbcapture.application.port.out.RetainedCallIdsPort> retainedCalls = java.util.Optional.empty();
+    private volatile java.util.Set<String> retainedCache = java.util.Set.of();
+    private volatile long retainedAt;
+
+    @Autowired(required = false)
+    void setRetainedCalls(com.fathy.alfred.backend.dbcapture.application.port.out.RetainedCallIdsPort retainedCalls) {
+        this.retainedCalls = java.util.Optional.ofNullable(retainedCalls);
+    }
+
+    private java.util.Set<String> retained() {
+        if (retainedCalls.isEmpty()) {
+            return java.util.Set.of();
+        }
+        long now = System.currentTimeMillis();
+        if (now - retainedAt > 30_000) {
+            retainedCache = retainedCalls.get().retainedCallIds();
+            retainedAt = now;
+        }
+        return retainedCache;
+    }
+
+    @Override
+    public int callsDeleted(Collection<String> callIds) {
+        if (callIds == null || callIds.isEmpty()) {
+            return 0;
+        }
+        java.util.Set<String> keep = new java.util.HashSet<>(retained());
+        keep.addAll(store.callsWithRunStatements(callIds));
+        List<String> gone = callIds.stream().filter(id -> id != null && !keep.contains(id)).distinct().toList();
+        return gone.isEmpty() ? 0 : store.deleteForCalls(gone);
+    }
+
     @Override
     public void deleteAllCallStatements() {
         store.deleteAllCallStatements();

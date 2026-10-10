@@ -18,6 +18,9 @@ public interface RecordCallAttentionUseCase {
     /** A call's log and database signals, as db-capture now has them (specs/010-mcp-log-investigation). */
     void signals(String callId, CallSignals signals);
 
+    /** These calls were deleted (by a limit, a clean-up or a clear): their marks go too. */
+    void callsDeleted(java.util.Collection<String> callIds);
+
     /** Whether the one-time fill of log and database signals (specs/010) still has to run. */
     boolean signalsBackfillNeeded();
 

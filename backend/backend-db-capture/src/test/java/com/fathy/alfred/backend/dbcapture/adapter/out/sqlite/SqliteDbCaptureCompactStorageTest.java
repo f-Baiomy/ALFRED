@@ -176,6 +176,23 @@ class SqliteDbCaptureCompactStorageTest {
     }
 
     @Test
+    void aCallWhoseCaptureTheStorageLimitRemovedSaysSoUntilTheCallItselfIsDeleted() {
+        repo.markTrimmed(List.of("trimmed-1", "trimmed-2"), "2026-10-10T10:00:00Z");
+
+        assertThat(repo.silentCalls(List.of("trimmed-1", "kept"), "2026-10-10T10:01:00Z"))
+                .containsExactly(java.util.Map.entry("trimmed-1", DbCaptureStorePortTrimmed.VALUE));
+
+        repo.deleteForCalls(List.of("trimmed-1"));
+        assertThat(repo.silentCalls(List.of("trimmed-1", "trimmed-2"), "2026-10-10T10:01:00Z")).containsOnlyKeys("trimmed-2");
+        repo.deleteAllCallStatements();
+        assertThat(repo.silentCalls(List.of("trimmed-2"), "2026-10-10T10:01:00Z")).isEmpty();
+    }
+
+    private static final class DbCaptureStorePortTrimmed {
+        static final String VALUE = com.fathy.alfred.backend.dbcapture.application.port.out.DbCaptureStorePort.TRIMMED;
+    }
+
+    @Test
     void aCallThatAskedForCaptureAndNeverHeardFromTheAgentIsSilent() {
         repo.recordCaptureAsked("asked-heard", "odeysys", "db,logs", "2026-10-09T10:00:00Z");
         repo.recordCaptureAsked("asked-silent", "odeysys", "db,logs,redis", "2026-10-09T10:00:00Z");

@@ -213,8 +213,123 @@ class SqliteInternalCallsRepositoryTest extends InternalCallStoreContractTest {
         return repo.query(search, "", "oldest", 0, 100, true, "", "", "", "", "").items().stream().map(CallSummary::id).toList();
     }
 
+    // ------------------------------------------------------------------ deletion cascade
+
+    /** Collects what the store reports deleted - stands in for backend-app's cascade. */
+    private static final class Removed implements com.fathy.alfred.backend.internalcalls.application.port.out.InternalCallsRemovedPort {
+        final java.util.List<String> ids = new java.util.ArrayList<>();
+
+        @Override
+        public void callsRemoved(java.util.Collection<String> callIds) {
+            ids.addAll(callIds);
+        }
+    }
+
+    @Test
+    void theRetentionLimitReportsExactlyTheCallsItDeleted() throws Exception {
+        SqliteInternalCallsRepository repo = repository(dir, 3, 1000, Long.MAX_VALUE);
+        Removed removed = new Removed();
+        repo.setRemovedListeners(java.util.List.of(removed));
+        try {
+            for (int i = 0; i < 5; i++) {
+                repo.prepare(prepared("c" + i, at(i)));
+                repo.complete("c" + i, ok("x"), null, 1.0, null, null, null);
+            }
+            assertThat(repo.count()).isEqualTo(3);
+            assertThat(removed.ids).containsExactlyInAnyOrder("c0", "c1");
+        } finally {
+            repo.close();
+        }
+    }
+
+    @Test
+    void clearingAndDeletingByIdReportEveryDeletedCall() throws Exception {
+        SqliteInternalCallsRepository repo = repository(dir, 100, 1000, Long.MAX_VALUE);
+        Removed removed = new Removed();
+        repo.setRemovedListeners(java.util.List.of(removed));
+        try {
+            for (int i = 0; i < 4; i++) {
+                repo.prepare(prepared("c" + i, at(i)));
+            }
+            assertThat(repo.deleteByIds(java.util.List.of("c1", "c2", "missing"))).isEqualTo(2);
+            assertThat(removed.ids).containsExactlyInAnyOrder("c1", "c2", "missing");
+            assertThat(repo.findById("c1")).isEmpty();
+            assertThat(repo.findById("c0")).isPresent();
+
+            removed.ids.clear();
+            repo.deleteAll();
+            assertThat(removed.ids).containsExactlyInAnyOrder("c0", "c3");
+        } finally {
+            repo.close();
+        }
+    }
+
+    @Test
+    void aLoweredSizeLimitTrimsAtOnce() throws Exception {
+        SqliteInternalCallsRepository repo = repository(dir, 100_000, 1000, Long.MAX_VALUE);
+        Removed removed = new Removed();
+        repo.setRemovedListeners(java.util.List.of(removed));
+        try {
+            for (int i = 0; i < 40; i++) {
+                repo.prepare(prepared("c" + i, at(i)));
+                repo.complete("c" + i, ok("x".repeat(20_000)), null, 1.0, null, null, null);
+            }
+            long before = repo.storageSizeBytes();
+            repo.setMaxSizeBytes(before / 2);
+
+            // trimmed before the next call arrives, oldest first
+            assertThat(repo.count()).isLessThan(40);
+            assertThat(removed.ids).isNotEmpty().contains("c0").doesNotContain("c39");
+        } finally {
+            repo.close();
+        }
+    }
+
+    @Test
+    void cleanupCandidatesFilterByAgeStatusAndUrlOldestFirstAndNeverInFlight() throws Exception {
+        SqliteInternalCallsRepository repo = repository(dir, 100, 1000, Long.MAX_VALUE);
+        try {
+            repo.prepare(prepared("old-ok", at(1)));
+            repo.complete("old-ok", ok("x"), null, 1.0, null, null, null);
+            repo.prepare(prepared("old-fail", at(2)));
+            repo.complete("old-fail", new ResponseData(500, null, "boom"), null, 1.0, null, null, null);
+            repo.prepare(prepared("still-open", at(3)));
+            repo.prepare(prepared("new-ok", at(50)));
+            repo.complete("new-ok", ok("x"), null, 1.0, null, null, null);
+            String before = java.time.Instant.parse(at(10)).toString();
+
+            var all = repo.cleanupCandidates(new com.fathy.alfred.backend.internalcalls.domain.model.CleanupFilter(before, null, null, null), 100);
+            var failed = repo.cleanupCandidates(new com.fathy.alfred.backend.internalcalls.domain.model.CleanupFilter(null, "odeysys", "5xx", null), 100);
+            var byUrl = repo.cleanupCandidates(new com.fathy.alfred.backend.internalcalls.domain.model.CleanupFilter(null, null, null, "NEW-OK"), 100);
+
+            assertThat(all).extracting(c -> c.id()).containsExactly("old-ok", "old-fail");
+            assertThat(all.get(0).bytes()).isPositive();
+            assertThat(failed).extracting(c -> c.id()).containsExactly("old-fail");
+            assertThat(byUrl).extracting(c -> c.id()).containsExactly("new-ok");
+            assertThat(repo.oldestTimestamp()).contains(at(1));
+        } finally {
+            repo.close();
+        }
+    }
+
     /** Readability alias for the lifecycle state the assertions name. */
     private static final class CallLogPortStates {
         static final CallLifecycleStatus IN_PROGRESS = CallLifecycleStatus.IN_PROGRESS;
+    }
+
+    @Test
+    void theLimitsSkipAKeptCallAndTrimTheNextOldest() throws Exception {
+        SqliteInternalCallsRepository repo = repository(dir, 2, 1000, Long.MAX_VALUE);
+        repo.setKept(() -> java.util.Set.of("c0"));
+        try {
+            for (int i = 0; i < 4; i++) {
+                repo.prepare(prepared("c" + i, at(i)));
+            }
+            assertThat(repo.findById("c0")).isPresent();
+            assertThat(repo.findById("c1")).isEmpty();
+            assertThat(repo.findById("c3")).isPresent();
+        } finally {
+            repo.close();
+        }
     }
 }

@@ -180,6 +180,21 @@ public interface DbCaptureStorePort {
     /** Bytes used, for the size cap. */
     long totalBytes();
 
+    /** What {@link #silentCalls} answers for a call whose whole capture the storage limit removed. */
+    String TRIMMED = "trimmed";
+
+    /**
+     * These calls' whole captures were just removed by the storage limit (the calls themselves stay): remembered, so a
+     * call says "DB data removed by the storage limit" instead of looking like it ran nothing. Cleared with the call.
+     */
+    default void markTrimmed(Collection<String> callIds, String trimmedAt) {
+    }
+
+    /** Of these calls, those with statements a Relive run recorded (kept by their run tag). */
+    default Set<String> callsWithRunStatements(Collection<String> callIds) {
+        return Set.of();
+    }
+
     /** Oldest-first call ids for eviction, skipping {@code keep} and every call with Relive-run statements. */
     List<String> oldestCallIds(int limit, Set<String> keep);
 

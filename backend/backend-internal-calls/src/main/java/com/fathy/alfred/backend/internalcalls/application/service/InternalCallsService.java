@@ -124,9 +124,41 @@ public class InternalCallsService implements GetCallsUseCase, FindInternalRelive
      * either simply has {@code null} for that field, rather than a value invented server-side
      * (matching the same rule already applied in backend-calls' CallsService.receivePreparedCall).
      */
+    /** The storage page's "Stop recording" endpoints; empty = record everything. Optional for tests. */
+    private Optional<com.fathy.alfred.backend.internalcalls.application.port.out.InternalCallFilterPort> filter = Optional.empty();
+    /** Ids not recorded at prepare, so their completion is not stored either - the newest 10,000. */
+    private final java.util.Set<String> notRecorded = java.util.Collections.synchronizedSet(java.util.Collections.newSetFromMap(
+            new java.util.LinkedHashMap<>() {
+                @Override
+                protected boolean removeEldestEntry(java.util.Map.Entry<String, Boolean> eldest) {
+                    return size() > 10_000;
+                }
+            }));
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setFilter(com.fathy.alfred.backend.internalcalls.application.port.out.InternalCallFilterPort filter) {
+        this.filter = Optional.ofNullable(filter);
+    }
+
+    private boolean skipped(String id, CallRecord call) {
+        if (notRecorded.contains(id)) {
+            return true;
+        }
+        if (call != null && filter.isPresent() && !filter.get().isRecorded(call)) {
+            notRecorded.add(id);
+            filter.get().notRecorded(id);
+            return true;
+        }
+        return false;
+    }
+
     @Override
     public Optional<String> receivePreparedCall(CallRecord partial) {
         String id = valueOrGenerated(partial.id());
+        if (skipped(id, partial)) {
+            // a "Stop recording" endpoint: forwarded as always, never stored
+            return Optional.of(id);
+        }
         CallRecord prepared = new CallRecord(id, partial.originalUrl(), partial.url(), partial.method(),
                 partial.request(), partial.timestamp(), null, null, null, CallLifecycleStatus.IN_PROGRESS,
                 partial.sessionId(), partial.operationId(), partial.serviceName(), null,
@@ -159,6 +191,9 @@ public class InternalCallsService implements GetCallsUseCase, FindInternalRelive
     @Override
     public boolean receiveCompletedCall(String id, ResponseData response, String error, Double durationMs,
                                         CallInterception interception, Boolean reachedUpstream, CallRecord known) {
+        if (skipped(id, known)) {
+            return true;
+        }
         boolean updated = known == null
                 ? callLogPort.complete(id, response, error, durationMs, interception, reachedUpstream)
                 : callLogPort.complete(id, response, error, durationMs, interception, reachedUpstream, known);

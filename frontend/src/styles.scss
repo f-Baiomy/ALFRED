@@ -4574,36 +4574,41 @@ mark.hl.active {
   margin: 0 0 0.15rem;
 }
 
-// How this call compares to the same endpoint's own history - the difference between "26.72s" and
-// "26.72s where this endpoint's p50 is 3.4s". Reads as a problem only when it is actually slower
-// than usual; "normal for this endpoint" is just as useful an answer and shouldn't look alarming.
-.diag-baseline {
-  padding: 0.3rem 0;
-  color: var(--text-dim);
+// ---------- Settings → Storage: the low-disk banner every tab shows (the page's own styles: styles-storage.scss) ----------
+.st-low-disk {
+  display: flex;
+  gap: 0.8rem;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 0.65rem 0.9rem;
+  margin-bottom: 1rem;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--red) 50%, transparent);
+  background: color-mix(in srgb, var(--red) 10%, transparent);
+  font-size: 0.85rem;
+}
 
-  &.diag-problem {
-    color: var(--red);
+.st-low-disk-global {
+  position: fixed;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1002;
+  margin: 0;
+  background: var(--popover-solid);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+
+  a.bulk-btn {
+    text-decoration: none;
   }
 }
 
-// The call's #N, carried identically on its waterfall row and its diagnostics table row - a finding
-// naming "#3" has to point at something findable, and a url cannot do that when a fan-out sends the
-// same method and path twice.
-.waterfall-index,
-.diag-index {
-  flex: none;
-  color: var(--text-faint);
-  font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
-  white-space: nowrap;
-}
-
-.waterfall-index {
-  font-size: 0.7rem;
-  min-width: 1.8rem;
-}
-
-.diag-index {
-  padding-right: 0.5rem !important;
+.st-x {
+  background: none;
+  border: 0;
+  color: var(--text-dim);
+  font-size: 1.2rem;
+  cursor: pointer;
 }
 
 /* ==========================================================================

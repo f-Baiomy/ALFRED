@@ -297,4 +297,47 @@ class InternalCallsServiceTest {
         assertThat(result).isFalse();
         verify(port).complete("late", response, null, 29.9, null, null, known);
     }
+
+    @Test
+    void aStoppedEndpointIsNeverStoredNeitherAtPrepareNorAtCompletion() {
+        CallLogPort port = mock(CallLogPort.class);
+        CallNotificationPort notificationPort = mock(CallNotificationPort.class);
+        InternalCallsService service = serviceWith(port, notificationPort);
+        java.util.List<String> notRecorded = new java.util.ArrayList<>();
+        service.setFilter(new com.fathy.alfred.backend.internalcalls.application.port.out.InternalCallFilterPort() {
+            @Override
+            public boolean isRecorded(CallRecord call) {
+                return !call.url().endsWith("/heartbeat");
+            }
+
+            @Override
+            public void notRecorded(String callId) {
+                notRecorded.add(callId);
+            }
+        });
+        CallRecord beat = new CallRecord("hb-1", "https://p/heartbeat", "https://w/heartbeat", "GET", null, "t", null, null, null, null);
+
+        assertThat(service.receivePreparedCall(beat)).contains("hb-1");
+        assertThat(service.receiveCompletedCall("hb-1", new ResponseData(200, null, "ok"), null, 1.0, null, null)).isTrue();
+
+        verify(port, never()).prepareOrMerge(org.mockito.ArgumentMatchers.any());
+        verify(port, never()).complete(anyString(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+        verifyNoInteractions(notificationPort);
+        assertThat(notRecorded).containsExactly("hb-1");
+    }
+
+    @Test
+    void aCompletionWhosePrepareNeverArrivedIsFilteredByWhatItCarries() {
+        CallLogPort port = mock(CallLogPort.class);
+        InternalCallsService service = serviceWith(port);
+        service.setFilter(call -> !call.url().endsWith("/heartbeat"));
+        CallRecord known = new CallRecord("hb-2", "https://p/heartbeat", "https://w/heartbeat", "GET", null, "t", null, null, null, null);
+
+        assertThat(service.receiveCompletedCall("hb-2", new ResponseData(200, null, "ok"), null, 1.0, null, null, known)).isTrue();
+
+        verify(port, never()).complete(anyString(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any());
+    }
 }

@@ -1151,4 +1151,83 @@ class SqliteCallsRepositoryTest {
         assertThat(found).hasSize(40);
         assertThat(found).allSatisfy(call -> assertThat(call.request()).isNull());
     }
+
+    // ------------------------------------------------------------------ call limit and deletion cascade
+
+    private static final class Removed implements com.fathy.alfred.backend.calls.application.port.out.CallsRemovedPort {
+        final List<String> ids = new ArrayList<>();
+
+        @Override
+        public void callsRemoved(java.util.Collection<String> callIds) {
+            ids.addAll(callIds);
+        }
+    }
+
+    private static CallRecord at(String id, int second) {
+        String ts = java.time.Instant.parse("2026-10-10T08:00:00Z").plusSeconds(second).toString();
+        return new CallRecord(id, "https://a.com/" + id, "https://a.com/" + id, "GET", new RequestData(null, null), ts,
+                1.0, new ResponseData(200, null, "ok"), null);
+    }
+
+    @Test
+    void theCallLimitKeepsTheNewestAndReportsWhatItDeleted() throws Exception {
+        SqliteCallsRepository repo = repositoryFor(tempDir.resolve("calls.db"));
+        Removed removed = new Removed();
+        repo.setRemovedListeners(List.of(removed));
+        for (int i = 0; i < 6; i++) {
+            repo.save(at("c" + i, i));
+        }
+
+        repo.setMaxRows(4);
+
+        assertThat(repo.readAll()).extracting(CallRecord::id).containsExactlyInAnyOrder("c2", "c3", "c4", "c5");
+        assertThat(removed.ids).containsExactlyInAnyOrder("c0", "c1");
+    }
+
+    @Test
+    void clearingAndDeletingByIdReportEveryDeletedCall() throws Exception {
+        SqliteCallsRepository repo = repositoryFor(tempDir.resolve("calls.db"));
+        Removed removed = new Removed();
+        repo.setRemovedListeners(List.of(removed));
+        for (int i = 0; i < 3; i++) {
+            repo.save(at("c" + i, i));
+        }
+
+        assertThat(repo.deleteByIds(List.of("c1"))).isEqualTo(1);
+        assertThat(removed.ids).containsExactly("c1");
+        assertThat(repo.findById("c1")).isEmpty();
+
+        removed.ids.clear();
+        repo.deleteAll();
+        assertThat(removed.ids).containsExactlyInAnyOrder("c0", "c2");
+    }
+
+    @Test
+    void cleanupCandidatesFilterByAgeAndStatusOldestFirst() throws Exception {
+        SqliteCallsRepository repo = repositoryFor(tempDir.resolve("calls.db"));
+        repo.save(at("c0", 0));
+        repo.save(new CallRecord("c1", "https://a.com/fail", "https://a.com/fail", "POST", new RequestData(null, "{}"),
+                java.time.Instant.parse("2026-10-10T08:00:01Z").toString(), 1.0, new ResponseData(503, null, "down"), null));
+        repo.save(at("c2", 100));
+
+        var old = repo.cleanupCandidates(new com.fathy.alfred.backend.calls.domain.model.CleanupFilter("2026-10-10T08:00:50Z", null, null, null), 10);
+        var failed = repo.cleanupCandidates(new com.fathy.alfred.backend.calls.domain.model.CleanupFilter(null, null, "5xx", null), 10);
+
+        assertThat(old).extracting(c -> c.id()).containsExactly("c0", "c1");
+        assertThat(failed).extracting(c -> c.id()).containsExactly("c1");
+        assertThat(repo.oldestTimestamp()).contains("2026-10-10T08:00:00Z");
+    }
+
+    @Test
+    void theCallLimitSkipsAKeptCall() throws Exception {
+        SqliteCallsRepository repo = repositoryFor(tempDir.resolve("calls.db"));
+        repo.setKept(() -> java.util.Set.of("c0"));
+        for (int i = 0; i < 4; i++) {
+            repo.save(at("c" + i, i));
+        }
+
+        repo.setMaxRows(2);
+
+        assertThat(repo.readAll()).extracting(CallRecord::id).containsExactlyInAnyOrder("c0", "c3");
+    }
 }

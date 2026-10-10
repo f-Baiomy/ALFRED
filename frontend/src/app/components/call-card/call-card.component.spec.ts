@@ -286,6 +286,18 @@ describe('CallCardComponent', () => {
     expect((fixture.nativeElement as HTMLElement).textContent).not.toContain('agent not reporting here');
   });
 
+  it('says a call whose capture the storage limit removed lost it there, not that the agent sent nothing', async () => {
+    const fixture = createCard(makeCall({ id: 'in-2', source: 'internal', service_name: 'odeysys' }));
+    await Promise.resolve();
+    httpMock.expectOne((r) => r.url.endsWith('/db-capture/summaries')).flush({});
+    httpMock.expectOne((r) => r.url.endsWith('/db-capture/silent')).flush({ 'in-2': 'trimmed' });
+    fixture.detectChanges();
+
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.querySelector('.capture-trimmed')?.textContent).toContain('DB data removed · storage limit');
+    expect(host.textContent).not.toContain('agent sent nothing for this call');
+  });
+
   it('shows the supplier name badge when the summary carries one', () => {
     const fixture = createCard(makeCall({ supplierName: 'FlyNas' }));
     const host: HTMLElement = fixture.nativeElement;

@@ -9,4 +9,10 @@ public interface SetCaptureBudgetUseCase {
     void setStatementsMaxBytes(long bytes);
 
     void setRedisMaxBytes(long bytes);
+
+    /**
+     * One limit for everything captured with calls (statements, rows, log lines, Redis commands), from the storage
+     * budget; 0 turns it off and the two caps above apply again. Past it the oldest calls lose their whole capture.
+     */
+    void setCombinedMaxBytes(long bytes);
 }

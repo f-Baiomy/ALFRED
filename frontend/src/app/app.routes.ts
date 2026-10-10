@@ -1,6 +1,5 @@
 import { Routes } from '@angular/router';
 import { MainLayoutComponent } from './layout/main-layout/main-layout.component';
-import { DashboardComponent } from './pages/dashboard/dashboard.component';
 import { reliveUnsavedChangesGuard } from './pages/relive-cycle/relive-unsaved-changes.guard';
 
 export const routes: Routes = [
@@ -8,8 +7,9 @@ export const routes: Routes = [
     path: '',
     component: MainLayoutComponent,
     children: [
-      { path: '', component: DashboardComponent },
-      // Lazy, like every page but Live Calls: the landing page loads only what it shows.
+      // Every page is lazy, Live Calls too: the first download is the shell (core, router, layout), and the landing
+      // page's own chunk follows at once - the call card, waterfall and panels kept the shell over its size budget.
+      { path: '', loadComponent: () => import('./pages/dashboard/dashboard.component').then((m) => m.DashboardComponent) },
       { path: 'cycles', loadComponent: () => import('./pages/session-cycles-list/session-cycles-list.component').then((m) => m.SessionCyclesListComponent) },
       { path: 'cycles/:id', loadComponent: () => import('./pages/session-cycle-detail/session-cycle-detail.component').then((m) => m.SessionCycleDetailComponent) },
       { path: 'profiles', loadComponent: () => import('./pages/profiles-list/profiles-list.component').then((m) => m.ProfilesListComponent) },

@@ -17,4 +17,12 @@ public class RetentionSettingsService implements SetRetentionUseCase {
     public void setRetentionRows(int rows) {
         retention.setRetentionRows(rows);
     }
+
+    @Override
+    public void setMaxSizeBytes(long bytes) {
+        if (bytes < 1) {
+            throw new IllegalArgumentException("the size cap must be positive");
+        }
+        retention.setMaxSizeBytes(bytes);
+    }
 }

@@ -109,6 +109,15 @@ public class TriageService implements RecordCallAttentionUseCase, QueryAttention
     }
 
     @Override
+    public void callsDeleted(java.util.Collection<String> callIds) {
+        if (callIds == null || callIds.isEmpty()) {
+            return;
+        }
+        java.util.List<String> ids = java.util.List.copyOf(callIds);
+        writer.execute(() -> guarded(() -> store.delete(ids)));
+    }
+
+    @Override
     public void statementFailures(String callId, int failedCount, int swallowedCount) {
         if (callId == null || callId.isBlank()) {
             return;

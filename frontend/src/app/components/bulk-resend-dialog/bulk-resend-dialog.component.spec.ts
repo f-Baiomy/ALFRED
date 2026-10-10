@@ -423,6 +423,9 @@ describe('BulkResendDialogComponent', () => {
      * them the drag silently never starts and the test looks like a product bug.
      */
     const dragTo = (handle: HTMLElement, target: HTMLElement, steps = 4) => {
+      // An earlier spec can leave the Karma page scrolled (seen: scrollY 335), and CDK then sorts against the
+      // scrolled positions - every drag below landed in the wrong slot in roughly one full run out of four.
+      window.scrollTo(0, 0);
       const from = centre(handle);
       const to = centre(target);
       const move = (x: number, y: number) =>

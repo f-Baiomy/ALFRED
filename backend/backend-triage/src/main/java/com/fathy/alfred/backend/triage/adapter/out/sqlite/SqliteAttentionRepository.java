@@ -309,6 +309,15 @@ public class SqliteAttentionRepository implements AttentionStorePort {
     }
 
     @Override
+    public int delete(Collection<String> callIds) {
+        if (callIds == null || callIds.isEmpty()) {
+            return 0;
+        }
+        return inChunks(List.copyOf(callIds), (in, args) -> List.of(jdbcTemplate.update("DELETE FROM call_attention WHERE call_id IN (" + in + ")", args)))
+                .stream().mapToInt(Integer::intValue).sum();
+    }
+
+    @Override
     public boolean hasMarker(String key) {
         return !jdbcTemplate.queryForList("SELECT value FROM triage_markers WHERE key = ?", String.class, key).isEmpty();
     }

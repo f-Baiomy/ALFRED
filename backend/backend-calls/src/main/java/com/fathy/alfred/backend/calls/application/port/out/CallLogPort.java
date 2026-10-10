@@ -138,6 +138,22 @@ public interface CallLogPort {
      *  history-delete "also delete the related calls" choice. */
     int deleteByReliveRunIds(java.util.Collection<String> runIds);
 
+    /** Permanently deletes exactly these calls (a storage clean-up); returns how many went. Only the SQLite store can. */
+    default int deleteByIds(java.util.Collection<String> callIds) {
+        throw new UnsupportedOperationException("the file store cannot delete single calls");
+    }
+
+    /** The calls a clean-up with this filter would remove, oldest first, at most {@code limit}. Only the SQLite store can. */
+    default List<com.fathy.alfred.backend.calls.domain.model.CleanupCandidate> cleanupCandidates(
+            com.fathy.alfred.backend.calls.domain.model.CleanupFilter filter, int limit) {
+        return List.of();
+    }
+
+    /** When the oldest stored call happened (ISO), empty when there is none. */
+    default java.util.Optional<String> oldestTimestamp() {
+        return java.util.Optional.empty();
+    }
+
     /**
      * Appends one WebSocket connection's newly-batched messages to {@code callId}'s own list -
      * capped at {@code alfred.calls.ws-max-messages} per call (oldest dropped first, counted).

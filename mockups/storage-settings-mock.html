@@ -1,0 +1,1561 @@
+<!doctype html>
+<html lang="en" data-theme="slate">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Storage Settings Mock</title>
+<style>
+  /* Token values copied from frontend/src/styles.scss (:root, [data-theme='slate'], [data-theme='light']). */
+  :root {
+    --bg: radial-gradient(ellipse at top, #131a4a 0%, #0a0e2a 55%);
+    --bg-solid: #0a0e2a;
+    --nav-bg: linear-gradient(120deg, #1a1247 0%, #0f1438 60%, #1a1247 100%);
+    --card: #141a45;
+    --card-inner: #070a24;
+    --panel-bg: rgba(10, 14, 42, 0.55);
+    --bg-2: #0f1438;
+    --border: rgba(139, 92, 246, 0.22);
+    --border-strong: rgba(139, 92, 246, 0.45);
+    --purple: #8b5cf6;
+    --purple-light: #c4b5fd;
+    --cyan: #22d3ee;
+    --text: #e5e9f5;
+    --text-dim: #93a0c2;
+    --text-faint: #5c6690;
+    --green: #34d399;
+    --amber: #fbbf24;
+    --red: #f87171;
+    --popover-solid: #161c4a;
+    --pink: #f472b6;
+    --orange: #fb923c;
+  }
+  [data-theme='slate'] {
+    --bg: #141416; --bg-solid: #141416; --nav-bg: #141416;
+    --card: rgba(255, 255, 255, 0.035); --card-inner: rgba(0, 0, 0, 0.3);
+    --panel-bg: rgba(0, 0, 0, 0.2); --bg-2: rgba(255, 255, 255, 0.02);
+    --border: rgba(255, 255, 255, 0.09); --border-strong: rgba(255, 255, 255, 0.18);
+    --purple: #5b8def; --purple-light: #8fb2f7; --cyan: #7ee3d8;
+    --text: #f2f2f5; --text-dim: #8b8b93; --text-faint: #5b5b63;
+    --green: #7ee3a0; --amber: #e3a24a; --red: #e36a6a; --popover-solid: #1e1e21;
+    --pink: #e37ec4; --orange: #e3a24a;
+  }
+  [data-theme='light'] {
+    --bg: #eef1f6; --bg-solid: #eef1f6; --nav-bg: #ffffff;
+    --card: #ffffff; --card-inner: #f5f6f9; --panel-bg: rgba(245, 246, 249, 0.9); --bg-2: #f5f6f9;
+    --border: #dde1e8; --border-strong: #c7cdd9;
+    --purple: #7c3aed; --purple-light: #6d28d9; --cyan: #0891b2;
+    --text: #1f2430; --text-dim: #5b6577; --text-faint: #8b93a3;
+    --green: #15803d; --amber: #b45309; --red: #dc2626; --popover-solid: #ffffff;
+    --pink: #be185d; --orange: #c2410c;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; min-height: 100vh; }
+  body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: var(--bg); background-color: var(--bg-solid); color: var(--text); font-size: 14px; }
+  .mono { font-family: 'JetBrains Mono', 'Cascadia Code', Consolas, monospace; }
+  .sub { color: var(--text-dim); font-size: 0.82rem; margin: 0; }
+  .faint { color: var(--text-faint); }
+  button { font-family: inherit; }
+
+  /* ---- mock chrome ---- */
+  .mock-bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 8px 16px; border-bottom: 1px dashed var(--border-strong); font-size: 12px; color: var(--text-dim); }
+  .mock-bar b { color: var(--amber); }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .seg button { background: transparent; border: 0; color: var(--text-dim); padding: 4px 10px; cursor: pointer; font-size: 12px; }
+  .seg button.on { background: var(--purple); color: #fff; }
+  .tab-nav { background: var(--nav-bg); border-bottom: 1px solid var(--border); display: flex; gap: 4px; padding: 0 24px; overflow-x: auto; }
+  .tab-nav span { padding: 14px 14px 12px; color: var(--text-dim); font-size: 0.88rem; font-weight: 600; white-space: nowrap; border-bottom: 2px solid transparent; }
+  .tab-nav span.on { color: var(--purple-light); border-bottom-color: var(--purple); }
+
+  /* ---- real Alfred classes (same names as styles.scss) ---- */
+  .settings-layout { max-width: 1340px; margin: 0 auto; padding: 24px 16px 80px; }
+  .page-title { margin-bottom: 1.25rem; }
+  .page-title h2 { margin: 0 0 0.25rem; font-size: 1.2rem; }
+  .settings-shell { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 1.25rem; }
+  @media (max-width: 760px) { .settings-shell { grid-template-columns: 1fr; } }
+  .settings-nav { display: flex; flex-direction: column; gap: 0.3rem; }
+  .settings-nav-item { text-align: left; background: none; border: 1px solid transparent; border-radius: 8px; padding: 0.55rem 0.75rem; font-size: 0.85rem; font-weight: 600; color: var(--text-dim); cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+  .settings-nav-item:hover { background: color-mix(in srgb, var(--purple) 10%, transparent); color: var(--text); }
+  .settings-nav-item.active { background: color-mix(in srgb, var(--purple) 18%, transparent); border-color: color-mix(in srgb, var(--purple) 40%, transparent); color: var(--purple-light); }
+  .nav-dot { min-width: 18px; height: 18px; border-radius: 9px; background: var(--amber); color: #111; font-size: 0.68rem; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; padding: 0 5px; }
+  .panel { background: var(--panel-bg); border: 1px solid var(--border); border-radius: 10px; }
+  .settings-panel { padding: 1.25rem 1.5rem; }
+  .settings-panel + .settings-panel { margin-top: 1rem; }
+  .settings-panel h3 { margin: 0 0 0.25rem; font-size: 1.05rem; }
+  .bulk-btn { padding: 0.45rem 0.9rem; border-radius: 8px; font-size: 0.82rem; font-weight: 600; cursor: pointer; border: 1px solid var(--border-strong); background: color-mix(in srgb, var(--purple) 22%, transparent); color: var(--purple-light); transition: background 0.15s; white-space: nowrap; }
+  .bulk-btn:hover { background: color-mix(in srgb, var(--purple) 35%, transparent); }
+  .bulk-btn:disabled { opacity: 0.5; cursor: default; }
+  .bulk-btn.secondary { background: var(--bg-2); color: var(--text-dim); border-color: var(--border); }
+  .bulk-btn.secondary:hover { border-color: var(--border-strong); color: var(--text); }
+  .bulk-btn.danger { background: color-mix(in srgb, var(--red) 18%, transparent); border-color: color-mix(in srgb, var(--red) 45%, transparent); color: var(--red); }
+  .bulk-btn.danger:hover { background: color-mix(in srgb, var(--red) 30%, transparent); }
+  .action-btn { background: color-mix(in srgb, var(--purple) 12%, transparent); border: 1px solid var(--border); color: var(--purple-light); font-size: 0.72rem; font-weight: 600; padding: 0.25rem 0.6rem; border-radius: 6px; cursor: pointer; white-space: nowrap; }
+  .action-btn:hover { border-color: var(--border-strong); background: color-mix(in srgb, var(--purple) 22%, transparent); }
+  .action-btn.danger { background: color-mix(in srgb, var(--red) 14%, transparent); border-color: color-mix(in srgb, var(--red) 40%, transparent); color: var(--red); }
+  .badge { font-size: 0.66rem; font-weight: 700; padding: 0.16rem 0.5rem; border-radius: 6px; letter-spacing: 0.03em; text-transform: uppercase; white-space: nowrap; }
+  .badge.full { background: color-mix(in srgb, var(--amber) 16%, transparent); color: var(--amber); border: 1px solid color-mix(in srgb, var(--amber) 40%, transparent); }
+  .badge.ok { background: color-mix(in srgb, var(--green) 14%, transparent); color: var(--green); border: 1px solid color-mix(in srgb, var(--green) 35%, transparent); }
+  .badge.waste { background: color-mix(in srgb, var(--red) 14%, transparent); color: var(--red); border: 1px solid color-mix(in srgb, var(--red) 40%, transparent); }
+  .badge.dim { background: var(--bg-2); color: var(--text-faint); border: 1px solid var(--border); }
+  select, input[type='text'], input[type='number'] { background: var(--bg-2); border: 1px solid var(--border); color: var(--text); border-radius: 8px; padding: 0.4rem 0.6rem; font: inherit; font-size: 0.82rem; }
+  select:focus, input:focus { outline: none; border-color: var(--purple); }
+  select option { background: var(--popover-solid); }
+
+  /* ---- new: overview ---- */
+  .panel-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; }
+  .overview { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 1.25rem; margin-top: 1.1rem; }
+  @media (max-width: 1000px) { .overview { grid-template-columns: 1fr; } }
+  .big-number { font-size: 2.1rem; font-weight: 700; letter-spacing: -0.01em; }
+  .big-number small { font-size: 0.9rem; color: var(--text-dim); font-weight: 500; margin-left: 0.4rem; }
+  .stack { display: flex; height: 16px; border-radius: 8px; overflow: hidden; background: var(--bg-2); border: 1px solid var(--border); margin: 0.75rem 0 0.6rem; }
+  .stack > div { height: 100%; cursor: pointer; transition: filter 0.15s, opacity 0.15s; border-right: 1px solid var(--bg-solid); }
+  .stack > div:hover { filter: brightness(1.25); }
+  .stack.hovering > div:not(:hover) { opacity: 0.45; }
+  .legend { display: flex; flex-wrap: wrap; gap: 0.35rem 1rem; font-size: 0.78rem; color: var(--text-dim); }
+  .legend span { display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer; }
+  .legend i { width: 9px; height: 9px; border-radius: 3px; display: inline-block; }
+  .legend b { color: var(--text); font-weight: 600; }
+  .disk-line { margin-top: 1rem; font-size: 0.8rem; color: var(--text-dim); }
+  .disk { display: flex; height: 6px; border-radius: 3px; overflow: hidden; background: var(--bg-2); margin-top: 0.35rem; }
+  .kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; }
+  .kpi { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 0.7rem 0.9rem; display: flex; flex-direction: column; gap: 0.15rem; }
+  .kpi-label { font-size: 0.72rem; color: var(--text-dim); }
+  .kpi-value { font-size: 1.25rem; font-weight: 700; }
+  .kpi-value.green { color: var(--green); } .kpi-value.amber { color: var(--amber); }
+  .kpi-foot { font-size: 0.7rem; color: var(--text-faint); }
+
+  /* ---- new: attention ---- */
+  .section-title { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin: 0 0 0.6rem; }
+  .section-title h4 { margin: 0; font-size: 0.92rem; }
+  .tips { display: flex; flex-direction: column; gap: 0.5rem; }
+  .tip { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; gap: 0.75rem; align-items: center; background: var(--card); border: 1px solid var(--border); border-left: 3px solid var(--amber); border-radius: 10px; padding: 0.7rem 0.9rem; }
+  .tip.red { border-left-color: var(--red); } .tip.blue { border-left-color: var(--purple); }
+  .tip-icon { width: 30px; height: 30px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 0.95rem; background: color-mix(in srgb, var(--amber) 14%, transparent); color: var(--amber); }
+  .tip.red .tip-icon { background: color-mix(in srgb, var(--red) 14%, transparent); color: var(--red); }
+  .tip.blue .tip-icon { background: color-mix(in srgb, var(--purple) 16%, transparent); color: var(--purple-light); }
+  .tip-title { font-weight: 600; font-size: 0.88rem; }
+  .tip-title .gain { color: var(--green); font-weight: 700; margin-left: 0.35rem; }
+  .tip-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; justify-content: flex-end; }
+  .tip.done { opacity: 0.45; border-left-color: var(--green); }
+  .tip.done .tip-actions { display: none; }
+
+  /* ---- new: store table ---- */
+  .store-group { margin-top: 1.1rem; }
+  .group-label { display: flex; align-items: center; gap: 0.5rem; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--purple-light); margin-bottom: 0.4rem; }
+  .group-label .faint { text-transform: none; letter-spacing: 0; font-weight: 500; font-size: 0.74rem; }
+  .store { background: var(--card); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 0.4rem; overflow: hidden; }
+  .store-row { display: grid; grid-template-columns: 18px minmax(0, 2.2fr) 90px 90px minmax(150px, 1.4fr) minmax(130px, 1fr) auto; gap: 0.9rem; align-items: center; padding: 0.65rem 0.9rem; cursor: pointer; }
+  .store-row:hover { background: color-mix(in srgb, var(--purple) 6%, transparent); }
+  .store-head { display: grid; grid-template-columns: 18px minmax(0, 2.2fr) 90px 90px minmax(150px, 1.4fr) minmax(130px, 1fr) auto; gap: 0.9rem; padding: 0 0.9rem 0.3rem; font-size: 0.7rem; color: var(--text-faint); font-weight: 600; }
+  @media (max-width: 1100px) {
+    .store-row, .store-head { grid-template-columns: 18px minmax(0, 1fr) 80px auto; }
+    .store-row .c-oldest, .store-row .c-limit, .store-head .c-oldest, .store-head .c-limit { display: none; }
+  }
+  .chev { color: var(--text-faint); transition: transform 0.15s; font-size: 0.7rem; }
+  .store.open .chev { transform: rotate(90deg); }
+  .store-name { font-weight: 600; font-size: 0.88rem; display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; }
+  .store-desc { font-size: 0.75rem; color: var(--text-dim); margin-top: 0.1rem; }
+  .store-file { font-size: 0.7rem; color: var(--text-faint); }
+  .num { text-align: right; font-variant-numeric: tabular-nums; font-size: 0.84rem; }
+  .num small { display: block; font-size: 0.68rem; color: var(--text-faint); }
+  .size-cell { display: flex; flex-direction: column; gap: 0.3rem; }
+  .size-cell .v { font-weight: 700; font-size: 0.88rem; font-variant-numeric: tabular-nums; }
+  .bar { height: 5px; border-radius: 3px; background: var(--bg-2); overflow: hidden; display: flex; }
+  .bar > div { height: 100%; }
+  .limit-cell { font-size: 0.74rem; color: var(--text-dim); display: flex; flex-direction: column; gap: 0.3rem; }
+  .gauge { height: 5px; border-radius: 3px; background: var(--bg-2); overflow: hidden; }
+  .gauge > div { height: 100%; background: var(--green); }
+  .gauge.warn > div { background: var(--amber); }
+  .gauge.full > div { background: var(--red); }
+  .row-actions { display: flex; gap: 0.35rem; }
+
+  .store-detail { display: none; border-top: 1px solid var(--border); padding: 0.9rem 0.9rem 1rem 2.6rem; background: color-mix(in srgb, var(--card-inner) 60%, transparent); }
+  .store.open .store-detail { display: block; }
+  .detail-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1.25rem; }
+  @media (max-width: 1000px) { .detail-grid { grid-template-columns: 1fr; } }
+  .detail-grid h5 { margin: 0 0 0.5rem; font-size: 0.74rem; color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+  .hist { display: flex; align-items: flex-end; gap: 3px; height: 70px; }
+  .hist div { flex: 1; background: color-mix(in srgb, var(--purple) 55%, transparent); border-radius: 3px 3px 0 0; cursor: pointer; min-height: 2px; position: relative; }
+  .hist div:hover { background: var(--purple); }
+  .hist div.sel { background: color-mix(in srgb, var(--red) 70%, transparent); }
+  .hist-axis { display: flex; justify-content: space-between; font-size: 0.66rem; color: var(--text-faint); margin-top: 0.25rem; }
+  .split-row { display: grid; grid-template-columns: minmax(0, 1fr) 70px 64px; gap: 0.5rem; align-items: center; font-size: 0.78rem; padding: 0.22rem 0; }
+  .split-row .bar { height: 4px; grid-column: 1 / -1; margin-top: -0.1rem; }
+  .detail-foot { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.9rem; align-items: center; }
+  .detail-foot .sub { margin-left: auto; }
+  .kv { font-size: 0.78rem; display: grid; grid-template-columns: auto 1fr; gap: 0.25rem 0.8rem; }
+  .kv span:nth-child(odd) { color: var(--text-dim); }
+
+  /* ---- retention ---- */
+  .ret-row { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.4fr); gap: 0.9rem; align-items: center; padding: 0.6rem 0; border-top: 1px solid var(--border); font-size: 0.82rem; }
+  .ret-row.head { border-top: 0; font-size: 0.7rem; color: var(--text-faint); font-weight: 600; padding-top: 0; }
+  @media (max-width: 900px) { .ret-row { grid-template-columns: 1fr 1fr; } }
+  .ret-input { display: flex; gap: 0.35rem; align-items: center; }
+  .ret-input input { width: 90px; }
+  .ret-effect { font-size: 0.74rem; color: var(--text-dim); }
+  .ret-effect b { color: var(--text); }
+  .toggle { position: relative; width: 34px; height: 19px; border-radius: 10px; background: var(--bg-2); border: 1px solid var(--border-strong); cursor: pointer; flex-shrink: 0; }
+  .toggle::after { content: ''; position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; border-radius: 50%; background: var(--text-faint); transition: left 0.15s; }
+  .toggle.on { background: color-mix(in srgb, var(--purple) 45%, transparent); border-color: var(--purple); }
+  .toggle.on::after { left: 17px; background: #fff; }
+  .switch-line { display: flex; gap: 0.6rem; align-items: center; font-size: 0.82rem; margin-top: 0.8rem; }
+  .pending-bar { display: none; margin-top: 0.9rem; padding: 0.6rem 0.9rem; border-radius: 10px; border: 1px solid color-mix(in srgb, var(--amber) 45%, transparent); background: color-mix(in srgb, var(--amber) 8%, transparent); font-size: 0.82rem; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+  .pending-bar.show { display: flex; }
+
+  /* ---- history ---- */
+  .hist-list { list-style: none; padding: 0; margin: 0; font-size: 0.8rem; }
+  .hist-list li { display: grid; grid-template-columns: 110px 70px minmax(0, 1fr) 90px; gap: 0.75rem; padding: 0.45rem 0; border-top: 1px solid var(--border); align-items: center; }
+  .hist-list li:first-child { border-top: 0; }
+  .who { font-size: 0.66rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+  .who.auto { color: var(--cyan); } .who.you { color: var(--purple-light); }
+
+  /* ---- danger ---- */
+  .danger-zone { border: 1px solid color-mix(in srgb, var(--red) 45%, transparent); border-radius: 10px; padding: 0.25rem 1rem; }
+  .danger-zone-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.7rem 0; }
+  .danger-zone-row + .danger-zone-row { border-top: 1px solid var(--border); }
+  .danger-zone-title { font-size: 0.88rem; margin: 0 0 0.15rem; }
+
+  /* ---- dialog ---- */
+  .backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.55); display: none; align-items: center; justify-content: center; z-index: 50; padding: 16px; }
+  .backdrop.show { display: flex; }
+  .dialog { background: var(--popover-solid); border: 1px solid var(--border-strong); border-radius: 12px; width: min(760px, 100%); max-height: calc(100vh - 32px); overflow: auto; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5); }
+  .dialog.small { width: min(480px, 100%); }
+  .dialog header { padding: 1rem 1.25rem 0.5rem; display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; }
+  .dialog header h3 { margin: 0 0 0.2rem; font-size: 1.02rem; }
+  .x { background: none; border: 0; color: var(--text-dim); font-size: 1.2rem; cursor: pointer; }
+  .dialog .body { padding: 0.5rem 1.25rem 1rem; }
+  .dialog footer { padding: 0.85rem 1.25rem; border-top: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; }
+  .field-label { font-size: 0.72rem; font-weight: 700; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em; margin: 0.9rem 0 0.4rem; }
+  .chips { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+  .chip { border: 1px solid var(--border); background: var(--bg-2); color: var(--text-dim); border-radius: 999px; padding: 0.3rem 0.75rem; font-size: 0.78rem; cursor: pointer; user-select: none; }
+  .chip.on { border-color: var(--purple); background: color-mix(in srgb, var(--purple) 20%, transparent); color: var(--purple-light); }
+  .chip .n { color: var(--text-faint); margin-left: 0.3rem; font-size: 0.72rem; }
+  .filters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.6rem; }
+  @media (max-width: 640px) { .filters { grid-template-columns: 1fr; } }
+  .filters label { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.74rem; color: var(--text-dim); }
+  .check { display: flex; gap: 0.5rem; align-items: flex-start; font-size: 0.82rem; padding: 0.25rem 0; cursor: pointer; }
+  .check input { margin-top: 0.15rem; accent-color: var(--purple); }
+  .check small { display: block; color: var(--text-faint); font-size: 0.72rem; }
+  .preview { margin-top: 1rem; background: var(--card-inner); border: 1px solid var(--border); border-radius: 10px; padding: 0.8rem 1rem; }
+  .preview-top { display: flex; gap: 1.5rem; flex-wrap: wrap; align-items: baseline; }
+  .preview-top .pv { font-size: 1.3rem; font-weight: 700; }
+  .preview-top .pv.red { color: var(--red); } .preview-top .pv.green { color: var(--green); }
+  .preview-top .pl { font-size: 0.72rem; color: var(--text-dim); display: block; }
+  .sample { margin-top: 0.7rem; font-size: 0.74rem; display: flex; flex-direction: column; gap: 0.2rem; }
+  .sample div { display: grid; grid-template-columns: 46px 40px minmax(0, 1fr) 80px; gap: 0.6rem; color: var(--text-dim); white-space: nowrap; overflow: hidden; }
+  .sample div span:nth-child(3) { overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+  .m-GET { color: var(--cyan); } .m-POST { color: var(--purple-light); } .s5 { color: var(--red); } .s4 { color: var(--amber); } .s2 { color: var(--green); }
+  .confirm-input { width: 100%; margin-top: 0.5rem; }
+
+  .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(20px); background: var(--popover-solid); border: 1px solid color-mix(in srgb, var(--green) 50%, transparent); color: var(--text); padding: 0.65rem 1.1rem; border-radius: 10px; font-size: 0.85rem; opacity: 0; transition: all 0.25s; z-index: 60; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4); pointer-events: none; }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .toast b { color: var(--green); }
+
+  .new-tag { font-size: 0.6rem; font-weight: 800; letter-spacing: .05em; color: #111; background: var(--cyan); border-radius: 4px; padding: 1px 5px; margin-left: 6px; vertical-align: middle; }
+  .seg.small button { padding: 3px 9px; font-size: 0.74rem; }
+  .seg button.on { background: color-mix(in srgb, var(--purple) 30%, transparent); color: var(--purple-light); }
+  /* growth chart */
+  .growth { display: grid; grid-template-columns: minmax(0, 1fr) 240px; gap: 1.25rem; align-items: stretch; }
+  @media (max-width: 1000px) { .growth { grid-template-columns: 1fr; } }
+  .chart { position: relative; height: 170px; display: flex; align-items: flex-end; gap: 4px; padding-left: 44px; border-bottom: 1px solid var(--border); }
+  .chart .col { flex: 1; display: flex; flex-direction: column-reverse; cursor: pointer; border-radius: 3px 3px 0 0; overflow: hidden; }
+  .chart .col > div { width: 100%; }
+  .chart .col:hover { filter: brightness(1.25); }
+  .chart .col.fc { opacity: 0.35; background: repeating-linear-gradient(45deg, var(--border-strong) 0 3px, transparent 3px 7px); }
+  .chart .col.dip { box-shadow: inset 0 2px 0 var(--green); }
+  .chart .ylab { position: absolute; left: 0; font-size: 0.66rem; color: var(--text-faint); transform: translateY(50%); }
+  .chart .grid { position: absolute; left: 44px; right: 0; border-top: 1px dashed var(--border); }
+  .chart .cap { position: absolute; left: 44px; right: 0; border-top: 1px dashed var(--red); }
+  .chart .cap span { position: absolute; right: 0; top: -16px; font-size: 0.66rem; color: var(--red); }
+  .x-axis { display: flex; gap: 4px; padding-left: 44px; font-size: 0.64rem; color: var(--text-faint); margin-top: 0.25rem; }
+  .x-axis span { flex: 1; text-align: center; }
+  .forecast { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 0.8rem 0.9rem; display: flex; flex-direction: column; gap: 0.55rem; font-size: 0.8rem; }
+  .forecast .big { font-size: 1.4rem; font-weight: 700; }
+  .forecast .row { display: flex; justify-content: space-between; gap: 0.5rem; color: var(--text-dim); }
+  .forecast .row b { color: var(--text); font-weight: 600; }
+  .chart-tip { font-size: 0.75rem; color: var(--text-dim); margin-top: 0.4rem; min-height: 1.1em; }
+  /* where the space goes */
+  .tbl { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+  .tbl th { text-align: left; color: var(--text-faint); font-weight: 600; font-size: 0.7rem; padding: 0.35rem 0.5rem; border-bottom: 1px solid var(--border); }
+  .tbl td { padding: 0.5rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  .tbl tr:hover td { background: color-mix(in srgb, var(--purple) 5%, transparent); }
+  .tbl .r { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .tbl .ep { font-family: 'JetBrains Mono', Consolas, monospace; font-size: 0.76rem; max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tbl .share { width: 120px; }
+  .tbl .acts { text-align: right; white-space: nowrap; }
+  .tbl .acts .action-btn + .action-btn { margin-left: 0.3rem; }
+  .tbl tr.gone td { opacity: 0.35; text-decoration: line-through; }
+  .why { font-size: 0.7rem; color: var(--amber); display: block; font-family: 'Segoe UI', system-ui, sans-serif; }
+  .tabs-row { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.7rem; }
+  /* guard + files */
+  .guard { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.6rem; margin-top: 1rem; }
+  @media (max-width: 800px) { .guard { grid-template-columns: 1fr; } }
+  .guard-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 0.75rem 0.9rem; display: flex; gap: 0.7rem; align-items: flex-start; font-size: 0.82rem; }
+  .guard-card input { width: 64px; }
+  .files-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 1rem; }
+  @media (max-width: 900px) { .files-grid { grid-template-columns: 1fr; } }
+  .path-box { display: flex; gap: 0.4rem; align-items: center; background: var(--card-inner); border: 1px solid var(--border); border-radius: 8px; padding: 0.45rem 0.6rem; font-size: 0.78rem; }
+  .path-box .mono { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .file-health li { display: grid; grid-template-columns: minmax(0, 1fr) 80px 80px; gap: 0.5rem; font-size: 0.78rem; padding: 0.3rem 0; border-top: 1px solid var(--border); align-items: center; }
+  .file-health { list-style: none; margin: 0.4rem 0 0; padding: 0; }
+  .file-health li:first-child { border-top: 0; color: var(--text-faint); font-size: 0.68rem; font-weight: 600; }
+  .ok-dot { color: var(--green); } .warn-dot { color: var(--amber); }
+  /* undo toast */
+  .toast.undo { pointer-events: auto; display: flex; gap: 1rem; align-items: center; border-color: color-mix(in srgb, var(--amber) 50%, transparent); }
+  .toast .undo-btn { background: none; border: 1px solid var(--border-strong); color: var(--purple-light); border-radius: 6px; padding: 0.2rem 0.6rem; cursor: pointer; font-weight: 700; }
+  .toast .count { font-variant-numeric: tabular-nums; color: var(--amber); font-weight: 700; }
+  .search-in { width: 220px; }
+  /* storage budget */
+  .budget-panel { border-color: var(--border-strong); }
+  .budget-top { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 1.5rem; align-items: center; margin-top: 1rem; }
+  @media (max-width: 800px) { .budget-top { grid-template-columns: 1fr; } }
+  .budget-amount { display: flex; flex-direction: column; gap: 0.2rem; }
+  .budget-input { display: flex; align-items: baseline; gap: 0.4rem; }
+  .budget-input input { font-size: 2rem; font-weight: 700; width: 110px; padding: 0.15rem 0.5rem; }
+  .budget-input span { font-size: 1.1rem; color: var(--text-dim); font-weight: 600; }
+  .budget-slider input[type=range] { width: 100%; accent-color: var(--purple); height: 22px; }
+  .range-scale { position: relative; height: 30px; font-size: 0.66rem; color: var(--text-faint); }
+  .range-scale span { position: absolute; transform: translateX(-50%); white-space: nowrap; text-align: center; }
+  .range-scale span b { display: block; color: var(--text-dim); font-weight: 600; }
+  .range-scale span::before { content: ''; display: block; width: 1px; height: 5px; background: var(--border-strong); margin: 0 auto 2px; }
+  .alloc-bar { position: relative; display: flex; height: 54px; border-radius: 10px; overflow: hidden; border: 1px solid var(--border-strong); background: var(--bg-2); user-select: none; }
+  .alloc-seg { position: relative; height: 100%; overflow: hidden; display: flex; flex-direction: column; justify-content: center; padding: 0 0.55rem; min-width: 0; transition: width 0.12s; }
+  .alloc-seg .used { position: absolute; left: 0; top: 0; bottom: 0; opacity: 0.85; }
+  .alloc-seg .lbl { position: relative; font-size: 0.72rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }
+  .alloc-seg .lbl small { display: block; font-weight: 500; color: var(--text); opacity: 0.8; font-size: 0.68rem; }
+  .alloc-seg.work { background: repeating-linear-gradient(45deg, color-mix(in srgb, var(--green) 22%, transparent) 0 5px, transparent 5px 10px); }
+  .alloc-handle { position: absolute; top: 0; bottom: 0; width: 14px; margin-left: -7px; cursor: ew-resize; z-index: 2; display: flex; justify-content: center; }
+  .alloc-handle::before { content: ''; width: 3px; height: 100%; background: var(--bg-solid); }
+  .alloc-handle::after { content: ''; position: absolute; top: 50%; width: 10px; height: 22px; margin-top: -11px; border-radius: 4px; background: var(--text); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5); }
+  .alloc-handle:hover::after, .alloc-handle.drag::after { background: var(--purple-light); }
+  .alloc-legend { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 0.5rem; margin-top: 0.7rem; }
+  .alloc-item { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem 0.65rem; font-size: 0.76rem; display: flex; flex-direction: column; gap: 0.15rem; }
+  .alloc-item .t { display: flex; align-items: center; gap: 0.4rem; font-weight: 600; font-size: 0.8rem; }
+  .alloc-item .t i { width: 9px; height: 9px; border-radius: 3px; }
+  .alloc-item .t .pct { margin-left: auto; color: var(--text-faint); font-weight: 500; }
+  .alloc-item .v { font-size: 1rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .alloc-item .d { color: var(--text-dim); }
+  .alloc-item .d b { color: var(--text); }
+  .alloc-item.over { border-color: color-mix(in srgb, var(--red) 50%, transparent); }
+  .alloc-item.over .d { color: var(--red); }
+  .alloc-warn { margin-top: 0.6rem; font-size: 0.8rem; }
+  .alloc-warn:empty { display: none; }
+  .alloc-warn .w { padding: 0.55rem 0.8rem; border-radius: 8px; border: 1px solid color-mix(in srgb, var(--red) 45%, transparent); background: color-mix(in srgb, var(--red) 8%, transparent); }
+  .alloc-rules { margin-top: 0.9rem; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.6rem; font-size: 0.76rem; color: var(--text-dim); }
+  @media (max-width: 900px) { .alloc-rules { grid-template-columns: 1fr; } }
+  .alloc-rules div { border-left: 2px solid var(--border-strong); padding-left: 0.6rem; }
+  .alloc-rules b { color: var(--text); }
+  .cascade { background: color-mix(in srgb, var(--cyan) 7%, transparent); border: 1px solid color-mix(in srgb, var(--cyan) 30%, transparent); border-radius: 10px; padding: 0.75rem 0.9rem; font-size: 0.82rem; margin-bottom: 0.9rem; }
+  .cascade .chip { cursor: default; font-size: 0.74rem; padding: 0.2rem 0.6rem; }
+  .whole-call { display: block; margin-top: 0.35rem; color: var(--text-dim); }
+  .db-gone-chip { display: inline-block; font-size: 0.68rem; font-weight: 700; padding: 0.05rem 0.45rem; border-radius: 5px; color: var(--text-dim); background: var(--bg-2); border: 1px dashed var(--border-strong); white-space: nowrap; }
+  .from-budget { font-size: 0.7rem; color: var(--purple-light); display: block; }
+
+
+  /* ---- round 5: easier ---- */
+  .home { border-color: var(--border-strong); }
+  .home-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 1.5rem; margin-top: 1rem; align-items: start; }
+  @media (max-width: 1000px) { .home-grid { grid-template-columns: 1fr; } }
+  .step { width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; font-size: 0.8rem; font-weight: 800; background: color-mix(in srgb, var(--purple) 25%, transparent); color: var(--purple-light); border: 1px solid var(--border-strong); }
+  .limit-box { display: flex; gap: 0.8rem; background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1rem 1.1rem; }
+  .limit-q { font-weight: 700; font-size: 0.98rem; margin-bottom: 0.55rem; }
+  .limit-chips .chip { font-size: 0.86rem; padding: 0.42rem 0.9rem; font-weight: 600; }
+  .limit-chips .rec { font-size: 0.64rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--green); margin-left: 0.3rem; }
+  .limit-chips .chip input { width: 60px; padding: 0.1rem 0.3rem; margin-left: 0.3rem; }
+  .limit-answer { margin-top: 0.7rem; font-size: 0.9rem; color: var(--text); }
+  .limit-answer b { color: var(--green); }
+  .home-warn { padding: 0.6rem 0.8rem; border-radius: 8px; border: 1px solid color-mix(in srgb, var(--red) 45%, transparent); background: color-mix(in srgb, var(--red) 8%, transparent); font-size: 0.82rem; color: var(--text); }
+  .advanced { margin-top: 1.1rem; border-top: 1px solid var(--border); padding-top: 0.8rem; }
+  .advanced summary { cursor: pointer; font-size: 0.82rem; color: var(--purple-light); font-weight: 600; list-style: none; }
+  .advanced summary::before { content: '▸ '; }
+  .advanced[open] summary::before { content: '▾ '; }
+  .advanced .budget-top { margin-top: 0.8rem; }
+  .free-head { display: flex; gap: 0.8rem; align-items: center; flex-wrap: wrap; }
+  .free-head .limit-q { margin-bottom: 0.15rem; }
+  .big-btn { font-size: 0.95rem; padding: 0.6rem 1.3rem; background: color-mix(in srgb, var(--green) 20%, transparent); border-color: color-mix(in srgb, var(--green) 50%, transparent); color: var(--green); }
+  .big-btn:hover { background: color-mix(in srgb, var(--green) 32%, transparent); }
+  .tip.done { display: none; }
+  .subtabs { display: flex; gap: 0.2rem; margin: 1.4rem 0 0.8rem; border-bottom: 1px solid var(--border); overflow-x: auto; }
+  .subtabs button { background: none; border: 0; border-bottom: 2px solid transparent; color: var(--text-dim); font-size: 0.86rem; font-weight: 600; padding: 0.55rem 0.9rem; cursor: pointer; white-space: nowrap; }
+  .subtabs button:hover { color: var(--text); }
+  .subtabs button.on { color: var(--purple-light); border-bottom-color: var(--purple); }
+  .pane { display: none; }
+  .pane.on { display: block; }
+  .note { margin-top: 2rem; border: 1px dashed var(--border-strong); border-radius: 10px; padding: 0.9rem 1.1rem; font-size: 0.8rem; color: var(--text-dim); }
+  .note h4 { margin: 0 0 0.4rem; color: var(--amber); font-size: 0.82rem; }
+  .note ul { margin: 0; padding-left: 1.1rem; line-height: 1.6; }
+</style>
+</head>
+<body>
+
+<div class="mock-bar">
+  <b>MOCK</b> Settings › Storage (replaces "Database"). Everything is clickable - numbers are fake but move.
+  <span style="margin-left:auto">Theme</span>
+  <div class="seg" id="themes">
+    <button data-t="default">Alfred</button><button data-t="slate" class="on">Slate</button><button data-t="light">Light</button>
+  </div>
+</div>
+<nav class="tab-nav">
+  <span>Live Calls</span><span>Session Cycles</span><span>Profiles</span><span class="on">Settings</span><span>Relive Cycles</span><span>Logs</span>
+</nav>
+
+<main class="settings-layout">
+  <div class="page-title">
+    <h2>Settings</h2>
+    <p class="sub">Configure how Alfred behaves.</p>
+  </div>
+
+  <div class="settings-shell">
+    <nav class="settings-nav">
+      <button class="settings-nav-item">Server</button>
+      <button class="settings-nav-item">Call filtering</button>
+      <button class="settings-nav-item active">Storage <span class="nav-dot" id="navDot">3</span></button>
+      <button class="settings-nav-item">Inbound logging</button>
+      <button class="settings-nav-item">Database capture</button>
+    </nav>
+
+    <div class="settings-content">
+
+      <!-- ============ HOME: one card, the three things most people need ============ -->
+      <section class="panel settings-panel home">
+        <div class="panel-head">
+          <div>
+            <h3>Storage</h3>
+            <p class="sub">How much space Alfred uses, and how much it may use.</p>
+          </div>
+          <span class="badge full" id="budgetState">No limit set</span>
+        </div>
+
+        <div class="home-grid">
+          <div>
+            <div class="big-number"><span id="totalUsed">2.90 GB</span><small id="usedOfLbl">used</small></div>
+            <div class="stack" id="stack"></div>
+            <div class="legend" id="legend"></div>
+            <div class="disk-line">Drive <span class="mono">C:\</span> has <b style="color:var(--text)">38.2 GB free</b> · Alfred uses <span id="diskPct">0.6%</span> of it
+              <div class="disk"><div style="width:91.4%;background:var(--text-faint)"></div><div id="diskAlfred" style="width:0.6%;background:var(--purple)"></div></div>
+            </div>
+          </div>
+
+          <div class="limit-box">
+            <span class="step">1</span>
+            <div style="flex:1;min-width:0">
+              <div class="limit-q">How much space may Alfred use?</div>
+              <div class="chips limit-chips" id="limitChips">
+                <span class="chip" data-gb="1">1 GB</span>
+                <span class="chip" data-gb="2">2 GB</span>
+                <span class="chip" data-gb="5">5 GB <span class="rec">recommended</span></span>
+                <span class="chip" data-gb="10">10 GB</span>
+                <span class="chip" data-gb="20">20 GB</span>
+                <span class="chip" data-gb="custom">Other…</span>
+              </div>
+              <div class="limit-answer" id="homeDays">Pick one - Alfred will never go above it.</div>
+              <p class="sub" style="margin-top:.35rem">When full, the oldest recorded calls make room for new ones. Session cycles, comments and Relive cycles are never deleted.</p>
+            </div>
+          </div>
+        </div>
+
+        <details class="advanced" id="advanced">
+          <summary>Change how the space is split between calls, database statements and logs</summary>
+          <div class="budget-top">
+          <div class="budget-amount">
+            <span class="kpi-label">Alfred never uses more than</span>
+            <div class="budget-input"><input type="number" id="budgetNum" min="1" max="36" step="0.5" value="5"><span>GB</span></div>
+            <span class="kpi-foot" id="budgetFoot"></span>
+          </div>
+          <div class="budget-slider">
+            <input type="range" id="budgetRange" min="1" max="36" step="0.5" value="5">
+            <div class="range-scale" id="rangeScale"></div>
+          </div>
+        </div>
+
+        <div class="tabs-row" style="margin-top:1.1rem;margin-bottom:.5rem">
+          <span class="sub"><b style="color:var(--text)">How it is split</b> · shares are ratios: raise or lower the budget and every limit grows or shrinks with it · drag a divider to change a ratio</span>
+          <div class="seg small" id="splitSeg">
+            <button data-m="balanced" class="on" title="Fixed ratios that fit any install">Recommended</button>
+            <button data-m="even" title="Each kind of traffic keeps the same number of days">Same history for all</button>
+            <button data-m="inbound" title="Most of the space for calls into your projects">Inbound first</button>
+            <button data-m="outbound" title="Most of the space for supplier calls">Outbound first</button>
+            <button data-m="custom">Custom</button>
+          </div>
+        </div>
+        <div class="alloc-bar" id="allocBar"></div>
+        <div class="alloc-legend" id="allocLegend"></div>
+        <div class="alloc-warn" id="allocWarn"></div>
+
+        <div class="alloc-rules">
+          <div><b>When the budget is full</b> the oldest traffic goes first, each kind inside its own share. A kind that is under its share lends the rest to the others until it needs it back.</div>
+          <div><b>Your work is never deleted</b> (session cycles, comments, Relive cycles, scenarios, settings). If it outgrows its room, it takes from traffic and you get a warning.</div>
+          <div><b>The disk always keeps</b> <input type="number" value="5" style="width:52px"> GB free, whatever the budget - Alfred stops recording new traffic before it fills the drive.</div>
+        </div>
+
+        <div class="pending-bar show" id="budgetBar">
+          <span id="budgetPending"></span>
+          <span style="display:flex;gap:.4rem">
+            <button class="bulk-btn secondary" onclick="budgetReset()">Discard</button>
+            <button class="bulk-btn" id="budgetSave" onclick="budgetSave()">Set budget</button>
+          </span>
+        </div>
+      
+        </details>
+      </section>
+
+      <!-- ============ FREE UP SPACE: safe button first, the rest as optional suggestions ============ -->
+      <section class="panel settings-panel">
+        <div class="free-head">
+          <span class="step">2</span>
+          <div style="flex:1;min-width:0">
+            <div class="limit-q">Free up space</div>
+            <p class="sub" id="freeText">1.90 GB is empty space inside Alfred's files. Giving it back deletes nothing.</p>
+          </div>
+          <button class="bulk-btn big-btn" id="freeAll" onclick="freeAll()">Free 1.90 GB</button>
+        </div>
+        <div class="field-label" style="margin-top:1rem">More you could do <span class="faint" style="text-transform:none;letter-spacing:0;font-weight:500">· these delete data, each asks first</span></div>
+        <div class="tips">
+          <div class="tip done" id="tip-wal">
+            <div class="tip-icon">≋</div>
+            <div>
+              <div class="tip-title">internal-calls.db has a 412 MB write log waiting<span class="gain">frees ~412 MB</span></div>
+              <p class="sub">The <span class="mono">-wal</span> file next to it holds writes not yet folded into the database. It is safe to fold in now.</p>
+            </div>
+            <div class="tip-actions"><button class="bulk-btn" onclick="this.closest('.tip').classList.add('done');renderTips();toast('Write log folded in · <b>412 MB freed</b>')">Fold in</button></div>
+          </div>
+          <div class="tip blue" id="tip-relive">
+            <div class="tip-icon">⟲</div>
+            <div>
+              <div class="tip-title">Checkout replay has 22 runs - 11 old ones beyond the last 10<span class="gain">frees ~5.3 MB</span></div>
+              <p class="sub">The oldest are from 20 days ago. The cycle, its steps, its variables and its 2 starred runs stay.</p>
+            </div>
+            <div class="tip-actions"><button class="bulk-btn secondary" onclick="jump('relivePanel')">Show runs</button><button class="bulk-btn" onclick="this.closest('.tip').classList.add('done');renderTips();rlTrim(0)">Keep last 10</button></div>
+          </div>
+          <div class="tip blue" id="tip-heartbeat">
+            <div class="tip-icon">♥</div>
+            <div>
+              <div class="tip-title">2,410 heartbeat calls - 34% of all inbound calls</div>
+              <p class="sub"><span class="mono">GET /odeysys/api/session/heartbeat</span> every 2 s pushes real calls out of the 7,000 limit. Stop recording it and the limit keeps ~1.5× more history.</p>
+            </div>
+            <div class="tip-actions"><button class="bulk-btn secondary" onclick="this.closest('.tip').classList.add('done');renderTips();stopRecording('/odeysys/api/session/heartbeat','odeysys')">Stop recording it</button></div>
+          </div>
+          <div class="tip red done" id="tip-logs">
+            <div class="tip-icon">◌</div>
+            <div>
+              <div class="tip-title">logs.db is 1.5 GB but holds no log lines<span class="gain">frees ~1.5 GB</span></div>
+              <p class="sub">Space left behind by log sources you removed. SQLite keeps it until the file is compacted. Nothing you can see is lost.</p>
+            </div>
+            <div class="tip-actions"><button class="bulk-btn" onclick="compact('logs', 'tip-logs')">Free empty space</button></div>
+          </div>
+          <div class="tip" id="tip-inbound">
+            <div class="tip-icon">▤</div>
+            <div>
+              <div class="tip-title">Inbound calls are full - 7,000 of 7,000 kept</div>
+              <p class="sub">About 290 new calls an hour, so Alfred keeps only the last <b style="color:var(--text)">~24 hours</b>. Each new call deletes the oldest one. Set a storage budget and inbound gets its share by ratio (≈140 KB per call).</p>
+            </div>
+            <div class="tip-actions">
+              <button class="bulk-btn secondary" onclick="jump('budgetPanel')">Set budget</button>
+            </div>
+          </div>
+          <div class="tip blue" id="tip-old">
+            <div class="tip-icon">⏲</div>
+            <div>
+              <div class="tip-title">1,376 outbound calls are older than 7 days<span class="gain">frees ~104 MB</span></div>
+              <p class="sub">104 more older calls have a comment or are used by Relive - those are kept.</p>
+            </div>
+            <div class="tip-actions"><button class="bulk-btn" onclick="openCleanup('outbound', 7)">Review &amp; delete</button></div>
+          </div>
+        </div>
+      
+      </section>
+
+      <!-- ============ DETAILS: one tab at a time instead of one long page ============ -->
+      <div class="subtabs" id="subtabs">
+        <button data-p="stored" class="on">What's stored</button>
+        <button data-p="biggest">Biggest</button>
+        <button data-p="relive">Relive runs</button>
+        <button data-p="rules">Cleanup rules</button>
+        <button data-p="history">History</button>
+        <button data-p="backup">Backup &amp; files</button>
+      </div>
+      <div class="pane on" data-pane="stored">      <!-- ============ 3. WHAT IS STORED ============ -->
+      <section class="panel settings-panel" id="stores">
+        <div class="section-title">
+          <h4>What is stored</h4>
+          <span style="display:flex;gap:.5rem;align-items:center"><span class="sub">Click a row for its breakdown.</span>
+            <select id="sortStores" onchange="renderStores()"><option value="group">Group by type</option><option value="size">Biggest first</option><option value="free">Most empty space</option></select></span>
+        </div>
+        <div class="store-head">
+          <span></span><span>Data</span><span class="num">Items</span><span class="num c-oldest">Oldest</span><span>Size on disk</span><span class="c-limit">Limit</span><span></span>
+        </div>
+        <div id="storeList"></div>
+      </section>
+      <!-- ============ 6. DANGER ============ -->
+      <section class="panel settings-panel">
+        <div class="section-title"><h4>Danger zone</h4><span class="sub">Each action asks you to type its name first.</span></div>
+        <div class="danger-zone">
+          <div class="danger-zone-row">
+            <div><p class="danger-zone-title">Delete all recorded traffic</p><p class="sub">Every outbound and inbound call, with its database statements, Redis commands and caught log lines. Session cycles and comments are kept.</p></div>
+            <button class="bulk-btn danger" onclick="openConfirm('traffic')">Delete traffic…</button>
+          </div>
+          <div class="danger-zone-row">
+            <div><p class="danger-zone-title">Delete all session cycles</p><p class="sub">The 14 cycles you recorded, with their captured calls and spacers. Relive run recordings are not touched.</p></div>
+            <button class="bulk-btn danger" onclick="openConfirm('cycles')">Delete cycles…</button>
+          </div>
+          <div class="danger-zone-row">
+            <div><p class="danger-zone-title">Delete all Relive run history</p><p class="sub">46 runs, their results and run recordings. The 6 Relive cycles, their steps, variables and rules stay.</p></div>
+            <button class="bulk-btn danger" onclick="openConfirm('runs')">Delete runs…</button>
+          </div>
+          <div class="danger-zone-row">
+            <div><p class="danger-zone-title">Reset Alfred's data</p><p class="sub">Everything above plus comments, logs, Relive cycles and scenarios. Your settings, profiles, redactions and interception rules stay.</p></div>
+            <button class="bulk-btn danger" onclick="openConfirm('all')">Reset data…</button>
+          </div>
+        </div>
+      </section></div>
+      <div class="pane" data-pane="biggest">      <!-- ============ 2c. WHERE THE SPACE GOES ============ -->
+      <section class="panel settings-panel" id="hogs">
+        <div class="tabs-row">
+          <div class="section-title" style="margin:0"><h4>Where the space goes <span class="new-tag">NEW</span></h4></div>
+          <div class="seg small" id="hogSeg"><button data-v="endpoints" class="on">Busiest endpoints</button><button data-v="largest">Largest calls</button><button data-v="projects">By project</button><button data-v="dupes">Repeats</button></div>
+        </div>
+        <p class="sub" id="hogHint" style="margin-bottom:.6rem"></p>
+        <div id="hogBody"></div>
+      </section></div>
+      <div class="pane" data-pane="relive">      <!-- ============ 3b. RELIVE ============ -->
+      <section class="panel settings-panel" id="relivePanel">
+        <div class="tabs-row">
+          <div class="section-title" style="margin:0"><h4>Relive cycles <span class="new-tag">NEW</span></h4></div>
+          <span style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
+            <span class="sub" id="reliveSum"></span>
+            <label class="sub" style="display:flex;gap:.35rem;align-items:center">Keep last
+              <select id="rlKeep" onchange="renderRelive()"><option value="3">3</option><option value="5">5</option><option value="10" selected>10</option><option value="25">25</option><option value="0">all</option></select> runs</label>
+          </span>
+        </div>
+        <p class="sub" style="margin-bottom:.6rem">Each run records its calls in its own run recording. They live apart from your session cycles: cleaning one never touches the other. A run you starred or commented on is always kept.</p>
+        <table class="tbl" id="reliveTbl"></table>
+        <div class="detail-foot">
+          <button class="bulk-btn" id="rlApply" onclick="applyKeepAll()">Apply to all cycles</button>
+          <button class="bulk-btn secondary" onclick="rlFailedOnly()">Delete passed runs, keep failed</button>
+          <span class="sub">Runs are also cleaned automatically - see Automatic cleanup.</span>
+        </div>
+      </section></div>
+      <div class="pane" data-pane="rules">      <!-- ============ 4. AUTOMATIC CLEANUP ============ -->
+      <section class="panel settings-panel" id="retention">
+        <div class="section-title">
+          <h4>Cleanup rules</h4>
+          <span class="sub">Sizes come from the storage budget above. Here you add rules by age, call count and runs.</span>
+        </div>
+        <div class="cascade">
+          <b>A call never leaves pieces behind.</b> When an inbound call is deleted - by a limit, a rule, a clean-up or by hand - everything captured with it goes in the same step:
+          <span class="chips" style="margin-top:.45rem"><span class="chip on">DB statements &amp; result rows</span><span class="chip on">Redis commands</span><span class="chip on">caught log lines</span><span class="chip on">triage mark</span></span>
+          <span class="sub" style="display:block;margin-top:.45rem">An outbound call takes its triage mark. Log lines kept for a session cycle stay with the cycle. Comments stay too - a call with a comment is kept unless you turn that off.</span>
+        </div>
+        <div class="ret-row head"><span>Data</span><span>Keep at most</span><span>Also delete after</span><span>What this means now</span></div>
+        <div id="retList"></div>
+        <div class="switch-line">
+          <div class="toggle on" onclick="this.classList.toggle('on')"></div>
+          <div>Compact files automatically when more than 20% of a file is empty space <span class="faint">· runs at night, takes a few seconds per GB</span></div>
+        </div>
+        <div class="switch-line">
+          <div class="toggle on" onclick="this.classList.toggle('on')"></div>
+          <div>Never delete calls that have a comment or are used by a Relive cycle or a stored answer</div>
+        </div>
+        <div class="guard">
+          <div class="guard-card">
+            <div class="toggle on" onclick="this.classList.toggle('on')"></div>
+            <div><b>Warn me when the disk is low</b> <span class="new-tag">NEW</span><br>
+              <span class="sub">Below <input type="number" value="10"> GB free: a banner on every tab, and Claude's tools say so.</span></div>
+          </div>
+          <div class="guard-card">
+            <div class="toggle on" onclick="this.classList.toggle('on')"></div>
+            <div><b>Free space before the disk fills</b> <span class="new-tag">NEW</span><br>
+              <span class="sub">Below <input type="number" value="2"> GB free: delete the oldest traffic until 5 GB is free. Your work is never touched. Traffic keeps flowing - only recording is affected.</span></div>
+          </div>
+          <div class="guard-card">
+            <div class="toggle" onclick="this.classList.toggle('on')"></div>
+            <div><b>Don't keep OPTIONS preflights</b><br>
+              <span class="sub">They are hidden in every list anyway. Today: <b style="color:var(--text)">1,640 stored · 9.8 MB</b>.</span></div>
+          </div>
+          <div class="guard-card">
+            <div class="toggle" onclick="this.classList.toggle('on')"></div>
+            <div><b>Ignore health checks</b><br>
+              <span class="sub">Don't record calls to <span class="mono">/health</span>, <span class="mono">/actuator/*</span>, <span class="mono">/ping</span>. Same as a Call filtering blacklist entry, per project.</span></div>
+          </div>
+        </div>
+        <div class="pending-bar" id="pendingBar">
+          <span><b>Unsaved changes</b> · <span id="pendingText"></span></span>
+          <span style="display:flex;gap:.4rem">
+            <button class="bulk-btn secondary" onclick="resetRetention()">Discard</button>
+            <button class="bulk-btn" onclick="saveRetention()">Save limits</button>
+          </span>
+        </div>
+      </section></div>
+      <div class="pane" data-pane="history">      <!-- ============ 2b. SPACE OVER TIME ============ -->
+      <section class="panel settings-panel">
+        <div class="tabs-row">
+          <div class="section-title" style="margin:0"><h4>Space over time <span class="new-tag">NEW</span></h4></div>
+          <div class="seg small" id="rangeSeg"><button data-d="7">7 days</button><button data-d="14" class="on">14 days</button><button data-d="30">30 days</button></div>
+        </div>
+        <div class="growth">
+          <div>
+            <div class="chart" id="chart"></div>
+            <div class="x-axis" id="xaxis"></div>
+            <div class="chart-tip" id="chartTip">Hover a day to see what was added. Striped bars are the forecast at today's rate.</div>
+          </div>
+          <div class="forecast">
+            <span class="kpi-label">At today's rate</span>
+            <span class="big">+1.16 GB <span class="faint" style="font-size:.8rem;font-weight:500">a day</span></span>
+            <div class="row"><span>Without a budget, disk full in</span><b style="color:var(--red)">~30 days</b></div>
+            <div class="row"><span>With the budget</span><b style="color:var(--green)" id="fcBudget">never above 5 GB</b></div>
+            <div class="row"><span>History kept at the budget</span><b id="fcDays">~14 days</b></div>
+            <div class="row"><span>Next automatic cleanup</span><b>tonight 03:00 · ~140 MB</b></div>
+            <span class="kpi-foot">Fastest growing: inbound <span class="mono">odeysys</span> · +38% this week</span>
+          </div>
+        </div>
+      </section>
+      <!-- ============ 5. HISTORY ============ -->
+      <section class="panel settings-panel">
+        <div class="section-title">
+          <h4>Recent cleanups</h4>
+          <span class="sub">What was removed, by whom, and how much space it gave back.</span>
+        </div>
+        <ul class="hist-list" id="histList">
+          <li><span class="faint">Today 17:40</span><span class="who auto">Auto</span><span>DB data of the 120 oldest inbound calls removed - DB share full · the calls are kept and marked</span><span class="num">48.2 MB</span></li>
+          <li><span class="faint">Today 17:02</span><span class="who auto">Auto</span><span>412 inbound calls removed - 7,000 limit reached</span><span class="num">57.6 MB</span></li>
+          <li><span class="faint">Today 11:40</span><span class="who auto">Auto</span><span>828 inbound calls removed - 7,000 limit reached</span><span class="num">115.9 MB</span></li>
+          <li><span class="faint">Yesterday 18:21</span><span class="who you">You</span><span>Deleted log source <span class="mono">wildfly-server.log</span> (4.1 M lines)</span><span class="num faint">0 B ⓘ</span></li>
+          <li><span class="faint">5 Oct 09:03</span><span class="who auto">Auto</span><span>Compacted session-cycles.db</span><span class="num">31.0 MB</span></li>
+        </ul>
+        <p class="sub" style="margin-top:.5rem">ⓘ Deleting rows does not shrink a file by itself - the space is reused by new data, or given back by <b>Compact</b>.</p>
+      </section></div>
+      <div class="pane" data-pane="backup">      <!-- ============ 5b. FILES & BACKUP ============ -->
+      <section class="panel settings-panel">
+        <div class="section-title"><h4>Files &amp; backup <span class="new-tag">NEW</span></h4><span class="sub">Where the data lives, how healthy the files are, and a way to take it with you.</span></div>
+        <div class="files-grid">
+          <div>
+            <div class="field-label" style="margin-top:0">Data folder</div>
+            <div class="path-box"><span class="mono">C:\Program Files\Alfred\data</span>
+              <button class="action-btn" onclick="toast('Path copied')">Copy</button><button class="action-btn" onclick="toast('Opened in Explorer')">Open</button></div>
+            <p class="sub" style="margin-top:.35rem">Docker: the <span class="mono">alfred-data</span> volume. A Windows bind mount is ~5× slower for SQLite.</p>
+
+            <div class="field-label">File health</div>
+            <ul class="file-health" id="fileHealth">
+              <li><span>File</span><span class="num">Write log</span><span class="num">Check</span></li>
+              <li><span class="mono">internal-calls.db</span><span class="num warn-dot">412 MB</span><span class="num ok-dot">● ok</span></li>
+              <li><span class="mono">calls.db</span><span class="num">4.0 MB</span><span class="num ok-dot">● ok</span></li>
+              <li><span class="mono">db-capture.db</span><span class="num">18.2 MB</span><span class="num ok-dot">● ok</span></li>
+              <li><span class="mono">logs.db</span><span class="num">0 B</span><span class="num ok-dot">● ok</span></li>
+            </ul>
+            <p class="sub" style="margin-top:.35rem"><span class="warn-dot">●</span> The write log (<span class="mono">-wal</span>) of internal-calls.db is 412 MB - not counted above. Folding it in is safe while Alfred runs.</p>
+            <div class="detail-foot" style="margin-top:.5rem">
+              <button class="bulk-btn secondary" onclick="foldWal(this)">Fold write logs in</button>
+              <button class="bulk-btn secondary" onclick="checkFiles(this)">Check all files</button>
+            </div>
+          </div>
+          <div>
+            <div class="field-label" style="margin-top:0">Back up</div>
+            <label class="check"><input type="checkbox" checked><span>Recorded traffic <small>outbound + inbound, with DB statements and log lines · 1.37 GB</small></span></label>
+            <label class="check"><input type="checkbox" checked><span>Your work <small>session cycles, comments, Relive cycles, scenarios · 59.6 MB</small></span></label>
+            <label class="check"><input type="checkbox" checked><span>Configuration <small>filters, profiles, redactions, rules, stored answers · 1.4 MB</small></span></label>
+            <label class="check"><input type="checkbox"><span>Logs Explorer sources <small>re-loadable from the log files · 9 MB</small></span></label>
+            <p class="sub" style="margin:.5rem 0">≈ <b style="color:var(--text)">420 MB</b> as <span class="mono">.zip</span> (compacted, compressed). Secrets stay as they are in the files.</p>
+            <div class="detail-foot" style="margin-top:0">
+              <button class="bulk-btn" onclick="toast('Backup written: alfred-backup-2026-10-09.zip · <b>418 MB</b>')">Back up now</button>
+              <button class="bulk-btn secondary" onclick="toast('Pick a backup .zip - shows what is inside before anything is replaced')">Restore…</button>
+            </div>
+            <div class="switch-line"><div class="toggle" onclick="this.classList.toggle('on')"></div><div>Back up "Your work" every night <span class="faint">· keeps the last 7</span></div></div>
+          </div>
+        </div>
+      </section></div>
+      <span id="kpiReclaim" hidden></span><span id="kpiFull" hidden></span><span id="tipCount" hidden></span>
+
+      <div class="note">
+        <h4>Mock notes - what changes vs today</h4>
+        <ul>
+          <li>Lists <b>every</b> store. Today's table misses db-capture.db (DB statements, Redis, caught logs), triage.db, relive.db, scenarios.db and interception.db.</li>
+          <li>Shows <b>empty space</b> per file (SQLite free pages) and a <b>Compact</b> action (VACUUM). That is why logs.db shows 1.5 GB with 0 lines.</li>
+          <li><b>Targeted cleanup</b> (age / project / status / host) with a live preview of count and freed size. Calls with comments, Relive use or stored answers are protected by default.</li>
+          <li>Limits show <b>how full</b> each store is and what a limit means in time ("keeps ~24 h").</li>
+          <li>Call-status donut removed - it described traffic, not storage. Status split moves into the calls row breakdown.</li>
+          <li><b>Round 2:</b> Space over time (stacked per day, forecast, disk-full date, next automatic cleanup) · Where the space goes (busiest endpoints with "Stop recording", largest single calls, cost per project across every store, repeated identical calls) · low-disk warning and automatic space guard · skip OPTIONS / health checks · pinned calls protected · 8 s Undo on every delete · sort the store list · Files &amp; backup (data folder, <span class="mono">-wal</span> write-log size + fold in, integrity check, back up / restore .zip, nightly backup of your work).</li>
+          <li><b>Round 3 - Relive apart:</b> Relive run recordings (session cycles with <span class="mono">reliveRunId</span>) are their own store and group, never counted or cleaned as your session cycles. Relive panel per cycle: run strip (pass/fail, starred), keep last N runs, delete runs but keep the cycle, delete passed / keep failed. Own limit in Automatic cleanup, own chip in Clean up, own Danger-zone row.</li>
+          <li><b>Round 6 - calls limits + cascade:</b> both inbound and outbound have an optional "and at most N calls" next to their size share (inbound starts at today's 7,000); the row says which limit is reached first. Deleting an inbound call always deletes its DB statements, Redis commands, caught log lines and triage mark in the same step.</li>
+          <li><b>Round 7 - DB share fills first:</b> the oldest calls lose their whole capture at once (statements, result rows, Redis commands, caught log lines - one <span class="mono">deleteForCalls</span>), never part of a call. The inbound call stays and is marked "DB data removed · storage limit" so it never looks like it ran no SQL. Statements and Redis share one limit, so a call cannot keep its statements but lose its Redis commands.</li>
+          <li>Small configuration stores (settings, profiles, redactions, interception) have Export only, no delete.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- ============ CLEANUP DIALOG ============ -->
+<div class="backdrop" id="cleanupDlg">
+  <div class="dialog">
+    <header>
+      <div><h3>Clean up recorded data</h3><p class="sub">Pick what to remove. The preview updates as you change filters.</p></div>
+      <button class="x" onclick="closeDlg('cleanupDlg')">×</button>
+    </header>
+    <div class="body">
+      <div class="field-label">What</div>
+      <div class="chips" id="whatChips">
+        <span class="chip" data-k="outbound">Outbound calls<span class="n">2,860</span></span>
+        <span class="chip" data-k="inbound">Inbound calls<span class="n">7,000</span></span>
+        <span class="chip" data-k="cycles">Session cycles<span class="n">14</span></span>
+        <span class="chip" data-k="runcycles">Relive runs<span class="n">46</span></span>
+        <span class="chip" data-k="kept">Kept log lines<span class="n">18,204</span></span>
+      </div>
+
+      <div class="field-label">Which</div>
+      <div class="filters">
+        <label>Older than
+          <select id="fAge">
+            <option value="0">Any age</option><option value="1">1 day</option><option value="3">3 days</option>
+            <option value="7">7 days</option><option value="14">14 days</option><option value="30">30 days</option>
+          </select>
+        </label>
+        <label>Project / supplier
+          <select id="fProj"><option value="all">All</option><option value="odeysys">odeysys (inbound)</option><option value="billing">billing (inbound)</option><option value="api.supplier.com">api.supplier.com</option><option value="auth.partner.io">auth.partner.io</option></select>
+        </label>
+        <label>Status
+          <select id="fStatus"><option value="any">Any status</option><option value="2xx">2xx / 3xx only</option><option value="4xx">4xx only</option><option value="5xx">5xx / errors only</option><option value="options">OPTIONS preflights</option></select>
+        </label>
+      </div>
+      <label class="check" style="margin-top:.6rem"><input type="text" id="fHost" placeholder="URL contains… (optional)" style="width:100%"></label>
+
+      <div class="field-label">Keep</div>
+      <label class="check"><input type="checkbox" id="kComment" checked><span>Calls with a comment <small>214 calls match the filters and have a comment</small></span></label>
+      <label class="check"><input type="checkbox" id="kPinned" checked><span>Pinned calls <small>12 calls pinned in Live Calls</small></span></label>
+      <label class="check"><input type="checkbox" id="kRelive" checked><span>Calls used by a Relive cycle or a stored answer <small>deleting them would break those steps</small></span></label>
+      <label class="check"><input type="checkbox" id="kCompact" checked><span>Compact the file afterwards <small>gives the space back to the disk now instead of reusing it later</small></span></label>
+
+      <div class="preview">
+        <div class="preview-top">
+          <div><span class="pl">Will delete</span><span class="pv red" id="pvCount">0</span></div>
+          <div><span class="pl">Space freed</span><span class="pv green" id="pvSize">0 B</span></div>
+          <div><span class="pl">Kept by your rules</span><span class="pv" id="pvKept">0</span></div>
+          <div style="margin-left:auto"><span class="pl">Also removed with them</span><span style="font-size:.8rem" id="pvChild">-</span></div>
+        </div>
+        <div class="sample" id="pvSample"></div>
+      </div>
+    </div>
+    <footer>
+      <span class="sub">Cannot be undone. Export first if you may need them: <a href="#" style="color:var(--purple-light)" onclick="toast('Exported the matching calls to alfred-calls-2026-10-09.json.gz');return false">export matches (.json)</a></span>
+      <span style="display:flex;gap:.4rem">
+        <button class="bulk-btn secondary" onclick="closeDlg('cleanupDlg')">Cancel</button>
+        <button class="bulk-btn danger" id="pvGo" onclick="runCleanup()">Delete</button>
+      </span>
+    </footer>
+  </div>
+</div>
+
+<!-- ============ TYPE-TO-CONFIRM ============ -->
+<div class="backdrop" id="confirmDlg">
+  <div class="dialog small">
+    <header><div><h3 id="cfTitle"></h3><p class="sub" id="cfText"></p></div><button class="x" onclick="closeDlg('confirmDlg')">×</button></header>
+    <div class="body">
+      <div class="kv" id="cfList"></div>
+      <p class="sub" style="margin-top:.9rem">Type <b class="mono" id="cfWord" style="color:var(--red)"></b> to confirm.</p>
+      <input type="text" class="confirm-input" id="cfInput" autocomplete="off">
+    </div>
+    <footer><span></span><span style="display:flex;gap:.4rem"><button class="bulk-btn secondary" onclick="closeDlg('confirmDlg')">Cancel</button><button class="bulk-btn danger" id="cfGo" disabled onclick="doConfirm()">Delete</button></span></footer>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const MB = 1024 * 1024, KB = 1024, GB = 1024 * MB;
+const C = n => `var(--${n})`;
+
+// Fake numbers, starting from the user's screenshot + the stores today's page leaves out.
+const groups = [
+  { id: 'traffic', label: 'Recorded traffic', hint: 'grows on its own while Alfred runs' },
+  { id: 'capture', label: 'Captured with calls', hint: 'statements, Redis and log lines tied to calls' },
+  { id: 'work', label: 'Your work', hint: 'things you made - never removed automatically' },
+  { id: 'relive', label: 'Relive & replay', hint: 'replay workflows and what their runs recorded' },
+  { id: 'config', label: 'Configuration', hint: 'small, part of your setup' },
+];
+const stores = [
+  { id: 'outbound', group: 'traffic', name: 'Outbound calls', desc: 'Calls your app made to suppliers through the proxy', file: 'calls.db', items: 2860, unit: 'calls', size: 219.7 * MB, free: 4.1 * MB, oldest: '12 d', color: 'cyan', limit: { kind: 'size', key: 'ALFRED_CALLS_MAX_SIZE_BYTES', value: 10 * GB }, perHour: 24, clean: true,
+    age: [80, 140, 120, 190, 260, 210, 180, 240, 300, 280, 260, 220, 120, 60], split: [['api.supplier.com', 1720], ['auth.partner.io', 860], ['maps.vendor.net', 280]], status: [2424, 131, 256] },
+  { id: 'inbound', group: 'traffic', name: 'Inbound calls', desc: 'Calls into your projects through the reverse proxy', file: 'internal-calls.db', items: 7000, unit: 'calls', size: 986.0 * MB, free: 12.0 * MB, oldest: '24 h', color: 'purple', limit: { kind: 'rows', key: 'INTERNAL_CALLS_RETENTION_ROWS', value: 7000, size: 10 * GB }, perHour: 290, clean: true,
+    age: [7000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], split: [['odeysys', 5240], ['billing', 1760]], status: [6120, 610, 270] },
+  { id: 'capture', group: 'capture', name: 'DB statements & Redis', desc: 'SQL, result rows and Redis commands of each inbound call', file: 'db-capture.db', items: 412300, unit: 'statements', size: 159.0 * MB, free: 0.8 * MB, oldest: '24 h', color: 'orange', limit: { kind: 'size', key: 'ALFRED_DB_CAPTURE_MAX_SIZE_BYTES', value: 4 * GB }, perHour: 17000, follows: 'Deleted with their inbound call. When this share fills first, the oldest calls lose ALL their statements, Redis commands and log lines at once - the call stays, marked.',
+    age: [412300, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], split: [['odeysys', 388000], ['billing', 24300]] },
+  { id: 'logs', group: 'capture', name: 'Logs', desc: 'Log files loaded in the Logs tab, and lines kept for calls', file: 'logs.db', items: 0, unit: 'lines', size: 1.5 * GB, free: 1.49 * GB, oldest: '-', color: 'pink', limit: null, clean: false,
+    age: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], split: [] },
+  { id: 'triage', group: 'capture', name: 'Triage marks', desc: '"Needs attention" mark of every call', file: 'triage.db', items: 9860, unit: 'marks', size: 3.2 * MB, free: 0, oldest: '12 d', color: 'amber', limit: null, follows: 'Removed together with their call.', age: [], split: [] },
+  { id: 'cycles', group: 'work', name: 'Session cycles', desc: 'Recordings you started, with their captured calls and spacers', file: 'session-cycles.db', items: 14, unit: 'cycles', size: 31.4 * MB, free: 0.4 * MB, oldest: '41 d', color: 'green', limit: null, clean: true,
+    age: [1, 0, 2, 1, 0, 1, 2, 1, 0, 1, 2, 1, 1, 1], split: [['Checkout flow', 5], ['Login regression', 4], ['Other (5)', 5]] },
+  { id: 'comments', group: 'work', name: 'Comments', desc: 'Notes on calls, yours and Claude\'s', file: 'comments.db', items: 732, unit: 'comments', size: 312 * KB, free: 0, oldest: '40 d', color: 'text-dim', limit: null, age: [], split: [] },
+  { id: 'runcycles', group: 'relive', name: 'Relive run recordings', desc: 'One cycle per Relive run - every call the run made. Not in Session Cycles; opened from a run&#39;s History', file: 'session-cycles.db (run cycles)', items: 46, unit: 'runs', size: 21.1 * MB, free: 0, oldest: '20 d', color: 'purple-light', limit: null, clean: true, perHour: 0.4, follows: 'Keeps the last 10 runs per Relive cycle (Automatic cleanup).',
+    age: [6, 4, 0, 8, 3, 0, 5, 7, 2, 0, 4, 3, 2, 2], split: [['Checkout replay', 22], ['Login + MFA', 15], ['Invoice batch', 9]] },
+  { id: 'relive', group: 'relive', name: 'Relive cycles', desc: 'Steps, cycle variables and rules, run results and the Live calls log', file: 'relive.db', items: 6, unit: 'cycles', size: 4.9 * MB, free: 0.2 * MB, oldest: '20 d', color: 'text-dim', limit: null, follows: 'Never removed automatically. Deleting a run keeps the cycle; deleting a cycle removes its runs and their recordings.', age: [], split: [] },
+  { id: 'scenarios', group: 'relive', name: 'Resend scenarios', desc: 'Saved resend scenarios and their run history', file: 'scenarios.db', items: 31, unit: 'scenarios', size: 1.9 * MB, free: 0, oldest: '33 d', color: 'text-faint', limit: null, age: [], split: [] },
+  { id: 'config', group: 'config', name: 'Settings & rules', desc: 'Call filters, profiles, redactions, interception rules and stored answers', file: 'settings.db · profiles.db · redactions.db · interception.db', items: 19, unit: 'items', size: 1.4 * MB, free: 0, oldest: '-', color: 'text-faint', limit: null, configOnly: true, age: [], split: [] },
+];
+
+function fmt(b) {
+  if (b <= 0) return '0 B';
+  if (b < KB) return b.toFixed(0) + ' B';
+  if (b < MB) return (b / KB).toFixed(1) + ' KB';
+  if (b < GB) return (b / MB).toFixed(1) + ' MB';
+  return (b / GB).toFixed(2) + ' GB';
+}
+const n = v => v.toLocaleString('en-US');
+const st = id => stores.find(x => x.id === id);
+
+function limitInfo(s) {
+  if (!s.limit) return { pct: 0, text: s.follows ? '<span class="faint">' + s.follows + '</span>' : '<span class="faint">No limit · kept until you delete</span>', cls: '' };
+  const pct = s.limit.kind === 'rows' ? s.items / s.limit.value * 100 : s.size / s.limit.value * 100;
+  const label = s.limit.kind === 'rows' ? `${n(s.items)} / ${n(s.limit.value)} calls` : `${fmt(s.size)} / ${fmt(s.limit.value)}`;
+  return { pct, text: label, cls: pct >= 99 ? 'full' : pct >= 80 ? 'warn' : '' };
+}
+
+function renderStack() {
+  const total = stores.reduce((a, s) => a + s.size, 0);
+  document.getElementById('totalUsed').textContent = fmt(total);
+  document.getElementById('diskPct').textContent = (total / (476 * GB) * 100).toFixed(1) + '%';
+  document.getElementById('diskAlfred').style.width = Math.max(0.4, total / (476 * GB) * 100) + '%';
+  const big = stores.filter(s => s.size / total > 0.004);
+  const stack = document.getElementById('stack');
+  stack.innerHTML = big.map(s => `<div title="${s.name}: ${fmt(s.size)}" style="width:${s.size / total * 100}%;background:${C(s.color)}" onclick="openStore('${s.id}')"></div>`).join('');
+  stack.onmouseenter = () => stack.classList.add('hovering');
+  stack.onmouseleave = () => stack.classList.remove('hovering');
+  document.getElementById('legend').innerHTML = big.map(s => `<span onclick="openStore('${s.id}')"><i style="background:${C(s.color)}"></i>${s.name} <b>${fmt(s.size)}</b>${s.free > 0.2 * s.size ? ' <span class="badge waste">' + Math.round(s.free / s.size * 100) + '% empty</span>' : ''}</span>`).join('');
+  const reclaim = stores.reduce((a, s) => a + s.free, 0);
+  document.getElementById('kpiReclaim').textContent = fmt(reclaim);
+  document.getElementById('kpiFull').textContent = stores.filter(s => limitInfo(s).cls === 'full').length;
+}
+
+function renderStores() {
+  const max = Math.max(...stores.map(s => s.size));
+  const openIds = [...document.querySelectorAll('.store.open')].map(e => e.dataset.id);
+  const sort = document.getElementById('sortStores').value;
+  if (sort !== 'group') {
+    const key = sort === 'size' ? s => s.size : s => s.free;
+    document.getElementById('storeList').innerHTML = '<div class="store-group">' + [...stores].sort((a, b) => key(b) - key(a)).map(s => storeHtml(s, max, openIds.includes(s.id))).join('') + '</div>';
+    return;
+  }
+  document.getElementById('storeList').innerHTML = groups.map(g => `
+    <div class="store-group">
+      <div class="group-label">${g.label} <span class="faint">· ${g.hint}</span></div>
+      ${stores.filter(s => s.group === g.id).map(s => storeHtml(s, max, openIds.includes(s.id))).join('')}
+    </div>`).join('');
+}
+
+function storeHtml(s, max, open) {
+  const li = limitInfo(s);
+  const wastePct = s.size ? s.free / s.size * 100 : 0;
+  const badges = (li.cls === 'full' ? '<span class="badge full">Full</span>' : '') + (wastePct > 20 ? `<span class="badge waste">${fmt(s.free)} empty</span>` : '') + (s.configOnly ? '<span class="badge dim">Setup</span>' : '');
+  const actions = s.configOnly
+    ? `<button class="action-btn" onclick="event.stopPropagation();toast('Exported settings to alfred-settings.json')">Export</button>`
+    : (s.clean ? `<button class="action-btn" onclick="event.stopPropagation();openCleanup('${s.id}')">Clean up…</button>` : '')
+      + (s.free > MB ? `<button class="action-btn" onclick="event.stopPropagation();compact('${s.id}')">Free space</button>` : '');
+  return `
+  <div class="store ${open ? 'open' : ''}" data-id="${s.id}">
+    <div class="store-row" onclick="this.parentElement.classList.toggle('open')">
+      <span class="chev">▶</span>
+      <div>
+        <div class="store-name"><i style="width:9px;height:9px;border-radius:3px;background:${C(s.color)};display:inline-block"></i>${s.name} ${badges}</div>
+        <div class="store-desc">${s.desc}</div>
+        <div class="store-file mono">${s.file}</div>
+      </div>
+      <div class="num">${n(s.items)}<small>${s.unit}</small></div>
+      <div class="num c-oldest">${s.oldest}<small>${s.oldest === '-' ? '' : 'ago'}</small></div>
+      <div class="size-cell">
+        <span class="v">${fmt(s.size)}</span>
+        <div class="bar"><div style="width:${(s.size - s.free) / max * 100}%;background:${C(s.color)}"></div><div style="width:${s.free / max * 100}%;background:repeating-linear-gradient(45deg, color-mix(in srgb, var(--red) 55%, transparent) 0 3px, transparent 3px 6px)"></div></div>
+      </div>
+      <div class="limit-cell c-limit">
+        <span>${li.text}</span>
+        ${s.limit ? `<div class="gauge ${li.cls}"><div style="width:${Math.min(100, li.pct)}%"></div></div>` : ''}
+      </div>
+      <div class="row-actions">${actions}</div>
+    </div>
+    <div class="store-detail">${detailHtml(s)}</div>
+  </div>`;
+}
+
+function detailHtml(s) {
+  if (s.id === 'logs') return `
+    <div class="detail-grid">
+      <div><h5>Inside this file</h5><div class="kv"><span>Log lines</span><span>0 (no sources loaded)</span><span>Lines kept for calls</span><span>0</span><span>Empty space</span><span style="color:var(--red)">${fmt(s.free)} (${Math.round(s.free / s.size * 100)}%)</span></div></div>
+      <div style="grid-column: span 2"><h5>Why is it this big?</h5><p class="sub">Yesterday you removed <span class="mono">wildfly-server.log</span> (4.1 M lines). SQLite marks those pages as free and reuses them for new lines - the file does not shrink until it is compacted. Compacting rewrites the file without the empty pages; it is safe and takes about 10 s.</p></div>
+    </div>
+    <div class="detail-foot"><button class="bulk-btn" onclick="compact('logs')">Free ${fmt(s.free)} of empty space</button><button class="bulk-btn secondary">Open Logs tab</button></div>`;
+  if (!s.age.length) return `
+    <div class="detail-grid"><div><h5>Inside this file</h5><div class="kv"><span>Items</span><span>${n(s.items)} ${s.unit}</span><span>Size</span><span>${fmt(s.size)}</span><span>File</span><span class="mono">${s.file}</span></div></div>
+    <div style="grid-column: span 2"><h5>How it is cleaned</h5><p class="sub">${s.follows || (s.configOnly ? 'Part of your setup. Change it on its own page; export it to move Alfred to another machine.' : 'Never removed automatically. Delete single items where they are shown, or reset in the Danger zone.')}</p></div></div>`;
+  const maxA = Math.max(...s.age, 1);
+  const tot = s.split.reduce((a, x) => a + x[1], 0) || 1;
+  const statusBlock = s.status ? `<h5 style="margin-top:.9rem">By status</h5>
+      ${[['2xx / 3xx', s.status[0], 'green'], ['4xx', s.status[1], 'amber'], ['5xx / errors', s.status[2], 'red']].map(([l, v, c]) => `<div class="split-row"><span>${l}</span><span class="num">${n(v)}</span><span class="num faint">${fmt(v / s.items * s.size)}</span><div class="bar"><div style="width:${v / s.items * 100}%;background:${C(c)}"></div></div></div>`).join('')}` : '';
+  return `
+    <div class="detail-grid">
+      <div>
+        <h5>By age - click a day to delete everything older</h5>
+        <div class="hist">${s.age.map((v, i) => `<div style="height:${v / maxA * 100}%" title="${i === 0 ? 'today' : i + ' days ago'}: ${n(v)} ${s.unit}" onclick="openCleanup('${s.id}', ${i})"></div>`).join('')}</div>
+        <div class="hist-axis"><span>today</span><span>7 d</span><span>14 d ago</span></div>
+        ${s.id === 'inbound' ? '<p class="sub" style="margin-top:.5rem">Everything is from the last 24 h - the 7,000 limit removes older calls.</p>' : ''}
+      </div>
+      <div>
+        <h5>By ${s.group === 'traffic' && s.id === 'outbound' ? 'supplier' : s.id === 'cycles' ? 'cycle' : s.id === 'runcycles' ? 'Relive cycle' : 'project'}</h5>
+        ${s.split.map(([l, v]) => `<div class="split-row"><span class="mono" style="overflow:hidden;text-overflow:ellipsis">${l}</span><span class="num">${n(v)}</span><span class="num faint">${fmt(v / tot * (s.size - s.free))}</span><div class="bar"><div style="width:${v / tot * 100}%;background:${C(s.color)}"></div></div></div>`).join('')}
+        ${statusBlock}
+      </div>
+      <div>
+        <h5>Growth</h5>
+        <div class="kv">
+          <span>New</span><span>~${n(s.perHour || 0)} ${s.unit} / hour</span>
+          <span>Avg size</span><span>${fmt((s.size - s.free) / Math.max(1, s.items))} each</span>
+          ${s.limit ? `<span>At the limit in</span><span>${limitInfo(s).cls === 'full' ? '<b style="color:var(--amber)">reached</b> - dropping oldest' : '~' + Math.round((s.limit.value - s.size) / (s.perHour * (s.size / s.items)) / 24) + ' days'}</span>` : ''}
+          <span>Empty space</span><span>${fmt(s.free)}</span>
+          ${s.follows ? `<span>Cleanup</span><span>${s.follows}</span>` : ''}
+        </div>
+      </div>
+    </div>
+    <div class="detail-foot">
+      ${s.clean ? `<button class="bulk-btn" onclick="openCleanup('${s.id}')">Clean up ${s.name.toLowerCase()}…</button>` : ''}
+      ${s.limit ? `<button class="bulk-btn secondary" onclick="jump('budgetPanel')">Set budget</button>` : ''}
+      <button class="bulk-btn secondary" onclick="toast('Exported ${n(s.items)} ${s.unit}')">Export all (.json)</button>
+    </div>`;
+}
+
+// ---- retention ----
+// ---- storage budget: one number, every limit derived from it ----
+const growthPerDay = { inbound: 986 * MB, capture: 159 * MB, outbound: 44 * MB, runcycles: 1 * MB, logs: 0 };
+const segKeys = ['inbound', 'capture', 'outbound', 'runcycles', 'logs', 'work'];
+const segName = { inbound: 'Inbound calls', capture: 'DB statements & Redis', outbound: 'Outbound calls', runcycles: 'Relive runs', logs: 'Logs', work: 'Your work & setup' };
+const segColor = { inbound: 'purple', capture: 'orange', outbound: 'cyan', runcycles: 'purple-light', logs: 'pink', work: 'green' };
+const workIds = ['cycles', 'comments', 'relive', 'scenarios', 'config', 'triage'];
+const DISK_FREE = 38.2 * GB, KEEP_FREE = 5 * GB;
+const budget = { gb: 5, mode: 'balanced', fracs: null, saved: null };
+
+// Live data only: empty space inside a file is given back first, so it never forces a delete.
+function usedOf(k) { const live = x => x.size - x.free; return k === 'work' ? workIds.reduce((a, id) => a + live(st(id)), 0) : live(st(k)); }
+function maxBudgetGb() { return Math.floor((DISK_FREE + stores.reduce((a, s) => a + s.size, 0) - KEEP_FREE) / GB); }
+
+// Every split is a set of RATIOS of the budget: change the budget and every limit grows or shrinks with it.
+const presets = {
+  even: (() => { const g = growthPerDay.inbound + growthPerDay.capture + growthPerDay.outbound, traffic = 0.83;
+    return { inbound: traffic * growthPerDay.inbound / g, capture: traffic * growthPerDay.capture / g, outbound: traffic * growthPerDay.outbound / g, runcycles: 0.02, logs: 0.10, work: 0.05 }; })(),
+  balanced: { inbound: 0.55, capture: 0.20, outbound: 0.10, runcycles: 0.02, logs: 0.08, work: 0.05 },
+  inbound: { inbound: 0.60, capture: 0.17, outbound: 0.06, runcycles: 0.02, logs: 0.10, work: 0.05 },
+  outbound: { inbound: 0.38, capture: 0.12, outbound: 0.33, runcycles: 0.02, logs: 0.10, work: 0.05 },
+};
+const ratios = mode => mode === 'custom' && budget.fracs ? budget.fracs : presets[mode] || presets.balanced;
+function computeAlloc(gb, mode) {
+  const r = ratios(mode), B = gb * GB;
+  return Object.fromEntries(segKeys.map(k => [k, r[k] * B]));
+}
+const curAlloc = () => computeAlloc(budget.gb, budget.mode);
+function daysText(k, a) {
+  if (k === 'work') return 'never deleted';
+  if (k === 'logs') return 'what you load';
+  if (k === 'runcycles') return `~${Math.round(a / (st('runcycles').size / Math.max(1, st('runcycles').items)))} runs`;
+  const d = a / growthPerDay[k];
+  return d >= 2 ? `~${Math.round(d)} days of history` : `~${Math.round(d * 24)} hours of history`;
+}
+
+function renderBudget() {
+  const max = maxBudgetGb(), used = stores.reduce((a, s) => a + s.size, 0);
+  const num = document.getElementById('budgetNum'), range = document.getElementById('budgetRange');
+  num.max = range.max = max; num.value = range.value = budget.gb;
+  document.getElementById('budgetFoot').innerHTML = `now using <b style="color:var(--text)">${fmt(used)}</b> (${Math.round(used / (budget.gb * GB) * 100)}%) · up to ${max} GB fits and still leaves 5 GB free`;
+  const pos = v => ((v - MIN_GB) / (max - MIN_GB) * 100) + '%';
+  document.getElementById('rangeScale').innerHTML = `<span style="left:${pos(Math.max(MIN_GB, used / GB))};transform:none"><b>used now</b>${fmt(used)}</span><span style="left:${pos(5)}"><b>suggested</b>5 GB</span><span style="left:100%;transform:translateX(-100%)">${max} GB<br><span style="position:static;transform:none">disk limit</span></span>`;
+
+  const a = curAlloc(), B = budget.gb * GB;
+  let x = 0; const bounds = [];
+  document.getElementById('allocBar').innerHTML = segKeys.map((k, i) => {
+    const w = a[k] / B * 100, u = Math.min(1, usedOf(k) / Math.max(1, a[k])) * 100;
+    x += w; if (i < segKeys.length - 1) bounds.push(x);
+    return `<div class="alloc-seg ${k === 'work' ? 'work' : ''}" style="width:${w}%;background-color:color-mix(in srgb, ${C(segColor[k])} 22%, transparent)" title="${segName[k]}: ${fmt(a[k])} · using ${fmt(usedOf(k))}">
+      <div class="used" style="width:${u}%;background:${C(segColor[k])}"></div>
+      ${w > 7 ? `<span class="lbl">${segName[k]}<small>${fmt(usedOf(k))} of ${fmt(a[k])}</small></span>` : ''}</div>`;
+  }).join('') + bounds.map((b, i) => `<div class="alloc-handle" data-i="${i}" style="left:${b}%"></div>`).join('');
+  document.querySelectorAll('.alloc-handle').forEach(h => h.onpointerdown = startDrag);
+
+  document.getElementById('allocLegend').innerHTML = segKeys.map(k => {
+    const over = k !== 'work' && usedOf(k) > a[k];
+    return `<div class="alloc-item ${over ? 'over' : ''}"><span class="t"><i style="background:${C(segColor[k])}"></i>${segName[k]}<span class="pct">${Math.round(a[k] / B * 100)}%</span></span>
+      <span class="v">${fmt(a[k])}</span><span class="d">${over ? `${fmt(usedOf(k) - a[k])} oldest would go now` : `<b>${daysText(k, a[k])}</b> · using ${fmt(usedOf(k))}`}</span></div>`;
+  }).join('');
+
+  const overs = segKeys.filter(k => k !== 'work' && usedOf(k) > a[k]);
+  const workShort = usedOf('work') > a.work;
+  document.getElementById('allocWarn').innerHTML = overs.length || workShort ? `<div class="w">${overs.length ? `Setting this deletes the oldest data right away: ${overs.map(k => `<b>${segName[k]}</b> −${fmt(usedOf(k) - a[k])}`).join(' · ')}. Export first if you need it.` : ''}${workShort ? ` Your work already needs ${fmt(usedOf('work'))} - it is never deleted, so traffic gets less.` : ''}</div>` : '';
+
+  const s = budget.saved, changed = !s || s.gb !== budget.gb || s.mode !== budget.mode || JSON.stringify(s.fracs) !== JSON.stringify(budget.fracs);
+  document.getElementById('budgetBar').classList.toggle('show', changed);
+  document.getElementById('budgetPending').innerHTML = !s
+    ? `<b>Not set yet.</b> Set ${budget.gb} GB and the five limits below follow from it · saved to <span class="mono">.env</span> as <span class="mono">ALFRED_STORAGE_BUDGET_BYTES</span> · applies right away, no restart`
+    : `<b>Changed</b> from ${s.gb} GB (${s.mode}) to ${budget.gb} GB (${budget.mode})${overs.length ? ' · <span style="color:var(--red)">deletes oldest data now</span>' : ''}`;
+  const btn = document.getElementById('budgetSave');
+  btn.textContent = s ? `Save ${budget.gb} GB` : `Set budget ${budget.gb} GB`;
+  btn.className = 'bulk-btn' + (overs.length ? ' danger' : '');
+  const badge = document.getElementById('budgetState');
+  if (s) { badge.className = 'badge ok'; badge.textContent = `${s.gb} GB · Alfred stays under it`; }
+  document.getElementById("usedOfLbl").textContent = s ? `of ${s.gb} GB budget (${Math.round(used / (s.gb * GB) * 100)}%)` : "used by Alfred · no budget";
+  document.getElementById('fcBudget').textContent = s ? `never above ${s.gb} GB` : 'not set';
+  document.getElementById('fcDays').textContent = s ? daysText('inbound', computeAlloc(s.gb, s.mode).inbound).replace(' of history', '') : '-';
+}
+
+// Floor 1 GB, half-GB steps: small enough for a laptop that only needs today's calls.
+const MIN_GB = 1;
+function setBudgetGb(v) { budget.gb = Math.max(MIN_GB, Math.min(maxBudgetGb(), Math.round((+v || MIN_GB) * 2) / 2)); renderBudget(); renderRet(); }
+document.getElementById('budgetRange').addEventListener('input', e => setBudgetGb(e.target.value));
+document.getElementById('budgetNum').addEventListener('change', e => setBudgetGb(e.target.value));
+function setMode(m) {
+  if (m === 'custom' && !budget.fracs) budget.fracs = { ...ratios(budget.mode) };
+  budget.mode = m;
+  document.querySelectorAll('#splitSeg button').forEach(b => b.classList.toggle('on', b.dataset.m === m));
+  renderBudget(); renderRet();
+}
+document.querySelectorAll('#splitSeg button').forEach(b => b.onclick = () => { if (b.dataset.m !== 'custom') budget.fracs = null; setMode(b.dataset.m); });
+
+function startDrag(e) {
+  const i = +e.target.dataset.i, bar = document.getElementById('allocBar'), rect = bar.getBoundingClientRect();
+  if (budget.mode !== 'custom') { budget.fracs = null; setMode('custom'); }
+  const f = budget.fracs, B = budget.gb * GB;
+  const left = segKeys.slice(0, i).reduce((a, k) => a + f[k], 0), right = left + f[segKeys[i]] + f[segKeys[i + 1]];
+  const minWork = usedOf('work') * 1.2 / B;
+  e.target.setPointerCapture(e.pointerId);
+  const move = ev => {
+    let p = (ev.clientX - rect.left) / rect.width;
+    const hi = segKeys[i + 1] === 'work' ? right - minWork : right - 0.01;
+    p = Math.max(left + 0.01, Math.min(hi, p));
+    f[segKeys[i]] = p - left; f[segKeys[i + 1]] = right - p;
+    renderBudget(); renderRet();
+    const h = document.querySelector(`.alloc-handle[data-i="${i}"]`); h && h.classList.add('drag');
+  };
+  const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); renderBudget(); };
+  window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
+}
+
+function budgetSave() {
+  const a = curAlloc();
+  const freed = segKeys.filter(k => k !== 'work' && usedOf(k) > a[k]).reduce((acc, k) => acc + usedOf(k) - a[k], 0);
+  const apply = () => {
+    budget.saved = { gb: budget.gb, mode: budget.mode, fracs: budget.fracs ? { ...budget.fracs } : null };
+    ['outbound', 'inbound', 'capture', 'logs', 'runcycles'].forEach(k => {
+      const s = st(k);
+      s.size -= s.free; s.free = 0;
+      if (s.size > a[k]) { const keep = a[k] / s.size; s.items = Math.round(s.items * keep); s.size = a[k]; }
+      s.limit = { kind: 'size', key: 'budget', value: a[k] };
+    });
+    document.getElementById('tip-inbound').classList.add('done');
+    addHistory('You', `Storage budget set to ${budget.gb} GB (${budget.mode === 'even' ? 'same history for all' : budget.mode === 'balanced' ? 'recommended split' : budget.mode})`, freed ? fmt(freed) : '-');
+    renderAll(); toast(`Budget set · Alfred stays under <b>${budget.gb} GB</b>`);
+  };
+  freed ? withUndo(`Setting budget - deletes ${fmt(freed)} of oldest data`, apply) : apply();
+}
+function budgetReset() {
+  if (budget.saved) Object.assign(budget, { gb: budget.saved.gb, mode: budget.saved.mode, fracs: budget.saved.fracs ? { ...budget.saved.fracs } : null });
+  else Object.assign(budget, { gb: 5, mode: 'balanced', fracs: null });
+  setMode(budget.mode);
+}
+
+// ---- automatic cleanup: sizes come from the budget; age, call count and run count stay per store ----
+const ret = [
+  { id: 'outbound', name: 'Outbound calls', age: 0, rowsCap: 0 },
+  { id: 'inbound', name: 'Inbound calls', age: 0, rowsCap: 7000 },
+  { id: 'capture', name: 'DB statements & Redis', age: 0 },
+  { id: 'logs', name: 'Logs', age: 0 },
+  { id: 'runcycles', name: 'Relive runs', age: 30, runs: 10 },
+];
+let retDraft = JSON.parse(JSON.stringify(ret));
+function renderRet() {
+  const a = curAlloc(), B = budget.gb * GB;
+  document.getElementById('retList').innerHTML = retDraft.map((r, i) => {
+    const s = st(r.id);
+    let keep = `<b>${fmt(a[r.id])}</b><span class="from-budget">${Math.round(a[r.id] / B * 100)}% of the ${budget.gb} GB budget${budget.saved ? '' : ' (not set yet)'}</span>`;
+    if (r.id === 'inbound' || r.id === 'outbound') keep += `<span class="ret-input" style="margin-top:.3rem"><span class="faint" style="font-size:.72rem">and at most</span><input type="number" value="${r.rowsCap || ''}" placeholder="any" min="0" oninput="retEdit(${i}, 'rowsCap', this.value)"><span class="faint" style="font-size:.72rem">calls</span></span>`;
+    if (r.id === 'runcycles') keep += `<span class="ret-input" style="margin-top:.3rem"><span class="faint" style="font-size:.72rem">and the last</span><input type="number" value="${r.runs}" min="1" oninput="retEdit(${i}, 'runs', this.value)"><span class="faint" style="font-size:.72rem">per cycle</span></span>`;
+    let effect;
+    if (r.id === 'runcycles') {
+      const over = reliveCycles.reduce((acc, c) => acc + c.runs.filter((x, j) => j < c.runs.length - r.runs && !x.star).length, 0);
+      effect = over ? `<b>${over} older runs</b> would be removed now - the cycles stay` : `Every cycle has ≤ ${r.runs} runs - nothing to remove`;
+    } else if (r.id === 'capture') {
+      effect = `Keeps <b>${daysText(r.id, a[r.id])}</b> at today's rate · now ${Math.round(s.size / a[r.id] * 100)}% used`
+        + `<span class="whole-call">When full: the oldest call loses <b>all</b> its statements, Redis commands and log lines at once - never part of them. The call itself stays, marked <span class="db-gone-chip">◆ DB data removed · storage limit</span></span>`;
+    } else if (r.id === 'logs') effect = `Only what you load. Past ${fmt(a.logs)} the oldest source's oldest lines go first.`;
+    else {
+      effect = `Keeps <b>${daysText(r.id, a[r.id])}</b> at today's rate · now ${Math.round(s.size / a[r.id] * 100)}% used`;
+      if (r.rowsCap) {
+        const capDays = r.rowsCap / s.perHour / 24, sizeDays = a[r.id] / growthPerDay[r.id];
+        effect += capDays < sizeDays
+          ? ` · <span style="color:var(--amber)">the ${n(r.rowsCap)}-call limit is reached first: keeps ~${capDays >= 2 ? Math.round(capDays) + ' days' : Math.round(capDays * 24) + ' h'}</span>`
+          : ` · the ${n(r.rowsCap)}-call limit is not reached`;
+      }
+    }
+    const age = `<select onchange="retEdit(${i}, 'age', this.value)">${[[0, 'Never'], [1, '1 day'], [7, '7 days'], [14, '14 days'], [30, '30 days'], [90, '90 days']].map(([v, l]) => `<option value="${v}" ${+r.age === v ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
+    return `<div class="ret-row"><span><b>${r.name}</b><br><span class="faint mono" style="font-size:.7rem">${s.file}</span></span><span style="display:flex;flex-direction:column">${keep}</span><span>${age}</span><span class="ret-effect">${effect}</span></div>`;
+  }).join('');
+}
+function retEdit(i, k, v) {
+  retDraft[i][k] = +v;
+  const changed = retDraft.filter((r, j) => JSON.stringify(r) !== JSON.stringify(ret[j]));
+  document.getElementById('pendingBar').classList.toggle('show', changed.length > 0);
+  document.getElementById('pendingText').textContent = changed.map(r => r.name).join(', ') + ' · applies right away, no restart';
+  const focused = document.activeElement && document.activeElement.type === 'number' ? [...document.querySelectorAll('#retList input')].indexOf(document.activeElement) : -1;
+  renderRet();
+  if (focused >= 0) document.querySelectorAll('#retList input')[focused].focus();
+}
+function resetRetention() { retDraft = JSON.parse(JSON.stringify(ret)); renderRet(); document.getElementById('pendingBar').classList.remove('show'); }
+function saveRetention() {
+  retDraft.forEach((r, j) => Object.assign(ret[j], r));
+  document.getElementById('pendingBar').classList.remove('show');
+  renderAll(); toast('Cleanup rules saved to <b>.env</b>');
+}
+
+// ---- cleanup dialog ----
+let cleanupKinds = new Set(['outbound']);
+function openCleanup(kind, age) {
+  cleanupKinds = new Set([kind === 'capture' ? 'inbound' : kind]);
+  document.querySelectorAll('#whatChips .chip').forEach(c => c.classList.toggle('on', cleanupKinds.has(c.dataset.k)));
+  document.getElementById('fAge').value = String([0, 1, 3, 7, 14, 30].reduce((a, v) => (age ?? 0) >= v ? v : a, 0));
+  document.getElementById('fProj').value = 'all'; document.getElementById('fStatus').value = 'any'; document.getElementById('fHost').value = '';
+  updatePreview();
+  document.getElementById('cleanupDlg').classList.add('show');
+}
+document.querySelectorAll('#whatChips .chip').forEach(c => c.onclick = () => {
+  cleanupKinds.has(c.dataset.k) ? cleanupKinds.delete(c.dataset.k) : cleanupKinds.add(c.dataset.k);
+  c.classList.toggle('on'); updatePreview();
+});
+['fAge', 'fProj', 'fStatus', 'fHost', 'kComment', 'kRelive'].forEach(id => document.getElementById(id).addEventListener('input', updatePreview));
+
+let lastPreview = { count: 0, bytes: 0 };
+function updatePreview() {
+  const age = +document.getElementById('fAge').value, proj = document.getElementById('fProj').value, st = document.getElementById('fStatus').value, host = document.getElementById('fHost').value.trim();
+  let count = 0, bytes = 0, kept = 0, child = [];
+  for (const k of cleanupKinds) {
+    if (k === 'kept') { const c = age >= 7 ? 9100 : age ? 15400 : 18204; count += c; bytes += c * 120; continue; }
+    const s = stores.find(x => x.id === k);
+    let c = s.age.slice(age).reduce((a, v) => a + v, 0);
+    if (k === 'inbound' && age > 0) c = 0;
+    if (proj !== 'all') { const m = s.split.find(x => x[0] === proj); c = m ? Math.round(c * m[1] / s.split.reduce((a, x) => a + x[1], 0)) : 0; }
+    if (st !== 'any' && s.status) { const idx = { '2xx': 0, '4xx': 1, '5xx': 2 }[st]; c = idx === undefined ? Math.round(c * 0.18) : Math.round(c * s.status[idx] / s.items); }
+    if (host) c = Math.round(c * 0.3);
+    let k1 = 0;
+    if (k !== 'cycles' && k !== 'runcycles') { if (document.getElementById('kComment').checked) k1 += Math.round(c * 0.06); if (document.getElementById('kRelive').checked) k1 += Math.round(c * 0.01); }
+    c -= k1; kept += k1;
+    count += c; bytes += c * (s.size - s.free) / s.items;
+    if (k === 'inbound' && c) { child.push(n(c * 59) + ' DB statements'); child.push(n(c * 11) + ' Redis commands'); child.push(n(c * 4) + ' caught log lines'); bytes += c * 59 * 380; }
+    if (k === 'outbound' && c) child.push(n(c) + ' triage marks');
+    if (k === 'cycles' && c) child.push(n(c * 31) + ' captured calls, spacers');
+    if (k === 'runcycles' && c) child.push(n(c * 18) + ' run calls, step results');
+  }
+  lastPreview = { count, bytes };
+  document.getElementById('pvCount').textContent = n(count);
+  document.getElementById('pvSize').textContent = '~' + fmt(bytes);
+  document.getElementById('pvKept').textContent = n(kept);
+  document.getElementById('pvChild').textContent = child.join(' · ') || '-';
+  const go = document.getElementById('pvGo');
+  go.disabled = count === 0; go.textContent = count ? `Delete ${n(count)} items` : 'Nothing matches';
+  const rows = [['GET', 200, 'https://api.supplier.com/v2/rates?from=DXB&to=LHR', '27 Sep 09:14'], ['POST', 500, 'https://api.supplier.com/v2/bookings', '27 Sep 09:16'], ['GET', 404, 'https://auth.partner.io/oauth/userinfo', '27 Sep 10:02'], ['POST', 200, 'https://maps.vendor.net/geocode', '28 Sep 14:40']];
+  document.getElementById('pvSample').innerHTML = count ? '<span class="faint" style="font-size:.7rem">Oldest matches</span>' + rows.map(r => `<div><span class="m-${r[0]}">${r[0]}</span><span class="s${String(r[1])[0]}">${r[1]}</span><span class="mono">${r[2]}</span><span class="faint">${r[3]}</span></div>`).join('') + (count > 4 ? `<span class="faint">… and ${n(count - 4)} more</span>` : '') : '<span class="faint">No items match these filters.</span>';
+}
+function runCleanup() {
+  const { count, bytes } = lastPreview;
+  closeDlg('cleanupDlg');
+  withUndo(`Deleting ${n(count)} items`, () => applyCleanup(count, bytes));
+}
+function applyCleanup(count, bytes) {
+  for (const k of cleanupKinds) {
+    const s = stores.find(x => x.id === k); if (!s) continue;
+    const share = Math.min(1, bytes / stores.filter(x => cleanupKinds.has(x.id)).reduce((a, x) => a + x.size, 0));
+    s.items = Math.max(0, Math.round(s.items * (1 - share))); s.size = Math.max(s.free, s.size * (1 - share));
+    s.age = s.age.map((v, i) => i >= +document.getElementById('fAge').value ? Math.round(v * 0.05) : v);
+  }
+  if (cleanupKinds.has('outbound')) document.getElementById('tip-old').classList.add('done');
+  addHistory('You', `Deleted ${n(count)} items (${[...cleanupKinds].join(', ')})${document.getElementById('kCompact').checked ? ' and compacted' : ''}`, fmt(bytes));
+  renderAll(); toast(`Deleted ${n(count)} items · <b>${fmt(bytes)} freed</b>`);
+}
+
+// Deletes wait 8 s with an Undo before the backend runs them - the safety net "Cannot be undone" never had.
+let undoTimer = null;
+function withUndo(label, apply) {
+  const t = document.getElementById('toast'); let left = 8;
+  clearTimeout(tt); clearInterval(undoTimer);
+  const draw = () => t.innerHTML = `<span>${label} in <span class="count">${left}s</span></span><button class="undo-btn" onclick="cancelUndo()">Undo</button>`;
+  t.classList.add('show', 'undo'); draw();
+  undoTimer = setInterval(() => { left--; if (left <= 0) { clearInterval(undoTimer); t.classList.remove('undo'); apply(); } else draw(); }, 1000);
+}
+function cancelUndo() { clearInterval(undoTimer); const t = document.getElementById('toast'); t.classList.remove('undo'); toast('Cancelled - nothing was deleted'); }
+
+// ---- relive ----
+const runsOf = (count, failEvery, kbEach, starred = []) => Array.from({ length: count }, (_, i) => ({ ok: i % failEvery !== 1, size: kbEach * KB * (0.7 + (i % 4) * 0.2), star: starred.includes(i) }));
+const reliveCycles = [
+  { name: 'Checkout replay', steps: 14, vars: 6, last: 'Today 16:20', runs: runsOf(22, 4, 510, [3, 15]) },
+  { name: 'Login + MFA', steps: 5, vars: 3, last: 'Yesterday 10:02', runs: runsOf(15, 6, 280) },
+  { name: 'Invoice batch', steps: 9, vars: 4, last: '3 Oct 14:11', runs: runsOf(9, 3, 720, [0]) },
+  { name: 'Price check (draft)', steps: 3, vars: 1, last: 'never run', runs: [] },
+  { name: 'Refund flow', steps: 7, vars: 2, last: '29 Sep 09:40', runs: [] },
+  { name: 'Smoke test', steps: 4, vars: 0, last: '20 Sep 08:12', runs: [] },
+];
+function renderRelive() {
+  const keep = +document.getElementById('rlKeep').value;
+  const all = reliveCycles.flatMap(c => c.runs);
+  document.getElementById('reliveSum').textContent = `${reliveCycles.length} cycles · ${all.length} runs · ${fmt(all.reduce((a, r) => a + r.size, 0))}`;
+  let totalOver = 0;
+  document.getElementById('reliveTbl').innerHTML = `<thead><tr><th>Relive cycle</th><th class="r">Steps</th><th>Last runs <span class="faint">(newest right)</span></th><th class="r">Runs</th><th class="r">Recordings</th><th class="r">Last run</th><th></th></tr></thead><tbody>` +
+    reliveCycles.map((c, i) => {
+      const over = keep ? c.runs.filter((r, j) => j < c.runs.length - keep && !r.star) : [];
+      totalOver += over.length;
+      const dots = c.runs.slice(-24).map((r, j, a) => {
+        const idx = c.runs.length - a.length + j, goes = keep && idx < c.runs.length - keep && !r.star;
+        return `<span title="${r.ok ? 'passed' : 'failed'} · ${fmt(r.size)}${r.star ? ' · starred' : ''}${goes ? ' · will be removed' : ''}" style="display:inline-block;width:8px;height:14px;margin-right:2px;border-radius:2px;background:${r.ok ? C('green') : C('red')};opacity:${goes ? .25 : 1};${r.star ? 'box-shadow:0 0 0 1px var(--amber)' : ''}"></span>`;
+      }).join('');
+      return `<tr><td><b>${c.name}</b><span class="why" style="color:var(--text-faint)">${c.vars} variables · cycle rules</span></td><td class="r">${c.steps}</td>
+        <td>${dots || '<span class="faint">no runs yet</span>'}</td><td class="r">${c.runs.length}${over.length ? ` <span class="badge waste">−${over.length}</span>` : ''}</td>
+        <td class="r">${fmt(c.runs.reduce((a, r) => a + r.size, 0))}</td><td class="r faint">${c.last}</td>
+        <td class="acts">${over.length ? `<button class="action-btn" onclick="rlTrim(${i})">Keep last ${keep}</button>` : ''}${c.runs.length ? `<button class="action-btn danger" onclick="rlClear(${i})">Delete runs</button>` : ''}<button class="action-btn" onclick="toast('Exported ${c.name} with its steps and rules')">Export</button></td></tr>`;
+    }).join('') + '</tbody>';
+  const b = document.getElementById('rlApply'); b.disabled = !totalOver;
+  b.textContent = totalOver ? `Keep last ${keep} everywhere - removes ${totalOver} runs` : 'Nothing beyond the limit';
+}
+function trimRuns(c, keep) {
+  const cut = c.runs.length - keep; let gone = 0, bytes = 0;
+  c.runs = c.runs.filter((r, j) => { if (j < cut && !r.star) { gone++; bytes += r.size; return false; } return true; });
+  return [gone, bytes];
+}
+function syncRunStore() { const s = st('runcycles'); const all = reliveCycles.flatMap(c => c.runs); s.items = all.length; s.size = all.reduce((a, r) => a + r.size, 0); }
+function rlTrim(i) {
+  const keep = +document.getElementById('rlKeep').value || 10, c = reliveCycles[i];
+  withUndo(`Removing old runs of ${c.name}`, () => { const [g, b] = trimRuns(c, keep); syncRunStore(); addHistory('You', `Removed ${g} old runs of ${c.name}`, fmt(b)); renderAll(); toast(`${g} runs removed · <b>${fmt(b)} freed</b>`); });
+}
+function rlClear(i) {
+  const c = reliveCycles[i];
+  withUndo(`Deleting ${c.runs.length} runs of ${c.name}`, () => { const b = c.runs.reduce((a, r) => a + r.size, 0), g = c.runs.length; c.runs = []; syncRunStore(); addHistory('You', `Deleted all ${g} runs of ${c.name} (cycle kept)`, fmt(b)); renderAll(); toast(`${g} runs deleted · cycle kept · <b>${fmt(b)} freed</b>`); });
+}
+function applyKeepAll() {
+  const keep = +document.getElementById('rlKeep').value;
+  withUndo('Removing runs beyond the last ' + keep, () => { let g = 0, b = 0; reliveCycles.forEach(c => { const [x, y] = trimRuns(c, keep); g += x; b += y; }); syncRunStore(); addHistory('You', `Kept last ${keep} runs per Relive cycle - removed ${g}`, fmt(b)); renderAll(); toast(`${g} runs removed · <b>${fmt(b)} freed</b>`); });
+}
+function rlFailedOnly() {
+  withUndo('Deleting passed runs', () => { let g = 0, b = 0; reliveCycles.forEach(c => { const last = c.runs.length - 1; c.runs = c.runs.filter((r, j) => { const k = !r.ok || r.star || j === last; if (!k) { g++; b += r.size; } return k; }); }); syncRunStore(); addHistory('You', `Deleted ${g} passed Relive runs (failed, starred and latest kept)`, fmt(b)); renderAll(); toast(`${g} passed runs deleted · <b>${fmt(b)} freed</b>`); });
+}
+
+// ---- space over time ----
+const days30 = Array.from({ length: 30 }, (_, i) => {
+  const d = 29 - i, w = 1 + 0.25 * Math.sin(i / 2.3);
+  return { label: d === 0 ? 'today' : new Date(2026, 9, 9 - d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }),
+    inbound: 720 * w * (i > 22 ? 1.38 : 1), outbound: 44 * w, capture: 120 * w * (i > 22 ? 1.3 : 1), logs: i === 27 ? 1500 : 4, cycles: i % 6 === 0 ? 9 : 1, removed: i > 20 ? 900 : 0 };
+});
+let range = 14;
+function renderChart() {
+  const data = days30.slice(30 - range).map(d => ({ ...d, logs: Math.min(d.logs, 300) }));
+  const fc = Array.from({ length: Math.round(range / 3) }, () => ({ fc: true, total: 212 }));
+  const tot = d => d.inbound + d.outbound + d.capture + d.logs + d.cycles;
+  const max = Math.max(...data.map(tot), 212) * 1.15;
+  const chart = document.getElementById('chart');
+  const lines = [0.25, 0.5, 0.75, 1].map(f => `<div class="grid" style="bottom:${f * 100}%"></div><span class="ylab" style="bottom:${f * 100}%">${Math.round(max * f)} MB</span>`).join('');
+  chart.innerHTML = lines + data.map((d, i) => `<div class="col ${d.removed ? 'dip' : ''}" style="height:${tot(d) / max * 100}%" data-i="${i}">
+      ${['inbound', 'outbound', 'capture', 'logs', 'cycles'].map(k => `<div style="height:${d[k] / tot(d) * 100}%;background:${C({ inbound: 'purple', outbound: 'cyan', capture: 'orange', logs: 'pink', cycles: 'green' }[k])}"></div>`).join('')}
+    </div>`).join('') + fc.map(f => `<div class="col fc" style="height:${f.total / max * 100}%"></div>`).join('');
+  chart.querySelectorAll('.col[data-i]').forEach(c => c.onmouseenter = () => {
+    const d = data[+c.dataset.i];
+    document.getElementById('chartTip').innerHTML = `<b style="color:var(--text)">${d.label}</b> · added ${fmt(tot(d) * MB)} - inbound ${fmt(d.inbound * MB)}, outbound ${fmt(d.outbound * MB)}, DB statements ${fmt(d.capture * MB)}${days30[30 - range + +c.dataset.i].logs > 100 ? ', <span style="color:var(--pink)">logs 1.5 GB (wildfly-server.log loaded)</span>' : ''}${d.removed ? ` · <span style="color:var(--green)">${fmt(d.removed * MB)} removed by the inbound limit</span>` : ''}`;
+  });
+  const step = Math.ceil(range / 7);
+  document.getElementById('xaxis').innerHTML = data.map((d, i) => `<span>${i % step === 0 || i === data.length - 1 ? d.label : ''}</span>`).join('') + fc.map(() => '<span></span>').join('');
+}
+document.querySelectorAll('#rangeSeg button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('#rangeSeg button').forEach(x => x.classList.remove('on')); b.classList.add('on'); range = +b.dataset.d; renderChart();
+});
+
+// ---- where the space goes ----
+const endpoints = [
+  { p: 'odeysys', m: 'GET', ep: '/odeysys/api/session/heartbeat', calls: 2410, size: 21 * MB, why: 'polled every 2 s - same response 98% of the time' },
+  { p: 'odeysys', m: 'POST', ep: '/odeysys/api/reports/export', calls: 38, size: 402 * MB, why: '10.6 MB PDF in each response' },
+  { p: 'odeysys', m: 'GET', ep: '/odeysys/actuator/health', calls: 1260, size: 2.1 * MB, why: 'health check' },
+  { p: 'billing', m: 'POST', ep: '/billing/invoices/search', calls: 640, size: 188 * MB, why: '' },
+  { p: 'api.supplier.com', m: 'GET', ep: 'https://api.supplier.com/v2/rates', calls: 1180, size: 96 * MB, why: '' },
+  { p: 'odeysys', m: 'OPTIONS', ep: '/odeysys/api/* (preflights)', calls: 1640, size: 9.8 * MB, why: 'CORS preflight - hidden in lists' },
+];
+const largest = [
+  { m: 'POST', s: 200, u: '/odeysys/api/reports/export?type=pdf&period=Q3', size: 14.2 * MB, when: 'Today 16:41', what: 'response · application/pdf' },
+  { m: 'POST', s: 200, u: '/odeysys/api/reports/export?type=pdf&period=Q2', size: 12.8 * MB, when: 'Today 16:39', what: 'response · application/pdf' },
+  { m: 'POST', s: 500, u: '/billing/invoices/search', size: 9.4 * MB, when: 'Today 15:02', what: '41,200 DB result rows' },
+  { m: 'GET', s: 200, u: 'https://maps.vendor.net/tiles/bulk?z=12', size: 7.7 * MB, when: '2 Oct 11:20', what: 'response · image/png' },
+  { m: 'POST', s: 413, u: '/odeysys/api/documents/upload', size: 6.1 * MB, when: 'Today 09:58', what: 'request · multipart/form-data' },
+];
+const projects = [
+  ['odeysys', 'inbound', 812 * MB, 151 * MB, 0, 31 * MB], ['billing', 'inbound', 174 * MB, 8 * MB, 0, 9 * MB],
+  ['api.supplier.com', 'outbound', 142 * MB, 0, 0, 12 * MB], ['auth.partner.io', 'outbound', 58 * MB, 0, 0, 0], ['maps.vendor.net', 'outbound', 19.7 * MB, 0, 0, 0],
+];
+const dupes = [
+  { m: 'GET', ep: '/odeysys/api/session/heartbeat', n: 2362, size: 20.6 * MB, note: 'identical request and response' },
+  { m: 'GET', ep: 'https://api.supplier.com/v2/rates?from=DXB&to=LHR', n: 412, size: 31 * MB, note: 'same response body' },
+  { m: 'GET', ep: '/odeysys/api/user/me', n: 380, size: 3.4 * MB, note: 'identical request and response' },
+];
+let hogView = 'endpoints';
+const pb = (v, max, c = 'purple') => `<div class="bar"><div style="width:${v / max * 100}%;background:${C(c)}"></div></div>`;
+function renderHogs() {
+  const body = document.getElementById('hogBody'), hint = document.getElementById('hogHint');
+  if (hogView === 'endpoints') {
+    hint.textContent = 'Endpoints that take the most space or are called the most. Delete what is stored, and stop recording them from now on.';
+    const max = Math.max(...endpoints.map(e => e.size));
+    body.innerHTML = `<table class="tbl"><thead><tr><th>Endpoint</th><th>Project</th><th class="r">Calls</th><th class="r">Size</th><th class="share">Share</th><th></th></tr></thead><tbody>
+      ${endpoints.map((e, i) => `<tr id="ep${i}"><td class="ep"><span class="m-${e.m}">${e.m}</span> ${e.ep}${e.why ? `<span class="why">${e.why}</span>` : ''}</td><td>${e.p}</td><td class="r">${n(e.calls)}</td><td class="r">${fmt(e.size)}</td><td class="share">${pb(e.size, max)}</td>
+      <td class="acts"><button class="action-btn" onclick="hogDelete('ep${i}', ${e.calls}, ${e.size})">Delete these</button><button class="action-btn danger" onclick="stopRecording('${e.ep}', '${e.p}')">Stop recording</button></td></tr>`).join('')}</tbody></table>`;
+  } else if (hogView === 'largest') {
+    hint.textContent = 'Single calls with the biggest bodies or the most database rows. Stored whole - Alfred never cuts a body.';
+    body.innerHTML = `<table class="tbl"><thead><tr><th>Call</th><th>What is big</th><th class="r">Size</th><th class="r">When</th><th></th></tr></thead><tbody>
+      ${largest.map((c, i) => `<tr id="lg${i}"><td class="ep"><span class="m-${c.m}">${c.m}</span> <span class="s${String(c.s)[0]}">${c.s}</span> ${c.u}</td><td class="faint">${c.what}</td><td class="r"><b>${fmt(c.size)}</b></td><td class="r faint">${c.when}</td>
+      <td class="acts"><button class="action-btn" onclick="toast('Opens the call in Live Calls')">Open</button><button class="action-btn danger" onclick="hogDelete('lg${i}', 1, ${c.size})">Delete</button></td></tr>`).join('')}</tbody></table>`;
+  } else if (hogView === 'projects') {
+    hint.textContent = 'Everything one project or supplier costs, across every store.';
+    const max = Math.max(...projects.map(p => p[2] + p[3] + p[5]));
+    body.innerHTML = `<table class="tbl"><thead><tr><th>Project / supplier</th><th>Direction</th><th class="r">Calls</th><th class="r">DB &amp; Redis</th><th class="r">Log lines</th><th class="r">Total</th><th class="share"></th><th></th></tr></thead><tbody>
+      ${projects.map(p => `<tr><td class="mono">${p[0]}</td><td class="faint">${p[1]}</td><td class="r">${fmt(p[2])}</td><td class="r">${p[3] ? fmt(p[3]) : '-'}</td><td class="r">${p[5] ? fmt(p[5]) : '-'}</td><td class="r"><b>${fmt(p[2] + p[3] + p[5])}</b></td><td class="share">${pb(p[2] + p[3] + p[5], max, p[1] === 'inbound' ? 'purple' : 'cyan')}</td>
+      <td class="acts"><button class="action-btn" onclick="openCleanup('${p[1]}');document.getElementById('fProj').value='${p[0]}';updatePreview()">Clean up…</button></td></tr>`).join('')}</tbody></table>`;
+  } else {
+    hint.textContent = 'The same call recorded again and again. Keep the first and last of each run and the ones that differ; delete the rest.';
+    body.innerHTML = `<table class="tbl"><thead><tr><th>Repeated call</th><th>Why it counts as a repeat</th><th class="r">Repeats</th><th class="r">Frees</th><th></th></tr></thead><tbody>
+      ${dupes.map((d, i) => `<tr id="dp${i}"><td class="ep"><span class="m-${d.m}">${d.m}</span> ${d.ep}</td><td class="faint">${d.note}</td><td class="r">${n(d.n)}</td><td class="r"><b style="color:var(--green)">${fmt(d.size)}</b></td>
+      <td class="acts"><button class="action-btn" onclick="hogDelete('dp${i}', ${d.n}, ${d.size}, 'repeats')">Keep 1 of each</button></td></tr>`).join('')}</tbody></table>
+      <div class="detail-foot"><button class="bulk-btn" onclick="dupes.forEach((d,i)=>document.getElementById('dp'+i).classList.add('gone'));withUndo('Removing ${n(3154)} repeats', ()=>toast('Removed 3,154 repeats · <b>55.0 MB freed</b>'))">Remove all repeats - frees 55.0 MB</button><span class="sub">Calls with a comment or a pin are always kept.</span></div>`;
+  }
+}
+document.querySelectorAll('#hogSeg button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('#hogSeg button').forEach(x => x.classList.remove('on')); b.classList.add('on'); hogView = b.dataset.v; renderHogs();
+});
+function hogDelete(rowId, count, bytes, what = 'calls') {
+  document.getElementById(rowId).classList.add('gone');
+  withUndo(`Deleting ${n(count)} ${what}`, () => { addHistory('You', `Deleted ${n(count)} ${what}`, fmt(bytes)); toast(`Deleted ${n(count)} ${what} · <b>${fmt(bytes)} freed</b>`); });
+}
+function stopRecording(ep, p) { toast(`Added <span class="mono">${ep}</span> to Call filtering for ${p} · existing calls kept`); }
+function foldWal(btn) { btn.disabled = true; btn.textContent = 'Folding…'; setTimeout(() => { document.querySelector('#fileHealth li:nth-child(2) .num').textContent = '0 B'; document.querySelector('#fileHealth li:nth-child(2) .num').className = 'num'; btn.textContent = 'Done'; toast('Write logs folded in · <b>434 MB freed</b>'); }, 900); }
+function checkFiles(btn) { btn.disabled = true; btn.textContent = 'Checking…'; setTimeout(() => { btn.disabled = false; btn.textContent = 'Check all files'; toast('All 13 files are healthy · checked in 4.2 s'); }, 1200); }
+
+// ---- compact ----
+function compact(id, tipId) {
+  const s = stores.find(x => x.id === id); const freed = s.free;
+  toast(`Compacting ${s.file}…`);
+  setTimeout(() => {
+    s.size -= freed; s.free = 0;
+    if (id === 'logs' || tipId) document.getElementById('tip-logs').classList.add('done');
+    addHistory('You', `Compacted ${s.file}`, fmt(freed));
+    renderAll(); toast(`${s.file} compacted · <b>${fmt(freed)} freed</b>`);
+  }, 900);
+}
+
+// ---- confirm ----
+const confirms = {
+  traffic: { title: 'Delete all recorded traffic', word: 'delete traffic', list: () => [['Outbound calls', n(stores[0].items)], ['Inbound calls', n(stores[1].items)], ['DB statements & Redis', n(stores[2].items)], ['Frees', '~' + fmt(stores[0].size + stores[1].size + stores[2].size)]], ids: ['outbound', 'inbound', 'capture', 'triage'] },
+  cycles: { title: 'Delete all session cycles', word: 'delete cycles', list: () => [['Session cycles', n(st('cycles').items)], ['Relive run recordings', 'kept'], ['Frees', '~' + fmt(st('cycles').size)]], ids: ['cycles'] },
+  runs: { title: 'Delete all Relive run history', word: 'delete runs', list: () => [['Runs and their recordings', n(st('runcycles').items)], ['Relive cycles, steps, rules', 'kept'], ['Frees', '~' + fmt(st('runcycles').size)]], ids: ['runcycles'] },
+  all: { title: "Reset Alfred's data", word: 'reset', list: () => [['Traffic, cycles, comments, logs, Relive', 'everything'], ['Kept', 'settings, profiles, redactions, rules'], ['Frees', '~' + fmt(stores.filter(s => !s.configOnly).reduce((a, s) => a + s.size, 0))]], ids: ['outbound', 'inbound', 'capture', 'logs', 'triage', 'cycles', 'comments', 'runcycles', 'relive', 'scenarios'] },
+};
+let confirmKey = null;
+function openConfirm(k) {
+  confirmKey = k; const c = confirms[k];
+  document.getElementById('cfTitle').textContent = c.title;
+  document.getElementById('cfText').textContent = 'This cannot be undone.';
+  document.getElementById('cfList').innerHTML = c.list().map(([a, b]) => `<span>${a}</span><span>${b}</span>`).join('');
+  document.getElementById('cfWord').textContent = c.word;
+  const inp = document.getElementById('cfInput'); inp.value = ''; document.getElementById('cfGo').disabled = true;
+  inp.oninput = () => document.getElementById('cfGo').disabled = inp.value.trim().toLowerCase() !== c.word;
+  document.getElementById('confirmDlg').classList.add('show'); setTimeout(() => inp.focus(), 50);
+}
+function doConfirm() {
+  const c = confirms[confirmKey]; let freed = 0;
+  closeDlg('confirmDlg');
+  withUndo(c.title, () => {
+    c.ids.forEach(id => { const s = stores.find(x => x.id === id); freed += s.size - 4 * KB; s.items = 0; s.size = 4 * KB; s.free = 0; s.age = s.age.map(() => 0); });
+    addHistory('You', c.title, fmt(freed)); renderAll(); toast(`${c.title} · <b>${fmt(freed)} freed</b>`); });
+}
+
+// ---- misc ----
+function addHistory(who, what, size) {
+  const li = document.createElement('li');
+  li.innerHTML = `<span class="faint">Just now</span><span class="who ${who === 'You' ? 'you' : 'auto'}">${who}</span><span>${what}</span><span class="num">${size}</span>`;
+  document.getElementById('histList').prepend(li);
+}
+function renderTips() {
+  const open = [...document.querySelectorAll('.tip')].filter(t => !t.classList.contains('done')).length;
+  document.getElementById('navDot').textContent = open; document.getElementById('navDot').style.display = open ? '' : 'none';
+  document.getElementById('tipCount').textContent = open ? `${open} thing${open > 1 ? 's' : ''} worth doing` : 'All good - nothing to do right now';
+}
+function openStore(id) { showPane('stored'); const el = document.querySelector(`.store[data-id="${id}"]`); el.classList.add('open'); el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+function jump(id) { const pane = { relivePanel: 'relive', retention: 'rules', hogs: 'biggest', stores: 'stored' }[id];
+  if (pane) showPane(pane);
+  if (id === 'budgetPanel') { document.getElementById('advanced').open = true; id = 'advanced'; }
+  document.getElementById(id).scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+function closeDlg(id) { document.getElementById(id).classList.remove('show'); }
+document.querySelectorAll('.backdrop').forEach(b => b.addEventListener('click', e => { if (e.target === b) b.classList.remove('show'); }));
+document.addEventListener('keydown', e => { if (e.key === 'Escape') document.querySelectorAll('.backdrop.show').forEach(b => b.classList.remove('show')); });
+let tt; function toast(html) { const t = document.getElementById('toast'); t.innerHTML = html; t.classList.add('show'); clearTimeout(tt); tt = setTimeout(() => t.classList.remove('show'), 2600); }
+document.querySelectorAll('#themes button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('#themes button').forEach(x => x.classList.remove('on')); b.classList.add('on');
+  if (b.dataset.t === 'default') document.documentElement.removeAttribute('data-theme'); else document.documentElement.setAttribute('data-theme', b.dataset.t);
+});
+
+// ---- round 5: easier home ----
+function renderHome() {
+  const s = budget.saved;
+  document.querySelectorAll('#limitChips .chip').forEach(c => {
+    const v = c.dataset.gb;
+    c.classList.toggle('on', s ? (v === 'custom' ? ![1, 2, 5, 10, 20].includes(s.gb) : +v === s.gb) : false);
+  });
+  const custom = document.querySelector('#limitChips .chip[data-gb="custom"]');
+  if (s && ![1, 2, 5, 10, 20].includes(s.gb)) custom.innerHTML = `${s.gb} GB · change`; else custom.innerHTML = 'Other…';
+  const a = s ? computeAlloc(s.gb, s.mode) : null;
+  document.getElementById('homeDays').innerHTML = s
+    ? `Alfred keeps <b>${daysText('inbound', a.inbound).replace(' of history', '')}</b> of calls, and never goes above <b>${s.gb} GB</b>.`
+    : 'Pick one - Alfred will never go above it.';
+  const free = stores.reduce((acc, x) => acc + x.free, 0) + (walPending ? 412 * MB : 0);
+  const btn = document.getElementById('freeAll');
+  btn.disabled = free < MB; btn.textContent = free < MB ? 'Nothing to free' : `Free ${fmt(free)}`;
+  document.getElementById('freeText').textContent = free < MB ? 'No empty space left inside Alfred\'s files.' : `${fmt(free)} is empty space inside Alfred's files. Giving it back deletes nothing.`;
+}
+let walPending = true;
+function freeAll() {
+  const free = stores.reduce((acc, x) => acc + x.free, 0) + (walPending ? 412 * MB : 0);
+  const btn = document.getElementById('freeAll'); btn.disabled = true; btn.textContent = 'Freeing…';
+  setTimeout(() => {
+    stores.forEach(x => { x.size -= x.free; x.free = 0; }); walPending = false;
+    ['tip-logs', 'tip-wal'].forEach(id => document.getElementById(id).classList.add('done'));
+    addHistory('You', 'Freed empty space in every file', fmt(free));
+    renderAll(); toast(`<b>${fmt(free)} freed</b> · nothing was deleted`);
+  }, 1000);
+}
+// A budget smaller than what is stored asks first, right where it was picked - no surprise delete.
+function pickBudget(v) {
+  const before = budget.saved ? { ...budget.saved } : null;
+  setBudgetGb(v);
+  const a = curAlloc();
+  const overs = segKeys.filter(k => k !== 'work' && usedOf(k) > a[k]);
+  if (!overs.length) { budgetSave(); return; }
+  const total = overs.reduce((acc, k) => acc + usedOf(k) - a[k], 0);
+  document.getElementById('homeDays').innerHTML = `<div class="w home-warn"><b>${budget.gb} GB is less than Alfred holds now.</b> Setting it deletes the oldest
+    ${overs.map(k => `${segName[k].toLowerCase()} (${fmt(usedOf(k) - a[k])})`).join(', ')} - <b>${fmt(total)}</b> in all, with their DB statements, Redis commands and log lines.
+    <div style="display:flex;gap:.4rem;margin-top:.5rem"><button class="bulk-btn danger" onclick="budgetSave()">Set ${budget.gb} GB and delete ${fmt(total)}</button>
+    <button class="bulk-btn secondary" onclick="cancelPick(${before ? before.gb : 'null'})">Cancel</button></div></div>`;
+}
+function cancelPick(gb) { if (gb) setBudgetGb(gb); else Object.assign(budget, { gb: 5 }); renderAll(); }
+document.querySelectorAll('#limitChips .chip').forEach(c => c.onclick = () => {
+  if (c.dataset.gb === 'custom') {
+    const max = maxBudgetGb();
+    c.innerHTML = `<input type="number" step="0.5" min="${MIN_GB}" max="${max}" value="${budget.gb}"> GB <span class="action-btn" style="margin-left:.3rem">Set</span>`;
+    const inp = c.querySelector('input'); inp.focus(); inp.select();
+    inp.onclick = e => e.stopPropagation();
+    const go = e => { e && e.stopPropagation(); pickBudget(inp.value); };
+    inp.onkeydown = e => { if (e.key === 'Enter') go(e); };
+    c.querySelector('.action-btn').onclick = go;
+    c.onclick = null; setTimeout(() => c.onclick = null, 0);
+    return;
+  }
+  pickBudget(c.dataset.gb);
+});
+document.querySelectorAll('#subtabs button').forEach(b => b.onclick = () => showPane(b.dataset.p));
+function showPane(p) {
+  document.querySelectorAll('#subtabs button').forEach(x => x.classList.toggle('on', x.dataset.p === p));
+  document.querySelectorAll('.pane').forEach(x => x.classList.toggle('on', x.dataset.pane === p));
+}
+
+function renderAll() { renderHome(); renderBudget(); renderStack(); renderStores(); renderRet(); renderTips(); renderChart(); renderHogs(); renderRelive(); }
+syncRunStore();
+renderAll();
+</script>
+</body>
+</html>

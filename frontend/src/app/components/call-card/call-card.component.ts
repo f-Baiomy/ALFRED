@@ -120,6 +120,8 @@ export class CallCardComponent {
     const c = this.call();
     return c.source === 'internal' ? this.dbState.silent().get(c.id) ?? null : null;
   });
+  /** The storage limit removed this call's whole capture (db-capture's "trimmed" answer) - the call itself stays. */
+  readonly captureTrimmed = computed(() => this.agentSilent() === 'trimmed');
   readonly agentSilentTitle = computed(() => {
     const asked = (this.agentSilent() ?? '').split(',').filter(Boolean)
       .map((f) => ({ db: 'database statements', logs: 'log lines', redis: 'Redis commands' })[f] ?? f);

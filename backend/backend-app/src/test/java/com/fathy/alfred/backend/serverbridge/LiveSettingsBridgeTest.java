@@ -28,6 +28,7 @@ class LiveSettingsBridgeTest {
         Map<String, String> effective = Map.of(
                 "INTERNAL_CALLS_RETENTION_ROWS", "5000",
                 "ALFRED_CALLS_MAX_SIZE_BYTES", "2147483648",
+                "INTERNAL_CALLS_MAX_SIZE_BYTES", "3221225472",
                 "ALFRED_DB_CAPTURE_MAX_SIZE_BYTES", "4294967296",
                 "ALFRED_REDIS_CAPTURE_MAX_SIZE_BYTES", "1073741824",
                 "ALFRED_LOGS_WATCH_DIRS", "app:/var/log/app",
@@ -37,6 +38,7 @@ class LiveSettingsBridgeTest {
 
         verify(retention).setRetentionRows(5000);
         verify(calls).setMaxSizeBytes(2147483648L);
+        verify(retention).setMaxSizeBytes(3221225472L);
         verify(capture).setStatementsMaxBytes(4294967296L);
         verify(capture).setRedisMaxBytes(1073741824L);
         verify(folders).replaceFolders("app:/var/log/app");

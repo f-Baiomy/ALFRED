@@ -23,4 +23,20 @@ public class StorageBudgetService implements SetStorageBudgetUseCase {
         }
         budgets.forEach(b -> b.setMaxSizeBytes(bytes));
     }
+
+    @Override
+    public void setMaxRows(int rows) {
+        if (rows < 0) {
+            throw new IllegalArgumentException("the call limit cannot be negative");
+        }
+        if (budgets.isEmpty()) {
+            throw new IllegalStateException("the file store has its own row cap");
+        }
+        budgets.forEach(b -> b.setMaxRows(rows));
+    }
+
+    @Override
+    public void trimNow() {
+        budgets.forEach(StorageBudgetPort::trimNow);
+    }
 }

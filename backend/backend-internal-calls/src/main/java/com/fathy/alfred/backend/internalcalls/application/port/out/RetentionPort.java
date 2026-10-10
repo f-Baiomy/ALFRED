@@ -4,4 +4,9 @@ package com.fathy.alfred.backend.internalcalls.application.port.out;
 public interface RetentionPort {
 
     void setRetentionRows(int rows);
+
+    /** The total size kept, changeable while running (the storage budget's inbound share). */
+    default void setMaxSizeBytes(long bytes) {
+        throw new UnsupportedOperationException("this store caps rows, not size");
+    }
 }

@@ -15,13 +15,21 @@ import org.springframework.stereotype.Component;
 public class CallFilterAdapter implements CallFilterPort {
 
     private final IsCallAllowedUseCase isCallAllowedUseCase;
+    /** The storage page's "Stop recording" endpoints. Optional for tests. */
+    private com.fathy.alfred.backend.storage.RecordingRules recordingRules;
 
     public CallFilterAdapter(IsCallAllowedUseCase isCallAllowedUseCase) {
         this.isCallAllowedUseCase = isCallAllowedUseCase;
     }
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setRecordingRules(com.fathy.alfred.backend.storage.RecordingRules recordingRules) {
+        this.recordingRules = recordingRules;
+    }
+
     @Override
     public boolean isAllowed(CallRecord call) {
-        return isCallAllowedUseCase.isAllowed(call.url());
+        return isCallAllowedUseCase.isAllowed(call.url())
+                && (recordingRules == null || recordingRules.isRecorded("outbound", call.method(), call.url()));
     }
 }

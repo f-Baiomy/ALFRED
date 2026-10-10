@@ -139,4 +139,19 @@ class DbCaptureServiceTest {
         verify(store, org.mockito.Mockito.never()).recordCaptureAsked(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString());
     }
+
+    @Test
+    void aDeletedInboundCallTakesItsCaptureExceptWhereACycleOrARunHoldsIt() {
+        com.fathy.alfred.backend.dbcapture.application.port.out.RetainedCallIdsPort retained =
+                org.mockito.Mockito.mock(com.fathy.alfred.backend.dbcapture.application.port.out.RetainedCallIdsPort.class);
+        org.mockito.Mockito.when(retained.retainedCallIds()).thenReturn(java.util.Set.of("in-a-cycle"));
+        org.mockito.Mockito.when(store.callsWithRunStatements(org.mockito.ArgumentMatchers.anyCollection()))
+                .thenReturn(java.util.Set.of("a-relive-run-call"));
+        org.mockito.Mockito.when(store.deleteForCalls(org.mockito.ArgumentMatchers.anyCollection())).thenReturn(1);
+        service.setRetainedCalls(retained);
+
+        service.callsDeleted(List.of("gone", "in-a-cycle", "a-relive-run-call"));
+
+        org.mockito.Mockito.verify(store).deleteForCalls(List.of("gone"));
+    }
 }

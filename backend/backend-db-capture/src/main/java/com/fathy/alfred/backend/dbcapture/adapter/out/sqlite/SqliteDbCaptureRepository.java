@@ -326,6 +326,9 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
         jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS capture_asked (call_id TEXT PRIMARY KEY, project TEXT, features TEXT NOT NULL, "
                 + "completed_at TEXT NOT NULL) WITHOUT ROWID");
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS ix_capture_asked_at ON capture_asked(completed_at)");
+        // Calls whose whole capture the storage limit removed - the call itself is kept, so it says why it has none.
+        jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS capture_trimmed (call_id TEXT PRIMARY KEY, trimmed_at TEXT NOT NULL) WITHOUT ROWID");
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS ix_capture_trimmed_at ON capture_trimmed(trimmed_at)");
         jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS capture_settings (project TEXT PRIMARY KEY, settings_json TEXT NOT NULL)");
         jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS agents (agent_id TEXT PRIMARY KEY, project TEXT NOT NULL, status_json TEXT NOT NULL, last_seen TEXT NOT NULL)");
     }
@@ -1315,8 +1318,27 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
                     rs -> {
                         result.put(rs.getString("call_id"), rs.getString("features"));
                     }, args.toArray());
+            jdbcTemplate.query("SELECT call_id FROM capture_trimmed WHERE call_id IN (" + in + ")",
+                    rs -> {
+                        result.put(rs.getString("call_id"), TRIMMED);
+                    }, chunk.toArray());
         }
         return result;
+    }
+
+    /** capture_trimmed rows kept - a call older than these is long gone from the inbound list too. */
+    static final int MAX_CAPTURE_TRIMMED = 20_000;
+
+    @Override
+    public void markTrimmed(Collection<String> callIds, String trimmedAt) {
+        List<String> ids = callIds.stream().filter(id -> id != null && !id.isBlank()).distinct().toList();
+        if (ids.isEmpty()) {
+            return;
+        }
+        jdbcTemplate.batchUpdate("INSERT OR REPLACE INTO capture_trimmed (call_id, trimmed_at) VALUES (?, ?)",
+                ids.stream().map(id -> new Object[] {id, trimmedAt}).toList());
+        jdbcTemplate.update("DELETE FROM capture_trimmed WHERE trimmed_at < (SELECT trimmed_at FROM capture_trimmed "
+                + "ORDER BY trimmed_at DESC LIMIT 1 OFFSET ?)", MAX_CAPTURE_TRIMMED);
     }
 
     @Override
@@ -1490,6 +1512,7 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
                 jdbcTemplate.update("DELETE FROM call_markers WHERE call_id IN (" + in + ")", args);
                 jdbcTemplate.update("DELETE FROM call_db_summary WHERE call_id IN (" + in + ")", args);
                 jdbcTemplate.update("DELETE FROM capture_asked WHERE call_id IN (" + in + ")", args);
+                jdbcTemplate.update("DELETE FROM capture_trimmed WHERE call_id IN (" + in + ")", args);
                 jdbcTemplate.update("DELETE FROM call_log_lines WHERE call_id IN (" + in + ")", args);
                 jdbcTemplate.update("DELETE FROM call_log_summary WHERE call_id IN (" + in + ")", args);
                 // the call's Redis commands go with it (FR-036) - and count, so a Redis-only call is "found" too
@@ -1519,6 +1542,7 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
             jdbcTemplate.update("DELETE FROM call_markers");
             jdbcTemplate.update("DELETE FROM call_db_summary");
             jdbcTemplate.update("DELETE FROM capture_asked");
+            jdbcTemplate.update("DELETE FROM capture_trimmed");
             jdbcTemplate.update("DELETE FROM call_log_lines WHERE call_id IS NOT NULL");
             jdbcTemplate.update("DELETE FROM call_log_summary");
             StoreCommandsSchema.deleteAll(jdbcTemplate);
@@ -1532,6 +1556,19 @@ public class SqliteDbCaptureRepository implements DbCaptureStorePort {
         Long bytes = jdbcTemplate.queryForObject("SELECT COALESCE(SUM(approx_bytes), 0) + (SELECT COALESCE(SUM(length(CAST(text AS BLOB))), 0) "
                 + "FROM shared_text) FROM statements", Long.class);
         return bytes == null ? 0 : bytes;
+    }
+
+    @Override
+    public Set<String> callsWithRunStatements(Collection<String> callIds) {
+        Set<String> result = new java.util.HashSet<>();
+        List<String> ids = new ArrayList<>(callIds);
+        for (int i = 0; i < ids.size(); i += IN_CHUNK) {
+            List<String> chunk = ids.subList(i, Math.min(ids.size(), i + IN_CHUNK));
+            String in = chunk.stream().map(x -> "?").collect(Collectors.joining(","));
+            result.addAll(jdbcTemplate.queryForList("SELECT DISTINCT call_id FROM statements WHERE call_id IN (" + in
+                    + ") AND run_tag IS NOT NULL", String.class, chunk.toArray()));
+        }
+        return result;
     }
 
     @Override

@@ -39,6 +39,7 @@ public class LiveSettingsBridge implements LiveSettingsPort {
         switch (key) {
             case "INTERNAL_CALLS_RETENTION_ROWS" -> retention.setRetentionRows(Integer.parseInt(value));
             case "ALFRED_CALLS_MAX_SIZE_BYTES" -> callsBudget.setMaxSizeBytes(Long.parseLong(value));
+            case "INTERNAL_CALLS_MAX_SIZE_BYTES" -> retention.setMaxSizeBytes(Long.parseLong(value));
             case "ALFRED_DB_CAPTURE_MAX_SIZE_BYTES" -> captureBudget.setStatementsMaxBytes(Long.parseLong(value));
             case "ALFRED_REDIS_CAPTURE_MAX_SIZE_BYTES" -> captureBudget.setRedisMaxBytes(Long.parseLong(value));
             case "ALFRED_LOGS_WATCH_DIRS" -> watchFolders.replaceFolders(value);

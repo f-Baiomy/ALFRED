@@ -38,7 +38,8 @@
               }
             ],
             "styles": [
-              "src/styles.scss"
+              "src/styles.scss",
+              { "input": "src/styles-storage.scss", "bundleName": "storage-page", "inject": false }
             ],
             "scripts": []
           },

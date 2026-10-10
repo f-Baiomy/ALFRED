@@ -326,4 +326,25 @@ public class SqliteInternalCallLogAdapter implements CallLogPort, RetentionPort 
     public void setRetentionRows(int rows) {
         repository.setRetentionRows(rows);
     }
+
+    @Override
+    public void setMaxSizeBytes(long bytes) {
+        repository.setMaxSizeBytes(bytes);
+    }
+
+    @Override
+    public int deleteByIds(java.util.Collection<String> callIds) {
+        return repository.deleteByIds(callIds);
+    }
+
+    @Override
+    public List<com.fathy.alfred.backend.internalcalls.domain.model.CleanupCandidate> cleanupCandidates(
+            com.fathy.alfred.backend.internalcalls.domain.model.CleanupFilter filter, int limit) {
+        return repository.cleanupCandidates(filter, limit);
+    }
+
+    @Override
+    public java.util.Optional<String> oldestTimestamp() {
+        return repository.oldestTimestamp();
+    }
 }

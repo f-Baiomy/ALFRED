@@ -1,0 +1,859 @@
+@if (overview(); as o) {
+  @if (o.lowDisk) {
+    <div class="st-low-disk" role="alert">
+      <b>The disk is almost full</b> - {{ fmt(o.disk.freeBytes) }} free, under the {{ budget()?.rules?.lowDiskWarnGb }} GB you asked to be warned at.
+      @if ((budget()?.rules?.diskGuardGb ?? 0) > 0) { Under {{ budget()?.rules?.diskGuardGb }} GB Alfred deletes its oldest traffic. }
+      <button type="button" class="bulk-btn secondary" (click)="freeAll()">Free space</button>
+    </div>
+  }
+  <!-- ============ 1. How much, and how much may it use ============ -->
+  <section class="panel settings-panel st-home" id="st-budget">
+    <div class="st-head">
+      <div>
+        <h3>Storage</h3>
+        <p class="sub">How much space Alfred uses, and how much it may use.</p>
+      </div>
+      <span style="display:flex;gap:.4rem;align-items:center;flex-wrap:wrap">
+        @if (budgetSet()) {
+          <span class="st-badge ok">{{ fmt(budget()!.bytes!) }} · Alfred stays under it</span>
+        } @else {
+          <span class="st-badge warn">No storage budget</span>
+        }
+        <button type="button" class="bulk-btn secondary" [disabled]="loading()" (click)="refresh()">↻ Measure again</button>
+      </span>
+    </div>
+
+    <div class="st-home-grid">
+      <div>
+        <div class="st-big">
+          <span>{{ fmt(o.usedBytes) }}</span>
+          <small>
+            @if (usedOfBudgetPct() !== null) { used · {{ usedOfBudgetPct() }}% of the budget } @else { used by Alfred }
+          </small>
+        </div>
+        <div class="st-stack" role="img" aria-label="Space used by each kind of data">
+          @for (p of usedBar(); track p.key) {
+            <div [style.width.%]="p.pct" [style.background]="p.color" [title]="p.label + ': ' + fmt(p.bytes)"
+                 [class.st-empty-part]="p.key === 'empty'"></div>
+          }
+        </div>
+        <div class="st-legend">
+          @for (p of usedBar(); track p.key) {
+            <span><i [style.background]="p.color" [class.st-empty-part]="p.key === 'empty'"></i>{{ p.label }} <b>{{ fmt(p.bytes) }}</b></span>
+          }
+        </div>
+        @if (o.disk.totalBytes > 0) {
+          <div class="st-disk-line">
+            Drive <span class="mono">{{ o.disk.path }}</span> has <b>{{ fmt(o.disk.freeBytes) }} free</b> · Alfred uses {{ diskPct().toFixed(1) }}% of it
+            <div class="st-disk">
+              <div [style.width.%]="100 - (o.disk.freeBytes / o.disk.totalBytes) * 100 - diskPct()" style="background:var(--text-faint)"></div>
+              <div [style.width.%]="Math.max(0.4, diskPct())" style="background:var(--purple)"></div>
+            </div>
+          </div>
+        }
+      </div>
+
+      <div class="st-limit-box">
+        <span class="st-step">1</span>
+        <div style="flex:1;min-width:0">
+          <div class="st-q">How much space may Alfred use?</div>
+          <div class="st-chips">
+            @for (gb of choices; track gb) {
+              @if (gb <= maxGb()) {
+                <button type="button" class="st-chip" [class.on]="budgetSet() && draftGb() === gb && !confirmShrink()"
+                        [disabled]="busy() === 'budget'" (click)="pickBudget(gb)">
+                  {{ gb }} GB @if (gb === recommendedGb) {<span class="st-rec">recommended</span>}
+                </button>
+              }
+            }
+            @if (customGbOpen()) {
+              <span class="st-chip on">
+                <input #gbIn type="number" [min]="1" [max]="maxGb()" step="0.5" [value]="draftGb()" class="st-gb-input"
+                       (keydown.enter)="pickBudget(+gbIn.value)" aria-label="Budget in GB" /> GB
+                <button type="button" class="action-btn" (click)="pickBudget(+gbIn.value)">Set</button>
+              </span>
+            } @else {
+              <button type="button" class="st-chip" [class.on]="budgetSet() && !choices.includes(draftGb())" (click)="customGbOpen.set(true)">
+                @if (budgetSet() && !choices.includes(draftGb())) { {{ draftGb() }} GB · change } @else { Other… }
+              </button>
+            }
+          </div>
+
+          @if (confirmShrink() !== null) {
+            <div class="st-warn">
+              <b>{{ confirmShrink() }} GB is less than Alfred holds now.</b>
+              Setting it deletes the oldest
+              @for (x of draftOverflow(); track x.share; let last = $last) {
+                {{ shareName(x.share) }} ({{ fmt(x.bytes) }}){{ last ? '' : ',' }}
+              }
+              - {{ fmt(overflowTotal()) }} in all. An inbound call's database statements, Redis commands and log lines go with it.
+              <div class="st-row-actions">
+                <button type="button" class="bulk-btn danger" (click)="saveBudget()">Set {{ confirmShrink() }} GB and delete {{ fmt(overflowTotal()) }}</button>
+                <button type="button" class="bulk-btn secondary" (click)="cancelShrink()">Cancel</button>
+              </div>
+            </div>
+          } @else if (budgetSet()) {
+            <div class="st-answer">
+              Alfred keeps @if (inboundHistory()) {<b>{{ inboundHistory() }}</b> of inbound calls, and} never goes above <b>{{ fmt(budget()!.bytes!) }}</b>.
+            </div>
+          } @else {
+            <div class="st-answer">Pick one - Alfred will never go above it.</div>
+          }
+          <p class="sub" style="margin-top:.35rem">
+            When full, the oldest recorded calls make room for new ones. Session cycles, comments and Relive cycles are never deleted.
+          </p>
+          @if (budgetSet()) {
+            <button type="button" class="st-link" (click)="removeBudget()">Remove the budget</button>
+          }
+        </div>
+      </div>
+    </div>
+
+    <details class="st-advanced">
+      <summary>Change how the space is split between calls, database statements and logs</summary>
+      <div class="st-tabs-row">
+        <span class="sub"><b>Shares are ratios</b> - raise or lower the budget and every limit grows or shrinks with it. Drag a divider to change one.</span>
+        <div class="st-seg">
+          <button type="button" [class.on]="draftSplit() === 'recommended'" (click)="setSplit('recommended')">Recommended</button>
+          <button type="button" [class.on]="draftSplit() === 'even'" (click)="setSplit('even')" title="Each kind of traffic keeps about as many days">Same history for all</button>
+          <button type="button" [class.on]="draftSplit() === 'inbound'" (click)="setSplit('inbound')">Inbound first</button>
+          <button type="button" [class.on]="draftSplit() === 'outbound'" (click)="setSplit('outbound')">Outbound first</button>
+          <button type="button" [class.on]="draftSplit() === 'custom'" (click)="setSplit('custom')">Custom</button>
+        </div>
+      </div>
+      <div class="st-alloc-bar" #splitBar>
+        @for (d of dividers(); track d.index) {
+          <div class="st-alloc-handle" [style.left.%]="d.pct" role="separator" aria-orientation="vertical"
+               [attr.aria-label]="'Move ratio between ' + shareLabel[shares[d.index]] + ' and ' + shareLabel[shares[d.index + 1]]"
+               (pointerdown)="startDrag($event, d.index, splitBar)"></div>
+        }
+        @for (k of shares; track k) {
+          <div class="st-alloc-seg" [style.width.%]="draftEffectiveRatios()[k] * 100"
+               [style.background]="'color-mix(in srgb, ' + shareColor[k] + ' 24%, transparent)'"
+               [title]="shareLabel[k] + ': ' + fmt(draftShares()[k])">
+            <div class="st-alloc-used" [style.background]="shareColor[k]"
+                 [style.width.%]="Math.min(100, (o.shareUsed[k] / Math.max(1, draftShares()[k])) * 100)"></div>
+          </div>
+        }
+      </div>
+      <div class="st-alloc-legend">
+        @for (k of shares; track k) {
+          <div class="st-alloc-item" [class.over]="o.shareUsed[k] > draftShares()[k]">
+            <span class="t"><i [style.background]="shareColor[k]"></i>{{ shareLabel[k] }}
+              @if (draftSplit() === 'custom') {
+                <input type="number" min="0" max="100" step="1" class="st-pct-input" [value]="pct(draftEffectiveRatios()[k])"
+                       (change)="setRatio(k, +$any($event.target).value)" [attr.aria-label]="shareLabel[k] + ' percent'" />%
+              } @else {
+                <span class="pct">{{ pct(draftEffectiveRatios()[k]) }}%</span>
+              }
+            </span>
+            <span class="v">{{ fmt(draftShares()[k]) }}</span>
+            <span class="d">
+              @if (k === 'logs' && o.shareUsed[k] > draftShares()[k]) {
+                {{ fmt(o.shareUsed[k] - draftShares()[k]) }} over - the oldest lines go as new ones load
+              } @else if (k !== 'work' && o.shareUsed[k] > draftShares()[k]) {
+                {{ fmt(o.shareUsed[k] - draftShares()[k]) }} oldest would go now
+              } @else if (k === 'work' && o.shareUsed[k] > draftShares()[k]) {
+                {{ fmt(o.shareUsed[k] - draftShares()[k]) }} over - never deleted, traffic gets less
+              } @else {
+                <b>{{ historyOf(k, draftShares()[k]) }}</b> · using {{ fmt(o.shareUsed[k]) }}
+              }
+            </span>
+          </div>
+        }
+      </div>
+      <div class="st-rules-note">
+        <div><b>When the budget is full</b> the oldest data of a share goes first, inside its own share.</div>
+        <div><b>Your work is never deleted</b> - session cycles, comments, Relive cycles, scenarios, settings.</div>
+        <div><b>Database statements, Redis and log lines of a call</b> share one part: when it fills first, the oldest calls lose
+          all of it at once and say so - the calls stay.</div>
+      </div>
+      @if (draftChanged()) {
+        <div class="st-pending">
+          <span><b>{{ budgetSet() ? 'Unsaved changes' : 'Not set yet' }}</b> · {{ draftGb() }} GB, applies right away, no restart</span>
+          <span class="st-row-actions">
+            <button type="button" class="bulk-btn secondary" (click)="refresh()">Discard</button>
+            <button type="button" class="bulk-btn" [class.danger]="draftOverflow().length > 0" [disabled]="busy() === 'budget'" (click)="saveBudget()">
+              Save {{ draftGb() }} GB
+            </button>
+          </span>
+        </div>
+      }
+    </details>
+  </section>
+
+  <!-- ============ 2. Free up space ============ -->
+  <section class="panel settings-panel">
+    <div class="st-free-head">
+      <span class="st-step">2</span>
+      <div style="flex:1;min-width:0">
+        <div class="st-q" style="margin-bottom:.15rem">Free up space</div>
+        <p class="sub">
+          @if (freeable() > 1024 * 1024) {
+            {{ fmt(freeable()) }} is empty space and unwritten logs inside Alfred's files. Giving it back deletes nothing.
+          } @else {
+            No empty space left inside Alfred's files.
+          }
+        </p>
+      </div>
+      <button type="button" class="bulk-btn st-big-btn" [disabled]="freeable() <= 1024 * 1024 || busy() === 'compact'" (click)="freeAll()">
+        {{ busy() === 'compact' ? 'Freeing…' : freeable() > 1024 * 1024 ? 'Free ' + fmt(freeable()) : 'Nothing to free' }}
+      </button>
+    </div>
+    <div class="st-field-label">More you could do
+      <span class="faint" style="text-transform:none;letter-spacing:0;font-weight:500">· these delete data, each asks first</span>
+      <button type="button" class="bulk-btn secondary" style="margin-left:auto" (click)="openCleanup('outbound', 7)">Clean up…</button>
+    </div>
+    @if (suggestions().length === 0) {
+      <p class="sub">Nothing needs attention.</p>
+    }
+    <div class="st-tips">
+      @for (t of suggestions(); track t.id) {
+        <div class="st-tip" [class.red]="t.tone === 'red'" [class.blue]="t.tone === 'blue'">
+          <div>
+            <div class="st-tip-title">{{ t.title }}</div>
+            <p class="sub">{{ t.text }}</p>
+          </div>
+          <button type="button" class="bulk-btn secondary" (click)="t.run()">{{ t.action }}</button>
+        </div>
+      }
+    </div>
+  </section>
+
+  <!-- ============ 3. Details, one tab at a time ============ -->
+  <div class="st-subtabs" role="tablist">
+    <button type="button" role="tab" [class.on]="tab() === 'stored'" (click)="setTab('stored')">What's stored</button>
+    <button type="button" role="tab" [class.on]="tab() === 'biggest'" (click)="setTab('biggest')">Biggest</button>
+    <button type="button" role="tab" [class.on]="tab() === 'relive'" (click)="setTab('relive')">Relive runs</button>
+    <button type="button" role="tab" [class.on]="tab() === 'rules'" (click)="setTab('rules')">Cleanup rules</button>
+    <button type="button" role="tab" [class.on]="tab() === 'history'" (click)="setTab('history')">History</button>
+    <button type="button" role="tab" [class.on]="tab() === 'backup'" (click)="setTab('backup')">Backup &amp; files</button>
+  </div>
+
+  @if (tab() === 'stored') {
+    <section class="panel settings-panel">
+      <div class="st-store-head">
+        <span></span><span>Data</span><span class="num">Items</span><span class="num st-c-oldest">Oldest</span><span>Size on disk</span><span class="st-c-limit">Limit</span><span></span>
+      </div>
+      @for (g of storesByGroup(); track g.id) {
+        <div class="st-group">
+          <div class="st-group-label">{{ g.label }} <span class="faint">· {{ g.hint }}</span></div>
+          @for (s of g.stores; track s.id) {
+            <div class="st-store" [class.open]="openStore() === s.id">
+              <div class="st-store-row" role="button" tabindex="0" (click)="toggleStore(s.id)" (keydown.enter)="toggleStore(s.id)">
+                <span class="st-chev">▶</span>
+                <div>
+                  <div class="st-store-name"><i [style.background]="shareColor[s.share]"></i>{{ s.name }}
+                    @if (limitPct(s) !== null && limitPct(s)! >= 98) {<span class="st-badge warn">Full</span>}
+                    @if (s.freeBytes + s.walBytes > Math.max(50 * 1024 * 1024, s.sizeBytes * 0.2)) {<span class="st-badge err">{{ fmt(s.freeBytes + s.walBytes) }} empty</span>}
+                  </div>
+                  <div class="st-file mono">{{ s.files }}</div>
+                </div>
+                <div class="num">{{ s.items.toLocaleString() }}<small>{{ s.unit }}</small></div>
+                <div class="num st-c-oldest">{{ age(s.oldest) || '-' }}</div>
+                <div class="st-size">
+                  <span class="v">{{ fmt(s.sizeBytes) }}</span>
+                  <div class="st-bar">
+                    <div [style.width.%]="(live(s) / maxStoreBytes()) * 100" [style.background]="shareColor[s.share]"></div>
+                    <div class="st-empty-part" [style.width.%]="((s.freeBytes + s.walBytes) / maxStoreBytes()) * 100"></div>
+                  </div>
+                </div>
+                <div class="st-limit st-c-limit">
+                  @if (s.limitCalls) {
+                    <span>{{ s.items.toLocaleString() }} / {{ s.limitCalls.toLocaleString() }} calls</span>
+                  } @else if (s.limitBytes) {
+                    <span>{{ fmt(live(s)) }} / {{ fmt(s.limitBytes) }}</span>
+                  } @else {
+                    <span class="faint">{{ s.share === 'work' ? 'kept until you delete' : s.id === 'triage' ? 'deleted with its call' : s.id === 'reliveHistory' ? 'with its run' : 'no budget' }}</span>
+                  }
+                  @if (limitPct(s) !== null) {
+                    <div class="st-gauge" [class.warn]="limitPct(s)! >= 80" [class.full]="limitPct(s)! >= 98"><div [style.width.%]="limitPct(s)"></div></div>
+                  }
+                </div>
+                <div class="st-row-actions" (click)="$event.stopPropagation()">
+                  @if (s.cleanable && (s.id === 'inbound' || s.id === 'outbound' || s.id === 'cycles' || s.id === 'reliveRuns')) {
+                    <button type="button" class="action-btn" (click)="openCleanup($any(s.id))">Clean up…</button>
+                  }
+                  @if (s.freeBytes + s.walBytes > 1024 * 1024 && !s.files.includes(' ')) {
+                    <button type="button" class="action-btn" [disabled]="busy() === 'compact:' + s.files" (click)="freeFile(s.files)">Free space</button>
+                  }
+                </div>
+              </div>
+              @if (openStore() === s.id) {
+                <div class="st-detail">
+                  <div class="st-kv">
+                    <span>Holds</span><span>{{ s.items.toLocaleString() }} {{ s.unit }}</span>
+                    <span>Data</span><span>{{ fmt(live(s)) }}</span>
+                    <span>Empty space</span><span>{{ fmt(s.freeBytes) }}</span>
+                    <span>Unwritten log (-wal)</span><span>{{ fmt(s.walBytes) }}</span>
+                    @if (s.oldest) {<span>Oldest</span><span>{{ s.oldest }}</span>}
+                  </div>
+                  @if (s.id === 'inbound' || s.id === 'outbound') {
+                    <div class="st-row-actions" style="grid-column: 1 / -1">
+                      <button type="button" class="bulk-btn secondary" [disabled]="exporting() || !s.items" (click)="exportStore($any(s.id))">
+                        {{ exporting() ? 'Loading…' : 'Export all ' + s.items.toLocaleString() + ' (.json)' }}</button>
+                      <button type="button" class="bulk-btn secondary" (click)="openCleanup($any(s.id))">Clean up…</button>
+                    </div>
+                  }
+                  <p class="sub">
+                    @switch (s.id) {
+                      @case ('inbound') { Deleting an inbound call always deletes its database statements, Redis commands, caught log lines and triage mark. A session cycle keeps its own copy. }
+                      @case ('capture') { Deleted with their inbound call. When this share fills first, the oldest calls lose all of it at once - never part of it - and say "DB data removed · storage limit". }
+                      @case ('logs') { Each log source keeps an equal part of the logs share; the oldest lines go first as new ones load. }
+                      @case ('reliveRuns') { One recording per Relive run - not in Session Cycles. Kept by the "last N runs" rule; the cycle itself stays. }
+                      @case ('reliveHistory') { Each run's step results and its Live calls log. Removed with the run - by "last N runs", an age rule or Delete runs; the cycle's steps and rules stay. }
+                      @case ('triage') { The "needs attention" mark of every call - deleted with its call. }
+                      @default { Never removed automatically. Delete single items where they are shown, or in the Danger zone below. }
+                    }
+                  </p>
+                </div>
+              }
+            </div>
+          }
+        </div>
+      }
+    </section>
+
+    <section class="panel settings-panel">
+      <div class="st-section-title"><h4>Danger zone</h4><span class="sub">Each action asks you to type its name, then waits {{ 8 }} s with an Undo.</span></div>
+      <div class="danger-zone">
+        <div class="danger-zone-row">
+          <div><p class="danger-zone-title">Delete all outbound calls</p><p class="sub">Every supplier call in calls.db, with its triage mark.</p></div>
+          <button type="button" class="bulk-btn danger" (click)="openDanger('outbound')">Delete outbound…</button>
+        </div>
+        <div class="danger-zone-row">
+          <div><p class="danger-zone-title">Delete all inbound calls</p><p class="sub">With their database statements, Redis commands, caught log lines and triage marks. Calls held by session cycles keep their copy.</p></div>
+          <button type="button" class="bulk-btn danger" (click)="openDanger('inbound')">Delete inbound…</button>
+        </div>
+        <div class="danger-zone-row">
+          <div><p class="danger-zone-title">Delete all session cycles</p><p class="sub">The cycles you recorded, with their captured calls and spacers. Relive run recordings are not touched.</p></div>
+          <button type="button" class="bulk-btn danger" (click)="openDanger('cycles')">Delete cycles…</button>
+        </div>
+      </div>
+    </section>
+  }
+
+  @if (tab() === 'relive') {
+    <section class="panel settings-panel">
+      <div class="st-tabs-row">
+        <div class="st-section-title" style="margin:0"><h4>Relive cycles</h4></div>
+        <label class="sub st-inline">Keep the last
+          <input type="number" min="0" class="st-small-input" [value]="draftKeepRuns()" (change)="draftKeepRuns.set(num($any($event.target).value))" />
+          runs per cycle
+          <button type="button" class="bulk-btn" [class.danger]="draftRunsRemoved() > 0" (click)="saveRulesOnly()" [disabled]="!budgetSet()">
+            {{ draftRunsRemoved() > 0 ? 'Apply - removes ' + draftRunsRemoved() + ' runs' : 'Apply' }}
+          </button>
+        </label>
+      </div>
+      <p class="sub" style="margin-bottom:.6rem">Each run records its calls in its own run recording, apart from your session cycles: cleaning one never touches the other. A running run is never deleted. Click a run to star it - a starred run (gold outline) is never deleted by a rule or a clean-up.</p>
+      @if (o.relive.length === 0) {
+        <div class="empty">No Relive cycles yet.</div>
+      } @else {
+        <table class="st-tbl">
+          <thead><tr><th>Relive cycle</th><th class="r">Steps</th><th>Last runs <span class="faint">(newest left)</span></th><th class="r">Runs</th><th class="r">Last run</th><th></th></tr></thead>
+          <tbody>
+            @for (c of o.relive; track c.id) {
+              <tr>
+                <td><b>{{ c.name }}</b></td>
+                <td class="r">{{ c.steps }}</td>
+                <td>
+                  @for (r of c.runs.slice(0, 24); track r.id; let i = $index) {
+                    <button type="button" class="st-run" [class.ok]="runOk(r.status)" [class.diff]="r.status === 'COMPLETED_WITH_DIFFERENCES'"
+                          [class.bad]="r.status === 'FAILED' || r.status === 'INTERRUPTED'" [class.starred]="r.starred"
+                          [class.goes]="runGoes(c, i, draftKeepRuns())" (click)="toggleStar(c, r)"
+                          [title]="r.status + (r.startedAt ? ' · ' + r.startedAt : '') + (r.starred ? ' · starred, never deleted by a rule - click to unstar' : ' · click to star: never deleted by a rule')"
+                          [attr.aria-label]="(r.starred ? 'Unstar run ' : 'Star run ') + (r.startedAt ?? r.id)"></button>
+                  } @empty { <span class="faint">no runs yet</span> }
+                </td>
+                <td class="r">{{ c.runs.length }} @if (overKeep(c, draftKeepRuns()) > 0) {<span class="st-badge err">−{{ overKeep(c, draftKeepRuns()) }}</span>}</td>
+                <td class="r faint">{{ c.lastRun ? age(c.lastRun) + ' ago' : 'never' }}</td>
+                <td class="r">
+                  @if (c.runs.length) {<button type="button" class="action-btn danger" (click)="deleteAllRuns(c)">Delete runs</button>}
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      }
+    </section>
+  }
+
+  @if (tab() === 'rules') {
+    <section class="panel settings-panel">
+      <div class="st-section-title"><h4>Cleanup rules</h4><span class="sub">Sizes come from the storage budget. Here you add limits by call count, age and runs.</span></div>
+      <div class="st-cascade">
+        <b>A call never leaves pieces behind.</b> When an inbound call is deleted - by a limit, a rule, a clean-up or by hand - its
+        database statements and result rows, Redis commands, caught log lines and triage mark go in the same step. An outbound call takes its
+        triage mark. A session cycle holds its own copy of a call, so its data stays until the cycle is deleted.
+      </div>
+      <div class="st-ret-row head"><span>Data</span><span>Keep at most</span><span>Also delete after</span><span>What this means now</span></div>
+      @for (k of trafficShares; track k) {
+        <div class="st-ret-row">
+          <span><b>{{ k === 'inbound' ? 'Inbound calls' : 'Outbound calls' }}</b><br><span class="faint mono">{{ k === 'inbound' ? 'internal-calls.db' : 'calls.db' }}</span></span>
+          <span style="display:flex;flex-direction:column;gap:.3rem">
+            <b>{{ budgetSet() ? fmt(o.shareBytes[k]) : 'no budget' }}</b>
+            <span class="st-inline faint">and at most
+              <input type="number" min="0" class="st-small-input" placeholder="any"
+                     [value]="(k === 'inbound' ? draftInboundCalls() : draftOutboundCalls()) || ''"
+                     (change)="k === 'inbound' ? draftInboundCalls.set(num($any($event.target).value)) : draftOutboundCalls.set(num($any($event.target).value))" />
+              calls</span>
+          </span>
+          <span>
+            <select (change)="setAge(k, +$any($event.target).value)">
+              @for (d of ageChoices; track d) {
+                <option [value]="d" [selected]="ageDaysOf(k) === d">{{ d === 0 ? 'Never' : d === 1 ? '1 day' : d + ' days' }}</option>
+              }
+            </select>
+          </span>
+          <span class="st-effect">
+            @if (budgetSet()) { Keeps <b>{{ historyOf(k, o.shareBytes[k]) }}</b> at the recent rate. }
+            @if ((k === 'inbound' ? draftInboundCalls() : draftOutboundCalls()) > 0) { The call limit may be reached first. }
+          </span>
+        </div>
+      }
+      <div class="st-ret-row">
+        <span><b>DB statements, Redis & logs of calls</b><br><span class="faint mono">db-capture.db</span></span>
+        <span><b>{{ budgetSet() ? fmt(o.shareBytes.capture) : 'its own limits' }}</b></span>
+        <span class="faint">with their call</span>
+        <span class="st-effect">When full: the oldest call loses <b>all</b> its statements, Redis commands and log lines at once - never part of them.
+          The call itself stays, marked <span class="st-db-gone">◆ DB data removed · storage limit</span></span>
+      </div>
+      <div class="st-ret-row">
+        <span><b>Relive runs</b><br><span class="faint mono">session-cycles.db (run cycles)</span></span>
+        <span class="st-inline">the last
+          <input type="number" min="0" class="st-small-input" [value]="draftKeepRuns()" (change)="draftKeepRuns.set(num($any($event.target).value))" /> per cycle</span>
+        <span>
+          <select (change)="setAge('reliveRuns', +$any($event.target).value)">
+            @for (d of ageChoices; track d) {
+              <option [value]="d" [selected]="draftAges().reliveRuns === d">{{ d === 0 ? 'Never' : d === 1 ? '1 day' : d + ' days' }}</option>
+            }
+          </select>
+        </span>
+        <span class="st-effect">The cycles, their steps and rules always stay.</span>
+      </div>
+      @if (budgetSet() && draftChanged()) {
+        <div class="st-pending">
+          <span><b>Unsaved changes</b> · applies right away, no restart</span>
+          <span class="st-row-actions">
+            <button type="button" class="bulk-btn secondary" (click)="refresh()">Discard</button>
+            <button type="button" class="bulk-btn" [class.danger]="draftRunsRemoved() > 0" [disabled]="busy() === 'budget'" (click)="saveRulesOnly()">
+            {{ draftRunsRemoved() > 0 ? 'Save rules - removes ' + draftRunsRemoved() + ' runs' : 'Save rules' }}
+          </button>
+          </span>
+        </div>
+      }
+      @if (!budgetSet()) {
+        <p class="sub" style="margin-top:.6rem">Set a storage budget above first - these rules apply inside it.</p>
+      }
+
+      <div class="st-section-title" style="margin-top:1.4rem"><h4>Automatic rules</h4><span class="sub">These apply with or without a budget.</span></div>
+      <div class="st-guard">
+        <label class="st-guard-card">
+          <input type="checkbox" [checked]="draftRules().lowDiskWarnGb > 0" (change)="setRule('lowDiskWarnGb', $any($event.target).checked ? 10 : 0)" />
+          <span><b>Warn me when the disk is low</b><br>
+            <span class="sub">Below <input type="number" min="1" class="st-small-input" [value]="draftRules().lowDiskWarnGb || 10"
+              (change)="setRule('lowDiskWarnGb', num($any($event.target).value))" /> GB free: a banner on every tab.</span></span>
+        </label>
+        <label class="st-guard-card">
+          <input type="checkbox" [checked]="draftRules().diskGuardGb > 0" (change)="setRule('diskGuardGb', $any($event.target).checked ? 2 : 0)" />
+          <span><b>Free space before the disk fills</b><br>
+            <span class="sub">Below <input type="number" min="1" class="st-small-input" [value]="draftRules().diskGuardGb || 2"
+              (change)="setRule('diskGuardGb', num($any($event.target).value))" /> GB free: delete the oldest traffic until 5 GB more is free. Your work is never touched; calls keep flowing, only recording is affected.</span></span>
+        </label>
+        <label class="st-guard-card">
+          <input type="checkbox" [checked]="draftRules().dropPreflights" (change)="setRule('dropPreflights', $any($event.target).checked)" />
+          <span><b>Don't keep OPTIONS preflights</b><br><span class="sub">They are hidden in every list anyway. Removed every 10 minutes.</span></span>
+        </label>
+        <label class="st-guard-card">
+          <input type="checkbox" [checked]="!!draftRules().healthPaths" (change)="setRule('healthPaths', $any($event.target).checked ? '/health,/actuator,/ping' : '')" />
+          <span><b>Don't keep health checks</b><br>
+            <span class="sub">Calls whose URL contains
+              <input type="text" class="st-path-input" [value]="draftRules().healthPaths" placeholder="/health,/actuator"
+                     (change)="setRule('healthPaths', $any($event.target).value)" /> are removed every 10 minutes.</span></span>
+        </label>
+        <label class="st-guard-card">
+          <input type="checkbox" [checked]="draftRules().autoCompact" (change)="setRule('autoCompact', $any($event.target).checked)" />
+          <span><b>Free empty space at night</b><br><span class="sub">When more than 20% of a file is empty space. Deletes nothing.</span></span>
+        </label>
+        <label class="st-guard-card">
+          <input type="checkbox" [checked]="draftRules().keepCommented" (change)="setRule('keepCommented', $any($event.target).checked)" />
+          <span><b>Never delete calls that have a comment or are used by a Relive cycle or a stored answer</b><br><span class="sub">Not by the size or call limits, an age rule, a clean-up or the disk guard - so "open original" keeps working. They count toward their share.</span></span>
+        </label>
+        <label class="st-guard-card">
+          <input type="checkbox" [checked]="draftRules().nightlyBackup" (change)="setRule('nightlyBackup', $any($event.target).checked)" />
+          <span><b>Back up your work every night</b><br><span class="sub">Session cycles, comments, Relive cycles, scenarios and setup at 03:00 - the last 7 kept in <span class="mono">backups/</span>.</span></span>
+        </label>
+      </div>
+      <div class="st-field-label">Endpoints not recorded <span class="faint" style="text-transform:none;letter-spacing:0;font-weight:500">· set from Biggest → Stop recording; their calls are still forwarded</span></div>
+      @for (key of draftRules().stopRecording; track key) {
+        <div class="st-backup-row"><span class="mono">{{ key }}</span>
+          <button type="button" class="action-btn" (click)="recordAgain(key)">Record again</button></div>
+      } @empty { <p class="sub">None - every call is recorded.</p> }
+      @if (rulesChanged()) {
+        <div class="st-pending">
+          <span><b>Unsaved changes</b> to the automatic rules</span>
+          <span class="st-row-actions">
+            <button type="button" class="bulk-btn secondary" (click)="refresh()">Discard</button>
+            <button type="button" class="bulk-btn" [disabled]="busy() === 'budget'" (click)="saveAutoRules()">Save rules</button>
+          </span>
+        </div>
+      }
+    </section>
+  }
+
+  @if (tab() === 'biggest') {
+    <section class="panel settings-panel">
+      <div class="st-tabs-row" style="margin-top:0">
+        <div class="st-section-title" style="margin:0"><h4>Where the space goes</h4></div>
+        <div class="st-seg">
+          <button type="button" [class.on]="biggestView() === 'endpoints'" (click)="biggestView.set('endpoints')">Busiest endpoints</button>
+          <button type="button" [class.on]="biggestView() === 'largest'" (click)="biggestView.set('largest')">Largest calls</button>
+          <button type="button" [class.on]="biggestView() === 'projects'" (click)="biggestView.set('projects')">By project</button>
+          <button type="button" [class.on]="biggestView() === 'repeats'" (click)="biggestView.set('repeats')">Repeats</button>
+        </div>
+      </div>
+      @if (insights(); as ins) {
+        @switch (biggestView()) {
+          @case ('endpoints') {
+            <p class="sub">Endpoints that take the most space or are called the most. Delete what is stored (a call with a comment stays), or stop recording new calls to it - they are still forwarded.</p>
+            <table class="st-tbl">
+              <thead><tr><th>Endpoint</th><th>Project</th><th class="r">Calls</th><th class="r">Size</th><th class="st-share-col"></th><th></th></tr></thead>
+              <tbody>
+                @for (g of ins.endpoints; track groupKey(g)) {
+                  <tr [class.st-gone]="gone().has(groupKey(g))">
+                    <td class="st-ep"><span class="st-dir">{{ g.direction === 'inbound' ? 'in' : 'out' }}</span><b class="st-meth">{{ g.method }}</b> <span class="mono">{{ g.path }}</span>
+                      @if (g.note) {<span class="st-why">{{ g.note }}</span>}</td>
+                    <td>{{ g.project }}</td><td class="r">{{ g.calls.toLocaleString() }}</td><td class="r">{{ fmt(g.bytes) }}</td>
+                    <td class="st-share-col"><div class="st-bar"><div [style.width.%]="(g.bytes / maxEndpointBytes()) * 100" style="background:var(--purple)"></div></div></td>
+                    <td class="r st-acts">
+                      <button type="button" class="action-btn" [disabled]="exporting()" (click)="exportGroup(g)">Export</button>
+                      @if (isStopped(g)) {
+                        <span class="st-badge warn" title="New calls to this endpoint are not stored">not recorded</span>
+                      } @else {
+                        <button type="button" class="action-btn" [disabled]="busy() === 'budget'" (click)="stopRecording(g)"
+                                title="Stop storing new calls to this endpoint - they are still forwarded">Stop recording</button>
+                      }
+                      <button type="button" class="action-btn danger" [disabled]="gone().has(groupKey(g))" (click)="deleteGroup(g, g.method + ' ' + g.path)">Delete these</button>
+                    </td>
+                  </tr>
+                } @empty { <tr><td colspan="6" class="faint">No calls stored.</td></tr> }
+              </tbody>
+            </table>
+          }
+          @case ('largest') {
+            <p class="sub">Single calls with the biggest bodies. Stored whole - Alfred never cuts a body.</p>
+            <table class="st-tbl">
+              <thead><tr><th>Call</th><th>Project</th><th class="r">Size</th><th class="r">When</th><th></th></tr></thead>
+              <tbody>
+                @for (c of ins.largest; track c.id) {
+                  <tr [class.st-gone]="gone().has(c.id)">
+                    <td class="st-ep"><span class="st-dir">{{ c.direction === 'inbound' ? 'in' : 'out' }}</span><b class="st-meth">{{ c.method }}</b><span class="st-meth">{{ c.status }}</span><span class="mono">{{ c.url }}</span></td>
+                    <td>{{ c.project }}</td><td class="r"><b>{{ fmt(c.bytes) }}</b></td><td class="r faint">{{ c.at?.slice(0, 16)?.replace('T', ' ') }}</td>
+                    <td class="r st-acts"><button type="button" class="action-btn" [disabled]="exporting()" (click)="exportIds(c.direction, [c.id])">Export</button>
+                      <button type="button" class="action-btn danger" [disabled]="gone().has(c.id)" (click)="deleteCall(c)">Delete</button></td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          }
+          @case ('projects') {
+            <p class="sub">What each project (inbound) and supplier (outbound) costs in recorded calls.</p>
+            <table class="st-tbl">
+              <thead><tr><th>Project / supplier</th><th>Direction</th><th class="r">Calls</th><th class="r">Size</th><th class="st-share-col"></th><th></th></tr></thead>
+              <tbody>
+                @for (g of ins.projects; track groupKey(g)) {
+                  <tr>
+                    <td class="mono">{{ g.project }}</td><td class="faint">{{ g.direction }}</td><td class="r">{{ g.calls.toLocaleString() }}</td><td class="r"><b>{{ fmt(g.bytes) }}</b></td>
+                    <td class="st-share-col"><div class="st-bar"><div [style.width.%]="(g.bytes / maxProjectBytes()) * 100" [style.background]="g.direction === 'inbound' ? 'var(--purple)' : 'var(--cyan)'"></div></div></td>
+                    <td class="r"><button type="button" class="action-btn" (click)="openCleanup(g.direction); editCleanup({ project: g.project === '(none)' ? null : g.project })">Clean up…</button></td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          }
+          @case ('repeats') {
+            <p class="sub">The same call recorded again and again (same URL, status, request and response size). The newest of each is kept; calls with a comment stay.</p>
+            <table class="st-tbl">
+              <thead><tr><th>Repeated call</th><th class="r">Extra copies</th><th class="r">Frees</th><th></th></tr></thead>
+              <tbody>
+                @for (g of ins.repeats; track groupKey(g)) {
+                  <tr [class.st-gone]="gone().has(groupKey(g))">
+                    <td class="st-ep"><span class="st-dir">{{ g.direction === 'inbound' ? 'in' : 'out' }}</span><b class="st-meth">{{ g.method }}</b> <span class="mono">{{ g.path }}</span></td>
+                    <td class="r">{{ g.calls.toLocaleString() }}</td><td class="r"><b style="color:var(--green)">{{ fmt(g.bytes) }}</b></td>
+                    <td class="r"><button type="button" class="action-btn" [disabled]="gone().has(groupKey(g))" (click)="deleteGroup(g, 'repeats of ' + g.method + ' ' + g.path)">Keep 1 of each</button></td>
+                  </tr>
+                } @empty { <tr><td colspan="4" class="faint">No repeated calls.</td></tr> }
+              </tbody>
+            </table>
+            @if (ins.repeatCalls > 0) {
+              <div class="st-row-actions" style="margin-top:.8rem">
+                <button type="button" class="bulk-btn" (click)="deleteAllRepeats()">Remove all {{ ins.repeatCalls.toLocaleString() }} repeats - frees {{ fmt(ins.repeatBytes) }}</button>
+              </div>
+            }
+          }
+        }
+        <div class="st-row-actions" style="margin-top:.6rem"><button type="button" class="st-link" (click)="loadInsights()">↻ Measure again</button></div>
+      } @else {
+        <div class="empty">{{ insightsLoading() ? 'Measuring every call…' : '' }}</div>
+      }
+    </section>
+  }
+
+  @if (tab() === 'backup') {
+    <section class="panel settings-panel">
+      <div class="st-section-title"><h4>Files &amp; backup</h4><span class="sub">Where the data lives, how healthy the files are, and a copy to take with you.</span></div>
+      <div class="st-files-grid">
+        <div>
+          <div class="st-field-label" style="margin-top:0">Data folder</div>
+          <div class="st-path-box"><span class="mono">{{ backups()?.dataDir ?? o.disk.path }}</span>
+            <button type="button" class="action-btn" (click)="copyPath(backups()?.dataDir ?? o.disk.path)">Copy</button></div>
+          <div class="st-field-label">File health</div>
+          @if (fileHealth(); as fh) {
+            <table class="st-tbl">
+              <thead><tr><th>File</th><th class="r">Size</th><th class="r">Write log</th><th class="r">Empty</th><th class="r">Check</th></tr></thead>
+              <tbody>
+                @for (f of fh; track f.name) {
+                  <tr><td class="mono">{{ f.name }}</td><td class="r">{{ fmt(f.fileBytes) }}</td>
+                    <td class="r" [class.st-warn-text]="f.walBytes > 100 * 1024 * 1024">{{ fmt(f.walBytes) }}</td><td class="r">{{ fmt(f.freeBytes) }}</td>
+                    <td class="r">@if (f.check === null) {<span class="faint">-</span>} @else if (f.check === 'ok') {<span class="st-ok-text">● ok</span>} @else {<span class="st-err-text" [title]="f.check">● problem</span>}</td></tr>
+                }
+              </tbody>
+            </table>
+          } @else { <div class="empty">Reading…</div> }
+          <p class="sub" style="margin-top:.35rem">The write log (<span class="mono">-wal</span>) holds writes not yet folded into the file. Folding it in is safe while Alfred runs.</p>
+          <div class="st-row-actions" style="margin-top:.5rem">
+            <button type="button" class="bulk-btn secondary" [disabled]="busy() === 'wal'" (click)="foldWal()">Fold write logs in{{ walTotal() > 1024 * 1024 ? ' - ' + fmt(walTotal()) : '' }}</button>
+            <button type="button" class="bulk-btn secondary" [disabled]="busy() === 'check'" (click)="loadFiles(true)">{{ busy() === 'check' ? 'Checking…' : 'Check all files' }}</button>
+          </div>
+        </div>
+        <div>
+          <div class="st-field-label" style="margin-top:0">Back up</div>
+          @for (g of backupChoices; track g.id) {
+            <label class="st-check"><input type="checkbox" [checked]="backupGroups().has(g.id)" (change)="toggleBackupGroup(g.id)" />
+              <span>{{ g.label }} <small>{{ g.hint }}</small></span></label>
+          }
+          <p class="sub" style="margin:.5rem 0">About {{ fmt(backupEstimate()) }} of data, written compacted into <span class="mono">backups/</span>. Secrets stay as they are in the files.</p>
+          <div class="st-row-actions">
+            <button type="button" class="bulk-btn" [disabled]="busy() === 'backup' || backupGroups().size === 0" (click)="backUp()">{{ busy() === 'backup' ? 'Backing up…' : 'Back up now' }}</button>
+          </div>
+          @if (backups()?.pending; as p) {
+            <div class="st-pending" style="margin-top:.8rem">
+              <span><b>Restore ready</b> from {{ p.from }} ({{ p.files.join(', ') }}) - replaces those files at the next start of Alfred. The current ones are kept in <span class="mono">restore-replaced/</span>.</span>
+              <button type="button" class="bulk-btn secondary" (click)="cancelRestore()">Cancel restore</button>
+            </div>
+          }
+          <div class="st-field-label">Restore from a file</div>
+          <label class="bulk-btn secondary st-file-btn">
+            {{ uploadProgress() !== null ? 'Uploading… ' + uploadProgress() + '%' : 'Choose a backup .zip…' }}
+            <input type="file" accept=".zip" hidden [disabled]="uploadProgress() !== null"
+                   (change)="uploadAndRestore($any($event.target).files?.[0]); $any($event.target).value = ''" />
+          </label>
+          <p class="sub" style="margin-top:.3rem">Sent in parts, kept in <span class="mono">backups/</span>, then prepared: it replaces the files at the next start.</p>
+          <div class="st-field-label">Backups</div>
+          @for (b of backups()?.backups ?? []; track b.name) {
+            <div class="st-backup-row">
+              <span><span class="mono">{{ b.name }}</span><br><span class="faint">{{ fmt(b.bytes) }} · {{ b.files.length }} files{{ b.nightly ? ' · nightly' : '' }}</span></span>
+              <span class="st-row-actions">
+                <a class="action-btn" [href]="backupUrl(b.name)" download>Download</a>
+                <button type="button" class="action-btn" (click)="restore(b.name)">Restore…</button>
+                <button type="button" class="action-btn danger" (click)="deleteBackup(b.name)">Delete</button>
+              </span>
+            </div>
+          } @empty { <p class="sub">No backups yet.</p> }
+        </div>
+      </div>
+    </section>
+  }
+
+  @if (tab() === 'history') {
+    <section class="panel settings-panel">
+      <div class="st-tabs-row" style="margin-top:0">
+        <div class="st-section-title" style="margin:0"><h4>Space over time</h4></div>
+        <div class="st-seg">
+          <button type="button" [class.on]="range() === 7" (click)="range.set(7)">7 days</button>
+          <button type="button" [class.on]="range() === 14" (click)="range.set(14)">14 days</button>
+          <button type="button" [class.on]="range() === 30" (click)="range.set(30)">30 days</button>
+        </div>
+      </div>
+      @if (insights(); as ins) {
+        <div class="st-growth">
+          <div>
+            <div class="st-chart" (mouseleave)="hoverDay.set(null)">
+              @for (d of chartDays(); track d.day; let i = $index) {
+                <div class="st-col" [style.height.%]="((d.inboundBytes + d.outboundBytes) / chartMax()) * 100" (mouseenter)="hoverDay.set(i)">
+                  <div [style.height.%]="d.inboundBytes + d.outboundBytes ? (d.outboundBytes / (d.inboundBytes + d.outboundBytes)) * 100 : 0" style="background:var(--cyan)"></div>
+                  <div [style.height.%]="d.inboundBytes + d.outboundBytes ? (d.inboundBytes / (d.inboundBytes + d.outboundBytes)) * 100 : 0" style="background:var(--purple)"></div>
+                </div>
+              }
+              @for (f of forecastCols(); track $index) {
+                <div class="st-col fc" [style.height.%]="(ins.perDayBytes / chartMax()) * 100" title="forecast at the recent rate"></div>
+              }
+            </div>
+            <div class="st-x-axis">
+              @for (d of chartDays(); track d.day; let i = $index) {
+                <span>{{ i % Math.ceil(range() / 7) === 0 ? dayLabel(d.day) : '' }}</span>
+              }
+              @for (f of forecastCols(); track $index) {<span></span>}
+            </div>
+            <p class="sub st-chart-tip">
+              @if (hoverDay() !== null && chartDays()[hoverDay()!]; as d) {
+                <b>{{ dayLabel(d.day) }}</b> · inbound {{ fmt(d.inboundBytes) }} ({{ d.inboundCalls.toLocaleString() }} calls),
+                outbound {{ fmt(d.outboundBytes) }} ({{ d.outboundCalls.toLocaleString() }} calls)
+              } @else {
+                Calls still stored, by the day they were recorded - <span style="color:var(--purple-light)">■ inbound</span>
+                <span style="color:var(--cyan)">■ outbound</span>. Striped: the next days at the recent rate.
+              }
+            </p>
+          </div>
+          <div class="st-forecast">
+            <span class="sub">At the recent rate</span>
+            @if (forecast(); as f) {
+              <span class="st-forecast-big">+{{ fmt(f.perDay) }} <span class="faint">a day</span></span>
+              @if (f.budgetFullDays !== null) {<div class="st-forecast-row"><span>Budget full in</span><b>~{{ f.budgetFullDays }} days, then the oldest go</b></div>}
+              @if (f.diskFullDays !== null) {<div class="st-forecast-row"><span>{{ budgetSet() ? 'Without the budget, disk' : 'Disk' }} full in</span><b>~{{ f.diskFullDays }} days</b></div>}
+            } @else {
+              <span class="faint">Not enough recent calls to measure.</span>
+            }
+          </div>
+        </div>
+      } @else {
+        <div class="empty">{{ insightsLoading() ? 'Measuring every call…' : '' }}</div>
+      }
+    </section>
+
+    <section class="panel settings-panel">
+      <div class="st-section-title"><h4>Recent cleanups</h4><span class="sub">What was removed, by whom, and the space it gave back.</span></div>
+      @if (o.history.length === 0) {
+        <div class="empty">Nothing removed yet.</div>
+      } @else {
+        <ul class="st-hist">
+          @for (h of o.history; track $index) {
+            <li><span class="faint">{{ h.at.replace('T', ' ').slice(0, 16) }}</span><span class="st-who" [class.auto]="h.who === 'auto'">{{ h.who === 'auto' ? 'Auto' : 'You' }}</span>
+              <span>{{ h.what }}</span><span class="num">{{ h.bytes > 0 ? fmt(h.bytes) : '-' }}</span></li>
+          }
+        </ul>
+      }
+      <p class="sub" style="margin-top:.5rem">Deleting rows does not shrink a file by itself - new data reuses the space, or <b>Free space</b> gives it back.</p>
+    </section>
+  }
+
+  <!-- ============ clean-up dialog ============ -->
+  @if (cleanupOpen()) {
+    <div class="st-backdrop" (click)="closeCleanup()">
+      <div class="st-dialog" role="dialog" aria-label="Clean up recorded data" (click)="$event.stopPropagation()">
+        <header>
+          <div><h3>Clean up recorded data</h3><p class="sub">Pick what to remove. The preview updates as you change filters.</p></div>
+          <button type="button" class="st-x" aria-label="Close" (click)="closeCleanup()">×</button>
+        </header>
+        <div class="st-body">
+          <div class="st-field-label">What</div>
+          <div class="st-chips">
+            @for (k of ['outbound', 'inbound', 'cycles', 'reliveRuns']; track k) {
+              <button type="button" class="st-chip" [class.on]="cleanup().kind === k" (click)="editCleanup({ kind: $any(k) })">{{ kindLabel($any(k)) }}</button>
+            }
+          </div>
+          <div class="st-field-label">Which</div>
+          <div class="st-filters">
+            <label>Older than
+              <select (change)="editCleanup({ olderThanDays: +$any($event.target).value || null })">
+                @for (d of [0, 1, 3, 7, 14, 30]; track d) {
+                  <option [value]="d" [selected]="(cleanup().olderThanDays ?? 0) === d">{{ d === 0 ? 'Any age' : d === 1 ? '1 day' : d + ' days' }}</option>
+                }
+              </select>
+            </label>
+            @if (cleanup().kind === 'inbound' || cleanup().kind === 'outbound') {
+              <label>{{ cleanup().kind === 'inbound' ? 'Project' : 'Supplier or project' }}
+                <input type="text" placeholder="any" [value]="cleanup().project ?? ''" (input)="editCleanup({ project: $any($event.target).value || null })" />
+              </label>
+              <label>Status
+                <select (change)="editCleanup({ status: $any($event.target).value })">
+                  @for (st of statusChoices; track st.value) {
+                    <option [value]="st.value" [selected]="cleanup().status === st.value">{{ st.label }}</option>
+                  }
+                </select>
+              </label>
+            }
+          </div>
+          @if (cleanup().kind === 'inbound' || cleanup().kind === 'outbound') {
+            <input type="text" class="st-wide" placeholder="URL contains… (optional)" [value]="cleanup().urlContains ?? ''"
+                   (input)="editCleanup({ urlContains: $any($event.target).value || null })" />
+            <div class="st-field-label">Keep</div>
+            <label class="st-check"><input type="checkbox" [checked]="cleanup().keepCommented" (change)="editCleanup({ keepCommented: $any($event.target).checked })" />
+              <span>Calls with a comment, and calls a Relive step or a stored answer came from</span></label>
+          }
+          <div class="st-field-label">After</div>
+          <label class="st-check"><input type="checkbox" [checked]="cleanup().compactAfter" (change)="editCleanup({ compactAfter: $any($event.target).checked })" />
+            <span>Free the space afterwards <small>gives it back to the disk now instead of reusing it later</small></span></label>
+
+          <div class="st-preview">
+            @if (preview(); as p) {
+              <div class="st-preview-top">
+                <div><span class="pl">Will delete</span><span class="pv red">{{ p.count.toLocaleString() }}</span></div>
+                <div><span class="pl">Space freed</span><span class="pv green">~{{ fmt(p.bytes) }}</span></div>
+                @if (p.kept) {<div><span class="pl">Kept (comment / used)</span><span class="pv">{{ p.kept.toLocaleString() }}</span></div>}
+                @if (cleanup().kind === 'inbound') {<div style="margin-left:auto" class="sub">Their DB statements, Redis commands and log lines go with them.</div>}
+              </div>
+              <div class="st-sample">
+                @for (x of p.sample; track x.id) {
+                  <div>@if (x.method) {<span>{{ x.method }}</span>} @if (x.status) {<span>{{ x.status }}</span>}<span class="mono">{{ x.url }}</span><span class="faint">{{ x.at?.slice(0, 16)?.replace('T', ' ') }}</span></div>
+                } @empty { <span class="faint">Nothing matches these filters.</span> }
+                @if (p.count > p.sample.length) {<span class="faint">… and {{ (p.count - p.sample.length).toLocaleString() }} more</span>}
+              </div>
+            } @else {
+              <span class="faint">{{ previewLoading() ? 'Counting…' : '' }}</span>
+            }
+          </div>
+        </div>
+        <footer>
+          <span class="sub">Cannot be undone after the 8 s Undo.
+            @if ((cleanup().kind === 'inbound' || cleanup().kind === 'outbound') && preview()?.count) {
+              <button type="button" class="st-link" [disabled]="exporting()" (click)="exportCleanup()">Export these first (.json)</button>
+            }
+          </span>
+          <span class="st-row-actions">
+            <button type="button" class="bulk-btn secondary" (click)="closeCleanup()">Cancel</button>
+            <button type="button" class="bulk-btn danger" [disabled]="!preview()?.count || previewLoading()" (click)="runCleanup()">
+              {{ preview()?.count ? 'Delete ' + preview()!.count.toLocaleString() + ' ' + kindLabel(cleanup().kind) : 'Nothing matches' }}
+            </button>
+          </span>
+        </footer>
+      </div>
+    </div>
+  }
+
+  @if (dangerOpen(); as kind) {
+    <div class="st-backdrop" (click)="dangerOpen.set(null)">
+      <div class="st-dialog small" role="dialog" aria-label="Confirm delete" (click)="$event.stopPropagation()">
+        <header><div><h3>{{ kind === 'outbound' ? 'Delete all outbound calls' : kind === 'inbound' ? 'Delete all inbound calls' : 'Delete all session cycles' }}</h3>
+          <p class="sub">This cannot be undone.</p></div>
+          <button type="button" class="st-x" aria-label="Close" (click)="dangerOpen.set(null)">×</button></header>
+        <div class="st-body">
+          <p class="sub">Type <b class="mono st-danger-word">{{ dangerWord() }}</b> to confirm.</p>
+          <input type="text" class="st-wide" autocomplete="off" [value]="dangerText()" (input)="dangerText.set($any($event.target).value)" aria-label="Confirmation text" />
+        </div>
+        <footer><span></span><span class="st-row-actions">
+          <button type="button" class="bulk-btn secondary" (click)="dangerOpen.set(null)">Cancel</button>
+          <button type="button" class="bulk-btn danger" [disabled]="dangerText().trim().toLowerCase() !== dangerWord()" (click)="runDanger()">Delete</button>
+        </span></footer>
+      </div>
+    </div>
+  }
+} @else if (error()) {
+  <section class="panel settings-panel">
+    <div class="empty">Could not read storage: {{ error() }}</div>
+    <button type="button" class="bulk-btn secondary" (click)="refresh()">Try again</button>
+  </section>
+} @else {
+  <section class="panel settings-panel"><div class="empty">Loading…</div></section>
+}
+
+@if (pending(); as p) {
+  <div class="st-toast undo" role="status">
+    <span>{{ p.label }} in <b class="st-count">{{ p.secondsLeft }}s</b></span>
+    <button type="button" class="st-undo-btn" (click)="undo()">Undo</button>
+  </div>
+} @else if (toast()) {
+  <div class="st-toast" role="status">{{ toast() }}</div>
+}
+
+<app-export-dialog />

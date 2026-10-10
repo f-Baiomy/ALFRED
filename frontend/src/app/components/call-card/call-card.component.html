@@ -235,7 +235,7 @@
         }
         <span class="badge" [class]="sourceBadgeClass()">{{ sourceLabel() }}</span>
         @if (call().source === 'internal') {<app-db-chip [call]="call()" /><app-log-chip [call]="call()" /><app-redis-chip [call]="call()" />}
-        @if (agentSilent()) {<span class="db-chip off agent-missing" [title]="agentSilentTitle()">⚠ agent sent nothing for this call</span>}
+        @if (captureTrimmed()) {<span class="db-chip off capture-trimmed" title="This call's database statements, Redis commands and caught log lines were removed by the storage limit - all of them, at once. The call itself is kept. Settings → Storage sets how much is kept.">◆ DB data removed · storage limit</span>} @else if (agentSilent()) {<span class="db-chip off agent-missing" [title]="agentSilentTitle()">⚠ agent sent nothing for this call</span>}
         @if (agentMissing()) {<span class="db-chip off agent-missing" [title]="agentMissingTitle()">⚠ agent not reporting here</span>}
         @if (agentLacking().length) {<span class="db-chip off agent-missing" [title]="agentLackingTitle()">⚠ agent without {{ agentLacking().join(', ') }}</span>}
         @if (commentCount()) {
@@ -368,7 +368,7 @@
       }
       <span class="badge" [class]="sourceBadgeClass()">{{ sourceLabel() }}</span>
         @if (call().source === 'internal') {<app-db-chip [call]="call()" /><app-log-chip [call]="call()" /><app-redis-chip [call]="call()" />}
-        @if (agentSilent()) {<span class="db-chip off agent-missing" [title]="agentSilentTitle()">⚠ agent sent nothing for this call</span>}
+        @if (captureTrimmed()) {<span class="db-chip off capture-trimmed" title="This call's database statements, Redis commands and caught log lines were removed by the storage limit - all of them, at once. The call itself is kept. Settings → Storage sets how much is kept.">◆ DB data removed · storage limit</span>} @else if (agentSilent()) {<span class="db-chip off agent-missing" [title]="agentSilentTitle()">⚠ agent sent nothing for this call</span>}
         @if (agentMissing()) {<span class="db-chip off agent-missing" [title]="agentMissingTitle()">⚠ agent not reporting here</span>}
         @if (agentLacking().length) {<span class="db-chip off agent-missing" [title]="agentLackingTitle()">⚠ agent without {{ agentLacking().join(', ') }}</span>}
         @if (commentCount()) {

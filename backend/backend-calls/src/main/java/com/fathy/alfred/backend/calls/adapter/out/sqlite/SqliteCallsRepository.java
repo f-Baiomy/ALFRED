@@ -82,6 +82,10 @@ public class SqliteCallsRepository implements StorageBudgetPort {
     @Value("${alfred.storage.calls.max-size-bytes:107374182400}")
     private volatile long maxSizeBytes;
 
+    /** The most calls kept; 0 = no count limit (only the size limit applies). */
+    @Value("${ALFRED_CALLS_MAX_ROWS:0}")
+    private volatile int maxRows;
+
     /** Per-call cap on retained WebSocket messages - see data-model.md §8. */
     @Value("${alfred.calls.ws-max-messages:1000}")
     private int wsMaxMessages;
@@ -772,6 +776,17 @@ public class SqliteCallsRepository implements StorageBudgetPort {
      * used bytes, stop and say so rather than delete another batch.
      */
     private void enforceRetention() {
+        int cap = maxRows;
+        if (cap > 0) {
+            int over = count() - cap;
+            while (over > 0) {
+                int deleted = deleteOldest(Math.min(over, MAX_DELETE_BATCH));
+                if (deleted == 0) {
+                    break;
+                }
+                over -= deleted;
+            }
+        }
         long used = usedBytes();
         if (used <= maxSizeBytes) {
             return;
@@ -789,8 +804,7 @@ public class SqliteCallsRepository implements StorageBudgetPort {
                 break;
             }
             int batch = deleteBatchSize(rows);
-            int deleted = jdbcTemplate.update(
-                    "DELETE FROM call_metadata WHERE id IN (SELECT id FROM call_metadata ORDER BY timestamp_millis ASC LIMIT ?)", batch);
+            int deleted = deleteOldest(batch);
             if (deleted == 0) {
                 break;
             }
@@ -1033,7 +1047,10 @@ public class SqliteCallsRepository implements StorageBudgetPort {
 
     /** Permanently deletes every call - deleting from call_metadata cascades to call_request/call_response, and the calls_fts external-content triggers keep the FTS index in sync automatically. Runs a best-effort VACUUM afterward so the freed pages are actually reclaimed on disk rather than left as free space inside an unchanged-size file. */
     public void deleteAll() {
+        java.util.List<String> ids = removedListeners.isEmpty() ? java.util.List.of()
+                : jdbcTemplate.queryForList("SELECT id FROM call_metadata", String.class);
         jdbcTemplate.update("DELETE FROM call_metadata");
+        removed(ids);
         try {
             jdbcTemplate.execute("VACUUM");
         } catch (Exception e) {
@@ -1558,6 +1575,131 @@ public class SqliteCallsRepository implements StorageBudgetPort {
     public static CallRecord withGeneratedIdIfMissing(CallRecord call) {
         return call.id() != null ? call : new CallRecord(UUID.randomUUID().toString(), call.originalUrl(), call.url(),
                 call.method(), call.request(), call.timestamp(), call.durationMs(), call.response(), call.error());
+    }
+
+    @Override
+    public void setMaxRows(int rows) {
+        if (rows < 0) {
+            throw new IllegalArgumentException("the call limit cannot be negative");
+        }
+        this.maxRows = rows;
+        enforceRetention();
+    }
+
+    /** Told after calls are deleted, so their triage marks go too (backend-app's deletion cascade). */
+    private java.util.List<com.fathy.alfred.backend.calls.application.port.out.CallsRemovedPort> removedListeners = java.util.List.of();
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setRemovedListeners(java.util.List<com.fathy.alfred.backend.calls.application.port.out.CallsRemovedPort> listeners) {
+        this.removedListeners = listeners == null ? java.util.List.of() : java.util.List.copyOf(listeners);
+    }
+
+    private void removed(java.util.List<String> ids) {
+        if (ids.isEmpty()) {
+            return;
+        }
+        for (var listener : removedListeners) {
+            try {
+                listener.callsRemoved(ids);
+            } catch (RuntimeException e) {
+                log.warn("Cascade after deleting {} outbound calls failed", ids.size(), e);
+            }
+        }
+    }
+
+    /** Calls the limits skip (a comment). Optional. */
+    private com.fathy.alfred.backend.calls.application.port.out.KeptCallIdsPort kept;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setKept(com.fathy.alfred.backend.calls.application.port.out.KeptCallIdsPort kept) {
+        this.kept = kept;
+    }
+
+    /** Deletes the {@code batch} oldest calls by id (skipping the kept ones), so the cascade knows exactly which went. */
+    private int deleteOldest(int batch) {
+        java.util.Set<String> keep = kept == null ? java.util.Set.of() : kept.keptCallIds();
+        java.util.List<String> ids = jdbcTemplate.queryForList(
+                "SELECT id FROM call_metadata ORDER BY timestamp_millis ASC LIMIT ?", String.class, batch + keep.size())
+                .stream().filter(id -> !keep.contains(id)).limit(batch).toList();
+        int deleted = deleteIdsQuietly(ids);
+        removed(ids);
+        return deleted;
+    }
+
+    private int deleteIdsQuietly(java.util.List<String> ids) {
+        int deleted = 0;
+        for (int i = 0; i < ids.size(); i += 500) {
+            java.util.List<String> chunk = ids.subList(i, Math.min(ids.size(), i + 500));
+            deleted += jdbcTemplate.update("DELETE FROM call_metadata WHERE id IN ("
+                    + String.join(",", java.util.Collections.nCopies(chunk.size(), "?")) + ")", chunk.toArray());
+        }
+        return deleted;
+    }
+
+    /**
+     * The calls a storage clean-up would remove, oldest first: filtered in SQL, bodies measured with length() and
+     * never read. In-progress calls are never candidates - their completion is still on its way.
+     */
+    public java.util.List<com.fathy.alfred.backend.calls.domain.model.CleanupCandidate> cleanupCandidates(
+            com.fathy.alfred.backend.calls.domain.model.CleanupFilter filter, int limit) {
+        StringBuilder where = new StringBuilder(" WHERE m.status_state <> 'IN_PROGRESS'");
+        java.util.List<Object> args = new java.util.ArrayList<>();
+        if (filter != null && filter.before() != null && !filter.before().isBlank()) {
+            where.append(" AND m.timestamp_millis < ?");
+            args.add(java.time.Instant.parse(filter.before()).toEpochMilli());
+        }
+        if (filter != null && filter.project() != null && !filter.project().isBlank()) {
+            where.append(" AND (m.service_name = ? OR m.supplier_name = ?)");
+            args.add(filter.project());
+            args.add(filter.project());
+        }
+        if (filter != null && filter.urlContains() != null && !filter.urlContains().isBlank()) {
+            where.append(" AND instr(lower(m.url), lower(?)) > 0");
+            args.add(filter.urlContains());
+        }
+        String status = filter == null || filter.status() == null ? "" : filter.status().trim().toLowerCase(java.util.Locale.ROOT);
+        switch (status) {
+            case "2xx" -> where.append(" AND m.status BETWEEN 200 AND 399 AND m.error IS NULL");
+            case "4xx" -> where.append(" AND m.status BETWEEN 400 AND 499");
+            case "5xx" -> where.append(" AND (m.status >= 500 OR m.error IS NOT NULL)");
+            case "options" -> where.append(" AND upper(m.method) = 'OPTIONS'");
+            default -> { }
+        }
+        args.add(Math.max(1, limit));
+        return jdbcTemplate.query("SELECT m.id, m.method, m.url, m.status, m.timestamp, COALESCE(m.service_name, m.supplier_name) AS project, "
+                // octet_length reads the stored size, not the body: length() counted every character of every body
+                + "COALESCE(octet_length(q.body), 0) + COALESCE(octet_length(q.headers), 0) + COALESCE(octet_length(r.body), 0) "
+                + "+ COALESCE(octet_length(r.headers), 0) + 300 AS bytes, COALESCE(octet_length(q.body), 0) AS req_bytes, "
+                + "COALESCE(octet_length(r.body), 0) AS resp_bytes "
+                + "FROM call_metadata m LEFT JOIN call_request q ON q.call_id = m.id LEFT JOIN call_response r ON r.call_id = m.id"
+                + where + " ORDER BY m.timestamp_millis ASC LIMIT ?",
+                (rs, i) -> new com.fathy.alfred.backend.calls.domain.model.CleanupCandidate(rs.getString("id"), rs.getString("method"),
+                        rs.getString("url"), (Integer) rs.getObject("status"), rs.getString("timestamp"), rs.getString("project"),
+                        rs.getLong("bytes"), rs.getLong("req_bytes"), rs.getLong("resp_bytes")),
+                args.toArray());
+    }
+
+    /** When the oldest stored call happened. */
+    public java.util.Optional<String> oldestTimestamp() {
+        return jdbcTemplate.queryForList("SELECT timestamp FROM call_metadata WHERE timestamp_millis IS NOT NULL ORDER BY timestamp_millis LIMIT 1",
+                String.class).stream().findFirst();
+    }
+
+    /** Deletes exactly these calls (a storage clean-up), and what belongs to them. */
+    public int deleteByIds(java.util.Collection<String> callIds) {
+        if (callIds == null || callIds.isEmpty()) {
+            return 0;
+        }
+        java.util.List<String> ids = java.util.List.copyOf(new java.util.LinkedHashSet<>(callIds));
+        int deleted = deleteIdsQuietly(ids);
+        removed(ids);
+        return deleted;
+    }
+
+    /** Trims to the limits now instead of at the next periodic check (the storage budget was just saved). */
+    @Override
+    public void trimNow() {
+        enforceRetention();
     }
 
     /**

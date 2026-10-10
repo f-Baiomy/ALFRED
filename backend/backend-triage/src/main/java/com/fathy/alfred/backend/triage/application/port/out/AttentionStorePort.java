@@ -35,6 +35,9 @@ public interface AttentionStorePort {
     /** Removes the {@code count} oldest rows (by start time) whose id is not in {@code keep}; returns how many went. */
     int deleteOldest(int count, Set<String> keep);
 
+    /** Removes the marks of exactly these calls; returns how many went. */
+    int delete(Collection<String> callIds);
+
     boolean hasMarker(String key);
 
     void setMarker(String key, String value);

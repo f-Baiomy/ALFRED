@@ -45,7 +45,7 @@ public final class SettingCatalog {
                     SettingKind.SIZE_BYTES, LIVE, 10 * MB, null),
             range("INTERNAL_CALLS_MAX_SIZE_BYTES", SettingGroup.STORAGE, "Inbound calls",
                     "Total size kept for inbound calls. The oldest are removed past it, or past the count kept, whichever comes first.",
-                    SettingKind.SIZE_BYTES, RESTART, 10 * MB, null),
+                    SettingKind.SIZE_BYTES, LIVE, 10 * MB, null),
             range("ALFRED_DB_CAPTURE_MAX_SIZE_BYTES", SettingGroup.STORAGE, "Database statements",
                     "Total size kept for captured database statements. The oldest are removed past it.",
                     SettingKind.SIZE_BYTES, LIVE, 10 * MB, null),

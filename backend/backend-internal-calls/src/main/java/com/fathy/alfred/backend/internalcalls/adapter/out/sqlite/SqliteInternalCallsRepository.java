@@ -512,8 +512,59 @@ public class SqliteInternalCallsRepository {
 
     // ------------------------------------------------------------------ retention
 
+    /** Told after calls are deleted, so what was captured with them goes too (backend-app's deletion cascade). */
+    private List<com.fathy.alfred.backend.internalcalls.application.port.out.InternalCallsRemovedPort> removedListeners = List.of();
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setRemovedListeners(List<com.fathy.alfred.backend.internalcalls.application.port.out.InternalCallsRemovedPort> listeners) {
+        this.removedListeners = listeners == null ? List.of() : List.copyOf(listeners);
+    }
+
+    /** Calls the limits skip (a comment). Optional. */
+    private com.fathy.alfred.backend.internalcalls.application.port.out.KeptCallIdsPort kept;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setKept(com.fathy.alfred.backend.internalcalls.application.port.out.KeptCallIdsPort kept) {
+        this.kept = kept;
+    }
+
+    /** The {@code batch} oldest calls the limits may delete - oldest first, skipping the kept ones. */
+    private List<String> oldestDeletable(int batch) {
+        Set<String> keep = kept == null ? Set.of() : kept.keptCallIds();
+        List<String> ids = jdbcTemplate.queryForList("SELECT id FROM internal_call_metadata ORDER BY rowid LIMIT ?", String.class,
+                batch + keep.size());
+        return ids.stream().filter(id -> !keep.contains(id)).limit(batch).toList();
+    }
+
+    private void removed(List<String> ids) {
+        if (ids.isEmpty()) {
+            return;
+        }
+        for (var listener : removedListeners) {
+            try {
+                listener.callsRemoved(ids);
+            } catch (RuntimeException e) {
+                org.slf4j.LoggerFactory.getLogger(SqliteInternalCallsRepository.class).warn("Cascade after deleting {} inbound calls failed", ids.size(), e);
+            }
+        }
+    }
+
     public void setRetentionRows(int rows) {
         this.retentionRows = rows;
+    }
+
+    public void setMaxSizeBytes(long bytes) {
+        this.maxSizeBytes = bytes;
+        trimNow();
+    }
+
+    /** Applies a lowered limit at once instead of at the next call (the storage budget was just saved). */
+    public void trimNow() {
+        if (count() > retentionRows || usedBytes() > maxSizeBytes) {
+            while (trimOnce() > 0) {
+                // short passes, as after a write
+            }
+        }
     }
 
     int retentionRows() {
@@ -548,11 +599,16 @@ public class SqliteInternalCallsRepository {
         } else {
             return 0;
         }
-        int deleted = jdbcTemplate.update("DELETE FROM internal_call_metadata WHERE rowid IN "
-                + "(SELECT rowid FROM internal_call_metadata ORDER BY rowid LIMIT ?)", batch);
+        List<String> ids = oldestDeletable(batch);
+        int deleted = 0;
+        for (List<String> chunk : chunks(ids, 500)) {
+            deleted += jdbcTemplate.update("DELETE FROM internal_call_metadata WHERE id IN (" + placeholders(chunk.size()) + ")",
+                    chunk.toArray());
+        }
         if (deleted > 0 && overCount <= 0) {
             jdbcTemplate.execute("PRAGMA incremental_vacuum");
         }
+        removed(ids);
         return deleted;
     }
 
@@ -574,8 +630,74 @@ public class SqliteInternalCallsRepository {
     }
 
     public void deleteAll() {
+        List<String> ids = removedListeners.isEmpty() ? List.of()
+                : jdbcTemplate.queryForList("SELECT id FROM internal_call_metadata", String.class);
         jdbcTemplate.update("DELETE FROM internal_call_metadata");
         jdbcTemplate.execute("PRAGMA incremental_vacuum");
+        removed(ids);
+    }
+
+    /**
+     * The calls a storage clean-up would remove, oldest first: filtered in SQL, bodies measured with length() and
+     * never read. In-progress calls are never candidates - their completion is still on its way.
+     */
+    public java.util.List<com.fathy.alfred.backend.internalcalls.domain.model.CleanupCandidate> cleanupCandidates(
+            com.fathy.alfred.backend.internalcalls.domain.model.CleanupFilter filter, int limit) {
+        StringBuilder where = new StringBuilder(" WHERE m.status_state <> 'IN_PROGRESS'");
+        java.util.List<Object> args = new java.util.ArrayList<>();
+        if (filter != null && filter.before() != null && !filter.before().isBlank()) {
+            where.append(" AND m.timestamp_millis < ?");
+            args.add(java.time.Instant.parse(filter.before()).toEpochMilli());
+        }
+        if (filter != null && filter.project() != null && !filter.project().isBlank()) {
+            where.append(" AND m.service_name = ?");
+            args.add(filter.project());
+        }
+        if (filter != null && filter.urlContains() != null && !filter.urlContains().isBlank()) {
+            where.append(" AND instr(lower(m.url), lower(?)) > 0");
+            args.add(filter.urlContains());
+        }
+        String status = filter == null || filter.status() == null ? "" : filter.status().trim().toLowerCase(java.util.Locale.ROOT);
+        switch (status) {
+            case "2xx" -> where.append(" AND m.status BETWEEN 200 AND 399 AND m.error IS NULL");
+            case "4xx" -> where.append(" AND m.status BETWEEN 400 AND 499");
+            case "5xx" -> where.append(" AND (m.status >= 500 OR m.error IS NOT NULL)");
+            case "options" -> where.append(" AND upper(m.method) = 'OPTIONS'");
+            default -> { }
+        }
+        args.add(Math.max(1, limit));
+        return jdbcTemplate.query("SELECT m.id, m.method, m.url, m.status, m.timestamp, m.service_name AS project, "
+                // octet_length reads the stored size, not the body: length() counted every character of every body
+                + "COALESCE(octet_length(q.body), 0) + COALESCE(octet_length(q.headers), 0) + COALESCE(octet_length(r.body), 0) "
+                + "+ COALESCE(octet_length(r.headers), 0) + 300 AS bytes, COALESCE(octet_length(q.body), 0) AS req_bytes, "
+                + "COALESCE(octet_length(r.body), 0) AS resp_bytes "
+                + "FROM internal_call_metadata m LEFT JOIN internal_call_request q ON q.call_id = m.id LEFT JOIN internal_call_response r ON r.call_id = m.id"
+                + where + " ORDER BY m.timestamp_millis ASC LIMIT ?",
+                (rs, i) -> new com.fathy.alfred.backend.internalcalls.domain.model.CleanupCandidate(rs.getString("id"), rs.getString("method"),
+                        rs.getString("url"), (Integer) rs.getObject("status"), rs.getString("timestamp"), rs.getString("project"),
+                        rs.getLong("bytes"), rs.getLong("req_bytes"), rs.getLong("resp_bytes")),
+                args.toArray());
+    }
+
+    /** When the oldest stored call happened. */
+    public java.util.Optional<String> oldestTimestamp() {
+        return jdbcTemplate.queryForList("SELECT timestamp FROM internal_call_metadata WHERE timestamp_millis IS NOT NULL ORDER BY timestamp_millis LIMIT 1",
+                String.class).stream().findFirst();
+    }
+
+    /** Deletes exactly these calls (a clean-up), and what was captured with them. */
+    public int deleteByIds(java.util.Collection<String> callIds) {
+        if (callIds == null || callIds.isEmpty()) {
+            return 0;
+        }
+        List<String> ids = List.copyOf(new java.util.LinkedHashSet<>(callIds));
+        int deleted = 0;
+        for (List<String> chunk : chunks(ids, 500)) {
+            deleted += jdbcTemplate.update("DELETE FROM internal_call_metadata WHERE id IN (" + placeholders(chunk.size()) + ")",
+                    chunk.toArray());
+        }
+        removed(ids);
+        return deleted;
     }
 
     public int deleteByReliveRunIds(java.util.Collection<String> runIds) {
@@ -597,6 +719,7 @@ public class SqliteInternalCallsRepository {
             deleted += jdbcTemplate.update("DELETE FROM internal_call_metadata WHERE id IN (" + placeholders(chunk.size()) + ")",
                     chunk.toArray());
         }
+        removed(ids);
         return deleted;
     }
 

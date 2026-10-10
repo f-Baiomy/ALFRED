@@ -233,4 +233,15 @@ class TriageServiceTest {
         assertThat(com.fathy.alfred.backend.triage.domain.model.Signal.of(entry("failed").call(), 400)).containsExactly(
                 com.fathy.alfred.backend.triage.domain.model.Signal.HTTP_ERROR, com.fathy.alfred.backend.triage.domain.model.Signal.LOG_ERROR);
     }
+
+    @Test
+    void aDeletedCallTakesItsMarkAndNoOther() {
+        service.callObserved(inbound("gone", 500, "{}", "2026-10-05T16:03:35Z"));
+        service.callObserved(inbound("kept", 500, "{}", "2026-10-05T16:03:36Z"));
+
+        service.callsDeleted(List.of("gone"));
+
+        assertThat(repo.find("gone")).isEmpty();
+        assertThat(repo.find("kept")).isPresent();
+    }
 }
