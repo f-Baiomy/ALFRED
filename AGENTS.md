@@ -57,16 +57,17 @@ One module per feature. Maven module boundaries make an undeclared cross-slice i
 | `backend-logs` | Logs Explorer: loads JSON-per-line logs of any structure (upload, server file, followed file), per-source SQLite tables with per-field and trigram indexes, grouping levels, patterns, comments; a leaf slice, see `docs/logs.md` |
 | `backend-db-capture` | Database Capture: stores the statements the `db-agent` records inside the app, tied to their inbound call; summaries, flags, paged rows, sandboxed queries over recorded data, failed statements indexed per call; and the Redis commands each call sent (⬢, specs/011: store-generic tables, structural value decoding, its own 2 GB budget); a leaf slice, see `docs/db-capture.md` |
 | `backend-triage` | Triage: the saved, indexed "needs attention" mark of every call (status, error inside a 2xx, failing supplier calls, failed statements, priority 1-6), kept current as calls arrive by `backend-app/triagebridge`; a leaf slice with its own `triage.db`, see `docs/mcp.md` "Triage" |
+| `backend-board` | Task board: cards (bug/task/note/question) per project and per session cycle, activity history, `@[type:ref|label]` mentions indexed from text, cycle briefs, spec files, acceptance checklist marks, the live strip; Claude's limits for `X-Alfred-Actor: claude`; a leaf slice with its own `board.db`, wired by `backend-app/boardbridge`, see `docs/board.md` |
 | `backend-relive` | Relive Cycle: builds and runs a controlled replay workflow from recorded calls (LIVE/REPLAY per outbound child, cycle-scoped variables/rules, run history, Live calls log); a leaf slice reached only through `backend-app`'s `relivebridge` |
 | `backend-server` | The native install's settings engine: reads and writes `.env` (comments kept, owner-only, conflict by hash), validation and machine checks, history and revert, the edit-access rule, restart through the supervisor's control API, `/server/**` and `/ws/server`; also run without Spring as `ServerConfigCli` (`alfred config`, the installer). Isolated; `backend-app/serverbridge` applies live settings to other slices. See `docs/server.md` |
-| `backend-app` | Composition root: main class, `DatabaseStatsController`, migrations, `interceptionbridge`/`resendbridge`/`relivebridge`/`serverbridge`, `mcpbridge` (the `/mcp` relay and `/mcp-exports`), `web/SpaPageFilter` (serves the SPA natively) |
+| `backend-app` | Composition root: main class, `DatabaseStatsController`, migrations, `interceptionbridge`/`resendbridge`/`relivebridge`/`serverbridge`/`boardbridge`, `mcpbridge` (the `/mcp` relay and `/mcp-exports`), `web/SpaPageFilter` (serves the SPA natively) |
 | `backend-architecture-test` | Test-only, holds the ArchUnit suite |
 
 Isolation rules currently enforced: `calls`, `internal-calls`, `comments`, `profiles`, `settings`, `interception`, `resend` and `relive` are each fully isolated from every other slice (including from each other). The only allowed edges are `export→calls`, `session-cycles→calls`, `session-cycles→internal-calls`. → `docs/architecture.md`
 
 ## Frontend routes (`frontend/src/app/`, standalone Angular + signals, no NgModules/NgRx)
 
-Live Calls (`''`, with an outbound/inbound/both source filter), Session Cycles (`cycles`, `cycles/:id`), Profiles (`profiles`), Settings (`settings`), Relive Cycles (`relive`, `relive/:id` — build and run a controlled replay workflow from recorded calls, see `docs/relive.md`), Logs (`logs`, `logs/new`, `logs/:id`, `logs/:id/structure` — load and explore JSON-per-line logs, see `docs/logs.md`), and `view` (pop-out JSON viewer, outside the tab layout). No separate "Internal Calls" tab — inbound traffic is a filter inside Live Calls, reusing the same components. → `docs/frontend-architecture.md`
+Live Calls (`''`, with an outbound/inbound/both source filter), Session Cycles (`cycles`, `cycles/:id` - with Calls / Board / Brief & specs tabs), Board (`board?project=&cycle=&card=` - see `docs/board.md`), Profiles (`profiles`), Settings (`settings`), Relive Cycles (`relive`, `relive/:id` — build and run a controlled replay workflow from recorded calls, see `docs/relive.md`), Logs (`logs`, `logs/new`, `logs/:id`, `logs/:id/structure` — load and explore JSON-per-line logs, see `docs/logs.md`), and `view` (pop-out JSON viewer, outside the tab layout). No separate "Internal Calls" tab — inbound traffic is a filter inside Live Calls, reusing the same components. → `docs/frontend-architecture.md`
 
 ## Commands
 
@@ -107,6 +108,7 @@ cd frontend && npm test && npm run build  # Karma/Jasmine; ng build
 - `docs/logs.md` — Logs Explorer: ingest pipeline, storage, LogQuery, settings, measured throughput
 - `docs/db-capture.md` — Database Capture: db-agent, proxy headers, switch flag file, storage, Relive-ready seams
 - `docs/mcp.md` — Using Alfred from Claude: `mcp-server/` is a local stdio MCP server (TypeScript, not a container or compose service) over the existing HTTP API; it imports the frontend's pure utils (findings, exports, masking, spacer layout) rather than re-implementing them
+- `docs/board.md` — the task board: cards, mentions and kept calls, Inbox sorting, cycle briefs/spec files/checklist, Claude's limits, export/import
 - `docs/server.md` — the native install: installers, `.env` and defaults, the Server section and its access rule, the supervisor, `alfred` CLI, `alfred attach` and its limits
 - `wildfly-proxy-toggle/README.md` — the outbound Attach-API tool in full
 - `README.md` — human-facing setup/usage walkthrough

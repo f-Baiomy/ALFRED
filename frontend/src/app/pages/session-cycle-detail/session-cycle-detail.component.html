@@ -76,13 +76,34 @@
   (toggleServiceLogging)="state.toggleServiceLogging($event.name, $event.enabled)"
 />
 
-<main>
-  <app-bulk-actions-bar />
-  <app-stats-bar [stats]="state.stats()" />
-  <div class="call-list">
-    <app-call-list />
+<!-- The cycle's board lives here too (specs/014-task-board US6): the same cards as the Board tab's Cycle board. -->
+<div class="cycle-tabs" role="tablist">
+  <button type="button" role="tab" [class.on]="tab() === 'calls'" (click)="tab.set('calls')">Calls</button>
+  <button type="button" role="tab" [class.on]="tab() === 'board'" (click)="tab.set('board')">Board
+    @if (openCardCount()) { <span class="cycle-tab-count">{{ openCardCount() }} open</span> }
+  </button>
+  <button type="button" role="tab" [class.on]="tab() === 'brief'" (click)="tab.set('brief')">Brief &amp; specs</button>
+</div>
+
+@if (tab() === 'calls') {
+  <main>
+    <app-bulk-actions-bar />
+    <app-stats-bar [stats]="state.stats()" />
+    <div class="call-list">
+      <app-call-list />
+    </div>
+  </main>
+} @else if (tab() === 'board' && state.cycleId()) {
+  <app-board-view [project]="cycleProject()" [cycleId]="state.cycleId()" [cycleName]="cycle()?.name ?? null" />
+} @else if (tab() === 'brief' && state.cycleId()) {
+  <div class="board-brief">
+    <app-cycle-brief [cycleId]="state.cycleId()" [project]="cycleProject()" [editable]="boardEditable()" />
+    <div class="board-brief-side">
+      <app-spec-files [cycleId]="state.cycleId()" [editable]="boardEditable()" />
+      <app-acceptance-checklist [cycleId]="state.cycleId()" [project]="cycleProject()" [editable]="boardEditable()" />
+    </div>
   </div>
-</main>
+}
 
 <app-export-dialog />
 <app-copy-to-cycles-dialog />

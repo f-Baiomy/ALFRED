@@ -1,5 +1,8 @@
 <div class="call-actions">
   <app-pick-call [call]="call()" />
+  <app-call-board-badge [badges]="boardBadges()" />
+  <button type="button" class="action-btn" title="Add an Inbox card linked to this call to the board" [disabled]="boardLoading()"
+          (click)="addToBoard()">{{ boardLoading() ? 'Adding…' : '＋ Board' }}</button>
   <!-- Resent often enough, and from far more places, to earn a button of its own rather than a
        menu item nobody opens: every card gets one through CallActionsComponent, so a new list built
        from `app-call-card` needs nothing extra (same deal as PickCallButtonComponent). Still listed

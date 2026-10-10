@@ -287,6 +287,8 @@ services:
       - FILTER_SETTINGS_DB_FILE=/appdata/settings.db
       # Triage marks (one small row per call - see docs/mcp.md "triage"); capped by row count below.
       - TRIAGE_DB_FILE=/appdata/triage.db
+      # Task board: cards, their history, cycle briefs and spec files (specs/014-task-board; kept until deleted).
+      - BOARD_DB_FILE=/appdata/board.db
       # Retention target for calls.db - once it exceeds this many bytes, the oldest calls are
       # dropped until back under it. 10GB.
       #

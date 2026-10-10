@@ -84,6 +84,14 @@ public class SessionCyclesService implements
         this.copiedObservers = observers == null ? List.of() : observers;
     }
 
+    /** Told after a cycle is deleted: the board drops its brief and spec files (specs/014-task-board). */
+    private List<com.fathy.alfred.backend.sessioncycles.application.port.out.CycleRemovedPort> removedObservers = List.of();
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setRemovedObservers(List<com.fathy.alfred.backend.sessioncycles.application.port.out.CycleRemovedPort> observers) {
+        this.removedObservers = observers == null ? List.of() : observers;
+    }
+
     private final SessionCycleMetadataStorePort metadataStore;
     private final CapturedCallsStorePort capturedCallsStore;
     private final CycleSpacersStorePort spacersStore;
@@ -203,6 +211,7 @@ public class SessionCyclesService implements
         capturedCallsStore.deleteAllForCycle(id);
         capturedInternalCallsStore.deleteAllForCycle(id);
         spacersStore.deleteAllForCycle(id);
+        removedObservers.forEach(o -> o.cycleRemoved(id));
         notificationPort.notifySessionCyclesChanged();
         return DeleteOutcome.DELETED;
     }

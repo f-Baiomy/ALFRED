@@ -9,6 +9,9 @@ import { buildBulkExportHtml, buildExportHtml, bulkExportHtmlFilename, exportHtm
 import { buildJsonExportV2 } from './json-export-v2';
 import { buildBulkExportMarkdown, buildExportMarkdown, bulkExportCycleFilename, bulkExportFilename, exportFilename } from './markdown-builder';
 import { buildBulkPostmanCollection, bulkPostmanFilename } from './postman-builder';
+import { BoardExport } from './board-json';
+import { buildBoardHtmlParts } from './board-html-builder';
+import { buildBoardMarkdownLines } from './board-md-builder';
 import { redactCalls } from './redact';
 
 export type ExportBuildFormat = 'markdown' | 'json' | 'html' | 'postman';
@@ -30,6 +33,12 @@ export interface ExportBuildInput {
   readonly exportedAt: string;
   /** What the user typed as a file name - blank means the generated one. */
   readonly fileName: string;
+  /**
+   * A cycle export's "Include brief & specs" / "Include board cards" (specs/014-task-board FR-046): appended to the
+   * .md and .html report. Absent - both boxes off, the default - leaves every export exactly as it was. The .json
+   * stays the calls re-import format; the dialog writes the board beside it as its own alfred-board file.
+   */
+  readonly board?: { readonly data: BoardExport; readonly title: string } | null;
 }
 
 export type BuiltExport =
@@ -67,7 +76,8 @@ export function buildExportFile(format: ExportBuildFormat, input: ExportBuildInp
       const call = calls[0];
       return { kind: 'text', content: buildExportHtml(call, form, commentsByCallId.get(call.id) ?? [], overlapCandidates), filename: named(exportHtmlFilename(call)), mimeType: 'text/html', redactedValueCount };
     }
-    const html = buildBulkExportHtml(calls, form, commentsByCallId, exportedAt, overlapCandidates, statusFilter, cycle, input.spacers, input.listOrder);
+    const html = withBoardHtml(buildBulkExportHtml(calls, form, commentsByCallId, exportedAt, overlapCandidates, statusFilter, cycle, input.spacers,
+      input.listOrder), input.board);
     return { kind: 'text', content: html, filename: named(cycle ? bulkExportCycleFilename(cycle, calls, 'html') : bulkExportHtmlFilename(calls)), mimeType: 'text/html', redactedValueCount };
   }
 
@@ -76,6 +86,23 @@ export function buildExportFile(format: ExportBuildFormat, input: ExportBuildInp
     const call = calls[0];
     return { kind: 'text', content: buildExportMarkdown(call, form, commentsByCallId.get(call.id) ?? [], overlapCandidates), filename: named(exportFilename(call)), mimeType: 'text/markdown', redactedValueCount };
   }
-  const markdown = buildBulkExportMarkdown(calls, form, commentsByCallId, exportedAt, overlapCandidates, statusFilter, cycle, input.spacers, input.listOrder);
+  const markdown = withBoardMarkdown(buildBulkExportMarkdown(calls, form, commentsByCallId, exportedAt, overlapCandidates, statusFilter, cycle,
+    input.spacers, input.listOrder), input.board);
   return { kind: 'text', content: markdown, filename: named(cycle ? bulkExportCycleFilename(cycle, calls, 'md') : bulkExportFilename(calls, 'md')), mimeType: 'text/markdown', redactedValueCount };
+}
+
+function withBoardMarkdown(markdown: string, board: ExportBuildInput['board']): string {
+  if (!board) return markdown;
+  // Appended as written: re-levelling headings would also touch the text inside cards and spec files.
+  return `${markdown}\n\n${buildBoardMarkdownLines(board.data, board.title).join('\n')}\n`;
+}
+
+function withBoardHtml(html: string, board: ExportBuildInput['board']): string {
+  if (!board) return html;
+  const parts = buildBoardHtmlParts(board.data, board.title);
+  // The body of the board page only: its own head and styles are left out of the cycle report.
+  const body = parts.join('').replace(/^[\s\S]*?<body>/, '').replace(/<\/body><\/html>$/, '');
+  const end = html.lastIndexOf('</body>');
+  const section = `<section class="board-export">${body}</section>`;
+  return end < 0 ? html + section : html.slice(0, end) + section + html.slice(end);
 }

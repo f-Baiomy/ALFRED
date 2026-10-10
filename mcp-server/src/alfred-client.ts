@@ -27,6 +27,10 @@ export interface RequestOptions {
   readonly notFound?: string;
   /** Longer than the default only for a known-large answer (a Relive run with its whole definition is megabytes). */
   readonly timeoutMs?: number;
+  /** Extra request headers - the board's tools say who is asking (`X-Alfred-Actor: claude`, specs/014-task-board). */
+  readonly headers?: Readonly<Record<string, string>>;
+  /** The answer is text (a spec file), not JSON. */
+  readonly text?: boolean;
 }
 
 const TIMEOUT_MS = 4000;
@@ -82,7 +86,8 @@ export class AlfredClient {
     try {
       response = await fetch(url, {
         method,
-        headers: options.body !== undefined ? { 'Content-Type': 'application/json', Accept: 'application/json' } : { Accept: 'application/json' },
+        headers: { ...(options.body !== undefined ? { 'Content-Type': 'application/json', Accept: 'application/json' } : { Accept: 'application/json' }),
+          ...(options.headers ?? {}) },
         body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
         signal: AbortSignal.timeout(options.timeoutMs ?? TIMEOUT_MS),
       });
@@ -108,6 +113,7 @@ export class AlfredClient {
       throw new AlfredError('backend', `Alfred answered ${response.status}: ${await safeText(response)}`, response.status, `${method} ${url.pathname}`);
     }
     const text = await response.text();
+    if (options.text) return text as T;
     return (text ? JSON.parse(text) : undefined) as T;
   }
 
@@ -131,7 +137,15 @@ export class AlfredClient {
 /** An error body, shortened - it is shown to Claude, and Alfred's errors never carry call data worth more than this. */
 async function safeText(response: Response): Promise<string> {
   try {
-    return (await response.text()).slice(0, 300);
+    const text = await response.text();
+    // A refusal that explains itself ({error, message} - the task board's) is passed on as its message alone, word for word.
+    try {
+      const parsed = JSON.parse(text) as { message?: unknown };
+      if (typeof parsed?.message === 'string' && parsed.message) return parsed.message;
+    } catch {
+      // not JSON: the text itself
+    }
+    return text.slice(0, 300);
   } catch {
     return '(no body)';
   }

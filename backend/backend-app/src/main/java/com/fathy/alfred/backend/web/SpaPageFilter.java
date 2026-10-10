@@ -36,11 +36,11 @@ public class SpaPageFilter extends OncePerRequestFilter {
     static final List<String> API_PREFIXES = List.of(
             "calls", "internal-calls", "call-overlaps", "comments", "session-cycles", "profiles", "interception",
             "redactions", "settings", "database", "health", "resend", "scenarios", "relive-cycles", "logs",
-            "db-capture", "triage", "call-logs", "server", "mcp", "mcp-exports");
+            "db-capture", "triage", "board", "call-logs", "server", "mcp", "mcp-exports");
 
     /** gateway/nginx.conf's $spa_page map: SPA pages that share an API prefix, matched on the path. */
     static final List<String> SPA_PAGE_PATTERNS = List.of(
-            "^/(profiles|interception|settings)/?$",
+            "^/(profiles|interception|settings|board)/?$",
             "^/logs(/.*)?$");
 
     private static final Pattern API = Pattern.compile("^/(" + String.join("|", API_PREFIXES) + ")(/|$)");

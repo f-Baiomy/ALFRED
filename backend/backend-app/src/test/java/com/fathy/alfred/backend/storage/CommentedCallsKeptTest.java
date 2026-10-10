@@ -57,6 +57,33 @@ class CommentedCallsKeptTest {
     }
 
     @Test
+    void keepsTheLiveCallsTheBoardMentionsAndSeesANewOneAtOnce() {
+        CommentsStorePort comments = mock(CommentsStorePort.class);
+        when(comments.findAll()).thenReturn(List.of());
+        java.util.Set<String> mentioned = new java.util.HashSet<>(java.util.Set.of("on-a-card"));
+        CommentedCallsKept kept = new CommentedCallsKept(comments, files());
+        kept.setReferences(null, null);
+        kept.setBoard(() -> java.util.Set.copyOf(mentioned));
+        assertThat(kept.kept()).containsExactly("on-a-card");
+
+        mentioned.add("just-mentioned");
+        new CommentedCallsKept.BoardMentions(kept).mentionedCallsChanged();
+
+        assertThat(kept.kept()).containsExactlyInAnyOrder("on-a-card", "just-mentioned");
+    }
+
+    @Test
+    void theRuleTurnedOffKeepsNotEvenTheBoardsCalls() {
+        StorageFiles files = files();
+        files.saveBudget(new StorageBudget(null, "recommended", Map.of(), 0, 0, 0, Map.of(),
+                new StorageBudget.Rules(false, "", 10, 2, true, false, List.of(), false)));
+        CommentedCallsKept kept = new CommentedCallsKept(mock(CommentsStorePort.class), files);
+        kept.setBoard(() -> java.util.Set.of("on-a-card"));
+
+        assertThat(kept.kept()).isEmpty();
+    }
+
+    @Test
     void theRuleTurnedOffKeepsNothing() {
         StorageFiles files = files();
         files.saveBudget(new StorageBudget(null, "recommended", Map.of(), 0, 0, 0, Map.of(),

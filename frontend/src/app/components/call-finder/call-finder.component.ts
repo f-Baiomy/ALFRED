@@ -105,6 +105,12 @@ export class CallFinderComponent implements OnInit {
   /** A response is required to choose (the stored-answer case) - a call that never got one can be previewed but not chosen. */
   readonly needsResponse = input(false);
 
+  /**
+   * A row click picks the call at once instead of opening its preview - for hosts that only need which call, not its
+   * body (the board's @ mention picker). Off by default: the rule editors choose after looking at the response.
+   */
+  readonly pickOnClick = input(false);
+
   /** Off where the host cannot park itself while the user is on another tab (e.g. a throwaway preview). */
   readonly allowPickAnywhere = input(true);
 
@@ -280,6 +286,16 @@ export class CallFinderComponent implements OnInit {
       return `${this.total()} ${noun} · newest first${this.total() > shown ? ' · showing ' + shown : ''}`;
     }
     return `${shown} ${shown === 1 ? 'match' : 'matches'} in the newest ${this.scanned()} of ${this.total()} calls`;
+  }
+
+  /** A row's click: pick it straight away when the host asked for that, else open its preview. */
+  onRowClick(call: CallRecord, index: number): void {
+    if (this.pickOnClick() && this.canChoose(call)) {
+      this.activeIndex.set(index);
+      this.choose(call);
+      return;
+    }
+    this.togglePreview(call, index);
   }
 
   togglePreview(call: CallRecord, index: number): void {

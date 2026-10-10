@@ -193,6 +193,19 @@ class SessionCyclesServiceTest {
     }
 
     @Test
+    void aDeletedCycleIsAnnouncedToItsObserversButABlockedOneIsNot() {
+        java.util.List<String> removed = new java.util.ArrayList<>();
+        service.setRemovedObservers(java.util.List.of(removed::add));
+        when(metadataStore.findById("c1")).thenReturn(Optional.of(cycle("c1", SessionCycleStatus.PAUSED)));
+        when(metadataStore.findById("c2")).thenReturn(Optional.of(cycle("c2", SessionCycleStatus.RECORDING)));
+
+        service.delete("c1");
+        service.delete("c2");
+
+        assertThat(removed).containsExactly("c1");
+    }
+
+    @Test
     void clearCallsReturnsFalseWhenTheCycleDoesNotExist() {
         when(metadataStore.findById("missing")).thenReturn(Optional.empty());
 

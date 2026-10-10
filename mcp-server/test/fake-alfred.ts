@@ -81,6 +81,20 @@ export interface LoggedRequest {
   readonly path: string;
   readonly query: URLSearchParams;
   readonly body: any;
+  readonly headers?: Record<string, string | string[] | undefined>;
+}
+
+/** The task board as the fake keeps it (specs/014-task-board): enough to answer what the board tools ask. */
+export interface FakeBoard {
+  cards: Record<string, any>[];
+  activity: Record<string, any[]>;
+  closedReasons: Record<string, unknown>[];
+  briefs: Record<string, { text: string; updatedAt: string | null }>;
+  specs: Record<string, Record<string, string>>;
+  checklist: Record<string, unknown[]>;
+  /** The answer to the next POST /board/cards, when the test wants a refusal. */
+  refuseCreate: [number, unknown] | null;
+  agentState: string;
 }
 
 /** The wire summary of a call: what GET /calls and /summary return - no headers, no bodies. */
@@ -144,6 +158,7 @@ function priorityOf(m: AttentionMark, failingChildren: number, minStatus: number
 
 export class FakeAlfred {
   readonly state: FakeState = emptyState();
+  readonly board: FakeBoard = { cards: [], activity: {}, closedReasons: [], briefs: {}, specs: {}, checklist: {}, refuseCreate: null, agentState: 'WATCHING' };
   readonly log: LoggedRequest[] = [];
   private server?: Server;
   private nextId = 1;
@@ -223,7 +238,14 @@ export class FakeAlfred {
     for await (const chunk of req) chunks.push(chunk as Buffer);
     const raw = Buffer.concat(chunks).toString('utf8');
     const body = raw ? JSON.parse(raw) : undefined;
-    this.log.push({ method: req.method!, path: url.pathname, query: url.searchParams, body });
+    this.log.push({ method: req.method!, path: url.pathname, query: url.searchParams, body, headers: req.headers });
+    if (url.pathname.startsWith('/board/cycles/') && url.pathname.includes('/specs/') && req.method === 'GET') {
+      const [, , , cycleId, , name] = url.pathname.split('/').map(decodeURIComponent);
+      const text = this.board.specs[cycleId]?.[name];
+      res.writeHead(text === undefined ? 404 : 200, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end(text ?? '');
+      return;
+    }
     const send = (status: number, value?: unknown) => {
       res.writeHead(status, { 'Content-Type': 'application/json' });
       res.end(value === undefined ? '' : JSON.stringify(value));
@@ -410,8 +432,60 @@ export class FakeAlfred {
       .sort((a, b) => b.startedAt - a.startedAt);
   }
 
+  /** /board, as backend-board answers it - the backend's own rules (Claude's limits) are tested in backend-board. */
+  private boardRoute(method: string, p: string[], q: URLSearchParams, body: any): [number, unknown?] {
+    const b = this.board;
+    const find = (id: string) => b.cards.find((c) => c.id === id);
+    if (p[1] === 'cards' && p.length === 2 && method === 'GET') {
+      const status = (q.get('status') ?? '').split(',').filter(Boolean);
+      const cards = b.cards.filter((c) => c.project === (q.get('project') ?? '') && (!status.length || status.includes(c.status)));
+      return [200, { cards, total: cards.length, counts: { open: cards.length, fixed: 0, done: 0 } }];
+    }
+    if (p[1] === 'cards' && p.length === 2 && method === 'POST') {
+      if (b.refuseCreate) return b.refuseCreate;
+      const number = b.cards.length + 1;
+      const card = { id: `card-${number}`, project: body.project ?? '', number, kind: body.kind, title: body.title, description: body.description ?? '',
+        status: 'INBOX', resolution: null, reason: null, flags: body.flags ?? [], scope: 'NOT_DECIDED', author: 'CLAUDE', cycleId: body.cycleId ?? null,
+        cycleDeleted: false, updatedAt: '2026-10-10T09:00:00Z', commentCount: 0, similarClosed: null, links: body.links ?? [] };
+      b.cards.push(card);
+      return [201, card];
+    }
+    if (p[1] === 'cards' && p[2] === 'by-number') {
+      const card = b.cards.find((c) => c.project === (q.get('project') ?? '') && c.number === Number(p[3]));
+      return card ? [200, card] : [404, { error: 'not-found', message: 'No card' }];
+    }
+    if (p[1] === 'cards' && p[3] === 'activity') return [200, { entries: b.activity[p[2]] ?? [], total: (b.activity[p[2]] ?? []).length }];
+    if (p[1] === 'cards' && p[3] === 'comments') {
+      (b.activity[p[2]] ??= []).push({ actor: 'CLAUDE', kind: 'COMMENT', text: `**Did** ${body.did}`, oldValue: null, newValue: null, at: '2026-10-10T09:00:00Z' });
+      return [201, { id: 1 }];
+    }
+    if (p[1] === 'cards' && p[3] === 'move') {
+      const card = find(p[2]);
+      if (!card) return [404];
+      card.status = body.status;
+      return [200, card];
+    }
+    if (p[1] === 'cards' && p.length === 3 && method === 'PATCH') {
+      const card = find(p[2]);
+      if (!card) return [404];
+      Object.assign(card, body);
+      return [200, card];
+    }
+    if (p[1] === 'closed-reasons') return [200, b.closedReasons];
+    if (p[1] === 'cycles' && p[3] === 'brief') return [200, b.briefs[p[2]] ?? { text: '', updatedAt: null }];
+    if (p[1] === 'cycles' && p[3] === 'specs') {
+      return [200, Object.entries(b.specs[p[2]] ?? {}).map(([name, text]) => ({ name, size: text.length, uploadedAt: '2026-10-10T09:00:00Z' }))];
+    }
+    if (p[1] === 'cycles' && p[3] === 'checklist') return [200, b.checklist[p[2]] ?? []];
+    if (p[1] === 'agent-status' && method === 'PUT') {
+      return [200, { ...body, state: b.agentState === 'PAUSED' ? 'PAUSED' : body.state, lastCheckAt: '', updatedAt: '' }];
+    }
+    return [404, { error: 'not-found', message: `fake: no board route ${method} /${p.join('/')}` }];
+  }
+
   private route(method: string, p: string[], q: URLSearchParams, body: any): [number, unknown?] {
     const s = this.state;
+    if (p[0] === 'board') return this.boardRoute(method, p, q, body);
     // ---- triage (the saved marks of backend-triage)
     if (p[0] === 'triage') {
       const minStatus = Math.max(300, Math.min(600, Number(q.get('minStatus') ?? 300)));

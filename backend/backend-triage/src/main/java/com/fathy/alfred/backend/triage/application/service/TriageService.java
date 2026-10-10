@@ -1,10 +1,12 @@
 package com.fathy.alfred.backend.triage.application.service;
 
 import com.fathy.alfred.backend.triage.application.port.in.QueryAttentionUseCase;
+import com.fathy.alfred.backend.triage.application.port.in.NormalizeEndpointUseCase;
 import com.fathy.alfred.backend.triage.application.port.in.RecordCallAttentionUseCase;
 import com.fathy.alfred.backend.triage.application.port.out.AttentionNotificationPort;
 import com.fathy.alfred.backend.triage.application.port.out.AttentionStorePort;
 import com.fathy.alfred.backend.triage.application.port.out.RetainedCallIdsPort;
+import com.fathy.alfred.backend.triage.domain.EndpointPattern;
 import com.fathy.alfred.backend.triage.domain.Priority;
 import com.fathy.alfred.backend.triage.domain.SoftFailures;
 import com.fathy.alfred.backend.triage.domain.model.CallAttention;
@@ -47,7 +49,7 @@ import java.util.stream.Collectors;
  * row and each later fact updates it and re-ranks it, and its parent when it has one.
  */
 @Service
-public class TriageService implements RecordCallAttentionUseCase, QueryAttentionUseCase {
+public class TriageService implements RecordCallAttentionUseCase, QueryAttentionUseCase, NormalizeEndpointUseCase {
 
     private static final Logger log = LoggerFactory.getLogger(TriageService.class);
     static final String BACKFILL_MARKER = "backfill-v2";
@@ -315,5 +317,10 @@ public class TriageService implements RecordCallAttentionUseCase, QueryAttention
 
     private static String blankToNull(String value) {
         return value == null || value.isBlank() ? null : value;
+    }
+
+    @Override
+    public String endpointOf(String method, String url) {
+        return EndpointPattern.of(method, url);
     }
 }

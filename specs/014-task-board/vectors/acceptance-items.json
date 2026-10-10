@@ -1,0 +1,40 @@
+{
+  "about": "Acceptance items vectors. AcceptanceItems.java and acceptance-items.ts must give exactly these item texts (whitespace-normalized). Items = list items (numbered '1.' / '1)' or bulleted '-' '*' '+') directly under the FIRST heading whose text contains 'acceptance' (case-insensitive), up to the next heading of the same or higher level. Nested (indented) items belong to their parent and are not separate items. keySame: pairs whose keys must be equal; keyDiffer: pairs whose keys must differ. Key = lowercase hex SHA-256 of the normalized text (trimmed, internal whitespace runs collapsed to one space).",
+  "vectors": [
+    {
+      "name": "numbered under h2",
+      "text": "# ODY-482\nIntro\n## Acceptance\n1. POST /orders returns 201\n2. ORDERS.discount is stored\n3) Invalid code returns 422\n## Out of scope\n- stacking",
+      "items": ["POST /orders returns 201", "ORDERS.discount is stored", "Invalid code returns 422"]
+    },
+    {
+      "name": "bulleted with criteria heading",
+      "text": "### Acceptance criteria\n- one\n* two\n+ three\n\nAfter text\n- four",
+      "items": ["one", "two", "three", "four"]
+    },
+    { "name": "no acceptance heading", "text": "# Spec\n- a\n- b", "items": [] },
+    { "name": "heading but no list", "text": "## Acceptance\nJust prose.", "items": [] },
+    {
+      "name": "first acceptance heading only",
+      "text": "## Acceptance\n- a\n## Acceptance (old)\n- b",
+      "items": ["a"]
+    },
+    {
+      "name": "deeper heading does not end the section",
+      "text": "## Acceptance\n- a\n### Notes\n- b\n## Next\n- c",
+      "items": ["a", "b"]
+    },
+    {
+      "name": "nested items belong to parent",
+      "text": "## Acceptance\n1. parent\n   - child\n2. second",
+      "items": ["parent", "second"]
+    },
+    {
+      "name": "whitespace normalized",
+      "text": "## acceptance\n-    spaced    out   item  ",
+      "items": ["spaced out item"]
+    },
+    { "name": "crlf line endings", "text": "## Acceptance\r\n- a\r\n- b\r\n", "items": ["a", "b"] }
+  ],
+  "keySame": [["spaced out item", "  spaced   out item "]],
+  "keyDiffer": [["ORDERS.discount is stored", "ORDERS.discount is stored with the value"]]
+}

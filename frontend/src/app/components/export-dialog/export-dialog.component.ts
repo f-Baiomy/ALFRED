@@ -17,6 +17,8 @@ import { CallRecord } from '../../core/models/call.model';
 import { catchError, forkJoin, from, map, mergeMap, of, toArray } from 'rxjs';
 import { CallsApiService } from '../../core/services/calls-api.service';
 import { analyzeCapture, suppliersOf } from '../../shared/utils/db-analysis';
+import { BoardExportService } from '../../core/services/board-export.service';
+import { BoardExport, boardJsonFilename, buildBoardJsonLines } from '../../shared/utils/board-json';
 
 /** The two report formats a user can toggle between inside the dialog - distinct from
  * ExportFormat, which also includes 'json' (a separate, non-toggleable export the dialog still
@@ -39,6 +41,7 @@ type ReportFormat = 'markdown' | 'html';
 export class ExportDialogComponent {
   private readonly dialogService = inject(ExportDialogService);
   private readonly redactions = inject(RedactionsStore);
+  private readonly boardExport = inject(BoardExportService);
   private readonly dbCaptureApi = inject(DbCaptureApiService);
   private readonly callsApi = inject(CallsApiService);
   readonly state = this.dialogService.state;
@@ -50,6 +53,10 @@ export class ExportDialogComponent {
    * a file written before they arrived would silently lack its Database sections.
    */
   readonly includeDb = signal(false);
+  /** A cycle export's board parts (specs/014-task-board FR-046): both off by default, so the file is what it always was. */
+  readonly includeBrief = signal(false);
+  readonly includeCards = signal(false);
+  readonly loadingBoard = signal(false);
   /** .json only: write it gzip-compressed (.json.gz) - a fraction of the size; Alfred's import reads either. */
   readonly compressJson = signal(false);
   /** .json with database statements: every stored row (default), or the first rows of each statement only. */
@@ -265,8 +272,33 @@ export class ExportDialogComponent {
    */
   confirmExport(): void {
     if (this.includeDb() && this.loadingDb()) return;
-    const built = this.buildContent(this.effectiveFormat());
+    const cycle = this.state()?.cycle;
+    if (cycle && (this.includeBrief() || this.includeCards())) {
+      this.loadingBoard.set(true);
+      void this.boardExport.gather('', cycle.id).then((data) => {
+        this.loadingBoard.set(false);
+        const board: BoardExport = {
+          ...data,
+          cards: this.includeCards() ? data.cards : [],
+          activity: this.includeCards() ? data.activity : {},
+          briefs: this.includeBrief() ? data.briefs : [],
+          specs: this.includeBrief() ? data.specs : [],
+          marks: this.includeBrief() ? data.marks : [],
+        };
+        this.writeExport(board, cycle.name);
+      }, () => this.loadingBoard.set(false));
+      return;
+    }
+    this.writeExport(null, null);
+  }
+
+  private writeExport(board: BoardExport | null, cycleName: string | null): void {
+    const built = this.buildContent(this.effectiveFormat(), board && cycleName ? { data: board, title: `Board - ${cycleName}` } : null);
     if (!built) return;
+    if (board && 'lines' in built) {
+      // The .json stays the calls re-import format; the board goes beside it in its own alfred-board file.
+      void exportBlob(buildBoardJsonLines(board), false).then((blob) => downloadBlob(blob, boardJsonFilename(board.project, cycleName)));
+    }
 
     if ('lines' in built) {
       void exportBlob(built.lines, this.compressJson()).then((blob) =>
@@ -323,7 +355,7 @@ export class ExportDialogComponent {
   /** Shared by confirmExport/copyToClipboard so "what gets copied" always matches "what gets
    * downloaded" for whichever format is passed in - the caller decides which format that is,
    * since confirmExport respects the dialog's toggle while copyToClipboard deliberately doesn't. */
-  private buildContent(format: ExportFormat):
+  private buildContent(format: ExportFormat, board: { readonly data: BoardExport; readonly title: string } | null = null):
     | { isJson: true; lines: string[]; filename: string }
     | { isJson: true; payload: unknown; filename: string }
     | { isJson: false; content: string; filename: string; mimeType: string }
@@ -346,6 +378,7 @@ export class ExportDialogComponent {
       rows: this.rowsMode(),
       exportedAt: new Date().toISOString(),
       fileName: this.fileName(),
+      board,
     });
     if (built.kind === 'lines') return { isJson: true, lines: built.lines, filename: built.filename };
     if (built.kind === 'payload') return { isJson: true, payload: built.payload, filename: built.filename };

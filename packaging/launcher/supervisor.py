@@ -77,7 +77,7 @@ APPDATA_FILES = {
     "SESSION_CYCLES_FILE": os.path.join("session-cycles", "session-cycles.json"), "SESSION_CYCLES_DIR": "session-cycles",
     "PROFILES_FILE": "profiles.json", "FILTER_SETTINGS_FILE": "filter-settings.json", "CALLS_DB_FILE": "calls.db",
     "SESSION_CYCLES_DB_FILE": "session-cycles.db", "PROFILES_DB_FILE": "profiles.db", "COMMENTS_DB_FILE": "comments.db",
-    "FILTER_SETTINGS_DB_FILE": "settings.db", "TRIAGE_DB_FILE": "triage.db", "INTERNAL_CALLS_FILE": "internal-calls.log",
+    "FILTER_SETTINGS_DB_FILE": "settings.db", "TRIAGE_DB_FILE": "triage.db", "BOARD_DB_FILE": "board.db", "INTERNAL_CALLS_FILE": "internal-calls.log",
     "INTERNAL_CALLS_DB_FILE": "internal-calls.db",
     "INTERCEPTION_DB_FILE": "interception.db", "SCENARIOS_DB_FILE": "scenarios.db", "LOGS_DB_LEGACY_FILE": "logs.db",
     "LOGS_UPLOAD_DIR": os.path.join("logs", "uploads"), "REDACTIONS_DB_FILE": "redactions.db",

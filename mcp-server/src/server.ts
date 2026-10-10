@@ -18,6 +18,7 @@ import * as triage from './tools/triage.ts';
 import * as logs from './tools/logs.ts';
 import * as investigate from './tools/investigate.ts';
 import * as redis from './tools/redis.ts';
+import * as board from './tools/board.ts';
 import { registerPrompts } from './prompts.ts';
 
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string };
@@ -32,10 +33,13 @@ export function createServer(client: AlfredClient = new AlfredClient()): McpServ
       + 'of code). Across calls: search_logs (who logged a symptom), log_problems (repeated errors grouped), endpoint_health, problem_timeline, '
       + 'compare_cycles. Drill into statements with db_overview / db_statements / db_statement. When lines are missing, each tool says why; you may '
       + 'turn ▤ log catching or ◆ database capture on, or change the Log level (set_log_capture, set_db_capture) when it helps - always tell the user '
-      + 'what you changed (old -> new). Record findings with add_comment. Ask before writing exports.',
+      + 'what you changed (old -> new). Record findings with add_comment. Ask before writing exports. '
+      + 'Task board: read board_closed_reasons (and get_brief / read_spec for a cycle) before reporting; add findings with board_add (they land in '
+      + 'the Inbox for the user to sort), record progress with board_comment (did / found / next), move cards only to To do, In progress or Fixed '
+      + 'with board_move, and keep the live strip current with board_status. Never ask to close a card or set its scope - those are for the user.',
   });
   registerSessionTool(server);
-  for (const module of [cycles, spacers, calls, db, comments, exportTool, watch, redactions, cycleSearch, diff, rulesRelive, projects, triage, logs, investigate, redis]) module.register(server, client);
+  for (const module of [cycles, spacers, calls, db, comments, exportTool, watch, redactions, cycleSearch, diff, rulesRelive, projects, triage, logs, investigate, redis, board]) module.register(server, client);
   registerPrompts(server);
   return server;
 }

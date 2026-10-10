@@ -132,6 +132,23 @@
         }
       }
 
+      @if (state()?.cycle && effectiveFormat() !== 'postman') {
+        <div class="dialog-db-option">
+          <label>
+            <input type="checkbox" [checked]="includeBrief()" (change)="includeBrief.set($any($event.target).checked)" />
+            <span><b>📄 Include brief &amp; specs</b>
+              <small class="dialog-hint">The cycle's brief, its spec files in full and the acceptance checklist marks. Off: the export is exactly as before.</small></span>
+          </label>
+          <label>
+            <input type="checkbox" [checked]="includeCards()" (change)="includeCards.set($any($event.target).checked)" />
+            <span><b>▣ Include board cards</b>
+              <small class="dialog-hint">Every card of this cycle with its whole history.
+                @if (effectiveFormat() === 'json') { With .json the board is saved beside it as its own alfred-board file. }</small></span>
+          </label>
+          @if (loadingBoard()) {<small class="dialog-hint">Gathering the board…</small>}
+        </div>
+      }
+
       <div class="dialog-actions">
         <button type="button" class="dialog-btn secondary" (click)="close()">{{ hasExported() ? 'Close' : 'Cancel' }}</button>
         <button type="button" class="dialog-btn secondary" (click)="copyAsDiscordReport()">

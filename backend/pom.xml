@@ -50,6 +50,7 @@
     <module>backend-logs</module>
     <module>backend-db-capture</module>
     <module>backend-triage</module>
+    <module>backend-board</module>
     <module>backend-server</module>
     <module>backend-app</module>
     <module>backend-architecture-test</module>

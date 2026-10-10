@@ -115,6 +115,11 @@
     </dependency>
     <dependency>
       <groupId>com.fathy.alfred</groupId>
+      <artifactId>backend-board</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.fathy.alfred</groupId>
       <artifactId>backend-server</artifactId>
       <version>${project.version}</version>
     </dependency>

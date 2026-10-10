@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Board - mock</title>
+<style>
+  :root {
+    --bg: radial-gradient(ellipse at top, #131a4a 0%, #0a0e2a 55%);
+    --card: #141a45; --card-inner: #070a24; --panel: rgba(10,14,42,.55);
+    --border: rgba(139,92,246,.22); --border-strong: rgba(139,92,246,.45);
+    --purple: #8b5cf6; --purple-light: #c4b5fd; --cyan: #22d3ee;
+    --text: #e5e9f5; --dim: #93a0c2; --faint: #5c6690;
+    --green: #34d399; --amber: #fbbf24; --red: #f87171; --pink: #f472b6; --orange: #fb923c;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; background: var(--bg); background-color: #0a0e2a; color: var(--text); font: 13.5px/1.5 "Segoe UI", system-ui, sans-serif; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  .notes { max-width: 1400px; margin: 0 auto; padding: 10px 20px; color: var(--dim); font-size: 12.5px; border-bottom: 1px dashed var(--border); }
+  .notes b { color: var(--purple-light); }
+
+  /* top bar */
+  .top { display: flex; align-items: center; gap: 14px; padding: 12px 20px; flex-wrap: wrap; max-width: 1400px; margin: 0 auto; }
+  .top h1 { margin: 0; font-size: 16px; }
+  .seg { display: inline-flex; border: 1px solid var(--border-strong); border-radius: 9px; overflow: hidden; }
+  .seg button { background: none; border: 0; padding: 6px 14px; color: var(--dim); }
+  .seg button.on { background: var(--purple); color: #fff; }
+  select, input, textarea { background: var(--card-inner); color: var(--text); border: 1px solid var(--border-strong); border-radius: 8px; padding: 6px 10px; font: inherit; }
+  .quick { flex: 1; min-width: 280px; display: flex; gap: 6px; }
+  .quick input { flex: 1; }
+  .btn { background: var(--purple); border: 0; border-radius: 8px; padding: 6px 14px; color: #fff; }
+  .btn.ghost { background: none; border: 1px solid var(--border-strong); color: var(--purple-light); }
+  .filters { display: flex; gap: 6px; flex-wrap: wrap; padding: 0 20px 10px; max-width: 1400px; margin: 0 auto; }
+  .pill { border: 1px solid var(--border); background: var(--card); border-radius: 99px; padding: 3px 11px; color: var(--dim); font-size: 12px; }
+  .pill.on { border-color: var(--purple); color: var(--purple-light); }
+
+  /* cycle brief */
+  .brief { max-width: 1400px; margin: 0 auto 12px; padding: 0 20px; display: none; }
+  .brief.show { display: grid; grid-template-columns: 1.4fr 1fr; gap: 14px; }
+  .box { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; }
+  .box h3 { margin: 0 0 6px; font-size: 13px; color: var(--purple-light); display: flex; justify-content: space-between; align-items: center; }
+  .box h3 small { color: var(--faint); font-weight: 400; }
+  .files { display: flex; flex-direction: column; gap: 6px; }
+  .file { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; background: var(--card-inner); border: 1px solid var(--border); cursor: pointer; }
+  .file:hover { border-color: var(--purple); }
+  .file .ext { font-size: 10px; padding: 1px 5px; border-radius: 4px; background: rgba(34,211,238,.15); color: var(--cyan); }
+  .file .meta { margin-left: auto; color: var(--faint); font-size: 11px; }
+  .drop { border: 1px dashed var(--border-strong); border-radius: 8px; padding: 8px; text-align: center; color: var(--faint); font-size: 12px; }
+
+  /* board */
+  .board { display: grid; grid-template-columns: repeat(6, minmax(210px, 1fr)); gap: 12px; padding: 0 20px 40px; max-width: 1400px; margin: 0 auto; overflow-x: auto; }
+  .col { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 8px; min-height: 340px; }
+  .col.over { border-color: var(--purple); background: rgba(139,92,246,.08); }
+  .col h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); margin: 2px 4px 8px; display: flex; justify-content: space-between; }
+  .col h2 span { color: var(--faint); }
+  .col.side { opacity: .75; }
+  .card { background: linear-gradient(160deg, #141a45 0%, #101636 100%); border: 1px solid var(--border); border-radius: 10px; padding: 9px 10px; margin-bottom: 8px; cursor: grab; transition: border-color .1s, transform .1s; }
+  .card:hover { border-color: var(--border-strong); transform: translateY(-1px); }
+  .card.sel { border-color: var(--purple); box-shadow: 0 0 0 1px var(--purple); }
+  .card .row { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; margin-bottom: 4px; }
+  .card .title { font-weight: 600; margin: 2px 0 4px; }
+  .card .foot { display: flex; gap: 8px; color: var(--faint); font-size: 11px; align-items: center; flex-wrap: wrap; }
+  .kind { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 4px; letter-spacing: .04em; }
+  .k-bug { background: rgba(248,113,113,.18); color: var(--red); }
+  .k-task { background: rgba(34,211,238,.15); color: var(--cyan); }
+  .k-note { background: rgba(196,181,253,.15); color: var(--purple-light); }
+  .k-question { background: rgba(251,191,36,.15); color: var(--amber); }
+  .flag { font-size: 10px; padding: 1px 6px; border-radius: 99px; border: 1px solid; }
+  .f-urgent { color: var(--red); border-color: rgba(248,113,113,.5); }
+  .f-risk { color: var(--orange); border-color: rgba(251,146,60,.5); }
+  .f-blocker { color: var(--pink); border-color: rgba(244,114,182,.5); }
+  .f-impact { color: var(--amber); border-color: rgba(251,191,36,.5); }
+  .f-decision { color: var(--cyan); border-color: rgba(34,211,238,.5); }
+  .ai { color: var(--purple-light); font-size: 11px; }
+  .scope { font-size: 10px; color: var(--faint); border: 1px dashed var(--faint); border-radius: 4px; padding: 0 4px; }
+  .scope.in { color: var(--green); border-color: var(--green); border-style: solid; }
+  .scope.out { color: var(--faint); text-decoration: line-through; }
+  .cyc { font-size: 10px; color: var(--cyan); }
+
+  /* mention chips */
+  .m { display: inline-flex; align-items: center; gap: 3px; padding: 0 6px; border-radius: 5px; font-size: 12px; font-family: Consolas, "Cascadia Mono", monospace; background: rgba(139,92,246,.16); color: var(--purple-light); border: 1px solid var(--border); cursor: pointer; white-space: nowrap; position: relative; }
+  .m.call { background: rgba(34,211,238,.12); color: var(--cyan); }
+  .m.log { background: rgba(251,191,36,.12); color: var(--amber); }
+  .m.stmt { background: rgba(52,211,153,.12); color: var(--green); }
+  .m.code { background: rgba(244,114,182,.12); color: var(--pink); }
+  .m.spec { background: rgba(196,181,253,.15); color: var(--purple-light); }
+  .m.gone { opacity: .55; text-decoration: line-through; }
+  .m:hover .tip { display: block; }
+  .tip { display: none; position: absolute; left: 0; top: 120%; z-index: 50; width: 330px; white-space: normal; background: #161c4a; border: 1px solid var(--border-strong); border-radius: 9px; padding: 9px 10px; color: var(--text); font: 12px/1.45 "Segoe UI", system-ui, sans-serif; box-shadow: 0 10px 30px rgba(0,0,0,.5); }
+  .tip code { display: block; margin-top: 5px; background: var(--card-inner); padding: 5px 7px; border-radius: 6px; font: 11.5px Consolas, monospace; color: var(--dim); white-space: pre-wrap; }
+
+  /* drawer */
+  .drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(620px, 100vw); background: #0d1236; border-left: 1px solid var(--border-strong); box-shadow: -20px 0 50px rgba(0,0,0,.5); transform: translateX(105%); transition: transform .18s; z-index: 30; display: flex; flex-direction: column; }
+  .drawer.open { transform: none; }
+  .dh { padding: 14px 18px 10px; border-bottom: 1px solid var(--border); }
+  .dh .x { float: right; background: none; border: 0; font-size: 18px; color: var(--dim); }
+  .dh h2 { margin: 6px 0 8px; font-size: 17px; }
+  .controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; font-size: 12px; color: var(--dim); }
+  .controls select { padding: 3px 6px; font-size: 12px; }
+  .tog { border: 1px solid var(--border); background: none; border-radius: 99px; padding: 2px 9px; font-size: 11px; color: var(--faint); }
+  .tog.on.u { color: var(--red); border-color: var(--red); }
+  .tog.on.r { color: var(--orange); border-color: var(--orange); }
+  .tog.on.b { color: var(--pink); border-color: var(--pink); }
+  .tog.on.i { color: var(--amber); border-color: var(--amber); }
+  .tog.on.d { color: var(--cyan); border-color: var(--cyan); }
+  .db { flex: 1; overflow-y: auto; padding: 12px 18px 18px; }
+  .sec { margin-bottom: 16px; }
+  .sec > h4 { margin: 0 0 6px; font-size: 11.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--faint); display: flex; justify-content: space-between; }
+  .desc { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; line-height: 1.75; }
+  .desc p { margin: 0 0 6px; }
+  .links { display: flex; flex-wrap: wrap; gap: 6px; }
+  .timeline { border-left: 2px solid var(--border); margin-left: 6px; padding-left: 14px; }
+  .ev { position: relative; margin-bottom: 12px; }
+  .ev::before { content: ''; position: absolute; left: -20px; top: 5px; width: 10px; height: 10px; border-radius: 50%; background: var(--faint); border: 2px solid #0d1236; }
+  .ev.claude::before { background: var(--purple); }
+  .ev.me::before { background: var(--cyan); }
+  .ev.sys { color: var(--faint); font-size: 12px; }
+  .ev .who { font-size: 12px; color: var(--dim); }
+  .ev .who b { color: var(--text); }
+  .ev .body { background: var(--panel); border: 1px solid var(--border); border-radius: 9px; padding: 8px 10px; margin-top: 3px; line-height: 1.7; }
+  .ev .body .lbl { font-size: 10.5px; font-weight: 700; letter-spacing: .05em; color: var(--purple-light); margin-right: 4px; }
+  .ev .body div { margin-bottom: 3px; }
+  .composer { border-top: 1px solid var(--border); padding: 10px 18px 14px; position: relative; }
+  .composer textarea { width: 100%; height: 70px; resize: vertical; }
+  .composer .hint { color: var(--faint); font-size: 11.5px; margin-top: 4px; display: flex; justify-content: space-between; }
+  kbd { background: var(--card-inner); border: 1px solid var(--border-strong); border-radius: 4px; padding: 0 5px; font-size: 11px; }
+
+  /* mention picker */
+  .picker { position: absolute; bottom: 118px; left: 18px; right: 18px; background: #161c4a; border: 1px solid var(--border-strong); border-radius: 12px; box-shadow: 0 -10px 40px rgba(0,0,0,.5); display: none; z-index: 40; overflow: hidden; }
+  .picker.show { display: block; }
+  .ptabs { display: flex; gap: 2px; padding: 6px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .ptabs button { background: none; border: 0; border-radius: 6px; padding: 3px 9px; font-size: 12px; color: var(--dim); }
+  .ptabs button.on { background: var(--purple); color: #fff; }
+  .psearch { padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  .psearch input { width: 100%; }
+  .plist { max-height: 210px; overflow-y: auto; }
+  .pi { display: flex; gap: 10px; align-items: center; padding: 6px 12px; cursor: pointer; font-size: 12.5px; }
+  .pi:hover, .pi.hl { background: rgba(139,92,246,.18); }
+  .pi .s { font: 11px Consolas, monospace; min-width: 34px; }
+  .pi .d { color: var(--faint); margin-left: auto; font-size: 11px; }
+
+  /* spec viewer */
+  .modal { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: none; align-items: center; justify-content: center; z-index: 60; padding: 16px; }
+  .modal.show { display: flex; }
+  .sheet { width: min(760px, 100%); max-height: 86vh; overflow-y: auto; background: #0d1236; border: 1px solid var(--border-strong); border-radius: 14px; padding: 18px 24px; }
+  .sheet h1 { font-size: 19px; margin: 4px 0 10px; } .sheet h2 { font-size: 15px; color: var(--purple-light); margin: 16px 0 6px; }
+  .sheet .bar { display: flex; justify-content: space-between; color: var(--faint); font-size: 12px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+  .sheet li { margin: 3px 0; }
+  .menu { position: absolute; z-index: 25; background: #161c4a; border: 1px solid var(--border-strong); border-radius: 10px; padding: 4px; display: none; min-width: 210px; box-shadow: 0 10px 30px rgba(0,0,0,.5); }
+  .menu button { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 6px 10px; border-radius: 6px; font-size: 12.5px; }
+  .menu button:hover { background: rgba(139,92,246,.2); }
+  .acts { display: flex; gap: 4px; margin-top: 7px; padding-top: 7px; border-top: 1px dashed var(--border); }
+  .acts button { flex: 1; background: var(--card-inner); border: 1px solid var(--border); border-radius: 6px; padding: 3px 0; font-size: 11px; color: var(--dim); }
+  .acts button:hover { border-color: var(--purple); color: var(--text); }
+  .acts .ok:hover { border-color: var(--green); color: var(--green); }
+  .res { font-size: 10.5px; padding: 1px 7px; border-radius: 99px; background: var(--card-inner); border: 1px solid var(--border); }
+  .res.fine { color: var(--green); } .res.notflow { color: var(--dim); } .res.wontfix { color: var(--faint); }
+  .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: #161c4a; border: 1px solid var(--border-strong); border-radius: 10px; padding: 8px 14px; display: none; gap: 12px; align-items: center; z-index: 70; box-shadow: 0 10px 30px rgba(0,0,0,.5); }
+  .toast.show { display: flex; } .toast a { color: var(--purple-light); }
+  .cpage { max-width: 1400px; margin: 0 auto; padding: 0 20px; display: none; }
+  .cpage.show { display: block; }
+  .chead { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 12px 16px; display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+  .chead h2 { margin: 0; font-size: 16px; } .chead .st { color: var(--faint); font-size: 12px; }
+  .ctabs { display: flex; gap: 4px; margin: 12px 0; border-bottom: 1px solid var(--border); }
+  .ctabs button { background: none; border: 0; border-bottom: 2px solid transparent; padding: 7px 14px; color: var(--dim); }
+  .ctabs button.on { color: var(--text); border-bottom-color: var(--purple); }
+  .ctabs .n { font-size: 10.5px; background: rgba(139,92,246,.2); color: var(--purple-light); border-radius: 99px; padding: 0 6px; margin-left: 4px; }
+  .ctabs .n.red { background: rgba(248,113,113,.2); color: var(--red); }
+  .calls { display: none; } .calls.show { display: grid; grid-template-columns: 1fr 300px; gap: 14px; margin-bottom: 30px; }
+  .crow { display: flex; gap: 10px; align-items: center; padding: 7px 12px; background: var(--card); border: 1px solid var(--border); border-radius: 9px; margin-bottom: 5px; font-size: 12.5px; }
+  .crow .code { font: 11.5px Consolas, monospace; min-width: 32px; } .crow .t { color: var(--faint); margin-left: auto; font-size: 11px; }
+  .spacer { color: var(--purple-light); font-size: 12px; padding: 6px 4px; display: flex; align-items: center; gap: 8px; }
+  .spacer::after { content: ''; flex: 1; border-top: 1px dashed var(--border-strong); }
+  .cbadge { font-size: 10.5px; padding: 0 6px; border-radius: 99px; border: 1px solid; cursor: pointer; }
+  .mini h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); margin: 0 0 8px; display: flex; justify-content: space-between; }
+  .mini .mc { background: var(--card); border: 1px solid var(--border); border-radius: 9px; padding: 7px 9px; margin-bottom: 6px; font-size: 12px; cursor: pointer; }
+  .mini .mc:hover { border-color: var(--purple); }
+  @media (max-width: 900px) { .calls.show { grid-template-columns: 1fr; } }
+  @media (max-width: 900px) { .brief.show { grid-template-columns: 1fr; } .board { grid-template-columns: repeat(6, 240px); } }
+</style>
+</head>
+<body>
+
+<div class="notes">
+  <b>Mock only</b>: no real data. Things to try: open a card · hover a mention chip · type <kbd>@</kbd> in the comment box · drag cards between columns · on Inbox cards try <b>✓ Fine</b> / <b>⊘ Not in flow</b> · open <b>Inside Session cycle</b> · switch to <b>Cycle board</b> to see the Brief and spec files · open a spec file · the Export button.
+</div>
+
+<div class="top">
+  <h1>Board</h1>
+  <div class="seg" id="scopeSeg">
+    <button class="on" data-v="project">Project board</button>
+    <button data-v="cycle">Cycle board</button>
+    <button data-v="page">Inside Session cycle</button>
+  </div>
+  <select id="projSel"><option>odeysys</option><option>billing</option></select>
+  <select id="cycSel" style="display:none"><option>order-flow-3 · discount on checkout</option><option>login-sso-1</option></select>
+  <div class="quick">
+    <input id="quick" placeholder="Quick add:  bug! discount not saved #urgent #risk   (Enter)">
+    <button class="btn" onclick="quickAdd()">Add</button>
+  </div>
+  <button class="btn ghost" onclick="exportMenu(event)">Export ▾</button>
+</div>
+
+<div class="filters" id="filters">
+  <button class="pill on">All</button><button class="pill">Bugs</button><button class="pill">Tasks</button><button class="pill">Notes</button>
+  <button class="pill">✦ by Claude</button><button class="pill">Urgent</button><button class="pill">Risk</button><button class="pill">Scope not decided</button>
+  <input placeholder="Search cards…" style="margin-left:auto;padding:3px 10px;font-size:12px">
+</div>
+
+<div class="cpage" id="cpage">
+  <div class="chead"><span style="color:var(--faint)">Session Cycles &rsaquo;</span><h2>order-flow-3</h2><span class="st">14 calls &middot; recorded today 09:38-09:46 &middot; stopped</span>
+    <span class="m spec" style="margin-left:auto">&#128196; 2 spec files</span><button class="btn ghost" style="padding:3px 10px">Export &#9662;</button></div>
+  <div class="ctabs" id="ctabs">
+    <button class="on" data-t="calls">Calls <span class="n">14</span></button>
+    <button data-t="board">Board <span class="n red">3 open</span></button>
+    <button data-t="brief">Brief &amp; specs</button>
+  </div>
+  <div class="calls show" id="callsView">
+    <div>
+      <div class="spacer">&#9475; login</div>
+      <div class="crow"><span class="code" style="color:var(--green)">302</span>POST /api/login<span class="cbadge" style="color:var(--green);border-color:var(--green)" title="Card #8 closed: Fine, not an issue">&#9635; #8 fine</span><span class="t">09:38:12</span></div>
+      <div class="spacer">&#9475; cart</div>
+      <div class="crow"><span class="code" style="color:var(--green)">200</span>GET /api/cart<span class="t">09:40:51</span></div>
+      <div class="spacer">&#9475; apply code</div>
+      <div class="crow"><span class="code" style="color:var(--green)">200</span>GET pricing.supplier/v2/price<span class="cbadge" style="color:var(--dim);border-color:var(--faint)" title="Card #1 closed: not in this flow">&#9635; #1 not in flow</span><span class="t">09:41:06</span></div>
+      <div class="crow"><span class="code" style="color:var(--green)">201</span>POST /api/orders<span class="cbadge" style="color:var(--red);border-color:var(--red)" onclick="openFirst()" title="Card #7: Bug, In progress">&#9635; #7 bug</span><span class="t">09:41:07</span></div>
+      <div class="crow"><span class="code" style="color:var(--red)">500</span>POST /api/orders<span class="cbadge" style="color:var(--amber);border-color:var(--amber)" title="Card #9: Inbox">&#9635; #9 inbox</span><span class="t">09:43:30</span></div>
+      <div class="crow" style="opacity:.6"><span class="code">&hellip;</span>9 more calls</div>
+    </div>
+    <div class="mini">
+      <h3>Cycle board <a href="#" style="color:var(--purple-light);text-transform:none;letter-spacing:0" onclick="cycleTab('board');return false">open full &rsaquo;</a></h3>
+      <div id="miniList"></div>
+      <div class="drop" style="margin-top:8px">Right-click a call &rsaquo; <b>Add to board</b></div>
+    </div>
+  </div>
+</div>
+<div class="brief" id="brief">
+  <div class="box">
+    <h3>Cycle brief <small>edited 2 h ago · <a href="#" style="color:var(--purple-light)">Edit</a></small></h3>
+    <div style="line-height:1.75">
+      <p style="margin:0 0 6px"><b>Task:</b> ODY-482 · discount code on checkout. A customer enters a code. The total updates, and the order is saved with the discount.</p>
+      <p style="margin:0 0 6px">Acceptance criteria are in <span class="m spec">📄 ODY-482-spec.md<span class="tip"><b>ODY-482-spec.md</b> · 3.1 KB · uploaded today 09:12<code># Discount on checkout
+## Acceptance
+1. POST /orders returns 201
+2. ORDERS.discount is stored…</code></span></span>. The edge cases are in <span class="m spec">📄 edge-cases.txt<span class="tip"><b>edge-cases.txt</b> · 640 B</span></span>.</p>
+      <p style="margin:0">Steps recorded: login → cart → apply code <code>SAVE10</code> → pay. The pricing service is mocked by rule <span class="m">⚙ rule: pricing-mock<span class="tip">Interception rule <b>pricing-mock</b> · ANSWER_WITH_FILE</span></span>.</p>
+    </div>
+  </div>
+  <div class="box">
+    <h3>Spec files <small>.md · .txt</small></h3>
+    <div class="files">
+      <div class="file" onclick="openSpec()"><span class="ext">MD</span> ODY-482-spec.md <span class="meta">3.1 KB · today</span></div>
+      <div class="file" onclick="openSpec()"><span class="ext">TXT</span> edge-cases.txt <span class="meta">640 B · today</span></div>
+      <div class="drop">Drop .md / .txt here, or <a href="#" style="color:var(--purple-light)">paste text</a></div>
+    </div>
+  </div>
+</div>
+
+<div class="board" id="board"></div>
+
+<!-- card drawer -->
+<div class="drawer" id="drawer">
+  <div class="dh">
+    <button class="x" onclick="closeDrawer()">✕</button>
+    <div class="row" style="display:flex;gap:6px;align-items:center">
+      <span class="kind k-bug">BUG</span><span class="ai">✦ found by Claude</span><span class="cyc">◷ order-flow-3</span><span style="color:var(--faint);font-size:12px">#7</span>
+    </div>
+    <h2 id="dTitle">Discount not saved on order</h2>
+    <div class="controls">
+      Status <select><option>Inbox</option><option>To do</option><option selected>In progress</option><option>Fixed</option><option>Verified</option><option>Done</option><option>Closed · Fine, not an issue</option><option>Closed · Not in this flow</option><option>Closed · Won't fix</option></select>
+      Kind <select><option selected>Bug</option><option>Task</option><option>Note</option><option>Question</option></select>
+      Scope <select><option>Not decided</option><option selected>In scope</option><option>Out of scope</option></select>
+    </div>
+    <div class="controls" style="margin-top:7px">
+      <button class="tog on u" onclick="this.classList.toggle('on')">Urgent</button>
+      <button class="tog r" onclick="this.classList.toggle('on')">Risk</button>
+      <button class="tog b" onclick="this.classList.toggle('on')">Blocker</button>
+      <button class="tog on i" onclick="this.classList.toggle('on')">Affects project</button>
+      <button class="tog d" onclick="this.classList.toggle('on')">Needs decision</button>
+    </div>
+  </div>
+  <div class="db">
+    <div class="sec">
+      <h4>Description <a href="#" style="color:var(--purple-light);text-transform:none;letter-spacing:0">Edit</a></h4>
+      <div class="desc">
+        <p>The checkout with code <code>SAVE10</code> returns 201 in
+          <span class="m call">⇄ POST /orders · 201<span class="tip"><b>POST /api/orders</b> · 201 · 184 ms · inbound · 09:41:07<code>{"items":[…],"discountCode":"SAVE10"}</code></span></span>,
+          but the insert writes <code>discount = NULL</code>:
+          <span class="m stmt">◆ INSERT ORDERS #88<span class="tip"><b>Statement #88</b> · 3 ms · 1 row<code>INSERT INTO ORDERS (id, total, discount, status) VALUES (?, ?, ?, ?)
+-- binds: 9921, 90.00, NULL, 'NEW'</code></span></span>.</p>
+        <p>This breaks acceptance item 2 of <span class="m spec">📄 ODY-482-spec.md §Acceptance<span class="tip">"2. ORDERS.discount is stored with the applied value"</span></span>.
+          The app logged <span class="m log">▤ WARN DiscountMapper<span class="tip"><b>WARN</b> c.o.order.DiscountMapper · 09:41:07.212<code>discount code SAVE10 resolved but dto.discount is empty</code></span></span>.</p>
+        <p>Suspect line: <span class="m code">{ } OrderMapper.java:142<span class="tip"><b>OrderMapper.java:142</b><code>entity.setDiscount(dto.getDiscountAmount()); // amount never set</code></span></span>.</p>
+      </div>
+    </div>
+    <div class="sec">
+      <h4>Linked <span style="text-transform:none;letter-spacing:0">auto-filled from mentions · <a href="#" style="color:var(--purple-light)">+ link</a></span></h4>
+      <div class="links">
+        <span class="m call">⇄ POST /orders · 201</span><span class="m stmt">◆ INSERT ORDERS #88</span><span class="m log">▤ WARN DiscountMapper</span>
+        <span class="m code">{ } OrderMapper.java:142</span><span class="m spec">📄 ODY-482-spec.md</span>
+        <span class="m">◷ order-flow-3</span><span class="m">┃ spacer: apply code</span><span class="m">▣ card #4</span>
+        <span class="m call gone">⇄ GET /pricing · removed by storage limit<span class="tip">A live call that was later deleted. The card keeps a frozen copy of it, so the mention still opens.</span></span>
+      </div>
+    </div>
+    <div class="sec">
+      <h4>Activity · what was done</h4>
+      <div class="timeline">
+        <div class="ev claude"><div class="who"><b>✦ Claude</b> · 09:44 · investigation</div>
+          <div class="body">
+            <div><span class="lbl">DID</span> Read <span class="m call">⇄ POST /orders</span>, its 6 statements and 14 log lines.</div>
+            <div><span class="lbl">FOUND</span> The DTO carries <code>discountCode</code> only. <span class="m code">{ } OrderMapper.java:142</span> reads <code>discountAmount</code>, which no one sets.</div>
+            <div><span class="lbl">NEXT</span> Resolve the amount in <code>DiscountService.apply()</code> before the mapping. Then re-run the cycle.</div>
+          </div></div>
+        <div class="ev sys">You set scope <b>Not decided → In scope</b> · 09:50</div>
+        <div class="ev sys">You moved <b>Inbox → In progress</b> · 09:50</div>
+        <div class="ev me"><div class="who"><b>You</b> · 09:52</div>
+          <div class="body">Agreed. The fix touches the shared <code>DiscountService</code>, so check <span class="m spec">📄 edge-cases.txt</span> case 3 too.</div></div>
+        <div class="ev claude"><div class="who"><b>✦ Claude</b> · 10:05 · fix proposed</div>
+          <div class="body">
+            <div><span class="lbl">DID</span> Patch on branch <code>fix/ody-482-discount</code>: 2 files, +11 −2.</div>
+            <div><span class="lbl">IMPACT</span> <code>DiscountService.apply()</code> is also called by <code>/cart/preview</code>. Its total is unchanged.</div>
+            <div><span class="lbl">NEXT</span> Waiting for the rebuild. Then Relive <span class="m">↻ order-flow-3</span> and re-check item 2.</div>
+          </div></div>
+      </div>
+    </div>
+  </div>
+  <div class="composer">
+    <div class="picker" id="picker">
+      <div class="ptabs" id="ptabs">
+        <button class="on" data-t="call">⇄ Calls</button><button data-t="stmt">◆ Statements</button><button data-t="log">▤ Logs</button>
+        <button data-t="redis">⬢ Redis</button><button data-t="spec">📄 Spec files</button><button data-t="code">{ } Code</button>
+        <button data-t="other">◷ Cycles · spacers · cards · rules</button>
+      </div>
+      <div class="psearch"><input id="psearch" placeholder="Search…  (↑↓ to move, Enter to insert, Tab for next type)"></div>
+      <div class="plist" id="plist"></div>
+    </div>
+    <textarea id="comp" placeholder="Add a comment…  type @ to mention a call, statement, log line, spec file…"></textarea>
+    <div class="hint"><span><kbd>@</kbd> mention · <kbd>Ctrl</kbd>+<kbd>Enter</kbd> post · Markdown supported</span><button class="btn" style="padding:3px 12px">Comment</button></div>
+  </div>
+</div>
+
+<div class="modal" id="specModal" onclick="if(event.target===this)this.classList.remove('show')">
+  <div class="sheet">
+    <div class="bar"><span>📄 ODY-482-spec.md · 3.1 KB · uploaded today 09:12</span><span><a href="#" style="color:var(--purple-light)">Replace</a> · <a href="#" style="color:var(--purple-light)">Download</a> · <a href="#" style="color:var(--dim)" onclick="document.getElementById('specModal').classList.remove('show');return false">Close</a></span></div>
+    <h1>ODY-482 · Discount on checkout</h1>
+    <p>A customer can enter one discount code at checkout.</p>
+    <h2>Acceptance</h2>
+    <ol><li>POST /orders returns 201.</li><li>ORDERS.discount is stored with the applied value.</li><li>An invalid code returns 422 and no order is created.</li><li>No ERROR lines are logged.</li></ol>
+    <h2>Out of scope</h2>
+    <ul><li>Stacking several codes.</li><li>Pricing service latency.</li></ul>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<div class="menu" id="menu">
+  <button>Board → Markdown (.md)</button><button>Board → HTML (.html)</button><button>Board → JSON (re-importable)</button>
+  <button>Selected cards only…</button><button>Cycle export with brief, specs and cards</button>
+</div>
+
+<script>
+const COLS = ['Inbox','To do','In progress','Fixed','Verified','Done','Closed'];
+const RES = {fine:'✓ Fine · not an issue', notflow:'⊘ Not in this flow', wontfix:'✕ Won\'t fix'};
+let cards = [
+  {id:9,col:0,kind:'bug',title:'Invalid code returns 500, not 422',flags:['urgent'],ai:1,scope:'',cyc:'order-flow-3',m:['⇄ POST /orders · 500','▤ ERROR'],c:2},
+  {id:10,col:0,kind:'note',title:'DiscountService is shared with /cart/preview - any change affects both',flags:['impact'],ai:1,scope:'',cyc:'',m:['{ } DiscountService.java'],c:0},
+  {id:11,col:0,kind:'question',title:'Should an expired code show a message or fail silently?',flags:['decision'],ai:0,scope:'',cyc:'order-flow-3',m:['📄 edge-cases.txt'],c:1},
+  {id:5,col:1,kind:'task',title:'Add retry to supplier email call',flags:[],ai:0,scope:'in',cyc:'',m:['⇄ POST mail.supplier'],c:3},
+  {id:6,col:1,kind:'bug',title:'N+1 selects on order history',flags:['risk'],ai:1,scope:'in',cyc:'login-sso-1',m:['◆ 48 × SELECT ITEMS'],c:1},
+  {id:7,col:2,kind:'bug',title:'Discount not saved on order',flags:['urgent','impact'],ai:1,scope:'in',cyc:'order-flow-3',m:['⇄ POST /orders · 201','◆ #88'],c:4},
+  {id:4,col:3,kind:'bug',title:'500 on /cart when cart is empty',flags:[],ai:1,scope:'in',cyc:'order-flow-2',m:['⇄ GET /cart · 500'],c:5},
+  {id:3,col:4,kind:'bug',title:'Session cookie lost after SSO redirect',flags:[],ai:0,scope:'in',cyc:'login-sso-1',m:['⇄ GET /sso/callback'],c:6},
+  {id:2,col:5,kind:'task',title:'Log the supplier request id',flags:[],ai:0,scope:'in',cyc:'',m:[],c:2},
+  {id:1,col:6,kind:'bug',title:'Pricing service slow (2.4 s)',flags:['risk'],ai:1,scope:'out',res:'notflow',reason:'Pricing latency is out of scope (spec)',cyc:'order-flow-3',m:['⇄ GET /pricing'],c:1},
+  {id:8,col:6,kind:'bug',title:'401 on /health during login',flags:[],ai:1,scope:'',res:'fine',reason:'Expected: health needs no session',cyc:'order-flow-3',m:['⇄ GET /health · 401'],c:1},
+];
+const FL = {urgent:'Urgent',risk:'Risk',blocker:'Blocker',impact:'Affects project',decision:'Needs decision'};
+const FC = {urgent:'f-urgent',risk:'f-risk',blocker:'f-blocker',impact:'f-impact',decision:'f-decision'};
+let cycleMode = false, pageMode = false, lastUndo = null;
+
+function render() {
+  const b = document.getElementById('board');
+  b.style.gridTemplateColumns = `repeat(${COLS.length}, minmax(200px, 1fr))`;
+  b.innerHTML = '';
+  COLS.forEach((name, i) => {
+    const list = cards.filter(c => c.col === i && (!(cycleMode || pageMode) || c.cyc === 'order-flow-3'));
+    const col = document.createElement('div');
+    col.className = 'col' + (i === 6 ? ' side' : '');
+    col.innerHTML = `<h2>${name}<span>${list.length}</span></h2>`;
+    col.ondragover = e => { e.preventDefault(); col.classList.add('over'); };
+    col.ondragleave = () => col.classList.remove('over');
+    col.ondrop = e => { e.preventDefault(); const id = +e.dataTransfer.getData('id'); cards.find(c => c.id === id).col = i; render(); };
+    list.forEach(c => {
+      const el = document.createElement('div');
+      el.className = 'card'; el.draggable = true;
+      el.ondragstart = e => e.dataTransfer.setData('id', c.id);
+      el.onclick = e => { if (!e.target.closest('.acts')) openDrawer(c, el); };
+      const scope = c.scope === 'in' ? '<span class="scope in">in scope</span>' : c.scope === 'out' ? '<span class="scope out">out of scope</span>' : '<span class="scope">scope?</span>';
+      el.innerHTML = `<div class="row"><span class="kind k-${c.kind}">${c.kind.toUpperCase()}</span>${c.flags.map(f => `<span class="flag ${FC[f]}">${FL[f]}</span>`).join('')}</div>
+        <div class="title">${c.title}</div>
+        <div class="row">${c.m.map(m => `<span class="m ${m[0]==='⇄'?'call':m[0]==='◆'?'stmt':m[0]==='▤'?'log':m[0]==='{'?'code':'spec'}" style="font-size:11px">${m}</span>`).join('')}</div>
+        <div class="foot">#${c.id} ${c.ai ? '<span class="ai">✦ Claude</span>' : ''} ${!cycleMode && c.cyc ? `<span class="cyc">◷ ${c.cyc}</span>` : ''} <span>💬 ${c.c}</span> ${c.res ? '' : scope}</div>
+        ${c.res ? `<div class="row" style="margin-top:5px"><span class="res ${c.res}">${RES[c.res]}</span></div>${c.reason ? `<div style="color:var(--faint);font-size:11px">“${c.reason}”</div>` : ''}` : ''}
+        ${i === 0 ? `<div class="acts"><button class="ok" onclick="close_(${c.id},'fine')" title="Key: F">✓ Fine</button><button onclick="close_(${c.id},'notflow')" title="Key: N">⊘ Not in flow</button><button onclick="move(${c.id},1)" title="Key: T">→ To do</button></div>` : ''}
+        ${i === 6 ? `<div class="acts"><button onclick="reopen(${c.id})">↺ Reopen</button></div>` : ''}`;
+      col.appendChild(el);
+    });
+    b.appendChild(col);
+  });
+  const ml = document.getElementById('miniList');
+  ml.innerHTML = cards.filter(c => c.cyc === 'order-flow-3' && c.col !== 6).map(c => `<div class="mc" onclick="cycleTab('board')"><span class="kind k-${c.kind}">${c.kind.toUpperCase()}</span> ${c.title}<div style="color:var(--faint);font-size:11px;margin-top:2px">#${c.id} · ${COLS[c.col]}${c.ai ? ' · ✦ Claude' : ''}</div></div>`).join('')
+    + `<div style="color:var(--faint);font-size:11px">+ ${cards.filter(c => c.cyc === 'order-flow-3' && c.col === 6).length} closed</div>`;
+}
+function close_(id, res) {
+  const c = cards.find(x => x.id === id); lastUndo = {id, col: c.col};
+  c.col = 6; c.res = res; if (res === 'notflow') c.scope = 'out'; render();
+  toast(`#${id} closed: ${RES[res]} &nbsp; <a href="#" onclick="addReason(${id});return false">Add reason</a> · <a href="#" onclick="undo();return false">Undo</a>`);
+}
+function move(id, col) { cards.find(x => x.id === id).col = col; render(); }
+function reopen(id) { const c = cards.find(x => x.id === id); c.col = 0; delete c.res; delete c.reason; render(); }
+function undo() { const c = cards.find(x => x.id === lastUndo.id); c.col = lastUndo.col; delete c.res; render(); hideToast(); }
+function addReason(id) { const r = prompt('Why? Claude reads this before it reports something similar.'); if (r) { cards.find(x => x.id === id).reason = r; render(); } hideToast(); }
+let tt; function toast(h) { const t = document.getElementById('toast'); t.innerHTML = h; t.classList.add('show'); clearTimeout(tt); tt = setTimeout(hideToast, 7000); }
+function hideToast() { document.getElementById('toast').classList.remove('show'); }
+function cycleTab(t) {
+  document.querySelectorAll('#ctabs button').forEach(x => x.classList.toggle('on', x.dataset.t === t));
+  document.getElementById('callsView').classList.toggle('show', t === 'calls');
+  document.getElementById('board').style.display = t === 'board' ? '' : 'none';
+  document.getElementById('brief').classList.toggle('show', t === 'brief' || t === 'board');
+  document.getElementById('filters').style.display = t === 'board' ? '' : 'none';
+}
+document.getElementById('ctabs').onclick = e => { const b = e.target.closest('button'); if (b) cycleTab(b.dataset.t); };
+function openFirst() { cycleTab('board'); const el = [...document.querySelectorAll('.card')].find(x => x.textContent.includes('#7')); if (el) openDrawer(null, el); }
+function openDrawer(c, el) {
+  document.querySelectorAll('.card.sel').forEach(x => x.classList.remove('sel'));
+  el.classList.add('sel');
+  document.getElementById('drawer').classList.add('open');
+}
+function closeDrawer() { document.getElementById('drawer').classList.remove('open'); hidePicker(); }
+function openSpec() { document.getElementById('specModal').classList.add('show'); }
+
+document.getElementById('scopeSeg').onclick = e => {
+  if (!e.target.dataset.v) return;
+  document.querySelectorAll('#scopeSeg button').forEach(x => x.classList.toggle('on', x === e.target));
+  cycleMode = e.target.dataset.v === 'cycle'; pageMode = e.target.dataset.v === 'page';
+  document.getElementById('cpage').classList.toggle('show', pageMode);
+  document.getElementById('cycSel').style.display = cycleMode ? '' : 'none';
+  render();
+  if (pageMode) cycleTab('calls');
+  else { document.getElementById('board').style.display = ''; document.getElementById('filters').style.display = ''; document.getElementById('brief').classList.toggle('show', cycleMode); }
+};
+document.getElementById('filters').onclick = e => { if (e.target.classList.contains('pill')) e.target.classList.toggle('on'); };
+
+function quickAdd() {
+  const q = document.getElementById('quick'); const t = q.value.trim(); if (!t) return;
+  const kind = /^bug!/i.test(t) ? 'bug' : /^task!/i.test(t) ? 'task' : /^note!/i.test(t) ? 'note' : /^\?/.test(t) ? 'question' : 'task';
+  const flags = Object.keys(FL).filter(f => t.includes('#' + f));
+  const title = t.replace(/^(bug|task|note)!\s*|^\?\s*/i, '').replace(/#\w+/g, '').trim();
+  cards.unshift({id: Math.max(...cards.map(c => c.id)) + 1, col: 0, kind, title, flags, ai: 0, scope: '', cyc: cycleMode ? 'order-flow-3' : '', m: [], c: 0});
+  q.value = ''; render();
+}
+document.getElementById('quick').onkeydown = e => { if (e.key === 'Enter') quickAdd(); };
+
+function exportMenu(e) {
+  const m = document.getElementById('menu'); const r = e.target.getBoundingClientRect();
+  m.style.left = (r.left + scrollX - 120) + 'px'; m.style.top = (r.bottom + scrollY + 4) + 'px';
+  m.style.display = m.style.display === 'block' ? 'none' : 'block';
+  e.stopPropagation();
+}
+document.addEventListener('click', () => document.getElementById('menu').style.display = 'none');
+
+/* mention picker */
+const ITEMS = {
+  call: [['201','POST /api/orders','09:41:07 · inbound'],['500','POST /api/orders','09:43:30 · inbound'],['200','GET /api/cart','09:40:51 · inbound'],['200','GET pricing.supplier/v2/price','09:41:06 · outbound']],
+  stmt: [['#88','INSERT INTO ORDERS …','POST /orders · 3 ms'],['#87','SELECT * FROM DISCOUNTS WHERE code=?','POST /orders · 1 ms'],['#91','UPDATE CART SET status=?','POST /orders · 2 ms']],
+  log: [['WARN','DiscountMapper: dto.discount is empty','09:41:07.212'],['ERROR','OrderController: NumberFormatException','09:43:30.004'],['INFO','PaymentService: charge ok','09:41:07.400']],
+  redis: [['GET','cart:9921','POST /orders'],['SETEX','session:ab12…','GET /sso/callback']],
+  spec: [['MD','ODY-482-spec.md','§Acceptance · §Out of scope'],['TXT','edge-cases.txt','3 cases']],
+  code: [['{ }','OrderMapper.java:142','from exception_source'],['{ }','DiscountService.apply()','DiscountService.java:58']],
+  other: [['◷','cycle order-flow-3','14 calls'],['┃','spacer: apply code','order-flow-3'],['▣','card #4 · 500 on /cart','Fixed'],['⚙','rule pricing-mock','interception']]
+};
+let ptype = 'call', hl = 0;
+function showPicker() { document.getElementById('picker').classList.add('show'); fillPicker(); document.getElementById('psearch').focus(); }
+function hidePicker() { document.getElementById('picker').classList.remove('show'); }
+function fillPicker() {
+  const q = document.getElementById('psearch').value.toLowerCase();
+  const list = ITEMS[ptype].filter(i => i.join(' ').toLowerCase().includes(q));
+  document.getElementById('plist').innerHTML = list.map((i, n) => `<div class="pi ${n===hl?'hl':''}" data-n="${n}"><span class="s">${i[0]}</span>${i[1]}<span class="d">${i[2]}</span></div>`).join('') || '<div class="pi" style="color:var(--faint)">No match</div>';
+  document.querySelectorAll('#plist .pi[data-n]').forEach(el => el.onclick = () => insert(list[+el.dataset.n]));
+}
+function insert(i) {
+  const t = document.getElementById('comp');
+  const sym = {call:'⇄',stmt:'◆',log:'▤',redis:'⬢',spec:'📄',code:'',other:''}[ptype];
+  t.value = t.value.replace(/@$/, '') + `[${sym} ${i[0]} ${i[1]}] `;
+  hidePicker(); t.focus();
+}
+document.getElementById('comp').oninput = e => { if (e.target.value.endsWith('@')) { hl = 0; document.getElementById('psearch').value = ''; showPicker(); } };
+document.getElementById('ptabs').onclick = e => {
+  if (!e.target.dataset.t) return; ptype = e.target.dataset.t; hl = 0;
+  document.querySelectorAll('#ptabs button').forEach(x => x.classList.toggle('on', x === e.target)); fillPicker();
+};
+document.getElementById('psearch').oninput = () => { hl = 0; fillPicker(); };
+document.getElementById('psearch').onkeydown = e => {
+  const types = Object.keys(ITEMS); const list = document.querySelectorAll('#plist .pi[data-n]');
+  if (e.key === 'ArrowDown') { hl = Math.min(hl + 1, list.length - 1); fillPicker(); e.preventDefault(); }
+  else if (e.key === 'ArrowUp') { hl = Math.max(hl - 1, 0); fillPicker(); e.preventDefault(); }
+  else if (e.key === 'Enter') { list[hl]?.click(); e.preventDefault(); }
+  else if (e.key === 'Tab') { ptype = types[(types.indexOf(ptype) + 1) % types.length]; hl = 0; document.querySelectorAll('#ptabs button').forEach(x => x.classList.toggle('on', x.dataset.t === ptype)); fillPicker(); e.preventDefault(); }
+  else if (e.key === 'Escape') { hidePicker(); document.getElementById('comp').focus(); }
+};
+render();
+</script>
+</body>
+</html>

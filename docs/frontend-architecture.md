@@ -283,6 +283,25 @@ Body keys match by name at any depth including inside arrays, since a token nest
 
 **"Show OPTIONS" is one rule everywhere.** `isPreflight` (`shared/utils/call-utils.ts`) drives the filter in `createCallListView` (Live Calls and every cycle page) and in the cycle widget. Off, the default and remembered in `alfred_show_options_calls`, hides every OPTIONS call, failed ones included; on, shows them all. Other failed calls always show. When a cycle holds nothing but hidden preflights, as one recorded against a refusing upstream does (the browser never sends the real request after a failed preflight), the widget's waterfall says so and offers **Show OPTIONS** rather than looking empty.
 
+## Task board (`components/board/*`, `pages/board`)
+
+specs/014-task-board, docs/board.md. One `BoardViewComponent` is the board wherever it shows - the Board tab
+(`pages/board`, with the project / cycle choice in the URL) and the session cycle page's Board tab - and each instance
+provides its own `BoardStateService` (not root), so two views can show two boards. State is fetch-on-demand: one fetch
+on open, then one per `/ws/board` "board-changed" signal that concerns the view (`BoardSocketService`, via
+`reconnectingSocket`), coalesced with `auditTime` - no timers. The cycle page's Board tab count reads the same list endpoint. Call cards show the cards that mention them through `BoardBadgesState`, which batches every card's ask
+per 100 ids exactly like `CommentCountsState`.
+
+- Mentions: `shared/utils/mention-syntax.ts` (the grammar, shared vectors with the backend), `markdown-blocks.ts` (a
+  typed tree; `MarkdownViewComponent` renders it with bindings - never innerHTML), `MentionChipComponent` (a preview on
+  first hover, `BoardMentionsService.open` on click), `MentionEditorComponent` + `MentionPickerComponent` (the `@`
+  picker; its Calls tab embeds `app-call-finder` whole).
+- `BoardMentionsService.cardToOpen` / `specToShow` are how a chip anywhere opens a card (the open board view picks it
+  up) or a spec file (one `SpecViewerComponent` in the main layout).
+- Exports: `board-json.ts` (alfred-board/1, lines → Blob), `board-md-builder.ts`, `board-html-builder.ts` (escaped), all
+  gathered by `BoardExportService`; the cycle export's two board checkboxes go through `buildExportFile`'s optional
+  `board` input and change nothing when off.
+
 ## Database capture (`components/db-capture/*`)
 
 - Logs linked to calls (specs/008-logs-call-link): the ▤ switch is a second per-project signal in

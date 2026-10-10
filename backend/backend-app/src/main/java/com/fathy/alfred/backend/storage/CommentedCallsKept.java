@@ -12,7 +12,9 @@ import java.util.Set;
  * rule is on (the default): both call stores ask this before trimming, and every clean-up, age rule and the disk
  * guard skip these calls too. A Relive step and a stored answer each keep their own full copy (FrozenCall, the
  * answer's body), so deleting the call would not break them - but their "open original" would lead nowhere, which the
- * page promises not to do. Read at most every 30 s - a limit trims a few calls at a time on the write path.
+ * page promises not to do. Read at most every 30 s - a limit trims a few calls at a time on the write path. Live calls
+ * mentioned on the task board are kept the same way (specs/014-task-board research R3): the board says when that set
+ * changes, so a newly mentioned call is kept at once rather than after the cache runs out.
  */
 @Component
 class CommentedCallsKept {
@@ -22,14 +24,24 @@ class CommentedCallsKept {
     // Looked up at first use, not injected: Relive needs the call stores, and the call stores ask this - a cycle.
     private org.springframework.beans.factory.ObjectProvider<com.fathy.alfred.backend.relive.application.port.in.ManageReliveCyclesUseCase> reliveProvider;
     private org.springframework.beans.factory.ObjectProvider<com.fathy.alfred.backend.interception.application.port.out.StoredAnswersStorePort> answersProvider;
+    private org.springframework.beans.factory.ObjectProvider<com.fathy.alfred.backend.board.application.port.in.ListMentionedCallIdsUseCase> boardProvider;
     private com.fathy.alfred.backend.relive.application.port.in.ManageReliveCyclesUseCase reliveCycles;
     private com.fathy.alfred.backend.interception.application.port.out.StoredAnswersStorePort storedAnswers;
 
     @org.springframework.beans.factory.annotation.Autowired
     void setProviders(org.springframework.beans.factory.ObjectProvider<com.fathy.alfred.backend.relive.application.port.in.ManageReliveCyclesUseCase> relive,
-                      org.springframework.beans.factory.ObjectProvider<com.fathy.alfred.backend.interception.application.port.out.StoredAnswersStorePort> answers) {
+                      org.springframework.beans.factory.ObjectProvider<com.fathy.alfred.backend.interception.application.port.out.StoredAnswersStorePort> answers,
+                      org.springframework.beans.factory.ObjectProvider<com.fathy.alfred.backend.board.application.port.in.ListMentionedCallIdsUseCase> board) {
         this.reliveProvider = relive;
         this.answersProvider = answers;
+        this.boardProvider = board;
+    }
+
+    private com.fathy.alfred.backend.board.application.port.in.ListMentionedCallIdsUseCase board;
+
+    /** For tests: the board's mentioned calls directly. */
+    void setBoard(com.fathy.alfred.backend.board.application.port.in.ListMentionedCallIdsUseCase board) {
+        this.board = board;
     }
 
     /** For tests: the sources directly. */
@@ -64,6 +76,7 @@ class CommentedCallsKept {
                     // comments unreadable: trim as before rather than not at all
                 }
                 ids.addAll(referenced());
+                ids.addAll(boardMentioned());
                 cache = Set.copyOf(ids);
             }
         }
@@ -121,9 +134,41 @@ class CommentedCallsKept {
         return ids;
     }
 
+    /** One indexed read of board.db - cheap enough to repeat with the 30 s cache, unlike the Relive walk above. */
+    private Set<String> boardMentioned() {
+        if (board == null && boardProvider != null) {
+            board = boardProvider.getIfAvailable();
+        }
+        try {
+            return board == null ? Set.of() : board.mentionedLiveCallIds();
+        } catch (RuntimeException e) {
+            return Set.of(); // board unreadable: trim as before rather than not at all
+        }
+    }
+
+    /** The board's mentioned calls changed: re-read on the next ask instead of up to 30 s later. */
+    void boardChanged() {
+        readAt = 0;
+    }
+
     void refresh() {
         readAt = 0;
         referencedAt = 0;
+    }
+
+    /** The board tells this when the live calls it mentions change (MentionedCallsChangedPort). */
+    @Component
+    static class BoardMentions implements com.fathy.alfred.backend.board.application.port.out.MentionedCallsChangedPort {
+        private final CommentedCallsKept kept;
+
+        BoardMentions(CommentedCallsKept kept) {
+            this.kept = kept;
+        }
+
+        @Override
+        public void mentionedCallsChanged() {
+            kept.boardChanged();
+        }
     }
 
     @Component

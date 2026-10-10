@@ -1,0 +1,19 @@
+{
+  "about": "Quick-add vectors. QuickAddParser.java and quick-add-parser.ts must give exactly these. Prefix (case-insensitive, at the start after trimming): 'bug!' BUG, 'task!' TASK, 'note!' NOTE, '?' QUESTION; none -> TASK. Flag words anywhere, case-insensitive, removed from the title: #urgent URGENT, #risk RISK, #blocker BLOCKER, #impact AFFECTS_PROJECT, #decision NEEDS_DECISION. Unknown #words stay in the title. Title = the rest with whitespace runs collapsed and trimmed; empty -> null (rejected).",
+  "vectors": [
+    { "line": "bug! discount not saved #urgent", "kind": "BUG", "title": "discount not saved", "flags": ["URGENT"] },
+    { "line": "BUG!discount not saved", "kind": "BUG", "title": "discount not saved", "flags": [] },
+    { "line": "task! retry email #risk #blocker", "kind": "TASK", "title": "retry email", "flags": ["RISK", "BLOCKER"] },
+    { "line": "note! DiscountService is shared #impact", "kind": "NOTE", "title": "DiscountService is shared", "flags": ["AFFECTS_PROJECT"] },
+    { "line": "? expired code: message or silent #decision", "kind": "QUESTION", "title": "expired code: message or silent", "flags": ["NEEDS_DECISION"] },
+    { "line": "plain line without prefix", "kind": "TASK", "title": "plain line without prefix", "flags": [] },
+    { "line": "  bug!   spaced    out  #URGENT  ", "kind": "BUG", "title": "spaced out", "flags": ["URGENT"] },
+    { "line": "bug! fix #42 in #checkout #urgent", "kind": "BUG", "title": "fix #42 in #checkout", "flags": ["URGENT"] },
+    { "line": "bug! #urgent #urgent twice", "kind": "BUG", "title": "twice", "flags": ["URGENT"] },
+    { "line": "bug! #urgent", "kind": "BUG", "title": null, "flags": ["URGENT"] },
+    { "line": "", "kind": "TASK", "title": null, "flags": [] },
+    { "line": "a bug! in the middle", "kind": "TASK", "title": "a bug! in the middle", "flags": [] },
+    { "line": "#risk leading flag", "kind": "TASK", "title": "leading flag", "flags": ["RISK"] },
+    { "line": "#urgentish is not a flag", "kind": "TASK", "title": "#urgentish is not a flag", "flags": [] }
+  ]
+}

@@ -34,6 +34,15 @@ class StorageFiles {
     private final Map<String, Path> files = new LinkedHashMap<>();
     private final Path dataDir;
 
+    /** For tests: board.db next to calls.db. */
+    StorageFiles(String calls, String internalCalls, String dbCapture, String logs, String triage, String sessionCycles,
+                 String comments, String relive, String scenarios, String settings, String profiles, String redactions,
+                 String interception) {
+        this(calls, internalCalls, dbCapture, logs, triage, sessionCycles, comments, relive, scenarios, settings, profiles,
+                redactions, interception, siblingOf(calls, "board.db"));
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
     StorageFiles(@Value("${CALLS_DB_FILE:/appdata/calls.db}") String calls,
                  @Value("${INTERNAL_CALLS_DB_FILE:/appdata/internal-calls.db}") String internalCalls,
                  @Value("${DB_CAPTURE_DB_FILE:/appdata/db-capture.db}") String dbCapture,
@@ -46,7 +55,8 @@ class StorageFiles {
                  @Value("${FILTER_SETTINGS_DB_FILE:/appdata/settings.db}") String settings,
                  @Value("${PROFILES_DB_FILE:/appdata/profiles.db}") String profiles,
                  @Value("${REDACTIONS_DB_FILE:/appdata/redactions.db}") String redactions,
-                 @Value("${INTERCEPTION_DB_FILE:/appdata/interception.db}") String interception) {
+                 @Value("${INTERCEPTION_DB_FILE:/appdata/interception.db}") String interception,
+                 @Value("${BOARD_DB_FILE:/appdata/board.db}") String board) {
         files.put("calls.db", Paths.get(calls));
         files.put("internal-calls.db", Paths.get(internalCalls));
         files.put("db-capture.db", Paths.get(dbCapture));
@@ -60,8 +70,14 @@ class StorageFiles {
         files.put("profiles.db", Paths.get(profiles));
         files.put("redactions.db", Paths.get(redactions));
         files.put("interception.db", Paths.get(interception));
+        files.put("board.db", Paths.get(board));
         Path parent = Paths.get(calls).toAbsolutePath().getParent();
         this.dataDir = parent == null ? Paths.get(".").toAbsolutePath() : parent;
+    }
+
+    private static String siblingOf(String file, String name) {
+        Path parent = Paths.get(file).toAbsolutePath().getParent();
+        return (parent == null ? Paths.get(name) : parent.resolve(name)).toString();
     }
 
     Path file(String name) {

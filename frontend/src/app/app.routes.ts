@@ -11,6 +11,7 @@ export const routes: Routes = [
       // page's own chunk follows at once - the call card, waterfall and panels kept the shell over its size budget.
       { path: '', loadComponent: () => import('./pages/dashboard/dashboard.component').then((m) => m.DashboardComponent) },
       { path: 'cycles', loadComponent: () => import('./pages/session-cycles-list/session-cycles-list.component').then((m) => m.SessionCyclesListComponent) },
+      { path: 'board', loadComponent: () => import('./pages/board/board-page.component').then((m) => m.BoardPageComponent) },
       { path: 'cycles/:id', loadComponent: () => import('./pages/session-cycle-detail/session-cycle-detail.component').then((m) => m.SessionCycleDetailComponent) },
       { path: 'profiles', loadComponent: () => import('./pages/profiles-list/profiles-list.component').then((m) => m.ProfilesListComponent) },
       // Lazy: the rule editor and its action panels are the heaviest page and most visits never open it.

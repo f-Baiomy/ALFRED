@@ -77,7 +77,7 @@
           [class.open]="preview()?.callId === call.id"
           [attr.aria-expanded]="preview()?.callId === call.id"
           [attr.tabindex]="activeIndex() === i || (activeIndex() < 0 && i === 0) ? 0 : -1"
-          (click)="togglePreview(call, i)"
+          (click)="onRowClick(call, i)"
         >
           <span class="badge answer-method" [class]="methodClassOf(call)">{{ call.method }}</span>
           <span class="badge answer-status" [class]="statusClassOf(call)" [title]="statusTitle(call)">{{ statusOf(call) }}</span>

@@ -40,6 +40,14 @@ import { ScenarioCycleChainPanelComponent } from '../../components/scenario-cycl
 import { ScenarioCycleSourceService } from '../../core/services/scenario-cycle-source.service';
 import { CallRecord, SessionCycle } from '../../core/models/call.model';
 import { findCallRow, pointAtCall } from '../../shared/utils/call-reveal';
+import { CardSummary, NO_FILTERS } from '../../core/models/board.models';
+import { BoardApiService } from '../../core/services/board-api.service';
+import { BoardSocketService } from '../../core/services/board-socket.service';
+import { BoardViewComponent } from '../../components/board/board-view/board-view.component';
+import { CycleBriefComponent } from '../../components/board/cycle-brief/cycle-brief.component';
+import { SpecFilesComponent } from '../../components/board/spec-files/spec-files.component';
+import { AcceptanceChecklistComponent } from '../../components/board/acceptance-checklist/acceptance-checklist.component';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
 /**
  * One open session-cycle: its own poll+live-merge+selection+search/sort/group/stats state
@@ -52,7 +60,8 @@ import { findCallRow, pointAtCall } from '../../shared/utils/call-reveal';
 @Component({
   selector: 'app-session-cycle-detail',
   standalone: true,
-  imports: [RouterLink, ActionMenuComponent, HeaderComponent, StatsBarComponent, CallListComponent, BulkActionsBarComponent, ExportDialogComponent, CopyToCyclesDialogComponent, ReliveSelectionDialogComponent, ImportCallsDialogComponent, EditCycleDialogComponent, ConfirmDialogComponent, ScenarioCycleChainPanelComponent],
+  imports: [RouterLink, ActionMenuComponent, HeaderComponent, StatsBarComponent, CallListComponent, BulkActionsBarComponent, ExportDialogComponent, CopyToCyclesDialogComponent, ReliveSelectionDialogComponent, ImportCallsDialogComponent, EditCycleDialogComponent, ConfirmDialogComponent, ScenarioCycleChainPanelComponent,
+    BoardViewComponent, CycleBriefComponent, SpecFilesComponent, AcceptanceChecklistComponent],
   providers: [
     SessionCycleDetailStateService,
     { provide: CALL_SELECTION_STATE, useExisting: SessionCycleDetailStateService },
@@ -94,6 +103,14 @@ export class SessionCycleDetailComponent {
   /** A Relive run's own cycle: it holds what the run made, so nothing is recorded or added to it. */
   readonly runCycle = computed(() => !!this.cycle()?.reliveRunId);
   readonly clearingCalls = signal(false);
+  readonly tab = signal<'calls' | 'board' | 'brief'>('calls');
+  /** The cycle's cards, for the Board tab's open count - fetched on open and on each /ws/board signal. */
+  readonly boardCards = signal<readonly CardSummary[]>([]);
+  readonly openCardCount = computed(() => this.boardCards().filter((c) => c.status !== 'CLOSED' && c.status !== 'DONE').length);
+  readonly boardEditable = signal(true);
+  /** Where a card made here is filed: the cycle's first project (a cycle has no project of its own - research R16). */
+  readonly cycleProject = computed(() => this.state.internalServices()[0]?.name ?? '');
+  private readonly boardApi = inject(BoardApiService);
   private readonly picker = inject(CallPickerService);
   private readonly refDetail = inject(CallRefDetailService);
   private readonly cyclesApi = inject(SessionCyclesApiService);
@@ -106,6 +123,16 @@ export class SessionCycleDetailComponent {
   readonly chainPanelError = signal<string | null>(null);
 
   constructor() {
+    this.boardApi.access().subscribe({ next: (a) => this.boardEditable.set(a.editable), error: () => undefined });
+    effect(() => {
+      const id = this.state.cycleId();
+      untracked(() => this.loadBoardCards(id));
+    });
+    inject(BoardSocketService).events$.pipe(takeUntilDestroyed()).subscribe((e) => {
+      if (e.type === 'board-changed' && (e.cycleId === this.state.cycleId() || (!e.cycleId && e.project !== undefined))) {
+        this.loadBoardCards(this.state.cycleId());
+      }
+    });
     effect(() => {
       const pinned = this.cycleId();
       untracked(() => this.state.useCycle(pinned));
@@ -265,5 +292,13 @@ export class SessionCycleDetailComponent {
     if (!confirmed) return;
     this.clearingCalls.set(true);
     this.state.clearAllCalls().subscribe(() => this.clearingCalls.set(false));
+  }
+
+  private loadBoardCards(cycleId: string | null): void {
+    if (!cycleId) {
+      this.boardCards.set([]);
+      return;
+    }
+    this.boardApi.cards('', cycleId, NO_FILTERS).subscribe({ next: (p) => this.boardCards.set(p.cards), error: () => undefined });
   }
 }

@@ -1,6 +1,6 @@
 import { LinkedLogLine } from '../../core/models/call-logs.model';
 import { CallLogsApiService } from '../../core/services/call-logs-api.service';
-import { Component, computed, inject, input, signal } from '@angular/core';
+import { Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
 import { Observable, forkJoin, of } from 'rxjs';
 import { catchError, map, switchMap } from 'rxjs/operators';
 import { CallRecord } from '../../core/models/call.model';
@@ -19,6 +19,9 @@ import { ReliveQuickActionsService } from '../../core/services/relive-quick-acti
 import { ActionMenuComponent } from '../action-menu/action-menu.component';
 import { PickCallButtonComponent } from '../pick-call-button/pick-call-button.component';
 import { CALL_ORIGIN } from '../../core/state/call-origin.token';
+import { BoardApiService } from '../../core/services/board-api.service';
+import { BoardBadgesState } from '../../core/state/board-badges-state.service';
+import { CallBoardBadgeComponent } from '../board/call-board-badge/call-board-badge.component';
 import { buildCurlCommand } from '../../shared/utils/curl-builder';
 import { RedactionsStore } from '../../core/state/redactions-store.service';
 import { redactCall, redactCalls } from '../../shared/utils/redact';
@@ -42,7 +45,7 @@ import { copyToClipboard } from '../../shared/utils/clipboard';
 @Component({
   selector: 'app-call-actions',
   standalone: true,
-  imports: [ActionMenuComponent, PickCallButtonComponent],
+  imports: [ActionMenuComponent, PickCallButtonComponent, CallBoardBadgeComponent],
   templateUrl: './call-actions.component.html',
 })
 export class CallActionsComponent {
@@ -60,6 +63,8 @@ export class CallActionsComponent {
   private readonly router = inject(Router);
   private readonly origin = inject(CALL_ORIGIN, { optional: true });
   private readonly reliveActions = inject(ReliveQuickActionsService);
+  private readonly boardApi = inject(BoardApiService);
+  private readonly boardBadgesState = inject(BoardBadgesState);
 
   readonly call = input.required<CallRecord>();
   readonly curlCopyFeedback = signal(false);
@@ -71,6 +76,40 @@ export class CallActionsComponent {
   readonly reliveError = signal<string | null>(null);
 
   readonly isPinned = computed(() => this.pinService.isPinned(this.call()));
+  readonly boardLoading = signal(false);
+  /** The cards that mention this call (specs/014-task-board FR-036) - asked for in the same batch as every other card on screen. */
+  readonly boardBadges = computed(() => this.boardBadgesState.badges().get(this.call().id) ?? []);
+  private readonly askForBadges = effect(() => {
+    const id = this.call().id;
+    untracked(() => this.boardBadgesState.request(id));
+  });
+
+  /**
+   * "Add to board" (FR-038): an Inbox card linked to this call - in this cycle when the call is shown in one, under the
+   * call's own project when it is an inbound call - then the board, with the card open.
+   */
+  addToBoard(): void {
+    const call = this.call();
+    const cycleId = this.origin?.cycleId() ?? null;
+    const inbound = call.source === 'internal';
+    const project = inbound ? call.service_name ?? '' : '';
+    let path = call.url;
+    try {
+      path = new URL(call.url).pathname;
+    } catch {
+      // already a path
+    }
+    const label = `${call.method} ${path} · ${call.response?.status ?? (call.error ? 'error' : '…')}`;
+    const ref = `${inbound ? 'in' : 'out'}:${call.id}${cycleId ? `@${cycleId}` : ''}`;
+    this.boardLoading.set(true);
+    this.boardApi.create({ project, kind: 'BUG', title: label, cycleId, links: [{ type: 'call', ref, label }] }).subscribe({
+      next: (card) => {
+        this.boardLoading.set(false);
+        void this.router.navigate(['/board'], { queryParams: { project: card.project || null, cycle: cycleId, card: card.number } });
+      },
+      error: () => this.boardLoading.set(false),
+    });
+  }
 
   togglePin(): void {
     this.pinService.toggle(this.call());

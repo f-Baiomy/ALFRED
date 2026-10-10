@@ -1,0 +1,103 @@
+{
+  "about": "Mention grammar vectors (contracts/mention-syntax.md). Both MentionParser.java and mention-syntax.ts must give exactly these segments. A segment is {\"text\": ...} or {\"mention\": {\"type\", \"ref\", \"label\"}}.",
+  "vectors": [
+    { "name": "plain text", "text": "nothing here", "segments": [{ "text": "nothing here" }] },
+    { "name": "empty", "text": "", "segments": [] },
+    { "name": "lone at", "text": "mail me @ home", "segments": [{ "text": "mail me @ home" }] },
+    { "name": "at without bracket", "text": "@claude look", "segments": [{ "text": "@claude look" }] },
+    {
+      "name": "inbound call",
+      "text": "see @[call:in:5f2c9e|POST /api/orders · 201] now",
+      "segments": [
+        { "text": "see " },
+        { "mention": { "type": "call", "ref": "in:5f2c9e", "label": "POST /api/orders · 201" } },
+        { "text": " now" }
+      ]
+    },
+    {
+      "name": "captured cycle call",
+      "text": "@[call:out:a1@c-81|GET pricing]",
+      "segments": [{ "mention": { "type": "call", "ref": "out:a1@c-81", "label": "GET pricing" } }]
+    },
+    {
+      "name": "every type",
+      "text": "@[stmt:5f2c9e/88|INSERT ORDERS #88]@[log:5f2c9e/L1203|WARN DiscountMapper]@[redis:5f2c9e/12|GET cart:9921]@[spec:c-81/ODY-482-spec.md#acceptance|ODY-482-spec.md §Acceptance]@[code:src/main/java/OrderMapper.java:142|OrderMapper.java:142]@[cycle:c-81|order-flow-3]@[spacer:c-81/s-3|apply code]@[card:odeysys#7|Discount not saved]@[rule:r-12|pricing-mock]",
+      "segments": [
+        { "mention": { "type": "stmt", "ref": "5f2c9e/88", "label": "INSERT ORDERS #88" } },
+        { "mention": { "type": "log", "ref": "5f2c9e/L1203", "label": "WARN DiscountMapper" } },
+        { "mention": { "type": "redis", "ref": "5f2c9e/12", "label": "GET cart:9921" } },
+        { "mention": { "type": "spec", "ref": "c-81/ODY-482-spec.md#acceptance", "label": "ODY-482-spec.md §Acceptance" } },
+        { "mention": { "type": "code", "ref": "src/main/java/OrderMapper.java:142", "label": "OrderMapper.java:142" } },
+        { "mention": { "type": "cycle", "ref": "c-81", "label": "order-flow-3" } },
+        { "mention": { "type": "spacer", "ref": "c-81/s-3", "label": "apply code" } },
+        { "mention": { "type": "card", "ref": "odeysys#7", "label": "Discount not saved" } },
+        { "mention": { "type": "rule", "ref": "r-12", "label": "pricing-mock" } }
+      ]
+    },
+    {
+      "name": "card with no project",
+      "text": "dup of @[card:#3|old one]",
+      "segments": [{ "text": "dup of " }, { "mention": { "type": "card", "ref": "#3", "label": "old one" } }]
+    },
+    {
+      "name": "escaped pipe and bracket in label",
+      "text": "@[log:x/1|a \\| b \\] c]",
+      "segments": [{ "mention": { "type": "log", "ref": "x/1", "label": "a | b ] c" } }]
+    },
+    {
+      "name": "unknown type stays text",
+      "text": "@[user:me|Me]",
+      "segments": [{ "text": "@[user:me|Me]" }]
+    },
+    {
+      "name": "missing label stays text",
+      "text": "@[call:in:1]",
+      "segments": [{ "text": "@[call:in:1]" }]
+    },
+    {
+      "name": "empty ref stays text",
+      "text": "@[call:|x]",
+      "segments": [{ "text": "@[call:|x]" }]
+    },
+    {
+      "name": "unclosed stays text",
+      "text": "start @[call:in:1|POST",
+      "segments": [{ "text": "start @[call:in:1|POST" }]
+    },
+    {
+      "name": "label over 200 chars stays text",
+      "text": "@[cycle:c|AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA]",
+      "segments": [{ "text": "@[cycle:c|AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA]" }]
+    },
+    {
+      "name": "newline in label stays text",
+      "text": "@[cycle:c|a\nb]",
+      "segments": [{ "text": "@[cycle:c|a\nb]" }]
+    },
+    {
+      "name": "two adjacent with text between",
+      "text": "@[cycle:a|A] and @[cycle:b|B].",
+      "segments": [
+        { "mention": { "type": "cycle", "ref": "a", "label": "A" } },
+        { "text": " and " },
+        { "mention": { "type": "cycle", "ref": "b", "label": "B" } },
+        { "text": "." }
+      ]
+    },
+    {
+      "name": "mention inside markdown list",
+      "text": "- see @[cycle:a|A]\n- done",
+      "segments": [{ "text": "- see " }, { "mention": { "type": "cycle", "ref": "a", "label": "A" } }, { "text": "\n- done" }]
+    }
+  ],
+  "slugs": [
+    { "heading": "Acceptance", "slug": "acceptance" },
+    { "heading": "Out of scope!", "slug": "out-of-scope" },
+    { "heading": "  2. Edge   Cases ", "slug": "2-edge-cases" },
+    { "heading": "Déjà vu", "slug": "d-j-vu" }
+  ],
+  "serialize": [
+    { "mention": { "type": "log", "ref": "x/1", "label": "a | b ] c" }, "text": "@[log:x/1|a \\| b \\] c]" },
+    { "mention": { "type": "call", "ref": "in:1", "label": "line one\nline two" }, "text": "@[call:in:1|line one line two]" }
+  ]
+}

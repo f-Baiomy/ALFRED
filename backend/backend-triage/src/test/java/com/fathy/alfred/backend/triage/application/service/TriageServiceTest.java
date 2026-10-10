@@ -244,4 +244,10 @@ class TriageServiceTest {
         assertThat(repo.find("gone")).isEmpty();
         assertThat(repo.find("kept")).isPresent();
     }
+
+    @org.junit.jupiter.api.Test
+    void otherFeaturesGetTheSameEndpointGroupingTriageUses() {
+        assertThat(service.endpointOf("post", "http://localhost:8080/api/orders/42?x=1"))
+                .isEqualTo(com.fathy.alfred.backend.triage.domain.EndpointPattern.of("POST", "http://localhost:8080/api/orders/42?x=1"));
+    }
 }

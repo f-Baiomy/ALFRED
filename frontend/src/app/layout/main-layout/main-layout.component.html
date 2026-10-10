@@ -1,6 +1,7 @@
 <nav class="tab-nav">
   <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">Live Calls</a>
   <a routerLink="/cycles" routerLinkActive="active">Session Cycles</a>
+  <a routerLink="/board" routerLinkActive="active">Board <span class="nav-new">new</span></a>
   <a routerLink="/profiles" routerLinkActive="active">Profiles</a>
   <a routerLink="/interception" routerLinkActive="active">
     Interception
@@ -23,6 +24,8 @@
 <!-- Both follow the user across tabs: picking is done by moving between pages, and a resend can
      be started from a call on any page (Live Calls or a session cycle). -->
 <app-pick-bar />
+<!-- One spec viewer for the whole app: a spec chip on any page opens it (specs/014-task-board). -->
+<app-spec-viewer />
 <!-- Loaded once the page is idle, outside the initial bundle (each holds its state in a service, so
      one asked for before it has loaded opens as soon as it has). -->
 @defer (on idle) {

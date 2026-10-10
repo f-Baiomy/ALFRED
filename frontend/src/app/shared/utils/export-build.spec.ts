@@ -111,4 +111,43 @@ describe('buildExportFile', () => {
     expect(buildExportFile('json', input([call('a')], { fileName: 'repro' })).filename).toBe('repro.json');
     expect(buildExportFile('markdown', input([call('a')], { fileName: 'repro.md' })).filename).toBe('repro.md');
   });
+
+  describe('the board sections of a cycle export (specs/014-task-board FR-046)', () => {
+    const board = {
+      title: 'Board - booking fails at payment',
+      data: {
+        project: 'odeysys',
+        cards: [{
+          id: 'k1', project: 'odeysys', number: 7, kind: 'BUG' as const, title: 'Discount not saved', description: 'ORDERS.discount is NULL',
+          status: 'IN_PROGRESS' as const, resolution: null, reason: null, flags: ['URGENT' as const], scope: 'IN_SCOPE' as const,
+          author: 'CLAUDE' as const, cycleId: 'cy1', cycleDeleted: false, signature: null, createdAt: EXPORTED_AT, updatedAt: EXPORTED_AT,
+          updatedBy: 'USER' as const, commentCount: 0, similarClosed: null, links: [],
+        }],
+        activity: {},
+        briefs: [{ cycleId: 'cy1', text: 'ODY-482 discount on checkout', updatedAt: EXPORTED_AT }],
+        specs: [{ cycleId: 'cy1', name: 'spec.md', content: '## Acceptance\n1. POST /orders returns 201', uploadedAt: EXPORTED_AT }],
+        marks: [],
+      },
+    };
+
+    it('leaves every format exactly as before when both boxes are off', () => {
+      for (const format of ['markdown', 'html', 'json'] as const) {
+        const without = buildExportFile(format, input([call('a'), call('b')], { cycle }));
+        const off = buildExportFile(format, input([call('a'), call('b')], { cycle, board: null }));
+        expect(off).toEqual(without);
+      }
+    });
+
+    it('appends the brief, the spec files in full and the cards to the report when on', () => {
+      const md = buildExportFile('markdown', input([call('a'), call('b')], { cycle, board }));
+      const html = buildExportFile('html', input([call('a'), call('b')], { cycle, board }));
+      if (md.kind !== 'text' || html.kind !== 'text') throw new Error('expected text');
+      for (const text of [md.content, html.content]) {
+        expect(text).toContain('ODY-482 discount on checkout');
+        expect(text).toContain('1. POST /orders returns 201');
+        expect(text).toContain('Discount not saved');
+      }
+      expect(html.content.indexOf('Discount not saved')).toBeLessThan(html.content.lastIndexOf('</body>'));
+    });
+  });
 });

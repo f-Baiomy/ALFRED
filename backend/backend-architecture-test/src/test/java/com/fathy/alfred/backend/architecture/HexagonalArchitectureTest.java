@@ -310,6 +310,35 @@ class HexagonalArchitectureTest {
                 .check(classes);
     }
 
+    // board is a leaf slice: cards, their activity and mentions, cycle briefs, spec files and checklist marks
+    // (specs/014-task-board). Kept calls, cycle deletion, call signatures and edit access reach it only through
+    // backend-app/boardbridge, and no other slice depends on it.
+    @Test
+    void boardSliceMustNotDependOnOtherSlices() {
+        noClasses().that().resideInAPackage("..backend.board..")
+                .should().dependOnClassesThat().resideInAnyPackage(
+                        "..backend.calls..", "..backend.comments..", "..backend.export..",
+                        "..backend.sessioncycles..", "..backend.profiles..", "..backend.settings..",
+                        "..backend.internalcalls..", "..backend.calloverlap..", "..backend.redactions..",
+                        "..backend.interception..", "..backend.resend..", "..backend.scenarios..",
+                        "..backend.relive..", "..backend.logs..", "..backend.dbcapture..", "..backend.triage..",
+                        "..backend.server..")
+                .check(classes);
+    }
+
+    @Test
+    void noOtherSliceDependsOnBoard() {
+        noClasses().that().resideInAnyPackage(
+                        "..backend.calls..", "..backend.comments..", "..backend.export..",
+                        "..backend.sessioncycles..", "..backend.profiles..", "..backend.settings..",
+                        "..backend.internalcalls..", "..backend.calloverlap..", "..backend.redactions..",
+                        "..backend.interception..", "..backend.resend..", "..backend.scenarios..",
+                        "..backend.relive..", "..backend.logs..", "..backend.dbcapture..", "..backend.triage..",
+                        "..backend.server..")
+                .should().dependOnClassesThat().resideInAPackage("..backend.board..")
+                .check(classes);
+    }
+
     // server is a leaf slice: the native install's settings (.env), checks, history and restart requests
     // (specs/012-server-program). It reaches other slices' data and runtime setters only through out-ports that
     // backend-app/serverbridge implements, and nothing depends on it except backend-app.

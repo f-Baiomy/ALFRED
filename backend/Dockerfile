@@ -23,6 +23,7 @@ COPY backend-logs/pom.xml backend-logs/pom.xml
 COPY backend-resend/pom.xml backend-resend/pom.xml
 COPY backend-db-capture/pom.xml backend-db-capture/pom.xml
 COPY backend-triage/pom.xml backend-triage/pom.xml
+COPY backend-board/pom.xml backend-board/pom.xml
 COPY backend-server/pom.xml backend-server/pom.xml
 COPY backend-app/pom.xml backend-app/pom.xml
 COPY backend-architecture-test/pom.xml backend-architecture-test/pom.xml
