@@ -2,7 +2,7 @@ import { RuleDialogService } from '../../core/services/rule-dialog.service';
 import { InterceptionApiService } from '../../core/services/interception-api.service';
 import { CallFocusService } from '../../core/services/call-focus.service';
 import { refOf } from '../../core/models/call-ref.model';
-import { Component, DestroyRef, ElementRef, HostListener, computed, effect, inject, input, output, signal, viewChild } from '@angular/core';
+import { Component, DestroyRef, ElementRef, HostListener, computed, effect, inject, input, output, signal, untracked, viewChild } from '@angular/core';
 import { CdkDragHandle } from '@angular/cdk/drag-drop';
 import { NgTemplateOutlet } from '@angular/common';
 import { CallDetail, CallDetailPart, CallRecord } from '../../core/models/call.model';
@@ -99,6 +99,8 @@ export class CallCardComponent {
   readonly removalState = inject(CALL_REMOVAL_STATE, { optional: true });
 
   readonly call = input.required<CallRecord>();
+  /** Blocks open (and fetched) as soon as the card shows - the board's call popup opens them all. */
+  readonly openAtStart = input<readonly CallDetailPart[]>([]);
 
   /**
    * An inbound call whose project has ◆ ▤ or ⬢ on while no agent has reported to THIS Alfred in the last 30 s: the
@@ -600,6 +602,20 @@ export class CallCardComponent {
   }
 
   constructor() {
+    // Blocks a host asks to show open (the board's call popup): opened once, the first time the card shows.
+    let openedAtStart = false;
+    effect(() => {
+      const parts = this.openAtStart();
+      if (openedAtStart || !parts.length) return;
+      openedAtStart = true;
+      untracked(() => {
+        for (const part of parts) {
+          this.openParts.update((open) => toggled(open, part, true));
+          this.loadPart(part, 'user');
+        }
+      });
+    }, { allowSignalWrites: true });
+
     // "Made from…" on a rule brought the user here for this call: scroll to it and flash once.
     effect(() => {
       if (this.callFocus.highlight() !== this.call().id) return;

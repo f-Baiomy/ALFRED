@@ -227,6 +227,8 @@ export class BoardViewComponent {
     if (target && (/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) || target.isContentEditable)) return;
     if (this.triageQueue() || event.ctrlKey || event.metaKey || event.altKey) return;
     if (event.key === 'Escape') {
+      // A dialog over the board (the call popup, a spec) closes itself first; the card stays open.
+      if (document.querySelector('.dialog-backdrop')) return;
       if (this.help()) this.help.set(false);
       else if (this.state.openCardId()) this.state.open(null);
       else this.state.clearSelection();

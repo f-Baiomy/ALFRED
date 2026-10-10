@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mention Call Popup</title>
+<style>
+  :root { --bg:#0f0d24; --panel:#1a1640; --inner:#14112f; --border:#2e2865; --strong:#3d3680; --text:#e6e3ff; --dim:#a29dd0; --faint:#6e68a3;
+    --purple:#7c5cff; --purple-l:#b6a4ff; --cyan:#4fd1e8; --green:#4ade80; --amber:#fbbf24; --red:#f87171; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:13px/1.45 system-ui, sans-serif; height:100vh; overflow:hidden; }
+  .nav { display:flex; gap:22px; padding:10px 20px; background:#120f2c; border-bottom:1px solid var(--border); color:var(--dim); }
+  .nav b { color:var(--text); border-bottom:2px solid var(--purple); padding-bottom:4px; }
+  .page { display:flex; height:calc(100vh - 40px); }
+  .board { flex:1; padding:14px 18px; opacity:.55; }
+  .col { display:inline-block; width:200px; vertical-align:top; margin-right:10px; background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:8px; height:300px; }
+  .col h4 { margin:0 0 8px; font-size:11px; color:var(--dim); letter-spacing:.05em; }
+  .mini { background:var(--inner); border:1px solid var(--border); border-radius:8px; padding:8px; font-size:12px; }
+  .drawer { width:430px; background:var(--panel); border-left:1px solid var(--strong); padding:14px 16px; opacity:.55; }
+  .pill { display:inline-flex; gap:4px; align-items:center; padding:0 6px; border-radius:5px; font:11px Consolas, monospace; background:color-mix(in srgb, var(--cyan) 14%, transparent); color:var(--cyan); border:1px solid var(--border); }
+  .pill.hot { outline:2px solid var(--cyan); outline-offset:1px; }
+  .scrim { position:fixed; inset:0; background:rgba(5,4,15,.62); }
+  .pop { position:fixed; left:50%; top:52%; transform:translate(-50%,-50%); width:min(880px, calc(100vw - 32px)); max-height:86vh; overflow:auto;
+    background:#1b1744; border:1px solid var(--strong); border-radius:14px; box-shadow:0 30px 80px rgba(0,0,0,.6); }
+  .pop-head { display:flex; align-items:flex-start; gap:12px; padding:12px 16px; border-bottom:1px solid var(--border); position:sticky; top:0; background:#1b1744; }
+  .pop-title { flex:1; }
+  .pop-title .line { font:600 14px Consolas, monospace; }
+  .pop-title .meta { color:var(--faint); font-size:11.5px; margin-top:2px; }
+  .badge { font-size:10.5px; padding:1px 7px; border-radius:999px; border:1px solid var(--border); color:var(--dim); margin-left:6px; }
+  .btn { background:var(--inner); color:var(--text); border:1px solid var(--strong); border-radius:7px; padding:5px 10px; font-size:12px; cursor:pointer; white-space:nowrap; }
+  .btn.primary { background:var(--purple); border-color:var(--purple); }
+  .x { background:none; border:0; color:var(--dim); font-size:16px; cursor:pointer; }
+  .card { margin:14px 16px; background:var(--inner); border:1px solid var(--border); border-radius:10px; }
+  .card-row { display:flex; gap:10px; align-items:center; padding:9px 12px; border-bottom:1px solid var(--border); font:12px Consolas, monospace; }
+  .m { color:var(--amber); font-weight:700; } .ok { color:var(--green); font-weight:700; } .t { color:var(--faint); margin-left:auto; }
+  .sec { padding:8px 12px; border-bottom:1px solid var(--border); }
+  .sec h5 { margin:0 0 6px; font-size:11px; color:var(--purple-l); letter-spacing:.04em; }
+  .kv { display:grid; grid-template-columns:150px 1fr; gap:2px 10px; font:11.5px Consolas, monospace; color:var(--dim); }
+  .kv b { color:var(--text); font-weight:400; }
+  pre { margin:0; background:#100d27; border:1px solid var(--border); border-radius:7px; padding:8px 10px; font:11.5px/1.5 Consolas, monospace; color:#d6d1ff; }
+  .k { color:var(--cyan); } .s { color:var(--green); } .n { color:var(--amber); }
+  .tabs { display:flex; gap:6px; padding:8px 12px; }
+  .tab { font-size:11.5px; padding:3px 9px; border-radius:6px; border:1px solid var(--border); color:var(--dim); }
+  .tab.on { background:color-mix(in srgb, var(--purple) 22%, transparent); color:var(--text); border-color:var(--purple); }
+  .acts { display:flex; gap:6px; padding:8px 12px; }
+  .foot { padding:4px 16px 14px; color:var(--dim); font-size:12px; }
+  .foot a { color:var(--purple-l); text-decoration:none; margin-right:10px; }
+  .callout { position:fixed; font-size:11px; color:#ffd479; background:#2a2310; border:1px solid #6b5a1c; border-radius:6px; padding:3px 7px; }
+</style>
+</head>
+<body>
+  <div class="nav"><span>Live Calls</span><span>Session Cycles</span><b>Board</b><span>Profiles</span><span>Settings</span></div>
+  <div class="page">
+    <div class="board">
+      <div class="col"><h4>INBOX</h4><div class="mini"><b>you got a friend in me</b><br><span class="pill">⇄ POST /Admin2/loginAction · 200</span></div></div>
+      <div class="col"><h4>TO DO</h4></div>
+      <div class="col"><h4>IN PROGRESS</h4></div>
+    </div>
+    <div class="drawer">
+      <div style="font-weight:700;font-size:15px">you got a friend in me <span style="color:var(--faint)">#5</span></div>
+      <div style="margin-top:14px;color:var(--dim);font-size:11px">ACTIVITY</div>
+      <div style="margin-top:6px;color:var(--dim)">Login fails here <span class="pill hot">⇄ POST /odeysysadmin/Admin2/loginAction · 200</span> check after redirect</div>
+    </div>
+  </div>
+
+  <div class="scrim"></div>
+  <div class="pop" role="dialog" aria-label="Call">
+    <div class="pop-head">
+      <div class="pop-title">
+        <div class="line"><span class="m">POST</span> /odeysysadmin/Admin2/loginAction <span class="ok">200</span>
+          <span class="badge">inbound</span><span class="badge">live</span></div>
+        <div class="meta">10/10/2026 07:08:41 PM · 312 ms · odeysys · id 7b456931…</div>
+      </div>
+      <button class="btn primary">Open in Live Calls ↗</button>
+      <button class="x" title="Close (Esc)">✕</button>
+    </div>
+
+    <div class="card">
+      <div class="card-row"><span class="m">POST</span><span>http://localhost:8080/odeysysadmin/Admin2/loginAction</span><span class="ok">200</span><span class="t">312 ms · 07:08:41</span></div>
+      <div class="tabs"><span class="tab on">Request</span><span class="tab">Response</span><span class="tab">◆ DB · 14</span><span class="tab">▤ Logs · 6</span><span class="tab">⬢ Redis · 3</span></div>
+      <div class="sec"><h5>REQUEST HEADERS</h5>
+        <div class="kv"><span>content-type</span><b>application/json</b><span>cookie</span><b>JSESSIONID=•••• (masked)</b><span>x-alfred-call</span><b>db=1; log=1</b></div>
+      </div>
+      <div class="sec"><h5>REQUEST BODY</h5>
+<pre>{
+  <span class="k">"username"</span>: <span class="s">"agent.dxb"</span>,
+  <span class="k">"password"</span>: <span class="s">"••••••"</span>,
+  <span class="k">"branch"</span>: <span class="n">12</span>
+}</pre>
+      </div>
+      <div class="sec" style="border-bottom:0"><h5>RESPONSE BODY</h5>
+<pre>{ <span class="k">"redirect"</span>: <span class="s">"/odeysysadmin/Admin2/home"</span>, <span class="k">"roles"</span>: [<span class="s">"ADMIN"</span>] }</pre>
+      </div>
+      <div class="acts"><button class="btn">Copy cURL</button><button class="btn">Resend</button><button class="btn">💬 Comment</button><button class="btn">＋ Board</button></div>
+    </div>
+
+    <div class="foot">On cards: <a href="#">#5 you got a friend in me</a><a href="#">#8 Login loops</a></div>
+  </div>
+
+</body>
+</html>

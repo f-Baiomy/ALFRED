@@ -58,6 +58,15 @@ interface CardPickResume {
 /** Who asked the app-wide call picker (CallPickerService) - only the board takes this result. */
 export const BOARD_PICK_REQUESTER = 'board-card-links';
 
+/** A call to show in the popup: from a call chip, or the call a statement / log line / Redis chip belongs to. */
+export interface MentionCallTarget {
+  readonly direction: 'in' | 'out';
+  readonly callId: string;
+  readonly cycleId: string | null;
+  /** The mention's saved label - the popup's title, and what is left when the call is gone. */
+  readonly label: string;
+}
+
 /** A spec file to show, optionally at a section. */
 export interface SpecTarget {
   readonly cycleId: string;
@@ -83,6 +92,8 @@ export class BoardMentionsService {
 
   /** Set when a card chip is clicked; the open board view picks it up. */
   readonly cardToOpen = signal<CardTarget | null>(null);
+  /** Set when a call (or statement, log line, Redis) chip is clicked; the call popup shows it. */
+  readonly callToShow = signal<MentionCallTarget | null>(null);
   /** Set when a spec chip is clicked; the spec viewer shows it. */
   readonly specToShow = signal<SpecTarget | null>(null);
   /** A text waiting for its card's drawer: the comment or description a pick from anywhere came back into. */
@@ -210,11 +221,17 @@ export class BoardMentionsService {
     }
   }
 
+  /** "Open in Live Calls / its cycle" from the call popup: there, with the call highlighted. */
+  goToCall(target: MentionCallTarget, serviceName: string | null): void {
+    this.callToShow.set(null);
+    this.focus.go({ callId: target.callId, cycleId: target.cycleId, direction: target.direction === 'out' ? 'outbound' : 'inbound', serviceName });
+  }
+
   open(ref: MentionRef): void {
     const type = mentionTypeOf(ref);
     if (type === 'call' || type === 'stmt' || type === 'log' || type === 'redis') {
       const call = type === 'call' ? callOf(ref) : { direction: 'in' as const, id: ref.ref.split('/')[0], cycleId: null };
-      if (call) this.focus.go({ callId: call.id, cycleId: call.cycleId, direction: call.direction === 'out' ? 'outbound' : 'inbound', serviceName: null });
+      if (call) this.callToShow.set({ direction: call.direction, callId: call.id, cycleId: call.cycleId, label: ref.label });
       return;
     }
     if (type === 'spec') {

@@ -10783,6 +10783,17 @@ app-name-suggest {
 .board-editor { position: relative;
   textarea { width: 100%; box-sizing: border-box; resize: vertical; background: var(--card-inner); color: var(--text); border: 1px solid var(--border-strong); border-radius: 8px; padding: 0.45rem 0.6rem; font: inherit; font-size: 0.82rem; }
 }
+/* A call mention opened in place: the Live Calls call card in a dialog (mention-call-popup). */
+.dialog-card.board-call-pop { width: min(980px, calc(100vw - 32px)); max-width: none; max-height: 88vh; display: flex; flex-direction: column; padding: 0; overflow: hidden; }
+.board-call-pop-head { display: flex; align-items: center; gap: 0.6rem; padding: 0.6rem 0.9rem; border-bottom: 1px solid var(--border); }
+.board-call-pop-title { flex: 1; min-width: 0; display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;
+  .board-mention { max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-size: 0.8rem; cursor: default; }
+}
+.board-call-pop-badge { font-size: 0.66rem; padding: 0 0.45rem; border-radius: 999px; border: 1px solid var(--border); color: var(--text-dim); }
+.board-call-pop-body { overflow: auto; padding: 0.7rem 0.9rem; flex: 1; min-height: 0; }
+.board-call-pop-gone { color: var(--text-dim); padding: 1rem 0; }
+.board-call-pop-foot { padding: 0.45rem 0.9rem; border-top: 1px solid var(--border); font-size: 0.75rem; color: var(--text-dim); display: flex; gap: 0.35rem; flex-wrap: wrap; align-items: center; }
+
 /* Claude's proposal (Verified, Done, closing) waiting for the user, and its suggested checklist marks - board_propose, board_suggest_mark. */
 .board-proposal { margin-top: 0.5rem; padding: 0.5rem 0.65rem; border: 1px dashed var(--purple); border-radius: 9px; background: color-mix(in srgb, var(--purple) 10%, transparent); font-size: 0.8rem;
   b { color: var(--purple-light); }
