@@ -63,7 +63,8 @@ test('board_get reads the card, its links and its whole history', async () => {
     assert.match(r.json.card, /#1 BUG x - INBOX/);
     assert.deepEqual(r.json.links, ['cycle c1 - flow']);
     assert.equal(r.json.historyTotal, 1);
-    assert.match(r.json.history[0], /Claude: \*\*Did\*\* a/);
+    assert.match(r.json.history[0], /^\[0\] .*Claude: \*\*Did\*\* a\n\n\*\*Found\*\* b\n\n\*\*Next\*\* c$/);
+    assert.deepEqual(r.json.mentions, ['cycle c1 - flow → get_cycle {"cycleId":"c1"}']);
   } finally { await w.close(); }
 });
 
@@ -81,14 +82,14 @@ test('get_brief and read_spec read the cycle\'s brief, spec text, one section an
   try {
     w.fake.board.briefs['c1'] = { text: 'ODY-482', updatedAt: null };
     w.fake.board.specs['c1'] = { 'spec.md': '# ODY\n## Acceptance\n1. 201\n## Out of scope\n- x' };
-    w.fake.board.checklist['c1'] = [{ fileName: 'spec.md', items: [{ text: '201', mark: { mark: 'PASS', evidence: '' } }] }];
+    w.fake.board.checklist['c1'] = [{ fileName: 'spec.md', items: [{ key: 'i1', text: '201', mark: { mark: 'PASS', evidence: '' } }] }];
     const brief = await w.call('get_brief', { cycleId: 'c1' });
     assert.equal(brief.json.brief, 'ODY-482');
     assert.deepEqual(brief.json.specFiles, ['spec.md (46 bytes)']);
     const spec = await w.call('read_spec', { cycleId: 'c1', name: 'spec.md', section: 'acceptance' });
     assert.equal(spec.isError, false, spec.text);
     assert.equal(spec.json.spec.text, '## Acceptance\n1. 201');
-    assert.deepEqual(spec.json.checklist, ['PASS - 201']);
+    assert.deepEqual(spec.json.checklist, ['[i1] PASS - 201']);
   } finally { await w.close(); }
 });
 

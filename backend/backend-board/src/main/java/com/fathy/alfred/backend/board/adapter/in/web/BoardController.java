@@ -233,7 +233,8 @@ public class BoardController {
     public ResponseEntity<?> comment(@RequestHeader(value = ACTOR, required = false) String actor, @PathVariable String id,
                                      @Valid @RequestBody CommentRequestDto body) {
         CommentOnCardUseCase.CommentOutcome outcome = comments.comment(BoardWeb.actor(actor), id,
-                new CommentOnCardUseCase.Comment(body.text(), body.did(), body.found(), body.next(), body.impact()));
+                new CommentOnCardUseCase.Comment(body.text(), body.did(), body.found(), body.next(), body.impact(),
+                        body.reply(), body.question()));
         if (outcome.outcome() != CardChange.Outcome.OK) {
             return BoardWeb.refused(outcome.outcome(), outcome.message());
         }

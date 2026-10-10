@@ -34,9 +34,13 @@ export function createServer(client: AlfredClient = new AlfredClient()): McpServ
       + 'compare_cycles. Drill into statements with db_overview / db_statements / db_statement. When lines are missing, each tool says why; you may '
       + 'turn ▤ log catching or ◆ database capture on, or change the Log level (set_log_capture, set_db_capture) when it helps - always tell the user '
       + 'what you changed (old -> new). Record findings with add_comment. Ask before writing exports. '
-      + 'Task board: read board_closed_reasons (and get_brief / read_spec for a cycle) before reporting; add findings with board_add (they land in '
-      + 'the Inbox for the user to sort), record progress with board_comment (did / found / next), move cards only to To do, In progress or Fixed '
-      + 'with board_move, and keep the live strip current with board_status. Never ask to close a card or set its scope - those are for the user.',
+      + 'Task board: start a session with board_search (mine=true, status TO_DO/IN_PROGRESS) and board_changes (cursor "claude") to pick up '
+      + 'where you left off; read a card with board_get (every comment in full) and its evidence with board_evidence. Before reporting, read '
+      + 'board_closed_reasons, board_similar and board_for_call (and get_brief / read_spec for a cycle); add findings with board_add / '
+      + 'board_add_many (they land in the Inbox for the user to sort). Record progress with board_comment (did / found / next), answer with '
+      + 'board_reply, ask with board_ask, record a fix with board_fix. Move cards only to To do, In progress or Fixed; Verified, Done and '
+      + 'closing are the user\'s - propose them with board_propose, and suggest checklist marks with board_suggest_mark. After a re-test '
+      + 'cycle run board_verify. Listen for the user with board_wait. Keep the live strip current with board_status.',
   });
   registerSessionTool(server);
   for (const module of [cycles, spacers, calls, db, comments, exportTool, watch, redactions, cycleSearch, diff, rulesRelive, projects, triage, logs, investigate, redis, board]) module.register(server, client);

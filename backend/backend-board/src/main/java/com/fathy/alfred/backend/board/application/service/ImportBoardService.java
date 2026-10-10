@@ -57,9 +57,10 @@ public class ImportBoardService implements ImportBoardUseCase {
     private final MentionedCallsChangedPort mentionedCalls;
     private final ObjectMapper json = new ObjectMapper();
 
-    public ImportBoardService(BoardStorePort store, BoardNotificationPort notifications, MentionedCallsChangedPort mentionedCalls) {
+    public ImportBoardService(BoardStorePort store, BoardNotificationPort notifications, MentionedCallsChangedPort mentionedCalls,
+                              BoardChangeFeed feed) {
         this.store = store;
-        this.notifications = notifications;
+        this.notifications = feed.feeding(notifications);
         this.mentionedCalls = mentionedCalls;
     }
 

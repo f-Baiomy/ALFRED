@@ -95,6 +95,12 @@ export interface FakeBoard {
   /** The answer to the next POST /board/cards, when the test wants a refusal. */
   refuseCreate: [number, unknown] | null;
   agentState: string;
+  /** What GET /board/changes and /board/changes/wait answer next (the backend's own cursor logic is tested in backend-board). */
+  changes: unknown;
+  similar: unknown[];
+  badges: Record<string, unknown[]>;
+  verify: unknown[];
+  suggestions: Record<string, unknown>;
 }
 
 /** The wire summary of a call: what GET /calls and /summary return - no headers, no bodies. */
@@ -158,7 +164,8 @@ function priorityOf(m: AttentionMark, failingChildren: number, minStatus: number
 
 export class FakeAlfred {
   readonly state: FakeState = emptyState();
-  readonly board: FakeBoard = { cards: [], activity: {}, closedReasons: [], briefs: {}, specs: {}, checklist: {}, refuseCreate: null, agentState: 'WATCHING' };
+  readonly board: FakeBoard = { cards: [], activity: {}, closedReasons: [], briefs: {}, specs: {}, checklist: {}, refuseCreate: null, agentState: 'WATCHING',
+    changes: { entries: [], cycles: [], cursor: '0.0', more: false }, similar: [], badges: {}, verify: [], suggestions: {} };
   readonly log: LoggedRequest[] = [];
   private server?: Server;
   private nextId = 1;
@@ -456,8 +463,46 @@ export class FakeAlfred {
     }
     if (p[1] === 'cards' && p[3] === 'activity') return [200, { entries: b.activity[p[2]] ?? [], total: (b.activity[p[2]] ?? []).length }];
     if (p[1] === 'cards' && p[3] === 'comments') {
-      (b.activity[p[2]] ??= []).push({ actor: 'CLAUDE', kind: 'COMMENT', text: `**Did** ${body.did}`, oldValue: null, newValue: null, at: '2026-10-10T09:00:00Z' });
-      return [201, { id: 1 }];
+      const text = body.question ? `**Question** ${body.question}` : body.reply ? `**Reply** ${body.reply}`
+        : `**Did** ${body.did}\n\n**Found** ${body.found}\n\n**Next** ${body.next}${body.impact ? `\n\n**Impact** ${body.impact}` : ''}`;
+      const list = (b.activity[p[2]] ??= []);
+      list.push({ id: list.length + 1, actor: 'CLAUDE', kind: 'COMMENT', text, oldValue: null, newValue: null, at: '2026-10-10T09:00:00Z' });
+      if (body.question) {
+        const card = find(p[2]);
+        if (card && !card.flags.includes('NEEDS_DECISION')) card.flags = [...card.flags, 'NEEDS_DECISION'];
+      }
+      return [201, { id: list.length }];
+    }
+    if (p[1] === 'cards' && p[3] === 'links') {
+      const card = find(p[2]);
+      if (!card) return [404];
+      if (method === 'POST') card.links = [...(card.links ?? []), body];
+      else card.links = (card.links ?? []).filter((l: any) => !(l.type === body.type && l.ref === body.ref));
+      return [200, card];
+    }
+    if (p[1] === 'cards' && p[3] === 'proposal' && method === 'PUT') {
+      const card = find(p[2]);
+      if (!card) return [404];
+      if (body.status === 'VERIFIED' && card.status !== 'FIXED') return [400, { error: 'invalid', message: 'Verified can be proposed for a Fixed card' }];
+      card.proposal = { status: body.status, resolution: body.resolution ?? null, reason: body.reason ?? '', evidence: body.evidence ?? '', at: '2026-10-10T09:00:00Z' };
+      return [200, card];
+    }
+    if (p[1] === 'search') {
+      const project = q.get('project');
+      const cycleId = q.get('cycleId');
+      const status = (q.get('status') ?? '').split(',').filter(Boolean);
+      const cards = b.cards.filter((c) => (project === null || c.project === project) && (!cycleId || c.cycleId === cycleId)
+        && (!status.length || status.includes(c.status)) && (q.get('claudeTouched') !== 'true' || c.author === 'CLAUDE'))
+        .map((c) => ({ ...c, lastComment: (b.activity[c.id] ?? []).filter((e: any) => e.kind === 'COMMENT').at(-1) ?? null }));
+      return [200, { cards, total: cards.length }];
+    }
+    if (p[1] === 'changes') return [200, b.changes];
+    if (p[1] === 'similar') return [200, b.similar];
+    if (p[1] === 'call-badges') return [200, Object.fromEntries((q.get('callIds') ?? '').split(',').filter((id) => b.badges[id]).map((id) => [id, b.badges[id]]))];
+    if (p[1] === 'verify') return [200, b.verify];
+    if (p[1] === 'cycles' && p[3] === 'checklist' && p[6] === 'suggestion' && method === 'PUT') {
+      b.suggestions[`${p[2]}/${p[4]}/${p[5]}`] = body;
+      return [200, { key: p[5], text: 'POST /orders returns 201', mark: null, suggestion: body }];
     }
     if (p[1] === 'cards' && p[3] === 'move') {
       const card = find(p[2]);

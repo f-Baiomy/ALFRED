@@ -144,6 +144,27 @@ export class BoardApiService {
       { mark, evidence });
   }
 
+  private suggestionUrl(cycleId: string, fileName: string, itemKey: string): string {
+    return `${this.base}/cycles/${encodeURIComponent(cycleId)}/checklist/${encodeURIComponent(fileName)}/${encodeURIComponent(itemKey)}/suggestion`;
+  }
+
+  acceptSuggestion(cycleId: string, fileName: string, itemKey: string): Observable<ChecklistItem> {
+    return this.http.post<ChecklistItem>(`${this.suggestionUrl(cycleId, fileName, itemKey)}/accept`, {});
+  }
+
+  dismissSuggestion(cycleId: string, fileName: string, itemKey: string): Observable<ChecklistItem> {
+    return this.http.delete<ChecklistItem>(this.suggestionUrl(cycleId, fileName, itemKey));
+  }
+
+  /** Takes Claude's proposed step as the user's own (moves or closes the card). */
+  acceptProposal(id: string): Observable<CardDetail> {
+    return this.http.post<CardDetail>(`${this.base}/cards/${encodeURIComponent(id)}/proposal/accept`, {});
+  }
+
+  dismissProposal(id: string): Observable<CardDetail> {
+    return this.http.delete<CardDetail>(`${this.base}/cards/${encodeURIComponent(id)}/proposal`);
+  }
+
   agentStatus(project: string): Observable<AgentStatus | null> {
     return this.http.get<AgentStatus | null>(`${this.base}/agent-status`, { params: { project } });
   }

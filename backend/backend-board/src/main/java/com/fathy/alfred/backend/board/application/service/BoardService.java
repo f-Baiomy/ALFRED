@@ -15,6 +15,7 @@ import com.fathy.alfred.backend.board.application.port.in.ListActivityUseCase;
 import com.fathy.alfred.backend.board.application.port.in.ListClosedReasonsUseCase;
 import com.fathy.alfred.backend.board.application.port.in.ListMentionedCallIdsUseCase;
 import com.fathy.alfred.backend.board.application.port.in.MoveCardUseCase;
+import com.fathy.alfred.backend.board.application.port.in.ProposeUseCase;
 import com.fathy.alfred.backend.board.application.port.in.QueryCardsUseCase;
 import com.fathy.alfred.backend.board.application.port.in.QuickAddCardUseCase;
 import com.fathy.alfred.backend.board.application.port.in.ReopenCardUseCase;
@@ -44,6 +45,7 @@ import com.fathy.alfred.backend.board.domain.model.ClosedReason;
 import com.fathy.alfred.backend.board.domain.model.Flag;
 import com.fathy.alfred.backend.board.domain.model.MentionOwner;
 import com.fathy.alfred.backend.board.domain.model.MentionRef;
+import com.fathy.alfred.backend.board.domain.model.Proposal;
 import com.fathy.alfred.backend.board.domain.model.Resolution;
 import com.fathy.alfred.backend.board.domain.model.Scope;
 import com.fathy.alfred.backend.board.domain.model.SimilarClosed;
@@ -75,7 +77,7 @@ import java.util.stream.Collectors;
 public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, UpdateCardUseCase, MoveCardUseCase, DeleteCardUseCase,
         QueryCardsUseCase, GetCardUseCase, CloseCardUseCase, ReopenCardUseCase, SetReasonUseCase, UndoCloseUseCase, BulkCardsUseCase,
         LinkCardUseCase, CommentOnCardUseCase, ListActivityUseCase, ListClosedReasonsUseCase, CallBadgesUseCase,
-        ListMentionedCallIdsUseCase {
+        ListMentionedCallIdsUseCase, ProposeUseCase {
 
     public static final int MAX_TITLE = 300;
     public static final int MAX_TEXT = 256 * 1024;
@@ -95,14 +97,14 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
 
     @Autowired
     public BoardService(BoardStorePort store, BoardNotificationPort notifications, CallSignaturePort signatures,
-                        MentionedCallsChangedPort mentionedCalls, AgentStatusUseCase agent) {
-        this(store, notifications, signatures, mentionedCalls, agent, Clock.systemUTC());
+                        MentionedCallsChangedPort mentionedCalls, AgentStatusUseCase agent, BoardChangeFeed feed) {
+        this(store, notifications, signatures, mentionedCalls, agent, feed, Clock.systemUTC());
     }
 
     BoardService(BoardStorePort store, BoardNotificationPort notifications, CallSignaturePort signatures,
-                 MentionedCallsChangedPort mentionedCalls, AgentStatusUseCase agent, Clock clock) {
+                 MentionedCallsChangedPort mentionedCalls, AgentStatusUseCase agent, BoardChangeFeed feed, Clock clock) {
         this.store = store;
-        this.notifications = notifications;
+        this.notifications = feed.feeding(notifications);
         this.signatures = signatures;
         this.mentionedCalls = mentionedCalls;
         this.agent = agent;
@@ -180,6 +182,9 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
         Card card = found.get();
         if (actor == Actor.CLAUDE && edit.scope() != null && edit.scope() != card.scope()) {
             return CardChange.refused(CardChange.Outcome.REFUSED_FOR_CLAUDE, ClaudeRules.USER_ONLY);
+        }
+        if (actor == Actor.CLAUDE && !ClaudeRules.mayEdit(card) && editsText(card, edit)) {
+            return CardChange.refused(CardChange.Outcome.REFUSED_FOR_CLAUDE, ClaudeRules.OWN_INBOX_ONLY);
         }
         if (edit.title() != null) {
             String problem = checkTitle(edit.title());
@@ -508,7 +513,13 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
             return new CommentOutcome(CardChange.Outcome.NOT_FOUND, null, "No such card");
         }
         String text;
-        if (actor == Actor.CLAUDE) {
+        boolean question = false;
+        if (actor == Actor.CLAUDE && !blank(comment.question())) {
+            text = "**Question** " + comment.question().strip();
+            question = true;
+        } else if (actor == Actor.CLAUDE && !blank(comment.reply())) {
+            text = "**Reply** " + comment.reply().strip();
+        } else if (actor == Actor.CLAUDE) {
             if (blank(comment.did()) || blank(comment.found()) || blank(comment.next())) {
                 return new CommentOutcome(CardChange.Outcome.REFUSED_FOR_CLAUDE, null, ClaudeRules.STRUCTURED_COMMENT);
             }
@@ -528,6 +539,16 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
         List<MentionRef> refs = MentionParser.mentions(text);
         store.replaceMentions(MentionOwner.ACTIVITY, Long.toString(entryId), id, refs);
         Card next = touched(found.get(), actor, refs);
+        if (question && !next.flags().contains(Flag.NEEDS_DECISION)) {
+            // A question waits for the user: the card says so on the board.
+            EnumSet<Flag> flags = next.flags().isEmpty() ? EnumSet.noneOf(Flag.class) : EnumSet.copyOf(next.flags());
+            flags.add(Flag.NEEDS_DECISION);
+            Card flagged = next.withFields(next.title(), next.description(), next.kind(), flags, next.scope(), next.cycleId(),
+                    next.project(), clock.instant(), actor);
+            store.update(flagged);
+            record(id, actor, ActivityKind.FLAGS, null, flagsText(next.flags()), flagsText(flags));
+            next = flagged;
+        }
         if (anyLiveCall(refs)) {
             mentionedCalls.mentionedCallsChanged();
         }
@@ -546,6 +567,110 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
         return next;
     }
 
+    // -------------------------------------------------------------------------------------------------------- proposals
+
+    @Override
+    public synchronized CardChange propose(Actor actor, String id, CardStatus status, Resolution resolution, String reason, String evidence) {
+        if (actor != Actor.CLAUDE) {
+            return CardChange.refused(CardChange.Outcome.INVALID, "A proposal is Claude's - take the step yourself");
+        }
+        Optional<Card> found = store.find(id);
+        if (found.isEmpty()) {
+            return CardChange.notFound();
+        }
+        Card card = found.get();
+        String problem = checkReason(reason);
+        if (problem == null && evidence != null && evidence.length() > ProposeUseCase.MAX_EVIDENCE) {
+            problem = "evidence is larger than 8 KB";
+        }
+        if (problem == null) {
+            problem = proposalProblem(card, status, resolution);
+        }
+        if (problem != null) {
+            return CardChange.refused(CardChange.Outcome.INVALID, problem);
+        }
+        Proposal proposal = new Proposal(id, status, status == CardStatus.CLOSED ? resolution : null,
+                reason == null ? "" : reason.strip(), evidence == null ? "" : evidence.strip(), clock.instant());
+        store.putProposal(proposal);
+        String text = proposal.reason() + (proposal.evidence().isEmpty() ? "" : "\n\n" + proposal.evidence());
+        long entryId = store.append(new ActivityEntry(0, id, actor, ActivityKind.PROPOSED, text.isBlank() ? null : text, card.status().name(),
+                proposal.target(), clock.instant()));
+        List<MentionRef> refs = MentionParser.mentions(text);
+        if (!refs.isEmpty()) {
+            store.replaceMentions(MentionOwner.ACTIVITY, Long.toString(entryId), id, refs);
+            if (anyLiveCall(refs)) {
+                mentionedCalls.mentionedCallsChanged();
+            }
+        }
+        Card next = touched(card, actor, refs);
+        changed(next, "card");
+        return CardChange.ok(detail(next));
+    }
+
+    /** What may be proposed: Verified once Fixed, Done once Fixed or Verified, a close with a resolution on an open card. */
+    private static String proposalProblem(Card card, CardStatus status, Resolution resolution) {
+        if (status == null) {
+            return "status is required: VERIFIED, DONE or CLOSED";
+        }
+        return switch (status) {
+            case VERIFIED -> card.status() == CardStatus.FIXED ? null : "Verified can be proposed for a Fixed card";
+            case DONE -> card.status() == CardStatus.FIXED || card.status() == CardStatus.VERIFIED ? null
+                    : "Done can be proposed for a Fixed or Verified card";
+            case CLOSED -> resolution == null ? "A close needs a resolution: FINE, NOT_IN_FLOW or WONT_FIX"
+                    : Transitions.canClose(card.status()) ? null : "The card is already closed";
+            default -> "Claude moves to " + status + " itself - only Verified, Done and closing are proposed";
+        };
+    }
+
+    @Override
+    public synchronized CardChange acceptProposal(Actor actor, String id) {
+        if (actor == Actor.CLAUDE) {
+            return CardChange.refused(CardChange.Outcome.REFUSED_FOR_CLAUDE, ClaudeRules.PROPOSE_ONLY);
+        }
+        Optional<Card> found = store.find(id);
+        if (found.isEmpty()) {
+            return CardChange.notFound();
+        }
+        Optional<Proposal> open = store.proposal(id);
+        if (open.isEmpty()) {
+            return CardChange.refused(CardChange.Outcome.CONFLICT, "Nothing proposed on this card");
+        }
+        Card card = found.get();
+        Proposal proposal = open.get();
+        if (proposalProblem(card, proposal.status(), proposal.resolution()) != null) {
+            store.deleteProposal(id);
+            changed(card, "card");
+            return CardChange.refused(CardChange.Outcome.CONFLICT, "The card changed since Claude proposed this - the proposal is dropped");
+        }
+        store.deleteProposal(id);
+        record(id, actor, ActivityKind.PROPOSAL_ACCEPTED, null, card.status().name(), proposal.target());
+        Card next = proposal.status() == CardStatus.CLOSED
+                ? closeCard(actor, card, proposal.resolution(), proposal.reason().isBlank() ? null : proposal.reason())
+                : moveCard(actor, card, proposal.status());
+        changed(next, "card");
+        return CardChange.ok(detail(next));
+    }
+
+    @Override
+    public synchronized CardChange dismissProposal(Actor actor, String id) {
+        if (actor == Actor.CLAUDE) {
+            return CardChange.refused(CardChange.Outcome.REFUSED_FOR_CLAUDE, ClaudeRules.PROPOSE_ONLY);
+        }
+        Optional<Card> found = store.find(id);
+        if (found.isEmpty()) {
+            return CardChange.notFound();
+        }
+        Optional<Proposal> open = store.proposal(id);
+        if (open.isEmpty()) {
+            return CardChange.refused(CardChange.Outcome.CONFLICT, "Nothing proposed on this card");
+        }
+        store.deleteProposal(id);
+        record(id, actor, ActivityKind.PROPOSAL_DISMISSED, null, null, open.get().target());
+        Card next = touched(found.get(), actor, List.of());
+        changed(next, "card");
+        return CardChange.ok(detail(next));
+    }
+
     // ------------------------------------------------------------------------------------------------------------ reads
 
     @Override
@@ -554,6 +679,7 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
         List<String> ids = cards.stream().map(Card::id).toList();
         Map<String, Integer> comments = store.commentCounts(ids);
         Map<String, List<MentionRef>> chips = store.chipsOf(ids, CHIPS_PER_CARD);
+        Map<String, Proposal> proposals = store.proposals(ids);
         Map<String, Map<String, SimilarClosed>> similar = new LinkedHashMap<>();
         cards.stream().filter(c -> c.status() == CardStatus.INBOX && c.signature() != null)
                 .collect(Collectors.groupingBy(Card::project, Collectors.mapping(Card::signature, Collectors.toSet())))
@@ -561,7 +687,7 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
         List<CardSummary> rows = cards.stream().map(c -> new CardSummary(c, comments.getOrDefault(c.id(), 0),
                 chips.getOrDefault(c.id(), List.of()),
                 c.status() == CardStatus.INBOX && c.signature() != null
-                        ? similar.getOrDefault(c.project(), Map.of()).get(c.signature()) : null)).toList();
+                        ? similar.getOrDefault(c.project(), Map.of()).get(c.signature()) : null, proposals.get(c.id()))).toList();
         return new CardsPage(rows, store.count(query), store.progress(query.project(), query.cycleId()));
     }
 
@@ -615,7 +741,7 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
         SimilarClosed similar = full.status() == CardStatus.INBOX && full.signature() != null
                 ? store.closedBySignature(full.project(), List.of(full.signature())).get(full.signature()) : null;
         int comments = store.commentCounts(List.of(full.id())).getOrDefault(full.id(), 0);
-        return new CardDetail(full, comments, store.linksOf(full.id()), similar);
+        return new CardDetail(full, comments, store.linksOf(full.id()), similar, store.proposal(full.id()).orElse(null));
     }
 
     private void record(String cardId, Actor actor, ActivityKind kind, String text, String oldValue, String newValue) {
@@ -667,6 +793,14 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
         } catch (JsonProcessingException e) {
             return Map.of();
         }
+    }
+
+    private static boolean editsText(Card card, CardEdit edit) {
+        return edit.title() != null && !edit.title().strip().equals(card.title())
+                || edit.description() != null && !edit.description().equals(card.description())
+                || edit.kind() != null && edit.kind() != card.kind()
+                || edit.cycleId() != null && !Objects.equals(blankToNull(edit.cycleId()), card.cycleId())
+                || edit.project() != null && !edit.project().strip().equals(card.project());
     }
 
     private static void diff(List<String[]> changes, ActivityKind kind, String before, String after) {

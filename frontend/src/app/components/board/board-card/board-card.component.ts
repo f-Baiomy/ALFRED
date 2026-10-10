@@ -1,8 +1,9 @@
 import { Component, computed, input, output } from '@angular/core';
 import {
-  CardStatus, CardSummary, FLAG_LABELS, RESOLUTION_BUTTONS, RESOLUTION_LABELS, Resolution, ageText, isStale,
+  CardStatus, CardSummary, FLAG_LABELS, Proposal, RESOLUTION_BUTTONS, RESOLUTION_LABELS, Resolution, ageText, isStale,
 } from '../../../core/models/board.models';
 import { MentionChipComponent } from '../mention-chip/mention-chip.component';
+import { proposalTarget } from '../../../shared/utils/board-activity';
 
 /** What a card asks of its board: one sort action, a reopen, or a selection toggle. */
 export type CardAction =
@@ -54,6 +55,9 @@ export type CardAction =
       @if (card().status === 'INBOX' && card().similarClosed; as s) {
         <div class="board-sim">⚠ Looks like #{{ s.number }}, closed as {{ resolutionLabel(s.resolution) }}{{ s.reason ? ': ' + s.reason : '' }}</div>
       }
+      @if (card().proposal; as p) {
+        <div class="board-card-proposal" title="Open the card to accept or dismiss">✦ Claude proposes {{ proposalText(p) }}</div>
+      }
       @if (editable() && card().status === 'INBOX') {
         <div class="board-card-acts">
           <button type="button" class="ok" title="Fine - not an issue (F)" (click)="act($event, { kind: 'close', resolution: 'FINE' })">{{ buttons.FINE }}</button>
@@ -89,6 +93,10 @@ export class BoardCardComponent {
 
   flagLabel(f: keyof typeof FLAG_LABELS): string {
     return FLAG_LABELS[f];
+  }
+
+  proposalText(p: Proposal): string {
+    return proposalTarget(p.status === 'CLOSED' && p.resolution ? `CLOSED:${p.resolution}` : p.status);
   }
 
   resolutionLabel(r: Resolution): string {

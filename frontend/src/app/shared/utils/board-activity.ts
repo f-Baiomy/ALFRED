@@ -6,15 +6,23 @@ export interface ClaudeParts {
   readonly text: string;
 }
 
-const CLAUDE_HEADING = /^\*\*(Did|Found|Next|Impact)\*\*\s*/;
+const CLAUDE_HEADING = /^\*\*(Did|Found|Next|Impact|Reply|Question)\*\*\s*/;
 
 /** Splits `**Did** … **Found** … **Next** … **Impact** …` into its parts; null for a free-text comment. */
 export function claudeParts(text: string | null): ClaudeParts[] | null {
   if (!text || !CLAUDE_HEADING.test(text)) return null;
-  return text.split(/\n\n(?=\*\*(?:Did|Found|Next|Impact)\*\*)/).map((part) => {
+  return text.split(/\n\n(?=\*\*(?:Did|Found|Next|Impact|Reply|Question)\*\*)/).map((part) => {
     const m = CLAUDE_HEADING.exec(part);
     return { label: m ? m[1].toUpperCase() : '', text: m ? part.slice(m[0].length) : part };
   });
+}
+
+/** "VERIFIED" / "CLOSED:FINE" as words: "Verified", "close as Fine - not an issue". */
+export function proposalTarget(value: string | null): string {
+  if (!value) return '';
+  const [status, resolution] = value.split(':');
+  if (status === 'CLOSED') return `close as ${resolution ? RESOLUTION_LABELS[resolution as Resolution] ?? resolution : 'closed'}`;
+  return STATUS_LABELS[status as CardStatus] ?? status;
 }
 
 /** "You moved Inbox → In progress" - a recorded change in words. */
@@ -39,6 +47,9 @@ export function changeText(e: ActivityEntry): string {
     case 'LINK_REMOVED': return `${who} removed the link ${e.oldValue ?? ''}`;
     case 'SPEC_REPLACED': return `${who} replaced the spec file ${e.newValue ?? ''}`;
     case 'IMPORTED': return `Imported as #${e.newValue}`;
+    case 'PROPOSED': return `${who} proposed ${proposalTarget(e.newValue)}${e.text ? ` - ${e.text}` : ''}`;
+    case 'PROPOSAL_ACCEPTED': return `${who} accepted Claude's proposal: ${proposalTarget(e.newValue)}`;
+    case 'PROPOSAL_DISMISSED': return `${who} dismissed Claude's proposal: ${proposalTarget(e.newValue)}`;
     default: return `${who}: ${e.kind}`;
   }
 }

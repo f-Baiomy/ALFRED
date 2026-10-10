@@ -1,16 +1,20 @@
 package com.fathy.alfred.backend.board.application.port.out;
 
 import com.fathy.alfred.backend.board.domain.model.ActivityEntry;
+import com.fathy.alfred.backend.board.domain.model.Actor;
+import com.fathy.alfred.backend.board.domain.model.BoardChanges;
 import com.fathy.alfred.backend.board.domain.model.CallBadge;
 import com.fathy.alfred.backend.board.domain.model.Card;
 import com.fathy.alfred.backend.board.domain.model.CardQuery;
 import com.fathy.alfred.backend.board.domain.model.CardsPage;
 import com.fathy.alfred.backend.board.domain.model.ChecklistMark;
+import com.fathy.alfred.backend.board.domain.model.ChecklistSuggestion;
 import com.fathy.alfred.backend.board.domain.model.ClosedReason;
 import com.fathy.alfred.backend.board.domain.model.CycleBrief;
 import com.fathy.alfred.backend.board.domain.model.Mention;
 import com.fathy.alfred.backend.board.domain.model.MentionOwner;
 import com.fathy.alfred.backend.board.domain.model.MentionRef;
+import com.fathy.alfred.backend.board.domain.model.Proposal;
 import com.fathy.alfred.backend.board.domain.model.SimilarClosed;
 import com.fathy.alfred.backend.board.domain.model.SpecFile;
 import com.fathy.alfred.backend.board.domain.model.SpecFileInfo;
@@ -63,6 +67,24 @@ public interface BoardStorePort {
     /** Entries newer than {@code afterId}. */
     List<ActivityEntry> after(String cardId, long afterId);
 
+    /** Each card's newest comment. */
+    Map<String, ActivityEntry> lastComments(Collection<String> cardIds);
+
+    /** History entries of every card after {@code afterId}, oldest first, with their card; project/cycleId/actor narrow it when set. */
+    List<BoardChanges.Entry> activityAfter(long afterId, String project, String cycleId, Actor actor, int limit);
+
+    /** The id of the newest history entry (0 when none). */
+    long lastActivityId();
+
+    /** The id of {@code actor}'s newest history entry, on {@code project}'s board or anywhere when null (0 when none). */
+    long lastActivityIdBy(Actor actor, String project);
+
+    /** Briefs, spec files, checklist marks and suggestions written after {@code afterMillis}, oldest first. */
+    List<BoardChanges.CycleChange> cycleChangesAfter(long afterMillis, String project, String cycleId, int limit);
+
+    /** The newest time a brief, spec file, mark or suggestion was written (0 when none). */
+    long lastCycleChangeMillis();
+
     // mentions
 
     /** Replaces everything one owner mentions with {@code refs}. */
@@ -96,6 +118,20 @@ public interface BoardStorePort {
 
     List<ClosedReason> closedReasons(String project, int limit);
 
+    /** Cards (any status) with this signature or a title containing one of {@code words}; every board when project is null. */
+    List<Card> similar(String project, String signature, List<String> words, int limit);
+
+    // proposals
+
+    Optional<Proposal> proposal(String cardId);
+
+    Map<String, Proposal> proposals(Collection<String> cardIds);
+
+    /** Replaces the card's open proposal. */
+    void putProposal(Proposal proposal);
+
+    boolean deleteProposal(String cardId);
+
     // cycle brief, spec files, checklist
 
     Optional<CycleBrief> brief(String cycleId);
@@ -117,7 +153,15 @@ public interface BoardStorePort {
 
     void putMark(ChecklistMark mark);
 
-    /** Removes a cycle's brief, spec files, checklist marks and the mentions written there; flags its cards. */
+    List<ChecklistSuggestion> suggestions(String cycleId);
+
+    Optional<ChecklistSuggestion> suggestion(String cycleId, String fileName, String itemKey);
+
+    void putSuggestion(ChecklistSuggestion suggestion);
+
+    boolean deleteSuggestion(String cycleId, String fileName, String itemKey);
+
+    /** Removes a cycle's brief, spec files, checklist marks and suggestions and the mentions written there; flags its cards. */
     void cycleRemoved(String cycleId);
 
     /** The indexed mentions of one owner (for tests and import). */

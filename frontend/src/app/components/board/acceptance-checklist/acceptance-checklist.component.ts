@@ -42,6 +42,16 @@ import { MentionEditorComponent } from '../mention-editor/mention-editor.compone
                                       (submitted)="mark(f, item, item.mark?.mark ?? 'CANT_TELL', $event)" (cancelled)="editing.set(null)" />
                 }
                 @if (item.mark; as mk) { <span class="board-dim board-check-when">{{ when(mk.updatedAt) }}</span> }
+                @if (item.suggestion; as sg) {
+                  <div class="board-check-suggest" [class]="'board-check-suggest board-check-' + sg.mark">
+                    <span class="board-check-suggest-what">✦ Claude suggests {{ labels[sg.mark] }}</span>
+                    @if (sg.evidence) { <app-markdown-view class="board-check-ev" [text]="sg.evidence" /> }
+                    @if (editable()) {
+                      <button type="button" class="board-tog on" title="Mark it as Claude suggests" (click)="acceptSuggestion(f, item)">Accept</button>
+                      <button type="button" class="board-link" (click)="dismissSuggestion(f, item)">dismiss</button>
+                    }
+                  </div>
+                }
               </li>
             }
           </ul>
@@ -89,6 +99,21 @@ export class AcceptanceChecklistComponent {
   mark(file: ChecklistFile, item: ChecklistItem, mark: Mark, evidence?: string): void {
     this.editing.set(null);
     this.api.mark(this.cycleId(), file.fileName, item.key, mark, evidence ?? item.mark?.evidence ?? '').subscribe({
+      next: () => this.load(this.cycleId()),
+      error: (e) => this.error.set(messageOf(e)),
+    });
+  }
+
+  /** The user's mark, with Claude's evidence. */
+  acceptSuggestion(file: ChecklistFile, item: ChecklistItem): void {
+    this.api.acceptSuggestion(this.cycleId(), file.fileName, item.key).subscribe({
+      next: () => this.load(this.cycleId()),
+      error: (e) => this.error.set(messageOf(e)),
+    });
+  }
+
+  dismissSuggestion(file: ChecklistFile, item: ChecklistItem): void {
+    this.api.dismissSuggestion(this.cycleId(), file.fileName, item.key).subscribe({
       next: () => this.load(this.cycleId()),
       error: (e) => this.error.set(messageOf(e)),
     });

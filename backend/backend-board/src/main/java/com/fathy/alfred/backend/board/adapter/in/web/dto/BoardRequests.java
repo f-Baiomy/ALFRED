@@ -61,7 +61,12 @@ public final class BoardRequests {
 
     public record CommentRequestDto(@Size(max = MAX_TEXT) String text, @Size(max = MAX_TEXT) String did,
                                     @Size(max = MAX_TEXT) String found, @Size(max = MAX_TEXT) String next,
-                                    @Size(max = MAX_TEXT) String impact) {
+                                    @Size(max = MAX_TEXT) String impact, @Size(max = MAX_TEXT) String reply,
+                                    @Size(max = MAX_TEXT) String question) {
+    }
+
+    public record ProposalRequestDto(@NotNull CardStatus status, Resolution resolution, @Size(max = 2000) String reason,
+                                     @Size(max = 8 * 1024) String evidence) {
     }
 
     public record UnlinkRequestDto(@NotBlank @Pattern(regexp = MENTION_TYPES) String type, @NotBlank @Size(max = 1000) String ref) {

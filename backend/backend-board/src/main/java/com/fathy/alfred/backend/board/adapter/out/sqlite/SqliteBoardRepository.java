@@ -7,6 +7,7 @@ import com.fathy.alfred.backend.board.application.port.out.BoardStorePort;
 import com.fathy.alfred.backend.board.domain.model.ActivityEntry;
 import com.fathy.alfred.backend.board.domain.model.ActivityKind;
 import com.fathy.alfred.backend.board.domain.model.Actor;
+import com.fathy.alfred.backend.board.domain.model.BoardChanges;
 import com.fathy.alfred.backend.board.domain.model.CallBadge;
 import com.fathy.alfred.backend.board.domain.model.Card;
 import com.fathy.alfred.backend.board.domain.model.CardKind;
@@ -14,6 +15,7 @@ import com.fathy.alfred.backend.board.domain.model.CardQuery;
 import com.fathy.alfred.backend.board.domain.model.CardStatus;
 import com.fathy.alfred.backend.board.domain.model.CardsPage;
 import com.fathy.alfred.backend.board.domain.model.ChecklistMark;
+import com.fathy.alfred.backend.board.domain.model.ChecklistSuggestion;
 import com.fathy.alfred.backend.board.domain.model.ClosedReason;
 import com.fathy.alfred.backend.board.domain.model.CycleBrief;
 import com.fathy.alfred.backend.board.domain.model.Flag;
@@ -22,6 +24,7 @@ import com.fathy.alfred.backend.board.domain.model.Mention;
 import com.fathy.alfred.backend.board.domain.model.MentionOwner;
 import com.fathy.alfred.backend.board.domain.model.MentionRef;
 import com.fathy.alfred.backend.board.domain.model.MentionType;
+import com.fathy.alfred.backend.board.domain.model.Proposal;
 import com.fathy.alfred.backend.board.domain.model.Resolution;
 import com.fathy.alfred.backend.board.domain.model.Scope;
 import com.fathy.alfred.backend.board.domain.model.SimilarClosed;
@@ -173,6 +176,17 @@ public class SqliteBoardRepository implements BoardStorePort {
                   mark TEXT NOT NULL, actor TEXT NOT NULL, evidence TEXT NOT NULL DEFAULT '', history TEXT NOT NULL DEFAULT '[]',
                   updated_at INTEGER NOT NULL, PRIMARY KEY (cycle_id, file_name, item_key))
                 """);
+        // Claude's open proposal per card (Verified, Done, closing) and its suggested checklist marks - both wait for the user.
+        jdbc.execute("""
+                CREATE TABLE IF NOT EXISTS proposals (card_id TEXT PRIMARY KEY REFERENCES cards(id) ON DELETE CASCADE,
+                  status TEXT NOT NULL, resolution TEXT, reason TEXT NOT NULL DEFAULT '', evidence TEXT NOT NULL DEFAULT '',
+                  at INTEGER NOT NULL)
+                """);
+        jdbc.execute("""
+                CREATE TABLE IF NOT EXISTS checklist_suggestions (cycle_id TEXT NOT NULL, file_name TEXT NOT NULL, item_key TEXT NOT NULL,
+                  mark TEXT NOT NULL, evidence TEXT NOT NULL DEFAULT '', at INTEGER NOT NULL, PRIMARY KEY (cycle_id, file_name, item_key))
+                """);
+        jdbc.execute("CREATE INDEX IF NOT EXISTS idx_activity_actor ON activity(actor, id)");
     }
 
     // ---------------------------------------------------------------------------------------------------------------- cards
@@ -251,9 +265,16 @@ public class SqliteBoardRepository implements BoardStorePort {
         if (q.cycleId() != null) {
             parts.add("cycle_id = ?");
             args.add(q.cycleId());
-        } else {
+        } else if (!q.allProjects()) {
             parts.add("project = ?");
             args.add(q.project() == null ? "" : q.project());
+        }
+        if (q.since() != null) {
+            parts.add("updated_at >= ?");
+            args.add(q.since().toEpochMilli());
+        }
+        if (q.claudeTouched()) {
+            parts.add("(author = 'CLAUDE' OR EXISTS (SELECT 1 FROM activity a WHERE a.card_id = cards.id AND a.actor = 'CLAUDE'))");
         }
         in(parts, args, "kind", q.kinds().stream().map(Enum::name).toList());
         in(parts, args, "status", q.statuses().stream().map(Enum::name).toList());
@@ -274,7 +295,7 @@ public class SqliteBoardRepository implements BoardStorePort {
             args.add(like);
             args.add(like);
         }
-        return " WHERE " + String.join(" AND ", parts);
+        return parts.isEmpty() ? "" : " WHERE " + String.join(" AND ", parts);
     }
 
     private static void in(List<String> parts, List<Object> args, String column, List<String> values) {
@@ -356,6 +377,86 @@ public class SqliteBoardRepository implements BoardStorePort {
                 + "ORDER BY id LIMIT 1000", ACTIVITY_ROW, cardId, afterId);
     }
 
+    @Override
+    public Map<String, ActivityEntry> lastComments(Collection<String> cardIds) {
+        Map<String, ActivityEntry> out = new HashMap<>();
+        for (List<String> chunk : chunks(cardIds)) {
+            jdbc.query("SELECT id, card_id, actor, kind, text, old_value, new_value, at FROM activity WHERE id IN (SELECT MAX(id) FROM activity "
+                    + "WHERE kind = 'COMMENT' AND card_id IN (" + marks(chunk.size()) + ") GROUP BY card_id)", rs -> {
+                        ActivityEntry e = ACTIVITY_ROW.mapRow(rs, 0);
+                        out.put(e.cardId(), e);
+                    }, chunk.toArray());
+        }
+        return out;
+    }
+
+    @Override
+    public List<BoardChanges.Entry> activityAfter(long afterId, String project, String cycleId, Actor actor, int limit) {
+        List<Object> args = new ArrayList<>();
+        args.add(afterId);
+        StringBuilder sql = new StringBuilder("SELECT a.id, a.card_id, a.actor, a.kind, a.text, a.old_value, a.new_value, a.at, c.project, "
+                + "c.number, c.title, c.status, c.cycle_id FROM activity a JOIN cards c ON c.id = a.card_id WHERE a.id > ?");
+        if (project != null) {
+            sql.append(" AND c.project = ?");
+            args.add(project);
+        }
+        if (cycleId != null) {
+            sql.append(" AND c.cycle_id = ?");
+            args.add(cycleId);
+        }
+        if (actor != null) {
+            sql.append(" AND a.actor = ?");
+            args.add(actor.name());
+        }
+        sql.append(" ORDER BY a.id LIMIT ?");
+        args.add(limit);
+        return jdbc.query(sql.toString(), (rs, n) -> new BoardChanges.Entry(ACTIVITY_ROW.mapRow(rs, n), rs.getString(9), rs.getInt(10),
+                rs.getString(11), CardStatus.valueOf(rs.getString(12)), rs.getString(13)), args.toArray());
+    }
+
+    @Override
+    public long lastActivityId() {
+        Long n = jdbc.queryForObject("SELECT COALESCE(MAX(id), 0) FROM activity", Long.class);
+        return n == null ? 0 : n;
+    }
+
+    @Override
+    public long lastActivityIdBy(Actor actor, String project) {
+        Long n = project == null
+                ? jdbc.queryForObject("SELECT COALESCE(MAX(id), 0) FROM activity WHERE actor = ?", Long.class, actor.name())
+                : jdbc.queryForObject("SELECT COALESCE(MAX(a.id), 0) FROM activity a JOIN cards c ON c.id = a.card_id "
+                        + "WHERE a.actor = ? AND c.project = ?", Long.class, actor.name(), project);
+        return n == null ? 0 : n;
+    }
+
+    private static final String CYCLE_CHANGES = "SELECT cycle_id, 'brief' AS what, NULL AS name, NULL AS detail, updated_at AS at FROM cycle_briefs "
+            + "WHERE updated_at > ? UNION ALL SELECT cycle_id, 'spec', name, NULL, uploaded_at FROM spec_files WHERE uploaded_at > ? "
+            + "UNION ALL SELECT cycle_id, 'mark', file_name, item_key || ' ' || mark, updated_at FROM checklist_marks WHERE updated_at > ? "
+            + "UNION ALL SELECT cycle_id, 'suggestion', file_name, item_key || ' ' || mark, at FROM checklist_suggestions WHERE at > ?";
+
+    @Override
+    public List<BoardChanges.CycleChange> cycleChangesAfter(long afterMillis, String project, String cycleId, int limit) {
+        List<Object> args = new ArrayList<>(List.of(afterMillis, afterMillis, afterMillis, afterMillis));
+        StringBuilder sql = new StringBuilder("SELECT cycle_id, what, name, detail, at FROM (" + CYCLE_CHANGES + ")");
+        if (cycleId != null) {
+            sql.append(" WHERE cycle_id = ?");
+            args.add(cycleId);
+        } else if (project != null) {
+            sql.append(" WHERE cycle_id IN (SELECT DISTINCT cycle_id FROM cards WHERE project = ? AND cycle_id IS NOT NULL)");
+            args.add(project);
+        }
+        sql.append(" ORDER BY at LIMIT ?");
+        args.add(limit);
+        return jdbc.query(sql.toString(), (rs, n) -> new BoardChanges.CycleChange(rs.getString(1), rs.getString(2), rs.getString(3),
+                rs.getString(4), Instant.ofEpochMilli(rs.getLong(5))), args.toArray());
+    }
+
+    @Override
+    public long lastCycleChangeMillis() {
+        Long n = jdbc.queryForObject("SELECT COALESCE(MAX(at), 0) FROM (" + CYCLE_CHANGES + ")", Long.class, -1L, -1L, -1L, -1L);
+        return n == null ? 0 : n;
+    }
+
     // ------------------------------------------------------------------------------------------------------------- mentions
 
     @Override
@@ -431,7 +532,7 @@ public class SqliteBoardRepository implements BoardStorePort {
 
     @Override
     public Map<String, List<CallBadge>> badgesOfCycle(String cycleId) {
-        return badges("SELECT DISTINCT m.call_id, c.project, c.number, c.kind, c.status, c.resolution FROM mentions m "
+        return badges("SELECT DISTINCT m.call_id, c.project, c.number, c.kind, c.status, c.resolution, c.title FROM mentions m "
                 + "JOIN cards c ON c.id = m.card_id WHERE m.call_id IS NOT NULL AND (m.cycle_id = ? OR c.cycle_id = ?) "
                 + "ORDER BY c.number LIMIT " + BADGE_ROWS, cycleId, cycleId);
     }
@@ -440,7 +541,7 @@ public class SqliteBoardRepository implements BoardStorePort {
     public Map<String, List<CallBadge>> badgesOfCalls(Collection<String> callIds) {
         Map<String, List<CallBadge>> out = new LinkedHashMap<>();
         for (List<String> chunk : chunks(callIds)) {
-            out.putAll(badges("SELECT DISTINCT m.call_id, c.project, c.number, c.kind, c.status, c.resolution FROM mentions m "
+            out.putAll(badges("SELECT DISTINCT m.call_id, c.project, c.number, c.kind, c.status, c.resolution, c.title FROM mentions m "
                     + "JOIN cards c ON c.id = m.card_id WHERE m.call_id IN (" + marks(chunk.size()) + ") ORDER BY c.number LIMIT "
                     + BADGE_ROWS, chunk.toArray()));
         }
@@ -451,7 +552,7 @@ public class SqliteBoardRepository implements BoardStorePort {
         Map<String, List<CallBadge>> out = new LinkedHashMap<>();
         jdbc.query(sql, rs -> {
             out.computeIfAbsent(rs.getString(1), k -> new ArrayList<>()).add(new CallBadge(rs.getString(2), rs.getInt(3),
-                    CardKind.valueOf(rs.getString(4)), CardStatus.valueOf(rs.getString(5)), resolution(rs.getString(6))));
+                    CardKind.valueOf(rs.getString(4)), CardStatus.valueOf(rs.getString(5)), resolution(rs.getString(6)), rs.getString(7)));
         }, args);
         return out;
     }
@@ -480,6 +581,68 @@ public class SqliteBoardRepository implements BoardStorePort {
                         + "ORDER BY updated_at DESC LIMIT ?",
                 (rs, n) -> new ClosedReason(rs.getInt(1), rs.getString(2), rs.getString(3), resolution(rs.getString(4)), rs.getString(5)),
                 project == null ? "" : project, limit);
+    }
+
+    @Override
+    public List<Card> similar(String project, String signature, List<String> words, int limit) {
+        List<String> ors = new ArrayList<>();
+        List<Object> args = new ArrayList<>();
+        if (signature != null) {
+            ors.add("signature = ?");
+            args.add(signature);
+        }
+        for (String w : words) {
+            ors.add("title LIKE ? ESCAPE '\\'");
+            args.add("%" + w.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%");
+        }
+        if (ors.isEmpty()) {
+            return List.of();
+        }
+        String where = "(" + String.join(" OR ", ors) + ")";
+        if (project != null) {
+            where = "project = ? AND " + where;
+            args.add(0, project);
+        }
+        args.add(limit);
+        return jdbc.query("SELECT " + SUMMARY_COLUMNS + " FROM cards WHERE " + where + " ORDER BY updated_at DESC LIMIT ?", SUMMARY_ROW,
+                args.toArray());
+    }
+
+    // ------------------------------------------------------------------------------------------------------------- proposals
+
+    private static final RowMapper<Proposal> PROPOSAL_ROW = (rs, n) -> new Proposal(rs.getString(1), CardStatus.valueOf(rs.getString(2)),
+            resolution(rs.getString(3)), rs.getString(4), rs.getString(5), Instant.ofEpochMilli(rs.getLong(6)));
+
+    @Override
+    public Optional<Proposal> proposal(String cardId) {
+        return jdbc.query("SELECT card_id, status, resolution, reason, evidence, at FROM proposals WHERE card_id = ?", PROPOSAL_ROW, cardId)
+                .stream().findFirst();
+    }
+
+    @Override
+    public Map<String, Proposal> proposals(Collection<String> cardIds) {
+        Map<String, Proposal> out = new HashMap<>();
+        for (List<String> chunk : chunks(cardIds)) {
+            jdbc.query("SELECT card_id, status, resolution, reason, evidence, at FROM proposals WHERE card_id IN (" + marks(chunk.size()) + ")",
+                    rs -> {
+                        Proposal p = PROPOSAL_ROW.mapRow(rs, 0);
+                        out.put(p.cardId(), p);
+                    }, chunk.toArray());
+        }
+        return out;
+    }
+
+    @Override
+    public void putProposal(Proposal p) {
+        jdbc.update("INSERT INTO proposals(card_id, status, resolution, reason, evidence, at) VALUES (?,?,?,?,?,?) ON CONFLICT(card_id) DO UPDATE "
+                        + "SET status = excluded.status, resolution = excluded.resolution, reason = excluded.reason, evidence = excluded.evidence, "
+                        + "at = excluded.at", p.cardId(), p.status().name(), name(p.resolution()), p.reason(), p.evidence(),
+                p.at().toEpochMilli());
+    }
+
+    @Override
+    public boolean deleteProposal(String cardId) {
+        return jdbc.update("DELETE FROM proposals WHERE card_id = ?", cardId) > 0;
     }
 
     // ---------------------------------------------------------------------------------------- brief, spec files, checklist
@@ -549,6 +712,33 @@ public class SqliteBoardRepository implements BoardStorePort {
                 m.updatedAt().toEpochMilli());
     }
 
+    private static final RowMapper<ChecklistSuggestion> SUGGESTION_ROW = (rs, n) -> new ChecklistSuggestion(rs.getString(1), rs.getString(2),
+            rs.getString(3), Mark.valueOf(rs.getString(4)), rs.getString(5), Instant.ofEpochMilli(rs.getLong(6)));
+
+    @Override
+    public List<ChecklistSuggestion> suggestions(String cycleId) {
+        return jdbc.query("SELECT cycle_id, file_name, item_key, mark, evidence, at FROM checklist_suggestions WHERE cycle_id = ? LIMIT 10000",
+                SUGGESTION_ROW, cycleId);
+    }
+
+    @Override
+    public Optional<ChecklistSuggestion> suggestion(String cycleId, String fileName, String itemKey) {
+        return jdbc.query("SELECT cycle_id, file_name, item_key, mark, evidence, at FROM checklist_suggestions WHERE cycle_id = ? AND file_name = ? "
+                + "AND item_key = ?", SUGGESTION_ROW, cycleId, fileName, itemKey).stream().findFirst();
+    }
+
+    @Override
+    public void putSuggestion(ChecklistSuggestion s) {
+        jdbc.update("INSERT INTO checklist_suggestions(cycle_id, file_name, item_key, mark, evidence, at) VALUES (?,?,?,?,?,?) "
+                        + "ON CONFLICT(cycle_id, file_name, item_key) DO UPDATE SET mark = excluded.mark, evidence = excluded.evidence, at = excluded.at",
+                s.cycleId(), s.fileName(), s.itemKey(), s.mark().name(), s.evidence(), s.at().toEpochMilli());
+    }
+
+    @Override
+    public boolean deleteSuggestion(String cycleId, String fileName, String itemKey) {
+        return jdbc.update("DELETE FROM checklist_suggestions WHERE cycle_id = ? AND file_name = ? AND item_key = ?", cycleId, fileName, itemKey) > 0;
+    }
+
     @Override
     public void cycleRemoved(String cycleId) {
         String like = cycleId.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "/%";
@@ -556,6 +746,7 @@ public class SqliteBoardRepository implements BoardStorePort {
             jdbc.update("DELETE FROM cycle_briefs WHERE cycle_id = ?", cycleId);
             jdbc.update("DELETE FROM spec_files WHERE cycle_id = ?", cycleId);
             jdbc.update("DELETE FROM checklist_marks WHERE cycle_id = ?", cycleId);
+            jdbc.update("DELETE FROM checklist_suggestions WHERE cycle_id = ?", cycleId);
             jdbc.update("DELETE FROM mentions WHERE (owner_type = 'BRIEF' AND owner_id = ?) "
                     + "OR (owner_type = 'CHECKLIST' AND owner_id LIKE ? ESCAPE '\\')", cycleId, like);
             jdbc.update("UPDATE cards SET cycle_deleted = 1 WHERE cycle_id = ?", cycleId);

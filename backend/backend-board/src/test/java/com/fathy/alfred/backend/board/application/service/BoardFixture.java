@@ -42,6 +42,9 @@ final class BoardFixture implements AutoCloseable {
     final BoardService board;
     final CycleBriefService briefs;
     final ImportBoardService imports;
+    final BoardChangeFeed feed = new BoardChangeFeed();
+    final List<com.fathy.alfred.backend.board.domain.model.CycleCall> cycleCalls = new ArrayList<>();
+    final BoardInsightsService insights;
     private final AutoCloseable closer;
 
     BoardFixture(Path dir) {
@@ -62,9 +65,10 @@ final class BoardFixture implements AutoCloseable {
         CallSignaturePort signaturePort = (direction, callId, cycleId) -> Optional.ofNullable(signatures.get(callId));
         MentionedCallsChangedPort mentioned = () -> mentionedCallsChanged++;
         agent = new AgentStatusService(notifications, clock);
-        board = new BoardService(store, notifications, signaturePort, mentioned, agent, clock);
-        briefs = new CycleBriefService(store, notifications, mentioned, clock);
-        imports = new ImportBoardService(store, notifications, mentioned);
+        board = new BoardService(store, notifications, signaturePort, mentioned, agent, feed, clock);
+        briefs = new CycleBriefService(store, notifications, mentioned, feed, clock);
+        imports = new ImportBoardService(store, notifications, mentioned, feed);
+        insights = new BoardInsightsService(store, signaturePort, (cycleId, limit) -> List.copyOf(cycleCalls), feed);
     }
 
     CardDetail add(Actor actor, String project, CardKind kind, String title, String description) {

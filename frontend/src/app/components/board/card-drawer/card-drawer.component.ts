@@ -1,12 +1,13 @@
 import { Component, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
 import {
-  ActivityEntry, CardDetail, CardKind, CardStatus, FLAGS, FLAG_LABELS, Flag, KINDS, MentionRef, OPEN_STATUSES, RESOLUTION_LABELS,
+  ActivityEntry, CardDetail, CardKind, Proposal, CardStatus, FLAGS, FLAG_LABELS, Flag, KINDS, MentionRef, OPEN_STATUSES, RESOLUTION_LABELS,
   Resolution, SCOPE_LABELS, STATUS_LABELS, Scope,
 } from '../../../core/models/board.models';
 import { BoardApiService } from '../../../core/services/board-api.service';
 import { BoardMentionsService } from '../../../core/services/board-mentions.service';
 import { ConfirmDialogService } from '../../../core/services/confirm-dialog.service';
 import { messageOf } from '../../../core/state/board-state.service';
+import { proposalTarget } from '../../../shared/utils/board-activity';
 import { ActivityTimelineComponent } from '../activity-timeline/activity-timeline.component';
 import { MarkdownViewComponent } from '../markdown-view/markdown-view.component';
 import { MentionChipComponent } from '../mention-chip/mention-chip.component';
@@ -65,6 +66,17 @@ import { MentionPickerComponent } from '../mention-picker/mention-picker.compone
           </div>
           @if (c.reason) { <div class="board-card-reason">Reason: “{{ c.reason }}”</div> }
           @if (c.similarClosed; as s) { <div class="board-sim">⚠ Looks like #{{ s.number }}, closed as {{ resolutionLabels[s.resolution] }}{{ s.reason ? ': ' + s.reason : '' }}</div> }
+          @if (c.proposal; as p) {
+            <div class="board-proposal" role="group" aria-label="Claude's proposal">
+              <div class="board-proposal-head"><b>✦ Claude proposes: {{ proposalText(p) }}</b></div>
+              @if (p.reason) { <div class="board-proposal-reason">“{{ p.reason }}”</div> }
+              @if (p.evidence) { <app-markdown-view class="board-proposal-evidence" [text]="p.evidence" /> }
+              <div class="board-proposal-actions">
+                <button type="button" class="action-btn primary" [disabled]="!editable()" (click)="acceptProposal()">Accept</button>
+                <button type="button" class="action-btn" [disabled]="!editable()" (click)="dismissProposal()">Dismiss</button>
+              </div>
+            </div>
+          }
         </div>
         <div class="board-drawer-body">
           <section>
@@ -192,6 +204,21 @@ export class CardDrawerComponent {
       },
       error: (e) => this.error.set(messageOf(e)),
     });
+  }
+
+  proposalText(p: Proposal): string {
+    return proposalTarget(p.status === 'CLOSED' && p.resolution ? `CLOSED:${p.resolution}` : p.status);
+  }
+
+  /** Takes Claude's proposed step as the user's own. */
+  acceptProposal(): void {
+    const c = this.card();
+    if (c) this.apply(this.api.acceptProposal(c.id));
+  }
+
+  dismissProposal(): void {
+    const c = this.card();
+    if (c) this.apply(this.api.dismissProposal(c.id));
   }
 
   save(edit: { kind?: CardKind; scope?: Scope; flags?: readonly Flag[]; title?: string; description?: string }): void {

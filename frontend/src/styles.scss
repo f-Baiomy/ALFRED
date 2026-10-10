@@ -10783,6 +10783,18 @@ app-name-suggest {
 .board-editor { position: relative;
   textarea { width: 100%; box-sizing: border-box; resize: vertical; background: var(--card-inner); color: var(--text); border: 1px solid var(--border-strong); border-radius: 8px; padding: 0.45rem 0.6rem; font: inherit; font-size: 0.82rem; }
 }
+/* Claude's proposal (Verified, Done, closing) waiting for the user, and its suggested checklist marks - board_propose, board_suggest_mark. */
+.board-proposal { margin-top: 0.5rem; padding: 0.5rem 0.65rem; border: 1px dashed var(--purple); border-radius: 9px; background: color-mix(in srgb, var(--purple) 10%, transparent); font-size: 0.8rem;
+  b { color: var(--purple-light); }
+}
+.board-proposal-reason { color: var(--text-dim); margin-top: 0.2rem; }
+.board-proposal-evidence { display: block; margin-top: 0.25rem; }
+.board-proposal-actions { display: flex; gap: 0.35rem; margin-top: 0.4rem; }
+.board-card-proposal { margin-top: 0.3rem; font-size: 0.68rem; color: var(--purple-light); border: 1px dashed var(--purple); border-radius: 6px; padding: 0.1rem 0.4rem; display: inline-block; }
+.board-check-suggest { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; width: 100%; margin: 0.2rem 0 0 1.6rem; padding: 0.15rem 0.45rem; border: 1px dashed var(--border-strong); border-radius: 6px; color: var(--text-faint); font-size: 0.74rem;
+  .board-check-suggest-what { color: var(--purple-light); }
+}
+
 /* The comment/description box: plain text with each mention as one small pill (mention-editor, shared/utils/mention-dom.ts). */
 .board-editor-box { width: 100%; box-sizing: border-box; max-height: 22rem; overflow-y: auto; background: var(--card-inner); color: var(--text); border: 1px solid var(--border-strong); border-radius: 8px; padding: 0.45rem 0.6rem; font: inherit; font-size: 0.82rem; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; outline: none; cursor: text;
   &:focus { border-color: var(--purple); }

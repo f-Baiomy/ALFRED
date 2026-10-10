@@ -9,7 +9,8 @@ export type Actor = 'USER' | 'CLAUDE';
 /** Lower-case in text (`@[call:...]`), upper-case in JSON - compare through {@link mentionTypeOf}. */
 export type MentionType = 'call' | 'stmt' | 'log' | 'redis' | 'spec' | 'code' | 'cycle' | 'spacer' | 'card' | 'rule';
 export type ActivityKind = 'COMMENT' | 'CREATED' | 'STATUS' | 'KIND' | 'SCOPE' | 'FLAGS' | 'RESOLUTION' | 'REASON' | 'TITLE'
-  | 'DESCRIPTION' | 'LINK_ADDED' | 'LINK_REMOVED' | 'CYCLE' | 'PROJECT' | 'SPEC_REPLACED' | 'REOPENED' | 'IMPORTED' | 'DELETED';
+  | 'DESCRIPTION' | 'LINK_ADDED' | 'LINK_REMOVED' | 'CYCLE' | 'PROJECT' | 'SPEC_REPLACED' | 'REOPENED' | 'IMPORTED' | 'DELETED'
+  | 'PROPOSED' | 'PROPOSAL_ACCEPTED' | 'PROPOSAL_DISMISSED';
 export type Mark = 'PASS' | 'FAIL' | 'CANT_TELL';
 export type BulkAction = 'FINE' | 'NOT_IN_FLOW' | 'TO_DO' | 'MARK_URGENT';
 
@@ -74,8 +75,20 @@ export interface CardSummary {
   readonly commentCount: number;
   readonly mentionChips?: readonly MentionRef[];
   readonly similarClosed: SimilarClosed | null;
+  /** Claude asking the user to take a step only the user takes (Verified, Done, closing). */
+  readonly proposal?: Proposal | null;
   /** Empty in list rows; filled in a detail. */
   readonly description: string;
+}
+
+/** Claude's open proposal on a card: accepted, it is taken as the user's own step; dismissed, it is gone. */
+export interface Proposal {
+  readonly cardId: string;
+  readonly status: CardStatus;
+  readonly resolution: Resolution | null;
+  readonly reason: string;
+  readonly evidence: string;
+  readonly at: string;
 }
 
 export interface CardDetail extends CardSummary {
@@ -110,6 +123,7 @@ export interface CallBadge {
   readonly kind: CardKind;
   readonly status: CardStatus;
   readonly resolution: Resolution | null;
+  readonly title?: string | null;
 }
 
 export interface ClosedReason {
@@ -153,6 +167,17 @@ export interface ChecklistItem {
   readonly key: string;
   readonly text: string;
   readonly mark: ChecklistMark | null;
+  /** The mark Claude suggests, grey until the user accepts it. */
+  readonly suggestion?: ChecklistSuggestion | null;
+}
+
+export interface ChecklistSuggestion {
+  readonly cycleId: string;
+  readonly fileName: string;
+  readonly itemKey: string;
+  readonly mark: Mark;
+  readonly evidence: string;
+  readonly at: string;
 }
 
 export interface ChecklistFile {

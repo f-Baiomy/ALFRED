@@ -4,6 +4,7 @@ import com.fathy.alfred.backend.board.application.port.in.CycleRemovedUseCase;
 import com.fathy.alfred.backend.board.application.port.in.ManageBriefUseCase;
 import com.fathy.alfred.backend.board.application.port.in.ManageSpecFilesUseCase;
 import com.fathy.alfred.backend.board.application.port.in.MarkChecklistUseCase;
+import com.fathy.alfred.backend.board.application.port.in.SuggestMarkUseCase;
 import com.fathy.alfred.backend.board.application.port.out.BoardNotificationPort;
 import com.fathy.alfred.backend.board.application.port.out.BoardStorePort;
 import com.fathy.alfred.backend.board.application.port.out.MentionedCallsChangedPort;
@@ -17,6 +18,7 @@ import com.fathy.alfred.backend.board.domain.model.CardChange;
 import com.fathy.alfred.backend.board.domain.model.ChecklistFile;
 import com.fathy.alfred.backend.board.domain.model.ChecklistItem;
 import com.fathy.alfred.backend.board.domain.model.ChecklistMark;
+import com.fathy.alfred.backend.board.domain.model.ChecklistSuggestion;
 import com.fathy.alfred.backend.board.domain.model.CycleBrief;
 import com.fathy.alfred.backend.board.domain.model.Mark;
 import com.fathy.alfred.backend.board.domain.model.MentionOwner;
@@ -42,7 +44,8 @@ import java.util.stream.Collectors;
  * US9). Claude reads these; only the user writes them.
  */
 @Service
-public class CycleBriefService implements ManageBriefUseCase, ManageSpecFilesUseCase, MarkChecklistUseCase, CycleRemovedUseCase {
+public class CycleBriefService implements ManageBriefUseCase, ManageSpecFilesUseCase, MarkChecklistUseCase, SuggestMarkUseCase,
+        CycleRemovedUseCase {
 
     static final int MAX_NAME = 200;
 
@@ -52,13 +55,15 @@ public class CycleBriefService implements ManageBriefUseCase, ManageSpecFilesUse
     private final Clock clock;
 
     @Autowired
-    public CycleBriefService(BoardStorePort store, BoardNotificationPort notifications, MentionedCallsChangedPort mentionedCalls) {
-        this(store, notifications, mentionedCalls, Clock.systemUTC());
+    public CycleBriefService(BoardStorePort store, BoardNotificationPort notifications, MentionedCallsChangedPort mentionedCalls,
+                             BoardChangeFeed feed) {
+        this(store, notifications, mentionedCalls, feed, Clock.systemUTC());
     }
 
-    CycleBriefService(BoardStorePort store, BoardNotificationPort notifications, MentionedCallsChangedPort mentionedCalls, Clock clock) {
+    CycleBriefService(BoardStorePort store, BoardNotificationPort notifications, MentionedCallsChangedPort mentionedCalls,
+                      BoardChangeFeed feed, Clock clock) {
         this.store = store;
-        this.notifications = notifications;
+        this.notifications = feed.feeding(notifications);
         this.mentionedCalls = mentionedCalls;
         this.clock = clock;
     }
@@ -167,6 +172,8 @@ public class CycleBriefService implements ManageBriefUseCase, ManageSpecFilesUse
     public List<ChecklistFile> checklist(String cycleId) {
         Map<String, ChecklistMark> marks = store.marks(cycleId).stream()
                 .collect(Collectors.toMap(m -> m.fileName() + "\n" + m.itemKey(), Function.identity(), (a, b) -> a));
+        Map<String, ChecklistSuggestion> suggestions = store.suggestions(cycleId).stream()
+                .collect(Collectors.toMap(m -> m.fileName() + "\n" + m.itemKey(), Function.identity(), (a, b) -> a));
         List<ChecklistFile> out = new ArrayList<>();
         for (SpecFileInfo info : store.specs(cycleId)) {
             Optional<SpecFile> file = store.spec(cycleId, info.name());
@@ -174,7 +181,8 @@ public class CycleBriefService implements ManageBriefUseCase, ManageSpecFilesUse
                 continue;
             }
             List<ChecklistItem> items = AcceptanceItems.of(file.get().content()).stream()
-                    .map(i -> new ChecklistItem(i.key(), i.text(), marks.get(info.name() + "\n" + i.key()))).toList();
+                    .map(i -> new ChecklistItem(i.key(), i.text(), marks.get(info.name() + "\n" + i.key()),
+                            suggestions.get(info.name() + "\n" + i.key()))).toList();
             if (!items.isEmpty()) {
                 out.add(new ChecklistFile(info.name(), items));
             }
@@ -208,6 +216,8 @@ public class CycleBriefService implements ManageBriefUseCase, ManageSpecFilesUse
         }
         ChecklistMark next = new ChecklistMark(cycleId, fileName, itemKey, mark, actor, cleanEvidence, history, now);
         store.putMark(next);
+        // The user's own mark answers any suggestion on the item.
+        store.deleteSuggestion(cycleId, fileName, itemKey);
         List<MentionRef> refs = MentionParser.mentions(cleanEvidence);
         String owner = cycleId + "/" + fileName + "/" + itemKey;
         boolean hadLive = hasLiveCall(store.mentionsOf(MentionOwner.CHECKLIST, owner).stream().map(m -> m.ref()).toList());
@@ -217,6 +227,63 @@ public class CycleBriefService implements ManageBriefUseCase, ManageSpecFilesUse
         }
         notifications.changed(null, cycleId, null, "checklist");
         return new MarkOutcome(CardChange.Outcome.OK, new ChecklistItem(itemKey, item.get().text(), next), null);
+    }
+
+    // ---------------------------------------------------------------------------------------------- suggested marks
+
+    @Override
+    public MarkOutcome suggest(Actor actor, String cycleId, String fileName, String itemKey, Mark mark, String evidence) {
+        if (actor != Actor.CLAUDE) {
+            return new MarkOutcome(CardChange.Outcome.INVALID, null, "Mark the item yourself - suggestions are Claude's");
+        }
+        if (mark == null) {
+            return new MarkOutcome(CardChange.Outcome.INVALID, null, "mark is required");
+        }
+        String cleanEvidence = evidence == null ? "" : evidence.strip();
+        if (cleanEvidence.length() > MarkChecklistUseCase.MAX_EVIDENCE) {
+            return new MarkOutcome(CardChange.Outcome.INVALID, null, "evidence is larger than 8 KB");
+        }
+        Optional<AcceptanceItems.Item> item = item(cycleId, fileName, itemKey);
+        if (item.isEmpty()) {
+            return new MarkOutcome(CardChange.Outcome.NOT_FOUND, null, "No such acceptance item");
+        }
+        ChecklistSuggestion suggestion = new ChecklistSuggestion(cycleId, fileName, itemKey, mark, cleanEvidence, clock.instant());
+        store.putSuggestion(suggestion);
+        notifications.changed(null, cycleId, null, "checklist");
+        return new MarkOutcome(CardChange.Outcome.OK, new ChecklistItem(itemKey, item.get().text(),
+                store.mark(cycleId, fileName, itemKey).orElse(null), suggestion), null);
+    }
+
+    @Override
+    public MarkOutcome acceptSuggestion(Actor actor, String cycleId, String fileName, String itemKey) {
+        if (actor == Actor.CLAUDE) {
+            return new MarkOutcome(CardChange.Outcome.REFUSED_FOR_CLAUDE, null, ClaudeRules.PROPOSE_ONLY);
+        }
+        Optional<ChecklistSuggestion> suggestion = store.suggestion(cycleId, fileName, itemKey);
+        if (suggestion.isEmpty()) {
+            return new MarkOutcome(CardChange.Outcome.NOT_FOUND, null, "No suggestion on this item");
+        }
+        // The user's mark, with Claude's evidence (mark() also drops the suggestion).
+        return mark(actor, cycleId, fileName, itemKey, suggestion.get().mark(), suggestion.get().evidence());
+    }
+
+    @Override
+    public MarkOutcome dismissSuggestion(Actor actor, String cycleId, String fileName, String itemKey) {
+        if (actor == Actor.CLAUDE) {
+            return new MarkOutcome(CardChange.Outcome.REFUSED_FOR_CLAUDE, null, ClaudeRules.PROPOSE_ONLY);
+        }
+        if (!store.deleteSuggestion(cycleId, fileName, itemKey)) {
+            return new MarkOutcome(CardChange.Outcome.NOT_FOUND, null, "No suggestion on this item");
+        }
+        notifications.changed(null, cycleId, null, "checklist");
+        Optional<AcceptanceItems.Item> item = item(cycleId, fileName, itemKey);
+        return new MarkOutcome(CardChange.Outcome.OK, item.map(i -> new ChecklistItem(itemKey, i.text(),
+                store.mark(cycleId, fileName, itemKey).orElse(null))).orElse(null), null);
+    }
+
+    private Optional<AcceptanceItems.Item> item(String cycleId, String fileName, String itemKey) {
+        return store.spec(cycleId, fileName).flatMap(f -> AcceptanceItems.of(f.content()).stream()
+                .filter(i -> i.key().equals(itemKey)).findFirst());
     }
 
     // ---------------------------------------------------------------------------------------------------- cycle removed
