@@ -507,6 +507,7 @@
         foreach ($a in ($addresses | Select-Object -Skip 1)) { $rows += "         {cyan}$a" }
         if ($oldVersion) { $rows += '{dim}Kept     {def}settings and recorded data' }
         $rows += "{dim}Next     {hi}alfred status{dim} $($G.dot) {hi}alfred jvms{dim} $($G.dot) {hi}alfred attach <pid>"
+        $rows += "{dim}Claude   {hi}alfred skill install{dim} (in a normal prompt) adds the /alfred-qa QA skill"
         $rows += "{dim}Took     {def}$(Format-Duration ([DateTime]::UtcNow - $began).TotalSeconds)"
         Write-Box $heading $rows
 

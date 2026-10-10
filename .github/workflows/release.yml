@@ -40,5 +40,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/alfred-setup-*-linux-x64.run dist/alfred-setup-*-windows-x64.exe dist/SHA256SUMS dist/latest.json \
+          gh release create "$GITHUB_REF_NAME" dist/alfred-setup-*-linux-x64.run dist/alfred-setup-*-windows-x64.exe dist/alfred-qa-skill-*.zip dist/SHA256SUMS dist/latest.json \
             --title "Alfred ${GITHUB_REF_NAME#v}" --notes-from-tag --verify-tag

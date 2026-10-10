@@ -35,6 +35,13 @@ matches**, and run it unattended. For a machine without GitHub access, set `ALFR
 share or mirror. Then: `alfred status`, `alfred config`, `alfred attach` - see [docs/server.md](docs/server.md).
 A release must exist first: `python release.py` cuts one (GitHub Actions builds and publishes the installers).
 
+### Claude Code: MCP tools and the /alfred-qa skill
+
+Claude Code reads Alfred through its MCP server (docs/mcp.md). The `/alfred-qa` skill turns that into a QA workflow on
+the task board: `/alfred-qa listen <cycle>` while you test, `fix`, `verify <re-test cycle>`, `resume`. Install it with
+`alfred skill install` (native install) or `python setup_mcp.py` (this checkout - it registers the MCP server too);
+each release also carries `alfred-qa-skill-<version>.zip`.
+
 ## Quick start (Docker, from this checkout)
 
 ```bash

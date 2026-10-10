@@ -111,6 +111,40 @@ install has no `/mcp`; run `mcp-server` locally there). Differences from the loc
 
 `npm run test:http` runs the whole test suite a second time with every tool call going over this HTTP transport.
 
+## The /alfred-qa skill
+
+A Claude Code skill that turns the tools below into a QA workflow on the task board (docs/board.md). Its source is
+`skills/alfred-qa/SKILL.md`; it ships inside both installers (`app/skills`) and as
+`alfred-qa-skill-<version>.zip` on each GitHub release.
+
+| Command | What Claude does | Where it stops for you |
+|---|---|---|
+| `/alfred-qa listen <cycle>` | reads the brief, spec and dismissed cards, then checks every call of the cycle as you test (status, ERROR/WARN log lines, SQL, supplier calls, Redis, the spec) and adds bugs, risks, tasks and questions to the Inbox - one card per problem, with evidence | when you say stop, or pause the board |
+| `/alfred-qa fix [card#]` | works your To do cards: evidence, the code, the smallest fix, tests, `board_fix` (moves to Fixed) | before a change flagged Affects project |
+| `/alfred-qa verify <re-test cycle>` | `board_verify`, then proposes Verified / comments "still failing", suggests checklist marks | your Accept clicks |
+| `/alfred-qa resume` | your open cards and everything you changed since Claude's last entry | asks which mode next |
+
+Its rules: Claude never closes, sets scope, marks the checklist or moves to Verified/Done (it proposes); never
+re-reports a card you closed as Fine / Not in this flow; checks `board_similar` / `board_for_call` first; every bug
+carries the call, its ERROR/WARN log lines, the stack-trace code line, SQL and spec section; a failure with no log
+line also gets a "logging gap" task; capture settings change only after asking.
+
+Install it where Claude Code looks for skills:
+
+```bash
+alfred skill install                       # native install: ~/.claude/skills (run as yourself, not admin/root)
+alfred skill install --project C:/projects/odeysys   # only that repo: <repo>/.claude/skills (commit it to share)
+alfred skill status | remove [--project ...]
+python setup_mcp.py                        # source checkout / Docker: registers the MCP server AND installs the skill
+                                           #   (--no-skill to skip; --remove removes both)
+```
+
+Without a local install (Alfred on another machine), unzip `alfred-qa-skill-<version>.zip` into `~/.claude/skills/`.
+An installed copy carries a `.alfred-skill` marker with its version: `install` updates it in place and never
+overwrites a skill of the same name that was not installed by Alfred (`--force` does). `alfred_skill.py` holds that
+logic for both `alfred skill` and `setup_mcp.py`; `tests/python/test_alfred_skill.py` also checks that every tool the
+skill names exists in the MCP server.
+
 ## Tools
 
 | Area | Tools |

@@ -407,6 +407,7 @@ for ip in $(hostname -I 2>/dev/null); do case "$ip" in *:*|127.*) ;; *) ROWS="$R
 Kept     settings and recorded data"
 ROWS="$ROWS
 Next     alfred status $DOT alfred jvms $DOT alfred attach <pid>
+Claude   alfred skill install (as yourself, no sudo) adds the /alfred-qa QA skill
 Took     $(duration $(( $(date +%s) - BEGAN )))"
 echo
 if [ "$LIVE" = 1 ]; then

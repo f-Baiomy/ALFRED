@@ -11,6 +11,7 @@ alfred.py - the "alfred" command of a native install (specs/012-server-program c
     alfred uninstall [--keep-data]
     alfred config ... / project ...          settings (see config_cli.py)
     alfred jvms / attach / detach            Java apps (see attach_cli.py)
+    alfred skill install|remove|status       the /alfred-qa Claude Code skill (alfred_skill.py)
 
 Exit codes: 0 ok, 1 error, 2 usage, 3 validation refused, 4 conflict, 5 not allowed.
 """
@@ -624,6 +625,62 @@ def cmd_logs(layout, args):
 def cmd_version(layout, args):
     print(layout.version())
     return OK
+
+
+SKILL_USAGE = """alfred skill install [--project <folder>] [--force]   add the /alfred-qa skill to Claude Code
+alfred skill remove  [--project <folder>]
+alfred skill status  [--project <folder>]
+
+Without --project the skill is installed for you in every project (~/.claude/skills); with it, only in that repo
+(<folder>/.claude/skills - commit it to share it). Run it as yourself, not as Administrator/root: Claude Code reads
+the skills of the account that runs it. Claude also needs Alfred's MCP server:
+  claude mcp add --transport http alfred <Alfred's address>/mcp"""
+
+
+def cmd_skill(layout, args):
+    """The Claude Code skill shipped in app/skills (alfred_skill.py does the copying, shared with setup_mcp.py)."""
+    if not args or args[0] in ("-h", "--help", "help") or args[0] not in ("install", "remove", "status"):
+        print(SKILL_USAGE)
+        return OK if args and args[0] in ("-h", "--help", "help") else USAGE
+    action, rest = args[0], args[1:]
+    project, force = None, False
+    i = 0
+    while i < len(rest):
+        if rest[i] == "--project" and i + 1 < len(rest):
+            project = rest[i + 1]
+            i += 2
+        elif rest[i] == "--force":
+            force = True
+            i += 1
+        else:
+            print(f"alfred skill: unknown option {rest[i]}\n\n{SKILL_USAGE}", file=sys.stderr)
+            return USAGE
+    if project is not None and not os.path.isdir(project):
+        print(f"alfred skill: no folder {project}", file=sys.stderr)
+        return USAGE
+    sys.path.insert(0, layout.app)
+    import alfred_skill  # noqa: E402 - lives in app/ in an install
+    scope = "project" if project else "user"
+    try:
+        if action == "install":
+            lines = alfred_skill.install(os.path.join(layout.app, "skills"), scope, project, layout.version(), force)
+        elif action == "remove":
+            lines = alfred_skill.remove(scope, project)
+        else:
+            lines = alfred_skill.status(scope, project)
+    except (OSError, ValueError) as e:
+        print(f"alfred skill {action}: {e}", file=sys.stderr)
+        return ERROR
+    for line in lines:
+        print(line)
+    if action == "install":
+        try:
+            address = ui_addresses(layout)[0]
+        except (OSError, ValueError):
+            address = "http://localhost:3000"  # .env unreadable for this account: the default address
+        print(f"Use it in Claude Code: /alfred-qa listen <cycle> | fix | verify <cycle> | resume. "
+              f"Alfred's MCP server must be registered: claude mcp add --transport http alfred {address}/mcp")
+    return CONFLICT if any(line.startswith("skipped") for line in lines) else OK
 
 
 def backend_json(layout, method, path, timeout=30, body=None):
@@ -1277,12 +1334,12 @@ COMMANDS = {
     "run": cmd_run, "start": cmd_start, "stop": cmd_stop, "restart": cmd_restart, "status": cmd_status,
     "logs": cmd_logs, "version": cmd_version, "update": cmd_update, "uninstall": cmd_uninstall, "_init-env": cmd_init_env,
     "doctor": cmd_doctor, "panel": lambda layout, args: cmd_panel(layout, args) or USAGE,
-    "_wait-health": cmd_wait_health, "_record-upgrade": cmd_record_upgrade,
+    "_wait-health": cmd_wait_health, "_record-upgrade": cmd_record_upgrade, "skill": cmd_skill,
 }
 
 
 # Commands that work without reading data/ or .env. Every other one needs the account that may read them.
-NO_DATA_NEEDED = {"version", "jvms"}
+NO_DATA_NEEDED = {"version", "jvms", "skill"}
 
 
 def is_admin():
@@ -1345,6 +1402,7 @@ HELP_GROUPS = [
                            ("detach", "<pid>", "let it go")]),
     ("Settings", [("config", "list | get | set <KEY> <value>", "settings in .env"),
                   ("project", "list | add | remove ...", "the projects the reverse proxy fronts")]),
+    ("Claude", [("skill", "install | remove | status [--project F]", "the /alfred-qa QA skill for Claude Code")]),
     ("Look after it", [("doctor", "[--json]", "check processes, ports, projects, agent, disk, storage, updates"),
                        ("update", "[--check | --cancel | --version X]", "install a new release · Ctrl+C pauses or cancels"),
                        ("version", "", "the version here"),

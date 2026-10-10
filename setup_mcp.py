@@ -23,6 +23,10 @@ Usage:
                                                 by default the folder Claude Code is started in
     python setup_mcp.py --remove                unregister (same --scope/--project-dir rules)
     python setup_mcp.py --dry-run               print what would run, change nothing
+    python setup_mcp.py --no-skill              register only, without the /alfred-qa skill
+
+It also installs the /alfred-qa Claude Code skill (skills/alfred-qa, see docs/mcp.md) in the same place: user scope ->
+~/.claude/skills, project/local scope -> <project-dir>/.claude/skills. --remove removes it too.
 """
 
 import argparse
@@ -164,6 +168,22 @@ def verify(node, args):
     print(output.splitlines()[-1])
 
 
+def skill(args, remove_it=False):
+    """The /alfred-qa skill, beside the registration (alfred_skill.py - the same code `alfred skill` uses natively)."""
+    if args.no_skill:
+        return
+    import alfred_skill
+    scope = "user" if args.scope == "user" else "project"
+    where = alfred_skill.target_root(scope, args.project_dir)
+    if args.dry_run:
+        print(f"would {'remove' if remove_it else 'install'} the /alfred-qa skill in {where}")
+        return
+    lines = (alfred_skill.remove(scope, args.project_dir) if remove_it
+             else alfred_skill.install(os.path.join(SCRIPT_DIR, "skills"), scope, args.project_dir, version="source"))
+    for line in lines:
+        print(line)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Register Alfred's MCP server with Claude Code.")
     parser.add_argument("--scope", choices=["user", "project", "local"], default="user",
@@ -176,6 +196,7 @@ def main():
     parser.add_argument("--remove", action="store_true", help="unregister instead")
     parser.add_argument("--skip-verify", action="store_true", help="do not start the server once to check it")
     parser.add_argument("--dry-run", action="store_true", help="print the commands, change nothing")
+    parser.add_argument("--no-skill", action="store_true", help="do not install (or remove) the /alfred-qa skill")
     args = parser.parse_args()
 
     claude = tool("claude")
@@ -185,6 +206,7 @@ def main():
 
     if args.remove:
         remove(claude, args, cwd)
+        skill(args, remove_it=True)
         print("Done. Restart Claude Code sessions for it to take effect.")
         return
 
@@ -196,6 +218,7 @@ def main():
         verify(node, args)
     if not args.dry_run:
         run([claude, "mcp", "get", SERVER_NAME], cwd=cwd, check=False)
+    skill(args)
     if args.dry_run:
         print("\nDry run: nothing was changed.")
         return

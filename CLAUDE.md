@@ -81,6 +81,11 @@ After `docker compose up -d --build backend`, the gateway may keep the old conta
 
 - **Native install = supervisor + `backend-server` slice** (specs/012-server-program, docs/server.md): `alfred run` (packaging/launcher/supervisor.py) starts backend, proxies, MCP (127.0.0.1, relayed at `/mcp` by `backend-app/mcpbridge`) and restarts them; its control API is on 127.0.0.1 with a token in `data/run/control.json`. Settings writes are allowed by `ALFRED_SETTINGS_EDIT_FROM` from the TCP peer, never X-Forwarded-For; the Cloudflare tunnel is always read-only. `alfred config` runs `ServerConfigCli` (fat jar: through `PropertiesLauncher`, see `Layout.config_cli`). `alfred attach` = `attach-cli/` (JDK 21) + `alfred-agent.jar`: features re-sent on every load, secret and CA in the environment, never a cross-user attach (spike S2), the CA trusted in-JVM by advice on `X509TrustManagerImpl` (spike S3).
 
+- **The `/alfred-qa` skill ships with Alfred** (`skills/alfred-qa/SKILL.md`): copied into both installers (`app/skills`,
+  `build_dist.stage_app`), zipped as a release asset, installed by `alfred skill install` / `setup_mcp.py` through
+  `alfred_skill.py`. A skill text naming an MCP tool that does not exist fails `tests/python/test_alfred_skill.py` -
+  rename a tool and the skill together.
+
 ## Detailed docs (read only when relevant)
 - docs/architecture.md — backend module/slice design, persistence/caching, pagination
 - docs/frontend-architecture.md — frontend state, WebSocket-driven fetch-on-demand, component-sharing patterns
