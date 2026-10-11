@@ -19,6 +19,7 @@ import * as logs from './tools/logs.ts';
 import * as investigate from './tools/investigate.ts';
 import * as redis from './tools/redis.ts';
 import * as board from './tools/board.ts';
+import * as ruleProposals from './tools/rule-proposals.ts';
 
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string };
 
@@ -40,9 +41,11 @@ export function createServer(client: AlfredClient = new AlfredClient()): McpServ
       + 'one card can need several - one card, a short section per team), and reassign with board_assign when the evidence moves. Record progress with board_comment (did / found / next), answer with '
       + 'board_reply, ask with board_ask, record a fix with board_fix. Move cards only to To do, In progress or Fixed; Verified, Done and '
       + 'closing are the user\'s - propose them with board_propose, and suggest checklist marks with board_suggest_mark. After a re-test '
-      + 'cycle run board_verify. Listen for the user with board_wait. Keep the live strip current with board_status.',
+      + 'cycle run board_verify. Listen for the user with board_wait. Keep the live strip current with board_status. '
+      + 'Interception rules: you only PROPOSE them (create_rule, saved off, narrow, never pausing) to reproduce a bug or check a fix - '
+      + 'rule_recipes, rule_from_call and rule_preview first; the user switches them on, edits or deletes them; rule_hits shows what one did.',
   });
   registerSessionTool(server);
-  for (const module of [cycles, spacers, calls, db, comments, exportTool, watch, redactions, cycleSearch, diff, rulesRelive, projects, triage, logs, investigate, redis, board]) module.register(server, client);
+  for (const module of [cycles, spacers, calls, db, comments, exportTool, watch, redactions, cycleSearch, diff, rulesRelive, projects, triage, logs, investigate, redis, board, ruleProposals]) module.register(server, client);
   return server;
 }

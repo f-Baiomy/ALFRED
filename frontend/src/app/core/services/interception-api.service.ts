@@ -40,8 +40,9 @@ export class InterceptionApiService {
     return this.http.delete<void>(`${this.baseUrl}/rules/${id}`);
   }
 
-  setRuleEnabled(id: string, enabled: boolean): Observable<InterceptionRule> {
-    return this.http.post<InterceptionRule>(`${this.baseUrl}/rules/${id}/enabled`, { enabled });
+  /** On (for `forMinutes`, or until switched off) or off. */
+  setRuleEnabled(id: string, enabled: boolean, forMinutes?: number | null): Observable<InterceptionRule> {
+    return this.http.post<InterceptionRule>(`${this.baseUrl}/rules/${id}/enabled`, forMinutes ? { enabled, forMinutes } : { enabled });
   }
 
   reorder(ids: readonly string[]): Observable<InterceptionRule[]> {

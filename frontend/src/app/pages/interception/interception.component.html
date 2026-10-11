@@ -38,6 +38,22 @@
 
   <app-paused-calls />
 
+  @if (state.proposedRules().length) {
+    <section class="proposed-rules">
+      <h2>✦ Proposed by Claude <span class="muted">saved off - switch one on to use it, or dismiss it</span></h2>
+      <div class="rule-list">
+        @for (rule of state.proposedRules(); track trackById($index, rule)) {
+          <ng-container *ngTemplateOutlet="ruleRow; context: { $implicit: rule }" />
+          <div class="proposed-acts">
+            <button type="button" class="action-btn primary" (click)="onFor(rule, '30')">Switch on for 30 min</button>
+            <button type="button" class="action-btn" (click)="toggle(rule)">Switch on</button>
+            <button type="button" class="action-btn danger" (click)="remove(rule)">Dismiss</button>
+          </div>
+        }
+      </div>
+    </section>
+  }
+
   <div class="rules-head">
     <h2>
       Rules
@@ -63,7 +79,24 @@
     </div>
   } @else {
     <div class="rule-list">
-      @for (rule of state.rules(); track trackById($index, rule)) {
+      @for (rule of ordinaryRules(); track trackById($index, rule)) {
+        <ng-container *ngTemplateOutlet="ruleRow; context: { $implicit: rule }" />
+      }
+    </div>
+  }
+</main>
+
+@if (editing(); as target) {
+  <app-rule-editor [rule]="target === 'new' ? null : target" [draft]="target === 'new' ? draft() : null" [snapshot]="target === 'new' ? snapshot() : null" [pickedAnswer]="pickedAnswer()" [pickedCopy]="pickedCopy()" (closed)="closeEditor()" (goToCall)="goToCall($event, target === 'new' ? null : target)" />
+}
+
+@if (importing()) {
+  <app-import-rules-dialog (closed)="closeImport()" />
+}
+
+<app-confirm-dialog />
+
+<ng-template #ruleRow let-rule>
         <div class="rule-row" [class.off]="!rule.enabled" [class.pauses]="pauses(rule)" [class.terminal]="terminal(rule)">
           <div class="rule-order">
             <button type="button" class="icon-btn" title="Move up" [disabled]="isFirst(rule)" (click)="move(rule, -1)">▲</button>
@@ -79,10 +112,27 @@
               @if (rule.stopProcessing) {
                 <span class="rule-tag">stops here</span>
               }
+              @if (rule.origin?.createdBy === 'CLAUDE') {
+                <span class="rule-tag claude" title="Proposed by Claude through the MCP">✦ Claude</span>
+              }
+              @if (rule.enabled && rule.expiresAt) {
+                <span class="rule-tag timed" title="Switches itself off then">on until {{ clock(rule.expiresAt) }}</span>
+              }
             </div>
             <div class="rule-match">{{ describeMatch(rule.match) }}</div>
             @if (rule.description) {
-              <div class="rule-desc">{{ rule.description }}</div>
+              <div class="rule-desc">{{ rule.origin?.createdBy === 'CLAUDE' ? 'Why: ' : '' }}{{ rule.description }}</div>
+            }
+            @if (rule.origin?.card; as card) {
+              <div class="rule-card-line" (click)="$event.stopPropagation()">
+                <a class="rule-card" routerLink="/board" [queryParams]="cardQuery(card)" title="Open the card this rule reproduces">⇄ {{ card }}</a>
+                @if (cardStatus(card); as st) {
+                  <span class="muted">{{ st }}</span>
+                  @if (cardDone(card)) {
+                    <button type="button" class="rule-tag done" title="Its card is done - delete the rule?" (click)="remove(rule)">card done · dismiss?</button>
+                  }
+                }
+              </div>
             }
             <div class="rule-actions">
               @for (action of rule.actions; track $index) {
@@ -99,6 +149,10 @@
           </div>
 
           <div class="rule-controls">
+            @if (!rule.enabled) {
+              <app-select-picker class="rule-for" [options]="onForOptions" value="" placeholder="on for…" ariaLabel="Switch on for a while"
+                                 (valueChange)="onFor(rule, $event)" />
+            }
             <button
               type="button"
               class="switch"
@@ -115,17 +169,4 @@
             <button type="button" class="action-btn danger" (click)="remove(rule)">Delete</button>
           </div>
         </div>
-      }
-    </div>
-  }
-</main>
-
-@if (editing(); as target) {
-  <app-rule-editor [rule]="target === 'new' ? null : target" [draft]="target === 'new' ? draft() : null" [snapshot]="target === 'new' ? snapshot() : null" [pickedAnswer]="pickedAnswer()" [pickedCopy]="pickedCopy()" (closed)="closeEditor()" (goToCall)="goToCall($event, target === 'new' ? null : target)" />
-}
-
-@if (importing()) {
-  <app-import-rules-dialog (closed)="closeImport()" />
-}
-
-<app-confirm-dialog />
+</ng-template>

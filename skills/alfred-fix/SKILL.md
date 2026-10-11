@@ -50,7 +50,10 @@ For each card, in order:
    - `steps` - what the user does in the app to make that call ("Open the flight search page"), with the endpoint when
      it is another call than the card's own.
    It moves the card to Fixed and it waits on a re-test.
-4. Next card - its plan, its Go.
+4. When the fix is about handling a failure (a supplier error, a timeout, a missing field), propose the rule that
+   reproduces it (rules "Interception rules") and add to the "how to verify" text: "switch on <rule>, run the step,
+   switch it off".
+5. Next card - its plan, its Go.
 
 ## 4. Finish
 

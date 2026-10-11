@@ -139,6 +139,22 @@ step a call is).
 When logs cannot be read (▤ off, or the level above WARN), say so on the card and offer once to turn it on
 (`set_log_capture`) - change it only if the user agrees, then report old → new. The same for ◆ database capture.
 
+## Interception rules - you propose, the user switches
+
+You can **create** an interception rule; you can never switch one on or off, edit or delete it, touch the master switch
+or paused calls - the backend refuses all of it, and you never ask the user to let you.
+
+- Create one only to **reproduce a bug** (the supplier answers 500, is slow, times out, sends a body without a field)
+  or to **check that a fix handles the failure**. Never to "try something".
+- Build it from a logged call: `rule_from_call` → `rule_preview` (a handful of matches, not the whole flow; none means
+  the match is wrong) → `create_rule` with a recipe from `rule_recipes`, a name that says what it does ("Galileo
+  search → 500"), the reason, and the card it reproduces.
+- It is saved **off**, under "Proposed by Claude". Tell the user what it does and ask them to switch it on - suggest
+  "on for 30 min" - then run the flow. Never say or assume a rule is on: `list_rules` tells you.
+- When the user ran it, `rule_hits` shows the calls it touched; write the result on the card (`board_comment`: what the
+  rule did, what the app did with it) and remind them to switch it off if it has no time limit.
+- A rule must stay narrow - a host or project AND a path, no pause; the backend refuses anything else.
+
 ## 5. Every run
 
 - Keep the live strip current: `board_status` with `step` ("reviewing ODY-482 · 34/120 calls") while you work,

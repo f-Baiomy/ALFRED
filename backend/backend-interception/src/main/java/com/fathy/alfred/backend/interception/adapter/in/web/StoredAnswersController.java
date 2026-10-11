@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
@@ -39,10 +40,12 @@ public class StoredAnswersController {
         this.maxAnswerBytes = maxAnswerBytes;
     }
 
+    /** Claude (the MCP, for a proposed ANSWER_WITH_RECORDED_CALL rule) always strips the secrets - keeping them is the user's call. */
     @PostMapping("/from-call")
-    public ResponseEntity<Object> copyFromCall(@Valid @RequestBody CopyAnswerRequestDto body) {
+    public ResponseEntity<Object> copyFromCall(@RequestHeader(value = ClaudeRulesGuard.ACTOR_HEADER, required = false) String actor,
+                                               @Valid @RequestBody CopyAnswerRequestDto body) {
         CopyResult result = answers.copyFromCall(body.direction(), body.callId(), blankToNull(body.cycleId()),
-                body.keepSecrets());
+                ClaudeRulesGuard.isClaude(actor) ? Boolean.FALSE : body.keepSecrets());
         return switch (result) {
             case CopyResult.Created created ->
                     ResponseEntity.status(HttpStatus.CREATED).body(StoredAnswerDto.of(created.answer(), List.of()));

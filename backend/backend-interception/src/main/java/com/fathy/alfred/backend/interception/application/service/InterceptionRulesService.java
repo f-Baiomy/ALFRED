@@ -6,6 +6,7 @@ import com.fathy.alfred.backend.interception.application.port.out.InterceptionNo
 import com.fathy.alfred.backend.interception.application.port.out.InterceptionRulesStorePort;
 import com.fathy.alfred.backend.interception.application.port.out.RulesPublisherPort;
 import com.fathy.alfred.backend.interception.domain.model.InterceptionRule;
+import com.fathy.alfred.backend.interception.domain.model.RuleOrigin;
 import com.fathy.alfred.backend.interception.domain.model.RuleImportResult;
 import com.fathy.alfred.backend.interception.domain.model.RuleValidator;
 import com.fathy.alfred.backend.interception.domain.model.SelfTargets;
@@ -71,12 +72,50 @@ public class InterceptionRulesService implements ManageInterceptionRulesUseCase 
 
     @Override
     public List<InterceptionRule> list() {
-        return store.findAll();
+        return expireDue();
     }
 
     @Override
     public Optional<InterceptionRule> get(String id) {
-        return store.findAll().stream().filter(r -> r.id().equals(id)).findFirst();
+        return expireDue().stream().filter(r -> r.id().equals(id)).findFirst();
+    }
+
+    /**
+     * Rules whose "on for" time has passed are switched off here, the next time anyone reads the rules - no timer. The
+     * proxy already stopped applying them at that moment by itself (it reads expiresAt), so this only makes the stored
+     * state and the UI say so.
+     */
+    private synchronized List<InterceptionRule> expireDue() {
+        List<InterceptionRule> rules = store.findAll();
+        Instant now = Instant.now();
+        if (rules.stream().noneMatch(r -> r.expired(now))) {
+            return rules;
+        }
+        List<InterceptionRule> next = new ArrayList<>(rules.size());
+        for (InterceptionRule rule : rules) {
+            next.add(rule.expired(now) ? rule.withEnabled(false).withExpiresAt(null) : rule);
+        }
+        persist(next);
+        return store.findAll();
+    }
+
+    @Override
+    public synchronized InterceptionRule propose(InterceptionRule rule, String reason, String card) {
+        List<String> problems = new ArrayList<>(RuleValidator.validate(rule, selfTargets, answers::kindOf));
+        problems.addAll(RuleValidator.proposalProblems(rule));
+        if (!problems.isEmpty()) {
+            throw new InvalidRuleException(problems);
+        }
+        List<InterceptionRule> rules = new ArrayList<>(store.findAll());
+        int priority = rules.stream().mapToInt(InterceptionRule::priority).max().orElse(0) + 10;
+        String now = Instant.now().toString();
+        InterceptionRule saved = rule.withEnabled(false).withPriority(priority).withExpiresAt(null)
+                .withOrigin(RuleOrigin.proposedByClaude(reason, card))
+                .withId(UUID.randomUUID().toString())
+                .withTimestamps(now, now);
+        rules.add(saved);
+        persist(rules);
+        return saved;
     }
 
     /*
@@ -109,8 +148,12 @@ public class InterceptionRulesService implements ManageInterceptionRulesUseCase 
             }
             // createdAt is the stored one, never the caller's: a client that round-trips a rule
             // through a form would otherwise be able to rewrite when it was made.
+            // Who proposed it and its "on for" limit are the stored ones too; an edit by the user accepts a proposal.
+            InterceptionRule stored = rules.get(i);
             InterceptionRule updated = rule.withId(id)
-                    .withTimestamps(rules.get(i).createdAt(), Instant.now().toString());
+                    .withOrigin(stored.origin() == null ? null : stored.origin().accepted())
+                    .withExpiresAt(rule.enabled() ? stored.expiresAt() : null)
+                    .withTimestamps(stored.createdAt(), Instant.now().toString());
             rules.set(i, updated);
             persist(rules);
             return Optional.of(updated);
@@ -132,14 +175,25 @@ public class InterceptionRulesService implements ManageInterceptionRulesUseCase 
     }
 
     @Override
-    public synchronized Optional<InterceptionRule> setEnabled(String id, boolean enabled) {
+    public Optional<InterceptionRule> setEnabled(String id, boolean enabled) {
+        return setEnabled(id, enabled, null);
+    }
+
+    @Override
+    public synchronized Optional<InterceptionRule> setEnabled(String id, boolean enabled, Integer forMinutes) {
+        if (forMinutes != null && (forMinutes < 1 || forMinutes > 24 * 60)) {
+            throw new InvalidRuleException(List.of("\"On for\" is 1 minute to 24 hours"));
+        }
         List<InterceptionRule> rules = new ArrayList<>(store.findAll());
         for (int i = 0; i < rules.size(); i++) {
             if (!rules.get(i).id().equals(id)) {
                 continue;
             }
-            InterceptionRule updated = rules.get(i).withEnabled(enabled)
-                    .withTimestamps(rules.get(i).createdAt(), Instant.now().toString());
+            InterceptionRule current = rules.get(i);
+            String expiresAt = enabled && forMinutes != null ? Instant.now().plusSeconds(forMinutes * 60L).toString() : null;
+            InterceptionRule updated = current.withEnabled(enabled).withExpiresAt(expiresAt)
+                    .withOrigin(enabled && current.origin() != null ? current.origin().accepted() : current.origin())
+                    .withTimestamps(current.createdAt(), Instant.now().toString());
             rules.set(i, updated);
             persist(rules);
             if (!enabled) {

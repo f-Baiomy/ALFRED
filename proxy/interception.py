@@ -1276,8 +1276,21 @@ def _positive_int(value):
     return number if number > 0 else 0
 
 
+def _expiry_seconds(value):
+    """A rule's expiresAt (an ISO instant, "on for 30 min") as epoch seconds, or None for no limit / unreadable."""
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        text = value.strip()
+        if text.endswith('Z'):
+            text = text[:-1] + '+00:00'
+        return datetime.datetime.fromisoformat(text).timestamp()
+    except ValueError:
+        return None
+
+
 class Rule:
-    __slots__ = ('id', 'name', 'enabled', 'priority', 'stop_processing', 'match', 'actions', 'every_nth')
+    __slots__ = ('id', 'name', 'enabled', 'priority', 'stop_processing', 'match', 'actions', 'every_nth', 'expires_at')
 
     def __init__(self, raw, limits=None):
         self.id = str(raw.get('id') or '')
@@ -1295,6 +1308,11 @@ class Rule:
                           and 2 <= every_nth <= 1000 else None)
         self.match = Match(raw.get('match'))
         self.actions = _prepare_actions(raw.get('actions'), limits)
+        # "On for 30 min": past this the rule simply stops matching - no timer, and it holds while backend is down.
+        self.expires_at = _expiry_seconds(raw.get('expiresAt'))
+
+    def expired(self, now=None):
+        return self.expires_at is not None and (now if now is not None else time.time()) >= self.expires_at
 
 
 def _prepare_actions(raw_actions, limits=None):
@@ -3332,6 +3350,8 @@ class InterceptionEngine:
         variable = self._variable_lookup(flow, ruleset)
         out = []
         for rule in ruleset.rules:
+            if rule.expired():
+                continue
             try:
                 if (rule.match.matches(self.source, service_name, request.method, host, path, request, variable)
                         and self._nth_allows(flow, rule)):
@@ -4099,7 +4119,7 @@ class InterceptionEngine:
         variable = self._variable_lookup(flow, ruleset)
         out = []
         for rule in ruleset.rules:
-            if not any(a.get('type') in MESSAGE_ACTIONS for a in rule.actions):
+            if rule.expired() or not any(a.get('type') in MESSAGE_ACTIONS for a in rule.actions):
                 continue
             try:
                 if (rule.match.matches(self.source, service_name, request.method, host, path, request, variable)

@@ -496,6 +496,25 @@ pattern form all default to **literal** find/replace; regex is opt-in per action
   linear regardless of case folding. Only an action explicitly switched to `regex: true` pays for
   the worker process.
 
+## Rules from Claude (MCP) - proposed, switched on by the user
+
+Claude can only **propose** a rule (`create_rule` in the MCP, `X-Alfred-Actor: claude`). `InterceptionRulesService.propose`
+saves it **off**, with `origin` = `{createdBy: CLAUDE, reason, card, proposed: true}`, after `RuleValidator.proposalProblems`:
+it must name a host or a project AND a path, and nothing in it may pause a call. `ClaudeRulesGuard` refuses every other
+write to `/interception/**` from Claude with 403 - switching rules or the master switch, editing, deleting, reordering,
+importing, stored answers (except `answers/from-call`, always with secrets stripped) and paused calls.
+
+The Interception tab lists proposals under "Proposed by Claude" (a "✦ N proposed" badge on the nav tab) with the reason
+and the card (`⇄ odeysys#27`, its status, and "card done · dismiss?" once the card is Verified/Done/closed). Switching one
+on or editing it accepts it (`proposed` false, still tagged ✦ Claude).
+
+**On for N minutes**: `POST /interception/rules/{id}/enabled` `{enabled: true, forMinutes}` sets `expiresAt`. The proxy
+skips a rule whose `expiresAt` has passed (`Rule.expired()` in interception.py) - no timer, and it holds while backend is
+down; the backend switches it off the next time it reads the rules (`expireDue`).
+
+MCP tools: `rule_recipes`, `rule_from_call`, `rule_preview` (the cheap matchers against the last 300 calls), `create_rule`
+(recipe → actions; with a card, an `@[rule:...]` link and a comment), `rule_hits` (the calls a rule touched, from their ⚡).
+
 ## Stored answers — answering with a recorded call or an uploaded file
 
 `ANSWER_WITH_RECORDED_CALL`/`REPLACE_WITH_RECORDED_RESPONSE` reproduce a response Alfred already

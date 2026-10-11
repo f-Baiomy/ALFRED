@@ -81,6 +81,42 @@ public final class RuleValidator {
     }
 
     /**
+     * What a rule Claude proposes must also be (on top of {@link #validate}): narrow - it names a host or a project AND a
+     * path, so it can never catch all traffic - and without a pause anywhere, since Claude does not handle paused calls.
+     */
+    public static List<String> proposalProblems(InterceptionRule rule) {
+        List<String> problems = new ArrayList<>();
+        RuleMatch m = rule.match();
+        boolean hasTarget = (m.host() != null && !m.host().isBlank()) || !m.serviceNames().isEmpty();
+        boolean hasPath = (m.pathContains() != null && !m.pathContains().isBlank()) || (m.pathRegex() != null && !m.pathRegex().isBlank());
+        if (!hasTarget) {
+            problems.add("A proposed rule must name a host (match.host) or a project (match.serviceNames) - it may not catch all traffic.");
+        }
+        if (!hasPath) {
+            problems.add("A proposed rule must name a path (match.pathContains or match.pathRegex).");
+        }
+        if (anyPause(rule.actions())) {
+            problems.add("A proposed rule may not pause calls - paused calls are handled by the user only.");
+        }
+        if (rule.actions().isEmpty()) {
+            problems.add("A proposed rule needs at least one action.");
+        }
+        return problems;
+    }
+
+    private static boolean anyPause(List<RuleAction> actions) {
+        if (actions == null) {
+            return false;
+        }
+        for (RuleAction action : actions) {
+            if (action != null && ((action.type() != null && action.type().isPause()) || anyPause(action.nested()))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * @param selfTargets where a REWRITE_URL may not point: Alfred's own services and listeners.
      *                    The proxy re-checks a pattern rewrite at run time, since its result is
      *                    only known then.

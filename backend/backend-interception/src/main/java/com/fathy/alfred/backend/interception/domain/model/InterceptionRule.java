@@ -41,11 +41,25 @@ public record InterceptionRule(
          * proxy-side, per rule, per proxy process, reset whenever rules.json changes - nothing
          * here tracks a running count.
          */
-        Integer everyNth) {
+        Integer everyNth,
+        /** Set only on a rule Claude proposed (see RuleOrigin); null for the user's own rules. */
+        RuleOrigin origin,
+        /**
+         * "On for 30 min": when the rule stops applying (ISO instant), or null for no limit. The proxy skips an expired
+         * rule by itself - no timer anywhere - and the backend switches it off the next time it reads the rules.
+         */
+        String expiresAt) {
 
     public InterceptionRule {
         match = match == null ? RuleMatch.empty() : match;
         actions = actions == null ? List.of() : List.copyOf(actions);
+    }
+
+    /** The shape before a rule had an origin and an expiry. */
+    public InterceptionRule(String id, String name, String description, boolean enabled, int priority, boolean stopProcessing,
+                            RuleMatch match, List<RuleAction> actions, SourceCallRef sourceCall, String createdAt, String updatedAt,
+                            Integer everyNth) {
+        this(id, name, description, enabled, priority, stopProcessing, match, actions, sourceCall, createdAt, updatedAt, everyNth, null, null);
     }
 
     /** The shape before everyNth (D5) existed. */
@@ -62,22 +76,44 @@ public record InterceptionRule(
 
     public InterceptionRule withId(String newId) {
         return new InterceptionRule(newId, name, description, enabled, priority, stopProcessing,
-                match, actions, sourceCall, createdAt, updatedAt, everyNth);
+                match, actions, sourceCall, createdAt, updatedAt, everyNth, origin, expiresAt);
     }
 
     public InterceptionRule withEnabled(boolean value) {
         return new InterceptionRule(id, name, description, value, priority, stopProcessing,
-                match, actions, sourceCall, createdAt, updatedAt, everyNth);
+                match, actions, sourceCall, createdAt, updatedAt, everyNth, origin, expiresAt);
     }
 
     public InterceptionRule withPriority(int value) {
         return new InterceptionRule(id, name, description, enabled, value, stopProcessing,
-                match, actions, sourceCall, createdAt, updatedAt, everyNth);
+                match, actions, sourceCall, createdAt, updatedAt, everyNth, origin, expiresAt);
     }
 
     public InterceptionRule withTimestamps(String created, String updated) {
         return new InterceptionRule(id, name, description, enabled, priority, stopProcessing,
-                match, actions, sourceCall, created, updated, everyNth);
+                match, actions, sourceCall, created, updated, everyNth, origin, expiresAt);
+    }
+
+    public InterceptionRule withOrigin(RuleOrigin value) {
+        return new InterceptionRule(id, name, description, enabled, priority, stopProcessing,
+                match, actions, sourceCall, createdAt, updatedAt, everyNth, value, expiresAt);
+    }
+
+    public InterceptionRule withExpiresAt(String value) {
+        return new InterceptionRule(id, name, description, enabled, priority, stopProcessing,
+                match, actions, sourceCall, createdAt, updatedAt, everyNth, origin, value);
+    }
+
+    /** On, but its "on for" time has passed. */
+    public boolean expired(java.time.Instant now) {
+        if (!enabled || expiresAt == null || expiresAt.isBlank()) {
+            return false;
+        }
+        try {
+            return !now.isBefore(java.time.Instant.parse(expiresAt));
+        } catch (java.time.format.DateTimeParseException e) {
+            return false;
+        }
     }
 
     /** Whether this rule can hold a caller's connection open waiting for a human. */

@@ -3729,6 +3729,19 @@ class PowerFeaturesTest(unittest.TestCase):
             hits.append((flow.request.headers.get('X-Hit'), flow.response.headers.get('X-Res')))
         self.assertEqual(hits, [(None, None), (None, None), ('1', '1')] * 2)
 
+    def test_a_rule_switched_on_for_a_time_stops_applying_when_it_runs_out(self):
+        def at(seconds):
+            return time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(time.time() + seconds))
+        live = self.engine([rule(expiresAt=at(600), actions=[{'type': 'SET_REQUEST_HEADER', 'name': 'X-Hit', 'value': '1'}])])
+        flow, _ = self.call(live)
+        self.assertEqual(flow.request.headers.get('X-Hit'), '1')
+        expired = self.engine([rule(expiresAt=at(-5), actions=[{'type': 'SET_REQUEST_HEADER', 'name': 'X-Hit', 'value': '1'}])])
+        flow, _ = self.call(expired)
+        self.assertIsNone(flow.request.headers.get('X-Hit'))
+        unreadable = self.engine([rule(expiresAt='soon', actions=[{'type': 'SET_REQUEST_HEADER', 'name': 'X-Hit', 'value': '1'}])])
+        flow, _ = self.call(unreadable)
+        self.assertEqual(flow.request.headers.get('X-Hit'), '1')
+
     def test_action_referencing_a_secret_logs_no_value(self):
         engine = self.engine([rule(actions=[{'type': 'SET_QUERY_PARAM', 'name': 'k', 'value': '{{apiKey}}'}])],
                              {'apiKey': 'S3CRET'}, secrets=['apiKey'])

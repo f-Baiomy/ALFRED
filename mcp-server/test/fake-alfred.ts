@@ -662,6 +662,14 @@ export class FakeAlfred {
     }
     // ---- interception rules and Relive (read-only here)
     if (p[0] === 'interception' && p[1] === 'enabled') return [200, { enabled: s.interceptionEnabled }];
+    if (p[0] === 'interception' && p[1] === 'rules' && p.length === 2 && method === 'POST') {
+      const rule = { id: `rule-${s.rules.length + 1}`, priority: 100, ...body, enabled: false,
+        origin: { createdBy: 'CLAUDE', reason: body.reason, card: body.card ?? null, proposed: true } };
+      s.rules.push(rule);
+      return [200, rule];
+    }
+    if (p[0] === 'interception' && p[1] === 'answers' && p[2] === 'from-call' && method === 'POST') return [201, { id: 'answer-1' }];
+    if (p[0] === 'interception' && p[1] === 'failure-modes') return [200, ['CONNECTION_RESET', 'HANG_THEN_DROP']];
     if (p[0] === 'interception' && p[1] === 'rules' && p.length === 2) return [200, s.rules];
     if (p[0] === 'interception' && p[1] === 'rules' && p.length === 3) {
       const rule = s.rules.find((r) => r['id'] === p[2]);

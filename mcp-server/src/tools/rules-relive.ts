@@ -8,7 +8,7 @@ import { MaskSchema } from './cycles.ts';
 /**
  * Read-only views of what changes traffic: interception rules (why a call came back ⚡ changed) and
  * Relive runs (what a replay found). Nothing here edits a rule, runs a cycle or touches a live call -
- * those stay in the UI, where their effect on live traffic is visible.
+ * those stay in the UI, where their effect on live traffic is visible. Proposing a rule (saved off) is rule-proposals.ts.
  */
 
 interface Rule {
@@ -18,6 +18,8 @@ interface Rule {
   priority: number;
   match?: { source?: string; serviceNames?: string[]; methods?: string[]; host?: string; pathContains?: string; body?: unknown[] };
   actions?: { type: string; enabled?: boolean }[];
+  origin?: { createdBy: string; reason?: string | null; card?: string | null; proposed: boolean } | null;
+  expiresAt?: string | null;
 }
 
 interface ReliveCycleRow { id: string; name: string; stepCount: number; lastRun: unknown; updatedAt: string; isTransient?: boolean }
@@ -52,6 +54,9 @@ function ruleRow(r: Rule) {
     match: [m.source, m.methods?.join('|'), m.host, m.pathContains, m.serviceNames?.length ? `projects ${m.serviceNames.join(',')}` : null,
       m.body?.length ? `${m.body.length} body condition(s)` : null].filter(Boolean).join(' '),
     actions: (r.actions ?? []).filter((a) => a.enabled !== false).map((a) => a.type),
+    ...(r.origin?.createdBy === 'CLAUDE' ? { proposedByClaude: r.origin.proposed ? 'waiting for the user to switch it on' : 'accepted by the user',
+      ...(r.origin.card ? { card: r.origin.card } : {}) } : {}),
+    ...(r.expiresAt ? { onUntil: r.expiresAt } : {}),
   };
 }
 

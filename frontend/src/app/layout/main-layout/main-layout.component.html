@@ -17,6 +17,9 @@
     } @else if (interception.active()) {
       <span class="tab-badge">on</span>
     }
+    @if (interception.proposedRules().length) {
+      <span class="tab-badge proposed" title="Rules Claude proposed - switch them on or dismiss them">✦ {{ interception.proposedRules().length }} proposed</span>
+    }
   </a>
   <a routerLink="/relive" routerLinkActive="active">Relive <span class="nav-new">new</span></a>
   <a routerLink="/logs" routerLinkActive="active">Logs <span class="nav-new">new</span></a>

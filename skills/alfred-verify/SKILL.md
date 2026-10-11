@@ -32,7 +32,9 @@ Read `rules.md` in this skill's folder first and follow it. Verified and Done ar
    - **NO_CALLS** - nothing called the endpoint since the fix: state comment "not re-tested yet - <the card's steps>",
      `waitingOn` RETEST. `newBuild` means the app restarted after the fix: say "the new build is running - re-test now".
    - **NOT_CHECKABLE** - the card names no call: say so; ask the user which call shows it.
-2. A card without expectations: write them now with `board_retest_plan` from its "Verify:" text (ask in chat first,
+2. A card whose re-test needs a failure (its card links an `@[rule:...]`): `list_rules` - when it is off, ask the user
+   to switch it on and run the step; after, `rule_hits` and judge the calls it touched like any other.
+3. A card without expectations: write them now with `board_retest_plan` from its "Verify:" text (ask in chat first,
    show them), so the next re-test checks more than the status.
 
 ## 3. Guards, regressions and the spec

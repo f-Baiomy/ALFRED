@@ -22,6 +22,16 @@ public interface ManageInterceptionRulesUseCase {
 
     Optional<InterceptionRule> setEnabled(String id, boolean enabled);
 
+    /** Switches the rule on for {@code forMinutes} (null: no limit), or off. Switching on accepts a proposed rule. */
+    Optional<InterceptionRule> setEnabled(String id, boolean enabled, Integer forMinutes);
+
+    /**
+     * Claude's rule, from the MCP: validated like any rule, plus it must be narrow (a host or project AND a path) and must
+     * not pause calls. Always saved OFF and marked proposed, with the reason and the card it reproduces - the user switches
+     * it on. Throws InvalidRuleException with the problems.
+     */
+    InterceptionRule propose(InterceptionRule rule, String reason, String card);
+
     /**
      * Reassigns priorities to match the given id order. Ids not in the list keep their relative
      * position after the ones that are, so a reorder sent by a stale page cannot silently drop a

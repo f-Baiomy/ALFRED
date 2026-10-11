@@ -31,7 +31,10 @@ public record InterceptionRuleRequestDto(
         List<RuleAction> actions,
         SourceCallRef sourceCall,
         /** D5: applies to every Nth call that otherwise matches - null or 2..1000, see RuleValidator. */
-        Integer everyNth) {
+        Integer everyNth,
+        /** Claude's proposal only: why the rule exists, and the board card it reproduces ("odeysys#27"). */
+        @Size(max = 2000) String reason,
+        @Size(max = 200) String card) {
 
     public InterceptionRule toDomain() {
         return new InterceptionRule(

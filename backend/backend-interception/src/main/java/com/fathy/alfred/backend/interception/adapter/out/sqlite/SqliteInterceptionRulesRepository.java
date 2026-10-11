@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fathy.alfred.backend.interception.domain.model.InterceptionRule;
 import com.fathy.alfred.backend.interception.domain.model.RuleAction;
 import com.fathy.alfred.backend.interception.domain.model.RuleMatch;
+import com.fathy.alfred.backend.interception.domain.model.RuleOrigin;
 import com.fathy.alfred.backend.interception.domain.model.SourceCallRef;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
@@ -102,6 +103,13 @@ public class SqliteInterceptionRulesRepository {
         if (!hasEveryNth) {
             jdbcTemplate.execute("ALTER TABLE interception_rules ADD COLUMN every_nth INTEGER");
         }
+        // Who proposed the rule (Claude, through the MCP) and its "on for" limit - see RuleOrigin, InterceptionRule.expiresAt.
+        if (existingColumns.stream().noneMatch(column -> "origin_json".equals(column.get("name")))) {
+            jdbcTemplate.execute("ALTER TABLE interception_rules ADD COLUMN origin_json TEXT");
+        }
+        if (existingColumns.stream().noneMatch(column -> "expires_at".equals(column.get("name")))) {
+            jdbcTemplate.execute("ALTER TABLE interception_rules ADD COLUMN expires_at TEXT");
+        }
         jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS interception_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_interception_priority ON interception_rules(priority)");
         // Stored answers: metadata and body in separate tables, so a listing never reads a body.
@@ -159,7 +167,9 @@ public class SqliteInterceptionRulesRepository {
                         readSourceCall(rs.getString("source_call_json")),
                         rs.getString("created_at"),
                         rs.getString("updated_at"),
-                        (Integer) rs.getObject("every_nth")));
+                        (Integer) rs.getObject("every_nth"),
+                        readOrigin(rs.getString("origin_json")),
+                        rs.getString("expires_at")));
     }
 
     public void saveAll(List<InterceptionRule> rules) {
@@ -176,12 +186,14 @@ public class SqliteInterceptionRulesRepository {
             for (InterceptionRule rule : rules) {
                 jdbcTemplate.update("""
                                 INSERT INTO interception_rules
-                                (id, name, description, enabled, priority, stop_processing, match_json, actions_json, source_call_json, created_at, updated_at, every_nth)
-                                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                                (id, name, description, enabled, priority, stop_processing, match_json, actions_json, source_call_json, created_at, updated_at, every_nth,
+                                 origin_json, expires_at)
+                                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                         rule.id(), rule.name(), rule.description(), rule.enabled() ? 1 : 0, rule.priority(),
                         rule.stopProcessing() ? 1 : 0, write(rule.match()), write(rule.actions()),
                         rule.sourceCall() == null ? null : write(rule.sourceCall()),
-                        rule.createdAt(), rule.updatedAt(), rule.everyNth());
+                        rule.createdAt(), rule.updatedAt(), rule.everyNth(),
+                        rule.origin() == null ? null : write(rule.origin()), rule.expiresAt());
             }
         });
     }
@@ -213,6 +225,18 @@ public class SqliteInterceptionRulesRepository {
         } catch (JsonProcessingException e) {
             log.warn("Unreadable match on a stored rule, treating it as match-nothing: {}", e.getMessage());
             return RuleMatch.empty();
+        }
+    }
+
+    private RuleOrigin readOrigin(String json) {
+        if (json == null || json.isBlank()) {
+            return null;
+        }
+        try {
+            return mapper.readValue(json, RuleOrigin.class);
+        } catch (JsonProcessingException e) {
+            log.warn("Unreadable origin on a stored rule, dropping it: {}", e.getMessage());
+            return null;
         }
     }
 

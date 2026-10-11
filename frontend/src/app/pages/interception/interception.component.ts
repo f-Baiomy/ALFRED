@@ -1,5 +1,9 @@
 import { RuleDialogService } from '../../core/services/rule-dialog.service';
 import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
+import { RouterLink } from '@angular/router';
+import { BoardApiService } from '../../core/services/board-api.service';
+import { SelectOption, SelectPickerComponent } from '../../components/select-picker/select-picker.component';
 import { directionOf } from '../../core/models/call-ref.model';
 import { CallPickerService } from '../../core/services/call-picker.service';
 import { AnswerPreselect } from '../../components/answer-picker/answer-picker.component';
@@ -29,11 +33,17 @@ import { rulesFileName } from '../../shared/utils/interception-rules-file';
 @Component({
   selector: 'app-interception',
   standalone: true,
-  imports: [ConfirmDialogComponent, ImportRulesDialogComponent, PausedCallsComponent, RuleEditorComponent],
+  imports: [ConfirmDialogComponent, ImportRulesDialogComponent, NgTemplateOutlet, PausedCallsComponent, RouterLink, RuleEditorComponent, SelectPickerComponent],
   templateUrl: './interception.component.html',
 })
 export class InterceptionComponent {
   readonly state = inject(InterceptionStateService);
+  private readonly board = inject(BoardApiService);
+  readonly onForOptions: readonly SelectOption[] = [{ value: '10', label: 'On for 10 min' }, { value: '30', label: 'On for 30 min' }, { value: '60', label: 'On for 1 hour' }];
+  /** The main list: every rule except Claude's proposals, which have their own section above it. */
+  readonly ordinaryRules = computed(() => this.state.rules().filter((r) => !r.origin?.proposed));
+  /** Status of the board cards Claude's rules reproduce, by "project#number". */
+  private readonly cardStatuses = signal<ReadonlyMap<string, string>>(new Map());
   readonly notifications = inject(DesktopNotificationsService);
   private readonly confirm = inject(ConfirmDialogService);
 
@@ -53,6 +63,10 @@ export class InterceptionComponent {
   private readonly picker = inject(CallPickerService);
 
   constructor() {
+    effect(() => {
+      const rules = this.state.rules();
+      untracked(() => this.loadCardStatuses(rules));
+    });
     if (this.draft()) this.editing.set('new');
 
     // Rebuilt when the user comes back from another tab; still alive when they never left.
@@ -182,6 +196,42 @@ export class InterceptionComponent {
     this.editing.set(null);
   }
 
+  /** "on for…": switches the rule on for that many minutes; the proxy stops applying it then by itself. */
+  onFor(rule: InterceptionRule, minutes: string): void {
+    const n = Number(minutes);
+    if (n > 0) this.state.setRuleEnabled(rule.id, true, n).subscribe();
+  }
+
+  clock(iso: string): string {
+    return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+
+  cardQuery(card: string): Record<string, string> {
+    const [project, number] = splitCard(card);
+    return project ? { project, card: number } : { card: number };
+  }
+
+  cardStatus(card: string): string | null {
+    return this.cardStatuses().get(card) ?? null;
+  }
+
+  /** The card the rule reproduces is Verified, Done or closed - the rule has likely served its purpose. */
+  cardDone(card: string): boolean {
+    return ['VERIFIED', 'DONE', 'CLOSED'].includes(this.cardStatus(card) ?? '');
+  }
+
+  private loadCardStatuses(rules: readonly InterceptionRule[]): void {
+    const cards = [...new Set(rules.map((r) => r.origin?.card).filter((c): c is string => !!c))];
+    for (const card of cards) {
+      if (this.cardStatuses().has(card)) continue;
+      const [project, number] = splitCard(card);
+      this.board.cardByNumber(project, Number(number)).subscribe({
+        next: (c) => this.cardStatuses.update((m) => new Map(m).set(card, c.status)),
+        error: () => this.cardStatuses.update((m) => new Map(m).set(card, 'card deleted')),
+      });
+    }
+  }
+
   toggle(rule: InterceptionRule): void {
     this.state.setRuleEnabled(rule.id, !rule.enabled).subscribe();
   }
@@ -256,4 +306,10 @@ export class InterceptionComponent {
   trackById(_: number, rule: InterceptionRule): string {
     return rule.id;
   }
+}
+
+/** "odeysys#27" → ["odeysys", "27"]; "#4" → ["", "4"]. */
+function splitCard(card: string): [string, string] {
+  const at = card.lastIndexOf('#');
+  return [card.slice(0, Math.max(0, at)), card.slice(at + 1)];
 }

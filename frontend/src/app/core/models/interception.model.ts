@@ -444,6 +444,21 @@ export interface InterceptionRule {
    * "fail one in ten" without hand-rolled randomness the log can't reproduce.
    */
   readonly everyNth?: number | null;
+  /** Set on a rule Claude proposed through the MCP - see RuleOrigin. */
+  readonly origin?: RuleOrigin | null;
+  /** "On for 30 min": when the rule stops applying (ISO instant); null/absent for no limit. */
+  readonly expiresAt?: string | null;
+}
+
+/**
+ * Who made a rule, when it was not the user: Claude proposes rules (saved off) and the user switches them on. `proposed`
+ * stays true until the user switches the rule on or edits it; `card` is the board card it reproduces ("odeysys#27").
+ */
+export interface RuleOrigin {
+  readonly createdBy: 'CLAUDE' | string;
+  readonly reason?: string | null;
+  readonly card?: string | null;
+  readonly proposed: boolean;
 }
 
 /** Backend SourceCallRef - which call a rule was made from, and how it read at the time. */

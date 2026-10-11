@@ -200,6 +200,9 @@ export class InterceptionStateService {
 
   readonly pausedCount = computed(() => this.holdingCalls().length);
 
+  /** Rules Claude proposed that the user has not switched on or edited yet ("Proposed by Claude"). */
+  readonly proposedRules = computed(() => this.rules().filter((r) => r.origin?.proposed));
+
   /** Released and forwarded; the supplier is working and the card is waiting for its answer. */
   readonly inFlightCount = computed(() => this.pausedCalls().filter((c) => c.stage === 'in-flight').length);
 
@@ -264,8 +267,8 @@ export class InterceptionStateService {
     return this.api.deleteRule(id).pipe(tap(() => this.refreshRules()));
   }
 
-  setRuleEnabled(id: string, enabled: boolean): Observable<InterceptionRule> {
-    return this.api.setRuleEnabled(id, enabled).pipe(tap(() => this.refreshRules()));
+  setRuleEnabled(id: string, enabled: boolean, forMinutes?: number | null): Observable<InterceptionRule> {
+    return this.api.setRuleEnabled(id, enabled, forMinutes).pipe(tap(() => this.refreshRules()));
   }
 
   reorder(ids: readonly string[]): Observable<InterceptionRule[]> {

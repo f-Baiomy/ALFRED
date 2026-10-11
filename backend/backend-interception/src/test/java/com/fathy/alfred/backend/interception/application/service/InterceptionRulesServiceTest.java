@@ -11,6 +11,7 @@ import com.fathy.alfred.backend.interception.domain.model.RuleAction;
 import com.fathy.alfred.backend.interception.domain.model.RuleImportResult;
 import com.fathy.alfred.backend.interception.domain.model.PausedCall;
 import com.fathy.alfred.backend.interception.domain.model.RuleMatch;
+import com.fathy.alfred.backend.interception.domain.model.RuleOrigin;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -133,6 +134,68 @@ class InterceptionRulesServiceTest {
         return new InterceptionRule(null, name, null, true, priority, false, RuleMatch.empty(),
                 List.of(new RuleAction(ActionType.DELAY_REQUEST, 1000, null, null, null, null, null, null, null, null, null, null, null)),
                 null, null);
+    }
+
+    private static InterceptionRule narrowDelay(String name, RuleMatch match) {
+        return new InterceptionRule(null, name, null, true, 10, false, match,
+                List.of(new RuleAction(ActionType.DELAY_REQUEST, 1000, null, null, null, null, null, null, null, null, null, null, null)),
+                null, null);
+    }
+
+    private static RuleMatch galileoSearch() {
+        return new RuleMatch("outbound", null, List.of(), List.of("POST"), "galileo.example.com", "/search", null);
+    }
+
+    @Test
+    void claudesRuleIsAlwaysSavedOffAsAProposalWithItsReasonAndCard() {
+        InterceptionRule proposed = service.propose(narrowDelay("Slow Galileo", galileoSearch()), " Reproduce #27 ", "odeysys#27");
+
+        assertThat(proposed.enabled()).isFalse();
+        assertThat(proposed.origin()).isEqualTo(new RuleOrigin("CLAUDE", "Reproduce #27", "odeysys#27", true));
+        assertThat(publisher.lastRules).noneMatch(InterceptionRule::enabled); // the publisher writes only enabled rules
+    }
+
+    @Test
+    void aProposalMustBeNarrowAndMayNotPause() {
+        assertThatThrownBy(() -> service.propose(narrowDelay("Everything", RuleMatch.empty()), "x", null))
+                .isInstanceOf(ManageInterceptionRulesUseCase.InvalidRuleException.class)
+                .satisfies(e -> assertThat(((ManageInterceptionRulesUseCase.InvalidRuleException) e).problems())
+                        .anyMatch(p -> p.contains("host")).anyMatch(p -> p.contains("path")));
+        InterceptionRule pausing = pauseRule("Hold it");
+        InterceptionRule narrowPause = new InterceptionRule(null, pausing.name(), null, true, 10, false, galileoSearch(), pausing.actions(), null, null);
+        assertThatThrownBy(() -> service.propose(narrowPause, "x", null))
+                .satisfies(e -> assertThat(((ManageInterceptionRulesUseCase.InvalidRuleException) e).problems())
+                        .anyMatch(p -> p.contains("pause")));
+    }
+
+    @Test
+    void switchingAProposalOnAcceptsItAndCanLimitHowLong() {
+        InterceptionRule proposed = service.propose(narrowDelay("Slow Galileo", galileoSearch()), "why", null);
+
+        InterceptionRule on = service.setEnabled(proposed.id(), true, 30).orElseThrow();
+        assertThat(on.enabled()).isTrue();
+        assertThat(on.origin().proposed()).isFalse();
+        assertThat(on.origin().createdBy()).isEqualTo("CLAUDE");
+        assertThat(java.time.Instant.parse(on.expiresAt())).isBetween(java.time.Instant.now().plusSeconds(29 * 60), java.time.Instant.now().plusSeconds(31 * 60));
+
+        InterceptionRule off = service.setEnabled(proposed.id(), false).orElseThrow();
+        assertThat(off.expiresAt()).isNull();
+    }
+
+    @Test
+    void aRuleWhoseTimeRanOutIsSwitchedOffTheNextTimeTheRulesAreRead() {
+        InterceptionRule created = service.create(narrowDelay("Short", galileoSearch()));
+        store.rules.set(0, store.rules.get(0).withExpiresAt(java.time.Instant.now().minusSeconds(1).toString()));
+
+        assertThat(service.get(created.id()).orElseThrow().enabled()).isFalse();
+        assertThat(store.findAll().get(0).expiresAt()).isNull();
+    }
+
+    @Test
+    void anEditByTheUserKeepsWhoProposedTheRule() {
+        InterceptionRule proposed = service.propose(narrowDelay("Slow Galileo", galileoSearch()), "why", "p#1");
+        InterceptionRule edited = service.update(proposed.id(), narrowDelay("Slower Galileo", galileoSearch()).withEnabled(false)).orElseThrow();
+        assertThat(edited.origin()).isEqualTo(new RuleOrigin("CLAUDE", "why", "p#1", false));
     }
 
     @Test

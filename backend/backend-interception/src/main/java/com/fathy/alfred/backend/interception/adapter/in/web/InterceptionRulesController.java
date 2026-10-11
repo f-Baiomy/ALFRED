@@ -24,6 +24,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -69,8 +70,17 @@ public class InterceptionRulesController {
         return rules.get(id).map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
     }
 
+    /**
+     * From Claude (X-Alfred-Actor: claude, the MCP's create_rule) the rule is a proposal: saved OFF, narrow, no pause,
+     * with its reason and card - see ManageInterceptionRulesUseCase.propose. Every other write is refused to Claude by
+     * ClaudeRulesGuard.
+     */
     @PostMapping("/rules")
-    public ResponseEntity<InterceptionRule> create(@Valid @RequestBody InterceptionRuleRequestDto dto) {
+    public ResponseEntity<InterceptionRule> create(@RequestHeader(value = ClaudeRulesGuard.ACTOR_HEADER, required = false) String actor,
+                                                   @Valid @RequestBody InterceptionRuleRequestDto dto) {
+        if (ClaudeRulesGuard.isClaude(actor)) {
+            return ResponseEntity.ok(rules.propose(dto.toDomain(), dto.reason(), dto.card()));
+        }
         return ResponseEntity.ok(rules.create(dto.toDomain()));
     }
 
@@ -87,11 +97,13 @@ public class InterceptionRulesController {
         return rules.delete(id) ? ResponseEntity.noContent().build() : ResponseEntity.notFound().build();
     }
 
+    /** {"enabled": true, "forMinutes": 30} switches the rule on for 30 minutes; without forMinutes, until switched off. */
     @PostMapping("/rules/{id}/enabled")
     public ResponseEntity<InterceptionRule> setEnabled(@PathVariable String id,
-                                                       @RequestBody Map<String, Boolean> body) {
+                                                       @RequestBody Map<String, Object> body) {
         boolean enabled = Boolean.TRUE.equals(body.get("enabled"));
-        return rules.setEnabled(id, enabled)
+        Integer forMinutes = body.get("forMinutes") instanceof Number n ? n.intValue() : null;
+        return rules.setEnabled(id, enabled, forMinutes)
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }

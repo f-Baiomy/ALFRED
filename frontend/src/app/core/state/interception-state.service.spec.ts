@@ -86,6 +86,21 @@ describe('InterceptionStateService', () => {
     expect(service.pausedCount()).toBe(0);
   });
 
+  it('lists the proposals Claude made separately until the user switches them on, and sends the on-for minutes', () => {
+    flush({ rules: [
+      rule({ id: 'p', enabled: false, origin: { createdBy: 'CLAUDE', reason: 'Reproduce #27', card: 'odeysys#27', proposed: true } }),
+      rule({ id: 'a', enabled: false, origin: { createdBy: 'CLAUDE', proposed: false } }),
+      rule({ id: 'u' }),
+    ] });
+    expect(service.proposedRules().map((r) => r.id)).toEqual(['p']);
+
+    service.setRuleEnabled('p', true, 30).subscribe();
+    const req = http.expectOne(`${BACKEND}/interception/rules/p/enabled`);
+    expect(req.request.body).toEqual({ enabled: true, forMinutes: 30 });
+    req.flush(rule({ id: 'p' }));
+    http.match(`${BACKEND}/interception/rules`).forEach((r) => r.flush([]));
+  });
+
   it('defaults the master switch to off when the backend cannot be reached', () => {
     http.expectOne(`${BACKEND}/interception/rules`).flush([]);
     http.expectOne(`${BACKEND}/interception/paused`).flush([]);
