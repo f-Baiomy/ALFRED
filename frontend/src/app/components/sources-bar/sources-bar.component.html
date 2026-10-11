@@ -1,87 +1,114 @@
 <div class="sources-bar">
-  <span class="sources-label">Sources</span>
+  <!-- Show: which sources the list includes - a filter, nothing else. What each project captures is a setting, and
+       lives in the Capture table on the right; the small tags on a chip only read it back. -->
+  <span class="sources-label">Show</span>
 
   <button
     type="button"
-    class="source-pill"
-    [class.active]="isSelected(externalKey)"
+    class="source-chip"
+    [class.on]="isSelected(externalKey)"
+    [attr.aria-pressed]="isSelected(externalKey)"
     (click)="toggleSource.emit(externalKey)"
   >
-    External
+    <span class="source-box" aria-hidden="true">{{ isSelected(externalKey) ? '✓' : '' }}</span>External
   </button>
 
   @for (service of internalServices(); track service.name) {
-    <span class="source-pill-group" [class.active]="isSelected(service.name)">
-      <button type="button" class="source-pill-main" (click)="toggleSource.emit(service.name)">
-        {{ service.name }}
-      </button>
-      <button
-        type="button"
-        class="source-pill-switch"
-        [class.on]="service.enabled"
-        [title]="service.enabled ? 'Logging is on - click to turn off' : 'Logging is off - click to turn on'"
-        (click)="onToggleLogging(service.name, service.enabled, $event)"
-      >
-        <span class="switch-dot"></span>
-      </button>
-      @if (service.name !== 'unknown') {
-        <button
-          type="button"
-          class="source-pill-switch db-sw"
-          [class.on]="db.isOn(service.name, service.enabled)"
-          [class.blocked]="!service.enabled"
-          [title]="db.switchTitle(service.name, service.enabled)"
-          (click)="db.toggle(service.name, service.enabled); $event.stopPropagation()"
-        >
-          <span class="db-glyph">◆</span>
-        </button>
-        <button
-          type="button"
-          class="source-pill-switch log-sw"
-          [class.on]="db.logsOn(service.name, service.enabled)"
-          [class.blocked]="!service.enabled"
-          [title]="db.logsTitle(service.name, service.enabled)"
-          [attr.aria-label]="db.logsTitle(service.name, service.enabled)"
-          (click)="db.toggleLogs(service.name, service.enabled); $event.stopPropagation()"
-        >
-          <span class="log-glyph">▤</span>
-        </button>
-        <!-- ⬢ Redis (specs/011-redis-capture): the call's Redis commands are recorded with it while on -->
-        <button
-          type="button"
-          class="source-pill-switch redis-sw"
-          [class.on]="db.redisOn(service.name, service.enabled)"
-          [class.blocked]="!service.enabled"
-          [title]="db.redisTitle(service.name, service.enabled)"
-          [attr.aria-label]="db.redisTitle(service.name, service.enabled)"
-          (click)="db.toggleRedis(service.name, service.enabled); $event.stopPropagation()"
-        >
-          <span class="redis-glyph">⬢</span>
-        </button>
-        <button
-          #more
-          type="button"
-          class="source-pill-switch db-more"
-          [title]="'Database capture settings for ' + service.name"
-          [attr.aria-expanded]="popoverFor() === service.name"
-          (click)="togglePopover(service.name, more); $event.stopPropagation()"
-        >▾</button>
-      }
-    </span>
+    <button
+      type="button"
+      class="source-chip"
+      [class.on]="isSelected(service.name)"
+      [attr.aria-pressed]="isSelected(service.name)"
+      (click)="toggleSource.emit(service.name)"
+    >
+      <span class="source-box" aria-hidden="true">{{ isSelected(service.name) ? '✓' : '' }}</span>{{ service.name }}
+      <span class="source-caps">
+        <span class="source-cap in" [class.on]="service.enabled" [title]="service.enabled ? 'Inbound logging on' : 'Inbound logging off'">IN</span>
+        @if (service.name !== 'unknown') {
+          <span class="source-cap sql" [class.on]="db.isOn(service.name, service.enabled)" [title]="db.switchTitle(service.name, service.enabled)">SQL</span>
+          <span class="source-cap log" [class.on]="db.logsOn(service.name, service.enabled)" [title]="db.logsTitle(service.name, service.enabled)">LOG</span>
+          <span class="source-cap rds" [class.on]="db.redisOn(service.name, service.enabled)" [title]="db.redisTitle(service.name, service.enabled)">RDS</span>
+        }
+      </span>
+    </button>
   }
 
-  @if (popoverFor(); as project) {
-    @defer {
-      <app-db-capture-popover [project]="project" [inboundOn]="inboundOn(project)" [anchor]="popoverAnchor()" (closed)="popoverFor.set(null)" />
-    }
+  @if (featureEnabled()) {
+    <button type="button" class="sources-reset" (click)="selectAll()">Show all</button>
   }
+
   @if (db.switchError(); as err) {
     <span class="db-switch-err" (click)="db.switchError.set(null)" title="Dismiss">{{ err }}</span>
   }
 
   <span class="sources-spacer"></span>
 
-  @if (featureEnabled()) {
-    <button type="button" class="sources-reset" (click)="selectAll()">Reset</button>
+  @if (internalServices().length) {
+    <div class="capture-wrap">
+      <button type="button" class="capture-btn" [attr.aria-expanded]="captureOpen()" (click)="captureOpen.set(!captureOpen())">
+        ◉ Capture <span class="capture-caret" aria-hidden="true">▾</span>
+      </button>
+      @if (captureOpen()) {
+        <div class="capture-pop" role="dialog" aria-label="What Alfred captures">
+          <div class="capture-pop-title">What Alfred captures</div>
+          <p class="capture-pop-note">Per project. SQL, logs and Redis need inbound logging on. Changes apply to the next call.</p>
+          <table class="capture-table">
+            <thead>
+              <tr>
+                <th>Project</th><th>Inbound</th><th><span class="capture-db">◆</span> SQL</th><th><span class="capture-log">▤</span> Logs</th>
+                <th><span class="capture-redis">⬢</span> Redis</th><th></th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (service of internalServices(); track service.name) {
+                <tr>
+                  <td>{{ service.name }}</td>
+                  <td>
+                    <button type="button" class="capture-sw in" role="switch" [class.on]="service.enabled" [attr.aria-checked]="service.enabled"
+                            [title]="service.enabled ? 'Logging is on - click to turn off' : 'Logging is off - click to turn on'"
+                            [attr.aria-label]="'Inbound logging for ' + service.name"
+                            (click)="onToggleLogging(service.name, service.enabled, $event)"></button>
+                  </td>
+                  @if (service.name !== 'unknown') {
+                    <td>
+                      <button type="button" class="capture-sw sql" role="switch" [class.on]="db.isOn(service.name, service.enabled)"
+                              [class.blocked]="!service.enabled" [attr.aria-checked]="db.isOn(service.name, service.enabled)"
+                              [title]="db.switchTitle(service.name, service.enabled)" [attr.aria-label]="'SQL capture for ' + service.name"
+                              (click)="db.toggle(service.name, service.enabled)"></button>
+                    </td>
+                    <td>
+                      <button type="button" class="capture-sw log" role="switch" [class.on]="db.logsOn(service.name, service.enabled)"
+                              [class.blocked]="!service.enabled" [attr.aria-checked]="db.logsOn(service.name, service.enabled)"
+                              [title]="db.logsTitle(service.name, service.enabled)" [attr.aria-label]="'Log lines for ' + service.name"
+                              (click)="db.toggleLogs(service.name, service.enabled)"></button>
+                    </td>
+                    <td>
+                      <button type="button" class="capture-sw rds" role="switch" [class.on]="db.redisOn(service.name, service.enabled)"
+                              [class.blocked]="!service.enabled" [attr.aria-checked]="db.redisOn(service.name, service.enabled)"
+                              [title]="db.redisTitle(service.name, service.enabled)" [attr.aria-label]="'Redis capture for ' + service.name"
+                              (click)="db.toggleRedis(service.name, service.enabled)"></button>
+                    </td>
+                    <td>
+                      <button #more type="button" class="capture-gear" [title]="'Database capture settings for ' + service.name"
+                              [attr.aria-expanded]="popoverFor() === service.name"
+                              (click)="togglePopover(service.name, more); $event.stopPropagation()">⚙</button>
+                    </td>
+                  } @else {
+                    <td colspan="4" class="capture-na">Not for calls no project matched</td>
+                  }
+                </tr>
+              }
+            </tbody>
+          </table>
+          <div class="capture-pop-foot">Log level, before-images and limits: ⚙ per project.</div>
+        </div>
+      }
+    </div>
+  }
+
+  @if (popoverFor(); as project) {
+    @defer {
+      <app-db-capture-popover [project]="project" [inboundOn]="inboundOn(project)" [anchor]="popoverAnchor()" (closed)="popoverFor.set(null)" />
+    }
   }
 </div>

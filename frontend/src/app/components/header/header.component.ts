@@ -1,4 +1,4 @@
-import { AfterViewInit, Component, ElementRef, OnDestroy, computed, inject, input, output, viewChild } from '@angular/core';
+import { AfterViewInit, Component, ElementRef, HostListener, OnDestroy, computed, inject, input, output, signal, viewChild } from '@angular/core';
 import { CALL_LIST_CONTROLS_STATE, CALL_REORDER_STATE } from '../../core/state/call-selection.tokens';
 import { SortMode, SourceKey } from '../../core/models/call.model';
 import { InternalCallServiceDto } from '../../core/services/internal-logging-api.service';
@@ -31,10 +31,10 @@ const SORT_OPTIONS: readonly SelectOption[] = [
 /** The three call views - see CallViewMode. 'waterfall' leads because it's the default. Rendered as a segmented control rather than a
  * dropdown: three mutually-exclusive views you flip between while comparing cost two clicks each
  * from inside a menu, and one from a segment. */
-const VIEW_MODE_OPTIONS: readonly SelectOption[] = [
-  { value: 'waterfall', label: 'Waterfall' },
-  { value: 'nested', label: 'Nested' },
-  { value: 'flat-depth', label: 'Flat' },
+const VIEW_MODE_OPTIONS: readonly (SelectOption & { icon: string })[] = [
+  { value: 'waterfall', label: 'Waterfall', icon: '≋' },
+  { value: 'nested', label: 'Nested', icon: '⊟' },
+  { value: 'flat-depth', label: 'Flat', icon: '☰' },
 ];
 
 type ActiveFilterKey = 'supplier' | 'session' | 'operation' | 'request' | 'nested' | 'interception' | 'resend' | 'db' | 'logs' | 'logwarn' | 'redis';
@@ -68,8 +68,27 @@ export class HeaderComponent implements AfterViewInit, OnDestroy {
    * sort dropdown at all. The dashboard never binds this token, so it never sees that option. */
   private readonly reorderState = inject(CALL_REORDER_STATE, { optional: true });
 
-  readonly title = input('ALFRED');
-  readonly subtitle = input('Live feed of every call Alfred intercepted, via backend');
+  readonly title = input('Live calls');
+  readonly subtitle = input('Every call Alfred intercepted, via backend');
+
+  /** When the newest call in the list started, as a clock time - a fixed time rather than "4 s ago", which would
+   * need a ticking timer just to repaint itself. */
+  readonly lastCallAt = computed(() => {
+    let newest = 0;
+    for (const call of this.state.calls()) newest = Math.max(newest, Date.parse(call.timestamp) || 0);
+    return newest ? new Date(newest).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : null;
+  });
+
+  /** "Newest first · 200" - order and page size share one button. */
+  readonly orderLabel = computed(() => {
+    const sort = this.sortOptions().find((o) => o.value === this.state.sortMode())?.label ?? 'Order';
+    return `${sort} · ${this.state.limit()}`;
+  });
+
+  /** Fold all / Unfold all as one button: what it did last decides what it does next. */
+  readonly folded = signal(false);
+
+  private readonly searchInput = viewChild<ElementRef<HTMLInputElement>>('search');
 
   /**
    * The Sources bar's own state - both pages (dashboard and a session-cycle detail view) bind
@@ -191,6 +210,23 @@ export class HeaderComponent implements AfterViewInit, OnDestroy {
 
   setResendKind(kind: ResendFilter): void {
     this.state.setResendFilter(kind);
+  }
+
+  toggleFold(): void {
+    if (this.folded()) this.state.unfoldAll();
+    else this.state.foldAll();
+    this.folded.update((f) => !f);
+  }
+
+  /** "/" anywhere outside a text field jumps to the search box. */
+  @HostListener('document:keydown', ['$event'])
+  onKey(event: KeyboardEvent): void {
+    if (event.key !== '/' || event.ctrlKey || event.metaKey || event.altKey) return;
+    const target = event.target as HTMLElement | null;
+    if (target && (/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) || target.isContentEditable)) return;
+    if (document.querySelector('.dialog-backdrop, .board-drawer')) return;
+    event.preventDefault();
+    this.searchInput()?.nativeElement.focus();
   }
 
   clearAllFilters(): void {

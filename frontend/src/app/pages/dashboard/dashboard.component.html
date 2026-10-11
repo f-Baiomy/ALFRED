@@ -4,7 +4,9 @@
   [inboundLoggingFeatureEnabled]="state.inboundLoggingFeatureEnabled()"
   (toggleSource)="state.toggleSource($event)"
   (toggleServiceLogging)="state.toggleServiceLogging($event.name, $event.enabled)"
-/>
+>
+  <app-stats-bar headerSide [stats]="state.stats()" />
+</app-header>
 
 <main>
   <label class="relive-calls-note" title="A Relive run keeps its calls with its run: Relive → the cycle → History → Calls">
@@ -12,7 +14,6 @@
     <span>⟲ Calls of Relive runs are kept with their runs - show them here too</span>
   </label>
   <app-bulk-actions-bar />
-  <app-stats-bar [stats]="state.stats()" />
   <div class="call-list">
     <app-call-list />
   </div>

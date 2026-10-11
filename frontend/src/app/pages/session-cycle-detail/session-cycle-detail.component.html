@@ -74,7 +74,11 @@
   [inboundLoggingFeatureEnabled]="state.inboundLoggingFeatureEnabled()"
   (toggleSource)="state.toggleSource($event)"
   (toggleServiceLogging)="state.toggleServiceLogging($event.name, $event.enabled)"
-/>
+>
+  @if (tab() === 'calls') {
+    <app-stats-bar headerSide [stats]="state.stats()" />
+  }
+</app-header>
 
 <!-- The cycle's board lives here too (specs/014-task-board US6): the same cards as the Board tab's Cycle board. -->
 <div class="cycle-tabs" role="tablist">
@@ -88,7 +92,6 @@
 @if (tab() === 'calls') {
   <main>
     <app-bulk-actions-bar />
-    <app-stats-bar [stats]="state.stats()" />
     <div class="call-list">
       <app-call-list />
     </div>

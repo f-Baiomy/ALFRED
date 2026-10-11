@@ -199,16 +199,78 @@ header {
   }
 }
 
+// The page's own title (Live calls, or a cycle's name) - plain and small, since Alfred's logo and wordmark live in
+// the nav bar now (.nav-brand).
 header h1 {
-  font-family: 'Montserrat', 'Segoe UI', system-ui, sans-serif;
-  font-weight: 800;
-  font-size: 1.4rem;
+  font-size: 1.15rem;
+  font-weight: 650;
   margin: 0;
-  letter-spacing: 0.05em;
-  background: linear-gradient(90deg, var(--purple-light), var(--cyan));
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  color: var(--text);
+}
+
+// Row 1 of the header: the title on the left, the status counts (<app-stats-bar headerSide>) on the right.
+.header-head {
+  flex: 1 1 100%;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+
+  > app-stats-bar { margin-left: auto; }
+  .stats { margin-bottom: 0; gap: 0.4rem; }
+}
+
+.header-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-left: 0.6rem;
+
+  i {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 20%, transparent);
+  }
+}
+
+// Alfred's logo, dot and wordmark at the start of the nav bar, next to Live Calls.
+.nav-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-right: 0.75rem;
+  padding-right: 1rem;
+  border-right: 1px solid var(--border);
+  height: 1.75rem;
+  flex-shrink: 0;
+
+  img {
+    width: 28px;
+    height: 28px;
+    border-radius: 7px;
+    display: block;
+  }
+
+  .nav-brand-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--purple);
+    animation: pulse 2s infinite;
+  }
+
+  b {
+    font-family: 'Montserrat', 'Segoe UI', system-ui, sans-serif;
+    font-weight: 800;
+    font-size: 0.9rem;
+    letter-spacing: 0.06em;
+    background: linear-gradient(90deg, var(--purple-light), var(--cyan));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
 }
 
 .sub {
@@ -379,6 +441,144 @@ header h1 {
   background: var(--green);
 }
 
+// The sources row takes the header's full width, so Capture sits at its right end.
+header > app-sources-bar { flex: 1 1 100%; }
+
+// "Show" chips: a checkbox per source (a filter), with read-only tags for what the project captures.
+.source-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  height: 1.9rem;
+  padding: 0 0.7rem 0 0.55rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-2);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+
+  &:hover { color: var(--text); }
+  &.on {
+    color: var(--text);
+    border-color: color-mix(in srgb, var(--purple) 60%, transparent);
+    background: color-mix(in srgb, var(--purple) 12%, transparent);
+  }
+}
+
+.source-box {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  border: 1.5px solid var(--text-faint);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.6rem;
+  line-height: 1;
+
+  .source-chip.on & { background: var(--purple); border-color: var(--purple); color: #fff; }
+}
+
+.source-caps { display: inline-flex; gap: 3px; margin-left: 0.1rem; }
+.source-cap {
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  border-radius: 4px;
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  color: var(--text-faint);
+
+  &.in.on { color: var(--green); border-color: color-mix(in srgb, var(--green) 45%, transparent); }
+  &.sql.on { color: var(--db); border-color: color-mix(in srgb, var(--db) 45%, transparent); }
+  &.log.on { color: var(--log); border-color: color-mix(in srgb, var(--log) 45%, transparent); }
+  &.rds.on { color: var(--redis); border-color: color-mix(in srgb, var(--redis) 45%, transparent); }
+}
+
+// ◉ Capture: the per-project switches, one labelled table instead of four unlabelled dots per chip.
+.capture-wrap { position: relative; }
+.capture-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  height: 1.9rem;
+  padding: 0 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background: var(--card);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+
+  &:hover, &[aria-expanded='true'] { color: var(--text); border-color: var(--purple); }
+}
+.capture-caret { font-size: 0.6rem; }
+.capture-pop {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.5rem);
+  z-index: 30;
+  width: 33rem;
+  max-width: calc(100vw - 2rem);
+  background: var(--popover-solid);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
+  padding: 0.8rem 0.9rem;
+}
+.capture-pop-title { font-weight: 650; font-size: 0.9rem; }
+.capture-pop-note { margin: 0.15rem 0 0.6rem; font-size: 0.75rem; color: var(--text-dim); }
+.capture-pop-foot { margin-top: 0.6rem; font-size: 0.72rem; color: var(--text-faint); }
+.capture-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+
+  th { font-weight: 500; font-size: 0.7rem; color: var(--text-dim); padding: 0.2rem 0.4rem 0.45rem; text-align: center; }
+  td { padding: 0.45rem 0.4rem; border-top: 1px solid var(--border); text-align: center; }
+  th:first-child, td:first-child { text-align: left; }
+}
+.capture-db { color: var(--db); }
+.capture-log { color: var(--log); }
+.capture-redis { color: var(--redis); }
+.capture-na { color: var(--text-faint); font-size: 0.74rem; }
+.capture-sw {
+  width: 32px;
+  height: 18px;
+  border-radius: 999px;
+  border: 0;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.12);
+  position: relative;
+  cursor: pointer;
+  vertical-align: middle;
+
+  &::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #bdbdc4;
+    transition: left 0.15s;
+  }
+  &.on::after { left: 16px; background: #fff; }
+  &.on.in { background: var(--green); }
+  &.on.sql { background: var(--db); }
+  &.on.log { background: color-mix(in srgb, var(--log) 75%, #000); }
+  &.on.rds { background: var(--redis); }
+  &.blocked { opacity: 0.35; cursor: not-allowed; }
+}
+.capture-gear { background: none; border: 0; color: var(--text-dim); cursor: pointer; font-size: 0.95rem;
+  &:hover, &[aria-expanded='true'] { color: var(--purple-light); }
+}
+
 .sources-spacer {
   flex: 1;
 }
@@ -450,6 +650,42 @@ header h1 {
     background: color-mix(in srgb, var(--purple) 22%, transparent);
   }
 }
+
+// The search box: active filters as chips inside it, then the text field, then a "/" hint.
+.toolbar-search-box {
+  flex: 1 1 320px;
+  min-width: 220px;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0 0.6rem;
+  background: var(--card-inner);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  cursor: text;
+  overflow: hidden;
+
+  &:focus-within { border-color: var(--purple); }
+
+  .controls & input.toolbar-search[type='text'] {
+    flex: 1 1 120px;
+    min-width: 100px;
+    border: 0;
+    background: none;
+    padding: 0.55rem 0.2rem;
+  }
+  .active-filter-chip { flex-shrink: 0; max-width: 14rem; padding: 0.1rem 0.5rem; border-radius: 6px; }
+}
+.toolbar-search-icon { color: var(--text-faint); }
+.toolbar-kbd {
+  font-size: 0.68rem;
+  color: var(--text-dim);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  padding: 0 0.3rem;
+  flex-shrink: 0;
+}
+.segmented-icon { margin-right: 0.4rem; }
 
 .toolbar-icon-btn {
   padding: 0.4rem 0.6rem;
@@ -10388,7 +10624,7 @@ app-name-suggest {
 // Board (specs/014-task-board): the Board tab, a session cycle's Board / Brief tabs, mention chips, the card drawer.
 // ---------------------------------------------------------------------------------------------------------------------
 
-.board-page { padding: 0.75rem 1.25rem 3rem; }
+.board-page { padding: 0.75rem 1.25rem 6rem; }
 .board-head { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.6rem;
   h1 { margin: 0; font-size: 1.15rem; }
   select { background: var(--card-inner); color: var(--text); border: 1px solid var(--border-strong); border-radius: 8px; padding: 0.3rem 0.6rem; }
@@ -10802,7 +11038,8 @@ body.card-window .tab-nav { display: none; }
   button.on { color: var(--text); border-bottom-color: var(--purple); }
 }
 .cycle-tab-count { font-size: 0.65rem; background: color-mix(in srgb, var(--red) 20%, transparent); color: var(--red); border-radius: 99px; padding: 0 0.4rem; margin-left: 0.25rem; }
-app-board-view { display: block; padding: 0 1.25rem; }
+// Bottom room like the Board tab (.board-page): the columns never run into the window edge.
+app-board-view { display: block; padding: 0 1.25rem 6rem; }
 .board-page app-board-view { padding: 0; }
 
 @media (max-width: 900px) {

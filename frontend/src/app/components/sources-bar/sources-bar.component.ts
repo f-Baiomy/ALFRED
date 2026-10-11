@@ -1,10 +1,14 @@
-import { Component, inject, input, output, signal } from '@angular/core';
+import { Component, ElementRef, HostListener, inject, input, output, signal } from '@angular/core';
 import { InternalCallServiceDto } from '../../core/services/internal-logging-api.service';
 import { EXTERNAL_SOURCE_KEY } from '../../shared/utils/call-utils';
 import { DbCaptureStateService } from '../../core/state/db-capture-state.service';
 import { DbCapturePopoverComponent } from '../db-capture/db-capture-popover.component';
 
 /**
+ * Two jobs, kept apart: "Show" chips filter which sources the list includes (a checkbox each, with small read-only
+ * IN/SQL/LOG/RDS tags saying what that project captures), and the Capture table (a popover) holds the per-project
+ * switches - inbound logging, ◆ SQL, ▤ log lines, ⬢ Redis - plus ⚙ for the database capture settings.
+ *
  * Replaces the old three-option External/Internal/Both dropdown with a per-source pill row: one
  * pill for "External" plus one per configured internal project (including its reserved "unknown"
  * bucket) - each independently toggleable in the view (click the pill body) and, for an internal
@@ -28,6 +32,19 @@ export class SourcesBarComponent {
   protected readonly db = inject(DbCaptureStateService);
   readonly popoverFor = signal<string | null>(null);
   readonly popoverAnchor = signal<HTMLElement | null>(null);
+  readonly captureOpen = signal(false);
+  private readonly host = inject(ElementRef<HTMLElement>);
+
+  /** The Capture table closes on a click anywhere outside this bar, or on Escape (unless ⚙'s popover is open). */
+  @HostListener('document:click', ['$event'])
+  onDocumentClick(event: MouseEvent): void {
+    if (this.captureOpen() && !this.host.nativeElement.contains(event.target as Node)) this.captureOpen.set(false);
+  }
+
+  @HostListener('document:keydown.escape')
+  onEscape(): void {
+    if (!this.popoverFor()) this.captureOpen.set(false);
+  }
 
   readonly selected = input.required<ReadonlySet<string>>();
   readonly internalServices = input<readonly InternalCallServiceDto[]>([]);
