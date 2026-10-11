@@ -11,9 +11,8 @@
 // ---------- Theming ----------
 //
 // Every color/surface in this file reads one of the variables below rather than a literal value,
-// so a theme is nothing more than one `[data-theme="..."]` block overriding these same names -
-// see the bottom of this file for the other seven. `ThemeService` sets `data-theme` on <html>;
-// nothing else in the app needs to know a theme switch happened.
+// so the one theme, Slate, is a `[data-theme="slate"]` block overriding these same names - see
+// the bottom of this file. index.html sets `data-theme="slate"` on <html>.
 //
 // Naming deliberately mirrors `shared/utils/html-builder.ts`'s exported-document palette
 // (--card, --card-inner, --tok-key/string/number/bool/null, --purple-light, --text*, --green/
@@ -22,10 +21,7 @@
 :root {
   // Hints the browser to render native controls - <select> dropdown popups, scrollbars, date
   // pickers - in its own dark palette instead of defaulting to a jarring white popup on a dark
-  // page. The three light-ish themes below override this back to `light`; every dark theme
-  // inherits this value unchanged (color-scheme isn't a custom property, but since none of the
-  // dark [data-theme] blocks redeclare it, this :root declaration is what actually applies to
-  // them - only light/light-glass/easy need their own override).
+  // page. The Slate block below doesn't redeclare it, so this value is what applies.
   color-scheme: dark;
   --bg: radial-gradient(ellipse at top, #131a4a 0%, #0a0e2a 55%); // page background (solid or gradient)
   --nav-bg: linear-gradient(120deg, #1a1247 0%, #0f1438 60%, #1a1247 100%); // header / tab-nav
@@ -3770,198 +3766,8 @@ mark.hl.active {
 
 // ---------- Themes ----------
 //
-// Dark (:root, above) is the default/original look. Every other theme is just an override of the
-// same variable names for `html[data-theme="..."]` - nothing else in this file, and no component,
-// needs to know which theme is active.
-
-[data-theme='light'] {
-  color-scheme: light;
-  --bg: #eef1f6;
-  --nav-bg: #ffffff;
-  --card: #ffffff;
-  --card-elevated: #ffffff;
-  --card-inner: #f5f6f9;
-  --panel-bg: rgba(245, 246, 249, 0.9);
-  --bg-2: #f5f6f9;
-  --border: #dde1e8;
-  --border-strong: #c7cdd9;
-  --purple: #7c3aed;
-  --purple-light: #6d28d9;
-  --cyan: #0891b2;
-  --text: #1f2430;
-  --text-dim: #5b6577;
-  --text-faint: #8b93a3;
-  --green: #15803d;
-  --amber: #b45309;
-  --red: #dc2626;
-  --tok-key: #6d28d9;
-  --tok-string: #0e7490;
-  --tok-number: #c2410c;
-  --tok-bool: #be185d;
-  --tok-null: #6b7280;
-  --card-blur: 0px;
-  /* Opaque, always - the surface a floating panel of TEXT sits on. Glass themes make
-     every other surface variable translucent, which is right for a card resting on the
-     page and unreadable for a popover resting on arbitrary content. */
-  --popover-solid: #ffffff;
-}
-
-[data-theme='light-glass'] {
-  color-scheme: light;
-  --bg: linear-gradient(135deg, #7dd3fc, #c4b5fd);
-  --nav-bg: rgba(255, 255, 255, 0.35);
-  --card: rgba(255, 255, 255, 0.35);
-  --card-elevated: rgba(255, 255, 255, 0.45);
-  --card-inner: rgba(255, 255, 255, 0.2);
-  --panel-bg: rgba(255, 255, 255, 0.25);
-  --bg-2: rgba(255, 255, 255, 0.3);
-  --border: rgba(255, 255, 255, 0.5);
-  --border-strong: rgba(255, 255, 255, 0.7);
-  --purple: #7c3aed;
-  --purple-light: #4c1d95;
-  --cyan: #075985;
-  --text: #1e2a4a;
-  --text-dim: #334155;
-  --text-faint: #64748b;
-  --green: #065f46;
-  --amber: #92400e;
-  --red: #9f1239;
-  --tok-key: #4c1d95;
-  --tok-string: #0e5f52;
-  --tok-number: #9a4a10;
-  --tok-bool: #9f1239;
-  --tok-null: #475569;
-  --card-blur: 10px;
-  /* Opaque, always - the surface a floating panel of TEXT sits on. Glass themes make
-     every other surface variable translucent, which is right for a card resting on the
-     page and unreadable for a popover resting on arbitrary content. */
-  --popover-solid: #eef4fb;
-}
-
-[data-theme='easy'] {
-  color-scheme: light;
-  --bg: #ffffff;
-  --nav-bg: #ffffff;
-  --card: #ffffff;
-  --card-elevated: #ffffff;
-  --card-inner: #f0f0f0;
-  --panel-bg: #f0f0f0;
-  --bg-2: #f0f0f0;
-  --border: #000000;
-  --border-strong: #000000;
-  --purple: #000000;
-  --purple-light: #000000;
-  --cyan: #000000;
-  --text: #000000;
-  --text-dim: #000000;
-  --text-faint: #333333;
-  --green: #0a6e2f;
-  --amber: #7a5b00;
-  --red: #b00020;
-  --tok-key: #000000;
-  --tok-string: #000000;
-  --tok-number: #000000;
-  --tok-bool: #000000;
-  --tok-null: #333333;
-  --card-blur: 0px;
-  /* Opaque, always - the surface a floating panel of TEXT sits on. Glass themes make
-     every other surface variable translucent, which is right for a card resting on the
-     page and unreadable for a popover resting on arbitrary content. */
-  --popover-solid: #ffffff;
-}
-
-[data-theme='dracula'] {
-  --bg: #282a36;
-  --nav-bg: #282a36;
-  --card: #343746;
-  --card-elevated: linear-gradient(160deg, #343746 0%, #282a36 100%);
-  --card-inner: #21222c;
-  --panel-bg: rgba(33, 34, 44, 0.7);
-  --bg-2: #21222c;
-  --border: #44475a;
-  --border-strong: #6272a4;
-  --purple: #bd93f9;
-  --purple-light: #ff79c6;
-  --cyan: #8be9fd;
-  --text: #f8f8f2;
-  --text-dim: #a9b1d6;
-  --text-faint: #6272a4;
-  --green: #50fa7b;
-  --amber: #f1fa8c;
-  --red: #ff5555;
-  --tok-key: #ff79c6;
-  --tok-string: #8be9fd;
-  --tok-number: #bd93f9;
-  --tok-bool: #50fa7b;
-  --tok-null: #6272a4;
-  --card-blur: 0px;
-  /* Opaque, always - the surface a floating panel of TEXT sits on. Glass themes make
-     every other surface variable translucent, which is right for a card resting on the
-     page and unreadable for a popover resting on arbitrary content. */
-  --popover-solid: #343746;
-}
-
-[data-theme='midnight'] {
-  --bg: #000000;
-  --nav-bg: #000000;
-  --card: #0a0a0a;
-  --card-elevated: #0a0a0a;
-  --card-inner: #000000;
-  --panel-bg: rgba(0, 0, 0, 0.6);
-  --bg-2: #000000;
-  --border: #262626;
-  --border-strong: #3d3d3d;
-  --purple: #8b5cf6;
-  --purple-light: #a78bfa;
-  --cyan: #22d3ee;
-  --text: #e5e5e5;
-  --text-dim: #a3a3a3;
-  --text-faint: #525252;
-  --green: #4ade80;
-  --amber: #fbbf24;
-  --red: #f87171;
-  --tok-key: #a78bfa;
-  --tok-string: #4ade80;
-  --tok-number: #fb923c;
-  --tok-bool: #f472b6;
-  --tok-null: #6b6b6b;
-  --card-blur: 0px;
-  /* Opaque, always - the surface a floating panel of TEXT sits on. Glass themes make
-     every other surface variable translucent, which is right for a card resting on the
-     page and unreadable for a popover resting on arbitrary content. */
-  --popover-solid: #0d0d0f;
-}
-
-[data-theme='dark-glass'] {
-  --bg: linear-gradient(160deg, #241f3d, #141220 60%);
-  --nav-bg: rgba(255, 255, 255, 0.05);
-  --card: rgba(255, 255, 255, 0.05);
-  --card-elevated: rgba(255, 255, 255, 0.07);
-  --card-inner: rgba(0, 0, 0, 0.3);
-  --panel-bg: rgba(0, 0, 0, 0.25);
-  --bg-2: rgba(0, 0, 0, 0.2);
-  --border: rgba(255, 255, 255, 0.12);
-  --border-strong: rgba(255, 255, 255, 0.24);
-  --purple: #8b95c9;
-  --purple-light: #b9c3e8;
-  --cyan: #7fd8f0;
-  --text: #f0f0f4;
-  --text-dim: #9797a8;
-  --text-faint: #6b6b7a;
-  --green: #9fdcb8;
-  --amber: #f0d78a;
-  --red: #e29a9a;
-  --tok-key: #b9c3e8;
-  --tok-string: #9fdcb8;
-  --tok-number: #e0b98a;
-  --tok-bool: #e0a8cc;
-  --tok-null: #6b6b7a;
-  --card-blur: 6px;
-  /* Opaque, always - the surface a floating panel of TEXT sits on. Glass themes make
-     every other surface variable translucent, which is right for a card resting on the
-     page and unreadable for a popover resting on arbitrary content. */
-  --popover-solid: #241f3d;
-}
+// Slate is the only theme: index.html sets `data-theme="slate"` on <html>, and this block
+// overrides the :root values above. There is no theme picker any more.
 
 [data-theme='slate'] {
   --bg: #141416;
@@ -3994,14 +3800,7 @@ mark.hl.active {
   --popover-solid: #1e1e21;
 }
 
-// ---------- Theme picker (in the tab-nav bar, top right) ----------
-
-.theme-picker {
-  position: relative;
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-}
+// ---------- Picker popover (button + panel, shared by the select/profile/status pickers) ----------
 
 .theme-picker-btn {
   background: var(--bg-2);
@@ -4044,35 +3843,10 @@ mark.hl.active {
   margin-bottom: 0.6rem;
 }
 
-.theme-picker-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 0.5rem;
-}
-
-.theme-swatch {
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
-  border: 2px solid var(--border);
-  cursor: pointer;
-  padding: 0;
-  transition: border-color 0.15s, transform 0.1s;
-
-  &:hover {
-    border-color: var(--purple-light);
-  }
-
-  &.selected {
-    border-color: var(--purple);
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--purple) 40%, transparent);
-  }
-}
-
 // ---------- Assigned-to filter (Session Cycles list) ----------
 //
-// Same popover shape as the theme picker above (button + absolutely positioned panel, closed via
-// click-outside), but with checkboxes instead of single-select swatches since any number of
+// Same popover shape as the picker above (button + absolutely positioned panel, closed via
+// click-outside), but with checkboxes since any number of
 // assignees can be filtered on at once.
 
 .assigned-to-filter {

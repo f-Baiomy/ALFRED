@@ -19,21 +19,6 @@
   --redis-text: #ffd9cc;
 }
 
-[data-theme='light'],
-[data-theme='light-glass'],
-[data-theme='easy'] {
-  --db: #0f766e;
-  --db-sql: #1f2430;
-  --db-sql-block: #1f2430;
-  --db-kw: #0369a1;
-  --db-hql: #a21caf;
-  --log: #4d7c0f;
-  --log-text: #1f2430;
-  --db-hql-text: #86198f;
-  --redis: #c2410c;
-  --redis-text: #1f2430;
-}
-
 // ---- the ◆ DB chip on a call card ----
 .db-chip {
   display: inline-flex;

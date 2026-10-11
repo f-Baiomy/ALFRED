@@ -75,7 +75,7 @@ export class SelectPickerComponent {
     this.panelOpen.set(false);
   }
 
-  /** Closes the panel on any click outside this component - same pattern as ThemePickerComponent. */
+  /** Closes the panel on any click outside this component - same pattern as ProfilePickerComponent. */
   @HostListener('document:click', ['$event'])
   onDocumentClick(event: MouseEvent): void {
     if (!this.elementRef.nativeElement.contains(event.target as Node)) {

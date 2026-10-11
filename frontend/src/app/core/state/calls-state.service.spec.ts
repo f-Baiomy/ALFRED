@@ -449,7 +449,7 @@ describe('CallsStateService', () => {
   }));
 
   describe('view mode', () => {
-    afterEach(() => localStorage.removeItem('alfred_call_view_mode'));
+    afterEach(() => localStorage.removeItem('alfred_call_view_mode_v2'));
 
     /** Like setup(), but with real overlap evidence: two calls nested inside `parent`, which is what
      * makes it eligible to split at all (see call-utils.ts's hasBlockingEvidence). */
@@ -483,16 +483,16 @@ describe('CallsStateService', () => {
       const state = setupWithOverlaps([parent], [nested('child-a', 1000), nested('child-b', 2000)]);
       tick();
 
-      expect(state.viewMode()).toBe('flat-depth');
+      expect(state.viewMode()).toBe('waterfall');
+      expect(state.visibleRows().map((r) => r.variant)).toEqual(['full']);
+
+      state.setViewMode('flat-depth');
+      tick();
       // Newest-first (the dashboard default), so the response row - which sorts at the call's END -
       // legitimately comes before its own request row here.
       expect(state.visibleRows().map((r) => r.variant)).toEqual(['response', 'request']);
 
       state.setViewMode('nested');
-      tick();
-      expect(state.visibleRows().map((r) => r.variant)).toEqual(['full']);
-
-      state.setViewMode('waterfall');
       tick();
       expect(state.visibleRows().map((r) => r.variant)).toEqual(['full']);
       discardPeriodicTasks();

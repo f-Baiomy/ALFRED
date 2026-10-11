@@ -4,7 +4,7 @@ import { SortMode } from '../../core/models/call.model';
 /**
  * Which of the three call views the list is rendering (see call-list.component.html):
  *
- * - 'flat-depth' (the DEFAULT): today's flat, full-width cards in their normal order, each one
+ * - 'flat-depth': the flat, full-width cards in their normal order, each one
  *   additionally carrying a depth badge naming its parent and a bar showing where it sits inside
  *   its root call's window. Nothing is reordered or nested, so this is the only view that composes
  *   with every sort mode and with group-by-supplier - and the only one that keeps the
@@ -12,7 +12,7 @@ import { SortMode } from '../../core/models/call.model';
  *   call ended.
  * - 'nested': child cards render INSIDE their parent's card, so containment is literal. No split -
  *   the card already encloses its children, so request/response halves would only restate it.
- * - 'waterfall': compact one-line rows with a depth rail and a timing bar, expanding to the full
+ * - 'waterfall' (the DEFAULT): compact one-line rows with a depth rail and a timing bar, expanding to the full
  *   card on click. No split either - the bar's own edges already are the call's start and end.
  *
  * 'nested'/'waterfall' both draw a tree, which only reads correctly when the list is in time order
@@ -21,7 +21,7 @@ import { SortMode } from '../../core/models/call.model';
  */
 export type CallViewMode = 'flat-depth' | 'nested' | 'waterfall';
 
-export const DEFAULT_CALL_VIEW_MODE: CallViewMode = 'flat-depth';
+export const DEFAULT_CALL_VIEW_MODE: CallViewMode = 'waterfall';
 
 /** The view modes that can only render a coherent tree in time order - see CallViewMode's doc. */
 export function requiresChronologicalSort(mode: CallViewMode): boolean {

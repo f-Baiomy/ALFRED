@@ -7,7 +7,7 @@ const STORAGE_KEY = 'alfred-desktop-notifications';
  * toast, the real thing the operating system shows even when Alfred's tab isn't focused, since the
  * whole point is being told a caller is being held open while you're looking at something else.
  *
- * Persisted in localStorage the same way ThemeService is - this app has no login, so "the user's
+ * Persisted in localStorage - this app has no login, so "the user's
  * preference" really means "this browser's preference."
  *
  * The stored preference and the browser's actual permission are two different things that can

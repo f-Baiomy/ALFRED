@@ -9,7 +9,7 @@ interface FilterOption {
 
 /**
  * Multi-select "Assigned to" filter for the Session Cycles list - same click-to-open/
- * click-outside-to-close popover shape as ThemePickerComponent, but with checkboxes instead of
+ * click-outside-to-close popover shape as ProfilePickerComponent, but with checkboxes instead of
  * single-select swatches since any number of assignees can be filtered on at once. An empty
  * selection means "all" (the default) rather than "none match".
  */
@@ -63,7 +63,7 @@ export class AssignedToFilterComponent {
     this.cyclesState.setAssignedToFilter(new Set());
   }
 
-  /** Closes the panel on any click outside this component - same pattern as ThemePickerComponent. */
+  /** Closes the panel on any click outside this component - same pattern as ProfilePickerComponent. */
   @HostListener('document:click', ['$event'])
   onDocumentClick(event: MouseEvent): void {
     if (!this.elementRef.nativeElement.contains(event.target as Node)) {

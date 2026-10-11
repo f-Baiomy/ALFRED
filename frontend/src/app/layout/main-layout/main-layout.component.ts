@@ -4,7 +4,6 @@ import { PickBarComponent } from '../../components/pick-bar/pick-bar.component';
 import { ResendDialogComponent } from '../../components/resend-dialog/resend-dialog.component';
 import { BulkResendDialogComponent } from '../../components/bulk-resend-dialog/bulk-resend-dialog.component';
 import { RuleDialogComponent } from '../../components/rule-dialog/rule-dialog.component';
-import { ThemePickerComponent } from '../../components/theme-picker/theme-picker.component';
 import { InterceptionStateService } from '../../core/state/interception-state.service';
 import { GlobalVariablesComponent } from '../../components/global-variables/global-variables.component';
 import { CycleWidgetLaunchComponent } from '../../components/cycle-widget/cycle-widget-launch.component';
@@ -19,7 +18,7 @@ import { MentionCallPopupComponent } from '../../components/board/mention-call-p
 @Component({
   selector: 'app-main-layout',
   standalone: true,
-  imports: [RouterLink, RouterLinkActive, RouterOutlet, ThemePickerComponent, PickBarComponent, ResendDialogComponent, BulkResendDialogComponent, ScenarioToolbarComponent, RuleDialogComponent, GlobalVariablesComponent, CycleWidgetLaunchComponent, ReliveFingerprintScreenComponent, SpecViewerComponent, MentionCallPopupComponent],
+  imports: [RouterLink, RouterLinkActive, RouterOutlet, PickBarComponent, ResendDialogComponent, BulkResendDialogComponent, ScenarioToolbarComponent, RuleDialogComponent, GlobalVariablesComponent, CycleWidgetLaunchComponent, ReliveFingerprintScreenComponent, SpecViewerComponent, MentionCallPopupComponent],
   templateUrl: './main-layout.component.html',
 })
 export class MainLayoutComponent {

@@ -6,7 +6,7 @@ import { ProfilesStateService } from '../../core/state/profiles-state.service';
  * native <select>. A native select's closed box can be themed via CSS, but its open dropdown
  * list is normally drawn by the OS/browser and only partially respects `color-scheme`/`option`
  * colors depending on browser and platform - this popover (same click-to-open/click-outside-close
- * shape as ThemePickerComponent/AssignedToFilterComponent) is fully themed everywhere instead.
+ * shape as AssignedToFilterComponent) is fully themed everywhere instead.
  */
 @Component({
   selector: 'app-profile-picker',
@@ -34,7 +34,7 @@ export class ProfilePickerComponent {
     this.panelOpen.set(false);
   }
 
-  /** Closes the panel on any click outside this component - same pattern as ThemePickerComponent. */
+  /** Closes the panel on any click outside this component - same pattern as AssignedToFilterComponent. */
   @HostListener('document:click', ['$event'])
   onDocumentClick(event: MouseEvent): void {
     if (!this.elementRef.nativeElement.contains(event.target as Node)) {

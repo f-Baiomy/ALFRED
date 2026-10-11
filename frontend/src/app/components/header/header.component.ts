@@ -28,14 +28,13 @@ const SORT_OPTIONS: readonly SelectOption[] = [
   { value: 'status', label: 'Status (worst first)' },
 ];
 
-/** The three call views - see CallViewMode. 'flat-depth' leads because it's the default and the
- * only one that works under every sort mode. Rendered as a segmented control rather than a
+/** The three call views - see CallViewMode. 'waterfall' leads because it's the default. Rendered as a segmented control rather than a
  * dropdown: three mutually-exclusive views you flip between while comparing cost two clicks each
  * from inside a menu, and one from a segment. */
 const VIEW_MODE_OPTIONS: readonly SelectOption[] = [
-  { value: 'flat-depth', label: 'Flat' },
-  { value: 'nested', label: 'Nested' },
   { value: 'waterfall', label: 'Waterfall' },
+  { value: 'nested', label: 'Nested' },
+  { value: 'flat-depth', label: 'Flat' },
 ];
 
 type ActiveFilterKey = 'supplier' | 'session' | 'operation' | 'request' | 'nested' | 'interception' | 'resend' | 'db' | 'logs' | 'logwarn' | 'redis';

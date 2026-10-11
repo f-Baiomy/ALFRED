@@ -7,7 +7,7 @@ const PANEL_GAP = 8;
 
 /**
  * Popover for picking a profile avatar out of the ~350-entry AVATAR_EMOJIS pool - same
- * click-to-open/click-outside-close shape as ThemePickerComponent/ProfilePickerComponent, plus a
+ * click-to-open/click-outside-close shape as ProfilePickerComponent, plus a
  * search box (the list is too long to scan by eye) and a "Randomize" shortcut (the same picker
  * used for both "give me a fresh avatar" and "let me choose exactly").
  *
@@ -74,7 +74,7 @@ export class EmojiPickerComponent {
     this.panelOpen.set(false);
   }
 
-  /** Closes the panel on any click outside this component - same pattern as ThemePickerComponent. */
+  /** Closes the panel on any click outside this component - same pattern as ProfilePickerComponent. */
   @HostListener('document:click', ['$event'])
   onDocumentClick(event: MouseEvent): void {
     if (!this.elementRef.nativeElement.contains(event.target as Node)) {

@@ -22,8 +22,10 @@ import {
 const DEFAULT_PAGE_SIZE = 10;
 
 /** Which of the three call views the list renders - a personal display choice like
- * SHOW_OPTIONS_CALLS_KEY, so it's remembered across reloads rather than reset every visit. */
-const CALL_VIEW_MODE_KEY = 'alfred_call_view_mode';
+ * SHOW_OPTIONS_CALLS_KEY, so it's remembered across reloads rather than reset every visit.
+ * `_v2` since waterfall became the default: every browser starts on it once, whatever it saved
+ * under the old key. */
+const CALL_VIEW_MODE_KEY = 'alfred_call_view_mode_v2';
 
 const CALL_VIEW_MODES: readonly CallViewMode[] = ['flat-depth', 'nested', 'waterfall'];
 
