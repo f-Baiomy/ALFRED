@@ -1,6 +1,6 @@
 import { Component, computed, input } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
-import { Inline, markdownBlocks } from '../../../shared/utils/markdown-blocks';
+import { Inline, markdownBlocks, markdownSections } from '../../../shared/utils/markdown-blocks';
 import { MentionChipComponent } from '../mention-chip/mention-chip.component';
 
 /**
@@ -26,7 +26,9 @@ import { MentionChipComponent } from '../mention-chip/mention-chip.component';
       }
     </ng-template>
     <div class="board-md">
-      @for (b of blocks(); track $index) {
+      @for (s of sections(); track $index) {
+      <div class="board-md-section" [class.board-md-callout]="s.callout">
+      @for (b of s.blocks; track $index) {
         @switch (b.kind) {
           @case ('heading') {
             <div class="board-md-h" [class]="'board-md-h board-md-h' + b.level" [id]="idPrefix() + b.slug">
@@ -41,7 +43,21 @@ import { MentionChipComponent } from '../mention-chip/mention-chip.component';
               <ul>@for (item of b.items; track $index) { <li><ng-container *ngTemplateOutlet="inl; context: { $implicit: item }" /></li> }</ul>
             }
           }
-          @case ('code') { <pre class="board-md-pre">{{ b.text }}</pre> }
+          @case ('code') {
+            @if (b.json; as tokens) {
+              <pre class="board-md-pre board-md-json">@for (t of tokens; track $index) {@if (t.kind) {<span [class]="'tok-' + t.kind">{{ t.text }}</span>} @else {<ng-container>{{ t.text }}</ng-container>}}</pre>
+            } @else {
+              <pre class="board-md-pre">{{ b.text }}</pre>
+            }
+          }
+          @case ('quote') { <blockquote class="board-md-quote"><ng-container *ngTemplateOutlet="inl; context: { $implicit: b.inlines }" /></blockquote> }
+          @case ('facts') {
+            <div class="board-md-facts">
+              @for (f of b.facts; track $index) {
+                <span class="board-md-fact" [class.bad]="f.tone === 'bad'" [class.warn]="f.tone === 'warn'"><ng-container *ngTemplateOutlet="inl; context: { $implicit: f.inlines }" /></span>
+              }
+            </div>
+          }
           @case ('rule') { <hr /> }
           @case ('table') {
             <table class="board-md-table">
@@ -55,6 +71,8 @@ import { MentionChipComponent } from '../mention-chip/mention-chip.component';
           }
         }
       }
+      </div>
+      }
       @if (!blocks().length && empty()) { <p class="board-dim">{{ empty() }}</p> }
     </div>`,
 })
@@ -66,6 +84,8 @@ export class MarkdownViewComponent {
   readonly idPrefix = input('md-');
 
   readonly blocks = computed(() => markdownBlocks(this.text()));
+  /** The blocks split at each heading; a section headed "Next" is a callout - the one thing to do. */
+  readonly sections = computed(() => markdownSections(this.blocks()));
 
   asInlines(nodes: unknown): readonly Inline[] {
     return nodes as readonly Inline[];

@@ -59,8 +59,33 @@ the state comment, not a new question.
 - Evidence on every card, in this order, as mentions in the description: the call
   `@[call:in:<id>|METHOD /path · status]` (add `@<cycleId>` for a call in a cycle) → its ERROR / WARN log lines
   `@[log:<callId>/<lineId>|...]` → the code line from the stack trace `@[code:<path>:<line>|File.java:line]` → the SQL
-  `@[stmt:<callId>/<seq>|...]` → the spec section `@[spec:<cycleId>/<file>#<section>|...]`. Then one plain line: why it is
-  wrong. Pass the main call in `links`. When the card breaks an Acceptance item, `board_link_spec` it.
+  `@[stmt:<callId>/<seq>|...]` → the spec section `@[spec:<cycleId>/<file>#<section>|...]`. Pass the main call in
+  `links`. When the card breaks an Acceptance item, `board_link_spec` it.
+- Write every description in this shape - the board shows it as a summary, pills, labelled sections and a highlighted
+  Next box, so the reader gets cause, proof and action in that order:
+
+  ````markdown
+  **<one sentence: what goes wrong and what the user sees>**
+
+  > <fact> · <fact> · <fact>
+
+  ### Evidence
+  - @[call:in:<id>|POST /path · 405] - first failure; retried as #33-#36
+  - @[code:<path>:39|File.java:39] - throws, nothing catches it
+  ```json
+  {"status":405,"error":"METHOD_NOT_ALLOWED"}
+  ```
+
+  ### Why it's wrong
+  <one or two short sentences>
+
+  ### Next
+  <the one action, e.g. deploy the fix and re-test>
+  ````
+
+  Facts are short and countable: `405 × 5 in 6 s`, `no log line ≥ WARN`, `flow stops at search results`. One mention
+  per Evidence item with a few words after it - never a paragraph. A response body goes in a ```json block, whole
+  (the board pretty-prints it); other bodies in a plain block.
 
 ## 4. What becomes a card
 

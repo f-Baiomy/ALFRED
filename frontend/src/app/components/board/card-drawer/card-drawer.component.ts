@@ -1,3 +1,4 @@
+import { NgTemplateOutlet } from '@angular/common';
 import { Component, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
 import {
   ActivityEntry, CardDetail, CardKind, Proposal, CardStatus, FLAGS, FLAG_LABELS, Flag, KINDS, MentionRef, OPEN_STATUSES, RESOLUTION_LABELS,
@@ -17,6 +18,7 @@ import { MentionChipComponent } from '../mention-chip/mention-chip.component';
 import { MentionEditorComponent } from '../mention-editor/mention-editor.component';
 import { MentionPickerComponent } from '../mention-picker/mention-picker.component';
 import { copyToClipboard } from '../../../shared/utils/clipboard';
+import { CardViewMode } from '../../../core/services/card-view-mode.service';
 
 /**
  * One card opened (FR-027..029, mock "drawer"): status, kind, scope and flags; the description with its mentions; the
@@ -26,12 +28,21 @@ import { copyToClipboard } from '../../../shared/utils/clipboard';
 @Component({
   selector: 'app-card-drawer',
   standalone: true,
-  imports: [ActivityTimelineComponent, CardRetestComponent, MarkdownViewComponent, MentionChipComponent, MentionEditorComponent, MentionPickerComponent],
+  imports: [NgTemplateOutlet, ActivityTimelineComponent, CardRetestComponent, MarkdownViewComponent, MentionChipComponent, MentionEditorComponent, MentionPickerComponent],
   template: `
-    <aside class="board-drawer" role="dialog" aria-label="Card">
+    <ng-template #modeSwitch>
+      <div class="board-seg board-drawer-modes" role="group" aria-label="Show the card as">
+        @for (m of modes; track m.mode) {
+          <button type="button" [class.on]="layout() === m.mode" [title]="m.title" (click)="layout() !== m.mode && modeChange.emit(m.mode)">{{ m.label }}</button>
+        }
+      </div>
+    </ng-template>
+    <aside class="board-drawer" [class.board-drawer-full]="layout() !== 'side'" [class.board-drawer-window]="layout() === 'window'"
+           role="dialog" aria-label="Card">
       @if (card(); as c) {
         <div class="board-drawer-head">
           <button type="button" class="board-drawer-x" title="Close (Esc)" (click)="closed.emit()">✕</button>
+          <ng-container *ngTemplateOutlet="modeSwitch" />
           <div class="board-card-row">
             <span class="board-kind" [class]="'board-kind board-kind-' + c.kind">{{ c.kind }}</span>
             @if (c.author === 'CLAUDE') { <span class="board-ai">✦ found by Claude</span> }
@@ -92,7 +103,8 @@ import { copyToClipboard } from '../../../shared/utils/clipboard';
           }
         </div>
         <div class="board-drawer-body">
-          <section>
+          <div class="board-drawer-main">
+          <section class="board-drawer-desc">
             <h4>Description
               @if (editable() && !editingDescription()) { <button type="button" class="board-link" (click)="editingDescription.set(true)">Edit</button> }
             </h4>
@@ -105,7 +117,9 @@ import { copyToClipboard } from '../../../shared/utils/clipboard';
               <div class="board-desc"><app-markdown-view [text]="c.description" empty="No description yet." [idPrefix]="'card-' + c.id + '-'" /></div>
             }
           </section>
-          <section>
+          </div>
+          <div class="board-drawer-aside">
+          <section class="board-drawer-linked">
             <h4>Linked <span class="board-dim">from mentions</span>
               @if (editable()) { <button type="button" class="board-link" (click)="linking.set(!linking())">+ link</button> }
             </h4>
@@ -118,14 +132,14 @@ import { copyToClipboard } from '../../../shared/utils/clipboard';
             </div>
           </section>
           @if (c.specItems?.length) {
-            <section>
+            <section class="board-drawer-spec">
               <h4>Breaks the spec</h4>
               @for (i of c.specItems; track i.fileName + i.itemKey) {
                 <div class="board-spec-item">📄 {{ i.fileName }} · {{ i.text ?? '(item removed from the spec)' }}</div>
               }
             </section>
           }
-          <section>
+          <section class="board-drawer-blocked">
             <h4>Blocked by
               @if (editable()) { <button type="button" class="board-link" (click)="blocking.set(!blocking())">+ blocked by…</button> }
             </h4>
@@ -145,9 +159,10 @@ import { copyToClipboard } from '../../../shared/utils/clipboard';
             </div>
           </section>
           @if (c.status !== 'INBOX' && c.status !== 'CLOSED') {
-            <app-card-retest [card]="c" [version]="version()" [editable]="editable()" (retest)="retestRequested.emit(c.number)" />
+            <app-card-retest class="board-drawer-retest" [card]="c" [version]="version()" [editable]="editable()" (retest)="retestRequested.emit(c.number)" />
           }
-          <section>
+          </div>
+          <section class="board-drawer-activity">
             <h4>Activity · what was done <span class="board-dim">{{ activityTotal() }} entries</span></h4>
             <app-activity-timeline [entries]="activity()" [editable]="editable()" [project]="c.project" [cycleId]="c.cycleId"
                                    [card]="pickTarget()" (replied)="reply($event)" />
@@ -167,6 +182,7 @@ import { copyToClipboard } from '../../../shared/utils/clipboard';
         @if (error()) { <div class="board-error">{{ error() }}</div> }
       } @else {
         <div class="board-drawer-head"><button type="button" class="board-drawer-x" (click)="closed.emit()">✕</button>
+          <ng-container *ngTemplateOutlet="modeSwitch" />
           <span class="board-dim">{{ error() ?? 'Loading…' }}</span></div>
       }
     </aside>`,
@@ -179,6 +195,9 @@ export class CardDrawerComponent {
   readonly cardId = input.required<string>();
   readonly version = input(0);
   readonly editable = input(true);
+  /** ▐ Side, ⛶ Full or ↗ Window - the board decides; the switch in the header asks it to change. */
+  readonly layout = input<CardViewMode>('side');
+  readonly modeChange = output<CardViewMode>();
   readonly closed = output<void>();
   /** ▶ Re-test this card (specs/016): the board starts the recording. */
   readonly retestRequested = output<number>();
@@ -205,6 +224,11 @@ export class CardDrawerComponent {
   /** The description being edited when a pick from anywhere came back into it. */
   readonly descriptionDraft = signal<string | null>(null);
 
+  readonly modes: readonly { mode: CardViewMode; label: string; title: string }[] = [
+    { mode: 'side', label: '▐ Side', title: 'Side panel - the board stays visible (Shift+F)' },
+    { mode: 'full', label: '⛶ Full', title: 'Use the whole page (Shift+F)' },
+    { mode: 'window', label: '↗ Window', title: 'Open in its own window' },
+  ];
   readonly openStatuses = OPEN_STATUSES;
   readonly resolutions: readonly Resolution[] = ['FINE', 'NOT_IN_FLOW', 'WONT_FIX'];
   readonly kinds = KINDS;

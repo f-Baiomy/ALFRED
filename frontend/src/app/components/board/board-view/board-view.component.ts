@@ -12,6 +12,7 @@ import { BoardApiService } from '../../../core/services/board-api.service';
 import { BoardExportFormat, BoardExportService } from '../../../core/services/board-export.service';
 import { BoardMentionsService } from '../../../core/services/board-mentions.service';
 import { BoardStateService, messageOf } from '../../../core/state/board-state.service';
+import { CardViewMode, CardViewModeService, CardWindowTarget } from '../../../core/services/card-view-mode.service';
 import { RetestStateService } from '../../../core/state/retest-state.service';
 import { RetestStripComponent } from '../retest-strip/retest-strip.component';
 import { ActionMenuComponent } from '../../action-menu/action-menu.component';
@@ -40,6 +41,7 @@ import { UndoToastComponent } from '../undo-toast/undo-toast.component';
     BulkBarComponent, CardDrawerComponent, LiveStripComponent, NextStepsBarComponent, QuickAddComponent, QuickAnswerComponent, RetestStripComponent, TriageDialogComponent,
     UndoToastComponent],
   template: `
+    @if (!windowMode()) {
     <app-live-strip [status]="state.agent()" [editable]="state.editable()" (action)="state.agentAction($event)" />
     <app-retest-strip [project]="project()" [editable]="state.editable()" />
     <div class="board-top">
@@ -114,9 +116,10 @@ import { UndoToastComponent } from '../undo-toast/undo-toast.component';
     }
     @if (help()) { <app-board-help (closed)="help.set(false)" /> }
     @if (answering(); as id) { <app-quick-answer [cardId]="id" (closed)="answering.set(null)" /> }
+    }
     @if (state.openCardId(); as id) {
-      <app-card-drawer [cardId]="id" [version]="state.openCardVersion()" [editable]="state.editable()"
-                       (closed)="state.open(null)" (retestRequested)="retest.start([$event])" (closeRequested)="state.close($event, $event.resolution)" />
+      <app-card-drawer [cardId]="id" [version]="state.openCardVersion()" [editable]="state.editable()" [layout]="layout()"
+                       (modeChange)="changeMode(id, $event)" (closed)="closeCard()" (retestRequested)="retest.start([$event])" (closeRequested)="state.close($event, $event.resolution)" />
     }`,
 })
 export class BoardViewComponent {
@@ -132,6 +135,11 @@ export class BoardViewComponent {
   readonly cycleName = input<string | null>(null);
   /** Opens with the "cycle deleted" filter on (Settings -> Storage -> show). */
   readonly onlyCycleDeleted = input(false);
+  /** A card window (↗ Window): only the opened card is shown, the whole window. */
+  readonly windowMode = input(false);
+  private readonly cardMode = inject(CardViewModeService);
+  /** How the open card is shown here - a card window is always 'window'; a board tab shows Side or Full. */
+  readonly layout = computed<CardViewMode>(() => (this.windowMode() ? 'window' : this.cardMode.mode() === 'full' ? 'full' : 'side'));
 
   readonly kinds = KINDS;
   readonly flags = FLAGS;
@@ -174,6 +182,19 @@ export class BoardViewComponent {
     effect(() => {
       if (this.onlyCycleDeleted()) untracked(() => this.setFilters({ cycleDeleted: true }));
     });
+    // ↗ Window is the remembered choice: a card opened in a board tab goes to the card window instead.
+    effect(() => {
+      const id = this.state.openCardId();
+      if (!id || this.windowMode() || this.cardMode.mode() !== 'window') return;
+      untracked(() => this.popOut(id));
+    });
+    // A card window handing its card back (Side / Full picked there).
+    const stopListening = this.cardMode.listen((target) => {
+      if (this.windowMode()) return false;
+      this.mentions.cardToOpen.set({ project: target.project, number: target.number });
+      return true;
+    });
+    inject(DestroyRef).onDestroy(stopListening);
     effect(() => {
       const target = this.mentions.cardToOpen();
       if (!target) return;
@@ -194,6 +215,58 @@ export class BoardViewComponent {
         });
       });
     });
+  }
+
+  /** The header switch: Side / Full here, or the card moves to (or back from) its own window. */
+  changeMode(id: string, mode: CardViewMode): void {
+    if (!this.windowMode()) {
+      this.cardMode.set(mode); // 'window' pops the card out through the effect above
+      return;
+    }
+    void this.windowTarget(id).then(async (target) => {
+      if (!target) return;
+      if (await this.cardMode.dock(target, mode)) {
+        this.leaveWindow();
+        return;
+      }
+      // No board tab answered: this window becomes the board.
+      this.cardMode.set(mode);
+      window.location.href = this.cardMode.windowUrl(target).replace('&window=1', '');
+    });
+  }
+
+  closeCard(): void {
+    this.state.open(null);
+    if (this.windowMode()) this.leaveWindow();
+  }
+
+  /** Closes a card window. A browser only lets a script close a window a script opened - one typed or bookmarked
+   * stays open, so it turns into the board instead of an empty page. */
+  private leaveWindow(): void {
+    window.close();
+    setTimeout(() => {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('window');
+      url.searchParams.delete('card');
+      window.location.href = url.toString();
+    }, 300);
+  }
+
+  private popOut(id: string): void {
+    void this.windowTarget(id).then((target) => {
+      if (target) this.cardMode.popOut(target);
+    });
+    this.state.open(null);
+  }
+
+  /** What a card window needs to open the card: its project, cycle and number. */
+  private windowTarget(id: string): Promise<CardWindowTarget | null> {
+    const here = this.state.cards().find((c) => c.id === id);
+    if (here) return Promise.resolve({ project: here.project, cycleId: here.cycleId ?? null, number: here.number });
+    return new Promise((resolve) => this.api.card(id).subscribe({
+      next: (c) => resolve({ project: c.project, cycleId: c.cycleId ?? null, number: c.number }),
+      error: () => resolve(null),
+    }));
   }
 
   openCard(card: CardSummary): void {
@@ -313,6 +386,14 @@ export class BoardViewComponent {
     const target = event.target as HTMLElement | null;
     if (target && (/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) || target.isContentEditable)) return;
     if (this.triageQueue() || event.ctrlKey || event.metaKey || event.altKey) return;
+    if (this.windowMode()) {
+      if (event.key === 'Escape' && !document.querySelector('.dialog-backdrop')) this.closeCard();
+      return;
+    }
+    if (event.key === 'F' && event.shiftKey && this.state.openCardId()) {
+      this.cardMode.set(this.layout() === 'full' ? 'side' : 'full');
+      return;
+    }
     if (event.key === 'Escape') {
       // A dialog over the board (the call popup, a spec) closes itself first; the card stays open.
       if (document.querySelector('.dialog-backdrop')) return;

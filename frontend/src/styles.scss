@@ -10542,6 +10542,61 @@ app-name-suggest {
 .board-links { display: flex; flex-wrap: wrap; gap: 0.35rem; }
 .board-drawer-composer { border-top: 1px solid var(--border); padding: 0.6rem 1.1rem 0.8rem; }
 .board-drawer-danger { border-top: 1px dashed var(--border); padding-top: 0.6rem; }
+
+// ▐ Side · ⛶ Full · ↗ Window (CardViewModeService). Side is the panel above; Full and Window use the whole page with
+// the description and history on the left and what the card points at on the right.
+.board-drawer-modes { float: right; margin-right: 0.6rem; border-radius: 7px;
+  button { padding: 0.12rem 0.55rem; font-size: 0.7rem; }
+}
+.board-drawer.board-drawer-full { left: 0; width: auto; border-left: 0; box-shadow: none;
+  .board-drawer-head, .board-drawer-composer { padding-left: max(1.1rem, calc((100vw - 1400px) / 2)); padding-right: max(1.1rem, calc((100vw - 1400px) / 2)); }
+  .board-drawer-title { font-size: 1.25rem; }
+  .board-drawer-body { display: grid; grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr); grid-template-rows: auto auto 1fr;
+    grid-template-areas: "main aside" "activity aside" "danger aside"; column-gap: 1.5rem; align-content: start;
+    padding-left: max(1.1rem, calc((100vw - 1400px) / 2)); padding-right: max(1.1rem, calc((100vw - 1400px) / 2)); }
+  .board-drawer-main { grid-area: main; }
+  .board-drawer-aside { grid-area: aside; border-left: 1px solid var(--border); padding-left: 1.2rem; }
+  .board-drawer-activity { grid-area: activity; }
+  .board-drawer-danger { grid-area: danger; }
+  .board-md { font-size: 0.88rem; }
+}
+@media (max-width: 900px) {
+  .board-drawer.board-drawer-full .board-drawer-body { display: block; }
+  .board-drawer.board-drawer-full .board-drawer-aside { border-left: 0; padding-left: 0; }
+}
+// The card sits on a dark Gaussian blur, never readable through it. In Full the board behind it never scrolls - only
+// the card does; in Side the board stays usable and scrolls as usual (overscroll-behavior keeps a wheel at the card's
+// end from moving it).
+.board-drawer { background-color: color-mix(in srgb, var(--popover-solid) 86%, transparent);
+  backdrop-filter: blur(24px) saturate(110%); -webkit-backdrop-filter: blur(24px) saturate(110%);
+}
+.board-drawer-body { overscroll-behavior: contain; }
+html:has(.board-drawer-full:not(.board-drawer-window)), body:has(.board-drawer-full:not(.board-drawer-window)) { overflow: hidden; }
+// A card window has no nav: the card is the whole window.
+body.card-window .tab-nav { display: none; }
+
+// A card's description, written to the rules.md template: summary, facts, then Evidence / Why it's wrong / Next.
+// Its headings read as the drawer's own small section labels, not as document headings.
+.board-desc {
+  .board-md-section + .board-md-section { margin-top: 0.7rem; padding-top: 0.55rem; border-top: 1px solid var(--border); }
+  .board-md-h { margin: 0 0 0.3rem; font-size: 0.66rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-faint); }
+  ul { padding-left: 1.1rem; }
+  li { margin: 0.2rem 0; }
+}
+.board-md-callout { background: color-mix(in srgb, var(--purple) 9%, transparent); border: 1px solid color-mix(in srgb, var(--purple) 40%, transparent);
+  border-radius: 8px; padding: 0.4rem 0.65rem;
+  p:last-child { margin-bottom: 0; }
+}
+.board-md-facts { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0.35rem 0 0.5rem; }
+.board-md-fact { font-size: 0.72rem; border: 1px solid var(--border-strong); border-radius: 99px; padding: 0.05rem 0.6rem; color: var(--text-dim); background: var(--bg-2);
+  &.bad { color: var(--red); border-color: color-mix(in srgb, var(--red) 45%, transparent); }
+  &.warn { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 45%, transparent); }
+}
+.board-md-quote { border-left: 3px solid var(--border-strong); margin: 0.35rem 0; padding: 0.1rem 0 0.1rem 0.7rem; color: var(--text-dim); }
+.board-md-json {
+  .tok-key { color: var(--tok-key); } .tok-string { color: var(--tok-string); } .tok-number { color: var(--tok-number); }
+  .tok-bool { color: var(--tok-bool); } .tok-null { color: var(--tok-null); }
+}
 .board-timeline { border-left: 2px solid var(--border); margin-left: 0.35rem; padding-left: 0.8rem; }
 .board-ev { position: relative; margin-bottom: 0.7rem; font-size: 0.8rem;
   &::before { content: ""; position: absolute; left: -1.15rem; top: 0.3rem; width: 9px; height: 9px; border-radius: 50%; background: var(--text-faint); }

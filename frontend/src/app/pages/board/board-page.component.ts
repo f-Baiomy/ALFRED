@@ -1,4 +1,4 @@
-import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
+import { Component, DestroyRef, computed, effect, inject, signal, untracked } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { catchError, map, of } from 'rxjs';
@@ -22,6 +22,9 @@ import { ConfirmDialogComponent } from '../../components/confirm-dialog/confirm-
   standalone: true,
   imports: [AcceptanceChecklistComponent, BoardViewComponent, CycleBriefComponent, ConfirmDialogComponent, SpecFilesComponent],
   template: `
+    @if (windowMode()) {
+      <app-board-view [project]="project()" [cycleId]="cycleId()" [windowMode]="true" />
+    } @else {
     <div class="board-page">
       <div class="board-head">
         <h1>Board</h1>
@@ -50,6 +53,7 @@ import { ConfirmDialogComponent } from '../../components/confirm-dialog/confirm-
       }
       <app-board-view [project]="project()" [cycleId]="cycleId()" [cycleName]="cycleName()" [onlyCycleDeleted]="onlyCycleDeleted()" />
     </div>
+    }
     <!-- The card drawer's "Delete card…" (and a call card's confirms in the call popup) ask through this - each page
          hosts its own, like every other page that confirms. Without it the question never showed and Delete did nothing. -->
     <app-confirm-dialog />`,
@@ -67,6 +71,8 @@ export class BoardPageComponent {
   /** ?cycleDeleted=1 (from Settings -> Storage): open with the "cycle deleted" filter on. */
   readonly onlyCycleDeleted = computed(() => this.query().get('cycleDeleted') === '1');
   readonly cycleId = computed(() => this.query().get('cycle'));
+  /** ?window=1: a card window (↗ Window) - only the card, no nav, no board. */
+  readonly windowMode = computed(() => this.query().get('window') === '1');
   readonly projects = toSignal(this.db.projects().pipe(map((ps) => [...ps.map((p) => p.project), '']), catchError(() => of(['']))),
     { initialValue: [''] as string[] });
   readonly cycles = toSignal(this.cyclesApi.list().pipe(catchError(() => of([] as SessionCycle[]))), { initialValue: [] as SessionCycle[] });
@@ -75,6 +81,8 @@ export class BoardPageComponent {
   readonly editable = signal(true);
 
   constructor() {
+    effect(() => document.body.classList.toggle('card-window', this.windowMode()));
+    inject(DestroyRef).onDestroy(() => document.body.classList.remove('card-window'));
     this.board.access().subscribe({ next: (a) => this.editable.set(a.editable), error: () => undefined });
     effect(() => {
       const card = this.query().get('card');

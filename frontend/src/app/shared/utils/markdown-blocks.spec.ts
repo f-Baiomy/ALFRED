@@ -1,4 +1,4 @@
-import { Block, Inline, inlines, markdownBlocks, plainText } from './markdown-blocks';
+import { Block, Inline, inlines, jsonTokens, markdownBlocks, markdownSections, plainText } from './markdown-blocks';
 
 describe('markdownBlocks', () => {
   it('reads headings with their slug, paragraphs and both kinds of list', () => {
@@ -12,7 +12,7 @@ describe('markdownBlocks', () => {
 
   it('keeps a fenced code block verbatim', () => {
     const blocks = markdownBlocks('```\nSELECT *\n  FROM t\n```');
-    expect(blocks).toEqual([{ kind: 'code', text: 'SELECT *\n  FROM t' }]);
+    expect(blocks).toEqual([{ kind: 'code', text: 'SELECT *\n  FROM t', lang: '', json: null }]);
   });
 
   it('reads a table', () => {
@@ -44,5 +44,44 @@ describe('markdownBlocks', () => {
   it('never makes markup out of HTML: a script tag stays literal text', () => {
     const blocks = markdownBlocks('<script>alert(1)</script>');
     expect(plainText((blocks[0] as Extract<Block, { kind: 'paragraph' }>).inlines)).toBe('<script>alert(1)</script>');
+  });
+
+  it('pretty-prints and colours a json block, keeping every character', () => {
+    const block = markdownBlocks('```json\n{"status":405,"ok":false,"path":"/a","x":null}\n```')[0] as Extract<Block, { kind: 'code' }>;
+    expect(block.text).toBe('{\n  "status": 405,\n  "ok": false,\n  "path": "/a",\n  "x": null\n}');
+    expect(block.json!.map((t) => t.text).join('')).toBe(block.text);
+    expect(block.json!.filter((t) => t.kind).map((t) => t.kind)).toEqual(['key', 'number', 'key', 'bool', 'key', 'string', 'key', 'null']);
+  });
+
+  it('leaves a json block that does not parse, and any other language, as written', () => {
+    const broken = markdownBlocks('```json\n{"a":\n```')[0] as Extract<Block, { kind: 'code' }>;
+    expect(broken.json).toBeNull();
+    expect(broken.text).toBe('{"a":');
+    expect((markdownBlocks('```sql\nSELECT 1\n```')[0] as Extract<Block, { kind: 'code' }>).lang).toBe('sql');
+  });
+
+  it('reads "> a · b · c" as facts with a tone, and any other quote as a quote', () => {
+    const blocks = markdownBlocks('> 405 x 5 in 6 s · no log line · flow stops at search · Galileo\n\n> just a note');
+    const facts = blocks[0] as Extract<Block, { kind: 'facts' }>;
+    expect(facts.facts.map((f) => [plainText(f.inlines), f.tone])).toEqual([
+      ['405 x 5 in 6 s', 'bad'], ['no log line', 'warn'], ['flow stops at search', 'warn'], ['Galileo', null],
+    ]);
+    expect(blocks[1].kind).toBe('quote');
+  });
+
+  it('ends a paragraph at a quote line', () => {
+    expect(markdownBlocks('Summary\n> a · b').map((b) => b.kind)).toEqual(['paragraph', 'facts']);
+  });
+
+  it('groups blocks into sections at each heading, a "Next" section being the callout', () => {
+    const sections = markdownSections(markdownBlocks('Summary\n\n### Evidence\n- x\n\n### Next\nDeploy it.'));
+    expect(sections.map((s) => [s.blocks.map((b) => b.kind), s.callout])).toEqual([
+      [['paragraph'], false], [['heading', 'list'], false], [['heading', 'paragraph'], true],
+    ]);
+  });
+
+  it('keeps JSON tokens lossless for escaped quotes', () => {
+    const text = '{\n  "a\\"b": "c\\"d"\n}';
+    expect(jsonTokens(text).map((t) => t.text).join('')).toBe(text);
   });
 });
