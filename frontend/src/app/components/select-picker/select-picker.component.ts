@@ -6,6 +6,8 @@ export interface SelectOption {
   readonly label: string;
   /** Shown on the closed button instead of `label` when the list's labels are too long for the button's place. */
   readonly buttonLabel?: string;
+  /** Listed but not choosable - e.g. a folder that is not mounted. */
+  readonly disabled?: boolean;
 }
 
 const PANEL_MAX_WIDTH = 320; // must match .select-picker-panel's max-width in styles.scss
@@ -37,13 +39,16 @@ export class SelectPickerComponent {
   readonly valueChange = output<string>();
   readonly disabled = input(false);
   readonly ariaLabel = input<string | null>(null);
+  /** Shown on the button while the value matches no option - an action menu ("+ team", "on for…") rather than a choice. */
+  readonly placeholder = input<string | null>(null);
 
   readonly panelOpen = signal(false);
   readonly panelPosition = signal({ top: 0, left: 0 });
 
   readonly currentLabel = computed(() => {
     const current = this.options().find((o) => o.value === this.value());
-    return current?.buttonLabel ?? current?.label ?? this.value();
+    // No match and no placeholder: like a native <select>, show the first option rather than an empty button.
+    return current?.buttonLabel ?? current?.label ?? this.placeholder() ?? (this.value() || this.options()[0]?.label || '');
   });
 
   private stopTracking: (() => void) | null = null;

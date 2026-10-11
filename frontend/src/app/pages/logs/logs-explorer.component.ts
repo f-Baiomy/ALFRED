@@ -1,3 +1,4 @@
+import { SelectOption, SelectPickerComponent } from '../../components/select-picker/select-picker.component';
 import { Component, DestroyRef, ElementRef, HostListener, Injector, OnInit, afterNextRender, computed, inject, signal, viewChild } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
@@ -97,7 +98,7 @@ interface AcItem {
 @Component({
   selector: 'app-logs-explorer',
   standalone: true,
-  imports: [RouterLink, DecimalPipe, FormsModule, NgTemplateOutlet, LogLineDataComponent, LogFilterEditorComponent, LogTimePanelComponent],
+  imports: [SelectPickerComponent, RouterLink, DecimalPipe, FormsModule, NgTemplateOutlet, LogLineDataComponent, LogFilterEditorComponent, LogTimePanelComponent],
   templateUrl: './logs-explorer.component.html',
 })
 export class LogsExplorerComponent implements OnInit {
@@ -125,6 +126,24 @@ export class LogsExplorerComponent implements OnInit {
   readonly recName = signal('');
   readonly recUseFilter = signal(false);
   readonly recIdField = signal('');
+  readonly exportOptions: readonly SelectOption[] = [
+    { value: 'ndjson', label: '.ndjson (raw lines)' }, { value: 'json', label: '.json' }, { value: 'md', label: '.md' }, { value: 'html', label: '.html' },
+  ];
+  private readonly levelSortCache = new Map<number, readonly SelectOption[]>();
+
+  /** "L1 time ↑" … for grouping level i. */
+  levelSortOptions(i: number): readonly SelectOption[] {
+    let options = this.levelSortCache.get(i);
+    if (!options) {
+      const l = `L${i + 1}`;
+      options = [
+        { value: 'TIME_ASC', label: `${l} time ↑` }, { value: 'TIME_DESC', label: `${l} time ↓` }, { value: 'ERRORS_DESC', label: `${l} errors ↓` },
+        { value: 'LINES_DESC', label: `${l} lines ↓` }, { value: 'MAX_DURATION_DESC', label: `${l} max duration ↓` }, { value: 'ID_ASC', label: `${l} id A→Z` },
+      ];
+      this.levelSortCache.set(i, options);
+    }
+    return options;
+  }
   readonly recIdValue = signal('');
   readonly recError = signal('');
   readonly markerText = signal<string | null>(null);
@@ -132,6 +151,7 @@ export class LogsExplorerComponent implements OnInit {
   private clockTimer: ReturnType<typeof setInterval> | null = null;
   readonly openSession = signal<SessionView | null>(null);
   /** ID fields a session can follow: correlation roles and grouping levels first, then the rest. */
+  readonly idFieldOptions = computed<SelectOption[]>(() => this.idFields().map((f) => ({ value: f, label: f })));
   readonly idFields = computed(() => {
     const first = new Set([...(this.roleLabels()['CORRELATION'] ?? []), ...this.levelLabels()]);
     return [...first, ...this.fields().map((f) => f.label).filter((l) => !first.has(l))];

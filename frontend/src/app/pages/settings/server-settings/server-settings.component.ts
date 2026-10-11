@@ -1,3 +1,4 @@
+import { SelectOption, SelectPickerComponent } from '../../../components/select-picker/select-picker.component';
 import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { HttpErrorResponse } from '@angular/common/http';
@@ -52,7 +53,7 @@ import { ServerCardComponent } from './server-card.component';
 @Component({
   selector: 'app-server-settings',
   standalone: true,
-  imports: [ServerCardComponent],
+  imports: [SelectPickerComponent, ServerCardComponent],
   templateUrl: './server-settings.component.html',
 })
 export class ServerSettingsComponent {
@@ -191,6 +192,19 @@ export class ServerSettingsComponent {
   }
 
   // ---- editing ---------------------------------------------------------------------------------------------------
+
+  private readonly enumCache = new Map<unknown, readonly SelectOption[]>();
+
+  /** A setting's allowed values as picker options, cached per list. */
+  enumOptions(values: readonly string[] | null | undefined): readonly SelectOption[] {
+    const list = values ?? [];
+    let options = this.enumCache.get(list);
+    if (!options) {
+      options = list.map((o) => ({ value: o, label: o }));
+      this.enumCache.set(list, options);
+    }
+    return options;
+  }
 
   setField(key: string, value: string): void {
     this.form.update(f => ({ ...f, [key]: value }));

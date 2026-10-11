@@ -61,24 +61,20 @@
             @if (f.sensitive) { <span class="lg-pill warn" style="margin-left: 6px">sensitive</span> }
             @if (isRebuilding(f)) { <span class="lg-pill live" style="margin-left: 6px">rebuilding</span> }
           </span>
-          <select [ngModel]="f.type" (ngModelChange)="setType(f, $event)" [attr.aria-label]="'Type of ' + f.label">
-            @for (t of types; track t) { <option [value]="t">{{ t.toLowerCase() }}</option> }
-          </select>
+          <app-select-picker class="select-compact" [options]="typeOptions" [value]="f.type" [ariaLabel]="'Type of ' + f.label"
+                             (valueChange)="setType(f, $any($event))" />
           @if (presence()) {
             <span class="lg-seen"><span class="lg-seen-bar"><span [style.width.%]="(presenceOf(f) ?? 0) * 100"></span></span>{{ percent(presenceOf(f) ?? 0) }}</span>
           }
-          <select [ngModel]="f.searchMode" (ngModelChange)="setSearch(f, $event)" [attr.aria-label]="'Search mode of ' + f.label">
-            <option value="EXACT">Exact</option><option value="TEXT">Text</option><option value="NONE">Not searched</option>
-          </select>
+          <app-select-picker class="select-compact" [options]="searchOptions" [value]="f.searchMode" [ariaLabel]="'Search mode of ' + f.label"
+                             (valueChange)="setSearch(f, $any($event))" />
           <span class="lg-row" style="gap: 4px; flex-wrap: nowrap">
-            <select [ngModel]="f.role ?? ''" (ngModelChange)="setRole(f, $event)" [attr.aria-label]="'Role of ' + f.label">
-              @for (r of roles; track r) { <option [value]="r">{{ roleLabel(r) }}</option> }
-            </select>
+            <app-select-picker class="select-compact" [options]="roleOptions" [value]="f.role ?? ''" [ariaLabel]="'Role of ' + f.label"
+                               (valueChange)="setRole(f, $any($event))" />
             @if (rankOptions(f).length > 1) {
-              <select style="width: 62px" [ngModel]="f.roleRank" (ngModelChange)="setRank(f, +$event)"
-                      [attr.aria-label]="'Order of ' + f.label + ' among its role fields'" title="Each line uses the first of these fields it has">
-                @for (n of rankOptions(f); track n) { <option [ngValue]="n">{{ ordinal(n) }}</option> }
-              </select>
+              <app-select-picker class="select-compact" [options]="rankSelect(f)" [value]="'' + f.roleRank"
+                                 [ariaLabel]="'Order of ' + f.label + ' among its role fields'" title="Each line uses the first of these fields it has"
+                                 (valueChange)="setRank(f, +$event)" />
             }
           </span>
           <button class="lg-ib" [class.on]="detailFor() === f.path" title="Format, detection, sensitive, sample" (click)="toggleDetail(f.path)">⋯</button>
@@ -134,12 +130,10 @@
     @for (lv of structure().groupLevels; track $index; let i = $index) {
       <div class="lg-lvrow">
         <span class="lg-badge">Level {{ i + 1 }}</span>
-        <select [ngModel]="lv.fieldLabel" (ngModelChange)="levelField(i, $event)" [attr.aria-label]="'Level ' + (i + 1) + ' field'">
-          @for (f of storedFields(); track f.path) { <option [value]="f.label">{{ f.label }}</option> }
-        </select>
-        <select [ngModel]="lv.sort" (ngModelChange)="levelSort(i, $event)" [attr.aria-label]="'Level ' + (i + 1) + ' sort'">
-          @for (s of sorts; track s) { <option [value]="s">sort: {{ sortLabel(s) }}</option> }
-        </select>
+        <app-select-picker class="select-compact" [options]="fieldOptions()" [value]="lv.fieldLabel" [ariaLabel]="'Level ' + (i + 1) + ' field'"
+                           (valueChange)="levelField(i, $event)" />
+        <app-select-picker class="select-compact" [options]="sortOptions" [value]="lv.sort" [ariaLabel]="'Level ' + (i + 1) + ' sort'"
+                           (valueChange)="levelSort(i, $any($event))" />
         <span class="lg-hint">{{ i === 0 ? 'top level' : 'child of level ' + i }}</span>
         <span class="lg-row">
           <button class="lg-ib" title="Move up" (click)="moveUp(i)">↑</button>
@@ -167,9 +161,8 @@
   <div class="lg-mono" style="padding: 7px 10px; background: var(--card-inner); border-radius: 8px; border: 1px solid var(--border)">{{ preview() || '(empty)' }}</div>
   <div class="lg-row" style="margin-top: 10px; flex-wrap: wrap">
     <span class="lg-dim">Time zone</span>
-    <select style="width: 200px" [ngModel]="structure().timeZone" (ngModelChange)="setZone($event)" aria-label="Time zone">
-      @for (z of zoneOptions(); track z) { <option [value]="z">{{ z }}</option> }
-    </select>
+    <app-select-picker class="select-compact" [options]="zoneSelect()" [value]="structure().timeZone" ariaLabel="Time zone"
+                       (valueChange)="setZone($event)" />
     @if (showPrivacy()) {
       <span class="lg-dim" style="margin-left: 16px">Personal data</span>
       <div class="lg-seg">

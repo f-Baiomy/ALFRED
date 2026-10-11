@@ -15,6 +15,7 @@
             type="button"
             class="filter-option-item"
             [class.active]="option.value === value()"
+            [disabled]="option.disabled"
             (click)="select(option.value)"
           >
             {{ option.label }}

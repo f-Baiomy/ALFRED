@@ -75,9 +75,8 @@
           <label class="lg-dim"><input type="checkbox" [ngModel]="recUseFilter()" (ngModelChange)="recUseFilter.set($event)" [disabled]="!pills().length" />
             only lines matching the current filter{{ pills().length ? ' (' + pills().length + ')' : ' (none set)' }}</label>
         } @else {
-          <select style="width: 170px" [ngModel]="recIdField()" (ngModelChange)="recIdField.set($event)" aria-label="ID field">
-            @for (f of idFields(); track f) { <option [value]="f">{{ f }}</option> }
-          </select>
+          <app-select-picker class="select-compact" [options]="idFieldOptions()" [value]="recIdField()" ariaLabel="ID field"
+                             (valueChange)="recIdField.set($event)" />
           <span>=</span>
           <input type="text" class="lg-mono" style="width: 180px" placeholder="value" [ngModel]="recIdValue()" (ngModelChange)="recIdValue.set($event)" aria-label="ID value" />
           <span class="lg-faint">only lines carrying it</span>
@@ -231,11 +230,8 @@
       <button class="lg-btn xs" (click)="expandTo(8)">All</button>
       <span class="lg-dim" style="margin-left: 6px">Sort:</span>
       @for (lv of s.groupLevels; track $index; let i = $index) {
-        <select style="font-size: 11px" [ngModel]="lv.sort" (ngModelChange)="setLevelSort(i, $event)" [attr.aria-label]="'Level ' + (i + 1) + ' sort'">
-          <option value="TIME_ASC">L{{ i + 1 }} time ↑</option><option value="TIME_DESC">L{{ i + 1 }} time ↓</option>
-          <option value="ERRORS_DESC">L{{ i + 1 }} errors ↓</option><option value="LINES_DESC">L{{ i + 1 }} lines ↓</option>
-          <option value="MAX_DURATION_DESC">L{{ i + 1 }} max duration ↓</option><option value="ID_ASC">L{{ i + 1 }} id A→Z</option>
-        </select>
+        <app-select-picker class="select-compact" [options]="levelSortOptions(i)" [value]="lv.sort" [ariaLabel]="'Level ' + (i + 1) + ' sort'"
+                           (valueChange)="setLevelSort(i, $any($event))" />
       }
     }
     <span class="lg-sp"></span>
@@ -262,9 +258,8 @@
       <button class="lg-btn xs" [class.primary]="sel().ids.size === 2" (click)="openCompare()" title="Exactly two rows">Compare{{ sel().ids.size === 2 ? '' : ' (pick 2)' }}</button>
       <button class="lg-btn xs" (click)="selectionOnly()">Show selection only</button>
       <button class="lg-btn xs" (click)="copyRaw()">Copy raw</button>
-      <select style="font-size: 11px" (change)="exportAs($any($event.target).value); $any($event.target).value = ''" aria-label="Export selection">
-        <option value="">Export…</option><option value="ndjson">.ndjson (raw lines)</option><option value="json">.json</option><option value="md">.md</option><option value="html">.html</option>
-      </select>
+      <app-select-picker class="select-compact" [options]="exportOptions" value="" placeholder="Export…" ariaLabel="Export selection"
+                         (valueChange)="exportAs($event)" />
       <button class="lg-btn xs" (click)="bulkComment.set(bulkComment() === null ? '' : null)">Comment on all</button>
       <button class="lg-btn xs" (click)="pinSelection()">Pin (keep forever)</button>
       <button class="lg-btn xs" (click)="bulkMsg.set('Later phase: turns the selected lines into Alfred calls, using the roles as the mapping.')">Make Alfred calls <span class="lg-faint">· later</span></button>

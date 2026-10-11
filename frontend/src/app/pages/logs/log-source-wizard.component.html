@@ -46,11 +46,8 @@
             @if (watch(); as w) {
               @if (w.folders.length) {
                 <div class="lg-row">
-                  <select id="lg-watch-folder" style="width: 360px" [ngModel]="watchFolder()" (ngModelChange)="watchFolder.set($event); loadWatchFiles()">
-                    @for (f of w.folders; track f.name) {
-                      <option [value]="f.name" [disabled]="!f.available">{{ f.name }} · {{ f.hostPath }}{{ f.available ? '' : ' (not mounted - run restart.py)' }}</option>
-                    }
-                  </select>
+                  <app-select-picker id="lg-watch-folder" [options]="folderOptions(w.folders)" [value]="watchFolder()" ariaLabel="Folder"
+                                     (valueChange)="watchFolder.set($event); loadWatchFiles()" />
                   <label class="lg-dim"><input type="checkbox" [ngModel]="watchSubfolders()" (ngModelChange)="watchSubfolders.set($event); loadWatchFiles()" /> include subfolders</label>
                   @if (w.mode === 'events') {
                     <span class="lg-pill live" title="The backend is notified by the kernel the moment a file changes">notified on change</span>
@@ -98,10 +95,8 @@
               <div class="lg-row" style="margin-top: 6px">
                 <input type="number" min="1" style="width: 110px" [ngModel]="watchLast()" (ngModelChange)="watchLast.set(+$event || 1)" aria-label="Number of lines" />
                 <span class="lg-dim">lines</span>
-                <select style="width: 200px" [ngModel]="watchPerFile()" (ngModelChange)="watchPerFile.set($event === true || $event === 'true')" aria-label="Count lines">
-                  <option [ngValue]="false">across all files</option>
-                  <option [ngValue]="true">per file</option>
-                </select>
+                <app-select-picker [options]="perFileOptions" [value]="'' + watchPerFile()" ariaLabel="Count lines"
+                                   (valueChange)="watchPerFile.set($event === 'true')" />
               </div>
             }
             <div class="lg-hint" style="margin-top: 4px">{{ watchEstimate() }}</div>
@@ -132,10 +127,8 @@
           </div>
           @if (kind() === 'FOLLOW') {
             <label for="lg-from">Start from</label>
-            <select id="lg-from" style="width: 280px" [ngModel]="fromStart()" (ngModelChange)="fromStart.set($event === true || $event === 'true')">
-              <option [ngValue]="false">end of file (new lines only)</option>
-              <option [ngValue]="true">beginning of file</option>
-            </select>
+            <app-select-picker id="lg-from" [options]="fromOptions" [value]="'' + fromStart()" ariaLabel="Read from"
+                               (valueChange)="fromStart.set($event === 'true')" />
           }
         }
 

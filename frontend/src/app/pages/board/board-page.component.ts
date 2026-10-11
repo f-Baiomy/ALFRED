@@ -1,3 +1,4 @@
+import { SelectOption, SelectPickerComponent } from '../../components/select-picker/select-picker.component';
 import { Component, DestroyRef, computed, effect, inject, signal, untracked } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
@@ -20,7 +21,7 @@ import { ConfirmDialogComponent } from '../../components/confirm-dialog/confirm-
 @Component({
   selector: 'app-board-page',
   standalone: true,
-  imports: [AcceptanceChecklistComponent, BoardViewComponent, CycleBriefComponent, ConfirmDialogComponent, SpecFilesComponent],
+  imports: [SelectPickerComponent, AcceptanceChecklistComponent, BoardViewComponent, CycleBriefComponent, ConfirmDialogComponent, SpecFilesComponent],
   template: `
     @if (windowMode()) {
       <app-board-view [project]="project()" [cycleId]="cycleId()" [windowMode]="true" />
@@ -33,13 +34,9 @@ import { ConfirmDialogComponent } from '../../components/confirm-dialog/confirm-
           <button type="button" [class.on]="!!cycleId()" (click)="go(project(), cycleId() ?? firstCycleId())">Cycle board</button>
         </div>
         @if (!cycleId()) {
-          <select [value]="project()" (change)="go($any($event.target).value, null)" aria-label="Project">
-            @for (p of projects(); track p) { <option [value]="p">{{ p || 'No project' }}</option> }
-          </select>
+          <app-select-picker [options]="projectOptions()" [value]="project()" ariaLabel="Project" (valueChange)="go($event, null)" />
         } @else {
-          <select [value]="cycleId()" (change)="go(project(), $any($event.target).value)" aria-label="Session cycle">
-            @for (c of cycles(); track c.id) { <option [value]="c.id">{{ c.name }}</option> }
-          </select>
+          <app-select-picker [options]="cycleOptions()" [value]="cycleId() ?? ''" ariaLabel="Session cycle" (valueChange)="go(project(), $event)" />
         }
       </div>
       @if (cycleId(); as id) {
@@ -76,6 +73,8 @@ export class BoardPageComponent {
   readonly projects = toSignal(this.db.projects().pipe(map((ps) => [...ps.map((p) => p.project), '']), catchError(() => of(['']))),
     { initialValue: [''] as string[] });
   readonly cycles = toSignal(this.cyclesApi.list().pipe(catchError(() => of([] as SessionCycle[]))), { initialValue: [] as SessionCycle[] });
+  readonly projectOptions = computed<SelectOption[]>(() => this.projects().map((p) => ({ value: p, label: p || 'No project' })));
+  readonly cycleOptions = computed<SelectOption[]>(() => this.cycles().map((c) => ({ value: c.id, label: c.name })));
   readonly firstCycleId = computed(() => this.cycles()[0]?.id ?? null);
   readonly cycleName = computed(() => this.cycles().find((c) => c.id === this.cycleId())?.name ?? null);
   readonly editable = signal(true);

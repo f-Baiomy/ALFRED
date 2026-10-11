@@ -1,3 +1,4 @@
+import { SelectOption, SelectPickerComponent } from '../../../components/select-picker/select-picker.component';
 import { Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { ExportDialogComponent } from '../../../components/export-dialog/export-dialog.component';
 import { StorageExportService } from '../../../core/services/storage-export.service';
@@ -55,7 +56,7 @@ export function loadPageStyles(doc: Document): void {
 @Component({
   selector: 'app-storage-settings',
   standalone: true,
-  imports: [ExportDialogComponent],
+  imports: [SelectPickerComponent, ExportDialogComponent],
   templateUrl: './storage-settings.component.html',
 })
 export class StorageSettingsComponent implements OnInit, OnDestroy {
@@ -117,10 +118,14 @@ export class StorageSettingsComponent implements OnInit, OnDestroy {
 
   readonly Math = Math;
   readonly ageChoices = [0, 1, 7, 14, 30, 90];
+  readonly ageOptions: readonly SelectOption[] = this.ageChoices.map((d) => ({ value: '' + d, label: d === 0 ? 'Never' : d === 1 ? '1 day' : d + ' days' }));
+  readonly cleanupAgeOptions: readonly SelectOption[] = [0, 1, 3, 7, 14, 30]
+    .map((d) => ({ value: '' + d, label: d === 0 ? 'Any age' : d === 1 ? '1 day' : d + ' days' }));
   readonly statusChoices: { value: CleanupRequest['status']; label: string }[] = [
     { value: '', label: 'Any status' }, { value: '2xx', label: '2xx / 3xx only' }, { value: '4xx', label: '4xx only' },
     { value: '5xx', label: '5xx / errors only' }, { value: 'options', label: 'OPTIONS preflights' },
   ];
+  readonly statusOptions: readonly SelectOption[] = this.statusChoices.map((c) => ({ value: c.value ?? '', label: c.label }));
   readonly trafficShares: ('inbound' | 'outbound')[] = ['inbound', 'outbound'];
   readonly shares = SHARES;
   readonly shareLabel = SHARE_LABEL;

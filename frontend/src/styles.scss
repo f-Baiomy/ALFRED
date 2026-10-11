@@ -84,8 +84,12 @@
 // Chromium respects background-color/color set directly on <option> for the dropdown popup list
 // (Firefox/Safari rely on `color-scheme` above instead) - without this, every themed <select>
 // still opens an unstyled, browser-default white popup regardless of the active theme.
+//
+// Every dropdown in the app is an app-select-picker (themed panel, same look everywhere). This is only the fallback for
+// a native <select> that slips in: Slate's --card is translucent, and a translucent option background turns the OS list
+// light grey, so the options get the opaque popover colour.
 select option {
-  background-color: var(--card);
+  background-color: var(--popover-solid);
   color: var(--text);
 }
 
@@ -4226,6 +4230,14 @@ mark.hl.active {
   }
 }
 
+// A select-picker in a dense row (the card drawer, settings tables, log tools): the same picker, smaller.
+.select-compact .theme-picker-btn {
+  padding: 0.22rem 0.6rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  border-radius: 7px;
+}
+
 .select-picker-panel {
   // Same fixed-positioning rationale as .emoji-picker-panel above - replaces a native <select>'s
   // OS-drawn dropdown list, which only inconsistently respects page theming across browsers.
@@ -5136,7 +5148,33 @@ h1.page-title {
     background: var(--amber);
     color: #1a1247;
   }
+
+  &.proposed {
+    background: color-mix(in srgb, var(--cyan) 18%, transparent);
+    color: var(--cyan);
+  }
 }
+
+// Rules Claude proposed (saved off, the user switches them on) - their own section above the rule list, and tags on
+// every rule Claude made.
+.proposed-rules {
+  margin: 1rem 0 1.25rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid color-mix(in srgb, var(--cyan) 35%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--cyan) 5%, transparent);
+
+  h2 { margin: 0 0 0.6rem; font-size: 1rem; .muted { font-size: 0.78rem; font-weight: 400; margin-left: 0.4rem; } }
+}
+.proposed-acts { display: flex; gap: 0.4rem; justify-content: flex-end; margin: -0.2rem 0 0.7rem; }
+.rule-tag.claude { color: var(--purple-light); border: 1px solid color-mix(in srgb, var(--purple-light) 45%, transparent); }
+.rule-tag.timed { color: var(--amber); border: 1px solid color-mix(in srgb, var(--amber) 45%, transparent); }
+.rule-tag.done { color: var(--green); border: 1px solid color-mix(in srgb, var(--green) 45%, transparent); background: none; cursor: pointer; font: inherit; font-size: 0.7rem; }
+.rule-card-line { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.3rem; font-size: 0.75rem; }
+.rule-card { font-family: var(--font-mono, monospace); color: var(--cyan); text-decoration: none; border: 1px solid color-mix(in srgb, var(--cyan) 40%, transparent);
+  border-radius: 5px; padding: 0 0.4rem; &:hover { background: color-mix(in srgb, var(--cyan) 12%, transparent); } }
+// "on for…" next to a switched-off rule: a compact select-picker.
+.rule-for .theme-picker-btn { padding: 0.25rem 0.55rem; font-size: 0.75rem; font-weight: 500; border-radius: 8px; }
 
 /* ---- Paused-call inspector ---- */
 
@@ -10800,8 +10838,9 @@ app-team-chips { display: inline-flex; flex-wrap: wrap; gap: 0.25rem; }
 .board-team-x { background: none; border: 0; padding: 0 0 0 0.15rem; color: inherit; opacity: 0.7; cursor: pointer; font-size: 0.65rem;
   &:hover { opacity: 1; }
 }
-.board-team-add { background: var(--card-inner); color: var(--text-dim); border: 1px dashed var(--border-strong); border-radius: 99px;
-  padding: 0.05rem 0.4rem; font-size: 0.7rem; cursor: pointer; }
+// "+ team" in the drawer: a compact, dashed select-picker beside the team chips.
+.board-team-add .theme-picker-btn { padding: 0.05rem 0.6rem; font-size: 0.7rem; font-weight: 500; border-radius: 99px; border-style: dashed;
+  border-color: var(--border-strong); }
 .board-pill-team { --team: #8b8b93;
   &.on { color: var(--team); border-color: color-mix(in srgb, var(--team) 60%, transparent); background: color-mix(in srgb, var(--team) 14%, transparent); }
 }

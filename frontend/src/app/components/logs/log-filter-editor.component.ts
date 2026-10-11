@@ -1,3 +1,4 @@
+import { SelectOption, SelectPickerComponent } from '../select-picker/select-picker.component';
 import { Component, ElementRef, afterNextRender, computed, effect, inject, Injector, input, output, signal, untracked, viewChild } from '@angular/core';
 import { FieldDef, FieldValues, Pill } from '../../core/models/logs.model';
 import { FilterCondition, FilterForm, formToPill, pillToForm } from '../../shared/utils/logs-filter';
@@ -10,6 +11,7 @@ import { FilterCondition, FilterForm, formToPill, pillToForm } from '../../share
 @Component({
   selector: 'app-log-filter-editor',
   standalone: true,
+  imports: [SelectPickerComponent],
   template: `
     <div class="lg-fed" (click)="$event.stopPropagation()" (keydown.escape)="cancel.emit()">
       <div class="lg-fed-h">{{ pill() ? 'Edit filter' : 'Add filter' }}</div>
@@ -42,13 +44,8 @@ import { FilterCondition, FilterForm, formToPill, pillToForm } from '../../share
       @if (fieldError()) { <div class="lg-fed-err">{{ fieldError() }}</div> }
       <div class="lg-fed-row">
         <label>Condition</label>
-        <select [value]="condition()" (change)="setCondition($any($event.target).value)" aria-label="Condition">
-          <option value="is">is</option>
-          <option value="contains">contains</option>
-          <option value="exists">exists (has any value)</option>
-          <option value="gt">greater than</option>
-          <option value="lt">less than</option>
-        </select>
+        <app-select-picker class="select-compact" [options]="conditionOptions" [value]="condition()" ariaLabel="Condition"
+                           (valueChange)="setCondition($event)" />
       </div>
       @if (condition() !== 'exists') {
         <div class="lg-fed-row">
@@ -93,6 +90,10 @@ export class LogFilterEditorComponent {
   readonly include = signal(true);
   readonly field = signal('');
   readonly condition = signal<FilterCondition>('is');
+  readonly conditionOptions: readonly SelectOption[] = [
+    { value: 'is', label: 'is' }, { value: 'contains', label: 'contains' }, { value: 'exists', label: 'exists (has any value)' },
+    { value: 'gt', label: 'greater than' }, { value: 'lt', label: 'less than' },
+  ];
   readonly valuesList = signal<readonly string[]>([]);
   readonly value = signal('');
   readonly suggestOpen = signal(false);

@@ -100,9 +100,8 @@
                           [attr.aria-pressed]="form()[s.key] === 'true'" [attr.aria-label]="s.label"><span class="switch-knob"></span></button>
                 }
                 @case ('ENUM') {
-                  <select [disabled]="!editable()" [value]="form()[s.key]" (change)="setField(s.key, $any($event.target).value)">
-                    @for (o of s.enumValues; track o) { <option [value]="o">{{ o }}</option> }
-                  </select>
+                  <app-select-picker class="select-compact" [disabled]="!editable()" [options]="enumOptions(s.enumValues)" [value]="form()[s.key]"
+                                     [ariaLabel]="s.key" (valueChange)="setField(s.key, $event)" />
                 }
                 @case ('PROJECT_LIST') {
                   <table class="server-projects">

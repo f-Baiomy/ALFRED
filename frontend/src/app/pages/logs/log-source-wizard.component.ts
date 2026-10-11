@@ -1,3 +1,4 @@
+import { SelectOption, SelectPickerComponent } from '../../components/select-picker/select-picker.component';
 import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
@@ -78,7 +79,7 @@ async function fingerprint(file: File): Promise<string> {
 @Component({
   selector: 'app-log-source-wizard',
   standalone: true,
-  imports: [FormsModule, RouterLink, DecimalPipe, LogStructureEditorComponent, ConfirmDialogComponent],
+  imports: [SelectPickerComponent, FormsModule, RouterLink, DecimalPipe, LogStructureEditorComponent, ConfirmDialogComponent],
   templateUrl: './log-source-wizard.component.html',
 })
 export class LogSourceWizardComponent implements OnInit {
@@ -117,6 +118,21 @@ export class LogSourceWizardComponent implements OnInit {
   readonly watchStart = signal<WatchStart>('LAST');
   readonly watchLast = signal(5000);
   readonly watchPerFile = signal(false);
+  readonly perFileOptions: readonly SelectOption[] = [{ value: 'false', label: 'across all files' }, { value: 'true', label: 'per file' }];
+  readonly fromOptions: readonly SelectOption[] = [
+    { value: 'false', label: 'end of file (new lines only)' }, { value: 'true', label: 'beginning of file' },
+  ];
+  private folderCache: { from: unknown; options: readonly SelectOption[] } | null = null;
+
+  /** The watch folders as picker options - one not mounted is listed but cannot be picked. Cached per list. */
+  folderOptions(folders: readonly { name: string; hostPath: string; available: boolean }[]): readonly SelectOption[] {
+    if (this.folderCache?.from !== folders) {
+      this.folderCache = { from: folders, options: folders.map((f) => ({
+        value: f.name, label: `${f.name} · ${f.hostPath}${f.available ? '' : ' (not mounted - run restart.py)'}`, disabled: !f.available,
+      })) };
+    }
+    return this.folderCache.options;
+  }
   readonly watchFiles = signal<WatchedFile[]>([]);
   readonly watchLines = signal(0);
   readonly watchFilesSeen = signal(0);

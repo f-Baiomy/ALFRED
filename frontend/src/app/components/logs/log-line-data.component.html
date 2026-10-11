@@ -132,10 +132,8 @@
     <div class="lg-cm edit" [style.margin-left.px]="indent">
       <textarea rows="2" [ngModel]="draft()" (ngModelChange)="draft.set($event); draftError.set('')" [placeholder]="'Comment on ' + (path || 'this line')" aria-label="Comment"></textarea>
       <div class="lg-row" style="margin-top: 4px">
-        <select style="max-width: 180px" [ngModel]="profileId()" (ngModelChange)="profileId.set($event)" aria-label="Comment as">
-          <option [ngValue]="null">Comment as…</option>
-          @for (p of profiles(); track p.id) { <option [ngValue]="p.id">{{ p.avatar ?? '👤' }} {{ p.name }}</option> }
-        </select>
+        <app-select-picker class="select-compact" [options]="profileOptions()" [value]="profileId() ?? ''" ariaLabel="Comment as"
+                           (valueChange)="profileId.set($event || null)" />
         <span class="lg-hint" [style.color]="draftError() ? 'var(--red)' : null">{{ draftError() || 'Commenting pins this line in Alfred.' }}</span>
         <span class="lg-sp"></span>
         <button class="lg-btn xs" (click)="editing.set(null)">Cancel</button>

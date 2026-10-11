@@ -1,3 +1,4 @@
+import { SelectOption, SelectPickerComponent } from '../select-picker/select-picker.component';
 import { Component, HostListener, computed, effect, input, model, output, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { DataView, FieldDef, FieldType, GroupLevel, GroupSort, LogStructure, PrivacyMode, Role, SearchMode } from '../../core/models/logs.model';
@@ -34,7 +35,7 @@ export function withRole(fields: readonly FieldDef[], path: string, role: Role |
 @Component({
   selector: 'app-log-structure-editor',
   standalone: true,
-  imports: [FormsModule],
+  imports: [SelectPickerComponent, FormsModule],
   templateUrl: './log-structure-editor.component.html',
 })
 export class LogStructureEditorComponent {
@@ -173,6 +174,14 @@ export class LogStructureEditorComponent {
     return templateTokens(this.structure().template).filter((t) => !labels.has(t));
   });
   readonly zoneOptions = computed(() => (ZONES.includes(this.structure().timeZone) ? ZONES : [this.structure().timeZone, ...ZONES]));
+  readonly zoneSelect = computed<SelectOption[]>(() => this.zoneOptions().map((z) => ({ value: z, label: z })));
+  readonly typeOptions: readonly SelectOption[] = this.types.map((t) => ({ value: t, label: t.toLowerCase() }));
+  readonly searchOptions: readonly SelectOption[] = [
+    { value: 'EXACT', label: 'Exact' }, { value: 'TEXT', label: 'Text' }, { value: 'NONE', label: 'Not searched' },
+  ];
+  readonly roleOptions: readonly SelectOption[] = this.roles.map((r) => ({ value: r, label: this.roleLabel(r) }));
+  readonly sortOptions: readonly SelectOption[] = this.sorts.map((s) => ({ value: s, label: 'sort: ' + this.sortLabel(s) }));
+  readonly fieldOptions = computed<SelectOption[]>(() => this.storedFields().map((f) => ({ value: f.label, label: f.label })));
 
   sortLabel(s: GroupSort): string {
     return ({ TIME_ASC: 'time ↑', TIME_DESC: 'time ↓', ERRORS_DESC: 'errors ↓', LINES_DESC: 'lines ↓', MAX_DURATION_DESC: 'max duration ↓', ID_ASC: 'id A→Z' } as const)[s];
@@ -207,6 +216,20 @@ export class LogStructureEditorComponent {
   ordinal(n: number): string {
     return n === 1 ? '1st' : n === 2 ? '2nd' : n === 3 ? '3rd' : `${n}th`;
   }
+
+  /** rankOptions as picker options; cached per field and count so the picker is not handed a new list on every check. */
+  rankSelect(f: FieldDef): readonly SelectOption[] {
+    const ranks = this.rankOptions(f);
+    const key = ranks.join(',');
+    let cached = this.rankCache.get(key);
+    if (!cached) {
+      cached = ranks.map((n) => ({ value: '' + n, label: this.ordinal(n) }));
+      this.rankCache.set(key, cached);
+    }
+    return cached;
+  }
+
+  private readonly rankCache = new Map<string, readonly SelectOption[]>();
 
   rankOptions(f: FieldDef): number[] {
     const n = f.role ? (this.roleCounts()[f.role] ?? 0) : 0;

@@ -1,3 +1,4 @@
+import { SelectOption, SelectPickerComponent } from '../../select-picker/select-picker.component';
 import { Component, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
 import {
   CardDetail, CardRetest, Expectation, ExpectationKind, RetestOutcome, RetestStep, expectationText, retestChip, suggestExpectations,
@@ -20,7 +21,7 @@ const KIND_LABELS: Record<ExpectationKind, string> = {
 @Component({
   selector: 'app-card-retest',
   standalone: true,
-  imports: [MentionChipComponent],
+  imports: [SelectPickerComponent, MentionChipComponent],
   template: `
     @if (data(); as d) {
       <section class="board-card-retest">
@@ -55,9 +56,8 @@ const KIND_LABELS: Record<ExpectationKind, string> = {
             @for (s of suggestions(); track $index) {
               <button type="button" class="board-copy" title="Add this expectation" (click)="addExpectation(s)">+ {{ text(s) }}</button>
             }
-            <select [value]="newKind()" (change)="newKind.set($any($event.target).value)">
-              @for (k of kinds; track k) { <option [value]="k">{{ kindLabels[k] }}</option> }
-            </select>
+            <app-select-picker class="select-compact" [options]="kindOptions" [value]="newKind()" ariaLabel="Expectation"
+                               (valueChange)="newKind.set($any($event))" />
             @if (newKind() === 'SQL_COUNT') {
               <input class="board-retest-in" placeholder="table (blank = all)" #t /><input class="board-retest-in short" type="number" min="0" placeholder="max" #m />
               <button type="button" class="action-btn" (click)="addExpectation({ kind: 'SQL_COUNT', table: t.value || null, max: +m.value })">Add</button>
@@ -65,8 +65,9 @@ const KIND_LABELS: Record<ExpectationKind, string> = {
               <input class="board-retest-in short" placeholder="2xx, 200, !405" #r />
               <button type="button" class="action-btn" (click)="addExpectation({ kind: 'STATUS', range: r.value })">Add</button>
             } @else if (newKind() === 'NO_LOG') {
-              <select #l><option value="ERROR">ERROR</option><option value="WARN">WARN or ERROR</option></select>
-              <button type="button" class="action-btn" (click)="addExpectation({ kind: 'NO_LOG', level: $any(l.value) })">Add</button>
+              <app-select-picker class="select-compact" [options]="logLevelOptions" [value]="noLogLevel()" ariaLabel="Log level"
+                                 (valueChange)="noLogLevel.set($any($event))" />
+              <button type="button" class="action-btn" (click)="addExpectation({ kind: 'NO_LOG', level: noLogLevel() })">Add</button>
             } @else if (newKind() === 'DURATION') {
               <input class="board-retest-in short" type="number" min="1" placeholder="ms" #ms />
               <button type="button" class="action-btn" (click)="addExpectation({ kind: 'DURATION', max: +ms.value, minCalls: 3 })">Add</button>
@@ -130,6 +131,9 @@ export class CardRetestComponent {
   readonly newKind = signal<ExpectationKind>('SQL_COUNT');
   readonly kinds = Object.keys(KIND_LABELS) as ExpectationKind[];
   readonly kindLabels = KIND_LABELS;
+  readonly kindOptions: readonly SelectOption[] = this.kinds.map((k) => ({ value: k, label: KIND_LABELS[k] }));
+  readonly logLevelOptions: readonly SelectOption[] = [{ value: 'ERROR', label: 'ERROR' }, { value: 'WARN', label: 'WARN or ERROR' }];
+  readonly noLogLevel = signal<'ERROR' | 'WARN'>('ERROR');
 
   readonly chip = computed(() => {
     const d = this.data();

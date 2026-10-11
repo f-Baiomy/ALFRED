@@ -1,5 +1,5 @@
 import { NgTemplateOutlet } from '@angular/common';
-import { Component, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
+import { Component, DestroyRef, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
 import {
   ActivityEntry, CardDetail, CardKind, Proposal, CardStatus, FLAGS, FLAG_LABELS, Flag, KINDS, MentionRef, OPEN_STATUSES, RESOLUTION_LABELS,
   Resolution, SCOPE_LABELS, STATUS_LABELS, Scope,
@@ -20,6 +20,8 @@ import { MentionPickerComponent } from '../mention-picker/mention-picker.compone
 import { copyToClipboard } from '../../../shared/utils/clipboard';
 import { CardViewMode } from '../../../core/services/card-view-mode.service';
 import { TeamsStateService } from '../../../core/state/teams-state.service';
+import { ReturnPointService } from '../../../core/services/return-point.service';
+import { SelectOption, SelectPickerComponent } from '../../select-picker/select-picker.component';
 
 /**
  * One card opened (FR-027..029, mock "drawer"): status, kind, scope and flags; the description with its mentions; the
@@ -29,7 +31,7 @@ import { TeamsStateService } from '../../../core/state/teams-state.service';
 @Component({
   selector: 'app-card-drawer',
   standalone: true,
-  imports: [NgTemplateOutlet, ActivityTimelineComponent, CardRetestComponent, MarkdownViewComponent, MentionChipComponent, MentionEditorComponent, MentionPickerComponent],
+  imports: [NgTemplateOutlet, SelectPickerComponent, ActivityTimelineComponent, CardRetestComponent, MarkdownViewComponent, MentionChipComponent, MentionEditorComponent, MentionPickerComponent],
   template: `
     <ng-template #modeSwitch>
       <div class="board-seg board-drawer-modes" role="group" aria-label="Show the card as">
@@ -66,22 +68,18 @@ import { TeamsStateService } from '../../../core/state/teams-state.service';
             <h2 class="board-drawer-title" [title]="editable() ? 'Click to rename' : ''" (click)="editable() && editingTitle.set(true)">{{ c.title }}</h2>
           }
           <div class="board-drawer-controls">
-            <label>Status
-              <select [disabled]="!editable()" [value]="statusValue()" (change)="changeStatus($any($event.target).value)">
-                @for (s of openStatuses; track s) { <option [value]="s">{{ statusLabels[s] }}</option> }
-                @for (r of resolutions; track r) { <option [value]="'CLOSED:' + r">Closed · {{ resolutionLabels[r] }}</option> }
-              </select>
-            </label>
-            <label>Kind
-              <select [disabled]="!editable()" [value]="c.kind" (change)="save({ kind: $any($event.target).value })">
-                @for (k of kinds; track k) { <option [value]="k">{{ k }}</option> }
-              </select>
-            </label>
-            <label>Scope
-              <select [disabled]="!editable()" [value]="c.scope" (change)="save({ scope: $any($event.target).value })">
-                @for (s of scopes; track s) { <option [value]="s">{{ scopeLabels[s] }}</option> }
-              </select>
-            </label>
+            <span>Status
+              <app-select-picker class="select-compact" [disabled]="!editable()" [options]="statusOptions" [value]="statusValue()"
+                                 ariaLabel="Status" (valueChange)="changeStatus($event)" />
+            </span>
+            <span>Kind
+              <app-select-picker class="select-compact" [disabled]="!editable()" [options]="kindOptions" [value]="c.kind"
+                                 ariaLabel="Kind" (valueChange)="save({ kind: $any($event) })" />
+            </span>
+            <span>Scope
+              <app-select-picker class="select-compact" [disabled]="!editable()" [options]="scopeOptions" [value]="c.scope"
+                                 ariaLabel="Scope" (valueChange)="save({ scope: $any($event) })" />
+            </span>
           </div>
           <div class="board-drawer-controls">
             @for (f of flags; track f) {
@@ -99,10 +97,8 @@ import { TeamsStateService } from '../../../core/state/teams-state.service';
               </span>
             } @empty { <span class="board-dim">No team yet</span> }
             @if (editable() && otherTeams().length) {
-              <select class="board-team-add" aria-label="Add a team" (change)="addTeam($any($event.target).value); $any($event.target).value = ''">
-                <option value="">+ team</option>
-                @for (t of otherTeams(); track t.id) { <option [value]="t.id">{{ t.icon ? t.icon + ' ' : '' }}{{ t.name }}</option> }
-              </select>
+              <app-select-picker class="board-team-add" [options]="teamOptions()" value="" placeholder="+ team" ariaLabel="Add a team"
+                                 (valueChange)="addTeam($event)" />
             }
           </div>
           @if (c.reason) { <div class="board-card-reason">Reason: “{{ c.reason }}”</div> }
@@ -247,6 +243,12 @@ export class CardDrawerComponent {
     { mode: 'window', label: '↗ Window', title: 'Open in its own window' },
   ];
   readonly openStatuses = OPEN_STATUSES;
+  readonly statusOptions: readonly SelectOption[] = [
+    ...OPEN_STATUSES.map((s) => ({ value: s, label: STATUS_LABELS[s] })),
+    ...(['FINE', 'NOT_IN_FLOW', 'WONT_FIX'] as const).map((r) => ({ value: 'CLOSED:' + r, label: 'Closed · ' + RESOLUTION_LABELS[r] })),
+  ];
+  readonly kindOptions: readonly SelectOption[] = KINDS.map((k) => ({ value: k, label: k }));
+  readonly scopeOptions: readonly SelectOption[] = (['NOT_DECIDED', 'IN_SCOPE', 'OUT_OF_SCOPE'] as const).map((s) => ({ value: s, label: SCOPE_LABELS[s] }));
   readonly resolutions: readonly Resolution[] = ['FINE', 'NOT_IN_FLOW', 'WONT_FIX'];
   readonly kinds = KINDS;
   readonly flags = FLAGS;
@@ -265,15 +267,20 @@ export class CardDrawerComponent {
     return c ? { id: c.id, project: c.project, number: c.number, cycleId: c.cycleId } : null;
   });
   private readonly teamsState = inject(TeamsStateService);
+  private readonly returns = inject(ReturnPointService);
   readonly cardTeams = computed(() => this.teamsState.of(this.card()?.teams));
   readonly otherTeams = computed(() => {
     const on = new Set(this.card()?.teams ?? []);
     return this.teamsState.teams().filter((t) => !on.has(t.id));
   });
+  readonly teamOptions = computed<SelectOption[]>(() => this.otherTeams().map((t) => ({ value: t.id, label: `${t.icon ? t.icon + ' ' : ''}${t.name}` })));
   readonly callLinks = computed(() => (this.card()?.links ?? []).filter((m) => m.type.toLowerCase() === 'call'));
 
   constructor() {
     this.teamsState.load();
+    inject(DestroyRef).onDestroy(() => {
+      if (this.returns.openCard()?.number === this.card()?.number) this.returns.openCard.set(null);
+    });
     effect(() => {
       const id = this.cardId();
       this.version();
@@ -286,6 +293,7 @@ export class CardDrawerComponent {
       next: (c) => {
         this.readAt.set(Date.now());
         this.card.set(c);
+        this.returns.openCard.set({ project: c.project, number: c.number, title: c.title });
         this.error.set(null);
         this.seen.markSeen(c);
         this.restorePickedText(c.id);

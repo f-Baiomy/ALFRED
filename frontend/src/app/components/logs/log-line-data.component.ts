@@ -1,3 +1,4 @@
+import { SelectOption, SelectPickerComponent } from '../select-picker/select-picker.component';
 import { Component, ElementRef, Injector, afterNextRender, computed, inject, input, output, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { NgTemplateOutlet } from '@angular/common';
@@ -63,7 +64,7 @@ interface TableRow {
 @Component({
   selector: 'app-log-line-data',
   standalone: true,
-  imports: [FormsModule, NgTemplateOutlet, JsonTokensComponent, JsonTreeComponent, XmlTreeNodeComponent],
+  imports: [SelectPickerComponent, FormsModule, NgTemplateOutlet, JsonTokensComponent, JsonTreeComponent, XmlTreeNodeComponent],
   templateUrl: './log-line-data.component.html',
 })
 export class LogLineDataComponent {
@@ -139,6 +140,10 @@ export class LogLineDataComponent {
   });
   readonly profiles = signal<Profile[]>([]);
   readonly profileId = signal<string | null>(readProfile());
+  readonly profileOptions = computed<SelectOption[]>(() => [
+    { value: '', label: 'Comment as…' },
+    ...this.profiles().map((p) => ({ value: p.id, label: `${p.avatar ?? '👤'} ${p.name}` })),
+  ]);
   /** Bumped when this line's remembered layout / folded groups change (they live in module maps). */
   private readonly memo = signal(0);
   private readonly lineKey = computed(() => `${this.sourceId()}|${this.line().lineId}`);
