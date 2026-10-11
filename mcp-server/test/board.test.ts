@@ -107,3 +107,33 @@ test('sectionOf keeps the heading and stops at the next one of the same level', 
   assert.equal(sectionOf('## A\nx\n### A1\ny\n## B\nz', 'a'), '## A\nx\n### A1\ny');
   assert.equal(sectionOf('no headings', 'a'), 'no headings');
 });
+
+test('board_add sends the card teams, and board_list shows them', async () => {
+  const w = await world();
+  try {
+    const r = await w.call('board_add', { project: 'p', kind: 'BUG', title: 'Upsell 405', teams: ['backend', 'frontend'] });
+    assert.equal(r.isError, false, r.text);
+    assert.deepEqual(w.fake.requests('POST', '/board/cards')[0].body.teams, ['backend', 'frontend']);
+    assert.match(r.json.card, /\{backend, frontend\} Upsell 405/);
+    const none = await w.call('board_add', { project: 'p', kind: 'TASK', title: 'No team' });
+    assert.match(none.json.teams, /board_assign/);
+  } finally { await w.close(); }
+});
+
+test('board_teams lists what each team owns, and board_assign sets teams as Claude with the reason', async () => {
+  const w = await world();
+  try {
+    const teams = await w.call('board_teams', {});
+    assert.equal(teams.isError, false, teams.text);
+    assert.match(teams.json.teams[1], /^backend: ⚙ Backend - owns: The Java services/);
+
+    await w.call('board_add', { project: 'p', kind: 'BUG', title: 'x' });
+    const r = await w.call('board_assign', { project: 'p', number: 1, teams: ['database'], reason: 'The INSERT fails' });
+    assert.equal(r.isError, false, r.text);
+    const sent = w.fake.requests('PUT', '/board/cards/card-1/teams')[0];
+    assert.deepEqual(sent.body, { teams: ['database'], reason: 'The INSERT fails' });
+    assert.equal(sent.headers?.['x-alfred-actor'], 'claude');
+    const missing = await w.call('board_assign', { project: 'p', number: 1, teams: ['qa'] });
+    assert.equal(missing.isError, true);
+  } finally { await w.close(); }
+});

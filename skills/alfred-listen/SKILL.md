@@ -24,7 +24,8 @@ Read `rules.md` in this skill's folder first and follow it - especially "What be
 - `wait_for_calls` on the cycle (new calls) and `board_wait` with `by: USER` (the user's comments, answers, moves).
 - **Each new call**: apply "What becomes a card". For a finding:
   1. `board_similar` + `board_for_call` - join an existing card (`board_link` + a state comment) instead of a new one.
-  2. `board_add` (or `board_add_many`) with `cycleId`, the evidence in the description, the main call in `links`.
+  2. `board_add` (or `board_add_many`) with `cycleId`, the evidence in the description, the main call in `links`, and
+     its `teams` (rules "Teams" - `board_teams` once at the start).
   3. Right after: the first state comment (`board_comment`, `waitingOn` USER: it waits to be sorted) and any question
      with `board_ask`; `board_link_spec` the Acceptance item it breaks.
   4. A short `add_comment` on the call in the cycle when it helps the user see the problem in place.

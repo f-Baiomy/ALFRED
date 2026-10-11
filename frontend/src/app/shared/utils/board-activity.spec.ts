@@ -24,3 +24,17 @@ describe('board-activity', () => {
     expect(changeText(entry('PROPOSAL_DISMISSED', { actor: 'USER', newValue: 'CLOSED:NOT_IN_FLOW' }))).toContain("You dismissed Claude's proposal: close as");
   });
 });
+
+describe('changeText for teams', () => {
+  const entry = (oldValue: string | null, newValue: string | null, text: string | null, actor: 'USER' | 'CLAUDE' = 'USER') =>
+    ({ id: 1, cardId: 'c', actor, kind: 'TEAMS', text, oldValue, newValue, at: '2026-10-11T10:00:00Z' }) as never;
+  const names: Record<string, string> = { backend: 'Backend', frontend: 'Frontend', database: 'Database' };
+
+  it('says who assigned which teams, what they were and why, with the teams\' names', () => {
+    expect(changeText(entry('', 'backend,frontend', 'the page hides the error', 'CLAUDE'), (id) => names[id]))
+      .toBe('Claude assigned it to Backend, Frontend - the page hides the error');
+    expect(changeText(entry('backend,frontend', 'database', null), (id) => names[id]))
+      .toBe('You reassigned it to Database (was: Backend, Frontend)');
+    expect(changeText(entry('qa', '', null))).toBe('You reassigned it to no team (was: qa)');
+  });
+});

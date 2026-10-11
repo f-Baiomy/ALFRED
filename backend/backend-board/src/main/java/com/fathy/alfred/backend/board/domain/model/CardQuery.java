@@ -7,10 +7,21 @@ import java.util.Set;
  * A board list request; every limit is clamped here so no caller can ask for unbounded work. {@code allProjects}
  * searches every board (Claude's "what am I working on"), {@code since} keeps cards changed at or after it, and
  * {@code claudeTouched} keeps cards with any history entry by Claude, {@code cycleDeleted} the cards whose cycle was deleted.
+ * {@code teams} keeps cards assigned to any of those teams ({@link #NO_TEAM} for cards with none).
  */
 public record CardQuery(String project, String cycleId, Set<CardKind> kinds, Set<CardStatus> statuses, Set<Flag> flags,
                         Actor author, boolean scopeNotDecided, String q, int offset, int limit, boolean allProjects,
-                        Instant since, boolean claudeTouched, Waiting waiting, boolean cycleDeleted) {
+                        Instant since, boolean claudeTouched, Waiting waiting, boolean cycleDeleted, Set<String> teams) {
+    /** Asks for cards with no team. */
+    public static final String NO_TEAM = "-";
+
+    /** Without a team filter. */
+    public CardQuery(String project, String cycleId, Set<CardKind> kinds, Set<CardStatus> statuses, Set<Flag> flags,
+                     Actor author, boolean scopeNotDecided, String q, int offset, int limit, boolean allProjects,
+                     Instant since, boolean claudeTouched, Waiting waiting, boolean cycleDeleted) {
+        this(project, cycleId, kinds, statuses, flags, author, scopeNotDecided, q, offset, limit, allProjects, since, claudeTouched, waiting,
+                cycleDeleted, Set.of());
+    }
 
     /** Without the "its cycle was deleted" filter. */
     public CardQuery(String project, String cycleId, Set<CardKind> kinds, Set<CardStatus> statuses, Set<Flag> flags,
@@ -37,6 +48,7 @@ public record CardQuery(String project, String cycleId, Set<CardKind> kinds, Set
         kinds = kinds == null ? Set.of() : Set.copyOf(kinds);
         statuses = statuses == null ? Set.of() : Set.copyOf(statuses);
         flags = flags == null ? Set.of() : Set.copyOf(flags);
+        teams = teams == null ? Set.of() : Set.copyOf(teams);
         q = q == null || q.isBlank() ? null : q.strip();
         offset = Math.max(0, offset);
         limit = limit <= 0 ? DEFAULT_LIMIT : Math.min(limit, MAX_LIMIT);

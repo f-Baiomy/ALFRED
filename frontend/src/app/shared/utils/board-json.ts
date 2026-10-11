@@ -26,7 +26,7 @@ export interface BoardExport {
   readonly marks: readonly ChecklistMark[];
 }
 
-const CARD_FIELDS = ['project', 'number', 'kind', 'title', 'description', 'status', 'resolution', 'reason', 'flags', 'scope', 'author',
+const CARD_FIELDS = ['project', 'number', 'kind', 'title', 'description', 'status', 'resolution', 'reason', 'flags', 'teams', 'scope', 'author',
   'cycleId', 'cycleDeleted', 'signature', 'createdAt', 'updatedAt', 'updatedBy'] as const;
 
 /** A card's links that no text of it writes - those come back from the text itself on import. */

@@ -32,6 +32,26 @@ The board (specs/014-task-board) tracks bugs, tasks, notes and questions next to
 - **Done and Closed cards are kept forever.** Only the user deletes a card, after a confirmation. A deleted card takes its history and mention rows with it.
 - **Undo** (`POST /board/cards/{id}/undo-close`): the toast offers it for 7 s, and the server allows it for 60 s. It restores the state recorded in the close's own RESOLUTION entry, and only while nothing but a reason was added after the close.
 
+## Teams
+
+Every card can be assigned to one or more **teams** (Settings → Teams, stored in board.db's `teams` table; a card keeps
+its team ids in `cards.teams`, a comma list like its flags). A problem that needs several teams is one card with all of
+them, and its description has a short `### <Team>` section per team. Alfred starts with six teams - Frontend, Backend,
+Database, Integrations, DevOps, QA - added once (`board_meta.teams_seeded`), so deleting them all does not bring them
+back. Each team has:
+
+- **Owns**: what it is responsible for, in plain words. Claude reads it (`board_teams`) to pick a card's teams.
+- **Hints**: short texts (`.java:`, `/Booking2/`, `com.x.supplier`, `galileo`, `@[stmt:`). A card created without teams
+  gets every team whose hint appears in its title or description (case ignored, `/` and `.` the same), recorded as
+  "From the teams' hints: ...". `TeamHints` in backend-board.
+
+A team's id is made from its name once and never changes, so renaming keeps every card's teams; deleting a team takes it
+off every card. Teams change through `PUT /board/cards/{id}/teams` (`{teams, reason}`) - from the drawer's Teams
+control or Claude's `board_assign`. Claude may assign or reassign **any** card at any time but must give a reason; the
+user can change them too. Every change is one `TEAMS` history entry with the old teams, the new ones and the reason.
+The board filters by team (`team=<id>`, `-` for cards with no team), and exports, "Copy as issue" and import carry the
+teams (an import keeps only the teams this Alfred has).
+
 ## Mentions
 
 `@[type:ref|label]` inside Markdown text. The grammar is in `specs/014-task-board/contracts/mention-syntax.md`; the vectors in `specs/014-task-board/vectors/mentions.json` are run by both `MentionParser.java` and `mention-syntax.ts`.

@@ -6,6 +6,7 @@ import { MentionChipComponent } from '../mention-chip/mention-chip.component';
 import { proposalTarget } from '../../../shared/utils/board-activity';
 import { skillFor, waitingText } from '../../../shared/utils/board-skills';
 import { BoardSeenService } from '../../../core/services/board-seen.service';
+import { TeamChipsComponent } from '../team-chips/team-chips.component';
 import { copyToClipboard } from '../../../shared/utils/clipboard';
 
 /** What a card asks of its board: one sort action, a reopen, or a selection toggle. */
@@ -22,7 +23,7 @@ export type CardAction =
 @Component({
   selector: 'app-board-card',
   standalone: true,
-  imports: [MentionChipComponent],
+  imports: [MentionChipComponent, TeamChipsComponent],
   template: `
     <div class="board-card" [class.selected]="selected()" [class.focused]="focused()" [class.closed]="card().status === 'CLOSED'"
          [class.blocked]="!!card().blockedBy?.length" [attr.data-card]="card().id" tabindex="-1" (click)="onClick($event)">
@@ -36,6 +37,7 @@ export type CardAction =
         @for (f of card().flags; track f) { <span class="board-flag" [class]="'board-flag board-flag-' + f">{{ flagLabel(f) }}</span> }
       </div>
       <div class="board-card-title">{{ card().title }}</div>
+      @if (card().teams?.length) { <div class="board-card-row board-card-teams"><app-team-chips [teams]="card().teams" /></div> }
       @if (card().mentionChips?.length) {
         <div class="board-card-row">
           @for (m of card().mentionChips; track m.type + m.ref) { <app-mention-chip [mention]="m" [showPreview]="false" /> }

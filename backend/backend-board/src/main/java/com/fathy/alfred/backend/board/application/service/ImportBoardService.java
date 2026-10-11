@@ -212,7 +212,20 @@ public class ImportBoardService implements ImportBoardUseCase {
                 c.hasNonNull("resolution") ? Resolution.valueOf(c.get("resolution").asText()) : null, text(c, "reason"), Set.copyOf(flags),
                 Scope.valueOf(c.path("scope").asText("NOT_DECIDED")), actor(c.path("author").asText()), text(c, "cycleId"),
                 c.path("cycleDeleted").asBoolean(false), text(c, "signature"), created, instant(c.path("updatedAt").asText()),
-                actor(c.path("updatedBy").asText()));
+                actor(c.path("updatedBy").asText()), teams(c.path("teams")));
+    }
+
+    /** The card's teams that exist here - a file from another Alfred may name teams this one does not have. */
+    private List<String> teams(JsonNode teams) {
+        java.util.Set<String> known = new java.util.HashSet<>();
+        store.teams().forEach(t -> known.add(t.id()));
+        List<String> out = new ArrayList<>();
+        teams.forEach(t -> {
+            if (known.contains(t.asText())) {
+                out.add(t.asText());
+            }
+        });
+        return out;
     }
 
     private static List<MentionRef> links(JsonNode links) {

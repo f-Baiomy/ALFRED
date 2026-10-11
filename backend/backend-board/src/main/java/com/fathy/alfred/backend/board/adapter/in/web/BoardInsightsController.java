@@ -100,13 +100,14 @@ public class BoardInsightsController {
                                     @RequestParam(required = false) String q, @RequestParam(required = false) String since,
                                     @RequestParam(defaultValue = "false") boolean claudeTouched,
                                     @RequestParam(defaultValue = "0") int offset, @RequestParam(defaultValue = "100") int limit,
-                                    @RequestParam(required = false) String waiting) {
+                                    @RequestParam(required = false) String waiting, @RequestParam(required = false) List<String> team) {
         try {
             // No project: every board.
             CardQuery query = new CardQuery(project == null ? "" : project, blankToNull(cycleId), enums(kind, CardKind::valueOf, CardKind.class),
                     enums(status, CardStatus::valueOf, CardStatus.class), enums(flag, Flag::valueOf, Flag.class), actor(author), false, q,
                     offset, limit, project == null, instant(since), claudeTouched,
-                    waiting == null || waiting.isBlank() ? null : com.fathy.alfred.backend.board.domain.model.Waiting.valueOf(waiting.strip().toUpperCase(Locale.ROOT)));
+                    waiting == null || waiting.isBlank() ? null : com.fathy.alfred.backend.board.domain.model.Waiting.valueOf(waiting.strip().toUpperCase(Locale.ROOT)),
+                    false, team == null ? java.util.Set.of() : java.util.Set.copyOf(team));
             return ResponseEntity.ok(search.search(query));
         } catch (IllegalArgumentException | DateTimeParseException e) {
             return BoardWeb.refused(CardChange.Outcome.INVALID, "Unknown filter value: " + e.getMessage());

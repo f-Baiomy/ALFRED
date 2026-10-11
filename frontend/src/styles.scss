@@ -10779,6 +10779,55 @@ app-name-suggest {
 .board-drawer-composer { border-top: 1px solid var(--border); padding: 0.6rem 1.1rem 0.8rem; }
 .board-drawer-danger { border-top: 1px dashed var(--border); padding-top: 0.6rem; }
 
+// Teams (Settings → Teams): a chip in the team's own colour, on cards, in the list, the drawer and the filters.
+.board-team {
+  --team: #8b8b93;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 1.5;
+  padding: 0 0.45rem;
+  border-radius: 99px;
+  color: var(--team);
+  border: 1px solid color-mix(in srgb, var(--team) 50%, transparent);
+  background: color-mix(in srgb, var(--team) 12%, transparent);
+  white-space: nowrap;
+}
+.board-card-teams { gap: 0.25rem; }
+app-team-chips { display: inline-flex; flex-wrap: wrap; gap: 0.25rem; }
+.board-team-x { background: none; border: 0; padding: 0 0 0 0.15rem; color: inherit; opacity: 0.7; cursor: pointer; font-size: 0.65rem;
+  &:hover { opacity: 1; }
+}
+.board-team-add { background: var(--card-inner); color: var(--text-dim); border: 1px dashed var(--border-strong); border-radius: 99px;
+  padding: 0.05rem 0.4rem; font-size: 0.7rem; cursor: pointer; }
+.board-pill-team { --team: #8b8b93;
+  &.on { color: var(--team); border-color: color-mix(in srgb, var(--team) 60%, transparent); background: color-mix(in srgb, var(--team) 14%, transparent); }
+}
+.board-filter-sep { width: 1px; align-self: stretch; background: var(--border); margin: 0 0.15rem; }
+
+.teams-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  margin: 0.5rem 0 0.75rem;
+
+  th { text-align: left; font-weight: 500; font-size: 0.7rem; color: var(--text-dim); padding: 0.3rem 0.5rem; }
+  td { border-top: 1px solid var(--border); padding: 0.5rem; vertical-align: top; }
+  code { font-size: 0.7rem; background: var(--card-inner); border: 1px solid var(--border); border-radius: 4px; padding: 0 0.3rem; margin: 0 0.2rem 0.2rem 0; display: inline-block; }
+}
+.teams-id { font-size: 0.68rem; margin-top: 0.2rem; }
+.teams-owns { color: var(--text-dim); max-width: 32rem; }
+.teams-order { white-space: nowrap; width: 3rem; .board-link { padding: 0 0.15rem; } }
+.teams-acts { white-space: nowrap; text-align: right; .board-link + .board-link { margin-left: 0.6rem; } .danger { color: var(--red); } }
+.teams-input { width: 100%; box-sizing: border-box; background: var(--card-inner); color: var(--text); border: 1px solid var(--border-strong);
+  border-radius: 6px; padding: 0.3rem 0.45rem; font: inherit; font-size: 0.8rem; }
+.teams-row { display: flex; gap: 0.4rem; margin-top: 0.35rem; align-items: center; }
+.teams-icon { width: 3.2rem; background: var(--card-inner); color: var(--text); border: 1px solid var(--border-strong); border-radius: 6px; padding: 0.25rem 0.4rem; font: inherit; }
+.teams-color { width: 2.4rem; height: 1.8rem; padding: 0; border: 1px solid var(--border-strong); border-radius: 6px; background: none; cursor: pointer; }
+.teams-editor td { background: color-mix(in srgb, var(--purple) 6%, transparent); }
+
 // ▐ Side · ⛶ Full · ↗ Window (CardViewModeService). Side is the panel above; Full and Window use the whole page with
 // the description and history on the left and what the card points at on the right.
 .board-drawer-modes { float: right; margin-right: 0.6rem; border-radius: 7px;

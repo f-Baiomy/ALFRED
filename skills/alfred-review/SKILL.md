@@ -27,7 +27,8 @@ Update `board_status` `step` as you go ("reviewing <cycle> · 34/120 calls · 3 
 
 ## 4. Fill the board
 
-- New problem → `board_add` + first state comment (+ `board_ask` for questions, `board_link_spec` for the item).
+- New problem → `board_add` with its `teams` + first state comment (+ `board_ask` for questions, `board_link_spec` for the item).
+- A card whose teams no longer fit what this recording shows → `board_assign` with the reason.
 - Problem already on a card → no new card: `board_link` the new calls and a state comment "seen again in <cycle>".
 - Two existing cards that are one problem → `board_propose` MERGE.
 - A card the user dismissed → skip.

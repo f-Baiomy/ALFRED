@@ -19,7 +19,7 @@ project (or every board). Group the entries per card.
 (`board_comment`):
 
 - **did** - what the user did and answered, in their words: "You answered Q1: No - filter the PCC list by branch.
-  You moved it Inbox → To do. You flagged it Urgent."
+  You moved it Inbox → To do. You flagged it Urgent. You set its teams to Backend + Frontend."
 - **found** - what it means: the cause or the decision now ("a bug in the import page's PCC list, not config").
 - **next** - the next step and who it waits on; pass `waitingOn`.
 

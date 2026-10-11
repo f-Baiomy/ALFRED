@@ -21,8 +21,12 @@ For each card: `board_get` and `board_evidence`. Show:
 ```
 #11 BUG  read-pnr 409 for a PCC the import page offered
 What: …one line…   Evidence: POST /read-pnr · 409, ImportBookedPnrService.java:121
+Teams: Frontend + Backend - the page offers the PCC, the service refuses it
 Recommend: To do - the page offers PCCs the branch cannot use (Acceptance 2).
 ```
+
+Check the card's teams against the evidence (rules "Teams"); propose a change in the same line ("Teams: Backend →
+Database - the INSERT fails") and apply it with `board_assign` when the user agrees or does not object.
 
 Recommendations: **To do** (real, in scope), **Fine** (expected behaviour - say why), **Not in this flow**, **merge
 into #n** (same problem), **ask first** (a decision is needed - name the question). Then wait for the user's choice
@@ -36,6 +40,7 @@ into #n** (same problem), **ask first** (a decision is needed - name the questio
   that resolution and the reason so it is one click; note it in the state comment.
 - Merge → `board_propose` MERGE into the card.
 - Ask → `board_ask` the question, `waitingOn` USER.
+- Teams the user changed or confirmed → `board_assign` (reason: "decided in triage") if not already set.
 
 `--dry`: show the recommendations for every card and stop.
 

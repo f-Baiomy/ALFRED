@@ -74,7 +74,24 @@ interface CardRow {
   waiting?: { who: string; since: string; setBy: string } | null;
   blockedBy?: { project: string; number: number; title: string; status: string }[];
   specItems?: { cycleId: string; fileName: string; itemKey: string; text: string | null }[];
+  /** Ids of the teams the card is assigned to (board_teams lists them). */
+  teams?: string[];
 }
+
+interface TeamRow { id: string; name: string; icon: string; owns: string; hints: string[] }
+
+/**
+ * How Claude picks a card's teams - shared by board_teams, board_assign and board_add so the three say the same. The
+ * evidence decides, not the endpoint's name: a 405 from a Java controller is Backend even when the page shows it.
+ */
+const TEAM_GUIDE = 'Pick teams from the evidence, using each team\'s "owns" (board_teams): the page or the request the browser sent → '
+  + 'Frontend; a Java exception, a 5xx, missing error handling or log lines → Backend; a failed, slow or repeated SQL statement → '
+  + 'Database; an outbound supplier call (Galileo, Sabre, NDC...) that errors, times out or is mapped wrong → Integrations; config, '
+  + 'deploy, certificates, Redis/infrastructure → DevOps; test data, spec or acceptance gaps → QA. A problem that needs several teams is '
+  + 'ONE card with all of them (e.g. Backend + Frontend: the API fails and the page hides it) - then write one short "### <Team>" '
+  + 'section per team in the description saying what that team changes. Reassign (board_assign) whenever new evidence moves the work.';
+const Teams = z.array(z.string().min(1).max(100)).max(20)
+  .describe('Team ids or names from board_teams, e.g. ["backend", "frontend"]. ' + 'One card can have several.');
 
 const WaitingOn = z.enum(['USER', 'CLAUDE', 'RETEST', 'NONE']).optional()
   .describe('Who the card waits on after this: USER (a question/decision), CLAUDE (your work), RETEST (a re-test cycle), NONE');
@@ -136,7 +153,8 @@ function line(c: CardRow): string {
   const state = c.resolution ? `${c.status} (${c.resolution}${c.reason ? `: ${c.reason}` : ''})` : c.status;
   const proposal = c.proposal ? ` · ✦ proposed ${target(c.proposal)} - waiting for the user` : '';
   const blocked = c.blockedBy?.length ? ` · 🔒 blocked by ${c.blockedBy.map((b) => `#${b.number}`).join(', ')}` : '';
-  return `#${c.number} ${c.kind}${flags} ${c.title} - ${state}${c.cycleId ? ` (cycle ${c.cycleId}${c.cycleDeleted ? ', deleted' : ''})` : ''}`
+  const teams = c.teams?.length ? ` {${c.teams.join(', ')}}` : '';
+  return `#${c.number} ${c.kind}${flags}${teams} ${c.title} - ${state}${c.cycleId ? ` (cycle ${c.cycleId}${c.cycleDeleted ? ', deleted' : ''})` : ''}`
     + `${c.author === 'CLAUDE' ? ' ✦' : ''}${c.commentCount ? ` · ${c.commentCount} comments` : ''}${waitingText(c)}${blocked}${proposal}`;
 }
 
@@ -263,19 +281,20 @@ export function register(server: McpServer, client: AlfredClient): void {
   // ------------------------------------------------------------------------------------------------------------ reading
 
   server.registerTool('board_list', {
-    description: 'Cards on one project\'s task board (or one cycle\'s): "#n KIND [flags] title - status (cycle)". Use board_search to look across every board.',
+    description: 'Cards on one project\'s task board (or one cycle\'s): "#n KIND [flags] {teams} title - status (cycle)". Use board_search to look across every board.',
     inputSchema: {
       project: Project,
       cycleId: z.string().optional().describe('Only this session cycle\'s cards (any project)'),
       status: z.array(Status).optional(),
       kind: z.array(Kind).optional(),
       flag: z.array(Flag).optional(),
+      team: z.array(z.string()).optional().describe('Only cards of any of these team ids; "-" for cards with no team'),
       limit: z.number().int().min(1).max(500).default(200),
     },
   }, (input) => run(async () => {
     const page = await client.get<{ cards: CardRow[]; total: number; counts: { open: number; fixed: number; done: number } }>('/board/cards', {
       query: { project: input.project, cycleId: input.cycleId, status: input.status?.join(','), kind: input.kind?.join(','),
-        flag: input.flag?.join(','), limit: input.limit },
+        flag: input.flag?.join(','), team: input.team?.join(','), limit: input.limit },
     });
     const fitted = fitItems(page.cards.map(line), 300);
     return ok({ cards: fitted.items, total: page.total, progress: page.counts, ...(fitted.cut ? { more: 'Narrow it with status/kind/flag.' } : {}) });
@@ -283,7 +302,7 @@ export function register(server: McpServer, client: AlfredClient): void {
 
   server.registerTool('board_search', {
     description: 'Cards across EVERY board (or one project / cycle), each with its latest comment - start here in a new session: '
-      + 'mine=true with status [TO_DO, IN_PROGRESS] is "what was I working on". Filters: text, status, kind, flag, author, changed since.',
+      + 'mine=true with status [TO_DO, IN_PROGRESS] is "what was I working on". Filters: text, status, kind, flag, team, author, changed since.',
     inputSchema: {
       project: z.string().optional().describe('One project; omit for every board'),
       cycleId: z.string().optional(),
@@ -291,6 +310,7 @@ export function register(server: McpServer, client: AlfredClient): void {
       status: z.array(Status).optional(),
       kind: z.array(Kind).optional(),
       flag: z.array(Flag).optional(),
+      team: z.array(z.string()).optional().describe('Only cards of any of these team ids; "-" for cards with no team'),
       author: z.enum(['USER', 'CLAUDE']).optional(),
       mine: z.boolean().default(false).describe('Only cards Claude created or wrote on'),
       since: z.string().optional().describe('ISO time: only cards changed since'),
@@ -302,8 +322,8 @@ export function register(server: McpServer, client: AlfredClient): void {
     const ctx = await maskContext(client, input.mask);
     const page = await client.get<{ cards: SearchHit[]; total: number }>('/board/search', {
       query: { project: input.project, cycleId: input.cycleId, q: input.text, status: input.status?.join(','), kind: input.kind?.join(','),
-        flag: input.flag?.join(','), author: input.author, claudeTouched: input.mine || undefined, since: input.since,
-        offset: input.offset, limit: input.limit },
+        flag: input.flag?.join(','), team: input.team?.join(','), author: input.author, claudeTouched: input.mine || undefined,
+        since: input.since, offset: input.offset, limit: input.limit },
     });
     const rows = page.cards.map((h) => hitLine(ctx, h));
     const fitted = fitItems(rows, 300);
@@ -598,13 +618,14 @@ export function register(server: McpServer, client: AlfredClient): void {
     description: 'Put a finding on the board. It always lands in the Inbox for the user to sort. Mention evidence in the description as '
       + '@[type:ref|label] (e.g. @[call:in:<id>|POST /orders · 500], @[stmt:<callId>/<seq>|INSERT ORDERS #88]) and pass the main call in links. '
       + 'Check board_similar / board_for_call first. Refused while the user paused the board, and when the user already closed the same problem '
-      + 'as Fine or Not in this flow - the refusal says which card and why.',
+      + 'as Fine or Not in this flow - the refusal says which card and why. Always pass teams. ' + TEAM_GUIDE,
     inputSchema: {
       project: Project,
       kind: Kind,
       title: z.string().min(1).max(300),
       description: z.string().max(256 * 1024).default(''),
       flags: z.array(Flag).default([]),
+      teams: Teams.default([]),
       cycleId: z.string().optional(),
       links: z.array(Link).max(100).default([]),
     },
@@ -612,19 +633,20 @@ export function register(server: McpServer, client: AlfredClient): void {
     const card = await client.post<CardRow>('/board/cards', {
       ...AS_CLAUDE,
       body: { project: input.project, kind: input.kind, title: input.title, description: input.description, flags: input.flags,
-        cycleId: input.cycleId, links: input.links },
+        teams: input.teams, cycleId: input.cycleId, links: input.links },
     });
-    return ok({ added: `#${card.number}`, status: card.status, card: line(card) });
+    return ok({ added: `#${card.number}`, status: card.status, card: line(card),
+      ...(card.teams?.length ? {} : { teams: 'none - pick them with board_assign (board_teams lists the teams)' }) });
   }));
 
   server.registerTool('board_add_many', {
-    description: 'Several findings from one scan, each like board_add (Inbox, duplicate check). Each one says added or why it was refused.',
+    description: 'Several findings from one scan, each like board_add (Inbox, duplicate check, teams). Each one says added or why it was refused.',
     inputSchema: {
       project: Project,
       cycleId: z.string().optional(),
       cards: z.array(z.object({
         kind: Kind, title: z.string().min(1).max(300), description: z.string().max(64 * 1024).default(''), flags: z.array(Flag).default([]),
-        links: z.array(Link).max(50).default([]),
+        teams: Teams.default([]), links: z.array(Link).max(50).default([]),
       })).min(1).max(30),
     },
   }, (input) => run(async () => {
@@ -632,7 +654,7 @@ export function register(server: McpServer, client: AlfredClient): void {
     for (const c of input.cards) {
       try {
         const card = await client.post<CardRow>('/board/cards', { ...AS_CLAUDE, body: { project: input.project, cycleId: input.cycleId, ...c } });
-        results.push(`added #${card.number} ${c.title}`);
+        results.push(`added #${card.number} ${c.title}${card.teams?.length ? ` {${card.teams.join(', ')}}` : ' - no team yet'}`);
       } catch (error) {
         results.push(`not added "${c.title}": ${(error as Error).message}`);
         if (/paused/i.test((error as Error).message)) break;
@@ -687,6 +709,28 @@ export function register(server: McpServer, client: AlfredClient): void {
     const card = await cardByNumber(client, input.project, input.number);
     await client.post(`/board/cards/${seg(card.id)}/comments`, { ...AS_CLAUDE, body: { question: input.question } });
     return ok({ asked: `#${card.number}`, flagged: 'NEEDS_DECISION', next: `board_wait ${JSON.stringify({ project: input.project, cursor: 'now' })}` });
+  }));
+
+  server.registerTool('board_teams', {
+    description: 'The teams cards are assigned to (Settings → Teams): id, name, what each one owns and its hints. Read it before board_add '
+      + 'or board_assign - the user can rename, add or delete teams, so never assume the defaults. ' + TEAM_GUIDE,
+    inputSchema: {},
+  }, () => run(async () => {
+    const teams = await client.get<TeamRow[]>('/board/teams');
+    return ok({ teams: teams.map((t) => `${t.id}: ${t.icon ? `${t.icon} ` : ''}${t.name} - owns: ${t.owns || '(not described)'}`
+      + `${t.hints.length ? ` · hints: ${t.hints.join(', ')}` : ''}`), noTeam: '"-" in a team filter means cards with no team' });
+  }));
+
+  server.registerTool('board_assign', {
+    description: 'Set the teams a card is assigned to - replaces them (pass [] for none). Works on any card, any time: reassign when new '
+      + 'evidence moves the work (the SQL is the problem, not the controller). reason is required and goes into the card\'s history, '
+      + 'e.g. "INSERT on TT_BOOKING fails - Database". When a card gains a team, add a short "### <Team>" section to its description '
+      + '(board_edit, your own Inbox cards) or a comment saying what that team changes. ' + TEAM_GUIDE,
+    inputSchema: { project: Project, number: CardNumber, teams: Teams, reason: z.string().min(1).max(2000) },
+  }, (input) => run(async () => {
+    const card = await cardByNumber(client, input.project, input.number);
+    const updated = await client.put<CardRow>(`/board/cards/${seg(card.id)}/teams`, { ...AS_CLAUDE, body: { teams: input.teams, reason: input.reason } });
+    return ok({ assigned: `#${updated.number}`, teams: updated.teams?.length ? updated.teams : 'none', card: line(updated) });
   }));
 
   server.registerTool('board_link', {

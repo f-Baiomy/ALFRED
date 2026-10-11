@@ -119,14 +119,15 @@ public class BoardController {
                                   @RequestParam(defaultValue = "false") boolean scopeNotDecided,
                                   @RequestParam(required = false) String q, @RequestParam(defaultValue = "0") int offset,
                                   @RequestParam(defaultValue = "200") int limit, @RequestParam(required = false) String waiting,
-                                  @RequestParam(defaultValue = "false") boolean cycleDeleted) {
+                                  @RequestParam(defaultValue = "false") boolean cycleDeleted,
+                                  @RequestParam(required = false) List<String> team) {
         try {
             CardQuery cardQuery = new CardQuery(project, blankToNull(cycleId), enums(kind, CardKind::valueOf, CardKind.class),
                     enums(status, CardStatus::valueOf, CardStatus.class), enums(flag, Flag::valueOf, Flag.class),
                     author == null || author.isBlank() ? null : Actor.valueOf(author.strip().toUpperCase(Locale.ROOT)), scopeNotDecided, q,
                     offset, limit, false, null, false,
                     waiting == null || waiting.isBlank() ? null : com.fathy.alfred.backend.board.domain.model.Waiting.valueOf(waiting.strip().toUpperCase(Locale.ROOT)),
-                    cycleDeleted);
+                    cycleDeleted, team == null ? Set.of() : Set.copyOf(team));
             return ResponseEntity.ok(query.query(cardQuery));
         } catch (IllegalArgumentException e) {
             return BoardWeb.refused(CardChange.Outcome.INVALID, "Unknown filter value: " + e.getMessage());
@@ -151,7 +152,7 @@ public class BoardController {
         List<MentionRef> refs = body.links() == null ? List.of()
                 : body.links().stream().map(l -> BoardWeb.ref(l.type(), l.ref(), l.label())).toList();
         return BoardWeb.respond(create.create(BoardWeb.actor(actor), new CreateCardUseCase.NewCard(body.project(), body.kind(),
-                body.title(), body.description(), body.flags(), body.cycleId(), body.status(), refs)), HttpStatus.CREATED);
+                body.title(), body.description(), body.flags(), body.cycleId(), body.status(), refs, body.teams())), HttpStatus.CREATED);
     }
 
     @PostMapping("/board/cards/quick")

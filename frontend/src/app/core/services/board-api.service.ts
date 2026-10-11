@@ -4,7 +4,7 @@ import { Observable } from 'rxjs';
 import {
   ActivityPage, AgentStatus, BoardAccess, BoardFilters, BoardStorage, BulkAction, CallBadge, CardDetail, CardEdit, CardStatus, CardsPage,
   CardRetest, ChecklistFile, ChecklistItem, CycleBrief, Expectation, Mark, MentionRef, NewCard, NextSteps, Resolution, RetestCheck, RetestPlan,
-  RetestReport, RetestStep, SessionLogEntry, SpecFileInfo, TestStep,
+  RetestReport, RetestStep, SessionLogEntry, SpecFileInfo, Team, TeamEdit, TestStep,
 } from '../models/board.models';
 import { AppConfigService } from './app-config.service';
 
@@ -32,6 +32,7 @@ export class BoardApiService {
     if (filters.q.trim()) params = params.set('q', filters.q.trim());
     if (filters.waiting) params = params.set('waiting', filters.waiting);
     if (filters.cycleDeleted) params = params.set('cycleDeleted', true);
+    if (filters.teams?.length) params = params.set('team', filters.teams.join(','));
     return this.http.get<CardsPage>(`${this.base}/cards`, { params });
   }
 
@@ -49,6 +50,33 @@ export class BoardApiService {
 
   quickAdd(project: string, cycleId: string | null, text: string): Observable<CardDetail> {
     return this.http.post<CardDetail>(`${this.base}/cards/quick`, { project, cycleId, text });
+  }
+
+  // ---------------------------------------------------------------------------------------------------- teams
+
+  teams(): Observable<Team[]> {
+    return this.http.get<Team[]>(`${this.base}/teams`);
+  }
+
+  createTeam(edit: TeamEdit): Observable<Team> {
+    return this.http.post<Team>(`${this.base}/teams`, edit);
+  }
+
+  updateTeam(id: string, edit: TeamEdit): Observable<Team> {
+    return this.http.put<Team>(`${this.base}/teams/${encodeURIComponent(id)}`, edit);
+  }
+
+  deleteTeam(id: string): Observable<void> {
+    return this.http.delete<void>(`${this.base}/teams/${encodeURIComponent(id)}`);
+  }
+
+  reorderTeams(ids: readonly string[]): Observable<Team[]> {
+    return this.http.put<Team[]>(`${this.base}/teams/order`, { ids });
+  }
+
+  /** Replaces the card's teams; recorded in its history with the reason. */
+  assignTeams(id: string, teams: readonly string[], reason?: string): Observable<CardDetail> {
+    return this.http.put<CardDetail>(`${this.base}/cards/${encodeURIComponent(id)}/teams`, { teams, reason: reason ?? null });
   }
 
   update(id: string, edit: CardEdit): Observable<CardDetail> {

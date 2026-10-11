@@ -1,13 +1,15 @@
 import { Component, input, output } from '@angular/core';
 import { CardSummary, FLAG_LABELS, RESOLUTION_LABELS, STATUS_LABELS, ageText } from '../../../core/models/board.models';
+import { TeamChipsComponent } from '../team-chips/team-chips.component';
 
 /** The same cards as a dense table (FR-010): for long boards and sorting at a glance. */
 @Component({
   selector: 'app-board-list-view',
   standalone: true,
+  imports: [TeamChipsComponent],
   template: `
     <table class="board-list">
-      <thead><tr><th></th><th>#</th><th>Kind</th><th>Title</th><th>Flags</th><th>Status</th><th>Cycle</th><th>By</th><th>Age</th></tr></thead>
+      <thead><tr><th></th><th>#</th><th>Kind</th><th>Title</th><th>Teams</th><th>Flags</th><th>Status</th><th>Cycle</th><th>By</th><th>Age</th></tr></thead>
       <tbody>
         @for (c of cards(); track c.id) {
           <tr [class.focused]="focusedId() === c.id" (click)="opened.emit(c)">
@@ -20,6 +22,7 @@ import { CardSummary, FLAG_LABELS, RESOLUTION_LABELS, STATUS_LABELS, ageText } f
             <td class="board-dim">#{{ c.number }}</td>
             <td><span class="board-kind" [class]="'board-kind board-kind-' + c.kind">{{ c.kind }}</span></td>
             <td>{{ c.title }}</td>
+            <td><app-team-chips [teams]="c.teams" /></td>
             <td>@for (f of c.flags; track f) { <span class="board-flag" [class]="'board-flag board-flag-' + f">{{ flagLabels[f] }}</span> }</td>
             <td>@if (c.resolution) { <span class="board-res" [class]="'board-res board-res-' + c.resolution">{{ resolutionLabels[c.resolution] }}</span> } @else { {{ statusLabels[c.status] }} }</td>
             <td class="board-cyc">{{ c.cycleId ? (c.cycleDeleted ? 'cycle deleted' : '◷ ' + c.cycleId) : '' }}</td>
@@ -27,7 +30,7 @@ import { CardSummary, FLAG_LABELS, RESOLUTION_LABELS, STATUS_LABELS, ageText } f
             <td class="board-dim">{{ age(c.updatedAt) }}</td>
           </tr>
         } @empty {
-          <tr><td colspan="9" class="board-empty">No cards match.</td></tr>
+          <tr><td colspan="10" class="board-empty">No cards match.</td></tr>
         }
       </tbody>
     </table>`,

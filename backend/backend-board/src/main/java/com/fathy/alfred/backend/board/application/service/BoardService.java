@@ -58,6 +58,9 @@ import com.fathy.alfred.backend.board.domain.model.WaitingOn;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import com.fathy.alfred.backend.board.application.port.in.AssignTeamsUseCase;
+import com.fathy.alfred.backend.board.domain.TeamHints;
+import com.fathy.alfred.backend.board.domain.model.Team;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -83,7 +86,7 @@ import java.util.stream.Collectors;
 public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, UpdateCardUseCase, MoveCardUseCase, DeleteCardUseCase,
         QueryCardsUseCase, GetCardUseCase, CloseCardUseCase, ReopenCardUseCase, SetReasonUseCase, UndoCloseUseCase, BulkCardsUseCase,
         LinkCardUseCase, CommentOnCardUseCase, ListActivityUseCase, ListClosedReasonsUseCase, CallBadgesUseCase,
-        ListMentionedCallIdsUseCase, ProposeUseCase, CardLinksUseCase {
+        ListMentionedCallIdsUseCase, ProposeUseCase, CardLinksUseCase, AssignTeamsUseCase {
 
     public static final int MAX_TITLE = 300;
     public static final int MAX_TEXT = 256 * 1024;
@@ -152,11 +155,32 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
                         + (same.reason() == null || same.reason().isBlank() ? "" : ": " + same.reason()));
             }
         }
+        // Teams: the ones asked for, or - when none - the ones whose hints the card's own words match.
+        List<Team> known = store.teams();
+        List<String> teams;
+        String teamsReason = null;
+        if (in.teams() != null && !in.teams().isEmpty()) {
+            TeamPick pick = pickTeams(in.teams(), known);
+            if (pick.unknown() != null) {
+                return CardChange.refused(CardChange.Outcome.INVALID, pick.unknown());
+            }
+            teams = pick.ids();
+        } else {
+            List<TeamHints.Match> matches = TeamHints.match(known, in.title(), description);
+            teams = matches.stream().map(TeamHints.Match::teamId).toList();
+            if (!matches.isEmpty()) {
+                teamsReason = "From the teams' hints: " + matches.stream().map(m -> nameOf(m.teamId(), known) + " (\"" + m.hint() + "\")")
+                        .collect(Collectors.joining(", "));
+            }
+        }
         Instant now = clock.instant();
         Card card = new Card(UUID.randomUUID().toString(), project, store.nextNumber(project), in.kind(), in.title().strip(), description,
-                status, null, null, in.flags(), Scope.NOT_DECIDED, actor, blankToNull(in.cycleId()), false, signature, now, now, actor);
+                status, null, null, in.flags(), Scope.NOT_DECIDED, actor, blankToNull(in.cycleId()), false, signature, now, now, actor, teams);
         store.insert(card);
         record(card.id(), actor, ActivityKind.CREATED, null, null, status.name());
+        if (!teams.isEmpty()) {
+            record(card.id(), actor, ActivityKind.TEAMS, teamsReason, "", String.join(",", teams));
+        }
         if (actor == Actor.CLAUDE) {
             waitOn(card.id(), Waiting.USER, actor); // a finding waits for the user to sort it
         }
@@ -250,6 +274,62 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
             notifications.changed(card.project(), card.cycleId(), id, "card");
         }
         return CardChange.ok(detail(next));
+    }
+
+    // ---------------------------------------------------------------------------------------------------------- teams
+
+    @Override
+    public synchronized CardChange assignTeams(Actor actor, String id, List<String> wanted, String reason) {
+        Optional<Card> found = store.find(id);
+        if (found.isEmpty()) {
+            return CardChange.notFound();
+        }
+        String why = reason == null ? null : reason.strip();
+        if (why != null && why.length() > MAX_REASON) {
+            return CardChange.refused(CardChange.Outcome.INVALID, "reason is limited to " + MAX_REASON + " characters");
+        }
+        if (actor == Actor.CLAUDE && (why == null || why.isEmpty())) {
+            return CardChange.refused(CardChange.Outcome.INVALID, "Say why these teams (reason) - it goes into the card's history");
+        }
+        TeamPick pick = pickTeams(wanted == null ? List.of() : wanted, store.teams());
+        if (pick.unknown() != null) {
+            return CardChange.refused(CardChange.Outcome.INVALID, pick.unknown());
+        }
+        Card card = found.get();
+        if (card.teams().equals(pick.ids())) {
+            return CardChange.ok(detail(card));
+        }
+        Card next = card.withTeams(pick.ids(), clock.instant(), actor);
+        store.update(next);
+        record(id, actor, ActivityKind.TEAMS, why == null || why.isEmpty() ? null : why, String.join(",", card.teams()),
+                String.join(",", next.teams()));
+        changed(next, "card");
+        return CardChange.ok(detail(next));
+    }
+
+    /** Team ids for what was asked - an id or a name, any case - or the first one that is not a team. */
+    private static TeamPick pickTeams(List<String> wanted, List<Team> known) {
+        LinkedHashSet<String> ids = new LinkedHashSet<>();
+        for (String w : wanted) {
+            if (w == null || w.isBlank()) {
+                continue;
+            }
+            String s = w.strip();
+            Optional<Team> team = known.stream().filter(t -> t.id().equalsIgnoreCase(s) || t.name().equalsIgnoreCase(s)).findFirst();
+            if (team.isEmpty()) {
+                return new TeamPick(List.of(), "No team \"" + s + "\" - the teams are: "
+                        + known.stream().map(Team::name).collect(Collectors.joining(", ")));
+            }
+            ids.add(team.get().id());
+        }
+        return new TeamPick(List.copyOf(ids), null);
+    }
+
+    private static String nameOf(String teamId, List<Team> known) {
+        return known.stream().filter(t -> t.id().equals(teamId)).map(Team::name).findFirst().orElse(teamId);
+    }
+
+    private record TeamPick(List<String> ids, String unknown) {
     }
 
     // ------------------------------------------------------------------------------------------------------- statuses

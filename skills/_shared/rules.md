@@ -79,6 +79,12 @@ the state comment, not a new question.
   ### Why it's wrong
   <one or two short sentences>
 
+  ### Backend
+  <what Backend changes - only when the card has several teams, one section each>
+
+  ### Frontend
+  <what Frontend changes>
+
   ### Next
   <the one action, e.g. deploy the fix and re-test>
   ````
@@ -86,6 +92,27 @@ the state comment, not a new question.
   Facts are short and countable: `405 × 5 in 6 s`, `no log line ≥ WARN`, `flow stops at search results`. One mention
   per Evidence item with a few words after it - never a paragraph. A response body goes in a ```json block, whole
   (the board pretty-prints it); other bodies in a plain block.
+
+### Teams - every card has its owners
+
+- Read `board_teams` once per run: the teams, what each one **owns**, and their hints. The user edits them in
+  Settings → Teams - never assume the six defaults are still there or still named that way.
+- Pass `teams` on every `board_add` / `board_add_many`. Decide from the evidence, not the endpoint's name:
+  - the page, what it shows or validates, the request the browser sent → **Frontend**
+  - a Java exception or stack trace, a 5xx, missing error handling or log lines → **Backend**
+  - a failed, rolled-back, slow or repeated SQL statement, data saved wrong → **Database**
+  - an outbound supplier call (Galileo, Sabre, NDC...) that errors, times out, is mapped wrong or is swallowed → **Integrations**
+  - configuration, deploy, certificates, ports, Redis or other infrastructure → **DevOps**
+  - test data, the spec or its acceptance items, a flow not exercised → **QA**
+- **One problem, one card - even when it needs several teams.** "The API answers 405 and the page shows a blank list" is
+  one card with Backend + Frontend. Its description then has one short `### <Team>` section per team saying exactly
+  what that team changes, so each team reads only its part.
+- Reassign as you learn (`board_assign`, on any card, with the reason - it goes into the card's history): the 500 turns
+  out to be a failed INSERT → Database; the supplier answered fine and our mapping dropped a field → Backend, not
+  Integrations. Say the change in the next state comment.
+- In state comments, name the team the next step belongs to ("Next (Backend): catch the exception in ...").
+- The user can change teams too; a history entry "You set teams: ..." is their decision - do not undo it. Disagree in a
+  comment with the evidence, then let them decide.
 
 ## 4. What becomes a card
 

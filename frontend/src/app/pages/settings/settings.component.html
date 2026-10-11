@@ -30,6 +30,14 @@
       >
         Storage
       </button>
+      <button
+        type="button"
+        class="settings-nav-item"
+        [class.active]="activePartition() === 'teams'"
+        (click)="setActivePartition('teams')"
+      >
+        Teams
+      </button>
       @if (inboundLoggingFeatureEnabled()) {
         <button
           type="button"
@@ -53,6 +61,8 @@
     <div class="settings-content">
       @if (activePartition() === 'server') {
         <app-server-settings />
+      } @else if (activePartition() === 'teams') {
+        <app-teams-settings />
       } @else if (activePartition() === 'storage') {
         <app-storage-settings />
         <app-board-storage />

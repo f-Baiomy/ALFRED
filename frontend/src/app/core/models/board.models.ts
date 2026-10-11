@@ -12,7 +12,7 @@ export type Actor = 'USER' | 'CLAUDE';
 export type MentionType = 'call' | 'stmt' | 'log' | 'redis' | 'spec' | 'code' | 'cycle' | 'spacer' | 'card' | 'rule';
 export type ActivityKind = 'COMMENT' | 'CREATED' | 'STATUS' | 'KIND' | 'SCOPE' | 'FLAGS' | 'RESOLUTION' | 'REASON' | 'TITLE'
   | 'DESCRIPTION' | 'LINK_ADDED' | 'LINK_REMOVED' | 'CYCLE' | 'PROJECT' | 'SPEC_REPLACED' | 'REOPENED' | 'IMPORTED' | 'DELETED'
-  | 'PROPOSED' | 'PROPOSAL_ACCEPTED' | 'PROPOSAL_DISMISSED' | 'MERGED' | 'BLOCKED' | 'UNBLOCKED' | 'SPEC_ITEM';
+  | 'PROPOSED' | 'PROPOSAL_ACCEPTED' | 'PROPOSAL_DISMISSED' | 'MERGED' | 'BLOCKED' | 'UNBLOCKED' | 'SPEC_ITEM' | 'TEAMS';
 export type Mark = 'PASS' | 'FAIL' | 'CANT_TELL';
 export type BulkAction = 'FINE' | 'NOT_IN_FLOW' | 'TO_DO' | 'MARK_URGENT' | 'DELETE';
 
@@ -75,6 +75,8 @@ export interface CardSummary {
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly updatedBy: Actor;
+  /** Ids of the teams the card is assigned to (Settings → Teams); several when the fix spans them. */
+  readonly teams?: readonly string[];
   readonly commentCount: number;
   readonly mentionChips?: readonly MentionRef[];
   readonly similarClosed: SimilarClosed | null;
@@ -309,9 +311,33 @@ export interface BoardFilters {
   readonly waiting?: Waiting | null;
   /** Only cards whose cycle was deleted (cleaning up after it). */
   readonly cycleDeleted?: boolean;
+  /** Cards of any of these team ids; NO_TEAM for cards with none. */
+  readonly teams?: readonly string[];
 }
 
-export const NO_FILTERS: BoardFilters = { kinds: [], flags: [], author: null, scopeNotDecided: false, q: '', waiting: null, cycleDeleted: false };
+/** The team filter value for cards with no team. */
+export const NO_TEAM = '-';
+
+/** A team cards are assigned to (Settings → Teams). `owns` is what Claude reads to pick it; `hints` pre-fill a new card. */
+export interface Team {
+  readonly id: string;
+  readonly name: string;
+  readonly color: string;
+  readonly icon: string;
+  readonly owns: string;
+  readonly hints: readonly string[];
+  readonly position: number;
+}
+
+export interface TeamEdit {
+  readonly name: string;
+  readonly color: string;
+  readonly icon: string;
+  readonly owns: string;
+  readonly hints: readonly string[];
+}
+
+export const NO_FILTERS: BoardFilters = { kinds: [], flags: [], author: null, scopeNotDecided: false, q: '', waiting: null, cycleDeleted: false, teams: [] };
 
 /** board.db on disk (Settings -> Storage -> Board). */
 export interface BoardStorage {

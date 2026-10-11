@@ -19,6 +19,7 @@ import { MentionEditorComponent } from '../mention-editor/mention-editor.compone
 import { MentionPickerComponent } from '../mention-picker/mention-picker.component';
 import { copyToClipboard } from '../../../shared/utils/clipboard';
 import { CardViewMode } from '../../../core/services/card-view-mode.service';
+import { TeamsStateService } from '../../../core/state/teams-state.service';
 
 /**
  * One card opened (FR-027..029, mock "drawer"): status, kind, scope and flags; the description with its mentions; the
@@ -86,6 +87,22 @@ import { CardViewMode } from '../../../core/services/card-view-mode.service';
             @for (f of flags; track f) {
               <button type="button" class="board-tog" [class]="'board-tog board-flag-' + f" [class.on]="c.flags.includes(f)"
                       [disabled]="!editable()" (click)="toggleFlag(f)">{{ flagLabels[f] }}</button>
+            }
+          </div>
+          <!-- Teams: who owns the fix - several when it spans them. Every change goes into the card's history. -->
+          <div class="board-drawer-controls board-drawer-teams">
+            <span>Teams</span>
+            @for (t of cardTeams(); track t.id) {
+              <span class="board-team" [style.--team]="t.color" [title]="t.owns">
+                @if (t.icon) { <span aria-hidden="true">{{ t.icon }}</span> }{{ t.name }}
+                @if (editable()) { <button type="button" class="board-team-x" [attr.aria-label]="'Remove ' + t.name" (click)="removeTeam(t.id)">✕</button> }
+              </span>
+            } @empty { <span class="board-dim">No team yet</span> }
+            @if (editable() && otherTeams().length) {
+              <select class="board-team-add" aria-label="Add a team" (change)="addTeam($any($event.target).value); $any($event.target).value = ''">
+                <option value="">+ team</option>
+                @for (t of otherTeams(); track t.id) { <option [value]="t.id">{{ t.icon ? t.icon + ' ' : '' }}{{ t.name }}</option> }
+              </select>
             }
           </div>
           @if (c.reason) { <div class="board-card-reason">Reason: “{{ c.reason }}”</div> }
@@ -247,9 +264,16 @@ export class CardDrawerComponent {
     const c = this.card();
     return c ? { id: c.id, project: c.project, number: c.number, cycleId: c.cycleId } : null;
   });
+  private readonly teamsState = inject(TeamsStateService);
+  readonly cardTeams = computed(() => this.teamsState.of(this.card()?.teams));
+  readonly otherTeams = computed(() => {
+    const on = new Set(this.card()?.teams ?? []);
+    return this.teamsState.teams().filter((t) => !on.has(t.id));
+  });
   readonly callLinks = computed(() => (this.card()?.links ?? []).filter((m) => m.type.toLowerCase() === 'call'));
 
   constructor() {
+    this.teamsState.load();
     effect(() => {
       const id = this.cardId();
       this.version();
@@ -303,6 +327,16 @@ export class CardDrawerComponent {
   copyIssue(): void {
     const c = this.card();
     if (c) this.copy(issueMarkdown(c, this.activity()), 'issue');
+  }
+
+  addTeam(id: string): void {
+    const c = this.card();
+    if (c && id) this.apply(this.api.assignTeams(c.id, [...(c.teams ?? []), id]));
+  }
+
+  removeTeam(id: string): void {
+    const c = this.card();
+    if (c) this.apply(this.api.assignTeams(c.id, (c.teams ?? []).filter((t) => t !== id)));
   }
 
   block(value: string): void {

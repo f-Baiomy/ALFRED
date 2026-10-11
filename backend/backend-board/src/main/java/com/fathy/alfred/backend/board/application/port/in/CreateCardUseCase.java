@@ -14,8 +14,13 @@ import java.util.Set;
  *  this flow (same signature) is refused. */
 public interface CreateCardUseCase {
 
+    /** {@code teams}: the team ids to assign; null or empty lets the teams' hints pick them from the card's own words. */
     record NewCard(String project, CardKind kind, String title, String description, Set<Flag> flags, String cycleId,
-                   CardStatus status, List<MentionRef> links) {
+                   CardStatus status, List<MentionRef> links, List<String> teams) {
+        public NewCard(String project, CardKind kind, String title, String description, Set<Flag> flags, String cycleId,
+                       CardStatus status, List<MentionRef> links) {
+            this(project, kind, title, description, flags, cycleId, status, links, null);
+        }
     }
 
     CardChange create(Actor actor, NewCard card);

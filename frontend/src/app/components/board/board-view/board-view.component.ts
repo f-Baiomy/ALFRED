@@ -1,7 +1,7 @@
 import { Component, DestroyRef, HostListener, computed, effect, inject, input, signal, untracked, viewChild } from '@angular/core';
 import { Title } from '@angular/platform-browser';
 import {
-  ALL_STATUSES, Actor, BoardFilters, BulkAction, CardKind, CardSummary, FLAGS, FLAG_LABELS, Flag, KINDS, OPEN_STATUSES, Resolution, Waiting,
+  ALL_STATUSES, Actor, BoardFilters, NO_TEAM, BulkAction, CardKind, CardSummary, FLAGS, FLAG_LABELS, Flag, KINDS, OPEN_STATUSES, Resolution, Waiting,
 } from '../../../core/models/board.models';
 import { BoardNotifyService } from '../../../core/services/board-notify.service';
 import { ConfirmDialogService } from '../../../core/services/confirm-dialog.service';
@@ -13,6 +13,7 @@ import { BoardExportFormat, BoardExportService } from '../../../core/services/bo
 import { BoardMentionsService } from '../../../core/services/board-mentions.service';
 import { BoardStateService, messageOf } from '../../../core/state/board-state.service';
 import { CardViewMode, CardViewModeService, CardWindowTarget } from '../../../core/services/card-view-mode.service';
+import { TeamsStateService } from '../../../core/state/teams-state.service';
 import { RetestStateService } from '../../../core/state/retest-state.service';
 import { RetestStripComponent } from '../retest-strip/retest-strip.component';
 import { ActionMenuComponent } from '../../action-menu/action-menu.component';
@@ -87,6 +88,15 @@ import { UndoToastComponent } from '../undo-toast/undo-toast.component';
         <button type="button" class="board-pill" [class.on]="!!state.filters().cycleDeleted" title="Cards whose session cycle was deleted - clean them up"
                 (click)="toggleCycleDeleted()">◷ Cycle deleted</button>
       }
+      @if (teamsState.teams().length) {
+        <span class="board-filter-sep" aria-hidden="true"></span>
+        @for (t of teamsState.teams(); track t.id) {
+          <button type="button" class="board-pill board-pill-team" [style.--team]="t.color" [class.on]="(state.filters().teams ?? []).includes(t.id)"
+                  [title]="'Cards assigned to ' + t.name" (click)="toggleTeam(t.id)">{{ t.icon ? t.icon + ' ' : '' }}{{ t.name }}</button>
+        }
+        <button type="button" class="board-pill" [class.on]="(state.filters().teams ?? []).includes(noTeam)" title="Cards with no team yet"
+                (click)="toggleTeam(noTeam)">No team</button>
+      }
       <input #search class="board-search" type="search" placeholder="Search cards…" [value]="state.filters().q"
              (keydown.enter)="setSearch(search.value)" (search)="setSearch(search.value)" />
     </div>
@@ -138,6 +148,8 @@ export class BoardViewComponent {
   /** A card window (↗ Window): only the opened card is shown, the whole window. */
   readonly windowMode = input(false);
   private readonly cardMode = inject(CardViewModeService);
+  readonly teamsState = inject(TeamsStateService);
+  readonly noTeam = NO_TEAM;
   /** How the open card is shown here - a card window is always 'window'; a board tab shows Side or Full. */
   readonly layout = computed<CardViewMode>(() => (this.windowMode() ? 'window' : this.cardMode.mode() === 'full' ? 'full' : 'side'));
 
@@ -182,6 +194,7 @@ export class BoardViewComponent {
     effect(() => {
       if (this.onlyCycleDeleted()) untracked(() => this.setFilters({ cycleDeleted: true }));
     });
+    this.teamsState.load();
     // ↗ Window is the remembered choice: a card opened in a board tab goes to the card window instead.
     effect(() => {
       const id = this.state.openCardId();
@@ -323,6 +336,11 @@ export class BoardViewComponent {
   toggleKind(k: CardKind): void {
     const kinds = this.state.filters().kinds;
     this.setFilters({ kinds: kinds.includes(k) ? kinds.filter((x) => x !== k) : [...kinds, k] });
+  }
+
+  toggleTeam(id: string): void {
+    const teams = this.state.filters().teams ?? [];
+    this.setFilters({ teams: teams.includes(id) ? teams.filter((x) => x !== id) : [...teams, id] });
   }
 
   toggleFlag(f: Flag): void {

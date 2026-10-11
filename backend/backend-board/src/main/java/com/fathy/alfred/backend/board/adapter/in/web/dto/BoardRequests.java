@@ -35,7 +35,19 @@ public final class BoardRequests {
 
     public record CreateCardRequestDto(@Size(max = 100) String project, @NotNull CardKind kind, @NotBlank @Size(max = 300) String title,
                                        @Size(max = MAX_TEXT) String description, Set<Flag> flags, @Size(max = 200) String cycleId,
-                                       CardStatus status, @Size(max = 100) List<@Valid LinkRequestDto> links) {
+                                       CardStatus status, @Size(max = 100) List<@Valid LinkRequestDto> links,
+                                       @Size(max = 20) List<@Size(max = 100) String> teams) {
+    }
+
+    /** The card's teams after the change (ids or names; empty for none), and why. */
+    public record AssignTeamsRequestDto(@NotNull @Size(max = 20) List<@Size(max = 100) String> teams, @Size(max = 2000) String reason) {
+    }
+
+    public record TeamRequestDto(@NotBlank @Size(max = 60) String name, @Size(max = 30) String color, @Size(max = 8) String icon,
+                                 @Size(max = 2000) String owns, @Size(max = 50) List<@Size(max = 200) String> hints) {
+    }
+
+    public record TeamOrderRequestDto(@NotNull @Size(max = 100) List<String> ids) {
     }
 
     public record QuickAddRequestDto(@Size(max = 100) String project, @Size(max = 200) String cycleId,

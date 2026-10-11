@@ -37,6 +37,8 @@ import com.fathy.alfred.backend.board.domain.model.Scope;
 import com.fathy.alfred.backend.board.domain.model.SimilarClosed;
 import com.fathy.alfred.backend.board.domain.model.SpecFile;
 import com.fathy.alfred.backend.board.domain.model.SpecFileInfo;
+import com.fathy.alfred.backend.board.domain.model.Team;
+import com.fathy.alfred.backend.board.domain.DefaultTeams;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import jakarta.annotation.PostConstruct;
@@ -88,7 +90,7 @@ public class SqliteBoardRepository implements BoardStorePort {
     private static final TypeReference<List<ChecklistMark.Change>> CHANGES = new TypeReference<>() { };
 
     static final String SUMMARY_COLUMNS = "id, project, number, kind, title, status, resolution, reason, flags, scope, author, "
-            + "cycle_id, cycle_deleted, signature, created_at, updated_at, updated_by";
+            + "cycle_id, cycle_deleted, signature, created_at, updated_at, updated_by, teams";
     private static final String DETAIL_COLUMNS = SUMMARY_COLUMNS + ", description";
 
     private final ObjectMapper objectMapper;
@@ -246,6 +248,19 @@ public class SqliteBoardRepository implements BoardStorePort {
                 """);
         jdbc.execute("CREATE INDEX IF NOT EXISTS idx_retest_runs ON retest_runs(card_id, id)");
         jdbc.execute("CREATE TABLE IF NOT EXISTS app_starts (project TEXT PRIMARY KEY, at INTEGER NOT NULL)");
+        // Teams (Settings -> Teams): a card's teams are a comma list of team ids, like its flags. The default teams are
+        // added once - a user who deletes them all does not get them back on the next start.
+        addColumn("cards", "teams", "TEXT NOT NULL DEFAULT ''");
+        jdbc.execute("""
+                CREATE TABLE IF NOT EXISTS teams (id TEXT PRIMARY KEY, name TEXT NOT NULL, color TEXT NOT NULL, icon TEXT NOT NULL,
+                  owns TEXT NOT NULL, hints TEXT NOT NULL, position INTEGER NOT NULL)
+                """);
+        jdbc.execute("CREATE TABLE IF NOT EXISTS board_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
+        Integer seeded = jdbc.queryForObject("SELECT COUNT(*) FROM board_meta WHERE key = 'teams_seeded'", Integer.class);
+        if (seeded == null || seeded == 0) {
+            DefaultTeams.ALL.forEach(this::putTeam);
+            jdbc.update("INSERT INTO board_meta(key, value) VALUES ('teams_seeded', '1')");
+        }
     }
 
     /** Adds a column to a table made by an older version (SQLite has no ADD COLUMN IF NOT EXISTS). */
@@ -273,7 +288,7 @@ public class SqliteBoardRepository implements BoardStorePort {
 
     @Override
     public void insert(Card c) {
-        jdbc.update("INSERT INTO cards(" + DETAIL_COLUMNS + ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", values(c));
+        jdbc.update("INSERT INTO cards(" + DETAIL_COLUMNS + ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", values(c));
     }
 
     @Override
@@ -281,16 +296,18 @@ public class SqliteBoardRepository implements BoardStorePort {
         jdbc.update("""
                 UPDATE cards SET project = ?, number = ?, kind = ?, title = ?, status = ?, resolution = ?, reason = ?, flags = ?,
                   scope = ?, author = ?, cycle_id = ?, cycle_deleted = ?, signature = ?, created_at = ?, updated_at = ?,
-                  updated_by = ?, description = ? WHERE id = ?
+                  updated_by = ?, teams = ?, description = ? WHERE id = ?
                 """, c.project(), c.number(), c.kind().name(), c.title(), c.status().name(), name(c.resolution()), c.reason(),
                 flagsText(c.flags()), c.scope().name(), c.author().name(), c.cycleId(), c.cycleDeleted() ? 1 : 0, c.signature(),
-                c.createdAt().toEpochMilli(), c.updatedAt().toEpochMilli(), c.updatedBy().name(), c.description(), c.id());
+                c.createdAt().toEpochMilli(), c.updatedAt().toEpochMilli(), c.updatedBy().name(), String.join(",", c.teams()),
+                c.description(), c.id());
     }
 
     private Object[] values(Card c) {
         return new Object[]{c.id(), c.project(), c.number(), c.kind().name(), c.title(), c.status().name(), name(c.resolution()),
                 c.reason(), flagsText(c.flags()), c.scope().name(), c.author().name(), c.cycleId(), c.cycleDeleted() ? 1 : 0,
-                c.signature(), c.createdAt().toEpochMilli(), c.updatedAt().toEpochMilli(), c.updatedBy().name(), c.description()};
+                c.signature(), c.createdAt().toEpochMilli(), c.updatedAt().toEpochMilli(), c.updatedBy().name(),
+                String.join(",", c.teams()), c.description()};
     }
 
     @Override
@@ -392,6 +409,19 @@ public class SqliteBoardRepository implements BoardStorePort {
         for (Flag f : q.flags()) {
             parts.add("(',' || flags || ',') LIKE ?");
             args.add("%," + f.name() + ",%");
+        }
+        if (!q.teams().isEmpty()) {
+            // any of the asked teams; NO_TEAM asks for cards with none
+            List<String> any = new ArrayList<>();
+            for (String team : q.teams()) {
+                if (CardQuery.NO_TEAM.equals(team)) {
+                    any.add("teams = ''");
+                } else {
+                    any.add("(',' || teams || ',') LIKE ?");
+                    args.add("%," + team + ",%");
+                }
+            }
+            parts.add("(" + String.join(" OR ", any) + ")");
         }
         if (q.author() != null) {
             parts.add("author = ?");
@@ -1073,7 +1103,54 @@ public class SqliteBoardRepository implements BoardStorePort {
                 rs.getString("reason"), flags(rs.getString("flags")), Scope.valueOf(rs.getString("scope")),
                 Actor.valueOf(rs.getString("author")), rs.getString("cycle_id"), rs.getInt("cycle_deleted") == 1,
                 rs.getString("signature"), Instant.ofEpochMilli(rs.getLong("created_at")), Instant.ofEpochMilli(rs.getLong("updated_at")),
-                Actor.valueOf(rs.getString("updated_by")));
+                Actor.valueOf(rs.getString("updated_by")), teamsOf(rs.getString("teams")));
+    }
+
+    private static List<String> teamsOf(String s) {
+        return s == null || s.isBlank() ? List.of() : Arrays.stream(s.split(",")).map(String::strip).filter(x -> !x.isEmpty()).toList();
+    }
+
+    // ------------------------------------------------------------------------------------------------------- teams
+
+    @Override
+    public List<Team> teams() {
+        return jdbc.query("SELECT id, name, color, icon, owns, hints, position FROM teams ORDER BY position, name LIMIT 500",
+                (rs, n) -> new Team(rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4), rs.getString(5),
+                        hintsOf(rs.getString(6)), rs.getInt(7)));
+    }
+
+    @Override
+    public void putTeam(Team t) {
+        jdbc.update("""
+                INSERT INTO teams(id, name, color, icon, owns, hints, position) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET name = excluded.name, color = excluded.color, icon = excluded.icon, owns = excluded.owns,
+                  hints = excluded.hints, position = excluded.position
+                """, t.id(), t.name(), t.color(), t.icon(), t.owns(), hintsText(t.hints()), t.position());
+    }
+
+    @Override
+    public void deleteTeam(String id) {
+        tx.executeWithoutResult(status -> {
+            jdbc.update("DELETE FROM teams WHERE id = ?", id);
+            jdbc.update("UPDATE cards SET teams = TRIM(REPLACE(',' || teams || ',', ',' || ? || ',', ','), ',') "
+                    + "WHERE (',' || teams || ',') LIKE ?", id, "%," + id + ",%");
+        });
+    }
+
+    private String hintsText(List<String> hints) {
+        try {
+            return objectMapper.writeValueAsString(hints);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    private List<String> hintsOf(String text) {
+        try {
+            return text == null || text.isBlank() ? List.of() : objectMapper.readValue(text, new TypeReference<List<String>>() { });
+        } catch (JsonProcessingException e) {
+            return List.of();
+        }
     }
 
     private static final RowMapper<ActivityEntry> ACTIVITY_ROW = (rs, n) -> new ActivityEntry(rs.getLong(1), rs.getString(2),

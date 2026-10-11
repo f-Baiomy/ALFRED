@@ -41,7 +41,7 @@ function plain(text: string | null | undefined): string {
 export function issueMarkdown(card: CardDetail, history: readonly ActivityEntry[], projectLabel = card.project || 'No project'): string {
   const state = card.resolution ? `${STATUS_LABELS[card.status]} (${RESOLUTION_LABELS[card.resolution]})` : STATUS_LABELS[card.status];
   const lines = [`## ${card.title}`, '',
-    `**Alfred card** ${projectLabel} #${card.number} · ${card.kind} · ${state}${card.flags.length ? ` · flags: ${card.flags.join(', ')}` : ''}`, ''];
+    `**Alfred card** ${projectLabel} #${card.number} · ${card.kind} · ${state}${card.flags.length ? ` · flags: ${card.flags.join(', ')}` : ''}${card.teams?.length ? ` · teams: ${card.teams.join(', ')}` : ''}`, ''];
   if (card.description.trim()) lines.push('### What happens', '', plain(card.description), '');
   if (card.links.length) {
     lines.push('### Evidence', '');

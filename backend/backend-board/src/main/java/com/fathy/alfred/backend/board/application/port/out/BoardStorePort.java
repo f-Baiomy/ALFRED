@@ -249,4 +249,15 @@ public interface BoardStorePort {
     void putAppStart(String project, java.time.Instant at);
 
     java.util.Optional<java.time.Instant> appStart(String project);
+
+    // ------------------------------------------------------------------------------------------------------- teams
+
+    /** Every team, in the user's order. */
+    List<com.fathy.alfred.backend.board.domain.model.Team> teams();
+
+    /** Adds the team, or replaces the one with its id. */
+    void putTeam(com.fathy.alfred.backend.board.domain.model.Team team);
+
+    /** Deletes the team and takes it off every card it was on. */
+    void deleteTeam(String id);
 }

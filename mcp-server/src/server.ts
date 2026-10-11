@@ -36,7 +36,8 @@ export function createServer(client: AlfredClient = new AlfredClient()): McpServ
       + 'Task board: start a session with board_search (mine=true, status TO_DO/IN_PROGRESS) and board_changes (cursor "claude") to pick up '
       + 'where you left off; read a card with board_get (every comment in full) and its evidence with board_evidence. Before reporting, read '
       + 'board_closed_reasons, board_similar and board_for_call (and get_brief / read_spec for a cycle); add findings with board_add / '
-      + 'board_add_many (they land in the Inbox for the user to sort). Record progress with board_comment (did / found / next), answer with '
+      + 'board_add_many (they land in the Inbox for the user to sort), each with its teams (board_teams says what each team owns; '
+      + 'one card can need several - one card, a short section per team), and reassign with board_assign when the evidence moves. Record progress with board_comment (did / found / next), answer with '
       + 'board_reply, ask with board_ask, record a fix with board_fix. Move cards only to To do, In progress or Fixed; Verified, Done and '
       + 'closing are the user\'s - propose them with board_propose, and suggest checklist marks with board_suggest_mark. After a re-test '
       + 'cycle run board_verify. Listen for the user with board_wait. Keep the live strip current with board_status.',

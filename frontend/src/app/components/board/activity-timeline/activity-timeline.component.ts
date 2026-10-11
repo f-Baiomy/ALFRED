@@ -1,5 +1,6 @@
+import { TeamsStateService } from '../../../core/state/teams-state.service';
 import { NgTemplateOutlet } from '@angular/common';
-import { Component, computed, input, output, signal } from '@angular/core';
+import { Component, computed, inject, input, output, signal } from '@angular/core';
 import { ActivityEntry, MentionRef } from '../../../core/models/board.models';
 import { CardPickTarget } from '../../../core/services/board-mentions.service';
 import { ClaudeParts, changeText, claudeParts } from '../../../shared/utils/board-activity';
@@ -95,6 +96,7 @@ export interface TimelineReply {
     </ng-template>`,
 })
 export class ActivityTimelineComponent {
+  private readonly teamsState = inject(TeamsStateService);
   readonly entries = input.required<readonly ActivityEntry[]>();
   readonly editable = input(false);
   readonly project = input('');
@@ -138,7 +140,7 @@ export class ActivityTimelineComponent {
 
   /** The one-line change, its mentions (a link added or removed) as pills rather than their `@[...]` text. */
   change(e: ActivityEntry): { text?: string; mention?: MentionRef }[] {
-    return parseMentions(changeText(e)).map((s) => ('mention' in s ? { mention: s.mention } : { text: s.text }));
+    return parseMentions(changeText(e, (id) => this.teamsState.byId().get(id)?.name ?? id)).map((s) => ('mention' in s ? { mention: s.mention } : { text: s.text }));
   }
 
   when(iso: string): string {

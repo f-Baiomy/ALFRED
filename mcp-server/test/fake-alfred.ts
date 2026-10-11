@@ -458,12 +458,22 @@ export class FakeAlfred {
       const cards = b.cards.filter((c) => c.project === (q.get('project') ?? '') && (!status.length || status.includes(c.status)));
       return [200, { cards, total: cards.length, counts: { open: cards.length, fixed: 0, done: 0 } }];
     }
+    if (p[1] === 'teams' && p.length === 2 && method === 'GET') {
+      return [200, [{ id: 'frontend', name: 'Frontend', icon: '▣', owns: 'The web UI', hints: ['.ts:'] },
+        { id: 'backend', name: 'Backend', icon: '⚙', owns: 'The Java services', hints: [] }]];
+    }
+    if (p[1] === 'cards' && p[3] === 'teams' && method === 'PUT') {
+      const card = find(p[2]);
+      if (!card) return [404];
+      card.teams = body.teams;
+      return [200, card];
+    }
     if (p[1] === 'cards' && p.length === 2 && method === 'POST') {
       if (b.refuseCreate) return b.refuseCreate;
       const number = b.cards.length + 1;
       const card = { id: `card-${number}`, project: body.project ?? '', number, kind: body.kind, title: body.title, description: body.description ?? '',
         status: 'INBOX', resolution: null, reason: null, flags: body.flags ?? [], scope: 'NOT_DECIDED', author: 'CLAUDE', cycleId: body.cycleId ?? null,
-        cycleDeleted: false, updatedAt: '2026-10-10T09:00:00Z', commentCount: 0, similarClosed: null, links: body.links ?? [] };
+        cycleDeleted: false, updatedAt: '2026-10-10T09:00:00Z', commentCount: 0, similarClosed: null, links: body.links ?? [], teams: body.teams ?? [] };
       b.cards.push(card);
       return [201, card];
     }

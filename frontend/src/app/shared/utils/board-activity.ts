@@ -27,8 +27,8 @@ export function proposalTarget(value: string | null): string {
   return STATUS_LABELS[status as CardStatus] ?? status;
 }
 
-/** "You moved Inbox → In progress" - a recorded change in words. */
-export function changeText(e: ActivityEntry): string {
+/** "You moved Inbox → In progress" - a recorded change in words. `teamName` turns a team id into its name. */
+export function changeText(e: ActivityEntry, teamName: (id: string) => string = (id) => id): string {
   const who = e.actor === 'CLAUDE' ? 'Claude' : 'You';
   const status = (v: string | null) => (v ? STATUS_LABELS[v as CardStatus] ?? v : '');
   const scope = (v: string | null) => (v ? SCOPE_LABELS[v as Scope] ?? v : '');
@@ -43,6 +43,7 @@ export function changeText(e: ActivityEntry): string {
     case 'DESCRIPTION': return `${who} edited the description`;
     case 'KIND': return `${who} changed the kind ${e.oldValue} → ${e.newValue}`;
     case 'FLAGS': return `${who} set flags ${e.oldValue || 'none'} → ${e.newValue || 'none'}`;
+    case 'TEAMS': return teamsText(e, who, teamName);
     case 'CYCLE': return `${who} moved it to cycle ${e.newValue ?? 'none'}`;
     case 'PROJECT': return `${who} moved it to project ${e.newValue || 'No project'}`;
     case 'LINK_ADDED': return `${who} linked ${e.newValue ?? ''}`;
@@ -58,4 +59,13 @@ export function changeText(e: ActivityEntry): string {
     case 'PROPOSAL_DISMISSED': return `${who} dismissed Claude's proposal: ${proposalTarget(e.newValue)}`;
     default: return `${who}: ${e.kind}`;
   }
+}
+
+/** "Claude set teams: Backend, Frontend (was: Backend) - the page hides the error". */
+function teamsText(e: ActivityEntry, who: string, teamName: (id: string) => string): string {
+  const names = (v: string | null) => (v ? v.split(',').filter(Boolean).map(teamName).join(', ') : '');
+  const now = names(e.newValue) || 'no team';
+  const was = names(e.oldValue);
+  const verb = was ? 'reassigned it to' : 'assigned it to';
+  return `${who} ${verb} ${now}${was ? ` (was: ${was})` : ''}${e.text ? ` - ${e.text}` : ''}`;
 }

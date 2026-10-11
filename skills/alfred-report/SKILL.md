@@ -26,6 +26,7 @@ Open       #14 waits on you (question, 2 d) · #15 To do
 Regressions  none / #7 login 500 again since 10/11 (reopen proposed)
 Spec       Acceptance 4/5 PASS · 1 not tested (Refund flow)
 Test steps 4/5 seen · step 5 not tested
+Teams      Backend 2 open (#14, #15) · Frontend 1 (#15) · Database 0 · no team: #16
 Next       answer #14 · re-test step 5
 ```
 

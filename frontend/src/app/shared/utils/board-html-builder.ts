@@ -50,6 +50,7 @@ function cardHtml(c: CardDetail, history: readonly ActivityEntry[]): string {
     row('Status', `${STATUS_LABELS[c.status]}${c.resolution ? ` - ${RESOLUTION_LABELS[c.resolution]}` : ''}`),
     row('Reason', c.reason ?? ''),
     row('Flags', c.flags.map((f) => FLAG_LABELS[f]).join(', ') || 'none'),
+    row('Teams', (c.teams ?? []).join(', ') || 'none'),
     row('Scope', SCOPE_LABELS[c.scope]),
     row('Author', c.author === 'CLAUDE' ? 'Claude' : 'User'),
     row('Cycle', `${c.cycleId ?? ''}${c.cycleDeleted ? ' (deleted)' : ''}`),

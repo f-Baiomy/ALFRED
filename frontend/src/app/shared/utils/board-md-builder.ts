@@ -35,6 +35,7 @@ function cardLines(c: CardDetail, history: readonly ActivityEntry[]): string[] {
     `| Status | ${STATUS_LABELS[c.status]}${c.resolution ? ` - ${RESOLUTION_LABELS[c.resolution]}` : ''} |`,
     `| Reason | ${cell(c.reason ?? '')} |`,
     `| Flags | ${c.flags.map((f) => FLAG_LABELS[f]).join(', ') || 'none'} |`,
+    `| Teams | ${(c.teams ?? []).join(', ') || 'none'} |`,
     `| Scope | ${SCOPE_LABELS[c.scope]} |`,
     `| Author | ${c.author === 'CLAUDE' ? 'Claude' : 'User'} |`,
     `| Cycle | ${c.cycleId ?? ''}${c.cycleDeleted ? ' (deleted)' : ''} |`,

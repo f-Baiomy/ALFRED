@@ -16,6 +16,8 @@ card the user changed, so no answer is missed.
 - **No card given**: `board_search` with `status: [TO_DO, IN_PROGRESS]` (mine and the user's). List them - number,
   title, flags, who it waits on, 🔒 blocked by - URGENT / BLOCKER first, and **ask which cards and in what order**.
   Stop here until the user answers. "All" is an answer.
+- **A team given** ("fix Backend's cards"): `board_search` with `team: [<id>]` and the same statuses; list and ask as
+  above. A card that also has other teams: fix only this team's part (its `### <Team>` section) and say so.
 - **Card given**: use it. Not To do / In progress → say where it is and ask before going on.
 - **Blocked** (`blockedBy` on the card): skip it while its blocker is not Fixed, and say so.
 
@@ -27,7 +29,8 @@ For each card, in order:
    `board_move` IN_PROGRESS, `board_status` step "fixing #<n> · reading the evidence".
 2. Find the code: `exception_source` / `locate_source` from the stack trace or the endpoint, then read the code.
 3. Post the plan as a state comment (`board_comment`): did (what you read), found (the root cause), next (the change:
-   files, what changes, the tests you will run, the impact on other flows), `waitingOn` USER. Show it in chat and ask
+   files, what changes, the tests you will run, the impact on other flows), `waitingOn` USER. Name the team whose
+   part this is; when the root cause belongs to another team than the card says, `board_assign` with the reason first. Show it in chat and ask
    **"Go?"**. Stop until the user answers.
    - Flagged AFFECTS_PROJECT, or the change touches code other flows use: say so plainly in the plan.
    - Unclear behaviour or the spec is silent: `board_ask` the question instead of a plan, and stop.
