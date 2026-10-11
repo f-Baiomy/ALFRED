@@ -6,6 +6,7 @@ import { CallDepthInfo, CallTreeNode, DepthRail, depthRails, depthTintClass, ind
 import { methodClass, statusClass, supplierOf, uriPath } from '../../shared/utils/call-utils';
 import { SpacerAnchor, layoutSpacers, rootIndex } from '../../shared/utils/spacer-gap-controller';
 import { CwIconComponent } from './cw-icon.component';
+import { copyToClipboard } from '../../shared/utils/clipboard';
 
 export interface MiniWaterfallRow {
   readonly call: CallRecord;
@@ -338,7 +339,7 @@ export class MiniWaterfallComponent {
   }
 
   copyUrl(call: CallRecord): void {
-    void navigator.clipboard?.writeText(call.url).then(
+    void copyToClipboard(call.url).then(
       () => this.copied.set(true),
       () => this.copied.set(false)
     );

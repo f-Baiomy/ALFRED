@@ -2,6 +2,7 @@ import { Component, computed, effect, inject, input, output, signal, untracked }
 import { NextSteps } from '../../../core/models/board.models';
 import { BoardApiService } from '../../../core/services/board-api.service';
 import { skillArg } from '../../../shared/utils/board-skills';
+import { copyToClipboard } from '../../../shared/utils/clipboard';
 
 /**
  * One line above the columns (specs/015 FR-3): what waits on the user (oldest first), then what waits on Claude, on a
@@ -75,7 +76,7 @@ export class NextStepsBarComponent {
   }
 
   copy(text: string): void {
-    void navigator.clipboard?.writeText(text).then(() => {
+    void copyToClipboard(text).then(() => {
       this.copied.set(text);
       setTimeout(() => this.copied.set(null), 1500);
     });

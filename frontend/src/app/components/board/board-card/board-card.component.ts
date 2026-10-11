@@ -6,6 +6,7 @@ import { MentionChipComponent } from '../mention-chip/mention-chip.component';
 import { proposalTarget } from '../../../shared/utils/board-activity';
 import { skillFor, waitingText } from '../../../shared/utils/board-skills';
 import { BoardSeenService } from '../../../core/services/board-seen.service';
+import { copyToClipboard } from '../../../shared/utils/clipboard';
 
 /** What a card asks of its board: one sort action, a reopen, or a selection toggle. */
 export type CardAction =
@@ -145,7 +146,7 @@ export class BoardCardComponent {
 
   copy(event: Event, text: string): void {
     event.stopPropagation();
-    void navigator.clipboard?.writeText(text).then(() => {
+    void copyToClipboard(text).then(() => {
       this.copied.set(true);
       setTimeout(() => this.copied.set(false), 1500);
     });

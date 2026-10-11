@@ -4,6 +4,7 @@ import { GlobalVariablesService, VariableExport } from '../../core/services/glob
 import { insertToken, suggestionRange, tokenNames, tokenParts, VARIABLE_NAME } from '../../shared/utils/variable-tokens';
 import { resolveDynamicTokens } from '../../shared/utils/dynamic-tokens';
 import { SelectOption, SelectPickerComponent } from '../select-picker/select-picker.component';
+import { copyToClipboard } from '../../shared/utils/clipboard';
 
 interface LocalVariableHint { readonly name: string; readonly available: boolean; readonly reason?: string; }
 interface AutocompleteEntry { readonly name: string; readonly value: string; readonly available: boolean; }
@@ -552,7 +553,7 @@ export class GlobalVariablesComponent {
     this.revealedNames.set(next);
   }
   toggleSecret(name: string): void { this.variables.setSecret(name, !this.isExplicitSecret(name)); }
-  copyValue(value: string): void { navigator.clipboard?.writeText(value)?.catch(() => {}); }
+  copyValue(value: string): void { copyToClipboard(value).catch(() => {}); }
   ruleNameOf(name: string): string | null { return this.variables.state().sources?.[name]?.ruleName ?? null; }
   updatedAtOf(name: string): number | undefined { return this.variables.state().updatedAt?.[name]; }
   relativeTime(ts: number | undefined): string {

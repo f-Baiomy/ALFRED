@@ -4,6 +4,7 @@ import { isQueryOrigin, nativeComparison, originExplanation, pagingText, transla
 import { DbQueryTextComponent } from './db-query-text.component';
 import { DbSqlComponent } from './db-sql.component';
 import { DbWindowState } from './db-window-state';
+import { copyToClipboard } from '../../shared/utils/clipboard';
 
 /**
  * The Statement tab when Hibernate is in the picture (mock: specs/006-db-capture/hql-mock.html, parts 2 and 2b) - what
@@ -100,7 +101,7 @@ export class DbOriginCardsComponent {
   readonly explanation = computed(() => originExplanation(this.statement().origin!));
 
   copy(text: string): void {
-    void navigator.clipboard?.writeText(text).then(() => {
+    void copyToClipboard(text).then(() => {
       this.copied.set(true);
       setTimeout(() => this.copied.set(false), 1200);
     });

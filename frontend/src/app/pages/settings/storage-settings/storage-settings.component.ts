@@ -11,6 +11,7 @@ import {
   BUDGET_CHOICES_GB, GB, MIN_GB, PRESETS, RECOMMENDED_GB, SHARES, SHARE_COLOR, SHARE_LABEL, ageOf, evenRatios, formatBytes,
   growthPerDay, historyKept, liveBytes, overflow, ratiosOf, shareBytes,
 } from '../../../shared/utils/storage-budget';
+import { copyToClipboard } from '../../../shared/utils/clipboard';
 
 type Tab = 'stored' | 'biggest' | 'relive' | 'rules' | 'history' | 'backup';
 type BiggestView = 'endpoints' | 'largest' | 'projects' | 'repeats';
@@ -817,7 +818,7 @@ export class StorageSettingsComponent implements OnInit, OnDestroy {
   }
 
   copyPath(path: string): void {
-    void navigator.clipboard?.writeText(path).then(() => this.say('Path copied'), () => this.say(path));
+    void copyToClipboard(path).then(() => this.say('Path copied'), () => this.say(path));
   }
 
   // ================================================================== free space

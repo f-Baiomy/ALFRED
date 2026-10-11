@@ -43,6 +43,7 @@ import { OutsideLogLine } from '../../core/models/db-capture.model';
 import { TogetherRow, logLevelWords, logRows, togetherRows } from '../../shared/utils/call-log-rows';
 import { CallsApiService } from '../../core/services/calls-api.service';
 import { CallFocusService } from '../../core/services/call-focus.service';
+import { copyToClipboard } from '../../shared/utils/clipboard';
 
 const PAGE = 500;
 /** A call's log lines are read in pages of this many, at most {@link LOG_MAX} in all (the backend's per-call seatbelt). */
@@ -603,7 +604,7 @@ export class DbWindowComponent implements OnInit {
     const call = this.call();
     if (!call) return;
     const seqs = this.redisShown() < this.redisCommands().length ? this.redisCommands().filter((c) => this.state.matchesRedis(c)).map((c) => c.seq) : [];
-    this.api.redisCli(call.id, seqs).subscribe((text) => void navigator.clipboard?.writeText(text).then(() => this.note('Copied as redis-cli')));
+    this.api.redisCli(call.id, seqs).subscribe((text) => void copyToClipboard(text).then(() => this.note('Copied as redis-cli')));
   }
 
   exportRedis(): void {
@@ -1006,7 +1007,7 @@ export class DbWindowComponent implements OnInit {
 
   copyAllSql(): void {
     this.allStatements().subscribe((all) => {
-      void navigator.clipboard?.writeText(this.script(all)).then(() => this.note('Copied all SQL'));
+      void copyToClipboard(this.script(all)).then(() => this.note('Copied all SQL'));
     });
   }
 

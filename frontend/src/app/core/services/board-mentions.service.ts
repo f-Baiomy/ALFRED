@@ -11,6 +11,7 @@ import { CallLogsApiService } from './call-logs-api.service';
 import { CallsApiService } from './calls-api.service';
 import { DbCaptureApiService } from './db-capture-api.service';
 import { SessionCyclesApiService } from './session-cycles-api.service';
+import { copyToClipboard } from '../../shared/utils/clipboard';
 
 /** What a mention chip shows on hover: a few lines, or that the item is gone. */
 export interface MentionPreview {
@@ -252,7 +253,7 @@ export class BoardMentionsService {
       void this.router.navigate(['/interception']);
       return;
     }
-    void navigator.clipboard?.writeText(ref.ref);
+    void copyToClipboard(ref.ref);
   }
 }
 

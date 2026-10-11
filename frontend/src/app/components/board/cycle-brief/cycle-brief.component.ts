@@ -8,6 +8,7 @@ import { BoardSocketService } from '../../../core/services/board-socket.service'
 import { messageOf } from '../../../core/state/board-state.service';
 import { MarkdownViewComponent } from '../markdown-view/markdown-view.component';
 import { MentionEditorComponent } from '../mention-editor/mention-editor.component';
+import { copyToClipboard } from '../../../shared/utils/clipboard';
 
 /**
  * What a session cycle is for (FR-030): Markdown with mentions, edited in place - by the user or by Claude
@@ -134,7 +135,7 @@ export class CycleBriefComponent {
   }
 
   copy(text: string): void {
-    void navigator.clipboard?.writeText(text).then(() => {
+    void copyToClipboard(text).then(() => {
       this.copied.set(text);
       setTimeout(() => this.copied.set(null), 1500);
     });

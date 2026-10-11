@@ -7,6 +7,7 @@ import { msText } from '../../shared/utils/db-statement-display';
 import { fmtMs } from '../../shared/utils/db-findings';
 import { DbWindowState } from './db-window-state';
 import { DbWindowService } from './db-window.service';
+import { copyToClipboard } from '../../shared/utils/clipboard';
 
 /** Values worth tracing from a key or a value: ids, codes, numbers - not words like "rule" or "cache". */
 export function traceCandidates(keys: readonly string[], valueText: string | null | undefined): string[] {
@@ -207,7 +208,7 @@ export class StoreCommandDetailComponent implements OnInit {
     const call = this.state.call();
     if (!call) return;
     this.api.redisCli(call.id, [this.command().seq]).subscribe((text) => {
-      void navigator.clipboard?.writeText(text).then(() => this.flash('Copied'));
+      void copyToClipboard(text).then(() => this.flash('Copied'));
     });
   }
 

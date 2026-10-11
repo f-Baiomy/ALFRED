@@ -13,6 +13,7 @@ import { DbSqlComponent } from './db-sql.component';
 import { DbOriginCardsComponent } from './db-origin-cards.component';
 import { indexHint, indexesByTable } from '../../shared/utils/db-analysis';
 import { DbDetailTab, DbWindowState } from './db-window-state';
+import { copyToClipboard } from '../../shared/utils/clipboard';
 
 interface TabDef {
   readonly key: DbDetailTab;
@@ -368,7 +369,7 @@ export class DbStatementDetailComponent implements OnInit {
     const text = s.params.length > 1
       ? s.params.map((set) => sqlText(s.sql, set, this.state.fill())).join(';\n') + ';'
       : sqlText(s.sql, s.params[0], this.state.fill());
-    void navigator.clipboard?.writeText(text).then(() => {
+    void copyToClipboard(text).then(() => {
       this.copied.set(true);
       setTimeout(() => this.copied.set(false), 1200);
     });

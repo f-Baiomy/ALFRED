@@ -16,6 +16,7 @@ import { MarkdownViewComponent } from '../markdown-view/markdown-view.component'
 import { MentionChipComponent } from '../mention-chip/mention-chip.component';
 import { MentionEditorComponent } from '../mention-editor/mention-editor.component';
 import { MentionPickerComponent } from '../mention-picker/mention-picker.component';
+import { copyToClipboard } from '../../../shared/utils/clipboard';
 
 /**
  * One card opened (FR-027..029, mock "drawer"): status, kind, scope and flags; the description with its mentions; the
@@ -268,7 +269,7 @@ export class CardDrawerComponent {
   }
 
   copy(text: string, what: 'cmd' | 'issue'): void {
-    void navigator.clipboard?.writeText(text).then(() => {
+    void copyToClipboard(text).then(() => {
       this.copied.set(what);
       setTimeout(() => this.copied.set(null), 1500);
     });

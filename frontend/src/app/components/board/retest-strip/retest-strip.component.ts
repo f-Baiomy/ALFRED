@@ -1,6 +1,7 @@
 import { Component, HostListener, inject, input, signal } from '@angular/core';
 import { RetestStateService } from '../../../core/state/retest-state.service';
 import { MarkdownViewComponent } from '../markdown-view/markdown-view.component';
+import { copyToClipboard } from '../../../shared/utils/clipboard';
 
 /**
  * The board's re-test strip (specs/016): the new-build banner after the app restarted, the one-click re-test recording
@@ -90,7 +91,7 @@ export class RetestStripComponent {
   }
 
   copy(text: string): void {
-    void navigator.clipboard?.writeText(text).then(() => {
+    void copyToClipboard(text).then(() => {
       this.copied.set(true);
       setTimeout(() => this.copied.set(false), 1500);
     });
