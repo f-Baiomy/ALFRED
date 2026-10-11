@@ -7,4 +7,10 @@ import com.fathy.alfred.backend.board.domain.model.CardChange;
 public interface DeleteCardUseCase {
 
     CardChange delete(Actor actor, String id);
+
+    /** Deletes every card of a cycle (the user deleting the cycle with its cards); how many went. User only. */
+    CycleCardsDeleted deleteCycleCards(Actor actor, String cycleId);
+
+    record CycleCardsDeleted(CardChange.Outcome outcome, int deleted, String message) {
+    }
 }

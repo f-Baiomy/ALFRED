@@ -438,6 +438,7 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
             return new BulkOutcome(CardChange.Outcome.INVALID, 0, problem);
         }
         int updated = 0;
+        boolean liveCallsGone = false;
         Map<String, String> projects = new LinkedHashMap<>();
         for (String id : new LinkedHashSet<>(ids)) {
             Optional<Card> found = store.find(id);
@@ -472,13 +473,27 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
                     record(id, actor, ActivityKind.FLAGS, null, flagsText(card.flags()), flagsText(flags));
                     yield true;
                 }
+                case DELETE -> {
+                    boolean live = anyLiveCall(store.linksOf(id));
+                    if (!store.delete(id)) {
+                        yield false;
+                    }
+                    if (live) {
+                        liveCallsGone = true;
+                    }
+                    yield true;
+                }
             };
             if (done) {
                 updated++;
                 projects.putIfAbsent(card.project(), card.cycleId());
             }
         }
-        projects.forEach((project, cycleId) -> notifications.changed(project, null, null, "card"));
+        if (liveCallsGone) {
+            mentionedCalls.mentionedCallsChanged();
+        }
+        String what = action == Action.DELETE ? "deleted" : "card";
+        projects.forEach((project, cycleId) -> notifications.changed(project, null, null, what));
         return new BulkOutcome(CardChange.Outcome.OK, updated, null);
     }
 
@@ -498,6 +513,32 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
         }
         notifications.changed(found.get().project(), found.get().cycleId(), id, "deleted");
         return new CardChange(CardChange.Outcome.OK, null, null);
+    }
+
+    @Override
+    public synchronized CycleCardsDeleted deleteCycleCards(Actor actor, String cycleId) {
+        if (actor == Actor.CLAUDE) {
+            return new CycleCardsDeleted(CardChange.Outcome.REFUSED_FOR_CLAUDE, 0, ClaudeRules.USER_ONLY);
+        }
+        if (cycleId == null || cycleId.isBlank()) {
+            return new CycleCardsDeleted(CardChange.Outcome.INVALID, 0, "Name the cycle");
+        }
+        int deleted = 0;
+        boolean live = false;
+        Map<String, Boolean> projects = new LinkedHashMap<>();
+        for (String id : store.cardIdsOfCycle(cycleId)) {
+            Optional<Card> card = store.find(id);
+            live |= anyLiveCall(store.linksOf(id));
+            if (store.delete(id)) {
+                deleted++;
+                card.ifPresent(c -> projects.put(c.project(), true));
+            }
+        }
+        if (live) {
+            mentionedCalls.mentionedCallsChanged();
+        }
+        projects.keySet().forEach(project -> notifications.changed(project, cycleId, null, "deleted"));
+        return new CycleCardsDeleted(CardChange.Outcome.OK, deleted, null);
     }
 
     // ------------------------------------------------------------------------------------------------- links, comments

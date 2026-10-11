@@ -13,6 +13,7 @@ import { SelectOption, SelectPickerComponent } from '../../components/select-pic
 import { SessionCycle } from '../../core/models/call.model';
 import { BulkReassignDialogService } from '../../core/services/bulk-reassign-dialog.service';
 import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
+import { CycleDeleteService } from '../../core/services/cycle-delete.service';
 import { CycleExportService } from '../../core/services/cycle-export.service';
 import { EditCycleDialogService } from '../../core/services/edit-cycle-dialog.service';
 import { ImportCallsDialogService } from '../../core/services/import-calls-dialog.service';
@@ -46,6 +47,7 @@ export class SessionCyclesListComponent {
   private readonly router = inject(Router);
   readonly sortOptions = SORT_OPTIONS;
   private readonly confirmDialog = inject(ConfirmDialogService);
+  private readonly cycleDelete = inject(CycleDeleteService);
   private readonly editDialog = inject(EditCycleDialogService);
   private readonly bulkReassignDialog = inject(BulkReassignDialogService);
   private readonly importDialog = inject(ImportCallsDialogService);
@@ -115,7 +117,7 @@ export class SessionCyclesListComponent {
 
   async deleteCycle(cycle: SessionCycle): Promise<void> {
     if (cycle.status === 'RECORDING') return;
-    const confirmed = await this.confirmDialog.confirm(`Delete "${cycle.name}"? This also deletes its captured calls.`);
+    const confirmed = await this.cycleDelete.confirmAndClean([cycle.id], `Delete "${cycle.name}"? This also deletes its captured calls.`);
     if (!confirmed) return;
     this.state.delete(cycle.id).subscribe();
   }
@@ -173,9 +175,10 @@ export class SessionCyclesListComponent {
   }
 
   async bulkDelete(): Promise<void> {
-    const ids = this.state.selectedCycles().map((c) => c.id);
-    const confirmed = await this.confirmDialog.confirm(
-      `Delete ${ids.length} cycle${ids.length === 1 ? '' : 's'}? This also deletes their captured calls. Any still recording will be skipped.`
+    const ids = this.state.selectedCycles().filter((c) => c.status !== 'RECORDING').map((c) => c.id);
+    const skipped = this.state.selectedCycles().length - ids.length;
+    const confirmed = await this.cycleDelete.confirmAndClean(ids,
+      `Delete ${ids.length} cycle${ids.length === 1 ? '' : 's'}? This also deletes their captured calls.${skipped ? ` ${skipped} still recording will be skipped.` : ''}`
     );
     if (!confirmed) return;
     this.state.bulkDelete(ids).subscribe(({ deleted, skippedRecording }) => {

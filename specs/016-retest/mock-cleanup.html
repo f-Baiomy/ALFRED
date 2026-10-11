@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Board Cleanup Mock</title>
+<style>
+  :root { --bg:#0f0d24; --panel:#1a1640; --inner:#14112f; --border:#2e2865; --strong:#3d3680; --text:#e6e3ff; --dim:#a29dd0; --faint:#6e68a3;
+    --purple:#7c5cff; --pl:#b6a4ff; --cyan:#4fd1e8; --green:#4ade80; --amber:#fbbf24; --red:#f87171; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:12.5px/1.45 system-ui, sans-serif; padding:12px 16px; }
+  .grid { display:grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap:12px; align-items:start; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  .label { font-size:10px; font-weight:700; color:var(--amber); letter-spacing:.05em; margin-bottom:6px; }
+  .panel { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:12px; }
+  .dialog { background:var(--panel); border:1px solid var(--strong); border-radius:12px; padding:14px; box-shadow:0 12px 30px rgba(0,0,0,.5); }
+  h3 { margin:0 0 8px; font-size:13px; }
+  .dim { color:var(--dim); } .faint { color:var(--faint); font-size:11px; }
+  .opt { display:flex; gap:8px; padding:8px; border:1px solid var(--border); border-radius:8px; margin-top:6px; background:var(--inner); }
+  .opt.on { border-color:var(--purple); }
+  .row { display:flex; gap:6px; margin-top:10px; align-items:center; flex-wrap:wrap; }
+  .btn { font-size:11.5px; padding:3px 10px; border-radius:6px; border:1px solid var(--strong); background:var(--inner); color:var(--text); }
+  .btn.p { background:var(--purple); border-color:var(--purple); }
+  .btn.r { background:#7f1d1d; border-color:var(--red); }
+  .pill { font-size:11px; padding:1px 8px; border-radius:999px; border:1px solid var(--strong); color:var(--dim); }
+  .pill.on { border-color:var(--purple); color:var(--text); background:color-mix(in srgb, var(--purple) 25%, transparent); }
+  .card { background:var(--inner); border:1px solid var(--border); border-radius:8px; padding:7px; margin-top:6px; position:relative; }
+  .card.sel { border-color:var(--purple); }
+  .cyc { color:var(--faint); font-size:11px; }
+  .k { font-size:10px; font-weight:700; padding:0 6px; border-radius:4px; background:#3a1717; color:var(--red); }
+  .bulk { display:flex; gap:6px; align-items:center; background:#251f5c; border:1px solid var(--purple); border-radius:8px; padding:6px 8px; margin-top:8px; flex-wrap:wrap; }
+  table { width:100%; border-collapse:collapse; font-size:12px; }
+  td { padding:4px 0; border-bottom:1px solid var(--border); }
+  td:last-child { text-align:right; }
+  .bar { height:6px; border-radius:3px; background:var(--inner); overflow:hidden; margin-top:4px; }
+  .bar i { display:block; height:100%; background:var(--cyan); }
+</style>
+</head>
+<body>
+<div class="grid">
+  <div>
+    <div class="label">1 · DELETING A CYCLE (Session Cycles)</div>
+    <div class="dialog">
+      <h3>Delete cycle "ODY-482 import"?</h3>
+      <div class="dim">Its 214 calls, spacers and comments go. Its board: brief, 3 spec files (4.1 MB), checklist and session log go too.</div>
+      <div class="opt on"><input type="radio" checked><div><b>Keep its 6 cards</b> on the odeysys board<div class="faint">marked "◷ cycle deleted" - their history and evidence labels stay</div></div></div>
+      <div class="opt"><input type="radio"><div><b>Delete its 6 cards too</b><div class="faint">2 open (1 To do, 1 Fixed) · 4 closed - cannot be undone</div></div></div>
+      <div class="row"><button class="btn r">Delete cycle</button><button class="btn">Cancel</button></div>
+    </div>
+  </div>
+
+  <div>
+    <div class="label">2 · LEFTOVER CARDS (Board)</div>
+    <div class="panel">
+      <div class="row" style="margin-top:0"><span class="pill">BUG</span><span class="pill">Needs re-test</span><span class="pill on">◷ Cycle deleted · 9</span></div>
+      <div class="card sel"><span class="k">BUG</span> read-pnr 409 on retry<div class="cyc">#11 · ◷ cycle deleted · CLOSED Fine</div></div>
+      <div class="card sel"><span class="k">BUG</span> voucher stacking ignored<div class="cyc">#12 · ◷ cycle deleted · DONE</div></div>
+      <div class="card"><span class="k">BUG</span> PCC list not filtered<div class="cyc">#14 · ◷ cycle deleted · TO_DO</div></div>
+      <div class="bulk"><b>2 selected</b><button class="btn">Fine</button><button class="btn">Not in flow</button><button class="btn">To do</button><button class="btn r">🗑 Delete…</button><span class="faint" style="margin-left:auto">Select all 9</span></div>
+      <div class="dialog" style="margin-top:8px"><b>Delete 2 cards?</b><div class="dim">#11, #12 with their history. Cannot be undone.</div><div class="row"><button class="btn r">Delete 2</button><button class="btn">Cancel</button></div></div>
+    </div>
+  </div>
+
+  <div>
+    <div class="label">3 · SETTINGS → STORAGE · BOARD</div>
+    <div class="panel">
+      <h3>Board <span class="faint">board.db</span></h3>
+      <table>
+        <tr><td>File on disk</td><td><b>48.2 MB</b></td></tr>
+        <tr><td>Used by data</td><td>12.6 MB</td></tr>
+        <tr><td>Free space inside (from deleted cycles, cards)</td><td style="color:var(--amber)">35.6 MB</td></tr>
+        <tr><td class="dim">Cards · comments · spec files · briefs</td><td class="dim">412 · 3,120 · 9 · 14</td></tr>
+        <tr><td class="dim">Cards whose cycle was deleted</td><td class="dim">9 <a style="color:var(--pl)">show</a></td></tr>
+      </table>
+      <div class="bar"><i style="width:26%"></i></div>
+      <div class="row"><button class="btn p">Compact (reclaim 35.6 MB)</button><span class="faint">runs VACUUM - a few seconds, the board waits</span></div>
+      <div class="faint" style="margin-top:8px">✓ Compacted · 48.2 MB → 12.7 MB</div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

@@ -2,6 +2,12 @@
   <div class="dialog-backdrop" (click)="cancel()">
     <div class="dialog-card" (click)="$event.stopPropagation()">
       <p class="dialog-sub">{{ current.message }}</p>
+      @for (c of current.choices ?? []; track c.value) {
+        <label class="dialog-choice" [class.on]="current.chosen === c.value">
+          <input type="radio" name="confirm-choice" [checked]="current.chosen === c.value" (change)="pick(c.value)" />
+          <span><b>{{ c.label }}</b>@if (c.hint) { <span class="dialog-choice-hint">{{ c.hint }}</span> }</span>
+        </label>
+      }
       <div class="dialog-actions">
         <button type="button" class="dialog-btn secondary" (click)="cancel()">{{ current.cancelLabel ?? 'Cancel' }}</button>
         <button type="button" class="dialog-btn danger" (click)="confirm()">{{ current.confirmLabel }}</button>

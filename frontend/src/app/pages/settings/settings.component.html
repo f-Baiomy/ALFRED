@@ -55,6 +55,7 @@
         <app-server-settings />
       } @else if (activePartition() === 'storage') {
         <app-storage-settings />
+        <app-board-storage />
       } @else if (activePartition() === 'database-capture' && inboundLoggingFeatureEnabled()) {
         <app-db-capture-settings />
       } @else if (activePartition() === 'inbound-logging' && inboundLoggingFeatureEnabled()) {

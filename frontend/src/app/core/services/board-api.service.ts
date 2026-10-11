@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import {
-  ActivityPage, AgentStatus, BoardAccess, BoardFilters, BulkAction, CallBadge, CardDetail, CardEdit, CardStatus, CardsPage,
+  ActivityPage, AgentStatus, BoardAccess, BoardFilters, BoardStorage, BulkAction, CallBadge, CardDetail, CardEdit, CardStatus, CardsPage,
   CardRetest, ChecklistFile, ChecklistItem, CycleBrief, Expectation, Mark, MentionRef, NewCard, NextSteps, Resolution, RetestCheck, RetestPlan,
   RetestReport, RetestStep, SessionLogEntry, SpecFileInfo, TestStep,
 } from '../models/board.models';
@@ -31,6 +31,7 @@ export class BoardApiService {
     if (filters.scopeNotDecided) params = params.set('scopeNotDecided', true);
     if (filters.q.trim()) params = params.set('q', filters.q.trim());
     if (filters.waiting) params = params.set('waiting', filters.waiting);
+    if (filters.cycleDeleted) params = params.set('cycleDeleted', true);
     return this.http.get<CardsPage>(`${this.base}/cards`, { params });
   }
 
@@ -72,6 +73,19 @@ export class BoardApiService {
 
   undoClose(id: string): Observable<CardDetail> {
     return this.http.post<CardDetail>(`${this.base}/cards/${encodeURIComponent(id)}/undo-close`, {});
+  }
+
+  /** Deletes every card of a cycle - the user deleting the cycle with its cards. */
+  deleteCycleCards(cycleId: string): Observable<{ deleted: number }> {
+    return this.http.delete<{ deleted: number }>(`${this.base}/cycles/${encodeURIComponent(cycleId)}/cards`);
+  }
+
+  storage(): Observable<BoardStorage> {
+    return this.http.get<BoardStorage>(`${this.base}/storage`);
+  }
+
+  compact(): Observable<{ before: BoardStorage; after: BoardStorage }> {
+    return this.http.post<{ before: BoardStorage; after: BoardStorage }>(`${this.base}/storage/compact`, {});
   }
 
   bulk(ids: readonly string[], action: BulkAction, reason?: string): Observable<{ updated: number }> {

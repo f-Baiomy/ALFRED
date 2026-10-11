@@ -13,12 +13,19 @@ import { BulkAction } from '../../../core/models/board.models';
         <button type="button" class="action-btn" (click)="action.emit('NOT_IN_FLOW')">⊘ Not in flow</button>
         <button type="button" class="action-btn" (click)="action.emit('TO_DO')">→ To do</button>
         <button type="button" class="action-btn" (click)="action.emit('MARK_URGENT')">Mark urgent</button>
+        <button type="button" class="action-btn danger" title="Delete the selected cards with their history" (click)="action.emit('DELETE')">🗑 Delete…</button>
+        @if (total() > count()) {
+          <button type="button" class="board-link" (click)="selectAll.emit()">Select all {{ total() }}</button>
+        }
         <button type="button" class="action-btn" title="Clear the selection" (click)="cleared.emit()">✕</button>
       </div>
     }`,
 })
 export class BulkBarComponent {
   readonly count = input(0);
+  /** Cards on the board as filtered now - "Select all" picks them. */
+  readonly total = input(0);
   readonly action = output<BulkAction>();
+  readonly selectAll = output<void>();
   readonly cleared = output<void>();
 }

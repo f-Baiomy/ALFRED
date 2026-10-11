@@ -4,6 +4,7 @@ import {
   ALL_STATUSES, Actor, BoardFilters, BulkAction, CardKind, CardSummary, FLAGS, FLAG_LABELS, Flag, KINDS, OPEN_STATUSES, Resolution, Waiting,
 } from '../../../core/models/board.models';
 import { BoardNotifyService } from '../../../core/services/board-notify.service';
+import { ConfirmDialogService } from '../../../core/services/confirm-dialog.service';
 import { BoardSeenService } from '../../../core/services/board-seen.service';
 import { NextStepsBarComponent } from '../next-steps-bar/next-steps-bar.component';
 import { QuickAnswerComponent } from '../quick-answer/quick-answer.component';
@@ -80,6 +81,10 @@ import { UndoToastComponent } from '../undo-toast/undo-toast.component';
       <button type="button" class="board-pill" [class.on]="state.filters().waiting === 'RETEST'" (click)="toggleWaiting('RETEST')">Needs re-test</button>
       <button type="button" class="board-pill" [class.on]="state.filters().author === 'CLAUDE'" (click)="toggleAuthor('CLAUDE')">✦ by Claude</button>
       <button type="button" class="board-pill" [class.on]="state.filters().scopeNotDecided" (click)="toggleScope()">Scope not decided</button>
+      @if (!cycleId()) {
+        <button type="button" class="board-pill" [class.on]="!!state.filters().cycleDeleted" title="Cards whose session cycle was deleted - clean them up"
+                (click)="toggleCycleDeleted()">◷ Cycle deleted</button>
+      }
       <input #search class="board-search" type="search" placeholder="Search cards…" [value]="state.filters().q"
              (keydown.enter)="setSearch(search.value)" (search)="setSearch(search.value)" />
     </div>
@@ -101,7 +106,8 @@ import { UndoToastComponent } from '../undo-toast/undo-toast.component';
                            [now]="now()" (opened)="openCard($event)" (toggled)="state.toggleSelected($event.id)" />
     }
 
-    <app-bulk-bar [count]="state.selected().size" (action)="bulk($event)" (cleared)="state.clearSelection()" />
+    <app-bulk-bar [count]="state.selected().size" [total]="state.cards().length" (action)="bulk($event)" (cleared)="state.clearSelection()"
+                  (selectAll)="selectAll()" />
     <app-undo-toast [pending]="state.pendingUndo()" (undo)="state.undo()" (reason)="state.addReason($event)" (dismissed)="state.pendingUndo.set(null)" />
     @if (triageQueue(); as queue) {
       <app-triage-dialog [queue]="queue" (decided)="onTriage($event)" (closed)="triageQueue.set(null)" />
@@ -116,6 +122,7 @@ import { UndoToastComponent } from '../undo-toast/undo-toast.component';
 export class BoardViewComponent {
   readonly state = inject(BoardStateService);
   readonly retest = inject(RetestStateService);
+  private readonly confirm = inject(ConfirmDialogService);
   private readonly api = inject(BoardApiService);
   private readonly exports = inject(BoardExportService);
   private readonly mentions = inject(BoardMentionsService);
@@ -123,6 +130,8 @@ export class BoardViewComponent {
   readonly project = input('');
   readonly cycleId = input<string | null>(null);
   readonly cycleName = input<string | null>(null);
+  /** Opens with the "cycle deleted" filter on (Settings -> Storage -> show). */
+  readonly onlyCycleDeleted = input(false);
 
   readonly kinds = KINDS;
   readonly flags = FLAGS;
@@ -161,6 +170,9 @@ export class BoardViewComponent {
         this.state.show(project, cycleId);
         this.retest.show(project);
       });
+    });
+    effect(() => {
+      if (this.onlyCycleDeleted()) untracked(() => this.setFilters({ cycleDeleted: true }));
     });
     effect(() => {
       const target = this.mentions.cardToOpen();
@@ -209,8 +221,26 @@ export class BoardViewComponent {
     else this.state.run(this.api.close(d.card.id, d.resolution, d.reason || undefined));
   }
 
-  bulk(action: BulkAction): void {
+  async bulk(action: BulkAction): Promise<void> {
+    if (action === 'DELETE') {
+      const picked = this.state.cards().filter((c) => this.state.selected().has(c.id));
+      const n = picked.length;
+      const names = picked.slice(0, 8).map((c) => `#${c.number}`).join(', ') + (n > 8 ? ` +${n - 8} more` : '');
+      const ok = await this.confirm.confirm(`Delete ${n} ${n === 1 ? 'card' : 'cards'} (${names}) with their history? This cannot be undone.`,
+        `Delete ${n}`);
+      if (!ok) return;
+    }
     this.state.bulk(action);
+  }
+
+  selectAll(): void {
+    for (const c of this.state.cards()) {
+      if (!this.state.selected().has(c.id)) this.state.toggleSelected(c.id);
+    }
+  }
+
+  toggleCycleDeleted(): void {
+    this.setFilters({ cycleDeleted: !this.state.filters().cycleDeleted });
   }
 
   private setFilters(change: Partial<BoardFilters>): void {

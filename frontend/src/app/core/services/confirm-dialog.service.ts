@@ -5,6 +5,15 @@ export interface ConfirmDialogState {
   readonly confirmLabel: string;
   /** The other choice's label. Both are real answers when the question is not "are you sure". */
   readonly cancelLabel?: string;
+  /** A choice to make with the answer (radio buttons), and which one is picked. */
+  readonly choices?: readonly ConfirmChoice[];
+  readonly chosen?: string;
+}
+
+export interface ConfirmChoice {
+  readonly value: string;
+  readonly label: string;
+  readonly hint?: string;
 }
 
 /**
@@ -25,7 +34,24 @@ export class ConfirmDialogService {
     });
   }
 
+  /** Asks with a choice: the value picked when confirmed, null when cancelled. */
+  async choose(message: string, choices: readonly ConfirmChoice[], chosen: string, confirmLabel = 'Delete'): Promise<string | null> {
+    this.state.set({ message, confirmLabel, choices, chosen });
+    const confirmed = await new Promise<boolean>((resolve) => {
+      this.resolve = resolve;
+    });
+    return confirmed ? this.lastChosen : null;
+  }
+
+  private lastChosen: string | null = null;
+
+  pick(value: string): void {
+    const s = this.state();
+    if (s) this.state.set({ ...s, chosen: value });
+  }
+
   respond(confirmed: boolean): void {
+    this.lastChosen = this.state()?.chosen ?? null;
     this.resolve?.(confirmed);
     this.resolve = null;
     this.state.set(null);

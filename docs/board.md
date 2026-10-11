@@ -164,6 +164,18 @@ re-test cycle is optional: given, only its calls count.
 
 Verified stays the user's: the card offers **✓ Verified** when every call passes; Claude proposes it.
 
+## Cleaning up after a cycle
+
+Deleting a session cycle always removes its board brief, spec files, checklist marks and suggestions, session log and
+test-step marks (`cycleRemoved`). Its **cards** are the user's choice in the delete dialog (`CycleDeleteService`):
+**delete them too** (the default; `DELETE /board/cycles/{cycleId}/cards`, before the cycle) or keep them on the project
+board, marked "◷ cycle deleted". Kept cards are found later with the **◷ Cycle deleted** filter (`cycleDeleted=true`)
+and removed with the bulk **🗑 Delete…** (`BulkAction.DELETE`, with a confirm naming the cards). Claude can do neither.
+
+SQLite keeps the pages deleted rows freed and reuses them, but the file does not shrink. **Settings → Storage → Board**
+(`GET /board/storage`) shows board.db on disk, what the data uses and the free space inside; **Compact**
+(`POST /board/storage/compact`, user only) checkpoints the WAL and runs `VACUUM`.
+
 ## Edit access
 
 Board writes follow the server-settings rule (`EditAccessUseCase`), with one exception: Docker, which refuses every settings write, lets board edits through, because cards are data, not settings. The Cloudflare tunnel is always view-only. `GET /board/access` returns the same decision to the page, which then hides its edit controls and shows "View only". Export stays available.

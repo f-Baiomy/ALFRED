@@ -15,6 +15,10 @@ export class ConfirmDialogComponent {
     this.service.respond(false);
   }
 
+  pick(value: string): void {
+    this.service.pick(value);
+  }
+
   confirm(): void {
     this.service.respond(true);
   }

@@ -48,7 +48,7 @@ import { ConfirmDialogComponent } from '../../components/confirm-dialog/confirm-
           </div>
         </div>
       }
-      <app-board-view [project]="project()" [cycleId]="cycleId()" [cycleName]="cycleName()" />
+      <app-board-view [project]="project()" [cycleId]="cycleId()" [cycleName]="cycleName()" [onlyCycleDeleted]="onlyCycleDeleted()" />
     </div>
     <!-- The card drawer's "Delete card…" (and a call card's confirms in the call popup) ask through this - each page
          hosts its own, like every other page that confirms. Without it the question never showed and Delete did nothing. -->
@@ -64,6 +64,8 @@ export class BoardPageComponent {
 
   private readonly query = toSignal(this.route.queryParamMap, { initialValue: this.route.snapshot.queryParamMap });
   readonly project = computed(() => this.query().get('project') ?? this.projects()[0] ?? '');
+  /** ?cycleDeleted=1 (from Settings -> Storage): open with the "cycle deleted" filter on. */
+  readonly onlyCycleDeleted = computed(() => this.query().get('cycleDeleted') === '1');
   readonly cycleId = computed(() => this.query().get('cycle'));
   readonly projects = toSignal(this.db.projects().pipe(map((ps) => [...ps.map((p) => p.project), '']), catchError(() => of(['']))),
     { initialValue: [''] as string[] });

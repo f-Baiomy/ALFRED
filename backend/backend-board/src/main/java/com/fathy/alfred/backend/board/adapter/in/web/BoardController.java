@@ -118,13 +118,15 @@ public class BoardController {
                                   @RequestParam(required = false) List<String> flag, @RequestParam(required = false) String author,
                                   @RequestParam(defaultValue = "false") boolean scopeNotDecided,
                                   @RequestParam(required = false) String q, @RequestParam(defaultValue = "0") int offset,
-                                  @RequestParam(defaultValue = "200") int limit, @RequestParam(required = false) String waiting) {
+                                  @RequestParam(defaultValue = "200") int limit, @RequestParam(required = false) String waiting,
+                                  @RequestParam(defaultValue = "false") boolean cycleDeleted) {
         try {
             CardQuery cardQuery = new CardQuery(project, blankToNull(cycleId), enums(kind, CardKind::valueOf, CardKind.class),
                     enums(status, CardStatus::valueOf, CardStatus.class), enums(flag, Flag::valueOf, Flag.class),
                     author == null || author.isBlank() ? null : Actor.valueOf(author.strip().toUpperCase(Locale.ROOT)), scopeNotDecided, q,
                     offset, limit, false, null, false,
-                    waiting == null || waiting.isBlank() ? null : com.fathy.alfred.backend.board.domain.model.Waiting.valueOf(waiting.strip().toUpperCase(Locale.ROOT)));
+                    waiting == null || waiting.isBlank() ? null : com.fathy.alfred.backend.board.domain.model.Waiting.valueOf(waiting.strip().toUpperCase(Locale.ROOT)),
+                    cycleDeleted);
             return ResponseEntity.ok(query.query(cardQuery));
         } catch (IllegalArgumentException e) {
             return BoardWeb.refused(CardChange.Outcome.INVALID, "Unknown filter value: " + e.getMessage());
@@ -173,6 +175,16 @@ public class BoardController {
     @DeleteMapping("/board/cards/{id}")
     public ResponseEntity<?> delete(@RequestHeader(value = ACTOR, required = false) String actor, @PathVariable String id) {
         return BoardWeb.respond(delete.delete(BoardWeb.actor(actor), id), HttpStatus.NO_CONTENT);
+    }
+
+    /** The cards of a cycle the user is deleting with it. */
+    @DeleteMapping("/board/cycles/{cycleId}/cards")
+    public ResponseEntity<?> deleteCycleCards(@RequestHeader(value = ACTOR, required = false) String actor, @PathVariable String cycleId) {
+        DeleteCardUseCase.CycleCardsDeleted out = delete.deleteCycleCards(BoardWeb.actor(actor), cycleId);
+        if (out.outcome() != CardChange.Outcome.OK) {
+            return BoardWeb.refused(out.outcome(), out.message());
+        }
+        return ResponseEntity.ok(Map.of("deleted", out.deleted()));
     }
 
     // -------------------------------------------------------------------------------------------------- Inbox sorting

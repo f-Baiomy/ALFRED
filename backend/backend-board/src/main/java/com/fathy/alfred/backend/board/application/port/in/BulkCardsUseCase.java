@@ -10,7 +10,7 @@ public interface BulkCardsUseCase {
 
     int MAX_CARDS = 200;
 
-    enum Action { FINE, NOT_IN_FLOW, TO_DO, MARK_URGENT }
+    enum Action { FINE, NOT_IN_FLOW, TO_DO, MARK_URGENT, DELETE }
 
     record BulkOutcome(CardChange.Outcome outcome, int updated, String message) {
     }

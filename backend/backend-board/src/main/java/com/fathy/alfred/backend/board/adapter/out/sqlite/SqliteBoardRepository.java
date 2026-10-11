@@ -310,6 +310,43 @@ public class SqliteBoardRepository implements BoardStorePort {
     }
 
     @Override
+    public List<String> cardIdsOfCycle(String cycleId) {
+        return jdbc.queryForList("SELECT id FROM cards WHERE cycle_id = ? LIMIT 10000", String.class, cycleId);
+    }
+
+    @Override
+    public com.fathy.alfred.backend.board.domain.model.BoardStorage storage() {
+        long pageSize = longOf("PRAGMA page_size");
+        long pages = longOf("PRAGMA page_count");
+        long free = longOf("PRAGMA freelist_count");
+        long file = 0;
+        for (String suffix : new String[] {"", "-wal", "-shm"}) {
+            try {
+                file += Files.size(Path.of(dbFile + suffix));
+            } catch (IOException e) {
+                // no WAL or shared-memory file yet
+            }
+        }
+        return new com.fathy.alfred.backend.board.domain.model.BoardStorage(file, (pages - free) * pageSize, free * pageSize,
+                longOf("SELECT COUNT(*) FROM cards"), longOf("SELECT COUNT(*) FROM activity WHERE kind = 'COMMENT'"),
+                longOf("SELECT COUNT(*) FROM spec_files"), longOf("SELECT COUNT(*) FROM cycle_briefs"),
+                longOf("SELECT COUNT(*) FROM cards WHERE cycle_deleted = 1"));
+    }
+
+    private long longOf(String sql) {
+        Long n = jdbc.queryForObject(sql, Long.class);
+        return n == null ? 0 : n;
+    }
+
+    @Override
+    public synchronized void compact() {
+        // The WAL is folded back first, then VACUUM rewrites the file without its free pages.
+        jdbc.execute("PRAGMA wal_checkpoint(TRUNCATE)");
+        jdbc.execute("VACUUM");
+        jdbc.execute("PRAGMA wal_checkpoint(TRUNCATE)");
+    }
+
+    @Override
     public List<Card> query(CardQuery q) {
         List<Object> args = new ArrayList<>();
         String where = where(q, args);
@@ -343,6 +380,9 @@ public class SqliteBoardRepository implements BoardStorePort {
         if (q.waiting() != null) {
             parts.add("EXISTS (SELECT 1 FROM card_waiting w WHERE w.card_id = cards.id AND w.waiting_on = ?)");
             args.add(q.waiting().name());
+        }
+        if (q.cycleDeleted()) {
+            parts.add("cycle_deleted = 1");
         }
         if (q.claudeTouched()) {
             parts.add("(author = 'CLAUDE' OR EXISTS (SELECT 1 FROM activity a WHERE a.card_id = cards.id AND a.actor = 'CLAUDE'))");

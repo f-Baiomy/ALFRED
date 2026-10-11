@@ -14,7 +14,7 @@ export type ActivityKind = 'COMMENT' | 'CREATED' | 'STATUS' | 'KIND' | 'SCOPE' |
   | 'DESCRIPTION' | 'LINK_ADDED' | 'LINK_REMOVED' | 'CYCLE' | 'PROJECT' | 'SPEC_REPLACED' | 'REOPENED' | 'IMPORTED' | 'DELETED'
   | 'PROPOSED' | 'PROPOSAL_ACCEPTED' | 'PROPOSAL_DISMISSED' | 'MERGED' | 'BLOCKED' | 'UNBLOCKED' | 'SPEC_ITEM';
 export type Mark = 'PASS' | 'FAIL' | 'CANT_TELL';
-export type BulkAction = 'FINE' | 'NOT_IN_FLOW' | 'TO_DO' | 'MARK_URGENT';
+export type BulkAction = 'FINE' | 'NOT_IN_FLOW' | 'TO_DO' | 'MARK_URGENT' | 'DELETE';
 
 export const OPEN_STATUSES: readonly CardStatus[] = ['INBOX', 'TO_DO', 'IN_PROGRESS', 'FIXED', 'VERIFIED', 'DONE'];
 export const ALL_STATUSES: readonly CardStatus[] = [...OPEN_STATUSES, 'CLOSED'];
@@ -307,9 +307,23 @@ export interface BoardFilters {
   readonly scopeNotDecided: boolean;
   readonly q: string;
   readonly waiting?: Waiting | null;
+  /** Only cards whose cycle was deleted (cleaning up after it). */
+  readonly cycleDeleted?: boolean;
 }
 
-export const NO_FILTERS: BoardFilters = { kinds: [], flags: [], author: null, scopeNotDecided: false, q: '', waiting: null };
+export const NO_FILTERS: BoardFilters = { kinds: [], flags: [], author: null, scopeNotDecided: false, q: '', waiting: null, cycleDeleted: false };
+
+/** board.db on disk (Settings -> Storage -> Board). */
+export interface BoardStorage {
+  readonly fileBytes: number;
+  readonly usedBytes: number;
+  readonly freeBytes: number;
+  readonly cards: number;
+  readonly comments: number;
+  readonly specFiles: number;
+  readonly briefs: number;
+  readonly cardsOfDeletedCycles: number;
+}
 
 /** A /ws/board message (contracts/websocket.md). */
 export type BoardSocketEvent =

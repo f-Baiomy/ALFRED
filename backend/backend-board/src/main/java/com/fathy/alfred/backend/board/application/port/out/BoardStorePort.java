@@ -226,6 +226,15 @@ public interface BoardStorePort {
     /** The indexed mentions of one owner (for tests and import). */
     List<Mention> mentionsOf(MentionOwner owner, String ownerId);
 
+    /** The cards a cycle holds (to delete them with the cycle), at most 10000. */
+    List<String> cardIdsOfCycle(String cycleId);
+
+    /** board.db's size on disk, what its data uses, the free space deleted rows left, and counts. */
+    com.fathy.alfred.backend.board.domain.model.BoardStorage storage();
+
+    /** Rewrites board.db without its free space (VACUUM). */
+    void compact();
+
     // ------------------------------------------------------------------------------------------- re-test (specs/016)
 
     java.util.Optional<com.fathy.alfred.backend.board.domain.model.RetestPlan> retestPlan(String cardId);

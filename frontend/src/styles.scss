@@ -11020,3 +11020,22 @@ app-board-view { display: block; padding: 0 1.25rem; }
 .board-retest-call { display: inline-flex; align-items: center; gap: 0.25rem; color: var(--green); font-size: 0.72rem; &.bad { color: var(--red); } }
 .board-retest-foot { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
 .board-retest-report { width: min(640px, calc(100vw - 32px)); max-height: 80vh; overflow: auto; }
+
+/* Board cleanup: the confirm dialog's choice, Settings -> Storage -> Board. */
+.dialog-choice { display: flex; gap: 0.5rem; align-items: flex-start; padding: 0.5rem 0.6rem; margin: 0.35rem 0; border: 1px solid var(--border);
+  border-radius: 8px; background: var(--card-inner); cursor: pointer; font-size: 0.82rem;
+  &.on { border-color: var(--purple); }
+  input { margin-top: 0.15rem; }
+}
+.dialog-choice-hint { color: var(--text-faint); font-size: 0.74rem; }
+.board-storage { margin-top: 1rem;
+  h3 .sub { font-size: 0.72rem; font-weight: 400; }
+  .warn { color: var(--amber); }
+  .dim td { color: var(--text-dim); }
+}
+.board-storage-table { width: 100%; border-collapse: collapse; font-size: 0.82rem;
+  td { padding: 0.3rem 0; border-bottom: 1px solid var(--border); }
+  td:last-child { text-align: right; }
+}
+.board-storage-acts { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; margin-top: 0.7rem; }
+.board-storage-done { color: var(--green); font-size: 0.8rem; }

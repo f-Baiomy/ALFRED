@@ -1,5 +1,6 @@
 import { ServerSettingsComponent } from './server-settings/server-settings.component';
 import { StorageSettingsComponent } from './storage-settings/storage-settings.component';
+import { BoardStorageComponent } from './board-storage/board-storage.component';
 import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { FilterMode } from '../../core/models/call-filter-settings.model';
 import { CallFilterSettingsStateService } from '../../core/state/call-filter-settings-state.service';
@@ -13,7 +14,7 @@ type Partition = 'server' | 'call-filtering' | 'storage' | 'inbound-logging' | '
 @Component({
   selector: 'app-settings',
   standalone: true,
-  imports: [ConfirmDialogComponent, DbCaptureSettingsComponent, ServerSettingsComponent, StorageSettingsComponent],
+  imports: [BoardStorageComponent, ConfirmDialogComponent, DbCaptureSettingsComponent, ServerSettingsComponent, StorageSettingsComponent],
   templateUrl: './settings.component.html',
 })
 export class SettingsComponent implements OnInit {
