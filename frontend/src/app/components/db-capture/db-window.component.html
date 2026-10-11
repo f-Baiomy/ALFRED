@@ -240,7 +240,7 @@
               <td class="q"><span class="verb" [class]="q.kind === 'SELECT' ? 'v-read' : 'v-write'">{{ q.kind }}</span> {{ q.sql }}</td>
               <td>{{ q.count }}</td><td>{{ q.distinctParams }}</td><td [class.w]="q.duplicates > 0">{{ q.duplicates || '' }}</td>
               <td>{{ q.totalMs.toLocaleString() }} ms</td><td>{{ q.maxMs.toLocaleString() }} ms</td><td>{{ q.rows ? q.rows.toLocaleString() : '' }}</td>
-              <td class="c">{{ q.callers.length ? q.callers[0] : '' }}@if (q.callers.length > 1) { <span class="dimtxt">+{{ q.callers.length - 1 }}</span>}</td>
+              <td class="c" [title]="q.callers.join('\n')">{{ q.callers.length ? frameText(q.callers[0]) : '' }}@if (q.callers.length > 1) { <span class="dimtxt">+{{ q.callers.length - 1 }}</span>}</td>
             </tr>
           }
         </table>

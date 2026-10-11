@@ -78,11 +78,11 @@ class CallerChainIT {
     @Test
     void recordsTheFirstApplicationFramesInnermostFirst() throws Exception {
         StatementRecord s = run("chain-1");
-        assertThat(s.codeLocation).startsWith("CallerChainIT$GenericDao.select(CallerChainIT.java:");
+        assertThat(s.codeLocation).startsWith("com.fathy.alfred.dbagent.CallerChainIT$GenericDao.select(CallerChainIT.java:");
         assertThat(s.callers).hasSize(AgentSettings.DEFAULT_CALLER_FRAMES);
-        assertThat(s.callers.get(0)).startsWith("CallerChainIT$GenericDao.select(");
-        assertThat(s.callers.get(1)).startsWith("CallerChainIT$OrganizationService.credential(");
-        assertThat(s.callers.get(2)).startsWith("CallerChainIT$AgencyService.setDetails(");
+        assertThat(s.callers.get(0)).startsWith("com.fathy.alfred.dbagent.CallerChainIT$GenericDao.select(");
+        assertThat(s.callers.get(1)).startsWith("com.fathy.alfred.dbagent.CallerChainIT$OrganizationService.credential(");
+        assertThat(s.callers.get(2)).startsWith("com.fathy.alfred.dbagent.CallerChainIT$AgencyService.setDetails(");
     }
 
     @Test
@@ -90,9 +90,9 @@ class CallerChainIT {
         SETTINGS.apply(AgentSettings.DEFAULT_ROWS_PER_RESULT, Collections.emptySet(), false, false, Collections.singletonList("SELECT 1"),
                 Collections.singletonList("com.fathy.alfred.dbagent.CallerChainIT$GenericDao"), 2, false);
         StatementRecord s = run("chain-2");
-        assertThat(s.codeLocation).startsWith("CallerChainIT$GenericDao.select("); // the first application frame, as before
+        assertThat(s.codeLocation).startsWith("com.fathy.alfred.dbagent.CallerChainIT$GenericDao.select("); // the first application frame, as before
         assertThat(s.callers).hasSize(2);
-        assertThat(s.callers.get(0)).startsWith("CallerChainIT$OrganizationService.credential(");
-        assertThat(s.callers.get(1)).startsWith("CallerChainIT$AgencyService.setDetails(");
+        assertThat(s.callers.get(0)).startsWith("com.fathy.alfred.dbagent.CallerChainIT$OrganizationService.credential(");
+        assertThat(s.callers.get(1)).startsWith("com.fathy.alfred.dbagent.CallerChainIT$AgencyService.setDetails(");
     }
 }

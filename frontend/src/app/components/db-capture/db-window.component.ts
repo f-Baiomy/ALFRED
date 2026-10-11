@@ -1,3 +1,4 @@
+import { shortFrame } from '../../shared/utils/code-frame';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import {
   ChangeDetectionStrategy, Component, DestroyRef, ElementRef, HostListener, OnInit, computed, effect, inject, input, output, signal, untracked, viewChild,
@@ -89,6 +90,8 @@ const SCROLL_LOCK = 'db-window-open';
   templateUrl: './db-window.component.html',
 })
 export class DbWindowComponent implements OnInit {
+  /** A frame for reading: the simple class name. */
+  readonly frameText = shortFrame;
   private readonly api = inject(DbCaptureApiService);
   private readonly dbState = inject(DbCaptureStateService);
   private readonly calls = inject(CallsStateService, { optional: true });

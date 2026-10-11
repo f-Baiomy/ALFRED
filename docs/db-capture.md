@@ -197,6 +197,16 @@ Built from a review of real OdeySys exports by an AI agent (mock: `specs/006-db-
   Settings → Database capture → Where in code) past the project's pass-through classes (a generic DAO every query goes
   through). `codeLocation` stays the first application frame; Hibernate's own SQL is recognised only by Hibernate frames
   below the issuing code (a `session.doWork` lambda is still plain JDBC). ~23-25 µs per statement measured.
+- **Open this line**: frames are written the way a Java stack trace prints them, with the **full class name**
+  (`com.tt.dao.GenericDAOImpl.fetchWithHQL(GenericDAOImpl.java:468)` - `CodeLocation.frameText`), so the package gives
+  the file's path under a source folder; screens shorten them to the simple class name (`shortFrame`). Each frame has
+  links (`CodeLinkComponent`) that work on the computer the browser runs on, not the Alfred server: IntelliJ through its
+  local server (`localhost:63342/api/file?file=<package path>&line=N` - IntelliJ resolves the package path against the
+  open project's source folders; needs IntelliJ's "IDE Remote Control" plugin from 2025.2), VS Code by full path from
+  Settings → Open in IDE (this browser's source folders per project), and a copy of `File.java:line`. IntelliJ answers
+  200 even when it cannot find the file (it only logs "File … not found"), so the link says "sent", never "opened", and
+  a frame with no package - captured by an older agent - is not sent at all: copy it and use Ctrl+Shift+N. A new agent
+  only takes effect in a JVM started after it: a re-attach into a running JVM keeps the agent classes it loaded first.
 - **Connection and transaction lifecycle**: the agent times `DataSource.getConnection` (the first statement on a fresh
   connection carries `outcome.acquireMicros`), `setAutoCommit(false)`, commit/rollback and `Connection.close`, and hooks
   JTA commit/rollback (javax and jakarta `Transaction`, `TransactionManager`, `UserTransaction`): a container-managed

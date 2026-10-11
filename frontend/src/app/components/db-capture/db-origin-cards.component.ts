@@ -1,3 +1,4 @@
+import { shortFrame } from '../../shared/utils/code-frame';
 import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
 import { CapturedStatement } from '../../core/models/db-capture.model';
 import { isQueryOrigin, nativeComparison, originExplanation, pagingText, translationLine } from '../../shared/utils/db-origin';
@@ -32,7 +33,7 @@ import { copyToClipboard } from '../../shared/utils/clipboard';
               <table class="kvt oc-params"><tr><th>Parameter</th><th>Value</th></tr>
                 @for (p of o.params; track $index) {<tr><td class="np">{{ p.name }}</td><td>{{ p.value ?? 'null' }}</td></tr>}</table>
             }
-            <div class="oc-ft">Run at <code>{{ s.codeLocation ?? 'unknown' }}</code>@if (o.method) { · <code>query.{{ o.method }}()</code>}</div>
+            <div class="oc-ft">Run at <code [title]="s.codeLocation ?? ''">{{ s.codeLocation ? frameText(s.codeLocation) : 'unknown' }}</code>@if (o.method) { · <code>query.{{ o.method }}()</code>}</div>
           </div>
         } @else {
           <div class="oc-card" [class.hql]="o.kind !== 'NATIVE'" [class.nat]="o.kind === 'NATIVE'">
@@ -49,7 +50,7 @@ import { copyToClipboard } from '../../shared/utils/clipboard';
                 @if (paging(); as pg) {<tr><td class="dim">page</td><td>{{ pg }} <span class="dimtxt">- added to the SQL by Hibernate</span></td></tr>}
               </table>
             }
-            <div class="oc-ft">Run at <code>{{ s.codeLocation ?? 'unknown' }}</code>@if (o.method) { · <code>query.{{ o.method }}()</code>}</div>
+            <div class="oc-ft">Run at <code [title]="s.codeLocation ?? ''">{{ s.codeLocation ? frameText(s.codeLocation) : 'unknown' }}</code>@if (o.method) { · <code>query.{{ o.method }}()</code>}</div>
           </div>
           <div class="oc-arrow">↓ {{ translation() }}@if (o.kind !== 'NATIVE') { <span class="dimtxt">(this is #{{ s.seq }}{{ sqlCount() > 1 ? ', ' + positionText() : '' }})</span>}</div>
           <div class="oc-card">
@@ -59,7 +60,7 @@ import { copyToClipboard } from '../../shared/utils/clipboard';
           </div>
         }
       } @else if (o) {
-        <div class="oc-info">{{ explanation() }}@if (s.codeLocation) { Triggered at <code>{{ s.codeLocation }}</code>.}</div>
+        <div class="oc-info">{{ explanation() }}@if (s.codeLocation) { Triggered at <code [title]="s.codeLocation">{{ frameText(s.codeLocation) }}</code>.}</div>
         <div class="oc-card">
           <div class="oc-hd"><b>SQL - what Hibernate sent</b><span>{{ state.fill() ? 'values filled in' : 'placeholders kept' }}</span></div>
           <pre class="oc-pre"><app-db-sql [sql]="s.sql" [params]="s.params[0]" [filled]="state.fill()" [pretty]="true" /></pre>
@@ -69,7 +70,7 @@ import { copyToClipboard } from '../../shared/utils/clipboard';
           <div class="oc-hd"><b>SQL - written in your code and sent as written</b>
             <span>plain JDBC - no Hibernate in between, so there is nothing to translate</span></div>
           <pre class="oc-pre"><app-db-sql [sql]="s.sql" [params]="s.params[0]" [filled]="state.fill()" [pretty]="true" /></pre>
-          @if (s.codeLocation) {<div class="oc-ft">Run at <code>{{ s.codeLocation }}</code></div>}
+          @if (s.codeLocation) {<div class="oc-ft">Run at <code [title]="s.codeLocation">{{ frameText(s.codeLocation) }}</code></div>}
         </div>
       }
     </div>
@@ -77,6 +78,7 @@ import { copyToClipboard } from '../../shared/utils/clipboard';
 })
 export class DbOriginCardsComponent {
   protected readonly state = inject(DbWindowState);
+  readonly frameText = shortFrame;
   readonly statement = input.required<CapturedStatement>();
   protected readonly copied = signal(false);
 

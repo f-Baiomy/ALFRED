@@ -4230,6 +4230,30 @@ mark.hl.active {
   }
 }
 
+// "Open this line" next to a stack frame (CodeLinkComponent): IntelliJ ↗, VS Code ↗, ⧉ File.java:line.
+.frame-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.2rem 0.4rem; }
+.code-link { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.3rem; margin-left: 0.3rem; }
+.code-link-btn {
+  font: inherit;
+  font-size: 0.66rem;
+  line-height: 1.5;
+  padding: 0 0.45rem;
+  border-radius: 5px;
+  border: 1px solid var(--border-strong);
+  background: none;
+  color: var(--text-dim);
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+
+  &:hover { color: var(--text); border-color: var(--purple); }
+  &.ij { color: #e37ec4; border-color: color-mix(in srgb, #e37ec4 45%, transparent); }
+  &.vs { color: var(--purple-light); border-color: color-mix(in srgb, var(--purple-light) 45%, transparent); }
+  &.off { opacity: 0.7; border-style: dashed; }
+}
+.code-link-pick .theme-picker-btn { padding: 0 0.45rem; font-size: 0.66rem; color: var(--purple-light); }
+.code-link-note { font-size: 0.66rem; color: var(--text-faint); }
+
 // A select-picker in a dense row (the card drawer, settings tables, log tools): the same picker, smaller.
 .select-compact .theme-picker-btn {
   padding: 0.22rem 0.6rem;

@@ -1,3 +1,5 @@
+import { CodeLinkComponent } from '../code-link/code-link.component';
+import { shortFrame } from '../../shared/utils/code-frame';
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, input, signal } from '@angular/core';
 import { DbCaptureApiService } from '../../core/services/db-capture-api.service';
 import { CallFocusService } from '../../core/services/call-focus.service';
@@ -33,6 +35,7 @@ export function traceCandidates(keys: readonly string[], valueText: string | nul
   standalone: true,
   selector: 'app-store-command-detail',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [CodeLinkComponent],
   template: `
     <div class="rd-detail">
       @if (detail(); as d) {
@@ -52,7 +55,8 @@ export function traceCandidates(keys: readonly string[], valueText: string | nul
           <span>sent / reply</span><span>+{{ offset() }} ms · {{ ms(d.row.micros) }} round trip{{ d.row.group?.kind === 'tx' ? ' (one round trip for the whole MULTI … EXEC)' : d.row.group?.kind === 'pipeline' ? ' (one round trip for the pipeline)' : '' }}</span>
           <span>client</span><span>{{ d.row.client ?? '?' }}{{ d.row.connection ? ' · ' + d.row.connection : '' }} · pool wait {{ d.row.poolWaitMicros != null ? ms(d.row.poolWaitMicros) : '- (no pool)' }}{{ d.server ? ' · ' + d.server : '' }} db {{ d.db ?? 0 }}</span>
           @if (d.thread) {<span>thread</span><span>{{ d.thread }}</span>}
-          @if (d.row.code) {<span>code</span><span class="code" [title]="(d.callers ?? []).join('\\n')">{{ d.row.code }} ↗</span>}
+          @if (d.row.code) {<span>code</span><span class="code frame-row"><span [title]="(d.callers ?? []).join('\\n')">{{ frameText(d.row.code) }}</span>
+            <app-code-link [text]="d.row.code" [project]="state.project()" /></span>}
         </div>
         @if (d.writtenBy; as w) {
           <div class="rd-src">
@@ -112,6 +116,7 @@ export class StoreCommandDetailComponent implements OnInit {
   private readonly focus = inject(CallFocusService);
   private readonly windows = inject(DbWindowService);
   protected readonly state = inject(DbWindowState);
+  readonly frameText = shortFrame;
 
   readonly command = input.required<StoreCommandSummary>();
   readonly detail = signal<StoreCommand | null>(null);

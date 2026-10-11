@@ -38,6 +38,14 @@
       >
         Teams
       </button>
+      <button
+        type="button"
+        class="settings-nav-item"
+        [class.active]="activePartition() === 'ide'"
+        (click)="setActivePartition('ide')"
+      >
+        Open in IDE
+      </button>
       @if (inboundLoggingFeatureEnabled()) {
         <button
           type="button"
@@ -61,6 +69,8 @@
     <div class="settings-content">
       @if (activePartition() === 'server') {
         <app-server-settings />
+      } @else if (activePartition() === 'ide') {
+        <app-ide-settings />
       } @else if (activePartition() === 'teams') {
         <app-teams-settings />
       } @else if (activePartition() === 'storage') {

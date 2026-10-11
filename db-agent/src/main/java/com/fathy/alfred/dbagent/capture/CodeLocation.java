@@ -11,7 +11,7 @@ import java.util.stream.Stream;
 
 /**
  * "Where in code": the first stack frame that belongs to the application - skipping the JDK, JDBC drivers, connection
- * pools, ORMs and the agent itself - as {@code Class.method(File.java:line)}, and the application's CALL CHAIN: up to N
+ * pools, ORMs and the agent itself - as {@code com.pkg.Class.method(File.java:line)}, and the application's CALL CHAIN: up to N
  * application frames past the project's pass-through classes. A generic DAO every query goes through
  * ({@code GenericDAOImpl.fetchWithSlaveHQL} ×757 in one real capture) says nothing about who asked; the services above
  * it do.
@@ -109,7 +109,7 @@ final class CodeLocation {
                 }
                 return true;
             }
-            String location = cls.substring(cls.lastIndexOf('.') + 1) + "." + method + "(" + file + ":" + line + ")";
+            String location = frameText(cls, method, file, line);
             if (first == null) {
                 first = location;
             }
@@ -145,7 +145,16 @@ final class CodeLocation {
             passed(cls);
             return null;
         }
-        return cls.substring(cls.lastIndexOf('.') + 1) + "." + method + "(" + file + ":" + line + ")";
+        return frameText(cls, method, file, line);
+    }
+
+    /**
+     * A frame the way a Java stack trace prints it - the FULL class name, {@code com.tt.dao.GenericDAOImpl.fetchWithHQL(
+     * GenericDAOImpl.java:468)} - so "Where in code" can open the file: the package is its folder in the sources
+     * (com/tt/dao/GenericDAOImpl.java). Screens shorten it to the simple name for reading.
+     */
+    static String frameText(String cls, String method, String file, int line) {
+        return cls + "." + method + "(" + file + ":" + line + ")";
     }
 
     private static boolean skipped(String cls) {

@@ -1,10 +1,12 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, input, signal } from '@angular/core';
+import { CodeLinkComponent } from '../code-link/code-link.component';
+import { shortFrame } from '../../shared/utils/code-frame';
 import { NgTemplateOutlet } from '@angular/common';
 import { DbCaptureApiService } from '../../core/services/db-capture-api.service';
 import { DbColumn } from '../../core/models/db-capture.model';
 import { BeforeAfterRow, beforeAfter } from '../../shared/utils/db-before-after';
 import { CapturedStatement, TypedValue } from '../../core/models/db-capture.model';
-import { codeFileLine, isBatch, isDelete, isFailed, isTxEnd, rowCountOf, valueText } from '../../shared/utils/db-statement-display';
+import { isBatch, isDelete, isFailed, isTxEnd, rowCountOf, valueText } from '../../shared/utils/db-statement-display';
 import { blobLabel, isBinary, isOutParam, sqlText } from '../../shared/utils/sql-render';
 import { DbHideColumnComponent } from './db-hide-column.component';
 import { DbRowsTableComponent } from './db-rows-table.component';
@@ -28,7 +30,7 @@ interface TabDef {
   standalone: true,
   selector: 'app-db-statement-detail',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DbSqlComponent, DbRowsTableComponent, DbHideColumnComponent, DbOriginCardsComponent, NgTemplateOutlet],
+  imports: [CodeLinkComponent, DbSqlComponent, DbRowsTableComponent, DbHideColumnComponent, DbOriginCardsComponent, NgTemplateOutlet],
   template: `
     <div class="rd">
       <div class="tabs2">
@@ -165,20 +167,19 @@ interface TabDef {
             @if (statement().callers?.length) {
               <tr><th>Called from</th><td class="chain">
                 @for (c of statement().callers!; track $index) {
-                  <div><span class="dimtxt">{{ $index + 1 }} ·</span> {{ c }}
-                    @if (frameLink(c); as fl) { <a class="ide-mini" [href]="'idea://open?file=' + fl.file + '&line=' + fl.line" title="Open in IntelliJ">↗</a>}</div>
+                  <div class="frame-row"><span class="dimtxt">{{ $index + 1 }} ·</span> <span [title]="c">{{ short(c) }}</span>
+                    <app-code-link [text]="c" [project]="state.project()" /></div>
                 }
                 @if (statement().codeLocation && statement().codeLocation !== statement().callers![0]) {
-                  <div class="dimtxt">↑ via {{ statement().codeLocation }} (pass-through)</div>
+                  <div class="dimtxt frame-row">↑ via <span [title]="statement().codeLocation!">{{ short(statement().codeLocation) }}</span> (pass-through)
+                    <app-code-link [text]="statement().codeLocation" [project]="state.project()" /></div>
                 }
               </td></tr>
             } @else {
-              <tr><th>Called from</th><td>{{ statement().codeLocation ?? 'not known' }}</td></tr>
+              <tr><th>Called from</th><td class="frame-row"><span [title]="statement().codeLocation ?? ''">{{ statement().codeLocation ? short(statement().codeLocation) : 'not known' }}</span>
+                <app-code-link [text]="statement().codeLocation" [project]="state.project()" /></td></tr>
             }
             @if (statement().connectionId) {<tr><th>Connection</th><td>{{ statement().connectionId }}{{ statement().dataSource ? ' · ' + statement().dataSource : '' }}</td></tr>}
-            @if (fileLine(); as fl) {
-              <tr><th>Open</th><td class="ide"><a [href]="'idea://open?file=' + fl.file + '&line=' + fl.line">IntelliJ ↗</a><a [href]="'vscode://file/' + fl.file + ':' + fl.line">VS Code ↗</a></td></tr>
-            }
           </table>
         }
       }
@@ -213,10 +214,10 @@ export class DbStatementDetailComponent implements OnInit {
     const indexes = s.indexes ?? indexesByTable([...this.state.statementBySeq().values()]).get(s.table.toLowerCase());
     return indexes?.length ? { indexes, hint: indexHint(s.sql, indexes) } : null;
   });
-  readonly fileLine = computed(() => codeFileLine(this.statement().callers?.[0] ?? this.statement().codeLocation));
 
-  frameLink(frame: string): { readonly file: string; readonly line: number } | null {
-    return codeFileLine(frame);
+  /** A frame for reading: the simple class name (the full one is in its tooltip and its links). */
+  short(frame: string | null | undefined): string {
+    return shortFrame(frame);
   }
   readonly extraReadMs = computed(() => ((this.statement().beforeImage?.extraReadMicros ?? 0) / 1000).toFixed(1));
 

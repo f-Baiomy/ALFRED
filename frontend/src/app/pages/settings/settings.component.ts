@@ -1,3 +1,4 @@
+import { IdeSettingsComponent } from './ide-settings/ide-settings.component';
 import { TeamsSettingsComponent } from './teams-settings/teams-settings.component';
 import { ServerSettingsComponent } from './server-settings/server-settings.component';
 import { StorageSettingsComponent } from './storage-settings/storage-settings.component';
@@ -10,12 +11,12 @@ import { InternalCallServiceDto, InternalLoggingApiService } from '../../core/se
 import { DbCaptureSettingsComponent } from '../../components/db-capture/db-capture-settings.component';
 import { ActivatedRoute } from '@angular/router';
 
-type Partition = 'server' | 'call-filtering' | 'storage' | 'teams' | 'inbound-logging' | 'database-capture';
+type Partition = 'server' | 'call-filtering' | 'storage' | 'teams' | 'ide' | 'inbound-logging' | 'database-capture';
 
 @Component({
   selector: 'app-settings',
   standalone: true,
-  imports: [BoardStorageComponent, ConfirmDialogComponent, TeamsSettingsComponent, DbCaptureSettingsComponent, ServerSettingsComponent, StorageSettingsComponent],
+  imports: [BoardStorageComponent, ConfirmDialogComponent, IdeSettingsComponent, TeamsSettingsComponent, DbCaptureSettingsComponent, ServerSettingsComponent, StorageSettingsComponent],
   templateUrl: './settings.component.html',
 })
 export class SettingsComponent implements OnInit {
@@ -54,6 +55,9 @@ export class SettingsComponent implements OnInit {
     }
     if (section === 'storage' || section === 'database') {
       this.activePartition.set('storage');
+    }
+    if (section === 'ide') {
+      this.activePartition.set('ide');
     }
     if (section === 'teams') {
       this.activePartition.set('teams');
