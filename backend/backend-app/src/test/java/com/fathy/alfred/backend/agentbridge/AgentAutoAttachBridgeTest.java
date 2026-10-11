@@ -99,7 +99,8 @@ class AgentAutoAttachBridgeTest {
 
     @Test
     void whenAskedAndOffIgnoreTheAppAppearing() {
-        when(capture.settings("odeysys")).thenReturn(DbCaptureSettings.defaults());   // WHEN_ASKED
+        when(capture.settings("odeysys")).thenReturn(new DbCaptureSettings(1, List.of(), true, null, List.of(), List.of(), List.of(), 5, false,
+                "ERROR", null, AttachMode.WHEN_ASKED, true));
         bridge.appSeen(new ServerRuntimeUseCase.AppSeen("odeysys", 9001, 68108, true));
         when(capture.settings("core")).thenReturn(new DbCaptureSettings(1, List.of(), true, null, List.of(), List.of(), List.of(), 5, false,
                 "ERROR", null, AttachMode.OFF, true));
@@ -108,10 +109,12 @@ class AgentAutoAttachBridgeTest {
     }
 
     @Test
-    void theDefaultModeIsWhenAsked() {
-        assertThat(DbCaptureSettings.defaults().attachMode()).isEqualTo(AttachMode.WHEN_ASKED);
+    void theDefaultModeIsAutomatic() {
+        assertThat(DbCaptureSettings.defaults().attachMode()).isEqualTo(AttachMode.AUTOMATIC);
         assertThat(DbCaptureSettings.defaults().attachesWhenAsked()).isTrue();
-        assertThat(DbCaptureSettings.defaults().attachesAutomatically()).isFalse();
+        assertThat(DbCaptureSettings.defaults().attachesAutomatically()).isTrue();
+        assertThat(AttachMode.of(null)).isEqualTo(AttachMode.AUTOMATIC);
+        assertThat(AttachMode.of("when asked")).isEqualTo(AttachMode.WHEN_ASKED);
         assertThat(AttachMode.of("automatic")).isEqualTo(AttachMode.AUTOMATIC);
         assertThat(AttachMode.of("false")).isEqualTo(AttachMode.OFF);
         assertThat(AttachMode.of("true")).isEqualTo(AttachMode.WHEN_ASKED);

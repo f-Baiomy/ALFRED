@@ -28,9 +28,9 @@ describe('ServerCardComponent - updates', () => {
   const reconnected = new Subject<void>();
   const disconnected = new Subject<void>();
 
-  function setUp(status: UpdateStatus, editable = true): void {
+  function setUp(status: UpdateStatus, editable = true, server: ServerStatus = STATUS): void {
     api = jasmine.createSpyObj<ServerSettingsService>('ServerSettingsService', ['status', 'updateStatus', 'checkUpdate', 'installUpdate', 'pauseUpdate', 'cancelUpdate', 'restart']);
-    api.status.and.returnValue(of(STATUS));
+    api.status.and.returnValue(of(server));
     api.updateStatus.and.returnValue(of(status));
     api.checkUpdate.and.returnValue(of(status));
     api.installUpdate.and.returnValue(NEVER);
@@ -51,6 +51,17 @@ describe('ServerCardComponent - updates', () => {
   const text = () => (fixture.nativeElement as HTMLElement).textContent ?? '';
   const button = (label: string) => Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('button'))
     .find(b => b.textContent?.trim() === label) as HTMLButtonElement | undefined;
+
+  it('says when nothing attaches the agent - the Docker agent host not running - instead of an empty agents list', () => {
+    setUp(update(), true, { ...STATUS, mode: 'DOCKER', attachProblem: 'The agent host on this machine does not answer: run python3 restart.py' });
+    expect(text()).toContain('Agent attach');
+    expect(text()).toContain('restart.py');
+  });
+
+  it('shows no attach row while the supervisor answers', () => {
+    setUp(update());
+    expect(text()).not.toContain('Agent attach');
+  });
 
   it('shows an available release with its size, age and notes, and the install button to an editor', () => {
     setUp(update());

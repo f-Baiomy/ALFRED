@@ -29,6 +29,13 @@
         </div>
       </div>
     }
+    @if (s.attachProblem) {
+      <div class="server-row agent-attach-problem">
+        <div class="server-label">Agent attach</div>
+        <div class="server-value"><span class="apply down">● not running</span> <span class="hint bad">{{ s.attachProblem }}</span></div>
+        <div></div>
+      </div>
+    }
     @for (a of s.agents ?? []; track a.project) {
       <div class="server-row">
         <div class="server-label">Agent · {{ a.project }}@if (a.pid) { <small>pid {{ a.pid }}</small> }</div>

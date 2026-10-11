@@ -55,17 +55,17 @@ describe('DbCaptureSettingsComponent - Log level', () => {
     expect(saved.map((s) => s.logLevel)).toEqual(['APP']);
   });
 
-  it('offers the three attach modes, defaults to When asked, and asks the supervisor when a mode other than Off is picked', () => {
+  it('offers the three attach modes, defaults to Automatic, and asks the supervisor when a mode other than Off is picked', () => {
     const fixture = create();
     const picker = fixture.nativeElement.querySelector('.db-proj .db-attach-mode') as HTMLElement;
     const button = picker.querySelector('button') as HTMLButtonElement;
-    expect(button.textContent!.trim()).toContain('When asked');
+    expect(button.textContent!.trim()).toContain('Automatic');
     button.click();
     fixture.detectChanges();
     const items = Array.from(picker.querySelectorAll('.filter-option-item')) as HTMLButtonElement[];
     expect(items.map((i) => i.textContent!.trim().split(' - ')[0])).toEqual(['When asked', 'Automatic', 'Off']);
-    items[1].click();
-    expect(saved.map((s) => s.attachMode)).toEqual(['AUTOMATIC']);
+    items[0].click();
+    expect(saved.map((s) => s.attachMode)).toEqual(['WHEN_ASKED']);
     expect(fixture.componentInstance.attachNote('wallet-app')).toContain('ask');
   });
 

@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, ElementRef, HostListener, OnInit, computed, inject, input, output, signal } from '@angular/core';
 import { Router } from '@angular/router';
-import { ATTACH_MODE_CHOICES, AttachMode, DbCaptureSettings, agentLacks } from '../../core/models/db-capture.model';
+import { ATTACH_MODE_CHOICES, AttachMode, DEFAULT_ATTACH_MODE, DbCaptureSettings, agentLacks } from '../../core/models/db-capture.model';
 import { DbCaptureApiService } from '../../core/services/db-capture-api.service';
 import { DbCaptureStateService } from '../../core/state/db-capture-state.service';
 import { ServerSettingsService } from '../../core/services/server-settings.service';
@@ -45,7 +45,7 @@ import { LOG_LEVEL_CHOICES } from '../../shared/utils/call-log-rows';
           capture works; the current one loads by itself the next time {{ project() }} starts.</div>
       }
       @if (whyNotAttached(); as why) {
-        <div class="db-how db-why" title="The supervisor's last attach attempt (Settings → Server has every project's)">Last attempt: {{ why }}</div>
+        <div class="db-how db-why" title="The supervisor's last attach attempt (Settings → Server has every project's)">{{ attachProblem() ? '' : 'Last attempt: ' }}{{ why }}</div>
       }
       @if (lacking().length) {
         <div class="db-how db-lacking">⚠ {{ lacking().join(' and ') }} capture is switched on, but the agent in {{ project() }}'s JVM was loaded
@@ -133,11 +133,13 @@ export class DbCapturePopoverComponent implements OnInit {
   protected readonly levelChoices = LOG_LEVEL_CHOICES;
   /** The attach mode - the same setting as Settings → Database capture → Agent (specs/012). */
   protected readonly attachModeChoices = ATTACH_MODE_CHOICES;
-  readonly attachMode = computed<AttachMode>(() => this.settings()?.attachMode ?? 'WHEN_ASKED');
+  readonly attachMode = computed<AttachMode>(() => this.settings()?.attachMode ?? DEFAULT_ATTACH_MODE);
   /** What the last ask came to (the Server card has the supervisor's full account). */
   readonly attachNote = signal('');
-  /** The supervisor's last attempt for this project (native installs only), read when the panel opens. */
+  /** The supervisor's (or Docker agent host's) last attempt for this project, read when the panel opens. */
   readonly lastAttempt = signal<AgentAttach | null>(null);
+  /** Nothing can attach now - the supervisor / agent host does not answer - and what to run (ServerStatus.attachProblem). */
+  readonly attachProblem = signal('');
   /** The agent in the app is an older build than the one Alfred attaches now (versions "1.0.0+<content digest>"). */
   readonly olderAgent = computed(() => {
     const version = this.status()?.agent?.agentVersion ?? '';
@@ -147,6 +149,8 @@ export class DbCapturePopoverComponent implements OnInit {
   });
   /** Why the supervisor could not attach - e.g. the app runs as another Windows user than Alfred's service. */
   readonly whyNotAttached = computed(() => {
+    if (this.status()?.attached) return '';
+    if (this.attachProblem()) return this.attachProblem();
     const a = this.lastAttempt();
     if (this.status()?.attached || !a || !a.detail || a.state === 'ATTACHED' || a.state === 'ATTACHING') return '';
     return a.detail;
@@ -168,7 +172,10 @@ export class DbCapturePopoverComponent implements OnInit {
     this.place();
     this.api.settings(this.project()).subscribe({ next: (s) => this.settings.set(s), error: () => this.error.set('Could not load the settings.') });
     this.server.status().subscribe({
-      next: (st) => this.lastAttempt.set(st.agents?.find((a) => a.project === this.project()) ?? null),
+      next: (st) => {
+        this.lastAttempt.set(st.agents?.find((a) => a.project === this.project()) ?? null);
+        this.attachProblem.set(st.attachProblem ?? '');
+      },
       error: () => this.lastAttempt.set(null),
     });
   }

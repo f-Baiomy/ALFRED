@@ -17,7 +17,7 @@ describe('DbCapturePopoverComponent - ▤ Log lines', () => {
     expectedFingerprints: [], ignorePatterns: ['SELECT 1'],
   };
 
-  function create(logsOn: boolean, agentFeatures?: string, attached = true, agents: AgentAttach[] = [], agentVersion?: string) {
+  function create(logsOn: boolean, agentFeatures?: string, attached = true, agents: AgentAttach[] = [], agentVersion?: string, attachProblem = '') {
     const saved: DbCaptureSettings[] = [];
     const asked: { project: string; features: readonly string[] }[] = [];
     const agent = agentFeatures === undefined ? undefined : { agentId: 'a1', project: 'odeysys', droppedSinceStart: 0, queuedStatements: 0, features: agentFeatures, agentVersion };
@@ -36,7 +36,7 @@ describe('DbCapturePopoverComponent - ▤ Log lines', () => {
         { provide: DbWindowService, useValue: { openOutside: () => undefined } },
         { provide: Router, useValue: { navigate: () => Promise.resolve(true) } },
         { provide: ServerSettingsService, useValue: {
-          status: () => of({ agents }),
+          status: () => of({ agents, attachProblem }),
           attachAgent: (project: string, features: readonly string[]) => { asked.push({ project, features }); return of({ accepted: true }); },
         } },
       ],
@@ -46,6 +46,14 @@ describe('DbCapturePopoverComponent - ▤ Log lines', () => {
     fixture.detectChanges();
     return { fixture, saved, asked };
   }
+
+  it('says when nothing can attach - the agent host is not running - and what to run', () => {
+    const { fixture } = create(true, undefined, false, [], undefined, 'The agent host on this machine does not answer: run python3 restart.py');
+    const why = (fixture.nativeElement as HTMLElement).querySelector('.db-why')!.textContent!;
+    expect(why).toContain('agent host');
+    expect(why).toContain('restart.py');
+    expect(why).not.toContain('Last attempt');
+  });
 
   it('shows the Log level - ERROR unless set - and saves the one picked', () => {
     const { fixture, saved } = create(true);
@@ -58,17 +66,17 @@ describe('DbCapturePopoverComponent - ▤ Log lines', () => {
     expect(saved.map((s) => s.logLevel)).toEqual(['WARN']);
   });
 
-  it('offers the attach mode - When asked unless set - and picking Automatic saves it and asks the supervisor with every feature', () => {
+  it('offers the attach mode - Automatic unless set - and picking When asked saves it and asks the supervisor with every feature', () => {
     const { fixture, saved, asked } = create(true);
     const picker = fixture.nativeElement.querySelector('.db-pop .db-attach-mode') as HTMLElement;
     const button = picker.querySelector('button') as HTMLButtonElement;
-    expect(button.textContent!.trim()).toContain('When asked');
+    expect(button.textContent!.trim()).toContain('Automatic');
     button.click();
     fixture.detectChanges();
     const items = Array.from(picker.querySelectorAll('.filter-option-item')) as HTMLButtonElement[];
     expect(items.map((i) => i.textContent!.trim().split(' - ')[0])).toEqual(['When asked', 'Automatic', 'Off']);
-    items[1].click();
-    expect(saved.map((s) => s.attachMode)).toEqual(['AUTOMATIC']);
+    items[0].click();
+    expect(saved.map((s) => s.attachMode)).toEqual(['WHEN_ASKED']);
     expect(asked).toEqual([{ project: 'odeysys', features: ['proxy', 'db', 'logs', 'redis'] }]);
     fixture.detectChanges();
     expect((fixture.nativeElement as HTMLElement).querySelector('.db-attach-note')!.textContent).toContain('asked');

@@ -142,8 +142,10 @@ export interface ServerStatus {
   heapUsedBytes: number;
   heapMaxBytes: number;
   processes: ProcessStatus[];
-  /** Agents the supervisor attached by itself - empty in Docker mode. */
+  /** Agents the supervisor (native) or the agent host on the machine (Docker) attached by itself. */
   agents?: AgentAttach[];
+  /** Why nothing attaches the agent now and what to run (e.g. Docker's agent host not running); empty when it answers. */
+  attachProblem?: string;
 }
 
 export type UpdateMode = 'OFF' | 'CHECK' | 'AUTO';

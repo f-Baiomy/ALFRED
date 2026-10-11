@@ -360,9 +360,9 @@ export interface DbCaptureSettings {
   /** Redis capture settings (specs/011-redis-capture) - nothing here limits what is stored. */
   readonly redis?: import('./store-command.model').RedisSettings;
   /**
-   * Native install: how the supervisor loads the agent into the project's app by itself. WHEN_ASKED (the default):
-   * at Alfred's start, when a call arrives and no agent reports, on "Attach now". AUTOMATIC: also the moment the
-   * app's port opens or its pid changes. OFF: never by itself.
+   * How the supervisor (native) or the agent host (Docker) loads the agent into the project's app by itself.
+   * WHEN_ASKED: at Alfred's start, when a call arrives and no agent reports, on "Attach now". AUTOMATIC (the default):
+   * also the moment the app's port opens or its pid changes. OFF: never by itself.
    */
   readonly attachMode?: AttachMode;
   /** ...and routes the app's outbound calls through Alfred's forward proxy while doing so. */
@@ -370,6 +370,9 @@ export interface DbCaptureSettings {
 }
 
 export type AttachMode = 'OFF' | 'WHEN_ASKED' | 'AUTOMATIC';
+
+/** The mode a project has until one is picked - the same as the backend's AttachMode.DEFAULT. */
+export const DEFAULT_ATTACH_MODE: AttachMode = 'AUTOMATIC';
 
 /** The list shows the full account; the closed picker shows the mode's name alone (`buttonLabel`), so it fits the ◆ popover. */
 export const ATTACH_MODE_CHOICES: readonly { readonly value: AttachMode; readonly label: string; readonly buttonLabel: string }[] = [
@@ -379,7 +382,7 @@ export const ATTACH_MODE_CHOICES: readonly { readonly value: AttachMode; readonl
 ];
 
 export function attachModeWords(mode: AttachMode | undefined): string {
-  return ATTACH_MODE_CHOICES.find(c => c.value === (mode ?? 'WHEN_ASKED'))?.buttonLabel ?? 'When asked';
+  return ATTACH_MODE_CHOICES.find(c => c.value === (mode ?? DEFAULT_ATTACH_MODE))?.buttonLabel ?? 'Automatic';
 }
 
 export interface AgentStatus {

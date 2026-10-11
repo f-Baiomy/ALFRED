@@ -91,6 +91,7 @@ class ServerRuntimeControllerTest {
                         .content("{\"project\":\"odeysys\",\"features\":[\"proxy\",\"db\",\"logs\",\"redis\"]}"))
                 .andExpect(status().isAccepted()).andExpect(jsonPath("$.accepted").value(true));
         when(runtime.attachAgent("core", java.util.List.of("db", "logs", "redis"), false)).thenReturn(false);
+        when(runtime.attachProblem()).thenReturn("No supervisor answers - or attach with 'alfred attach' or -javaagent.");
         mvc.perform(post("/server/agents/attach").contentType(MediaType.APPLICATION_JSON).content("{\"project\":\"core\"}"))
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("alfred attach")));
         mvc.perform(post("/server/agents/attach").contentType(MediaType.APPLICATION_JSON)

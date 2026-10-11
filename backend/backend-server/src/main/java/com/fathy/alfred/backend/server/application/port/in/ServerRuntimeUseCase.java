@@ -36,7 +36,11 @@ public interface ServerRuntimeUseCase {
      * Ask the supervisor to attach Alfred's agent to {@code project}'s application (the JVM on its upstream port)
      * with these features. Answers at once; the outcome shows on {@link #status()} and arrives as a server event.
      *
-     * @return false in Docker mode or when no supervisor runs - nothing can attach then
+     * @return false when nothing here can attach: no supervisor runs natively, or with Docker the agent host on the
+     *         machine is not configured or does not answer - {@link #attachProblem()} says which and what to run
      */
     boolean attachAgent(String project, List<String> features, boolean force);
+
+    /** Why nothing attaches the agent now and what to run, or empty when the supervisor / agent host answers. */
+    String attachProblem();
 }

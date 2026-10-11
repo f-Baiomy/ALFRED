@@ -6,9 +6,17 @@ import java.util.List;
 /**
  * The Server card: what runs, since when, how the backend's heap looks, and the agents the supervisor attached to
  * the projects' applications by itself ({@code agents}, docs/server.md "The agent attaches itself").
+ * {@code attachProblem}: empty while something here can attach the agent and answers; otherwise why nothing attaches
+ * and what to run - with Docker, the agent host on the machine (alfred_agent_host.py) not running.
  */
 public record ServerStatus(String version, String installDir, RuntimeMode mode, Instant startedAt, long backendPid,
-                           long heapUsedBytes, long heapMaxBytes, List<ProcessStatus> processes, List<AgentAttach> agents) {
+                           long heapUsedBytes, long heapMaxBytes, List<ProcessStatus> processes, List<AgentAttach> agents,
+                           String attachProblem) {
+
+    public ServerStatus(String version, String installDir, RuntimeMode mode, Instant startedAt, long backendPid,
+                        long heapUsedBytes, long heapMaxBytes, List<ProcessStatus> processes, List<AgentAttach> agents) {
+        this(version, installDir, mode, startedAt, backendPid, heapUsedBytes, heapMaxBytes, processes, agents, "");
+    }
 
     public ServerStatus(String version, String installDir, RuntimeMode mode, Instant startedAt, long backendPid,
                         long heapUsedBytes, long heapMaxBytes, List<ProcessStatus> processes) {
@@ -53,5 +61,6 @@ public record ServerStatus(String version, String installDir, RuntimeMode mode, 
     public ServerStatus {
         processes = processes == null ? List.of() : List.copyOf(processes);
         agents = agents == null ? List.of() : List.copyOf(agents);
+        attachProblem = attachProblem == null ? "" : attachProblem;
     }
 }

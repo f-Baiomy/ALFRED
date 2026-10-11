@@ -50,8 +50,34 @@ public class ServerRuntimeService implements ServerRuntimeUseCase {
             processes.add(0, new ServerStatus.ProcessStatus("BACKEND", ServerStatus.ProcessState.RUNNING, runtime.pid(),
                     runtime.startedAt(), 0, List.of(), "", -1));
         }
+        var agents = supervisor.agents();
         return new ServerStatus(runtime.version(), runtime.installDir(), mode, runtime.startedAt(), runtime.pid(),
-                runtime.heapUsedBytes(), runtime.heapMaxBytes(), processes, supervisor.agents().orElse(List.of()));
+                runtime.heapUsedBytes(), runtime.heapMaxBytes(), processes, agents.orElse(List.of()), problem(agents.isPresent()));
+    }
+
+    @Override
+    public String attachProblem() {
+        return problem(supervisor.attaches() && supervisor.agents().isPresent());
+    }
+
+    /**
+     * {@code answered}: the supervisor / agent host answered its status call. With Docker the agent host runs on the
+     * machine, outside the stack: when it is down (it once stopped itself after the machine slept) nothing attaches,
+     * and before this the Server card simply listed no agents.
+     */
+    private String problem(boolean answered) {
+        if (answered) {
+            return "";
+        }
+        if (mode == RuntimeMode.DOCKER) {
+            return supervisor.attaches()
+                    ? "The agent host on this machine does not answer, so nothing attaches the agent: run python3 restart.py"
+                            + " (or python3 alfred_agent_host.py) on the machine running Docker."
+                    : "No agent host is set up (ALFRED_AGENT_HOST_TOKEN missing in .env), so nothing attaches the agent:"
+                            + " run python3 restart.py on the machine running Docker.";
+        }
+        return "No supervisor answers, so nothing attaches the agent: start Alfred with 'alfred start'"
+                + " - or attach with 'alfred attach' or -javaagent.";
     }
 
     @Override

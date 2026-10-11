@@ -18,8 +18,8 @@ import java.util.List;
  *
  * <p>{@code attachMode} (docs/server.md "The agent attaches itself"): on a native install the supervisor loads
  * Alfred's agent into the project's application by itself - the JVM on its upstream port. {@link AttachMode#WHEN_ASKED}
- * (the default) does it at start, when calls arrive and no agent reports, and on "Attach now"; {@link AttachMode#AUTOMATIC}
- * also the moment the app's port opens; {@link AttachMode#OFF} never. {@code attachProxy} adds the {@code proxy} feature
+ * does it at start, when calls arrive and no agent reports, and on "Attach now"; {@link AttachMode#AUTOMATIC} (the
+ * default) also the moment the app's port opens; {@link AttachMode#OFF} never. {@code attachProxy} adds the {@code proxy} feature
  * to that attach (the app's outbound calls go through Alfred's forward proxy); on unless switched off. Settings stored
  * before these existed read back with the defaults; unknown keys (the earlier {@code autoAttach} switch) are ignored.
  */

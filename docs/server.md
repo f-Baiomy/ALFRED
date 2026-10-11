@@ -254,11 +254,11 @@ upstream port** (`internal_call_services` = `name:listenPort:upstreamPort`), so 
 Each project has an **attach mode** (Settings → Database capture → Agent, and the same picker in the ◆ popover of
 the Sources bar on Live Calls - one setting, two places; both share `shared/utils/attach-features.ts`):
 
-- **When asked** (the default): the backend asks the supervisor (`POST /agents/attach` on the control API, through
+- **When asked**: the backend asks the supervisor (`POST /agents/attach` on the control API, through
   `backend-app/agentbridge/AgentAutoAttachBridge`) when Alfred starts, whenever an inbound call arrives for a
   project whose agent has not reported in 30 s (one ask per project per 30 s), and when a mode is picked or "Attach
   now" is clicked.
-- **Automatic**: all of the above, and the supervisor **watches the project's upstream port** (a TCP connect probe
+- **Automatic** (the default): all of the above, and the supervisor **watches the project's upstream port** (a TCP connect probe
   every 2 s, the pid re-read every 15 s): the moment the app's port opens, or its pid changes (a restart), it tells
   the backend (`APP` event) and the agent is loaded within seconds - before the app's first call, forced past the
   retry window. For an app that starts after Alfred, or restarts often.

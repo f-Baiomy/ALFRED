@@ -96,6 +96,27 @@ class ServerRuntimeServiceTest {
     }
 
     @Test
+    void anAgentHostThatDoesNotAnswerIsSaidOnTheStatusAndInTheRefusal() {
+        supervisor.available = false;
+        supervisor.attaches = true;
+        assertThat(service(RuntimeMode.DOCKER).status().attachProblem()).isEmpty();
+        assertThat(service(RuntimeMode.DOCKER).attachProblem()).isEmpty();
+        supervisor.answers = false;
+        assertThat(service(RuntimeMode.DOCKER).attachAgent("odeysys", List.of("db"), true)).isFalse();
+        assertThat(service(RuntimeMode.DOCKER).status().attachProblem()).contains("agent host").contains("restart.py");
+        assertThat(service(RuntimeMode.DOCKER).attachProblem()).contains("agent host").contains("restart.py");
+        supervisor.attaches = false;
+        assertThat(service(RuntimeMode.DOCKER).attachProblem()).contains("ALFRED_AGENT_HOST_TOKEN");
+    }
+
+    @Test
+    void noSupervisorIsSaidNatively() {
+        assertThat(service(RuntimeMode.NATIVE).status().attachProblem()).isEmpty();
+        supervisor.available = false;
+        assertThat(service(RuntimeMode.NATIVE).status().attachProblem()).contains("alfred start");
+    }
+
+    @Test
     void statusAlwaysListsTheBackend() {
         assertThat(service(RuntimeMode.DOCKER).status().processes()).extracting(p -> p.name()).containsExactly("BACKEND");
     }

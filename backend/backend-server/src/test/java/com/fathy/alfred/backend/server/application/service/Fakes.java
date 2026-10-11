@@ -212,15 +212,17 @@ final class Fakes {
 
         final List<String> attachesAsked = new ArrayList<>();
         List<ServerStatus.AgentAttach> agents = List.of();
+        /** False: the supervisor / agent host is configured but does not answer (the agent host stopped). */
+        boolean answers = true;
 
         @Override
         public Optional<List<ServerStatus.AgentAttach>> agents() {
-            return available ? Optional.of(agents) : Optional.empty();
+            return attaches() && answers ? Optional.of(agents) : Optional.empty();
         }
 
         @Override
         public boolean attachAgent(String project, List<String> features, boolean force) {
-            if (!attaches()) {
+            if (!attaches() || !answers) {
                 return false;
             }
             attachesAsked.add(project + " " + String.join(",", features) + (force ? " force" : ""));

@@ -49,8 +49,10 @@ HOME = os.path.join(SCRIPT_DIR, "build", "agent-host")
 ENV_FILE = os.path.join(SCRIPT_DIR, ".env")
 RUN_FILE = os.path.join(HOME, "run.json")
 DEFAULT_PORT = 3098
-# The Docker Alfred unreachable this long (after it answered once) means it was stopped without stop.py: exit.
+# The Docker Alfred unreachable this long (after it answered once, counted while the machine is awake) AND its backend
+# container gone means it was taken down without stop.py: exit. See GoneWatch.
 GONE_SECONDS = 300
+BACKEND_CONTAINER = "backend"
 
 log = logging.getLogger("agent-host")
 
@@ -124,8 +126,6 @@ class Host:
         self.stopping = threading.Event()
         self.agents = supervisor.AgentAttacher(self)
         self.apps = supervisor.AppWatcher(self)
-        self.reached_at = 0.0
-        self.reached_once = False
 
     def changed_agents(self):
         if not self.stopping.is_set():
@@ -153,6 +153,66 @@ class Host:
             return True  # something answered: the gateway and backend are up
         except Exception:  # noqa: BLE001
             return False
+
+
+def backend_container_exists(name=BACKEND_CONTAINER):
+    """False only when Docker says there is no such container (docker compose down). Docker not answering - Docker
+    Desktop still starting after a wake or quit for an update - is not "gone": its containers come back, and they need
+    this host to attach again."""
+    try:
+        out = subprocess.run(["docker", "container", "inspect", "--format", "{{.State.Status}}", name],
+                             capture_output=True, text=True, timeout=30,
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    except (OSError, subprocess.SubprocessError):
+        return True
+    return out.returncode == 0 or "no such" not in (out.stderr + out.stdout).lower()
+
+
+class GoneWatch:
+    """When the agent host may stop by itself: the Docker Alfred has not answered for GONE_SECONDS of AWAKE time and
+    its backend container no longer exists. On 2026-10-11 the host stopped the minute a laptop woke from an hour's
+    sleep - Windows' monotonic clock counts the sleep, Docker's network was not back yet, and an hour "without an
+    answer" was read after one failed check - so nothing attached the agent again until start.py ran. Now a gap
+    between ticks longer than SLEPT_SECONDS starts the count again, and a stack that still exists keeps the host."""
+
+    CHECK_SECONDS = 15
+    SLEPT_SECONDS = 60
+
+    def __init__(self, answers, stack_exists=backend_container_exists, clock=time.monotonic):
+        self.answers = answers
+        self.stack_exists = stack_exists
+        self.clock = clock
+        self.reached_once = False
+        self.waiting_logged = False
+        now = clock()
+        self.last_seen = now
+        self.last_tick = now
+        self.next_check = 0.0
+
+    def gone(self):
+        """Called about once a second; True when the host should stop."""
+        now = self.clock()
+        if now - self.last_tick > self.SLEPT_SECONDS:
+            log.info("The machine slept for %d s - waiting for the Docker Alfred again", now - self.last_tick)
+            self.last_seen = now
+        self.last_tick = now
+        if now < self.next_check:
+            return False
+        self.next_check = now + self.CHECK_SECONDS
+        if self.answers():
+            self.reached_once = True
+            self.last_seen = now
+            self.waiting_logged = False
+            return False
+        if not self.reached_once or now - self.last_seen <= GONE_SECONDS:
+            return False
+        if self.stack_exists():
+            if not self.waiting_logged:
+                log.info("The Docker Alfred has not answered for %s s but its containers exist - waiting for it", GONE_SECONDS)
+                self.waiting_logged = True
+            return False
+        log.info("The Docker Alfred has not answered for %s s and its backend container is gone - stopping", GONE_SECONDS)
+        return True
 
 
 def _now():
@@ -360,20 +420,13 @@ def run():
 
     signal.signal(signal.SIGINT, on_signal)
     signal.signal(signal.SIGTERM, on_signal)
-    last_seen = time.monotonic()
-    next_check = 0.0
+    watch = GoneWatch(host.backend_answers)
     while not host.stopping.wait(1):
         host.settings = layout.settings()
         if host.apps.due():
             host.apps.tick()
-        if time.monotonic() >= next_check:
-            next_check = time.monotonic() + 15
-            if host.backend_answers():
-                host.reached_once = True
-                last_seen = time.monotonic()
-            elif host.reached_once and time.monotonic() - last_seen > GONE_SECONDS:
-                log.info("The Docker Alfred has not answered for %s s - stopping", GONE_SECONDS)
-                break
+        if watch.gone():
+            break
     server.shutdown()
     if read_run().get("pid") == os.getpid():
         os.remove(RUN_FILE)

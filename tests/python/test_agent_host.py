@@ -118,3 +118,55 @@ class DockerLayoutTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GoneWatchTest(unittest.TestCase):
+    """The host stops by itself only when the Docker Alfred is really gone - never after a sleep or a rebuild."""
+
+    def watch(self, answers, stack_exists=lambda: True):
+        self.now = 1000.0
+        return alfred_agent_host.GoneWatch(lambda: answers[0], stack_exists, clock=lambda: self.now)
+
+    def run_for(self, watch, seconds):
+        for _ in range(int(seconds)):
+            self.now += 1
+            if watch.gone():
+                return True
+        return False
+
+    def test_a_long_sleep_is_not_read_as_an_hour_without_an_answer(self):
+        answers = [True]
+        watch = self.watch(answers, stack_exists=lambda: False)
+        self.assertFalse(self.run_for(watch, 30))
+        answers[0] = False
+        self.now += 3600  # the machine slept; Windows' monotonic clock counted it
+        self.assertFalse(watch.gone(), "one failed check right after waking is not 300 s gone")
+        self.assertFalse(self.run_for(watch, alfred_agent_host.GONE_SECONDS - 20))
+
+    def test_it_keeps_running_while_the_backend_container_exists(self):
+        answers = [True]
+        watch = self.watch(answers, stack_exists=lambda: True)
+        self.run_for(watch, 20)
+        answers[0] = False
+        self.assertFalse(self.run_for(watch, 3 * alfred_agent_host.GONE_SECONDS))
+
+    def test_it_stops_once_the_stack_is_down_and_silent(self):
+        answers = [True]
+        watch = self.watch(answers, stack_exists=lambda: False)
+        self.run_for(watch, 20)
+        answers[0] = False
+        self.assertTrue(self.run_for(watch, alfred_agent_host.GONE_SECONDS + 2 * watch.CHECK_SECONDS))
+
+    def test_it_never_stops_before_the_alfred_answered_once(self):
+        watch = self.watch([False], stack_exists=lambda: False)
+        self.assertFalse(self.run_for(watch, 3 * alfred_agent_host.GONE_SECONDS))
+
+    def test_docker_not_answering_is_not_a_missing_container(self):
+        with patch("subprocess.run", side_effect=OSError("no docker")):
+            self.assertTrue(alfred_agent_host.backend_container_exists())
+        failed = type("R", (), {"returncode": 1, "stdout": "", "stderr": "error during connect: is the docker daemon running?"})
+        with patch("subprocess.run", return_value=failed):
+            self.assertTrue(alfred_agent_host.backend_container_exists())
+        missing = type("R", (), {"returncode": 1, "stdout": "", "stderr": "Error: No such container: backend"})
+        with patch("subprocess.run", return_value=missing):
+            self.assertFalse(alfred_agent_host.backend_container_exists())

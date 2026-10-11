@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, effect, inject, signal, untracked } from '@angular/core';
-import { ATTACH_MODE_CHOICES, AttachMode, DbCaptureSettings, DbThresholds, ProjectCaptureStatus, agentLacks } from '../../core/models/db-capture.model';
+import { ATTACH_MODE_CHOICES, AttachMode, DEFAULT_ATTACH_MODE, DbCaptureSettings, DbThresholds, ProjectCaptureStatus, agentLacks } from '../../core/models/db-capture.model';
 import { DbCaptureApiService } from '../../core/services/db-capture-api.service';
 import { DbCaptureStateService } from '../../core/state/db-capture-state.service';
 import { RedactionsStore } from '../../core/state/redactions-store.service';
@@ -117,12 +117,12 @@ type ListKey = 'beforeImageTables' | 'expectedFingerprints' | 'ignorePatterns' |
               <div>
                 <app-select-picker class="db-attach-mode" ariaLabel="Attach mode"
                                    title="The supervisor finds the app (the JVM listening on this project's upstream port) and loads Alfred's agent into it. When asked: at start, when calls arrive and no agent reports, on Attach now. Automatic: also the moment the app's port opens or its pid changes - the supervisor watches the port."
-                                   [options]="attachModeChoices" [value]="s.attachMode ?? 'WHEN_ASKED'" (valueChange)="setAttachMode(p.project, $event)" />
+                                   [options]="attachModeChoices" [value]="s.attachMode ?? defaultAttachMode" (valueChange)="setAttachMode(p.project, $event)" />
                 <label class="chk" title="Also route the app's outbound calls through Alfred's forward proxy (the proxy feature)">
                   <input type="checkbox" [checked]="s.attachProxy !== false" [disabled]="s.attachMode === 'OFF'" (change)="toggleAttachProxy(p.project)"> and route its outbound calls through Alfred</label>
                 <button type="button" class="link-btn" [disabled]="s.attachMode === 'OFF'" (click)="attachNow(p.project)" title="Ask the supervisor to attach now">Attach now</button>
                 <div class="dimtxt" style="margin-top:.3rem">{{ agentText(p) }}@if (attachNote(p.project); as note) { · {{ note }}}
-                  Native install only; the outcome shows on Settings → Server. The agent also follows the reverse proxy: a call it serves tells it where this Alfred is.</div>
+                  Natively the supervisor attaches, with Docker the agent host start.py runs on the machine; the outcome shows on Settings → Server. The agent also follows the reverse proxy: a call it serves tells it where this Alfred is.</div>
               </div></div>
             <!-- ⬢ Redis capture (specs/011-redis-capture, mock section 5): nothing here limits what is stored -->
             <h4 class="rd-h"><span class="redis-glyph">⬢</span> Redis capture</h4>
@@ -186,6 +186,7 @@ export class DbCaptureSettingsComponent implements OnInit {
   private readonly attachNotes = signal<ReadonlyMap<string, string>>(new Map());
   protected readonly levelChoices = LOG_LEVEL_CHOICES;
   protected readonly attachModeChoices = ATTACH_MODE_CHOICES;
+  protected readonly defaultAttachMode = DEFAULT_ATTACH_MODE;
   readonly hiddenColumns = computed(() => this.redactions.all().filter((r) => r.kind === 'db-column'));
 
   constructor() {
