@@ -75,3 +75,16 @@ describe('CallFocusService go', () => {
     expect(page.setRequestIdFilter).toHaveBeenCalledWith('out-54');
   });
 });
+
+describe('CallFocusService requests', () => {
+  it('counts every go and revealIn, so a cycle page already on that URL still switches to its Calls tab', () => {
+    TestBed.configureTestingModule({ providers: [provideRouter([])] });
+    const service = TestBed.inject(CallFocusService);
+    spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
+    const before = service.requests();
+    service.go({ callId: 'in-1', cycleId: 'c1', direction: 'inbound', serviceName: 'odeysys' });
+    service.go({ callId: 'in-1', cycleId: 'c1', direction: 'inbound', serviceName: 'odeysys' });
+    service.revealIn({ callId: 'in-1', cycleId: 'c1', direction: 'inbound', serviceName: 'odeysys', preflight: false });
+    expect(service.requests()).toBe(before + 3);
+  });
+});

@@ -1,3 +1,4 @@
+import { PAGE_SCROLLERS, POPUP_SCROLLERS, ReturnPointService, captureScrolls } from './return-point.service';
 import { Injectable, effect, inject, signal, untracked } from '@angular/core';
 import { Router } from '@angular/router';
 import { Observable, catchError, concatMap, from, map, of, toArray } from 'rxjs';
@@ -89,6 +90,7 @@ export class BoardMentionsService {
   private readonly db = inject(DbCaptureApiService);
   private readonly logs = inject(CallLogsApiService);
   private readonly focus = inject(CallFocusService);
+  private readonly returns = inject(ReturnPointService);
   private readonly picker = inject(CallPickerService);
 
   /** Set when a card chip is clicked; the open board view picks it up. */
@@ -224,8 +226,19 @@ export class BoardMentionsService {
 
   /** "Open in Live Calls / its cycle" from the call popup: there, with the call highlighted. */
   goToCall(target: MentionCallTarget, serviceName: string | null): void {
+    // Exactly where the user is: the page, the open card, this popup, and every scroll - read before the popup closes.
+    this.returns.set({
+      url: this.router.url, card: this.returns.openCard(), popup: target,
+      scrolls: captureScrolls(PAGE_SCROLLERS), popupScrolls: captureScrolls(POPUP_SCROLLERS, false),
+    });
     this.callToShow.set(null);
-    this.focus.go({ callId: target.callId, cycleId: target.cycleId, direction: target.direction === 'out' ? 'outbound' : 'inbound', serviceName });
+    const direction = target.direction === 'out' ? 'outbound' : 'inbound';
+    if (target.cycleId) {
+      // Its cycle with every call listed, scrolled to this one and pointing at it - the way "Show in cycle" does.
+      this.focus.revealIn({ callId: target.callId, cycleId: target.cycleId, direction, serviceName, preflight: false });
+    } else {
+      this.focus.go({ callId: target.callId, cycleId: null, direction, serviceName });
+    }
   }
 
   open(ref: MentionRef): void {

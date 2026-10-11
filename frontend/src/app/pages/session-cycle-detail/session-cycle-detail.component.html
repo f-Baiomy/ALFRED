@@ -82,11 +82,11 @@
 
 <!-- The cycle's board lives here too (specs/014-task-board US6): the same cards as the Board tab's Cycle board. -->
 <div class="cycle-tabs" role="tablist">
-  <button type="button" role="tab" [class.on]="tab() === 'calls'" (click)="tab.set('calls')">Calls</button>
-  <button type="button" role="tab" [class.on]="tab() === 'board'" (click)="tab.set('board')">Board
+  <button type="button" role="tab" [class.on]="tab() === 'calls'" (click)="selectTab('calls')">Calls</button>
+  <button type="button" role="tab" [class.on]="tab() === 'board'" (click)="selectTab('board')">Board
     @if (openCardCount()) { <span class="cycle-tab-count">{{ openCardCount() }} open</span> }
   </button>
-  <button type="button" role="tab" [class.on]="tab() === 'brief'" (click)="tab.set('brief')">Brief &amp; specs</button>
+  <button type="button" role="tab" [class.on]="tab() === 'brief'" (click)="selectTab('brief')">Brief &amp; specs</button>
 </div>
 
 @if (tab() === 'calls') {

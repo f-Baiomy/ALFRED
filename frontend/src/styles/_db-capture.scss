@@ -934,6 +934,14 @@
   }
 }
 
+// "⇄ Back to card #27" (ReturnPointHostComponent): the same pill, in the call colour, above the database one.
+.db-back.return-back {
+  bottom: 4.2rem;
+  border-color: color-mix(in srgb, var(--cyan) 60%, transparent);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45), 0 0 0 3px color-mix(in srgb, var(--cyan) 15%, transparent);
+  .db-back-btn { color: var(--cyan); &:hover { background: color-mix(in srgb, var(--cyan) 12%, transparent); } }
+}
+
 // ---- where the call's time went (db-analysis.ts) and "Top queries" ----
 .db-window {
   .tb-legend { display: flex; gap: 0.3rem 0.9rem; flex-wrap: wrap; font-size: 0.7rem; color: var(--text-dim); margin-top: 0.3rem; }

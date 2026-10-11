@@ -50,7 +50,17 @@ export class CallFocusService {
   readonly reveal = signal<string | null>(null);
   private pendingReveal: (CallFocus & { readonly preflight: boolean }) | null = null;
 
+  /**
+   * Bumped by every go / revealIn: a cycle page already showing that cycle (its Board tab, say) gets no new route
+   * - the same URL is not navigated again - so it reads this to switch to its Calls tab anyway.
+   */
+  readonly requests = signal(0);
+  /** The cycle the latest go / revealIn is for (null: Live Calls) - a new object each time, so it always signals. */
+  readonly lastRequest = signal<{ readonly cycleId: string | null } | null>(null);
+
   go(focus: CallFocus): void {
+    this.requests.update((n) => n + 1);
+    this.lastRequest.set({ cycleId: focus.cycleId ?? null });
     this.pending.set(focus);
     this.highlight.set(focus.callId);
     void this.router.navigate(focus.cycleId ? ['/cycles', focus.cycleId] : ['/'], { queryParams: { requestId: focus.callId } });
@@ -79,6 +89,8 @@ export class CallFocusService {
    */
   revealIn(focus: CallFocus & { readonly preflight: boolean }): void {
     if (!focus.cycleId) return;
+    this.requests.update((n) => n + 1);
+    this.lastRequest.set({ cycleId: focus.cycleId });
     this.pendingReveal = focus;
     this.reveal.set(focus.callId);
     void this.router.navigate(['/cycles', focus.cycleId], { queryParams: { reveal: focus.callId } });

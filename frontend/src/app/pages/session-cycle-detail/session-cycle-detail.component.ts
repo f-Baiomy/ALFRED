@@ -104,6 +104,13 @@ export class SessionCycleDetailComponent {
   readonly runCycle = computed(() => !!this.cycle()?.reliveRunId);
   readonly clearingCalls = signal(false);
   readonly tab = signal<'calls' | 'board' | 'brief'>('calls');
+  private readonly tabRouter = inject(Router);
+
+  /** Shows a tab and puts it in the address (?tab=), replacing the history entry rather than adding one. */
+  selectTab(t: 'calls' | 'board' | 'brief'): void {
+    this.tab.set(t);
+    void this.tabRouter.navigate([], { queryParams: { tab: t === 'calls' ? null : t }, queryParamsHandling: 'merge', replaceUrl: true });
+  }
   /** The cycle's cards, for the Board tab's open count - fetched on open and on each /ws/board signal. */
   readonly boardCards = signal<readonly CardSummary[]>([]);
   readonly openCardCount = computed(() => this.boardCards().filter((c) => c.status !== 'CLOSED' && c.status !== 'DONE').length);
@@ -152,6 +159,24 @@ export class SessionCycleDetailComponent {
       const wanted = requestId()?.get('requestId') ?? null;
       if (!id) return;
       untracked(() => focus.applyTo(this.state, id, wanted));
+    });
+    // A call asked for ("Open in its cycle" from a card's call popup, "Show in cycle") is on the Calls tab - switch
+    // to it even when this page was showing the cycle's Board, where that popup was opened. Only a new request
+    // switches: a ?requestId= left in the URL must not pull the user off a tab they chose afterwards.
+    effect(() => {
+      const asked = focus.lastRequest();
+      const id = this.state.cycleId();
+      if (!asked || !id || asked.cycleId !== id) return;
+      untracked(() => {
+        this.tab.set('calls');
+        focus.lastRequest.set(null); // handled - a later visit (a way back to ?tab=board) keeps its own tab
+      });
+    });
+    // ?tab=board|brief: the tab is part of the address, so a way back ("⇄ Back to card") lands on it again.
+    const tabParam = computed(() => requestId()?.get('tab') ?? null);
+    effect(() => {
+      const t = tabParam();
+      if (t === 'board' || t === 'brief' || t === 'calls') untracked(() => this.tab.set(t));
     });
 
     // `/cycles/<id>?reveal=<callId>` - the cycle widget's "Show in cycle": every call listed, this one
