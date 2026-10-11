@@ -1,11 +1,19 @@
 package com.fathy.alfred.backend.board.domain.model;
 
-/** A call a cycle captured, with its signature ({@code <signal>|<METHOD> <endpoint pattern>}) - what a fix check compares. */
+/**
+ * A call a cycle captured (or a live one), with its signature ({@code <signal>|<METHOD> <endpoint pattern>}) - what a fix
+ * check compares - its time and how long it took (null when unknown).
+ */
 public record CycleCall(String direction, String callId, String method, String path, Integer status, String signature,
-                        java.time.Instant at) {
+                        java.time.Instant at, Double durationMs) {
 
     public CycleCall(String direction, String callId, String method, String path, Integer status, String signature) {
-        this(direction, callId, method, path, status, signature, null);
+        this(direction, callId, method, path, status, signature, null, null);
+    }
+
+    public CycleCall(String direction, String callId, String method, String path, Integer status, String signature,
+                     java.time.Instant at) {
+        this(direction, callId, method, path, status, signature, at, null);
     }
 
     /** A live call as a mention ref: {@code in:<id>}. */

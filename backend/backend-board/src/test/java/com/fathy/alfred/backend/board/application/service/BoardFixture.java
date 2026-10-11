@@ -46,6 +46,9 @@ final class BoardFixture implements AutoCloseable {
     final List<com.fathy.alfred.backend.board.domain.model.CycleCall> cycleCalls = new ArrayList<>();
     final List<com.fathy.alfred.backend.board.domain.model.CycleCall> liveCalls = new ArrayList<>();
     final BoardInsightsService insights;
+    /** Facts per call id (live) or "cycle/callId" (captured), for the re-test. */
+    final Map<String, com.fathy.alfred.backend.board.domain.model.CallFacts> facts = new HashMap<>();
+    final RetestService retest;
     private final AutoCloseable closer;
 
     BoardFixture(Path dir) {
@@ -71,6 +74,19 @@ final class BoardFixture implements AutoCloseable {
         imports = new ImportBoardService(store, notifications, mentioned, feed);
         insights = new BoardInsightsService(store, signaturePort, (cycleId, limit) -> List.copyOf(cycleCalls), feed,
                 limit -> List.copyOf(liveCalls));
+        com.fathy.alfred.backend.board.application.port.out.CallFactsPort factsPort = new com.fathy.alfred.backend.board.application.port.out.CallFactsPort() {
+            @Override
+            public Optional<com.fathy.alfred.backend.board.domain.model.CallFacts> facts(String callId, String cycleId, Set<String> paths) {
+                return Optional.ofNullable(facts.get(cycleId == null ? callId : cycleId + "/" + callId));
+            }
+
+            @Override
+            public Optional<com.fathy.alfred.backend.board.domain.model.CycleCall> call(String ref) {
+                return Optional.empty();
+            }
+        };
+        retest = new RetestService(store, factsPort, limit -> List.copyOf(liveCalls), (cycleId, limit) -> List.copyOf(cycleCalls), notifications,
+                feed, clock);
     }
 
     CardDetail add(Actor actor, String project, CardKind kind, String title, String description) {

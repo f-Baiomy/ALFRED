@@ -1,6 +1,6 @@
 import { Component, computed, inject, input, output, signal } from '@angular/core';
 import {
-  CardStatus, CardSummary, FLAG_LABELS, Proposal, RESOLUTION_BUTTONS, RESOLUTION_LABELS, Resolution, ageText, isStale,
+  CardStatus, CardSummary, FLAG_LABELS, Proposal, RESOLUTION_BUTTONS, RESOLUTION_LABELS, Resolution, RetestCheck, ageText, isStale, retestChip,
 } from '../../../core/models/board.models';
 import { MentionChipComponent } from '../mention-chip/mention-chip.component';
 import { proposalTarget } from '../../../shared/utils/board-activity';
@@ -11,7 +11,8 @@ import { BoardSeenService } from '../../../core/services/board-seen.service';
 export type CardAction =
   | { readonly kind: 'close'; readonly resolution: Resolution }
   | { readonly kind: 'move'; readonly status: CardStatus }
-  | { readonly kind: 'reopen' };
+  | { readonly kind: 'reopen' }
+  | { readonly kind: 'retest' };
 
 /**
  * One card on the board (mock-v2): kind, flags, title, the first mentions, number, author, cycle, comments, scope and
@@ -54,6 +55,10 @@ export type CardAction =
       @if (waiting(); as w) {
         <div class="board-card-row"><span class="board-wait" [class]="'board-wait board-wait-' + card().waiting!.who">{{ w }}</span></div>
       }
+      @if (chip(); as ch) {
+        <div class="board-card-row"><span class="board-retest" [class]="'board-retest board-retest-' + ch.tone"
+              [title]="'Re-test: ' + retest()!.summary">{{ ch.text }}</span></div>
+      }
       @if (card().blockedBy?.length) {
         <div class="board-card-lock">🔒 Blocked by @for (b of card().blockedBy; track b.number) { <b>#{{ b.number }}</b> {{ b.title }} }</div>
       }
@@ -77,6 +82,14 @@ export type CardAction =
       @if (editable() && card().status === 'CLOSED') {
         <div class="board-card-acts"><button type="button" (click)="act($event, { kind: 'reopen' })">↺ Reopen</button></div>
       }
+      @if (editable() && card().status === 'FIXED') {
+        <div class="board-card-acts">
+          @if (retest()?.verdict === 'PASSES') {
+            <button type="button" class="ok" title="Every call since the fix passes - move to Verified" (click)="act($event, { kind: 'move', status: 'VERIFIED' })">✓ Verified</button>
+          }
+          <button type="button" title="Record a re-test of this card - its steps show on the strip" (click)="act($event, { kind: 'retest' })">▶ Re-test</button>
+        </div>
+      }
       @if (editable() && hasOpenQuestion()) {
         <div class="board-card-acts"><button type="button" class="ok" title="Answer Claude's question (A)" (click)="$event.stopPropagation(); answer.emit()">Answer</button></div>
       }
@@ -94,6 +107,8 @@ export class BoardCardComponent {
   readonly showCycle = input(true);
   readonly cycleName = input<string | null>(null);
   readonly now = input(Date.now());
+  /** The card's re-test (specs/016): its Fixed check or its guard, null when there is none. */
+  readonly retest = input<RetestCheck | null>(null);
   readonly opened = output<void>();
   readonly toggled = output<void>();
   readonly action = output<CardAction>();
@@ -105,6 +120,10 @@ export class BoardCardComponent {
   readonly unread = computed(() => this.seen.isUnread(this.card()));
   readonly waiting = computed(() => waitingText(this.card().waiting, this.now()));
   readonly skill = computed(() => skillFor(this.card()));
+  readonly chip = computed(() => {
+    const r = this.retest();
+    return r && (this.card().status === 'FIXED' || this.card().status === 'VERIFIED' || this.card().status === 'DONE') ? retestChip(r) : null;
+  });
   readonly hasOpenQuestion = computed(() => this.card().waiting?.who === 'USER' && this.card().flags.includes('NEEDS_DECISION'));
 
   readonly buttons = RESOLUTION_BUTTONS;

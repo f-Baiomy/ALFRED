@@ -10981,3 +10981,42 @@ app-board-view { display: block; padding: 0 1.25rem; }
   .board-columns { grid-template-columns: repeat(7, 240px); }
   .board-triage-btns { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* specs/016: re-test - card chips, the re-test strip and new-build banner, the drawer's Re-test section, the report. */
+.board-retest { display: inline-block; font-size: 0.66rem; padding: 0 0.45rem; border-radius: 999px; border: 1px solid var(--border-strong);
+  color: var(--text-dim); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
+.board-retest-pass { border-color: var(--green); color: var(--green); }
+.board-retest-fail { border-color: var(--red); color: var(--red); }
+.board-retest-part { border-color: var(--amber); color: var(--amber); }
+.board-retest-wait { border-style: dashed; color: var(--text-faint); }
+.board-retest-strip { border: 1px solid var(--purple); border-radius: 10px; padding: 0.45rem 0.7rem; margin-bottom: 0.4rem; font-size: 0.78rem;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--purple) 22%, transparent), transparent);
+  .ok { color: var(--green); }
+}
+.board-retest-build { border-color: var(--cyan); background: linear-gradient(90deg, color-mix(in srgb, var(--cyan) 16%, transparent), transparent); b { color: var(--amber); } }
+.board-retest-strip-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem; }
+.board-retest-strip-acts { margin-left: auto; display: flex; gap: 0.4rem; align-items: center; }
+.board-rec { width: 9px; height: 9px; border-radius: 50%; background: var(--red); box-shadow: 0 0 6px var(--red); flex: none; }
+.board-retest-step { display: flex; gap: 0.5rem; align-items: center; padding: 0.2rem 0; border-top: 1px solid var(--border); flex-wrap: wrap; }
+.board-retest-step-calls { margin-left: auto; font-size: 0.7rem; color: var(--text-faint); &.ok { color: var(--green); } }
+.board-retest-num { font: 0.66rem Consolas, monospace; padding: 0 0.35rem; border-radius: 5px; border: 1px solid color-mix(in srgb, var(--cyan) 50%, transparent); color: var(--cyan); }
+.board-card-retest {
+  .ok { color: var(--green); }
+  .bad { color: var(--red); }
+  h4 { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+}
+.board-retest-table { display: grid; gap: 0; }
+.board-retest-row { display: grid; grid-template-columns: 1.1rem 1fr auto; gap: 0.45rem; padding: 0.25rem 0; border-bottom: 1px solid var(--border); font-size: 0.78rem; align-items: baseline;
+  &.head { font-size: 0.66rem; color: var(--text-faint); font-weight: 600; }
+}
+.board-retest-vals { font-size: 0.72rem; white-space: nowrap; text-align: right; }
+.board-retest-add { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; margin: 0.4rem 0;
+  select { background: var(--card-inner); color: var(--text); border: 1px solid var(--border-strong); border-radius: 6px; font-size: 0.74rem; padding: 0.1rem 0.3rem; }
+}
+.board-retest-in { background: var(--card-inner); color: var(--text); border: 1px solid var(--border-strong); border-radius: 6px; font-size: 0.74rem; padding: 0.15rem 0.4rem; width: 11rem;
+  &.short { width: 5.5rem; }
+  &.wide { width: 100%; }
+}
+.board-retest-call { display: inline-flex; align-items: center; gap: 0.25rem; color: var(--green); font-size: 0.72rem; &.bad { color: var(--red); } }
+.board-retest-foot { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+.board-retest-report { width: min(640px, calc(100vw - 32px)); max-height: 80vh; overflow: auto; }

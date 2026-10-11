@@ -10,6 +10,7 @@ import { messageOf } from '../../../core/state/board-state.service';
 import { proposalText } from '../board-card/board-card.component';
 import { BoardSeenService } from '../../../core/services/board-seen.service';
 import { issueMarkdown, skillFor, waitingText } from '../../../shared/utils/board-skills';
+import { CardRetestComponent } from '../card-retest/card-retest.component';
 import { ActivityTimelineComponent, TimelineReply } from '../activity-timeline/activity-timeline.component';
 import { MarkdownViewComponent } from '../markdown-view/markdown-view.component';
 import { MentionChipComponent } from '../mention-chip/mention-chip.component';
@@ -24,7 +25,7 @@ import { MentionPickerComponent } from '../mention-picker/mention-picker.compone
 @Component({
   selector: 'app-card-drawer',
   standalone: true,
-  imports: [ActivityTimelineComponent, MarkdownViewComponent, MentionChipComponent, MentionEditorComponent, MentionPickerComponent],
+  imports: [ActivityTimelineComponent, CardRetestComponent, MarkdownViewComponent, MentionChipComponent, MentionEditorComponent, MentionPickerComponent],
   template: `
     <aside class="board-drawer" role="dialog" aria-label="Card">
       @if (card(); as c) {
@@ -142,6 +143,9 @@ import { MentionPickerComponent } from '../mention-picker/mention-picker.compone
               } @empty { <span class="board-dim">Not blocked.</span> }
             </div>
           </section>
+          @if (c.status !== 'INBOX' && c.status !== 'CLOSED') {
+            <app-card-retest [card]="c" [version]="version()" [editable]="editable()" (retest)="retestRequested.emit(c.number)" />
+          }
           <section>
             <h4>Activity · what was done <span class="board-dim">{{ activityTotal() }} entries</span></h4>
             <app-activity-timeline [entries]="activity()" [editable]="editable()" [project]="c.project" [cycleId]="c.cycleId"
@@ -175,6 +179,8 @@ export class CardDrawerComponent {
   readonly version = input(0);
   readonly editable = input(true);
   readonly closed = output<void>();
+  /** ▶ Re-test this card (specs/016): the board starts the recording. */
+  readonly retestRequested = output<number>();
   readonly closeRequested = output<{ id: string; number: number; resolution: Resolution }>();
 
   readonly card = signal<CardDetail | null>(null);

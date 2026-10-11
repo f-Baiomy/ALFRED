@@ -81,6 +81,11 @@ After `docker compose up -d --build backend`, the gateway may keep the old conta
 
 - **Native install = supervisor + `backend-server` slice** (specs/012-server-program, docs/server.md): `alfred run` (packaging/launcher/supervisor.py) starts backend, proxies, MCP (127.0.0.1, relayed at `/mcp` by `backend-app/mcpbridge`) and restarts them; its control API is on 127.0.0.1 with a token in `data/run/control.json`. Settings writes are allowed by `ALFRED_SETTINGS_EDIT_FROM` from the TCP peer, never X-Forwarded-For; the Cloudflare tunnel is always read-only. `alfred config` runs `ServerConfigCli` (fat jar: through `PropertiesLauncher`, see `Layout.config_cli`). `alfred attach` = `attach-cli/` (JDK 21) + `alfred-agent.jar`: features re-sent on every load, secret and CA in the environment, never a cross-user attach (spike S2), the CA trusted in-JVM by advice on `X509TrustManagerImpl` (spike S3).
 
+- **A fix is re-tested by the live calls after it, not a recorded cycle** (specs/016, docs/board.md "Re-test"): a card's
+  re-test plan holds expectations (SQL count, status, no ERROR, duration, same response) checked per call with the
+  original call's value beside it; `boardbridge/BoardRetestWatchAdapter` signals a watching card as calls complete
+  (no timer). Something not captured is UNKNOWN, never a pass. Verified stays the user's.
+
 - **The twelve `/alfred-*` skills ship with Alfred** (`skills/alfred-*/SKILL.md` + one `skills/_shared/rules.md`
   copied into each skill as `rules.md` on install, specs/015): in both installers (`app/skills`, `build_dist.stage_app`),
   zipped as `alfred-skills-<version>.zip`, installed by `alfred skill install` / `setup_mcp.py` through

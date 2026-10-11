@@ -18,7 +18,7 @@ export function skillFor(card: Pick<CardSummary, 'number' | 'status' | 'waiting'
   if (card.waiting?.who === 'USER' && card.flags.includes('NEEDS_DECISION')) return '/alfred-sync';
   if (card.status === 'INBOX') return '/alfred-triage';
   if (card.status === 'TO_DO' || card.status === 'IN_PROGRESS') return `/alfred-fix ${card.number}`;
-  if (card.status === 'FIXED') return '/alfred-verify';
+  if (card.status === 'FIXED') return `/alfred-verify ${card.number}`;
   if (card.status === 'VERIFIED') return '/alfred-status';
   return null;
 }

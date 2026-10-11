@@ -25,7 +25,7 @@ to learn. Always end with the exact next command.
 | 5 | `/alfred-triage` | Sort the Inbox together: a recommendation per card, you decide |
 | 6 | `/alfred-sync` | After you answered questions or changed cards: one state comment per card |
 | 7 | `/alfred-fix [card#]` | Fixes only the cards you choose, after you say Go |
-| 8 | `/alfred-verify <re-test cycle>` | Checks the fixes, proposes Verified, suggests checklist marks |
+| 8 | `/alfred-verify [cards] [cycle]` | Re-tests the fixes from the live calls since each fix (or a cycle), proposes Verified, suggests checklist marks |
 | 9 | `/alfred-status` | What waits on you, on Claude, on a re-test - and the next step |
 | 10 | `/alfred-report` | A summary for a stand-up or PR |
 
@@ -41,7 +41,7 @@ next step and its command, e.g.:
 - questions wait on the user → "Answer the 2 questions on #11 (the Answer button on the card), then `/alfred-sync`."
 - cards in the Inbox → `/alfred-triage`
 - To do cards → `/alfred-fix` (it asks which)
-- Fixed cards and no re-test cycle yet → "Record the flow again, then `/alfred-verify <cycle>`."
+- Fixed cards → "Use the app as each card's re-test steps say (or ▶ Re-test on the board), then `/alfred-verify`."
 - a cycle with no brief or spec → `/alfred-spec <cycle>` or `/alfred-setup`
 - nothing open → `/alfred-report`, or start a new task with `/alfred-setup`
 
@@ -56,7 +56,7 @@ Small steps; after each, wait for the user to do it and check it happened before
 4. Stop; open the Board: the Inbox has the findings. Run `/alfred-triage`.
 5. Answer any question on a card (Answer button), then `/alfred-sync`.
 6. `/alfred-fix` - pick the cards, say Go.
-7. Record the flow again as a new cycle, `/alfred-verify <new cycle>`, accept the proposals.
+7. Use the app again as the cards' re-test steps say (no recording needed; ▶ Re-test on the board records one if you want), `/alfred-verify`, accept the proposals.
 8. `/alfred-report`.
 
 ## Explaining one skill

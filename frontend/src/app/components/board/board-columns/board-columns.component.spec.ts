@@ -59,4 +59,26 @@ describe('BoardColumnsComponent', () => {
     expect(el.querySelectorAll('.board-col').length).toBe(7);
     expect(el.textContent).toContain('Inbox clear');
   });
+
+  it('re-tests one Fixed card, the selected ones or all, and shows each card re-test chip', () => {
+    TestBed.configureTestingModule({ imports: [BoardColumnsComponent] });
+    const fixture = TestBed.createComponent(BoardColumnsComponent);
+    const a = { ...card('a', 'FIXED'), number: 18 };
+    const b = { ...card('b', 'FIXED'), number: 19 };
+    fixture.componentRef.setInput('cards', [a, b]);
+    fixture.componentRef.setInput('selected', new Set(['b']));
+    fixture.componentRef.setInput('retests', new Map([[19, { number: 19, project: 'p', title: 't', status: 'FIXED', since: null, verdict: 'PASSES',
+      statusOnly: false, summary: 'passes · 3 calls since the fix', results: [], calls: [], steps: [], newBuild: false }]]));
+    fixture.detectChanges();
+    const asked: (readonly number[])[] = [];
+    fixture.componentInstance.retest.subscribe((n) => asked.push(n));
+    const el: HTMLElement = fixture.nativeElement;
+    const buttons = Array.from(el.querySelectorAll('button'));
+    buttons.find((x) => x.textContent?.includes('Re-test all 2'))!.click();
+    buttons.find((x) => x.textContent?.includes('Re-test 1 selected'))!.click();
+    buttons.filter((x) => x.textContent?.trim() === '▶ Re-test')[0].click();
+    expect(asked).toEqual([[18, 19], [19], [18]]);
+    expect(el.querySelector('.board-retest-pass')?.textContent).toContain('passes · 3 calls since the fix');
+    expect(buttons.some((x) => x.textContent?.includes('✓ Verified'))).toBeTrue();
+  });
 });

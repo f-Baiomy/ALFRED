@@ -45,7 +45,7 @@ public class BoardCycleCallsAdapter implements CycleCallsPort, LiveCallsPort {
                 for (var c : calls) {
                     CycleCall signed = call("in", c.id(), c.method(), c.url(), c.status());
                     out.add(new CycleCall(signed.direction(), signed.callId(), signed.method(), signed.path(), signed.status(), signed.signature(),
-                            instant(c.timestamp())));
+                            instant(c.timestamp()), c.durationMs()));
                 }
                 if (calls.size() < page) {
                     break;
@@ -57,7 +57,7 @@ public class BoardCycleCallsAdapter implements CycleCallsPort, LiveCallsPort {
         return out;
     }
 
-    private static java.time.Instant instant(String timestamp) {
+    static java.time.Instant instant(String timestamp) {
         try {
             return timestamp == null ? null : java.time.Instant.parse(timestamp);
         } catch (java.time.format.DateTimeParseException e) {
@@ -71,7 +71,9 @@ public class BoardCycleCallsAdapter implements CycleCallsPort, LiveCallsPort {
         try {
             reader.inbound(cycleId, c -> {
                 if (out.size() < limit && c.call() != null) {
-                    out.add(call("in", c.call().id(), c.call().method(), c.call().url(), c.call().status()));
+                    CycleCall signed = call("in", c.call().id(), c.call().method(), c.call().url(), c.call().status());
+                    out.add(new CycleCall(signed.direction(), signed.callId(), signed.method(), signed.path(), signed.status(), signed.signature(),
+                            instant(c.call().timestamp()), c.call().durationMs()));
                 }
             });
             reader.outbound(cycleId, c -> {
@@ -85,7 +87,7 @@ public class BoardCycleCallsAdapter implements CycleCallsPort, LiveCallsPort {
         return out;
     }
 
-    private CycleCall call(String direction, String id, String method, String url, Integer status) {
+    CycleCall call(String direction, String id, String method, String url, Integer status) {
         String signature = method == null || url == null ? null : signal(status) + "|" + endpoints.endpointOf(method, url);
         return new CycleCall(direction, id, method, pathOf(url), status, signature);
     }

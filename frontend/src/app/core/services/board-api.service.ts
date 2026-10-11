@@ -3,7 +3,8 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import {
   ActivityPage, AgentStatus, BoardAccess, BoardFilters, BulkAction, CallBadge, CardDetail, CardEdit, CardStatus, CardsPage,
-  ChecklistFile, ChecklistItem, CycleBrief, Mark, MentionRef, NewCard, NextSteps, Resolution, SessionLogEntry, SpecFileInfo, TestStep,
+  CardRetest, ChecklistFile, ChecklistItem, CycleBrief, Expectation, Mark, MentionRef, NewCard, NextSteps, Resolution, RetestCheck, RetestPlan,
+  RetestReport, RetestStep, SessionLogEntry, SpecFileInfo, TestStep,
 } from '../models/board.models';
 import { AppConfigService } from './app-config.service';
 
@@ -160,6 +161,30 @@ export class BoardApiService {
   }
 
   /** What one board waits on: the next-step bar. */
+  // ---------------------------------------------------------------------------------------------- re-test (specs/016)
+
+  retestChecks(project: string, numbers: readonly number[] = [], cycleId: string | null = null): Observable<{ checks: RetestCheck[]; lastStart: string | null }> {
+    const params: Record<string, string> = { project, numbers: numbers.join(',') };
+    if (cycleId) params['cycleId'] = cycleId;
+    return this.http.get<{ checks: RetestCheck[]; lastStart: string | null }>(`${this.base}/retest`, { params });
+  }
+
+  retestRun(project: string, numbers: readonly number[], cycleId: string | null): Observable<RetestReport> {
+    return this.http.post<RetestReport>(`${this.base}/retest/run`, { project, numbers, cycleId });
+  }
+
+  retestGuards(project: string): Observable<RetestCheck[]> {
+    return this.http.get<RetestCheck[]>(`${this.base}/retest/guards`, { params: { project } });
+  }
+
+  cardRetest(cardId: string, cycleId: string | null = null): Observable<CardRetest> {
+    return this.http.get<CardRetest>(`${this.base}/cards/${encodeURIComponent(cardId)}/retest`, { params: cycleId ? { cycleId } : {} });
+  }
+
+  setRetestPlan(cardId: string, expectations: readonly Expectation[], steps: readonly RetestStep[]): Observable<RetestPlan> {
+    return this.http.put<RetestPlan>(`${this.base}/cards/${encodeURIComponent(cardId)}/retest-plan`, { expectations, steps });
+  }
+
   nextSteps(project: string, cycleId: string | null): Observable<NextSteps> {
     return this.http.get<NextSteps>(`${this.base}/next-steps`, { params: cycleId ? { project, cycleId } : { project } });
   }

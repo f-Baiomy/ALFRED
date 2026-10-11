@@ -96,7 +96,7 @@ Read-only endpoints in `BoardInsightsService` / `BoardInsightsController` let a 
 - `GET /board/verify?project=&cycleId=`: each Fixed card's signature compared with the calls a re-test cycle captured to the same endpoint. The calls are signed by `boardbridge/BoardCycleCallsAdapter` the same way as a card's call. The verdict is LOOKS_FIXED (every call is ok now), STILL_FAILING or NOT_EXERCISED.
 - Call badges now carry the card title, so `board_for_call` can say which card a call is on.
 
-The MCP tools built on these are listed in docs/mcp.md: `board_search`, `board_changes`, `board_wait`, `board_get`, `board_evidence`, `board_for_call`, `board_similar`, `board_verify`, `board_reply`, `board_ask`, `board_fix`, `board_edit`, `board_link`, `board_add_many`, `board_propose` and `board_suggest_mark`. `board_get` returns every comment in full. A comment over 6000 characters is read in parts with `entry`, and the history is paged with `historyOffset`. Nothing is cut silently.
+The MCP tools built on these are listed in docs/mcp.md: `board_search`, `board_changes`, `board_wait`, `board_get`, `board_evidence`, `board_for_call`, `board_similar`, `board_verify`, `board_retest`, `board_retest_plan`, `board_reply`, `board_ask`, `board_fix`, `board_edit`, `board_link`, `board_add_many`, `board_propose` and `board_suggest_mark`. `board_get` returns every comment in full. A comment over 6000 characters is read in parts with `entry`, and the history is paged with `historyOffset`. Nothing is cut silently.
 
 ## Waiting on, hand-off and the skills' helpers (specs/015)
 
@@ -129,6 +129,40 @@ The MCP tools built on these are listed in docs/mcp.md: `board_search`, `board_c
   cards whose endpoint failed again the same way in the newest live inbound calls after the card was finished
   (`boardbridge/BoardCycleCallsAdapter` signs them like a card's call). **Copy as issue** builds Markdown for Jira /
   GitHub in the browser (`shared/utils/board-skills.ts`).
+
+## Re-test without a cycle (specs/016)
+
+A Fixed card is re-tested by the **live calls to its endpoint made after the fix** - the user just uses the app. A
+re-test cycle is optional: given, only its calls count.
+
+- **Plan** (`retest_plans`, `PUT /board/cards/{id}/retest-plan`): what "fixed" means as **expectations** - SQL_COUNT
+  (at most `max` statements on `table`, from database capture's Tables view), STATUS (`2xx`, `200`, `!405`, `!5xx`),
+  NO_LOG (no caught ERROR, or WARN and ERROR), DURATION (at most `max` ms, judged after `minCalls`, default 3) and
+  SAME_RESPONSE (the JSON `path` value equals the original call's) - and **steps** (what to do in the app, with the
+  endpoint whose call shows it was done). Claude writes it with `board_fix`; the user edits it in the drawer, with
+  suggestions by card type. Claude may not change a Done or closed card's plan.
+- **Check** (`RetestService`, `GET /board/retest?project=&numbers=&cycleId=`): the newest 2000 live inbound calls (or
+  the cycle's), the card's endpoint, after the last status change; at most 10 calls per card, newest first. Each
+  expectation is judged per call with the original call's value beside it (before → after), facts read by
+  `boardbridge/BoardCallFactsAdapter`; what was not captured (◆ off, ▤ off) is UNKNOWN, never a pass. Verdict: PASSES,
+  PARTIAL (a step not seen, a duration waiting for calls, something unknown), FLAKY, FAILS, NO_CALLS, NOT_CHECKABLE (no
+  call on the card). Without expectations only the status is compared (`statusOnly`), against the class the card's
+  signature failed with.
+- **Watch**: `boardbridge/BoardRetestWatchAdapter` offers every completed inbound call to the board; a Fixed card (or
+  a Verified / Done card with expectations) watching its endpoint gets a `retest` signal on /ws/board, and again 20 s
+  later when the agent's statements and log lines have arrived. The page re-reads its chips on the signal - no timer.
+- **Guards** (`GET /board/retest/guards`): Verified / Done cards keep their expectations; a later failing call shows
+  "guard failed" and `board_regressions` lists it for Claude to propose Reopen.
+- **New build**: a new agent process (`AgentStartedObserverPort` in db-capture, a new agent id) records the project's
+  app start (`app_starts`); a Fixed card fixed before it with no call since shows "new build - ready to re-test", the
+  board shows a banner, and the open tab notifies when desktop notifications are on.
+- **Run and history** (`POST /board/retest/run`): the check plus one `retest_runs` row per card (when, who, live or
+  cycle, verdict, calls, summary) and the report as Markdown. The drawer's Re-test section shows the history.
+- **▶ Re-test** (one card, the selected Fixed cards, all of them, or the new build): creates a cycle "Re-test #18 #19",
+  starts recording, and shows the merged steps ticking as their calls arrive; **Stop and check** runs it against the
+  cycle and opens the report. **Replay original call** resends the card's first inbound call (asks first for a write).
+
+Verified stays the user's: the card offers **✓ Verified** when every call passes; Claude proposes it.
 
 ## Edit access
 

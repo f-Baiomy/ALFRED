@@ -225,4 +225,19 @@ public interface BoardStorePort {
 
     /** The indexed mentions of one owner (for tests and import). */
     List<Mention> mentionsOf(MentionOwner owner, String ownerId);
+
+    // ------------------------------------------------------------------------------------------- re-test (specs/016)
+
+    java.util.Optional<com.fathy.alfred.backend.board.domain.model.RetestPlan> retestPlan(String cardId);
+
+    void putRetestPlan(com.fathy.alfred.backend.board.domain.model.RetestPlan plan);
+
+    long appendRetestRun(com.fathy.alfred.backend.board.domain.model.RetestRun run);
+
+    /** A card's recorded re-tests, newest first. */
+    List<com.fathy.alfred.backend.board.domain.model.RetestRun> retestRuns(String cardId, int limit);
+
+    void putAppStart(String project, java.time.Instant at);
+
+    java.util.Optional<java.time.Instant> appStart(String project);
 }

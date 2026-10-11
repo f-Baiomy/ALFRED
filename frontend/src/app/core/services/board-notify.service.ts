@@ -45,6 +45,20 @@ export class BoardNotifyService {
     this.sub = null;
   }
 
+  /** A desktop notification of the board's own (a new build ready to re-test, specs/016), when notifications are on. */
+  notifyText(title: string, body: string, tag: string): void {
+    if (!this.enabled()) return;
+    try {
+      const n = new Notification(title, { body, tag });
+      n.onclick = () => {
+        window.focus();
+        n.close();
+      };
+    } catch {
+      // a browser that refuses page notifications (some mobiles) shows none
+    }
+  }
+
   private start(): void {
     if (this.sub) return;
     this.api.changes('now').subscribe({ next: (c) => (this.cursor = c.cursor), error: () => undefined });

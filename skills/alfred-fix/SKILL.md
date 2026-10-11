@@ -40,11 +40,17 @@ For each card, in order:
 2. Run the project's tests (`board_status` step "fixing #<n> · running tests"). Failing → fix or report; never record
    a fix whose tests fail.
 3. `board_fix`: summary, root cause, files with lines, commit only if the user asked you to commit, tests and their
-   result, how to verify (which step of the flow, what to look for), impact. It moves the card to Fixed and it waits on
-   a re-test.
+   result, how to verify (which step of the flow, what to look for), impact, and always the re-test plan:
+   - `expect` - what "fixed" means, checked by Alfred on every call after the fix: an N+1 → `SQL_COUNT` {table, max};
+     a 5xx / hidden error → `STATUS` {range "!5xx" or "!405"} + `NO_LOG` {level ERROR}; slow → `DURATION` {max ms};
+     the data must not change → `SAME_RESPONSE` {path}. Use the numbers the evidence gave (257 queries → max 3).
+   - `steps` - what the user does in the app to make that call ("Open the flight search page"), with the endpoint when
+     it is another call than the card's own.
+   It moves the card to Fixed and it waits on a re-test.
 4. Next card - its plan, its Go.
 
 ## 4. Finish
 
 `board_status` STOPPED. Summary: fixed, still in progress (why), skipped (blocked). `board_session_log` on the cycle
-when the cards belong to one. Next: "Record the flow again, then `/alfred-verify <re-test cycle>`".
+when the cards belong to one. Next: "Use the app as the steps say (no recording needed) - the cards turn green on the
+board - then `/alfred-verify` (or `/alfred-verify <n>` for one card)".

@@ -332,3 +332,120 @@ export function ageText(iso: string, now: number): string {
   if (h < 24) return `${h} h`;
   return `${Math.floor(h / 24)} d`;
 }
+
+// ------------------------------------------------------------------------------------------------ re-test (specs/016)
+
+export type ExpectationKind = 'SQL_COUNT' | 'STATUS' | 'NO_LOG' | 'DURATION' | 'SAME_RESPONSE';
+
+/** What "fixed" means for a card, checked by Alfred on every call to its endpoint after the fix. */
+export interface Expectation {
+  readonly kind: ExpectationKind;
+  readonly table?: string | null;
+  readonly max?: number | null;
+  readonly range?: string | null;
+  readonly level?: 'ERROR' | 'WARN' | null;
+  readonly minCalls?: number | null;
+  readonly path?: string | null;
+}
+
+export interface RetestStep {
+  readonly text: string;
+  readonly endpoint?: string | null;
+}
+
+export interface RetestPlan {
+  readonly cardId: string;
+  readonly expectations: readonly Expectation[];
+  readonly steps: readonly RetestStep[];
+  readonly updatedBy: Actor | null;
+  readonly updatedAt: string | null;
+}
+
+export type RetestVerdict = 'PASSES' | 'PARTIAL' | 'FLAKY' | 'FAILS' | 'NO_CALLS' | 'NOT_CHECKABLE';
+export type RetestOutcome = 'PASS' | 'FAIL' | 'UNKNOWN' | 'WAITING';
+
+export interface RetestResult {
+  readonly text: string;
+  readonly expectation: Expectation;
+  readonly outcome: RetestOutcome;
+  readonly before: string | null;
+  readonly after: readonly string[];
+  readonly note: string | null;
+}
+
+export interface RetestCheck {
+  readonly number: number;
+  readonly project: string;
+  readonly title: string;
+  readonly status: CardStatus;
+  readonly since: string | null;
+  readonly verdict: RetestVerdict;
+  readonly statusOnly: boolean;
+  readonly summary: string;
+  readonly results: readonly RetestResult[];
+  readonly calls: readonly { readonly ref: string; readonly label: string; readonly at: string | null; readonly passed: boolean; readonly failed: string | null }[];
+  readonly steps: readonly { readonly text: string; readonly endpoint: string | null; readonly seen: boolean; readonly calls: number }[];
+  readonly newBuild: boolean;
+}
+
+export interface RetestRun {
+  readonly id: number;
+  readonly at: string;
+  readonly actor: Actor;
+  readonly source: string;
+  readonly verdict: RetestVerdict;
+  readonly calls: number;
+  readonly summary: string;
+}
+
+export interface RetestReport {
+  readonly at: string;
+  readonly source: string;
+  readonly checks: readonly RetestCheck[];
+  readonly markdown: string;
+}
+
+export interface CardRetest {
+  readonly plan: RetestPlan;
+  readonly check: RetestCheck;
+  readonly history: readonly RetestRun[];
+  readonly lastStart: string | null;
+}
+
+/** The chip on a card: "✓ passes · 3 calls", "✗ fails · …", with its look. */
+export function retestChip(c: RetestCheck): { readonly text: string; readonly tone: 'pass' | 'fail' | 'part' | 'wait' } {
+  const guard = c.status === 'VERIFIED' || c.status === 'DONE';
+  switch (c.verdict) {
+    case 'PASSES': return { text: guard ? `🛡 guarded · ${c.calls.length} calls ok` : `✓ ${c.summary}`, tone: 'pass' };
+    case 'FAILS': return { text: guard ? `⚠ guard failed · ${c.summary.replace(/^fails · /, '')}` : `✗ ${c.summary}`, tone: 'fail' };
+    case 'FLAKY': return { text: `≈ ${c.summary}`, tone: 'part' };
+    case 'PARTIAL': return { text: `◐ ${c.summary}`, tone: 'part' };
+    case 'NO_CALLS': return { text: guard ? '🛡 guarded · no calls since' : c.newBuild ? '⟳ new build · ready to re-test' : `… ${c.summary}`, tone: 'wait' };
+    default: return { text: `? ${c.summary}`, tone: 'wait' };
+  }
+}
+
+/** Expectations Alfred suggests for a card, from what it is about (specs/016 FR-9). */
+export function suggestExpectations(card: Pick<CardSummary, 'kind' | 'title'> & { readonly signature?: string | null }): Expectation[] {
+  const title = card.title;
+  const out: Expectation[] = [];
+  const table = /\b([A-Z][A-Z0-9_]{3,})\b/.exec(title)?.[1] ?? null;
+  if (/n\+1|queries|query per|statements/i.test(title)) out.push({ kind: 'SQL_COUNT', table, max: 3 });
+  if (/slow|\d+(\.\d+)?\s*s\b|ms\b|timeout|takes/i.test(title)) out.push({ kind: 'DURATION', max: 1000, minCalls: 3 });
+  const status = /\b([45]\d\d)\b/.exec(title)?.[1];
+  if (status) out.push({ kind: 'STATUS', range: `!${status}` });
+  if (card.kind === 'BUG' || /error|exception|fails|500/i.test(title)) out.push({ kind: 'NO_LOG', level: 'ERROR' });
+  if (!out.some((e) => e.kind === 'STATUS')) out.push({ kind: 'STATUS', range: '2xx' });
+  return out;
+}
+
+/** One line for an expectation, as the backend writes it. */
+export function expectationText(e: Expectation): string {
+  switch (e.kind) {
+    case 'SQL_COUNT': return `≤ ${e.max} ${e.max === 1 ? 'query' : 'queries'}${e.table ? ` on ${e.table}` : ' in all'}`;
+    case 'STATUS': return e.range?.startsWith('!') ? `Status not ${e.range.slice(1)}` : `Status ${e.range}`;
+    case 'NO_LOG': return e.level === 'WARN' ? 'No WARN or ERROR log line' : 'No ERROR log line';
+    case 'DURATION': return `Under ${e.max} ms (${e.minCalls ?? 3} calls)`;
+    case 'SAME_RESPONSE': return `Response ${e.path} the same as before the fix`;
+  }
+}

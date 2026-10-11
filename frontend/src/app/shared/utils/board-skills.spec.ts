@@ -13,7 +13,7 @@ describe('board-skills', () => {
   it('names the skill a card needs next', () => {
     expect(skillFor(card({ status: 'INBOX' }))).toBe('/alfred-triage');
     expect(skillFor(card({ status: 'TO_DO' }))).toBe('/alfred-fix 11');
-    expect(skillFor(card({ status: 'FIXED' }))).toBe('/alfred-verify');
+    expect(skillFor(card({ status: 'FIXED' }))).toBe('/alfred-verify 11');
     expect(skillFor(card({ status: 'INBOX', flags: ['NEEDS_DECISION'], waiting: { who: 'USER', since: '', setBy: 'CLAUDE' } }))).toBe('/alfred-sync');
     expect(skillFor(card({ status: 'DONE' }))).toBeNull();
   });

@@ -234,6 +234,18 @@ public class SqliteBoardRepository implements BoardStorePort {
                 CREATE TABLE IF NOT EXISTS cycle_steps (cycle_id TEXT NOT NULL, step_key TEXT NOT NULL, state TEXT NOT NULL,
                   calls INTEGER NOT NULL DEFAULT 0, card_number INTEGER, note TEXT, at INTEGER NOT NULL, PRIMARY KEY (cycle_id, step_key))
                 """);
+        // specs/016: re-test plans, recorded re-tests, app starts
+        jdbc.execute("""
+                CREATE TABLE IF NOT EXISTS retest_plans (card_id TEXT PRIMARY KEY REFERENCES cards(id) ON DELETE CASCADE,
+                  plan_json TEXT NOT NULL, updated_by TEXT, updated_at INTEGER)
+                """);
+        jdbc.execute("""
+                CREATE TABLE IF NOT EXISTS retest_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+                  number INTEGER NOT NULL, at INTEGER NOT NULL, actor TEXT NOT NULL, source TEXT NOT NULL, verdict TEXT NOT NULL,
+                  calls INTEGER NOT NULL, summary TEXT NOT NULL)
+                """);
+        jdbc.execute("CREATE INDEX IF NOT EXISTS idx_retest_runs ON retest_runs(card_id, id)");
+        jdbc.execute("CREATE TABLE IF NOT EXISTS app_starts (project TEXT PRIMARY KEY, at INTEGER NOT NULL)");
     }
 
     /** Adds a column to a table made by an older version (SQLite has no ADD COLUMN IF NOT EXISTS). */
@@ -1090,5 +1102,70 @@ public class SqliteBoardRepository implements BoardStorePort {
             out.add(all.subList(i, Math.min(all.size(), i + IN_CHUNK)));
         }
         return out;
+    }
+
+    // ------------------------------------------------------------------------------------------- re-test (specs/016)
+
+    private record PlanJson(List<com.fathy.alfred.backend.board.domain.model.Expectation> expectations,
+                            List<com.fathy.alfred.backend.board.domain.model.RetestPlan.Step> steps) {
+    }
+
+    @Override
+    public Optional<com.fathy.alfred.backend.board.domain.model.RetestPlan> retestPlan(String cardId) {
+        return jdbc.query("SELECT plan_json, updated_by, updated_at FROM retest_plans WHERE card_id = ?", (rs, n) -> {
+            try {
+                PlanJson p = objectMapper.readValue(rs.getString(1), PlanJson.class);
+                String by = rs.getString(2);
+                long at = rs.getLong(3);
+                return new com.fathy.alfred.backend.board.domain.model.RetestPlan(cardId, p.expectations(), p.steps(),
+                        by == null ? null : Actor.valueOf(by), rs.wasNull() ? null : Instant.ofEpochMilli(at));
+            } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+                return com.fathy.alfred.backend.board.domain.model.RetestPlan.empty(cardId);
+            }
+        }, cardId).stream().findFirst();
+    }
+
+    @Override
+    public void putRetestPlan(com.fathy.alfred.backend.board.domain.model.RetestPlan plan) {
+        String json;
+        try {
+            json = objectMapper.writeValueAsString(new PlanJson(plan.expectations(), plan.steps()));
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            throw new IllegalStateException("Could not write a re-test plan", e);
+        }
+        jdbc.update("INSERT INTO retest_plans(card_id, plan_json, updated_by, updated_at) VALUES (?,?,?,?) ON CONFLICT(card_id) DO UPDATE SET "
+                        + "plan_json = excluded.plan_json, updated_by = excluded.updated_by, updated_at = excluded.updated_at",
+                plan.cardId(), json, plan.updatedBy() == null ? null : plan.updatedBy().name(),
+                plan.updatedAt() == null ? null : plan.updatedAt().toEpochMilli());
+    }
+
+    @Override
+    public long appendRetestRun(com.fathy.alfred.backend.board.domain.model.RetestRun r) {
+        return tx.execute(status -> {
+            jdbc.update("INSERT INTO retest_runs(card_id, number, at, actor, source, verdict, calls, summary) VALUES (?,?,?,?,?,?,?,?)", r.cardId(),
+                    r.number(), r.at().toEpochMilli(), r.actor().name(), r.source(), r.verdict().name(), r.calls(), r.summary() == null ? "" : r.summary());
+            Long id = jdbc.queryForObject("SELECT last_insert_rowid()", Long.class);
+            return id == null ? 0L : id;
+        });
+    }
+
+    @Override
+    public List<com.fathy.alfred.backend.board.domain.model.RetestRun> retestRuns(String cardId, int limit) {
+        return jdbc.query("SELECT id, card_id, number, at, actor, source, verdict, calls, summary FROM retest_runs WHERE card_id = ? ORDER BY id DESC LIMIT ?",
+                (rs, n) -> new com.fathy.alfred.backend.board.domain.model.RetestRun(rs.getLong(1), rs.getString(2), rs.getInt(3),
+                        Instant.ofEpochMilli(rs.getLong(4)), Actor.valueOf(rs.getString(5)), rs.getString(6),
+                        com.fathy.alfred.backend.board.domain.model.RetestCheck.Verdict.valueOf(rs.getString(7)), rs.getInt(8), rs.getString(9)),
+                cardId, limit);
+    }
+
+    @Override
+    public void putAppStart(String project, Instant at) {
+        jdbc.update("INSERT INTO app_starts(project, at) VALUES (?,?) ON CONFLICT(project) DO UPDATE SET at = MAX(at, excluded.at)", project,
+                at.toEpochMilli());
+    }
+
+    @Override
+    public Optional<Instant> appStart(String project) {
+        return jdbc.query("SELECT at FROM app_starts WHERE project = ?", (rs, n) -> Instant.ofEpochMilli(rs.getLong(1)), project).stream().findFirst();
     }
 }

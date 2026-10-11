@@ -11,6 +11,8 @@ import { BoardApiService } from '../../../core/services/board-api.service';
 import { BoardExportFormat, BoardExportService } from '../../../core/services/board-export.service';
 import { BoardMentionsService } from '../../../core/services/board-mentions.service';
 import { BoardStateService, messageOf } from '../../../core/state/board-state.service';
+import { RetestStateService } from '../../../core/state/retest-state.service';
+import { RetestStripComponent } from '../retest-strip/retest-strip.component';
 import { ActionMenuComponent } from '../../action-menu/action-menu.component';
 import { CardAction } from '../board-card/board-card.component';
 import { BoardColumnsComponent, CardDrop } from '../board-columns/board-columns.component';
@@ -32,12 +34,13 @@ import { UndoToastComponent } from '../undo-toast/undo-toast.component';
 @Component({
   selector: 'app-board-view',
   standalone: true,
-  providers: [BoardStateService],
+  providers: [BoardStateService, RetestStateService],
   imports: [ActionMenuComponent, BoardColumnsComponent, BoardHelpComponent, BoardListViewComponent, BoardProgressComponent,
-    BulkBarComponent, CardDrawerComponent, LiveStripComponent, NextStepsBarComponent, QuickAddComponent, QuickAnswerComponent, TriageDialogComponent,
+    BulkBarComponent, CardDrawerComponent, LiveStripComponent, NextStepsBarComponent, QuickAddComponent, QuickAnswerComponent, RetestStripComponent, TriageDialogComponent,
     UndoToastComponent],
   template: `
     <app-live-strip [status]="state.agent()" [editable]="state.editable()" (action)="state.agentAction($event)" />
+    <app-retest-strip [project]="project()" [editable]="state.editable()" />
     <div class="board-top">
       @if (state.editable()) {
         <app-quick-add #quick (added)="state.quickAdd($event)" />
@@ -89,7 +92,7 @@ import { UndoToastComponent } from '../undo-toast/undo-toast.component';
 
     @if (state.view() === 'board') {
       <app-board-columns [cards]="state.cards()" [editable]="state.editable()" [selected]="state.selected()" [focusedId]="state.focusedId()"
-                         [showCycle]="!cycleId()" [now]="now()"
+                         [showCycle]="!cycleId()" [now]="now()" [retests]="retest.byNumber()" (retest)="retest.start($event)"
                          (moved)="onMoved($event)" (opened)="openCard($event)" (toggled)="state.toggleSelected($event.id)"
                          (action)="onAction($event.card, $event.action)" (triage)="startTriage()"
                          (answer)="answering.set($event.id)" />
@@ -107,11 +110,12 @@ import { UndoToastComponent } from '../undo-toast/undo-toast.component';
     @if (answering(); as id) { <app-quick-answer [cardId]="id" (closed)="answering.set(null)" /> }
     @if (state.openCardId(); as id) {
       <app-card-drawer [cardId]="id" [version]="state.openCardVersion()" [editable]="state.editable()"
-                       (closed)="state.open(null)" (closeRequested)="state.close($event, $event.resolution)" />
+                       (closed)="state.open(null)" (retestRequested)="retest.start([$event])" (closeRequested)="state.close($event, $event.resolution)" />
     }`,
 })
 export class BoardViewComponent {
   readonly state = inject(BoardStateService);
+  readonly retest = inject(RetestStateService);
   private readonly api = inject(BoardApiService);
   private readonly exports = inject(BoardExportService);
   private readonly mentions = inject(BoardMentionsService);
@@ -153,7 +157,10 @@ export class BoardViewComponent {
     effect(() => {
       const project = this.project();
       const cycleId = this.cycleId();
-      untracked(() => this.state.show(project, cycleId));
+      untracked(() => {
+        this.state.show(project, cycleId);
+        this.retest.show(project);
+      });
     });
     effect(() => {
       const target = this.mentions.cardToOpen();
@@ -189,6 +196,7 @@ export class BoardViewComponent {
   onAction(card: CardSummary, action: CardAction): void {
     if (action.kind === 'close') this.state.close(card, action.resolution);
     else if (action.kind === 'move') this.state.move(card.id, action.status);
+    else if (action.kind === 'retest') this.retest.start([card.number]);
     else this.state.reopen(card.id);
   }
 

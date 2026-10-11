@@ -74,6 +74,13 @@ public class DbCaptureService implements IngestStatementsUseCase, RecordAgentHea
     /** Hands changed calls' log and database signals to triage (specs/010). Optional for tests. */
     private CallSignalsPublisher signals;
 
+    private List<com.fathy.alfred.backend.dbcapture.application.port.out.AgentStartedObserverPort> startedObservers = List.of();
+
+    @Autowired(required = false)
+    void setStartedObservers(List<com.fathy.alfred.backend.dbcapture.application.port.out.AgentStartedObserverPort> observers) {
+        this.startedObservers = observers == null ? List.of() : List.copyOf(observers);
+    }
+
     @Autowired(required = false)
     void setSignals(CallSignalsPublisher signals) {
         this.signals = signals;
@@ -231,12 +238,23 @@ public class DbCaptureService implements IngestStatementsUseCase, RecordAgentHea
     @Override
     public AgentDirective heartbeat(AgentStatus status) {
         Instant now = clock.instant();
-        boolean wasAttached = store.agents().stream()
+        List<AgentStatus> known = store.agents();
+        boolean wasAttached = known.stream()
                 .filter(a -> a.agentId().equals(status.agentId()))
                 .anyMatch(a -> isRecent(a.lastSeen(), now));
+        boolean newProcess = known.stream().noneMatch(a -> a.agentId().equals(status.agentId()));
         store.saveAgent(status.seenAt(now.toString()));
         if (!wasAttached) {
             notifications.agentStatusChanged(status.project(), true);
+        }
+        if (newProcess && status.project() != null) {
+            for (var observer : startedObservers) {
+                try {
+                    observer.agentStarted(status.project(), now);
+                } catch (RuntimeException e) {
+                    // an observer never fails the agent's heartbeat
+                }
+            }
         }
         return new AgentDirective(store.settings(status.project()), toggle.isEnabled(status.project()),
                 logLink != null && logLink.isOn(status.project()));

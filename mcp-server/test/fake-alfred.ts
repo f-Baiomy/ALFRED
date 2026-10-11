@@ -105,6 +105,10 @@ export interface FakeBoard {
   log: Record<string, unknown[]>;
   steps: Record<string, { key: string; text: string; state: string; calls: number; cardNumber: number | null; note: string | null }[]>;
   regressions: unknown[];
+  /** GET /board/retest and POST /board/retest/run answer these checks; plans are what PUT .../retest-plan stored. */
+  retest: unknown[];
+  guards: unknown[];
+  plans: Record<string, unknown>;
 }
 
 /** The wire summary of a call: what GET /calls and /summary return - no headers, no bodies. */
@@ -170,7 +174,7 @@ export class FakeAlfred {
   readonly state: FakeState = emptyState();
   readonly board: FakeBoard = { cards: [], activity: {}, closedReasons: [], briefs: {}, specs: {}, checklist: {}, refuseCreate: null, agentState: 'WATCHING',
     changes: { entries: [], cycles: [], cursor: '0.0', more: false }, similar: [], badges: {}, verify: [], suggestions: {},
-    nextSteps: { waitingOnUser: [], waitingOnClaude: 0, toDo: 0, inProgress: 0, fixed: 0, inbox: 0 }, log: {}, steps: {}, regressions: [] };
+    nextSteps: { waitingOnUser: [], waitingOnClaude: 0, toDo: 0, inProgress: 0, fixed: 0, inbox: 0 }, log: {}, steps: {}, regressions: [], retest: [], guards: [], plans: {} };
   readonly log: LoggedRequest[] = [];
   private server?: Server;
   private nextId = 1;
@@ -508,6 +512,16 @@ export class FakeAlfred {
     if (p[1] === 'similar') return [200, b.similar];
     if (p[1] === 'call-badges') return [200, Object.fromEntries((q.get('callIds') ?? '').split(',').filter((id) => b.badges[id]).map((id) => [id, b.badges[id]]))];
     if (p[1] === 'verify') return [200, b.verify];
+    if (p[1] === 'retest' && p[2] === 'run') return [200, { at: 't', source: body.cycleId ? `cycle:${body.cycleId}` : 'live', checks: b.retest, markdown: '## Re-test p' }];
+    if (p[1] === 'retest' && p[2] === 'guards') return [200, b.guards];
+    if (p[1] === 'retest') return [200, { checks: b.retest, lastStart: null }];
+    if (p[1] === 'cards' && p[3] === 'retest-plan' && method === 'PUT') {
+      b.plans[p[2]] = body;
+      return [200, { cardId: p[2], ...body, updatedBy: 'CLAUDE', updatedAt: 't' }];
+    }
+    if (p[1] === 'cards' && p[3] === 'retest') {
+      return [200, { plan: { cardId: p[2], expectations: [], steps: [], updatedBy: null, ...(b.plans[p[2]] as object ?? {}) }, check: b.retest[0], history: [], lastStart: null }];
+    }
     if (p[1] === 'cycles' && p[3] === 'checklist' && p[6] === 'suggestion' && method === 'PUT') {
       b.suggestions[`${p[2]}/${p[4]}/${p[5]}`] = body;
       return [200, { key: p[5], text: 'POST /orders returns 201', mark: null, suggestion: body }];

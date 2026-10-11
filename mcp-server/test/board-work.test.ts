@@ -177,10 +177,14 @@ test('board_for_call, board_similar and board_verify report what the backend fou
 
     await w.call('board_add', { project: 'p', kind: 'BUG', title: 'Orders 500' });
     w.fake.board.cards[0].status = 'FIXED';
-    w.fake.board.verify = [{ number: 1, title: 'Orders 500', signature: '5xx|POST /orders', verdict: 'LOOKS_FIXED', calls: [{ ref: 'in:r1@cy', label: 'POST /orders · 201', signal: 'ok' }] }];
+    w.fake.board.retest = [{ number: 1, title: 'Orders 500', status: 'FIXED', verdict: 'PASSES', statusOnly: false, newBuild: false,
+      summary: 'passes · 1 call since the fix', results: [{ text: 'Status !5xx', outcome: 'PASS', before: '500', after: ['201'], note: null }],
+      calls: [{ ref: 'in:r1@cy', label: 'POST /orders · 201', passed: true, failed: null }], steps: [] }];
     const verified = await w.call('board_verify', { project: 'p', cycleId: 'cy', apply: true });
     assert.equal(verified.isError, false, verified.text);
     assert.deepEqual(verified.json.applied, ['#1 proposed Verified']);
+    assert.equal(verified.json.report, '## Re-test p');
+    assert.match(verified.json.checks[0].results[0], /^PASS Status !5xx · before 500 · now 201$/);
     assert.match(w.fake.requests('PUT', '/board/cards/card-1/proposal')[0].body.evidence, /@\[call:in:r1@cy\|POST \/orders · 201\]/);
   } finally { await w.close(); }
 });
@@ -237,5 +241,32 @@ test('board_changes says when the user answered your question', async () => {
     const r = await w.call('board_changes', {});
     assert.equal(r.isError, false, r.text);
     assert.deepEqual(r.json.changes, ['p #1 "Vouchers" (INBOX) - ANSWERS your question "Stack vouchers?": t2 User: No, never']);
+  } finally { await w.close(); }
+});
+
+test('board_fix writes the re-test plan, board_verify needs no cycle, board_retest shows one card', async () => {
+  const w = await world();
+  try {
+    await w.call('board_add', { project: 'p', kind: 'BUG', title: 'N+1' });
+    w.fake.board.cards[0].status = 'TO_DO';
+    const fixed = await w.call('board_fix', { project: 'p', number: 1, summary: 'BatchSize', rootCause: 'eager', verify: 'open the page',
+      expect: [{ kind: 'SQL_COUNT', table: 'TT_MAP', max: 3 }], steps: [{ text: 'Open the flight search page' }] });
+    assert.equal(fixed.isError, false, fixed.text);
+    assert.equal(fixed.json.retestPlan, '1 expectations, 1 steps');
+    const plan = w.fake.requests('PUT', '/board/cards/card-1/retest-plan')[0];
+    assert.equal(plan.headers?.['x-alfred-actor'], 'claude');
+    assert.deepEqual(plan.body.expectations, [{ kind: 'SQL_COUNT', table: 'TT_MAP', max: 3 }]);
+
+    w.fake.board.retest = [{ number: 1, title: 'N+1', status: 'FIXED', verdict: 'NO_CALLS', statusOnly: false, newBuild: true,
+      summary: 'no calls since the fix', results: [], calls: [], steps: [{ text: 'Open the flight search page', endpoint: 'POST /x', seen: false, calls: 0 }] }];
+    const live = await w.call('board_verify', { project: 'p' });
+    assert.equal(live.json.source, 'live calls since the fix');
+    assert.match(live.json.checks[0].card, /NO_CALLS: no calls since the fix · new build since the fix/);
+    assert.deepEqual(live.json.checks[0].steps, ['not done - Open the flight search page [POST /x]']);
+    assert.equal(w.fake.requests('GET', '/board/retest').length, 1);
+
+    const one = await w.call('board_retest', { project: 'p', number: 1 });
+    assert.equal(one.isError, false, one.text);
+    assert.equal(one.json.plan.expectations.length, 1);
   } finally { await w.close(); }
 });

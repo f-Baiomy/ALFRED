@@ -35,7 +35,7 @@ Every card you touch carries a running state in its comments, written with `boar
   PCC list by branch; you moved it Inbox → To do").
 - **found** - what that means now: the cause, the evidence, the decision.
 - **next** - the next step and **who it waits on**: "Waiting on you: answer Q2", "Waiting on Claude: /alfred-fix 11",
-  "Waiting on a re-test: record the flow again, then /alfred-verify".
+  "Waiting on a re-test: open the flight search page again, then /alfred-verify 19".
 - Pass `waitingOn` (USER / CLAUDE / RETEST / NONE) whenever it changes.
 
 When:
@@ -101,5 +101,5 @@ When logs cannot be read (▤ off, or the level above WARN), say so on the card 
 ## The flow
 
 (`/alfred-connect` once per instance) → `/alfred-setup` → (`/alfred-spec`) → `/alfred-listen` while testing, or `/alfred-review` after → `/alfred-triage` →
-`/alfred-sync` ↔ `/alfred-fix` → record a re-test → `/alfred-verify` → `/alfred-report`. `/alfred-status` and
+`/alfred-sync` ↔ `/alfred-fix` → use the app again (re-test) → `/alfred-verify` → `/alfred-report`. `/alfred-status` and
 `/alfred-guide` anytime.

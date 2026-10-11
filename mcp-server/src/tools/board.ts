@@ -32,6 +32,34 @@ const Link = z.object({
 });
 const Project = z.string().default('').describe('Project name; "" is "No project"');
 const CardNumber = z.number().int().min(1);
+const Expectation = z.object({
+  kind: z.enum(['SQL_COUNT', 'STATUS', 'NO_LOG', 'DURATION', 'SAME_RESPONSE']),
+  table: z.string().max(200).optional(),
+  max: z.number().int().min(0).optional(),
+  range: z.string().max(10).optional(),
+  level: z.enum(['ERROR', 'WARN']).optional(),
+  minCalls: z.number().int().min(1).max(50).optional(),
+  path: z.string().max(200).optional(),
+});
+const ExpectList = z.array(Expectation).max(20).default([]);
+const StepList = z.array(z.object({ text: z.string().min(1).max(500), endpoint: z.string().max(300).optional() })).max(20).default([]);
+
+type RetestResultRow = { text: string; outcome: string; before: string | null; after: string[]; note: string | null };
+type RetestCheckRow = { number: number; title: string; status: string; verdict: string; statusOnly: boolean; summary: string; newBuild: boolean;
+  results: RetestResultRow[]; calls: { ref: string; label: string; passed: boolean; failed: string | null }[];
+  steps: { text: string; endpoint: string | null; seen: boolean; calls: number }[] };
+type RetestPlanRow = { expectations: unknown[]; steps: unknown[]; updatedBy: string | null };
+type RetestRunRow = { at: string; verdict: string; calls: number; source: string; summary: string };
+
+function retestLine(c: RetestCheckRow): Record<string, unknown> {
+  return {
+    card: `#${c.number} ${c.title} (${c.status}) - ${c.verdict}: ${c.summary}${c.newBuild ? ' · new build since the fix, not re-tested yet' : ''}`,
+    ...(c.statusOnly ? { note: 'No expectations - only the status was compared; board_retest_plan adds them' } : {}),
+    results: c.results.map((r) => `${r.outcome} ${r.text}${r.before != null ? ` · before ${r.before}` : ''}${r.after.length ? ` · now ${r.after.slice(0, 5).join(', ')}` : ''}${r.note ? ` (${r.note})` : ''}`),
+    ...(c.steps.length ? { steps: c.steps.map((s) => `${s.seen ? 'done' : 'not done'} - ${s.text}${s.endpoint ? ` [${s.endpoint}]` : ''}`) } : {}),
+    calls: c.calls.slice(0, 5).map((x) => `${x.passed ? 'pass' : `FAIL ${x.failed}`} ${serializeMention({ type: 'call', ref: x.ref, label: x.label })}`),
+  };
+}
 
 /** One entry's text over this many characters is read in parts with board_get entry=<index>. */
 const ENTRY_INLINE = 6000;
@@ -488,31 +516,80 @@ export function register(server: McpServer, client: AlfredClient): void {
   }));
 
   server.registerTool('board_verify', {
-    description: 'Checks every Fixed card of a project against a re-test cycle: the cycle\'s calls to each card\'s endpoint (by signature) say '
-      + 'LOOKS_FIXED, STILL_FAILING or NOT_EXERCISED. With apply=true, comments "still failing" on the failing ones and proposes Verified on '
-      + 'the fixed ones, with the calls as evidence - the user accepts.',
-    inputSchema: { project: Project, cycleId: z.string().min(1), apply: z.boolean().default(false) },
+    description: 'Re-tests Fixed cards (specs/016): every call to a card\'s endpoint since its fix - or only a re-test cycle\'s calls when you '
+      + 'pass cycleId - checked against the card\'s expectations (SQL count, status, log lines, duration, response), with the original call\'s '
+      + 'value beside each. Verdicts: PASSES, PARTIAL (a step not done yet, or a duration needs more calls), FLAKY, FAILS, NO_CALLS, '
+      + 'NOT_CHECKABLE. All Fixed cards, or only numbers. record=true keeps each card\'s re-test in its history and returns the report '
+      + '(Markdown). apply=true also proposes Verified on PASSES and comments on FAILS / FLAKY - the user accepts.',
+    inputSchema: {
+      project: Project,
+      numbers: z.array(CardNumber).max(100).default([]).describe('Only these cards; empty = every Fixed card'),
+      cycleId: z.string().optional().describe('A re-test cycle; omit to use the live calls since each fix'),
+      record: z.boolean().default(false),
+      apply: z.boolean().default(false),
+    },
   }, (input) => run(async () => {
-    const checks = await client.get<{ number: number; title: string; signature: string | null; verdict: string; calls: { ref: string; label: string; signal: string }[] }[]>(
-      '/board/verify', { query: { project: input.project, cycleId: input.cycleId } });
+    let checks: RetestCheckRow[];
+    let report: string | undefined;
+    if (input.record || input.apply) {
+      const r = await client.post<{ checks: RetestCheckRow[]; markdown: string }>('/board/retest/run', { ...AS_CLAUDE,
+        body: { project: input.project, numbers: input.numbers, cycleId: input.cycleId } });
+      checks = r.checks;
+      report = r.markdown;
+    } else {
+      const r = await client.get<{ checks: RetestCheckRow[] }>('/board/retest', { query: { project: input.project,
+        numbers: input.numbers.join(','), ...(input.cycleId ? { cycleId: input.cycleId } : {}) } });
+      checks = r.checks;
+    }
+    const source = input.cycleId ? `re-test cycle ${input.cycleId}` : 'live calls since the fix';
     const done: string[] = [];
     if (input.apply) {
       for (const c of checks) {
         const card = await cardByNumber(client, input.project, c.number);
         const evidence = c.calls.slice(0, 10).map((x) => serializeMention({ type: 'call', ref: x.ref, label: x.label })).join(' ');
-        if (c.verdict === 'LOOKS_FIXED') {
-          await client.put(`/board/cards/${seg(card.id)}/proposal`, { ...AS_CLAUDE, body: { status: 'VERIFIED', reason: `Re-test cycle ${input.cycleId}: every call to the endpoint now succeeds`, evidence } });
+        if (c.verdict === 'PASSES') {
+          await client.put(`/board/cards/${seg(card.id)}/proposal`, { ...AS_CLAUDE, body: { status: 'VERIFIED', reason: `Re-test from ${source}: ${c.summary}`, evidence } });
           done.push(`#${c.number} proposed Verified`);
-        } else if (c.verdict === 'STILL_FAILING') {
+        } else if (c.verdict === 'FAILS' || c.verdict === 'FLAKY') {
           await client.post(`/board/cards/${seg(card.id)}/comments`, { ...AS_CLAUDE, body: {
-            did: `Checked the re-test cycle ${input.cycleId} for ${c.signature}`, found: `Still failing: ${evidence}`, next: 'Investigate the failing call and fix again' } });
-          done.push(`#${c.number} commented still failing`);
+            did: `Re-tested from ${source}`, found: `${c.verdict === 'FLAKY' ? 'Flaky' : 'Still failing'}: ${c.summary}\n\n${evidence}`,
+            next: 'Investigate the failing call and fix again', waitingOn: 'CLAUDE' } });
+          done.push(`#${c.number} commented ${c.verdict === 'FLAKY' ? 'flaky' : 'still failing'}`);
         }
       }
     }
-    const rows = checks.map((c) => `#${c.number} ${c.title} [${c.signature ?? 'no call mentioned'}] - ${c.verdict}${c.calls.length ? `: ${c.calls.slice(0, 5).map((x) => `${x.label} (${x.ref})`).join('; ')}${c.calls.length > 5 ? ` +${c.calls.length - 5} more` : ''}` : ''}`);
-    const fitted = fitItems(rows, 400 + JSON.stringify(done).length);
-    return ok({ checks: fitted.items, total: checks.length, ...(input.apply ? { applied: done } : {}), ...(fitted.cut ? { more: 'Some checks did not fit.' } : {}) });
+    const rows = checks.map(retestLine);
+    const fitted = fitItems(rows, 400 + JSON.stringify(done).length + (report?.length ?? 0));
+    return ok({ source, checks: fitted.items, total: checks.length, ...(report ? { report } : {}), ...(input.apply ? { applied: done } : {}),
+      ...(fitted.cut ? { more: 'Some checks did not fit - pass numbers.' } : {}) });
+  }));
+
+  server.registerTool('board_retest', {
+    description: 'One card\'s re-test: its plan (expectations and steps, who wrote it), its check against the live calls since the fix (or a '
+      + 're-test cycle), and its re-test history. Works for any status - a Verified / Done card with expectations is a guard.',
+    inputSchema: { project: Project, number: CardNumber, cycleId: z.string().optional() },
+  }, (input) => run(async () => {
+    const card = await cardByNumber(client, input.project, input.number);
+    const r = await client.get<{ plan: RetestPlanRow; check: RetestCheckRow; history: RetestRunRow[]; lastStart: string | null }>(
+      `/board/cards/${seg(card.id)}/retest`, { query: input.cycleId ? { cycleId: input.cycleId } : {} });
+    return ok({
+      check: retestLine(r.check),
+      plan: { expectations: r.plan.expectations, steps: r.plan.steps, ...(r.plan.updatedBy ? { by: who(r.plan.updatedBy) } : { none: 'No plan - board_retest_plan writes one' }) },
+      history: r.history.map((h) => `${h.at} ${h.verdict} · ${h.calls} calls · ${h.source} · ${h.summary}`),
+      ...(r.lastStart ? { appStarted: r.lastStart } : {}),
+    });
+  }));
+
+  server.registerTool('board_retest_plan', {
+    description: 'Write how a card\'s fix is re-tested (replaces the plan): expectations every call to its endpoint is checked against, and the '
+      + 'steps a person follows. Kinds: SQL_COUNT {table, max} (an N+1), STATUS {range: "2xx" | "200" | "!405" | "!5xx"}, NO_LOG {level: '
+      + 'ERROR | WARN}, DURATION {max ms, minCalls (default 3)}, SAME_RESPONSE {path: "$.countries.length"} (the value the original call '
+      + 'had). A step names the endpoint ("POST /Admin2/agency/by-branch") whose call shows it was done, or none for the card\'s own.',
+    inputSchema: { project: Project, number: CardNumber, expect: ExpectList, steps: StepList },
+  }, (input) => run(async () => {
+    const card = await cardByNumber(client, input.project, input.number);
+    const plan = await client.put<RetestPlanRow>(`/board/cards/${seg(card.id)}/retest-plan`, { ...AS_CLAUDE, body: { expectations: input.expect, steps: input.steps } });
+    return ok({ saved: `#${card.number}`, expectations: plan.expectations.length, steps: plan.steps.length });
   }));
 
   // ------------------------------------------------------------------------------------------------------------ writing
@@ -665,9 +742,16 @@ export function register(server: McpServer, client: AlfredClient): void {
       tests: z.string().max(8 * 1024).optional().describe('Tests run and their result'),
       verify: z.string().min(1).max(8 * 1024).describe('How the user (or a re-test cycle) confirms it'),
       impact: z.string().max(16 * 1024).optional(),
+      expect: ExpectList.describe('What "fixed" means, checked on every call after the fix (see board_retest_plan). Always give at least one.'),
+      steps: StepList.describe('What the user does in the app to re-test it'),
     },
   }, (input) => run(async () => {
     const card = await cardByNumber(client, input.project, input.number);
+    let plan = '';
+    if (input.expect.length || input.steps.length) {
+      await client.put(`/board/cards/${seg(card.id)}/retest-plan`, { ...AS_CLAUDE, body: { expectations: input.expect, steps: input.steps } });
+      plan = `${input.expect.length} expectations, ${input.steps.length} steps`;
+    }
     const files = input.files.map((f) => {
       const ref = f.line ? `${f.path}:${f.line}` : f.path;
       const name = f.path.split(/[\\/]/).pop() ?? f.path;
@@ -686,7 +770,7 @@ export function register(server: McpServer, client: AlfredClient): void {
         moved = `not moved: ${(error as Error).message}`;
       }
     }
-    return ok({ recorded: `#${card.number}`, moved });
+    return ok({ recorded: `#${card.number}`, moved, retestPlan: plan || 'none - add expect so the re-test checks more than the status' });
   }));
 
   server.registerTool('board_flag', {
@@ -858,15 +942,19 @@ export function register(server: McpServer, client: AlfredClient): void {
   }));
 
   server.registerTool('board_regressions', {
-    description: 'Verified / Done cards of a project whose endpoint failed again, the way the card\'s call did, in recent live calls. '
+    description: 'Verified / Done cards of a project whose endpoint failed again, the way the card\'s call did, in recent live calls - and '
+      + 'guards that failed (a Verified / Done card\'s expectations broken by a later call). '
       + 'For each, propose REOPEN with board_propose (the calls as evidence) - the user accepts.',
     inputSchema: { project: Project },
   }, (input) => run(async () => {
     const found = await client.get<{ number: number; title: string; status: string; signature: string; calls: { ref: string; label: string }[] }[]>(
       '/board/regressions', { query: { project: input.project } });
+    const guards = (await client.get<RetestCheckRow[]>('/board/retest/guards', { query: { project: input.project } }))
+      .filter((g) => g.verdict === 'FAILS' || g.verdict === 'FLAKY');
     return ok({ regressions: found.map((r) => `#${r.number} ${r.title} (${r.status}) [${r.signature}] - again: ${r.calls.slice(0, 5)
       .map((c) => serializeMention({ type: 'call', ref: c.ref, label: c.label })).join(' ')}${r.calls.length > 5 ? ` +${r.calls.length - 5}` : ''}`),
-    ...(found.length ? {} : { none: 'No regression in recent live calls.' }) });
+    guardsFailed: guards.map(retestLine),
+    ...(found.length || guards.length ? {} : { none: 'No regression in recent live calls, and every guard holds.' }) });
   }));
 
   server.registerTool('board_status', {
