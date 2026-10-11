@@ -184,3 +184,58 @@ test('board_for_call, board_similar and board_verify report what the backend fou
     assert.match(w.fake.requests('PUT', '/board/cards/card-1/proposal')[0].body.evidence, /@\[call:in:r1@cy\|POST \/orders · 201\]/);
   } finally { await w.close(); }
 });
+
+test('board_get shows threads and the questions the user has not answered yet', async () => {
+  const w = await world();
+  try {
+    await w.call('board_add', { project: 'p', kind: 'QUESTION', title: 'x' });
+    w.fake.board.activity['card-1'] = [
+      { id: 10, cardId: 'card-1', actor: 'CLAUDE', kind: 'COMMENT', text: '**Question** Stack vouchers?', oldValue: null, newValue: null, at: 't1', replyTo: null },
+      { id: 11, cardId: 'card-1', actor: 'USER', kind: 'COMMENT', text: 'No', oldValue: null, newValue: null, at: 't2', replyTo: 10 },
+      { id: 12, cardId: 'card-1', actor: 'CLAUDE', kind: 'COMMENT', text: '**Question** Name the branch?', oldValue: null, newValue: null, at: 't3', replyTo: null },
+    ];
+    const r = await w.call('board_get', { project: 'p', number: 1 });
+    assert.equal(r.isError, false, r.text);
+    assert.match(r.json.history[0], /\(question - answered\)$/);
+    assert.match(r.json.history[1], /^\[1\] ↳ reply to \[0\] t2 User: No$/);
+    assert.match(r.json.history[2], /OPEN, waiting for the user/);
+    assert.deepEqual(r.json.openQuestions, [2]);
+  } finally { await w.close(); }
+});
+
+test('board_reply and board_comment answer one exact comment by its [index]', async () => {
+  const w = await world();
+  try {
+    await w.call('board_add', { project: 'p', kind: 'BUG', title: 'x' });
+    w.fake.board.activity['card-1'] = [
+      { id: 7, cardId: 'card-1', actor: 'USER', kind: 'CREATED', text: null, oldValue: null, newValue: 'INBOX', at: 't0', replyTo: null },
+      { id: 8, cardId: 'card-1', actor: 'USER', kind: 'COMMENT', text: 'please check B too', oldValue: null, newValue: null, at: 't1', replyTo: null },
+    ];
+    const r = await w.call('board_reply', { project: 'p', number: 1, text: 'Checked B - same cause.', replyTo: 1 });
+    assert.equal(r.isError, false, r.text);
+    assert.deepEqual(w.fake.requests('POST', '/board/cards/card-1/comments')[0].body, { reply: 'Checked B - same cause.', replyTo: 8 });
+    const notAComment = await w.call('board_reply', { project: 'p', number: 1, text: 'x', replyTo: 0 });
+    assert.equal(notAComment.isError, true);
+    assert.match(notAComment.json.message, /not a comment/);
+    await w.call('board_comment', { project: 'p', number: 1, did: 'd', found: 'f', next: 'n', replyTo: 1 });
+    assert.equal(w.fake.requests('POST', '/board/cards/card-1/comments').at(-1)!.body.replyTo, 8);
+  } finally { await w.close(); }
+});
+
+test('board_changes says when the user answered your question', async () => {
+  const w = await world();
+  try {
+    await w.call('board_add', { project: 'p', kind: 'QUESTION', title: 'Vouchers' });
+    w.fake.board.activity['card-1'] = [
+      { id: 20, cardId: 'card-1', actor: 'CLAUDE', kind: 'COMMENT', text: '**Question** Stack vouchers?', oldValue: null, newValue: null, at: 't1', replyTo: null },
+    ];
+    w.fake.board.changes = {
+      entries: [{ id: 21, cardId: 'card-1', actor: 'USER', kind: 'COMMENT', text: 'No, never', oldValue: null, newValue: null, at: 't2', replyTo: 20,
+        project: 'p', number: 1, title: 'Vouchers', status: 'INBOX', cycleId: null }],
+      cycles: [], cursor: '21.0', more: false,
+    };
+    const r = await w.call('board_changes', {});
+    assert.equal(r.isError, false, r.text);
+    assert.deepEqual(r.json.changes, ['p #1 "Vouchers" (INBOX) - ANSWERS your question "Stack vouchers?": t2 User: No, never']);
+  } finally { await w.close(); }
+});

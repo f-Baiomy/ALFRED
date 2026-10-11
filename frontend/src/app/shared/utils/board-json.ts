@@ -49,7 +49,8 @@ export function buildBoardJsonLines(data: BoardExport, exportedAt = new Date().t
   for (const card of data.cards) {
     for (const e of data.activity[card.id] ?? []) {
       lines.push(JSON.stringify({ record: 'activity', cardNumber: card.number,
-        entry: { actor: e.actor, kind: e.kind, text: e.text, oldValue: e.oldValue, newValue: e.newValue, at: e.at } }));
+        entry: { id: e.id, actor: e.actor, kind: e.kind, text: e.text, oldValue: e.oldValue, newValue: e.newValue, at: e.at,
+          ...(e.replyTo != null ? { replyTo: e.replyTo } : {}) } }));
     }
   }
   for (const b of data.briefs) lines.push(JSON.stringify({ record: 'brief', cycleId: b.cycleId, text: b.text, updatedAt: b.updatedAt }));

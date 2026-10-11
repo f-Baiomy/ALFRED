@@ -19,7 +19,6 @@ import * as logs from './tools/logs.ts';
 import * as investigate from './tools/investigate.ts';
 import * as redis from './tools/redis.ts';
 import * as board from './tools/board.ts';
-import { registerPrompts } from './prompts.ts';
 
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string };
 
@@ -44,6 +43,5 @@ export function createServer(client: AlfredClient = new AlfredClient()): McpServ
   });
   registerSessionTool(server);
   for (const module of [cycles, spacers, calls, db, comments, exportTool, watch, redactions, cycleSearch, diff, rulesRelive, projects, triage, logs, investigate, redis, board]) module.register(server, client);
-  registerPrompts(server);
   return server;
 }

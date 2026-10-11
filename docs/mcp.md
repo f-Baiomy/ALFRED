@@ -111,39 +111,49 @@ install has no `/mcp`; run `mcp-server` locally there). Differences from the loc
 
 `npm run test:http` runs the whole test suite a second time with every tool call going over this HTTP transport.
 
-## The /alfred-qa skill
+## The /alfred-* skills
 
-A Claude Code skill that turns the tools below into a QA workflow on the task board (docs/board.md). Its source is
-`skills/alfred-qa/SKILL.md`; it ships inside both installers (`app/skills`) and as
-`alfred-qa-skill-<version>.zip` on each GitHub release.
+Twelve Claude Code skills turn the tools below into a QA loop on the task board (docs/board.md, specs/015). Each is
+`skills/alfred-<name>/SKILL.md`; all of them follow one shared `skills/_shared/rules.md`, copied into every skill's
+folder as `rules.md` on install so they cannot drift. They ship inside both installers (`app/skills`) and as
+`alfred-skills-<version>.zip` on each GitHub release.
 
-| Command | What Claude does | Where it stops for you |
-|---|---|---|
-| `/alfred-qa listen <cycle>` | reads the brief, spec and dismissed cards, then checks every call of the cycle as you test (status, ERROR/WARN log lines, SQL, supplier calls, Redis, the spec) and adds bugs, risks, tasks and questions to the Inbox - one card per problem, with evidence | when you say stop, or pause the board |
-| `/alfred-qa fix [card#]` | works your To do cards: evidence, the code, the smallest fix, tests, `board_fix` (moves to Fixed) | before a change flagged Affects project |
-| `/alfred-qa verify <re-test cycle>` | `board_verify`, then proposes Verified / comments "still failing", suggests checklist marks | your Accept clicks |
-| `/alfred-qa resume` | your open cards and everything you changed since Claude's last entry | asks which mode next |
+| Skill | When | What Claude does | Where it stops for you |
+|---|---|---|---|
+| `/alfred-guide` | anytime | teaches the flow, "what next?" from your real board, troubleshooting - read-only | - |
+| `/alfred-connect <address>` | once per instance | checks an Alfred at any address (`/health`), detects a native install (`/mcp` answers: HTTP) or a Docker one (no `/mcp`: this machine's `mcp-server` with `ALFRED_URL`, `setup_mcp.py --alfred-url … --name …`), names it `alfred-<host>-<port>`, registers it; also `list` / `remove` | before running `claude mcp add` / `remove` |
+| `/alfred-setup [project] ["task"]` | start of a task | checks Alfred and capture, creates the cycle, drafts the brief (test steps) and a spec with an Acceptance list | before saving the drafts, before changing capture |
+| `/alfred-spec <cycle> …` | anytime | adds or edits the brief / spec files, shows before → after and what marks/cards it affects | before saving |
+| `/alfred-listen <cycle>` | while you test | checks every new call, opens cards with evidence and a first state comment, ticks test steps, answers your comments | when you say stop, or pause |
+| `/alfred-review <cycle>` | after a recording | checks every call in one pass, fills the board without duplicates, regressions vs earlier runs, annotates, suggests marks | - |
+| `/alfred-triage` | after listen / review | one Inbox card at a time with a recommendation; records your decision | every card - you decide |
+| `/alfred-sync` | after you answered or changed cards | one state comment per card: what you did and answered, what it means, who it waits on | never moves a card for you |
+| `/alfred-fix [card#]` | To do cards | asks which cards when none is named, posts a plan, fixes after **Go**, tests, `board_fix` | before starting, before each card's change |
+| `/alfred-verify <re-test cycle>` | after a re-test | checks Fixed cards by their evidence, proposes Verified / comments still failing, regressions, suggested marks | your Accept clicks |
+| `/alfred-status` | anytime | what waits on you, on Claude, on a re-test; the next step - read-only | - |
+| `/alfred-report` | end of a day or task | a short summary (found, fixed, verified, open, decisions, spec coverage) | writes a file only when asked |
 
-Its rules: Claude never closes, sets scope, marks the checklist or moves to Verified/Done (it proposes); never
-re-reports a card you closed as Fine / Not in this flow; checks `board_similar` / `board_for_call` first; every bug
-carries the call, its ERROR/WARN log lines, the stack-trace code line, SQL and spec section; a failure with no log
-line also gets a "logging gap" task; capture settings change only after asking.
+The shared rules: Claude never closes, sets scope, marks the checklist or moves to Verified / Done (it proposes); never
+starts work you did not choose; **every card carries a state** - a Did / Found / Next comment when it opens the card,
+when you acted (what you did and answered), and at each step of its work, with **waiting on** (you / Claude / a
+re-test / nobody); one card per problem with evidence in a fixed order; every bug's ERROR / WARN log lines; one
+session-log entry per run; `--dry` on any writing skill shows what it would do.
 
-Install it where Claude Code looks for skills:
+Install them where Claude Code looks for skills:
 
 ```bash
 alfred skill install                       # native install: ~/.claude/skills (run as yourself, not admin/root)
 alfred skill install --project C:/projects/odeysys   # only that repo: <repo>/.claude/skills (commit it to share)
 alfred skill status | remove [--project ...]
-python setup_mcp.py                        # source checkout / Docker: registers the MCP server AND installs the skill
+python setup_mcp.py                        # source checkout / Docker: registers the MCP server AND installs the skills
                                            #   (--no-skill to skip; --remove removes both)
 ```
 
-Without a local install (Alfred on another machine), unzip `alfred-qa-skill-<version>.zip` into `~/.claude/skills/`.
-An installed copy carries a `.alfred-skill` marker with its version: `install` updates it in place and never
-overwrites a skill of the same name that was not installed by Alfred (`--force` does). `alfred_skill.py` holds that
-logic for both `alfred skill` and `setup_mcp.py`; `tests/python/test_alfred_skill.py` also checks that every tool the
-skill names exists in the MCP server.
+Without a local install (Alfred on another machine), unzip `alfred-skills-<version>.zip` into `~/.claude/skills/`.
+An installed copy carries a `.alfred-skill` marker with its version: `install` updates it in place, removes the
+retired `/alfred-qa`, and never overwrites a skill of the same name that was not installed by Alfred (`--force`
+does). `tests/python/test_alfred_skill.py` checks that every tool the skills and the rules name exists in the MCP
+server.
 
 ## Tools
 
@@ -164,12 +174,11 @@ skill names exists in the MCP server.
 | Code | `locate_source` (call-chain frames → `path/in/project/File.java:line`); `db_statement` (`sources`), `db_statements` (`source`) and `db_overview` (`gapSources`) carry the same |
 | Rules and Relive (read-only) | `list_rules`, `get_rule`, `list_relive_cycles`, `list_relive_runs`, `get_relive_run` (each step: state, status, error, what differed from the recording); a call a rule changed shows ⚡ with the rule name |
 | Projects | `list_projects` (listen ports, inbound logging, database capture and its agent, log catching and its Log level), `set_inbound_logging` (only with `confirm: true` after the user agreed), `set_db_capture` and `set_log_capture` (▤ on/off, Log level ERROR…TRACE or APP) - Claude may change these two when an investigation needs it (the owner's decision, specs/010); every reply lists `changed` (old → new) for Claude to tell the user |
-| Board (specs/014) | Reading: `board_search` (every board, each card with its latest comment; `mine` + To do/In progress is "what was I working on"), `board_changes` (everything after a cursor; `claude` = since Claude's last entry), `board_wait` (waits up to 50 s for the user's next change, woken by the board signal), `board_list`, `board_get` (a card in full: every comment complete, history paged, a long comment read in parts with `entry`, every mention with the tool that opens it, the open proposal), `board_evidence` (opens every mention of a card in one call), `board_for_call`, `board_similar`, `board_closed_reasons`, `get_brief` (with the cycle's cards and their latest comment), `read_spec` (with marks and Claude's suggestions), `board_verify` (Fixed cards against a re-test cycle; `apply` comments or proposes Verified). Writing: `board_add` / `board_add_many` (always into the Inbox; refused while paused or when the user closed the same problem as Fine / Not in this flow), `board_comment` (did / found / next / impact), `board_reply`, `board_ask` (flags Needs decision), `board_fix` (the change with code mentions, root cause, commit, tests, how to verify; moves to Fixed), `board_edit` (Claude's own Inbox cards only), `board_link` / `board_unlink`, `board_move` (To do, In progress, Fixed only), `board_flag`, `board_propose` (Verified / Done / close, for the user to accept), `board_suggest_mark` (a checklist mark the user accepts), `board_status` (the live strip; says when the user paused Claude). Every request is sent as `X-Alfred-Actor: claude`; the backend enforces the limits. See docs/board.md |
+| Board (specs/014) | Reading: `board_search` (every board, each card with its latest comment; `mine` + To do/In progress is "what was I working on"), `board_changes` (everything after a cursor; `claude` = since Claude's last entry), `board_wait` (waits up to 50 s for the user's next change, woken by the board signal), `board_list`, `board_get` (a card in full: every comment complete, history paged, a long comment read in parts with `entry`, every mention with the tool that opens it, the open proposal), `board_evidence` (opens every mention of a card in one call), `board_for_call`, `board_similar`, `board_closed_reasons`, `get_brief` (with the cycle's cards and their latest comment), `read_spec` (with marks and Claude's suggestions), `board_verify` (Fixed cards against a re-test cycle; `apply` comments or proposes Verified). Writing: `board_add` / `board_add_many` (always into the Inbox; refused while paused or when the user closed the same problem as Fine / Not in this flow), `board_comment` (did / found / next / impact), `board_reply` (with `replyTo`: under one exact comment), `board_ask` (flags Needs decision; the user's answer shows as "ANSWERS your question" in `board_changes` / `board_wait`), `board_fix` (the change with code mentions, root cause, commit, tests, how to verify; moves to Fixed), `board_edit` (Claude's own Inbox cards only), `board_link` / `board_unlink`, `board_move` (To do, In progress, Fixed only), `board_flag`, `board_propose` (Verified / Done / close, for the user to accept), `board_suggest_mark` (a checklist mark the user accepts), `board_status` (the live strip; says when the user paused Claude). Every request is sent as `X-Alfred-Actor: claude`; the backend enforces the limits. See docs/board.md |
 | Redactions | `add_default_redactions` - Authorization, Cookie, x-api-key, password (SOAP `wsse:Password` and form fields too), apiKey, tokens; only the missing ones, as normal global Redactions (ask the user first) |
 
-Prompts: `debug_cycle` and `debug_call` (in Claude Code, `/mcp__alfred__debug_cycle`) start a session with the steps that
-find a cause fastest - triage, the story, the flagged calls, the database findings and their code, a diff of two
-attempts, the rules, a comment - and end by reading the succeeded calls related to the problem.
+The server offers no MCP prompts: the guided flows are the `/alfred-*` skills (below), so the `/` menu shows them
+and not one `debug_*` entry per connected Alfred.
 
 ## Triage
 

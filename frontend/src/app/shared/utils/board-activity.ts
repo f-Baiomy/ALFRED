@@ -21,6 +21,8 @@ export function claudeParts(text: string | null): ClaudeParts[] | null {
 export function proposalTarget(value: string | null): string {
   if (!value) return '';
   const [status, resolution] = value.split(':');
+  if (status === 'MERGE') return `merge into ${resolution}`;
+  if (status === 'REOPEN') return 'reopen (regression)';
   if (status === 'CLOSED') return `close as ${resolution ? RESOLUTION_LABELS[resolution as Resolution] ?? resolution : 'closed'}`;
   return STATUS_LABELS[status as CardStatus] ?? status;
 }
@@ -47,6 +49,10 @@ export function changeText(e: ActivityEntry): string {
     case 'LINK_REMOVED': return `${who} removed the link ${e.oldValue ?? ''}`;
     case 'SPEC_REPLACED': return `${who} replaced the spec file ${e.newValue ?? ''}`;
     case 'IMPORTED': return `Imported as #${e.newValue}`;
+    case 'MERGED': return `${who} merged ${e.newValue} “${e.text ?? ''}” into this card`;
+    case 'BLOCKED': return `${who} marked it blocked by ${e.newValue} “${e.text ?? ''}”`;
+    case 'UNBLOCKED': return `${who} removed the block by ${e.oldValue}`;
+    case 'SPEC_ITEM': return `${who} linked it to the spec item “${e.text ?? ''}” (${e.newValue})`;
     case 'PROPOSED': return `${who} proposed ${proposalTarget(e.newValue)}${e.text ? ` - ${e.text}` : ''}`;
     case 'PROPOSAL_ACCEPTED': return `${who} accepted Claude's proposal: ${proposalTarget(e.newValue)}`;
     case 'PROPOSAL_DISMISSED': return `${who} dismissed Claude's proposal: ${proposalTarget(e.newValue)}`;

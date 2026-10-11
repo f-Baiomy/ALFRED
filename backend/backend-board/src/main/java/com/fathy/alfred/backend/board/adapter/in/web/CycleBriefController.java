@@ -60,6 +60,21 @@ public class CycleBriefController {
                 : BoardWeb.refused(outcome.outcome(), outcome.message());
     }
 
+    @org.springframework.web.bind.annotation.PostMapping("/board/cycles/{cycleId}/brief/restore")
+    public ResponseEntity<?> restoreBrief(@RequestHeader(value = ACTOR, required = false) String actor, @PathVariable String cycleId) {
+        ManageBriefUseCase.BriefOutcome outcome = briefs.restoreBrief(BoardWeb.actor(actor), cycleId);
+        return outcome.outcome() == CardChange.Outcome.OK ? ResponseEntity.ok(outcome.brief())
+                : BoardWeb.refused(outcome.outcome(), outcome.message());
+    }
+
+    @org.springframework.web.bind.annotation.PostMapping("/board/cycles/{cycleId}/specs/{name}/restore")
+    public ResponseEntity<?> restoreSpec(@RequestHeader(value = ACTOR, required = false) String actor, @PathVariable String cycleId,
+                                         @PathVariable String name) {
+        ManageSpecFilesUseCase.SpecOutcome outcome = specs.restore(BoardWeb.actor(actor), cycleId, name);
+        return outcome.outcome() == CardChange.Outcome.OK ? ResponseEntity.ok(outcome.file())
+                : BoardWeb.refused(outcome.outcome(), outcome.message());
+    }
+
     @GetMapping("/board/cycles/{cycleId}/specs")
     public ResponseEntity<?> specs(@PathVariable String cycleId) {
         return ResponseEntity.ok(specs.specs(cycleId));

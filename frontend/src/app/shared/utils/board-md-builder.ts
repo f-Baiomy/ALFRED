@@ -2,6 +2,7 @@ import {
   ActivityEntry, CardDetail, FLAG_LABELS, MARK_LABELS, RESOLUTION_LABELS, SCOPE_LABELS, STATUS_LABELS, mentionTypeOf,
 } from '../../core/models/board.models';
 import { changeText, claudeParts } from './board-activity';
+import { replyNote } from './board-threads';
 import { BoardExport } from './board-json';
 
 /**
@@ -47,7 +48,7 @@ function cardLines(c: CardDetail, history: readonly ActivityEntry[]): string[] {
   lines.push('', '### Activity', '');
   for (const e of history) {
     if (e.kind === 'COMMENT') {
-      lines.push(`- **${e.actor === 'CLAUDE' ? 'Claude' : 'User'}** · ${e.at}`);
+      lines.push(`- **${e.actor === 'CLAUDE' ? 'Claude' : 'User'}** · ${e.at}${replyNote(e, history)}`);
       const parts = claudeParts(e.text);
       if (parts) for (const p of parts) lines.push(`  - **${p.label}** ${indent(p.text)}`);
       else lines.push(`  ${indent(e.text ?? '')}`);
@@ -67,3 +68,4 @@ function cell(text: string): string {
 function indent(text: string): string {
   return text.replace(/\r?\n/g, '\n  ');
 }
+

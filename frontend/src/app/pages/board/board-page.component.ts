@@ -11,6 +11,7 @@ import { BoardViewComponent } from '../../components/board/board-view/board-view
 import { CycleBriefComponent } from '../../components/board/cycle-brief/cycle-brief.component';
 import { SpecFilesComponent } from '../../components/board/spec-files/spec-files.component';
 import { BoardApiService } from '../../core/services/board-api.service';
+import { ConfirmDialogComponent } from '../../components/confirm-dialog/confirm-dialog.component';
 
 /**
  * The Board tab (specs/014-task-board US1): a project's board, or one session cycle's board with its brief, spec files
@@ -19,7 +20,7 @@ import { BoardApiService } from '../../core/services/board-api.service';
 @Component({
   selector: 'app-board-page',
   standalone: true,
-  imports: [AcceptanceChecklistComponent, BoardViewComponent, CycleBriefComponent, SpecFilesComponent],
+  imports: [AcceptanceChecklistComponent, BoardViewComponent, CycleBriefComponent, ConfirmDialogComponent, SpecFilesComponent],
   template: `
     <div class="board-page">
       <div class="board-head">
@@ -40,7 +41,7 @@ import { BoardApiService } from '../../core/services/board-api.service';
       </div>
       @if (cycleId(); as id) {
         <div class="board-brief">
-          <app-cycle-brief [cycleId]="id" [project]="project()" [editable]="editable()" />
+          <app-cycle-brief [cycleId]="id" [project]="project()" [editable]="editable()" [cycleName]="cycleName()" />
           <div class="board-brief-side">
             <app-spec-files [cycleId]="id" [editable]="editable()" />
             <app-acceptance-checklist [cycleId]="id" [project]="project()" [editable]="editable()" />
@@ -48,7 +49,10 @@ import { BoardApiService } from '../../core/services/board-api.service';
         </div>
       }
       <app-board-view [project]="project()" [cycleId]="cycleId()" [cycleName]="cycleName()" />
-    </div>`,
+    </div>
+    <!-- The card drawer's "Delete card…" (and a call card's confirms in the call popup) ask through this - each page
+         hosts its own, like every other page that confirms. Without it the question never showed and Delete did nothing. -->
+    <app-confirm-dialog />`,
 })
 export class BoardPageComponent {
   private readonly route = inject(ActivatedRoute);

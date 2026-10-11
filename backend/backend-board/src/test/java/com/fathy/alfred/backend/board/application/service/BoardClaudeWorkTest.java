@@ -328,4 +328,58 @@ class BoardClaudeWorkTest {
         assertThat(ordersCheck.calls()).extracting(FixCheck.Seen::ref).containsExactly("in:r1@retest");
         assertThat(ordersCheck.calls().get(0).label()).isEqualTo("POST /orders · 201");
     }
+
+    // ---------------------------------------------------------------------------------------------------------- replies
+
+    private long commentAs(Actor actor, String id, CommentOnCardUseCase.Comment c) {
+        var out = f.board.comment(actor, id, c);
+        assertThat(out.outcome()).as(out.message()).isEqualTo(CardChange.Outcome.OK);
+        return out.entry().id();
+    }
+
+    private static CommentOnCardUseCase.Comment userReply(String text, long to, boolean clear) {
+        return new CommentOnCardUseCase.Comment(text, null, null, null, null, null, null, to, clear);
+    }
+
+    private static CommentOnCardUseCase.Comment question(String q) {
+        return new CommentOnCardUseCase.Comment(null, null, null, null, null, null, q);
+    }
+
+    @Test
+    void aReplyJoinsTheThreadOfTheFirstCommentAndMustBeOnTheSameCard() {
+        String id = card("p", "A");
+        String other = card("p", "B");
+        long first = commentAs(Actor.USER, id, new CommentOnCardUseCase.Comment("why?", null, null, null, null));
+        long reply = commentAs(Actor.CLAUDE, id, new CommentOnCardUseCase.Comment(null, null, null, null, null, "because", null, first, false));
+        long replyToReply = commentAs(Actor.USER, id, userReply("ok", reply, false));
+
+        assertThat(f.store.activityEntry(reply).orElseThrow().replyTo()).isEqualTo(first);
+        assertThat(f.store.activityEntry(replyToReply).orElseThrow().replyTo()).isEqualTo(first);
+        assertThat(f.board.comment(Actor.USER, other, userReply("x", first, false)).outcome()).isEqualTo(CardChange.Outcome.INVALID);
+        assertThat(f.board.comment(Actor.USER, id, userReply("x", 999_999, false)).outcome()).isEqualTo(CardChange.Outcome.INVALID);
+    }
+
+    @Test
+    void answeringClaudesLastOpenQuestionClearsNeedsDecision() {
+        String id = card("p", "A");
+        long q1 = commentAs(Actor.CLAUDE, id, question("Stack vouchers?"));
+        long q2 = commentAs(Actor.CLAUDE, id, question("Name the branch?"));
+        assertThat(f.board.get(id).orElseThrow().card().flags()).contains(Flag.NEEDS_DECISION);
+
+        commentAs(Actor.USER, id, userReply("No", q1, true));
+        assertThat(f.board.get(id).orElseThrow().card().flags()).as("q2 still open").contains(Flag.NEEDS_DECISION);
+        assertThat(f.board.unansweredQuestions(id)).isEqualTo(1);
+
+        commentAs(Actor.USER, id, userReply("Yes, name it", q2, true));
+        assertThat(f.board.get(id).orElseThrow().card().flags()).doesNotContain(Flag.NEEDS_DECISION);
+        assertThat(f.board.unansweredQuestions(id)).isZero();
+    }
+
+    @Test
+    void anAnswerWithoutClearKeepsTheFlag() {
+        String id = card("p", "A");
+        long q = commentAs(Actor.CLAUDE, id, question("Which?"));
+        commentAs(Actor.USER, id, userReply("Later", q, false));
+        assertThat(f.board.get(id).orElseThrow().card().flags()).contains(Flag.NEEDS_DECISION);
+    }
 }

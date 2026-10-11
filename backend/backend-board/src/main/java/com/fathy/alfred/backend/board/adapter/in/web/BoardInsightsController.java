@@ -4,6 +4,15 @@ import com.fathy.alfred.backend.board.adapter.in.web.dto.BoardRequests.MarkReque
 import com.fathy.alfred.backend.board.adapter.in.web.dto.BoardRequests.ProposalRequestDto;
 import com.fathy.alfred.backend.board.application.port.in.BoardChangesUseCase;
 import com.fathy.alfred.backend.board.application.port.in.MarkChecklistUseCase;
+import com.fathy.alfred.backend.board.application.port.in.NextStepsUseCase;
+import com.fathy.alfred.backend.board.application.port.in.CardLinksUseCase;
+import com.fathy.alfred.backend.board.application.port.in.RegressionsUseCase;
+import com.fathy.alfred.backend.board.application.port.in.SessionLogUseCase;
+import com.fathy.alfred.backend.board.application.port.in.TestStepsUseCase;
+import com.fathy.alfred.backend.board.adapter.in.web.dto.BoardRequests.CardNumberRequestDto;
+import com.fathy.alfred.backend.board.adapter.in.web.dto.BoardRequests.SessionLogRequestDto;
+import com.fathy.alfred.backend.board.adapter.in.web.dto.BoardRequests.SpecItemRequestDto;
+import com.fathy.alfred.backend.board.adapter.in.web.dto.BoardRequests.StepRequestDto;
 import com.fathy.alfred.backend.board.application.port.in.ProposeUseCase;
 import com.fathy.alfred.backend.board.application.port.in.SearchCardsUseCase;
 import com.fathy.alfred.backend.board.application.port.in.SuggestMarkUseCase;
@@ -60,9 +69,21 @@ public class BoardInsightsController {
     private final VerifyFixesUseCase verify;
     private final ProposeUseCase proposals;
     private final SuggestMarkUseCase suggestions;
+    private final NextStepsUseCase nextSteps;
+    private final CardLinksUseCase cardLinks;
+    private final SessionLogUseCase sessionLog;
+    private final TestStepsUseCase testSteps;
+    private final RegressionsUseCase regressions;
 
     public BoardInsightsController(SearchCardsUseCase search, BoardChangesUseCase changes, VerifyFixesUseCase verify,
-                                   ProposeUseCase proposals, SuggestMarkUseCase suggestions) {
+                                   ProposeUseCase proposals, SuggestMarkUseCase suggestions, NextStepsUseCase nextSteps,
+                                   CardLinksUseCase cardLinks, SessionLogUseCase sessionLog, TestStepsUseCase testSteps,
+                                   RegressionsUseCase regressions) {
+        this.nextSteps = nextSteps;
+        this.cardLinks = cardLinks;
+        this.sessionLog = sessionLog;
+        this.testSteps = testSteps;
+        this.regressions = regressions;
         this.search = search;
         this.changes = changes;
         this.verify = verify;
@@ -78,12 +99,14 @@ public class BoardInsightsController {
                                     @RequestParam(required = false) List<String> flag, @RequestParam(required = false) String author,
                                     @RequestParam(required = false) String q, @RequestParam(required = false) String since,
                                     @RequestParam(defaultValue = "false") boolean claudeTouched,
-                                    @RequestParam(defaultValue = "0") int offset, @RequestParam(defaultValue = "100") int limit) {
+                                    @RequestParam(defaultValue = "0") int offset, @RequestParam(defaultValue = "100") int limit,
+                                    @RequestParam(required = false) String waiting) {
         try {
             // No project: every board.
             CardQuery query = new CardQuery(project == null ? "" : project, blankToNull(cycleId), enums(kind, CardKind::valueOf, CardKind.class),
                     enums(status, CardStatus::valueOf, CardStatus.class), enums(flag, Flag::valueOf, Flag.class), actor(author), false, q,
-                    offset, limit, project == null, instant(since), claudeTouched);
+                    offset, limit, project == null, instant(since), claudeTouched,
+                    waiting == null || waiting.isBlank() ? null : com.fathy.alfred.backend.board.domain.model.Waiting.valueOf(waiting.strip().toUpperCase(Locale.ROOT)));
             return ResponseEntity.ok(search.search(query));
         } catch (IllegalArgumentException | DateTimeParseException e) {
             return BoardWeb.refused(CardChange.Outcome.INVALID, "Unknown filter value: " + e.getMessage());
@@ -174,6 +197,12 @@ public class BoardInsightsController {
         return result;
     }
 
+    /** What one board waits on: the next-step bar and /alfred-status. */
+    @GetMapping("/board/next-steps")
+    public ResponseEntity<?> nextSteps(@RequestParam(defaultValue = "") String project, @RequestParam(required = false) String cycleId) {
+        return ResponseEntity.ok(nextSteps.nextSteps(project, blankToNull(cycleId)));
+    }
+
     // ------------------------------------------------------------------------------------------------------- fix check
 
     @GetMapping("/board/verify")
@@ -186,8 +215,15 @@ public class BoardInsightsController {
     @PutMapping("/board/cards/{id}/proposal")
     public ResponseEntity<?> propose(@RequestHeader(value = ACTOR, required = false) String actor, @PathVariable String id,
                                      @Valid @RequestBody ProposalRequestDto body) {
-        return BoardWeb.respond(proposals.propose(BoardWeb.actor(actor), id, body.status(), body.resolution(), body.reason(),
-                body.evidence()), HttpStatus.OK);
+        String kind = body.kind() == null ? "STATUS" : body.kind().strip().toUpperCase(Locale.ROOT);
+        CardChange change = switch (kind) {
+            case "MERGE" -> body.intoNumber() == null ? CardChange.refused(CardChange.Outcome.INVALID, "A merge needs intoNumber")
+                    : proposals.proposeMerge(BoardWeb.actor(actor), id, body.intoNumber(), body.reason(), body.evidence());
+            case "REOPEN" -> proposals.proposeReopen(BoardWeb.actor(actor), id, body.reason(), body.evidence());
+            case "STATUS" -> proposals.propose(BoardWeb.actor(actor), id, body.status(), body.resolution(), body.reason(), body.evidence());
+            default -> CardChange.refused(CardChange.Outcome.INVALID, "kind is STATUS, MERGE or REOPEN");
+        };
+        return BoardWeb.respond(change, HttpStatus.OK);
     }
 
     @PostMapping("/board/cards/{id}/proposal/accept")
@@ -198,6 +234,65 @@ public class BoardInsightsController {
     @DeleteMapping("/board/cards/{id}/proposal")
     public ResponseEntity<?> dismiss(@RequestHeader(value = ACTOR, required = false) String actor, @PathVariable String id) {
         return BoardWeb.respond(proposals.dismissProposal(BoardWeb.actor(actor), id), HttpStatus.OK);
+    }
+
+    // ---------------------------------------------------------------------------------- blocked by, spec items, regressions
+
+    @PostMapping("/board/cards/{id}/blocked-by")
+    public ResponseEntity<?> block(@RequestHeader(value = ACTOR, required = false) String actor, @PathVariable String id,
+                                   @Valid @RequestBody CardNumberRequestDto body) {
+        return BoardWeb.respond(cardLinks.block(BoardWeb.actor(actor), id, body.number()), HttpStatus.OK);
+    }
+
+    @DeleteMapping("/board/cards/{id}/blocked-by/{number}")
+    public ResponseEntity<?> unblock(@RequestHeader(value = ACTOR, required = false) String actor, @PathVariable String id,
+                                     @PathVariable int number) {
+        return BoardWeb.respond(cardLinks.unblock(BoardWeb.actor(actor), id, number), HttpStatus.OK);
+    }
+
+    @PostMapping("/board/cards/{id}/spec-items")
+    public ResponseEntity<?> linkSpecItem(@RequestHeader(value = ACTOR, required = false) String actor, @PathVariable String id,
+                                          @Valid @RequestBody SpecItemRequestDto body) {
+        return BoardWeb.respond(cardLinks.linkSpecItem(BoardWeb.actor(actor), id, body.cycleId(), body.fileName(), body.itemKey()), HttpStatus.OK);
+    }
+
+    @DeleteMapping("/board/cards/{id}/spec-items")
+    public ResponseEntity<?> unlinkSpecItem(@RequestHeader(value = ACTOR, required = false) String actor, @PathVariable String id,
+                                            @Valid @RequestBody SpecItemRequestDto body) {
+        return BoardWeb.respond(cardLinks.unlinkSpecItem(BoardWeb.actor(actor), id, body.cycleId(), body.fileName(), body.itemKey()), HttpStatus.OK);
+    }
+
+    @GetMapping("/board/regressions")
+    public ResponseEntity<?> regressions(@RequestParam(defaultValue = "") String project) {
+        return ResponseEntity.ok(regressions.regressions(project));
+    }
+
+    // ---------------------------------------------------------------------------------------- session log, test steps
+
+    @GetMapping("/board/cycles/{cycleId}/log")
+    public ResponseEntity<?> log(@PathVariable String cycleId, @RequestParam(defaultValue = "50") int limit) {
+        return ResponseEntity.ok(sessionLog.log(cycleId, limit));
+    }
+
+    @PostMapping("/board/cycles/{cycleId}/log")
+    public ResponseEntity<?> appendLog(@RequestHeader(value = ACTOR, required = false) String actor, @PathVariable String cycleId,
+                                       @Valid @RequestBody SessionLogRequestDto body) {
+        var entry = sessionLog.append(BoardWeb.actor(actor), cycleId, body.skill(), body.did(), body.found(), body.next());
+        return entry == null ? BoardWeb.refused(CardChange.Outcome.INVALID, "skill, did, found and next are needed")
+                : ResponseEntity.status(HttpStatus.CREATED).body(entry);
+    }
+
+    @GetMapping("/board/cycles/{cycleId}/steps")
+    public ResponseEntity<?> steps(@PathVariable String cycleId) {
+        return ResponseEntity.ok(testSteps.steps(cycleId));
+    }
+
+    @PutMapping("/board/cycles/{cycleId}/steps/{stepKey}")
+    public ResponseEntity<?> markStep(@RequestHeader(value = ACTOR, required = false) String actor, @PathVariable String cycleId,
+                                      @PathVariable String stepKey, @Valid @RequestBody StepRequestDto body) {
+        TestStepsUseCase.StepOutcome outcome = testSteps.mark(BoardWeb.actor(actor), cycleId, stepKey, body.state(), body.calls(),
+                body.cardNumber(), body.note());
+        return outcome.outcome() == CardChange.Outcome.OK ? ResponseEntity.ok(outcome.step()) : BoardWeb.refused(outcome.outcome(), outcome.message());
     }
 
     // ------------------------------------------------------------------------------------------------ suggested marks

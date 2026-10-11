@@ -73,6 +73,18 @@ These are enforced in `BoardService` and `CycleBriefService` whenever `X-Alfred-
 
 The live strip status is held in memory per project. It reads as STOPPED when it has not been updated for 10 minutes. The backend computes that on read; the frontend arms a single timer to the deadline, which the no-polling rule allows.
 
+## Replies and answers
+
+Every comment in a card's history has **↩ Reply**: the reply is stored with `reply_to` (the comment it answers) and
+shown indented under it. Threads are one level - a reply to a reply points at the thread's first comment - and must
+stay on the same card. Claude's question (a comment starting `**Question**`, from `board_ask`) shows **waiting for
+you** until the user replies to it, then **✓ answered**; its button reads **Answer**, with "Clear Needs decision"
+ticked: the flag comes off only when no other question on the card is still unanswered (`BoardService.unansweredQuestions`).
+The answered state is worked out from the replies, never stored. Exports note "↳ reply to ..." on each reply, and the
+.json export carries each entry's `id` and `replyTo`, which an import maps to the new ids. Claude sees the threads in
+`board_get` ("↳ reply to [i]", `openQuestions`), answers one exact comment with `board_reply`/`board_comment`
+`replyTo` (a history index), and `board_changes`/`board_wait` say "ANSWERS your question" for the user's answer.
+
 ## Claude working from anywhere
 
 Read-only endpoints in `BoardInsightsService` / `BoardInsightsController` let a new session pick the work up without the user repeating it:
@@ -85,6 +97,38 @@ Read-only endpoints in `BoardInsightsService` / `BoardInsightsController` let a 
 - Call badges now carry the card title, so `board_for_call` can say which card a call is on.
 
 The MCP tools built on these are listed in docs/mcp.md: `board_search`, `board_changes`, `board_wait`, `board_get`, `board_evidence`, `board_for_call`, `board_similar`, `board_verify`, `board_reply`, `board_ask`, `board_fix`, `board_edit`, `board_link`, `board_add_many`, `board_propose` and `board_suggest_mark`. `board_get` returns every comment in full. A comment over 6000 characters is read in parts with `entry`, and the history is paged with `historyOffset`. Nothing is cut silently.
+
+## Waiting on, hand-off and the skills' helpers (specs/015)
+
+- **Waiting on** (`card_waiting`: USER / CLAUDE / RETEST / NONE, since, set by): Alfred sets it on events in
+  `BoardService` - Claude's new card or question or proposal → USER, the user's answer to the last open question →
+  CLAUDE, To do / In progress → CLAUDE, Fixed → RETEST, Verified / Done / closed → NONE, reopen or back to the Inbox →
+  USER - and Claude sets it explicitly with `waitingOn` on a comment. The "since" time stays while it does not change.
+  Cards show "waiting on you · 2 d"; the board filters Waiting on me / on Claude / Needs re-test.
+- **Next-step bar** (`GET /board/next-steps`): what waits on the user oldest first (why: question, proposal, inbox),
+  To do, Fixed needing a re-test, Inbox - with copy buttons for the `/alfred-*` command to paste into Claude Code.
+  Every card has a copy button for its next skill; the cycle's Brief panel for `/alfred-review`, `/alfred-listen`,
+  `/alfred-spec`.
+- **Answer from the board**: a card with an open question has Answer (and the **A** key) - the questions one at a
+  time, Clear Needs decision taking effect with the last answer.
+- **Claude-written briefs and spec files**: allowed (the skills ask first); `updated_by` / `uploaded_by` record the
+  author and the replaced version is kept once (`prev_*` columns) - **Restore previous** swaps them, so a second click
+  undoes the first. Restoring and deleting stay the user's.
+- **Unread** (a dot on a card Claude changed since this browser last opened it, "(n)" in the tab title) is kept in
+  localStorage per browser; **desktop notifications** for Claude's new questions and proposals are opt-in (🔔), woken by
+  /ws/board and read from `/board/changes` (actor CLAUDE) - never polled.
+- **Live step**: `board_status` `step` - what Claude is doing now, on the strip.
+- **Session log** (`cycle_log`): one Did / Found / Next entry per skill run, in the cycle's Brief panel.
+- **Spec coverage**: `card_spec_items` links a card to the Acceptance items it breaks (the checklist shows the cards
+  per item); **test steps** are the numbered list under the brief's "Test steps" heading, ticked SEEN / FAILED by
+  listen and review (`cycle_steps`).
+- **Card management**: **blocked by** (`card_blocks`, same project, no cycles of two); **merge** and **reopen**
+  proposals (`proposals.kind`): accepting a merge moves the source's history, mentions, links, spec items and blocks
+  to the target and closes the source as DUPLICATE "merged into #n"; accepting a reopen sends a Done / Verified card
+  back to To do (a closed one is reopened to To do). **Regression watch** (`GET /board/regressions`): Done / Verified
+  cards whose endpoint failed again the same way in the newest live inbound calls after the card was finished
+  (`boardbridge/BoardCycleCallsAdapter` signs them like a card's call). **Copy as issue** builds Markdown for Jira /
+  GitHub in the browser (`shared/utils/board-skills.ts`).
 
 ## Edit access
 

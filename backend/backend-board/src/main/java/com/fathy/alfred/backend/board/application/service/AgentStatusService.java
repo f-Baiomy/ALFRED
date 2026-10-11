@@ -50,12 +50,19 @@ public class AgentStatusService implements AgentStatusUseCase {
 
     @Override
     public AgentStatus update(String project, String cycleId, AgentStatus.State state, int callsChecked, int cardsAdded) {
+        return update(project, cycleId, state, callsChecked, cardsAdded, null);
+    }
+
+    @Override
+    public AgentStatus update(String project, String cycleId, AgentStatus.State state, int callsChecked, int cardsAdded, String step) {
         Instant now = clock.instant();
         AgentStatus previous = byProject.get(key(project));
         // A watch loop reporting while the user paused it must not resume itself.
         AgentStatus.State effective = previous != null && previous.state() == AgentStatus.State.PAUSED && state == AgentStatus.State.WATCHING
                 ? AgentStatus.State.PAUSED : state == null ? AgentStatus.State.WATCHING : state;
-        AgentStatus next = new AgentStatus(key(project), cycleId, effective, Math.max(0, callsChecked), Math.max(0, cardsAdded), now, now);
+        String cleanStep = step == null || step.isBlank() ? null : step.strip().length() > 200 ? step.strip().substring(0, 200) : step.strip();
+        AgentStatus next = new AgentStatus(key(project), cycleId, effective, Math.max(0, callsChecked), Math.max(0, cardsAdded), now, now,
+                cleanStep);
         byProject.put(key(project), next);
         notifications.agentStatus(next);
         return next;

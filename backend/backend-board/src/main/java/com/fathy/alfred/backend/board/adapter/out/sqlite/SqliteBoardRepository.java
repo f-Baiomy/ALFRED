@@ -24,6 +24,13 @@ import com.fathy.alfred.backend.board.domain.model.Mention;
 import com.fathy.alfred.backend.board.domain.model.MentionOwner;
 import com.fathy.alfred.backend.board.domain.model.MentionRef;
 import com.fathy.alfred.backend.board.domain.model.MentionType;
+import com.fathy.alfred.backend.board.domain.model.CardRef;
+import com.fathy.alfred.backend.board.domain.model.SessionLogEntry;
+import com.fathy.alfred.backend.board.domain.model.StepState;
+import com.fathy.alfred.backend.board.domain.model.TestStep;
+import com.fathy.alfred.backend.board.domain.model.NextSteps;
+import com.fathy.alfred.backend.board.domain.model.Waiting;
+import com.fathy.alfred.backend.board.domain.model.WaitingOn;
 import com.fathy.alfred.backend.board.domain.model.Proposal;
 import com.fathy.alfred.backend.board.domain.model.Resolution;
 import com.fathy.alfred.backend.board.domain.model.Scope;
@@ -187,6 +194,54 @@ public class SqliteBoardRepository implements BoardStorePort {
                   mark TEXT NOT NULL, evidence TEXT NOT NULL DEFAULT '', at INTEGER NOT NULL, PRIMARY KEY (cycle_id, file_name, item_key))
                 """);
         jdbc.execute("CREATE INDEX IF NOT EXISTS idx_activity_actor ON activity(actor, id)");
+        // Replies (one level): the comment an entry answers. Added in place to a board.db made before replies existed.
+        addColumn("activity", "reply_to", "INTEGER");
+        // Who a card waits on (specs/015): set by the services' rules and by Claude.
+        jdbc.execute("""
+                CREATE TABLE IF NOT EXISTS card_waiting (card_id TEXT PRIMARY KEY REFERENCES cards(id) ON DELETE CASCADE,
+                  waiting_on TEXT NOT NULL, since INTEGER NOT NULL, set_by TEXT NOT NULL)
+                """);
+        jdbc.execute("CREATE INDEX IF NOT EXISTS idx_card_waiting ON card_waiting(waiting_on, since)");
+        // Claude may write briefs and spec files (specs/015): who wrote it, and the version it replaced (Restore previous).
+        addColumn("cycle_briefs", "updated_by", "TEXT NOT NULL DEFAULT 'USER'");
+        addColumn("cycle_briefs", "prev_text", "TEXT");
+        addColumn("cycle_briefs", "prev_at", "INTEGER");
+        addColumn("cycle_briefs", "prev_by", "TEXT");
+        addColumn("spec_files", "uploaded_by", "TEXT NOT NULL DEFAULT 'USER'");
+        addColumn("spec_files", "prev_content", "TEXT");
+        addColumn("spec_files", "prev_size", "INTEGER");
+        addColumn("spec_files", "prev_at", "INTEGER");
+        addColumn("spec_files", "prev_by", "TEXT");
+        // Merge and reopen proposals (specs/015 FR-15, FR-17).
+        addColumn("proposals", "kind", "TEXT NOT NULL DEFAULT 'STATUS'");
+        addColumn("proposals", "into_card", "TEXT");
+        addColumn("proposals", "into_number", "INTEGER");
+        jdbc.execute("""
+                CREATE TABLE IF NOT EXISTS card_blocks (card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+                  blocked_by TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE, PRIMARY KEY (card_id, blocked_by))
+                """);
+        jdbc.execute("""
+                CREATE TABLE IF NOT EXISTS card_spec_items (card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE, cycle_id TEXT NOT NULL,
+                  file_name TEXT NOT NULL, item_key TEXT NOT NULL, PRIMARY KEY (card_id, cycle_id, file_name, item_key))
+                """);
+        jdbc.execute("CREATE INDEX IF NOT EXISTS idx_card_spec_items_cycle ON card_spec_items(cycle_id)");
+        jdbc.execute("""
+                CREATE TABLE IF NOT EXISTS cycle_log (id INTEGER PRIMARY KEY AUTOINCREMENT, cycle_id TEXT NOT NULL, skill TEXT NOT NULL,
+                  did TEXT NOT NULL, found TEXT NOT NULL, next TEXT NOT NULL, at INTEGER NOT NULL)
+                """);
+        jdbc.execute("CREATE INDEX IF NOT EXISTS idx_cycle_log ON cycle_log(cycle_id, id)");
+        jdbc.execute("""
+                CREATE TABLE IF NOT EXISTS cycle_steps (cycle_id TEXT NOT NULL, step_key TEXT NOT NULL, state TEXT NOT NULL,
+                  calls INTEGER NOT NULL DEFAULT 0, card_number INTEGER, note TEXT, at INTEGER NOT NULL, PRIMARY KEY (cycle_id, step_key))
+                """);
+    }
+
+    /** Adds a column to a table made by an older version (SQLite has no ADD COLUMN IF NOT EXISTS). */
+    private void addColumn(String table, String column, String definition) {
+        Integer has = jdbc.queryForObject("SELECT COUNT(*) FROM pragma_table_info('" + table + "') WHERE name = ?", Integer.class, column);
+        if (has == null || has == 0) {
+            jdbc.execute("ALTER TABLE " + table + " ADD COLUMN " + column + " " + definition);
+        }
     }
 
     // ---------------------------------------------------------------------------------------------------------------- cards
@@ -273,6 +328,10 @@ public class SqliteBoardRepository implements BoardStorePort {
             parts.add("updated_at >= ?");
             args.add(q.since().toEpochMilli());
         }
+        if (q.waiting() != null) {
+            parts.add("EXISTS (SELECT 1 FROM card_waiting w WHERE w.card_id = cards.id AND w.waiting_on = ?)");
+            args.add(q.waiting().name());
+        }
         if (q.claudeTouched()) {
             parts.add("(author = 'CLAUDE' OR EXISTS (SELECT 1 FROM activity a WHERE a.card_id = cards.id AND a.actor = 'CLAUDE'))");
         }
@@ -334,8 +393,8 @@ public class SqliteBoardRepository implements BoardStorePort {
     @Override
     public long append(ActivityEntry e) {
         return tx.execute(status -> {
-            jdbc.update("INSERT INTO activity(card_id, actor, kind, text, old_value, new_value, at) VALUES (?,?,?,?,?,?,?)",
-                    e.cardId(), e.actor().name(), e.kind().name(), e.text(), e.oldValue(), e.newValue(), e.at().toEpochMilli());
+            jdbc.update("INSERT INTO activity(card_id, actor, kind, text, old_value, new_value, at, reply_to) VALUES (?,?,?,?,?,?,?,?)",
+                    e.cardId(), e.actor().name(), e.kind().name(), e.text(), e.oldValue(), e.newValue(), e.at().toEpochMilli(), e.replyTo());
             Long id = jdbc.queryForObject("SELECT last_insert_rowid()", Long.class);
             return id == null ? 0L : id;
         });
@@ -343,7 +402,7 @@ public class SqliteBoardRepository implements BoardStorePort {
 
     @Override
     public List<ActivityEntry> activity(String cardId, int offset, int limit) {
-        return jdbc.query("SELECT id, card_id, actor, kind, text, old_value, new_value, at FROM activity WHERE card_id = ? "
+        return jdbc.query("SELECT id, card_id, actor, kind, text, old_value, new_value, at, reply_to FROM activity WHERE card_id = ? "
                 + "ORDER BY id LIMIT ? OFFSET ?", ACTIVITY_ROW, cardId, limit, offset);
     }
 
@@ -367,13 +426,19 @@ public class SqliteBoardRepository implements BoardStorePort {
 
     @Override
     public Optional<ActivityEntry> lastOf(String cardId, String kind) {
-        return jdbc.query("SELECT id, card_id, actor, kind, text, old_value, new_value, at FROM activity WHERE card_id = ? AND kind = ? "
+        return jdbc.query("SELECT id, card_id, actor, kind, text, old_value, new_value, at, reply_to FROM activity WHERE card_id = ? AND kind = ? "
                 + "ORDER BY id DESC LIMIT 1", ACTIVITY_ROW, cardId, kind).stream().findFirst();
     }
 
     @Override
+    public Optional<ActivityEntry> activityEntry(long id) {
+        return jdbc.query("SELECT id, card_id, actor, kind, text, old_value, new_value, at, reply_to FROM activity WHERE id = ?", ACTIVITY_ROW, id)
+                .stream().findFirst();
+    }
+
+    @Override
     public List<ActivityEntry> after(String cardId, long afterId) {
-        return jdbc.query("SELECT id, card_id, actor, kind, text, old_value, new_value, at FROM activity WHERE card_id = ? AND id > ? "
+        return jdbc.query("SELECT id, card_id, actor, kind, text, old_value, new_value, at, reply_to FROM activity WHERE card_id = ? AND id > ? "
                 + "ORDER BY id LIMIT 1000", ACTIVITY_ROW, cardId, afterId);
     }
 
@@ -381,7 +446,7 @@ public class SqliteBoardRepository implements BoardStorePort {
     public Map<String, ActivityEntry> lastComments(Collection<String> cardIds) {
         Map<String, ActivityEntry> out = new HashMap<>();
         for (List<String> chunk : chunks(cardIds)) {
-            jdbc.query("SELECT id, card_id, actor, kind, text, old_value, new_value, at FROM activity WHERE id IN (SELECT MAX(id) FROM activity "
+            jdbc.query("SELECT id, card_id, actor, kind, text, old_value, new_value, at, reply_to FROM activity WHERE id IN (SELECT MAX(id) FROM activity "
                     + "WHERE kind = 'COMMENT' AND card_id IN (" + marks(chunk.size()) + ") GROUP BY card_id)", rs -> {
                         ActivityEntry e = ACTIVITY_ROW.mapRow(rs, 0);
                         out.put(e.cardId(), e);
@@ -394,8 +459,8 @@ public class SqliteBoardRepository implements BoardStorePort {
     public List<BoardChanges.Entry> activityAfter(long afterId, String project, String cycleId, Actor actor, int limit) {
         List<Object> args = new ArrayList<>();
         args.add(afterId);
-        StringBuilder sql = new StringBuilder("SELECT a.id, a.card_id, a.actor, a.kind, a.text, a.old_value, a.new_value, a.at, c.project, "
-                + "c.number, c.title, c.status, c.cycle_id FROM activity a JOIN cards c ON c.id = a.card_id WHERE a.id > ?");
+        StringBuilder sql = new StringBuilder("SELECT a.id, a.card_id, a.actor, a.kind, a.text, a.old_value, a.new_value, a.at, a.reply_to, "
+                + "c.project, c.number, c.title, c.status, c.cycle_id FROM activity a JOIN cards c ON c.id = a.card_id WHERE a.id > ?");
         if (project != null) {
             sql.append(" AND c.project = ?");
             args.add(project);
@@ -410,8 +475,8 @@ public class SqliteBoardRepository implements BoardStorePort {
         }
         sql.append(" ORDER BY a.id LIMIT ?");
         args.add(limit);
-        return jdbc.query(sql.toString(), (rs, n) -> new BoardChanges.Entry(ACTIVITY_ROW.mapRow(rs, n), rs.getString(9), rs.getInt(10),
-                rs.getString(11), CardStatus.valueOf(rs.getString(12)), rs.getString(13)), args.toArray());
+        return jdbc.query(sql.toString(), (rs, n) -> new BoardChanges.Entry(ACTIVITY_ROW.mapRow(rs, n), rs.getString(10), rs.getInt(11),
+                rs.getString(12), CardStatus.valueOf(rs.getString(13)), rs.getString(14)), args.toArray());
     }
 
     @Override
@@ -608,14 +673,67 @@ public class SqliteBoardRepository implements BoardStorePort {
                 args.toArray());
     }
 
+    // ----------------------------------------------------------------------------------------------------------- waiting on
+
+    private static final RowMapper<WaitingOn> WAITING_ROW = (rs, n) -> new WaitingOn(Waiting.valueOf(rs.getString(2)),
+            Instant.ofEpochMilli(rs.getLong(3)), Actor.valueOf(rs.getString(4)));
+
+    @Override
+    public Optional<WaitingOn> waiting(String cardId) {
+        return jdbc.query("SELECT card_id, waiting_on, since, set_by FROM card_waiting WHERE card_id = ?", WAITING_ROW, cardId).stream().findFirst();
+    }
+
+    @Override
+    public Map<String, WaitingOn> waitings(Collection<String> cardIds) {
+        Map<String, WaitingOn> out = new HashMap<>();
+        for (List<String> chunk : chunks(cardIds)) {
+            jdbc.query("SELECT card_id, waiting_on, since, set_by FROM card_waiting WHERE card_id IN (" + marks(chunk.size()) + ")", rs -> {
+                out.put(rs.getString(1), WAITING_ROW.mapRow(rs, 0));
+            }, chunk.toArray());
+        }
+        return out;
+    }
+
+    @Override
+    public void setWaiting(String cardId, WaitingOn w) {
+        jdbc.update("INSERT INTO card_waiting(card_id, waiting_on, since, set_by) VALUES (?,?,?,?) ON CONFLICT(card_id) DO UPDATE SET "
+                + "waiting_on = excluded.waiting_on, since = excluded.since, set_by = excluded.set_by", cardId, w.who().name(),
+                w.since().toEpochMilli(), w.setBy().name());
+    }
+
+    @Override
+    public NextSteps nextSteps(String project, String cycleId) {
+        String scope = cycleId != null ? "c.cycle_id = ?" : "c.project = ?";
+        Object arg = cycleId != null ? cycleId : (project == null ? "" : project);
+        List<NextSteps.Item> mine = jdbc.query("SELECT c.project, c.number, c.title, c.status, w.since, CASE "
+                        + "WHEN EXISTS (SELECT 1 FROM proposals p WHERE p.card_id = c.id) THEN 'proposal' "
+                        + "WHEN (',' || c.flags || ',') LIKE '%,NEEDS_DECISION,%' THEN 'question' "
+                        + "WHEN c.status = 'INBOX' THEN 'inbox' ELSE 'other' END "
+                        + "FROM cards c JOIN card_waiting w ON w.card_id = c.id WHERE w.waiting_on = 'USER' AND " + scope
+                        + " ORDER BY w.since LIMIT 50",
+                (rs, n) -> new NextSteps.Item(rs.getString(1), rs.getInt(2), rs.getString(3), CardStatus.valueOf(rs.getString(4)),
+                        rs.getString(6), Instant.ofEpochMilli(rs.getLong(5))), arg);
+        Integer claude = jdbc.queryForObject("SELECT COUNT(*) FROM cards c JOIN card_waiting w ON w.card_id = c.id "
+                + "WHERE w.waiting_on = 'CLAUDE' AND " + scope, Integer.class, arg);
+        Map<String, Integer> byStatus = new HashMap<>();
+        jdbc.query("SELECT c.status, COUNT(*) FROM cards c WHERE " + scope + " GROUP BY c.status", rs -> {
+            byStatus.put(rs.getString(1), rs.getInt(2));
+        }, arg);
+        return new NextSteps(mine, claude == null ? 0 : claude, byStatus.getOrDefault("TO_DO", 0), byStatus.getOrDefault("IN_PROGRESS", 0),
+                byStatus.getOrDefault("FIXED", 0), byStatus.getOrDefault("INBOX", 0));
+    }
+
     // ------------------------------------------------------------------------------------------------------------- proposals
 
+    private static final String PROPOSAL_COLUMNS = "card_id, status, resolution, reason, evidence, at, kind, into_card, into_number";
+
     private static final RowMapper<Proposal> PROPOSAL_ROW = (rs, n) -> new Proposal(rs.getString(1), CardStatus.valueOf(rs.getString(2)),
-            resolution(rs.getString(3)), rs.getString(4), rs.getString(5), Instant.ofEpochMilli(rs.getLong(6)));
+            resolution(rs.getString(3)), rs.getString(4), rs.getString(5), Instant.ofEpochMilli(rs.getLong(6)),
+            Proposal.Kind.valueOf(rs.getString(7)), rs.getString(8), rs.getObject(9) == null ? null : rs.getInt(9));
 
     @Override
     public Optional<Proposal> proposal(String cardId) {
-        return jdbc.query("SELECT card_id, status, resolution, reason, evidence, at FROM proposals WHERE card_id = ?", PROPOSAL_ROW, cardId)
+        return jdbc.query("SELECT " + PROPOSAL_COLUMNS + " FROM proposals WHERE card_id = ?", PROPOSAL_ROW, cardId)
                 .stream().findFirst();
     }
 
@@ -623,7 +741,7 @@ public class SqliteBoardRepository implements BoardStorePort {
     public Map<String, Proposal> proposals(Collection<String> cardIds) {
         Map<String, Proposal> out = new HashMap<>();
         for (List<String> chunk : chunks(cardIds)) {
-            jdbc.query("SELECT card_id, status, resolution, reason, evidence, at FROM proposals WHERE card_id IN (" + marks(chunk.size()) + ")",
+            jdbc.query("SELECT " + PROPOSAL_COLUMNS + " FROM proposals WHERE card_id IN (" + marks(chunk.size()) + ")",
                     rs -> {
                         Proposal p = PROPOSAL_ROW.mapRow(rs, 0);
                         out.put(p.cardId(), p);
@@ -634,10 +752,11 @@ public class SqliteBoardRepository implements BoardStorePort {
 
     @Override
     public void putProposal(Proposal p) {
-        jdbc.update("INSERT INTO proposals(card_id, status, resolution, reason, evidence, at) VALUES (?,?,?,?,?,?) ON CONFLICT(card_id) DO UPDATE "
+        jdbc.update("INSERT INTO proposals(" + PROPOSAL_COLUMNS + ") VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(card_id) DO UPDATE "
                         + "SET status = excluded.status, resolution = excluded.resolution, reason = excluded.reason, evidence = excluded.evidence, "
-                        + "at = excluded.at", p.cardId(), p.status().name(), name(p.resolution()), p.reason(), p.evidence(),
-                p.at().toEpochMilli());
+                        + "at = excluded.at, kind = excluded.kind, into_card = excluded.into_card, into_number = excluded.into_number",
+                p.cardId(), p.status().name(), name(p.resolution()), p.reason(), p.evidence(), p.at().toEpochMilli(), p.kind().name(),
+                p.intoCardId(), p.intoNumber());
     }
 
     @Override
@@ -645,32 +764,142 @@ public class SqliteBoardRepository implements BoardStorePort {
         return jdbc.update("DELETE FROM proposals WHERE card_id = ?", cardId) > 0;
     }
 
+    // ---------------------------------------------------------------------------------------- blocks, spec items, merge
+
+    private static final RowMapper<CardRef> CARD_REF = (rs, n) -> new CardRef(rs.getString(2), rs.getInt(3), rs.getString(4),
+            CardStatus.valueOf(rs.getString(5)));
+
+    @Override
+    public void addBlock(String cardId, String blockedById) {
+        jdbc.update("INSERT OR IGNORE INTO card_blocks(card_id, blocked_by) VALUES (?,?)", cardId, blockedById);
+    }
+
+    @Override
+    public boolean removeBlock(String cardId, String blockedById) {
+        return jdbc.update("DELETE FROM card_blocks WHERE card_id = ? AND blocked_by = ?", cardId, blockedById) > 0;
+    }
+
+    @Override
+    public Map<String, List<CardRef>> blockersOf(Collection<String> cardIds) {
+        Map<String, List<CardRef>> out = new HashMap<>();
+        for (List<String> chunk : chunks(cardIds)) {
+            jdbc.query("SELECT b.card_id, c.project, c.number, c.title, c.status FROM card_blocks b JOIN cards c ON c.id = b.blocked_by "
+                    + "WHERE b.card_id IN (" + marks(chunk.size()) + ") ORDER BY c.number", rs -> {
+                        out.computeIfAbsent(rs.getString(1), k -> new ArrayList<>()).add(CARD_REF.mapRow(rs, 0));
+                    }, chunk.toArray());
+        }
+        return out;
+    }
+
+    @Override
+    public void addSpecItem(String cardId, String cycleId, String fileName, String itemKey) {
+        jdbc.update("INSERT OR IGNORE INTO card_spec_items(card_id, cycle_id, file_name, item_key) VALUES (?,?,?,?)", cardId, cycleId, fileName, itemKey);
+    }
+
+    @Override
+    public boolean removeSpecItem(String cardId, String cycleId, String fileName, String itemKey) {
+        return jdbc.update("DELETE FROM card_spec_items WHERE card_id = ? AND cycle_id = ? AND file_name = ? AND item_key = ?",
+                cardId, cycleId, fileName, itemKey) > 0;
+    }
+
+    @Override
+    public List<String[]> specItemsOf(String cardId) {
+        return jdbc.query("SELECT cycle_id, file_name, item_key FROM card_spec_items WHERE card_id = ? LIMIT 200",
+                (rs, n) -> new String[]{rs.getString(1), rs.getString(2), rs.getString(3)}, cardId);
+    }
+
+    @Override
+    public Map<String, List<CardRef>> cardsBySpecItem(String cycleId) {
+        Map<String, List<CardRef>> out = new HashMap<>();
+        jdbc.query("SELECT s.file_name || char(10) || s.item_key, c.project, c.number, c.title, c.status FROM card_spec_items s "
+                + "JOIN cards c ON c.id = s.card_id WHERE s.cycle_id = ? ORDER BY c.number LIMIT 5000", rs -> {
+                    out.computeIfAbsent(rs.getString(1), k -> new ArrayList<>()).add(CARD_REF.mapRow(rs, 0));
+                }, cycleId);
+        return out;
+    }
+
+    @Override
+    public void mergeInto(String sourceId, String targetId) {
+        tx.executeWithoutResult(status -> {
+            jdbc.update("UPDATE activity SET card_id = ? WHERE card_id = ?", targetId, sourceId);
+            jdbc.update("UPDATE mentions SET card_id = ? WHERE card_id = ?", targetId, sourceId);
+            jdbc.update("UPDATE mentions SET owner_id = ? WHERE owner_type = 'DIRECT' AND owner_id = ?", targetId, sourceId);
+            jdbc.update("UPDATE mentions SET owner_id = ? WHERE owner_type = 'CARD' AND owner_id = ?", targetId, sourceId);
+            jdbc.update("INSERT OR IGNORE INTO card_spec_items(card_id, cycle_id, file_name, item_key) "
+                    + "SELECT ?, cycle_id, file_name, item_key FROM card_spec_items WHERE card_id = ?", targetId, sourceId);
+            jdbc.update("DELETE FROM card_spec_items WHERE card_id = ?", sourceId);
+            jdbc.update("INSERT OR IGNORE INTO card_blocks(card_id, blocked_by) SELECT ?, blocked_by FROM card_blocks WHERE card_id = ? "
+                    + "AND blocked_by <> ?", targetId, sourceId, targetId);
+            jdbc.update("DELETE FROM card_blocks WHERE card_id = ?", sourceId);
+            jdbc.update("UPDATE OR IGNORE card_blocks SET blocked_by = ? WHERE blocked_by = ? AND card_id <> ?", targetId, sourceId, targetId);
+            jdbc.update("DELETE FROM card_blocks WHERE blocked_by = ?", sourceId);
+        });
+    }
+
+    // ------------------------------------------------------------------------------------------- session log, test steps
+
+    @Override
+    public long appendLog(SessionLogEntry e) {
+        return tx.execute(status -> {
+            jdbc.update("INSERT INTO cycle_log(cycle_id, skill, did, found, next, at) VALUES (?,?,?,?,?,?)", e.cycleId(), e.skill(), e.did(),
+                    e.found(), e.next(), e.at().toEpochMilli());
+            Long id = jdbc.queryForObject("SELECT last_insert_rowid()", Long.class);
+            return id == null ? 0L : id;
+        });
+    }
+
+    @Override
+    public List<SessionLogEntry> log(String cycleId, int limit) {
+        return jdbc.query("SELECT id, cycle_id, skill, did, found, next, at FROM cycle_log WHERE cycle_id = ? ORDER BY id DESC LIMIT ?",
+                (rs, n) -> new SessionLogEntry(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getString(4), rs.getString(5), rs.getString(6),
+                        Instant.ofEpochMilli(rs.getLong(7))), cycleId, limit);
+    }
+
+    @Override
+    public List<TestStep> stepMarks(String cycleId) {
+        return jdbc.query("SELECT step_key, state, calls, card_number, note, at FROM cycle_steps WHERE cycle_id = ? LIMIT 1000",
+                (rs, n) -> new TestStep(rs.getString(1), null, StepState.valueOf(rs.getString(2)), rs.getInt(3),
+                        rs.getObject(4) == null ? null : rs.getInt(4), rs.getString(5), Instant.ofEpochMilli(rs.getLong(6))), cycleId);
+    }
+
+    @Override
+    public void putStepMark(String cycleId, String stepKey, StepState state, int calls, Integer cardNumber, String note, Instant at) {
+        jdbc.update("INSERT INTO cycle_steps(cycle_id, step_key, state, calls, card_number, note, at) VALUES (?,?,?,?,?,?,?) "
+                + "ON CONFLICT(cycle_id, step_key) DO UPDATE SET state = excluded.state, calls = excluded.calls, card_number = excluded.card_number, "
+                + "note = excluded.note, at = excluded.at", cycleId, stepKey, state.name(), calls, cardNumber, note, at.toEpochMilli());
+    }
+
     // ---------------------------------------------------------------------------------------- brief, spec files, checklist
 
     @Override
     public Optional<CycleBrief> brief(String cycleId) {
-        return jdbc.query("SELECT cycle_id, text, updated_at FROM cycle_briefs WHERE cycle_id = ?",
-                (rs, n) -> new CycleBrief(rs.getString(1), rs.getString(2), Instant.ofEpochMilli(rs.getLong(3))), cycleId).stream().findFirst();
+        return jdbc.query("SELECT cycle_id, text, updated_at, updated_by, prev_text IS NOT NULL FROM cycle_briefs WHERE cycle_id = ?",
+                (rs, n) -> new CycleBrief(rs.getString(1), rs.getString(2), Instant.ofEpochMilli(rs.getLong(3)), Actor.valueOf(rs.getString(4)),
+                        rs.getInt(5) == 1), cycleId).stream().findFirst();
     }
 
     @Override
     public void putBrief(CycleBrief b) {
-        jdbc.update("INSERT INTO cycle_briefs(cycle_id, text, updated_at) VALUES (?,?,?) "
-                + "ON CONFLICT(cycle_id) DO UPDATE SET text = excluded.text, updated_at = excluded.updated_at",
-                b.cycleId(), b.text(), b.updatedAt().toEpochMilli());
+        // The text it replaces is kept once, for Restore previous.
+        jdbc.update("INSERT INTO cycle_briefs(cycle_id, text, updated_at, updated_by) VALUES (?,?,?,?) "
+                + "ON CONFLICT(cycle_id) DO UPDATE SET prev_text = cycle_briefs.text, prev_at = cycle_briefs.updated_at, "
+                + "prev_by = cycle_briefs.updated_by, text = excluded.text, updated_at = excluded.updated_at, updated_by = excluded.updated_by",
+                b.cycleId(), b.text(), b.updatedAt().toEpochMilli(), b.updatedBy().name());
     }
 
     @Override
     public List<SpecFileInfo> specs(String cycleId) {
-        return jdbc.query("SELECT name, size, uploaded_at FROM spec_files WHERE cycle_id = ? ORDER BY name LIMIT 1000",
-                (rs, n) -> new SpecFileInfo(rs.getString(1), rs.getLong(2), Instant.ofEpochMilli(rs.getLong(3))), cycleId);
+        return jdbc.query("SELECT name, size, uploaded_at, uploaded_by, prev_content IS NOT NULL FROM spec_files WHERE cycle_id = ? "
+                        + "ORDER BY name LIMIT 1000",
+                (rs, n) -> new SpecFileInfo(rs.getString(1), rs.getLong(2), Instant.ofEpochMilli(rs.getLong(3)), Actor.valueOf(rs.getString(4)),
+                        rs.getInt(5) == 1), cycleId);
     }
 
     @Override
     public Optional<SpecFile> spec(String cycleId, String name) {
-        return jdbc.query("SELECT cycle_id, name, content, size, uploaded_at FROM spec_files WHERE cycle_id = ? AND name = ?",
+        return jdbc.query("SELECT cycle_id, name, content, size, uploaded_at, uploaded_by FROM spec_files WHERE cycle_id = ? AND name = ?",
                 (rs, n) -> new SpecFile(rs.getString(1), rs.getString(2), rs.getString(3), rs.getLong(4),
-                        Instant.ofEpochMilli(rs.getLong(5))), cycleId, name).stream().findFirst();
+                        Instant.ofEpochMilli(rs.getLong(5)), Actor.valueOf(rs.getString(6))), cycleId, name).stream().findFirst();
     }
 
     @Override
@@ -678,9 +907,11 @@ public class SqliteBoardRepository implements BoardStorePort {
         Boolean replaced = tx.execute(status -> {
             Integer existing = jdbc.queryForObject("SELECT COUNT(*) FROM spec_files WHERE cycle_id = ? AND name = ?", Integer.class,
                     f.cycleId(), f.name());
-            jdbc.update("INSERT INTO spec_files(cycle_id, name, content, size, uploaded_at) VALUES (?,?,?,?,?) "
-                    + "ON CONFLICT(cycle_id, name) DO UPDATE SET content = excluded.content, size = excluded.size, "
-                    + "uploaded_at = excluded.uploaded_at", f.cycleId(), f.name(), f.content(), f.size(), f.uploadedAt().toEpochMilli());
+            jdbc.update("INSERT INTO spec_files(cycle_id, name, content, size, uploaded_at, uploaded_by) VALUES (?,?,?,?,?,?) "
+                    + "ON CONFLICT(cycle_id, name) DO UPDATE SET prev_content = spec_files.content, prev_size = spec_files.size, "
+                    + "prev_at = spec_files.uploaded_at, prev_by = spec_files.uploaded_by, content = excluded.content, size = excluded.size, "
+                    + "uploaded_at = excluded.uploaded_at, uploaded_by = excluded.uploaded_by", f.cycleId(), f.name(), f.content(), f.size(),
+                    f.uploadedAt().toEpochMilli(), f.uploadedBy().name());
             return existing != null && existing > 0;
         });
         return Boolean.TRUE.equals(replaced);
@@ -689,6 +920,20 @@ public class SqliteBoardRepository implements BoardStorePort {
     @Override
     public boolean deleteSpec(String cycleId, String name) {
         return jdbc.update("DELETE FROM spec_files WHERE cycle_id = ? AND name = ?", cycleId, name) > 0;
+    }
+
+    @Override
+    public boolean restoreBrief(String cycleId, Instant at) {
+        // Swap: the restored text keeps its own author; the one it replaces becomes the "previous" again.
+        return jdbc.update("UPDATE cycle_briefs SET text = prev_text, prev_text = text, updated_by = COALESCE(prev_by, 'USER'), "
+                + "prev_by = updated_by, prev_at = updated_at, updated_at = ? WHERE cycle_id = ? AND prev_text IS NOT NULL", at.toEpochMilli(), cycleId) > 0;
+    }
+
+    @Override
+    public boolean restoreSpec(String cycleId, String name, Instant at) {
+        return jdbc.update("UPDATE spec_files SET content = prev_content, prev_content = content, size = prev_size, prev_size = size, "
+                + "uploaded_by = COALESCE(prev_by, 'USER'), prev_by = uploaded_by, prev_at = uploaded_at, uploaded_at = ? "
+                + "WHERE cycle_id = ? AND name = ? AND prev_content IS NOT NULL", at.toEpochMilli(), cycleId, name) > 0;
     }
 
     @Override
@@ -747,6 +992,9 @@ public class SqliteBoardRepository implements BoardStorePort {
             jdbc.update("DELETE FROM spec_files WHERE cycle_id = ?", cycleId);
             jdbc.update("DELETE FROM checklist_marks WHERE cycle_id = ?", cycleId);
             jdbc.update("DELETE FROM checklist_suggestions WHERE cycle_id = ?", cycleId);
+            jdbc.update("DELETE FROM cycle_log WHERE cycle_id = ?", cycleId);
+            jdbc.update("DELETE FROM cycle_steps WHERE cycle_id = ?", cycleId);
+            jdbc.update("DELETE FROM card_spec_items WHERE cycle_id = ?", cycleId);
             jdbc.update("DELETE FROM mentions WHERE (owner_type = 'BRIEF' AND owner_id = ?) "
                     + "OR (owner_type = 'CHECKLIST' AND owner_id LIKE ? ESCAPE '\\')", cycleId, like);
             jdbc.update("UPDATE cards SET cycle_deleted = 1 WHERE cycle_id = ?", cycleId);
@@ -778,7 +1026,12 @@ public class SqliteBoardRepository implements BoardStorePort {
 
     private static final RowMapper<ActivityEntry> ACTIVITY_ROW = (rs, n) -> new ActivityEntry(rs.getLong(1), rs.getString(2),
             Actor.valueOf(rs.getString(3)), ActivityKind.valueOf(rs.getString(4)), rs.getString(5), rs.getString(6), rs.getString(7),
-            Instant.ofEpochMilli(rs.getLong(8)));
+            Instant.ofEpochMilli(rs.getLong(8)), replyTo(rs));
+
+    private static Long replyTo(ResultSet rs) throws SQLException {
+        long v = rs.getLong(9);
+        return rs.wasNull() ? null : v;
+    }
 
     private final RowMapper<ChecklistMark> MARK_ROW = (rs, n) -> new ChecklistMark(rs.getString(1), rs.getString(2), rs.getString(3),
             Mark.valueOf(rs.getString(4)), Actor.valueOf(rs.getString(5)), rs.getString(6), history(rs.getString(7)),

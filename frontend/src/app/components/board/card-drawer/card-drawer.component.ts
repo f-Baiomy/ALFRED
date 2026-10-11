@@ -7,8 +7,10 @@ import { BoardApiService } from '../../../core/services/board-api.service';
 import { BoardMentionsService } from '../../../core/services/board-mentions.service';
 import { ConfirmDialogService } from '../../../core/services/confirm-dialog.service';
 import { messageOf } from '../../../core/state/board-state.service';
-import { proposalTarget } from '../../../shared/utils/board-activity';
-import { ActivityTimelineComponent } from '../activity-timeline/activity-timeline.component';
+import { proposalText } from '../board-card/board-card.component';
+import { BoardSeenService } from '../../../core/services/board-seen.service';
+import { issueMarkdown, skillFor, waitingText } from '../../../shared/utils/board-skills';
+import { ActivityTimelineComponent, TimelineReply } from '../activity-timeline/activity-timeline.component';
 import { MarkdownViewComponent } from '../markdown-view/markdown-view.component';
 import { MentionChipComponent } from '../mention-chip/mention-chip.component';
 import { MentionEditorComponent } from '../mention-editor/mention-editor.component';
@@ -33,6 +35,15 @@ import { MentionPickerComponent } from '../mention-picker/mention-picker.compone
             @if (c.author === 'CLAUDE') { <span class="board-ai">✦ found by Claude</span> }
             @if (c.cycleId) { <span class="board-cyc">◷ {{ c.cycleDeleted ? 'cycle deleted' : c.cycleId }}</span> }
             <span class="board-dim">#{{ c.number }}</span>
+            @if (waiting(); as w) { <span class="board-wait" [class]="'board-wait board-wait-' + c.waiting!.who">{{ w }}</span> }
+          </div>
+          <div class="board-drawer-tools">
+            @if (skill(); as cmd) {
+              <button type="button" class="board-copy" [title]="'Copy ' + cmd + ' - paste it into Claude Code'" (click)="copy(cmd, 'cmd')">
+                {{ copied() === 'cmd' ? '✓ copied' : '⧉ ' + cmd }}</button>
+            }
+            <button type="button" class="board-copy" title="Copy the card as Markdown for Jira / GitHub" (click)="copyIssue()">
+              {{ copied() === 'issue' ? '✓ copied' : '⧉ Copy as issue' }}</button>
           </div>
           @if (editingTitle()) {
             <input #title class="board-drawer-title-input" type="text" maxlength="300" [value]="c.title"
@@ -104,9 +115,37 @@ import { MentionPickerComponent } from '../mention-picker/mention-picker.compone
               @for (m of c.links; track m.type + m.ref) { <app-mention-chip [mention]="m" /> } @empty { <span class="board-dim">Nothing linked.</span> }
             </div>
           </section>
+          @if (c.specItems?.length) {
+            <section>
+              <h4>Breaks the spec</h4>
+              @for (i of c.specItems; track i.fileName + i.itemKey) {
+                <div class="board-spec-item">📄 {{ i.fileName }} · {{ i.text ?? '(item removed from the spec)' }}</div>
+              }
+            </section>
+          }
+          <section>
+            <h4>Blocked by
+              @if (editable()) { <button type="button" class="board-link" (click)="blocking.set(!blocking())">+ blocked by…</button> }
+            </h4>
+            @if (blocking()) {
+              <div class="board-block-add">
+                <span>Card #</span><input #blockNo type="number" min="1" class="board-block-input" (keydown.enter)="block(blockNo.value)" />
+                <button type="button" class="action-btn" (click)="block(blockNo.value)">Add</button>
+                <button type="button" class="board-link" (click)="blocking.set(false)">Cancel</button>
+              </div>
+            }
+            <div class="board-links">
+              @for (b of c.blockedBy ?? []; track b.number) {
+                <span class="board-lock-chip">🔒 #{{ b.number }} {{ b.title }} <span class="board-dim">({{ statusLabels[b.status] }})</span>
+                  @if (editable()) { <button type="button" class="board-link" title="Not blocked by it any more" (click)="unblock(b.number)">✕</button> }
+                </span>
+              } @empty { <span class="board-dim">Not blocked.</span> }
+            </div>
+          </section>
           <section>
             <h4>Activity · what was done <span class="board-dim">{{ activityTotal() }} entries</span></h4>
-            <app-activity-timeline [entries]="activity()" />
+            <app-activity-timeline [entries]="activity()" [editable]="editable()" [project]="c.project" [cycleId]="c.cycleId"
+                                   [card]="pickTarget()" (replied)="reply($event)" />
           </section>
           @if (editable()) {
             <section class="board-drawer-danger">
@@ -145,6 +184,16 @@ export class CardDrawerComponent {
   readonly editingTitle = signal(false);
   readonly editingDescription = signal(false);
   readonly linking = signal(false);
+  readonly blocking = signal(false);
+  readonly copied = signal<'cmd' | 'issue' | null>(null);
+  private readonly seen = inject(BoardSeenService);
+  /** "Now" for the waiting time, taken when the card is read - no clock of its own. */
+  private readonly readAt = signal(Date.now());
+  readonly waiting = computed(() => waitingText(this.card()?.waiting, this.readAt()));
+  readonly skill = computed(() => {
+    const c = this.card();
+    return c ? skillFor(c) : null;
+  });
   readonly draft = signal('');
   /** The description being edited when a pick from anywhere came back into it. */
   readonly descriptionDraft = signal<string | null>(null);
@@ -180,8 +229,10 @@ export class CardDrawerComponent {
   private load(id: string): void {
     this.api.card(id).subscribe({
       next: (c) => {
+        this.readAt.set(Date.now());
         this.card.set(c);
         this.error.set(null);
+        this.seen.markSeen(c);
         this.restorePickedText(c.id);
       },
       error: (e) => this.error.set(messageOf(e)),
@@ -207,7 +258,33 @@ export class CardDrawerComponent {
   }
 
   proposalText(p: Proposal): string {
-    return proposalTarget(p.status === 'CLOSED' && p.resolution ? `CLOSED:${p.resolution}` : p.status);
+    return proposalText(p);
+  }
+
+  copy(text: string, what: 'cmd' | 'issue'): void {
+    void navigator.clipboard?.writeText(text).then(() => {
+      this.copied.set(what);
+      setTimeout(() => this.copied.set(null), 1500);
+    });
+  }
+
+  /** The card as a Markdown issue for another team (specs/015 FR-18). */
+  copyIssue(): void {
+    const c = this.card();
+    if (c) this.copy(issueMarkdown(c, this.activity()), 'issue');
+  }
+
+  block(value: string): void {
+    const c = this.card();
+    const n = Number(value);
+    if (!c || !Number.isInteger(n) || n < 1) return;
+    this.blocking.set(false);
+    this.apply(this.api.block(c.id, n));
+  }
+
+  unblock(number: number): void {
+    const c = this.card();
+    if (c) this.apply(this.api.unblock(c.id, number));
   }
 
   /** Takes Claude's proposed step as the user's own. */
@@ -302,6 +379,16 @@ export class CardDrawerComponent {
         this.draft.set('');
         this.load(c.id);
       },
+      error: (e) => this.error.set(messageOf(e)),
+    });
+  }
+
+  /** A reply (or an answer to Claude's question) written under a comment in the history. */
+  reply(r: TimelineReply): void {
+    const c = this.card();
+    if (!c) return;
+    this.api.comment(c.id, r.text, r.replyTo, r.clearDecision).subscribe({
+      next: () => this.load(c.id),
       error: (e) => this.error.set(messageOf(e)),
     });
   }

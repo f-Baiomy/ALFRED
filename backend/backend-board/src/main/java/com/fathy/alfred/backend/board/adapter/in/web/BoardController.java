@@ -118,12 +118,13 @@ public class BoardController {
                                   @RequestParam(required = false) List<String> flag, @RequestParam(required = false) String author,
                                   @RequestParam(defaultValue = "false") boolean scopeNotDecided,
                                   @RequestParam(required = false) String q, @RequestParam(defaultValue = "0") int offset,
-                                  @RequestParam(defaultValue = "200") int limit) {
+                                  @RequestParam(defaultValue = "200") int limit, @RequestParam(required = false) String waiting) {
         try {
             CardQuery cardQuery = new CardQuery(project, blankToNull(cycleId), enums(kind, CardKind::valueOf, CardKind.class),
                     enums(status, CardStatus::valueOf, CardStatus.class), enums(flag, Flag::valueOf, Flag.class),
                     author == null || author.isBlank() ? null : Actor.valueOf(author.strip().toUpperCase(Locale.ROOT)), scopeNotDecided, q,
-                    offset, limit);
+                    offset, limit, false, null, false,
+                    waiting == null || waiting.isBlank() ? null : com.fathy.alfred.backend.board.domain.model.Waiting.valueOf(waiting.strip().toUpperCase(Locale.ROOT)));
             return ResponseEntity.ok(query.query(cardQuery));
         } catch (IllegalArgumentException e) {
             return BoardWeb.refused(CardChange.Outcome.INVALID, "Unknown filter value: " + e.getMessage());
@@ -234,7 +235,7 @@ public class BoardController {
                                      @Valid @RequestBody CommentRequestDto body) {
         CommentOnCardUseCase.CommentOutcome outcome = comments.comment(BoardWeb.actor(actor), id,
                 new CommentOnCardUseCase.Comment(body.text(), body.did(), body.found(), body.next(), body.impact(),
-                        body.reply(), body.question()));
+                        body.reply(), body.question(), body.replyTo(), Boolean.TRUE.equals(body.clearDecision()), body.waitingOn()));
         if (outcome.outcome() != CardChange.Outcome.OK) {
             return BoardWeb.refused(outcome.outcome(), outcome.message());
         }
@@ -273,7 +274,7 @@ public class BoardController {
     @PutMapping("/board/agent-status")
     public ResponseEntity<?> putAgentStatus(@Valid @RequestBody AgentStatusRequestDto body) {
         return ResponseEntity.ok(agent.update(body.project(), blankToNull(body.cycleId()), body.state(), body.callsChecked(),
-                body.cardsAdded()));
+                body.cardsAdded(), body.step()));
     }
 
     @PostMapping("/board/agent-status/{action}")

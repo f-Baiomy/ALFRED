@@ -1,7 +1,12 @@
-import { Component, HostListener, computed, effect, inject, input, signal, untracked, viewChild } from '@angular/core';
+import { Component, DestroyRef, HostListener, computed, effect, inject, input, signal, untracked, viewChild } from '@angular/core';
+import { Title } from '@angular/platform-browser';
 import {
-  ALL_STATUSES, Actor, BoardFilters, BulkAction, CardKind, CardSummary, FLAGS, FLAG_LABELS, Flag, KINDS, OPEN_STATUSES, Resolution,
+  ALL_STATUSES, Actor, BoardFilters, BulkAction, CardKind, CardSummary, FLAGS, FLAG_LABELS, Flag, KINDS, OPEN_STATUSES, Resolution, Waiting,
 } from '../../../core/models/board.models';
+import { BoardNotifyService } from '../../../core/services/board-notify.service';
+import { BoardSeenService } from '../../../core/services/board-seen.service';
+import { NextStepsBarComponent } from '../next-steps-bar/next-steps-bar.component';
+import { QuickAnswerComponent } from '../quick-answer/quick-answer.component';
 import { BoardApiService } from '../../../core/services/board-api.service';
 import { BoardExportFormat, BoardExportService } from '../../../core/services/board-export.service';
 import { BoardMentionsService } from '../../../core/services/board-mentions.service';
@@ -29,7 +34,8 @@ import { UndoToastComponent } from '../undo-toast/undo-toast.component';
   standalone: true,
   providers: [BoardStateService],
   imports: [ActionMenuComponent, BoardColumnsComponent, BoardHelpComponent, BoardListViewComponent, BoardProgressComponent,
-    BulkBarComponent, CardDrawerComponent, LiveStripComponent, QuickAddComponent, TriageDialogComponent, UndoToastComponent],
+    BulkBarComponent, CardDrawerComponent, LiveStripComponent, NextStepsBarComponent, QuickAddComponent, QuickAnswerComponent, TriageDialogComponent,
+    UndoToastComponent],
   template: `
     <app-live-strip [status]="state.agent()" [editable]="state.editable()" (action)="state.agentAction($event)" />
     <div class="board-top">
@@ -52,6 +58,11 @@ import { UndoToastComponent } from '../undo-toast/undo-toast.component';
           <label class="filter-option-item">Import .json…<input type="file" accept=".json,application/json" hidden (change)="importFile($any($event.target))" /></label>
         }
       </app-action-menu>
+      @if (notify.supported) {
+        <button type="button" class="action-btn" [title]="notify.enabled() ? 'Desktop notifications are on - click to turn them off'
+                : 'A desktop notification when Claude asks a question or proposes something (while an Alfred tab is open)'"
+                (click)="toggleNotify()">{{ notify.enabled() ? '🔔' : '🔕' }}</button>
+      }
       <button type="button" class="action-btn" title="Keyboard shortcuts (?)" (click)="help.set(true)">?</button>
     </div>
     <div class="board-filters">
@@ -61,6 +72,9 @@ import { UndoToastComponent } from '../undo-toast/undo-toast.component';
       @for (f of flags; track f) {
         <button type="button" class="board-pill" [class.on]="state.filters().flags.includes(f)" (click)="toggleFlag(f)">{{ flagLabels[f] }}</button>
       }
+      <button type="button" class="board-pill board-pill-wait" [class.on]="state.filters().waiting === 'USER'" (click)="toggleWaiting('USER')">Waiting on me</button>
+      <button type="button" class="board-pill" [class.on]="state.filters().waiting === 'CLAUDE'" (click)="toggleWaiting('CLAUDE')">Waiting on Claude</button>
+      <button type="button" class="board-pill" [class.on]="state.filters().waiting === 'RETEST'" (click)="toggleWaiting('RETEST')">Needs re-test</button>
       <button type="button" class="board-pill" [class.on]="state.filters().author === 'CLAUDE'" (click)="toggleAuthor('CLAUDE')">✦ by Claude</button>
       <button type="button" class="board-pill" [class.on]="state.filters().scopeNotDecided" (click)="toggleScope()">Scope not decided</button>
       <input #search class="board-search" type="search" placeholder="Search cards…" [value]="state.filters().q"
@@ -69,6 +83,7 @@ import { UndoToastComponent } from '../undo-toast/undo-toast.component';
     @if (state.page(); as page) {
       <app-board-progress [label]="progressLabel()" [open]="page.counts.open" [fixed]="page.counts.fixed" [done]="page.counts.done" />
     }
+    <app-next-steps-bar [project]="project()" [cycleId]="cycleId()" [cycleName]="cycleName()" [version]="state.page()" (opened)="openNumber($event)" />
     @if (state.error()) { <div class="board-error" role="alert">{{ state.error() }} <button type="button" class="board-link" (click)="state.error.set(null)">✕</button></div> }
     @if (message()) { <div class="board-note">{{ message() }} <button type="button" class="board-link" (click)="message.set(null)">✕</button></div> }
 
@@ -76,7 +91,8 @@ import { UndoToastComponent } from '../undo-toast/undo-toast.component';
       <app-board-columns [cards]="state.cards()" [editable]="state.editable()" [selected]="state.selected()" [focusedId]="state.focusedId()"
                          [showCycle]="!cycleId()" [now]="now()"
                          (moved)="onMoved($event)" (opened)="openCard($event)" (toggled)="state.toggleSelected($event.id)"
-                         (action)="onAction($event.card, $event.action)" (triage)="startTriage()" />
+                         (action)="onAction($event.card, $event.action)" (triage)="startTriage()"
+                         (answer)="answering.set($event.id)" />
     } @else {
       <app-board-list-view [cards]="sortedForList()" [editable]="state.editable()" [selected]="state.selected()" [focusedId]="state.focusedId()"
                            [now]="now()" (opened)="openCard($event)" (toggled)="state.toggleSelected($event.id)" />
@@ -88,6 +104,7 @@ import { UndoToastComponent } from '../undo-toast/undo-toast.component';
       <app-triage-dialog [queue]="queue" (decided)="onTriage($event)" (closed)="triageQueue.set(null)" />
     }
     @if (help()) { <app-board-help (closed)="help.set(false)" /> }
+    @if (answering(); as id) { <app-quick-answer [cardId]="id" (closed)="answering.set(null)" /> }
     @if (state.openCardId(); as id) {
       <app-card-drawer [cardId]="id" [version]="state.openCardVersion()" [editable]="state.editable()"
                        (closed)="state.open(null)" (closeRequested)="state.close($event, $event.resolution)" />
@@ -109,6 +126,12 @@ export class BoardViewComponent {
   readonly help = signal(false);
   readonly message = signal<string | null>(null);
   readonly triageQueue = signal<readonly CardSummary[] | null>(null);
+  /** The card whose questions are being answered from the board (specs/015 FR-5). */
+  readonly answering = signal<string | null>(null);
+  readonly notify = inject(BoardNotifyService);
+  private readonly seen = inject(BoardSeenService);
+  /** Cards Claude changed since they were last opened here - counted in the tab title (specs/015 FR-9). */
+  readonly unread = computed(() => this.state.cards().filter((c) => this.seen.isUnread(c)).length);
   /** "Now" for ages and the stale marker - refreshed whenever the cards are, so it needs no clock of its own. */
   readonly now = computed(() => (this.state.page(), Date.now()));
   private readonly quick = viewChild<QuickAddComponent>('quick');
@@ -120,6 +143,13 @@ export class BoardViewComponent {
   private readonly walkOrder = computed(() => this.sortedForList());
 
   constructor() {
+    const title = inject(Title);
+    const base = title.getTitle().replace(/^\(\d+\)\s*/, '');
+    effect(() => {
+      const n = this.unread();
+      untracked(() => title.setTitle(n ? `(${n}) ${base}` : base));
+    });
+    inject(DestroyRef).onDestroy(() => title.setTitle(base));
     effect(() => {
       const project = this.project();
       const cycleId = this.cycleId();
@@ -191,6 +221,25 @@ export class BoardViewComponent {
 
   toggleAuthor(a: Actor): void {
     this.setFilters({ author: this.state.filters().author === a ? null : a });
+  }
+
+  toggleWaiting(w: Waiting): void {
+    this.setFilters({ waiting: this.state.filters().waiting === w ? null : w });
+  }
+
+  toggleNotify(): void {
+    if (this.notify.enabled()) this.notify.disable();
+    else void this.notify.enable().then((on) => this.message.set(on ? null : 'The browser did not allow notifications - allow them for this site, then try again.'));
+  }
+
+  /** A card number from the next-step bar. */
+  openNumber(number: number): void {
+    const here = this.state.cards().find((c) => c.number === number);
+    if (here) {
+      this.openCard(here);
+      return;
+    }
+    this.api.cardByNumber(this.project(), number).subscribe({ next: (c) => this.state.open(c.id), error: () => this.message.set(`Card #${number} is not on this board`) });
   }
 
   toggleScope(): void {
@@ -272,6 +321,7 @@ export class BoardViewComponent {
     const sorts: Record<string, Resolution> = { f: 'FINE', n: 'NOT_IN_FLOW' };
     if (inbox && sorts[key]) this.state.close(card, sorts[key]);
     else if (inbox && key === 't') this.state.move(card.id, 'TO_DO');
+    else if (key === 'a' && card.waiting?.who === 'USER' && card.flags.includes('NEEDS_DECISION')) this.answering.set(card.id);
     else if (key === 'x') this.state.toggleSelected(card.id);
     else if (key === 'u') {
       const flags = card.flags.includes('URGENT') ? card.flags.filter((f) => f !== 'URGENT') : [...card.flags, 'URGENT' as Flag];

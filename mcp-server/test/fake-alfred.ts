@@ -101,6 +101,10 @@ export interface FakeBoard {
   badges: Record<string, unknown[]>;
   verify: unknown[];
   suggestions: Record<string, unknown>;
+  nextSteps: unknown;
+  log: Record<string, unknown[]>;
+  steps: Record<string, { key: string; text: string; state: string; calls: number; cardNumber: number | null; note: string | null }[]>;
+  regressions: unknown[];
 }
 
 /** The wire summary of a call: what GET /calls and /summary return - no headers, no bodies. */
@@ -165,7 +169,8 @@ function priorityOf(m: AttentionMark, failingChildren: number, minStatus: number
 export class FakeAlfred {
   readonly state: FakeState = emptyState();
   readonly board: FakeBoard = { cards: [], activity: {}, closedReasons: [], briefs: {}, specs: {}, checklist: {}, refuseCreate: null, agentState: 'WATCHING',
-    changes: { entries: [], cycles: [], cursor: '0.0', more: false }, similar: [], badges: {}, verify: [], suggestions: {} };
+    changes: { entries: [], cycles: [], cursor: '0.0', more: false }, similar: [], badges: {}, verify: [], suggestions: {},
+    nextSteps: { waitingOnUser: [], waitingOnClaude: 0, toDo: 0, inProgress: 0, fixed: 0, inbox: 0 }, log: {}, steps: {}, regressions: [] };
   readonly log: LoggedRequest[] = [];
   private server?: Server;
   private nextId = 1;
@@ -244,7 +249,8 @@ export class FakeAlfred {
     const chunks: Buffer[] = [];
     for await (const chunk of req) chunks.push(chunk as Buffer);
     const raw = Buffer.concat(chunks).toString('utf8');
-    const body = raw ? JSON.parse(raw) : undefined;
+    const isJson = !String(req.headers['content-type'] ?? '').startsWith('text/plain');
+    const body = raw ? (isJson ? JSON.parse(raw) : raw) : undefined;
     this.log.push({ method: req.method!, path: url.pathname, query: url.searchParams, body, headers: req.headers });
     if (url.pathname.startsWith('/board/cycles/') && url.pathname.includes('/specs/') && req.method === 'GET') {
       const [, , , cycleId, , name] = url.pathname.split('/').map(decodeURIComponent);
@@ -466,7 +472,7 @@ export class FakeAlfred {
       const text = body.question ? `**Question** ${body.question}` : body.reply ? `**Reply** ${body.reply}`
         : `**Did** ${body.did}\n\n**Found** ${body.found}\n\n**Next** ${body.next}${body.impact ? `\n\n**Impact** ${body.impact}` : ''}`;
       const list = (b.activity[p[2]] ??= []);
-      list.push({ id: list.length + 1, actor: 'CLAUDE', kind: 'COMMENT', text, oldValue: null, newValue: null, at: '2026-10-10T09:00:00Z' });
+      list.push({ id: list.length + 1, cardId: p[2], actor: 'CLAUDE', kind: 'COMMENT', text, oldValue: null, newValue: null, at: '2026-10-10T09:00:00Z', replyTo: body.replyTo ?? null });
       if (body.question) {
         const card = find(p[2]);
         if (card && !card.flags.includes('NEEDS_DECISION')) card.flags = [...card.flags, 'NEEDS_DECISION'];
@@ -484,7 +490,9 @@ export class FakeAlfred {
       const card = find(p[2]);
       if (!card) return [404];
       if (body.status === 'VERIFIED' && card.status !== 'FIXED') return [400, { error: 'invalid', message: 'Verified can be proposed for a Fixed card' }];
-      card.proposal = { status: body.status, resolution: body.resolution ?? null, reason: body.reason ?? '', evidence: body.evidence ?? '', at: '2026-10-10T09:00:00Z' };
+      if (body.kind === 'REOPEN' && !['VERIFIED', 'DONE', 'CLOSED'].includes(card.status)) return [400, { error: 'invalid', message: 'Reopen can be proposed for a Verified, Done or closed card' }];
+      card.proposal = { status: body.status ?? 'CLOSED', resolution: body.resolution ?? null, reason: body.reason ?? '', evidence: body.evidence ?? '',
+        at: '2026-10-10T09:00:00Z', kind: body.kind ?? 'STATUS', intoNumber: body.intoNumber ?? null };
       return [200, card];
     }
     if (p[1] === 'search') {
@@ -517,7 +525,43 @@ export class FakeAlfred {
       return [200, card];
     }
     if (p[1] === 'closed-reasons') return [200, b.closedReasons];
+    if (p[1] === 'cycles' && p[3] === 'brief' && method === 'PUT') {
+      b.briefs[p[2]] = { text: body.text, updatedAt: '2026-10-11T09:00:00Z' };
+      return [200, b.briefs[p[2]]];
+    }
     if (p[1] === 'cycles' && p[3] === 'brief') return [200, b.briefs[p[2]] ?? { text: '', updatedAt: null }];
+    if (p[1] === 'cycles' && p[3] === 'specs' && p[4] && method === 'PUT') {
+      const replaced = !!b.specs[p[2]]?.[p[4]];
+      (b.specs[p[2]] ??= {})[p[4]] = body;
+      return [200, { name: p[4], size: String(body).length, uploadedAt: '2026-10-11T09:00:00Z', replaced }];
+    }
+    if (p[1] === 'next-steps') return [200, b.nextSteps];
+    if (p[1] === 'regressions') return [200, b.regressions];
+    if (p[1] === 'cycles' && p[3] === 'log') {
+      if (method === 'POST') (b.log[p[2]] ??= []).push(body);
+      return [method === 'POST' ? 201 : 200, b.log[p[2]] ?? []];
+    }
+    if (p[1] === 'cycles' && p[3] === 'steps' && method === 'PUT') {
+      const step = (b.steps[p[2]] ?? []).find((x) => x.key === p[4]);
+      if (!step) return [404, { error: 'not-found', message: 'No test step' }];
+      Object.assign(step, { state: body.state, calls: body.calls, cardNumber: body.cardNumber ?? null, note: body.note ?? null });
+      return [200, step];
+    }
+    if (p[1] === 'cycles' && p[3] === 'steps') return [200, b.steps[p[2]] ?? []];
+    if (p[1] === 'cards' && p[3] === 'spec-items') {
+      const card = find(p[2]);
+      if (!card) return [404];
+      card.specItems = method === 'POST' ? [...(card.specItems ?? []), { ...body, text: 'item' }]
+        : (card.specItems ?? []).filter((i: any) => i.itemKey !== body.itemKey);
+      return [200, card];
+    }
+    if (p[1] === 'cards' && p[3] === 'blocked-by') {
+      const card = find(p[2]);
+      if (!card) return [404];
+      card.blockedBy = method === 'POST' ? [...(card.blockedBy ?? []), { project: card.project, number: body.number, title: 'blocker', status: 'TO_DO' }]
+        : (card.blockedBy ?? []).filter((x: any) => x.number !== Number(p[4]));
+      return [200, card];
+    }
     if (p[1] === 'cycles' && p[3] === 'specs') {
       return [200, Object.entries(b.specs[p[2]] ?? {}).map(([name, text]) => ({ name, size: text.length, uploadedAt: '2026-10-10T09:00:00Z' }))];
     }

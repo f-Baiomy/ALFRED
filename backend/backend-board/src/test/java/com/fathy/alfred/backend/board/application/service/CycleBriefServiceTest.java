@@ -35,13 +35,16 @@ class CycleBriefServiceTest {
     }
 
     @Test
-    void aBriefIsSavedWithItsMentionsAndClaudeOnlyReadsIt() {
+    void aBriefIsSavedWithItsMentionsAndItsAuthor() {
         assertThat(f.briefs.brief("c-1").text()).isEmpty();
         assertThat(f.briefs.putBrief(Actor.USER, "c-1", "ODY-482 @[call:in:z9|POST]").outcome()).isEqualTo(CardChange.Outcome.OK);
 
         assertThat(f.briefs.brief("c-1").text()).startsWith("ODY-482");
         assertThat(f.board.mentionedLiveCallIds()).containsExactly("z9");
-        assertThat(f.briefs.putBrief(Actor.CLAUDE, "c-1", "x").outcome()).isEqualTo(CardChange.Outcome.REFUSED_FOR_CLAUDE);
+        var byClaude = f.briefs.putBrief(Actor.CLAUDE, "c-1", "x");
+        assertThat(byClaude.outcome()).isEqualTo(CardChange.Outcome.OK);
+        assertThat(byClaude.brief().updatedBy()).isEqualTo(Actor.CLAUDE);
+        assertThat(byClaude.brief().hasPrevious()).isTrue();
         assertThat(f.briefs.putBrief(Actor.USER, "c-1", "x".repeat(256 * 1024 + 1)).outcome()).isEqualTo(CardChange.Outcome.INVALID);
     }
 
@@ -55,7 +58,8 @@ class CycleBriefServiceTest {
         }
         assertThat(f.briefs.put(Actor.USER, "c-1", "spec.pdf", "x").message()).contains(".md").contains(".txt");
         assertThat(f.briefs.put(Actor.USER, "c-1", "big.md", "x".repeat(5 * 1024 * 1024 + 1)).outcome()).isEqualTo(CardChange.Outcome.INVALID);
-        assertThat(f.briefs.put(Actor.CLAUDE, "c-1", "c.md", "x").outcome()).isEqualTo(CardChange.Outcome.REFUSED_FOR_CLAUDE);
+        assertThat(f.briefs.put(Actor.CLAUDE, "c-1", "c.md", "x").outcome()).isEqualTo(CardChange.Outcome.OK);
+        assertThat(f.briefs.delete(Actor.CLAUDE, "c-1", "c.md")).isEqualTo(CardChange.Outcome.REFUSED_FOR_CLAUDE);
     }
 
     @Test

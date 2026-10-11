@@ -62,18 +62,36 @@ public final class BoardRequests {
     public record CommentRequestDto(@Size(max = MAX_TEXT) String text, @Size(max = MAX_TEXT) String did,
                                     @Size(max = MAX_TEXT) String found, @Size(max = MAX_TEXT) String next,
                                     @Size(max = MAX_TEXT) String impact, @Size(max = MAX_TEXT) String reply,
-                                    @Size(max = MAX_TEXT) String question) {
+                                    @Size(max = MAX_TEXT) String question, Long replyTo, Boolean clearDecision,
+                                    com.fathy.alfred.backend.board.domain.model.Waiting waitingOn) {
     }
 
-    public record ProposalRequestDto(@NotNull CardStatus status, Resolution resolution, @Size(max = 2000) String reason,
-                                     @Size(max = 8 * 1024) String evidence) {
+    /** {@code kind}: STATUS (default - status and, for CLOSED, resolution), MERGE (into card #{@code intoNumber}) or REOPEN. */
+    public record ProposalRequestDto(CardStatus status, Resolution resolution, @Size(max = 2000) String reason,
+                                     @Size(max = 8 * 1024) String evidence, String kind, Integer intoNumber) {
+    }
+
+    public record CardNumberRequestDto(@NotNull Integer number) {
+    }
+
+    public record SpecItemRequestDto(@NotBlank @Size(max = 200) String cycleId, @NotBlank @Size(max = 200) String fileName,
+                                     @NotBlank @Size(max = 100) String itemKey) {
+    }
+
+    public record SessionLogRequestDto(@NotBlank @Size(max = 100) String skill, @NotBlank @Size(max = 16 * 1024) String did,
+                                       @NotBlank @Size(max = 16 * 1024) String found, @NotBlank @Size(max = 16 * 1024) String next) {
+    }
+
+    public record StepRequestDto(@NotNull com.fathy.alfred.backend.board.domain.model.StepState state, @Min(0) @Max(1_000_000) int calls,
+                                 Integer cardNumber, @Size(max = 1000) String note) {
     }
 
     public record UnlinkRequestDto(@NotBlank @Pattern(regexp = MENTION_TYPES) String type, @NotBlank @Size(max = 1000) String ref) {
     }
 
     public record AgentStatusRequestDto(@Size(max = 100) String project, @Size(max = 200) String cycleId, AgentStatus.State state,
-                                        @Min(0) @Max(10_000_000) int callsChecked, @Min(0) @Max(10_000_000) int cardsAdded) {
+                                        @Min(0) @Max(10_000_000) int callsChecked, @Min(0) @Max(10_000_000) int cardsAdded,
+                                        @Size(max = 500) String step) {
     }
 
     public record ProjectRequestDto(@Size(max = 100) String project) {

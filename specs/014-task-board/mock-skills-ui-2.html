@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Board Helpers 2</title>
+<style>
+  :root { --bg:#0f0d24; --panel:#1a1640; --inner:#14112f; --border:#2e2865; --strong:#3d3680; --text:#e6e3ff; --dim:#a29dd0; --faint:#6e68a3;
+    --purple:#7c5cff; --pl:#b6a4ff; --cyan:#4fd1e8; --green:#4ade80; --amber:#fbbf24; --red:#f87171; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:12.5px/1.45 system-ui, sans-serif; padding:12px 16px; }
+  .grid { display:grid; grid-template-columns: 1fr 1fr 1fr; gap:12px; }
+  .panel { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:10px; }
+  h3 { margin:0 0 8px; font-size:11px; color:var(--dim); letter-spacing:.05em; }
+  .card { position:relative; background:var(--inner); border:1px solid var(--border); border-radius:8px; padding:8px; margin-bottom:8px; }
+  .t { font-weight:600; }
+  .k { font-size:10px; font-weight:700; padding:0 6px; border-radius:4px; background:#3a1717; color:var(--red); }
+  .wait { display:inline-block; font-size:10.5px; padding:0 7px; border-radius:999px; margin-top:4px; }
+  .w-you { border:1px solid var(--amber); color:var(--amber); }
+  .w-claude { border:1px solid var(--purple); color:var(--pl); }
+  .lock { font-size:11px; color:var(--faint); margin-top:4px; }
+  .lock b { color:var(--amber); }
+  .card.blocked { opacity:.75; border-style:dashed; }
+  .prop { margin-top:6px; padding:6px 8px; border:1px dashed var(--purple); border-radius:7px; background:color-mix(in srgb, var(--purple) 10%, transparent); font-size:11.5px; }
+  .prop b { color:var(--pl); }
+  .row { display:flex; gap:6px; margin-top:6px; align-items:center; flex-wrap:wrap; }
+  .btn { font-size:11px; padding:2px 8px; border-radius:6px; border:1px solid var(--strong); background:var(--inner); color:var(--text); }
+  .btn.p { background:var(--purple); border-color:var(--purple); }
+  .copy { font:11px Consolas, monospace; padding:1px 7px; border-radius:6px; border:1px solid var(--strong); background:var(--inner); color:var(--pl); }
+  .steps .s { display:flex; gap:8px; padding:4px 0; border-bottom:1px solid var(--border); font-size:11.5px; }
+  .ok { color:var(--green); } .no { color:var(--faint); } .bad { color:var(--red); }
+  .s .c { margin-left:auto; color:var(--faint); font-size:10.5px; white-space:nowrap; }
+  pre { margin:0; background:#100d27; border:1px solid var(--border); border-radius:7px; padding:8px; font:10.5px/1.45 Consolas, monospace; color:#d6d1ff; white-space:pre-wrap; }
+  .log { font-size:11.5px; }
+  .log .who { color:var(--faint); font-size:11px; }
+  .log .lbl { font-size:10px; font-weight:700; color:var(--pl); margin-right:6px; }
+  .toast { position:fixed; right:16px; bottom:16px; width:330px; background:#f3f3f6; color:#1d1d24; border-radius:10px; box-shadow:0 12px 30px rgba(0,0,0,.5); padding:10px 12px; font:12px system-ui; }
+  .toast .h { display:flex; gap:8px; align-items:center; font-weight:600; }
+  .toast .ico { width:18px; height:18px; border-radius:4px; background:#7c5cff; color:#fff; font-size:11px; display:grid; place-items:center; }
+  .toast .b { margin-top:4px; color:#444; }
+  .toast .src { color:#888; font-size:10.5px; margin-top:4px; }
+</style>
+</head>
+<body>
+<div class="grid">
+  <div class="panel">
+    <h3>CARDS · TIME IN STATE, BLOCKED BY, MERGE</h3>
+    <div class="card"><span class="k">BUG</span> <span style="color:var(--faint)">#11 ✦</span>
+      <div class="t">read-pnr 409 for a PCC the import page offered</div>
+      <span class="wait w-you">waiting on you · 2 d</span>
+      <div class="prop">✦ Claude proposes: <b>merge #14 into this card</b> - same signature <code>4xx|POST /read-pnr</code>; #14's calls, links and history move here, #14 closes as duplicate.
+        <div class="row"><button class="btn p">Accept merge</button><button class="btn">Dismiss</button></div></div>
+    </div>
+    <div class="card blocked"><span class="k">BUG</span> <span style="color:var(--faint)">#12 ✦</span>
+      <div class="t">Import page keeps the old PCC after branch change</div>
+      <span class="wait w-claude">waiting on Claude · 4 h</span>
+      <div class="lock">🔒 Blocked by <b>#9 Discount not saved</b> · /alfred-fix skips it until #9 is Fixed</div>
+    </div>
+    <div class="card"><span class="k">BUG</span> <span style="color:var(--faint)">#7 ✦</span> <span style="font-size:10.5px;color:var(--green)">Done</span>
+      <div class="t">Login loops after redirect</div>
+      <div class="prop">✦ Claude proposes: <b>Reopen</b> - regression: 3 live calls since yesterday fail the same way
+        <div class="row"><span class="copy" style="color:var(--cyan)">⇄ POST /loginAction · 500</span><span class="copy" style="color:var(--cyan)">⇄ … +2</span></div>
+        <div class="row"><button class="btn p">Reopen</button><button class="btn">Dismiss</button></div></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h3>CARD DRAWER · ACTIONS</h3>
+    <div class="row" style="margin-top:0"><button class="btn">⧉ Copy as issue</button><button class="btn">🔒 Blocked by…</button><span class="copy">⧉ /alfred-fix 11</span></div>
+    <div style="margin-top:8px;font-size:11px;color:var(--dim)">Copy as issue → clipboard (Markdown for Jira / GitHub):</div>
+<pre>## read-pnr 409 for a PCC the import page offered
+**Alfred card** odeysys #11 · BUG · To do · flags: Needs decision
+
+### What happens
+POST /odeysysadmin/v2/import-booked-pnr/read-pnr → 409
+"Selected Organization doesn't support the selected PCC"
+
+### Steps
+1. Import booked PNR, branch 948
+2. Pick PCC 321 (offered by the page) → 409
+
+### Evidence
+- Call: POST /…/read-pnr · 409 (2026-10-11 00:49)
+- Code: ImportBookedPnrService.java:121, :687
+- Spec: spec.md · Acceptance 2 "Branch offers only its own PCCs"
+
+### Decision
+User: "No - filter the PCC list by branch." (10/11 09:12)</pre>
+  </div>
+
+  <div class="panel">
+    <h3>CYCLE · TEST STEPS (from the spec, ticked by listen / review)</h3>
+    <div class="steps">
+      <div class="s"><span class="ok">✓</span>1. Open Import booked PNR<span class="c">2 calls</span></div>
+      <div class="s"><span class="ok">✓</span>2. Choose branch 948<span class="c">1 call</span></div>
+      <div class="s"><span class="bad">✗</span>3. Pick a PCC and read the PNR<span class="c">409 · card #11</span></div>
+      <div class="s"><span class="no">·</span>4. Import the PNR<span class="c">not tested yet</span></div>
+      <div class="s"><span class="no">·</span>5. Refund flow<span class="c">not tested yet</span></div>
+    </div>
+    <h3 style="margin-top:12px">CYCLE · CLAUDE'S SESSION LOG</h3>
+    <div class="log">
+      <div class="who">✦ Claude · /alfred-review · 10/11 09:30</div>
+      <div><span class="lbl">DID</span>Checked 120 calls of ODY-482 against spec.md (5 steps)</div>
+      <div><span class="lbl">FOUND</span>2 new cards (#11, #14), 1 updated (#9 seen again), 1 regression (#7), steps 4-5 untested</div>
+      <div><span class="lbl">NEXT</span>Waiting on you: 2 questions on #11 · then <span class="copy">⧉ /alfred-triage</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="toast">
+  <div class="h"><span class="ico">◆</span>Alfred · Claude asked a question</div>
+  <div class="b">#11 read-pnr 409: Is branch 948 meant to have PCC 321?</div>
+  <div class="src">localhost:3000 · click to open the card</div>
+</div>
+</body>
+</html>

@@ -29,6 +29,11 @@ public final class AcceptanceItems {
     }
 
     public static List<Item> of(String content) {
+        return of(content, "acceptance");
+    }
+
+    /** The items under the first heading containing {@code word} - "acceptance" for a spec, "test step" for a brief. */
+    public static List<Item> of(String content, String word) {
         List<Item> items = new ArrayList<>();
         if (content == null) {
             return items;
@@ -40,7 +45,7 @@ public final class AcceptanceItems {
             if (heading.matches() && !Character.isWhitespace(line.isEmpty() ? 'x' : line.charAt(0))) {
                 int depth = heading.group(1).length();
                 if (level < 0) {
-                    if (heading.group(2).toLowerCase(Locale.ROOT).contains("acceptance")) {
+                    if (heading.group(2).toLowerCase(Locale.ROOT).contains(word)) {
                         level = depth;
                     }
                 } else if (depth <= level) {

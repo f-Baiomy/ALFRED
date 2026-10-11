@@ -97,7 +97,7 @@
   <app-board-view [project]="cycleProject()" [cycleId]="state.cycleId()" [cycleName]="cycle()?.name ?? null" />
 } @else if (tab() === 'brief' && state.cycleId()) {
   <div class="board-brief">
-    <app-cycle-brief [cycleId]="state.cycleId()" [project]="cycleProject()" [editable]="boardEditable()" />
+    <app-cycle-brief [cycleId]="state.cycleId()" [project]="cycleProject()" [editable]="boardEditable()" [cycleName]="cycle()?.name ?? null" />
     <div class="board-brief-side">
       <app-spec-files [cycleId]="state.cycleId()" [editable]="boardEditable()" />
       <app-acceptance-checklist [cycleId]="state.cycleId()" [project]="cycleProject()" [editable]="boardEditable()" />

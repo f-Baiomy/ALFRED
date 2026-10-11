@@ -11,7 +11,7 @@ alfred.py - the "alfred" command of a native install (specs/012-server-program c
     alfred uninstall [--keep-data]
     alfred config ... / project ...          settings (see config_cli.py)
     alfred jvms / attach / detach            Java apps (see attach_cli.py)
-    alfred skill install|remove|status       the /alfred-qa Claude Code skill (alfred_skill.py)
+    alfred skill install|remove|status       the /alfred-* Claude Code skills (alfred_skill.py)
 
 Exit codes: 0 ok, 1 error, 2 usage, 3 validation refused, 4 conflict, 5 not allowed.
 """
@@ -627,7 +627,7 @@ def cmd_version(layout, args):
     return OK
 
 
-SKILL_USAGE = """alfred skill install [--project <folder>] [--force]   add the /alfred-qa skill to Claude Code
+SKILL_USAGE = """alfred skill install [--project <folder>] [--force]   add the /alfred-* skills to Claude Code
 alfred skill remove  [--project <folder>]
 alfred skill status  [--project <folder>]
 
@@ -678,7 +678,8 @@ def cmd_skill(layout, args):
             address = ui_addresses(layout)[0]
         except (OSError, ValueError):
             address = "http://localhost:3000"  # .env unreadable for this account: the default address
-        print(f"Use it in Claude Code: /alfred-qa listen <cycle> | fix | verify <cycle> | resume. "
+        print(f"In Claude Code: /alfred-guide to learn the flow, /alfred-connect <address> for another Alfred - /alfred-setup, /alfred-listen, /alfred-review, /alfred-triage, "
+              f"/alfred-sync, /alfred-fix, /alfred-verify, /alfred-status, /alfred-report. "
               f"Alfred's MCP server must be registered: claude mcp add --transport http alfred {address}/mcp")
     return CONFLICT if any(line.startswith("skipped") for line in lines) else OK
 
@@ -1402,7 +1403,7 @@ HELP_GROUPS = [
                            ("detach", "<pid>", "let it go")]),
     ("Settings", [("config", "list | get | set <KEY> <value>", "settings in .env"),
                   ("project", "list | add | remove ...", "the projects the reverse proxy fronts")]),
-    ("Claude", [("skill", "install | remove | status [--project F]", "the /alfred-qa QA skill for Claude Code")]),
+    ("Claude", [("skill", "install | remove | status [--project F]", "the /alfred-* QA skills for Claude Code")]),
     ("Look after it", [("doctor", "[--json]", "check processes, ports, projects, agent, disk, storage, updates"),
                        ("update", "[--check | --cancel | --version X]", "install a new release · Ctrl+C pauses or cancels"),
                        ("version", "", "the version here"),

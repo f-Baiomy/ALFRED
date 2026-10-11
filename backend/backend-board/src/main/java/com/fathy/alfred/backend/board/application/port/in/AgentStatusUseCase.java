@@ -11,6 +11,9 @@ public interface AgentStatusUseCase {
 
     AgentStatus update(String project, String cycleId, AgentStatus.State state, int callsChecked, int cardsAdded);
 
+    /** With the line the live strip shows of what Claude is doing now ("reviewing ODY-482 · 34/120 calls"). */
+    AgentStatus update(String project, String cycleId, AgentStatus.State state, int callsChecked, int cardsAdded, String step);
+
     Optional<AgentStatus> setState(String project, AgentStatus.State state);
 
     boolean paused(String project);

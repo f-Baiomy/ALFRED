@@ -23,9 +23,12 @@ Usage:
                                                 by default the folder Claude Code is started in
     python setup_mcp.py --remove                unregister (same --scope/--project-dir rules)
     python setup_mcp.py --dry-run               print what would run, change nothing
-    python setup_mcp.py --no-skill              register only, without the /alfred-qa skill
+    python setup_mcp.py --no-skill              register only, without the /alfred-* skills
+    python setup_mcp.py --alfred-url http://192.168.1.80:3000 --name alfred-lan-80 --no-skill
+                                                another Alfred (a Docker install has no /mcp of its own: this
+                                                checkout's server reaches it over its API) - see /alfred-connect
 
-It also installs the /alfred-qa Claude Code skill (skills/alfred-qa, see docs/mcp.md) in the same place: user scope ->
+It also installs the /alfred-* Claude Code skills (skills/, see docs/mcp.md) in the same place: user scope ->
 ~/.claude/skills, project/local scope -> <project-dir>/.claude/skills. --remove removes it too.
 """
 
@@ -169,14 +172,14 @@ def verify(node, args):
 
 
 def skill(args, remove_it=False):
-    """The /alfred-qa skill, beside the registration (alfred_skill.py - the same code `alfred skill` uses natively)."""
+    """The /alfred-* skills, beside the registration (alfred_skill.py - the same code `alfred skill` uses natively)."""
     if args.no_skill:
         return
     import alfred_skill
     scope = "user" if args.scope == "user" else "project"
     where = alfred_skill.target_root(scope, args.project_dir)
     if args.dry_run:
-        print(f"would {'remove' if remove_it else 'install'} the /alfred-qa skill in {where}")
+        print(f"would {'remove' if remove_it else 'install'} the /alfred-* skills in {where}")
         return
     lines = (alfred_skill.remove(scope, args.project_dir) if remove_it
              else alfred_skill.install(os.path.join(SCRIPT_DIR, "skills"), scope, args.project_dir, version="source"))
@@ -185,6 +188,7 @@ def skill(args, remove_it=False):
 
 
 def main():
+    global SERVER_NAME
     parser = argparse.ArgumentParser(description="Register Alfred's MCP server with Claude Code.")
     parser.add_argument("--scope", choices=["user", "project", "local"], default="user",
                         help="user = every project (default); project = writes <project-dir>/.mcp.json; local = only you, only in <project-dir>")
@@ -196,8 +200,11 @@ def main():
     parser.add_argument("--remove", action="store_true", help="unregister instead")
     parser.add_argument("--skip-verify", action="store_true", help="do not start the server once to check it")
     parser.add_argument("--dry-run", action="store_true", help="print the commands, change nothing")
-    parser.add_argument("--no-skill", action="store_true", help="do not install (or remove) the /alfred-qa skill")
+    parser.add_argument("--no-skill", action="store_true", help="do not install (or remove) the /alfred-* skills")
+    parser.add_argument("--name", default="alfred",
+                        help="the MCP server's name in Claude Code (default alfred) - one per Alfred instance, e.g. alfred-lan-80")
     args = parser.parse_args()
+    SERVER_NAME = args.name  # every claude mcp get/add/remove below uses it
 
     claude = tool("claude")
     cwd = scope_cwd(args)

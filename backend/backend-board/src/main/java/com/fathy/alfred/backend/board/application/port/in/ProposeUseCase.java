@@ -15,6 +15,12 @@ public interface ProposeUseCase {
 
     CardChange propose(Actor actor, String cardId, CardStatus status, Resolution resolution, String reason, String evidence);
 
+    /** Claude proposes merging this card into card #{@code intoNumber} of the same project (a duplicate). */
+    CardChange proposeMerge(Actor actor, String cardId, int intoNumber, String reason, String evidence);
+
+    /** Claude proposes reopening a Done / Verified / closed card (a regression). */
+    CardChange proposeReopen(Actor actor, String cardId, String reason, String evidence);
+
     CardChange acceptProposal(Actor actor, String cardId);
 
     CardChange dismissProposal(Actor actor, String cardId);

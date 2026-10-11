@@ -2,7 +2,9 @@
 
 export type CardKind = 'BUG' | 'TASK' | 'NOTE' | 'QUESTION';
 export type CardStatus = 'INBOX' | 'TO_DO' | 'IN_PROGRESS' | 'FIXED' | 'VERIFIED' | 'DONE' | 'CLOSED';
-export type Resolution = 'FINE' | 'NOT_IN_FLOW' | 'WONT_FIX';
+export type Resolution = 'FINE' | 'NOT_IN_FLOW' | 'WONT_FIX' | 'DUPLICATE';
+/** Who a card waits on (specs/015): the user, Claude, a re-test, or nobody. */
+export type Waiting = 'USER' | 'CLAUDE' | 'RETEST' | 'NONE';
 export type Flag = 'URGENT' | 'RISK' | 'BLOCKER' | 'AFFECTS_PROJECT' | 'NEEDS_DECISION';
 export type Scope = 'NOT_DECIDED' | 'IN_SCOPE' | 'OUT_OF_SCOPE';
 export type Actor = 'USER' | 'CLAUDE';
@@ -10,7 +12,7 @@ export type Actor = 'USER' | 'CLAUDE';
 export type MentionType = 'call' | 'stmt' | 'log' | 'redis' | 'spec' | 'code' | 'cycle' | 'spacer' | 'card' | 'rule';
 export type ActivityKind = 'COMMENT' | 'CREATED' | 'STATUS' | 'KIND' | 'SCOPE' | 'FLAGS' | 'RESOLUTION' | 'REASON' | 'TITLE'
   | 'DESCRIPTION' | 'LINK_ADDED' | 'LINK_REMOVED' | 'CYCLE' | 'PROJECT' | 'SPEC_REPLACED' | 'REOPENED' | 'IMPORTED' | 'DELETED'
-  | 'PROPOSED' | 'PROPOSAL_ACCEPTED' | 'PROPOSAL_DISMISSED';
+  | 'PROPOSED' | 'PROPOSAL_ACCEPTED' | 'PROPOSAL_DISMISSED' | 'MERGED' | 'BLOCKED' | 'UNBLOCKED' | 'SPEC_ITEM';
 export type Mark = 'PASS' | 'FAIL' | 'CANT_TELL';
 export type BulkAction = 'FINE' | 'NOT_IN_FLOW' | 'TO_DO' | 'MARK_URGENT';
 
@@ -25,9 +27,10 @@ export const STATUS_LABELS: Record<CardStatus, string> = {
 };
 /** Chips and exports use the full names; buttons use the short ones in {@link RESOLUTION_BUTTONS}. */
 export const RESOLUTION_LABELS: Record<Resolution, string> = {
-  FINE: 'Fine - not an issue', NOT_IN_FLOW: 'Not in this flow', WONT_FIX: "Won't fix",
+  FINE: 'Fine - not an issue', NOT_IN_FLOW: 'Not in this flow', WONT_FIX: "Won't fix", DUPLICATE: 'Duplicate',
 };
-export const RESOLUTION_BUTTONS: Record<Resolution, string> = { FINE: '✓ Fine', NOT_IN_FLOW: '⊘ Not in flow', WONT_FIX: "✕ Won't fix" };
+export const RESOLUTION_BUTTONS: Record<Resolution, string> = { FINE: '✓ Fine', NOT_IN_FLOW: '⊘ Not in flow', WONT_FIX: "✕ Won't fix", DUPLICATE: '⧉ Duplicate' };
+export const WAITING_LABELS: Record<Waiting, string> = { USER: 'you', CLAUDE: 'Claude', RETEST: 'a re-test', NONE: 'nobody' };
 export const FLAG_LABELS: Record<Flag, string> = {
   URGENT: 'Urgent', RISK: 'Risk', BLOCKER: 'Blocker', AFFECTS_PROJECT: 'Affects project', NEEDS_DECISION: 'Needs decision',
 };
@@ -75,10 +78,70 @@ export interface CardSummary {
   readonly commentCount: number;
   readonly mentionChips?: readonly MentionRef[];
   readonly similarClosed: SimilarClosed | null;
-  /** Claude asking the user to take a step only the user takes (Verified, Done, closing). */
+  /** Claude asking the user to take a step only the user takes (Verified, Done, closing, a merge, a reopen). */
   readonly proposal?: Proposal | null;
+  /** Who the card waits on, and since when (specs/015). */
+  readonly waiting?: WaitingOn | null;
+  /** Cards this one waits for. */
+  readonly blockedBy?: readonly CardRef[];
   /** Empty in list rows; filled in a detail. */
   readonly description: string;
+}
+
+export interface WaitingOn {
+  readonly who: Waiting;
+  readonly since: string;
+  readonly setBy: Actor;
+}
+
+/** Another card, as a line. */
+export interface CardRef {
+  readonly project: string;
+  readonly number: number;
+  readonly title: string;
+  readonly status: CardStatus;
+}
+
+/** An Acceptance item a card is about; text null when the item is gone. */
+export interface SpecItemLink {
+  readonly cycleId: string;
+  readonly fileName: string;
+  readonly itemKey: string;
+  readonly text: string | null;
+}
+
+/** What one board waits on (the next-step bar). */
+export interface NextSteps {
+  readonly waitingOnUser: readonly { readonly project: string; readonly number: number; readonly title: string; readonly status: CardStatus;
+    readonly why: 'question' | 'proposal' | 'inbox' | 'other'; readonly since: string }[];
+  readonly waitingOnClaude: number;
+  readonly toDo: number;
+  readonly inProgress: number;
+  readonly fixed: number;
+  readonly inbox: number;
+}
+
+export type StepState = 'UNTESTED' | 'SEEN' | 'FAILED';
+
+/** A numbered step under the brief's "Test steps" heading, and what the cycle showed for it. */
+export interface TestStep {
+  readonly key: string;
+  readonly text: string;
+  readonly state: StepState;
+  readonly calls: number;
+  readonly cardNumber: number | null;
+  readonly note: string | null;
+}
+
+/** One skill run Claude logged on a cycle. */
+export interface SessionLogEntry {
+  readonly id: number;
+  readonly cycleId: string;
+  readonly skill: string;
+  readonly did: string;
+  readonly found: string;
+  readonly next: string;
+  readonly at: string;
 }
 
 /** Claude's open proposal on a card: accepted, it is taken as the user's own step; dismissed, it is gone. */
@@ -89,10 +152,13 @@ export interface Proposal {
   readonly reason: string;
   readonly evidence: string;
   readonly at: string;
+  readonly kind?: 'STATUS' | 'MERGE' | 'REOPEN';
+  readonly intoNumber?: number | null;
 }
 
 export interface CardDetail extends CardSummary {
   readonly links: readonly MentionRef[];
+  readonly specItems?: readonly SpecItemLink[];
 }
 
 export interface CardsPage {
@@ -110,6 +176,8 @@ export interface ActivityEntry {
   readonly oldValue: string | null;
   readonly newValue: string | null;
   readonly at: string;
+  /** The comment this one answers (one level), or null. */
+  readonly replyTo?: number | null;
 }
 
 export interface ActivityPage {
@@ -138,12 +206,17 @@ export interface CycleBrief {
   readonly cycleId: string;
   readonly text: string;
   readonly updatedAt: string | null;
+  readonly updatedBy?: Actor;
+  /** The text the last write replaced is kept - Restore previous. */
+  readonly hasPrevious?: boolean;
 }
 
 export interface SpecFileInfo {
   readonly name: string;
   readonly size: number;
   readonly uploadedAt: string;
+  readonly uploadedBy?: Actor;
+  readonly hasPrevious?: boolean;
 }
 
 export interface ChecklistMarkChange {
@@ -169,6 +242,8 @@ export interface ChecklistItem {
   readonly mark: ChecklistMark | null;
   /** The mark Claude suggests, grey until the user accepts it. */
   readonly suggestion?: ChecklistSuggestion | null;
+  /** The cards about this item. */
+  readonly cards?: readonly CardRef[];
 }
 
 export interface ChecklistSuggestion {
@@ -193,6 +268,8 @@ export interface AgentStatus {
   readonly cardsAdded: number;
   readonly lastCheckAt: string;
   readonly updatedAt: string;
+  /** What Claude is doing now ("reviewing ODY-482 · 34/120 calls"). */
+  readonly step?: string | null;
 }
 
 export interface BoardAccess {
@@ -229,9 +306,10 @@ export interface BoardFilters {
   readonly author: Actor | null;
   readonly scopeNotDecided: boolean;
   readonly q: string;
+  readonly waiting?: Waiting | null;
 }
 
-export const NO_FILTERS: BoardFilters = { kinds: [], flags: [], author: null, scopeNotDecided: false, q: '' };
+export const NO_FILTERS: BoardFilters = { kinds: [], flags: [], author: null, scopeNotDecided: false, q: '', waiting: null };
 
 /** A /ws/board message (contracts/websocket.md). */
 export type BoardSocketEvent =

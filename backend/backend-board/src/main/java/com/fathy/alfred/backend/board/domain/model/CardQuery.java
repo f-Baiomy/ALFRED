@@ -10,11 +10,17 @@ import java.util.Set;
  */
 public record CardQuery(String project, String cycleId, Set<CardKind> kinds, Set<CardStatus> statuses, Set<Flag> flags,
                         Actor author, boolean scopeNotDecided, String q, int offset, int limit, boolean allProjects,
-                        Instant since, boolean claudeTouched) {
+                        Instant since, boolean claudeTouched, Waiting waiting) {
+
+    public CardQuery(String project, String cycleId, Set<CardKind> kinds, Set<CardStatus> statuses, Set<Flag> flags,
+                     Actor author, boolean scopeNotDecided, String q, int offset, int limit, boolean allProjects,
+                     Instant since, boolean claudeTouched) {
+        this(project, cycleId, kinds, statuses, flags, author, scopeNotDecided, q, offset, limit, allProjects, since, claudeTouched, null);
+    }
 
     public CardQuery(String project, String cycleId, Set<CardKind> kinds, Set<CardStatus> statuses, Set<Flag> flags,
                      Actor author, boolean scopeNotDecided, String q, int offset, int limit) {
-        this(project, cycleId, kinds, statuses, flags, author, scopeNotDecided, q, offset, limit, false, null, false);
+        this(project, cycleId, kinds, statuses, flags, author, scopeNotDecided, q, offset, limit, false, null, false, null);
     }
 
     public static final int MAX_LIMIT = 500;

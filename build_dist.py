@@ -6,7 +6,7 @@ contracts/installer-and-build.md):
     dist/alfred-setup-<version>-linux-x64.run
     dist/alfred-setup-<version>-windows-x64.exe
     dist/SHA256SUMS
-    dist/alfred-qa-skill-<version>.zip   the Claude Code skill on its own (also inside both installers)
+    dist/alfred-skills-<version>.zip     the /alfred-* Claude Code skills on their own (also inside both installers)
 
 Usage:
     python build_dist.py [--target linux|windows|all] [--skip-tests] [--clean] [--reuse] [--dns 8.8.8.8] [--verbose]
@@ -426,7 +426,7 @@ def stage_app(root, target, version_text, java_out, mcp_out):
     shutil.copy2(os.path.join(ROOT, "log-agent", "agent.py"), os.path.join(app, "log-agent", "agent.py"))
     for name in ("alfred_settings.py", "alfred_logwatch.py", "alfred_skill.py"):
         shutil.copy2(os.path.join(ROOT, name), os.path.join(app, name))
-    # The Claude Code skill (/alfred-qa), installed with `alfred skill install` (docs/mcp.md).
+    # The /alfred-* Claude Code skills (and their shared rules), installed with `alfred skill install` (docs/mcp.md).
     shutil.copytree(os.path.join(ROOT, "skills"), os.path.join(app, "skills"), dirs_exist_ok=True,
                     ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
     shutil.copy2(os.path.join(ROOT, "backend", "backend-server", "src", "main", "resources", "settings-env-map.json"),
@@ -586,17 +586,21 @@ def ensure_nsis_image(dns):
 
 
 def skill_archive(version_text):
-    """dist/alfred-qa-skill-<version>.zip: the skill on its own, for a Claude Code user who reaches Alfred over the
-    network and has no install here - unzip it into ~/.claude/skills (or a repo's .claude/skills)."""
+    """dist/alfred-skills-<version>.zip: the /alfred-* skills on their own (each folder with its rules.md), for a
+    Claude Code user who reaches Alfred over the network and has no install here - unzip into ~/.claude/skills."""
+    import tempfile
     import zipfile
-    path = os.path.join(DIST, f"alfred-qa-skill-{version_text}.zip")
-    source = os.path.join(ROOT, "skills")
-    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
-        for current, folders, files in os.walk(source):
-            folders[:] = sorted(f for f in folders if f != "__pycache__")
-            for name in sorted(files):
-                full = os.path.join(current, name)
-                z.write(full, os.path.relpath(full, source).replace(os.sep, "/"))
+    sys.path.insert(0, ROOT)
+    import alfred_skill
+    path = os.path.join(DIST, f"alfred-skills-{version_text}.zip")
+    with tempfile.TemporaryDirectory() as tmp:
+        alfred_skill.assemble(os.path.join(ROOT, "skills"), tmp)
+        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+            for current, folders, files in os.walk(tmp):
+                folders.sort()
+                for name in sorted(files):
+                    full = os.path.join(current, name)
+                    z.write(full, os.path.relpath(full, tmp).replace(os.sep, "/"))
     return path
 
 

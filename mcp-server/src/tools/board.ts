@@ -36,17 +36,60 @@ const CardNumber = z.number().int().min(1);
 /** One entry's text over this many characters is read in parts with board_get entry=<index>. */
 const ENTRY_INLINE = 6000;
 
-interface Proposal { status: string; resolution: string | null; reason: string; evidence: string; at: string }
+interface Proposal { status: string; resolution: string | null; reason: string; evidence: string; at: string; kind?: string; intoNumber?: number | null }
 
 interface CardRow {
   id: string; project: string; number: number; kind: string; title: string; status: string; resolution: string | null; reason: string | null;
   flags: string[]; scope: string; author: string; cycleId: string | null; cycleDeleted: boolean; updatedAt: string; commentCount: number;
   similarClosed: { number: number; resolution: string; reason: string | null } | null; description?: string;
   links?: { type: string; ref: string; label: string }[]; proposal?: Proposal | null;
+  waiting?: { who: string; since: string; setBy: string } | null;
+  blockedBy?: { project: string; number: number; title: string; status: string }[];
+  specItems?: { cycleId: string; fileName: string; itemKey: string; text: string | null }[];
+}
+
+const WaitingOn = z.enum(['USER', 'CLAUDE', 'RETEST', 'NONE']).optional()
+  .describe('Who the card waits on after this: USER (a question/decision), CLAUDE (your work), RETEST (a re-test cycle), NONE');
+
+/** "2 d", "4 h", "12 min" - how long a card has waited. */
+export function ago(iso: string, now = Date.now()): string {
+  const ms = Math.max(0, now - Date.parse(iso));
+  const min = Math.floor(ms / 60000);
+  if (min < 60) return `${min} min`;
+  const h = Math.floor(min / 60);
+  return h < 48 ? `${h} h` : `${Math.floor(h / 24)} d`;
+}
+
+function waitingText(c: CardRow): string {
+  if (!c.waiting || c.waiting.who === 'NONE') return '';
+  const who = { USER: 'you', CLAUDE: 'Claude', RETEST: 'a re-test' }[c.waiting.who] ?? c.waiting.who;
+  return ` · waiting on ${who === 'you' ? 'the user' : who} ${ago(c.waiting.since)}`;
 }
 
 interface ActivityRow {
-  id?: number; actor: string; kind: string; text: string | null; oldValue: string | null; newValue: string | null; at: string;
+  id?: number; cardId?: string; actor: string; kind: string; text: string | null; oldValue: string | null; newValue: string | null; at: string;
+  /** The comment this one answers (one level), or null. */
+  replyTo?: number | null;
+}
+
+function isQuestion(e: ActivityRow): boolean {
+  return e.kind === 'COMMENT' && e.actor === 'CLAUDE' && !!e.text && e.text.startsWith('**Question**');
+}
+
+/** Claude's questions on a card the user has not answered (replied to) yet, as history indexes. */
+export function openQuestionIndexes(entries: readonly ActivityRow[]): number[] {
+  const answered = new Set(entries.filter((e) => e.actor === 'USER' && e.replyTo != null).map((e) => e.replyTo));
+  return entries.map((e, i) => (isQuestion(e) && !answered.has(e.id) ? i : -1)).filter((i) => i >= 0);
+}
+
+/** A history index from board_get to the comment's id - a reply names the comment it answers by its index. */
+async function commentIdAt(client: AlfredClient, card: CardRow, index: number): Promise<number> {
+  const entries = await history(client, card.id);
+  const e = entries[index];
+  if (!e || e.kind !== 'COMMENT' || e.id == null) {
+    throw invalid(`History entry [${index}] of card #${card.number} is not a comment - pass the [index] of a comment from board_get.`);
+  }
+  return e.id;
 }
 
 interface SearchHit extends CardRow { lastComment: ActivityRow | null }
@@ -64,11 +107,14 @@ function line(c: CardRow): string {
   const flags = c.flags.length ? ` [${c.flags.join(', ')}]` : '';
   const state = c.resolution ? `${c.status} (${c.resolution}${c.reason ? `: ${c.reason}` : ''})` : c.status;
   const proposal = c.proposal ? ` · ✦ proposed ${target(c.proposal)} - waiting for the user` : '';
+  const blocked = c.blockedBy?.length ? ` · 🔒 blocked by ${c.blockedBy.map((b) => `#${b.number}`).join(', ')}` : '';
   return `#${c.number} ${c.kind}${flags} ${c.title} - ${state}${c.cycleId ? ` (cycle ${c.cycleId}${c.cycleDeleted ? ', deleted' : ''})` : ''}`
-    + `${c.author === 'CLAUDE' ? ' ✦' : ''}${c.commentCount ? ` · ${c.commentCount} comments` : ''}${proposal}`;
+    + `${c.author === 'CLAUDE' ? ' ✦' : ''}${c.commentCount ? ` · ${c.commentCount} comments` : ''}${waitingText(c)}${blocked}${proposal}`;
 }
 
 function target(p: Proposal): string {
+  if (p.kind === 'MERGE') return `merge into #${p.intoNumber}`;
+  if (p.kind === 'REOPEN') return 'reopen';
   return p.status === 'CLOSED' && p.resolution ? `close as ${p.resolution}` : p.status;
 }
 
@@ -83,6 +129,14 @@ function entryLine(ctx: MaskContext, e: ActivityRow, index: number, inline = ENT
   if (e.kind === 'COMMENT') return `${e.at} ${who(e.actor)}: ${body}`;
   const change = e.oldValue || e.newValue ? ` ${e.oldValue ?? ''} → ${e.newValue ?? ''}` : '';
   return `${e.at} ${who(e.actor)} ${e.kind}${change}${body ? ` (${body})` : ''}`;
+}
+
+interface StepRow { key: string; text: string; state: string; calls: number; cardNumber: number | null; note: string | null }
+
+function stepLine(s: StepRow): string {
+  const mark = s.state === 'SEEN' ? '✓' : s.state === 'FAILED' ? '✗' : '·';
+  const detail = s.state === 'SEEN' ? ` (${s.calls} call${s.calls === 1 ? '' : 's'})` : s.state === 'FAILED' ? ` (${s.cardNumber ? `card #${s.cardNumber}` : 'failed'}${s.note ? `: ${s.note}` : ''})` : ' (not tested yet)';
+  return `[${s.key}] ${mark} ${s.text}${detail}`;
 }
 
 /** How to open what a mention points at - the tool and its arguments. */
@@ -138,13 +192,32 @@ function hitLine(ctx: MaskContext, h: SearchHit): Record<string, unknown> {
   };
 }
 
-function changeLine(ctx: MaskContext, e: ChangeRow): string {
-  return `${e.project || '(No project)'} #${e.number} "${e.title}" (${e.status}) - ${entryLine(ctx, e, -1, 1500)
+function changeLine(ctx: MaskContext, e: ChangeRow, parents: ReadonlyMap<number, ActivityRow>): string {
+  const parent = e.replyTo != null ? parents.get(e.replyTo) : undefined;
+  const thread = parent
+    ? (isQuestion(parent) && e.actor === 'USER' ? `ANSWERS your question "${preview(stripLabel(parent.text), 120, 'board_get')}": `
+      : `↳ reply to ${who(parent.actor)} "${preview(stripLabel(parent.text), 120, 'board_get')}": `)
+    : '';
+  return `${e.project || '(No project)'} #${e.number} "${e.title}" (${e.status}) - ${thread}${entryLine(ctx, e, -1, 1500)
     .replace(/board_get entry=-1/, `board_get ${JSON.stringify({ project: e.project, number: e.number })}`)}`;
 }
 
-function changesReply(ctx: MaskContext, page: ChangesPage): Record<string, unknown> {
-  const entries = page.entries.map((e) => changeLine(ctx, e));
+function stripLabel(text: string | null): string {
+  return (text ?? '').replace(/^\*\*(Did|Found|Next|Impact|Reply|Question)\*\*\s*/, '').replace(/\s+/g, ' ').trim();
+}
+
+/** The comments the replies in a page of changes answer, read once per card. */
+async function parentsOf(client: AlfredClient, page: ChangesPage): Promise<Map<number, ActivityRow>> {
+  const out = new Map<number, ActivityRow>();
+  const cards = [...new Set(page.entries.filter((e) => e.replyTo != null && e.cardId).map((e) => e.cardId!))];
+  for (const cardId of cards.slice(0, 20)) {
+    for (const e of await history(client, cardId).catch(() => [] as ActivityRow[])) if (e.id != null) out.set(e.id, e);
+  }
+  return out;
+}
+
+function changesReply(ctx: MaskContext, page: ChangesPage, parents: ReadonlyMap<number, ActivityRow>): Record<string, unknown> {
+  const entries = page.entries.map((e) => changeLine(ctx, e, parents));
   const cycles = page.cycles.map((c) => `${c.at} cycle ${c.cycleId}: ${c.what}${c.name ? ` ${c.name}` : ''}${c.detail ? ` (${c.detail})` : ''}`);
   const fitted = fitItems(entries, 600 + JSON.stringify(cycles).length);
   const cut = fitted.cut || page.more;
@@ -212,7 +285,8 @@ export function register(server: McpServer, client: AlfredClient): void {
 
   server.registerTool('board_get', {
     description: 'One card in full: description, Linked list, every mention with the tool that opens it, the open proposal, and the history '
-      + 'oldest first with every comment complete. Long history continues at nextHistoryOffset; a comment longer than 6000 characters is read '
+      + 'oldest first with every comment complete; a reply shows "↳ reply to [i]" (the comment it answers) and a question of yours shows '
+      + 'whether the user answered it (openQuestions lists the open ones). Long history continues at nextHistoryOffset; a comment longer than 6000 characters is read '
       + 'in parts with entry=<its index> (and entryOffset). Read it before you continue work on a card.',
     inputSchema: {
       project: Project,
@@ -248,8 +322,17 @@ export function register(server: McpServer, client: AlfredClient): void {
       links: (card.links ?? []).map((l) => `${l.type.toLowerCase()} ${l.ref} - ${maskText(ctx, l.label)}`),
       mentions: shownMentions,
       ...(mentions.length > shownMentions.length ? { moreMentions: `${mentions.length - shownMentions.length} more - board_evidence lists them all` } : {}),
+      ...(openQuestionIndexes(entries).length ? { openQuestions: openQuestionIndexes(entries) } : {}),
+      ...(card.specItems?.length ? { specItems: card.specItems.map((i) => `${i.fileName} [${i.itemKey}] ${i.text ?? '(item gone)'}`) } : {}),
     };
-    const lines = entries.slice(input.historyOffset).map((e, i) => `[${input.historyOffset + i}] ${entryLine(ctx, e, input.historyOffset + i)}`);
+    const indexOf = new Map(entries.map((e, i) => [e.id, i]));
+    const answered = new Set(entries.filter((e) => e.actor === 'USER' && e.replyTo != null).map((e) => e.replyTo));
+    const lines = entries.slice(input.historyOffset).map((e, n) => {
+      const i = input.historyOffset + n;
+      const thread = e.replyTo != null ? `↳ reply to [${indexOf.get(e.replyTo) ?? '?'}] ` : '';
+      const state = isQuestion(e) ? ` (question - ${answered.has(e.id) ? 'answered' : 'OPEN, waiting for the user'})` : '';
+      return `[${i}] ${thread}${entryLine(ctx, e, i)}${state}`;
+    });
     const fitted = fitItems(lines, JSON.stringify(head).length + 400);
     const next = input.historyOffset + fitted.items.length;
     return ok({ ...head, history: fitted.items, historyTotal: entries.length,
@@ -321,7 +404,7 @@ export function register(server: McpServer, client: AlfredClient): void {
   }, (input) => run(async () => {
     const ctx = await maskContext(client, input.mask);
     const page = await client.get<ChangesPage>('/board/changes', { query: { cursor: input.cursor, project: input.project, cycleId: input.cycleId, actor: input.by, limit: input.limit } });
-    return ok(changesReply(ctx, page));
+    return ok(changesReply(ctx, page, await parentsOf(client, page)));
   }));
 
   server.registerTool('board_wait', {
@@ -342,7 +425,7 @@ export function register(server: McpServer, client: AlfredClient): void {
       query: { cursor: input.cursor, project: input.project, cycleId: input.cycleId, actor: input.by, timeoutSeconds: input.timeoutSeconds },
       timeoutMs: (input.timeoutSeconds + 10) * 1000,
     });
-    return ok(changesReply(ctx, page));
+    return ok(changesReply(ctx, page, await parentsOf(client, page)));
   }));
 
   server.registerTool('board_closed_reasons', {
@@ -360,10 +443,11 @@ export function register(server: McpServer, client: AlfredClient): void {
     inputSchema: { cycleId: z.string().min(1), mask: MaskSchema },
   }, (input) => run(async () => {
     const ctx = await maskContext(client, input.mask);
-    const [brief, specs, cards] = await Promise.all([
-      client.get<{ text: string; updatedAt: string | null }>(`/board/cycles/${seg(input.cycleId)}/brief`),
+    const [brief, specs, cards, steps] = await Promise.all([
+      client.get<{ text: string; updatedAt: string | null; updatedBy?: string }>(`/board/cycles/${seg(input.cycleId)}/brief`),
       client.get<{ name: string; size: number; uploadedAt: string }[]>(`/board/cycles/${seg(input.cycleId)}/specs`),
       client.get<{ cards: SearchHit[]; total: number }>('/board/search', { query: { cycleId: input.cycleId, limit: 100 } }).catch(() => ({ cards: [], total: 0 })),
+      client.get<StepRow[]>(`/board/cycles/${seg(input.cycleId)}/steps`).catch(() => [] as StepRow[]),
     ]);
     const briefText = chunkText(maskText(ctx, brief.text || '(no brief yet)'), 0, 6000);
     const rows = cards.cards.map((h) => hitLine(ctx, h));
@@ -371,6 +455,8 @@ export function register(server: McpServer, client: AlfredClient): void {
     return ok({
       brief: briefText.nextOffset === null ? briefText.text : `${briefText.text}… (${briefText.totalLength} chars; the rest is in the cycle's Brief tab)`,
       updatedAt: brief.updatedAt,
+      ...(brief.updatedBy === 'CLAUDE' ? { writtenBy: 'Claude (the user can Restore previous)' } : {}),
+      ...(steps.length ? { testSteps: steps.map(stepLine) } : {}),
       specFiles: specs.map((s) => `${s.name} (${s.size} bytes)`),
       cards: fitted.items,
       cardsTotal: cards.total,
@@ -389,13 +475,14 @@ export function register(server: McpServer, client: AlfredClient): void {
     },
   }, (input) => run(async () => {
     const text = await client.get<string>(`/board/cycles/${seg(input.cycleId)}/specs/${seg(input.name)}`, { text: true, notFound: `No spec file ${input.name} in this cycle.` });
-    const checklist = await client.get<{ fileName: string; items: { key: string; text: string; mark: { mark: string; evidence: string } | null; suggestion?: { mark: string; evidence: string } | null }[] }[]>(
+    const checklist = await client.get<{ fileName: string; items: { key: string; text: string; mark: { mark: string; evidence: string } | null; suggestion?: { mark: string; evidence: string } | null; cards?: { number: number }[] }[] }[]>(
       `/board/cycles/${seg(input.cycleId)}/checklist`).catch(() => []);
     const body = input.section ? sectionOf(text, input.section) : text;
     const items = checklist.find((f) => f.fileName === input.name)?.items ?? [];
     return ok({
       spec: chunkText(body, input.offset, 10_000),
       checklist: items.map((i) => `[${i.key}] ${i.mark ? i.mark.mark : 'UNMARKED'} - ${i.text}${i.mark?.evidence ? ` (evidence: ${i.mark.evidence})` : ''}`
+        + `${i.cards?.length ? ` · cards ${i.cards.map((c) => `#${c.number}`).join(', ')}` : ''}`
         + `${i.suggestion ? ` · you suggested ${i.suggestion.mark}, waiting for the user` : ''}`),
     });
   }));
@@ -487,20 +574,32 @@ export function register(server: McpServer, client: AlfredClient): void {
       found: z.string().min(1).max(64 * 1024),
       next: z.string().min(1).max(64 * 1024),
       impact: z.string().max(64 * 1024).optional(),
+      replyTo: z.number().int().min(0).optional().describe('Put it under this comment ([index] from board_get), e.g. the user\'s request it reports on'),
+      waitingOn: WaitingOn,
     },
   }, (input) => run(async () => {
     const card = await cardByNumber(client, input.project, input.number);
-    await client.post(`/board/cards/${seg(card.id)}/comments`, { ...AS_CLAUDE, body: { did: input.did, found: input.found, next: input.next, impact: input.impact } });
+    const replyTo = input.replyTo === undefined ? undefined : await commentIdAt(client, card, input.replyTo);
+    await client.post(`/board/cards/${seg(card.id)}/comments`, { ...AS_CLAUDE,
+      body: { did: input.did, found: input.found, next: input.next, impact: input.impact, ...(replyTo != null ? { replyTo } : {}),
+        ...(input.waitingOn ? { waitingOn: input.waitingOn } : {}) } });
     return ok({ commented: `#${card.number}` });
   }));
 
   server.registerTool('board_reply', {
-    description: 'Answer the user on a card in your own words (shown as "Reply" in the history). Mentions work: @[call:in:<id>|label].',
-    inputSchema: { project: Project, number: CardNumber, text: z.string().min(1).max(64 * 1024) },
+    description: 'Answer the user on a card in your own words (shown as "Reply" in the history). With replyTo (a comment\'s [index] from '
+      + 'board_get) it goes under that comment, in its thread - use it to answer one exact comment. Mentions work: @[call:in:<id>|label].',
+    inputSchema: {
+      project: Project, number: CardNumber, text: z.string().min(1).max(64 * 1024),
+      replyTo: z.number().int().min(0).optional().describe('The [index] of the comment you answer, from board_get'),
+      waitingOn: WaitingOn,
+    },
   }, (input) => run(async () => {
     const card = await cardByNumber(client, input.project, input.number);
-    await client.post(`/board/cards/${seg(card.id)}/comments`, { ...AS_CLAUDE, body: { reply: input.text } });
-    return ok({ replied: `#${card.number}` });
+    const replyTo = input.replyTo === undefined ? undefined : await commentIdAt(client, card, input.replyTo);
+    await client.post(`/board/cards/${seg(card.id)}/comments`, { ...AS_CLAUDE, body: { reply: input.text, ...(replyTo != null ? { replyTo } : {}),
+      ...(input.waitingOn ? { waitingOn: input.waitingOn } : {}) } });
+    return ok({ replied: `#${card.number}`, ...(input.replyTo !== undefined ? { under: `[${input.replyTo}]` } : {}) });
   }));
 
   server.registerTool('board_ask', {
@@ -601,17 +700,23 @@ export function register(server: McpServer, client: AlfredClient): void {
   }));
 
   server.registerTool('board_propose', {
-    description: 'Propose a step only the user takes: VERIFIED (a Fixed card), DONE (Fixed or Verified), or CLOSED with a resolution '
-      + '(FINE, NOT_IN_FLOW, WONT_FIX). The card shows it with Accept / Dismiss; a new proposal replaces the open one. Give the evidence as mentions.',
+    description: 'Propose a step only the user takes: VERIFIED (a Fixed card), DONE (Fixed or Verified), CLOSED with a resolution '
+      + '(FINE, NOT_IN_FLOW, WONT_FIX), MERGE this card into card intoNumber (a duplicate: its history and links move there), or REOPEN '
+      + 'a Verified/Done/closed card (a regression). The card shows it with Accept / Dismiss; a new proposal replaces the open one. '
+      + 'Give the evidence as mentions.',
     inputSchema: {
-      project: Project, number: CardNumber, status: z.enum(['VERIFIED', 'DONE', 'CLOSED']), resolution: Resolution.optional(),
+      project: Project, number: CardNumber, status: z.enum(['VERIFIED', 'DONE', 'CLOSED', 'MERGE', 'REOPEN']), resolution: Resolution.optional(),
+      intoNumber: CardNumber.optional().describe('For MERGE: the card this one is a duplicate of'),
       reason: z.string().max(2000).default(''), evidence: z.string().max(8 * 1024).default(''),
     },
   }, (input) => run(async () => {
     if (input.status === 'CLOSED' && !input.resolution) throw invalid('A close needs a resolution: FINE, NOT_IN_FLOW or WONT_FIX.');
+    if (input.status === 'MERGE' && !input.intoNumber) throw invalid('A merge needs intoNumber: the card this one duplicates.');
     const card = await cardByNumber(client, input.project, input.number);
-    const updated = await client.put<CardRow>(`/board/cards/${seg(card.id)}/proposal`, { ...AS_CLAUDE,
-      body: { status: input.status, resolution: input.status === 'CLOSED' ? input.resolution : null, reason: input.reason, evidence: input.evidence } });
+    const body = input.status === 'MERGE' ? { kind: 'MERGE', intoNumber: input.intoNumber, reason: input.reason, evidence: input.evidence }
+      : input.status === 'REOPEN' ? { kind: 'REOPEN', reason: input.reason, evidence: input.evidence }
+        : { status: input.status, resolution: input.status === 'CLOSED' ? input.resolution : null, reason: input.reason, evidence: input.evidence };
+    const updated = await client.put<CardRow>(`/board/cards/${seg(card.id)}/proposal`, { ...AS_CLAUDE, body });
     return ok({ proposed: line(updated), next: 'The user accepts or dismisses it; board_wait tells you which.' });
   }));
 
@@ -628,6 +733,142 @@ export function register(server: McpServer, client: AlfredClient): void {
     return ok({ suggested: `${input.mark} - ${item.text}`, next: 'Waiting for the user to accept it.' });
   }));
 
+  // ------------------------------------------------------------------------------------- brief, spec files (specs/015)
+
+  server.registerTool('board_set_brief', {
+    description: 'Write a session cycle\'s brief (Markdown with mentions): what the cycle is for, the steps to test under a "## Test steps" '
+      + 'heading (numbered), the data needed. Replaces the whole brief; the user can Restore previous. ALWAYS show the user the text and '
+      + 'get their OK in chat before calling this.',
+    inputSchema: { cycleId: z.string().min(1), text: z.string().max(256 * 1024) },
+  }, (input) => run(async () => {
+    const brief = await client.put<{ updatedAt: string }>(`/board/cycles/${seg(input.cycleId)}/brief`, { ...AS_CLAUDE, body: { text: input.text } });
+    return ok({ saved: 'brief', cycleId: input.cycleId, updatedAt: brief.updatedAt, undo: 'The user can Restore previous in the Brief tab.' });
+  }));
+
+  server.registerTool('board_put_spec', {
+    description: 'Create or replace a spec file (.md or .txt) of a cycle. Put the testable requirements under "## Acceptance" as a list (one '
+      + 'line each) - that list is the checklist. A replaced file is kept once (Restore previous). ALWAYS show the user the text (or the '
+      + 'diff) and get their OK in chat before calling this.',
+    inputSchema: { cycleId: z.string().min(1), name: z.string().min(1).max(200), text: z.string().max(5 * 1024 * 1024) },
+  }, (input) => run(async () => {
+    const saved = await client.put<{ name: string; size: number; replaced: boolean }>(`/board/cycles/${seg(input.cycleId)}/specs/${seg(input.name)}`,
+      { ...AS_CLAUDE, rawBody: input.text });
+    return ok({ saved: saved.name, size: saved.size, replaced: saved.replaced });
+  }));
+
+  server.registerTool('board_edit_spec', {
+    description: 'Change part of a spec file or the brief: replace the exact text `find` with `replace` (it must occur once, or set all). '
+      + 'name "brief" edits the cycle brief. Show the user the before/after and get their OK first.',
+    inputSchema: {
+      cycleId: z.string().min(1), name: z.string().min(1).max(200), find: z.string().min(1).max(64 * 1024), replace: z.string().max(64 * 1024),
+      all: z.boolean().default(false),
+    },
+  }, (input) => run(async () => {
+    const isBrief = input.name === 'brief';
+    const current = isBrief
+      ? (await client.get<{ text: string }>(`/board/cycles/${seg(input.cycleId)}/brief`)).text
+      : await client.get<string>(`/board/cycles/${seg(input.cycleId)}/specs/${seg(input.name)}`, { text: true, notFound: `No spec file ${input.name} in this cycle.` });
+    const count = current.split(input.find).length - 1;
+    if (count === 0) throw invalid(`"${preview(input.find, 80, '')}" is not in ${input.name}.`);
+    if (count > 1 && !input.all) throw invalid(`"${preview(input.find, 80, '')}" occurs ${count} times in ${input.name} - give more of the text, or set all.`);
+    const next = input.all ? current.split(input.find).join(input.replace) : current.replace(input.find, input.replace);
+    if (isBrief) {
+      await client.put(`/board/cycles/${seg(input.cycleId)}/brief`, { ...AS_CLAUDE, body: { text: next } });
+    } else {
+      await client.put(`/board/cycles/${seg(input.cycleId)}/specs/${seg(input.name)}`,
+        { ...AS_CLAUDE, rawBody: next });
+    }
+    return ok({ edited: input.name, replacements: input.all ? count : 1 });
+  }));
+
+  // ------------------------------------------------------------------------------- next steps, log, steps, links
+
+  server.registerTool('board_next_steps', {
+    description: 'What one board waits on: the cards waiting on the user (oldest first, why: question / proposal / inbox), and how many wait '
+      + 'on Claude, are To do, In progress, Fixed (need a re-test) or in the Inbox. /alfred-status and /alfred-guide "what next" start here.',
+    inputSchema: { project: Project, cycleId: z.string().optional() },
+  }, (input) => run(async () => {
+    const n = await client.get<{ waitingOnUser: { project: string; number: number; title: string; status: string; why: string; since: string }[];
+      waitingOnClaude: number; toDo: number; inProgress: number; fixed: number; inbox: number }>('/board/next-steps', { query: { project: input.project, cycleId: input.cycleId } });
+    return ok({
+      waitingOnUser: n.waitingOnUser.map((i) => `#${i.number} ${i.title} - ${i.why} · ${ago(i.since)}`),
+      waitingOnClaude: n.waitingOnClaude, toDo: n.toDo, inProgress: n.inProgress, fixedNeedRetest: n.fixed, inbox: n.inbox,
+    });
+  }));
+
+  server.registerTool('board_session_log', {
+    description: 'End every skill run with one entry on the cycle\'s session log: which skill, what you did, what you found, what comes next '
+      + '(who it waits on). The user reads the cycle\'s history of your runs there.',
+    inputSchema: {
+      cycleId: z.string().min(1), skill: z.string().min(1).max(100), did: z.string().min(1).max(16 * 1024), found: z.string().min(1).max(16 * 1024),
+      next: z.string().min(1).max(16 * 1024),
+    },
+  }, (input) => run(async () => {
+    await client.post(`/board/cycles/${seg(input.cycleId)}/log`, { ...AS_CLAUDE, body: { skill: input.skill, did: input.did, found: input.found, next: input.next } });
+    return ok({ logged: input.skill, cycleId: input.cycleId });
+  }));
+
+  server.registerTool('board_steps', {
+    description: 'The test steps of a cycle (the numbered list under the brief\'s "Test steps" heading) and what the cycle showed for each: '
+      + 'UNTESTED, SEEN (with its call count) or FAILED (with its card). Keys are in [brackets].',
+    inputSchema: { cycleId: z.string().min(1) },
+  }, (input) => run(async () => {
+    const steps = await client.get<StepRow[]>(`/board/cycles/${seg(input.cycleId)}/steps`);
+    return ok({ steps: steps.map(stepLine), ...(steps.length ? {} : { none: 'The brief has no "Test steps" list - add one with board_edit_spec name "brief" or board_set_brief.' }) });
+  }));
+
+  server.registerTool('board_mark_step', {
+    description: 'Record what the cycle showed for a test step: SEEN (its calls happened and worked), FAILED (with the card it failed into) '
+      + 'or UNTESTED. listen and review tick the steps as calls arrive.',
+    inputSchema: {
+      cycleId: z.string().min(1), stepKey: z.string().min(1), state: z.enum(['UNTESTED', 'SEEN', 'FAILED']),
+      calls: z.number().int().min(0).default(0), cardNumber: z.number().int().min(1).optional(), note: z.string().max(1000).optional(),
+    },
+  }, (input) => run(async () => {
+    const step = await client.put<StepRow>(`/board/cycles/${seg(input.cycleId)}/steps/${seg(input.stepKey)}`, { ...AS_CLAUDE,
+      body: { state: input.state, calls: input.calls, cardNumber: input.cardNumber, note: input.note } });
+    return ok({ marked: stepLine(step) });
+  }));
+
+  server.registerTool('board_link_spec', {
+    description: 'Say which Acceptance item a card is about (the [key] from read_spec), so the checklist shows the cards per item and the card '
+      + 'shows the requirement it breaks. remove: true takes the link off.',
+    inputSchema: {
+      project: Project, number: CardNumber, cycleId: z.string().min(1), fileName: z.string().min(1), itemKey: z.string().min(1),
+      remove: z.boolean().default(false),
+    },
+  }, (input) => run(async () => {
+    const card = await cardByNumber(client, input.project, input.number);
+    const body = { cycleId: input.cycleId, fileName: input.fileName, itemKey: input.itemKey };
+    if (input.remove) await client.del(`/board/cards/${seg(card.id)}/spec-items`, { ...AS_CLAUDE, body });
+    else await client.post(`/board/cards/${seg(card.id)}/spec-items`, { ...AS_CLAUDE, body });
+    return ok({ [input.remove ? 'unlinked' : 'linked']: `#${card.number}`, item: input.itemKey });
+  }));
+
+  server.registerTool('board_block', {
+    description: 'Mark a card as blocked by another card of the same project (it waits for that one to be fixed); remove: true unblocks. '
+      + '/alfred-fix skips blocked cards until their blocker is Fixed.',
+    inputSchema: { project: Project, number: CardNumber, blockedBy: CardNumber, remove: z.boolean().default(false) },
+  }, (input) => run(async () => {
+    const card = await cardByNumber(client, input.project, input.number);
+    const updated = input.remove
+      ? await client.del<CardRow>(`/board/cards/${seg(card.id)}/blocked-by/${seg(input.blockedBy)}`, { ...AS_CLAUDE })
+      : await client.post<CardRow>(`/board/cards/${seg(card.id)}/blocked-by`, { ...AS_CLAUDE, body: { number: input.blockedBy } });
+    return ok({ card: line(updated) });
+  }));
+
+  server.registerTool('board_regressions', {
+    description: 'Verified / Done cards of a project whose endpoint failed again, the way the card\'s call did, in recent live calls. '
+      + 'For each, propose REOPEN with board_propose (the calls as evidence) - the user accepts.',
+    inputSchema: { project: Project },
+  }, (input) => run(async () => {
+    const found = await client.get<{ number: number; title: string; status: string; signature: string; calls: { ref: string; label: string }[] }[]>(
+      '/board/regressions', { query: { project: input.project } });
+    return ok({ regressions: found.map((r) => `#${r.number} ${r.title} (${r.status}) [${r.signature}] - again: ${r.calls.slice(0, 5)
+      .map((c) => serializeMention({ type: 'call', ref: c.ref, label: c.label })).join(' ')}${r.calls.length > 5 ? ` +${r.calls.length - 5}` : ''}`),
+    ...(found.length ? {} : { none: 'No regression in recent live calls.' }) });
+  }));
+
   server.registerTool('board_status', {
     description: 'Tell the board what you are doing (the live strip): WATCHING a cycle with counts, or STOPPED. Returns paused: true when the user paused you - stop adding cards then.',
     inputSchema: {
@@ -636,6 +877,7 @@ export function register(server: McpServer, client: AlfredClient): void {
       state: z.enum(['WATCHING', 'STOPPED']).default('WATCHING'),
       callsChecked: z.number().int().min(0).default(0),
       cardsAdded: z.number().int().min(0).default(0),
+      step: z.string().max(200).optional().describe('What you are doing now, shown on the strip: "reviewing ODY-482 · 34/120 calls", "fixing #11 · running tests"'),
     },
   }, (input) => run(async () => {
     const status = await client.put<{ state: string }>('/board/agent-status', { ...AS_CLAUDE, body: input });

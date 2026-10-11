@@ -33,6 +33,11 @@ export function specFileProblem(name: string, size: number): string | null {
           <div class="board-file" role="button" tabindex="0" (click)="show(f.name)" (keydown.enter)="show(f.name)">
             <span class="board-file-ext">{{ ext(f.name) }}</span> {{ f.name }}
             <span class="board-dim board-file-meta">{{ size(f.size) }} · {{ when(f.uploadedAt) }}</span>
+            @if (f.uploadedBy === 'CLAUDE') { <span class="board-ai" title="Written by Claude (/alfred-setup or /alfred-spec)">✦ by Claude</span> }
+            @if (editable() && f.hasPrevious) {
+              <button type="button" class="board-link" title="Put back the version this upload replaced (a second click undoes it)"
+                      (click)="$event.stopPropagation(); restore(f.name)">Restore previous</button>
+            }
             @if (editable()) { <button type="button" class="board-link" title="Delete" (click)="$event.stopPropagation(); remove(f.name)">✕</button> }
           </div>
         }
@@ -121,6 +126,10 @@ export class SpecFilesComponent {
       },
       error: (e) => this.message.set(messageOf(e)),
     });
+  }
+
+  restore(name: string): void {
+    this.api.restoreSpec(this.cycleId(), name).subscribe({ next: () => this.load(this.cycleId()), error: (e) => this.message.set(messageOf(e)) });
   }
 
   remove(name: string): void {

@@ -25,4 +25,7 @@ public interface ManageSpecFilesUseCase {
     SpecOutcome put(Actor actor, String cycleId, String name, String content);
 
     CardChange.Outcome delete(Actor actor, String cycleId, String name);
+
+    /** Puts back the version of a spec file the last upload replaced (the user's call). */
+    SpecOutcome restore(Actor actor, String cycleId, String name);
 }

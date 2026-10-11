@@ -175,18 +175,14 @@ test('rules and Relive runs are readable; a call changed by a rule says so (6)',
   } finally { await w.close(); }
 });
 
-test('debug_cycle and debug_call prompts give the steps (7)', async () => {
+test('the server offers no prompts - the /alfred-* skills are the guided flows', async () => {
   const server = createServer(new AlfredClient('http://127.0.0.1:9'));
   const [a, b] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: 't', version: '0' });
   await Promise.all([server.connect(b), client.connect(a)]);
   try {
-    const listed = await client.listPrompts();
-    assert.deepEqual(listed.prompts.map((p) => p.name).sort(), ['debug_call', 'debug_cycle']);
-    const prompt = await client.getPrompt({ name: 'debug_cycle', arguments: { cycle: 'booking fails at payment', problem: 'no results' } });
-    const text = (prompt.messages[0].content as { text: string }).text;
-    assert.match(text, /Debug the Alfred session cycle "booking fails at payment" - the problem: no results/);
-    assert.match(text, /get_cycle[\s\S]*db_statement[\s\S]*diff_calls[\s\S]*get_rule[\s\S]*add_comment/);
+    const listed = await client.listPrompts().catch(() => ({ prompts: [] as { name: string }[] }));
+    assert.deepEqual(listed.prompts, []);
   } finally {
     await client.close();
     await server.close();

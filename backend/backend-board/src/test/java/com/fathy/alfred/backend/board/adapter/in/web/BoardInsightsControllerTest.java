@@ -50,6 +50,11 @@ class BoardInsightsControllerTest {
     @MockBean VerifyFixesUseCase verifyFixes;
     @MockBean ProposeUseCase proposals;
     @MockBean SuggestMarkUseCase suggestions;
+    @MockBean com.fathy.alfred.backend.board.application.port.in.NextStepsUseCase nextSteps;
+    @MockBean com.fathy.alfred.backend.board.application.port.in.CardLinksUseCase cardLinks;
+    @MockBean com.fathy.alfred.backend.board.application.port.in.SessionLogUseCase sessionLog;
+    @MockBean com.fathy.alfred.backend.board.application.port.in.TestStepsUseCase testSteps;
+    @MockBean com.fathy.alfred.backend.board.application.port.in.RegressionsUseCase regressionsUseCase;
 
     private static BoardChanges.Entry comment(long id, String text) {
         return new BoardChanges.Entry(new ActivityEntry(id, "k1", Actor.USER, ActivityKind.COMMENT, text, null, null,

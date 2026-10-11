@@ -1,6 +1,10 @@
 package com.fathy.alfred.backend.board.application.service;
 
 import com.fathy.alfred.backend.board.application.port.in.BoardChangesUseCase;
+import com.fathy.alfred.backend.board.application.port.in.NextStepsUseCase;
+import com.fathy.alfred.backend.board.application.port.in.RegressionsUseCase;
+import com.fathy.alfred.backend.board.application.port.out.LiveCallsPort;
+import com.fathy.alfred.backend.board.domain.model.Regression;
 import com.fathy.alfred.backend.board.application.port.in.SearchCardsUseCase;
 import com.fathy.alfred.backend.board.application.port.in.VerifyFixesUseCase;
 import com.fathy.alfred.backend.board.application.port.out.BoardStorePort;
@@ -16,6 +20,8 @@ import com.fathy.alfred.backend.board.domain.model.CardStatus;
 import com.fathy.alfred.backend.board.domain.model.CycleCall;
 import com.fathy.alfred.backend.board.domain.model.FixCheck;
 import com.fathy.alfred.backend.board.domain.model.MentionRef;
+import com.fathy.alfred.backend.board.domain.model.NextSteps;
+import com.fathy.alfred.backend.board.domain.model.WaitingOn;
 import com.fathy.alfred.backend.board.domain.model.Proposal;
 import org.springframework.stereotype.Service;
 
@@ -34,7 +40,8 @@ import java.util.Set;
  * BoardService and its limits.
  */
 @Service
-public class BoardInsightsService implements SearchCardsUseCase, BoardChangesUseCase, VerifyFixesUseCase {
+public class BoardInsightsService implements SearchCardsUseCase, BoardChangesUseCase, VerifyFixesUseCase, NextStepsUseCase,
+        RegressionsUseCase {
 
     /** Short words that would match half the board. */
     private static final Set<String> COMMON = Set.of("with", "from", "that", "this", "when", "after", "before", "into", "then", "have",
@@ -45,8 +52,11 @@ public class BoardInsightsService implements SearchCardsUseCase, BoardChangesUse
     private final CallSignaturePort signatures;
     private final CycleCallsPort cycleCalls;
     private final BoardChangeFeed feed;
+    private final LiveCallsPort liveCalls;
 
-    public BoardInsightsService(BoardStorePort store, CallSignaturePort signatures, CycleCallsPort cycleCalls, BoardChangeFeed feed) {
+    public BoardInsightsService(BoardStorePort store, CallSignaturePort signatures, CycleCallsPort cycleCalls, BoardChangeFeed feed,
+                                LiveCallsPort liveCalls) {
+        this.liveCalls = liveCalls;
         this.store = store;
         this.signatures = signatures;
         this.cycleCalls = cycleCalls;
@@ -66,8 +76,9 @@ public class BoardInsightsService implements SearchCardsUseCase, BoardChangesUse
         Map<String, Integer> comments = store.commentCounts(ids);
         Map<String, ActivityEntry> last = store.lastComments(ids);
         Map<String, Proposal> proposals = store.proposals(ids);
-        return cards.stream().map(c -> new CardSearchHit(c, comments.getOrDefault(c.id(), 0), last.get(c.id()), proposals.get(c.id())))
-                .toList();
+        Map<String, WaitingOn> waiting = store.waitings(ids);
+        return cards.stream().map(c -> new CardSearchHit(c, comments.getOrDefault(c.id(), 0), last.get(c.id()), proposals.get(c.id()),
+                waiting.get(c.id()))).toList();
     }
 
     @Override
@@ -187,6 +198,11 @@ public class BoardInsightsService implements SearchCardsUseCase, BoardChangesUse
         return feed.once(listener);
     }
 
+    @Override
+    public NextSteps nextSteps(String project, String cycleId) {
+        return store.nextSteps(project, cycleId);
+    }
+
     // ------------------------------------------------------------------------------------------------------- fix check
 
     @Override
@@ -207,6 +223,34 @@ public class BoardInsightsService implements SearchCardsUseCase, BoardChangesUse
             FixCheck.Verdict verdict = seen.isEmpty() ? FixCheck.Verdict.NOT_EXERCISED
                     : seen.stream().allMatch(s -> s.signal().equals("ok")) ? FixCheck.Verdict.LOOKS_FIXED : FixCheck.Verdict.STILL_FAILING;
             out.add(new FixCheck(card.number(), card.project(), card.title(), signature, verdict, seen));
+        }
+        return out;
+    }
+
+    @Override
+    public List<Regression> regressions(String project) {
+        List<Card> finished = store.query(new CardQuery(project, null, Set.of(), Set.of(CardStatus.VERIFIED, CardStatus.DONE), Set.of(), null,
+                false, null, 0, CardQuery.MAX_LIMIT));
+        if (finished.stream().noneMatch(c -> c.signature() != null)) {
+            return List.of();
+        }
+        List<CycleCall> recent = liveCalls.recent(RECENT_CALLS);
+        List<Regression> out = new ArrayList<>();
+        for (Card card : finished) {
+            String signature = card.signature();
+            if (signature == null || !signature.contains("|") || signature.startsWith("ok|")) {
+                continue;
+            }
+            String endpoint = signature.substring(signature.indexOf('|') + 1);
+            String signal = signature.substring(0, signature.indexOf('|'));
+            // A call after the card was finished, to its endpoint, ending the way the card's call did.
+            List<FixCheck.Seen> again = recent.stream()
+                    .filter(x -> endpoint.equals(x.endpoint()) && signal.equals(x.signal()))
+                    .filter(x -> x.at() == null || x.at().isAfter(card.updatedAt()))
+                    .map(x -> new FixCheck.Seen(x.liveRef(), label(x), x.signal())).toList();
+            if (!again.isEmpty()) {
+                out.add(new Regression(card.project(), card.number(), card.title(), card.status(), signature, again));
+            }
         }
         return out;
     }

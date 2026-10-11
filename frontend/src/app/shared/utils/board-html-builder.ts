@@ -2,6 +2,7 @@ import {
   ActivityEntry, CardDetail, FLAG_LABELS, MARK_LABELS, RESOLUTION_LABELS, SCOPE_LABELS, STATUS_LABELS, mentionTypeOf,
 } from '../../core/models/board.models';
 import { changeText, claudeParts } from './board-activity';
+import { replyNote } from './board-threads';
 import { BoardExport } from './board-json';
 import { escapeHtml } from './html-builder';
 
@@ -64,7 +65,7 @@ function cardHtml(c: CardDetail, history: readonly ActivityEntry[]): string {
       const parts = claudeParts(e.text);
       const body = parts ? parts.map((p) => `<div><span class="lbl">${escapeHtml(p.label)}</span>${escapeHtml(p.text)}</div>`).join('')
         : escapeHtml(e.text ?? '');
-      out.push(`<li><b>${e.actor === 'CLAUDE' ? 'Claude' : 'User'}</b> <span class="dim">${escapeHtml(e.at)}</span><div class="t">${body}</div></li>`);
+      out.push(`<li><b>${e.actor === 'CLAUDE' ? 'Claude' : 'User'}</b> <span class="dim">${escapeHtml(e.at + replyNote(e, history))}</span><div class="t">${body}</div></li>`);
     } else {
       out.push(`<li>${escapeHtml(changeText(e))} <span class="dim">${escapeHtml(e.at)}</span></li>`);
     }

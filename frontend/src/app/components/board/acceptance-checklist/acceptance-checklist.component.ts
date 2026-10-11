@@ -3,6 +3,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { filter } from 'rxjs';
 import { ChecklistFile, ChecklistItem, MARK_LABELS, Mark } from '../../../core/models/board.models';
 import { BoardApiService } from '../../../core/services/board-api.service';
+import { BoardMentionsService } from '../../../core/services/board-mentions.service';
 import { BoardSocketService } from '../../../core/services/board-socket.service';
 import { messageOf } from '../../../core/state/board-state.service';
 import { MarkdownViewComponent } from '../markdown-view/markdown-view.component';
@@ -42,6 +43,13 @@ import { MentionEditorComponent } from '../mention-editor/mention-editor.compone
                                       (submitted)="mark(f, item, item.mark?.mark ?? 'CANT_TELL', $event)" (cancelled)="editing.set(null)" />
                 }
                 @if (item.mark; as mk) { <span class="board-dim board-check-when">{{ when(mk.updatedAt) }}</span> }
+                @if (item.cards?.length) {
+                  <span class="board-check-cards" title="The cards about this item">
+                    @for (c of item.cards; track c.number) {
+                      <button type="button" class="board-link" [title]="c.title" (click)="openCard(c.project, c.number)">#{{ c.number }}</button>
+                    }
+                  </span>
+                }
                 @if (item.suggestion; as sg) {
                   <div class="board-check-suggest" [class]="'board-check-suggest board-check-' + sg.mark">
                     <span class="board-check-suggest-what">✦ Claude suggests {{ labels[sg.mark] }}</span>
@@ -62,6 +70,7 @@ import { MentionEditorComponent } from '../mention-editor/mention-editor.compone
 })
 export class AcceptanceChecklistComponent {
   private readonly api = inject(BoardApiService);
+  private readonly mentions = inject(BoardMentionsService);
   readonly cycleId = input.required<string>();
   readonly project = input('');
   readonly editable = input(true);
@@ -117,6 +126,10 @@ export class AcceptanceChecklistComponent {
       next: () => this.load(this.cycleId()),
       error: (e) => this.error.set(messageOf(e)),
     });
+  }
+
+  openCard(project: string, number: number): void {
+    this.mentions.cardToOpen.set({ project, number });
   }
 
   when(iso: string): string {

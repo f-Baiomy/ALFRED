@@ -31,7 +31,7 @@ export interface CardDrop {
           @for (c of col.cards; track c.id) {
             <app-board-card cdkDrag [cdkDragData]="c" [cdkDragDisabled]="!editable()" [card]="c" [editable]="editable()"
                             [selected]="selected().has(c.id)" [focused]="focusedId() === c.id" [showCycle]="showCycle()" [now]="now()"
-                            (opened)="opened.emit(c)" (toggled)="toggled.emit(c)" (action)="action.emit({ card: c, action: $event })" />
+                            (opened)="opened.emit(c)" (toggled)="toggled.emit(c)" (action)="action.emit({ card: c, action: $event })" (answer)="answer.emit(c)" />
           } @empty {
             <div class="board-empty">{{ col.status === 'INBOX' ? 'Inbox clear ✓ - new findings land here' : 'Drop cards here' }}</div>
           }
@@ -51,6 +51,7 @@ export class BoardColumnsComponent {
   readonly toggled = output<CardSummary>();
   readonly action = output<{ card: CardSummary; action: CardAction }>();
   readonly triage = output<void>();
+  readonly answer = output<CardSummary>();
 
   readonly columns = computed(() => ALL_STATUSES.map((status) => ({
     status,

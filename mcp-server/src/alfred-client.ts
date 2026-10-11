@@ -31,6 +31,8 @@ export interface RequestOptions {
   readonly headers?: Readonly<Record<string, string>>;
   /** The answer is text (a spec file), not JSON. */
   readonly text?: boolean;
+  /** A plain-text request body (a spec file's content), sent as text/plain instead of JSON. */
+  readonly rawBody?: string;
 }
 
 const TIMEOUT_MS = 4000;
@@ -86,9 +88,10 @@ export class AlfredClient {
     try {
       response = await fetch(url, {
         method,
-        headers: { ...(options.body !== undefined ? { 'Content-Type': 'application/json', Accept: 'application/json' } : { Accept: 'application/json' }),
+        headers: { ...(options.rawBody !== undefined ? { 'Content-Type': 'text/plain; charset=utf-8', Accept: 'application/json' }
+          : options.body !== undefined ? { 'Content-Type': 'application/json', Accept: 'application/json' } : { Accept: 'application/json' }),
           ...(options.headers ?? {}) },
-        body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+        body: options.rawBody !== undefined ? options.rawBody : options.body !== undefined ? JSON.stringify(options.body) : undefined,
         signal: AbortSignal.timeout(options.timeoutMs ?? TIMEOUT_MS),
       });
     } catch (error) {

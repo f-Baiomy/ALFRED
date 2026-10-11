@@ -3,7 +3,7 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import {
   ActivityPage, AgentStatus, BoardAccess, BoardFilters, BulkAction, CallBadge, CardDetail, CardEdit, CardStatus, CardsPage,
-  ChecklistFile, ChecklistItem, CycleBrief, Mark, MentionRef, NewCard, Resolution, SpecFileInfo,
+  ChecklistFile, ChecklistItem, CycleBrief, Mark, MentionRef, NewCard, NextSteps, Resolution, SessionLogEntry, SpecFileInfo, TestStep,
 } from '../models/board.models';
 import { AppConfigService } from './app-config.service';
 
@@ -29,6 +29,7 @@ export class BoardApiService {
     if (filters.author) params = params.set('author', filters.author);
     if (filters.scopeNotDecided) params = params.set('scopeNotDecided', true);
     if (filters.q.trim()) params = params.set('q', filters.q.trim());
+    if (filters.waiting) params = params.set('waiting', filters.waiting);
     return this.http.get<CardsPage>(`${this.base}/cards`, { params });
   }
 
@@ -92,8 +93,10 @@ export class BoardApiService {
     return this.http.get<ActivityPage>(`${this.base}/cards/${encodeURIComponent(id)}/activity`, { params: { offset, limit } });
   }
 
-  comment(id: string, text: string): Observable<unknown> {
-    return this.http.post(`${this.base}/cards/${encodeURIComponent(id)}/comments`, { text });
+  /** A comment, or with `replyTo` a reply to one; `clearDecision` on an answer to Claude's question takes Needs decision off. */
+  comment(id: string, text: string, replyTo?: number, clearDecision?: boolean): Observable<unknown> {
+    return this.http.post(`${this.base}/cards/${encodeURIComponent(id)}/comments`,
+      replyTo == null ? { text } : { text, replyTo, clearDecision: !!clearDecision });
   }
 
   cycleBadges(cycleId: string): Observable<Record<string, CallBadge[]>> {
@@ -156,6 +159,41 @@ export class BoardApiService {
     return this.http.delete<ChecklistItem>(this.suggestionUrl(cycleId, fileName, itemKey));
   }
 
+  /** What one board waits on: the next-step bar. */
+  nextSteps(project: string, cycleId: string | null): Observable<NextSteps> {
+    return this.http.get<NextSteps>(`${this.base}/next-steps`, { params: cycleId ? { project, cycleId } : { project } });
+  }
+
+  restoreBrief(cycleId: string): Observable<CycleBrief> {
+    return this.http.post<CycleBrief>(`${this.base}/cycles/${encodeURIComponent(cycleId)}/brief/restore`, {});
+  }
+
+  restoreSpec(cycleId: string, name: string): Observable<SpecFileInfo> {
+    return this.http.post<SpecFileInfo>(`${this.base}/cycles/${encodeURIComponent(cycleId)}/specs/${encodeURIComponent(name)}/restore`, {});
+  }
+
+  steps(cycleId: string): Observable<TestStep[]> {
+    return this.http.get<TestStep[]>(`${this.base}/cycles/${encodeURIComponent(cycleId)}/steps`);
+  }
+
+  sessionLog(cycleId: string, limit = 20): Observable<SessionLogEntry[]> {
+    return this.http.get<SessionLogEntry[]>(`${this.base}/cycles/${encodeURIComponent(cycleId)}/log`, { params: { limit } });
+  }
+
+  block(id: string, number: number): Observable<CardDetail> {
+    return this.http.post<CardDetail>(`${this.base}/cards/${encodeURIComponent(id)}/blocked-by`, { number });
+  }
+
+  unblock(id: string, number: number): Observable<CardDetail> {
+    return this.http.delete<CardDetail>(`${this.base}/cards/${encodeURIComponent(id)}/blocked-by/${number}`);
+  }
+
+  /** Changes after a cursor (the desktop notifications read Claude's new questions and proposals here). */
+  changes(cursor: string, actor?: 'USER' | 'CLAUDE', limit = 50): Observable<{ entries: (ActivityEntryLike)[]; cursor: string }> {
+    return this.http.get<{ entries: ActivityEntryLike[]; cursor: string }>(`${this.base}/changes`,
+      { params: actor ? { cursor, actor, limit } : { cursor, limit } });
+  }
+
   /** Takes Claude's proposed step as the user's own (moves or closes the card). */
   acceptProposal(id: string): Observable<CardDetail> {
     return this.http.post<CardDetail>(`${this.base}/cards/${encodeURIComponent(id)}/proposal/accept`, {});
@@ -177,4 +215,17 @@ export class BoardApiService {
     return this.http.post<{ cards: number; renumbered: { from: number; to: number }[] }>(`${this.base}/import`, file,
       { params: { project }, headers: { 'Content-Type': 'application/x-ndjson' } });
   }
+}
+
+/** A history entry with its card, as /board/changes lists it. */
+export interface ActivityEntryLike {
+  readonly id: number;
+  readonly cardId: string;
+  readonly actor: 'USER' | 'CLAUDE';
+  readonly kind: string;
+  readonly text: string | null;
+  readonly newValue: string | null;
+  readonly project: string;
+  readonly number: number;
+  readonly title: string;
 }

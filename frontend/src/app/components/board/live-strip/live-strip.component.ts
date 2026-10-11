@@ -17,6 +17,7 @@ export const AGENT_EXPIRY_MS = 10 * 60 * 1000;
       <div class="board-live" [class.paused]="state() === 'PAUSED'" [class.stopped]="state() === 'STOPPED'">
         <span class="board-pulse"></span>
         <b>{{ headline() }}</b>
+        @if (s.step && state() !== 'STOPPED') { <span class="board-live-step">{{ s.step }}</span> }
         <span class="board-dim">checked {{ s.callsChecked }} calls · {{ s.cardsAdded }} cards added · last check {{ time(s.lastCheckAt) }}</span>
         @if (editable()) {
           <span class="board-live-acts">

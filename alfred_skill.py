@@ -1,9 +1,10 @@
 """
-alfred_skill.py - installs Alfred's Claude Code skill (skills/alfred-qa: QA a flow with the task board, see
-docs/mcp.md "The /alfred-qa skill") where Claude Code finds it.
+alfred_skill.py - installs Alfred's Claude Code skills (skills/alfred-*: the QA loop on the task board, see
+docs/mcp.md "The /alfred-* skills") where Claude Code finds them. Each skill gets a copy of skills/_shared/rules.md
+(the rules all twelve follow) as rules.md in its own folder, so the rules cannot drift between skills.
 
-    user scope     ~/.claude/skills/alfred-qa/          every project on this machine
-    project scope  <project>/.claude/skills/alfred-qa/  one repo (commit it to share it with the team)
+    user scope     ~/.claude/skills/alfred-*/          every project on this machine
+    project scope  <project>/.claude/skills/alfred-*/  one repo (commit it to share it with the team)
 
 Shared by the native `alfred skill ...` command (packaging/launcher/alfred.py, files in app/skills) and by
 setup_mcp.py (a source checkout, files in skills/). An installed copy carries a `.alfred-skill` marker with the
@@ -14,7 +15,12 @@ overwritten (unless forced).
 import os
 import shutil
 
-SKILLS = ("alfred-qa",)
+SKILLS = ("alfred-guide", "alfred-connect", "alfred-setup", "alfred-spec", "alfred-listen", "alfred-review", "alfred-triage", "alfred-sync",
+          "alfred-fix", "alfred-verify", "alfred-status", "alfred-report")
+SHARED = "_shared"
+RULES = "rules.md"
+# Skills older versions installed: removed by install when Alfred installed them (never someone else's folder).
+RETIRED = ("alfred-qa",)
 MARKER = ".alfred-skill"
 
 
@@ -36,7 +42,7 @@ def installed_version(folder):
 
 
 def install(source_root, scope="user", project_dir=None, version="dev", force=False):
-    """Copies every skill from `source_root` (a folder holding alfred-qa/) into the scope. Returns one line per skill."""
+    """Copies every skill from `source_root` (a folder holding alfred-*/ and _shared/) into the scope. One line per skill."""
     root = target_root(scope, project_dir)
     lines = []
     for name in SKILLS:
@@ -51,19 +57,38 @@ def install(source_root, scope="user", project_dir=None, version="dev", force=Fa
         if os.path.isdir(dest):
             shutil.rmtree(dest)
         shutil.copytree(src, dest, ignore=shutil.ignore_patterns("__pycache__", "*.pyc", MARKER))
+        rules = os.path.join(source_root, SHARED, RULES)
+        if os.path.isfile(rules):
+            shutil.copy2(rules, os.path.join(dest, RULES))
         with open(os.path.join(dest, MARKER), "w", encoding="utf-8", newline="\n") as f:
             f.write(version + "\n")
         lines.append(f"{'updated' if was else 'installed'} /{name} in {dest}" + (f" ({was} -> {version})" if was and was != version else ""))
+    for name in RETIRED:
+        old = os.path.join(root, name)
+        if os.path.isdir(old) and installed_version(old) is not None:
+            shutil.rmtree(old)
+            lines.append(f"removed the retired /{name} (replaced by the skills above)")
     return lines
+
+
+def assemble(source_root, out_dir):
+    """The skills as they are installed (each with its rules.md), into out_dir - what the release zip holds."""
+    for name in SKILLS:
+        dest = os.path.join(out_dir, name)
+        shutil.copytree(os.path.join(source_root, name), dest, ignore=shutil.ignore_patterns("__pycache__", "*.pyc", MARKER))
+        rules = os.path.join(source_root, SHARED, RULES)
+        if os.path.isfile(rules):
+            shutil.copy2(rules, os.path.join(dest, RULES))
 
 
 def remove(scope="user", project_dir=None):
     root = target_root(scope, project_dir)
     lines = []
-    for name in SKILLS:
+    for name in SKILLS + RETIRED:
         dest = os.path.join(root, name)
         if not os.path.isdir(dest):
-            lines.append(f"/{name} is not installed in {root}")
+            if name not in RETIRED:
+                lines.append(f"/{name} is not installed in {root}")
         elif installed_version(dest) is None:
             lines.append(f"left {dest}: it was not installed by Alfred")
         else:

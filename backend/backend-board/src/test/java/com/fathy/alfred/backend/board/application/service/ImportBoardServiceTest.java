@@ -55,6 +55,20 @@ class ImportBoardServiceTest {
     }
 
     @Test
+    void repliesComeBackInTheirThreads() throws Exception {
+        run(card(1, "Q", ""),
+                "{\"record\":\"activity\",\"cardNumber\":1,\"entry\":{\"id\":40,\"actor\":\"CLAUDE\",\"kind\":\"COMMENT\","
+                        + "\"text\":\"**Question** which?\",\"at\":\"2026-10-01T10:00:00Z\"}}",
+                "{\"record\":\"activity\",\"cardNumber\":1,\"entry\":{\"id\":41,\"actor\":\"USER\",\"kind\":\"COMMENT\","
+                        + "\"text\":\"this one\",\"at\":\"2026-10-01T10:01:00Z\",\"replyTo\":40}}");
+
+        String id = f.board.getByNumber("dest", 1).orElseThrow().card().id();
+        var entries = f.board.activity(id, 0, 100).orElseThrow().entries().stream()
+                .filter(e -> e.kind() == com.fathy.alfred.backend.board.domain.model.ActivityKind.COMMENT).toList();
+        assertThat(entries.get(1).replyTo()).isEqualTo(entries.get(0).id());
+    }
+
+    @Test
     void cardsComeBackWithTheirFieldsHistoryAndLinks() throws Exception {
         ImportBoardUseCase.ImportResult result = run(card(1, "Discount", "see @[call:in:a1|POST]"),
                 "{\"record\":\"activity\",\"cardNumber\":1,\"entry\":{\"actor\":\"CLAUDE\",\"kind\":\"COMMENT\",\"text\":\"**Did** x\","

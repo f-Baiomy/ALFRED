@@ -78,6 +78,7 @@ public class ImportBoardService implements ImportBoardUseCase {
         List<PendingCard> pending = new ArrayList<>();
         Map<String, Integer> numbers = new HashMap<>();
         Map<Integer, String> idByOldNumber = new HashMap<>();
+        Map<Long, Long> newIds = new HashMap<>(); // an exported entry id -> its id here, for replies
         List<Renumbered> renumbered = new ArrayList<>();
         String sourceProject = null;
         boolean cardsWritten = false;
@@ -110,9 +111,14 @@ public class ImportBoardService implements ImportBoardUseCase {
                     if (cardId != null) {
                         JsonNode e = r.path("entry");
                         String text = rewrite(text(e, "text"), sourceProject, target, numbers);
+                        // Replies point at the new id of the comment they answer (comments come before their replies).
+                        Long replyTo = e.hasNonNull("replyTo") ? newIds.get(e.path("replyTo").asLong()) : null;
                         long id = store.append(new ActivityEntry(0, cardId, actor(e.path("actor").asText()),
                                 ActivityKind.valueOf(e.path("kind").asText()), text, text(e, "oldValue"), text(e, "newValue"),
-                                instant(e.path("at").asText())));
+                                instant(e.path("at").asText()), replyTo));
+                        if (e.hasNonNull("id")) {
+                            newIds.put(e.path("id").asLong(), id);
+                        }
                         if (text != null) {
                             store.replaceMentions(MentionOwner.ACTIVITY, Long.toString(id), cardId, MentionParser.mentions(text));
                         }

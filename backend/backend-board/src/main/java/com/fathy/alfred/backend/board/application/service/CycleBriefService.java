@@ -5,6 +5,12 @@ import com.fathy.alfred.backend.board.application.port.in.ManageBriefUseCase;
 import com.fathy.alfred.backend.board.application.port.in.ManageSpecFilesUseCase;
 import com.fathy.alfred.backend.board.application.port.in.MarkChecklistUseCase;
 import com.fathy.alfred.backend.board.application.port.in.SuggestMarkUseCase;
+import com.fathy.alfred.backend.board.application.port.in.SessionLogUseCase;
+import com.fathy.alfred.backend.board.application.port.in.TestStepsUseCase;
+import com.fathy.alfred.backend.board.domain.model.CardRef;
+import com.fathy.alfred.backend.board.domain.model.SessionLogEntry;
+import com.fathy.alfred.backend.board.domain.model.StepState;
+import com.fathy.alfred.backend.board.domain.model.TestStep;
 import com.fathy.alfred.backend.board.application.port.out.BoardNotificationPort;
 import com.fathy.alfred.backend.board.application.port.out.BoardStorePort;
 import com.fathy.alfred.backend.board.application.port.out.MentionedCallsChangedPort;
@@ -38,6 +44,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * What a session cycle is for: its brief, its spec files and the acceptance checklist marked on them (specs/014 US5,
@@ -45,7 +52,7 @@ import java.util.stream.Collectors;
  */
 @Service
 public class CycleBriefService implements ManageBriefUseCase, ManageSpecFilesUseCase, MarkChecklistUseCase, SuggestMarkUseCase,
-        CycleRemovedUseCase {
+        CycleRemovedUseCase, SessionLogUseCase, TestStepsUseCase {
 
     static final int MAX_NAME = 200;
 
@@ -77,16 +84,15 @@ public class CycleBriefService implements ManageBriefUseCase, ManageSpecFilesUse
 
     @Override
     public BriefOutcome putBrief(Actor actor, String cycleId, String text) {
-        if (actor == Actor.CLAUDE) {
-            return new BriefOutcome(CardChange.Outcome.REFUSED_FOR_CLAUDE, null, ClaudeRules.USER_ONLY);
-        }
+        // Claude may write it too (specs/015, /alfred-setup and /alfred-spec ask the user first); the author is recorded and
+        // the replaced text kept for Restore previous.
         String clean = text == null ? "" : text;
         if (clean.length() > ManageBriefUseCase.MAX_TEXT) {
             return new BriefOutcome(CardChange.Outcome.INVALID, null, "The brief is larger than 256 KB");
         }
         List<MentionRef> before = store.mentionsOf(MentionOwner.BRIEF, cycleId).stream().map(m -> m.ref()).toList();
-        CycleBrief brief = new CycleBrief(cycleId, clean, clock.instant());
-        store.putBrief(brief);
+        store.putBrief(new CycleBrief(cycleId, clean, clock.instant(), actor, false));
+        CycleBrief brief = brief(cycleId);
         List<MentionRef> after = MentionParser.mentions(clean);
         store.replaceMentions(MentionOwner.BRIEF, cycleId, null, after);
         if (hasLiveCall(before) || hasLiveCall(after)) {
@@ -110,9 +116,6 @@ public class CycleBriefService implements ManageBriefUseCase, ManageSpecFilesUse
 
     @Override
     public SpecOutcome put(Actor actor, String cycleId, String name, String content) {
-        if (actor == Actor.CLAUDE) {
-            return new SpecOutcome(CardChange.Outcome.REFUSED_FOR_CLAUDE, null, false, ClaudeRules.USER_ONLY);
-        }
         String problem = checkName(name);
         if (problem != null) {
             return new SpecOutcome(CardChange.Outcome.INVALID, null, false, problem);
@@ -128,7 +131,7 @@ public class CycleBriefService implements ManageBriefUseCase, ManageSpecFilesUse
                     "A cycle can hold at most " + ManageSpecFilesUseCase.MAX_FILES + " spec files");
         }
         Instant now = clock.instant();
-        SpecFile file = new SpecFile(cycleId, name, text, size, now);
+        SpecFile file = new SpecFile(cycleId, name, text, size, now, actor);
         boolean replaced = store.putSpec(file);
         if (replaced) {
             for (String cardId : store.cardsMentioningSpec(cycleId, name)) {
@@ -136,7 +139,34 @@ public class CycleBriefService implements ManageBriefUseCase, ManageSpecFilesUse
             }
         }
         notifications.changed(null, cycleId, null, "specs");
-        return new SpecOutcome(CardChange.Outcome.OK, file.info(), replaced, null);
+        return new SpecOutcome(CardChange.Outcome.OK, new SpecFileInfo(name, size, now, actor, replaced), replaced, null);
+    }
+
+    @Override
+    public BriefOutcome restoreBrief(Actor actor, String cycleId) {
+        if (actor == Actor.CLAUDE) {
+            return new BriefOutcome(CardChange.Outcome.REFUSED_FOR_CLAUDE, null, ClaudeRules.USER_ONLY);
+        }
+        if (!store.restoreBrief(cycleId, clock.instant())) {
+            return new BriefOutcome(CardChange.Outcome.NOT_FOUND, null, "No earlier brief to restore");
+        }
+        store.replaceMentions(MentionOwner.BRIEF, cycleId, null, MentionParser.mentions(brief(cycleId).text()));
+        mentionedCalls.mentionedCallsChanged();
+        notifications.changed(null, cycleId, null, "brief");
+        return new BriefOutcome(CardChange.Outcome.OK, brief(cycleId), null);
+    }
+
+    @Override
+    public SpecOutcome restore(Actor actor, String cycleId, String name) {
+        if (actor == Actor.CLAUDE) {
+            return new SpecOutcome(CardChange.Outcome.REFUSED_FOR_CLAUDE, null, false, ClaudeRules.USER_ONLY);
+        }
+        if (!store.restoreSpec(cycleId, name, clock.instant())) {
+            return new SpecOutcome(CardChange.Outcome.NOT_FOUND, null, false, "No earlier version of " + name + " to restore");
+        }
+        notifications.changed(null, cycleId, null, "specs");
+        SpecFileInfo info = store.specs(cycleId).stream().filter(s -> s.name().equals(name)).findFirst().orElse(null);
+        return new SpecOutcome(CardChange.Outcome.OK, info, true, null);
     }
 
     @Override
@@ -172,6 +202,7 @@ public class CycleBriefService implements ManageBriefUseCase, ManageSpecFilesUse
     public List<ChecklistFile> checklist(String cycleId) {
         Map<String, ChecklistMark> marks = store.marks(cycleId).stream()
                 .collect(Collectors.toMap(m -> m.fileName() + "\n" + m.itemKey(), Function.identity(), (a, b) -> a));
+        Map<String, List<CardRef>> cards = store.cardsBySpecItem(cycleId);
         Map<String, ChecklistSuggestion> suggestions = store.suggestions(cycleId).stream()
                 .collect(Collectors.toMap(m -> m.fileName() + "\n" + m.itemKey(), Function.identity(), (a, b) -> a));
         List<ChecklistFile> out = new ArrayList<>();
@@ -182,7 +213,7 @@ public class CycleBriefService implements ManageBriefUseCase, ManageSpecFilesUse
             }
             List<ChecklistItem> items = AcceptanceItems.of(file.get().content()).stream()
                     .map(i -> new ChecklistItem(i.key(), i.text(), marks.get(info.name() + "\n" + i.key()),
-                            suggestions.get(info.name() + "\n" + i.key()))).toList();
+                            suggestions.get(info.name() + "\n" + i.key()), cards.get(info.name() + "\n" + i.key()))).toList();
             if (!items.isEmpty()) {
                 out.add(new ChecklistFile(info.name(), items));
             }
@@ -284,6 +315,55 @@ public class CycleBriefService implements ManageBriefUseCase, ManageSpecFilesUse
     private Optional<AcceptanceItems.Item> item(String cycleId, String fileName, String itemKey) {
         return store.spec(cycleId, fileName).flatMap(f -> AcceptanceItems.of(f.content()).stream()
                 .filter(i -> i.key().equals(itemKey)).findFirst());
+    }
+
+    // --------------------------------------------------------------------------------------------- session log, test steps
+
+    @Override
+    public List<SessionLogEntry> log(String cycleId, int limit) {
+        return store.log(cycleId, Math.max(1, Math.min(limit <= 0 ? 50 : limit, 500)));
+    }
+
+    @Override
+    public SessionLogEntry append(Actor actor, String cycleId, String skill, String did, String found, String next) {
+        if (blank(skill) || blank(did) || blank(found) || blank(next) || Stream.of(skill, did, found, next).anyMatch(s -> s.length() > SessionLogUseCase.MAX_TEXT)) {
+            return null;
+        }
+        SessionLogEntry entry = new SessionLogEntry(0, cycleId, skill.strip(), did.strip(), found.strip(), next.strip(), clock.instant());
+        long id = store.appendLog(entry);
+        notifications.changed(null, cycleId, null, "log");
+        return new SessionLogEntry(id, cycleId, entry.skill(), entry.did(), entry.found(), entry.next(), entry.at());
+    }
+
+    @Override
+    public List<TestStep> steps(String cycleId) {
+        Map<String, TestStep> marks = store.stepMarks(cycleId).stream().collect(Collectors.toMap(TestStep::key, Function.identity(), (a, b) -> a));
+        return AcceptanceItems.of(brief(cycleId).text(), "test step").stream().map(i -> {
+            TestStep m = marks.get(i.key());
+            return m == null ? new TestStep(i.key(), i.text(), StepState.UNTESTED, 0, null, null, null)
+                    : new TestStep(i.key(), i.text(), m.state(), m.calls(), m.cardNumber(), m.note(), m.at());
+        }).toList();
+    }
+
+    @Override
+    public StepOutcome mark(Actor actor, String cycleId, String stepKey, StepState state, int calls, Integer cardNumber, String note) {
+        if (state == null) {
+            return new StepOutcome(CardChange.Outcome.INVALID, null, "state is required: UNTESTED, SEEN or FAILED");
+        }
+        Optional<TestStep> step = steps(cycleId).stream().filter(s -> s.key().equals(stepKey)).findFirst();
+        if (step.isEmpty()) {
+            return new StepOutcome(CardChange.Outcome.NOT_FOUND, null, "No test step " + stepKey + " in the brief");
+        }
+        String cleanNote = note == null || note.isBlank() ? null : note.strip().length() > 1000 ? note.strip().substring(0, 1000) : note.strip();
+        Instant now = clock.instant();
+        store.putStepMark(cycleId, stepKey, state, Math.max(0, calls), cardNumber, cleanNote, now);
+        notifications.changed(null, cycleId, null, "steps");
+        return new StepOutcome(CardChange.Outcome.OK,
+                new TestStep(stepKey, step.get().text(), state, Math.max(0, calls), cardNumber, cleanNote, now), null);
+    }
+
+    private static boolean blank(String s) {
+        return s == null || s.isBlank();
     }
 
     // ---------------------------------------------------------------------------------------------------- cycle removed

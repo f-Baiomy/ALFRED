@@ -1,6 +1,7 @@
 package com.fathy.alfred.backend.boardbridge;
 
 import com.fathy.alfred.backend.board.application.port.out.CycleCallsPort;
+import com.fathy.alfred.backend.board.application.port.out.LiveCallsPort;
 import com.fathy.alfred.backend.board.domain.model.CycleCall;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.ListCapturedCallsUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.ListPagedCapturedInternalCallsUseCase;
@@ -17,15 +18,51 @@ import java.util.List;
  * so the fix check compares like with like. Inbound first, then outbound; at most {@code limit} calls.
  */
 @Component
-public class BoardCycleCallsAdapter implements CycleCallsPort {
+public class BoardCycleCallsAdapter implements CycleCallsPort, LiveCallsPort {
 
     private final CycleCallsReader reader;
     private final NormalizeEndpointUseCase endpoints;
+    private final com.fathy.alfred.backend.internalcalls.application.port.in.GetCallsUseCase inbound;
 
     public BoardCycleCallsAdapter(ListCapturedCallsUseCase capturedCalls, ListPagedCapturedInternalCallsUseCase capturedInternalCalls,
-                                  NormalizeEndpointUseCase endpoints) {
+                                  NormalizeEndpointUseCase endpoints,
+                                  com.fathy.alfred.backend.internalcalls.application.port.in.GetCallsUseCase inbound) {
         this.reader = new CycleCallsReader(capturedCalls, capturedInternalCalls);
         this.endpoints = endpoints;
+        this.inbound = inbound;
+    }
+
+    /** The newest live inbound calls (the regression watch, specs/015 FR-17), signed, with their time. */
+    @Override
+    public List<CycleCall> recent(int limit) {
+        List<CycleCall> out = new ArrayList<>();
+        int page = 200;
+        try {
+            for (int offset = 0; offset < limit; offset += page) {
+                var query = new com.fathy.alfred.backend.internalcalls.domain.model.CallsQuery("", "", "newest", offset, Math.min(page, limit - offset),
+                        "", "", "");
+                var calls = inbound.getCalls(query).calls();
+                for (var c : calls) {
+                    CycleCall signed = call("in", c.id(), c.method(), c.url(), c.status());
+                    out.add(new CycleCall(signed.direction(), signed.callId(), signed.method(), signed.path(), signed.status(), signed.signature(),
+                            instant(c.timestamp())));
+                }
+                if (calls.size() < page) {
+                    break;
+                }
+            }
+        } catch (RuntimeException e) {
+            return out; // what was read so far; the regression check never fails a request
+        }
+        return out;
+    }
+
+    private static java.time.Instant instant(String timestamp) {
+        try {
+            return timestamp == null ? null : java.time.Instant.parse(timestamp);
+        } catch (java.time.format.DateTimeParseException e) {
+            return null;
+        }
     }
 
     @Override

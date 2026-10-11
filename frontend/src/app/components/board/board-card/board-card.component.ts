@@ -1,9 +1,11 @@
-import { Component, computed, input, output } from '@angular/core';
+import { Component, computed, inject, input, output, signal } from '@angular/core';
 import {
   CardStatus, CardSummary, FLAG_LABELS, Proposal, RESOLUTION_BUTTONS, RESOLUTION_LABELS, Resolution, ageText, isStale,
 } from '../../../core/models/board.models';
 import { MentionChipComponent } from '../mention-chip/mention-chip.component';
 import { proposalTarget } from '../../../shared/utils/board-activity';
+import { skillFor, waitingText } from '../../../shared/utils/board-skills';
+import { BoardSeenService } from '../../../core/services/board-seen.service';
 
 /** What a card asks of its board: one sort action, a reopen, or a selection toggle. */
 export type CardAction =
@@ -21,7 +23,8 @@ export type CardAction =
   imports: [MentionChipComponent],
   template: `
     <div class="board-card" [class.selected]="selected()" [class.focused]="focused()" [class.closed]="card().status === 'CLOSED'"
-         [attr.data-card]="card().id" tabindex="-1" (click)="onClick($event)">
+         [class.blocked]="!!card().blockedBy?.length" [attr.data-card]="card().id" tabindex="-1" (click)="onClick($event)">
+      @if (unread()) { <span class="board-unread" title="Claude changed it since you last opened it"></span> }
       @if (editable()) {
         <button type="button" class="board-card-check" [class.on]="selected()" title="Select (X or Shift+click)"
                 (click)="$event.stopPropagation(); toggled.emit()">{{ selected() ? '✓' : '' }}</button>
@@ -48,6 +51,12 @@ export type CardAction =
         }
         <span class="board-age" [class.stale]="stale()" [title]="stale() ? 'No change for more than 5 days' : ''">{{ stale() ? '⏳ ' : '' }}{{ age() }}</span>
       </div>
+      @if (waiting(); as w) {
+        <div class="board-card-row"><span class="board-wait" [class]="'board-wait board-wait-' + card().waiting!.who">{{ w }}</span></div>
+      }
+      @if (card().blockedBy?.length) {
+        <div class="board-card-lock">🔒 Blocked by @for (b of card().blockedBy; track b.number) { <b>#{{ b.number }}</b> {{ b.title }} }</div>
+      }
       @if (card().resolution; as r) {
         <div class="board-card-row"><span class="board-res" [class]="'board-res board-res-' + r">{{ resolutionLabel(r) }}</span></div>
         @if (card().reason) { <div class="board-card-reason">“{{ card().reason }}”</div> }
@@ -68,6 +77,13 @@ export type CardAction =
       @if (editable() && card().status === 'CLOSED') {
         <div class="board-card-acts"><button type="button" (click)="act($event, { kind: 'reopen' })">↺ Reopen</button></div>
       }
+      @if (editable() && hasOpenQuestion()) {
+        <div class="board-card-acts"><button type="button" class="ok" title="Answer Claude's question (A)" (click)="$event.stopPropagation(); answer.emit()">Answer</button></div>
+      }
+      @if (skill(); as cmd) {
+        <button type="button" class="board-copy" [title]="'Copy ' + cmd + ' - paste it into Claude Code'" (click)="copy($event, cmd)">
+          {{ copied() ? '✓ copied' : '⧉ ' + cmd }}</button>
+      }
     </div>`,
 })
 export class BoardCardComponent {
@@ -81,6 +97,15 @@ export class BoardCardComponent {
   readonly opened = output<void>();
   readonly toggled = output<void>();
   readonly action = output<CardAction>();
+  /** Answer from the board (specs/015 FR-5): the card has a question waiting on the user. */
+  readonly answer = output<void>();
+
+  private readonly seen = inject(BoardSeenService);
+  readonly copied = signal(false);
+  readonly unread = computed(() => this.seen.isUnread(this.card()));
+  readonly waiting = computed(() => waitingText(this.card().waiting, this.now()));
+  readonly skill = computed(() => skillFor(this.card()));
+  readonly hasOpenQuestion = computed(() => this.card().waiting?.who === 'USER' && this.card().flags.includes('NEEDS_DECISION'));
 
   readonly buttons = RESOLUTION_BUTTONS;
   readonly stale = computed(() => isStale(this.card(), this.now()));
@@ -96,7 +121,15 @@ export class BoardCardComponent {
   }
 
   proposalText(p: Proposal): string {
-    return proposalTarget(p.status === 'CLOSED' && p.resolution ? `CLOSED:${p.resolution}` : p.status);
+    return proposalText(p);
+  }
+
+  copy(event: Event, text: string): void {
+    event.stopPropagation();
+    void navigator.clipboard?.writeText(text).then(() => {
+      this.copied.set(true);
+      setTimeout(() => this.copied.set(false), 1500);
+    });
   }
 
   resolutionLabel(r: Resolution): string {
@@ -115,4 +148,11 @@ export class BoardCardComponent {
     event.stopPropagation();
     this.action.emit(action);
   }
+}
+
+/** "Verified", "close as Fine - not an issue", "merge into #11", "reopen (regression)". */
+export function proposalText(p: Proposal): string {
+  if (p.kind === 'MERGE') return proposalTarget(`MERGE:#${p.intoNumber}`);
+  if (p.kind === 'REOPEN') return proposalTarget('REOPEN');
+  return proposalTarget(p.status === 'CLOSED' && p.resolution ? `CLOSED:${p.resolution}` : p.status);
 }

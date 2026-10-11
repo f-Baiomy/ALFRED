@@ -12,6 +12,7 @@ import { ReliveFingerprintScreenComponent } from '../../components/relive-finger
 import { ScenarioToolbarComponent } from '../../components/scenario-toolbar/scenario-toolbar.component';
 
 /** First tab-nav shell in the app - "Live Calls" (the original dashboard) and "Session Cycles" render as children below this same nav bar. The /view route deliberately stays outside this layout (opened via window.open, wants the full page to itself). The theme picker lives here rather than in `HeaderComponent` since it's app-wide, not per-page. */
+import { BoardNotifyService } from '../../core/services/board-notify.service';
 import { SpecViewerComponent } from '../../components/board/spec-viewer/spec-viewer.component';
 import { MentionCallPopupComponent } from '../../components/board/mention-call-popup/mention-call-popup.component';
 
@@ -29,4 +30,6 @@ export class MainLayoutComponent {
    * can release it.
    */
   readonly interception = inject(InterceptionStateService);
+  /** Claude's questions and proposals as desktop notifications, once the user turned them on (specs/015). */
+  private readonly boardNotify = inject(BoardNotifyService);
 }

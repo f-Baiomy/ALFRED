@@ -14,6 +14,12 @@ import com.fathy.alfred.backend.board.domain.model.CycleBrief;
 import com.fathy.alfred.backend.board.domain.model.Mention;
 import com.fathy.alfred.backend.board.domain.model.MentionOwner;
 import com.fathy.alfred.backend.board.domain.model.MentionRef;
+import com.fathy.alfred.backend.board.domain.model.CardRef;
+import com.fathy.alfred.backend.board.domain.model.SessionLogEntry;
+import com.fathy.alfred.backend.board.domain.model.StepState;
+import com.fathy.alfred.backend.board.domain.model.TestStep;
+import com.fathy.alfred.backend.board.domain.model.NextSteps;
+import com.fathy.alfred.backend.board.domain.model.WaitingOn;
 import com.fathy.alfred.backend.board.domain.model.Proposal;
 import com.fathy.alfred.backend.board.domain.model.SimilarClosed;
 import com.fathy.alfred.backend.board.domain.model.SpecFile;
@@ -63,6 +69,9 @@ public interface BoardStorePort {
 
     /** The newest entry of a kind on a card, if any. */
     Optional<ActivityEntry> lastOf(String cardId, String kind);
+
+    /** One history entry by id. */
+    Optional<ActivityEntry> activityEntry(long id);
 
     /** Entries newer than {@code afterId}. */
     List<ActivityEntry> after(String cardId, long afterId);
@@ -121,6 +130,50 @@ public interface BoardStorePort {
     /** Cards (any status) with this signature or a title containing one of {@code words}; every board when project is null. */
     List<Card> similar(String project, String signature, List<String> words, int limit);
 
+    // waiting on
+
+    Optional<WaitingOn> waiting(String cardId);
+
+    Map<String, WaitingOn> waitings(Collection<String> cardIds);
+
+    void setWaiting(String cardId, WaitingOn waiting);
+
+    /** What waits on whom on one board (a project's, or a cycle's when cycleId is set). */
+    NextSteps nextSteps(String project, String cycleId);
+
+    // blocked by, spec items, merge (specs/015 phase 3-4)
+
+    void addBlock(String cardId, String blockedById);
+
+    boolean removeBlock(String cardId, String blockedById);
+
+    /** For each card, the cards blocking it. */
+    Map<String, List<CardRef>> blockersOf(Collection<String> cardIds);
+
+    void addSpecItem(String cardId, String cycleId, String fileName, String itemKey);
+
+    boolean removeSpecItem(String cardId, String cycleId, String fileName, String itemKey);
+
+    /** [cycleId, fileName, itemKey] rows of one card. */
+    List<String[]> specItemsOf(String cardId);
+
+    /** For one cycle's spec items ("file\nkey"), the cards about them. */
+    Map<String, List<CardRef>> cardsBySpecItem(String cycleId);
+
+    /** Moves the source card's history, mentions, links, spec items and blocks onto the target. */
+    void mergeInto(String sourceId, String targetId);
+
+    // session log, test steps
+
+    long appendLog(SessionLogEntry entry);
+
+    /** Newest first. */
+    List<SessionLogEntry> log(String cycleId, int limit);
+
+    List<TestStep> stepMarks(String cycleId);
+
+    void putStepMark(String cycleId, String stepKey, StepState state, int calls, Integer cardNumber, String note, java.time.Instant at);
+
     // proposals
 
     Optional<Proposal> proposal(String cardId);
@@ -146,6 +199,12 @@ public interface BoardStorePort {
     boolean putSpec(SpecFile file);
 
     boolean deleteSpec(String cycleId, String name);
+
+    /** Swaps the brief with the version it replaced (so a second restore undoes the first). False when there is none. */
+    boolean restoreBrief(String cycleId, java.time.Instant at);
+
+    /** Swaps a spec file with the version it replaced. False when there is none. */
+    boolean restoreSpec(String cycleId, String name, java.time.Instant at);
 
     List<ChecklistMark> marks(String cycleId);
 

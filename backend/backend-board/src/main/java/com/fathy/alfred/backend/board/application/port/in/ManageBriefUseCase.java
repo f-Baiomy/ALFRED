@@ -15,4 +15,7 @@ public interface ManageBriefUseCase {
     }
 
     BriefOutcome putBrief(Actor actor, String cycleId, String text);
+
+    /** Puts back the brief the last write replaced (the user's call). */
+    BriefOutcome restoreBrief(Actor actor, String cycleId);
 }
