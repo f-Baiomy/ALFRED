@@ -143,22 +143,29 @@ Never check calls one tool call at a time: Alfred checks every call in code, you
 1. **`check_calls`** on the cycle - with `sinceCallId` (the previous reply's `lastCallId`) for a batch, without it for the
    whole cycle. Every call is checked, none skipped: status, errors inside 200s, empty results, ERROR / WARN lines and
    exceptions, failed and flagged SQL (N+1, slow…), failing supplier calls, Redis, slow against the same endpoint, and
-   the **hop diffs** (`Δ`) of the flows the calls carry. It lists the flagged calls with evidence and every other one as
-   clean, and says which are still running (checked next time - pass its `lastCallId` on).
-2. **Judge only the flagged ones**, with "What becomes a card" and "Flows". Drill in only when the evidence is not
+   the **hop diffs** (`Δ`) of the flows the calls carry. It lists every other call as clean and says which are still
+   running (checked next time - pass its `lastCallId` on).
+2. **Groups, not calls.** Flagged calls come in groups: the same problem on many calls (same endpoint, signals, error,
+   failing statement, hop-diff keys) is one group `G1 · 512 calls`, with one example's evidence and every member listed.
+   A call with anything different is in another group, so a group never hides a second problem. Judge each group once.
+   More groups than fit → the reply's `next`: call again with `offset: next` and `untilCallId` = its `lastCallId` (the
+   same `sinceCallId`), until `next` is null - never stop at the first page.
+3. **Judge only the flagged groups**, with "What becomes a card" and "Flows". Drill in only when the evidence is not
    enough: `investigate_call`, `log_context`, `db_statement`, a body field with `get_call` `paths` - never whole bodies
    by default. Read an endpoint's code once per run (`codegraph explore "<handler> <mapper>"` when the repo has a
    `.codegraph/`, else `locate_source` + the files).
-3. **Write in bulk**: `board_similar` / `board_for_call` once per finding, new cards together with `board_add_many`, one
-   state comment per card per batch.
-4. **The ledger.** Every flagged call ends as exactly one of: a **card** (new), a **link** to a card (`board_link`),
-   **asked** (in a `Learn:` card), or **fine** - with the reason (a project check, an `allowed` line, a closed card,
-   "a 404 the user caused on purpose"). Keep the ledger as you go; never leave a flagged call without an outcome.
-5. **Clean calls need nothing** - except the test steps they show (`board_mark_step`).
+4. **Write in bulk**: `board_similar` / `board_for_call` once per finding, new cards together with `board_add_many`
+   (a group's card links **all** its calls), one state comment per card per batch.
+5. **The ledger.** Every group ends as exactly one of: a **card** (new), a **link** to a card (`board_link`, all its
+   calls), **asked** (in a `Learn:` card), or **fine** - with the reason (a project check, an `allowed` line, a closed
+   card, "a 404 the user caused on purpose"). Keep the ledger as you go; never leave a group without an outcome.
+6. **Clean calls need nothing** - except the test steps they show (`board_mark_step`).
 
-**The sweep.** Before stopping, `check_calls` on the whole cycle (no `sinceCallId`) once more: a flagged call with no
-outcome in the ledger - a late log line, a mark that settled after its batch - is judged now. The session log carries
-the count: `120/120 checked · 9 flagged · 6 cards · 2 linked · 1 fine`.
+**The sweep.** Before stopping listen, `check_calls` with `sweep: true` (all pages): it re-judges only the calls never
+checked or whose mark changed since (a late log line, a statement that settled after its batch), and the calls whose
+writes arrived late come back with their hop diffs - give each new group its outcome. Review checks the whole cycle in
+one pass already and needs no sweep. The session log carries the count:
+`120/120 checked · 9 flagged in 4 groups · 3 cards · 1 linked · 0 fine`.
 
 ### Flows - learned from the calls and the code
 

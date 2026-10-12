@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { AlfredClient } from '../alfred-client.ts';
 import { toRow } from '../calls.ts';
-import { listCycleCalls, requireCycle, type CycleEntry } from '../cycle-calls.ts';
+import { cycleEntries, requireCycle, type CycleEntry } from '../cycle-calls.ts';
 import { maskCalls, maskContext, maskMeta } from '../masking.ts';
 import { ok, run } from '../reply.ts';
 import { MaskSchema } from './cycles.ts';
@@ -39,7 +39,7 @@ const MAX_WAIT_S = 60;
 export async function waitForCalls(client: AlfredClient, cycleId: string, sinceCallId: string | undefined, timeoutMs: number,
                                    until: Until = 'any', quietMs = 0): Promise<{ newEntries: CycleEntry[]; total: number; timedOut: boolean; recording: boolean; matched: CycleEntry[] }> {
   const cycle = await requireCycle(client, cycleId);
-  const first = await listCycleCalls(client, cycle.id);
+  const first = { entries: await cycleEntries(client, cycle.id) };
   const known = new Set(first.entries.map((e) => e.call.id));
   const after = (entries: CycleEntry[]) => {
     if (sinceCallId) {
@@ -85,7 +85,7 @@ export async function waitForCalls(client: AlfredClient, cycleId: string, sinceC
       quiet = setTimeout(() => finish({ ...have!, timedOut: false }), quietMs);
     };
     const check = () => {
-      listCycleCalls(client, cycle.id).then(async (now) => {
+      cycleEntries(client, cycle.id).then((entries) => ({ entries })).then(async (now) => {
         const fresh = after(now.entries);
         if (!fresh.length) return;
         const matched = await wanted(fresh);

@@ -56,6 +56,64 @@ export async function listCycleCalls(client: AlfredClient, cycleId: string): Pro
   return { entries, spacers };
 }
 
+// ------------------------------------------------------------------------------------------------ incremental listing
+
+/**
+ * One source of one cycle as last read, in capture order ("oldest" = the order calls were added, which only ever
+ * appends). Listening reads the cycle again after every batch: with this, a cycle of 9,000 calls costs one page per
+ * read instead of 45.
+ */
+interface SourceState {
+  entries: CycleEntry[];
+}
+
+const cycleState = new Map<string, Map<CallEndpointSource, SourceState>>();
+const CYCLE_STATE_MAX = 20;
+
+/**
+ * The calls of one source added since the last read - plus every call still running then, read again so its finished
+ * copy replaces it. Re-reads the whole source when anything before the known tail changed (a call removed, the cycle
+ * deleted and made again): the last known call must still be where it was, and the total must not have shrunk.
+ */
+async function refreshSource(client: AlfredClient, cycleId: string, source: CallEndpointSource, state: SourceState | undefined): Promise<SourceState> {
+  if (!state || !state.entries.length) return { entries: await listSource(client, cycleId, source, 'oldest') };
+  const known = state.entries;
+  const firstRunning = known.findIndex((e) => e.call.state === 'IN_PROGRESS');
+  // Start one before the first call to re-read (the last known one, or the first still running): it must come back
+  // unchanged in place, or something before it moved.
+  const from = Math.max(0, (firstRunning >= 0 ? firstRunning : known.length) - 1);
+  const fresh: CycleEntry[] = [];
+  let total = 0;
+  for (let offset = from; ; offset += PAGE) {
+    const page = await client.get<CapturedPage>(`/session-cycles/${seg(cycleId)}/${segmentOf(source)}`, {
+      query: { paged: true, sort: 'oldest', offset, limit: PAGE },
+      notFound: `Session cycle ${cycleId} not found.`,
+    });
+    total = page.total;
+    fresh.push(...page.calls.map((c) => ({ capturedId: c.id, capturedAt: c.capturedAt, call: toCallRecord(c.call, source) })));
+    if (page.calls.length < PAGE || offset + page.calls.length >= page.total) break;
+  }
+  if (total < known.length || fresh[0]?.capturedId !== known[from].capturedId) {
+    return { entries: await listSource(client, cycleId, source, 'oldest') };
+  }
+  return { entries: [...known.slice(0, from), ...fresh] };
+}
+
+/**
+ * A cycle's calls in run order, as listCycleCalls gives them (without spacers) - read incrementally: only what was
+ * added since the last read, and the calls that were still running. Used where the same cycle is read again and
+ * again (check_calls per batch, wait_for_calls per wake-up).
+ */
+export async function cycleEntries(client: AlfredClient, cycleId: string): Promise<CycleEntry[]> {
+  const key = `${client.baseUrl}|${cycleId}`;
+  const known = cycleState.get(key);
+  const [outbound, inbound] = await Promise.all((['external', 'internal'] as const).map((source) =>
+    refreshSource(client, cycleId, source, known?.get(source))));
+  if (!known && cycleState.size >= CYCLE_STATE_MAX) cycleState.delete(cycleState.keys().next().value!);
+  cycleState.set(key, new Map([['external', outbound], ['internal', inbound]]));
+  return [...outbound.entries, ...inbound.entries].sort((a, b) => callTime(a.call) - callTime(b.call));
+}
+
 export async function cycleCallCount(client: AlfredClient, cycleId: string): Promise<number> {
   const [outbound, inbound] = await Promise.all((['external', 'internal'] as const).map((source) =>
     client.get<CapturedPage>(`/session-cycles/${seg(cycleId)}/${segmentOf(source)}`, { query: { paged: true, offset: 0, limit: 1 } })));

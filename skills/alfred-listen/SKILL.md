@@ -27,14 +27,15 @@ accuracy, a few tool calls per batch however many calls it holds.
 1. **Wait** - in one turn, both: `wait_for_calls` with `sinceCallId` (the last `lastCallId`), `settleSec: 8`,
    `timeoutSec: 60` - it returns when the user pauses, with the whole burst of a step - and `board_wait` with
    `by: USER`. Nothing arrived → wait again; never check per call.
-2. **Check** - `check_calls` with the same `sinceCallId`. Carry its `lastCallId` to the next batch (a call still
+2. **Check** - `check_calls` with the same `sinceCallId` - every page (rules "Batches" 2: `offset: next`, `untilCallId`).
+   Carry its `lastCallId` to the next batch (a call still
    running is in the next batch, not lost).
-3. **Judge the flagged calls** (rules "Batches" 2) - "What becomes a card" and "Flows": a `Δ` on a sure expectation is
+3. **Judge the flagged groups** (rules "Batches" 3) - "What becomes a card" and "Flows": a `Δ` on a sure expectation is
    a card, on an unsure one it waits for the flow's `Learn:` question.
 4. **Write** (rules "Batches" 3): new cards with `board_add_many` (`cycleId`, evidence in the description, the main call
    in `links`, `teams`), then for each the first state comment (`waitingOn` USER) and `board_link_spec`; existing
    problems → `board_link` + one state comment. An `add_comment` on a call only when it helps the user see it in place.
-5. **Ledger** - every flagged call of the batch gets its outcome: card, link, asked or fine with the reason.
+5. **Ledger** - every group of the batch gets its outcome: card (linking all its calls), link, asked or fine with the reason.
 6. **Steps** - `board_mark_step` the steps this batch showed: SEEN (call count) or FAILED (card number).
 7. **Unsure expectations** - when a flow's run ends (its last step arrived, or the user moved on), ask them in the
    flow's `Learn:` card (rules "Learning") - once per flow, not per call.
@@ -42,7 +43,7 @@ accuracy, a few tool calls per batch however many calls it holds.
    to your question → act on it and write the state comment - an answer on a `Learn:` card becomes a check line to
    save at stop, and a "must" about something already seen opens its BUG card now; a move / close → note it on your
    next state comment.
-9. `board_status` with the counts: `step` "listening to <cycle> · 34 calls · 5 flagged · 3 cards".
+9. `board_status` with the counts: `step` "listening to <cycle> · 340 calls · 12 flagged in 4 groups · 3 cards".
 
 Keep the conversation small: after a batch, remember only the ledger, the flows and their expectations - not the tool
 output. Never read a whole body when a field (`get_call` `paths`) answers.
@@ -51,8 +52,8 @@ output. Never read a whole body when a field (`get_call` `paths`) answers.
 
 ## Stop
 
-1. **Sweep** (rules "Batches"): `check_calls` on the whole cycle; judge every flagged call with no outcome in the
-   ledger.
+1. **Sweep** (rules "Batches"): `check_calls` with `sweep: true`, every page - only calls never checked or changed since;
+   give each group it returns its outcome.
 2. **Steps.** With no spacers from the user, show the grouping you used (`suggest_spacers`) and ask before adding
    them; then `board_mark_step` the steps still unmarked (UNTESTED when no call matched).
 3. **Acceptance marks.** `board_suggest_mark` each Acceptance item with clear evidence - PASS / FAIL with the call and
@@ -62,6 +63,6 @@ output. Never read a whole body when a field (`get_call` `paths`) answers.
 5. **What was learned** (rules "Learning", "Good runs"): a run of a flow that looks good → propose it as the reference;
    then one before / after of the new `## Alfred checks` lines (answers, allowed lines, sure expectations from the
    code, confirmed good runs) - save only on yes.
-6. `board_status` STOPPED. `board_session_log` on the cycle: did (`120/120 checked · 9 flagged · 6 cards · 2 linked ·
-   1 fine`, batches), found (cards added / updated, steps seen / failed / untested, marks suggested, Acceptance items
+6. `board_status` STOPPED. `board_session_log` on the cycle: did (`120/120 checked · 9 flagged in 4 groups · 3 cards · 1 linked`,
+   batches), found (cards added / updated, steps seen / failed / untested, marks suggested, Acceptance items
    with no evidence), next. Summary to the user, then: "Sort the Inbox: `/alfred-triage`".

@@ -144,7 +144,7 @@ test('check_calls on a whole cycle: every call accounted for, the drifts flagged
     const r = await w.call('check_calls', { cycle: CY });
     assert.equal(r.isError, false, r.text);
     const t = r.text;
-    assert.match(t, /6 checked \(4 entries, 2 supplier calls under them, 1 OPTIONS skipped\) - 2 flagged, 2 clean/);
+    assert.match(t, /6 checked \(4 entries, 2 supplier calls under them, 1 OPTIONS skipped\) - 2 flagged in 2 groups, 2 clean/);
     // confirm: the departure moved between search and confirm
     assert.match(t, new RegExp(`${n.confirm} IN  POST \\S+/api/confirm → 200[\\s\\S]*?Δ changed departure: "${DAY}T08:15" \\(${n.search} res offers\\[0\\]\\.departure\\) → "${DAY}T09:15" \\(${n.confirm} res departure\\) via of-1`));
     // book: its own ERROR line, the passenger its supplier call lost, and the row saved with the old fare
@@ -157,7 +157,8 @@ test('check_calls on a whole cycle: every call accounted for, the drifts flagged
     // supplier calls count under the inbound call that made them
     assert.match(t, /Flows \(1\)[\s\S]*\n  #1 #3 #4 #6 via of-1/);
     assert.match(t, new RegExp(`Clean \\(2\\): ${n.search} ${n.view}`));
-    assert.deepEqual(r.json.flagged, [3, 4]);
+    // the error first, then the drift; each a group of its own
+    assert.deepEqual(r.json.groups, [{ group: 'G1', calls: [4] }, { group: 'G2', calls: [3] }]);
     assert.equal(r.json.checked, 6);
     assert.equal(r.json.lastCallId, 'in-view');
     assert.doesNotMatch(t, /requestid|x-request-id/i, 'per-request ids are never a diff');

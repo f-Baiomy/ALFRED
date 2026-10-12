@@ -26,8 +26,11 @@ export interface Side {
   readonly table?: string;
 }
 
+/** Where a snapshot sits - a side without its body, so the index never keeps a whole body alive. */
+export type SideMeta = Omit<Side, 'root'>;
+
 export interface Snapshot {
-  readonly side: Side;
+  readonly side: SideMeta;
   /** Path of the object holding the anchor, e.g. `offers[0]`, or the table for a row. */
   readonly path: string;
   readonly anchorKey: string;
@@ -125,6 +128,7 @@ function collect(node: Record<string, unknown>, path: string, prefix: string, de
 
 /** Every snapshot in one side: each object (at any depth) that holds an anchor value directly. */
 export function snapshotsOf(side: Side): { anchor: string; snapshot: Snapshot }[] {
+  const meta: SideMeta = { callId: side.callId, kind: side.kind, at: side.at, ...(side.table ? { table: side.table } : {}) };
   const out: { anchor: string; snapshot: Snapshot }[] = [];
   const walk = (node: unknown, path: string, depth: number) => {
     if (depth > MAX_DEPTH || node === null || typeof node !== 'object') return;
@@ -143,7 +147,7 @@ export function snapshotsOf(side: Side): { anchor: string; snapshot: Snapshot }[
         counts = new Map();
         collect(obj, path, '', 1, leaves, counts);
       }
-      out.push({ anchor: normValue(value as Prim), snapshot: { side, path: path || '(root)', anchorKey: normKey(key), leaves, counts: counts! } });
+      out.push({ anchor: normValue(value as Prim), snapshot: { side: meta, path: path || '(root)', anchorKey: normKey(key), leaves, counts: counts! } });
     }
     for (const [key, value] of Object.entries(obj)) {
       if (value !== null && typeof value === 'object') walk(value, join(path, key), depth + 1);
@@ -155,12 +159,12 @@ export function snapshotsOf(side: Side): { anchor: string; snapshot: Snapshot }[
 
 const KIND_ORDER: Record<SideKind, number> = { req: 0, db: 1, res: 2 };
 
-function before(a: Side, b: Side): boolean {
+function before(a: SideMeta, b: SideMeta): boolean {
   return a.at !== b.at ? a.at < b.at : KIND_ORDER[a.kind] < KIND_ORDER[b.kind];
 }
 
 /** The same side of the same call - comparing a snapshot with itself (or its own list items) says nothing. */
-function sameSide(a: Side, b: Side): boolean {
+function sameSide(a: SideMeta, b: SideMeta): boolean {
   return a.callId === b.callId && a.kind === b.kind && a.table === b.table;
 }
 
@@ -171,116 +175,181 @@ export interface FlowAnalysis {
   readonly contextAnchors: readonly string[];
 }
 
-/**
- * Flows and diffs over the given sides. `report(callId)` says which calls' diffs to return (the window being
- * checked) - earlier calls still serve as the "from" side.
- */
-export function analyseFlows(sides: readonly Side[], report: (callId: string) => boolean = () => true): FlowAnalysis {
-  const byAnchor = new Map<string, Snapshot[]>();
-  for (const side of sides) {
-    for (const { anchor, snapshot } of snapshotsOf(side)) {
-      byAnchor.set(anchor, [...(byAnchor.get(anchor) ?? []), snapshot]);
-    }
-  }
-  const callCount = new Set(sides.map((s) => s.callId)).size;
-  const contextAnchors: string[] = [];
-  const parent = new Map<string, string>();
-  const find = (x: string): string => {
-    while (parent.get(x) !== x) {
-      parent.set(x, parent.get(parent.get(x)!)!);
-      x = parent.get(x)!;
-    }
-    return x;
-  };
-  for (const side of sides) parent.set(side.callId, side.callId);
-  const flowAnchors = new Map<string, Set<string>>();
-  const diffs: HopDiff[] = [];
-  const seen = new Set<string>();
-  const push = (d: HopDiff) => {
-    const key = `${d.kind}|${d.key}|${d.from.callId}|${d.from.side}|${d.to.callId}|${d.to.side}`;
-    if (seen.has(key)) return;
-    seen.add(key);
-    diffs.push(d);
-  };
+/** Rough bytes a snapshot holds - for the index's memory cap, not exact. */
+function sizeOf(s: Snapshot): number {
+  let n = 64 + s.path.length;
+  for (const [k, l] of s.leaves) n += 48 + k.length + l.path.length + (typeof l.value === 'string' ? l.value.length : 8);
+  for (const [k, c] of s.counts) n += 40 + k.length + c.path.length;
+  return n;
+}
 
-  for (const [anchor, all] of byAnchor) {
-    const calls = new Set(all.map((s) => s.side.callId));
-    if (calls.size < 2) continue;
-    if (calls.size >= 6 && calls.size > callCount / 2) {
-      contextAnchors.push(anchor);
-      continue;
-    }
-    const ids = [...calls];
-    for (const id of ids.slice(1)) parent.set(find(id), find(ids[0]));
-    const snaps = [...all].sort((a, b) => (before(a.side, b.side) ? -1 : before(b.side, a.side) ? 1 : 0));
-    for (let i = 1; i < snaps.length; i++) {
-      const y = snaps[i];
-      if (!report(y.side.callId)) continue;
-      const earlier = snaps.slice(0, i).filter((x) => !sameSide(x.side, y.side));
-      if (!earlier.length) continue;
-      const latestWith = (key: string, inCounts: boolean) => {
-        for (let j = earlier.length - 1; j >= 0; j--) {
-          const x = earlier[j];
-          if (inCounts ? x.counts.has(key) : x.leaves.has(key)) return x;
+/**
+ * The snapshots of a cycle's calls, kept between batches: each call's bodies are parsed once, only the small snapshots
+ * are kept (never the bodies), and a batch is compared against what is already indexed - so checking batch 300 of a
+ * 9,000-call cycle costs what batch 3 cost.
+ */
+export class FlowIndex {
+  private readonly byAnchor = new Map<string, Snapshot[]>();
+  private readonly callsOfAnchor = new Map<string, Set<string>>();
+  private readonly anchorsOfCall = new Map<string, Set<string>>();
+  private readonly indexed = new Set<string>();
+  bytes = 0;
+
+  has(callId: string): boolean {
+    return this.indexed.has(callId);
+  }
+
+  get calls(): number {
+    return this.indexed.size;
+  }
+
+  /** Indexes one call's sides (its bodies and written rows) - once; a call indexed again is ignored. */
+  add(callId: string, sides: readonly Side[]): void {
+    if (this.indexed.has(callId)) return;
+    this.indexed.add(callId);
+    const anchors = new Set<string>();
+    for (const side of sides) {
+      for (const { anchor, snapshot } of snapshotsOf(side)) {
+        anchors.add(anchor);
+        const list = this.byAnchor.get(anchor) ?? [];
+        // keep each anchor's snapshots in timeline order (a binary insert: calls mostly arrive in order)
+        let lo = 0;
+        let hi = list.length;
+        while (lo < hi) {
+          const mid = (lo + hi) >> 1;
+          if (before(snapshot.side, list[mid].side)) hi = mid; else lo = mid + 1;
         }
-        return null;
-      };
-      // changed values
-      for (const [key, leaf] of y.leaves) {
-        if (key === y.anchorKey) continue;
-        const x = latestWith(key, false);
-        if (!x) continue;
-        const from = x.leaves.get(key)!;
-        if (normValue(from.value) === normValue(leaf.value)) continue;
-        push({ kind: 'changed', anchor, key, from: { callId: x.side.callId, side: x.side.kind, path: from.path, value: shown(from.value) },
-          to: { callId: y.side.callId, side: y.side.kind, path: leaf.path, value: shown(leaf.value) } });
+        list.splice(lo, 0, snapshot);
+        this.byAnchor.set(anchor, list);
+        this.bytes += sizeOf(snapshot);
+        this.callsOfAnchor.set(anchor, (this.callsOfAnchor.get(anchor) ?? new Set()).add(callId));
       }
-      // counts: a list against a list, or a list against a number of the same name (passengers: [2] → passengers: 1)
-      const countKeys = new Set([...y.counts.keys(), ...[...y.leaves].filter(([, l]) => typeof l.value === 'number').map(([k]) => k)]);
-      for (const key of countKeys) {
-        const yCount = y.counts.get(key)?.count ?? (y.leaves.get(key)?.value as number);
-        const yPath = y.counts.get(key)?.path ?? y.leaves.get(key)!.path;
-        const x = latestWith(key, true);
-        if (!x) continue;
-        const from = x.counts.get(key)!;
-        if (from.count === yCount) continue;
-        push({ kind: 'count', anchor, key, from: { callId: x.side.callId, side: x.side.kind, path: from.path, value: `${from.count} items` },
-          to: { callId: y.side.callId, side: y.side.kind, path: yPath, value: y.counts.has(key) ? `${yCount} items` : String(yCount) } });
+    }
+    this.anchorsOfCall.set(callId, anchors);
+  }
+
+  /** An id in most calls (an agency, a user): it links everything and so nothing. */
+  isContext(anchor: string): boolean {
+    const n = this.callsOfAnchor.get(anchor)?.size ?? 0;
+    return n >= 6 && n > this.indexed.size / 2;
+  }
+
+  private linking(anchor: string): boolean {
+    return (this.callsOfAnchor.get(anchor)?.size ?? 0) >= 2 && !this.isContext(anchor);
+  }
+
+  contextAnchors(): string[] {
+    return [...this.callsOfAnchor.keys()].filter((a) => (this.callsOfAnchor.get(a)?.size ?? 0) >= 2 && this.isContext(a));
+  }
+
+  /** The diffs whose later side is one of `callIds` - each against the latest earlier snapshot of the same thing. */
+  diffsFor(callIds: ReadonlySet<string>): HopDiff[] {
+    const diffs: HopDiff[] = [];
+    const seen = new Set<string>();
+    const push = (d: HopDiff) => {
+      const key = `${d.kind}|${d.key}|${d.from.callId}|${d.from.side}|${d.to.callId}|${d.to.side}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      diffs.push(d);
+    };
+    const anchors = new Set<string>();
+    for (const id of callIds) for (const a of this.anchorsOfCall.get(id) ?? []) anchors.add(a);
+    for (const anchor of anchors) {
+      if (!this.linking(anchor)) continue;
+      const snaps = this.byAnchor.get(anchor)!;
+      for (let i = 1; i < snaps.length; i++) {
+        const y = snaps[i];
+        if (!callIds.has(y.side.callId)) continue;
+        compare(anchor, y, snaps.slice(0, i).filter((x) => !sameSide(x.side, y.side)), push);
       }
-      // missing: only against an earlier snapshot this one mirrors (most of its keys come back), so a short request
-      // that names the thing by its id is not read as "everything went missing".
-      const x = earlier[earlier.length - 1];
-      const xKeys = [...x.leaves.keys()].filter((k) => k !== x.anchorKey);
-      if (xKeys.length >= 4) {
-        const back = xKeys.filter((k) => y.leaves.has(k) || y.counts.has(k));
-        if (back.length / xKeys.length >= 0.6) {
-          for (const k of xKeys) {
-            if (y.leaves.has(k) || y.counts.has(k)) continue;
-            const from = x.leaves.get(k)!;
-            push({ kind: 'missing', anchor, key: k, from: { callId: x.side.callId, side: x.side.kind, path: from.path, value: shown(from.value) },
-              to: { callId: y.side.callId, side: y.side.kind, path: y.path, value: '(absent)' } });
+    }
+    return diffs;
+  }
+
+  /** The flows (calls linked through ids they share) that hold any of `callIds`. */
+  flowsFor(callIds: Iterable<string>): Flow[] {
+    const done = new Set<string>();
+    const flows: Flow[] = [];
+    for (const start of callIds) {
+      if (done.has(start) || !this.indexed.has(start)) continue;
+      const members: string[] = [];
+      const anchors = new Set<string>();
+      const queue = [start];
+      done.add(start);
+      while (queue.length) {
+        const id = queue.shift()!;
+        members.push(id);
+        for (const a of this.anchorsOfCall.get(id) ?? []) {
+          if (!this.linking(a)) continue;
+          anchors.add(a);
+          for (const other of this.callsOfAnchor.get(a)!) {
+            if (!done.has(other)) { done.add(other); queue.push(other); }
           }
         }
       }
+      if (anchors.size) flows.push({ callIds: members, anchors: [...anchors] });
     }
+    return flows;
   }
-  for (const [anchor, all] of byAnchor) {
-    if (contextAnchors.includes(anchor)) continue;
-    const calls = new Set(all.map((s) => s.side.callId));
-    if (calls.size < 2) continue;
-    const root = find(all[0].side.callId);
-    flowAnchors.set(root, (flowAnchors.get(root) ?? new Set()).add(anchor));
+}
+
+/** One later snapshot against the earlier ones of the same thing: values that changed, counts that changed, keys gone. */
+function compare(anchor: string, y: Snapshot, earlier: readonly Snapshot[], push: (d: HopDiff) => void): void {
+  if (!earlier.length) return;
+  const latestWith = (key: string, inCounts: boolean) => {
+    for (let j = earlier.length - 1; j >= 0; j--) {
+      const x = earlier[j];
+      if (inCounts ? x.counts.has(key) : x.leaves.has(key)) return x;
+    }
+    return null;
+  };
+  for (const [key, leaf] of y.leaves) {
+    if (key === y.anchorKey) continue;
+    const x = latestWith(key, false);
+    if (!x) continue;
+    const from = x.leaves.get(key)!;
+    if (normValue(from.value) === normValue(leaf.value)) continue;
+    push({ kind: 'changed', anchor, key, from: { callId: x.side.callId, side: x.side.kind, path: from.path, value: shown(from.value) },
+      to: { callId: y.side.callId, side: y.side.kind, path: leaf.path, value: shown(leaf.value) } });
   }
-  const members = new Map<string, string[]>();
-  for (const side of sides) {
-    const root = find(side.callId);
-    if (!flowAnchors.has(root)) continue;
-    const list = members.get(root) ?? [];
-    if (!list.includes(side.callId)) list.push(side.callId);
-    members.set(root, list);
+  // counts: a list against a list, or a list against a number of the same name (passengers: [2] → passengers: 1)
+  const countKeys = new Set([...y.counts.keys(), ...[...y.leaves].filter(([, l]) => typeof l.value === 'number').map(([k]) => k)]);
+  for (const key of countKeys) {
+    const yCount = y.counts.get(key)?.count ?? (y.leaves.get(key)?.value as number);
+    const yPath = y.counts.get(key)?.path ?? y.leaves.get(key)!.path;
+    const x = latestWith(key, true);
+    if (!x) continue;
+    const from = x.counts.get(key)!;
+    if (from.count === yCount) continue;
+    push({ kind: 'count', anchor, key, from: { callId: x.side.callId, side: x.side.kind, path: from.path, value: `${from.count} items` },
+      to: { callId: y.side.callId, side: y.side.kind, path: yPath, value: y.counts.has(key) ? `${yCount} items` : String(yCount) } });
   }
-  const flows = [...members].map(([root, callIds]) => ({ callIds, anchors: [...flowAnchors.get(root)!] }));
-  return { flows, diffs, contextAnchors };
+  // missing: only against an earlier snapshot this one mirrors (most of its keys come back), so a short request
+  // that names the thing by its id is not read as "everything went missing".
+  const x = earlier[earlier.length - 1];
+  const xKeys = [...x.leaves.keys()].filter((k) => k !== x.anchorKey);
+  if (xKeys.length < 4) return;
+  const back = xKeys.filter((k) => y.leaves.has(k) || y.counts.has(k));
+  if (back.length / xKeys.length < 0.6) return;
+  for (const k of xKeys) {
+    if (y.leaves.has(k) || y.counts.has(k)) continue;
+    const from = x.leaves.get(k)!;
+    push({ kind: 'missing', anchor, key: k, from: { callId: x.side.callId, side: x.side.kind, path: from.path, value: shown(from.value) },
+      to: { callId: y.side.callId, side: y.side.kind, path: y.path, value: '(absent)' } });
+  }
+}
+
+/**
+ * Flows and diffs over the given sides, in one go. `report(callId)` says which calls' diffs to return (the window being
+ * checked) - earlier calls still serve as the "from" side.
+ */
+export function analyseFlows(sides: readonly Side[], report: (callId: string) => boolean = () => true): FlowAnalysis {
+  const index = new FlowIndex();
+  const byCall = new Map<string, Side[]>();
+  for (const side of sides) byCall.set(side.callId, [...(byCall.get(side.callId) ?? []), side]);
+  for (const [id, list] of byCall) index.add(id, list);
+  const ids = [...byCall.keys()];
+  return { flows: index.flowsFor(ids), diffs: index.diffsFor(new Set(ids.filter(report))), contextAnchors: index.contextAnchors() };
 }
 
 // ------------------------------------------------------------------------------------------------ parsing sides

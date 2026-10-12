@@ -22,11 +22,11 @@ and use them as the grouping (do not add them without asking). Match each step t
 
 ## 3. Check every call - one pass
 
-`check_calls` on the whole cycle (rules "Batches"): every call checked, the flagged ones with their evidence, the flows
+`check_calls` on the whole cycle, every page (rules "Batches"): every call checked, the flagged ones in groups with their evidence, the flows
 and their hop diffs (`Δ`). Then the rules' "Flows" on what it found: read each flagged endpoint's code once, write the
-expectations - sure (judged now) or unsure (asked in step 4) - and judge every flagged call; the ledger gives each one
+expectations - sure (judged now) or unsure (asked in step 4) - and judge every flagged group; the ledger gives each one
 its outcome. Drill in only where the evidence is not enough (`investigate_call`, `log_context`, `db_statement`, a field
-with `get_call` `paths`). Update `board_status` `step` as you go ("reviewing <cycle> · 120 calls · 9 flagged · 3 cards").
+with `get_call` `paths`). Update `board_status` `step` as you go ("reviewing <cycle> · 120 calls · 9 flagged in 4 groups · 3 cards").
 
 ## 4. Fill the board
 
@@ -73,5 +73,5 @@ when the cycle did not cover it).
 
 ## 7. Finish
 
-`board_status` STOPPED. `board_session_log`: did (`120/120 checked · 9 flagged · 6 cards · 2 linked · 1 fine`), found (cards added / updated, regressions, untested
+`board_status` STOPPED. `board_session_log`: did (`120/120 checked · 9 flagged in 4 groups · 3 cards · 1 linked`), found (cards added / updated, regressions, untested
 steps and items), next (what waits on the user). Summary, then: "`/alfred-triage` to sort the Inbox".
