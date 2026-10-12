@@ -15,6 +15,7 @@ import * as diff from './tools/diff.ts';
 import * as rulesRelive from './tools/rules-relive.ts';
 import * as projects from './tools/projects.ts';
 import * as triage from './tools/triage.ts';
+import * as check from './tools/check.ts';
 import * as logs from './tools/logs.ts';
 import * as investigate from './tools/investigate.ts';
 import * as redis from './tools/redis.ts';
@@ -28,6 +29,7 @@ export function createServer(client: AlfredClient = new AlfredClient()): McpServ
   const server = new McpServer({ name: 'alfred', version: pkg.version }, {
     instructions: 'Alfred records HTTP traffic in and out of a Java app (inbound = calls into a project such as odeysys; outbound = its supplier calls), '
       + 'the database statements each inbound call ran, and the log lines the application wrote during it (caught inside the JVM). '
+      + 'Checking a cycle (listen, review): check_calls - every call in one pass, flagged ones with evidence, hop diffs between the calls of a flow; with sinceCallId per batch, wait_for_calls with settleSec between batches. '
       + 'Investigation order: problem_calls (every call with an error or warning - HTTP, database or logs) or triage (reading order with evidence) -> '
       + 'investigate_call on a suspect -> call_story / log_context (what happened just before the error) -> exception_source / locate_source (the line '
       + 'of code). Across calls: search_logs (who logged a symptom), log_problems (repeated errors grouped), endpoint_health, problem_timeline, '
@@ -46,6 +48,6 @@ export function createServer(client: AlfredClient = new AlfredClient()): McpServ
       + 'rule_recipes, rule_from_call and rule_preview first; the user switches them on, edits or deletes them; rule_hits shows what one did.',
   });
   registerSessionTool(server);
-  for (const module of [cycles, spacers, calls, db, comments, exportTool, watch, redactions, cycleSearch, diff, rulesRelive, projects, triage, logs, investigate, redis, board, ruleProposals]) module.register(server, client);
+  for (const module of [cycles, spacers, calls, db, comments, exportTool, watch, redactions, cycleSearch, diff, rulesRelive, projects, triage, check, logs, investigate, redis, board, ruleProposals]) module.register(server, client);
   return server;
 }

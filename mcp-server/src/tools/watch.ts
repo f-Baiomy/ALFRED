@@ -37,7 +37,7 @@ const MAX_WAIT_S = 60;
  * wait (60 s at most), so a tool call can never hang.
  */
 export async function waitForCalls(client: AlfredClient, cycleId: string, sinceCallId: string | undefined, timeoutMs: number,
-                                   until: Until = 'any'): Promise<{ newEntries: CycleEntry[]; total: number; timedOut: boolean; recording: boolean; matched: CycleEntry[] }> {
+                                   until: Until = 'any', quietMs = 0): Promise<{ newEntries: CycleEntry[]; total: number; timedOut: boolean; recording: boolean; matched: CycleEntry[] }> {
   const cycle = await requireCycle(client, cycleId);
   const first = await listCycleCalls(client, cycle.id);
   const known = new Set(first.entries.map((e) => e.call.id));
@@ -58,39 +58,55 @@ export async function waitForCalls(client: AlfredClient, cycleId: string, sinceC
   };
   const ready = sinceCallId ? after(first.entries) : [];
   const readyMatched = ready.length ? await wanted(ready) : [];
-  if (readyMatched.length) {
+  if (readyMatched.length && !quietMs) {
     return { newEntries: ready, total: first.entries.length, timedOut: false, recording: cycle.status === 'RECORDING', matched: readyMatched };
   }
 
   return new Promise((resolve, reject) => {
     const sockets: WebSocket[] = [];
     let settle: ReturnType<typeof setTimeout> | undefined;
+    let quiet: ReturnType<typeof setTimeout> | undefined;
     let done = false;
+    /** With quietMs: what arrived so far - returned once nothing new came for quietMs, or at the timeout. */
+    let have: { newEntries: CycleEntry[]; total: number; matched: CycleEntry[] } | null =
+      readyMatched.length ? { newEntries: ready, total: first.entries.length, matched: readyMatched } : null;
     const finish = (value: { newEntries: CycleEntry[]; total: number; timedOut: boolean; matched: CycleEntry[] } | Error) => {
       if (done) return;
       done = true;
       clearTimeout(timer);
       clearTimeout(settle);
+      clearTimeout(quiet);
       for (const s of sockets) s.close();
       if (value instanceof Error) reject(value);
       else resolve({ ...value, recording: cycle.status === 'RECORDING' });
+    };
+    const armQuiet = () => {
+      clearTimeout(quiet);
+      quiet = setTimeout(() => finish({ ...have!, timedOut: false }), quietMs);
     };
     const check = () => {
       listCycleCalls(client, cycle.id).then(async (now) => {
         const fresh = after(now.entries);
         if (!fresh.length) return;
         const matched = await wanted(fresh);
-        if (matched.length) finish({ newEntries: fresh, total: now.entries.length, timedOut: false, matched });
+        if (!matched.length) return;
+        if (!quietMs) { finish({ newEntries: fresh, total: now.entries.length, timedOut: false, matched }); return; }
+        have = { newEntries: fresh, total: now.entries.length, matched };
+        armQuiet();
       }).catch(finish);
     };
-    const timer = setTimeout(() => finish({ newEntries: [], total: first.entries.length, timedOut: true, matched: [] }), timeoutMs);
+    // At the timeout, calls that already arrived are returned - a user who never pauses still gets them.
+    const timer = setTimeout(() => finish(have ? { ...have, timedOut: false } : { newEntries: [], total: first.entries.length, timedOut: true, matched: [] }), timeoutMs);
+    if (have) armQuiet();
     const wsBase = client.baseUrl.replace(/^http/, 'ws');
     for (const path of until === 'any' ? SOCKETS : [...SOCKETS, ...SIGNAL_SOCKETS]) {
       const socket = new WebSocket(wsBase + path);
       // A burst of calls arrives as a burst of messages: read the cycle once it settles, not per message.
       socket.addEventListener('message', () => {
         clearTimeout(settle);
-        settle = setTimeout(check, SETTLE_MS);
+        // Something is still arriving: the quiet period starts again once it is read.
+        if (have) clearTimeout(quiet);
+        settle = setTimeout(() => { check(); if (have) armQuiet(); }, SETTLE_MS);
       });
       sockets.push(socket);
     }
@@ -103,18 +119,20 @@ export function register(server: McpServer, client: AlfredClient): void {
       + 'recording on - and return them with their numbers. Pass sinceCallId (the lastCallId of the previous reply) to continue where you left off. '
       + 'Event-driven (Alfred\'s WebSocket signals), not polling; returns timedOut: true when nothing arrived. until waits for a kind of '
       + 'trouble instead of any call: logError (an ERROR line or exception), logWarning, dbFailed, or problem (any error or warning) - matched '
-      + 'lists those calls.',
+      + 'lists those calls. settleSec waits for a pause: once calls arrived, it returns only after none came for that long (or at the '
+      + 'timeout, with what arrived) - one batch per step the user clicks through instead of one reply per call.',
     inputSchema: {
       cycleId: z.string().min(1),
       sinceCallId: z.string().optional(),
       timeoutSec: z.number().int().min(1).max(MAX_WAIT_S).default(30),
+      settleSec: z.number().int().min(0).max(30).default(0).describe('Return once no new call came for this long (0 = at the first new call)'),
       includeOptions: z.boolean().default(false),
       until: z.enum(['any', 'logError', 'logWarning', 'dbFailed', 'problem']).default('any'),
       mask: MaskSchema,
     },
   }, (input) => run(async () => {
     const ctx = await maskContext(client, input.mask);
-    const result = await waitForCalls(client, input.cycleId, input.sinceCallId, input.timeoutSec * 1000, input.until);
+    const result = await waitForCalls(client, input.cycleId, input.sinceCallId, input.timeoutSec * 1000, input.until, input.settleSec * 1000);
     const shown = result.newEntries.filter((e) => input.includeOptions || e.call.method !== 'OPTIONS');
     const rows = maskCalls(ctx, shown.map((e) => e.call)).map(toRow);
     return ok({

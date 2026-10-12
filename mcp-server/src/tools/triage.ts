@@ -27,7 +27,7 @@ const STATEMENTS_SHOWN = 5;
 const SIGNAL_DB_FLAGS = new Set(['QUERY_FAN_OUT', 'DUPLICATE', 'REPEATED_QUERY', 'SLOW', 'HUGE_RESULT', 'LOCK_DURING_SUPPLIER_CALL',
   'NO_WHERE', 'LARGE_DELETE', 'TX_PER_STATEMENT', 'ROLLED_BACK']);
 
-interface Item {
+export interface Item {
   /** "#12" in a cycle, a short id live. */
   readonly label: string;
   readonly entry: TriageEntry | null;
@@ -58,7 +58,7 @@ async function frameLine(chain: readonly string[]): Promise<string | null> {
 const LOG_LINES_SHOWN = 3;
 
 /** The first error lines of each call that logged some (one /call-logs page each) - shown as evidence (specs/010). */
-async function errorLinesOf(client: AlfredClient, ctx: MaskContext, entries: readonly TriageEntry[], cycleId?: string): Promise<Map<string, LinkedLogLine[]>> {
+export async function errorLinesOf(client: AlfredClient, ctx: MaskContext, entries: readonly TriageEntry[], cycleId?: string): Promise<Map<string, LinkedLogLine[]>> {
   const out = new Map<string, LinkedLogLine[]>();
   const wanted = entries.filter((e) => (e.signals?.logErrors ?? 0) > 0 || (e.signals?.logExceptions ?? 0) > 0);
   await Promise.all(wanted.map(async (e) => {
@@ -68,7 +68,7 @@ async function errorLinesOf(client: AlfredClient, ctx: MaskContext, entries: rea
   return out;
 }
 
-async function evidence(ctx: MaskContext, item: Item, numberOf: ReadonlyMap<string, number>, failures: Record<string, CallStatementFailures>,
+export async function evidence(ctx: MaskContext, item: Item, numberOf: ReadonlyMap<string, number>, failures: Record<string, CallStatementFailures>,
                         logLines: ReadonlyMap<string, LinkedLogLine[]> = new Map()): Promise<string[]> {
   const e = item.entry;
   if (!e) return [];
@@ -112,7 +112,7 @@ async function evidence(ctx: MaskContext, item: Item, numberOf: ReadonlyMap<stri
   return lines;
 }
 
-function headLine(ctx: MaskContext, item: Item): string {
+export function headLine(ctx: MaskContext, item: Item): string {
   if (item.call) {
     const row = toRow(item.call);
     const outcome = item.entry ? outcomeOf(item.entry) : row.status ?? (item.call.error ? `ERROR ${item.call.error}` : item.call.state ?? '-');
@@ -239,7 +239,7 @@ async function render(client: AlfredClient, ctx: MaskContext, head: string, item
 }
 
 /** "logs not caught for core-service (▤ off)" - said in the head, so an empty evidence is not read as "no errors". */
-async function unavailableNote(client: AlfredClient, items: readonly Item[]): Promise<string> {
+export async function unavailableNote(client: AlfredClient, items: readonly Item[]): Promise<string> {
   const projects = new Set(items.map((i) => i.entry?.project ?? i.call?.service_name).filter((p): p is string => !!p));
   if (!projects.size) return '';
   const status = await client.get<{ project: string; logsOn?: boolean; attached: boolean; enabled: boolean }[]>('/db-capture/projects').catch(() => []);

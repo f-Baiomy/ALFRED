@@ -11,7 +11,8 @@ Read `rules.md` in this skill's folder first and follow it - especially "What be
 ## 1. Context
 
 The cycle by name (`list_cycles`), `get_cycle` (project, calls). `get_brief` (purpose, test steps, spec files, the
-cycle's cards), `read_spec` for each spec file, `board_closed_reasons` for the project. `board_status` WATCHING with
+cycle's cards), `read_spec` for each spec file, `board_closed_reasons` for the project, the repo's "Project checks"
+(rules) when there are any. `board_status` WATCHING with
 `step` "reviewing <cycle>".
 
 ## 2. Map the flow
@@ -19,20 +20,23 @@ cycle's cards), `read_spec` for each spec file, `board_closed_reasons` for the p
 Group the calls into the brief's test steps by the user's spacers and comments; with no spacers, `suggest_spacers`
 and use them as the grouping (do not add them without asking). Match each step to the Acceptance items it exercises.
 
-## 3. Check every call
+## 3. Check every call - one pass
 
-`problem_calls` / `triage` scoped to the cycle for the obvious ones, then every call of every step with the rules'
-checks - `investigate_call`, `call_logs` / `log_context`, `db_statements`, the outbound calls, `redis_commands`.
-Update `board_status` `step` as you go ("reviewing <cycle> · 34/120 calls · 3 cards").
+`check_calls` on the whole cycle (rules "Batches"): every call checked, the flagged ones with their evidence, the flows
+and their hop diffs (`Δ`). Then the rules' "Flows" on what it found: read each flagged endpoint's code once, write the
+expectations - sure (judged now) or unsure (asked in step 4) - and judge every flagged call; the ledger gives each one
+its outcome. Drill in only where the evidence is not enough (`investigate_call`, `log_context`, `db_statement`, a field
+with `get_call` `paths`). Update `board_status` `step` as you go ("reviewing <cycle> · 120 calls · 9 flagged · 3 cards").
 
 ## 4. Fill the board
 
-- New problem → `board_add` with its `teams` + first state comment (+ `board_ask` for questions, `board_link_spec` for the item).
+- New problems → `board_add_many` with their `teams`, then a first state comment each (+ `board_ask` for questions, `board_link_spec` for the item).
 - A card whose teams no longer fit what this recording shows → `board_assign` with the reason.
 - Problem already on a card → no new card: `board_link` the new calls and a state comment "seen again in <cycle>".
 - Two existing cards that are one problem → `board_propose` MERGE.
 - A card the user dismissed → skip.
 - Acceptance item never exercised → TASK; spec vs behaviour conflict → QUESTION.
+- Unsure expectations → the flow's `Learn:` card (rules "Learning"), one batched question per flow.
 
 ## 5. Regressions
 
@@ -40,6 +44,24 @@ Update `board_status` `step` as you go ("reviewing <cycle> · 34/120 calls · 3 
 project: an endpoint that worked before and fails now → a BUG flagged URGENT "Regression since <cycle>"; a Done /
 Verified card failing again → `board_propose` REOPEN with the failing calls. A card whose problem no longer shows →
 state comment "not seen in <cycle>".
+
+**Shape regressions - still 200, but different.** The baseline is the flow's confirmed `good run` (rules "Good runs");
+with none confirmed, the last earlier run of the flow that had no open BUG on the step - and say in the session log that
+the baseline is not confirmed. For each step, `diff_calls` its main call against the baseline's same step (same endpoint,
+same position in the flow). Look only at the shape, not the values that are meant to differ (ids, times, tokens):
+
+- a field the baseline response had and this one lacks, or that is now empty / null → **BUG** "Regression since
+  <baseline cycle>: <field> missing" (URGENT when an Acceptance item or a project check needs it);
+- a field whose type or format changed (number → string, `2026-10-13` → `13/10/2026`, an amount losing its currency)
+  → **BUG**;
+- a list that is now much shorter for the same input (search results, segments, passengers) → **QUESTION** flagged
+  NEEDS_DECISION;
+- a new field → nothing, unless the spec says otherwise.
+
+No earlier run of the flow → skip, and say so in the session log.
+
+**What was learned** (rules "Learning", "Good runs"): a run in this cycle that looks good → propose it as the flow's
+reference; then one before / after of the new `## Alfred checks` lines - save only on yes.
 
 ## 6. Annotate and mark
 
@@ -51,5 +73,5 @@ when the cycle did not cover it).
 
 ## 7. Finish
 
-`board_status` STOPPED. `board_session_log`: did (calls checked), found (cards added / updated, regressions, untested
+`board_status` STOPPED. `board_session_log`: did (`120/120 checked · 9 flagged · 6 cards · 2 linked · 1 fine`), found (cards added / updated, regressions, untested
 steps and items), next (what waits on the user). Summary, then: "`/alfred-triage` to sort the Inbox".

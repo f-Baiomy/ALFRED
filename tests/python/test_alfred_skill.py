@@ -34,7 +34,7 @@ def mcp_tools():
 
 
 TOOL_NAME = re.compile(r"`((?:board|get|read|list|search|problem|investigate|wait|call|log|db|exception|locate|endpoint|add|set|compare|"
-                       r"suggest|create|start|stop|trace|diff|redis|triage)_[a-z_]+)`")
+                       r"suggest|create|start|stop|trace|diff|redis|triage|check)_[a-z_]+)`")
 
 
 class ShippedSkillsTest(unittest.TestCase):

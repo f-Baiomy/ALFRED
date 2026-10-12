@@ -57,6 +57,9 @@ Draft both, **show them, and ask "Save these?"** - edit them as the user says, s
 
 - Remember the project for this repo if the user wants (offer to add one line to the repo's `CLAUDE.md`:
   `Alfred project: <name>`).
+- No `## Alfred checks` in the repo's `CLAUDE.md` and the task carries data across steps (search → book, cart →
+  order)? Offer once to add the project checks (rules "Project checks") for that flow - draft the lines, show them,
+  save only on yes.
 - `board_session_log` on the cycle: did (created, brief/spec saved), found (capture state), next.
 - Tell the user: start recording, then `/alfred-listen <cycle>` while testing - or record first and
   `/alfred-review <cycle>` after.

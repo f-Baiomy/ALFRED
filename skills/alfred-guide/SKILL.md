@@ -20,8 +20,8 @@ to learn. Always end with the exact next command.
 | - | `/alfred-connect <address>` | Once per Alfred instance (this machine, another port, a LAN host, a tunnel): checks it and adds it to Claude Code |
 | 1 | `/alfred-setup [project] ["description"]` | Start a task: checks Alfred, creates the cycle, writes the brief (test steps) and a spec with an Acceptance list from your description - asks before saving |
 | 2 | `/alfred-spec <cycle> …` | Add or change the brief or spec files (shows a diff, asks) |
-| 3 | `/alfred-listen <cycle>` | **While** you test: checks each call as it arrives, opens cards, ticks the test steps |
-| 4 | `/alfred-review <cycle>` | **After** a cycle is recorded (yours or anyone's): checks every call, fills the board, finds regressions against earlier runs |
+| 3 | `/alfred-listen <cycle>` | **While** you test: checks each step's calls in one batch when you pause - every call, nothing skipped - opens cards, ticks the test steps, suggests Acceptance marks at the end |
+| 4 | `/alfred-review <cycle>` | **After** a cycle is recorded (yours or anyone's): checks every call, fills the board, finds regressions against earlier runs - also a field that went missing behind a 200 |
 | 5 | `/alfred-triage` | Sort the Inbox together: a recommendation per card, you decide |
 | 6 | `/alfred-sync` | After you answered questions or changed cards: one state comment per card |
 | 7 | `/alfred-fix [card#]` | Fixes only the cards you choose, after you say Go |
@@ -74,6 +74,13 @@ stops for the user, and one example command. Take it from the table above and `r
 - **listen sees nothing** - the cycle is not recording, the wrong project, or inbound logging is off for it.
 - **Claude stopped adding cards** - the board is paused (the live strip's Resume).
 - **"Refused: same as #n"** - you closed that problem as Fine / Not in this flow; reopen the card if it is real.
+- **"Everything was 200 - why a card?"** - listen and review compare what one step hands to the next (rules "Flow
+  consistency"): a time, fare or passenger that changes or disappears between search, confirm and book is a bug even
+  when every status is fine. Claude learns what must match from the calls and the code; what it cannot tell it asks
+  once on a `Learn: <flow>` card. Your answers, your Fine closes and the runs you confirm as good are kept in the repo's
+  `CLAUDE.md` under `## Alfred checks` (rules "Project checks") - after your yes - so nothing is asked twice.
+- **A `Learn:` card in the Inbox** - Claude's questions about a flow. Answer them on the card (or in `/alfred-triage`),
+  then `/alfred-sync`.
 
 ## What Claude never does
 

@@ -37,7 +37,11 @@ into #n** (same problem), **ask first** (a decision is needed - name the questio
 - To do → `board_move` TO_DO (yours to do), state comment: what the user decided and why, `waitingOn` CLAUDE, next
   `/alfred-fix <n>`.
 - Fine / Not in this flow / Won't fix → the user closes it (the card's buttons) - offer `board_propose` CLOSED with
-  that resolution and the reason so it is one click; note it in the state comment.
+  that resolution and the reason so it is one click; note it in the state comment. Fine about a flow value (a drift,
+  a missing field) → note an `allowed` check line to propose at the end (rules "Learning").
+- A `Learn:` card → not sorted like a finding: show its open questions; the user answers on the card (Answer
+  button) or tells you here - then record them in one state comment ("You answered 1: ...") and note the check lines
+  they give.
 - Merge → `board_propose` MERGE into the card.
 - Ask → `board_ask` the question, `waitingOn` USER.
 - Teams the user changed or confirmed → `board_assign` (reason: "decided in triage") if not already set.
@@ -45,6 +49,9 @@ into #n** (same problem), **ask first** (a decision is needed - name the questio
 `--dry`: show the recommendations for every card and stop.
 
 ## 4. Finish
+
+New check lines (allowed lines, `Learn:` answers): one before / after of the repo's `## Alfred checks`, saved only on
+yes.
 
 Summary: moved to To do, proposed closes waiting for Accept, questions asked. `board_session_log` on the cycle when the
 cards belong to one. Next: answer questions on the board, then `/alfred-sync`; or `/alfred-fix`.

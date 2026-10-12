@@ -116,10 +116,10 @@ the state comment, not a new question.
 
 ## 4. What becomes a card
 
-Check every call of the flow (skip OPTIONS preflights, static files, health checks and 304s): status, response body,
-its log lines (`call_logs`, `log_context` for the lines just before), its SQL (`db_statements`, `db_statement`), its
-outbound calls, its Redis commands, and the spec item the step belongs to (the user's spacers and comments say which
-step a call is).
+Every call of the flow is checked (OPTIONS preflights, static files, health checks and 304s aside): status, response
+body, its log lines, its SQL, its outbound calls, its Redis commands, and the spec item the step belongs to (the user's
+spacers and comments say which step a call is). `check_calls` does the checking ("Batches" below); you decide what each
+flagged call is, with the lines just before an error (`log_context`) and the statement (`db_statement`) when needed.
 
 - **BUG** - 5xx (BLOCKER when the flow cannot continue); an **ERROR / FATAL log line** even with a 200 (add the code
   line from `exception_source`); a **WARN that means wrong behaviour** ("ignored", "fallback to default", "retrying",
@@ -135,6 +135,131 @@ step a call is).
 - **QUESTION** flagged NEEDS_DECISION - the spec and the behaviour disagree and you cannot tell which is right: ask it
   with `board_ask`.
 - **NOTE** - worth knowing, nothing to fix (flag AFFECTS_PROJECT when shared code is involved).
+
+### Batches - how listen and review check calls (one procedure, the same accuracy)
+
+Never check calls one tool call at a time: Alfred checks every call in code, you judge what it flags.
+
+1. **`check_calls`** on the cycle - with `sinceCallId` (the previous reply's `lastCallId`) for a batch, without it for the
+   whole cycle. Every call is checked, none skipped: status, errors inside 200s, empty results, ERROR / WARN lines and
+   exceptions, failed and flagged SQL (N+1, slow…), failing supplier calls, Redis, slow against the same endpoint, and
+   the **hop diffs** (`Δ`) of the flows the calls carry. It lists the flagged calls with evidence and every other one as
+   clean, and says which are still running (checked next time - pass its `lastCallId` on).
+2. **Judge only the flagged ones**, with "What becomes a card" and "Flows". Drill in only when the evidence is not
+   enough: `investigate_call`, `log_context`, `db_statement`, a body field with `get_call` `paths` - never whole bodies
+   by default. Read an endpoint's code once per run (`codegraph explore "<handler> <mapper>"` when the repo has a
+   `.codegraph/`, else `locate_source` + the files).
+3. **Write in bulk**: `board_similar` / `board_for_call` once per finding, new cards together with `board_add_many`, one
+   state comment per card per batch.
+4. **The ledger.** Every flagged call ends as exactly one of: a **card** (new), a **link** to a card (`board_link`),
+   **asked** (in a `Learn:` card), or **fine** - with the reason (a project check, an `allowed` line, a closed card,
+   "a 404 the user caused on purpose"). Keep the ledger as you go; never leave a flagged call without an outcome.
+5. **Clean calls need nothing** - except the test steps they show (`board_mark_step`).
+
+**The sweep.** Before stopping, `check_calls` on the whole cycle (no `sinceCallId`) once more: a flagged call with no
+outcome in the ledger - a late log line, a mark that settled after its batch - is judged now. The session log carries
+the count: `120/120 checked · 9 flagged · 6 cards · 2 linked · 1 fine`.
+
+### Flows - learned from the calls and the code
+
+All 200s and a finished flow are not a pass. Most real bugs live between steps: a value one step hands to the next
+changes or disappears and every status stays fine. You find what must hold yourself, from the calls and the code, ask
+the user only what you cannot tell, and keep the answers - in any project, whether or not the spec mentions it.
+
+**Find the flows.** A flow is calls linked by what they carry: a value in one call's response that comes back in a
+later request, in our outbound supplier call, or in a database write (search → confirm → book, cart → checkout →
+order, list → edit → save). `check_calls` finds them for you ("Flows", linked by their ids) and lists every value that
+changed, went missing or changed count between them (`Δ`), with both calls, paths and values. It matches by key name,
+so a value our side and the supplier name differently (`departure` / `dep.at`) is compared by you, from the code. Name
+the flow after what it does (`booking`, `profile edit`) and use that name everywhere: cards, questions, project checks.
+
+**Read the code.** The session always runs in the app's repo. On the first call of each endpoint in a run,
+`locate_source` for its handler, then read the handler and the mapping it calls (to the supplier, to the response, to
+the database) - **once per endpoint per run**, reusing what you learned. The code says what happens to each carried
+value: copied through, recomputed, re-fetched from the supplier, converted (time zone, currency, format). It never says
+what is right - a mapping that drops a field is the bug, not the expectation.
+
+**Make an expectation per carried value** - IDs and references, dates and times, amounts and currency, names, codes,
+counts, lists of items or people. Skip what is meant to change: per-request ids, trace ids, tokens, nonces, the call's
+own timestamps.
+
+- **Sure** - a project check covers it (below), a spec item says it, or the code copies it through untouched. Break it
+  → a card (below).
+- **Unsure** - the code changes it on purpose (re-fetch, conversion, a rule), the code is not clear, or the data and
+  the code disagree in a way that could be intended. Never a BUG card on a guess: it goes into the flow's question.
+
+### Flow consistency - compare at every hop
+
+For every sure expectation, compare the value at every hop - response → next request, supplier answer → our response,
+request → our supplier request, what the user confirmed → the saved row (INSERT / UPDATE parameters). Start from
+`check_calls`' `Δ` lines; add the hops it cannot match by name yourself.
+
+- A value that changed with nothing announcing it → **BUG**.
+- A value that disappears between steps (present in the response, missing from the next request or the saved data) →
+  **BUG**.
+- A response that is right over a row that is wrong → **BUG** (Database or Backend).
+- A change the supplier announced (repricing, schedule change, availability) that never reaches the user →
+  **QUESTION** flagged NEEDS_DECISION, unless a project check says how it must be shown.
+- Evidence: both calls, the field with its old → new value (`fare.total: 412.00 USD → 437.50 USD`), and the code line
+  that sets it when you read it (`@[code:...]`, "likely cause - not verified"). The first call where it differs is the
+  main link.
+- Teams by where it changed: the supplier answered differently from one step to the next → Integrations; the supplier
+  answered the same and our response or our next supplier request differs → Backend; our response was right and the
+  browser sent something else back → Frontend; the saved row differs from the request → Database or Backend.
+- One card per value that drifts in one flow, not one per call; the same drift in later runs → `board_link` to it.
+
+### Learning - ask once, keep the answer
+
+- **One question card per flow**: a QUESTION flagged NEEDS_DECISION, title `Learn: <flow> - what must stay the same`,
+  teams QA. Before opening one, `board_search` for it - while one is open for the flow, add to it (`board_ask`), never
+  a second card.
+- **One batched question**, numbered, only the unsure items (at most 5 at a time), each with what you saw and what you
+  will do by default:
+
+  ```
+  Flow booking (search → confirm → book). I see:
+  1. fare.total: 412.00 → 437.50 at confirm; the code re-fetches it (PriceService.java:40). May it change here,
+     and must the user be told? @[call:in:...]
+  2. passengers: 2 in the book request, 1 in our OrderCreate @[call:out:...]. Must the supplier get every passenger?
+  By default I treat 2 as a bug.
+  ```
+
+- **Answers** arrive on the board (`board_wait`, `/alfred-sync`). Each answer becomes a project check line. A "must"
+  answer about something already seen → open the BUG card now, with the calls from the question.
+- **The user's decisions teach too**: a card closed as Fine, or Not in this flow, about a flow value → offer an
+  `allowed` check line, so it is never reported again.
+- **Save the checks** (below) at the end of the run: one before / after of the new lines - answers, allowed lines,
+  sure expectations you read in the code - and save only on yes. Never ask what a check or a closed card already
+  answers; an unanswered question gets one reminder after a day, not a new card.
+
+### Good runs - the reference, found and confirmed
+
+A run of a flow is **good** when every check of the flow holds in it and no BUG card is open on its calls. When you see
+one, propose it - in chat while the user is there, or as one item of the flow's question ("Is `ODY-482 run 3` a
+correct run of booking? I will compare later runs with it."). Only a run the user confirmed becomes the reference: a
+`good run` check line. Review compares later runs of the flow with it ("Shape regressions"). A new confirmed run
+replaces the old one; a bug later found in the reference → propose the next good run.
+
+### Project checks - what the project has learned
+
+The repo's `CLAUDE.md`, section `## Alfred checks`: one line per check, the flow first. It is the memory of everything
+learned above - versioned with the code, shared through git, read at the start of every run.
+
+```markdown
+## Alfred checks
+- booking (search → confirm → book): departure, flight number, passengers unchanged at every step
+- booking: fare.total may change at confirm (re-fetched); the change must reach the user
+- booking: the booking row holds the fare the user confirmed
+- allowed: booking - arrival may come back without seconds (closed #14 as Fine)
+- good run: booking - cycle "ODY-482 run 3"
+- every call: amounts in a response carry a currency
+```
+
+- Read it at the start of every run, with the brief. Each line works like an Acceptance item of every cycle: broken →
+  **BUG** (URGENT); not exercised in this cycle → no card (only spec items get a TASK for that).
+- Mention the check in the card (`Alfred checks: booking - passengers unchanged`).
+- Never write the section without asking; when the user agrees, add or change only the lines they approved, showing
+  the before / after. Never remove a line the user wrote - propose the change in a question.
 
 When logs cannot be read (▤ off, or the level above WARN), say so on the card and offer once to turn it on
 (`set_log_capture`) - change it only if the user agrees, then report old → new. The same for ◆ database capture.
