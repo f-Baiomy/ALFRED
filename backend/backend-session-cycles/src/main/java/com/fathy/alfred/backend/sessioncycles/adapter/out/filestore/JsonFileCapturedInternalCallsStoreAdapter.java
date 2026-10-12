@@ -138,10 +138,21 @@ public class JsonFileCapturedInternalCallsStoreAdapter implements CapturedIntern
         Set<String> serviceNameFilter = parseServiceNames(serviceNames);
         List<CapturedInternalCall> filtered = findAllByCycle(cycleId).stream()
                 .filter(c -> matchesServiceNames(c.call(), serviceNameFilter))
+                .filter(c -> matchesSubstring(c.call().sessionId(), sessionId))
+                .filter(c -> matchesSubstring(c.call().operationId(), operationId))
+                .filter(c -> matchesSubstring(c.call().id(), requestId))
                 .toList();
         CallListSupport.Page<CapturedInternalCall> page = CallListSupport.apply(
                 filtered, CapturedInternalCall::call, search, supplier, sort, offset, limit, paginationEnabled);
         return new CallListSupport.Page<>(page.items().stream().map(CapturedInternalCallSummary::of).toList(), page.total());
+    }
+
+    /** Case-insensitive substring match; a blank filter matches everything. requestId is matched against the underlying call's id, as the SQLite cycle store does. */
+    private static boolean matchesSubstring(String value, String filter) {
+        if (filter == null || filter.isBlank()) {
+            return true;
+        }
+        return value != null && value.toLowerCase(java.util.Locale.ROOT).contains(filter.strip().toLowerCase(java.util.Locale.ROOT));
     }
 
     /** Mirrors InternalCallsFileLogAdapter's identical helper - see its doc. */

@@ -142,6 +142,19 @@ class JsonFileCapturedInternalCallsStoreAdapterTest {
     }
 
     @Test
+    void queryNarrowsByTheUnderlyingCallIdWhenRequestIdIsGiven() throws Exception {
+        JsonFileCapturedInternalCallsStoreAdapter adapter = adapterFor(tempDir);
+        for (String m : List.of("GET", "POST", "PUT")) {
+            adapter.append("cycle-1", call(m));
+        }
+
+        var page = adapter.query("cycle-1", "", "", "newest", 0, 10, false, "", "", "id-POST", "");
+
+        assertThat(page.total()).isEqualTo(1);
+        assertThat(page.items()).extracting(c -> c.call().id()).containsExactly("id-POST");
+    }
+
+    @Test
     void deleteAllRemovesEveryCyclesFile() throws Exception {
         JsonFileCapturedInternalCallsStoreAdapter adapter = adapterFor(tempDir);
         adapter.append("cycle-1", call("GET"));
