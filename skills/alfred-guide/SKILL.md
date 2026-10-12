@@ -28,6 +28,7 @@ to learn. Always end with the exact next command.
 | 8 | `/alfred-verify [cards] [cycle]` | Re-tests the fixes from the live calls since each fix (or a cycle), proposes Verified, suggests checklist marks |
 | 9 | `/alfred-status` | What waits on you, on Claude, on a re-test - and the next step |
 | 10 | `/alfred-report` | A summary for a stand-up or PR |
+| - | `/alfred-update-skills` | After updating Alfred: brings these skills up to the installed version (for you and the repo's own copy) |
 
 The flow: **setup → (spec) → listen or review → triage → sync ↔ fix → re-test → verify → report**; status and guide
 anytime.

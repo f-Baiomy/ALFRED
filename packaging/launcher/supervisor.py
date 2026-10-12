@@ -1453,6 +1453,19 @@ def check_env(layout):
         log.warning("Could not check .env: %s", e)
 
 
+def refresh_skills(layout):
+    """After an update: every user who installed the /alfred-* skills from an older release gets this release's
+    (alfred_skill.refresh_installed). In the background - a slow or locked profile never delays the start."""
+    def run():
+        try:
+            import alfred_skill
+            for line in alfred_skill.refresh_installed(os.path.join(layout.app, "skills"), layout.version()):
+                log.info("%s", line)
+        except Exception as e:  # noqa: BLE001 - the skills must never take the supervisor down
+            log.warning("skills: could not refresh: %s", e)
+    threading.Thread(target=run, name="skills-refresh", daemon=True).start()
+
+
 def main(home):
     # Under the Windows service stdout is a pipe in the ANSI code page; a character outside it (a check mark from
     # a tool's output) must not become a logging error. Replaced, not fatal.
@@ -1481,6 +1494,7 @@ def main(home):
     port = supervisor.serve_control()
     log.info("Alfred %s supervisor (pid %s, control port %s, home %s)", layout.version(), os.getpid(), port, layout.home)
     supervisor.start_all()
+    refresh_skills(layout)
     settings = supervisor.settings
     log.info("UI: %s", layout.local_url(settings).replace("127.0.0.1", "localhost"))
     # A short wait so Ctrl+C and service stop requests are seen promptly on Windows too, where a long Event.wait

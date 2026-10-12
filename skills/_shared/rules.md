@@ -1,6 +1,6 @@
 # Alfred skills - the shared rules
 
-Every `/alfred-*` skill follows these rules. They are copied into each skill's folder on install, so all twelve
+Every `/alfred-*` skill follows these rules. They are copied into each skill's folder on install, so all of them
 behave the same way.
 
 Alfred records the app's traffic: **inbound** calls (the browser into the app), **outbound** calls (the app to its

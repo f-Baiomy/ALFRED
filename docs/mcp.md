@@ -113,7 +113,7 @@ install has no `/mcp`; run `mcp-server` locally there). Differences from the loc
 
 ## The /alfred-* skills
 
-Twelve Claude Code skills turn the tools below into a QA loop on the task board (docs/board.md, specs/015). Each is
+Thirteen Claude Code skills turn the tools below into a QA loop on the task board (docs/board.md, specs/015). Each is
 `skills/alfred-<name>/SKILL.md`; all of them follow one shared `skills/_shared/rules.md`, copied into every skill's
 folder as `rules.md` on install so they cannot drift. They ship inside both installers (`app/skills`) and as
 `alfred-skills-<version>.zip` on each GitHub release.
@@ -132,6 +132,7 @@ folder as `rules.md` on install so they cannot drift. They ship inside both inst
 | `/alfred-verify [cards] [cycle]` | after using the app again (no recording needed) | re-tests Fixed cards from the live calls since each fix (or a cycle) by their expectations, before → after; proposes Verified / comments still failing, guards, regressions, suggested marks | your Accept clicks |
 | `/alfred-status` | anytime | what waits on you, on Claude, on a re-test; the next step - read-only | - |
 | `/alfred-report` | end of a day or task | a short summary (found, fixed, verified, open, decisions, spec coverage) | writes a file only when asked |
+| `/alfred-update-skills` | after updating Alfred | shows which release each installed skill came from, then re-installs them for you and for the current repo's own copy (`alfred skill install`, or `python alfred_skill.py install` in a checkout) | before installing; never `--force` unasked |
 
 The shared rules: Claude never closes, sets scope, marks the checklist or moves to Verified / Done (it proposes); never
 starts work you did not choose; **every card carries a state** - a Did / Found / Next comment when it opens the card,
@@ -163,7 +164,18 @@ python setup_mcp.py                        # source checkout / Docker: registers
 Without a local install (Alfred on another machine), unzip `alfred-skills-<version>.zip` into `~/.claude/skills/`.
 An installed copy carries a `.alfred-skill` marker with its version: `install` updates it in place, removes the
 retired `/alfred-qa`, and never overwrites a skill of the same name that was not installed by Alfred (`--force`
-does). `tests/python/test_alfred_skill.py` checks that every tool the skills and the rules name exists in the MCP
+does).
+
+**After an update** the native supervisor refreshes them on its own start: it runs as the service account (LocalSystem
+/ root), so it walks every user's home (Windows: the registry's profile list; Linux: uid 0 and >= 1000) and re-installs
+the skills wherever `~/.claude/skills` already holds Alfred-installed ones from an OLDER release (`alfred_skill.
+refresh_installed`, one log line per home in `supervisor.log`). A user who never installed them gets none; a copy from a
+checkout (`source`) or a newer release is left alone; on Linux the files are given back to the home's owner.
+Project-scope copies are never touched (they are in git) - `/alfred-update-skills` does those, and Docker/checkout
+installs (`python alfred_skill.py install|status|remove [--project <folder>] [--force]`). A running Claude Code session
+keeps the skill text it loaded: start a new one.
+
+`tests/python/test_alfred_skill.py` checks that every tool the skills and the rules name exists in the MCP
 server.
 
 ## Tools

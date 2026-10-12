@@ -679,7 +679,7 @@ def cmd_skill(layout, args):
         except (OSError, ValueError):
             address = "http://localhost:3000"  # .env unreadable for this account: the default address
         print(f"In Claude Code: /alfred-guide to learn the flow, /alfred-connect <address> for another Alfred - /alfred-setup, /alfred-listen, /alfred-review, /alfred-triage, "
-              f"/alfred-sync, /alfred-fix, /alfred-verify, /alfred-status, /alfred-report. "
+              f"/alfred-sync, /alfred-fix, /alfred-verify, /alfred-status, /alfred-report; /alfred-update-skills after an update. "
               f"Alfred's MCP server must be registered: claude mcp add --transport http alfred {address}/mcp")
     return CONFLICT if any(line.startswith("skipped") for line in lines) else OK
 
