@@ -1,17 +1,23 @@
 import assert from 'node:assert/strict';
-import { readFileSync, mkdtempSync } from 'node:fs';
+import { execFile } from 'node:child_process';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { fileURLToPath } from 'node:url';
-import { AlfredClient } from '../src/alfred-client.ts';
-import { draftOf, headOf, LiveRunner, stepLabel, youDid } from '../src/live-runner.ts';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { promisify } from 'node:util';
 import type { ChangeRow } from '../src/tools/board.ts';
 import { world } from './harness.ts';
 
-/** The /alfred-live runner: waits with no model, answers each card with one fresh run, and shows every step as it happens. */
+/**
+ * The /alfred-live runner (skills/alfred-live/alfred-live.mjs): runs on the user's machine whatever machine Alfred is on,
+ * waits with no model, answers each card with one fresh run, and shows every step as it happens.
+ */
 
 const FAKE = fileURLToPath(new URL('./fake-claude.mjs', import.meta.url));
+const SCRIPT = fileURLToPath(new URL('../../skills/alfred-live/alfred-live.mjs', import.meta.url));
+// A plain .mjs with no types: imported by a computed path so the type check leaves it alone.
+const live: any = await import(pathToFileURL(SCRIPT).href);
 
 const change = (over: Partial<ChangeRow>): ChangeRow => ({
   id: 2, actor: 'USER', kind: 'COMMENT', text: 'is the fare right after confirm?', oldValue: null, newValue: null, at: '2026-10-13T09:00:00Z',
@@ -19,23 +25,36 @@ const change = (over: Partial<ChangeRow>): ChangeRow => ({
 } as ChangeRow);
 
 test('each tool call reads as a step; the reply is read from its partial JSON as it is written', () => {
-  assert.equal(stepLabel('mcp__alfred__investigate_call', { callId: 'in-confirm-123456789' }), 'checking call in-confi…');
-  assert.equal(stepLabel('mcp__alfred-docker__board_edit', { number: 12, kind: 'BUG' }), '→ editing #12 (kind → BUG)');
-  assert.equal(stepLabel('Read', { file_path: 'C:/repo/src/OrderMapper.java', offset: 58 }), 'reading OrderMapper.java:58');
-  assert.equal(stepLabel('mcp__alfred__board_reply', {}), 'writing the reply');
-  assert.equal(draftOf('{"project":"p","text":"Not right. Confirm ret'), 'Not right. Confirm ret');
-  assert.equal(draftOf('{"text":"line one\\nline \\"two\\""}'), 'line one\nline "two"');
-  assert.equal(draftOf('{"project":"p"'), null);
+  assert.equal(live.stepLabel('mcp__alfred__investigate_call', { callId: 'in-confirm-123456789' }), 'checking call in-confi…');
+  assert.equal(live.stepLabel('mcp__alfred-lan-83__board_edit', { number: 12, kind: 'BUG' }), '→ editing #12 (kind → BUG)');
+  assert.equal(live.stepLabel('Read', { file_path: 'C:/repo/src/OrderMapper.java', offset: 58 }), 'reading OrderMapper.java:58');
+  assert.equal(live.stepLabel('mcp__alfred__board_reply', {}), 'writing the reply');
+  assert.equal(live.draftOf('{"project":"p","text":"Not right. Confirm ret'), 'Not right. Confirm ret');
+  assert.equal(live.draftOf('{"text":"line one\\nline \\"two\\""}'), 'line one\nline "two"');
+  assert.equal(live.draftOf('{"project":"p"'), null);
 });
 
 test('what the user did picks the head; moves and closes are only noted, no run', () => {
   const never = () => false;
-  assert.deepEqual(headOf([change({})], never), { head: 'working on your question', quiet: false });
-  assert.deepEqual(headOf([change({ replyTo: 1 })], () => true), { head: 'acting on your answer', quiet: false });
-  assert.deepEqual(headOf([change({ kind: 'STATUS', oldValue: 'IN_PROGRESS', newValue: 'FIXED' })], never), { head: 'preparing the re-test', quiet: false });
-  assert.deepEqual(headOf([change({ kind: 'STATUS', newValue: 'TO_DO' })], never).quiet, true);
-  assert.deepEqual(headOf([change({ kind: 'RESOLUTION', newValue: 'FINE' })], never).quiet, true);
-  assert.equal(youDid(change({ kind: 'STATUS', oldValue: 'IN_PROGRESS', newValue: 'FIXED' })), 'You moved it In progress → Fixed');
+  assert.deepEqual(live.headOf([change({})], never), { head: 'working on your question', quiet: false });
+  assert.deepEqual(live.headOf([change({ replyTo: 1 })], () => true), { head: 'acting on your answer', quiet: false });
+  assert.deepEqual(live.headOf([change({ kind: 'STATUS', oldValue: 'IN_PROGRESS', newValue: 'FIXED' })], never), { head: 'preparing the re-test', quiet: false });
+  assert.equal(live.headOf([change({ kind: 'STATUS', newValue: 'TO_DO' })], never).quiet, true);
+  assert.equal(live.headOf([change({ kind: 'RESOLUTION', newValue: 'FINE' })], never).quiet, true);
+  assert.equal(live.youDid(change({ kind: 'STATUS', oldValue: 'IN_PROGRESS', newValue: 'FIXED' })), 'You moved it In progress → Fixed');
+});
+
+test('Alfred\'s address comes from the MCP server as Claude Code has it registered - a LAN Alfred or a local one', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'live-config-'));
+  const config = join(dir, '.claude.json');
+  writeFileSync(config, JSON.stringify({
+    mcpServers: { 'alfred-lan-83': { type: 'http', url: 'http://192.168.1.83:3000/mcp' }, alfred: { command: 'node', env: { ALFRED_URL: 'http://localhost:3001' } } },
+    projects: { [dir]: { mcpServers: { here: { command: 'node', env: {} } } } },
+  }));
+  assert.equal(live.alfredUrlOf(live.serverEntry('alfred-lan-83', dir, config)), 'http://192.168.1.83:3000');
+  assert.equal(live.alfredUrlOf(live.serverEntry('alfred', dir, config)), 'http://localhost:3001');
+  assert.equal(live.alfredUrlOf(live.serverEntry('here', dir, config)), 'http://localhost:3000');
+  assert.throws(() => live.serverEntry('nope', dir, config), /no MCP server "nope"/);
 });
 
 async function runnerWorld(mode = 'ok') {
@@ -51,15 +70,16 @@ async function runnerWorld(mode = 'ok') {
   process.env['FAKE_CLAUDE_MODE'] = mode;
   process.env['FAKE_CLAUDE_PROMPT'] = promptFile;
   const lines: string[] = [];
-  const runner = new LiveRunner({
-    client: new AlfredClient(w.fake.url), project: 'p', cwd: dir, claude: process.execPath, claudeArgs: [FAKE], mcpConfig: join(dir, 'mcp.json'),
-    log: (l) => lines.push(l), settleMs: 0, waitSeconds: 1, draftEveryMs: 0, model: 'sonnet',
+  const runner = new live.Runner({
+    alfred: new live.Alfred(w.fake.url), server: 'alfred-lan-83', mcpEntry: { type: 'http', url: `${w.fake.url}/mcp` }, project: 'p', cwd: dir,
+    claude: process.execPath, claudeArgs: [FAKE], mcpConfigFile: join(dir, 'mcp.json'), host: 'fathy-laptop',
+    log: (l: string) => lines.push(l), settleMs: 0, waitSeconds: 1, draftEveryMs: 0, model: 'sonnet',
   });
-  return { w, runner, lines, promptFile };
+  return { w, runner, lines, promptFile, dir };
 }
 
 test('a comment: one fresh run, each step and the reply reported to the card as they happen, one line each in the log', async () => {
-  const { w, runner, lines, promptFile } = await runnerWorld();
+  const { w, runner, lines, promptFile, dir } = await runnerWorld();
   try {
     assert.equal(await runner.once('now'), '2.1');
     const reports = w.fake.board.liveWork;
@@ -82,9 +102,22 @@ test('a comment: one fresh run, each step and the reply reported to the card as 
 
     const sent = JSON.parse(readFileSync(promptFile, 'utf8')) as { prompt: string; args: string[] };
     assert.match(sent.prompt, /You are Alfred live/);
-    assert.match(sent.prompt, /"userDid"/);
+    assert.match(sent.prompt, /mcp__alfred-lan-83__board_get/);
+    assert.match(sent.prompt, /- You: is the fare right after confirm\?/);
     assert.ok(sent.args.includes('--strict-mcp-config') && sent.args.includes('stream-json'));
+    assert.deepEqual(sent.args.slice(sent.args.indexOf('--allowedTools'), sent.args.indexOf('--allowedTools') + 2), ['--allowedTools', 'mcp__alfred-lan-83']);
     assert.deepEqual(sent.args.slice(sent.args.indexOf('--model'), sent.args.indexOf('--model') + 2), ['--model', 'sonnet']);
+    // The run gets the user's own registration of that server - the same tools, from this machine.
+    assert.deepEqual(JSON.parse(readFileSync(join(dir, 'mcp.json'), 'utf8')), { mcpServers: { 'alfred-lan-83': { type: 'http', url: `${w.fake.url}/mcp` } } });
+  } finally { await w.close(); }
+});
+
+test('an answer to Claude\'s question is acted on', async () => {
+  const { w, runner } = await runnerWorld();
+  try {
+    w.fake.board.changes = { entries: [change({ id: 3, text: 'yes, it may', replyTo: 1 })], cycles: [], cursor: '3.1', more: false };
+    await runner.once('2.1');
+    assert.equal(w.fake.board.liveWork[0].head, 'acting on your answer');
   } finally { await w.close(); }
 });
 
@@ -131,28 +164,44 @@ test('Stop on the card ends the run at its next report', async () => {
   } finally { await w.close(); }
 });
 
-test('live_start runs the runner as its own process; live_status sees it; live_stop ends it', async () => {
+test('the heartbeat is in Alfred: board_wait in any session sees the runner, from whichever machine it answers', async () => {
+  const { w, runner } = await runnerWorld();
+  try {
+    await runner.beat();
+    assert.deepEqual(w.fake.board.runner, { project: 'p', host: 'fathy-laptop', model: 'sonnet' });
+    w.fake.board.changes = { entries: [], cycles: [], cursor: '9.1', more: false };
+    const waited = await w.call('board_wait', { project: 'p', timeoutSeconds: 1 });
+    assert.match(waited.json.live, /answering the user on this board \(from fathy-laptop\)/);
+    await runner.beat(true);
+    assert.equal((await w.call('board_wait', { project: 'p', timeoutSeconds: 1 })).json.live, undefined);
+  } finally { await w.close(); }
+});
+
+test('start runs the runner in the background on this machine; status sees it; stop ends it', async () => {
   const w = await world();
   try {
     w.fake.board.changes = { entries: [], cycles: [], cursor: '1.1', more: false };
     const dir = mkdtempSync(join(tmpdir(), 'live-start-'));
-    const started = await w.call('live_start', { project: 'p-start-test', cwd: dir });
-    assert.equal(started.isError, false, started.text);
-    assert.equal(started.json.started, true);
-    assert.match(started.json.watch, /^tail -n 0 -F ".+alfred-live-.+\.log"$/);
-    const again = await w.call('live_start', { project: 'p-start-test', cwd: dir });
-    assert.equal(again.json.alreadyRunning, true);
+    const config = join(dir, '.claude.json');
+    writeFileSync(config, JSON.stringify({ mcpServers: { 'alfred-lan': { type: 'http', url: `${w.fake.url}/mcp` } } }));
+    const cli = async (...a: string[]) => JSON.parse((await promisify(execFile)(process.execPath,
+      [SCRIPT, ...a, '--server', 'alfred-lan', '--project', 'p-start-test', '--config', config, '--cwd', dir])).stdout);
+    const started = await cli('start');
+    assert.equal(started.started, true);
+    assert.equal(started.alfred, w.fake.url);
+    assert.match(started.watch, /^tail -n 0 -F ".+\.log"$/);
+    assert.equal((await cli('start')).alreadyRunning, true);
     let status: any;
     for (let i = 0; i < 60; i++) {
-      status = (await w.call('live_status', { project: 'p-start-test' })).json;
+      status = await cli('status');
       if (status.last.some((l: string) => l.includes('Live on for p-start-test'))) break;
       await new Promise((r) => setTimeout(r, 250));
     }
     assert.equal(status.running, true);
     assert.ok(status.last.some((l: string) => l.includes('Live on for p-start-test')), JSON.stringify(status));
-    const stopped = await w.call('live_stop', { project: 'p-start-test' });
-    assert.equal(stopped.json.stopped, true);
-    assert.equal((await w.call('live_status', { project: 'p-start-test' })).json.running, false);
-    assert.match((await w.call('live_start', { project: 'x', cwd: join(dir, 'nope') })).text, /is not a folder/);
+    assert.equal(w.fake.board.runner?.project, 'p-start-test');
+    assert.equal((await cli('stop')).stopped, true);
+    assert.equal((await cli('status')).running, false);
+    assert.equal(w.fake.board.runner, null);
   } finally { await w.close(); }
 });

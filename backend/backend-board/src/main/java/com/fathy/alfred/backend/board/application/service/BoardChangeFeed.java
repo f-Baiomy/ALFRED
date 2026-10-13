@@ -60,6 +60,11 @@ public class BoardChangeFeed {
             public void liveWork(LiveWork work) {
                 notifications.liveWork(work);
             }
+
+            @Override
+            public void liveRunner(String project, String host) {
+                notifications.liveRunner(project, host);
+            }
         };
     }
 }

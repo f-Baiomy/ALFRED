@@ -113,6 +113,12 @@ run is work in progress, never a record; the reply itself is the card's ordinary
 `live-work` message on `/ws/board`. The frontend's `LiveWorkStateService` holds them for the column card (spinner and
 current step), the drawer (`app-live-work-box`) and the live strip.
 
+The runner runs on the user's machine, which need not be Alfred's: its heartbeat `PUT /board/live-runner` (project,
+host, model; `stopped` ends it) and `GET /board/live-runner?project=` (204 when none; a runner for every board answers
+any project) let listen in any session know it is answering. Held in memory for 2 minutes after the last beat; a
+`live-runner` message on `/ws/board` when one starts or stops. Both writes go through the board's edit access, so the
+runner's machine must be one allowed to edit the board.
+
 ## Claude's limits
 
 These are enforced in `BoardService` and `CycleBriefService` whenever `X-Alfred-Actor: claude` is sent. The MCP tools send it on every board request.

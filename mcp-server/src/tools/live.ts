@@ -31,7 +31,19 @@ function heartbeatFile(baseUrl: string): string {
   return join(tmpdir(), `alfred-live-${createHash('sha1').update(baseUrl).digest('hex').slice(0, 12)}.json`);
 }
 
-/** Who answers the user right now on this Alfred - null when no /alfred-live is running on this machine. */
+/**
+ * Who answers the user right now on this Alfred: the /alfred-live runner's heartbeat Alfred holds (the runner may be on
+ * any machine - the user's, while Alfred runs on a LAN host), else a board_live loop on this machine.
+ */
+export async function liveAnswerer(client: AlfredClient, project?: string): Promise<{ project: string | null; host?: string } | null> {
+  const runner = await client.get<{ project: string; host: string } | undefined>('/board/live-runner', { query: { project: project ?? '' } })
+    .catch(() => undefined);
+  if (runner) return { project: runner.project || null, host: runner.host };
+  const local = liveHolder(client.baseUrl);
+  return local && (!local.project || !project || local.project === project) ? local : null;
+}
+
+/** A board_live loop in a session on this machine - null when none is running. */
 export function liveHolder(baseUrl: string, now = Date.now()): { project: string | null; at: string } | null {
   try {
     const beat = JSON.parse(readFileSync(heartbeatFile(baseUrl), 'utf8')) as { project: string | null; at: string; stopped?: boolean };

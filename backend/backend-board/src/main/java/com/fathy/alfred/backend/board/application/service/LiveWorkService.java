@@ -35,6 +35,9 @@ public class LiveWorkService implements LiveWorkUseCase {
     private final BoardNotificationPort notifications;
     private final Clock clock;
     private final Map<String, LiveWork> runs = new ConcurrentHashMap<>();
+    private final Map<String, LiveRunner> runners = new ConcurrentHashMap<>();
+    /** A runner beats at least every wait (50 s); quiet this long, it is gone. */
+    static final Duration RUNNER_ALIVE = Duration.ofMinutes(2);
 
     @Autowired
     public LiveWorkService(BoardNotificationPort notifications) {
@@ -83,6 +86,35 @@ public class LiveWorkService implements LiveWorkUseCase {
         }
         out.sort(Comparator.comparing(LiveWork::startedAt).thenComparing(LiveWork::id));
         return out;
+    }
+
+    @Override
+    public LiveRunner beat(String project, String host, String model, boolean stopped) {
+        Instant now = clock.instant();
+        String key = project == null ? "" : project;
+        LiveRunner previous = runner(key).orElse(null);
+        LiveRunner next = new LiveRunner(key, host == null || host.isBlank() ? "?" : host.strip(), model == null || model.isBlank() ? null : model.strip(),
+                previous == null ? now : previous.startedAt(), now);
+        if (stopped) {
+            runners.remove(key);
+        } else {
+            runners.put(key, next);
+        }
+        if (stopped || previous == null) {
+            notifications.liveRunner(key, stopped ? null : next.host());
+        }
+        return next;
+    }
+
+    @Override
+    public Optional<LiveRunner> runner(String project) {
+        // A runner answering every board answers this one too.
+        String key = project == null ? "" : project;
+        return alive(runners.get(key)).or(() -> key.isEmpty() ? Optional.empty() : alive(runners.get("")));
+    }
+
+    private Optional<LiveRunner> alive(LiveRunner r) {
+        return r == null || r.lastSeen().plus(RUNNER_ALIVE).isBefore(clock.instant()) ? Optional.empty() : Optional.of(r);
     }
 
     @Override

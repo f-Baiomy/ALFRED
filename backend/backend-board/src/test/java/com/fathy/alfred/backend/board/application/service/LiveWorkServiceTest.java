@@ -25,10 +25,12 @@ class LiveWorkServiceTest {
         @Override public Instant instant() { return now; }
     };
     private final List<LiveWork> signalled = new ArrayList<>();
+    private final List<String> runnerSignals = new ArrayList<>();
     private final LiveWorkService service = new LiveWorkService(new BoardNotificationPort() {
         @Override public void changed(String project, String cycleId, String cardId, String what) { }
         @Override public void agentStatus(AgentStatus status) { }
         @Override public void liveWork(LiveWork work) { signalled.add(work); }
+        @Override public void liveRunner(String project, String host) { runnerSignals.add(project + "@" + host); }
     }, clock);
 
     private Report report(String id, LiveWork.State state, String... steps) {
@@ -83,5 +85,26 @@ class LiveWorkServiceTest {
         assertThat(w.head()).isEqualTo("working");
         assertThat(w.state()).isEqualTo(LiveWork.State.WORKING);
         assertThat(Duration.between(w.startedAt(), w.updatedAt())).isZero();
+    }
+
+    @Test
+    void theRunnersHeartbeatSaysWhereItAnswersFromUntilItStopsOrGoesQuiet() {
+        assertThat(service.runner("odeysys")).isEmpty();
+        service.beat("odeysys", "fathy-laptop", "sonnet", false);
+        now = now.plusSeconds(40);
+        service.beat("odeysys", "fathy-laptop", "sonnet", false);
+        assertThat(service.runner("odeysys")).get().satisfies(r -> {
+            assertThat(r.host()).isEqualTo("fathy-laptop");
+            assertThat(r.startedAt()).isEqualTo(Instant.parse("2026-10-13T09:00:00Z"));
+        });
+        assertThat(runnerSignals).containsExactly("odeysys@fathy-laptop");
+        now = now.plus(LiveWorkService.RUNNER_ALIVE).plusSeconds(1);
+        assertThat(service.runner("odeysys")).isEmpty();
+        service.beat("odeysys", "fathy-laptop", null, false);
+        service.beat("odeysys", "fathy-laptop", null, true);
+        assertThat(service.runner("odeysys")).isEmpty();
+        assertThat(runnerSignals).containsExactly("odeysys@fathy-laptop", "odeysys@fathy-laptop", "odeysys@null");
+        service.beat("", "fathy-laptop", null, false);
+        assertThat(service.runner("odeysys")).get().extracting(r -> r.project()).isEqualTo("");
     }
 }

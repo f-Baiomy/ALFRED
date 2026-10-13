@@ -6,7 +6,7 @@ import { mentionsIn, serializeMention } from '../frontend.ts';
 import { maskContext, maskMeta, maskText, type MaskContext } from '../masking.ts';
 import { chunkText, fitItems, invalid, ok, preview, run } from '../reply.ts';
 import { MaskSchema } from './cycles.ts';
-import { liveHolder } from './live.ts';
+import { liveAnswerer } from './live.ts';
 
 /**
  * The task board (specs/014-task-board contracts/mcp-tools.md, docs/board.md "Claude"). Every request says it is Claude,
@@ -453,10 +453,9 @@ export function register(server: McpServer, client: AlfredClient): void {
   }, (input) => run(async () => {
     const ctx = await maskContext(client, input.mask);
     const page = await client.get<ChangesPage>('/board/changes', { query: { cursor: input.cursor, project: input.project, cycleId: input.cycleId, actor: input.by, limit: input.limit } });
-    const live = liveHolder(client.baseUrl);
+    const live = await liveAnswerer(client, input.project);
     return ok({ ...changesReply(ctx, page, await parentsOf(client, page)),
-      ...(live && (!live.project || !input.project || live.project === input.project)
-        ? { live: '/alfred-live is answering the user on this board - only note these changes; do not reply to them' } : {}) });
+      ...(live ? { live: `/alfred-live is answering the user on this board${live.host ? ` (from ${live.host})` : ''} - only note these changes; do not reply to them` } : {}) });
   }));
 
   server.registerTool('board_wait', {
@@ -477,10 +476,9 @@ export function register(server: McpServer, client: AlfredClient): void {
       query: { cursor: input.cursor, project: input.project, cycleId: input.cycleId, actor: input.by, timeoutSeconds: input.timeoutSeconds },
       timeoutMs: (input.timeoutSeconds + 10) * 1000,
     });
-    const live = liveHolder(client.baseUrl);
+    const live = await liveAnswerer(client, input.project);
     return ok({ ...changesReply(ctx, page, await parentsOf(client, page)),
-      ...(live && (!live.project || !input.project || live.project === input.project)
-        ? { live: '/alfred-live is answering the user on this board - only note these changes; do not reply to them' } : {}) });
+      ...(live ? { live: `/alfred-live is answering the user on this board${live.host ? ` (from ${live.host})` : ''} - only note these changes; do not reply to them` } : {}) });
   }));
 
   server.registerTool('board_closed_reasons', {

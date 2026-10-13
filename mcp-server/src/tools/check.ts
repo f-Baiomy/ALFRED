@@ -15,7 +15,7 @@ import { MaskSchema } from './cycles.ts';
 import { maskLines } from './logs.ts';
 import { evidence, headLine, unavailableNote, type Item } from './triage.ts';
 import { changesReply, parentsOf, type ChangesPage } from './board.ts';
-import { liveHolder } from './live.ts';
+import { liveAnswerer } from './live.ts';
 import { waitForCalls } from './watch.ts';
 
 /**
@@ -250,7 +250,8 @@ async function boardChanges(client: AlfredClient, ctx: MaskContext, cycleId: str
   try {
     const page = await client.get<ChangesPage>('/board/changes', { query: { cursor, cycleId, actor: 'USER', limit: 50 } });
     const reply = changesReply(ctx, page, await parentsOf(client, page));
-    return { ...reply, ...(liveHolder(client.baseUrl) ? { live: '/alfred-live is answering the user - only note these changes' } : {}) };
+    const live = page.entries.length ? await liveAnswerer(client, page.entries[0].project) : null;
+    return { ...reply, ...(live ? { live: '/alfred-live is answering the user - only note these changes' } : {}) };
   } catch (error) {
     return { error: `board changes not read: ${(error as Error).message}`, cursor };
   }

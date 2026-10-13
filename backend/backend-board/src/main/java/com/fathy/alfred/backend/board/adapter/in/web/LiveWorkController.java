@@ -44,10 +44,24 @@ public class LiveWorkController {
                 body.steps(), body.draft(), body.state(), body.outcome())));
     }
 
+    @GetMapping("/board/live-runner")
+    public ResponseEntity<?> runner(@RequestParam(defaultValue = "") String project) {
+        return work.runner(project).<ResponseEntity<?>>map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.noContent().build());
+    }
+
+    @PutMapping("/board/live-runner")
+    public ResponseEntity<?> beat(@Valid @RequestBody LiveRunnerRequestDto body) {
+        return ResponseEntity.ok(work.beat(body.project(), body.host(), body.model(), body.stopped()));
+    }
+
     @PostMapping("/board/live-work/{id}/stop")
     public ResponseEntity<?> stop(@PathVariable String id) {
         return work.stop(id).<ResponseEntity<?>>map(ResponseEntity::ok)
                 .orElseGet(() -> BoardWeb.refused(CardChange.Outcome.NOT_FOUND, "No such live answer - it may have ended"));
+    }
+
+    public record LiveRunnerRequestDto(@Size(max = 100) String project, @Size(max = 200) String host, @Size(max = 100) String model,
+                                       boolean stopped) {
     }
 
     public record LiveWorkRequestDto(@NotBlank @Size(max = 100) String id, @Size(max = 100) String project, @Min(1) @Max(10_000_000) int cardNumber,

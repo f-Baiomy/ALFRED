@@ -98,6 +98,8 @@ export interface FakeBoard {
   /** What PUT /board/live-work received, in order; ids the user pressed Stop on. */
   liveWork: any[];
   liveStop: Set<string>;
+  /** The /alfred-live runner's heartbeat (PUT /board/live-runner), or null. */
+  runner: { project: string; host: string; model: string | null } | null;
   /** What GET /board/changes and /board/changes/wait answer next (the backend's own cursor logic is tested in backend-board). */
   changes: unknown;
   similar: unknown[];
@@ -175,7 +177,7 @@ function priorityOf(m: AttentionMark, failingChildren: number, minStatus: number
 
 export class FakeAlfred {
   readonly state: FakeState = emptyState();
-  readonly board: FakeBoard = { cards: [], activity: {}, closedReasons: [], briefs: {}, specs: {}, checklist: {}, refuseCreate: null, agentState: 'WATCHING', liveWork: [], liveStop: new Set(),
+  readonly board: FakeBoard = { cards: [], activity: {}, closedReasons: [], briefs: {}, specs: {}, checklist: {}, refuseCreate: null, agentState: 'WATCHING', liveWork: [], liveStop: new Set(), runner: null,
     changes: { entries: [], cycles: [], cursor: '0.0', more: false }, similar: [], badges: {}, verify: [], suggestions: {},
     nextSteps: { waitingOnUser: [], waitingOnClaude: 0, toDo: 0, inProgress: 0, fixed: 0, inbox: 0 }, log: {}, steps: {}, regressions: [], retest: [], guards: [], plans: {} };
   readonly log: LoggedRequest[] = [];
@@ -596,6 +598,14 @@ export class FakeAlfred {
     if (p[1] === 'live-work' && method === 'PUT') {
       b.liveWork.push(body);
       return [200, { ...body, stop: b.liveStop.has(body.id) }];
+    }
+    if (p[1] === 'live-runner' && method === 'PUT') {
+      b.runner = body.stopped ? null : { project: body.project ?? '', host: body.host, model: body.model ?? null };
+      return [200, b.runner];
+    }
+    if (p[1] === 'live-runner' && method === 'GET') {
+      const want = q.get('project') ?? '';
+      return b.runner && (b.runner.project === want || b.runner.project === '') ? [200, b.runner] : [204, undefined];
     }
     if (p[1] === 'agent-status' && method === 'GET') return [200, { state: b.agentState }];
     if (p[1] === 'agent-status' && method === 'PUT') {

@@ -14,4 +14,8 @@ public interface BoardNotificationPort {
     /** /alfred-live's work on a card changed (a step, the draft, the end, a Stop). */
     default void liveWork(LiveWork work) {
     }
+
+    /** /alfred-live's runner started ({@code host} where it runs) or stopped ({@code host} null) on a project's board. */
+    default void liveRunner(String project, String host) {
+    }
 }

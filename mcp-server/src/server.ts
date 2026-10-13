@@ -18,7 +18,6 @@ import * as triage from './tools/triage.ts';
 import * as check from './tools/check.ts';
 import * as task from './tools/task.ts';
 import * as live from './tools/live.ts';
-import * as liveStart from './tools/live-start.ts';
 import * as logs from './tools/logs.ts';
 import * as investigate from './tools/investigate.ts';
 import * as redis from './tools/redis.ts';
@@ -53,6 +52,6 @@ export function createServer(client: AlfredClient = new AlfredClient()): McpServ
       + 'rule_recipes, rule_from_call and rule_preview first; the user switches them on, edits or deletes them; rule_hits shows what one did.',
   });
   registerSessionTool(server);
-  for (const module of [cycles, spacers, calls, db, comments, exportTool, watch, redactions, cycleSearch, diff, rulesRelive, projects, triage, check, task, logs, investigate, redis, board, live, liveStart, ruleProposals]) module.register(server, client);
+  for (const module of [cycles, spacers, calls, db, comments, exportTool, watch, redactions, cycleSearch, diff, rulesRelive, projects, triage, check, task, logs, investigate, redis, board, live, ruleProposals]) module.register(server, client);
   return server;
 }
