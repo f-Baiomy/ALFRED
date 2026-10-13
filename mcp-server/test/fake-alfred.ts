@@ -94,12 +94,16 @@ export interface FakeBoard {
   checklist: Record<string, unknown[]>;
   /** The answer to the next POST /board/cards, when the test wants a refusal. */
   refuseCreate: [number, unknown] | null;
+  /** Fields the next creates answer with beyond the card itself (the backend's CardDetail extras, e.g. similarOpen). */
+  createExtra?: Record<string, unknown>;
+  /** A GET /board/changes/wait is held until this settles - a wait the test controls. */
+  waitGate?: Promise<void> | null;
   agentState: string;
   /** What PUT /board/live-work received, in order; ids the user pressed Stop on. */
   liveWork: any[];
   liveStop: Set<string>;
   /** The /alfred-live runner's heartbeat (PUT /board/live-runner), or null. */
-  runner: { project: string; host: string; model: string | null } | null;
+  runner: { project: string; host: string; model: string | null; kind?: string } | null;
   /** What GET /board/changes and /board/changes/wait answer next (the backend's own cursor logic is tested in backend-board). */
   changes: unknown;
   similar: unknown[];
@@ -181,6 +185,10 @@ export class FakeAlfred {
     changes: { entries: [], cycles: [], cursor: '0.0', more: false }, similar: [], badges: {}, verify: [], suggestions: {},
     nextSteps: { waitingOnUser: [], waitingOnClaude: 0, toDo: 0, inProgress: 0, fixed: 0, inbox: 0 }, log: {}, steps: {}, regressions: [], retest: [], guards: [], plans: {} };
   readonly log: LoggedRequest[] = [];
+  /** This fake's clock minus the test machine's: answers carry a Date header of this clock (an Alfred on a machine whose clock is off). */
+  clockSkewMs = 0;
+  /** Requests whose path contains the key answer `status` instead, `times` more times - an Alfred that fails now and then. */
+  readonly failing = new Map<string, { status: number; times: number }>();
   private server?: Server;
   private nextId = 1;
   /** Open WebSocket connections by path - Alfred's change signals, served by a minimal RFC 6455 server (text frames only). */
@@ -205,6 +213,11 @@ export class FakeAlfred {
   /** Paths with an open WebSocket right now. */
   openSockets(): string[] {
     return this.sockets.map((s) => s.path);
+  }
+
+  /** Cuts every open WebSocket (the backend restarting, a proxy dropping idle connections) - the clients are not told why. */
+  dropSockets(): void {
+    for (const s of this.sockets.splice(0)) s.socket.destroy();
   }
 
   /** Sends one text frame to every socket open on `path`, as the backend does on a change. */
@@ -261,6 +274,7 @@ export class FakeAlfred {
     const isJson = !String(req.headers['content-type'] ?? '').startsWith('text/plain');
     const body = raw ? (isJson ? JSON.parse(raw) : raw) : undefined;
     this.log.push({ method: req.method!, path: url.pathname, query: url.searchParams, body, headers: req.headers });
+    if (url.pathname === '/board/changes/wait' && this.board.waitGate) await this.board.waitGate;
     if (url.pathname.startsWith('/board/cycles/') && url.pathname.includes('/specs/') && req.method === 'GET') {
       const [, , , cycleId, , name] = url.pathname.split('/').map(decodeURIComponent);
       const text = this.board.specs[cycleId]?.[name];
@@ -269,9 +283,16 @@ export class FakeAlfred {
       return;
     }
     const send = (status: number, value?: unknown) => {
-      res.writeHead(status, { 'Content-Type': 'application/json' });
+      res.writeHead(status, { 'Content-Type': 'application/json', ...(this.clockSkewMs ? { Date: new Date(Date.now() + this.clockSkewMs).toUTCString() } : {}) });
       res.end(value === undefined ? '' : JSON.stringify(value));
     };
+    for (const [part, fault] of this.failing) {
+      if (fault.times > 0 && url.pathname.includes(part)) {
+        fault.times--;
+        send(fault.status, { error: 'fake: failing on purpose' });
+        return;
+      }
+    }
     try {
       const result = this.route(req.method!, url.pathname.split('/').filter(Boolean).map(decodeURIComponent), url.searchParams, body);
       send(result[0], result[1]);
@@ -480,7 +501,7 @@ export class FakeAlfred {
         status: 'INBOX', resolution: null, reason: null, flags: body.flags ?? [], scope: 'NOT_DECIDED', author: 'CLAUDE', cycleId: body.cycleId ?? null,
         cycleDeleted: false, updatedAt: '2026-10-10T09:00:00Z', commentCount: 0, similarClosed: null, links: body.links ?? [], teams: body.teams ?? [] };
       b.cards.push(card);
-      return [201, card];
+      return [201, { ...card, ...(b.createExtra ?? {}) }];
     }
     if (p[1] === 'cards' && p[2] === 'by-number') {
       const card = b.cards.find((c) => c.project === (q.get('project') ?? '') && c.number === Number(p[3]));
@@ -600,7 +621,7 @@ export class FakeAlfred {
       return [200, { ...body, stop: b.liveStop.has(body.id) }];
     }
     if (p[1] === 'live-runner' && method === 'PUT') {
-      b.runner = body.stopped ? null : { project: body.project ?? '', host: body.host, model: body.model ?? null };
+      b.runner = body.stopped ? null : { project: body.project ?? '', host: body.host, model: body.model ?? null, kind: body.kind ?? 'live' };
       return [200, b.runner];
     }
     if (p[1] === 'live-runner' && method === 'GET') {
@@ -768,6 +789,10 @@ export class FakeAlfred {
       if (p[2] === 'calls' || p[2] === 'internal-calls') {
         const source = live(p[2]);
         if (p.length === 3 && method === 'GET') {
+          // As the backend has it: an inbound call enters a cycle only once it is completed - a cycle row still running is an outbound call.
+          if (source === 'internal' && entries.some((e) => e.source === 'internal' && e.record.state === 'IN_PROGRESS')) {
+            return [500, { error: 'fake: an inbound call is in a cycle only when it is completed; a running row is an outbound (external) call' }];
+          }
           const services = (q.get('serviceNames') ?? '').split(',').filter(Boolean);
           const list = sortCalls(entries.filter((e) => e.source === source), q.get('sort'))
             .filter((e) => !q.get('requestId') || e.record.id.includes(q.get('requestId')!))

@@ -173,6 +173,50 @@ class CallRefResolverTest {
         assertThat(resolver.resolveListed("outbound", "c1", null)).isEmpty();
     }
 
+    private static com.fathy.alfred.backend.calls.domain.model.CallSummary outboundSummaryWith(String id, Integer status) {
+        return new com.fathy.alfred.backend.calls.domain.model.CallSummary(
+                id, "https://api.supplier.com/fares", "https://api.supplier.com/fares", "POST", "t1", 1.0, status, null, null);
+    }
+
+    @Test
+    void theHeadOfALiveCallIsItsSummaryAndTheDetailIsNeverLoaded() {
+        when(outboundList.getCalls(any())).thenReturn(
+                new com.fathy.alfred.backend.calls.domain.model.CallsPage(List.of(outboundSummaryWith("c1", 503)), 1));
+        when(inboundList.getCalls(any())).thenReturn(
+                new com.fathy.alfred.backend.internalcalls.domain.model.CallsPage(List.of(inboundSummary("c2")), 1));
+
+        assertThat(resolver.head("outbound", "c1", null)).contains(new CallHead("POST", "https://api.supplier.com/fares", 503));
+        assertThat(resolver.head("inbound", "c2", null)).contains(new CallHead("GET", "http://localhost:9001/x", 200));
+        verifyNoInteractions(outboundDetail, inboundDetail, capturedOutboundList, capturedOutboundDetail, capturedInboundList, capturedInboundDetail);
+    }
+
+    @Test
+    void theHeadOfACapturedCallIsReadFromThatCycleAndAnInFlightOneHasNoStatus() {
+        when(capturedOutboundList.listCalls(eq("cy"), any())).thenReturn(Optional.of(
+                new com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCallsPage(List.of(
+                        new com.fathy.alfred.backend.sessioncycles.domain.model.CapturedCallSummary(
+                                "captured-1", "now", outboundSummaryWith("c3", null))), 1)));
+        when(capturedInboundList.listCalls(eq("cy"), any())).thenReturn(Optional.of(
+                new com.fathy.alfred.backend.sessioncycles.domain.model.CapturedInternalCallsPage(List.of(
+                        new com.fathy.alfred.backend.sessioncycles.domain.model.CapturedInternalCallSummary(
+                                "captured-2", "now", inboundSummary("c4"))), 1)));
+
+        assertThat(resolver.head("outbound", "c3", "cy")).contains(new CallHead("POST", "https://api.supplier.com/fares", null));
+        assertThat(resolver.head("inbound", "c4", "cy")).contains(new CallHead("GET", "http://localhost:9001/x", 200));
+        verifyNoInteractions(outboundList, inboundList, capturedOutboundDetail, capturedInboundDetail, outboundDetail, inboundDetail);
+    }
+
+    @Test
+    void noHeadForAnUnknownDirectionNoIdOrACallTheListMisses() {
+        when(outboundList.getCalls(any())).thenReturn(
+                new com.fathy.alfred.backend.calls.domain.model.CallsPage(List.of(outboundSummary("c10")), 1));
+
+        assertThat(resolver.head("sideways", "c1", null)).isEmpty();
+        assertThat(resolver.head("outbound", null, null)).isEmpty();
+        assertThat(resolver.head("outbound", "c1", null)).isEmpty(); // the list answered with another call: a caller falls back to resolve
+        verifyNoInteractions(outboundDetail, inboundList, inboundDetail);
+    }
+
     @Test
     void anInFlightCallHasNoResponse() {
         when(outboundList.getCalls(any())).thenReturn(

@@ -18,6 +18,24 @@ import { MaskSchema } from './cycles.ts';
 
 const SECTION_MAX = 1_400;
 const BRIEF_SECTIONS = ['task', 'description', 'scope', 'out of scope', 'requirements', 'test steps', 'data', 'decisions', 'notes'];
+/** What the user ruled out and decided: a session that misses a line of these redoes a closed argument, so they are never cut. */
+const NEVER_CUT = new Set(['out of scope', 'decisions']);
+
+/**
+ * How much of each part of task_context fits. The reply is held to REPLY_BUDGET by trying these in order, the first that fits
+ * wins: the earlier runs go first (the board's session log has them), then the tail of the findings, and only then the
+ * longer brief sections and the requirements. The brief's Out of scope and Decisions and every requirement's key are never cut.
+ */
+interface Limits { runs: number; runChars: number; open: number; decided: number; section: number; requirements: number }
+const FULL: Limits = { runs: 3, runChars: 400, open: Infinity, decided: 15, section: SECTION_MAX, requirements: Infinity };
+const LADDER: readonly Limits[] = [
+  FULL,
+  { ...FULL, runs: 1, runChars: 250 },
+  { ...FULL, runs: 0 },
+  { ...FULL, runs: 0, open: 60, decided: 5 },
+  { ...FULL, runs: 0, open: 25, decided: 0 },
+  { ...FULL, runs: 0, open: 25, decided: 0, section: 500, requirements: 40 },
+];
 
 interface CardHit {
   project: string; number: number; kind: string; title: string; status: string; flags: string[];
@@ -110,85 +128,106 @@ async function taskText(client: AlfredClient, ctx: MaskContext, cycle: SessionCy
     client.get<AgentStatus | null>('/board/agent-status', { query: { project } }).catch(() => null),
   ]);
 
-  const out: string[] = [];
-  out.push(`TASK "${maskText(ctx, cycle.name)}" (cycle ${id})${project ? ` · project ${project}` : ''} · ${cycle.status}${calls != null ? ` · ${calls} calls recorded` : ''} · created ${ago(cycle.createdAt)} ago`);
-  out.push('Alfred holds this task\'s state - this is the shared memory across sessions, machines and agents. Work from it, write progress back '
-    + '(board_comment did/found/next, board_session_log), and never rely on an earlier conversation.');
-
-  // the brief: the task, its description, scope, data, decisions
+  // Everything that shows a masked value is masked here, once - rendering below may run several times to fit the reply.
+  const taskName = maskText(ctx, cycle.name);
   const sections = briefSections(maskText(ctx, brief.text ?? ''));
-  out.push('', `BRIEF${brief.updatedAt ? ` (edited ${ago(brief.updatedAt)} ago${brief.updatedBy === 'CLAUDE' ? ' by Claude' : ''})` : ''}`);
-  if (!sections.length) {
-    out.push('  (none) - the task, its description and scope are not written down yet.');
-  } else {
-    const ordered = [...sections].sort((a, b) => (BRIEF_SECTIONS.indexOf(a.name) + 99) % 99 - (BRIEF_SECTIONS.indexOf(b.name) + 99) % 99);
-    for (const s of ordered) {
-      if (s.name === 'test steps' && steps.length) continue; // shown with their results below
-      out.push(`  ${s.name.toUpperCase()}: ${cut(s.text).replace(/\n/g, '\n    ')}`);
-    }
-  }
+  const ordered = [...sections].sort((a, b) => (BRIEF_SECTIONS.indexOf(a.name) + 99) % 99 - (BRIEF_SECTIONS.indexOf(b.name) + 99) % 99);
 
   // requirements: the Acceptance items with the user's marks
   const items = checklist.flatMap((f) => f.items.map((i) => ({ ...i, file: f.fileName })));
   const counts = { PASS: 0, FAIL: 0, CANT_TELL: 0, none: 0 } as Record<string, number>;
   for (const i of items) counts[i.mark?.mark ?? 'none']++;
-  out.push('', `REQUIREMENTS (Acceptance items of the spec files; marks are the user's)${items.length
-    ? ` - ${items.length}: ${counts.PASS} pass · ${counts.FAIL} fail · ${counts.CANT_TELL} can't tell · ${counts.none} unmarked` : ''}`);
-  if (!items.length) out.push('  (none) - no spec file has an Acceptance list; the task can only be checked against generic rules.');
-  if (items.length) out.push('  (state as the Task tab shows it: the user\'s mark, then the linked cards - open BUG = bug, open TASK = missing, '
-    + 'FIXED = re-test - then your suggestion, shown with "?")');
-  for (const i of items) {
+  const requirementLines = items.map((i) => {
     const mark = i.mark ? MARK[i.mark.mark] ?? i.mark.mark : '·';
     const extra = [i.cards?.length ? `cards ${i.cards.map((c) => `#${c.number}`).join(' ')}` : '', i.suggestion ? `you suggested ${i.suggestion.mark}` : ''].filter(Boolean).join(' · ');
-    out.push(`  ${mark} ${requirementState(i, cards)} [${i.key.slice(0, 8)}] ${maskText(ctx, i.text)}${extra ? ` - ${extra}` : ''}  (${i.file})`);
-  }
+    // The key in full: board_link_spec and board_suggest_mark take it as it is, and a shortened one matches nothing.
+    return `  ${mark} ${requirementState(i, cards)} [${i.key}] ${maskText(ctx, i.text)}${extra ? ` - ${extra}` : ''}  (${i.file})`;
+  });
 
-  if (steps.length) {
-    out.push('', 'TEST STEPS');
-    for (const s of steps) {
-      const mark = s.state === 'SEEN' ? '✓' : s.state === 'FAILED' ? '✗' : '·';
-      out.push(`  ${mark} [${s.key}] ${maskText(ctx, s.text)}${s.state === 'SEEN' ? ` (${s.calls} calls)` : s.state === 'FAILED' ? ` (${s.cardNumber ? `#${s.cardNumber}` : 'failed'})` : ''}`);
-    }
-  }
+  const stepLines = steps.map((s) => {
+    const mark = s.state === 'SEEN' ? '✓' : s.state === 'FAILED' ? '✗' : '·';
+    return `  ${mark} [${s.key}] ${maskText(ctx, s.text)}${s.state === 'SEEN' ? ` (${s.calls} calls)` : s.state === 'FAILED' ? ` (${s.cardNumber ? `#${s.cardNumber}` : 'failed'})` : ''}`;
+  });
 
   // findings: bugs, missing work, notes, questions
   const open = cards.filter((c) => OPEN.has(c.status));
   const byKind = (k: string) => open.filter((c) => c.kind === k).length;
-  out.push('', `FINDINGS - ${open.length} open (${byKind('BUG')} bugs · ${byKind('TASK')} missing / to do · ${byKind('NOTE')} notes · ${byKind('QUESTION')} questions), `
-    + `${cards.length - open.length} finished or closed`);
   const order = ['INBOX', 'TO_DO', 'IN_PROGRESS', 'FIXED'];
-  for (const c of [...open].sort((a, b) => order.indexOf(a.status) - order.indexOf(b.status))) {
+  const openLines = [...open].sort((a, b) => order.indexOf(a.status) - order.indexOf(b.status)).map((c) => {
     const waiting = c.waiting && c.waiting.who !== 'NONE' ? ` · waiting on ${c.waiting.who === 'USER' ? 'the user' : c.waiting.who.toLowerCase()} ${ago(c.waiting.since)}` : '';
-    out.push(`  #${c.number} ${c.kind} ${c.status}${c.flags.length ? ` [${c.flags.join(', ')}]` : ''}${waiting} - ${maskText(ctx, c.title)}`);
-  }
-  const closed = cards.filter((c) => c.status === 'CLOSED' && c.resolution);
-  if (closed.length) {
-    out.push('  Decided by the user (never raise again):');
-    for (const c of closed.slice(0, 15)) out.push(`    #${c.number} ${c.resolution}${c.reason ? `: ${maskText(ctx, c.reason)}` : ''} - ${maskText(ctx, c.title)}`);
-  }
+    return `  #${c.number} ${c.kind} ${c.status}${c.flags.length ? ` [${c.flags.join(', ')}]` : ''}${waiting} - ${maskText(ctx, c.title)}`;
+  });
+  const decidedLines = cards.filter((c) => c.status === 'CLOSED' && c.resolution)
+    .map((c) => `    #${c.number} ${c.resolution}${c.reason ? `: ${maskText(ctx, c.reason)}` : ''} - ${maskText(ctx, c.title)}`);
 
-  if (next?.waitingOnUser.length) {
-    out.push('', 'WAITING ON THE USER');
-    for (const w of next.waitingOnUser.slice(0, 10)) out.push(`  #${w.number} ${w.why} · ${ago(w.since)} - ${maskText(ctx, w.title)}`);
-  }
+  const waitingLines = (next?.waitingOnUser ?? []).slice(0, 10).map((w) => `  #${w.number} ${w.why} · ${ago(w.since)} - ${maskText(ctx, w.title)}`);
+  const runs = log.map((e) => ({ skill: e.skill, at: e.at, did: maskText(ctx, e.did), found: maskText(ctx, e.found), next: maskText(ctx, e.next) }));
 
-  if (log.length) {
-    out.push('', 'EARLIER RUNS (newest first)');
-    for (const e of log) {
-      out.push(`  /${e.skill} · ${ago(e.at)} ago`, `    did: ${cut(maskText(ctx, e.did), 400)}`, `    found: ${cut(maskText(ctx, e.found), 400)}`, `    next: ${cut(maskText(ctx, e.next), 300)}`);
+  const render = (l: Limits): string => {
+    const out: string[] = [];
+    out.push(`TASK "${taskName}" (cycle ${id})${project ? ` · project ${project}` : ''} · ${cycle.status}${calls != null ? ` · ${calls} calls recorded` : ''} · created ${ago(cycle.createdAt)} ago`);
+    out.push('Alfred holds this task\'s state - this is the shared memory across sessions, machines and agents. Work from it, write progress back '
+      + '(board_comment did/found/next, board_session_log), and never rely on an earlier conversation.');
+
+    // the brief: the task, its description, scope, data, decisions
+    out.push('', `BRIEF${brief.updatedAt ? ` (edited ${ago(brief.updatedAt)} ago${brief.updatedBy === 'CLAUDE' ? ' by Claude' : ''})` : ''}`);
+    if (!sections.length) {
+      out.push('  (none) - the task, its description and scope are not written down yet.');
+    } else {
+      for (const sec of ordered) {
+        if (sec.name === 'test steps' && steps.length) continue; // shown with their results below
+        out.push(`  ${sec.name.toUpperCase()}: ${(NEVER_CUT.has(sec.name) ? sec.text : cut(sec.text, l.section)).replace(/\n/g, '\n    ')}`);
+      }
     }
-  }
-  if (agent && agent.cycleId === id && agent.state !== 'STOPPED') out.push('', `NOW: Claude ${agent.state.toLowerCase()}${agent.step ? ` - ${agent.step}` : ''} (${ago(agent.updatedAt)} ago)`);
 
-  out.push('', `NEXT: ${nextStep(cycle.name, sections.length > 0, items.length > 0, next, cards)}`);
-  out.push('', 'TOOLS: check_calls (check the recorded calls) · get_brief / read_spec (the full text) · board_get (a card in full) · board_changes '
-    + '(what changed since your last entry, cursor "claude") · the /alfred-* skills when installed (/alfred-guide explains them).');
+    out.push('', `REQUIREMENTS (Acceptance items of the spec files; marks are the user's)${items.length
+      ? ` - ${items.length}: ${counts.PASS} pass · ${counts.FAIL} fail · ${counts.CANT_TELL} can't tell · ${counts.none} unmarked` : ''}`);
+    if (!items.length) out.push('  (none) - no spec file has an Acceptance list; the task can only be checked against generic rules.');
+    if (items.length) out.push('  (state as the Task tab shows it: the user\'s mark, then the linked cards - open BUG = bug, open TASK = missing, '
+      + 'FIXED = re-test - then your suggestion, shown with "?")');
+    out.push(...requirementLines.slice(0, l.requirements));
+    if (requirementLines.length > l.requirements) out.push(`  … +${requirementLines.length - l.requirements} more - read_spec lists every item with its key`);
 
-  let body = out.join('\n');
-  if (body.length > REPLY_BUDGET - 200) {
-    body = `${body.slice(0, REPLY_BUDGET - 400)}\n… (cut to fit - get_brief, read_spec, board_search for the rest)`;
+    if (stepLines.length) out.push('', 'TEST STEPS', ...stepLines);
+
+    out.push('', `FINDINGS - ${open.length} open (${byKind('BUG')} bugs · ${byKind('TASK')} missing / to do · ${byKind('NOTE')} notes · ${byKind('QUESTION')} questions), `
+      + `${cards.length - open.length} finished or closed`);
+    out.push(...openLines.slice(0, l.open));
+    if (openLines.length > l.open) out.push(`  … +${openLines.length - l.open} more open - board_search ${JSON.stringify({ cycleId: id })}`);
+    if (decidedLines.length) {
+      out.push('  Decided by the user (never raise again):');
+      out.push(...decidedLines.slice(0, l.decided));
+      if (decidedLines.length > l.decided) out.push(`    … +${decidedLines.length - l.decided} more - board_closed_reasons`);
+    }
+
+    if (waitingLines.length) out.push('', 'WAITING ON THE USER', ...waitingLines);
+
+    if (runs.length) {
+      out.push('', 'EARLIER RUNS (newest first)');
+      for (const e of runs.slice(0, l.runs)) {
+        out.push(`  /${e.skill} · ${ago(e.at)} ago`, `    did: ${cut(e.did, l.runChars)}`, `    found: ${cut(e.found, l.runChars)}`, `    next: ${cut(e.next, l.runChars - 100)}`);
+      }
+      if (runs.length > l.runs) out.push(`  … ${runs.length - l.runs} earlier run(s) not shown to fit this reply`);
+    }
+    if (agent && agent.cycleId === id && agent.state !== 'STOPPED') out.push('', `NOW: Claude ${agent.state.toLowerCase()}${agent.step ? ` - ${agent.step}` : ''} (${ago(agent.updatedAt)} ago)`);
+
+    out.push('', `NEXT: ${nextStep(cycle.name, sections.length > 0, items.length > 0, next, cards)}`);
+    out.push('', 'TOOLS: check_calls (check the recorded calls) · get_brief / read_spec (the full text) · board_get (a card in full) · board_changes '
+      + '(what changed since your last entry, cursor "claude") · the /alfred-* skills when installed (/alfred-guide explains them).');
+    return out.join('\n');
+  };
+
+  const meta = `\n${JSON.stringify({ cycleId: id, project, ...maskMeta(ctx) })}`;
+  let body = '';
+  for (const limits of LADDER) {
+    body = render(limits);
+    if (body.length + meta.length <= REPLY_BUDGET) break;
   }
-  return `${body}\n${JSON.stringify({ cycleId: id, project, ...maskMeta(ctx) })}`;
+  // Only what is never cut can still be over: say so rather than cutting it.
+  if (body.length + meta.length > REPLY_BUDGET) {
+    body += `\n(${body.length} characters, over the usual ${REPLY_BUDGET}: everything that may be cut was, and the brief's Out of scope and Decisions never are.)`;
+  }
+  return `${body}${meta}`;
 }
 
 export function register(server: McpServer, client: AlfredClient): void {

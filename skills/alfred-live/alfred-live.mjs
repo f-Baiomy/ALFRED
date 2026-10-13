@@ -1,27 +1,30 @@
 #!/usr/bin/env node
 // /alfred-live's runner (SKILL.md, docs/mcp.md "Live answers"). Runs on the machine of the Claude session that started
 // it - next to the app's repo and that machine's Claude Code - whatever machine Alfred runs on (this one, a LAN host,
-// Docker). No dependencies: Node 18+ only, so it ships inside the skill folder.
+// Docker). No dependencies: Node 18+ only, so it ships inside the skill folder. /alfred-listen's runner imports the
+// shared parts from here (the MCP client and host, the warm Claude pool, the reporter), so the two skills are always
+// installed together.
 //
-//   node alfred-live.mjs start  --server <mcp name> [--project p] [--cycle id] [--model m] [--cwd repo] [--claude cmd]
+//   node alfred-live.mjs start  --server <mcp name> [--project p] [--cycle id] [--model m] [--parallel n] [--cwd repo]
 //   node alfred-live.mjs status --server <mcp name> [--project p]
 //   node alfred-live.mjs stop   --server <mcp name> [--project p]
 //
 // --server is the Alfred MCP server as Claude Code has it registered ("alfred-lan-83"): its entry in ~/.claude.json
-// gives Alfred's address (an http server's url without /mcp, or a stdio server's ALFRED_URL) and is handed as-is to each
-// run, so the run uses the same tools the session does. `start` starts the runner in the background and prints where its
-// log is; the session watches the log so each event shows in its chat.
+// gives Alfred's address (an http server's url without /mcp, or a stdio server's ALFRED_URL). A stdio entry is started
+// ONCE by the runner in HTTP mode (McpHost) and every run connects to it, so a run never pays the server's start-up;
+// an http entry is used as it is. `start` starts the runner in the background and prints where its logs are.
 //
-// The runner waits on Alfred's board for the user's next change with no model running. Each card the user touched is
-// either noted (a move to To do / In progress, a close, flags, teams) or answered by ONE fresh `claude -p` run that sees
-// only that change - so no conversation grows. The run's stream-json is read as it comes: each tool call becomes a step
-// and the reply tool's partial input is the draft, reported to Alfred (PUT /board/live-work) so the card shows Claude
-// working - steps, the reply typing in, Stop - while it happens.
-import { spawn } from 'node:child_process';
+// The runner waits on Alfred's board for the user's next change with no model running - but it keeps a warm `claude`
+// process ready (ClaudePool), so a change is answered the moment it arrives. Each card the user touched is either noted
+// (a move to To do / In progress, a close, flags, teams) or answered by ONE fresh run that sees only that change and the
+// card's recent thread - so no conversation grows. Cards are answered in parallel (--parallel, default 3). The run's
+// stream is read as it comes: each tool call becomes a step and the reply tool's partial input is the draft, reported to
+// Alfred (PUT /board/live-work) so the card shows Claude working - steps, the reply typing in, Stop - while it happens.
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir, hostname, tmpdir } from 'node:os';
-import { basename, join, resolve } from 'node:path';
+import { basename, delimiter, dirname, extname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 // ------------------------------------------------------------------------------------------------- what the user did
@@ -83,13 +86,15 @@ export function stepLabel(tool, input = {}) {
     case 'redis_commands': return 'reading the Redis commands';
     case 'endpoint_health': return `checking ${s('endpoint') || 'the endpoint'}'s history`;
     case 'problem_calls': case 'triage': case 'check_calls': return 'checking the calls';
+    case 'compare_cycles': return 'comparing with an earlier run';
+    case 'board_regressions': return 'checking for regressions';
     case 'trace_value': return `tracing "${s('value')}" through the calls`;
     case 'read_spec': case 'get_brief': return 'reading the spec';
     case 'exception_source': case 'locate_source': return 'finding the code line';
     case 'board_reply': case 'board_ask': case 'board_comment': return 'writing the reply';
     case 'board_edit': return `→ editing ${card}${s('kind') ? ` (kind → ${s('kind')})` : ''}`;
     case 'board_add': return `→ adding a card: ${s('title')}`;
-    case 'board_add_many': return '→ adding cards';
+    case 'board_add_many': return `→ adding ${Array.isArray(input.cards) ? `${input.cards.length} card${input.cards.length === 1 ? '' : 's'}` : 'cards'}`;
     case 'board_link': return `→ linking evidence to ${card}`;
     case 'board_link_spec': return `→ linking ${card} to its requirement`;
     case 'board_propose': return `→ proposing ${pretty(s('status') || 'a step')}`;
@@ -97,12 +102,36 @@ export function stepLabel(tool, input = {}) {
     case 'board_assign': return `→ assigning ${card} to ${Array.isArray(input.teams) ? input.teams.join(', ') : 'teams'}`;
     case 'board_retest_plan': return `→ setting ${card}'s re-test plan`;
     case 'board_move': return `→ moving ${card} to ${pretty(s('status'))}`;
+    case 'board_mark_step': return `→ marking a step ${pretty(s('state'))}`;
+    case 'board_suggest_mark': return '→ suggesting a checklist mark';
+    case 'board_session_log': return '→ writing the session log';
+    case 'add_comment': case 'add_comments': return '→ annotating the calls';
+    case 'ToolSearch': return 'loading tools';
     case 'Read': return `reading ${basename(s('file_path'))}${s('offset') ? `:${s('offset')}` : ''}`;
     case 'Grep': return `searching the code for "${s('pattern')}"`;
     case 'Glob': return `finding files ${s('pattern')}`;
+    case 'Bash': return /^codegraph/.test(s('command')) ? 'exploring the code graph' : `running ${s('command').split(/\s+/).slice(0, 2).join(' ')}`;
     default: return name.replace(/_/g, ' ');
   }
 }
+
+/**
+ * The Alfred tools a live answer may need. With every tool of the server on the run (107), Claude Code defers them
+ * behind ToolSearch: each run spends a model turn finding its tools (1-3 s, a 57k-token prompt). With only these loaded
+ * (ENABLE_TOOL_SEARCH=false, the rest disallowed) the first tool call is the Alfred tool itself and a turn costs ~33k.
+ */
+export const LIVE_TOOLS = ['board_get', 'board_reply', 'board_ask', 'board_comment', 'board_edit', 'board_add', 'board_flag', 'board_assign', 'board_propose',
+  'board_retest_plan', 'board_link', 'board_evidence', 'board_search', 'board_similar', 'board_for_call', 'board_suggest_mark', 'board_teams', 'board_mark_step',
+  'get_call', 'investigate_call', 'call_story', 'get_call_body', 'call_logs', 'log_context', 'db_statements', 'db_statement', 'search_calls', 'read_spec',
+  'task_context', 'trace_value', 'exception_source', 'locate_source', 'diff_calls', 'endpoint_health'];
+
+/** The tools a listen judge run may need: the live ones plus the drill-down, the board writes and what the finish does. */
+export const LISTEN_TOOLS = [...LIVE_TOOLS, 'board_add_many', 'board_link_spec', 'board_session_log', 'board_steps', 'board_regressions', 'board_list',
+  'board_closed_reasons', 'get_brief', 'add_comment', 'add_comments', 'search_logs', 'log_problems', 'db_overview', 'redis_commands', 'compare_cycles',
+  'problem_calls', 'triage', 'suggest_spacers', 'get_cycle', 'list_cycles', 'search_cycle', 'outside_logs', 'problem_timeline', 'redis_overview'];
+
+/** The tools whose call writes something on the board (a run that made none of these answered nothing). */
+export const WRITE_TOOLS = /board_(reply|ask|comment|edit|add|add_many|flag|assign|propose|retest_plan|link|link_spec|move|mark_step|suggest_mark|session_log|fix)$|^(mcp__.+__)?add_comments?$/;
 
 /** The reply text from a reply tool's partial JSON input - shown as it types in. */
 export function draftOf(partialJson) {
@@ -112,8 +141,8 @@ export function draftOf(partialJson) {
     : c === 'n' ? '\n' : c === 't' ? '\t' : c));
 }
 
-const RULES = `You are Alfred live: you answer the user on the Alfred task board while they work, one change of theirs at a time.
-- First board_get the card: its thread with [indexes], the open questions, the evidence. Read nothing else you do not need.
+export const RULES = `You are Alfred live: you answer the user on the Alfred task board while they work, one change of theirs at a time.
+- The card's recent thread is below, with [indexes]: read it; board_get only for entries older than the ones shown, and nothing else you do not need.
 - Answer in the card's thread with board_reply (replyTo = the [index] of the user's comment, or of your question they answered). 1-3 short sentences, plain words, in the user's language. Say what you did, never what you are about to think.
 - An answer to your question: reply with what it changes ("Got it - ..."), then do it within the board's limits (board_edit your own Inbox card's kind/description, board_add a BUG with the calls, board_flag, board_assign). A question back only when it is still unclear (board_ask, once).
 - A question to you: look it up first (at most three Alfred or code lookups), then answer with the evidence as mentions (@[call:in:<id>|label]).
@@ -122,11 +151,12 @@ const RULES = `You are Alfred live: you answer the user on the Alfred task board
 - The app's repo is your working folder: read the code there when the answer needs it. Change no file.
 - End with one line: "→ " and what you did (e.g. "→ replied; turned #12 into a BUG").`;
 
-/** The prompt of one run: the rules, which tools, the card and exactly what the user did - nothing else. */
-export function promptFor(server, card, changes) {
-  return `${RULES}\n\nThe Alfred tools are mcp__${server}__* (e.g. mcp__${server}__board_get).\n\n`
-    + `CARD: project "${card.project}" #${card.number} "${card.title}" (${card.status})\n`
-    + `WHAT THE USER JUST DID:\n${changes.map((e) => `- ${youDid(e)}${e.replyTo != null ? ' (a reply in a thread - board_get shows which comment)' : ''}`).join('\n')}\n\n`
+/** The prompt of one run: the rules, which tools, the card, its recent thread as the board gives it, and what the user did. */
+export function promptFor(server, card, changes, context = null) {
+  const thread = context ? `\nTHE CARD (from the board):\n${typeof context === 'string' ? context : JSON.stringify(context, null, 1)}\n` : '';
+  return `${RULES}\n\nThe Alfred tools are mcp__${server}__* (e.g. mcp__${server}__board_reply).\n\n`
+    + `CARD: project "${card.project}" #${card.number} "${card.title}" (${card.status})\n${thread}`
+    + `WHAT THE USER JUST DID:\n${changes.map((e) => `- ${youDid(e)}${e.replyTo != null && !context ? ' (a reply in a thread - board_get shows which comment)' : ''}`).join('\n')}\n\n`
     + 'Answer this change now.';
 }
 
@@ -173,7 +203,9 @@ export class Alfred {
     if (!res.ok) {
       let message = text;
       try { message = JSON.parse(text).message ?? text; } catch { /* plain text */ }
-      throw new Error(`Alfred ${method} ${path} → ${res.status}: ${String(message).slice(0, 300)}`);
+      const error = new Error(`Alfred ${method} ${path} → ${res.status}: ${String(message).slice(0, 300)}`);
+      error.status = res.status;
+      throw error;
     }
     return text ? JSON.parse(text) : null;
   }
@@ -190,82 +222,251 @@ export function byCard(entries) {
   return [...out.values()];
 }
 
-// ------------------------------------------------------------------------------------------------- one Claude run
+// -------------------------------------------------------------------------------------------------------- MCP client
 
 /**
- * One fresh `claude -p` run with the Alfred tools only, read as it streams: each tool call becomes a step and a reply
- * tool's partial input the draft. onStep(step | null, steps, draft, tool, input) is awaited for each; a truthy return
- * ends the run (the user's Stop). Returns a handle: kill(), draft, and done (the outcome).
- * @param o {{ claude: string, claudeArgs?: string[], cwd: string, server: string, mcpConfigFile: string, model?: string,
- *   prompt: string, runTimeoutMs?: number, draftEveryMs?: number, onStep: Function }}
+ * A minimal MCP client for one server entry of Claude Code's config: stdio (spawns command + args with env) or
+ * Streamable HTTP (url). call(name, args) returns the tool's text and throws on a tool error.
  */
-export function runClaude(o) {
-  const args = [...(o.claudeArgs ?? []), '-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages',
-    '--mcp-config', o.mcpConfigFile, '--strict-mcp-config', '--allowedTools', `mcp__${o.server}`, 'Read', 'Grep', 'Glob',
-    ...(o.model ? ['--model', o.model] : [])];
-  // Windows resolves `claude` (a .cmd / .exe on PATH) only through a shell; the prompt goes on stdin either way.
-  const child = spawn(o.claude, args, { cwd: o.cwd, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
-    shell: process.platform === 'win32' && !/\.(exe|js|mjs)$/i.test(o.claude) && o.claude !== process.execPath });
-  const handle = { draft: null, kill: () => child.kill(), done: null };
-  child.stdin.on('error', () => { /* a run that ends before reading its prompt */ });
-  child.stdin.end(o.prompt);
-  const timeout = setTimeout(() => child.kill(), o.runTimeoutMs ?? 5 * 60_000);
-  const steps = [];
-  let result = null;
-  let partial = '';
-  let partialTool = null;
-  let buffer = '';
-  let stderr = '';
-  let stopAsked = false;
-  let lastDraftAt = 0;
-  child.stderr.on('data', (d) => { stderr = (stderr + d.toString()).slice(-2000); });
-  const ask = async (step, tool, input) => {
-    if (await o.onStep(step, steps, handle.draft, tool, input) && !stopAsked) { stopAsked = true; child.kill(); }
-  };
-  const onLine = async (line) => {
+export class McpClient {
+  constructor(entry, { cwd, name = 'alfred-runner' } = {}) {
+    this.entry = entry;
+    this.cwd = cwd;
+    this.name = name;
+    this.nextId = 1;
+    this.pending = new Map();
+    this.proc = null;
+    this.session = null;
+    this.ready = null;
+    this.restarts = 0;
+    this.tools = null;
+  }
+
+  get http() {
+    return !!this.entry.url;
+  }
+
+  async call(name, args, timeoutMs = 120_000) {
+    if (!this.ready) this.ready = this.connect();
+    try {
+      await this.ready;
+    } catch (error) {
+      this.ready = null; // a failed connect is tried again on the next call
+      throw error;
+    }
+    const result = await this.request('tools/call', { name, arguments: args }, timeoutMs);
+    const text = (result?.content ?? []).filter((c) => c.type === 'text').map((c) => c.text).join('\n');
+    if (result?.isError) {
+      let message = text;
+      try { message = JSON.parse(text).message ?? text; } catch { /* plain text */ }
+      throw new Error(`${name}: ${message}`);
+    }
+    return text;
+  }
+
+  /** The server's tool names (cached). */
+  async listTools() {
+    if (this.tools) return this.tools;
+    if (!this.ready) this.ready = this.connect();
+    await this.ready;
+    const result = await this.request('tools/list', {}, 30_000);
+    this.tools = (result?.tools ?? []).map((t) => t.name);
+    return this.tools;
+  }
+
+  async connect() {
+    if (!this.http) this.spawnServer();
+    await this.request('initialize', { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: this.name, version: '1' } }, 60_000);
+    await this.notify('notifications/initialized');
+  }
+
+  spawnServer() {
+    const { command, args = [], env = {} } = this.entry;
+    if (!command) throw new Error('the MCP server entry has neither url nor command');
+    const shell = process.platform === 'win32' && !/\.exe$/i.test(command) && command !== 'node' && command !== process.execPath;
+    const quote = (a) => (shell && /\s/.test(a) ? `"${a}"` : a);
+    // A stdio server: never let this process's ALFRED_MCP_TRANSPORT (a native install's http) turn it into an HTTP one.
+    const inherited = { ...process.env };
+    delete inherited.ALFRED_MCP_TRANSPORT;
+    const proc = spawn(shell ? quote(command) : command, args.map(quote), {
+      cwd: this.cwd, env: { ...inherited, ...env }, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, shell,
+    });
+    this.proc = proc;
+    let buffer = '';
+    this.stderr = '';
+    proc.stderr.on('data', (d) => { this.stderr = (this.stderr + d.toString()).slice(-2000); });
+    proc.stdout.on('data', (d) => {
+      buffer += d.toString();
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+      for (const line of lines) this.onMessage(line);
+    });
+    proc.on('error', (error) => { this.stderr = `${this.stderr}\n${error.message}`; });
+    proc.on('close', () => {
+      if (this.proc !== proc) return;
+      this.proc = null;
+      this.ready = null; // the next call starts it again (its check_calls memory is gone: the runner says so)
+      this.restarts++;
+      for (const [, p] of this.pending) p.reject(new Error(`the MCP server ended${this.stderr ? `: ${this.stderr.trim().split('\n').at(-1)}` : ''}`));
+      this.pending.clear();
+    });
+    proc.stdin.on('error', () => { /* it ended; close handles it */ });
+  }
+
+  onMessage(line) {
     let msg;
     try { msg = JSON.parse(line); } catch { return; }
-    if (msg.type === 'stream_event' && msg.event) {
-      const ev = msg.event;
-      if (ev.type === 'content_block_start' && ev.content_block?.type === 'tool_use') {
-        partialTool = ev.content_block.name ?? null;
-        partial = '';
-      } else if (ev.type === 'content_block_delta' && ev.delta?.type === 'input_json_delta' && partialTool && /board_(reply|ask|comment)$/.test(partialTool)) {
-        partial += ev.delta.partial_json ?? '';
-        const d = draftOf(partial);
-        if (d && Date.now() - lastDraftAt >= (o.draftEveryMs ?? 400)) {
-          handle.draft = d;
-          lastDraftAt = Date.now();
-          await ask(null);
-        }
-      }
-    } else if (msg.type === 'assistant') {
-      for (const c of msg.message?.content ?? []) {
-        if (c.type !== 'tool_use' || !c.name) continue;
-        if (/board_(reply|ask|comment)$/.test(c.name)) handle.draft = draftOf(JSON.stringify(c.input ?? {})) ?? handle.draft;
-        const s = stepLabel(c.name, c.input ?? {});
-        steps.push(s);
-        await ask(s, c.name, c.input ?? {});
-      }
-    } else if (msg.type === 'result') {
-      result = { text: msg.result ?? '', error: !!msg.is_error };
+    if (msg.id == null || !this.pending.has(msg.id)) return;
+    const p = this.pending.get(msg.id);
+    this.pending.delete(msg.id);
+    if (msg.error) p.reject(new Error(msg.error.message ?? JSON.stringify(msg.error)));
+    else p.resolve(msg.result);
+  }
+
+  async request(method, params, timeoutMs) {
+    const id = this.nextId++;
+    const msg = { jsonrpc: '2.0', id, method, params };
+    if (this.http) return this.post(msg, timeoutMs, true);
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { this.pending.delete(id); reject(new Error(`${params?.name ?? method}: no answer within ${Math.round(timeoutMs / 1000)} s`)); }, timeoutMs);
+      this.pending.set(id, { resolve: (v) => { clearTimeout(timer); resolve(v); }, reject: (e) => { clearTimeout(timer); reject(e); } });
+      this.proc.stdin.write(JSON.stringify(msg) + '\n');
+    });
+  }
+
+  async notify(method) {
+    const msg = { jsonrpc: '2.0', method };
+    if (this.http) await this.post(msg, 30_000, false);
+    else this.proc.stdin.write(JSON.stringify(msg) + '\n');
+  }
+
+  async post(msg, timeoutMs, wantReply, retried = false) {
+    const res = await fetch(this.entry.url, {
+      method: 'POST', signal: AbortSignal.timeout(timeoutMs),
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', ...(this.entry.headers ?? {}),
+        ...(this.session ? { 'mcp-session-id': this.session } : {}) },
+      body: JSON.stringify(msg),
+    });
+    const sid = res.headers.get('mcp-session-id');
+    if (sid) this.session = sid;
+    if ((res.status === 404 || res.status === 400) && this.session && msg.method !== 'initialize' && !retried) {
+      // the server forgot the session (restarted): a new one - check_calls' memory is per server process, not per session
+      this.session = null;
+      this.restarts++;
+      await this.request('initialize', { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: this.name, version: '1' } }, 60_000);
+      await this.notify('notifications/initialized');
+      return this.post(msg, timeoutMs, wantReply, true);
     }
-  };
-  let chain = Promise.resolve();
-  child.stdout.on('data', (d) => {
-    buffer += d.toString();
-    const lines = buffer.split('\n');
-    buffer = lines.pop() ?? '';
-    for (const line of lines) if (line.trim()) chain = chain.then(() => onLine(line));
-  });
-  handle.done = (async () => {
-    await new Promise((r) => child.on('close', r));
-    if (buffer.trim()) chain = chain.then(() => onLine(buffer));
-    await chain;
-    clearTimeout(timeout);
-    return { steps, result, stderr, stopAsked };
-  })();
-  return handle;
+    if (!res.ok) throw new Error(`MCP ${msg.method} → ${res.status}: ${(await res.text()).slice(0, 300)}`);
+    if (!wantReply) return null;
+    const body = await res.text();
+    const messages = (res.headers.get('content-type') ?? '').includes('text/event-stream')
+      ? body.split('\n').filter((l) => l.startsWith('data:')).map((l) => { try { return JSON.parse(l.slice(5).trim()); } catch { return null; } })
+      : [JSON.parse(body)];
+    const reply = messages.find((m) => m && m.id === msg.id);
+    if (!reply) throw new Error(`MCP ${msg.method}: no reply in the response`);
+    if (reply.error) throw new Error(reply.error.message ?? JSON.stringify(reply.error));
+    return reply.result;
+  }
+
+  close() {
+    const p = this.proc;
+    this.proc = null;
+    p?.kill();
+  }
+}
+
+/**
+ * One MCP server for the runner and all its runs. A stdio entry (the usual local registration: node + tsx + index.ts)
+ * is started once here in HTTP mode on a free port (ALFRED_MCP_TRANSPORT=http, ALFRED_MCP_PORT=0), so a run connects in
+ * milliseconds instead of starting its own server (about 3 s each) and check_calls' memory lives in one place. An http
+ * entry (a LAN Alfred's /mcp) is used as it is. A server whose command does not answer in HTTP mode within 15 s is
+ * closed and the entry is used as it is (each run then starts its own server, as before).
+ */
+export class McpHost {
+  constructor(entry, { cwd, log = () => {} } = {}) {
+    this.given = entry;
+    this.cwd = cwd;
+    this.log = log;
+    this.entry = entry;
+    this.proc = null;
+    this.closed = false;
+  }
+
+  async start() {
+    if (this.given.url || !this.given.command) return this.entry;
+    const url = await this.spawn().catch((error) => { this.log(`  ⚠ shared MCP server not started (${error.message}) - each run starts its own`); return null; });
+    this.entry = url ? { type: 'http', url } : this.given;
+    return this.entry;
+  }
+
+  spawn() {
+    return new Promise((resolve, reject) => {
+      const { command, args = [], env = {} } = this.given;
+      const shell = process.platform === 'win32' && !/\.exe$/i.test(command) && command !== 'node' && command !== process.execPath;
+      const quote = (a) => (shell && /\s/.test(a) ? `"${a}"` : a);
+      const proc = spawn(shell ? quote(command) : command, args.map(quote), {
+        cwd: this.cwd, env: { ...process.env, ...env, ALFRED_MCP_TRANSPORT: 'http', ALFRED_MCP_PORT: '0' },
+        stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true, shell,
+      });
+      this.proc = proc;
+      let out = '';
+      let done = false;
+      const timer = setTimeout(() => { if (!done) { done = true; proc.kill(); reject(new Error('no "ready on" line within 15 s')); } }, 15_000);
+      proc.stderr.on('data', (d) => {
+        out = (out + d.toString()).slice(-4000);
+        const m = /ready on (http:\/\/127\.0\.0\.1:\d+\/mcp)/.exec(out);
+        if (m && !done) { done = true; clearTimeout(timer); resolve(m[1]); }
+      });
+      proc.on('error', (error) => { if (!done) { done = true; clearTimeout(timer); reject(error); } });
+      proc.on('close', (code) => {
+        if (!done) { done = true; clearTimeout(timer); reject(new Error(`exited with ${code}: ${out.trim().split('\n').at(-1) ?? ''}`)); return; }
+        if (this.proc !== proc || this.closed) return;
+        // It died under us: start it again so the runs keep their server (check_calls' memory is gone - the listen
+        // runner notices through its client's restarts count and sweeps at stop).
+        this.log('  ⚠ the shared MCP server ended - starting it again');
+        this.spawn().then((url) => { this.entry = { type: 'http', url }; this.onRestart?.(url); }).catch((e) => this.log(`  ⚠ ${e.message}`));
+      });
+    });
+  }
+
+  close() {
+    this.closed = true;
+    const p = this.proc;
+    this.proc = null;
+    p?.kill();
+  }
+}
+
+// --------------------------------------------------------------------------------------------------- Claude processes
+
+/** The `claude` command as an executable path (so no shell is needed and a kill reaches the process itself). */
+export function findClaude(command = 'claude') {
+  if (isAbsolute(command) || command.includes('/') || command.includes('\\')) return command;
+  const exts = process.platform === 'win32' ? ['.exe', '.cmd', '.bat', ''] : [''];
+  for (const dir of (process.env.PATH ?? '').split(delimiter)) {
+    if (!dir) continue;
+    for (const ext of exts) {
+      const candidate = join(dir, command + ext);
+      try { if (statSync(candidate).isFile()) return candidate; } catch { /* next */ }
+    }
+  }
+  return command;
+}
+
+/** Ends a process and everything it started (claude starts its MCP servers): the whole tree, on every platform. */
+export function killTree(child) {
+  if (!child || child.exitCode !== null || child.signalCode) return;
+  if (process.platform === 'win32') {
+    try { spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' }); } catch { /* below */ }
+  }
+  try { child.kill('SIGTERM'); } catch { /* gone */ }
+  setTimeout(() => { try { child.kill('SIGKILL'); } catch { /* gone */ } }, 3000).unref?.();
+}
+
+/** How a run failed, from its result or stderr, in one line. */
+export function failureOf(result, stderr) {
+  return (result?.text?.trim() || String(stderr ?? '').trim().split('\n').at(-1) || 'the run ended without a result').slice(0, 300);
 }
 
 /** The run's one-line summary: its last line starting "→". */
@@ -273,24 +474,305 @@ export function summaryOf(text) {
   return String(text ?? '').split('\n').map((l) => l.trim()).filter((l) => l.startsWith('→')).at(-1) ?? null;
 }
 
-/** Why a run failed, in one line. */
-export function failureOf(result, stderr) {
-  return (result?.text?.trim() || stderr.trim().split('\n').at(-1) || 'the run ended without a result').slice(0, 300);
+/** What kind of failure a run's text describes - decides how long to wait before trying again. */
+export function failureKind(text) {
+  const t = String(text ?? '').toLowerCase();
+  if (/usage limit|rate limit|too many requests|429|quota|limit reached|out of credits|billing/.test(t)) return 'limit';
+  if (/prompt is too long|context window|too long/.test(t)) return 'too-long';
+  if (/not logged in|authentication|unauthorized|invalid api key|login/.test(t)) return 'auth';
+  return 'transient';
+}
+
+/**
+ * Warm `claude` processes: each is started ahead with `--input-format stream-json`, so it has loaded its config and
+ * connected to the Alfred MCP server (3-9 s) before a prompt exists; when a prompt arrives it is fed as one user
+ * message and the process answers in the time the model needs (measured: 3.3 s to a trivial answer, against 9.3 s
+ * cold). One process = one run = one fresh context; it ends after its result and another is started ahead. An idle
+ * warm process costs nothing but memory; one left idle for 20 minutes is replaced.
+ */
+export class ClaudePool {
+  /**
+   * @param o {{ size?: number, claude?: string, claudeArgs?: string[], cwd: string, server: string, mcpConfigFile: string,
+   *   model?: string, systemPromptFile?: string, tools?: string[], allowed?: string[], disallowed?: string[], env?: object,
+   *   log?: Function, warm?: boolean, only?: string[], serverTools?: string[] }}
+   * only + serverTools: the server's tools NOT in `only` are disallowed and tool search is off, so a run starts with its
+   * tools loaded instead of a ToolSearch turn.
+   */
+  constructor(o) {
+    this.o = o;
+    this.size = Math.max(0, o.size ?? 1);
+    // Warm processes kept ready: one per pool by default (each is a claude process of a few hundred MB); the second and
+    // later runs of a burst start cold (about 6 s more) rather than keeping three processes idle for hours.
+    this.warmSize = Math.min(this.size, o.warmSize ?? 1);
+    this.warm = [];
+    this.active = new Set();
+    this.closed = false;
+    this.claude = o.claudeArgs ? o.claude : findClaude(o.claude ?? 'claude');
+    if (o.warm !== false) this.fill();
+  }
+
+  args() {
+    const o = this.o;
+    const allowed = [`mcp__${o.server}`, 'Read', 'Grep', 'Glob', ...(o.allowed ?? [])];
+    const lean = o.only && o.serverTools?.length ? o.serverTools.filter((t) => !o.only.includes(t.replace(/^mcp__.+?__/, ''))).map((t) => (t.startsWith('mcp__') ? t : `mcp__${o.server}__${t}`)) : [];
+    const disallowed = [...(o.disallowed ?? []), ...lean];
+    return [...(o.claudeArgs ?? []), '-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages',
+      '--mcp-config', o.mcpConfigFile, '--strict-mcp-config', '--no-session-persistence', '--disable-slash-commands',
+      ...(o.tools ? ['--tools', o.tools.join(',')] : []),
+      '--allowedTools', ...allowed,
+      ...(disallowed.length ? ['--disallowedTools', ...disallowed] : []),
+      ...(o.systemPromptFile ? ['--append-system-prompt-file', o.systemPromptFile] : []),
+      ...(o.model ? ['--model', o.model] : [])];
+  }
+
+  spawnOne() {
+    const useShell = process.platform === 'win32' && /\.(cmd|bat)$/i.test(this.claude);
+    const quote = (a) => (useShell && /[\s"]/.test(a) ? `"${a.replace(/"/g, '\\"')}"` : a);
+    const args = this.args();
+    const child = spawn(useShell ? quote(this.claude) : this.claude, useShell ? args.map(quote) : args, {
+      cwd: this.o.cwd, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, shell: useShell,
+      env: { ...process.env, ...(this.o.only && this.o.serverTools?.length ? { ENABLE_TOOL_SEARCH: 'false' } : {}), ...(this.o.env ?? {}) },
+    });
+    const p = { child, startedAt: Date.now(), stderr: '', lines: [], waiters: [], ended: false, error: null, initAt: null };
+    let buffer = '';
+    child.stdout.on('data', (d) => {
+      buffer += d.toString();
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+      for (const line of lines) if (line.trim()) p.push ? p.push(line) : p.lines.push(line);
+    });
+    child.stderr.on('data', (d) => { p.stderr = (p.stderr + d.toString()).slice(-3000); });
+    child.on('error', (error) => { p.error = error; p.ended = true; for (const w of p.waiters.splice(0)) w(); });
+    child.on('close', () => { if (buffer.trim()) (p.push ?? ((l) => p.lines.push(l)))(buffer); p.ended = true; for (const w of p.waiters.splice(0)) w(); });
+    child.stdin.on('error', () => { /* a process that ended before reading */ });
+    return p;
+  }
+
+  fill() {
+    while (!this.closed && this.warm.length < this.warmSize) this.warm.push(this.spawnOne());
+  }
+
+  /** A process ready to take a prompt: a warm one when there is one, else a new one. */
+  acquire() {
+    const fresh = this.warm.filter((p) => !p.ended && Date.now() - p.startedAt < 20 * 60_000);
+    for (const stale of this.warm.filter((p) => !fresh.includes(p))) { killTree(stale.child); }
+    this.warm = fresh;
+    const p = this.warm.shift() ?? this.spawnOne();
+    this.active.add(p);
+    this.fill();
+    return p;
+  }
+
+  /**
+   * Feeds the prompt to a process and reads its stream: each tool call is a step (onStep(step, steps, draft, tool, input)
+   * - a truthy return ends the run: the user's Stop), reply tools' partial input is the draft (onStep(null, ...)), each
+   * tool result goes to onToolResult(toolUseId, isError, text). Resolves with { steps, result, stderr, stopAsked,
+   * writes } where writes counts the board-writing tool calls that succeeded.
+   */
+  run(p, prompt, { onStep = async () => false, onToolResult = () => {}, timeoutMs = 10 * 60_000, inactivityMs = 4 * 60_000, draftEveryMs = 400 } = {}) {
+    const steps = [];
+    const handle = { draft: null, p, kill: () => { stopAsked = true; killTree(p.child); } };
+    let result = null;
+    let partial = '';
+    let partialTool = null;
+    let lastDraftAt = 0;
+    let stopAsked = false;
+    let lastText = '';
+    let writes = 0;
+    const toolNames = new Map();
+    let lastLine = Date.now();
+    let chain = Promise.resolve();
+    let finish;
+    const done = new Promise((r) => { finish = r; });
+    const hard = setTimeout(() => killTree(p.child), timeoutMs);
+    const idle = setInterval(() => { if (Date.now() - lastLine > inactivityMs) killTree(p.child); }, 5000);
+    const ask = async (step, tool, input) => {
+      if (await onStep(step, steps, handle.draft, tool, input) && !stopAsked) { stopAsked = true; killTree(p.child); }
+    };
+    const onLine = async (line) => {
+      lastLine = Date.now();
+      let msg;
+      try { msg = JSON.parse(line); } catch { return; }
+      if (msg.type === 'stream_event' && msg.event) {
+        const ev = msg.event;
+        if (ev.type === 'content_block_start' && ev.content_block?.type === 'tool_use') {
+          partialTool = ev.content_block.name ?? null;
+          partial = '';
+        } else if (ev.type === 'content_block_delta' && ev.delta?.type === 'input_json_delta' && partialTool && /board_(reply|ask|comment)$/.test(partialTool)) {
+          partial += ev.delta.partial_json ?? '';
+          const d = draftOf(partial);
+          if (d && Date.now() - lastDraftAt >= draftEveryMs) {
+            handle.draft = d;
+            lastDraftAt = Date.now();
+            await ask(null);
+          }
+        }
+      } else if (msg.type === 'assistant') {
+        for (const c of msg.message?.content ?? []) {
+          if (c.type === 'text' && c.text) lastText = c.text;
+          if (c.type !== 'tool_use' || !c.name) continue;
+          toolNames.set(c.id, c.name);
+          if (/board_(reply|ask|comment)$/.test(c.name)) handle.draft = draftOf(JSON.stringify(c.input ?? {})) ?? handle.draft;
+          const s = stepLabel(c.name, c.input ?? {});
+          steps.push(s);
+          await ask(s, c.name, c.input ?? {});
+        }
+      } else if (msg.type === 'user') {
+        for (const c of msg.message?.content ?? []) {
+          if (c.type !== 'tool_result') continue;
+          const name = toolNames.get(c.tool_use_id) ?? '';
+          const text = Array.isArray(c.content) ? c.content.filter((x) => x.type === 'text').map((x) => x.text).join('\n') : String(c.content ?? '');
+          if (!c.is_error && WRITE_TOOLS.test(name)) writes++;
+          onToolResult(c.tool_use_id, !!c.is_error, text, name);
+        }
+      } else if (msg.type === 'result') {
+        result = { text: msg.result ?? lastText ?? '', error: !!msg.is_error };
+        // Done: let the process go (it would wait for a next message forever).
+        try { p.child.stdin.end(); } catch { /* gone */ }
+        setTimeout(() => killTree(p.child), 1500).unref?.();
+      }
+    };
+    p.push = (line) => { chain = chain.then(() => onLine(line)).catch(() => {}); };
+    for (const line of p.lines.splice(0)) p.push(line);
+    const end = async () => {
+      await chain;
+      clearTimeout(hard);
+      clearInterval(idle);
+      this.active.delete(p);
+      finish({ steps, result, stderr: p.stderr, stopAsked, writes, error: p.error });
+    };
+    if (p.ended) end();
+    else p.waiters.push(end);
+    // Resolve as soon as the result is in, without waiting for the process to exit (a late close costs ~1 s).
+    const earlyDone = () => { if (result && !p.ended) { p.ended = true; for (const w of p.waiters.splice(0)) w(); } };
+    const probe = setInterval(() => { earlyDone(); if (p.ended) clearInterval(probe); }, 200);
+    const message = JSON.stringify({ type: 'user', message: { role: 'user', content: prompt } }) + '\n';
+    try { p.child.stdin.write(message); } catch (error) { p.error = error; p.ended = true; end(); }
+    handle.done = done;
+    return handle;
+  }
+
+  close() {
+    this.closed = true;
+    for (const p of [...this.warm, ...this.active]) killTree(p.child);
+    this.warm = [];
+  }
+}
+
+/**
+ * One run on a transient process - the shape the runners used before the pool, kept for them and the tests: the
+ * options are the pool's plus prompt and the callbacks; returns { draft, kill, done }.
+ */
+export function runClaude(o) {
+  const pool = o.pool ?? new ClaudePool({ ...o, size: 0, warm: false });
+  const p = pool.acquire();
+  const handle = pool.run(p, o.prompt, { onStep: o.onStep, onToolResult: o.onToolResult, timeoutMs: o.runTimeoutMs, inactivityMs: o.inactivityMs, draftEveryMs: o.draftEveryMs });
+  if (!o.pool) handle.done.then(() => pool.close());
+  return handle;
+}
+
+// ------------------------------------------------------------------------------------------------------ the reporter
+
+/**
+ * Reports one run's state to the card (PUT /board/live-work): the latest state only, one request in flight, flushed
+ * every 250 ms while something changed and every second while a run works (so the user's Stop is read within a second
+ * and Alfred's 5-minute stale clock is reset) - the stream reader never waits for the network.
+ */
+export class Reporter {
+  constructor(alfred, base, { every = 250, tick = 1000, onError = () => {}, onStop = null } = {}) {
+    this.onStop = onStop;
+    this.alfred = alfred;
+    this.base = base;
+    this.every = every;
+    this.latest = null;
+    this.inFlight = null;
+    this.timer = null;
+    this.stop = false;
+    this.ended = false;
+    this.onError = onError;
+    // The tick re-sends the last state even when nothing changed: that is how Stop is read while the model thinks.
+    this.ticker = setInterval(() => { if (this.ended || this.inFlight) return; if (!this.latest && this.lastBody) this.latest = this.lastBody; if (this.latest) this.flush(); }, tick);
+    this.ticker.unref?.();
+  }
+
+  static clamp(body) {
+    return {
+      ...body,
+      ...(body.steps ? { steps: body.steps.slice(-40).map((s) => String(s).slice(0, 300)) } : {}),
+      ...(body.draft != null ? { draft: String(body.draft).slice(0, 16_000) } : {}),
+      ...(body.outcome != null ? { outcome: String(body.outcome).slice(0, 480) } : {}),
+      ...(body.head != null ? { head: String(body.head).slice(0, 200) } : {}),
+    };
+  }
+
+  /** Remembers the state; it goes out now when nothing went out lately (the first "working" shows at once), else at the next flush. */
+  report(body) {
+    this.latest = { ...this.base, ...body };
+    if (!this.inFlight && Date.now() - (this.lastSent ?? 0) >= this.every) { this.flush(); return; }
+    if (!this.timer) this.timer = setTimeout(() => { this.timer = null; this.flush(); }, this.every);
+  }
+
+  /** Sends the latest state now and waits for Alfred's answer (the Stop flag). */
+  async flush() {
+    if (!this.latest) return this.stop;
+    if (this.inFlight) { await this.inFlight; if (!this.latest) return this.stop; }
+    const body = Reporter.clamp(this.latest);
+    this.latest = null;
+    this.lastBody = body;
+    this.lastSent = Date.now();
+    this.inFlight = this.alfred.call('PUT', '/board/live-work', { body, timeoutMs: 10_000 })
+      .then((r) => { if (r?.stop && !this.stop) { this.stop = true; this.onStop?.(); } return r; })
+      .catch((error) => { this.onError(error); return null; })
+      .finally(() => { this.inFlight = null; });
+    await this.inFlight;
+    return this.stop;
+  }
+
+  /** The final state: sent now, then nothing more. */
+  async end(body) {
+    this.report(body);
+    await this.flush();
+    if (this.inFlight) await this.inFlight;
+    this.ended = true;
+    clearInterval(this.ticker);
+    if (this.timer) { clearTimeout(this.timer); this.timer = null; }
+  }
 }
 
 // ------------------------------------------------------------------------------------------------------- the runner
 
+/** Files of a runner on this machine, one set per Alfred and project (or cycle). */
+export function files(url, project, kind = 'alfred-live') {
+  const dir = join(tmpdir(), kind);
+  mkdirSync(dir, { recursive: true });
+  const key = `${url}|${project ?? ''}`.replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '').slice(-80);
+  return { dir, key, log: join(dir, `${key}.log`), chat: join(dir, `${key}.chat.log`), pid: join(dir, `${key}.pid.json`), mcp: join(dir, `${key}.mcp.json`),
+    cursor: join(dir, `${key}.cursor.json`), system: join(dir, `${key}.system.md`) };
+}
+
 export class Runner {
   /**
    * @param o {{ alfred: Alfred, server: string, mcpEntry: object, project?: string, cycleId?: string, model?: string,
-   *   cwd: string, claude: string, claudeArgs?: string[], log: (line: string) => void, settleMs?: number,
-   *   waitSeconds?: number, runTimeoutMs?: number, draftEveryMs?: number, host?: string, mcpConfigFile: string }}
+   *   cwd: string, claude?: string, claudeArgs?: string[], log: (line: string) => void, chat?: (line: string) => void,
+   *   settleMs?: number, waitSeconds?: number, runTimeoutMs?: number, draftEveryMs?: number, host?: string,
+   *   mcpConfigFile: string, mcp?: McpClient, pool?: ClaudePool, parallel?: number, kind?: 'live'|'listen',
+   *   standDownForLive?: boolean, cursorFile?: string, systemPromptFile?: string }}
    */
   constructor(o) {
     this.o = o;
     this.stopped = false;
-    this.child = null;
+    this.handles = new Set();
+    this.inFlight = new Map(); // card key -> { promise, queued: changes[] }
+    this.waiting = []; // cards past the parallel limit: { key, changes, reporter }
+    this.lastSaid = null;
+    this.lastHostCheck = 0;
     writeFileSync(o.mcpConfigFile, JSON.stringify({ mcpServers: { [o.server]: o.mcpEntry } }));
+    this.pool = o.pool ?? new ClaudePool({ size: o.parallel ?? 3, claude: o.claude, claudeArgs: o.claudeArgs, cwd: o.cwd, server: o.server,
+      mcpConfigFile: o.mcpConfigFile, model: o.model, systemPromptFile: o.systemPromptFile, warm: false,
+      tools: ['Read', 'Grep', 'Glob', 'Bash'], allowed: ['Bash(git diff:*)', 'Bash(git log:*)', 'Bash(git show:*)', 'Bash(git status:*)', 'Bash(codegraph explore:*)'],
+      only: LIVE_TOOLS, serverTools: o.serverTools });
+    this.ownPool = !o.pool;
+    this.warmLater = o.warm !== false && !o.pool;
   }
 
   /**
@@ -307,54 +789,184 @@ export class Runner {
 
   beat(stopped = false) {
     return this.o.alfred.call('PUT', '/board/live-runner', {
-      body: { project: this.o.project ?? '', host: this.o.host ?? hostname(), model: this.o.model ?? null, stopped },
+      body: { project: this.o.project ?? '', host: this.o.host ?? hostname(), model: this.o.model ?? null, stopped, kind: this.o.kind ?? 'live' },
+      timeoutMs: 10_000,
     }).catch(() => null);
+  }
+
+  /** Whether another runner holds this board: /alfred-live on another machine, or a live runner while this is listen's lane. */
+  async anotherOwner() {
+    const r = await this.o.alfred.call('GET', '/board/live-runner', { query: { project: this.o.project ?? '' }, timeoutMs: 10_000 }).catch(() => null);
+    if (!r) return null;
+    const me = this.o.host ?? hostname();
+    if (this.o.kind === 'listen' && r.kind && r.kind !== 'listen') return r; // a real /alfred-live answers
+    if ((r.kind ?? 'live') !== (this.o.kind ?? 'live')) return (this.o.kind ?? 'live') === 'live' ? null : r;
+    return r.host !== me ? r : null;
   }
 
   stop() {
     this.stopped = true;
-    this.child?.kill();
+    for (const h of this.handles) h.kill();
+    this.waiting = [];
+  }
+
+  /** Resolves once every answer in flight has ended (the tests, and the listen runner's stop). */
+  async idle() {
+    while (this.inFlight.size) await Promise.allSettled([...this.inFlight.values()].map((v) => v.promise));
+  }
+
+  loadCursor() {
+    try {
+      const c = JSON.parse(readFileSync(this.o.cursorFile, 'utf8'));
+      if (Date.now() - Date.parse(c.at) < 15 * 60_000 && c.cursor) return c.cursor;
+    } catch { /* none */ }
+    return 'now';
+  }
+
+  saveCursor(cursor) {
+    if (!this.o.cursorFile) return;
+    try { writeFileSync(this.o.cursorFile, JSON.stringify({ cursor, at: new Date().toISOString() })); } catch { /* best effort */ }
   }
 
   async run() {
-    let cursor = 'now';
+    let cursor = this.o.cursorFile ? this.loadCursor() : 'now';
     this.say(`● Live on for ${this.o.project || 'every board'}${this.o.cycleId ? ` (cycle ${this.o.cycleId})` : ''} at ${this.o.alfred.url}`
-      + ` - answering on the board from ${this.o.host ?? hostname()}; each event shows here.`);
+      + ` - answering on the board from ${this.o.host ?? hostname()}${this.o.kind === 'listen' ? ' (listen)' : ''}; each answer shows here.`);
+    await this.beat();
+    await this.prepare();
+    const beats = setInterval(() => { if (!this.stopped && !this.standingDown) this.beat(); }, 20_000);
+    beats.unref?.();
     while (!this.stopped) {
-      await this.beat();
       try {
         cursor = await this.once(cursor);
+        this.saveCursor(cursor);
       } catch (error) {
         if (this.stopped) break;
         this.say(`  ⚠ ${error.message} - retrying in 5 s`);
         await new Promise((r) => setTimeout(r, 5000));
       }
     }
+    clearInterval(beats);
+    await Promise.allSettled([...this.inFlight.values()].map((v) => v.promise));
     await this.beat(true);
+    if (this.ownPool) this.pool.close();
     this.say('● Live stopped.');
   }
 
+  /** The server's tool list (so the runs load only what they need) and the warm processes - once, at start. */
+  async prepare() {
+    if (this.ownPool && this.o.mcp && !this.pool.o.serverTools) {
+      const tools = await this.o.mcp.listTools().catch(() => null);
+      if (tools?.length) { this.pool.o.serverTools = tools; this.pool.o.only = LIVE_TOOLS; }
+    }
+    if (this.warmLater) { this.pool.size = this.o.parallel ?? 3; this.pool.warmSize = Math.min(this.pool.size, this.o.warmSize ?? 1); this.pool.fill(); this.warmLater = false; }
+  }
+
+  /** One wait for the user's changes, then one answer per touched card (in parallel, up to the limit); returns the next cursor. */
   async once(cursor) {
     const { alfred } = this.o;
     const query = { project: this.o.project, cycleId: this.o.cycleId, actor: 'USER' };
     const wait = this.o.waitSeconds ?? 50;
     let page = await alfred.call('GET', '/board/changes/wait', { query: { ...query, cursor, timeoutSeconds: wait }, timeoutMs: (wait + 10) * 1000 });
-    if (this.stopped || (!page.entries.length && !page.cycles.length)) return page.cursor;
-    await new Promise((r) => setTimeout(r, this.o.settleMs ?? 1200));
-    page = await alfred.call('GET', '/board/changes', { query: { ...query, cursor, limit: 200 } }).catch(() => page);
-    if (this.o.project !== undefined) {
-      const status = await alfred.call('GET', '/board/agent-status', { query: { project: this.o.project } }).catch(() => null);
-      if (status?.state === 'PAUSED') {
-        this.say('  ⚠ ⏸ paused on the board - your changes are not answered until you resume');
-        this.o.log(`  ⏸ paused on the board - ${page.entries.length} change(s) not answered`);
-        return page.cursor;
+    if (this.stopped) return cursor;
+    if (Date.now() - this.lastHostCheck > 60_000) {
+      this.lastHostCheck = Date.now();
+      const other = await this.anotherOwner();
+      if (other && !this.standingDown) {
+        this.standingDown = true;
+        this.say(`  ⚠ another ${other.kind ?? 'live'} runner answers this board from ${other.host} - standing down until it stops`);
+      } else if (!other && this.standingDown) {
+        this.standingDown = false;
+        this.say('  ● the other runner stopped - answering again');
+        await this.beat();
       }
     }
-    for (const changes of byCard(page.entries)) {
-      if (this.stopped) break;
-      await this.answer(changes);
+    if (!page.entries.length && !page.cycles.length) return page.cursor;
+    if (this.standingDown) return page.cursor;
+    // A short settle so a burst (type an answer, then move the card) is one answer, not two: re-read while more arrives.
+    const settle = this.o.settleMs ?? 1200;
+    const started = Date.now();
+    for (;;) {
+      await new Promise((r) => setTimeout(r, Math.min(300, settle)));
+      const again = await alfred.call('GET', '/board/changes', { query: { ...query, cursor, limit: 200 } }).catch(() => page);
+      const grew = again.entries.length > page.entries.length || again.cycles.length > page.cycles.length;
+      page = again;
+      if (!grew || Date.now() - started >= settle) break;
     }
+    const paused = await this.pausedFor(page.entries);
+    const groups = byCard(page.entries).filter((changes) => !paused.has(changes[0].project));
+    if (paused.size) {
+      // Paused on the live strip: keep the cursor before these changes so they are answered after the resume.
+      this.say('  ⚠ ⏸ paused on the board - your changes are answered when you resume');
+      this.o.log(`  ⏸ paused on the board - ${page.entries.length} change(s) wait for the resume`);
+      await new Promise((r) => setTimeout(r, 3000));
+      return cursor;
+    }
+    for (const changes of groups) this.dispatch(changes);
     return page.cursor;
+  }
+
+  /** The projects of these changes that are paused on the live strip (an every-board runner checks each project once). */
+  async pausedFor(entries) {
+    const out = new Set();
+    const projects = [...new Set(entries.map((e) => e.project ?? ''))];
+    await Promise.all(projects.map(async (project) => {
+      const status = await this.o.alfred.call('GET', '/board/agent-status', { query: { project }, timeoutMs: 10_000 }).catch(() => null);
+      if (status?.state === 'PAUSED') out.add(project);
+    }));
+    return out;
+  }
+
+  /** Starts (or queues) the answer for one card: a card already being answered gets its new changes in a follow-up run. */
+  dispatch(changes) {
+    const key = `${changes[0].project}\u0000${changes[0].number}`;
+    const running = this.inFlight.get(key);
+    if (running) { running.queued.push(...changes); return; }
+    const limit = this.o.parallel ?? 3;
+    if (this.inFlight.size >= limit) {
+      // Visible and stoppable while it waits.
+      const id = randomUUID();
+      const reporter = new Reporter(this.o.alfred, { id, project: changes[0].project, cardNumber: changes[0].number, head: 'waiting its turn' });
+      reporter.report({ steps: [], state: 'WORKING' });
+      this.waiting.push({ key, changes, reporter, id });
+      return;
+    }
+    const entry = { queued: [], promise: null };
+    this.inFlight.set(key, entry);
+    entry.promise = (async () => {
+      try {
+        await this.answer(changes);
+        while (entry.queued.length && !this.stopped) {
+          const next = entry.queued.splice(0);
+          await this.answer(next);
+        }
+      } catch (error) {
+        this.say(`  ⚠ #${changes[0].number}: ${error.message}`);
+      } finally {
+        this.inFlight.delete(key);
+        const w = this.waiting.shift();
+        if (w && !this.stopped) {
+          w.reporter.ended = true;
+          clearInterval(w.reporter.ticker);
+          this.dispatch(w.changes.length ? [...w.changes] : w.changes);
+        }
+      }
+    })();
+  }
+
+  /** Whether a reply answers one of Claude's questions, and the card's recent thread - from the board, one tool call. */
+  async cardContext(changes) {
+    const first = changes[0];
+    if (!this.o.mcp) return { context: null, answers: await this.questionsOf(changes) };
+    try {
+      const text = await this.o.mcp.call('board_live_card', { project: first.project, number: first.number,
+        changes: changes.map((e) => ({ id: e.id, kind: e.kind, text: e.text, replyTo: e.replyTo, oldValue: e.oldValue, newValue: e.newValue, actor: e.actor, at: e.at })) }, 30_000);
+      const json = JSON.parse(text);
+      const answers = new Set(changes.filter((e, i) => /^ANSWERS/.test(String(json.userDid?.[i] ?? ''))).map((e) => e.id));
+      return { context: json, answers };
+    } catch {
+      return { context: null, answers: await this.questionsOf(changes) };
+    }
   }
 
   /** Whether a reply answers one of Claude's questions - read from the card's thread (one small request). */
@@ -373,49 +985,73 @@ export class Runner {
     return new Set(replies.filter((e) => questions.has(e.replyTo)).map((e) => e.id));
   }
 
-  async answer(changes) {
+  async answer(changes, attempt = 0) {
     const first = changes[0];
     const label = `#${first.number}`;
-    for (const e of changes) this.o.log(`${label} "${first.title}"  ${youDid(e)}`);
-    const answers = await this.questionsOf(changes);
-    const { head, quiet } = headOf(changes, (e) => answers.has(e.id));
+    if (attempt === 0) for (const e of changes) this.o.log(`${label} "${first.title}"  ${youDid(e)}`);
     const id = randomUUID();
     const started = Date.now();
-    const report = (body) => this.o.alfred.call('PUT', '/board/live-work', { body: { id, project: first.project, cardNumber: first.number, head, ...body } })
-      .catch(() => ({ stop: false }));
+    const reporter = new Reporter(this.o.alfred, { id, project: first.project, cardNumber: first.number, head: 'working on your change' },
+      { every: this.o.reportEveryMs ?? 250, onError: (error) => this.o.log(`  (live-work report failed: ${error.message})`) });
+    reporter.report({ steps: [], state: 'WORKING' });
+    const { context, answers } = await this.cardContext(changes);
+    const { head, quiet } = headOf(changes, (e) => answers.has(e.id));
+    reporter.base.head = head;
 
     if (quiet) {
       const note = `Noted - ${changes.map(youDid).join('; ').replace(/^You /, 'you ')}.`;
-      await report({ steps: changes.map(youDid), state: 'DONE', outcome: note });
+      await reporter.end({ steps: changes.map(youDid), state: 'DONE', outcome: note });
       this.o.log(`  → ✦ ${note}`);
       return;
     }
 
-    await report({ steps: [], state: 'WORKING' });
+    reporter.report({ steps: [], state: 'WORKING' });
     this.o.log(`  ✦ ${head} on ${label}…`);
-    let draft = null;
-    const run = runClaude({ ...this.o, prompt: promptFor(this.o.server, first, changes),
-      onStep: async (step, steps, d) => {
-        draft = d;
+    let refused = null;
+    const p = this.pool.acquire();
+    const handle = this.pool.run(p, promptFor(this.o.server, first, changes, context) + (attempt ? '\n\nYour last try posted no reply: post your answer with board_reply now.' : ''), {
+      timeoutMs: this.o.runTimeoutMs ?? 5 * 60_000, draftEveryMs: this.o.draftEveryMs,
+      onStep: async (step, steps, draft) => {
         if (step) this.o.log(`    · ${step}`);
-        return (await report({ steps, draft: d, state: 'WORKING' }))?.stop;
-      } });
-    this.child = run;
-    const { steps, result, stderr, stopAsked } = await run.done;
-    draft = run.draft ?? draft;
-    this.child = null;
+        reporter.report({ steps, draft, state: 'WORKING' });
+        return reporter.stop;
+      },
+      onToolResult: (_id, isError, text, name) => { if (isError && WRITE_TOOLS.test(name)) refused = text.slice(0, 200); },
+    });
+    this.handles.add(handle);
+    reporter.onStop = () => handle.kill();
+    const { steps, result, stderr, stopAsked, writes } = await handle.done;
+    this.handles.delete(handle);
+    const draft = handle.draft;
 
     const secs = Math.max(1, Math.round((Date.now() - started) / 1000));
     const summary = summaryOf(result?.text);
     if (stopAsked || this.stopped) {
-      await report({ steps, draft, state: 'STOPPED', outcome: 'stopped by you' });
+      await reporter.end({ steps, draft, state: 'STOPPED', outcome: 'stopped by you' });
       this.o.log(`  ■ ${label} stopped after ${secs} s`);
     } else if (!result || result.error) {
       const why = failureOf(result, stderr);
-      await report({ steps, draft, state: 'FAILED', outcome: why });
+      const kind = failureKind(why);
+      if (!writes && attempt < 2 && kind !== 'auth') {
+        const delay = kind === 'limit' ? 10 * 60_000 : attempt === 0 ? 5000 : 30_000;
+        await reporter.end({ steps, draft, state: 'WORKING', outcome: `retrying: ${why}` });
+        if (kind === 'limit') this.say(`  ⚠ ${label}: usage limit - trying again in 10 min (${why})`);
+        else this.o.log(`  ⚠ ${label} failed: ${why} - trying again in ${Math.round(delay / 1000)} s`);
+        await new Promise((r) => setTimeout(r, delay));
+        if (!this.stopped) return this.answer(changes, attempt + 1);
+      }
+      await reporter.end({ steps, draft, state: 'FAILED', outcome: why });
       this.say(`  ⚠ ${label} failed: ${why}`);
+    } else if (!writes && !/noting|reading your edit|reading why|preparing/.test(head) && attempt === 0 && !refused) {
+      // It answered in its own text instead of on the board: once more, told to post it.
+      this.o.log(`  ⚠ ${label}: no reply posted - once more`);
+      await reporter.end({ steps, draft, state: 'WORKING', outcome: 'no reply posted yet' });
+      return this.answer(changes, 1);
+    } else if (refused && !writes) {
+      await reporter.end({ steps, draft, state: 'FAILED', outcome: `reply refused: ${refused}` });
+      this.say(`  ⚠ ${label}: the board refused the reply: ${refused}`);
     } else {
-      await report({ steps, draft, state: 'DONE', outcome: summary ?? 'answered' });
+      await reporter.end({ steps, draft, state: 'DONE', outcome: summary ?? 'answered' });
       this.o.log(`  → ✦ Claude (${secs} s): ${draft ?? summary ?? 'answered on the card'}`);
       if (summary && draft) this.o.log(`    ${summary}`);
       // One line for the session: what the user did and what came of it - the reply and what was done beside it.
@@ -436,14 +1072,6 @@ export function parseArgs(argv) {
     else out._.push(a);
   }
   return out;
-}
-
-/** This runner's files on this machine, one set per Alfred and project. */
-export function files(url, project, kind = 'alfred-live') {
-  const dir = join(tmpdir(), kind);
-  mkdirSync(dir, { recursive: true });
-  const key = `${url}|${project ?? ''}`.replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '').slice(-80);
-  return { log: join(dir, `${key}.log`), chat: join(dir, `${key}.chat.log`), pid: join(dir, `${key}.pid.json`), mcp: join(dir, `${key}.mcp.json`) };
 }
 
 /** The full log (every step - status shows it) and the chat log (what the session watches: only what adds to it). */
@@ -472,6 +1100,11 @@ export function tail(path, n) {
   try { return readFileSync(path, 'utf8').trimEnd().split('\n').slice(-n); } catch { return []; }
 }
 
+/** The claude command of the CLI arguments: a .mjs/.js path runs through node (the tests' fake). */
+export function claudeOf(args) {
+  return /\.m?js$/i.test(args.claude ?? '') ? { claude: process.execPath, claudeArgs: [resolve(args.claude)] } : { claude: args.claude ?? 'claude' };
+}
+
 export async function main(argv) {
   const args = parseArgs(argv);
   const command = args._[0] ?? 'status';
@@ -492,15 +1125,21 @@ export async function main(argv) {
     const r = running(f.pid);
     if (existsSync(f.pid)) unlinkSync(f.pid);
     if (r) { try { process.kill(r.pid); } catch { /* it ends itself: the pid file is gone */ } }
-    await new Alfred(url).call('PUT', '/board/live-runner', { body: { project: project ?? '', host: hostname(), stopped: true } }).catch(() => null);
+    await new Alfred(url).call('PUT', '/board/live-runner', { body: { project: project ?? '', host: hostname(), stopped: true, kind: 'live' } }).catch(() => null);
     print({ stopped: !!r, last: tail(f.log, 5) });
     return;
   }
   if (command === 'start') {
     const r = running(f.pid);
     if (r) { print({ alreadyRunning: true, ...r, watch: `tail -n 0 -F "${f.chat}"` }); return; }
+    const alfred = new Alfred(url);
+    // Another machine's runner on this board? One answerer per board.
+    const other = await alfred.call('GET', '/board/live-runner', { query: { project: project ?? '' } }).catch(() => null);
+    if (other && other.host !== hostname() && (other.kind ?? 'live') === 'live' && args.force !== 'true') {
+      throw new Error(`/alfred-live already answers this board from ${other.host} (since ${other.startedAt ?? '?'}) - stop it there, or start with --force`);
+    }
     // The first heartbeat: Alfred is reachable, new enough to hold it (3.7+), and lets this machine write to its board.
-    await new Alfred(url).call('PUT', '/board/live-runner', { body: { project: project ?? '', host: hostname(), model: args.model ?? null, stopped: false } })
+    await alfred.call('PUT', '/board/live-runner', { body: { project: project ?? '', host: hostname(), model: args.model ?? null, stopped: false, kind: 'live' } })
       .catch((error) => {
         throw new Error(/→ (404|500)/.test(error.message) ? `the Alfred at ${url} does not hold the live heartbeat - it is older than /alfred-live needs (3.7): update it (python3 deploy.py, or the installer). It said: ${error.message.replace(/^.*?→ /, '')}`
           : /→ 403/.test(error.message) ? `the Alfred at ${url} does not let this machine edit its board: ${error.message.replace(/^.*→ 403: /, '')}`
@@ -514,22 +1153,35 @@ export async function main(argv) {
     });
     child.unref();
     const started = { pid: child.pid, alfred: url, project: project ?? null, cycleId: args.cycle ?? null, model: args.model ?? null,
-      log: f.log, chat: f.chat, startedAt: new Date().toISOString() };
+      parallel: Number(args.parallel ?? 3), log: f.log, chat: f.chat, startedAt: new Date().toISOString() };
     writeFileSync(f.pid, JSON.stringify(started));
     print({ started: true, ...started, model: args.model ?? "Claude Code's default", watch: `tail -n 0 -F "${f.chat}"` });
     return;
   }
   if (command === 'run') {
     const { log, chat } = writers(f);
-    const runner = new Runner({ alfred: new Alfred(url), server: args.server, mcpEntry: entry, project, cycleId: args.cycle, model: args.model,
-      cwd, claude: args.claude ?? 'claude', log, chat, mcpConfigFile: f.mcp });
-    const end = () => runner.stop();
-    process.on('SIGTERM', end);
-    process.on('SIGINT', end);
+    process.on('uncaughtException', (error) => log(`  ⚠ ${error.stack ?? error.message}`));
+    process.on('unhandledRejection', (error) => log(`  ⚠ ${error?.stack ?? error}`));
+    const host = new McpHost(entry, { cwd, log });
+    const mcpEntry = await host.start();
+    const mcp = new McpClient(mcpEntry, { cwd, name: 'alfred-live' });
+    const runner = new Runner({ alfred: new Alfred(url), server: args.server, mcpEntry, project, cycleId: args.cycle, model: args.model,
+      cwd, ...claudeOf(args), log, chat, mcpConfigFile: f.mcp, mcp, parallel: Number(args.parallel ?? 3), cursorFile: f.cursor, kind: 'live' });
+    host.onRestart = (u) => { mcp.entry = { type: 'http', url: u }; mcp.session = null; writeFileSync(f.mcp, JSON.stringify({ mcpServers: { [args.server]: { type: 'http', url: u } } })); };
+    const end = (why) => { if (!runner.stopped) log(`  ■ stopping: ${why}`); runner.stop(); };
+    process.on('SIGTERM', () => end('SIGTERM'));
+    process.on('SIGINT', () => end('SIGINT'));
+    process.on('SIGHUP', () => end('SIGHUP'));
+    process.on('exit', (code) => { if (!runner.stopped) log(`  ■ process exit ${code} without a stop`); });
     // `stop` removes the pid file: a detached process on Windows cannot be signalled gently, so it ends itself.
-    const watch = setInterval(() => { if (!existsSync(f.pid)) end(); }, 2000);
-    await runner.run();
-    clearInterval(watch);
+    const watch = setInterval(() => { if (!existsSync(f.pid)) end('the pid file is gone (stop)'); }, 2000);
+    try {
+      await runner.run();
+    } finally {
+      clearInterval(watch);
+      mcp.close();
+      host.close();
+    }
     return;
   }
   throw new Error(`unknown command "${command}" - start, status or stop`);

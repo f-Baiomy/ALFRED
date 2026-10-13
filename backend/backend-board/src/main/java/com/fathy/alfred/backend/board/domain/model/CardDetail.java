@@ -4,20 +4,30 @@ import com.fasterxml.jackson.annotation.JsonUnwrapped;
 
 import java.util.List;
 
-/** One card opened in the drawer: the card, its Linked list (every mention plus direct links), the hint and Claude's open proposal. */
+/**
+ * One card opened in the drawer: the card, its Linked list (every mention plus direct links), the hints and Claude's open proposal.
+ * {@code similarClosed} is the closed card an Inbox card repeats; {@code similarOpen} the most recently updated other card that is
+ * still open on the same signature (null when there is none) - so a finding that is already being worked on is seen at once.
+ */
 public record CardDetail(@JsonUnwrapped Card card, int commentCount, List<MentionRef> links, SimilarClosed similarClosed,
-                         Proposal proposal, WaitingOn waiting, List<SpecItemLink> specItems, List<CardRef> blockedBy) {
+                         Proposal proposal, WaitingOn waiting, List<SpecItemLink> specItems, List<CardRef> blockedBy,
+                         SimilarOpen similarOpen) {
+
+    public CardDetail(Card card, int commentCount, List<MentionRef> links, SimilarClosed similarClosed, Proposal proposal, WaitingOn waiting,
+                      List<SpecItemLink> specItems, List<CardRef> blockedBy) {
+        this(card, commentCount, links, similarClosed, proposal, waiting, specItems, blockedBy, null);
+    }
 
     public CardDetail(Card card, int commentCount, List<MentionRef> links, SimilarClosed similarClosed, Proposal proposal, WaitingOn waiting) {
-        this(card, commentCount, links, similarClosed, proposal, waiting, null, null);
+        this(card, commentCount, links, similarClosed, proposal, waiting, null, null, null);
     }
 
     public CardDetail(Card card, int commentCount, List<MentionRef> links, SimilarClosed similarClosed) {
-        this(card, commentCount, links, similarClosed, null, null, null, null);
+        this(card, commentCount, links, similarClosed, null, null, null, null, null);
     }
 
     public CardDetail(Card card, int commentCount, List<MentionRef> links, SimilarClosed similarClosed, Proposal proposal) {
-        this(card, commentCount, links, similarClosed, proposal, null, null, null);
+        this(card, commentCount, links, similarClosed, proposal, null, null, null, null);
     }
 
     public CardDetail {

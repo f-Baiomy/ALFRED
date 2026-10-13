@@ -20,11 +20,11 @@ to learn. Always end with the exact next command.
 | - | `/alfred-connect <address>` | Once per Alfred instance (this machine, another port, a LAN host, a tunnel): checks it and adds it to Claude Code |
 | 1 | `/alfred-setup [project] ["description"]` | Start a task: checks Alfred, creates the cycle, writes the brief (test steps) and a spec with an Acceptance list from your description - asks before saving |
 | 2 | `/alfred-spec <cycle> …` | Add or change the brief or spec files (shows a diff, asks) |
-| 3 | `/alfred-listen <cycle>` | **While** you test: checks each step's calls in one batch when you pause - every call, nothing skipped - opens cards, ticks the test steps, suggests Acceptance marks at the end; its own background process on your machine, no model while calls are clean, a line per event here, until `/alfred-listen stop` |
+| 3 | `/alfred-listen <cycle>` | **While** you test: checks each step's calls in one batch when you pause - every call, nothing skipped - opens cards, ticks the test steps, suggests Acceptance marks at the end; its own background process on your machine, no model while calls are clean, flagged batches judged at once on warm Claude processes (in parallel, nothing lost when a run fails), your comments answered on the board within seconds, a line per finding here, until `/alfred-listen stop` |
 | 4 | `/alfred-review <cycle>` | **After** a cycle is recorded (yours or anyone's): checks every call, fills the board, finds regressions against earlier runs - also a field that went missing behind a 200 |
 | 5 | `/alfred-triage` | Sort the Inbox together: a recommendation per card, you decide |
 | 6 | `/alfred-sync` | After you answered questions or changed cards: one state comment per card |
-| - | `/alfred-live [project] [cycle] [--model m]` | Claude answers you on the board within seconds - comments, replies, answers, questions, any change - showing each step on the card while it works; its own background process beside listen, a line per event here, until `/alfred-live stop` |
+| - | `/alfred-live [project] [cycle] [--model m]` | Claude answers you on the board within seconds - comments, replies, answers, questions, any change - showing each step on the card while it works; its own background process beside listen, warm so it starts at once, cards in parallel, a line per answer here, until `/alfred-live stop` |
 | 7 | `/alfred-fix [card#]` | Fixes only the cards you choose, after you say Go |
 | 8 | `/alfred-verify [cards] [cycle]` | Re-tests the fixes from the live calls since each fix (or a cycle), proposes Verified, suggests checklist marks |
 | 9 | `/alfred-status` | What waits on you, on Claude, on a re-test - and the next step |

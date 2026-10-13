@@ -35,7 +35,7 @@ export interface Item {
   readonly call: CallRecord | null;
 }
 
-function hostOf(url: string | null | undefined): string {
+export function hostOf(url: string | null | undefined): string {
   try {
     return new URL(url ?? '').host;
   } catch {
@@ -68,8 +68,16 @@ export async function errorLinesOf(client: AlfredClient, ctx: MaskContext, entri
   return out;
 }
 
+/** One caught log line as an evidence line: "▤ ERROR Mailer: Failed to send [java.lang.NullPointerException] (+200 ms, caught:1)". */
+function logLineText(ctx: MaskContext, l: LinkedLogLine): string {
+  const logger = l.logger ? `${l.logger.slice(l.logger.lastIndexOf('.') + 1)}: ` : '';
+  return `    ▤ ${l.level ?? 'LOG'} ${logger}${shortMessage(ctx, l.message, 200)}${l.exception?.type ? ` [${l.exception.type}]` : ''}`
+    + ` (+${l.offsetMs} ms, ${l.lineId})`;
+}
+
+/** `warnLines`: the WARN lines of the calls that logged some (first ones) - a call's warning count alone does not say what warned. */
 export async function evidence(ctx: MaskContext, item: Item, numberOf: ReadonlyMap<string, number>, failures: Record<string, CallStatementFailures>,
-                        logLines: ReadonlyMap<string, LinkedLogLine[]> = new Map()): Promise<string[]> {
+                        logLines: ReadonlyMap<string, LinkedLogLine[]> = new Map(), warnLines: ReadonlyMap<string, LinkedLogLine[]> = new Map()): Promise<string[]> {
   const e = item.entry;
   if (!e) return [];
   const lines: string[] = [];
@@ -99,15 +107,15 @@ export async function evidence(ctx: MaskContext, item: Item, numberOf: ReadonlyM
   if (e.emptyKeys.length && e.direction === 'INBOUND') lines.push(`    ∅ empty result: ${e.emptyKeys.join(', ')}`);
   const sig = e.signals;
   const errorLines = logLines.get(e.callId) ?? [];
-  for (const l of errorLines.slice(0, LOG_LINES_SHOWN)) {
-    const logger = l.logger ? `${l.logger.slice(l.logger.lastIndexOf('.') + 1)}: ` : '';
-    lines.push(`    ▤ ${l.level ?? 'LOG'} ${logger}${shortMessage(ctx, l.message, 200)}${l.exception?.type ? ` [${l.exception.type}]` : ''}`
-      + ` (+${l.offsetMs} ms, ${l.lineId})`);
-  }
+  for (const l of errorLines.slice(0, LOG_LINES_SHOWN)) lines.push(logLineText(ctx, l));
   const moreErrors = Math.max(sig?.logErrors ?? 0, errorLines.length) - Math.min(errorLines.length, LOG_LINES_SHOWN);
   if (moreErrors > 0) lines.push(`    … ${moreErrors} more error lines - call_logs callId ${e.callId} level: ERROR`);
   if (!errorLines.length && (sig?.logErrors ?? 0) > 0) lines.push(`    ▤ ${sig!.logErrors} error line${sig!.logErrors! > 1 ? 's' : ''} - call_logs callId ${e.callId} level: ERROR`);
-  if (sig?.logWarnings) lines.push(`    ▤ ${sig.logWarnings} warning line${sig.logWarnings > 1 ? 's' : ''}`);
+  if (sig?.logWarnings) {
+    lines.push(`    ▤ ${sig.logWarnings} warning line${sig.logWarnings > 1 ? 's' : ''}`);
+    const firstWarn = warnLines.get(e.callId)?.[0];
+    if (firstWarn) lines.push(logLineText(ctx, firstWarn));
+  }
   if (sig?.dbFlags?.length) lines.push(`    ◆ DB flags: ${sig.dbFlags.map((f) => f.toLowerCase().replace(/_/g, ' ')).join(', ')}`);
   return lines;
 }
@@ -238,15 +246,20 @@ async function render(client: AlfredClient, ctx: MaskContext, head: string, item
   return out.join('\n');
 }
 
-/** "logs not caught for core-service (▤ off)" - said in the head, so an empty evidence is not read as "no errors". */
-export async function unavailableNote(client: AlfredClient, items: readonly Item[]): Promise<string> {
+/** What is not captured for the projects of these items, one sentence each ("odeysys: log lines are not caught...") - empty when everything is. */
+export async function unavailableNotes(client: AlfredClient, items: readonly Item[]): Promise<string[]> {
   const projects = new Set(items.map((i) => i.entry?.project ?? i.call?.service_name).filter((p): p is string => !!p));
-  if (!projects.size) return '';
+  if (!projects.size) return [];
   const status = await client.get<{ project: string; logsOn?: boolean; attached: boolean; enabled: boolean }[]>('/db-capture/projects').catch(() => []);
-  const notes = status.filter((p) => projects.has(p.project)).flatMap((p) => [
+  return status.filter((p) => projects.has(p.project)).flatMap((p) => [
     ...(!p.logsOn ? [`${p.project}: ${WHY.LOGS_OFF}`] : !p.attached ? [`${p.project}: ${WHY.NO_AGENT}`] : []),
     ...(!p.enabled ? [`${p.project}: ${WHY.DB_OFF}`] : []),
   ]);
+}
+
+/** "logs not caught for core-service (▤ off)" - said in the head, so an empty evidence is not read as "no errors". */
+export async function unavailableNote(client: AlfredClient, items: readonly Item[]): Promise<string> {
+  const notes = await unavailableNotes(client, items);
   return notes.length ? `\nNot all evidence is available - ${notes.join('; ')}.` : '';
 }
 

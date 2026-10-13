@@ -153,6 +153,40 @@ class SessionCycleCaptureAdapterTest {
     }
 
     @Test
+    void onCallCompletedWithNoMemoryOfThePrepareCompletesTheCopiesTheStoreStillHoldsInProgress() {
+        // The backend restarted between this call's prepare and its complete: the map of captured cycles is empty,
+        // but the cycles that were recording still hold the call IN_PROGRESS.
+        CallRecord call = call();
+        when(capturedCallsStore.supportsTwoPhaseCapture()).thenReturn(true);
+        when(capturedCallsStore.completeInProgressCapturedCalls(call.id(), call.response(), call.error(), call.durationMs(), call.timing(), call.interception()))
+                .thenReturn(List.of("recording-1", "paused-1"));
+
+        List<String> updated = adapter.onCallCompleted(call);
+
+        assertThat(updated).containsExactly("recording-1", "paused-1");
+        verify(capturedCallsStore).completeInProgressCapturedCalls(call.id(), call.response(), call.error(), call.durationMs(), call.timing(), call.interception());
+        // nothing is captured afresh and no recording cycle is consulted: which cycles hold the call is the store's to say
+        verify(capturedCallsStore, never()).append(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+        verifyNoInteractions(metadataStore);
+    }
+
+    @Test
+    void aCallRememberedAtPrepareTimeIsNotLookedUpInTheStoreByItsId() {
+        CallRecord call = call();
+        when(capturedCallsStore.supportsTwoPhaseCapture()).thenReturn(true);
+        when(metadataStore.findAll()).thenReturn(List.of(cycle("recording-1", SessionCycleStatus.RECORDING)));
+        adapter.onCallPrepared(call);
+
+        adapter.onCallCompleted(call);
+
+        verify(capturedCallsStore, never()).completeInProgressCapturedCalls(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+        // and a second completion of the same call (the proxies retry) has no memory left, so it asks the store, which finds nothing to complete
+        assertThat(adapter.onCallCompleted(call)).isEmpty();
+        verify(capturedCallsStore, times(1)).completeInProgressCapturedCalls(call.id(), call.response(), call.error(), call.durationMs(), call.timing(), call.interception());
+    }
+
+    @Test
     void onCallCompletedFallsBackToCapturingFreshWhenTheStoreDoesNotSupportTwoPhaseCapture() {
         CallRecord call = call();
         when(capturedCallsStore.supportsTwoPhaseCapture()).thenReturn(false);

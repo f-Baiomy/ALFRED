@@ -114,8 +114,10 @@ run is work in progress, never a record; the reply itself is the card's ordinary
 current step), the drawer (`app-live-work-box`) and the live strip.
 
 The runner runs on the user's machine, which need not be Alfred's: its heartbeat `PUT /board/live-runner` (project,
-host, model; `stopped` ends it) and `GET /board/live-runner?project=` (204 when none; a runner for every board answers
-any project) let listen in any session know it is answering. Held in memory for 2 minutes after the last beat; a
+host, model, `kind` - `live` for `/alfred-live`, `listen` for the listen runner's own answering lane, which stands
+down while a `live` runner holds the board; `stopped` ends it) and `GET /board/live-runner?project=` (204 when none;
+a runner for every board answers any project) let listen in any session know it is answering. A live-work report
+refreshes the heartbeat too, so a long answer never reads as a dead runner. Held in memory for 2 minutes after the last beat; a
 `live-runner` message on `/ws/board` when one starts or stops. Both writes go through the board's edit access, so the
 runner's machine must be one allowed to edit the board.
 
@@ -129,7 +131,7 @@ These are enforced in `BoardService` and `CycleBriefService` whenever `X-Alfred-
 - A Claude comment must give Did, Found and Next; Impact is optional. The two other kinds are a **reply** (`**Reply** ...`, an answer to the user) and a **question** (`**Question** ...`). A question also flags the card Needs decision. Other free text is refused.
 - Claude may rewrite the title, description, kind, cycle or project only of **its own** cards, and only while they are in the Inbox. It may set flags on any card.
 - Verified, Done and closing stay the user's. Claude **proposes** them instead (`proposals` table, one open per card, `PUT /board/cards/{id}/proposal`). Allowed proposals: Verified for a Fixed card, Done for a Fixed or Verified card, and a close with its resolution for an open card. The card and the drawer show "✦ Claude proposes ..." with Accept and Dismiss. Accepting takes the step as the user's own move or close. If the card changed so the step no longer fits, accepting drops the proposal instead. The history records PROPOSED, PROPOSAL_ACCEPTED and PROPOSAL_DISMISSED.
-- While the live strip is **paused**, Claude's new cards are refused. A card whose call links match a card closed as Fine or Not in this flow is refused with that card's number and reason; Won't fix does not block.
+- While the live strip is **paused**, Claude's new cards are refused. A card whose signature matches a card closed as Fine or Not in this flow is refused with that card's number and reason only when it is the same problem: they share a call id, or their titles share two words - a signature alone (outcome class and endpoint) is not enough, since a slow, a swallowed error and an N+1 on one endpoint all share it; otherwise the card is created with `similarClosed` as a hint. Won't fix does not block. A new card whose signature matches an OPEN card gets `similarOpen` ({number, title, status}) on its detail, so the MCP tools say "same signature as open #N - link or board_propose MERGE".
 - These are guardrails against an agent overreaching, not a security boundary: anyone with edit access can do what the UI does.
 
 The live strip status is held in memory per project. It reads as STOPPED when it has not been updated for 10 minutes. The backend computes that on read; the frontend arms a single timer to the deadline, which the no-polling rule allows.

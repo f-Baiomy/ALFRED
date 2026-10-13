@@ -36,7 +36,7 @@ public class SessionCycleCaptureAdapter implements NewCallObserverPort {
     private final SessionCycleMetadataStorePort metadataStore;
     private final CapturedCallsStorePort capturedCallsStore;
 
-    /** Which cycles captured a given (still in-progress) call id at prepare time - consumed and removed once that call completes. Only ever populated when the storage adapter supports two-phase capture. */
+    /** Which cycles captured a given (still in-progress) call id at prepare time - consumed and removed once that call completes. Only ever populated when the storage adapter supports two-phase capture. Lost on a restart: a call that completes after one is found in the store instead (see {@link #onCallCompleted}). */
     private final Map<String, List<String>> capturedCycleIdsByCallId = new ConcurrentHashMap<>();
 
     private final ReliveRunCyclesUseCase runCycles;
@@ -78,8 +78,11 @@ public class SessionCycleCaptureAdapter implements NewCallObserverPort {
         }
         List<String> cycleIds = capturedCycleIdsByCallId.remove(call.id());
         if (cycleIds == null) {
-            // Wasn't captured at prepare time (no cycle was recording then) - nothing to update.
-            return List.of();
+            // No memory of this call: either no cycle was recording at prepare time (the store then holds no copy and
+            // completes nothing), or the backend restarted between prepare and complete and lost the map - the copies
+            // it wrote are still IN_PROGRESS in the store, and are found there by the call's id.
+            return capturedCallsStore.completeInProgressCapturedCalls(
+                    call.id(), call.response(), call.error(), call.durationMs(), call.timing(), call.interception());
         }
         // call.timing() and call.interception() are why this takes six and seven arguments: both
         // are only known now, at completion, and the captured row was written while the call was

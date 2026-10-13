@@ -673,6 +673,19 @@ public class SqliteSessionCyclesRepository {
         return true;
     }
 
+    /**
+     * Completes every cycle's still-IN_PROGRESS copy of a call, found by the call's id alone (idx_captured_call_metadata_call_id) -
+     * for a completion that arrives after the backend restarted, when SessionCycleCaptureAdapter no longer remembers which cycles
+     * captured the call at prepare time. Copies already completed are left alone, so a repeated completion changes nothing.
+     * @return the ids of the cycles whose copy was completed.
+     */
+    public List<String> completeInProgressCapturedCalls(String callId, ResponseData response, String error, Double durationMs, CallTiming timing, CallInterception interception) {
+        List<String> cycleIds = jdbcTemplate.queryForList(
+                "SELECT DISTINCT cycle_id FROM captured_call_metadata WHERE call_id = ? AND status_state = 'IN_PROGRESS'", String.class, callId);
+        cycleIds.forEach(cycleId -> completionWriter.submit(new PendingCapturedCallCompletion(cycleId, callId, response, error, durationMs, timing, interception)));
+        return cycleIds;
+    }
+
     private void bindCompletionMetadata(PreparedStatement ps, PendingCapturedCallCompletion pending) throws SQLException {
         ResponseData response = pending.response();
         String error = pending.error();

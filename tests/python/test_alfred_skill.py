@@ -81,7 +81,8 @@ class ReleaseArchiveTest(unittest.TestCase):
                 self.assertIn(f"{name}/rules.md", names)
             self.assertFalse(any(n.startswith("_shared/") for n in names))
             # the runners and their prompts; /alfred-listen's runner imports /alfred-live's from beside it
-            for f in ("alfred-live/alfred-live.mjs", "alfred-listen/alfred-listen.mjs", "alfred-listen/batch.md", "alfred-listen/finish.md"):
+            for f in ("alfred-live/alfred-live.mjs", "alfred-listen/alfred-listen.mjs", "alfred-listen/batch.md", "alfred-listen/finish-sweep.md",
+                      "alfred-listen/finish-steps.md", "alfred-listen/finish-regressions.md"):
                 self.assertIn(f, names)
         finally:
             shutil.rmtree(out, ignore_errors=True)

@@ -29,15 +29,20 @@ public class LiveWorkService implements LiveWorkUseCase {
     static final Duration STALE = Duration.ofMinutes(5);
     static final int MAX_STEPS = 40;
     static final int MAX_STEP = 300;
+    static final int MAX_OUTCOME = 500;
     static final int MAX_DRAFT = 16 * 1024;
     static final int MAX_RUNS = 200;
 
     private final BoardNotificationPort notifications;
     private final Clock clock;
     private final Map<String, LiveWork> runs = new ConcurrentHashMap<>();
-    private final Map<String, LiveRunner> runners = new ConcurrentHashMap<>();
+    /** One heartbeat per board and kind: a listen runner beating beside the live runner never replaces it. */
+    private final Map<RunnerSlot, LiveRunner> runners = new ConcurrentHashMap<>();
     /** A runner beats at least every wait (50 s); quiet this long, it is gone. */
     static final Duration RUNNER_ALIVE = Duration.ofMinutes(2);
+
+    private record RunnerSlot(String project, String kind) {
+    }
 
     @Autowired
     public LiveWorkService(BoardNotificationPort notifications) {
@@ -60,14 +65,30 @@ public class LiveWorkService implements LiveWorkUseCase {
             steps = steps.subList(steps.size() - MAX_STEPS, steps.size());
         }
         String draft = r.draft() == null ? null : r.draft().length() > MAX_DRAFT ? r.draft().substring(0, MAX_DRAFT) : r.draft();
+        String outcome = r.outcome() == null || r.outcome().length() <= MAX_OUTCOME ? r.outcome()
+                : r.outcome().substring(0, MAX_OUTCOME - 1) + "…";
         LiveWork next = new LiveWork(r.id(), r.project() == null ? "" : r.project(), r.cardNumber(),
                 r.head() == null || r.head().isBlank() ? "working" : r.head().strip(), steps, draft,
-                r.state() == null ? LiveWork.State.WORKING : r.state(), r.outcome(),
+                r.state() == null ? LiveWork.State.WORKING : r.state(), outcome,
                 previous != null && previous.stop(), previous == null ? now : previous.startedAt(), now);
         runs.put(next.id(), next);
         forgetOld(now);
+        runnersAreAlive(next.project(), now);
         notifications.liveWork(next);
         return next;
+    }
+
+    /**
+     * A report is proof that the runner answering this board is working, even through a long run during which it cannot
+     * beat: the heartbeat that answers this project (its own, else the one for every board) is refreshed - but only while
+     * it is still alive, so a report never brings back a runner that stopped or went quiet.
+     */
+    private void runnersAreAlive(String project, Instant now) {
+        for (String kind : List.of(KIND_LIVE, KIND_LISTEN)) {
+            RunnerSlot own = new RunnerSlot(project, kind);
+            RunnerSlot slot = alive(runners.get(own)).isPresent() ? own : new RunnerSlot("", kind);
+            runners.computeIfPresent(slot, (k, runner) -> alive(runner).isPresent() ? runner.seenAt(now) : runner);
+        }
     }
 
     @Override
@@ -89,28 +110,40 @@ public class LiveWorkService implements LiveWorkUseCase {
     }
 
     @Override
-    public LiveRunner beat(String project, String host, String model, boolean stopped) {
+    public LiveRunner beat(String project, String host, String model, String kind, boolean stopped) {
         Instant now = clock.instant();
         String key = project == null ? "" : project;
-        LiveRunner previous = runner(key).orElse(null);
+        String runnerKind = kindOf(kind);
+        RunnerSlot slot = new RunnerSlot(key, runnerKind);
+        LiveRunner previous = alive(runners.get(slot)).orElse(null);
         LiveRunner next = new LiveRunner(key, host == null || host.isBlank() ? "?" : host.strip(), model == null || model.isBlank() ? null : model.strip(),
-                previous == null ? now : previous.startedAt(), now);
+                runnerKind, previous == null ? now : previous.startedAt(), now);
         if (stopped) {
-            runners.remove(key);
+            runners.remove(slot);
         } else {
-            runners.put(key, next);
+            runners.put(slot, next);
         }
         if (stopped || previous == null) {
-            notifications.liveRunner(key, stopped ? null : next.host());
+            notifications.liveRunner(key, stopped ? null : next.host(), runnerKind);
         }
         return next;
     }
 
     @Override
-    public Optional<LiveRunner> runner(String project) {
+    public Optional<LiveRunner> runner(String project, String kind) {
+        if (kind == null || kind.isBlank()) {
+            return runner(project, KIND_LIVE).or(() -> runner(project, KIND_LISTEN));
+        }
         // A runner answering every board answers this one too.
         String key = project == null ? "" : project;
-        return alive(runners.get(key)).or(() -> key.isEmpty() ? Optional.empty() : alive(runners.get("")));
+        String runnerKind = kindOf(kind);
+        return alive(runners.get(new RunnerSlot(key, runnerKind)))
+                .or(() -> key.isEmpty() ? Optional.empty() : alive(runners.get(new RunnerSlot("", runnerKind))));
+    }
+
+    /** "listen" for a listen runner; anything else - including nothing - is the live runner. */
+    static String kindOf(String kind) {
+        return kind != null && kind.strip().equalsIgnoreCase(KIND_LISTEN) ? KIND_LISTEN : KIND_LIVE;
     }
 
     private Optional<LiveRunner> alive(LiveRunner r) {

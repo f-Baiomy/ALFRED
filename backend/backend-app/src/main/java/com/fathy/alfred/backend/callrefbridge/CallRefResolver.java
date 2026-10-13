@@ -71,6 +71,27 @@ public class CallRefResolver {
         return resolve(direction, callId, cycleId, true);
     }
 
+    /**
+     * Only what the call's summary says - method, url and status - without the detail lookup that loads its headers and
+     * bodies (tens of kilobytes a call, some far larger). For a caller that needs no more than that, such as a card's
+     * signature. Empty for an unknown direction or when the summary lookup does not find the call; since that lookup can
+     * miss a call the detail lookup finds (see above), a caller that must not miss falls back to {@link #resolve}.
+     */
+    public Optional<CallHead> head(String direction, String callId, String cycleId) {
+        if (callId == null) {
+            return Optional.empty();
+        }
+        if ("outbound".equals(direction)) {
+            return (cycleId == null ? findOutboundSummary(callId) : findCapturedOutboundSummary(cycleId, callId))
+                    .map(s -> new CallHead(s.method(), s.url(), s.status()));
+        }
+        if ("inbound".equals(direction)) {
+            return (cycleId == null ? findInboundSummary(callId) : findCapturedInboundSummary(cycleId, callId))
+                    .map(s -> new CallHead(s.method(), s.url(), s.status()));
+        }
+        return Optional.empty();
+    }
+
     private Optional<ResolvedCall> resolve(String direction, String callId, String cycleId, boolean requireSummary) {
         if ("outbound".equals(direction)) {
             return resolveOutbound(callId, cycleId, requireSummary);

@@ -125,6 +125,12 @@ public interface BoardStorePort {
     /** For each signature, the newest CLOSED card of the project with it. */
     Map<String, SimilarClosed> closedBySignature(String project, Collection<String> signatures);
 
+    /**
+     * For each signature, the project's cards that are not closed with it, most recently updated first (a few per
+     * signature - enough to find one other than the card asked about). Descriptions are not loaded.
+     */
+    Map<String, List<Card>> openBySignature(String project, Collection<String> signatures);
+
     List<ClosedReason> closedReasons(String project, int limit);
 
     /** Cards (any status) with this signature or a title containing one of {@code words}; every board when project is null. */

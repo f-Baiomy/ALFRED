@@ -94,4 +94,9 @@ public class SqliteCapturedCallsStoreAdapter implements CapturedCallsStorePort {
     public boolean completeCapturedCall(String cycleId, String callId, ResponseData response, String error, Double durationMs, CallTiming timing, CallInterception interception) {
         return repository.completeCapturedCall(cycleId, callId, response, error, durationMs, timing, interception);
     }
+
+    @Override
+    public List<String> completeInProgressCapturedCalls(String callId, ResponseData response, String error, Double durationMs, CallTiming timing, CallInterception interception) {
+        return repository.completeInProgressCapturedCalls(callId, response, error, durationMs, timing, interception);
+    }
 }

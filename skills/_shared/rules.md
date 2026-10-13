@@ -192,14 +192,18 @@ Never check calls one tool call at a time: Alfred checks every call in code, you
    whole cycle. Every call is checked, none skipped: status, errors inside 200s, empty results, ERROR / WARN lines and
    exceptions, failed and flagged SQL (N+1, slow…), failing supplier calls, Redis, slow against the same endpoint, and
    the **hop diffs** (`Δ`) of the flows the calls carry. It lists every other call as clean and says which are still
-   running (checked next time - pass its `lastCallId` on). A call checked before its log lines, statements or supplier
+   running (`pending`, checked next time - pass its `lastCallId` on). A call that has run for minutes with no end is
+   passed over: it is listed as never completed (`stale`) and is a flagged group once - judge it; when it does finish
+   it is the next batch's. A call checked before its log lines, statements or supplier
    calls arrived is re-judged by the next `check_calls` once they do (`rechecked`); while `recheckPending` > 0, call it
    again even with no new calls - that is how a batch never misses an ERROR that came a second late.
-2. **Groups, not calls.** Flagged calls come in groups: the same problem on many calls (same endpoint, signals, error,
-   failing statement, hop-diff keys) is one group `G1 · 512 calls`, with one example's evidence and every member listed.
+2. **Groups, not calls.** Flagged calls come in groups: the same problem on many calls (same endpoint, exact status,
+   signals, ERROR / WARN text, failing supplier outcome, DB flags, failing statement, hop-diff keys) is one group
+   `G1 · 512 calls`, with one example's evidence and every member listed (`callIds` and a stable `key` in the JSON).
    A call with anything different is in another group, so a group never hides a second problem. Judge each group once.
    More groups than fit → the reply's `next`: call again with `offset: next` and `untilCallId` = its `lastCallId` (the
-   same `sinceCallId`), until `next` is null - never stop at the first page.
+   same `sinceCallId`, or the same `sweep`), until `next` is null - never stop at the first page; the pages are one batch,
+   frozen when its first page was made.
 3. **Judge only the flagged groups**, with "What becomes a card" and "Flows". Drill in only when the evidence is not
    enough: `investigate_call`, `log_context`, `db_statement`, a body field with `get_call` `paths` - never whole bodies
    by default. Read an endpoint's code once per run (`codegraph explore "<handler> <mapper>"` when the repo has a

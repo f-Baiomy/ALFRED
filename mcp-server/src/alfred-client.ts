@@ -13,6 +13,8 @@ export class AlfredError extends Error {
     message: string,
     readonly status?: number,
     readonly tried?: string,
+    /** The backend's own error code - the `error` of a `{error, message}` body ("paused", "duplicate-of-closed"...), when it sent one. */
+    readonly code?: string,
   ) {
     super(message);
   }
@@ -47,11 +49,39 @@ export function seg(value: string | number): string {
   return encodeURIComponent(String(value));
 }
 
+/** How often the offset to Alfred's clock is measured again. */
+const CLOCK_REFRESH_MS = 60_000;
+
 export class AlfredClient {
   private inFlight = 0;
   private readonly waiting: (() => void)[] = [];
+  /** Alfred's clock minus this machine's, from the Date header of an answer; 0 until the first answer. */
+  private clockOffsetMs = 0;
+  private clockSetAt = 0;
 
   constructor(readonly baseUrl: string = alfredUrl()) {}
+
+  /**
+   * Alfred's current time. A call's timestamp is Alfred's clock; with Alfred on another machine (a LAN host, a tunnel) this
+   * machine's clock can be minutes off, and "how long ago did it end" must not depend on that. The Date header has a
+   * resolution of one second, so this is exact to about that.
+   */
+  now(): number {
+    return Date.now() + this.clockOffsetMs;
+  }
+
+  /** The first answer sets the offset, and one a minute later renews it (a clock that drifts, or was corrected). */
+  private noteClock(response: Response): void {
+    const sent = Date.parse(response.headers.get('date') ?? '');
+    if (Number.isNaN(sent)) return;
+    const local = Date.now();
+    if (this.clockSetAt && local - this.clockSetAt < CLOCK_REFRESH_MS) return;
+    // The header is the second the answer was written in: its middle is the best guess of the moment. A difference
+    // inside the header's own resolution is no difference (Alfred on this machine): then now() is exactly Date.now().
+    const offset = sent + 500 - local;
+    this.clockOffsetMs = Math.abs(offset) < 2_000 ? 0 : offset;
+    this.clockSetAt = local;
+  }
 
   get<T>(path: string, options: RequestOptions = {}): Promise<T> {
     return this.request<T>('GET', path, options);
@@ -101,11 +131,13 @@ export class AlfredClient {
     } finally {
       this.release();
     }
+    this.noteClock(response);
     if (response.status === 404) {
       throw new AlfredError('not_found', options.notFound ?? `Not found: ${url.pathname}`, 404, `${method} ${url.pathname}`);
     }
     if (response.status === 400 || response.status === 409 || response.status === 422) {
-      throw new AlfredError('invalid', `Alfred rejected the request (${response.status}): ${await safeText(response)}`, response.status, `${method} ${url.pathname}`);
+      const body = await readError(response);
+      throw new AlfredError('invalid', `Alfred rejected the request (${response.status}): ${body.message}`, response.status, `${method} ${url.pathname}`, body.code);
     }
     if (response.status === 502 || response.status === 503 || response.status === 504) {
       throw new AlfredError('unreachable',
@@ -113,7 +145,8 @@ export class AlfredClient {
         response.status, `${method} ${url.pathname}`);
     }
     if (!response.ok) {
-      throw new AlfredError('backend', `Alfred answered ${response.status}: ${await safeText(response)}`, response.status, `${method} ${url.pathname}`);
+      const body = await readError(response);
+      throw new AlfredError('backend', `Alfred answered ${response.status}: ${body.message}`, response.status, `${method} ${url.pathname}`, body.code);
     }
     const text = await response.text();
     if (options.text) return text as T;
@@ -137,19 +170,24 @@ export class AlfredClient {
   }
 }
 
-/** An error body, shortened - it is shown to Claude, and Alfred's errors never carry call data worth more than this. */
-async function safeText(response: Response): Promise<string> {
+/**
+ * An error body, shortened - it is shown to Claude, and Alfred's errors never carry call data worth more than this - and the
+ * code the backend sent with it, so a caller can tell a paused board from a dismissed duplicate without reading the words.
+ */
+async function readError(response: Response): Promise<{ message: string; code?: string }> {
   try {
     const text = await response.text();
     // A refusal that explains itself ({error, message} - the task board's) is passed on as its message alone, word for word.
     try {
-      const parsed = JSON.parse(text) as { message?: unknown };
-      if (typeof parsed?.message === 'string' && parsed.message) return parsed.message;
+      const parsed = JSON.parse(text) as { error?: unknown; message?: unknown };
+      const code = typeof parsed?.error === 'string' && parsed.error ? parsed.error.slice(0, 100) : undefined;
+      if (typeof parsed?.message === 'string' && parsed.message) return { message: parsed.message, code };
+      return { message: text.slice(0, 300), code };
     } catch {
       // not JSON: the text itself
     }
-    return text.slice(0, 300);
+    return { message: text.slice(0, 300) };
   } catch {
-    return '(no body)';
+    return { message: '(no body)' };
   }
 }

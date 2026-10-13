@@ -50,6 +50,7 @@ import com.fathy.alfred.backend.board.domain.model.Proposal;
 import com.fathy.alfred.backend.board.domain.model.Resolution;
 import com.fathy.alfred.backend.board.domain.model.Scope;
 import com.fathy.alfred.backend.board.domain.model.SimilarClosed;
+import com.fathy.alfred.backend.board.domain.model.SimilarOpen;
 import com.fathy.alfred.backend.board.domain.model.CardRef;
 import com.fathy.alfred.backend.board.domain.model.SpecItemLink;
 import com.fathy.alfred.backend.board.domain.AcceptanceItems;
@@ -95,6 +96,8 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
     static final Duration UNDO_WINDOW = Duration.ofSeconds(60);
     private static final int CHIPS_PER_CARD = 3;
     private static final Set<Resolution> DISMISSED = EnumSet.of(Resolution.FINE, Resolution.NOT_IN_FLOW);
+    /** Words a new card's title must share with a dismissed card's for Claude to be refused it when they share no call. */
+    private static final int DISMISSED_SHARED_WORDS = 2;
 
     private final BoardStorePort store;
     private final BoardNotificationPort notifications;
@@ -149,7 +152,7 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
         String signature = signatureOf(all);
         if (actor == Actor.CLAUDE && signature != null) {
             SimilarClosed same = store.closedBySignature(project, List.of(signature)).get(signature);
-            if (same != null && DISMISSED.contains(same.resolution())) {
+            if (same != null && DISMISSED.contains(same.resolution()) && repeatsDismissed(project, same, all, in.title())) {
                 return CardChange.refused(CardChange.Outcome.DUPLICATE_OF_CLOSED, "Same as #" + same.number() + " \"" + same.title()
                         + "\", closed as " + resolutionName(same.resolution())
                         + (same.reason() == null || same.reason().isBlank() ? "" : ": " + same.reason()));
@@ -1113,15 +1116,41 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
 
     // ---------------------------------------------------------------------------------------------------------- helpers
 
+    /**
+     * Whether a new card is the very thing the user dismissed as {@code closed} (same signature already established): it
+     * names one of the closed card's calls, or its title shares at least {@link #DISMISSED_SHARED_WORDS} words with the closed
+     * card's. The same endpoint failing the same way for another reason is a new finding, shown with the closed card as a hint.
+     */
+    private boolean repeatsDismissed(String project, SimilarClosed closed, List<MentionRef> mentions, String title) {
+        if (BoardInsightsService.sharedWords(BoardInsightsService.words(title), closed.title()).size() >= DISMISSED_SHARED_WORDS) {
+            return true;
+        }
+        Set<String> callIds = mentions.stream().map(MentionRef::callId).filter(Objects::nonNull).collect(Collectors.toSet());
+        if (callIds.isEmpty()) {
+            return false;
+        }
+        return store.findByNumber(project, closed.number())
+                .map(card -> store.linksOf(card.id()).stream().map(MentionRef::callId).filter(Objects::nonNull).anyMatch(callIds::contains))
+                .orElse(false);
+    }
+
     private CardDetail detail(Card card) {
         Card full = card.description().isEmpty() ? store.find(card.id()).orElse(card) : card;
         SimilarClosed similar = full.status() == CardStatus.INBOX && full.signature() != null
                 ? store.closedBySignature(full.project(), List.of(full.signature())).get(full.signature()) : null;
+        SimilarOpen open = full.status() != CardStatus.CLOSED && full.signature() != null ? similarOpen(full) : null;
         int comments = store.commentCounts(List.of(full.id())).getOrDefault(full.id(), 0);
         List<SpecItemLink> items = store.specItemsOf(full.id()).stream()
                 .map(r -> new SpecItemLink(r[0], r[1], r[2], itemText(r[0], r[1], r[2]))).toList();
         return new CardDetail(full, comments, store.linksOf(full.id()), similar, store.proposal(full.id()).orElse(null),
-                store.waiting(full.id()).orElse(null), items, store.blockersOf(List.of(full.id())).getOrDefault(full.id(), List.of()));
+                store.waiting(full.id()).orElse(null), items, store.blockersOf(List.of(full.id())).getOrDefault(full.id(), List.of()), open);
+    }
+
+    /** The most recently updated other card still open on this card's signature. */
+    private SimilarOpen similarOpen(Card card) {
+        return store.openBySignature(card.project(), List.of(card.signature())).getOrDefault(card.signature(), List.of()).stream()
+                .filter(other -> !other.id().equals(card.id())).findFirst()
+                .map(other -> new SimilarOpen(other.number(), other.title(), other.status())).orElse(null);
     }
 
     private void record(String cardId, Actor actor, ActivityKind kind, String text, String oldValue, String newValue) {

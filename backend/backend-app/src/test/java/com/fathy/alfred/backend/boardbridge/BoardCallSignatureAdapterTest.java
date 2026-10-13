@@ -1,5 +1,6 @@
 package com.fathy.alfred.backend.boardbridge;
 
+import com.fathy.alfred.backend.callrefbridge.CallHead;
 import com.fathy.alfred.backend.callrefbridge.CallRefResolver;
 import com.fathy.alfred.backend.callrefbridge.ResolvedCall;
 import com.fathy.alfred.backend.triage.application.port.in.NormalizeEndpointUseCase;
@@ -10,7 +11,11 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class BoardCallSignatureAdapterTest {
@@ -36,6 +41,33 @@ class BoardCallSignatureAdapterTest {
         when(calls.resolve("outbound", "b1", "c-1")).thenReturn(Optional.of(call("outbound", 404)));
 
         assertThat(adapter.signatureOf("out", "b1", "c-1")).hasValueSatisfying(s -> assertThat(s).startsWith("4xx|POST "));
+    }
+
+    @Test
+    void theSignatureComesFromTheSummaryWithoutLoadingTheCallsBodies() {
+        when(calls.head("inbound", "a1", null)).thenReturn(Optional.of(new CallHead("POST", "http://localhost:8080/api/orders/42", 502)));
+        when(calls.head("outbound", "b1", "c-1")).thenReturn(Optional.of(new CallHead("GET", "http://localhost:8080/api/orders/42", null)));
+
+        assertThat(adapter.signatureOf("in", "a1", null)).contains("5xx|" + EndpointPattern.of("POST", "http://localhost:8080/api/orders/42"));
+        assertThat(adapter.signatureOf("out", "b1", "c-1")).contains("error|" + EndpointPattern.of("GET", "http://localhost:8080/api/orders/42"));
+        verify(calls, never()).resolve(anyString(), anyString(), any());
+    }
+
+    @Test
+    void aCallTheSummaryLookupMissesIsStillSignedFromItsDetail() {
+        // the summary lookup is a substring filter with a page of one: it can miss a call the detail lookup finds
+        when(calls.head("inbound", "a1", null)).thenReturn(Optional.empty());
+        when(calls.resolve("inbound", "a1", null)).thenReturn(Optional.of(call("inbound", 404)));
+
+        assertThat(adapter.signatureOf("in", "a1", null)).contains("4xx|" + EndpointPattern.of("POST", "http://localhost:8080/api/orders/42"));
+    }
+
+    @Test
+    void aSummaryWithoutMethodOrUrlFallsBackToTheDetailToo() {
+        when(calls.head("inbound", "a1", null)).thenReturn(Optional.of(new CallHead(null, null, 200)));
+        when(calls.resolve("inbound", "a1", null)).thenReturn(Optional.of(call("inbound", 200)));
+
+        assertThat(adapter.signatureOf("in", "a1", null)).contains("ok|" + EndpointPattern.of("POST", "http://localhost:8080/api/orders/42"));
     }
 
     @Test

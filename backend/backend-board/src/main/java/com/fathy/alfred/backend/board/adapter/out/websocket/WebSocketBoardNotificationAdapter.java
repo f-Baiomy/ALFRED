@@ -58,11 +58,12 @@ public class WebSocketBoardNotificationAdapter implements BoardNotificationPort 
     }
 
     @Override
-    public void liveRunner(String project, String host) {
+    public void liveRunner(String project, String host, String kind) {
         Map<String, Object> event = new LinkedHashMap<>();
         event.put("type", "live-runner");
         event.put("project", project);
         event.put("host", host);
+        event.put("kind", kind);
         send(event);
     }
 

@@ -120,6 +120,70 @@ class BoardClaudeWorkTest {
         assertThat(byTitle.get(0).why()).contains("discount").contains("voucher");
     }
 
+    @Test
+    void aCardOpenOnTheSameSignatureIsShownAsSimilarOpen() {
+        f.signatures.put("c1", "5xx|POST /orders");
+        f.signatures.put("c2", "5xx|POST /orders");
+        f.signatures.put("c3", "5xx|POST /orders");
+        f.signatures.put("other", "4xx|GET /cart");
+        var first = f.create(Actor.USER, "p", "Checkout breaks", List.of(new MentionRef(MentionType.CALL, "in:c1", "x"))).card();
+        assertThat(first.similarOpen()).isNull(); // nothing else is open on it yet
+
+        f.clock.advanceSeconds(10);
+        var second = f.create(Actor.CLAUDE, "p", "Orders 500 again", List.of(new MentionRef(MentionType.CALL, "in:c2", "x"))).card();
+        f.clock.advanceSeconds(10);
+        var third = f.create(Actor.CLAUDE, "p", "Orders still 500", List.of(new MentionRef(MentionType.CALL, "in:c3", "x"))).card();
+        f.create(Actor.USER, "p", "Cart 404", List.of(new MentionRef(MentionType.CALL, "in:other", "x")));
+
+        // the newest other open card, never the card itself, whatever its status
+        assertThat(second.similarOpen()).isNotNull();
+        assertThat(second.similarOpen().number()).isEqualTo(1);
+        assertThat(second.similarOpen().title()).isEqualTo("Checkout breaks");
+        assertThat(second.similarOpen().status()).isEqualTo(CardStatus.INBOX);
+        assertThat(third.similarOpen().number()).isEqualTo(2);
+        f.clock.advanceSeconds(10);
+        f.board.move(Actor.USER, first.card().id(), CardStatus.IN_PROGRESS);
+        var again = f.board.get(third.card().id()).orElseThrow();
+        assertThat(again.similarOpen().number()).isEqualTo(1);
+        assertThat(again.similarOpen().status()).isEqualTo(CardStatus.IN_PROGRESS);
+        assertThat(f.board.get(first.card().id()).orElseThrow().similarOpen().number()).isEqualTo(3);
+    }
+
+    @Test
+    void aClosedCardIsNotSimilarOpenAndAnotherProjectsCardIsNeither() {
+        f.signatures.put("c1", "5xx|POST /orders");
+        f.signatures.put("c2", "5xx|POST /orders");
+        f.signatures.put("c3", "5xx|POST /orders");
+        String closed = f.create(Actor.USER, "p", "Checkout breaks", List.of(new MentionRef(MentionType.CALL, "in:c1", "x"))).card().card().id();
+        f.board.close(Actor.USER, closed, Resolution.WONT_FIX, null);
+        f.create(Actor.USER, "elsewhere", "Orders 500", List.of(new MentionRef(MentionType.CALL, "in:c3", "x")));
+
+        var fresh = f.create(Actor.USER, "p", "Orders 500 again", List.of(new MentionRef(MentionType.CALL, "in:c2", "x"))).card();
+
+        assertThat(fresh.similarOpen()).isNull();
+        assertThat(fresh.similarClosed()).isNotNull(); // the closed one is still the other hint
+        // a card closed in its turn shows no open hint at all
+        f.board.close(Actor.USER, fresh.card().id(), Resolution.WONT_FIX, null);
+        assertThat(f.board.get(fresh.card().id()).orElseThrow().similarOpen()).isNull();
+    }
+
+    @Test
+    void theOpenStoreFindsTheNewestFewPerSignatureAndLeavesDescriptionsOut() {
+        f.signatures.put("c1", "5xx|POST /orders");
+        for (int i = 0; i < 7; i++) {
+            f.clock.advanceSeconds(1);
+            f.create(Actor.USER, "p", "Orders " + i, List.of(new MentionRef(MentionType.CALL, "in:c1", "x")));
+        }
+        f.board.close(Actor.USER, f.board.getByNumber("p", 7).orElseThrow().card().id(), Resolution.FINE, null);
+
+        var open = f.store.openBySignature("p", List.of("5xx|POST /orders", "nope")).get("5xx|POST /orders");
+
+        assertThat(open).extracting(c -> c.number()).containsExactly(6, 5, 4, 3, 2);
+        assertThat(open.get(0).description()).isEmpty();
+        assertThat(f.store.openBySignature("p", List.of("nope"))).isEmpty();
+        assertThat(f.store.openBySignature("elsewhere", List.of("5xx|POST /orders"))).isEmpty();
+    }
+
     // ---------------------------------------------------------------------------------------------------------- changes
 
     @Test

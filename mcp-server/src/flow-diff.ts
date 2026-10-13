@@ -57,6 +57,8 @@ const MAX_DEPTH = 12;
 /** How deep inside a snapshot object a leaf still belongs to it (`fare.total` yes, `segments[0].legs[1].x` no). */
 const LEAF_DEPTH = 3;
 const MAX_VALUE = 200;
+/** An anchor is "context" (in most calls, so it links nothing) only once at least this many calls are indexed. */
+const CONTEXT_MIN_CALLS = 30;
 
 /** Keys that change on every request or say nothing about the thing itself. */
 const NOISE = new Set([
@@ -203,10 +205,16 @@ export class FlowIndex {
     return this.indexed.size;
   }
 
-  /** Indexes one call's sides (its bodies and written rows) - once; a call indexed again is ignored. */
-  add(callId: string, sides: readonly Side[]): void {
-    if (this.indexed.has(callId)) return;
+  /**
+   * Indexes one call's sides (its bodies and written rows) - once; a call indexed again is ignored. Returns the calls
+   * indexed earlier whose snapshot now directly follows one of this call's on the timeline: a call that arrives late
+   * (its writes were still being captured) slots in before them, so they are compared with it now and their diffs
+   * against it are new.
+   */
+  add(callId: string, sides: readonly Side[]): string[] {
+    if (this.indexed.has(callId)) return [];
     this.indexed.add(callId);
+    const successors = new Set<string>();
     const anchors = new Set<string>();
     for (const side of sides) {
       for (const { anchor, snapshot } of snapshotsOf(side)) {
@@ -220,18 +228,24 @@ export class FlowIndex {
           if (before(snapshot.side, list[mid].side)) hi = mid; else lo = mid + 1;
         }
         list.splice(lo, 0, snapshot);
+        const next = list[lo + 1];
+        if (next && next.side.callId !== callId) successors.add(next.side.callId);
         this.byAnchor.set(anchor, list);
         this.bytes += sizeOf(snapshot);
         this.callsOfAnchor.set(anchor, (this.callsOfAnchor.get(anchor) ?? new Set()).add(callId));
       }
     }
     this.anchorsOfCall.set(callId, anchors);
+    return [...successors];
   }
 
-  /** An id in most calls (an agency, a user): it links everything and so nothing. */
+  /**
+   * An id in most calls (an agency, a user): it links everything and so nothing. Not before there are calls enough to
+   * tell: in a short cycle the booking that all of its calls carry IS the flow.
+   */
   isContext(anchor: string): boolean {
     const n = this.callsOfAnchor.get(anchor)?.size ?? 0;
-    return n >= 6 && n > this.indexed.size / 2;
+    return this.indexed.size >= CONTEXT_MIN_CALLS && n >= 6 && n > this.indexed.size / 2;
   }
 
   private linking(anchor: string): boolean {

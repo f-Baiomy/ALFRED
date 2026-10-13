@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { seg, type AlfredClient, type RequestOptions } from '../alfred-client.ts';
+import { AlfredError, seg, type AlfredClient, type RequestOptions } from '../alfred-client.ts';
 import { callLines } from '../call-story.ts';
 import { mentionsIn, serializeMention } from '../frontend.ts';
 import { maskContext, maskMeta, maskText, type MaskContext } from '../masking.ts';
@@ -20,6 +20,12 @@ import { liveAnswerer } from './live.ts';
  * pick the work up from anywhere.
  */
 const AS_CLAUDE: Pick<RequestOptions, 'headers'> = { headers: { 'X-Alfred-Actor': 'claude' } };
+/**
+ * A card, a comment or a link is a write to the board's database; under load the backend takes longer than a read to answer one
+ * it does finish, and a client that gave up at 4 s left Claude unsure whether it was saved.
+ */
+const WRITE_TIMEOUT_MS = 30_000;
+const WRITE: Pick<RequestOptions, 'headers' | 'timeoutMs'> = { ...AS_CLAUDE, timeoutMs: WRITE_TIMEOUT_MS };
 
 const Kind = z.enum(['BUG', 'TASK', 'NOTE', 'QUESTION']);
 const Status = z.enum(['INBOX', 'TO_DO', 'IN_PROGRESS', 'FIXED', 'VERIFIED', 'DONE', 'CLOSED']);
@@ -62,6 +68,9 @@ function retestLine(c: RetestCheckRow): Record<string, unknown> {
   };
 }
 
+/** The most closed cards Alfred answers for /board/closed-reasons (ListClosedReasonsUseCase.MAX_LIMIT). */
+const CLOSED_MAX = 500;
+
 /** One entry's text over this many characters is read in parts with board_get entry=<index>. */
 const ENTRY_INLINE = 6000;
 
@@ -77,6 +86,11 @@ export interface CardRow {
   specItems?: { cycleId: string; fileName: string; itemKey: string; text: string | null }[];
   /** Ids of the teams the card is assigned to (board_teams lists them). */
   teams?: string[];
+  createdAt?: string;
+  /** Another card still open on this card's signature - on a card just created, so a finding already being worked on is seen at once. */
+  similarOpen?: { number: number; title: string; status: string } | null;
+  /** A board row's first few mentions (the list endpoint only). */
+  mentionChips?: { type: string; ref: string; label: string }[];
 }
 
 interface TeamRow { id: string; name: string; icon: string; owns: string; hints: string[] }
@@ -163,6 +177,51 @@ function target(p: Proposal): string {
   if (p.kind === 'MERGE') return `merge into #${p.intoNumber}`;
   if (p.kind === 'REOPEN') return 'reopen';
   return p.status === 'CLOSED' && p.resolution ? `close as ${p.resolution}` : p.status;
+}
+
+/** What a new card says when another open card already has its signature - the finding joins that card or is merged into it. */
+function similarOpenNote(card: CardRow): string | null {
+  const s = card.similarOpen;
+  return s ? `same signature as open #${s.number} "${s.title}" - link or board_propose MERGE` : null;
+}
+
+/** The calls among a board row's first mentions, compact: " · calls: in:3f2a9c1d… out:7b81e0aa…" (board_get has them all). */
+function callsOf(c: CardRow): string {
+  const calls = [...new Set((c.mentionChips ?? []).filter((m) => m.type.toLowerCase() === 'call')
+    .map((m) => m.ref.replace(/^(in|out):([^@]+).*$/, (_, d: string, id: string) => `${d}:${id.slice(0, 8)}…`)))];
+  return calls.length ? ` · calls: ${calls.join(' ')}` : '';
+}
+
+/** The call a card is about, for its signature: the first call link, else the first call in its description. */
+function firstCallRef(links: readonly { type: string; ref: string }[], description: string): string | undefined {
+  return links.find((l) => l.type.toLowerCase() === 'call')?.ref ?? mentionsIn(description).find((m) => m.type.toLowerCase() === 'call')?.ref;
+}
+
+/** A create the client stopped waiting for, or lost to a gateway error, may still have been saved. */
+function outcomeUnknown(error: unknown): boolean {
+  return error instanceof AlfredError && error.kind === 'unreachable';
+}
+
+const LANDED_WITHIN_MS = 60_000;
+
+/**
+ * After a create timed out: the card of this project with this title made in the last minute, if the backend finished it. A second
+ * attempt would otherwise repeat the card, and "not added" would be a lie. `unreachable` is true when Alfred does not answer this
+ * check either - nothing more can be written then.
+ */
+async function createdMeanwhile(client: AlfredClient, project: string, card: { title: string; links: readonly { type: string; ref: string }[]; description: string },
+  exclude: ReadonlySet<number>): Promise<{ card: CardRow | null; unreachable: boolean }> {
+  try {
+    const similar = await client.get<{ why: string; card: CardRow }[]>('/board/similar',
+      { query: { project, title: card.title, call: firstCallRef(card.links, card.description), limit: 50 } });
+    const title = card.title.trim().toLowerCase();
+    const found = similar.map((s) => s.card).find((c) => (c.project ?? '') === project && c.title.trim().toLowerCase() === title
+      && !exclude.has(c.number) && (!c.author || c.author === 'CLAUDE')
+      && c.createdAt !== undefined && Date.now() - Date.parse(c.createdAt) < LANDED_WITHIN_MS);
+    return { card: found ?? null, unreachable: false };
+  } catch (error) {
+    return { card: null, unreachable: outcomeUnknown(error) };
+  }
 }
 
 export function who(actor: string): string {
@@ -282,7 +341,8 @@ export function register(server: McpServer, client: AlfredClient): void {
   // ------------------------------------------------------------------------------------------------------------ reading
 
   server.registerTool('board_list', {
-    description: 'Cards on one project\'s task board (or one cycle\'s): "#n KIND [flags] {teams} title - status (cycle)". Use board_search to look across every board.',
+    description: 'Cards on one project\'s task board (or one cycle\'s): "#n KIND [flags] {teams} title - status (cycle) · calls: in:<id8>…" (the calls '
+      + 'among its first mentions, ids shortened - board_get has them all). Use board_search to look across every board.',
     inputSchema: {
       project: Project,
       cycleId: z.string().optional().describe('Only this session cycle\'s cards (any project)'),
@@ -297,7 +357,7 @@ export function register(server: McpServer, client: AlfredClient): void {
       query: { project: input.project, cycleId: input.cycleId, status: input.status?.join(','), kind: input.kind?.join(','),
         flag: input.flag?.join(','), team: input.team?.join(','), limit: input.limit },
     });
-    const fitted = fitItems(page.cards.map(line), 300);
+    const fitted = fitItems(page.cards.map((c) => `${line(c)}${callsOf(c)}`), 300);
     return ok({ cards: fitted.items, total: page.total, progress: page.counts, ...(fitted.cut ? { more: 'Narrow it with status/kind/flag.' } : {}) });
   }));
 
@@ -483,12 +543,22 @@ export function register(server: McpServer, client: AlfredClient): void {
 
   server.registerTool('board_closed_reasons', {
     description: 'What the user already dismissed on this project\'s board - closed cards with their resolution, reason and signature. Read before reporting, '
-      + 'and do not raise an issue closed as FINE or NOT_IN_FLOW again.',
-    inputSchema: { project: Project, limit: z.number().int().min(1).max(500).default(200) },
+      + 'and do not raise an issue closed as FINE or NOT_IN_FLOW again. A long list comes in pages: call again with nextOffset as offset.',
+    inputSchema: {
+      project: Project,
+      offset: z.number().int().min(0).default(0).describe('Where to continue a long list (the nextOffset of the last page)'),
+      limit: z.number().int().min(1).max(500).default(200).describe('At most this many per page; fewer when they would not fit one reply'),
+    },
   }, (input) => run(async () => {
+    // The backend takes no offset: it answers up to 500 closed cards and the pages are cut here.
     const reasons = await client.get<{ number: number; title: string; signature: string | null; resolution: string; reason: string | null }[]>(
-      '/board/closed-reasons', { query: { project: input.project, limit: input.limit } });
-    return ok({ closed: reasons.map((r) => `#${r.number} ${r.title} - ${r.resolution}${r.reason ? `: ${r.reason}` : ''}${r.signature ? ` [${r.signature}]` : ''}`) });
+      '/board/closed-reasons', { query: { project: input.project, limit: CLOSED_MAX } });
+    const rows = reasons.slice(input.offset, input.offset + input.limit)
+      .map((r) => `#${r.number} ${r.title} - ${r.resolution}${r.reason ? `: ${r.reason}` : ''}${r.signature ? ` [${r.signature}]` : ''}`);
+    const fitted = fitItems(rows, 400);
+    const next = input.offset + fitted.items.length;
+    return ok({ closed: fitted.items, total: reasons.length, ...(next < reasons.length ? { nextOffset: next } : {}),
+      ...(reasons.length >= CLOSED_MAX ? { note: `Alfred answers at most ${CLOSED_MAX} closed cards; older ones are not listed here.` } : {}) });
   }));
 
   server.registerTool('get_brief', {
@@ -623,7 +693,8 @@ export function register(server: McpServer, client: AlfredClient): void {
     description: 'Put a finding on the board. It always lands in the Inbox for the user to sort. Mention evidence in the description as '
       + '@[type:ref|label] (e.g. @[call:in:<id>|POST /orders · 500], @[stmt:<callId>/<seq>|INSERT ORDERS #88]) and pass the main call in links. '
       + 'Check board_similar / board_for_call first. Refused while the user paused the board, and when the user already closed the same problem '
-      + 'as Fine or Not in this flow - the refusal says which card and why. Always pass teams. ' + TEAM_GUIDE,
+      + 'as Fine or Not in this flow - the refusal says which card and why. When another open card has the same signature, the reply says so '
+      + '(similarOpen): link your evidence to that card or board_propose MERGE. Always pass teams. ' + TEAM_GUIDE,
     inputSchema: {
       project: Project,
       kind: Kind,
@@ -636,16 +707,20 @@ export function register(server: McpServer, client: AlfredClient): void {
     },
   }, (input) => run(async () => {
     const card = await client.post<CardRow>('/board/cards', {
-      ...AS_CLAUDE,
+      ...WRITE,
       body: { project: input.project, kind: input.kind, title: input.title, description: input.description, flags: input.flags,
         teams: input.teams, cycleId: input.cycleId, links: input.links },
     });
+    const similarOpen = similarOpenNote(card);
     return ok({ added: `#${card.number}`, status: card.status, card: line(card),
-      ...(card.teams?.length ? {} : { teams: 'none - pick them with board_assign (board_teams lists the teams)' }) });
+      ...(card.teams?.length ? {} : { teams: 'none - pick them with board_assign (board_teams lists the teams)' }),
+      ...(similarOpen ? { similarOpen } : {}) });
   }));
 
   server.registerTool('board_add_many', {
-    description: 'Several findings from one scan, each like board_add (Inbox, duplicate check, teams). Each one says added or why it was refused. '
+    description: 'Several findings from one scan, each like board_add (Inbox, duplicate check, teams). Each one says added or why it was refused; '
+      + 'a card another open card repeats says "same signature as open #N" (link to it or board_propose MERGE). When the board is paused the '
+      + 'rest are "not attempted"; a create that timed out is looked up on the board before it is called "not added". '
       + 'In the same call, each card can take its first state comment (firstComment: did / found / next / waitingOn - as board_comment) and the '
       + 'Acceptance item it breaks (specItem: fileName + itemKey from read_spec / task_context, in cycleId - as board_link_spec), so a batch of '
       + 'findings is one call instead of three per card.',
@@ -664,25 +739,54 @@ export function register(server: McpServer, client: AlfredClient): void {
     },
   }, (input) => run(async () => {
     const results: string[] = [];
-    for (const { firstComment, specItem, ...c } of input.cards) {
+    const addedNow = new Set<number>();
+    for (let i = 0; i < input.cards.length; i++) {
+      const { firstComment, specItem, ...c } = input.cards[i];
+      const extra: string[] = [];
+      let card: CardRow | undefined;
       try {
-        const card = await client.post<CardRow>('/board/cards', { ...AS_CLAUDE, body: { project: input.project, cycleId: input.cycleId, ...c } });
-        const extra: string[] = [];
-        // The card is added: a failed comment or link is said, never a reason to call it not added.
-        if (firstComment) {
-          await client.post(`/board/cards/${seg(card.id)}/comments`, { ...AS_CLAUDE, body: firstComment })
-            .then(() => extra.push('commented'), (e) => extra.push(`comment not written: ${(e as Error).message}`));
-        }
-        if (specItem) {
-          if (!input.cycleId) extra.push('spec item not linked: give cycleId');
-          else await client.post(`/board/cards/${seg(card.id)}/spec-items`, { ...AS_CLAUDE, body: { cycleId: input.cycleId, ...specItem } })
-            .then(() => extra.push(`linked to ${specItem.itemKey}`), (e) => extra.push(`spec item not linked: ${(e as Error).message}`));
-        }
-        results.push(`added #${card.number} ${c.title}${card.teams?.length ? ` {${card.teams.join(', ')}}` : ' - no team yet'}${extra.length ? ` · ${extra.join(' · ')}` : ''}`);
+        card = await client.post<CardRow>('/board/cards', { ...WRITE, body: { project: input.project, cycleId: input.cycleId, ...c } });
       } catch (error) {
-        results.push(`not added "${c.title}": ${(error as Error).message}`);
-        if (/paused/i.test((error as Error).message)) break;
+        let message = (error as Error).message;
+        let down = false;
+        if (outcomeUnknown(error)) {
+          // The backend may have finished a create the client stopped waiting for: look before saying "not added" (a retry would repeat it).
+          const check = await createdMeanwhile(client, input.project, c, addedNow);
+          if (check.card) {
+            card = check.card;
+            extra.push('the create timed out, but the card is on the board');
+          } else if (check.unreachable) {
+            down = true;
+            message += ' (could not check whether it was saved)';
+          } else {
+            message += ' (checked the board: no card with this title was saved)';
+          }
+        }
+        if (!card) {
+          results.push(`not added "${c.title}": ${message}`);
+          // The code decides, not the words: a title that says "paused" must not end the batch.
+          const why = error instanceof AlfredError && error.code === 'paused' ? 'board paused' : down ? 'Alfred is not answering' : null;
+          if (why) {
+            results.push(...input.cards.slice(i + 1).map((rest) => `not attempted: ${why} - "${rest.title}"`));
+            break;
+          }
+          continue;
+        }
       }
+      addedNow.add(card.number);
+      // The card is added: a failed comment or link is said, never a reason to call it not added.
+      if (firstComment) {
+        await client.post(`/board/cards/${seg(card.id)}/comments`, { ...WRITE, body: firstComment })
+          .then(() => extra.push('commented'), (e) => extra.push(`comment not written: ${(e as Error).message}`));
+      }
+      if (specItem) {
+        if (!input.cycleId) extra.push('spec item not linked: give cycleId');
+        else await client.post(`/board/cards/${seg(card.id)}/spec-items`, { ...WRITE, body: { cycleId: input.cycleId, ...specItem } })
+          .then(() => extra.push(`linked to ${specItem.itemKey}`), (e) => extra.push(`spec item not linked: ${(e as Error).message}`));
+      }
+      const similarOpen = similarOpenNote(card);
+      if (similarOpen) extra.push(similarOpen);
+      results.push(`added #${card.number} ${c.title}${card.teams?.length ? ` {${card.teams.join(', ')}}` : ' - no team yet'}${extra.length ? ` · ${extra.join(' · ')}` : ''}`);
     }
     return ok({ results });
   }));
@@ -703,7 +807,7 @@ export function register(server: McpServer, client: AlfredClient): void {
   }, (input) => run(async () => {
     const card = await cardByNumber(client, input.project, input.number);
     const replyTo = input.replyTo === undefined ? undefined : await commentIdAt(client, card, input.replyTo);
-    await client.post(`/board/cards/${seg(card.id)}/comments`, { ...AS_CLAUDE,
+    await client.post(`/board/cards/${seg(card.id)}/comments`, { ...WRITE,
       body: { did: input.did, found: input.found, next: input.next, impact: input.impact, ...(replyTo != null ? { replyTo } : {}),
         ...(input.waitingOn ? { waitingOn: input.waitingOn } : {}) } });
     return ok({ commented: `#${card.number}` });
@@ -762,7 +866,7 @@ export function register(server: McpServer, client: AlfredClient): void {
     inputSchema: { project: Project, number: CardNumber, links: z.array(Link).min(1).max(50) },
   }, (input) => run(async () => {
     const card = await cardByNumber(client, input.project, input.number);
-    for (const l of input.links) await client.post(`/board/cards/${seg(card.id)}/links`, { ...AS_CLAUDE, body: l });
+    for (const l of input.links) await client.post(`/board/cards/${seg(card.id)}/links`, { ...WRITE, body: l });
     return ok({ linked: `#${card.number}`, count: input.links.length });
   }));
 

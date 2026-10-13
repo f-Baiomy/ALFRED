@@ -96,8 +96,7 @@ public class BoardInsightsService implements SearchCardsUseCase, BoardChangesUse
         }
         List<Scored> scored = new ArrayList<>();
         for (Card card : found) {
-            String lower = card.title().toLowerCase(Locale.ROOT);
-            List<String> shared = words.stream().filter(lower::contains).toList();
+            List<String> shared = sharedWords(words, card.title());
             boolean same = signature != null && signature.equals(card.signature());
             if (same || (needed > 0 && shared.size() >= needed)) {
                 scored.add(new Scored(card, same, shared));
@@ -133,6 +132,18 @@ public class BoardInsightsService implements SearchCardsUseCase, BoardChangesUse
             }
         }
         return List.copyOf(out);
+    }
+
+    /**
+     * The words of a title ({@link #words}) that also occur in another title - what "these two cards are about the same
+     * thing" is measured by, both for the similar-cards search and for BoardService's refusal of a dismissed repeat.
+     */
+    static List<String> sharedWords(List<String> words, String otherTitle) {
+        if (otherTitle == null) {
+            return List.of();
+        }
+        String lower = otherTitle.toLowerCase(Locale.ROOT);
+        return words.stream().filter(lower::contains).toList();
     }
 
     // ---------------------------------------------------------------------------------------------------------- changes

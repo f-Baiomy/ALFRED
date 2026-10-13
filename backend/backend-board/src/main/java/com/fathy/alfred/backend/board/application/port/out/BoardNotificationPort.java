@@ -15,7 +15,10 @@ public interface BoardNotificationPort {
     default void liveWork(LiveWork work) {
     }
 
-    /** /alfred-live's runner started ({@code host} where it runs) or stopped ({@code host} null) on a project's board. */
-    default void liveRunner(String project, String host) {
+    /**
+     * A runner started ({@code host} where it runs) or stopped ({@code host} null) on a project's board; {@code kind} is
+     * "live" (/alfred-live) or "listen" (/alfred-listen).
+     */
+    default void liveRunner(String project, String host, String kind) {
     }
 }

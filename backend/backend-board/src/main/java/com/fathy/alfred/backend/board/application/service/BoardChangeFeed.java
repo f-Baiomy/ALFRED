@@ -62,8 +62,8 @@ public class BoardChangeFeed {
             }
 
             @Override
-            public void liveRunner(String project, String host) {
-                notifications.liveRunner(project, host);
+            public void liveRunner(String project, String host, String kind) {
+                notifications.liveRunner(project, host, kind);
             }
         };
     }

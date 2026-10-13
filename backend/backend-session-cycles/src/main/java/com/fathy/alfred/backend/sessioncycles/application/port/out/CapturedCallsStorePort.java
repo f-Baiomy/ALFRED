@@ -89,4 +89,16 @@ public interface CapturedCallsStorePort {
      * @return true if a captured call with this call id existed in this cycle and was updated.
      */
     boolean completeCapturedCall(String cycleId, String callId, ResponseData response, String error, Double durationMs, CallTiming timing, CallInterception interception);
+
+    /**
+     * Completes every cycle's copy of this call that is still IN_PROGRESS - for a completion that finds no memory of which
+     * cycles captured the call at prepare time (the backend restarted between the call's prepare and its complete). The
+     * copies are found by the call's own id, so a call that no cycle captured completes nothing.
+     * Like {@link #completeCapturedCall}, only ever called when {@link #supportsTwoPhaseCapture()} is true.
+     *
+     * @return the ids of the cycles whose copy was completed (empty when there was none to complete).
+     */
+    default List<String> completeInProgressCapturedCalls(String callId, ResponseData response, String error, Double durationMs, CallTiming timing, CallInterception interception) {
+        return List.of();
+    }
 }

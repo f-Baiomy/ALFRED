@@ -85,6 +85,8 @@ public class SqliteBoardRepository implements BoardStorePort {
 
     private static final Logger log = LoggerFactory.getLogger(SqliteBoardRepository.class);
     private static final int IN_CHUNK = 400;
+    /** How many open cards of one signature {@link #openBySignature} keeps: the newest few, enough to find one besides the card asked about. */
+    private static final int OPEN_PER_SIGNATURE = 5;
     /** Seatbelt on badge lists: a cycle has hundreds of calls, not hundreds of thousands. */
     private static final int BADGE_ROWS = 20_000;
     private static final TypeReference<List<ChecklistMark.Change>> CHANGES = new TypeReference<>() { };
@@ -717,6 +719,25 @@ public class SqliteBoardRepository implements BoardStorePort {
                     + "AND signature IN (" + marks(chunk.size()) + ") ORDER BY updated_at DESC", rs -> {
                         out.putIfAbsent(rs.getString(1), new SimilarClosed(rs.getInt(2), rs.getString(3), resolution(rs.getString(4)),
                                 rs.getString(5)));
+                    }, args.toArray());
+        }
+        return out;
+    }
+
+    @Override
+    public Map<String, List<Card>> openBySignature(String project, Collection<String> signatures) {
+        Map<String, List<Card>> out = new HashMap<>();
+        for (List<String> chunk : chunks(new LinkedHashSet<>(signatures))) {
+            List<Object> args = new ArrayList<>();
+            args.add(project == null ? "" : project);
+            args.addAll(chunk);
+            // idx_cards_signature narrows to the cards of these signatures; the project and status filters run on that handful.
+            jdbc.query("SELECT " + SUMMARY_COLUMNS + " FROM cards WHERE project = ? AND status != 'CLOSED' AND signature IN ("
+                    + marks(chunk.size()) + ") ORDER BY updated_at DESC, number DESC", rs -> {
+                        List<Card> same = out.computeIfAbsent(rs.getString("signature"), k -> new ArrayList<>());
+                        if (same.size() < OPEN_PER_SIGNATURE) {
+                            same.add(SUMMARY_ROW.mapRow(rs, 0));
+                        }
                     }, args.toArray());
         }
         return out;

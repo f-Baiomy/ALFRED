@@ -3,10 +3,10 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { AlfredClient } from '../alfred-client.ts';
 import { toRow } from '../calls.ts';
 import { cycleEntries, requireCycle, type CycleEntry } from '../cycle-calls.ts';
+import type { CallRecord, TriageEntry } from '../frontend.ts';
 import { maskCalls, maskContext, maskMeta } from '../masking.ts';
 import { ok, run } from '../reply.ts';
 import { MaskSchema } from './cycles.ts';
-import type { TriageEntry } from '../frontend.ts';
 import { signalsOfEntry, type SignalName } from '../signals.ts';
 import { triageOf } from '../triage.ts';
 
@@ -14,6 +14,22 @@ import { triageOf } from '../triage.ts';
 const SOCKETS = ['/ws/calls', '/ws/internal-calls', '/ws/session-cycles'];
 /** Waiting for a kind of trouble: a call's log lines and statements (and so its marks) settle a moment after it ends. */
 const SIGNAL_SOCKETS = ['/ws/db-capture', '/ws/triage'];
+
+/** A call still running this long after it started is hung, not busy: nothing waits for it any more. */
+export const STALE_MS = 300_000;
+
+export function finished(call: CallRecord): boolean {
+  return call.state !== 'IN_PROGRESS';
+}
+
+/**
+ * A call a batch must wait for: still running, and not for so long that it has surely hung. `now` is Alfred's clock
+ * (client.now()), the one the call's timestamp is in. A hung call is passed over - the calls behind it are checked, and
+ * it is reported once as never completed.
+ */
+export function blocking(call: CallRecord, now: number): boolean {
+  return !finished(call) && now - Date.parse(call.timestamp) < STALE_MS;
+}
 
 /** What to wait for (specs/010): any new call, or the next one that logged an error / a warning, had a failed statement, or any problem. */
 export type Until = 'any' | 'logError' | 'logWarning' | 'dbFailed' | 'problem';
@@ -29,6 +45,12 @@ function matches(until: Until, signals: SignalName[]): boolean {
 }
 const SETTLE_MS = 400;
 const MAX_WAIT_S = 60;
+/** With a pause to wait for, a burst that never pauses is returned this long after its first call. */
+const BURST_MAX_MS = 20_000;
+/** A failing call ends the wait after this grace (the rest of its burst, its supplier calls, are on their way). */
+const EARLY_GRACE_MS = 1_000;
+/** A socket that closed or failed leaves its signals unheard: look this often instead. */
+const FALLBACK_MS = 5_000;
 
 /**
  * Waits until a cycle holds calls it did not hold before - so an agent can add spacers while the
@@ -36,28 +58,78 @@ const MAX_WAIT_S = 60;
  * signals the UI reloads on, re-reads the cycle only when one fires, and gives up after a bounded
  * wait (60 s at most), so a tool call can never hang.
  */
-/** Something besides new calls that ends a wait - e.g. the late log lines of a call checked too early. */
+/** Something besides new calls that ends a wait - e.g. the late log lines of a call checked too early, or the user's comment on the board. */
 export interface Wake {
   readonly sockets: readonly string[];
   readonly changed: () => Promise<boolean>;
+  /** Something that turns true by the clock, not by a signal: ask `changed` once this long after the wait began. */
+  readonly afterMs?: number;
+  /** Said in the reply: why the wait ended. */
+  readonly label?: string;
+}
+
+export interface WaitOptions {
+  /** Calls running right now: one of them finishing is a fresh call even if it sits before sinceCallId. */
+  readonly watch?: ReadonlySet<string>;
+  /** With a pause to wait for: a fresh finished call with an error or this status or over ends the wait after a short grace. */
+  readonly minStatus?: number;
+  /** Tests: shorter than the 20 s a burst may last, and than the 5 s between looks when a socket is gone. */
+  readonly burstMs?: number;
+  readonly fallbackMs?: number;
+}
+
+export interface Waited {
+  readonly newEntries: CycleEntry[];
+  readonly total: number;
+  readonly timedOut: boolean;
+  readonly recording: boolean;
+  readonly matched: CycleEntry[];
+  /** The label of the wake that ended the wait, if one did. */
+  readonly woke?: string;
+}
+
+/**
+ * A message on a call socket that cannot change what a wait is waiting for: a websocket call's frames, the live log
+ * cleared, a call that was only prepared (it is running - its end is the signal), or a call another cycle captured.
+ */
+function isNoise(data: unknown, cycleId: string, waitingForPause: boolean): boolean {
+  let message: { type?: unknown; call?: { state?: unknown } | null; capturedByCycleIds?: unknown } | null;
+  try {
+    message = JSON.parse(String(data));
+  } catch {
+    return false;
+  }
+  if (!message || typeof message !== 'object') return false;
+  if (message.type === 'ws-messages-appended' || message.type === 'calls-cleared') return true;
+  if (message.call && typeof message.call === 'object') {
+    if (waitingForPause && message.call.state === 'IN_PROGRESS') return true;
+    if (Array.isArray(message.capturedByCycleIds) && !message.capturedByCycleIds.includes(cycleId)) return true;
+  }
+  return false;
 }
 
 export async function waitForCalls(client: AlfredClient, cycleId: string, sinceCallId: string | undefined, timeoutMs: number,
-                                   until: Until = 'any', quietMs = 0, wake?: Wake): Promise<{ newEntries: CycleEntry[]; total: number; timedOut: boolean; recording: boolean; matched: CycleEntry[] }> {
+                                   until: Until = 'any', quietMs = 0, wake?: Wake | readonly Wake[], options: WaitOptions = {}): Promise<Waited> {
   const cycle = await requireCycle(client, cycleId);
   const first = { entries: await cycleEntries(client, cycle.id) };
   const known = new Set(first.entries.map((e) => e.call.id));
+  const wakes: readonly Wake[] = wake === undefined ? [] : 'sockets' in wake ? [wake] : wake;
+  const watched = (e: CycleEntry) => !!options.watch?.has(e.call.id) && finished(e.call);
   const after = (entries: CycleEntry[]) => {
     let out: CycleEntry[];
     if (sinceCallId) {
       const at = entries.findIndex((e) => e.call.id === sinceCallId);
-      out = at >= 0 ? entries.slice(at + 1) : entries.filter((e) => !known.has(e.call.id));
+      out = at >= 0 ? entries.filter((e, i) => i > at || watched(e)) : entries.filter((e) => !known.has(e.call.id) || watched(e));
     } else {
-      out = entries.filter((e) => !known.has(e.call.id));
+      out = entries.filter((e) => !known.has(e.call.id) || watched(e));
     }
+    if (!quietMs) return out;
     // Waiting for a pause (a listen batch): a call still running is not a reason to return - it cannot be checked yet,
-    // and returning for it every few seconds while it runs only costs turns. Its end is a new signal.
-    return quietMs ? out.filter((e) => e.call.state !== 'IN_PROGRESS') : out;
+    // and returning for it every few seconds while it runs only costs turns. Its end is a new signal. Like a batch, the
+    // wait ends at the first call it must wait for, and a call that hung long ago is passed over.
+    const now = client.now();
+    const cut = out.findIndex((e) => blocking(e.call, now));
+    return (cut >= 0 ? out.slice(0, cut) : out).filter((e) => finished(e.call));
   };
   /** The fresh calls that are what we wait for - by their triage marks when waiting for a kind of trouble. */
   const wanted = async (fresh: CycleEntry[]): Promise<CycleEntry[]> => {
@@ -67,7 +139,7 @@ export async function waitForCalls(client: AlfredClient, cycleId: string, sinceC
     const marks = await triageOf(client, inbound.map((e) => e.call.id)).catch(() => ({}) as Record<string, TriageEntry>);
     return inbound.filter((e) => marks[e.call.id] && matches(until, signalsOfEntry(marks[e.call.id])));
   };
-  const ready = sinceCallId ? after(first.entries) : [];
+  const ready = after(first.entries);
   const readyMatched = ready.length ? await wanted(ready) : [];
   if (readyMatched.length && !quietMs) {
     return { newEntries: ready, total: first.entries.length, timedOut: false, recording: cycle.status === 'RECORDING', matched: readyMatched };
@@ -75,65 +147,114 @@ export async function waitForCalls(client: AlfredClient, cycleId: string, sinceC
 
   return new Promise((resolve, reject) => {
     const sockets: WebSocket[] = [];
+    const timers = new Set<ReturnType<typeof setTimeout>>();
     let settle: ReturnType<typeof setTimeout> | undefined;
     let quiet: ReturnType<typeof setTimeout> | undefined;
+    let burst: ReturnType<typeof setTimeout> | undefined;
+    let early: ReturnType<typeof setTimeout> | undefined;
+    let fallback: ReturnType<typeof setInterval> | undefined;
     let done = false;
+    let checking = false;
+    let again = false;
     /** With quietMs: what arrived so far - returned once nothing new came for quietMs, or at the timeout. */
-    let have: { newEntries: CycleEntry[]; total: number; matched: CycleEntry[] } | null =
-      readyMatched.length ? { newEntries: ready, total: first.entries.length, matched: readyMatched } : null;
-    const finish = (value: { newEntries: CycleEntry[]; total: number; timedOut: boolean; matched: CycleEntry[] } | Error) => {
+    let have: { newEntries: CycleEntry[]; total: number; matched: CycleEntry[] } | null = null;
+    /** The fresh calls seen so far: the pause starts over only when this grows. */
+    const seen = new Set<string>();
+    const finish = (value: { newEntries: CycleEntry[]; total: number; timedOut: boolean; matched: CycleEntry[]; woke?: string } | Error) => {
       if (done) return;
       done = true;
       clearTimeout(timer);
       clearTimeout(settle);
       clearTimeout(quiet);
-      for (const s of sockets) s.close();
+      clearTimeout(burst);
+      clearTimeout(early);
+      clearInterval(fallback);
+      for (const t of timers) clearTimeout(t);
+      for (const s of sockets) {
+        try { s.close(); } catch { /* already closed */ }
+      }
       if (value instanceof Error) reject(value);
       else resolve({ ...value, recording: cycle.status === 'RECORDING' });
     };
-    const armQuiet = () => {
-      clearTimeout(quiet);
-      quiet = setTimeout(() => finish({ ...have!, timedOut: false }), quietMs);
+    const returnHave = () => finish({ ...have!, timedOut: false });
+    /** Fresh calls arrived: a plain wait is over; a wait for a pause notes them and starts the pause over only if the burst grew. */
+    const adopt = (fresh: CycleEntry[], total: number, matched: CycleEntry[]) => {
+      const grew = fresh.some((e) => !seen.has(e.call.id));
+      for (const e of fresh) seen.add(e.call.id);
+      have = { newEntries: fresh, total, matched };
+      if (!quietMs) { returnHave(); return; }
+      if (grew || quiet === undefined) {
+        clearTimeout(quiet);
+        quiet = setTimeout(returnHave, quietMs);
+      }
+      // a burst that never pauses is returned this long after its first call
+      burst ??= setTimeout(returnHave, options.burstMs ?? BURST_MAX_MS);
+      // a failing call: the rest of its burst is a second away - no reason to wait out the whole pause
+      if (early === undefined && options.minStatus !== undefined
+        && fresh.some((e) => !!e.call.error || (e.call.response?.status ?? 0) >= options.minStatus!)) {
+        early = setTimeout(returnHave, EARLY_GRACE_MS);
+      }
     };
     const check = () => {
-      cycleEntries(client, cycle.id).then((entries) => ({ entries })).then(async (now) => {
-        const fresh = after(now.entries);
+      if (checking) { again = true; return; }
+      checking = true;
+      cycleEntries(client, cycle.id).then(async (entries) => {
+        const fresh = after(entries);
         if (!fresh.length) return;
         const matched = await wanted(fresh);
         if (!matched.length) return;
-        if (!quietMs) { finish({ newEntries: fresh, total: now.entries.length, timedOut: false, matched }); return; }
-        have = { newEntries: fresh, total: now.entries.length, matched };
-        armQuiet();
-      }).catch(finish);
+        adopt(fresh, entries.length, matched);
+      }).catch(finish).finally(() => {
+        checking = false;
+        if (again && !done) { again = false; check(); }
+      });
+    };
+    const probe = (w: Wake) => w.changed()
+      .then((yes) => {
+        if (yes) finish({ ...(have ?? { newEntries: [], total: first.entries.length, matched: [] }), timedOut: false, ...(w.label ? { woke: w.label } : {}) });
+      })
+      .catch(() => undefined);
+    const startFallback = () => {
+      if (fallback !== undefined || done) return;
+      fallback = setInterval(() => { check(); for (const w of wakes) void probe(w); }, options.fallbackMs ?? FALLBACK_MS);
     };
     // At the timeout, calls that already arrived are returned - a user who never pauses still gets them.
     const timer = setTimeout(() => finish(have ? { ...have, timedOut: false } : { newEntries: [], total: first.entries.length, timedOut: true, matched: [] }), timeoutMs);
-    if (wake) {
-      let wakeSettle: ReturnType<typeof setTimeout> | undefined;
-      for (const path of wake.sockets) {
-        const socket = new WebSocket(client.baseUrl.replace(/^http/, 'ws') + path);
-        socket.addEventListener('message', () => {
-          clearTimeout(wakeSettle);
-          wakeSettle = setTimeout(() => {
-            wake.changed().then((yes) => { if (yes) finish({ ...(have ?? { newEntries: [], total: first.entries.length, matched: [] }), timedOut: false }); })
-              .catch(() => undefined);
-          }, SETTLE_MS);
-        });
-        sockets.push(socket);
-      }
-    }
-    if (have) armQuiet();
+    if (readyMatched.length) adopt(ready, first.entries.length, readyMatched);
     const wsBase = client.baseUrl.replace(/^http/, 'ws');
-    for (const path of until === 'any' ? SOCKETS : [...SOCKETS, ...SIGNAL_SOCKETS]) {
-      const socket = new WebSocket(wsBase + path);
-      // A burst of calls arrives as a burst of messages: read the cycle once it settles, not per message.
-      socket.addEventListener('message', () => {
-        clearTimeout(settle);
-        // Something is still arriving: the quiet period starts again once it is read.
-        if (have) clearTimeout(quiet);
-        settle = setTimeout(() => { check(); if (have) armQuiet(); }, SETTLE_MS);
-      });
+    const open = (path: string, onMessage: (data: unknown) => void, onOpen?: () => void) => {
+      let socket: WebSocket;
+      try {
+        socket = new WebSocket(wsBase + path);
+      } catch {
+        startFallback();
+        return;
+      }
+      socket.addEventListener('message', (event) => onMessage(event.data));
+      if (onOpen) socket.addEventListener('open', onOpen);
+      socket.addEventListener('close', startFallback);
+      socket.addEventListener('error', startFallback);
       sockets.push(socket);
+    };
+    for (const w of wakes) {
+      let wakeSettle: ReturnType<typeof setTimeout> | undefined;
+      for (const path of w.sockets) {
+        // A burst of messages is asked about once, SETTLE_MS after its first - a flood of them must not postpone the asking for ever
+        open(path, () => {
+          if (wakeSettle !== undefined) return;
+          wakeSettle = setTimeout(() => { wakeSettle = undefined; void probe(w); }, SETTLE_MS);
+          timers.add(wakeSettle);
+        }, () => void probe(w)); // a change that came before the socket was open would never be heard
+      }
+      if (w.afterMs !== undefined) timers.add(setTimeout(() => void probe(w), w.afterMs));
+    }
+    for (const path of until === 'any' ? SOCKETS : [...SOCKETS, ...SIGNAL_SOCKETS]) {
+      // A burst of calls arrives as a burst of messages: read the cycle SETTLE_MS after the first, not per message.
+      open(path, (data) => {
+        if (path !== '/ws/session-cycles' && isNoise(data, cycle.id, quietMs > 0)) return;
+        if (settle !== undefined) return;
+        settle = setTimeout(() => { settle = undefined; check(); }, SETTLE_MS);
+      });
     }
   });
 }

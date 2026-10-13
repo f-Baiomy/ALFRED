@@ -70,18 +70,37 @@ interface SourceState {
 const cycleState = new Map<string, Map<CallEndpointSource, SourceState>>();
 const CYCLE_STATE_MAX = 20;
 
+/** A source with more calls still running than this is re-read as one tail from the first of them, not one request each. */
+const RUNNING_BY_ID_MAX = 10;
+
+/** One call of a cycle's source by its id (the cycle list narrows on it), as its entry; null when it is not there any more. */
+async function rereadOne(client: AlfredClient, cycleId: string, source: CallEndpointSource, entry: CycleEntry): Promise<CycleEntry | null> {
+  const page = await client.get<CapturedPage>(`/session-cycles/${seg(cycleId)}/${segmentOf(source)}`, {
+    query: { paged: true, sort: 'oldest', offset: 0, limit: 20, requestId: entry.call.id },
+    notFound: `Session cycle ${cycleId} not found.`,
+  });
+  const again = page.calls.find((c) => c.id === entry.capturedId && c.call.id === entry.call.id);
+  return again ? { capturedId: again.id, capturedAt: again.capturedAt, call: toCallRecord(again.call, source) } : null;
+}
+
 /**
  * The calls of one source added since the last read - plus every call still running then, read again so its finished
  * copy replaces it. Re-reads the whole source when anything before the known tail changed (a call removed, the cycle
  * deleted and made again): the last known call must still be where it was, and the total must not have shrunk.
+ *
+ * A call that never finishes sits far back in a long cycle: reading the tail from it would cost every page after it on
+ * every read, for ever. When a few calls are running and the tail from the first is longer than a page, the tail is
+ * read from the last known call and each running call by its own id.
  */
 async function refreshSource(client: AlfredClient, cycleId: string, source: CallEndpointSource, state: SourceState | undefined): Promise<SourceState> {
   if (!state || !state.entries.length) return { entries: await listSource(client, cycleId, source, 'oldest') };
   const known = state.entries;
-  const firstRunning = known.findIndex((e) => e.call.state === 'IN_PROGRESS');
+  const running = known.flatMap((e, i) => (e.call.state === 'IN_PROGRESS' ? [i] : []));
+  const firstRunning = running.length ? running[0] : -1;
+  const byId = firstRunning >= 0 && running.length <= RUNNING_BY_ID_MAX && known.length - firstRunning > PAGE;
   // Start one before the first call to re-read (the last known one, or the first still running): it must come back
   // unchanged in place, or something before it moved.
-  const from = Math.max(0, (firstRunning >= 0 ? firstRunning : known.length) - 1);
+  const from = Math.max(0, byId ? known.length - 1 : (firstRunning >= 0 ? firstRunning : known.length) - 1);
   const fresh: CycleEntry[] = [];
   let total = 0;
   for (let offset = from; ; offset += PAGE) {
@@ -96,7 +115,16 @@ async function refreshSource(client: AlfredClient, cycleId: string, source: Call
   if (total < known.length || fresh[0]?.capturedId !== known[from].capturedId) {
     return { entries: await listSource(client, cycleId, source, 'oldest') };
   }
-  return { entries: [...known.slice(0, from), ...fresh] };
+  const head = known.slice(0, from);
+  if (byId) {
+    for (const i of running.filter((at) => at < from)) {
+      const again = await rereadOne(client, cycleId, source, known[i]);
+      // gone from the cycle: something before the tail changed
+      if (!again) return { entries: await listSource(client, cycleId, source, 'oldest') };
+      head[i] = again;
+    }
+  }
+  return { entries: [...head, ...fresh] };
 }
 
 /**

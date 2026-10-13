@@ -412,6 +412,38 @@ class SqliteSessionCyclesRepositoryTest {
     }
 
     @Test
+    void completingByCallIdFindsEveryCyclesInProgressCopyWithoutKnowingTheCycles() throws Exception {
+        // What a completion that arrives after a restart relies on: nothing remembers which cycles captured the call.
+        SqliteSessionCyclesRepository repo = repositoryFor(tempDir.resolve("session-cycles.db"));
+        String callId = UUID.randomUUID().toString();
+        String otherCallId = UUID.randomUUID().toString();
+        repo.append("c1", preparedCall(callId, "https://a.com/x"));
+        repo.append("c2", preparedCall(callId, "https://a.com/x"));
+        repo.append("c3", preparedCall(callId, "https://a.com/x"));
+        repo.append("c1", preparedCall(otherCallId, "https://a.com/y"));
+        // c3 already got its outcome (its own completion arrived before the restart): it is not touched again
+        repo.completeCapturedCall("c3", callId, new ResponseData(200, null, "first"), null, 5.0, null, null);
+
+        List<String> completed = repo.completeInProgressCapturedCalls(callId, new ResponseData(500, null, "{\"boom\":true}"), null, 42.0, null, null);
+
+        assertThat(completed).containsExactlyInAnyOrder("c1", "c2");
+        for (String cycleId : List.of("c1", "c2")) {
+            CapturedCall copy = repo.findByCallId(cycleId, callId).orElseThrow();
+            assertThat(copy.call().state()).isEqualTo(CallLifecycleStatus.COMPLETED);
+            assertThat(copy.call().response().status()).isEqualTo(500);
+            assertThat(copy.call().response().body()).isEqualTo("{\"boom\":true}");
+            assertThat(copy.call().durationMs()).isEqualTo(42.0);
+        }
+        assertThat(repo.findByCallId("c3", callId).orElseThrow().call().response().body()).isEqualTo("first");
+        assertThat(repo.findByCallId("c1", otherCallId).orElseThrow().call().state()).isEqualTo(CallLifecycleStatus.IN_PROGRESS);
+        // the cycles' search sees the outcome too
+        assertThat(repo.query("c2", "boom", "", "newest", 0, 10, true).items()).extracting(c -> c.call().id()).containsExactly(callId);
+        // a repeated or unknown completion has nothing in progress left to complete
+        assertThat(repo.completeInProgressCapturedCalls(callId, new ResponseData(200, null, null), null, 1.0, null, null)).isEmpty();
+        assertThat(repo.completeInProgressCapturedCalls("missing-call", new ResponseData(200, null, null), null, 1.0, null, null)).isEmpty();
+    }
+
+    @Test
     void completingAnUnknownCycleOrCallReturnsFalseWithoutThrowing() throws Exception {
         SqliteSessionCyclesRepository repo = repositoryFor(tempDir.resolve("session-cycles.db"));
 

@@ -1,5 +1,6 @@
 package com.fathy.alfred.backend.board.application.service;
 
+import com.fathy.alfred.backend.board.application.port.in.CommentOnCardUseCase;
 import com.fathy.alfred.backend.board.application.port.in.CreateCardUseCase;
 import com.fathy.alfred.backend.board.application.port.in.UpdateCardUseCase;
 import com.fathy.alfred.backend.board.domain.ClaudeRules;
@@ -162,21 +163,92 @@ class BoardServiceCardsTest {
         assertThat(f.board.undoClose(Actor.CLAUDE, id).outcome()).isEqualTo(CardChange.Outcome.REFUSED_FOR_CLAUDE);
     }
 
-    @Test
-    void claudeIsRefusedACardThatRepeatsOneTheUserDismissed() {
+    /** A card the user closed as Fine over call c1 of GET /health; c2 is another 401 of the same endpoint. */
+    private void dismissedHealthCard(String title) {
         f.signatures.put("c1", "4xx|GET /health");
         f.signatures.put("c2", "4xx|GET /health");
-        MentionRef first = new MentionRef(MentionType.CALL, "in:c1", "GET /health · 401");
-        String dismissed = f.create(Actor.USER, "p", "401 on /health", List.of(first)).card().card().id();
+        String dismissed = f.create(Actor.USER, "p", title, List.of(new MentionRef(MentionType.CALL, "in:c1", "GET /health · 401")))
+                .card().card().id();
         f.board.close(Actor.USER, dismissed, Resolution.FINE, "health needs no session");
+    }
 
-        CardChange again = f.create(Actor.CLAUDE, "p", "401 again", List.of(new MentionRef(MentionType.CALL, "in:c2", "GET /health · 401")));
+    @Test
+    void claudeIsRefusedACardThatNamesTheSameCallAsOneTheUserDismissed() {
+        dismissedHealthCard("401 on /health");
+
+        // a title that shares nothing with the dismissed one, but the very call the user dismissed
+        CardChange again = f.create(Actor.CLAUDE, "p", "Probe rejected", List.of(new MentionRef(MentionType.CALL, "in:c1", "GET /health · 401")));
 
         assertThat(again.outcome()).isEqualTo(CardChange.Outcome.DUPLICATE_OF_CLOSED);
         assertThat(again.message()).contains("#1").contains("Fine - not an issue").contains("health needs no session");
         // the user may still add it
-        assertThat(f.create(Actor.USER, "p", "401 again", List.of(new MentionRef(MentionType.CALL, "in:c2", "x"))).outcome())
+        assertThat(f.create(Actor.USER, "p", "401 again", List.of(new MentionRef(MentionType.CALL, "in:c1", "x"))).outcome())
                 .isEqualTo(CardChange.Outcome.OK);
+    }
+
+    @Test
+    void theSameCallCapturedInACycleIsStillTheSameCall() {
+        dismissedHealthCard("401 on /health");
+
+        CardChange again = f.create(Actor.CLAUDE, "p", "Probe rejected", List.of(new MentionRef(MentionType.CALL, "in:c1@cycle-9", "GET /health · 401")));
+
+        assertThat(again.outcome()).isEqualTo(CardChange.Outcome.DUPLICATE_OF_CLOSED);
+    }
+
+    @Test
+    void aCallOnlyMentionedInTheDismissedCardsCommentCountsAsItsCall() {
+        f.signatures.put("c1", "4xx|GET /health");
+        f.signatures.put("c3", "4xx|GET /health");
+        String dismissed = f.create(Actor.USER, "p", "401 on /health", List.of(new MentionRef(MentionType.CALL, "in:c1", "x"))).card().card().id();
+        f.board.comment(Actor.USER, dismissed, new CommentOnCardUseCase.Comment("again at @[call:in:c3|GET /health · 401]", null, null, null, null));
+        f.board.close(Actor.USER, dismissed, Resolution.NOT_IN_FLOW, null);
+
+        CardChange again = f.create(Actor.CLAUDE, "p", "Probe rejected", List.of(new MentionRef(MentionType.CALL, "in:c3", "x")));
+
+        assertThat(again.outcome()).isEqualTo(CardChange.Outcome.DUPLICATE_OF_CLOSED);
+        assertThat(again.message()).contains("Not in this flow");
+    }
+
+    @Test
+    void claudeIsRefusedACardWhoseTitleSharesTwoWordsWithTheDismissedOne() {
+        dismissedHealthCard("401 on health endpoint");
+
+        // another call (c2), but "health" and "endpoint" are the dismissed card's own words
+        CardChange again = f.create(Actor.CLAUDE, "p", "Health endpoint answers 401 again", List.of(new MentionRef(MentionType.CALL, "in:c2", "GET /health · 401")));
+
+        assertThat(again.outcome()).isEqualTo(CardChange.Outcome.DUPLICATE_OF_CLOSED);
+        assertThat(again.message()).contains("#1").contains("401 on health endpoint");
+    }
+
+    @Test
+    void aRepeatOnAnotherCallWithOneSharedWordIsCreatedAndShowsTheClosedCardAsAHint() {
+        dismissedHealthCard("401 on health endpoint");
+
+        CardChange other = f.create(Actor.CLAUDE, "p", "Health probe slow", List.of(new MentionRef(MentionType.CALL, "in:c2", "GET /health · 401")));
+
+        assertThat(other.outcome()).isEqualTo(CardChange.Outcome.OK);
+        assertThat(other.card().similarClosed()).isNotNull();
+        assertThat(other.card().similarClosed().number()).isEqualTo(1);
+        assertThat(other.card().similarClosed().resolution()).isEqualTo(Resolution.FINE);
+    }
+
+    @Test
+    void aRepeatOnAnotherCallSharingNoWordIsCreatedToo() {
+        dismissedHealthCard("401 on /health");
+
+        CardChange other = f.create(Actor.CLAUDE, "p", "401 again", List.of(new MentionRef(MentionType.CALL, "in:c2", "GET /health · 401")));
+
+        assertThat(other.outcome()).isEqualTo(CardChange.Outcome.OK);
+        assertThat(other.card().similarClosed()).isNotNull();
+        assertThat(other.card().similarClosed().reason()).isEqualTo("health needs no session");
+    }
+
+    @Test
+    void aCardWithNoCallOfItsOwnIsNeverASignatureRepeat() {
+        dismissedHealthCard("401 on health endpoint");
+
+        // no mention, so no signature: the title alone never refuses
+        assertThat(f.create(Actor.CLAUDE, "p", "Health endpoint answers 401 again", List.of()).outcome()).isEqualTo(CardChange.Outcome.OK);
     }
 
     @Test

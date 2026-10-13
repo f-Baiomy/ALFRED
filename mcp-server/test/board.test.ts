@@ -77,6 +77,68 @@ test('board_closed_reasons lists what the user dismissed', async () => {
   } finally { await w.close(); }
 });
 
+test('board_closed_reasons pages a long list with a nextOffset instead of failing over the reply budget', async () => {
+  const w = await world();
+  try {
+    w.fake.board.closedReasons = Array.from({ length: 150 }, (_, i) => ({ number: i + 1, title: `Closed card ${i}`, signature: `4xx|GET /health/${i}`,
+      resolution: 'FINE', reason: `expected ${'because it is the health probe '.repeat(8)}${i}` }));
+    const seen: string[] = [];
+    let offset = 0;
+    let pages = 0;
+    for (;;) {
+      const r = await w.call('board_closed_reasons', { project: 'p', offset });
+      assert.equal(r.isError, false, r.text);
+      assert.equal(r.json.total, 150);
+      assert.ok(r.text.length <= 16_000);
+      seen.push(...r.json.closed);
+      pages++;
+      if (r.json.nextOffset === undefined) break;
+      assert.ok(r.json.nextOffset > offset, 'every page moves on');
+      offset = r.json.nextOffset;
+    }
+    assert.ok(pages > 1, 'the list does not fit one reply');
+    assert.equal(seen.length, 150);
+    assert.equal(new Set(seen).size, 150, 'no card twice');
+    assert.match(seen[0], /^#1 Closed card 0 - FINE: expected /);
+    assert.match(seen[149], /^#150 Closed card 149 /);
+    assert.equal(w.fake.requests('GET', '/board/closed-reasons')[0].query.get('limit'), '500', 'the backend has no offset: it is asked for all it answers');
+
+    const small = await w.call('board_closed_reasons', { project: 'p', limit: 10, offset: 20 });
+    assert.equal(small.json.closed.length, 10);
+    assert.match(small.json.closed[0], /^#21 /);
+    assert.equal(small.json.nextOffset, 30);
+  } finally { await w.close(); }
+});
+
+test('board_closed_reasons says when Alfred answered its most', async () => {
+  const w = await world();
+  try {
+    w.fake.board.closedReasons = Array.from({ length: 500 }, (_, i) => ({ number: i + 1, title: `c${i}`, signature: null, resolution: 'FINE', reason: null }));
+    const r = await w.call('board_closed_reasons', { project: 'p', limit: 500 });
+    assert.equal(r.isError, false, r.text);
+    assert.match(r.json.note, /at most 500 closed cards/);
+  } finally { await w.close(); }
+});
+
+test('board_list shows the calls among a card\'s first mentions, shortened', async () => {
+  const w = await world();
+  try {
+    await w.call('board_add', { project: 'p', kind: 'BUG', title: 'Fare lost' });
+    await w.call('board_add', { project: 'p', kind: 'BUG', title: 'No calls' });
+    w.fake.board.cards[0].mentionChips = [
+      { type: 'call', ref: 'in:3f2a9c1d-aaaa-bbbb-cccc-111122223333', label: 'POST /orders · 500' },
+      { type: 'spec', ref: 'cy/spec.md', label: 'spec' },
+      { type: 'CALL', ref: 'out:7b81e0aa-1111-2222-3333-444455556666@cy', label: 'GET /x' },
+      { type: 'call', ref: 'in:3f2a9c1d-aaaa-bbbb-cccc-111122223333', label: 'again' },
+    ];
+    w.fake.board.cards[1].mentionChips = [{ type: 'stmt', ref: 'a1/3', label: 'INSERT' }];
+    const r = await w.call('board_list', { project: 'p' });
+    assert.equal(r.isError, false, r.text);
+    assert.match(r.json.cards[0], /^#1 BUG Fare lost - INBOX.* · calls: in:3f2a9c1d… out:7b81e0aa…$/);
+    assert.doesNotMatch(r.json.cards[1], /calls:/);
+  } finally { await w.close(); }
+});
+
 test('get_brief and read_spec read the cycle\'s brief, spec text, one section and the checklist marks', async () => {
   const w = await world();
   try {

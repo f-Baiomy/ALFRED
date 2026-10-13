@@ -44,14 +44,15 @@ public class LiveWorkController {
                 body.steps(), body.draft(), body.state(), body.outcome())));
     }
 
+    /** The runner answering the board - the live runner, else the listen runner - or only the one of {@code kind} (live or listen). */
     @GetMapping("/board/live-runner")
-    public ResponseEntity<?> runner(@RequestParam(defaultValue = "") String project) {
-        return work.runner(project).<ResponseEntity<?>>map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.noContent().build());
+    public ResponseEntity<?> runner(@RequestParam(defaultValue = "") String project, @RequestParam(required = false) String kind) {
+        return work.runner(project, kind).<ResponseEntity<?>>map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.noContent().build());
     }
 
     @PutMapping("/board/live-runner")
     public ResponseEntity<?> beat(@Valid @RequestBody LiveRunnerRequestDto body) {
-        return ResponseEntity.ok(work.beat(body.project(), body.host(), body.model(), body.stopped()));
+        return ResponseEntity.ok(work.beat(body.project(), body.host(), body.model(), body.kind(), body.stopped()));
     }
 
     @PostMapping("/board/live-work/{id}/stop")
@@ -60,12 +61,14 @@ public class LiveWorkController {
                 .orElseGet(() -> BoardWeb.refused(CardChange.Outcome.NOT_FOUND, "No such live answer - it may have ended"));
     }
 
+    /** {@code kind}: "live" (the default) or "listen". */
     public record LiveRunnerRequestDto(@Size(max = 100) String project, @Size(max = 200) String host, @Size(max = 100) String model,
-                                       boolean stopped) {
+                                       @Size(max = 20) String kind, boolean stopped) {
     }
 
+    /** Steps, each step and the outcome are cut to the service's own bounds rather than refused: a long run's report must still land. */
     public record LiveWorkRequestDto(@NotBlank @Size(max = 100) String id, @Size(max = 100) String project, @Min(1) @Max(10_000_000) int cardNumber,
-                                     @Size(max = 200) String head, @Size(max = 100) List<@Size(max = 2000) String> steps,
-                                     @Size(max = 64 * 1024) String draft, LiveWork.State state, @Size(max = 500) String outcome) {
+                                     @Size(max = 200) String head, @Size(max = 200) List<@Size(max = 2000) String> steps,
+                                     @Size(max = 64 * 1024) String draft, LiveWork.State state, @Size(max = 2000) String outcome) {
     }
 }

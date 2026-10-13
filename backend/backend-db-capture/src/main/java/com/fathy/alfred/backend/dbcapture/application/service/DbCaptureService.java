@@ -13,6 +13,7 @@ import com.fathy.alfred.backend.dbcapture.domain.DeletedRowsResolver;
 import com.fathy.alfred.backend.dbcapture.domain.model.AgentDirective;
 import com.fathy.alfred.backend.dbcapture.domain.model.AgentStatus;
 import com.fathy.alfred.backend.dbcapture.domain.model.BeforeImage;
+import com.fathy.alfred.backend.dbcapture.domain.model.CallDbSummary;
 import com.fathy.alfred.backend.dbcapture.domain.model.CallMarker;
 import com.fathy.alfred.backend.dbcapture.domain.model.DbCaptureSettings;
 import com.fathy.alfred.backend.dbcapture.domain.model.FailureCounts;
@@ -47,6 +48,31 @@ public class DbCaptureService implements IngestStatementsUseCase, RecordAgentHea
 
     /** How far back in a call the earlier-read lookup searches. */
     static final int MAX_EARLIER_READS = 5_000;
+
+    /** How many calls reported complete before their first statements are remembered (the oldest are forgotten first). */
+    static final int MAX_EARLY_COMPLETIONS = 2_000;
+
+    /**
+     * What a call ended with, remembered until the agent's first batch for it creates its summary. Only whether there was an
+     * error matters to the completion, so a long one is kept short: 2,000 of these must not hold megabytes.
+     */
+    private record EarlyCompletion(Integer status, String error) {
+        EarlyCompletion {
+            error = error == null ? null : error.strip();
+            if (error != null && error.length() > 200) {
+                error = error.substring(0, 200);
+            }
+        }
+    }
+
+    private final Object earlyLock = new Object();
+    /** Calls reported complete while no summary of theirs existed yet, oldest first; guarded by {@link #earlyLock}. */
+    private final Map<String, EarlyCompletion> earlyCompletions = new LinkedHashMap<>() {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<String, EarlyCompletion> eldest) {
+            return size() > MAX_EARLY_COMPLETIONS;
+        }
+    };
 
     private final DbCaptureStorePort store;
     private final DbCaptureNotificationPort notifications;
@@ -152,6 +178,7 @@ public class DbCaptureService implements IngestStatementsUseCase, RecordAgentHea
             if (batch.project() != null && !batch.project().isBlank()) {
                 store.setCallProject(entry.getKey(), batch.project());
             }
+            completeIfReportedEarlier(entry.getKey());
         }
         store.addDropped(batch.droppedByCall());
         List<CaughtLogLine> logs = batch.logs() == null ? List.of() : batch.logs();
@@ -214,6 +241,27 @@ public class DbCaptureService implements IngestStatementsUseCase, RecordAgentHea
             out.add(next);
         }
         return out;
+    }
+
+    /**
+     * The proxy reports a call complete without waiting for the agent, whose batches can arrive after it. A completion that
+     * found no summary was remembered by {@link #callCompleted}; now that this batch has created one, the call is finished
+     * the way it would have been had the report come last.
+     */
+    private void completeIfReportedEarlier(String callId) {
+        EarlyCompletion early;
+        Optional<CallDbSummary> summary;
+        synchronized (earlyLock) {
+            if (!earlyCompletions.containsKey(callId)) {
+                return;
+            }
+            summary = store.summary(callId);
+            if (summary.isEmpty()) {
+                return; // nothing was stored for it after all: it stays remembered
+            }
+            early = earlyCompletions.remove(callId);
+        }
+        finish(callId, early.status(), early.error(), summary.get());
     }
 
     private static boolean needsEarlierRead(IncomingStatement s) {
@@ -335,23 +383,42 @@ public class DbCaptureService implements IngestStatementsUseCase, RecordAgentHea
             // the ⬢ chip stops being "live"; a call whose application died mid-call ended its capture early
             storeCommands.callCompleted(callId, !answeredAtAll && error != null && !error.isBlank());
         }
-        Optional<com.fathy.alfred.backend.dbcapture.domain.model.CallDbSummary> summary = store.summary(callId);
+        Optional<CallDbSummary> summary = store.summary(callId);
+        if (summary.isEmpty()) {
+            // The agent's first batch for this call may not have arrived yet: remember how it ended, for ingest to apply.
+            // Looked at again under the lock ingest takes to claim it, so a batch landing in between is not missed.
+            synchronized (earlyLock) {
+                summary = store.summary(callId);
+                if (summary.isEmpty()) {
+                    earlyCompletions.remove(callId); // a repeated report is the newest again
+                    earlyCompletions.put(callId, new EarlyCompletion(status, error));
+                }
+            }
+        }
         if (summary.isEmpty()) {
             if (signals != null && storeCommands != null) {
                 signals.publish(List.of(callId));
             }
             return;
         }
-        boolean answered = status != null && status > 0;
-        if (summary.get().failedCount() > 0) {
-            store.markFailuresSwallowed(callId, answered && status < 500);
-            publishFailures(callId);
-        }
-        store.markComplete(callId, !answered && error != null && !error.isBlank() && !summary.get().complete());
+        finish(callId, status, error, summary.get());
         listeners.forEach(listener -> listener.callIngested(callId));
         notifications.statementsAppended(callId, summary.get().lastSeq(), true);
         if (signals != null) {
             signals.publish(List.of(callId)); // flags are final now
         }
+    }
+
+    /**
+     * What the call's end decides about what was captured: a failure the call answered below 500 over was swallowed, and a
+     * capture still open when the call died without an answer ended early.
+     */
+    private void finish(String callId, Integer status, String error, CallDbSummary summary) {
+        boolean answered = status != null && status > 0;
+        if (summary.failedCount() > 0) {
+            store.markFailuresSwallowed(callId, answered && status < 500);
+            publishFailures(callId);
+        }
+        store.markComplete(callId, !answered && error != null && !error.isBlank() && !summary.complete());
     }
 }

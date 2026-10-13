@@ -31,16 +31,28 @@ public class BoardCallSignatureAdapter implements CallSignaturePort {
         }
         String resolverDirection = "out".equals(direction) ? "outbound" : "inbound";
         try {
-            return calls.resolve(resolverDirection, callId, cycleId)
-                    .filter(c -> c.method() != null && c.url() != null)
-                    .map(c -> signalOf(c) + "|" + endpoints.endpointOf(c.method(), c.url()));
+            // The summary has everything a signature needs; the headers and bodies of a big call are never loaded for it.
+            // The summary lookup can miss a call that exists (see CallRefResolver), so a miss falls back to the full one.
+            return calls.head(resolverDirection, callId, cycleId)
+                    .filter(h -> h.method() != null && h.url() != null)
+                    .map(h -> signatureFor(h.method(), h.url(), h.status()))
+                    .or(() -> calls.resolve(resolverDirection, callId, cycleId)
+                            .filter(c -> c.method() != null && c.url() != null)
+                            .map(c -> signatureFor(c.method(), c.url(), c.responseStatus())));
         } catch (RuntimeException e) {
             return Optional.empty(); // a call that cannot be read gives no signature, never a failed save
         }
     }
 
+    private String signatureFor(String method, String url, Integer status) {
+        return signalOf(status) + "|" + endpoints.endpointOf(method, url);
+    }
+
     static String signalOf(ResolvedCall call) {
-        Integer status = call.responseStatus();
+        return signalOf(call.responseStatus());
+    }
+
+    private static String signalOf(Integer status) {
         if (status == null) {
             return "error";
         }
