@@ -98,15 +98,32 @@ describe('MentionEditorComponent', () => {
     expect(fixture.componentInstance.value()).toBe('a  b');
   });
 
-  it('submits on Ctrl+Enter; a plain Enter is a line break', () => {
+  it('a comment or reply: Enter sends, Shift+Enter is a line break', () => {
     const fixture = create();
     const sent: string[] = [];
     fixture.componentInstance.submitted.subscribe((t) => sent.push(t));
     const box = type(fixture, 'a comment');
-    box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true }));
     expect(fixture.componentInstance.value()).toBe('a comment\n');
-    box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true }));
+    expect(sent).toEqual([]);
+    box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
     expect(sent).toEqual(['a comment\n']);
+    box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true }));
+    expect(sent.length).toBe(1);
+  });
+
+  it('a long text (enterSends false): Enter is a line break, Ctrl+Enter sends', () => {
+    const fixture = create();
+    fixture.componentRef.setInput('enterSends', false);
+    fixture.detectChanges();
+    const sent: string[] = [];
+    fixture.componentInstance.submitted.subscribe((t) => sent.push(t));
+    const box = type(fixture, 'a description');
+    box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    expect(fixture.componentInstance.value()).toBe('a description\n');
+    expect(sent).toEqual([]);
+    box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true }));
+    expect(sent).toEqual(['a description\n']);
   });
 
   it('empties the box when the value is cleared after a submit', () => {

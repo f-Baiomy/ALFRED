@@ -125,7 +125,7 @@ import { SelectOption, SelectPickerComponent } from '../../select-picker/select-
             @if (editingDescription()) {
               <app-mention-editor [value]="descriptionDraft() ?? c.description" [project]="c.project" [cycleId]="c.cycleId" [contextMentions]="c.links"
                                   [card]="pickTarget()" pickField="description"
-                                  submitLabel="Save" [cancellable]="true" [allowEmpty]="true" [rows]="8"
+                                  submitLabel="Save" [cancellable]="true" [allowEmpty]="true" [rows]="8" [enterSends]="false"
                                   (submitted)="saveDescription($event)" (cancelled)="editingDescription.set(false); descriptionDraft.set(null)" />
             } @else {
               <div class="board-desc"><app-markdown-view [text]="c.description" empty="No description yet." [idPrefix]="'card-' + c.id + '-'" /></div>

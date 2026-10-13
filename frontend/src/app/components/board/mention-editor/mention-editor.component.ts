@@ -8,8 +8,9 @@ import { MentionPickerComponent } from '../mention-picker/mention-picker.compone
 /**
  * A Markdown text box with mentions (FR-022). Mentions show as small pills, not as their `@[type:ref|label]` text: the
  * box is a contenteditable where each mention is one non-editable chip (deleted as a whole), and `value` is always the
- * serialized text (shared/utils/mention-dom.ts). Typing `@` opens the picker at the caret; Ctrl+Enter submits; Enter is
- * a line break; a paste is plain text, its mentions turned into pills.
+ * serialized text (shared/utils/mention-dom.ts). Typing `@` opens the picker at the caret; Enter submits and Shift+Enter
+ * is a line break (enterSends, a comment or reply) - or, for long texts (a description, a brief), Enter is a line break
+ * and Ctrl+Enter submits; a paste is plain text, its mentions turned into pills.
  */
 @Component({
   selector: 'app-mention-editor',
@@ -26,7 +27,7 @@ import { MentionPickerComponent } from '../mention-picker/mention-picker.compone
            [attr.data-placeholder]="placeholder()" [attr.aria-label]="placeholder()" [style.min-height.em]="rows() * 1.5"
            (input)="onInput()" (keydown)="onKeydown($event)" (paste)="onPaste($event)" (blur)="saveCaret()"></div>
       <div class="board-editor-hint">
-        <span><kbd>&#64;</kbd> mention · <kbd>Ctrl</kbd>+<kbd>Enter</kbd> {{ submitLabel().toLowerCase() }} · Markdown</span>
+        <span><kbd>&#64;</kbd> mention · @if (enterSends()) {<kbd>Enter</kbd> {{ submitLabel().toLowerCase() }} · <kbd>Shift</kbd>+<kbd>Enter</kbd> new line} @else {<kbd>Ctrl</kbd>+<kbd>Enter</kbd> {{ submitLabel().toLowerCase() }}} · Markdown</span>
         <span class="board-editor-actions">
           <button type="button" class="action-btn" title="Mention something" (mousedown)="$event.preventDefault()" (click)="openPicker()">&#64; Mention</button>
           @if (cancellable()) { <button type="button" class="action-btn" (click)="cancelled.emit()">Cancel</button> }
@@ -50,6 +51,8 @@ export class MentionEditorComponent implements AfterViewInit {
   readonly cancellable = input(false);
   readonly allowEmpty = input(false);
   readonly rows = input(3);
+  /** Enter sends (a comment, reply, answer); false for long texts, where Enter is a line break and Ctrl+Enter sends. */
+  readonly enterSends = input(true);
   readonly submitted = output<string>();
   readonly cancelled = output<void>();
 
@@ -105,10 +108,14 @@ export class MentionEditorComponent implements AfterViewInit {
   }
 
   onKeydown(event: KeyboardEvent): void {
-    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+    if (event.key !== 'Enter' || event.isComposing) return;
+    const sends = event.ctrlKey || event.metaKey || (this.enterSends() && !event.shiftKey && !event.altKey);
+    if (sends && this.pickerOpen()) {
+      event.preventDefault(); // Enter belongs to the mention picker while it is open - never a half-written send
+    } else if (sends) {
       event.preventDefault();
       this.submit();
-    } else if (event.key === 'Enter') {
+    } else {
       // A line break as "\n" in the text, not the <div> a browser would add.
       event.preventDefault();
       this.insertText('\n');
