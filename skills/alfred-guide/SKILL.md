@@ -35,9 +35,9 @@ anytime.
 
 ## "What should I do next?"
 
-Look at the real board, read-only: `board_next_steps` for the project (and `board_search` with `mine: true`,
-`board_changes` cursor `claude` when useful), `list_cycles` for recent cycles. Then answer with the one most useful
-next step and its command, e.g.:
+Look at the real board, read-only: `task_context` on the task in play (no task: it lists them) - it names the next
+step itself; `board_next_steps` for the project (and `board_search` with `mine: true`, `board_changes` cursor `claude`
+when useful) for the rest. Then answer with the one most useful next step and its command, e.g.:
 
 - questions wait on the user → "Answer the 2 questions on #11 (the Answer button on the card), then `/alfred-sync`."
 - cards in the Inbox → `/alfred-triage`
@@ -80,6 +80,9 @@ stops for the user, and one example command. Take it from the table above and `r
   when every status is fine. Claude learns what must match from the calls and the code; what it cannot tell it asks
   once on a `Learn: <flow>` card. Your answers, your Fine closes and the runs you confirm as good are kept in the repo's
   `CLAUDE.md` under `## Alfred checks` (rules "Project checks") - after your yes - so nothing is asked twice.
+- **New session, another machine, another agent** - nothing is lost: a cycle is a task and Alfred keeps its brief,
+  requirements, findings, decisions and Claude's earlier runs. Any skill starts from `task_context`; without the skills
+  (another agent, a fresh install) use the MCP prompt `resume` - in Claude Code `/mcp__alfred__resume <task>`.
 - **A `Learn:` card in the Inbox** - Claude's questions about a flow. Answer them on the card (or in `/alfred-triage`),
   then `/alfred-sync`.
 

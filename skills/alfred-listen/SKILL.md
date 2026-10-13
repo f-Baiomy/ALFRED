@@ -14,8 +14,9 @@ accuracy, a few tool calls per batch however many calls it holds.
 
 1. The cycle (`list_cycles` by name). `get_cycle` with `limit: 1`: its project and whether it is recording - if not,
    tell the user to press Record (listening still works; it waits for calls).
-2. `get_brief` (purpose, test steps, spec files, existing cards), `read_spec` for each spec file (the Acceptance list
-   and its `[key]`s), `board_closed_reasons` for the project, `board_teams`, the repo's "Project checks" (rules).
+2. `task_context` on the cycle (rules §0): the task, description, scope and out of scope, decisions, the requirements
+   with the user's marks, the test steps, the open findings and earlier runs. Then `read_spec` only for a requirement
+   you need in full, `board_closed_reasons` for the project, `board_teams`, the repo's "Project checks" (rules).
 3. **Steps need spacers.** Listening matches calls to the brief's steps by the user's spacers. Ask once: "Add a spacer
    in the cycle before each test step - or I group them by endpoint and show you the grouping at the end."
 4. Say in two lines what you will check (the Acceptance items, the project checks, the test steps) and that you are

@@ -11,7 +11,7 @@ The board (specs/014-task-board) tracks bugs, tasks, notes and questions next to
   - `BoardCycleRemovedAdapter` implements session-cycles' `CycleRemovedPort`.
   - Kept calls go through `storage/CommentedCallsKept`: its `BoardMentions` component implements the board's `MentionedCallsChangedPort`.
 - **Frontend**:
-  - The Board tab (`/board?project=&cycle=&card=`) and the session cycle page's Calls / Board / Brief & specs tabs both use one `BoardViewComponent`. Each view gets its own `BoardStateService`.
+  - The Board tab (`/board?project=&cycle=&card=`) and the session cycle page's Calls / Board / Task tabs both use one `BoardViewComponent`. Each view gets its own `BoardStateService`.
   - Every call card (`call-actions`) shows the cards that mention the call and a **＋ Board** button.
   - There is one `SpecViewerComponent` in the main layout.
 - **MCP**: `mcp-server/src/tools/board.ts` provides `board_list`, `board_get`, `board_add`, `board_comment`, `board_move`, `board_flag`, `board_closed_reasons`, `get_brief`, `read_spec` and `board_status`.
@@ -77,6 +77,32 @@ Types: `call` (`in:<id>` / `out:<id>`, plus `@<cycleId>` for a captured call), `
 - **Spec files**: `.md` / `.txt` only, by upload, drop or paste. Up to 5 MB each and 50 per cycle. A file with the same name replaces the old one; there are no versions. Every card that mentions a replaced file gets a "spec replaced" entry.
 - **Acceptance checklist**: the list items under a spec file's first heading that contains "acceptance". The user marks each one pass, fail or can't tell, with evidence. A mark is keyed by the SHA-256 of the item's normalized text, so it survives a replace that leaves the item unchanged. Claude never marks an item; it **suggests** a mark with evidence (`checklist_suggestions`, `PUT .../checklist/{file}/{item}/suggestion`). The suggestion shows grey under the item with Accept and dismiss. Accepting writes the user's own mark with Claude's evidence. Any mark the user sets clears the suggestion.
 - **Deleting a cycle** removes its brief, spec files and marks. Its cards stay on the project board, marked "cycle deleted".
+
+## The Task tab
+
+A session cycle is a task (skills/_shared/rules.md §0). The cycle page's **Task** tab and the Board's cycle view show it
+with `TaskViewComponent`. Everything comes from what `/board` already serves (brief, checklist, cards, steps, session
+log) and is derived in `shared/utils/task-view.ts`; there is no backend model of its own. It re-fetches on each
+`/ws/board` signal and never polls.
+
+- **The brief, by section**: the one-line goal, `## Task` (ticket ids and the branch), `## Description` (the ticket as
+  written), `## Scope`, `## Out of scope`, `## Decisions`. `## Test steps` and `## Data` show under "How to test it".
+  Other headings show as written, and a brief with no headings shows whole. Edit opens the template on an empty brief.
+- **Requirements** are the Acceptance items, labelled R1, R2 … across the spec files. Each one's state is taken from
+  the user's mark first (Pass = met), then the cards linked to the item (an open BUG = bug, an open TASK = missing,
+  FIXED = waiting on a re-test), then Claude's suggestion. An item with none of these shows "not checked". Problems
+  come first and met items fold away. Pass / Fail / Can't tell and Accept ✦ write the same marks as the checklist.
+- **The verdict** answers "does the code match the task?". Its tiles count each state, notes and "not in task"; a tile
+  filters the view. **The phase** reads Coded → Verifying → Fixed → Re-tested → Done from the same data. Done means every
+  requirement is marked Pass by the user and no bug or task card is open or Fixed.
+- **Claude's notes**: open NOTE cards not linked to a requirement, plus TASK cards no requirement names. A NOTE titled
+  `Not in the task: …` goes under **Changed, but not in the task** instead. It is code the branch changes that the task
+  never asked for.
+- **Needs you**: open cards with a question, a proposal, or waiting on the user. **Done when** is the hand-over rule,
+  checked live.
+- **Continue anywhere**: the `/mcp__alfred__resume <task>` command. The MCP's `task_context` derives requirement states
+  the same way (`requirementState`), so the user and every Claude session see one picture.
+- The spec files and the full acceptance checklist stay beside it, unchanged.
 
 ## Claude's limits
 

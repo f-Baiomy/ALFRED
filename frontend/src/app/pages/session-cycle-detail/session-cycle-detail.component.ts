@@ -44,9 +44,7 @@ import { CardSummary, NO_FILTERS } from '../../core/models/board.models';
 import { BoardApiService } from '../../core/services/board-api.service';
 import { BoardSocketService } from '../../core/services/board-socket.service';
 import { BoardViewComponent } from '../../components/board/board-view/board-view.component';
-import { CycleBriefComponent } from '../../components/board/cycle-brief/cycle-brief.component';
-import { SpecFilesComponent } from '../../components/board/spec-files/spec-files.component';
-import { AcceptanceChecklistComponent } from '../../components/board/acceptance-checklist/acceptance-checklist.component';
+import { TaskViewComponent } from '../../components/board/task-view/task-view.component';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
 /**
@@ -61,7 +59,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
   selector: 'app-session-cycle-detail',
   standalone: true,
   imports: [RouterLink, ActionMenuComponent, HeaderComponent, StatsBarComponent, CallListComponent, BulkActionsBarComponent, ExportDialogComponent, CopyToCyclesDialogComponent, ReliveSelectionDialogComponent, ImportCallsDialogComponent, EditCycleDialogComponent, ConfirmDialogComponent, ScenarioCycleChainPanelComponent,
-    BoardViewComponent, CycleBriefComponent, SpecFilesComponent, AcceptanceChecklistComponent],
+    BoardViewComponent, TaskViewComponent],
   providers: [
     SessionCycleDetailStateService,
     { provide: CALL_SELECTION_STATE, useExisting: SessionCycleDetailStateService },

@@ -16,6 +16,54 @@ its tools named `mcp__<name>__…`). Use the one the repo's `CLAUDE.md` names (`
 more than one connected, ask once which, and offer to write that line. Never mix two instances in one run - a card,
 a call id or a cycle belongs to the Alfred it came from.
 
+## 0. The task harness - Alfred is the memory, not the conversation
+
+A session cycle is a **task**: a piece of work whose code is finished and must now be checked against what was asked.
+Everything about it lives in Alfred - so a new session, another machine or another agent continues exactly where the
+work stands, and nothing depends on a conversation that is gone.
+
+- **Start every run with `task_context`** on the task (no task: it lists them - ask which). It is the whole state in
+  one call: the brief, the requirements with the user's marks, the test steps, the findings and who each waits on, what
+  the user decided, earlier runs, and the next step. Read more only when it is not enough (`get_brief`, `read_spec`,
+  `board_get`).
+- **Write everything worth keeping back to Alfred**, never only into the conversation: findings as cards, progress as
+  state comments (did / found / next), decisions the user makes as answers on the board, and one `board_session_log`
+  entry per run. A fact that is only in this chat is lost to the next session.
+- **The brief is the task**, in these sections (the ones that apply):
+
+  ```markdown
+  <one line: what the task delivers>
+  ## Task
+  <ticket id and link, branch>
+  ## Description
+  <what the user / ticket asked for, in their words>
+  ## Scope
+  <what is part of it>
+  ## Out of scope
+  <what is not - never card these>
+  ## Test steps
+  1. <one action each>
+  ## Data
+  - <accounts, records, values to follow>
+  ## Decisions
+  - <what the user decided along the way, with the date>
+  ```
+
+  The **requirements** are the Acceptance items of the spec files (the ticket or a spec): each one is checked as met,
+  bug, missing or can't tell. "Out of scope" and "Decisions" are binding: never raise what they exclude or settle.
+- **Checking the code against the task** (review, listen, fix): this session runs in the app's repo. Read the task
+  branch's change (`git diff --stat <base>...HEAD`, then the files that matter) once per run and map each requirement
+  to the code that implements it. A requirement no change touches and the calls show is not done is **missing** - a
+  TASK card, not a bug. Code the change touches that no requirement asks for and no call ran is a NOTE titled
+  `Not in the task: <file> <what it adds>` - scope creep or a requirement nobody wrote down; ask, never judge.
+- **The Task tab shows what you write** (the cycle page's Task tab and the Board's cycle view): a requirement's state
+  comes from the user's mark, then the cards linked to its Acceptance item (`board_link_spec`: an open BUG = bug, an
+  open TASK = missing, FIXED = waiting on a re-test), then your `board_suggest_mark`. So link every bug or missing card
+  to the item it breaks, and suggest a mark with evidence for each item you checked - an unlinked card shows only as a
+  note, an item with nothing shows "not checked".
+- No `/alfred-*` skills installed (another agent)? The MCP prompt `resume` (in Claude Code `/mcp__alfred__resume`)
+  gives the same start.
+
 ## 1. The user decides
 
 - You never close a card, set its scope, mark a checklist item, or move a card to Verified or Done.
@@ -289,6 +337,7 @@ or paused calls - the backend refuses all of it, and you never ask the user to l
 
 ## 5. Every run
 
+- First call: `task_context` (rules §0). Last call: `board_session_log`.
 - Keep the live strip current: `board_status` with `step` ("reviewing ODY-482 · 34/120 calls") while you work,
   STOPPED when you stop. If it answers `paused: true`, stop adding cards and tell the user.
 - End every run that touched a cycle with **one** `board_session_log` entry (skill, did, found, next).

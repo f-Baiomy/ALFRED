@@ -86,7 +86,7 @@
   <button type="button" role="tab" [class.on]="tab() === 'board'" (click)="selectTab('board')">Board
     @if (openCardCount()) { <span class="cycle-tab-count">{{ openCardCount() }} open</span> }
   </button>
-  <button type="button" role="tab" [class.on]="tab() === 'brief'" (click)="selectTab('brief')">Brief &amp; specs</button>
+  <button type="button" role="tab" [class.on]="tab() === 'brief'" title="The task this cycle checks: brief, requirements, specs" (click)="selectTab('brief')">Task</button>
 </div>
 
 @if (tab() === 'calls') {
@@ -99,12 +99,9 @@
 } @else if (tab() === 'board' && state.cycleId()) {
   <app-board-view [project]="cycleProject()" [cycleId]="state.cycleId()" [cycleName]="cycle()?.name ?? null" />
 } @else if (tab() === 'brief' && state.cycleId()) {
-  <div class="board-brief">
-    <app-cycle-brief [cycleId]="state.cycleId()" [project]="cycleProject()" [editable]="boardEditable()" [cycleName]="cycle()?.name ?? null" />
-    <div class="board-brief-side">
-      <app-spec-files [cycleId]="state.cycleId()" [editable]="boardEditable()" />
-      <app-acceptance-checklist [cycleId]="state.cycleId()" [project]="cycleProject()" [editable]="boardEditable()" />
-    </div>
+  <div class="task-page">
+    <app-task-view [cycleId]="state.cycleId()" [project]="cycleProject()" [editable]="boardEditable()" [cycleName]="cycle()?.name ?? null"
+                   (cardOpened)="selectTab('board')" />
   </div>
 }
 

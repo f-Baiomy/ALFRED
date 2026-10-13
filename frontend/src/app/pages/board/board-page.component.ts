@@ -7,10 +7,8 @@ import { SessionCycle } from '../../core/models/call.model';
 import { BoardMentionsService } from '../../core/services/board-mentions.service';
 import { DbCaptureApiService } from '../../core/services/db-capture-api.service';
 import { SessionCyclesApiService } from '../../core/services/session-cycles-api.service';
-import { AcceptanceChecklistComponent } from '../../components/board/acceptance-checklist/acceptance-checklist.component';
 import { BoardViewComponent } from '../../components/board/board-view/board-view.component';
-import { CycleBriefComponent } from '../../components/board/cycle-brief/cycle-brief.component';
-import { SpecFilesComponent } from '../../components/board/spec-files/spec-files.component';
+import { TaskViewComponent } from '../../components/board/task-view/task-view.component';
 import { BoardApiService } from '../../core/services/board-api.service';
 import { ConfirmDialogComponent } from '../../components/confirm-dialog/confirm-dialog.component';
 
@@ -21,7 +19,7 @@ import { ConfirmDialogComponent } from '../../components/confirm-dialog/confirm-
 @Component({
   selector: 'app-board-page',
   standalone: true,
-  imports: [SelectPickerComponent, AcceptanceChecklistComponent, BoardViewComponent, CycleBriefComponent, ConfirmDialogComponent, SpecFilesComponent],
+  imports: [SelectPickerComponent, BoardViewComponent, TaskViewComponent, ConfirmDialogComponent],
   template: `
     @if (windowMode()) {
       <app-board-view [project]="project()" [cycleId]="cycleId()" [windowMode]="true" />
@@ -40,13 +38,7 @@ import { ConfirmDialogComponent } from '../../components/confirm-dialog/confirm-
         }
       </div>
       @if (cycleId(); as id) {
-        <div class="board-brief">
-          <app-cycle-brief [cycleId]="id" [project]="project()" [editable]="editable()" [cycleName]="cycleName()" />
-          <div class="board-brief-side">
-            <app-spec-files [cycleId]="id" [editable]="editable()" />
-            <app-acceptance-checklist [cycleId]="id" [project]="project()" [editable]="editable()" />
-          </div>
-        </div>
+        <app-task-view [cycleId]="id" [project]="project()" [editable]="editable()" [cycleName]="cycleName()" />
       }
       <app-board-view [project]="project()" [cycleId]="cycleId()" [cycleName]="cycleName()" [onlyCycleDeleted]="onlyCycleDeleted()" />
     </div>

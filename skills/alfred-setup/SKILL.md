@@ -25,18 +25,35 @@ Do not start recording - the user does that when they are ready to test (say so)
 
 Draft both, **show them, and ask "Save these?"** - edit them as the user says, save only on yes:
 
-- **Brief** (`board_set_brief`):
+- **Brief** (`board_set_brief`) - the task, in the sections of rules §0, so any later session, machine or agent
+  reads it from `task_context`:
   ```
-  <one paragraph: what the task is and why>
+  <one line: what the task delivers>
+
+  ## Task
+  <ticket id / link, the branch (git branch --show-current) and its base>
+
+  ## Description
+  <what the ticket or the user asked for, in their words - not your summary>
+
+  ## Scope
+  - <what this task changes>
+
+  ## Out of scope
+  - <what it does not - listen and review never card these>
 
   ## Test steps
   1. <a step the tester does, one action each>
   2. ...
 
   ## Data
-  - <accounts, records, settings the steps need>
+  - <accounts, records, values the steps use - the ones that must survive to the end>
+
+  ## Decisions
+  - <empty at first; the user's decisions are added here as they are made>
   ```
-  The numbered list under "Test steps" is what listen / review tick off - keep one action per step.
+  The numbered list under "Test steps" is what listen / review tick off - keep one action per step. A ticket pasted
+  or linked: its text goes under Description as given, and its acceptance criteria into the spec below.
 - **Spec** (`board_put_spec`, name `spec.md` unless the user gives one) - only when the description holds
   requirements:
   ```

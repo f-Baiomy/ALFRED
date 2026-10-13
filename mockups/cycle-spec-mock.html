@@ -1,0 +1,878 @@
+<!doctype html>
+<html lang="en" data-theme="slate">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Brief and Specs Mock</title>
+<style>
+  /* Token values copied from frontend/src/styles.scss (:root, [data-theme='slate'], [data-theme='light']). */
+  :root {
+    --bg: radial-gradient(ellipse at top, #131a4a 0%, #0a0e2a 55%); --bg-solid: #0a0e2a;
+    --nav-bg: linear-gradient(120deg, #1a1247 0%, #0f1438 60%, #1a1247 100%);
+    --card: #141a45; --card-inner: #070a24; --panel-bg: rgba(10, 14, 42, 0.55); --bg-2: #0f1438;
+    --border: rgba(139, 92, 246, 0.22); --border-strong: rgba(139, 92, 246, 0.45);
+    --purple: #8b5cf6; --purple-light: #c4b5fd; --cyan: #22d3ee;
+    --text: #e5e9f5; --text-dim: #93a0c2; --text-faint: #5c6690;
+    --green: #34d399; --amber: #fbbf24; --red: #f87171; --popover-solid: #161c4a; --pink: #f472b6; --orange: #fb923c;
+  }
+  [data-theme='slate'] {
+    --bg: #141416; --bg-solid: #141416; --nav-bg: #141416;
+    --card: rgba(255, 255, 255, 0.035); --card-inner: rgba(0, 0, 0, 0.3);
+    --panel-bg: rgba(0, 0, 0, 0.2); --bg-2: rgba(255, 255, 255, 0.02);
+    --border: rgba(255, 255, 255, 0.09); --border-strong: rgba(255, 255, 255, 0.18);
+    --purple: #5b8def; --purple-light: #8fb2f7; --cyan: #7ee3d8;
+    --text: #f2f2f5; --text-dim: #8b8b93; --text-faint: #5b5b63;
+    --green: #7ee3a0; --amber: #e3a24a; --red: #e36a6a; --popover-solid: #1e1e21; --pink: #e37ec4; --orange: #e3a24a;
+  }
+  [data-theme='light'] {
+    --bg: #eef1f6; --bg-solid: #eef1f6; --nav-bg: #ffffff;
+    --card: #ffffff; --card-inner: #f5f6f9; --panel-bg: rgba(245, 246, 249, 0.9); --bg-2: #f5f6f9;
+    --border: #dde1e8; --border-strong: #c7cdd9;
+    --purple: #7c3aed; --purple-light: #6d28d9; --cyan: #0891b2;
+    --text: #1f2430; --text-dim: #5b6577; --text-faint: #8b93a3;
+    --green: #15803d; --amber: #b45309; --red: #dc2626; --popover-solid: #ffffff; --pink: #be185d; --orange: #c2410c;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; min-height: 100vh; }
+  body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: var(--bg); background-color: var(--bg-solid); color: var(--text); font-size: 14px; }
+  button { font-family: inherit; }
+  .mono { font-family: Consolas, 'Cascadia Mono', monospace; }
+  .faint { color: var(--text-faint); } .dim { color: var(--text-dim); }
+
+  /* ---- mock chrome ---- */
+  .mock-bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 8px 16px; border-bottom: 1px dashed var(--border-strong); font-size: 12px; color: var(--text-dim); }
+  .mock-bar b { color: var(--amber); }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .seg button { background: transparent; border: 0; color: var(--text-dim); padding: 4px 10px; cursor: pointer; font-size: 12px; }
+  .seg button.on { background: var(--purple); color: #fff; }
+
+  /* ---- the cycle page header (simplified) ---- */
+  .cy-head { display: flex; align-items: center; gap: 0.8rem; flex-wrap: wrap; padding: 0.8rem 1.25rem 0; }
+  .cy-head h2 { margin: 0; font-size: 1.05rem; }
+  .pill { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.68rem; font-weight: 700; padding: 0.12rem 0.5rem; border-radius: 999px; border: 1px solid var(--border); color: var(--text-dim); white-space: nowrap; }
+  .pill.rec { color: var(--red); border-color: color-mix(in srgb, var(--red) 45%, transparent); background: color-mix(in srgb, var(--red) 12%, transparent); }
+  .pill.ai { color: var(--purple-light); border-color: color-mix(in srgb, var(--purple) 45%, transparent); background: color-mix(in srgb, var(--purple) 14%, transparent); }
+  .pill.ok { color: var(--green); border-color: color-mix(in srgb, var(--green) 40%, transparent); background: color-mix(in srgb, var(--green) 12%, transparent); }
+  .pill.bad { color: var(--red); border-color: color-mix(in srgb, var(--red) 40%, transparent); background: color-mix(in srgb, var(--red) 12%, transparent); }
+  .pill.warn { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 40%, transparent); background: color-mix(in srgb, var(--amber) 12%, transparent); }
+  .new { display: inline-block; font-size: 0.56rem; font-weight: 800; letter-spacing: 0.06em; padding: 0.02rem 0.35rem; border-radius: 4px; background: var(--amber); color: #111; vertical-align: middle; margin-left: 0.3rem; }
+
+  /* ---- real Alfred classes (styles.scss) ---- */
+  .cycle-tabs { display: flex; gap: 0.25rem; margin: 0.5rem 1.25rem 0.75rem; border-bottom: 1px solid var(--border); }
+  .cycle-tabs button { background: none; border: 0; border-bottom: 2px solid transparent; padding: 0.45rem 0.9rem; color: var(--text-dim); cursor: pointer; font: inherit; font-size: 0.85rem; }
+  .cycle-tabs button.on { color: var(--text); border-bottom-color: var(--purple); }
+  .cycle-tab-count { font-size: 0.65rem; background: color-mix(in srgb, var(--red) 20%, transparent); color: var(--red); border-radius: 99px; padding: 0 0.4rem; margin-left: 0.25rem; }
+  .board-brief { display: grid; grid-template-columns: 1.4fr 1fr; gap: 0.75rem; margin: 0 1.25rem 0.75rem; }
+  .board-brief-side { display: flex; flex-direction: column; gap: 0.75rem; min-width: 0; }
+  .board-main { display: flex; flex-direction: column; gap: 0.75rem; min-width: 0; }
+  @media (max-width: 900px) { .board-brief { grid-template-columns: 1fr; } }
+  .board-box { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 0.6rem 0.75rem; min-width: 0; }
+  .board-box h3 { margin: 0 0 0.45rem; font-size: 0.82rem; color: var(--purple-light); display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+  .board-box h3 small { color: var(--text-faint); font-weight: 400; font-size: 0.7rem; }
+  .board-box h4 { margin: 0.7rem 0 0.3rem; font-size: 0.7rem; color: var(--text-dim); letter-spacing: 0.04em; text-transform: uppercase; display: flex; justify-content: space-between; gap: 0.5rem; }
+  .board-dim { color: var(--text-faint); font-size: 0.75rem; }
+  .board-link { background: none; border: 0; color: var(--purple-light); cursor: pointer; font: inherit; font-size: 0.75rem; padding: 0 0.2rem; text-decoration: underline; }
+  .board-copy { font: 0.66rem Consolas, "Cascadia Mono", monospace; padding: 0.1rem 0.4rem; border-radius: 5px; border: 1px solid var(--border-strong); background: var(--bg-2); color: var(--purple-light); cursor: pointer; }
+  .board-cycle-cmds { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.6rem; }
+  .board-files { display: flex; flex-direction: column; gap: 0.35rem; }
+  .board-file { display: flex; align-items: center; gap: 0.45rem; padding: 0.3rem 0.45rem; border-radius: 8px; background: var(--card-inner); border: 1px solid var(--border); cursor: pointer; font-size: 0.8rem; flex-wrap: wrap; }
+  .board-file:hover { border-color: var(--purple); }
+  .board-file-ext { font-size: 0.6rem; padding: 0.02rem 0.3rem; border-radius: 4px; background: color-mix(in srgb, var(--cyan) 15%, transparent); color: var(--cyan); }
+  .board-file-meta { margin-left: auto; }
+  .board-drop { border: 1px dashed var(--border-strong); border-radius: 8px; padding: 0.45rem; text-align: center; color: var(--text-faint); font-size: 0.75rem; }
+  .board-ai { color: var(--purple-light); font-size: 0.72rem; }
+  .board-checklist { list-style: none; padding: 0; margin: 0.25rem 0 0.4rem; }
+  .board-checklist li { display: flex; gap: 0.45rem; align-items: center; flex-wrap: wrap; padding: 0.35rem 0; border-top: 1px dashed var(--border); font-size: 0.8rem; }
+  .board-check-mark { width: 1.1rem; text-align: center; font-weight: 700; }
+  .ck-P { color: var(--green); } .ck-F { color: var(--red); } .ck-C { color: var(--amber); } .ck-N { color: var(--text-faint); }
+  .board-check-text { flex: 1; min-width: 160px; }
+  .board-tog { font-size: 0.66rem; padding: 0.08rem 0.4rem; border-radius: 5px; border: 1px solid var(--border); background: var(--bg-2); color: var(--text-dim); cursor: pointer; }
+  .board-tog.on { background: var(--purple); color: #fff; border-color: var(--purple); }
+  .action-btn { background: color-mix(in srgb, var(--purple) 12%, transparent); border: 1px solid var(--border); color: var(--purple-light); font-size: 0.72rem; font-weight: 600; padding: 0.22rem 0.55rem; border-radius: 6px; cursor: pointer; white-space: nowrap; }
+  .action-btn.primary, .action-btn.on { background: var(--purple); color: #fff; border-color: var(--purple); }
+  .board-step { display: flex; gap: 0.45rem; align-items: baseline; font-size: 0.78rem; padding: 0.12rem 0; border-bottom: 1px solid var(--border); }
+  .board-step-note { margin-left: auto; color: var(--text-faint); font-size: 0.7rem; white-space: nowrap; }
+
+  /* ---- annotations ---- */
+  .why { margin-top: 0.5rem; font-size: 0.72rem; color: var(--text-dim); border-left: 3px solid var(--amber); padding: 0.3rem 0.55rem; background: color-mix(in srgb, var(--amber) 7%, transparent); border-radius: 0 6px 6px 0; line-height: 1.45; }
+  .why b { color: var(--amber); }
+  .why.problem { border-left-color: var(--red); background: color-mix(in srgb, var(--red) 7%, transparent); }
+  .why.problem b { color: var(--red); }
+  .gain { font-size: 0.62rem; font-weight: 700; border-radius: 4px; padding: 0 0.3rem; border: 1px solid var(--border); margin-left: 0.25rem; white-space: nowrap; }
+  .g-acc { color: var(--green); } .g-speed { color: var(--cyan); } .g-usage { color: var(--purple-light); } .g-user { color: var(--pink); }
+  body.no-notes .why, body.no-notes .new { display: none; }
+
+  /* ---- new pieces ---- */
+  .md { font-size: 0.82rem; line-height: 1.5; } .md p { margin: 0 0 0.4rem; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+  th { text-align: left; font-size: 0.64rem; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.05em; padding: 0.3rem 0.4rem; border-bottom: 1px solid var(--border-strong); font-weight: 700; }
+  td { padding: 0.4rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .scroll { overflow-x: auto; }
+  .chip { display: inline-block; font: 0.68rem Consolas, monospace; padding: 0.04rem 0.38rem; border-radius: 5px; border: 1px solid var(--border); background: var(--bg-2); margin: 0.08rem 0.12rem 0.08rem 0; white-space: nowrap; }
+  .chip.post { color: var(--cyan); } .chip.get { color: var(--green); }
+  .rule { display: inline-block; font: 0.67rem Consolas, monospace; padding: 0.04rem 0.38rem; border-radius: 5px; border: 1px dashed var(--border-strong); color: var(--text-dim); margin: 0.08rem 0.12rem 0 0; white-space: nowrap; }
+  .who { font-size: 0.6rem; font-weight: 800; padding: 0.02rem 0.35rem; border-radius: 4px; white-space: nowrap; }
+  .who.auto { color: var(--green); background: color-mix(in srgb, var(--green) 13%, transparent); }
+  .who.judge { color: var(--purple-light); background: color-mix(in srgb, var(--purple) 15%, transparent); }
+  .runs { display: inline-flex; gap: 0.15rem; margin-left: auto; }
+  .r { display: inline-grid; place-items: center; width: 1.1rem; height: 1.1rem; border-radius: 4px; font-size: 0.62rem; font-weight: 800; }
+  .r.p { color: var(--green); background: color-mix(in srgb, var(--green) 14%, transparent); }
+  .r.f { color: var(--red); background: color-mix(in srgb, var(--red) 14%, transparent); }
+  .r.u { color: var(--text-faint); background: var(--bg-2); }
+  .check-rule { flex-basis: 100%; padding-left: 1.55rem; display: flex; gap: 0.3rem; flex-wrap: wrap; align-items: center; }
+  .kv { display: grid; grid-template-columns: 100px minmax(0, 1fr) auto; gap: 0.3rem 0.5rem; align-items: center; font-size: 0.78rem; }
+  .kv input { background: var(--card-inner); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 0.22rem 0.45rem; font: 0.76rem Consolas, monospace; width: 100%; }
+  .tag { font-size: 0.6rem; font-weight: 700; padding: 0.02rem 0.35rem; border-radius: 4px; border: 1px solid var(--border); color: var(--text-dim); white-space: nowrap; }
+  .tag.follow { color: var(--cyan); }
+  .ready { display: flex; gap: 0.7rem; align-items: center; }
+  .ring { width: 54px; height: 54px; border-radius: 50%; background: conic-gradient(var(--green) calc(var(--p) * 1%), var(--bg-2) 0); display: grid; place-items: center; flex: none; }
+  .ring span { width: 42px; height: 42px; border-radius: 50%; background: var(--bg-solid); display: grid; place-items: center; font-weight: 700; font-size: 0.8rem; }
+  .lint { list-style: none; margin: 0.5rem 0 0; padding: 0; font-size: 0.76rem; }
+  .lint li { display: flex; gap: 0.45rem; align-items: baseline; padding: 0.22rem 0; border-top: 1px dashed var(--border); }
+  .lint li button { margin-left: auto; }
+  .ic { width: 0.9rem; flex: none; text-align: center; } .ic.ok { color: var(--green); } .ic.warn { color: var(--amber); } .ic.bad { color: var(--red); }
+  .plan-row { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 0.5rem; font-size: 0.76rem; padding: 0.25rem 0; border-top: 1px dashed var(--border); }
+  .plan-row b { font-weight: 600; color: var(--text); }
+  .q { border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem 0.6rem; background: var(--card-inner); font-size: 0.78rem; }
+  .q + .q { margin-top: 0.45rem; }
+  .q .ev { color: var(--text-dim); margin: 0.25rem 0 0.4rem; font-size: 0.74rem; }
+  .q .ans { display: flex; gap: 0.3rem; flex-wrap: wrap; }
+  .q.answered { opacity: 0.55; }
+  .q .becomes { display: none; color: var(--green); font-size: 0.72rem; margin-top: 0.35rem; }
+  .q.answered .becomes { display: block; }
+  .tri { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  .tri button { background: transparent; border: 0; padding: 0.12rem 0.45rem; font-size: 0.66rem; color: var(--text-dim); cursor: pointer; white-space: nowrap; }
+  .tri button + button { border-left: 1px solid var(--border); }
+  .tri button.on.must { background: color-mix(in srgb, var(--green) 22%, transparent); color: var(--green); }
+  .tri button.on.may { background: color-mix(in srgb, var(--amber) 22%, transparent); color: var(--amber); }
+  .tri button.on.ign { background: var(--bg-2); color: var(--text); }
+  .starts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.6rem; margin-top: 0.4rem; }
+  @media (max-width: 800px) { .starts { grid-template-columns: 1fr; } }
+  .start { border: 1px solid var(--border); border-radius: 10px; padding: 0.65rem 0.7rem; background: var(--card-inner); font-size: 0.78rem; display: flex; flex-direction: column; gap: 0.35rem; }
+  .start b { font-size: 0.85rem; }
+  .start .action-btn { align-self: flex-start; margin-top: auto; }
+  .tpl { display: flex; gap: 0.3rem; flex-wrap: wrap; margin-top: 0.3rem; }
+  .collapse summary { cursor: pointer; list-style: none; font-size: 0.82rem; color: var(--purple-light); font-weight: 600; display: flex; justify-content: space-between; }
+  .collapse summary::-webkit-details-marker { display: none; }
+  .view { display: none; } .view.on { display: block; }
+  .capture-row { display: flex; gap: 0.3rem; flex-wrap: wrap; align-items: center; margin-top: 0.5rem; }
+  .cap { font-size: 0.66rem; font-weight: 700; padding: 0.05rem 0.45rem; border-radius: 999px; border: 1px solid var(--border); }
+  .cap.on { color: var(--green); border-color: color-mix(in srgb, var(--green) 40%, transparent); }
+  .cap.off { color: var(--text-faint); border-style: dashed; }
+  .vision { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 0.75rem; margin: 0 1.25rem 0.75rem; }
+  .vision-title { margin: 0.4rem 1.25rem 0.5rem; font-size: 0.78rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em; }
+  .row { display: flex; gap: 0.45rem; align-items: baseline; padding: 0.3rem 0; border-top: 1px dashed var(--border); font-size: 0.77rem; flex-wrap: wrap; }
+  .row .end { margin-left: auto; display: inline-flex; gap: 0.3rem; align-items: center; }
+  .kind { font-size: 0.6rem; font-weight: 800; padding: 0.02rem 0.32rem; border-radius: 4px; border: 1px solid var(--border); }
+  .k-sql { color: var(--orange); } .k-log { color: var(--amber); } .k-redis { color: var(--red); } .k-http { color: var(--cyan); } .k-flow { color: var(--green); }
+  /* ---- calm ---- */
+  .calm-strip { display: flex; gap: 0.35rem; align-items: center; flex-wrap: wrap; margin: 0 1.25rem 0.75rem; padding: 0.35rem 0.5rem; border: 1px solid var(--border); border-radius: 10px; background: var(--card); }
+  .cs { display: inline-flex; align-items: center; gap: 0.3rem; background: none; border: 0; border-radius: 6px; padding: 0.25rem 0.5rem; color: var(--text-dim); font-size: 0.78rem; cursor: pointer; }
+  .cs:hover { background: var(--bg-2); color: var(--text); }
+  .cs b { color: var(--text); font-weight: 600; }
+  .cs.hot { color: #111; background: var(--amber); font-weight: 700; }
+  .cs-sp { flex: 1; }
+  .ring.sm { width: 16px; height: 16px; } .ring.sm span { width: 10px; height: 10px; }
+  .d { width: 7px; height: 7px; border-radius: 50%; background: var(--text-faint); display: inline-block; margin-left: 0.25rem; }
+  .d.ok { background: var(--green); } .d.bad { background: var(--red); }
+  .cmd-wrap { position: relative; display: inline-flex; gap: 0.3rem; align-items: center; }
+  .pop { display: none; position: absolute; right: 0; top: 130%; width: 300px; z-index: 5; background: var(--popover-solid); border: 1px solid var(--border-strong); border-radius: 10px; padding: 0.5rem 0.65rem; box-shadow: 0 10px 30px rgba(0,0,0,0.35); }
+  .pop.on { display: block; }
+  .board-box.calm h4 { margin-top: 0.8rem; }
+  .st, .fold { border-top: 1px solid var(--border); }
+  .st summary, .fold summary { list-style: none; cursor: pointer; display: flex; gap: 0.5rem; align-items: baseline; padding: 0.35rem 0; font-size: 0.8rem; }
+  .st summary::-webkit-details-marker, .fold summary::-webkit-details-marker { display: none; }
+  .fold summary { color: var(--text-dim); font-weight: 600; margin-top: 0.3rem; }
+  .meta { margin-left: auto; color: var(--text-faint); font-size: 0.72rem; font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .st-body, .fold-body { padding: 0 0 0.5rem 1.35rem; font-size: 0.76rem; color: var(--text-dim); line-height: 1.6; }
+  .mk { width: 0.9rem; flex: none; text-align: center; color: var(--text-faint); } .mk.ok { color: var(--green); } .mk.bad { color: var(--red); } .mk.run { color: var(--amber); }
+  .bad-t { color: var(--red); }
+  .mini { font-size: 0.76rem; color: var(--text-dim); padding: 0.2rem 0; } .mini b { color: var(--text); font-weight: 600; } .mini i { font-style: normal; color: var(--text); }
+  .needs { border-color: color-mix(in srgb, var(--amber) 45%, transparent); }
+  .needs h3 { color: var(--amber); }
+  .need { padding: 0.4rem 0; border-top: 1px dashed var(--border); font-size: 0.78rem; }
+  .need .ans { display: flex; gap: 0.25rem; flex-wrap: wrap; margin-top: 0.3rem; }
+  .st summary { flex-wrap: wrap; align-items: center; }
+  .st-t { min-width: 180px; }
+  .st-chips { display: inline-flex; flex-wrap: wrap; gap: 0.1rem; align-items: center; flex: 1; }
+  .st summary .pill { margin-left: auto; }
+  .rd { display: grid; grid-template-columns: 100px minmax(0, 1fr); gap: 0.5rem; align-items: baseline; padding: 0.3rem 0; border-top: 1px dashed var(--border); font-size: 0.76rem; }
+  .rd-l { color: var(--text-faint); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; }
+  .chip.follow { color: var(--cyan); border-color: color-mix(in srgb, var(--cyan) 40%, transparent); }
+  .chip.dimc { color: var(--text-faint); border-style: dashed; }
+  .fr { display: inline-block; font-size: 0.68rem; font-weight: 600; padding: 0.04rem 0.42rem; border-radius: 999px; margin: 0.08rem 0.12rem 0.08rem 0; white-space: nowrap; border: 1px solid; }
+  .fr.must { color: var(--green); border-color: color-mix(in srgb, var(--green) 40%, transparent); background: color-mix(in srgb, var(--green) 10%, transparent); }
+  .fr.may { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 40%, transparent); background: color-mix(in srgb, var(--amber) 10%, transparent); }
+  .fr.ign { color: var(--text-faint); border-color: var(--border); }
+  .ck-t { flex: 1; line-height: 1.5; }
+  /* ---- task ---- */
+  .task-head { display: flex; justify-content: space-between; align-items: center; gap: 0.8rem; flex-wrap: wrap; margin: 0 1.25rem 0.6rem; }
+  .task-title { display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; font-size: 0.9rem; }
+  .phase { display: flex; align-items: center; gap: 0.25rem; flex-wrap: wrap; }
+  .ph { font-size: 0.7rem; padding: 0.12rem 0.5rem; border-radius: 999px; border: 1px solid var(--border); color: var(--text-faint); }
+  .ph.done { color: var(--green); border-color: color-mix(in srgb, var(--green) 40%, transparent); }
+  .ph.now { color: #111; background: var(--amber); border-color: var(--amber); font-weight: 700; }
+  .ph-arrow { color: var(--text-faint); font-size: 0.7rem; }
+  .verdict { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; margin: 0 1.25rem 0.75rem; padding: 0.6rem 0.8rem; border: 1px solid var(--border); border-radius: 12px; background: var(--card); }
+  .v-q { font-size: 0.72rem; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.05em; }
+  .v-a { font-size: 0.95rem; }
+  .v-tiles { display: flex; gap: 0.35rem; flex-wrap: wrap; flex: 1; }
+  .tile { display: flex; flex-direction: column; align-items: center; min-width: 64px; padding: 0.3rem 0.5rem; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-2); color: var(--text-dim); font-size: 0.68rem; cursor: pointer; }
+  .tile b { font-size: 1.05rem; }
+  .t-ok b { color: var(--green); } .t-bug b { color: var(--red); } .t-miss b { color: var(--amber); } .t-cant b { color: var(--text-dim); } .t-note b { color: var(--purple-light); } .t-extra b { color: var(--cyan); }
+  .t-bug { border-color: color-mix(in srgb, var(--red) 40%, transparent); } .t-miss { border-color: color-mix(in srgb, var(--amber) 40%, transparent); }
+  .v-cmds { display: flex; gap: 0.3rem; align-items: center; flex-wrap: wrap; }
+  .req { border: 1px solid var(--border); border-left-width: 3px; border-radius: 8px; padding: 0.45rem 0.6rem; margin-bottom: 0.5rem; background: var(--card-inner); }
+  .req.r-bug { border-left-color: var(--red); } .req.r-miss { border-left-color: var(--amber); } .req.r-cant { border-left-color: var(--text-faint); }
+  .req-top { display: flex; gap: 0.45rem; align-items: center; font-size: 0.82rem; margin-bottom: 0.25rem; }
+  .req-top .board-dim { margin-left: auto; }
+  .req-row { display: grid; grid-template-columns: 60px minmax(0, 1fr); gap: 0.4rem; font-size: 0.76rem; padding: 0.12rem 0; align-items: baseline; }
+  .rl { color: var(--text-faint); font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.04em; }
+  .st-dot { font-size: 0.58rem; font-weight: 800; padding: 0.04rem 0.38rem; border-radius: 4px; white-space: nowrap; }
+  .st-dot.bug { color: #fff; background: var(--red); } .st-dot.miss { color: #111; background: var(--amber); }
+  .st-dot.cant { color: var(--text); background: var(--bg-2); border: 1px solid var(--border-strong); } .st-dot.ok { color: var(--green); border: 1px solid color-mix(in srgb, var(--green) 45%, transparent); }
+  .note { display: flex; gap: 0.45rem; align-items: baseline; padding: 0.35rem 0; border-top: 1px dashed var(--border); font-size: 0.77rem; }
+  .note > span:nth-child(2) { flex: 1; }
+  .tstep { display: flex; gap: 0.45rem; align-items: center; padding: 0.25rem 0; border-top: 1px dashed var(--border); font-size: 0.77rem; }
+  .tstep .pill { margin-left: auto; }
+  .tb-grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 0.8rem; }
+  @media (max-width: 760px) { .tb-grid { grid-template-columns: 1fr; } }
+  .tb .md { color: var(--text-dim); font-style: italic; font-size: 0.8rem; margin-top: 0.2rem; }
+  .tb-chips { margin-top: 0.2rem; }
+  .dec { font-size: 0.78rem; padding: 0.25rem 0; border-top: 1px dashed var(--border); }
+  .harness { display: flex; gap: 0.45rem; align-items: center; flex-wrap: wrap; margin-top: 0.6rem; padding: 0.45rem 0.55rem; border-radius: 8px; background: color-mix(in srgb, var(--purple) 8%, transparent); border: 1px solid color-mix(in srgb, var(--purple) 30%, transparent); font-size: 0.76rem; }
+  .ck { display: flex; gap: 0.45rem; align-items: center; padding: 0.3rem 0; border-top: 1px dashed var(--border); font-size: 0.78rem; cursor: pointer; }
+  .ck:hover { color: var(--text); background: var(--bg-2); }
+  .off-rule { color: var(--text-faint); font-size: 0.66rem; border: 1px dashed var(--border-strong); border-radius: 999px; padding: 0 0.4rem; }
+</style>
+</head>
+<body>
+<div class="mock-bar">
+  <b>MOCK</b> Session cycle → Brief &amp; specs
+  <span class="seg" id="viewSeg"><button data-v="today">Today</button><button data-v="empty">Proposed · empty</button><button data-v="filled">Proposed · everything</button><button data-v="calm">Proposed · calm</button><button class="on" data-v="task">Proposed · task</button></span>
+  <span class="seg" id="themeSeg"><button data-t="night">Night</button><button class="on" data-t="slate">Slate</button><button data-t="light">Light</button></span>
+  <label><input type="checkbox" id="notes" checked> why-notes</label>
+</div>
+
+<div class="cy-head">
+  <h2>ODY-482 · Book DXB → LHR for 2 adults</h2>
+  <span class="pill rec">● recording</span>
+  <span class="pill">odeysys</span>
+  <span class="pill ai" id="liveStrip">✦ Claude listening · 214 checked · 5 groups · 3 cards</span>
+</div>
+<div class="cycle-tabs" role="tablist">
+  <button>Calls</button>
+  <button>Board <span class="cycle-tab-count">1 open</span></button>
+  <button class="on">Task</button>
+</div>
+
+<!-- ================================================================ TODAY (as in the screenshot) -->
+<div class="view" id="v-today">
+  <div class="board-brief">
+    <div class="board-main">
+      <div class="board-box">
+        <h3>Cycle brief <small><button class="board-link">Edit</button></small></h3>
+        <div class="board-dim">No brief yet - say what this cycle is for, which task, the steps and the specs.</div>
+        <div class="board-cycle-cmds"><button class="board-copy">⧉ /alfred-review asd</button><button class="board-copy">⧉ /alfred-listen asd</button><button class="board-copy">⧉ /alfred-spec asd</button></div>
+      </div>
+      <div class="board-box">
+        <h3 style="color:var(--red)">What is weak here</h3>
+        <div class="why problem"><b>An empty box and a hint.</b> Nothing says what a good brief has, or that Claude can write it. Most cycles stay empty - and listen/review then check against nothing but generic rules.</div>
+        <div class="why problem"><b>Free Markdown.</b> When it is filled, steps, data and expectations are prose. Claude re-reads and re-interprets them on every batch; Alfred can check none of it itself.</div>
+        <div class="why problem"><b>Steps don't know their calls.</b> Claude maps calls to steps by guessing from spacers and URLs - every run.</div>
+        <div class="why problem"><b>Acceptance = prose list in a file.</b> "Works correctly" can't be checked mechanically; results are one mark, no history across runs.</div>
+        <div class="why problem"><b>No noise list, no test data.</b> Known 404s and noisy WARNs are re-judged each run; the values that must survive (passengers, fare) aren't named.</div>
+        <div class="why problem"><b>No preview.</b> You can't see what /alfred-listen will check, ask or cost before you run it - the commands are bare copy buttons.</div>
+        <div class="why problem"><b>What Claude learned isn't here.</b> Flow rules sit in the app repo's CLAUDE.md, answers in Learn: cards.</div>
+      </div>
+    </div>
+    <div class="board-brief-side">
+      <div class="board-box">
+        <h3>Spec files <small>.md · .txt</small></h3>
+        <div class="board-drop">Drop .md / .txt here, or <button class="board-link">choose</button>, or <button class="board-link">paste text</button></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ================================================================ PROPOSED · EMPTY -->
+<div class="view" id="v-empty">
+  <div class="board-brief">
+    <div class="board-main">
+      <div class="board-box">
+        <h3>Cycle brief <span class="new">NEW</span> <small>nothing yet - start one of three ways</small></h3>
+        <div class="starts">
+          <div class="start">
+            <b>✦ Describe it, Claude drafts it</b>
+            <span class="dim">One sentence or a ticket. Claude writes purpose, steps with their calls, data and checks - you approve before anything is saved.</span>
+            <textarea rows="3" style="width:100%;background:var(--card-inner);border:1px solid var(--border);color:var(--text);border-radius:6px;font:0.76rem inherit;padding:0.35rem" placeholder="e.g. Book DXB-LHR for 2 adults; ODY-482 lost the 2nd passenger"></textarea>
+            <button class="board-copy">⧉ /alfred-setup "ODY-482" "…"</button>
+          </div>
+          <div class="start">
+            <b>⇣ Learn from a run</b>
+            <span class="dim">Click through the flow once with recording on (or pick a cycle). Alfred turns its calls into steps with their endpoints and the values they carry.</span>
+            <select style="background:var(--card-inner);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:0.25rem;font-size:0.76rem"><option>this cycle · 31 calls so far</option><option>ODY-470 · booking · 188 calls</option></select>
+            <button class="action-btn primary">Build steps from calls</button>
+          </div>
+          <div class="start">
+            <b>📄 From a spec or ticket</b>
+            <span class="dim">Drop or paste the requirement. Its "Acceptance" list becomes checks; Claude suggests a rule for each one Alfred could check itself.</span>
+            <div class="board-drop">Drop .md / .txt, or <button class="board-link">paste text</button></div>
+          </div>
+        </div>
+        <div class="tpl"><span class="board-dim">or a template:</span><button class="board-tog">Booking flow</button><button class="board-tog">Search + filters</button><button class="board-tog">Form → save → view</button><button class="board-tog">Login / session</button><button class="board-tog">Copy from cycle…</button></div>
+        <div class="why"><b>Why:</b> the empty state is where most cycles stay today. Three starts that each take a minute - and one ("Learn from a run") needs no writing at all - get every cycle a brief Alfred and Claude can use.<span class="gain g-user">easier</span><span class="gain g-acc">accuracy ↑</span></div>
+      </div>
+      <div class="board-box">
+        <h3>Without a brief, Claude will… <small>so you know what you get</small></h3>
+        <div class="plan-row"><b>check</b><span>every call for errors, ERROR/WARN logs, failed SQL, supplier failures, slow calls, values that drift between calls</span></div>
+        <div class="plan-row"><b>not know</b><span>which calls are which step, what the result should be, which values must survive, what is expected noise</span></div>
+        <div class="plan-row"><b>so it will</b><span>ask more questions, and may card things you consider fine</span></div>
+      </div>
+    </div>
+    <div class="board-brief-side">
+      <div class="board-box">
+        <h3>Ready for Claude <span class="new">NEW</span></h3>
+        <div class="ready"><div class="ring" style="--p:10"><span>10%</span></div><span class="dim" style="font-size:0.78rem">Only the project's own checks apply. Add steps to let Claude tick them and know each call's place.</span></div>
+      </div>
+      <div class="board-box">
+        <h3>Spec files <small>.md · .txt</small></h3>
+        <div class="board-drop">Drop .md / .txt here, or <button class="board-link">choose</button>, or <button class="board-link">paste text</button></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ================================================================ PROPOSED · TASK -->
+<div class="view on" id="v-task">
+  <!-- the task, and where it stands -->
+  <div class="task-head">
+    <div class="task-title">
+      <span class="chip" style="color:var(--purple-light)">ODY-482</span>
+      <b>Booking keeps every passenger and the confirmed fare</b>
+      <span class="chip">feature/ODY-482</span><span class="board-dim">7 files changed · 3 commits</span>
+    </div>
+    <div class="phase">
+      <span class="ph done">Coded</span><span class="ph-arrow">→</span><span class="ph now">Verifying</span><span class="ph-arrow">→</span><span class="ph">Fixed</span><span class="ph-arrow">→</span><span class="ph">Re-tested</span><span class="ph-arrow">→</span><span class="ph">Done</span>
+    </div>
+  </div>
+
+  <!-- the verdict -->
+  <div class="verdict">
+    <div class="v-main">
+      <div class="v-q">Does the code match the task?</div>
+      <div class="v-a"><b style="color:var(--amber)">Not yet</b> - 1 bug, 1 requirement missing</div>
+    </div>
+    <div class="v-tiles">
+      <button class="tile t-ok"><b>3</b>met</button>
+      <button class="tile t-bug"><b>1</b>bug</button>
+      <button class="tile t-miss"><b>1</b>missing</button>
+      <button class="tile t-cant"><b>1</b>can't tell</button>
+      <button class="tile t-note"><b>3</b>notes</button>
+      <button class="tile t-extra"><b>1</b>not in task</button>
+    </div>
+    <div class="v-cmds"><button class="board-copy">⧉ /alfred-review "ODY-482"</button><button class="board-copy">⧉ /alfred-listen "ODY-482"</button><button class="board-link" id="planBtn2">what will it do?</button></div>
+  </div>
+
+  <div class="board-brief">
+    <div class="board-main">
+      <!-- the task itself: brief + description -->
+      <div class="board-box">
+        <h3>The task <small><span class="board-ai">✦ drafted by Claude from the ticket</span> · edited 10:42 · <button class="board-link">Restore previous</button> · <button class="board-link">Edit</button></small></h3>
+        <div class="md" style="font-size:0.88rem;margin-bottom:0.4rem"><b>Bookings keep every passenger and the fare the traveller confirmed.</b></div>
+        <div class="tb-grid">
+          <div class="tb">
+            <div class="rl">Description <span class="board-dim" style="text-transform:none;letter-spacing:0">from ODY-482, as written</span></div>
+            <div class="md">"When a customer books for more than one passenger, only the first passenger reaches the airline and the booking shows a fare different from the one confirmed. Expected: every passenger is booked, the confirmed fare is charged and stored, and if the airline changes the price the customer must see it before booking."</div>
+          </div>
+          <div class="tb">
+            <div class="rl">Scope</div>
+            <div class="tb-chips"><span class="chip">confirm response</span><span class="chip">OrderMapper</span><span class="chip">booking save</span><span class="chip">fare page</span></div>
+            <div class="rl" style="margin-top:0.5rem">Out of scope <span class="board-dim" style="text-transform:none;letter-spacing:0">never carded</span></div>
+            <div class="tb-chips"><span class="chip dimc">payment</span><span class="chip dimc">seat selection</span><span class="chip dimc">ancillaries</span></div>
+          </div>
+        </div>
+        <div class="rl" style="margin-top:0.6rem">Decisions <span class="board-dim" style="text-transform:none;letter-spacing:0">binding for every session</span></div>
+        <div class="dec"><span class="board-dim">12/10</span> fare.total may change at confirm - it must be shown to the traveller <span class="board-dim">· answered on #44</span></div>
+        <div class="dec"><span class="board-dim">12/10</span> R4 (price shown) is fixed in this task, not a new one <span class="board-dim">· answered on #45</span></div>
+        <div class="harness">
+          <span class="rl">Continue anywhere</span>
+          <span class="board-dim">a new session, another machine or another agent loads all of this from Alfred:</span>
+          <button class="board-copy">⧉ /mcp__alfred__resume "ODY-482"</button><span class="board-dim">or any /alfred-* skill (they start with task_context)</span>
+        </div>
+      </div>
+
+      <!-- requirements: the core -->
+      <div class="board-box">
+        <h3>Requirements <small>from ODY-482.md + spec.md · code from the branch diff · result from the recorded calls</small></h3>
+        <div class="req r-bug">
+          <div class="req-top"><span class="st-dot bug">BUG</span><b>R2 · The booking keeps every passenger</b><span class="board-dim">#38</span></div>
+          <div class="req-row"><span class="rl">Code</span><span><span class="chip">BookingService.java</span><span class="chip">OrderMapper.java</span><span class="board-dim">changed</span></span></div>
+          <div class="req-row"><span class="rl">Tested</span><span>step 3 <span class="chip post">POST /bookings</span><span class="rule">passengers: req → OrderCreate</span></span></div>
+          <div class="req-row"><span class="rl">Result</span><span class="bad-t">2 sent, 1 reached <span class="chip">OrderCreate</span> - <span class="chip">OrderMapper.java:58</span> maps only passengers[0]</span></div>
+        </div>
+        <div class="req r-miss">
+          <div class="req-top"><span class="st-dot miss">MISSING</span><b>R4 · The traveller is told when the price changes</b><span class="board-dim">#45 task</span></div>
+          <div class="req-row"><span class="rl">Code</span><span><span class="board-dim">no change touches the confirm response or the fare page</span></span></div>
+          <div class="req-row"><span class="rl">Tested</span><span>step 2 <span class="chip post">POST /flights/confirm</span> - supplier said <span class="chip">priceChanged: true</span>, our response dropped it</span></div>
+          <div class="req-row"><span class="rl">Result</span><span style="color:var(--amber)">not implemented - a task, not a bug</span></div>
+        </div>
+        <div class="req r-cant">
+          <div class="req-top"><span class="st-dot cant">CAN'T TELL</span><b>R5 · A confirmation email is sent</b></div>
+          <div class="req-row"><span class="rl">Code</span><span><span class="chip">ConfirmationMailer.java</span><span class="board-dim">changed</span></span></div>
+          <div class="req-row"><span class="rl">Tested</span><span class="board-dim">no mail call is visible to Alfred - <span class="kind k-log">ERROR</span> logged at <span class="chip">ConfirmationMailer.java:74</span></span></div>
+          <div class="req-row"><span class="rl">Result</span><span class="board-dim">check your inbox, then mark it · <button class="board-link">Pass</button><button class="board-link">Fail</button></span></div>
+        </div>
+        <details class="st"><summary><span class="st-dot ok">MET</span><span class="st-t">R1 · Search returns the supplier's offers</span><span class="st-chips"><span class="chip">FlightSearchResource.java</span><span class="rule">step 1 · 200 · offers ≥ 1</span></span><span class="pill ok">✓ 3 runs</span></summary></details>
+        <details class="st"><summary><span class="st-dot ok">MET</span><span class="st-t">R3 · The saved fare is the confirmed fare</span><span class="st-chips"><span class="chip">BookingRepository.java</span><span class="rule">◆ fare_total = step 2</span></span><span class="pill ok">✓ 2 runs</span></summary></details>
+        <details class="st"><summary><span class="st-dot ok">MET</span><span class="st-t">R6 · Times never change between steps</span><span class="st-chips"><span class="chip">OfferMapper.java</span><span class="rule">departure, arrival must match</span></span><span class="pill ok">✓ fixed in run 3</span></summary></details>
+      </div>
+
+      <!-- what Claude found that isn't a requirement -->
+      <div class="board-box">
+        <h3>Claude's notes <small>not in the requirements - worth knowing</small></h3>
+        <div class="note"><span class="kind k-sql">RISK</span><span>Search loads airports one query per offer (N+1, 6 per search) - <span class="chip">AirportCache.java:41</span></span><span class="board-dim">#46</span></div>
+        <div class="note"><span class="kind k-log">GAP</span><span>A failed OrderCreate logs nothing - you'd never see why a booking failed</span><span class="board-dim">#47</span></div>
+        <div class="note"><span class="kind k-flow">EDGE</span><span>Not tested: a child or infant passenger (the code has an <span class="chip">INF</span> branch)</span><button class="board-link">add as requirement</button></div>
+      </div>
+
+      <!-- changed but not asked for -->
+      <div class="board-box">
+        <h3>Changed, but not in the task <small>from the branch diff</small></h3>
+        <div class="note"><span class="kind k-http">EXTRA</span><span><span class="chip">AgencyService.java</span> new credential lookup - no requirement mentions it, and no recorded call ran it</span><button class="board-link">it's fine</button><button class="board-link">ask</button></div>
+      </div>
+    </div>
+
+    <div class="board-brief-side">
+      <div class="board-box calm needs">
+        <h3>Needs you <small>3</small></h3>
+        <div class="need"><div><b>R4 is missing - fix in this task or a new one?</b> <span class="faint">#45</span></div>
+          <div class="ans"><button class="board-tog">This task</button><button class="board-tog">New task</button><button class="board-tog">Not needed</button></div></div>
+        <div class="need"><div><b>May fare.total change at confirm?</b> <span class="faint">412.00 → 437.50</span></div>
+          <div class="ans"><button class="board-tog">Must match</button><button class="board-tog">May change · show it</button><button class="board-tog">Bug</button></div></div>
+        <div class="need"><div><b>R5 email</b> <span class="faint">Alfred can't see it - did it arrive?</span></div>
+          <div class="ans"><button class="board-tog">Yes</button><button class="board-tog">No</button></div></div>
+      </div>
+
+      <div class="board-box">
+        <h3>How to test it <small>4 steps · <button class="board-link">edit</button></small></h3>
+        <div class="tstep"><span class="mk ok">✓</span>1. Search DXB → LHR, 2 adults<span class="pill ok">31</span></div>
+        <div class="tstep"><span class="mk ok">✓</span>2. Confirm the fare of EK001<span class="pill ok">4</span></div>
+        <div class="tstep"><span class="mk bad">✗</span>3. Book for both passengers<span class="pill bad">#38</span></div>
+        <div class="tstep"><span class="mk">·</span>4. Open the booking<span class="pill">-</span></div>
+        <div class="rd" style="margin-top:0.3rem"><span class="rd-l">Data</span><span><span class="chip follow">Jane Doe</span><span class="chip follow">Omar Haddad</span><span class="chip">DXB → LHR</span></span></div>
+      </div>
+
+      <div class="board-box">
+        <h3>Done when <small>you set it once per task</small></h3>
+        <div class="tstep"><span class="mk ok">✓</span>every requirement met or marked<span class="board-dim" style="margin-left:auto">5 / 6</span></div>
+        <div class="tstep"><span class="mk bad">✗</span>no open bug on the task<span class="board-dim" style="margin-left:auto">1</span></div>
+        <div class="tstep"><span class="mk">·</span>re-tested after the last fix<span class="board-dim" style="margin-left:auto">-</span></div>
+        <div class="board-cycle-cmds"><button class="board-copy">⧉ /alfred-report "ODY-482"</button><button class="board-copy" disabled style="opacity:0.5">✓ Hand over</button></div>
+      </div>
+
+      <div class="board-box">
+        <h3>Spec files <small>2</small></h3>
+        <div class="board-file"><span class="board-file-ext">md</span> ODY-482.md <span class="who auto">4 req</span><span class="board-dim board-file-meta">ticket · 11/10</span></div>
+        <div class="board-file"><span class="board-file-ext">md</span> spec.md <span class="who auto">2 req</span><span class="board-dim board-file-meta">2 KB · 10:41</span><span class="board-ai">✦</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="board-box" style="margin:0 1.25rem 3rem">
+    <h3>What this view changes</h3>
+    <div class="mini">1. <b>The tab is the task</b> ("Task" instead of "Brief &amp; specs"): ticket, branch, and where it stands - Coded → Verifying → Fixed → Re-tested → Done.</div>
+    <div class="mini">1b. <b>The task brief, structured:</b> one-line goal, the ticket's description as written, scope and out of scope (never carded), and decisions (binding for every later session) - the brief's sections <span class="mono">## Task · Description · Scope · Out of scope · Test steps · Data · Decisions</span>.</div>
+    <div class="mini">1c. <b>A harness, not a chat:</b> <span class="mono">task_context</span> (MCP) gives any session the whole task in one call; the MCP prompt <span class="mono">resume</span> starts another machine or agent on it; skills write findings, state and decisions back to Alfred. <i>Built now.</i></div>
+    <div class="mini">2. <b>One answer on top:</b> does the code match the task? Tiles count met · bug · missing · can't tell · notes · not in task, each a filter.</div>
+    <div class="mini">3. <b>Requirements are the spine.</b> Each one shows the code that implements it (from the branch diff Claude reads in the repo), how it was tested (steps, calls, rules) and the result with its evidence. Problems first; met ones collapse.</div>
+    <div class="mini">4. <b>Missing ≠ bug.</b> A requirement no code change touches, or the calls show is not done, is <i>missing</i> - a To-do task, not a bug. "Can't tell" says why (not visible in calls) and asks you.</div>
+    <div class="mini">5. <b>Claude's notes</b> - risks, logging gaps, untested edge cases found in the code - kept apart from requirements; one click turns a note into a requirement.</div>
+    <div class="mini">6. <b>Changed, but not in the task</b> - code in the diff no requirement asks for and no call ran: scope creep or a missing requirement.</div>
+    <div class="mini">7. <b>Done when</b> - the hand-over rule, checked live; /alfred-report writes the summary for the PR.</div>
+    <div class="mini faint">Built on what exists: Acceptance items become the requirements (same marks), cards stay the bugs / tasks / notes, test steps move to "How to test it". New: the branch diff mapping (Claude, from the repo), the phase, "Done when".</div>
+  </div>
+</div>
+
+<!-- ================================================================ PROPOSED · CALM -->
+<div class="view" id="v-calm">
+  <!-- one status line: everything at a glance, each part jumps to its section -->
+  <div class="calm-strip">
+    <button class="cs"><span class="ring sm" style="--p:78"><span></span></span><b>78%</b> ready</button>
+    <button class="cs"><b>Steps</b> <span class="d ok"></span>1 <span class="d bad"></span>1 <span class="d"></span>2</button>
+    <button class="cs"><b>Checks</b> <span class="d ok"></span>6 <span class="d bad"></span>2 <span class="d"></span>1</button>
+    <button class="cs"><b>Capture</b> ▤ ◆ <span class="faint">⬢</span></button>
+    <span class="cs-sp"></span>
+    <button class="cs hot">3 need you</button>
+    <span class="cmd-wrap"><button class="board-copy">⧉ /alfred-listen "ODY-482"</button><button class="board-link" id="planBtn">what will it do?</button>
+      <div class="pop" id="planPop">
+        <div class="plan-row"><b>checks</b><span>every call + 6 rules, in Alfred</span></div>
+        <div class="plan-row"><b>Claude</b><span>judges flagged groups + 3 prose checks</span></div>
+        <div class="plan-row"><b>asks</b><span>1 thing - or answer it now</span></div>
+        <div class="plan-row"><b>writes</b><span>Inbox cards, step ticks, suggested marks</span></div>
+        <div class="plan-row"><b>cost</b><span>~6 batches · low tokens</span></div>
+      </div>
+    </span>
+    <button class="board-link">more ▾</button>
+  </div>
+
+  <div class="board-brief">
+    <div class="board-main">
+      <div class="board-box calm">
+        <h3>Cycle brief <small>✦ edited by Claude · 10:42 · <button class="board-link">Edit</button></small></h3>
+        <div class="md"><p>A traveller books one flight for two adults: search, confirm the fare, book, open the booking. Ticket ODY-482 - production lost the second passenger.</p></div>
+
+        <h4>Test steps</h4>
+        <details class="st"><summary><span class="mk ok">✓</span><span class="st-t">1. Search DXB → LHR, 2 Nov, 2 adults</span><span class="st-chips"><span class="chip post">POST /flights/search</span><span class="rule">200</span><span class="rule">offers ≥ 1</span><span class="rule">&lt; 3 s</span></span><span class="pill ok">✓ 31 calls</span></summary>
+          <div class="st-body">↳ supplier <span class="chip">AirShopping</span> · code <span class="chip">OfferMapper.java:63</span> · <span class="kind k-sql">SQL</span> 7 statements, <span style="color:var(--red)">N+1 airports</span></div></details>
+        <details class="st" open><summary><span class="mk bad">✗</span><span class="st-t">2. Confirm the fare of EK001</span><span class="st-chips"><span class="chip post">POST /flights/confirm</span><span class="rule">200</span><span class="rule">departure = step 1</span></span><span class="pill bad">✗ #41</span></summary>
+          <div class="st-body">↳ supplier <span class="chip">OfferPrice</span> · <span class="bad-t">departure 08:15 → 09:15</span> · code <span class="chip">PriceService.java:40</span></div></details>
+        <details class="st"><summary><span class="mk run">●</span><span class="st-t">3. Book for both passengers</span><span class="st-chips"><span class="chip post">POST /bookings</span><span class="rule">200</span><span class="rule">pnr present</span><span class="kind k-sql">◆ INSERT</span></span><span class="pill warn">● now</span></summary>
+          <div class="st-body">↳ supplier <span class="chip">OrderCreate</span> · code <span class="chip">BookingService.java:112</span></div></details>
+        <details class="st"><summary><span class="mk">·</span><span class="st-t">4. Open the booking</span><span class="st-chips"><span class="chip get">GET /bookings/:pnr</span><button class="board-link">+ expect</button></span><span class="pill">not yet</span></summary>
+          <div class="st-body">no calls yet</div></details>
+
+        <h4>Rules &amp; data</h4>
+        <div class="rd"><span class="rd-l">Followed</span><span><span class="chip follow">Jane Doe</span><span class="chip follow">Omar Haddad</span><span class="chip">DXB → LHR · 2 Nov</span><span class="chip dimc">agency 948 · context</span></span></div>
+        <div class="rd"><span class="rd-l">Flow · booking</span><span><span class="fr must">departure ✓ must</span><span class="fr must">arrival ✓ must</span><span class="fr must">passengers ✓ must</span><span class="fr may">fare.total ~ may change at 2</span><span class="fr ign">refundable ⊘</span></span></div>
+        <div class="rd"><span class="rd-l">Ignored</span><span><span class="chip get">GET /user/avatar 404</span><span class="chip"><span class="kind k-log">WARN</span> Cache miss *</span><span class="chip">#22 slow search</span></span></div>
+        <div class="rd"><span class="rd-l">Failures</span><span><span class="chip">NDC confirm → 500 <span class="off-rule">off</span></span><span class="chip">OrderCreate timeout <span class="off-rule">off</span></span><span class="chip">priceChanged <span class="r f">✗</span> #44</span><button class="board-link">try one</button></span></div>
+
+        <details class="fold"><summary>Session log <span class="meta">2 runs · last: /alfred-listen 10:58</span></summary>
+          <div class="fold-body">
+            <div class="mini"><b>DID</b> 214/214 checked · 12 flagged in 5 groups · <b>FOUND</b> #41, #44 · <b>NEXT</b> 2 questions</div>
+            <div class="mini faint">/alfred-setup 10:41 - created the brief and spec.md</div>
+          </div></details>
+      </div>
+    </div>
+
+    <div class="board-brief-side">
+      <div class="board-box calm needs">
+        <h3>Needs you <small>3</small></h3>
+        <div class="need">
+          <div><b>May fare.total change at confirm?</b> <span class="faint">412.00 → 437.50, supplier said priceChanged</span></div>
+          <div class="ans"><button class="board-tog">Must match</button><button class="board-tog">May change · show it</button><button class="board-tog">May change · fine</button><button class="board-tog">Bug</button></div>
+        </div>
+        <div class="need">
+          <div><b>[pax] Claude suggests Pass</b> <span class="faint">run 2: 2 → 2 → 2 rows</span></div>
+          <div class="ans"><button class="board-tog">Accept</button><button class="board-link">dismiss</button></div>
+        </div>
+        <div class="need">
+          <div><b>[book] is vague</b> <span class="faint">Claude suggests: passengers count req = OrderCreate = rows</span></div>
+          <div class="ans"><button class="board-tog">Use rule</button><button class="board-link">keep as text</button></div>
+        </div>
+      </div>
+
+      <div class="board-box calm">
+        <h3>Acceptance <small>you mark · Alfred runs 1 2 3</small></h3>
+        <div class="ck"><span class="mk bad">✗</span><span class="ck-t">[times] Times never change<br><span class="rule">departure, arrival: must match</span> <span class="who auto">ALFRED</span> <span class="board-dim">#41</span></span><span class="runs"><span class="r p">✓</span><span class="r f">✗</span><span class="r f">✗</span></span></div>
+        <div class="ck"><span class="mk bad">✗</span><span class="ck-t">[pax] Every passenger reaches the supplier<br><span class="rule">passengers: req → OrderCreate</span> <span class="who auto">ALFRED</span> <span class="board-dim">#38</span></span><span class="runs"><span class="r f">✗</span><span class="r p">✓</span><span class="r u">·</span></span></div>
+        <div class="ck"><span class="mk">·</span><span class="ck-t">[reprice] Traveller told of a new price<br><span class="who judge">✦ CLAUDE</span> <span class="board-dim">prose · #44</span></span><span class="runs"><span class="r u">·</span><span class="r f">✗</span><span class="r u">·</span></span></div>
+        <div class="ck"><span class="mk ok">✓</span><span class="ck-t">[search] Supplier's offers returned<br><span class="rule">step 1 · 200 · offers ≥ 1</span> <span class="who auto">ALFRED</span></span><span class="runs"><span class="r p">✓</span><span class="r p">✓</span><span class="r p">✓</span></span></div>
+        <div class="ck"><span class="mk">·</span><span class="ck-t">[saved] Saved fare = confirmed fare<br><span class="rule"><span class="kind k-sql">◆</span> booking.fare_total = step 2</span> <span class="who auto">ALFRED</span></span><span class="runs"><span class="r p">✓</span><span class="r p">✓</span><span class="r u">·</span></span></div>
+        <div class="ck faint">+4 passing or not run · <button class="board-link">show all</button></div>
+        <div class="board-dim" style="margin-top:0.35rem">Click an item: Pass / Fail / Can't tell, evidence, its rule, cards.</div>
+      </div>
+
+      <div class="board-box calm">
+        <h3>Spec files <small>2</small></h3>
+        <div class="board-file"><span class="board-file-ext">md</span> spec.md <span class="who auto">3 rules</span><span class="who judge">2 prose</span><span class="board-dim board-file-meta">2 KB · 10:41</span><span class="board-ai">✦</span></div>
+        <div class="board-file"><span class="board-file-ext">md</span> ODY-482.md <span class="who auto">3 rules</span><span class="who judge">1 prose</span><span class="board-dim board-file-meta">4 KB · 11/10</span></div>
+        <div class="board-dim" style="margin-top:0.3rem">Drop .md / .txt anywhere on this box</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="board-box" style="margin:0 1.25rem 3rem">
+    <h3>What changed to cut the noise</h3>
+    <div class="mini">1. <b>One status line</b> replaces six boxes (score, steps, checks, capture, "needs you", the command). Each part opens its section.</div>
+    <div class="mini">2. <b>"Needs you" is the only loud box</b> - questions, suggestions and fixes merged, each answerable in place; it disappears when empty.</div>
+    <div class="mini">3. <b>One row per step, its data on the row:</b> endpoint chip (method-coloured), expect chips, status pill. Only the second layer - supplier, code, SQL notes - opens on click; failing steps open by themselves.</div>
+    <div class="mini">4. <b>Rules &amp; data as chip rows</b>, not boxes: followed values (cyan), flow rules coloured by kind (green must · amber may · grey ignored), ignored noise, failure scenarios. Session log folded.</div>
+    <div class="mini">5. <b>Checklist shows failing first</b> with its rule chip and who checks it; passing items collapse to "+4"; marks and evidence open on click.</div>
+    <div class="mini">6. <b>"What will it do?"</b> is a popover on the command, not a box.</div>
+    <div class="mini">7. <b>Less chrome, same data:</b> fewer boxes and borders, no NEW pills, no explanation notes - the chips and colours carry the information.</div>
+    <div class="mini faint">Everything from "Proposed · everything" is still here, one click away.</div>
+  </div>
+</div>
+
+<!-- ================================================================ PROPOSED · FILLED -->
+<div class="view" id="v-filled">
+  <div class="board-brief">
+    <!-- ---------- left: the brief ---------- -->
+    <div class="board-main">
+      <div class="board-box">
+        <h3>Cycle brief <small><span class="board-ai">✦ edited by Claude</span> · edited 13/10/2026 10:42 · <button class="board-link">Restore previous</button> · <button class="board-link">Edit</button></small></h3>
+        <div class="md"><p>A traveller books one flight for two adults: search, confirm the fare, book, open the booking. Ticket <span class="chip">ODY-482</span> - production lost the second passenger.</p></div>
+
+        <h4>Test steps <span class="board-dim" style="text-transform:none;letter-spacing:0">calls learned from run 2 · <button class="board-link">re-learn</button></span></h4>
+        <div class="scroll"><table>
+          <tr><th>#</th><th>You do</th><th>Its calls <span class="new">NEW</span></th><th>Expect <span class="new">NEW</span></th><th>Now</th></tr>
+          <tr><td>1</td><td>Search DXB → LHR, 2 Nov, 2 adults</td><td><span class="chip post">POST /api/flights/search</span><div class="board-dim">↳ AirShopping</div></td><td><span class="rule">200</span><span class="rule">offers ≥ 1</span><span class="rule">&lt; 3 s</span></td><td><span class="pill ok">✓ 31 calls</span></td></tr>
+          <tr><td>2</td><td>Confirm the fare of EK001</td><td><span class="chip post">POST /api/flights/confirm</span><div class="board-dim">↳ OfferPrice</div></td><td><span class="rule">200</span><span class="rule">departure = step 1</span></td><td><span class="pill bad">✗ #41</span></td></tr>
+          <tr><td>3</td><td>Book for both passengers</td><td><span class="chip post">POST /api/bookings</span><div class="board-dim">↳ OrderCreate · ◆ INSERT booking</div></td><td><span class="rule">200</span><span class="rule">pnr present</span></td><td><span class="pill warn">… now</span></td></tr>
+          <tr><td>4</td><td>Open the booking</td><td><span class="chip get">GET /api/bookings/:pnr</span></td><td><button class="board-link">+ expect</button></td><td><span class="pill">-</span></td></tr>
+        </table></div>
+        <div class="why"><b>Why:</b> each step knows its endpoints, so <span class="mono">check_calls</span> places and ticks every call itself - no spacers, no guessing, exact "Now" column.<span class="gain g-acc">accuracy ↑</span><span class="gain g-usage">usage ↓</span></div>
+
+        <h4>Test data <span class="new">NEW</span> <span class="board-dim" style="text-transform:none;letter-spacing:0">follow = traced through every call and saved row</span></h4>
+        <div class="kv">
+          <span class="dim">Route</span><input value="DXB → LHR · 2026-11-02"><span class="tag">input</span>
+          <span class="dim">Passenger 1</span><input value="Jane Doe · 1990-04-12"><span class="tag follow">follow</span>
+          <span class="dim">Passenger 2</span><input value="Omar Haddad · 1988-09-30"><span class="tag follow">follow</span>
+          <span class="dim">Agency</span><input value="948"><span class="tag">context</span>
+        </div>
+        <div class="why"><b>Why:</b> a named passenger that never reaches the supplier or the saved row is found even when no id links the calls; "context" values never link unrelated calls.<span class="gain g-acc">accuracy ↑</span></div>
+
+        <h4>Known &amp; ignore <span class="new">NEW</span> <button class="board-link" style="text-transform:none">+ add</button></h4>
+        <div class="board-step"><span class="faint">⊘</span><span><span class="chip get">GET /api/user/avatar</span> 404 - no avatar uploaded</span><span class="board-step-note">project</span></div>
+        <div class="board-step"><span class="faint">⊘</span><span>WARN <span class="mono">Cache miss for agency *</span> - harmless</span><span class="board-step-note">project</span></div>
+        <div class="board-step"><span class="faint">⊘</span><span>Card #22 slow search - known, ODY-470</span><span class="board-step-note">this cycle</span></div>
+        <div class="why"><b>Why:</b> <span class="mono">check_calls</span> drops these before Claude sees them - no group, no tokens, no "is this fine?" every batch.<span class="gain g-usage">usage ↓</span><span class="gain g-acc">fewer false alarms</span></div>
+
+        <details class="collapse" style="margin-top:0.7rem">
+          <summary><span>Flow rules · booking <span class="new">NEW</span> <span class="board-dim" style="font-weight:400">project-wide, learned · 5</span></span><span class="board-dim">▾</span></summary>
+          <div class="scroll" style="margin-top:0.4rem"><table>
+            <tr><th>Value</th><th>Rule</th><th>Learned from</th></tr>
+            <tr><td class="mono">departure, arrival</td><td><span class="tri"><button class="on must">Must match</button><button>May change</button><button>Ignore</button></span></td><td class="dim">your answer on #38</td></tr>
+            <tr><td class="mono">fare.total</td><td><span class="tri"><button>Must match</button><button class="on may">May change at 2</button><button>Ignore</button></span></td><td class="dim">code: PriceService re-fetches</td></tr>
+            <tr><td class="mono">passengers</td><td><span class="tri"><button class="on must">Must match</button><button>May change</button><button>Ignore</button></span></td><td class="dim">project check</td></tr>
+            <tr><td class="mono">fareRules.refundable</td><td><span class="tri"><button>Must match</button><button>May change</button><button class="on ign">Ignore</button></span></td><td class="dim">you closed #29 as Fine</td></tr>
+          </table></div>
+          <div class="why"><b>Why:</b> today these are lines in the app repo's CLAUDE.md, invisible here. Kept in Alfred, every cycle of the project uses them, you change one with a click, and <span class="mono">check_calls</span> applies them itself (export to CLAUDE.md kept).<span class="gain g-user">visible</span><span class="gain g-usage">usage ↓</span></div>
+        </details>
+
+        <h4>Claude's session log <span class="board-dim" style="text-transform:none;letter-spacing:0">kept as today</span></h4>
+        <div class="board-step" style="display:block">
+          <div class="board-dim">✦ Claude · /alfred-listen · 13/10/2026 10:58</div>
+          <div><span class="kind k-flow">DID</span> 214/214 checked · 12 flagged in 5 groups · 6 batches</div>
+          <div><span class="kind k-flow">FOUND</span> #41 departure moves at confirm · #44 reprice not shown · step 3 running</div>
+          <div><span class="kind k-flow">NEXT</span> Waiting on you: 2 questions · /alfred-triage</div>
+        </div>
+        <div class="board-step" style="display:block">
+          <div class="board-dim">✦ Claude · /alfred-setup · 13/10/2026 10:41</div>
+          <div><span class="kind k-flow">DID</span> created the cycle, brief and spec.md (approved)</div>
+        </div>
+
+        <div class="board-cycle-cmds"><button class="board-copy">⧉ /alfred-listen "ODY-482"</button><button class="board-copy">⧉ /alfred-review "ODY-482"</button><button class="board-copy">⧉ /alfred-spec "ODY-482"</button></div>
+      </div>
+    </div>
+
+    <!-- ---------- right: readiness, plan, specs, checks, questions ---------- -->
+    <div class="board-brief-side">
+      <div class="board-box">
+        <h3>Ready for Claude <span class="new">NEW</span> <small>live as you edit</small></h3>
+        <div class="ready"><div class="ring" style="--p:78"><span>78%</span></div><span style="font-size:0.78rem">Good to listen. Two fixes let Alfred check the rest itself.</span></div>
+        <div class="capture-row">
+          <span class="cap on" title="Log lines caught in the JVM">▤ logs · WARN</span>
+          <span class="cap on" title="Database statements">◆ SQL</span>
+          <span class="cap off" title="Redis commands">⬢ Redis off</span>
+          <span class="cap on" title="Supplier calls through the proxy">↳ suppliers</span>
+          <button class="board-link">turn ⬢ on</button>
+        </div>
+        <ul class="lint">
+          <li><span class="ic bad">✗</span>[cache] needs ⬢ Redis - off for odeysys<button class="board-link">turn on</button></li>
+          <li><span class="ic ok">✓</span>4 steps with their calls</li>
+          <li><span class="ic ok">✓</span>6 of 9 checks run in Alfred</li>
+          <li><span class="ic warn">!</span>[book] is vague<button class="board-link">✦ suggest a rule</button></li>
+          <li><span class="ic warn">!</span>1 question open<button class="board-link">answer below</button></li>
+          <li><span class="ic bad">✗</span>Step 4 has no expected result<button class="board-link">add</button></li>
+        </ul>
+        <div class="why"><b>Why:</b> fix the spec before the run, not after it.<span class="gain g-user">clear</span><span class="gain g-acc">accuracy ↑</span></div>
+      </div>
+
+      <div class="board-box">
+        <h3>What Claude will do <span class="new">NEW</span> <span class="seg"><button class="on">listen</button><button>review</button><button>verify</button></span></h3>
+        <div class="plan-row"><b>wait</b><span>for each step's calls (8 s pause), check the burst at once</span></div>
+        <div class="plan-row"><b>Alfred checks</b><span>every call + 6 rules + flow rules - in code, no tokens</span></div>
+        <div class="plan-row"><b>Claude judges</b><span>flagged groups · 3 prose checks</span></div>
+        <div class="plan-row"><b>asks you</b><span>1 thing (or answer it now, below)</span></div>
+        <div class="plan-row"><b>writes</b><span>Inbox cards · step ticks · suggested marks · 1 log line</span></div>
+        <div class="plan-row"><b>cost</b><span>~6 batches × 4–8 tool calls · low tokens</span></div>
+        <div class="why"><b>Why:</b> you see what a command does before you paste it; the skill reads the same plan and starts in one call.<span class="gain g-user">clear</span><span class="gain g-usage">usage ↓</span></div>
+      </div>
+
+      <div class="board-box">
+        <h3>Spec files <small>.md · .txt</small></h3>
+        <div class="board-files">
+          <div class="board-file"><span class="board-file-ext">md</span> spec.md <span class="board-dim board-file-meta">2 KB · 13/10/2026 10:41 · <span style="color:var(--text-dim)">5 checks, 3 with rules</span></span> <span class="board-ai">✦ by Claude</span> <button class="board-link">Restore previous</button> <button class="board-link" title="Delete">✕</button></div>
+          <div class="board-file"><span class="board-file-ext">md</span> ODY-482.md <span class="board-dim board-file-meta">4 KB · 11/10/2026 09:02 · <span style="color:var(--text-dim)">4 checks, 3 with rules</span></span> <button class="board-link" title="Delete">✕</button></div>
+          <div class="board-drop">Drop .md / .txt here, or <button class="board-link">choose</button>, or <button class="board-link">paste text</button></div>
+        </div>
+      </div>
+
+      <div class="board-box">
+        <h3>Acceptance checklist <small>marked by you · ✓✗· = Alfred's result in runs 1 · 2 · 3</small></h3>
+        <div class="board-dim">from spec.md</div>
+        <ul class="board-checklist">
+          <li style="flex-wrap:wrap"><span class="board-check-mark ck-F">✗</span><span class="board-check-text">[pax] Every passenger reaches the supplier</span><span class="runs"><span class="r f">✗</span><span class="r p">✓</span><span class="r u">·</span></span>
+            <span class="check-rule"><span class="board-tog">Pass</span><span class="board-tog on">Fail</span><span class="board-tog">Can't tell</span><button class="board-link">evidence</button><span class="board-dim">· 12/10 16:20 ·</span><button class="board-link">#38</button></span>
+            <span class="check-rule dim">Evidence: <span class="chip">POST /api/bookings · 200</span> sent 2, <span class="chip">OrderCreate</span> got 1</span>
+            <span class="check-rule"><span class="who auto">ALFRED</span><span class="rule">passengers.count: req → OrderCreate</span></span>
+            <span class="check-rule" style="background:var(--card-inner);border-radius:6px;padding:0.3rem 0.4rem;margin-left:1.55rem;flex-basis:calc(100% - 1.55rem)"><span class="board-ai">✦ Claude suggests Pass</span><span class="dim">- run 2: 2 → 2 → 2 rows</span><button class="board-tog on">Accept</button><button class="board-link">dismiss</button></span></li>
+          <li><span class="board-check-mark ck-P">✓</span><span class="board-check-text">[search] Search returns the supplier's offers</span><span class="runs"><span class="r p">✓</span><span class="r p">✓</span><span class="r p">✓</span></span>
+            <span class="check-rule"><span class="who auto">ALFRED</span><span class="rule">step 1 · 200 · offers ≥ 1</span></span></li>
+          <li><span class="board-check-mark ck-F">✗</span><span class="board-check-text">[times] Times never change between steps</span><span class="runs"><span class="r p">✓</span><span class="r f">✗</span><span class="r f">✗</span></span>
+            <span class="check-rule"><span class="who auto">ALFRED</span><span class="rule">departure, arrival: must match</span><span class="board-dim">card #41</span></span></li>
+          <li><span class="board-check-mark ck-N">·</span><span class="board-check-text">[saved] Saved fare = confirmed fare</span><span class="runs"><span class="r p">✓</span><span class="r p">✓</span><span class="r u">·</span></span>
+            <span class="check-rule"><span class="who auto">ALFRED</span><span class="rule">◆ booking.fare_total = step 2 fare.total</span></span></li>
+          <li><span class="board-check-mark ck-C">?</span><span class="board-check-text">[reprice] When the price changes, the traveller is told</span><span class="runs"><span class="r u">·</span><span class="r f">✗</span><span class="r u">·</span></span>
+            <span class="check-rule"><span class="who judge">✦ CLAUDE</span><span class="board-dim">prose - judged from the calls</span></span></li>
+          <li><span class="board-check-mark ck-N">·</span><span class="board-check-text">[book] The booking works correctly for every passenger</span><span class="runs"><span class="r u">·</span><span class="r p">✓</span><span class="r u">·</span></span>
+            <span class="check-rule"><span class="who judge">✦ CLAUDE</span><span class="board-dim">vague</span><button class="board-link">✦ Claude suggests: <span class="mono">passengers.count req = OrderCreate = ◆ rows</span> - accept</button></span></li>
+        </ul>
+        <div class="board-dim">+3 more · <button class="board-link">show all 9</button> · each item keeps Pass / Fail / Can't tell, evidence, its cards and Claude's suggestion as today</div>
+        <div class="board-dim" style="margin-top:0.4rem">from ODY-482.md</div>
+        <ul class="board-checklist">
+          <li><span class="board-check-mark ck-N">·</span><span class="board-check-text">[email] Confirmation email is sent</span><span class="runs"><span class="r u">·</span><span class="r u">·</span><span class="r u">·</span></span>
+            <span class="check-rule"><span class="board-tog">Pass</span><span class="board-tog">Fail</span><span class="board-tog">Can't tell</span><button class="board-link">evidence</button><span class="who judge">✦ CLAUDE</span><span class="board-dim">not visible in calls</span></span></li>
+        </ul>
+        <div class="why"><b>Why:</b> an item with a rule is checked by Alfred on every batch, the same way every run, and its result kept per run (✓✗· columns). Claude only judges prose items - and offers a rule for each, which you accept or not. Marks stay yours.<span class="gain g-acc">accuracy ↑</span><span class="gain g-usage">usage ↓↓</span></div>
+      </div>
+
+      <div class="board-box">
+        <h3>Claude asks <span class="new">NEW</span> <small id="askCount">2 open</small></h3>
+        <div class="q">
+          <b>fare.total 412.00 → 437.50 at confirm.</b>
+          <div class="ev">Supplier said <span class="mono">priceChanged: true</span> (#57); our response dropped it (#58). Code re-fetches the price (<span class="mono">PriceService.java:40</span>).</div>
+          <div class="ans"><button class="action-btn">Must match</button><button class="action-btn">May change · must be shown</button><button class="action-btn">May change · fine</button><button class="action-btn">Bug</button></div>
+          <div class="becomes">→ flow rule saved: fare.total may change at confirm, must be shown</div>
+        </div>
+        <div class="q">
+          <b>Is run 2 a good run of booking?</b>
+          <div class="ev">Every check held but [times]. It becomes the reference later runs are compared with.</div>
+          <div class="ans"><button class="action-btn">Yes, use it</button><button class="action-btn">No</button></div>
+          <div class="becomes">→ run 2 is booking's reference</div>
+        </div>
+        <div class="why"><b>Why:</b> answer where the spec lives; each answer becomes a rule at once - no sync step, never asked again.<span class="gain g-user">1 click</span><span class="gain g-usage">fewer questions</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="vision-title">The spec, tied to everything Alfred captures <span class="new">NEW</span></div>
+  <div class="vision">
+    <!-- checks of every kind -->
+    <div class="board-box">
+      <h3>Checks beyond HTTP <small>what Alfred records, checkable</small></h3>
+      <div class="row"><span class="kind k-sql">SQL</span>[book] one transaction, committed<span class="end"><span class="rule">◆ step 3 · 1 tx · no rollback</span><span class="r p">✓</span></span></div>
+      <div class="row"><span class="kind k-sql">SQL</span>[search] no N+1 on airports<span class="end"><span class="rule">◆ step 1 · no REPEATED_QUERY</span><span class="r f">✗</span></span></div>
+      <div class="row"><span class="kind k-log">LOG</span>[mail] confirmation logged, no ERROR<span class="end"><span class="rule">▤ step 3 · "Booking * created" · no ERROR</span><span class="r f">✗</span></span></div>
+      <div class="row"><span class="kind k-redis">REDIS</span>[cache] offer cached for confirm<span class="end"><span class="rule">⬢ SET offer:{offerId} · TTL ≥ 600</span><span class="r u">·</span></span></div>
+      <div class="row"><span class="kind k-http">SUPPLIER</span>[ndc] supplier errors never swallowed<span class="end"><span class="rule">↳ error in body → our status ≠ 200</span><span class="r p">✓</span></span></div>
+      <div class="why"><b>Vision:</b> Alfred already records statements, log lines, Redis and supplier calls per call - checks can name them directly, and <span class="mono">check_calls</span> evaluates them from the saved marks and captures, not by Claude reading them.<span class="gain g-acc">accuracy ↑</span><span class="gain g-usage">usage ↓</span></div>
+    </div>
+
+    <!-- failure scenarios via interception -->
+    <div class="board-box">
+      <h3>Failure scenarios <small>the spec says what must happen when a supplier fails</small></h3>
+      <div class="row"><b>NDC confirm answers 500</b><span class="end"><span class="off-rule">rule · off</span><button class="action-btn">On for 30 min</button></span>
+        <span style="flex-basis:100%" class="dim">expect: step 2 → user sees "price unavailable", no booking, ERROR logged once</span></div>
+      <div class="row"><b>OrderCreate times out (30 s)</b><span class="end"><span class="off-rule">rule · off</span><button class="action-btn">On for 30 min</button></span>
+        <span style="flex-basis:100%" class="dim">expect: no ◆ INSERT booking, no double booking on retry</span></div>
+      <div class="row"><b>priceChanged: true at confirm</b><span class="end"><span class="pill ok">ran · 11 Oct</span></span>
+        <span style="flex-basis:100%" class="dim">expect: [reprice] - traveller told · result ✗ card #44</span></div>
+      <div class="board-cycle-cmds"><button class="board-copy">✦ Claude: propose rules for these</button></div>
+      <div class="why"><b>Vision:</b> interception rules already exist and Claude may only propose them, saved off. Here each scenario is a proposed rule plus its expected result - you switch it on, click the step, and the scenario's checks run on those calls. Negative paths get tested, not just the happy one.<span class="gain g-acc">coverage ↑</span><span class="gain g-user">one click</span></div>
+    </div>
+
+    <!-- replay with relive -->
+    <div class="board-box">
+      <h3>Replay this flow <small>Relive, from the reference run</small></h3>
+      <div class="row"><b>Reference:</b> run 2 · 4 steps · 9 checks<span class="end"><button class="action-btn primary">Save as Relive cycle</button></span></div>
+      <div class="row"><span class="dim">After a fix: replay run 2's requests against the new build - same steps, same checks, results land here as run 4, no clicking.</span></div>
+      <div class="row"><span class="dim">Supplier answers can be the recorded ones (stable) or live.</span><span class="end"><span class="seg"><button class="on">recorded</button><button>live</button></span></span></div>
+      <div class="why"><b>Vision:</b> Relive already replays recorded calls. Tied to the spec, a fixed card is re-tested by replaying its flow and running its checks - /alfred-verify reads the verdicts instead of waiting for someone to click through again.<span class="gain g-speed">speed ↑</span><span class="gain g-acc">repeatable</span></div>
+    </div>
+
+    <!-- code touched -->
+    <div class="board-box">
+      <h3>Code this flow runs <small>from the agent's stack frames, not a guess</small></h3>
+      <div class="row"><span class="mono">OfferMapper.map</span><span class="faint">OfferMapper.java:63</span><span class="end"><span class="dim">steps 1, 2</span><button class="board-link">open</button></span></div>
+      <div class="row"><span class="mono">PriceService.reprice</span><span class="faint">PriceService.java:40</span><span class="end"><span class="dim">step 2</span><button class="board-link">open</button></span></div>
+      <div class="row"><span class="mono">BookingService.book</span><span class="faint">BookingService.java:112</span><span class="end"><span class="dim">step 3 · ◆ ▤</span><button class="board-link">open</button></span></div>
+      <div class="row"><span class="mono">ConfirmationMailer.send</span><span class="faint">ConfirmationMailer.java:74</span><span class="end"><span class="pill bad">ERROR</span><button class="board-link">open</button></span></div>
+      <div class="why"><b>Vision:</b> statements and caught log lines already carry the call chain. Listing it per step gives Claude the handler and mapper without searching (fewer reads), and gives the user "where in code" in IntelliJ / VS Code (already built).<span class="gain g-usage">usage ↓</span><span class="gain g-speed">speed ↑</span></div>
+    </div>
+
+    <!-- questions: learning, not cards -->
+    <div class="board-box">
+      <h3>Where Claude's questions go <small>typed answers → rules</small></h3>
+      <div class="row"><span class="kind k-flow">FLOW</span>"May fare.total change at confirm?"<span class="end"><span class="dim">here · not an Inbox card</span></span></div>
+      <div class="row"><span class="kind k-http">BUG</span>"Is this 404 expected?"<span class="end"><span class="dim">on card #41, listed here too</span></span></div>
+      <div class="row"><span class="dim">Answer buttons are typed: Must match / May change · shown / May change · fine / Bug - the answer is the rule, nothing to interpret. "Bug" opens a real card with the evidence.</span></div>
+      <div class="why"><b>Vision:</b> the board stays for problems; what Claude learns lives with the spec and works for every later cycle of the project.<span class="gain g-user">clean Inbox</span><span class="gain g-acc">no misread answers</span></div>
+    </div>
+
+    <!-- outputs -->
+    <div class="board-box">
+      <h3>Everything flows out <small>re-test, export, report</small></h3>
+      <div class="row"><b>Re-test plans</b><span class="dim">a card on a failing check gets that check as its re-test expectation (specs/016) - no plan to write</span></div>
+      <div class="row"><b>Exports</b><span class="dim">.md / .html / .json carry the brief, steps, checks and their per-run results in "About this document"</span></div>
+      <div class="row"><b>/alfred-report</b><span class="dim">"9 checks: 6 pass, 2 fail (#41, #44), 1 can't tell" straight from the results</span></div>
+      <div class="row"><b>Next cycle</b><span class="dim">"Copy from cycle…" brings steps, data, checks and scenarios; flow rules are already project-wide</span></div>
+      <div class="why"><b>Vision:</b> a spec written once keeps paying: every card, export, report, re-test and the next cycle reuse it.<span class="gain g-user">less re-writing</span><span class="gain g-speed">speed ↑</span></div>
+    </div>
+  </div>
+
+  <div class="board-box" style="margin:0 1.25rem 3rem">
+    <h3>How it would be built <small>backend · MCP · skills · frontend</small></h3>
+    <div class="scroll"><table>
+      <tr><th>Piece</th><th>What changes</th></tr>
+      <tr><td><b>Starts (empty state)</b></td><td><b>frontend:</b> three starts + templates. <b>backend:</b> "build steps from calls" = a cycle's inbound endpoints in run order (grouped by spacers if any). <b>skills:</b> /alfred-setup writes the structured form.</td></tr>
+      <tr><td><b>Steps with calls</b></td><td><b>backend:</b> <span class="mono">cycle_steps</span> + endpoints, expect rules. <b>MCP:</b> <span class="mono">check_calls</span> assigns calls to steps and ticks them; <span class="mono">board_mark_step</span> stays for Claude's notes.</td></tr>
+      <tr><td><b>Checks with rules</b></td><td>A small rule set next to each Acceptance item (status, count, field =, carry, duration, no ERROR, ◆ row =); prose still allowed. <b>MCP:</b> <span class="mono">check_calls</span> evaluates rules, returns verdicts; results kept per run. <b>skills:</b> propose rules (<span class="mono">board_suggest_rule</span>), never save unasked.</td></tr>
+      <tr><td><b>Test data, ignore</b></td><td><b>backend:</b> two small lists per cycle (and per project for ignore). <b>MCP:</b> follow values become anchors; ignore filters groups before the reply.</td></tr>
+      <tr><td><b>Flow rules</b></td><td><b>backend-board:</b> project-level rules (must / may / ignore), the source instead of CLAUDE.md (export kept). <b>MCP:</b> <span class="mono">check_calls</span> applies them to hop diffs; <span class="mono">flow_rules</span> read / propose.</td></tr>
+      <tr><td><b>Claude asks</b></td><td><b>frontend:</b> the flow's open questions with typed answers; an answer writes the rule. <b>skills:</b> <span class="mono">board_ask</span> with answer choices.</td></tr>
+      <tr><td><b>Ready + plan</b></td><td><b>frontend:</b> lint from the structure (no server). <b>MCP:</b> <span class="mono">get_brief</span> returns the compiled brief (steps, rules, data, ignore, flow rules) as one compact block - skills start in one call.</td></tr>
+    </table></div>
+      <tr><td><b>Nothing existing is lost</b></td><td>Briefs stay Markdown with mentions (the new parts are optional fields beside it); steps still come from the brief's "Test steps" list, endpoints are added to them; spec files, their Acceptance items and every mark keep working (marks are keyed by the item's text hash - a rule added beside an item doesn't change it); session log, Restore previous, ✕, evidence, suggestions, the cards per item - unchanged. <b>Migration:</b> existing <span class="mono">## Alfred checks</span> lines in CLAUDE.md are imported as flow rules once (shown, you confirm); existing <span class="mono">Learn:</span> cards get the learning flag, keeping their history and answers.</td></tr>
+      <tr><td><b>Checks beyond HTTP</b></td><td>Rule kinds for ◆ SQL (tx, rollback, flags, row values), ▤ logs (pattern present / no ERROR), ⬢ Redis (key, TTL), ↳ supplier (error not swallowed). <b>MCP:</b> <span class="mono">check_calls</span> reads them from triage marks, db-capture and store summaries it already fetches.</td></tr>
+      <tr><td><b>Capture readiness</b></td><td><b>frontend:</b> the project's ▤ ◆ ⬢ state beside the score; a check whose capture is off says so and offers the switch (the user's click, as today).</td></tr>
+      <tr><td><b>Failure scenarios</b></td><td>A scenario = a proposed interception rule (off, narrow, <span class="mono">create_rule</span>) + expected checks. <b>MCP:</b> <span class="mono">rule_hits</span> tells <span class="mono">check_calls</span> which calls the scenario touched, so its checks apply only there.</td></tr>
+      <tr><td><b>Replay</b></td><td><b>backend-relive:</b> "save the reference run as a Relive cycle"; a run's calls land as a new run of the flow, checked like any other. Supplier answers recorded or live.</td></tr>
+      <tr><td><b>Code this flow runs</b></td><td><b>MCP/backend:</b> the distinct application frames of each step's statements and caught lines (already captured, <span class="mono">callers</span>), resolved with <span class="mono">locate_source</span>; skills read code from this list first.</td></tr>
+      <tr><td><b>Outputs</b></td><td>Re-test plan from a failing check; exports and <span class="mono">/alfred-report</span> include checks and per-run results; "Copy from cycle" carries the spec.</td></tr>
+    </table></div>
+    <div class="why"><b>Order that pays back first:</b> 1) ignore + flow rules in check_calls · 2) steps with calls · 3) rules on checks (HTTP, then SQL / log / Redis) · 4) typed questions · 5) code this flow runs · 6) failure scenarios · 7) replay with Relive · 8) starts, ready + plan, outputs.</div>
+  </div>
+</div>
+
+<script>
+  const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+  $$('#viewSeg button').forEach((b) => b.addEventListener('click', () => {
+    $$('#viewSeg button').forEach((x) => x.classList.toggle('on', x === b));
+    $$('.view').forEach((v) => v.classList.toggle('on', v.id === 'v-' + b.dataset.v));
+    $('#liveStrip').style.display = ['filled', 'calm', 'task'].includes(b.dataset.v) ? '' : 'none';
+    $('.cycle-tabs button.on').textContent = b.dataset.v === 'task' ? 'Task' : 'Brief & specs';
+  }));
+  $$('#themeSeg button').forEach((b) => b.addEventListener('click', () => {
+    $$('#themeSeg button').forEach((x) => x.classList.toggle('on', x === b));
+    if (b.dataset.t === 'night') document.documentElement.removeAttribute('data-theme');
+    else document.documentElement.setAttribute('data-theme', b.dataset.t);
+  }));
+  $('#planBtn').addEventListener('click', (e) => { e.stopPropagation(); $('#planPop').classList.toggle('on'); });
+  document.addEventListener('click', () => $('#planPop').classList.remove('on'));
+  $$('.need .ans button').forEach((b) => b.addEventListener('click', () => {
+    const need = b.closest('.need');
+    need.style.display = 'none';
+    const left = $$('.need').filter((n) => n.style.display !== 'none').length;
+    $('.needs h3 small').textContent = left;
+    $('.cs.hot').textContent = left ? `${left} need you` : '✓ nothing waits';
+    if (!left) { $('.needs').style.display = 'none'; $('.cs.hot').classList.remove('hot'); }
+  }));
+  $('#notes').addEventListener('change', (e) => document.body.classList.toggle('no-notes', !e.target.checked));
+  $$('.tri').forEach((t) => $$('button', t).forEach((b, i) => b.addEventListener('click', () => {
+    $$('button', t).forEach((x) => (x.className = ''));
+    b.className = 'on ' + ['must', 'may', 'ign'][i];
+  })));
+  $$('.q').forEach((q) => $$('.ans .action-btn', q).forEach((b) => b.addEventListener('click', () => {
+    $$('.ans .action-btn', q).forEach((x) => x.classList.toggle('on', x === b));
+    q.classList.add('answered');
+    const left = $$('.q:not(.answered)').length;
+    $('#askCount').textContent = left ? `${left} open` : 'all answered';
+  })));
+</script>
+</body>
+</html>

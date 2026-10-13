@@ -11154,6 +11154,101 @@ body.card-window .tab-nav { display: none; }
 app-board-view { display: block; padding: 0 1.25rem 6rem; }
 .board-page app-board-view { padding: 0; }
 
+// The Task view (a cycle is a task - app-task-view): where it stands, the verdict, requirements, notes, hand-over.
+.task-page { padding: 0 1.25rem 4rem; }
+app-task-view { display: block;
+  // minmax(0, …): a long command or checklist line must not widen its column and squeeze the other.
+  .board-brief { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); }
+  @media (max-width: 900px) { .board-brief { grid-template-columns: minmax(0, 1fr); } }
+}
+.task-main { display: flex; flex-direction: column; gap: 0.75rem; min-width: 0; }
+.task-head { display: flex; justify-content: space-between; align-items: center; gap: 0.8rem; flex-wrap: wrap; margin-bottom: 0.6rem; }
+.task-title { display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; font-size: 0.9rem; min-width: 0; }
+.task-phase { display: flex; align-items: center; gap: 0.25rem; flex-wrap: wrap; }
+.task-ph { font-size: 0.7rem; padding: 0.12rem 0.5rem; border-radius: 999px; border: 1px solid var(--border); color: var(--text-faint);
+  &.done { color: var(--green); border-color: color-mix(in srgb, var(--green) 40%, transparent); }
+  &.now { color: #111; background: var(--amber); border-color: var(--amber); font-weight: 700; }
+}
+.task-ph-arrow { color: var(--text-faint); font-size: 0.7rem; }
+.task-verdict { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.75rem; padding: 0.6rem 0.8rem;
+  border: 1px solid var(--border); border-radius: 12px; background: var(--card); }
+.task-v-q { font-size: 0.68rem; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.05em; }
+.task-v-a { font-size: 0.92rem; }
+.task-tone-bad { color: var(--red); } .task-tone-warn { color: var(--amber); } .task-tone-ok { color: var(--green); } .task-tone-none { color: var(--text-dim); }
+.task-tiles { display: flex; gap: 0.35rem; flex-wrap: wrap; flex: 1; }
+.task-tile { display: flex; flex-direction: column; align-items: center; min-width: 60px; padding: 0.25rem 0.5rem; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--bg-2); color: var(--text-dim); font: inherit; font-size: 0.66rem; cursor: pointer;
+  b { font-size: 1.05rem; }
+  &:disabled { opacity: 0.45; cursor: default; }
+  &.on { outline: 2px solid var(--purple); }
+}
+.task-t-MET b { color: var(--green); } .task-t-BUG b { color: var(--red); } .task-t-MISSING b { color: var(--amber); } .task-t-FIXED b { color: var(--cyan); }
+.task-t-CANT_TELL b, .task-t-UNTESTED b { color: var(--text-dim); } .task-t-NOTES b { color: var(--purple-light); } .task-t-NOT_IN_TASK b { color: var(--cyan); }
+.task-t-BUG:not(:disabled) { border-color: color-mix(in srgb, var(--red) 40%, transparent); }
+.task-t-MISSING:not(:disabled) { border-color: color-mix(in srgb, var(--amber) 40%, transparent); }
+.task-cmds { display: flex; gap: 0.3rem; align-items: center; flex-wrap: wrap; min-width: 0; max-width: 100%; }
+// A long cycle name makes a long command: shown cut, copied whole (the title holds it).
+app-task-view .board-copy { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task-cmds .board-copy { max-width: 22rem; }
+.task-rl { color: var(--text-faint); font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.04em; margin-top: 0.5rem;
+  span { text-transform: none; letter-spacing: 0; margin-left: 0.3rem; }
+}
+.board-box h3.task-h3 { flex-wrap: wrap; white-space: nowrap; small { white-space: normal; } }
+.task-goal { font-size: 0.88rem; font-weight: 600; }
+.task-brief-grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 0.8rem; }
+.task-desc { color: var(--text-dim); font-size: 0.8rem; border-left: 2px solid var(--border-strong); padding-left: 0.5rem; margin-top: 0.2rem; }
+.task-chips { display: flex; flex-wrap: wrap; gap: 0.2rem; margin-top: 0.2rem; }
+.task-chip { display: inline-block; font: 0.68rem Consolas, "Cascadia Mono", monospace; padding: 0.04rem 0.38rem; border-radius: 5px;
+  border: 1px solid var(--border); background: var(--bg-2); white-space: nowrap; }
+.task-line { display: block; font-size: 0.76rem; width: 100%; }
+.task-dim { color: var(--text-faint); border-style: dashed; }
+.task-ticket { color: var(--purple-light); }
+.task-follow { color: var(--cyan); border-color: color-mix(in srgb, var(--cyan) 40%, transparent); }
+.task-dec { font-size: 0.78rem; padding: 0.25rem 0; border-top: 1px dashed var(--border); }
+.task-harness { display: flex; gap: 0.45rem; align-items: center; flex-wrap: wrap; margin-top: 0.7rem; padding: 0.45rem 0.55rem; border-radius: 8px;
+  background: color-mix(in srgb, var(--purple) 8%, transparent); border: 1px solid color-mix(in srgb, var(--purple) 30%, transparent); font-size: 0.74rem;
+  .task-rl { margin-top: 0; }
+}
+.task-req { border: 1px solid var(--border); border-left-width: 3px; border-radius: 8px; padding: 0.45rem 0.6rem; margin-bottom: 0.5rem; background: var(--card-inner); }
+.task-r-BUG { border-left-color: var(--red); } .task-r-MISSING { border-left-color: var(--amber); } .task-r-FIXED { border-left-color: var(--cyan); }
+.task-r-CANT_TELL, .task-r-UNTESTED { border-left-color: var(--text-faint); }
+.task-req-top { display: flex; gap: 0.45rem; align-items: baseline; font-size: 0.82rem; margin-bottom: 0.2rem; }
+.task-req-cards { margin-left: auto; white-space: nowrap; }
+.task-req-row { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 0.4rem; font-size: 0.76rem; padding: 0.1rem 0; align-items: baseline;
+  .task-rl { margin-top: 0; }
+}
+.task-req-acts { display: flex; gap: 0.25rem; flex-wrap: wrap; margin-top: 0.3rem; }
+.task-dot { font-size: 0.58rem; font-weight: 800; padding: 0.04rem 0.38rem; border-radius: 4px; white-space: nowrap; }
+.task-dot-BUG { color: #fff; background: var(--red); }
+.task-dot-MISSING { color: #111; background: var(--amber); }
+.task-dot-FIXED { color: #111; background: var(--cyan); }
+.task-dot-CANT_TELL, .task-dot-UNTESTED { color: var(--text); background: var(--bg-2); border: 1px solid var(--border-strong); }
+.task-dot-MET { color: var(--green); border: 1px solid color-mix(in srgb, var(--green) 45%, transparent); }
+.task-met { border-top: 1px solid var(--border);
+  summary { cursor: pointer; padding: 0.35rem 0; font-size: 0.8rem; display: flex; gap: 0.45rem; align-items: center; }
+}
+.task-met-row { display: flex; gap: 0.45rem; align-items: baseline; font-size: 0.77rem; padding: 0.2rem 0 0.2rem 0.4rem;
+  .board-dim { margin-left: auto; white-space: nowrap; }
+}
+.task-note, .task-need { display: flex; gap: 0.45rem; align-items: baseline; padding: 0.35rem 0; border-top: 1px dashed var(--border); font-size: 0.77rem;
+  > span:nth-child(2) { flex: 1; }
+}
+.task-kind { font-size: 0.6rem; font-weight: 800; padding: 0.02rem 0.32rem; border-radius: 4px; border: 1px solid var(--border); }
+.task-kind-RISK { color: var(--red); } .task-kind-TASK { color: var(--amber); } .task-kind-NOTE { color: var(--purple-light); } .task-kind-EXTRA { color: var(--cyan); }
+.task-needs { border-color: color-mix(in srgb, var(--amber) 45%, transparent); }
+.task-step { display: flex; gap: 0.45rem; align-items: center; padding: 0.25rem 0; border-top: 1px dashed var(--border); font-size: 0.77rem; }
+.task-step-value { margin-left: auto; }
+.task-mk { width: 0.9rem; flex: none; text-align: center; color: var(--text-faint);
+  &.ok { color: var(--green); } &.bad { color: var(--red); }
+}
+.task-pill { margin-left: auto; font: inherit; font-size: 0.66rem; font-weight: 700; padding: 0.1rem 0.5rem; border-radius: 999px; border: 1px solid var(--border);
+  color: var(--text-dim); background: none; white-space: nowrap;
+  &.ok { color: var(--green); border-color: color-mix(in srgb, var(--green) 40%, transparent); }
+  &.bad { color: var(--red); border-color: color-mix(in srgb, var(--red) 40%, transparent); cursor: pointer; }
+}
+.task-data { display: flex; flex-wrap: wrap; gap: 0.25rem; align-items: center; margin-top: 0.4rem; .task-rl { margin: 0 0.3rem 0 0; } }
+@media (max-width: 760px) { .task-brief-grid { grid-template-columns: 1fr; } }
+
 @media (max-width: 900px) {
   .board-brief { grid-template-columns: 1fr; }
   .board-columns { grid-template-columns: repeat(7, 240px); }

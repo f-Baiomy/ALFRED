@@ -10,10 +10,11 @@ Read `rules.md` in this skill's folder first and follow it - especially "What be
 
 ## 1. Context
 
-The cycle by name (`list_cycles`), `get_cycle` (project, calls). `get_brief` (purpose, test steps, spec files, the
-cycle's cards), `read_spec` for each spec file, `board_closed_reasons` for the project, the repo's "Project checks"
-(rules) when there are any. `board_status` WATCHING with
-`step` "reviewing <cycle>".
+`task_context` on the cycle (rules §0) - the task, its description, scope, decisions, requirements with the user's
+marks, test steps, open findings, earlier runs. `read_spec` only for a requirement you need in full,
+`board_closed_reasons` for the project, the repo's "Project checks" (rules) when there are any. The task branch's change
+(rules §0 "Checking the code against the task"): `git diff --stat <base>...HEAD` and the files behind each requirement.
+`board_status` WATCHING with `step` "reviewing <cycle>".
 
 ## 2. Map the flow
 

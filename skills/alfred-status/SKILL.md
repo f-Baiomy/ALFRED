@@ -8,12 +8,16 @@ argument-hint: "[project | cycle]"
 
 Read `rules.md` in this skill's folder first. This skill only **reads**: no cards, comments, moves or logs.
 
+0. A task named, or one task in play (rules §0): `task_context` on it first - it gives the task's state and the next
+   step in one call; the steps below add the rest of the board. No task named and several open: `task_context` with no
+   task lists them.
 1. `board_next_steps` for the project (or the cycle): waiting on the user (oldest first, why, how long), on Claude,
    To do / In progress, Fixed needing a re-test, Inbox.
 2. `board_search` with `mine: true` and `status: [TO_DO, IN_PROGRESS, FIXED]`: your cards and each one's last state
    comment (what you were doing - its "next").
 3. `board_changes` cursor `claude`: what the user did since your last entry (answers say "ANSWERS your question").
-4. For a cycle: `get_brief` (test steps ticked or not) and its session log entries if the user asks for history.
+4. For a cycle: requirements met / bug / missing / can't tell from `task_context`, and the session log entries if the
+   user asks for history.
 
 Answer in this shape, short:
 

@@ -44,5 +44,9 @@ Never move cards to To do yourself because of an answer - that stays the user's 
 New check lines from the answers and closes: one before / after of the repo's `## Alfred checks` (rules "Project
 checks"), saved only on yes.
 
+Decisions about the task itself (a requirement dropped or deferred, "fix it in this task", scope narrowed): offer one
+before / after of the brief's `## Decisions` section (rules §0), one dated line each - saved only on yes - so the next
+session reads them from `task_context` instead of rediscovering them.
+
 Summary per card (one line each) and what now waits on whom. `board_session_log` on the cycle when the cards belong to
 one. Next: `/alfred-fix` for To do cards, or what still waits on the user.

@@ -175,14 +175,14 @@ test('rules and Relive runs are readable; a call changed by a rule says so (6)',
   } finally { await w.close(); }
 });
 
-test('the server offers no prompts - the /alfred-* skills are the guided flows', async () => {
+test('the server offers one prompt, resume - the /alfred-* skills are the guided flows', async () => {
   const server = createServer(new AlfredClient('http://127.0.0.1:9'));
   const [a, b] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: 't', version: '0' });
   await Promise.all([server.connect(b), client.connect(a)]);
   try {
     const listed = await client.listPrompts().catch(() => ({ prompts: [] as { name: string }[] }));
-    assert.deepEqual(listed.prompts, []);
+    assert.deepEqual(listed.prompts.map((p) => p.name), ['resume']);
   } finally {
     await client.close();
     await server.close();
