@@ -57,7 +57,9 @@ class ShippedSkillsTest(unittest.TestCase):
 
     def test_the_skills_and_the_rules_only_name_tools_alfred_has(self):
         tools = mcp_tools()
-        for path in [RULES] + [os.path.join(SKILLS_DIR, n, "SKILL.md") for n in alfred_skill.SKILLS]:
+        # every instruction file a skill ships: SKILL.md, and the prompts its runner hands each run (batch.md, finish.md)
+        docs = [os.path.join(SKILLS_DIR, n, f) for n in alfred_skill.SKILLS for f in sorted(os.listdir(os.path.join(SKILLS_DIR, n))) if f.endswith(".md")]
+        for path in [RULES] + docs:
             with open(path, encoding="utf-8") as f:
                 named = set(TOOL_NAME.findall(f.read()))
             self.assertEqual(set(), named - tools, f"{path} names tools the MCP server does not have")
@@ -78,6 +80,9 @@ class ReleaseArchiveTest(unittest.TestCase):
                 self.assertIn(f"{name}/SKILL.md", names)
                 self.assertIn(f"{name}/rules.md", names)
             self.assertFalse(any(n.startswith("_shared/") for n in names))
+            # the runners and their prompts; /alfred-listen's runner imports /alfred-live's from beside it
+            for f in ("alfred-live/alfred-live.mjs", "alfred-listen/alfred-listen.mjs", "alfred-listen/batch.md", "alfred-listen/finish.md"):
+                self.assertIn(f, names)
         finally:
             shutil.rmtree(out, ignore_errors=True)
 

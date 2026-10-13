@@ -124,7 +124,7 @@ folder as `rules.md` on install so they cannot drift. They ship inside both inst
 | `/alfred-connect <address>` | once per instance | checks an Alfred at any address (`/health`), detects a native install (`/mcp` answers: HTTP) or a Docker one (no `/mcp`: this machine's `mcp-server` with `ALFRED_URL`, `setup_mcp.py --alfred-url … --name …`), names it `alfred-<host>-<port>`, registers it; also `list` / `remove` | before running `claude mcp add` / `remove` |
 | `/alfred-setup [project] ["task"]` | start of a task | checks Alfred and capture, creates the cycle, drafts the brief (test steps) and a spec with an Acceptance list | before saving the drafts, before changing capture |
 | `/alfred-spec <cycle> …` | anytime | adds or edits the brief / spec files, shows before → after and what marks/cards it affects | before saving |
-| `/alfred-listen <cycle>` | while you test | review done per batch: waits for a pause (`wait_for_calls` `settleSec`), checks the whole burst with `check_calls`, judges only the flagged calls, opens cards with evidence and a first state comment, ticks test steps, answers your comments; every flagged call gets an outcome (card, link, asked, fine) and a final sweep over the whole cycle catches what settled late; at stop suggests Acceptance marks and checks regressed Done cards | when you say stop, or pause |
+| `/alfred-listen <cycle>` | while you test | starts the listen runner on your machine (`alfred-listen.mjs` in the skill folder - Alfred may be on another machine): it waits for a pause and runs `check_calls` itself with no model; a clean batch costs no model, a flagged batch (or your comment) gets one fresh short run that judges it as review would - cards with evidence and a first state comment, links, step ticks, answers to your comments, an outcome for every flagged group; at stop a sweep catches what settled late, then review's finish once (Acceptance marks, regressions, shapes, session log) - see "Listen runner" | when you say stop (`--now` skips the finish), or pause |
 | `/alfred-review <cycle>` | after a recording | checks every call in one pass (`check_calls`), fills the board without duplicates, regressions vs earlier runs (also a field missing or changed format behind a 200, by `diff_calls` against the last good run), annotates, suggests marks | - |
 | `/alfred-triage` | after listen / review | one Inbox card at a time with a recommendation; records your decision | every card - you decide |
 | `/alfred-sync` | after you answered or changed cards | one state comment per card: what you did and answered, what it means, who it waits on | never moves a card for you |
@@ -242,6 +242,33 @@ and not one `debug_*` entry per connected Alfred.
 - `stop` removes the runner's pid file (the runner ends itself within 2 s - a detached process on Windows cannot be
   signalled gently) and sends a stopped heartbeat, so listen answers the user again. `status` shows the pid, the model
   and the log's last lines.
+
+## Listen runner
+
+`/alfred-listen` is `/alfred-review` done per batch while you test, without a model waiting and without a
+conversation that grows:
+
+- **The runner** (`skills/alfred-listen/alfred-listen.mjs`, plain Node 18+, importing `/alfred-live`'s runner code
+  from `../alfred-live/` - the two are always installed together) runs on your machine like the live runner and finds
+  Alfred the same way (`--server` → `~/.claude.json`). It holds **one** MCP connection to that server - it starts
+  the stdio server itself (`command` + `args` + `env` of the entry) or keeps a Streamable HTTP session (`url`) - for
+  the whole listening, because `check_calls` keeps what it checked and what is still settling in that server's
+  memory (an HTTP server keeps it per process, so a lost session is simply re-opened).
+- **Batches:** `check_calls` with `sinceCallId`, `waitSec` 60, `settleSec` 5 and `boardCursor`, every page. A batch
+  with no flagged group, no change of the user's and no brief change is noted - counts on the live strip
+  (`PUT /board/agent-status`), one log line, its clean calls kept for the next run to mark their steps - and costs no
+  model. Otherwise one `claude -p` run (the same flags as a live run: the Alfred tools only, read-only code tools,
+  the repo as its folder, the default model unless `--model`) gets `batch.md` + the batch + the last run's STATE and
+  judges it exactly as review step 3 does. It ends with a `→` line and a `<<<STATE … STATE>>>` block (at most
+  ~3,000 characters: the task, steps, flows and their expectations, the ledger tally, check lines to propose), kept in
+  `<temp>/alfred-listen/<alfred>-<cycle>.state.json` for the next run. Each run's steps go to the live strip and the
+  log as they happen.
+- **Paused** on the live strip: a flagged batch is held (no card is written) and judged with the next run.
+  **`/alfred-live` running** (`board.live` in the batch): the user's changes are left to it; alone they start no run.
+- **Stop** (`stop` writes a `.stop` file the runner reads within 2 s; it acts after its current wait): the sweep
+  (`check_calls` `sweep: true`, every page) in the same connection, then one run of `finish.md` - review's finish
+  in full - then `board_status` STOPPED. `stop --now` skips the finish; `--finish` starts a runner that only does it.
+  The state file is removed once finished.
 
 ## Triage
 

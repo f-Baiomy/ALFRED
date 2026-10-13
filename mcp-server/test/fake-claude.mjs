@@ -11,6 +11,15 @@ process.stdin.on('end', async () => {
   const out = (o) => process.stdout.write(JSON.stringify(o) + '\n');
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   out({ type: 'system', subtype: 'init' });
+  if (mode === 'listen') {
+    // a listen batch / finish run: drills in, adds two cards in one call, ends with its summary and STATE
+    out({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'mcp__alfred-t__investigate_call', input: { callId: 'in-err-1' } }] } });
+    out({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'mcp__alfred-t__board_add_many', input: { cards: [{ title: 'a' }, { title: 'b' }] } }] } });
+    const n = (prompt.match(/THE SWEEP/) ? 'finish' : 'batch');
+    out({ type: 'result', subtype: 'success', is_error: false,
+      result: `Judged.\n→ ${n}: 2 cards · 1 fine\n<<<STATE\nflow search→book · sure: fare unchanged · seen in ${n}\nSTATE>>>` });
+    return;
+  }
   out({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'mcp__alfred__investigate_call', input: { callId: 'in-confirm-123456789' } }] } });
   await wait(mode === 'slow' ? 20000 : 50);
   out({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Read', input: { file_path: 'C:/repo/src/OrderMapper.java', offset: 58 } }] } });

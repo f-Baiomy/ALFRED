@@ -190,6 +190,94 @@ export function byCard(entries) {
   return [...out.values()];
 }
 
+// ------------------------------------------------------------------------------------------------- one Claude run
+
+/**
+ * One fresh `claude -p` run with the Alfred tools only, read as it streams: each tool call becomes a step and a reply
+ * tool's partial input the draft. onStep(step | null, steps, draft, tool, input) is awaited for each; a truthy return
+ * ends the run (the user's Stop). Returns a handle: kill(), draft, and done (the outcome).
+ * @param o {{ claude: string, claudeArgs?: string[], cwd: string, server: string, mcpConfigFile: string, model?: string,
+ *   prompt: string, runTimeoutMs?: number, draftEveryMs?: number, onStep: Function }}
+ */
+export function runClaude(o) {
+  const args = [...(o.claudeArgs ?? []), '-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages',
+    '--mcp-config', o.mcpConfigFile, '--strict-mcp-config', '--allowedTools', `mcp__${o.server}`, 'Read', 'Grep', 'Glob',
+    ...(o.model ? ['--model', o.model] : [])];
+  // Windows resolves `claude` (a .cmd / .exe on PATH) only through a shell; the prompt goes on stdin either way.
+  const child = spawn(o.claude, args, { cwd: o.cwd, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
+    shell: process.platform === 'win32' && !/\.(exe|js|mjs)$/i.test(o.claude) && o.claude !== process.execPath });
+  const handle = { draft: null, kill: () => child.kill(), done: null };
+  child.stdin.on('error', () => { /* a run that ends before reading its prompt */ });
+  child.stdin.end(o.prompt);
+  const timeout = setTimeout(() => child.kill(), o.runTimeoutMs ?? 5 * 60_000);
+  const steps = [];
+  let result = null;
+  let partial = '';
+  let partialTool = null;
+  let buffer = '';
+  let stderr = '';
+  let stopAsked = false;
+  let lastDraftAt = 0;
+  child.stderr.on('data', (d) => { stderr = (stderr + d.toString()).slice(-2000); });
+  const ask = async (step, tool, input) => {
+    if (await o.onStep(step, steps, handle.draft, tool, input) && !stopAsked) { stopAsked = true; child.kill(); }
+  };
+  const onLine = async (line) => {
+    let msg;
+    try { msg = JSON.parse(line); } catch { return; }
+    if (msg.type === 'stream_event' && msg.event) {
+      const ev = msg.event;
+      if (ev.type === 'content_block_start' && ev.content_block?.type === 'tool_use') {
+        partialTool = ev.content_block.name ?? null;
+        partial = '';
+      } else if (ev.type === 'content_block_delta' && ev.delta?.type === 'input_json_delta' && partialTool && /board_(reply|ask|comment)$/.test(partialTool)) {
+        partial += ev.delta.partial_json ?? '';
+        const d = draftOf(partial);
+        if (d && Date.now() - lastDraftAt >= (o.draftEveryMs ?? 400)) {
+          handle.draft = d;
+          lastDraftAt = Date.now();
+          await ask(null);
+        }
+      }
+    } else if (msg.type === 'assistant') {
+      for (const c of msg.message?.content ?? []) {
+        if (c.type !== 'tool_use' || !c.name) continue;
+        if (/board_(reply|ask|comment)$/.test(c.name)) handle.draft = draftOf(JSON.stringify(c.input ?? {})) ?? handle.draft;
+        const s = stepLabel(c.name, c.input ?? {});
+        steps.push(s);
+        await ask(s, c.name, c.input ?? {});
+      }
+    } else if (msg.type === 'result') {
+      result = { text: msg.result ?? '', error: !!msg.is_error };
+    }
+  };
+  let chain = Promise.resolve();
+  child.stdout.on('data', (d) => {
+    buffer += d.toString();
+    const lines = buffer.split('\n');
+    buffer = lines.pop() ?? '';
+    for (const line of lines) if (line.trim()) chain = chain.then(() => onLine(line));
+  });
+  handle.done = (async () => {
+    await new Promise((r) => child.on('close', r));
+    if (buffer.trim()) chain = chain.then(() => onLine(buffer));
+    await chain;
+    clearTimeout(timeout);
+    return { steps, result, stderr, stopAsked };
+  })();
+  return handle;
+}
+
+/** The run's one-line summary: its last line starting "→". */
+export function summaryOf(text) {
+  return String(text ?? '').split('\n').map((l) => l.trim()).filter((l) => l.startsWith('→')).at(-1) ?? null;
+}
+
+/** Why a run failed, in one line. */
+export function failureOf(result, stderr) {
+  return (result?.text?.trim() || stderr.trim().split('\n').at(-1) || 'the run ended without a result').slice(0, 300);
+}
+
 // ------------------------------------------------------------------------------------------------------- the runner
 
 export class Runner {
@@ -290,80 +378,27 @@ export class Runner {
       return;
     }
 
-    const steps = [];
-    let draft = null;
-    let lastDraftAt = 0;
-    let stopAsked = false;
-    await report({ steps, state: 'WORKING' });
+    await report({ steps: [], state: 'WORKING' });
     this.o.log(`  ✦ ${head} on ${label}…`);
-
-    const args = [...(this.o.claudeArgs ?? []), '-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages',
-      '--mcp-config', this.o.mcpConfigFile, '--strict-mcp-config', '--allowedTools', `mcp__${this.o.server}`, 'Read', 'Grep', 'Glob',
-      ...(this.o.model ? ['--model', this.o.model] : [])];
-    // Windows resolves `claude` (a .cmd / .exe on PATH) only through a shell; the prompt goes on stdin either way.
-    const child = spawn(this.o.claude, args, { cwd: this.o.cwd, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
-      shell: process.platform === 'win32' && !/\.(exe|js|mjs)$/i.test(this.o.claude) && this.o.claude !== process.execPath });
-    this.child = child;
-    child.stdin.end(promptFor(this.o.server, first, changes));
-    const timeout = setTimeout(() => child.kill(), this.o.runTimeoutMs ?? 5 * 60_000);
-    let result = null;
-    let partial = '';
-    let partialTool = null;
-    let buffer = '';
-    let stderr = '';
-    child.stderr.on('data', (d) => { stderr = (stderr + d.toString()).slice(-2000); });
-    const stopIf = (r) => { if (r?.stop && !stopAsked) { stopAsked = true; child.kill(); } };
-
-    const onLine = async (line) => {
-      let msg;
-      try { msg = JSON.parse(line); } catch { return; }
-      if (msg.type === 'stream_event' && msg.event) {
-        const ev = msg.event;
-        if (ev.type === 'content_block_start' && ev.content_block?.type === 'tool_use') {
-          partialTool = ev.content_block.name ?? null;
-          partial = '';
-        } else if (ev.type === 'content_block_delta' && ev.delta?.type === 'input_json_delta' && partialTool && /board_(reply|ask|comment)$/.test(partialTool)) {
-          partial += ev.delta.partial_json ?? '';
-          const d = draftOf(partial);
-          if (d && Date.now() - lastDraftAt >= (this.o.draftEveryMs ?? 400)) {
-            draft = d;
-            lastDraftAt = Date.now();
-            stopIf(await report({ steps, draft, state: 'WORKING' }));
-          }
-        }
-      } else if (msg.type === 'assistant') {
-        for (const c of msg.message?.content ?? []) {
-          if (c.type !== 'tool_use' || !c.name) continue;
-          if (/board_(reply|ask|comment)$/.test(c.name)) draft = draftOf(JSON.stringify(c.input ?? {})) ?? draft;
-          const s = stepLabel(c.name, c.input ?? {});
-          steps.push(s);
-          this.o.log(`    · ${s}`);
-          stopIf(await report({ steps, draft, state: 'WORKING' }));
-        }
-      } else if (msg.type === 'result') {
-        result = { text: msg.result ?? '', error: !!msg.is_error };
-      }
-    };
-    let chain = Promise.resolve();
-    child.stdout.on('data', (d) => {
-      buffer += d.toString();
-      const lines = buffer.split('\n');
-      buffer = lines.pop() ?? '';
-      for (const line of lines) if (line.trim()) chain = chain.then(() => onLine(line));
-    });
-    await new Promise((r) => child.on('close', r));
-    if (buffer.trim()) chain = chain.then(() => onLine(buffer));
-    await chain;
-    clearTimeout(timeout);
+    let draft = null;
+    const run = runClaude({ ...this.o, prompt: promptFor(this.o.server, first, changes),
+      onStep: async (step, steps, d) => {
+        draft = d;
+        if (step) this.o.log(`    · ${step}`);
+        return (await report({ steps, draft: d, state: 'WORKING' }))?.stop;
+      } });
+    this.child = run;
+    const { steps, result, stderr, stopAsked } = await run.done;
+    draft = run.draft ?? draft;
     this.child = null;
 
     const secs = Math.max(1, Math.round((Date.now() - started) / 1000));
-    const summary = (result?.text ?? '').split('\n').map((l) => l.trim()).filter((l) => l.startsWith('→')).at(-1) ?? null;
+    const summary = summaryOf(result?.text);
     if (stopAsked || this.stopped) {
       await report({ steps, draft, state: 'STOPPED', outcome: 'stopped by you' });
       this.o.log(`  ■ ${label} stopped after ${secs} s`);
     } else if (!result || result.error) {
-      const why = (result?.text?.trim() || stderr.trim().split('\n').at(-1) || 'the run ended without a result').slice(0, 300);
+      const why = failureOf(result, stderr);
       await report({ steps, draft, state: 'FAILED', outcome: why });
       this.o.log(`  ⚠ ${label} failed: ${why}`);
     } else {
@@ -387,18 +422,18 @@ export function parseArgs(argv) {
 }
 
 /** This runner's files on this machine, one set per Alfred and project. */
-export function files(url, project) {
-  const dir = join(tmpdir(), 'alfred-live');
+export function files(url, project, kind = 'alfred-live') {
+  const dir = join(tmpdir(), kind);
   mkdirSync(dir, { recursive: true });
   const key = `${url}|${project ?? ''}`.replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '').slice(-80);
   return { log: join(dir, `${key}.log`), pid: join(dir, `${key}.pid.json`), mcp: join(dir, `${key}.mcp.json`) };
 }
 
-function alive(pid) {
+export function alive(pid) {
   try { process.kill(pid, 0); return true; } catch { return false; }
 }
 
-function running(pidFile) {
+export function running(pidFile) {
   try {
     const s = JSON.parse(readFileSync(pidFile, 'utf8'));
     return alive(s.pid) ? s : null;
@@ -407,7 +442,7 @@ function running(pidFile) {
   }
 }
 
-function tail(path, n) {
+export function tail(path, n) {
   try { return readFileSync(path, 'utf8').trimEnd().split('\n').slice(-n); } catch { return []; }
 }
 
