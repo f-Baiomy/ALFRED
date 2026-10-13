@@ -49,8 +49,14 @@ Never read a whole body when a field (`get_call` `paths`) answers. Change no fil
 
 ## End with exactly this
 
+The `→` line and the `•` lines are all the user's session sees of this run - every line costs it a turn - so they say
+what was found and its evidence (card, endpoint, error, code line, call number), never what you did step by step, and
+nothing for groups that were fine.
+
 ```
 → <one line: what this batch gave, e.g. "#14 BUG · step 3 FAILED · 1 linked to #9 · 6 fine">
+• <one line per card added, linked or asked - at most 8: what was found and its evidence, e.g.
+  "#14 BUG POST /booking/confirm 500 - NPE BookingService.java:212 when the fare expired (call #12)">
 <<<STATE
 <at most 3000 characters for the next batch's run: the task in two lines, the steps and how calls match them,
 each flow with its expectations (sure / unsure) and whether its Learn: question was asked, the ledger tally

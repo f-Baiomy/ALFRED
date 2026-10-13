@@ -17,7 +17,7 @@ process.stdin.on('end', async () => {
     out({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'mcp__alfred-t__board_add_many', input: { cards: [{ title: 'a' }, { title: 'b' }] } }] } });
     const n = (prompt.match(/THE SWEEP/) ? 'finish' : 'batch');
     out({ type: 'result', subtype: 'success', is_error: false,
-      result: `Judged.\n→ ${n}: 2 cards · 1 fine\n<<<STATE\nflow search→book · sure: fare unchanged · seen in ${n}\nSTATE>>>` });
+      result: `Judged.\n→ ${n}: 2 cards · 1 fine\n• #14 BUG GET /api/confirm 500 - boom (call #2)\n• #15 TASK no log line for the 500 (call #2)\n<<<STATE\nflow search→book · sure: fare unchanged · seen in ${n}\nSTATE>>>` });
     return;
   }
   out({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'mcp__alfred__investigate_call', input: { callId: 'in-confirm-123456789' } }] } });

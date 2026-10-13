@@ -236,9 +236,14 @@ and not one `debug_*` entry per connected Alfred.
   the column card a spinner with the current step; the live strip a line per run. Stop is handed back on the runner's
   next report and ends the run. A run that stops reporting reads as failed after 5 minutes; ended runs fold to
   "✦ 6 s · 4 steps ▸" for 30 minutes.
-- **In the session:** the runner writes one line per event to a log in the temp folder (`#12 "title"  You: …`,
-  `  ✦ acting on your answer on #12…`, `    · step`, `  → ✦ Claude (6 s): reply`, `  ⚠ … failed: …`); the skill watches
-  it with the Monitor tool (`tail -n 0 -F <log>`), so each event shows in the chat and the session does nothing more.
+- **In the session - two logs:** every Monitor event costs the watching session a turn, so the runner keeps a full
+  log (`<key>.log`: each change, `✦ acting on your answer on #12…`, every `· step`, the reply - what `status` shows)
+  and a **chat log** (`<key>.chat.log`) the skill watches (`tail -n 0 -F`): only what adds to the session - one line
+  per answer (`#12 "title" · You: … → Claude: <reply> → <what was done>`), failures (a warning repeated in a row is
+  written once), start and stop. Quiet notes and steps never reach it, and the session writes nothing in reply to an
+  event: it is context for the user's later questions. `/alfred-listen`'s runner does the same: its chat log gets one
+  line per judged batch (`batch 2 · 33 calls → #31 BUG · 2 linked · 5 fine`) and the run's `• ` findings with their
+  evidence (card, endpoint, error, code line, call), never a clean batch or a step.
 - `stop` removes the runner's pid file (the runner ends itself within 2 s - a detached process on Windows cannot be
   signalled gently) and sends a stopped heartbeat, so listen answers the user again. `status` shows the pid, the model
   and the log's last lines.

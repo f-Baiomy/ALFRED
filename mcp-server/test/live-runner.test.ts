@@ -70,16 +70,17 @@ async function runnerWorld(mode = 'ok') {
   process.env['FAKE_CLAUDE_MODE'] = mode;
   process.env['FAKE_CLAUDE_PROMPT'] = promptFile;
   const lines: string[] = [];
+  const chat: string[] = [];
   const runner = new live.Runner({
     alfred: new live.Alfred(w.fake.url), server: 'alfred-lan-83', mcpEntry: { type: 'http', url: `${w.fake.url}/mcp` }, project: 'p', cwd: dir,
     claude: process.execPath, claudeArgs: [FAKE], mcpConfigFile: join(dir, 'mcp.json'), host: 'fathy-laptop',
-    log: (l: string) => lines.push(l), settleMs: 0, waitSeconds: 1, draftEveryMs: 0, model: 'sonnet',
+    log: (l: string) => lines.push(l), chat: (l: string) => chat.push(l), settleMs: 0, waitSeconds: 1, draftEveryMs: 0, model: 'sonnet',
   });
-  return { w, runner, lines, promptFile, dir };
+  return { w, runner, lines, chat, promptFile, dir };
 }
 
 test('a comment: one fresh run, each step and the reply reported to the card as they happen, one line each in the log', async () => {
-  const { w, runner, lines, promptFile, dir } = await runnerWorld();
+  const { w, runner, lines, chat, promptFile, dir } = await runnerWorld();
   try {
     assert.equal(await runner.once('now'), '2.1');
     const reports = w.fake.board.liveWork;
@@ -99,6 +100,9 @@ test('a comment: one fresh run, each step and the reply reported to the card as 
     assert.ok(lines.includes('  ✦ working on your question on #1…'));
     assert.ok(lines.includes('    · reading OrderMapper.java:58'));
     assert.ok(lines.some((l) => /^  → ✦ Claude \(\d+ s\): Not right\. Confirm returned 437\.50/.test(l)), lines.join('\n'));
+    // the session's chat log: one line - what the user did and the answer - no steps, no "working on"
+    assert.deepEqual(chat, ['#1 "Fare changes at confirm" · You: is the fare right after confirm? → Claude: Not right. Confirm returned 437.50 '
+      + 'but the booking saved 412.00. → replied; the saved fare is the search fare']);
 
     const sent = JSON.parse(readFileSync(promptFile, 'utf8')) as { prompt: string; args: string[] };
     assert.match(sent.prompt, /You are Alfred live/);
@@ -189,7 +193,7 @@ test('start runs the runner in the background on this machine; status sees it; s
     const started = await cli('start');
     assert.equal(started.started, true);
     assert.equal(started.alfred, w.fake.url);
-    assert.match(started.watch, /^tail -n 0 -F ".+\.log"$/);
+    assert.match(started.watch, /^tail -n 0 -F ".+\.chat\.log"$/);
     assert.equal((await cli('start')).alreadyRunning, true);
     let status: any;
     for (let i = 0; i < 60; i++) {

@@ -293,6 +293,18 @@ export class Runner {
     writeFileSync(o.mcpConfigFile, JSON.stringify({ mcpServers: { [o.server]: o.mcpEntry } }));
   }
 
+  /**
+   * A line for the session's chat as well as the log: the session watches only the chat log and every line there costs
+   * it a turn, so only what adds to the investigation goes there - the answers, failures, start and stop. A warning
+   * repeated in a row is said once.
+   */
+  say(line) {
+    this.o.log(line);
+    if (line.trimStart().startsWith('⚠') && line === this.lastSaid) return;
+    this.lastSaid = line;
+    this.o.chat?.(line);
+  }
+
   beat(stopped = false) {
     return this.o.alfred.call('PUT', '/board/live-runner', {
       body: { project: this.o.project ?? '', host: this.o.host ?? hostname(), model: this.o.model ?? null, stopped },
@@ -306,7 +318,7 @@ export class Runner {
 
   async run() {
     let cursor = 'now';
-    this.o.log(`● Live on for ${this.o.project || 'every board'}${this.o.cycleId ? ` (cycle ${this.o.cycleId})` : ''} at ${this.o.alfred.url}`
+    this.say(`● Live on for ${this.o.project || 'every board'}${this.o.cycleId ? ` (cycle ${this.o.cycleId})` : ''} at ${this.o.alfred.url}`
       + ` - answering on the board from ${this.o.host ?? hostname()}; each event shows here.`);
     while (!this.stopped) {
       await this.beat();
@@ -314,12 +326,12 @@ export class Runner {
         cursor = await this.once(cursor);
       } catch (error) {
         if (this.stopped) break;
-        this.o.log(`  ⚠ ${error.message} - retrying in 5 s`);
+        this.say(`  ⚠ ${error.message} - retrying in 5 s`);
         await new Promise((r) => setTimeout(r, 5000));
       }
     }
     await this.beat(true);
-    this.o.log('● Live stopped.');
+    this.say('● Live stopped.');
   }
 
   async once(cursor) {
@@ -333,6 +345,7 @@ export class Runner {
     if (this.o.project !== undefined) {
       const status = await alfred.call('GET', '/board/agent-status', { query: { project: this.o.project } }).catch(() => null);
       if (status?.state === 'PAUSED') {
+        this.say('  ⚠ ⏸ paused on the board - your changes are not answered until you resume');
         this.o.log(`  ⏸ paused on the board - ${page.entries.length} change(s) not answered`);
         return page.cursor;
       }
@@ -400,11 +413,15 @@ export class Runner {
     } else if (!result || result.error) {
       const why = failureOf(result, stderr);
       await report({ steps, draft, state: 'FAILED', outcome: why });
-      this.o.log(`  ⚠ ${label} failed: ${why}`);
+      this.say(`  ⚠ ${label} failed: ${why}`);
     } else {
       await report({ steps, draft, state: 'DONE', outcome: summary ?? 'answered' });
       this.o.log(`  → ✦ Claude (${secs} s): ${draft ?? summary ?? 'answered on the card'}`);
       if (summary && draft) this.o.log(`    ${summary}`);
+      // One line for the session: what the user did and what came of it - the reply and what was done beside it.
+      const said = (draft ?? '').replace(/\s+/g, ' ').trim();
+      const reply = said ? `Claude: ${said.length > 300 ? `${said.slice(0, 300)}…` : said}` : '';
+      this.o.chat?.(`${label} "${first.title}" · ${youDid(changes.at(-1))} → ${[reply, summary].filter(Boolean).join(' ') || 'answered on the card'}`);
     }
   }
 }
@@ -426,7 +443,16 @@ export function files(url, project, kind = 'alfred-live') {
   const dir = join(tmpdir(), kind);
   mkdirSync(dir, { recursive: true });
   const key = `${url}|${project ?? ''}`.replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '').slice(-80);
-  return { log: join(dir, `${key}.log`), pid: join(dir, `${key}.pid.json`), mcp: join(dir, `${key}.mcp.json`) };
+  return { log: join(dir, `${key}.log`), chat: join(dir, `${key}.chat.log`), pid: join(dir, `${key}.pid.json`), mcp: join(dir, `${key}.mcp.json`) };
+}
+
+/** The full log (every step - status shows it) and the chat log (what the session watches: only what adds to it). */
+export function writers(f) {
+  const stamp = (line) => {
+    const t = new Date().toTimeString().slice(0, 8);
+    return String(line).split('\n').map((l) => `${t} ${l}`).join('\n') + '\n';
+  };
+  return { log: (line) => appendFileSync(f.log, stamp(line)), chat: (line) => appendFileSync(f.chat, String(line).replace(/\s*\n\s*/g, ' ') + '\n') };
 }
 
 export function alive(pid) {
@@ -472,7 +498,7 @@ export async function main(argv) {
   }
   if (command === 'start') {
     const r = running(f.pid);
-    if (r) { print({ alreadyRunning: true, ...r, watch: `tail -n 0 -F "${f.log}"` }); return; }
+    if (r) { print({ alreadyRunning: true, ...r, watch: `tail -n 0 -F "${f.chat}"` }); return; }
     // The first heartbeat: Alfred is reachable, new enough to hold it (3.7+), and lets this machine write to its board.
     await new Alfred(url).call('PUT', '/board/live-runner', { body: { project: project ?? '', host: hostname(), model: args.model ?? null, stopped: false } })
       .catch((error) => {
@@ -481,24 +507,22 @@ export async function main(argv) {
             : /fetch failed|timeout|aborted/i.test(error.message) ? `cannot reach Alfred at ${url} from this machine` : error.message);
       });
     writeFileSync(f.log, '');
+    writeFileSync(f.chat, '');
     const self = fileURLToPath(import.meta.url);
     const child = spawn(process.execPath, [self, 'run', ...argv.slice(1), '--cwd', cwd, '--url', url], {
       cwd, detached: true, stdio: 'ignore', windowsHide: true,
     });
     child.unref();
     const started = { pid: child.pid, alfred: url, project: project ?? null, cycleId: args.cycle ?? null, model: args.model ?? null,
-      log: f.log, startedAt: new Date().toISOString() };
+      log: f.log, chat: f.chat, startedAt: new Date().toISOString() };
     writeFileSync(f.pid, JSON.stringify(started));
-    print({ started: true, ...started, model: args.model ?? "Claude Code's default", watch: `tail -n 0 -F "${f.log}"` });
+    print({ started: true, ...started, model: args.model ?? "Claude Code's default", watch: `tail -n 0 -F "${f.chat}"` });
     return;
   }
   if (command === 'run') {
-    const log = (line) => {
-      const t = new Date().toTimeString().slice(0, 8);
-      appendFileSync(f.log, String(line).split('\n').map((l) => `${t} ${l}`).join('\n') + '\n');
-    };
+    const { log, chat } = writers(f);
     const runner = new Runner({ alfred: new Alfred(url), server: args.server, mcpEntry: entry, project, cycleId: args.cycle, model: args.model,
-      cwd, claude: args.claude ?? 'claude', log, mcpConfigFile: f.mcp });
+      cwd, claude: args.claude ?? 'claude', log, chat, mcpConfigFile: f.mcp });
     const end = () => runner.stop();
     process.on('SIGTERM', end);
     process.on('SIGINT', end);

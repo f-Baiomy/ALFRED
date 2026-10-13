@@ -18,7 +18,8 @@ the answering (docs/mcp.md "Live answers"):
 - While a run works, the card shows it: "✦ Claude is acting on your answer", each step as it happens ("checking call
   #3", "reading OrderMapper.java:58", "→ will turn #12 into a BUG"), the reply typing in, and Stop. The board's live
   strip shows the same, with the machine answering. Moves to To do, closes, flags and team changes are only noted.
-- Every event is one line in the runner's log; this session shows them as they come.
+- Every event is a line in the runner's full log; only the answers, failures, start and stop go to its chat log,
+  which this session watches.
 
 ## Start
 
@@ -36,15 +37,17 @@ the answering (docs/mcp.md "Live answers"):
    re-arm the watch (step 4). An error line (`cannot reach Alfred at …`, `does not let this machine edit its board`,
    `older than /alfred-live needs`) → show it and stop; for the edit one, the board's owner adds this machine to
    Settings → Server's edit access (`ALFRED_SETTINGS_EDIT_FROM`).
-4. Watch the log so each event shows here: the Monitor tool with the returned `watch` command
-   (`tail -n 0 -F "<log>"`), description "Alfred live · <project>", `timeout_ms` 3600000.
+4. Watch the chat log: the Monitor tool with the returned `watch` command (`tail -n 0 -F "<chat log>"` - the runner's
+   short log for this session, not its full one), description "Alfred live · <project>", `timeout_ms` 3600000.
 5. Tell the user in two lines: Claude now answers on the board within seconds and shows each step on the card; stop
    with `/alfred-live stop`, pause with Pause on the board's live strip. Then go back to what the user was doing.
 
 ## While it runs (this session)
 
-- A Monitor event is the runner's log line - your chat shows it; **do nothing about it**: do not answer it, do not open
-  the card, do not run tools. The runner already did the work on the board.
+- A Monitor event is a line from the runner's chat log - only what adds to this session: a finding with its evidence,
+  an answer given on the board, a failure, start and stop (each step and every quiet batch stay in the full log,
+  `status` shows them). It is context for later questions in this session - **write nothing in reply to it**: no
+  "still working", no restating it, no summary. Do not open cards or run tools for it; the runner already did the work.
 - The watch expires after an hour: re-arm it with the same command, nothing else. A line starting `⚠` that repeats
   (the runner cannot reach Alfred or Claude) → tell the user once, with the line.
 - The user asks something about a live answer → answer from the board (`board_get`), not from the log.

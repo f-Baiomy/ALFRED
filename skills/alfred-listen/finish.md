@@ -36,4 +36,8 @@ on the cycle.
 
 `--dry` (said below when set): list what you would write - write nothing.
 
-End with one line: `→ ` and the totals, e.g. `→ 63/63 checked · 3 flagged · 2 cards · 1 linked · 4 marks suggested`.
+End with one line: `→ ` and the totals, e.g. `→ 63/63 checked · 3 flagged · 2 cards · 1 linked · 4 marks suggested`,
+then at most 8 lines starting `• `: what the finish found with its evidence (a regression since a cycle, a shape
+change, an Acceptance item failing or never exercised, a card from the sweep) - e.g. `• #17 BUG regression since
+"Booking 12-10": GET /bookings/{pnr} lost passengers[].email (call #31 vs #8)`. These lines are all the user's session
+sees of this run, so nothing about how you worked.

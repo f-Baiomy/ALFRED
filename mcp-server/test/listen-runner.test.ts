@@ -58,15 +58,16 @@ async function listenWorld() {
   process.env['FAKE_CLAUDE_MODE'] = 'listen';
   process.env['FAKE_CLAUDE_PROMPT'] = promptFile;
   const lines: string[] = [];
+  const chat: string[] = [];
   const mcp = new listen.McpClient(entry, { cwd: dir });
   const runner = new listen.ListenRunner({
     alfred: new (await import(pathToFileURL(fileURLToPath(new URL('../../skills/alfred-live/alfred-live.mjs', import.meta.url))).href)).Alfred(fake.url),
     mcp, server: 'alfred-t', mcpEntry: entry, cycleId: CY, project: 'odeysys', cwd: dir, claude: process.execPath, claudeArgs: [FAKE],
-    log: (l: string) => lines.push(l), mcpConfigFile: join(dir, 'mcp.json'), stateFile: join(dir, 'state.json'), waitSec: 1, settleSec: 0, host: 'fathy-laptop',
+    log: (l: string) => lines.push(l), chat: (l: string) => chat.push(l), mcpConfigFile: join(dir, 'mcp.json'), stateFile: join(dir, 'state.json'), waitSec: 1, settleSec: 0, host: 'fathy-laptop',
   });
   const close = async () => { mcp.close(); await http.close(); await fake.stop(); };
   const prompt = () => JSON.parse(readFileSync(promptFile, 'utf8')) as { prompt: string; args: string[] };
-  return { fake, runner, mcp, lines, dir, prompt, close, entry };
+  return { fake, runner, mcp, lines, chat, dir, prompt, close, entry };
 }
 
 test('a batch needs the model only when a group is flagged, the user changed something, or the brief changed', () => {
@@ -80,6 +81,7 @@ test('a batch needs the model only when a group is flagged, the user changed som
   assert.equal(listen.cleanLine('x\nClean (3): #1-3\ny'), 'Clean (3): #1-3');
   assert.equal(listen.stateOf('→ done\n<<<STATE\nflows: a\nSTATE>>>'), 'flows: a');
   assert.equal(listen.stateOf('no state'), null);
+  assert.deepEqual(listen.findingsOf('→ x\n• #1 BUG a\nnot this\n<<<STATE\n• inside state\nSTATE>>>\n• #2 TASK b'), ['• #1 BUG a', '• #2 TASK b']);
   assert.equal(listen.cardsAddedBy('mcp__alfred__board_add_many', { cards: [{}, {}, {}] }), 3);
   assert.equal(listen.cardsAddedBy('mcp__alfred__board_add', {}), 1);
   assert.equal(listen.cardsAddedBy('mcp__alfred__board_link', {}), 0);
@@ -125,6 +127,9 @@ test('the first batch is judged by one run; a clean batch after it costs no run;
     assert.deepEqual(JSON.parse(readFileSync(join(w.dir, 'prompt.json'), 'utf8')), {}, 'no run for a clean batch');
     assert.ok(w.lines.some((l) => /^batch 2 · 1 calls · all clean +\(no run\)$/.test(l)), w.lines.join('\n'));
     assert.equal(w.runner.s.cleanSince.length, 1);
+    // the session's chat log: the start and what the judged batch found, with its evidence - no steps, no clean batch
+    assert.deepEqual(w.chat, ['batch 1 · 2 calls → batch: 2 cards · 1 fine',
+      '  • #14 BUG GET /api/confirm 500 - boom (call #2)', '  • #15 TASK no log line for the 500 (call #2)']);
 
     // the user's comment: a run, given the last STATE and the clean batch to mark
     w.fake.board.changes = { entries: [{ id: 9, actor: 'USER', kind: 'COMMENT', text: 'is #2 right?', oldValue: null, newValue: null, at: '2026-10-13T09:01:00Z',
@@ -183,6 +188,12 @@ test('stop: the sweep runs in the same connection, then review\'s finish once', 
     assert.match(p, /STATE \(from the last run\):\nflow search→book/);
     assert.ok(w.lines.some((l) => /sweep · 0 calls never checked or changed since/.test(l)), w.lines.join('\n'));
     assert.ok(w.lines.some((l) => /● Listen stopped · 2 calls/.test(l)), w.lines.join('\n'));
+    // the session's chat log at stop: start, the finish's findings, stopped - not the sweep's bookkeeping
+    assert.match(w.chat[0], /^batch 1 · 2 calls → /);
+    assert.ok(w.chat.some((l) => /^● Listening to cycle cy-listen/.test(l)), w.chat.join('\n'));
+    assert.ok(w.chat.includes('finish → finish: 2 cards · 1 fine'), w.chat.join('\n'));
+    assert.match(w.chat.at(-1)!, /^● Listen stopped · /);
+    assert.ok(!w.chat.some((l) => /sweep ·|    · /.test(l)), w.chat.join('\n'));
     const last = w.fake.requests('PUT', '/board/agent-status').at(-1)!.body as any;
     assert.equal(last.state, 'STOPPED');
   } finally { await w.close(); }

@@ -24,7 +24,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const live = await import(pathToFileURL(join(HERE, '..', 'alfred-live', 'alfred-live.mjs')).href).catch(() => {
   throw new Error(`/alfred-live is not installed beside /alfred-listen (${join(HERE, '..', 'alfred-live')}) - reinstall the Alfred skills`);
 });
-const { Alfred, alfredUrlOf, failureOf, files, parseArgs, runClaude, running, serverEntry, summaryOf, tail } = live;
+const { Alfred, alfredUrlOf, failureOf, files, parseArgs, runClaude, running, serverEntry, summaryOf, tail, writers } = live;
 
 // -------------------------------------------------------------------------------------------------------- MCP client
 
@@ -193,6 +193,11 @@ export function stateOf(text) {
   return s ? s.slice(0, 4000) : null;
 }
 
+/** The run's findings for the session: its lines starting "• " (outside STATE), at most eight. */
+export function findingsOf(text) {
+  return String(text ?? '').replace(/<<<STATE[\s\S]*?STATE>>>/g, '').split('\n').map((l) => l.trim()).filter((l) => l.startsWith('• ')).slice(0, 8);
+}
+
 /** How many cards a tool call adds. */
 export function cardsAddedBy(tool, input) {
   const name = String(tool).replace(/^mcp__.+?__/, '');
@@ -217,6 +222,14 @@ export class ListenRunner {
     this.child = null;
     writeFileSync(o.mcpConfigFile, JSON.stringify({ mcpServers: { [o.server]: o.mcpEntry } }));
     this.s = this.load();
+  }
+
+  /** A line for the session's chat as well as the log (as /alfred-live's say): findings, failures, start, stop. */
+  say(line) {
+    this.o.log(line);
+    if (line.trimStart().startsWith('⚠') && line === this.lastSaid) return;
+    this.lastSaid = line;
+    this.o.chat?.(line);
   }
 
   load() {
@@ -268,7 +281,7 @@ export class ListenRunner {
 
   async run() {
     const restartsAtStart = this.o.mcp.restarts;
-    this.o.log(`● Listening to cycle ${this.o.cycleId} (${this.o.project}) on ${this.o.alfred.url} from ${this.o.host ?? hostname()}`
+    this.say(`● Listening to cycle ${this.o.cycleId} (${this.o.project}) on ${this.o.alfred.url} from ${this.o.host ?? hostname()}`
       + ` · no model while calls are clean${this.o.dry ? ' · dry run: nothing is written' : ''}`);
     await this.status(`listening to ${this.o.cycleId} · ${this.counts()}`);
     while (!this.stopping) {
@@ -276,18 +289,18 @@ export class ListenRunner {
         await this.once();
         if (this.o.mcp.restarts > restartsAtStart && !this.warnedRestart) {
           this.warnedRestart = true;
-          this.o.log('  ⚠ the MCP server restarted - calls checked before it are re-checked by the sweep at stop');
+          this.say('  ⚠ the MCP server restarted - calls checked before it are re-checked by the sweep at stop');
         }
       } catch (error) {
         if (this.stopping) break;
-        this.o.log(`  ⚠ ${error.message} - retrying in 5 s`);
+        this.say(`  ⚠ ${error.message} - retrying in 5 s`);
         await new Promise((r) => setTimeout(r, 5000));
       }
     }
     if (!this.now) await this.finish();
     else {
       await this.status(`stopped without the finish - /alfred-listen ${this.o.cycleId} --finish runs it`, 'STOPPED');
-      this.o.log('● Listen stopped without the finish - `/alfred-listen <cycle> --finish` runs it later.');
+      this.say('● Listen stopped without the finish - `/alfred-listen <cycle> --finish` runs it later.');
     }
     this.o.mcp.close();
   }
@@ -342,13 +355,14 @@ export class ListenRunner {
       // Paused on the live strip: no card is written; the batch waits for the next run (or the sweep at stop).
       this.s.held = [...(this.s.held ?? []), text].slice(-5);
       this.o.log(`${what} · ⏸ paused on the board - judged when you resume`);
+      this.say('  ⚠ ⏸ paused on the board - flagged batches are held and judged when you resume');
       this.save();
       return;
     }
     this.o.log(what);
     const texts = [...(this.s.held ?? []), text];
     this.s.held = [];
-    await this.judge(`judging batch ${n}`, readPrompt(this.o, 'batch.md'), this.batchPrompt(texts, json));
+    await this.judge(`judging batch ${n}`, readPrompt(this.o, 'batch.md'), this.batchPrompt(texts, json), `batch ${n} · ${json.checked ?? 0} calls`);
     this.s.cleanSince = [];
     this.save();
   }
@@ -365,7 +379,7 @@ export class ListenRunner {
   }
 
   /** One fresh run; its steps on the live strip and in the log; its STATE kept for the next. */
-  async judge(head, rules, body) {
+  async judge(head, rules, body, said = head) {
     const started = Date.now();
     this.o.log(`  ✦ ${head}…`);
     const run = runClaude({ ...this.o, prompt: `${rules}\n\n${body}`, runTimeoutMs: this.o.runTimeoutMs ?? 15 * 60_000,
@@ -384,10 +398,14 @@ export class ListenRunner {
     if (stopAsked || this.now) {
       this.o.log(`  ■ ${head} stopped after ${secs} s`);
     } else if (!result || result.error) {
-      this.o.log(`  ⚠ ${head} failed: ${failureOf(result, stderr)}`);
+      this.say(`  ⚠ ${head} failed: ${failureOf(result, stderr)}`);
     } else {
       this.s.state = stateOf(result.text) ?? this.s.state;
-      this.o.log(`  → ✦ Claude (${secs} s): ${(summaryOf(result.text) ?? '→ judged').replace(/^→\s*/, '')}`);
+      const summary = (summaryOf(result.text) ?? '→ judged').replace(/^→\s*/, '');
+      this.o.log(`  → ✦ Claude (${secs} s): ${summary}`);
+      // For the session: what the batch found, with its evidence - not how long it took or which tools it called.
+      this.o.chat?.(`${said} → ${summary}`);
+      for (const f of findingsOf(result.text)) this.say(`  ${f}`);
     }
     await this.status(`listening to ${this.o.cycleId} · ${this.counts()}`);
   }
@@ -402,7 +420,7 @@ export class ListenRunner {
       this.s.checked += sweep.json.checked ?? 0;
       this.o.log(`  sweep · ${sweep.json.checked ?? 0} calls never checked or changed since · ${sweep.json.totalGroups ?? 0} group(s)`);
     } catch (error) {
-      this.o.log(`  ⚠ sweep failed: ${error.message}`);
+      this.say(`  ⚠ sweep failed: ${error.message}`);
       sweep = { text: `(the sweep failed: ${error.message} - call check_calls with sweep: true yourself)` };
     }
     const held = this.s.held?.length ? `\n\nBATCHES NOT JUDGED (paused on the board):\n${this.s.held.join('\n\n---\n\n')}` : '';
@@ -413,11 +431,11 @@ export class ListenRunner {
       `STATE (from the last run):\n${this.s.state ?? '(none)'}`,
       this.s.cleanSince.length ? `CLEAN BATCHES SINCE THE LAST RUN (mark their steps):\n${this.s.cleanSince.join('\n')}` : '',
       `THE SWEEP (check_calls sweep: true, every page):\n${sweep.text}${held}`,
-    ].filter(Boolean).join('\n\n'));
+    ].filter(Boolean).join('\n\n'), 'finish');
     this.s.held = [];
     this.save();
     await this.status(`stopped · ${this.counts()}`, 'STOPPED');
-    this.o.log(`● Listen stopped · ${this.counts()} · ${this.s.batch} batches · ${this.s.runs} runs`);
+    this.say(`● Listen stopped · ${this.counts()} · ${this.s.batch} batches · ${this.s.runs} runs`);
   }
 }
 
@@ -455,13 +473,13 @@ export async function main(argv) {
     const r = running(f.pid);
     // The runner reads this within 2 s: it finishes (sweep + review's finish) after its current wait, then exits.
     writeFileSync(stopFile, args.now === 'true' ? 'now' : 'finish');
-    print({ stopping: !!r, finish: args.now !== 'true', watch: `tail -n 0 -F "${f.log}"`, last: tail(f.log, 5) });
+    print({ stopping: !!r, finish: args.now !== 'true', watch: `tail -n 0 -F "${f.chat}"`, last: tail(f.log, 5) });
     return;
   }
   if (command === 'start') {
     if (!args.project) throw new Error('--project <the cycle\'s project> is needed');
     const r = running(f.pid);
-    if (r) { print({ alreadyRunning: true, ...r, watch: `tail -n 0 -F "${f.log}"` }); return; }
+    if (r) { print({ alreadyRunning: true, ...r, watch: `tail -n 0 -F "${f.chat}"` }); return; }
     const alfred = new Alfred(url);
     await alfred.call('GET', '/board/agent-status', { query: { project: args.project } }).catch((error) => {
       throw new Error(/fetch failed|timeout|aborted/i.test(error.message) ? `cannot reach Alfred at ${url} from this machine` : error.message);
@@ -469,26 +487,24 @@ export async function main(argv) {
     if (existsSync(stopFile)) unlinkSync(stopFile);
     if (args.fresh === 'true' && existsSync(stateFile)) unlinkSync(stateFile);
     appendFileSync(f.log, '');
+    appendFileSync(f.chat, '');
     const self = fileURLToPath(import.meta.url);
     const child = spawn(process.execPath, [self, 'run', ...argv.slice(1), '--cwd', cwd, '--url', url], {
       cwd, detached: true, stdio: 'ignore', windowsHide: true,
     });
     child.unref();
     const started = { pid: child.pid, alfred: url, cycleId: args.cycle, project: args.project, model: args.model ?? null,
-      dry: args.dry === 'true', finishOnly: args.finish === 'true', log: f.log, startedAt: new Date().toISOString() };
+      dry: args.dry === 'true', finishOnly: args.finish === 'true', log: f.log, chat: f.chat, startedAt: new Date().toISOString() };
     writeFileSync(f.pid, JSON.stringify(started));
-    print({ started: true, ...started, model: args.model ?? "Claude Code's default", watch: `tail -n 0 -F "${f.log}"` });
+    print({ started: true, ...started, model: args.model ?? "Claude Code's default", watch: `tail -n 0 -F "${f.chat}"` });
     return;
   }
   if (command === 'run') {
-    const log = (line) => {
-      const t = new Date().toTimeString().slice(0, 8);
-      appendFileSync(f.log, String(line).split('\n').map((l) => `${t} ${l}`).join('\n') + '\n');
-    };
+    const { log, chat } = writers(f);
     const mcp = new McpClient(entry, { cwd });
     const runner = new ListenRunner({ alfred: new Alfred(url), mcp, server: args.server, mcpEntry: entry, cycleId: args.cycle, project: args.project,
       // --claude: another Claude Code command (a script path runs through node - the tests' fake)
-      cwd, ...(/\.m?js$/i.test(args.claude ?? '') ? { claude: process.execPath, claudeArgs: [resolve(args.claude)] } : { claude: args.claude ?? 'claude' }),
+      cwd, chat, ...(/\.m?js$/i.test(args.claude ?? '') ? { claude: process.execPath, claudeArgs: [resolve(args.claude)] } : { claude: args.claude ?? 'claude' }),
       model: args.model, dry: args.dry === 'true', log, mcpConfigFile: f.mcp, stateFile,
       waitSec: args.wait ? Number(args.wait) : undefined, settleSec: args.settle ? Number(args.settle) : undefined });
     const onStop = () => {

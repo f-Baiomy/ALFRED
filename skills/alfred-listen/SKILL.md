@@ -21,7 +21,8 @@ does the listening (docs/mcp.md "Listen runner"):
 - Stop sweeps (calls never checked or changed since) and runs review's finish once (`finish.md`): steps, Acceptance
   marks, requirements, regressions, shape regressions, logging gaps, annotations, the session log. **A cycle listened
   to and then reviewed gives no new cards.**
-- Every event is one line in the runner's log; this session shows them as they come.
+- Every event is a line in the runner's full log; only each judged batch's findings (with their evidence),
+  failures, start and stop go to its chat log, which this session watches. A clean batch adds nothing there.
 
 ## Start
 
@@ -41,7 +42,8 @@ does the listening (docs/mcp.md "Listen runner"):
    `--finish`: the listening ended without Stop (interrupted, closed) - the runner only sweeps and runs the finish.
    It prints JSON with the log file and `watch`. `alreadyRunning` → only re-arm the watch. An error line (`cannot
    reach Alfred at …`) → show it and stop.
-5. Watch the log: the Monitor tool with the returned `watch` command (`tail -n 0 -F "<log>"`), description
+5. Watch the chat log: the Monitor tool with the returned `watch` command (`tail -n 0 -F "<chat log>"` - the
+   runner's short log for this session: each judged batch's findings with their evidence, failures, start and stop), description
    "Alfred listen · <cycle>", `timeout_ms` 3600000.
 6. Tell the user in two lines what is checked (the Acceptance items, the project checks, the test steps), that clean
    calls cost no model, and how to stop (`/alfred-listen stop`, or Pause on the live strip). Then go back to what the
@@ -49,8 +51,10 @@ does the listening (docs/mcp.md "Listen runner"):
 
 ## While it runs (this session)
 
-- A Monitor event is the runner's log line - your chat shows it; **do nothing about it**: do not judge calls, open
-  cards or run tools. The runner already did the work on the board.
+- A Monitor event is a line from the runner's chat log - only what adds to this session: a finding with its evidence,
+  an answer given on the board, a failure, start and stop (each step and every quiet batch stay in the full log,
+  `status` shows them). It is context for later questions in this session - **write nothing in reply to it**: no
+  "still working", no restating it, no summary. Do not open cards or run tools for it; the runner already did the work.
 - The watch expires after an hour: re-arm it with the same command, nothing else. A `⚠` line that repeats (the runner
   cannot reach Alfred, the MCP server or Claude) → tell the user once, with the line.
 - The user asks about a finding → answer from the board (`board_get`), not from the log.
