@@ -41,7 +41,7 @@ export function liveHolder(baseUrl: string, now = Date.now()): { project: string
   }
 }
 
-function beat(baseUrl: string, project: string | null, stopped = false): void {
+export function beat(baseUrl: string, project: string | null, stopped = false): void {
   try {
     writeFileSync(heartbeatFile(baseUrl), JSON.stringify({ project, at: new Date().toISOString(), stopped }));
   } catch {
@@ -82,7 +82,7 @@ export function respondTo(e: ChangeRow, parent: ActivityRow | undefined, index: 
 }
 
 /** The changes a reply would act on twice: one per card, user actions only, oldest first. */
-function byCard(entries: readonly ChangeRow[]): Map<string, ChangeRow[]> {
+export function byCard(entries: readonly ChangeRow[]): Map<string, ChangeRow[]> {
   const out = new Map<string, ChangeRow[]>();
   for (const e of entries) {
     if (e.actor !== 'USER') continue;
@@ -92,7 +92,7 @@ function byCard(entries: readonly ChangeRow[]): Map<string, ChangeRow[]> {
   return out;
 }
 
-async function cardContext(client: AlfredClient, ctx: MaskContext, changes: readonly ChangeRow[]): Promise<Record<string, unknown>> {
+export async function cardContext(client: AlfredClient, ctx: MaskContext, changes: readonly ChangeRow[]): Promise<Record<string, unknown>> {
   const first = changes[0];
   const card: CardRow = await cardByNumber(client, first.project, first.number);
   const entries = await history(client, card.id);

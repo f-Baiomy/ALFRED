@@ -1,4 +1,5 @@
-import { Component, OnDestroy, computed, effect, input, output, signal } from '@angular/core';
+import { Component, OnDestroy, computed, effect, inject, input, output, signal } from '@angular/core';
+import { LiveWorkStateService, currentStep } from '../../../core/state/live-work-state.service';
 import { AgentStatus } from '../../../core/models/board.models';
 
 /** A status not updated for this long reads as "Claude stopped" (the backend reads it the same way). */
@@ -13,6 +14,13 @@ export const AGENT_EXPIRY_MS = 10 * 60 * 1000;
   selector: 'app-live-strip',
   standalone: true,
   template: `
+    @for (w of liveNow(); track w.id) {
+      <div class="board-live live-strip-work" role="status">
+        <span class="live-spinner"></span><b>✦ Live</b>
+        <span class="board-live-step">{{ w.head }} · #{{ w.cardNumber }} · {{ step(w) }}</span>
+        @if (editable()) { <button type="button" class="action-btn" [disabled]="w.stop" (click)="live.stop(w.id)">{{ w.stop ? 'Stopping…' : 'Stop' }}</button> }
+      </div>
+    }
     @if (status(); as s) {
       <div class="board-live" [class.paused]="state() === 'PAUSED'" [class.stopped]="state() === 'STOPPED'">
         <span class="board-pulse"></span>
@@ -33,6 +41,11 @@ export class LiveStripComponent implements OnDestroy {
   readonly status = input<AgentStatus | null>(null);
   readonly editable = input(true);
   readonly action = output<'pause' | 'resume' | 'stop'>();
+  /** The project this strip is for - its /alfred-live answers in progress show above Claude's status. */
+  readonly project = input<string | null>(null);
+  readonly live = inject(LiveWorkStateService);
+  readonly liveNow = computed(() => this.live.working().filter((w) => this.project() === null || w.project === this.project()));
+  readonly step = currentStep;
 
   private readonly expired = signal(false);
   private timer: ReturnType<typeof setTimeout> | null = null;

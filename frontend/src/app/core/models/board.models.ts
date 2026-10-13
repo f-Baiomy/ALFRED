@@ -354,7 +354,26 @@ export interface BoardStorage {
 /** A /ws/board message (contracts/websocket.md). */
 export type BoardSocketEvent =
   | { readonly type: 'board-changed'; readonly project?: string; readonly cycleId?: string; readonly cardId?: string; readonly what: string }
-  | ({ readonly type: 'agent-status' } & AgentStatus);
+  | ({ readonly type: 'agent-status' } & AgentStatus)
+  | { readonly type: 'live-work'; readonly work: LiveWork };
+
+/**
+ * What /alfred-live is doing on one card right now (docs/board.md "Live answers"): the heading, each step as it
+ * happens, the reply as it is written, and how it ended. In memory on the backend; never a record.
+ */
+export interface LiveWork {
+  readonly id: string;
+  readonly project: string;
+  readonly cardNumber: number;
+  readonly head: string;
+  readonly steps: readonly string[];
+  readonly draft: string | null;
+  readonly state: 'WORKING' | 'DONE' | 'FAILED' | 'STOPPED';
+  readonly outcome: string | null;
+  readonly stop: boolean;
+  readonly startedAt: string;
+  readonly updatedAt: string;
+}
 
 /** A card unchanged for this long in an open status shows as stale (FR-013). */
 export const STALE_AFTER_MS = 5 * 24 * 60 * 60 * 1000;

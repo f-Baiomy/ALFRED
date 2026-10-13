@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fathy.alfred.backend.board.application.port.out.BoardNotificationPort;
 import com.fathy.alfred.backend.board.domain.model.AgentStatus;
+import com.fathy.alfred.backend.board.domain.model.LiveWork;
 import org.springframework.stereotype.Component;
 
 import java.util.LinkedHashMap;
@@ -50,6 +51,30 @@ public class WebSocketBoardNotificationAdapter implements BoardNotificationPort 
         event.put("cardsAdded", status.cardsAdded());
         event.put("lastCheckAt", status.lastCheckAt().toString());
         event.put("updatedAt", status.updatedAt().toString());
+        if (status.step() != null) {
+            event.put("step", status.step());
+        }
+        send(event);
+    }
+
+    @Override
+    public void liveWork(LiveWork work) {
+        Map<String, Object> event = new LinkedHashMap<>();
+        event.put("type", "live-work");
+        // By hand: this mapper has no java.time module, and the client wants ISO strings anyway.
+        Map<String, Object> w = new LinkedHashMap<>();
+        w.put("id", work.id());
+        w.put("project", work.project());
+        w.put("cardNumber", work.cardNumber());
+        w.put("head", work.head());
+        w.put("steps", work.steps());
+        w.put("draft", work.draft());
+        w.put("state", work.state().name());
+        w.put("outcome", work.outcome());
+        w.put("stop", work.stop());
+        w.put("startedAt", work.startedAt().toString());
+        w.put("updatedAt", work.updatedAt().toString());
+        event.put("work", w);
         send(event);
     }
 

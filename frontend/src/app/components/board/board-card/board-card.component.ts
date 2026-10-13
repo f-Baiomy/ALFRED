@@ -8,6 +8,7 @@ import { skillFor, waitingText } from '../../../shared/utils/board-skills';
 import { BoardSeenService } from '../../../core/services/board-seen.service';
 import { TeamChipsComponent } from '../team-chips/team-chips.component';
 import { copyToClipboard } from '../../../shared/utils/clipboard';
+import { LiveWorkStateService, currentStep } from '../../../core/state/live-work-state.service';
 
 /** What a card asks of its board: one sort action, a reopen, or a selection toggle. */
 export type CardAction =
@@ -25,7 +26,7 @@ export type CardAction =
   standalone: true,
   imports: [MentionChipComponent, TeamChipsComponent],
   template: `
-    <div class="board-card" [class.selected]="selected()" [class.focused]="focused()" [class.closed]="card().status === 'CLOSED'"
+    <div class="board-card" [class.live-busy]="!!liveWork()" [class.selected]="selected()" [class.focused]="focused()" [class.closed]="card().status === 'CLOSED'"
          [class.blocked]="!!card().blockedBy?.length" [attr.data-card]="card().id" tabindex="-1" (click)="onClick($event)">
       @if (unread()) { <span class="board-unread" title="Claude changed it since you last opened it"></span> }
       @if (editable()) {
@@ -55,6 +56,9 @@ export type CardAction =
         }
         <span class="board-age" [class.stale]="stale()" [title]="stale() ? 'No change for more than 5 days' : ''">{{ stale() ? '⏳ ' : '' }}{{ age() }}</span>
       </div>
+      @if (liveWork(); as lw) {
+        <div class="board-card-live" role="status"><span class="live-spinner"></span>✦ {{ liveStep(lw) }}</div>
+      }
       @if (waiting(); as w) {
         <div class="board-card-row"><span class="board-wait" [class]="'board-wait board-wait-' + card().waiting!.who">{{ w }}</span></div>
       }
@@ -119,6 +123,10 @@ export class BoardCardComponent {
   readonly answer = output<void>();
 
   private readonly seen = inject(BoardSeenService);
+  private readonly live = inject(LiveWorkStateService);
+  /** /alfred-live working on this card right now. */
+  readonly liveWork = computed(() => this.live.working().find((w) => w.project === this.card().project && w.cardNumber === this.card().number) ?? null);
+  readonly liveStep = currentStep;
   readonly copied = signal(false);
   readonly unread = computed(() => this.seen.isUnread(this.card()));
   readonly waiting = computed(() => waitingText(this.card().waiting, this.now()));

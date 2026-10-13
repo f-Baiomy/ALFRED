@@ -12,6 +12,7 @@ import { proposalText } from '../board-card/board-card.component';
 import { BoardSeenService } from '../../../core/services/board-seen.service';
 import { issueMarkdown, skillFor, waitingText } from '../../../shared/utils/board-skills';
 import { CardRetestComponent } from '../card-retest/card-retest.component';
+import { LiveWorkBoxComponent } from '../live-work-box/live-work-box.component';
 import { ActivityTimelineComponent, TimelineReply } from '../activity-timeline/activity-timeline.component';
 import { MarkdownViewComponent } from '../markdown-view/markdown-view.component';
 import { MentionChipComponent } from '../mention-chip/mention-chip.component';
@@ -31,7 +32,7 @@ import { SelectOption, SelectPickerComponent } from '../../select-picker/select-
 @Component({
   selector: 'app-card-drawer',
   standalone: true,
-  imports: [NgTemplateOutlet, SelectPickerComponent, ActivityTimelineComponent, CardRetestComponent, MarkdownViewComponent, MentionChipComponent, MentionEditorComponent, MentionPickerComponent],
+  imports: [NgTemplateOutlet, SelectPickerComponent, ActivityTimelineComponent, CardRetestComponent, LiveWorkBoxComponent, MarkdownViewComponent, MentionChipComponent, MentionEditorComponent, MentionPickerComponent],
   template: `
     <ng-template #modeSwitch>
       <div class="board-seg board-drawer-modes" role="group" aria-label="Show the card as">
@@ -179,6 +180,7 @@ import { SelectOption, SelectPickerComponent } from '../../select-picker/select-
             <h4>Activity · what was done <span class="board-dim">{{ activityTotal() }} entries</span></h4>
             <app-activity-timeline [entries]="activity()" [editable]="editable()" [project]="c.project" [cycleId]="c.cycleId"
                                    [card]="pickTarget()" (replied)="reply($event)" />
+            <app-live-work-box [project]="c.project" [number]="c.number" [editable]="editable()" />
           </section>
           @if (editable()) {
             <section class="board-drawer-danger">

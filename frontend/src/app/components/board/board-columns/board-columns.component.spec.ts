@@ -2,6 +2,11 @@ import { TestBed } from '@angular/core/testing';
 import { CdkDragDrop } from '@angular/cdk/drag-drop';
 import { CardStatus, CardSummary } from '../../../core/models/board.models';
 import { BoardColumnsComponent, CardDrop } from './board-columns.component';
+import { signal } from '@angular/core';
+import { LiveWorkStateService } from '../../../core/state/live-work-state.service';
+
+/** The cards ask what /alfred-live is doing on them; here nothing. */
+const NO_LIVE_WORK = [{ provide: LiveWorkStateService, useValue: { working: signal([]) } }];
 
 function card(id: string, status: CardStatus): CardSummary {
   return {
@@ -17,7 +22,7 @@ function drop(item: CardSummary, to: CardStatus): CdkDragDrop<CardStatus, CardSt
 
 describe('BoardColumnsComponent', () => {
   function create(cards: CardSummary[]) {
-    TestBed.configureTestingModule({ imports: [BoardColumnsComponent] });
+    TestBed.configureTestingModule({ imports: [BoardColumnsComponent], providers: NO_LIVE_WORK });
     const fixture = TestBed.createComponent(BoardColumnsComponent);
     fixture.componentRef.setInput('cards', cards);
     fixture.detectChanges();
@@ -51,7 +56,7 @@ describe('BoardColumnsComponent', () => {
   });
 
   it('shows the Inbox empty state and one column per status', () => {
-    TestBed.configureTestingModule({ imports: [BoardColumnsComponent] });
+    TestBed.configureTestingModule({ imports: [BoardColumnsComponent], providers: NO_LIVE_WORK });
     const fixture = TestBed.createComponent(BoardColumnsComponent);
     fixture.componentRef.setInput('cards', []);
     fixture.detectChanges();
@@ -61,7 +66,7 @@ describe('BoardColumnsComponent', () => {
   });
 
   it('re-tests one Fixed card, the selected ones or all, and shows each card re-test chip', () => {
-    TestBed.configureTestingModule({ imports: [BoardColumnsComponent] });
+    TestBed.configureTestingModule({ imports: [BoardColumnsComponent], providers: NO_LIVE_WORK });
     const fixture = TestBed.createComponent(BoardColumnsComponent);
     const a = { ...card('a', 'FIXED'), number: 18 };
     const b = { ...card('b', 'FIXED'), number: 19 };

@@ -104,6 +104,15 @@ log) and is derived in `shared/utils/task-view.ts`; there is no backend model of
   the same way (`requirementState`), so the user and every Claude session see one picture.
 - The spec files and the full acceptance checklist stay beside it, unchanged.
 
+## Live answers
+
+`/alfred-live` shows its work on the card while it happens (docs/mcp.md "Live answers"): `PUT /board/live-work` (the
+runner's report of one run: heading, steps, draft, state), `GET /board/live-work?project=` (running and recently
+ended runs) and `POST /board/live-work/{id}/stop` (the user's Stop). `LiveWorkService` keeps them in memory only - a
+run is work in progress, never a record; the reply itself is the card's ordinary comment - and signals each as a
+`live-work` message on `/ws/board`. The frontend's `LiveWorkStateService` holds them for the column card (spinner and
+current step), the drawer (`app-live-work-box`) and the live strip.
+
 ## Claude's limits
 
 These are enforced in `BoardService` and `CycleBriefService` whenever `X-Alfred-Actor: claude` is sent. The MCP tools send it on every board request.

@@ -95,6 +95,9 @@ export interface FakeBoard {
   /** The answer to the next POST /board/cards, when the test wants a refusal. */
   refuseCreate: [number, unknown] | null;
   agentState: string;
+  /** What PUT /board/live-work received, in order; ids the user pressed Stop on. */
+  liveWork: any[];
+  liveStop: Set<string>;
   /** What GET /board/changes and /board/changes/wait answer next (the backend's own cursor logic is tested in backend-board). */
   changes: unknown;
   similar: unknown[];
@@ -172,7 +175,7 @@ function priorityOf(m: AttentionMark, failingChildren: number, minStatus: number
 
 export class FakeAlfred {
   readonly state: FakeState = emptyState();
-  readonly board: FakeBoard = { cards: [], activity: {}, closedReasons: [], briefs: {}, specs: {}, checklist: {}, refuseCreate: null, agentState: 'WATCHING',
+  readonly board: FakeBoard = { cards: [], activity: {}, closedReasons: [], briefs: {}, specs: {}, checklist: {}, refuseCreate: null, agentState: 'WATCHING', liveWork: [], liveStop: new Set(),
     changes: { entries: [], cycles: [], cursor: '0.0', more: false }, similar: [], badges: {}, verify: [], suggestions: {},
     nextSteps: { waitingOnUser: [], waitingOnClaude: 0, toDo: 0, inProgress: 0, fixed: 0, inbox: 0 }, log: {}, steps: {}, regressions: [], retest: [], guards: [], plans: {} };
   readonly log: LoggedRequest[] = [];
@@ -590,6 +593,11 @@ export class FakeAlfred {
       return [200, Object.entries(b.specs[p[2]] ?? {}).map(([name, text]) => ({ name, size: text.length, uploadedAt: '2026-10-10T09:00:00Z' }))];
     }
     if (p[1] === 'cycles' && p[3] === 'checklist') return [200, b.checklist[p[2]] ?? []];
+    if (p[1] === 'live-work' && method === 'PUT') {
+      b.liveWork.push(body);
+      return [200, { ...body, stop: b.liveStop.has(body.id) }];
+    }
+    if (p[1] === 'agent-status' && method === 'GET') return [200, { state: b.agentState }];
     if (p[1] === 'agent-status' && method === 'PUT') {
       return [200, { ...body, state: b.agentState === 'PAUSED' ? 'PAUSED' : body.state, lastCheckAt: '', updatedAt: '' }];
     }

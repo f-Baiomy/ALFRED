@@ -11154,6 +11154,33 @@ body.card-window .tab-nav { display: none; }
 app-board-view { display: block; padding: 0 1.25rem 6rem; }
 .board-page app-board-view { padding: 0; }
 
+// /alfred-live working on a card (app-live-work-box, the card's spinner line, the strip): every step as it happens.
+.live-spinner { display: inline-block; width: 10px; height: 10px; flex: none; border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--purple) 35%, transparent); border-top-color: var(--purple); animation: live-spin 0.8s linear infinite; }
+@keyframes live-spin { to { transform: rotate(360deg); } }
+@keyframes live-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.2; } }
+.board-card.live-busy { border-color: var(--purple); box-shadow: 0 0 0 1px color-mix(in srgb, var(--purple) 40%, transparent); }
+.board-card-live { display: flex; gap: 0.35rem; align-items: center; margin-top: 0.3rem; font-size: 0.7rem; color: var(--purple-light);
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.live-box { margin: 0.4rem 0 0.2rem 1rem; border-left: 2px solid var(--purple); padding: 0.4rem 0.6rem; border-radius: 0 8px 8px 0;
+  background: color-mix(in srgb, var(--purple) 7%, transparent); font-size: 0.78rem; }
+.live-head { display: flex; gap: 0.4rem; align-items: center; color: var(--purple-light); font-weight: 600; margin-bottom: 0.25rem;
+  .live-time { margin-left: auto; font-weight: 400; color: var(--text-faint); font-size: 0.7rem; }
+}
+.live-step { display: flex; gap: 0.45rem; align-items: baseline; padding: 0.06rem 0; color: var(--text-dim);
+  &.now { color: var(--text); .live-mk { color: var(--purple-light); } }
+}
+.live-mk { width: 0.9rem; flex: none; text-align: center; color: var(--green); }
+.live-draft { margin-top: 0.3rem; color: var(--text); white-space: pre-wrap; }
+.live-caret { display: inline-block; width: 7px; height: 0.95em; margin-left: 1px; background: var(--purple-light); vertical-align: text-bottom; animation: live-blink 0.8s infinite; }
+.live-done { margin: 0.3rem 0 0.2rem 1rem; font-size: 0.74rem; display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: baseline;
+  .live-step { width: 100%; }
+  &.failed .live-fold { color: var(--red); }
+}
+.live-fold { background: none; border: 0; padding: 0; cursor: pointer; font: inherit; color: var(--purple-light); }
+.live-strip-work { border-color: color-mix(in srgb, var(--purple) 45%, transparent); }
+@media (prefers-reduced-motion: reduce) { .live-spinner, .live-caret { animation: none; } }
+
 // The Task view (a cycle is a task - app-task-view): where it stands, the verdict, requirements, notes, hand-over.
 .task-page { padding: 0 1.25rem 4rem; }
 app-task-view { display: block;

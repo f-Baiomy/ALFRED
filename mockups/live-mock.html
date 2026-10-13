@@ -1,0 +1,453 @@
+<!doctype html>
+<html lang="en" data-theme="slate">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alfred Live Mock</title>
+<style>
+  /* Token values copied from frontend/src/styles.scss (:root, [data-theme='slate'], [data-theme='light']). */
+  :root {
+    --bg: radial-gradient(ellipse at top, #131a4a 0%, #0a0e2a 55%); --bg-solid: #0a0e2a;
+    --card: #141a45; --card-inner: #070a24; --bg-2: #0f1438;
+    --border: rgba(139, 92, 246, 0.22); --border-strong: rgba(139, 92, 246, 0.45);
+    --purple: #8b5cf6; --purple-light: #c4b5fd; --cyan: #22d3ee;
+    --text: #e5e9f5; --text-dim: #93a0c2; --text-faint: #5c6690;
+    --green: #34d399; --amber: #fbbf24; --red: #f87171;
+  }
+  [data-theme='slate'] {
+    --bg: #141416; --bg-solid: #141416;
+    --card: rgba(255, 255, 255, 0.035); --card-inner: rgba(0, 0, 0, 0.3); --bg-2: rgba(255, 255, 255, 0.02);
+    --border: rgba(255, 255, 255, 0.09); --border-strong: rgba(255, 255, 255, 0.18);
+    --purple: #5b8def; --purple-light: #8fb2f7; --cyan: #7ee3d8;
+    --text: #f2f2f5; --text-dim: #8b8b93; --text-faint: #5b5b63;
+    --green: #7ee3a0; --amber: #e3a24a; --red: #e36a6a;
+  }
+  [data-theme='light'] {
+    --bg: #eef1f6; --bg-solid: #eef1f6;
+    --card: #ffffff; --card-inner: #f5f6f9; --bg-2: #f5f6f9;
+    --border: #dde1e8; --border-strong: #c7cdd9;
+    --purple: #7c3aed; --purple-light: #6d28d9; --cyan: #0891b2;
+    --text: #1f2430; --text-dim: #5b6577; --text-faint: #8b93a3;
+    --green: #15803d; --amber: #b45309; --red: #dc2626;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100vh; }
+  body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: var(--bg); background-color: var(--bg-solid); color: var(--text); font-size: 14px; }
+  button { font-family: inherit; }
+  .mono { font-family: Consolas, 'Cascadia Mono', monospace; }
+  .faint { color: var(--text-faint); } .dim { color: var(--text-dim); }
+
+  .mock-bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 8px 16px; border-bottom: 1px dashed var(--border-strong); font-size: 12px; color: var(--text-dim); }
+  .mock-bar b { color: var(--amber); }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .seg button { background: transparent; border: 0; color: var(--text-dim); padding: 4px 10px; cursor: pointer; font-size: 12px; }
+  .seg button.on { background: var(--purple); color: #fff; }
+  .play { background: var(--purple); color: #fff; border: 0; border-radius: 8px; padding: 5px 12px; cursor: pointer; font-size: 12px; font-weight: 600; }
+
+  .pill { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.68rem; font-weight: 700; padding: 0.12rem 0.5rem; border-radius: 999px; border: 1px solid var(--border); color: var(--text-dim); white-space: nowrap; }
+  .pill.ai { color: var(--purple-light); border-color: color-mix(in srgb, var(--purple) 45%, transparent); background: color-mix(in srgb, var(--purple) 14%, transparent); }
+  .pill.ok { color: var(--green); border-color: color-mix(in srgb, var(--green) 40%, transparent); }
+  .new { display: inline-block; font-size: 0.56rem; font-weight: 800; letter-spacing: 0.06em; padding: 0.02rem 0.35rem; border-radius: 4px; background: var(--amber); color: #111; vertical-align: middle; margin-left: 0.3rem; }
+
+  .wrap { padding: 0.8rem 1.25rem 3rem; }
+  .cols { display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.4fr) minmax(0, 1fr); gap: 0.75rem; align-items: start; }
+  @media (max-width: 1000px) { .cols { grid-template-columns: minmax(0, 1fr); } }
+  .pane-title { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-faint); margin: 0 0 0.35rem; }
+  .box { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 0.6rem 0.75rem; }
+
+  /* live strip */
+  .strip { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; padding: 0.45rem 0.7rem; border-radius: 10px; border: 1px solid var(--border); background: var(--card); margin-bottom: 0.75rem; font-size: 0.8rem; }
+  .strip .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-faint); }
+  .strip.on .dot { background: var(--green); }
+  .strip.busy .dot { background: var(--purple); animation: pulse 1s infinite; }
+  .strip .grow { flex: 1; min-width: 0; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .strip button { background: none; border: 1px solid var(--border-strong); border-radius: 6px; color: var(--text-dim); font-size: 0.72rem; padding: 0.1rem 0.5rem; cursor: pointer; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+  /* board column */
+  .col { display: flex; flex-direction: column; gap: 0.45rem; }
+  .bcard { border: 1px solid var(--border); border-radius: 9px; padding: 0.45rem 0.55rem; background: var(--card-inner); font-size: 0.8rem; position: relative; }
+  .bcard .num { color: var(--text-faint); font-size: 0.7rem; }
+  .bcard .kind { font-size: 0.58rem; font-weight: 800; padding: 0.02rem 0.32rem; border-radius: 4px; border: 1px solid var(--border); margin-right: 0.3rem; }
+  .k-bug { color: var(--red); } .k-q { color: var(--amber); } .k-note { color: var(--purple-light); }
+  .bcard.sel { border-color: var(--purple); }
+  .bcard .working { display: none; margin-top: 0.3rem; font-size: 0.7rem; color: var(--purple-light); }
+  .bcard.busy { border-color: var(--purple); box-shadow: 0 0 0 1px color-mix(in srgb, var(--purple) 40%, transparent); }
+  .bcard.busy .working { display: flex; gap: 0.35rem; align-items: center; }
+  .spinner { width: 10px; height: 10px; border: 2px solid color-mix(in srgb, var(--purple) 35%, transparent); border-top-color: var(--purple); border-radius: 50%; animation: spin 0.8s linear infinite; flex: none; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* drawer thread */
+  .drawer h3 { margin: 0 0 0.2rem; font-size: 0.95rem; }
+  .entry { border-top: 1px solid var(--border); padding: 0.45rem 0; font-size: 0.82rem; }
+  .entry .who { font-size: 0.7rem; color: var(--text-faint); margin-bottom: 0.15rem; }
+  .entry.claude .who { color: var(--purple-light); }
+  .reply-in { margin-left: 1rem; border-left: 2px solid var(--border-strong); padding-left: 0.55rem; }
+  .composer { display: flex; gap: 0.4rem; margin-top: 0.5rem; }
+  .composer input { flex: 1; background: var(--card-inner); border: 1px solid var(--border-strong); border-radius: 8px; color: var(--text); padding: 0.35rem 0.5rem; font-size: 0.8rem; }
+  .composer button { background: var(--purple); color: #fff; border: 0; border-radius: 8px; padding: 0 0.8rem; font-size: 0.78rem; cursor: pointer; }
+
+  /* the live trace - the NEW part */
+  .trace { margin-left: 1rem; border-left: 2px solid var(--purple); padding: 0.4rem 0 0.4rem 0.6rem; background: color-mix(in srgb, var(--purple) 7%, transparent); border-radius: 0 8px 8px 0; font-size: 0.78rem; }
+  .trace-head { display: flex; gap: 0.4rem; align-items: center; color: var(--purple-light); font-weight: 600; margin-bottom: 0.25rem; }
+  .trace-head .t { margin-left: auto; font-weight: 400; color: var(--text-faint); font-size: 0.7rem; }
+  .step { display: flex; gap: 0.45rem; align-items: baseline; padding: 0.08rem 0; color: var(--text-dim); }
+  .step .mk { width: 0.9rem; text-align: center; flex: none; }
+  .step.done .mk { color: var(--green); }
+  .step.now { color: var(--text); }
+  .step.now .mk { color: var(--purple-light); }
+  .step .chip { font: 0.68rem Consolas, monospace; padding: 0.02rem 0.35rem; border-radius: 5px; border: 1px solid var(--border); background: var(--bg-2); }
+  .draft { margin-top: 0.3rem; color: var(--text); white-space: pre-wrap; }
+  .caret { display: inline-block; width: 7px; height: 0.95em; background: var(--purple-light); vertical-align: text-bottom; animation: pulse 0.8s infinite; }
+  .trace .stopbtn { background: none; border: 0; color: var(--text-faint); font-size: 0.7rem; cursor: pointer; text-decoration: underline; margin-left: 0.4rem; }
+
+  /* claude code chat */
+  .chat { background: #0c0c0e; border: 1px solid var(--border); border-radius: 12px; padding: 0.6rem 0.75rem; font: 0.76rem Consolas, 'Cascadia Mono', monospace; color: #d6d6dc; min-height: 320px; }
+  [data-theme='light'] .chat { background: #1e1e22; }
+  .chat .ln { padding: 0.1rem 0; white-space: pre-wrap; }
+  .chat .n { color: #8fb2f7; }
+  .chat .u { color: #e3a24a; }
+  .chat .c { color: #c9b5fd; }
+  .chat .g { color: #7ee3a0; }
+  .chat .f { color: #6b6b75; }
+
+  .notes { margin-top: 1rem; }
+  .notes li { margin: 0.25rem 0; font-size: 0.82rem; color: var(--text-dim); }
+  .notes b { color: var(--text); }
+  .hidden { display: none !important; }
+  .act { font-size: 0.78rem; color: var(--text-dim); }
+  .act b { color: var(--text); }
+  .quiet { margin-left: 1rem; font-size: 0.74rem; color: var(--text-faint); border-left: 2px dashed var(--border-strong); padding: 0.25rem 0 0.25rem 0.55rem; }
+  .k-task { color: var(--amber); }
+  .scen-note { margin: 0 0 0.6rem; font-size: 0.82rem; color: var(--text-dim); }
+  .scen-note b { color: var(--text); }
+  table.acts { width: 100%; border-collapse: collapse; font-size: 0.78rem; margin-top: 0.4rem; }
+  table.acts td, table.acts th { border-top: 1px solid var(--border); padding: 0.3rem 0.4rem; text-align: left; vertical-align: top; }
+  table.acts th { color: var(--text-faint); font-weight: 600; font-size: 0.7rem; text-transform: uppercase; }
+</style>
+</head>
+<body>
+<div class="mock-bar">
+  <b>MOCK</b> /alfred-live · what you see while Claude works
+  <span class="seg" id="viewSeg"><button data-v="before">Before (today)</button><button data-v="after" class="on">After (proposed)</button></span>
+  <span class="seg" id="scenSeg"></span>
+  <button class="play" id="play">▶ Play</button>
+  <span class="seg" id="themeSeg"><button data-t="slate" class="on">Slate</button><button data-t="dark">Night</button><button data-t="light">Light</button></span>
+</div>
+
+<div class="wrap">
+  <div class="scen-note" id="scenNote"></div>
+  <div class="strip" id="strip"><span class="dot"></span><b>✦ Live</b><span class="grow" id="stripText">on · odeysys · waiting for you</span>
+    <span class="pill ok" id="stripCount">answered 3</span><button>Pause</button><button>Stop</button></div>
+
+  <div class="cols">
+    <!-- board -->
+    <div>
+      <div class="pane-title">Board · Inbox</div>
+      <div class="col">
+        <div class="bcard sel" id="card12"><span class="num">#12</span> <span class="kind k-q">QUESTION</span>Fare changes at confirm
+          <div class="working"><span class="spinner"></span><span id="cardWork">Claude is working…</span></div></div>
+        <div class="bcard"><span class="num">#38</span> <span class="kind k-bug">BUG</span>Second passenger never reaches OrderCreate</div>
+        <div class="bcard"><span class="num">#46</span> <span class="kind k-note">NOTE</span>N+1: airports loaded per offer</div>
+      </div>
+    </div>
+
+    <!-- card drawer -->
+    <div>
+      <div class="pane-title">Card drawer · #12</div>
+      <div class="box drawer">
+        <h3>#12 Fare changes at confirm</h3>
+        <div class="faint" style="font-size:0.72rem;margin-bottom:0.3rem">QUESTION · Inbox · waiting on you</div>
+        <div class="entry claude"><div class="who">✦ Claude · 10:41</div><b>Question</b> fare.total is 412.00 at search and 437.50 at confirm. May it change at confirm?</div>
+        <div id="thread"></div>
+        <div class="composer"><input id="box" value="is the fare right after confirm? the booking shows 412"><button id="send">Reply</button></div>
+      </div>
+    </div>
+
+    <!-- claude code session -->
+    <div>
+      <div class="pane-title">Your Claude Code session</div>
+      <div class="chat" id="chat">
+        <div class="ln f">&gt; /alfred-live odeysys</div>
+        <div class="ln">● Live on for <span class="n">odeysys</span> - I answer on the board; each event shows here.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="box notes" id="notesAfter">
+    <b>What changes</b> <span class="new">AFTER</span>
+    <ul>
+      <li><b>On the card, right away:</b> the moment you send, a "✦ Claude is working" box opens under your comment and on the card in the column - you never wait in silence.</li>
+      <li><b>Each step, as it happens:</b> "reading the card", "checking call #4 (fare)", "reading OrderMapper.java:58", "writing the reply" - taken from the run's own tool calls, not guessed.</li>
+      <li><b>The reply types in</b> as Claude writes it, then becomes the normal comment. The trace folds to one line ("6 s · 4 steps") you can open.</li>
+      <li><b>Anything it changes</b> (kind, a new card, a link, a proposal) shows as a step before it happens: "→ turning #12 into a BUG".</li>
+      <li><b>Every action gets the same live box</b> - what Claude does for each:
+        <table class="acts">
+          <tr><th>You</th><th>Claude, live</th><th>Ends with</th></tr>
+          <tr><td>Comment</td><td>reads the card, checks the calls / code it needs</td><td>a reply in the thread (+ changes, announced first)</td></tr>
+          <tr><td>Reply under Claude</td><td>reads the comment you answered, checks what you point at</td><td>a reply in that same thread</td></tr>
+          <tr><td>Answer its question</td><td>reads the answer, finds what it changes</td><td>"Got it - …" then does it (kind, flags, teams, a new card, a check line)</td></tr>
+          <tr><td>Ask (@claude …)</td><td>measures or looks it up</td><td>the answer, with evidence</td></tr>
+          <tr><td>Move</td><td>to Fixed: writes the re-test plan · to To do / In progress: only notes</td><td>the plan, or a quiet "noted"</td></tr>
+          <tr><td>Close</td><td>reads the reason, remembers it</td><td>a quiet "noted" - never raised again</td></tr>
+          <tr><td>Edit</td><td>re-reads; checks whether it changes the work</td><td>a reply only when it does</td></tr>
+        </table></li>
+      <li><b>Stop</b> on the trace cancels that one reply; Pause on the strip holds all of them.</li>
+      <li><b>Your session chat</b> gets the same story in short lines: what you did, each step, the reply.</li>
+      <li><b>Built on:</b> <span class="mono">claude -p --output-format stream-json</span> (one fresh run per change) → the runner turns each tool call into a step → <span class="mono">board_status</span> with the card number → <span class="mono">/ws/board</span> → the card and the strip update live, no polling.</li>
+    </ul>
+  </div>
+  <div class="box notes hidden" id="notesBefore">
+    <b>Today</b>
+    <ul>
+      <li>You comment, reply, answer, move, close or edit. Nothing on the card or the strip shows Claude picked it up.</li>
+      <li>About 5-15 s later the reply just appears - you cannot tell whether it is working, stuck or ignoring you.</li>
+      <li>Changes it makes (a new card, a kind change) appear without warning.</li>
+      <li>Your session chat shows nothing until the background agent ends.</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  let view = 'after';
+  let running = false;
+  let scen = 'comment';
+
+  // Each thing you can do on the board, and how Claude reacts to it.
+  const SCENARIOS = {
+    comment: {
+      label: 'Comment', card: 12, kind: 'QUESTION', title: 'Fare changes at confirm',
+      note: '<b>You write a comment</b> on #12 asking about the fare - Claude investigates and answers in its thread.',
+      prior: [['10:41', '<b>Question</b> fare.total is 412.00 at search and 437.50 at confirm. May it change at confirm?']],
+      you: { comment: 'is the fare right after confirm? the booking shows 412' },
+      head: 'working on your comment',
+      steps: ['reading the card and its thread', 'checking call <span class="chip">#3 POST /api/confirm</span> fare.total = 437.50',
+        'checking call <span class="chip">#4 POST /api/bookings</span> saved fare_total = 412.00', 'reading <span class="chip">OrderMapper.java:58</span> - copies the search fare',
+        '→ will turn #12 into a BUG and link calls #3, #4'],
+      reply: 'Not right. Confirm returned 437.50 (@call #3) but the booking saved 412.00 from search (@call #4) - OrderMapper.java:58 copies the search fare. I turned #12 into a BUG with both calls.',
+      changes: 'changed kind QUESTION → BUG · linked calls #3, #4', newKind: 'BUG',
+    },
+    reply: {
+      label: 'Reply', card: 38, kind: 'BUG', title: 'Second passenger never reaches OrderCreate',
+      note: '<b>You reply under Claude\'s comment</b> on #38 ("check the infant case too") - Claude answers in that same thread.',
+      prior: [['10:52', '<b>Found</b> OrderMapper maps only passengers[0] - the second adult is dropped before OrderCreate.']],
+      you: { reply: 'check the infant case too - INF passengers go through another branch' },
+      head: 'working on your reply',
+      steps: ['reading your reply and the comment it answers', 'reading <span class="chip">OrderMapper.java:58-90</span> - the INF branch',
+        'searching the cycle for an infant booking - none recorded'],
+      reply: 'The INF branch has the same bug: it also takes passengers[0] (OrderMapper.java:84). No infant booking was recorded in this cycle, so I added it to the card\'s re-test steps.',
+      changes: 'added a re-test step: "book 2 adults + 1 infant"',
+    },
+    answer: {
+      label: 'Answer', card: 12, kind: 'QUESTION', title: 'Fare changes at confirm',
+      note: '<b>You answer Claude\'s question</b> on #12 ("Must match") - Claude says what it changes, then does it.',
+      prior: [['10:41', '<b>Question</b> May fare.total change between search and confirm?']],
+      you: { answer: 'Must match - a change must be shown to the traveller before booking' },
+      head: 'acting on your answer',
+      steps: ['reading your answer to the question', 'finding where it changed: <span class="chip">#1 search</span> → <span class="chip">#3 confirm</span>',
+        'checking the page is told: <span class="chip">priceChanged</span> is dropped from our response',
+        '→ will turn #12 into a BUG (URGENT, Backend + Frontend)', '→ will propose the check line "fare.total must match or be shown" at stop'],
+      reply: 'Got it - so this is a bug: the supplier repriced at confirm (412.00 → 437.50) and our response dropped priceChanged, so the page never showed it. I turned #12 into a BUG for Backend + Frontend.',
+      changes: 'changed kind QUESTION → BUG · flagged URGENT · teams Backend, Frontend', newKind: 'BUG',
+    },
+    question: {
+      label: 'Ask', card: 46, kind: 'NOTE', title: 'N+1: airports loaded per offer',
+      note: '<b>You ask Claude a question</b> on #46 ("@claude how bad is this?") - Claude measures it and answers.',
+      prior: [['11:02', '<b>Found</b> Search loads TT_AIRPORT once per offer (6 queries per search).']],
+      you: { comment: '@claude how bad is this on a big search? is it worth fixing now?' },
+      head: 'working on your question',
+      steps: ['reading the card', 'checking <span class="chip">endpoint_health POST /api/search</span> - 31 calls',
+        'counting statements: 6 → 48 queries as offers grow', 'measuring: +240 ms on a 40-offer search'],
+      reply: 'It grows with the offers: 48 queries and +240 ms on a 40-offer search (31 searches in this cycle). Not a blocker for this task - I would fix it after #12 and #38. Want me to propose it as a separate task?',
+      changes: null,
+    },
+    move: {
+      label: 'Move', card: 38, kind: 'BUG', title: 'Second passenger never reaches OrderCreate',
+      note: '<b>You move #38 to Fixed</b> - Claude adds the re-test plan the fix needs. (A move to To do or In progress is only noted - no reply.)',
+      prior: [['10:52', '<b>Found</b> OrderMapper maps only passengers[0].']],
+      you: { move: ['In progress', 'Fixed'] },
+      head: 'preparing the re-test',
+      steps: ['reading the fix on the card', 'writing the re-test plan: <span class="chip">OrderCreate.passengers = 2</span> <span class="chip">no ERROR</span> <span class="chip">same response</span>'],
+      reply: 'Re-test: book DXB → LHR for 2 adults (and 1 infant). I check OrderCreate carries every passenger and nothing logs ERROR - the board watches the next calls.',
+      changes: 'set the re-test plan (3 expectations, 2 steps)', newStatus: 'Fixed',
+    },
+    close: {
+      label: 'Close', card: 46, kind: 'NOTE', title: 'N+1: airports loaded per offer',
+      note: '<b>You close #46 as "Fine - not an issue"</b> - Claude answers nothing; it only remembers, so the same note is never raised again.',
+      prior: [['11:02', '<b>Found</b> Search loads TT_AIRPORT once per offer.']],
+      you: { close: 'Fine - not an issue: cached in production' },
+      head: 'noting your close',
+      steps: ['reading the reason', 'remembering: "N+1 on TT_AIRPORT - fine, cached in production"'],
+      reply: null,
+      quiet: 'Noted - closed as Fine. Never raised again; proposed as a project check line at stop.',
+      changes: null, newStatus: 'Closed',
+    },
+    edit: {
+      label: 'Edit', card: 12, kind: 'BUG', title: 'Fare changes at confirm',
+      note: '<b>You edit #12\'s description</b> (add "only for NDC suppliers") - Claude re-reads it and answers because it changes the work.',
+      prior: [['10:41', '<b>Found</b> The booking saves the search fare, not the confirmed one.']],
+      you: { edit: '+ "Only happens with NDC suppliers; GDS bookings are fine."' },
+      head: 'reading your edit',
+      steps: ['reading what changed in the description', 'checking: 2 of 2 failing bookings are NDC, the 1 GDS booking saved the right fare'],
+      reply: 'Confirmed from the calls: both failing bookings are NDC and the GDS one saved 437.50 correctly - so the bug is in the NDC mapper only. I narrowed the card\'s evidence to the NDC calls.',
+      changes: 'linked call #9 (GDS, correct) as the counter-example',
+    },
+  };
+
+  const KIND_CLASS = { BUG: 'k-bug', QUESTION: 'k-q', NOTE: 'k-note', TASK: 'k-task' };
+  const CARDS = [[12, 'QUESTION', 'Fare changes at confirm', 'Inbox'], [38, 'BUG', 'Second passenger never reaches OrderCreate', 'In progress'],
+    [46, 'NOTE', 'N+1: airports loaded per offer', 'Inbox']];
+  const VERB = { comment: 'comment on', reply: 'reply on', answer: 'answer on', question: 'ask on', move: 'move', close: 'close', edit: 'edit' };
+
+  const seg = $('scenSeg');
+  for (const [key, sc] of Object.entries(SCENARIOS)) {
+    const b = document.createElement('button');
+    b.textContent = sc.label;
+    b.className = key === scen ? 'on' : '';
+    b.onclick = () => { scen = key; seg.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b)); reset(); };
+    seg.appendChild(b);
+  }
+  document.querySelectorAll('#themeSeg button').forEach((b) => b.onclick = () => {
+    document.querySelectorAll('#themeSeg button').forEach((x) => x.classList.toggle('on', x === b));
+    document.documentElement.dataset.theme = b.dataset.t === 'dark' ? '' : b.dataset.t;
+  });
+  document.querySelectorAll('#viewSeg button').forEach((b) => b.onclick = () => {
+    document.querySelectorAll('#viewSeg button').forEach((x) => x.classList.toggle('on', x === b));
+    view = b.dataset.v;
+    $('notesAfter').classList.toggle('hidden', view !== 'after');
+    $('notesBefore').classList.toggle('hidden', view !== 'before');
+    reset();
+  });
+
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  function el(html) { const d = document.createElement('div'); d.innerHTML = html; return d.firstElementChild; }
+  function chatLine(html) { const d = document.createElement('div'); d.className = 'ln'; d.innerHTML = html; $('chat').appendChild(d); }
+
+  function renderColumn(over = {}) {
+    const sc = SCENARIOS[scen];
+    document.querySelector('.col').innerHTML = CARDS.map(([n, k, t, st]) => {
+      const mine = n === sc.card;
+      const kind = mine ? (over.kind ?? sc.kind) : k;
+      const status = mine ? (over.status ?? st) : st;
+      return `<div class="bcard${mine ? ' sel' : ''}${mine && over.busy ? ' busy' : ''}"><span class="num">#${n}</span> `
+        + `<span class="kind ${KIND_CLASS[kind]}">${kind}</span>${t} <span class="faint" style="font-size:0.68rem">· ${status}</span>`
+        + `<div class="working"><span class="spinner"></span><span class="cw">Claude is working…</span></div></div>`;
+    }).join('');
+  }
+  function setCardWork(text) { const cw = document.querySelector('.bcard.busy .cw'); if (cw) cw.textContent = text; }
+
+  function reset() {
+    running = false;
+    const sc = SCENARIOS[scen];
+    $('scenNote').innerHTML = sc.note;
+    renderColumn();
+    const drawer = document.querySelector('.drawer');
+    drawer.querySelector('h3').textContent = `#${sc.card} ${sc.title}`;
+    drawer.querySelector('h3').nextElementSibling.textContent = `${sc.kind} · ${CARDS.find((c) => c[0] === sc.card)[3]}`;
+    drawer.querySelectorAll(':scope > .entry').forEach((p) => p.remove());
+    for (const [at, html] of sc.prior) $('thread').before(el(`<div class="entry claude"><div class="who">✦ Claude · ${at}</div>${html}</div>`));
+    $('thread').innerHTML = '';
+    const y = sc.you;
+    const typed = y.comment ?? y.reply ?? y.answer;
+    $('box').value = typed ?? '';
+    document.querySelector('.composer').classList.toggle('hidden', !typed);
+    $('send').textContent = y.answer ? 'Answer' : 'Reply';
+    $('play').textContent = `▶ Play: you ${VERB[scen]} #${sc.card}`;
+    $('strip').className = 'strip on';
+    $('stripText').textContent = 'on · odeysys · waiting for you';
+    $('stripCount').textContent = 'answered 3';
+    const chat = $('chat');
+    while (chat.children.length > 2) chat.lastChild.remove();
+  }
+
+  /** What you did, as it shows in the thread and in the chat. */
+  function youDid(y) {
+    if (y.comment) return [`<div class="entry"><div class="who">You · now</div>${y.comment}</div>`, `You: ${y.comment}`];
+    if (y.reply) return [`<div class="entry reply-in"><div class="who">You · now · ↳ reply to Claude</div>${y.reply}</div>`, `You replied: ${y.reply}`];
+    if (y.answer) return [`<div class="entry reply-in"><div class="who">You · now · ↳ answers the question</div>${y.answer}</div>`, `You answered: ${y.answer}`];
+    if (y.move) return [`<div class="entry act">You moved it <b>${y.move[0]} → ${y.move[1]}</b> · now</div>`, `You moved it ${y.move[0]} → ${y.move[1]}`];
+    if (y.close) return [`<div class="entry act">You closed it as <b>${y.close}</b> · now</div>`, `You closed it: ${y.close}`];
+    return [`<div class="entry act">You edited the description <b>${y.edit}</b> · now</div>`, `You edited the description ${y.edit}`];
+  }
+
+  async function play() {
+    if (running) return;
+    reset();
+    running = true;
+    const sc = SCENARIOS[scen];
+    const [threadHtml, chatText] = youDid(sc.you);
+    $('thread').appendChild(el(threadHtml));
+    if (sc.you.move || sc.you.close) renderColumn({ status: sc.newStatus });
+    chatLine(`<span class="u">#${sc.card} ${chatText}</span>`);
+    const t0 = Date.now();
+    const secs = () => Math.max(1, Math.round((Date.now() - t0) / 1000));
+
+    if (view === 'before') {
+      await wait(sc.reply ? 7000 : 3000);
+      if (!running) return;
+      if (sc.reply) $('thread').appendChild(el(`<div class="entry claude reply-in"><div class="who">✦ Claude · now</div>${sc.reply}</div>`));
+      if (sc.changes) $('thread').appendChild(el(`<div class="entry claude reply-in"><div class="who">✦ Claude · now</div><span class="dim">${sc.changes}</span></div>`));
+      renderColumn({ kind: sc.newKind, status: sc.newStatus });
+      if (sc.reply) $('stripCount').textContent = 'answered 4';
+      running = false;
+      return;
+    }
+
+    await wait(500);
+    renderColumn({ busy: true, status: sc.newStatus });
+    $('strip').className = 'strip busy';
+    $('stripText').textContent = `${sc.head} · #${sc.card}`;
+    chatLine(`<span class="c">  ✦ ${sc.head} on #${sc.card}…</span>`);
+    const trace = el(`<div class="trace"><div class="trace-head"><span class="spinner"></span>✦ Claude is ${sc.head}<span class="t" id="tt">0 s</span><button class="stopbtn">Stop</button></div><div id="steps"></div><div class="draft hidden" id="draft"></div></div>`);
+    $('thread').appendChild(trace);
+    const tick = setInterval(() => { const tt = $('tt'); if (tt) tt.textContent = secs() + ' s'; }, 250);
+
+    let prev = null;
+    for (const label of sc.steps) {
+      if (!running) { clearInterval(tick); return; }
+      if (prev) { prev.className = 'step done'; prev.querySelector('.mk').textContent = '✓'; }
+      prev = el(`<div class="step now"><span class="mk">›</span><span>${label}</span></div>`);
+      $('steps').appendChild(prev);
+      const plain = label.replace(/<[^>]+>/g, '');
+      setCardWork(plain);
+      $('stripText').textContent = `${sc.head} · #${sc.card} · ${plain}`;
+      chatLine(`<span class="f">    · ${plain}</span>`);
+      await wait(1000 + Math.min(700, plain.length * 8));
+    }
+    prev.className = 'step done';
+    prev.querySelector('.mk').textContent = '✓';
+    clearInterval(tick);
+
+    if (sc.reply) {
+      setCardWork('writing the reply');
+      $('stripText').textContent = `${sc.head} · #${sc.card} · writing the reply`;
+      const draft = $('draft');
+      draft.classList.remove('hidden');
+      for (let i = 0; i <= sc.reply.length; i += 3) {
+        if (!running) return;
+        draft.innerHTML = sc.reply.slice(0, i) + '<span class="caret"></span>';
+        await wait(26);
+      }
+      trace.replaceWith(el(`<div class="entry claude reply-in"><div class="who">✦ Claude · now · <span class="faint">${secs()} s · ${sc.steps.length} steps ▸</span></div>${sc.reply}</div>`));
+      chatLine(`<span class="g">  → ✦ Claude (${secs()} s):</span> ${sc.reply}`);
+    } else {
+      trace.replaceWith(el(`<div class="quiet">✦ ${sc.quiet} <span class="faint">· ${secs()} s · ${sc.steps.length} steps ▸</span></div>`));
+      chatLine(`<span class="g">  → ✦ ${sc.quiet}</span>`);
+    }
+    if (sc.changes) {
+      $('thread').appendChild(el(`<div class="entry claude reply-in"><div class="who">✦ Claude · now</div><span class="dim">${sc.changes}</span></div>`));
+      chatLine(`<span class="f">    changed: ${sc.changes}</span>`);
+    }
+    renderColumn({ kind: sc.newKind, status: sc.newStatus });
+    $('strip').className = 'strip on';
+    $('stripText').textContent = `on · odeysys · ${sc.reply ? 'answered' : 'noted'} #${sc.card} ${secs()} s ago`;
+    if (sc.reply) $('stripCount').textContent = 'answered 4';
+    running = false;
+  }
+  $('play').onclick = play;
+  $('send').onclick = play;
+  reset();
+</script>
+</body>
+</html>

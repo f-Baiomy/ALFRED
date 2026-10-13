@@ -24,7 +24,7 @@ to learn. Always end with the exact next command.
 | 4 | `/alfred-review <cycle>` | **After** a cycle is recorded (yours or anyone's): checks every call, fills the board, finds regressions against earlier runs - also a field that went missing behind a 200 |
 | 5 | `/alfred-triage` | Sort the Inbox together: a recommendation per card, you decide |
 | 6 | `/alfred-sync` | After you answered questions or changed cards: one state comment per card |
-| - | `/alfred-live [project] [cycle]` | Claude answers you on the board within seconds - comments, replies, answers, questions, any change - as a background job beside listen, until `/alfred-live stop` |
+| - | `/alfred-live [project] [cycle] [--model m]` | Claude answers you on the board within seconds - comments, replies, answers, questions, any change - showing each step on the card while it works; its own background process beside listen, a line per event here, until `/alfred-live stop` |
 | 7 | `/alfred-fix [card#]` | Fixes only the cards you choose, after you say Go |
 | 8 | `/alfred-verify [cards] [cycle]` | Re-tests the fixes from the live calls since each fix (or a cycle), proposes Verified, suggests checklist marks |
 | 9 | `/alfred-status` | What waits on you, on Claude, on a re-test - and the next step |

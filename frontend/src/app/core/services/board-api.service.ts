@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import {
-  ActivityPage, AgentStatus, BoardAccess, BoardFilters, BoardStorage, BulkAction, CallBadge, CardDetail, CardEdit, CardStatus, CardsPage,
+  ActivityPage, AgentStatus, LiveWork, BoardAccess, BoardFilters, BoardStorage, BulkAction, CallBadge, CardDetail, CardEdit, CardStatus, CardsPage,
   CardRetest, ChecklistFile, ChecklistItem, CycleBrief, Expectation, Mark, MentionRef, NewCard, NextSteps, Resolution, RetestCheck, RetestPlan,
   RetestReport, RetestStep, SessionLogEntry, SpecFileInfo, Team, TeamEdit, TestStep,
 } from '../models/board.models';
@@ -268,6 +268,17 @@ export class BoardApiService {
 
   dismissProposal(id: string): Observable<CardDetail> {
     return this.http.delete<CardDetail>(`${this.base}/cards/${encodeURIComponent(id)}/proposal`);
+  }
+
+  /** /alfred-live's work on cards: running, and recently ended. */
+  liveWork(project?: string): Observable<LiveWork[]> {
+    const params = project === undefined ? new HttpParams() : new HttpParams().set('project', project);
+    return this.http.get<LiveWork[]>(`${this.base}/live-work`, { params });
+  }
+
+  /** The user's Stop on one live answer; the runner ends it at its next report. */
+  stopLiveWork(id: string): Observable<LiveWork> {
+    return this.http.post<LiveWork>(`${this.base}/live-work/${encodeURIComponent(id)}/stop`, {});
   }
 
   agentStatus(project: string): Observable<AgentStatus | null> {

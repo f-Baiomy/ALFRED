@@ -2,6 +2,7 @@ package com.fathy.alfred.backend.board.application.service;
 
 import com.fathy.alfred.backend.board.application.port.out.BoardNotificationPort;
 import com.fathy.alfred.backend.board.domain.model.AgentStatus;
+import com.fathy.alfred.backend.board.domain.model.LiveWork;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -53,6 +54,11 @@ public class BoardChangeFeed {
             @Override
             public void agentStatus(AgentStatus status) {
                 notifications.agentStatus(status);
+            }
+
+            @Override
+            public void liveWork(LiveWork work) {
+                notifications.liveWork(work);
             }
         };
     }

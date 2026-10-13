@@ -43,7 +43,7 @@ import { UndoToastComponent } from '../undo-toast/undo-toast.component';
     UndoToastComponent],
   template: `
     @if (!windowMode()) {
-    <app-live-strip [status]="state.agent()" [editable]="state.editable()" (action)="state.agentAction($event)" />
+    <app-live-strip [status]="state.agent()" [project]="project()" [editable]="state.editable()" (action)="state.agentAction($event)" />
     <app-retest-strip [project]="project()" [editable]="state.editable()" />
     <div class="board-top">
       @if (state.editable()) {
