@@ -11202,7 +11202,8 @@ app-task-view { display: block;
 .task-v-q { font-size: 0.68rem; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.05em; }
 .task-v-a { font-size: 0.92rem; }
 .task-tone-bad { color: var(--red); } .task-tone-warn { color: var(--amber); } .task-tone-ok { color: var(--green); } .task-tone-none { color: var(--text-dim); }
-.task-tiles { display: flex; gap: 0.35rem; flex-wrap: wrap; flex: 1; }
+// Basis auto, not 0: with `flex: 1` the long command chips took the line and squeezed the tiles into one column.
+.task-tiles { display: flex; gap: 0.35rem; flex-wrap: wrap; flex: 1 1 auto; }
 .task-tile { display: flex; flex-direction: column; align-items: center; min-width: 60px; padding: 0.25rem 0.5rem; border-radius: 8px;
   border: 1px solid var(--border); background: var(--bg-2); color: var(--text-dim); font: inherit; font-size: 0.66rem; cursor: pointer;
   b { font-size: 1.05rem; }
