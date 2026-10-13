@@ -36,17 +36,28 @@ const MAX_WAIT_S = 60;
  * signals the UI reloads on, re-reads the cycle only when one fires, and gives up after a bounded
  * wait (60 s at most), so a tool call can never hang.
  */
+/** Something besides new calls that ends a wait - e.g. the late log lines of a call checked too early. */
+export interface Wake {
+  readonly sockets: readonly string[];
+  readonly changed: () => Promise<boolean>;
+}
+
 export async function waitForCalls(client: AlfredClient, cycleId: string, sinceCallId: string | undefined, timeoutMs: number,
-                                   until: Until = 'any', quietMs = 0): Promise<{ newEntries: CycleEntry[]; total: number; timedOut: boolean; recording: boolean; matched: CycleEntry[] }> {
+                                   until: Until = 'any', quietMs = 0, wake?: Wake): Promise<{ newEntries: CycleEntry[]; total: number; timedOut: boolean; recording: boolean; matched: CycleEntry[] }> {
   const cycle = await requireCycle(client, cycleId);
   const first = { entries: await cycleEntries(client, cycle.id) };
   const known = new Set(first.entries.map((e) => e.call.id));
   const after = (entries: CycleEntry[]) => {
+    let out: CycleEntry[];
     if (sinceCallId) {
       const at = entries.findIndex((e) => e.call.id === sinceCallId);
-      return at >= 0 ? entries.slice(at + 1) : entries.filter((e) => !known.has(e.call.id));
+      out = at >= 0 ? entries.slice(at + 1) : entries.filter((e) => !known.has(e.call.id));
+    } else {
+      out = entries.filter((e) => !known.has(e.call.id));
     }
-    return entries.filter((e) => !known.has(e.call.id));
+    // Waiting for a pause (a listen batch): a call still running is not a reason to return - it cannot be checked yet,
+    // and returning for it every few seconds while it runs only costs turns. Its end is a new signal.
+    return quietMs ? out.filter((e) => e.call.state !== 'IN_PROGRESS') : out;
   };
   /** The fresh calls that are what we wait for - by their triage marks when waiting for a kind of trouble. */
   const wanted = async (fresh: CycleEntry[]): Promise<CycleEntry[]> => {
@@ -97,6 +108,20 @@ export async function waitForCalls(client: AlfredClient, cycleId: string, sinceC
     };
     // At the timeout, calls that already arrived are returned - a user who never pauses still gets them.
     const timer = setTimeout(() => finish(have ? { ...have, timedOut: false } : { newEntries: [], total: first.entries.length, timedOut: true, matched: [] }), timeoutMs);
+    if (wake) {
+      let wakeSettle: ReturnType<typeof setTimeout> | undefined;
+      for (const path of wake.sockets) {
+        const socket = new WebSocket(client.baseUrl.replace(/^http/, 'ws') + path);
+        socket.addEventListener('message', () => {
+          clearTimeout(wakeSettle);
+          wakeSettle = setTimeout(() => {
+            wake.changed().then((yes) => { if (yes) finish({ ...(have ?? { newEntries: [], total: first.entries.length, matched: [] }), timedOut: false }); })
+              .catch(() => undefined);
+          }, SETTLE_MS);
+        });
+        sockets.push(socket);
+      }
+    }
     if (have) armQuiet();
     const wsBase = client.baseUrl.replace(/^http/, 'ws');
     for (const path of until === 'any' ? SOCKETS : [...SOCKETS, ...SIGNAL_SOCKETS]) {

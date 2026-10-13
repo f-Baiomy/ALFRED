@@ -192,6 +192,41 @@ test('check_calls stops a batch at a call still running and gives its checks to 
   } finally { await w.close(); }
 });
 
+test('check_calls re-judges a call checked before its log lines arrived - in the next batch, with no new call and no sweep', async () => {
+  const w = await world();
+  try {
+    seedFlow(w.fake);
+    const entries = w.fake.state.cycleEntries.get(CY)!;
+    const view = entries.find((e) => e.record.id === 'in-view')!;
+    // just captured: no mark yet, its ERROR line is still on its way
+    view.record = { ...view.record, timestamp: new Date(Math.max(Date.now() - 1000, T + 80_000)).toISOString() } as CallRecord;
+    w.fake.state.unmarked.add('in-view');
+    const first = await w.call('check_calls', { cycle: CY });
+    assert.equal(first.isError, false, first.text);
+    assert.doesNotMatch(first.text, /GET \/api\/bookings\/:id/, 'checked by status only: looks clean');
+    assert.equal(first.json.recheckPending, 1);
+    assert.match(first.text, /Still settling \(1\)/);
+
+    w.fake.state.unmarked.delete('in-view');
+    w.fake.state.signals['in-view'] = { logErrors: 1 };
+    const next = await w.call('check_calls', { cycle: CY, sinceCallId: first.json.lastCallId });
+    assert.equal(next.json.rechecked, 1, `${first.text}
+=====
+${next.text}`);
+    assert.equal(next.json.flaggedCalls, 1, next.text);
+    assert.match(next.text, /1 earlier call re-judged \(logs \/ SQL arrived late\)/);
+    assert.match(next.text, /GET \/api\/bookings\/:id · .*LOG_ERROR/);
+
+    // a later page of the same batch counts the same groups (the re-judged call stays in them)
+    const page2 = await w.call('check_calls', { cycle: CY, sinceCallId: first.json.lastCallId, untilCallId: next.json.lastCallId, offset: 1 });
+    assert.equal(page2.json.totalGroups, next.json.totalGroups, page2.text);
+
+    // unchanged since: not reported again
+    const again = await w.call('check_calls', { cycle: CY, sinceCallId: first.json.lastCallId });
+    assert.equal(again.json.rechecked ?? 0, 0, again.text);
+  } finally { await w.close(); }
+});
+
 test('check_calls reads each finished body once: a second check costs no detail request', async () => {
   const w = await world();
   try {
@@ -223,5 +258,73 @@ test('wait_for_calls settleSec: returns the whole burst once the user pauses, no
     assert.equal(r.json.timedOut, false);
     assert.deepEqual(r.json.newCalls.map((c: { id: string }) => c.id), ['later-1', 'later-2']);
     assert.ok(Date.now() - started < 10_000);
+  } finally { await w.close(); }
+});
+
+test('wait_for_calls settleSec: a call still running is no reason to return - its end is', async () => {
+  const w = await world();
+  try {
+    seedFlow(w.fake);
+    const record = { ...inbound('slow-1', 80, 'GET', '/api/slow', undefined, {}), state: 'IN_PROGRESS' } as CallRecord;
+    const entry = { capturedId: 'cap-slow', capturedAt: record.timestamp, source: 'internal' as const, record };
+    w.fake.state.cycleEntries.get(CY)!.push(entry);
+    const idle = await w.call('wait_for_calls', { cycleId: CY, sinceCallId: 'in-view', timeoutSec: 2, settleSec: 1 });
+    assert.equal(idle.json.timedOut, true, idle.text);
+
+    const waiting = w.call('wait_for_calls', { cycleId: CY, sinceCallId: 'in-view', timeoutSec: 20, settleSec: 1 });
+    for (let i = 0; i < 50 && w.fake.openSockets().length < 3; i++) await new Promise((r) => setTimeout(r, 50));
+    entry.record = { ...record, state: 'COMPLETED' } as CallRecord;
+    w.fake.broadcast('/ws/internal-calls', '{"type":"call-completed"}');
+    const done = await waiting;
+    assert.equal(done.json.timedOut, false);
+    assert.deepEqual(done.json.newCalls.map((c: { id: string }) => c.id), ['slow-1']);
+  } finally { await w.close(); }
+});
+
+test('check_calls waitSec: one call waits for the burst, checks it and brings the user\'s board changes', async () => {
+  const w = await world();
+  try {
+    seedFlow(w.fake);
+    await w.call('check_calls', { cycle: CY });
+    w.fake.board.changes = {
+      entries: [{ id: 3, actor: 'USER', kind: 'COMMENT', text: 'is the fare right?', oldValue: null, newValue: null, at: at(90),
+        project: 'odeysys', number: 1, title: 'Fare', status: 'INBOX', cycleId: CY }],
+      cycles: [], cursor: '3.1', more: false,
+    };
+    const waiting = w.call('check_calls', { cycle: CY, sinceCallId: 'in-view', waitSec: 20, settleSec: 1, boardCursor: 'now' });
+    for (let i = 0; i < 50 && w.fake.openSockets().length < 3; i++) await new Promise((r) => setTimeout(r, 50));
+    const record = { ...inbound('later-1', 80, 'GET', '/api/x/1', undefined, {}), response: { status: 500, headers: {}, body: '{}' } } as CallRecord;
+    w.fake.state.cycleEntries.get(CY)!.push({ capturedId: 'cap-later', capturedAt: record.timestamp, source: 'internal', record });
+    w.fake.broadcast('/ws/internal-calls', '{"type":"new-call"}');
+    const r = await waiting;
+    assert.equal(r.isError, false, r.text);
+    assert.equal(r.json.checked, 1, r.text);
+    assert.equal(r.json.flaggedCalls, 1);
+    assert.equal(r.json.lastCallId, 'later-1');
+    assert.deepEqual(r.json.board.changes, ['odeysys #1 "Fare" (INBOX) - 2026-10-13T09:01:30.000Z User: is the fare right?']);
+    assert.equal(r.json.board.cursor, '3.1');
+    assert.equal(w.fake.requests('GET', '/board/changes')[0].query.get('cycleId'), CY);
+    assert.match((await w.call('check_calls', { cycle: CY, waitSec: 5 })).text, /waitSec waits for the calls after sinceCallId/);
+  } finally { await w.close(); }
+});
+
+test('check_calls waitSec: a call checked too early wakes the wait when its log lines arrive', async () => {
+  const w = await world();
+  try {
+    seedFlow(w.fake);
+    const view = w.fake.state.cycleEntries.get(CY)!.find((e) => e.record.id === 'in-view')!;
+    view.record = { ...view.record, timestamp: new Date(Math.max(Date.now() - 1000, T + 80_000)).toISOString() } as CallRecord;
+    w.fake.state.unmarked.add('in-view');
+    const first = await w.call('check_calls', { cycle: CY });
+    assert.equal(first.json.recheckPending, 1);
+    const started = Date.now();
+    const waiting = w.call('check_calls', { cycle: CY, sinceCallId: first.json.lastCallId, waitSec: 30, settleSec: 1 });
+    for (let i = 0; i < 50 && w.fake.openSockets().length < 5; i++) await new Promise((r) => setTimeout(r, 50));
+    w.fake.state.unmarked.delete('in-view');
+    w.fake.state.signals['in-view'] = { logErrors: 1 };
+    w.fake.broadcast('/ws/triage', '{"type":"marks-changed"}');
+    const r = await waiting;
+    assert.equal(r.json.rechecked, 1, r.text);
+    assert.ok(Date.now() - started < 10_000, 'woken by the mark, not the 30 s timeout');
   } finally { await w.close(); }
 });

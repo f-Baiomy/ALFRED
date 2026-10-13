@@ -14,6 +14,9 @@ import { statementFailuresOf, triageOf } from '../triage.ts';
 import { MaskSchema } from './cycles.ts';
 import { maskLines } from './logs.ts';
 import { evidence, headLine, unavailableNote, type Item } from './triage.ts';
+import { changesReply, parentsOf, type ChangesPage } from './board.ts';
+import { liveHolder } from './live.ts';
+import { waitForCalls } from './watch.ts';
 
 /**
  * check_calls (listen and review, rules "Batches"): every call of a cycle - or of the calls after `sinceCallId` -
@@ -31,6 +34,8 @@ const CONCURRENCY = 8;
 const MAX_DIFFS_DEFAULT = 40;
 /** A call's statements may arrive a moment after it ends: its writes are indexed once its capture is complete, or this long after. */
 const WRITES_SETTLE_MS = 10_000;
+/** A call with no triage mark this long after it ended will not get one. */
+const MARK_WAIT_MS = 120_000;
 /** Memory the snapshot indexes of all cycles may hold; the least recently used cycle's index is dropped (and rebuilt from Alfred when needed). */
 const INDEX_BYTES_MAX = 256 * 1024 * 1024;
 const MEMBERS_LISTED = 200;
@@ -41,6 +46,14 @@ interface CycleMemory {
   readonly diffsPending: Set<string>;
   /** What each call looked like when it was checked - the sweep re-judges only calls whose mark changed since. */
   readonly checked: Map<string, string>;
+  /**
+   * Calls a batch checked before their capture had settled (no triage mark yet, or ended moments ago - log lines,
+   * statements and supplier calls still arriving). Every later batch re-reads their marks and re-judges the ones that
+   * changed, so listen sees what review sees without waiting for the sweep.
+   */
+  readonly recheck: Set<string>;
+  /** The calls the first page of a batch re-judged - the later pages of the same batch show the same groups. */
+  page?: { key: string; ids: readonly string[] };
 }
 
 const memory = new Map<string, CycleMemory>();
@@ -51,7 +64,7 @@ function memoryOf(client: AlfredClient, cycleId: string): CycleMemory {
   if (m) {
     memory.delete(key); // most recently used last
   } else {
-    m = { index: new FlowIndex(), diffsPending: new Set(), checked: new Map() };
+    m = { index: new FlowIndex(), diffsPending: new Set(), checked: new Map(), recheck: new Set() };
   }
   memory.set(key, m);
   let total = [...memory.values()].reduce((sum, x) => sum + x.index.bytes, 0);
@@ -59,7 +72,7 @@ function memoryOf(client: AlfredClient, cycleId: string): CycleMemory {
     if (total <= INDEX_BYTES_MAX || other === m) break;
     total -= other.index.bytes;
     // Dropping an index loses no diff: a later check re-reads those calls' bodies from Alfred and rebuilds it.
-    memory.set(k, { index: new FlowIndex(), diffsPending: other.diffsPending, checked: other.checked });
+    memory.set(k, { index: new FlowIndex(), diffsPending: other.diffsPending, checked: other.checked, recheck: other.recheck });
   }
   return m;
 }
@@ -232,9 +245,20 @@ function severityOf(f: Flagged): number {
   return 3;
 }
 
+/** The user's changes on a cycle's board after a cursor - board_changes by USER, folded into a listen batch. */
+async function boardChanges(client: AlfredClient, ctx: MaskContext, cycleId: string, cursor: string): Promise<Record<string, unknown>> {
+  try {
+    const page = await client.get<ChangesPage>('/board/changes', { query: { cursor, cycleId, actor: 'USER', limit: 50 } });
+    const reply = changesReply(ctx, page, await parentsOf(client, page));
+    return { ...reply, ...(liveHolder(client.baseUrl) ? { live: '/alfred-live is answering the user - only note these changes' } : {}) };
+  } catch (error) {
+    return { error: `board changes not read: ${(error as Error).message}`, cursor };
+  }
+}
+
 /** Tests: drop every cycle's snapshot index (as the memory cap would), keeping what was checked. */
 export function dropIndexesForTests(): void {
-  for (const [k, m] of memory) memory.set(k, { index: new FlowIndex(), diffsPending: m.diffsPending, checked: m.checked });
+  for (const [k, m] of memory) memory.set(k, { index: new FlowIndex(), diffsPending: m.diffsPending, checked: m.checked, recheck: m.recheck });
 }
 
 export function register(server: McpServer, client: AlfredClient): void {
@@ -259,16 +283,38 @@ export function register(server: McpServer, client: AlfredClient): void {
       hopDiffs: z.boolean().default(true).describe('Compare the values calls carry between them (reads bodies and written rows in Alfred, not in the reply)'),
       maxDiffs: z.number().int().min(1).max(200).default(MAX_DIFFS_DEFAULT).describe('Hop-diff lines shown on this page'),
       includeOptions: z.boolean().default(false),
+      waitSec: z.number().int().min(0).max(60).default(0).describe('Listen in one call: with sinceCallId, first wait up to this long for new calls '
+        + '(returning once none came for settleSec) or for the late log lines / SQL of a call still settling - then check. 0 = check now'),
+      settleSec: z.number().int().min(0).max(30).default(5).describe('With waitSec: the pause that ends a burst of calls'),
+      boardCursor: z.string().max(100).optional().describe('Also return what the user changed on this cycle\'s board after this cursor ("now" to start) - '
+        + 'the same as board_changes by USER; pass the returned board.cursor next time'),
       mask: MaskSchema,
     },
   }, (input) => run(async () => {
     const ctx = await maskContext(client, input.mask);
     if (input.sweep && input.sinceCallId) throw invalid('A sweep covers the whole cycle - give sweep or sinceCallId, not both.');
+    if (input.waitSec && !input.sinceCallId) throw invalid('waitSec waits for the calls after sinceCallId - pass the previous reply\'s lastCallId.');
     const found = await findCycle(client, input.cycle);
     if ('candidates' in found) {
       return ok({ candidates: found.candidates }, `"${input.cycle}" matches ${found.candidates.length} cycles - ask which one, then call check_calls with its id.`);
     }
     const mem = memoryOf(client, found.id);
+    let waited: { timedOut: boolean } | null = null;
+    if (input.waitSec && input.offset === 0) {
+      const known = await cycleEntries(client, found.id);
+      const callOf = new Map(known.map((e) => [e.call.id, e.call]));
+      const recheckIds = [...mem.recheck].filter((id) => callOf.has(id));
+      // a call checked too early whose log lines / statements arrived since: no reason to wait
+      const changed = async () => {
+        if (!recheckIds.length) return false;
+        const marks = await triageOf(client, recheckIds, input.minStatus).catch(() => ({} as Record<string, TriageEntry>));
+        return recheckIds.some((id) => mem.checked.get(id) !== markSignature(marks[id] ?? null, callOf.get(id)!));
+      };
+      waited = (await changed()) ? { timedOut: false }
+        : await waitForCalls(client, found.id, input.sinceCallId, input.waitSec * 1000, 'any', input.settleSec * 1000,
+          recheckIds.length ? { sockets: ['/ws/triage', '/ws/db-capture'], changed } : undefined);
+    }
+    const board = input.boardCursor === undefined ? null : await boardChanges(client, ctx, found.id, input.boardCursor);
     const all = await cycleEntries(client, found.id);
     const indexOf = (id: string, what: string) => {
       const at = all.findIndex((e) => e.call.id === id);
@@ -297,16 +343,29 @@ export function register(server: McpServer, client: AlfredClient): void {
 
     const head = `check_calls cycle "${found.name}" (${found.id})${input.sweep ? ' - sweep (calls not checked yet, or changed since)'
       : input.sinceCallId ? ` - the calls after ${numberOf.has(input.sinceCallId) ? `#${numberOf.get(input.sinceCallId)}` : input.sinceCallId}` : ' - every call'}`;
-    if (!windowCalls.length && !(input.hopDiffs && mem.diffsPending.size)) {
-      return ok({ cycleId: found.id, checked: 0, groups: [], clean: 0, pending: pending.map((e) => numberOf.get(e.call.id)), lastCallId, recording: found.status === 'RECORDING' },
+    // Calls checked before their capture settled: re-read their marks with this batch (never in a sweep - it reads all).
+    const inCycle = new Set(all.map((e) => e.call.id));
+    for (const id of mem.recheck) if (!inCycle.has(id)) mem.recheck.delete(id); // removed from the cycle since
+    const windowIds = new Set(windowCalls.map((c) => c.id));
+    const pageKey = `${input.sinceCallId ?? ''}|${input.untilCallId ?? lastCallId ?? ''}`;
+    // A later page of the same batch: the calls its first page re-judged, so the groups (and their offsets) match.
+    const continuing = input.offset > 0 && mem.page?.key === pageKey ? new Set(mem.page.ids) : null;
+    const recheckCalls = input.sweep ? []
+      : all.filter((e) => (continuing ? continuing.has(e.call.id) : mem.recheck.has(e.call.id)) && !windowIds.has(e.call.id)).map((e) => e.call);
+    if (!windowCalls.length && !recheckCalls.length && !(input.hopDiffs && mem.diffsPending.size)) {
+      return ok({ cycleId: found.id, checked: 0, groups: [], clean: 0, pending: pending.map((e) => numberOf.get(e.call.id)), lastCallId, recording: found.status === 'RECORDING', recheckPending: 0,
+        ...(waited ? { waited: waited.timedOut ? 'nothing arrived' : 'calls arrived' } : {}), ...(board ? { board } : {}) },
         `${head}: no new finished calls${pending.length ? ` (${pending.length} still running - check again)` : ''}.`);
     }
 
-    const marks = await triageOf(client, windowCalls.map((c) => c.id), input.minStatus).catch(() => ({} as Record<string, TriageEntry>));
+    const marks = await triageOf(client, [...windowCalls, ...recheckCalls].map((c) => c.id), input.minStatus).catch(() => ({} as Record<string, TriageEntry>));
+    // A call checked early whose mark changed since (a log line, a statement, a supplier call arrived late) is judged again now.
+    const rechecked = continuing ? recheckCalls : recheckCalls.filter((c) => mem.checked.get(c.id) !== markSignature(marks[c.id] ?? null, c));
+    if (!continuing) mem.page = { key: pageKey, ids: rechecked.map((c) => c.id) };
     // The sweep: only what was never checked, or whose mark changed since (a log line or statement that arrived late).
     const subject = input.sweep
       ? windowCalls.filter((c) => mem.checked.get(c.id) !== markSignature(marks[c.id] ?? null, c) || mem.diffsPending.has(c.id))
-      : windowCalls;
+      : [...windowCalls, ...rechecked];
     const inboundIds = new Set(subject.filter((c) => c.source === 'internal').map((c) => c.id));
     const parentOf = (c: CallRecord) => marks[c.id]?.parentCallId ?? c.parentCallId ?? null;
     // A supplier call of an inbound call in this batch is evidence under that call (as triage shows it): its mark is in
@@ -376,6 +435,16 @@ export function register(server: McpServer, client: AlfredClient): void {
       else clean.push(numberOf.get(c.id)!);
     }
     for (const c of subject) mem.checked.set(c.id, markSignature(marks[c.id] ?? null, c));
+    // Still settling (no mark yet, or ended moments ago on both clocks): look again next batch; settled: done with it.
+    const latestStart = Math.max(...all.map((e) => Date.parse(e.call.timestamp)));
+    const nowMs = Date.now();
+    for (const c of [...windowCalls, ...recheckCalls]) {
+      const age = Math.max(nowMs - endOf(c), latestStart - endOf(c));
+      // No mark a while after it ended: it never gets one (recorded before triage, past its cap) - stop asking.
+      const settling = c.method !== 'OPTIONS' && (age < WRITES_SETTLE_MS || (!marks[c.id] && age < MARK_WAIT_MS));
+      if (settling && !input.sweep) mem.recheck.add(c.id);
+      else mem.recheck.delete(c.id);
+    }
 
     const failures = await statementFailuresOf(client, flagged.map((f) => f.entry).filter((e): e is TriageEntry => !!e && e.failedStatements > 0).map((e) => e.callId))
       .catch(() => ({} as Record<string, CallStatementFailures>));
@@ -395,6 +464,7 @@ export function register(server: McpServer, client: AlfredClient): void {
         + `${hiddenOptions ? `, ${hiddenOptions} OPTIONS skipped` : ''}${input.sweep ? `, ${windowCalls.length - subject.length} unchanged since checked` : ''})`
         + ` - ${flagged.length} flagged in ${groups.length} group${groups.length === 1 ? '' : 's'}, ${clean.length} clean`
         + `${pending.length ? `, ${pending.length} still running (next time)` : ''}`
+        + `${rechecked.length ? ` - ${rechecked.length} earlier call${rechecked.length === 1 ? '' : 's'} re-judged (logs / SQL arrived late)` : ''}`
         + await unavailableNote(client, flagged.map((f) => ({ label: '', entry: f.entry, call: f.call }) as Item)),
       '',
     ];
@@ -444,13 +514,16 @@ export function register(server: McpServer, client: AlfredClient): void {
         if (flows.length > 10) out.push(`  … ${flows.length - 10} more flows`);
       }
       if (clean.length) out.push('', `Clean (${clean.length}): ${ranges(clean.sort((a, b) => a - b))}`);
-      if (unmarked.length) out.push(`No saved mark (${unmarked.length}, checked by status only - recorded before triage, or past its row cap): ${ranges(unmarked)}`);
+      if (unmarked.length) out.push(`No saved mark yet (${unmarked.length}, checked by status only - just captured, recorded before triage, or past its row cap; `
+        + `re-checked next batch): ${ranges(unmarked)}`);
+      if (mem.recheck.size) out.push(`Still settling (${mem.recheck.size}): their log lines / statements may still arrive - the next check_calls re-judges any that change, even with no new calls.`);
       if (noBody) out.push(`No JSON/XML body (${noBody}) - not in the hop diffs.`);
       if (mem.diffsPending.size) out.push(`Writes still arriving for ${mem.diffsPending.size} call${mem.diffsPending.size === 1 ? '' : 's'} - their hop diffs come in a later check.`);
     }
     out.push('', JSON.stringify({
       cycleId: found.id, checked: subject.length, flaggedCalls: flagged.length, totalGroups: groups.length, groups: shownGroups, next, clean: clean.length,
-      pending: pending.map((e) => numberOf.get(e.call.id)), hopDiffs: diffs.length, lastCallId, recording: found.status === 'RECORDING', ...maskMeta(ctx),
+      pending: pending.map((e) => numberOf.get(e.call.id)), hopDiffs: diffs.length, lastCallId, recording: found.status === 'RECORDING',
+      rechecked: rechecked.length, recheckPending: mem.recheck.size, ...(board ? { board } : {}), ...maskMeta(ctx),
     }));
     return text(out.join('\n'));
   }));

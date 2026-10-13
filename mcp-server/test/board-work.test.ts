@@ -270,3 +270,22 @@ test('board_fix writes the re-test plan, board_verify needs no cycle, board_rete
     assert.equal(one.json.plan.expectations.length, 1);
   } finally { await w.close(); }
 });
+
+test('board_add_many writes each card\'s first state comment and its Acceptance item in the same call', async () => {
+  const w = await world();
+  try {
+    const r = await w.call('board_add_many', { project: 'p', cycleId: 'cy', cards: [
+      { kind: 'BUG', title: 'Second passenger dropped', firstComment: { did: 'checked 12 calls', found: 'OrderMapper maps one', next: 'triage', waitingOn: 'USER' },
+        specItem: { fileName: 'spec.md', itemKey: 'k1' } },
+      { kind: 'NOTE', title: 'N+1 airports' },
+    ] });
+    assert.equal(r.isError, false, r.text);
+    assert.match(r.json.results[0], /^added #1 Second passenger dropped - no team yet · commented · linked to k1$/);
+    assert.match(r.json.results[1], /^added #2 N\+1 airports - no team yet$/);
+    const comment = w.fake.requests('POST', '/board/cards/card-1/comments')[0];
+    assert.equal(comment.body.did, 'checked 12 calls');
+    assert.equal(comment.body.waitingOn, 'USER');
+    assert.deepEqual(w.fake.requests('POST', '/board/cards/card-1/spec-items')[0].body, { cycleId: 'cy', fileName: 'spec.md', itemKey: 'k1' });
+    assert.equal(w.fake.requests('POST', '/board/cards/card-2/comments').length, 0);
+  } finally { await w.close(); }
+});

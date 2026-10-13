@@ -192,7 +192,9 @@ Never check calls one tool call at a time: Alfred checks every call in code, you
    whole cycle. Every call is checked, none skipped: status, errors inside 200s, empty results, ERROR / WARN lines and
    exceptions, failed and flagged SQL (N+1, slow…), failing supplier calls, Redis, slow against the same endpoint, and
    the **hop diffs** (`Δ`) of the flows the calls carry. It lists every other call as clean and says which are still
-   running (checked next time - pass its `lastCallId` on).
+   running (checked next time - pass its `lastCallId` on). A call checked before its log lines, statements or supplier
+   calls arrived is re-judged by the next `check_calls` once they do (`rechecked`); while `recheckPending` > 0, call it
+   again even with no new calls - that is how a batch never misses an ERROR that came a second late.
 2. **Groups, not calls.** Flagged calls come in groups: the same problem on many calls (same endpoint, signals, error,
    failing statement, hop-diff keys) is one group `G1 · 512 calls`, with one example's evidence and every member listed.
    A call with anything different is in another group, so a group never hides a second problem. Judge each group once.
@@ -202,8 +204,10 @@ Never check calls one tool call at a time: Alfred checks every call in code, you
    enough: `investigate_call`, `log_context`, `db_statement`, a body field with `get_call` `paths` - never whole bodies
    by default. Read an endpoint's code once per run (`codegraph explore "<handler> <mapper>"` when the repo has a
    `.codegraph/`, else `locate_source` + the files).
-4. **Write in bulk**: `board_similar` / `board_for_call` once per finding, new cards together with `board_add_many`
-   (a group's card links **all** its calls), one state comment per card per batch.
+4. **Write in bulk**: `board_similar` / `board_for_call` once per finding, then every new card of the batch in one
+   `board_add_many` - each with its `firstComment` (the first state comment) and its `specItem` (the Acceptance item it
+   breaks), so no card needs a second or third call; a group's card links **all** its calls. One state comment per
+   existing card per batch.
 5. **The ledger.** Every group ends as exactly one of: a **card** (new), a **link** to a card (`board_link`, all its
    calls), **asked** (in a `Learn:` card), or **fine** - with the reason (a project check, an `allowed` line, a closed
    card, "a 404 the user caused on purpose"). Keep the ledger as you go; never leave a group without an outcome.

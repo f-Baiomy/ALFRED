@@ -6,6 +6,7 @@ import { mentionsIn, serializeMention } from '../frontend.ts';
 import { maskContext, maskMeta, maskText, type MaskContext } from '../masking.ts';
 import { chunkText, fitItems, invalid, ok, preview, run } from '../reply.ts';
 import { MaskSchema } from './cycles.ts';
+import { liveHolder } from './live.ts';
 
 /**
  * The task board (specs/014-task-board contracts/mcp-tools.md, docs/board.md "Claude"). Every request says it is Claude,
@@ -66,7 +67,7 @@ const ENTRY_INLINE = 6000;
 
 interface Proposal { status: string; resolution: string | null; reason: string; evidence: string; at: string; kind?: string; intoNumber?: number | null }
 
-interface CardRow {
+export interface CardRow {
   id: string; project: string; number: number; kind: string; title: string; status: string; resolution: string | null; reason: string | null;
   flags: string[]; scope: string; author: string; cycleId: string | null; cycleDeleted: boolean; updatedAt: string; commentCount: number;
   similarClosed: { number: number; resolution: string; reason: string | null } | null; description?: string;
@@ -111,13 +112,13 @@ function waitingText(c: CardRow): string {
   return ` · waiting on ${who === 'you' ? 'the user' : who} ${ago(c.waiting.since)}`;
 }
 
-interface ActivityRow {
+export interface ActivityRow {
   id?: number; cardId?: string; actor: string; kind: string; text: string | null; oldValue: string | null; newValue: string | null; at: string;
   /** The comment this one answers (one level), or null. */
   replyTo?: number | null;
 }
 
-function isQuestion(e: ActivityRow): boolean {
+export function isQuestion(e: ActivityRow): boolean {
   return e.kind === 'COMMENT' && e.actor === 'CLAUDE' && !!e.text && e.text.startsWith('**Question**');
 }
 
@@ -139,16 +140,16 @@ async function commentIdAt(client: AlfredClient, card: CardRow, index: number): 
 
 interface SearchHit extends CardRow { lastComment: ActivityRow | null }
 
-interface ChangeRow extends ActivityRow { project: string; number: number; title: string; status: string; cycleId: string | null }
+export interface ChangeRow extends ActivityRow { project: string; number: number; title: string; status: string; cycleId: string | null }
 
-interface ChangesPage {
+export interface ChangesPage {
   entries: ChangeRow[];
   cycles: { cycleId: string; what: string; name: string | null; detail: string | null; at: string }[];
   cursor: string;
   more: boolean;
 }
 
-function line(c: CardRow): string {
+export function line(c: CardRow): string {
   const flags = c.flags.length ? ` [${c.flags.join(', ')}]` : '';
   const state = c.resolution ? `${c.status} (${c.resolution}${c.reason ? `: ${c.reason}` : ''})` : c.status;
   const proposal = c.proposal ? ` · ✦ proposed ${target(c.proposal)} - waiting for the user` : '';
@@ -164,12 +165,12 @@ function target(p: Proposal): string {
   return p.status === 'CLOSED' && p.resolution ? `close as ${p.resolution}` : p.status;
 }
 
-function who(actor: string): string {
+export function who(actor: string): string {
   return actor === 'CLAUDE' ? 'Claude' : 'User';
 }
 
 /** One history entry as one line; a comment in full (it is read in parts past `inline` characters). */
-function entryLine(ctx: MaskContext, e: ActivityRow, index: number, inline = ENTRY_INLINE): string {
+export function entryLine(ctx: MaskContext, e: ActivityRow, index: number, inline = ENTRY_INLINE): string {
   const text = maskText(ctx, e.text ?? '');
   const body = text.length > inline ? `${text.slice(0, inline)}… (${text.length} chars - read the rest with board_get entry=${index})` : text;
   if (e.kind === 'COMMENT') return `${e.at} ${who(e.actor)}: ${body}`;
@@ -215,11 +216,11 @@ export function openWith(type: string, ref: string): string {
   }
 }
 
-async function cardByNumber(client: AlfredClient, project: string, number: number): Promise<CardRow> {
+export async function cardByNumber(client: AlfredClient, project: string, number: number): Promise<CardRow> {
   return client.get<CardRow>(`/board/cards/by-number/${seg(number)}`, { query: { project }, notFound: `No card #${number} on the ${project || 'No project'} board.` });
 }
 
-async function history(client: AlfredClient, cardId: string): Promise<ActivityRow[]> {
+export async function history(client: AlfredClient, cardId: string): Promise<ActivityRow[]> {
   const out: ActivityRow[] = [];
   for (;;) {
     const page = await client.get<{ entries: ActivityRow[]; total: number }>(`/board/cards/${seg(cardId)}/activity`, { query: { offset: out.length, limit: 1000 } });
@@ -248,12 +249,12 @@ function changeLine(ctx: MaskContext, e: ChangeRow, parents: ReadonlyMap<number,
     .replace(/board_get entry=-1/, `board_get ${JSON.stringify({ project: e.project, number: e.number })}`)}`;
 }
 
-function stripLabel(text: string | null): string {
+export function stripLabel(text: string | null): string {
   return (text ?? '').replace(/^\*\*(Did|Found|Next|Impact|Reply|Question)\*\*\s*/, '').replace(/\s+/g, ' ').trim();
 }
 
 /** The comments the replies in a page of changes answer, read once per card. */
-async function parentsOf(client: AlfredClient, page: ChangesPage): Promise<Map<number, ActivityRow>> {
+export async function parentsOf(client: AlfredClient, page: ChangesPage): Promise<Map<number, ActivityRow>> {
   const out = new Map<number, ActivityRow>();
   const cards = [...new Set(page.entries.filter((e) => e.replyTo != null && e.cardId).map((e) => e.cardId!))];
   for (const cardId of cards.slice(0, 20)) {
@@ -262,7 +263,7 @@ async function parentsOf(client: AlfredClient, page: ChangesPage): Promise<Map<n
   return out;
 }
 
-function changesReply(ctx: MaskContext, page: ChangesPage, parents: ReadonlyMap<number, ActivityRow>): Record<string, unknown> {
+export function changesReply(ctx: MaskContext, page: ChangesPage, parents: ReadonlyMap<number, ActivityRow>): Record<string, unknown> {
   const entries = page.entries.map((e) => changeLine(ctx, e, parents));
   const cycles = page.cycles.map((c) => `${c.at} cycle ${c.cycleId}: ${c.what}${c.name ? ` ${c.name}` : ''}${c.detail ? ` (${c.detail})` : ''}`);
   const fitted = fitItems(entries, 600 + JSON.stringify(cycles).length);
@@ -452,7 +453,10 @@ export function register(server: McpServer, client: AlfredClient): void {
   }, (input) => run(async () => {
     const ctx = await maskContext(client, input.mask);
     const page = await client.get<ChangesPage>('/board/changes', { query: { cursor: input.cursor, project: input.project, cycleId: input.cycleId, actor: input.by, limit: input.limit } });
-    return ok(changesReply(ctx, page, await parentsOf(client, page)));
+    const live = liveHolder(client.baseUrl);
+    return ok({ ...changesReply(ctx, page, await parentsOf(client, page)),
+      ...(live && (!live.project || !input.project || live.project === input.project)
+        ? { live: '/alfred-live is answering the user on this board - only note these changes; do not reply to them' } : {}) });
   }));
 
   server.registerTool('board_wait', {
@@ -473,7 +477,10 @@ export function register(server: McpServer, client: AlfredClient): void {
       query: { cursor: input.cursor, project: input.project, cycleId: input.cycleId, actor: input.by, timeoutSeconds: input.timeoutSeconds },
       timeoutMs: (input.timeoutSeconds + 10) * 1000,
     });
-    return ok(changesReply(ctx, page, await parentsOf(client, page)));
+    const live = liveHolder(client.baseUrl);
+    return ok({ ...changesReply(ctx, page, await parentsOf(client, page)),
+      ...(live && (!live.project || !input.project || live.project === input.project)
+        ? { live: '/alfred-live is answering the user on this board - only note these changes; do not reply to them' } : {}) });
   }));
 
   server.registerTool('board_closed_reasons', {
@@ -640,21 +647,40 @@ export function register(server: McpServer, client: AlfredClient): void {
   }));
 
   server.registerTool('board_add_many', {
-    description: 'Several findings from one scan, each like board_add (Inbox, duplicate check, teams). Each one says added or why it was refused.',
+    description: 'Several findings from one scan, each like board_add (Inbox, duplicate check, teams). Each one says added or why it was refused. '
+      + 'In the same call, each card can take its first state comment (firstComment: did / found / next / waitingOn - as board_comment) and the '
+      + 'Acceptance item it breaks (specItem: fileName + itemKey from read_spec / task_context, in cycleId - as board_link_spec), so a batch of '
+      + 'findings is one call instead of three per card.',
     inputSchema: {
       project: Project,
       cycleId: z.string().optional(),
       cards: z.array(z.object({
         kind: Kind, title: z.string().min(1).max(300), description: z.string().max(64 * 1024).default(''), flags: z.array(Flag).default([]),
         teams: Teams.default([]), links: z.array(Link).max(50).default([]),
+        firstComment: z.object({
+          did: z.string().min(1).max(64 * 1024), found: z.string().min(1).max(64 * 1024), next: z.string().min(1).max(64 * 1024), waitingOn: WaitingOn,
+        }).optional().describe('The card\'s first state comment, written right after it is added'),
+        specItem: z.object({ fileName: z.string().min(1), itemKey: z.string().min(1) }).optional()
+          .describe('The Acceptance item this card is about (needs cycleId)'),
       })).min(1).max(30),
     },
   }, (input) => run(async () => {
     const results: string[] = [];
-    for (const c of input.cards) {
+    for (const { firstComment, specItem, ...c } of input.cards) {
       try {
         const card = await client.post<CardRow>('/board/cards', { ...AS_CLAUDE, body: { project: input.project, cycleId: input.cycleId, ...c } });
-        results.push(`added #${card.number} ${c.title}${card.teams?.length ? ` {${card.teams.join(', ')}}` : ' - no team yet'}`);
+        const extra: string[] = [];
+        // The card is added: a failed comment or link is said, never a reason to call it not added.
+        if (firstComment) {
+          await client.post(`/board/cards/${seg(card.id)}/comments`, { ...AS_CLAUDE, body: firstComment })
+            .then(() => extra.push('commented'), (e) => extra.push(`comment not written: ${(e as Error).message}`));
+        }
+        if (specItem) {
+          if (!input.cycleId) extra.push('spec item not linked: give cycleId');
+          else await client.post(`/board/cards/${seg(card.id)}/spec-items`, { ...AS_CLAUDE, body: { cycleId: input.cycleId, ...specItem } })
+            .then(() => extra.push(`linked to ${specItem.itemKey}`), (e) => extra.push(`spec item not linked: ${(e as Error).message}`));
+        }
+        results.push(`added #${card.number} ${c.title}${card.teams?.length ? ` {${card.teams.join(', ')}}` : ' - no team yet'}${extra.length ? ` · ${extra.join(' · ')}` : ''}`);
       } catch (error) {
         results.push(`not added "${c.title}": ${(error as Error).message}`);
         if (/paused/i.test((error as Error).message)) break;

@@ -31,7 +31,7 @@ with `get_call` `paths`). Update `board_status` `step` as you go ("reviewing <cy
 
 ## 4. Fill the board
 
-- New problems → `board_add_many` with their `teams`, then a first state comment each (+ `board_ask` for questions, `board_link_spec` for the item).
+- New problems → one `board_add_many` with their `teams`, each with its `firstComment` (the first state comment) and `specItem` (the Acceptance item) in the same call (+ `board_ask` for questions).
 - A card whose teams no longer fit what this recording shows → `board_assign` with the reason.
 - Problem already on a card → no new card: `board_link` the new calls and a state comment "seen again in <cycle>".
 - Two existing cards that are one problem → `board_propose` MERGE.
