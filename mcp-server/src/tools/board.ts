@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { AlfredError, seg, type AlfredClient, type RequestOptions } from '../alfred-client.ts';
+import { boardText, boardTexts, snippetNote } from '../board-text.ts';
 import { callLines } from '../call-story.ts';
 import { mentionsIn, serializeMention } from '../frontend.ts';
 import { maskContext, maskMeta, maskText, type MaskContext } from '../masking.ts';
@@ -100,7 +101,8 @@ interface TeamRow { id: string; name: string; icon: string; owns: string; hints:
  * evidence decides, not the endpoint's name: a 405 from a Java controller is Backend even when the page shows it.
  */
 /** How board texts are written (docs/board.md "Rich text"); the skills' rules.md has the full guide. */
-const WRITING = ' Texts are Markdown, shown formatted: a **bold** one-line summary first, ### headings, tables, fenced code with a language '
+const WRITING = ' Texts are Markdown, HTML, or both mixed - HTML becomes board text (<table>, <details>, <aside data-callout="bug">, '
+  + '<span data-color="red">), and HTML with <script>/<style>/<svg> or an animated style becomes an html live snippet. Markdown by default; HTML when Markdown cannot say it (colspan/rowspan, lists in a cell, nested callouts); script/style/SVG only for a view no fixed block gives. Shown formatted: a **bold** one-line summary first, ### headings, tables, fenced code with a language '
   + '(```sql, ```json, ```diff, ```log), > [!NEXT] / > [!WARNING] / > [!BUG] / > [!FIXED] callouts, +++ Details … +++ to fold long evidence, '
   + '- [ ] checklists, ==highlight==, [ok] [fail] [wait] pills, {{name}} for a global variable, a call mention alone on its line as a card. '
   + 'Write in the language the user writes in.';
@@ -717,13 +719,14 @@ export function register(server: McpServer, client: AlfredClient): void {
       links: z.array(Link).max(100).default([]),
     },
   }, (input) => run(async () => {
+    const description = boardText(input.description);
     const card = await client.post<CardRow>('/board/cards', {
       ...WRITE,
-      body: { project: input.project, kind: input.kind, title: input.title, description: input.description, flags: input.flags,
+      body: { project: input.project, kind: input.kind, title: input.title, description: description.text, flags: input.flags,
         teams: input.teams, cycleId: input.cycleId, links: input.links },
     });
     const similarOpen = similarOpenNote(card);
-    return ok({ added: `#${card.number}`, status: card.status, card: line(card),
+    return ok({ added: `#${card.number}`, status: card.status, card: line(card), ...snippetNote(description.snippets),
       ...(card.teams?.length ? {} : { teams: 'none - pick them with board_assign (board_teams lists the teams)' }),
       ...(similarOpen ? { similarOpen } : {}) });
   }));
@@ -752,7 +755,9 @@ export function register(server: McpServer, client: AlfredClient): void {
     const results: string[] = [];
     const addedNow = new Set<number>();
     for (let i = 0; i < input.cards.length; i++) {
-      const { firstComment, specItem, ...c } = input.cards[i];
+      const { firstComment: rawFirst, specItem, ...rawCard } = input.cards[i];
+      const c = { ...rawCard, description: boardText(rawCard.description).text };
+      const firstComment = rawFirst && boardTexts(rawFirst, ['did', 'found', 'next']).body;
       const extra: string[] = [];
       let card: CardRow | undefined;
       try {
@@ -818,15 +823,15 @@ export function register(server: McpServer, client: AlfredClient): void {
   }, (input) => run(async () => {
     const card = await cardByNumber(client, input.project, input.number);
     const replyTo = input.replyTo === undefined ? undefined : await commentIdAt(client, card, input.replyTo);
+    const parts = boardTexts({ did: input.did, found: input.found, next: input.next, impact: input.impact }, ['did', 'found', 'next', 'impact']);
     await client.post(`/board/cards/${seg(card.id)}/comments`, { ...WRITE,
-      body: { did: input.did, found: input.found, next: input.next, impact: input.impact, ...(replyTo != null ? { replyTo } : {}),
-        ...(input.waitingOn ? { waitingOn: input.waitingOn } : {}) } });
-    return ok({ commented: `#${card.number}` });
+      body: { ...parts.body, ...(replyTo != null ? { replyTo } : {}), ...(input.waitingOn ? { waitingOn: input.waitingOn } : {}) } });
+    return ok({ commented: `#${card.number}`, ...snippetNote(parts.snippets) });
   }));
 
   server.registerTool('board_reply', {
     description: 'Answer the user on a card in your own words (shown as "Reply" in the history). With replyTo (a comment\'s [index] from '
-      + 'board_get) it goes under that comment, in its thread - use it to answer one exact comment. Mentions work: @[call:in:<id>|label].',
+      + 'board_get) it goes under that comment, in its thread - use it to answer one exact comment. Mentions work: @[call:in:<id>|label].' + WRITING,
     inputSchema: {
       project: Project, number: CardNumber, text: z.string().min(1).max(64 * 1024),
       replyTo: z.number().int().min(0).optional().describe('The [index] of the comment you answer, from board_get'),
@@ -835,9 +840,10 @@ export function register(server: McpServer, client: AlfredClient): void {
   }, (input) => run(async () => {
     const card = await cardByNumber(client, input.project, input.number);
     const replyTo = input.replyTo === undefined ? undefined : await commentIdAt(client, card, input.replyTo);
-    await client.post(`/board/cards/${seg(card.id)}/comments`, { ...AS_CLAUDE, body: { reply: input.text, ...(replyTo != null ? { replyTo } : {}),
+    const reply = boardText(input.text);
+    await client.post(`/board/cards/${seg(card.id)}/comments`, { ...AS_CLAUDE, body: { reply: reply.text, ...(replyTo != null ? { replyTo } : {}),
       ...(input.waitingOn ? { waitingOn: input.waitingOn } : {}) } });
-    return ok({ replied: `#${card.number}`, ...(input.replyTo !== undefined ? { under: `[${input.replyTo}]` } : {}) });
+    return ok({ replied: `#${card.number}`, ...(input.replyTo !== undefined ? { under: `[${input.replyTo}]` } : {}), ...snippetNote(reply.snippets) });
   }));
 
   server.registerTool('board_ask', {
@@ -846,7 +852,7 @@ export function register(server: McpServer, client: AlfredClient): void {
     inputSchema: { project: Project, number: CardNumber, question: z.string().min(1).max(16 * 1024) },
   }, (input) => run(async () => {
     const card = await cardByNumber(client, input.project, input.number);
-    await client.post(`/board/cards/${seg(card.id)}/comments`, { ...AS_CLAUDE, body: { question: input.question } });
+    await client.post(`/board/cards/${seg(card.id)}/comments`, { ...AS_CLAUDE, body: { question: boardText(input.question).text } });
     return ok({ asked: `#${card.number}`, flagged: 'NEEDS_DECISION', next: `board_wait ${JSON.stringify({ project: input.project, cursor: 'now' })}` });
   }));
 
@@ -911,7 +917,7 @@ export function register(server: McpServer, client: AlfredClient): void {
   }, (input) => run(async () => {
     if (input.title === undefined && input.description === undefined && input.kind === undefined) throw invalid('Nothing to change - give a title, description or kind.');
     const card = await cardByNumber(client, input.project, input.number);
-    const updated = await client.patch<CardRow>(`/board/cards/${seg(card.id)}`, { ...AS_CLAUDE, body: { title: input.title, description: input.description, kind: input.kind } });
+    const updated = await client.patch<CardRow>(`/board/cards/${seg(card.id)}`, { ...AS_CLAUDE, body: { title: input.title, description: input.description === undefined ? undefined : boardText(input.description).text, kind: input.kind } });
     return ok({ edited: line(updated) });
   }));
 
@@ -954,7 +960,8 @@ export function register(server: McpServer, client: AlfredClient): void {
     });
     const did = [input.summary, files.length ? `Changed: ${files.join(', ')}` : '', input.commit ? `Commit: ${input.commit}` : '',
       input.tests ? `Tests: ${input.tests}` : ''].filter(Boolean).join('\n\n');
-    await client.post(`/board/cards/${seg(card.id)}/comments`, { ...AS_CLAUDE, body: { did, found: input.rootCause, next: `Verify: ${input.verify}`, impact: input.impact } });
+    const parts = boardTexts({ did, found: input.rootCause, next: `Verify: ${input.verify}`, impact: input.impact }, ['did', 'found', 'next', 'impact']);
+    await client.post(`/board/cards/${seg(card.id)}/comments`, { ...AS_CLAUDE, body: parts.body });
     let moved = card.status === 'FIXED' ? 'already Fixed' : '';
     if (!moved) {
       try {
@@ -1020,7 +1027,7 @@ export function register(server: McpServer, client: AlfredClient): void {
       + 'get their OK in chat before calling this.',
     inputSchema: { cycleId: z.string().min(1), text: z.string().max(256 * 1024) },
   }, (input) => run(async () => {
-    const brief = await client.put<{ updatedAt: string }>(`/board/cycles/${seg(input.cycleId)}/brief`, { ...AS_CLAUDE, body: { text: input.text } });
+    const brief = await client.put<{ updatedAt: string }>(`/board/cycles/${seg(input.cycleId)}/brief`, { ...AS_CLAUDE, body: { text: boardText(input.text).text } });
     return ok({ saved: 'brief', cycleId: input.cycleId, updatedAt: brief.updatedAt, undo: 'The user can Restore previous in the Brief tab.' });
   }));
 
@@ -1083,7 +1090,7 @@ export function register(server: McpServer, client: AlfredClient): void {
       next: z.string().min(1).max(16 * 1024),
     },
   }, (input) => run(async () => {
-    await client.post(`/board/cycles/${seg(input.cycleId)}/log`, { ...AS_CLAUDE, body: { skill: input.skill, did: input.did, found: input.found, next: input.next } });
+    await client.post(`/board/cycles/${seg(input.cycleId)}/log`, { ...AS_CLAUDE, body: { skill: input.skill, ...boardTexts({ did: input.did, found: input.found, next: input.next }, ['did', 'found', 'next']).body } });
     return ok({ logged: input.skill, cycleId: input.cycleId });
   }));
 

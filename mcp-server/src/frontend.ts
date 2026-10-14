@@ -23,7 +23,7 @@ export type { CycleSpacer } from '../../frontend/src/app/core/state/call-selecti
 
 export { toCallRecord, callTime, supplierOf } from '../../frontend/src/app/shared/utils/call-utils.ts';
 export { mentionsIn, parseMentions, serializeMention } from '../../frontend/src/app/shared/utils/mention-syntax.ts';
-export { isHtml, textAsMarkdown } from '../../frontend/src/app/shared/utils/rich-html.ts';
+export { blocksToMarkdown, htmlBlocks, isHtml, textAsMarkdown } from '../../frontend/src/app/shared/utils/rich-html.ts';
 export { analyzeCapture, suppliersOf } from '../../frontend/src/app/shared/utils/db-analysis.ts';
 export { layoutSpacers, spacerSlots } from '../../frontend/src/app/shared/utils/spacer-gap-controller.ts';
 export { redactCalls, redactSecrets, setSecretValues, REDACTED } from '../../frontend/src/app/shared/utils/redact.ts';

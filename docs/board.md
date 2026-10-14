@@ -356,6 +356,10 @@ Board writes follow the server-settings rule (`EditAccessUseCase`), with one exc
 
 Every board text can show a picture of its evidence. The words still come first; a visual backs them up.
 
+- **Markdown and HTML together**: raw HTML inside Markdown is never drawn as markup (a text cannot inject a page) -
+  it shows as its text. Claude may still write either or both: its MCP tools (`mcp-server/src/board-text.ts`) turn HTML
+  the board draws itself into board Markdown and HTML with a script, style sheet, SVG or canvas into an
+  ```` ```html live ```` snippet before saving. In the editor, pasted HTML is read the same way.
 - **Fixed blocks** (drawn by the board, no code): ```` ```stats ```` (label | value | colour | note), ```` ```chart ````
   (bar, hbar, line, area, pie, from a number grid), ```` ```timeline ```` (label | start | length ms), ```` ```mermaid ````
   diagrams, `[progress: 3/9 …]`, `:::tabs` with `## Title` per tab, and colour `{red|text}`. ⬇ PNG on each chart and

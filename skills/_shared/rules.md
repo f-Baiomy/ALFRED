@@ -374,6 +374,26 @@ or paused calls - the backend refuses all of it, and you never ask the user to l
 A picture of the evidence beats a paragraph, but the words come first: every comment or brief still opens with its
 one-line summary in text; a visual backs it up.
 
+- **Markdown, HTML, or both in one text** - write whichever says it best, mix them freely (a sentence in Markdown, then
+  an HTML table, then a Markdown list). Alfred's tools turn every text into board text before it is saved:
+  - HTML the board draws itself - `<p>`, `<h1>`-`<h4>`, lists, `<table>`, `<blockquote>`, `<details><summary>`,
+    `<aside data-callout="bug|warn|info|ok|next">`, `<b> <i> <u> <s> <mark> <code> <kbd> <a> <br>`, colour
+    `<span data-color="red|green|amber|blue|purple">` (or `style="color:…"`, mapped to the nearest), pills
+    `<span data-pill="ok|fail|wait|info">`, board images - becomes the same board text the editor makes. Class and
+    other style attributes are dropped: the board's own look, light and dark, applies.
+  - HTML with `<script>`, `<style>`, `<svg>`, `<canvas>`, form controls or an `<iframe>` becomes a ```` ```html live ````
+    snippet as you wrote it, running in the locked frame. The reply says so: check it with `board_snippet_view`.
+  - Mentions (`@[call:in:…|label]`), `{red|text}` and pills work inside HTML too. HTML inside a code fence stays code.
+  - Motion (`animation`, `transition`, `transform`) runs only in a snippet: a `<style>` with `@keyframes`, SVG
+    `<animate>`, a `<script>`, or a `style="animation:…"` attribute all make the part a snippet. `board_snippet_view`
+    shows one still frame - check the console, not the motion.
+- **Which to use**:
+  - **Markdown by default** - sentences, lists, simple tables, mentions, `{red|…}`, callouts, fixed blocks. Shorter,
+    diffs cleanly, and the next session reads it easily.
+  - **HTML when Markdown cannot say it** - a table cell spanning rows or columns (`colspan`/`rowspan`), several
+    paragraphs or a list inside a cell, callouts or folds nested in each other, content that is already HTML.
+  - **HTML with script/style/SVG** only for a custom interactive, drawn or animated view a fixed block
+    (```` ```chart ````, ```` ```stats ````, ```` ```calls ````) cannot give - fixed blocks are cheaper and read live data.
 - **A fixed block** when the board can draw it: ```` ```stats ````, ```` ```chart ````, ```` ```timeline ````,
   ```` ```mermaid ````, `[progress: 3/9 …]`, `:::tabs`, `{red|text}`. Cheap, exported as text, always the first choice.
 - **Live data, never pasted numbers**: ```` ```calls ```` (`endpoint`, `since: fix`, `show: chart(durationMs)`),
