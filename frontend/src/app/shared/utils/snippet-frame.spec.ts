@@ -75,6 +75,39 @@ describe('snippet frame document', () => {
     frame.remove();
   });
 
+  it('a frame told its size late says ready only then - with its height first, and a picture of the whole page', async () => {
+    // What made the picture tests flaky under load: the frame loaded before it knew its size, said ready, and drew 1 x 1.
+    const frame = document.createElement('iframe');
+    frame.setAttribute('sandbox', 'allow-scripts');
+    frame.style.cssText = 'width:0;height:120px;border:0';
+    const events: string[] = [];
+    let height = 0;
+    let bridge: SnippetBridge | null = null;
+    const ready = new Promise<void>((resolve) => {
+      bridge = new SnippetBridge(frame, async () => null, {
+        size: (h) => { height = h; events.push('size'); },
+        ready: () => { events.push('ready'); resolve(); },
+      });
+    });
+    const loaded = new Promise((r) => frame.addEventListener('load', r, { once: true }));
+    frame.srcdoc = buildSnippetDoc({ source: '<div style="height:60px;background:#f00">x</div>', origin: location.origin, inline: {} });
+    document.body.appendChild(frame);
+    await loaded;
+    await new Promise((r) => setTimeout(r, 300));
+    expect(events).withContext('no ready while the frame has no width').not.toContain('ready');
+    frame.style.width = '300px';
+    await ready;
+    expect(events.indexOf('size')).toBeLessThan(events.indexOf('ready'));
+    expect(height).toBeGreaterThan(60);
+    const png = await bridge!.shot(10000);
+    const img = new Image();
+    await new Promise((r) => { img.onload = r; img.src = png; });
+    expect(img.width).toBeGreaterThan(250);
+    expect(img.height).toBeGreaterThan(60);
+    bridge!.close();
+    frame.remove();
+  }, 20000);
+
   it('draws a PNG of itself inside the frame and hands it over the bridge; console lines and size come too', async () => {
     const frame = document.createElement('iframe');
     frame.setAttribute('sandbox', 'allow-scripts');

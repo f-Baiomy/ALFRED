@@ -46,6 +46,8 @@ describe('SnippetHostComponent with a saved snippet', () => {
       + 'alfred.on("state", function (c) { console.log("heard " + c.key + "=" + JSON.stringify(c.value)); });</script>');
     f.componentRef.setInput('snippetId', 'p-1');
     f.componentRef.setInput('version', 4);
+    // On screen whatever other specs left in the page: off screen the host (rightly) holds re-reads and keeps no picture.
+    f.nativeElement.style.cssText = 'position:fixed;top:0;left:0;width:400px;z-index:9999';
     document.body.appendChild(f.nativeElement);
     f.detectChanges();
     TestBed.flushEffects();
@@ -102,6 +104,8 @@ describe('SnippetHostComponent data bridge', () => {
       + 'alfred.value("fares").then(function (v) { console.log("value " + v[0].n); });'
       + 'alfred.data("http://evil.example").catch(function () {});</script>');
     f.componentRef.setInput('context', { project: 'odeysys', cardId: 'c1' });
+    // On screen whatever other specs left in the page: off screen the host (rightly) holds re-reads and keeps no picture.
+    f.nativeElement.style.cssText = 'position:fixed;top:0;left:0;width:400px;z-index:9999';
     document.body.appendChild(f.nativeElement);
     f.detectChanges();
     TestBed.flushEffects();

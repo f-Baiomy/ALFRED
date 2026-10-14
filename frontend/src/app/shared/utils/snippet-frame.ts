@@ -298,7 +298,7 @@ function snap(n,pcs){if(n.nodeType===3)return document.createTextNode(n.nodeValu
   var c;if(tag==="canvas"){c=document.createElement("img");try{c.setAttribute("src",n.toDataURL("image/png"))}catch(e){}}
   else{c=n.cloneNode(false);if(tag==="input"||tag==="textarea")c.setAttribute("value",n.value);if(tag==="video"||tag==="audio")return null}
   var cs=copyStyle(n,c,pcs);for(var ch=n.firstChild;ch;ch=ch.nextSibling){var x=snap(ch,cs);if(x)c.appendChild(x)}return c}
-function shot(id,scale){settled().then(function(){draw(id,scale)})}
+function shot(id,scale){sized(function(){settled().then(function(){draw(id,scale)})})}
 function draw(id,scale){var fail=function(e){post({t:"shot",id:id,error:String(e&&e.message||e)})};try{var root=document.documentElement,body=document.body,rs=getComputedStyle(root),solid=rs.getPropertyValue("--popover-solid").trim()||"#141a45",bg=rs.getPropertyValue("--card").trim()||solid;
   var w=Math.max(1,Math.ceil(root.scrollWidth)),h=Math.max(1,Math.ceil(Math.max(body.scrollHeight,body.getBoundingClientRect().height)));
   var copy=snap(body);copy.style.margin="0";
@@ -337,8 +337,14 @@ function loadDeclared(){Array.prototype.forEach.call(document.querySelectorAll('
   var d=slot(name),got=function(v){d.has=true;d.value=v;var w=d.waiters;d.waiters=[];w.forEach(function(r){r(v)});emit(name,v)};
   var fail=function(e){console.error("alfred/data "+name+": "+(e&&e.message||e))};
   if(s.hasAttribute("live"))api.watch(src,args,got).catch(fail);else api.data(src,args).then(got,fail)})}
-window.__alfredReady=function(){size();post({t:"ready"})};
-function start(){fileRefs();loadDeclared();size();try{new ResizeObserver(size).observe(document.body)}catch(e){}if(!boot.holdReady)post({t:"ready"})}
+// A frame runs in its own process and may load before it is told its size: until then its window is 0 wide and the
+// page measures 0 x 0 (a 1 x 1 picture, no height). Ready, and a picture, wait until it has one: a resize event, or
+// the page's layout growing (the first size may come without a resize event).
+function sized(f){if(window.innerWidth>0)return f();var done=false,ro=null,h=function(){if(done||!(window.innerWidth>0))return;done=true;removeEventListener("resize",h);if(ro)ro.disconnect();f()};
+  addEventListener("resize",h);try{ro=new ResizeObserver(h);ro.observe(document.documentElement)}catch(e){}}
+window.__alfredReady=function(){sized(function(){size();post({t:"ready"})})};
+function start(){fileRefs();loadDeclared();try{new ResizeObserver(size).observe(document.body)}catch(e){}
+  sized(function(){size();if(!boot.holdReady)post({t:"ready"})})}
 if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",start);else start();
 window.addEventListener("load",size);
 })();`;
