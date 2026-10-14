@@ -370,9 +370,20 @@ public class CycleBriefService implements ManageBriefUseCase, ManageSpecFilesUse
 
     // ---------------------------------------------------------------------------------------------------- cycle removed
 
+    /** The cycle's pages, and what its snippets saved, go with it (specs/017). Optional: tests build this service without it. */
+    private com.fathy.alfred.backend.board.application.port.out.SnippetStorePort snippets;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setSnippets(com.fathy.alfred.backend.board.application.port.out.SnippetStorePort snippets) {
+        this.snippets = snippets;
+    }
+
     @Override
     public void cycleRemoved(String cycleId) {
         store.cycleRemoved(cycleId);
+        if (snippets != null) {
+            snippets.cycleRemoved(cycleId);
+        }
         mentionedCalls.mentionedCallsChanged();
         notifications.changed(null, cycleId, null, "deleted");
     }

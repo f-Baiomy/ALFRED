@@ -31,10 +31,11 @@ import { SelectOption, SelectPickerComponent } from '../../select-picker/select-
  * Linked list (mentions plus direct links); the full history; and a comment box. Re-reads itself whenever the board
  * says this card changed (`version`).
  */
+import { BoardPagesComponent } from '../visuals/board-pages.component';
 @Component({
   selector: 'app-card-drawer',
   standalone: true,
-  imports: [NgTemplateOutlet, SelectPickerComponent, ActivityTimelineComponent, CardRetestComponent, LiveWorkBoxComponent, MarkdownViewComponent, MentionChipComponent, MentionEditorComponent, MentionPickerComponent, RunSkillComponent, RunHistoryComponent],
+  imports: [BoardPagesComponent, NgTemplateOutlet, SelectPickerComponent, ActivityTimelineComponent, CardRetestComponent, LiveWorkBoxComponent, MarkdownViewComponent, MentionChipComponent, MentionEditorComponent, MentionPickerComponent, RunSkillComponent, RunHistoryComponent],
   template: `
     <ng-template #modeSwitch>
       <div class="board-seg board-drawer-modes" role="group" aria-label="Show the card as">
@@ -145,8 +146,10 @@ import { SelectOption, SelectPickerComponent } from '../../select-picker/select-
                                   submitLabel="Save" [cancellable]="true" [allowEmpty]="true" [rows]="8" [enterSends]="false" [draftKey]="'desc:' + c.id"
                                   (submitted)="saveDescription($event)" (cancelled)="editingDescription.set(false); descriptionDraft.set(null)" />
             } @else {
-              <div class="board-desc"><app-markdown-view [text]="c.description" empty="No description yet." [idPrefix]="'card-' + c.id + '-'" [outline]="true" /></div>
+              <div class="board-desc"><app-markdown-view [text]="c.description" empty="No description yet." [idPrefix]="'card-' + c.id + '-'" [outline]="true"
+                [snippetOwner]="'inline:card:' + c.id + ':desc'" [snippetContext]="{ card: c.number, cardId: c.id, project: c.project, cycleId: c.cycleId }" /></div>
             }
+            <app-board-pages [owner]="'card:' + c.id" [canEdit]="editable()" [context]="{ card: c.number, cardId: c.id, project: c.project, cycleId: c.cycleId }" />
           </section>
           </div>
           <div class="board-drawer-aside">

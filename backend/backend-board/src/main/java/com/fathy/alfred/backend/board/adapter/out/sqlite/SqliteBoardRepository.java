@@ -142,6 +142,15 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort,
         }
     }
 
+    /** For SqliteSnippetRepository: the same database, so a card's pages go with it (foreign keys). */
+    JdbcTemplate jdbc() {
+        return jdbc;
+    }
+
+    TransactionTemplate tx() {
+        return tx;
+    }
+
     @PreDestroy
     public void close() {
         if (dataSource != null) {

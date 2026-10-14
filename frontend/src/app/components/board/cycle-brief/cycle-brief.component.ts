@@ -20,10 +20,11 @@ const CHIP_MAX = 48;
  * its sections - the goal, the ticket's description as written, scope, out of scope and the decisions every later
  * session must keep; Test steps and Data show beside it in the Task view. A brief without sections shows whole.
  */
+import { BoardPagesComponent } from '../visuals/board-pages.component';
 @Component({
   selector: 'app-cycle-brief',
   standalone: true,
-  imports: [MarkdownViewComponent, MentionEditorComponent, RunSkillComponent],
+  imports: [BoardPagesComponent, MarkdownViewComponent, MentionEditorComponent, RunSkillComponent],
   template: `
     <div class="board-box">
       <h3 class="task-h3">The task
@@ -43,13 +44,13 @@ const CHIP_MAX = 48;
                             (submitted)="save($event)" (cancelled)="editing.set(false)" />
       } @else {
         @let p = parts();
-        @if (p.goal) { <div class="task-goal"><app-markdown-view [text]="p.goal" [idPrefix]="'brief-' + cycleId() + '-goal-'" /></div> }
+        @if (p.goal) { <div class="task-goal"><app-markdown-view [text]="p.goal" [idPrefix]="'brief-' + cycleId() + '-goal-'" [snippetOwner]="'inline:cycle:' + cycleId() + ':goal'" [snippetContext]="{ cycleId: cycleId() }" /></div> }
         @if (p.sections['description'] || p.sections['scope'] || p.sections['out of scope']) {
           <div class="task-brief-grid">
             <div>
               @if (p.sections['description']) {
                 <div class="task-rl">Description <span>as the ticket says it</span></div>
-                <div class="task-desc"><app-markdown-view [text]="p.sections['description']" [idPrefix]="'brief-' + cycleId() + '-desc-'" /></div>
+                <div class="task-desc"><app-markdown-view [text]="p.sections['description']" [idPrefix]="'brief-' + cycleId() + '-desc-'" [snippetOwner]="'inline:cycle:' + cycleId() + ':desc'" [snippetContext]="{ cycleId: cycleId() }" /></div>
               }
             </div>
             <div>
@@ -72,13 +73,16 @@ const CHIP_MAX = 48;
         }
         @for (o of p.other; track $index) {
           @if (o.title) { <div class="task-rl">{{ o.title }}</div> }
-          <app-markdown-view [text]="o.text" [idPrefix]="'brief-' + cycleId() + '-o' + $index + '-'" />
+          <app-markdown-view [text]="o.text" [idPrefix]="'brief-' + cycleId() + '-o' + $index + '-'" [snippetOwner]="'inline:cycle:' + cycleId() + ':o' + $index" [snippetContext]="{ cycleId: cycleId() }" />
         }
         @if (!brief()?.text?.trim()) {
           <div class="board-dim">No brief yet - say what the task is: the ticket, its description, scope, test steps.
             @if (editable()) { <button type="button" class="board-link" (click)="editing.set(true)">Start from the template</button> }
             or <code>/alfred-setup</code> drafts it from the ticket.</div>
         }
+      }
+      @if (project()) {
+        <app-board-pages [owner]="'cycle:' + cycleId()" [project]="project()" [canEdit]="editable()" [context]="{ cycleId: cycleId(), project: project() }" />
       }
       <div class="task-harness">
         <span class="task-rl">Continue anywhere</span>

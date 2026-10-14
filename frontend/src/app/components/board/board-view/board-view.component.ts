@@ -34,11 +34,12 @@ import { UndoToastComponent } from '../undo-toast/undo-toast.component';
  * views, one set of cards). Quick add, filters, Board / List, progress, the live strip, Inbox sorting, bulk actions,
  * the card drawer, export and the keyboard. Each instance has its own BoardStateService.
  */
+import { BoardPagesComponent } from '../visuals/board-pages.component';
 @Component({
   selector: 'app-board-view',
   standalone: true,
   providers: [BoardStateService, RetestStateService],
-  imports: [ActionMenuComponent, BoardColumnsComponent, BoardHelpComponent, BoardListViewComponent, BoardProgressComponent,
+  imports: [ActionMenuComponent, BoardPagesComponent, BoardColumnsComponent, BoardHelpComponent, BoardListViewComponent, BoardProgressComponent,
     BulkBarComponent, CardDrawerComponent, LiveStripComponent, NextStepsBarComponent, QuickAddComponent, QuickAnswerComponent, RetestStripComponent, TriageDialogComponent,
     UndoToastComponent],
   template: `
@@ -65,6 +66,10 @@ import { UndoToastComponent } from '../undo-toast/undo-toast.component';
           <label class="filter-option-item">Import .json…<input type="file" accept=".json,application/json" hidden (change)="importFile($any($event.target))" /></label>
         }
       </app-action-menu>
+      @if (project() && !cycleId()) {
+        <button type="button" class="action-btn" [class.on]="showPages()" title="◈ The project's pages: dashboards and diagrams for the whole project"
+                (click)="showPages.set(!showPages())">◈ Pages</button>
+      }
       @if (notify.supported) {
         <button type="button" class="action-btn" [title]="notify.enabled() ? 'Desktop notifications are on - click to turn them off'
                 : 'A desktop notification when Claude asks a question or proposes something (while an Alfred tab is open)'"
@@ -104,6 +109,9 @@ import { UndoToastComponent } from '../undo-toast/undo-toast.component';
       <app-board-progress [label]="progressLabel()" [open]="page.counts.open" [fixed]="page.counts.fixed" [done]="page.counts.done" />
     }
     <app-next-steps-bar [project]="project()" [cycleId]="cycleId()" [cycleName]="cycleName()" [version]="state.page()" (opened)="openNumber($event)" />
+    @if (showPages() && project() && !cycleId()) {
+      <app-board-pages class="board-project-pages" [owner]="'project:' + project()" [canEdit]="state.editable()" [context]="{ project: project() }" />
+    }
     @if (state.error()) { <div class="board-error" role="alert">{{ state.error() }} <button type="button" class="board-link" (click)="state.error.set(null)">✕</button></div> }
     @if (message()) { <div class="board-note">{{ message() }} <button type="button" class="board-link" (click)="message.set(null)">✕</button></div> }
 
@@ -141,6 +149,8 @@ export class BoardViewComponent {
   private readonly mentions = inject(BoardMentionsService);
 
   readonly project = input('');
+  /** ◈ The project's pages (specs/017 R29), shown above the board on request. */
+  readonly showPages = signal(false);
   readonly cycleId = input<string | null>(null);
   readonly cycleName = input<string | null>(null);
   /** Opens with the "cycle deleted" filter on (Settings -> Storage -> show). */

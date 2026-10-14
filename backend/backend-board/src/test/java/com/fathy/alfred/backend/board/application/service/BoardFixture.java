@@ -49,6 +49,8 @@ final class BoardFixture implements AutoCloseable {
     /** Facts per call id (live) or "cycle/callId" (captured), for the re-test. */
     final Map<String, com.fathy.alfred.backend.board.domain.model.CallFacts> facts = new HashMap<>();
     final RetestService retest;
+    final com.fathy.alfred.backend.board.application.port.out.SnippetStorePort snippetStore;
+    final SnippetsService snippets;
     private final AutoCloseable closer;
 
     BoardFixture(Path dir) {
@@ -86,6 +88,9 @@ final class BoardFixture implements AutoCloseable {
                 return Optional.empty();
             }
         };
+        snippetStore = TestRepositories.snippets(store);
+        snippets = new SnippetsService(snippetStore, store, notifications, JsonMapper.builder().findAndAddModules().build(), clock);
+        briefs.setSnippets(snippetStore);
         retest = new RetestService(store, factsPort, limit -> List.copyOf(liveCalls), (cycleId, limit) -> List.copyOf(cycleCalls), notifications,
                 feed, clock);
     }

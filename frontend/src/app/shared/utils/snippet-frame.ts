@@ -161,7 +161,7 @@ export function themeVars(el: Element = document.documentElement): Record<string
  */
 export const SNIPPET_RUNTIME = String.raw`(function(){
 "use strict";
-var P=window.parent, seq=0, pend={}, on={}, paused=false, queued=[], sent=0, sentAt=0;
+var P=window.parent, seq=0, wseq=0, pend={}, on={}, declared={}, paused=false, queued=[], sent=0, sentAt=0;
 var boot={};try{boot=JSON.parse(document.getElementById("alfred-boot").textContent)}catch(e){}
 var alone=(P===window);
 if(boot.modules){var im={};for(var k in boot.modules){im[k]=URL.createObjectURL(new Blob([boot.modules[k]],{type:"text/javascript"}))}
@@ -227,6 +227,9 @@ window.addEventListener("message",function(e){if(e.source!==P)return;var m=e.dat
 var api={
   name:boot.name,dir:boot.dir,theme:"dark",vars:boot.vars,context:boot.context,card:boot.context&&boot.context.card,
   data:function(src,args){return req("data",{src:src,args:args||{}})},
+  watch:function(src,args,cb){var key="w"+(++wseq);if(typeof cb==="function")(on["data:"+key]=on["data:"+key]||[]).push(cb);
+    return req("data",{src:src,args:args||{},live:key}).then(function(v){if(typeof cb==="function")try{cb(v)}catch(e){console.error(e)}return v})},
+  value:function(name){var d=slot(name);return d.has?Promise.resolve(d.value):new Promise(function(r){d.waiters.push(r)})},
   on:function(n,f){(on[n]=on[n]||[]).push(f);return function(){on[n]=(on[n]||[]).filter(function(x){return x!==f})}},
   state:{get:function(k){return req("state.get",{key:k})},set:function(k,v){return req("state.set",{key:k,value:v})},all:function(){return req("state.all",{})}},
   action:function(kind,args){return req("action",{kind:kind,args:args||{}})},
@@ -237,7 +240,14 @@ var api={
   get paused(){return paused}
 };
 Object.freeze(api.state);window.alfred=Object.freeze(api);
-function start(){size();try{new ResizeObserver(size).observe(document.body)}catch(e){}post({t:"ready"})}
+function slot(name){return declared[name]=declared[name]||{has:false,value:undefined,waiters:[]}}
+function loadDeclared(){Array.prototype.forEach.call(document.querySelectorAll('script[type="alfred/data"]'),function(s){
+  var src=s.getAttribute("src")||"",name=s.getAttribute("name")||src,args={};
+  try{args=s.textContent.trim()?JSON.parse(s.textContent):{}}catch(e){console.error("alfred/data "+name+": the text inside is the JSON arguments");return}
+  var d=slot(name),got=function(v){d.has=true;d.value=v;var w=d.waiters;d.waiters=[];w.forEach(function(r){r(v)});emit(name,v)};
+  var fail=function(e){console.error("alfred/data "+name+": "+(e&&e.message||e))};
+  if(s.hasAttribute("live"))api.watch(src,args,got).catch(fail);else api.data(src,args).then(got,fail)})}
+function start(){loadDeclared();size();try{new ResizeObserver(size).observe(document.body)}catch(e){}post({t:"ready"})}
 if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",start);else start();
 window.addEventListener("load",size);
 })();`;

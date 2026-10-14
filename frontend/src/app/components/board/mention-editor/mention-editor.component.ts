@@ -50,7 +50,7 @@ const BLOCK_TAGS = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'UL', 'OL', 'PRE', 'BLO
       @if (pickerOpen()) {
         <app-mention-picker [project]="project()" [cycleId]="cycleId()" [calls]="callMentions()"
                             [canPickAnywhere]="!!card() && !!pickField()" (pickAnywhere)="pickFromAnywhere()"
-                            (picked)="insert($event)" (closed)="closePicker()" />
+                            (picked)="picked($event)" (closed)="closePicker()" />
       }
       @if (toolbar()) {
         <div class="board-editor-tb" (mousedown)="keepSelection($event)">
@@ -300,6 +300,7 @@ export class MentionEditorComponent implements AfterViewInit {
       ...this.pills.map((x) => ({ id: `pill-${x.tone}`, label: `${x.text} pill`, run: () => this.slash(() => this.pill(x.tone, x.text)) })),
       ...(this.images() ? [{ id: 'image', label: '🖼 Picture', run: () => this.slash(() => this.pickImage()) }] : []),
       { id: 'mention', label: '@ Mention', run: () => this.slash(() => this.openPicker()) },
+      ...this.dataCommands.map((d) => ({ id: d.id, label: d.label, hint: 'data', run: () => this.slash(() => this.dataCommand(d.id)) })),
       { id: 'var', label: '{{ }} Variable', run: () => this.slash(() => this.openVariables()) },
       ...this.templates().map((t) => ({ id: `tpl-${t.name}`, label: `${t.icon} ${t.name}`, hint: 'template', run: () => this.slash(() => this.template(t)) })),
     ];
@@ -901,7 +902,68 @@ export class MentionEditorComponent implements AfterViewInit {
   closePicker(): void {
     this.pickerOpen.set(false);
     this.replacesAt = false;
+    this.pickAction = null;
+    this.firstPick = null;
     this.box().nativeElement.focus();
+  }
+
+  /** Data commands (specs/017 R40): each picks real calls, then writes the block that reads them live. */
+  readonly dataCommands: readonly { id: string; label: string }[] = [
+    { id: 'call', label: '⌁ /call - a call, opened in place' },
+    { id: 'calls', label: '⌁ /calls - calls to an endpoint, live' },
+    { id: 'sql', label: '◆ /sql - a statement and its rows' },
+    { id: 'logs', label: '▤ /logs - the log lines of a call' },
+    { id: 'compare', label: '⇆ /compare - two calls side by side' },
+    { id: 'html', label: '◈ /html - an HTML snippet' },
+    { id: 'page', label: '◈ /page - a whole-width HTML page' },
+  ];
+  /** What a pick from the picker is for: a mention (null), or a data command waiting for its call. */
+  private pickAction: ((ref: MentionRef) => 'more' | void) | null = null;
+  private firstPick: MentionRef | null = null;
+
+  dataCommand(id: string): void {
+    if (id === 'html') { this.visual('html'); return; }
+    if (id === 'page') {
+      this.saveCaret();
+      this.visualEdit.set({ lang: 'html', source: VISUAL_TEMPLATES['html'] ?? '', info: 'live page name="Page"', pre: null });
+      return;
+    }
+    const block = (lang: string, text: string): Block => ({ kind: 'visual', lang: lang as 'calls', info: '', text });
+    const actions: Record<string, (ref: MentionRef) => 'more' | void> = {
+      call: (ref) => this.insertBlocks([{ kind: 'callview', ref }]),
+      calls: (ref) => this.insertBlocks([block('calls', `endpoint: ${endpointOf(ref.label)}\nsince: 24h\nshow: table(at, status, ms, sql, errors)`)]),
+      sql: (ref) => this.insertBlocks([block('statement', `call: ${ref.ref}\nseq: 1\nrows: 50`)]),
+      logs: (ref) => this.insertBlocks([block('call-logs', `call: ${ref.ref}\nlevel: WARN`)]),
+      compare: (ref) => {
+        if (!this.firstPick) {
+          this.firstPick = ref;
+          this.uploadError.set('Now pick the call to compare it with');
+          this.pickerOpen.set(true);
+          return 'more';
+        }
+        const first = this.firstPick;
+        this.firstPick = null;
+        this.insertBlocks([block('compare', `${serializeMention(first)}\n${serializeMention(ref)}`)]);
+        return undefined;
+      },
+    };
+    const action = actions[id];
+    if (!action) return;
+    this.pickAction = action;
+    this.firstPick = null;
+    this.uploadError.set(id === 'compare' ? 'Pick the first call' : null);
+    this.openPicker();
+  }
+
+  /** A pick: a mention where the caret was, or the call a data command waited for. */
+  picked(ref: MentionRef): void {
+    const action = this.pickAction;
+    if (!action) { this.insert(ref); return; }
+    if (ref.type.toLowerCase() !== 'call') { this.uploadError.set('Pick a call for this block'); return; }
+    this.pickerOpen.set(false);
+    if (action(ref) === 'more') return;
+    this.pickAction = null;
+    this.uploadError.set(null);
   }
 
   /** Writes the pick as a pill in place of the `@` (or at the caret), followed by a space. */
@@ -1196,3 +1258,8 @@ function clip(v: string): string {
   return v.length > 40 ? `${v.slice(0, 40)}…` : v;
 }
 
+/** `POST /fare · 500` → `POST /fare`: a picked call's label as the endpoint a ```calls``` block asks about. */
+function endpointOf(label: string): string {
+  const m = /^\s*([A-Z]+)\s+(\S+)/.exec(label);
+  return m ? `${m[1]} ${m[2].replace(/\?.*$/, '')}` : label.split('·')[0].trim();
+}

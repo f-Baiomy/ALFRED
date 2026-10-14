@@ -14,6 +14,13 @@ public final class TestRepositories {
     private TestRepositories() {
     }
 
+    /** Pages, state and shots in the same board.db as {@code store} (one opened by {@link #open}). */
+    public static com.fathy.alfred.backend.board.application.port.out.SnippetStorePort snippets(BoardStorePort store) {
+        SqliteSnippetRepository repo = new SqliteSnippetRepository((SqliteBoardRepository) store);
+        repo.init();
+        return repo;
+    }
+
     public static Opened open(ObjectMapper json, Path file) {
         SqliteBoardRepository repo = new SqliteBoardRepository(json, file.toString());
         repo.init();

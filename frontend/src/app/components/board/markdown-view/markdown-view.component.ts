@@ -12,6 +12,9 @@ import { ChartBlockComponent } from '../visuals/chart-block.component';
 import { StatsBlockComponent } from '../visuals/stats-block.component';
 import { TimelineBlockComponent } from '../visuals/timeline-block.component';
 import { SnippetHostComponent } from '../visuals/snippet-host.component';
+import { CallsBlockComponent } from '../visuals/calls-block.component';
+import { CallViewComponent } from '../visuals/call-view.component';
+import { CallLogsBlockComponent, CompareBlockComponent, StatementBlockComponent } from '../visuals/data-blocks.component';
 
 /**
  * A board text - Markdown or the editor's HTML (docs/board.md "Rich text") - rendered from the typed tree with plain
@@ -21,7 +24,7 @@ import { SnippetHostComponent } from '../visuals/snippet-host.component';
 @Component({
   selector: 'app-markdown-view',
   standalone: true,
-  imports: [NgTemplateOutlet, MentionChipComponent, VariablePillComponent, CallMiniComponent, ChartBlockComponent, StatsBlockComponent, SnippetHostComponent,
+  imports: [NgTemplateOutlet, MentionChipComponent, VariablePillComponent, CallMiniComponent, ChartBlockComponent, StatsBlockComponent, SnippetHostComponent, CallsBlockComponent, CallViewComponent, CallLogsBlockComponent, CompareBlockComponent, StatementBlockComponent,
     TimelineBlockComponent],
   template: `
     <ng-template #inl let-nodes>
@@ -123,8 +126,12 @@ import { SnippetHostComponent } from '../visuals/snippet-host.component';
               @case ('stats') { <app-stats-block [source]="b.text" /> }
               @case ('chart') { <app-chart-block [source]="b.text" /> }
               @case ('timeline') { <app-timeline-block [source]="b.text" /> }
-              @case ('html') { <app-snippet-host [source]="b.text" [info]="b.info" [dir]="dir() === 'auto' ? 'auto' : dir()" [context]="snippetContext()" /> }
-              @case ('mermaid') { <app-snippet-host [source]="b.text" [info]="b.info" kind="mermaid" [context]="snippetContext()" /> }
+              @case ('html') { <app-snippet-host [source]="b.text" [info]="b.info" [dir]="dir() === 'auto' ? 'auto' : dir()" [context]="snippetContext()" [snippetId]="inlineId(b)" /> }
+              @case ('calls') { <app-calls-block [source]="b.text" [context]="snippetContext()" /> }
+              @case ('statement') { <app-statement-block [source]="b.text" /> }
+              @case ('call-logs') { <app-call-logs-block [source]="b.text" /> }
+              @case ('compare') { <app-compare-block [source]="b.text" /> }
+              @case ('mermaid') { <app-snippet-host [source]="b.text" [info]="b.info" kind="mermaid" [context]="snippetContext()" [snippetId]="inlineId(b)" /> }
               @default {
                 <div class="board-md-code" dir="ltr"><div class="board-md-code-bar"><span>{{ b.lang }}{{ b.info ? ' ' + b.info : '' }}</span></div>
                   <pre class="board-md-pre" dir="ltr">{{ b.text }}</pre></div>
@@ -158,7 +165,7 @@ import { SnippetHostComponent } from '../visuals/snippet-host.component';
           @case ('actions') {
             <div class="board-actions">@for (a of b.items; track $index) { <span class="board-action-chip">▸ {{ a.label }}</span> }</div>
           }
-          @case ('callview') { <div class="board-md-callrow"><app-call-mini [mention]="b.ref" /></div> }
+          @case ('callview') { @if (previews()) { <app-call-view [mention]="b.ref" /> } @else { <div class="board-md-callrow"><app-call-mini [mention]="b.ref" /></div> } }
           @case ('table') {
             <div class="board-md-table-wrap" [class.scroll]="!wrap()"><table class="board-md-table" [attr.dir]="dirOfAll(b.header)">
               <thead><tr>@for (c of b.header; track $index) { <th [attr.dir]="dirOf(c)"><ng-container *ngTemplateOutlet="inl; context: { $implicit: c }" /></th> }</tr></thead>
@@ -210,6 +217,30 @@ export class MarkdownViewComponent {
   readonly cycleId = input<string | null>(null);
   /** Where this text lives (card, cycle, comment), passed to a snippet as `alfred.context`. */
   readonly snippetContext = input<Record<string, unknown>>({});
+  /**
+   * Where this text is saved - `inline:card:<id>:desc`, `inline:card:<id>:<entryId>`, `inline:cycle:<id>:brief` - so each
+   * snippet in it keeps state and shots under `<that>:<n>` (its place among the text's snippets). Null: a preview.
+   */
+  readonly snippetOwner = input<string | null>(null);
+  /** Each snippet block's place in the text, in reading order. */
+  private readonly snippetOrder = computed(() => {
+    const order = new Map<Block, number>();
+    const walk = (blocks: readonly Block[]) => {
+      for (const b of blocks) {
+        if (b.kind === 'visual' && (b.lang === 'html' || b.lang === 'mermaid')) order.set(b, order.size);
+        else if (b.kind === 'tabs') for (const t of b.tabs) walk(t.blocks);
+        else if (b.kind === 'callout' || b.kind === 'fold') walk(b.blocks);
+      }
+    };
+    walk(this.blocks());
+    return order;
+  });
+
+  inlineId(b: Block): string | null {
+    const owner = this.snippetOwner();
+    const n = this.snippetOrder().get(b);
+    return owner && n !== undefined && n < 1000 ? `${owner}:${n}` : null;
+  }
 
   readonly blocks = computed(() => textBlocks(this.text()));
   /** The blocks split at each heading; a section headed "Next" is a callout - the one thing to do. */

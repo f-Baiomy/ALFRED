@@ -152,4 +152,35 @@ describe('MentionEditorComponent', () => {
       { kind: 'text', field: 'comment', text: 'see ', at: 4 });
     expect(fixture.componentInstance.pickerOpen()).toBeFalse();
   });
+
+  it('data commands pick real calls and write the blocks that read them live (specs/017 R40)', () => {
+    const fixture = create();
+    const c = fixture.componentInstance;
+    const call = (ref: string, label: string) => ({ type: 'call', ref, label }) as MentionRef;
+
+    c.dataCommand('calls');
+    expect(c.pickerOpen()).toBeTrue();
+    c.picked({ type: 'card', ref: '12', label: '#12' } as MentionRef);
+    expect(c.uploadError()).toContain('Pick a call');
+    c.picked(call('in:a1', 'POST /fare/7?x=1 · 500'));
+    expect(c.value()).toContain('<pre data-lang="calls">endpoint: POST /fare/7');
+    expect(c.value()).toContain('since: 24h');
+
+    c.dataCommand('compare');
+    c.picked(call('in:a1', 'POST /fare · 500'));
+    expect(c.pickerOpen()).toBeTrue();
+    c.picked(call('in:b2', 'POST /fare · 200'));
+    expect(c.value()).toContain('<pre data-lang="compare">@[call:in:a1|POST /fare · 500]\n@[call:in:b2|POST /fare · 200]</pre>');
+
+    c.dataCommand('sql');
+    c.picked(call('in:a1', 'POST /fare · 500'));
+    expect(c.value()).toContain('<pre data-lang="statement">call: in:a1');
+
+    c.dataCommand('call');
+    c.picked(call('in:z9', 'GET /x · 200'));
+    c.picked(call('in:q1', 'GET /y · 200'));
+    expect(c.value()).toContain('!@[call:in:z9|GET /x · 200]');
+    expect(c.value()).toContain('@[call:in:q1|GET /y · 200]');
+  });
 });
+

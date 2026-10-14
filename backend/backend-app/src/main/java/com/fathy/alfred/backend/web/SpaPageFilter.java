@@ -42,7 +42,8 @@ public class SpaPageFilter extends OncePerRequestFilter {
     /** gateway/nginx.conf's $spa_page map: SPA pages that share an API prefix, matched on the path. */
     static final List<String> SPA_PAGE_PATTERNS = List.of(
             "^/(profiles|interception|settings|board)/?$",
-            "^/logs(/.*)?$");
+            "^/logs(/.*)?$",
+            "^/board/page/[^/]+/?$");
 
     private static final Pattern API = Pattern.compile("^/(" + String.join("|", API_PREFIXES) + ")(/|$)");
     private static final List<Pattern> SPA_PAGES = SPA_PAGE_PATTERNS.stream().map(Pattern::compile).toList();

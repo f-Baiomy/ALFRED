@@ -56,6 +56,9 @@ class SpaPageFilterTest {
         assertThat(SpaPageFilter.forwardsToIndex("POST", "/settings", HTML)).isFalse();
         assertThat(SpaPageFilter.forwardsToIndex("GET", "/server/settings", JSON)).isFalse();
         assertThat(SpaPageFilter.forwardsToIndex("POST", "/mcp", JSON)).isFalse();
+        assertThat(SpaPageFilter.forwardsToIndex("GET", "/board/page/p-123", HTML)).isTrue();
+        assertThat(SpaPageFilter.forwardsToIndex("GET", "/board/page/p-123", JSON)).isFalse();
+        assertThat(SpaPageFilter.forwardsToIndex("GET", "/board/pages", HTML)).isFalse();
     }
 
     @Test

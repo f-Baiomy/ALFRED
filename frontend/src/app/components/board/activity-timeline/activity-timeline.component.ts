@@ -155,10 +155,12 @@ export interface TimelineReply {
       <div class="board-ev-body" [class.folded]="long(e) && !expanded().has(e.id)">
         @if (parts(e.text); as ps) {
           @for (p of ps; track $index) {
-            <div class="board-ev-part"><span class="board-ev-label">{{ p.label }}</span><app-markdown-view [text]="p.text" [dir]="dirs.choice(e.id)" [wrap]="dirs.wraps(e.id)" /></div>
+            <div class="board-ev-part"><span class="board-ev-label">{{ p.label }}</span><app-markdown-view [text]="p.text" [dir]="dirs.choice(e.id)" [wrap]="dirs.wraps(e.id)"
+              [snippetOwner]="snippetOwner(e.id, $index)" [snippetContext]="snippetContext(e.id)" /></div>
           }
         } @else {
-          <app-markdown-view [text]="e.text" [dir]="dirs.choice(e.id)" [wrap]="dirs.wraps(e.id)" />
+          <app-markdown-view [text]="e.text" [dir]="dirs.choice(e.id)" [wrap]="dirs.wraps(e.id)" [snippetOwner]="snippetOwner(e.id, null)"
+                             [snippetContext]="snippetContext(e.id)" />
         }
       </div>
       @if (long(e)) {
@@ -189,6 +191,17 @@ export class ActivityTimelineComponent {
   readonly project = input('');
   readonly cycleId = input<string | null>(null);
   readonly card = input<CardPickTarget | null>(null);
+
+  /** Where a comment's snippets keep state and shots (specs/017): its card and entry; a part of a Did/Found/Next comment adds its place. */
+  snippetOwner(entryId: number, part: number | null): string | null {
+    const c = this.card();
+    return c ? `inline:card:${c.id}:${entryId}${part == null ? '' : 'p' + part}` : null;
+  }
+
+  snippetContext(entryId: number): Record<string, unknown> {
+    const c = this.card();
+    return c ? { card: c.number, cardId: c.id, project: c.project, cycleId: c.cycleId, comment: entryId } : {};
+  }
   readonly replied = output<TimelineReply>();
   private readonly injector = inject(Injector);
   readonly reactions = REACTIONS;

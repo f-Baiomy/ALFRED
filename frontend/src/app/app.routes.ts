@@ -35,4 +35,6 @@ export const routes: Routes = [
   { path: 'view', loadComponent: () => import('./pages/json-view/json-view-page.component').then((m) => m.JsonViewPageComponent) },
   // The big-tab body/header editor (EditTabService) - outside the layout for the same reason.
   { path: 'edit', loadComponent: () => import('./pages/edit-view/edit-view-page.component').then((m) => m.EditViewPageComponent) },
+  // A board page popped out (specs/017 R30) - outside the layout too; the gateway and SpaPageFilter serve it the SPA.
+  { path: 'board/page/:id', loadComponent: () => import('./pages/board-page-view/board-page-view.component').then((m) => m.BoardPageViewComponent) },
 ];

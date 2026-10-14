@@ -11282,6 +11282,46 @@ app-run-skill { display: inline-flex; flex-direction: column; align-items: flex-
 .snip-console { border-top: 1px solid var(--border); max-height: 180px; overflow: auto; padding: 0.25rem 0.6rem; font: 0.68rem/1.45 Consolas, monospace; }
 .snip-log { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-dim);
   &.warn { color: var(--amber); } &.error { color: var(--red); } &.debug { color: var(--text-faint); } }
+// Data blocks (specs/017 R18-R20): calls, statement, log lines, compare, and a call opened in place.
+.board-query-sum { font-size: 0.72rem; color: var(--text-dim); padding: 0.3rem 0.6rem; .c-red { color: var(--red); } }
+.board-query-empty { padding: 0.5rem 0.6rem; font-size: 0.74rem; }
+.board-query-table, .board-compare { font-size: 0.72rem; margin: 0;
+  td.c-red { color: var(--red); } td.c-amber { color: var(--amber); } td.c-green { color: var(--green); } }
+.board-compare tr.diff td { background: color-mix(in srgb, var(--amber) 8%, transparent); }
+.board-query-sql { white-space: pre-wrap; color: var(--text); }
+.board-query-logs { max-height: 320px; overflow: auto; padding: 0.3rem 0.6rem; font: 0.7rem/1.5 Consolas, monospace; }
+.board-query-log { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-dim);
+  &.error, &.fatal { color: var(--red); } &.warn { color: var(--amber); } }
+.board-callview-title { font-weight: 600; color: var(--text); &.bad { color: var(--red); } }
+.board-callview-facts { display: flex; flex-wrap: wrap; gap: 0.3rem 1rem; padding: 0.35rem 0.6rem; font-size: 0.74rem;
+  .c-red { color: var(--red); } .c-green { color: var(--green); } }
+.board-callview-part { padding: 0 0.6rem 0.3rem; font-size: 0.72rem;
+  summary { cursor: pointer; color: var(--text-dim); } .board-vis-src, .snip-diff { max-height: 360px; overflow: auto; } }
+// ◈ Pages (specs/017 R29-R32): tabs of a card's, cycle's or project's pages, their bar, versions and the pop-out window.
+.board-pages { margin: 0.5rem 0; &.empty { margin: 0.2rem 0; } }
+.board-pages-tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem; margin-bottom: 0.3rem;
+  .board-tab { font-size: 0.72rem; } }
+.board-pages-label { font-size: 0.7rem; color: var(--text-dim); font-weight: 600; margin-inline-end: 0.3rem; }
+.board-pages-claude { color: var(--purple-light); font-size: 0.65rem; }
+.board-pages-new { font-size: 0.7rem; }
+.board-page-bar { display: flex; align-items: center; gap: 0.6rem; font-size: 0.68rem; margin-bottom: 0.25rem; flex-wrap: wrap;
+  .board-link { font-size: 0.68rem; } .danger { color: var(--red); } }
+.board-project-pages { display: block; padding: 0.4rem 0.6rem; border: 1px solid var(--border); border-radius: 8px; background: var(--card); margin: 0.4rem 0; }
+.board-page-view { min-height: 100vh; padding: 8px; box-sizing: border-box; background: var(--bg); .snip { margin: 0; } }
+.snip-versions { width: min(1200px, 100%); }
+.snip-versions-body { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 0.6rem; min-height: 320px; flex: 1; overflow: hidden;
+  @media (max-width: 800px) { grid-template-columns: minmax(0, 1fr); } }
+.snip-versions-list { overflow: auto; border-inline-end: 1px solid var(--border); padding-inline-end: 0.4rem; }
+.snip-version { font-size: 0.72rem; padding: 0.3rem 0.2rem; border-bottom: 1px solid var(--border); display: flex; flex-wrap: wrap; gap: 0.3rem; align-items: baseline;
+  &.a { background: color-mix(in srgb, var(--red) 8%, transparent); } &.b { background: color-mix(in srgb, var(--green) 8%, transparent); }
+  .board-link { font-size: 0.68rem; &.on { color: var(--purple-light); font-weight: 700; } } }
+.snip-version-pick { margin-inline-start: auto; display: inline-flex; gap: 0.4rem; }
+.snip-versions-view { overflow: auto; min-width: 0; }
+.snip-diff { margin: 0; font: 0.72rem/1.5 Consolas, monospace; white-space: pre; }
+.snip-diff-added { color: var(--green); background: color-mix(in srgb, var(--green) 10%, transparent); }
+.snip-diff-removed { color: var(--red); background: color-mix(in srgb, var(--red) 10%, transparent); }
+.snip-diff-same { color: var(--text-dim); }
+.snip-side { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0.5rem; }
 .board-vis-src { margin: 0; padding: 0.4rem 0.6rem; font: 0.72rem/1.5 Consolas, monospace; white-space: pre-wrap; color: var(--text-dim); }
 .board-vis-legend { display: flex; flex-wrap: wrap; gap: 0.3rem 0.9rem; font-size: 0.7rem; color: var(--text-dim); padding: 0.3rem 0.6rem 0;
   i { display: inline-block; width: 0.6rem; height: 0.6rem; border-radius: 2px; margin-inline-end: 0.3rem; vertical-align: -1px; }
