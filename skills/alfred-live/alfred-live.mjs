@@ -35,7 +35,9 @@ const pretty = (v) => String(v ?? '').toLowerCase().replace(/_/g, ' ').replace(/
 
 /** "You moved it In progress → Fixed" - for the log, the quiet note and the run's prompt. */
 export function youDid(e) {
-  const text = String(e.text ?? '').replace(/\s+/g, ' ').trim();
+  // a rich text comment is HTML: its words only, for a one-line note
+  const text = String(e.text ?? '').replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
   const short = text.length > 400 ? `${text.slice(0, 400)}…` : text;
   switch (e.kind) {
     case 'COMMENT': return e.replyTo != null ? `You replied: ${short}` : `You: ${short}`;
@@ -43,6 +45,8 @@ export function youDid(e) {
     case 'RESOLUTION': return `You closed it as ${pretty(e.newValue)}${short ? ` - ${short}` : ''}`;
     case 'REASON': return `You gave the reason: ${short}`;
     case 'DESCRIPTION': return 'You edited the description';
+    case 'REACTION': return e.text === '✅' ? 'You gave the go-ahead ✅' : `You reacted ${e.text ?? ''}`;
+    case 'COMMENT_EDITED': return `You edited your comment: ${short}`;
     case 'TITLE': return `You renamed it: ${e.newValue ?? ''}`;
     case 'KIND': return `You changed its kind ${e.oldValue ?? ''} → ${e.newValue ?? ''}`;
     case 'FLAGS': return `You changed its flags: ${e.newValue ?? ''}`;
@@ -60,6 +64,8 @@ export function headOf(changes, answersQuestion) {
   if (changes.some((e) => e.kind === 'COMMENT' && e.replyTo != null)) return { head: 'working on your reply', quiet: false };
   const comment = changes.find((e) => e.kind === 'COMMENT');
   if (comment) return { head: /\?\s*$|@claude/i.test(comment.text ?? '') ? 'working on your question' : 'working on your comment', quiet: false };
+  if (changes.some((e) => e.kind === 'REACTION' && e.text === '✅')) return { head: 'going ahead', quiet: false };
+  if (changes.some((e) => e.kind === 'COMMENT_EDITED')) return { head: 'reading your edit', quiet: false };
   if (changes.some((e) => e.kind === 'STATUS' && e.newValue === 'FIXED')) return { head: 'preparing the re-test', quiet: false };
   if (changes.some((e) => e.kind === 'PROPOSAL_DISMISSED' || e.kind === 'REOPENED')) return { head: 'reading why', quiet: false };
   if (changes.some((e) => e.kind === 'DESCRIPTION' || e.kind === 'TITLE' || e.kind === 'KIND')) return { head: 'reading your edit', quiet: false };

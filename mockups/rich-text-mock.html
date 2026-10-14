@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alfred · Rich text on the board mock</title>
+<style>
+  :root { color-scheme: dark;
+    --card: #141a45; --card-inner: #070a24; --panel: #0d1238; --border: rgba(139,92,246,.22); --border-strong: rgba(139,92,246,.45);
+    --purple: #8b5cf6; --purple-light: #c4b5fd; --cyan: #22d3ee; --text: #e5e9f5; --text-dim: #93a0c2; --text-faint: #5c6690;
+    --green: #34d399; --amber: #fbbf24; --red: #f87171; --blue: #60a5fa; font: 14px/1.5 Inter, system-ui, sans-serif; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 24px 16px 60px; background: radial-gradient(ellipse at top, #131a4a 0%, #0a0e2a 55%); color: var(--text); min-height: 100vh; }
+  .wrap { max-width: 1080px; margin: auto; }
+  h1 { font-size: 1.15rem; margin: 0 0 4px; } h2 { font-size: .95rem; margin: 28px 0 8px; color: var(--purple-light); }
+  .note { color: var(--text-dim); font-size: .82rem; max-width: 900px; } .note b { color: var(--text); }
+  code { font: .78rem Consolas, monospace; color: var(--purple-light); }
+  .dim { color: var(--text-faint); }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; } @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+  .box { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 12px; }
+
+  /* the editor */
+  .ed { border: 1px solid var(--border-strong); border-radius: 10px; background: var(--card-inner); overflow: hidden; }
+  .tb { display: flex; flex-wrap: wrap; gap: 2px; padding: 5px; border-bottom: 1px solid var(--border); background: #0b1033; align-items: center; }
+  .tb button, .tb select { font: 12px system-ui; background: transparent; color: var(--text-dim); border: 1px solid transparent; border-radius: 6px; padding: 3px 7px; cursor: pointer; }
+  .tb button:hover { background: rgba(139,92,246,.18); color: var(--text); }
+  .tb button.on { border-color: var(--purple); color: var(--purple-light); }
+  .tb select { border-color: var(--border); }
+  .tb .sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; }
+  .tb .right { margin-left: auto; display: flex; gap: 2px; }
+  .area { min-height: 230px; padding: 10px 12px; outline: none; font-size: .84rem; }
+  .src { display: none; width: 100%; min-height: 230px; border: 0; background: var(--card-inner); color: var(--text); font: .76rem/1.55 Consolas, monospace; padding: 10px 12px; resize: vertical; outline: none; }
+  .ed.source .area { display: none; } .ed.source .src { display: block; }
+  .hint { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; padding: 5px 9px; border-top: 1px solid var(--border); font-size: .7rem; color: var(--text-faint); }
+  .hint .send { background: var(--purple); color: #fff; border: 0; border-radius: 6px; padding: 3px 12px; font-size: .74rem; cursor: pointer; }
+  kbd { font: .66rem Consolas, monospace; border: 1px solid var(--border-strong); border-radius: 4px; padding: 0 4px; color: var(--text-dim); }
+  .slash { position: relative; display: inline-block; }
+  .slashmenu { position: absolute; z-index: 5; top: 1.4em; left: 0; width: 230px; background: #0b1033; border: 1px solid var(--border-strong); border-radius: 9px; padding: 4px; box-shadow: 0 12px 30px #000a; }
+  .slashmenu > span { display: block; padding: 4px 8px; border-radius: 6px; font-size: .76rem; } .slashmenu > span.on { background: rgba(139,92,246,.25); }
+  .slashmenu small { color: var(--text-faint); }
+
+  /* the rendered text (what the board shows - the same in the editor) */
+  .rt { font-size: .84rem; }
+  .rt p { margin: 0 0 .5rem; } .rt h3 { margin: .6rem 0 .3rem; font-size: .95rem; color: var(--purple-light); }
+  .rt ul, .rt ol { margin: 0 0 .5rem; padding-inline-start: 1.2rem; }
+  .rt li.task { list-style: none; margin-inline-start: -1.2rem; } .rt li.task input { margin-inline-end: .4rem; }
+  .rt code { background: #0b1033; padding: 0 .3rem; border-radius: 4px; }
+  .rt pre { background: #050822; border: 1px solid var(--border); border-radius: 8px; padding: .5rem .7rem; font: .74rem Consolas, monospace; color: #cbd5ff; white-space: pre-wrap; margin: 0 0 .5rem; direction: ltr; text-align: left; }
+  .rt mark { background: rgba(251,191,36,.28); color: var(--text); border-radius: 3px; padding: 0 2px; }
+  .rt .c-red { color: var(--red); } .rt .c-green { color: var(--green); } .rt .c-amber { color: var(--amber); } .rt .c-blue { color: var(--blue); }
+  .rt u { text-decoration-color: var(--purple-light); }
+  .rt table { border-collapse: collapse; margin: 0 0 .5rem; font-size: .78rem; } .rt th, .rt td { border: 1px solid var(--border-strong); padding: 3px 8px; text-align: start; } .rt th { background: #0b1033; }
+  .rt details { border: 1px solid var(--border); border-radius: 8px; padding: .3rem .6rem; margin: 0 0 .5rem; background: #0a0f30; }
+  .rt summary { cursor: pointer; color: var(--purple-light); font-size: .8rem; }
+  .rt .callout { border-inline-start: 3px solid var(--blue); background: rgba(96,165,250,.08); border-radius: 0 8px 8px 0; padding: .4rem .7rem; margin: 0 0 .5rem; }
+  .rt .callout b.t { display: block; font-size: .74rem; letter-spacing: .02em; }
+  .rt .callout.warn { border-color: var(--amber); background: rgba(251,191,36,.08); } .rt .callout.warn b.t { color: var(--amber); }
+  .rt .callout.bug { border-color: var(--red); background: rgba(248,113,113,.08); } .rt .callout.bug b.t { color: var(--red); }
+  .rt .callout.ok { border-color: var(--green); background: rgba(52,211,153,.08); } .rt .callout.ok b.t { color: var(--green); }
+  .rt .callout.info b.t { color: var(--blue); }
+  .rt hr { border: 0; border-top: 1px solid var(--border); margin: .6rem 0; }
+  .rt .label { display: inline-block; font-size: .66rem; font-weight: 700; color: var(--purple-light); border: 1px solid var(--border-strong); border-radius: 5px; padding: 0 5px; margin-inline-end: 5px; }
+  .chip { display: inline-flex; gap: 4px; align-items: center; font: .7rem Consolas, monospace; border: 1px solid var(--border-strong); background: #0b1033; color: var(--cyan); border-radius: 999px; padding: 0 7px; white-space: nowrap; unicode-bidi: isolate; user-select: all; }
+  .chip.sql { color: var(--amber); } .chip.log { color: var(--red); } .chip.spec { color: var(--green); }
+  .var { font: .74rem Consolas, monospace; color: #f0abfc; background: rgba(240,171,252,.1); border: 1px solid rgba(240,171,252,.3); border-radius: 999px; padding: 0 6px; unicode-bidi: isolate; white-space: nowrap; }
+  .var .vv { color: var(--text-dim); }
+  .rt img { max-width: 100%; border-radius: 8px; border: 1px solid var(--border); }
+  .shot { display: block; height: 70px; border-radius: 8px; border: 1px dashed var(--border-strong); background: repeating-linear-gradient(45deg, #0b1033 0 8px, #0d1340 8px 16px); color: var(--text-faint); font-size: .7rem; display: flex; align-items: center; justify-content: center; margin-bottom: .5rem; }
+
+  .comment { border: 1px solid var(--border); border-radius: 10px; background: var(--panel); padding: 8px 10px; margin-bottom: 10px; }
+  .who { font-size: .72rem; color: var(--text-dim); display: flex; justify-content: space-between; margin-bottom: 4px; }
+  .who b { color: var(--text); }
+  .tabs { display: inline-flex; border: 1px solid var(--border-strong); border-radius: 8px; overflow: hidden; }
+  .tabs button { font: inherit; font-size: .74rem; padding: 3px 10px; background: var(--card-inner); color: var(--text-dim); border: 0; cursor: pointer; }
+  .tabs button.on { background: var(--purple); color: #fff; }
+  pre.store { background: #050822; border: 1px solid var(--border); border-radius: 8px; padding: .6rem .8rem; font: .72rem/1.55 Consolas, monospace; color: #cbd5ff; white-space: pre-wrap; overflow-wrap: anywhere; }
+  table.t { border-collapse: collapse; width: 100%; font-size: .78rem; } table.t th, table.t td { border-bottom: 1px solid var(--border); padding: 5px 8px; text-align: left; vertical-align: top; } table.t th { color: var(--purple-light); }
+  .ok { color: var(--green); } .no { color: var(--red); }
+  .feat { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+  .feat .box h4 { margin: 0 0 6px; font-size: .84rem; } .feat .box h4 small { color: var(--text-faint); font-weight: 400; }
+  .feat .box .note { margin: 6px 0 0; font-size: .74rem; }
+  .menu { background: #0b1033; border: 1px solid var(--border-strong); border-radius: 9px; padding: 4px; font-size: .76rem; }
+  .menu div { padding: 4px 8px; border-radius: 6px; } .menu div.on { background: rgba(139,92,246,.25); } .menu small { color: var(--text-faint); }
+  .codeb { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; font: .72rem/1.55 Consolas, monospace; background: #050822; }
+  .codeb .bar { display: flex; justify-content: space-between; padding: 2px 8px; background: #0b1033; color: var(--text-faint); font-size: .66rem; }
+  .codeb pre { margin: 0; padding: 6px 8px; white-space: pre-wrap; color: #cbd5ff; }
+  .k { color: #c084fc; } .s { color: #86efac; } .n { color: #fbbf24; } .cm { color: var(--text-faint); }
+  .add { background: rgba(52,211,153,.12); color: #86efac; display: block; } .del { background: rgba(248,113,113,.12); color: #fca5a5; display: block; text-decoration: line-through; }
+  .callcard { display: flex; gap: 8px; align-items: center; border: 1px solid var(--border-strong); border-radius: 8px; padding: 5px 8px; background: #0b1033; font-size: .74rem; }
+  .callcard .m { font: 700 .66rem Consolas; color: var(--cyan); border: 1px solid var(--cyan); border-radius: 4px; padding: 0 4px; }
+  .callcard .st { color: var(--red); font-weight: 700; } .callcard .bar2 { flex: 1; height: 5px; background: linear-gradient(90deg, var(--purple) 70%, transparent 70%); border-radius: 3px; }
+  .react { display: inline-flex; gap: 4px; margin-top: 4px; } .react span { border: 1px solid var(--border); border-radius: 999px; padding: 0 6px; font-size: .72rem; } .react span.mine { border-color: var(--purple); }
+  .fade { max-height: 64px; overflow: hidden; -webkit-mask-image: linear-gradient(#000 50%, transparent); }
+  .toc { font-size: .74rem; border-inline-start: 2px solid var(--border-strong); padding-inline-start: 8px; } .toc div { color: var(--text-dim); } .toc div.on { color: var(--purple-light); }
+  .shot2 { position: relative; height: 90px; border-radius: 8px; border: 1px solid var(--border); background: repeating-linear-gradient(45deg, #0b1033 0 8px, #0d1340 8px 16px); }
+  .shot2 .ring { position: absolute; left: 30%; top: 25%; width: 90px; height: 34px; border: 2px solid var(--red); border-radius: 6px; }
+  .shot2 .arrow { position: absolute; left: 62%; top: 55%; color: var(--red); font-size: 1.3rem; transform: rotate(-30deg); }
+  .shot2 .tag { position: absolute; left: 63%; top: 66%; background: var(--red); color: #fff; font-size: .66rem; border-radius: 4px; padding: 0 4px; }
+  .pill2 { display: inline-block; font-size: .66rem; font-weight: 700; border-radius: 999px; padding: 0 7px; } .pill2.ok { background: rgba(52,211,153,.18); color: var(--green); } .pill2.bad { background: rgba(248,113,113,.18); color: var(--red); } .pill2.wait { background: rgba(251,191,36,.18); color: var(--amber); }
+</style>
+</head>
+<body><div class="wrap">
+  <h1>Rich text on the board - mock</h1>
+  <p class="note">Every long text on the board - <b>comments, replies, answers, descriptions, the cycle brief, spec files, checklist evidence</b> -
+    gets a visual editor with a toolbar, and the board shows it with colour, callouts, tables, checklists, collapsible evidence and pictures.
+    It is stored as <b>HTML</b> - cleaned on save to a safe set of tags - with mentions kept as <code>@[call:…|…]</code> inside it, so the
+    re-indexing of mentions, Claude's Did / Found / Next, exports, search and every MCP tool keep working. Global variables of the active
+    environment show their value. Click around: the editor below works.</p>
+
+  <h2>1. Writing - the editor (every long text field)</h2>
+  <div class="grid">
+    <div>
+      <div class="ed" id="ed">
+        <div class="tb">
+          <select title="Text style" onmousedown="event.stopPropagation()" onchange="block(this.value); this.value='p'">
+            <option value="p">Paragraph</option><option value="h3">Heading</option><option value="pre">Code block</option>
+          </select>
+          <span class="sep"></span>
+          <button title="Bold (Ctrl+B)" onmousedown="cmd(event,'bold')"><b>B</b></button>
+          <button title="Italic (Ctrl+I)" onmousedown="cmd(event,'italic')"><i>I</i></button>
+          <button title="Underline (Ctrl+U)" onmousedown="cmd(event,'underline')"><u>U</u></button>
+          <button title="Strikethrough" onmousedown="cmd(event,'strikeThrough')"><s>S</s></button>
+          <button title="Inline code (Ctrl+E)" onmousedown="wrap(event,'code')">&lt;/&gt;</button>
+          <button title="Highlight" onmousedown="wrap(event,'mark')" style="color:var(--amber)">▮</button>
+          <button title="Text colour: red / green / amber / blue" onmousedown="wrap(event,'span','c-red')" style="color:var(--red)">A</button>
+          <span class="sep"></span>
+          <button title="Bulleted list" onmousedown="cmd(event,'insertUnorderedList')">•</button>
+          <button title="Numbered list" onmousedown="cmd(event,'insertOrderedList')">1.</button>
+          <button title="Checklist" onmousedown="ins(event,'<ul><li class=&quot;task&quot;><input type=checkbox> a step</li></ul>')">☑</button>
+          <button title="Quote" onmousedown="block('blockquote')">❝</button>
+          <span class="sep"></span>
+          <button title="Callout: info / warning / bug / fixed" onmousedown="ins(event,'<div class=&quot;callout warn&quot;><b class=&quot;t&quot;>⚠ Warning</b>Write here</div>')">▤ Callout</button>
+          <button title="Table" onmousedown="ins(event,'<table><tr><th>Call</th><th>Before</th><th>After</th></tr><tr><td>…</td><td>…</td><td>…</td></tr></table>')">▦ Table</button>
+          <button title="Collapsible section" onmousedown="ins(event,'<details><summary>Show the SQL</summary><pre>SELECT …</pre></details>')">▸ Fold</button>
+          <button title="Divider" onmousedown="ins(event,'<hr>')">―</button>
+          <button title="Link (Ctrl+K)" onmousedown="cmd(event,'createLink','https://')">🔗</button>
+          <button title="Picture: paste or drop a screenshot" onmousedown="ins(event,'<span class=&quot;shot&quot;>📷 screenshot.png - pasted</span>')">🖼</button>
+          <span class="sep"></span>
+          <button title="Mention a call, statement, log line, spec file… (or type @)" onmousedown="ins(event,'<span class=&quot;chip&quot; contenteditable=&quot;false&quot;>⇄ POST /Booking2/flight-search/search</span>&nbsp;')">@ Mention</button>
+          <button title="Insert a global variable (or type {{) - shows its value in the active environment" onmousedown="ins(event,'<span class=&quot;var&quot; contenteditable=&quot;false&quot;>{{agencyCode}} <span class=&quot;vv&quot;>= EG-0042</span></span>&nbsp;')">{{ }} Variable</button>
+          <span class="right">
+            <button class="on" title="Text direction: auto">⇄ Auto</button>
+            <button id="srcBtn" title="See / edit what is stored (Markdown + safe HTML)" onmousedown="event.preventDefault(); toggleSource()">&lt;&gt; Source</button>
+          </span>
+        </div>
+        <div class="area rt" id="area" contenteditable="true" spellcheck="false">
+          <p><b>Fare changes at confirm</b> - the saved fare is <mark>not</mark> the search fare when the user goes back and searches again.</p>
+          <div class="callout bug"><b class="t">✕ What goes wrong</b><span class="chip" contenteditable="false">⇄ POST /Booking2/fare-confirmation · 200</span> reads the fare from <code>session.lastSearch</code>, which the second search overwrote.</div>
+          <ul><li class="task"><input type="checkbox" checked> search Cairo → Dubai</li><li class="task"><input type="checkbox"> go back, search again, confirm the first</li></ul>
+          <p>Against <span class="var" contenteditable="false" title="Global variable · UAT (active environment)">{{baseUrl}} <span class="vv">= https://uat.odeysys.com</span></span>
+            with key <span class="var" contenteditable="false" title="Global variable · UAT · secret">{{apiKey}} <span class="vv">= ••••••</span></span>
+            · <span class="chip sql" contenteditable="false">◆ SELECT fare_total …</span></p>
+          <p><span class="slash">/<span class="slashmenu" contenteditable="false"><span class="on">▤ Callout <small>info, warning, bug, fixed</small></span><span>▦ Table</span><span>☑ Checklist</span><span>▸ Collapsible</span><span>&lt;/&gt; Code block</span></span></span></p><p style="height:110px"></p>
+        </div>
+        <textarea class="src" id="src" spellcheck="false"></textarea>
+        <div class="hint"><span><kbd>@</kbd> mention · <kbd>{{</kbd> variable · <kbd>/</kbd> blocks · <kbd>Enter</kbd> send · <kbd>Shift</kbd>+<kbd>Enter</kbd> new line · <kbd>Ctrl</kbd>+<kbd>B</kbd> <kbd>I</kbd> <kbd>U</kbd> <kbd>K</kbd> · paste a screenshot</span>
+          <button class="send">Comment</button></div>
+      </div>
+      <p class="note">Pasting from a web page, Word or Teams keeps the bold, lists, tables and links - everything else is dropped.
+        <b>&lt;&gt; Source</b> shows (and edits) the HTML that is stored. Markdown typed by hand still turns into formatting
+        (<code>**bold**</code>, <code>- item</code>, <code>```</code>).</p>
+    </div>
+    <div>
+      <div class="box">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <b style="font-size:.85rem">What is stored</b><span class="dim" style="font-size:.72rem">board.db · cleaned HTML, one string as today</span></div>
+<pre class="store" id="store">&lt;p&gt;&lt;b&gt;Fare changes at confirm&lt;/b&gt; - the saved fare is &lt;mark&gt;not&lt;/mark&gt; the search fare when the user goes back and searches again.&lt;/p&gt;
+&lt;aside data-callout="bug"&gt;&lt;b&gt;What goes wrong&lt;/b&gt;
+  @[call:in:8c1f…|POST /Booking2/fare-confirmation · 200] reads the fare from &lt;code&gt;session.lastSearch&lt;/code&gt;, which the second search overwrote.&lt;/aside&gt;
+&lt;ul data-checklist&gt;&lt;li data-checked="true"&gt;search Cairo → Dubai&lt;/li&gt;&lt;li data-checked="false"&gt;go back, search again, confirm the first&lt;/li&gt;&lt;/ul&gt;
+&lt;p&gt;Against {{baseUrl}} with key {{apiKey}} · @[statement:in:8c1f…#12|SELECT fare_total …]&lt;/p&gt;</pre>
+        <p class="note" style="margin:6px 0 0">Mentions stay <code>@[type:ref|label]</code> text inside the HTML - indexed on save, kept from the storage limits,
+          opened by every tool. Variables are stored as <code>{{name}}</code> - the value is never saved, so switching the environment (UAT → Staging)
+          changes what every card shows; a secret shows <code>••••••</code> and is redacted in exports; an unknown name shows <span class="var" style="color:var(--amber)">{{name}} ?</span>.</p>
+      </div>
+    </div>
+  </div>
+
+  <h2>2. Reading - how the board shows it (Claude's comment, an answer, Arabic)</h2>
+  <div class="grid">
+    <div>
+      <div class="comment rt">
+        <div class="who"><span><b>✦ Claude</b> · 13:31</span><span class="dim">⇄ Auto</span></div>
+        <p><span class="label">DID</span>Compared the two searches and the confirm of #35's flow.</p>
+        <p><span class="label">FOUND</span>The confirm reads the <u>last</u> search, not the one the user picked:</p>
+        <table><tr><th>Call</th><th>fare.total</th><th></th></tr>
+          <tr><td><span class="chip">⇄ search #1</span></td><td>412.50</td><td></td></tr>
+          <tr><td><span class="chip">⇄ search #2</span></td><td>498.00</td><td></td></tr>
+          <tr><td><span class="chip">⇄ confirm</span></td><td><span class="c-red">498.00</span></td><td class="c-red">✕ should be 412.50</td></tr></table>
+        <details><summary>▸ The SQL the confirm ran (3 statements)</summary><pre>SELECT fare_total FROM search_cache WHERE session_id = ? ORDER BY created_at DESC LIMIT 1</pre></details>
+        <div class="callout ok"><b class="t">→ NEXT</b>Key the cache by <code>searchId</code> - plan in the next comment, waiting on your Go.</div>
+      </div>
+      <p class="note">Claude writes with the same tags (the MCP tools' descriptions list them). Did / Found / Next stay parts the board
+        and the skills read - only what is inside each part gets richer.</p>
+    </div>
+    <div>
+      <div class="comment rt">
+        <div class="who"><span><b>You</b> · 13:40</span><span class="dim">⇄ Auto</span></div>
+        <p dir="rtl" style="text-align:right">تمام، <mark>اعمل الـfix</mark> بس متغيرش الـDAO. اتأكد من <span class="chip">⇄ POST /Booking2/fare-confirmation</span> بعد كده.</p>
+        <span class="shot">📷 screenshot of the confirm page - pasted</span>
+        <ul dir="rtl" style="text-align:right"><li class="task"><input type="checkbox" checked> نفس السعر في الـconfirm</li><li class="task"><input type="checkbox"> مفيش SQL زيادة</li></ul>
+      </div>
+      <div class="comment rt">
+        <div class="who"><span><b>Spec file</b> · fare-rules.md</span><span class="dim">rendered</span></div>
+        <h3>Fare must not change after search</h3>
+        <div class="callout info"><b class="t">ℹ Rule</b>The fare shown at search is the fare charged, unless the supplier says it changed - then the user is <b>told</b>.</div>
+        <p><span class="var">{{currency}} <span class="vv">= EGP</span></span> follows the agency; amounts have 2 decimals.</p>
+      </div>
+    </div>
+  </div>
+
+  <h2>2b. Before / after - the same answer, today and with rich text (Arabic + English, every block in its own direction)</h2>
+  <div class="grid">
+    <div>
+      <div class="comment"><div class="who"><span><b>✦ Claude</b> · today</span><span class="dim">⇄ Auto</span></div>
+        <p dir="rtl" style="text-align:right;font-size:.84rem;margin:0">في الـcycle دي "Performance - slow system" اتسجل 370 call. الـuser عمل search 9 مرات (POST flight-search/search)، اتنين رجعوا 500، والـ9 كلهم فيهم errors. الـmedian حوالي 11 ثانية والأبطأ 27.5 ثانية (كارت #31). مفيش ولا حجز اتعمل: أبعد خطوة كانت pax-details مرتين و fare-confirmation مرتين (2.4 ثانية)، ومفيش أي call للـbook نفسه.</p>
+      </div>
+      <p class="note">One long paragraph: right direction now, but the numbers, the steps and the conclusion are all in one block.</p>
+    </div>
+    <div>
+      <div class="comment rt"><div class="who"><span><b>✦ Claude</b> · rich text</span><span class="dim">⇄ Auto</span></div>
+        <h3 dir="rtl" style="text-align:right">ملخص الـcycle: Performance - slow system</h3>
+        <p dir="rtl" style="text-align:right">اتسجل <b>370 call</b>، والـuser عمل <mark>search 9 مرات</mark> و<b class="c-red">مفيش ولا حجز اتعمل</b>.</p>
+        <table dir="rtl"><tr><th>الخطوة</th><th>عدد المرات</th><th>الوقت</th></tr>
+          <tr><td><span class="chip">⇄ POST flight-search/search</span></td><td>9 (اتنين 500)</td><td>median 11 s · أبطأ <span class="c-red">27.5 s</span></td></tr>
+          <tr><td><span class="chip">⇄ pax-details</span></td><td>2</td><td>-</td></tr>
+          <tr><td><span class="chip">⇄ fare-confirmation</span></td><td>2</td><td>2.4 s</td></tr>
+          <tr><td>book</td><td class="c-red">0</td><td>-</td></tr></table>
+        <details dir="rtl"><summary>▸ الـerrors في الـ9 searches</summary><pre>IllegalArgumentException: No enum constant models.sharedtypes.CredentialsSelector.
+NullPointerException "Generic error: null" in getSearchResult</pre></details>
+        <div class="callout ok" dir="rtl" style="text-align:right"><b class="t">→ الخطوة الجاية</b>نصلح #31 الأول - البحث هو اللي بيوقف الحجز.</div>
+      </div>
+      <p class="note">Same facts: a heading, the key numbers highlighted, a table, the errors folded, the next step in a callout.
+        Each block still picks its own direction - Arabic right-to-left, the code block left-to-right, mentions and numbers in place.</p>
+    </div>
+  </div>
+
+  <h2>2c. More enhancements</h2>
+  <div class="feat">
+    <div class="box"><h4>A. Templates <small>/ menu or the toolbar</small></h4>
+      <div class="menu"><div class="on">🐞 Bug report <small>- what happened · expected · evidence · steps</small></div><div>🛠 Fix plan <small>- cause · change · risk · how to verify</small></div>
+        <div>✔ Re-test result <small>- before / after table · verdict</small></div><div>❓ Question for the user <small>- context · options · recommendation</small></div></div>
+      <p class="note">One click gives the structure; Claude uses the same templates, so a card reads the same whoever wrote it. Editable in Settings.</p></div>
+
+    <div class="box"><h4>B. Smart paste</h4>
+      <div class="codeb"><div class="bar"><span>json · pasted</span><span>⧉ copy · ▸ fold</span></div>
+        <pre>{ <span class="k">"status"</span>: <span class="n">405</span>, <span class="k">"error"</span>: <span class="s">"METHOD_NOT_ALLOWED"</span> }</pre></div>
+      <p class="note">JSON, SQL, XML and stack traces become a formatted code block (a stack trace folded after 6 lines). An Alfred call / card / spec link
+        becomes a mention chip. A web link becomes a link with its title.</p></div>
+
+    <div class="box"><h4>C. Code blocks that read well</h4>
+      <div class="codeb"><div class="bar"><span>sql · 3 lines</span><span>⧉ copy · # lines · ⤢ wrap</span></div>
+        <pre><span class="k">SELECT</span> fare_total <span class="k">FROM</span> search_cache
+<span class="k">WHERE</span> session_id = ? <span class="k">ORDER BY</span> created_at <span class="k">DESC</span>
+<span class="k">LIMIT</span> <span class="n">1</span>  <span class="cm">-- reads the LAST search</span></pre></div>
+      <p class="note">Highlighting for JSON, SQL, Java, XML, shell; copy button; line numbers on demand; always left-to-right.</p></div>
+
+    <div class="box"><h4>D. Before → after diff block</h4>
+      <div class="codeb"><div class="bar"><span>diff · fare.total</span><span>side by side ⇆</span></div>
+        <pre><span class="del">"total": 498.00</span><span class="add">"total": 412.50</span>  "currency": "EGP"</pre></div>
+      <p class="note">For a fix or a re-test: two values, two bodies or two SQL texts, shown as a diff. Claude's <code>diff_calls</code> lands here.</p></div>
+
+    <div class="box"><h4>E. Call cards in the text</h4>
+      <div class="callcard"><span class="m">POST</span><span>/Booking2/flight-search/search</span><span class="st">500</span><span class="bar2"></span><span class="dim">27.5 s · 3 SQL · 2 ERROR</span></div>
+      <p class="note">A mention can show as a chip (inline) or as a card (its own line): method, status, time, SQL and errors at a glance - click opens the call.</p></div>
+
+    <div class="box"><h4>F. Status pills</h4>
+      <p class="rt" style="margin:0">Search <span class="pill2 ok">✓ fixed</span> · confirm <span class="pill2 bad">✕ 500</span> · book <span class="pill2 wait">⏳ waiting</span></p>
+      <p class="note">Typed as <code>[ok]</code> <code>[fail]</code> <code>[wait]</code> or from the toolbar; easy to scan in long comments and tables.</p></div>
+
+    <div class="box"><h4>G. Screenshots you can mark</h4>
+      <div class="shot2"><span class="ring"></span><span class="arrow">➜</span><span class="tag">wrong fare</span></div>
+      <p class="note">After pasting: box, arrow, a short label, blur (for personal data), crop. Click a picture to open it full size.</p></div>
+
+    <div class="box"><h4>H. Reactions</h4>
+      <div class="comment" style="margin:0"><div class="who"><span><b>✦ Claude</b> · Fix plan for #35</span></div>
+        <p style="margin:0;font-size:.8rem">Key the cache by <code>searchId</code>…</p>
+        <div class="react"><span class="mine">👍 1</span><span>✅ Go</span><span>🤔</span><span>+</span></div></div>
+      <p class="note">One click instead of a comment. <b>✅ Go</b> on a plan is Claude's go-ahead (the same as answering "go"); 🤔 asks it to explain more.</p></div>
+
+    <div class="box"><h4>I. Long comments fold</h4>
+      <div class="comment" style="margin:0"><div class="who"><span><b>✦ Claude</b> · Investigation</span></div>
+        <div class="fade" style="font-size:.8rem"><b>The confirm reads the last search.</b> Compared both searches, the confirm and its 3 statements; the cache is keyed by session…<br>…<br>…</div>
+        <a style="font-size:.72rem;color:var(--purple-light)">Show all (42 lines) ▾</a></div>
+      <p class="note">The first line (Claude's bold summary) always shows; the rest opens on click. The card keeps short when threads are long.</p></div>
+
+    <div class="box"><h4>J. Outline for long texts</h4>
+      <div class="toc"><div class="on">1. Scope</div><div>2. Fare rules</div><div>&nbsp;&nbsp;2.1 Search → confirm</div><div>3. Acceptance</div></div>
+      <p class="note">Descriptions, briefs and spec files with headings get an outline at the side; click jumps; "copy link to this heading" makes a spec mention.</p></div>
+
+    <div class="box"><h4>K. Write fast</h4>
+      <p class="note" style="margin:0"><code>## </code> heading · <code>- </code> list · <code>[] </code> checklist · <code>&gt; </code> quote · <code>```</code> code · <code>---</code> divider · <code>**x**</code> bold
+        - turn into formatting as you type. <kbd>Ctrl</kbd>+<kbd>Z</kbd> undoes the turn. Drafts are kept while you type (per field, this browser) and come back after a reload.</p></div>
+
+    <div class="box"><h4>L. Copy out</h4>
+      <div class="menu"><div>⧉ Copy as rich text <small>- paste into Teams, Outlook, Jira with the formatting</small></div><div>⧉ Copy as Markdown <small>- GitHub, Slack</small></div><div>⧉ Copy as plain text</div></div>
+      <p class="note">On every comment and description; mentions become links back to Alfred, variables their current value (secrets never).</p></div>
+
+    <div class="box"><h4>M. Variables, more</h4>
+      <p class="rt" style="margin:0">Hover <span class="var">{{baseUrl}} <span class="vv">= https://uat.odeysys.com</span></span></p>
+      <div class="menu" style="margin-top:6px"><div class="on">UAT (active) <small>https://uat.odeysys.com</small></div><div>Staging <small>https://stg.odeysys.com</small></div><div>⧉ copy value · open in Settings</div></div>
+      <p class="note">Every environment's value on hover; click copies; a name that does not exist offers "create it".</p></div>
+
+    <div class="box"><h4>N. Edit with a history</h4>
+      <p class="note" style="margin:0">Your comments and descriptions can be edited; "edited 2 min ago" opens the earlier versions with what changed. Claude edits only its own Inbox cards, as today.</p></div>
+  </div>
+
+  <h2>3. The rules</h2>
+  <div class="grid">
+    <div class="box">
+      <table class="t">
+        <tr><th>Kept on save (the backend cleans every write - the user's and Claude's)</th></tr>
+        <tr><td><code>p h1-h4 br hr b strong i em u s mark sub sup kbd code pre blockquote ul ol li table thead tbody tr th td a img details summary aside span div</code></td></tr>
+        <tr><td>Attributes: <code>href</code> (http/https/mailto), <code>src</code> (Alfred's own pictures), <code>dir</code>, <code>colspan/rowspan</code>,
+          <code>data-callout</code> (info/warn/bug/ok), <code>data-checklist / data-checked</code>, <code>data-color</code> (red/green/amber/blue - theme colours, no free CSS)</td></tr>
+        <tr><td>Pictures: pasted / dropped screenshots, stored in Alfred with the card (<code>/board/images/…</code>), up to 5 MB each, exported with the board</td></tr>
+      </table>
+    </div>
+    <div class="box">
+      <table class="t">
+        <tr><th>Never</th></tr>
+        <tr><td class="no">No <code>innerHTML</code>: the HTML is parsed into a typed tree and drawn with bindings - twice safe: cleaned on save, allow-listed again on show</td></tr>
+        <tr><td class="no">No scripts, <code>style</code>, <code>class</code>, <code>on…=</code> handlers, iframes, forms, SVG, or outside pictures</td></tr>
+        <tr><td class="no">No rewrite of old text: Markdown written so far shows as it does now, and becomes HTML only when someone edits it</td></tr>
+        <tr><td class="ok">Exports keep the text untruncated: .json the HTML as stored, .md converted to Markdown, secret variables redacted</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <h2>4. What does not change</h2>
+  <ul class="note">
+    <li><b>Mentions</b> - <code>@</code> picker, chips, "pick from anywhere", re-index on save, live calls kept from the limits, <code>board_evidence</code>.</li>
+    <li><b>Claude's comment rules</b> - Did / Found / Next, Reply, Question still recognised (the parts now hold rich text).</li>
+    <li><b>Claude reads and writes</b> through the same MCP tools: it reads the HTML turned into compact Markdown (fewer tokens),
+      and writes Markdown or the allowed HTML - the backend stores HTML either way.</li>
+    <li><b>Enter sends</b> in comments / replies, Ctrl+Enter in descriptions and briefs; ⇄ text direction per block; Ctrl+Shift+X.</li>
+    <li><b>Spec files</b> - checklist items (<code>- [ ]</code>) are still the acceptance items; section anchors for <code>spec</code> mentions still work.</li>
+    <li><b>Search, similar cards, closed reasons, "same problem" refusals</b> read the plain words (tags stripped).</li>
+  </ul>
+</div>
+<script>
+  const area = document.getElementById('area');
+  function cmd(e, c, v) { e.preventDefault(); area.focus(); if (c === 'createLink') { v = prompt('Link', v); if (!v) return; } document.execCommand(c, false, v); }
+  function block(tag) { area.focus(); document.execCommand('formatBlock', false, tag); }
+  function ins(e, html) { e.preventDefault(); area.focus(); document.execCommand('insertHTML', false, html); }
+  function wrap(e, tag, cls) {
+    e.preventDefault(); area.focus();
+    const s = getSelection(); if (!s.rangeCount || s.isCollapsed) return;
+    const r = s.getRangeAt(0); const el = document.createElement(tag); if (cls) el.className = cls;
+    el.appendChild(r.extractContents()); r.insertNode(el);
+  }
+  // A rough Source view for the mock: the real one serialises the typed tree.
+  function toSource(node) {
+    let out = '';
+    for (const n of node.childNodes) {
+      if (n.nodeType === 3) { out += n.textContent; continue; }
+      if (n.nodeType !== 1) continue;
+      const t = n.tagName.toLowerCase(), inner = () => toSource(n);
+      if (n.classList.contains('chip')) out += `@[call:in:…|${n.textContent.replace(/^\S+\s/, '')}]`;
+      else if (n.classList.contains('var')) out += '`' + n.textContent + '`';
+      else if (n.classList.contains('slashmenu')) continue;
+      else if (n.classList.contains('callout')) out += `\n<callout type="${[...n.classList].find((c) => c !== 'callout')}" title="${n.querySelector('.t')?.textContent.replace(/^\S+\s/, '') ?? ''}">\n${[...n.childNodes].filter((c) => !(c.classList && c.classList.contains('t'))).map((c) => c.nodeType === 3 ? c.textContent : toSource({ childNodes: [c] })).join('')}\n</callout>\n\n`;
+      else if (t === 'b' || t === 'strong') out += '**' + inner() + '**';
+      else if (t === 'i' || t === 'em') out += '*' + inner() + '*';
+      else if (t === 'code') out += '`' + inner() + '`';
+      else if (t === 'p' || t === 'div') out += inner() + '\n\n';
+      else if (t === 'h3') out += '### ' + inner() + '\n\n';
+      else if (t === 'li') out += (n.classList.contains('task') ? (n.querySelector('input')?.checked ? '- [x] ' : '- [ ] ') : '- ') + inner().trim() + '\n';
+      else if (t === 'ul' || t === 'ol') out += inner() + '\n';
+      else if (t === 'input' || t === 'br') continue;
+      else out += `<${t}>${inner()}</${t}>`;
+    }
+    return out;
+  }
+  function toggleSource() {
+    const ed = document.getElementById('ed'), src = document.getElementById('src'), btn = document.getElementById('srcBtn');
+    const on = !ed.classList.contains('source');
+    if (on) src.value = toSource(area).replace(/\n{3,}/g, '\n\n').trim();
+    ed.classList.toggle('source', on); btn.classList.toggle('on', on);
+  }
+</script>
+</body>
+</html>

@@ -34,3 +34,16 @@ function fallbackCopy(text: string): Promise<void> {
     }
   });
 }
+
+/**
+ * Copies formatted text: HTML for apps that paste formatting (mail, Word, Teams) with the plain text beside it. Falls back
+ * to the plain text where the browser has no ClipboardItem (or it is refused, as on plain-HTTP LAN deployments).
+ */
+export function copyRichToClipboard(html: string, plain: string): Promise<void> {
+  const Item = (window as unknown as { ClipboardItem?: typeof ClipboardItem }).ClipboardItem;
+  if (Item && navigator.clipboard && navigator.clipboard.write) {
+    const item = new Item({ 'text/html': new Blob([html], { type: 'text/html' }), 'text/plain': new Blob([plain], { type: 'text/plain' }) });
+    return navigator.clipboard.write([item]).catch(() => copyToClipboard(plain));
+  }
+  return copyToClipboard(plain);
+}

@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { Observable, expand, forkJoin, from, lastValueFrom, map, mergeMap, of, reduce, toArray, EMPTY, catchError } from 'rxjs';
 import { ActivityEntry, CardSummary, ChecklistMark, CycleBrief, NO_FILTERS } from '../models/board.models';
-import { BoardExport, BoardSpecFile, boardJsonFilename, buildBoardJsonLines } from '../../shared/utils/board-json';
+import { BoardExport, BoardImageData, BoardSpecFile, boardImageIds, boardJsonFilename, buildBoardJsonLines } from '../../shared/utils/board-json';
 import { buildBoardHtmlParts } from '../../shared/utils/board-html-builder';
 import { buildBoardMarkdownLines } from '../../shared/utils/board-md-builder';
 import { downloadBlob } from '../../shared/utils/download';
@@ -48,12 +48,26 @@ export class BoardExportService {
     const data = await this.gather(project, cycleId, ids);
     const name = boardJsonFilename(project, cycleId ? title : null).replace(/\.json$/, `.${format}`);
     if (format === 'json') {
-      downloadBlob(await exportBlob(buildBoardJsonLines(data), false), name);
+      downloadBlob(await exportBlob(buildBoardJsonLines({ ...data, images: await this.images(data) }), false), name);
     } else if (format === 'md') {
       downloadBlob(new Blob(buildBoardMarkdownLines(data, title).map((l) => `${l}\n`), { type: 'text/markdown' }), name);
     } else {
       downloadBlob(new Blob(buildBoardHtmlParts(data, title), { type: 'text/html' }), name);
     }
+  }
+
+  /** The pictures the texts show, read one by one; one that is gone is left out (its text still names it). */
+  private async images(data: BoardExport): Promise<BoardImageData[]> {
+    const out: BoardImageData[] = [];
+    for (const id of boardImageIds(data)) {
+      try {
+        const blob = await lastValueFrom(this.api.image(id));
+        out.push({ id, mime: blob.type || 'image/png', data: await base64(blob) });
+      } catch {
+        // removed since - the text keeps its reference
+      }
+    }
+    return out;
   }
 
   private allCards(project: string, cycleId: string | null): Observable<CardSummary[]> {
@@ -83,3 +97,12 @@ export class BoardExportService {
   }
 }
 
+
+function base64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).replace(/^data:[^,]*,/, ''));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}

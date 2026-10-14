@@ -4,6 +4,7 @@ import {
 import { changeText, claudeParts } from './board-activity';
 import { replyNote } from './board-threads';
 import { BoardExport } from './board-json';
+import { textAsMarkdown } from './rich-html';
 
 /**
  * The board as Markdown (FR-045, FR-047): every card with every field, its Linked list, its whole history and the
@@ -13,14 +14,14 @@ import { BoardExport } from './board-json';
 export function buildBoardMarkdownLines(data: BoardExport, title: string): string[] {
   const lines: string[] = [`# ${title}`, '', `Project: ${data.project || 'No project'} · ${data.cards.length} cards · exported ${new Date().toISOString()}`, ''];
   for (const b of data.briefs) {
-    lines.push(`## Cycle brief - ${b.cycleId}`, '', b.text || '_No brief._', '');
+    lines.push(`## Cycle brief - ${b.cycleId}`, '', textAsMarkdown(b.text) || '_No brief._', '');
   }
   for (const s of data.specs) {
-    lines.push(`## Spec file - ${s.name} (cycle ${s.cycleId})`, '', '````', s.content, '````', '');
+    lines.push(`## Spec file - ${s.name} (cycle ${s.cycleId})`, '', '````', textAsMarkdown(s.content), '````', '');
   }
   if (data.marks.length) {
     lines.push('## Acceptance checklist marks', '');
-    for (const m of data.marks) lines.push(`- ${m.fileName} · ${m.itemKey.slice(0, 12)}… · ${MARK_LABELS[m.mark]} · ${m.evidence || 'no evidence'} · ${m.updatedAt}`);
+    for (const m of data.marks) lines.push(`- ${m.fileName} · ${m.itemKey.slice(0, 12)}… · ${MARK_LABELS[m.mark]} · ${textAsMarkdown(m.evidence).replace(/\r?\n/g, ' ') || 'no evidence'} · ${m.updatedAt}`);
     lines.push('');
   }
   for (const card of data.cards) lines.push(...cardLines(card, data.activity[card.id] ?? []));
@@ -41,7 +42,7 @@ function cardLines(c: CardDetail, history: readonly ActivityEntry[]): string[] {
     `| Cycle | ${c.cycleId ?? ''}${c.cycleDeleted ? ' (deleted)' : ''} |`,
     `| Created | ${c.createdAt} |`,
     `| Updated | ${c.updatedAt} by ${c.updatedBy === 'CLAUDE' ? 'Claude' : 'User'} |`,
-    '', '### Description', '', c.description || '_No description._', '',
+    '', '### Description', '', textAsMarkdown(c.description) || '_No description._', '',
     '### Linked', '',
   ];
   if (c.links.length) for (const l of c.links) lines.push(`- ${mentionTypeOf(l)} \`${l.ref}\` - ${l.label}`);
@@ -52,7 +53,7 @@ function cardLines(c: CardDetail, history: readonly ActivityEntry[]): string[] {
       lines.push(`- **${e.actor === 'CLAUDE' ? 'Claude' : 'User'}** · ${e.at}${replyNote(e, history)}`);
       const parts = claudeParts(e.text);
       if (parts) for (const p of parts) lines.push(`  - **${p.label}** ${indent(p.text)}`);
-      else lines.push(`  ${indent(e.text ?? '')}`);
+      else lines.push(`  ${indent(textAsMarkdown(e.text))}`);
     } else {
       lines.push(`- ${changeText(e)} · ${e.at}`);
     }

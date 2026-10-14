@@ -5,7 +5,7 @@ import {
   ActivityPage, AgentStatus, LiveWork, BoardAccess, BoardFilters, BoardStorage, BulkAction, CallBadge, CardDetail, CardEdit, CardStatus, CardsPage,
   CardRetest, ChecklistFile, ChecklistItem, CycleBrief, Expectation, Mark, MentionRef, NewCard, NextSteps, Resolution, RetestCheck, RetestPlan,
   RetestReport, RetestStep, SessionLogEntry, SpecFileInfo, Team, TeamEdit, TestStep,
-  CycleChatInfo, SkillRun, SkillRunRequest, SkillRunsPage,
+  CycleChatInfo, SkillRun, SkillRunRequest, SkillRunsPage, TextVersion,
 } from '../models/board.models';
 import { AppConfigService } from './app-config.service';
 
@@ -280,6 +280,31 @@ export class BoardApiService {
   /** The user's Stop on one live answer; the runner ends it at its next report. */
   stopLiveWork(id: string): Observable<LiveWork> {
     return this.http.post<LiveWork>(`${this.base}/live-work/${encodeURIComponent(id)}/stop`, {});
+  }
+
+  /** A picture pasted or dropped into a board text: stored in Alfred, its url used in the text (docs/board.md "Rich text"). */
+  uploadImage(file: Blob): Observable<{ id: string; url: string }> {
+    return this.http.post<{ id: string; url: string }>(`${this.base}/images`, file, { headers: { 'Content-Type': file.type || 'image/png' } });
+  }
+
+  /** A picture of a board text, as it was stored. */
+  image(id: string): Observable<Blob> {
+    return this.http.get(`${this.base}/images/${encodeURIComponent(id)}`, { responseType: 'blob' });
+  }
+
+  /** The user's reaction on a comment, toggled; ✅ on Claude's plan is the go-ahead. */
+  react(cardId: string, entryId: number, emoji: string): Observable<{ on: boolean }> {
+    return this.http.post<{ on: boolean }>(`${this.base}/cards/${encodeURIComponent(cardId)}/comments/${entryId}/reactions`, { emoji });
+  }
+
+  /** The user edits their own comment; the earlier text is kept. */
+  editComment(cardId: string, entryId: number, text: string): Observable<{ changed: boolean }> {
+    return this.http.put<{ changed: boolean }>(`${this.base}/cards/${encodeURIComponent(cardId)}/comments/${entryId}`, { text });
+  }
+
+  /** Earlier texts of `comment:<id>` or `description:<card id>`, newest first. */
+  versions(owner: string): Observable<readonly TextVersion[]> {
+    return this.http.get<readonly TextVersion[]>(`${this.base}/versions`, { params: { owner } });
   }
 
   /** The chat that handles a cycle (null when none), and where the project's last chat ran. */

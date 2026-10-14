@@ -52,10 +52,10 @@ public final class MentionParser {
         return out;
     }
 
-    /** Every mention in the text, first occurrence kept, in order. */
+    /** Every mention in the text, first occurrence kept, in order - in rich text (HTML) read from its words, labels decoded. */
     public static List<MentionRef> mentions(String text) {
         LinkedHashSet<MentionRef> refs = new LinkedHashSet<>();
-        for (Segment s : parse(text)) {
+        for (Segment s : parse(RichText.plain(text))) {
             if (s.mention() != null) {
                 refs.add(s.mention());
             }

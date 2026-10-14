@@ -31,13 +31,7 @@ export function textDir(text: string | null | undefined): TextDir | null {
 
 /** The words of inline markdown - code and mentions left out: they say nothing about the language of the sentence. */
 export function inlineWords(nodes: readonly Inline[]): string {
-  return nodes.map((n) => {
-    switch (n.kind) {
-      case 'text': return n.text;
-      case 'bold': case 'italic': case 'link': return inlineWords(n.children);
-      default: return ' ';
-    }
-  }).join('');
+  return nodes.map((n) => (n.kind === 'text' ? n.text : 'children' in n ? inlineWords(n.children) : ' ')).join('');
 }
 
 /** The direction a block is shown in: the user's choice, else its own, else the browser's `auto`. */

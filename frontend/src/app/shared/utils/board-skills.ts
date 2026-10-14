@@ -1,5 +1,6 @@
 import { ActivityEntry, CardDetail, CardSummary, RESOLUTION_LABELS, STATUS_LABELS, WAITING_LABELS, WaitingOn, ageText } from '../../core/models/board.models';
 import { historyThreads } from './board-threads';
+import { textAsMarkdown } from './rich-html';
 import { parseMentions } from './mention-syntax';
 
 /**
@@ -33,7 +34,7 @@ export function waitingText(w: WaitingOn | null | undefined, now: number): strin
 
 /** Mentions as their labels, for plain text that leaves Alfred. */
 function plain(text: string | null | undefined): string {
-  return parseMentions(text).map((s) => ('mention' in s ? s.mention.label : s.text)).join('');
+  return parseMentions(textAsMarkdown(text)).map((s) => ('mention' in s ? s.mention.label : s.text)).join('');
 }
 
 /**

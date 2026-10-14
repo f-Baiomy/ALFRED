@@ -1,6 +1,7 @@
 import {
   CardKind, CardRef, CardStatus, CardSummary, ChecklistFile, ChecklistItem, SessionLogEntry, TestStep,
 } from '../../core/models/board.models';
+import { textAsMarkdown } from './rich-html';
 
 /**
  * The Task view of a session cycle (a cycle is a task - skills/_shared/rules.md §0): the brief split into its sections,
@@ -21,7 +22,9 @@ export interface BriefParts {
   readonly other: readonly { readonly title: string; readonly text: string }[];
 }
 
-export function briefParts(text: string): BriefParts {
+export function briefParts(stored: string): BriefParts {
+  // a brief written in the rich editor is read as the Markdown it shows (docs/board.md "Rich text")
+  const text = textAsMarkdown(stored);
   const sections: Record<string, string> = {};
   const other: { title: string; text: string }[] = [];
   let goal: string[] = [];

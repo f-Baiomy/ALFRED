@@ -5,6 +5,8 @@
  * flood a backend that is also recording live traffic.
  */
 
+import { isHtml, textAsMarkdown } from './frontend.ts';
+
 export type AlfredErrorKind = 'unreachable' | 'not_found' | 'invalid' | 'backend';
 
 export class AlfredError extends Error {
@@ -149,8 +151,28 @@ export class AlfredClient {
       throw new AlfredError('backend', `Alfred answered ${response.status}: ${body.message}`, response.status, `${method} ${url.pathname}`, body.code);
     }
     const text = await response.text();
-    if (options.text) return text as T;
-    return (text ? JSON.parse(text) : undefined) as T;
+    // The board's texts may be rich text (HTML): Claude reads them as compact Markdown, the form it writes (docs/board.md).
+    const board = url.pathname.startsWith('/board/');
+    if (options.text) return (board ? readableText(text) : text) as T;
+    const parsed = text ? JSON.parse(text) : undefined;
+    return (board ? readable(parsed) : parsed) as T;
+  }
+
+  /** A stored file as bytes (a board picture), with its type. */
+  async bytes(path: string): Promise<{ mime: string; data: Buffer }> {
+    const url = new URL(this.baseUrl + path);
+    await this.acquire();
+    let response: Response;
+    try {
+      response = await fetch(url, { signal: AbortSignal.timeout(TIMEOUT_MS) });
+    } catch (error) {
+      throw new AlfredError('unreachable', `Alfred is not reachable at ${this.baseUrl} (${(error as Error).message}).`, undefined, `GET ${url.pathname}`);
+    } finally {
+      this.release();
+    }
+    if (response.status === 404) throw new AlfredError('not_found', `Not found: ${url.pathname}`, 404, `GET ${url.pathname}`);
+    if (!response.ok) throw new AlfredError('backend', `Alfred answered ${response.status}`, response.status, `GET ${url.pathname}`);
+    return { mime: (response.headers.get('content-type') ?? 'application/octet-stream').split(';')[0], data: Buffer.from(await response.arrayBuffer()) };
   }
 
   private acquire(): Promise<void> {
@@ -190,4 +212,18 @@ async function readError(response: Response): Promise<{ message: string; code?: 
   } catch {
     return { message: '(no body)' };
   }
+}
+
+function readableText(text: string): string {
+  return isHtml(text) ? textAsMarkdown(text) : text;
+}
+
+/** Every rich text (HTML) string of a board answer turned into Markdown; everything else as it came. */
+export function readable(value: unknown): unknown {
+  if (typeof value === 'string') return readableText(value);
+  if (Array.isArray(value)) return value.map(readable);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, readable(v)]));
+  }
+  return value;
 }

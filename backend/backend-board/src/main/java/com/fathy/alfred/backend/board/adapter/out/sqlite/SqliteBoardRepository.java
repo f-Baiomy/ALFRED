@@ -83,7 +83,7 @@ import java.util.stream.Collectors;
  */
 @Component
 @ConditionalOnProperty(prefix = "alfred.storage.board", name = "type", havingValue = "sqlite", matchIfMissing = true)
-public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort {
+public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort, com.fathy.alfred.backend.board.application.port.out.BoardImageStorePort {
 
     private static final Logger log = LoggerFactory.getLogger(SqliteBoardRepository.class);
     private static final int IN_CHUNK = 400;
@@ -200,6 +200,17 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort 
                   mark TEXT NOT NULL, evidence TEXT NOT NULL DEFAULT '', at INTEGER NOT NULL, PRIMARY KEY (cycle_id, file_name, item_key))
                 """);
         jdbc.execute("CREATE INDEX IF NOT EXISTS idx_activity_actor ON activity(actor, id)");
+        // Rich text (docs/board.md "Rich text"): earlier texts of edited comments and descriptions, and pasted pictures.
+        jdbc.execute("""
+                CREATE TABLE IF NOT EXISTS text_versions (id INTEGER PRIMARY KEY AUTOINCREMENT, owner TEXT NOT NULL, text TEXT NOT NULL,
+                  actor TEXT NOT NULL, at INTEGER NOT NULL)
+                """);
+        jdbc.execute("CREATE INDEX IF NOT EXISTS idx_text_versions_owner ON text_versions(owner, id)");
+        jdbc.execute("""
+                CREATE TABLE IF NOT EXISTS board_images (id TEXT PRIMARY KEY, mime TEXT NOT NULL, data BLOB NOT NULL, size INTEGER NOT NULL,
+                  card_id TEXT REFERENCES cards(id) ON DELETE CASCADE, cycle_id TEXT, created_at INTEGER NOT NULL)
+                """);
+        jdbc.execute("CREATE INDEX IF NOT EXISTS idx_board_images_card ON board_images(card_id)");
         // Replies (one level): the comment an entry answers. Added in place to a board.db made before replies existed.
         addColumn("activity", "reply_to", "INTEGER");
         // Who a card waits on (specs/015): set by the services' rules and by Claude.
@@ -529,6 +540,55 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort 
     public Optional<ActivityEntry> activityEntry(long id) {
         return jdbc.query("SELECT id, card_id, actor, kind, text, old_value, new_value, at, reply_to FROM activity WHERE id = ?", ACTIVITY_ROW, id)
                 .stream().findFirst();
+    }
+
+    @Override
+    public void updateActivityText(long id, String text) {
+        jdbc.update("UPDATE activity SET text = ? WHERE id = ?", text, id);
+    }
+
+    @Override
+    public void deleteActivity(long id) {
+        jdbc.update("DELETE FROM activity WHERE id = ?", id);
+    }
+
+    @Override
+    public void saveVersion(com.fathy.alfred.backend.board.domain.model.TextVersion v) {
+        jdbc.update("INSERT INTO text_versions(owner, text, actor, at) VALUES (?,?,?,?)", v.owner(), v.text(), v.actor().name(), v.at().toEpochMilli());
+    }
+
+    @Override
+    public List<com.fathy.alfred.backend.board.domain.model.TextVersion> versions(String owner) {
+        return jdbc.query("SELECT owner, text, actor, at FROM text_versions WHERE owner = ? ORDER BY id DESC LIMIT 100",
+                (rs, n) -> new com.fathy.alfred.backend.board.domain.model.TextVersion(rs.getString(1), rs.getString(2), Actor.valueOf(rs.getString(3)),
+                        Instant.ofEpochMilli(rs.getLong(4))), owner);
+    }
+
+    // --------------------------------------------------------------------------------------------------------------- images
+
+    @Override
+    public void saveImage(com.fathy.alfred.backend.board.domain.model.BoardImage i) {
+        jdbc.update("INSERT INTO board_images(id, mime, data, size, card_id, cycle_id, created_at) VALUES (?,?,?,?,?,?,?)", i.id(), i.mime(),
+                i.data(), i.data().length, i.cardId(), i.cycleId(), i.createdAt().toEpochMilli());
+    }
+
+    @Override
+    public Optional<com.fathy.alfred.backend.board.domain.model.BoardImage> findImage(String id) {
+        return jdbc.query("SELECT id, mime, data, card_id, cycle_id, created_at FROM board_images WHERE id = ?",
+                (rs, n) -> new com.fathy.alfred.backend.board.domain.model.BoardImage(rs.getString(1), rs.getString(2), rs.getBytes(3),
+                        rs.getString(4), rs.getString(5), Instant.ofEpochMilli(rs.getLong(6))), id).stream().findFirst();
+    }
+
+    @Override
+    public void attachImages(Collection<String> ids, String cardId, String cycleId) {
+        for (String id : ids) {
+            jdbc.update("UPDATE board_images SET card_id = ?, cycle_id = ? WHERE id = ? AND card_id IS NULL AND cycle_id IS NULL", cardId, cycleId, id);
+        }
+    }
+
+    @Override
+    public int deleteUnattachedImages(Instant before) {
+        return jdbc.update("DELETE FROM board_images WHERE card_id IS NULL AND cycle_id IS NULL AND created_at < ?", before.toEpochMilli());
     }
 
     @Override

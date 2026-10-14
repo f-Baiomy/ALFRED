@@ -41,6 +41,8 @@ export function changeText(e: ActivityEntry, teamName: (id: string) => string = 
     case 'REOPENED': return `${who} reopened it`;
     case 'TITLE': return `${who} renamed it “${e.oldValue}” → “${e.newValue}”`;
     case 'DESCRIPTION': return `${who} edited the description`;
+    case 'REACTION': return `${who} reacted ${e.text ?? ''}${e.text === '✅' ? ' (Go)' : ''}`;
+    case 'COMMENT_EDITED': return `${who} edited a comment`;
     case 'KIND': return `${who} changed the kind ${e.oldValue} → ${e.newValue}`;
     case 'FLAGS': return `${who} set flags ${e.oldValue || 'none'} → ${e.newValue || 'none'}`;
     case 'TEAMS': return teamsText(e, who, teamName);

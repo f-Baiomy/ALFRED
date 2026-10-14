@@ -38,4 +38,15 @@ describe('board-threads', () => {
     expect(replyNote(history[2], history)).toBe(' · ↳ reply to Claude (2026-10-10T09:02:00Z)');
     expect(replyNote(history[5], history)).toBe('');
   });
+
+  it('reactions and edits annotate their comment - never a reply or an item of their own', () => {
+    const all = [...history, e(7, 'USER', '✅', 2, 'REACTION'), e(8, 'USER', '👍', 2, 'REACTION'), e(9, 'USER', '<p>plain, edited</p>', 6, 'COMMENT_EDITED')];
+    const items = historyThreads(all);
+    expect(items.map((i) => i.entry.id)).toEqual([1, 2, 5, 6]);
+    const q = items.find((i) => i.entry.id === 2)!;
+    expect(q.replies.map((r) => r.id)).toEqual([3, 4]);
+    expect(q.reactions).toEqual([{ emoji: '✅', count: 1, mine: true }, { emoji: '👍', count: 1, mine: true }]);
+    expect(items.find((i) => i.entry.id === 6)!.edited).toBeTrue();
+    expect(q.edited).toBeFalse();
+  });
 });

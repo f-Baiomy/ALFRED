@@ -5,11 +5,13 @@ import { changeText, claudeParts } from './board-activity';
 import { replyNote } from './board-threads';
 import { BoardExport } from './board-json';
 import { escapeHtml } from './html-builder';
+import { blocksToHtml, htmlBlocks, isHtml } from './rich-html';
 
 /**
  * The board as a standalone HTML page (FR-045, FR-047). Every value goes through escapeHtml - card text, comments and
  * spec files are untrusted, and a captured payload must never run in a reader's browser (constitution I). Text keeps
- * its line breaks (pre-wrap) rather than being rendered as Markdown, so nothing is dropped or reinterpreted.
+ * its line breaks (pre-wrap) rather than being rendered as Markdown, so nothing is dropped or reinterpreted. A text
+ * stored as rich text (HTML) is written as the board's own clean HTML - rebuilt from its blocks, never copied as it came.
  */
 export function buildBoardHtmlParts(data: BoardExport, title: string): string[] {
   const parts: string[] = [
@@ -18,19 +20,21 @@ export function buildBoardHtmlParts(data: BoardExport, title: string): string[] 
     '<style>body{font:14px/1.5 system-ui,sans-serif;max-width:1000px;margin:2rem auto;padding:0 1rem;color:#1d2340}',
     '.t{white-space:pre-wrap;word-break:break-word;background:#f5f6fb;border:1px solid #dde0ee;border-radius:6px;padding:.5rem .7rem}',
     'table{border-collapse:collapse}td{border:1px solid #dde0ee;padding:.25rem .5rem;vertical-align:top}.dim{color:#6b7394}',
-    '.lbl{font-weight:700;font-size:.75rem;margin-right:.4rem}.card{border-top:2px solid #8b5cf6;margin-top:2rem;padding-top:.5rem}</style>',
+    '.lbl{font-weight:700;font-size:.75rem;margin-right:.4rem}.card{border-top:2px solid #8b5cf6;margin-top:2rem;padding-top:.5rem}',
+    '.r{white-space:normal}.r aside{border-left:3px solid #8b5cf6;padding:.2rem .6rem;margin:.3rem 0}.r pre{background:#eef0f8;padding:.4rem;white-space:pre-wrap}',
+    '.r mark{background:#fde68a}.r img{max-width:100%}.r td,.r th{border:1px solid #dde0ee;padding:.2rem .4rem}</style>',
     `</head><body><h1>${escapeHtml(title)}</h1>`,
     `<p class="dim">Project: ${escapeHtml(data.project || 'No project')} · ${data.cards.length} cards · exported ${escapeHtml(new Date().toISOString())}</p>`,
   ];
-  for (const b of data.briefs) parts.push(`<h2>Cycle brief - ${escapeHtml(b.cycleId)}</h2><div class="t">${escapeHtml(b.text || '(no brief)')}</div>`);
+  for (const b of data.briefs) parts.push(`<h2>Cycle brief - ${escapeHtml(b.cycleId)}</h2>${textHtml(b.text, '(no brief)')}`);
   for (const s of data.specs) {
-    parts.push(`<h2>Spec file - ${escapeHtml(s.name)} <span class="dim">(cycle ${escapeHtml(s.cycleId)})</span></h2><div class="t">${escapeHtml(s.content)}</div>`);
+    parts.push(`<h2>Spec file - ${escapeHtml(s.name)} <span class="dim">(cycle ${escapeHtml(s.cycleId)})</span></h2>${textHtml(s.content, '')}`);
   }
   if (data.marks.length) {
     parts.push('<h2>Acceptance checklist marks</h2><table>');
     for (const m of data.marks) {
       parts.push(`<tr><td>${escapeHtml(m.fileName)}</td><td>${escapeHtml(m.itemKey)}</td><td>${escapeHtml(MARK_LABELS[m.mark])}</td>`
-        + `<td class="t">${escapeHtml(m.evidence)}</td><td>${escapeHtml(m.updatedAt)}</td></tr>`);
+        + `<td>${textHtml(m.evidence, '')}</td><td>${escapeHtml(m.updatedAt)}</td></tr>`);
     }
     parts.push('</table>');
   }
@@ -57,7 +61,7 @@ function cardHtml(c: CardDetail, history: readonly ActivityEntry[]): string {
     row('Created', c.createdAt),
     row('Updated', `${c.updatedAt} by ${c.updatedBy === 'CLAUDE' ? 'Claude' : 'User'}`),
     '</table><h3>Description</h3>',
-    `<div class="t">${escapeHtml(c.description || '(no description)')}</div><h3>Linked</h3><ul>`,
+    `${textHtml(c.description, '(no description)')}<h3>Linked</h3><ul>`,
     ...c.links.map((l) => `<li>${escapeHtml(mentionTypeOf(l))} <code>${escapeHtml(l.ref)}</code> - ${escapeHtml(l.label)}</li>`),
     '</ul><h3>Activity</h3><ul>',
   ];
@@ -65,12 +69,23 @@ function cardHtml(c: CardDetail, history: readonly ActivityEntry[]): string {
     if (e.kind === 'COMMENT') {
       const parts = claudeParts(e.text);
       const body = parts ? parts.map((p) => `<div><span class="lbl">${escapeHtml(p.label)}</span>${escapeHtml(p.text)}</div>`).join('')
-        : escapeHtml(e.text ?? '');
-      out.push(`<li><b>${e.actor === 'CLAUDE' ? 'Claude' : 'User'}</b> <span class="dim">${escapeHtml(e.at + replyNote(e, history))}</span><div class="t">${body}</div></li>`);
+        : null;
+      out.push(`<li><b>${e.actor === 'CLAUDE' ? 'Claude' : 'User'}</b> <span class="dim">${escapeHtml(e.at + replyNote(e, history))}</span>`
+        + `${body === null ? textHtml(e.text, '') : `<div class="t">${body}</div>`}</li>`);
     } else {
       out.push(`<li>${escapeHtml(changeText(e))} <span class="dim">${escapeHtml(e.at)}</span></li>`);
     }
   }
   out.push('</ul></section>');
   return out.join('');
+}
+
+/** A text as the page shows it: Markdown kept as written (escaped, line breaks kept), rich text as clean HTML. */
+function textHtml(text: string | null | undefined, empty: string): string {
+  if (isHtml(text)) {
+    // pictures load from the Alfred the page was exported from
+    const origin = (globalThis as { BACKEND_URL?: string }).BACKEND_URL ?? '';
+    return `<div class="t r">${blocksToHtml(htmlBlocks(text!)).replace(/ src="\/board\/images\//g, ` src="${origin}/board/images/`)}</div>`;
+  }
+  return `<div class="t">${escapeHtml(text || empty)}</div>`;
 }

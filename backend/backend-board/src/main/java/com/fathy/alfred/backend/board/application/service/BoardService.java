@@ -29,6 +29,9 @@ import com.fathy.alfred.backend.board.application.port.out.CallSignaturePort;
 import com.fathy.alfred.backend.board.application.port.out.MentionedCallsChangedPort;
 import com.fathy.alfred.backend.board.domain.ClaudeRules;
 import com.fathy.alfred.backend.board.domain.MentionParser;
+import com.fathy.alfred.backend.board.domain.RichText;
+import com.fathy.alfred.backend.board.domain.model.TextVersion;
+import com.fathy.alfred.backend.board.application.port.in.CommentExtrasUseCase;
 import com.fathy.alfred.backend.board.domain.QuickAddParser;
 import com.fathy.alfred.backend.board.domain.Transitions;
 import com.fathy.alfred.backend.board.domain.model.ActivityEntry;
@@ -88,7 +91,7 @@ import java.util.stream.Collectors;
 public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, UpdateCardUseCase, MoveCardUseCase, DeleteCardUseCase,
         QueryCardsUseCase, GetCardUseCase, CloseCardUseCase, ReopenCardUseCase, SetReasonUseCase, UndoCloseUseCase, BulkCardsUseCase,
         LinkCardUseCase, CommentOnCardUseCase, ListActivityUseCase, ListClosedReasonsUseCase, CallBadgesUseCase,
-        ListMentionedCallIdsUseCase, ProposeUseCase, CardLinksUseCase, AssignTeamsUseCase {
+        ListMentionedCallIdsUseCase, ProposeUseCase, CardLinksUseCase, AssignTeamsUseCase, CommentExtrasUseCase {
 
     public static final int MAX_TITLE = 300;
     public static final int MAX_TEXT = 256 * 1024;
@@ -128,9 +131,10 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
 
     @Override
     public synchronized CardChange create(Actor actor, NewCard in) {
+        String cleanDescription = in.description() == null ? null : RichText.clean(in.description());
         String problem = checkTitle(in.title());
         if (problem == null) {
-            problem = checkText(in.description(), "description");
+            problem = checkText(cleanDescription, "description");
         }
         if (problem == null && in.kind() == null) {
             problem = "kind is required";
@@ -139,7 +143,7 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
             return CardChange.refused(CardChange.Outcome.INVALID, problem);
         }
         String project = in.project() == null ? "" : in.project().strip();
-        String description = in.description() == null ? "" : in.description();
+        String description = cleanDescription == null ? "" : cleanDescription;
         List<MentionRef> links = in.links() == null ? List.of() : in.links();
         CardStatus status = in.status() == null || in.status() == CardStatus.CLOSED ? CardStatus.INBOX : in.status();
         if (actor == Actor.CLAUDE) {
@@ -170,7 +174,7 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
             }
             teams = pick.ids();
         } else {
-            List<TeamHints.Match> matches = TeamHints.match(known, in.title(), description);
+            List<TeamHints.Match> matches = TeamHints.match(known, in.title(), RichText.plain(description));
             teams = matches.stream().map(TeamHints.Match::teamId).toList();
             if (!matches.isEmpty()) {
                 teamsReason = "From the teams' hints: " + matches.stream().map(m -> nameOf(m.teamId(), known) + " (\"" + m.hint() + "\")")
@@ -189,6 +193,7 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
             waitOn(card.id(), Waiting.USER, actor); // a finding waits for the user to sort it
         }
         store.replaceMentions(MentionOwner.CARD, card.id(), card.id(), MentionParser.mentions(description));
+        store.attachImages(RichText.imageIds(description), card.id(), null);
         for (MentionRef link : links) {
             store.addDirect(card.id(), link);
         }
@@ -229,12 +234,13 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
                 return CardChange.refused(CardChange.Outcome.INVALID, problem);
             }
         }
-        String problem = checkText(edit.description(), "description");
+        String newDescription = edit.description() == null ? null : RichText.clean(edit.description());
+        String problem = checkText(newDescription, "description");
         if (problem != null) {
             return CardChange.refused(CardChange.Outcome.INVALID, problem);
         }
         String title = edit.title() == null ? card.title() : edit.title().strip();
-        String description = edit.description() == null ? card.description() : edit.description();
+        String description = newDescription == null ? card.description() : newDescription;
         var kind = edit.kind() == null ? card.kind() : edit.kind();
         Set<Flag> flags = edit.flags() == null ? card.flags() : edit.flags();
         Scope scope = edit.scope() == null ? card.scope() : edit.scope();
@@ -264,6 +270,12 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
             next = next.withSignature(signatureOf(after));
         }
         store.update(next);
+        if (!card.description().equals(description)) {
+            if (!card.description().isBlank()) {
+                store.saveVersion(new TextVersion("description:" + id, card.description(), card.updatedBy(), now));
+            }
+            store.attachImages(RichText.imageIds(description), id, null);
+        }
         for (String[] c : changes) {
             record(id, actor, ActivityKind.valueOf(c[0]), null, c[1], c[2]);
         }
@@ -699,7 +711,7 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
             if (blank(comment.text())) {
                 return new CommentOutcome(CardChange.Outcome.INVALID, null, "A comment needs text");
             }
-            text = comment.text();
+            text = RichText.clean(comment.text());
         }
         String problem = checkText(text, "comment");
         if (problem != null) {
@@ -708,6 +720,7 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
         long entryId = store.append(new ActivityEntry(0, id, actor, ActivityKind.COMMENT, text, null, null, clock.instant(), replyTo));
         List<MentionRef> refs = MentionParser.mentions(text);
         store.replaceMentions(MentionOwner.ACTIVITY, Long.toString(entryId), id, refs);
+        store.attachImages(RichText.imageIds(text), id, null);
         Card next = touched(found.get(), actor, refs);
         if (actor == Actor.USER && replyTo != null && comment.clearDecision() && next.flags().contains(Flag.NEEDS_DECISION)
                 && unansweredQuestions(id) == 0) {
@@ -745,6 +758,88 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
         changed(next, "activity");
         ActivityEntry entry = new ActivityEntry(entryId, id, actor, ActivityKind.COMMENT, text, null, null, next.updatedAt(), replyTo);
         return new CommentOutcome(CardChange.Outcome.OK, entry, null);
+    }
+
+    // ------------------------------------------------------------------------------------------- reactions and edits
+
+    @Override
+    public synchronized Outcome react(Actor actor, String cardId, long commentId, String emoji) {
+        if (actor != Actor.USER) {
+            return new Outcome(CardChange.Outcome.REFUSED_FOR_CLAUDE, "Reactions are the user's", false);
+        }
+        String e = emoji == null ? "" : emoji.strip();
+        if (!REACTIONS.contains(e)) {
+            return new Outcome(CardChange.Outcome.INVALID, "A reaction is one of " + String.join(" ", REACTIONS), false);
+        }
+        Optional<Card> found = store.find(cardId);
+        Optional<ActivityEntry> target = store.activityEntry(commentId);
+        if (found.isEmpty() || target.isEmpty() || !target.get().cardId().equals(cardId) || target.get().kind() != ActivityKind.COMMENT) {
+            return new Outcome(CardChange.Outcome.NOT_FOUND, "No such comment on this card", false);
+        }
+        Optional<ActivityEntry> mine = store.after(cardId, commentId).stream()
+                .filter(x -> x.kind() == ActivityKind.REACTION && x.actor() == actor && e.equals(x.text()) && Long.valueOf(commentId).equals(x.replyTo()))
+                .findFirst();
+        Card next = found.get().touched(clock.instant(), actor);
+        store.update(next);
+        if (mine.isPresent()) {
+            store.deleteActivity(mine.get().id());
+            changed(next, "activity");
+            return new Outcome(CardChange.Outcome.OK, null, false);
+        }
+        store.append(new ActivityEntry(0, cardId, actor, ActivityKind.REACTION, e, null, null, clock.instant(), commentId));
+        if (GO.equals(e) && target.get().actor() == Actor.CLAUDE) {
+            waitOn(cardId, Waiting.CLAUDE, actor); // ✅ on Claude's plan or question is the go-ahead: Claude's turn
+        }
+        changed(next, "activity");
+        return new Outcome(CardChange.Outcome.OK, null, true);
+    }
+
+    @Override
+    public synchronized Outcome editComment(Actor actor, String cardId, long commentId, String text) {
+        if (actor != Actor.USER) {
+            return new Outcome(CardChange.Outcome.REFUSED_FOR_CLAUDE, "Claude does not edit comments - it writes a new one", false);
+        }
+        Optional<Card> found = store.find(cardId);
+        Optional<ActivityEntry> target = store.activityEntry(commentId);
+        if (found.isEmpty() || target.isEmpty() || !target.get().cardId().equals(cardId) || target.get().kind() != ActivityKind.COMMENT) {
+            return new Outcome(CardChange.Outcome.NOT_FOUND, "No such comment on this card", false);
+        }
+        if (target.get().actor() != Actor.USER) {
+            return new Outcome(CardChange.Outcome.INVALID, "Only your own comments can be edited", false);
+        }
+        if (blank(text)) {
+            return new Outcome(CardChange.Outcome.INVALID, "A comment needs text", false);
+        }
+        String clean = RichText.clean(text);
+        String problem = checkText(clean, "comment");
+        if (problem != null) {
+            return new Outcome(CardChange.Outcome.INVALID, problem, false);
+        }
+        String before = target.get().text() == null ? "" : target.get().text();
+        if (before.equals(clean)) {
+            return new Outcome(CardChange.Outcome.OK, null, false);
+        }
+        Instant now = clock.instant();
+        store.saveVersion(new TextVersion("comment:" + commentId, before, Actor.USER, now));
+        store.updateActivityText(commentId, clean);
+        List<MentionRef> beforeRefs = MentionParser.mentions(before);
+        List<MentionRef> refs = MentionParser.mentions(clean);
+        store.replaceMentions(MentionOwner.ACTIVITY, Long.toString(commentId), cardId, refs);
+        store.attachImages(RichText.imageIds(clean), cardId, null);
+        // in the history and the change feed, so Claude (and /alfred-live) sees the comment changed
+        store.append(new ActivityEntry(0, cardId, actor, ActivityKind.COMMENT_EDITED, clean, null, null, now, commentId));
+        Card next = found.get().touched(now, actor);
+        store.update(next);
+        if (!liveCalls(beforeRefs).equals(liveCalls(refs))) {
+            mentionedCalls.mentionedCallsChanged();
+        }
+        changed(next, "activity");
+        return new Outcome(CardChange.Outcome.OK, null, true);
+    }
+
+    @Override
+    public List<TextVersion> versions(String owner) {
+        return owner == null || !owner.matches("^(comment|description):[\\w-]{1,100}$") ? List.of() : store.versions(owner);
     }
 
     /** Claude's questions on the card that no reply from the user answers yet. */

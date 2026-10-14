@@ -12,7 +12,9 @@ export type Actor = 'USER' | 'CLAUDE';
 export type MentionType = 'call' | 'stmt' | 'log' | 'redis' | 'spec' | 'code' | 'cycle' | 'spacer' | 'card' | 'rule';
 export type ActivityKind = 'COMMENT' | 'CREATED' | 'STATUS' | 'KIND' | 'SCOPE' | 'FLAGS' | 'RESOLUTION' | 'REASON' | 'TITLE'
   | 'DESCRIPTION' | 'LINK_ADDED' | 'LINK_REMOVED' | 'CYCLE' | 'PROJECT' | 'SPEC_REPLACED' | 'REOPENED' | 'IMPORTED' | 'DELETED'
-  | 'PROPOSED' | 'PROPOSAL_ACCEPTED' | 'PROPOSAL_DISMISSED' | 'MERGED' | 'BLOCKED' | 'UNBLOCKED' | 'SPEC_ITEM' | 'TEAMS';
+  | 'PROPOSED' | 'PROPOSAL_ACCEPTED' | 'PROPOSAL_DISMISSED' | 'MERGED' | 'BLOCKED' | 'UNBLOCKED' | 'SPEC_ITEM' | 'TEAMS'
+  /** Rich text (docs/board.md "Rich text"): a reaction on a comment (text = the emoji, replyTo = the comment), and the user's edit of one. */
+  | 'REACTION' | 'COMMENT_EDITED';
 export type Mark = 'PASS' | 'FAIL' | 'CANT_TELL';
 export type BulkAction = 'FINE' | 'NOT_IN_FLOW' | 'TO_DO' | 'MARK_URGENT' | 'DELETE';
 
@@ -181,6 +183,17 @@ export interface ActivityEntry {
   /** The comment this one answers (one level), or null. */
   readonly replyTo?: number | null;
 }
+
+/** An earlier text of a comment or description, kept when it was edited. */
+export interface TextVersion {
+  readonly owner: string;
+  readonly text: string;
+  readonly actor: Actor;
+  readonly at: string;
+}
+
+/** The reactions a comment can get; ✅ on Claude's plan or question is the go-ahead. */
+export const REACTIONS: readonly string[] = ['👍', '✅', '🤔', '👀', '🎉', '❌'];
 
 export interface ActivityPage {
   readonly entries: readonly ActivityEntry[];

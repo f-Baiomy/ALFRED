@@ -28,7 +28,7 @@ export const SPEC_PAGE_CHARS = 200_000;
           </div>
           @if (error()) { <div class="board-error">{{ error() }}</div> }
           @if (isMarkdown()) {
-            <app-markdown-view [text]="shownText()" idPrefix="spec-" />
+            <app-markdown-view [text]="shownText()" idPrefix="spec-" [outline]="true" [specFile]="t.name" [cycleId]="t.cycleId" />
           } @else {
             <pre class="board-md-pre">{{ shownText() }}</pre>
           }

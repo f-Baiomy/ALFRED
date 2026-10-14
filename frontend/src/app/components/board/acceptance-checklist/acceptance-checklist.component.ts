@@ -39,7 +39,7 @@ import { MentionEditorComponent } from '../mention-editor/mention-editor.compone
                 }
                 @if (editing() === item.key) {
                   <app-mention-editor [value]="item.mark?.evidence ?? ''" [project]="project()" [cycleId]="cycleId()" submitLabel="Save"
-                                      [cancellable]="true" [allowEmpty]="true" [rows]="2"
+                                      [cancellable]="true" [allowEmpty]="true" [rows]="2" [draftKey]="'evidence:' + cycleId() + ':' + f.fileName + ':' + item.key"
                                       (submitted)="mark(f, item, item.mark?.mark ?? 'CANT_TELL', $event)" (cancelled)="editing.set(null)" />
                 }
                 @if (item.mark; as mk) { <span class="board-dim board-check-when">{{ when(mk.updatedAt) }}</span> }

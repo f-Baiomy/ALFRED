@@ -17,6 +17,7 @@ import com.fathy.alfred.backend.board.application.port.out.MentionedCallsChanged
 import com.fathy.alfred.backend.board.domain.AcceptanceItems;
 import com.fathy.alfred.backend.board.domain.ClaudeRules;
 import com.fathy.alfred.backend.board.domain.MentionParser;
+import com.fathy.alfred.backend.board.domain.RichText;
 import com.fathy.alfred.backend.board.domain.model.ActivityEntry;
 import com.fathy.alfred.backend.board.domain.model.ActivityKind;
 import com.fathy.alfred.backend.board.domain.model.Actor;
@@ -86,7 +87,7 @@ public class CycleBriefService implements ManageBriefUseCase, ManageSpecFilesUse
     public BriefOutcome putBrief(Actor actor, String cycleId, String text) {
         // Claude may write it too (specs/015, /alfred-setup and /alfred-spec ask the user first); the author is recorded and
         // the replaced text kept for Restore previous.
-        String clean = text == null ? "" : text;
+        String clean = text == null ? "" : RichText.clean(text);
         if (clean.length() > ManageBriefUseCase.MAX_TEXT) {
             return new BriefOutcome(CardChange.Outcome.INVALID, null, "The brief is larger than 256 KB");
         }
@@ -95,6 +96,7 @@ public class CycleBriefService implements ManageBriefUseCase, ManageSpecFilesUse
         CycleBrief brief = brief(cycleId);
         List<MentionRef> after = MentionParser.mentions(clean);
         store.replaceMentions(MentionOwner.BRIEF, cycleId, null, after);
+        store.attachImages(RichText.imageIds(clean), null, cycleId);
         if (hasLiveCall(before) || hasLiveCall(after)) {
             mentionedCalls.mentionedCallsChanged();
         }
@@ -120,7 +122,7 @@ public class CycleBriefService implements ManageBriefUseCase, ManageSpecFilesUse
         if (problem != null) {
             return new SpecOutcome(CardChange.Outcome.INVALID, null, false, problem);
         }
-        String text = content == null ? "" : content;
+        String text = content == null ? "" : RichText.clean(content);
         long size = text.getBytes(StandardCharsets.UTF_8).length;
         if (size > ManageSpecFilesUseCase.MAX_BYTES) {
             return new SpecOutcome(CardChange.Outcome.INVALID, null, false, "A spec file can be at most 5 MB");
@@ -270,7 +272,7 @@ public class CycleBriefService implements ManageBriefUseCase, ManageSpecFilesUse
         if (mark == null) {
             return new MarkOutcome(CardChange.Outcome.INVALID, null, "mark is required");
         }
-        String cleanEvidence = evidence == null ? "" : evidence.strip();
+        String cleanEvidence = evidence == null ? "" : RichText.clean(evidence.strip());
         if (cleanEvidence.length() > MarkChecklistUseCase.MAX_EVIDENCE) {
             return new MarkOutcome(CardChange.Outcome.INVALID, null, "evidence is larger than 8 KB");
         }

@@ -23,7 +23,7 @@ import { MentionEditorComponent } from '../mention-editor/mention-editor.compone
           @if (current(); as q) {
             <div class="board-dim">✦ Claude's question {{ index() + 1 }} of {{ open().length }}</div>
             <div class="board-quick-q"><app-markdown-view [text]="questionText(q)" /></div>
-            <app-mention-editor [project]="c.project" [cycleId]="c.cycleId" [rows]="3" submitLabel="Answer" placeholder="Your answer… type @ to mention"
+            <app-mention-editor [project]="c.project" [cycleId]="c.cycleId" [rows]="3" submitLabel="Answer" placeholder="Your answer… type @ to mention" [draftKey]="'answer:' + c.id"
                                 [card]="{ id: c.id, project: c.project, number: c.number, cycleId: c.cycleId }" (submitted)="send(q, $event)" />
             <div class="board-quick-foot">
               <label class="board-ev-clear"><input type="checkbox" [checked]="clear()" (change)="clear.set($any($event.target).checked)" />

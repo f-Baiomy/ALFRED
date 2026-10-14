@@ -1,28 +1,54 @@
 import { MentionRef } from '../../core/models/board.models';
+import { CodeToken, codeTokens, jsonCodeTokens, langOf } from './code-highlight';
 import { parseMentions, slug } from './mention-syntax';
 
 /**
- * The Markdown subset the board shows (descriptions, comments, briefs, spec files) as a typed tree, rendered with
- * plain Angular bindings by MarkdownViewComponent - never innerHTML, since spec files and Claude's text are untrusted
- * (constitution I, research R7). Links are kept only for http(s) URLs; anything else stays text.
+ * The board's text (descriptions, comments, briefs, spec files) as a typed tree, rendered with plain Angular bindings by
+ * MarkdownViewComponent - never innerHTML, since spec files and Claude's text are untrusted (constitution I, research R7).
+ * Two ways in, one tree: Markdown (everything written before rich text, and what Claude writes) here, and the editor's
+ * HTML in rich-html.ts (docs/board.md "Rich text"). Links are kept only for http(s) / mailto; pictures only Alfred's own.
  */
 export type Inline =
   | { readonly kind: 'text'; readonly text: string }
   | { readonly kind: 'code'; readonly text: string }
   | { readonly kind: 'bold'; readonly children: readonly Inline[] }
   | { readonly kind: 'italic'; readonly children: readonly Inline[] }
+  | { readonly kind: 'underline'; readonly children: readonly Inline[] }
+  | { readonly kind: 'strike'; readonly children: readonly Inline[] }
+  | { readonly kind: 'mark'; readonly children: readonly Inline[] }
+  | { readonly kind: 'sub'; readonly children: readonly Inline[] }
+  | { readonly kind: 'sup'; readonly children: readonly Inline[] }
+  | { readonly kind: 'kbd'; readonly children: readonly Inline[] }
+  | { readonly kind: 'color'; readonly color: TextColor; readonly children: readonly Inline[] }
   | { readonly kind: 'link'; readonly href: string; readonly children: readonly Inline[] }
-  | { readonly kind: 'mention'; readonly ref: MentionRef };
+  | { readonly kind: 'mention'; readonly ref: MentionRef }
+  | { readonly kind: 'variable'; readonly name: string }
+  | { readonly kind: 'pill'; readonly tone: PillTone; readonly text: string }
+  | { readonly kind: 'br' };
+
+export type TextColor = 'red' | 'green' | 'amber' | 'blue' | 'purple';
+export type PillTone = 'ok' | 'fail' | 'wait' | 'info';
+export type CalloutTone = 'info' | 'warn' | 'bug' | 'ok' | 'next';
+
+export const TEXT_COLORS: readonly TextColor[] = ['red', 'green', 'amber', 'blue', 'purple'];
+export const PILL_TONES: readonly PillTone[] = ['ok', 'fail', 'wait', 'info'];
+export const CALLOUT_TONES: readonly CalloutTone[] = ['info', 'warn', 'bug', 'ok', 'next'];
+export const CALLOUT_TITLES: Record<CalloutTone, string> = { info: 'Note', warn: 'Warning', bug: 'What goes wrong', ok: 'Fixed', next: 'Next' };
+export const PILL_LABELS: Record<PillTone, string> = { ok: 'ok', fail: 'fail', wait: 'waiting', info: 'info' };
 
 export type Block =
   | { readonly kind: 'heading'; readonly level: number; readonly slug: string; readonly inlines: readonly Inline[] }
   | { readonly kind: 'paragraph'; readonly inlines: readonly Inline[] }
-  | { readonly kind: 'list'; readonly ordered: boolean; readonly items: readonly (readonly Inline[])[] }
-  | { readonly kind: 'code'; readonly text: string; readonly lang: string; readonly json: readonly JsonToken[] | null }
+  /** {@code checks}: a checklist - true ticked, false open, per item. */
+  | { readonly kind: 'list'; readonly ordered: boolean; readonly items: readonly (readonly Inline[])[]; readonly checks?: readonly boolean[] }
+  | { readonly kind: 'code'; readonly text: string; readonly lang: string; readonly json: readonly JsonToken[] | null; readonly tokens?: readonly CodeToken[] | null }
   | { readonly kind: 'quote'; readonly inlines: readonly Inline[] }
   | { readonly kind: 'facts'; readonly facts: readonly Fact[] }
   | { readonly kind: 'table'; readonly header: readonly (readonly Inline[])[]; readonly rows: readonly (readonly (readonly Inline[])[])[] }
-  | { readonly kind: 'rule' };
+  | { readonly kind: 'rule' }
+  | { readonly kind: 'callout'; readonly tone: CalloutTone; readonly title: readonly Inline[]; readonly blocks: readonly Block[] }
+  | { readonly kind: 'fold'; readonly summary: readonly Inline[]; readonly blocks: readonly Block[] }
+  | { readonly kind: 'image'; readonly src: string; readonly alt: string };
 
 /** One fact of a `> a · b · c` line - shown as a pill, red for a failure, amber for a stop or a gap. */
 export interface Fact {
@@ -36,14 +62,26 @@ export interface JsonToken {
   readonly kind: 'key' | 'string' | 'number' | 'bool' | 'null' | null;
 }
 
+/** A picture stored in Alfred - the only kind a board text shows. */
+export const BOARD_IMAGE = /^\/board\/images\/[A-Za-z0-9-]{8,64}$/;
+
 const HEADING = /^(#{1,6})\s+(.*)$/;
 const QUOTE = /^\s*>\s?(.*)$/;
-const FENCE_LANG = /^\s*```\s*([\w-]*)/;
+const FENCE_LANG = /^\s*```\s*([\w+#-]*)/;
 const BULLET = /^\s*[-*+]\s+(.*)$/;
 const ORDERED = /^\s*\d+[.)]\s+(.*)$/;
+const CHECK = /^\[([ xX])\]\s+(.*)$/;
 const FENCE = /^\s*```/;
 const RULE = /^\s*(-{3,}|\*{3,}|_{3,})\s*$/;
 const TABLE_SEPARATOR = /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$/;
+const CALLOUT = /^\[!(note|info|tip|warning|warn|caution|bug|danger|error|fixed|ok|success|next|important)\]\s*(.*)$/i;
+const FOLD = /^\s*\+\+\+\s*(.*)$/;
+const IMAGE = /^\s*!\[([^\]\n]*)\]\(([^)\s]+)\)\s*$/;
+
+const CALLOUT_OF: Record<string, CalloutTone> = {
+  note: 'info', info: 'info', tip: 'ok', important: 'warn', warning: 'warn', warn: 'warn', caution: 'warn', bug: 'bug', danger: 'bug',
+  error: 'bug', fixed: 'ok', ok: 'ok', success: 'ok', next: 'next',
+};
 
 export function markdownBlocks(text: string | null | undefined): Block[] {
   const lines = (text ?? '').split(/\r?\n/);
@@ -64,10 +102,25 @@ export function markdownBlocks(text: string | null | undefined): Block[] {
       blocks.push(codeBlock(code.join('\n'), lang));
       continue;
     }
+    const fold = FOLD.exec(line);
+    if (fold) {
+      const inner: string[] = [];
+      i++;
+      while (i < lines.length && !/^\s*\+\+\+\s*$/.test(lines[i])) inner.push(lines[i++]);
+      i++;
+      blocks.push({ kind: 'fold', summary: inlines(fold[1].trim() || 'Details'), blocks: markdownBlocks(inner.join('\n')) });
+      continue;
+    }
     if (QUOTE.test(line)) {
       const quoted: string[] = [];
       while (i < lines.length && QUOTE.test(lines[i])) quoted.push(QUOTE.exec(lines[i++])![1]);
-      blocks.push(quoteBlock(quoted.join('\n')));
+      blocks.push(quoteBlock(quoted));
+      continue;
+    }
+    const image = IMAGE.exec(line);
+    if (image && BOARD_IMAGE.test(image[2])) {
+      blocks.push({ kind: 'image', src: image[2], alt: image[1] });
+      i++;
       continue;
     }
     const heading = HEADING.exec(line.trim());
@@ -93,13 +146,20 @@ export function markdownBlocks(text: string | null | undefined): Block[] {
     if (ordered || BULLET.test(line)) {
       const pattern = ordered ? ORDERED : BULLET;
       const items: Inline[][] = [];
-      while (i < lines.length && pattern.test(lines[i])) items.push(inlines(pattern.exec(lines[i++])![1]));
-      blocks.push({ kind: 'list', ordered, items });
+      const checks: (boolean | null)[] = [];
+      while (i < lines.length && pattern.test(lines[i])) {
+        const item = pattern.exec(lines[i++])![1];
+        const check = ordered ? null : CHECK.exec(item);
+        checks.push(check ? check[1] !== ' ' : null);
+        items.push(inlines(check ? check[2] : item));
+      }
+      const checklist = checks.length > 0 && checks.every((c) => c !== null);
+      blocks.push(checklist ? { kind: 'list', ordered, items, checks: checks as boolean[] } : { kind: 'list', ordered, items });
       continue;
     }
     const para: string[] = [];
     while (i < lines.length && lines[i].trim() && !FENCE.test(lines[i]) && !HEADING.test(lines[i].trim())
-      && !BULLET.test(lines[i]) && !ORDERED.test(lines[i]) && !QUOTE.test(lines[i])) {
+      && !BULLET.test(lines[i]) && !ORDERED.test(lines[i]) && !QUOTE.test(lines[i]) && !FOLD.test(lines[i])) {
       para.push(lines[i++]);
     }
     blocks.push({ kind: 'paragraph', inlines: inlines(para.join('\n')) });
@@ -107,44 +167,38 @@ export function markdownBlocks(text: string | null | undefined): Block[] {
   return blocks;
 }
 
-/** A ```json block that parses is pretty-printed and coloured; anything else stays exactly as written. */
-function codeBlock(text: string, lang: string): Block {
-  if (lang === 'json') {
+/** A ```json block that parses is pretty-printed and coloured; other languages coloured as written; anything else stays text. */
+export function codeBlock(text: string, lang: string): Block {
+  const l = langOf(lang);
+  if (l === 'json') {
     try {
       const pretty = JSON.stringify(JSON.parse(text), null, 2);
       return { kind: 'code', text: pretty, lang: 'json', json: jsonTokens(pretty) };
     } catch {
       // not JSON after all - shown as written
     }
+    return { kind: 'code', text, lang: 'json', json: null };
   }
-  return { kind: 'code', text, lang, json: null };
+  const tokens = codeTokens(text, l);
+  return tokens ? { kind: 'code', text, lang, json: null, tokens } : { kind: 'code', text, lang, json: null };
 }
-
-const JSON_TOKEN = /("(?:[^"\\]|\\.)*")(\s*:)?|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|\b(true|false)\b|\b(null)\b/g;
 
 /** Tokens of pretty-printed JSON - every character kept, in order, so the text reads exactly as JSON.stringify wrote it. */
 export function jsonTokens(text: string): JsonToken[] {
-  const out: JsonToken[] = [];
-  let last = 0;
-  for (const m of text.matchAll(JSON_TOKEN)) {
-    if (m.index! > last) out.push({ text: text.slice(last, m.index), kind: null });
-    if (m[1]) {
-      out.push({ text: m[1], kind: m[2] ? 'key' : 'string' });
-      if (m[2]) out.push({ text: m[2], kind: null });
-    } else {
-      out.push({ text: m[0], kind: m[3] ? 'number' : m[4] ? 'bool' : 'null' });
-    }
-    last = m.index! + m[0].length;
-  }
-  if (last < text.length) out.push({ text: text.slice(last), kind: null });
-  return out;
+  return jsonCodeTokens(text) as JsonToken[];
 }
 
 const BAD_FACT = /\b[45]\d\d\b|fail|error|exception|crash|lost/i;
 const WARN_FACT = /stop|block|no log|missing|slow|retr|warn|gap|skipp/i;
 
-/** `> a · b · c` is a line of facts (pills); any other quote stays a quote. */
-function quoteBlock(text: string): Block {
+/** `> [!BUG] title` is a callout; `> a · b · c` is a line of facts (pills); any other quote stays a quote. */
+function quoteBlock(lines: string[]): Block {
+  const callout = CALLOUT.exec(lines[0]?.trim() ?? '');
+  if (callout) {
+    const tone = CALLOUT_OF[callout[1].toLowerCase()] ?? 'info';
+    return { kind: 'callout', tone, title: inlines(callout[2].trim()), blocks: markdownBlocks(lines.slice(1).join('\n')) };
+  }
+  const text = lines.join('\n');
   const parts = text.split(/\s+·\s+/).map((p) => p.trim()).filter(Boolean);
   if (parts.length < 2) return { kind: 'quote', inlines: inlines(text) };
   return {
@@ -174,7 +228,7 @@ function cells(line: string): string[] {
   return line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim());
 }
 
-/** Mentions first (their labels may hold Markdown characters), then code, links, bold and italic in the text between. */
+/** Mentions first (their labels may hold Markdown characters), then code, links, variables, pills and emphasis in the text between. */
 export function inlines(text: string): Inline[] {
   const out: Inline[] = [];
   for (const segment of parseMentions(text)) {
@@ -184,7 +238,18 @@ export function inlines(text: string): Inline[] {
   return out;
 }
 
-const TOKEN = /(`[^`\n]+`)|(\[[^\]\n]+\]\([^)\s]+\))|(\*\*[^*\n]+\*\*)|(__[^_\n]+__)|(\*[^*\n]+\*)|(_[^_\n]+_)/;
+const TOKEN = new RegExp([
+  /(`[^`\n]+`)/.source,                                      // 1 code
+  /(\[[^\]\n]+\]\([^)\s]+\))/.source,                         // 2 link
+  /(\{\{\s*[A-Za-z_][\w.-]*\s*\}\})/.source,                  // 3 variable
+  /(\[(?:ok|fail|wait|info)(?::[^\]\n]{1,60})?\](?!\())/.source, // 4 pill
+  /(\*\*[^*\n]+\*\*)/.source,                                // 5 bold
+  /(__[^_\n]+__)/.source,                                    // 6 bold
+  /(==[^=\n]+==)/.source,                                    // 7 highlight
+  /(~~[^~\n]+~~)/.source,                                    // 8 strike
+  /(\*[^*\n]+\*)/.source,                                    // 9 italic
+  /(_[^_\n]+_)/.source,                                      // 10 italic
+].join('|'));
 
 function formatted(text: string): Inline[] {
   const out: Inline[] = [];
@@ -203,16 +268,32 @@ function formatted(text: string): Inline[] {
       const close = token.indexOf('](');
       const label = token.slice(1, close);
       const href = token.slice(close + 2, -1);
-      if (/^https?:\/\//i.test(href)) out.push({ kind: 'link', href, children: formatted(label) });
+      if (/^(https?:\/\/|mailto:)/i.test(href)) out.push({ kind: 'link', href, children: formatted(label) });
       else out.push({ kind: 'text', text: token });
-    } else if (m[3] || m[4]) {
+    } else if (m[3]) {
+      out.push({ kind: 'variable', name: token.slice(2, -2).trim() });
+    } else if (m[4]) {
+      out.push(pillOf(token.slice(1, -1)));
+    } else if (m[5] || m[6]) {
       out.push({ kind: 'bold', children: formatted(token.slice(2, -2)) });
+    } else if (m[7]) {
+      out.push({ kind: 'mark', children: formatted(token.slice(2, -2)) });
+    } else if (m[8]) {
+      out.push({ kind: 'strike', children: formatted(token.slice(2, -2)) });
     } else {
       out.push({ kind: 'italic', children: formatted(token.slice(1, -1)) });
     }
     rest = rest.slice(m.index + token.length);
   }
   return out;
+}
+
+/** `ok`, `fail: 500`, ... - the inside of a `[ok]` pill. */
+export function pillOf(inner: string): Inline {
+  const colon = inner.indexOf(':');
+  const tone = (colon < 0 ? inner : inner.slice(0, colon)).trim().toLowerCase() as PillTone;
+  const text = colon < 0 ? PILL_LABELS[tone] : inner.slice(colon + 1).trim();
+  return { kind: 'pill', tone: PILL_TONES.includes(tone) ? tone : 'info', text: text || PILL_LABELS[tone] };
 }
 
 /** The plain text of inlines - for exports, titles and tests. */
@@ -224,8 +305,24 @@ export function plainText(nodes: readonly Inline[]): string {
         return n.text;
       case 'mention':
         return n.ref.label;
+      case 'variable':
+        return `{{${n.name}}}`;
+      case 'pill':
+        return `[${n.text}]`;
+      case 'br':
+        return '\n';
       default:
         return plainText(n.children);
     }
   }).join('');
+}
+
+/** Every heading of the blocks, callouts and folds included - the outline of a long text. */
+export function headingsOf(blocks: readonly Block[]): { level: number; slug: string; text: string }[] {
+  const out: { level: number; slug: string; text: string }[] = [];
+  for (const b of blocks) {
+    if (b.kind === 'heading') out.push({ level: b.level, slug: b.slug, text: plainText(b.inlines) });
+    else if (b.kind === 'callout' || b.kind === 'fold') out.push(...headingsOf(b.blocks));
+  }
+  return out;
 }

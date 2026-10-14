@@ -39,7 +39,7 @@ public final class AcceptanceItems {
             return items;
         }
         int level = -1;
-        for (String raw : content.split("\r?\n", -1)) {
+        for (String raw : RichText.markdownLines(content).split("\r?\n", -1)) {
             String line = raw.replace("\r", "");
             Matcher heading = HEADING.matcher(line.strip());
             if (heading.matches() && !Character.isWhitespace(line.isEmpty() ? 'x' : line.charAt(0))) {

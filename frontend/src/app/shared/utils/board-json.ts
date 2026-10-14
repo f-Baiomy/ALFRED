@@ -24,6 +24,28 @@ export interface BoardExport {
   readonly briefs: readonly CycleBrief[];
   readonly specs: readonly BoardSpecFile[];
   readonly marks: readonly ChecklistMark[];
+  /** The pictures the texts show (base64), so an import elsewhere shows them too - .json only. */
+  readonly images?: readonly BoardImageData[];
+}
+
+export interface BoardImageData {
+  readonly id: string;
+  readonly mime: string;
+  readonly data: string;
+}
+
+/** Every picture id the export's texts show (`/board/images/<id>`), each once. */
+export function boardImageIds(data: BoardExport): string[] {
+  const ids = new Set<string>();
+  const add = (t: string | null | undefined) => {
+    for (const m of (t ?? '').matchAll(/\/board\/images\/([A-Za-z0-9-]{8,64})/g)) ids.add(m[1]);
+  };
+  for (const c of data.cards) add(c.description);
+  for (const list of Object.values(data.activity)) for (const e of list) add(e.text);
+  for (const b of data.briefs) add(b.text);
+  for (const s of data.specs) add(s.content);
+  for (const m of data.marks) add(m.evidence);
+  return [...ids];
 }
 
 const CARD_FIELDS = ['project', 'number', 'kind', 'title', 'description', 'status', 'resolution', 'reason', 'flags', 'teams', 'scope', 'author',
@@ -40,7 +62,7 @@ function directLinks(card: CardDetail, history: readonly ActivityEntry[]): Menti
 
 export function buildBoardJsonLines(data: BoardExport, exportedAt = new Date().toISOString()): string[] {
   const lines: string[] = [JSON.stringify({ format: BOARD_FORMAT, exportedAt, project: data.project, cards: data.cards.length,
-    guide: 'One record per line: card, then activity (by cardNumber), brief, spec, mark. Import with Board → Import .json.' })];
+    guide: 'One record per line: card, then activity (by cardNumber), brief, spec, mark, image (base64). Texts are Markdown or HTML. Import with Board → Import .json.' })];
   for (const card of data.cards) {
     const fields: Record<string, unknown> = {};
     for (const f of CARD_FIELDS) fields[f] = card[f];
@@ -61,6 +83,7 @@ export function buildBoardJsonLines(data: BoardExport, exportedAt = new Date().t
     lines.push(JSON.stringify({ record: 'mark', cycleId: m.cycleId, fileName: m.fileName, itemKey: m.itemKey, mark: m.mark, actor: m.actor,
       evidence: m.evidence, updatedAt: m.updatedAt }));
   }
+  for (const i of data.images ?? []) lines.push(JSON.stringify({ record: 'image', id: i.id, mime: i.mime, data: i.data }));
   return lines;
 }
 

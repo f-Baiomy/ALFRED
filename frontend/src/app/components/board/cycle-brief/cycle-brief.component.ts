@@ -38,7 +38,7 @@ const CHIP_MAX = 48;
       </h3>
       @if (editing()) {
         <app-mention-editor [value]="brief()?.text ?? template" [project]="project()" [cycleId]="cycleId()" submitLabel="Save"
-                            [cancellable]="true" [allowEmpty]="true" [rows]="14" [enterSends]="false"
+                            [cancellable]="true" [allowEmpty]="true" [rows]="14" [enterSends]="false" [draftKey]="'brief:' + cycleId()"
                             placeholder="What is this task? The ticket, its description, scope, test steps… type @ to mention"
                             (submitted)="save($event)" (cancelled)="editing.set(false)" />
       } @else {

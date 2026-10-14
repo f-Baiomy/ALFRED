@@ -12,6 +12,7 @@ class FakeEditorComponent {
   readonly cycleId = input<string | null>(null);
   readonly rows = input(3);
   readonly submitLabel = input('');
+  readonly draftKey = input<string | null>(null);
   readonly placeholder = input('');
   readonly card = input<unknown>(null);
   readonly submitted = output<string>();

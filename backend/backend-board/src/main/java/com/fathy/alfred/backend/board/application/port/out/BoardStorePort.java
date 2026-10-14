@@ -73,6 +73,21 @@ public interface BoardStorePort {
     /** One history entry by id. */
     Optional<ActivityEntry> activityEntry(long id);
 
+    /** A comment's text after its author edited it (the earlier text is kept with {@link #saveVersion}). */
+    void updateActivityText(long id, String text);
+
+    /** Removes one history entry - a reaction taken back. */
+    void deleteActivity(long id);
+
+    /** Keeps an earlier text of a comment or description (edit with a history). */
+    void saveVersion(com.fathy.alfred.backend.board.domain.model.TextVersion version);
+
+    /** Gives the pictures a text shows, not yet owned, to this card (or cycle) - so they go when it goes. */
+    void attachImages(java.util.Collection<String> ids, String cardId, String cycleId);
+
+    /** The earlier texts of {@code comment:<id>} or {@code description:<card id>}, newest first. */
+    List<com.fathy.alfred.backend.board.domain.model.TextVersion> versions(String owner);
+
     /** Entries newer than {@code afterId}. */
     List<ActivityEntry> after(String cardId, long afterId);
 

@@ -71,7 +71,8 @@ final class BoardFixture implements AutoCloseable {
         agent = new AgentStatusService(notifications, clock);
         board = new BoardService(store, notifications, signaturePort, mentioned, agent, feed, clock);
         briefs = new CycleBriefService(store, notifications, mentioned, feed, clock);
-        imports = new ImportBoardService(store, notifications, mentioned, feed);
+        imports = new ImportBoardService(store, notifications, mentioned, feed,
+                (com.fathy.alfred.backend.board.application.port.out.BoardImageStorePort) store);
         insights = new BoardInsightsService(store, signaturePort, (cycleId, limit) -> List.copyOf(cycleCalls), feed,
                 limit -> List.copyOf(liveCalls));
         com.fathy.alfred.backend.board.application.port.out.CallFactsPort factsPort = new com.fathy.alfred.backend.board.application.port.out.CallFactsPort() {

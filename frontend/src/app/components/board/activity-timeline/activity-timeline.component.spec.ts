@@ -15,6 +15,9 @@ class FakeEditorComponent {
   readonly cancellable = input(false);
   readonly submitLabel = input('Comment');
   readonly placeholder = input('');
+  readonly draftKey = input<string | null>(null);
+  readonly value = input('');
+  readonly enterSends = input(true);
   readonly submitted = output<string>();
   readonly cancelled = output<void>();
 }
@@ -71,6 +74,6 @@ describe('ActivityTimelineComponent', () => {
   it('a viewer who may not edit sees the threads but no Reply', () => {
     const fixture = create([e(1, 'USER', 'note'), e(2, 'CLAUDE', '**Reply** ok', 1)], false);
     expect(fixture.nativeElement.querySelectorAll('.board-ev-reply').length).toBe(1);
-    expect(buttons(fixture).length).toBe(0);
+    expect(buttons(fixture).filter((b) => /Reply|Answer|Edit|☺/.test(b.textContent ?? '')).length).toBe(0); // ⧉ Copy stays: reading
   });
 });

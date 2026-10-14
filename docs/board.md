@@ -186,6 +186,49 @@ The ⇄ switch on each comment picks Auto → RTL → LTR for that comment, kept
 (`TextDirectionStateService`, never part of the comment). The comment box follows what is typed the same way; its ⇄
 button or Ctrl+Shift+X forces a direction while writing.
 
+## Rich text
+
+Every text field of the board - description, comment, reply, answer, brief, spec file, checklist evidence - is one
+editor (`app-mention-editor`) and one reader (`app-markdown-view`), so a feature added once works everywhere.
+
+- **Storage**: one string, as before. Plain words with mentions stay plain text (exactly what the old editor wrote);
+  anything formatted is saved as HTML from the editor's block tree (`blocksToHtml` in `shared/utils/rich-html.ts`).
+  Claude writes Markdown with a few extensions (below); old Markdown reads unchanged and opens formatted in the editor.
+  A text is HTML when it starts with a block tag (`RichText.isHtml` / `isHtml`, the same regex on both sides).
+- **Cleaning**: the backend cleans every HTML text on every write and on import (`domain/RichText.clean`, jsoup with an
+  allowlist: headings, lists and checklists, tables, code with `data-lang`, quotes, callouts `aside[data-callout]`,
+  folds `details`, `mark`, colours `span[data-color]`, pills `span[data-pill]`, links http/https/mailto, pictures only
+  from `/board/images/<id>`, `dir`). The page never uses `innerHTML`: the reader parses with an inert `DOMParser` into
+  the typed block tree and renders that, so a pasted page cannot run anything.
+- **Mentions and variables** keep their text form inside the HTML (`@[type:ref|label]` in a `data-mention` chip,
+  `{{name}}` in a `data-var` pill), so the mention index (`MentionParser` reads `RichText.plain`), kept calls and the
+  acceptance checklist (`RichText.markdownLines`) work as before.
+- **Direction**: every block - paragraph, heading, list item, table cell, callout, fold, quote - takes its own `dir`
+  from its words (see Text direction); code is always left-to-right. Mixed Arabic and English reads as before.
+- **Editor**: toolbar (style, bold/italic/underline/strike, code, highlight, colour, lists, checklist, callout, table,
+  fold, pill, divider, link, picture, templates) and `<>` to edit the HTML source; `/` opens a block menu, `{{` a
+  variable menu (global variables of the active environment); Markdown shortcuts (`## `, `- `, `1. `, `[] `, `> `,
+  three backticks, `---`, `**x**`, `==x==`, `~~x~~`); smart paste (pictures upload, formatted HTML keeps its blocks,
+  JSON/SQL/XML/logs become a code block, a URL a link); drafts per field kept in this browser until sent.
+- **Claude's Markdown**: `> [!NOTE|INFO|TIP|WARNING|BUG|DANGER|FIXED|OK|NEXT] title` callouts, `+++ Summary` … `+++`
+  folds, `- [ ]`/`- [x]`, `==mark==`, `~~strike~~`, `[ok]` `[fail]` `[wait]` `[info]` (or `[fail: text]`) pills,
+  `{{name}}`, fenced languages json/sql/java/js/xml/shell/diff/log, and a call mention alone on its line shown as a
+  call card. The writing guide is in `skills/_shared/rules.md` ("Writing on the board"). The MCP server converts every
+  HTML text of a `/board/` answer to this Markdown before Claude reads it (`alfred-client.ts` `readable`).
+- **Pictures** (`board_images` in board.db, `POST /board/images`, `GET /board/images/<id>`): PNG, JPEG, GIF or WebP up
+  to 5 MB, checked by their first bytes, served with `nosniff` and a `default-src 'none'` CSP. A picture belongs to the
+  card or cycle whose text first shows it and is deleted with that card; one no saved text shows is removed a day
+  later, swept when the next picture arrives (no timer). ✎ Mark draws boxes, arrows, labels, blur and a crop on a
+  copy. Claude opens one with `board_image`.
+- **Reading**: code blocks with their language, line numbers, wrap and copy; an outline for texts with three or more
+  headings (spec headings copy as a spec mention); long comments fold behind "Show all"; ⧉ Copy gives a comment as
+  formatted text (mail, Word, Teams), Markdown or plain text (variables as their value, a secret never).
+- **Reactions** (`POST /board/cards/<id>/comments/<entry>/reactions`, the user only: 👍 ✅ 🤔 👀 🎉 ❌, a toggle). ✅ on a
+  Claude comment is **Go**: the card's turn passes to Claude and `board_changes` says `= GO`.
+- **Edits**: the user edits their own comments (`PUT /board/cards/<id>/comments/<entry>`); the earlier text is kept in
+  `text_versions` and shown under "edited · history", like the description's earlier texts. Claude never edits a
+  comment - it writes a new one.
+
 ## Claude's limits
 
 These are enforced in `BoardService` and `CycleBriefService` whenever `X-Alfred-Actor: claude` is sent. The MCP tools send it on every board request.
@@ -312,7 +355,7 @@ Board writes follow the server-settings rule (`EditAccessUseCase`), with one exc
 
 - **Board export**: Board → .md, .html or .json, either the whole board or the selected cards.
 - **`alfred-board/1`** (`board-json.ts`): a header line, then one record per line: card (fields plus direct links), activity (by card number), brief, spec (in full) and mark. Nothing is shortened. `POST /board/import?project=` streams it in. A clashing number gets the next free one, and `@[card:...]` mentions of moved cards are rewritten to match.
-- **The HTML export** escapes every value.
+- **The HTML export** escapes every value; a rich text is written as the board's own clean HTML rebuilt from its blocks. The .md export converts rich text to Markdown; the .json keeps every text as stored and adds an `image` record (base64) per picture the texts show, so an import elsewhere shows them too (checked like an upload; an id already there is kept).
 - **Cycle export**: "Include brief & specs" and "Include board cards" are both off by default, and with both off the output is identical to before (guarded in `export-build.spec.ts`). When ticked, they append the board to the .md / .html report. With .json, the calls file stays the calls re-import format, and the board is written beside it as its own alfred-board file.
 
 ## Limits and measurements

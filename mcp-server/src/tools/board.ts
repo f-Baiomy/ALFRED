@@ -4,7 +4,7 @@ import { AlfredError, seg, type AlfredClient, type RequestOptions } from '../alf
 import { callLines } from '../call-story.ts';
 import { mentionsIn, serializeMention } from '../frontend.ts';
 import { maskContext, maskMeta, maskText, type MaskContext } from '../masking.ts';
-import { chunkText, fitItems, invalid, ok, preview, run } from '../reply.ts';
+import { chunkText, fitItems, invalid, ok, preview, run, type ToolReply } from '../reply.ts';
 import { MaskSchema } from './cycles.ts';
 import { liveAnswerer } from './live.ts';
 
@@ -99,6 +99,12 @@ interface TeamRow { id: string; name: string; icon: string; owns: string; hints:
  * How Claude picks a card's teams - shared by board_teams, board_assign and board_add so the three say the same. The
  * evidence decides, not the endpoint's name: a 405 from a Java controller is Backend even when the page shows it.
  */
+/** How board texts are written (docs/board.md "Rich text"); the skills' rules.md has the full guide. */
+const WRITING = ' Texts are Markdown, shown formatted: a **bold** one-line summary first, ### headings, tables, fenced code with a language '
+  + '(```sql, ```json, ```diff, ```log), > [!NEXT] / > [!WARNING] / > [!BUG] / > [!FIXED] callouts, +++ Details … +++ to fold long evidence, '
+  + '- [ ] checklists, ==highlight==, [ok] [fail] [wait] pills, {{name}} for a global variable, a call mention alone on its line as a card. '
+  + 'Write in the language the user writes in.';
+
 const TEAM_GUIDE = 'Pick teams from the evidence, using each team\'s "owns" (board_teams): the page or the request the browser sent → '
   + 'Frontend; a Java exception, a 5xx, missing error handling or log lines → Backend; a failed, slow or repeated SQL statement → '
   + 'Database; an outbound supplier call (Galileo, Sabre, NDC...) that errors, times out or is mapped wrong → Integrations; config, '
@@ -233,6 +239,9 @@ export function entryLine(ctx: MaskContext, e: ActivityRow, index: number, inlin
   const text = maskText(ctx, e.text ?? '');
   const body = text.length > inline ? `${text.slice(0, inline)}… (${text.length} chars - read the rest with board_get entry=${index})` : text;
   if (e.kind === 'COMMENT') return `${e.at} ${who(e.actor)}: ${body}`;
+  // ✅ from the user on your plan or question is the go-ahead (docs/board.md "Rich text")
+  if (e.kind === 'REACTION') return `${e.at} ${who(e.actor)} reacted ${text}${text === '✅' ? ' = GO: the user approves - go ahead' : ''}`;
+  if (e.kind === 'COMMENT_EDITED') return `${e.at} ${who(e.actor)} edited a comment; it now reads: ${body}`;
   const change = e.oldValue || e.newValue ? ` ${e.oldValue ?? ''} → ${e.newValue ?? ''}` : '';
   return `${e.at} ${who(e.actor)} ${e.kind}${change}${body ? ` (${body})` : ''}`;
 }
@@ -300,7 +309,9 @@ function hitLine(ctx: MaskContext, h: SearchHit): Record<string, unknown> {
 
 function changeLine(ctx: MaskContext, e: ChangeRow, parents: ReadonlyMap<number, ActivityRow>): string {
   const parent = e.replyTo != null ? parents.get(e.replyTo) : undefined;
-  const thread = parent
+  const annotation = e.kind === 'REACTION' || e.kind === 'COMMENT_EDITED';
+  const thread = parent && annotation ? `on ${who(parent.actor)}'s comment "${preview(stripLabel(parent.text), 120, 'board_get')}": `
+    : parent
     ? (isQuestion(parent) && e.actor === 'USER' ? `ANSWERS your question "${preview(stripLabel(parent.text), 120, 'board_get')}": `
       : `↳ reply to ${who(parent.actor)} "${preview(stripLabel(parent.text), 120, 'board_get')}": `)
     : '';
@@ -694,7 +705,7 @@ export function register(server: McpServer, client: AlfredClient): void {
       + '@[type:ref|label] (e.g. @[call:in:<id>|POST /orders · 500], @[stmt:<callId>/<seq>|INSERT ORDERS #88]) and pass the main call in links. '
       + 'Check board_similar / board_for_call first. Refused while the user paused the board, and when the user already closed the same problem '
       + 'as Fine or Not in this flow - the refusal says which card and why. When another open card has the same signature, the reply says so '
-      + '(similarOpen): link your evidence to that card or board_propose MERGE. Always pass teams. ' + TEAM_GUIDE,
+      + '(similarOpen): link your evidence to that card or board_propose MERGE. Always pass teams. ' + TEAM_GUIDE + WRITING,
     inputSchema: {
       project: Project,
       kind: Kind,
@@ -793,7 +804,7 @@ export function register(server: McpServer, client: AlfredClient): void {
 
   server.registerTool('board_comment', {
     description: 'Record progress on a card: what you did, what you found, what comes next, and (when a change touches shared code) its impact. '
-      + 'All of did/found/next are needed - another session or the user picks the work up from these. To answer the user use board_reply; to ask, board_ask.',
+      + 'All of did/found/next are needed - another session or the user picks the work up from these. To answer the user use board_reply; to ask, board_ask.' + WRITING,
     inputSchema: {
       project: Project,
       number: CardNumber,
@@ -847,6 +858,18 @@ export function register(server: McpServer, client: AlfredClient): void {
     const teams = await client.get<TeamRow[]>('/board/teams');
     return ok({ teams: teams.map((t) => `${t.id}: ${t.icon ? `${t.icon} ` : ''}${t.name} - owns: ${t.owns || '(not described)'}`
       + `${t.hints.length ? ` · hints: ${t.hints.join(', ')}` : ''}`), noTeam: '"-" in a team filter means cards with no team' });
+  }));
+
+  server.registerTool('board_image', {
+    description: 'A picture shown in a board text - ![alt](/board/images/<id>) in a description, comment, brief or spec - so you can see it '
+      + '(a screenshot the user pasted, often marked with boxes and arrows). Pass the id or the whole /board/images/<id> path.',
+    inputSchema: { id: z.string().min(8).max(200).describe('The picture id, or its /board/images/<id> path') },
+  }, (input) => run(async () => {
+    const id = /([A-Za-z0-9-]{8,64})\s*\)?\s*$/.exec(input.id.trim())?.[1];
+    if (!id) throw invalid('Not a picture id - pass the <id> of /board/images/<id>.');
+    const image = await client.bytes(`/board/images/${seg(id)}`);
+    if (!image.mime.startsWith('image/')) throw invalid('That is not a picture.');
+    return { content: [{ type: 'image', data: image.data.toString('base64'), mimeType: image.mime }] } as unknown as ToolReply;
   }));
 
   server.registerTool('board_assign', {

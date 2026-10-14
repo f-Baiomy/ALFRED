@@ -1,37 +1,163 @@
-import { AfterViewInit, Component, ElementRef, computed, effect, inject, input, model, output, signal, untracked, viewChild } from '@angular/core';
+import { AfterViewInit, Component, DestroyRef, ElementRef, Injector, computed, effect, inject, input, model, output, signal, untracked, viewChild } from '@angular/core';
 import { MentionRef } from '../../../core/models/board.models';
 import { BoardMentionsService, CardPickTarget, TextPickField } from '../../../core/services/board-mentions.service';
-import { fillerBreak, mentionChipNode, renderMentionText, serializeMentionText, serializedOffset } from '../../../shared/utils/mention-dom';
-import { mentionsIn } from '../../../shared/utils/mention-syntax';
+import { BoardApiService } from '../../../core/services/board-api.service';
+import { GlobalVariablesService } from '../../../core/services/global-variables.service';
+import { fillerBreak, mentionChipNode, renderMentionText, serializeMentionText } from '../../../shared/utils/mention-dom';
+import { mentionsIn, serializeMention } from '../../../shared/utils/mention-syntax';
 import { MentionPickerComponent } from '../mention-picker/mention-picker.component';
-import { DirChoice, blockDir, choiceLabel, nextChoice } from '../../../shared/utils/text-direction';
+import { ImageAnnotateComponent } from '../image-annotate/image-annotate.component';
+import { DirChoice, blockDir, choiceLabel, nextChoice, textDir } from '../../../shared/utils/text-direction';
+import { Block, CALLOUT_TITLES, CalloutTone, Inline, PillTone, TextColor, codeBlock, markdownBlocks } from '../../../shared/utils/markdown-blocks';
+import { blocksToDom, blocksToHtml, domBlocks, hasFormatting, htmlBlocks, isHtml, textBlocks, variablePillNode } from '../../../shared/utils/rich-html';
+import { CODE_LANGS, guessLang } from '../../../shared/utils/code-highlight';
+import { BoardTemplate, DEFAULT_TEMPLATES, loadTemplates, saveTemplates } from '../../../shared/utils/board-templates';
+
+interface MenuItem {
+  readonly id: string;
+  readonly label: string;
+  readonly hint?: string;
+  readonly run: () => void;
+}
+
+const BLOCK_SELECTOR = 'p, h1, h2, h3, h4, li, blockquote, td, th, summary, pre, aside';
+const BLOCK_TAGS = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'UL', 'OL', 'PRE', 'BLOCKQUOTE', 'TABLE', 'HR', 'IMG', 'DETAILS', 'ASIDE', 'DIV']);
 
 /**
- * A Markdown text box with mentions (FR-022). Mentions show as small pills, not as their `@[type:ref|label]` text: the
- * box is a contenteditable where each mention is one non-editable chip (deleted as a whole), and `value` is always the
- * serialized text (shared/utils/mention-dom.ts). Typing `@` opens the picker at the caret; Enter submits and Shift+Enter
- * is a line break (enterSends, a comment or reply) - or, for long texts (a description, a brief), Enter is a line break
- * and Ctrl+Enter submits; a paste is plain text, its mentions turned into pills.
+ * A rich text box with mentions (FR-022, docs/board.md "Rich text"). Plain typing stays exactly what it always was: the
+ * box holds text and mention pills and `value` is the text with `@[type:ref|label]` (shared/utils/mention-dom.ts). Using
+ * the toolbar, the `/` menu, `{{` variables, the Markdown shortcuts (`## `, `- `, `[] `, `**x**`...), a pasted table or
+ * picture makes it rich: `value` is then the board's HTML (shared/utils/rich-html.ts), cleaned again by the backend on
+ * save. Enter submits and Shift+Enter is a new line (enterSends) - or, for long texts, Enter is a new line and Ctrl+Enter
+ * submits. Each paragraph reads in its own direction as you type; ⇄ (Ctrl+Shift+X) forces one. A draft is kept per field.
  */
 @Component({
   selector: 'app-mention-editor',
   standalone: true,
-  imports: [MentionPickerComponent],
+  imports: [MentionPickerComponent, ImageAnnotateComponent],
   template: `
     <div class="board-editor">
+      @if (draftNotice(); as d) {
+        <div class="board-editor-draft">Unsaved draft from {{ d.at }} ·
+          <button type="button" class="board-link" (click)="restoreDraft()">restore it</button> ·
+          <button type="button" class="board-link" (click)="discardDraft()">discard</button></div>
+      }
       @if (pickerOpen()) {
         <app-mention-picker [project]="project()" [cycleId]="cycleId()" [calls]="callMentions()"
                             [canPickAnywhere]="!!card() && !!pickField()" (pickAnywhere)="pickFromAnywhere()"
                             (picked)="insert($event)" (closed)="closePicker()" />
       }
-      <div #box class="board-editor-box" contenteditable="true" role="textbox" aria-multiline="true" spellcheck="true"
-           [attr.data-placeholder]="placeholder()" [attr.aria-label]="placeholder()" [style.min-height.em]="rows() * 1.5" [attr.dir]="dir()"
-           (input)="onInput()" (keydown)="onKeydown($event)" (paste)="onPaste($event)" (blur)="saveCaret()"></div>
+      @if (toolbar()) {
+        <div class="board-editor-tb" (mousedown)="keepSelection($event)">
+          <select class="board-editor-style" title="Text style" (change)="styleBlock($any($event.target).value); $any($event.target).value = ''">
+            <option value="">Style…</option><option value="p">Paragraph</option><option value="h2">Heading</option><option value="h3">Subheading</option>
+            <option value="pre">Code block</option><option value="blockquote">Quote</option>
+          </select>
+          <button type="button" class="board-editor-btn" title="Bold (Ctrl+B)" (click)="exec('bold')"><b>B</b></button>
+          <button type="button" class="board-editor-btn" title="Italic (Ctrl+I)" (click)="exec('italic')"><i>I</i></button>
+          <button type="button" class="board-editor-btn" title="Underline (Ctrl+U)" (click)="exec('underline')"><u>U</u></button>
+          <button type="button" class="board-editor-btn" title="Strikethrough" (click)="exec('strikeThrough')"><s>S</s></button>
+          <button type="button" class="board-editor-btn" title="Inline code (Ctrl+E)" (click)="wrapInline('code')">&lt;/&gt;</button>
+          <button type="button" class="board-editor-btn hl" title="Highlight (Ctrl+Shift+H)" (click)="wrapInline('mark')">▮</button>
+          <span class="board-editor-dd">
+            <button type="button" class="board-editor-btn" title="Text colour" (click)="toggleMenu('color')">A▾</button>
+            @if (menu() === 'color') {
+              <span class="board-editor-dd-menu">@for (c of colors; track c) {
+                <button type="button" [class]="'board-editor-swatch board-md-c-' + c" (click)="color(c)">A {{ c }}</button> }
+                <button type="button" class="board-editor-swatch" (click)="color(null)">no colour</button></span>
+            }
+          </span>
+          <span class="board-editor-sep"></span>
+          <button type="button" class="board-editor-btn" title="Bulleted list" (click)="list(false)">•</button>
+          <button type="button" class="board-editor-btn" title="Numbered list" (click)="list(true)">1.</button>
+          <button type="button" class="board-editor-btn" title="Checklist" (click)="checklist()">☑</button>
+          <span class="board-editor-dd">
+            <button type="button" class="board-editor-btn" title="Callout: note, warning, bug, fixed, next" (click)="toggleMenu('callout')">▤▾</button>
+            @if (menu() === 'callout') {
+              <span class="board-editor-dd-menu">@for (t of callouts; track t) {
+                <button type="button" [class]="'board-editor-swatch callout-' + t" (click)="callout(t)">{{ calloutTitle(t) }}</button> }</span>
+            }
+          </span>
+          <button type="button" class="board-editor-btn" title="Table" (click)="table()">▦</button>
+          <button type="button" class="board-editor-btn" title="Collapsible section" (click)="fold()">▸</button>
+          <span class="board-editor-dd">
+            <button type="button" class="board-editor-btn" title="Status pill" (click)="toggleMenu('pill')">✓▾</button>
+            @if (menu() === 'pill') {
+              <span class="board-editor-dd-menu">@for (p of pills; track p.tone) {
+                <button type="button" [class]="'board-md-pill ' + p.tone" (click)="pill(p.tone, p.text)">{{ p.text }}</button> }</span>
+            }
+          </span>
+          <button type="button" class="board-editor-btn" title="Divider" (click)="insertBlocks([{ kind: 'rule' }])">―</button>
+          <button type="button" class="board-editor-btn" title="Link (Ctrl+K)" (click)="link()">🔗</button>
+          @if (images()) {
+            <button type="button" class="board-editor-btn" title="Picture - or paste / drop a screenshot" (click)="file.click()">🖼</button>
+            <input #file type="file" accept="image/png,image/jpeg,image/gif,image/webp" hidden (change)="pickFiles(file)" />
+          }
+          <span class="board-editor-dd">
+            <button type="button" class="board-editor-btn" title="Templates - or type /" (click)="toggleMenu('tpl')">⧉▾</button>
+            @if (menu() === 'tpl') {
+              <span class="board-editor-dd-menu">@for (t of templates(); track t.name) {
+                <button type="button" class="board-editor-swatch" (click)="template(t)">{{ t.icon }} {{ t.name }}</button> }
+                <button type="button" class="board-editor-swatch dim" (click)="editTemplates()">✎ Edit templates…</button></span>
+            }
+          </span>
+          <span class="board-editor-grow"></span>
+          <button type="button" class="board-editor-btn" [class.on]="source()" title="See / edit what is stored" (click)="toggleSource()">&lt;&gt;</button>
+        </div>
+      }
+      <div #box class="board-editor-box" contenteditable="true" role="textbox" aria-multiline="true" spellcheck="true" [hidden]="source()"
+           [class.rich]="rich()"
+           [attr.data-placeholder]="placeholder()" [attr.aria-label]="placeholder()" [style.min-height.em]="rows() * 1.5" [attr.dir]="boxDir()"
+           (input)="onInput()" (keydown)="onKeydown($event)" (paste)="onPaste($event)" (blur)="saveCaret()" (click)="onBoxClick($event)"
+           (dragover)="$event.preventDefault()" (drop)="onDrop($event)"></div>
+      @if (source()) {
+        <textarea class="board-editor-src" spellcheck="false" [value]="value()" [style.min-height.em]="rows() * 1.5 + 4"
+                  (input)="fromSource($any($event.target).value)"></textarea>
+      }
+      @if (popup(); as p) {
+        <div class="board-editor-menu" [style.top.px]="p.top" [style.bottom.px]="p.bottom" [style.left.px]="p.left" (mousedown)="$event.preventDefault()">
+          @for (item of popupItems(); track item.id; let i = $index) {
+            <button type="button" class="board-editor-menu-item" [class.on]="i === popupIndex()" (click)="item.run()">{{ item.label }}
+              @if (item.hint) { <small>{{ item.hint }}</small> }</button>
+          } @empty {
+            <span class="board-editor-menu-empty">{{ p.kind === 'var' ? 'No global variable matches - ' + p.query + ' is inserted as typed' : 'Nothing matches' }}</span>
+          }
+        </div>
+      }
+      @if (imageBar(); as ib) {
+        <div class="board-editor-imgbar" [style.top.px]="ib.top" [style.left.px]="ib.left" (mousedown)="$event.preventDefault()">
+          <button type="button" class="board-link" (click)="annotate()">✎ Mark</button> ·
+          <button type="button" class="board-link" (click)="removeImage()">✕ Remove</button>
+        </div>
+      }
+      @if (annotating(); as src) {
+        <app-image-annotate [src]="src" (saved)="annotated($event)" (closed)="annotating.set(null)" />
+      }
+      @if (editingTemplates()) {
+        <div class="run-dialog-bg" (click)="editingTemplates.set(false)">
+          <div class="run-dialog" role="dialog" aria-label="Templates" (click)="$event.stopPropagation()">
+            <div class="run-dialog-head">Templates <span class="run-dim">- Markdown; kept in this browser</span></div>
+            @for (t of templateDraft(); track $index; let i = $index) {
+              <label class="run-dim">
+                <input #tn class="run-input" [value]="t.name" (input)="editTemplate(i, tn.value, null)" />
+                <textarea #tt class="run-text" rows="5" [value]="t.text" (input)="editTemplate(i, null, tt.value)"></textarea>
+              </label>
+            }
+            <div class="run-dialog-row run-dialog-acts">
+              <button type="button" class="board-copy" (click)="resetTemplates()">Reset to the defaults</button>
+              <button type="button" class="board-copy" (click)="addTemplate()">+ Template</button>
+              <button type="button" class="board-copy" (click)="editingTemplates.set(false)">Cancel</button>
+              <button type="button" class="board-copy run-primary" (click)="saveTemplateDraft()">Save</button>
+            </div>
+          </div>
+        </div>
+      }
+      @if (uploadError(); as e) { <div class="run-msg run-msg-err">{{ e }}</div> }
       <div class="board-editor-hint">
-        <span><kbd>&#64;</kbd> mention · @if (enterSends()) {<kbd>Enter</kbd> {{ submitLabel().toLowerCase() }} · <kbd>Shift</kbd>+<kbd>Enter</kbd> new line} @else {<kbd>Ctrl</kbd>+<kbd>Enter</kbd> {{ submitLabel().toLowerCase() }}} · Markdown</span>
+        <span><kbd>&#64;</kbd> mention · <kbd>/</kbd> blocks · <kbd>{{ '{{' }}</kbd> variable · @if (enterSends()) {<kbd>Enter</kbd> {{ submitLabel().toLowerCase() }} · <kbd>Shift</kbd>+<kbd>Enter</kbd> new line} @else {<kbd>Ctrl</kbd>+<kbd>Enter</kbd> {{ submitLabel().toLowerCase() }}}</span>
         <span class="board-editor-actions">
           <button type="button" class="action-btn board-editor-dir" [class.on]="dirChoice() !== 'auto'" (mousedown)="$event.preventDefault()" (click)="flipDir()"
-                  title="Text direction: auto (from what you type), right-to-left or left-to-right · Ctrl+Shift+X">{{ dirLabel(dirChoice()) }}</button>
+                  title="Text direction: auto (each paragraph from what you type), right-to-left or left-to-right · Ctrl+Shift+X">{{ dirLabel(dirChoice()) }}</button>
           <button type="button" class="action-btn" title="Mention something" (mousedown)="$event.preventDefault()" (click)="openPicker()">&#64; Mention</button>
           @if (cancellable()) { <button type="button" class="action-btn" (click)="cancelled.emit()">Cancel</button> }
           <button type="button" class="action-btn primary" [disabled]="!value().trim() && !allowEmpty()" (click)="submit()">{{ submitLabel() }}</button>
@@ -49,22 +175,47 @@ export class MentionEditorComponent implements AfterViewInit {
   readonly card = input<CardPickTarget | null>(null);
   /** Which of the card's texts this is, so calls picked elsewhere come back into it (the comment or the description). */
   readonly pickField = input<TextPickField | null>(null);
-  readonly placeholder = input('Write… type @ to mention a call, statement, log line, spec file…');
+  readonly placeholder = input('Write… type @ to mention, / for blocks, {{ for a variable');
   readonly submitLabel = input('Comment');
   readonly cancellable = input(false);
   readonly allowEmpty = input(false);
   readonly rows = input(3);
   /** Enter sends (a comment, reply, answer); false for long texts, where Enter is a line break and Ctrl+Enter sends. */
   readonly enterSends = input(true);
+  /** The formatting toolbar (rich text); off keeps a bare box. */
+  readonly toolbar = input(true);
+  /** Pictures may be pasted, dropped or picked. */
+  readonly images = input(true);
+  /** Where this field's unsent draft is kept (this browser) - e.g. "comment:<card id>"; null keeps none. */
+  readonly draftKey = input<string | null>(null);
   readonly submitted = output<string>();
   readonly cancelled = output<void>();
 
   private readonly mentions = inject(BoardMentionsService);
-  /** ⇄: auto - the box follows what is typed (Arabic right-to-left, English left-to-right) - or one forced. */
+  private readonly injector = inject(Injector);
+  readonly pickerOpen = signal(false);
+  readonly source = signal(false);
+  readonly rich = signal(false);
+  readonly menu = signal<'color' | 'callout' | 'pill' | 'tpl' | null>(null);
+  readonly popup = signal<{ kind: 'slash' | 'var'; query: string; top: number | null; bottom: number | null; left: number } | null>(null);
+  readonly popupIndex = signal(0);
+  readonly imageBar = signal<{ top: number; left: number } | null>(null);
+  readonly annotating = signal<string | null>(null);
+  readonly uploadError = signal<string | null>(null);
+  readonly draftNotice = signal<{ text: string; at: string } | null>(null);
+  readonly templates = signal<readonly BoardTemplate[]>(loadTemplates());
+  readonly editingTemplates = signal(false);
+  readonly templateDraft = signal<BoardTemplate[]>([]);
+  /** ⇄: auto - each paragraph follows what is typed (Arabic right-to-left, English left-to-right) - or one forced. */
   readonly dirChoice = signal<DirChoice>('auto');
   readonly dir = computed(() => blockDir(this.dirChoice(), this.value().replace(/@\[[^\]]*\]/g, ' ')));
+  /** Plain text reads as one block; rich text's paragraphs each pick their own (set on them as you type). */
+  readonly boxDir = computed(() => (this.rich() ? (this.dirChoice() === 'auto' ? null : this.dirChoice()) : this.dir()));
   readonly dirLabel = choiceLabel;
-  readonly pickerOpen = signal(false);
+  readonly colors: readonly TextColor[] = ['red', 'green', 'amber', 'blue', 'purple'];
+  readonly callouts: readonly CalloutTone[] = ['info', 'warn', 'bug', 'ok', 'next'];
+  readonly pills: readonly { tone: PillTone; text: string }[] = [{ tone: 'ok', text: '✓ ok' }, { tone: 'fail', text: '✕ fail' },
+    { tone: 'wait', text: '⏳ waiting' }, { tone: 'info', text: 'ℹ info' }];
   private readonly box = viewChild.required<ElementRef<HTMLDivElement>>('box');
   /** The text this box last showed or produced - a value that differs came from outside and is rendered again. */
   private shown: string | null = null;
@@ -72,6 +223,10 @@ export class MentionEditorComponent implements AfterViewInit {
   /** Where a pick goes: the `@` that opened the picker (replaced by the pick), or the caret when the box was left. */
   private at: Range | null = null;
   private replacesAt = false;
+  private draftTimer: ReturnType<typeof setTimeout> | null = null;
+  private selectedImage: HTMLImageElement | null = null;
+  /** The range a `/` or `{{` menu replaces when it picks. */
+  private popupRange: Range | null = null;
 
   readonly callMentions = computed(() => {
     const seen = new Set<string>();
@@ -82,6 +237,38 @@ export class MentionEditorComponent implements AfterViewInit {
     });
   });
 
+  readonly popupItems = computed<MenuItem[]>(() => {
+    const p = this.popup();
+    if (!p) return [];
+    const q = p.query.toLowerCase();
+    if (p.kind === 'var') {
+      const vars = this.variables();
+      const names = Object.keys(vars?.state().variables ?? {}).sort();
+      return names.filter((n) => n.toLowerCase().includes(q)).slice(0, 12).map((n) => ({
+        id: n, label: `{{${n}}}`, hint: vars?.isSecret(n) ? 'secret' : clip(vars?.state().variables[n] ?? ''), run: () => this.pickVariable(n),
+      }));
+    }
+    const all: MenuItem[] = [
+      { id: 'h2', label: 'Heading', hint: '##', run: () => this.slash(() => this.styleBlock('h2')) },
+      { id: 'h3', label: 'Subheading', hint: '###', run: () => this.slash(() => this.styleBlock('h3')) },
+      { id: 'ul', label: '• Bulleted list', hint: '-', run: () => this.slash(() => this.list(false)) },
+      { id: 'ol', label: '1. Numbered list', hint: '1.', run: () => this.slash(() => this.list(true)) },
+      { id: 'check', label: '☑ Checklist', hint: '[]', run: () => this.slash(() => this.checklist()) },
+      ...this.callouts.map((t) => ({ id: `callout-${t}`, label: `▤ ${this.calloutTitle(t)}`, hint: 'callout', run: () => this.slash(() => this.callout(t)) })),
+      { id: 'table', label: '▦ Table', run: () => this.slash(() => this.table()) },
+      { id: 'fold', label: '▸ Collapsible', run: () => this.slash(() => this.fold()) },
+      { id: 'quote', label: '❝ Quote', hint: '>', run: () => this.slash(() => this.styleBlock('blockquote')) },
+      ...CODE_LANGS.map((l) => ({ id: `code-${l.id}`, label: `</> Code: ${l.label}`, hint: '```', run: () => this.slash(() => this.codeBlockOf(l.id)) })),
+      { id: 'hr', label: '― Divider', hint: '---', run: () => this.slash(() => this.insertBlocks([{ kind: 'rule' }])) },
+      ...this.pills.map((x) => ({ id: `pill-${x.tone}`, label: `${x.text} pill`, run: () => this.slash(() => this.pill(x.tone, x.text)) })),
+      ...(this.images() ? [{ id: 'image', label: '🖼 Picture', run: () => this.slash(() => this.pickImage()) }] : []),
+      { id: 'mention', label: '@ Mention', run: () => this.slash(() => this.openPicker()) },
+      { id: 'var', label: '{{ }} Variable', run: () => this.slash(() => this.openVariables()) },
+      ...this.templates().map((t) => ({ id: `tpl-${t.name}`, label: `${t.icon} ${t.name}`, hint: 'template', run: () => this.slash(() => this.template(t)) })),
+    ];
+    return all.filter((i) => !q || i.label.toLowerCase().includes(q) || i.id.includes(q)).slice(0, 14);
+  });
+
   constructor() {
     effect(() => {
       const text = this.value();
@@ -89,17 +276,28 @@ export class MentionEditorComponent implements AfterViewInit {
         if (this.ready && text !== this.shown) this.render(text);
       });
     });
+    inject(DestroyRef).onDestroy(() => { if (this.draftTimer) clearTimeout(this.draftTimer); });
   }
 
   ngAfterViewInit(): void {
     this.ready = true;
     this.render(this.value());
+    const draft = this.readDraft();
+    if (draft && draft.text.trim() && draft.text !== this.value()) {
+      this.draftNotice.set({ text: draft.text, at: new Date(draft.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) });
+    }
   }
+
+  // ------------------------------------------------------------------------------------------------------------ typing
 
   onInput(): void {
     this.sync();
+    this.imageBar.set(null);
     const sel = this.selection();
-    if (!sel || !sel.isCollapsed || sel.anchorNode?.nodeType !== Node.TEXT_NODE) return;
+    if (!sel || !sel.isCollapsed || sel.anchorNode?.nodeType !== Node.TEXT_NODE) {
+      this.popup.set(null);
+      return;
+    }
     const node = sel.anchorNode as Text;
     const offset = sel.anchorOffset;
     const before = node.data.slice(0, offset);
@@ -111,26 +309,141 @@ export class MentionEditorComponent implements AfterViewInit {
       this.at = range;
       this.replacesAt = true;
       this.pickerOpen.set(true);
+      return;
     }
+    if (this.markdownShortcut(node, offset)) return;
+    this.updatePopup(node, offset);
   }
 
-  flipDir(): void {
-    this.dirChoice.set(nextChoice(this.dirChoice()));
+  /** `## `, `- `, `1. `, `[] `, `> `, ``` and `---` at the start of a line, `**x**`, `==x==`, `~~x~~` and `` `x` `` as you type. */
+  private markdownShortcut(node: Text, offset: number): boolean {
+    if (!this.toolbar()) return false;
+    const before = node.data.slice(0, offset);
+    const lineStart = Math.max(before.lastIndexOf('\n') + 1, 0);
+    const line = before.slice(lineStart);
+    const atBlockStart = !node.previousSibling || lineStart > 0 || (node.parentElement !== this.box().nativeElement && !node.previousSibling);
+    const block: [RegExp, () => void][] = [
+      [/^(#{1,3}) $/, () => this.styleBlock(line.length === 2 ? 'h2' : line.length === 3 ? 'h2' : 'h3')],
+      [/^[-*] $/, () => this.list(false)],
+      [/^1[.)] $/, () => this.list(true)],
+      [/^\[\s?\] $/, () => this.checklist()],
+      [/^> $/, () => this.styleBlock('blockquote')],
+      [/^```$/, () => this.codeBlockOf('')],
+      [/^--- $/, () => this.insertBlocks([{ kind: 'rule' }])],
+    ];
+    if (atBlockStart) {
+      for (const [re, run] of block) {
+        if (!re.test(line)) continue;
+        const range = document.createRange();
+        range.setStart(node, lineStart);
+        range.setEnd(node, offset);
+        range.deleteContents();
+        this.placeCaret(node, lineStart);
+        run();
+        return true;
+      }
+    }
+    const inline: [RegExp, 'b' | 'mark' | 's' | 'code'][] = [[/\*\*([^*\n]+)\*\*$/, 'b'], [/==([^=\n]+)==$/, 'mark'], [/~~([^~\n]+)~~$/, 's'],
+      [/`([^`\n]+)`$/, 'code']];
+    for (const [re, tag] of inline) {
+      const m = re.exec(before);
+      if (!m) continue;
+      const range = document.createRange();
+      range.setStart(node, offset - m[0].length);
+      range.setEnd(node, offset);
+      range.deleteContents();
+      const el = document.createElement(tag);
+      el.textContent = m[1];
+      range.insertNode(el);
+      const space = document.createTextNode('​');
+      el.after(space);
+      this.placeCaretAfter(space);
+      this.sync();
+      return true;
+    }
+    return false;
+  }
+
+  /** The `/` block menu and the `{{` variable menu follow what is typed after them. */
+  private updatePopup(node: Text, offset: number): void {
+    const before = node.data.slice(0, offset);
+    const slashAt = before.lastIndexOf('/');
+    const varAt = before.lastIndexOf('{{');
+    const p = this.popup();
+    if (varAt >= 0 && !before.slice(varAt).includes('}') && /^\{\{[\w.-]*$/.test(before.slice(varAt)) && this.toolbar()) {
+      this.openPopup('var', node, varAt, offset, before.slice(varAt + 2));
+      return;
+    }
+    if (slashAt >= 0 && this.toolbar() && /^\/[\w ]{0,20}$/.test(before.slice(slashAt)) && (slashAt === 0 || /\s/.test(before[slashAt - 1]))
+      && (p || before.slice(slashAt) === '/')) {
+      this.openPopup('slash', node, slashAt, offset, before.slice(slashAt + 1));
+      return;
+    }
+    this.popup.set(null);
+  }
+
+  private openPopup(kind: 'slash' | 'var', node: Text, from: number, to: number, query: string): void {
+    const range = document.createRange();
+    range.setStart(node, from);
+    range.setEnd(node, to);
+    this.popupRange = range;
+    const r = range.getBoundingClientRect();
+    const host = this.box().nativeElement.parentElement!.getBoundingClientRect();
+    if (kind === 'var') this.variables()?.load();
+    this.popupIndex.set(0);
+    // below the line, or above it when the box sits low on the page (the comment box at the bottom of the drawer)
+    const up = window.innerHeight - r.bottom < 300 && r.top > 300;
+    this.popup.set({ kind, query, top: up ? null : r.bottom - host.top + 4, bottom: up ? host.bottom - r.top + 4 : null,
+      left: Math.max(0, Math.min(r.left - host.left, host.width - 260)) });
   }
 
   onKeydown(event: KeyboardEvent): void {
-    if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'x') {
+    const ctrl = event.ctrlKey || event.metaKey;
+    if (ctrl && event.shiftKey && event.key.toLowerCase() === 'x') {
       event.preventDefault();
       this.flipDir();
       return;
     }
+    if (this.popup()) {
+      const items = this.popupItems();
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        const n = Math.max(1, items.length);
+        this.popupIndex.update((i) => (i + (event.key === 'ArrowDown' ? 1 : n - 1)) % n);
+        return;
+      }
+      if (event.key === 'Escape') { event.preventDefault(); this.popup.set(null); return; }
+      if ((event.key === 'Enter' || event.key === 'Tab') && items.length) {
+        event.preventDefault();
+        items[Math.min(this.popupIndex(), items.length - 1)].run();
+        return;
+      }
+      if (event.key === 'Enter' && this.popup()!.kind === 'var') {
+        event.preventDefault();
+        this.pickVariable(this.popup()!.query);
+        return;
+      }
+    }
+    if (ctrl && !event.shiftKey && this.toolbar()) {
+      const k = event.key.toLowerCase();
+      if (k === 'b' || k === 'i' || k === 'u') { event.preventDefault(); this.exec(k === 'b' ? 'bold' : k === 'i' ? 'italic' : 'underline'); return; }
+      if (k === 'k') { event.preventDefault(); this.link(); return; }
+      if (k === 'e') { event.preventDefault(); this.wrapInline('code'); return; }
+    }
+    if (ctrl && event.shiftKey && event.key.toLowerCase() === 'h' && this.toolbar()) { event.preventDefault(); this.wrapInline('mark'); return; }
     if (event.key !== 'Enter' || event.isComposing) return;
-    const sends = event.ctrlKey || event.metaKey || (this.enterSends() && !event.shiftKey && !event.altKey);
+    const sends = ctrl || (this.enterSends() && !event.shiftKey && !event.altKey);
     if (sends && this.pickerOpen()) {
       event.preventDefault(); // Enter belongs to the mention picker while it is open - never a half-written send
     } else if (sends) {
       event.preventDefault();
       this.submit();
+    } else if (this.rich()) {
+      // a new paragraph (a new item in a list, out of a heading); in a code block a new line
+      event.preventDefault();
+      if (this.closestIn(this.selection()?.anchorNode ?? null, 'pre')) document.execCommand('insertText', false, '\n');
+      else document.execCommand('insertParagraph');
+      this.sync();
     } else {
       // A line break as "\n" in the text, not the <div> a browser would add.
       event.preventDefault();
@@ -138,10 +451,41 @@ export class MentionEditorComponent implements AfterViewInit {
     }
   }
 
+  // ------------------------------------------------------------------------------------------------------------ paste
+
   onPaste(event: ClipboardEvent): void {
     event.preventDefault();
-    const text = event.clipboardData?.getData('text/plain') ?? '';
+    const data = event.clipboardData;
+    if (!data) return;
+    const files = Array.from(data.files ?? []).filter((f) => f.type.startsWith('image/'));
+    if (files.length && this.images()) {
+      files.forEach((f) => this.upload(f));
+      return;
+    }
+    const html = data.getData('text/html');
+    const text = data.getData('text/plain') ?? '';
+    if (html && this.toolbar()) {
+      const blocks = htmlBlocks(html.replace(/^[\s\S]*<!--StartFragment-->|<!--EndFragment-->[\s\S]*$/g, ''));
+      if (blocks.some((b) => b.kind !== 'paragraph' || b.inlines.some((i) => i.kind !== 'text' && i.kind !== 'br' && i.kind !== 'mention'))) {
+        this.insertBlocks(blocks);
+        return;
+      }
+    }
     if (!text) return;
+    const lang = this.toolbar() ? guessLang(text) : null;
+    if (lang) {
+      this.insertBlocks([codeBlock(text.replace(/\s+$/, ''), lang)]);
+      return;
+    }
+    if (this.toolbar() && /^https?:\/\/\S+$/.test(text.trim()) && this.rich()) {
+      document.execCommand('insertHTML', false, `<a href="${escAttr(text.trim())}">${escHtml(text.trim())}</a>&nbsp;`);
+      this.sync();
+      return;
+    }
+    if (this.toolbar() && this.rich() && hasFormatting(text)) {
+      this.insertBlocks(markdownBlocks(text));
+      return;
+    }
     this.insertText(text);
     if (mentionsIn(text).length) {
       this.render(this.value());
@@ -149,8 +493,305 @@ export class MentionEditorComponent implements AfterViewInit {
     }
   }
 
+  onDrop(event: DragEvent): void {
+    const files = Array.from(event.dataTransfer?.files ?? []).filter((f) => f.type.startsWith('image/'));
+    if (!files.length || !this.images()) return;
+    event.preventDefault();
+    const pos = (document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }).caretRangeFromPoint?.(event.clientX, event.clientY);
+    if (pos) { const sel = this.selection(); sel?.removeAllRanges(); sel?.addRange(pos); }
+    files.forEach((f) => this.upload(f));
+  }
+
+  pickFiles(input: HTMLInputElement): void {
+    Array.from(input.files ?? []).forEach((f) => this.upload(f));
+    input.value = '';
+  }
+
+  pickImage(): void {
+    (this.box().nativeElement.parentElement?.querySelector('input[type=file]') as HTMLInputElement | null)?.click();
+  }
+
+  private upload(file: Blob, replace: HTMLImageElement | null = null): void {
+    this.uploadError.set(null);
+    if (file.size > 5 * 1024 * 1024) { this.uploadError.set('A picture can be at most 5 MB'); return; }
+    this.injector.get(BoardApiService).uploadImage(file).subscribe({
+      next: (r) => {
+        if (replace && this.box().nativeElement.contains(replace)) {
+          replace.setAttribute('src', r.url);
+          this.sync();
+        } else {
+          this.insertBlocks([{ kind: 'image', src: r.url, alt: (file as File).name ?? 'picture' }]);
+        }
+      },
+      error: (e) => this.uploadError.set(e?.error?.message ?? 'The picture could not be saved'),
+    });
+  }
+
+  onBoxClick(event: MouseEvent): void {
+    this.menu.set(null);
+    this.popup.set(null);
+    const img = event.target instanceof HTMLImageElement ? event.target : null;
+    this.selectedImage = img;
+    if (!img) { this.imageBar.set(null); return; }
+    const r = img.getBoundingClientRect();
+    const host = this.box().nativeElement.parentElement!.getBoundingClientRect();
+    this.imageBar.set({ top: r.top - host.top + 4, left: r.left - host.left + 4 });
+  }
+
+  annotate(): void {
+    if (this.selectedImage) this.annotating.set(this.selectedImage.src);
+    this.imageBar.set(null);
+  }
+
+  annotated(blob: Blob): void {
+    this.annotating.set(null);
+    this.upload(blob, this.selectedImage);
+  }
+
+  removeImage(): void {
+    this.selectedImage?.remove();
+    this.selectedImage = null;
+    this.imageBar.set(null);
+    this.sync();
+  }
+
+  // ---------------------------------------------------------------------------------------------------------- toolbar
+
+  /** The toolbar never takes the focus from the box - the selection stays where the user was. */
+  keepSelection(event: MouseEvent): void {
+    const t = event.target as HTMLElement;
+    if (t.tagName !== 'SELECT' && t.tagName !== 'OPTION' && t.tagName !== 'INPUT') event.preventDefault();
+  }
+
+  toggleMenu(m: 'color' | 'callout' | 'pill' | 'tpl'): void {
+    this.menu.update((x) => (x === m ? null : m));
+  }
+
+  exec(command: string, arg?: string): void {
+    this.focusBox();
+    document.execCommand(command, false, arg);
+    this.menu.set(null);
+    this.sync();
+  }
+
+  styleBlock(tag: string): void {
+    if (!tag) return;
+    this.ensureRich();
+    this.focusBox();
+    if (tag === 'pre') {
+      this.codeBlockOf('');
+      return;
+    }
+    document.execCommand('formatBlock', false, tag);
+    this.sync();
+  }
+
+  list(ordered: boolean): void {
+    this.ensureRich();
+    this.focusBox();
+    document.execCommand(ordered ? 'insertOrderedList' : 'insertUnorderedList');
+    this.sync();
+  }
+
+  checklist(): void {
+    this.ensureRich();
+    this.focusBox();
+    document.execCommand('insertUnorderedList');
+    const ul = this.closestIn(this.selection()?.anchorNode ?? null, 'ul') as HTMLElement | null;
+    if (ul) {
+      ul.setAttribute('data-checklist', '');
+      ul.querySelectorAll(':scope > li').forEach((li) => { if (!li.hasAttribute('data-checked')) li.setAttribute('data-checked', 'false'); });
+    }
+    this.sync();
+  }
+
+  callout(tone: CalloutTone): void {
+    this.insertBlocks([{ kind: 'callout', tone, title: [{ kind: 'text', text: CALLOUT_TITLES[tone] }], blocks: [] }]);
+  }
+
+  table(): void {
+    const cell = (t: string): Inline[] => (t ? [{ kind: 'text', text: t }] : []);
+    this.insertBlocks([{ kind: 'table', header: [cell('Call'), cell('Before'), cell('After')], rows: [[cell(''), cell(''), cell('')]] }]);
+  }
+
+  fold(): void {
+    this.insertBlocks([{ kind: 'fold', summary: [{ kind: 'text', text: 'Details' }], blocks: [] }]);
+  }
+
+  codeBlockOf(lang: string): void {
+    const sel = this.selection();
+    const text = sel && !sel.isCollapsed && this.box().nativeElement.contains(sel.anchorNode) ? sel.toString() : '';
+    if (text) document.execCommand('delete');
+    this.insertBlocks([codeBlock(text || (lang === 'diff' ? '- before\n+ after' : ''), lang)]);
+  }
+
+  pill(tone: PillTone, label: string): void {
+    this.menu.set(null);
+    const text = label.replace(/^[^\w]+\s*/, '');
+    this.insertInline(`<span data-pill="${tone}">${escHtml(text)}</span>&nbsp;`);
+  }
+
+  color(c: TextColor | null): void {
+    this.menu.set(null);
+    if (!c) { this.exec('removeFormat'); return; }
+    this.wrapInline('span', { 'data-color': c });
+  }
+
+  link(): void {
+    const sel = this.selection();
+    const has = !!sel && !sel.isCollapsed;
+    const url = window.prompt('Link (https://…)', 'https://');
+    if (!url || !/^(https?:\/\/|mailto:)/i.test(url)) return;
+    if (has) this.exec('createLink', url);
+    else this.insertInline(`<a href="${escAttr(url)}">${escHtml(url)}</a>&nbsp;`);
+  }
+
+  template(t: BoardTemplate): void {
+    this.menu.set(null);
+    this.insertBlocks(markdownBlocks(t.text));
+  }
+
+  /** Wraps the selection in an inline tag (highlight, code, colour). */
+  wrapInline(tag: string, attrs: Record<string, string> = {}): void {
+    this.focusBox();
+    const sel = this.selection();
+    if (!sel || !sel.rangeCount || sel.isCollapsed) return;
+    const range = sel.getRangeAt(0);
+    if (!this.box().nativeElement.contains(range.commonAncestorContainer)) return;
+    const el = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+    el.appendChild(range.extractContents());
+    range.insertNode(el);
+    this.placeCaretAfter(el);
+    this.menu.set(null);
+    this.sync();
+  }
+
+  /** Blocks at the caret - a callout, a table, a template, a pasted page... (the editor turns rich). */
+  insertBlocks(blocks: readonly Block[]): void {
+    if (!blocks.length) return;
+    this.ensureRich();
+    this.focusBox();
+    const html = blocksToDom(blocks, document).map((n) => (n instanceof Element ? n.outerHTML : escHtml(n.textContent ?? ''))).join('');
+    // a paragraph after, so the caret has somewhere to go below a callout or a table
+    document.execCommand('insertHTML', false, html + '<p><br></p>');
+    this.menu.set(null);
+    this.sync();
+  }
+
+  private insertInline(html: string): void {
+    this.focusBox();
+    document.execCommand('insertHTML', false, html);
+    this.sync();
+  }
+
+  /** Text not yet in blocks turned into paragraphs, one per line, mentions and formatting kept - before a block format. */
+  private ensureRich(): void {
+    const box = this.box().nativeElement;
+    document.execCommand('defaultParagraphSeparator', false, 'p');
+    if (Array.from(box.children).some((c) => BLOCK_TAGS.has(c.tagName))) return;
+    const before = this.caretTextOffset();
+    const blocks = splitAtBreaks(domBlocks(box));
+    box.replaceChildren(...blocksToDom(blocks.length ? blocks : [{ kind: 'paragraph', inlines: [] }], document));
+    this.rich.set(true);
+    this.setCaretTextOffset(before);
+  }
+
+  toggleSource(): void {
+    this.source.update((s) => !s);
+    if (!this.source()) this.render(this.value());
+  }
+
+  fromSource(text: string): void {
+    this.shown = null;
+    this.value.set(text);
+    this.saveDraft(text);
+  }
+
+  // -------------------------------------------------------------------------------------------------------- variables
+
+  private variables(): GlobalVariablesService | null {
+    try { return this.injector.get(GlobalVariablesService); } catch { return null; }
+  }
+
+  openVariables(): void {
+    this.focusBox();
+    document.execCommand('insertText', false, '{{');
+    this.onInput();
+  }
+
+  pickVariable(name: string): void {
+    const clean = name.trim().replace(/[^\w.-]/g, '');
+    if (!clean) { this.popup.set(null); return; }
+    const range = this.popupRange;
+    this.popup.set(null);
+    if (range && this.box().nativeElement.contains(range.startContainer)) range.deleteContents();
+    const pill = variablePillNode(document, clean);
+    const space = document.createTextNode(' ');
+    const r = range ?? this.endRange();
+    r.insertNode(space);
+    r.insertNode(pill);
+    this.placeCaretAfter(space);
+    this.sync();
+  }
+
+  /** A `/` menu item: the typed `/query` goes, then the item runs where it was. */
+  private slash(run: () => void): void {
+    const range = this.popupRange;
+    this.popup.set(null);
+    if (range && this.box().nativeElement.contains(range.startContainer)) {
+      range.deleteContents();
+      const sel = this.selection();
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+    }
+    this.sync();
+    run();
+  }
+
+  calloutTitle(t: CalloutTone): string {
+    return CALLOUT_TITLES[t];
+  }
+
+  // -------------------------------------------------------------------------------------------------------- templates
+
+  editTemplates(): void {
+    this.menu.set(null);
+    this.templateDraft.set(this.templates().map((t) => ({ ...t })));
+    this.editingTemplates.set(true);
+  }
+
+  editTemplate(i: number, name: string | null, text: string | null): void {
+    this.templateDraft.update((all) => all.map((t, j) => (j === i ? { ...t, name: name ?? t.name, text: text ?? t.text } : t)));
+  }
+
+  addTemplate(): void {
+    this.templateDraft.update((all) => [...all, { name: 'New template', icon: '▤', text: '### Heading\nText' }]);
+  }
+
+  resetTemplates(): void {
+    saveTemplates(null);
+    this.templates.set(DEFAULT_TEMPLATES);
+    this.editingTemplates.set(false);
+  }
+
+  saveTemplateDraft(): void {
+    const all = this.templateDraft().filter((t) => t.name.trim() && t.text.trim());
+    saveTemplates(all);
+    this.templates.set(all);
+    this.editingTemplates.set(false);
+  }
+
+  // ----------------------------------------------------------------------------------------------------------- mentions
+
+  flipDir(): void {
+    this.dirChoice.set(nextChoice(this.dirChoice()));
+    this.markBlockDirs();
+  }
+
   /** Keeps the caret when the box loses focus (the @ Mention button, the picker), so a pick lands where the user was. */
   saveCaret(): void {
+    this.popup.set(null);
     if (this.replacesAt) return;
     const sel = this.selection();
     if (sel && sel.rangeCount && this.box().nativeElement.contains(sel.anchorNode)) this.at = sel.getRangeAt(0).cloneRange();
@@ -173,9 +814,7 @@ export class MentionEditorComponent implements AfterViewInit {
     const box = this.box().nativeElement;
     let range = this.at && box.contains(this.at.startContainer) ? this.at : null;
     if (!range) {
-      range = document.createRange();
-      range.selectNodeContents(box);
-      range.collapse(false);
+      range = this.endRange();
     } else if (!this.replacesAt) {
       range.collapse(false);
     }
@@ -200,7 +839,7 @@ export class MentionEditorComponent implements AfterViewInit {
     let at = this.value().length;
     if (this.at && box.contains(this.at.startContainer)) {
       if (this.replacesAt) this.at.deleteContents();
-      at = serializedOffset(box, this.at.startContainer, this.at.startOffset);
+      at = this.offsetIn(this.at.startContainer, this.at.startOffset);
       this.sync();
     }
     this.pickerOpen.set(false);
@@ -212,18 +851,98 @@ export class MentionEditorComponent implements AfterViewInit {
   submit(): void {
     const text = this.value();
     if (!text.trim() && !this.allowEmpty()) return;
+    this.clearDraft();
     this.submitted.emit(text);
   }
 
+  // ------------------------------------------------------------------------------------------------------------ drafts
+
+  private draftStoreKey(): string | null {
+    const k = this.draftKey();
+    return k ? `alfred.board.draft.${k}` : null;
+  }
+
+  private readDraft(): { text: string; at: number } | null {
+    const k = this.draftStoreKey();
+    if (!k) return null;
+    try { return JSON.parse(localStorage.getItem(k) ?? 'null'); } catch { return null; }
+  }
+
+  private saveDraft(text: string): void {
+    const k = this.draftStoreKey();
+    if (!k) return;
+    if (this.draftTimer) clearTimeout(this.draftTimer);
+    this.draftTimer = setTimeout(() => {
+      try {
+        if (text.trim()) localStorage.setItem(k, JSON.stringify({ text, at: Date.now() })); else localStorage.removeItem(k);
+      } catch { /* private mode */ }
+    }, 400);
+  }
+
+  private clearDraft(): void {
+    const k = this.draftStoreKey();
+    if (this.draftTimer) clearTimeout(this.draftTimer);
+    this.draftNotice.set(null);
+    if (k) { try { localStorage.removeItem(k); } catch { /* private mode */ } }
+  }
+
+  restoreDraft(): void {
+    const d = this.draftNotice();
+    this.draftNotice.set(null);
+    if (!d) return;
+    this.shown = null;
+    this.value.set(d.text);
+  }
+
+  discardDraft(): void {
+    this.clearDraft();
+  }
+
+  // ------------------------------------------------------------------------------------------------------- the box
+
   private render(text: string): void {
-    renderMentionText(this.box().nativeElement, text);
+    const box = this.box().nativeElement;
+    if (this.toolbar() && (isHtml(text) || hasFormatting(text))) {
+      box.replaceChildren(...blocksToDom(textBlocks(text), document));
+      this.rich.set(true);
+    } else {
+      renderMentionText(box, text);
+      this.rich.set(false);
+    }
+    this.markBlockDirs();
     this.shown = text;
   }
 
+  /** The box as text: plain while nothing is formatted (as always), else the board's HTML. */
+  private serialize(): string {
+    const box = this.box().nativeElement;
+    const rich = this.toolbar() && Array.from(box.querySelectorAll('*')).some((e) => !isPlainElement(e as HTMLElement));
+    this.rich.set(rich);
+    if (!rich) return serializeMentionText(box);
+    const blocks = domBlocks(box);
+    // formatting all undone: back to plain text
+    if (blocks.every((b) => b.kind === 'paragraph' && b.inlines.every((i) => i.kind === 'text' || i.kind === 'mention' || i.kind === 'br'))) {
+      return blocks.map((b) => (b.kind === 'paragraph' ? b.inlines.map((i) => (i.kind === 'text' ? i.text.replace(/​/g, '') : i.kind === 'br' ? '\n' : serializeMention((i as { ref: MentionRef }).ref))).join('') : '')).join('\n');
+    }
+    return blocksToHtml(stripZeroWidth(blocks));
+  }
+
   private sync(): void {
-    const text = serializeMentionText(this.box().nativeElement);
+    const text = this.serialize();
     this.shown = text;
     this.value.set(text);
+    this.markBlockDirs();
+    this.saveDraft(text);
+  }
+
+  /** Each paragraph of rich text reads in its own direction as it is typed (or all in the forced one). */
+  private markBlockDirs(): void {
+    if (!this.rich()) return;
+    const forced = this.dirChoice();
+    this.box().nativeElement.querySelectorAll(BLOCK_SELECTOR).forEach((e) => {
+      const dir = e.tagName === 'PRE' ? 'ltr' : forced !== 'auto' ? forced : textDir(e.textContent) ?? 'auto';
+      if (e.getAttribute('dir') !== dir) e.setAttribute('dir', dir);
+    });
   }
 
   private insertText(text: string): void {
@@ -238,9 +957,80 @@ export class MentionEditorComponent implements AfterViewInit {
       range.insertNode(node);
     }
     // A trailing "\n" shows no new line in a contenteditable until something follows it.
-    if (text.endsWith('\n') && !node.nextSibling) box.append(fillerBreak(document));
+    if (text.endsWith('\n') && !node.nextSibling) node.parentNode?.appendChild(fillerBreak(document));
     this.placeCaretAfter(node);
     this.sync();
+  }
+
+  /** Where node/offset falls in the stored text - so a pick from anywhere can come back to the same place. */
+  private offsetIn(node: Node, offset: number): number {
+    const marker = '';
+    const range = document.createRange();
+    range.setStart(node, offset);
+    range.collapse(true);
+    const probe = document.createTextNode(marker);
+    range.insertNode(probe);
+    const at = this.serialize().indexOf(marker);
+    probe.remove();
+    this.box().nativeElement.normalize();
+    return at < 0 ? this.serialize().length : at;
+  }
+
+  private caretTextOffset(): number {
+    const sel = this.selection();
+    const box = this.box().nativeElement;
+    if (!sel || !sel.rangeCount || !box.contains(sel.anchorNode)) return -1;
+    const range = document.createRange();
+    range.selectNodeContents(box);
+    range.setEnd(sel.anchorNode!, sel.anchorOffset);
+    return range.toString().replace(/\n/g, '').length;
+  }
+
+  private setCaretTextOffset(n: number): void {
+    const box = this.box().nativeElement;
+    if (n < 0) { this.caretToEnd(); return; }
+    const walker = document.createTreeWalker(box, NodeFilter.SHOW_TEXT);
+    let left = n;
+    for (let t = walker.nextNode() as Text | null; t; t = walker.nextNode() as Text | null) {
+      if (t.parentElement?.closest('[contenteditable=false]')) { left -= t.data.length; continue; }
+      if (left <= t.data.length) { this.placeCaret(t, Math.max(0, left)); return; }
+      left -= t.data.length;
+    }
+    this.caretToEnd();
+  }
+
+  private closestIn(node: Node | null, selector: string): Element | null {
+    const el = node instanceof Element ? node : node?.parentElement ?? null;
+    const found = el?.closest(selector) ?? null;
+    return found && this.box().nativeElement.contains(found) ? found : null;
+  }
+
+  /** The box focused with the selection where the user left it (the toolbar's select takes the focus for a moment). */
+  private focusBox(): void {
+    const box = this.box().nativeElement;
+    const sel = this.selection();
+    const range = sel && sel.rangeCount && box.contains(sel.anchorNode) ? sel.getRangeAt(0).cloneRange()
+      : this.at && box.contains(this.at.startContainer) ? this.at.cloneRange() : null;
+    if (document.activeElement !== box) box.focus();
+    sel?.removeAllRanges();
+    sel?.addRange(range ?? this.endRange());
+  }
+
+  private endRange(): Range {
+    const range = document.createRange();
+    range.selectNodeContents(this.box().nativeElement);
+    range.collapse(false);
+    return range;
+  }
+
+  private placeCaret(node: Node, offset: number): void {
+    const sel = this.selection();
+    if (!sel) return;
+    const range = document.createRange();
+    range.setStart(node, offset);
+    range.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(range);
   }
 
   private placeCaretAfter(node: Node): void {
@@ -256,14 +1046,58 @@ export class MentionEditorComponent implements AfterViewInit {
   private caretToEnd(): void {
     const sel = this.selection();
     if (!sel) return;
-    const range = document.createRange();
-    range.selectNodeContents(this.box().nativeElement);
-    range.collapse(false);
     sel.removeAllRanges();
-    sel.addRange(range);
+    sel.addRange(this.endRange());
   }
 
   private selection(): Selection | null {
     return this.box().nativeElement.ownerDocument.getSelection();
   }
 }
+
+/** What plain text is made of in the box: mention pills and line breaks (and the browser's bare div/p line wrappers). */
+function isPlainElement(e: HTMLElement): boolean {
+  if (e.closest('[data-mention]')) return true;
+  if (e.tagName === 'BR') return true;
+  return (e.tagName === 'DIV' || e.tagName === 'SPAN') && !e.attributes.length;
+}
+
+/** A paragraph's line breaks made into paragraphs - each line its own block, as the editor's Enter makes them. */
+function splitAtBreaks(blocks: Block[]): Block[] {
+  return blocks.flatMap((b): Block[] => {
+    if (b.kind !== 'paragraph') return [b];
+    const out: Inline[][] = [[]];
+    for (const n of b.inlines) {
+      if (n.kind === 'br') out.push([]); else out[out.length - 1].push(n);
+    }
+    return out.map((inlines) => ({ kind: 'paragraph', inlines }));
+  });
+}
+
+function stripZeroWidth(blocks: Block[]): Block[] {
+  const fix = (nodes: readonly Inline[]): Inline[] => nodes.map((n) => (n.kind === 'text' ? { ...n, text: n.text.replace(/​/g, '') }
+    : 'children' in n ? { ...n, children: fix(n.children) } as Inline : n)).filter((n) => !(n.kind === 'text' && !n.text));
+  return blocks.map((b): Block => {
+    switch (b.kind) {
+      case 'heading': case 'paragraph': case 'quote': return { ...b, inlines: fix(b.inlines) };
+      case 'list': return { ...b, items: b.items.map(fix) };
+      case 'table': return { ...b, header: b.header.map(fix), rows: b.rows.map((r) => r.map(fix)) };
+      case 'callout': return { ...b, title: fix(b.title), blocks: stripZeroWidth([...b.blocks]) };
+      case 'fold': return { ...b, summary: fix(b.summary), blocks: stripZeroWidth([...b.blocks]) };
+      default: return b;
+    }
+  });
+}
+
+function escHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function escAttr(s: string): string {
+  return escHtml(s).replace(/"/g, '&quot;');
+}
+
+function clip(v: string): string {
+  return v.length > 40 ? `${v.slice(0, 40)}…` : v;
+}
+

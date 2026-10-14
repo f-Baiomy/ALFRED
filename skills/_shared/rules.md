@@ -99,6 +99,31 @@ No noise: at most one state comment per card per visit, and only when something 
 the user answered (`board_get` lists `openQuestions`); a question unanswered for more than a day gets one reminder in
 the state comment, not a new question.
 
+### Writing on the board - readable text
+
+Every text you write on the board (description, comment, reply, question, brief, evidence) is Markdown and is shown
+formatted, next to the user's own rich text. Write so the user gets it at a glance:
+
+- **First line**: one bold sentence with the point. Then the detail, a `### Heading` per part when there are several.
+- **Tables** for anything compared (before / after, call / status / time); **lists** for steps; `- [ ]` / `- [x]` for a
+  checklist the user can follow.
+- **Code** in a fenced block with its language - ` ```sql `, ` ```json `, ` ```java `, ` ```diff ` (a proposed change),
+  ` ```log ` (a stack trace). A body is whole, never cut.
+- **Callouts** for what must not be missed: `> [!NEXT] Deploy, then re-test`, `> [!WARNING] ...`, `> [!BUG] ...`,
+  `> [!FIXED] ...`, `> [!INFO] ...` (title on the first line, more lines with `> `).
+- **Fold** long evidence so the comment stays short: a line `+++ All 12 statements`, the content, then `+++`.
+- **Pills** for a state: `[ok]`, `[fail]`, `[wait]`, `[info]`, or with words `[fail: 405 × 5]`. `==highlight==` one key
+  value; `~~struck~~` for what is no longer true.
+- **Variables**: `{{name}}` for a global variable (a URL, a branch code) - the board shows its value in the active
+  environment; never paste a secret's value.
+- **A call alone on its line** (`@[call:in:<id>|POST /orders · 500]`) shows as a call card; inside a sentence it is a
+  pill. Pictures the user pasted are `![...](/board/images/<id>)` - open them with `board_image` before you judge.
+- **Language**: answer in the language the user wrote in; Arabic and English mixed in one text is fine (each paragraph
+  takes its own direction). Keep code, paths and identifiers in English.
+- **Reactions**: the user's ✅ on your plan or question means **Go** - carry on without asking again (`board_changes`
+  shows it as `= GO`). An edited comment (`edited a comment; it now reads`) replaces what it said before: act on the new
+  text.
+
 ## 3. One card per problem, with evidence
 
 - Before `board_add`: `board_closed_reasons` (never re-report what the user closed as Fine or Not in this flow),

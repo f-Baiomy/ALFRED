@@ -3,10 +3,13 @@ package com.fathy.alfred.backend.board.application.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fathy.alfred.backend.board.application.port.in.ImportBoardUseCase;
+import com.fathy.alfred.backend.board.application.port.out.BoardImageStorePort;
 import com.fathy.alfred.backend.board.application.port.out.BoardNotificationPort;
 import com.fathy.alfred.backend.board.application.port.out.BoardStorePort;
 import com.fathy.alfred.backend.board.application.port.out.MentionedCallsChangedPort;
 import com.fathy.alfred.backend.board.domain.MentionParser;
+import com.fathy.alfred.backend.board.domain.RichText;
+import com.fathy.alfred.backend.board.domain.model.BoardImage;
 import com.fathy.alfred.backend.board.domain.model.ActivityEntry;
 import com.fathy.alfred.backend.board.domain.model.ActivityKind;
 import com.fathy.alfred.backend.board.domain.model.Actor;
@@ -30,6 +33,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
@@ -55,11 +59,13 @@ public class ImportBoardService implements ImportBoardUseCase {
     private final BoardStorePort store;
     private final BoardNotificationPort notifications;
     private final MentionedCallsChangedPort mentionedCalls;
+    private final BoardImageStorePort images;
     private final ObjectMapper json = new ObjectMapper();
 
     public ImportBoardService(BoardStorePort store, BoardNotificationPort notifications, MentionedCallsChangedPort mentionedCalls,
-                              BoardChangeFeed feed) {
+                              BoardChangeFeed feed, BoardImageStorePort images) {
         this.store = store;
+        this.images = images;
         this.notifications = feed.feeding(notifications);
         this.mentionedCalls = mentionedCalls;
     }
@@ -80,6 +86,9 @@ public class ImportBoardService implements ImportBoardUseCase {
         Map<Integer, String> idByOldNumber = new HashMap<>();
         Map<Long, Long> newIds = new HashMap<>(); // an exported entry id -> its id here, for replies
         List<Renumbered> renumbered = new ArrayList<>();
+        // Pictures the texts show, by the card (or cycle) that shows them - attached once their records are read.
+        Map<String, Set<String>> cardImages = new HashMap<>();
+        Map<String, Set<String>> cycleImages = new HashMap<>();
         String sourceProject = null;
         boolean cardsWritten = false;
         String line;
@@ -110,7 +119,8 @@ public class ImportBoardService implements ImportBoardUseCase {
                     String cardId = idByOldNumber.get(r.path("cardNumber").asInt(-1));
                     if (cardId != null) {
                         JsonNode e = r.path("entry");
-                        String text = rewrite(text(e, "text"), sourceProject, target, numbers);
+                        String text = RichText.clean(rewrite(text(e, "text"), sourceProject, target, numbers));
+                        cardImages.computeIfAbsent(cardId, k -> new java.util.HashSet<>()).addAll(RichText.imageIds(text));
                         // Replies point at the new id of the comment they answer (comments come before their replies).
                         Long replyTo = e.hasNonNull("replyTo") ? newIds.get(e.path("replyTo").asLong()) : null;
                         long id = store.append(new ActivityEntry(0, cardId, actor(e.path("actor").asText()),
@@ -125,18 +135,20 @@ public class ImportBoardService implements ImportBoardUseCase {
                     }
                 }
                 case "brief" -> {
-                    String text = r.path("text").asText("");
+                    String text = RichText.clean(r.path("text").asText(""));
+                    cycleImages.computeIfAbsent(r.path("cycleId").asText(), k -> new java.util.HashSet<>()).addAll(RichText.imageIds(text));
                     store.putBrief(new CycleBrief(r.path("cycleId").asText(), text, instant(r.path("updatedAt").asText())));
                     store.replaceMentions(MentionOwner.BRIEF, r.path("cycleId").asText(), null, MentionParser.mentions(text));
                 }
                 case "spec" -> {
-                    String content = r.path("content").asText("");
+                    String content = RichText.clean(r.path("content").asText(""));
                     store.putSpec(new SpecFile(r.path("cycleId").asText(), r.path("name").asText(), content,
                             content.getBytes(StandardCharsets.UTF_8).length, instant(r.path("uploadedAt").asText())));
                 }
                 case "mark" -> store.putMark(new ChecklistMark(r.path("cycleId").asText(), r.path("fileName").asText(),
                         r.path("itemKey").asText(), Mark.valueOf(r.path("mark").asText()), actor(r.path("actor").asText()),
-                        r.path("evidence").asText(""), List.of(), instant(r.path("updatedAt").asText())));
+                        RichText.clean(r.path("evidence").asText("")), List.of(), instant(r.path("updatedAt").asText())));
+                case "image" -> image(r);
                 default -> {
                     // A newer exporter's record this reader does not know: skipped, not fatal.
                 }
@@ -145,6 +157,14 @@ public class ImportBoardService implements ImportBoardUseCase {
         if (!cardsWritten) {
             writeCards(target, sourceProject, pending, numbers, idByOldNumber, renumbered);
         }
+        for (PendingCard p : pending) {
+            String id = idByOldNumber.get(p.card().number());
+            if (id != null) {
+                cardImages.computeIfAbsent(id, k -> new java.util.HashSet<>()).addAll(RichText.imageIds(p.card().description()));
+            }
+        }
+        cardImages.forEach((cardId, ids) -> store.attachImages(ids, cardId, null));
+        cycleImages.forEach((cycleId, ids) -> store.attachImages(ids, null, cycleId));
         mentionedCalls.mentionedCallsChanged();
         notifications.changed(target, null, null, "card");
         return new ImportResult(pending.size(), renumbered);
@@ -187,6 +207,29 @@ public class ImportBoardService implements ImportBoardUseCase {
         }
     }
 
+    /**
+     * A picture a text shows ({@code record: "image"}, base64): kept under its id when it is a real picture and not here
+     * already - importing into the Alfred it came from keeps the one it has.
+     */
+    private void image(JsonNode r) {
+        String id = r.path("id").asText("");
+        String mime = r.path("mime").asText("");
+        if (!id.matches("^[A-Za-z0-9-]{8,64}$") || !com.fathy.alfred.backend.board.application.port.in.BoardImagesUseCase.TYPES.contains(mime)
+                || images.findImage(id).isPresent()) {
+            return;
+        }
+        byte[] data;
+        try {
+            data = Base64.getDecoder().decode(r.path("data").asText(""));
+        } catch (IllegalArgumentException e) {
+            return;
+        }
+        if (data.length == 0 || data.length > BoardImage.MAX_BYTES || !BoardImagesService.looksLike(mime, data)) {
+            return;
+        }
+        images.saveImage(new BoardImage(id, mime, data, null, null, Instant.now()));
+    }
+
     /** {@code @[card:<source>#N|} becomes {@code @[card:<target>#M|} for every imported card. */
     static String rewrite(String text, String sourceProject, String target, Map<String, Integer> numbers) {
         if (text == null || !text.contains("@[card:")) {
@@ -208,7 +251,7 @@ public class ImportBoardService implements ImportBoardUseCase {
         String status = c.path("status").asText("INBOX");
         Instant created = instant(c.path("createdAt").asText());
         return new Card(UUID.randomUUID().toString(), target, c.path("number").asInt(0), CardKind.valueOf(c.path("kind").asText("TASK")),
-                c.path("title").asText(), c.path("description").asText(""), CardStatus.valueOf(status),
+                c.path("title").asText(), RichText.clean(c.path("description").asText("")), CardStatus.valueOf(status),
                 c.hasNonNull("resolution") ? Resolution.valueOf(c.get("resolution").asText()) : null, text(c, "reason"), Set.copyOf(flags),
                 Scope.valueOf(c.path("scope").asText("NOT_DECIDED")), actor(c.path("author").asText()), text(c, "cycleId"),
                 c.path("cycleDeleted").asBoolean(false), text(c, "signature"), created, instant(c.path("updatedAt").asText()),

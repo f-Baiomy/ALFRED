@@ -2,7 +2,7 @@ import { NgTemplateOutlet } from '@angular/common';
 import { Component, DestroyRef, HostListener, computed, effect, inject, input, output, signal, untracked, viewChild } from '@angular/core';
 import {
   ActivityEntry, CardDetail, CardKind, Proposal, CardStatus, FLAGS, FLAG_LABELS, Flag, KINDS, MentionRef, OPEN_STATUSES, RESOLUTION_LABELS,
-  Resolution, SCOPE_LABELS, STATUS_LABELS, Scope,
+  Resolution, SCOPE_LABELS, STATUS_LABELS, Scope, TextVersion,
 } from '../../../core/models/board.models';
 import { BoardApiService } from '../../../core/services/board-api.service';
 import { BoardMentionsService } from '../../../core/services/board-mentions.service';
@@ -124,14 +124,28 @@ import { SelectOption, SelectPickerComponent } from '../../select-picker/select-
           <section class="board-drawer-desc">
             <h4>Description
               @if (editable() && !editingDescription()) { <button type="button" class="board-link" (click)="editingDescription.set(true)">Edit</button> }
+              @if (descriptionEdited()) { <button type="button" class="board-link board-dim" title="See the earlier descriptions" (click)="showDescriptionHistory(c)">edited · history</button> }
             </h4>
+            @if (descHistory(); as h) {
+              <div class="run-dialog-bg" (click)="descHistory.set(null)">
+                <div class="run-dialog board-versions" role="dialog" aria-label="Earlier descriptions" (click)="$event.stopPropagation()">
+                  <div class="run-dialog-head"><b>Earlier descriptions</b><button type="button" class="board-link" (click)="descHistory.set(null)">✕</button></div>
+                  <div class="board-version now"><div class="board-dim">Now</div><app-markdown-view [text]="c.description" empty="No description." /></div>
+                  @for (v of h.versions; track $index) {
+                    <div class="board-version"><div class="board-dim">{{ v.actor === 'CLAUDE' ? '✦ Claude' : 'You' }} · until {{ v.at }}</div><app-markdown-view [text]="v.text" empty="(empty)" /></div>
+                  } @empty {
+                    <div class="board-dim">{{ h.loading ? 'Loading…' : 'No earlier descriptions kept.' }}</div>
+                  }
+                </div>
+              </div>
+            }
             @if (editingDescription()) {
               <app-mention-editor [value]="descriptionDraft() ?? c.description" [project]="c.project" [cycleId]="c.cycleId" [contextMentions]="c.links"
                                   [card]="pickTarget()" pickField="description"
-                                  submitLabel="Save" [cancellable]="true" [allowEmpty]="true" [rows]="8" [enterSends]="false"
+                                  submitLabel="Save" [cancellable]="true" [allowEmpty]="true" [rows]="8" [enterSends]="false" [draftKey]="'desc:' + c.id"
                                   (submitted)="saveDescription($event)" (cancelled)="editingDescription.set(false); descriptionDraft.set(null)" />
             } @else {
-              <div class="board-desc"><app-markdown-view [text]="c.description" empty="No description yet." [idPrefix]="'card-' + c.id + '-'" /></div>
+              <div class="board-desc"><app-markdown-view [text]="c.description" empty="No description yet." [idPrefix]="'card-' + c.id + '-'" [outline]="true" /></div>
             }
           </section>
           </div>
@@ -195,7 +209,7 @@ import { SelectOption, SelectPickerComponent } from '../../select-picker/select-
         @if (editable()) {
           <div class="board-drawer-composer">
             <app-mention-editor [value]="draft()" (valueChange)="draft.set($event)" [project]="c.project" [cycleId]="c.cycleId"
-                                [contextMentions]="c.links" [card]="pickTarget()" pickField="comment" (submitted)="comment($event)" />
+                                [contextMentions]="c.links" [card]="pickTarget()" pickField="comment" [draftKey]="'comment:' + c.id" (submitted)="comment($event)" />
           </div>
         }
         @if (error()) { <div class="board-error">{{ error() }}</div> }
@@ -226,6 +240,16 @@ export class CardDrawerComponent {
 
   readonly card = signal<CardDetail | null>(null);
   readonly activity = signal<readonly ActivityEntry[]>([]);
+  readonly descriptionEdited = computed(() => this.activity().some((e) => e.kind === 'DESCRIPTION'));
+  readonly descHistory = signal<{ versions: readonly TextVersion[]; loading: boolean } | null>(null);
+
+  showDescriptionHistory(c: { id: string }): void {
+    this.descHistory.set({ versions: [], loading: true });
+    this.api.versions(`description:${c.id}`).subscribe({
+      next: (versions) => this.descHistory.set({ versions, loading: false }),
+      error: () => this.descHistory.set({ versions: [], loading: false }),
+    });
+  }
   readonly activityTotal = signal(0);
   readonly error = signal<string | null>(null);
   readonly editingTitle = signal(false);

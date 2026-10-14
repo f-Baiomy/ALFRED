@@ -282,6 +282,13 @@ export class FakeAlfred {
     const body = raw ? (isJson ? JSON.parse(raw) : raw) : undefined;
     this.log.push({ method: req.method!, path: url.pathname, query: url.searchParams, body, headers: req.headers });
     if (url.pathname === '/board/changes/wait' && this.board.waitGate) await this.board.waitGate;
+    if (url.pathname.startsWith('/board/images/') && req.method === 'GET') {
+      // a 1x1 PNG for any id but "gone"
+      const gone = url.pathname.endsWith('/gone-0000');
+      res.writeHead(gone ? 404 : 200, { 'Content-Type': gone ? 'application/json' : 'image/png' });
+      res.end(gone ? '{}' : Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64'));
+      return;
+    }
     if (url.pathname.startsWith('/board/cycles/') && url.pathname.includes('/specs/') && req.method === 'GET') {
       const [, , , cycleId, , name] = url.pathname.split('/').map(decodeURIComponent);
       const text = this.board.specs[cycleId]?.[name];
