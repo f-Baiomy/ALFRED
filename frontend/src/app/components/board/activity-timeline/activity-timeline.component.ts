@@ -134,6 +134,9 @@ export interface TimelineReply {
       <button type="button" class="board-link board-ev-dir" [class.on]="dirs.choice(e.id) !== 'auto'"
               title="Text direction: auto (from its words), right-to-left or left-to-right - for you, in this browser" (click)="flipDir(e)">
         {{ dirLabel(dirs.choice(e.id)) }}</button>
+      <button type="button" class="board-link board-ev-dir" [class.on]="dirs.wraps(e.id)"
+              [title]="dirs.wraps(e.id) ? 'Long lines wrap - click to keep table rows and code lines whole and scroll them sideways' : 'Table rows and code lines stay whole and scroll sideways - click to wrap them'"
+              (click)="dirs.toggleWrap(e.id)">{{ dirs.wraps(e.id) ? '⤶ Wrap' : '⇥ Scroll' }}</button>
     </ng-template>
     <ng-template #copyMenu let-e>
       <span class="board-editor-dd">
@@ -152,10 +155,10 @@ export interface TimelineReply {
       <div class="board-ev-body" [class.folded]="long(e) && !expanded().has(e.id)">
         @if (parts(e.text); as ps) {
           @for (p of ps; track $index) {
-            <div class="board-ev-part"><span class="board-ev-label">{{ p.label }}</span><app-markdown-view [text]="p.text" [dir]="dirs.choice(e.id)" /></div>
+            <div class="board-ev-part"><span class="board-ev-label">{{ p.label }}</span><app-markdown-view [text]="p.text" [dir]="dirs.choice(e.id)" [wrap]="dirs.wraps(e.id)" /></div>
           }
         } @else {
-          <app-markdown-view [text]="e.text" [dir]="dirs.choice(e.id)" />
+          <app-markdown-view [text]="e.text" [dir]="dirs.choice(e.id)" [wrap]="dirs.wraps(e.id)" />
         }
       </div>
       @if (long(e)) {

@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alfred · Board visuals mock</title>
+<style>
+  :root { color-scheme: dark;
+    --card: #141a45; --card-inner: #070a24; --panel: #0d1238; --border: rgba(139,92,246,.22); --border-strong: rgba(139,92,246,.45);
+    --purple: #8b5cf6; --purple-light: #c4b5fd; --cyan: #22d3ee; --text: #e5e9f5; --text-dim: #93a0c2; --text-faint: #5c6690;
+    --green: #34d399; --amber: #fbbf24; --red: #f87171; --blue: #60a5fa; font: 14px/1.5 Inter, system-ui, sans-serif; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 24px 16px 60px; background: radial-gradient(ellipse at top, #131a4a 0%, #0a0e2a 55%); color: var(--text); min-height: 100vh; }
+  .wrap { max-width: 1080px; margin: auto; }
+  h1 { font-size: 1.15rem; margin: 0 0 4px; } h2 { font-size: .95rem; margin: 28px 0 8px; color: var(--purple-light); }
+  .note { color: var(--text-dim); font-size: .82rem; max-width: 920px; } .note b { color: var(--text); }
+  code { font: .78rem Consolas, monospace; color: var(--purple-light); }
+  pre.src { background: var(--card-inner); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font: .72rem/1.5 Consolas, monospace; color: #cbd5e1; white-space: pre-wrap; margin: 0; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; } @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+  .lbl { font-size: .7rem; color: var(--text-faint); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 4px; }
+
+  /* a comment as the board shows it */
+  .ev { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+  .who { font-size: .74rem; color: var(--text-dim); margin-bottom: 6px; display: flex; gap: 8px; align-items: center; }
+  .who b { color: var(--purple-light); } .who .sw { margin-left: auto; color: var(--text-faint); font-size: .7rem; }
+  .ev p { margin: 0 0 8px; font-size: .84rem; }
+  .c-red { color: var(--red); } .c-green { color: var(--green); } .c-amber { color: var(--amber); } .c-blue { color: var(--blue); }
+  .pill { font-size: .68rem; font-weight: 700; border-radius: 999px; padding: 0 7px; }
+  .pill.fail { background: rgba(248,113,113,.18); color: var(--red); } .pill.ok { background: rgba(52,211,153,.18); color: var(--green); }
+  .chip { font: .72rem Consolas, monospace; color: var(--cyan); background: rgba(34,211,238,.12); border: 1px solid var(--border); border-radius: 5px; padding: 0 5px; }
+
+  /* fixed blocks */
+  .blk { border: 1px solid var(--border); border-radius: 8px; background: var(--card-inner); margin: 0 0 10px; overflow: hidden; }
+  .blk-bar { display: flex; justify-content: space-between; font-size: .66rem; color: var(--text-faint); padding: 2px 8px; background: rgba(139,92,246,.08); border-bottom: 1px solid var(--border); }
+  .blk-bar a { color: var(--purple-light); margin-left: 8px; text-decoration: underline; cursor: pointer; }
+  .blk-body { padding: 10px; }
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .stat { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; }
+  .stat .v { font-size: 1.1rem; font-weight: 700; } .stat .k { font-size: .68rem; color: var(--text-dim); } .stat .d { font-size: .68rem; }
+  .wf-row { display: grid; grid-template-columns: 150px 1fr 60px; gap: 6px; align-items: center; font-size: .72rem; margin: 3px 0; }
+  .wf-track { position: relative; height: 12px; background: rgba(255,255,255,.03); border-radius: 3px; }
+  .wf-bar { position: absolute; top: 0; height: 12px; border-radius: 3px; }
+  .prog { height: 8px; border-radius: 99px; background: rgba(255,255,255,.06); overflow: hidden; } .prog > i { display: block; height: 100%; background: var(--green); }
+
+  /* live block */
+  .live { border: 1px solid var(--border-strong); border-radius: 10px; overflow: hidden; margin: 0 0 10px; }
+  .live-bar { display: flex; gap: 10px; align-items: center; font-size: .7rem; color: var(--text-dim); padding: 4px 10px; background: rgba(139,92,246,.12); border-bottom: 1px solid var(--border); }
+  .live-bar b { color: var(--purple-light); } .live-bar .grow { flex: 1; } .live-bar a { color: var(--purple-light); text-decoration: underline; cursor: pointer; }
+  .live-bar .lock { color: var(--green); }
+  .live iframe { display: block; width: 100%; height: 330px; border: 0; background: #0b1030; }
+
+  table.cmp { border-collapse: collapse; font-size: .78rem; width: 100%; }
+  table.cmp th, table.cmp td { border: 1px solid var(--border); padding: 4px 8px; text-align: left; vertical-align: top; }
+  table.cmp th { background: rgba(139,92,246,.1); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Board visuals - fixed blocks + live HTML (option C)</h1>
+  <p class="note">One comment from Claude on card #33, as the board would show it. <b>Top half: fixed blocks</b> - small, safe, drawn by
+    the board itself, readable in exports and by Claude. <b>Bottom: a live HTML block</b> - anything Claude writes (HTML, CSS, JS), run in a
+    locked sandbox frame. The frame below is real: drag the slider.</p>
+
+  <h2>1 · How it reads on the board</h2>
+  <div class="ev">
+    <div class="who"><b>✦ Claude</b> · 10/14/2026 04:10 PM <span class="sw">⇥ Scroll · ⇄ Auto</span></div>
+    <p><b>Fare confirmation is <span class="c-red">2.3× slower</span> cold than warm; the time goes to repeated rule work, not the database.</b></p>
+    <p>Cold run <span class="chip">⇄ 13 Oct 00:51</span> took <span class="c-red">2400 ms</span>, warm <span class="chip">⇄ 13 Oct 20:45</span>
+      took <span class="c-amber">1065 ms</span>; the database part is only <span class="c-green">108 ms</span>. <span class="pill fail">FAIL target &lt; 1 s</span></p>
+
+    <div class="blk"><div class="blk-bar"><span>stats</span><span><a>⧉ copy</a></span></div>
+      <div class="blk-body stats">
+        <div class="stat"><div class="k">Cold</div><div class="v c-red">2400 ms</div><div class="d c-red">▲ 140% vs target</div></div>
+        <div class="stat"><div class="k">Warm</div><div class="v c-amber">1065 ms</div><div class="d c-amber">▲ 6%</div></div>
+        <div class="stat"><div class="k">Database</div><div class="v c-green">108 ms</div><div class="d c-green">4.5% of cold</div></div>
+        <div class="stat"><div class="k">Idle after last query</div><div class="v">1.2 s</div><div class="d c-red">the gap</div></div>
+      </div></div>
+
+    <div class="blk"><div class="blk-bar"><span>chart · bar</span><span><a>⧉ data</a><a>⤢</a></span></div>
+      <div class="blk-body">
+        <svg viewBox="0 0 520 150" width="100%" height="150" font-size="11" fill="#93a0c2">
+          <line x1="110" y1="10" x2="110" y2="130" stroke="#33407a"/>
+          <line x1="110" y1="130" x2="510" y2="130" stroke="#33407a"/>
+          <line x1="277" y1="10" x2="277" y2="130" stroke="#34d399" stroke-dasharray="4 3"/><text x="280" y="20" fill="#34d399">target 1 s</text>
+          <text x="10" y="40">Cold</text><rect x="110" y="28" width="400" height="20" rx="3" fill="#f87171"/><text x="455" y="42" fill="#0b1030" font-weight="700">2400</text>
+          <text x="10" y="75">Warm</text><rect x="110" y="63" width="177" height="20" rx="3" fill="#fbbf24"/><text x="292" y="77">1065</text>
+          <text x="10" y="110">Database</text><rect x="110" y="98" width="18" height="20" rx="3" fill="#34d399"/><text x="133" y="112">108</text>
+        </svg>
+      </div></div>
+
+    <div class="blk"><div class="blk-bar"><span>timeline · the cold call</span><span><a>⤢</a></span></div>
+      <div class="blk-body">
+        <div class="wf-row"><span>POST /fare-confirm</span><div class="wf-track"><div class="wf-bar" style="left:0;width:100%;background:#8b5cf6"></div></div><span>2400 ms</span></div>
+        <div class="wf-row"><span>rule hash + GZIP</span><div class="wf-track"><div class="wf-bar" style="left:2%;width:31%;background:#f87171"></div></div><span>740 ms</span></div>
+        <div class="wf-row"><span>Redis lists</span><div class="wf-track"><div class="wf-bar" style="left:34%;width:12%;background:#fbbf24"></div></div><span>290 ms</span></div>
+        <div class="wf-row"><span>SQL (4 statements)</span><div class="wf-track"><div class="wf-bar" style="left:47%;width:4.5%;background:#34d399"></div></div><span>108 ms</span></div>
+        <div class="wf-row"><span>idle → response</span><div class="wf-track"><div class="wf-bar" style="left:52%;width:48%;background:#5c6690"></div></div><span>1200 ms</span></div>
+      </div></div>
+
+    <div class="blk"><div class="blk-bar"><span>diagram · sequence (mermaid)</span><span><a>⧉ source</a><a>⤢</a></span></div>
+      <div class="blk-body">
+        <svg viewBox="0 0 520 130" width="100%" height="130" font-size="11" fill="#e5e9f5">
+          <rect x="20" y="5" width="90" height="22" rx="4" fill="#141a45" stroke="#8b5cf6"/><text x="38" y="20">Browser</text>
+          <rect x="215" y="5" width="90" height="22" rx="4" fill="#141a45" stroke="#8b5cf6"/><text x="225" y="20">odeysys</text>
+          <rect x="410" y="5" width="90" height="22" rx="4" fill="#141a45" stroke="#8b5cf6"/><text x="433" y="20">Redis</text>
+          <line x1="65" y1="27" x2="65" y2="125" stroke="#33407a"/><line x1="260" y1="27" x2="260" y2="125" stroke="#33407a"/><line x1="455" y1="27" x2="455" y2="125" stroke="#33407a"/>
+          <line x1="65" y1="45" x2="258" y2="45" stroke="#c4b5fd" marker-end="url(#a)"/><text x="100" y="40" fill="#93a0c2">POST /fare-confirm</text>
+          <line x1="260" y1="68" x2="453" y2="68" stroke="#fbbf24" marker-end="url(#a)"/><text x="295" y="63" fill="#fbbf24">GET rules (every request!)</text>
+          <line x1="455" y1="88" x2="262" y2="88" stroke="#93a0c2" stroke-dasharray="4 3" marker-end="url(#a)"/>
+          <line x1="260" y1="112" x2="67" y2="112" stroke="#f87171" stroke-dasharray="4 3" marker-end="url(#a)"/><text x="110" y="107" fill="#f87171">200 after 2400 ms</text>
+          <defs><marker id="a" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#c4b5fd"/></marker></defs>
+        </svg>
+      </div></div>
+
+    <p>Fix progress <span class="dim">(3 of 9 searches re-tested)</span></p>
+    <div class="prog" style="margin-bottom:10px"><i style="width:33%"></i></div>
+
+    <div class="live">
+      <div class="live-bar"><b>◈ Live view</b><span>written by Claude · runs in a locked frame</span><span class="lock">🔒 no network · no Alfred access</span>
+        <span class="grow"></span><a>⤢ Full screen</a><a>&lt;/&gt; Source</a><a>⬇ .html</a><a>⧉ Copy</a></div>
+      <iframe sandbox="allow-scripts" title="Live view" srcdoc='<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="default-src &apos;none&apos;; script-src &apos;unsafe-inline&apos;; style-src &apos;unsafe-inline&apos;">
+<style>body{margin:0;padding:14px;font:13px system-ui;color:#e5e9f5;background:#0b1030}h3{margin:0 0 6px;font-size:14px;color:#c4b5fd}
+.row{display:flex;gap:12px;align-items:center;margin:8px 0}input{flex:1}canvas{width:100%;height:190px;background:#070a24;border:1px solid #2a3170;border-radius:8px}
+.k{color:#93a0c2}.v{font-weight:700}</style></head><body>
+<h3>What if the rule cache works? - drag to set the cache hit rate</h3>
+<div class="row"><span class="k">hit rate</span><input id="r" type="range" min="0" max="100" value="0"><span class="v" id="p">0%</span></div>
+<div class="row"><span class="k">expected cold time:</span><span class="v" id="t">2400 ms</span><span class="k">· target 1000 ms</span><span id="ok"></span></div>
+<canvas id="c" width="900" height="300"></canvas>
+<script>
+const parts=[["rule hash + GZIP",740,"#f87171",1],["Redis lists",290,"#fbbf24",1],["SQL",108,"#34d399",0],["idle",1200,"#5c6690",.8],["other",62,"#8b5cf6",0]];
+const c=document.getElementById("c"),x=c.getContext("2d");
+function draw(h){let tot=0;const w=parts.map(([n,ms,col,cache])=>{const v=Math.round(ms*(1-cache*h));tot+=v;return [n,v,col]});
+x.clearRect(0,0,900,300);let left=20;const s=860/2400;x.font="20px system-ui";
+w.forEach(([n,v,col],i)=>{x.fillStyle=col;x.fillRect(left,40,v*s,60);if(v*s>70){x.fillStyle="#0b1030";x.fillText(v+" ms",left+8,78)}
+x.fillStyle=col;x.fillRect(20+i*175,150,16,16);x.fillStyle="#cbd5e1";x.fillText(n,42+i*175,164);left+=v*s});
+x.strokeStyle="#34d399";x.setLineDash([8,6]);x.beginPath();x.moveTo(20+1000*s,20);x.lineTo(20+1000*s,120);x.stroke();x.setLineDash([]);
+x.fillStyle="#34d399";x.fillText("target",26+1000*s,20+12);
+document.getElementById("t").textContent=tot+" ms";document.getElementById("ok").textContent=tot<=1000?"✅ meets target":"❌ over target";}
+const r=document.getElementById("r");r.oninput=()=>{document.getElementById("p").textContent=r.value+"%";draw(r.value/100)};draw(0);
+</script></body></html>'></iframe>
+    </div>
+  </div>
+
+  <h2>2 · What Claude writes for that comment</h2>
+  <div class="grid">
+    <div><div class="lbl">fixed blocks (Markdown + new fences)</div>
+<pre class="src">**Fare confirmation is {red|2.3× slower} cold than warm; the time goes to repeated rule work, not the database.**
+
+Cold run @[call:in:66e1@e8fe|13 Oct 00:51] took {red|2400 ms}, warm … took {amber|1065 ms} …  [fail: target &lt; 1 s]
+
+```stats
+Cold | 2400 ms | red | ▲ 140% vs target
+Warm | 1065 ms | amber | ▲ 6%
+Database | 108 ms | green | 4.5% of cold
+```
+
+```chart
+{"type":"hbar","labels":["Cold","Warm","Database"],
+ "values":[2400,1065,108],"colors":["red","amber","green"],
+ "line":{"at":1000,"label":"target 1 s"}}
+```
+
+```timeline
+POST /fare-confirm | 0 | 2400
+rule hash + GZIP   | 40 | 740 | red
+Redis lists        | 800 | 290 | amber
+SQL (4 statements) | 1100 | 108 | green
+```
+
+```mermaid
+sequenceDiagram
+  Browser->>odeysys: POST /fare-confirm
+  odeysys->>Redis: GET rules (every request!)
+  …
+```
+
+[progress: 3/9 searches re-tested]</pre></div>
+    <div><div class="lbl">live block (anything)</div>
+<pre class="src">```html live
+&lt;h3&gt;What if the rule cache works?&lt;/h3&gt;
+&lt;input id="r" type="range" …&gt;
+&lt;canvas id="c"&gt;&lt;/canvas&gt;
+&lt;script&gt;
+  const parts = [["rule hash + GZIP", 740, …], …];
+  // draws the bars, recomputes on input
+&lt;/script&gt;
+```</pre>
+      <p class="note" style="margin-top:10px">The data is <b>inside the block</b> - the frame cannot ask Alfred for anything. Libraries that ship with
+        Alfred (Chart.js, D3, Mermaid) can be loaded from Alfred itself with <code>&lt;script src="/board/lib/chart.js"&gt;</code>, so it works
+        offline on a native install too.</p>
+    </div>
+  </div>
+
+  <h2>3 · The two kinds, side by side</h2>
+  <table class="cmp">
+    <tr><th></th><th>Fixed blocks</th><th>Live HTML block</th></tr>
+    <tr><td>For</td><td>Every comment: colour, numbers, a chart, a call timeline, a diagram, progress</td><td>When a visual explains better: what-if sliders, interactive tables, tabs, custom dashboards, animations</td></tr>
+    <tr><td>Drawn by</td><td>The board (its own code; light and dark theme follow the app)</td><td>Claude's own HTML/CSS/JS in a sandboxed frame (theme colours passed in as CSS variables)</td></tr>
+    <tr><td>Safety</td><td>Fixed vocabulary, nothing of Claude's runs</td><td><code>sandbox="allow-scripts"</code> without same-origin + CSP: no cookies, no Alfred API, no network, no top-page access, no popups; only height is reported back</td></tr>
+    <tr><td>Arabic / English</td><td>Each block takes its direction as today</td><td>Claude sets <code>dir</code> itself; the frame starts with the comment's direction</td></tr>
+    <tr><td>Wrap / Scroll switch</td><td>Applies</td><td>Frame is always the comment's width; ⤢ for full screen</td></tr>
+    <tr><td>Exports</td><td>.md keeps the fences (readable), .html draws them, .json as stored</td><td>.html export embeds the same locked frame; .md keeps the source; .json as stored</td></tr>
+    <tr><td>Claude reading it back</td><td>Reads the fences as written</td><td>Reads the source (and a one-line summary it writes on top)</td></tr>
+    <tr><td>Size</td><td>Tiny</td><td>Up to the comment limit (256 KB); larger → attach as a file</td></tr>
+    <tr><td>You writing it</td><td>Toolbar: colour, Chart, Timeline, Diagram, Stats, Progress (each opens a small form)</td><td>Toolbar: ◈ Live block (opens source editor with a starter); you can ask Claude to make one</td></tr>
+  </table>
+
+  <h2>4 · What gets built</h2>
+  <p class="note">
+    <b>1.</b> Colour in Markdown <code>{red|text}</code> (red, green, amber, blue, purple) - and Claude is told it exists.<br>
+    <b>2.</b> Fixed fences drawn by the board: <code>stats</code>, <code>chart</code> (bar, hbar, line, pie, own SVG - no library), <code>timeline</code>
+      (call waterfall), <code>mermaid</code> (flow/sequence/state diagrams; Mermaid loaded only when a comment has one, strict mode), <code>[progress: a/b]</code>.<br>
+    <b>3.</b> <code>```html live</code>: sandboxed frame (opaque origin, CSP <code>default-src 'none'</code> + inline script/style + Alfred's own
+      <code>/board/lib/</code>), auto height, ⤢ full screen, &lt;/&gt; source, ⬇ .html, ⧉ copy. Runs on open; a ⏸ switch per browser if you prefer click-to-run.<br>
+    <b>4.</b> Editor: toolbar entries + <code>/</code> menu for each block; live block opens a source box with a starter.<br>
+    <b>5.</b> Claude: writing guide "when a picture helps" with examples of each; MCP tool descriptions list the fences; Claude reads them back as written.<br>
+    <b>6.</b> Exports (.html draws both, .md keeps fences), docs/board.md, tests (sandbox attributes and CSP guarded by a test), browser check.
+  </p>
+</div>
+</body>
+</html>

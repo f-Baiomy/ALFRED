@@ -1,0 +1,939 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alfred · HTML snippets (power) mock</title>
+<style>
+  :root { color-scheme: dark;
+    --card: #141a45; --card-inner: #070a24; --panel: #0d1238; --border: rgba(139,92,246,.22); --border-strong: rgba(139,92,246,.45);
+    --purple: #8b5cf6; --purple-light: #c4b5fd; --cyan: #22d3ee; --text: #e5e9f5; --text-dim: #93a0c2; --text-faint: #5c6690;
+    --green: #34d399; --amber: #fbbf24; --red: #f87171; font: 14px/1.5 Inter, system-ui, sans-serif; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 24px 16px 60px; background: radial-gradient(ellipse at top, #131a4a 0%, #0a0e2a 55%); color: var(--text); }
+  .wrap { max-width: 1120px; margin: auto; }
+  h1 { font-size: 1.15rem; margin: 0 0 4px; } h2 { font-size: .95rem; margin: 30px 0 8px; color: var(--purple-light); }
+  .note { color: var(--text-dim); font-size: .8rem; max-width: 980px; margin: 4px 0 10px; } .note b { color: var(--text); }
+  code { font: .76rem Consolas, monospace; color: var(--purple-light); }
+  .num { display: inline-block; min-width: 1.4rem; text-align: center; border-radius: 99px; background: var(--purple); color: #fff; font-size: .68rem; font-weight: 700; margin-right: 4px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; } @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  .snip { border: 1px solid var(--border-strong); border-radius: 10px; overflow: hidden; background: var(--panel); }
+  .snip-bar { display: flex; gap: 10px; align-items: center; font-size: .7rem; color: var(--text-dim); padding: 4px 10px; background: rgba(139,92,246,.12); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .snip-bar b { color: var(--purple-light); } .snip-bar .grow { flex: 1; } .snip-bar a { color: var(--purple-light); text-decoration: underline; cursor: pointer; }
+  .lock { color: var(--green); } .live { color: var(--green); } .live::before { content: '● '; }
+  iframe { display: block; width: 100%; border: 0; background: #0b1030; }
+  .console { border-top: 1px solid var(--border); background: #050822; font: .7rem/1.45 Consolas, monospace; max-height: 90px; overflow: auto; padding: 4px 10px; }
+  .console .err { color: var(--red); } .console .log { color: var(--text-dim); } .console .ok { color: var(--green); }
+  .console-bar { display: flex; gap: 10px; font-size: .68rem; color: var(--text-faint); padding: 2px 10px; border-top: 1px solid var(--border); background: #050822; }
+  .console-bar a { color: var(--purple-light); text-decoration: underline; cursor: pointer; }
+  /* consent dialog */
+  .dlg-bg { position: fixed; inset: 0; background: #0009; display: none; place-items: center; z-index: 50; } .dlg-bg.on { display: grid; }
+  .dlg { width: min(520px, 92vw); background: #121848; border: 1px solid var(--border-strong); border-radius: 12px; padding: 14px 16px; box-shadow: 0 20px 60px #000c; }
+  .dlg h3 { margin: 0 0 6px; font-size: .95rem; } .dlg .what { background: var(--card-inner); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: .8rem; margin: 8px 0; }
+  .dlg .from { font-size: .72rem; color: var(--text-faint); } .dlg .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
+  .btn { font: .78rem system-ui; border: 1px solid var(--border-strong); background: var(--card); color: var(--text); border-radius: 7px; padding: 4px 12px; cursor: pointer; }
+  .btn.pri { background: var(--purple); border-color: var(--purple); color: #fff; }
+  /* pages */
+  .pages { display: flex; gap: 2px; border-bottom: 1px solid var(--border); margin-bottom: 0; }
+  .pg { padding: 5px 12px; font-size: .76rem; color: var(--text-dim); cursor: pointer; border-bottom: 2px solid transparent; }
+  .pg.on { color: var(--purple-light); border-color: var(--purple); } .pg.add { color: var(--text-faint); }
+  .shelf { display: flex; flex-wrap: wrap; gap: 6px; } .lib { font-size: .72rem; border: 1px solid var(--border); border-radius: 7px; padding: 2px 8px; background: var(--card-inner); }
+  .lib b { color: var(--text); } .lib span { color: var(--text-faint); }
+  .diff { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font: .7rem/1.5 Consolas, monospace; }
+  .diff pre { margin: 0; background: var(--card-inner); border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; white-space: pre-wrap; }
+  .del { background: rgba(248,113,113,.15); color: #fecaca; display: block; } .add { background: rgba(52,211,153,.15); color: #bbf7d0; display: block; }
+  .shot { display: flex; gap: 10px; align-items: center; font-size: .78rem; } .shot .th { width: 120px; height: 70px; border: 1px solid var(--border); border-radius: 6px; background: linear-gradient(90deg,#f87171 0 30%,#fbbf24 30% 42%,#34d399 42% 47%,#5c6690 47%); }
+  .files { display: flex; gap: 4px; font-size: .7rem; padding: 4px 10px; border-bottom: 1px solid var(--border); background: var(--card-inner); }
+  .files span { padding: 1px 8px; border-radius: 5px; color: var(--text-dim); border: 1px solid var(--border); } .files span.on { color: var(--purple-light); border-color: var(--purple); }
+  table.cmp { border-collapse: collapse; font-size: .76rem; width: 100%; } table.cmp th, table.cmp td { border: 1px solid var(--border); padding: 4px 8px; text-align: left; vertical-align: top; }
+  table.cmp th { background: rgba(139,92,246,.1); }
+  h3 { font-size: .86rem; margin: 0 0 6px; } h3.grp { margin: 22px 0 8px; color: var(--cyan); font-size: .86rem; }
+  .ex { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; font-size: .84rem; }
+  .ex.good { border-color: var(--green); } .ex p { margin: 0 0 8px; }
+  .steps { display: flex; flex-direction: column; gap: 6px; }
+  .step { display: grid; grid-template-columns: 30px 1fr; gap: 10px; align-items: start; background: var(--panel); border: 1px solid var(--border); border-radius: 9px; padding: 8px 12px; font-size: .83rem; }
+  .step > b { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--purple); color: #fff; font-size: .75rem; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: .74rem; color: var(--text-dim); margin: 6px 0 0; } .legend b { color: var(--text); }
+  .feats { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; } @media (max-width: 900px) { .feats { grid-template-columns: 1fr; } }
+  .feat { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; font-size: .8rem; }
+  .feat .fh { font-weight: 700; font-size: .9rem; margin-bottom: 6px; color: var(--text); }
+  .feat p { margin: 0 0 6px; color: var(--text-dim); } .feat p b { color: var(--text); }
+  .feat p.who { color: var(--amber); } .feat p.who b { color: var(--amber); }
+  .feat pre { margin: 6px 0 0; background: var(--card-inner); border: 1px solid var(--border); border-radius: 7px; padding: 6px 8px; font: .7rem/1.5 Consolas, monospace; color: #cbd5e1; white-space: pre-wrap; }
+  .faq p { font-size: .83rem; color: var(--text-dim); margin: 0 0 8px; } .faq b { color: var(--text); }
+  .no { color: var(--red); } .yes { color: var(--green); }
+  .sim { display: grid; grid-template-columns: 1.55fr 1fr; gap: 12px; } @media (max-width: 980px) { .sim { grid-template-columns: 1fr; } }
+  .sim-left { background: var(--card-inner); border: 1px solid var(--border); border-radius: 12px; padding: 6px; }
+  #simsvg .zone { fill: rgba(139,92,246,.04); stroke: rgba(139,92,246,.25); stroke-dasharray: 5 4; } #simsvg .zt { fill: #5c6690; font-size: 10.5px; font-weight: 700; letter-spacing: .06em; }
+  #simsvg .lnk { stroke: #2a3170; stroke-width: 1.5; }
+  #simsvg .node { cursor: pointer; } #simsvg .node:hover rect { fill: #1a2160; } #simsvg .node.sel rect { stroke-width: 3; }
+  #simsvg .node.act rect { fill: #251f5c; stroke-width: 3; filter: drop-shadow(0 0 6px rgba(251,191,36,.6)); }
+  .sim-right { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .scen { display: flex; flex-direction: column; gap: 4px; } .btn.sc { text-align: left; font-size: .76rem; } .btn.sc.on { border-color: var(--amber); color: var(--amber); }
+  .sim-ctl { display: flex; gap: 6px; align-items: center; } .spd { font-size: .72rem; color: var(--text-dim); margin-left: auto; display: flex; gap: 4px; align-items: center; }
+  .slog { background: var(--card-inner); border: 1px solid var(--border); border-radius: 10px; padding: 8px; height: 330px; overflow: auto; font-size: .76rem; }
+  .slog .ent { border-bottom: 1px solid var(--border); padding: 5px 0; } .slog .eh { color: var(--text-dim); } .slog .eh b { color: var(--text); }
+  .slog .en { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; background: var(--amber); color: #0b1030; font-size: .66rem; font-weight: 700; margin-right: 5px; }
+  .slog .lbl { font: .68rem Consolas, monospace; color: var(--amber); border: 1px solid rgba(251,191,36,.4); border-radius: 5px; padding: 0 4px; margin-left: 4px; }
+  .slog .eb { color: var(--text-dim); margin: 3px 0 0 23px; } .slog pre { margin: 4px 0 0; font: .66rem/1.4 Consolas, monospace; color: #cbd5e1; white-space: pre-wrap; background: #050822; border-radius: 6px; padding: 4px 6px; }
+  .slog .ok, .console .ok { color: var(--green); } .dim { color: var(--text-faint); }
+  .info p { font-size: .8rem; color: var(--text-dim); margin: 0 0 6px; } .info .info-h { font-weight: 700; margin-bottom: 4px; } .info code { font-size: .72rem; }
+  td.flash { background: rgba(251,191,36,.25); transition: background .3s; }
+  .cmpgrid { display: grid; grid-template-columns: 1fr 1.15fr; gap: 14px; align-items: start; } @media (max-width: 980px) { .cmpgrid { grid-template-columns: 1fr; } }
+  .steps.tight .step { padding: 6px 10px; font-size: .78rem; }
+  .srcbox { margin: 0; background: #050822; border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; font: .7rem/1.5 Consolas, monospace; color: #cbd5e1; white-space: pre-wrap; }
+  .cardmock { background: rgba(10,14,42,.7); border: 1px solid var(--border-strong); border-radius: 14px; padding: 12px 14px; }
+  .cm-head { font-size: .86rem; margin-bottom: 10px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .pill-bug { font-size: .66rem; font-weight: 700; color: var(--green); background: rgba(52,211,153,.15); border-radius: 5px; padding: 0 6px; }
+  .cm-st { margin-left: auto; font-size: .72rem; color: var(--amber); border: 1px solid rgba(251,191,36,.5); border-radius: 99px; padding: 0 8px; }
+  .cm-ev { margin: 0 0 10px; } .cm-ev.reply { margin-left: 26px; border-left: 2px solid var(--purple); padding-left: 12px; }
+  .cm-body { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; font-size: .84rem; position: relative; }
+  .cm-body p { margin: 0 0 10px; } .rlabel { position: absolute; left: -2px; top: 12px; transform: translateX(-100%); font-size: .62rem; font-weight: 700; color: var(--purple-light); letter-spacing: .06em; padding-right: 8px; display: none; }
+  .stats4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 0 0 10px; } @media (max-width: 700px) { .stats4 { grid-template-columns: 1fr 1fr; } }
+  .stats4 .st { background: var(--card-inner); border: 1px solid var(--border); border-radius: 8px; padding: 6px 9px; }
+  .stats4 .k { font-size: .68rem; color: var(--text-dim); } .stats4 .v { font-size: .95rem; font-weight: 700; } .stats4 .v s { color: var(--text-faint); font-weight: 400; } .stats4 .d { font-size: .68rem; }
+  .c-green { color: var(--green); }
+  .callout-next { margin-top: 10px; border-left: 3px solid var(--purple); background: rgba(139,92,246,.1); border-radius: 0 8px 8px 0; padding: 6px 10px; font-size: .8rem; }
+  .callout-next > b:first-child { display: block; font-size: .7rem; color: var(--purple-light); }
+  .cm-ev .acts { margin-top: 6px; display: flex; gap: 16px; font-size: .74rem; color: var(--purple-light); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>HTML snippets on the board - what they are, how they work, what each part does</h1>
+  <p class="note">A guide to the proposal, with a working demo in the middle. Read top to bottom: <b>1</b> the idea, <b>2</b> how it is built,
+    <b>3</b> one story from start to end, <b>4</b> the demo, <b>5</b> every feature explained, <b>6</b> safety, <b>7</b> questions.</p>
+
+  <!-- 1 -->
+  <h2>1 · The idea in one minute</h2>
+  <div class="grid">
+    <div class="ex"><h3>Today</h3>
+      <p>Claude can only write text on a card: Markdown, tables, code. When it wants to explain "where do the 2.4 seconds go" it writes a table of
+        numbers and you build the picture in your head.</p>
+      <p>The board has a fixed list of things it can draw. Anything outside that list - a chart, a slider, a small dashboard - is impossible.</p></div>
+    <div class="ex good"><h3>With HTML snippets</h3>
+      <p>Claude (or you) can put <b>a small web page</b> inside a comment, a description, a brief, or as its own tab on the card. It is real HTML, CSS and
+        JavaScript, so it can be anything: a chart, an interactive table, a what-if calculator, a diagram, a game.</p>
+      <p>It runs in a <b>locked box</b> inside the card. It can draw anything inside the box, but it cannot touch Alfred, your account, or the internet
+        - unless it <b>asks</b>, and for anything that changes something, <b>you click to allow it</b>.</p></div>
+  </div>
+
+  <!-- 2 -->
+  <h2>2 · How it is built - three layers</h2>
+  <svg viewBox="0 0 1080 290" width="100%" height="290" font-size="13" fill="#e5e9f5" style="background:var(--card-inner);border:1px solid var(--border);border-radius:12px">
+    <defs><marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#c4b5fd"/></marker></defs>
+    <rect x="20" y="20" width="300" height="250" rx="12" fill="#141a45" stroke="#8b5cf6"/>
+    <text x="40" y="48" font-weight="700" fill="#c4b5fd">① The snippet (locked box)</text>
+    <text x="40" y="76" fill="#93a0c2">HTML · CSS · JS written by Claude or you</text>
+    <text x="40" y="104">✓ draws anything inside the box</text>
+    <text x="40" y="128">✓ uses libraries Alfred ships</text>
+    <text x="40" y="152">✗ no internet</text>
+    <text x="40" y="176">✗ no Alfred API, no cookies</text>
+    <text x="40" y="200">✗ cannot touch the card page</text>
+    <text x="40" y="236" fill="#fbbf24">talks only through window.alfred</text>
+    <rect x="390" y="20" width="300" height="250" rx="12" fill="#141a45" stroke="#22d3ee"/>
+    <text x="410" y="48" font-weight="700" fill="#22d3ee">② The bridge (the board page)</text>
+    <text x="410" y="76" fill="#93a0c2">Alfred's own code, checks every request</text>
+    <text x="410" y="104">• reading data → allowlist, read-only</text>
+    <text x="410" y="128">• saving notes → kept with the card</text>
+    <text x="410" y="152">• doing things → asks YOU first</text>
+    <text x="410" y="176">• asking Claude → to the cycle's chat</text>
+    <text x="410" y="200">• errors/logs → the snippet console</text>
+    <text x="410" y="236" fill="#34d399">the only door between ① and ③</text>
+    <rect x="760" y="20" width="300" height="250" rx="12" fill="#141a45" stroke="#34d399"/>
+    <text x="780" y="48" font-weight="700" fill="#34d399">③ Alfred</text>
+    <text x="780" y="76" fill="#93a0c2">the normal backend and API</text>
+    <text x="780" y="104">calls, bodies, SQL, logs, Redis</text>
+    <text x="780" y="128">cards, comments, cycles, rules</text>
+    <text x="780" y="152">libraries at /board/lib/…</text>
+    <text x="780" y="176">the cycle's Claude chat</text>
+    <text x="780" y="200">WebSocket "something changed"</text>
+    <line x1="322" y1="120" x2="386" y2="120" stroke="#c4b5fd" stroke-width="2" marker-end="url(#ar)"/>
+    <line x1="388" y1="150" x2="324" y2="150" stroke="#c4b5fd" stroke-width="2" marker-end="url(#ar)"/>
+    <line x1="692" y1="120" x2="756" y2="120" stroke="#c4b5fd" stroke-width="2" marker-end="url(#ar)"/>
+    <line x1="758" y1="150" x2="694" y2="150" stroke="#c4b5fd" stroke-width="2" marker-end="url(#ar)"/>
+    <text x="330" y="110" font-size="11" fill="#93a0c2">asks</text><text x="330" y="168" font-size="11" fill="#93a0c2">answers</text>
+    <text x="700" y="110" font-size="11" fill="#93a0c2">checked call</text><text x="700" y="168" font-size="11" fill="#93a0c2">data / result</text>
+  </svg>
+  <p class="note"><b>Why three layers:</b> Claude writes snippets from recorded traffic, and recorded traffic can contain text someone else planted. If a snippet ran
+    as part of Alfred's page it could act as you - delete cards, give the ✅ Go, change interception rules. Keeping it in its own box and letting it talk only
+    through the bridge gives it full freedom to <i>show</i>, and gives you the final word on anything it wants to <i>do</i>.</p>
+
+  <!-- 2b -->
+  <h2>2b · See it work - the real system design, step by step</h2>
+  <p class="note">Pick a scenario and press <b>▶ Play</b> (or <b>Step</b> to go one hop at a time). Every box is a real part of Alfred - the names are the
+    ones the code will have. The moving dot is one message; the log on the right says exactly what it carries. The frame at the bottom is a <b>real locked
+    snippet</b>: the scenarios drive it for real - it draws the data, asks you in the dialog, and in "Snippet tries to break out" it really attempts each
+    attack and reports what the browser did.</p>
+  <div class="sim">
+    <div class="sim-left">
+      <svg id="simsvg" viewBox="0 0 1000 560" width="100%" font-size="12">
+        <defs><marker id="sar" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#5c6690"/></marker></defs>
+        <!-- zones -->
+        <rect x="20" y="150" width="340" height="395" rx="14" class="zone"/><text x="34" y="172" class="zt">YOUR BROWSER · Alfred board page</text>
+        <rect x="600" y="110" width="380" height="330" rx="14" class="zone"/><text x="614" y="132" class="zt">BACKEND :5000 (Spring Boot)</text>
+        <rect x="380" y="10" width="420" height="95" rx="14" class="zone"/><text x="394" y="30" class="zt">YOUR MACHINE · Claude Code</text>
+        <rect x="600" y="455" width="380" height="90" rx="14" class="zone"/><text x="614" y="476" class="zt">TRAFFIC</text>
+      </svg>
+    </div>
+    <div class="sim-right">
+      <div class="scen" id="scen"></div>
+      <div class="sim-ctl"><button class="btn pri" id="play">▶ Play</button><button class="btn" id="stepb">Step</button><button class="btn" id="reset">Reset</button>
+        <label class="spd">speed <input type="range" id="speed" min="1" max="5" value="3"></label></div>
+      <div class="slog" id="slog"><div class="dim">Pick a scenario above.</div></div>
+    </div>
+  </div>
+  <div class="grid" style="margin-top:12px">
+    <div class="snip">
+      <div class="snip-bar"><b>◈ Fare dashboard (real locked frame)</b><span class="lock">🔒 sandbox="allow-scripts" · CSP default-src 'none'</span></div>
+      <iframe id="simframe" sandbox="allow-scripts" style="height:250px" title="sim snippet"></iframe>
+      <div class="console-bar"><span>snippet console</span><span style="flex:1"></span><a id="simclear">clear</a></div>
+      <div class="console" id="simcon" style="max-height:150px"></div>
+    </div>
+    <div>
+      <div class="ex"><h3>What else the board stores (board.db)</h3>
+        <table class="cmp" id="dbtable"><tr><th>table</th><th>row</th></tr>
+          <tr><td>snippets</td><td id="db-snip" class="dim">-</td></tr>
+          <tr><td>snippet_versions</td><td id="db-ver" class="dim">-</td></tr>
+          <tr><td>snippet_state</td><td id="db-state" class="dim">-</td></tr>
+          <tr><td>snippet_shots</td><td id="db-shot" class="dim">-</td></tr>
+          <tr><td>activity (comments)</td><td id="db-act" class="dim">-</td></tr></table></div>
+      <div class="ex" style="margin-top:10px"><h3>What Claude sees (board_snippet_view)</h3>
+        <div class="shot"><img id="shotimg" alt="" style="width:160px;height:80px;border:1px solid var(--border);border-radius:6px;background:#050822"><span class="note" id="shotnote">no picture yet - run "Claude checks what it drew"</span></div></div>
+    </div>
+  </div>
+
+  <div style="margin-top:12px">
+    <div class="ex"><h3>Click any box in the diagram</h3><div id="info" class="info"><span class="dim">Each box explains what it is, its real name in the code, and what it may and may not do.</span></div></div>
+  </div>
+
+  <!-- 2c -->
+  <h2>2c · Scenario: "show me a comparison of the performance before and after the fix"</h2>
+  <p class="note">What happens when you write that on card #33 (fare confirmation, fix deployed at 15:58): <b>A</b> what Claude does behind the scenes,
+    <b>B</b> the exact text Claude saves as its reply, <b>C</b> how the card shows it. The reply in C is real: the snippet runs in a locked frame and
+    gets its data through the bridge (here a stand-in for Alfred: 9 calls before the fix, and calls after the fix keep arriving).</p>
+
+  <div class="cmpgrid">
+    <div>
+      <h3 class="grp">A · Behind the scenes (the cycle's chat)</h3>
+      <div class="steps tight">
+        <div class="step"><b>1</b><div><code>board_changes</code> → your comment on #33 "show me a comparison…".</div></div>
+        <div class="step"><b>2</b><div><code>board_get #33</code> → the fix: "rule cache per version", <b>Fixed</b> at 15:58, endpoint <code>POST /fare-confirm</code>.</div></div>
+        <div class="step"><b>3</b><div><code>search_calls endpoint=POST /fare-confirm until=15:58</code> → 9 calls <b>before</b>.
+          <code>since=15:58</code> → the calls <b>after</b> (more keep coming).</div></div>
+        <div class="step"><b>4</b><div><code>db_overview</code> on one call of each → SQL count and time per call; <code>call_logs</code> → no new errors.</div></div>
+        <div class="step"><b>5</b><div>Writes the reply: a <b>bold one-line answer</b>, a <b>stats</b> block (works everywhere, even exports), and an
+          <b>HTML snippet</b> that reads the calls itself so it stays current - with a fallback table inside it.</div></div>
+        <div class="step"><b>6</b><div><code>board_reply</code> → saved. The board draws it, takes a PNG; <code>board_snippet_view</code> → Claude
+          looks: labels fit, no console errors. Done.</div></div>
+      </div>
+    </div>
+    <div>
+      <h3 class="grp">B · What Claude saves (the comment's text)</h3>
+<pre class="srcbox">**The fix cut fare confirmation from 2.4 s to 0.6 s at the median - {green|4× faster}, and every call since the fix is under the 1 s target.**
+
+```stats
+Median | 2380 → 610 ms | green | ▼ 74%
+95th percentile | 2900 → 940 ms | green | ▼ 68%
+Database time | 108 → 104 ms | dim | unchanged (not the cause)
+Errors | 0 → 0 | dim |
+```
+
+```html live name="Before vs after the fix" libs="echarts@5.5"
+&lt;script type="alfred/data" name="before"
+  src="calls?endpoint=POST /fare-confirm&amp;until=2026-10-14T15:58Z"&gt;&lt;/script&gt;
+&lt;script type="alfred/data" name="after"
+  src="calls?endpoint=POST /fare-confirm&amp;since=2026-10-14T15:58Z" live&gt;&lt;/script&gt;
+&lt;div id="tabs"&gt;…Overview · Each call · Where the time went…&lt;/div&gt;
+&lt;script&gt;
+  alfred.on("before", b =&gt; { before = b; draw(); });
+  alfred.on("after",  a =&gt; { after = a;  draw(); });   // live
+  propose.onclick = () =&gt; alfred.action("propose", { status: "VERIFIED", … });
+&lt;/script&gt;
+```
+
+&gt; [!NEXT] When 20 calls after the fix are in and all under 1 s, I'll propose **Verified** - or click it in the chart now.</pre>
+    </div>
+  </div>
+
+  <h3 class="grp">C · How the card shows it</h3>
+  <div class="cardmock">
+    <div class="cm-head"><span class="pill-bug">TASK</span> <b>#33 Speed up fare confirmation: remove repeated per-request work</b> <span class="cm-st">Fixed · waiting on you</span></div>
+    <div class="cm-ev me">
+      <div class="who"><b style="color:var(--text)">You</b> · 10/14/2026 04:52 PM</div>
+      <div class="cm-body">show me a comparison of the performance before and after the fix</div>
+    </div>
+    <div class="cm-ev reply">
+      <div class="who"><b>✦ Claude</b> · 10/14/2026 04:53 PM <span class="sw">⇥ Scroll · ⇄ Auto</span></div>
+      <div class="cm-body">
+        <span class="rlabel">REPLY</span>
+        <p><b>The fix cut fare confirmation from 2.4 s to 0.6 s at the median - <span class="c-green">4× faster</span>, and every call since the fix is under the 1 s target.</b></p>
+        <div class="stats4">
+          <div class="st"><div class="k">Median</div><div class="v"><s>2380</s> → <span class="c-green">610 ms</span></div><div class="d c-green">▼ 74%</div></div>
+          <div class="st"><div class="k">95th percentile</div><div class="v"><s>2900</s> → <span class="c-green">940 ms</span></div><div class="d c-green">▼ 68%</div></div>
+          <div class="st"><div class="k">Database time</div><div class="v">108 → 104 ms</div><div class="d dim">unchanged (not the cause)</div></div>
+          <div class="st"><div class="k">Errors</div><div class="v">0 → 0</div><div class="d dim">&nbsp;</div></div>
+        </div>
+        <div class="snip">
+          <div class="snip-bar"><b>◈ Before vs after the fix</b><span>by Claude</span><span class="live" id="cmplive">live · after: 0 calls</span>
+            <span class="lock">🔒 locked · no network</span><span class="grow"></span><a>⤢ Full screen</a><a>⧉ Pop out</a><a>&lt;/&gt; Source</a><a>⬇ PNG</a></div>
+          <iframe id="cmpframe" sandbox="allow-scripts" style="height:345px" title="before vs after"></iframe>
+        </div>
+        <div class="callout-next"><b>Next</b> When 20 calls after the fix are in and all under 1 s, I'll propose <b>Verified</b> - or click it in the chart now.</div>
+      </div>
+      <div class="acts"><span>☺+</span><span>↩ Reply</span><span>⧉ Copy</span></div>
+    </div>
+  </div>
+  <p class="note"><b>Try:</b> watch the bars grow when the reply opens and slide in as calls arrive · open <b>▶ Race</b> to see both calls played in real time · switch the tabs inside the reply · hover the bars · watch "after" grow as calls arrive · click <b>Propose Verified</b> - the board asks you first.
+    In a .md export the stats block and a PNG of the chart are written; Claude reading the card back sees the text in B.</p>
+
+
+  <!-- 3 -->
+  <h2>3 · One story from start to end</h2>
+  <div class="steps">
+    <div class="step"><b>1</b><div><b>You ask</b> on card #33: "show me how the fix changed fare confirmation".</div></div>
+    <div class="step"><b>2</b><div><b>Claude writes a page</b> called "Fare dashboard": HTML for the layout, ECharts (shipped with Alfred) for the chart, and one line
+      saying which data it needs: <code>calls to POST /fare-confirm since the fix</code>.</div></div>
+    <div class="step"><b>3</b><div><b>The board opens it</b> as a tab on the card, in the locked box. The bridge checks the data request is on the read-only list,
+      fetches the calls from Alfred and hands them in.</div></div>
+    <div class="step"><b>4</b><div><b>Claude checks its work:</b> the board takes a picture (PNG) of what the page drew and any errors from its console. Claude
+      looks, sees two labels overlap, fixes it (version 4), and only then tells you it is ready.</div></div>
+    <div class="step"><b>5</b><div><b>It stays current:</b> every time a new call to fare-confirm is logged, Alfred's WebSocket says "calls changed", the bridge
+      sends the new list in, and the chart redraws. No refresh, no polling.</div></div>
+    <div class="step"><b>6</b><div><b>You act from it:</b> you click "Post result as reply". The page asks the bridge; the board shows you the exact reply text; you
+      click <b>Do it</b>; the reply is posted as you. You type a note in the page - it is saved with the card and everyone sees it.</div></div>
+    <div class="step"><b>7</b><div><b>Later:</b> you open ⟲ Versions to see what Claude changed between v3 and v4, ⧉ Pop out the dashboard to your second screen,
+      or ⬇ export the card - the .html export carries the same locked page.</div></div>
+  </div>
+
+  <!-- 4 -->
+  <h2>4 · The demo - this frame is real (locked, no network)</h2>
+  <p class="note">What to try: <b>watch</b> a new call arrive every 4 seconds (the bars and table grow) · <b>click</b> "Post result as reply" - the dialog that
+    appears is the board asking you · <b>type</b> in the note box · <b>click</b> "trigger an error" and look at the console under the frame.</p>
+  <div class="pages"><span class="pg on">◈ Fare dashboard</span><span class="pg">◈ Re-test plan</span><span class="pg">◈ SQL explorer</span><span class="pg add">＋ page</span></div>
+  <div class="snip">
+    <div class="snip-bar"><b>◈ Fare dashboard</b><span>page · by Claude · v4</span><span class="live">live · calls since fix</span><span class="lock">🔒 locked · no network</span>
+      <span class="grow"></span><a>⤢ Full screen</a><a>⧉ Pop out</a><a>&lt;/&gt; Source</a><a>⟲ Versions</a><a>⬇ PNG</a><a>⬇ .html</a></div>
+    <div class="files"><span class="on">index.html</span><span>style.css</span><span>chart.js</span><span>calls.json</span><span>libs: echarts · preact</span></div>
+    <iframe id="dash" sandbox="allow-scripts" style="height:330px" title="dashboard"></iframe>
+    <div class="console-bar"><span>console</span><span id="cnt">0 errors</span><span style="flex:1"></span><a>Claude reads this</a><a>clear</a></div>
+    <div class="console" id="console"></div>
+  </div>
+  <div class="legend">
+    <span><b>tabs above</b> = Pages (feature 9)</span><span><b>bar buttons</b> = full screen, pop-out (10), source, versions (12), PNG, .html</span>
+    <span><b>file chips</b> = multi-file snippet (6)</span><span><b>green "live"</b> = read bridge (2)</span><span><b>console</b> = errors visible (8)</span>
+  </div>
+
+  <!-- 5 -->
+  <h2>5 · Every feature explained</h2>
+  <p class="note">Each card says: <b>what</b> it is · <b>example</b> of when it helps · <b>how</b> it works · <b>who decides</b> · <b>the code</b> a snippet writes.</p>
+
+  <h3 class="grp">What a snippet can DO</h3>
+  <div class="feats">
+    <div class="feat"><div class="fh"><span class="num">1</span>Actions with consent</div>
+      <p><b>What:</b> a button inside a snippet can ask the board to do something real: post a reply, answer Claude's question, run a skill, start a re-test,
+        move or flag a card, create an interception rule, open a call.</p>
+      <p><b>Example:</b> a re-test page shows 9/9 calls under target and offers "Propose Verified" - one click, you see the proposal, you confirm.</p>
+      <p><b>How:</b> snippet → <code>alfred.action(...)</code> → board shows a dialog with the exact change → you click <b>Do it</b> or <b>Don't</b> → the
+        snippet is told the result.</p>
+      <p class="who"><b>Who decides:</b> you, every single time. A snippet cannot skip the dialog, and Claude's limits on the board still apply.</p>
+      <pre>await alfred.action("reply", { text: "Re-test: 9/9 under 1 s" });</pre></div>
+
+    <div class="feat"><div class="fh"><span class="num">2</span>Full read bridge + live</div>
+      <p><b>What:</b> a snippet can read Alfred's real data: calls, request/response bodies, SQL statements and their rows, log lines, Redis commands,
+        cycles, cards, rules.</p>
+      <p><b>Example:</b> a dashboard that always shows the latest calls to an endpoint, instead of numbers Claude copied once and that go stale.</p>
+      <p><b>How:</b> the snippet declares what it needs; the bridge checks it is on the read-only list, fetches it, masks secrets exactly as the board does,
+        and sends it in. When Alfred's WebSocket says the data changed, it sends it again.</p>
+      <p class="who"><b>Who decides:</b> the allowlist - read only, nothing that changes data. No question asked, like opening the card.</p>
+      <pre>&lt;script type="alfred/data" name="calls" src="calls?endpoint=POST /fare-confirm&amp;since=fix" live&gt;&lt;/script&gt;
+alfred.on("calls", calls =&gt; draw(calls));</pre></div>
+
+    <div class="feat"><div class="fh"><span class="num">3</span>Saved state</div>
+      <p><b>What:</b> a snippet can keep its own small data with the card: a note, ticked boxes, a chosen option, a scenario's numbers.</p>
+      <p><b>Example:</b> a re-test checklist page where you tick each step; tomorrow, and for your teammate, the ticks are still there.</p>
+      <p><b>How:</b> <code>alfred.state.set</code> sends it to the board, which stores it with the card in Alfred (not in the browser), with a history.</p>
+      <p class="who"><b>Who decides:</b> anyone who can edit the board. It is the snippet's own data - it never changes the card itself.</p>
+      <pre>alfred.state.set("note", text);   const note = await alfred.state.get("note");</pre></div>
+
+    <div class="feat"><div class="fh"><span class="num">4</span>Ask Claude from a snippet</div>
+      <p><b>What:</b> a button in the snippet sends a question, with data attached, to the cycle's Claude chat.</p>
+      <p><b>Example:</b> in a chart of call times you click the one slow bar → "Why is this call 1080 ms?" goes to Claude with that call attached.</p>
+      <p><b>How:</b> same road as the ▶ run buttons: the question goes to the chat that owns the cycle; Claude's answer comes back into the snippet (and as a reply on the card).</p>
+      <p class="who"><b>Who decides:</b> you confirm the first question a snippet sends; after that it can ask freely (you can switch that off).</p>
+      <pre>const answer = await alfred.ask("Why is this call slower?", { calls: [id] });</pre></div>
+  </div>
+
+  <h3 class="grp">What snippets are built WITH</h3>
+  <div class="feats">
+    <div class="feat"><div class="fh"><span class="num">5</span>Library shelf, hosted by Alfred</div>
+      <p><b>What:</b> well-known libraries ship inside Alfred, so a snippet can use them with no internet.</p>
+      <div class="shelf">
+        <span class="lib"><b>Chart.js</b> charts</span><span class="lib"><b>ECharts</b> rich charts</span><span class="lib"><b>D3</b> any visual</span>
+        <span class="lib"><b>Plotly</b> scientific</span><span class="lib"><b>Mermaid</b> diagrams</span><span class="lib"><b>Three.js</b> 3D</span>
+        <span class="lib"><b>Preact + htm</b> components</span><span class="lib"><b>Alpine.js</b> small interactions</span><span class="lib"><b>Tailwind</b> styling</span>
+        <span class="lib"><b>Marked</b> Markdown</span><span class="lib"><b>highlight.js</b> code colours</span><span class="lib"><b>PapaParse</b> CSV</span>
+        <span class="lib"><b>dayjs</b> dates</span><span class="lib"><b>lodash</b> helpers</span></div>
+      <p><b>How:</b> served from <code>/board/lib/&lt;name&gt;/&lt;version&gt;/</code>, pinned versions, included in the Docker image and the native installers.
+        Big ones (Plotly, Mermaid, Pyodide) load only when a snippet uses them, so the board stays fast.</p>
+      <pre>&lt;script src="/board/lib/echarts/5.5/echarts.min.js"&gt;&lt;/script&gt;</pre></div>
+
+    <div class="feat"><div class="fh"><span class="num">6</span>Multi-file snippets</div>
+      <p><b>What:</b> one snippet can be several files: the page, a stylesheet, script modules, and data files (JSON/CSV).</p>
+      <p><b>Example:</b> a page that loads <code>calls.json</code> Claude attached, plus a shared <code>chart.js</code> module from the widget library.</p>
+      <p><b>How:</b> stored together as one snippet; files are served to the box from memory, never from the internet.</p>
+      <pre>--- index.html  ...  --- style.css  ...  --- chart.js  ...  --- calls.json</pre></div>
+
+    <div class="feat"><div class="fh"><span class="num">7</span>Python in the browser</div>
+      <p><b>What:</b> a snippet can run Python (Pyodide: pandas, numpy, matplotlib) inside the same locked box.</p>
+      <p><b>Example:</b> Claude groups 300 calls by endpoint in pandas and draws a percentile chart with matplotlib, right in the card.</p>
+      <p><b>How:</b> a <code>```python live</code> block; <code>alfred.calls()</code> arrives as a DataFrame; a figure shows in place. About 15 MB, loaded the first
+        time a Python snippet opens, then cached.</p>
+      <pre>df = alfred.calls()
+df.groupby("endpoint")["ms"].quantile(.95).plot.barh()</pre></div>
+
+    <div class="feat"><div class="fh"><span class="num">8</span>Snippet errors visible</div>
+      <p><b>What:</b> a small console under each snippet shows its JavaScript errors and <code>console.log</code> lines.</p>
+      <p><b>Example:</b> a chart is empty - the console says "echarts is not defined (line 3)"; Claude reads it and fixes the script tag.</p>
+      <p><b>How:</b> the box reports errors through the bridge; Claude reads them with an MCP tool. Hidden when there is nothing to show.</p></div>
+  </div>
+
+  <h3 class="grp">Where snippets live, and how Claude checks them</h3>
+  <div class="feats">
+    <div class="feat"><div class="fh"><span class="num">9</span>Pages</div>
+      <p><b>What:</b> full HTML apps attached to a card, a cycle or the project, shown as tabs ("Fare dashboard", "Re-test plan").</p>
+      <p><b>Example:</b> a cycle has a "Flow dashboard" page with every step of the booking flow and its latest status; Claude updates it after each run.</p>
+      <p><b>How:</b> a page is a snippet with a name and a place; Claude creates and edits pages with new MCP tools; you can too (＋ page).</p></div>
+
+    <div class="feat"><div class="fh"><span class="num">10</span>Pop-out window</div>
+      <p><b>What:</b> open a snippet or page in its own browser window.</p>
+      <p><b>Example:</b> keep the live dashboard on a second screen while you click through the app.</p>
+      <p><b>How:</b> the new window holds the same locked box and the same bridge, so it stays live. Closing the card does not close it.</p></div>
+
+    <div class="feat"><div class="fh"><span class="num">11</span>Claude sees what it drew</div>
+      <p><b>What:</b> after a snippet draws, the board takes a picture of it; Claude can look at the picture and at the console.</p>
+      <p><b>Example:</b> Claude's chart labels overlap; it sees that in the picture, fixes the layout, and only then says "ready".</p>
+      <p><b>How:</b> PNG saved with the snippet version (like a pasted picture); Claude opens it with an MCP tool (<code>board_snippet_view</code>).
+        <div class="shot"><div class="th"></div><span class="note">← the picture Claude looks at</span></div></p></div>
+
+    <div class="feat"><div class="fh"><span class="num">12</span>Versions &amp; diff</div>
+      <p><b>What:</b> every save of a snippet or page is kept. Compare any two: the source side by side with changes coloured, or the two pages drawn side by side.</p>
+      <p><b>Example:</b> the dashboard looks different today - ⟲ shows Claude changed the grid margin in v4; restore v3 if you liked it better.</p>
+      <div class="diff"><pre>chart.setOption({
+<span class="del">  grid: { left: 20 },</span>
+  series: [{ type: "bar" }] })</pre><pre>chart.setOption({
+<span class="add">  grid: { left: 110, containLabel: true },</span>
+  series: [{ type: "bar" }] })</pre></div></div>
+  </div>
+
+  <!-- 6 -->
+  <h2>6 · Safety - what the locked box guarantees</h2>
+  <table class="cmp">
+    <tr><th>A snippet can</th><th>A snippet can never</th><th>Why</th></tr>
+    <tr><td class="yes">Draw anything inside its box</td><td class="no">Change the board page around it</td><td>It runs as a separate page (sandbox without same-origin)</td></tr>
+    <tr><td class="yes">Read Alfred data it declared, read-only</td><td class="no">Call Alfred's API itself, see cookies, read secrets unmasked</td><td>Only the bridge talks to Alfred, through an allowlist</td></tr>
+    <tr><td class="yes">Ask to do things</td><td class="no">Do anything without your click</td><td>Every action goes through the consent dialog</td></tr>
+    <tr><td class="yes">Use Alfred's libraries</td><td class="no">Reach the internet (CDNs, APIs, images)</td><td>Your choice: no network (CSP blocks every outside address)</td></tr>
+    <tr><td class="yes">Keep its own notes with the card</td><td class="no">Edit the card, its comments or other snippets</td><td>Saved state is a separate store</td></tr>
+  </table>
+  <p class="note">A test in Alfred checks these locks on every build, so a later change cannot quietly loosen them.</p>
+
+  <!-- 7 -->
+  <h2>7 · Questions you might have</h2>
+  <div class="faq">
+    <p><b>Does Claude still write normal comments?</b> Yes. Text, tables and the fixed blocks stay the default; a snippet is for when a picture explains better.</p>
+    <p><b>Can I write snippets?</b> Yes - ◈ HTML in the toolbar or <code>/html</code> opens a code editor with a live preview next to it.</p>
+    <p><b>Arabic?</b> The box starts with the comment's direction and the board's colours; Claude sets <code>dir</code> per part like any web page.</p>
+    <p><b>Exports?</b> .html export embeds the same locked box (still works offline); .md keeps the source and a PNG; .json keeps it exactly.</p>
+    <p><b>Speed?</b> Snippets off screen are paused; big libraries load only when used; a snippet is limited to 256 KB of source.</p>
+    <p><b>Does Claude see snippets when it reads a card?</b> Yes - the source as written, plus the latest PNG and console errors when it asks.</p>
+  </div>
+</div>
+
+<div class="dlg-bg" id="dlg"><div class="dlg">
+  <h3 id="dlg-title">The snippet asks to…</h3>
+  <div class="from">from ◈ Fare dashboard · by Claude · card #33</div>
+  <div class="what" id="dlg-what"></div>
+  <div class="row"><button class="btn" id="no">Don't</button><button class="btn pri" id="yes">Do it</button></div>
+</div></div>
+
+<script>
+// ---------------- the frame's code (what Claude would write) ----------------
+const FRAME = `<!doctype html><html><head>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'">
+<style>body{margin:0;padding:12px;font:12.5px system-ui;color:#e5e9f5;background:#0b1030}
+.g{display:grid;grid-template-columns:1.6fr 1fr;gap:12px}.box{border:1px solid #2a3170;border-radius:9px;padding:8px;background:#0d1238}
+h4{margin:0 0 6px;font-size:13px;color:#c4b5fd}table{border-collapse:collapse;width:100%}td,th{padding:2px 6px;border-bottom:1px solid #1c2358;text-align:left}
+.ok{color:#34d399}.slow{color:#fbbf24}button{font:12px system-ui;background:#8b5cf6;color:#fff;border:0;border-radius:7px;padding:4px 10px;cursor:pointer;margin:3px 3px 0 0}
+button.s{background:#1c2358}textarea{width:100%;height:46px;background:#070a24;color:#e5e9f5;border:1px solid #2a3170;border-radius:6px;font:12px system-ui}
+canvas{width:100%;height:120px}.k{color:#93a0c2}</style></head><body>
+<div class="g"><div class="box"><h4>Calls since the fix <span class="k" id="n"></span></h4><canvas id="c" width="600" height="240"></canvas>
+<table id="t"><tr><th>time</th><th>ms</th><th>vs before</th></tr></table></div>
+<div class="box"><h4>Re-test</h4><div id="sum" class="k"></div>
+<button id="reply">Post result as reply</button><button id="retest" class="s">Re-test now</button><button id="ask" class="s">✦ Ask Claude about the slowest</button>
+<h4 style="margin-top:10px">Note (saved with the card)</h4><textarea id="note" placeholder="type - it is kept"></textarea>
+<button id="boom" class="s">trigger an error</button></div></div>
+<script>
+const bridge={_c:{},_n:0,send(m){parent.postMessage(m,"*")},on(name,fn){this._c[name]=fn;this.send({t:"sub",name})},
+action(kind,args){return new Promise(r=>{const id=++this._n;this._c["r"+id]=r;this.send({t:"action",id,kind,args})})},
+state:{set(k,v){parent.postMessage({t:"state",k,v},"*")}}};window.alfred=bridge;
+addEventListener("message",e=>{const m=e.data;if(m.t==="data"&&bridge._c[m.name])bridge._c[m.name](m.value);if(m.t==="result"&&bridge._c["r"+m.id])bridge._c["r"+m.id](m.ok);
+if(m.t==="state")note.value=m.v||""});
+const BEFORE=2400;let calls=[];
+alfred.on("calls",cs=>{calls=cs;draw()});
+function draw(){n.textContent="· "+calls.length+" live";const x=c.getContext("2d");x.clearRect(0,0,600,240);
+x.strokeStyle="#34d399";x.setLineDash([6,5]);x.beginPath();x.moveTo(0,240-1000/12);x.lineTo(600,240-1000/12);x.stroke();x.setLineDash([]);
+calls.forEach((k,i)=>{x.fillStyle=k.ms>1000?"#fbbf24":"#34d399";x.fillRect(10+i*60,240-k.ms/12,40,k.ms/12)});
+t.innerHTML="<tr><th>time</th><th>ms</th><th>vs before</th></tr>"+calls.slice(-4).map(k=>"<tr><td>"+k.at+"</td><td class="+(k.ms>1000?"slow":"ok")+">"+k.ms+"</td><td class=ok>−"+Math.round(100-k.ms/24)+"%</td></tr>").join("");
+const ok=calls.filter(k=>k.ms<=1000).length;sum.innerHTML="<b class="+(ok===calls.length?"ok":"slow")+">"+ok+" / "+calls.length+"</b> under the 1 s target"}
+reply.onclick=async()=>{const done=await alfred.action("reply",{text:"Re-test: "+calls.filter(k=>k.ms<=1000).length+"/"+calls.length+" calls under 1 s since the fix."});console.log("reply "+(done?"posted":"declined"))};
+retest.onclick=async()=>{const done=await alfred.action("retest",{card:33});console.log("re-test "+(done?"started":"declined"))};
+ask.onclick=async()=>{const s=calls.reduce((a,b)=>b.ms>a.ms?b:a);const done=await alfred.action("ask",{text:"Why is the call at "+s.at+" slower ("+s.ms+" ms)?"});console.log("question "+(done?"sent to the cycle chat":"declined"))};
+note.oninput=()=>alfred.state.set("note",note.value);
+boom.onclick=()=>{undefinedFunction()};
+console.log("dashboard ready");
+<\/script></body></html>`;
+
+// ---------------- the board's side of the bridge ----------------
+const frame = document.getElementById('dash'), con = document.getElementById('console');
+let errors = 0;
+const log = (cls, text) => { const d = document.createElement('div'); d.className = cls; d.textContent = text; con.appendChild(d); con.scrollTop = 1e9; };
+// console capture: injected before the snippet's code (the board does the same)
+const capture = `<script>(function(){const s=(k,a)=>parent.postMessage({t:"console",k,text:[].map.call(a,String).join(" ")},"*");
+const l=console.log;console.log=function(){s("log",arguments);l.apply(console,arguments)};
+addEventListener("error",e=>s("err",[e.message+" (line "+e.lineno+")"]));})()<\/script>`;
+frame.srcdoc = FRAME.replace('<style>', capture + '<style>');
+let calls = [{ at: '16:02', ms: 640 }, { at: '16:03', ms: 590 }, { at: '16:05', ms: 1010 }];
+let savedNote = '';
+const push = () => frame.contentWindow.postMessage({ t: 'data', name: 'calls', value: calls }, '*');
+window.addEventListener('message', (e) => {
+  if (e.source !== frame.contentWindow) return;
+  const m = e.data;
+  if (m.t === 'sub') { push(); frame.contentWindow.postMessage({ t: 'state', v: savedNote }, '*'); }
+  if (m.t === 'state') savedNote = m.v;
+  if (m.t === 'console') { if (m.k === 'err') { errors++; document.getElementById('cnt').textContent = errors + ' error' + (errors === 1 ? '' : 's'); } log(m.k, (m.k === 'err' ? '✕ ' : '› ') + m.text); }
+  if (m.t === 'action') {
+    const what = { reply: 'Post a reply on card #33 as you:<br><b>“' + (m.args.text || '') + '”</b>',
+      retest: 'Start a re-test of card #33 against the live calls since its fix.',
+      ask: 'Send a question to the cycle\'s chat (Claude):<br><b>“' + (m.args.text || '') + '”</b>' }[m.kind] || m.kind;
+    document.getElementById('dlg-title').textContent = 'The snippet asks to ' + ({ reply: 'post a reply', retest: 're-test', ask: 'ask Claude' }[m.kind] || m.kind);
+    document.getElementById('dlg-what').innerHTML = what;
+    const dlg = document.getElementById('dlg'); dlg.classList.add('on');
+    const answer = (ok) => { dlg.classList.remove('on'); frame.contentWindow.postMessage({ t: 'result', id: m.id, ok }, '*'); log(ok ? 'ok' : 'log', (ok ? '✓ ' : '· ') + m.kind + (ok ? ' done by the board' : ' declined by you')); };
+    document.getElementById('yes').onclick = () => answer(true); document.getElementById('no').onclick = () => answer(false);
+  }
+});
+// live: a new call arrives every 4 s (the board forwards its WebSocket signal the same way)
+let mins = 6;
+setInterval(() => { if (calls.length >= 9) return; calls = [...calls, { at: '16:' + String(mins++).padStart(2, '0'), ms: Math.round(480 + Math.random() * 700) }]; push(); }, 4000);
+</script>
+<script>
+// ===================== system design simulator =====================
+(() => {
+const svg = document.getElementById('simsvg');
+const NS = 'http://www.w3.org/2000/svg';
+const N = {
+  chat:   { x: 395, y: 40, w: 180, h: 52, t: 'Claude Code chat', s: "the cycle's chat", c: '#c4b5fd',
+    info: ['<b>The Claude Code chat that owns the cycle.</b> Claude works here: it reads cards, writes comments - and now writes snippets and pages.',
+      'Talks to Alfred only through the MCP server (next box). Never touches the browser.'] },
+  mcp:    { x: 600, y: 40, w: 185, h: 52, t: 'MCP server', s: 'mcp-server · board_page_put', c: '#c4b5fd',
+    info: ['<b>mcp-server/</b> - the Alfred tools Claude calls.', 'New tools: <code>board_page_put</code> / <code>board_snippet</code> (write), <code>board_snippet_view</code> (see the PNG + console), <code>board_run_take</code> (take a question a snippet asked).',
+      'Every request carries <code>X-Alfred-Actor: claude</code>, so the backend applies Claude\'s limits.'] },
+  page:   { x: 40, y: 190, w: 300, h: 46, t: 'Board page (Angular)', s: 'card drawer · comments · Pages tabs', c: '#e5e9f5',
+    info: ['<b>The board you use.</b> Shows cards, comments and the new Pages tabs.', 'Fetches on demand when the <code>/ws/board</code> WebSocket says something changed - no polling, like the rest of Alfred.'] },
+  host:   { x: 40, y: 256, w: 300, h: 70, t: 'SnippetHost + bridge', s: 'snippet-host.component · snippet-bridge.ts', c: '#22d3ee',
+    info: ['<b>The only door between a snippet and Alfred.</b> Builds the frame (<code>srcdoc</code> = CSP + Alfred runtime + the snippet) and answers its messages.',
+      'Reading → checks the allowlist, fetches with your session, masks secrets, sends the JSON in. Doing → opens the consent dialog. Saving → stores state. Errors/PNG → uploads for Claude.',
+      'Accepts messages only from its own frame (<code>event.source === frame.contentWindow</code>).'] },
+  allow:  { x: 40, y: 344, w: 140, h: 44, t: 'Allowlist', s: 'read-only endpoints', c: '#34d399',
+    info: ['<b>What a snippet may read</b>: <code>/internal-calls</code>, <code>/calls</code>, call bodies, <code>/db-capture</code> statements and rows, <code>/call-logs</code>, Redis commands, cycles, cards, rules - GET only.',
+      'Anything else (settings, secrets, writes) is refused by the bridge before any request is made.'] },
+  consent:{ x: 200, y: 344, w: 140, h: 44, t: 'Consent dialog', s: 'you click Do it', c: '#fbbf24',
+    info: ['<b>Every action a snippet asks for stops here</b>: post a reply, answer, run a skill, re-test, move, flag, create a rule.',
+      'Shows exactly what will happen. Nothing is sent unless you click <b>Do it</b>. The snippet cannot open, click or skip it - it lives in the board page, outside the frame.'] },
+  frame:  { x: 40, y: 408, w: 300, h: 118, t: 'Locked frame (the snippet)', s: 'iframe sandbox="allow-scripts"', c: '#8b5cf6',
+    info: ['<b>Where Claude\'s or your HTML/CSS/JS runs.</b> A separate page with an opaque origin: no Alfred cookies, no localStorage, no access to the board page.',
+      'CSP <code>default-src \'none\'</code>: no internet, no Alfred API - only inline code and Alfred\'s own libraries from <code>/board/lib/</code>.',
+      'It talks to the bridge with <code>window.alfred</code> (postMessage underneath). The frame below the diagram is a real one.'] },
+  gw:     { x: 400, y: 250, w: 160, h: 56, t: 'app-gateway', s: 'nginx :3000', c: '#93a0c2',
+    info: ['<b>gateway/nginx.conf</b> - one origin for the browser. Sends <code>/board</code>, <code>/internal-calls</code>, <code>/ws/</code> … to the backend, everything else to the frontend.',
+      'Native installs have no gateway: the backend serves the same paths itself.'] },
+  lib:    { x: 400, y: 380, w: 160, h: 56, t: 'Library shelf', s: '/board/lib/<name>/<ver>/', c: '#93a0c2',
+    info: ['<b>Chart.js, ECharts, D3, Plotly, Mermaid, Three.js, Preact, Pyodide …</b> pinned versions shipped inside Alfred (Docker image and installers).',
+      'The frame may load scripts from here and nowhere else - so snippets work offline.'] },
+  board:  { x: 615, y: 145, w: 350, h: 52, t: 'backend-board slice', s: 'BoardSnippetController · SnippetService', c: '#34d399',
+    info: ['<b>The board\'s slice</b> (hexagonal, like the rest). New: <code>/board/cards/{id}/pages</code>, <code>/board/snippets/{id}</code> (+ <code>/versions</code>, <code>/state</code>, <code>/shot</code>, <code>/console</code>).',
+      'Stores the snippet as text (cleaned like any board text, size-capped), keeps every version, applies Claude\'s limits.'] },
+  calls:  { x: 615, y: 215, w: 350, h: 46, t: 'backend-internal-calls', s: 'GET /internal-calls?endpoint=…', c: '#34d399',
+    info: ['<b>Inbound calls store</b> - what the snippet reads through the bridge (read-only, paged, masked).', 'Written by the reverse proxy for every logged call.'] },
+  ws:     { x: 615, y: 279, w: 350, h: 46, t: 'Change feed', s: '/ws/board · /ws (calls changed)', c: '#34d399',
+    info: ['<b>"Something changed" signals over WebSocket.</b> The board page (and the bridge) refetch on these - snippets stay live with no polling.'] },
+  bdb:    { x: 615, y: 345, w: 165, h: 76, t: 'board.db', s: 'snippets · versions · state · shots', c: '#fbbf24',
+    info: ['<b>SQLite, the board\'s own database.</b> New tables: <code>snippets</code>, <code>snippet_versions</code>, <code>snippet_state</code>, <code>snippet_shots</code> - all deleted with their card.'] },
+  cdb:    { x: 800, y: 345, w: 165, h: 76, t: 'internal-calls.db', s: 'the logged calls', c: '#fbbf24',
+    info: ['<b>SQLite store of inbound calls</b> (capped by count and size). Snippets never write here.'] },
+  proxy:  { x: 615, y: 485, w: 165, h: 50, t: 'reverse-proxy', s: 'mitmproxy · logs the call', c: '#93a0c2',
+    info: ['<b>Logs every call into your app</b> and reports it to the backend (<code>POST /internal-calls/prepare</code> + <code>complete</code>).'] },
+  app:    { x: 800, y: 485, w: 165, h: 50, t: 'Your app', s: 'odeysys fare-confirm', c: '#93a0c2',
+    info: ['<b>The Java application</b> - someone uses it, a new call happens, and the snippet\'s chart moves.'] },
+  you:    { x: 210, y: 92, w: 130, h: 44, t: 'You', s: 'clicking in the browser', c: '#fbbf24', info: ['<b>You.</b> The only one who can click Do it.'] },
+};
+const el = (tag, attrs, text) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (text != null) e.textContent = text; return e; };
+const center = (n) => ({ x: n.x + n.w / 2, y: n.y + n.h / 2 });
+const LINKS = [['chat','mcp'],['mcp','gw'],['gw','board'],['gw','calls'],['board','bdb'],['calls','cdb'],['ws','page'],['page','host'],['host','frame'],
+  ['host','allow'],['host','consent'],['host','gw'],['frame','lib'],['lib','gw'],['proxy','calls'],['app','proxy'],['you','consent'],['board','ws'],['calls','ws']];
+for (const [a, b] of LINKS) { const p = center(N[a]), q = center(N[b]); svg.appendChild(el('line', { x1: p.x, y1: p.y, x2: q.x, y2: q.y, class: 'lnk' })); }
+for (const id in N) {
+  const n = N[id]; const g = el('g', { class: 'node', 'data-id': id });
+  g.appendChild(el('rect', { x: n.x, y: n.y, width: n.w, height: n.h, rx: 9, fill: '#121848', stroke: n.c, 'stroke-width': 1.5 }));
+  g.appendChild(el('text', { x: n.x + 10, y: n.y + 20, fill: n.c, 'font-weight': 700 }, n.t));
+  g.appendChild(el('text', { x: n.x + 10, y: n.y + 37, fill: '#93a0c2', 'font-size': 10.5 }, n.s));
+  g.addEventListener('click', () => showInfo(id));
+  svg.appendChild(g); n.g = g;
+}
+const dot = el('circle', { r: 8, fill: '#fbbf24', stroke: '#fff', 'stroke-width': 2, opacity: 0 }); svg.appendChild(dot);
+const tag = el('text', { 'font-size': 11, fill: '#fbbf24', 'font-weight': 700, opacity: 0 }); svg.appendChild(tag);
+function showInfo(id) {
+  document.querySelectorAll('#simsvg .node').forEach((g) => g.classList.toggle('sel', g.dataset.id === id));
+  document.getElementById('info').innerHTML = `<div class="info-h" style="color:${N[id].c}">${N[id].t}</div>` + N[id].info.map((p) => `<p>${p}</p>`).join('');
+}
+
+// ---------- the real frame ----------
+const sframe = document.getElementById('simframe'), scon = document.getElementById('simcon');
+const slog = (cls, text) => { const d = document.createElement('div'); d.className = cls; d.innerHTML = text; scon.appendChild(d); scon.scrollTop = 1e9; };
+document.getElementById('simclear').onclick = () => { scon.innerHTML = ''; };
+const SNIPPET = `<!doctype html><html><head>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:">
+<script>(function(){const s=(k,t)=>parent.postMessage({t:"console",k,text:t},"*");const l=console.log;
+console.log=function(){s("log",[].map.call(arguments,String).join(" "));l.apply(console,arguments)};
+addEventListener("error",e=>s("err",e.message));addEventListener("unhandledrejection",e=>s("err",String(e.reason)));
+let n=0;const cb={};window.alfred={on(name,fn){cb["d:"+name]=fn;parent.postMessage({t:"sub",name},"*")},
+action(kind,args){return new Promise(r=>{const id=++n;cb["r"+id]=r;parent.postMessage({t:"action",id,kind,args},"*")})},
+ask(text){return new Promise(r=>{const id=++n;cb["r"+id]=r;parent.postMessage({t:"ask",id,text},"*")})},
+state:{set(k,v){parent.postMessage({t:"state",k,v},"*")}}};
+addEventListener("message",e=>{const m=e.data||{};if(m.t==="data"&&cb["d:"+m.name])cb["d:"+m.name](m.value);
+if(m.t==="result"&&cb["r"+m.id])cb["r"+m.id](m.value);if(m.t==="snap")parent.postMessage({t:"png",url:document.getElementById("c").toDataURL()},"*");
+
+if(m.t==="attack")attack()});
+async function attack(){const tryIt=async(name,fn)=>{try{const r=await fn();s("err","✗ NOT blocked: "+name+" → "+r)}catch(x){s("ok","✓ blocked: "+name+" → "+(x&&x.name||"")+" "+String(x&&x.message||x).slice(0,90))}};
+await tryIt("fetch the internet (https://example.com)",()=>fetch("https://example.com").then(r=>r.status));
+await tryIt("call Alfred's API (/board/cards)",()=>fetch("http://localhost:3000/board/cards").then(r=>r.status));
+await tryIt("read the board page (parent.document)",()=>parent.document.title);
+await tryIt("read your cookies (document.cookie)",()=>document.cookie);
+await tryIt("use browser storage (localStorage)",()=>localStorage.getItem("x"));
+await tryIt("take over the tab (top.location)",()=>{top.location="https://example.com";return "moved"});
+await tryIt("open a popup (window.open)",()=>{const w=window.open("https://example.com");if(!w)throw new Error("popup refused (no allow-popups)");return "opened"});
+await tryIt("ask the bridge to delete the card",()=>alfred.action("delete-card",{card:33}).then(v=>{if(v&&v.refused)throw new Error(v.refused);return v}));
+s("log","attack finished")}
+})()<\/script>
+<style>body{margin:0;padding:10px;font:12px system-ui;color:#e5e9f5;background:#0b1030}h4{margin:0 0 4px;font-size:13px;color:#c4b5fd}
+canvas{width:100%;height:150px;background:#070a24;border:1px solid #2a3170;border-radius:7px}.k{color:#93a0c2}#sum{margin-top:4px}</style></head><body>
+<h4>Calls to POST /fare-confirm since the fix</h4><canvas id="c" width="600" height="230"></canvas><div id="sum" class="k">waiting for data…</div>
+<script>
+let calls=[];alfred.on("calls",cs=>{calls=cs;draw()});
+function draw(){const x=c.getContext("2d");x.fillStyle="#070a24";x.fillRect(0,0,600,230);x.strokeStyle="#34d399";x.setLineDash([6,5]);
+x.beginPath();x.moveTo(0,230-1000/11);x.lineTo(600,230-1000/11);x.stroke();x.setLineDash([]);x.font="13px system-ui";
+calls.forEach((k,i)=>{const h=k.ms/11;x.fillStyle=k.ms>1000?"#fbbf24":"#34d399";x.fillRect(14+i*64,230-h,44,h);x.fillStyle="#e5e9f5";x.fillText(k.ms,16+i*64,224-h)});
+const ok=calls.filter(k=>k.ms<=1000).length;sum.textContent=ok+" / "+calls.length+" calls under the 1 s target";}
+console.log("snippet started - it asked the bridge for 'calls'");
+<\/script></body></html>`;
+let simCalls = [], simState = '', frameReady = false, waitConsent = null;
+const post = (m) => sframe.contentWindow && sframe.contentWindow.postMessage(m, '*');
+function loadFrame() { frameReady = false; sframe.srcdoc = SNIPPET; }
+window.addEventListener('message', (e) => {
+  if (e.source !== sframe.contentWindow) return;
+  const m = e.data || {};
+  if (m.t === 'console') slog(m.k === 'err' ? 'err' : m.k === 'ok' ? 'ok' : 'log', (m.k === 'err' ? '✕ ' : m.k === 'ok' ? '' : '› ') + esc(m.text));
+  if (m.t === 'sub') { frameReady = true; if (simCalls.length) post({ t: 'data', name: 'calls', value: simCalls }); }
+  if (m.t === 'png') { const img = document.getElementById('shotimg'); img.src = m.url; document.getElementById('shotnote').textContent = 'the PNG Claude opens - taken from the frame, not drawn by the board'; setDb('db-shot', 'shot of v1 · 600×230 PNG · console: 0 errors'); }
+  if (m.t === 'action') {
+    if (!['reply', 'retest', 'answer', 'run-skill', 'move', 'flag', 'rule'].includes(m.kind)) { slog('err', `bridge: "${esc(m.kind)}" is not an action snippets may ask for - refused, no dialog`); post({ t: 'result', id: m.id, value: { refused: 'not an allowed action' } }); return; }
+    openConsent(m.kind, m.args, (ok) => { post({ t: 'result', id: m.id, value: ok }); if (waitConsent) { const w = waitConsent; waitConsent = null; w(ok); } });
+  }
+  if (m.t === 'state') { simState = m.v; setDb('db-state', `note = "${esc(m.v)}"`); }
+});
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+function setDb(id, text) { const c = document.getElementById(id); c.textContent = text; c.classList.remove('dim'); c.classList.add('flash'); setTimeout(() => c.classList.remove('flash'), 1200); }
+function openConsent(kind, args, done) {
+  const dlg = document.getElementById('dlg');
+  document.getElementById('dlg-title').textContent = 'The snippet asks to ' + ({ reply: 'post a reply', retest: 're-test' }[kind] || kind);
+  document.getElementById('dlg-what').innerHTML = kind === 'reply' ? 'Post a reply on card #33 as you:<br><b>“' + esc(args.text) + '”</b>' : esc(kind + ' ' + JSON.stringify(args));
+  dlg.classList.add('on');
+  document.getElementById('yes').onclick = () => { dlg.classList.remove('on'); done(true); };
+  document.getElementById('no').onclick = () => { dlg.classList.remove('on'); done(false); };
+}
+loadFrame();
+
+// ---------- scenarios ----------
+const J = (o) => '<pre>' + esc(JSON.stringify(o, null, 1)) + '</pre>';
+const SC = {
+  create: { t: '1 · Claude writes a page', steps: [
+    ['chat', 'mcp', 'board_page_put', 'Claude calls the MCP tool with the page source.' + J({ project: 'odeysys', number: 33, name: 'Fare dashboard', html: '<h4>Calls…</h4><canvas>…<script>alfred.on("calls", draw)<\/script>' })],
+    ['mcp', 'gw', 'POST', '<code>POST /board/cards/c-33/pages</code> with header <code>X-Alfred-Actor: claude</code>.'],
+    ['gw', 'board', 'POST', 'nginx forwards <code>/board/…</code> to <code>backend:5000</code>. <code>BoardSnippetController</code> → <code>SnippetService.put</code>: size ≤ 256 KB, Claude may write pages on cards it works on.'],
+    ['board', 'bdb', 'INSERT', 'Stored as text with version 1.', null, () => { setDb('db-snip', 'id=s-7 · card #33 · "Fare dashboard" · by CLAUDE'); setDb('db-ver', 'v1 · 2.1 KB · 16:41'); }],
+    ['board', 'ws', 'signal', '<code>BoardChangeFeed</code> sends <code>pages:odeysys:c-33</code> on <code>/ws/board</code>.'],
+    ['ws', 'page', 'refetch', 'The open card hears it and fetches <code>GET /board/cards/c-33/pages</code> - a new tab "◈ Fare dashboard" appears.'],
+    ['page', 'host', 'mount', '<code>SnippetHost</code> builds the frame: <code>srcdoc</code> = CSP meta + Alfred runtime (<code>window.alfred</code>) + the page source.'],
+    ['host', 'frame', 'srcdoc', 'The frame starts. Look at the real frame below: it says it is waiting for data.', null, () => { simCalls = []; loadFrame(); }],
+  ] },
+  read: { t: '2 · The snippet reads data', steps: [
+    ['frame', 'host', 'sub', 'Snippet: <code>alfred.on("calls", draw)</code> → <code>postMessage({t:"sub", name:"calls", src:"calls?endpoint=POST /fare-confirm&since=fix"})</code>.'],
+    ['host', 'allow', 'check', 'Bridge checks the source against the allowlist: <code>calls</code> → <code>GET /internal-calls</code>, read-only ✓.'],
+    ['host', 'gw', 'GET', '<code>GET /internal-calls?endpoint=POST /fare-confirm&since=2026-10-14T15:58Z</code> - with your session, like the board itself.'],
+    ['gw', 'calls', 'GET', 'nginx → backend. <code>backend-internal-calls</code> reads the rows.'],
+    ['calls', 'cdb', 'SELECT', 'SQLite <code>internal-calls.db</code>, newest first, paged.'],
+    ['calls', 'host', 'JSON', 'The rows come back; the bridge masks secrets exactly as the board shows them.' + J([{ at: '16:02', ms: 640 }, { at: '16:03', ms: 590 }, { at: '16:05', ms: 1010 }])],
+    ['host', 'frame', 'data', '<code>postMessage({t:"data", name:"calls", value:[…]})</code> → the snippet draws. Look at the frame.', null, () => { simCalls = [{ at: '16:02', ms: 640 }, { at: '16:03', ms: 590 }, { at: '16:05', ms: 1010 }]; post({ t: 'data', name: 'calls', value: simCalls }); }],
+  ] },
+  live: { t: '3 · A new call arrives (live)', steps: [
+    ['app', 'proxy', 'HTTP', 'Someone confirms a fare in your app; the request passes the reverse proxy.'],
+    ['proxy', 'calls', 'POST', '<code>POST /internal-calls/prepare</code> then <code>/complete</code> (status 200, 560 ms).'],
+    ['calls', 'cdb', 'INSERT', 'The call is stored.'],
+    ['calls', 'ws', 'signal', '"calls changed" on the WebSocket - no one polls.'],
+    ['ws', 'host', 'refetch', 'The bridge knows the frame subscribed to <code>calls</code>, so it fetches again (same allowlisted GET).'],
+    ['host', 'frame', 'data', 'New list goes in - a new bar appears in the frame.', null, () => { simCalls = [...simCalls, { at: '16:0' + (5 + simCalls.length), ms: 560 }]; post({ t: 'data', name: 'calls', value: simCalls }); }],
+  ] },
+  act: { t: '4 · The snippet asks to act (you decide)', steps: [
+    ['frame', 'host', 'action', 'Snippet: <code>alfred.action("reply", {text})</code>. It cannot post anything itself.'],
+    ['host', 'consent', 'ask', 'Bridge checks "reply" is an allowed action ✓ and opens the dialog in the <b>board page</b> - outside the frame, the snippet cannot click it.'],
+    ['you', 'consent', 'click', '<b>Your turn: click Do it or Don\'t in the dialog.</b> The demo waits for you.', 'wait', () => new Promise((res) => {
+      waitConsent = res;
+      const ok = simCalls.filter((k) => k.ms <= 1000).length;
+      openConsent('reply', { text: `Re-test: ${ok}/${simCalls.length || 0} calls under 1 s since the fix.` }, (v) => { if (waitConsent) { const w = waitConsent; waitConsent = null; w(v); } });
+    })],
+    ['host', 'gw', 'POST', (r) => r ? '<code>POST /board/cards/c-33/comments</code> as <b>you</b> (no Claude header) - the normal comment endpoint.' : 'You declined: nothing is sent. The snippet gets <code>false</code>.', 'skipIfNo'],
+    ['gw', 'board', 'POST', 'Saved like any comment you write (cleaned, mentions indexed).', 'skipIfNo', () => setDb('db-act', 'COMMENT by USER · "Re-test: … under 1 s"')],
+    ['host', 'frame', 'result', (r) => `The snippet's promise resolves with <code>${r}</code>.`],
+  ] },
+  attack: { t: '5 · The snippet tries to break out', steps: [
+    ['frame', 'frame', 'attack', 'The frame now <b>really</b> tries 8 things a bad snippet would. Watch the snippet console: each line is what the browser actually did.', null, () => post({ t: 'attack' })],
+    ['frame', 'gw', 'blocked', '<code>fetch()</code> to the internet or to Alfred: refused by the frame\'s CSP <code>default-src \'none\'</code> - the request never leaves.'],
+    ['frame', 'page', 'blocked', '<code>parent.document</code>, <code>top.location</code>, popups: refused by <code>sandbox="allow-scripts"</code> (no same-origin, no top navigation, no popups).'],
+    ['frame', 'host', 'refused', 'Asking the bridge for something not on the list ("delete-card"): refused by the bridge, no dialog shown.'],
+  ] },
+  state: { t: '6 · The snippet saves its state', steps: [
+    ['frame', 'host', 'state', 'Snippet: <code>alfred.state.set("note", "check supplier creds")</code>.', null, () => { simState = 'check supplier creds'; setDb('db-state', 'note = "check supplier creds"'); }],
+    ['host', 'gw', 'PUT', '<code>PUT /board/snippets/s-7/state/note</code>.'],
+    ['gw', 'board', 'PUT', 'Kept with the card (not in the browser), with history.'],
+    ['board', 'bdb', 'UPSERT', 'Row in <code>snippet_state</code>.'],
+    ['board', 'ws', 'signal', 'Everyone else who has the card open gets the change - their copy of the snippet shows the same note.'],
+  ] },
+  ask: { t: '7 · The snippet asks Claude', steps: [
+    ['frame', 'host', 'ask', 'Snippet: <code>alfred.ask("Why is the 16:05 call 1010 ms?", {calls:[…]})</code>.'],
+    ['host', 'consent', 'first time', 'The first question a snippet sends needs your OK (then it may ask freely - you can switch that off).'],
+    ['host', 'gw', 'POST', '<code>POST /board/runs</code> - the same road the ▶ run buttons use, addressed to the cycle\'s chat.'],
+    ['gw', 'board', 'queue', 'The run waits for the chat that owns the cycle.'],
+    ['mcp', 'chat', 'take', 'That chat takes it with <code>board_run_take</code>; Claude looks at the call (investigate_call, db_statements …).'],
+    ['chat', 'mcp', 'answer', 'Claude answers with <code>board_reply</code>: "The 16:05 call waited 430 ms on the supplier credentials fetch (#34)."'],
+    ['board', 'ws', 'signal', 'The answer arrives as a reply on the card…'],
+    ['host', 'frame', 'answer', '…and the bridge resolves the snippet\'s <code>alfred.ask</code> promise with the same text, so the snippet can show it next to the bar.'],
+  ] },
+  check: { t: '8 · Claude checks what it drew', steps: [
+    ['host', 'frame', 'snap', 'After the snippet draws, the host asks the runtime for a picture.', null, () => post({ t: 'snap' })],
+    ['frame', 'host', 'PNG', 'The frame sends a PNG of what it drew (and its console). The thumbnail on the right is the real one from the frame.'],
+    ['host', 'gw', 'POST', '<code>POST /board/snippets/s-7/shot</code> (PNG + console lines).'],
+    ['gw', 'board', 'POST', 'Stored next to version 1.'],
+    ['board', 'bdb', 'INSERT', '<code>snippet_shots</code> row.'],
+    ['chat', 'mcp', 'board_snippet_view', 'Claude calls <code>board_snippet_view</code>.'],
+    ['mcp', 'board', 'GET', '<code>GET /board/snippets/s-7/shot</code> - the image and errors come back; Claude <b>sees</b> it and fixes layout before telling you it is ready.'],
+  ] },
+};
+const scenBox = document.getElementById('scen');
+for (const k in SC) { const b = document.createElement('button'); b.className = 'btn sc'; b.textContent = SC[k].t; b.onclick = () => pick(k); scenBox.appendChild(b); }
+const logBox = document.getElementById('slog');
+let cur = null, idx = 0, playing = false, busy = false, lastResult = true;
+function pick(k) { cur = k; idx = 0; playing = false; lastResult = true; document.querySelectorAll('.sc').forEach((b) => b.classList.toggle('on', b.textContent === SC[k].t));
+  logBox.innerHTML = `<div class="dim">${SC[k].steps.length} hops. Press ▶ Play or Step.</div>`; document.getElementById('play').textContent = '▶ Play'; }
+const speed = () => [0, 1700, 1200, 850, 550, 300][+document.getElementById('speed').value];
+function animate(a, b, label) {
+  return new Promise((res) => {
+    const p = center(N[a]), q = a === b ? { x: p.x + 0.1, y: p.y } : center(N[b]);
+    document.querySelectorAll('#simsvg .node').forEach((g) => g.classList.toggle('act', g.dataset.id === a || g.dataset.id === b));
+    tag.textContent = label; dot.setAttribute('opacity', 1); tag.setAttribute('opacity', 1);
+    const t0 = performance.now(), d = speed();
+    const f = (t) => { const k = Math.min(1, (t - t0) / d); const e = k < .5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+      const x = p.x + (q.x - p.x) * e, y = p.y + (q.y - p.y) * e; dot.setAttribute('cx', x); dot.setAttribute('cy', y); tag.setAttribute('x', x + 12); tag.setAttribute('y', y - 10);
+      if (k < 1) requestAnimationFrame(f); else res(); };
+    requestAnimationFrame(f);
+  });
+}
+async function step() {
+  if (!cur || busy) return false;
+  const s = SC[cur].steps; if (idx >= s.length) { playing = false; document.getElementById('play').textContent = '▶ Play'; return false; }
+  busy = true;
+  const [a, b, label, text, mode, hook] = s[idx];
+  if (mode === 'skipIfNo' && !lastResult) { idx++; busy = false; return step(); }
+  if (idx === 0) logBox.innerHTML = '';
+  await animate(a, b, label);
+  let res;
+  if (hook) res = await hook();
+  if (mode === 'wait') lastResult = res;
+  const body = typeof text === 'function' ? text(lastResult) : text;
+  const d = document.createElement('div'); d.className = 'ent';
+  d.innerHTML = `<div class="eh"><span class="en">${idx + 1}</span><b>${N[a].t}</b> → <b>${N[b].t}</b> <span class="lbl">${esc(label)}</span></div><div class="eb">${body}</div>`;
+  logBox.appendChild(d); logBox.scrollTop = 1e9;
+  idx++; busy = false;
+  if (idx >= s.length) { const e = document.createElement('div'); e.className = 'ok'; e.textContent = '✓ scenario finished - pick another or Reset'; logBox.appendChild(e); logBox.scrollTop = 1e9; dot.setAttribute('opacity', 0); tag.setAttribute('opacity', 0); }
+  return true;
+}
+document.getElementById('stepb').onclick = () => { playing = false; document.getElementById('play').textContent = '▶ Play'; step(); };
+document.getElementById('play').onclick = async () => {
+  if (!cur) pick('create');
+  if (playing) { playing = false; document.getElementById('play').textContent = '▶ Play'; return; }
+  if (idx >= SC[cur].steps.length) { idx = 0; }
+  playing = true; document.getElementById('play').textContent = '⏸ Pause';
+  while (playing && await step()) await new Promise((r) => setTimeout(r, 250));
+  playing = false; document.getElementById('play').textContent = '▶ Play';
+};
+document.getElementById('reset').onclick = () => { playing = false; simCalls = []; loadFrame(); scon.innerHTML = '';
+  ['db-snip', 'db-ver', 'db-state', 'db-shot', 'db-act'].forEach((i) => { const c = document.getElementById(i); c.textContent = '-'; c.classList.add('dim'); });
+  document.getElementById('shotimg').removeAttribute('src'); if (cur) pick(cur); };
+showInfo('frame');
+
+})();
+
+</script>
+<script>
+// ===================== before / after comparison scenario =====================
+(() => {
+const frame = document.getElementById('cmpframe');
+const SRC = `<!doctype html><html><head>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'">
+<script>(function(){let n=0;const cb={};window.alfred={on(name,fn){cb["d:"+name]=fn;parent.postMessage({t:"sub",name},"*")},
+action(kind,args){return new Promise(r=>{const id=++n;cb["r"+id]=r;parent.postMessage({t:"action",id,kind,args},"*")})}};
+addEventListener("message",e=>{const m=e.data||{};if(m.t==="data"&&cb["d:"+m.name])cb["d:"+m.name](m.value);if(m.t==="result"&&cb["r"+m.id])cb["r"+m.id](m.value)})})()<\/script>
+<style>
+body{margin:0;padding:12px 14px;font:12.5px system-ui;color:#e5e9f5;background:#0b1030}
+.tabs{display:flex;gap:2px;border-bottom:1px solid #2a3170;margin-bottom:10px}.tab{padding:4px 12px;cursor:pointer;color:#93a0c2;border-bottom:2px solid transparent}
+.tab.on{color:#c4b5fd;border-color:#8b5cf6}.pane{display:none}.pane.on{display:block}
+.leg{display:flex;gap:14px;font-size:11.5px;color:#93a0c2;margin:0 0 6px}.leg i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+canvas{width:100%;background:#070a24;border:1px solid #2a3170;border-radius:8px;display:block}
+table{border-collapse:collapse;width:100%;font-size:12px}td,th{padding:3px 8px;border-bottom:1px solid #1c2358;text-align:left;white-space:nowrap}th{color:#93a0c2;font-weight:600}
+.g{color:#34d399}.r{color:#f87171}.a{color:#fbbf24}.k{color:#93a0c2}
+.foot{display:flex;align-items:center;gap:10px;margin-top:8px}.foot .grow{flex:1}
+button{font:12px system-ui;background:#8b5cf6;color:#fff;border:0;border-radius:7px;padding:5px 12px;cursor:pointer}button:disabled{opacity:.5;cursor:default}
+.tip{position:fixed;pointer-events:none;background:#121848;border:1px solid #8b5cf6;border-radius:6px;padding:3px 7px;font-size:11.5px;display:none}
+.bar{height:16px;border-radius:3px;display:inline-block;vertical-align:middle;transition:width .9s cubic-bezier(.2,.8,.2,1)}.lane{display:grid;grid-template-columns:110px 1fr 70px;gap:10px;align-items:center;margin:10px 0}.ln{color:#93a0c2}.tm{font:600 14px Consolas,monospace;text-align:right}.trk{position:relative;height:30px;background:#070a24;border:1px solid #2a3170;border-radius:6px;overflow:hidden}.seg{position:absolute;top:0;bottom:0;width:0;font-size:10.5px;color:#0b1030;font-weight:700;overflow:hidden;white-space:nowrap;text-indent:4px;line-height:30px}.done{animation:flash .6s ease 2}@keyframes flash{50%{box-shadow:0 0 0 3px #34d39988}}.rleg{display:flex;flex-wrap:wrap;gap:12px;font-size:11px;color:#93a0c2}.rleg i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}button.s2{background:#1c2358}button.ready{animation:pulse 1.6s ease-in-out infinite}@keyframes pulse{50%{box-shadow:0 0 0 5px #8b5cf655}}.pane.on{animation:fade .35s ease}@keyframes fade{from{opacity:0;transform:translateY(4px)}}
+</style></head><body>
+<div class="tabs"><span class="tab on" data-p="ov">Overview</span><span class="tab" data-p="each">Each call</span><span class="tab" data-p="where">Where the time went</span><span class="tab" data-p="race">▶ Race</span></div>
+<div class="pane on" id="ov">
+  <div class="leg"><span><i style="background:#f87171"></i>before the fix</span><span><i style="background:#34d399"></i>after the fix</span><span><i style="background:none;border-top:2px dashed #fbbf24;height:0;width:14px"></i>1 s target</span></div>
+  <canvas id="ovc" width="900" height="250"></canvas>
+</div>
+<div class="pane" id="each">
+  <div class="leg"><span>every call, in time order - the line is when the fix went live (15:58)</span></div>
+  <canvas id="ec" width="900" height="200"></canvas>
+  <div style="max-height:70px;overflow:auto;margin-top:6px"><table id="et"></table></div>
+</div>
+<div class="pane" id="where">
+  <div class="leg"><span>one typical call each side - which part of the time the fix removed</span></div>
+  <table id="wt"></table>
+</div>
+<div class="pane" id="race">
+  <div class="leg"><span>one typical call each side, played in real time - watch the after call finish while the before call is still working</span></div>
+  <div class="lane"><div class="ln">before the fix</div><div class="trk" id="trkB"></div><div class="tm r" id="tmB">0 ms</div></div>
+  <div class="lane"><div class="ln">after the fix</div><div class="trk" id="trkA"></div><div class="tm g" id="tmA">0 ms</div></div>
+  <div class="rleg" id="rleg"></div>
+  <div style="margin-top:8px"><button id="replay" class="s2">↻ Replay</button> <span class="k" id="rmsg"></span></div>
+</div>
+<div class="foot"><span id="sum" class="k"></span><span class="grow"></span><button id="prop">Propose Verified</button></div>
+<div class="tip" id="tip"></div>
+<script>
+let before=[],after=[];
+alfred.on("before",b=>{before=b;draw()});alfred.on("after",a=>{after=a;draw()});
+document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>{document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("on",x===t));
+document.querySelectorAll(".pane").forEach(p=>p.classList.toggle("on",p.id===t.dataset.p));draw()});
+const q=(a,p)=>{if(!a.length)return 0;const s=[...a].sort((x,y)=>x-y);return s[Math.min(s.length-1,Math.floor(p*(s.length-1)+.5))]};
+const ms=a=>a.map(c=>c.ms);let hits=[];
+const ease=t=>1-Math.pow(1-t,3);let shown=null,from=null,target=null,t0=0,born={},raf=0;
+function draw(){const B=ms(before),A=ms(after);
+ target=[[q(B,.5),q(A,.5)],[q(B,.95),q(A,.95)],[Math.max(0,...B),Math.max(0,...A)],[108,104]];
+ if(!shown)shown=target.map(r=>r.map(()=>0));from=shown.map(r=>[...r]);t0=performance.now();
+ after.forEach(k=>{if(!born[k.at])born[k.at]=performance.now()});before.forEach(k=>{if(!born["b"+k.at])born["b"+k.at]=performance.now()-2000});
+ where();if(!raf)raf=requestAnimationFrame(frame)}
+function frame(now){const k=ease(Math.min(1,(now-t0)/900));shown=target.map((r,i)=>r.map((v,j)=>from[i][j]+(v-from[i][j])*k));
+ paintOv(now);paintEach(now);paintSum();
+ raf=requestAnimationFrame(frame)}
+function paintOv(now){const B=ms(before),A=ms(after);const names=["Median","95th percentile","Slowest","Database time"];
+ const c=ovc.getContext("2d");c.fillStyle="#070a24";c.fillRect(0,0,900,250);const top=Math.max(3200,...B,...A),sy=v=>220-v/top*190;
+ c.font="13px system-ui";c.strokeStyle="#1c2358";for(let v=0;v<=top;v+=1000){c.beginPath();c.moveTo(50,sy(v));c.lineTo(890,sy(v));c.stroke();c.fillStyle="#5c6690";c.fillText(v/1000+" s",10,sy(v)+4)}
+ c.strokeStyle="#fbbf24";c.setLineDash([7,5]);c.lineDashOffset=-now/60;c.beginPath();c.moveTo(50,sy(1000));c.lineTo(890,sy(1000));c.stroke();c.setLineDash([]);c.lineDashOffset=0;
+ hits=[];shown.forEach(([b,a],i)=>{const x=80+i*205,name=names[i];
+  [[b,"#f87171","before"],[a,"#34d399","after"]].forEach(([v,col,w],j)=>{const bx=x+j*62,h=220-sy(v);const g=c.createLinearGradient(0,sy(v),0,220);g.addColorStop(0,col);g.addColorStop(1,col+"55");
+   c.fillStyle=g;c.fillRect(bx,sy(v),54,h);c.fillStyle="#e5e9f5";c.fillText(v>=1?Math.round(v)+"":"-",bx+4,sy(v)-6);hits.push({x:bx,y:sy(v),w:54,h,t:name+" "+w+" the fix: "+Math.round(v)+" ms"})});
+  c.fillStyle="#93a0c2";c.fillText(name,x,242);
+  const tb=target[i][0],ta=target[i][1];if(tb&&ta&&b>1&&a>1){const full=100-100*ta/tb;const p=Math.round(full*Math.min(1,b/tb));
+   c.fillStyle=ta<tb*0.9?"#34d399":"#93a0c2";c.font="bold 13px system-ui";c.fillText(ta<tb*0.9?"▼ "+Math.max(0,p)+"%":"≈",x+130,sy(Math.max(a,b))+14);c.font="13px system-ui"}})}
+function paintEach(now){const B=ms(before),A=ms(after);const e=ec.getContext("2d");e.fillStyle="#070a24";e.fillRect(0,0,900,200);
+ const all=[...before.map(x=>({...x,b:1,key:"b"+x.at})),...after.map(x=>({...x,b:0,key:x.at}))];const top=Math.max(3200,...B,...A);
+ const w=Math.min(60,840/Math.max(1,all.length));const ey=v=>180-v/top*165;
+ e.strokeStyle="#fbbf24";e.setLineDash([7,5]);e.beginPath();e.moveTo(20,ey(1000));e.lineTo(890,ey(1000));e.stroke();e.setLineDash([]);
+ all.forEach((k,i)=>{const p=ease(Math.min(1,(now-(born[k.key]||0))/600));const h=(180-ey(k.ms))*p;
+  e.fillStyle=k.b?"#f87171":"#34d399";e.fillRect(30+i*w,180-h,w-6,h);
+  if(!k.b&&p<1){e.strokeStyle="rgba(52,211,153,"+(1-p)+")";e.lineWidth=3;e.strokeRect(27+i*w,180-h-3,w,h+6);e.lineWidth=1}});
+ const fx=30+before.length*w-3;e.strokeStyle="#c4b5fd";e.beginPath();e.moveTo(fx,10);e.lineTo(fx,185);e.stroke();e.fillStyle="#c4b5fd";e.font="12px system-ui";e.fillText("fix 15:58",fx+4,20);
+ const rows=all.length;if(et.dataset.rows!=String(rows)){et.dataset.rows=rows;et.innerHTML="<tr><th>time</th><th>side</th><th>ms</th><th>SQL</th><th>status</th></tr>"+[...all].reverse().map(k=>"<tr><td>"+k.at+"</td><td>"+(k.b?"before":"after")+"</td><td class="+(k.ms>1000?"r":"g")+">"+k.ms+"</td><td>4</td><td class=g>200</td></tr>").join("")}}
+function paintSum(){const A=ms(after),B=ms(before);const ok=A.filter(v=>v<=1000).length;
+ const html=A.length?"<b class="+(ok===A.length?"g":"a")+">"+ok+" / "+A.length+"</b> calls after the fix under 1 s · before: <b class=r>0 / "+B.length+"</b>":"waiting for calls after the fix…";
+ if(sum.innerHTML!==html)sum.innerHTML=html;prop.classList.toggle("ready",A.length>=10&&ok===A.length)}
+const PARTS=[["Rule hash + GZIP",740,15,"#f87171"],["Redis lists",290,30,"#fbbf24"],["SQL (4 statements)",108,104,"#34d399"],["Waiting on supplier credentials",1200,420,"#93a0c2"],["Other",62,41,"#8b5cf6"]];
+function where(){const tb=PARTS.reduce((s,p)=>s+p[1],0),ta=PARTS.reduce((s,p)=>s+p[2],0);
+ if(!wt.dataset.done){wt.innerHTML="<tr><th>part of the call</th><th>before</th><th>after</th><th></th></tr>"+PARTS.map(([n,b,a])=>"<tr><td>"+n+"</td><td class=r>"+b+" ms</td><td class=g>"+a+" ms</td><td><span class=bar data-w='"+b/8+"' style='width:0;background:#f8717155'></span><br><span class=bar data-w='"+a/8+"' style='width:0;background:#34d399'></span></td></tr>").join("")+
+  "<tr><td><b>Total</b></td><td class=r><b>"+tb+" ms</b></td><td class=g><b>"+ta+" ms</b></td><td class=k>the rule cache removed the hashing and most of the waiting</td></tr>";wt.dataset.done=1}}
+function growWhere(){wt.querySelectorAll(".bar").forEach(b=>{b.style.width="0";requestAnimationFrame(()=>requestAnimationFrame(()=>{b.style.width=b.dataset.w+"px"}))})}
+let raceRaf=0;
+function race(){cancelAnimationFrame(raceRaf);const sc=PARTS.reduce((s,p)=>s+p[1],0);
+ rleg.innerHTML=PARTS.map(p=>"<span><i style='background:"+p[3]+"'></i>"+p[0]+"</span>").join("");
+ const build=(trk,idx)=>{trk.innerHTML="";trk.classList.remove("done");let left=0;return PARTS.map(p=>{const d=document.createElement("div");d.className="seg";d.style.left=(left/sc*100)+"%";d.style.background=p[3];d.textContent=p[idx]>120?p[0]:"";trk.appendChild(d);const seg={el:d,start:left,len:p[idx]};left+=p[idx];return seg})};
+ const sb=build(trkB,1),sa=build(trkA,2);const totB=sc,totA=PARTS.reduce((s,p)=>s+p[2],0);rmsg.textContent="";const st=performance.now();
+ const step=now=>{const el=now-st;
+  for(const [segs,tot,tm,trk] of [[sb,totB,tmB,trkB],[sa,totA,tmA,trkA]]){const e2=Math.min(el,tot);tm.textContent=Math.round(e2)+" ms";
+   segs.forEach(s=>{const f=Math.max(0,Math.min(s.len,e2-s.start));s.el.style.width=(f/sc*100)+"%"});
+   if(el>=tot&&!trk.classList.contains("done")){trk.classList.add("done");if(trk===trkA)rmsg.textContent="after: done in "+totA+" ms - the before call still has "+(totB-totA)+" ms to go"}}
+  if(el<totB)raceRaf=requestAnimationFrame(step);else rmsg.textContent="before: "+totB+" ms · after: "+totA+" ms · "+(totB/totA).toFixed(1)+"× faster"};
+ raceRaf=requestAnimationFrame(step)}
+replay.onclick=race;
+document.querySelectorAll(".tab").forEach(t=>t.addEventListener("click",()=>{if(t.dataset.p==="race")race();if(t.dataset.p==="where")growWhere()}));
+ovc.onmousemove=ev=>{const r=ovc.getBoundingClientRect(),x=(ev.clientX-r.left)*900/r.width,y=(ev.clientY-r.top)*250/r.height;
+ const h=hits.find(b=>x>=b.x&&x<=b.x+b.w&&y>=b.y&&y<=b.y+b.h);if(h){tip.style.display="block";tip.style.left=ev.clientX+12+"px";tip.style.top=ev.clientY-10+"px";tip.textContent=h.t}else tip.style.display="none"};
+ovc.onmouseleave=()=>tip.style.display="none";
+prop.onclick=async()=>{const A=ms(after);const ok=A.filter(v=>v<=1000).length;prop.disabled=true;
+ const done=await alfred.action("propose",{status:"VERIFIED",reason:"Median 2380 → "+q(A,.5)+" ms; "+ok+"/"+A.length+" calls since the fix under 1 s"});
+ prop.disabled=false;prop.textContent=done?"✓ Proposed - waiting for you to accept":"Propose Verified"};
+<\/script></body></html>`;
+const BEFORE = [2410, 2380, 2950, 2290, 2510, 2340, 2900, 2205, 2460].map((ms, i) => ({ at: `15:${String(10 + i * 5).padStart(2, '0')}`, ms }));
+let after = [];
+const post = (m) => frame.contentWindow && frame.contentWindow.postMessage(m, '*');
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+window.addEventListener('message', (e) => {
+  if (e.source !== frame.contentWindow) return;
+  const m = e.data || {};
+  if (m.t === 'sub') post({ t: 'data', name: m.name, value: m.name === 'before' ? BEFORE : after });
+  if (m.t === 'action') {
+    if (m.kind !== 'propose') { post({ t: 'result', id: m.id, value: false }); return; }
+    const dlg = document.getElementById('dlg');
+    document.getElementById('dlg-title').textContent = 'The snippet asks to propose Verified';
+    document.querySelector('#dlg .from').textContent = 'from ◈ Before vs after the fix · by Claude · card #33';
+    document.getElementById('dlg-what').innerHTML = 'Propose <b>Verified</b> for card #33, as you:<br><b>“' + esc(m.args.reason) + '”</b><br><span style="color:var(--text-faint)">You can still accept or dismiss the proposal on the card.</span>';
+    dlg.classList.add('on');
+    const done = (ok) => { dlg.classList.remove('on'); document.querySelector('#dlg .from').textContent = 'from ◈ Fare dashboard · by Claude · card #33'; post({ t: 'result', id: m.id, value: ok }); };
+    document.getElementById('yes').onclick = () => done(true); document.getElementById('no').onclick = () => done(false);
+  }
+});
+frame.srcdoc = SRC;
+// calls after the fix keep arriving (the board forwards Alfred's "calls changed" signal the same way)
+const next = [640, 590, 615, 560, 702, 598, 655, 540, 610, 588, 940, 605];
+let n = 0;
+const tick = () => {
+  if (n >= next.length) return;
+  after = [...after, { at: `16:${String(n * 3).padStart(2, '0')}`, ms: next[n++] }];
+  post({ t: 'data', name: 'after', value: after });
+  document.getElementById('cmplive').textContent = `live · after: ${after.length} calls`;
+};
+setTimeout(() => { for (let i = 0; i < 5; i++) tick(); setInterval(tick, 3500); }, 600);
+})();
+
+</script>
+</body>
+</html>

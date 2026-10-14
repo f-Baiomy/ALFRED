@@ -16,9 +16,11 @@ describe('board-skills', () => {
     expect(skillFor(card({ status: 'FIXED' }))).toBe('/alfred-verify 11');
     expect(skillFor(card({ status: 'INBOX', flags: ['NEEDS_DECISION'], waiting: { who: 'USER', since: '', setBy: 'CLAUDE' } }))).toBe('/alfred-sync');
     expect(skillFor(card({ status: 'DONE' }))).toBeNull();
-    // waiting on Claude: Claude catches up with this card, whatever its column
+    // waiting on Claude: Claude catches up with this card - but sorted to To do / In progress it is the fix (which
+    // catches up first): moving a card there is what makes it wait on Claude
     expect(skillFor(card({ status: 'INBOX', waiting: { who: 'CLAUDE', since: '', setBy: 'USER' } }))).toBe('/alfred-sync 11');
-    expect(skillFor(card({ status: 'TO_DO', waiting: { who: 'CLAUDE', since: '', setBy: 'USER' } }))).toBe('/alfred-sync 11');
+    expect(skillFor(card({ status: 'TO_DO', waiting: { who: 'CLAUDE', since: '', setBy: 'USER' } }))).toBe('/alfred-fix 11');
+    expect(skillFor(card({ status: 'IN_PROGRESS', waiting: { who: 'CLAUDE', since: '', setBy: 'USER' } }))).toBe('/alfred-fix 11');
   });
 
   it('quotes a cycle name with spaces', () => {

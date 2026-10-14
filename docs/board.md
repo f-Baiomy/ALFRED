@@ -171,7 +171,7 @@ notification when allowed), and copies the command alone or as a `claude -p "…
 **runs from the board** (each with the user's note) and takes **R** (run), **C** (copy), **Shift+R** (edit, then run);
 the next-step bar sends `/alfred-verify` for each of the cycle's Fixed cards into the chat, which runs them one after
 another; the live strip shows the cycle's chat ("▶ runs in: chat on HOST · /alfred-live + /alfred-listen") with what
-waits and runs, and ✕ Cancel all waiting. A card waiting on Claude suggests `/alfred-sync N`. On the project board, for
+waits and runs, and ✕ Cancel all waiting. A card waiting on Claude suggests `/alfred-sync N` - except in To do / In progress, where it is `/alfred-fix N` (which catches up on your answers first; sorting a card there is what makes it wait on Claude). On the project board, for
 commands without a cycle and the brief's "Continue anywhere" resume command, the button copies only.
 
 ## Text direction
@@ -220,6 +220,7 @@ editor (`app-mention-editor`) and one reader (`app-markdown-view`), so a feature
   card or cycle whose text first shows it and is deleted with that card; one no saved text shows is removed a day
   later, swept when the next picture arrives (no timer). ✎ Mark draws boxes, arrows, labels, blur and a crop on a
   copy. Claude opens one with `board_image`.
+- **Wrap or scroll**: each comment has `⇥ Scroll` (the default: table rows and code lines stay whole and scroll sideways inside their block) or `⤶ Wrap`, kept in this browser like ⇄; a code block's own switch overrides it. A board text never makes its box wider. A mention in a table cell keeps its label, written with `|` or `\|`.
 - **Reading**: code blocks with their language, line numbers, wrap and copy; an outline for texts with three or more
   headings (spec headings copy as a spec mention); long comments fold behind "Show all"; ⧉ Copy gives a comment as
   formatted text (mail, Word, Teams), Markdown or plain text (variables as their value, a secret never).

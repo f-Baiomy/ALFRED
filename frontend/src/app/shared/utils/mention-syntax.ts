@@ -92,7 +92,9 @@ function tryParse(text: string, start: number): { ref: MentionRef; end: number }
     if (c === ']' || c === '\n' || c === '\r') return null;
   }
   if (pipe < 0 || pipe === colon + 1) return null;
-  const ref = text.slice(colon + 1, pipe);
+  // `\|` - a pipe escaped inside a Markdown table cell - separates the same way
+  const ref = text.slice(colon + 1, pipe).replace(/\\$/, '');
+  if (!ref) return null;
   let label = '';
   for (let i = pipe + 1; i < text.length; i++) {
     const c = text[i];

@@ -118,6 +118,12 @@ public final class MentionParser {
             return null;
         }
         String ref = text.substring(colon + 1, pipe);
+        if (ref.endsWith("\\")) {
+            ref = ref.substring(0, ref.length() - 1); // `\|` - a pipe escaped inside a Markdown table cell
+        }
+        if (ref.isEmpty()) {
+            return null;
+        }
         StringBuilder label = new StringBuilder();
         for (int i = pipe + 1; i < text.length(); i++) {
             char c = text.charAt(i);

@@ -66,4 +66,10 @@ class RichTextTest {
         assertThat(RichText.imageIds("<p><img src=\"/board/images/aaaaaaaa-1\"></p> ![x](/board/images/bbbbbbbb-2)"))
                 .containsExactly("aaaaaaaa-1", "bbbbbbbb-2");
     }
+
+    @Test
+    void aMentionWithItsPipeEscapedInATableCellIsStillAMention() {
+        assertThat(MentionParser.mentions("| cold | @[call:in:66e1@e8fe\\|13 Oct 00:51] | 2400 ms |"))
+                .extracting(m -> m.ref() + " " + m.label()).containsExactly("in:66e1@e8fe 13 Oct 00:51");
+    }
 }

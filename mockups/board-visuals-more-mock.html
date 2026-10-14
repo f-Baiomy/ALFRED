@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alfred · Board power mock</title>
+<style>
+  :root { color-scheme: dark;
+    --card: #141a45; --card-inner: #070a24; --panel: #0d1238; --border: rgba(139,92,246,.22); --border-strong: rgba(139,92,246,.45);
+    --purple: #8b5cf6; --purple-light: #c4b5fd; --cyan: #22d3ee; --text: #e5e9f5; --text-dim: #93a0c2; --text-faint: #5c6690;
+    --green: #34d399; --amber: #fbbf24; --red: #f87171; --blue: #60a5fa; font: 14px/1.5 Inter, system-ui, sans-serif; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 24px 16px 60px; background: radial-gradient(ellipse at top, #131a4a 0%, #0a0e2a 55%); color: var(--text); }
+  .wrap { max-width: 1080px; margin: auto; }
+  h1 { font-size: 1.15rem; margin: 0 0 4px; } h2 { font-size: .95rem; margin: 30px 0 8px; color: var(--purple-light); }
+  .note { color: var(--text-dim); font-size: .8rem; max-width: 940px; margin: 4px 0 10px; } .note b { color: var(--text); }
+  code { font: .76rem Consolas, monospace; color: var(--purple-light); }
+  pre.src { background: var(--card-inner); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font: .72rem/1.5 Consolas, monospace; color: #cbd5e1; white-space: pre-wrap; margin: 0; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; } @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+  .ev { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+  .who { font-size: .74rem; color: var(--text-dim); margin-bottom: 6px; } .who b { color: var(--purple-light); }
+  .ev p { margin: 0 0 8px; font-size: .84rem; }
+  .blk { border: 1px solid var(--border); border-radius: 8px; background: var(--card-inner); margin: 0 0 10px; overflow: hidden; }
+  .bar { display: flex; gap: 10px; align-items: center; font-size: .66rem; color: var(--text-faint); padding: 3px 9px; background: rgba(139,92,246,.08); border-bottom: 1px solid var(--border); }
+  .bar .grow { flex: 1; } .bar a { color: var(--purple-light); text-decoration: underline; cursor: pointer; }
+  .live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); display: inline-block; box-shadow: 0 0 6px var(--green); }
+  .body { padding: 9px; font-size: .78rem; }
+  table.t { border-collapse: collapse; width: 100%; font-size: .74rem; } .t th, .t td { border: 1px solid var(--border); padding: 3px 7px; text-align: left; white-space: nowrap; }
+  .t th { background: rgba(139,92,246,.1); }
+  .r { color: var(--red); } .g { color: var(--green); } .a { color: var(--amber); } .d { color: var(--text-dim); }
+  .add { background: rgba(52,211,153,.12); } .del { background: rgba(248,113,113,.12); }
+  .chip { font: .72rem Consolas, monospace; color: var(--cyan); background: rgba(34,211,238,.12); border: 1px solid var(--border); border-radius: 5px; padding: 0 5px; }
+  .btn { font: .76rem system-ui; border: 1px solid var(--border-strong); background: var(--card); color: var(--text); border-radius: 7px; padding: 4px 10px; cursor: pointer; }
+  .btn.pri { background: var(--purple); border-color: var(--purple); color: #fff; } .btn.on { border-color: var(--green); color: var(--green); }
+  .choices { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0 8px; }
+  .form { display: grid; grid-template-columns: 170px 1fr; gap: 6px 10px; align-items: center; font-size: .78rem; }
+  .form select, .form input[type=text] { background: var(--card-inner); color: var(--text); border: 1px solid var(--border-strong); border-radius: 6px; padding: 3px 6px; font: inherit; }
+  .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); } .tab { padding: 4px 10px; font-size: .74rem; color: var(--text-dim); cursor: pointer; border-bottom: 2px solid transparent; }
+  .tab.on { color: var(--purple-light); border-color: var(--purple); }
+  .acts { display: flex; gap: 6px; flex-wrap: wrap; } .act { font-size: .74rem; border: 1px dashed var(--border-strong); border-radius: 7px; padding: 3px 9px; color: var(--purple-light); background: rgba(139,92,246,.06); cursor: pointer; }
+  .pin { border: 1px solid var(--purple); border-radius: 10px; background: linear-gradient(180deg, rgba(139,92,246,.12), transparent); padding: 8px 10px; }
+  .att { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--border); border-radius: 8px; padding: 4px 8px; font-size: .74rem; margin: 0 6px 6px 0; background: var(--card-inner); }
+  .att b { color: var(--text); } .att span { color: var(--text-faint); }
+  .ed { border: 1px solid var(--border-strong); border-radius: 10px; overflow: hidden; }
+  .ed-tb { display: flex; gap: 2px; padding: 4px 6px; background: var(--card-inner); border-bottom: 1px solid var(--border); font-size: .72rem; flex-wrap: wrap; }
+  .ed-tb span { padding: 1px 6px; border-radius: 5px; color: var(--text-dim); } .ed-tb span.hi { color: var(--purple-light); background: rgba(139,92,246,.18); }
+  .split { display: grid; grid-template-columns: 1fr 1fr; } .split > div { padding: 8px 10px; font-size: .76rem; min-height: 120px; } .split > div:first-child { border-right: 1px solid var(--border); font-family: Consolas, monospace; color: #cbd5e1; white-space: pre-wrap; }
+  .pop { position: relative; display: inline-block; } .pop-menu { background: #121848; border: 1px solid var(--border-strong); border-radius: 8px; padding: 4px; width: 230px; font-size: .74rem; box-shadow: 0 10px 30px #000a; }
+  .pop-menu div { padding: 3px 8px; border-radius: 5px; } .pop-menu div.on { background: rgba(139,92,246,.25); }
+  .phase { display: grid; grid-template-columns: 70px 1fr; gap: 4px 12px; font-size: .8rem; } .phase b { color: var(--purple-light); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Board power - live data, interaction, reuse, editing (on top of the visuals mock)</h1>
+  <p class="note">Everything here builds on <code>board-visuals-mock.html</code> (fixed blocks + live HTML). The letters match your choices A-P.</p>
+
+  <h2>Live data · A query blocks · C compare · D expanded call</h2>
+  <div class="grid">
+    <div class="ev"><div class="who"><b>✦ Claude</b> · re-test of #33</div>
+      <p>Every call to fare-confirm since the fix - <b>this table updates itself</b> as calls arrive:</p>
+      <div class="blk"><div class="bar"><span class="live-dot"></span><span>calls · POST /fare-confirm · since fix · 6 calls</span><span class="grow"></span><a>chart</a><a>table</a><a>⧉</a></div>
+        <div class="body"><table class="t"><tr><th>time</th><th>status</th><th>ms</th><th>SQL</th><th>vs before</th></tr>
+          <tr><td>16:02:11</td><td class="g">200</td><td class="g">640</td><td>4</td><td class="g">−73%</td></tr>
+          <tr><td>16:03:40</td><td class="g">200</td><td class="g">590</td><td>4</td><td class="g">−75%</td></tr>
+          <tr><td>16:05:02</td><td class="g">200</td><td class="a">1010</td><td>4</td><td class="a">−58%</td></tr></table></div></div>
+      <div class="blk"><div class="bar"><span>compare · before ⇄ after</span><span class="grow"></span><a>headers</a><a>body</a><a>timing</a><a>SQL</a></div>
+        <div class="body"><table class="t"><tr><th></th><th><span class="chip">⇄ 00:51</span> before</th><th><span class="chip">⇄ 16:02</span> after</th></tr>
+          <tr><td>status</td><td>200</td><td>200</td></tr><tr><td>time</td><td class="r">2400 ms</td><td class="g">640 ms</td></tr>
+          <tr><td>SQL</td><td>4</td><td>4</td></tr><tr><td>body</td><td colspan="2"><span class="del">"fareMismatch": true</span> → <span class="add">"fareMismatch": false</span></td></tr></table></div></div>
+    </div>
+    <div>
+<pre class="src">```calls
+endpoint: POST /fare-confirm
+since: fix            # or a call, a time, cycle:&lt;id&gt;
+show: table(time, status, ms, sql, vs-before)
+```
+
+```compare
+@[call:in:66e1@e8fe|00:51]  @[call:in:9a2c|16:02]
+show: status, time, sql, body
+```
+
+!@[call:in:9a2c|16:02 fare-confirm]     ← expanded call view</pre>
+      <p class="note">The board fetches through Alfred's normal API (read-only) and redraws on the WebSocket "calls changed" signal - <b>no polling</b>.
+        In the .md export a query block is written with its rows at export time. Claude reads the query and, when it asks, the rows.</p>
+      <p class="note"><b>B · data bridge:</b> a live HTML block writes <code>&lt;script type="alfred/data" name="calls" src="calls?endpoint=POST /fare-confirm&amp;since=fix"&gt;</code>;
+        the board checks it against a read-only allowlist (calls, statements, log lines, cycles), fetches, and posts the JSON into the frame as <code>window.alfred.calls</code> - updated live. The frame still has no network.</p>
+    </div>
+  </div>
+
+  <h2>Interaction · E choices · F form · G tabs · H actions</h2>
+  <div class="grid">
+    <div class="ev"><div class="who"><b>✦ Claude</b> · Question</div>
+      <p><b>How should the rule cache be kept?</b></p>
+      <div class="choices"><button class="btn on">✓ Per rule version</button><button class="btn">Per session</button><button class="btn">Not now</button></div>
+      <div class="blk"><div class="bar"><span>form · fix details</span></div><div class="body form">
+        <label>Cache time-to-live</label><select><option>10 minutes</option><option>1 hour</option></select>
+        <label>Also cache airport lists</label><span><input type="checkbox" checked> yes</span>
+        <label>Note</label><input type="text" placeholder="anything Claude should know">
+        <span></span><span><button class="btn pri">Send answer</button></span></div></div>
+      <div class="blk"><div class="tabs"><span class="tab on">Before</span><span class="tab">After</span><span class="tab">Logs</span><span class="tab">SQL</span></div>
+        <div class="body d">…the "Before" evidence…</div></div>
+      <div class="acts"><span class="act">▶ Run /alfred-fix 33</span><span class="act">↻ Re-test now</span><span class="act">⇄ Open in Live Calls</span><span class="act">✓ Propose Verified</span></div>
+    </div>
+    <div>
+<pre class="src">[choose: Per rule version | Per session | Not now]
+
+```form
+ttl: select(10 minutes, 1 hour) = 10 minutes
+airports: checkbox = yes
+note: text
+```
+
+:::tabs
+## Before
+…
+## After
+…
+:::
+
+[action: run /alfred-fix 33] [action: retest] [action: open call in:9a2c]</pre>
+      <p class="note">A choice or form answer is posted as <b>your reply</b> under the question (structured, e.g. <code>ttl=10 minutes; airports=yes</code>), clears Needs decision like Answer does today, and Claude reads it exactly.
+        <b>Actions</b> are a fixed list the board knows (run a skill, re-test, open, propose); each asks you before it runs - Claude only offers them.</p>
+    </div>
+  </div>
+
+  <h2>Reuse and output · I pinned visual · J widgets · K PNG · L files</h2>
+  <div class="grid">
+    <div>
+      <div class="pin"><div class="bar" style="background:none;border:0;padding:0 0 6px"><b style="color:var(--purple-light)">📌 Card dashboard</b><span class="grow"></span><span>updated by Claude 4 min ago · v3</span><a>history</a><a>unpin</a></div>
+        <div class="body" style="padding:0">cold <b class="r">2400</b> → <b class="g">640 ms</b> · warm 1065 → 590 · re-tested 6/9 <span class="g">● on target</span></div></div>
+      <p class="note">Pinned at the top of card #33 (or the cycle's Brief). Claude refreshes it with <code>board_pin</code> as work moves; earlier versions kept.</p>
+      <div class="ev"><div class="who"><b>Widgets</b> · this project</div>
+        <p><span class="chip">◈ fare timing chart</span> <span class="chip">◈ endpoint before/after</span> <span class="chip">◈ SQL per call</span></p>
+        <p class="d" style="font-size:.74rem">Any block or live view → ☆ Save as widget. Use: <code>{{widget:endpoint before/after | endpoint=POST /search}}</code></p></div>
+    </div>
+    <div class="ev"><div class="who"><b>✦ Claude</b> · attachments</div>
+      <span class="att">📄 <b>fare-confirm-calls.csv</b> <span>14 KB</span></span><span class="att">🗎 <b>stack-trace.log</b> <span>3 KB</span></span><span class="att">⇄ <b>flow.har</b> <span>220 KB</span></span>
+      <p class="note">Files kept with the card like pictures (size cap, type checked). You attach logs or HARs, Claude reads them with <code>board_file</code>; Claude attaches extracts. Every chart, diagram and live view gets <b>⬇ PNG</b> (also used for them in the .md export).</p></div>
+  </div>
+
+  <h2>Editing · M block editors · N ask Claude · O split preview · P data slash commands</h2>
+  <div class="grid">
+    <div class="ed">
+      <div class="ed-tb"><span>Style</span><span>B</span><span>I</span><span>{red}</span><span class="hi">▤ Chart</span><span>⏱ Timeline</span><span>▦ Stats</span><span>⬡ Diagram</span><span>◈ Live</span><span>⧉ Tabs</span><span>☐ Choice</span><span class="hi">⇆ Split</span><span class="hi">✦ Ask Claude</span></div>
+      <div class="split"><div>```chart
+type: bar
+| label | ms |
+| Cold  | 2400 |
+| Warm  | 1065 |</div><div>
+        <svg viewBox="0 0 220 90" width="100%" height="90" font-size="9" fill="#93a0c2"><text x="0" y="24">Cold</text><rect x="40" y="14" width="170" height="14" rx="2" fill="#f87171"/>
+        <text x="0" y="54">Warm</text><rect x="40" y="44" width="76" height="14" rx="2" fill="#fbbf24"/></svg></div></div>
+    </div>
+    <div>
+      <div class="pop"><div class="pop-menu"><div class="d">/ data</div><div class="on">⇄ /call - pick a call → card or expanded view</div><div>▤ /calls - query block (endpoint, since)</div><div>◆ /sql - a statement's rows</div><div>▤ /logs - a call's log lines</div><div>⇆ /compare - two calls</div></div></div>
+      <p class="note"><b>M</b> each block opens a small editor with live preview (a number grid → chart). <b>O</b> ⇆ Split: source and preview side by side for long specs and live blocks.
+        <b>N</b> select text → ✦ Ask Claude: "make this a chart", "shorten", "translate to Arabic", "as a table" - sent to the cycle's chat (like ▶), Claude's rewrite comes back as a suggestion you accept.
+        <b>P</b> the data slash commands pick from Alfred (searchable list) - no ids typed.</p>
+    </div>
+  </div>
+
+  <h2>Order of work (each phase ends tested and deployed; you can stop after any)</h2>
+  <div class="phase">
+    <b>1</b><span>Fixed blocks: colour, stats, chart, timeline, mermaid, progress, tabs (G). Live HTML block in the locked frame + /board/lib. Claude's guide.</span>
+    <b>2</b><span>Live data: query blocks (A), compare (C), expanded call (D), data bridge for live blocks (B). Data slash commands (P).</span>
+    <b>3</b><span>Interaction: choices (E), forms (F), action buttons (H) - backend accepts structured answers; MCP reads them.</span>
+    <b>4</b><span>Reuse: pinned visual (I) + board_pin, widgets (J), PNG (K), file attachments (L) + board_file / board_attach.</span>
+    <b>5</b><span>Editing: block editors (M), split preview (O), ✦ Ask Claude (N).</span>
+    <b>6</b><span>Exports (.html draws all, .md readable, .json lossless), docs, full test suites, browser check.</span>
+  </div>
+</div>
+</body>
+</html>

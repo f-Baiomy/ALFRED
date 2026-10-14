@@ -70,12 +70,15 @@ import { copyToClipboard } from '../../../shared/utils/clipboard';
             }
           }
           @case ('code') {
-            <div class="board-md-code" dir="ltr" [class.wrap]="!nowrap().has(path + '/' + bi)" [class.lines]="numbered().has(path + '/' + bi)">
+            <div class="board-md-code" dir="ltr" [class.wrap]="wraps(path + '/' + bi)" [class.lines]="numbered().has(path + '/' + bi)">
               <div class="board-md-code-bar">
                 <span>{{ langLabel(b.lang) }} · {{ lineCount(b.text) }} {{ lineCount(b.text) === 1 ? 'line' : 'lines' }}</span>
                 <span class="board-md-code-acts">
-                  <button type="button" class="board-link" (click)="toggle(numbered, path + '/' + bi)" title="Line numbers">#</button>
-                  <button type="button" class="board-link" (click)="toggle(nowrap, path + '/' + bi)" title="Wrap long lines">⤶</button>
+                  <button type="button" class="board-link" [class.on]="numbered().has(path + '/' + bi)" (click)="toggle(numbered, path + '/' + bi)"
+                          [title]="numbered().has(path + '/' + bi) ? 'Hide line numbers' : 'Show line numbers'"># lines</button>
+                  <button type="button" class="board-link on" (click)="toggle(flipped, path + '/' + bi)"
+                          [title]="wraps(path + '/' + bi) ? 'Long lines wrap - click to keep each line whole and scroll sideways' : 'Long lines scroll sideways - click to wrap them'">
+                    {{ wraps(path + '/' + bi) ? '⤶ wrap' : '⇥ scroll' }}</button>
                   <button type="button" class="board-link" (click)="copyCode(path + '/' + bi, b.text)">{{ copied() === path + '/' + bi ? '✓ copied' : '⧉ copy' }}</button>
                 </span>
               </div>
@@ -111,7 +114,7 @@ import { copyToClipboard } from '../../../shared/utils/clipboard';
           }
           @case ('rule') { <hr /> }
           @case ('table') {
-            <div class="board-md-table-wrap"><table class="board-md-table" [attr.dir]="dirOfAll(b.header)">
+            <div class="board-md-table-wrap" [class.scroll]="!wrap()"><table class="board-md-table" [attr.dir]="dirOfAll(b.header)">
               <thead><tr>@for (c of b.header; track $index) { <th [attr.dir]="dirOf(c)"><ng-container *ngTemplateOutlet="inl; context: { $implicit: c }" /></th> }</tr></thead>
               <tbody>
                 @for (row of b.rows; track $index) {
@@ -166,7 +169,10 @@ export class MarkdownViewComponent {
   readonly headings = computed(() => headingsOf(this.blocks()));
   readonly copied = signal<string | null>(null);
   readonly numbered = signal<ReadonlySet<string>>(new Set());
-  readonly nowrap = signal<ReadonlySet<string>>(new Set());
+  /** Code blocks the reader switched away from the text's mode (wrap ↔ scroll). */
+  readonly flipped = signal<ReadonlySet<string>>(new Set());
+  /** Long lines wrap (true) or keep whole and scroll sideways inside their table or code block (false, the default). */
+  readonly wrap = input(false);
   readonly zoom = signal<string | null>(null);
 
   dirOf(nodes: readonly Inline[]): string {
@@ -227,6 +233,10 @@ export class MarkdownViewComponent {
   imageSrc(src: string): string {
     const base = (typeof window !== 'undefined' && (window as unknown as { BACKEND_URL?: string }).BACKEND_URL) || '';
     return base + src;
+  }
+
+  wraps(key: string): boolean {
+    return this.wrap() !== this.flipped().has(key);
   }
 
   toggle(set: typeof this.numbered, key: string): void {

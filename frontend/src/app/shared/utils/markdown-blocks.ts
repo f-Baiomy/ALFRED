@@ -224,8 +224,27 @@ export function markdownSections(blocks: readonly Block[]): Section[] {
   return out;
 }
 
-function cells(line: string): string[] {
-  return line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim());
+/**
+ * A table row's cells. A `|` is a cell border except escaped (`\|`, as GitHub Markdown writes it) or inside a mention
+ * (`@[call:in:x|POST /a]`) or inline code - so a mention in a table keeps its label instead of splitting the row.
+ */
+export function cells(line: string): string[] {
+  const row = line.trim().replace(/^\|/, '').replace(/(?<!\\)\|$/, '');
+  const out: string[] = [];
+  let cell = '';
+  let mention = 0;
+  let code = false;
+  for (let i = 0; i < row.length; i++) {
+    const ch = row[i];
+    if (ch === '\\' && row[i + 1] === '|') { cell += '|'; i++; continue; }
+    if (ch === '`') code = !code;
+    else if (!code && ch === '@' && row[i + 1] === '[') { mention++; cell += '@['; i++; continue; }
+    else if (!code && ch === ']' && mention > 0) mention--;
+    if (ch === '|' && !mention && !code) { out.push(cell.trim()); cell = ''; continue; }
+    cell += ch;
+  }
+  out.push(cell.trim());
+  return out;
 }
 
 /** Mentions first (their labels may hold Markdown characters), then code, links, variables, pills and emphasis in the text between. */

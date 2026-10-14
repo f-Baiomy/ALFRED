@@ -116,6 +116,7 @@ formatted, next to the user's own rich text. Write so the user gets it at a glan
   value; `~~struck~~` for what is no longer true.
 - **Variables**: `{{name}}` for a global variable (a URL, a branch code) - the board shows its value in the active
   environment; never paste a secret's value.
+- **Mentions in a table cell** work as written - `@[call:in:<id>|label]` needs no escaping (an escaped `\|` is read too).
 - **A call alone on its line** (`@[call:in:<id>|POST /orders · 500]`) shows as a call card; inside a sentence it is a
   pill. Pictures the user pasted are `![...](/board/images/<id>)` - open them with `board_image` before you judge.
 - **Language**: answer in the language the user wrote in; Arabic and English mixed in one text is fine (each paragraph

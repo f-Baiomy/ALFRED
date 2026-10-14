@@ -93,6 +93,23 @@ describe('rich-html', () => {
   });
 });
 
+describe('tables with mentions', () => {
+  it('a mention in a cell keeps its label - escaped pipe or not - and the row keeps its columns', () => {
+    for (const sep of ['|', '\\|']) {
+      const md = `| Case | Call | Time |\n|---|---|---|\n| cold | @[call:in:66e1@e8fe${sep}13 Oct 00:51] | 2400 ms |`;
+      const table = markdownBlocks(md)[0] as Extract<Block, { kind: 'table' }>;
+      expect(table.rows[0].length).toBe(3);
+      expect(mentionsOfBlocks([table]).map((m) => [m.ref, m.label])).toEqual([['in:66e1@e8fe', '13 Oct 00:51']]);
+    }
+  });
+
+  it('an escaped pipe in text stays a pipe; a pipe in inline code stays in its cell', () => {
+    const table = markdownBlocks('| a | b |\n|---|---|\n| x \\| y | `p|q` |')[0] as Extract<Block, { kind: 'table' }>;
+    expect(table.rows[0].length).toBe(2);
+    expect(blocksToMarkdown([table])).toContain('x');
+  });
+});
+
 describe('code-highlight', () => {
   it('guesses the language of pasted text', () => {
     expect(guessLang('{"a": 1}')).toBe('json');
