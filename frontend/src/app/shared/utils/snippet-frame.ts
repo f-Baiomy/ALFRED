@@ -280,24 +280,39 @@ function loadLib(id){var u=boot.libs&&boot.libs[id];if(!u)return Promise.reject(
     return addLib(URL.createObjectURL(new Blob([code],{type:"text/javascript"})),module,false)})};
   var first=boot.direct?addLib(u,module,css):Promise.reject();
   return first.then(null,viaHost).then(null,function(){throw new Error("Could not load "+id)})}
-function copyStyle(src,dst){var cs=getComputedStyle(src),t="";for(var i=0;i<cs.length;i++){var k=cs[i];t+=k+":"+cs.getPropertyValue(k)+";"}dst.setAttribute("style",t)}
-function snap(n){if(n.nodeType===3)return document.createTextNode(n.nodeValue);if(n.nodeType!==1)return null;
+var defaults={},blank=null;
+function defaultsOf(tag){if(defaults[tag])return defaults[tag];var d={};try{if(!blank){var h=document.createElement("div");h.style.cssText="all:initial;position:absolute;width:0;height:0;overflow:hidden";document.documentElement.appendChild(h);blank=h.attachShadow({mode:"open"})}
+  var e=document.createElement(tag);blank.appendChild(e);var cs=getComputedStyle(e);for(var i=0;i<cs.length;i++)d[cs[i]]=cs.getPropertyValue(cs[i]);blank.removeChild(e)}catch(x){}return defaults[tag]=d}
+var INHERITED=/^(--|color|font|line-height|letter-spacing|word-spacing|text-(align|indent|transform|shadow|rendering|wrap|emphasis|underline)|white-space|direction|visibility|cursor|list-style|quotes|border-collapse|border-spacing|caption-side|empty-cells|tab-size|hyphens|word-break|overflow-wrap|writing-mode|color-scheme|-webkit-text|fill|stroke|paint-order|orphans|widows|image-rendering|pointer-events)/;
+// Only what the copy would not get anyway - an inherited property that differs from the parent's, any other from the
+// tag's default: the picture's style text is a fraction of every property of every element, and so is its drawing.
+function copyStyle(src,dst,pcs){var cs=getComputedStyle(src),d=defaultsOf(src.tagName.toLowerCase()),t="";
+  for(var i=0;i<cs.length;i++){var k=cs[i],v=cs.getPropertyValue(k),base=pcs&&INHERITED.test(k)?pcs.getPropertyValue(k):d[k];if(base!==v)t+=k+":"+v+";"}
+  dst.setAttribute("style",t);return cs}
+// A picture of the page as it ends up: entrance animations finished (an endless one never does - not waited for), then idle.
+function settled(){var as=[];try{as=document.getAnimations().filter(function(a){var t=a.effect&&a.effect.getComputedTiming();return a.playState==="running"&&t&&isFinite(t.endTime)})}catch(x){}
+  return Promise.race([Promise.all(as.map(function(a){return a.finished.then(null,function(){})})),new Promise(function(r){setTimeout(r,8000)})])
+    .then(function(){return new Promise(function(r){(window.requestIdleCallback||function(f){setTimeout(f,30)})(function(){r()},{timeout:1000})})})}
+function snap(n,pcs){if(n.nodeType===3)return document.createTextNode(n.nodeValue);if(n.nodeType!==1)return null;
   var tag=n.tagName.toLowerCase();if(/^(script|style|link|noscript|iframe|template)$/.test(tag))return null;
   var c;if(tag==="canvas"){c=document.createElement("img");try{c.setAttribute("src",n.toDataURL("image/png"))}catch(e){}}
   else{c=n.cloneNode(false);if(tag==="input"||tag==="textarea")c.setAttribute("value",n.value);if(tag==="video"||tag==="audio")return null}
-  copyStyle(n,c);for(var ch=n.firstChild;ch;ch=ch.nextSibling){var x=snap(ch);if(x)c.appendChild(x)}return c}
-function shot(id){try{var root=document.documentElement,body=document.body,rs=getComputedStyle(root),solid=rs.getPropertyValue("--popover-solid").trim()||"#141a45",bg=rs.getPropertyValue("--card").trim()||solid;
+  var cs=copyStyle(n,c,pcs);for(var ch=n.firstChild;ch;ch=ch.nextSibling){var x=snap(ch,cs);if(x)c.appendChild(x)}return c}
+function shot(id,scale){settled().then(function(){draw(id,scale)})}
+function draw(id,scale){var fail=function(e){post({t:"shot",id:id,error:String(e&&e.message||e)})};try{var root=document.documentElement,body=document.body,rs=getComputedStyle(root),solid=rs.getPropertyValue("--popover-solid").trim()||"#141a45",bg=rs.getPropertyValue("--card").trim()||solid;
   var w=Math.max(1,Math.ceil(root.scrollWidth)),h=Math.max(1,Math.ceil(Math.max(body.scrollHeight,body.getBoundingClientRect().height)));
   var copy=snap(body);copy.style.margin="0";
   var svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+w+'" height="'+h+'"><foreignObject x="0" y="0" width="100%" height="100%">'+new XMLSerializer().serializeToString(copy)+"</foreignObject></svg>";
-  var img=new Image();img.onload=function(){try{var k=Math.min(2,window.devicePixelRatio||1)||1,c=document.createElement("canvas");c.width=w*k;c.height=h*k;
-    var g=c.getContext("2d");g.scale(k,k);g.fillStyle=solid;g.fillRect(0,0,w,h);g.fillStyle=bg;g.fillRect(0,0,w,h);g.drawImage(img,0,0);post({t:"shot",id:id,png:c.toDataURL("image/png")})}
-    catch(e){post({t:"shot",id:id,error:String(e&&e.message||e)})}};
-  img.onerror=function(){post({t:"shot",id:id,error:"The page could not be drawn"})};
-  img.src="data:image/svg+xml;charset=utf-8,"+encodeURIComponent(svg)}catch(e){post({t:"shot",id:id,error:String(e&&e.message||e)})}}
+  // Decoded off the page's thread (decode()), encoded off it too (toBlob): the snippet keeps moving while it is drawn.
+  var img=new Image();img.src="data:image/svg+xml;charset=utf-8,"+encodeURIComponent(svg);
+  (img.decode?img.decode():new Promise(function(r,j){img.onload=r;img.onerror=j})).then(function(){
+    var k=scale>0?Math.min(2,scale):Math.min(2,window.devicePixelRatio||1)||1,c=document.createElement("canvas");c.width=Math.round(w*k);c.height=Math.round(h*k);
+    var g=c.getContext("2d");g.scale(k,k);g.fillStyle=solid;g.fillRect(0,0,w,h);g.fillStyle=bg;g.fillRect(0,0,w,h);g.drawImage(img,0,0);
+    c.toBlob(function(b){if(!b)return fail("No picture");var fr=new FileReader();fr.onload=function(){post({t:"shot",id:id,png:fr.result})};fr.onerror=fail;fr.readAsDataURL(b)},"image/png")},
+    function(){fail("The page could not be drawn")}).then(null,fail)}catch(e){fail(e)}}
 window.addEventListener("message",function(e){if(e.source!==P)return;var m=e.data;if(!m||m.alfred!==1)return;
   if(m.t==="res"&&pend[m.id]){var p=pend[m.id];delete pend[m.id];if(m.ok)p.res(m.value);else p.rej(new Error(m.error||"Refused"))}
-  else if(m.t==="pause")pause(true);else if(m.t==="resume")pause(false);else if(m.t==="shot")shot(m.id);
+  else if(m.t==="pause")pause(true);else if(m.t==="resume")pause(false);else if(m.t==="shot")shot(m.id,typeof m.scale==="number"?m.scale:0);
   else if(m.t==="event"&&typeof m.name==="string")emit(m.name,m.value)});
 var api={
   name:boot.name,dir:boot.dir,theme:"dark",vars:boot.vars,context:boot.context,card:boot.context&&boot.context.card,

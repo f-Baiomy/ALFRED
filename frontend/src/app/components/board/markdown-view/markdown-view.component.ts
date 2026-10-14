@@ -133,25 +133,30 @@ import { WidgetsService, fillWidget } from '../../../core/services/widgets.servi
           @case ('rule') { <hr /> }
           @case ('visual') {
             <div class="board-vis-pinnable">
-            @if (pinOwner() && b.lang !== 'form') {
-              <span class="board-vis-pin">
-                <button type="button" [title]="'Pin to the top of this ' + (pinOwner()!.startsWith('card:') ? 'card' : 'task') + ' - its dashboard, always open'"
+            <!-- 📌 ★ go in a snippet's own bar; over any other block they sit clear of its bar's buttons -->
+            <ng-template #pinTools>
+              <button type="button" [title]="'Pin to the top of this ' + (pinOwner()!.startsWith('card:') ? 'card' : 'task') + ' - its dashboard, always open'"
                         (click)="pinBlock(b)">📌</button>
                 <button type="button" title="Save as a widget of the project, to use in any of its texts" (click)="saveWidget(b)">★</button>
-              </span>
+            </ng-template>
+            @if (pinOwner() && b.lang !== 'form' && !inBar(b.lang)) {
+              <span class="board-vis-pin"><ng-container *ngTemplateOutlet="pinTools" /></span>
             }
             @switch (b.lang) {
               @case ('stats') { <app-stats-block [source]="b.text" /> }
               @case ('chart') { <app-chart-block [source]="b.text" /> }
               @case ('timeline') { <app-timeline-block [source]="b.text" /> }
-              @case ('html') { <app-snippet-host [source]="b.text" [info]="b.info" [dir]="dir() === 'auto' ? 'auto' : dir()" [context]="snippetContext()" [snippetId]="inlineId(b)" /> }
+              @case ('html') { <app-snippet-host [source]="b.text" [info]="b.info" [dir]="dir() === 'auto' ? 'auto' : dir()" [context]="snippetContext()" [snippetId]="inlineId(b)">
+                @if (pinOwner()) { <span snip-tools class="snip-tools"><ng-container *ngTemplateOutlet="pinTools" /></span> }</app-snippet-host> }
               @case ('calls') { <app-calls-block [source]="b.text" [context]="snippetContext()" /> }
               @case ('statement') { <app-statement-block [source]="b.text" /> }
               @case ('call-logs') { <app-call-logs-block [source]="b.text" /> }
               @case ('compare') { <app-compare-block [source]="b.text" /> }
               @case ('form') { <app-form-block [source]="b.text" [context]="actionContext()" [canSend]="interactive()" /> }
-              @case ('mermaid') { <app-snippet-host [source]="b.text" [info]="b.info" kind="mermaid" [context]="snippetContext()" [snippetId]="inlineId(b)" /> }
-              @case ('python') { <app-snippet-host [source]="b.text" [info]="b.info" kind="python" [context]="snippetContext()" [snippetId]="inlineId(b)" /> }
+              @case ('mermaid') { <app-snippet-host [source]="b.text" [info]="b.info" kind="mermaid" [context]="snippetContext()" [snippetId]="inlineId(b)">
+                @if (pinOwner()) { <span snip-tools class="snip-tools"><ng-container *ngTemplateOutlet="pinTools" /></span> }</app-snippet-host> }
+              @case ('python') { <app-snippet-host [source]="b.text" [info]="b.info" kind="python" [context]="snippetContext()" [snippetId]="inlineId(b)">
+                @if (pinOwner()) { <span snip-tools class="snip-tools"><ng-container *ngTemplateOutlet="pinTools" /></span> }</app-snippet-host> }
               @default {
                 <div class="board-md-code" dir="ltr"><div class="board-md-code-bar"><span>{{ $any(b).lang }}{{ $any(b).info ? " " + $any(b).info : "" }}</span></div>
                   <pre class="board-md-pre" dir="ltr">{{ $any(b).text }}</pre></div>
@@ -346,6 +351,11 @@ export class MarkdownViewComponent {
   }
 
   readonly widgetNote = signal<string | null>(null);
+
+  /** A snippet has a bar of its own: 📌 ★ go in it rather than over its buttons. */
+  inBar(lang: string): boolean {
+    return lang === 'html' || lang === 'mermaid' || lang === 'python';
+  }
 
   /** Where 📌 pins a block (specs/017 R33): the card the text is on, or the cycle of a brief - only where it is read, never in a preview. */
   readonly pinOwner = computed<string | null>(() => {

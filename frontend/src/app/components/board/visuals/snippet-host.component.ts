@@ -66,6 +66,7 @@ const SHOT_SETTLE_MS = 1500;
         <button type="button" class="board-link" [title]="(lines().length ? lines().length + ' console lines' : 'Console')" [class.on]="consoleOpen()" (click)="consoleOpen.set(!consoleOpen())">▭</button>
         <button type="button" class="board-link" [title]="run.onOpen() ? 'Snippets run when a text opens - click to make them wait for ▶' : 'Snippets wait for ▶ - click to run them on open'"
                 (click)="run.toggle()">{{ run.onOpen() ? '▶ auto' : '▶ click' }}</button>
+        <ng-content select="[snip-tools]" />
       </div>
       @if (!running()) {
         <button type="button" class="snip-run" (click)="started.set(true)">▶ Run {{ kind() === 'mermaid' ? 'diagram' : kind() === 'python' ? 'Python' : 'snippet' }}</button>
@@ -229,7 +230,7 @@ export class SnippetHostComponent implements OnDestroy {
     this.shotTimer = setTimeout(() => {
       this.shotTimer = null;
       if (!bridge || bridge !== this.bridge || !this.visible || document.visibilityState !== 'visible') return;
-      void this.store.keepShot(id, version, () => bridge.shot().catch((e: unknown) => {
+      void this.store.keepShot(id, version, () => bridge.shot(20000, 1).catch((e: unknown) => {
         console.warn(`Alfred could not keep a picture of ${id}: ${e instanceof Error ? e.message : String(e)}`);
         throw e;
       }), () => this.lines().map((l) => (l.level === 'log' ? '' : l.level + ': ') + l.text));

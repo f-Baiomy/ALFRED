@@ -87,13 +87,16 @@ export class SnippetBridge {
     this.send({ t: 'event', name, value });
   }
 
-  /** A PNG of what the frame shows (drawn inside the frame, since nothing outside may read it). */
-  shot(timeoutMs = 15000): Promise<string> {
+  /**
+   * A PNG of what the frame shows (drawn inside the frame, since nothing outside may read it). `scale` 1 for the picture
+   * Alfred keeps (a quarter of the pixels of a 2x screen to draw and encode); a download leaves it to the screen.
+   */
+  shot(timeoutMs = 15000, scale?: number): Promise<string> {
     const id = ++this.shotSeq;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => { this.shots.delete(id); reject(new Error('The snippet did not answer')); }, timeoutMs);
       this.shots.set(id, (r) => { clearTimeout(timer); this.shots.delete(id); if (r.png) resolve(r.png); else reject(new Error(r.error ?? 'No picture')); });
-      this.send({ t: 'shot', id });
+      this.send(scale ? { t: 'shot', id, scale } : { t: 'shot', id });
     });
   }
 

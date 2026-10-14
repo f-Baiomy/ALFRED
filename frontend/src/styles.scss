@@ -186,21 +186,17 @@ header {
     height: 9px;
     border-radius: 50%;
     background: var(--purple);
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--purple) 70%, transparent);
-    animation: pulse 2s infinite;
+    position: relative;
+    &::after { content: ''; position: absolute; inset: 0; border-radius: 50%; background: color-mix(in srgb, var(--purple) 70%, transparent);
+      animation: pulse 2s infinite; will-change: transform, opacity; }
   }
 }
 
+// Only transform and opacity: the compositor runs it, the page is not restyled or repainted each frame.
 @keyframes pulse {
-  0% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--purple) 55%, transparent);
-  }
-  70% {
-    box-shadow: 0 0 0 8px color-mix(in srgb, var(--purple) 0%, transparent);
-  }
-  100% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--purple) 0%, transparent);
-  }
+  0% { transform: scale(1); opacity: 1; }
+  70% { transform: scale(3.2); opacity: 0; }
+  100% { transform: scale(3.2); opacity: 0; }
 }
 
 // The page's own title (Live calls, or a cycle's name) - plain and small, since Alfred's logo and wordmark live in
@@ -262,7 +258,9 @@ header h1 {
     height: 7px;
     border-radius: 50%;
     background: var(--purple);
-    animation: pulse 2s infinite;
+    position: relative;
+    &::after { content: ''; position: absolute; inset: 0; border-radius: 50%; background: color-mix(in srgb, var(--purple) 55%, transparent);
+      animation: pulse 2s infinite; will-change: transform, opacity; }
   }
 
   b {
@@ -10912,14 +10910,14 @@ app-team-chips { display: inline-flex; flex-wrap: wrap; gap: 0.25rem; }
   button { padding: 0.12rem 0.55rem; font-size: 0.7rem; }
 }
 .board-drawer.board-drawer-full { left: 0; width: auto; border-left: 0; box-shadow: none;
-  .board-drawer-head, .board-drawer-composer { padding-left: max(1.1rem, calc((100vw - 1400px) / 2)); padding-right: max(1.1rem, calc((100vw - 1400px) / 2)); }
+  .board-drawer-head, .board-drawer-composer { padding-left: max(1.1rem, calc((100vw - 1800px) / 2)); padding-right: max(1.1rem, calc((100vw - 1800px) / 2)); }
   .board-drawer-title { font-size: 1.25rem; }
   .board-drawer-body { display: grid; grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr); grid-template-rows: auto auto 1fr;
-    grid-template-areas: "main aside" "activity aside" "danger aside"; column-gap: 1.5rem; align-content: start;
-    padding-left: max(1.1rem, calc((100vw - 1400px) / 2)); padding-right: max(1.1rem, calc((100vw - 1400px) / 2)); }
+    grid-template-areas: "main aside" "activity activity" "danger danger"; column-gap: 1.5rem; align-content: start;
+    padding-left: max(1.1rem, calc((100vw - 1800px) / 2)); padding-right: max(1.1rem, calc((100vw - 1800px) / 2)); }
   .board-drawer-main { grid-area: main; }
   .board-drawer-aside { grid-area: aside; border-left: 1px solid var(--border); padding-left: 1.2rem; }
-  .board-drawer-activity { grid-area: activity; }
+  .board-drawer-activity { grid-area: activity; border-top: 1px solid var(--border); margin-top: 0.6rem; padding-top: 0.4rem; }
   .board-drawer-danger { grid-area: danger; }
   .board-md { font-size: 0.88rem; }
 }
@@ -10934,6 +10932,12 @@ app-team-chips { display: inline-flex; flex-wrap: wrap; gap: 0.25rem; }
   backdrop-filter: blur(24px) saturate(110%); -webkit-backdrop-filter: blur(24px) saturate(110%);
 }
 .board-drawer-body { overscroll-behavior: contain; }
+// A snippet in full screen is position: fixed - but any ancestor with a backdrop-filter, a mask (a folded comment's
+// fade), a filter, a transform or containment becomes its box and its clip, so it showed squeezed into the comment
+// under the card's header. While one is open every ancestor drops those, and the drawer is plain and solid.
+*:has(> * .snip.full, > .snip.full) { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; mask-image: none !important;
+  -webkit-mask-image: none !important; filter: none !important; transform: none !important; contain: none !important; }
+.board-drawer:has(.snip.full) { background-color: var(--popover-solid); }
 html:has(.board-drawer-full:not(.board-drawer-window)), body:has(.board-drawer-full:not(.board-drawer-window)) { overflow: hidden; }
 // A card window has no nav: the card is the whole window.
 body.card-window .tab-nav { display: none; }
@@ -11261,14 +11265,22 @@ app-run-skill { display: inline-flex; flex-direction: column; align-items: flex-
 // HTML snippets (specs/017 R13-R15): the locked frame with its bar, console and full-screen mode.
 .snip { border: 1px solid var(--border); border-radius: 8px; background: var(--card-inner); margin: 0 0 0.5rem; overflow: hidden; max-width: 100%;
   &.full { position: fixed; inset: 12px; z-index: 1200; margin: 0; display: flex; flex-direction: column; box-shadow: 0 10px 60px rgba(0, 0, 0, 0.6);
+    background: var(--popover-solid);
     .snip-box { flex: 1; height: auto; } .snip-console { max-height: 22vh; } }
 }
-.snip-bar { display: flex; align-items: center; gap: 0.5rem; padding: 0.1rem 0.6rem; font-size: 0.66rem; color: var(--text-faint); flex-wrap: wrap;
-  background: color-mix(in srgb, var(--purple) 8%, transparent); border-bottom: 1px solid var(--border);
-  .board-link { font-size: 0.66rem; &.on { color: var(--purple-light); } &:disabled { opacity: 0.4; cursor: default; } }
+.snip { border-color: color-mix(in srgb, var(--purple) 35%, var(--border)); }
+.snip-bar { display: flex; align-items: center; gap: 0.35rem; padding: 0.3rem 0.5rem; min-height: 32px; box-sizing: border-box; font-size: 0.74rem;
+  color: var(--text-dim); flex-wrap: wrap; background: color-mix(in srgb, var(--purple) 18%, var(--popover-solid));
+  border-bottom: 1px solid color-mix(in srgb, var(--purple) 35%, var(--border));
+  .board-link, .snip-tools button { font-size: 0.72rem; margin: 0; padding: 0.12rem 0.45rem; border: 1px solid var(--border-strong); border-radius: 6px;
+    background: var(--popover-solid); color: var(--text); text-decoration: none; cursor: pointer; line-height: 1.4;
+    &:hover:not(:disabled) { border-color: var(--purple); color: var(--purple-light); }
+    &.on { border-color: var(--purple); color: var(--purple-light); background: color-mix(in srgb, var(--purple) 30%, var(--popover-solid)); }
+    &:disabled { opacity: 0.4; cursor: default; } }
 }
-.snip-name { color: var(--text-dim); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40%; }
-.snip-lock { color: var(--text-faint); }
+.snip-tools { display: inline-flex; gap: 0.35rem; padding-inline-start: 0.35rem; margin-inline-start: 0.1rem; border-inline-start: 1px solid var(--border-strong); }
+.snip-name { color: var(--purple-light); font-weight: 700; font-size: 0.78rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 45%; }
+.snip-lock { color: var(--text-faint); font-size: 0.68rem; }
 .snip-grow { flex: 1; }
 .snip-err { background: none; border: 1px solid color-mix(in srgb, var(--red) 50%, transparent); color: var(--red); border-radius: 4px;
   font-size: 0.64rem; padding: 0 0.35rem; cursor: pointer; }
@@ -11826,9 +11838,10 @@ app-task-view .board-copy { max-width: 100%; overflow: hidden; text-overflow: el
 
 // ---- 📌 pinned blocks: the dashboard at the top of a card or brief (specs/017 R33)
 .board-vis-pinnable { position: relative; }
+.board-vis-pinnable:has(> .board-vis-pin) .board-vis-bar { padding-inline-end: 4.6rem; }
 .board-vis-pin {
-  position: absolute; top: 4px; inset-inline-end: 4px; z-index: 2; opacity: 0; display: inline-flex; gap: 2px; transition: opacity 0.15s;
-  button { border: 1px solid var(--border); border-radius: 6px; background: var(--card); color: var(--text); padding: 0 0.3rem; cursor: pointer; font-size: 0.75rem; }
+  position: absolute; top: 3px; inset-inline-end: 4px; z-index: 2; opacity: 0.55; display: inline-flex; gap: 3px; transition: opacity 0.15s;
+  button { border: 1px solid var(--border-strong); border-radius: 6px; background: var(--popover-solid); color: var(--text); padding: 0 0.3rem; cursor: pointer; font-size: 0.75rem; }
   button:hover { border-color: var(--purple); }
 }
 .board-vis-pinnable:hover > .board-vis-pin, .board-vis-pin:focus-within { opacity: 1; }
