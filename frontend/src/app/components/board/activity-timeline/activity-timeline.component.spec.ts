@@ -42,6 +42,22 @@ describe('ActivityTimelineComponent', () => {
     return [...fixture.nativeElement.querySelectorAll('.board-ev-acts button')];
   }
 
+  it('gives a comment\'s snippets the same context object on every check (a new one each time froze the page)', () => {
+    const fixture = create([e(1, 'CLAUDE', '**Reply** chart:\n\n```html live\n<b>hi</b>\n```')]);
+    const card = { id: 'k', number: 39, project: 'p', cycleId: 'c', title: 't' };
+    fixture.componentRef.setInput('card', card);
+    fixture.detectChanges();
+    const t = fixture.componentInstance;
+    const first = t.snippetContext(1);
+    expect(t.snippetContext(1)).toBe(first);
+    expect(first).toEqual({ card: 39, cardId: 'k', project: 'p', cycleId: 'c', comment: 1 });
+    expect(() => fixture.detectChanges()).not.toThrow();
+    fixture.detectChanges();
+    expect(t.snippetContext(1)).toBe(first);
+    fixture.componentRef.setInput('card', { ...card, number: 40 });
+    expect(t.snippetContext(1)['card']).toBe(40);
+  });
+
   it('shows replies under their comment, and an open question with Answer', () => {
     const fixture = create([e(1, 'USER', 'why?'), e(2, 'CLAUDE', '**Reply** because', 1), e(3, 'CLAUDE', '**Question** which?')]);
     expect(fixture.nativeElement.querySelectorAll('.board-ev-reply').length).toBe(1);

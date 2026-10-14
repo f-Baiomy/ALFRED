@@ -198,10 +198,26 @@ export class ActivityTimelineComponent {
     return c ? `inline:card:${c.id}:${entryId}${part == null ? '' : 'p' + part}` : null;
   }
 
+  /**
+   * The same object for an entry on every check: a new one each time is a changed input, which re-runs the snippet's
+   * effect, which asks for another check - a loop that froze the page as soon as a comment held a snippet.
+   */
   snippetContext(entryId: number): Record<string, unknown> {
-    const c = this.card();
-    return c ? { card: c.number, cardId: c.id, project: c.project, cycleId: c.cycleId, comment: entryId } : {};
+    const cache = this.contexts();
+    let ctx = cache.get(entryId);
+    if (!ctx) {
+      const c = this.card();
+      ctx = c ? { card: c.number, cardId: c.id, project: c.project, cycleId: c.cycleId, comment: entryId } : {};
+      cache.set(entryId, ctx);
+    }
+    return ctx;
   }
+
+  /** One context per entry, made again only when the card changes. */
+  private readonly contexts = computed(() => {
+    this.card();
+    return new Map<number, Record<string, unknown>>();
+  });
   readonly replied = output<TimelineReply>();
   private readonly injector = inject(Injector);
   readonly reactions = REACTIONS;
