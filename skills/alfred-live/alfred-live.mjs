@@ -145,7 +145,7 @@ export const RULES = `You are Alfred live: you answer the user on the Alfred tas
 - The card's recent thread is below, with [indexes]: read it; board_get only for entries older than the ones shown, and nothing else you do not need.
 - Answer in the card's thread with board_reply (replyTo = the [index] of the user's comment, or of your question they answered). 1-3 short sentences, plain words, in the user's language. Say what you did, never what you are about to think.
 - An answer to your question: reply with what it changes ("Got it - ..."), then do it within the board's limits (board_edit your own Inbox card's kind/description, board_add a BUG with the calls, board_flag, board_assign). A question back only when it is still unclear (board_ask, once).
-- A question to you: look it up first (at most three Alfred or code lookups), then answer with the evidence as mentions (@[call:in:<id>|label]).
+- A question to you: look it up first (at most three Alfred or code lookups, independent ones in the same turn - each turn costs seconds), then answer with the evidence as mentions (@[call:in:<id>|label]).
 - A move to Fixed with no re-test plan: board_retest_plan. A dismissed proposal: one board_comment (did/found/next) with what you will do instead. An edit: answer only if it changes your work.
 - Never move cards to To do for the user, never close, mark the checklist or set scope - propose (board_propose, board_suggest_mark).
 - The app's repo is your working folder: read the code there when the answer needs it. Change no file.
@@ -188,13 +188,21 @@ export function alfredUrlOf(entry) {
 export class Alfred {
   constructor(url) {
     this.url = url;
+    this.stopper = new AbortController();
+  }
+
+  /** Ends every call in flight at once (a stop: the long poll for changes, a wait for calls); calls made after it work. */
+  abort() {
+    const s = this.stopper;
+    this.stopper = new AbortController();
+    s.abort(new Error('stopped'));
   }
 
   async call(method, path, { query, body, timeoutMs = 20_000 } = {}) {
     const u = new URL(this.url + path);
     for (const [k, v] of Object.entries(query ?? {})) if (v !== undefined && v !== null) u.searchParams.set(k, String(v));
     const res = await fetch(u, {
-      method, signal: AbortSignal.timeout(timeoutMs),
+      method, signal: AbortSignal.any([AbortSignal.timeout(timeoutMs), this.stopper.signal]),
       headers: { Accept: 'application/json', 'X-Alfred-Actor': 'claude', ...(body ? { 'Content-Type': 'application/json' } : {}) },
       ...(body ? { body: JSON.stringify(body) } : {}),
     });
@@ -235,6 +243,7 @@ export class McpClient {
     this.name = name;
     this.nextId = 1;
     this.pending = new Map();
+    this.stopper = new AbortController();
     this.proc = null;
     this.session = null;
     this.ready = null;
@@ -340,9 +349,18 @@ export class McpClient {
     else this.proc.stdin.write(JSON.stringify(msg) + '\n');
   }
 
+  /** Ends every request in flight at once (a stop: a check_calls still waiting for calls); requests made after it work. */
+  abort() {
+    const s = this.stopper;
+    this.stopper = new AbortController();
+    s.abort(new Error('stopped'));
+    for (const [, p] of this.pending) p.reject(new Error('stopped'));
+    this.pending.clear();
+  }
+
   async post(msg, timeoutMs, wantReply, retried = false) {
     const res = await fetch(this.entry.url, {
-      method: 'POST', signal: AbortSignal.timeout(timeoutMs),
+      method: 'POST', signal: AbortSignal.any([AbortSignal.timeout(timeoutMs), this.stopper.signal]),
       headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', ...(this.entry.headers ?? {}),
         ...(this.session ? { 'mcp-session-id': this.session } : {}) },
       body: JSON.stringify(msg),
@@ -804,10 +822,12 @@ export class Runner {
     return r.host !== me ? r : null;
   }
 
-  stop() {
+  /** Stop at once: the runs are killed and (unless told not to - the listen runner's graceful stop) the wait for changes is cut short. */
+  stop(abort = true) {
     this.stopped = true;
     for (const h of this.handles) h.kill();
     this.waiting = [];
+    if (abort) this.o.alfred.abort?.();
   }
 
   /** Resolves once every answer in flight has ended (the tests, and the listen runner's stop). */

@@ -68,6 +68,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.EnumSet;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -152,7 +153,7 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
         String signature = signatureOf(all);
         if (actor == Actor.CLAUDE && signature != null) {
             SimilarClosed same = store.closedBySignature(project, List.of(signature)).get(signature);
-            if (same != null && DISMISSED.contains(same.resolution()) && repeatsDismissed(project, same, all, in.title())) {
+            if (same != null && DISMISSED.contains(same.resolution()) && repeatsDismissed(project, same, all, in.title(), signature)) {
                 return CardChange.refused(CardChange.Outcome.DUPLICATE_OF_CLOSED, "Same as #" + same.number() + " \"" + same.title()
                         + "\", closed as " + resolutionName(same.resolution())
                         + (same.reason() == null || same.reason().isBlank() ? "" : ": " + same.reason()));
@@ -1119,10 +1120,15 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
     /**
      * Whether a new card is the very thing the user dismissed as {@code closed} (same signature already established): it
      * names one of the closed card's calls, or its title shares at least {@link #DISMISSED_SHARED_WORDS} words with the closed
-     * card's. The same endpoint failing the same way for another reason is a new finding, shown with the closed card as a hint.
+     * card's beyond the endpoint's own words. Two cards on one endpoint share its name whatever they found ("flight search
+     * slow", "flight search answers 500"), so the words of the signature's endpoint never count: with them, one dismissed
+     * card closed that endpoint to every later finding. The same endpoint failing the same way for another reason is a
+     * new finding, shown with the closed card as a hint.
      */
-    private boolean repeatsDismissed(String project, SimilarClosed closed, List<MentionRef> mentions, String title) {
-        if (BoardInsightsService.sharedWords(BoardInsightsService.words(title), closed.title()).size() >= DISMISSED_SHARED_WORDS) {
+    private boolean repeatsDismissed(String project, SimilarClosed closed, List<MentionRef> mentions, String title, String signature) {
+        Set<String> endpointWords = new HashSet<>(BoardInsightsService.words(signature.replace('|', ' ')));
+        List<String> own = BoardInsightsService.words(title).stream().filter(w -> !endpointWords.contains(w)).toList();
+        if (BoardInsightsService.sharedWords(own, closed.title()).size() >= DISMISSED_SHARED_WORDS) {
             return true;
         }
         Set<String> callIds = mentions.stream().map(MentionRef::callId).filter(Objects::nonNull).collect(Collectors.toSet());

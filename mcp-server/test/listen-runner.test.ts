@@ -193,6 +193,36 @@ test('the first batch is queued and judged by one run with the context pack; a c
   } finally { await w.close(); }
 });
 
+test('batches renumbered into one waiting run keep their group ids apart', () => {
+  const into = { kind: 'batch', batch: 1, text: 'G1 · 1 call · GET /a\n  x\n{"j":1}', groups: [{ id: 'G1' }], what: 'batch 1' };
+  listen.mergeJob(into, { batch: 2, text: 'G1 · 1 call · GET /b\n  y\nG2 · 1 call · GET /c\n  z', groups: [{ id: 'G1' }, { id: 'G2' }], what: 'batch 2' });
+  assert.deepEqual(into.groups.map((g: any) => g.id), ['G1', 'G2', 'G3']);
+  assert.deepEqual((into as any).batches, [1, 2]);
+  assert.match(into.text, /=== batch 2 \(its groups numbered from G2\) ===\nG2 · 1 call · GET \/b\n  y\nG3 · 1 call · GET \/c/);
+  assert.equal(into.what, 'batch 1 + batch 2');
+});
+
+test('a flagged batch arriving while another waits joins its run; the run starts with each group\'s investigation', async () => {
+  const w = await listenWorld();
+  try {
+    await w.runner.loadPack();
+    await w.runner.once();
+    addToCycle(w.fake, call('in-err-2', 40, '/api/pay', 503, { error: 'down' }));
+    await w.runner.once();
+    assert.equal(w.runner.s.queue.length, 1, 'one run for both batches');
+    assert.deepEqual(w.runner.s.queue[0].batches, [1, 2]);
+    assert.ok(w.lines.some((l) => /\+ batch 2 joins the run of batch 1, 2 \(2 groups\)/.test(l)), w.lines.join('\n'));
+    await w.runner.judgeQueued();
+    const { prompt } = w.prompt();
+    assert.match(prompt, /=== batch 2 \(its groups numbered from G2\) ===/);
+    assert.match(prompt, /EVIDENCE - investigate_call already ran on each group's example call/);
+    assert.match(prompt, /G1 evidence - .*call in-err-1:/);
+    assert.match(prompt, /G2 evidence - .*call in-err-2:/);
+    assert.ok(w.lines.some((l) => /✦ judging batches 1, 2…/.test(l)), w.lines.join('\n'));
+    assert.deepEqual(Object.values(w.runner.s.ledger).map((l: any) => [l.kind, l.card]).sort(), [['card', 14], ['link', 9]]);
+  } finally { await w.close(); }
+});
+
 test('a group the ledger knows with its card still open is linked in code - no run', async () => {
   const w = await listenWorld();
   try {

@@ -211,13 +211,28 @@ class BoardServiceCardsTest {
 
     @Test
     void claudeIsRefusedACardWhoseTitleSharesTwoWordsWithTheDismissedOne() {
-        dismissedHealthCard("401 on health endpoint");
+        dismissedHealthCard("401 on health endpoint without session");
 
-        // another call (c2), but "health" and "endpoint" are the dismissed card's own words
-        CardChange again = f.create(Actor.CLAUDE, "p", "Health endpoint answers 401 again", List.of(new MentionRef(MentionType.CALL, "in:c2", "GET /health · 401")));
+        // another call (c2), but "endpoint" and "session" are the dismissed card's own words
+        CardChange again = f.create(Actor.CLAUDE, "p", "Health endpoint answers 401 without session", List.of(new MentionRef(MentionType.CALL, "in:c2", "GET /health · 401")));
 
         assertThat(again.outcome()).isEqualTo(CardChange.Outcome.DUPLICATE_OF_CLOSED);
         assertThat(again.message()).contains("#1").contains("401 on health endpoint");
+    }
+
+    @Test
+    void wordsThatOnlyNameTheEndpointDoNotMakeACardTheDismissedOne() {
+        f.signatures.put("c1", "ok|POST /flight/search");
+        f.signatures.put("c2", "ok|POST /flight/search");
+        String dismissed = f.create(Actor.USER, "p", "Flight search slow", List.of(new MentionRef(MentionType.CALL, "in:c1", "x"))).card().card().id();
+        f.board.close(Actor.USER, dismissed, Resolution.FINE, "supplier time");
+
+        // "flight" and "search" are the endpoint's words: every finding on it shares them - this one is new
+        CardChange other = f.create(Actor.CLAUDE, "p", "Flight search answers empty result for a valid route", List.of(new MentionRef(MentionType.CALL, "in:c2", "x")));
+
+        assertThat(other.outcome()).isEqualTo(CardChange.Outcome.OK);
+        assertThat(other.card().similarClosed()).isNotNull();
+        assertThat(other.card().similarClosed().number()).isEqualTo(1);
     }
 
     @Test

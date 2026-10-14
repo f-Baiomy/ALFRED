@@ -284,7 +284,11 @@ conversation that grows - and without losing a batch:
   the brief or the merge base with main), the cards of the cycle as the board holds them now, the titles other runs
   are adding at that moment, what earlier runs learned (code notes per endpoint, verdicts for groups seen before,
   unsure expectations, check lines, the user's answers) - plus, per group, what the board already holds about its
-  calls (`/board/call-badges`), and the batch. A batch with more than 10 groups is several jobs of at most 8. The run
+  calls (`/board/call-badges`), `investigate_call` on each group's example call (run in code, in parallel, so the
+  run starts with the evidence it would read first), and the batch. A flagged batch arriving while another batch job
+  still waits its turn joins that job (its groups renumbered, at most 10 groups a run): a job waits 2 s to gather,
+  10 s while another batch is being judged, so a burst of small batches is one run, not one each. A batch with more
+  than 10 groups is several jobs of at most 8. The run
   ends with `→`, `•` findings and the blocks the runner merges: `LEDGER` (`G3 = card #14` / `link #9` / `asked #17` /
   `fine: <reason> [| recurs]`, keyed by check_calls' group `key`), `UNSURE`, `CODE`, `CHECK`, `STATE` (≤ 1500 chars).
   The ledger is checked against the batch's groups and the board (a named card must exist): a group left without an

@@ -18,8 +18,9 @@ does the listening (docs/mcp.md "Listen runner"):
 - A batch with new flagged groups becomes a judge job: **one fresh Claude run on a warm process** (`batch.md`) that
   judges the batch exactly as `/alfred-review` would - cards with evidence, links, step marks, the ledger, `Learn:`
   questions - given a context pack the runner keeps (the task, Acceptance items with full keys, teams, closed cards,
-  the cards already on the board, the task branch's diff, what earlier runs learned). Up to `--parallel` runs (3) at
-  once; a run that fails stays queued and is tried again; a group a run leaves without an outcome gets a second look.
+  the cards already on the board, the task branch's diff, what earlier runs learned) and each group's
+  `investigate_call`, fetched before the run. Small batches arriving while one waits its turn join it (one run). Up
+  to `--parallel` runs (3) at once; a run that fails stays queued and is tried again; a group a run leaves without an outcome gets a second look.
   **A cycle listened to and then reviewed gives no new cards.**
 - The user's comments on cards are answered within seconds by the runner's live lane (the same answers `/alfred-live`
   gives), unless a real `/alfred-live` runs - then it leaves them to it. Answers to `Learn:` questions reach the next

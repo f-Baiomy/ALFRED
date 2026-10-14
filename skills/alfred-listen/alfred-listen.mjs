@@ -171,6 +171,30 @@ export function cutGroups(text, keep) {
   return out.join('\n');
 }
 
+/** A batch's groups renumbered from G<from+1>, in its text too, so it can join another batch's run without a clash. */
+export function renumberGroups(text, groups, from) {
+  const map = new Map(groups.map((g, i) => [g.id, `G${from + i + 1}`]));
+  return {
+    text: String(text).replace(/\bG\d+\b/g, (m) => map.get(m) ?? m),
+    groups: groups.map((g) => ({ ...g, id: map.get(g.id) })),
+  };
+}
+
+/** Folds a flagged batch into a batch job still waiting its turn: one run judges both. */
+export function mergeJob(into, job) {
+  const max = Math.max(0, ...(into.groups ?? []).map((g) => Number(String(g.id).slice(1)) || 0));
+  const { text: renumbered, groups } = renumberGroups(job.text, job.groups ?? [], max);
+  // the joining batch's summary line (JSON, column 0) still names its known groups by their old ids - dropped
+  const text = renumbered.split('\n').filter((l) => !/^\{.*\}\s*$/.test(l)).join('\n');
+  into.text = `${into.text}\n\n=== batch ${job.batch} (its groups numbered from G${max + 1}) ===\n${text}`;
+  into.groups = [...(into.groups ?? []), ...groups];
+  into.hung = [...(into.hung ?? []), ...(job.hung ?? [])];
+  into.batches = [...(into.batches ?? [into.batch]), job.batch];
+  into.what = `${into.what} + ${job.what}`;
+  into.live = !!(into.live || job.live);
+  return into;
+}
+
 /** The base of the task branch for `git diff`: the brief's "base:" line, else the merge base with the usual main branch. */
 export function diffStat(cwd, brief = '') {
   const git = (args) => execFileSync('git', args, { cwd, encoding: 'utf8', timeout: 20_000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
@@ -267,6 +291,9 @@ export class ListenRunner {
       this.now = true;
       for (const h of this.handles) h.kill();
       this.live?.stop();
+      // the check lane may be inside a check_calls that waits up to a minute for calls: cut it, the loop ends at once
+      this.o.mcp.abort?.();
+      this.o.alfred.abort?.();
     }
   }
 
@@ -407,7 +434,7 @@ export class ListenRunner {
         await new Promise((r) => setTimeout(r, 5000));
       }
     }
-    if (this.live) { this.live.stop(); await this.live.idle(); }
+    if (this.live) { this.live.stop(this.now); await this.live.idle(); }
     if (!this.now) await this.finish();
     else {
       this.draining = false;
@@ -544,9 +571,25 @@ export class ListenRunner {
         this.enqueue({ ...job, text: cutGroups(text, part.map((g) => g.id)), groups: part.map(({ block, ...g }) => g), part: `${i / 8 + 1}/${Math.ceil(unknown.length / 8)}` });
       }
     } else {
-      this.enqueue(job);
+      this.enqueueBatch(job);
     }
     this.save();
+  }
+
+  /**
+   * A flagged batch: folded into a batch job still waiting its turn (one run for several small batches), else queued
+   * after a short gather - longer while another batch is being judged, so the batches arriving meanwhile join it.
+   */
+  enqueueBatch(job) {
+    const open = this.s.queue.find((j) => j.kind === 'batch' && !j.part && !j.tries && !this.jobsRunning.has(j.id)
+      && (j.groups?.length ?? 0) + (job.groups?.length ?? 0) <= (this.o.mergeMax ?? 10));
+    if (open) {
+      mergeJob(open, job);
+      this.o.log(`  + batch ${job.batch} joins the run of batch ${open.batches.join(', ')} (${open.groups.length} groups)`);
+      return;
+    }
+    const busy = this.s.queue.some((j) => j.kind === 'batch' && this.jobsRunning.has(j.id));
+    this.enqueue({ ...job, nextAt: Date.now() + (busy ? (this.o.holdMs ?? 10_000) : (this.o.gatherMs ?? 2_000)) });
   }
 
   /** Groups whose key the ledger knows with an outcome that still holds - linked / counted in code - and the rest. */
@@ -635,15 +678,29 @@ export class ListenRunner {
         'THIS RUN: only board_mark_step the steps the clean batches above showed (SEEN with the call count). Judge nothing else. End with the → line and an empty LEDGER.'] });
     }
     if (job.kind === 'second-look') {
-      return this.packText({ groups: job.groups, extra: [`THE GROUPS THE LAST RUN LEFT WITHOUT AN OUTCOME (batch ${job.batch}) - give each one its outcome now:\n${job.text}`] });
+      return this.packText({ groups: job.groups, extra: [job.evidence ?? '', `THE GROUPS THE LAST RUN LEFT WITHOUT AN OUTCOME (batch ${job.batch}) - give each one its outcome now:\n${job.text}`] });
     }
     const hung = job.hung?.length ? `NEVER COMPLETED (judge each: a BUG or fine with why):\n${job.hung.map((h) => `- ${h.endpoint ?? ''} call ${h.callId} started ${h.startedAt ?? ''}, running ${Math.round((h.ageSec ?? 0) / 60)} min`).join('\n')}` : '';
     return this.packText({ groups: job.groups, extra: [
       this.s.cleanSince.length ? `CLEAN BATCHES SINCE THE LAST RUN (mark their steps too):\n${this.s.cleanSince.join('\n')}` : '',
       job.board ?? '',
+      job.evidence ?? '',
       hung,
       `THE BATCH (check_calls output${job.part ? `, part ${job.part}` : ', every page'}):\n${job.text}`,
     ] });
+  }
+
+  /** investigate_call on each group's example call, run in code so the judge starts with the evidence it reads first. */
+  async evidenceFor(groups) {
+    if (this.o.evidence === false) return '';
+    const picked = groups.filter((g) => g.exampleCallId).slice(0, this.o.evidenceGroups ?? 10);
+    if (!picked.length) return '';
+    const per = this.o.evidenceChars ?? 6000;
+    const parts = await Promise.all(picked.map((g) => this.o.mcp.call('investigate_call', { callId: g.exampleCallId, cycleId: this.o.cycleId }, 30_000)
+      .then((t) => `${g.id} evidence - ${g.endpoint ?? ''} call ${g.exampleCallId}:\n${t.length > per ? `${t.slice(0, per)}\n[cut here - investigate_call for the rest]` : t}`)
+      .catch(() => null)));
+    const ok = parts.filter(Boolean);
+    return ok.length ? `EVIDENCE - investigate_call already ran on each group's example call (do not run it again on these calls; drill further only where this is not enough):\n${ok.join('\n\n')}` : '';
   }
 
   /** What the board already holds about each group's calls - looked up in code so the run links instead of adding twice. */
@@ -665,9 +722,15 @@ export class ListenRunner {
   /** One judge job: a fresh run, its blocks merged into the state, its ledger checked against the groups, retried on failure. */
   async runJob(job) {
     const started = Date.now();
-    const head = job.kind === 'steps' ? 'marking steps' : job.kind === 'second-look' ? `second look at batch ${job.batch}` : `judging batch ${job.batch}${job.part ? ` (${job.part})` : ''}`;
+    const batches = job.batches?.length > 1 ? `es ${job.batches.join(', ')}` : ` ${job.batch}`;
+    const head = job.kind === 'steps' ? 'marking steps' : job.kind === 'second-look' ? `second look at batch ${job.batch}` : `judging batch${batches}${job.part ? ` (${job.part})` : ''}`;
     this.o.log(`  ✦ ${head}…`);
-    job.board = job.kind === 'batch' ? await this.boardFor(job.groups ?? []).catch(() => '') : '';
+    // What the run would read first - the board's cards for its calls, each group's investigation - fetched in code, in parallel.
+    const judged = job.kind === 'batch' || job.kind === 'second-look';
+    [job.board, job.evidence] = await Promise.all([
+      job.kind === 'batch' ? this.boardFor(job.groups ?? []).catch(() => '') : '',
+      judged ? this.evidenceFor(job.groups ?? []).catch(() => '') : '',
+    ]);
     const prompt = this.promptOf(job);
     const p = this.pool.acquire();
     const titles = [];
