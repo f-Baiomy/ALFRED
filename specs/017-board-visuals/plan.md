@@ -26,8 +26,9 @@ Decisions already taken with the user:
 - **R3** ```` ```chart ```` - JSON `{type: bar|hbar|line|pie|area, labels, series:[{name, values, color}], line:{at,label}, unit}` →
   own SVG renderer (no library), hover values, ⬇ PNG; a bad spec shows the error and the source.
 - **R4** ```` ```timeline ```` - lines `label | start | length | colour` → waterfall bars with a scale.
-- **R5** ```` ```mermaid ```` - flow/sequence/state diagrams; Mermaid loaded lazily from `/lib/` only when a text has one,
-  `securityLevel: strict`, rendered SVG inserted through the sanitizer (no scripts, no foreign objects).
+- **R5** ```` ```mermaid ```` - flow/sequence/state diagrams; Mermaid loaded from `/lib/` only when a text has one,
+  `securityLevel: strict`, drawn inside the same locked frame as a snippet (built in phase 2): the SVG never enters
+  Alfred's page, so it needs no sanitizer. A frame in a hidden tab waits until it is seen before drawing (text is measured).
 - **R6** `[progress: a/b label]` → progress bar.
 - **R7** `:::tabs` with `## Tab name` sections → tabs (G), in Markdown and in the editor's HTML (`div[data-tabs]`).
 - **R8** All fixed blocks: direction per block, Scroll/Wrap respected, readable in .md export (source kept), drawn in .html export.
@@ -108,6 +109,18 @@ Decisions already taken with the user:
 - **R44** docs/board.md "Visuals and snippets", docs/mcp.md, docs/architecture.md (new tables), CLAUDE.md line.
 - **R45** Security tests: frame attributes, CSP string, bridge source check, allowlist, consent for every action kind,
   size limits, cleaner keeps snippet text inert (stored as code text, never as HTML).
+
+### Notes from building (phase 2)
+
+- Some embedded browsers refuse every request a sandboxed (opaque-origin) frame makes. `SnippetShelfService` probes
+  once per page load; where /lib/ cannot be reached from the frame, the host reads the files itself (same origin) and
+  the frame gets their code as data in its boot JSON: scripts are written in as blob URLs (`document.write`, so they run
+  before the snippet), modules become blob URLs in an import map. Library code is never parsed as HTML. The ⬇ .html
+  download always carries its libraries this way, so it opens offline.
+- html2canvas cannot work inside the sandbox (it clones the page into a child frame it may not read), so it is off the
+  shelf; the frame draws its own PNG (computed styles inlined into an SVG `foreignObject`, canvases copied as images).
+- `/lib/` is served with `Access-Control-Allow-Origin: *` (module scripts from an opaque origin are CORS fetches) and
+  `.mjs` as JavaScript - frontend/nginx.conf for Docker, `SpaPageFilter.libResponse` natively (`SpaPageFilterTest`).
 
 ## 2. Design
 

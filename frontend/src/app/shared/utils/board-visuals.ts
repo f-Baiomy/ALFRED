@@ -220,4 +220,9 @@ export const VISUAL_TEMPLATES: Record<string, string> = {
   timeline: 'POST /fare-confirm | 0 | 2400 | purple\nrule hash + GZIP | 40 | 740 | red\nRedis lists | 800 | 290 | amber\nSQL (4 statements) | 1100 | 108 | green',
   progress: '[progress: 3/9 searches re-tested]',
   tabs: ':::tabs\n## Before\n…\n## After\n…\n:::',
+  html: '<div id="app"></div>\n<style>\n  .row { margin: 6px 0 }\n  .bar { height: 14px; border-radius: 4px; width: 0; transition: width .9s ease }\n</style>\n<script>\n'
+    + '  const rows = [["Before", 2380, "var(--red)"], ["After", 610, "var(--green)"]];\n'
+    + '  app.innerHTML = rows.map(([k, v, c]) => `<div class="row">${k} · ${v} ms<div class="bar" style="background:${c}" data-w="${v / 24}%"></div></div>`).join("");\n'
+    + '  requestAnimationFrame(() => requestAnimationFrame(() => document.querySelectorAll(".bar").forEach((b) => (b.style.width = b.dataset.w))));\n</script>',
+  mermaid: 'flowchart LR\n  A[Browser] --> B[Gateway]\n  B --> C[Backend]\n  C --> D[(board.db)]',
 };

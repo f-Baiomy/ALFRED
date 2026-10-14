@@ -1,6 +1,8 @@
 package com.fathy.alfred.backend.web;
 
+import jakarta.servlet.http.HttpServletResponse;
 import org.junit.jupiter.api.Test;
+import org.springframework.mock.web.MockHttpServletResponse;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -54,6 +56,23 @@ class SpaPageFilterTest {
         assertThat(SpaPageFilter.forwardsToIndex("POST", "/settings", HTML)).isFalse();
         assertThat(SpaPageFilter.forwardsToIndex("GET", "/server/settings", JSON)).isFalse();
         assertThat(SpaPageFilter.forwardsToIndex("POST", "/mcp", JSON)).isFalse();
+    }
+
+    @Test
+    void theLibraryShelfAllowsAnyOriginAndServesModulesAsJavaScriptLikeTheFrontendsNginx() throws IOException {
+        String frontendNginx = Files.readString(Path.of("..", "..", "frontend", "nginx.conf"));
+        assertThat(frontendNginx).contains("location ^~ " + SpaPageFilter.LIB).contains("Access-Control-Allow-Origin \"*\"")
+                .contains("text/javascript js mjs;");
+
+        MockHttpServletResponse plain = new MockHttpServletResponse();
+        SpaPageFilter.libResponse("/lib/d3/7/d3.min.js", plain);
+        assertThat(plain.getHeader("Access-Control-Allow-Origin")).isEqualTo("*");
+
+        MockHttpServletResponse module = new MockHttpServletResponse();
+        HttpServletResponse wrapped = SpaPageFilter.libResponse("/lib/tailwind/4/index.mjs", module);
+        wrapped.setContentType("application/octet-stream");
+        assertThat(module.getContentType()).isEqualTo("text/javascript");
+        assertThat(SpaPageFilter.forwardsToIndex("GET", "/lib/nothing/1/x.js", JSON)).isTrue();
     }
 
     @Test

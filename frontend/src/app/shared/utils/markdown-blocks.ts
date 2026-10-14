@@ -94,7 +94,11 @@ const CALLOUT_OF: Record<string, CalloutTone> = {
   error: 'bug', fixed: 'ok', ok: 'ok', success: 'ok', next: 'next',
 };
 
+/** A whole text that is one HTML page (specs/017 R9): its first line is this marker. */
+export const PAGE_MARKER = /^\s*<!--\s*alfred:page\s*-->[ \t]*(?:\r?\n|$)/i;
+
 export function markdownBlocks(text: string | null | undefined): Block[] {
+  if (text && PAGE_MARKER.test(text)) return [{ kind: 'visual', lang: 'html', info: 'live page', text: text.replace(PAGE_MARKER, '') }];
   const lines = (text ?? '').split(/\r?\n/);
   const blocks: Block[] = [];
   let i = 0;

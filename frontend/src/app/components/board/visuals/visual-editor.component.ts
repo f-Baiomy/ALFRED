@@ -1,5 +1,7 @@
-import { Component, HostListener, computed, input, output, signal, OnInit } from '@angular/core';
-import { CHART_TYPES, ChartType, VISUAL_COLORS, parseChart } from '../../../shared/utils/board-visuals';
+import { Component, HostListener, OnDestroy, OnInit, computed, input, output, signal } from '@angular/core';
+import { CHART_TYPES, ChartType, VISUAL_COLORS, infoAttrs, parseChart } from '../../../shared/utils/board-visuals';
+import { SNIPPET_LIBS } from '../../../shared/utils/snippet-libs';
+import { SnippetHostComponent } from './snippet-host.component';
 import { ChartBlockComponent } from './chart-block.component';
 import { StatsBlockComponent } from './stats-block.component';
 import { TimelineBlockComponent } from './timeline-block.component';
@@ -13,7 +15,7 @@ interface GridSeries { name: string; color: string; values: string[] }
 @Component({
   selector: 'app-visual-editor',
   standalone: true,
-  imports: [ChartBlockComponent, StatsBlockComponent, TimelineBlockComponent],
+  imports: [ChartBlockComponent, StatsBlockComponent, TimelineBlockComponent, SnippetHostComponent],
   template: `
     <div class="run-dialog-bg" (click)="closed.emit()">
       <div class="vis-ed" role="dialog" [attr.aria-label]="'Edit ' + lang()" (click)="$event.stopPropagation()">
@@ -53,7 +55,19 @@ interface GridSeries { name: string; color: string; values: string[] }
                 <tr><td><button type="button" class="board-link" (click)="addLabel()">＋ row</button></td></tr>
               </table></div>
             } @else {
-              <textarea class="vis-ed-src" spellcheck="false" [value]="text()" (input)="text.set($any($event.target).value)"></textarea>
+              @if (lang() === 'html') {
+                <div class="vis-ed-row">
+                  <label>Name <input [value]="name()" placeholder="HTML snippet" (input)="name.set($any($event.target).value)" /></label>
+                  <label>Height <input class="sm" [value]="heightAttr()" placeholder="auto" (input)="heightAttr.set($any($event.target).value)" /></label>
+                </div>
+                <div class="vis-ed-libs" title="Alfred's own libraries - snippets have no network">
+                  @for (l of libs; track l.id) {
+                    <label [title]="l.name + ' ' + l.version + ' - ' + l.about + (l.kind === 'module' ? ' (import from &quot;' + l.provides + '&quot;)' : ' (window.' + l.provides + ')')">
+                      <input type="checkbox" [checked]="chosen().has(l.id)" (change)="toggleLib(l.id)" />{{ l.id }}</label>
+                  }
+                </div>
+              }
+              <textarea class="vis-ed-src" spellcheck="false" [value]="text()" (input)="edit($any($event.target).value)"></textarea>
             }
           </div>
           <div class="vis-ed-right">
@@ -61,21 +75,25 @@ interface GridSeries { name: string; color: string; values: string[] }
               @case ('chart') { <app-chart-block [source]="text()" /> }
               @case ('stats') { <app-stats-block [source]="text()" /> }
               @case ('timeline') { <app-timeline-block [source]="text()" /> }
+              @case ('html') { <app-snippet-host [source]="preview()" [info]="info()" /> }
+              @case ('mermaid') { <app-snippet-host [source]="preview()" kind="mermaid" /> }
               @default { <pre class="board-vis-src">{{ text() }}</pre> }
             }
           </div>
         </div>
         <div class="vis-ed-foot"><span class="board-dim">The text stores the source - Claude reads and edits it the same way.</span>
           <span><button type="button" class="action-btn" (click)="closed.emit()">Cancel</button>
-            <button type="button" class="action-btn primary" (click)="saved.emit(text())">{{ saveLabel() }}</button></span></div>
+            <button type="button" class="action-btn primary" (click)="save()">{{ saveLabel() }}</button></span></div>
       </div>
     </div>`,
 })
-export class VisualEditorComponent implements OnInit {
+export class VisualEditorComponent implements OnInit, OnDestroy {
   readonly lang = input.required<string>();
   readonly source = input('');
+  /** The fence's info string (an HTML snippet's `live name="…" libs="…"`). */
+  readonly infoIn = input('', { alias: 'info' });
   readonly saveLabel = input('Insert');
-  readonly saved = output<string>();
+  readonly saved = output<{ text: string; info: string }>();
   readonly closed = output<void>();
 
   readonly chartTypes = CHART_TYPES;
@@ -88,17 +106,58 @@ export class VisualEditorComponent implements OnInit {
   readonly gridTarget = signal('');
   readonly labels = signal<string[]>([]);
   readonly series = signal<GridSeries[]>([]);
+  readonly libs = SNIPPET_LIBS.filter((l) => l.kind !== 'css' && !l.id.includes('-'));
+  readonly name = signal('');
+  readonly heightAttr = signal('');
+  readonly chosen = signal<ReadonlySet<string>>(new Set());
+  /** What the frame shows: the text, settled for a moment so a frame is not rebuilt on every key. */
+  readonly preview = signal('');
+  private timer: ReturnType<typeof setTimeout> | null = null;
+  readonly info = computed(() => {
+    if (this.lang() !== 'html') return '';
+    const parts = ['live'];
+    if (this.name().trim()) parts.push(`name="${this.name().trim().replace(/"/g, "'")}"`);
+    if (this.chosen().size) parts.push(`libs="${[...this.chosen()].join(' ')}"`);
+    if (/^\d+$/.test(this.heightAttr().trim())) parts.push(`height=${this.heightAttr().trim()}`);
+    if (/(^|\s)page(\s|$)/.test(this.infoIn())) parts.push('page');
+    return parts.join(' ');
+  });
 
-  readonly title = computed(() => ({ chart: '▤ Chart', stats: '▦ Stats', timeline: '⏱ Timeline' } as Record<string, string>)[this.lang()] ?? this.lang());
+  readonly title = computed(() => ({ chart: '▤ Chart', stats: '▦ Stats', timeline: '⏱ Timeline', html: '◈ HTML snippet', mermaid: '⬡ Diagram' } as Record<string, string>)[this.lang()] ?? this.lang());
   readonly help = computed(() => ({
     chart: 'bar · hbar · line · area · pie',
     stats: 'one per line: label | value | colour | note',
     timeline: 'one per line: label | start | length | colour (ms)',
+    html: 'HTML, CSS and JavaScript - no network; alfred.data(), alfred.state, alfred.lib()',
+    mermaid: 'Mermaid: flowchart, sequenceDiagram, stateDiagram…',
   } as Record<string, string>)[this.lang()] ?? '');
 
   ngOnInit(): void {
     this.text.set(this.source());
+    this.preview.set(this.source());
+    const a = infoAttrs(this.infoIn());
+    this.name.set(a['name'] ?? '');
+    this.heightAttr.set(a['height'] ?? '');
+    this.chosen.set(new Set((a['libs'] ?? '').split(/[\s,]+/).map((x) => x.replace(/@.*$/, '').toLowerCase()).filter(Boolean)));
     if (this.lang() === 'chart') this.toGrid();
+  }
+
+  ngOnDestroy(): void {
+    if (this.timer) clearTimeout(this.timer);
+  }
+
+  edit(v: string): void {
+    this.text.set(v);
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = setTimeout(() => this.preview.set(this.text()), 450);
+  }
+
+  toggleLib(id: string): void {
+    this.chosen.update((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  }
+
+  save(): void {
+    this.saved.emit({ text: this.text(), info: this.info() });
   }
 
   @HostListener('document:keydown.escape')

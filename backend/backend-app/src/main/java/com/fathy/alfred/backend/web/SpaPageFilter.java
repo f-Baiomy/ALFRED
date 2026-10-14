@@ -4,6 +4,7 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpServletResponseWrapper;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Component;
@@ -46,6 +47,8 @@ public class SpaPageFilter extends OncePerRequestFilter {
     private static final Pattern API = Pattern.compile("^/(" + String.join("|", API_PREFIXES) + ")(/|$)");
     private static final List<Pattern> SPA_PAGES = SPA_PAGE_PATTERNS.stream().map(Pattern::compile).toList();
     private static final String INDEX = "/index.html";
+    /** The library shelf snippets load (specs/017) - frontend/nginx.conf's location ^~ /lib/. */
+    static final String LIB = "/lib/";
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
@@ -53,6 +56,10 @@ public class SpaPageFilter extends OncePerRequestFilter {
         String path = request.getRequestURI().substring(request.getContextPath().length());
         if (forwardsToIndex(request.getMethod(), path, request.getHeader("Accept"))) {
             request.getRequestDispatcher(INDEX).forward(request, response);
+            return;
+        }
+        if (path.startsWith(LIB)) {
+            chain.doFilter(request, libResponse(path, response));
             return;
         }
         chain.doFilter(request, response);
@@ -70,6 +77,32 @@ public class SpaPageFilter extends OncePerRequestFilter {
         }
         return !staticFileExists(path);
     }
+
+    /**
+     * A snippet's frame has an opaque origin and fetches modules in CORS mode, so shelf files allow any origin; an .mjs
+     * file is JavaScript (Spring's MIME table does not know the extension and a module served as anything else is refused).
+     */
+    static HttpServletResponse libResponse(String path, HttpServletResponse response) {
+        response.setHeader("Access-Control-Allow-Origin", "*");
+        response.setHeader("Cache-Control", "public, max-age=86400");
+        if (!path.endsWith(".mjs")) {
+            return response;
+        }
+        response.setContentType(MJS);
+        return new HttpServletResponseWrapper(response) {
+            @Override
+            public void setContentType(String type) {
+                super.setContentType(MJS);
+            }
+
+            @Override
+            public void setHeader(String name, String value) {
+                super.setHeader(name, "Content-Type".equalsIgnoreCase(name) ? MJS : value);
+            }
+        };
+    }
+
+    private static final String MJS = "text/javascript";
 
     private static boolean staticFileExists(String path) {
         if (path.equals("/") || path.isEmpty()) {

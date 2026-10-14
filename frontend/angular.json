@@ -35,11 +35,105 @@
               {
                 "glob": "**/*",
                 "input": "public"
+              },
+              {
+                "glob": "chart.umd.js",
+                "input": "node_modules/chart.js/dist",
+                "output": "lib/chartjs/4"
+              },
+              {
+                "glob": "echarts.min.js",
+                "input": "node_modules/echarts/dist",
+                "output": "lib/echarts/5"
+              },
+              {
+                "glob": "d3.min.js",
+                "input": "node_modules/d3/dist",
+                "output": "lib/d3/7"
+              },
+              {
+                "glob": "plotly.min.js",
+                "input": "node_modules/plotly.js-dist-min",
+                "output": "lib/plotly/2"
+              },
+              {
+                "glob": "mermaid.min.js",
+                "input": "node_modules/mermaid/dist",
+                "output": "lib/mermaid/11"
+              },
+              {
+                "glob": "three.module.min.js",
+                "input": "node_modules/three/build",
+                "output": "lib/three/0.169"
+              },
+              {
+                "glob": "preact.module.js",
+                "input": "node_modules/preact/dist",
+                "output": "lib/preact/10"
+              },
+              {
+                "glob": "hooks.module.js",
+                "input": "node_modules/preact/hooks/dist",
+                "output": "lib/preact/10"
+              },
+              {
+                "glob": "htm.module.js",
+                "input": "node_modules/htm/dist",
+                "output": "lib/htm/3"
+              },
+              {
+                "glob": "standalone.module.js",
+                "input": "node_modules/htm/preact",
+                "output": "lib/htm/3"
+              },
+              {
+                "glob": "cdn.min.js",
+                "input": "node_modules/alpinejs/dist",
+                "output": "lib/alpine/3"
+              },
+              {
+                "glob": "index.mjs",
+                "input": "node_modules/@tailwindcss/browser/dist",
+                "output": "lib/tailwind/4"
+              },
+              {
+                "glob": "marked.min.js",
+                "input": "node_modules/marked",
+                "output": "lib/marked/14"
+              },
+              {
+                "glob": "highlight.min.js",
+                "input": "node_modules/@highlightjs/cdn-assets",
+                "output": "lib/highlight/11"
+              },
+              {
+                "glob": "github-dark.min.css",
+                "input": "node_modules/@highlightjs/cdn-assets/styles",
+                "output": "lib/highlight/11"
+              },
+              {
+                "glob": "papaparse.min.js",
+                "input": "node_modules/papaparse",
+                "output": "lib/papaparse/5"
+              },
+              {
+                "glob": "dayjs.min.js",
+                "input": "node_modules/dayjs",
+                "output": "lib/dayjs/1"
+              },
+              {
+                "glob": "lodash.min.js",
+                "input": "node_modules/lodash",
+                "output": "lib/lodash/4"
               }
             ],
             "styles": [
               "src/styles.scss",
-              { "input": "src/styles-storage.scss", "bundleName": "storage-page", "inject": false }
+              {
+                "input": "src/styles-storage.scss",
+                "bundleName": "storage-page",
+                "inject": false
+              }
             ],
             "scripts": []
           },
@@ -95,6 +189,96 @@
               {
                 "glob": "**/*",
                 "input": "public"
+              },
+              {
+                "glob": "chart.umd.js",
+                "input": "node_modules/chart.js/dist",
+                "output": "lib/chartjs/4"
+              },
+              {
+                "glob": "echarts.min.js",
+                "input": "node_modules/echarts/dist",
+                "output": "lib/echarts/5"
+              },
+              {
+                "glob": "d3.min.js",
+                "input": "node_modules/d3/dist",
+                "output": "lib/d3/7"
+              },
+              {
+                "glob": "plotly.min.js",
+                "input": "node_modules/plotly.js-dist-min",
+                "output": "lib/plotly/2"
+              },
+              {
+                "glob": "mermaid.min.js",
+                "input": "node_modules/mermaid/dist",
+                "output": "lib/mermaid/11"
+              },
+              {
+                "glob": "three.module.min.js",
+                "input": "node_modules/three/build",
+                "output": "lib/three/0.169"
+              },
+              {
+                "glob": "preact.module.js",
+                "input": "node_modules/preact/dist",
+                "output": "lib/preact/10"
+              },
+              {
+                "glob": "hooks.module.js",
+                "input": "node_modules/preact/hooks/dist",
+                "output": "lib/preact/10"
+              },
+              {
+                "glob": "htm.module.js",
+                "input": "node_modules/htm/dist",
+                "output": "lib/htm/3"
+              },
+              {
+                "glob": "standalone.module.js",
+                "input": "node_modules/htm/preact",
+                "output": "lib/htm/3"
+              },
+              {
+                "glob": "cdn.min.js",
+                "input": "node_modules/alpinejs/dist",
+                "output": "lib/alpine/3"
+              },
+              {
+                "glob": "index.mjs",
+                "input": "node_modules/@tailwindcss/browser/dist",
+                "output": "lib/tailwind/4"
+              },
+              {
+                "glob": "marked.min.js",
+                "input": "node_modules/marked",
+                "output": "lib/marked/14"
+              },
+              {
+                "glob": "highlight.min.js",
+                "input": "node_modules/@highlightjs/cdn-assets",
+                "output": "lib/highlight/11"
+              },
+              {
+                "glob": "github-dark.min.css",
+                "input": "node_modules/@highlightjs/cdn-assets/styles",
+                "output": "lib/highlight/11"
+              },
+              {
+                "glob": "papaparse.min.js",
+                "input": "node_modules/papaparse",
+                "output": "lib/papaparse/5"
+              },
+              {
+                "glob": "dayjs.min.js",
+                "input": "node_modules/dayjs",
+                "output": "lib/dayjs/1"
+              },
+              {
+                "glob": "lodash.min.js",
+                "input": "node_modules/lodash",
+                "output": "lib/lodash/4"
               }
             ],
             "styles": [

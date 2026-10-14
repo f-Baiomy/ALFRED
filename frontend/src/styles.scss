@@ -11077,7 +11077,16 @@ app-variable-pill { position: relative; display: inline; unicode-bidi: isolate; 
 
 .board-editor { position: relative;
   textarea { width: 100%; box-sizing: border-box; resize: vertical; background: var(--card-inner); color: var(--text); border: 1px solid var(--border-strong); border-radius: 8px; padding: 0.45rem 0.6rem; font: inherit; font-size: 0.82rem; }
+  // ⇆ split (specs/017 R39): the box and its preview side by side; every other row spans both.
+  &.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 0.6rem;
+    > * { grid-column: 1 / -1; }
+    > .board-editor-box, > .board-editor-src { grid-column: 1; }
+    > .board-editor-preview { grid-column: 2; }
+  }
 }
+.board-editor-preview { border: 1px dashed var(--border-strong); border-radius: 8px; padding: 0.45rem 0.6rem; min-width: 0; max-height: 70vh; overflow: auto;
+  font-size: 0.82rem; }
+@media (max-width: 800px) { .board-editor.split { grid-template-columns: minmax(0, 1fr); > .board-editor-preview { grid-column: 1; } } }
 /* specs/015: waiting on, blocked by, next-step bar, copy-command buttons, quick answer, unread dot, test steps, session log. */
 .board-wait { display: inline-block; font-size: 0.66rem; padding: 0 0.45rem; border-radius: 999px; border: 1px solid var(--border-strong); color: var(--text-dim); }
 .board-wait-USER { border-color: var(--amber); color: var(--amber); }
@@ -11249,6 +11258,30 @@ app-run-skill { display: inline-flex; flex-direction: column; align-items: flex-
   .board-link { font-size: 0.66rem; margin-inline-start: 0.5rem; }
 }
 .board-vis-err { color: var(--amber); font-size: 0.74rem; padding: 0.35rem 0.6rem 0; }
+// HTML snippets (specs/017 R13-R15): the locked frame with its bar, console and full-screen mode.
+.snip { border: 1px solid var(--border); border-radius: 8px; background: var(--card-inner); margin: 0 0 0.5rem; overflow: hidden; max-width: 100%;
+  &.full { position: fixed; inset: 12px; z-index: 1200; margin: 0; display: flex; flex-direction: column; box-shadow: 0 10px 60px rgba(0, 0, 0, 0.6);
+    .snip-box { flex: 1; height: auto; } .snip-console { max-height: 22vh; } }
+}
+.snip-bar { display: flex; align-items: center; gap: 0.5rem; padding: 0.1rem 0.6rem; font-size: 0.66rem; color: var(--text-faint); flex-wrap: wrap;
+  background: color-mix(in srgb, var(--purple) 8%, transparent); border-bottom: 1px solid var(--border);
+  .board-link { font-size: 0.66rem; &.on { color: var(--purple-light); } &:disabled { opacity: 0.4; cursor: default; } }
+}
+.snip-name { color: var(--text-dim); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40%; }
+.snip-lock { color: var(--text-faint); }
+.snip-grow { flex: 1; }
+.snip-err { background: none; border: 1px solid color-mix(in srgb, var(--red) 50%, transparent); color: var(--red); border-radius: 4px;
+  font-size: 0.64rem; padding: 0 0.35rem; cursor: pointer; }
+.snip-box { position: relative; width: 100%; }
+.snip-frame { display: block; width: 100%; height: 100%; border: 0; background: transparent; color-scheme: dark; }
+.snip-run { display: block; width: 100%; padding: 1.4rem; background: none; border: 0; color: var(--purple-light); cursor: pointer; font-size: 0.8rem;
+  &:hover { background: color-mix(in srgb, var(--purple) 8%, transparent); } }
+.snip-note { font-size: 0.7rem; color: var(--text-dim); padding: 0.2rem 0.6rem; border-top: 1px solid var(--border); }
+.snip-src { margin: 0; padding: 0.4rem 0.6rem; font: 0.72rem/1.5 Consolas, monospace; white-space: pre; overflow: auto; max-height: 360px;
+  color: var(--text-dim); border-top: 1px solid var(--border); }
+.snip-console { border-top: 1px solid var(--border); max-height: 180px; overflow: auto; padding: 0.25rem 0.6rem; font: 0.68rem/1.45 Consolas, monospace; }
+.snip-log { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-dim);
+  &.warn { color: var(--amber); } &.error { color: var(--red); } &.debug { color: var(--text-faint); } }
 .board-vis-src { margin: 0; padding: 0.4rem 0.6rem; font: 0.72rem/1.5 Consolas, monospace; white-space: pre-wrap; color: var(--text-dim); }
 .board-vis-legend { display: flex; flex-wrap: wrap; gap: 0.3rem 0.9rem; font-size: 0.7rem; color: var(--text-dim); padding: 0.3rem 0.6rem 0;
   i { display: inline-block; width: 0.6rem; height: 0.6rem; border-radius: 2px; margin-inline-end: 0.3rem; vertical-align: -1px; }
@@ -11307,7 +11340,9 @@ app-run-skill { display: inline-flex; flex-direction: column; align-items: flex-
 .vis-ed-left, .vis-ed-right { min-width: 0; }
 .vis-ed-src { width: 100%; min-height: 300px; box-sizing: border-box; background: #050822; color: #cbd5e1; border: 1px solid var(--border-strong);
   border-radius: 8px; padding: 0.5rem 0.6rem; font: 0.74rem/1.5 Consolas, monospace; resize: vertical; direction: ltr; }
-.vis-ed-row { display: flex; flex-wrap: wrap; gap: 0.5rem 0.8rem; font-size: 0.74rem; color: var(--text-dim); margin-bottom: 0.4rem;
+.vis-ed-libs { display: flex; flex-wrap: wrap; gap: 0.2rem 0.7rem; font-size: 0.7rem; color: var(--text-dim); margin-bottom: 0.4rem;
+  label { display: inline-flex; align-items: center; gap: 0.2rem; cursor: pointer; } }
+.vis-ed-row {display: flex; flex-wrap: wrap; gap: 0.5rem 0.8rem; font-size: 0.74rem; color: var(--text-dim); margin-bottom: 0.4rem;
   label { display: flex; align-items: center; gap: 0.3rem; }
   input, select { background: var(--card-inner); color: var(--text); border: 1px solid var(--border-strong); border-radius: 5px; padding: 0.1rem 0.35rem;
     font: 0.74rem system-ui, sans-serif; width: 9rem; &.sm { width: 4.5rem; } }
@@ -11345,6 +11380,7 @@ app-run-skill { display: inline-flex; flex-direction: column; align-items: flex-
 .board-editor-sep { width: 1px; height: 1rem; background: var(--border); margin: 0 0.2rem; }
 .board-editor-grow { flex: 1; }
 .board-editor-dd { position: relative; display: inline-flex; }
+.board-editor-dd-menu.up { top: auto; bottom: 1.7rem; }
 .board-editor-dd-menu { position: absolute; z-index: 60; top: 1.7rem; inset-inline-start: 0; display: flex; flex-direction: column; gap: 1px; min-width: 10rem;
   padding: 0.25rem; border-radius: 8px; border: 1px solid var(--border-strong); background: var(--popover-solid); box-shadow: 0 12px 30px #000a;
   .board-md-pill { margin: 0.1rem 0; cursor: pointer; border: 0; text-align: start; }

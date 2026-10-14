@@ -14,6 +14,7 @@ import { CODE_LANGS, guessLang } from '../../../shared/utils/code-highlight';
 import { BoardTemplate, DEFAULT_TEMPLATES, loadTemplates, saveTemplates } from '../../../shared/utils/board-templates';
 import { VISUAL_TEMPLATES } from '../../../shared/utils/board-visuals';
 import { VisualEditorComponent } from '../visuals/visual-editor.component';
+import { MarkdownViewComponent } from '../markdown-view/markdown-view.component';
 
 interface MenuItem {
   readonly id: string;
@@ -24,7 +25,7 @@ interface MenuItem {
 
 const BLOCK_SELECTOR = 'p, h1, h2, h3, h4, li, blockquote, td, th, summary, pre, aside';
 /** Visual blocks the block editor opens (specs/017 R37); their source is the <pre>'s text. */
-const EDITABLE_VISUALS = new Set(['chart', 'stats', 'timeline']);
+const EDITABLE_VISUALS = new Set(['chart', 'stats', 'timeline', 'html', 'mermaid']);
 const BLOCK_TAGS = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'UL', 'OL', 'PRE', 'BLOCKQUOTE', 'TABLE', 'HR', 'IMG', 'DETAILS', 'ASIDE', 'DIV', 'SECTION']);
 
 /**
@@ -38,9 +39,9 @@ const BLOCK_TAGS = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'UL', 'OL', 'PRE', 'BLO
 @Component({
   selector: 'app-mention-editor',
   standalone: true,
-  imports: [MentionPickerComponent, ImageAnnotateComponent, VisualEditorComponent],
+  imports: [MentionPickerComponent, ImageAnnotateComponent, VisualEditorComponent, MarkdownViewComponent],
   template: `
-    <div class="board-editor">
+    <div class="board-editor" [class.split]="split()">
       @if (draftNotice(); as d) {
         <div class="board-editor-draft">Unsaved draft from {{ d.at }} ·
           <button type="button" class="board-link" (click)="restoreDraft()">restore it</button> ·
@@ -64,9 +65,9 @@ const BLOCK_TAGS = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'UL', 'OL', 'PRE', 'BLO
           <button type="button" class="board-editor-btn" title="Inline code (Ctrl+E)" (click)="wrapInline('code')">&lt;/&gt;</button>
           <button type="button" class="board-editor-btn hl" title="Highlight (Ctrl+Shift+H)" (click)="wrapInline('mark')">▮</button>
           <span class="board-editor-dd">
-            <button type="button" class="board-editor-btn" title="Text colour" (click)="toggleMenu('color')">A▾</button>
+            <button type="button" class="board-editor-btn" title="Text colour" (click)="toggleMenu('color', $event)">A▾</button>
             @if (menu() === 'color') {
-              <span class="board-editor-dd-menu">@for (c of colors; track c) {
+              <span class="board-editor-dd-menu" [class.up]="menuUp()">@for (c of colors; track c) {
                 <button type="button" [class]="'board-editor-swatch board-md-c-' + c" (click)="color(c)">A {{ c }}</button> }
                 <button type="button" class="board-editor-swatch" (click)="color(null)">no colour</button></span>
             }
@@ -76,25 +77,25 @@ const BLOCK_TAGS = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'UL', 'OL', 'PRE', 'BLO
           <button type="button" class="board-editor-btn" title="Numbered list" (click)="list(true)">1.</button>
           <button type="button" class="board-editor-btn" title="Checklist" (click)="checklist()">☑</button>
           <span class="board-editor-dd">
-            <button type="button" class="board-editor-btn" title="Callout: note, warning, bug, fixed, next" (click)="toggleMenu('callout')">▤▾</button>
+            <button type="button" class="board-editor-btn" title="Callout: note, warning, bug, fixed, next" (click)="toggleMenu('callout', $event)">▤▾</button>
             @if (menu() === 'callout') {
-              <span class="board-editor-dd-menu">@for (t of callouts; track t) {
+              <span class="board-editor-dd-menu" [class.up]="menuUp()">@for (t of callouts; track t) {
                 <button type="button" [class]="'board-editor-swatch callout-' + t" (click)="callout(t)">{{ calloutTitle(t) }}</button> }</span>
             }
           </span>
           <button type="button" class="board-editor-btn" title="Table" (click)="table()">▦</button>
           <span class="board-editor-dd">
-            <button type="button" class="board-editor-btn" title="Visual: chart, stats, timeline, progress, tabs - or type /" (click)="toggleMenu('visual')">◇▾</button>
+            <button type="button" class="board-editor-btn" title="Visual: chart, stats, timeline, progress, tabs, diagram, HTML snippet - or type /" (click)="toggleMenu('visual', $event)">◇▾</button>
             @if (menu() === 'visual') {
-              <span class="board-editor-dd-menu">@for (v of visuals; track v.id) {
+              <span class="board-editor-dd-menu" [class.up]="menuUp()">@for (v of visuals; track v.id) {
                 <button type="button" class="board-editor-swatch" (click)="visual(v.id)">{{ v.label }}</button> }</span>
             }
           </span>
           <button type="button" class="board-editor-btn" title="Collapsible section" (click)="fold()">▸</button>
           <span class="board-editor-dd">
-            <button type="button" class="board-editor-btn" title="Status pill" (click)="toggleMenu('pill')">✓▾</button>
+            <button type="button" class="board-editor-btn" title="Status pill" (click)="toggleMenu('pill', $event)">✓▾</button>
             @if (menu() === 'pill') {
-              <span class="board-editor-dd-menu">@for (p of pills; track p.tone) {
+              <span class="board-editor-dd-menu" [class.up]="menuUp()">@for (p of pills; track p.tone) {
                 <button type="button" [class]="'board-md-pill ' + p.tone" (click)="pill(p.tone, p.text)">{{ p.text }}</button> }</span>
             }
           </span>
@@ -105,14 +106,15 @@ const BLOCK_TAGS = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'UL', 'OL', 'PRE', 'BLO
             <input #file type="file" accept="image/png,image/jpeg,image/gif,image/webp" hidden (change)="pickFiles(file)" />
           }
           <span class="board-editor-dd">
-            <button type="button" class="board-editor-btn" title="Templates - or type /" (click)="toggleMenu('tpl')">⧉▾</button>
+            <button type="button" class="board-editor-btn" title="Templates - or type /" (click)="toggleMenu('tpl', $event)">⧉▾</button>
             @if (menu() === 'tpl') {
-              <span class="board-editor-dd-menu">@for (t of templates(); track t.name) {
+              <span class="board-editor-dd-menu" [class.up]="menuUp()">@for (t of templates(); track t.name) {
                 <button type="button" class="board-editor-swatch" (click)="template(t)">{{ t.icon }} {{ t.name }}</button> }
                 <button type="button" class="board-editor-swatch dim" (click)="editTemplates()">✎ Edit templates…</button></span>
             }
           </span>
           <span class="board-editor-grow"></span>
+          <button type="button" class="board-editor-btn" [class.on]="split()" title="Split: the text beside how it will show (snippets run)" (click)="split.set(!split())">⇆</button>
           <button type="button" class="board-editor-btn" [class.on]="source()" title="See / edit what is stored" (click)="toggleSource()">&lt;&gt;</button>
         </div>
       }
@@ -125,6 +127,9 @@ const BLOCK_TAGS = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'UL', 'OL', 'PRE', 'BLO
         <textarea class="board-editor-src" spellcheck="false" [value]="value()" [style.min-height.em]="rows() * 1.5 + 4"
                   (input)="fromSource($any($event.target).value)"></textarea>
       }
+      @if (split()) {
+        <div class="board-editor-preview" aria-label="Preview"><app-markdown-view [text]="previewText()" empty="Nothing to show yet." [idPrefix]="'pv-'" /></div>
+      }
       @if (popup(); as p) {
         <div class="board-editor-menu" [style.top.px]="p.top" [style.bottom.px]="p.bottom" [style.left.px]="p.left" (mousedown)="$event.preventDefault()">
           @for (item of popupItems(); track item.id; let i = $index) {
@@ -136,7 +141,7 @@ const BLOCK_TAGS = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'UL', 'OL', 'PRE', 'BLO
         </div>
       }
       @if (visualEdit(); as ve) {
-        <app-visual-editor [lang]="ve.lang" [source]="ve.source" [saveLabel]="ve.pre ? 'Save' : 'Insert'"
+        <app-visual-editor [lang]="ve.lang" [source]="ve.source" [info]="ve.info" [saveLabel]="ve.pre ? 'Save' : 'Insert'"
                            (saved)="visualSaved($event)" (closed)="visualEdit.set(null)" />
       }
       @if (visualBar(); as vb) {
@@ -214,17 +219,22 @@ export class MentionEditorComponent implements AfterViewInit {
   private readonly injector = inject(Injector);
   readonly pickerOpen = signal(false);
   readonly source = signal(false);
+  /** ⇆ (specs/017 R39): the text beside how it will show. The preview follows the text once typing settles. */
+  readonly split = signal(false);
+  readonly previewText = signal('');
+  private previewTimer: ReturnType<typeof setTimeout> | null = null;
   readonly rich = signal(false);
   readonly menu = signal<'color' | 'callout' | 'pill' | 'tpl' | 'visual' | null>(null);
   readonly popup = signal<{ kind: 'slash' | 'var'; query: string; top: number | null; bottom: number | null; left: number } | null>(null);
   readonly popupIndex = signal(0);
   readonly imageBar = signal<{ top: number; left: number } | null>(null);
   /** The block editor: a new visual (pre null) or the one clicked in the box. */
-  readonly visualEdit = signal<{ lang: string; source: string; pre: HTMLElement | null } | null>(null);
+  readonly visualEdit = signal<{ lang: string; source: string; info: string; pre: HTMLElement | null } | null>(null);
   readonly visualBar = signal<{ top: number; left: number; lang: string; pre: HTMLElement } | null>(null);
   readonly visuals: readonly { id: string; label: string }[] = [
     { id: 'chart', label: '▤ Chart' }, { id: 'stats', label: '▦ Stats' }, { id: 'timeline', label: '⏱ Timeline' },
     { id: 'progress', label: '▬ Progress' }, { id: 'tabs', label: '⧉ Tabs' },
+    { id: 'mermaid', label: '⬡ Diagram' }, { id: 'html', label: '◈ HTML snippet' },
   ];
   readonly annotating = signal<string | null>(null);
   readonly uploadError = signal<string | null>(null);
@@ -303,7 +313,19 @@ export class MentionEditorComponent implements AfterViewInit {
         if (this.ready && text !== this.shown) this.render(text);
       });
     });
-    inject(DestroyRef).onDestroy(() => { if (this.draftTimer) clearTimeout(this.draftTimer); });
+    effect(() => {
+      const text = this.value();
+      if (!this.split()) return;
+      untracked(() => {
+        if (this.previewTimer) clearTimeout(this.previewTimer);
+        if (!this.previewText()) { this.previewText.set(text); return; }
+        this.previewTimer = setTimeout(() => this.previewText.set(this.value()), 500);
+      });
+    }, { allowSignalWrites: true });
+    inject(DestroyRef).onDestroy(() => {
+      if (this.draftTimer) clearTimeout(this.draftTimer);
+      if (this.previewTimer) clearTimeout(this.previewTimer);
+    });
   }
 
   ngAfterViewInit(): void {
@@ -579,7 +601,7 @@ export class MentionEditorComponent implements AfterViewInit {
     this.menu.set(null);
     if (EDITABLE_VISUALS.has(id)) {
       this.saveCaret();
-      this.visualEdit.set({ lang: id, source: VISUAL_TEMPLATES[id] ?? '', pre: null });
+      this.visualEdit.set({ lang: id, source: VISUAL_TEMPLATES[id] ?? '', info: id === 'html' ? 'live' : '', pre: null });
       return;
     }
     this.insertBlocks(markdownBlocks(VISUAL_TEMPLATES[id] ?? ''));
@@ -589,19 +611,21 @@ export class MentionEditorComponent implements AfterViewInit {
     const vb = this.visualBar();
     if (!vb) return;
     this.visualBar.set(null);
-    this.visualEdit.set({ lang: vb.lang, source: vb.pre.textContent ?? '', pre: vb.pre });
+    this.visualEdit.set({ lang: vb.lang, source: vb.pre.textContent ?? '', info: vb.pre.dataset['info'] ?? '', pre: vb.pre });
   }
 
-  visualSaved(source: string): void {
+  visualSaved(out: { text: string; info: string }): void {
     const ve = this.visualEdit();
     this.visualEdit.set(null);
     if (!ve) return;
     if (ve.pre && this.box().nativeElement.contains(ve.pre)) {
-      ve.pre.textContent = source;
+      ve.pre.textContent = out.text;
+      if (out.info) ve.pre.dataset['info'] = out.info;
+      else delete ve.pre.dataset['info'];
       this.sync();
       return;
     }
-    this.insertBlocks([{ kind: 'visual', lang: ve.lang as 'chart', info: '', text: source }]);
+    this.insertBlocks([{ kind: 'visual', lang: ve.lang as 'chart', info: out.info, text: out.text }]);
   }
 
   annotate(): void {
@@ -629,7 +653,12 @@ export class MentionEditorComponent implements AfterViewInit {
     if (t.tagName !== 'SELECT' && t.tagName !== 'OPTION' && t.tagName !== 'INPUT') event.preventDefault();
   }
 
-  toggleMenu(m: 'color' | 'callout' | 'pill' | 'tpl' | 'visual'): void {
+  /** A menu opens upward when the box sits near the bottom of the window (the comment box) and there is more room above. */
+  readonly menuUp = signal(false);
+
+  toggleMenu(m: 'color' | 'callout' | 'pill' | 'tpl' | 'visual', event?: Event): void {
+    const r = (event?.currentTarget as Element | null)?.getBoundingClientRect();
+    if (r) this.menuUp.set(window.innerHeight - r.bottom < 300 && r.top > window.innerHeight - r.bottom);
     this.menu.update((x) => (x === m ? null : m));
   }
 

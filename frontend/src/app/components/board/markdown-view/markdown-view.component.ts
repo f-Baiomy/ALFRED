@@ -11,6 +11,7 @@ import { copyToClipboard } from '../../../shared/utils/clipboard';
 import { ChartBlockComponent } from '../visuals/chart-block.component';
 import { StatsBlockComponent } from '../visuals/stats-block.component';
 import { TimelineBlockComponent } from '../visuals/timeline-block.component';
+import { SnippetHostComponent } from '../visuals/snippet-host.component';
 
 /**
  * A board text - Markdown or the editor's HTML (docs/board.md "Rich text") - rendered from the typed tree with plain
@@ -20,7 +21,7 @@ import { TimelineBlockComponent } from '../visuals/timeline-block.component';
 @Component({
   selector: 'app-markdown-view',
   standalone: true,
-  imports: [NgTemplateOutlet, MentionChipComponent, VariablePillComponent, CallMiniComponent, ChartBlockComponent, StatsBlockComponent,
+  imports: [NgTemplateOutlet, MentionChipComponent, VariablePillComponent, CallMiniComponent, ChartBlockComponent, StatsBlockComponent, SnippetHostComponent,
     TimelineBlockComponent],
   template: `
     <ng-template #inl let-nodes>
@@ -122,6 +123,8 @@ import { TimelineBlockComponent } from '../visuals/timeline-block.component';
               @case ('stats') { <app-stats-block [source]="b.text" /> }
               @case ('chart') { <app-chart-block [source]="b.text" /> }
               @case ('timeline') { <app-timeline-block [source]="b.text" /> }
+              @case ('html') { <app-snippet-host [source]="b.text" [info]="b.info" [dir]="dir() === 'auto' ? 'auto' : dir()" [context]="snippetContext()" /> }
+              @case ('mermaid') { <app-snippet-host [source]="b.text" [info]="b.info" kind="mermaid" [context]="snippetContext()" /> }
               @default {
                 <div class="board-md-code" dir="ltr"><div class="board-md-code-bar"><span>{{ b.lang }}{{ b.info ? ' ' + b.info : '' }}</span></div>
                   <pre class="board-md-pre" dir="ltr">{{ b.text }}</pre></div>
@@ -205,6 +208,8 @@ export class MarkdownViewComponent {
   /** A spec file's name: its headings get "copy a link" (a spec mention to that section). */
   readonly specFile = input<string | null>(null);
   readonly cycleId = input<string | null>(null);
+  /** Where this text lives (card, cycle, comment), passed to a snippet as `alfred.context`. */
+  readonly snippetContext = input<Record<string, unknown>>({});
 
   readonly blocks = computed(() => textBlocks(this.text()));
   /** The blocks split at each heading; a section headed "Next" is a callout - the one thing to do. */

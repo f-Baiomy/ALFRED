@@ -1,5 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { MarkdownViewComponent } from './markdown-view.component';
+import { SnippetRunSetting } from '../visuals/snippet-host.component';
 
 describe('MarkdownViewComponent', () => {
   function render(text: string): HTMLElement {
@@ -113,4 +114,24 @@ describe('MarkdownViewComponent', () => {
     expect(el.querySelector('.board-vis-err')!.textContent).toContain('JSON');
     expect(el.querySelector('.board-vis-src')!.textContent).toContain('not json');
   });
+
+  it('runs an html live block and a diagram in locked frames, and a whole page marked as one', () => {
+    TestBed.inject(SnippetRunSetting).onOpen.set(true);
+    const el = render('Before\n\n```html live name="Fare" libs="dayjs"\n<b>hi</b>\n```\n\n```mermaid\nflowchart LR\n A --> B\n```');
+    expect(el.querySelectorAll('app-snippet-host').length).toBe(2);
+    expect(el.querySelector('.snip-name')!.textContent).toContain('Fare');
+    expect(el.querySelectorAll('.snip-name')[1].textContent).toContain('Diagram');
+    const page = render('<!-- alfred:page -->\n<h1>x</h1>');
+    expect(page.querySelectorAll('app-snippet-host').length).toBe(1);
+    expect(page.querySelector('.snip.page')).not.toBeNull();
+  });
+
+  it('waits for ▶ when snippets are set to run on click', () => {
+    TestBed.inject(SnippetRunSetting).onOpen.set(false);
+    const el = render('```html live\n<b>hi</b>\n```');
+    expect(el.querySelector('.snip-run')).not.toBeNull();
+    expect(el.querySelector('iframe')).toBeNull();
+    TestBed.inject(SnippetRunSetting).onOpen.set(true);
+  });
 });
+
