@@ -11263,7 +11263,8 @@ app-run-skill { display: inline-flex; flex-direction: column; align-items: flex-
 }
 .board-vis-err { color: var(--amber); font-size: 0.74rem; padding: 0.35rem 0.6rem 0; }
 // HTML snippets (specs/017 R13-R15): the locked frame with its bar, console and full-screen mode.
-.snip { border: 1px solid var(--border); border-radius: 8px; background: var(--card-inner); margin: 0 0 0.5rem; overflow: hidden; max-width: 100%;
+// overflow: clip, not hidden: a hidden box can still be scrolled (focus, full screen) and stayed scrolled - bar gone, content shifted.
+.snip { border: 1px solid var(--border); border-radius: 8px; background: var(--card-inner); margin: 0 0 0.5rem; overflow: clip; max-width: 100%;
   &.full { position: fixed; inset: 12px; z-index: 1200; margin: 0; display: flex; flex-direction: column; box-shadow: 0 10px 60px rgba(0, 0, 0, 0.6);
     background: var(--popover-solid);
     .snip-box { flex: 1; height: auto; } .snip-console { max-height: 22vh; } }
@@ -11401,7 +11402,7 @@ app-run-skill { display: inline-flex; flex-direction: column; align-items: flex-
   &:disabled { cursor: default; }
 }
 .board-react-menu { flex-direction: row !important; min-width: 0 !important; gap: 0.2rem !important; }
-.board-ev-body.folded { max-height: 22rem; overflow: hidden; -webkit-mask-image: linear-gradient(to bottom, #000 75%, transparent);
+.board-ev-body.folded { max-height: 22rem; overflow: clip; -webkit-mask-image: linear-gradient(to bottom, #000 75%, transparent);
   mask-image: linear-gradient(to bottom, #000 75%, transparent); }
 .board-ev-more { font-size: 0.72rem; }
 .board-versions { width: min(760px, 100%); max-height: calc(100vh - 64px); overflow-y: auto; display: flex; flex-direction: column; gap: 0.5rem; }

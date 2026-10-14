@@ -303,13 +303,11 @@ function draw(id,scale){var fail=function(e){post({t:"shot",id:id,error:String(e
   var w=Math.max(1,Math.ceil(root.scrollWidth)),h=Math.max(1,Math.ceil(Math.max(body.scrollHeight,body.getBoundingClientRect().height)));
   var copy=snap(body);copy.style.margin="0";
   var svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+w+'" height="'+h+'"><foreignObject x="0" y="0" width="100%" height="100%">'+new XMLSerializer().serializeToString(copy)+"</foreignObject></svg>";
-  // Decoded off the page's thread (decode()), encoded off it too (toBlob): the snippet keeps moving while it is drawn.
-  var img=new Image();img.src="data:image/svg+xml;charset=utf-8,"+encodeURIComponent(svg);
-  (img.decode?img.decode():new Promise(function(r,j){img.onload=r;img.onerror=j})).then(function(){
-    var k=scale>0?Math.min(2,scale):Math.min(2,window.devicePixelRatio||1)||1,c=document.createElement("canvas");c.width=Math.round(w*k);c.height=Math.round(h*k);
-    var g=c.getContext("2d");g.scale(k,k);g.fillStyle=solid;g.fillRect(0,0,w,h);g.fillStyle=bg;g.fillRect(0,0,w,h);g.drawImage(img,0,0);
-    c.toBlob(function(b){if(!b)return fail("No picture");var fr=new FileReader();fr.onload=function(){post({t:"shot",id:id,png:fr.result})};fr.onerror=fail;fr.readAsDataURL(b)},"image/png")},
-    function(){fail("The page could not be drawn")}).then(null,fail)}catch(e){fail(e)}}
+  var img=new Image();img.onload=function(){try{var k=scale>0?Math.min(2,scale):Math.min(2,window.devicePixelRatio||1)||1,c=document.createElement("canvas");c.width=Math.round(w*k);c.height=Math.round(h*k);
+    var g=c.getContext("2d");g.scale(k,k);g.fillStyle=solid;g.fillRect(0,0,w,h);g.fillStyle=bg;g.fillRect(0,0,w,h);g.drawImage(img,0,0);post({t:"shot",id:id,png:c.toDataURL("image/png")})}
+    catch(e){fail(e)}};
+  img.onerror=function(){fail("The page could not be drawn")};
+  img.src="data:image/svg+xml;charset=utf-8,"+encodeURIComponent(svg)}catch(e){fail(e)}}
 window.addEventListener("message",function(e){if(e.source!==P)return;var m=e.data;if(!m||m.alfred!==1)return;
   if(m.t==="res"&&pend[m.id]){var p=pend[m.id];delete pend[m.id];if(m.ok)p.res(m.value);else p.rej(new Error(m.error||"Refused"))}
   else if(m.t==="pause")pause(true);else if(m.t==="resume")pause(false);else if(m.t==="shot")shot(m.id,typeof m.scale==="number"?m.scale:0);

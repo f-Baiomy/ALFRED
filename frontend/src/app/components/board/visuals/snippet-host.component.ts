@@ -52,13 +52,13 @@ const SHOT_SETTLE_MS = 1500;
   selector: 'app-snippet-host',
   standalone: true,
   template: `
-    <div class="snip" [class.full]="full()" [class.page]="page()" (keydown.escape)="full.set(false)">
+    <div class="snip" [class.full]="full()" [class.page]="page()" (keydown.escape)="setFull(false)">
       <div class="snip-bar" dir="ltr">
         <span class="snip-name">{{ kind() === 'mermaid' ? '⬡' : kind() === 'python' ? '🐍' : '◈' }} {{ title() }}</span>
         <span class="snip-lock" title="Runs in a locked frame: no network, cannot read or change Alfred, acts only through you">🔒 locked</span>
         @if (errors()) { <button type="button" class="snip-err" (click)="consoleOpen.set(true)">⚠ {{ errors() }} error{{ errors() === 1 ? '' : 's' }}</button> }
         <span class="snip-grow"></span>
-        <button type="button" class="board-link" [title]="full() ? 'Back (Esc)' : 'Full screen'" (click)="full.set(!full())">{{ full() ? '✕' : '⤢' }}</button>
+        <button type="button" class="board-link" [title]="full() ? 'Back (Esc)' : 'Full screen'" (click)="setFull(!full())">{{ full() ? '✕' : '⤢' }}</button>
         <button type="button" class="board-link" title="Source" [class.on]="showSource()" (click)="showSource.set(!showSource())">&lt;/&gt;</button>
         <button type="button" class="board-link" title="Download as PNG" [disabled]="!running()" (click)="png()">⬇ PNG</button>
         <button type="button" class="board-link" title="Download as an .html file" (click)="downloadHtml()">⬇ .html</button>
@@ -164,6 +164,12 @@ export class SnippetHostComponent implements OnDestroy {
       if (!this.running()) { this.teardown(); return; }
       if (doc !== this.shown) void this.show(doc, this.options());
     }, { allowSignalWrites: true });
+  }
+
+  /** Full screen on and off; back in its place, the snippet is scrolled into view where the reader left it. */
+  setFull(on: boolean): void {
+    this.full.set(on);
+    if (!on) setTimeout(() => this.host.nativeElement.scrollIntoView({ block: 'nearest' }));
   }
 
   ngOnDestroy(): void {
