@@ -8,6 +8,9 @@ import { VariablePillComponent } from '../variable-pill/variable-pill.component'
 import { CallMiniComponent } from '../call-mini/call-mini.component';
 import { DirChoice, blockDir, inlineWords } from '../../../shared/utils/text-direction';
 import { copyToClipboard } from '../../../shared/utils/clipboard';
+import { ChartBlockComponent } from '../visuals/chart-block.component';
+import { StatsBlockComponent } from '../visuals/stats-block.component';
+import { TimelineBlockComponent } from '../visuals/timeline-block.component';
 
 /**
  * A board text - Markdown or the editor's HTML (docs/board.md "Rich text") - rendered from the typed tree with plain
@@ -17,7 +20,8 @@ import { copyToClipboard } from '../../../shared/utils/clipboard';
 @Component({
   selector: 'app-markdown-view',
   standalone: true,
-  imports: [NgTemplateOutlet, MentionChipComponent, VariablePillComponent, CallMiniComponent],
+  imports: [NgTemplateOutlet, MentionChipComponent, VariablePillComponent, CallMiniComponent, ChartBlockComponent, StatsBlockComponent,
+    TimelineBlockComponent],
   template: `
     <ng-template #inl let-nodes>
       @for (n of asInlines(nodes); track $index) {
@@ -113,6 +117,45 @@ import { copyToClipboard } from '../../../shared/utils/clipboard';
             <img class="board-md-img" [src]="imageSrc(b.src)" [alt]="b.alt" loading="lazy" (click)="zoom.set(imageSrc(b.src))" />
           }
           @case ('rule') { <hr /> }
+          @case ('visual') {
+            @switch (b.lang) {
+              @case ('stats') { <app-stats-block [source]="b.text" /> }
+              @case ('chart') { <app-chart-block [source]="b.text" /> }
+              @case ('timeline') { <app-timeline-block [source]="b.text" /> }
+              @default {
+                <div class="board-md-code" dir="ltr"><div class="board-md-code-bar"><span>{{ b.lang }}{{ b.info ? ' ' + b.info : '' }}</span></div>
+                  <pre class="board-md-pre" dir="ltr">{{ b.text }}</pre></div>
+              }
+            }
+          }
+          @case ('progress') {
+            <div class="board-progress" [attr.dir]="dir() === 'auto' ? 'auto' : dir()">
+              <div class="board-progress-track"><i [style.width.%]="pct(b)"></i></div>
+              <span class="board-progress-n">{{ b.value }} / {{ b.max }}</span>@if (b.label) { <span class="board-progress-l">{{ b.label }}</span> }
+            </div>
+          }
+          @case ('tabs') {
+            <div class="board-tabs">
+              <div class="board-tabs-head" role="tablist">
+                @for (t of b.tabs; track $index; let ti = $index) {
+                  <button type="button" role="tab" class="board-tab" [class.on]="tabOf(path + '/' + bi) === ti" [attr.aria-selected]="tabOf(path + '/' + bi) === ti"
+                          (click)="setTab(path + '/' + bi, ti)">{{ t.title }}</button>
+                }
+              </div>
+              @for (t of b.tabs; track $index; let ti = $index) {
+                @if (tabOf(path + '/' + bi) === ti) {
+                  <div class="board-tab-body" role="tabpanel"><ng-container *ngTemplateOutlet="blk; context: { $implicit: t.blocks, path: path + '/' + bi + 't' + ti }" /></div>
+                }
+              }
+            </div>
+          }
+          @case ('choices') {
+            <div class="board-choices">@for (o of b.options; track $index) { <button type="button" class="board-choice" disabled title="Answering from here comes with the interactive blocks">{{ o }}</button> }</div>
+          }
+          @case ('actions') {
+            <div class="board-actions">@for (a of b.items; track $index) { <span class="board-action-chip">▸ {{ a.label }}</span> }</div>
+          }
+          @case ('callview') { <div class="board-md-callrow"><app-call-mini [mention]="b.ref" /></div> }
           @case ('table') {
             <div class="board-md-table-wrap" [class.scroll]="!wrap()"><table class="board-md-table" [attr.dir]="dirOfAll(b.header)">
               <thead><tr>@for (c of b.header; track $index) { <th [attr.dir]="dirOf(c)"><ng-container *ngTemplateOutlet="inl; context: { $implicit: c }" /></th> }</tr></thead>
@@ -174,6 +217,20 @@ export class MarkdownViewComponent {
   /** Long lines wrap (true) or keep whole and scroll sideways inside their table or code block (false, the default). */
   readonly wrap = input(false);
   readonly zoom = signal<string | null>(null);
+  /** The open tab of each tabs block (by its place in the text). */
+  private readonly tabs = signal<Readonly<Record<string, number>>>({});
+
+  tabOf(key: string): number {
+    return this.tabs()[key] ?? 0;
+  }
+
+  setTab(key: string, i: number): void {
+    this.tabs.update((t) => ({ ...t, [key]: i }));
+  }
+
+  pct(b: Block): number {
+    return b.kind === 'progress' ? Math.max(0, Math.min(100, (100 * b.value) / (b.max || 1))) : 0;
+  }
 
   dirOf(nodes: readonly Inline[]): string {
     return blockDir(this.dir(), inlineWords(nodes));
@@ -314,6 +371,7 @@ function wordsOfBlock(b: Block): string {
     case 'callout': return [inlineWords(b.title), ...b.blocks.map(wordsOfBlock)].join(' ');
     case 'fold': return [inlineWords(b.summary), ...b.blocks.map(wordsOfBlock)].join(' ');
     case 'table': return [b.header, ...b.rows].map((r) => r.map(inlineWords).join(' ')).join(' ');
+    case 'tabs': return b.tabs.map((t) => [t.title, ...t.blocks.map(wordsOfBlock)].join(' ')).join(' ');
     default: return ' ';
   }
 }

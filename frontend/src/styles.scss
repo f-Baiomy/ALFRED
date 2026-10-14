@@ -11242,6 +11242,48 @@ app-run-skill { display: inline-flex; flex-direction: column; align-items: flex-
 .board-mention-pill { max-width: 18rem; overflow: hidden; text-overflow: ellipsis; display: inline-block; vertical-align: bottom; line-height: 1.35; margin: 0 0.05rem; cursor: default; user-select: all; }
 .board-ev.sys app-mention-chip { display: inline-block; max-width: 100%; min-width: 0; vertical-align: bottom; }
 .board-ev.sys .board-mention { display: inline-block; max-width: 22rem; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
+// board visuals: fixed blocks drawn by the board (specs/017)
+.board-vis { border: 1px solid var(--border); border-radius: 8px; background: var(--card-inner); margin: 0 0 0.5rem; overflow: hidden; max-width: 100%; }
+.board-vis-bar { display: flex; justify-content: space-between; gap: 0.5rem; padding: 0.1rem 0.6rem; font-size: 0.66rem; color: var(--text-faint);
+  background: color-mix(in srgb, var(--purple) 8%, transparent); border-bottom: 1px solid var(--border);
+  .board-link { font-size: 0.66rem; margin-inline-start: 0.5rem; }
+}
+.board-vis-err { color: var(--amber); font-size: 0.74rem; padding: 0.35rem 0.6rem 0; }
+.board-vis-src { margin: 0; padding: 0.4rem 0.6rem; font: 0.72rem/1.5 Consolas, monospace; white-space: pre-wrap; color: var(--text-dim); }
+.board-vis-legend { display: flex; flex-wrap: wrap; gap: 0.3rem 0.9rem; font-size: 0.7rem; color: var(--text-dim); padding: 0.3rem 0.6rem 0;
+  i { display: inline-block; width: 0.6rem; height: 0.6rem; border-radius: 2px; margin-inline-end: 0.3rem; vertical-align: -1px; }
+}
+.board-chart { display: block; width: 100%; height: auto; max-height: 340px;
+  .board-chart-bar rect { transition: opacity 0.15s; } .board-chart-bar:hover rect { opacity: 0.8; }
+}
+.board-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr)); gap: 0.45rem; margin: 0 0 0.5rem; }
+.board-stat { background: var(--card-inner); border: 1px solid var(--border); border-radius: 8px; padding: 0.35rem 0.6rem; min-width: 0; }
+.board-stat-k { font-size: 0.68rem; color: var(--text-dim); }
+.board-stat-v { font-size: 0.98rem; font-weight: 700; overflow-wrap: anywhere; }
+.board-stat-d { font-size: 0.68rem; color: var(--text-dim); }
+.board-stat-v, .board-stat-d {
+  &.c-red { color: var(--red); } &.c-green { color: var(--green); } &.c-amber { color: var(--amber); }
+  &.c-blue { color: #60a5fa; } &.c-purple { color: var(--purple-light); } &.c-cyan { color: var(--cyan); } &.c-dim { color: var(--text-faint); }
+}
+.board-progress { display: flex; align-items: center; gap: 0.55rem; margin: 0 0 0.5rem; font-size: 0.76rem; }
+.board-progress-track { flex: 1; max-width: 22rem; height: 0.5rem; border-radius: 99px; background: color-mix(in srgb, var(--text) 8%, transparent); overflow: hidden;
+  i { display: block; height: 100%; background: var(--green); border-radius: 99px; transition: width 0.6s ease; }
+}
+.board-progress-n { font-weight: 700; } .board-progress-l { color: var(--text-dim); }
+.board-tabs { border: 1px solid var(--border); border-radius: 8px; margin: 0 0 0.5rem; overflow: hidden; }
+.board-tabs-head { display: flex; flex-wrap: wrap; gap: 2px; border-bottom: 1px solid var(--border); background: var(--card-inner); padding: 0 0.3rem; }
+.board-tab { font: 0.74rem system-ui, sans-serif; background: none; border: 0; border-bottom: 2px solid transparent; color: var(--text-dim); padding: 0.3rem 0.7rem;
+  cursor: pointer; &.on { color: var(--purple-light); border-color: var(--purple); } &:hover { color: var(--text); }
+}
+.board-tab-body { padding: 0.45rem 0.65rem 0.1rem; }
+.board-choices { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0 0 0.5rem; }
+.board-choice { font: 0.78rem system-ui, sans-serif; border: 1px solid var(--border-strong); background: var(--card-inner); color: var(--text); border-radius: 8px;
+  padding: 0.25rem 0.75rem; cursor: pointer; &:hover:not(:disabled) { border-color: var(--purple); } &.on { border-color: var(--green); color: var(--green); }
+  &:disabled { cursor: default; opacity: 0.75; }
+}
+.board-actions { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0 0 0.5rem; }
+.board-action-chip { font: 0.74rem system-ui, sans-serif; border: 1px dashed var(--border-strong); border-radius: 7px; padding: 0.15rem 0.6rem;
+  color: var(--purple-light); background: color-mix(in srgb, var(--purple) 6%, transparent); cursor: pointer; }
 // comment reactions, folding, earlier texts (docs/board.md "Rich text")
 .board-react { font-size: 0.74rem; background: var(--card-inner); border: 1px solid var(--border); border-radius: 999px; padding: 0 0.45rem;
   color: var(--text); cursor: pointer; line-height: 1.5;
@@ -11254,6 +11296,41 @@ app-run-skill { display: inline-flex; flex-direction: column; align-items: flex-
 .board-ev-more { font-size: 0.72rem; }
 .board-versions { width: min(760px, 100%); max-height: calc(100vh - 64px); overflow-y: auto; display: flex; flex-direction: column; gap: 0.5rem; }
 .board-version { border: 1px solid var(--border); border-radius: 8px; padding: 0.4rem 0.6rem; &.now { border-color: var(--purple); } }
+// the block editor (specs/017 R37) and visuals inside the rich editor
+.vis-ed { width: min(1100px, 100%); max-height: calc(100vh - 40px); display: flex; flex-direction: column; gap: 0.5rem; background: var(--popover-solid);
+  border: 1px solid var(--border-strong); border-radius: 12px; padding: 0.7rem 0.8rem; }
+.vis-ed-head { display: flex; align-items: center; gap: 0.8rem; font-size: 0.85rem; .board-link.on { color: var(--purple-light); text-decoration: none; font-weight: 700; } }
+.vis-ed-modes { display: flex; gap: 0.6rem; font-size: 0.76rem; }
+.vis-ed-grow { flex: 1; }
+.vis-ed-body { display: grid; grid-template-columns: 1fr 1fr; gap: 0.7rem; min-height: 0; overflow: auto; }
+@media (max-width: 820px) { .vis-ed-body { grid-template-columns: 1fr; } }
+.vis-ed-left, .vis-ed-right { min-width: 0; }
+.vis-ed-src { width: 100%; min-height: 300px; box-sizing: border-box; background: #050822; color: #cbd5e1; border: 1px solid var(--border-strong);
+  border-radius: 8px; padding: 0.5rem 0.6rem; font: 0.74rem/1.5 Consolas, monospace; resize: vertical; direction: ltr; }
+.vis-ed-row { display: flex; flex-wrap: wrap; gap: 0.5rem 0.8rem; font-size: 0.74rem; color: var(--text-dim); margin-bottom: 0.4rem;
+  label { display: flex; align-items: center; gap: 0.3rem; }
+  input, select { background: var(--card-inner); color: var(--text); border: 1px solid var(--border-strong); border-radius: 5px; padding: 0.1rem 0.35rem;
+    font: 0.74rem system-ui, sans-serif; width: 9rem; &.sm { width: 4.5rem; } }
+}
+.vis-ed-grid-wrap { overflow: auto; max-height: 340px; }
+.vis-ed-grid { border-collapse: collapse; font-size: 0.74rem;
+  th, td { border: 1px solid var(--border); padding: 0.1rem 0.2rem; white-space: nowrap; }
+  th { background: color-mix(in srgb, var(--purple) 10%, transparent); font-weight: 400; }
+  input, select { background: transparent; color: var(--text); border: 0; font: 0.74rem system-ui, sans-serif; width: 6.5rem; padding: 0.15rem; }
+  select { width: 4.5rem; } input.num { width: 4.8rem; text-align: right; font-family: Consolas, monospace; }
+}
+.vis-ed-foot { display: flex; justify-content: space-between; align-items: center; gap: 0.6rem; font-size: 0.72rem; }
+.board-editor-box.rich {
+  pre[data-lang='chart'], pre[data-lang='stats'], pre[data-lang='timeline'] { position: relative; padding-top: 1.3rem; max-height: 9rem; overflow: hidden; cursor: pointer;
+    &::before { position: absolute; top: 0.2rem; left: 0.55rem; font: 700 0.66rem system-ui, sans-serif; color: var(--purple-light); }
+  }
+  pre[data-lang='chart']::before { content: '▤ chart - click, then ✎ Edit chart'; }
+  pre[data-lang='stats']::before { content: '▦ stats - click, then ✎ Edit stats'; }
+  pre[data-lang='timeline']::before { content: '⏱ timeline - click, then ✎ Edit timeline'; }
+  section[data-tabs] { border: 1px solid var(--border); border-radius: 8px; padding: 0.2rem 0.5rem; margin: 0 0 0.35rem; }
+  section[data-tab] { border-inline-start: 2px solid var(--purple); padding-inline-start: 0.5rem; margin: 0.25rem 0; }
+  h4[data-tab-title] { font-size: 0.78rem; margin: 0.2rem 0; &::before { content: '⧉ tab: '; color: var(--text-faint); font-weight: 400; } }
+}
 // the rich editor (docs/board.md "Rich text")
 .board-editor-tb { display: flex; flex-wrap: wrap; align-items: center; gap: 1px; padding: 0.15rem 0.25rem; margin-bottom: 0.2rem;
   border: 1px solid var(--border); border-radius: 8px; background: var(--card-inner); }

@@ -1,8 +1,9 @@
 import { MentionRef } from '../../core/models/board.models';
 import {
   BOARD_IMAGE, Block, CALLOUT_TONES, CALLOUT_TITLES, CalloutTone, Inline, PILL_TONES, PillTone, TEXT_COLORS, TextColor, codeBlock,
-  markdownBlocks, pillOf, plainText,
+  lineBlockOf, markdownBlocks, pillOf, plainText,
 } from './markdown-blocks';
+import { visualLangOf } from './board-visuals';
 import { mentionChipNode } from './mention-dom';
 import { parseMentions, serializeMention, slug } from './mention-syntax';
 
@@ -14,7 +15,7 @@ import { parseMentions, serializeMention, slug } from './mention-syntax';
  */
 
 /** HTML starts with one of the editor's block tags; Markdown never does. The backend's RichText.isHtml is the same test. */
-const HTML = /^\s*<(p|h[1-4]|ul|ol|div|aside|table|pre|blockquote|details|hr|img|figure)[\s>/]/i;
+const HTML = /^\s*<(p|h[1-4]|ul|ol|div|aside|table|pre|blockquote|details|hr|img|figure|section)[\s>/]/i;
 
 export function isHtml(text: string | null | undefined): boolean {
   return !!text && HTML.test(text);
@@ -47,7 +48,9 @@ export function domBlocks(container: Node): Block[] {
   const flush = (): void => {
     if (!run.length) return;
     const inl = trimInlines(run.flatMap((n) => domInlines(n)));
-    if (inl.length) out.push({ kind: 'paragraph', inlines: inl });
+    const line = inl.length ? lineBlockOf(inlinesMd(inl).trim()) : null;
+    if (line) out.push(line);
+    else if (inl.length) out.push({ kind: 'paragraph', inlines: inl });
     run = [];
   };
   container.childNodes.forEach((n) => {
@@ -79,7 +82,22 @@ function elementBlocks(e: Element): Block[] {
     case 'PRE': {
       const code = e.querySelector('code');
       const lang = dataOf('lang') ?? (code?.className.match(/language-([\w+#-]+)/)?.[1] ?? '');
-      return [codeBlock((e.textContent ?? '').replace(/\n$/, ''), lang)];
+      const info = dataOf('info') ?? '';
+      const text = (e.textContent ?? '').replace(/\n$/, '');
+      const visual = visualLangOf(lang, info);
+      return [visual ? { kind: 'visual', lang: visual, info, text } : codeBlock(text, lang)];
+    }
+    case 'SECTION': {
+      if (dataOf('tabs') === undefined) return domBlocks(e);
+      // the editor shows each tab's title as an editable <h4 data-tab-title>; its text is the title
+      const tabs = Array.from(e.children).filter((c) => c.tagName === 'SECTION').map((c) => {
+        const body = c.cloneNode(true) as Element;
+        const head = Array.from(body.children).find((x) => x.tagName === 'H4' && (x as HTMLElement).dataset?.['tabTitle'] !== undefined);
+        const title = (head?.textContent ?? '').trim() || (c as HTMLElement).dataset?.['tab'] || 'Tab';
+        head?.remove();
+        return { title, blocks: domBlocks(body) };
+      });
+      return tabs.length ? [{ kind: 'tabs', tabs }] : [];
     }
     case 'UL': case 'OL': {
       const lis = Array.from(e.children).filter((c) => c.tagName === 'LI');
@@ -270,6 +288,9 @@ function blockHtml(b: Block): string {
     case 'callout': return `<aside data-callout="${b.tone}">${b.title.length ? `<b>${inlinesHtml(b.title)}</b>` : ''}${blocksToHtml(b.blocks)}</aside>`;
     case 'fold': return `<details><summary>${inlinesHtml(b.summary)}</summary>${blocksToHtml(b.blocks)}</details>`;
     case 'image': return `<img src="${escAttr(b.src)}" alt="${escAttr(b.alt)}">`;
+    case 'visual': return `<pre data-lang="${escAttr(b.lang)}"${b.info ? ` data-info="${escAttr(b.info)}"` : ''}>${esc(b.text)}</pre>`;
+    case 'tabs': return `<section data-tabs="">${b.tabs.map((t) => `<section data-tab="${escAttr(t.title)}">${blocksToHtml(t.blocks)}</section>`).join('')}</section>`;
+    case 'progress': case 'choices': case 'actions': case 'callview': return `<p>${esc(blockMd(b))}</p>`;
   }
 }
 
@@ -327,6 +348,11 @@ function blockDom(b: Block, doc: Document): Node {
     case 'fold': return el(doc, 'details', [el(doc, 'summary', inlinesDom(b.summary, doc)),
       ...(b.blocks.length ? blocksToDom(b.blocks, doc) : [el(doc, 'p', [el(doc, 'br')])])], { open: '' });
     case 'image': return el(doc, 'img', [], { src: b.src, alt: b.alt });
+    case 'visual': return el(doc, 'pre', [doc.createTextNode(b.text)], { 'data-lang': b.lang, ...(b.info ? { 'data-info': b.info } : {}) });
+    case 'tabs': return el(doc, 'section', b.tabs.map((t) => el(doc, 'section', [
+      el(doc, 'h4', [doc.createTextNode(t.title)], { 'data-tab-title': '' }),
+      ...(t.blocks.length ? blocksToDom(t.blocks, doc) : [el(doc, 'p', [el(doc, 'br')])])], { 'data-tab': t.title })), { 'data-tabs': '' });
+    case 'progress': case 'choices': case 'actions': case 'callview': return el(doc, 'p', [doc.createTextNode(blockMd(b))]);
   }
 }
 
@@ -391,6 +417,12 @@ function blockMd(b: Block): string {
     }
     case 'fold': return `+++ ${inlinesMd(b.summary)}\n${blocksToMarkdown(b.blocks)}\n+++`;
     case 'image': return `![${b.alt}](${b.src})`;
+    case 'visual': return '```' + b.lang + (b.info ? ' ' + b.info : '') + '\n' + b.text + '\n```';
+    case 'tabs': return [':::tabs', ...b.tabs.map((t) => `## ${t.title}\n${blocksToMarkdown(t.blocks)}`), ':::'].join('\n');
+    case 'progress': return `[progress: ${b.value}/${b.max}${b.label ? ' ' + b.label : ''}]`;
+    case 'choices': return `[choose: ${b.options.join(' | ')}]`;
+    case 'actions': return b.items.map((a) => `[action: ${a.kind}${a.arg ? ' ' + a.arg : ''}${a.label && a.label !== (a.kind + (a.arg ? ' ' + a.arg : '')) ? ' | ' + a.label : ''}]`).join(' ');
+    case 'callview': return '!' + serializeMention(b.ref);
   }
 }
 
@@ -407,7 +439,7 @@ export function inlinesMd(nodes: readonly Inline[]): string {
       case 'sub': return inlinesMd(n.children);
       case 'sup': return inlinesMd(n.children);
       case 'kbd': return '`' + inlinesMd(n.children) + '`';
-      case 'color': return inlinesMd(n.children);
+      case 'color': return `{${n.color}|${inlinesMd(n.children)}}`;
       case 'link': return `[${inlinesMd(n.children)}](${n.href})`;
       case 'mention': return serializeMention(n.ref);
       case 'variable': return `{{${n.name}}}`;
@@ -439,6 +471,12 @@ export function blocksToPlain(blocks: readonly Block[]): string {
       case 'callout': return [CALLOUT_TITLES[b.tone] + (b.title.length ? `: ${plainText(b.title)}` : ''), blocksToPlain(b.blocks)].join('\n');
       case 'fold': return [plainText(b.summary), blocksToPlain(b.blocks)].join('\n');
       case 'image': return `[picture${b.alt ? `: ${b.alt}` : ''}]`;
+      case 'visual': return b.text;
+      case 'tabs': return b.tabs.map((t) => `${t.title}\n${blocksToPlain(t.blocks)}`).join('\n\n');
+      case 'progress': return `${b.value}/${b.max}${b.label ? ' ' + b.label : ''}`;
+      case 'choices': return b.options.join(' / ');
+      case 'actions': return b.items.map((a) => a.label).join(' · ');
+      case 'callview': return b.ref.label;
     }
   }).filter(Boolean).join('\n\n');
 }
@@ -460,6 +498,8 @@ export function mentionsOfBlocks(blocks: readonly Block[]): MentionRef[] {
     if (b.kind === 'callout') { walk(b.title); blk(b.blocks); }
     if (b.kind === 'fold') { walk(b.summary); blk(b.blocks); }
     if (b.kind === 'facts') b.facts.forEach((f) => walk(f.inlines));
+    if (b.kind === 'tabs') b.tabs.forEach((t) => blk(t.blocks));
+    if (b.kind === 'callview') out.push(b.ref);
   });
   blk(blocks);
   return out;

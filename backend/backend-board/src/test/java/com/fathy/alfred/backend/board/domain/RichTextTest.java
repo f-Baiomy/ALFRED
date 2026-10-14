@@ -68,6 +68,17 @@ class RichTextTest {
     }
 
     @Test
+    void visualsAndTabsSurviveCleaningAndASnippetStaysText() {
+        String html = "<section data-tabs=\"\"><section data-tab=\"Before\" onclick=\"x()\"><h4 data-tab-title=\"\">Before</h4><p>old</p></section></section>"
+                + "<pre data-lang=\"html\" data-info=\"live name=&quot;x&quot;\">&lt;script&gt;alert(1)&lt;/script&gt;</pre>";
+        String clean = RichText.clean(html);
+        assertThat(clean).contains("<section data-tabs=\"\"><section data-tab=\"Before\"><h4 data-tab-title=\"\">Before</h4>");
+        assertThat(clean).contains("<pre data-lang=\"html\" data-info=\"live name=&quot;x&quot;\">&lt;script&gt;alert(1)&lt;/script&gt;</pre>");
+        assertThat(clean).doesNotContain("onclick").doesNotContain("<script");
+        assertThat(RichText.isHtml("<section data-tabs=\"\"></section>")).isTrue();
+    }
+
+    @Test
     void aMentionWithItsPipeEscapedInATableCellIsStillAMention() {
         assertThat(MentionParser.mentions("| cold | @[call:in:66e1@e8fe\\|13 Oct 00:51] | 2400 ms |"))
                 .extracting(m -> m.ref() + " " + m.label()).containsExactly("in:66e1@e8fe 13 Oct 00:51");

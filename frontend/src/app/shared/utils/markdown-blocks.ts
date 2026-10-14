@@ -1,6 +1,7 @@
 import { MentionRef } from '../../core/models/board.models';
 import { CodeToken, codeTokens, jsonCodeTokens, langOf } from './code-highlight';
 import { parseMentions, slug } from './mention-syntax';
+import { ACTION_LINE, ActionChip, CALLVIEW_LINE, CHOOSE_LINE, PROGRESS_LINE, VisualLang, isLineBlock, parseActions, visualLangOf } from './board-visuals';
 
 /**
  * The board's text (descriptions, comments, briefs, spec files) as a typed tree, rendered with plain Angular bindings by
@@ -48,7 +49,17 @@ export type Block =
   | { readonly kind: 'rule' }
   | { readonly kind: 'callout'; readonly tone: CalloutTone; readonly title: readonly Inline[]; readonly blocks: readonly Block[] }
   | { readonly kind: 'fold'; readonly summary: readonly Inline[]; readonly blocks: readonly Block[] }
-  | { readonly kind: 'image'; readonly src: string; readonly alt: string };
+  | { readonly kind: 'image'; readonly src: string; readonly alt: string }
+  /** A fenced block the board draws (specs/017): ```chart, ```stats … or a ```html live snippet; {@code text} is its source. */
+  | { readonly kind: 'visual'; readonly lang: VisualLang; readonly info: string; readonly text: string }
+  | { readonly kind: 'progress'; readonly value: number; readonly max: number; readonly label: string }
+  | { readonly kind: 'tabs'; readonly tabs: readonly { readonly title: string; readonly blocks: readonly Block[] }[] }
+  /** `[choose: A | B]` - one click answers as the user's reply. */
+  | { readonly kind: 'choices'; readonly options: readonly string[] }
+  /** `[action: retest | Re-test now]` chips - each asks the user before it runs. */
+  | { readonly kind: 'actions'; readonly items: readonly ActionChip[] }
+  /** `!@[call:…]` alone on a line - the expanded call view. */
+  | { readonly kind: 'callview'; readonly ref: MentionRef };
 
 /** One fact of a `> a · b · c` line - shown as a pill, red for a failure, amber for a stop or a gap. */
 export interface Fact {
@@ -67,7 +78,7 @@ export const BOARD_IMAGE = /^\/board\/images\/[A-Za-z0-9-]{8,64}$/;
 
 const HEADING = /^(#{1,6})\s+(.*)$/;
 const QUOTE = /^\s*>\s?(.*)$/;
-const FENCE_LANG = /^\s*```\s*([\w+#-]*)/;
+const FENCE_LANG = /^\s*```\s*([\w+#-]*)\s*(.*)$/;
 const BULLET = /^\s*[-*+]\s+(.*)$/;
 const ORDERED = /^\s*\d+[.)]\s+(.*)$/;
 const CHECK = /^\[([ xX])\]\s+(.*)$/;
@@ -94,12 +105,29 @@ export function markdownBlocks(text: string | null | undefined): Block[] {
       continue;
     }
     if (FENCE.test(line)) {
-      const lang = FENCE_LANG.exec(line)![1].toLowerCase();
+      const m = FENCE_LANG.exec(line)!;
+      const lang = m[1].toLowerCase();
+      const info = (m[2] ?? '').trim();
       const code: string[] = [];
       i++;
       while (i < lines.length && !FENCE.test(lines[i])) code.push(lines[i++]);
       i++;
-      blocks.push(codeBlock(code.join('\n'), lang));
+      const visual = visualLangOf(lang, info);
+      blocks.push(visual ? { kind: 'visual', lang: visual, info, text: code.join('\n') } : codeBlock(code.join('\n'), lang));
+      continue;
+    }
+    if (/^\s*:::\s*tabs\s*$/i.test(line)) {
+      const inner: string[] = [];
+      i++;
+      while (i < lines.length && !/^\s*:::\s*$/.test(lines[i])) inner.push(lines[i++]);
+      i++;
+      blocks.push(tabsBlock(inner));
+      continue;
+    }
+    const lineBlock = lineBlockOf(line);
+    if (lineBlock) {
+      blocks.push(lineBlock);
+      i++;
       continue;
     }
     const fold = FOLD.exec(line);
@@ -159,12 +187,45 @@ export function markdownBlocks(text: string | null | undefined): Block[] {
     }
     const para: string[] = [];
     while (i < lines.length && lines[i].trim() && !FENCE.test(lines[i]) && !HEADING.test(lines[i].trim())
-      && !BULLET.test(lines[i]) && !ORDERED.test(lines[i]) && !QUOTE.test(lines[i]) && !FOLD.test(lines[i])) {
+      && !BULLET.test(lines[i]) && !ORDERED.test(lines[i]) && !QUOTE.test(lines[i]) && !FOLD.test(lines[i]) && !isLineBlock(lines[i])) {
       para.push(lines[i++]);
     }
     blocks.push({ kind: 'paragraph', inlines: inlines(para.join('\n')) });
   }
   return blocks;
+}
+
+/** `[progress: …]`, `[choose: …]`, `[action: …]` and `!@[call:…]` - a whole line that is a block of its own. */
+export function lineBlockOf(line: string): Block | null {
+  const progress = PROGRESS_LINE.exec(line);
+  if (progress) return { kind: 'progress', value: Number(progress[1]), max: Number(progress[2]) || 1, label: progress[3].trim() };
+  const choose = CHOOSE_LINE.exec(line);
+  if (choose) {
+    const options = choose[1].split('|').map((o) => o.trim()).filter(Boolean);
+    if (options.length) return { kind: 'choices', options };
+  }
+  if (ACTION_LINE.test(line)) {
+    const items = parseActions(line);
+    if (items.length) return { kind: 'actions', items };
+  }
+  const call = CALLVIEW_LINE.exec(line);
+  if (call) {
+    const seg = parseMentions(call[1])[0];
+    if (seg && 'mention' in seg) return { kind: 'callview', ref: seg.mention };
+  }
+  return null;
+}
+
+/** `:::tabs` … `:::` - each `## Title` opens a tab; text before the first title is a tab named "Overview". */
+function tabsBlock(lines: string[]): Block {
+  const tabs: { title: string; body: string[] }[] = [];
+  for (const l of lines) {
+    const h = /^\s*##\s+(.*)$/.exec(l);
+    if (h) tabs.push({ title: h[1].trim(), body: [] });
+    else if (tabs.length) tabs[tabs.length - 1].body.push(l);
+    else if (l.trim()) tabs.push({ title: 'Overview', body: [l] });
+  }
+  return { kind: 'tabs', tabs: tabs.map((t) => ({ title: t.title, blocks: markdownBlocks(t.body.join('\n')) })) };
 }
 
 /** A ```json block that parses is pretty-printed and coloured; other languages coloured as written; anything else stays text. */
@@ -260,7 +321,7 @@ export function inlines(text: string): Inline[] {
 const TOKEN = new RegExp([
   /(`[^`\n]+`)/.source,                                      // 1 code
   /(\[[^\]\n]+\]\([^)\s]+\))/.source,                         // 2 link
-  /(\{\{\s*[A-Za-z_][\w.-]*\s*\}\})/.source,                  // 3 variable
+  /(\{\{\s*[A-Za-z_][\w.-]*\s*\}\}|\{(?:red|green|amber|blue|purple)\|[^}\n]+\})/.source, // 3 variable or {red|colour}
   /(\[(?:ok|fail|wait|info)(?::[^\]\n]{1,60})?\](?!\())/.source, // 4 pill
   /(\*\*[^*\n]+\*\*)/.source,                                // 5 bold
   /(__[^_\n]+__)/.source,                                    // 6 bold
@@ -289,8 +350,11 @@ function formatted(text: string): Inline[] {
       const href = token.slice(close + 2, -1);
       if (/^(https?:\/\/|mailto:)/i.test(href)) out.push({ kind: 'link', href, children: formatted(label) });
       else out.push({ kind: 'text', text: token });
-    } else if (m[3]) {
+    } else if (m[3] && token.startsWith('{{')) {
       out.push({ kind: 'variable', name: token.slice(2, -2).trim() });
+    } else if (m[3]) {
+      const bar = token.indexOf('|');
+      out.push({ kind: 'color', color: token.slice(1, bar) as TextColor, children: formatted(token.slice(bar + 1, -1)) });
     } else if (m[4]) {
       out.push(pillOf(token.slice(1, -1)));
     } else if (m[5] || m[6]) {
@@ -342,6 +406,7 @@ export function headingsOf(blocks: readonly Block[]): { level: number; slug: str
   for (const b of blocks) {
     if (b.kind === 'heading') out.push({ level: b.level, slug: b.slug, text: plainText(b.inlines) });
     else if (b.kind === 'callout' || b.kind === 'fold') out.push(...headingsOf(b.blocks));
+    else if (b.kind === 'tabs') for (const t of b.tabs) out.push(...headingsOf(t.blocks));
   }
   return out;
 }

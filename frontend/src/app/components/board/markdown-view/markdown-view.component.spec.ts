@@ -61,4 +61,56 @@ describe('MarkdownViewComponent', () => {
     fixture.detectChanges();
     expect(Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('p')).map((p) => p.getAttribute('dir'))).toEqual(['ltr', 'ltr']);
   });
+
+  it('draws the fixed visual blocks: stats cards, a chart, a timeline, progress, tabs and colour', () => {
+    const el = render([
+      'It is {green|4× faster}.',
+      '',
+      '```stats',
+      'Median | 2380 → 610 ms | green | ▼ 74%',
+      'Errors | 0 → 0',
+      '```',
+      '',
+      '```chart',
+      '{"type":"bar","labels":["a","b"],"series":[{"name":"before","values":[2,1]},{"name":"after","values":[1,1]}]}',
+      '```',
+      '',
+      '```timeline',
+      'call | 0 | 100 | purple',
+      'sql | 10 | 20 | green',
+      '```',
+      '',
+      '[progress: 3/9 re-tested]',
+      '',
+      ':::tabs',
+      '## Before',
+      'old way',
+      '## After',
+      'new way',
+      ':::',
+    ].join('\n'));
+    expect(el.querySelector('.board-md-c-green')!.textContent).toContain('4× faster');
+    expect(el.querySelectorAll('.board-stat').length).toBe(2);
+    expect(el.querySelector('.board-stat-v.c-green')!.textContent).toContain('610 ms');
+    expect(el.querySelectorAll('app-chart-block svg rect[rx="2"]').length).toBe(4);
+    expect(el.querySelector('.board-vis-legend')!.textContent).toContain('before');
+    expect(el.querySelectorAll('app-timeline-block rect[rx="3"]').length).toBe(2);
+    expect((el.querySelector('.board-progress-track i') as HTMLElement).style.width).toBe('33.3333%');
+    const tabs = Array.from(el.querySelectorAll('.board-tab')) as HTMLButtonElement[];
+    expect(tabs.map((t) => t.textContent!.trim())).toEqual(['Before', 'After']);
+    expect(el.querySelector('.board-tab-body')!.textContent).toContain('old way');
+  });
+
+  it('switches tabs and shows a chart error with its source instead of breaking', () => {
+    const fixture = TestBed.createComponent(MarkdownViewComponent);
+    fixture.componentRef.setInput('text', ':::tabs\n## A\none\n## B\ntwo\n:::\n\n```chart\nnot json\n```');
+    fixture.componentRef.setInput('previews', false);
+    fixture.detectChanges();
+    const el = fixture.nativeElement as HTMLElement;
+    (el.querySelectorAll('.board-tab')[1] as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(el.querySelector('.board-tab-body')!.textContent).toContain('two');
+    expect(el.querySelector('.board-vis-err')!.textContent).toContain('JSON');
+    expect(el.querySelector('.board-vis-src')!.textContent).toContain('not json');
+  });
 });

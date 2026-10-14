@@ -12,6 +12,8 @@ import { Block, CALLOUT_TITLES, CalloutTone, Inline, PillTone, TextColor, codeBl
 import { blocksToDom, blocksToHtml, domBlocks, hasFormatting, htmlBlocks, isHtml, textBlocks, variablePillNode } from '../../../shared/utils/rich-html';
 import { CODE_LANGS, guessLang } from '../../../shared/utils/code-highlight';
 import { BoardTemplate, DEFAULT_TEMPLATES, loadTemplates, saveTemplates } from '../../../shared/utils/board-templates';
+import { VISUAL_TEMPLATES } from '../../../shared/utils/board-visuals';
+import { VisualEditorComponent } from '../visuals/visual-editor.component';
 
 interface MenuItem {
   readonly id: string;
@@ -21,7 +23,9 @@ interface MenuItem {
 }
 
 const BLOCK_SELECTOR = 'p, h1, h2, h3, h4, li, blockquote, td, th, summary, pre, aside';
-const BLOCK_TAGS = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'UL', 'OL', 'PRE', 'BLOCKQUOTE', 'TABLE', 'HR', 'IMG', 'DETAILS', 'ASIDE', 'DIV']);
+/** Visual blocks the block editor opens (specs/017 R37); their source is the <pre>'s text. */
+const EDITABLE_VISUALS = new Set(['chart', 'stats', 'timeline']);
+const BLOCK_TAGS = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'UL', 'OL', 'PRE', 'BLOCKQUOTE', 'TABLE', 'HR', 'IMG', 'DETAILS', 'ASIDE', 'DIV', 'SECTION']);
 
 /**
  * A rich text box with mentions (FR-022, docs/board.md "Rich text"). Plain typing stays exactly what it always was: the
@@ -34,7 +38,7 @@ const BLOCK_TAGS = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'UL', 'OL', 'PRE', 'BLO
 @Component({
   selector: 'app-mention-editor',
   standalone: true,
-  imports: [MentionPickerComponent, ImageAnnotateComponent],
+  imports: [MentionPickerComponent, ImageAnnotateComponent, VisualEditorComponent],
   template: `
     <div class="board-editor">
       @if (draftNotice(); as d) {
@@ -79,6 +83,13 @@ const BLOCK_TAGS = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'UL', 'OL', 'PRE', 'BLO
             }
           </span>
           <button type="button" class="board-editor-btn" title="Table" (click)="table()">▦</button>
+          <span class="board-editor-dd">
+            <button type="button" class="board-editor-btn" title="Visual: chart, stats, timeline, progress, tabs - or type /" (click)="toggleMenu('visual')">◇▾</button>
+            @if (menu() === 'visual') {
+              <span class="board-editor-dd-menu">@for (v of visuals; track v.id) {
+                <button type="button" class="board-editor-swatch" (click)="visual(v.id)">{{ v.label }}</button> }</span>
+            }
+          </span>
           <button type="button" class="board-editor-btn" title="Collapsible section" (click)="fold()">▸</button>
           <span class="board-editor-dd">
             <button type="button" class="board-editor-btn" title="Status pill" (click)="toggleMenu('pill')">✓▾</button>
@@ -123,6 +134,14 @@ const BLOCK_TAGS = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'UL', 'OL', 'PRE', 'BLO
             <span class="board-editor-menu-empty">{{ p.kind === 'var' ? 'No global variable matches - ' + p.query + ' is inserted as typed' : 'Nothing matches' }}</span>
           }
         </div>
+      }
+      @if (visualEdit(); as ve) {
+        <app-visual-editor [lang]="ve.lang" [source]="ve.source" [saveLabel]="ve.pre ? 'Save' : 'Insert'"
+                           (saved)="visualSaved($event)" (closed)="visualEdit.set(null)" />
+      }
+      @if (visualBar(); as vb) {
+        <div class="board-editor-imgbar" [style.top.px]="vb.top" [style.left.px]="vb.left" (mousedown)="$event.preventDefault()">
+          <button type="button" class="board-link" (click)="editVisual()">✎ Edit {{ vb.lang }}</button></div>
       }
       @if (imageBar(); as ib) {
         <div class="board-editor-imgbar" [style.top.px]="ib.top" [style.left.px]="ib.left" (mousedown)="$event.preventDefault()">
@@ -196,10 +215,17 @@ export class MentionEditorComponent implements AfterViewInit {
   readonly pickerOpen = signal(false);
   readonly source = signal(false);
   readonly rich = signal(false);
-  readonly menu = signal<'color' | 'callout' | 'pill' | 'tpl' | null>(null);
+  readonly menu = signal<'color' | 'callout' | 'pill' | 'tpl' | 'visual' | null>(null);
   readonly popup = signal<{ kind: 'slash' | 'var'; query: string; top: number | null; bottom: number | null; left: number } | null>(null);
   readonly popupIndex = signal(0);
   readonly imageBar = signal<{ top: number; left: number } | null>(null);
+  /** The block editor: a new visual (pre null) or the one clicked in the box. */
+  readonly visualEdit = signal<{ lang: string; source: string; pre: HTMLElement | null } | null>(null);
+  readonly visualBar = signal<{ top: number; left: number; lang: string; pre: HTMLElement } | null>(null);
+  readonly visuals: readonly { id: string; label: string }[] = [
+    { id: 'chart', label: '▤ Chart' }, { id: 'stats', label: '▦ Stats' }, { id: 'timeline', label: '⏱ Timeline' },
+    { id: 'progress', label: '▬ Progress' }, { id: 'tabs', label: '⧉ Tabs' },
+  ];
   readonly annotating = signal<string | null>(null);
   readonly uploadError = signal<string | null>(null);
   readonly draftNotice = signal<{ text: string; at: string } | null>(null);
@@ -256,6 +282,7 @@ export class MentionEditorComponent implements AfterViewInit {
       { id: 'check', label: '☑ Checklist', hint: '[]', run: () => this.slash(() => this.checklist()) },
       ...this.callouts.map((t) => ({ id: `callout-${t}`, label: `▤ ${this.calloutTitle(t)}`, hint: 'callout', run: () => this.slash(() => this.callout(t)) })),
       { id: 'table', label: '▦ Table', run: () => this.slash(() => this.table()) },
+      ...this.visuals.map((v) => ({ id: `visual-${v.id}`, label: v.label, hint: 'visual', run: () => this.slash(() => this.visual(v.id)) })),
       { id: 'fold', label: '▸ Collapsible', run: () => this.slash(() => this.fold()) },
       { id: 'quote', label: '❝ Quote', hint: '>', run: () => this.slash(() => this.styleBlock('blockquote')) },
       ...CODE_LANGS.map((l) => ({ id: `code-${l.id}`, label: `</> Code: ${l.label}`, hint: '```', run: () => this.slash(() => this.codeBlockOf(l.id)) })),
@@ -530,12 +557,51 @@ export class MentionEditorComponent implements AfterViewInit {
   onBoxClick(event: MouseEvent): void {
     this.menu.set(null);
     this.popup.set(null);
+    const pre = event.target instanceof Element ? event.target.closest('pre[data-lang]') as HTMLElement | null : null;
+    const lang = pre?.dataset['lang'] ?? '';
+    if (pre && EDITABLE_VISUALS.has(lang) && this.box().nativeElement.contains(pre)) {
+      const r = pre.getBoundingClientRect();
+      const host = this.box().nativeElement.parentElement!.getBoundingClientRect();
+      this.visualBar.set({ top: r.top - host.top + 4, left: r.right - host.left - 120, lang, pre });
+    } else {
+      this.visualBar.set(null);
+    }
     const img = event.target instanceof HTMLImageElement ? event.target : null;
     this.selectedImage = img;
     if (!img) { this.imageBar.set(null); return; }
     const r = img.getBoundingClientRect();
     const host = this.box().nativeElement.parentElement!.getBoundingClientRect();
     this.imageBar.set({ top: r.top - host.top + 4, left: r.left - host.left + 4 });
+  }
+
+  /** The ◇ menu: chart, stats and timeline open the block editor; progress and tabs go in as a template to edit in place. */
+  visual(id: string): void {
+    this.menu.set(null);
+    if (EDITABLE_VISUALS.has(id)) {
+      this.saveCaret();
+      this.visualEdit.set({ lang: id, source: VISUAL_TEMPLATES[id] ?? '', pre: null });
+      return;
+    }
+    this.insertBlocks(markdownBlocks(VISUAL_TEMPLATES[id] ?? ''));
+  }
+
+  editVisual(): void {
+    const vb = this.visualBar();
+    if (!vb) return;
+    this.visualBar.set(null);
+    this.visualEdit.set({ lang: vb.lang, source: vb.pre.textContent ?? '', pre: vb.pre });
+  }
+
+  visualSaved(source: string): void {
+    const ve = this.visualEdit();
+    this.visualEdit.set(null);
+    if (!ve) return;
+    if (ve.pre && this.box().nativeElement.contains(ve.pre)) {
+      ve.pre.textContent = source;
+      this.sync();
+      return;
+    }
+    this.insertBlocks([{ kind: 'visual', lang: ve.lang as 'chart', info: '', text: source }]);
   }
 
   annotate(): void {
@@ -563,7 +629,7 @@ export class MentionEditorComponent implements AfterViewInit {
     if (t.tagName !== 'SELECT' && t.tagName !== 'OPTION' && t.tagName !== 'INPUT') event.preventDefault();
   }
 
-  toggleMenu(m: 'color' | 'callout' | 'pill' | 'tpl'): void {
+  toggleMenu(m: 'color' | 'callout' | 'pill' | 'tpl' | 'visual'): void {
     this.menu.update((x) => (x === m ? null : m));
   }
 

@@ -25,7 +25,7 @@ import java.util.regex.Pattern;
 public final class RichText {
 
     /** HTML starts with one of the editor's block tags; Markdown never does. */
-    private static final Pattern HTML = Pattern.compile("^\\s*<(p|h[1-4]|ul|ol|div|aside|table|pre|blockquote|details|hr|img|figure)[\\s>/]",
+    private static final Pattern HTML = Pattern.compile("^\\s*<(p|h[1-4]|ul|ol|div|aside|table|pre|blockquote|details|hr|img|figure|section)[\\s>/]",
             Pattern.CASE_INSENSITIVE);
     /** A picture stored in Alfred: the only {@code src} kept. */
     private static final Pattern IMAGE = Pattern.compile("/board/images/([A-Za-z0-9-]{8,64})");
@@ -36,10 +36,13 @@ public final class RichText {
     private static final Safelist SAFE = new Safelist()
             .addTags("p", "h1", "h2", "h3", "h4", "br", "hr", "b", "strong", "i", "em", "u", "s", "mark", "sub", "sup", "kbd", "code",
                     "pre", "blockquote", "ul", "ol", "li", "table", "thead", "tbody", "tr", "th", "td", "a", "img", "details", "summary",
-                    "aside", "span", "div")
+                    "aside", "span", "div", "section")
             .addAttributes("a", "href", "title")
             .addAttributes("img", "src", "alt", "width")
-            .addAttributes("pre", "data-lang")
+            // a visual or snippet (specs/017) is a <pre> whose source stays text: data-info carries `live name="…"`
+            .addAttributes("pre", "data-lang", "data-info")
+            .addAttributes("section", "data-tabs", "data-tab")
+            .addAttributes("h4", "data-tab-title")
             .addAttributes("ul", "data-checklist")
             .addAttributes("li", "data-checked")
             .addAttributes("aside", "data-callout")
