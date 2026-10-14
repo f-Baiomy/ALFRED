@@ -1,5 +1,6 @@
 import { ActivityEntry, CardDetail, ChecklistMark, CycleBrief, MentionRef } from '../../core/models/board.models';
 import { mentionsIn } from './mention-syntax';
+import { BoardVisuals, visualRecords } from './board-visuals-export';
 
 /**
  * The board's .json export and re-import format, `alfred-board/1` (specs/014-task-board research R15): a header line,
@@ -26,6 +27,8 @@ export interface BoardExport {
   readonly marks: readonly ChecklistMark[];
   /** The pictures the texts show (base64), so an import elsewhere shows them too - .json only. */
   readonly images?: readonly BoardImageData[];
+  /** Pages, saved values, pictures, files and widgets (specs/017 R43). */
+  readonly visuals?: BoardVisuals;
 }
 
 export interface BoardImageData {
@@ -62,7 +65,8 @@ function directLinks(card: CardDetail, history: readonly ActivityEntry[]): Menti
 
 export function buildBoardJsonLines(data: BoardExport, exportedAt = new Date().toISOString()): string[] {
   const lines: string[] = [JSON.stringify({ format: BOARD_FORMAT, exportedAt, project: data.project, cards: data.cards.length,
-    guide: 'One record per line: card, then activity (by cardNumber), brief, spec, mark, image (base64). Texts are Markdown or HTML. Import with Board → Import .json.' })];
+    guide: 'One record per line: card, then activity (by cardNumber), brief, spec, mark, image (base64), page (with every version), state, shot (PNG, base64), '
+      + 'file (base64), widget. Texts are Markdown or HTML. Import with Board → Import .json.' })];
   for (const card of data.cards) {
     const fields: Record<string, unknown> = {};
     for (const f of CARD_FIELDS) fields[f] = card[f];
@@ -84,6 +88,7 @@ export function buildBoardJsonLines(data: BoardExport, exportedAt = new Date().t
       evidence: m.evidence, updatedAt: m.updatedAt }));
   }
   for (const i of data.images ?? []) lines.push(JSON.stringify({ record: 'image', id: i.id, mime: i.mime, data: i.data }));
+  if (data.visuals) lines.push(...visualRecords(data.visuals));
   return lines;
 }
 

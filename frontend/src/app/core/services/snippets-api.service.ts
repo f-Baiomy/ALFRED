@@ -2,7 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import {
-  NewSnippetPage, SnippetOwner, SnippetPage, SnippetPageEdit, SnippetShotInfo, SnippetStateValue, SnippetVersionInfo,
+  BoardFileInfo, FilePlace, NewSnippetPage, SnippetOwner, SnippetPage, SnippetPageEdit, SnippetShotInfo, SnippetStateValue, SnippetVersionInfo, WidgetInfo,
 } from '../models/snippet.models';
 import { AppConfigService } from './app-config.service';
 
@@ -64,5 +64,63 @@ export class SnippetsApiService {
   /** `withPicture` false: only version, console and time (to know whether a new shot is needed). */
   shot(id: string, withPicture = true): Observable<SnippetShotInfo> {
     return this.http.get<SnippetShotInfo>(`${this.one(id)}/shot`, withPicture ? {} : { params: { png: false } });
+  }
+
+  /** A card's, a cycle's or a project's own pages (every version, with sources), saved values and newest pictures - for the board export. */
+  visuals(place: { card?: string; cycle?: string; project?: string }): Observable<{
+    pages: { page: SnippetPage; versions: SnippetVersionInfo[] }[]; states: SnippetStateValue[];
+    shots: { snippetId: string; version: number; png: string; console: string; at: string }[];
+  }> {
+    const params: Record<string, string> = place.card ? { card: place.card } : place.cycle ? { cycle: place.cycle } : { project: place.project ?? '' };
+    return this.http.get<{
+      pages: { page: SnippetPage; versions: SnippetVersionInfo[] }[]; states: SnippetStateValue[];
+      shots: { snippetId: string; version: number; png: string; console: string; at: string }[];
+    }>(`${this.base}/visuals`, { params });
+  }
+
+  // ----------------------------------------------------------------------------------------------- files (R36)
+
+  files(place: { card?: string | null; cycle?: string | null }): Observable<BoardFileInfo[]> {
+    return this.http.get<BoardFileInfo[]>(`${this.base}/files`, { params: place.card ? { card: place.card } : { cycle: place.cycle ?? '' } });
+  }
+
+  /** The file's bytes as the body; its type comes from its name. */
+  attach(place: FilePlace, file: File): Observable<BoardFileInfo> {
+    const params: Record<string, string> = 'card' in place ? { card: place.card, name: file.name } : { cycle: place.cycle, project: place.project, name: file.name };
+    return this.http.post<BoardFileInfo>(`${this.base}/files`, file, { params, headers: { 'Content-Type': 'application/octet-stream' } });
+  }
+
+  fileUrl(id: string): string {
+    return `${this.base}/files/${encodeURIComponent(id)}`;
+  }
+
+  fileText(id: string): Observable<string> {
+    return this.http.get(this.fileUrl(id), { params: { inline: true }, responseType: 'text' });
+  }
+
+  fileBlob(id: string): Observable<Blob> {
+    return this.http.get(this.fileUrl(id), { responseType: 'blob' });
+  }
+
+  removeFile(id: string): Observable<void> {
+    return this.http.delete<void>(this.fileUrl(id));
+  }
+
+  // --------------------------------------------------------------------------------------------- widgets (R34)
+
+  widgets(project: string): Observable<WidgetInfo[]> {
+    return this.http.get<WidgetInfo[]>(`${this.base}/widgets`, { params: { project } });
+  }
+
+  widget(project: string, name: string): Observable<WidgetInfo> {
+    return this.http.get<WidgetInfo>(`${this.base}/widgets/${encodeURIComponent(name)}`, { params: { project } });
+  }
+
+  putWidget(project: string, name: string, w: { kind: string; info: string; source: string }): Observable<WidgetInfo> {
+    return this.http.put<WidgetInfo>(`${this.base}/widgets/${encodeURIComponent(name)}`, w, { params: { project } });
+  }
+
+  deleteWidget(project: string, name: string): Observable<void> {
+    return this.http.delete<void>(`${this.base}/widgets/${encodeURIComponent(name)}`, { params: { project } });
   }
 }

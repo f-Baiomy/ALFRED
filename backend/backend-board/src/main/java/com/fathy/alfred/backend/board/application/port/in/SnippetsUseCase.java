@@ -66,4 +66,17 @@ public interface SnippetsUseCase {
     Result<Void> putShot(String snippetId, int version, String pngBase64, List<String> console);
 
     Optional<SnippetShot> shot(String snippetId);
+
+    /** A page with every version of it, sources included (newest first). */
+    record PageWithVersions(Snippet page, List<SnippetVersion> versions) {
+    }
+
+    /**
+     * Everything visual kept with a card ({@code cardId}), a cycle ({@code cycleId}) or a project ({@code project}) - its
+     * pages with all their versions, the saved values of its snippets and each one's newest shot - for the board export.
+     */
+    record Visuals(List<PageWithVersions> pages, List<SnippetState> states, List<SnippetShot> shots) {
+    }
+
+    Result<Visuals> visuals(String cardId, String cycleId, String project);
 }

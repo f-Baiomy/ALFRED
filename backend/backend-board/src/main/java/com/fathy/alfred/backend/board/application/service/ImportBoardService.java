@@ -3,7 +3,16 @@ package com.fathy.alfred.backend.board.application.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fathy.alfred.backend.board.application.port.in.ImportBoardUseCase;
+import com.fathy.alfred.backend.board.application.port.out.BoardFileStorePort;
 import com.fathy.alfred.backend.board.application.port.out.BoardImageStorePort;
+import com.fathy.alfred.backend.board.application.port.out.SnippetStorePort;
+import com.fathy.alfred.backend.board.application.port.out.WidgetStorePort;
+import com.fathy.alfred.backend.board.domain.model.BoardFile;
+import com.fathy.alfred.backend.board.domain.model.Snippet;
+import com.fathy.alfred.backend.board.domain.model.SnippetShot;
+import com.fathy.alfred.backend.board.domain.model.SnippetState;
+import com.fathy.alfred.backend.board.domain.model.SnippetVersion;
+import com.fathy.alfred.backend.board.domain.model.Widget;
 import com.fathy.alfred.backend.board.application.port.out.BoardNotificationPort;
 import com.fathy.alfred.backend.board.application.port.out.BoardStorePort;
 import com.fathy.alfred.backend.board.application.port.out.MentionedCallsChangedPort;
@@ -61,6 +70,17 @@ public class ImportBoardService implements ImportBoardUseCase {
     private final MentionedCallsChangedPort mentionedCalls;
     private final BoardImageStorePort images;
     private final ObjectMapper json = new ObjectMapper();
+    private SnippetStorePort snippets;
+    private BoardFileStorePort files;
+    private WidgetStorePort widgets;
+
+    /** Pages, saved values, shots, files and widgets (specs/017 R43) come back too where those stores are present. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setVisualStores(SnippetStorePort snippets, BoardFileStorePort files, WidgetStorePort widgets) {
+        this.snippets = snippets;
+        this.files = files;
+        this.widgets = widgets;
+    }
 
     public ImportBoardService(BoardStorePort store, BoardNotificationPort notifications, MentionedCallsChangedPort mentionedCalls,
                               BoardChangeFeed feed, BoardImageStorePort images) {
@@ -91,6 +111,7 @@ public class ImportBoardService implements ImportBoardUseCase {
         Map<String, Set<String>> cycleImages = new HashMap<>();
         String sourceProject = null;
         boolean cardsWritten = false;
+        Map<String, String> pageIds = new HashMap<>(); // an exported page id -> its id here
         String line;
         while ((line = lines.readLine()) != null) {
             bytes += line.getBytes(StandardCharsets.UTF_8).length + 1L;
@@ -149,6 +170,11 @@ public class ImportBoardService implements ImportBoardUseCase {
                         r.path("itemKey").asText(), Mark.valueOf(r.path("mark").asText()), actor(r.path("actor").asText()),
                         RichText.clean(r.path("evidence").asText("")), List.of(), instant(r.path("updatedAt").asText())));
                 case "image" -> image(r);
+                case "page" -> page(r, target, idByOldNumber, pageIds);
+                case "state" -> state(r, idByOldNumber, newIds, pageIds);
+                case "shot" -> shot(r, idByOldNumber, newIds, pageIds);
+                case "file" -> file(r, target, idByOldNumber);
+                case "widget" -> widget(r, target);
                 default -> {
                     // A newer exporter's record this reader does not know: skipped, not fatal.
                 }
@@ -228,6 +254,168 @@ public class ImportBoardService implements ImportBoardUseCase {
             return;
         }
         images.saveImage(new BoardImage(id, mime, data, null, null, Instant.now()));
+    }
+
+    // -------------------------------------------------------------------------------- visuals (specs/017 R43)
+
+    private static final Pattern INLINE_CARD = Pattern.compile("^inline:card:#(\\d+):(desc|(\\d+)(p\\d+)?):(\\d{1,3})$");
+    private static final Pattern INLINE_CYCLE = Pattern.compile("^inline:cycle:[A-Za-z0-9-]{1,64}:(goal|desc|o\\d+):\\d{1,3}$");
+
+    /** Where a page goes here: its card (by the number it had), its cycle, or the project imported into. */
+    private void page(JsonNode r, String target, Map<Integer, String> idByOldNumber, Map<String, String> pageIds) {
+        if (snippets == null) {
+            return;
+        }
+        String owner = r.path("owner").asText();
+        String cardId = "card".equals(owner) ? idByOldNumber.get(r.path("cardNumber").asInt(-1)) : null;
+        String cycleId = "cycle".equals(owner) ? text(r, "cycleId") : null;
+        if (("card".equals(owner) && cardId == null) || ("cycle".equals(owner) && (cycleId == null || !cycleId.matches("^[A-Za-z0-9-]{1,64}$")))) {
+            return;
+        }
+        Snippet.Kind kind;
+        try {
+            kind = Snippet.Kind.valueOf(r.path("kind").asText("HTML"));
+        } catch (IllegalArgumentException e) {
+            return;
+        }
+        String source = r.path("source").asText("");
+        if (source.getBytes(StandardCharsets.UTF_8).length > 256 * 1024) {
+            return;
+        }
+        Snippet.Owner o = cardId != null ? Snippet.Owner.CARD : cycleId != null ? Snippet.Owner.CYCLE : Snippet.Owner.PROJECT;
+        String id = UUID.randomUUID().toString();
+        int version = Math.max(1, r.path("version").asInt(1));
+        Snippet s = new Snippet(id, o, cardId != null ? cardId : cycleId != null ? cycleId : target, target, cardId, cycleId,
+                r.path("name").asText("Page"), kind, r.path("info").asText(""), source, actor(r.path("author").asText()),
+                r.path("pinned").asBoolean(false), r.path("position").asInt(0), version, instant(text(r, "createdAt")),
+                instant(text(r, "updatedAt")), actor(r.path("updatedBy").asText()));
+        snippets.insert(s);
+        pageIds.put(r.path("id").asText(), id);
+        for (JsonNode v : r.path("versions")) {
+            if (v.path("version").asInt() != version && v.path("source").asText("").getBytes(StandardCharsets.UTF_8).length <= 256 * 1024) {
+                snippets.importVersion(new SnippetVersion(id, v.path("version").asInt(), v.path("name").asText(""), v.path("info").asText(""),
+                        v.path("source").asText(""), 0, actor(v.path("author").asText()), instant(text(v, "at"))));
+            }
+        }
+    }
+
+    /** An exported snippet id as the id here: a page's new id, an inline block on its card's new id and its comment's new id. */
+    private record Place(String snippetId, String cardId, String cycleId) {
+    }
+
+    private Place place(String exported, Map<Integer, String> idByOldNumber, Map<Long, Long> newIds, Map<String, String> pageIds) {
+        if (exported == null) {
+            return null;
+        }
+        if (exported.startsWith("page:")) {
+            String id = pageIds.get(exported.substring(5));
+            return id == null ? null : snippets.find(id).map(p -> new Place(id, p.cardId(), p.cycleId())).orElse(null);
+        }
+        Matcher m = INLINE_CARD.matcher(exported);
+        if (m.matches()) {
+            String cardId = idByOldNumber.get(Integer.parseInt(m.group(1)));
+            if (cardId == null) {
+                return null;
+            }
+            String where = m.group(2);
+            if (m.group(3) != null) {
+                Long entry = newIds.get(Long.parseLong(m.group(3)));
+                if (entry == null) {
+                    return null;
+                }
+                where = entry + (m.group(4) == null ? "" : m.group(4));
+            }
+            return new Place("inline:card:" + cardId + ":" + where + ":" + m.group(5), cardId, null);
+        }
+        if (INLINE_CYCLE.matcher(exported).matches()) {
+            return new Place(exported, null, exported.split(":")[2]);
+        }
+        return null;
+    }
+
+    private void state(JsonNode r, Map<Integer, String> idByOldNumber, Map<Long, Long> newIds, Map<String, String> pageIds) {
+        if (snippets == null) {
+            return;
+        }
+        Place p = place(text(r, "snippetId"), idByOldNumber, newIds, pageIds);
+        String key = r.path("key").asText("");
+        String value = r.path("value").asText("");
+        if (p == null || key.isEmpty() || key.length() > SnippetState.MAX_KEY || value.getBytes(StandardCharsets.UTF_8).length > SnippetState.MAX_VALUE_BYTES) {
+            return;
+        }
+        try {
+            json.readTree(value); // a value is JSON text, as alfred.state keeps it
+        } catch (IOException e) {
+            return;
+        }
+        snippets.putState(new SnippetState(p.snippetId(), key, value, actor(r.path("updatedBy").asText()), instant(text(r, "at"))), p.cardId(), p.cycleId());
+    }
+
+    private void shot(JsonNode r, Map<Integer, String> idByOldNumber, Map<Long, Long> newIds, Map<String, String> pageIds) {
+        if (snippets == null) {
+            return;
+        }
+        Place p = place(text(r, "snippetId"), idByOldNumber, newIds, pageIds);
+        byte[] png;
+        try {
+            png = Base64.getDecoder().decode(r.path("png").asText(""));
+        } catch (IllegalArgumentException e) {
+            return;
+        }
+        if (p == null || png.length == 0 || png.length > SnippetShot.MAX_PNG_BYTES || !BoardImagesService.looksLike("image/png", png)) {
+            return;
+        }
+        String console = r.path("console").asText("");
+        snippets.putShot(new SnippetShot(p.snippetId(), r.path("version").asInt(1), png,
+                console.length() > SnippetShot.MAX_CONSOLE ? console.substring(console.length() - SnippetShot.MAX_CONSOLE) : console,
+                instant(text(r, "at"))), p.cardId(), p.cycleId());
+    }
+
+    /** A file keeps its id (the texts link to it) unless that id is here already - then the one here is what they show. */
+    private void file(JsonNode r, String target, Map<Integer, String> idByOldNumber) {
+        if (files == null) {
+            return;
+        }
+        String id = r.path("id").asText("");
+        String name = r.path("name").asText("");
+        String mime = BoardFile.TYPES.get(BoardFile.extension(name));
+        String cardId = r.has("cardNumber") ? idByOldNumber.get(r.path("cardNumber").asInt(-1)) : null;
+        String cycleId = cardId == null ? text(r, "cycleId") : null;
+        if (!id.matches("^[A-Za-z0-9-]{8,64}$") || mime == null || (cardId == null && cycleId == null) || files.findFile(id).isPresent()) {
+            return;
+        }
+        byte[] data;
+        try {
+            data = Base64.getDecoder().decode(r.path("data").asText(""));
+        } catch (IllegalArgumentException e) {
+            return;
+        }
+        if (data.length == 0 || data.length > BoardFile.MAX_BYTES || BoardFilesService.content(mime, data) != null) {
+            return;
+        }
+        String cycle = cardId != null ? store.find(cardId).map(Card::cycleId).orElse(null) : cycleId;
+        files.saveFile(new BoardFile(id, target, cardId, cycle, name, mime, data.length, data, actor(r.path("author").asText()), instant(text(r, "createdAt"))));
+    }
+
+    /** A widget comes in under its name unless the project has one by that name already - that one is kept. */
+    private void widget(JsonNode r, String target) {
+        if (widgets == null) {
+            return;
+        }
+        String name = r.path("name").asText("");
+        String source = r.path("source").asText("");
+        Widget.Kind kind;
+        try {
+            kind = Widget.Kind.valueOf(r.path("kind").asText("HTML"));
+        } catch (IllegalArgumentException e) {
+            return;
+        }
+        if (!name.matches(Widget.NAME) || source.isBlank() || source.getBytes(StandardCharsets.UTF_8).length > Widget.MAX_SOURCE
+                || widgets.widget(target, name).isPresent()) {
+            return;
+        }
+        widgets.putWidget(new Widget(target, name, kind, r.path("info").asText(""), source, actor(r.path("author").asText()),
+                instant(text(r, "updatedAt")), actor(r.path("updatedBy").asText())));
     }
 
     /** {@code @[card:<source>#N|} becomes {@code @[card:<target>#M|} for every imported card. */

@@ -138,6 +138,13 @@ public class SnippetsController {
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
+    /** Pages (all versions), saved values and newest shots of a card, a cycle or a project's own pages - for the board export. */
+    @GetMapping("/board/visuals")
+    public ResponseEntity<?> visuals(@RequestParam(required = false) String card, @RequestParam(required = false) String cycle,
+                                     @RequestParam(required = false) String project) {
+        return respond(snippets.visuals(card, cycle, project), HttpStatus.OK);
+    }
+
     private static ResponseEntity<?> respond(Result<?> r, HttpStatus ok) {
         if (!r.isOk()) {
             return BoardWeb.refused(r.outcome(), r.message());

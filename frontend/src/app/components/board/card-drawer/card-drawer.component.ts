@@ -32,10 +32,12 @@ import { SelectOption, SelectPickerComponent } from '../../select-picker/select-
  * says this card changed (`version`).
  */
 import { BoardPagesComponent } from '../visuals/board-pages.component';
+import { BoardFilesComponent } from '../visuals/board-files.component';
+import { BoardPinnedComponent } from '../visuals/board-pinned.component';
 @Component({
   selector: 'app-card-drawer',
   standalone: true,
-  imports: [BoardPagesComponent, NgTemplateOutlet, SelectPickerComponent, ActivityTimelineComponent, CardRetestComponent, LiveWorkBoxComponent, MarkdownViewComponent, MentionChipComponent, MentionEditorComponent, MentionPickerComponent, RunSkillComponent, RunHistoryComponent],
+  imports: [BoardPagesComponent, BoardFilesComponent, BoardPinnedComponent, NgTemplateOutlet, SelectPickerComponent, ActivityTimelineComponent, CardRetestComponent, LiveWorkBoxComponent, MarkdownViewComponent, MentionChipComponent, MentionEditorComponent, MentionPickerComponent, RunSkillComponent, RunHistoryComponent],
   template: `
     <ng-template #modeSwitch>
       <div class="board-seg board-drawer-modes" role="group" aria-label="Show the card as">
@@ -140,9 +142,10 @@ import { BoardPagesComponent } from '../visuals/board-pages.component';
                 </div>
               </div>
             }
+            <app-board-pinned [owner]="'card:' + c.id" [canEdit]="editable()" [context]="{ card: c.number, cardId: c.id, project: c.project, cycleId: c.cycleId }" />
             @if (editingDescription()) {
               <app-mention-editor [value]="descriptionDraft() ?? c.description" [project]="c.project" [cycleId]="c.cycleId" [contextMentions]="c.links"
-                                  [card]="pickTarget()" pickField="description"
+                                  [card]="pickTarget()" pickField="description" [attach]="{ card: c.id }"
                                   submitLabel="Save" [cancellable]="true" [allowEmpty]="true" [rows]="8" [enterSends]="false" [draftKey]="'desc:' + c.id"
                                   (submitted)="saveDescription($event)" (cancelled)="editingDescription.set(false); descriptionDraft.set(null)" />
             } @else {
@@ -150,6 +153,7 @@ import { BoardPagesComponent } from '../visuals/board-pages.component';
                 [snippetOwner]="'inline:card:' + c.id + ':desc'" [snippetContext]="{ card: c.number, cardId: c.id, project: c.project, cycleId: c.cycleId }" /></div>
             }
             <app-board-pages [owner]="'card:' + c.id" [canEdit]="editable()" [context]="{ card: c.number, cardId: c.id, project: c.project, cycleId: c.cycleId }" />
+            <app-board-files [card]="c.id" [canEdit]="editable()" />
           </section>
           </div>
           <div class="board-drawer-aside">
@@ -212,7 +216,7 @@ import { BoardPagesComponent } from '../visuals/board-pages.component';
         @if (editable()) {
           <div class="board-drawer-composer">
             <app-mention-editor [value]="draft()" (valueChange)="draft.set($event)" [project]="c.project" [cycleId]="c.cycleId"
-                                [contextMentions]="c.links" [card]="pickTarget()" pickField="comment" [draftKey]="'comment:' + c.id" (submitted)="comment($event)" />
+                                [contextMentions]="c.links" [card]="pickTarget()" pickField="comment" [attach]="{ card: c.id }" [draftKey]="'comment:' + c.id" (submitted)="comment($event)" />
           </div>
         }
         @if (error()) { <div class="board-error">{{ error() }}</div> }

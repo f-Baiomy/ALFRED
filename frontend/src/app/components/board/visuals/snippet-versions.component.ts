@@ -3,6 +3,7 @@ import { firstValueFrom } from 'rxjs';
 import { SnippetPage, SnippetVersionInfo } from '../../../core/models/snippet.models';
 import { SnippetsApiService } from '../../../core/services/snippets-api.service';
 import { diffLines } from '../../../shared/utils/interception-diff';
+import { MarkdownViewComponent } from '../markdown-view/markdown-view.component';
 import { SnippetHostComponent } from './snippet-host.component';
 
 /**
@@ -12,7 +13,7 @@ import { SnippetHostComponent } from './snippet-host.component';
 @Component({
   selector: 'app-snippet-versions',
   standalone: true,
-  imports: [SnippetHostComponent],
+  imports: [MarkdownViewComponent, SnippetHostComponent],
   template: `
     <div class="run-dialog-bg" (click)="closed.emit()">
       <div class="vis-ed snip-versions" role="dialog" aria-label="Versions" (click)="$event.stopPropagation()">
@@ -44,8 +45,8 @@ import { SnippetHostComponent } from './snippet-host.component';
               @if (!diff().length) { <div class="board-dim">Pick two versions.</div> }
             } @else {
               <div class="snip-side">
-                <div><div class="board-dim">v{{ a() }}</div>@if (srcA() !== null) { <app-snippet-host [source]="srcA()!" [info]="infoA()" [kind]="kind()" /> }</div>
-                <div><div class="board-dim">v{{ b() }}</div>@if (srcB() !== null) { <app-snippet-host [source]="srcB()!" [info]="infoB()" [kind]="kind()" /> }</div>
+                <div><div class="board-dim">v{{ a() }}</div>@if (srcA() !== null) { @if (page().kind === 'BLOCK') { <app-markdown-view [text]="srcA()!" /> } @else { <app-snippet-host [source]="srcA()!" [info]="infoA()" [kind]="kind()" /> } }</div>
+                <div><div class="board-dim">v{{ b() }}</div>@if (srcB() !== null) { @if (page().kind === 'BLOCK') { <app-markdown-view [text]="srcB()!" /> } @else { <app-snippet-host [source]="srcB()!" [info]="infoB()" [kind]="kind()" /> } }</div>
               </div>
             }
           </div>
@@ -71,7 +72,7 @@ export class SnippetVersionsComponent implements OnInit {
   readonly infoA = signal('');
   readonly infoB = signal('');
   readonly error = signal<string | null>(null);
-  readonly kind = computed(() => (this.page().kind === 'MERMAID' ? 'mermaid' : 'html') as 'html' | 'mermaid');
+  readonly kind = computed(() => (this.page().kind === 'MERMAID' ? 'mermaid' : this.page().kind === 'PYTHON' ? 'python' : 'html') as 'html' | 'mermaid' | 'python');
   readonly diff = computed(() => (this.srcA() === null || this.srcB() === null ? [] : diffLines(this.srcA(), this.srcB(), 'text', false)));
   private readonly sources = new Map<number, { source: string; info: string }>();
 

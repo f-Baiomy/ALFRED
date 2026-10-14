@@ -45,7 +45,7 @@ export interface TimelineReply {
               <ng-container [ngTemplateOutlet]="dirSwitch" [ngTemplateOutletContext]="{ $implicit: item.entry }" />
             </div>
             @if (editingId() === item.entry.id) {
-              <app-mention-editor [value]="item.entry.text ?? ''" [project]="project()" [cycleId]="cycleId()" [card]="card()" [rows]="4"
+              <app-mention-editor [value]="item.entry.text ?? ''" [project]="project()" [cycleId]="cycleId()" [card]="card()" [attach]="card() ? { card: card()!.id } : null" [rows]="4"
                                   [cancellable]="true" [enterSends]="false" submitLabel="Save" [draftKey]="card() ? 'edit:' + card()!.id + ':' + item.entry.id : null"
                                   (submitted)="saveEdit(item.entry, $event)" (cancelled)="editingId.set(null)" />
               @if (error()) { <div class="run-msg run-msg-err">{{ error() }}</div> }
@@ -107,7 +107,7 @@ export interface TimelineReply {
                   <span>{{ item.question && !item.answered ? 'Answering' : 'Replying to' }} {{ who(item.entry) }}: “{{ quote(item.entry) }}”</span>
                   <button type="button" class="board-link" title="Cancel" (click)="replyingTo.set(null)">✕</button>
                 </div>
-                <app-mention-editor [project]="project()" [cycleId]="cycleId()" [card]="card()" [rows]="2" [cancellable]="true"
+                <app-mention-editor [project]="project()" [cycleId]="cycleId()" [card]="card()" [attach]="card() ? { card: card()!.id } : null" [rows]="2" [cancellable]="true"
                                     [submitLabel]="item.question && !item.answered ? 'Answer' : 'Reply'"
                                     placeholder="Write your reply… type @ to mention, / for blocks" [draftKey]="card() ? 'reply:' + card()!.id + ':' + item.entry.id : null"
                                     (submitted)="send(item, $event)"

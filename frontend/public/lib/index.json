@@ -217,5 +217,15 @@
    "url": "/lib/lodash/4/lodash.min.js",
    "size": 73015
   }
- ]
+ ],
+ "python": {
+  "version": "0.27.7",
+  "url": "/lib/pyodide/0.27/",
+  "packages": [
+   "numpy",
+   "pandas",
+   "matplotlib"
+  ],
+  "about": "```python live``` runs Python 3.12 (Pyodide 0.27.7) in the locked frame: await alfred.calls(...) is a pandas DataFrame, the last line is shown, matplotlib figures are drawn. Fetched and checksummed when Alfred is built."
+ }
 }

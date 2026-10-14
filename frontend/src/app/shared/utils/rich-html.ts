@@ -1,6 +1,6 @@
 import { MentionRef } from '../../core/models/board.models';
 import {
-  BOARD_IMAGE, Block, CALLOUT_TONES, CALLOUT_TITLES, CalloutTone, Inline, PILL_TONES, PillTone, TEXT_COLORS, TextColor, codeBlock,
+  BOARD_FILE, BOARD_IMAGE, Block, CALLOUT_TONES, CALLOUT_TITLES, CalloutTone, Inline, PILL_TONES, PillTone, TEXT_COLORS, TextColor, codeBlock,
   lineBlockOf, markdownBlocks, pillOf, plainText,
 } from './markdown-blocks';
 import { visualLangOf } from './board-visuals';
@@ -189,7 +189,7 @@ export function domInlines(n: Node, flatBlocks = false): Inline[] {
     case 'CODE': return [{ kind: 'code', text: el.textContent ?? '' }];
     case 'A': {
       const href = el.getAttribute('href') ?? '';
-      return /^(https?:\/\/|mailto:)/i.test(href) ? [{ kind: 'link', href, children: kids() }] : kids();
+      return /^(https?:\/\/|mailto:)/i.test(href) || BOARD_FILE.test(href) ? [{ kind: 'link', href, children: kids() }] : kids();
     }
     case 'SPAN': case 'FONT': {
       const color = colorOf(el);
@@ -290,7 +290,7 @@ function blockHtml(b: Block): string {
     case 'image': return `<img src="${escAttr(b.src)}" alt="${escAttr(b.alt)}">`;
     case 'visual': return `<pre data-lang="${escAttr(b.lang)}"${b.info ? ` data-info="${escAttr(b.info)}"` : ''}>${esc(b.text)}</pre>`;
     case 'tabs': return `<section data-tabs="">${b.tabs.map((t) => `<section data-tab="${escAttr(t.title)}">${blocksToHtml(t.blocks)}</section>`).join('')}</section>`;
-    case 'progress': case 'choices': case 'actions': case 'callview': return `<p>${esc(blockMd(b))}</p>`;
+    case 'progress': case 'choices': case 'actions': case 'callview': case 'widget': return `<p>${esc(blockMd(b))}</p>`;
   }
 }
 
@@ -352,7 +352,7 @@ function blockDom(b: Block, doc: Document): Node {
     case 'tabs': return el(doc, 'section', b.tabs.map((t) => el(doc, 'section', [
       el(doc, 'h4', [doc.createTextNode(t.title)], { 'data-tab-title': '' }),
       ...(t.blocks.length ? blocksToDom(t.blocks, doc) : [el(doc, 'p', [el(doc, 'br')])])], { 'data-tab': t.title })), { 'data-tabs': '' });
-    case 'progress': case 'choices': case 'actions': case 'callview': return el(doc, 'p', [doc.createTextNode(blockMd(b))]);
+    case 'progress': case 'choices': case 'actions': case 'callview': case 'widget': return el(doc, 'p', [doc.createTextNode(blockMd(b))]);
   }
 }
 
@@ -423,6 +423,7 @@ function blockMd(b: Block): string {
     case 'choices': return `[choose: ${b.options.join(' | ')}]`;
     case 'actions': return b.items.map((a) => `[action: ${a.kind}${a.arg ? ' ' + a.arg : ''}${a.label && a.label !== (a.kind + (a.arg ? ' ' + a.arg : '')) ? ' | ' + a.label : ''}]`).join(' ');
     case 'callview': return '!' + serializeMention(b.ref);
+    case 'widget': return `{{widget:${b.name}${b.args ? ' | ' + b.args : ''}}}`;
   }
 }
 
@@ -477,6 +478,7 @@ export function blocksToPlain(blocks: readonly Block[]): string {
       case 'choices': return b.options.join(' / ');
       case 'actions': return b.items.map((a) => a.label).join(' · ');
       case 'callview': return b.ref.label;
+      case 'widget': return `[widget ${b.name}]`;
     }
   }).filter(Boolean).join('\n\n');
 }

@@ -1,7 +1,10 @@
 import { MentionRef } from '../../core/models/board.models';
 import { CodeToken, codeTokens, jsonCodeTokens, langOf } from './code-highlight';
 import { parseMentions, slug } from './mention-syntax';
-import { ACTION_LINE, ActionChip, CALLVIEW_LINE, CHOOSE_LINE, PROGRESS_LINE, VisualLang, isLineBlock, parseActions, visualLangOf } from './board-visuals';
+import { ACTION_LINE, ActionChip, CALLVIEW_LINE, CHOOSE_LINE, PROGRESS_LINE, VisualLang, WIDGET_LINE, infoAttrs, isLineBlock, parseActions, visualLangOf } from './board-visuals';
+
+/** A file attached on the board (specs/017 R36): the one relative link a text keeps; drawn as a file chip. */
+export const BOARD_FILE = /^\/board\/files\/[A-Za-z0-9-]{8,64}$/;
 
 /**
  * The board's text (descriptions, comments, briefs, spec files) as a typed tree, rendered with plain Angular bindings by
@@ -59,7 +62,9 @@ export type Block =
   /** `[action: retest | Re-test now]` chips - each asks the user before it runs. */
   | { readonly kind: 'actions'; readonly items: readonly ActionChip[] }
   /** `!@[call:…]` alone on a line - the expanded call view. */
-  | { readonly kind: 'callview'; readonly ref: MentionRef };
+  | { readonly kind: 'callview'; readonly ref: MentionRef }
+  /** `{{widget:name | key=value}}` alone on a line - a project widget, its `{{key}}`s filled from `params`. */
+  | { readonly kind: 'widget'; readonly name: string; readonly args: string; readonly params: Readonly<Record<string, string>> };
 
 /** One fact of a `> a · b · c` line - shown as a pill, red for a failure, amber for a stop or a gap. */
 export interface Fact {
@@ -203,6 +208,11 @@ export function markdownBlocks(text: string | null | undefined): Block[] {
 export function lineBlockOf(line: string): Block | null {
   const progress = PROGRESS_LINE.exec(line);
   if (progress) return { kind: 'progress', value: Number(progress[1]), max: Number(progress[2]) || 1, label: progress[3].trim() };
+  const widget = WIDGET_LINE.exec(line);
+  if (widget) {
+    const args = (widget[2] ?? '').trim();
+    return { kind: 'widget', name: widget[1], args, params: infoAttrs(args.replace(/\s*[|;]\s*/g, ' ')) };
+  }
   const choose = CHOOSE_LINE.exec(line);
   if (choose) {
     const options = choose[1].split('|').map((o) => o.trim()).filter(Boolean);
@@ -352,7 +362,7 @@ function formatted(text: string): Inline[] {
       const close = token.indexOf('](');
       const label = token.slice(1, close);
       const href = token.slice(close + 2, -1);
-      if (/^(https?:\/\/|mailto:)/i.test(href)) out.push({ kind: 'link', href, children: formatted(label) });
+      if (/^(https?:\/\/|mailto:)/i.test(href) || BOARD_FILE.test(href)) out.push({ kind: 'link', href, children: formatted(label) });
       else out.push({ kind: 'text', text: token });
     } else if (m[3] && token.startsWith('{{')) {
       out.push({ kind: 'variable', name: token.slice(2, -2).trim() });

@@ -5,6 +5,7 @@ import { SnippetPage } from '../../core/models/snippet.models';
 import { BoardSocketService } from '../../core/services/board-socket.service';
 import { SnippetsApiService } from '../../core/services/snippets-api.service';
 import { SnippetHostComponent } from '../../components/board/visuals/snippet-host.component';
+import { MarkdownViewComponent } from '../../components/board/markdown-view/markdown-view.component';
 
 /**
  * A board page alone in a window (specs/017 R30): `/board/page/<id>`, opened by ⧉ Pop out. The same locked frame and
@@ -13,12 +14,16 @@ import { SnippetHostComponent } from '../../components/board/visuals/snippet-hos
 @Component({
   selector: 'app-board-page-view',
   standalone: true,
-  imports: [SnippetHostComponent],
+  imports: [MarkdownViewComponent, SnippetHostComponent],
   template: `
     <div class="board-page-view">
       @if (page(); as p) {
-        <app-snippet-host [source]="p.source ?? ''" [info]="pageInfo(p)" [kind]="p.kind === 'MERMAID' ? 'mermaid' : 'html'"
-                          [snippetId]="p.id" [version]="p.version" [context]="{ project: p.project, cardId: p.cardId, cycleId: p.cycleId }" />
+        @if (p.kind === 'BLOCK') {
+          <app-markdown-view [text]="p.source ?? ''" [snippetContext]="{ project: p.project, cardId: p.cardId, cycleId: p.cycleId }" />
+        } @else {
+          <app-snippet-host [source]="p.source ?? ''" [info]="pageInfo(p)" [kind]="p.kind === 'MERMAID' ? 'mermaid' : p.kind === 'PYTHON' ? 'python' : 'html'"
+                            [snippetId]="p.id" [version]="p.version" [context]="{ project: p.project, cardId: p.cardId, cycleId: p.cycleId }" />
+        }
       } @else {
         <p class="board-dim">{{ error() ?? 'Opening…' }}</p>
       }

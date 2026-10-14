@@ -1,4 +1,4 @@
-import { buildSnippetDoc, libsForDoc } from './snippet-frame';
+import { buildSnippetDoc, libsForDoc, splitSnippetFiles } from './snippet-frame';
 import { importMap, libsOf, SNIPPET_LIBS } from './snippet-libs';
 import { SnippetBridge } from './snippet-bridge';
 import { markdownBlocks } from './markdown-blocks';
@@ -134,5 +134,63 @@ describe('snippet frame document', () => {
     expect(htmlBlocks(html)).toEqual(blocks);
     expect(markdownBlocks(textAsMarkdown(html))).toEqual(blocks);
     expect(markdownBlocks('text\n<!-- alfred:page -->').map((b) => b.kind)).not.toContain('visual');
+  });
+  describe('multi-file snippets (R26)', () => {
+    const multi = [
+      '<div id="o"></div><link rel="stylesheet" href="./look.css">',
+      '<script src="./setup.js"></script>',
+      '<script type="module">import { label } from "./label.js"; document.getElementById("o").textContent = label(alfred.file("rows.csv"));',
+      'parent.postMessage({ probe: "multi", v: document.getElementById("o").textContent, color: getComputedStyle(document.getElementById("o")).color, setup: window.SETUP }, "*");</script>',
+      '--- label.js',
+      'import { count } from "./count.js";',
+      'export const label = (csv) => "rows: " + count(csv);',
+      '--- count.js',
+      'export const count = (csv) => csv.trim().split(String.fromCharCode(10)).length - 1;',
+      '--- look.css',
+      '#o { color: rgb(1, 2, 3); }',
+      '--- setup.js',
+      'window.SETUP = "ok"; // a "</script>" inside stays code',
+      '--- rows.csv',
+      'a,b',
+      '1,2',
+      '3,4',
+    ].join('\n');
+
+    it('splits the page from its files at --- name.ext lines', () => {
+      const s = splitSnippetFiles(multi);
+      expect(Object.keys(s.files)).toEqual(['label.js', 'count.js', 'look.css', 'setup.js', 'rows.csv']);
+      expect(s.files['rows.csv']).toBe('a,b\n1,2\n3,4');
+      expect(s.main).toContain('<div id="o">');
+      expect(s.error).toBeNull();
+      expect(splitSnippetFiles('<b>x</b>\n---\n<i>y</i>').files).toEqual({});
+      expect(splitSnippetFiles('--- a.js\n1\n--- a.js\n2').error).toContain('Two files');
+    });
+
+    it('rewrites ./file imports to the map, scripts in place, stylesheets applied', () => {
+      const doc = buildSnippetDoc({ source: multi, origin });
+      expect(doc).not.toContain('<script type="importmap">');
+      expect(doc).not.toContain('href="./look.css"');
+      expect(doc).toContain('from "@file/label.js"');
+      expect(doc).toContain('a "<\\/script>" inside');
+      const boot = JSON.parse(new DOMParser().parseFromString(doc, 'text/html').getElementById('alfred-boot')!.textContent!);
+      expect(boot.files['label.js']).toContain('from "@file/count.js"');
+      expect(boot.imports['preact']).toBe(`${origin}/lib/preact/10/preact.module.js`);
+    });
+
+    it('runs in a real locked frame: modules import each other, CSS applies, data files read', async () => {
+      const frame = document.createElement('iframe');
+      frame.setAttribute('sandbox', 'allow-scripts');
+      const got = new Promise<{ v: string; color: string; setup: string }>((resolve) => {
+        const on = (e: MessageEvent) => { if (e.source === frame.contentWindow && e.data?.probe === 'multi') { window.removeEventListener('message', on); resolve(e.data); } };
+        window.addEventListener('message', on);
+      });
+      frame.srcdoc = buildSnippetDoc({ source: multi, origin: location.origin, inline: {} });
+      document.body.appendChild(frame);
+      const r = await got;
+      expect(r.v).toBe('rows: 2');
+      expect(r.color).toBe('rgb(1, 2, 3)');
+      expect(r.setup).toBe('ok');
+      frame.remove();
+    });
   });
 });

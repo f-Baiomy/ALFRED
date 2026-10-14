@@ -40,3 +40,6 @@ testem.log
 # System files
 .DS_Store
 Thumbs.db
+
+# Python for snippets (specs/017 R27): fetched and checked by scripts/fetch-pyodide.mjs before each build
+/public/lib/pyodide/

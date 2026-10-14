@@ -1,4 +1,5 @@
 import { SnippetLib, SNIPPET_LIBS, importMap, libsOf } from './snippet-libs';
+import { PYODIDE_DIR, PYTHON_CSS, pythonBody } from './snippet-python';
 
 /**
  * The locked frame an HTML snippet runs in (specs/017 R10-R13). Everything that makes a snippet safe lives here and
@@ -12,8 +13,8 @@ import { SnippetLib, SNIPPET_LIBS, importMap, libsOf } from './snippet-libs';
  */
 export const SNIPPET_SANDBOX = 'allow-scripts';
 
-/** No network: inline code, /lib/ and Alfred's own pictures only. */
-export function snippetCsp(origin: string): string {
+/** No network: inline code, /lib/ and Alfred's own pictures only. A Python snippet may also read the shelf's Python folder. */
+export function snippetCsp(origin: string, python = false): string {
   const lib = `${origin}/lib/`;
   return [
     `default-src 'none'`,
@@ -23,7 +24,7 @@ export function snippetCsp(origin: string): string {
     `font-src data: ${lib}`,
     `media-src data: blob:`,
     `worker-src blob:`,
-    `connect-src 'none'`,
+    python ? `connect-src ${origin}/lib/${PYODIDE_DIR}/` : `connect-src 'none'`,
     `frame-src 'none'`,
     `form-action 'none'`,
     `base-uri 'none'`,
@@ -33,7 +34,7 @@ export function snippetCsp(origin: string): string {
 export interface SnippetDocOptions {
   /** The snippet: HTML, or a diagram/program source when kind says so. */
   readonly source: string;
-  readonly kind?: 'html' | 'mermaid';
+  readonly kind?: 'html' | 'mermaid' | 'python';
   /** `libs="echarts chartjs"`. */
   readonly libs?: string;
   readonly origin: string;
@@ -45,6 +46,8 @@ export interface SnippetDocOptions {
   readonly vars?: Record<string, string>;
   /** For an exported page: answers given without a bridge (specs/017 R43). */
   readonly staticAnswers?: Record<string, unknown>;
+  /** A frame inside an exported page: it answers from staticAnswers instead of asking the page it sits in. */
+  readonly offline?: boolean;
   /**
    * The libraries' code by file, when the frame cannot load /lib/ itself (SnippetShelfService) or for the ⬇ .html
    * download: scripts and styles go in inline, modules become blob URLs in an import map the runtime writes.
@@ -59,10 +62,66 @@ export function libsForDoc(o: Pick<SnippetDocOptions, 'libs' | 'kind'>): Snippet
   return libs;
 }
 
+/** A file of a multi-file snippet: `--- chart.js` on a line of its own starts it (specs/017 R26). */
+const FILE_LINE = /^---[ \t]+([A-Za-z0-9_][\w.-]{0,80}\.(?:js|mjs|css|json|csv|txt|svg|md))[ \t]*$/;
+export const MAX_SNIPPET_FILES = 20;
+
+/**
+ * A snippet's source as its page and its files: the text before the first `--- name.ext` line is the page; each such
+ * line starts a file that runs to the next one. A source without such a line is all page.
+ */
+export function splitSnippetFiles(source: string): { main: string; files: Record<string, string>; error: string | null } {
+  const main: string[] = [];
+  const parts: [string, string[]][] = [];
+  let current = main;
+  let error: string | null = null;
+  for (const line of source.split(/\r?\n/)) {
+    const m = FILE_LINE.exec(line);
+    if (!m) {
+      current.push(line);
+      continue;
+    }
+    if (parts.some(([n]) => n === m[1])) error = `Two files are named ${m[1]} - the last one is used`;
+    if (parts.length >= MAX_SNIPPET_FILES) {
+      error = `At most ${MAX_SNIPPET_FILES} files in one snippet - the rest are left out`;
+      break;
+    }
+    current = [];
+    parts.push([m[1], current]);
+  }
+  return { main: main.join('\n'), files: Object.fromEntries(parts.map(([n, l]) => [n, l.join('\n')])), error };
+}
+
+const isModuleFile = (n: string) => /\.m?js$/i.test(n);
+
+/** `./chart.js` in an import becomes `@file/chart.js`, which the frame's import map points at the file. */
+function rewriteImports(code: string, files: Record<string, string>): string {
+  return code.replace(/(\bfrom\s*|\bimport\s*\(\s*|\bimport\s+)(["'])\.\/([\w.-]+\.m?js)\2/g,
+    (all, pre: string, q: string, name: string) => (name in files ? `${pre}${q}@file/${name}${q}` : all));
+}
+
+/** The page's own references to its files: stylesheets are applied anyway, classic scripts go in place, modules by the map. */
+function rewriteMain(html: string, files: Record<string, string>): string {
+  return rewriteImports(html, files)
+    .replace(/<link\b[^>]*\bhref=(["'])\.\/([\w.-]+\.css)\1[^>]*>/gi, (all, _q: string, name: string) => (name in files ? '' : all))
+    .replace(/<script\b([^>]*)\bsrc=(["'])\.\/([\w.-]+\.m?js)\2([^>]*)>\s*<\/script>/gi, (all, a: string, _q: string, name: string, b: string) => {
+      if (!(name in files)) return all;
+      return /\btype=(["'])module\1/i.test(a + b)
+        ? `<script type="module">import "@file/${name}";</script>`
+        : `<script>${rewriteImports(files[name], files).replace(/<\/(script)/gi, '<\\/$1')}</script>`;
+    });
+}
+
 /** The whole document for the frame's srcdoc - and, unchanged, the ⬇ .html download. */
 export function buildSnippetDoc(o: SnippetDocOptions): string {
   const libs = libsForDoc(o);
-  const body = o.kind === 'mermaid' ? mermaidBody(o.source) : stripDoctype(o.source);
+  const split = o.kind === 'mermaid' ? { main: o.source, files: {} as Record<string, string>, error: null } : splitSnippetFiles(o.source);
+  const files = Object.fromEntries(Object.entries(split.files).map(([n, t]) => [n, isModuleFile(n) ? rewriteImports(t, split.files) : t]));
+  const hasFiles = Object.keys(files).length > 0;
+  const python = o.kind === 'python';
+  const body = o.kind === 'mermaid' ? mermaidBody(o.source)
+    : python ? pythonBody(split.main, o.origin, scriptJson)
+    : (split.error ? `<script>console.error(${scriptJson(split.error)})</script>` : '') + stripDoctype(hasFiles ? rewriteMain(split.main, split.files) : split.main);
   const inline = o.inline ?? null;
   const modules = inline
     ? Object.fromEntries(libs.filter((l) => l.kind === 'module' && l.provides !== '(styles)' && inline[l.file] !== undefined).map((l) => [l.provides, inline[l.file]]))
@@ -75,8 +134,14 @@ export function buildSnippetDoc(o: SnippetDocOptions): string {
     libs: Object.fromEntries(SNIPPET_LIBS.map((l) => [l.id, `${o.origin}/lib/${l.file}`])),
     vars: safeVars,
     static: o.staticAnswers ?? null,
+    offline: !!o.offline,
     direct: !inline,
     modules,
+    // With files, the runtime writes the one import map (the shelf's and the files'): there may be only one.
+    imports: !inline && hasFiles ? importMap(o.origin) : null,
+    files: hasFiles ? files : null,
+    // Python says it is ready when it has run, so the picture Claude sees is the result, not "Starting Python…".
+    holdReady: python,
     // Scripts and styles as data, written into the page by the runtime: library code is never parsed as HTML.
     inline: inline ? {
       scripts: libs.filter((l) => (l.kind === 'script' || (l.kind === 'module' && l.provides === '(styles)')) && inline[l.file] !== undefined).map((l) => inline[l.file]),
@@ -85,10 +150,10 @@ export function buildSnippetDoc(o: SnippetDocOptions): string {
   };
   const vars = Object.entries(safeVars).map(([k, v]) => `${k}:${v}`).join(';');
   return '<!doctype html><html' + (o.dir && o.dir !== 'auto' ? ` dir="${o.dir}"` : '') + '><head><meta charset="utf-8">'
-    + `<meta http-equiv="Content-Security-Policy" content="${attr(snippetCsp(o.origin))}">`
+    + `<meta http-equiv="Content-Security-Policy" content="${attr(snippetCsp(o.origin, python))}">`
     + '<meta name="viewport" content="width=device-width, initial-scale=1">'
-    + (inline ? '' : `<script type="importmap">${scriptJson({ imports: importMap(o.origin) })}</script>`)
-    + `<style>:root{${vars}}${BASE_CSS}</style>`
+    + (inline || hasFiles ? '' : `<script type="importmap">${scriptJson({ imports: importMap(o.origin) })}</script>`)
+    + `<style>:root{${vars}}${BASE_CSS}${python ? PYTHON_CSS : ''}</style>`
     + `<script type="application/json" id="alfred-boot">${scriptJson(boot)}</script>`
     + `<script>${SNIPPET_RUNTIME}</script>`
     + (inline ? '' : libs.map((l) => libTag(l, o.origin)).join(''))
@@ -141,7 +206,7 @@ const BASE_CSS = 'html{color-scheme:dark}'
 
 /** The theme variables the frame gets - read from the page so any theme carries over. */
 export const THEME_VARS = ['--text', '--text-dim', '--text-faint', '--card', '--card-inner', '--bg-2', '--border', '--border-strong',
-  '--purple', '--purple-light', '--green', '--red', '--amber', '--blue', '--cyan'];
+  '--purple', '--purple-light', '--green', '--red', '--amber', '--blue', '--cyan', '--popover-solid'];
 
 export function themeVars(el: Element = document.documentElement): Record<string, string> {
   const cs = getComputedStyle(el);
@@ -164,14 +229,24 @@ export const SNIPPET_RUNTIME = String.raw`(function(){
 var P=window.parent, seq=0, wseq=0, pend={}, on={}, declared={}, paused=false, queued=[], sent=0, sentAt=0;
 var boot={};try{boot=JSON.parse(document.getElementById("alfred-boot").textContent)}catch(e){}
 var alone=(P===window);
-if(boot.modules){var im={};for(var k in boot.modules){im[k]=URL.createObjectURL(new Blob([boot.modules[k]],{type:"text/javascript"}))}
+var fileUrls={};
+function mimeOf(n){return /\.m?js$/i.test(n)?"text/javascript":/\.css$/i.test(n)?"text/css":/\.svg$/i.test(n)?"image/svg+xml":/\.json$/i.test(n)?"application/json":"text/plain"}
+if(boot.files){for(var fn in boot.files)fileUrls[fn]=URL.createObjectURL(new Blob([boot.files[fn]],{type:mimeOf(fn)}))}
+if(boot.modules||boot.imports||boot.files){var im={},k;if(boot.imports)for(k in boot.imports)im[k]=boot.imports[k];
+  if(boot.modules)for(k in boot.modules)im[k]=URL.createObjectURL(new Blob([boot.modules[k]],{type:"text/javascript"}));
+  for(k in fileUrls)if(/\.m?js$/i.test(k))im["@file/"+k]=fileUrls[k];
   var ims=document.createElement("script");ims.type="importmap";ims.textContent=JSON.stringify({imports:im});document.head.appendChild(ims)}
 if(boot.inline){(boot.inline.styles||[]).forEach(function(c){var st=document.createElement("style");st.textContent=c;document.head.appendChild(st)});
   (boot.inline.scripts||[]).forEach(function(c){document.write('<script src="'+URL.createObjectURL(new Blob([c],{type:"text/javascript"}))+'"><'+'/script>')})}
+if(boot.files){for(var cn in boot.files)if(/\.css$/i.test(cn)){var fst=document.createElement("style");fst.textContent=boot.files[cn];document.head.appendChild(fst)}}
+function fileRefs(){Array.prototype.forEach.call(document.querySelectorAll("[src^='./'],[href^='./']"),function(e){
+  ["src","href"].forEach(function(a){var v=e.getAttribute(a);if(v&&v.slice(0,2)==="./"&&fileUrls[v.slice(2)])e.setAttribute(a,fileUrls[v.slice(2)])})})}
 function post(m){m.alfred=1;if(alone)return;var t=Date.now();if(t-sentAt>1000){sentAt=t;sent=0}if(++sent>40&&m.t==="log")return;try{P.postMessage(m,"*")}catch(e){}}
 function req(op,args){return new Promise(function(res,rej){
-  if(alone){var s=boot.static;var k=op+":"+JSON.stringify(args||{});if(s&&Object.prototype.hasOwnProperty.call(s,k)){res(s[k])}else{rej(new Error("Not available outside Alfred: "+op))}return}
+  if(alone||boot.offline){var s=boot.static,a=args||{};var k=staticKey(op,a);if(s&&Object.prototype.hasOwnProperty.call(s,k)){res(s[k])}
+    else if(op==="state.set"){res(null)}else{rej(new Error("Not available outside Alfred: "+op+(op==="data"?" "+a.src:"")))}return}
   var id=++seq;pend[id]={res:res,rej:rej};post({t:"req",id:id,op:op,args:args===undefined?null:args})})}
+function staticKey(op,a){return op==="data"?"data:"+JSON.stringify({src:a.src,args:a.args||{}}):op+":"+JSON.stringify(a)}
 function emit(name,v){(on[name]||[]).slice().forEach(function(f){try{f(v)}catch(e){console.error(e)}})}
 function text(a){try{if(typeof a==="string")return a;if(a instanceof Error)return a.stack||String(a);return JSON.stringify(a,null,1)}catch(e){return String(a)}}
 ["log","info","warn","error","debug"].forEach(function(l){var o=console[l];console[l]=function(){
@@ -211,12 +286,12 @@ function snap(n){if(n.nodeType===3)return document.createTextNode(n.nodeValue);i
   var c;if(tag==="canvas"){c=document.createElement("img");try{c.setAttribute("src",n.toDataURL("image/png"))}catch(e){}}
   else{c=n.cloneNode(false);if(tag==="input"||tag==="textarea")c.setAttribute("value",n.value);if(tag==="video"||tag==="audio")return null}
   copyStyle(n,c);for(var ch=n.firstChild;ch;ch=ch.nextSibling){var x=snap(ch);if(x)c.appendChild(x)}return c}
-function shot(id){try{var root=document.documentElement,body=document.body,bg=getComputedStyle(root).getPropertyValue("--card").trim()||"#141a45";
+function shot(id){try{var root=document.documentElement,body=document.body,rs=getComputedStyle(root),solid=rs.getPropertyValue("--popover-solid").trim()||"#141a45",bg=rs.getPropertyValue("--card").trim()||solid;
   var w=Math.max(1,Math.ceil(root.scrollWidth)),h=Math.max(1,Math.ceil(Math.max(body.scrollHeight,body.getBoundingClientRect().height)));
   var copy=snap(body);copy.style.margin="0";
   var svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+w+'" height="'+h+'"><foreignObject x="0" y="0" width="100%" height="100%">'+new XMLSerializer().serializeToString(copy)+"</foreignObject></svg>";
   var img=new Image();img.onload=function(){try{var k=Math.min(2,window.devicePixelRatio||1)||1,c=document.createElement("canvas");c.width=w*k;c.height=h*k;
-    var g=c.getContext("2d");g.scale(k,k);g.fillStyle=bg;g.fillRect(0,0,w,h);g.drawImage(img,0,0);post({t:"shot",id:id,png:c.toDataURL("image/png")})}
+    var g=c.getContext("2d");g.scale(k,k);g.fillStyle=solid;g.fillRect(0,0,w,h);g.fillStyle=bg;g.fillRect(0,0,w,h);g.drawImage(img,0,0);post({t:"shot",id:id,png:c.toDataURL("image/png")})}
     catch(e){post({t:"shot",id:id,error:String(e&&e.message||e)})}};
   img.onerror=function(){post({t:"shot",id:id,error:"The page could not be drawn"})};
   img.src="data:image/svg+xml;charset=utf-8,"+encodeURIComponent(svg)}catch(e){post({t:"shot",id:id,error:String(e&&e.message||e)})}}
@@ -235,6 +310,8 @@ var api={
   action:function(kind,args){return req("action",{kind:kind,args:args||{}})},
   ask:function(q,data){return req("ask",{text:q,data:data===undefined?null:data})},
   files:function(name){return req("files",{name:name||null})},
+  file:function(name){return boot.files&&Object.prototype.hasOwnProperty.call(boot.files,name)?boot.files[name]:null},
+  url:function(name){return fileUrls[name]||null},
   lib:loadLib,
   resize:size,
   get paused(){return paused}
@@ -247,7 +324,26 @@ function loadDeclared(){Array.prototype.forEach.call(document.querySelectorAll('
   var d=slot(name),got=function(v){d.has=true;d.value=v;var w=d.waiters;d.waiters=[];w.forEach(function(r){r(v)});emit(name,v)};
   var fail=function(e){console.error("alfred/data "+name+": "+(e&&e.message||e))};
   if(s.hasAttribute("live"))api.watch(src,args,got).catch(fail);else api.data(src,args).then(got,fail)})}
-function start(){loadDeclared();size();try{new ResizeObserver(size).observe(document.body)}catch(e){}post({t:"ready"})}
+window.__alfredReady=function(){size();post({t:"ready"})};
+function start(){fileRefs();loadDeclared();size();try{new ResizeObserver(size).observe(document.body)}catch(e){}if(!boot.holdReady)post({t:"ready"})}
 if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",start);else start();
 window.addEventListener("load",size);
 })();`;
+
+/** The key an offline frame looks an answer up by (the runtime's staticKey): `data:{"src":…,"args":…}`, else `op:{args}`. */
+export function staticAnswerKey(op: string, args: Record<string, unknown>): string {
+  return op === 'data' ? 'data:' + JSON.stringify({ src: args['src'], args: args['args'] ?? {} }) : op + ':' + JSON.stringify(args);
+}
+
+/** `<script type="alfred/data" src="calls" …>{args}</script>` blocks a snippet declares - what an export can answer ahead. */
+export function declaredData(source: string): { src: string; args: Record<string, unknown> }[] {
+  const out: { src: string; args: Record<string, unknown> }[] = [];
+  for (const m of source.matchAll(/<script\b[^>]*\btype=(["'])alfred\/data\1[^>]*>([\s\S]*?)<\/script>/gi)) {
+    const src = /\bsrc=(["'])([^"']+)\1/i.exec(m[0])?.[2];
+    if (!src) continue;
+    try {
+      out.push({ src, args: m[2].trim() ? JSON.parse(m[2]) as Record<string, unknown> : {} });
+    } catch { /* the frame says so when it runs */ }
+  }
+  return out;
+}

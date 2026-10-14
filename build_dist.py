@@ -286,6 +286,7 @@ def build_frontend(out, dns):
     docker(NODE_IMAGE, (
         f"set -e; {say('copying sources')} && mkdir -p /b && cd /repo && {TAR_SOURCES} && cd /b/frontend && "
         f"{say('npm ci (installing frontend packages - a few minutes on a first build)')} && {npm_ci()} && "
+        f"{say('Python for snippets (Pyodide, checksummed)')} && node scripts/fetch-pyodide.mjs && "
         f"{say('ng build --configuration production')} && npx ng build --configuration production && "
         "rm -rf /out/browser && cp -r dist/frontend/browser /out/browser && "
         # Same-origin, like the Docker image's entrypoint does: the backend serves the UI and the API on one port.

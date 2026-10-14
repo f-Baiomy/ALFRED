@@ -51,6 +51,8 @@ final class BoardFixture implements AutoCloseable {
     final RetestService retest;
     final com.fathy.alfred.backend.board.application.port.out.SnippetStorePort snippetStore;
     final SnippetsService snippets;
+    final BoardFilesService files;
+    final WidgetsService widgets;
     private final AutoCloseable closer;
 
     BoardFixture(Path dir) {
@@ -91,6 +93,10 @@ final class BoardFixture implements AutoCloseable {
         snippetStore = TestRepositories.snippets(store);
         snippets = new SnippetsService(snippetStore, store, notifications, JsonMapper.builder().findAndAddModules().build(), clock);
         briefs.setSnippets(snippetStore);
+        files = new BoardFilesService((com.fathy.alfred.backend.board.application.port.out.BoardFileStorePort) snippetStore, store, notifications, clock);
+        widgets = new WidgetsService((com.fathy.alfred.backend.board.application.port.out.WidgetStorePort) snippetStore, notifications, clock);
+        imports.setVisualStores(snippetStore, (com.fathy.alfred.backend.board.application.port.out.BoardFileStorePort) snippetStore,
+                (com.fathy.alfred.backend.board.application.port.out.WidgetStorePort) snippetStore);
         retest = new RetestService(store, factsPort, limit -> List.copyOf(liveCalls), (cycleId, limit) -> List.copyOf(cycleCalls), notifications,
                 feed, clock);
     }

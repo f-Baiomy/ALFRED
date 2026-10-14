@@ -104,3 +104,52 @@ test('board_lib lists the shelf', async () => {
     assert.equal(r.json.libs[0].file, undefined);
   } finally { await w.close(); }
 });
+
+test('files: list, read in parts, attach as Claude with a link to paste', async () => {
+  const w = await world();
+  try {
+    await w.call('board_add', { project: 'p', kind: 'BUG', title: 'x' });
+    w.fake.board.extra = (method, p, q, body) => {
+      if (method === 'GET' && p[1] === 'files' && p.length === 2) return [200, [{ id: 'f-12345678', name: 'rows.csv', mime: 'text/csv', size: 7, author: 'USER', createdAt: '', cardId: q.get('card'), cycleId: null }]];
+      if (method === 'GET' && p[1] === 'files' && p[2] === 'f-12345678') return [200, 'a,b;1,2'];
+      if (method === 'POST' && p[1] === 'files') return [201, { id: 'f-87654321', name: q.get('name'), mime: 'text/csv', size: String(body).length, author: 'CLAUDE', createdAt: '', cardId: q.get('card'), cycleId: null }];
+      return undefined;
+    };
+    const list = await w.call('board_files', { project: 'p', number: 1 });
+    assert.equal(list.json.files[0].name, 'rows.csv');
+    assert.equal(w.fake.requests('GET', '/board/files')[0]!.query.get('card'), 'card-1');
+    const read = await w.call('board_file', { id: 'f-12345678' });
+    assert.match(read.json.text, /a,b;1,2/);
+    const att = await w.call('board_attach', { project: 'p', number: 1, name: 'slow.csv', text: 'endpoint,ms\n/a,10' });
+    assert.equal(att.isError, false, att.text);
+    const post = w.fake.requests('POST', '/board/files')[0]!;
+    assert.equal(post.body, 'endpoint,ms\n/a,10');
+    assert.equal(post.headers!['x-alfred-actor'], 'claude');
+    assert.equal(att.json.link, '[📎 slow.csv](/board/files/f-87654321)');
+    assert.equal((await w.call('board_files', { project: 'p' })).isError, true);
+  } finally { await w.close(); }
+});
+
+test('pins and widgets go as Claude', async () => {
+  const w = await world();
+  try {
+    w.fake.board.extra = (method, p, q, body) => {
+      if (method === 'PUT' && p[1] === 'snippets') return [200, { ...PAGE, pinned: body.pinned }];
+      if (method === 'GET' && p[1] === 'widgets' && p.length === 2) return [200, [{ project: 'p', name: 'fares', kind: 'BLOCK', info: '', author: 'USER', updatedAt: '' }]];
+      if (method === 'GET' && p[1] === 'widgets') return [200, { project: 'p', name: p[2], kind: 'BLOCK', info: '', source: '```chart\n```', author: 'USER', updatedAt: '' }];
+      if (method === 'PUT' && p[1] === 'widgets') return [200, { project: q.get('project'), name: p[2], kind: body.kind, info: body.info, source: body.source, author: 'CLAUDE', updatedAt: '' }];
+      return undefined;
+    };
+    const pin = await w.call('board_pin', { id: PAGE.id });
+    assert.equal(pin.json.pinned.pinned, true);
+    assert.deepEqual(w.fake.requests('PUT', `/board/snippets/${PAGE.id}`)[0]!.body, { pinned: true });
+    assert.equal((await w.call('board_widgets', { project: 'p' })).json.widgets[0].name, 'fares');
+    assert.match((await w.call('board_widgets', { project: 'p', name: 'fares' })).json.source, /chart/);
+    const put = await w.call('board_widget_put', { project: 'p', name: 'sql-heat', kind: 'block', source: '```stats\nSQL | {{n}}\n```' });
+    assert.equal(put.json.use, '{{widget:sql-heat}}');
+    const req = w.fake.requests('PUT', '/board/widgets/sql-heat')[0]!;
+    assert.equal(req.body.kind, 'BLOCK');
+    assert.equal(req.query.get('project'), 'p');
+    assert.equal((await w.call('board_widget_put', { project: 'p', name: 'bad name', source: 'x' })).isError, true);
+  } finally { await w.close(); }
+});

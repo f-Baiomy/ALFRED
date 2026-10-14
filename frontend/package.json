@@ -5,7 +5,7 @@
     "ng": "ng",
     "prestart": "node scripts/prune-ng-cache.mjs",
     "start": "ng serve",
-    "prebuild": "node scripts/prune-ng-cache.mjs",
+    "prebuild": "node scripts/prune-ng-cache.mjs && node scripts/fetch-pyodide.mjs",
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
     "pretest": "node scripts/prune-ng-cache.mjs",
@@ -51,6 +51,7 @@
     "papaparse": "5.4.1",
     "plotly.js-dist-min": "2.35.2",
     "preact": "10.24.3",
+    "pyodide": "0.27.7",
     "three": "0.169.0",
     "typescript": "~5.5.2"
   }

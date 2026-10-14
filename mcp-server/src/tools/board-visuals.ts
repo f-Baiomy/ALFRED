@@ -31,6 +31,12 @@ async function owner(client: AlfredClient, input: { project: string; number?: nu
   return `project:${input.project}`;
 }
 
+interface FileRow { id: string; name: string; mime: string; size: number; author: string; createdAt: string; cardId: string | null; cycleId: string | null }
+
+interface WidgetRow { project: string; name: string; kind: string; info: string; source?: string | null; author: string; updatedAt: string }
+
+const fileLine = (f: FileRow) => ({ id: f.id, name: f.name, type: f.mime, size: f.size, by: f.author, at: f.createdAt });
+
 const page = (p: PageRow) => ({ id: p.id, name: p.name, kind: p.kind, info: p.info, version: p.version, author: p.author, pinned: p.pinned,
   updatedAt: p.updatedAt, updatedBy: p.updatedBy });
 
@@ -82,13 +88,15 @@ export function register(server: McpServer, client: AlfredClient): void {
 
   server.registerTool('board_page_put', {
     description: 'Create a page (no id) on a card (number), a cycle (cycleId) or the project - or save a new version of one you created (id; '
-      + 'baseVersion = the version you read, so a newer save by the user is not overwritten). kind html (default), mermaid or python. '
+      + 'baseVersion = the version you read, so a newer save by the user is not overwritten). kind html (default), mermaid, python '
+      + '(```python live: await alfred.calls(...) is a pandas DataFrame, matplotlib figures are drawn) or block (one board fence, e.g. a ```chart). '
+      + 'A multi-file HTML page: "--- chart.js" / "--- look.css" / "--- rows.csv" lines start files (import "./chart.js"; alfred.file("rows.csv")). '
       + 'info: the settings, e.g. live libs="echarts" height=420. A page runs in a locked frame with no network: read Alfred\'s data '
       + 'with alfred.data()/alfred.watch() (calls, call, statements, rows, logs, redis, cards, card, cycles, rules), use only the '
       + 'shelf (board_lib), keep state with alfred.state. After saving, open it once on the board, then board_snippet_view to check it.',
     inputSchema: {
       project: Project, number: z.number().int().min(1).optional(), cycleId: z.string().optional(), id: z.string().optional(),
-      name: z.string().min(1).max(120), kind: z.enum(['html', 'mermaid', 'python']).default('html'), info: z.string().max(500).default('live'),
+      name: z.string().min(1).max(120), kind: z.enum(['html', 'mermaid', 'python', 'block']).default('html'), info: z.string().max(500).default('live'),
       source: z.string().max(256 * 1024), baseVersion: z.number().int().min(1).optional(),
     },
   }, (input) => run(async () => {
@@ -121,12 +129,81 @@ export function register(server: McpServer, client: AlfredClient): void {
     } as unknown as ToolReply;
   }));
 
+  server.registerTool('board_pin', {
+    description: 'Pin a page to the top of its card or cycle brief - its dashboard, always open - or unpin it (pinned=false). '
+      + 'Only your own pages; ask the user to pin theirs.',
+    inputSchema: { id: z.string().min(8).max(64), pinned: z.boolean().default(true) },
+  }, (input) => run(async () => {
+    const p = await client.put<PageRow>(`/board/snippets/${seg(input.id)}`, { ...AS_CLAUDE, body: { pinned: input.pinned } });
+    return ok({ [input.pinned ? 'pinned' : 'unpinned']: page(p) });
+  }));
+
+  server.registerTool('board_files', {
+    description: 'The files attached to a card (number) or a cycle (cycleId): name, type, size, who attached it. Read one with board_file.',
+    inputSchema: { project: Project, number: z.number().int().min(1).optional(), cycleId: z.string().optional() },
+  }, (input) => run(async () => {
+    const query = input.number != null ? { card: (await cardByNumber(client, input.project, input.number)).id } : input.cycleId ? { cycle: input.cycleId } : null;
+    if (!query) throw invalid('Name a card (number) or a cycle (cycleId)');
+    const list = await client.get<FileRow[]>('/board/files', { query });
+    return ok({ files: list.map(fileLine) });
+  }));
+
+  server.registerTool('board_file', {
+    description: 'One attached file (id from board_files): text (csv, json, log, har, xml, sql, md, txt) in parts of 12,000 characters '
+      + '(offset); a PNG/JPEG as the picture itself; a PDF only by its size (the user opens it from the board).',
+    inputSchema: { id: z.string().min(8).max(64), offset: z.number().int().min(0).default(0) },
+  }, (input) => run(async () => {
+    const bytes = await client.bytes(`/board/files/${seg(input.id)}`);
+    if (bytes.mime.startsWith('image/')) {
+      return { content: [{ type: 'image', data: bytes.data.toString('base64'), mimeType: bytes.mime }] } as unknown as ToolReply;
+    }
+    if (bytes.mime === 'application/pdf') return ok({ id: input.id, type: 'PDF', size: bytes.data.length, note: 'A PDF - the user opens it from the card' });
+    const part = chunkText(bytes.data.toString('utf8'), input.offset, PAGE_CHUNK);
+    return ok({ id: input.id, type: bytes.mime, text: part.text, offset: part.offset, totalLength: part.totalLength, nextOffset: part.nextOffset });
+  }));
+
+  server.registerTool('board_attach', {
+    description: 'Attach a text file you made (csv, json, md, txt, log, sql, xml, har - at most 10 MB) to a card (number) or a cycle '
+      + '(cycleId): a table of numbers for a snippet to read with alfred.files(name), a query, an extract. Link it in a comment as '
+      + '[📎 name](/board/files/<id>).',
+    inputSchema: { project: Project, number: z.number().int().min(1).optional(), cycleId: z.string().optional(),
+      name: z.string().min(3).max(120), text: z.string().min(1).max(10 * 1024 * 1024) },
+  }, (input) => run(async () => {
+    const query = input.number != null ? { card: (await cardByNumber(client, input.project, input.number)).id, name: input.name }
+      : input.cycleId ? { cycle: input.cycleId, project: input.project, name: input.name } : null;
+    if (!query) throw invalid('Name a card (number) or a cycle (cycleId)');
+    const f = await client.post<FileRow>('/board/files', { ...AS_CLAUDE, query, rawBody: input.text });
+    return ok({ attached: fileLine(f), link: `[📎 ${f.name}](/board/files/${f.id})` });
+  }));
+
+  server.registerTool('board_widgets', {
+    description: "A project's widgets - named visuals used in any of its texts as {{widget:name | key=value}} on a line of its own "
+      + '({{key}} in the widget takes the value). With name: that widget with its source.',
+    inputSchema: { project: Project, name: z.string().optional() },
+  }, (input) => run(async () => {
+    if (input.name) return ok(await client.get<WidgetRow>(`/board/widgets/${seg(input.name)}`, { query: { project: input.project }, notFound: `No widget ${input.name}` }));
+    const list = await client.get<WidgetRow[]>('/board/widgets', { query: { project: input.project } });
+    return ok({ widgets: list.map((w) => ({ name: w.name, kind: w.kind, author: w.author, updatedAt: w.updatedAt })) });
+  }));
+
+  server.registerTool('board_widget_put', {
+    description: "Create a widget of the project, or replace one you created (never the user's): kind html, mermaid, python or block "
+      + '(board Markdown, e.g. a ```chart fence). Write {{key}} where a value given at use goes (an HTML widget also gets them as '
+      + 'alfred.context.params). Then tell the user the line to use: {{widget:name | key=value}}.',
+    inputSchema: { project: Project, name: z.string().regex(/^[A-Za-z0-9][\w-]{0,59}$/), kind: z.enum(['html', 'mermaid', 'python', 'block']).default('html'),
+      info: z.string().max(500).default(''), source: z.string().min(1).max(256 * 1024) },
+  }, (input) => run(async () => {
+    const w = await client.put<WidgetRow>(`/board/widgets/${seg(input.name)}`, { ...AS_CLAUDE, query: { project: input.project },
+      body: { kind: input.kind.toUpperCase(), info: input.info, source: input.source } });
+    return ok({ saved: { name: w.name, kind: w.kind }, use: `{{widget:${w.name}}}` });
+  }));
+
   server.registerTool('board_lib', {
     description: 'Alfred\'s library shelf - the only libraries a snippet can load (it has no network): id, version, kind (script = a global '
       + 'named by provides; module = import from provides; css), what it is for. Load with libs="id id" on the snippet or alfred.lib(id).',
     inputSchema: {},
   }, () => run(async () => {
-    const index = await client.get<{ libs: { id: string; version: string; kind: string; provides: string; about: string }[] }>('/lib/index.json');
-    return ok({ libs: index.libs.map((l) => ({ id: l.id, version: l.version, kind: l.kind, provides: l.provides, about: l.about })) });
+    const index = await client.get<{ libs: { id: string; version: string; kind: string; provides: string; about: string }[]; python?: unknown }>('/lib/index.json');
+    return ok({ libs: index.libs.map((l) => ({ id: l.id, version: l.version, kind: l.kind, provides: l.provides, about: l.about })), python: index.python ?? null });
   }));
 }

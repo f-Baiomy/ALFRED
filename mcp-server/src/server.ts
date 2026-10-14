@@ -49,6 +49,9 @@ export function createServer(client: AlfredClient = new AlfredClient()): McpServ
       + 'board_reply, ask with board_ask, record a fix with board_fix. Move cards only to To do, In progress or Fixed; Verified, Done and '
       + 'closing are the user\'s - propose them with board_propose, and suggest checklist marks with board_suggest_mark. After a re-test '
       + 'cycle run board_verify. Listen for the user with board_wait. Keep the live strip current with board_status. '
+      + 'Visuals: prefer fixed blocks (```stats, ```chart, ```calls with live data) in comments; a page or ```html live / ```python live '
+      + 'snippet (board_page_put) only when they cannot say it - it runs locked, with no network, reading data through alfred.data. '
+      + 'Check it with board_snippet_view before saying it is ready. Questions asked from the board arrive as /alfred-ask <id>. '
       + 'Interception rules: you only PROPOSE them (create_rule, saved off, narrow, never pausing) to reproduce a bug or check a fix - '
       + 'rule_recipes, rule_from_call and rule_preview first; the user switches them on, edits or deletes them; rule_hits shows what one did.',
   });

@@ -83,4 +83,13 @@ class RichTextTest {
         assertThat(MentionParser.mentions("| cold | @[call:in:66e1@e8fe\\|13 Oct 00:51] | 2400 ms |"))
                 .extracting(m -> m.ref() + " " + m.label()).containsExactly("in:66e1@e8fe 13 Oct 00:51");
     }
+
+    @Test
+    void aLinkToABoardFileIsKeptAndNoOtherRelativeOrScriptLink() {
+        String out = RichText.clean("<p><a href=\"/board/files/f-12345678\">📎 fares.csv</a> <a href=\"/settings\">s</a> "
+                + "<a href=\"javascript:alert(1)\">x</a> <a href=\"//evil.example/x\">y</a> <a href=\"https://ok.example/\">z</a></p>");
+        assertThat(out).contains("<a href=\"/board/files/f-12345678\">📎 fares.csv</a>");
+        assertThat(out).contains("<a href=\"https://ok.example/\">z</a>");
+        assertThat(out).doesNotContain("/settings").doesNotContain("javascript").doesNotContain("evil.example");
+    }
 }

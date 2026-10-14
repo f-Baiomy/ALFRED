@@ -80,30 +80,40 @@ public class SpaPageFilter extends OncePerRequestFilter {
     }
 
     /**
-     * A snippet's frame has an opaque origin and fetches modules in CORS mode, so shelf files allow any origin; an .mjs
-     * file is JavaScript (Spring's MIME table does not know the extension and a module served as anything else is refused).
+     * A snippet's frame has an opaque origin and fetches modules in CORS mode, so shelf files allow any origin. Some
+     * extensions Spring's MIME table does not know, and a module or a WebAssembly file served as anything else is refused:
+     * .mjs is JavaScript, .wasm WebAssembly (Pyodide's core, streamed), .whl a zip (Pyodide's packages).
      */
     static HttpServletResponse libResponse(String path, HttpServletResponse response) {
         response.setHeader("Access-Control-Allow-Origin", "*");
         response.setHeader("Cache-Control", "public, max-age=86400");
-        if (!path.endsWith(".mjs")) {
+        String forced = forcedType(path);
+        if (forced == null) {
             return response;
         }
-        response.setContentType(MJS);
+        response.setContentType(forced);
         return new HttpServletResponseWrapper(response) {
             @Override
             public void setContentType(String type) {
-                super.setContentType(MJS);
+                super.setContentType(forced);
             }
 
             @Override
             public void setHeader(String name, String value) {
-                super.setHeader(name, "Content-Type".equalsIgnoreCase(name) ? MJS : value);
+                super.setHeader(name, "Content-Type".equalsIgnoreCase(name) ? forced : value);
             }
         };
     }
 
-    private static final String MJS = "text/javascript";
+    private static String forcedType(String path) {
+        if (path.endsWith(".mjs")) {
+            return "text/javascript";
+        }
+        if (path.endsWith(".wasm")) {
+            return "application/wasm";
+        }
+        return path.endsWith(".whl") ? "application/zip" : null;
+    }
 
     private static boolean staticFileExists(String path) {
         if (path.equals("/") || path.isEmpty()) {

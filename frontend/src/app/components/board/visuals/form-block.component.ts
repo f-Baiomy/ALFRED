@@ -46,7 +46,7 @@ export function parseForm(text: string): FormSpec {
 }
 
 /** The answer a form posts: `field=value; …` - what Claude reads back. */
-export function formAnswer(fields: readonly FormField[], values: Readonly<Record<string, string | boolean>>): string {
+export function formAnswer(fields: readonly FormField[], values: Readonly<Partial<Record<string, string | boolean>>>): string {
   return fields.map((f) => `${f.name}=${f.type === 'check' ? (values[f.name] ? 'yes' : 'no') : String(values[f.name] ?? '').replace(/;/g, ',').trim()}`).join('; ');
 }
 
@@ -87,7 +87,7 @@ export class FormBlockComponent {
 
   private readonly actions = inject(BoardActionsService);
   readonly spec = computed(() => parseForm(this.source()));
-  readonly values = signal<Readonly<Record<string, string | boolean>>>({});
+  readonly values = signal<Readonly<Partial<Record<string, string | boolean>>>>({});
   readonly busy = signal(false);
   readonly note = signal<string | null>(null);
 

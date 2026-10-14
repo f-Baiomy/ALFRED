@@ -47,6 +47,15 @@ public interface SnippetStorePort {
     /** The newest shot. */
     Optional<SnippetShot> shot(String snippetId);
 
-    /** A cycle was deleted: its pages and every snippet's state and shots kept for it go. */
+    /** Every saved value kept with a card ({@code cardId}) or with a cycle's own texts and pages ({@code cycleId}) - for the board export. */
+    List<SnippetState> statesOf(String cardId, String cycleId);
+
+    /** The newest shot of each snippet kept with a card or with a cycle - for the board export. */
+    List<SnippetShot> shotsOf(String cardId, String cycleId);
+
+    /** An exported page's older version, put back by an import (the page itself carries its newest). */
+    void importVersion(SnippetVersion version);
+
+    /** A cycle was deleted: its pages, its files and every snippet's state and shots kept for it go. */
     void cycleRemoved(String cycleId);
 }

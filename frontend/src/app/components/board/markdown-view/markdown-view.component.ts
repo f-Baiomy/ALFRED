@@ -1,6 +1,6 @@
 import { Component, Injector, computed, inject, input, signal } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
-import { Block, CALLOUT_TITLES, Inline, headingsOf, markdownSections } from '../../../shared/utils/markdown-blocks';
+import { BOARD_FILE, Block, CALLOUT_TITLES, Inline, headingsOf, markdownSections } from '../../../shared/utils/markdown-blocks';
 import { textBlocks } from '../../../shared/utils/rich-html';
 import { CODE_LANGS, langOf } from '../../../shared/utils/code-highlight';
 import { MentionChipComponent } from '../mention-chip/mention-chip.component';
@@ -17,6 +17,11 @@ import { CallViewComponent } from '../visuals/call-view.component';
 import { CallLogsBlockComponent, CompareBlockComponent, StatementBlockComponent } from '../visuals/data-blocks.component';
 import { FormBlockComponent } from '../visuals/form-block.component';
 import { ActionContext, BoardActionsService, chipAction } from '../../../core/services/board-actions.service';
+import { firstValueFrom } from 'rxjs';
+import { SnippetOwner } from '../../../core/models/snippet.models';
+import { SnippetsApiService } from '../../../core/services/snippets-api.service';
+import { blockTitle, toFence } from '../../../shared/utils/board-visuals';
+import { WidgetsService, fillWidget } from '../../../core/services/widgets.service';
 
 /**
  * A board text - Markdown or the editor's HTML (docs/board.md "Rich text") - rendered from the typed tree with plain
@@ -43,7 +48,10 @@ import { ActionContext, BoardActionsService, chipAction } from '../../../core/se
           @case ('sup') { <sup><ng-container *ngTemplateOutlet="inl; context: { $implicit: kids(n) }" /></sup> }
           @case ('kbd') { <kbd><ng-container *ngTemplateOutlet="inl; context: { $implicit: kids(n) }" /></kbd> }
           @case ('color') { <span [class]="'board-md-c-' + colorOf(n)"><ng-container *ngTemplateOutlet="inl; context: { $implicit: kids(n) }" /></span> }
-          @case ('link') { <a [href]="hrefOf(n)" target="_blank" rel="noopener noreferrer"><ng-container *ngTemplateOutlet="inl; context: { $implicit: kids(n) }" /></a> }
+          @case ('link') {
+            @if (isFile(n)) { <a class="board-file-link" [href]="hrefOf(n)" download title="Download the file"><ng-container *ngTemplateOutlet="inl; context: { $implicit: kids(n) }" /></a> }
+            @else { <a [href]="hrefOf(n)" target="_blank" rel="noopener noreferrer"><ng-container *ngTemplateOutlet="inl; context: { $implicit: kids(n) }" /></a> }
+          }
           @case ('mention') { <app-mention-chip [mention]="refOf(n)" [showPreview]="previews()" /> }
           @case ('variable') { <app-variable-pill [name]="varOf(n)" /> }
           @case ('pill') { <span [class]="'board-md-pill ' + toneOf(n)">{{ pillIcon(n) }} {{ textOf(n) }}</span> }
@@ -124,6 +132,14 @@ import { ActionContext, BoardActionsService, chipAction } from '../../../core/se
           }
           @case ('rule') { <hr /> }
           @case ('visual') {
+            <div class="board-vis-pinnable">
+            @if (pinOwner() && b.lang !== 'form') {
+              <span class="board-vis-pin">
+                <button type="button" [title]="'Pin to the top of this ' + (pinOwner()!.startsWith('card:') ? 'card' : 'task') + ' - its dashboard, always open'"
+                        (click)="pinBlock(b)">📌</button>
+                <button type="button" title="Save as a widget of the project, to use in any of its texts" (click)="saveWidget(b)">★</button>
+              </span>
+            }
             @switch (b.lang) {
               @case ('stats') { <app-stats-block [source]="b.text" /> }
               @case ('chart') { <app-chart-block [source]="b.text" /> }
@@ -135,11 +151,26 @@ import { ActionContext, BoardActionsService, chipAction } from '../../../core/se
               @case ('compare') { <app-compare-block [source]="b.text" /> }
               @case ('form') { <app-form-block [source]="b.text" [context]="actionContext()" [canSend]="interactive()" /> }
               @case ('mermaid') { <app-snippet-host [source]="b.text" [info]="b.info" kind="mermaid" [context]="snippetContext()" [snippetId]="inlineId(b)" /> }
+              @case ('python') { <app-snippet-host [source]="b.text" [info]="b.info" kind="python" [context]="snippetContext()" [snippetId]="inlineId(b)" /> }
               @default {
-                <div class="board-md-code" dir="ltr"><div class="board-md-code-bar"><span>{{ b.lang }}{{ b.info ? ' ' + b.info : '' }}</span></div>
-                  <pre class="board-md-pre" dir="ltr">{{ b.text }}</pre></div>
+                <div class="board-md-code" dir="ltr"><div class="board-md-code-bar"><span>{{ $any(b).lang }}{{ $any(b).info ? " " + $any(b).info : "" }}</span></div>
+                  <pre class="board-md-pre" dir="ltr">{{ $any(b).text }}</pre></div>
               }
             }
+            </div>
+          }
+          @case ('widget') {
+            @let w = widgetOf(b);
+            <div class="board-widget">
+              @if (w.state === 'loading') { <div class="board-dim">★ {{ w.name }}…</div> }
+              @else if (w.state === 'missing') { <div class="board-vis-err">★ {{ w.name }}: {{ w.message }}</div> }
+              @else if (widgetDepth() >= 3) { <div class="board-vis-err">★ {{ w.name }}: widgets inside widgets go at most three deep</div> }
+              @else if (w.kind === 'BLOCK') {
+                <app-markdown-view [text]="w.source" [previews]="previews()" [snippetContext]="snippetContext()" [widgetDepth]="widgetDepth() + 1" />
+              } @else {
+                <app-snippet-host [source]="w.source" [info]="w.info" [kind]="w.kind === 'MERMAID' ? 'mermaid' : w.kind === 'PYTHON' ? 'python' : 'html'" [context]="w.context" />
+              }
+            </div>
           }
           @case ('progress') {
             <div class="board-progress" [attr.dir]="dir() === 'auto' ? 'auto' : dir()">
@@ -201,6 +232,7 @@ import { ActionContext, BoardActionsService, chipAction } from '../../../core/se
       }
       @if (!blocks().length && empty()) { <p class="board-dim">{{ empty() }}</p> }
     </div>
+    @if (widgetNote(); as n) { <div class="board-dim" role="status">{{ n }} <button type="button" class="board-link" (click)="widgetNote.set(null)">✕</button></div> }
     @if (actionError(); as e) { <div class="board-error" role="alert">{{ e }} <button type="button" class="board-link" (click)="actionError.set(null)">✕</button></div> }
     @if (zoom(); as z) {
       <div class="board-md-zoom" (click)="zoom.set(null)"><img [src]="z" alt="" /></div>
@@ -210,6 +242,8 @@ export class MarkdownViewComponent {
   readonly text = input<string | null>('');
   readonly empty = input('');
   readonly previews = input(true);
+  /** How deep in widgets this text is (a widget's text is shown by a nested view): stops a widget that uses itself. */
+  readonly widgetDepth = input(0);
   /** Prefixed to heading ids so two views on one page cannot clash. */
   readonly idPrefix = input('md-');
   /**
@@ -235,7 +269,7 @@ export class MarkdownViewComponent {
     const order = new Map<Block, number>();
     const walk = (blocks: readonly Block[]) => {
       for (const b of blocks) {
-        if (b.kind === 'visual' && (b.lang === 'html' || b.lang === 'mermaid')) order.set(b, order.size);
+        if (b.kind === 'visual' && (b.lang === 'html' || b.lang === 'mermaid' || b.lang === 'python')) order.set(b, order.size);
         else if (b.kind === 'tabs') for (const t of b.tabs) walk(t.blocks);
         else if (b.kind === 'callout' || b.kind === 'fold') walk(b.blocks);
       }
@@ -276,6 +310,68 @@ export class MarkdownViewComponent {
   }
 
   readonly actionError = signal<string | null>(null);
+
+  /** A `{{widget:…}}` line as shown (specs/017 R34): its widget's source with the given values filled in. */
+  widgetOf(b: Block): { state: 'loading' | 'missing' | 'ok'; name: string; message: string; kind: string; source: string; info: string; context: Record<string, unknown> } {
+    const empty = { name: '', message: '', kind: '', source: '', info: '', context: {} };
+    if (b.kind !== 'widget') return { state: 'missing', ...empty };
+    const project = typeof this.snippetContext()['project'] === 'string' ? this.snippetContext()['project'] as string : '';
+    const w = this.injector.get(WidgetsService).get(project, b.name)();
+    if (w.state === 'loading') return { ...empty, state: 'loading', name: b.name };
+    if (w.state === 'missing') return { ...empty, state: 'missing', name: b.name, message: w.message };
+    return { state: 'ok', name: b.name, message: '', kind: w.widget.kind, source: fillWidget(w.widget.source ?? '', b.params), info: w.widget.info,
+      context: { ...this.snippetContext(), widget: b.name, params: b.params } };
+  }
+
+  /** ★ The block saved as a widget of the project, by a name the user gives; an existing name is replaced only when they say so. */
+  async saveWidget(b: Block): Promise<void> {
+    if (b.kind !== 'visual') return;
+    const project = typeof this.snippetContext()['project'] === 'string' ? this.snippetContext()['project'] as string : '';
+    const suggested = blockTitle(b.lang, b.info).toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'widget';
+    const name = window.prompt('Save as a widget of the project, named:', suggested)?.trim();
+    if (!name) return;
+    if (!/^[A-Za-z0-9][\w-]{0,59}$/.test(name)) { this.actionError.set('A widget name is a word of letters, digits, - and _'); return; }
+    const api = this.injector.get(SnippetsApiService);
+    try {
+      const exists = await firstValueFrom(api.widgets(project)).then((l) => l.some((w) => w.name === name), () => false);
+      if (exists && !window.confirm(`Replace the widget "${name}"? Every text using it shows the new one.`)) return;
+      const kind = b.lang === 'html' ? 'HTML' : b.lang === 'mermaid' ? 'MERMAID' : b.lang === 'python' ? 'PYTHON' : 'BLOCK';
+      await firstValueFrom(api.putWidget(project, name, { kind, info: kind === 'BLOCK' ? '' : b.info, source: kind === 'BLOCK' ? toFence(b.lang, b.info, b.text) : b.text }));
+      this.actionError.set(null);
+      void copyToClipboard(`{{widget:${name}}}`);
+      this.widgetNote.set(`★ Saved - {{widget:${name}}} is copied: paste it in any text of the project`);
+    } catch (e) {
+      this.actionError.set((e as { error?: { message?: string } })?.error?.message ?? 'Could not save the widget');
+    }
+  }
+
+  readonly widgetNote = signal<string | null>(null);
+
+  /** Where 📌 pins a block (specs/017 R33): the card the text is on, or the cycle of a brief - only where it is read, never in a preview. */
+  readonly pinOwner = computed<string | null>(() => {
+    const c = this.snippetContext();
+    if (!this.previews()) return null;
+    if (typeof c['cardId'] === 'string' && c['cardId']) return 'card:' + c['cardId'];
+    if (typeof c['cycleId'] === 'string' && c['cycleId']) return 'cycle:' + c['cycleId'];
+    return null;
+  });
+
+  /** The block becomes a pinned page of the card or cycle: a snippet or diagram as itself, a fixed block as its fence. */
+  async pinBlock(b: Block): Promise<void> {
+    const owner = this.pinOwner();
+    if (!owner || b.kind !== 'visual') return;
+    const kind = b.lang === 'html' ? 'HTML' : b.lang === 'mermaid' ? 'MERMAID' : b.lang === 'python' ? 'PYTHON' : 'BLOCK';
+    const project = typeof this.snippetContext()['project'] === 'string' ? this.snippetContext()['project'] as string : null;
+    const api = this.injector.get(SnippetsApiService);
+    try {
+      const page = await firstValueFrom(api.create({ owner: owner as SnippetOwner, project, name: blockTitle(b.lang, b.info), kind,
+        info: kind === 'BLOCK' ? '' : b.info, source: kind === 'BLOCK' ? toFence(b.lang, b.info, b.text) : b.text }));
+      await firstValueFrom(api.update(page.id, { pinned: true }));
+      this.actionError.set(null);
+    } catch (e) {
+      this.actionError.set((e as { error?: { message?: string } })?.error?.message ?? 'Could not pin the block');
+    }
+  }
 
   inlineId(b: Block): string | null {
     const owner = this.snippetOwner();
@@ -415,6 +511,12 @@ export class MarkdownViewComponent {
   hrefOf(n: Inline): string {
     return n.kind === 'link' ? n.href : '';
   }
+
+  /** A file attached on the board: downloaded, never opened as a page. */
+  isFile(n: Inline): boolean {
+    return n.kind === 'link' && BOARD_FILE.test(n.href);
+  }
+
 
   refOf(n: Inline): import('../../../core/models/board.models').MentionRef {
     return (n as Extract<Inline, { kind: 'mention' }>).ref;

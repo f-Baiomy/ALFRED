@@ -29,6 +29,10 @@ public final class RichText {
             Pattern.CASE_INSENSITIVE);
     /** A picture stored in Alfred: the only {@code src} kept. */
     private static final Pattern IMAGE = Pattern.compile("/board/images/([A-Za-z0-9-]{8,64})");
+    /** A file attached on the board (specs/017 R36): the only relative link kept. */
+    private static final Pattern FILE = Pattern.compile("/board/files/[A-Za-z0-9-]{8,64}");
+    /** Relative links are tested against this, so a link to a board file passes the protocol check; every other relative link loses its href. */
+    private static final String BASE = "http://alfred.invalid/";
     private static final Set<String> CALLOUTS = Set.of("info", "warn", "bug", "ok", "next");
     private static final Set<String> COLORS = Set.of("red", "green", "amber", "blue", "purple");
     private static final Set<String> PILLS = Set.of("ok", "fail", "wait", "info");
@@ -50,7 +54,8 @@ public final class RichText {
             .addAttributes("th", "colspan", "rowspan")
             .addAttributes("td", "colspan", "rowspan")
             .addAttributes(":all", "dir")
-            .addProtocols("a", "href", "http", "https", "mailto");
+            .addProtocols("a", "href", "http", "https", "mailto")
+            .preserveRelativeLinks(true);
 
     private RichText() {
     }
@@ -64,7 +69,13 @@ public final class RichText {
         if (!isHtml(text)) {
             return text;
         }
-        Document clean = new Cleaner(SAFE).clean(Jsoup.parseBodyFragment(text));
+        Document clean = new Cleaner(SAFE).clean(Jsoup.parseBodyFragment(text, BASE));
+        for (Element a : clean.select("a[href]")) {
+            String href = a.attr("href");
+            if (!href.matches("(?i)^(https?:|mailto:).*") && !FILE.matcher(href).matches()) {
+                a.removeAttr("href");
+            }
+        }
         for (Element img : clean.select("img")) {
             if (!IMAGE.matcher(img.attr("src")).matches()) {
                 img.remove(); // only pictures stored in Alfred - never one that loads from elsewhere

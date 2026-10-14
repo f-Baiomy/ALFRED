@@ -192,3 +192,30 @@ Every R has: a unit test (frontend spec or backend test) and, for anything visib
 Alfred with the result recorded in the phase's commit message. Security (R10, R12, R21, R45) has a dedicated spec
 (`snippet-security.spec.ts`) that fails if a sandbox flag or CSP directive is loosened, and a browser check that runs the
 eight break-out attempts from the mock against the real host.
+
+### Notes from building (phases 5-7)
+
+- **Consent** is one service (`ConsentService`) and one dialog for every change a snippet, chip, choice or form asks for;
+  `BoardActionsService.plan` reads the request into the exact change first, so a malformed or unknown action is refused
+  before any dialog. The only "don't ask again" is asking Claude from one snippet, for one page load.
+- **Asks** go through the existing skill-run road (`/alfred-ask <id>`, a fifteenth skill); the answer arrives on
+  `ask:<id>`. The editor's ✦ Replace deletes the selected range first, then inserts (a plain line as text, blocks as blocks).
+- **Files** are linked as `[📎 name](/board/files/<id>)`: the one relative link the backend cleaner keeps
+  (`preserveRelativeLinks` against a dummy base, then every other relative href dropped). Served only as downloads
+  (`attachment`, `nosniff`, `CSP: sandbox`); `?inline=true` gives text files to snippets as text/plain.
+- **Pins** are pages with `pinned`: pinned pages leave the tabs and show open at the top of the card or brief
+  (`BoardPinnedComponent`). A fixed block is pinned as a page of kind BLOCK (its fence as source). Plan said
+  `POST /board/cards/{id}/pin`; `PUT /board/snippets/{id} {pinned}` already did it, so no new route.
+- **Widgets** are `{{widget:name | key=value}}` line blocks; markdown-view renders a BLOCK widget with itself, nested,
+  stopping three deep.
+- **Multi-file snippets**: files become blob URLs inside the frame; with files the runtime writes the single import map
+  (shelf + `@file/<name>`), since a page may have only one.
+- **Python** (Pyodide 0.27.7): the one kind whose CSP is not `connect-src 'none'` - it may read `/lib/pyodide/0.27/`
+  only. The core comes from the pinned npm package, the wheels are fetched and sha256-checked by
+  `frontend/scripts/fetch-pyodide.mjs` (prebuild, Dockerfile via `npm run build`, `build_dist.py`), gitignored. Karma's
+  asset server sends no CORS header, so the live Python run in `snippet-python.spec.ts` is pending there and checked on
+  the deployed Alfred; the frame says ready only when Python has run, so the kept picture shows the result.
+- **Exports**: `GET /board/visuals?card|cycle|project` gives a place's pages with every version, values and newest
+  pictures in one read. .json adds page/state/shot/file/widget records (inline ids by card number, `page:<id>`), and
+  `ImportBoardService` maps them back. .html runs each snippet offline in the same locked frame (`offline` boot flag:
+  answers from `staticAnswers` - saved values and declared `alfred/data` read at export time); Python shows its picture.

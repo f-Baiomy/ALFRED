@@ -1,6 +1,10 @@
 package com.fathy.alfred.backend.board.adapter.out.sqlite;
 
 import com.fathy.alfred.backend.board.application.port.out.AskStorePort;
+import com.fathy.alfred.backend.board.application.port.out.BoardFileStorePort;
+import com.fathy.alfred.backend.board.application.port.out.WidgetStorePort;
+import com.fathy.alfred.backend.board.domain.model.BoardFile;
+import com.fathy.alfred.backend.board.domain.model.Widget;
 import com.fathy.alfred.backend.board.application.port.out.SnippetStorePort;
 import com.fathy.alfred.backend.board.domain.model.Ask;
 import com.fathy.alfred.backend.board.domain.model.Actor;
@@ -25,7 +29,7 @@ import java.util.Optional;
  */
 @Component
 @ConditionalOnProperty(prefix = "alfred.storage.board", name = "type", havingValue = "sqlite", matchIfMissing = true)
-public class SqliteSnippetRepository implements SnippetStorePort, AskStorePort {
+public class SqliteSnippetRepository implements SnippetStorePort, AskStorePort, BoardFileStorePort, WidgetStorePort {
 
     private static final String COLUMNS = "id, owner_type, owner_id, project, card_id, cycle_id, name, kind, info, source, author, pinned, "
             + "position, version, created_at, updated_at, updated_by";
@@ -73,7 +77,81 @@ public class SqliteSnippetRepository implements SnippetStorePort, AskStorePort {
                   card_number INTEGER, snippet_id TEXT, kind TEXT NOT NULL, question TEXT NOT NULL, data TEXT, state TEXT NOT NULL, answer TEXT,
                   run_id TEXT, created_at INTEGER NOT NULL, answered_at INTEGER)""");
         jdbc.execute("CREATE INDEX IF NOT EXISTS idx_asks_created ON asks(created_at)");
+        jdbc.execute("""
+                CREATE TABLE IF NOT EXISTS board_files (id TEXT PRIMARY KEY, project TEXT NOT NULL, card_id TEXT REFERENCES cards(id) ON DELETE CASCADE,
+                  cycle_id TEXT, name TEXT NOT NULL, mime TEXT NOT NULL, size INTEGER NOT NULL, data BLOB NOT NULL, author TEXT NOT NULL,
+                  created_at INTEGER NOT NULL)""");
+        jdbc.execute("CREATE INDEX IF NOT EXISTS idx_board_files_card ON board_files(card_id)");
+        jdbc.execute("CREATE INDEX IF NOT EXISTS idx_board_files_cycle ON board_files(cycle_id)");
+        jdbc.execute("""
+                CREATE TABLE IF NOT EXISTS widgets (project TEXT NOT NULL, name TEXT NOT NULL, kind TEXT NOT NULL, info TEXT NOT NULL,
+                  source TEXT NOT NULL, author TEXT NOT NULL, updated_at INTEGER NOT NULL, updated_by TEXT NOT NULL, PRIMARY KEY (project, name))""");
     }
+
+    // ------------------------------------------------------------------------------------------------------------ files
+
+    private static final String FILE_COLUMNS = "id, project, card_id, cycle_id, name, mime, size, author, created_at";
+
+    @Override
+    public void saveFile(BoardFile f) {
+        jdbc.update("INSERT INTO board_files(" + FILE_COLUMNS + ", data) VALUES (?,?,?,?,?,?,?,?,?,?)", f.id(), f.project(), f.cardId(), f.cycleId(),
+                f.name(), f.mime(), f.size(), f.author().name(), f.createdAt().toEpochMilli(), f.data());
+    }
+
+    @Override
+    public Optional<BoardFile> findFile(String id) {
+        return jdbc.query("SELECT " + FILE_COLUMNS + ", data FROM board_files WHERE id = ?", (rs, n) -> file(rs, rs.getBytes("data")), id)
+                .stream().findFirst();
+    }
+
+    @Override
+    public List<BoardFile> listFiles(String cardId, String cycleId) {
+        return cardId != null
+                ? jdbc.query("SELECT " + FILE_COLUMNS + " FROM board_files WHERE card_id = ? ORDER BY created_at, id", (rs, n) -> file(rs, null), cardId)
+                : jdbc.query("SELECT " + FILE_COLUMNS + " FROM board_files WHERE card_id IS NULL AND cycle_id = ? ORDER BY created_at, id",
+                        (rs, n) -> file(rs, null), cycleId);
+    }
+
+    @Override
+    public boolean deleteFile(String id) {
+        return jdbc.update("DELETE FROM board_files WHERE id = ?", id) > 0;
+    }
+
+    private static BoardFile file(java.sql.ResultSet rs, byte[] data) throws java.sql.SQLException {
+        return new BoardFile(rs.getString("id"), rs.getString("project"), rs.getString("card_id"), rs.getString("cycle_id"), rs.getString("name"),
+                rs.getString("mime"), rs.getLong("size"), data, Actor.valueOf(rs.getString("author")), Instant.ofEpochMilli(rs.getLong("created_at")));
+    }
+
+    // ---------------------------------------------------------------------------------------------------------- widgets
+
+    @Override
+    public List<Widget> widgets(String project) {
+        return jdbc.query("SELECT project, name, kind, info, NULL AS source, author, updated_at, updated_by FROM widgets WHERE project = ? ORDER BY name",
+                WIDGET, project);
+    }
+
+    @Override
+    public Optional<Widget> widget(String project, String name) {
+        return jdbc.query("SELECT project, name, kind, info, source, author, updated_at, updated_by FROM widgets WHERE project = ? AND name = ?",
+                WIDGET, project, name).stream().findFirst();
+    }
+
+    @Override
+    public void putWidget(Widget w) {
+        jdbc.update("INSERT INTO widgets(project, name, kind, info, source, author, updated_at, updated_by) VALUES (?,?,?,?,?,?,?,?) "
+                        + "ON CONFLICT(project, name) DO UPDATE SET kind = excluded.kind, info = excluded.info, source = excluded.source, "
+                        + "updated_at = excluded.updated_at, updated_by = excluded.updated_by", w.project(), w.name(), w.kind().name(), w.info(),
+                w.source(), w.author().name(), w.updatedAt().toEpochMilli(), w.updatedBy().name());
+    }
+
+    @Override
+    public boolean deleteWidget(String project, String name) {
+        return jdbc.update("DELETE FROM widgets WHERE project = ? AND name = ?", project, name) > 0;
+    }
+
+    private static final RowMapper<Widget> WIDGET = (rs, n) -> new Widget(rs.getString("project"), rs.getString("name"),
+            Widget.Kind.valueOf(rs.getString("kind")), rs.getString("info"), rs.getString("source"), Actor.valueOf(rs.getString("author")),
+            Instant.ofEpochMilli(rs.getLong("updated_at")), Actor.valueOf(rs.getString("updated_by")));
 
     // ------------------------------------------------------------------------------------------------------------- asks
 
@@ -222,6 +300,30 @@ public class SqliteSnippetRepository implements SnippetStorePort, AskStorePort {
     }
 
     @Override
+    public List<SnippetState> statesOf(String cardId, String cycleId) {
+        return cardId != null
+                ? jdbc.query("SELECT snippet_id, key, value, updated_by, at FROM snippet_state WHERE card_id = ? ORDER BY snippet_id, key", STATE, cardId)
+                : jdbc.query("SELECT snippet_id, key, value, updated_by, at FROM snippet_state WHERE card_id IS NULL AND cycle_id = ? ORDER BY snippet_id, key",
+                        STATE, cycleId);
+    }
+
+    @Override
+    public List<SnippetShot> shotsOf(String cardId, String cycleId) {
+        String where = cardId != null ? "s.card_id = ?" : "s.card_id IS NULL AND s.cycle_id = ?";
+        return jdbc.query("SELECT s.snippet_id, s.version, s.png, s.console, s.at FROM snippet_shots s WHERE " + where
+                        + " AND NOT EXISTS (SELECT 1 FROM snippet_shots n WHERE n.snippet_id = s.snippet_id AND (n.at > s.at OR (n.at = s.at AND n.version > s.version))) "
+                        + "ORDER BY s.snippet_id",
+                (rs, n) -> new SnippetShot(rs.getString(1), rs.getInt(2), rs.getBytes(3), rs.getString(4), Instant.ofEpochMilli(rs.getLong(5))),
+                cardId != null ? cardId : cycleId);
+    }
+
+    @Override
+    public void importVersion(SnippetVersion v) {
+        jdbc.update("INSERT OR IGNORE INTO snippet_versions(snippet_id, version, name, info, source, author, at) VALUES (?,?,?,?,?,?,?)",
+                v.snippetId(), v.version(), v.name(), v.info(), v.source(), v.author().name(), v.at().toEpochMilli());
+    }
+
+    @Override
     public void cycleRemoved(String cycleId) {
         tx.executeWithoutResult(status -> {
             jdbc.update("DELETE FROM snippet_state WHERE cycle_id = ? OR snippet_id IN (SELECT id FROM snippets WHERE cycle_id = ?)", cycleId, cycleId);
@@ -229,6 +331,7 @@ public class SqliteSnippetRepository implements SnippetStorePort, AskStorePort {
                     cycleId, cycleId);
             jdbc.update("DELETE FROM snippet_shots WHERE cycle_id = ? OR snippet_id IN (SELECT id FROM snippets WHERE cycle_id = ?)", cycleId, cycleId);
             jdbc.update("DELETE FROM snippets WHERE cycle_id = ?", cycleId);
+            jdbc.update("DELETE FROM board_files WHERE card_id IS NULL AND cycle_id = ?", cycleId);
         });
     }
 

@@ -17,6 +17,17 @@ FRONTEND = os.path.join(ROOT, "frontend")
 LIBS_TS = os.path.join(FRONTEND, "src", "app", "shared", "utils", "snippet-libs.ts")
 ANGULAR = os.path.join(FRONTEND, "angular.json")
 INDEX = os.path.join(FRONTEND, "public", "lib", "index.json")
+PYTHON_TS = os.path.join(FRONTEND, "src", "app", "shared", "utils", "snippet-python.ts")
+PACKAGE_JSON = os.path.join(FRONTEND, "package.json")
+
+
+def python():
+    """Python for ```python live``` (specs/017 R27): the pinned Pyodide version and where the shelf keeps it."""
+    version = json.load(open(PACKAGE_JSON, encoding="utf-8"))["devDependencies"]["pyodide"]
+    folder = re.search(r"PYODIDE_DIR = '([^']+)'", open(PYTHON_TS, encoding="utf-8").read()).group(1)
+    return {"version": version, "url": f"/lib/{folder}/", "packages": ["numpy", "pandas", "matplotlib"],
+            "about": "```python live``` runs Python " + "3.12 (Pyodide " + version + ") in the locked frame: await alfred.calls(...) is a pandas "
+                     "DataFrame, the last line is shown, matplotlib figures are drawn. Fetched and checksummed when Alfred is built."}
 
 ENTRY = re.compile(r"\{ id: '([^']+)', name: '([^']+)', version: '([^']+)', file: '([^']+)', kind: '([^']+)', "
                    r"provides: '([^']+)', about: '([^']+)'(, heavy: true)? \}")
@@ -46,6 +57,9 @@ def problems():
     libs = shelf()
     if not libs:
         out.append("no SNIPPET_LIBS entries found in snippet-libs.ts")
+    py = python()
+    if py["url"] != "/lib/pyodide/" + ".".join(py["version"].split(".")[:2]) + "/":
+        out.append(f"snippet-python.ts PYODIDE_DIR ({py['url']}) is not the pinned pyodide {py['version']}'s folder")
     for target in ("build", "test"):
         rules = copy_rules(target)
         for lib in libs:
@@ -66,7 +80,8 @@ def index():
     return {"about": "Alfred's library shelf: snippets run with no network and load only these. "
                      "kind script = a global (provides), module = import from the name in provides (an import map gives it), "
                      "css = a stylesheet. Ask for them with libs=\"id id\" on the snippet or alfred.lib(id).",
-            "libs": entries}
+            "libs": entries,
+            "python": python()}
 
 
 def main():

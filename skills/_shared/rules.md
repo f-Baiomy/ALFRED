@@ -369,6 +369,29 @@ or paused calls - the backend refuses all of it, and you never ask the user to l
   rule did, what the app did with it) and remind them to switch it off if it has no time limit.
 - A rule must stay narrow - a host or project AND a path, no pause; the backend refuses anything else.
 
+## Visuals - show it, keep it alive
+
+A picture of the evidence beats a paragraph, but the words come first: every comment or brief still opens with its
+one-line summary in text; a visual backs it up.
+
+- **A fixed block** when the board can draw it: ```` ```stats ````, ```` ```chart ````, ```` ```timeline ````,
+  ```` ```mermaid ````, `[progress: 3/9 …]`, `:::tabs`, `{red|text}`. Cheap, exported as text, always the first choice.
+- **Live data, never pasted numbers**: ```` ```calls ```` (`endpoint`, `since: fix`, `show: chart(durationMs)`),
+  ```` ```sql ````, ```` ```logs ````, ```` ```compare ````, `!@[call:in:…]`. They re-read as calls arrive; numbers
+  you paste go stale.
+- **A snippet** (```` ```html live ````, ```` ```python live ````, or a page with `board_page_put`) only when a fixed
+  block cannot say it - an interactive view, a join of several sources. It runs in a locked frame with no network:
+  read data with `alfred.data()`/`alfred.watch()`, keep choices with `alfred.state`, load only what `board_lib` lists.
+  Files you attach (`board_attach`) are read with `alfred.files(name)`.
+- **Check it before you say it is ready**: open it once on the board, then `board_snippet_view` - read the picture and
+  the console. An error in the console means it is not done.
+- Pin a page to the top of a card only when it is the card's dashboard (`board_pin`); save a view the project will
+  reuse as a widget (`board_widget_put`) and tell the user the `{{widget:name}}` line.
+- Buttons and forms (`[choose: …]`, `[action: …]`, ```` ```form ````) only ask - the user clicks, and every change shows
+  a consent dialog first. Never write one that does what the user did not ask for.
+- A question asked from a snippet or the editor's ✦ reaches you as `/alfred-ask <id>`: `board_ask_get`, then
+  `board_ask_answer`.
+
 ## 5. Every run
 
 - First call: `task_context` (rules §0). Last call: `board_session_log`.

@@ -1,6 +1,14 @@
 import { TestBed } from '@angular/core/testing';
 import { MAX_ANSWER_BYTES, MAX_MESSAGES_PER_SECOND, SnippetBridge, readMessage } from './snippet-bridge';
 import { SNIPPET_RUNTIME, SNIPPET_SANDBOX, buildSnippetDoc, scriptJson, snippetCsp } from './snippet-frame';
+import { PYODIDE_DIR } from './snippet-python';
+import { inlineHtml } from './board-visuals-render';
+import { provideHttpClient } from '@angular/common/http';
+import { provideRouter } from '@angular/router';
+import { ACTION_KINDS, BoardActionsService } from '../../core/services/board-actions.service';
+import { BoardApiService } from '../../core/services/board-api.service';
+import { ConsentService } from '../../core/services/consent.service';
+import { fillWidget } from '../../core/services/widgets.service';
 import { libsOf } from './snippet-libs';
 import { markdownBlocks } from './markdown-blocks';
 import { blocksToHtml } from './rich-html';
@@ -168,6 +176,61 @@ describe('snippet security', () => {
       await new Promise((r) => setTimeout(r, 0));
       expect(calls).toEqual(['data']);
       expect(posted).toContain(jasmine.objectContaining({ alfred: 1, t: 'res', id: 3, ok: true, value: { ok: 1 } }));
+    });
+  });
+
+  describe('the walls added with phases 5-7', () => {
+    it('Python may read its own shelf folder and nothing else; every other kind still reads nothing', () => {
+      const py = snippetCsp(origin, true);
+      expect(py).toContain(`connect-src ${origin}/lib/${PYODIDE_DIR}/`);
+      expect(py.match(/connect-src [^;]+/)![0].split(' ').length).toBe(2);
+      for (const kind of ['html', 'mermaid'] as const) {
+        expect(buildSnippetDoc({ source: 'x', kind, origin })).toContain(`connect-src 'none'`);
+      }
+      expect(buildSnippetDoc({ source: 'x', kind: 'python', origin })).not.toContain(`connect-src 'none'`);
+    });
+
+    it('an exported page runs its snippets offline in the same locked frame', () => {
+      const v = { pages: [], states: [], shots: [], files: [], widgets: [] };
+      const html = inlineHtml({ origin, libCode: {}, data: {} }, v, '```html live\n<b>x</b>\n```', 'inline:card:#1:desc', 'Description');
+      const frame = new DOMParser().parseFromString(html, 'text/html').querySelector('iframe')!;
+      expect(frame.getAttribute('sandbox')).toBe(SNIPPET_SANDBOX);
+      const doc = frame.getAttribute('srcdoc')!;
+      expect(doc.indexOf('Content-Security-Policy')).toBeLessThan(doc.indexOf('<script'));
+      expect(doc).toContain(`connect-src 'none'`);
+      expect(doc).toContain('"offline":true');
+    });
+
+    it('every action kind asks first, and nothing outside the list is ever planned', async () => {
+      TestBed.configureTestingModule({ providers: [provideRouter([]), provideHttpClient(),
+        { provide: BoardApiService, useValue: jasmine.createSpyObj('BoardApiService', ['comment', 'move', 'requestSkillRun', 'retestRun', 'card', 'update', 'create']) }] });
+      const consent = TestBed.inject(ConsentService);
+      const actions = TestBed.inject(BoardActionsService);
+      const ctx = { project: 'p', cardId: 'c1', cardNumber: 1, cycleId: 'cy', comment: 2 };
+      const args: Record<string, Record<string, unknown>> = {
+        reply: { text: 'x' }, answer: { text: 'x' }, 'run-skill': { command: '/alfred-fix 1' }, retest: {}, move: { status: 'FIXED' },
+        flag: { flag: 'RISK' }, propose: { title: 't' }, rule: { call: 'in:abc' }, 'open-call': { call: 'in:abc' },
+      };
+      expect(Object.keys(args).sort()).toEqual([...ACTION_KINDS].sort());
+      for (const kind of ACTION_KINDS) {
+        const done = actions.perform(kind, args[kind], ctx, 'test');
+        await Promise.resolve();
+        expect(consent.state()).withContext(kind).not.toBeNull();
+        consent.respond(false);
+        await expectAsync(done).withContext(kind).toBeRejectedWithError('The user said no');
+      }
+      for (const bad of ['delete', 'close', 'eval', 'navigate', '__proto__']) {
+        await expectAsync(actions.perform(bad, {}, ctx, 'test')).toBeRejectedWithError(/not an action/);
+      }
+      expect(consent.state()).toBeNull();
+    });
+
+    it('a widget, a file link and a pinned block stay text: none becomes markup or a script', () => {
+      const html = blocksToHtml(markdownBlocks('{{widget:x | a=<script>alert(1)</script>}}\n\n[📎 a](/board/files/f-12345678)\n\n[x](javascript:alert(1))'));
+      expect(html).not.toContain('<script>');
+      expect(html).not.toContain('href="javascript:');
+      expect(fillWidget('<b>{{a}}</b>', { a: '"><img src=x onerror=alert(1)>' })).toContain('<img');
+      // a widget's filled source runs in the locked frame (html) or is read as board Markdown (block) - never set as page HTML
     });
   });
 });

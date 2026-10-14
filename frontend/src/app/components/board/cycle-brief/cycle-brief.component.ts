@@ -21,10 +21,12 @@ const CHIP_MAX = 48;
  * session must keep; Test steps and Data show beside it in the Task view. A brief without sections shows whole.
  */
 import { BoardPagesComponent } from '../visuals/board-pages.component';
+import { BoardFilesComponent } from '../visuals/board-files.component';
+import { BoardPinnedComponent } from '../visuals/board-pinned.component';
 @Component({
   selector: 'app-cycle-brief',
   standalone: true,
-  imports: [BoardPagesComponent, MarkdownViewComponent, MentionEditorComponent, RunSkillComponent],
+  imports: [BoardPagesComponent, BoardFilesComponent, BoardPinnedComponent, MarkdownViewComponent, MentionEditorComponent, RunSkillComponent],
   template: `
     <div class="board-box">
       <h3 class="task-h3">The task
@@ -39,18 +41,20 @@ import { BoardPagesComponent } from '../visuals/board-pages.component';
       </h3>
       @if (editing()) {
         <app-mention-editor [value]="brief()?.text ?? template" [project]="project()" [cycleId]="cycleId()" submitLabel="Save"
+                            [attach]="{ cycle: cycleId(), project: project() }"
                             [cancellable]="true" [allowEmpty]="true" [rows]="14" [enterSends]="false" [draftKey]="'brief:' + cycleId()"
                             placeholder="What is this task? The ticket, its description, scope, test steps… type @ to mention"
                             (submitted)="save($event)" (cancelled)="editing.set(false)" />
       } @else {
+        @if (project() !== null) { <app-board-pinned [owner]="'cycle:' + cycleId()" [project]="project()" [canEdit]="editable()" [context]="{ cycleId: cycleId(), project: project() }" /> }
         @let p = parts();
-        @if (p.goal) { <div class="task-goal"><app-markdown-view [text]="p.goal" [idPrefix]="'brief-' + cycleId() + '-goal-'" [snippetOwner]="'inline:cycle:' + cycleId() + ':goal'" [snippetContext]="{ cycleId: cycleId() }" /></div> }
+        @if (p.goal) { <div class="task-goal"><app-markdown-view [text]="p.goal" [idPrefix]="'brief-' + cycleId() + '-goal-'" [snippetOwner]="'inline:cycle:' + cycleId() + ':goal'" [snippetContext]="{ cycleId: cycleId(), project: project() }" /></div> }
         @if (p.sections['description'] || p.sections['scope'] || p.sections['out of scope']) {
           <div class="task-brief-grid">
             <div>
               @if (p.sections['description']) {
                 <div class="task-rl">Description <span>as the ticket says it</span></div>
-                <div class="task-desc"><app-markdown-view [text]="p.sections['description']" [idPrefix]="'brief-' + cycleId() + '-desc-'" [snippetOwner]="'inline:cycle:' + cycleId() + ':desc'" [snippetContext]="{ cycleId: cycleId() }" /></div>
+                <div class="task-desc"><app-markdown-view [text]="p.sections['description']" [idPrefix]="'brief-' + cycleId() + '-desc-'" [snippetOwner]="'inline:cycle:' + cycleId() + ':desc'" [snippetContext]="{ cycleId: cycleId(), project: project() }" /></div>
               }
             </div>
             <div>
@@ -73,7 +77,7 @@ import { BoardPagesComponent } from '../visuals/board-pages.component';
         }
         @for (o of p.other; track $index) {
           @if (o.title) { <div class="task-rl">{{ o.title }}</div> }
-          <app-markdown-view [text]="o.text" [idPrefix]="'brief-' + cycleId() + '-o' + $index + '-'" [snippetOwner]="'inline:cycle:' + cycleId() + ':o' + $index" [snippetContext]="{ cycleId: cycleId() }" />
+          <app-markdown-view [text]="o.text" [idPrefix]="'brief-' + cycleId() + '-o' + $index + '-'" [snippetOwner]="'inline:cycle:' + cycleId() + ':o' + $index" [snippetContext]="{ cycleId: cycleId(), project: project() }" />
         }
         @if (!brief()?.text?.trim()) {
           <div class="board-dim">No brief yet - say what the task is: the ticket, its description, scope, test steps.
@@ -83,6 +87,7 @@ import { BoardPagesComponent } from '../visuals/board-pages.component';
       }
       @if (project()) {
         <app-board-pages [owner]="'cycle:' + cycleId()" [project]="project()" [canEdit]="editable()" [context]="{ cycleId: cycleId(), project: project() }" />
+        <app-board-files [cycle]="cycleId()" [project]="project()" [canEdit]="editable()" />
       }
       <div class="task-harness">
         <span class="task-rl">Continue anywhere</span>

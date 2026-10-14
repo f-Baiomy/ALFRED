@@ -11812,3 +11812,28 @@ app-task-view .board-copy { max-width: 100%; overflow: hidden; text-overflow: el
 }
 .board-storage-acts { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; margin-top: 0.7rem; }
 .board-storage-done { color: var(--green); font-size: 0.8rem; }
+
+// ---- files attached to cards and cycles (specs/017 R36)
+.board-files { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin: 0.6rem 0; font: 0.8rem system-ui, sans-serif; }
+.board-files-title { color: var(--text-dim); font-weight: 600; margin-right: 0.2rem; }
+.board-file-chip {
+  display: inline-flex; align-items: center; gap: 0.35rem; border: 1px solid var(--border); border-radius: 7px; padding: 0.15rem 0.5rem;
+  background: var(--card);
+  a { color: var(--text); text-decoration: none; &:hover { color: var(--purple-light); } }
+}
+.board-file-x { border: 0; background: none; color: var(--text-dim); cursor: pointer; padding: 0 0.1rem; &:hover { color: var(--red); } }
+.board-file-link { border: 1px solid var(--border); border-radius: 6px; padding: 0 0.35rem; text-decoration: none; white-space: nowrap; &:hover { border-color: var(--purple); } }
+
+// ---- 📌 pinned blocks: the dashboard at the top of a card or brief (specs/017 R33)
+.board-vis-pinnable { position: relative; }
+.board-vis-pin {
+  position: absolute; top: 4px; inset-inline-end: 4px; z-index: 2; opacity: 0; display: inline-flex; gap: 2px; transition: opacity 0.15s;
+  button { border: 1px solid var(--border); border-radius: 6px; background: var(--card); color: var(--text); padding: 0 0.3rem; cursor: pointer; font-size: 0.75rem; }
+  button:hover { border-color: var(--purple); }
+}
+.board-vis-pinnable:hover > .board-vis-pin, .board-vis-pin:focus-within { opacity: 1; }
+.board-widget { margin: 0.4rem 0; }
+.board-pinned { display: flex; flex-direction: column; gap: 0.6rem; margin: 0 0 0.8rem; }
+.board-pinned-item { border: 1px solid var(--border-strong); border-radius: 10px; padding: 0.4rem 0.6rem 0.6rem; background: var(--panel-bg); }
+.board-pinned-head { display: flex; align-items: center; gap: 0.35rem; font: 600 0.78rem system-ui, sans-serif; color: var(--purple-light); margin-bottom: 0.3rem; }
+.board-editor-menu-sep { display: block; padding: 0.3rem 0.5rem 0.1rem; font: 600 0.7rem system-ui, sans-serif; color: var(--text-dim); border-top: 1px solid var(--border); margin-top: 0.2rem; }

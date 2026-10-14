@@ -11,6 +11,7 @@ class FakeEditorComponent {
   readonly project = input('');
   readonly cycleId = input<string | null>(null);
   readonly card = input<unknown>(null);
+  readonly attach = input<unknown>(null);
   readonly rows = input(3);
   readonly cancellable = input(false);
   readonly submitLabel = input('Comment');

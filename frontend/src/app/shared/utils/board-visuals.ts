@@ -169,9 +169,11 @@ export const CHOOSE_LINE = /^\s*\[choose:\s*([^\]]+)\]\s*$/i;
 export const ACTION_LINE = /^\s*(\[action:\s*[^\]]+\]\s*)+$/i;
 /** `!@[call:in:x|label]` alone on a line - the expanded call view */
 export const CALLVIEW_LINE = /^\s*!(@\[call:[^\]]+\])\s*$/;
+/** `{{widget:fare-chart | endpoint=/api/fare since=fix}}` alone on a line - a project widget (specs/017 R34). */
+export const WIDGET_LINE = /^\s*\{\{\s*widget:([A-Za-z0-9][\w-]{0,59})\s*(?:\|\s*([^}]*?))?\s*\}\}\s*$/;
 /** Lines that are a block of their own (they end a paragraph). */
 export function isLineBlock(line: string): boolean {
-  return PROGRESS_LINE.test(line) || CHOOSE_LINE.test(line) || ACTION_LINE.test(line) || CALLVIEW_LINE.test(line) || /^\s*:::/.test(line);
+  return PROGRESS_LINE.test(line) || CHOOSE_LINE.test(line) || ACTION_LINE.test(line) || CALLVIEW_LINE.test(line) || WIDGET_LINE.test(line) || /^\s*:::/.test(line);
 }
 
 export interface ActionChip {
@@ -225,4 +227,26 @@ export const VISUAL_TEMPLATES: Record<string, string> = {
     + '  app.innerHTML = rows.map(([k, v, c]) => `<div class="row">${k} · ${v} ms<div class="bar" style="background:${c}" data-w="${v / 24}%"></div></div>`).join("");\n'
     + '  requestAnimationFrame(() => requestAnimationFrame(() => document.querySelectorAll(".bar").forEach((b) => (b.style.width = b.dataset.w))));\n</script>',
   mermaid: 'flowchart LR\n  A[Browser] --> B[Gateway]\n  B --> C[Backend]\n  C --> D[(board.db)]',
+  python: 'import matplotlib.pyplot as plt\n\ncalls = await alfred.calls(since="24h")\nif len(calls):\n'
+    + '    calls.groupby("endpoint")["durationMs"].median().sort_values().tail(10).plot.barh(title="Median ms by endpoint")\n'
+    + 'calls.head(20) if len(calls) else "No calls in the last 24 hours"',
 };
+
+/** A fixed block kept as a page (specs/017 R33 - kind BLOCK): its fence, read back. Null when the text is not one fence. */
+export function fenceOf(md: string): { lang: string; info: string; text: string } | null {
+  const m = /^\s*```([\w-]+)[ \t]*([^\n]*)\n([\s\S]*?)\n?```\s*$/.exec(md);
+  return m ? { lang: m[1], info: m[2].trim(), text: m[3] } : null;
+}
+
+export function toFence(lang: string, info: string, text: string): string {
+  return '```' + lang + (info ? ' ' + info : '') + '\n' + text.replace(/\n+$/, '') + '\n```';
+}
+
+/** What a pinned block is called when its settings give no name. */
+export function blockTitle(lang: string, info: string): string {
+  const named = infoAttrs(info)['name'];
+  if (named) return named;
+  const names: Record<string, string> = { stats: 'Stats', chart: 'Chart', timeline: 'Timeline', mermaid: 'Diagram', html: 'Snippet', calls: 'Calls',
+    statement: 'Statement', 'call-logs': 'Log lines', compare: 'Compare', form: 'Form', python: 'Python' };
+  return names[lang] ?? lang;
+}

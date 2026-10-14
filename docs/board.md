@@ -352,11 +352,92 @@ SQLite keeps the pages deleted rows freed and reuses them, but the file does not
 
 Board writes follow the server-settings rule (`EditAccessUseCase`), with one exception: Docker, which refuses every settings write, lets board edits through, because cards are data, not settings. The Cloudflare tunnel is always view-only. `GET /board/access` returns the same decision to the page, which then hides its edit controls and shows "View only". Export stays available.
 
+## Visuals and snippets (specs/017)
+
+Every board text can show a picture of its evidence. The words still come first; a visual backs them up.
+
+- **Fixed blocks** (drawn by the board, no code): ```` ```stats ```` (label | value | colour | note), ```` ```chart ````
+  (bar, hbar, line, area, pie, from a number grid), ```` ```timeline ```` (label | start | length ms), ```` ```mermaid ````
+  diagrams, `[progress: 3/9 …]`, `:::tabs` with `## Title` per tab, and colour `{red|text}`. ⬇ PNG on each chart and
+  diagram. The editor's Visual menu opens a block editor with a live preview.
+- **Live data blocks** read Alfred as calls arrive (no polling - each re-reads on the `/ws` "calls changed" and
+  `/ws/board` signals): ```` ```calls ```` (`endpoint`, `since: fix|24h|<iso>|cycle:<id>|call:<id>`, `until`,
+  `show: table(...)|chart(field)`, from `GET /board/data/calls`, `boardbridge/BoardDataController`), ```` ```sql ````
+  (a statement's rows), ```` ```logs ```` (a call's lines), ```` ```compare ```` (two calls side by side) and
+  `!@[call:in:…]` alone on a line (the expanded call view). The editor's `/call /calls /sql /logs /compare` commands pick
+  the real data.
+- **Snippets** (```` ```html live ```` in any text, or a **page**): HTML, CSS and JavaScript in a locked frame -
+  `iframe sandbox="allow-scripts"` (never `allow-same-origin`), a Content-Security-Policy first in the document that
+  allows no network at all (`connect-src 'none'`; scripts only inline or from Alfred's `/lib/`; pictures only data:,
+  blob:, `/lib/` and `/board/images/`). The frame talks only to the board, through `postMessage`, and the board checks
+  the sender is that frame, the message's shape, 50 messages a second and 5 MB per answer (`snippet-bridge.ts`).
+  `window.alfred` inside: `data(src, args)` / `watch(...)` (the allowlist: calls, call, statements, rows, logs, redis,
+  cards, card, cycles, rules - GET only), `state.get/set/all` (saved, shared, live), `action(kind, args)`,
+  `ask(question, data)`, `files(name?)`, `file(name)`/`url(name)` (a multi-file snippet's own files), `lib(id)`.
+  `<script type="alfred/data" name src live>{args}</script>` declares data up front. Bar: ⤢ full screen, `</>` source,
+  ⬇ PNG, ⬇ .html (a file that opens anywhere, libraries inside), copy, console (last 200 lines), ▶ click-to-run (per
+  browser; snippets run on open by default). A frame off screen is paused.
+- **Multi-file snippets**: `--- chart.js`, `--- look.css`, `--- rows.csv` on a line of their own start files after the
+  page. `import "./chart.js"` works between them (an import map of blob URLs), `./look.css` is applied, a classic
+  `<script src="./x.js">` runs in place, and data files are read with `alfred.file(name)`.
+- **Python** (```` ```python live ````): Python 3.12 (Pyodide, with numpy, pandas, matplotlib) in the same locked frame.
+  `await alfred.calls(since="fix")` is a pandas DataFrame, `await alfred.data(...)` any allowed source; `print()` goes
+  to the console, the last line is shown (a DataFrame as its table), each matplotlib figure is drawn. Its frame may read
+  only `/lib/pyodide/<major>/` (nothing else). Pyodide is on the shelf only when Alfred was built with it:
+  `frontend/scripts/fetch-pyodide.mjs` runs before every `ng build` (and in `build_dist.py`) - core from the pinned
+  `pyodide` npm package, packages from the Pyodide release, each checked against the sha256 of the pinned lock file.
+  Without a network the build still succeeds and Python snippets say Python is not on the shelf.
+- **The library shelf** (`/lib/<id>/<major>/…`, listed at `/lib/index.json` by `scripts/lib_index.py`): Chart.js,
+  ECharts, D3, Plotly, Mermaid, Three.js, Preact + htm, Alpine.js, Tailwind, Marked, highlight.js, PapaParse, dayjs,
+  lodash - copied from npm by `angular.json`, served with `Access-Control-Allow-Origin: *` (the frame's origin is
+  opaque) by the frontend's nginx and natively by `SpaPageFilter`. When a browser keeps the frame from reading `/lib/`
+  the board passes the libraries in (`SnippetShelfService`); Python cannot travel that way.
+- **Pages** (`snippets` + `snippet_versions` in board.db, `GET/POST /board/pages?owner=card:|cycle:|project:`,
+  `GET/PUT/DELETE /board/snippets/<id>`): named snippets, diagrams, Python or fixed blocks (kind BLOCK) on a card, a
+  cycle's brief or the project (◈ Pages on the board), shown as tabs. Every save is a version (⟲ Versions: line diff,
+  both drawn side by side, restore); a save based on an older version is a conflict (409). ⧉ Pop out opens
+  `/board/page/<id>` alone. Claude creates pages and changes only its own.
+- **Saved values** (`snippet_state` + history, `/board/snippets/<id>/state/<key>`): JSON up to 64 KB per key, 200 keys,
+  per snippet - a page's id or an inline block's `inline:card:<cardId>:<desc|entryId[pN]>:<n>` /
+  `inline:cycle:<cycleId>:<goal|desc|oN>:<n>`. Every change signals `state:<id>` so every open view updates.
+- **Pictures for Claude** (`snippet_shots`): after a version is first drawn, the board keeps a PNG of the frame (an SVG
+  foreignObject snapshot made inside the frame, canvases copied) with its console. `board_snippet_view` gives Claude
+  that picture and the console, so it can check a snippet before saying it is ready.
+- **Actions, choices and forms**: `[action: move FIXED | Mark fixed]`, `[choose: A | B]`, ```` ```form ```` and a
+  snippet's `alfred.action(...)` act only on a card being read (never in a preview). Each shows the consent dialog with
+  the exact change first and runs only on the user's click, as the user: reply, answer (`**Answer** choice: B` /
+  `field=value; …`, clears Needs decision), run-skill, retest, move, flag, propose, rule (opens the rule editor),
+  open-call. Anything else is refused before a dialog.
+- **Ask Claude**: a snippet's `alfred.ask(...)` (consent the first time per snippet) or the editor's ✦ menu over the
+  selected text (make a chart, shorten, translate to Arabic, as a table, as a snippet, or your own question) sends
+  `/alfred-ask <id>` to the cycle's chat (`asks` table, `POST /board/asks`); Claude answers with `board_ask_answer` and
+  the snippet, or the editor's Replace / Insert below, gets it on the `ask:<id>` signal.
+- **Pinned**: 📌 on any block or snippet of a card's text (or a brief) makes it a pinned page - shown open at the top of
+  the card or brief, its dashboard. Unpin sends it to the Pages tabs. Claude pins its own pages with `board_pin`.
+- **Widgets** (`widgets` table, `/board/widgets/<name>?project=`): ★ on a block or page saves it as a named project
+  widget; `{{widget:name | key=value}}` alone on a line shows it in any text of the project, `{{key}}` in the widget
+  filled with the value (an HTML widget also gets them as `alfred.context.params`). A widget using itself stops three
+  deep. Claude lists them with `board_widgets` and saves its own with `board_widget_put`.
+- **Files** (`board_files`, `POST /board/files?card=|cycle=&project=&name=`): 📎 on a card or brief (or in the editor,
+  which puts `[📎 name](/board/files/<id>)` in the text): csv, json, txt, log, har, xml, sql, md, pdf, png, jpg - at
+  most 10 MB, 50 per place; the bytes must match the name (a PNG starts as one, text is UTF-8 without NUL bytes). A file
+  is always served as a download in a sandbox (`Content-Disposition: attachment`, `nosniff`, `CSP: sandbox`), never as a
+  page; `?inline=true` gives a text file as plain text to a snippet. Deleted with its card or cycle. Claude reads one
+  with `board_file` and attaches its own with `board_attach`; the backend's cleaner keeps no relative link but
+  `/board/files/<id>`.
+
 ## Export and import
 
 - **Board export**: Board → .md, .html or .json, either the whole board or the selected cards.
 - **`alfred-board/1`** (`board-json.ts`): a header line, then one record per line: card (fields plus direct links), activity (by card number), brief, spec (in full) and mark. Nothing is shortened. `POST /board/import?project=` streams it in. A clashing number gets the next free one, and `@[card:...]` mentions of moved cards are rewritten to match.
 - **The HTML export** escapes every value; a rich text is written as the board's own clean HTML rebuilt from its blocks. The .md export converts rich text to Markdown; the .json keeps every text as stored and adds an `image` record (base64) per picture the texts show, so an import elsewhere shows them too (checked like an upload; an id already there is kept).
+- **Visuals in the exports** (specs/017 R43): the .json adds a `page` record per page with every version, `state`,
+  `shot` (PNG, base64), `file` (base64) and `widget` records - an inline block's id is written with its card's number
+  (`inline:card:#7:desc:0`) and a page's state as `page:<id>`, which the importer maps to the new ids; a file keeps its id
+  (texts link to it) unless that id is already here, and a widget whose name the project has already is kept as it is.
+  The .md writes each page's source whole with its picture embedded as a PNG, the inline snippets' pictures, the files
+  and the widgets. The .html runs every snippet in the same locked frame, offline: its libraries inside, its saved values,
+  files and declared `alfred/data` answered from what was read at export time; Python shows its picture.
 - **Cycle export**: "Include brief & specs" and "Include board cards" are both off by default, and with both off the output is identical to before (guarded in `export-build.spec.ts`). When ticked, they append the board to the .md / .html report. With .json, the calls file stays the calls re-import format, and the board is written beside it as its own alfred-board file.
 
 ## Limits and measurements

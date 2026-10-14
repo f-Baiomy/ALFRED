@@ -55,6 +55,9 @@ interface GridSeries { name: string; color: string; values: string[] }
                 <tr><td><button type="button" class="board-link" (click)="addLabel()">＋ row</button></td></tr>
               </table></div>
             } @else {
+              @if (lang() === 'python') {
+                <div class="vis-ed-row"><label>Name <input [value]="name()" placeholder="Python" (input)="name.set($any($event.target).value)" /></label></div>
+              }
               @if (lang() === 'html') {
                 <div class="vis-ed-row">
                   <label>Name <input [value]="name()" placeholder="HTML snippet" (input)="name.set($any($event.target).value)" /></label>
@@ -77,6 +80,7 @@ interface GridSeries { name: string; color: string; values: string[] }
               @case ('timeline') { <app-timeline-block [source]="text()" /> }
               @case ('html') { <app-snippet-host [source]="preview()" [info]="info()" /> }
               @case ('mermaid') { <app-snippet-host [source]="preview()" kind="mermaid" /> }
+              @case ('python') { <app-snippet-host [source]="preview()" [info]="info()" kind="python" /> }
               @default { <pre class="board-vis-src">{{ text() }}</pre> }
             }
           </div>
@@ -114,6 +118,7 @@ export class VisualEditorComponent implements OnInit, OnDestroy {
   readonly preview = signal('');
   private timer: ReturnType<typeof setTimeout> | null = null;
   readonly info = computed(() => {
+    if (this.lang() === 'python') return ['live', ...(this.name().trim() ? [`name="${this.name().trim().replace(/"/g, "'")}"`] : [])].join(' ');
     if (this.lang() !== 'html') return '';
     const parts = ['live'];
     if (this.name().trim()) parts.push(`name="${this.name().trim().replace(/"/g, "'")}"`);
@@ -123,13 +128,14 @@ export class VisualEditorComponent implements OnInit, OnDestroy {
     return parts.join(' ');
   });
 
-  readonly title = computed(() => ({ chart: '▤ Chart', stats: '▦ Stats', timeline: '⏱ Timeline', html: '◈ HTML snippet', mermaid: '⬡ Diagram' } as Record<string, string>)[this.lang()] ?? this.lang());
+  readonly title = computed(() => ({ chart: '▤ Chart', stats: '▦ Stats', timeline: '⏱ Timeline', html: '◈ HTML snippet', mermaid: '⬡ Diagram', python: '🐍 Python' } as Record<string, string>)[this.lang()] ?? this.lang());
   readonly help = computed(() => ({
     chart: 'bar · hbar · line · area · pie',
     stats: 'one per line: label | value | colour | note',
     timeline: 'one per line: label | start | length | colour (ms)',
     html: 'HTML, CSS and JavaScript - no network; alfred.data(), alfred.state, alfred.lib()',
     mermaid: 'Mermaid: flowchart, sequenceDiagram, stateDiagram…',
+    python: 'Python 3.12 with numpy, pandas, matplotlib - await alfred.calls(...) is a DataFrame; the last line is shown; figures are drawn',
   } as Record<string, string>)[this.lang()] ?? '');
 
   ngOnInit(): void {

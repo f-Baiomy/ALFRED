@@ -66,7 +66,11 @@ backend-board             the task board (specs/014-task-board, own board.db): c
                           X-Alfred-Actor: claude. Leaf slice, depends on no other slice: backend-app/boardbridge
                           gives it call signatures (CallRefResolver + triage's NormalizeEndpointUseCase), the edit
                           rule, and session-cycles' CycleRemovedPort; storage/CommentedCallsKept keeps the live calls
-                          it mentions (its MentionedCallsChangedPort). See docs/board.md.
+                          it mentions (its MentionedCallsChangedPort). The visuals (specs/017) live in the same
+                          board.db, beside the cards (ON DELETE CASCADE): snippets + snippet_versions (pages),
+                          snippet_state + history, snippet_shots, asks, board_files and widgets
+                          (SqliteSnippetRepository, borrowing the board repository's pool); boardbridge's
+                          BoardDataController serves GET /board/data/calls for live data blocks. See docs/board.md.
 backend-server            the native install's server settings (specs/012-server-program): the setting catalog,
                           .env as an EnvDocument that keeps comments and line order (atomic, owner-only writes,
                           conflict check by content hash), defaults from settings.properties, validation and

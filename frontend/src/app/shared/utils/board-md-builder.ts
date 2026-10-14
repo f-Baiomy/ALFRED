@@ -5,6 +5,8 @@ import { changeText, claudeParts } from './board-activity';
 import { replyNote } from './board-threads';
 import { BoardExport } from './board-json';
 import { textAsMarkdown } from './rich-html';
+import { NO_VISUALS } from './board-visuals-export';
+import { filesMd, visualsMd, widgetsMd } from './board-visuals-render';
 
 /**
  * The board as Markdown (FR-045, FR-047): every card with every field, its Linked list, its whole history and the
@@ -13,8 +15,11 @@ import { textAsMarkdown } from './rich-html';
  */
 export function buildBoardMarkdownLines(data: BoardExport, title: string): string[] {
   const lines: string[] = [`# ${title}`, '', `Project: ${data.project || 'No project'} · ${data.cards.length} cards · exported ${new Date().toISOString()}`, ''];
+  const v = data.visuals ?? NO_VISUALS;
   for (const b of data.briefs) {
     lines.push(`## Cycle brief - ${b.cycleId}`, '', textAsMarkdown(b.text) || '_No brief._', '');
+    lines.push(...visualsMd(v, v.pages.filter((p) => p.owner === 'cycle' && p.cycleId === b.cycleId), inlineShots(v, `inline:cycle:${b.cycleId}:`)),
+      ...filesMd(v, (f) => f.cardNumber == null && f.cycleId === b.cycleId));
   }
   for (const s of data.specs) {
     lines.push(`## Spec file - ${s.name} (cycle ${s.cycleId})`, '', '````', textAsMarkdown(s.content), '````', '');
@@ -24,8 +29,24 @@ export function buildBoardMarkdownLines(data: BoardExport, title: string): strin
     for (const m of data.marks) lines.push(`- ${m.fileName} · ${m.itemKey.slice(0, 12)}… · ${MARK_LABELS[m.mark]} · ${textAsMarkdown(m.evidence).replace(/\r?\n/g, ' ') || 'no evidence'} · ${m.updatedAt}`);
     lines.push('');
   }
-  for (const card of data.cards) lines.push(...cardLines(card, data.activity[card.id] ?? []));
+  for (const card of data.cards) {
+    lines.push(...cardLines(card, data.activity[card.id] ?? []));
+    lines.push(...visualsMd(v, v.pages.filter((p) => p.owner === 'card' && p.cardNumber === card.number), inlineShots(v, `inline:card:#${card.number}:`)),
+      ...filesMd(v, (f) => f.cardNumber === card.number));
+  }
+  const projectPages = v.pages.filter((p) => p.owner === 'project');
+  if (projectPages.length) lines.push('## Project pages', '', ...visualsMd(v, projectPages, []));
+  lines.push(...widgetsMd(v));
   return lines;
+}
+
+/** The pictures kept of a place's inline snippets, labelled by where each one is. */
+function inlineShots(v: { shots: readonly { snippetId: string }[] }, prefix: string): { label: string; snippetId: string }[] {
+  return v.shots.filter((s) => s.snippetId.startsWith(prefix)).map((s) => {
+    const [where, n] = s.snippetId.slice(prefix.length).split(':');
+    const place = where === 'desc' ? 'Description' : where === 'goal' ? 'Goal' : /^o\d+$/.test(where) ? 'Brief section' : `Comment ${where}`;
+    return { label: `${place}, snippet ${Number(n) + 1}`, snippetId: s.snippetId };
+  });
 }
 
 function cardLines(c: CardDetail, history: readonly ActivityEntry[]): string[] {

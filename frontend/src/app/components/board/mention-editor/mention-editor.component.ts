@@ -1,3 +1,4 @@
+import { firstValueFrom } from 'rxjs';
 import { AfterViewInit, Component, DestroyRef, ElementRef, Injector, computed, effect, inject, input, model, output, signal, untracked, viewChild } from '@angular/core';
 import { MentionRef } from '../../../core/models/board.models';
 import { BoardMentionsService, CardPickTarget, TextPickField } from '../../../core/services/board-mentions.service';
@@ -15,6 +16,9 @@ import { BoardTemplate, DEFAULT_TEMPLATES, loadTemplates, saveTemplates } from '
 import { VISUAL_TEMPLATES } from '../../../shared/utils/board-visuals';
 import { VisualEditorComponent } from '../visuals/visual-editor.component';
 import { AskClaudeService } from '../../../core/services/ask-claude.service';
+import { SnippetsApiService } from '../../../core/services/snippets-api.service';
+import { FILE_TYPES, FilePlace, WidgetInfo } from '../../../core/models/snippet.models';
+import { fileLink, fileProblem } from '../visuals/board-files.component';
 import { MarkdownViewComponent } from '../markdown-view/markdown-view.component';
 
 interface MenuItem {
@@ -26,7 +30,7 @@ interface MenuItem {
 
 const BLOCK_SELECTOR = 'p, h1, h2, h3, h4, li, blockquote, td, th, summary, pre, aside';
 /** Visual blocks the block editor opens (specs/017 R37); their source is the <pre>'s text. */
-const EDITABLE_VISUALS = new Set(['chart', 'stats', 'timeline', 'html', 'mermaid']);
+const EDITABLE_VISUALS = new Set(['chart', 'stats', 'timeline', 'html', 'mermaid', 'python']);
 const BLOCK_TAGS = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'UL', 'OL', 'PRE', 'BLOCKQUOTE', 'TABLE', 'HR', 'IMG', 'DETAILS', 'ASIDE', 'DIV', 'SECTION']);
 
 /**
@@ -89,7 +93,13 @@ const BLOCK_TAGS = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'UL', 'OL', 'PRE', 'BLO
             <button type="button" class="board-editor-btn" title="Visual: chart, stats, timeline, progress, tabs, diagram, HTML snippet - or type /" (click)="toggleMenu('visual', $event)">◇▾</button>
             @if (menu() === 'visual') {
               <span class="board-editor-dd-menu" [class.up]="menuUp()">@for (v of visuals; track v.id) {
-                <button type="button" class="board-editor-swatch" (click)="visual(v.id)">{{ v.label }}</button> }</span>
+                <button type="button" class="board-editor-swatch" (click)="visual(v.id)">{{ v.label }}</button> }
+                @if (widgets().length) {
+                  <span class="board-editor-menu-sep">★ Widgets of the project</span>
+                  @for (w of widgets(); track w.name) {
+                    <button type="button" class="board-editor-swatch" [title]="w.kind.toLowerCase() + (w.author === 'CLAUDE' ? ' · by Claude' : '')" (click)="insertWidget(w.name)">★ {{ w.name }}</button>
+                  }
+                }</span>
             }
           </span>
           <button type="button" class="board-editor-btn" title="Collapsible section" (click)="fold()">▸</button>
@@ -105,6 +115,10 @@ const BLOCK_TAGS = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'UL', 'OL', 'PRE', 'BLO
           @if (images()) {
             <button type="button" class="board-editor-btn" title="Picture - or paste / drop a screenshot" (click)="file.click()">🖼</button>
             <input #file type="file" accept="image/png,image/jpeg,image/gif,image/webp" hidden (change)="pickFiles(file)" />
+          }
+          @if (attach()) {
+            <button type="button" class="board-editor-btn" title="Attach a file (csv, json, log, har, pdf… at most 10 MB) - kept with the card" [disabled]="attaching()" (click)="attachInput.click()">📎</button>
+            <input #attachInput type="file" multiple hidden [attr.accept]="fileAccept" (change)="attachFiles(attachInput)" />
           }
           <span class="board-editor-dd">
             <button type="button" class="board-editor-btn" title="Templates - or type /" (click)="toggleMenu('tpl', $event)">⧉▾</button>
@@ -236,6 +250,10 @@ export class MentionEditorComponent implements AfterViewInit {
   readonly toolbar = input(true);
   /** Pictures may be pasted, dropped or picked. */
   readonly images = input(true);
+  /** Where 📎 attaches files (specs/017 R36): the card or cycle the text belongs to; null hides 📎. */
+  readonly attach = input<FilePlace | null>(null);
+  readonly attaching = signal(false);
+  readonly fileAccept = FILE_TYPES.map((t) => '.' + t).join(',');
   /** Where this field's unsent draft is kept (this browser) - e.g. "comment:<card id>"; null keeps none. */
   readonly draftKey = input<string | null>(null);
   readonly submitted = output<string>();
@@ -260,7 +278,7 @@ export class MentionEditorComponent implements AfterViewInit {
   readonly visuals: readonly { id: string; label: string }[] = [
     { id: 'chart', label: '▤ Chart' }, { id: 'stats', label: '▦ Stats' }, { id: 'timeline', label: '⏱ Timeline' },
     { id: 'progress', label: '▬ Progress' }, { id: 'tabs', label: '⧉ Tabs' },
-    { id: 'mermaid', label: '⬡ Diagram' }, { id: 'html', label: '◈ HTML snippet' },
+    { id: 'mermaid', label: '⬡ Diagram' }, { id: 'html', label: '◈ HTML snippet' }, { id: 'python', label: '🐍 Python' },
   ];
   readonly annotating = signal<string | null>(null);
   readonly uploadError = signal<string | null>(null);
@@ -578,6 +596,49 @@ export class MentionEditorComponent implements AfterViewInit {
     files.forEach((f) => this.upload(f));
   }
 
+  /** Attaches the picked files to the card or cycle and puts a link to each at the caret. */
+  async attachFiles(input: HTMLInputElement): Promise<void> {
+    const place = this.attach();
+    const files = Array.from(input.files ?? []);
+    input.value = '';
+    if (!place || !files.length) return;
+    const caret = this.caretNow();
+    this.uploadError.set(null);
+    this.attaching.set(true);
+    const api = this.injector.get(SnippetsApiService);
+    const links: string[] = [];
+    try {
+      for (const f of files) {
+        const problem = fileProblem(f);
+        if (problem) { this.uploadError.set(problem); continue; }
+        try {
+          links.push(fileLink(await firstValueFrom(api.attach(place, f))));
+        } catch (e) {
+          this.uploadError.set((e as { error?: { message?: string } })?.error?.message ?? `${f.name} could not be attached`);
+        }
+      }
+    } finally {
+      this.attaching.set(false);
+    }
+    if (!links.length) return;
+    this.at = caret;
+    if (this.rich()) {
+      this.insertInline(links.map((l) => {
+        const m = /^\[(.*)\]\((.*)\)$/.exec(l)!;
+        return `<a href="${escAttr(m[2])}">${escHtml(m[1])}</a>`;
+      }).join(' ') + '&nbsp;');
+    } else {
+      this.focusBox();
+      this.insertText(links.join(' ') + ' ');
+    }
+  }
+
+  private caretNow(): Range | null {
+    const box = this.box().nativeElement;
+    const sel = this.selection();
+    return sel && sel.rangeCount && box.contains(sel.anchorNode) ? sel.getRangeAt(0).cloneRange() : this.at;
+  }
+
   pickFiles(input: HTMLInputElement): void {
     Array.from(input.files ?? []).forEach((f) => this.upload(f));
     input.value = '';
@@ -628,7 +689,7 @@ export class MentionEditorComponent implements AfterViewInit {
     this.menu.set(null);
     if (EDITABLE_VISUALS.has(id)) {
       this.saveCaret();
-      this.visualEdit.set({ lang: id, source: VISUAL_TEMPLATES[id] ?? '', info: id === 'html' ? 'live' : '', pre: null });
+      this.visualEdit.set({ lang: id, source: VISUAL_TEMPLATES[id] ?? '', info: id === 'html' || id === 'python' ? 'live' : '', pre: null });
       return;
     }
     this.insertBlocks(markdownBlocks(VISUAL_TEMPLATES[id] ?? ''));
@@ -687,6 +748,27 @@ export class MentionEditorComponent implements AfterViewInit {
     const r = (event?.currentTarget as Element | null)?.getBoundingClientRect();
     if (r) this.menuUp.set(window.innerHeight - r.bottom < 300 && r.top > window.innerHeight - r.bottom);
     this.menu.update((x) => (x === m ? null : m));
+    if (this.menu() === 'visual') void this.loadWidgets();
+  }
+
+  /** The project's widgets (specs/017 R34), read when the Visual menu opens. */
+  readonly widgets = signal<readonly WidgetInfo[]>([]);
+
+  private async loadWidgets(): Promise<void> {
+    const project = this.project() || this.card()?.project || '';
+    try {
+      this.widgets.set(await firstValueFrom(this.injector.get(SnippetsApiService).widgets(project)));
+    } catch {
+      this.widgets.set([]);
+    }
+  }
+
+  /** `{{widget:name}}` on a line of its own - the editor's preview and the board draw it. */
+  insertWidget(name: string): void {
+    this.menu.set(null);
+    this.focusBox();
+    if (this.rich()) this.insertBlocks([{ kind: 'widget', name, args: '', params: {} }]);
+    else this.insertText(`\n{{widget:${name}}}\n`);
   }
 
   exec(command: string, arg?: string): void {

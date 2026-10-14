@@ -16,7 +16,8 @@ describe('SnippetHostComponent with a saved snippet', () => {
   const base = 'http://alfred.test/board/snippets/p-1';
   const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-  async function until<T>(get: () => T | null | undefined, ms = 8000): Promise<T> {
+  // Real frames: under a full test run the browser is busy, so each step may take seconds.
+  async function until<T>(get: () => T | null | undefined, ms = 20000): Promise<T> {
     const end = Date.now() + ms;
     for (;;) {
       const v = get();
@@ -70,7 +71,7 @@ describe('SnippetHostComponent with a saved snippet', () => {
     expect(shot.request.body.console).toContain('set 3');
     shot.flush(null);
     f.destroy();
-  }, 30000);
+  }, 90000);
 });
 
 describe('SnippetHostComponent data bridge', () => {
@@ -116,5 +117,5 @@ describe('SnippetHostComponent data bridge', () => {
     expect(lines()).toContain('fares 2');
     expect(lines()).not.toContain('once 2');
     f.destroy();
-  }, 20000);
+  }, 60000);
 });

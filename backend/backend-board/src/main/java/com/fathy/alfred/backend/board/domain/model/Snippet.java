@@ -13,7 +13,8 @@ public record Snippet(String id, Owner ownerType, String ownerId, String project
 
     public enum Owner { CARD, CYCLE, PROJECT }
 
-    public enum Kind { HTML, MERMAID, PYTHON }
+    /** BLOCK: a fixed block of the board (a ```chart fence...) pinned as a page - its source is that Markdown. */
+    public enum Kind { HTML, MERMAID, PYTHON, BLOCK }
 
     /** R16: one snippet's source. */
     public static final int MAX_SOURCE_BYTES = 256 * 1024;

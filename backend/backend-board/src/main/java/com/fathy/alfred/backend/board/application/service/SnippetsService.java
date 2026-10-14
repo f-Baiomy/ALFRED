@@ -81,7 +81,7 @@ public class SnippetsService implements SnippetsUseCase {
         Place p = where.value();
         Snippet.Kind kind = kind(page.kind());
         if (kind == null) {
-            return Result.refused(Outcome.INVALID, "A page is HTML, MERMAID or PYTHON");
+            return Result.refused(Outcome.INVALID, "A page is HTML, MERMAID, PYTHON or BLOCK");
         }
         String name = page.name() == null ? "" : page.name().strip();
         String info = page.info() == null ? "" : page.info().strip();
@@ -315,6 +315,38 @@ public class SnippetsService implements SnippetsUseCase {
             return "A page can be at most 256 KB - load data with alfred.data() instead of pasting it";
         }
         return null;
+    }
+
+    @Override
+    public Result<Visuals> visuals(String cardId, String cycleId, String project) {
+        boolean card = cardId != null && !cardId.isBlank();
+        boolean cycle = cycleId != null && !cycleId.isBlank();
+        boolean whole = !card && !cycle && project != null;
+        if ((card ? 1 : 0) + (cycle ? 1 : 0) + (whole ? 1 : 0) != 1) {
+            return Result.refused(Outcome.INVALID, "Name one card, one cycle or a project");
+        }
+        Snippet.Owner owner = card ? Snippet.Owner.CARD : cycle ? Snippet.Owner.CYCLE : Snippet.Owner.PROJECT;
+        String ownerId = card ? cardId.strip() : cycle ? cycleId.strip() : project.strip();
+        List<PageWithVersions> pages = new java.util.ArrayList<>();
+        for (Snippet listed : store.list(owner, ownerId)) {
+            Snippet full = store.find(listed.id()).orElse(null);
+            if (full == null) {
+                continue;
+            }
+            List<SnippetVersion> versions = store.versions(full.id()).stream()
+                    .map(v -> store.version(full.id(), v.version()).orElse(v)).toList();
+            pages.add(new PageWithVersions(full, versions));
+        }
+        List<SnippetState> states;
+        List<SnippetShot> shots;
+        if (whole) {
+            states = pages.stream().flatMap(p -> store.state(p.page().id()).stream()).toList();
+            shots = pages.stream().flatMap(p -> store.shot(p.page().id()).stream()).toList();
+        } else {
+            states = store.statesOf(card ? cardId.strip() : null, card ? null : cycleId.strip());
+            shots = store.shotsOf(card ? cardId.strip() : null, card ? null : cycleId.strip());
+        }
+        return Result.ok(new Visuals(pages, states, shots));
     }
 
     private void changed(Snippet s, String what) {

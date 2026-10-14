@@ -76,6 +76,15 @@ class SpaPageFilterTest {
         wrapped.setContentType("application/octet-stream");
         assertThat(module.getContentType()).isEqualTo("text/javascript");
         assertThat(SpaPageFilter.forwardsToIndex("GET", "/lib/nothing/1/x.js", JSON)).isTrue();
+
+        // Python for snippets: the wasm is streamed only as application/wasm, the packages are zips - as nginx serves them
+        assertThat(frontendNginx).contains("application/wasm wasm;").contains("application/zip zip whl;");
+        MockHttpServletResponse wasm = new MockHttpServletResponse();
+        SpaPageFilter.libResponse("/lib/pyodide/0.27/pyodide.asm.wasm", wasm).setContentType("application/octet-stream");
+        assertThat(wasm.getContentType()).isEqualTo("application/wasm");
+        MockHttpServletResponse whl = new MockHttpServletResponse();
+        SpaPageFilter.libResponse("/lib/pyodide/0.27/numpy-2.0.2-cp312-cp312-pyodide_2024_0_wasm32.whl", whl).setContentType("application/octet-stream");
+        assertThat(whl.getContentType()).isEqualTo("application/zip");
     }
 
     @Test
