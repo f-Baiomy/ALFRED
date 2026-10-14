@@ -3,6 +3,7 @@ package com.fathy.alfred.backend.board.application.service;
 import com.fathy.alfred.backend.board.application.port.out.BoardNotificationPort;
 import com.fathy.alfred.backend.board.domain.model.AgentStatus;
 import com.fathy.alfred.backend.board.domain.model.LiveWork;
+import com.fathy.alfred.backend.board.domain.model.SkillRun;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -64,6 +65,16 @@ public class BoardChangeFeed {
             @Override
             public void liveRunner(String project, String host, String kind) {
                 notifications.liveRunner(project, host, kind);
+            }
+
+            @Override
+            public void cycleChat(String project, String cycleId) {
+                notifications.cycleChat(project, cycleId);
+            }
+
+            @Override
+            public void skillRun(SkillRun run) {
+                notifications.skillRun(run);
             }
         };
     }

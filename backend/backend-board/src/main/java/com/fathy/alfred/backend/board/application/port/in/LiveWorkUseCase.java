@@ -37,6 +37,19 @@ public interface LiveWorkUseCase {
     /** As {@link #runner(String)}, but only a runner of this kind when {@code kind} is given. */
     Optional<LiveRunner> runner(String project, String kind);
 
+    /**
+     * The chat that handles a cycle (docs/board.md "Run from the board"): the Claude Code chat whose /alfred-live or
+     * /alfred-listen runs for that cycle - one chat per cycle. Each of its runners beats with the chat's id; another chat
+     * is refused while this one beats. {@code stopped} by the chat's last runner frees the cycle.
+     */
+    ChatBeat chatBeat(String project, String cycleId, String chatId, String host, String cwd, String kind, boolean chatAlive, boolean stopped);
+
+    /** The chat handling this cycle now, if any (empty once its runners stopped or went quiet). */
+    Optional<CycleChat> cycleChat(String cycleId);
+
+    /** The repo folder the last chat of this project ran in (for "cd <repo>" in the start steps), if known. */
+    Optional<String> lastCwd(String project);
+
     String KIND_LIVE = "live";
     String KIND_LISTEN = "listen";
 
@@ -47,6 +60,18 @@ public interface LiveWorkUseCase {
         public LiveRunner seenAt(java.time.Instant at) {
             return new LiveRunner(project, host, model, kind, startedAt, at);
         }
+    }
+
+    /**
+     * A cycle's chat as held: {@code kinds} the skills it runs for the cycle (live, listen); {@code chatAlive} whether
+     * the chat's own process was alive at the last beat - false: the chat was closed but its runner still runs.
+     */
+    record CycleChat(String project, String cycleId, String chatId, String host, String cwd, java.util.Set<String> kinds, boolean chatAlive,
+                     java.time.Instant since, java.time.Instant lastSeen) {
+    }
+
+    /** The beat as held, or {@code conflict}: another chat handles this cycle (its chat in {@code chat}). */
+    record ChatBeat(CycleChat chat, boolean conflict) {
     }
 
     record Report(String id, String project, int cardNumber, String head, List<String> steps, String draft, LiveWork.State state,

@@ -50,9 +50,32 @@ public class LiveWorkController {
         return work.runner(project, kind).<ResponseEntity<?>>map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.noContent().build());
     }
 
+    /**
+     * A runner's heartbeat. With {@code cycleId} and {@code chatId} it also holds the cycle for its chat (docs/board.md
+     * "Run from the board"): 409 when another chat handles that cycle - one chat per cycle.
+     */
     @PutMapping("/board/live-runner")
     public ResponseEntity<?> beat(@Valid @RequestBody LiveRunnerRequestDto body) {
+        if (body.cycleId() != null && !body.cycleId().isBlank() && body.chatId() != null && !body.chatId().isBlank()) {
+            LiveWorkUseCase.ChatBeat chat = work.chatBeat(body.project(), body.cycleId().strip(), body.chatId().strip(), body.host(), body.cwd(), body.kind(),
+                    body.chatAlive() == null || body.chatAlive(), body.stopped());
+            if (chat.conflict()) {
+                LiveWorkUseCase.CycleChat c = chat.chat();
+                return BoardWeb.refused(CardChange.Outcome.CONFLICT, "This cycle already runs in a chat on " + c.host() + " (since "
+                        + c.since().toString().substring(11, 16) + " UTC, " + String.join(" + ", c.kinds().stream().map(k -> "/alfred-" + k).toList())
+                        + ") - one chat per cycle: stop it there first, then start here.");
+            }
+        }
         return ResponseEntity.ok(work.beat(body.project(), body.host(), body.model(), body.kind(), body.stopped()));
+    }
+
+    /** The chat handling a cycle (null when none) and the repo folder the project's last chat ran in. */
+    @GetMapping("/board/cycle-chat")
+    public ResponseEntity<?> cycleChat(@RequestParam String cycleId, @RequestParam(defaultValue = "") String project) {
+        java.util.Map<String, Object> out = new java.util.LinkedHashMap<>();
+        out.put("chat", work.cycleChat(cycleId.strip()).orElse(null));
+        out.put("lastCwd", work.lastCwd(project).orElse(null));
+        return ResponseEntity.ok(out);
     }
 
     @PostMapping("/board/live-work/{id}/stop")
@@ -61,9 +84,12 @@ public class LiveWorkController {
                 .orElseGet(() -> BoardWeb.refused(CardChange.Outcome.NOT_FOUND, "No such live answer - it may have ended"));
     }
 
-    /** {@code kind}: "live" (the default) or "listen". */
+    /**
+     * {@code kind}: "live" (the default) or "listen"; {@code cycleId} + {@code chatId}: the cycle this runner handles for its chat; {@code chatAlive}: the chat's process still runs.
+     */
     public record LiveRunnerRequestDto(@Size(max = 100) String project, @Size(max = 200) String host, @Size(max = 100) String model,
-                                       @Size(max = 20) String kind, boolean stopped) {
+                                       @Size(max = 20) String kind, boolean stopped, @Size(max = 100) String cycleId, @Size(max = 100) String chatId,
+                                       @Size(max = 1000) String cwd, Boolean chatAlive) {
     }
 
     /** Steps, each step and the outcome are cut to the service's own bounds rather than refused: a long run's report must still land. */

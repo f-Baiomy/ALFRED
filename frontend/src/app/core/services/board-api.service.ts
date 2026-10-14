@@ -5,6 +5,7 @@ import {
   ActivityPage, AgentStatus, LiveWork, BoardAccess, BoardFilters, BoardStorage, BulkAction, CallBadge, CardDetail, CardEdit, CardStatus, CardsPage,
   CardRetest, ChecklistFile, ChecklistItem, CycleBrief, Expectation, Mark, MentionRef, NewCard, NextSteps, Resolution, RetestCheck, RetestPlan,
   RetestReport, RetestStep, SessionLogEntry, SpecFileInfo, Team, TeamEdit, TestStep,
+  CycleChatInfo, SkillRun, SkillRunRequest, SkillRunsPage,
 } from '../models/board.models';
 import { AppConfigService } from './app-config.service';
 
@@ -279,6 +280,30 @@ export class BoardApiService {
   /** The user's Stop on one live answer; the runner ends it at its next report. */
   stopLiveWork(id: string): Observable<LiveWork> {
     return this.http.post<LiveWork>(`${this.base}/live-work/${encodeURIComponent(id)}/stop`, {});
+  }
+
+  /** The chat that handles a cycle (null when none), and where the project's last chat ran. */
+  cycleChat(cycleId: string, project: string): Observable<CycleChatInfo> {
+    return this.http.get<CycleChatInfo>(`${this.base}/cycle-chat`, { params: { cycleId, project } });
+  }
+
+  /** ▶: queue a skill for the cycle's chat (docs/board.md "Run from the board"). */
+  requestSkillRun(request: SkillRunRequest): Observable<SkillRun> {
+    return this.http.post<SkillRun>(`${this.base}/skill-runs`, request);
+  }
+
+  skillRuns(project: string, cardNumber?: number | null, limit = 100): Observable<SkillRunsPage> {
+    let params = new HttpParams().set('project', project).set('limit', limit);
+    if (cardNumber != null) params = params.set('cardNumber', cardNumber);
+    return this.http.get<SkillRunsPage>(`${this.base}/skill-runs`, { params });
+  }
+
+  stopSkillRun(id: string): Observable<SkillRun> {
+    return this.http.post<SkillRun>(`${this.base}/skill-runs/${encodeURIComponent(id)}/stop`, {});
+  }
+
+  stopAllSkillRuns(project: string): Observable<{ stopped: number }> {
+    return this.http.post<{ stopped: number }>(`${this.base}/skill-runs/stop-all`, { project });
   }
 
   agentStatus(project: string): Observable<AgentStatus | null> {

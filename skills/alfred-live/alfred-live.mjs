@@ -6,6 +6,8 @@
 // installed together.
 //
 //   node alfred-live.mjs start  --server <mcp name> [--project p] [--cycle id] [--model m] [--parallel n] [--cwd repo]
+//                               [--no-board-runs] (answer comments only; ▶ on the board copies the prompt)
+//                               [--chat id] [--chat-pid n] (the chat that started it; read from CLAUDE_CODE_SESSION_ID / CLAUDE_PID)
 //   node alfred-live.mjs status --server <mcp name> [--project p]
 //   node alfred-live.mjs stop   --server <mcp name> [--project p]
 //
@@ -158,6 +160,31 @@ export function promptFor(server, card, changes, context = null) {
     + `CARD: project "${card.project}" #${card.number} "${card.title}" (${card.status})\n${thread}`
     + `WHAT THE USER JUST DID:\n${changes.map((e) => `- ${youDid(e)}${e.replyTo != null && !context ? ' (a reply in a thread - board_get shows which comment)' : ''}`).join('\n')}\n\n`
     + 'Answer this change now.';
+}
+
+/**
+ * The line a ▶ from the board puts in the chat that handles the cycle (docs/board.md "Run from the board"): the chat
+ * watches this runner's chat log, so the run happens there - with the chat's own context, model and account. One line
+ * (the watch reads lines): the full prompt comes back from board_run_take.
+ */
+export function boardRunLine(run) {
+  const flat = (v, n) => { const t = String(v ?? '').replace(/\s+/g, ' ').trim(); return t.length > n ? `${t.slice(0, n)}…` : t; };
+  return `▶ from the board: ${flat(run.command, 200)}${run.note ? ` · note: ${flat(run.note, 500)}` : ''} · run ${run.id}`
+    + ` - board_run_take ${run.id}, run it in this chat, then board_run_end`;
+}
+
+/** A comment that needs the code or an investigation goes to the chat; a small one the runner answers itself (~10 s). */
+const INVESTIGATE = /\b(why|fix|fixe[sd]|check|investigate|explain|debug|root cause|look into|find out|trace|reproduce|dig|figure out)\b/i;
+
+export function forTheChat(changes) {
+  return changes.some((e) => e.kind === 'COMMENT' && INVESTIGATE.test(String(e.text ?? '')));
+}
+
+/** The line that hands a comment to the chat: it answers on the card with what the chat knows. */
+export function commentLine(card, changes) {
+  const said = changes.filter((e) => e.kind === 'COMMENT').map((e) => String(e.text ?? '').replace(/\s+/g, ' ').trim()).join(' / ');
+  return `💬 #${card.number} "${String(card.title ?? '').slice(0, 120)}" · you commented: "${said.length > 600 ? `${said.slice(0, 600)}…` : said}"`
+    + ` - investigate in this chat and answer on the card (board_get ${card.number}, then board_reply)`;
 }
 
 // ------------------------------------------------------------------------------------------------------- Alfred I/O
@@ -697,8 +724,9 @@ export function runClaude(o) {
  * and Alfred's 5-minute stale clock is reset) - the stream reader never waits for the network.
  */
 export class Reporter {
-  constructor(alfred, base, { every = 250, tick = 1000, onError = () => {}, onStop = null } = {}) {
+  constructor(alfred, base, { every = 250, tick = 1000, onError = () => {}, onStop = null, path = '/board/live-work' } = {}) {
     this.onStop = onStop;
+    this.path = path;
     this.alfred = alfred;
     this.base = base;
     this.every = every;
@@ -738,7 +766,7 @@ export class Reporter {
     this.latest = null;
     this.lastBody = body;
     this.lastSent = Date.now();
-    this.inFlight = this.alfred.call('PUT', '/board/live-work', { body, timeoutMs: 10_000 })
+    this.inFlight = this.alfred.call('PUT', this.path, { body, timeoutMs: 10_000 })
       .then((r) => { if (r?.stop && !this.stop) { this.stop = true; this.onStop?.(); } return r; })
       .catch((error) => { this.onError(error); return null; })
       .finally(() => { this.inFlight = null; });
@@ -791,6 +819,50 @@ export class Runner {
       only: LIVE_TOOLS, serverTools: o.serverTools });
     this.ownPool = !o.pool;
     this.warmLater = o.warm !== false && !o.pool;
+    this.sleepers = new Set();
+    this.lastChatAlive = true;
+  }
+
+  /** A pause that a stop ends at once. */
+  sleep(ms) {
+    return new Promise((r) => {
+      const done = () => { clearTimeout(t); this.sleepers.delete(done); r(); };
+      const t = setTimeout(done, ms);
+      this.sleepers.add(done);
+    });
+  }
+
+  /**
+   * The board's ▶ (docs/board.md "Run from the board"): waits for a run the user queued for this chat's cycle - woken by
+   * the request, no polling - and puts it in the chat (its chat log line). The chat takes it with board_run_take when its
+   * turn is free, runs it and ends it with board_run_end; nothing runs here.
+   */
+  async skillLoop() {
+    if (!this.o.chatId || !this.o.cycleId) return; // no chat to hand runs to: ▶ on the board copies the prompt
+    while (!this.stopped) {
+      try {
+        if (this.standingDown) { await this.sleep(5000); continue; }
+        const wait = this.o.skillWaitSeconds ?? 50;
+        const taken = await this.o.alfred.call('POST', '/board/skill-runs/claim', {
+          body: { chatId: this.o.chatId, host: this.o.host ?? hostname(), max: 10, waitSeconds: wait },
+          timeoutMs: (wait + 15) * 1000,
+        });
+        if (this.stopped) {
+          // taken after the stop: back to the queue for the cycle's next chat
+          for (const run of taken ?? []) await this.o.alfred.call('PUT', `/board/skill-runs/${encodeURIComponent(run.id)}`, { body: { state: 'QUEUED' } }).catch(() => null);
+          break;
+        }
+        for (const run of taken ?? []) {
+          this.o.log(`▶ ${run.command} - from the board, sent to the chat${run.note ? ` (note: ${run.note.slice(0, 120)})` : ''}`);
+          this.o.chat?.(boardRunLine(run));
+        }
+      } catch (error) {
+        if (this.stopped) break;
+        if (error?.status === 404 || error?.status === 405) { await this.sleep(60_000); continue; } // an older Alfred: no board runs
+        this.o.log(`  ⚠ board runs: ${error.message} - again in 5 s`);
+        await this.sleep(5000);
+      }
+    }
   }
 
   /**
@@ -805,15 +877,21 @@ export class Runner {
     this.o.chat?.(line);
   }
 
+  /** The heartbeat; with a chat it also says this chat handles the cycle and whether the chat is still open (its process runs). */
   beat(stopped = false) {
+    const chatAlive = this.o.chatPid ? alive(Number(this.o.chatPid)) : true;
+    if (!chatAlive && this.lastChatAlive) this.o.log('  ⚠ the chat that started this runner seems closed - the board says so; ▶ runs wait for it');
+    this.lastChatAlive = chatAlive;
     return this.o.alfred.call('PUT', '/board/live-runner', {
-      body: { project: this.o.project ?? '', host: this.o.host ?? hostname(), model: this.o.model ?? null, stopped, kind: this.o.kind ?? 'live' },
+      body: { project: this.o.project ?? '', host: this.o.host ?? hostname(), model: this.o.model ?? null, stopped, kind: this.o.kind ?? 'live',
+        ...(this.o.chatId && this.o.cycleId ? { cycleId: this.o.cycleId, chatId: this.o.chatId, cwd: this.o.cwd ?? null, chatAlive } : {}) },
       timeoutMs: 10_000,
     }).catch(() => null);
   }
 
   /** Whether another runner holds this board: /alfred-live on another machine, or a live runner while this is listen's lane. */
   async anotherOwner() {
+    if (this.o.chatId && this.o.cycleId) return null; // one chat per cycle is Alfred's rule (409 at start): several cycles may run at once
     const r = await this.o.alfred.call('GET', '/board/live-runner', { query: { project: this.o.project ?? '' }, timeoutMs: 10_000 }).catch(() => null);
     if (!r) return null;
     const me = this.o.host ?? hostname();
@@ -825,6 +903,7 @@ export class Runner {
   /** Stop at once: the runs are killed and (unless told not to - the listen runner's graceful stop) the wait for changes is cut short. */
   stop(abort = true) {
     this.stopped = true;
+    for (const wake of [...(this.sleepers ?? [])]) wake();
     for (const h of this.handles) h.kill();
     this.waiting = [];
     if (abort) this.o.alfred.abort?.();
@@ -856,6 +935,7 @@ export class Runner {
     await this.prepare();
     const beats = setInterval(() => { if (!this.stopped && !this.standingDown) this.beat(); }, 20_000);
     beats.unref?.();
+    const skills = this.o.boardRuns === false ? Promise.resolve() : this.skillLoop();
     while (!this.stopped) {
       try {
         cursor = await this.once(cursor);
@@ -868,6 +948,7 @@ export class Runner {
     }
     clearInterval(beats);
     await Promise.allSettled([...this.inFlight.values()].map((v) => v.promise));
+    await skills;
     await this.beat(true);
     if (this.ownPool) this.pool.close();
     this.say('● Live stopped.');
@@ -1025,6 +1106,14 @@ export class Runner {
       return;
     }
 
+    if (this.o.chatId && this.o.chat && attempt === 0 && forTheChat(changes)) {
+      // Needs the code or an investigation: the chat that handles the cycle answers it, with what it already knows.
+      await reporter.end({ steps: changes.map(youDid), state: 'DONE', outcome: 'sent to the chat that handles this cycle - it answers on the card' });
+      this.o.log(`  → 💬 ${label} sent to the chat`);
+      this.o.chat(commentLine(first, changes));
+      return;
+    }
+
     reporter.report({ steps: [], state: 'WORKING' });
     this.o.log(`  ✦ ${head} on ${label}…`);
     let refused = null;
@@ -1145,7 +1234,9 @@ export async function main(argv) {
     const r = running(f.pid);
     if (existsSync(f.pid)) unlinkSync(f.pid);
     if (r) { try { process.kill(r.pid); } catch { /* it ends itself: the pid file is gone */ } }
-    await new Alfred(url).call('PUT', '/board/live-runner', { body: { project: project ?? '', host: hostname(), stopped: true, kind: 'live' } }).catch(() => null);
+    // frees the cycle at once (the runner's own last beat may come too late, or never)
+    const chat = r?.chatId && r?.cycleId ? { cycleId: r.cycleId, chatId: r.chatId } : {};
+    await new Alfred(url).call('PUT', '/board/live-runner', { body: { project: project ?? '', host: hostname(), stopped: true, kind: 'live', ...chat } }).catch(() => null);
     print({ stopped: !!r, last: tail(f.log, 5) });
     return;
   }
@@ -1153,26 +1244,33 @@ export async function main(argv) {
     const r = running(f.pid);
     if (r) { print({ alreadyRunning: true, ...r, watch: `tail -n 0 -F "${f.chat}"` }); return; }
     const alfred = new Alfred(url);
-    // Another machine's runner on this board? One answerer per board.
-    const other = await alfred.call('GET', '/board/live-runner', { query: { project: project ?? '' } }).catch(() => null);
+    // The chat that runs this: it owns the cycle, and every ▶ on the cycle's cards goes into it.
+    const chatId = args.chat ?? process.env.CLAUDE_CODE_SESSION_ID ?? null;
+    const chatPid = args['chat-pid'] ?? process.env.CLAUDE_PID ?? null;
+    const byChat = !!(chatId && args.cycle);
+    // Another machine's runner on this board? One answerer per board - unless a chat owns this cycle (one chat per cycle).
+    const other = byChat ? null : await alfred.call('GET', '/board/live-runner', { query: { project: project ?? '' } }).catch(() => null);
     if (other && other.host !== hostname() && (other.kind ?? 'live') === 'live' && args.force !== 'true') {
       throw new Error(`/alfred-live already answers this board from ${other.host} (since ${other.startedAt ?? '?'}) - stop it there, or start with --force`);
     }
     // The first heartbeat: Alfred is reachable, new enough to hold it (3.7+), and lets this machine write to its board.
-    await alfred.call('PUT', '/board/live-runner', { body: { project: project ?? '', host: hostname(), model: args.model ?? null, stopped: false, kind: 'live' } })
+    await alfred.call('PUT', '/board/live-runner', { body: { project: project ?? '', host: hostname(), model: args.model ?? null, stopped: false, kind: 'live',
+      ...(byChat ? { cycleId: args.cycle, chatId, cwd, chatAlive: true } : {}) } })
       .catch((error) => {
-        throw new Error(/→ (404|500)/.test(error.message) ? `the Alfred at ${url} does not hold the live heartbeat - it is older than /alfred-live needs (3.7): update it (python3 deploy.py, or the installer). It said: ${error.message.replace(/^.*?→ /, '')}`
+        throw new Error(/→ 409/.test(error.message) ? error.message.replace(/^.*?→ 409: /, '')
+          : /→ (404|500)/.test(error.message) ? `the Alfred at ${url} does not hold the live heartbeat - it is older than /alfred-live needs (3.7): update it (python3 deploy.py, or the installer). It said: ${error.message.replace(/^.*?→ /, '')}`
           : /→ 403/.test(error.message) ? `the Alfred at ${url} does not let this machine edit its board: ${error.message.replace(/^.*→ 403: /, '')}`
             : /fetch failed|timeout|aborted/i.test(error.message) ? `cannot reach Alfred at ${url} from this machine` : error.message);
       });
     writeFileSync(f.log, '');
     writeFileSync(f.chat, '');
     const self = fileURLToPath(import.meta.url);
-    const child = spawn(process.execPath, [self, 'run', ...argv.slice(1), '--cwd', cwd, '--url', url], {
+    const chatArgs = byChat ? ['--chat', chatId, ...(chatPid ? ['--chat-pid', String(chatPid)] : [])] : [];
+    const child = spawn(process.execPath, [self, 'run', ...argv.slice(1), '--cwd', cwd, '--url', url, ...chatArgs], {
       cwd, detached: true, stdio: 'ignore', windowsHide: true,
     });
     child.unref();
-    const started = { pid: child.pid, alfred: url, project: project ?? null, cycleId: args.cycle ?? null, model: args.model ?? null,
+    const started = { pid: child.pid, alfred: url, project: project ?? null, cycleId: args.cycle ?? null, chatId: byChat ? chatId : null, model: args.model ?? null,
       parallel: Number(args.parallel ?? 3), log: f.log, chat: f.chat, startedAt: new Date().toISOString() };
     writeFileSync(f.pid, JSON.stringify(started));
     print({ started: true, ...started, model: args.model ?? "Claude Code's default", watch: `tail -n 0 -F "${f.chat}"` });
@@ -1186,7 +1284,8 @@ export async function main(argv) {
     const mcpEntry = await host.start();
     const mcp = new McpClient(mcpEntry, { cwd, name: 'alfred-live' });
     const runner = new Runner({ alfred: new Alfred(url), server: args.server, mcpEntry, project, cycleId: args.cycle, model: args.model,
-      cwd, ...claudeOf(args), log, chat, mcpConfigFile: f.mcp, mcp, parallel: Number(args.parallel ?? 3), cursorFile: f.cursor, kind: 'live' });
+      cwd, ...claudeOf(args), log, chat, mcpConfigFile: f.mcp, mcp, parallel: Number(args.parallel ?? 3), cursorFile: f.cursor, kind: 'live',
+      chatId: args.chat, chatPid: args['chat-pid'], boardRuns: args['no-board-runs'] !== 'true' });
     host.onRestart = (u) => { mcp.entry = { type: 'http', url: u }; mcp.session = null; writeFileSync(f.mcp, JSON.stringify({ mcpServers: { [args.server]: { type: 'http', url: u } } })); };
     const end = (why) => { if (!runner.stopped) log(`  ■ stopping: ${why}`); runner.stop(); };
     process.on('SIGTERM', () => end('SIGTERM'));

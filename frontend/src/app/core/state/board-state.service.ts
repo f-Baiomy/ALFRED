@@ -51,8 +51,8 @@ export class BoardStateService {
         if (event.project === this.project()) this.agent.set(event);
         return;
       }
-      // Live work steps are LiveWorkStateService's; they change no card.
-      if (event.type === 'live-work') return;
+      // Live work steps, runners and board runs are their own services'; they change no card.
+      if (event.type === 'live-work' || event.type === 'live-runner' || event.type === 'skill-run' || event.type === 'cycle-chat') return;
       if (this.concerns(event.project, event.cycleId)) {
         this.refresh$.next();
         if (event.cardId && event.cardId === this.openCardId()) this.openCardVersion.update((v) => v + 1);

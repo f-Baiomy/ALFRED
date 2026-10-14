@@ -1,5 +1,5 @@
 import { NgTemplateOutlet } from '@angular/common';
-import { Component, DestroyRef, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
+import { Component, DestroyRef, HostListener, computed, effect, inject, input, output, signal, untracked, viewChild } from '@angular/core';
 import {
   ActivityEntry, CardDetail, CardKind, Proposal, CardStatus, FLAGS, FLAG_LABELS, Flag, KINDS, MentionRef, OPEN_STATUSES, RESOLUTION_LABELS,
   Resolution, SCOPE_LABELS, STATUS_LABELS, Scope,
@@ -18,6 +18,8 @@ import { MarkdownViewComponent } from '../markdown-view/markdown-view.component'
 import { MentionChipComponent } from '../mention-chip/mention-chip.component';
 import { MentionEditorComponent } from '../mention-editor/mention-editor.component';
 import { MentionPickerComponent } from '../mention-picker/mention-picker.component';
+import { RunSkillComponent } from '../run-skill/run-skill.component';
+import { RunHistoryComponent } from '../run-skill/run-history.component';
 import { copyToClipboard } from '../../../shared/utils/clipboard';
 import { CardViewMode } from '../../../core/services/card-view-mode.service';
 import { TeamsStateService } from '../../../core/state/teams-state.service';
@@ -32,7 +34,7 @@ import { SelectOption, SelectPickerComponent } from '../../select-picker/select-
 @Component({
   selector: 'app-card-drawer',
   standalone: true,
-  imports: [NgTemplateOutlet, SelectPickerComponent, ActivityTimelineComponent, CardRetestComponent, LiveWorkBoxComponent, MarkdownViewComponent, MentionChipComponent, MentionEditorComponent, MentionPickerComponent],
+  imports: [NgTemplateOutlet, SelectPickerComponent, ActivityTimelineComponent, CardRetestComponent, LiveWorkBoxComponent, MarkdownViewComponent, MentionChipComponent, MentionEditorComponent, MentionPickerComponent, RunSkillComponent, RunHistoryComponent],
   template: `
     <ng-template #modeSwitch>
       <div class="board-seg board-drawer-modes" role="group" aria-label="Show the card as">
@@ -56,8 +58,9 @@ import { SelectOption, SelectPickerComponent } from '../../select-picker/select-
           </div>
           <div class="board-drawer-tools">
             @if (skill(); as cmd) {
-              <button type="button" class="board-copy" [title]="'Copy ' + cmd + ' - paste it into Claude Code'" (click)="copy(cmd, 'cmd')">
-                {{ copied() === 'cmd' ? '✓ copied' : '⧉ ' + cmd }}</button>
+              <app-run-skill #runSkill [command]="cmd" [project]="c.project" [cycleId]="inCycle() ? c.cycleId : null" [card]="c" [lastUserWord]="lastUserWord()"
+                             [editable]="editable()" />
+              <span class="board-dim run-keys" title="With the drawer open: R runs, C copies the prompt, Shift+R edits it first">R · C · ⇧R</span>
             }
             <button type="button" class="board-copy" title="Copy the card as Markdown for Jira / GitHub" (click)="copyIssue()">
               {{ copied() === 'issue' ? '✓ copied' : '⧉ Copy as issue' }}</button>
@@ -181,6 +184,7 @@ import { SelectOption, SelectPickerComponent } from '../../select-picker/select-
             <app-activity-timeline [entries]="activity()" [editable]="editable()" [project]="c.project" [cycleId]="c.cycleId"
                                    [card]="pickTarget()" (replied)="reply($event)" />
             <app-live-work-box [project]="c.project" [number]="c.number" [editable]="editable()" />
+            <app-run-history [project]="c.project" [number]="c.number" />
           </section>
           @if (editable()) {
             <section class="board-drawer-danger">
@@ -210,6 +214,8 @@ export class CardDrawerComponent {
   readonly cardId = input.required<string>();
   readonly version = input(0);
   readonly editable = input(true);
+  /** Opened from a cycle's board: its ▶ runs in the cycle's chat (on the project board they copy). */
+  readonly inCycle = input(false);
   /** ▐ Side, ⛶ Full or ↗ Window - the board decides; the switch in the header asks it to change. */
   readonly layout = input<CardViewMode>('side');
   readonly modeChange = output<CardViewMode>();
@@ -235,6 +241,29 @@ export class CardDrawerComponent {
     const c = this.card();
     return c ? skillFor(c) : null;
   });
+  readonly runSkill = viewChild<RunSkillComponent>('runSkill');
+  /** The user's latest words on the card - they go with the prompt ▶ sends. */
+  readonly lastUserWord = computed(() => {
+    const mine = this.activity().filter((e) => e.actor === 'USER' && e.kind === 'COMMENT' && e.text);
+    return mine.length ? mine[mine.length - 1].text : null;
+  });
+
+  /** R runs the card's next step, C copies its prompt, Shift+R opens the editor - not while typing. */
+  @HostListener('document:keydown', ['$event'])
+  runKeys(event: KeyboardEvent): void {
+    const run = this.runSkill();
+    if (!run || event.ctrlKey || event.metaKey || event.altKey) return;
+    const t = event.target as HTMLElement | null;
+    if (t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable)) return;
+    if (document.querySelector('.dialog-backdrop, .run-dialog-bg')) return;
+    if (event.key === 'r' || event.key === 'R') {
+      event.preventDefault();
+      if (event.shiftKey && run.canRun()) run.openEditor(false); else run.go();
+    } else if (event.key === 'c' && !event.shiftKey) {
+      event.preventDefault();
+      run.copyPrompt();
+    }
+  }
   readonly draft = signal('');
   /** The description being edited when a pick from anywhere came back into it. */
   readonly descriptionDraft = signal<string | null>(null);

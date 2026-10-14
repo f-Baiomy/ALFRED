@@ -2,6 +2,7 @@ package com.fathy.alfred.backend.board.application.port.out;
 
 import com.fathy.alfred.backend.board.domain.model.AgentStatus;
 import com.fathy.alfred.backend.board.domain.model.LiveWork;
+import com.fathy.alfred.backend.board.domain.model.SkillRun;
 
 /** The "board changed" signal on /ws/board (contracts/websocket.md): clients re-fetch what they show. */
 public interface BoardNotificationPort {
@@ -20,5 +21,13 @@ public interface BoardNotificationPort {
      * "live" (/alfred-live) or "listen" (/alfred-listen).
      */
     default void liveRunner(String project, String host, String kind) {
+    }
+
+    /** The chat handling a cycle started, stopped, or its chat closed (its runner still beating). */
+    default void cycleChat(String project, String cycleId) {
+    }
+
+    /** A skill run started from the board was queued, taken, reported, stopped or ended. */
+    default void skillRun(SkillRun run) {
     }
 }

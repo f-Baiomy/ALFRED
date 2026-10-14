@@ -16,6 +16,9 @@ describe('board-skills', () => {
     expect(skillFor(card({ status: 'FIXED' }))).toBe('/alfred-verify 11');
     expect(skillFor(card({ status: 'INBOX', flags: ['NEEDS_DECISION'], waiting: { who: 'USER', since: '', setBy: 'CLAUDE' } }))).toBe('/alfred-sync');
     expect(skillFor(card({ status: 'DONE' }))).toBeNull();
+    // waiting on Claude: Claude catches up with this card, whatever its column
+    expect(skillFor(card({ status: 'INBOX', waiting: { who: 'CLAUDE', since: '', setBy: 'USER' } }))).toBe('/alfred-sync 11');
+    expect(skillFor(card({ status: 'TO_DO', waiting: { who: 'CLAUDE', since: '', setBy: 'USER' } }))).toBe('/alfred-sync 11');
   });
 
   it('quotes a cycle name with spaces', () => {

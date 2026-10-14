@@ -44,4 +44,21 @@ describe('MarkdownViewComponent', () => {
     expect(el.querySelectorAll('p').length).toBe(2);
     expect(el.querySelector('.board-md-callout')).toBeNull();
   });
+
+  it('each paragraph and item reads in its own direction - Arabic right-to-left, English left-to-right, code always left-to-right', () => {
+    const el = render(['عمل الـuser الـsearch 9 مرات (POST flight-search/search)، اتنين رجعوا 500.', '', 'The fare is right.', '',
+      '- الحجز اتعمل مرتين', '- one more check', '', '```', 'SELECT 1', '```'].join('\n'));
+    const ps = Array.from(el.querySelectorAll('p'));
+    expect(ps.map((p) => p.getAttribute('dir'))).toEqual(['rtl', 'ltr']);
+    expect(Array.from(el.querySelectorAll('li')).map((li) => li.getAttribute('dir'))).toEqual(['rtl', 'ltr']);
+    expect(el.querySelector('pre')?.getAttribute('dir')).toBe('ltr');
+  });
+
+  it('a forced direction (the ⇄ switch) applies to every block', () => {
+    const fixture = TestBed.createComponent(MarkdownViewComponent);
+    fixture.componentRef.setInput('text', 'عربي\n\nEnglish');
+    fixture.componentRef.setInput('dir', 'ltr');
+    fixture.detectChanges();
+    expect(Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('p')).map((p) => p.getAttribute('dir'))).toEqual(['ltr', 'ltr']);
+  });
 });

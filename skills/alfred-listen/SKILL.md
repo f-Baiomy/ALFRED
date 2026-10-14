@@ -48,8 +48,10 @@ does the listening (docs/mcp.md "Listen runner"):
 
    `--model` **only when the user named one**. `--dry`: the runs list what they would write and write nothing.
    `--finish`: the listening ended without Stop (interrupted, closed) - the runner only finishes what is left.
-   It prints JSON with the log files and `watch`. `alreadyRunning` → only re-arm the watch. An error line (`cannot
-   reach Alfred at …`) → show it and stop.
+   This chat now handles the cycle: every ▶ on its cards and every comment that needs an investigation comes into
+   this chat (see "While it runs"). It prints JSON with the log files and `watch`. `alreadyRunning` → only re-arm the
+   watch. An error line (`cannot reach Alfred at …`; `This cycle already runs in a chat on <machine>` - one chat per
+   cycle, the user stops it there first) → show it and stop.
 5. Watch the chat log: the Monitor tool with the returned `watch` command (`tail -n 0 -F "<chat log>"` - the
    runner's short log for this session), description "Alfred listen · <cycle>", `timeout_ms` 3600000.
 6. Tell the user in two lines what is checked (the Acceptance items, the project checks, the test steps), that clean
@@ -58,10 +60,19 @@ does the listening (docs/mcp.md "Listen runner"):
 
 ## While it runs (this session)
 
-- A Monitor event is a line from the runner's chat log - only what adds to this session: a finding with its evidence,
+- A Monitor event is a line from the runner's chat log (except the two kinds below) - only what adds to this session: a finding with its evidence,
   an answer given on the board, a failure, start and stop (each step and every quiet batch stay in the full log,
   `status` shows them). It is context for later questions in this session - **write nothing in reply to it**: no
   "still working", no restating it, no summary. Do not open cards or run tools for it; the runner already did the work.
+- **Two kinds of line are for you to act on** (docs/board.md "Run from the board") - this chat handles the cycle, so
+  the board sends its work here:
+  - `▶ from the board: /alfred-fix 35 · note: … · run <id> - …` - the user pressed ▶. When your current turn is free:
+    `board_run_take <id>` (it returns the full prompt and the user's note; `cancelled` → skip it), run that command here
+    exactly as if the user had typed it (the skill, with this chat's context - the note is the user's instruction for
+    it), then `board_run_end <id>` with one `outcome` line ("→ plan posted on #35") and `result` (`#35`, `#35 [16]`)
+    - `done: false` with the reason if it failed. Several lines → one after another, in order.
+  - `💬 #35 "…" · you commented: "…" - …` - a comment that needs an investigation: investigate with what this chat
+    knows (the code, the calls, the logs) and answer on the card (`board_get 35`, then `board_reply`).
 - The watch expires after an hour: re-arm it with the same command, nothing else. A `⚠` line that repeats (the runner
   cannot reach Alfred, the MCP server or Claude; a usage limit) → tell the user once, with the line.
 - The user asks about a finding → answer from the board (`board_get`), not from the log.

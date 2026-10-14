@@ -16,6 +16,8 @@ export function skillArg(name: string): string {
 export function skillFor(card: Pick<CardSummary, 'number' | 'status' | 'waiting' | 'flags'>): string | null {
   if (card.status === 'CLOSED' || card.status === 'DONE') return null;
   if (card.waiting?.who === 'USER' && card.flags.includes('NEEDS_DECISION')) return '/alfred-sync';
+  // The card waits on Claude (an answer of the user's it has not acted on): Claude catches up with this card.
+  if (card.waiting?.who === 'CLAUDE') return `/alfred-sync ${card.number}`;
   if (card.status === 'INBOX') return '/alfred-triage';
   if (card.status === 'TO_DO' || card.status === 'IN_PROGRESS') return `/alfred-fix ${card.number}`;
   if (card.status === 'FIXED') return `/alfred-verify ${card.number}`;

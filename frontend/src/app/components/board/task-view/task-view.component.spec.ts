@@ -1,3 +1,4 @@
+import { NO_SKILL_RUNS } from '../../../core/state/skill-runs-state.service';
 import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
@@ -79,6 +80,7 @@ describe('TaskViewComponent', () => {
     TestBed.configureTestingModule({
       imports: [TaskViewComponent],
       providers: [
+        NO_SKILL_RUNS,
         provideHttpClient(), provideHttpClientTesting(),
         { provide: BoardApiService, useValue: api },
         { provide: BoardSocketService, useValue: { events$: NEVER } },

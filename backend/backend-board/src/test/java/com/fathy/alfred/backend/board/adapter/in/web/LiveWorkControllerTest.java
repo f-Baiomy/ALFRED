@@ -102,6 +102,24 @@ class LiveWorkControllerTest {
     }
 
     @Test
+    void aCycleBelongsToOneChatASecondChatIsRefusedAndTheBoardReadsTheOwner() throws Exception {
+        String beat = "{\"project\":\"crm\",\"host\":\"laptop\",\"kind\":\"live\",\"cycleId\":\"cy9\",\"chatId\":\"%s\",\"cwd\":\"C:/work/crm\"}";
+        mvc.perform(put("/board/live-runner").contentType(MediaType.APPLICATION_JSON).content(beat.formatted("chat-a")))
+                .andExpect(status().isOk());
+
+        mvc.perform(put("/board/live-runner").contentType(MediaType.APPLICATION_JSON).content(beat.formatted("chat-b")))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("one chat per cycle")));
+
+        mvc.perform(get("/board/cycle-chat").param("cycleId", "cy9").param("project", "crm"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.chat.chatId").value("chat-a"))
+                .andExpect(jsonPath("$.chat.chatAlive").value(true))
+                .andExpect(jsonPath("$.lastCwd").value("C:/work/crm"));
+        mvc.perform(get("/board/cycle-chat").param("cycleId", "nobody")).andExpect(jsonPath("$.chat").isEmpty());
+    }
+
+    @Test
     void aKindLongerThanTwentyCharactersIsRefused() throws Exception {
         mvc.perform(put("/board/live-runner").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"project\":\"p\",\"host\":\"h\",\"kind\":\"" + "k".repeat(21) + "\"}"))

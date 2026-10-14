@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -220,6 +220,66 @@ test('two cards are answered at the same time; a third waits visibly for a slot'
     assert.ok(working.some((r) => r.head === 'waiting its turn'), 'the third card is visible while it waits');
     runner.stop();
     await runner.idle();
+  } finally { await close(); }
+});
+
+test('▶ on the board: the runner claims the run for its chat and puts it in the chat - one line with the run id; nothing runs here', async () => {
+  const { w, runner, lines, chat, promptFile, close } = await runnerWorld();
+  try {
+    runner.o.chatId = 'chat-a';
+    runner.o.cycleId = 'cy1';
+    w.fake.board.skillQueue = [{ id: 'run-1', project: 'p', cycleId: 'cy1', cardNumber: 1, command: '/alfred-fix 1', state: 'QUEUED', note: 'only the SQL\nand fast',
+      prompt: '/alfred-fix 1\nAlfred: http://x · project p', chatId: 'chat-a' }];
+    const loop = runner.skillLoop();
+    for (let i = 0; i < 100 && !chat.length; i++) await new Promise((r) => setTimeout(r, 20));
+    runner.stop();
+    await loop;
+    assert.equal(w.fake.board.skillClaims?.[0]?.chatId, 'chat-a');
+    assert.equal(w.fake.board.skillQueue[0].state, 'SENT');
+    assert.deepEqual(chat, ['▶ from the board: /alfred-fix 1 · note: only the SQL and fast · run run-1 - board_run_take run-1, run it in this chat, then board_run_end']);
+    assert.ok(lines.includes('▶ /alfred-fix 1 - from the board, sent to the chat (note: only the SQL\nand fast)'), lines.join('\n'));
+    assert.ok(!existsSync(promptFile), 'no claude run for a board run');
+  } finally { await close(); }
+});
+
+test('▶ without a chat (started outside a chat, or no cycle) the runner claims nothing', async () => {
+  const { w, runner, close } = await runnerWorld();
+  try {
+    w.fake.board.skillQueue = [{ id: 'run-2', project: 'p', cycleId: 'cy1', cardNumber: 1, command: '/alfred-fix 1', state: 'QUEUED' }];
+    await runner.skillLoop();
+    assert.equal(w.fake.board.skillQueue[0].state, 'QUEUED');
+  } finally { await close(); }
+});
+
+test('a comment that needs an investigation goes to the chat; a small one is answered here', async () => {
+  const { w, runner, chat, promptFile, close } = await runnerWorld();
+  try {
+    runner.o.chatId = 'chat-a';
+    runner.o.cycleId = 'cy1';
+    w.fake.board.changes = { entries: [change({ id: 9, text: 'why does the fare change at confirm? check the SQL' })], cycles: [], cursor: '9.1', more: false };
+    await runner.once('now');
+    await runner.idle();
+    assert.equal(w.fake.board.liveWork.at(-1).state, 'DONE');
+    assert.match(w.fake.board.liveWork.at(-1).outcome, /sent to the chat/);
+    assert.equal(chat.length, 1);
+    assert.match(chat[0], /^💬 #1 "Fare changes at confirm" · you commented: "why does the fare change at confirm\? check the SQL" - investigate in this chat/);
+    assert.ok(!existsSync(promptFile), 'not answered here');
+    assert.ok(live.forTheChat([{ kind: 'COMMENT', text: 'Please fix this' }]));
+    assert.ok(!live.forTheChat([{ kind: 'COMMENT', text: 'thanks, looks good' }]));
+  } finally { await close(); }
+});
+
+test('with a chat the heartbeat says the chat handles the cycle and whether it is still open', async () => {
+  const { w, runner, close } = await runnerWorld();
+  try {
+    runner.o.chatId = 'chat-a';
+    runner.o.cycleId = 'cy1';
+    runner.o.chatPid = process.pid;
+    await runner.beat();
+    assert.deepEqual(w.fake.board.chatBeat, { cycleId: 'cy1', chatId: 'chat-a', chatAlive: true });
+    runner.o.chatPid = 999_999_9;
+    await runner.beat();
+    assert.equal(w.fake.board.chatBeat?.chatAlive, false);
   } finally { await close(); }
 });
 

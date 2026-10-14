@@ -13,6 +13,7 @@ import com.fathy.alfred.backend.board.domain.model.MentionOwner;
 import com.fathy.alfred.backend.board.domain.model.MentionRef;
 import com.fathy.alfred.backend.board.domain.model.MentionType;
 import com.fathy.alfred.backend.board.domain.model.Scope;
+import com.fathy.alfred.backend.board.domain.model.SkillRun;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -129,5 +130,32 @@ class SqliteBoardRepositoryTest {
         assertThat(repo.count(new CardQuery("p", null, null, null, null, null, false, "discount%", 0, 10))).isZero();
         assertThat(repo.count(new CardQuery("p", null, null, null, null, null, false, "is null", 0, 10))).isEqualTo(1);
         assertThat(repo.progress("p", null).open()).isEqualTo(2);
+    }
+
+    @Test
+    void skillRunsRoundTripAndTheQueueIsOldestFirst() {
+        Instant t = Instant.parse("2026-10-14T10:00:00Z");
+        SkillRun a = new SkillRun("a", "p", "cy", 35, "/alfred-fix 35", "/alfred-fix 35 · Alfred: x", "only the SQL", "opus", null,
+                SkillRun.State.QUEUED, null, null, null, true, null, List.of(), false, null, t, null, null, t, "chat-a");
+        SkillRun b = new SkillRun("b", "p", null, null, "/alfred-status", "/alfred-status", null, null, "laptop",
+                SkillRun.State.SENT, null, null, null, false, null, List.of(), false, null, t.plusSeconds(1), null, null, t.plusSeconds(1), null);
+        repo.saveRun(b);
+        repo.saveRun(a);
+
+        assertThat(repo.activeRuns("p")).extracting(SkillRun::id).containsExactly("a", "b");
+        assertThat(repo.findRun("a")).get().isEqualTo(a);
+        assertThat(repo.findRun("b").orElseThrow().cardNumber()).isNull();
+
+        SkillRun done = a.with(SkillRun.State.DONE, "→ plan posted", null, null, "#35 [16]", List.of("reading #35", "planning"), false, "laptop",
+                t.plusSeconds(2), t.plusSeconds(40), t.plusSeconds(40));
+        repo.saveRun(done);
+        assertThat(repo.findRun("a")).get().isEqualTo(done);
+        assertThat(repo.activeRuns("p")).extracting(SkillRun::id).containsExactly("b");
+        assertThat(repo.runs("p", 35, 10)).extracting(SkillRun::id).containsExactly("a");
+        assertThat(repo.runs("p", null, 10)).extracting(SkillRun::id).containsExactly("b", "a");
+        assertThat(repo.activeRuns(null)).hasSize(1);
+
+        repo.pruneRuns("p", 1);
+        assertThat(repo.runs("p", null, 10)).extracting(SkillRun::id).containsExactly("b");
     }
 }

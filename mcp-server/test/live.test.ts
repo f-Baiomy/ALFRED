@@ -248,3 +248,25 @@ test('board_live_card gives the context of one card from the changes the caller 
     assert.equal(missing.isError, true);
   } finally { await w.close(); }
 });
+
+test('a ▶ from the board: the chat takes the run (full prompt and note back), then ends it with its outcome; a cancelled run is not run', async () => {
+  const w = await world();
+  try {
+    w.fake.board.skillQueue = [
+      { id: 'run-1', project: 'p', cycleId: 'cy', cardNumber: 35, command: '/alfred-fix 35', prompt: '/alfred-fix 35\nAlfred: http://x', note: 'only the SQL', state: 'SENT' },
+      { id: 'run-2', project: 'p', cycleId: 'cy', cardNumber: 36, command: '/alfred-fix 36', prompt: '/alfred-fix 36', state: 'CANCELLED' },
+    ];
+    const taken = await w.call('board_run_take', { id: 'run-1' });
+    assert.equal(taken.json.command, '/alfred-fix 35');
+    assert.equal(taken.json.prompt, '/alfred-fix 35\nAlfred: http://x');
+    assert.equal(taken.json.note, 'only the SQL');
+    const ended = await w.call('board_run_end', { id: 'run-1', outcome: '→ plan posted on #35', result: '#35 [4]' });
+    assert.equal(ended.json.state, 'DONE');
+    assert.deepEqual(w.fake.board.skillReports!['run-1'].map((r: any) => r.state), ['RUNNING', 'DONE']);
+    assert.equal(w.fake.board.skillReports!['run-1'][1].result, '#35 [4]');
+
+    w.fake.board.skillReports!['run-2'] = [];
+    const cancelled = await w.call('board_run_take', { id: 'run-2' });
+    assert.equal(cancelled.json.cancelled, true);
+  } finally { await w.close(); }
+});

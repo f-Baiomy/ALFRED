@@ -7,7 +7,7 @@ import { proposalTarget } from '../../../shared/utils/board-activity';
 import { skillFor, waitingText } from '../../../shared/utils/board-skills';
 import { BoardSeenService } from '../../../core/services/board-seen.service';
 import { TeamChipsComponent } from '../team-chips/team-chips.component';
-import { copyToClipboard } from '../../../shared/utils/clipboard';
+import { RunSkillComponent } from '../run-skill/run-skill.component';
 import { LiveWorkStateService, currentStep } from '../../../core/state/live-work-state.service';
 
 /** What a card asks of its board: one sort action, a reopen, or a selection toggle. */
@@ -24,7 +24,7 @@ export type CardAction =
 @Component({
   selector: 'app-board-card',
   standalone: true,
-  imports: [MentionChipComponent, TeamChipsComponent],
+  imports: [MentionChipComponent, TeamChipsComponent, RunSkillComponent],
   template: `
     <div class="board-card" [class.live-busy]="!!liveWork()" [class.selected]="selected()" [class.focused]="focused()" [class.closed]="card().status === 'CLOSED'"
          [class.blocked]="!!card().blockedBy?.length" [attr.data-card]="card().id" tabindex="-1" (click)="onClick($event)">
@@ -101,8 +101,9 @@ export type CardAction =
         <div class="board-card-acts"><button type="button" class="ok" title="Answer Claude's question (A)" (click)="$event.stopPropagation(); answer.emit()">Answer</button></div>
       }
       @if (skill(); as cmd) {
-        <button type="button" class="board-copy" [title]="'Copy ' + cmd + ' - paste it into Claude Code'" (click)="copy($event, cmd)">
-          {{ copied() ? '✓ copied' : '⧉ ' + cmd }}</button>
+        <span class="board-card-run" (click)="$event.stopPropagation()" (keydown)="$event.stopPropagation()">
+          <app-run-skill [command]="cmd" [project]="card().project" [cycleId]="showCycle() ? null : card().cycleId" [cycleName]="cycleName()" [card]="card()" [editable]="editable()" />
+        </span>
       }
     </div>`,
 })
@@ -127,7 +128,6 @@ export class BoardCardComponent {
   /** /alfred-live working on this card right now. */
   readonly liveWork = computed(() => this.live.working().find((w) => w.project === this.card().project && w.cardNumber === this.card().number) ?? null);
   readonly liveStep = currentStep;
-  readonly copied = signal(false);
   readonly unread = computed(() => this.seen.isUnread(this.card()));
   readonly waiting = computed(() => waitingText(this.card().waiting, this.now()));
   readonly skill = computed(() => skillFor(this.card()));
@@ -152,14 +152,6 @@ export class BoardCardComponent {
 
   proposalText(p: Proposal): string {
     return proposalText(p);
-  }
-
-  copy(event: Event, text: string): void {
-    event.stopPropagation();
-    void copyToClipboard(text).then(() => {
-      this.copied.set(true);
-      setTimeout(() => this.copied.set(false), 1500);
-    });
   }
 
   resolutionLabel(r: Resolution): string {

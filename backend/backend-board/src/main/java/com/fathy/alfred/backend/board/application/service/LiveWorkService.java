@@ -44,6 +44,10 @@ public class LiveWorkService implements LiveWorkUseCase {
     private record RunnerSlot(String project, String kind) {
     }
 
+    /** cycle id -> the chat that handles it. */
+    private final Map<String, CycleChat> chats = new ConcurrentHashMap<>();
+    private final Map<String, String> lastCwd = new ConcurrentHashMap<>();
+
     @Autowired
     public LiveWorkService(BoardNotificationPort notifications) {
         this(notifications, Clock.systemUTC());
@@ -127,6 +131,61 @@ public class LiveWorkService implements LiveWorkUseCase {
             notifications.liveRunner(key, stopped ? null : next.host(), runnerKind);
         }
         return next;
+    }
+
+    @Override
+    public synchronized ChatBeat chatBeat(String project, String cycleId, String chatId, String host, String cwd, String kind, boolean chatAlive,
+                                          boolean stopped) {
+        Instant now = clock.instant();
+        String p = project == null ? "" : project;
+        String k = kindOf(kind);
+        CycleChat held = liveChat(chats.get(cycleId), now);
+        if (held != null && !held.chatId().equals(chatId)) {
+            return new ChatBeat(held, true);
+        }
+        if (cwd != null && !cwd.isBlank()) {
+            lastCwd.put(p, cwd.strip());
+        }
+        if (stopped) {
+            if (held == null) {
+                return new ChatBeat(null, false);
+            }
+            java.util.Set<String> kinds = new java.util.TreeSet<>(held.kinds());
+            kinds.remove(k);
+            if (kinds.isEmpty()) {
+                chats.remove(cycleId);
+                notifications.cycleChat(p, cycleId);
+                return new ChatBeat(null, false);
+            }
+            CycleChat next = new CycleChat(p, cycleId, chatId, held.host(), held.cwd(), java.util.Set.copyOf(kinds), held.chatAlive(), held.since(), now);
+            chats.put(cycleId, next);
+            notifications.cycleChat(p, cycleId);
+            return new ChatBeat(next, false);
+        }
+        java.util.Set<String> kinds = new java.util.TreeSet<>(held == null ? java.util.Set.of() : held.kinds());
+        kinds.add(k);
+        CycleChat next = new CycleChat(p, cycleId, chatId, host == null || host.isBlank() ? "?" : host.strip(),
+                cwd == null || cwd.isBlank() ? (held == null ? null : held.cwd()) : cwd.strip(), java.util.Set.copyOf(kinds), chatAlive,
+                held == null ? now : held.since(), now);
+        chats.put(cycleId, next);
+        if (held == null || held.chatAlive() != chatAlive || !held.kinds().equals(next.kinds())) {
+            notifications.cycleChat(p, cycleId);
+        }
+        return new ChatBeat(next, false);
+    }
+
+    @Override
+    public Optional<CycleChat> cycleChat(String cycleId) {
+        return cycleId == null ? Optional.empty() : Optional.ofNullable(liveChat(chats.get(cycleId), clock.instant()));
+    }
+
+    @Override
+    public Optional<String> lastCwd(String project) {
+        return Optional.ofNullable(lastCwd.get(project == null ? "" : project));
+    }
+
+    private static CycleChat liveChat(CycleChat c, Instant now) {
+        return c == null || c.lastSeen().plus(RUNNER_ALIVE).isBefore(now) ? null : c;
     }
 
     @Override

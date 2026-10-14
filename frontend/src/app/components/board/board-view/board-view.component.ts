@@ -43,7 +43,7 @@ import { UndoToastComponent } from '../undo-toast/undo-toast.component';
     UndoToastComponent],
   template: `
     @if (!windowMode()) {
-    <app-live-strip [status]="state.agent()" [project]="project()" [editable]="state.editable()" (action)="state.agentAction($event)" />
+    <app-live-strip [status]="state.agent()" [project]="project()" [cycleId]="cycleId()" [editable]="state.editable()" (action)="state.agentAction($event)" />
     <app-retest-strip [project]="project()" [editable]="state.editable()" />
     <div class="board-top">
       @if (state.editable()) {
@@ -128,7 +128,7 @@ import { UndoToastComponent } from '../undo-toast/undo-toast.component';
     @if (answering(); as id) { <app-quick-answer [cardId]="id" (closed)="answering.set(null)" /> }
     }
     @if (state.openCardId(); as id) {
-      <app-card-drawer [cardId]="id" [version]="state.openCardVersion()" [editable]="state.editable()" [layout]="layout()"
+      <app-card-drawer [cardId]="id" [version]="state.openCardVersion()" [editable]="state.editable()" [inCycle]="!!cycleId()" [layout]="layout()"
                        (modeChange)="changeMode(id, $event)" (closed)="closeCard()" (retestRequested)="retest.start([$event])" (closeRequested)="state.close($event, $event.resolution)" />
     }`,
 })

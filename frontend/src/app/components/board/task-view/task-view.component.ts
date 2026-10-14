@@ -9,7 +9,6 @@ import { BoardMentionsService } from '../../../core/services/board-mentions.serv
 import { BoardSocketService } from '../../../core/services/board-socket.service';
 import { messageOf } from '../../../core/state/board-state.service';
 import { skillArg } from '../../../shared/utils/board-skills';
-import { copyToClipboard } from '../../../shared/utils/clipboard';
 import {
   PHASES, REQ_LABELS, ReqState, Requirement, briefParts, countStates, doneWhen, itemsOf, needsYou, notesOf, phaseOf,
   requirementsOf, taskRefs, verdictOf,
@@ -17,6 +16,7 @@ import {
 import { AcceptanceChecklistComponent } from '../acceptance-checklist/acceptance-checklist.component';
 import { CycleBriefComponent } from '../cycle-brief/cycle-brief.component';
 import { MarkdownViewComponent } from '../markdown-view/markdown-view.component';
+import { RunSkillComponent } from '../run-skill/run-skill.component';
 import { SpecFilesComponent } from '../spec-files/spec-files.component';
 
 type Tile = ReqState | 'NOTES' | 'NOT_IN_TASK';
@@ -31,7 +31,7 @@ type Tile = ReqState | 'NOTES' | 'NOT_IN_TASK';
 @Component({
   selector: 'app-task-view',
   standalone: true,
-  imports: [AcceptanceChecklistComponent, CycleBriefComponent, MarkdownViewComponent, SpecFilesComponent],
+  imports: [AcceptanceChecklistComponent, CycleBriefComponent, MarkdownViewComponent, SpecFilesComponent, RunSkillComponent],
   template: `
     <div class="task-head">
       <div class="task-title">
@@ -61,8 +61,7 @@ type Tile = ReqState | 'NOTES' | 'NOT_IN_TASK';
       </div>
       <div class="task-cmds">
         @for (cmd of commands(); track cmd) {
-          <button type="button" class="board-copy" [title]="'Copy ' + cmd + ' - paste it into Claude Code'" (click)="copy(cmd)">
-            {{ copied() === cmd ? '✓ copied' : '⧉ ' + cmd }}</button>
+          <app-run-skill [command]="cmd" [project]="project()" [cycleId]="cycleId()" [cycleName]="cycleName()" [editable]="editable()" (opened)="open(project(), $event)" />
         }
       </div>
     </div>
@@ -207,7 +206,7 @@ type Tile = ReqState | 'NOTES' | 'NOT_IN_TASK';
               <span class="board-dim task-step-value">{{ d.value }}</span></div>
           }
           <div class="board-cycle-cmds">
-            <button type="button" class="board-copy" (click)="copy(report())">{{ copied() === report() ? '✓ copied' : '⧉ ' + report() }}</button>
+            <app-run-skill [command]="report()" [project]="project()" [cycleId]="cycleId()" [cycleName]="cycleName()" [editable]="editable()" (opened)="open(project(), $event)" />
           </div>
         </div>
 
@@ -233,7 +232,6 @@ export class TaskViewComponent {
   readonly steps = signal<readonly TestStep[]>([]);
   readonly log = signal<readonly SessionLogEntry[]>([]);
   readonly only = signal<Tile | null>(null);
-  readonly copied = signal<string | null>(null);
   readonly error = signal<string | null>(null);
 
   readonly phases = PHASES;
@@ -321,13 +319,6 @@ export class TaskViewComponent {
   open(project: string, number: number): void {
     this.mentions.cardToOpen.set({ project, number });
     this.cardOpened.emit();
-  }
-
-  copy(text: string): void {
-    void copyToClipboard(text).then(() => {
-      this.copied.set(text);
-      setTimeout(() => this.copied.set(null), 1500);
-    });
   }
 
   when(iso: string): string {

@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fathy.alfred.backend.board.application.port.out.BoardNotificationPort;
 import com.fathy.alfred.backend.board.domain.model.AgentStatus;
 import com.fathy.alfred.backend.board.domain.model.LiveWork;
+import com.fathy.alfred.backend.board.domain.model.SkillRun;
 import org.springframework.stereotype.Component;
 
 import java.util.LinkedHashMap;
@@ -85,6 +86,29 @@ public class WebSocketBoardNotificationAdapter implements BoardNotificationPort 
         w.put("startedAt", work.startedAt().toString());
         w.put("updatedAt", work.updatedAt().toString());
         event.put("work", w);
+        send(event);
+    }
+
+    @Override
+    public void cycleChat(String project, String cycleId) {
+        Map<String, Object> event = new LinkedHashMap<>();
+        event.put("type", "cycle-chat");
+        event.put("project", project);
+        event.put("cycleId", cycleId);
+        send(event);
+    }
+
+    /** A signal, not the run: the board re-reads its runs (GET /board/skill-runs) - the prompt never goes over the socket. */
+    @Override
+    public void skillRun(SkillRun run) {
+        Map<String, Object> event = new LinkedHashMap<>();
+        event.put("type", "skill-run");
+        event.put("project", run.project());
+        event.put("id", run.id());
+        if (run.cardNumber() != null) {
+            event.put("cardNumber", run.cardNumber());
+        }
+        event.put("state", run.state().name());
         send(event);
     }
 

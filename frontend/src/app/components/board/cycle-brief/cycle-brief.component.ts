@@ -9,7 +9,7 @@ import { BoardSocketService } from '../../../core/services/board-socket.service'
 import { messageOf } from '../../../core/state/board-state.service';
 import { MarkdownViewComponent } from '../markdown-view/markdown-view.component';
 import { MentionEditorComponent } from '../mention-editor/mention-editor.component';
-import { copyToClipboard } from '../../../shared/utils/clipboard';
+import { RunSkillComponent } from '../run-skill/run-skill.component';
 
 /** A section item this short shows as a chip; longer ones as a line. */
 const CHIP_MAX = 48;
@@ -23,7 +23,7 @@ const CHIP_MAX = 48;
 @Component({
   selector: 'app-cycle-brief',
   standalone: true,
-  imports: [MarkdownViewComponent, MentionEditorComponent],
+  imports: [MarkdownViewComponent, MentionEditorComponent, RunSkillComponent],
   template: `
     <div class="board-box">
       <h3 class="task-h3">The task
@@ -83,8 +83,7 @@ const CHIP_MAX = 48;
       <div class="task-harness">
         <span class="task-rl">Continue anywhere</span>
         <span class="board-dim">a new session, another machine or another agent loads this task from Alfred:</span>
-        <button type="button" class="board-copy" [title]="'Copy ' + resume() + ' - paste it into Claude Code'" (click)="copy(resume())">
-          {{ copied() === resume() ? '✓ copied' : '⧉ ' + resume() }}</button>
+        <app-run-skill [command]="resume()" [project]="project()" [cycleId]="cycleId()" [cycleName]="cycleName()" [copyOnly]="true" />
         <span class="board-dim">or any /alfred-* skill (they start with task_context)</span>
       </div>
       @if (error()) { <div class="board-error">{{ error() }}</div> }
@@ -103,7 +102,6 @@ export class CycleBriefComponent {
   readonly chipMax = CHIP_MAX;
   readonly template = '<one line: what the task delivers>\n\n## Task\n- <ticket id / link>, branch <name>\n\n## Description\n<what the ticket asks for, as written>\n\n'
     + '## Scope\n- \n\n## Out of scope\n- \n\n## Test steps\n1. \n\n## Data\n- \n\n## Decisions\n';
-  readonly copied = signal<string | null>(null);
   readonly brief = signal<CycleBrief | null>(null);
   readonly editing = signal(false);
   readonly error = signal<string | null>(null);
@@ -149,13 +147,6 @@ export class CycleBriefComponent {
     this.api.restoreBrief(this.cycleId()).subscribe({
       next: (b) => this.set(b),
       error: (e) => this.error.set(messageOf(e)),
-    });
-  }
-
-  copy(text: string): void {
-    void copyToClipboard(text).then(() => {
-      this.copied.set(text);
-      setTimeout(() => this.copied.set(null), 1500);
     });
   }
 

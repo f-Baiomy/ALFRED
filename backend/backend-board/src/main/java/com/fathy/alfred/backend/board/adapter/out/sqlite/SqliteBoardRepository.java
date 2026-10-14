@@ -4,6 +4,8 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fathy.alfred.backend.board.application.port.out.BoardStorePort;
+import com.fathy.alfred.backend.board.application.port.out.SkillRunStorePort;
+import com.fathy.alfred.backend.board.domain.model.SkillRun;
 import com.fathy.alfred.backend.board.domain.model.ActivityEntry;
 import com.fathy.alfred.backend.board.domain.model.ActivityKind;
 import com.fathy.alfred.backend.board.domain.model.Actor;
@@ -81,7 +83,7 @@ import java.util.stream.Collectors;
  */
 @Component
 @ConditionalOnProperty(prefix = "alfred.storage.board", name = "type", havingValue = "sqlite", matchIfMissing = true)
-public class SqliteBoardRepository implements BoardStorePort {
+public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort {
 
     private static final Logger log = LoggerFactory.getLogger(SqliteBoardRepository.class);
     private static final int IN_CHUNK = 400;
@@ -257,6 +259,15 @@ public class SqliteBoardRepository implements BoardStorePort {
                 CREATE TABLE IF NOT EXISTS teams (id TEXT PRIMARY KEY, name TEXT NOT NULL, color TEXT NOT NULL, icon TEXT NOT NULL,
                   owns TEXT NOT NULL, hints TEXT NOT NULL, position INTEGER NOT NULL)
                 """);
+        // Skills run from the board with ▶ (docs/board.md "Run from the board"): the queue and each card's run history.
+        jdbc.execute("""
+                CREATE TABLE IF NOT EXISTS skill_runs (id TEXT PRIMARY KEY, project TEXT NOT NULL, cycle_id TEXT, card_number INTEGER,
+                  command TEXT NOT NULL, prompt TEXT NOT NULL, note TEXT, model TEXT, host TEXT, state TEXT NOT NULL, outcome TEXT,
+                  failure TEXT, retry_at INTEGER, auto_retry INTEGER NOT NULL, result TEXT, steps_json TEXT NOT NULL, stop INTEGER NOT NULL,
+                  taken_by TEXT, created_at INTEGER NOT NULL, taken_at INTEGER, ended_at INTEGER, updated_at INTEGER NOT NULL)
+                """);
+        jdbc.execute("CREATE INDEX IF NOT EXISTS idx_skill_runs ON skill_runs(project, created_at)");
+        addColumn("skill_runs", "chat_id", "TEXT");
         jdbc.execute("CREATE TABLE IF NOT EXISTS board_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
         Integer seeded = jdbc.queryForObject("SELECT COUNT(*) FROM board_meta WHERE key = 'teams_seeded'", Integer.class);
         if (seeded == null || seeded == 0) {
@@ -1305,5 +1316,87 @@ public class SqliteBoardRepository implements BoardStorePort {
     @Override
     public Optional<Instant> appStart(String project) {
         return jdbc.query("SELECT at FROM app_starts WHERE project = ?", (rs, n) -> Instant.ofEpochMilli(rs.getLong(1)), project).stream().findFirst();
+    }
+
+    // ------------------------------------------------------------------------------------------------------ skill runs
+
+    private static final String RUN_COLUMNS = "id, project, cycle_id, card_number, command, prompt, note, model, host, state, outcome, failure, "
+            + "retry_at, auto_retry, result, steps_json, stop, taken_by, created_at, taken_at, ended_at, updated_at, chat_id";
+
+    @Override
+    public void saveRun(SkillRun r) {
+        jdbc.update("INSERT OR REPLACE INTO skill_runs(" + RUN_COLUMNS + ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                r.id(), r.project(), r.cycleId(), r.cardNumber(), r.command(), r.prompt(), r.note(), r.model(), r.host(), r.state().name(),
+                r.outcome(), r.failure(), millis(r.retryAt()), r.autoRetry() ? 1 : 0, r.result(), json(r.steps()), r.stop() ? 1 : 0, r.takenBy(),
+                r.createdAt().toEpochMilli(), millis(r.takenAt()), millis(r.endedAt()), r.updatedAt().toEpochMilli(), r.chatId());
+    }
+
+    @Override
+    public Optional<SkillRun> findRun(String id) {
+        return jdbc.query("SELECT " + RUN_COLUMNS + " FROM skill_runs WHERE id = ?", this::run, id).stream().findFirst();
+    }
+
+    @Override
+    public List<SkillRun> runs(String project, Integer cardNumber, int limit) {
+        StringBuilder sql = new StringBuilder("SELECT " + RUN_COLUMNS + " FROM skill_runs WHERE 1=1");
+        List<Object> args = new ArrayList<>();
+        if (project != null) {
+            sql.append(" AND project = ?");
+            args.add(project);
+        }
+        if (cardNumber != null) {
+            sql.append(" AND card_number = ?");
+            args.add(cardNumber);
+        }
+        sql.append(" ORDER BY created_at DESC, id DESC LIMIT ?");
+        args.add(limit);
+        return jdbc.query(sql.toString(), this::run, args.toArray());
+    }
+
+    @Override
+    public List<SkillRun> activeRuns(String project) {
+        return project == null
+                ? jdbc.query("SELECT " + RUN_COLUMNS + " FROM skill_runs WHERE state IN ('QUEUED','SENT','RUNNING') ORDER BY created_at, id", this::run)
+                : jdbc.query("SELECT " + RUN_COLUMNS + " FROM skill_runs WHERE project = ? AND state IN ('QUEUED','SENT','RUNNING') ORDER BY created_at, id",
+                this::run, project);
+    }
+
+    @Override
+    public void pruneRuns(String project, int keep) {
+        jdbc.update("DELETE FROM skill_runs WHERE project = ? AND state NOT IN ('QUEUED','SENT','RUNNING') AND id NOT IN "
+                + "(SELECT id FROM skill_runs WHERE project = ? ORDER BY created_at DESC LIMIT ?)", project, project, keep);
+    }
+
+    private SkillRun run(ResultSet rs, int n) throws SQLException {
+        List<String> steps;
+        try {
+            steps = objectMapper.readValue(rs.getString("steps_json"), new TypeReference<List<String>>() { });
+        } catch (JsonProcessingException e) {
+            steps = List.of();
+        }
+        int card = rs.getInt("card_number");
+        Integer cardNumber = rs.wasNull() ? null : card;
+        return new SkillRun(rs.getString("id"), rs.getString("project"), rs.getString("cycle_id"), cardNumber, rs.getString("command"),
+                rs.getString("prompt"), rs.getString("note"), rs.getString("model"), rs.getString("host"), SkillRun.State.valueOf(rs.getString("state")),
+                rs.getString("outcome"), rs.getString("failure"), instant(rs, "retry_at"), rs.getInt("auto_retry") == 1, rs.getString("result"), steps,
+                rs.getInt("stop") == 1, rs.getString("taken_by"), Instant.ofEpochMilli(rs.getLong("created_at")), instant(rs, "taken_at"),
+                instant(rs, "ended_at"), Instant.ofEpochMilli(rs.getLong("updated_at")), rs.getString("chat_id"));
+    }
+
+    private static Long millis(Instant at) {
+        return at == null ? null : at.toEpochMilli();
+    }
+
+    private static Instant instant(ResultSet rs, String column) throws SQLException {
+        long v = rs.getLong(column);
+        return rs.wasNull() ? null : Instant.ofEpochMilli(v);
+    }
+
+    private String json(List<String> steps) {
+        try {
+            return objectMapper.writeValueAsString(steps);
+        } catch (JsonProcessingException e) {
+            return "[]";
+        }
     }
 }

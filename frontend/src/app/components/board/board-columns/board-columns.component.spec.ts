@@ -6,7 +6,8 @@ import { signal } from '@angular/core';
 import { LiveWorkStateService } from '../../../core/state/live-work-state.service';
 
 /** The cards ask what /alfred-live is doing on them; here nothing. */
-const NO_LIVE_WORK = [{ provide: LiveWorkStateService, useValue: { working: signal([]) } }];
+import { NO_SKILL_RUNS } from '../../../core/state/skill-runs-state.service';
+const NO_LIVE_WORK = [{ provide: LiveWorkStateService, useValue: { working: signal([]) } }, NO_SKILL_RUNS];
 
 function card(id: string, status: CardStatus): CardSummary {
   return {

@@ -268,4 +268,40 @@ export function register(server: McpServer, client: AlfredClient): void {
     beat(client.baseUrl, input.project ?? null, true);
     return ok({ stopped: true });
   }));
+
+  // ▶ from the board (docs/board.md "Run from the board"): the runner writes "▶ from the board: ... · run <id>" into the
+  // chat that handles the cycle; the chat takes the run when its turn is free, runs the skill itself and ends it.
+  server.registerTool('board_run_take', {
+    description: 'For a "▶ from the board" line in /alfred-live or /alfred-listen: take run <id> before running its command, so the board '
+      + 'shows it running in this chat. Returns the run (command, full prompt, the user\'s note, card). If it says cancelled, the user '
+      + 'cancelled it before you took it - do not run it.',
+    inputSchema: { id: z.string().min(1).max(100).describe('The run id from the line ("run <id>")') },
+  }, (input) => run(async () => {
+    const r = await client.put<SkillRunRow>(`/board/skill-runs/${encodeURIComponent(input.id)}`, { body: { state: 'RUNNING' } });
+    if (r.state !== 'RUNNING') return ok({ cancelled: true, state: r.state, note: 'Not running it: the run is ' + r.state.toLowerCase() + '.' });
+    return ok({ id: r.id, command: r.command, prompt: r.prompt, note: r.note ?? null, cardNumber: r.cardNumber ?? null, cycleId: r.cycleId ?? null });
+  }));
+
+  server.registerTool('board_run_end', {
+    description: 'For a "▶ from the board" run this chat took with board_run_take: end it when the command is done (or failed), so the '
+      + 'board shows the outcome. outcome is ONE short line ("→ plan posted on #35", "→ 2 cards added"); result points at what you wrote '
+      + '("#35" a card, "#35 [16]" a comment on it) for the board\'s "open it" link.',
+    inputSchema: {
+      id: z.string().min(1).max(100),
+      done: z.boolean().default(true).describe('false when the command failed'),
+      outcome: z.string().max(500).optional(),
+      result: z.string().max(200).optional(),
+      steps: z.array(z.string().max(300)).max(40).optional().describe('What you did, in a few short steps (optional)'),
+    },
+  }, (input) => run(async () => {
+    const r = await client.put<SkillRunRow>(`/board/skill-runs/${encodeURIComponent(input.id)}`, { body: {
+      state: input.done ? 'DONE' : 'FAILED', outcome: input.outcome ?? null, result: input.result ?? null,
+      failure: input.done ? null : 'error', ...(input.steps ? { steps: input.steps } : {}),
+    } });
+    return ok({ id: r.id, state: r.state });
+  }));
+}
+
+interface SkillRunRow {
+  id: string; state: string; command: string; prompt: string; note?: string | null; cardNumber?: number | null; cycleId?: string | null;
 }

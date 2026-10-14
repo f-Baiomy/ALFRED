@@ -102,6 +102,13 @@ export interface FakeBoard {
   /** What PUT /board/live-work received, in order; ids the user pressed Stop on. */
   liveWork: any[];
   liveStop: Set<string>;
+  /** Skills run from the board with ▶: the queue the runner claims from, and every report it sent per run. */
+  skillQueue?: any[];
+  skillReports?: Record<string, any[]>;
+  skillStop?: Set<string>;
+  skillClaims?: any[];
+  /** The chat part of the last heartbeat that had one. */
+  chatBeat?: { cycleId: string; chatId: string; chatAlive: boolean };
   /** The /alfred-live runner's heartbeat (PUT /board/live-runner), or null. */
   runner: { project: string; host: string; model: string | null; kind?: string } | null;
   /** What GET /board/changes and /board/changes/wait answer next (the backend's own cursor logic is tested in backend-board). */
@@ -620,7 +627,24 @@ export class FakeAlfred {
       b.liveWork.push(body);
       return [200, { ...body, stop: b.liveStop.has(body.id) }];
     }
+    if (p[1] === 'skill-runs' && p[2] === 'claim' && method === 'POST') {
+      const queue = b.skillQueue ?? [];
+      (b.skillClaims ??= []).push(body);
+      const taken = queue.filter((r) => r.state === 'QUEUED' && r.chatId === body.chatId).slice(0, body.max ?? 1);
+      for (const r of taken) { r.state = 'SENT'; r.takenBy = body.host; }
+      return [200, taken];
+    }
+    if (p[1] === 'skill-runs' && p[2] && method === 'PUT') {
+      (b.skillReports ??= {})[p[2]] ??= [];
+      b.skillReports[p[2]].push(body);
+      const run = (b.skillQueue ?? []).find((r) => r.id === p[2]);
+      // as the backend: a run that ended (or was cancelled) is handed back as held
+      if (run && !['QUEUED', 'SENT', 'RUNNING'].includes(run.state)) return [200, run];
+      if (run && body.state) run.state = body.state;
+      return [200, { ...run, ...body, stop: !!b.skillStop?.has(p[2]) }];
+    }
     if (p[1] === 'live-runner' && method === 'PUT') {
+      if (body.chatId) b.chatBeat = { cycleId: body.cycleId, chatId: body.chatId, chatAlive: body.chatAlive };
       b.runner = body.stopped ? null : { project: body.project ?? '', host: body.host, model: body.model ?? null, kind: body.kind ?? 'live' };
       return [200, b.runner];
     }

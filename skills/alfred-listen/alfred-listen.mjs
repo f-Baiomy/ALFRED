@@ -451,7 +451,8 @@ export class ListenRunner {
     const o = this.o;
     this.live = new Runner({ alfred: o.alfred, server: o.server, mcpEntry: o.mcpEntry, project: o.project, cycleId: o.cycleId, model: o.model,
       cwd: o.cwd, claude: o.claude, claudeArgs: o.claudeArgs, log: o.log, chat: o.chat, mcpConfigFile: o.mcpConfigFile, mcp: o.mcp,
-      pool: this.poolOf(1, undefined), parallel: 2, kind: 'listen', host: o.host, waitSeconds: 50, settleMs: 1000, serverTools: this.serverTools });
+      pool: this.poolOf(1, undefined), parallel: 2, kind: 'listen', host: o.host, waitSeconds: 50, settleMs: 1000, serverTools: this.serverTools,
+      chatId: o.chatId, chatPid: o.chatPid });
     this.live.pool.o.only = LIVE_TOOLS;
     if (this.o.warm !== false) { this.live.pool.size = 1; this.live.pool.warmSize = 1; this.live.pool.fill(); }
     this.live.run().catch((e) => this.say(`  ⚠ live lane ended: ${e.message}`));
@@ -1062,16 +1063,26 @@ export async function main(argv) {
     await alfred.call('GET', '/board/agent-status', { query: { project: args.project } }).catch((error) => {
       throw new Error(/fetch failed|timeout|aborted/i.test(error.message) ? `cannot reach Alfred at ${url} from this machine` : error.message);
     });
+    // The chat that runs this owns the cycle: ▶ on the cycle's cards goes into it. One chat per cycle - another one is refused.
+    const chatId = args.chat ?? process.env.CLAUDE_CODE_SESSION_ID ?? null;
+    const chatPid = args['chat-pid'] ?? process.env.CLAUDE_PID ?? null;
+    if (chatId && args['no-live'] !== 'true') {
+      await alfred.call('PUT', '/board/live-runner', { body: { project: args.project, host: hostname(), stopped: false, kind: 'listen',
+        cycleId: args.cycle, chatId, cwd, chatAlive: true } }).catch((error) => {
+        if (/→ 409/.test(error.message)) throw new Error(error.message.replace(/^.*?→ 409: /, ''));
+      });
+    }
     if (existsSync(stopFile)) unlinkSync(stopFile);
     if (args.fresh === 'true' && existsSync(stateFile)) unlinkSync(stateFile);
     appendFileSync(f.log, '');
     appendFileSync(f.chat, '');
     const self = fileURLToPath(import.meta.url);
-    const child = spawn(process.execPath, [self, 'run', ...argv.slice(1), '--cwd', cwd, '--url', url], {
+    const chatArgs = chatId ? ['--chat', chatId, ...(chatPid ? ['--chat-pid', String(chatPid)] : [])] : [];
+    const child = spawn(process.execPath, [self, 'run', ...argv.slice(1), '--cwd', cwd, '--url', url, ...chatArgs], {
       cwd, detached: true, stdio: 'ignore', windowsHide: true,
     });
     child.unref();
-    const started = { pid: child.pid, alfred: url, cycleId: args.cycle, project: args.project, model: args.model ?? null, parallel: Number(args.parallel ?? 3),
+    const started = { pid: child.pid, alfred: url, cycleId: args.cycle, project: args.project, chatId, model: args.model ?? null, parallel: Number(args.parallel ?? 3),
       dry: args.dry === 'true', finishOnly: args.finish === 'true', log: f.log, chat: f.chat, startedAt: new Date().toISOString() };
     writeFileSync(f.pid, JSON.stringify(started));
     print({ started: true, ...started, model: args.model ?? "Claude Code's default", watch: `tail -n 0 -F "${f.chat}"` });
@@ -1086,7 +1097,8 @@ export async function main(argv) {
     const mcp = new McpClient(mcpEntry, { cwd, name: 'alfred-listen' });
     const runner = new ListenRunner({ alfred: new Alfred(url), mcp, server: args.server, mcpEntry, cycleId: args.cycle, project: args.project,
       cwd, ...claudeOf(args), model: args.model, dry: args.dry === 'true', log, chat, mcpConfigFile: f.mcp, stateFile, parallel: Number(args.parallel ?? 3),
-      waitSec: args.wait ? Number(args.wait) : undefined, settleSec: args.settle ? Number(args.settle) : undefined, liveLane: args['no-live'] !== 'true' });
+      waitSec: args.wait ? Number(args.wait) : undefined, settleSec: args.settle ? Number(args.settle) : undefined, liveLane: args['no-live'] !== 'true',
+      chatId: args.chat, chatPid: args['chat-pid'] });
     host.onRestart = (u) => { mcp.entry = { type: 'http', url: u }; mcp.session = null; writeFileSync(f.mcp, JSON.stringify({ mcpServers: { [args.server]: { type: 'http', url: u } } })); };
     const onStop = () => {
       if (!existsSync(stopFile)) return;

@@ -1,4 +1,6 @@
 import { TeamsStateService } from '../../../core/state/teams-state.service';
+import { TextDirectionStateService } from '../../../core/state/text-direction-state.service';
+import { choiceLabel, nextChoice } from '../../../shared/utils/text-direction';
 import { NgTemplateOutlet } from '@angular/common';
 import { Component, computed, inject, input, output, signal } from '@angular/core';
 import { ActivityEntry, MentionRef } from '../../../core/models/board.models';
@@ -35,6 +37,7 @@ export interface TimelineReply {
               @if (item.question) {
                 <span class="board-ev-badge" [class.answered]="item.answered">{{ item.answered ? '✓ answered' : 'waiting for you' }}</span>
               }
+              <ng-container [ngTemplateOutlet]="dirSwitch" [ngTemplateOutletContext]="{ $implicit: item.entry }" />
             </div>
             <ng-container [ngTemplateOutlet]="body" [ngTemplateOutletContext]="{ $implicit: item.entry }" />
             @if (editable()) {
@@ -48,6 +51,7 @@ export interface TimelineReply {
               <div class="board-ev-reply" [class.claude]="r.actor === 'CLAUDE'">
                 <div class="board-ev-who"><b>{{ who(r) }}</b> · {{ when(r.at) }}
                   @if (item.question && r.actor === 'USER') { <span class="board-dim">answer</span> }
+                  <ng-container [ngTemplateOutlet]="dirSwitch" [ngTemplateOutletContext]="{ $implicit: r }" />
                 </div>
                 <ng-container [ngTemplateOutlet]="body" [ngTemplateOutletContext]="{ $implicit: r }" />
                 @if (editable()) {
@@ -83,20 +87,28 @@ export interface TimelineReply {
         <div class="board-dim">No history yet.</div>
       }
     </div>
+    <ng-template #dirSwitch let-e>
+      <button type="button" class="board-link board-ev-dir" [class.on]="dirs.choice(e.id) !== 'auto'"
+              title="Text direction: auto (from its words), right-to-left or left-to-right - for you, in this browser" (click)="flipDir(e)">
+        {{ dirLabel(dirs.choice(e.id)) }}</button>
+    </ng-template>
     <ng-template #body let-e>
       <div class="board-ev-body">
         @if (parts(e.text); as ps) {
           @for (p of ps; track $index) {
-            <div class="board-ev-part"><span class="board-ev-label">{{ p.label }}</span><app-markdown-view [text]="p.text" /></div>
+            <div class="board-ev-part"><span class="board-ev-label">{{ p.label }}</span><app-markdown-view [text]="p.text" [dir]="dirs.choice(e.id)" /></div>
           }
         } @else {
-          <app-markdown-view [text]="e.text" />
+          <app-markdown-view [text]="e.text" [dir]="dirs.choice(e.id)" />
         }
       </div>
     </ng-template>`,
 })
 export class ActivityTimelineComponent {
   private readonly teamsState = inject(TeamsStateService);
+  /** The ⇄ choice per comment (auto unless the user changed it). */
+  readonly dirs = inject(TextDirectionStateService);
+  readonly dirLabel = choiceLabel;
   readonly entries = input.required<readonly ActivityEntry[]>();
   readonly editable = input(false);
   readonly project = input('');
@@ -132,6 +144,10 @@ export class ActivityTimelineComponent {
     const plain = (e.text ?? '').replace(/^\*\*(Did|Found|Next|Impact|Reply|Question)\*\*\s*/, '').replace(/@\[[a-z]+:[^|\]]*\|([^\]]*)\]/g, '$1')
       .replace(/\s+/g, ' ').trim();
     return plain.length > 80 ? `${plain.slice(0, 80)}…` : plain;
+  }
+
+  flipDir(e: ActivityEntry): void {
+    this.dirs.set(e.id, nextChoice(this.dirs.choice(e.id)));
   }
 
   parts(text: string | null): ClaudeParts[] | null {

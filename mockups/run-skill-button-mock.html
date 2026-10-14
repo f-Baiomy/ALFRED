@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alfred · Run in the cycle's chat mock</title>
+<style>
+  :root { color-scheme: dark;
+    --card: #141a45; --card-inner: #070a24; --border: rgba(139,92,246,.22); --border-strong: rgba(139,92,246,.45);
+    --purple: #8b5cf6; --purple-light: #c4b5fd; --cyan: #22d3ee; --text: #e5e9f5; --text-dim: #93a0c2; --text-faint: #5c6690;
+    --green: #34d399; --amber: #fbbf24; --red: #f87171; font: 14px/1.45 Inter, system-ui, sans-serif; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 24px 16px 60px; background: radial-gradient(ellipse at top, #131a4a 0%, #0a0e2a 55%); color: var(--text); min-height: 100vh; }
+  .wrap { max-width: 1080px; margin: auto; }
+  h1 { font-size: 1.15rem; margin: 0 0 4px; } h2 { font-size: .95rem; margin: 26px 0 8px; color: var(--purple-light); }
+  .note { color: var(--text-dim); font-size: .82rem; max-width: 900px; } .note b { color: var(--text); }
+  code { font: .78rem Consolas, monospace; color: var(--purple-light); }
+  .dim { color: var(--text-faint); }
+  .toggle { display: inline-flex; border: 1px solid var(--border-strong); border-radius: 8px; overflow: hidden; margin: 10px 0 4px; flex-wrap: wrap; }
+  .toggle button { font: inherit; font-size: .78rem; padding: 5px 12px; background: var(--card-inner); color: var(--text-dim); border: 0; cursor: pointer; }
+  .toggle button.on { background: var(--purple); color: #fff; }
+
+  .owner { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 6px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--card-inner); font-size: .78rem; margin: 8px 0; }
+  .owner .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); display: inline-block; }
+  .owner.quiet .dot { background: var(--amber); } .owner.none .dot { background: var(--text-faint); }
+
+  .run { display: inline-flex; border: 1px solid var(--border-strong); border-radius: 6px; overflow: hidden; font: .68rem Consolas, monospace; background: var(--card-inner); vertical-align: middle; }
+  .run button { font: inherit; border: 0; background: transparent; color: var(--purple-light); cursor: pointer; padding: 2px 7px; white-space: nowrap; }
+  .run button:hover { background: rgba(139,92,246,.18); }
+  .run .cp, .run .cr { border-left: 1px solid var(--border-strong); color: var(--text-dim); }
+  .run .tail { color: var(--text-faint); }
+  .run.sent { border-color: var(--cyan); } .run.sent .go { color: var(--cyan); }
+  .run.busy { border-color: var(--amber); border-style: dashed; } .run.busy .go { color: var(--amber); }
+  .run.running { border-color: var(--purple); }
+  .run.done { border-color: var(--green); } .run.done .go { color: var(--green); }
+  .run.failed { border-color: var(--red); } .run.failed .go { color: var(--red); }
+  .run.copy .go { color: var(--text-dim); }
+  .msg { display: block; font-size: .7rem; margin-top: 3px; color: var(--text-dim); } .msg.ok { color: var(--green); } .msg.err { color: var(--red); }
+  .msg a { color: var(--purple-light); cursor: pointer; text-decoration: underline; }
+
+  table { border-collapse: collapse; width: 100%; font-size: .78rem; }
+  td, th { border-bottom: 1px solid var(--border); padding: 7px 8px; text-align: left; vertical-align: top; } th { color: var(--text-dim); font-weight: 500; }
+  @media (max-width: 640px) { table, tbody, tr, td { display: block; width: 100%; } th { display: none; } td { border: 0; padding: 3px 0; } tr { border-bottom: 1px solid var(--border); padding: 8px 0; }
+    td:first-child { color: var(--text-dim); font-size: .72rem; text-transform: uppercase; } }
+
+  .panel { background: #161c4a; border: 1px solid var(--border-strong); border-radius: 12px; padding: 12px 14px; max-width: 640px; font-size: .8rem; }
+  .panel h3 { margin: 0 0 6px; font-size: .9rem; } .panel ol { margin: 6px 0; padding-left: 20px; } .panel li { margin: 5px 0; }
+  .cmd { display: inline-flex; gap: 6px; align-items: center; font: .74rem Consolas, monospace; background: var(--card-inner); border: 1px solid var(--border-strong); border-radius: 6px; padding: 1px 7px; color: var(--purple-light); }
+  .cmd b { color: var(--text-dim); font-weight: 400; cursor: pointer; }
+  .chat { background: #0d1030; border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; font: .76rem Consolas, monospace; max-width: 760px; }
+  .chat .ev { color: var(--cyan); } .chat .me { color: var(--text-dim); } .chat .cl { color: var(--text); } .chat .tool { color: var(--purple-light); }
+  .menu { display: inline-block; background: #161c4a; border: 1px solid var(--border-strong); border-radius: 9px; padding: 4px; font-size: .76rem; width: 330px; max-width: 100%; }
+  .mi { padding: 5px 8px; border-radius: 6px; } .mi.gone { text-decoration: line-through; color: var(--text-faint); }
+  .sep { height: 1px; background: var(--border); margin: 4px 0; }
+  .sw { font-size: .66rem; border: 1px solid var(--green); color: var(--green); border-radius: 8px; padding: 0 5px; float: right; }
+  .flow { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: .76rem; }
+  .flow span.s { border: 1px solid var(--border-strong); border-radius: 7px; padding: 3px 8px; background: var(--card-inner); }
+  .flow span.a { color: var(--text-faint); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>▶ runs in the cycle's chat - mock v2</h1>
+  <p class="note">A cycle belongs to <b>the chat that runs <code>/alfred-live</code> / <code>/alfred-listen</code> for it</b> - one chat per cycle. Every ▶ on that
+    cycle's cards, its next-steps bar and its Task tab goes <b>into that chat</b>, whoever clicks: the chat runs the skill itself, with its own context, model and
+    account. No new Claude run per click, no machine picker. No chat owns the cycle → the click tells you how to start one.</p>
+
+  <div>
+    <div class="toggle"><button data-s="up" class="on">chat owns the cycle</button><button data-s="busy">chat busy</button><button data-s="quiet">chat seems closed</button><button data-s="none">no chat</button></div>
+  </div>
+  <div class="owner" id="owner"></div>
+
+  <h2>1. The flow</h2>
+  <div class="flow">
+    <span class="s">▶ on card #35</span><span class="a">→</span>
+    <span class="s">Alfred: queued for the cycle's chat</span><span class="a">→</span>
+    <span class="s">runner writes one line to the chat's watch</span><span class="a">→</span>
+    <span class="s">the chat takes it between turns (<code>board_run_take</code>)</span><span class="a">→</span>
+    <span class="s">runs <code>/alfred-fix 35</code> itself</span><span class="a">→</span>
+    <span class="s">ends it (<code>board_run_end</code>: done / failed + → line)</span>
+  </div>
+
+  <h2>2. What the chat sees</h2>
+  <div class="chat">
+    <div class="me">… (you were talking with Claude about the OrganizationModel fan-out)</div>
+    <div class="ev">⏵ Monitor · Alfred live · odeysys: ▶ from the board (by the board, card #35): /alfred-fix 35 · note: only the mapping · run e7c1</div>
+    <div class="cl">Claude: Taking the board's request - /alfred-fix 35, with what we found an hour ago (eager collection in OrganizationModel).</div>
+    <div class="tool">  board_run_take e7c1 · Skill alfred-fix 35 · board_get #35 · … plan posted on #35, waiting for Go</div>
+    <div class="tool">  board_run_end e7c1 done "→ plan posted on #35 - waiting on your Go"</div>
+  </div>
+
+  <h2>3. The button, every state</h2>
+  <table>
+    <tr><th style="width:220px">State</th><th>Button</th><th>Meaning</th></tr>
+    <tr><td>Ready</td><td><span class="run"><button class="go">▶ /alfred-fix 35</button><button class="cp">⧉</button><button class="cr">▾</button></span></td>
+      <td class="dim">Tooltip: "Run in the cycle's chat (LAPTOP-34BNETR7, since 10:05) - usually ~1 min".</td></tr>
+    <tr><td>Sent</td><td><span class="run sent"><button class="go">◌ /alfred-fix 35 <span class="tail">sent to the chat</span></button><button class="cp">⧉</button></span></td>
+      <td class="dim">Queued for the chat; the line is in its watch.</td></tr>
+    <tr><td>Chat busy</td><td><span class="run busy"><button class="go">⏳ /alfred-fix 35 <span class="tail">waiting - the chat is busy · 2nd</span></button><button class="cp">⧉</button><button>✕</button></span></td>
+      <td class="dim">The chat is in another turn; taken when it ends. ✕ cancels. Never lost, never run elsewhere.</td></tr>
+    <tr><td>Running in the chat</td><td><span class="run running"><button class="go">✦ /alfred-fix 35 <span class="tail">running in the chat · 41 s</span></button><button class="cp">⧉</button></span></td>
+      <td class="dim">The chat took it. No step stream (the chat does the work; its steps are in the chat) - just the time.</td></tr>
+    <tr><td>Done</td><td><span class="run done"><button class="go">✓ /alfred-fix 35 <span class="tail">done · 1 min 12 s</span></button><button class="cp">⧉</button></span>
+      <span class="msg ok">✓ → plan posted on #35 - waiting on your Go · <a>open #35</a></span></td><td class="dim">The chat's → line, 30 s.</td></tr>
+    <tr><td>Failed</td><td><span class="run failed"><button class="go">✕ /alfred-fix 35 <span class="tail">failed</span></button><button class="cp">⧉</button></span>
+      <span class="msg err">✕ the chat could not run it: the repo has uncommitted changes · <a>copy the prompt</a> · <a>retry</a></span></td><td class="dim">Why, from the chat.</td></tr>
+    <tr><td>Chat seems closed</td><td><span class="run busy"><button class="go">⏳ /alfred-fix 35 <span class="tail">waiting - the chat seems closed</span></button><button class="cp">⧉</button><button>✕</button></span>
+      <span class="msg err">The cycle's chat has not checked in for 6 min. Open it again, or stop it and start a new one · <a>how</a></span></td>
+      <td class="dim">The chat confirms it is alive every few minutes; quiet → the board warns, requests wait, the cycle stays owned until stopped.</td></tr>
+    <tr><td>No chat</td><td><span class="run copy"><button class="go">▶ /alfred-fix 35</button><button class="cp">⧉</button></span></td>
+      <td class="dim">Click → the "start a chat" panel (below).</td></tr>
+    <tr><td>Project board / no cycle</td><td><span class="run copy"><button class="go">⧉ /alfred-triage</button></span></td>
+      <td class="dim">Copy only: project-level commands and cards without a cycle never run from the board.</td></tr>
+  </table>
+
+  <h2>4. No chat owns the cycle - the click shows how to start one</h2>
+  <div class="panel">
+    <h3>No chat is handling "Performance - slow system" yet</h3>
+    <div class="dim">Board requests run in the Claude Code chat that listens on this cycle. Start one:</div>
+    <ol>
+      <li>Open Claude Code in the app's repo <span class="cmd">cd C:\work\odeysys <b>⧉</b></span></li>
+      <li>Answer on the board for this cycle <span class="cmd">/alfred-live "Performance - slow system" <b>⧉</b></span></li>
+      <li>While you test (optional, same chat) <span class="cmd">/alfred-listen "Performance - slow system" <b>⧉</b></span></li>
+      <li>Press ▶ again - it runs in that chat.</li>
+    </ol>
+    <div class="dim">Or paste the request into any Claude chat now: <span class="cmd">⧉ copy the prompt</span></div>
+  </div>
+
+  <h2>5. Starting a second chat on an owned cycle - refused</h2>
+  <div class="chat">
+    <div class="me">&gt; /alfred-live "Performance - slow system"</div>
+    <div class="cl">This cycle already runs in a chat on LAPTOP-34BNETR7 (since 10:05, last check-in 1 min ago). One chat per cycle - stop it there first
+      (<code>/alfred-live stop</code>), then start here.</div>
+  </div>
+
+  <h2>6. Comments on cards - mixed</h2>
+  <table>
+    <tr><th style="width:220px">Comment</th><th>Who answers</th><th>Why</th></tr>
+    <tr><td>"ok" · "move it to todo" · "is this the same as #31?"</td><td>the runner (~10 s, same machine and account as the chat)</td><td class="dim">Small, needs only the card.</td></tr>
+    <tr><td>"why does pax-details run 30 SQL?" · "fix it" · "check the last search"</td><td><b>the chat</b> (shows on the card as "sent to the chat")</td><td class="dim">Needs investigation - the chat has the context.</td></tr>
+  </table>
+
+  <h2>7. The ▾ menu</h2>
+  <div class="menu">
+    <div class="mi">✎ Edit the prompt, then run…</div>
+    <div class="mi">✚ Add a note for Claude…</div>
+    <div class="mi">🔔 Tell me when it ends <span class="sw">on</span></div>
+    <div class="sep"></div>
+    <div class="mi">⧉ Copy the command only <code>/alfred-fix 35</code></div>
+    <div class="mi">⧉ Copy as a shell line <code>claude -p "…"</code></div>
+    <div class="sep"></div>
+    <div class="mi gone">⚙ Model …</div>
+    <div class="mi gone">⌖ Run on &lt;machine&gt;</div>
+    <div class="mi gone">↻ Retry by itself after a usage limit</div>
+  </div>
+  <p class="note">Removed (struck): the chat decides its model, runs on its own machine and account, and handles its own limits.</p>
+
+  <h2>8. Kept from v1</h2>
+  <ul class="note">
+    <li>Run history per card in the drawer (command, who clicked, which chat, time, how it ended, the note).</li>
+    <li>"▶ each card (n)" on Fixed → n requests to the chat, taken one after another.</li>
+    <li>Live strip: the cycle's chat ("● chat on LAPTOP-34BNETR7 · 2 waiting · 1 running") with ✕ cancel all waiting.</li>
+    <li>Title badge / desktop notice when a run ends; R · C · ⇧R in the drawer; "usually ~1 min".</li>
+  </ul>
+</div>
+<script>
+  const owner = document.getElementById('owner');
+  const states = {
+    up: ['', '● ▶ runs in: <b>chat on LAPTOP-34BNETR7</b> · since 10:05 · checked in 1 min ago · <span class="dim">/alfred-live + /alfred-listen</span>'],
+    busy: ['', '● ▶ runs in: <b>chat on LAPTOP-34BNETR7</b> · busy with a turn · 2 requests waiting'],
+    quiet: ['quiet', '● ▶ runs in: <b>chat on LAPTOP-34BNETR7</b> · <span style="color:var(--amber)">no check-in for 6 min - the chat seems closed</span>'],
+    none: ['none', '○ No chat handles this cycle - ▶ shows how to start one'],
+  };
+  const set = (k) => { owner.className = 'owner ' + states[k][0]; owner.innerHTML = '<span class="dot"></span>' + states[k][1];
+    document.querySelectorAll('.toggle button').forEach((b) => b.classList.toggle('on', b.dataset.s === k)); };
+  document.querySelectorAll('.toggle button').forEach((b) => b.onclick = () => set(b.dataset.s));
+  set('up');
+</script>
+</body>
+</html>

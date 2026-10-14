@@ -14,6 +14,7 @@ import { Component, output } from '@angular/core';
           <tr><td><kbd>F</kbd> <kbd>N</kbd> <kbd>T</kbd></td><td>Inbox card: Fine · Not in this flow · To do</td></tr>
           <tr><td><kbd>1</kbd>-<kbd>6</kbd></td><td>move to Inbox … Done</td></tr>
           <tr><td><kbd>U</kbd></td><td>toggle Urgent</td></tr>
+          <tr><td><kbd>R</kbd> · <kbd>C</kbd> · <kbd>Shift</kbd>+<kbd>R</kbd></td><td>open card: run its next skill on /alfred-live · copy its prompt · edit, then run</td></tr>
           <tr><td><kbd>X</kbd> / Shift+click</td><td>select for a bulk action</td></tr>
           <tr><td><kbd>/</kbd></td><td>quick add</td></tr>
           <tr><td><kbd>L</kbd></td><td>board / list</td></tr>

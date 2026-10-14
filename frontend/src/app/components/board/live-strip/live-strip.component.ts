@@ -1,6 +1,8 @@
 import { Component, OnDestroy, computed, effect, inject, input, output, signal } from '@angular/core';
 import { LiveWorkStateService, currentStep } from '../../../core/state/live-work-state.service';
-import { AgentStatus } from '../../../core/models/board.models';
+import { AgentStatus, SkillRun } from '../../../core/models/board.models';
+import { SkillRunsStateService, waiting } from '../../../core/state/skill-runs-state.service';
+import { runDuration } from '../../../shared/utils/skill-prompt';
 
 /** A status not updated for this long reads as "Claude stopped" (the backend reads it the same way). */
 export const AGENT_EXPIRY_MS = 10 * 60 * 1000;
@@ -19,6 +21,38 @@ export const AGENT_EXPIRY_MS = 10 * 60 * 1000;
         <span class="live-spinner"></span><b>✦ Live</b>
         <span class="board-live-step">{{ w.head }} · #{{ w.cardNumber }} · {{ step(w) }}</span>
         @if (editable()) { <button type="button" class="action-btn" [disabled]="w.stop" (click)="live.stop(w.id)">{{ w.stop ? 'Stopping…' : 'Stop' }}</button> }
+      </div>
+    }
+    @if (cycleId()) {
+      <div class="board-live live-strip-chat" [class.quiet]="chat() && !chat()!.chatAlive" [class.none]="!chat()" role="status">
+        <span class="live-strip-dot"></span>
+        @if (chat(); as c) {
+          <span>▶ runs in: <b>chat on {{ c.host }}</b> · {{ kinds() }}
+            @if (!c.chatAlive) { · <span class="live-strip-warn">the chat seems closed - open it again, or stop it there and start a new one</span> }
+          </span>
+        } @else {
+          <span class="board-dim">○ No chat handles this cycle - ▶ shows how to start one</span>
+        }
+        @if (boardRuns().length) {
+          <span class="board-live-step">
+            @if (running().length) { · <b>{{ running().length }} running</b> ({{ runningText() }}) }
+            @if (queued().length) { · <b>{{ queued().length }} waiting</b> ({{ queuedText() }}) }
+          </span>
+        }
+        @if (editable() && queued().length) {
+          <button type="button" class="action-btn" title="Cancel every request the chat has not taken yet" (click)="runs.stopAll(project() ?? '')">✕ Cancel all waiting</button>
+        }
+      </div>
+    } @else if (boardRuns().length) {
+      <div class="board-live live-strip-runs" role="status">
+        <span class="live-spinner"></span><b>✦ Claude on the board</b>
+        <span class="board-live-step">
+          @if (running().length) { <b>{{ running().length }} running</b> ({{ runningText() }}) }
+          @if (queued().length) { · <b>{{ queued().length }} waiting</b> ({{ queuedText() }}) }
+        </span>
+        @if (editable() && queued().length) {
+          <button type="button" class="action-btn" title="Cancel every request a chat has not taken yet" (click)="runs.stopAll(project() ?? '')">✕ Cancel all waiting</button>
+        }
       </div>
     }
     @if (status(); as s) {
@@ -43,9 +77,20 @@ export class LiveStripComponent implements OnDestroy {
   readonly action = output<'pause' | 'resume' | 'stop'>();
   /** The project this strip is for - its /alfred-live answers in progress show above Claude's status. */
   readonly project = input<string | null>(null);
+  /** The cycle in view: its chat (where ▶ runs) is shown. */
+  readonly cycleId = input<string | null>(null);
   readonly live = inject(LiveWorkStateService);
   readonly liveNow = computed(() => this.live.working().filter((w) => this.project() === null || w.project === this.project()));
   readonly step = currentStep;
+  readonly runs = inject(SkillRunsStateService);
+  /** Every run started with ▶ on this board (this cycle's, when one is in view), waiting or running. */
+  readonly boardRuns = computed(() => (this.runs.projects(), this.project() === null ? [] : this.runs.active(this.project()!, this.cycleId())));
+  readonly running = computed(() => this.boardRuns().filter((r) => r.state === 'RUNNING'));
+  readonly queued = computed(() => this.boardRuns().filter(waiting));
+  readonly chat = computed(() => (this.runs.cycles(), this.runs.chat(this.cycleId())));
+  readonly kinds = computed(() => (this.chat()?.kinds ?? []).map((k) => `/alfred-${k}`).join(' + '));
+  readonly runningText = computed(() => this.running().map((r) => `${label(r)} · ${runDuration(r)}`).join(', '));
+  readonly queuedText = computed(() => this.queued().map(label).join(', '));
 
   private readonly expired = signal(false);
   private timer: ReturnType<typeof setTimeout> | null = null;
@@ -66,6 +111,12 @@ export class LiveStripComponent implements OnDestroy {
 
   constructor() {
     effect(() => {
+      const p = this.project();
+      if (p === null) return;
+      this.runs.watch(p);
+      this.runs.watchCycle(p, this.cycleId());
+    }, { allowSignalWrites: true });
+    effect(() => {
       const s = this.status();
       if (this.timer) clearTimeout(this.timer);
       this.timer = null;
@@ -83,4 +134,9 @@ export class LiveStripComponent implements OnDestroy {
   ngOnDestroy(): void {
     if (this.timer) clearTimeout(this.timer);
   }
+}
+
+/** "#31 fix", or the command itself for a run without a card. */
+function label(r: SkillRun): string {
+  return r.cardNumber != null ? `#${r.cardNumber} ${r.command.split(/\s+/)[0].replace('/alfred-', '')}` : r.command;
 }

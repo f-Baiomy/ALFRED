@@ -355,7 +355,83 @@ export interface BoardStorage {
 export type BoardSocketEvent =
   | { readonly type: 'board-changed'; readonly project?: string; readonly cycleId?: string; readonly cardId?: string; readonly what: string }
   | ({ readonly type: 'agent-status' } & AgentStatus)
-  | { readonly type: 'live-work'; readonly work: LiveWork };
+  | { readonly type: 'live-work'; readonly work: LiveWork }
+  | { readonly type: 'live-runner'; readonly project: string; readonly host: string | null; readonly kind: string }
+  | { readonly type: 'skill-run'; readonly project: string; readonly id: string; readonly cardNumber?: number; readonly state: SkillRunState }
+  | { readonly type: 'cycle-chat'; readonly project: string; readonly cycleId: string };
+
+/** QUEUED for the cycle's chat · SENT into it (waiting for its turn) · RUNNING in it · ended. */
+export type SkillRunState = 'QUEUED' | 'SENT' | 'RUNNING' | 'DONE' | 'FAILED' | 'STOPPED' | 'CANCELLED';
+
+/**
+ * A skill the user ran from the board with ▶ (docs/board.md "Run from the board"): sent to the Claude Code chat that
+ * handles the cycle, run there with that chat's context, and kept as the card's run history.
+ */
+export interface SkillRun {
+  readonly id: string;
+  readonly project: string;
+  readonly cycleId: string | null;
+  readonly cardNumber: number | null;
+  readonly command: string;
+  readonly prompt: string;
+  readonly note: string | null;
+  readonly model: string | null;
+  readonly host: string | null;
+  readonly state: SkillRunState;
+  readonly outcome: string | null;
+  /** limit, auth, timeout, lost, error */
+  readonly failure: string | null;
+  readonly retryAt: string | null;
+  readonly autoRetry: boolean;
+  /** What it wrote: "#36" (a card) or "#35" (on that card). */
+  readonly result: string | null;
+  readonly steps: readonly string[];
+  readonly stop: boolean;
+  readonly takenBy: string | null;
+  readonly createdAt: string;
+  readonly takenAt: string | null;
+  readonly endedAt: string | null;
+  readonly updatedAt: string;
+  /** The chat it was sent to. */
+  readonly chatId: string | null;
+}
+
+export interface SkillRunsPage {
+  readonly runs: readonly SkillRun[];
+  /** The median duration of each skill's finished runs, e.g. { "/alfred-fix": 38000 }. */
+  readonly usualMs: Readonly<Record<string, number>>;
+}
+
+/** The Claude Code chat that handles a cycle: it runs /alfred-live and/or /alfred-listen for it, and every ▶ goes into it. */
+export interface CycleChat {
+  readonly project: string;
+  readonly cycleId: string;
+  readonly chatId: string;
+  readonly host: string;
+  /** The app's repo the chat runs in. */
+  readonly cwd: string | null;
+  /** "live", "listen" */
+  readonly kinds: readonly string[];
+  /** The chat's process still runs (its runner checks); false → the board says the chat seems closed. */
+  readonly chatAlive: boolean;
+  readonly since: string;
+  readonly lastSeen: string;
+}
+
+/** GET /board/cycle-chat: the cycle's chat, and the repo folder the project's last chat ran in (for the start steps). */
+export interface CycleChatInfo {
+  readonly chat: CycleChat | null;
+  readonly lastCwd: string | null;
+}
+
+export interface SkillRunRequest {
+  readonly project: string;
+  readonly cycleId?: string | null;
+  readonly cardNumber?: number | null;
+  readonly command: string;
+  readonly prompt: string;
+  readonly note?: string | null;
+}
 
 /**
  * What /alfred-live is doing on one card right now (docs/board.md "Live answers"): the heading, each step as it

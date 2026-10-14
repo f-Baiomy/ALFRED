@@ -4,6 +4,7 @@ import { BoardMentionsService, CardPickTarget, TextPickField } from '../../../co
 import { fillerBreak, mentionChipNode, renderMentionText, serializeMentionText, serializedOffset } from '../../../shared/utils/mention-dom';
 import { mentionsIn } from '../../../shared/utils/mention-syntax';
 import { MentionPickerComponent } from '../mention-picker/mention-picker.component';
+import { DirChoice, blockDir, choiceLabel, nextChoice } from '../../../shared/utils/text-direction';
 
 /**
  * A Markdown text box with mentions (FR-022). Mentions show as small pills, not as their `@[type:ref|label]` text: the
@@ -24,11 +25,13 @@ import { MentionPickerComponent } from '../mention-picker/mention-picker.compone
                             (picked)="insert($event)" (closed)="closePicker()" />
       }
       <div #box class="board-editor-box" contenteditable="true" role="textbox" aria-multiline="true" spellcheck="true"
-           [attr.data-placeholder]="placeholder()" [attr.aria-label]="placeholder()" [style.min-height.em]="rows() * 1.5"
+           [attr.data-placeholder]="placeholder()" [attr.aria-label]="placeholder()" [style.min-height.em]="rows() * 1.5" [attr.dir]="dir()"
            (input)="onInput()" (keydown)="onKeydown($event)" (paste)="onPaste($event)" (blur)="saveCaret()"></div>
       <div class="board-editor-hint">
         <span><kbd>&#64;</kbd> mention · @if (enterSends()) {<kbd>Enter</kbd> {{ submitLabel().toLowerCase() }} · <kbd>Shift</kbd>+<kbd>Enter</kbd> new line} @else {<kbd>Ctrl</kbd>+<kbd>Enter</kbd> {{ submitLabel().toLowerCase() }}} · Markdown</span>
         <span class="board-editor-actions">
+          <button type="button" class="action-btn board-editor-dir" [class.on]="dirChoice() !== 'auto'" (mousedown)="$event.preventDefault()" (click)="flipDir()"
+                  title="Text direction: auto (from what you type), right-to-left or left-to-right · Ctrl+Shift+X">{{ dirLabel(dirChoice()) }}</button>
           <button type="button" class="action-btn" title="Mention something" (mousedown)="$event.preventDefault()" (click)="openPicker()">&#64; Mention</button>
           @if (cancellable()) { <button type="button" class="action-btn" (click)="cancelled.emit()">Cancel</button> }
           <button type="button" class="action-btn primary" [disabled]="!value().trim() && !allowEmpty()" (click)="submit()">{{ submitLabel() }}</button>
@@ -57,6 +60,10 @@ export class MentionEditorComponent implements AfterViewInit {
   readonly cancelled = output<void>();
 
   private readonly mentions = inject(BoardMentionsService);
+  /** ⇄: auto - the box follows what is typed (Arabic right-to-left, English left-to-right) - or one forced. */
+  readonly dirChoice = signal<DirChoice>('auto');
+  readonly dir = computed(() => blockDir(this.dirChoice(), this.value().replace(/@\[[^\]]*\]/g, ' ')));
+  readonly dirLabel = choiceLabel;
   readonly pickerOpen = signal(false);
   private readonly box = viewChild.required<ElementRef<HTMLDivElement>>('box');
   /** The text this box last showed or produced - a value that differs came from outside and is rendered again. */
@@ -107,7 +114,16 @@ export class MentionEditorComponent implements AfterViewInit {
     }
   }
 
+  flipDir(): void {
+    this.dirChoice.set(nextChoice(this.dirChoice()));
+  }
+
   onKeydown(event: KeyboardEvent): void {
+    if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'x') {
+      event.preventDefault();
+      this.flipDir();
+      return;
+    }
     if (event.key !== 'Enter' || event.isComposing) return;
     const sends = event.ctrlKey || event.metaKey || (this.enterSends() && !event.shiftKey && !event.altKey);
     if (sends && this.pickerOpen()) {

@@ -121,6 +121,71 @@ refreshes the heartbeat too, so a long answer never reads as a dead runner. Held
 `live-runner` message on `/ws/board` when one starts or stops. Both writes go through the board's edit access, so the
 runner's machine must be one allowed to edit the board.
 
+## Run from the board
+
+Every `/alfred-*` command the board suggests (each card's next step, the next-step bar, the Task tab) is a **run
+button with a copy button beside it** (`app-run-skill`). ⧉ always copies the full prompt - the command, then the Alfred
+address, project, cycle, card, who it waits on and the user's last word (`shared/utils/skill-prompt.ts`) - so a session
+on any machine, or another agent, starts on the right thing.
+
+**A cycle belongs to one chat.** The Claude Code chat that runs `/alfred-live` and/or `/alfred-listen` for a cycle
+handles it: its runner starts from that chat's Bash, reads the chat's id and process (`CLAUDE_CODE_SESSION_ID`,
+`CLAUDE_PID`) and sends them with each heartbeat (`PUT /board/live-runner` with `cycleId`, `chatId`, `cwd`,
+`chatAlive`). Alfred keeps one chat per cycle (`LiveWorkService.chatBeat`): a second chat starting on that cycle is
+refused with 409 "This cycle already runs in a chat on HOST … - one chat per cycle: stop it there first". The cycle is
+freed when the chat's runners stop (or stop beating for 2 minutes). `GET /board/cycle-chat?cycleId=&project=` answers
+the chat (host, kinds, since, `chatAlive`) and the repo folder the project's last chat ran in; `/ws/board` signals
+`cycle-chat` on each change. Nobody's account or model is borrowed: every ▶ runs in the chat that owns the cycle, with
+that chat's own context, model and usage.
+
+- `POST /board/skill-runs` queues a run for the cycle's chat (`skill_runs` in board.db: command, prompt, note, state,
+  outcome, failure, result, `chat_id`). Refused with 400 without a cycle (project-wide commands and the project board
+  copy only), 404 when no chat handles the cycle (the button shows how to start one), 409 when the card - or, for a
+  card-less command, the same command - already has a run waiting or running, 403 through the board's edit access (the
+  tunnel only copies).
+- The chat's runner waits on `POST /board/skill-runs/claim` with its `chatId` (`waitSeconds` up to 50, woken by the
+  request - no polling), takes the runs of the cycles its chat handles (state SENT) and writes one line into its chat
+  log, which the chat watches: `▶ from the board: /alfred-fix 35 · note: … · run <id> - board_run_take <id>, run it in
+  this chat, then board_run_end`. When its turn is free, the chat calls `board_run_take` (RUNNING; it returns the full
+  prompt and the note, or `cancelled`), runs the command itself, and ends with `board_run_end` (DONE or FAILED, one →
+  line, `result` "#N" of what it wrote). Nothing runs in the runner. A run the chat has not taken yet waits for it
+  however long the chat is busy, and a run left waiting when the chat stops goes to the next chat started for the
+  cycle.
+- **Comments are mixed**: the runner answers small ones itself in seconds (the live answers below); a comment that
+  needs an investigation (why, fix, check, investigate, explain, debug, trace, …) is handed to the chat as one line
+  (`💬 #35 "…" · you commented: "…"`) and the card shows "sent to the chat"; the chat answers on the card.
+- **Cancel** (`POST /board/skill-runs/{id}/stop`) cancels a run the chat has not taken yet; one the chat runs is the
+  chat's. **Cancel all waiting** (`/stop-all`) does every waiting run of the board. A run still open 2 minutes after its
+  cycle lost its chat reads as failed "lost".
+- `GET /board/skill-runs?project=&cardNumber=` lists the waiting and running runs, then the latest ones, with
+  `usualMs` - the median of each skill's last 20 finished runs, shown as "usually ~1 min". `/ws/board` carries a
+  `skill-run` signal per change (never the prompt); `SkillRunsStateService` re-reads on it.
+
+The button: ▶ → sending → sent to the chat → "waiting - the chat is busy · 2nd" (taken when its turn ends) or "waiting
+- the chat seems closed" (its process is gone; it waits, with how to start a new one) → running in the chat (its time)
+→ done (the chat's → line and "open #N" for 30 s) or failed (why, copy the prompt, retry). ✕ cancels while it waits.
+With no chat on the cycle, ▶ opens the start steps: `cd "<repo>"`, `/alfred-live <cycle>`, `/alfred-listen <cycle>`
+(optional, same chat), each with a copy button, then "press ▶ again". ▾ edits the prompt or adds a note (Shift+click
+too), toggles a notice when a run ends while the tab is in the background (a "(✓1)" title badge always; a desktop
+notification when allowed), and copies the command alone or as a `claude -p "…"` line. The drawer shows the card's
+**runs from the board** (each with the user's note) and takes **R** (run), **C** (copy), **Shift+R** (edit, then run);
+the next-step bar sends `/alfred-verify` for each of the cycle's Fixed cards into the chat, which runs them one after
+another; the live strip shows the cycle's chat ("▶ runs in: chat on HOST · /alfred-live + /alfred-listen") with what
+waits and runs, and ✕ Cancel all waiting. A card waiting on Claude suggests `/alfred-sync N`. On the project board, for
+commands without a cycle and the brief's "Continue anywhere" resume command, the button copies only.
+
+## Text direction
+
+Comments, replies, descriptions, briefs and spec files (`app-markdown-view`) read in their own direction by default:
+each paragraph, list item, heading, quote and table cell gets `dir` from its words (`shared/utils/text-direction.ts`) -
+right-to-left when most words are Arabic / Hebrew (a word counts by its first letter, so `الـsearch` is Arabic), left-to-
+right when most are Latin, by the first letter on a tie. Code and mentions do not count and are isolated, so an English
+term, a path or a call keeps its order inside an Arabic sentence; code blocks always read left-to-right. Unlike the
+browser's `dir="auto"` (first letter only), an Arabic sentence that starts with `POST …` still reads right-to-left.
+The ⇄ switch on each comment picks Auto → RTL → LTR for that comment, kept in this browser only
+(`TextDirectionStateService`, never part of the comment). The comment box follows what is typed the same way; its ⇄
+button or Ctrl+Shift+X forces a direction while writing.
+
 ## Claude's limits
 
 These are enforced in `BoardService` and `CycleBriefService` whenever `X-Alfred-Actor: claude` is sent. The MCP tools send it on every board request.
@@ -169,9 +234,9 @@ The MCP tools built on these are listed in docs/mcp.md: `board_search`, `board_c
   USER - and Claude sets it explicitly with `waitingOn` on a comment. The "since" time stays while it does not change.
   Cards show "waiting on you · 2 d"; the board filters Waiting on me / on Claude / Needs re-test.
 - **Next-step bar** (`GET /board/next-steps`): what waits on the user oldest first (why: question, proposal, inbox),
-  To do, Fixed needing a re-test, Inbox - with copy buttons for the `/alfred-*` command to paste into Claude Code.
-  Every card has a copy button for its next skill; the cycle's Brief panel for `/alfred-review`, `/alfred-listen`,
-  `/alfred-spec`.
+  To do, Fixed needing a re-test, Inbox - each with its `/alfred-*` command as a run button with copy beside it (see
+  "Run from the board"). Every card has one for its next skill; the Task tab for `/alfred-review`, `/alfred-listen`,
+  `/alfred-spec`, `/alfred-report`.
 - **Answer from the board**: a card with an open question has Answer (and the **A** key) - the questions one at a
   time, Clear Needs decision taking effect with the last answer.
 - **Claude-written briefs and spec files**: allowed (the skills ask first); `updated_by` / `uploaded_by` record the
