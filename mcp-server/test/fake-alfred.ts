@@ -107,6 +107,8 @@ export interface FakeBoard {
   skillReports?: Record<string, any[]>;
   skillStop?: Set<string>;
   skillClaims?: any[];
+  /** A test's own board routes (pages, asks, shots), tried before the fake's; undefined = not handled. */
+  extra?: (method: string, p: string[], q: URLSearchParams, body: any) => [number, unknown?] | undefined;
   /** The chat part of the last heartbeat that had one. */
   chatBeat?: { cycleId: string; chatId: string; chatAlive: boolean };
   /** The /alfred-live runner's heartbeat (PUT /board/live-runner), or null. */
@@ -282,7 +284,7 @@ export class FakeAlfred {
     const body = raw ? (isJson ? JSON.parse(raw) : raw) : undefined;
     this.log.push({ method: req.method!, path: url.pathname, query: url.searchParams, body, headers: req.headers });
     if (url.pathname === '/board/changes/wait' && this.board.waitGate) await this.board.waitGate;
-    if (url.pathname.startsWith('/board/images/') && req.method === 'GET') {
+    if ((url.pathname.startsWith('/board/images/') || url.pathname.endsWith('/shot.png')) && req.method === 'GET') {
       // a 1x1 PNG for any id but "gone"
       const gone = url.pathname.endsWith('/gone-0000');
       res.writeHead(gone ? 404 : 200, { 'Content-Type': gone ? 'application/json' : 'image/png' });
@@ -493,6 +495,8 @@ export class FakeAlfred {
   private boardRoute(method: string, p: string[], q: URLSearchParams, body: any): [number, unknown?] {
     const b = this.board;
     const find = (id: string) => b.cards.find((c) => c.id === id);
+    const extra = b.extra?.(method, p, q, body);
+    if (extra) return extra;
     if (p[1] === 'cards' && p.length === 2 && method === 'GET') {
       const status = (q.get('status') ?? '').split(',').filter(Boolean);
       const cards = b.cards.filter((c) => c.project === (q.get('project') ?? '') && (!status.length || status.includes(c.status)));
@@ -669,6 +673,9 @@ export class FakeAlfred {
   private route(method: string, p: string[], q: URLSearchParams, body: any): [number, unknown?] {
     const s = this.state;
     if (p[0] === 'board') return this.boardRoute(method, p, q, body);
+    if (p[0] === 'lib' && p[1] === 'index.json') {
+      return [200, { libs: [{ id: 'echarts', version: '5.5.1', kind: 'script', provides: 'echarts', about: 'Charts', file: 'echarts/5/echarts.min.js' }] }];
+    }
     // ---- triage (the saved marks of backend-triage)
     if (p[0] === 'triage') {
       const minStatus = Math.max(300, Math.min(600, Number(q.get('minStatus') ?? 300)));

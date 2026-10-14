@@ -57,12 +57,12 @@ import { seed } from './fixtures.ts';
 import { session } from '../src/session.ts';
 
 /** A seeded fake Alfred plus a connected client; session settings reset for each test. */
-export async function world(): Promise<{ fake: FakeAlfred; call: (name: string, args?: Record<string, unknown>) => Promise<ToolResult>; close: () => Promise<void> }> {
+export async function world(): Promise<{ fake: FakeAlfred; call: (name: string, args?: Record<string, unknown>) => Promise<ToolResult>; close: () => Promise<void>; client: Client }> {
   const fake = await new FakeAlfred().start();
   seed(fake);
   session.maskSecrets = false;
   session.exportFolder = null;
   session.exportPin = null;
   const h = await connect(fake.url);
-  return { fake, call: h.call, close: async () => { await h.close(); await fake.stop(); } };
+  return { fake, call: h.call, client: h.client, close: async () => { await h.close(); await fake.stop(); } };
 }

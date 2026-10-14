@@ -4,6 +4,7 @@ import { MentionRef } from '../../../core/models/board.models';
 import { MentionPickerComponent } from '../mention-picker/mention-picker.component';
 import { MentionEditorComponent } from './mention-editor.component';
 import { BoardMentionsService } from '../../../core/services/board-mentions.service';
+import { AskClaudeService } from '../../../core/services/ask-claude.service';
 
 /** The real picker needs the backend; the editor's behaviour is what it does with a pick. */
 @Component({ selector: 'app-mention-picker', standalone: true, template: '<span class="fake-picker"></span>' })
@@ -182,5 +183,63 @@ describe('MentionEditorComponent', () => {
     expect(c.value()).toContain('!@[call:in:z9|GET /x · 200]');
     expect(c.value()).toContain('@[call:in:q1|GET /y · 200]');
   });
-});
 
+  describe('ask Claude (specs/017 R38)', () => {
+    function withAsk(answer: Promise<string>) {
+      const send = jasmine.createSpy('send').and.resolveTo('ask-1');
+      const cancel = jasmine.createSpy('cancel');
+      TestBed.overrideProvider(AskClaudeService, { useValue: { send, cancel, answer: () => answer } });
+      const fixture = create();
+      return { fixture, send, cancel };
+    }
+
+    function select(box: HTMLElement, from: number, to: number): void {
+      const node = box.firstChild!;
+      const range = document.createRange();
+      range.setStart(node, from);
+      range.setEnd(node, to);
+      const sel = document.getSelection()!;
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+
+    it('needs a cycle: no ✦ outside one', () => {
+      const fixture = create();
+      expect(fixture.componentInstance.canAsk()).toBeFalse();
+      fixture.componentRef.setInput('cycleId', 'cy');
+      fixture.detectChanges();
+      expect(fixture.componentInstance.canAsk()).toBeTrue();
+    });
+
+    it('sends the selection with the whole text, and the answer replaces only the selection', async () => {
+      const { fixture, send } = withAsk(Promise.resolve('WORLD'));
+      fixture.componentRef.setInput('cycleId', 'cy');
+      const box = type(fixture, 'hello world, bye');
+      select(box, 6, 11);
+      await fixture.componentInstance.askClaude('Shout it');
+      expect(send).toHaveBeenCalledOnceWith(jasmine.objectContaining({ kind: 'EDITOR', question: 'Shout it', cycleId: 'cy',
+        data: jasmine.objectContaining({ selection: 'world', text: 'hello world, bye' }) }));
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('.board-ask-panel')?.textContent).toContain('WORLD');
+      fixture.componentInstance.acceptAsk('replace');
+      fixture.detectChanges();
+      expect(fixture.componentInstance.value()).toContain('hello ');
+      expect(fixture.componentInstance.value()).toContain('WORLD');
+      expect(fixture.componentInstance.value()).toContain(', bye');
+      expect(fixture.componentInstance.value()).not.toContain('world');
+      expect(fixture.componentInstance.asked()).toBeNull();
+    });
+
+    it('Stop while waiting withdraws the question; Discard keeps the text as it was', async () => {
+      const { fixture, cancel } = withAsk(new Promise<string>(() => undefined));
+      fixture.componentRef.setInput('cycleId', 'cy');
+      type(fixture, 'keep me');
+      void fixture.componentInstance.askClaude('Shorten');
+      await new Promise((r) => setTimeout(r));
+      expect(fixture.componentInstance.asked()?.id).toBe('ask-1');
+      fixture.componentInstance.discardAsk();
+      expect(cancel).toHaveBeenCalledOnceWith('ask-1');
+      expect(fixture.componentInstance.value()).toBe('keep me');
+    });
+  });
+});

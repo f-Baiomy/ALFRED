@@ -6,6 +6,9 @@ import { SNIPPET_LIBS } from '../../../shared/utils/snippet-libs';
 import { SnippetShelfService } from '../../../core/services/snippet-shelf.service';
 import { SnippetMemory, SnippetStoreService, sourceHash } from '../../../core/services/snippet-store.service';
 import { DataContext, SnippetDataService } from '../../../core/services/snippet-data.service';
+import { ActionContext, BoardActionsService } from '../../../core/services/board-actions.service';
+import { AskClaudeService } from '../../../core/services/ask-claude.service';
+import { ConsentService } from '../../../core/services/consent.service';
 import { Subscription } from 'rxjs';
 import { downloadBlobAs, fileNameOf } from '../../../shared/utils/svg-png';
 
@@ -137,6 +140,8 @@ export class SnippetHostComponent implements OnDestroy {
   private watchers: Subscription[] = [];
   private readonly stale = new Set<string>();
   private readonly rereads = new Map<string, () => void>();
+  /** Questions this frame asked and still waits for - withdrawn if the frame goes. */
+  private readonly asking = new Set<string>();
 
   private frame: HTMLIFrameElement | null = null;
   private bridge: SnippetBridge | null = null;
@@ -233,6 +238,8 @@ export class SnippetHostComponent implements OnDestroy {
       return lib ? this.shelf.text(lib) : Promise.reject(new Error('No library ' + String(args['id'])));
     }
     if (op === 'data') return this.data(args);
+    if (op === 'action') return this.action(args);
+    if (op === 'ask') return this.askClaude(args);
     if (op === 'state.get' || op === 'state.set' || op === 'state.all') {
       const m = this.memory;
       if (!m) return Promise.reject(new Error('alfred.state keeps values only for a saved page or a block in a saved text'));
@@ -265,7 +272,48 @@ export class SnippetHostComponent implements OnDestroy {
     return value;
   }
 
+  private actionContext(): ActionContext {
+    const c = this.context();
+    return { project: str(c['project']), cardId: str(c['cardId']), cycleId: str(c['cycleId']),
+      cardNumber: typeof c['card'] === 'number' ? c['card'] as number : null, comment: typeof c['comment'] === 'number' ? c['comment'] as number : null };
+  }
+
+  /** `alfred.action(kind, args)` (R21): the consent dialog shows exactly what would change; only the user's click does it. */
+  private action(args: Record<string, unknown>): Promise<unknown> {
+    const kind = String(args['kind'] ?? '');
+    const a = (args['args'] && typeof args['args'] === 'object' ? args['args'] : {}) as Record<string, unknown>;
+    return this.injector.get(BoardActionsService).perform(kind, a, this.actionContext(), `The snippet “${this.title()}”`);
+  }
+
+  /**
+   * `alfred.ask(question, data)` (R24): asked in the cycle's chat; the first ask from a snippet needs the user's yes
+   * (they may say yes for the rest of this page load). Resolves with Claude's answer.
+   */
+  private async askClaude(args: Record<string, unknown>): Promise<unknown> {
+    const question = String(args['text'] ?? '').trim();
+    if (!question) throw new Error('alfred.ask needs a question');
+    const ctx = this.actionContext();
+    const ok = await this.injector.get(ConsentService).ask({ title: 'Ask Claude', from: `The snippet “${this.title()}”`,
+      lines: ['Send this question to the Claude chat that handles this cycle', 'Claude reads the data the snippet attaches and answers here'],
+      exact: question + (args['data'] != null ? '\n\n' + clip(JSON.stringify(args['data']), 2000) : ''), confirmLabel: '✦ Ask',
+      remember: `ask:${this.snippetId() ?? this.title()}` });
+    if (!ok) throw new Error('The user said no');
+    const asks = this.injector.get(AskClaudeService);
+    const id = await asks.send({ kind: 'SNIPPET', question, data: args['data'] ?? null, snippetId: this.snippetId(), cardId: ctx.cardId,
+      cycleId: ctx.cycleId, project: ctx.project });
+    this.asking.add(id);
+    this.note.set('✦ Asked Claude - the answer comes back here');
+    try {
+      return await asks.answer(id);
+    } finally {
+      this.asking.delete(id);
+      if (!this.asking.size) this.note.set(null);
+    }
+  }
+
   private teardown(): void {
+    for (const id of this.asking) this.injector.get(AskClaudeService).cancel(id);
+    this.asking.clear();
     this.generation++;
     this.watchers.forEach((w) => w.unsubscribe());
     this.watchers = [];
@@ -343,4 +391,8 @@ const notYet: SnippetHandler = async (op) => {
 
 function str(v: unknown): string | null {
   return typeof v === 'string' && v ? v : null;
+}
+
+function clip(s: string, max: number): string {
+  return s.length <= max ? s : s.slice(0, max - 1) + '…';
 }

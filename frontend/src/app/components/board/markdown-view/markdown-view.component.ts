@@ -1,4 +1,4 @@
-import { Component, computed, input, signal } from '@angular/core';
+import { Component, Injector, computed, inject, input, signal } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { Block, CALLOUT_TITLES, Inline, headingsOf, markdownSections } from '../../../shared/utils/markdown-blocks';
 import { textBlocks } from '../../../shared/utils/rich-html';
@@ -15,6 +15,8 @@ import { SnippetHostComponent } from '../visuals/snippet-host.component';
 import { CallsBlockComponent } from '../visuals/calls-block.component';
 import { CallViewComponent } from '../visuals/call-view.component';
 import { CallLogsBlockComponent, CompareBlockComponent, StatementBlockComponent } from '../visuals/data-blocks.component';
+import { FormBlockComponent } from '../visuals/form-block.component';
+import { ActionContext, BoardActionsService, chipAction } from '../../../core/services/board-actions.service';
 
 /**
  * A board text - Markdown or the editor's HTML (docs/board.md "Rich text") - rendered from the typed tree with plain
@@ -24,7 +26,7 @@ import { CallLogsBlockComponent, CompareBlockComponent, StatementBlockComponent 
 @Component({
   selector: 'app-markdown-view',
   standalone: true,
-  imports: [NgTemplateOutlet, MentionChipComponent, VariablePillComponent, CallMiniComponent, ChartBlockComponent, StatsBlockComponent, SnippetHostComponent, CallsBlockComponent, CallViewComponent, CallLogsBlockComponent, CompareBlockComponent, StatementBlockComponent,
+  imports: [NgTemplateOutlet, MentionChipComponent, VariablePillComponent, CallMiniComponent, ChartBlockComponent, StatsBlockComponent, SnippetHostComponent, CallsBlockComponent, CallViewComponent, CallLogsBlockComponent, CompareBlockComponent, StatementBlockComponent, FormBlockComponent,
     TimelineBlockComponent],
   template: `
     <ng-template #inl let-nodes>
@@ -131,6 +133,7 @@ import { CallLogsBlockComponent, CompareBlockComponent, StatementBlockComponent 
               @case ('statement') { <app-statement-block [source]="b.text" /> }
               @case ('call-logs') { <app-call-logs-block [source]="b.text" /> }
               @case ('compare') { <app-compare-block [source]="b.text" /> }
+              @case ('form') { <app-form-block [source]="b.text" [context]="actionContext()" [canSend]="interactive()" /> }
               @case ('mermaid') { <app-snippet-host [source]="b.text" [info]="b.info" kind="mermaid" [context]="snippetContext()" [snippetId]="inlineId(b)" /> }
               @default {
                 <div class="board-md-code" dir="ltr"><div class="board-md-code-bar"><span>{{ b.lang }}{{ b.info ? ' ' + b.info : '' }}</span></div>
@@ -160,10 +163,14 @@ import { CallLogsBlockComponent, CompareBlockComponent, StatementBlockComponent 
             </div>
           }
           @case ('choices') {
-            <div class="board-choices">@for (o of b.options; track $index) { <button type="button" class="board-choice" disabled title="Answering from here comes with the interactive blocks">{{ o }}</button> }</div>
+            <div class="board-choices">@for (o of b.options; track $index) {
+              <button type="button" class="board-choice" [class.chosen]="chosen()[path + '/' + bi] === o" [disabled]="!interactive()"
+                      [title]="interactive() ? 'Answer: ' + o : 'Answer from the card'" (click)="choose(path + '/' + bi, o)">{{ o }}</button> }</div>
           }
           @case ('actions') {
-            <div class="board-actions">@for (a of b.items; track $index) { <span class="board-action-chip">▸ {{ a.label }}</span> }</div>
+            <div class="board-actions">@for (a of b.items; track $index) {
+              @if (interactive()) { <button type="button" class="board-action-chip live" [title]="a.kind + (a.arg ? ' ' + a.arg : '')" (click)="act(a)">▸ {{ a.label }}</button> }
+              @else { <span class="board-action-chip">▸ {{ a.label }}</span> } }</div>
           }
           @case ('callview') { @if (previews()) { <app-call-view [mention]="b.ref" /> } @else { <div class="board-md-callrow"><app-call-mini [mention]="b.ref" /></div> } }
           @case ('table') {
@@ -194,6 +201,7 @@ import { CallLogsBlockComponent, CompareBlockComponent, StatementBlockComponent 
       }
       @if (!blocks().length && empty()) { <p class="board-dim">{{ empty() }}</p> }
     </div>
+    @if (actionError(); as e) { <div class="board-error" role="alert">{{ e }} <button type="button" class="board-link" (click)="actionError.set(null)">✕</button></div> }
     @if (zoom(); as z) {
       <div class="board-md-zoom" (click)="zoom.set(null)"><img [src]="z" alt="" /></div>
     }`,
@@ -235,6 +243,39 @@ export class MarkdownViewComponent {
     walk(this.blocks());
     return order;
   });
+
+  /**
+   * Choices, forms and action chips act (specs/017 R21, R22) only where the text is on a card and shown for reading -
+   * never in a preview. Each goes through the consent dialog.
+   */
+  readonly interactive = computed(() => this.previews() && !!this.snippetContext()['cardId']);
+  readonly actionContext = computed<ActionContext>(() => {
+    const c = this.snippetContext();
+    const str = (v: unknown) => (typeof v === 'string' && v ? v : null);
+    return { project: str(c['project']), cardId: str(c['cardId']), cycleId: str(c['cycleId']),
+      cardNumber: typeof c['card'] === 'number' ? c['card'] as number : null, comment: typeof c['comment'] === 'number' ? c['comment'] as number : null };
+  });
+  /** The choice answered in each choices block (by its place), shown as chosen. */
+  readonly chosen = signal<Readonly<Record<string, string>>>({});
+  private readonly injector = inject(Injector);
+
+  async choose(key: string, option: string): Promise<void> {
+    try {
+      await this.injector.get(BoardActionsService).perform('answer', { choice: option }, this.actionContext(), 'This choice');
+      this.chosen.update((c) => ({ ...c, [key]: option }));
+    } catch { /* refused or cancelled: the dialog said why */ }
+  }
+
+  async act(a: { kind: string; arg: string; label: string }): Promise<void> {
+    const { kind, args } = chipAction(a.kind, a.arg);
+    try {
+      await this.injector.get(BoardActionsService).perform(kind, args, this.actionContext(), `The button “${a.label}”`);
+    } catch (e) {
+      if (e instanceof Error && e.message !== 'The user said no') this.actionError.set(e.message);
+    }
+  }
+
+  readonly actionError = signal<string | null>(null);
 
   inlineId(b: Block): string | null {
     const owner = this.snippetOwner();

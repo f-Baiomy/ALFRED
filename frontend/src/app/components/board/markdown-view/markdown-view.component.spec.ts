@@ -1,6 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { MarkdownViewComponent } from './markdown-view.component';
 import { SnippetRunSetting } from '../visuals/snippet-host.component';
+import { BoardActionsService } from '../../../core/services/board-actions.service';
 
 describe('MarkdownViewComponent', () => {
   function render(text: string): HTMLElement {
@@ -133,5 +134,42 @@ describe('MarkdownViewComponent', () => {
     expect(el.querySelector('iframe')).toBeNull();
     TestBed.inject(SnippetRunSetting).onOpen.set(true);
   });
-});
 
+  describe('choices and action chips (specs/017 R21)', () => {
+    let perform: jasmine.Spy;
+    function live(text: string, context: Record<string, unknown>, previews = true): HTMLElement {
+      perform = jasmine.createSpy('perform').and.resolveTo(true);
+      TestBed.configureTestingModule({ providers: [{ provide: BoardActionsService, useValue: { perform } }] });
+      const fixture = TestBed.createComponent(MarkdownViewComponent);
+      fixture.componentRef.setInput('text', text);
+      fixture.componentRef.setInput('previews', previews);
+      fixture.componentRef.setInput('snippetContext', context);
+      fixture.detectChanges();
+      (fixture.nativeElement as HTMLElement).addEventListener('click', () => setTimeout(() => fixture.detectChanges()));
+      return fixture.nativeElement as HTMLElement;
+    }
+
+    it('on a card, a choice answers through the consent of BoardActionsService and shows as chosen', async () => {
+      const el = live('[choose: Per rule | Per session]', { project: 'p', cardId: 'c1', card: 7 });
+      const buttons = el.querySelectorAll<HTMLButtonElement>('.board-choice');
+      expect(buttons[0].disabled).toBeFalse();
+      buttons[1].click();
+      await new Promise((r) => setTimeout(r, 10));
+      expect(perform).toHaveBeenCalledOnceWith('answer', { choice: 'Per session' }, jasmine.objectContaining({ cardId: 'c1', cardNumber: 7 }), 'This choice');
+      expect(el.querySelector('.board-choice.chosen')?.textContent?.trim()).toBe('Per session');
+    });
+
+    it('a chip runs its action after consent; off a card (or in a preview) it is only a label', () => {
+      const el = live('[action: move FIXED | Mark fixed]', { project: 'p', cardId: 'c1', card: 7 });
+      el.querySelector<HTMLButtonElement>('button.board-action-chip.live')!.click();
+      expect(perform).toHaveBeenCalledOnceWith('move', { status: 'FIXED' }, jasmine.objectContaining({ cardId: 'c1' }), jasmine.stringMatching(/Mark fixed/));
+      TestBed.resetTestingModule();
+      const off = live('[action: move FIXED | Mark fixed]\n\n[choose: a | b]', { project: 'p' });
+      expect(off.querySelector('button.board-action-chip')).toBeNull();
+      expect(off.querySelector<HTMLButtonElement>('.board-choice')!.disabled).toBeTrue();
+      TestBed.resetTestingModule();
+      const preview = live('[choose: a | b]', { cardId: 'c1' }, false);
+      expect(preview.querySelector<HTMLButtonElement>('.board-choice')!.disabled).toBeTrue();
+    });
+  });
+});

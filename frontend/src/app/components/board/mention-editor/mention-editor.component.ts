@@ -14,6 +14,7 @@ import { CODE_LANGS, guessLang } from '../../../shared/utils/code-highlight';
 import { BoardTemplate, DEFAULT_TEMPLATES, loadTemplates, saveTemplates } from '../../../shared/utils/board-templates';
 import { VISUAL_TEMPLATES } from '../../../shared/utils/board-visuals';
 import { VisualEditorComponent } from '../visuals/visual-editor.component';
+import { AskClaudeService } from '../../../core/services/ask-claude.service';
 import { MarkdownViewComponent } from '../markdown-view/markdown-view.component';
 
 interface MenuItem {
@@ -113,6 +114,16 @@ const BLOCK_TAGS = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'UL', 'OL', 'PRE', 'BLO
                 <button type="button" class="board-editor-swatch dim" (click)="editTemplates()">✎ Edit templates…</button></span>
             }
           </span>
+          @if (canAsk()) {
+            <span class="board-editor-dd">
+              <button type="button" class="board-editor-btn" title="✦ Ask Claude about the selected text (or all of it)" (click)="toggleMenu('ask', $event)">✦▾</button>
+              @if (menu() === 'ask') {
+                <span class="board-editor-dd-menu" [class.up]="menuUp()">@for (a of askChoices; track a.label) {
+                  <button type="button" class="board-editor-swatch" (click)="askClaude(a.instruction)">{{ a.label }}</button> }
+                  <button type="button" class="board-editor-swatch" (click)="askCustom()">… Ask something else</button></span>
+              }
+            </span>
+          }
           <span class="board-editor-grow"></span>
           <button type="button" class="board-editor-btn" [class.on]="split()" title="Split: the text beside how it will show (snippets run)" (click)="split.set(!split())">⇆</button>
           <button type="button" class="board-editor-btn" [class.on]="source()" title="See / edit what is stored" (click)="toggleSource()">&lt;&gt;</button>
@@ -126,6 +137,21 @@ const BLOCK_TAGS = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'UL', 'OL', 'PRE', 'BLO
       @if (source()) {
         <textarea class="board-editor-src" spellcheck="false" [value]="value()" [style.min-height.em]="rows() * 1.5 + 4"
                   (input)="fromSource($any($event.target).value)"></textarea>
+      }
+      @if (asked(); as a) {
+        <div class="board-ask-panel" role="status">
+          <div class="board-ask-head"><b>✦ Claude</b><span>{{ a.instruction }}</span><span class="board-editor-grow"></span>
+            @if (!a.answer && !a.error) { <span class="board-dim">waiting for the chat…</span> }</div>
+          @if (a.error) { <div class="board-error">{{ a.error }}</div> }
+          @if (a.answer) { <div class="board-ask-answer"><app-markdown-view [text]="a.answer" [previews]="false" /></div> }
+          <div class="board-ask-foot">
+            @if (a.answer) {
+              <button type="button" class="action-btn primary" (click)="acceptAsk('replace')">{{ a.hadSelection ? 'Replace the selection' : 'Replace the text' }}</button>
+              <button type="button" class="action-btn" (click)="acceptAsk('below')">Insert below</button>
+            }
+            <button type="button" class="action-btn" (click)="discardAsk()">{{ a.answer || a.error ? 'Discard' : 'Stop' }}</button>
+          </div>
+        </div>
       }
       @if (split()) {
         <div class="board-editor-preview" aria-label="Preview"><app-markdown-view [text]="previewText()" empty="Nothing to show yet." [idPrefix]="'pv-'" /></div>
@@ -224,7 +250,7 @@ export class MentionEditorComponent implements AfterViewInit {
   readonly previewText = signal('');
   private previewTimer: ReturnType<typeof setTimeout> | null = null;
   readonly rich = signal(false);
-  readonly menu = signal<'color' | 'callout' | 'pill' | 'tpl' | 'visual' | null>(null);
+  readonly menu = signal<'color' | 'callout' | 'pill' | 'tpl' | 'visual' | 'ask' | null>(null);
   readonly popup = signal<{ kind: 'slash' | 'var'; query: string; top: number | null; bottom: number | null; left: number } | null>(null);
   readonly popupIndex = signal(0);
   readonly imageBar = signal<{ top: number; left: number } | null>(null);
@@ -657,7 +683,7 @@ export class MentionEditorComponent implements AfterViewInit {
   /** A menu opens upward when the box sits near the bottom of the window (the comment box) and there is more room above. */
   readonly menuUp = signal(false);
 
-  toggleMenu(m: 'color' | 'callout' | 'pill' | 'tpl' | 'visual', event?: Event): void {
+  toggleMenu(m: 'color' | 'callout' | 'pill' | 'tpl' | 'visual' | 'ask', event?: Event): void {
     const r = (event?.currentTarget as Element | null)?.getBoundingClientRect();
     if (r) this.menuUp.set(window.innerHeight - r.bottom < 300 && r.top > window.innerHeight - r.bottom);
     this.menu.update((x) => (x === m ? null : m));
@@ -905,6 +931,86 @@ export class MentionEditorComponent implements AfterViewInit {
     this.pickAction = null;
     this.firstPick = null;
     this.box().nativeElement.focus();
+  }
+
+  /** ✦ (specs/017 R38): what Claude may be asked about the selected text. */
+  readonly askChoices: readonly { label: string; instruction: string }[] = [
+    { label: '▤ Make it a chart', instruction: 'Turn this into a ```chart (or ```stats) block of the board - keep every number' },
+    { label: '✂ Shorten it', instruction: 'Shorten this - same facts, half the words' },
+    { label: 'ع Translate to Arabic', instruction: 'Translate this to Arabic; keep mentions, code and numbers as they are' },
+    { label: '▦ As a table', instruction: 'Turn this into a Markdown table' },
+    { label: '◈ As an HTML snippet', instruction: 'Show this as an ```html live snippet of the board (no network; alfred.data for live numbers)' },
+  ];
+  readonly asked = signal<{ id: string | null; instruction: string; answer: string | null; error: string | null; hadSelection: boolean } | null>(null);
+  private askRange: Range | null = null;
+  readonly canAsk = computed(() => !!(this.cycleId() || this.card()?.cycleId));
+
+  askCustom(): void {
+    const q = window.prompt('Ask Claude about the selected text:');
+    if (q && q.trim()) void this.askClaude(q.trim());
+  }
+
+  /** Sends the selection (or the whole text) with the instruction to the cycle's chat; the answer comes back to accept. */
+  async askClaude(instruction: string): Promise<void> {
+    this.menu.set(null);
+    const box = this.box().nativeElement;
+    const sel = this.selection();
+    const range = sel && sel.rangeCount && box.contains(sel.anchorNode) && !sel.isCollapsed ? sel.getRangeAt(0).cloneRange()
+      : this.at && box.contains(this.at.startContainer) && !this.at.collapsed ? this.at.cloneRange() : null;
+    this.askRange = range;
+    const selected = range ? range.toString() : '';
+    const asks = this.injector.get(AskClaudeService);
+    this.asked.set({ id: null, instruction, answer: null, error: null, hadSelection: !!range });
+    try {
+      const id = await asks.send({ kind: 'EDITOR', question: instruction, cardId: this.card()?.id ?? null, project: this.project() || this.card()?.project || null,
+        cycleId: this.cycleId() ?? this.card()?.cycleId ?? null, data: { selection: selected || null, text: this.value().slice(0, 50_000), format: this.rich() ? 'html' : 'markdown' } });
+      this.asked.update((a) => (a ? { ...a, id } : a));
+      const answer = await asks.answer(id);
+      this.asked.update((a) => (a && a.id === id ? { ...a, answer } : a));
+    } catch (e) {
+      this.asked.update((a) => (a ? { ...a, error: e instanceof Error ? e.message : 'Could not ask Claude' } : a));
+    }
+  }
+
+  /** The answer into the text: in place of what was selected (or of the whole text), or below it. */
+  acceptAsk(where: 'replace' | 'below'): void {
+    const a = this.asked();
+    if (!a?.answer) return;
+    const box = this.box().nativeElement;
+    let range: Range;
+    if (where === 'replace' && !a.hadSelection) {
+      box.replaceChildren();
+      range = this.endRange();
+    } else if (where === 'replace' && this.askRange && box.contains(this.askRange.startContainer)) {
+      // the text asked about goes first, so the answer takes its place (the panel's click moved the selection away)
+      range = this.askRange;
+      range.deleteContents();
+      range.collapse(true);
+    } else {
+      range = this.endRange();
+    }
+    if (document.activeElement !== box) box.focus();
+    const sel = this.selection();
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+    this.at = range.cloneRange();
+    const answer = a.answer.replace(/\s+$/, '');
+    const inline = !answer.includes('\n') && !hasFormatting(answer);
+    if (inline || !this.toolbar()) {
+      this.insertText(where === 'below' && box.textContent ? `\n${answer}` : answer);
+      if (mentionsIn(answer).length) this.render(this.value());
+    } else {
+      this.insertBlocks(textBlocks(answer));
+    }
+    this.asked.set(null);
+    this.askRange = null;
+  }
+
+  discardAsk(): void {
+    const a = this.asked();
+    if (a?.id && !a.answer && !a.error) this.injector.get(AskClaudeService).cancel(a.id);
+    this.asked.set(null);
+    this.askRange = null;
   }
 
   /** Data commands (specs/017 R40): each picks real calls, then writes the block that reads them live. */

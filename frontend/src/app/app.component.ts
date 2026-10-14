@@ -4,10 +4,11 @@ import { DbWindowHostComponent } from './components/db-capture/db-window-host.co
 import { LowDiskBannerComponent } from './components/low-disk-banner/low-disk-banner.component';
 import { ReturnPointHostComponent } from './components/board/return-point-host/return-point-host.component';
 
+import { ConsentDialogComponent } from './components/consent-dialog/consent-dialog.component';
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [RouterOutlet, DbWindowHostComponent, LowDiskBannerComponent, ReturnPointHostComponent],
+  imports: [RouterOutlet, DbWindowHostComponent, LowDiskBannerComponent, ReturnPointHostComponent, ConsentDialogComponent],
   templateUrl: './app.component.html',
 })
 export class AppComponent {}

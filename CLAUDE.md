@@ -86,7 +86,7 @@ After `docker compose up -d --build backend`, the gateway may keep the old conta
   original call's value beside it; `boardbridge/BoardRetestWatchAdapter` signals a watching card as calls complete
   (no timer). Something not captured is UNKNOWN, never a pass. Verified stays the user's.
 
-- **The fourteen `/alfred-*` skills ship with Alfred** (`skills/alfred-*/SKILL.md` + one `skills/_shared/rules.md`
+- **The fifteen `/alfred-*` skills ship with Alfred** (`skills/alfred-*/SKILL.md` + one `skills/_shared/rules.md`
   copied into each skill as `rules.md` on install, specs/015): in both installers (`app/skills`, `build_dist.stage_app`),
   zipped as `alfred-skills-<version>.zip`, installed by `alfred skill install` / `setup_mcp.py` through
   `alfred_skill.py` (which also removes the retired `/alfred-qa`). A skill or the rules naming an MCP tool that does not
