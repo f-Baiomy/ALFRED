@@ -16,7 +16,20 @@ public interface RequirementUseCase {
 
     /** One item: its text, the user's mark (if any), the evidence and the verdict. */
     record Requirement(String fileName, String itemKey, String text, String mark, ItemEvidence evidence, ItemVerdict verdict,
-                       Integer cardNumber, String cardStatus) {
+                       Integer cardNumber, String cardStatus, String shortName) {
+
+        /** {@code shortName}: the few words a mention of the item reads (specs/021), null when none was given. */
+        public Requirement(String fileName, String itemKey, String text, String mark, ItemEvidence evidence, ItemVerdict verdict,
+                           Integer cardNumber, String cardStatus) {
+            this(fileName, itemKey, text, mark, evidence, verdict, cardNumber, cardStatus, null);
+        }
+    }
+
+    /** One call judged for an item: what it showed and why (specs/021, the item's calls in the spec viewer). */
+    record ItemCall(String callId, ItemVerdict.CallResult result, String reason, java.time.Instant at) {
+    }
+
+    record NameChange(CardChange.Outcome outcome, String message) {
     }
 
     /** Every item of a cycle with its verdict, and the counts per verdict. */
@@ -34,4 +47,10 @@ public interface RequirementUseCase {
 
     /** Judges what is new, then the verdicts. */
     Requirements requirements(String cycleId);
+
+    /** The calls judged for one item, newest first. */
+    List<ItemCall> itemCalls(String cycleId, String fileName, String itemKey, int limit);
+
+    /** An item's short name (specs/021); Claude may give one only to an item that has none. Blank clears it. */
+    NameChange setShortName(Actor actor, String cycleId, String fileName, String itemKey, String shortName);
 }

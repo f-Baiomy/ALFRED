@@ -4,6 +4,8 @@ import { BOARD_FILE, Block, CALLOUT_TITLES, Inline, headingsOf, markdownSections
 import { textBlocks } from '../../../shared/utils/rich-html';
 import { CODE_LANGS, langOf } from '../../../shared/utils/code-highlight';
 import { MentionChipComponent } from '../mention-chip/mention-chip.component';
+import { MentionGroupComponent, groupCalls } from '../mention-chip/mention-group.component';
+import { withBareRefs } from '../../../shared/utils/readable-refs';
 import { VariablePillComponent } from '../variable-pill/variable-pill.component';
 import { CallMiniComponent } from '../call-mini/call-mini.component';
 import { DirChoice, blockDir, inlineWords } from '../../../shared/utils/text-direction';
@@ -31,7 +33,7 @@ import { WidgetsService, fillWidget } from '../../../core/services/widgets.servi
 @Component({
   selector: 'app-markdown-view',
   standalone: true,
-  imports: [NgTemplateOutlet, MentionChipComponent, VariablePillComponent, CallMiniComponent, ChartBlockComponent, StatsBlockComponent, SnippetHostComponent, CallsBlockComponent, CallViewComponent, CallLogsBlockComponent, CompareBlockComponent, StatementBlockComponent, FormBlockComponent,
+  imports: [NgTemplateOutlet, MentionChipComponent, MentionGroupComponent, VariablePillComponent, CallMiniComponent, ChartBlockComponent, StatsBlockComponent, SnippetHostComponent, CallsBlockComponent, CallViewComponent, CallLogsBlockComponent, CompareBlockComponent, StatementBlockComponent, FormBlockComponent,
     TimelineBlockComponent],
   template: `
     <ng-template #inl let-nodes>
@@ -53,6 +55,7 @@ import { WidgetsService, fillWidget } from '../../../core/services/widgets.servi
             @else { <a [href]="hrefOf(n)" target="_blank" rel="noopener noreferrer"><ng-container *ngTemplateOutlet="inl; context: { $implicit: kids(n) }" /></a> }
           }
           @case ('mention') { <app-mention-chip [mention]="refOf(n)" [showPreview]="previews()" /> }
+          @case (callsKind) { <app-mention-group [refs]="groupOf(n)" [showPreview]="previews()" /> }
           @case ('variable') { <app-variable-pill [name]="varOf(n)" /> }
           @case ('pill') { <span [class]="'board-md-pill ' + toneOf(n)">{{ pillIcon(n) }} {{ textOf(n) }}</span> }
           @case ('br') { <br /> }
@@ -389,7 +392,16 @@ export class MarkdownViewComponent {
     return owner && n !== undefined && n < 1000 ? `${owner}:${n}` : null;
   }
 
-  readonly blocks = computed(() => textBlocks(this.text()));
+  /**
+   * Older text with bare shorthand (`AC8`, `#47`, `calls #75`, `[6]`) is drawn with each code as the chip it means
+   * (specs/021) - looked up on display, nothing rewritten. Only where the text says which project and cycle it is in.
+   */
+  readonly blocks = computed(() => {
+    const c = this.snippetContext();
+    const str = (v: unknown) => (typeof v === 'string' && v ? v : null);
+    return textBlocks(withBareRefs(this.text() ?? '', { project: str(c['project']), cycleId: str(c['cycleId']),
+      card: typeof c['card'] === 'number' ? c['card'] as number : null }));
+  });
   /** The blocks split at each heading; a section headed "Next" is a callout - the one thing to do. */
   readonly sections = computed(() => markdownSections(this.blocks()));
   readonly headings = computed(() => headingsOf(this.blocks()));
@@ -506,8 +518,23 @@ export class MarkdownViewComponent {
     setTimeout(() => this.copied.set(null), 1500);
   }
 
+  /** The nodes as drawn: three or more call mentions in a row become one group chip (specs/021). Kept per node list. */
   asInlines(nodes: unknown): readonly Inline[] {
-    return nodes as readonly Inline[];
+    const list = nodes as readonly Inline[];
+    let grouped = this.groupedCache.get(list);
+    if (!grouped) {
+      grouped = groupCalls(list, (n) => (n.kind === 'mention' ? n.ref : null)) as unknown as readonly Inline[];
+      this.groupedCache.set(list, grouped);
+    }
+    return grouped;
+  }
+
+  /** The group node's kind - not one of Inline's, since only this view makes it. */
+  readonly callsKind = 'calls' as Inline['kind'];
+  private readonly groupedCache = new WeakMap<readonly Inline[], readonly Inline[]>();
+
+  groupOf(n: unknown): readonly import('../../../core/models/board.models').MentionRef[] {
+    return (n as { refs: readonly import('../../../core/models/board.models').MentionRef[] }).refs;
   }
 
   asBlocks(nodes: unknown): readonly Block[] {

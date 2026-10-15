@@ -520,6 +520,12 @@ export class DbWindowComponent implements OnInit {
       untracked(() => {
         this.state.statementBySeq.set(new Map(all.map((s) => [s.seq, s])));
         this.state.hasOrigins.set(hasOrigins(all));
+        // specs/021: a statement reference opened the window - open and flash it once it has loaded
+        const seq = this.focusSeq;
+        if (seq !== null && this.view() === 'stmts' && all.some((s) => s.seq === seq)) {
+          this.focusSeq = null;
+          this.jump(seq);
+        }
       });
     });
   }
@@ -578,6 +584,9 @@ export class DbWindowComponent implements OnInit {
     this.state.redisKind.set(kind);
   }
 
+  /** The statement or Redis command a reference asked for, until it has been shown (specs/021). */
+  private focusSeq: number | null = null;
+
   /** The call's Redis commands - every page (500 each, the call's commands are bounded by its runtime). */
   private loadRedis(call: CallRecord): void {
     const size = 500;
@@ -594,6 +603,13 @@ export class DbWindowComponent implements OnInit {
       next: (all) => {
         this.redisPage.set(all);
         if (all && this.view() === 'keys') this.loadKeys(call);
+        // specs/021: a Redis command reference opened the window - open and flash that command
+        const seq = this.focusSeq;
+        if (seq !== null && this.view() === 'redis' && all?.commands.some((c) => c.seq === seq)) {
+          this.focusSeq = null;
+          this.state.redisOpen.set(new Set(this.state.redisOpen()).add(seq));
+          this.flash(`[data-seq="${seq}"]`, seq);
+        }
       },
       error: () => undefined,
     });
@@ -674,6 +690,7 @@ export class DbWindowComponent implements OnInit {
     const request = this.request();
     this.state.project.set(call?.service_name ?? (request.kind === 'outside' ? request.project ?? null : null));
     if (request.kind === 'call' && request.view) this.view.set(request.view);
+    if (request.kind === 'call') this.focusSeq = request.focusSeq ?? null;
     this.state.call.set(call);
     if (call) {
       this.loadRedis(call);

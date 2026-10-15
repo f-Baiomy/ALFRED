@@ -95,6 +95,8 @@ export interface FakeBoard {
   /** specs/018: a cycle's requirement view (none = an Alfred without the check), and the evidence PUTs received. */
   requirements?: Record<string, unknown>;
   evidencePuts?: { cycleId: string; body: any }[];
+  /** Short names given to Acceptance items (specs/021). */
+  itemNames?: { cycleId: string; fileName: string; itemKey: string; shortName: string }[];
   /** The answer to the next POST /board/cards, when the test wants a refusal. */
   refuseCreate: [number, unknown] | null;
   /** Fields the next creates answer with beyond the card itself (the backend's CardDetail extras, e.g. similarOpen). */
@@ -516,6 +518,19 @@ export class FakeAlfred {
     if (p[1] === 'teams' && p.length === 2 && method === 'GET') {
       return [200, [{ id: 'frontend', name: 'Frontend', icon: '▣', owns: 'The web UI', hints: ['.ts:'] },
         { id: 'backend', name: 'Backend', icon: '⚙', owns: 'The Java services', hints: [] }]];
+    }
+    if (p[1] === 'cards' && p[3] === 'short-name' && method === 'PUT') {
+      const card = find(p[2]);
+      if (!card) return [404];
+      if (card.shortName) {
+        return [403, { error: 'refused-for-claude', message: 'This card already has a short name - only the user changes it' }];
+      }
+      card.shortName = body.shortName;
+      return [200, card];
+    }
+    if (p[1] === 'cycles' && p[3] === 'requirements' && p[4] === 'short-name' && method === 'PUT') {
+      (b.itemNames ??= []).push({ cycleId: p[2], ...body });
+      return [200, { shortName: body.shortName }];
     }
     if (p[1] === 'cards' && p[3] === 'teams' && method === 'PUT') {
       const card = find(p[2]);

@@ -630,27 +630,76 @@ public class RequirementService implements RequirementUseCase, RequirementWatchU
                 .filter(Objects::nonNull).max(Comparator.naturalOrder()).orElse(null);
         List<Requirement> items = new ArrayList<>();
         Map<Verdict, Integer> counts = new EnumMap<>(Verdict.class);
+        Map<String, List<AcceptanceItems.Item>> byFile = new LinkedHashMap<>();
         for (SpecFileInfo info : store.specs(cycleId)) {
-            Optional<SpecFile> file = store.spec(cycleId, info.name());
-            if (file.isEmpty()) {
-                continue;
-            }
-            for (AcceptanceItems.Item item : AcceptanceItems.of(file.get().content())) {
-                String key = info.name() + "\n" + item.key();
+            store.spec(cycleId, info.name()).ifPresent(f -> byFile.put(info.name(), AcceptanceItems.of(f.content())));
+        }
+        Map<String, String> shortNames = store.shortNames("item", byFile.entrySet().stream()
+                .flatMap(e -> e.getValue().stream().map(i -> itemOwner(cycleId, e.getKey(), i.key()))).toList());
+        for (Map.Entry<String, List<AcceptanceItems.Item>> fileItems : byFile.entrySet()) {
+            String fileName = fileItems.getKey();
+            for (AcceptanceItems.Item item : fileItems.getValue()) {
+                String key = fileName + "\n" + item.key();
                 ItemEvidence ev = evidence.get(key);
                 ItemVerdict v = ev == null
-                        ? new ItemVerdict(cycleId, info.name(), item.key(), Verdict.NO_EVIDENCE, null, null, ItemVerdict.Counts.NONE, null, null)
+                        ? new ItemVerdict(cycleId, fileName, item.key(), Verdict.NO_EVIDENCE, null, null, ItemVerdict.Counts.NONE, null, null)
                         : verdict(ev, newest, cards);
                 CardRef card = cardFor(key, cards);
                 ItemVerdict shown = new ItemVerdict(v.cycleId(), v.fileName(), v.itemKey(), v.verdict(), v.callId(), v.reason(), v.counts(),
                         openedBy.get(key), v.judgedAt());
                 counts.merge(v.verdict(), 1, Integer::sum);
                 ChecklistMark mark = marks.get(key);
-                items.add(new Requirement(info.name(), item.key(), item.text(), mark == null ? null : mark.mark().name(), ev, shown,
-                        card == null ? null : card.number(), card == null ? null : card.status().name()));
+                items.add(new Requirement(fileName, item.key(), item.text(), mark == null ? null : mark.mark().name(), ev, shown,
+                        card == null ? null : card.number(), card == null ? null : card.status().name(),
+                        shortNames.get(itemOwner(cycleId, fileName, item.key()))));
             }
         }
         return new Requirements(cycleId, items, counts);
+    }
+
+    private static String itemOwner(String cycleId, String fileName, String itemKey) {
+        return cycleId + "/" + fileName + "/" + itemKey;
+    }
+
+    @Override
+    public List<ItemCall> itemCalls(String cycleId, String fileName, String itemKey, int limit) {
+        // The calls the verdict counts: the same window (since the app last started, or the item's card was fixed)
+        Instant since = requirements.evidence(cycleId, fileName, itemKey).map(ev -> {
+            Instant newest = cycleCalls.calls(cycleId, CYCLE_CALLS).stream().map(CycleCall::at).filter(Objects::nonNull)
+                    .max(Comparator.naturalOrder()).orElse(null);
+            return windowStart(ev, newest, store.cardsBySpecItem(cycleId).getOrDefault(fileName + "\n" + itemKey, List.of()));
+        }).orElse(null);
+        return requirements.results(cycleId, fileName, itemKey, since, Math.max(1, Math.min(limit, 200))).stream()
+                .map(r -> new ItemCall(r.callId(), r.result(), r.reason(), r.at())).toList();
+    }
+
+    @Override
+    public NameChange setShortName(Actor actor, String cycleId, String fileName, String itemKey, String shortName) {
+        synchronized (shortNameLock) { // its own lock: judgeCycle holds this service's monitor for as long as judging takes
+            return nameItem(actor, cycleId, fileName, itemKey, shortName);
+        }
+    }
+
+    private final Object shortNameLock = new Object();
+
+    private NameChange nameItem(Actor actor, String cycleId, String fileName, String itemKey, String shortName) {
+        if (itemText(cycleId, fileName, itemKey) == null) {
+            return new NameChange(CardChange.Outcome.NOT_FOUND, "No such Acceptance item");
+        }
+        String name = shortName == null ? "" : shortName.strip().replaceAll("\\s+", " ");
+        if (name.length() > com.fathy.alfred.backend.board.application.port.in.ShortNameUseCase.MAX_SHORT_NAME) {
+            return new NameChange(CardChange.Outcome.INVALID, "A short name is a few words - at most " + com.fathy.alfred.backend.board.application.port.in.ShortNameUseCase.MAX_SHORT_NAME + " characters");
+        }
+        if (name.contains("|") || name.contains("]")) {
+            return new NameChange(CardChange.Outcome.INVALID, "A short name cannot hold | or ]");
+        }
+        String owner = itemOwner(cycleId, fileName, itemKey);
+        if (actor == Actor.CLAUDE && store.shortNames("item", List.of(owner)).containsKey(owner)) {
+            return new NameChange(CardChange.Outcome.REFUSED_FOR_CLAUDE, "This item already has a short name - only the user changes it");
+        }
+        store.putShortName("item", owner, name);
+        notifications.changed(null, cycleId, null, "requirements");
+        return new NameChange(CardChange.Outcome.OK, null);
     }
 
     /** The card shown for an item: the first open card about it, else the newest closed one. */

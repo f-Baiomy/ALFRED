@@ -49,10 +49,10 @@ test('board_requirements: every item with its verdict by the calls, the deciding
     assert.equal(r.isError, false, r.text);
     assert.equal(r.json.counts, '1 missing · 1 no data · 1 not exercised · 1 manual · 1 no evidence');
     const lines = r.json.items as string[];
-    assert.ok(lines[2].startsWith('AC3 MISSING (#41) @[call:in:f89e0b77-194e-4294-a2ea-b2eb9c6f8717@cy-req|call f89e0b77]'), lines[2]);
+    assert.ok(lines[2].startsWith('AC3 (no short name) MISSING (#41) @[call:in:f89e0b77-194e-4294-a2ea-b2eb9c6f8717@cy-req|call f89e0b77]'), lines[2]);
     assert.ok(lines[2].endsWith('- request $.branch* is a list - sent branchId: 948'), lines[2]);
-    assert.match(lines[1], /AC2 NOT_EXERCISED .* - how: All Agencies, Search$/);
-    assert.match(lines[4], /AC5 NO_EVIDENCE .* - board_evidence_put writes how the calls show it$/);
+    assert.match(lines[1], /AC2 \(no short name\) NOT_EXERCISED .* - how: All Agencies, Search$/);
+    assert.match(lines[4], /AC5 \(no short name\) NO_EVIDENCE .* - board_evidence_put writes how the calls show it$/);
   } finally { await w.close(); }
 });
 

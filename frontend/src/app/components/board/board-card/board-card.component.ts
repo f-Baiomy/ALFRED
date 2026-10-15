@@ -3,6 +3,7 @@ import {
   CardStatus, CardSummary, FLAG_LABELS, Proposal, RESOLUTION_BUTTONS, RESOLUTION_LABELS, Resolution, RetestCheck, ageText, isStale, retestChip,
 } from '../../../core/models/board.models';
 import { MentionChipComponent } from '../mention-chip/mention-chip.component';
+import { RefTextComponent } from '../mention-chip/ref-text.component';
 import { proposalTarget } from '../../../shared/utils/board-activity';
 import { skillFor, waitingText } from '../../../shared/utils/board-skills';
 import { BoardSeenService } from '../../../core/services/board-seen.service';
@@ -24,7 +25,7 @@ export type CardAction =
 @Component({
   selector: 'app-board-card',
   standalone: true,
-  imports: [MentionChipComponent, TeamChipsComponent, RunSkillComponent],
+  imports: [MentionChipComponent, RefTextComponent, TeamChipsComponent, RunSkillComponent],
   template: `
     <div class="board-card" [class.live-busy]="!!liveWork()" [class.selected]="selected()" [class.focused]="focused()" [class.closed]="card().status === 'CLOSED'"
          [class.blocked]="!!card().blockedBy?.length" [attr.data-card]="card().id" tabindex="-1" (click)="onClick($event)">
@@ -37,7 +38,7 @@ export type CardAction =
         <span class="board-kind" [class]="'board-kind board-kind-' + card().kind">{{ card().kind }}</span>
         @for (f of card().flags; track f) { <span class="board-flag" [class]="'board-flag board-flag-' + f">{{ flagLabel(f) }}</span> }
       </div>
-      <div class="board-card-title">{{ card().title }}</div>
+      <div class="board-card-title"><app-ref-text [text]="card().title" [project]="card().project" [cycleId]="card().cycleId" [showPreview]="false" /></div>
       @if (questionCount(); as n) {
         <button type="button" class="board-qpill" [disabled]="!editable()" [title]="editable() ? 'Answer the questions (A)' : 'Open questions from Claude'"
                 (click)="$event.stopPropagation(); answer.emit()">❓ {{ n }} open question{{ n === 1 ? '' : 's' }}</button>
@@ -76,7 +77,7 @@ export type CardAction =
       }
       @if (card().resolution; as r) {
         <div class="board-card-row"><span class="board-res" [class]="'board-res board-res-' + r">{{ resolutionLabel(r) }}</span></div>
-        @if (card().reason) { <div class="board-card-reason">“{{ card().reason }}”</div> }
+        @if (card().reason) { <div class="board-card-reason">“<app-ref-text [text]="card().reason" [project]="card().project" [cycleId]="card().cycleId" [card]="card().number" [showPreview]="false" />”</div> }
       }
       @if (card().status === 'INBOX' && card().similarClosed; as s) {
         <div class="board-sim">⚠ Looks like #{{ s.number }}, closed as {{ resolutionLabel(s.resolution) }}{{ s.reason ? ': ' + s.reason : '' }}</div>

@@ -11,7 +11,13 @@ import java.util.List;
  */
 public record CardDetail(@JsonUnwrapped Card card, int commentCount, List<MentionRef> links, SimilarClosed similarClosed,
                          Proposal proposal, WaitingOn waiting, List<SpecItemLink> specItems, List<CardRef> blockedBy,
-                         SimilarOpen similarOpen, int openQuestions) {
+                         SimilarOpen similarOpen, int openQuestions, String shortName) {
+
+    /** {@code shortName}: the few words a mention of the card reads (specs/021), null when none was given. */
+    public CardDetail(Card card, int commentCount, List<MentionRef> links, SimilarClosed similarClosed, Proposal proposal, WaitingOn waiting,
+                      List<SpecItemLink> specItems, List<CardRef> blockedBy, SimilarOpen similarOpen, int openQuestions) {
+        this(card, commentCount, links, similarClosed, proposal, waiting, specItems, blockedBy, similarOpen, openQuestions, null);
+    }
 
     public CardDetail(Card card, int commentCount, List<MentionRef> links, SimilarClosed similarClosed, Proposal proposal, WaitingOn waiting,
                       List<SpecItemLink> specItems, List<CardRef> blockedBy, SimilarOpen similarOpen) {

@@ -92,6 +92,8 @@ export interface CardSummary {
   readonly openQuestions?: number;
   /** The option Claude recommends in its first open question (specs/020): "To do", "Merge into #44". */
   readonly advice?: string | null;
+  /** The few words every mention of the card reads (specs/021): "All Agencies untested (#47)". */
+  readonly shortName?: string | null;
   /** Empty in list rows; filled in a detail. */
   readonly description: string;
 }
@@ -366,6 +368,16 @@ export interface Requirement {
   readonly verdict: ItemVerdict;
   readonly cardNumber: number | null;
   readonly cardStatus: CardStatus | null;
+  /** The few words every mention of the item reads (specs/021): "one-branch search (AC8)". */
+  readonly shortName?: string | null;
+}
+
+/** One call judged for an Acceptance item (specs/021: the item's calls in the spec viewer). */
+export interface ItemCall {
+  readonly callId: string;
+  readonly result: string;
+  readonly reason: string | null;
+  readonly at: string;
 }
 
 export interface RequirementsView {

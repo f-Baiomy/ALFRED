@@ -35,6 +35,13 @@ public class RequirementController {
         return ResponseEntity.ok(requirements.requirements(cycleId));
     }
 
+    /** The calls judged for one item, newest first (specs/021: an item's calls in the spec viewer). */
+    @GetMapping("/board/cycles/{cycleId}/requirements/calls")
+    public ResponseEntity<?> itemCalls(@PathVariable String cycleId, @RequestParam String fileName, @RequestParam String itemKey,
+                                       @RequestParam(defaultValue = "50") int limit) {
+        return ResponseEntity.ok(Map.of("calls", requirements.itemCalls(cycleId, fileName, itemKey, limit)));
+    }
+
     @GetMapping("/board/cycles/{cycleId}/evidence")
     public ResponseEntity<?> evidence(@PathVariable String cycleId) {
         return ResponseEntity.ok(Map.of("evidence", requirements.evidence(cycleId)));

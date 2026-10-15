@@ -90,7 +90,7 @@ public class ImportBoardService implements ImportBoardUseCase {
         this.mentionedCalls = mentionedCalls;
     }
 
-    private record PendingCard(Card card, List<MentionRef> links) {
+    private record PendingCard(Card card, List<MentionRef> links, String shortName) {
     }
 
     @Override
@@ -128,7 +128,7 @@ public class ImportBoardService implements ImportBoardUseCase {
                 if (sourceProject == null) {
                     sourceProject = c.path("project").asText("");
                 }
-                pending.add(new PendingCard(card(c, target), links(r.path("links"))));
+                pending.add(new PendingCard(card(c, target), links(r.path("links")), c.path("shortName").isTextual() ? c.path("shortName").asText() : null));
                 continue;
             }
             if (!cardsWritten) {
@@ -225,6 +225,11 @@ public class ImportBoardService implements ImportBoardUseCase {
             store.insert(card);
             idByOldNumber.put(p.card().number(), card.id());
             store.replaceMentions(MentionOwner.CARD, card.id(), card.id(), MentionParser.mentions(card.description()));
+            String shortName = p.shortName() == null ? "" : p.shortName().strip().replaceAll("\\s+", " ");
+            if (!shortName.isEmpty() && shortName.length() <= com.fathy.alfred.backend.board.application.port.in.ShortNameUseCase.MAX_SHORT_NAME
+                    && !shortName.contains("|") && !shortName.contains("]")) {
+                store.putShortName("card", card.id(), shortName); // specs/021: what its mentions read comes along
+            }
             for (MentionRef link : p.links()) {
                 store.addDirect(card.id(), link);
             }

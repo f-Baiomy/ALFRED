@@ -1,11 +1,16 @@
 import { PAGE_SCROLLERS, POPUP_SCROLLERS, ReturnPointService, captureScrolls } from './return-point.service';
-import { Injectable, effect, inject, signal, untracked } from '@angular/core';
+import { Injectable, Signal, WritableSignal, effect, inject, signal, untracked } from '@angular/core';
 import { Router } from '@angular/router';
-import { Observable, catchError, concatMap, from, map, of, toArray } from 'rxjs';
+import { EMPTY, Observable, catchError, concatMap, expand, forkJoin, from, map, of, reduce, shareReplay, switchMap, toArray } from 'rxjs';
 import { PickedCall } from '../models/call-ref.model';
-import { MentionRef, mentionTypeOf } from '../models/board.models';
+import { CardStatus, MentionRef, Requirement, RequirementsView, Resolution, STATUS_LABELS, VERDICT_LABELS, mentionTypeOf } from '../models/board.models';
+import { CallEndpointSource, CallRecord } from '../models/call.model';
+import { CallsQuery } from '../state/call-list-view';
+import { acLabel, acOf, callMeaning, cardLabel, cycleCallLabel, cycleCallOf, entryLabel, numberedCalls, shortOf } from '../../shared/utils/readable-refs';
+import { callTime } from '../../shared/utils/call-utils';
 import { callOf, serializeMention, slug } from '../../shared/utils/mention-syntax';
 import { BoardApiService } from './board-api.service';
+import { BoardSocketService } from './board-socket.service';
 import { CallFocusService } from './call-focus.service';
 import { CallPickerService } from './call-picker.service';
 import { CallLogsApiService } from './call-logs-api.service';
@@ -24,6 +29,8 @@ export interface MentionPreview {
 export interface CardTarget {
   readonly project: string;
   readonly number: number;
+  /** A history entry to scroll to and flash once the drawer is open (specs/021: a reference to a comment). */
+  readonly entryId?: number | null;
 }
 
 /** The card a "Pick from anywhere" adds its calls to. Plain data: it rides in the pick's sessionStorage resume. */
@@ -67,6 +74,21 @@ export interface MentionCallTarget {
   readonly cycleId: string | null;
   /** The mention's saved label - the popup's title, and what is left when the call is gone. */
   readonly label: string;
+  /**
+   * specs/021: a statement, log line or Redis command chip opens its call AND the database window at that part -
+   * the statement or Redis command (`seq`) opened and flashed, the Logs view for a line.
+   */
+  readonly part?: 'stmts' | 'logs' | 'redis' | null;
+  readonly seq?: number | null;
+}
+
+/** What a chip reads now (specs/021): the meaning looked up, and a dot for the state. */
+export interface LiveMention {
+  /** Null: the chip keeps its own saved label (a call's label is already its meaning; only its state is added). */
+  readonly label: string | null;
+  readonly tone: 'ok' | 'warn' | 'bad' | 'dim' | 'info' | null;
+  /** The state in words, for the dot's title: "Verified", "No data", "500". */
+  readonly state: string | null;
 }
 
 /** A spec file to show, optionally at a section. */
@@ -101,8 +123,28 @@ export class BoardMentionsService {
   readonly specToShow = signal<SpecTarget | null>(null);
   /** A text waiting for its card's drawer: the comment or description a pick from anywhere came back into. */
   private readonly pickedText = signal<PickedText | null>(null);
+  /** The history entry a reference points at: the open drawer scrolls to it and flashes it, then clears this. */
+  readonly entryToShow = signal<number | null>(null);
+  private readonly liveCache = new Map<string, { readonly ref: MentionRef; readonly value: WritableSignal<LiveMention | null> }>();
+  private readonly requirementsCache = new Map<string, Observable<RequirementsView>>();
+  private readonly numberedCache = new Map<string, Observable<CallRecord[]>>();
 
   constructor() {
+    // A card's status or an item's verdict changed: chips read their reference again - at most every few seconds, so a
+    // burst of changes while Claude works is one look-up per chip, not one per change.
+    let pending: ReturnType<typeof setTimeout> | null = null;
+    const what = new Set<'cards' | 'items'>();
+    inject(BoardSocketService).events$.subscribe((e) => {
+      if (e.type !== 'board-changed') return;
+      if (e.what === 'card') what.add('cards');
+      else if (e.what === 'requirements' || e.what === 'checklist') what.add('items');
+      else return;
+      pending ??= setTimeout(() => {
+        pending = null;
+        this.refresh(what.has('cards'), what.has('items'), false);
+        what.clear();
+      }, 3000);
+    });
     // Back from "Pick from anywhere" (the page this lives on may have been rebuilt meanwhile): link what was picked.
     effect(() => {
       if (this.picker.hasResult(BOARD_PICK_REQUESTER)) untracked(() => this.linkPicked());
@@ -155,6 +197,125 @@ export class BoardMentionsService {
       concatMap((p) => this.board.link(card.id, pickedMention(p)).pipe(catchError(() => of(null)))),
       toArray(),
     ).subscribe(() => this.cardToOpen.set({ project: card.project, number: card.number }));
+  }
+
+  // ------------------------------------------------------------------------------------------- live labels (021)
+
+  /**
+   * What a chip reads now: a card by its short name (or its title cut short) and status, an Acceptance item by its short
+   * name and verdict, a cycle's call by what it was - looked up once per reference and kept until {@link forget}. Null
+   * while it loads, and for a kind whose saved label is already its meaning.
+   */
+  live(ref: MentionRef): Signal<LiveMention | null> {
+    const key = `${ref.type.toLowerCase()}:${ref.ref}`;
+    let entry = this.liveCache.get(key);
+    if (!entry) {
+      entry = { ref, value: signal<LiveMention | null>(fromLabel(ref)) };
+      this.liveCache.set(key, entry);
+      this.ask(entry);
+    }
+    return entry.value;
+  }
+
+  /**
+   * Short names or statuses changed: the chips of cards and/or Acceptance items look their reference up again - each keeps
+   * what it reads until the new answer comes, so nothing flickers back to its saved label. A cycle's numbered calls
+   * never change; they are asked again only with `calls`.
+   */
+  refresh(cards = true, items = true, calls = false): void {
+    if (items) this.requirementsCache.clear();
+    if (calls) this.numberedCache.clear();
+    for (const entry of this.liveCache.values()) {
+      const type = mentionTypeOf(entry.ref);
+      if ((cards && type === 'card') || (items && type === 'spec') || (calls && cycleCallOf(entry.ref))) this.ask(entry);
+    }
+  }
+
+  /** The user changed a short name or a mark here: everything is read again. */
+  forget(): void {
+    this.refresh(true, true, false);
+  }
+
+  private ask(entry: { readonly ref: MentionRef; readonly value: WritableSignal<LiveMention | null> }): void {
+    // Never inside the reading computed: a cached look-up answers at once, and a signal may not be set there.
+    queueMicrotask(() => this.lookUp(entry.ref)?.subscribe({ next: (v) => entry.value.set(v), error: () => undefined }));
+  }
+
+  private lookUp(ref: MentionRef): Observable<LiveMention> | null {
+    const type = mentionTypeOf(ref);
+    if (type === 'card') {
+      const target = cardOf(ref);
+      if (!target) return null;
+      if (target.entry) {
+        return this.entryOf(target).pipe(map((e) => ({ label: e ? entryLabel(e.actor, e.kind, e.at, e.text) : ref.label, tone: null, state: null })));
+      }
+      return this.board.cardByNumber(target.project, target.number).pipe(map((c) => ({
+        label: cardLabel(c.shortName || shortOf(c.title), c.number), ...cardTone(c.status, c.resolution ?? null) })));
+    }
+    if (type === 'spec') {
+      const target = specOf(ref);
+      const n = acOf(target?.section);
+      if (!target || n === null) return null;
+      return this.itemOf(target.cycleId, n).pipe(map((item) => item
+        ? { label: acLabel(item.shortName || shortOf(item.text), n), ...itemTone(item) }
+        : { label: `AC${n} (no such item)`, tone: 'dim' as const, state: 'not found' }));
+    }
+    const numbered = cycleCallOf(ref);
+    if (numbered) {
+      return this.numbered(numbered.cycleId).pipe(map((calls) => {
+        const c = calls[numbered.n - 1];
+        if (!c) return { label: `call ${numbered.n} (not in the cycle)`, tone: 'dim' as const, state: 'not found' };
+        const status = c.response?.status ?? null;
+        return { label: cycleCallLabel(callMeaning(c.method, c.url, status), numbered.n), ...statusTone(status) };
+      }));
+    }
+    return null;
+  }
+
+  /** A cycle's Acceptance item n (AC1… in order), cached per cycle until {@link forget}. */
+  itemOf(cycleId: string, n: number): Observable<Requirement | null> {
+    let r = this.requirementsCache.get(cycleId);
+    if (!r) {
+      r = this.board.requirements(cycleId).pipe(shareReplay({ bufferSize: 1, refCount: false }));
+      this.requirementsCache.set(cycleId, r);
+    }
+    return r.pipe(map((v) => v.items[n - 1] ?? null), catchError(() => of(null)));
+  }
+
+  /** A cycle's calls in the order its numbers count them (both directions, no preflights, oldest first). */
+  numbered(cycleId: string): Observable<CallRecord[]> {
+    let r = this.numberedCache.get(cycleId);
+    if (!r) {
+      r = forkJoin([this.allCalls(cycleId, 'external'), this.allCalls(cycleId, 'internal')]).pipe(
+        map(([out, inn]) => numberedCalls([...out, ...inn], callTime)),
+        shareReplay({ bufferSize: 1, refCount: false }));
+      this.numberedCache.set(cycleId, r);
+    }
+    return r;
+  }
+
+  /** Every captured call of one direction, page by page (each answer holds at most the server's page limit). */
+  private allCalls(cycleId: string, source: CallEndpointSource): Observable<CallRecord[]> {
+    const pageSize = 200;
+    const page = (offset: number) => this.cycles.listCalls(cycleId, { search: '', supplier: '', sort: 'oldest-call', offset, limit: pageSize,
+      sessionId: '', operationId: '', requestId: '' } as CallsQuery, source, undefined, true);
+    let offset = 0;
+    return page(0).pipe(
+      expand((p) => {
+        offset += p.calls.length;
+        return p.calls.length === pageSize && offset < p.total ? page(offset) : EMPTY;
+      }),
+      reduce((all: CallRecord[], p) => [...all, ...p.calls.map((c) => c.call)], []));
+  }
+
+  /** The history entry a card reference points at: `/e<id>` by id, `/i<n>` by its place in the history (board_get's [n]). */
+  private entryOf(target: CardRefTarget): Observable<{ id: number; actor: string; kind: string; at: string; text: string | null } | null> {
+    const entry = target.entry;
+    if (!entry) return of(null);
+    return this.board.cardByNumber(target.project, target.number).pipe(
+      switchMap((c) => this.board.activity(c.id, 0, 1000)),
+      map((page) => (entry.by === 'i' ? page.entries[entry.n] : page.entries.find((e) => e.id === entry.n)) ?? null),
+      catchError(() => of(null)));
   }
 
   preview(ref: MentionRef): Observable<MentionPreview> {
@@ -243,19 +404,46 @@ export class BoardMentionsService {
 
   open(ref: MentionRef): void {
     const type = mentionTypeOf(ref);
+    const label = this.live(ref)()?.label ?? ref.label;
+    const numbered = cycleCallOf(ref);
+    if (numbered) {
+      // "call 75" of a cycle: its number found among the cycle's calls, then the call popup as for any call chip
+      this.numbered(numbered.cycleId).subscribe((calls) => {
+        const c = calls[numbered.n - 1];
+        if (c) this.callToShow.set({ direction: c.source === 'internal' ? 'in' : 'out', callId: c.id, cycleId: numbered.cycleId, label });
+      });
+      return;
+    }
     if (type === 'call' || type === 'stmt' || type === 'log' || type === 'redis') {
-      const call = type === 'call' ? callOf(ref) : { direction: 'in' as const, id: ref.ref.split('/')[0], cycleId: null };
-      if (call) this.callToShow.set({ direction: call.direction, callId: call.id, cycleId: call.cycleId, label: ref.label });
+      const [callId, rest] = ref.ref.split('/');
+      const call = type === 'call' ? callOf(ref) : { direction: 'in' as const, id: callId, cycleId: null };
+      const part = type === 'stmt' ? 'stmts' as const : type === 'log' ? 'logs' as const : type === 'redis' ? 'redis' as const : null;
+      const seq = part && part !== 'logs' && /^\d+$/.test(rest ?? '') ? Number(rest) : null;
+      if (call) this.callToShow.set({ direction: call.direction, callId: call.id, cycleId: call.cycleId, label, part, seq });
       return;
     }
     if (type === 'spec') {
       const target = specOf(ref);
-      if (target) this.specToShow.set(target);
+      const n = acOf(target?.section);
+      if (target && n !== null) {
+        // An Acceptance item: the spec file it is in, opened at it
+        this.itemOf(target.cycleId, n).subscribe((item) => { if (item) this.specToShow.set({ ...target, name: item.fileName }); });
+        return;
+      }
+      if (target && target.name !== '*') this.specToShow.set(target);
       return;
     }
     if (type === 'card') {
       const target = cardOf(ref);
-      if (target) this.cardToOpen.set(target);
+      if (!target) return;
+      if (target.entry) {
+        this.entryOf(target).subscribe((e) => {
+          this.entryToShow.set(e?.id ?? null);
+          this.cardToOpen.set({ project: target.project, number: target.number, entryId: e?.id ?? null });
+        });
+        return;
+      }
+      this.cardToOpen.set({ project: target.project, number: target.number });
       return;
     }
     if (type === 'cycle' || type === 'spacer') {
@@ -294,9 +482,50 @@ export function specOf(ref: MentionRef): SpecTarget | null {
   return { cycleId: ref.ref.slice(0, slash), name: hash < 0 ? rest : rest.slice(0, hash), section: hash < 0 ? null : rest.slice(hash + 1) };
 }
 
-export function cardOf(ref: MentionRef): CardTarget | null {
-  const m = /^(.*)#(\d+)$/.exec(ref.ref);
-  return m ? { project: m[1], number: Number(m[2]) } : null;
+/** A card reference, and (specs/021) the history entry it points at: `/e<entry id>`, or `/i<n>` - its place in the history. */
+export interface CardRefTarget extends CardTarget {
+  readonly entry?: { readonly by: 'i' | 'e'; readonly n: number } | null;
+}
+
+export function cardOf(ref: MentionRef): CardRefTarget | null {
+  const m = /^(.*)#(\d+)(?:\/([ie])(\d+))?$/.exec(ref.ref);
+  return m ? { project: m[1], number: Number(m[2]), entry: m[3] ? { by: m[3] as 'i' | 'e', n: Number(m[4]) } : null } : null;
+}
+
+/** A call chip's state is in its saved label ("POST /orders · 500"): no fetch for it. */
+function fromLabel(ref: MentionRef): LiveMention | null {
+  if (mentionTypeOf(ref) !== 'call' || cycleCallOf(ref)) return null;
+  const status = labelStatus(ref.label);
+  return status ? { label: null, ...statusTone(Number(status)) } : null;
+}
+
+/** The HTTP status a call label carries ("POST /orders · 500"), never a call number ("(call 500)"). */
+export function labelStatus(label: string): string | undefined {
+  return /·\s*([1-5]\d\d)(?=\s|$|\))/.exec(label)?.[1];
+}
+
+function statusTone(status: number | null): Pick<LiveMention, 'tone' | 'state'> {
+  if (!status) return { tone: null, state: null };
+  return { tone: status >= 500 ? 'bad' : status >= 400 ? 'warn' : null, state: String(status) };
+}
+
+function cardTone(status: CardStatus, resolution: Resolution | null): Pick<LiveMention, 'tone' | 'state'> {
+  const words = STATUS_LABELS[status] ?? status;
+  if (status === 'VERIFIED' || status === 'DONE') return { tone: 'ok', state: words };
+  if (status === 'FIXED') return { tone: 'info', state: words };
+  if (status === 'CLOSED') return { tone: 'dim', state: resolution ? `${words} · ${resolution.toLowerCase().replace(/_/g, ' ')}` : words };
+  return { tone: null, state: words };
+}
+
+function itemTone(item: Requirement): Pick<LiveMention, 'tone' | 'state'> {
+  if (item.mark === 'PASS') return { tone: 'ok', state: 'Your mark: pass' };
+  if (item.mark === 'FAIL') return { tone: 'bad', state: 'Your mark: fail' };
+  const v = item.verdict.verdict;
+  const state = VERDICT_LABELS[v] ?? v;
+  if (v === 'MET') return { tone: 'ok', state };
+  if (v === 'MISSING' || v === 'WRONG') return { tone: 'bad', state };
+  if (v === 'NO_DATA' || v === 'NOT_EXERCISED') return { tone: 'warn', state };
+  return { tone: null, state };
 }
 
 /** The lines under the heading whose slug is `section` (the whole text when none). */

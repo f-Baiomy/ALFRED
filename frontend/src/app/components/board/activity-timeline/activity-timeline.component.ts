@@ -2,13 +2,13 @@ import { TeamsStateService } from '../../../core/state/teams-state.service';
 import { TextDirectionStateService } from '../../../core/state/text-direction-state.service';
 import { choiceLabel, nextChoice } from '../../../shared/utils/text-direction';
 import { NgTemplateOutlet } from '@angular/common';
-import { Component, Injector, computed, inject, input, output, signal } from '@angular/core';
+import { Component, ElementRef, Injector, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
 import { ActivityEntry, MentionRef, REACTIONS, TextVersion } from '../../../core/models/board.models';
 import { BoardApiService } from '../../../core/services/board-api.service';
 import { GlobalVariablesService } from '../../../core/services/global-variables.service';
 import { copyRichToClipboard, copyToClipboard } from '../../../shared/utils/clipboard';
 import { blocksToHtml, textAsMarkdown, textAsPlain, textBlocks } from '../../../shared/utils/rich-html';
-import { CardPickTarget } from '../../../core/services/board-mentions.service';
+import { BoardMentionsService, CardPickTarget } from '../../../core/services/board-mentions.service';
 import { ClaudeParts, changeText, claudeParts } from '../../../shared/utils/board-activity';
 import { QuestionLine, questionLines, withoutBlocks } from '../../../shared/utils/question-blocks';
 import { HistoryItem, Reaction, historyThreads, openQuestions, reactionsOf } from '../../../shared/utils/board-threads';
@@ -37,7 +37,7 @@ export interface TimelineReply {
     <div class="board-timeline">
       @for (item of items(); track item.entry.id) {
         @if (item.entry.kind === 'COMMENT') {
-          <div class="board-ev" [class.claude]="item.entry.actor === 'CLAUDE'" [class.me]="item.entry.actor === 'USER'">
+          <div class="board-ev" [class.claude]="item.entry.actor === 'CLAUDE'" [class.me]="item.entry.actor === 'USER'" [attr.data-entry]="item.entry.id">
             <div class="board-ev-who"><b>{{ who(item.entry) }}</b> · {{ when(item.entry.at) }}
               @if (item.question) {
                 <span class="board-ev-badge" [class.answered]="item.answered">{{ item.answered ? '✓ answered' : 'waiting for you' }}</span>
@@ -82,7 +82,7 @@ export interface TimelineReply {
               @if (item.replies.length) { <span class="board-dim">{{ item.replies.length }} {{ item.replies.length === 1 ? 'reply' : 'replies' }}</span> }
             </div>
             @for (r of item.replies; track r.id) {
-              <div class="board-ev-reply" [class.claude]="r.actor === 'CLAUDE'">
+              <div class="board-ev-reply" [class.claude]="r.actor === 'CLAUDE'" [attr.data-entry]="r.id">
                 <div class="board-ev-who"><b>{{ who(r) }}</b> · {{ when(r.at) }}
                   @if (item.question && r.actor === 'USER') { <span class="board-dim">answer</span> }
                   <ng-container [ngTemplateOutlet]="dirSwitch" [ngTemplateOutletContext]="{ $implicit: r }" />
@@ -126,7 +126,7 @@ export interface TimelineReply {
             }
           </div>
         } @else {
-          <div class="board-ev sys">
+          <div class="board-ev sys" [attr.data-entry]="item.entry.id">
             @for (seg of change(item.entry); track $index) {
               @if (seg.mention; as m) { <app-mention-chip [mention]="m" [showPreview]="false" /> } @else { {{ seg.text }} }
             } · {{ when(item.entry.at) }}
@@ -218,6 +218,27 @@ export class ActivityTimelineComponent {
   readonly project = input('');
   readonly cycleId = input<string | null>(null);
   readonly card = input<CardPickTarget | null>(null);
+  private readonly host = inject(ElementRef<HTMLElement>);
+  private readonly mentions = inject(BoardMentionsService);
+
+  constructor() {
+    // specs/021: a reference to a comment ("your answer · 4:38 PM") opened this card - scroll to that entry and flash it.
+    effect(() => {
+      const id = this.mentions.entryToShow();
+      if (id === null || !this.entries().some((e) => e.id === id)) return;
+      untracked(() => {
+        this.mentions.entryToShow.set(null);
+        setTimeout(() => {
+          const el = (this.host.nativeElement as HTMLElement).querySelector(`[data-entry="${id}"]`) as HTMLElement | null;
+          if (!el) return;
+          el.scrollIntoView({ block: 'center' });
+          el.classList.remove('flash');
+          void el.offsetWidth;
+          el.classList.add('flash');
+        });
+      });
+    });
+  }
 
   /** Where a comment's snippets keep state and shots (specs/017): its card and entry; a part of a Did/Found/Next comment adds its place. */
   snippetOwner(entryId: number, part: number | null): string | null {

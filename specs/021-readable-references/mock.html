@@ -1,0 +1,611 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Readable References Mock</title>
+<style>
+/* Alfred's own dark theme tokens (frontend/src/styles.scss) */
+:root { --bg:#0a0e2a; --card:#141a45; --elev:linear-gradient(160deg,#141a45 0%,#101636 100%); --inner:#070a24; --panel:rgba(10,14,42,.55); --bg2:#0f1438;
+  --border:rgba(139,92,246,.22); --strong:rgba(139,92,246,.45); --purple:#8b5cf6; --pl:#c4b5fd; --cyan:#22d3ee; --text:#e5e9f5; --dim:#93a0c2; --faint:#5c6690;
+  --green:#34d399; --amber:#fbbf24; --red:#f87171; --tk:#c4b5fd; --ts:#6ee7d8; --tn:#fb923c; --tb:#f472b6; --tnull:#6b7394; --pop:#161c4a; --blue:#5b8cff; color-scheme:dark; }
+* { box-sizing:border-box; }
+body { margin:0; background:radial-gradient(ellipse at top,#131a4a 0%,#0a0e2a 55%) fixed; color:var(--text); font:14.5px/1.55 system-ui,"Segoe UI",sans-serif; padding:24px 16px 60px; }
+main { max-width:1200px; margin:0 auto; }
+h1 { font-size:22px; margin:0 0 4px; } h2 { font-size:16px; margin:32px 0 8px; color:var(--pl); }
+.sub { color:var(--dim); margin:0 0 16px; max-width:960px; }
+.hint { font-size:12.5px; color:var(--cyan); margin:0 0 10px; }
+code, .mono { font:12.5px Consolas,"Cascadia Mono",monospace; }
+code { background:var(--inner); padding:1px 5px; border-radius:4px; }
+.grid2 { display:grid; grid-template-columns:1fr 1fr; gap:14px; } @media (max-width:900px){ .grid2 { grid-template-columns:1fr; } }
+.box { background:var(--elev); border:1px solid var(--border); border-radius:12px; padding:14px 16px; }
+.box h3 { margin:0 0 10px; font-size:12px; text-transform:uppercase; letter-spacing:.05em; color:var(--faint); }
+.box.before h3 { color:var(--red); } .box.after h3 { color:var(--green); }
+.ctitle { font-size:19px; font-weight:750; line-height:1.45; margin:0 0 6px; }
+.meta { display:flex; flex-wrap:wrap; gap:6px; align-items:center; font-size:12.5px; color:var(--dim); margin-bottom:8px; }
+.pill { border:1px solid var(--border); border-radius:8px; padding:1px 9px; background:var(--card); font-size:12.5px; }
+.reason { font-size:12.5px; color:var(--faint); font-style:italic; margin:6px 0 10px; line-height:1.9; }
+.desc { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:12px 14px; line-height:1.9; }
+.next { border:1px solid color-mix(in srgb,var(--purple) 45%,var(--border)); background:color-mix(in srgb,var(--purple) 8%,transparent); border-radius:10px; padding:8px 12px; margin-top:8px; }
+.next small { display:block; font-size:11px; color:var(--faint); letter-spacing:.05em; }
+.q { border:1px solid color-mix(in srgb,var(--green) 40%,var(--border)); border-radius:10px; padding:10px 12px; margin-top:10px; background:var(--card); line-height:1.9; }
+.q .h { font-weight:700; color:var(--pl); margin-right:6px; }
+.opts { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; } .opts > span { font-size:12.5px; border:1px solid var(--border); border-radius:6px; padding:1px 8px; color:var(--dim); }
+.bad { background:color-mix(in srgb,var(--red) 16%,transparent); border-radius:4px; padding:0 3px; color:var(--red); font-weight:600; font-style:normal; }
+
+/* ---- the EXISTING mention chip (.board-mention, .board-mention-<type>) - copied, not redesigned */
+.bm { display:inline-flex; align-items:center; gap:.2rem; padding:0 .4rem; border-radius:5px; font-size:11.5px; font-family:Consolas,"Cascadia Mono",monospace; font-style:normal; font-weight:400;
+  background:color-mix(in srgb,var(--purple) 16%,transparent); color:var(--pl); border:1px solid var(--border); cursor:pointer; white-space:nowrap; max-width:100%; vertical-align:baseline; line-height:1.55; }
+.bm:hover { border-color:var(--strong); }
+.bm-call { background:color-mix(in srgb,var(--cyan) 12%,transparent); color:var(--cyan); }
+.bm-log { background:color-mix(in srgb,var(--amber) 12%,transparent); color:var(--amber); }
+.bm-stmt { background:color-mix(in srgb,var(--green) 12%,transparent); color:var(--green); }
+.bm-code { background:color-mix(in srgb,var(--tb) 12%,transparent); color:var(--tb); }
+.bm-redis { background:color-mix(in srgb,var(--red) 10%,transparent); color:var(--red); }
+.bm .cd { opacity:.62; }
+.bm.static { cursor:default; }
+/* a plain word with a meaning: no mention type, so no chip - dotted underline, hover only (or opens a page) */
+.word { border-bottom:1px dotted var(--dim); cursor:help; font-style:normal; }
+.word.go { cursor:pointer; border-bottom-color:var(--cyan); }
+/* the EXISTING hover tip (.board-mention-tip) */
+#tip { display:none; position:fixed; z-index:400; width:340px; background:var(--pop); border:1px solid var(--strong); border-radius:9px; padding:.5rem .6rem; color:var(--text);
+  font:12px/1.45 system-ui,sans-serif; box-shadow:0 10px 30px rgba(0,0,0,.5); pointer-events:none; }
+#tip .l { display:block; overflow-wrap:anywhere; } #tip .l:first-child { font-weight:600; } #tip .dim { color:var(--faint); } #tip .new { color:var(--cyan); font-size:11px; margin-top:3px; display:block; }
+
+.controls { display:flex; flex-wrap:wrap; gap:18px; background:var(--card); border:1px solid var(--border); border-radius:12px; padding:12px 14px; margin:8px 0 14px; }
+.controls fieldset { border:0; margin:0; padding:0; } .controls legend { font-size:11.5px; color:var(--faint); text-transform:uppercase; letter-spacing:.05em; margin-bottom:4px; }
+.controls label { display:block; font-size:13px; cursor:pointer; }
+table { width:100%; border-collapse:collapse; font-size:13px; } th { text-align:left; color:var(--faint); font-weight:600; padding:6px 5px; border-bottom:1px solid var(--border); }
+td { padding:7px 5px; border-bottom:1px solid color-mix(in srgb,var(--border) 60%,transparent); vertical-align:top; }
+td input { width:100%; background:var(--inner); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:3px 7px; font:inherit; font-size:13px; }
+.raw { font:12px/1.55 Consolas,monospace; color:var(--red); }
+.how { font-size:12px; color:var(--dim); } .how b { color:var(--text); font-weight:600; }
+.foot { font-size:12px; color:var(--faint); }
+.tile { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:10px 12px; }
+.tile .t { font-weight:650; margin:4px 0; font-size:14px; line-height:1.7; }
+.tag { display:inline-block; font-size:11px; font-weight:700; padding:0 7px; border-radius:5px; background:color-mix(in srgb,var(--cyan) 18%,transparent); color:var(--cyan); }
+.flow { display:grid; grid-template-columns:1fr auto 1fr; gap:10px; align-items:start; } .flow .arrow { color:var(--faint); font-size:20px; padding-top:20px; }
+.rawbox { font:12.5px/1.6 Consolas,monospace; background:var(--inner); border:1px solid var(--border); border-radius:9px; padding:10px; white-space:pre-wrap; }
+.outbox { font-size:13px; line-height:1.95; background:var(--inner); border:1px solid var(--border); border-radius:9px; padding:10px; }
+.btn { font:inherit; font-size:12.5px; border:1px solid var(--strong); background:var(--card); color:var(--text); border-radius:8px; padding:3px 11px; cursor:pointer; }
+.btn:hover { border-color:var(--pl); } .btn.p { background:var(--blue); border-color:var(--blue); color:#fff; font-weight:600; }
+ul.plan li { margin-bottom:5px; }
+.ok { color:var(--green); } .warn { color:var(--amber); } .err { color:var(--red); }
+table.rows tr[data-call] { cursor:pointer; } table.rows tr[data-call]:hover td { background:color-mix(in srgb,var(--cyan) 8%,transparent); }
+tr.hl td { background:color-mix(in srgb,var(--purple) 18%,transparent); }
+
+/* ---- layers: every popup / drawer / page opens on top of the last; Esc or ✕ closes the top one */
+.layer { position:fixed; inset:0; background:rgba(5,7,20,.62); display:flex; align-items:flex-start; justify-content:center; padding:44px 16px; overflow:auto; }
+.layer.side { justify-content:flex-end; padding:0; }
+.x { background:none; border:0; color:var(--dim); font-size:20px; cursor:pointer; line-height:1; padding:2px 6px; }
+.x:hover { color:var(--text); }
+.newtag { display:inline-block; font:700 10px system-ui; letter-spacing:.05em; text-transform:uppercase; color:var(--cyan); border:1px dashed var(--cyan); border-radius:5px; padding:0 5px; margin-right:4px; vertical-align:middle; }
+.newbox { border:1px dashed color-mix(in srgb,var(--cyan) 55%,transparent); border-radius:9px; padding:8px 10px; margin:8px 0 4px; font-size:13px; line-height:1.9; background:color-mix(in srgb,var(--cyan) 5%,transparent); }
+
+/* the EXISTING call popup (mention-call-popup: .board-call-pop) */
+.cpop { width:min(740px,100%); background:var(--pop); border:1px solid var(--strong); border-radius:16px; box-shadow:0 20px 60px rgba(0,0,0,.55); display:flex; flex-direction:column; max-height:calc(100vh - 88px); }
+.cpop-head { display:flex; gap:10px; align-items:flex-start; padding:12px 14px; border-bottom:1px solid var(--border); }
+.cpop-title { flex:1; min-width:0; display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+.cpop-title .bm { font-size:12.5px; max-width:100%; overflow:hidden; text-overflow:ellipsis; }
+.badge { font-size:12px; color:var(--dim); border:1px solid var(--border); border-radius:99px; padding:0 9px; }
+.cpop-body { overflow:auto; padding:14px; }
+.cpop-foot { border-top:1px solid var(--border); padding:9px 14px; font-size:13px; color:var(--dim); display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+.lnk { background:none; border:0; color:var(--pl); text-decoration:underline; cursor:pointer; font:inherit; padding:0; }
+/* the EXISTING Live Calls call card (app-call-card) */
+.cc { background:var(--elev); border:1px solid var(--border); border-radius:14px; padding:14px 16px; }
+.cc-r { display:flex; flex-wrap:wrap; gap:7px; align-items:center; margin-bottom:9px; }
+.cc-r > * { font:600 12.5px system-ui; border-radius:7px; padding:3px 10px; border:1px solid var(--border); background:var(--bg2); color:var(--text); }
+.cc-r button { cursor:pointer; } .cc-r button:hover { border-color:var(--pl); }
+.cc .cbx { width:17px; height:17px; padding:0; border-radius:4px; }
+.cc .pm { color:#a5b8ff; border-color:#3a4b9a; background:#1b2560; }
+.cc .ps { color:var(--green); border-color:color-mix(in srgb,var(--green) 40%,transparent); background:color-mix(in srgb,var(--green) 12%,transparent); }
+.cc .pt { color:var(--green); background:#1d2340; }
+.cc .pp { color:#a5b8ff; background:#1b2560; border-color:#3a4b9a; }
+.cc .pdb { color:var(--green); background:color-mix(in srgb,var(--green) 8%,transparent); border-color:color-mix(in srgb,var(--green) 35%,transparent); }
+.cc .plg { color:#c8e66b; background:color-mix(in srgb,#c8e66b 10%,transparent); border-color:color-mix(in srgb,#c8e66b 40%,transparent); }
+.cc .prd { color:#f29b9b; background:color-mix(in srgb,var(--red) 8%,transparent); border-color:color-mix(in srgb,var(--red) 35%,transparent); }
+.cc .on { box-shadow:0 0 0 2px var(--cyan); }
+.cc .pcard { color:var(--amber); background:color-mix(in srgb,var(--amber) 9%,transparent); border-color:color-mix(in srgb,var(--amber) 45%,transparent); border-radius:99px; }
+.cc .pact { background:#252c55; }
+.cc-time { color:var(--faint); font-size:13px; margin:2px 0 9px; }
+.cc-url { display:flex; gap:9px; align-items:center; margin-bottom:9px; }
+.cc-url .u { font:700 12px system-ui; color:var(--ts); border:1px solid color-mix(in srgb,var(--ts) 40%,transparent); background:color-mix(in srgb,var(--ts) 10%,transparent); border-radius:6px; padding:2px 8px; }
+.cc-url .path { font:13px Consolas,monospace; color:var(--ts); flex:1; overflow-wrap:anywhere; } .cc-url .hosts { font-size:12px; color:var(--faint); border:1px solid var(--border); border-radius:6px; padding:1px 7px; }
+.cc-small { display:flex; gap:7px; margin-bottom:9px; } .cc-small span { font:12px Consolas,monospace; color:var(--faint); border:1px solid var(--border); border-radius:6px; padding:1px 7px; }
+.cc-tog { display:flex; flex-wrap:wrap; gap:6px; align-items:center; font-size:12px; color:var(--dim); margin-bottom:10px; }
+.cc-tog button { font:600 12.5px system-ui; border:1px solid var(--border); background:var(--bg2); color:var(--dim); border-radius:6px; padding:2px 10px; cursor:pointer; }
+.cc-tog button.on { background:var(--blue); color:#fff; border-color:var(--blue); }
+.cc-tog .coll { background:none; border:0; color:var(--dim); }
+.blk { background:var(--panel); border:1px solid var(--border); border-radius:10px; margin-bottom:10px; overflow:hidden; }
+.blk-h { display:flex; justify-content:space-between; align-items:center; font:700 12.5px system-ui; letter-spacing:.06em; color:var(--pl); padding:8px 12px; border-bottom:1px solid var(--border); }
+.blk-h .x { font-size:15px; }
+.blk-tools { display:flex; gap:7px; align-items:center; padding:8px 12px; flex-wrap:wrap; }
+.seg { display:inline-flex; border:1px solid var(--border); border-radius:6px; overflow:hidden; font-size:12px; } .seg span { padding:2px 9px; color:var(--dim); } .seg span.on { background:#252c55; color:var(--text); font-weight:600; }
+.blk-tools input { background:var(--bg2); border:1px solid var(--border); border-radius:6px; color:var(--text); padding:2px 8px; font-size:12px; width:200px; }
+.blk-tools .mini { font-size:12px; border:1px solid var(--border); border-radius:6px; padding:1px 8px; color:var(--dim); background:none; cursor:pointer; }
+pre.code { margin:0 12px 12px; background:var(--inner); border:1px solid var(--border); border-radius:8px; padding:8px 0; font:12.5px/1.6 Consolas,monospace; overflow:auto; max-height:240px; }
+pre.code .ln { display:inline-block; width:38px; text-align:right; margin-right:14px; color:var(--faint); user-select:none; }
+.tk { color:var(--tk); } .ts { color:var(--ts); } .tn { color:var(--tn); } .tb { color:var(--tb); } .tnull { color:var(--tnull); }
+.panel-rows { margin:0 12px 12px; } .panel-rows table { font-size:12.5px; } .panel-rows td.sql { font:12px/1.5 Consolas,monospace; }
+.panel-rows tr.focus td { background:color-mix(in srgb,var(--cyan) 14%,transparent); }
+.panel-rows tr.focus td:first-child { box-shadow:inset 3px 0 0 var(--cyan); }
+.lvl-WARN { color:var(--amber); font-weight:700; } .lvl-INFO { color:var(--green); } .lvl-ERROR { color:var(--red); font-weight:700; } .lvl-DEBUG { color:var(--faint); }
+
+/* the EXISTING spec viewer (.board-spec) */
+.spec { width:min(820px,100%); background:var(--pop); border:1px solid var(--strong); border-radius:14px; padding:12px 18px 18px; box-shadow:0 20px 60px rgba(0,0,0,.55); }
+.spec-bar { display:flex; justify-content:space-between; align-items:center; font-size:13px; color:var(--dim); padding-bottom:8px; border-bottom:1px solid var(--border); margin-bottom:10px; }
+.spec-bar b { color:var(--text); }
+.spec h1 { font-size:19px; margin:6px 0; } .spec h2 { font-size:15px; margin:16px 0 6px; color:var(--pl); }
+.spec .item { padding:6px 10px; border-radius:8px; font-size:13.5px; line-height:1.6; margin-bottom:3px; }
+.spec .item.hl { background:color-mix(in srgb,var(--purple) 16%,transparent); outline:1px solid var(--strong); }
+.spec .outline { float:right; width:170px; font-size:12px; color:var(--dim); border-left:1px solid var(--border); padding-left:10px; margin-left:14px; } .spec .outline div { padding:1px 0; }
+
+/* the EXISTING card drawer (.board-drawer) */
+.drawer { width:min(620px,100%); height:100vh; overflow:auto; background:var(--pop); border-left:1px solid var(--strong); padding:14px 18px 40px; box-shadow:-20px 0 60px rgba(0,0,0,.5); }
+.dh { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-bottom:6px; } .dh .num { font:700 15px system-ui; color:var(--pl); } .dh .grow { flex:1; }
+.dt { font-size:18px; font-weight:700; line-height:1.5; margin:4px 0 6px; }
+.dsec { font-size:11px; color:var(--faint); text-transform:uppercase; letter-spacing:.06em; margin:14px 0 5px; }
+.ent { border-left:2px solid var(--border); padding:4px 0 4px 10px; margin-bottom:8px; font-size:13px; line-height:1.85; border-radius:0 6px 6px 0; }
+.ent.flash { animation:flash 2.4s; } @keyframes flash { 0%,60% { background:color-mix(in srgb,var(--amber) 28%,transparent); } 100% { background:none; } }
+.chk { display:flex; flex-wrap:wrap; gap:8px; align-items:baseline; font-size:13px; padding:3px 0; line-height:1.8; } .chk .v { color:var(--amber); font-size:12px; }
+
+/* an Alfred page (Live Calls, Session Cycles, Interception) shown as it would open */
+.page { width:min(980px,100%); background:var(--bg); border:1px solid var(--strong); border-radius:12px; overflow:hidden; box-shadow:0 20px 60px rgba(0,0,0,.55); }
+.page .nav { display:flex; gap:4px; flex-wrap:wrap; background:linear-gradient(120deg,#1a1247,#0f1438 60%,#1a1247); padding:8px 12px; align-items:center; }
+.page .nav span { font-size:12.5px; color:var(--dim); padding:3px 10px; border-radius:7px; } .page .nav span.on { background:var(--purple); color:#fff; }
+.page .nav .x { margin-left:auto; }
+.page .pg { padding:14px 16px; overflow-x:auto; }
+.page .note { font-size:12.5px; color:var(--cyan); margin-top:10px; }
+.toast { position:fixed; left:50%; bottom:24px; transform:translateX(-50%) translateY(20px); opacity:0; transition:.25s; background:var(--pop); border:1px solid var(--green);
+  color:var(--text); border-radius:10px; padding:9px 14px; font-size:13px; z-index:500; max-width:min(760px,92vw); box-shadow:0 10px 30px rgba(0,0,0,.45); pointer-events:none; }
+.toast.on { opacity:1; transform:translateX(-50%) translateY(0); }
+.in { width:100%; background:var(--inner); color:var(--text); border:1px solid var(--border); border-radius:7px; padding:5px 8px; font:inherit; font-size:13px; margin-top:4px; }
+.acts { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+</style>
+</head>
+<body>
+<main>
+<h1>Readable references - mock</h1>
+<p class="sub">Claude writes in its own shorthand (AC8, #75, [6], f89e0b77…). Here every one becomes <b>Alfred's existing mention chip</b> -
+the same chip, hover tip and popup the board already uses for <code>@[call:…]</code>, <code>@[spec:…]</code>, <code>@[card:…]</code> - with its
+meaning written in it. A call opens the Live Calls call card; an acceptance item opens the spec viewer at that item; a card opens its drawer.
+Only what is marked <span class="newtag">new</span> does not exist yet. Nothing is built.</p>
+
+<div class="controls">
+  <fieldset><legend>How a reference reads</legend>
+    <label><input type="radio" name="form" value="both"> AC8 one-branch search (code + meaning)</label>
+    <label><input type="radio" name="form" value="meaning-first" checked> one-branch search (AC8)</label>
+    <label><input type="radio" name="form" value="meaning"> one-branch search (code on hover only)</label>
+  </fieldset>
+  <fieldset><legend>Card title</legend>
+    <label><input type="radio" name="title" value="plain"> plain meaning, code at the end</label>
+    <label><input type="radio" name="title" value="nocode"> plain meaning, no code (item linked)</label>
+    <label><input type="radio" name="title" value="old" checked> as today (the codes in it become chips)</label>
+  </fieldset>
+  <fieldset><legend>Short names from</legend>
+    <label><input type="radio" name="short" value="named" checked> a short name per item / card</label>
+    <label><input type="radio" name="short" value="cut"> derived: first words of the text</label>
+  </fieldset>
+</div>
+
+<h2>1 · Every shorthand Claude writes today, and the existing chip it becomes</h2>
+<div class="hint">▸ hover a chip for its tip · click it for its popup · every button in a popup works. Popups stack: a call opened from the spec viewer opens on top; Esc or ✕ closes the top one.</div>
+<div class="box" style="overflow-x:auto">
+  <table id="kinds" style="min-width:900px"></table>
+</div>
+
+<h2>2 · Card #49 - before and after</h2>
+<div class="hint">▸ the switches above change the "after" card; hover or click any chip.</div>
+<div class="grid2">
+  <div class="box before"><h3>Before (what you saw)</h3>
+    <div class="ctitle">Not exercised: Searching with one branch returns only that branch's requests (<span class="bad">AC8</span>)</div>
+    <div class="meta"><span class="pill">Closed · Fine - not an issue</span><span class="pill">TASK</span><span class="pill">QA</span></div>
+    <div class="reason">Reason: "User triage <span class="bad">[6]</span>: "the same as before". This follows <span class="bad">#47</span> and <span class="bad">#50</span>, which were closed as Fine.
+      <span class="bad">AC8</span> (single-branch search) is accepted without a re-test because there are no refund requests in the date range…"</div>
+    <div class="desc"><b>No search in this cycle sent exactly one branch id.</b> Calls <span class="bad">#75</span>, <span class="bad">#81</span> sent 3 branches.
+      <div class="next"><small>NEXT</small>Run <span class="bad">step 5</span>, then <span class="bad">/alfred-verify 49</span>.</div></div>
+    <div class="q"><span class="h">Triage</span>Triage: what should happen to <span class="bad">#49</span> (<span class="bad">AC8</span> one branch not exercised)?
+      <div class="opts"><span>To do ★</span><span>Merge into <span class="bad">#47</span></span><span>Fine</span></div></div>
+  </div>
+  <div class="box after"><h3>After</h3>
+    <div class="ctitle" id="aTitle"></div>
+    <div class="meta"><span class="pill">Closed · Fine - not an issue</span><span class="pill">TASK</span><span class="pill">QA</span></div>
+    <div class="reason" id="aReason"></div>
+    <div class="desc" id="aDesc"></div>
+    <div class="q" id="aQ"></div>
+  </div>
+</div>
+
+<h2>3 · Short names - where the few words come from</h2>
+<div class="hint">▸ edit a short name: every chip on the page follows.</div>
+<div class="grid2">
+  <div class="box"><h3>Acceptance items of 61813 (spec.md)</h3>
+    <table id="acTable"></table>
+    <p class="foot">Claude proposes one with each item; you edit it here or in the spec viewer. Missing → the first words of the text.</p></div>
+  <div class="box"><h3>Cards</h3>
+    <table id="cardTable"></table>
+    <p class="foot">Claude writes it with the card; you edit it in the drawer header. Missing → the title cut to its meaning.</p></div>
+</div>
+
+<h2>4 · How it is kept readable</h2>
+<div class="grid2">
+  <div class="box"><h3>When Claude writes (MCP, before saving)</h3>
+    <div class="flow">
+      <div class="rawbox">Triage [6]: #49 same as #47.
+AC8: calls #75, #81 sent 3
+branches (f89e0b77 before
+the build). Run step 5.</div>
+      <div class="arrow">→</div>
+      <div class="outbox" id="saved"></div>
+    </div>
+    <p class="foot">Each code is looked up and saved as the mention it is - <code>@[call:in:…@cycle|3 branches, All agencies]</code>,
+      <code>@[spec:…#AC8|one-branch search]</code>, <code>@[card:odeysys#47|All Agencies untested]</code> - so its label is the meaning, and
+      exports, "Copy as issue" and Jira read it too. A code it cannot find is left as written and Claude is told. <code>[6]</code> is never saved: it becomes who and when.</p></div>
+  <div class="box"><h3>When anyone reads (the board)</h3>
+    <p style="margin-top:0">A bare code in text written before this, or by you, is drawn as the same chip - looked up for display only:</p>
+    <div class="outbox">You wrote: "close this, <span id="userText"></span> is covered by the same re-test"</div>
+    <h3 style="margin-top:14px">Tile</h3>
+    <div class="tile"><span class="tag">TASK</span><div class="t" id="tileTitle"></div><div class="foot">#49 · ✦ Claude · 💬 2</div></div></div>
+</div>
+
+<h2>5 · Cards already written</h2>
+<div class="box">
+  <p style="margin-top:0">Cycle 61813 has 14 cards and 63 comments with bare codes.</p>
+  <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="fixOld">Rewrite them once (before / after per card, saved on your yes)</button><button class="btn" id="leaveOld">Leave them - the board shows the meaning on display</button></div>
+  <div class="rawbox" id="oldOut" style="margin-top:10px;min-height:2em;color:var(--text)"></div>
+</div>
+
+<h2>What gets built</h2>
+<ul class="plan">
+  <li><b>No new chip, no new popup.</b> Every reference is one of the existing mention types (call, stmt, log, redis, spec, card, cycle, rule, code) with its meaning as the label; it opens the popup that type opens today.</li>
+  <li><b>Small additions to existing popups</b> (marked <span class="newtag">new</span>): the call popup opens at the statement / log line / Redis command a stmt/log/redis chip points at; the spec viewer shows an acceptance item's verdict and its calls (each a call chip); the drawer scrolls to a comment a chip points at.</li>
+  <li><b>Plain words</b> for what has no page: verdicts (NO_DATA), check names (REQUEST_WHEN), app starts, listen batches, run ids - written out, with a hover tip.</li>
+  <li><b>Rule</b> (rules.md, MCP tool descriptions): never a bare code; history indexes never appear in text you read.</li>
+  <li><b>MCP on every write</b>: each shorthand is looked up and saved as its mention; <code>[i]</code> → who and when; an unknown code is reported back to Claude.</li>
+  <li><b>Short names</b>: optional per acceptance item and per card - Claude proposes, you edit; derived when missing.</li>
+  <li><b>Old cards</b>: readable at once on display; optionally rewritten once.</li>
+</ul>
+</main>
+
+<div id="tip"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const opt = (n) => document.querySelector(`input[name=${n}]:checked`).value;
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const cut = (t) => t.replace(/^(Not exercised|Missing feature|Wrong result): /, '').replace(/\s*\(.*\)$/, '').split(/\s+/).slice(0, 4).join(' ').toLowerCase();
+
+// ------------------------------------------------------------------------------------------------------ the data
+const AC = {
+  AC2: { text: 'Searching with All Agencies returns requests of every agency the Admin may access', short: 'All Agencies search', verdict: 'No data · 5 calls, all empty', calls: ['#75', '#81', '#88', '#108'] },
+  AC7: { text: 'Searching with All Branches returns requests of every branch the Admin may access', short: 'All Branches search', verdict: 'Not exercised · no call sent branchIds [-11]', calls: [] },
+  AC8: { text: "Searching with one branch returns only that branch's requests", short: 'one-branch search', verdict: 'Not exercised · every search sent 3 branches', calls: ['#75', '#81', '#88', '#108'] },
+  AC11: { text: 'Branch and Agency filters combine with PNR, dates, Refund Status and Request Type', short: 'filters combined', verdict: 'No data · 1 call, empty', calls: ['#108'] },
+};
+const CARDS = {
+  44: { title: "Missing feature: Searching with one branch returns only that branch's requests (and 1 more)", short: 'branch filter fix', status: 'Verified', kind: 'BUG' },
+  47: { title: 'Not exercised: Searching with All Agencies returns requests of every agency the Admin may access (AC2)', short: 'All Agencies untested', status: 'Closed · Fine', kind: 'TASK' },
+  49: { title: "Not exercised: Searching with one branch returns only that branch's requests (AC8)", short: 'one-branch search untested', status: 'Closed · Fine', kind: 'TASK' },
+  50: { title: 'Not exercised: Branch and Agency filters combine with PNR, dates, Refund Status and Request Type (AC11)', short: 'combined filters untested', status: 'Closed · Fine', kind: 'TASK' },
+};
+const acShort = (k) => (opt('short') === 'named' ? AC[k].short : cut(AC[k].text));
+const cardShort = (n) => (opt('short') === 'named' ? CARDS[n].short : cut(CARDS[n].title));
+const STATE = { marks: {}, steps: { 5: 'not seen yet' }, rule: true, pinned: {} };
+
+const SEARCH = '/odeysysadmin/Booking2/refunded-requests/search';
+const SEARCH_DB = [[1, 'SELECT a.branch_id FROM admin_branches a WHERE a.admin_id = ?', 1, 3],
+  [2, 'SELECT r.id, r.pnr, r.status FROM refund_requests r WHERE r.branch_id IN (?, ?, ?) AND r.agency_id IN (SELECT id FROM agencies WHERE branch_id IN (?, ?, ?)) AND r.created_at BETWEEN ? AND ?', 3, 0],
+  [3, 'SELECT COUNT(*) FROM refund_requests r WHERE r.branch_id IN (?, ?, ?) AND r.created_at BETWEEN ? AND ?', 2, 1]];
+const SEARCH_LOGS = [['INFO', 'RefundApprovalRequestController', 'search branches=[948, 10642, 965] agencies=[-11]'], ['WARN', 'AgencyService', 'agency list empty for branch 965'], ['INFO', 'RefundService', '0 requests']];
+const searchCall = (time, ms, short, body, cards) => ({ cycle: true, time, method: 'POST', path: SEARCH, status: 200, ms, short, req: body, res: { payload: [], total: 0 },
+  db: SEARCH_DB, logs: SEARCH_LOGS, redis: [['GET', 'agencies:948', '(nil)']], cards, answer: '200 · 0 rows' });
+const CALLDATA = {
+  'f89e0b77': { cycle: false, time: '14 Oct 2026, 2:50:12 PM', method: 'POST', path: SEARCH, status: 200, ms: 412, short: 'one branch, before the fix build',
+    req: { branchId: 948, agencyIds: [949, 10646], fromDate: '2026-10-07', toDate: '2026-10-14', page: 1, size: 10 }, res: { payload: [], total: 0 },
+    db: SEARCH_DB, logs: SEARCH_LOGS, redis: [['GET', 'agencies:948', '(nil)']], cards: [44], answer: '200 · 0 rows' },
+  '#74': { cycle: true, time: '10:20:58', method: 'POST', path: '/odeysysadmin/Admin2/agency/cache/clear', status: 200, ms: 12, short: 'cache cleared', req: { branchId: 948 }, res: { ok: true },
+    db: [], logs: [['INFO', 'AgencyCache', 'cleared agencies:948']], redis: [['DEL', 'agencies:948', '1']], cards: [], answer: '200 · ok' },
+  '#75': searchCall('10:21:05', 412, '3 branches, All agencies', { branchIds: [948, 10642, 965], agencyIds: [-11], fromDate: '2026-10-08', toDate: '2026-10-15', page: 1, size: 10 }, [47, 49]),
+  '#78': { cycle: true, time: '10:22:40', method: 'POST', path: '/odeysysadmin/Admin2/agency/by-branch', status: 200, ms: 88, short: 'agencies of 2 branches', req: { branchIds: [948, 10642] },
+    res: [{ id: 949, name: 'Cairo Main' }, { id: 10646, name: 'Giza' }, { id: 11201, name: 'Alex' }, { id: 11302, name: 'Nasr City' }],
+    db: [[1, 'SELECT id, name FROM agencies WHERE branch_id IN (?, ?)', 2, 4]], logs: [], redis: [['GET', 'agencies:948', '(nil)'], ['SET', 'agencies:948 [...] EX 300', 'OK']], cards: [], answer: '200 · 4 agencies' },
+  '#81': searchCall('10:24:12', 395, '3 branches, from 1 Oct', { branchIds: [948, 10642, 965], agencyIds: [-11], fromDate: '2026-10-01', toDate: '2026-10-15', page: 1, size: 10 }, [47, 49]),
+  '#88': searchCall('10:30:51', 401, '3 branches, from 1 Oct (again)', { branchIds: [948, 10642, 965], agencyIds: [-11], fromDate: '2026-10-01', toDate: '2026-10-15', page: 1, size: 10 }, [47]),
+  '#108': searchCall('11:02:09', 377, '3 branches, from 8 Oct', { branchIds: [948, 10642, 965], agencyIds: [-11], fromDate: '2026-10-08', toDate: '2026-10-15', page: 1, size: 10 }, [50]),
+};
+const callCode = (id) => (id.startsWith('#') ? `call ${id.slice(1)}` : id);
+
+// ---------------------------------------------------------------------- every kind: the EXISTING mention type it becomes
+// type: the existing mention type (chip colour + icon + popup) · word: no mention type, plain words with a tip
+const ICON = { call: '⇄', stmt: '◆', log: '▤', redis: '⬢', spec: '📄', code: '{ }', cycle: '◷', spacer: '┃', card: '▣', rule: '⚙' };
+const K = {
+  ac: (k) => ({ type: 'spec', mean: acShort(k), code: k, tip: [`📄 spec.md · ${k}`, esc(AC[k].text), `<span class="dim">${AC[k].verdict}</span>`], open: () => specView(k) }),
+  card: (n) => ({ type: 'card', mean: cardShort(n), code: `#${n}`, tip: [`#${n} ${esc(CARDS[n].title)}`, `<span class="dim">${CARDS[n].kind} · ${CARDS[n].status}</span>`], open: () => drawer(n) }),
+  call: (id) => { const d = CALLDATA[id]; return { type: 'call', mean: id.startsWith('#') ? d.short : `POST search · ${d.short}`, code: callCode(id),
+    tip: [`${d.method} ${d.path} ${d.status}`, `inbound · ${d.cycle ? 'in a cycle' : 'live'}`, `<span class="dim">${d.cycle ? '15 Oct ' : ''}${d.time} · ${d.answer}</span>`], open: () => callPop(id) }; },
+  stmt: () => ({ type: 'stmt', mean: 'SELECT refund_requests · 3 ms · 0 rows', code: 'SQL 2', tip: ['SQL 2 of call 75 (3 branches, All agencies)', esc(SEARCH_DB[1][1]), '3 ms'], open: () => callPop('#75', 'db', 2), focus: true }),
+  log: () => ({ type: 'log', mean: 'WARN agency list empty', code: 'log', tip: ['WARN AgencyService', 'agency list empty for branch 965', '<span class="dim">call 75 · 10:21:05</span>'], open: () => callPop('#75', 'logs', 2), focus: true }),
+  redis: () => ({ type: 'redis', mean: 'GET agencies:948 · miss', code: 'redis 1', tip: ['GET agencies:948 → (nil)', '<span class="dim">call 75 · 10:21:05</span>'], open: () => callPop('#75', 'redis', 1), focus: true }),
+  step: () => ({ type: 'spec', mean: 'step 5: pick 2 agencies, search', code: 'step 5', tip: ['📄 brief · step 5', 'Pick 2 agencies, Search - rows of both agencies', `<span class="dim">${STATE.steps[5]}</span>`], open: () => briefView() }),
+  hist: () => ({ type: 'card', mean: 'your answer · 4:38 PM', code: '', tip: ['#49 · your comment, 15 Oct 4:38 PM', 'Answers Triage: "the same as before"', '<span class="dim">was written [6] - an index only Claude\'s tools use; it never shows</span>'], open: () => drawer(49, 'ans') }),
+  code: () => ({ type: 'code', mean: 'RefundApprovalRequestController.search', code: ':88', tip: ['odeysysadmin-tt/…/RefundApprovalRequestController.java:88', '<span class="dim">click copies the path, as a code mention does today</span>'],
+    open: () => toast('Copied: odeysysadmin-tt/src/main/java/com/tt/refundedRequests/RefundApprovalRequestController.java:88 - a code mention copies its path, as today') }),
+  cycle: () => ({ type: 'cycle', mean: '61813 Refunded Requests filters', code: 'decc8783', tip: ['61813 Refunded Requests filters', '<span class="dim">STOPPED · 124 calls</span>'], open: () => cyclePage(null) }),
+  rule: () => ({ type: 'rule', mean: `delay agency lookup 3 s${STATE.rule ? '' : ' · off'}`, code: 'rule', tip: ['delay agency lookup', 'POST agency/by-branch · delay 3000 ms', `<span class="dim">${STATE.rule ? 'on' : 'off'}</span>`], open: () => interceptionPage() }),
+  ep: () => ({ word: true, mean: 'refunded-requests search', tip: ['Endpoint', 'POST /odeysysadmin/Booking2/refunded-requests/search', '<span class="dim">22 calls in this cycle</span>'], open: () => liveCalls() }),
+  run: () => ({ word: true, mean: 'your triage run at 3:58 PM', tip: ['/alfred-triage, started from the board', '15 Oct 3:58 PM · chat on LAPTOP-34BNETR7 · asked on 4 cards'] }),
+  verdict: () => ({ word: true, mean: 'ran, but every answer was empty', tip: ['No data', 'The item was exercised, but no answer had rows, so nothing proved it'] }),
+  check: () => ({ word: true, mean: 'counts only calls that send one branch', tip: ['REQUEST_WHEN $.branchIds one', 'A call counts for this item only when it sends exactly one branch'] }),
+  build: () => ({ word: true, mean: 'the app restart at 9:14 AM (has the fix)', tip: ['App start · odeysys · 15 Oct 09:14:12', 'Calls before it ran the old code'] }),
+  batch: () => ({ word: true, mean: 'calls 40-61, checked at 10:22', tip: ['Listen batch 3', '1 flagged'] }),
+};
+
+function chip(kind, arg, opts = {}) {
+  const r = K[kind](arg);
+  const a = esc(arg ?? '');
+  if (r.word) return `<span class="word ${r.open ? 'go' : ''}" data-k="${kind}" data-a="${a}">${esc(r.mean)}</span>`;
+  const form = opts.form ?? opt('form');
+  const label = !r.code || form === 'meaning' ? esc(r.mean)
+    : form === 'both' ? `<span class="cd">${esc(r.code)}</span> ${esc(r.mean)}` : `${esc(r.mean)} <span class="cd">(${esc(r.code)})</span>`;
+  return `<span class="bm bm-${r.type}${opts.static ? ' static' : ''}" ${opts.static ? '' : `tabindex="0" data-k="${kind}" data-a="${a}"`}><span>${ICON[r.type]}</span>${label}</span>`;
+}
+
+// --------------------------------------------------------------------------------------------- hover = the tip
+const tipEl = $('tip');
+const argOf = (c) => { const a = c.dataset.a; return a === '' ? undefined : c.dataset.k === 'card' ? +a : a; };
+document.addEventListener('mouseover', (e) => {
+  const c = e.target.closest('[data-k]');
+  if (!c) { tipEl.style.display = 'none'; return; }
+  const r = K[c.dataset.k](argOf(c));
+  const what = r.word ? (r.open ? 'click: opens it' : '') : r.focus ? 'click: opens its call, at this line' : 'click to open';
+  tipEl.innerHTML = r.tip.map((l) => `<span class="l">${l}</span>`).join('') + (what ? `<span class="new">${what}</span>` : '');
+  const b = c.getBoundingClientRect();
+  tipEl.style.display = 'block';
+  const below = b.bottom + 6 + tipEl.offsetHeight < innerHeight;
+  tipEl.style.left = `${Math.max(8, Math.min(b.left, innerWidth - 356))}px`;
+  tipEl.style.top = `${below ? b.bottom + 6 : b.top - tipEl.offsetHeight - 6}px`;
+});
+
+// ------------------------------------------------------------------------------- click = the popup; popups stack
+const layers = [];
+function layer(html, side, acts = {}) {
+  tipEl.style.display = 'none';
+  const el = document.createElement('div');
+  el.className = `layer${side ? ' side' : ''}`;
+  el.style.zIndex = 50 + layers.length * 10;
+  el.innerHTML = html;
+  el._acts = acts;
+  el.addEventListener('click', (e) => { if (e.target === el) closeTop(); });
+  document.body.appendChild(el);
+  layers.push(el);
+  return el;
+}
+function closeTop() { const el = layers.pop(); el?.remove(); tipEl.style.display = 'none'; }
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && layers.length) closeTop(); });
+document.addEventListener('click', (e) => {
+  if (e.target.closest('[data-close]')) { closeTop(); return; }
+  const act = e.target.closest('[data-act]');
+  if (act) { const l = act.closest('.layer'); l?._acts?.[act.dataset.act]?.(act); return; }
+  const c = e.target.closest('[data-k]');
+  if (c) { K[c.dataset.k](argOf(c)).open?.(); return; }
+  const row = e.target.closest('tr[data-call]');
+  if (row) callPop(row.dataset.call);
+});
+
+// ---------------------------------------- the EXISTING call popup: head chip + badges + "Open in …" + Live Calls card + "On cards"
+function json(v) {
+  return JSON.stringify(v, null, 4).split('\n').map((line, i) => `<span class="ln">${i + 1}</span>` + esc(line).replace(/(&quot;(?:[^&]|&(?!quot;))*?&quot;)(\s*:)?|(-?\d+(?:\.\d+)?)|\b(true|false)\b|\b(null)\b/g,
+    (m, s, colon, n, b, nul) => s ? `<span class="${colon ? 'tk' : 'ts'}">${s}</span>${colon ?? ''}` : n ? `<span class="tn">${n}</span>` : b ? `<span class="tb">${b}</span>` : `<span class="tnull">${nul}</span>`)).join('\n');
+}
+const reqHeaders = (d) => ({ Host: 'localhost:8080', Connection: 'keep-alive', 'Content-Length': String(JSON.stringify(d.req).length), 'Content-Type': 'application/json',
+  Origin: 'http://localhost:8500', Authorization: 'Bearer ••••••••', 'X-Alfred-Call': 'id=63dca95a; db=1; log=1; redis=1' });
+const resHeaders = (d) => ({ 'Content-Type': 'application/json', 'Content-Length': String(JSON.stringify(d.res).length), Date: 'Thu, 15 Oct 2026 07:21:05 GMT' });
+function block(title, inner, act) {
+  return `<div class="blk"><div class="blk-h">${title}<button class="x" data-act="${act}" title="Close">×</button></div>
+    <div class="blk-tools"><span class="seg"><span class="on">Flat</span><span>Tree</span></span><input placeholder="Find in block..."><button class="mini" data-act="copy">Copy</button></div>${inner}</div>`;
+}
+function callCard(id, s) {
+  const d = CALLDATA[id];
+  const warns = d.logs.filter((l) => l[0] === 'WARN').length;
+  const panel = s.panel === 'db' ? block(`DATABASE · ${d.db.length} STATEMENTS`, `<div class="panel-rows"><table><tr><th>#</th><th>Statement</th><th>Took</th><th>Rows</th></tr>${d.db.map((r) =>
+      `<tr class="${s.focusN === r[0] ? 'focus' : ''}"><td>${r[0]}</td><td class="sql">${esc(r[1])}</td><td>${r[2]} ms</td><td class="${r[3] === 0 ? 'warn' : ''}">${r[3]}</td></tr>`).join('') || '<tr><td colspan="4" class="foot">No statements.</td></tr>'}</table></div>`, 'db')
+    : s.panel === 'logs' ? block('LOGS · CAUGHT IN THE JVM', `<div class="panel-rows"><table>${d.logs.map((l, i) =>
+      `<tr class="${s.focusN === i + 1 ? 'focus' : ''}"><td class="mono">${d.time.slice(-8)}.${398 + i * 7}</td><td class="lvl-${l[0]}">${l[0]}</td><td class="mono">${l[1]}</td><td class="sql">${esc(l[2])}</td></tr>`).join('') || '<tr><td class="foot">No lines.</td></tr>'}</table></div>`, 'logs')
+    : s.panel === 'redis' ? block(`REDIS · ${d.redis.length} COMMANDS`, `<div class="panel-rows"><table><tr><th>#</th><th>Command</th><th>Reply</th></tr>${d.redis.map((r, i) =>
+      `<tr class="${s.focusN === i + 1 ? 'focus' : ''}"><td>${i + 1}</td><td class="sql">${esc(r[0] + ' ' + r[1])}</td><td class="mono">${esc(r[2])}</td></tr>`).join('')}</table></div>`, 'redis') : '';
+  const on = (p) => (s.parts.has(p) ? 'on' : '');
+  return `<div class="cc">
+    <div class="cc-r"><span class="cbx"></span><span class="pm">${d.method}</span><span class="ps">${d.status}</span><span class="pt">${d.ms}.00 ms</span><span class="pp">Odeysys</span>
+      <button class="pdb ${s.panel === 'db' ? 'on' : ''}" data-act="db">◆ DB ${d.db.length}</button></div>
+    <div class="cc-r"><button class="plg ${s.panel === 'logs' ? 'on' : ''}" data-act="logs">▤ Logs ${d.logs.length}${warns ? ` · ${warns} warn` : ''}</button>
+      <button class="prd ${s.panel === 'redis' ? 'on' : ''}" data-act="redis">⬢ Redis ${d.redis.length}</button><button class="pact" data-act="newrule">⚡+ Rule</button></div>
+    <div class="cc-r">${d.cards.map((n) => `<button class="pcard" data-act="card" data-n="${n}">▣ #${n} ${CARDS[n].status.toLowerCase().replace(' · fine', '')}</button>`).join('')}
+      <button class="pact" data-act="board">+ Board</button><button class="pact" data-act="resend">Resend…</button><button class="pact" data-act="pin">${STATE.pinned[id] ? '★ Pinned' : '☆ Pin'}</button>
+      <button class="pact" data-act="export">Export ▾</button><button class="pact" data-act="relive">Relive ▾</button></div>
+    <div class="cc-time">${d.cycle ? '10/15/2026, ' + d.time + ' AM' : d.time}</div>
+    <div class="cc-url"><span class="u">URL</span><span class="path">${d.path}</span><span class="hosts">→ hosts</span></div>
+    <div class="cc-small"><span>Request: 63dca95a…</span><span>📌 Notes</span></div>
+    <div class="cc-tog">REQ <button class="${on('rh')}" data-act="rh">▾ Headers</button><button class="${on('rb')}" data-act="rb">▾ Body</button>
+      RES <button class="${on('sh')}" data-act="sh">▾ Headers</button><button class="${on('sb')}" data-act="sb">▾ Body</button><button class="coll" data-act="collapse">▲ collapse all</button></div>
+    ${panel}
+    ${s.parts.has('rh') ? block('REQUEST HEADERS', `<pre class="code">${json(reqHeaders(d))}</pre>`, 'rh') : ''}
+    ${s.parts.has('rb') ? block('REQUEST BODY', `<pre class="code">${json(d.req)}</pre>`, 'rb') : ''}
+    ${s.parts.has('sh') ? block('RESPONSE HEADERS', `<pre class="code">${json(resHeaders(d))}</pre>`, 'sh') : ''}
+    ${s.parts.has('sb') ? block('RESPONSE BODY', `<pre class="code">${json(d.res)}</pre>`, 'sb') : ''}
+  </div>`;
+}
+function callPop(id, panel, focusN) {
+  const d = CALLDATA[id];
+  const s = { parts: new Set(['rh', 'rb', 'sh', 'sb']), panel: panel ?? null, focusN };
+  const html = `<div class="cpop">
+    <div class="cpop-head"><div class="cpop-title">${chip('call', id, { static: true })}<span class="badge">inbound</span><span class="badge">${d.cycle ? 'in a cycle' : 'live'}</span>
+      ${panel ? `<span class="newtag">new</span><span class="foot">opened at the ${panel === 'db' ? 'statement' : panel === 'logs' ? 'log line' : 'Redis command'} the chip points at</span>` : ''}</div>
+      <button class="btn p" data-act="goto">${d.cycle ? 'Open in its cycle ↗' : 'Open in Live Calls ↗'}</button><button class="x" data-close title="Close (Esc)">✕</button></div>
+    <div class="cpop-body"></div>
+    ${d.cards.length ? `<div class="cpop-foot">On cards: ${d.cards.map((n) => `<button class="lnk" data-act="card" data-n="${n}">#${n} ${esc(CARDS[n].title)}</button> <span class="foot">(${CARDS[n].status})</span>`).join(' ')}</div>` : ''}
+  </div>`;
+  let el;
+  const draw = () => { el.querySelector('.cpop-body').innerHTML = callCard(id, s); el.querySelector('tr.focus')?.scrollIntoView({ block: 'center' }); };
+  const part = (p) => () => { s.parts.has(p) ? s.parts.delete(p) : s.parts.add(p); draw(); };
+  const pane = (p) => () => { s.panel = s.panel === p ? null : p; s.focusN = undefined; draw(); };
+  el = layer(html, false, {
+    rh: part('rh'), rb: part('rb'), sh: part('sh'), sb: part('sb'), db: pane('db'), logs: pane('logs'), redis: pane('redis'),
+    collapse: () => { s.parts.clear(); s.panel = null; draw(); },
+    copy: () => toast('Copied the block'),
+    goto: () => (d.cycle ? cyclePage(id) : liveCalls(id)),
+    card: (b) => drawer(+b.dataset.n),
+    newrule: () => interceptionPage(id),
+    board: () => toast('"+ Board" - pick a card, and this call is mentioned on it (as today)'),
+    resend: () => toast(`Resend… opens the resend editor with this request - ${d.method} ${d.path}`),
+    pin: () => { STATE.pinned[id] = !STATE.pinned[id]; draw(); toast(STATE.pinned[id] ? 'Pinned - kept out of the storage limits' : 'Unpinned'); },
+    export: () => toast('Export ▾ - .md / .json / .html / cURL / Postman of this call (as today)'),
+    relive: () => toast('Relive ▾ - add this call to a Relive Cycle (as today)'),
+  });
+  draw();
+}
+
+// -------------------------------------------------- the EXISTING spec viewer: an acceptance item opens spec.md at that item
+function specView(k) {
+  const items = Object.entries(AC).map(([key, v]) => `<div class="item ${key === k ? 'hl' : ''}" id="sv-${key}"><b>${key}</b> ${esc(v.text)}
+    ${key === k ? `<div class="newbox"><span class="newtag">new</span> Judged by the calls: <span class="warn">${v.verdict}</span>${STATE.marks[key] ? ` · your mark: <b>${STATE.marks[key]}</b>` : ''}<br>
+      Its calls: ${v.calls.length ? v.calls.map((c) => chip('call', c)).join(' ') : '<span class="foot">none</span>'}
+      <div class="acts"><button class="btn" data-act="mark" data-m="PASS">✓ Pass</button><button class="btn" data-act="mark" data-m="FAIL">✗ Fail</button><button class="btn" data-act="mark" data-m="CAN'T TELL">? Can't tell</button>
+      <span class="foot" style="align-self:center;margin-left:8px">Short name</span><input id="snIn" class="in" style="width:200px;margin:0" value="${esc(v.short)}"><button class="btn" data-act="short">Save</button></div></div>` : ''}</div>`).join('');
+  layer(`<div class="spec"><div class="spec-bar"><span>📄 <b>spec.md</b> · cycle 61813</span><span><button class="lnk" data-act="dl">Download</button> · <button class="lnk" data-close>Close</button></span></div>
+    <div class="outline"><b>Outline</b><div>Refunded Requests filters</div><div>· Scope</div><div>· Acceptance</div>${Object.keys(AC).map((x) => `<div style="padding-left:10px;${x === k ? 'color:var(--pl);font-weight:700' : ''}">${x}</div>`).join('')}</div>
+    <h1>61813 - Refunded Requests: Branch and Agency filters</h1><p class="foot">The Admin filters refunded requests by branch and agency; "All" means every one the Admin may access.</p>
+    <h2>Acceptance</h2>${items}<p class="foot" style="clear:both">The spec viewer opens scrolled to ${k}, highlighted - the way a spec mention opens a section today.</p></div>`, false, {
+    dl: () => toast('Downloaded spec.md'),
+    mark: (b) => { STATE.marks[k] = b.dataset.m; closeTop(); specView(k); render(); toast(`${k} marked ${b.dataset.m} - the checklist shows it`); },
+    short: () => { const v = $('snIn').value.trim(); if (!v) return; AC[k].short = v; tables(); render(); closeTop(); specView(k); toast(`Short name saved - every chip of ${k} reads "${v}"`); },
+  });
+  setTimeout(() => $(`sv-${k}`)?.scrollIntoView({ block: 'center' }), 0);
+}
+function briefView() {
+  const steps = ['Open Refunded Requests ✓', 'Pick 2 branches, search ✓', 'Pick All Branches, search ○', 'Pick 1 branch, search ○', `Pick 2 agencies, Search - rows of both agencies <span class="foot">(${STATE.steps[5]})</span>`, 'All Agencies + 1 branch, search ○'];
+  layer(`<div class="spec"><div class="spec-bar"><span>📄 <b>brief</b> · cycle 61813</span><span><button class="lnk" data-close>Close</button></span></div>
+    <h2>Test steps</h2>${steps.map((t, i) => `<div class="item ${i === 4 ? 'hl' : ''}"><b>${i + 1}.</b> ${t}${i === 4 ? `<div class="acts"><button class="btn" data-act="seen">✓ Seen</button><button class="btn" data-act="fail">✗ Failed</button></div>` : ''}</div>`).join('')}
+    <p class="foot">The brief opens at step 5, the way a spec mention opens a section.</p></div>`, false, {
+    seen: () => { STATE.steps[5] = '✓ seen · by you'; closeTop(); render(); toast('Step 5 marked seen'); },
+    fail: () => { STATE.steps[5] = '✗ failed'; closeTop(); render(); toast('Step 5 marked failed - Claude is asked which card it belongs to'); },
+  });
+}
+
+// ------------------------------------------------------------- the EXISTING card drawer: a card chip opens its drawer
+function drawer(n, focus) {
+  const c = CARDS[n];
+  const body = n === 49 ? `<b>No search in this cycle sent exactly one branch id</b> - ${chip('call', '#75')} and ${chip('call', '#81')} sent 3 branches.
+      <div class="next"><small>NEXT</small>Run ${chip('step')}, then re-test.</div>`
+    : `Every search after ${chip('build')} for ${chip('ac', n === 47 ? 'AC2' : n === 50 ? 'AC11' : 'AC8')} returned no rows - ${chip('call', '#75')}, ${chip('call', '#108')}.`;
+  const el = layer(`<div class="drawer">
+    <div class="dh"><span class="num">#${n}</span><span class="pill">${c.kind}</span><span class="pill">${c.status}</span><span class="pill">QA</span><span class="grow"></span>
+      <button class="btn" data-act="window">⧉ Window</button><button class="btn" data-act="issue">Copy as issue</button><button class="x" data-close title="Close">✕</button></div>
+    <div class="dt">${titleHtml(n)}</div>
+    <div class="foot">Short name: <b>${esc(cardShort(n))}</b> <button class="lnk" data-act="sn">edit</button></div>
+    <div class="dsec">Description</div><div class="desc">${body}</div>
+    <div class="dsec">Acceptance</div>${Object.keys(AC).map((k) => `<div class="chk"><span>${STATE.marks[k] === 'PASS' ? '☑' : '☐'}</span>${chip('ac', k)}<span class="v">${AC[k].verdict}</span></div>`).join('')}
+    <div class="dsec">Activity</div>
+    <div class="ent"><b>✦ Claude</b> · 4:01 PM · <i>Questions</i> - Triage: what should happen to ${chip('card', n)}?</div>
+    <div class="ent" id="dr-ans"><b>You</b> · 4:38 PM · <i>Answers</i> Triage: "the same as before"</div>
+    <div class="ent"><b>✦ Claude</b> · 4:39 PM · Closed as Fine, following ${chip('hist')}. Same as ${chip('card', 47)}.</div>
+  </div>`, true, {
+    window: () => toast(`Opened #${n} alone in a new window (the existing window view)`),
+    issue: () => issue(n),
+    sn: () => { const v = prompt('Short name', c.short); if (v) { c.short = v; tables(); render(); closeTop(); drawer(n); } },
+  });
+  if (focus === 'ans') { const a = el.querySelector('#dr-ans'); a.scrollIntoView({ block: 'center' }); a.classList.add('flash'); }
+}
+function issue(n) {
+  const md = `## ${CARDS[n].title.replace(/\s*\(AC\d+\)$/, '')}\n\n**Status:** ${CARDS[n].status} · **Teams:** QA · **Cycle:** 61813 Refunded Requests filters\n\n`
+    + `No search in this cycle sent exactly one branch id:\n- POST search, 15 Oct 10:21 - 3 branches, All agencies → 200, 0 rows\n- POST search, 15 Oct 10:24 - 3 branches, from 1 Oct → 200, 0 rows\n\n`
+    + `**Acceptance item:** AC8 - Searching with one branch returns only that branch's requests\n\n_From Alfred · odeysys #${n}_`;
+  layer(`<div class="spec"><div class="spec-bar"><span>Copied - "Copy as issue"</span><button class="x" data-close>✕</button></div><pre class="rawbox">${esc(md)}</pre>
+    <p class="foot">Every chip is written out with its meaning - no AC8, #75 or call id a reader in Jira cannot open.</p></div>`);
+}
+
+// ----------------------------------------------------------- pages a chip navigates to today (cycle, rule) or "Open in …"
+const NAV = ['Live Calls', 'Session Cycles', 'Board', 'Profiles', 'Settings', 'Relive Cycles', 'Logs'];
+const page = (on, body, note, acts) => layer(`<div class="page"><div class="nav">${NAV.map((t) => `<span class="${t === on ? 'on' : ''}">${t}</span>`).join('')}<button class="x" data-close>✕</button></div>
+  <div class="pg">${body}${note ? `<div class="note">${note}</div>` : ''}</div></div>`, false, acts);
+const callTable = (ids, hl) => `<table class="rows"><tr><th>Call</th><th>Time</th><th>Request</th><th>Answer</th></tr>${ids.map((id) => { const d = CALLDATA[id];
+  return `<tr class="${id === hl ? 'hl' : ''}" data-call="${id}"><td>${chip('call', id)}</td><td>${d.time}</td><td class="mono">${d.method} ${d.path.split('/').slice(-2).join('/')}</td><td class="${/ 0 rows/.test(d.answer) ? 'warn' : 'ok'}">${d.answer}</td></tr>`; }).join('')}</table>`;
+function cyclePage(hl) {
+  page('Session Cycles', `<h3 style="margin:0 0 8px">61813 Refunded Requests filters <span class="foot">· STOPPED · 124 calls</span></h3>${callTable(['#74', '#75', '#78', '#81', '#88', '#108'], hl)}`,
+    hl ? `The cycle, every call listed, scrolled to ${callCode(hl)} - what "Open in its cycle ↗" does today. Each row opens its call popup.` : 'The cycle page - what a cycle mention opens today.');
+}
+function liveCalls(hl) {
+  page('Live Calls', `<div class="foot" style="margin-bottom:8px">Inbound · odeysys${hl ? '' : ' · filtered to POST …/refunded-requests/search'}</div>${callTable(hl ? ['f89e0b77', '#75', '#81'] : ['#75', '#81', '#88', '#108'], hl)}`,
+    hl ? 'Live Calls, scrolled to the call - what "Open in Live Calls ↗" does today.' : 'Live Calls filtered to this endpoint.');
+}
+function interceptionPage(from) {
+  page('Settings', `<h3 style="margin:0 0 8px">Interception${from ? ' · new rule from ' + esc(callCode(from)) : ''}</h3>
+    <table><tr><th>Rule</th><th>Match</th><th>Action</th><th>State</th></tr><tr class="${from ? '' : 'hl'}"><td>delay agency lookup</td><td class="mono">POST /odeysysadmin/Admin2/agency/by-branch</td><td>delay 3000 ms</td>
+    <td><button class="btn" data-act="toggle">${STATE.rule ? 'on' : 'off'}</button></td></tr></table>`, 'The Interception page - what a rule mention opens today.',
+    { toggle: () => { STATE.rule = !STATE.rule; closeTop(); interceptionPage(from); render(); toast(`Rule turned ${STATE.rule ? 'on' : 'off'}`); } });
+}
+
+let toastTimer;
+function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('on'), 4000); }
+
+// ------------------------------------------------------------------------------------------------- the page
+const ROWS = [
+  ['Acceptance item', 'AC8', ['ac', 'AC8'], 'spec 📄', 'The spec viewer at that item <span class="newtag">new</span> its verdict and calls'],
+  ['Card', '#47', ['card', 47], 'card ▣', 'The card drawer'],
+  ['Call (id)', 'f89e0b77', ['call', 'f89e0b77'], 'call ⇄', 'The call popup: the Live Calls card, "Open in Live Calls ↗"'],
+  ['Call (cycle number)', 'calls #75, #81', ['call', '#75'], 'call ⇄', 'The call popup, "Open in its cycle ↗"'],
+  ['SQL statement', 'stmt 2', ['stmt'], 'stmt ◆', 'The call popup <span class="newtag">new</span> at that statement'],
+  ['Log line', 'WARN line', ['log'], 'log ▤', 'The call popup <span class="newtag">new</span> at that line'],
+  ['Redis command', 'GET agencies:948', ['redis'], 'redis ⬢', 'The call popup <span class="newtag">new</span> at that command'],
+  ['Test step', 'step 5', ['step'], 'spec 📄 (the brief)', 'The brief at that step'],
+  ['History index', '[6]', ['hist'], 'card ▣ (a comment)', 'The drawer <span class="newtag">new</span> scrolled to that comment'],
+  ['Code line', 'Controller.java:88', ['code'], 'code { }', 'Copies the path (as today)'],
+  ['Cycle id', 'decc8783', ['cycle'], 'cycle ◷', 'The cycle page (as today)'],
+  ['Interception rule', 'rule 3f2a…', ['rule'], 'rule ⚙', 'The Interception page (as today)'],
+  ['Endpoint / signature', 'ok|POST /…/search', ['ep'], 'plain words', 'Live Calls filtered to it'],
+  ['Board run id', 'run 55fad7c9', ['run'], 'plain words', 'Hover only - nothing to open'],
+  ['Verdict word', 'NO_DATA', ['verdict'], 'plain words', 'Hover only'],
+  ['Check name', 'REQUEST_WHEN', ['check'], 'plain words', 'Hover only'],
+  ['App start / build', 'appStarted 09:14Z', ['build'], 'plain words', 'Hover only'],
+  ['Listen batch', 'batch 3', ['batch'], 'plain words', 'Hover only'],
+];
+function titleHtml(n) {
+  const t = opt('title');
+  const ac = n === 47 ? 'AC2' : n === 50 ? 'AC11' : 'AC8';
+  if (n !== 49) return t === 'old' ? esc(CARDS[n].title.replace(/\s*\(AC\d+\)$/, '')) + ' ' + chip('ac', ac) : esc(cardShort(n)) + (t === 'plain' ? ' · ' + chip('ac', ac) : '');
+  return t === 'old' ? `Not exercised: Searching with one branch returns only that branch's requests ${chip('ac', 'AC8')}`
+    : t === 'nocode' ? 'One-branch search never tried' : `One-branch search never tried · ${chip('ac', 'AC8')}`;
+}
+function render() {
+  $('kinds').innerHTML = '<tr><th style="width:13%">Kind</th><th style="width:13%">Claude writes today</th><th style="width:30%">Becomes</th><th style="width:15%">Existing mention type</th><th>Click opens</th></tr>'
+    + ROWS.map(([kind, raw, [k, a], type, how]) => `<tr><td>${kind}</td><td class="raw">${esc(raw)}</td><td>${chip(k, a)}</td><td class="how">${type}</td><td class="how">${how}</td></tr>`).join('');
+  $('aTitle').innerHTML = titleHtml(49);
+  $('aReason').innerHTML = `Reason: ${chip('hist')}: "the same as before". Same as ${chip('card', 47)} and ${chip('card', 50)}, closed as Fine. `
+    + `${chip('ac', 'AC8')} is accepted without a re-test - no refund requests in the date range.`;
+  $('aDesc').innerHTML = `<b>No search in this cycle sent exactly one branch id</b> - ${chip('call', '#75')} and ${chip('call', '#81')} sent 3 branches; `
+    + `the one that did, ${chip('call', 'f89e0b77')}, ran before ${chip('build')}. Its SQL ${chip('stmt')} found nothing, and the app logged ${chip('log')}.`
+    + `<div class="next"><small>NEXT</small>Run ${chip('step')}, then re-test ${chip('card', 49)}.</div>`;
+  $('aQ').innerHTML = `<span class="h">Triage</span>What should happen to ${chip('card', 49)}? ${chip('ac', 'AC8')} was never tried.`
+    + `<div class="opts"><span>To do ★</span><span>Merge into ${chip('card', 47)}</span><span>Fine</span></div>`;
+  $('saved').innerHTML = `${chip('hist')}: ${chip('card', 49)} same as ${chip('card', 47)}.<br>${chip('ac', 'AC8')}: calls ${chip('call', '#75')}, `
+    + `${chip('call', '#81')} sent 3 branches (${chip('call', 'f89e0b77')} before the build). Run ${chip('step')}.`;
+  $('userText').innerHTML = chip('ac', 'AC11');
+  $('tileTitle').innerHTML = titleHtml(49);
+}
+function tables() {
+  $('acTable').innerHTML = '<tr><th style="width:12%">Item</th><th>Text</th><th style="width:34%">Short name</th></tr>'
+    + Object.entries(AC).map(([k, v]) => `<tr><td class="mono">${k}</td><td>${esc(v.text)}</td><td><input data-ac="${k}" value="${esc(v.short)}"></td></tr>`).join('');
+  $('cardTable').innerHTML = '<tr><th style="width:12%">Card</th><th>Title</th><th style="width:34%">Short name</th></tr>'
+    + Object.entries(CARDS).map(([k, v]) => `<tr><td class="mono">#${k}</td><td>${esc(v.title)}</td><td><input data-card="${k}" value="${esc(v.short)}"></td></tr>`).join('');
+  document.querySelectorAll('[data-ac]').forEach((i) => i.oninput = () => { AC[i.dataset.ac].short = i.value || cut(AC[i.dataset.ac].text); render(); });
+  document.querySelectorAll('[data-card]').forEach((i) => i.oninput = () => { CARDS[i.dataset.card].short = i.value || cut(CARDS[i.dataset.card].title); render(); });
+}
+document.querySelectorAll('input[type=radio]').forEach((r) => r.onchange = render);
+$('fixOld').onclick = () => { $('oldOut').textContent = 'Claude rewrites 14 cards and 63 comments once - each as before / after, saved on your yes:\n'
+  + '#49 reason  "User triage [6]: … follows #47 and #50"  →  "your answer (4:38 PM): … same as All Agencies untested (#47) and combined filters untested (#50)"\n'
+  + '#49 description  "Calls #75, #81 sent 3 branches"  →  "3 branches, All agencies (call 75) and 3 branches, from 1 Oct (call 81) sent 3 branches"\n…'; };
+$('leaveOld').onclick = () => { $('oldOut').textContent = 'Nothing is rewritten. The board draws every bare AC8 / #47 / [6] / call id as its mention chip, with hover and click; "Copy as issue" writes the meaning out.'; };
+tables(); render();
+</script>
+</body>
+</html>

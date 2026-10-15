@@ -10791,6 +10791,19 @@ app-name-suggest {
 .board-mention-stmt { background: color-mix(in srgb, var(--green) 12%, transparent); color: var(--green); }
 .board-mention-code { background: color-mix(in srgb, var(--tok-bool) 12%, transparent); color: var(--tok-bool); }
 .board-mention-redis { background: color-mix(in srgb, var(--red) 10%, transparent); color: var(--red); }
+// specs/021: the state of what a chip names - a card's status, an Acceptance item's verdict, a call's error status.
+.board-mention-dot { display: inline-block; width: 0.45rem; height: 0.45rem; border-radius: 50%; margin-left: 0.25rem; flex: none; background: var(--text-faint);
+  &.dot-ok { background: var(--green); } &.dot-warn { background: var(--amber); } &.dot-bad { background: var(--red); }
+  &.dot-info { background: var(--cyan); } &.dot-dim { background: var(--text-faint); }
+}
+// specs/021: a history entry a reference opened, pointed at for a moment.
+.board-ev.flash, .board-ev-reply.flash { animation: call-flash 2.4s ease-out; border-radius: 8px; }
+// specs/021: under the drawer title - what every mention of the card reads, and its short name.
+.board-drawer-short { font-size: 0.75rem; margin: -0.3rem 0 0.5rem; display: flex; gap: 0.35rem; align-items: baseline; flex-wrap: wrap; }
+.board-drawer-short-input { font-size: 0.78rem; padding: 0.15rem 0.4rem; min-width: 14rem; }
+// specs/021: three or more calls in a row read as one chip ("4 calls · 3 empty"); a click lays them out.
+.board-mention-group { display: inline; }
+.board-mention-group-list { display: inline-flex; flex-wrap: wrap; gap: 0.25rem; vertical-align: baseline; }
 .board-mention-tip { display: none; position: absolute; left: 0; top: 120%; z-index: 60; width: 340px; white-space: normal; background: var(--popover-solid); border: 1px solid var(--border-strong); border-radius: 9px; padding: 0.5rem 0.6rem; color: var(--text); font: 0.75rem/1.45 system-ui, sans-serif; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
   .board-mention-tip-line { display: block; overflow-wrap: anywhere; }
   .dim { color: var(--text-faint); }
@@ -11664,6 +11677,17 @@ app-run-skill { display: inline-flex; flex-direction: column; align-items: flex-
   input, textarea { background: var(--card-inner); color: var(--text); border: 1px solid var(--border-strong); border-radius: 6px; padding: 0.25rem 0.5rem; font: inherit; font-size: 0.8rem; }
 }
 .board-spec { max-width: 860px; width: 100%; }
+// specs/021: an Acceptance item a reference opened - its verdict, your marks, its short name and the calls judged for it.
+.board-spec-ac { border: 1px solid var(--border-strong); border-radius: 10px; padding: 0.5rem 0.7rem; margin: 0 0 0.7rem; font-size: 0.8rem;
+  background: color-mix(in srgb, var(--purple) 8%, transparent); display: flex; flex-direction: column; gap: 0.35rem; }
+.board-spec-ac-head { display: flex; gap: 0.5rem; align-items: baseline; flex-wrap: wrap; }
+.board-spec-ac-text { color: var(--text-dim); }
+.board-spec-ac-acts, .board-spec-ac-calls { display: flex; gap: 0.35rem; align-items: center; flex-wrap: wrap; }
+.board-spec-ac-short { font-size: 0.78rem; padding: 0.1rem 0.4rem; min-width: 12rem; }
+.board-spec-verdict { font-weight: 600; color: var(--text-dim);
+  &.v-MET { color: var(--green); } &.v-MISSING, &.v-WRONG { color: var(--red); } &.v-NO_DATA, &.v-NOT_EXERCISED { color: var(--amber); }
+}
+.board-spec li.board-spec-hl { background: color-mix(in srgb, var(--purple) 16%, transparent); outline: 1px solid var(--border-strong); border-radius: 6px; }
 .board-spec-bar { display: flex; justify-content: space-between; color: var(--text-faint); font-size: 0.78rem; border-bottom: 1px solid var(--border); padding-bottom: 0.4rem; margin-bottom: 0.5rem; }
 .board-checklist { list-style: none; padding: 0; margin: 0.25rem 0 0.4rem;
   li { display: flex; gap: 0.45rem; align-items: center; flex-wrap: wrap; padding: 0.3rem 0; border-top: 1px dashed var(--border); font-size: 0.8rem; }

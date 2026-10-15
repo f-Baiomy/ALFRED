@@ -6,7 +6,7 @@ import {
   CardRetest, ChecklistFile, ChecklistItem, CycleBrief, Expectation, Mark, MentionRef, NewCard, NextSteps, Resolution, RetestCheck, RetestPlan,
   RetestReport, RetestStep, SessionLogEntry, SpecFileInfo, Team, TeamEdit, TestStep,
   CycleChatInfo, EvidenceCheck, ItemEvidence, RequirementsView, SkillRun, SkillRunRequest, SkillRunsPage, TextVersion,
-  ActivityEntry, BoardQuestion, EntryAnswers, LiveRunnerInfo,
+  ActivityEntry, BoardQuestion, EntryAnswers, LiveRunnerInfo, ItemCall,
 } from '../models/board.models';
 import { AppConfigService } from './app-config.service';
 
@@ -210,6 +210,21 @@ export class BoardApiService {
   /** specs/018: each Acceptance item's verdict by the calls (reading judges what is new first). */
   requirements(cycleId: string): Observable<RequirementsView> {
     return this.http.get<RequirementsView>(`${this.base}/cycles/${encodeURIComponent(cycleId)}/requirements`);
+  }
+
+  /** specs/021: the calls judged for one Acceptance item, newest first. */
+  itemCalls(cycleId: string, fileName: string, itemKey: string): Observable<{ calls: ItemCall[] }> {
+    return this.http.get<{ calls: ItemCall[] }>(`${this.base}/cycles/${encodeURIComponent(cycleId)}/requirements/calls`, { params: { fileName, itemKey } });
+  }
+
+  /** specs/021: an Acceptance item's short name; blank clears it. */
+  setItemShortName(cycleId: string, fileName: string, itemKey: string, shortName: string): Observable<{ shortName: string }> {
+    return this.http.put<{ shortName: string }>(`${this.base}/cycles/${encodeURIComponent(cycleId)}/requirements/short-name`, { fileName, itemKey, shortName });
+  }
+
+  /** specs/021: a card's short name; blank clears it. */
+  setCardShortName(id: string, shortName: string): Observable<CardDetail> {
+    return this.http.put<CardDetail>(`${this.base}/cards/${encodeURIComponent(id)}/short-name`, { shortName });
   }
 
   putEvidence(cycleId: string, evidence: { fileName: string; itemKey: string; project: string; endpoint: string;

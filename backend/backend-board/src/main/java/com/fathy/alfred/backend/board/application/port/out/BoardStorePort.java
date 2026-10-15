@@ -305,6 +305,17 @@ public interface BoardStorePort {
         return java.util.Map.of();
     }
 
+    /**
+     * Short names (specs/021): the few words a mention reads. {@code kind} "card" is keyed by card id, "item" by
+     * {@code cycleId/fileName/itemKey}. A blank name removes it.
+     */
+    default java.util.Map<String, String> shortNames(String kind, java.util.Collection<String> owners) {
+        return java.util.Map.of();
+    }
+
+    default void putShortName(String kind, String owner, String shortName) {
+    }
+
     /** Open questions per card of a project (and cycle, when given) - the nav's count and the questions list. */
     java.util.Map<String, Integer> openQuestionCards(String project, String cycleId, java.time.Instant now);
 

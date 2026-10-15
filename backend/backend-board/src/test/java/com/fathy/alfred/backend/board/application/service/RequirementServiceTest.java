@@ -310,4 +310,34 @@ class RequirementServiceTest {
             live.stop();
         }
     }
+
+    @Test
+    void anItemsShortNameIsWhatItsMentionsReadAndClaudeMayOnlyGiveTheFirstOne() {
+        RequirementUseCase.NameChange first = service.setShortName(Actor.CLAUDE, CYCLE, "spec.md", key(6), "one-branch search");
+        assertThat(first.outcome()).isEqualTo(CardChange.Outcome.OK);
+        assertThat(service.requirements(CYCLE).items().get(5).shortName()).isEqualTo("one-branch search");
+        assertThat(service.requirements(CYCLE).items().get(0).shortName()).isNull();
+
+        assertThat(service.setShortName(Actor.CLAUDE, CYCLE, "spec.md", key(6), "single branch").outcome())
+                .isEqualTo(CardChange.Outcome.REFUSED_FOR_CLAUDE);
+        assertThat(service.setShortName(Actor.USER, CYCLE, "spec.md", key(6), "single branch").outcome()).isEqualTo(CardChange.Outcome.OK);
+        assertThat(service.requirements(CYCLE).items().get(5).shortName()).isEqualTo("single branch");
+
+        assertThat(service.setShortName(Actor.USER, CYCLE, "spec.md", key(6), "a|b").outcome()).isEqualTo(CardChange.Outcome.INVALID);
+        assertThat(service.setShortName(Actor.USER, CYCLE, "spec.md", "nope", "x").outcome()).isEqualTo(CardChange.Outcome.NOT_FOUND);
+        assertThat(service.setShortName(Actor.USER, CYCLE, "spec.md", key(6), " ").outcome()).isEqualTo(CardChange.Outcome.OK);
+        assertThat(service.requirements(CYCLE).items().get(5).shortName()).isNull();
+    }
+
+    @Test
+    void aCardsShortNameShowsOnTheBoardAndInTheDrawer() {
+        String id = f.add(Actor.CLAUDE, PROJECT, CardKind.TASK, "Not exercised: Searching with All Agencies returns requests (AC2)", "").card().id();
+        assertThat(f.board.setShortName(Actor.CLAUDE, id, "All Agencies  untested").outcome()).isEqualTo(CardChange.Outcome.OK);
+        assertThat(f.board.get(id).orElseThrow().shortName()).isEqualTo("All Agencies untested");
+        assertThat(f.board.query(new com.fathy.alfred.backend.board.domain.model.CardQuery(PROJECT, null, null, null, null, null, false, null, 0, 50))
+                .cards().get(0).shortName()).isEqualTo("All Agencies untested");
+        assertThat(f.board.setShortName(Actor.CLAUDE, id, "other").outcome()).isEqualTo(CardChange.Outcome.REFUSED_FOR_CLAUDE);
+        assertThat(f.board.setShortName(Actor.USER, id, "x".repeat(61)).outcome()).isEqualTo(CardChange.Outcome.INVALID);
+        assertThat(f.board.setShortName(Actor.USER, id, "agencies").card().shortName()).isEqualTo("agencies");
+    }
 }

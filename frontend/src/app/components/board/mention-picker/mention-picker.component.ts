@@ -9,6 +9,8 @@ import { InterceptionApiService } from '../../../core/services/interception-api.
 import { SessionCyclesApiService } from '../../../core/services/session-cycles-api.service';
 import { CallFinderComponent, FoundCall } from '../../call-finder/call-finder.component';
 import { callOf, slug } from '../../../shared/utils/mention-syntax';
+import { acLabel, callMeaning, cardLabel, cycleCallLabel, shortOf } from '../../../shared/utils/readable-refs';
+import { BoardMentionsService } from '../../../core/services/board-mentions.service';
 
 type Tab = 'call' | 'stmt' | 'log' | 'redis' | 'spec' | 'code' | 'other';
 
@@ -24,7 +26,7 @@ const TABS: readonly { readonly id: Tab; readonly label: string }[] = [
   { id: 'redis', label: `${MENTION_ICONS.redis} Redis` },
   { id: 'spec', label: `${MENTION_ICONS.spec} Spec files` },
   { id: 'code', label: `${MENTION_ICONS.code} Code` },
-  { id: 'other', label: `${MENTION_ICONS.cycle} Cycles · spacers · cards · rules` },
+  { id: 'other', label: `${MENTION_ICONS.cycle} Cards · cycle calls · cycles · spacers · rules` },
 ];
 
 /**
@@ -84,6 +86,7 @@ export class MentionPickerComponent {
   private readonly logs = inject(CallLogsApiService);
   private readonly cycles = inject(SessionCyclesApiService);
   private readonly rules = inject(InterceptionApiService);
+  private readonly mentions = inject(BoardMentionsService);
 
   readonly project = input('');
   readonly cycleId = input<string | null>(null);
@@ -216,19 +219,23 @@ export class MentionPickerComponent {
         done([]);
         return;
       }
-      this.board.specs(cycleId).pipe(catchError(() => of([]))).subscribe((files) => {
+      // specs/021: the Acceptance items first, each as "one-branch search (AC8)" - type AC8 to find it
+      forkJoin({ files: this.board.specs(cycleId).pipe(catchError(() => of([]))),
+        items: this.board.requirements(cycleId).pipe(map((v) => v.items), catchError(() => of([]))) }).subscribe(({ files, items }) => {
+        const acs = items.map((it, i) => ({ ref: { type: 'spec' as MentionType, ref: `${cycleId}/${it.fileName}#ac${i + 1}`,
+          label: acLabel(it.shortName || shortOf(it.text), i + 1) }, detail: it.text }));
         if (!files.length) {
-          done([]);
+          done(acs);
           return;
         }
         forkJoin(files.map((f) => this.board.spec(cycleId, f.name).pipe(catchError(() => of('')), map((text) => ({ f, text })))))
-          .subscribe((all) => done(all.flatMap(({ f, text }) => [
+          .subscribe((all) => done([...acs, ...all.flatMap(({ f, text }) => [
             { ref: { type: 'spec' as MentionType, ref: `${cycleId}/${f.name}`, label: f.name }, detail: 'whole file' },
             ...text.split(/\r?\n/).filter((l) => /^#{1,6}\s/.test(l.trim())).map((l) => {
               const heading = l.trim().replace(/^#{1,6}\s+/, '');
               return { ref: { type: 'spec' as MentionType, ref: `${cycleId}/${f.name}#${slug(heading)}`, label: `${f.name} §${heading}` }, detail: 'section' };
             }),
-          ])));
+          ])]));
       });
     } else {
       const cycleId = this.cycleId();
@@ -238,8 +245,13 @@ export class MentionPickerComponent {
         cards: this.board.cards(this.project(), null, { kinds: [], flags: [], author: null, scopeNotDecided: false, q: '' }).pipe(
           map((p) => p.cards), catchError(() => of([]))),
         rules: this.rules.listRules().pipe(catchError(() => of([]))),
-      }).subscribe(({ cycles, spacers, cards, rules }) => done([
-        ...cards.map((c) => ({ ref: { type: 'card' as MentionType, ref: `${c.project}#${c.number}`, label: c.title }, detail: `card #${c.number}` })),
+        calls: cycleId ? this.mentions.numbered(cycleId).pipe(catchError(() => of([]))) : of([]),
+      }).subscribe(({ cycles, spacers, cards, rules, calls }) => done([
+        // specs/021: a card reads "All Agencies untested (#47)" and a cycle's call "POST …/search · 200 (call 75)"
+        ...cards.map((c) => ({ ref: { type: 'card' as MentionType, ref: `${c.project}#${c.number}`, label: cardLabel(c.shortName || shortOf(c.title), c.number) },
+          detail: c.title })),
+        ...calls.map((c, i) => ({ ref: { type: 'call' as MentionType, ref: `${c.source === 'external' ? 'out' : 'in'}:${c.id}@${cycleId}`,
+          label: cycleCallLabel(callMeaning(c.method, c.url, c.response?.status ?? null), i + 1) }, detail: 'call of this cycle' })),
         ...cycles.map((c) => ({ ref: { type: 'cycle' as MentionType, ref: c.id, label: c.name }, detail: 'cycle' })),
         ...spacers.map((s) => ({ ref: { type: 'spacer' as MentionType, ref: `${cycleId}/${s.id}`, label: s.label }, detail: 'spacer' })),
         ...rules.map((r) => ({ ref: { type: 'rule' as MentionType, ref: r.id, label: r.name }, detail: 'rule' })),

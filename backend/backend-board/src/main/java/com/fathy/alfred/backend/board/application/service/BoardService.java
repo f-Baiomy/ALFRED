@@ -100,7 +100,7 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
         QueryCardsUseCase, GetCardUseCase, CloseCardUseCase, ReopenCardUseCase, SetReasonUseCase, UndoCloseUseCase, BulkCardsUseCase,
         LinkCardUseCase, CommentOnCardUseCase, ListActivityUseCase, ListClosedReasonsUseCase, CallBadgesUseCase,
         ListMentionedCallIdsUseCase, ProposeUseCase, CardLinksUseCase, AssignTeamsUseCase, CommentExtrasUseCase,
-        com.fathy.alfred.backend.board.application.port.in.QuestionsUseCase {
+        com.fathy.alfred.backend.board.application.port.in.QuestionsUseCase, com.fathy.alfred.backend.board.application.port.in.ShortNameUseCase {
 
     public static final int MAX_TITLE = 300;
     public static final int MAX_TEXT = 256 * 1024;
@@ -1003,6 +1003,28 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
     }
 
     @Override
+    public synchronized CardChange setShortName(Actor actor, String cardId, String shortName) {
+        Optional<Card> found = store.find(cardId);
+        if (found.isEmpty()) {
+            return CardChange.notFound();
+        }
+        String name = shortName == null ? "" : shortName.strip().replaceAll("\\s+", " ");
+        if (name.length() > MAX_SHORT_NAME) {
+            return CardChange.refused(CardChange.Outcome.INVALID, "A short name is a few words - at most " + MAX_SHORT_NAME + " characters");
+        }
+        if (name.contains("|") || name.contains("]")) {
+            return CardChange.refused(CardChange.Outcome.INVALID, "A short name cannot hold | or ]");
+        }
+        if (actor == Actor.CLAUDE && store.shortNames("card", List.of(cardId)).containsKey(cardId)) {
+            return CardChange.refused(CardChange.Outcome.REFUSED_FOR_CLAUDE, "This card already has a short name - only the user changes it");
+        }
+        store.putShortName("card", cardId, name);
+        Card card = found.get();
+        changed(card, "card");
+        return CardChange.ok(detail(card));
+    }
+
+    @Override
     public List<Question> questions(String cardId) {
         ensureIndexed();
         return store.questionsOf(cardId);
@@ -1461,6 +1483,7 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
         ensureIndexed();
         Map<String, Integer> questions = store.openQuestionCounts(ids, clock.instant());
         Map<String, String> advice = questions.isEmpty() ? Map.of() : store.openQuestionAdvice(questions.keySet(), clock.instant());
+        Map<String, String> shortNames = ids.isEmpty() ? Map.of() : store.shortNames("card", ids);
         Map<String, Map<String, SimilarClosed>> similar = new LinkedHashMap<>();
         cards.stream().filter(c -> c.status() == CardStatus.INBOX && c.signature() != null)
                 .collect(Collectors.groupingBy(Card::project, Collectors.mapping(Card::signature, Collectors.toSet())))
@@ -1469,7 +1492,7 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
                 chips.getOrDefault(c.id(), List.of()),
                 c.status() == CardStatus.INBOX && c.signature() != null
                         ? hintFor(c, similar.getOrDefault(c.project(), Map.of()).get(c.signature())) : null, proposals.get(c.id()), waiting.get(c.id()),
-                blockers.get(c.id()), questions.getOrDefault(c.id(), 0), advice.get(c.id()))).toList();
+                blockers.get(c.id()), questions.getOrDefault(c.id(), 0), advice.get(c.id()), shortNames.get(c.id()))).toList();
         return new CardsPage(rows, store.count(query), store.progress(query.project(), query.cycleId()));
     }
 
@@ -1571,7 +1594,7 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
                 .map(r -> new SpecItemLink(r[0], r[1], r[2], itemText(r[0], r[1], r[2]))).toList();
         return new CardDetail(full, comments, store.linksOf(full.id()), similar, store.proposal(full.id()).orElse(null),
                 store.waiting(full.id()).orElse(null), items, store.blockersOf(List.of(full.id())).getOrDefault(full.id(), List.of()), open,
-                unansweredQuestions(full.id()));
+                unansweredQuestions(full.id()), store.shortNames("card", List.of(full.id())).get(full.id()));
     }
 
     /** The most recently updated other card still open on this card's signature. */

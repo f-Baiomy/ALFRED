@@ -9,6 +9,7 @@ import { SessionCyclesApiService } from '../../../core/services/session-cycles-a
 import { CALL_ORIGIN, CallOrigin, LIVE_ORIGIN_LABEL } from '../../../core/state/call-origin.token';
 import { CALL_LIST_CONTROLS_STATE, CALL_SELECTION_STATE, CallListControlsState, CallSelectionState } from '../../../core/state/call-selection.tokens';
 import { CallCardComponent } from '../../call-card/call-card.component';
+import { DbWindowService } from '../../db-capture/db-window.service';
 
 /** Every block of the call open at once: the popup is there to show the whole call. */
 export const POPUP_OPEN_PARTS: readonly CallDetailPart[] = ['request-headers', 'request-body', 'response-headers', 'response-body'];
@@ -104,6 +105,7 @@ export class MentionCallPopupComponent {
   private readonly calls = inject(CallsApiService);
   private readonly cycles = inject(SessionCyclesApiService);
   private readonly board = inject(BoardApiService);
+  private readonly dbWindow = inject(DbWindowService);
 
   readonly target = this.mentions.callToShow;
   readonly call = signal<CallRecord | null>(null);
@@ -131,6 +133,8 @@ export class MentionCallPopupComponent {
       const sub = call$.pipe(catchError(() => of(null))).subscribe((c) => {
         this.call.set(c);
         this.gone.set(!c);
+        // specs/021: a statement, log line or Redis chip - its call here, and the database window at that part
+        if (c && t.part) this.dbWindow.openCall(c, t.part, t.cycleId, t.seq ?? null);
       });
       const badges = this.board.callBadges([t.callId]).pipe(catchError(() => of({} as Record<string, CallBadge[]>)))
         .subscribe((b) => this.cards.set(b[t.callId] ?? []));

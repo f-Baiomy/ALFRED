@@ -31,6 +31,8 @@ export interface VerdictRow {
 export interface RequirementRow {
   fileName: string; itemKey: string; text: string; mark: string | null; evidence: EvidenceRow | null; verdict: VerdictRow;
   cardNumber: number | null; cardStatus: string | null;
+  /** The few words every mention of the item reads (specs/021). */
+  shortName?: string | null;
 }
 export interface RequirementsView { cycleId: string; items: RequirementRow[]; counts: Partial<Record<Verdict, number>> }
 
@@ -66,7 +68,9 @@ export function requirementLine(ctx: MaskContext, r: RequirementRow, n: number, 
   const skipped = v.verdict === 'NOT_EXERCISED' && (v.counts?.skipped ?? 0) > 0
     ? ` · BUT ${v.counts.skipped} call${v.counts.skipped === 1 ? '' : 's'} to the endpoint did not match its REQUEST_WHEN - read them (an app's own "all" `
       + 'marker such as -11 needs shape has:-11) and fix the evidence with board_evidence_put before saying nobody tried it' : '';
-  return `AC${n} ${v.verdict}${card}${call} [${r.itemKey}] ${maskText(ctx, r.text)}${why}${skipped}`;
+  // specs/021: the few words its mentions read - "no short name" asks Claude to give one (board_short_name)
+  const named = r.shortName ? ` "${r.shortName}"` : ' (no short name)';
+  return `AC${n}${named} ${v.verdict}${card}${call} [${r.itemKey}] ${maskText(ctx, r.text)}${why}${skipped}`;
 }
 
 const CheckSchema = z.object({

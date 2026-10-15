@@ -1,4 +1,4 @@
-import { Component, input, output } from '@angular/core';
+import { Component, input, output, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { ActivityEntry } from '../../../core/models/board.models';
 import { MentionEditorComponent } from '../mention-editor/mention-editor.component';
@@ -29,7 +29,7 @@ function e(id: number, actor: ActivityEntry['actor'], text: string, replyTo: num
 
 describe('ActivityTimelineComponent', () => {
   function create(entries: ActivityEntry[], editable = true) {
-    TestBed.configureTestingModule({ imports: [ActivityTimelineComponent], providers: [{ provide: BoardMentionsService, useValue: {} }] })
+    TestBed.configureTestingModule({ imports: [ActivityTimelineComponent], providers: [{ provide: BoardMentionsService, useValue: { entryToShow: signal<number | null>(null) } }] })
       .overrideComponent(ActivityTimelineComponent, { remove: { imports: [MentionEditorComponent] }, add: { imports: [FakeEditorComponent] } });
     const fixture = TestBed.createComponent(ActivityTimelineComponent);
     fixture.componentRef.setInput('entries', entries);

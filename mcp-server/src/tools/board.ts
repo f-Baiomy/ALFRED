@@ -9,6 +9,7 @@ import { chunkText, fitItems, invalid, ok, preview, run, type ToolReply } from '
 import { MaskSchema } from './cycles.ts';
 import { answererText, liveAnswerer } from './live.ts';
 import { countsLine, readRequirements } from './requirements.ts';
+import { ReadableWriter } from '../readable.ts';
 
 /**
  * The task board (specs/014-task-board contracts/mcp-tools.md, docs/board.md "Claude"). Every request says it is Claude,
@@ -77,6 +78,8 @@ const Link = z.object({
 });
 const Project = z.string().default('').describe('Project name; "" is "No project"');
 const CardNumber = z.number().int().min(1);
+/** specs/021: what every mention of the card reads - "All Agencies untested" → "All Agencies untested (#47)". */
+const ShortName = z.string().max(60).optional().describe('A few words every mention of the card reads, e.g. "All Agencies untested" - give one');
 const Expectation = z.object({
   kind: z.enum(['SQL_COUNT', 'STATUS', 'NO_LOG', 'DURATION', 'SAME_RESPONSE']),
   table: z.string().max(200).optional(),
@@ -130,6 +133,8 @@ interface Proposal { status: string; resolution: string | null; reason: string; 
 
 export interface CardRow {
   id: string; project: string; number: number; kind: string; title: string; status: string; resolution: string | null; reason: string | null;
+  /** The few words every mention of the card reads (specs/021). */
+  shortName?: string | null;
   flags: string[]; scope: string; author: string; cycleId: string | null; cycleDeleted: boolean; updatedAt: string; commentCount: number;
   similarClosed: { number: number; resolution: string; reason: string | null } | null; description?: string;
   links?: { type: string; ref: string; label: string }[]; proposal?: Proposal | null;
@@ -156,7 +161,9 @@ const WRITING = ' Texts are Markdown, HTML, or both mixed - HTML becomes board t
   + '<span data-color="red">), and HTML with <script>/<style>/<svg> or an animated style becomes an html live snippet. Markdown by default; HTML when Markdown cannot say it (colspan/rowspan, lists in a cell, nested callouts); script/style/SVG only for a view no fixed block gives. Shown formatted: a **bold** one-line summary first, ### headings, tables, fenced code with a language '
   + '(```sql, ```json, ```diff, ```log), > [!NEXT] / > [!WARNING] / > [!BUG] / > [!FIXED] callouts, +++ Details … +++ to fold long evidence, '
   + '- [ ] checklists, ==highlight==, [ok] [fail] [wait] pills, {{name}} for a global variable, a call mention alone on its line as a card. '
-  + 'Write in the language the user writes in.';
+  + 'Write in the language the user writes in. Never a bare code a reader cannot open: say what a thing is in words, or mention it - '
+  + 'AC8, #47, "calls #75, #81", [6] and call ids are written as their mentions with their meaning ("one-branch search (AC8)") before '
+  + 'saving, and the reply lists any that could not be found.';
 
 const TEAM_GUIDE = 'Pick teams from the evidence, using each team\'s "owns" (board_teams): the page or the request the browser sent → '
   + 'Frontend; a Java exception, a 5xx, missing error handling or log lines → Backend; a failed, slow or repeated SQL statement → '
@@ -386,6 +393,22 @@ export function openWith(type: string, ref: string): string {
   }
 }
 
+/** The writer that makes a card's texts readable (specs/021): its project, cycle and history for `#47`, `AC8`, `[6]`. */
+function writerFor(client: AlfredClient, card: CardRow): ReadableWriter {
+  return new ReadableWriter(client, { project: card.project, cycleId: card.cycleId, card: { id: card.id, number: card.number } });
+}
+
+/** A new card's short name, when Claude gave one; a failure is said, never a reason to call the card not added. */
+async function nameCard(client: AlfredClient, card: CardRow, shortName: string | undefined): Promise<Record<string, string>> {
+  if (!shortName?.trim()) return {};
+  try {
+    await client.put(`/board/cards/${seg(card.id)}/short-name`, { ...AS_CLAUDE, body: { shortName } });
+    return { shortName: shortName.trim() };
+  } catch (error) {
+    return { shortNameNotSet: (error as Error).message };
+  }
+}
+
 export async function cardByNumber(client: AlfredClient, project: string, number: number): Promise<CardRow> {
   return client.get<CardRow>(`/board/cards/by-number/${seg(number)}`, { query: { project }, notFound: `No card #${number} on the ${project || 'No project'} board.` });
 }
@@ -453,6 +476,34 @@ export function changesReply(ctx: MaskContext, page: ChangesPage, parents: Reado
 
 export function register(server: McpServer, client: AlfredClient): void {
   // ------------------------------------------------------------------------------------------------------------ reading
+
+  server.registerTool('board_short_name', {
+    description: 'Give a card or an Acceptance item the few words every mention of it reads (specs/021): "All Agencies untested" makes '
+      + 'each mention of card #47 read "All Agencies untested (#47)"; "one-branch search" makes AC8 read "one-branch search (AC8)". '
+      + 'Without one, a mention reads the title / item text cut to its first words. You may name only what has no short name yet - the '
+      + 'user changes it after that. Name each card you add (board_add shortName) and each Acceptance item you write evidence for.',
+    inputSchema: {
+      project: Project,
+      number: CardNumber.optional().describe('A card'),
+      cycleId: z.string().optional().describe('The cycle of the Acceptance item'),
+      ac: z.number().int().min(1).optional().describe('The Acceptance item: AC<n> as board_requirements lists them'),
+      shortName: z.string().min(1).max(60),
+    },
+  }, (input) => run(async () => {
+    if ((input.number === undefined) === (input.ac === undefined)) throw invalid('Name either a card (number) or an Acceptance item (cycleId + ac).');
+    if (input.number !== undefined) {
+      const card = await cardByNumber(client, input.project, input.number);
+      const named = await client.put<CardRow>(`/board/cards/${seg(card.id)}/short-name`, { ...AS_CLAUDE, body: { shortName: input.shortName } });
+      return ok({ named: `#${named.number}`, mentionedAs: `${input.shortName.trim()} (#${named.number})` });
+    }
+    if (!input.cycleId) throw invalid('An Acceptance item needs its cycleId.');
+    const items = (await client.get<{ items: { fileName: string; itemKey: string; text: string }[] }>(`/board/cycles/${seg(input.cycleId)}/requirements`)).items;
+    const item = items[input.ac! - 1];
+    if (!item) throw invalid(`There is no AC${input.ac} - the cycle has ${items.length} Acceptance items.`);
+    await client.put(`/board/cycles/${seg(input.cycleId)}/requirements/short-name`, { ...AS_CLAUDE, body: { fileName: item.fileName, itemKey: item.itemKey,
+      shortName: input.shortName } });
+    return ok({ named: `AC${input.ac}`, mentionedAs: `${input.shortName.trim()} (AC${input.ac})` });
+  }));
 
   server.registerTool('board_list', {
     description: 'Cards on one project\'s task board (or one cycle\'s): "#n KIND [flags] {teams} title - status (cycle) · calls: in:<id8>…" (the calls '
@@ -835,18 +886,21 @@ export function register(server: McpServer, client: AlfredClient): void {
       teams: Teams.default([]),
       cycleId: z.string().optional(),
       links: z.array(Link).max(100).default([]),
+      shortName: ShortName,
     },
   }, (input) => run(async () => {
-    const description = boardText(input.description);
+    const w = new ReadableWriter(client, { project: input.project, cycleId: input.cycleId });
+    const description = boardText(await w.text(input.description));
     const card = await client.post<CardRow>('/board/cards', {
       ...WRITE,
       body: { project: input.project, kind: input.kind, title: input.title, description: description.text, flags: input.flags,
         teams: input.teams, cycleId: input.cycleId, links: input.links },
     });
+    const named = await nameCard(client, card, input.shortName);
     const similarOpen = similarOpenNote(card);
-    return ok({ added: `#${card.number}`, status: card.status, card: line(card), ...snippetNote(description.snippets),
+    return ok({ added: `#${card.number}`, status: card.status, card: line(card), ...snippetNote(description.snippets), ...named,
       ...(card.teams?.length ? {} : { teams: 'none - pick them with board_assign (board_teams lists the teams)' }),
-      ...(similarOpen ? { similarOpen } : {}) });
+      ...(similarOpen ? { similarOpen } : {}), ...w.report() });
   }));
 
   server.registerTool('board_add_many', {
@@ -861,7 +915,7 @@ export function register(server: McpServer, client: AlfredClient): void {
       cycleId: z.string().optional(),
       cards: z.array(z.object({
         kind: Kind, title: z.string().min(1).max(300), description: z.string().max(64 * 1024).default(''), flags: z.array(Flag).default([]),
-        teams: Teams.default([]), links: z.array(Link).max(50).default([]),
+        teams: Teams.default([]), links: z.array(Link).max(50).default([]), shortName: ShortName,
         firstComment: z.object({
           did: z.string().min(1).max(64 * 1024), found: z.string().min(1).max(64 * 1024), next: z.string().min(1).max(64 * 1024), waitingOn: WaitingOn,
         }).optional().describe('The card\'s first state comment, written right after it is added'),
@@ -872,10 +926,12 @@ export function register(server: McpServer, client: AlfredClient): void {
   }, (input) => run(async () => {
     const results: string[] = [];
     const addedNow = new Set<number>();
+    const w = new ReadableWriter(client, { project: input.project, cycleId: input.cycleId });
     for (let i = 0; i < input.cards.length; i++) {
-      const { firstComment: rawFirst, specItem, ...rawCard } = input.cards[i];
-      const c = { ...rawCard, description: boardText(rawCard.description).text };
-      const firstComment = rawFirst && boardTexts(rawFirst, ['did', 'found', 'next']).body;
+      const { firstComment: rawFirst, specItem, shortName, ...rawCard } = input.cards[i];
+      const c = { ...rawCard, description: boardText(await w.text(rawCard.description)).text };
+      const firstComment = rawFirst && boardTexts({ ...rawFirst, did: await w.text(rawFirst.did), found: await w.text(rawFirst.found),
+        next: await w.text(rawFirst.next) }, ['did', 'found', 'next']).body;
       const extra: string[] = [];
       let card: CardRow | undefined;
       try {
@@ -908,6 +964,8 @@ export function register(server: McpServer, client: AlfredClient): void {
         }
       }
       addedNow.add(card.number);
+      const named = await nameCard(client, card, shortName);
+      if (named.shortName) extra.push(`mentioned as "${named.shortName}"`);
       // The card is added: a failed comment or link is said, never a reason to call it not added.
       if (firstComment) {
         await client.post(`/board/cards/${seg(card.id)}/comments`, { ...WRITE, body: firstComment })
@@ -922,7 +980,7 @@ export function register(server: McpServer, client: AlfredClient): void {
       if (similarOpen) extra.push(similarOpen);
       results.push(`added #${card.number} ${c.title}${card.teams?.length ? ` {${card.teams.join(', ')}}` : ' - no team yet'}${extra.length ? ` · ${extra.join(' · ')}` : ''}`);
     }
-    return ok({ results });
+    return ok({ results, ...w.report() });
   }));
 
   server.registerTool('board_comment', {
@@ -941,10 +999,12 @@ export function register(server: McpServer, client: AlfredClient): void {
   }, (input) => run(async () => {
     const card = await cardByNumber(client, input.project, input.number);
     const replyTo = input.replyTo === undefined ? undefined : await commentIdAt(client, card, input.replyTo);
-    const parts = boardTexts({ did: input.did, found: input.found, next: input.next, impact: input.impact }, ['did', 'found', 'next', 'impact']);
+    const w = writerFor(client, card);
+    const parts = boardTexts({ did: await w.text(input.did), found: await w.text(input.found), next: await w.text(input.next),
+      impact: input.impact === undefined ? undefined : await w.text(input.impact) }, ['did', 'found', 'next', 'impact']);
     await client.post(`/board/cards/${seg(card.id)}/comments`, { ...WRITE,
       body: { ...parts.body, ...(replyTo != null ? { replyTo } : {}), ...(input.waitingOn ? { waitingOn: input.waitingOn } : {}) } });
-    return ok({ commented: `#${card.number}`, ...snippetNote(parts.snippets) });
+    return ok({ commented: `#${card.number}`, ...snippetNote(parts.snippets), ...w.report() });
   }));
 
   server.registerTool('board_reply', {
@@ -958,10 +1018,12 @@ export function register(server: McpServer, client: AlfredClient): void {
   }, (input) => run(async () => {
     const card = await cardByNumber(client, input.project, input.number);
     const replyTo = input.replyTo === undefined ? undefined : await commentIdAt(client, card, input.replyTo);
-    const reply = boardText(input.text);
+    const w = writerFor(client, card);
+    const reply = boardText(await w.text(input.text));
     await client.post(`/board/cards/${seg(card.id)}/comments`, { ...AS_CLAUDE, body: { reply: reply.text, ...(replyTo != null ? { replyTo } : {}),
       ...(input.waitingOn ? { waitingOn: input.waitingOn } : {}) } });
-    return ok({ replied: `#${card.number}`, ...(input.replyTo !== undefined ? { under: `[${input.replyTo}]` } : {}), ...snippetNote(reply.snippets) });
+    return ok({ replied: `#${card.number}`, ...(input.replyTo !== undefined ? { under: `[${input.replyTo}]` } : {}), ...snippetNote(reply.snippets),
+      ...w.report() });
   }));
 
   server.registerTool('board_ask', {
@@ -992,11 +1054,17 @@ export function register(server: McpServer, client: AlfredClient): void {
     };
     let text: string;
     let snippets = 0;
+    const w = writerFor(client, card);
     if (input.questions) {
       const headers = new Set<string>();
+      // Every text of the questions made readable first (specs/021) - the building below stays synchronous
+      const readableTexts = new Map<string, string>();
+      const texts = (q: z.infer<typeof AskFollowUp>): string[] => [q.question, q.why ?? '', ...q.options.flatMap((o) => [o.description ?? '', o.then ?? '',
+        o.preview ?? '', ...((o as z.infer<typeof AskOption>).followUp ? texts((o as z.infer<typeof AskOption>).followUp!) : [])])];
+      for (const s of input.questions.flatMap((q) => texts(q))) if (s && !readableTexts.has(s)) readableTexts.set(s, await w.text(s));
       const conv = (s: string | undefined) => {
         if (s == null) return undefined;
-        const t = boardText(s);
+        const t = boardText(readableTexts.get(s) ?? s);
         snippets += t.snippets;
         return t.text;
       };
@@ -1025,14 +1093,14 @@ export function register(server: McpServer, client: AlfredClient): void {
       text = indexed ? `${(block.questions[0].question as string).split('\n')[0]}\n\n\`\`\`questions\n${JSON.stringify(block, null, 2)}\n\`\`\``
         : plainQuestions(block.questions as unknown as PlainQuestion[]);
     } else {
-      const t = boardText(input.question!);
+      const t = boardText(await w.text(input.question!));
       snippets += t.snippets;
       text = t.text;
     }
     const saved = await client.post<{ note?: string; entry?: { id?: number } }>(`/board/cards/${seg(card.id)}/comments`, { ...WRITE, body: { question: text } });
     if (saved?.note) return ok({ notAsked: `#${card.number}`, why: saved.note });
     return ok({ asked: `#${card.number}`, questions: input.questions?.length ?? 1, flagged: 'NEEDS_DECISION',
-      next: `board_wait ${JSON.stringify({ project: input.project, cursor: 'now' })}`, ...snippetNote(snippets) });
+      next: `board_wait ${JSON.stringify({ project: input.project, cursor: 'now' })}`, ...snippetNote(snippets), ...w.report() });
   }));
 
   server.registerTool('board_withdraw_question', {
@@ -1115,8 +1183,10 @@ export function register(server: McpServer, client: AlfredClient): void {
   }, (input) => run(async () => {
     if (input.title === undefined && input.description === undefined && input.kind === undefined) throw invalid('Nothing to change - give a title, description or kind.');
     const card = await cardByNumber(client, input.project, input.number);
-    const updated = await client.patch<CardRow>(`/board/cards/${seg(card.id)}`, { ...AS_CLAUDE, body: { title: input.title, description: input.description === undefined ? undefined : boardText(input.description).text, kind: input.kind } });
-    return ok({ edited: line(updated) });
+    const w = writerFor(client, card);
+    const description = input.description === undefined ? undefined : boardText(await w.text(input.description)).text;
+    const updated = await client.patch<CardRow>(`/board/cards/${seg(card.id)}`, { ...AS_CLAUDE, body: { title: input.title, description, kind: input.kind } });
+    return ok({ edited: line(updated), ...w.report() });
   }));
 
   server.registerTool('board_move', {
@@ -1156,9 +1226,11 @@ export function register(server: McpServer, client: AlfredClient): void {
       const name = f.path.split(/[\\/]/).pop() ?? f.path;
       return `${serializeMention({ type: 'code', ref, label: f.line ? `${name}:${f.line}` : name })}${f.note ? ` ${f.note}` : ''}`;
     });
-    const did = [input.summary, files.length ? `Changed: ${files.join(', ')}` : '', input.commit ? `Commit: ${input.commit}` : '',
+    const w = writerFor(client, card);
+    const did = [await w.text(input.summary), files.length ? `Changed: ${files.join(', ')}` : '', input.commit ? `Commit: ${input.commit}` : '',
       input.tests ? `Tests: ${input.tests}` : ''].filter(Boolean).join('\n\n');
-    const parts = boardTexts({ did, found: input.rootCause, next: `Verify: ${input.verify}`, impact: input.impact }, ['did', 'found', 'next', 'impact']);
+    const parts = boardTexts({ did, found: await w.text(input.rootCause), next: `Verify: ${await w.text(input.verify)}`,
+      impact: input.impact === undefined ? undefined : await w.text(input.impact) }, ['did', 'found', 'next', 'impact']);
     await client.post(`/board/cards/${seg(card.id)}/comments`, { ...AS_CLAUDE, body: parts.body });
     let moved = card.status === 'FIXED' ? 'already Fixed' : '';
     if (!moved) {
@@ -1170,7 +1242,7 @@ export function register(server: McpServer, client: AlfredClient): void {
         moved = `not moved: ${(error as Error).message}`;
       }
     }
-    return ok({ recorded: `#${card.number}`, moved, retestPlan: plan || 'none - add expect so the re-test checks more than the status' });
+    return ok({ recorded: `#${card.number}`, moved, retestPlan: plan || 'none - add expect so the re-test checks more than the status', ...w.report() });
   }));
 
   server.registerTool('board_flag', {
@@ -1197,11 +1269,14 @@ export function register(server: McpServer, client: AlfredClient): void {
     if (input.status === 'CLOSED' && !input.resolution) throw invalid('A close needs a resolution: FINE, NOT_IN_FLOW or WONT_FIX.');
     if (input.status === 'MERGE' && !input.intoNumber) throw invalid('A merge needs intoNumber: the card this one duplicates.');
     const card = await cardByNumber(client, input.project, input.number);
-    const body = input.status === 'MERGE' ? { kind: 'MERGE', intoNumber: input.intoNumber, reason: input.reason, evidence: input.evidence }
-      : input.status === 'REOPEN' ? { kind: 'REOPEN', reason: input.reason, evidence: input.evidence }
-        : { status: input.status, resolution: input.status === 'CLOSED' ? input.resolution : null, reason: input.reason, evidence: input.evidence };
+    const w = writerFor(client, card);
+    const reason = await w.text(input.reason, 2000);
+    const evidence = await w.text(input.evidence, 8 * 1024);
+    const body = input.status === 'MERGE' ? { kind: 'MERGE', intoNumber: input.intoNumber, reason, evidence }
+      : input.status === 'REOPEN' ? { kind: 'REOPEN', reason, evidence }
+        : { status: input.status, resolution: input.status === 'CLOSED' ? input.resolution : null, reason, evidence };
     const updated = await client.put<CardRow>(`/board/cards/${seg(card.id)}/proposal`, { ...AS_CLAUDE, body });
-    return ok({ proposed: line(updated), next: 'The user accepts or dismisses it; board_wait tells you which.' });
+    return ok({ proposed: line(updated), next: 'The user accepts or dismisses it; board_wait tells you which.', ...w.report() });
   }));
 
   server.registerTool('board_suggest_mark', {
@@ -1286,10 +1361,14 @@ export function register(server: McpServer, client: AlfredClient): void {
     inputSchema: {
       cycleId: z.string().min(1), skill: z.string().min(1).max(100), did: z.string().min(1).max(16 * 1024), found: z.string().min(1).max(16 * 1024),
       next: z.string().min(1).max(16 * 1024),
+      project: z.string().max(100).optional().describe('The project the cycle is about - lets #N card numbers in the text become card mentions'),
     },
   }, (input) => run(async () => {
-    await client.post(`/board/cycles/${seg(input.cycleId)}/log`, { ...AS_CLAUDE, body: { skill: input.skill, ...boardTexts({ did: input.did, found: input.found, next: input.next }, ['did', 'found', 'next']).body } });
-    return ok({ logged: input.skill, cycleId: input.cycleId });
+    const w = new ReadableWriter(client, { project: input.project ?? '', cycleId: input.cycleId });
+    const max = 16 * 1024;
+    await client.post(`/board/cycles/${seg(input.cycleId)}/log`, { ...AS_CLAUDE, body: { skill: input.skill, ...boardTexts({ did: await w.text(input.did, max),
+      found: await w.text(input.found, max), next: await w.text(input.next, max) }, ['did', 'found', 'next']).body } });
+    return ok({ logged: input.skill, cycleId: input.cycleId, ...w.report() });
   }));
 
   server.registerTool('board_steps', {

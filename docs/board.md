@@ -63,6 +63,38 @@ Types: `call` (`in:<id>` / `out:<id>`, plus `@<cycleId>` for a captured call), `
 - **Removed items**: a mention whose item is gone shows struck through with its saved label. The text around it is untouched.
 - **Rendering**: `markdown-blocks.ts` builds a typed tree that `MarkdownViewComponent` renders with bindings, never `innerHTML`. Links are kept only for `http(s)` URLs.
 
+### Readable references (specs/021)
+
+Every reference reads its meaning where it stands, meaning first and the code in parentheses: "one-branch search (AC8)",
+"All Agencies untested (#47)", "POST refunded-requests/search · 200 (call 75)", "your answer · 4:38 PM". No new chip and
+no new popup: each is one of the mention types above, drawn by `MentionChipComponent` and opened as that type opens.
+
+- **One finder** - `shared/utils/readable-refs.ts` finds the shorthand (`AC8`, `#47`, `call(s) #75, #81`, `[6]`, a call
+  id) outside code, links and mentions. The MCP server (`mcp-server/src/readable.ts`) uses it on every board write and
+  saves each code as its mention, looked up; the reply lists what it converted and `notFound` for what it could not.
+  The board uses it on display for older text and for titles (`RefTextComponent`): nothing is rewritten.
+- **New refs**: an Acceptance item is a spec mention at `#ac<n>` (`<cycle>/<file>#ac8`; `*` as the file when only the
+  number is known), its n-th item across the cycle's spec files as `board_requirements` numbers them. A cycle's call by
+  its number is `call:n:<n>@<cycle>` until it is looked up (no preflights, both directions, oldest first - the numbers
+  `get_cycle`/`check_calls` give). A history entry is a card mention with `/e<entryId>` (or `/i<index>`, board_get's
+  `[index]`) - an older Alfred opens the card.
+- **Live labels**: `BoardMentionsService.live(ref)` looks a chip's reference up once (cards by number, a cycle's
+  requirements, its numbered calls) and the chip reads the current short name or title cut short, with a dot for the
+  state: a card's status, an item's verdict or your mark, a call's error status (from its label - no fetch). A board
+  change to a card or the requirements makes the chips look again (at most every 3 s).
+- **Short names** (`short_names` table): a few words per card (`PUT /board/cards/{id}/short-name`) and per Acceptance
+  item (`PUT /board/cycles/{id}/requirements/short-name`), shown on `CardSummary`/`CardDetail` and `Requirement` as
+  `shortName`. Claude may give one only where there is none (`board_add shortName`, `board_short_name`); the user edits
+  it under the drawer title or in the spec viewer. Without one, the first four words of the title or text, without
+  "Not exercised:" and "(AC8)".
+- **Popups**: a stmt / log / Redis chip opens its call popup and the database window at that statement, the Logs view, or
+  that Redis command (`DbWindowService.openCall(…, focusSeq)`). An Acceptance item opens the spec viewer at its line with
+  a strip: its verdict, your mark (Pass / Fail / Can't tell), its short name, and the calls judged for it
+  (`GET /board/cycles/{id}/requirements/calls` - the calls its verdict counts, since the app start or the fix), each a call chip. A history reference opens the drawer and flashes that
+  entry. Three or more call chips in a row (", " / " and ") read as one "⇄ 4 calls" chip that unfolds on a click.
+- **Picker**: the Spec files tab lists the Acceptance items first ("… (AC8)"); the Cards tab lists cards by short name
+  ("… (#47)") and the cycle's calls by number ("… (call 75)").
+
 ## Inbox sorting
 
 - Each Inbox card has one-click **Fine / Not in flow / To do**, also on the F, N and T keys.

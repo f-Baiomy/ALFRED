@@ -17,6 +17,9 @@ import { LiveWorkBoxComponent } from '../live-work-box/live-work-box.component';
 import { ActivityTimelineComponent, TimelineReply } from '../activity-timeline/activity-timeline.component';
 import { MarkdownViewComponent } from '../markdown-view/markdown-view.component';
 import { MentionChipComponent } from '../mention-chip/mention-chip.component';
+import { RefTextComponent } from '../mention-chip/ref-text.component';
+import { shortOf } from '../../../shared/utils/readable-refs';
+import { tap } from 'rxjs';
 import { MentionEditorComponent } from '../mention-editor/mention-editor.component';
 import { MentionPickerComponent } from '../mention-picker/mention-picker.component';
 import { RunSkillComponent } from '../run-skill/run-skill.component';
@@ -39,7 +42,7 @@ import { QuickAnswerComponent } from '../quick-answer/quick-answer.component';
 @Component({
   selector: 'app-card-drawer',
   standalone: true,
-  imports: [BoardPagesComponent, BoardFilesComponent, BoardPinnedComponent, NgTemplateOutlet, SelectPickerComponent, ActivityTimelineComponent, CardRetestComponent, LiveWorkBoxComponent, MarkdownViewComponent, MentionChipComponent, MentionEditorComponent, MentionPickerComponent, RunSkillComponent, RunHistoryComponent, QuickAnswerComponent],
+  imports: [BoardPagesComponent, BoardFilesComponent, BoardPinnedComponent, NgTemplateOutlet, SelectPickerComponent, ActivityTimelineComponent, CardRetestComponent, LiveWorkBoxComponent, MarkdownViewComponent, MentionChipComponent, RefTextComponent, MentionEditorComponent, MentionPickerComponent, RunSkillComponent, RunHistoryComponent, QuickAnswerComponent],
   template: `
     <ng-template #modeSwitch>
       <div class="board-seg board-drawer-modes" role="group" aria-label="Show the card as">
@@ -78,8 +81,18 @@ import { QuickAnswerComponent } from '../quick-answer/quick-answer.component';
             <input #title class="board-drawer-title-input" type="text" maxlength="300" [value]="c.title"
                    (keydown.enter)="saveTitle(title.value)" (keydown.escape)="editingTitle.set(false)" (blur)="saveTitle(title.value)" />
           } @else {
-            <h2 class="board-drawer-title" [title]="editable() ? 'Click to rename' : ''" (click)="editable() && editingTitle.set(true)">{{ c.title }}</h2>
+            <h2 class="board-drawer-title" [title]="editable() ? 'Click to rename' : ''" (click)="editable() && editingTitle.set(true)"><app-ref-text [text]="c.title" [project]="c.project" [cycleId]="c.cycleId" /></h2>
           }
+          <div class="board-drawer-short" title="What every mention of this card reads: “{{ shortNameOf(c) }} (#{{ c.number }})”">
+            @if (editingShort()) {
+              <input #short class="board-drawer-short-input" type="text" maxlength="60" [value]="c.shortName ?? ''" placeholder="a few words"
+                     (keydown.enter)="saveShortName(short.value)" (keydown.escape)="editingShort.set(false)" (blur)="saveShortName(short.value)" />
+            } @else {
+              <span class="board-dim">Mentioned as&nbsp;</span><b>{{ shortNameOf(c) }} (#{{ c.number }})</b>
+              @if (!c.shortName) { <span class="board-dim">&nbsp;· from the title</span> }
+              @if (editable()) { <button type="button" class="board-link" (click)="editingShort.set(true)">✎ short name</button> }
+            }
+          </div>
           <div class="board-drawer-controls">
             <span>Status
               <app-select-picker class="select-compact" [disabled]="!editable()" [options]="statusOptions" [value]="statusValue()"
@@ -114,12 +127,12 @@ import { QuickAnswerComponent } from '../quick-answer/quick-answer.component';
                                  (valueChange)="addTeam($event)" />
             }
           </div>
-          @if (c.reason) { <div class="board-card-reason">Reason: “{{ c.reason }}”</div> }
+          @if (c.reason) { <div class="board-card-reason">Reason: “<app-ref-text [text]="c.reason" [project]="c.project" [cycleId]="c.cycleId" [card]="c.number" />”</div> }
           @if (c.similarClosed; as s) { <div class="board-sim">⚠ Looks like #{{ s.number }}, closed as {{ resolutionLabels[s.resolution] }}{{ s.reason ? ': ' + s.reason : '' }}</div> }
           @if (c.proposal; as p) {
             <div class="board-proposal" role="group" aria-label="Claude's proposal">
               <div class="board-proposal-head"><b>✦ Claude proposes: {{ proposalText(p) }}</b></div>
-              @if (p.reason) { <div class="board-proposal-reason">“{{ p.reason }}”</div> }
+              @if (p.reason) { <div class="board-proposal-reason">“<app-ref-text [text]="p.reason" [project]="c.project" [cycleId]="c.cycleId" [card]="c.number" />”</div> }
               @if (p.evidence) { <app-markdown-view class="board-proposal-evidence" [text]="p.evidence" /> }
               <div class="board-proposal-actions">
                 <button type="button" class="action-btn primary" [disabled]="!editable()" (click)="acceptProposal()">Accept</button>
@@ -270,6 +283,7 @@ export class CardDrawerComponent {
   readonly activityTotal = signal(0);
   readonly error = signal<string | null>(null);
   readonly editingTitle = signal(false);
+  readonly editingShort = signal(false);
   readonly editingDescription = signal(false);
   readonly linking = signal(false);
   readonly blocking = signal(false);
@@ -446,6 +460,18 @@ export class CardDrawerComponent {
   save(edit: { kind?: CardKind; scope?: Scope; flags?: readonly Flag[]; title?: string; description?: string }): void {
     const c = this.card();
     if (c) this.apply(this.api.update(c.id, edit));
+  }
+
+  /** specs/021: the few words every mention of the card reads - its short name, else the title cut short. */
+  shortNameOf(c: CardDetail): string {
+    return c.shortName || shortOf(c.title);
+  }
+
+  saveShortName(name: string): void {
+    this.editingShort.set(false);
+    const c = this.card();
+    if (!c || name.trim() === (c.shortName ?? '')) return;
+    this.apply(this.api.setCardShortName(c.id, name.trim()).pipe(tap(() => this.mentions.forget())));
   }
 
   saveTitle(title: string): void {

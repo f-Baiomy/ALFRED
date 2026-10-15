@@ -316,6 +316,8 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort,
                 """);
         jdbc.execute("CREATE INDEX IF NOT EXISTS idx_card_questions ON card_questions(card_id, state)");
         addColumn("card_questions", "recommended", "TEXT");
+        // Short names (specs/021): what a mention of a card or an Acceptance item reads, "one-branch search (AC8)".
+        jdbc.execute("CREATE TABLE IF NOT EXISTS short_names (kind TEXT NOT NULL, owner TEXT NOT NULL, short TEXT NOT NULL, PRIMARY KEY (kind, owner))");
         jdbc.execute("CREATE TABLE IF NOT EXISTS board_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
         Integer seeded = jdbc.queryForObject("SELECT COUNT(*) FROM board_meta WHERE key = 'teams_seeded'", Integer.class);
         if (seeded == null || seeded == 0) {
@@ -379,6 +381,29 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort,
                     rs -> { out.put(rs.getString(1), rs.getInt(2)); }, args.toArray());
         }
         return out;
+    }
+
+    @Override
+    public Map<String, String> shortNames(String kind, Collection<String> owners) {
+        Map<String, String> out = new HashMap<>();
+        for (List<String> chunk : chunks(new LinkedHashSet<>(owners))) {
+            List<Object> args = new ArrayList<>();
+            args.add(kind);
+            args.addAll(chunk);
+            jdbc.query("SELECT owner, short FROM short_names WHERE kind = ? AND owner IN (" + marks(chunk.size()) + ")",
+                    rs -> { out.put(rs.getString(1), rs.getString(2)); }, args.toArray());
+        }
+        return out;
+    }
+
+    @Override
+    public void putShortName(String kind, String owner, String shortName) {
+        if (shortName == null || shortName.isBlank()) {
+            jdbc.update("DELETE FROM short_names WHERE kind = ? AND owner = ?", kind, owner);
+        } else {
+            jdbc.update("INSERT INTO short_names(kind, owner, short) VALUES (?, ?, ?) ON CONFLICT(kind, owner) DO UPDATE SET short = excluded.short",
+                    kind, owner, shortName.strip());
+        }
     }
 
     @Override
@@ -476,6 +501,7 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort,
 
     @Override
     public boolean delete(String id) {
+        jdbc.update("DELETE FROM short_names WHERE kind = 'card' AND owner = ?", id);
         return jdbc.update("DELETE FROM cards WHERE id = ?", id) > 0;
     }
 
@@ -1295,6 +1321,7 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort,
             jdbc.update("DELETE FROM spec_files WHERE cycle_id = ?", cycleId);
             jdbc.update("DELETE FROM checklist_marks WHERE cycle_id = ?", cycleId);
             jdbc.update("DELETE FROM checklist_suggestions WHERE cycle_id = ?", cycleId);
+            jdbc.update("DELETE FROM short_names WHERE kind = 'item' AND owner LIKE ? ESCAPE '\\'", like);
             jdbc.update("DELETE FROM cycle_log WHERE cycle_id = ?", cycleId);
             jdbc.update("DELETE FROM cycle_steps WHERE cycle_id = ?", cycleId);
             jdbc.update("DELETE FROM card_spec_items WHERE cycle_id = ?", cycleId);

@@ -6,7 +6,13 @@ import java.util.List;
 
 /** A board row: the card without its description and history, plus what the row shows. */
 public record CardSummary(@JsonUnwrapped Card card, int commentCount, List<MentionRef> mentionChips, SimilarClosed similarClosed,
-                          Proposal proposal, WaitingOn waiting, List<CardRef> blockedBy, int openQuestions, String advice) {
+                          Proposal proposal, WaitingOn waiting, List<CardRef> blockedBy, int openQuestions, String advice, String shortName) {
+
+    /** {@code shortName}: the few words a mention of the card reads (specs/021), null when none was given. */
+    public CardSummary(Card card, int commentCount, List<MentionRef> mentionChips, SimilarClosed similarClosed, Proposal proposal,
+                       WaitingOn waiting, List<CardRef> blockedBy, int openQuestions, String advice) {
+        this(card, commentCount, mentionChips, similarClosed, proposal, waiting, blockedBy, openQuestions, advice, null);
+    }
 
     /**
      * {@code openQuestions}: Claude's questions on the card still waiting on the user (specs/019) - the ❓ on the tile;
