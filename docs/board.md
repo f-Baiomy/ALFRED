@@ -257,6 +257,34 @@ The answered state is worked out from the replies, never stored. Exports note "�
 `board_get` ("↳ reply to [i]", `openQuestions`), answers one exact comment with `board_reply`/`board_comment`
 `replyTo` (a history index), and `board_changes`/`board_wait` say "ANSWERS your question" for the user's answer.
 
+## Questions
+
+Claude asks the way it does in chat (specs/019): `board_ask` takes 1-4 `questions`, each with a header, the question,
+why, single or multi select and 2-4 options (label, description, `then` - what Claude does if it is picked -,
+`recommended`, a `preview` shown on hover, and a `followUp` asked at once when it is picked). The comment is
+`**Question** <first question>` plus a ```` ```questions ```` JSON block; a plain `question` still works and is one
+question with no options.
+
+- **Every question has a state**, indexed in `card_questions` (board.db) from the text: OPEN, PENDING (a follow-up
+  waiting on its option), LATER (put off until a time, open again after it), ANSWERED, WITHDRAWN (Claude, with a
+  reason), DROPPED (a follow-up whose option was not picked). Comments written before the table are indexed on first
+  read. **Needs decision follows the open questions**: on while any is open, off when none is; Claude cannot take it
+  off while one is open - it withdraws the question (`board_withdraw_question`, reason required, follow-ups go too).
+- **The tile only counts**: ❓ N open questions, on the tile, in the drawer header and the board's toolbar (the total),
+  whatever the card's status or what else it waits on. Click it (or **A**) for the **questions dialog**: a tab per
+  open question and Review, options with "Then I will" and Recommended, the preview on hover, Something else, a note
+  per question, ⏰ Decide later (tomorrow), 1-4 and ← → keys. Answer all or some and **Send N of M answers**:
+  `POST /board/cards/{id}/answers` validates the whole batch first, then writes one `**Answers** …` comment (with an
+  ```` ```answers ```` block) per question comment as a reply to it. A follow-up shows while its option is picked and
+  is sent with it; questions Claude asks because of the answers arrive in the open dialog (the board signal) marked
+  ✦ New.
+- **The thread** shows a question comment as its questions with the picked options, ✓ / ❓ / ⏰ / ⊘ per question, read
+  from the replies' text alone; an Answers comment shows its summary line.
+- **No duplicates**: the same question already open on the card is not asked again (the MCP reply says which one is),
+  and a second Claude reply to the same user comment is refused - one answer per message, whichever runner sent it.
+- Claude reads the answers whole: `board_get`/`board_changes`/`board_wait`/`board_live` show the ```` ```answers ````
+  block on one line and each question's state; it acts only on the answered ones.
+
 ## Claude working from anywhere
 
 Read-only endpoints in `BoardInsightsService` / `BoardInsightsController` let a new session pick the work up without the user repeating it:
@@ -281,8 +309,8 @@ The MCP tools built on these are listed in docs/mcp.md: `board_search`, `board_c
   To do, Fixed needing a re-test, Inbox - each with its `/alfred-*` command as a run button with copy beside it (see
   "Run from the board"). Every card has one for its next skill; the Task tab for `/alfred-review`, `/alfred-listen`,
   `/alfred-spec`, `/alfred-report`.
-- **Answer from the board**: a card with an open question has Answer (and the **A** key) - the questions one at a
-  time, Clear Needs decision taking effect with the last answer.
+- **Answer from the board**: a card with open questions shows ❓ N open questions (and the **A** key) - the questions
+  dialog, see "Questions".
 - **Claude-written briefs and spec files**: allowed (the skills ask first); `updated_by` / `uploaded_by` record the
   author and the replaced version is kept once (`prev_*` columns) - **Restore previous** swaps them, so a second click
   undoes the first. Restoring and deleting stay the user's.

@@ -10,6 +10,7 @@ import { copyRichToClipboard, copyToClipboard } from '../../../shared/utils/clip
 import { blocksToHtml, textAsMarkdown, textAsPlain, textBlocks } from '../../../shared/utils/rich-html';
 import { CardPickTarget } from '../../../core/services/board-mentions.service';
 import { ClaudeParts, changeText, claudeParts } from '../../../shared/utils/board-activity';
+import { QuestionLine, questionLines, withoutBlocks } from '../../../shared/utils/question-blocks';
 import { HistoryItem, Reaction, historyThreads, openQuestions, reactionsOf } from '../../../shared/utils/board-threads';
 import { parseMentions } from '../../../shared/utils/mention-syntax';
 import { MarkdownViewComponent } from '../markdown-view/markdown-view.component';
@@ -68,8 +69,13 @@ export interface TimelineReply {
                     </span>
                   }
                 </span>
-                <button type="button" class="board-link" (click)="startReply(item)">
-                  {{ item.question && !item.answered ? '↩ Answer' : '↩ Reply' }}</button>
+                @if (item.question && !item.answered && hasOptions(item)) {
+                  <button type="button" class="board-link" (click)="answerQuestions.emit()">❓ Answer…</button>
+                  <button type="button" class="board-link" (click)="startReply(item)">↩ Reply</button>
+                } @else {
+                  <button type="button" class="board-link" (click)="startReply(item)">
+                    {{ item.question && !item.answered ? '↩ Answer' : '↩ Reply' }}</button>
+                }
                 @if (item.entry.actor === 'USER' && card()) { <button type="button" class="board-link" (click)="startEdit(item.entry)">✎ Edit</button> }
               }
               <ng-container [ngTemplateOutlet]="copyMenu" [ngTemplateOutletContext]="{ $implicit: item.entry }" />
@@ -153,6 +159,26 @@ export interface TimelineReply {
     </ng-template>
     <ng-template #body let-e>
       <div class="board-ev-body" [class.folded]="long(e) && !expanded().has(e.id)">
+        @if (questionViews().get(e.id); as qs) {
+          <div class="board-ev-part"><span class="board-ev-label">QUESTIONS</span>
+            <span class="board-dim">{{ qs.length }} question{{ qs.length === 1 ? '' : 's' }}</span></div>
+          <div class="board-qlist">
+            @for (q of qs; track q.header) {
+              <div class="board-qline" [class]="'board-qline board-qline-' + q.state">
+                <div class="board-qline-head"><span class="board-qline-mark">{{ q.state === 'answered' ? '✓' : q.state === 'withdrawn' ? '⊘' : q.state === 'later' ? '⏰' : '❓' }}</span>
+                  <b>{{ q.followUp ? '↳ ' : '' }}{{ q.header }}</b> <app-markdown-view [text]="q.question" />
+                  @if (q.state !== 'answered') { <span class="board-dim">{{ q.state === 'open' ? 'still open' : q.state === 'later' ? 'put off' : 'withdrawn' }}</span> }</div>
+                @if (q.options.length) {
+                  <div class="board-qline-opts">
+                    @for (o of q.options; track o.label) { <span class="board-qline-o" [class.picked]="o.picked">{{ o.label }}{{ o.recommended ? ' ★' : '' }}</span> }
+                  </div>
+                }
+                @if (q.other) { <div class="board-qline-said">“{{ q.other }}”</div> }
+                @if (q.note) { <div class="board-qline-said board-dim">note: {{ q.note }}</div> }
+              </div>
+            }
+          </div>
+        } @else {
         @if (parts(e.text); as ps) {
           @for (p of ps; track $index) {
             <div class="board-ev-part"><span class="board-ev-label">{{ p.label }}</span><app-markdown-view [text]="p.text" [dir]="dirs.choice(e.id)" [wrap]="dirs.wraps(e.id)"
@@ -161,6 +187,7 @@ export interface TimelineReply {
         } @else {
           <app-markdown-view [text]="e.text" [dir]="dirs.choice(e.id)" [wrap]="dirs.wraps(e.id)" [snippetOwner]="snippetOwner(e.id, null)"
                              [snippetContext]="snippetContext(e.id)" />
+        }
         }
       </div>
       @if (long(e)) {
@@ -219,6 +246,8 @@ export class ActivityTimelineComponent {
     return new Map<number, Record<string, unknown>>();
   });
   readonly replied = output<TimelineReply>();
+  /** Open the questions dialog (a question with options is answered there). */
+  readonly answerQuestions = output<void>();
   private readonly injector = inject(Injector);
   readonly reactions = REACTIONS;
 
@@ -341,7 +370,7 @@ export class ActivityTimelineComponent {
   }
 
   quote(e: ActivityEntry): string {
-    const plain = textAsPlain(e.text).replace(/^\*\*(Did|Found|Next|Impact|Reply|Question)\*\*\s*/, '').replace(/@\[[a-z]+:[^|\]]*\|([^\]]*)\]/g, '$1')
+    const plain = textAsPlain(withoutBlocks(e.text)).replace(/^\*\*(Did|Found|Next|Impact|Reply|Question|Answers|Withdrawn)\*\*\s*/, '').replace(/@\[[a-z]+:[^|\]]*\|([^\]]*)\]/g, '$1')
       .replace(/\s+/g, ' ').trim();
     return plain.length > 80 ? `${plain.slice(0, 80)}…` : plain;
   }
@@ -350,8 +379,24 @@ export class ActivityTimelineComponent {
     this.dirs.set(e.id, nextChoice(this.dirs.choice(e.id)));
   }
 
+  /** An answer comment shows its summary line - its ```answers block is for Claude and the question view above. */
   parts(text: string | null): ClaudeParts[] | null {
-    return claudeParts(text);
+    return claudeParts(text?.startsWith('**Answers**') ? withoutBlocks(text) : text);
+  }
+
+  /** Question comments with options, as their questions and the answers their replies hold (specs/019). */
+  readonly questionViews = computed(() => {
+    const out = new Map<number, QuestionLine[]>();
+    for (const item of this.items()) {
+      const lines = item.question ? questionLines(item.entry, item.replies) : null;
+      if (lines) out.set(item.entry.id, lines);
+    }
+    return out;
+  });
+
+  /** A question with options is answered in the questions dialog, not a free reply. */
+  hasOptions(item: HistoryItem): boolean {
+    return this.questionViews().has(item.entry.id);
   }
 
   /** The one-line change, its mentions (a link added or removed) as pills rather than their `@[...]` text. */

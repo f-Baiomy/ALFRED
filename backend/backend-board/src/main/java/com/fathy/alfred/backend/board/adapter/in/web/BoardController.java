@@ -252,6 +252,10 @@ public class BoardController {
         if (outcome.outcome() != CardChange.Outcome.OK) {
             return BoardWeb.refused(outcome.outcome(), outcome.message());
         }
+        if (outcome.message() != null) {
+            // Nothing written: the same question is open already (specs/019) - the comment that asks it, and why.
+            return ResponseEntity.ok(java.util.Map.of("entry", outcome.entry(), "note", outcome.message()));
+        }
         return ResponseEntity.status(HttpStatus.CREATED).body(outcome.entry());
     }
 

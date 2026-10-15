@@ -898,7 +898,17 @@ export class Runner {
 
   /** Whether another runner holds this board: /alfred-live on another machine, or a live runner while this is listen's lane. */
   async anotherOwner() {
-    if (this.o.chatId && this.o.cycleId) return null; // one chat per cycle is Alfred's rule (409 at start): several cycles may run at once
+    if (this.o.chatId && this.o.cycleId) {
+      // One chat per cycle is Alfred's rule (409 at start), so several cycles may run at once - but that one chat may run
+      // /alfred-live AND /alfred-listen for the cycle: then both answered every comment (specs/019). The listen lane stands down.
+      if ((this.o.kind ?? 'live') !== 'listen') return null;
+      const c = await this.o.alfred.call('GET', '/board/cycle-chat', { query: { cycleId: this.o.cycleId, project: this.o.project ?? '' }, timeoutMs: 10_000 })
+        .catch(() => null);
+      if (!c?.chat?.kinds?.includes('live')) return null;
+      const r = await this.o.alfred.call('GET', '/board/live-runner', { query: { project: this.o.project ?? '', kind: 'live' }, timeoutMs: 10_000 })
+        .catch(() => null);
+      return r ?? { kind: 'live', host: c.chat.host };
+    }
     const r = await this.o.alfred.call('GET', '/board/live-runner', { query: { project: this.o.project ?? '' }, timeoutMs: 10_000 }).catch(() => null);
     if (!r) return null;
     const me = this.o.host ?? hostname();

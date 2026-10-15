@@ -29,6 +29,24 @@ const AS_CLAUDE: Pick<RequestOptions, 'headers'> = { headers: { 'X-Alfred-Actor'
 const WRITE_TIMEOUT_MS = 30_000;
 const WRITE: Pick<RequestOptions, 'headers' | 'timeoutMs'> = { ...AS_CLAUDE, timeoutMs: WRITE_TIMEOUT_MS };
 
+/** One option of a question (specs/019): what picking it means, and what Claude does then. */
+const AskOptionBase = z.object({
+  label: z.string().min(1).max(80).describe('1-5 words'),
+  description: z.string().max(2000).optional().describe('What it means, in one or two lines'),
+  then: z.string().max(2000).optional().describe('What you will do if the user picks it'),
+  recommended: z.boolean().optional().describe('The one you advise - at most one per question'),
+  preview: z.string().max(16 * 1024).optional().describe('Shown on hover (Markdown or HTML): what changes, the effect on the recorded calls, '
+    + 'the acceptance items it covers, why'),
+});
+const AskFollowUp = z.object({
+  header: z.string().min(1).max(24).describe('A short chip label, unique on this ask, e.g. "Steps"'),
+  question: z.string().min(1).max(4000),
+  why: z.string().max(2000).optional().describe('Why you need the answer'),
+  multiSelect: z.boolean().optional(),
+  options: z.array(AskOptionBase).max(4).default([]).describe('2-4 options, or none for a free answer'),
+});
+const AskOption = AskOptionBase.extend({ followUp: AskFollowUp.optional().describe('Asked at once when the user picks this option (one level)') });
+const AskQuestion = AskFollowUp.extend({ options: z.array(AskOption).max(4).default([]).describe('2-4 options, or none for a free answer') });
 const Kind = z.enum(['BUG', 'TASK', 'NOTE', 'QUESTION']);
 const Status = z.enum(['INBOX', 'TO_DO', 'IN_PROGRESS', 'FIXED', 'VERIFIED', 'DONE', 'CLOSED']);
 const Flag = z.enum(['URGENT', 'RISK', 'BLOCKER', 'AFFECTS_PROJECT', 'NEEDS_DECISION']);
@@ -145,10 +163,59 @@ export function isQuestion(e: ActivityRow): boolean {
   return e.kind === 'COMMENT' && e.actor === 'CLAUDE' && !!e.text && e.text.startsWith('**Question**');
 }
 
-/** Claude's questions on a card the user has not answered (replied to) yet, as history indexes. */
-export function openQuestionIndexes(entries: readonly ActivityRow[]): number[] {
+/** One question of a question comment as the board keeps it (specs/019): OPEN, PENDING (a follow-up waiting on its option), LATER... */
+export interface QuestionRow {
+  entryId: number; idx: number; header: string; text: string; state: string; laterUntil: string | null;
+  parentIdx: number | null; parentOption: string | null;
+}
+
+/** The questions of a card by the comment that asks them; an older backend without them gives none. */
+export async function questionStates(client: AlfredClient, cardId: string): Promise<Map<number, QuestionRow[]>> {
+  const rows = await client.get<QuestionRow[]>(`/board/cards/${seg(cardId)}/questions`).catch(() => [] as QuestionRow[]);
+  const out = new Map<number, QuestionRow[]>();
+  for (const q of Array.isArray(rows) ? rows : []) (out.get(q.entryId) ?? out.set(q.entryId, []).get(q.entryId)!).push(q);
+  return out;
+}
+
+function stillOpen(q: QuestionRow): boolean {
+  return q.state === 'OPEN' || (q.state === 'LATER' && q.laterUntil != null && Date.parse(q.laterUntil) <= Date.now());
+}
+
+/** " (questions: Steps OPEN · Plan waits on Steps = Rewrite)" after a question comment - or the old answered/OPEN for one without rows. */
+export function questionNote(e: ActivityRow, states: ReadonlyMap<number, QuestionRow[]>, answered: ReadonlySet<number | null | undefined>): string {
+  if (!isQuestion(e)) return '';
+  const rows = e.id == null ? undefined : states.get(e.id);
+  if (!rows?.length) return ` (question - ${answered.has(e.id) ? 'answered' : 'OPEN, waiting for the user'})`;
+  const parentOf = (q: QuestionRow) => rows.find((r) => r.idx === q.parentIdx)?.header ?? '?';
+  return ` (questions: ${rows.map((q) => q.state === 'PENDING' ? `${q.header} waits on ${parentOf(q)} = ${q.parentOption}`
+    : q.state === 'LATER' ? `${q.header} ${stillOpen(q) ? 'OPEN again (was put off)' : `put off until ${q.laterUntil}`}`
+    : q.state === 'DROPPED' ? `${q.header} not needed (${parentOf(q)} answered otherwise)`
+    : `${q.header} ${q.state}`).join(' · ')})`;
+}
+
+/** Claude's questions on a card the user has not answered yet, as history indexes. */
+export function openQuestionIndexes(entries: readonly ActivityRow[], states: ReadonlyMap<number, QuestionRow[]> = new Map()): number[] {
   const answered = new Set(entries.filter((e) => e.actor === 'USER' && e.replyTo != null).map((e) => e.replyTo));
-  return entries.map((e, i) => (isQuestion(e) && !answered.has(e.id) ? i : -1)).filter((i) => i >= 0);
+  return entries.map((e, i) => {
+    if (!isQuestion(e)) return -1;
+    const rows = e.id == null ? undefined : states.get(e.id);
+    return (rows?.length ? rows.some(stillOpen) : !answered.has(e.id)) ? i : -1;
+  }).filter((i) => i >= 0);
+}
+
+/**
+ * A ```questions / ```answers block on one line for Claude: its JSON compacted, and the option previews (Claude wrote them, the
+ * user hovers them) cut to a mark - so a question comment does not spend the inline budget on what Claude already knows.
+ */
+export function compactBlocks(text: string): string {
+  return text.replace(/^```(questions|answers)[ \t]*\n([\s\S]*?)\n```[ \t]*$/gm, (whole, lang: string, body: string) => {
+    try {
+      const json = JSON.parse(body, (key, value) => (key === 'preview' && typeof value === 'string' ? `(${value.length} chars)` : value));
+      return `${lang}: ${JSON.stringify(json)}`;
+    } catch {
+      return whole;
+    }
+  });
 }
 
 /** A history index from board_get to the comment's id - a reply names the comment it answers by its index. */
@@ -239,7 +306,7 @@ export function who(actor: string): string {
 
 /** One history entry as one line; a comment in full (it is read in parts past `inline` characters). */
 export function entryLine(ctx: MaskContext, e: ActivityRow, index: number, inline = ENTRY_INLINE): string {
-  const text = maskText(ctx, e.text ?? '');
+  const text = maskText(ctx, compactBlocks(e.text ?? ''));
   const body = text.length > inline ? `${text.slice(0, inline)}… (${text.length} chars - read the rest with board_get entry=${index})` : text;
   if (e.kind === 'COMMENT') return `${e.at} ${who(e.actor)}: ${body}`;
   // ✅ from the user on your plan or question is the go-ahead (docs/board.md "Rich text")
@@ -323,7 +390,8 @@ function changeLine(ctx: MaskContext, e: ChangeRow, parents: ReadonlyMap<number,
 }
 
 export function stripLabel(text: string | null): string {
-  return (text ?? '').replace(/^\*\*(Did|Found|Next|Impact|Reply|Question)\*\*\s*/, '').replace(/\s+/g, ' ').trim();
+  return (text ?? '').replace(/\n*```(questions|answers)[ \t]*\n[\s\S]*?\n```[ \t]*$/gm, '')
+    .replace(/^\*\*(Did|Found|Next|Impact|Reply|Question|Answers|Withdrawn)\*\*\s*/, '').replace(/\s+/g, ' ').trim();
 }
 
 /** The comments the replies in a page of changes answer, read once per card. */
@@ -423,7 +491,7 @@ export function register(server: McpServer, client: AlfredClient): void {
   }, (input) => run(async () => {
     const ctx = await maskContext(client, input.mask);
     const card = await cardByNumber(client, input.project, input.number);
-    const entries = await history(client, card.id);
+    const [entries, states] = await Promise.all([history(client, card.id), questionStates(client, card.id)]);
     if (input.entry !== undefined) {
       const e = entries[input.entry];
       if (!e) throw invalid(`Card #${card.number} has ${entries.length} history entries (0 to ${entries.length - 1}).`);
@@ -445,7 +513,7 @@ export function register(server: McpServer, client: AlfredClient): void {
       links: (card.links ?? []).map((l) => `${l.type.toLowerCase()} ${l.ref} - ${maskText(ctx, l.label)}`),
       mentions: shownMentions,
       ...(mentions.length > shownMentions.length ? { moreMentions: `${mentions.length - shownMentions.length} more - board_evidence lists them all` } : {}),
-      ...(openQuestionIndexes(entries).length ? { openQuestions: openQuestionIndexes(entries) } : {}),
+      ...(openQuestionIndexes(entries, states).length ? { openQuestions: openQuestionIndexes(entries, states) } : {}),
       ...(card.specItems?.length ? { specItems: card.specItems.map((i) => `${i.fileName} [${i.itemKey}] ${i.text ?? '(item gone)'}`) } : {}),
     };
     const indexOf = new Map(entries.map((e, i) => [e.id, i]));
@@ -453,7 +521,7 @@ export function register(server: McpServer, client: AlfredClient): void {
     const lines = entries.slice(input.historyOffset).map((e, n) => {
       const i = input.historyOffset + n;
       const thread = e.replyTo != null ? `↳ reply to [${indexOf.get(e.replyTo) ?? '?'}] ` : '';
-      const state = isQuestion(e) ? ` (question - ${answered.has(e.id) ? 'answered' : 'OPEN, waiting for the user'})` : '';
+      const state = questionNote(e, states, answered);
       return `[${i}] ${thread}${entryLine(ctx, e, i)}${state}`;
     });
     const fitted = fitItems(lines, JSON.stringify(head).length + 400);
@@ -861,13 +929,90 @@ export function register(server: McpServer, client: AlfredClient): void {
   }));
 
   server.registerTool('board_ask', {
-    description: 'Ask the user a question on a card: shown as "Question" and the card is flagged Needs decision. Their answer arrives in '
-      + 'board_wait / board_changes.',
-    inputSchema: { project: Project, number: CardNumber, question: z.string().min(1).max(16 * 1024) },
+    description: 'Ask the user on a card - the card is flagged Needs decision while any question is open, and the tile says how many. '
+      + 'Prefer `questions` (1-4, each with a short header and 2-4 options; "Something else" is always added for the user): for each '
+      + 'option say what you will do if it is picked (`then`), mark the one you advise `recommended`, and give a `preview` the user sees '
+      + 'on hover - what changes, what it does to the recorded calls, which acceptance items it covers, why. An option\'s `followUp` is '
+      + 'asked at once when the user picks it. The user may answer some and leave the rest open or "later": act only on the answered '
+      + 'ones. A question already open on the card is not asked twice. `about` / `because` tie the question to a comment (an answer '
+      + 'that raised it). Answers arrive in board_wait / board_changes / board_live as an answers block; take a question back with '
+      + 'board_withdraw_question.',
+    inputSchema: {
+      project: Project, number: CardNumber,
+      question: z.string().min(1).max(16 * 1024).optional().describe('One free question (no options) - or use `questions`'),
+      questions: z.array(AskQuestion).min(1).max(4).optional(),
+      about: z.number().int().min(0).optional().describe('The [index] of the comment the questions are about'),
+      because: z.object({ entry: z.number().int().min(0).describe('The [index] of the user\'s answer that raised these questions'),
+        header: z.string().max(40).optional().describe('Which of its answers') }).optional(),
+    },
+  }, (input) => run(async () => {
+    if (!input.question === !input.questions) throw invalid('Pass either `question` (one free question) or `questions` (with options).');
+    const card = await cardByNumber(client, input.project, input.number);
+    const entries = input.about !== undefined || input.because ? await history(client, card.id) : [];
+    const idAt = (i: number, what: string) => {
+      const id = entries[i]?.id;
+      if (id == null || entries[i].kind !== 'COMMENT') throw invalid(`${what}: history entry [${i}] of card #${card.number} is not a comment - pass its [index] from board_get.`);
+      return id;
+    };
+    let text: string;
+    let snippets = 0;
+    if (input.questions) {
+      const headers = new Set<string>();
+      const conv = (s: string | undefined) => {
+        if (s == null) return undefined;
+        const t = boardText(s);
+        snippets += t.snippets;
+        return t.text;
+      };
+      const question = (q: z.infer<typeof AskFollowUp>, followUps: boolean): Record<string, unknown> => {
+        const key = q.header.toLowerCase();
+        if (headers.has(key)) throw invalid(`Two questions share the header "${q.header}" - give each its own.`);
+        headers.add(key);
+        if (q.options.length === 1) throw invalid(`Question "${q.header}" has one option - give 2 to 4, or none for a free answer.`);
+        if (q.options.filter((o) => o.recommended).length > 1) throw invalid(`Question "${q.header}": mark one option recommended, not more.`);
+        return {
+          header: q.header, question: conv(q.question), ...(q.why ? { why: conv(q.why) } : {}), ...(q.multiSelect ? { multiSelect: true } : {}),
+          options: q.options.map((o) => ({
+            label: o.label, ...(o.description ? { description: conv(o.description) } : {}), ...(o.then ? { then: conv(o.then) } : {}),
+            ...(o.recommended ? { recommended: true } : {}), ...(o.preview ? { preview: conv(o.preview) } : {}),
+            ...(followUps && (o as z.infer<typeof AskOption>).followUp ? { followUp: question((o as z.infer<typeof AskOption>).followUp!, false) } : {}),
+          })),
+        };
+      };
+      const block = {
+        ...(input.about !== undefined ? { about: idAt(input.about, 'about') } : {}),
+        ...(input.because ? { because: { entry: idAt(input.because.entry, 'because'), ...(input.because.header ? { header: input.because.header } : {}) } } : {}),
+        questions: input.questions.map((q) => question(q, true)),
+      };
+      text = `${(block.questions[0].question as string).split('\n')[0]}\n\n\`\`\`questions\n${JSON.stringify(block, null, 2)}\n\`\`\``;
+    } else {
+      const t = boardText(input.question!);
+      snippets += t.snippets;
+      text = t.text;
+    }
+    const saved = await client.post<{ note?: string; entry?: { id?: number } }>(`/board/cards/${seg(card.id)}/comments`, { ...WRITE, body: { question: text } });
+    if (saved?.note) return ok({ notAsked: `#${card.number}`, why: saved.note });
+    return ok({ asked: `#${card.number}`, questions: input.questions?.length ?? 1, flagged: 'NEEDS_DECISION',
+      next: `board_wait ${JSON.stringify({ project: input.project, cursor: 'now' })}`, ...snippetNote(snippets) });
+  }));
+
+  server.registerTool('board_withdraw_question', {
+    description: 'Take back questions you asked on a card that no longer need an answer - the evidence settled it, another answer covers '
+      + 'it, or it repeats one. `reason` is required and shown to the user. Without `headers` every open question of that comment goes; '
+      + 'their follow-ups go with them. Needs decision is cleared when nothing is left open.',
+    inputSchema: {
+      project: Project, number: CardNumber,
+      entry: z.number().int().min(0).describe('The [index] of your question comment in board_get'),
+      headers: z.array(z.string().min(1).max(40)).max(12).optional(),
+      reason: z.string().min(1).max(2000),
+    },
   }, (input) => run(async () => {
     const card = await cardByNumber(client, input.project, input.number);
-    await client.post(`/board/cards/${seg(card.id)}/comments`, { ...AS_CLAUDE, body: { question: boardText(input.question).text } });
-    return ok({ asked: `#${card.number}`, flagged: 'NEEDS_DECISION', next: `board_wait ${JSON.stringify({ project: input.project, cursor: 'now' })}` });
+    const entries = await history(client, card.id);
+    const e = entries[input.entry];
+    if (!e || e.id == null || !isQuestion(e)) throw invalid(`History entry [${input.entry}] of card #${card.number} is not one of your questions - pass its [index] from board_get.`);
+    await client.post(`/board/cards/${seg(card.id)}/questions/${e.id}/withdraw`, { ...WRITE, body: { headers: input.headers ?? [], reason: input.reason } });
+    return ok({ withdrawn: `#${card.number} [${input.entry}]`, ...(input.headers?.length ? { headers: input.headers } : { headers: 'every open one' }) });
   }));
 
   server.registerTool('board_teams', {

@@ -11,7 +11,12 @@ import java.util.List;
  */
 public record CardDetail(@JsonUnwrapped Card card, int commentCount, List<MentionRef> links, SimilarClosed similarClosed,
                          Proposal proposal, WaitingOn waiting, List<SpecItemLink> specItems, List<CardRef> blockedBy,
-                         SimilarOpen similarOpen) {
+                         SimilarOpen similarOpen, int openQuestions) {
+
+    public CardDetail(Card card, int commentCount, List<MentionRef> links, SimilarClosed similarClosed, Proposal proposal, WaitingOn waiting,
+                      List<SpecItemLink> specItems, List<CardRef> blockedBy, SimilarOpen similarOpen) {
+        this(card, commentCount, links, similarClosed, proposal, waiting, specItems, blockedBy, similarOpen, 0);
+    }
 
     public CardDetail(Card card, int commentCount, List<MentionRef> links, SimilarClosed similarClosed, Proposal proposal, WaitingOn waiting,
                       List<SpecItemLink> specItems, List<CardRef> blockedBy) {

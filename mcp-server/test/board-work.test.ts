@@ -289,3 +289,89 @@ test('board_add_many writes each card\'s first state comment and its Acceptance 
     assert.equal(w.fake.requests('POST', '/board/cards/card-2/comments').length, 0);
   } finally { await w.close(); }
 });
+
+test('board_ask with options writes a questions block; previews, then and follow-ups go with it (specs/019)', async () => {
+  const w = await world();
+  try {
+    await w.call('board_add', { project: 'p', kind: 'BUG', title: 'x' });
+    await w.call('board_reply', { project: 'p', number: 1, text: 'Plan below.' });
+    const asked = await w.call('board_ask', { project: 'p', number: 1, about: 0, questions: [
+      { header: 'Steps', question: 'Keep all the steps?', why: 'The cycle replays them', options: [
+        { label: 'Keep all', then: 'I record every step', recommended: true, preview: '<p>Covers <b>A1</b></p>' },
+        { label: 'Rewrite', followUp: { header: 'Plan', question: 'Which plan?', options: [{ label: 'Short' }, { label: 'Long' }] } },
+      ] },
+      { header: 'Checks', question: 'Which checks?', multiSelect: true, options: [{ label: 'SQL' }, { label: 'Status' }] },
+    ] });
+    assert.equal(asked.isError, false, asked.text);
+    assert.equal(asked.json.questions, 2);
+    const text: string = w.fake.requests('POST', '/board/cards/card-1/comments')[1].body.question;
+    assert.match(text, /^Keep all the steps\?\n\n```questions\n/);
+    const block = JSON.parse(/```questions\n([\s\S]*)\n```$/.exec(text)![1]);
+    assert.equal(block.about, 1);
+    assert.equal(block.questions[0].options[0].then, 'I record every step');
+    assert.equal(block.questions[0].options[0].recommended, true);
+    assert.match(block.questions[0].options[0].preview, /\*\*A1\*\*/);
+    assert.equal(block.questions[0].options[1].followUp.header, 'Plan');
+    assert.equal(block.questions[1].multiSelect, true);
+  } finally { await w.close(); }
+});
+
+test('board_ask refuses a repeated header, one option, two recommended, or both question and questions', async () => {
+  const w = await world();
+  try {
+    await w.call('board_add', { project: 'p', kind: 'BUG', title: 'x' });
+    const opts = [{ label: 'A' }, { label: 'B' }];
+    const bad = [
+      { questions: [{ header: 'S', question: 'a?', options: opts }, { header: 's', question: 'b?', options: opts }] },
+      { questions: [{ header: 'S', question: 'a?', options: [{ label: 'A' }] }] },
+      { questions: [{ header: 'S', question: 'a?', options: [{ label: 'A', recommended: true }, { label: 'B', recommended: true }] }] },
+      { question: 'a?', questions: [{ header: 'S', question: 'a?', options: opts }] },
+      {},
+    ];
+    for (const b of bad) assert.equal((await w.call('board_ask', { project: 'p', number: 1, ...b })).isError, true, JSON.stringify(b));
+    assert.equal(w.fake.requests('POST', '/board/cards/card-1/comments').length, 0);
+  } finally { await w.close(); }
+});
+
+test('board_ask says when the same question is already open; board_withdraw_question takes one back with why', async () => {
+  const w = await world();
+  try {
+    await w.call('board_add', { project: 'p', kind: 'BUG', title: 'x' });
+    await w.call('board_ask', { project: 'p', number: 1, question: 'Stack vouchers?' });
+    w.fake.board.askedNote = 'Already asked: [1] asks the same and is still open';
+    const again = await w.call('board_ask', { project: 'p', number: 1, question: 'Stack vouchers?' });
+    assert.match(again.json.why, /Already asked/);
+    assert.equal(again.json.asked, undefined);
+    const r = await w.call('board_withdraw_question', { project: 'p', number: 1, entry: 0, reason: 'same as [688], answered' });
+    assert.equal(r.isError, false, r.text);
+    const sent = w.fake.requests('POST', '/board/cards/card-1/questions/1/withdraw')[0];
+    assert.deepEqual(sent.body, { headers: [], reason: 'same as [688], answered' });
+    assert.equal(sent.headers?.['x-alfred-actor'], 'claude');
+    assert.equal((await w.call('board_withdraw_question', { project: 'p', number: 1, entry: 5, reason: 'x' })).isError, true);
+  } finally { await w.close(); }
+});
+
+test('board_get shows each question\'s state and the answers whole, previews cut to a mark', async () => {
+  const w = await world();
+  try {
+    await w.call('board_add', { project: 'p', kind: 'BUG', title: 'x' });
+    const list = (w.fake.board.activity['card-1'] ??= []);
+    const q = 'Keep?\n\n```questions\n' + JSON.stringify({ questions: [
+      { header: 'Steps', question: 'Keep?', options: [{ label: 'Keep', preview: 'x'.repeat(3000) }, { label: 'Rewrite', followUp: { header: 'Plan', question: 'Which?' } }] },
+      { header: 'Checks', question: 'Which checks?' }] }, null, 2) + '\n```';
+    list.push({ id: 1, cardId: 'card-1', actor: 'CLAUDE', kind: 'COMMENT', text: `**Question** ${q}`, oldValue: null, newValue: null, at: '2026-10-10T09:00:00Z', replyTo: null });
+    list.push({ id: 2, cardId: 'card-1', actor: 'USER', kind: 'COMMENT', text: '**Answers** Steps: Keep (note: all of them)\n\n```answers\n{\n  "Steps": {"chose": ["Keep"], "note": "all of them"}\n}\n```',
+      oldValue: null, newValue: null, at: '2026-10-10T09:01:00Z', replyTo: 1 });
+    w.fake.board.questions = { 'card-1': [
+      { entryId: 1, idx: 0, header: 'Steps', text: 'Keep?', state: 'ANSWERED', laterUntil: null, parentIdx: null, parentOption: null },
+      { entryId: 1, idx: 1, header: 'Checks', text: 'Which checks?', state: 'OPEN', laterUntil: null, parentIdx: null, parentOption: null },
+      { entryId: 1, idx: 2, header: 'Plan', text: 'Which?', state: 'DROPPED', laterUntil: null, parentIdx: 0, parentOption: 'Rewrite' },
+    ] };
+    const r = await w.call('board_get', { project: 'p', number: 1 });
+    assert.equal(r.isError, false, r.text);
+    assert.deepEqual(r.json.openQuestions, [0]);
+    assert.match(r.json.history[0], /questions: Steps ANSWERED · Checks OPEN · Plan not needed \(Steps answered otherwise\)/);
+    assert.match(r.json.history[0], /"preview":"\(3000 chars\)"/);
+    assert.match(r.json.history[1], /answers: \{"Steps":\{"chose":\["Keep"\],"note":"all of them"\}\}/);
+  } finally { await w.close(); }
+});

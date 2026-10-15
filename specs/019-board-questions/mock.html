@@ -1,0 +1,465 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Board Questions Mock</title>
+<style>
+  :root { --bg:#0f1226; --panel:#1b1f3d; --card:#20254a; --inner:#11142c; --border:#2d3366; --strong:#3d4480; --text:#e6e8f5; --dim:#9aa2c8;
+          --faint:#6b7399; --purple:#8b7cf6; --pl:#b4a9ff; --green:#4ade80; --amber:#fbbf24; --red:#f87171; --blue:#60a5fa; --cyan:#22d3ee; }
+  :root[data-theme="light"] { --bg:#f3f4fa; --panel:#fff; --card:#f7f7fd; --inner:#eceef7; --border:#d8dbee; --strong:#bfc4e4; --text:#1b1f3a; --dim:#4c5478; --faint:#7a82a6; --pl:#5b4bd6; }
+  @media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) { --bg:#f3f4fa; --panel:#fff; --card:#f7f7fd; --inner:#eceef7; --border:#d8dbee; --strong:#bfc4e4; --text:#1b1f3a; --dim:#4c5478; --faint:#7a82a6; --pl:#5b4bd6; } }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14.5px/1.5 system-ui,"Segoe UI",sans-serif; padding:24px 16px 60px; }
+  main { max-width:1180px; margin:0 auto; }
+  h1 { font-size:22px; margin:0 0 4px; } h2 { font-size:16px; margin:34px 0 10px; color:var(--pl); }
+  .sub { color:var(--dim); margin:0 0 18px; max-width:900px; }
+  code { font:12.5px Consolas,monospace; background:var(--inner); padding:1px 5px; border-radius:4px; }
+  .note { color:var(--dim); font-size:13px; }
+  /* dialog */
+  .dlg { background:var(--panel); border:1px solid var(--strong); border-radius:16px; padding:20px 22px; box-shadow:0 20px 60px rgba(0,0,0,.45); }
+  .dlg-head { display:flex; gap:12px; align-items:flex-start; }
+  .dlg-head h3 { margin:0; font-size:18px; flex:1; }
+  .x { color:var(--dim); font-size:20px; cursor:pointer; }
+  .meta { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:6px 0 12px; color:var(--dim); font-size:12.5px; }
+  .chip { display:inline-flex; gap:4px; align-items:center; border:1px solid var(--border); background:var(--inner); border-radius:99px; padding:1px 9px; font-size:12px; color:var(--dim); }
+  .chip.call { color:var(--cyan); font-family:Consolas,monospace; border-radius:6px; }
+  .chip.entry { color:var(--pl); }
+  .steps { display:flex; gap:6px; margin-left:auto; }
+  .steps span { padding:2px 10px; border-radius:99px; font-size:12px; border:1px solid var(--border); color:var(--dim); cursor:pointer; }
+  .steps span.on { border-color:var(--purple); color:var(--text); background:color-mix(in srgb,var(--purple) 25%,transparent); }
+  .steps span.done { color:var(--green); border-color:color-mix(in srgb,var(--green) 50%,var(--border)); }
+  .q { font-size:15.5px; font-weight:650; margin:4px 0 6px; }
+  .why { font-size:13px; color:var(--dim); border-left:3px solid var(--purple); padding:4px 10px; margin:0 0 12px; background:color-mix(in srgb,var(--purple) 7%,transparent); border-radius:0 8px 8px 0; }
+  .body { display:grid; grid-template-columns:minmax(0,1.15fr) minmax(0,1fr); gap:14px; }
+  @media (max-width:860px){ .body { grid-template-columns:1fr; } }
+  .opts { display:flex; flex-direction:column; gap:8px; }
+  .opt { display:grid; grid-template-columns:26px 1fr auto; gap:10px; align-items:start; padding:10px 12px; border:1px solid var(--border); border-radius:10px; background:var(--card); cursor:pointer; }
+  .opt:hover { border-color:var(--strong); }
+  .opt.sel { border-color:var(--purple); background:color-mix(in srgb,var(--purple) 16%,var(--card)); }
+  .key { width:24px; height:24px; border-radius:6px; display:grid; place-items:center; font-size:12px; font-weight:700; background:var(--inner); border:1px solid var(--border); color:var(--dim); }
+  .opt.sel .key { background:var(--purple); color:#fff; border-color:var(--purple); }
+  .multi .key { border-radius:5px; }
+  .ol { font-weight:650; } .od { color:var(--dim); font-size:13px; margin-top:2px; }
+  .then { font-size:12.5px; color:var(--dim); margin-top:5px; } .then b { color:var(--green); font-weight:600; }
+  .rec { font-size:11px; font-weight:700; color:var(--green); border:1px solid color-mix(in srgb,var(--green) 45%,transparent); border-radius:99px; padding:0 8px; white-space:nowrap; }
+  .other textarea { width:100%; min-height:54px; resize:vertical; background:var(--inner); color:var(--text); border:1px solid var(--border); border-radius:8px; padding:7px 9px; font:inherit; margin-top:6px; }
+  .preview { border:1px solid var(--border); border-radius:10px; background:var(--inner); padding:12px; min-height:260px; }
+  .preview h4 { margin:0 0 8px; font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:var(--faint); }
+  .pl { list-style:none; margin:0; padding:0; font-size:13px; }
+  .pl li { padding:4px 8px; border-radius:6px; margin-bottom:3px; display:flex; gap:8px; }
+  .pl li.keep { background:color-mix(in srgb,var(--green) 8%,transparent); }
+  .pl li.drop { background:color-mix(in srgb,var(--red) 10%,transparent); color:var(--dim); text-decoration:line-through; }
+  .pl li .n { color:var(--faint); width:18px; text-align:right; }
+  .notebox { margin-top:12px; } .notebox label { font-size:12.5px; color:var(--dim); }
+  .notebox input { width:100%; background:var(--inner); color:var(--text); border:1px solid var(--border); border-radius:8px; padding:7px 9px; font:inherit; margin-top:4px; }
+  .foot { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:14px; }
+  .btn { border:1px solid var(--strong); background:var(--card); color:var(--text); border-radius:8px; padding:6px 13px; font:inherit; font-size:13.5px; cursor:pointer; }
+  .btn.primary { background:var(--purple); border-color:var(--purple); color:#fff; font-weight:650; }
+  .btn.ghost { background:none; }
+  .grow { flex:1; }
+  .live { font-size:12.5px; color:var(--green); display:flex; align-items:center; gap:6px; }
+  .live i { width:8px; height:8px; border-radius:50%; background:var(--green); display:inline-block; }
+  .check { font-size:12.5px; color:var(--dim); display:flex; gap:6px; align-items:center; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:14px; } @media (max-width:860px){ .grid2 { grid-template-columns:1fr; } }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:14px 16px; }
+  /* tile */
+  .tile { width:280px; background:var(--card); border:1px solid var(--border); border-radius:12px; padding:12px; }
+  .tag { display:inline-block; font-size:11px; font-weight:700; padding:0 7px; border-radius:5px; background:color-mix(in srgb,var(--cyan) 18%,transparent); color:var(--cyan); }
+  .wait { font-size:12px; color:var(--amber); border:1px solid color-mix(in srgb,var(--amber) 50%,transparent); border-radius:99px; padding:0 8px; display:inline-block; margin:6px 0; }
+  .qa { border:1px solid color-mix(in srgb,var(--purple) 45%,var(--border)); border-radius:10px; padding:8px; background:color-mix(in srgb,var(--purple) 8%,transparent); }
+  .qa .qq { font-size:12.5px; font-weight:600; margin-bottom:6px; }
+  .qa button { display:block; width:100%; text-align:left; margin-bottom:4px; border:1px solid var(--border); background:var(--card); color:var(--text); border-radius:7px; padding:4px 8px; font:inherit; font-size:12.5px; cursor:pointer; }
+  .qa button:hover { border-color:var(--purple); }
+  /* thread */
+  .ev { border-left:2px solid var(--border); padding:4px 0 4px 12px; margin-bottom:10px; }
+  .who { font-size:12px; color:var(--faint); margin-bottom:4px; }
+  .lab { font-size:11px; font-weight:700; color:var(--amber); margin-right:6px; } .lab.a { color:var(--green); } .lab.r { color:var(--pl); }
+  .qblock { border:1px solid var(--border); border-radius:10px; padding:10px; background:var(--card); margin-top:6px; }
+  .qblock .o { padding:4px 8px; border-radius:6px; font-size:13px; color:var(--dim); }
+  .qblock .o.picked { color:var(--text); background:color-mix(in srgb,var(--green) 12%,transparent); border:1px solid color-mix(in srgb,var(--green) 40%,transparent); }
+  pre { background:var(--inner); border:1px solid var(--border); border-radius:8px; padding:12px; overflow:auto; font:12.5px/1.5 Consolas,monospace; margin:6px 0 0; }
+  .k { color:var(--pl); } .s { color:var(--green); } .c { color:var(--faint); }
+  ul.plan { margin:0; padding-left:20px; } ul.plan li { margin-bottom:5px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Claude's questions on the board - with options</h1>
+  <p class="sub">The card only says how many questions are open. Click it: every open question in one dialog, like Claude in chat -
+    options that say what Claude will then do, one Recommended, a preview, Something else, a note. Answer all of them or only some, check
+    the Review, and <b>Send</b> once: Claude gets one batch and acts on the answered ones; the rest stay open on the card.</p>
+
+  <h2>0 · What went wrong on #44 (from its history)</h2>
+  <div class="card">
+    <table style="width:100%;border-collapse:collapse;font-size:13.5px">
+      <tr><td style="padding:5px 8px;color:var(--faint)">10:03:18</td><td>You: "remove the last verifications"</td></tr>
+      <tr><td style="padding:5px 8px;color:var(--faint)">10:03:26</td><td><b style="color:var(--amber)">Question [688]</b> from Claude #1 (the <code>/alfred-listen</code> runner's live lane)</td></tr>
+      <tr><td style="padding:5px 8px;color:var(--faint)">10:03:31</td><td><b style="color:var(--amber)">Question [691]</b> - the same question, from Claude #2 (<code>/alfred-live</code>)</td></tr>
+      <tr><td style="padding:5px 8px;color:var(--faint)">10:10:17</td><td>You answered [688]: "don't remove any, keep both"</td></tr>
+      <tr><td style="padding:5px 8px;color:var(--faint)">10:10:22</td><td>Both Claudes replied (695, 696); one removed <b>Needs decision</b> - [691] is still open, but the card shows
+        questions only while it is flagged, and it now waits on a re-test, so [691] vanished.</td></tr>
+    </table>
+    <p class="note" style="margin:8px 0 0">The same double answering is on every comment since 07:47 (649/651/652, 654/655, 662/663…): the one-answerer-per-board
+      check is skipped when a chat owns the cycle, so the listen runner's live lane and <code>/alfred-live</code> both answer.
+      <b>Stopped the separate <code>/alfred-live</code> runner now</b> - the listen lane keeps answering.</p>
+  </div>
+
+  <h2>0b · The fixes for that</h2>
+  <div class="card">
+    <ul class="plan">
+      <li><b>One answerer per board, always</b>: the listen runner's live lane and <code>/alfred-live</code> check the board's live-runner record for
+        each other - also when a chat owns the cycle. The second one stays quiet and says "answered by the listen lane on LAPTOP-…".
+        The backend refuses a second Claude reply to the same comment within 60 s (returns the first one), as a safety net.</li>
+      <li><b>No duplicate questions</b>: <code>board_ask</code> on a card that already has an open Claude question with the same words returns
+        that question instead of asking again.</li>
+      <li><b>A question has a state</b>: open → answered (your reply), withdrawn (Claude, with a reason - e.g. "your answer to [688] covers it"),
+        or snoozed (Decide later). Needs decision is derived: on while any question is open, off when none is. Claude can no longer clear the
+        flag by hand while a question is open - it must withdraw the question, and you see why.</li>
+      <li><b>Open questions are never hidden</b>: shown on the tile, the drawer and the dialog whatever the card's status or what else it waits on.
+        A card can wait on a re-test <i>and</i> on you: both pills show.</li>
+      <li><b>Today's leftovers</b>: [691] gets marked withdrawn ("same as [688], answered") when this ships; the double replies stay in history.</li>
+    </ul>
+  </div>
+
+  <style>
+    .tabs { display:flex; gap:6px; flex-wrap:wrap; margin:4px 0 12px; }
+    .tab { padding:3px 11px; border-radius:99px; font-size:12.5px; border:1px solid var(--border); color:var(--dim); cursor:pointer; background:none; font-family:inherit; }
+    .tab.on { border-color:var(--purple); color:var(--text); background:color-mix(in srgb,var(--purple) 25%,transparent); }
+    .tab.ans { color:var(--green); border-color:color-mix(in srgb,var(--green) 50%,var(--border)); }
+    .tab.ans::before { content:'✓ '; }
+    .qpill { display:inline-flex; gap:6px; align-items:center; font-size:12.5px; font-weight:650; color:var(--amber); border:1px solid color-mix(in srgb,var(--amber) 55%,transparent);
+      background:color-mix(in srgb,var(--amber) 10%,transparent); border-radius:99px; padding:2px 10px; margin:6px 0; cursor:pointer; font-family:inherit; }
+    .qpill:hover { border-color:var(--amber); }
+    .pill2 { display:inline-block; font-size:12px; color:var(--cyan); border:1px solid color-mix(in srgb,var(--cyan) 50%,transparent); border-radius:99px; padding:0 8px; margin:2px 0; }
+    .review { display:flex; flex-direction:column; gap:8px; }
+    .rv { display:grid; grid-template-columns:150px 1fr auto; gap:10px; align-items:start; padding:9px 12px; border:1px solid var(--border); border-radius:10px; background:var(--card); }
+    .rv .h { font-weight:650; } .rv .a { color:var(--text); } .rv .a.none { color:var(--faint); font-style:italic; }
+    .rv .ed { font-size:12.5px; color:var(--pl); cursor:pointer; }
+    .sent { margin-top:12px; padding:10px 12px; border-radius:10px; border:1px solid color-mix(in srgb,var(--green) 45%,transparent);
+      background:color-mix(in srgb,var(--green) 8%,transparent); font-size:13.5px; display:none; }
+    .backdrop { position:fixed; inset:0; background:rgba(5,7,20,.6); display:none; align-items:flex-start; justify-content:center; padding:40px 16px; overflow:auto; z-index:10; }
+    .backdrop.open { display:flex; } .backdrop .dlg { width:min(1100px,100%); }
+    .preview { max-height:520px; overflow:auto; }
+    .pvs { border-top:1px solid var(--border); padding:10px 0 4px; } .pvs:first-child { border-top:0; padding-top:0; }
+    .pvh { font-size:12.5px; font-weight:700; color:var(--pl); margin-bottom:6px; }
+    .pl li .grow { flex:1; } .acc { font-size:10.5px; color:var(--cyan); border:1px solid color-mix(in srgb,var(--cyan) 40%,transparent); border-radius:4px; padding:0 4px; }
+    .acs { display:flex; flex-wrap:wrap; gap:5px; }
+    .pb { font-size:11.5px; border-radius:99px; padding:1px 8px; border:1px solid var(--border); white-space:nowrap; }
+    .pb.ok { color:var(--green); border-color:color-mix(in srgb,var(--green) 45%,transparent); background:color-mix(in srgb,var(--green) 8%,transparent); }
+    .pb.bad { color:var(--red); border-color:color-mix(in srgb,var(--red) 45%,transparent); background:color-mix(in srgb,var(--red) 8%,transparent); }
+    .pb.mid { color:var(--dim); }
+    .warn { margin-top:8px; font-size:12.5px; color:var(--amber); } .okline { margin-top:8px; font-size:12.5px; color:var(--green); }
+    .pt { width:100%; border-collapse:collapse; font-size:12px; margin-bottom:6px; } .pt th { text-align:left; color:var(--faint); font-weight:600; padding:3px 4px; border-bottom:1px solid var(--border); }
+    .pt td { padding:4px; border-bottom:1px solid color-mix(in srgb,var(--border) 60%,transparent); }
+    .cards2 { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:6px; } .arrow { color:var(--faint); font-size:18px; }
+    .mc { border:1px solid var(--border); border-radius:8px; padding:6px 10px; font-size:12.5px; background:var(--card); } .mc.dim { opacity:.6; }
+    .tab.fu { border-style:dashed; }
+    .fu-line { font-size:12.5px; color:var(--cyan); margin:0 0 4px; }
+    .newq { color:var(--cyan); } .newq a { color:var(--pl); }
+    .mc.on { border-color:var(--purple); background:color-mix(in srgb,var(--purple) 15%,var(--card)); }
+  </style>
+
+  <h2>1 · On the card: just a count</h2>
+  <div class="grid2">
+    <div class="card">
+      <div class="note" style="margin-bottom:8px">The tile says there are open questions - nothing else. Click it.</div>
+      <div class="tile">
+        <span class="tag">TASK</span>
+        <div style="font-weight:650;margin:6px 0 2px">Missing feature: Searching with one branch returns only that branch's requests (and 1 more)</div>
+        <button class="qpill" id="tilePill" title="Answer Claude's questions">❓ <span id="tileCount">3</span> open questions</button><br>
+        <span class="pill2">waiting on a re-test · 1 min</span>
+        <div class="note" style="margin-top:6px">#44 · ✦ Claude · 💬 38</div>
+      </div>
+    </div>
+    <div class="card">
+      <ul class="plan">
+        <li>Shown whatever the card's status or what else it waits on (a Fixed card waiting on a re-test still shows ❓).</li>
+        <li>The same pill sits in the card's header in the drawer, and the nav shows the total (❓ 3) - each opens the same dialog.</li>
+        <li>The count is the open questions; answered, withdrawn or snoozed ones do not count. It goes up when Claude asks more because of your answers.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>2 · The questions - answer all or some, then send them together</h2>
+  <p class="note">Open it from the tile above (or <button class="btn" id="openBtn" style="padding:2px 10px">open here</button>). Pick with a click or 1-4, move with ← →
+    or the tabs; nothing is sent until <b>Send</b>. What you leave unanswered stays open on the card.
+    Try: <b>Merge → "No, keep both"</b> opens a follow-up (↳ Plan) at once; <b>Send</b> - and Claude asks one more question because of your answers (✦).</p>
+
+  <div class="backdrop" id="backdrop">
+  <div class="dlg">
+    <div class="dlg-head">
+      <h3>#44 Missing feature: Searching with one branch returns only that branch's requests (and 1 more)</h3>
+      <span class="x" id="closeX">✕</span>
+    </div>
+    <div class="meta">
+      <span>✦ Claude asks <span id="openN">3</span> questions</span>
+      <span class="chip entry">about [687] "remove the last verifications"</span>
+      <span class="chip">cycle 61813 · Refunded Requests filters</span>
+    </div>
+    <div class="tabs" id="tabs"></div>
+    <div id="pane"></div>
+    <div class="sent" id="sent"></div>
+    <div class="foot">
+      <button class="btn" id="prev">‹ Back</button>
+      <button class="btn" id="next">Next ›</button>
+      <span class="grow"></span>
+      <span class="live"><i></i>Claude is live - acts on the answers when you send</span>
+      <button class="btn primary" id="send">Send 0 answers</button>
+    </div>
+  </div>
+  </div>
+
+  <h2>3 · In the thread, after sending 2 of 3</h2>
+  <div class="card">
+    <div class="ev"><div class="who">✦ Claude · 10:03</div><span class="lab">QUESTIONS</span>3 questions about [687]
+      <div class="qblock"><div class="o picked">✓ Steps · Keep all the steps (both sets are in scope)</div>
+        <div class="o picked">✓ Checks · branchId is a list · No ERROR log line</div>
+        <div class="o">❓ Merge · still open</div></div></div>
+    <div class="ev" style="margin-left:18px"><div class="who">You · 10:10</div><span class="lab a">ANSWERS</span>Steps: Keep all the steps · Checks: branchId is a list, No ERROR log line - <i>note: keep step 5</i></div>
+    <div class="ev" style="margin-left:18px"><div class="who">✦ Claude · 10:10</div><span class="lab r">REPLY</span>Kept all 9 steps; added the two checks to the re-test plan. One question is still open (Merge #45).</div>
+  </div>
+
+  <h2>4 · What Claude sends, and gets back</h2>
+  <div class="grid2">
+    <div class="card"><div class="note">board_ask - 1 to 4 questions in one ask, each 2-4 options (Something else is always added)</div>
+<pre>board_ask({ project: <span class="s">"odeysys"</span>, number: <span class="k">44</span>, about: <span class="s">"[687]"</span>,
+  questions: [{
+    header: <span class="s">"Steps"</span>, question: <span class="s">"Which steps should I remove…?"</span>,
+    why: <span class="s">"…"</span>, multiSelect: <span class="k">false</span>,
+    options: [{ label: <span class="s">"Only the extra filters and Export"</span>,
+                description: <span class="s">"…"</span>, then: <span class="s">"drop steps 7-11"</span>,
+                recommended: <span class="k">true</span>, preview: <span class="s">"```diff …"</span> }, …]
+  }, { header: <span class="s">"Checks"</span>, multiSelect: <span class="k">true</span>, … },
+     { header: <span class="s">"Merge"</span>, … }]
+})</pre></div>
+    <div class="card"><div class="note">One batch reaches Claude - answered ones, and which stay open</div>
+<pre>ANSWERS your questions [688] - act on them now
+{ <span class="k">"Steps"</span>:  { chose: [<span class="s">"Keep all the steps"</span>], note: <span class="s">"keep step 5"</span> },
+  <span class="k">"Checks"</span>: { chose: [<span class="s">"branchId is a list…"</span>, <span class="s">"No ERROR log line"</span>] },
+  <span class="k">"Merge"</span>:  <span class="s">"open"</span> }   <span class="c">// not answered - do not act on it</span></pre>
+      <p class="note">Stored as board text: the question comment carries a <code>```questions</code> block, the answer one
+        <code>**Answers** Steps: … · Checks: …</code> - exports, history and re-import keep it whole.</p></div>
+  </div>
+
+  <h2>5 · What changes</h2>
+  <div class="card">
+    <ul class="plan">
+      <li><b>One answerer per board</b> (the cause of the duplicates) and <b>no duplicate questions</b> - see 0b.</li>
+      <li><b>Answers open questions</b>: an option can carry a follow-up (<code>options[].followUp</code>) shown at once in the dialog and dropped if
+        the answer changes; and after a Send, Claude may ask again - each new question names the answer it comes from (<code>because</code>, linked to
+        that answer), arrives in the open dialog live (the board signal, no polling) and raises the count on the card. Claude never asks the same
+        thing twice: an answered question is a decision it reads first.</li>
+      <li><b>Questions have a state</b> (open / answered / withdrawn / snoozed); Needs decision follows them; open ones always counted on the card.</li>
+      <li><b>MCP</b> <code>board_ask</code>: <code>questions[]</code> (1-4) with header, why, multiSelect, options (label, description, then,
+        recommended, preview) and <code>about</code>; a plain <code>question</code> still works. <code>board_withdraw_question</code> (with a reason).
+        Answers reach Claude as one JSON batch per send in <code>board_wait</code>, <code>board_live</code>, <code>board_changes</code>, <code>board_get</code>.</li>
+      <li><b>Frontend</b>: the ❓ count on the tile, the drawer header and the nav; the dialog above (tabs, options with previews drawn by the
+        board's own blocks, multi-select, Something else with the full editor, a note, Review, Send N answers; Decide later per question).</li>
+      <li><b>Skills</b> (<code>rules.md</code>): ask with options - each says what Claude will then do, one Recommended, a preview when the
+        choice changes something visible; several related questions in one ask; act only on the answered ones.</li>
+      <li><b>Tests</b>: runner single-answerer, MCP schema and answer batch, backend states and flag, frontend tile / dialog / thread, export round-trip.</li>
+    </ul>
+  </div>
+</main>
+<script>
+  const Q = [
+    { h: 'Steps', pv: 'steps', q: 'Which steps should I remove from the re-test plan?', why: 'You said "remove the last verifications". Steps 7-11 test filters this task does not change; steps 3-6 show the multi-branch search.', multi: false,
+      opts: [ { l: 'Only the extra filters and Export', d: 'PNR, dates, Refund Status, Request Type, Export.', t: 'drop steps 7-11, keep the 6 multi-branch steps', rec: true, keep: [1,2,3,4,5,6] },
+              { l: 'All the multi-agency and filter steps I added', d: 'Back to the old plan: 2 branches, All Branches, one branch.', t: 'drop steps 5-11', keep: [1,2,3,4] },
+              { l: 'Keep all the steps', d: 'Both sets are in scope.', t: 'change nothing', keep: [1,2,3,4,5,6,7,8,9,10,11] } ] },
+    { h: 'Checks', pv: 'checks', q: 'Which checks should the re-test run on every search?', why: 'Each is checked on every live call after the fix, with the original value beside it.', multi: true,
+      opts: [ { l: 'branchId is a list when several are picked', t: 'shape $.branch* list when list>=2', rec: true }, { l: 'No ERROR log line', t: 'no ERROR' },
+              { l: 'At most 6 SQL statements', t: 'sql <= 6 (today: 4)' } ] },
+    { h: 'Merge', pv: 'merge', q: 'Should I merge #45 into #44?', why: 'The same fix covers both: one re-test and one Verified instead of two.', multi: false,
+      opts: [ { l: 'Yes, merge #45 into #44', t: 'propose MERGE - you accept it on #45', rec: true }, { l: 'No, keep both', t: 're-test both cards', d: 'Opens one more question: which card keeps which steps.' } ] },
+    // A follow-up an option opens at once, in this same dialog - gone again if the answer changes.
+    { h: '↳ Plan', pv: 'plan', showIf: () => ans[2].pick.has(1), because: 'because you chose "No, keep both" on Merge',
+      q: 'Which card keeps the multi-branch steps?', why: 'With two cards, each needs its own re-test plan - the same steps on both would re-test the same calls twice.', multi: false,
+      opts: [ { l: '#44 keeps them, #45 gets the agency steps', t: 'split the plan: steps 2-4 on #44, 5-6 on #45', rec: true },
+              { l: 'Both cards get every step', t: 'copy the 11 steps to #45' } ] },
+  ];
+  const names = ['', 'Open Refunded Requests', 'Pick 2 branches, search', 'Pick All Branches, search', 'Pick 1 branch, search', 'Pick 2 agencies, search',
+    'All Agencies + 1 branch, search', 'PNR filter', 'Date range', 'Refund Status', 'Request Type', 'Export to Excel'];
+  const ans = Q.map(() => ({ pick: new Set(), other: '', note: '' }));
+  const sent = new Set();
+  let cur = 0, open = 3;
+  // The questions shown now: not sent yet, and a follow-up only while the answer that opens it stands.
+  const vis = () => Q.map((_, i) => i).filter((i) => !sent.has(i) && (!Q[i].showIf || Q[i].showIf()));
+  const qi = () => vis()[cur];
+  const answered = (i) => ans[i].pick.size > 0 || ans[i].other.trim() !== '';
+  const label = (i) => [...ans[i].pick].sort().map((k) => Q[i].opts[k].l).concat(ans[i].other.trim() ? ['"' + ans[i].other.trim() + '"'] : []).join(' · ');
+  function tabs() {
+    const t = document.getElementById('tabs'); t.innerHTML = '';
+    const V = vis();
+    [...V.map((i) => Q[i].h), 'Review'].forEach((h, p) => {
+      const i = V[p];
+      const b = document.createElement('button');
+      b.className = 'tab' + (p === cur ? ' on' : '') + (i !== undefined && answered(i) ? ' ans' : '') + (i !== undefined && (Q[i].showIf || Q[i].round2) ? ' fu' : '');
+      b.textContent = h; b.onclick = () => go(p); t.appendChild(b);
+    });
+    const n = V.filter(answered).length;
+    document.getElementById('send').textContent = n === 0 ? 'Send 0 answers' : n === V.length ? 'Send all ' + n + ' answers' : 'Send ' + n + ' of ' + V.length + ' answers';
+    document.getElementById('send').disabled = n === 0;
+    document.getElementById('prev').disabled = cur === 0; document.getElementById('next').disabled = cur === V.length;
+    document.getElementById('openN').textContent = V.length;
+  }
+  function pane() {
+    const p = document.getElementById('pane');
+    const V = vis();
+    if (cur === V.length) {
+      p.innerHTML = '<div class="q">Review</div><div class="why">Send what you answered; the rest stays open on the card. Your answers may make Claude ask more - they arrive here.</div><div class="review">' +
+        V.map((i, pos) => '<div class="rv"><span class="h">' + Q[i].h + '</span><span class="a' + (answered(i) ? '' : ' none') + '">' +
+          (answered(i) ? label(i) + (ans[i].note ? ' - <i>' + ans[i].note + '</i>' : '') : 'not answered - stays open') + '</span><span class="ed" data-p="' + pos + '">edit</span></div>').join('') + '</div>';
+      p.querySelectorAll('.ed').forEach((e) => (e.onclick = () => go(+e.dataset.p)));
+      return;
+    }
+    const q = Q[qi()], a = ans[qi()];
+    p.innerHTML = (q.because ? '<div class="fu-line">' + (q.round2 ? '✦ New from Claude · ' : '↳ Follow-up · ') + q.because + '</div>' : '') + '<div class="q">' + q.q + (q.multi ? ' <span class="note">(choose any)</span>' : '') + '</div><div class="why">Why I ask: ' + q.why + '</div>' +
+      '<div class="body"><div class="opts' + (q.multi ? ' multi' : '') + '">' +
+      q.opts.map((o, k) => '<div class="opt' + (a.pick.has(k) ? ' sel' : '') + '" data-k="' + k + '"><span class="key">' + (k + 1) + '</span><div><div class="ol">' + o.l + '</div>' +
+        (o.d ? '<div class="od">' + o.d + '</div>' : '') + '<div class="then">Then I will: <b>' + o.t + '</b></div></div>' + (o.rec ? '<span class="rec">Recommended</span>' : '<span></span>') + '</div>').join('') +
+      '<div class="opt other' + (a.other ? ' sel' : '') + '"><span class="key">' + (q.opts.length + 1) + '</span><div><div class="ol">Something else</div>' +
+      '<textarea placeholder="Tell Claude what you want - mentions (@) and blocks work here">' + a.other + '</textarea></div><span></span></div></div>' +
+      '<div class="preview"><h4 id="pvt">Preview</h4><div id="pv"></div></div></div>' +
+      '<div class="notebox"><label>Note for Claude on this question (optional)</label><input value="' + a.note + '" placeholder="e.g. keep step 5"></div>';
+    p.querySelectorAll('.opt[data-k]').forEach((el) => { el.onclick = () => pick(+el.dataset.k); el.onmouseenter = () => preview(+el.dataset.k); });
+    p.querySelector('.opts').onmouseleave = () => preview();
+    const ta = p.querySelector('textarea'); ta.oninput = () => { a.other = ta.value; if (!q.multi && ta.value) a.pick.clear(); p.querySelectorAll('.opt[data-k]').forEach((x) => x.classList.toggle('sel', a.pick.has(+x.dataset.k))); ta.closest('.opt').classList.toggle('sel', !!ta.value); tabs(); };
+    p.querySelector('.notebox input').oninput = (e) => (a.note = e.target.value);
+    preview();
+  }
+  // ---- the preview: what an option changes, how it looks on this cycle's own calls, what it covers, and why
+  const AC = { AC1: 'All Agencies option', AC2: 'All Branches option', AC3: 'One branch still works', AC4: 'Several branches (OR)', AC5: 'Several agencies', AC6: 'Export matches the list' };
+  const STEPS = [null,
+    { n: 'Open Refunded Requests as an Admin with 2+ branches', ac: [] },
+    { n: 'Pick 2 branches, search', ac: ['AC4'] }, { n: 'Pick All Branches, search', ac: ['AC2'] }, { n: 'Pick 1 branch, search', ac: ['AC3'] },
+    { n: 'Pick 2 agencies, search', ac: ['AC5'] }, { n: 'All Agencies + 1 branch, search', ac: ['AC1'] },
+    { n: 'PNR filter', ac: [] }, { n: 'Date range', ac: [] }, { n: 'Refund Status', ac: [] }, { n: 'Request Type', ac: [] }, { n: 'Export to Excel', ac: ['AC6'] }];
+  const CALLS = [ // the 5 searches recorded in cycle 61813 (old code: one branch is sent)
+    { id: '#1', t: '14:50', branch: '948', sql: 4, err: 0, ms: '51 ms' }, { id: '#2', t: '14:51', branch: '948', sql: 4, err: 0, ms: '52.2 s' },
+    { id: '#3', t: '14:56', branch: '948', sql: 5, err: 0, ms: '4.2 s' }, { id: '#4', t: '15:19', branch: '948', sql: 4, err: 0, ms: '347 ms' },
+    { id: '#5', t: '15:42', branch: '948', sql: 4, err: 0, ms: '589 ms' }];
+  const sec = (h, body) => '<div class="pvs"><div class="pvh">' + h + '</div>' + body + '</div>';
+  const badge = (ok, text) => '<span class="pb ' + (ok === true ? 'ok' : ok === false ? 'bad' : 'mid') + '">' + text + '</span>';
+
+  function preview(hover) {
+    const q = Q[qi()], a = ans[qi()], pv = document.getElementById('pv'), head = document.getElementById('pvt');
+    const picked = hover !== undefined ? [hover] : [...a.pick];
+    head.textContent = hover !== undefined ? 'Preview · if you pick ' + (hover + 1) : picked.length ? 'Preview · your answer' : 'Preview · hover or pick an option';
+    if (!picked.length && !(a.other || '').trim()) { pv.innerHTML = '<div class="note">Each option shows here what it changes, how it looks on this cycle\'s own calls, what it still covers, and why.</div>'; return; }
+    if (!picked.length) { pv.innerHTML = sec('Your answer', '<div class="note">Claude reads it with the card and replies with what it will do before doing anything that changes the plan.</div>'); return; }
+    pv.innerHTML = { steps: stepsPreview, checks: checksPreview, merge: mergePreview, plan: planPreview, dates: datesPreview }[q.pv](picked);
+  }
+
+  function stepsPreview(picked) {
+    const o = Q[0].opts[picked[0]], keep = o.keep, n = keep.length;
+    const list = '<ul class="pl">' + STEPS.slice(1).map((s, i) => '<li class="' + (keep.includes(i + 1) ? 'keep' : 'drop') + '"><span class="n">' + (i + 1) + '</span><span class="grow">' + s.n + '</span>' +
+      s.ac.map((x) => '<span class="acc">' + x + '</span>').join('') + '</li>').join('') + '</ul>';
+    const covered = new Set(keep.flatMap((i) => STEPS[i].ac));
+    const cov = '<div class="acs">' + Object.keys(AC).map((k) => badge(covered.has(k), (covered.has(k) ? '✓ ' : '✗ ') + k + ' ' + AC[k])).join('') + '</div>';
+    const lost = Object.keys(AC).filter((k) => !covered.has(k));
+    return sec('What changes · ' + n + ' of 11 steps, about ' + Math.max(2, Math.round(n * 1.2)) + ' min to re-test', list) +
+      sec('Acceptance still tested', cov + (lost.length ? '<div class="warn">⚠ ' + lost.join(', ') + ' would no longer be re-tested - the card could be Verified without checking ' + (lost.length === 1 ? 'it' : 'them') + '.</div>'
+        : '<div class="okline">✓ Every Acceptance item keeps a step.</div>')) +
+      sec('Why', '<div class="note">' + (picked[0] === 0 ? 'Steps 7-10 test filters this task does not touch; they pass today and will pass after the fix. Export (11) stays out too - it reuses the search result, so a right search is a right export.'
+        : picked[0] === 1 ? 'The old plan checks the branch filter only. The agency steps and Export are what this task also adds - without them AC1, AC5 and AC6 can pass unseen.'
+        : 'Nothing is lost; the re-test stays at 11 steps. The extra filters guard against side effects of changing the search query.') + '</div>');
+  }
+
+  function checksPreview(picked) {
+    const rows = (fn) => '<table class="pt"><tr><th>Search</th><th>Sent</th><th>Today</th><th>After the fix</th></tr>' + CALLS.map(fn).join('') + '</table>';
+    const parts = picked.map((k) => {
+      if (k === 0) return sec('branchId is a list when several are picked', rows((c) => '<tr><td>' + c.id + ' ' + c.t + '</td><td><code>branchId: ' + c.branch + '</code></td><td>' + badge(null, 'one branch picked - not checked') + '</td><td>' + badge(true, 'list when 2+') + '</td></tr>') +
+        '<div class="note"><b>Catches</b> the page still sending one branch when several are picked (the bug on this card). <b>Misses</b> a backend that receives the list but filters by the first branch only - the result rows check covers that.</div>');
+      if (k === 1) return sec('No ERROR log line', rows((c) => '<tr><td>' + c.id + ' ' + c.t + '</td><td>' + c.err + ' ERROR</td><td>' + badge(true, 'pass') + '</td><td>' + badge(true, 'must stay 0') + '</td></tr>') +
+        '<div class="note"><b>Catches</b> the new OR query failing quietly (an exception logged and an empty list returned). Today: 5 of 5 pass.</div>');
+      return sec('At most 6 SQL statements', rows((c) => '<tr><td>' + c.id + ' ' + c.t + '</td><td>' + c.sql + ' SQL</td><td>' + badge(true, c.sql + ' ≤ 6') + '</td><td>' + badge(null, 'one per branch would be 4 + n') + '</td></tr>') +
+        '<div class="note"><b>Catches</b> a fix that runs one query per branch (an N+1): with 3 branches it would be 7. Today: 4-5 per search.</div>');
+    });
+    return sec('What changes · ' + picked.length + ' check' + (picked.length === 1 ? '' : 's') + ' added to the re-test plan',
+      '<ul class="pl">' + picked.map((k) => '<li class="keep"><span class="n">+</span><code>' + Q[1].opts[k].t + '</code></li>').join('') + '<li><span class="n">=</span><code>status 200</code> (already there)</li></ul>' +
+      '<div class="note">Checked on every live search after the fix, each with the original call\'s value beside it. Something not captured is UNKNOWN, never a pass.</div>') + parts.join('');
+  }
+
+  function mergePreview(picked) {
+    if (picked[0] === 1) return sec('What changes', '<div class="cards2"><div class="mc">#44 · 3 items · 2 calls<br><span class="note">Fixed · re-test</span></div><div class="mc">#45 · 2 items · 2 calls<br><span class="note">Fixed · re-test</span></div></div>') +
+      sec('Why', '<div class="note">Two re-tests of the same search, two Verified to accept. Keeps the history apart if the fixes ever split.</div>');
+    return sec('What changes', '<div class="cards2"><div class="mc">#44 · 3 items · 2 calls</div><div class="arrow">+</div><div class="mc dim">#45 · 2 items · 2 calls</div><div class="arrow">→</div>' +
+      '<div class="mc on">#44 · 5 items · 4 calls<br><span class="note">one re-test, one Verified</span></div></div>' +
+      '<div class="note">#45 closes as <b>Duplicate - merged into #44</b>; its comments stay readable there and its links move to #44.</div>') +
+      sec('You still decide', '<div class="note">Claude only proposes the merge; it shows on #45 as a proposal you accept or dismiss.</div>') +
+      sec('Why', '<div class="note">The same code change (the branch list in <code>RefundApprovalRequestServiceImpl</code>) fixes both cards; one card keeps one re-test plan and one verdict.</div>');
+  }
+
+  function planPreview(picked) {
+    return picked[0] === 0
+      ? sec('What changes', '<div class="cards2"><div class="mc on">#44 · steps 1-4<br><span class="note">branches: AC2 AC3 AC4</span></div><div class="mc on">#45 · steps 1, 5, 6<br><span class="note">agencies: AC1 AC5</span></div></div>') +
+        sec('Why', '<div class="note">Each card re-tests what it asks for; a failing agency step does not hold back the branch fix.</div>')
+      : sec('What changes', '<div class="cards2"><div class="mc">#44 · 11 steps</div><div class="mc">#45 · the same 11 steps</div></div>') +
+        sec('Why', '<div class="warn">⚠ The same searches re-tested twice - two verdicts that can disagree on one call.</div>');
+  }
+
+  function datesPreview(picked) {
+    return picked[0] === 0
+      ? sec('What changes · steps 7-10', '<ul class="pl"><li class="keep"><span class="n">7</span>PNR filter <b>with 2 branches picked</b></li><li class="keep"><span class="n">8</span>Date range <b>with 2 branches</b></li>' +
+          '<li class="keep"><span class="n">9</span>Refund Status <b>with 2 branches</b></li><li class="keep"><span class="n">10</span>Request Type <b>with 2 branches</b></li></ul>') +
+        sec('Why', '<div class="note">The new OR query joins the other filters; run with one branch, these steps never reach it. Same steps, no extra time.</div>')
+      : sec('What changes', '<div class="note">Steps 7-10 stay with one branch - they check the filters, not the new query.</div>');
+  }
+
+  function pick(k) {
+    const q = Q[qi()], a = ans[qi()];
+    if (q.multi) { a.pick.has(k) ? a.pick.delete(k) : a.pick.add(k); } else { a.pick.clear(); a.pick.add(k); a.other = ''; }
+    // a follow-up whose answer no longer stands is dropped, with its answer
+    Q.forEach((x, i) => { if (x.showIf && !x.showIf()) ans[i] = { pick: new Set(), other: '', note: '' }; });
+    pane(); tabs();
+  }
+  function go(i) { cur = Math.max(0, Math.min(vis().length, i)); pane(); tabs(); }
+  document.getElementById('prev').onclick = () => go(cur - 1);
+  document.getElementById('next').onclick = () => go(cur + 1);
+  function counts() {
+    open = vis().length;
+    document.getElementById('tileCount').textContent = open;
+    document.getElementById('tilePill').style.display = open ? '' : 'none';
+  }
+  document.getElementById('send').onclick = () => {
+    const done = vis().filter(answered); done.forEach((i) => sent.add(i));
+    const keptAll = done.includes(0) && ans[0].pick.has(2);
+    counts(); cur = 0; pane(); tabs();
+    const s = document.getElementById('sent'); s.style.display = 'block';
+    s.innerHTML = '✓ Sent ' + done.length + ' answer' + (done.length === 1 ? '' : 's') + ' (' + done.map((i) => Q[i].h).join(', ') + ') - Claude is on it.' +
+      (open ? ' <b>' + open + ' question' + (open === 1 ? '' : 's') + ' stay' + (open === 1 ? 's' : '') + ' open.</b>' : '') + '<br><span class="note">✦ Claude is reading your answers…</span>';
+    // Claude reads the batch and may ask again because of it - the new question arrives in this open dialog and on the card.
+    setTimeout(() => {
+      Q.push(keptAll
+        ? { h: '✦ Dates', pv: 'dates', round2: true, because: 'because you kept all 11 steps (Steps)', q: 'Should the PNR / date / status steps run with 2 branches picked, or with one as today?',
+            why: 'Your answer kept steps 7-10. Run with one branch they never touch the new OR query; with two they test it with every filter.', multi: false,
+            opts: [ { l: 'With 2 branches picked', t: 'change steps 7-10 to pick 2 branches first', rec: true }, { l: 'With one branch, as today', t: 'leave steps 7-10 as they are' } ] }
+        : { h: '✦ Export', pv: 'dates', round2: true, because: 'because you dropped step 11 (Export) in Steps', q: 'AC6 (Export matches the list) is no longer re-tested - add one Export step back?',
+            why: 'Without it the card can be Verified with AC6 never checked.', multi: false,
+            opts: [ { l: 'Yes, one Export after the 2-branch search', t: 'add step 7: Export after step 2', rec: true }, { l: 'No, AC6 is checked elsewhere', t: 'mark AC6 as "checked by hand" on the spec' } ] });
+      ans.push({ pick: new Set(), other: '', note: '' });
+      counts(); tabs();
+      if (cur === vis().length - 1 || vis().length === 1) pane();
+      s.innerHTML = s.innerHTML.replace('<span class="note">✦ Claude is reading your answers…</span>',
+        '<span class="newq">✦ Claude asked 1 more question ' + Q[Q.length - 1].because + ' - <a href="#" id="toNew">answer it</a></span>');
+      document.getElementById('toNew').onclick = (e) => { e.preventDefault(); go(vis().indexOf(Q.length - 1)); };
+    }, 1500);
+  };
+  const bd = document.getElementById('backdrop');
+  const show = () => { bd.classList.add('open'); go(0); };
+  document.getElementById('tilePill').onclick = show; document.getElementById('openBtn').onclick = show;
+  document.getElementById('closeX').onclick = () => bd.classList.remove('open');
+  bd.onclick = (e) => { if (e.target === bd) bd.classList.remove('open'); };
+  document.addEventListener('keydown', (e) => {
+    if (!bd.classList.contains('open')) return;
+    if (e.key === 'Escape') return bd.classList.remove('open');
+    if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return;
+    if (e.key === 'ArrowRight') go(cur + 1); if (e.key === 'ArrowLeft') go(cur - 1);
+    const n = Number(e.key); if (cur < vis().length && n >= 1 && n <= Q[qi()].opts.length) pick(n - 1);
+  });
+  tabs();
+</script>
+</body>
+</html>

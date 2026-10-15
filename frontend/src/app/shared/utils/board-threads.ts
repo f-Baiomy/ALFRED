@@ -1,4 +1,5 @@
 import { ActivityEntry } from '../../core/models/board.models';
+import { allAnswered } from './question-blocks';
 
 /**
  * A card's history as threads: every entry in time order, with the replies to a comment gathered under it (one
@@ -57,7 +58,9 @@ export function historyThreads(all: readonly ActivityEntry[]): HistoryItem[] {
     .map((entry) => {
       const mine = replies.get(entry.id) ?? [];
       const question = isQuestion(entry);
-      return { entry, replies: mine, question, answered: question && mine.some((r) => r.actor === 'USER'),
+      // a question with options is answered once every one of its questions is (specs/019); a plain one by any reply
+      const answered = question && (allAnswered(entry, mine) ?? mine.some((r) => r.actor === 'USER'));
+      return { entry, replies: mine, question, answered,
         reactions: entry.kind === 'COMMENT' ? reactionsOf(all, entry.id) : [], edited: edited.has(entry.id) };
     });
 }

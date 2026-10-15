@@ -88,6 +88,8 @@ export interface CardSummary {
   readonly waiting?: WaitingOn | null;
   /** Cards this one waits for. */
   readonly blockedBy?: readonly CardRef[];
+  /** Claude's questions still open on the card (specs/019) - the tile's ❓ count. */
+  readonly openQuestions?: number;
   /** Empty in list rows; filled in a detail. */
   readonly description: string;
 }
@@ -163,6 +165,36 @@ export interface Proposal {
 export interface CardDetail extends CardSummary {
   readonly links: readonly MentionRef[];
   readonly specItems?: readonly SpecItemLink[];
+}
+
+/** One of Claude's questions as the board keeps it (specs/019): PENDING is a follow-up waiting on its option, LATER is put off. */
+export type QuestionState = 'OPEN' | 'PENDING' | 'LATER' | 'ANSWERED' | 'WITHDRAWN' | 'DROPPED';
+
+export interface BoardQuestion {
+  readonly entryId: number;
+  readonly cardId: string;
+  readonly idx: number;
+  readonly header: string;
+  readonly text: string;
+  readonly state: QuestionState;
+  readonly laterUntil: string | null;
+  readonly answerEntry: number | null;
+  readonly parentIdx: number | null;
+  readonly parentOption: string | null;
+  readonly askedAt: string;
+}
+
+/** The user's answer to one question: options picked, own words, a note - or put off until `later`. */
+export interface QuestionAnswer {
+  readonly chose?: readonly string[];
+  readonly other?: string;
+  readonly note?: string;
+  readonly later?: string;
+}
+
+export interface EntryAnswers {
+  readonly entry: number;
+  readonly answers: Readonly<Record<string, QuestionAnswer>>;
 }
 
 export interface CardsPage {

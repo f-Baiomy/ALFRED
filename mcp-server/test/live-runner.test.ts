@@ -327,3 +327,21 @@ test('start runs the runner in the background on this machine; status sees it; s
     await assert.rejects(cli('start'), /already answers this board from other-pc/);
   } finally { await w.close(); }
 });
+
+test('a chat running both /alfred-live and /alfred-listen for a cycle answers once: the listen lane stands down for the live runner', async () => {
+  const calls: string[] = [];
+  const alfred = (kinds: string[]) => ({
+    call: async (_m: string, path: string, o: { query?: Record<string, string> }) => {
+      calls.push(`${path}?${new URLSearchParams(o.query ?? {}).toString()}`);
+      if (path === '/board/cycle-chat') return { chat: { host: 'LAPTOP', kinds } };
+      if (path === '/board/live-runner') return o.query?.kind === 'live' && kinds.includes('live') ? { kind: 'live', host: 'LAPTOP' } : null;
+      return null;
+    },
+  });
+  const owner = (kind: string, kinds: string[]) => live.Runner.prototype.anotherOwner.call({ o: { alfred: alfred(kinds), project: 'odeysys', cycleId: 'decc', chatId: 'chat-1', kind } });
+
+  assert.deepEqual(await owner('listen', ['live', 'listen']), { kind: 'live', host: 'LAPTOP' });
+  assert.equal(await owner('listen', ['listen']), null, 'no live runner for the cycle: the lane answers');
+  assert.equal(await owner('live', ['live', 'listen']), null, 'the live runner itself answers');
+  assert.ok(calls.some((c) => c.startsWith('/board/cycle-chat?cycleId=decc')));
+});

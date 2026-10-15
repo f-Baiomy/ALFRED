@@ -102,6 +102,24 @@ No noise: at most one state comment per card per visit, and only when something 
 the user answered (`board_get` lists `openQuestions`); a question unanswered for more than a day gets one reminder in
 the state comment, not a new question.
 
+### Asking the user - questions with options
+
+Ask with `board_ask` `questions` (1-4 related questions in one ask, each with a short `header`) rather than one free
+question, whenever the answer is a choice:
+
+- 2-4 options per question; "Something else" is always added for the user. Each option says what you will do if it
+  is picked (`then`), mark the one you advise `recommended` (one at most), and give a `preview` when the choice
+  changes something the user can see: what changes, what it does to the recorded calls, which acceptance items it
+  covers, why. Say in `why` what the answer decides.
+- An option whose answer needs one more decision carries it as `followUp` - asked at once when that option is picked.
+- Tie the ask to what it is about: `about` = the comment's `[index]`; a question raised by an answer gets `because`
+  {entry, header}.
+- The user answers some and sends them together; the rest stay open or come back later. Act **only on the answered
+  ones** - an open or "later" question is not an answer, and never ask it again. `board_get` shows each question's
+  state (`questions: Steps ANSWERED · Checks OPEN`).
+- A question the evidence or another answer settled: `board_withdraw_question` with the reason, never leave it open
+  and never clear Needs decision by hand while a question is open (refused).
+
 ### Writing on the board - readable text
 
 Every text you write on the board (description, comment, reply, question, brief, evidence) is Markdown and is shown

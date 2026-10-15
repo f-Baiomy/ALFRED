@@ -99,6 +99,10 @@ export interface FakeBoard {
   refuseCreate: [number, unknown] | null;
   /** Fields the next creates answer with beyond the card itself (the backend's CardDetail extras, e.g. similarOpen). */
   createExtra?: Record<string, unknown>;
+  /** GET /board/cards/{id}/questions per card id (specs/019). */
+  questions?: Record<string, any[]>;
+  /** When set, a question comment is not saved: the backend answers "already asked" with this note. */
+  askedNote?: string;
   /** A GET /board/changes/wait is held until this settles - a wait the test controls. */
   waitGate?: Promise<void> | null;
   agentState: string;
@@ -529,6 +533,9 @@ export class FakeAlfred {
       return card ? [200, card] : [404, { error: 'not-found', message: 'No card' }];
     }
     if (p[1] === 'cards' && p[3] === 'activity') return [200, { entries: b.activity[p[2]] ?? [], total: (b.activity[p[2]] ?? []).length }];
+    if (p[1] === 'cards' && p[3] === 'questions' && method === 'GET') return [200, b.questions?.[p[2]] ?? []];
+    if (p[1] === 'cards' && p[3] === 'questions' && p[5] === 'withdraw') return [201, { id: 99 }];
+    if (p[1] === 'cards' && p[3] === 'comments' && body.question && b.askedNote) return [200, { entry: { id: 1 }, note: b.askedNote }];
     if (p[1] === 'cards' && p[3] === 'comments') {
       const text = body.question ? `**Question** ${body.question}` : body.reply ? `**Reply** ${body.reply}`
         : `**Did** ${body.did}\n\n**Found** ${body.found}\n\n**Next** ${body.next}${body.impact ? `\n\n**Impact** ${body.impact}` : ''}`;

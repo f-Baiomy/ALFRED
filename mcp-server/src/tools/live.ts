@@ -8,7 +8,8 @@ import type { AlfredClient } from '../alfred-client.ts';
 import { maskContext, maskMeta, maskText, type MaskContext } from '../masking.ts';
 import { ok, run } from '../reply.ts';
 import {
-  type ActivityRow, type CardRow, type ChangeRow, type ChangesPage, cardByNumber, entryLine, history, isQuestion, line, stripLabel, who,
+  type ActivityRow, type CardRow, type ChangeRow, type ChangesPage, cardByNumber, entryLine, history, isQuestion, line, openQuestionIndexes, questionNote, questionStates, stripLabel, who,
+  type QuestionRow,
 } from './board.ts';
 import { MaskSchema } from './cycles.ts';
 
@@ -81,7 +82,7 @@ export function respondTo(e: ChangeRow, parent: ActivityRow | undefined, index: 
   const at = i === undefined ? '' : ` [${i}]`;
   switch (e.kind) {
     case 'COMMENT':
-      if (parent && isQuestion(parent)) return `ANSWERS your question [${index(parent.id) ?? '?'}] - act on it now; reply in that thread (board_reply replyTo ${index(parent.id) ?? '?'}) with what it changes, then do it`;
+      if (parent && isQuestion(parent)) return `ANSWERS your question [${index(parent.id) ?? '?'}] - act on it now; reply in that thread (board_reply replyTo ${index(parent.id) ?? '?'}) with what it changes, then do it. Act only on the answered questions (one put off "later" or still open is not an answer); an answer that raises something new: board_ask with because {entry, header} - never ask an open one again`;
       if (parent) return `replies to ${who(parent.actor)}${at} - answer in the thread (board_reply replyTo ${i ?? '?'})`;
       return /\?\s*$|^(why|what|how|can|could|is|are|does|do|should|where|when)\b/i.test(stripLabel(e.text))
         ? `asks you${at} - answer it in its thread (board_reply replyTo ${i ?? '?'}); investigate first only if the answer needs evidence, and say so in one line`
@@ -127,9 +128,11 @@ export async function cardContext(client: AlfredClient, ctx: MaskContext, change
   heartbeat?: { project: string | null }): Promise<Record<string, unknown>> {
   const first = changes[0];
   const cardRequest = cardByNumber(client, first.project, first.number);
-  const [card, entries]: [CardRow, ActivityRow[]] = await Promise.all([
+  const cardId = first.cardId ? Promise.resolve(first.cardId) : cardRequest.then((c) => c.id);
+  const [card, entries, states]: [CardRow, ActivityRow[], Map<number, QuestionRow[]>] = await Promise.all([
     cardRequest,
-    first.cardId ? history(client, first.cardId) : cardRequest.then((c) => history(client, c.id)),
+    cardId.then((id) => history(client, id)),
+    cardId.then((id) => questionStates(client, id)),
   ]);
   const indexOf = new Map(entries.map((e, i) => [e.id, i]));
   const byId = new Map(entries.filter((e) => e.id != null).map((e) => [e.id!, e]));
@@ -139,10 +142,10 @@ export async function cardContext(client: AlfredClient, ctx: MaskContext, change
   const thread = entries.slice(start).map((e, n) => {
     const i = start + n;
     const reply = e.replyTo != null ? `↳ reply to [${indexOf.get(e.replyTo) ?? '?'}] ` : '';
-    const q = isQuestion(e) ? ` (question - ${answered.has(e.id) ? 'answered' : 'OPEN'})` : '';
+    const q = questionNote(e, states, answered);
     return `[${i}] ${reply}${entryLine(ctx, e, i, 1500)}${q}`;
   });
-  const open = entries.map((e, i) => (isQuestion(e) && !answered.has(e.id) ? i : -1)).filter((i) => i >= 0);
+  const open = openQuestionIndexes(entries, states);
   if (heartbeat) beat(client.baseUrl, heartbeat.project);
   return {
     card: `${card.project || '(No project)'} ${line(card)}`,

@@ -6,6 +6,7 @@ import {
   CardRetest, ChecklistFile, ChecklistItem, CycleBrief, Expectation, Mark, MentionRef, NewCard, NextSteps, Resolution, RetestCheck, RetestPlan,
   RetestReport, RetestStep, SessionLogEntry, SpecFileInfo, Team, TeamEdit, TestStep,
   CycleChatInfo, EvidenceCheck, ItemEvidence, RequirementsView, SkillRun, SkillRunRequest, SkillRunsPage, TextVersion,
+  ActivityEntry, BoardQuestion, EntryAnswers,
 } from '../models/board.models';
 import { AppConfigService } from './app-config.service';
 
@@ -141,6 +142,22 @@ export class BoardApiService {
   comment(id: string, text: string, replyTo?: number, clearDecision?: boolean): Observable<unknown> {
     return this.http.post(`${this.base}/cards/${encodeURIComponent(id)}/comments`,
       replyTo == null ? { text } : { text, replyTo, clearDecision: !!clearDecision });
+  }
+
+  /** Every question Claude asked on a card, with its state (specs/019). */
+  questions(id: string): Observable<BoardQuestion[]> {
+    return this.http.get<BoardQuestion[]>(`${this.base}/cards/${encodeURIComponent(id)}/questions`);
+  }
+
+  /** Cards of a project (or a cycle) with open questions, and the total: the nav's ❓ count. */
+  openQuestions(project: string, cycleId?: string | null): Observable<{ cards: Record<string, number>; total: number }> {
+    return this.http.get<{ cards: Record<string, number>; total: number }>(`${this.base}/questions`,
+      { params: cycleId ? { project, cycleId } : { project } });
+  }
+
+  /** One send of the questions dialog: every answer at once, one answer comment per question comment. */
+  answers(id: string, answers: readonly EntryAnswers[], clearDecision = true): Observable<{ entries: ActivityEntry[] }> {
+    return this.http.post<{ entries: ActivityEntry[] }>(`${this.base}/cards/${encodeURIComponent(id)}/answers`, { answers, clearDecision });
   }
 
   cycleBadges(cycleId: string): Observable<Record<string, CallBadge[]>> {

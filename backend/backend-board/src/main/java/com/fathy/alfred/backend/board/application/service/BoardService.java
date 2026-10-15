@@ -42,6 +42,11 @@ import com.fathy.alfred.backend.board.domain.model.Card;
 import com.fathy.alfred.backend.board.domain.model.CardChange;
 import com.fathy.alfred.backend.board.domain.model.CardDetail;
 import com.fathy.alfred.backend.board.domain.model.CardKind;
+import com.fathy.alfred.backend.board.domain.model.Question;
+import com.fathy.alfred.backend.board.domain.model.QuestionState;
+import com.fathy.alfred.backend.board.application.port.in.QuestionsUseCase.AnswerIn;
+import com.fathy.alfred.backend.board.application.port.in.QuestionsUseCase.AnswersOutcome;
+import com.fathy.alfred.backend.board.application.port.in.QuestionsUseCase.EntryAnswers;
 import com.fathy.alfred.backend.board.domain.model.CardQuery;
 import com.fathy.alfred.backend.board.domain.model.CardStatus;
 import com.fathy.alfred.backend.board.domain.model.CardSummary;
@@ -73,6 +78,8 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.EnumSet;
 import java.util.HashSet;
+import java.util.Locale;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -92,7 +99,8 @@ import java.util.stream.Collectors;
 public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, UpdateCardUseCase, MoveCardUseCase, DeleteCardUseCase,
         QueryCardsUseCase, GetCardUseCase, CloseCardUseCase, ReopenCardUseCase, SetReasonUseCase, UndoCloseUseCase, BulkCardsUseCase,
         LinkCardUseCase, CommentOnCardUseCase, ListActivityUseCase, ListClosedReasonsUseCase, CallBadgesUseCase,
-        ListMentionedCallIdsUseCase, ProposeUseCase, CardLinksUseCase, AssignTeamsUseCase, CommentExtrasUseCase {
+        ListMentionedCallIdsUseCase, ProposeUseCase, CardLinksUseCase, AssignTeamsUseCase, CommentExtrasUseCase,
+        com.fathy.alfred.backend.board.application.port.in.QuestionsUseCase {
 
     public static final int MAX_TITLE = 300;
     public static final int MAX_TEXT = 256 * 1024;
@@ -244,6 +252,13 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
         String description = newDescription == null ? card.description() : newDescription;
         var kind = edit.kind() == null ? card.kind() : edit.kind();
         Set<Flag> flags = edit.flags() == null ? card.flags() : edit.flags();
+        if (actor == Actor.CLAUDE && card.flags().contains(Flag.NEEDS_DECISION) && !flags.contains(Flag.NEEDS_DECISION)) {
+            int open = unansweredQuestions(card.id());
+            if (open > 0) {
+                return CardChange.refused(CardChange.Outcome.REFUSED_FOR_CLAUDE, open + " question" + (open == 1 ? " is" : "s are")
+                        + " still open on #" + card.number() + " - withdraw " + (open == 1 ? "it" : "them") + " (board_withdraw_question, with why) or wait for the answer");
+            }
+        }
         Scope scope = edit.scope() == null ? card.scope() : edit.scope();
         String cycleId = edit.cycleId() == null ? card.cycleId() : blankToNull(edit.cycleId());
         String project = edit.project() == null ? card.project() : edit.project().strip();
@@ -695,6 +710,14 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
             // One level: a reply to a reply joins the thread of the first comment.
             replyTo = parent.get().replyTo() != null ? parent.get().replyTo() : parent.get().id();
         }
+        if (actor == Actor.CLAUDE && replyTo != null && !blank(comment.reply())) {
+            Optional<ActivityEntry> already = claudeAnsweredLast(id, replyTo);
+            if (already.isPresent()) {
+                // Two Claude runs answering one board (specs/019): the second answer to the same message is refused.
+                return new CommentOutcome(CardChange.Outcome.CONFLICT, already.get(), "Already answered: Claude replied to the user's last message "
+                        + "in this thread at " + already.get().at() + " - one answer per message");
+            }
+        }
         String text;
         boolean question = false;
         if (actor == Actor.CLAUDE && !blank(comment.question())) {
@@ -715,40 +738,41 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
             text = RichText.clean(comment.text());
         }
         String problem = checkText(text, "comment");
+        if (problem == null && question) {
+            problem = QuestionBlocks.problem(text);
+        }
         if (problem != null) {
             return new CommentOutcome(CardChange.Outcome.INVALID, null, problem);
         }
+        if (question) {
+            ensureIndexed();
+            Optional<ActivityEntry> asked = sameOpenQuestion(id, QuestionBlocks.asked(text));
+            if (asked.isPresent()) {
+                return new CommentOutcome(CardChange.Outcome.OK, asked.get(), "Already asked: [" + asked.get().id() + "] asks the same and is still open"
+                        + " - wait for the user's answer");
+            }
+        }
         long entryId = store.append(new ActivityEntry(0, id, actor, ActivityKind.COMMENT, text, null, null, clock.instant(), replyTo));
+        boolean answersQuestion = actor == Actor.USER && replyTo != null && store.activityEntry(replyTo).map(ActivityEntry::isQuestion).orElse(false);
+        if (question) {
+            indexQuestions(id, entryId, text, clock.instant(), null);
+        } else if (answersQuestion) {
+            answeredInWords(replyTo, entryId);
+        }
         List<MentionRef> refs = MentionParser.mentions(text);
         store.replaceMentions(MentionOwner.ACTIVITY, Long.toString(entryId), id, refs);
         store.attachImages(RichText.imageIds(text), id, null);
         Card next = touched(found.get(), actor, refs);
-        if (actor == Actor.USER && replyTo != null && comment.clearDecision() && next.flags().contains(Flag.NEEDS_DECISION)
-                && unansweredQuestions(id) == 0) {
-            // The user's answer to Claude's last open question: the card no longer waits on a decision.
-            EnumSet<Flag> flags = EnumSet.copyOf(next.flags());
-            flags.remove(Flag.NEEDS_DECISION);
-            Card cleared = next.withFields(next.title(), next.description(), next.kind(), flags, next.scope(), next.cycleId(),
-                    next.project(), clock.instant(), actor);
-            store.update(cleared);
-            record(id, actor, ActivityKind.FLAGS, null, flagsText(next.flags()), flagsText(flags));
-            next = cleared;
-        }
-        if (question && !next.flags().contains(Flag.NEEDS_DECISION)) {
-            // A question waits for the user: the card says so on the board.
-            EnumSet<Flag> flags = next.flags().isEmpty() ? EnumSet.noneOf(Flag.class) : EnumSet.copyOf(next.flags());
-            flags.add(Flag.NEEDS_DECISION);
-            Card flagged = next.withFields(next.title(), next.description(), next.kind(), flags, next.scope(), next.cycleId(),
-                    next.project(), clock.instant(), actor);
-            store.update(flagged);
-            record(id, actor, ActivityKind.FLAGS, null, flagsText(next.flags()), flagsText(flags));
-            next = flagged;
-        }
         if (question) {
+            // A question waits for the user: the card says so on the board.
+            next = syncDecision(next, actor, false);
             waitOn(id, Waiting.USER, actor);
-        } else if (actor == Actor.USER && replyTo != null && store.activityEntry(replyTo).map(ActivityEntry::isQuestion).orElse(false)
-                && unansweredQuestions(id) == 0) {
-            waitOn(id, Waiting.CLAUDE, actor); // every question answered: Claude's turn
+        } else if (answersQuestion) {
+            // The user's answer to Claude's last open question: the card no longer waits on a decision (when they say so).
+            next = syncDecision(next, actor, comment.clearDecision());
+            if (unansweredQuestions(id) == 0) {
+                waitOn(id, Waiting.CLAUDE, actor); // every question answered: Claude's turn
+            }
         }
         if (comment.waitingOn() != null) {
             waitOn(id, comment.waitingOn(), actor);
@@ -843,12 +867,250 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
         return owner == null || !owner.matches("^(comment|description):[\\w-]{1,100}$") ? List.of() : store.versions(owner);
     }
 
-    /** Claude's questions on the card that no reply from the user answers yet. */
+    /** Claude's questions on the card still waiting on the user (open, or put off and due again). */
     int unansweredQuestions(String cardId) {
-        List<ActivityEntry> all = store.activity(cardId, 0, ListActivityUseCase.MAX_LIMIT);
-        Set<Long> answered = all.stream().filter(e -> e.actor() == Actor.USER && e.replyTo() != null).map(ActivityEntry::replyTo)
-                .collect(Collectors.toSet());
-        return (int) all.stream().filter(ActivityEntry::isQuestion).filter(q -> !answered.contains(q.id())).count();
+        ensureIndexed();
+        return store.openQuestionCounts(List.of(cardId), clock.instant()).getOrDefault(cardId, 0);
+    }
+
+    // ------------------------------------------------------------------------------------------------ questions (019)
+
+    /** When the index was last brought up to date with question comments written before it, or imported. */
+    private volatile Instant indexedAt;
+
+    void ensureIndexed() {
+        Instant now = clock.instant();
+        if (indexedAt != null && now.isBefore(indexedAt.plusSeconds(60))) {
+            return;
+        }
+        indexedAt = now;
+        for (ActivityEntry q : store.unindexedQuestions()) {
+            Optional<ActivityEntry> answer = store.after(q.cardId(), q.id()).stream()
+                    .filter(e -> e.actor() == Actor.USER && e.kind() == ActivityKind.COMMENT && Long.valueOf(q.id()).equals(e.replyTo())).findFirst();
+            indexQuestions(q.cardId(), q.id(), q.text(), q.at(), answer.map(ActivityEntry::id).orElse(null));
+        }
+    }
+
+    /** The rows of one question comment: its questions OPEN, follow-ups PENDING - or all done when it was answered in words. */
+    private void indexQuestions(String cardId, long entryId, String text, Instant at, Long answeredBy) {
+        List<Question> rows = QuestionBlocks.asked(text).stream().map(a -> new Question(entryId, cardId, a.idx(), a.header(), a.question(),
+                answeredBy != null ? (a.parentIdx() == null ? QuestionState.ANSWERED : QuestionState.DROPPED)
+                        : a.parentIdx() == null ? QuestionState.OPEN : QuestionState.PENDING,
+                null, answeredBy, a.parentIdx(), a.parentOption(), at)).toList();
+        store.putQuestions(entryId, rows);
+    }
+
+    /** A reply in words (no options picked) answers every question of the comment still waiting; its follow-ups are dropped. */
+    private void answeredInWords(long questionEntry, long answerEntry) {
+        for (Question q : store.questionsOf(store.activityEntry(questionEntry).map(ActivityEntry::cardId).orElse(""))) {
+            if (q.entryId() == questionEntry && !done(q)) {
+                store.updateQuestion(q.with(q.parentIdx() == null ? QuestionState.ANSWERED : QuestionState.DROPPED, null, answerEntry));
+            }
+        }
+    }
+
+    private static boolean done(Question q) {
+        return q.state() == QuestionState.ANSWERED || q.state() == QuestionState.WITHDRAWN || q.state() == QuestionState.DROPPED;
+    }
+
+    /** The same questions are already open on the card (two runs asking at once, or Claude asking again): the comment that asks them. */
+    private Optional<ActivityEntry> sameOpenQuestion(String cardId, List<QuestionBlocks.Asked> asked) {
+        Map<String, Long> open = new HashMap<>();
+        store.questionsOf(cardId).stream().filter(q -> !done(q)).forEach(q -> open.putIfAbsent(QuestionBlocks.sameness(q.text()), q.entryId()));
+        List<QuestionBlocks.Asked> top = asked.stream().filter(a -> a.parentIdx() == null).toList();
+        if (top.isEmpty() || !top.stream().allMatch(a -> open.containsKey(QuestionBlocks.sameness(a.question())))) {
+            return Optional.empty();
+        }
+        return store.activityEntry(open.get(QuestionBlocks.sameness(top.get(0).question())));
+    }
+
+    /** Claude's Reply after the user's last message in this thread - the message is answered already. */
+    private Optional<ActivityEntry> claudeAnsweredLast(String cardId, long root) {
+        List<ActivityEntry> thread = store.after(cardId, root - 1).stream()
+                .filter(e -> e.kind() == ActivityKind.COMMENT && (e.id() == root || Long.valueOf(root).equals(e.replyTo()))).toList();
+        ActivityEntry lastUser = null;
+        for (ActivityEntry e : thread) {
+            if (e.actor() == Actor.USER) {
+                lastUser = e;
+            }
+        }
+        if (lastUser == null) {
+            return Optional.empty();
+        }
+        long after = lastUser.id();
+        return thread.stream().filter(e -> e.id() > after && e.actor() == Actor.CLAUDE && e.text() != null && e.text().startsWith("**Reply**"))
+                .findFirst();
+    }
+
+    /** Needs decision follows the open questions: on while one is open; off when none is - if this change may clear it. */
+    private Card syncDecision(Card card, Actor actor, boolean mayClear) {
+        boolean open = unansweredQuestions(card.id()) > 0;
+        boolean flagged = card.flags().contains(Flag.NEEDS_DECISION);
+        if (open == flagged || (!open && !mayClear)) {
+            return card;
+        }
+        EnumSet<Flag> flags = card.flags().isEmpty() ? EnumSet.noneOf(Flag.class) : EnumSet.copyOf(card.flags());
+        if (open) {
+            flags.add(Flag.NEEDS_DECISION);
+        } else {
+            flags.remove(Flag.NEEDS_DECISION);
+        }
+        Card next = card.withFields(card.title(), card.description(), card.kind(), flags, card.scope(), card.cycleId(), card.project(),
+                clock.instant(), actor);
+        store.update(next);
+        record(card.id(), actor, ActivityKind.FLAGS, null, flagsText(card.flags()), flagsText(flags));
+        return next;
+    }
+
+    @Override
+    public List<Question> questions(String cardId) {
+        ensureIndexed();
+        return store.questionsOf(cardId);
+    }
+
+    @Override
+    public Map<String, Integer> openQuestionCards(String project, String cycleId) {
+        ensureIndexed();
+        return store.openQuestionCards(project, cycleId, clock.instant());
+    }
+
+    @Override
+    public synchronized AnswersOutcome answer(Actor actor, String cardId, List<EntryAnswers> answers, boolean clearDecision) {
+        if (actor != Actor.USER) {
+            return new AnswersOutcome(CardChange.Outcome.REFUSED_FOR_CLAUDE, List.of(), "Answers are the user's");
+        }
+        Optional<Card> found = store.find(cardId);
+        if (found.isEmpty()) {
+            return new AnswersOutcome(CardChange.Outcome.NOT_FOUND, List.of(), "No such card");
+        }
+        if (answers == null || answers.isEmpty() || answers.stream().allMatch(a -> a.answers() == null || a.answers().isEmpty())) {
+            return new AnswersOutcome(CardChange.Outcome.INVALID, List.of(), "Nothing to send - answer at least one question");
+        }
+        ensureIndexed();
+        Instant now = clock.instant();
+        List<Question> rows = store.questionsOf(cardId);
+        // Everything is checked before anything is written: a batch is sent whole or not at all.
+        for (EntryAnswers ea : answers) {
+            Optional<ActivityEntry> entry = store.activityEntry(ea.entryId());
+            if (entry.isEmpty() || !entry.get().cardId().equals(cardId) || !entry.get().isQuestion()) {
+                return new AnswersOutcome(CardChange.Outcome.INVALID, List.of(), "[" + ea.entryId() + "] is not one of Claude's questions on this card");
+            }
+            Map<String, QuestionBlocks.Asked> asked = new HashMap<>();
+            QuestionBlocks.asked(entry.get().text()).forEach(a -> asked.put(a.header(), a));
+            for (Map.Entry<String, AnswerIn> a : ea.answers().entrySet()) {
+                String why = problem(rows, ea, asked.get(a.getKey()), a.getKey(), a.getValue(), now);
+                if (why != null) {
+                    return new AnswersOutcome(CardChange.Outcome.INVALID, List.of(), why);
+                }
+            }
+        }
+        List<ActivityEntry> written = new ArrayList<>();
+        for (EntryAnswers ea : answers) {
+            if (ea.answers() == null || ea.answers().isEmpty()) {
+                continue;
+            }
+            String text = QuestionBlocks.answerText(ea.answers());
+            long entryId = store.append(new ActivityEntry(0, cardId, actor, ActivityKind.COMMENT, text, null, null, now, ea.entryId()));
+            store.replaceMentions(MentionOwner.ACTIVITY, Long.toString(entryId), cardId, MentionParser.mentions(text));
+            written.add(new ActivityEntry(entryId, cardId, actor, ActivityKind.COMMENT, text, null, null, now, ea.entryId()));
+            for (Question q : store.questionsOf(cardId)) {
+                if (q.entryId() != ea.entryId()) {
+                    continue;
+                }
+                AnswerIn a = ea.answers().get(q.header());
+                if (a != null) {
+                    store.updateQuestion(a.later() != null ? q.with(QuestionState.LATER, a.later(), null) : q.with(QuestionState.ANSWERED, null, entryId));
+                }
+            }
+            // Follow-ups: open when their option was picked (and not answered in this send), dropped when another one was.
+            for (Question q : store.questionsOf(cardId)) {
+                if (q.entryId() != ea.entryId() || q.parentIdx() == null || q.state() != QuestionState.PENDING) {
+                    continue;
+                }
+                Question parent = store.questionsOf(cardId).stream().filter(x -> x.entryId() == q.entryId() && x.idx() == q.parentIdx()).findFirst().orElse(null);
+                AnswerIn pa = parent == null ? null : ea.answers().get(parent.header());
+                if (parent == null || parent.state() != QuestionState.ANSWERED || pa == null) {
+                    continue;
+                }
+                store.updateQuestion(q.with(pa.chose().contains(q.parentOption()) ? QuestionState.OPEN : QuestionState.DROPPED, null, null));
+            }
+        }
+        Card next = found.get().touched(now, actor);
+        store.update(next);
+        next = syncDecision(next, actor, clearDecision);
+        if (unansweredQuestions(cardId) == 0) {
+            waitOn(cardId, Waiting.CLAUDE, actor); // every question answered: Claude's turn
+        }
+        changed(next, "activity");
+        return new AnswersOutcome(CardChange.Outcome.OK, written, null);
+    }
+
+    /** Why one answer cannot be taken, or null. A follow-up may be answered with the answer that opens it, in the same send. */
+    private static String problem(List<Question> rows, EntryAnswers ea, QuestionBlocks.Asked asked, String header, AnswerIn a, Instant now) {
+        Question row = rows.stream().filter(q -> q.entryId() == ea.entryId() && q.header().equals(header)).findFirst().orElse(null);
+        if (row == null || asked == null) {
+            return "[" + ea.entryId() + "] has no question \"" + header + "\"";
+        }
+        if (done(row)) {
+            return "\"" + header + "\" is " + row.state().name().toLowerCase(Locale.ROOT) + " already";
+        }
+        if (row.state() == QuestionState.PENDING) {
+            Question parent = rows.stream().filter(q -> q.entryId() == row.entryId() && q.idx() == row.parentIdx()).findFirst().orElse(null);
+            AnswerIn pa = parent == null ? null : ea.answers().get(parent.header());
+            if (pa == null || !pa.chose().contains(row.parentOption())) {
+                return "\"" + header + "\" follows \"" + row.parentOption() + "\" - answer it with that choice";
+            }
+        }
+        if (a.later() != null) {
+            return a.later().isAfter(now) ? null : "\"Later\" needs a time to come";
+        }
+        if (a.chose().isEmpty() && a.other() == null) {
+            return "\"" + header + "\": pick an option or write your own answer";
+        }
+        if (!asked.multiSelect() && a.chose().size() > 1) {
+            return "\"" + header + "\" takes one option";
+        }
+        for (String c : a.chose()) {
+            if (!asked.options().contains(c)) {
+                return "\"" + header + "\" has no option \"" + c + "\"";
+            }
+        }
+        return null;
+    }
+
+    @Override
+    public synchronized CommentOutcome withdraw(Actor actor, String cardId, long entryId, List<String> headers, String reason) {
+        if (actor != Actor.CLAUDE) {
+            return new CommentOutcome(CardChange.Outcome.INVALID, null, "Answer the question, or put it off with Later - withdrawing is Claude's");
+        }
+        Optional<Card> found = store.find(cardId);
+        if (found.isEmpty()) {
+            return new CommentOutcome(CardChange.Outcome.NOT_FOUND, null, "No such card");
+        }
+        if (blank(reason)) {
+            return new CommentOutcome(CardChange.Outcome.INVALID, null, "Say why the question is withdrawn - the user reads it");
+        }
+        ensureIndexed();
+        Set<String> wanted = headers == null ? Set.of() : headers.stream().map(h -> h.strip().toLowerCase(Locale.ROOT)).collect(Collectors.toSet());
+        List<Question> rows = store.questionsOf(cardId).stream().filter(q -> q.entryId() == entryId && !done(q)).toList();
+        Set<Integer> taken = rows.stream().filter(q -> wanted.isEmpty() || wanted.contains(q.header().toLowerCase(Locale.ROOT)))
+                .map(Question::idx).collect(Collectors.toSet());
+        if (taken.isEmpty()) {
+            return new CommentOutcome(CardChange.Outcome.INVALID, null, "[" + entryId + "] has no open question" + (wanted.isEmpty() ? "" : " by those headers"));
+        }
+        // A withdrawn question takes its follow-ups with it.
+        rows.stream().filter(q -> q.parentIdx() != null && taken.contains(q.parentIdx())).forEach(q -> taken.add(q.idx()));
+        List<String> names = rows.stream().filter(q -> taken.contains(q.idx())).map(Question::header).toList();
+        Instant now = clock.instant();
+        String text = "**Withdrawn** " + String.join(", ", names) + " - " + reason.strip();
+        long id = store.append(new ActivityEntry(0, cardId, actor, ActivityKind.COMMENT, text, null, null, now, entryId));
+        store.replaceMentions(MentionOwner.ACTIVITY, Long.toString(id), cardId, MentionParser.mentions(text));
+        rows.stream().filter(q -> taken.contains(q.idx())).forEach(q -> store.updateQuestion(q.with(QuestionState.WITHDRAWN, null, id)));
+        Card next = found.get().touched(now, actor);
+        store.update(next);
+        next = syncDecision(next, actor, true);
+        changed(next, "activity");
+        return new CommentOutcome(CardChange.Outcome.OK, new ActivityEntry(id, cardId, actor, ActivityKind.COMMENT, text, null, null, now, entryId), null);
     }
 
     /** A comment or link also counts as a change for "stale", and may give the card its first signature. */
@@ -1156,6 +1418,8 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
         Map<String, Proposal> proposals = store.proposals(ids);
         Map<String, WaitingOn> waiting = store.waitings(ids);
         Map<String, List<CardRef>> blockers = store.blockersOf(ids);
+        ensureIndexed();
+        Map<String, Integer> questions = store.openQuestionCounts(ids, clock.instant());
         Map<String, Map<String, SimilarClosed>> similar = new LinkedHashMap<>();
         cards.stream().filter(c -> c.status() == CardStatus.INBOX && c.signature() != null)
                 .collect(Collectors.groupingBy(Card::project, Collectors.mapping(Card::signature, Collectors.toSet())))
@@ -1164,7 +1428,7 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
                 chips.getOrDefault(c.id(), List.of()),
                 c.status() == CardStatus.INBOX && c.signature() != null
                         ? hintFor(c, similar.getOrDefault(c.project(), Map.of()).get(c.signature())) : null, proposals.get(c.id()), waiting.get(c.id()),
-                blockers.get(c.id()))).toList();
+                blockers.get(c.id()), questions.getOrDefault(c.id(), 0))).toList();
         return new CardsPage(rows, store.count(query), store.progress(query.project(), query.cycleId()));
     }
 
@@ -1265,7 +1529,8 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
         List<SpecItemLink> items = store.specItemsOf(full.id()).stream()
                 .map(r -> new SpecItemLink(r[0], r[1], r[2], itemText(r[0], r[1], r[2]))).toList();
         return new CardDetail(full, comments, store.linksOf(full.id()), similar, store.proposal(full.id()).orElse(null),
-                store.waiting(full.id()).orElse(null), items, store.blockersOf(List.of(full.id())).getOrDefault(full.id(), List.of()), open);
+                store.waiting(full.id()).orElse(null), items, store.blockersOf(List.of(full.id())).getOrDefault(full.id(), List.of()), open,
+                unansweredQuestions(full.id()));
     }
 
     /** The most recently updated other card still open on this card's signature. */

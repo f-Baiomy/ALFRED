@@ -108,6 +108,11 @@ import { BoardPagesComponent } from '../visuals/board-pages.component';
     @if (state.page(); as page) {
       <app-board-progress [label]="progressLabel()" [open]="page.counts.open" [fixed]="page.counts.fixed" [done]="page.counts.done" />
     }
+    @if (questionCards().length) {
+      <button type="button" class="board-qpill board-qpill-total" [disabled]="!state.editable()" title="Claude's open questions on these cards - answer the first card's"
+              (click)="answering.set(questionCards()[0].id)">❓ {{ questionTotal() }} open question{{ questionTotal() === 1 ? '' : 's' }}
+        on {{ questionCards().length }} card{{ questionCards().length === 1 ? '' : 's' }}</button>
+    }
     <app-next-steps-bar [project]="project()" [cycleId]="cycleId()" [cycleName]="cycleName()" [version]="state.page()" (opened)="openNumber($event)" />
     @if (showPages() && project() && !cycleId()) {
       <app-board-pages class="board-project-pages" [owner]="'project:' + project()" [canEdit]="state.editable()" [context]="{ project: project() }" />
@@ -171,6 +176,10 @@ export class BoardViewComponent {
   readonly triageQueue = signal<readonly CardSummary[] | null>(null);
   /** The card whose questions are being answered from the board (specs/015 FR-5). */
   readonly answering = signal<string | null>(null);
+  /** Cards shown with Claude's questions open (specs/019), the oldest change first. */
+  readonly questionCards = computed(() => this.state.cards().filter((c) => (c.openQuestions ?? 0) > 0)
+    .sort((a, b) => a.updatedAt.localeCompare(b.updatedAt)));
+  readonly questionTotal = computed(() => this.questionCards().reduce((n, c) => n + (c.openQuestions ?? 0), 0));
   readonly notify = inject(BoardNotifyService);
   private readonly seen = inject(BoardSeenService);
   /** Cards Claude changed since they were last opened here - counted in the tab title (specs/015 FR-9). */
@@ -414,6 +423,8 @@ export class BoardViewComponent {
     const target = event.target as HTMLElement | null;
     if (target && (/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) || target.isContentEditable)) return;
     if (this.triageQueue() || event.ctrlKey || event.metaKey || event.altKey) return;
+    // the questions dialog has its own keys (1-4, ← →)
+    if (event.key !== 'Escape' && document.querySelector('.board-quick-answer')) return;
     if (this.windowMode()) {
       if (event.key === 'Escape' && !document.querySelector('.dialog-backdrop')) this.closeCard();
       return;
@@ -468,7 +479,7 @@ export class BoardViewComponent {
     const sorts: Record<string, Resolution> = { f: 'FINE', n: 'NOT_IN_FLOW' };
     if (inbox && sorts[key]) this.state.close(card, sorts[key]);
     else if (inbox && key === 't') this.state.move(card.id, 'TO_DO');
-    else if (key === 'a' && card.waiting?.who === 'USER' && card.flags.includes('NEEDS_DECISION')) this.answering.set(card.id);
+    else if (key === 'a' && (card.openQuestions ?? (card.waiting?.who === 'USER' && card.flags.includes('NEEDS_DECISION') ? 1 : 0)) > 0) this.answering.set(card.id);
     else if (key === 'x') this.state.toggleSelected(card.id);
     else if (key === 'u') {
       const flags = card.flags.includes('URGENT') ? card.flags.filter((f) => f !== 'URGENT') : [...card.flags, 'URGENT' as Flag];

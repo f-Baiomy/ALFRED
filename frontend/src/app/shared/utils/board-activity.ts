@@ -6,12 +6,12 @@ export interface ClaudeParts {
   readonly text: string;
 }
 
-const CLAUDE_HEADING = /^\*\*(Did|Found|Next|Impact|Reply|Question)\*\*\s*/;
+const CLAUDE_HEADING = /^\*\*(Did|Found|Next|Impact|Reply|Question|Answers|Withdrawn)\*\*\s*/;
 
 /** Splits `**Did** … **Found** … **Next** … **Impact** …` into its parts; null for a free-text comment. */
 export function claudeParts(text: string | null): ClaudeParts[] | null {
   if (!text || !CLAUDE_HEADING.test(text)) return null;
-  return text.split(/\n\n(?=\*\*(?:Did|Found|Next|Impact|Reply|Question)\*\*)/).map((part) => {
+  return text.split(/\n\n(?=\*\*(?:Did|Found|Next|Impact|Reply|Question|Answers|Withdrawn)\*\*)/).map((part) => {
     const m = CLAUDE_HEADING.exec(part);
     return { label: m ? m[1].toUpperCase() : '', text: m ? part.slice(m[0].length) : part };
   });

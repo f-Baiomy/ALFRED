@@ -281,4 +281,23 @@ public interface BoardStorePort {
 
     /** Deletes the team and takes it off every card it was on. */
     void deleteTeam(String id);
+
+    // ------------------------------------------------------------------------------------------------- questions (019)
+
+    /** Indexes the questions of one question comment (replacing what that comment had). */
+    void putQuestions(long entryId, java.util.List<com.fathy.alfred.backend.board.domain.model.Question> questions);
+
+    /** Every question of a card, oldest comment first, then in order. */
+    java.util.List<com.fathy.alfred.backend.board.domain.model.Question> questionsOf(String cardId);
+
+    void updateQuestion(com.fathy.alfred.backend.board.domain.model.Question question);
+
+    /** Open questions per card (OPEN, or LATER whose time has come). */
+    java.util.Map<String, Integer> openQuestionCounts(java.util.Collection<String> cardIds, java.time.Instant now);
+
+    /** Open questions per card of a project (and cycle, when given) - the nav's count and the questions list. */
+    java.util.Map<String, Integer> openQuestionCards(String project, String cycleId, java.time.Instant now);
+
+    /** Claude's question comments with no index yet: written before specs/019, or imported. */
+    java.util.List<ActivityEntry> unindexedQuestions();
 }

@@ -34,10 +34,11 @@ import { SelectOption, SelectPickerComponent } from '../../select-picker/select-
 import { BoardPagesComponent } from '../visuals/board-pages.component';
 import { BoardFilesComponent } from '../visuals/board-files.component';
 import { BoardPinnedComponent } from '../visuals/board-pinned.component';
+import { QuickAnswerComponent } from '../quick-answer/quick-answer.component';
 @Component({
   selector: 'app-card-drawer',
   standalone: true,
-  imports: [BoardPagesComponent, BoardFilesComponent, BoardPinnedComponent, NgTemplateOutlet, SelectPickerComponent, ActivityTimelineComponent, CardRetestComponent, LiveWorkBoxComponent, MarkdownViewComponent, MentionChipComponent, MentionEditorComponent, MentionPickerComponent, RunSkillComponent, RunHistoryComponent],
+  imports: [BoardPagesComponent, BoardFilesComponent, BoardPinnedComponent, NgTemplateOutlet, SelectPickerComponent, ActivityTimelineComponent, CardRetestComponent, LiveWorkBoxComponent, MarkdownViewComponent, MentionChipComponent, MentionEditorComponent, MentionPickerComponent, RunSkillComponent, RunHistoryComponent, QuickAnswerComponent],
   template: `
     <ng-template #modeSwitch>
       <div class="board-seg board-drawer-modes" role="group" aria-label="Show the card as">
@@ -58,6 +59,10 @@ import { BoardPinnedComponent } from '../visuals/board-pinned.component';
             @if (c.cycleId) { <span class="board-cyc">◷ {{ c.cycleDeleted ? 'cycle deleted' : c.cycleId }}</span> }
             <span class="board-dim">#{{ c.number }}</span>
             @if (waiting(); as w) { <span class="board-wait" [class]="'board-wait board-wait-' + c.waiting!.who">{{ w }}</span> }
+            @if (c.openQuestions; as n) {
+              <button type="button" class="board-qpill" [disabled]="!editable()" title="Claude's open questions - answer them in one go"
+                      (click)="answering.set(true)">❓ {{ n }} open question{{ n === 1 ? '' : 's' }}</button>
+            }
           </div>
           <div class="board-drawer-tools">
             @if (skill(); as cmd) {
@@ -203,7 +208,7 @@ import { BoardPinnedComponent } from '../visuals/board-pinned.component';
           <section class="board-drawer-activity">
             <h4>Activity · what was done <span class="board-dim">{{ activityTotal() }} entries</span></h4>
             <app-activity-timeline [entries]="activity()" [editable]="editable()" [project]="c.project" [cycleId]="c.cycleId"
-                                   [card]="pickTarget()" (replied)="reply($event)" />
+                                   [card]="pickTarget()" (replied)="reply($event)" (answerQuestions)="answering.set(true)" />
             <app-live-work-box [project]="c.project" [number]="c.number" [editable]="editable()" />
             <app-run-history [project]="c.project" [number]="c.number" />
           </section>
@@ -220,6 +225,7 @@ import { BoardPinnedComponent } from '../visuals/board-pinned.component';
           </div>
         }
         @if (error()) { <div class="board-error">{{ error() }}</div> }
+        @if (answering()) { <app-quick-answer [cardId]="c.id" (closed)="answering.set(false); load(c.id)" /> }
       } @else {
         <div class="board-drawer-head"><button type="button" class="board-drawer-x" (click)="closed.emit()">✕</button>
           <ng-container *ngTemplateOutlet="modeSwitch" />
@@ -246,6 +252,8 @@ export class CardDrawerComponent {
   readonly closeRequested = output<{ id: string; number: number; resolution: Resolution }>();
 
   readonly card = signal<CardDetail | null>(null);
+  /** The questions dialog is open over the drawer (specs/019). */
+  readonly answering = signal(false);
   readonly activity = signal<readonly ActivityEntry[]>([]);
   readonly descriptionEdited = computed(() => this.activity().some((e) => e.kind === 'DESCRIPTION'));
   readonly descHistory = signal<{ versions: readonly TextVersion[]; loading: boolean } | null>(null);
@@ -350,7 +358,7 @@ export class CardDrawerComponent {
     });
   }
 
-  private load(id: string): void {
+  load(id: string): void {
     this.api.card(id).subscribe({
       next: (c) => {
         this.readAt.set(Date.now());

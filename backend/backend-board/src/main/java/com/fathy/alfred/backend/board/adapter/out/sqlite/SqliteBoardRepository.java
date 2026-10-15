@@ -34,6 +34,8 @@ import com.fathy.alfred.backend.board.domain.model.NextSteps;
 import com.fathy.alfred.backend.board.domain.model.Waiting;
 import com.fathy.alfred.backend.board.domain.model.WaitingOn;
 import com.fathy.alfred.backend.board.domain.model.Proposal;
+import com.fathy.alfred.backend.board.domain.model.Question;
+import com.fathy.alfred.backend.board.domain.model.QuestionState;
 import com.fathy.alfred.backend.board.domain.model.Resolution;
 import com.fathy.alfred.backend.board.domain.model.Scope;
 import com.fathy.alfred.backend.board.domain.model.SimilarClosed;
@@ -305,12 +307,98 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort,
                 """);
         jdbc.execute("CREATE INDEX IF NOT EXISTS idx_skill_runs ON skill_runs(project, created_at)");
         addColumn("skill_runs", "chat_id", "TEXT");
+        // Claude's questions, one row each (specs/019): the index of the ```questions blocks in question comments.
+        jdbc.execute("""
+                CREATE TABLE IF NOT EXISTS card_questions (entry_id INTEGER NOT NULL, card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+                  idx INTEGER NOT NULL, header TEXT NOT NULL, text TEXT NOT NULL, state TEXT NOT NULL, later_until INTEGER, answer_entry INTEGER,
+                  parent_idx INTEGER, parent_option TEXT, asked_at INTEGER NOT NULL, PRIMARY KEY (entry_id, idx))
+                """);
+        jdbc.execute("CREATE INDEX IF NOT EXISTS idx_card_questions ON card_questions(card_id, state)");
         jdbc.execute("CREATE TABLE IF NOT EXISTS board_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
         Integer seeded = jdbc.queryForObject("SELECT COUNT(*) FROM board_meta WHERE key = 'teams_seeded'", Integer.class);
         if (seeded == null || seeded == 0) {
             DefaultTeams.ALL.forEach(this::putTeam);
             jdbc.update("INSERT INTO board_meta(key, value) VALUES ('teams_seeded', '1')");
         }
+    }
+
+    // ------------------------------------------------------------------------------------------------- questions (019)
+
+    private static final String QUESTION_COLUMNS = "entry_id, card_id, idx, header, text, state, later_until, answer_entry, parent_idx, parent_option, asked_at";
+
+    private static final RowMapper<Question> QUESTION_ROW = (rs, n) -> {
+        long later = rs.getLong(7);
+        Instant laterUntil = rs.wasNull() ? null : Instant.ofEpochMilli(later);
+        long answer = rs.getLong(8);
+        Long answerEntry = rs.wasNull() ? null : answer;
+        int parent = rs.getInt(9);
+        Integer parentIdx = rs.wasNull() ? null : parent;
+        return new Question(rs.getLong(1), rs.getString(2), rs.getInt(3), rs.getString(4), rs.getString(5), QuestionState.valueOf(rs.getString(6)),
+                laterUntil, answerEntry, parentIdx, rs.getString(10), Instant.ofEpochMilli(rs.getLong(11)));
+    };
+
+    @Override
+    public void putQuestions(long entryId, List<Question> questions) {
+        tx.executeWithoutResult(status -> {
+            jdbc.update("DELETE FROM card_questions WHERE entry_id = ?", entryId);
+            for (Question q : questions) {
+                insertQuestion(q);
+            }
+        });
+    }
+
+    private void insertQuestion(Question q) {
+        jdbc.update("INSERT INTO card_questions(" + QUESTION_COLUMNS + ") VALUES (?,?,?,?,?,?,?,?,?,?,?)", q.entryId(), q.cardId(), q.idx(), q.header(),
+                q.text(), q.state().name(), q.laterUntil() == null ? null : q.laterUntil().toEpochMilli(), q.answerEntry(), q.parentIdx(),
+                q.parentOption(), q.askedAt().toEpochMilli());
+    }
+
+    @Override
+    public List<Question> questionsOf(String cardId) {
+        return jdbc.query("SELECT " + QUESTION_COLUMNS + " FROM card_questions WHERE card_id = ? ORDER BY entry_id, idx", QUESTION_ROW, cardId);
+    }
+
+    @Override
+    public void updateQuestion(Question q) {
+        jdbc.update("UPDATE card_questions SET state = ?, later_until = ?, answer_entry = ? WHERE entry_id = ? AND idx = ?", q.state().name(),
+                q.laterUntil() == null ? null : q.laterUntil().toEpochMilli(), q.answerEntry(), q.entryId(), q.idx());
+    }
+
+    private static final String OPEN_NOW = "(state = 'OPEN' OR (state = 'LATER' AND later_until <= ?))";
+
+    @Override
+    public Map<String, Integer> openQuestionCounts(Collection<String> cardIds, Instant now) {
+        Map<String, Integer> out = new HashMap<>();
+        for (List<String> chunk : chunks(new LinkedHashSet<>(cardIds))) {
+            List<Object> args = new ArrayList<>();
+            args.add(now.toEpochMilli());
+            args.addAll(chunk);
+            jdbc.query("SELECT card_id, COUNT(*) FROM card_questions WHERE " + OPEN_NOW + " AND card_id IN (" + marks(chunk.size()) + ") GROUP BY card_id",
+                    rs -> { out.put(rs.getString(1), rs.getInt(2)); }, args.toArray());
+        }
+        return out;
+    }
+
+    @Override
+    public Map<String, Integer> openQuestionCards(String project, String cycleId, Instant now) {
+        Map<String, Integer> out = new LinkedHashMap<>();
+        List<Object> args = new ArrayList<>(List.of(now.toEpochMilli(), project == null ? "" : project));
+        String cycle = "";
+        if (cycleId != null && !cycleId.isBlank()) {
+            cycle = " AND c.cycle_id = ?";
+            args.add(cycleId);
+        }
+        jdbc.query("SELECT q.card_id, COUNT(*) FROM card_questions q JOIN cards c ON c.id = q.card_id WHERE " + OPEN_NOW.replace("state", "q.state")
+                        .replace("later_until", "q.later_until") + " AND c.project = ?" + cycle + " GROUP BY q.card_id ORDER BY MIN(q.asked_at)",
+                rs -> { out.put(rs.getString(1), rs.getInt(2)); }, args.toArray());
+        return out;
+    }
+
+    @Override
+    public List<ActivityEntry> unindexedQuestions() {
+        return jdbc.query("SELECT id, card_id, actor, kind, text, old_value, new_value, at, reply_to FROM activity a WHERE a.actor = 'CLAUDE' "
+                + "AND a.kind = 'COMMENT' AND a.text LIKE '**Question**%' AND NOT EXISTS (SELECT 1 FROM card_questions q WHERE q.entry_id = a.id) "
+                + "ORDER BY a.id", ACTIVITY_ROW);
     }
 
     /** Adds a column to a table made by an older version (SQLite has no ADD COLUMN IF NOT EXISTS). */

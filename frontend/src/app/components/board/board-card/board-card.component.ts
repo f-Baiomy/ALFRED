@@ -38,6 +38,10 @@ export type CardAction =
         @for (f of card().flags; track f) { <span class="board-flag" [class]="'board-flag board-flag-' + f">{{ flagLabel(f) }}</span> }
       </div>
       <div class="board-card-title">{{ card().title }}</div>
+      @if (questionCount(); as n) {
+        <button type="button" class="board-qpill" [disabled]="!editable()" [title]="editable() ? 'Answer the questions (A)' : 'Open questions from Claude'"
+                (click)="$event.stopPropagation(); answer.emit()">❓ {{ n }} open question{{ n === 1 ? '' : 's' }}</button>
+      }
       @if (card().teams?.length) { <div class="board-card-row board-card-teams"><app-team-chips [teams]="card().teams" /></div> }
       @if (card().mentionChips?.length) {
         <div class="board-card-row">
@@ -97,9 +101,6 @@ export type CardAction =
           <button type="button" title="Record a re-test of this card - its steps show on the strip" (click)="act($event, { kind: 'retest' })">▶ Re-test</button>
         </div>
       }
-      @if (editable() && hasOpenQuestion()) {
-        <div class="board-card-acts"><button type="button" class="ok" title="Answer Claude's question (A)" (click)="$event.stopPropagation(); answer.emit()">Answer</button></div>
-      }
       @if (skill(); as cmd) {
         <span class="board-card-run" (click)="$event.stopPropagation()" (keydown)="$event.stopPropagation()">
           <app-run-skill [command]="cmd" [project]="card().project" [cycleId]="showCycle() ? null : card().cycleId" [cycleName]="cycleName()" [card]="card()" [editable]="editable()" />
@@ -135,7 +136,10 @@ export class BoardCardComponent {
     const r = this.retest();
     return r && (this.card().status === 'FIXED' || this.card().status === 'VERIFIED' || this.card().status === 'DONE') ? retestChip(r) : null;
   });
-  readonly hasOpenQuestion = computed(() => this.card().waiting?.who === 'USER' && this.card().flags.includes('NEEDS_DECISION'));
+  readonly hasOpenQuestion = computed(() => this.questionCount() > 0);
+  /** Claude's open questions (specs/019) - shown whatever the card's status or what else it waits on; an older backend: its flag. */
+  readonly questionCount = computed(() => this.card().openQuestions
+    ?? (this.card().waiting?.who === 'USER' && this.card().flags.includes('NEEDS_DECISION') ? 1 : 0));
 
   readonly buttons = RESOLUTION_BUTTONS;
   readonly stale = computed(() => isStale(this.card(), this.now()));
