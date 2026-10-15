@@ -272,6 +272,23 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort,
                 """);
         jdbc.execute("CREATE INDEX IF NOT EXISTS idx_retest_runs ON retest_runs(card_id, id)");
         jdbc.execute("CREATE TABLE IF NOT EXISTS app_starts (project TEXT PRIMARY KEY, at INTEGER NOT NULL)");
+        // specs/018: the requirement check - each Acceptance item's evidence, what each call showed about it, its card
+        jdbc.execute("""
+                CREATE TABLE IF NOT EXISTS item_evidence (cycle_id TEXT NOT NULL, file_name TEXT NOT NULL, item_key TEXT NOT NULL,
+                  project TEXT NOT NULL, endpoint TEXT NOT NULL, evidence_json TEXT NOT NULL, updated_by TEXT NOT NULL,
+                  updated_at INTEGER NOT NULL, PRIMARY KEY (cycle_id, file_name, item_key))
+                """);
+        jdbc.execute("CREATE INDEX IF NOT EXISTS idx_item_evidence_endpoint ON item_evidence(project, endpoint)");
+        jdbc.execute("""
+                CREATE TABLE IF NOT EXISTS item_call_results (cycle_id TEXT NOT NULL, file_name TEXT NOT NULL, item_key TEXT NOT NULL,
+                  call_id TEXT NOT NULL, result TEXT NOT NULL, reason TEXT, at INTEGER NOT NULL,
+                  PRIMARY KEY (cycle_id, file_name, item_key, call_id))
+                """);
+        jdbc.execute("CREATE INDEX IF NOT EXISTS idx_item_call_results_at ON item_call_results(cycle_id, file_name, item_key, at)");
+        jdbc.execute("""
+                CREATE TABLE IF NOT EXISTS item_cards (cycle_id TEXT NOT NULL, file_name TEXT NOT NULL, item_key TEXT NOT NULL,
+                  card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE, PRIMARY KEY (cycle_id, file_name, item_key))
+                """);
         // Teams (Settings -> Teams): a card's teams are a comma list of team ids, like its flags. The default teams are
         // added once - a user who deletes them all does not get them back on the next start.
         addColumn("cards", "teams", "TEXT NOT NULL DEFAULT ''");
@@ -1178,6 +1195,9 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort,
             jdbc.update("DELETE FROM cycle_log WHERE cycle_id = ?", cycleId);
             jdbc.update("DELETE FROM cycle_steps WHERE cycle_id = ?", cycleId);
             jdbc.update("DELETE FROM card_spec_items WHERE cycle_id = ?", cycleId);
+            jdbc.update("DELETE FROM item_evidence WHERE cycle_id = ?", cycleId);
+            jdbc.update("DELETE FROM item_call_results WHERE cycle_id = ?", cycleId);
+            jdbc.update("DELETE FROM item_cards WHERE cycle_id = ?", cycleId);
             jdbc.update("DELETE FROM mentions WHERE (owner_type = 'BRIEF' AND owner_id = ?) "
                     + "OR (owner_type = 'CHECKLIST' AND owner_id LIKE ? ESCAPE '\\')", cycleId, like);
             jdbc.update("UPDATE cards SET cycle_deleted = 1 WHERE cycle_id = ?", cycleId);

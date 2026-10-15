@@ -11614,6 +11614,20 @@ app-run-skill { display: inline-flex; flex-direction: column; align-items: flex-
 .board-check-mark { width: 1.1rem; text-align: center; font-weight: 700; }
 .board-check-PASS { color: var(--green); }
 .board-check-FAIL { color: var(--red); }
+// specs/018: each Acceptance item's verdict by the calls - a pill beside the item, counts above the list
+.board-verdict-counts { display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0 0 0.5rem; }
+.board-verdict { display: inline-block; padding: 0 0.45rem; border: 1px solid currentColor; border-radius: 999px; font-size: 0.7rem; line-height: 1.35rem; white-space: nowrap; }
+.board-verdict-MISSING { color: var(--red); background: color-mix(in srgb, var(--red) 14%, transparent); font-weight: 600; }
+.board-verdict-WRONG { color: var(--tok-number); }
+.board-verdict-MET { color: var(--green); }
+.board-verdict-NO_DATA { color: var(--amber); }
+.board-verdict-UNKNOWN, .board-verdict-NOT_EXERCISED, .board-verdict-NO_EVIDENCE { color: var(--text-faint); border-style: dashed; }
+.board-verdict-MANUAL { color: var(--cyan); }
+.board-verdict-why { width: 100%; margin: 0.1rem 0 0 1.6rem; font-size: 0.74rem; overflow-wrap: anywhere; }
+.board-evidence-editor { display: flex; flex-direction: column; gap: 0.35rem; width: 100%; margin: 0.3rem 0 0 1.6rem; padding: 0.45rem; border: 1px solid var(--border); border-radius: 6px; font-size: 0.78rem;
+  label { display: flex; flex-direction: column; gap: 0.15rem; color: var(--text-dim); }
+  input, textarea { width: 100%; box-sizing: border-box; background: var(--bg-2); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 0.25rem 0.4rem; font-family: ui-monospace, Consolas, monospace; font-size: 0.76rem; }
+}
 .board-check-CANT_TELL { color: var(--amber); }
 .board-check-NONE { color: var(--text-faint); }
 .board-check-text { flex: 1; min-width: 160px; }

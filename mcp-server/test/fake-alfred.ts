@@ -92,6 +92,9 @@ export interface FakeBoard {
   briefs: Record<string, { text: string; updatedAt: string | null }>;
   specs: Record<string, Record<string, string>>;
   checklist: Record<string, unknown[]>;
+  /** specs/018: a cycle's requirement view (none = an Alfred without the check), and the evidence PUTs received. */
+  requirements?: Record<string, unknown>;
+  evidencePuts?: { cycleId: string; body: any }[];
   /** The answer to the next POST /board/cards, when the test wants a refusal. */
   refuseCreate: [number, unknown] | null;
   /** Fields the next creates answer with beyond the card itself (the backend's CardDetail extras, e.g. similarOpen). */
@@ -632,6 +635,15 @@ export class FakeAlfred {
     }
     if (p[1] === 'cycles' && p[3] === 'specs') {
       return [200, Object.entries(b.specs[p[2]] ?? {}).map(([name, text]) => ({ name, size: text.length, uploadedAt: '2026-10-10T09:00:00Z' }))];
+    }
+    if (p[1] === 'cycles' && p[3] === 'requirements') {
+      const view = b.requirements?.[p[2]];
+      return view ? [200, view] : [404, { error: 'not-found', message: 'No such route' }];
+    }
+    if (p[1] === 'cycles' && p[3] === 'evidence' && method === 'PUT') {
+      if (body?.endpoint === 'REFUSE') return [403, { error: 'refused-for-claude', message: 'The user wrote this item\'s evidence - only the user changes it' }];
+      (b.evidencePuts ??= []).push({ cycleId: p[2], body });
+      return [200, { cycleId: p[2], ...body, updatedBy: 'CLAUDE', updatedAt: '2026-10-15T09:00:00Z' }];
     }
     if (p[1] === 'cycles' && p[3] === 'checklist') return [200, b.checklist[p[2]] ?? []];
     if (p[1] === 'live-work' && method === 'PUT') {

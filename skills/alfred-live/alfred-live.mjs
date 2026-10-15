@@ -136,10 +136,11 @@ export const LIVE_TOOLS = ['board_get', 'board_reply', 'board_ask', 'board_comme
 /** The tools a listen judge run may need: the live ones plus the drill-down, the board writes and what the finish does. */
 export const LISTEN_TOOLS = [...LIVE_TOOLS, 'board_add_many', 'board_link_spec', 'board_session_log', 'board_steps', 'board_regressions', 'board_list',
   'board_closed_reasons', 'get_brief', 'add_comment', 'add_comments', 'search_logs', 'log_problems', 'db_overview', 'redis_commands', 'compare_cycles',
-  'problem_calls', 'triage', 'suggest_spacers', 'get_cycle', 'list_cycles', 'search_cycle', 'outside_logs', 'problem_timeline', 'redis_overview'];
+  'problem_calls', 'triage', 'suggest_spacers', 'get_cycle', 'list_cycles', 'search_cycle', 'outside_logs', 'problem_timeline', 'redis_overview',
+  'board_requirements', 'board_evidence_put'];
 
 /** The tools whose call writes something on the board (a run that made none of these answered nothing). */
-export const WRITE_TOOLS = /board_(reply|ask|comment|edit|add|add_many|flag|assign|propose|retest_plan|link|link_spec|move|mark_step|suggest_mark|session_log|fix)$|^(mcp__.+__)?add_comments?$/;
+export const WRITE_TOOLS = /board_(reply|ask|comment|edit|add|add_many|flag|assign|propose|retest_plan|link|link_spec|move|mark_step|suggest_mark|session_log|fix|evidence_put)$|^(mcp__.+__)?add_comments?$/;
 
 /** The reply text from a reply tool's partial JSON input - shown as it types in. */
 export function draftOf(partialJson) {

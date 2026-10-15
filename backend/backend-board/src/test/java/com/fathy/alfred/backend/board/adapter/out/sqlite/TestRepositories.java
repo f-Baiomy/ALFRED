@@ -21,6 +21,11 @@ public final class TestRepositories {
         return repo;
     }
 
+    /** The requirement check's tables in the same board.db as {@code store} (specs/018). */
+    public static com.fathy.alfred.backend.board.application.port.out.RequirementStorePort requirements(BoardStorePort store, ObjectMapper json) {
+        return new SqliteRequirementRepository((SqliteBoardRepository) store, json);
+    }
+
     public static Opened open(ObjectMapper json, Path file) {
         SqliteBoardRepository repo = new SqliteBoardRepository(json, file.toString());
         repo.init();

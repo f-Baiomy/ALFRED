@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Requirements Mock</title>
+<style>
+  :root { --bg:#0f0d24; --panel:#1a1640; --inner:#14112f; --border:#2e2865; --strong:#3d3680; --text:#e6e3ff; --dim:#a29dd0; --faint:#6e68a3;
+    --purple:#7c5cff; --pl:#b6a4ff; --cyan:#4fd1e8; --green:#4ade80; --amber:#fbbf24; --red:#f87171; --orange:#fb923c; --blue:#60a5fa; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:12.5px/1.45 system-ui, sans-serif; padding:12px 16px; }
+  .grid { display:grid; grid-template-columns: 1.4fr 1fr; gap:12px; align-items:start; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  .panel { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:10px; }
+  h3 { margin:0 0 8px; font-size:11px; color:var(--dim); letter-spacing:.05em; display:flex; align-items:center; gap:6px; }
+  .tag { font-size:10px; color:var(--faint); margin:-4px 0 10px; }
+  .counts { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px; }
+  .pill { font-size:10.5px; padding:0 8px; border-radius:999px; border:1px solid; white-space:nowrap; }
+  .p-miss { color:var(--red); border-color:var(--red); background:#3a171755; }
+  .p-wrong { color:var(--orange); border-color:var(--orange); }
+  .p-met { color:var(--green); border-color:var(--green); }
+  .p-data { color:var(--amber); border-color:var(--amber); }
+  .p-none { color:var(--faint); border-color:var(--faint); border-style:dashed; }
+  .p-man { color:var(--blue); border-color:var(--blue); }
+  .item { background:var(--inner); border:1px solid var(--border); border-radius:8px; padding:8px; margin-bottom:8px; }
+  .item.miss { border-left:3px solid var(--red); }
+  .head { display:flex; gap:8px; align-items:baseline; }
+  .head .txt { flex:1; }
+  .key { font:10px Consolas, monospace; color:var(--faint); }
+  .ev { margin-top:6px; padding-left:10px; border-left:2px solid var(--strong); font-size:11.5px; }
+  .ev .l { display:grid; grid-template-columns: 16px 1fr; gap:4px; }
+  .ok { color:var(--green); } .bad { color:var(--red); } .q { color:var(--faint); }
+  code { font:11px Consolas, monospace; color:var(--pl); }
+  .call { display:inline-block; font:11px Consolas, monospace; padding:0 6px; border-radius:6px; border:1px solid var(--strong); color:var(--cyan); }
+  .card { display:inline-block; font-size:11px; color:var(--pl); }
+  .row { display:flex; gap:6px; margin-top:6px; align-items:center; flex-wrap:wrap; }
+  .btn { font-size:11px; padding:2px 8px; border-radius:6px; border:1px solid var(--strong); background:var(--inner); color:var(--text); cursor:pointer; }
+  .meta { font-size:11px; color:var(--faint); margin-top:4px; }
+  .strip { font:11.5px Consolas, monospace; background:#0a0919; border:1px solid var(--border); border-radius:8px; padding:8px; color:var(--dim); white-space:pre-wrap; }
+  .strip .r { color:var(--red); } .strip .g { color:var(--green); }
+  .tl { font-size:11.5px; }
+  .tl div { padding:4px 0; border-bottom:1px dashed var(--border); }
+  .tl b { color:var(--pl); }
+  .sp { color:var(--amber); }
+</style>
+</head>
+<body>
+<div class="grid">
+  <div class="panel">
+    <h3>TASK TAB · REQUIREMENTS <span style="color:var(--faint)">61813 Refunded Requests filters</span></h3>
+    <div class="tag">Verdicts come from the calls, in code. The user's mark still wins; Claude's suggestion shows as today.</div>
+    <div class="counts">
+      <span class="pill p-miss">5 missing</span><span class="pill p-wrong">0 wrong</span><span class="pill p-met">0 met</span>
+      <span class="pill p-data">2 no data</span><span class="pill p-none">3 not exercised</span><span class="pill p-man">2 manual</span>
+      <span class="pill p-none">2 no evidence yet</span>
+    </div>
+
+    <div class="item miss">
+      <div class="head"><span class="pill p-miss">Missing</span><span class="txt">The Branch dropdown keeps several branches selected at once.</span><span class="key">AC5</span></div>
+      <div class="ev">
+        <div class="l"><span class="bad">✗</span><span>request <code>$.branch*</code> is a list - sent <code>branchId: 948</code> (a number)</span></div>
+        <div class="l"><span class="q">·</span><span>endpoint <code>POST */refunded-requests/search</code> · how: pick 2 branches, Search</span></div>
+      </div>
+      <div class="row"><span class="call">#1 POST /refunded-requests/search · 200</span> first of 5 calls · <span class="card">#41 TASK Missing feature: branch multi-select / All Branches</span></div>
+    </div>
+
+    <div class="item miss">
+      <div class="head"><span class="pill p-miss">Missing</span><span class="txt">Searching with All Branches applies no branch restriction.</span><span class="key">AC7</span></div>
+      <div class="ev">
+        <div class="l"><span class="bad">✗</span><span>request <code>$.branch*</code> absent / empty / "ALL" - sent <code>948</code></span></div>
+      </div>
+      <div class="row"><span class="call">#1 · 200</span> <span class="card">#41</span></div>
+    </div>
+
+    <div class="item">
+      <div class="head"><span class="pill p-data">No data</span><span class="txt">Searching with one branch returns only that branch's requests.</span><span class="key">AC8</span></div>
+      <div class="ev">
+        <div class="l"><span class="ok">✓</span><span>request <code>$.branch*</code> present</span></div>
+        <div class="l"><span class="q">?</span><span>rows' <code>branch*</code> ∈ request - <code>total: 0</code>, nothing to compare</span></div>
+      </div>
+      <div class="meta">Needs refund requests in the date range for branch 948. Fill the brief's Data.</div>
+    </div>
+
+    <div class="item">
+      <div class="head"><span class="pill p-none">Not exercised</span><span class="txt">Searching with All Agencies returns requests of every agency the Admin may access.</span><span class="key">AC2</span></div>
+      <div class="ev"><div class="l"><span class="q">·</span><span>waits for a search with <code>$.agency*</code> absent · how: step 4</span></div></div>
+    </div>
+
+    <div class="item">
+      <div class="head"><span class="pill p-man">Manual</span><span class="txt">The Agency dropdown lists an "All Agencies" option.</span><span class="key">AC1</span></div>
+      <div class="row"><button class="btn">Pass</button><button class="btn">Fail</button><button class="btn">Can't tell</button><span class="meta">UI only - not visible in traffic</span></div>
+    </div>
+
+    <div class="item">
+      <div class="head"><span class="pill p-none">No evidence</span><span class="txt">Refund Details, Approve and Reject behave as before on the filtered results.</span><span class="key">AC14</span></div>
+      <div class="row"><button class="btn">+ evidence</button><span class="meta">Claude drafts it with /alfred-spec; you can write it here</span></div>
+    </div>
+  </div>
+
+  <div>
+    <div class="panel" style="margin-bottom:12px">
+      <h3>EVIDENCE EDITOR · AC6</h3>
+      <div class="tag">Opened from an item. Same editor as a card's re-test plan, three new kinds.</div>
+      <div class="ev" style="border:none;padding:0">
+        <div class="l"><span>1</span><span><b>Request shape</b> <code>$.branch*</code> is <code>list ≥ 2</code></span></div>
+        <div class="l"><span>2</span><span><b>Rows match filter</b> rows <code>$.payload</code> field <code>branch*</code> ∈ request <code>$.branch*</code></span></div>
+        <div class="l"><span>3</span><span><b>Rows present</b> <code>$.payload</code> ≥ 1</span></div>
+        <div class="l"><span>4</span><span><b>Status</b> <code>2xx</code></span></div>
+      </div>
+      <div class="meta">Endpoint <code>POST */refunded-requests/search</code> · how: All Agencies + Cairo + Mansoura · drafted by Claude, edited by you</div>
+      <div class="row"><button class="btn">+ expectation</button><button class="btn">Save</button></div>
+    </div>
+
+    <div class="panel" style="margin-bottom:12px">
+      <h3>LIVE STRIP + CHAT (listen)</h3>
+      <div class="strip">listening 61813 · batch 1 · 1 call · <span class="r">requirements 5 missing</span> · 2 no data · 3 not exercised · 2 manual
+⚠ Task branch has no changes since 5e31161e93 → #40 TASK
+→ #41 TASK Missing feature: AC5/6/7/9/10 · step 1 FAILED
+• #41 POST /refunded-requests/search sends branchId: 948 (one number); AC5,6,7,9,10 need a list or none (call #1)
+
+■ stop --now
+● Listen stopped without the finish - requirements: 5 missing (#41), 3 not exercised, 2 manual not checked.
+  Session log written. /alfred-listen 61813 --finish completes them.</div>
+    </div>
+
+    <div class="panel">
+      <h3>ACTION SECTIONS INSIDE A BATCH (automatic)</h3>
+      <div class="tag">The batch still closes after 3 s quiet (log lines and SQL have time to arrive). Inside it, calls are split per action: learned gap or area change. Requirement verdicts do not wait for the batch.</div>
+      <div class="tl">
+        <div class="sp">── action 1 · page opened ──</div>
+        <div><b>#1</b> GET agencies-by-branch · <b>#2</b> GET branches (12 ms apart)</div>
+        <div class="sp">── action 2 · 0.9 s pause ──</div>
+        <div><b>#3</b> POST search · 200 <span class="q">→ backend: AC5/6/7/9/10 Missing on completion → #41, before the batch closes</span></div>
+        <div class="sp">── action 3 · 40 ms pause (automation, learned gap 25 ms) ──</div>
+        <div><b>#4</b> POST search · <b>#5</b> POST search <span class="q">→ linked to #41</span></div>
+        <div class="sp">── action 4 · area: Users ──</div>
+        <div><b>#6</b> GET /Users/profile</div>
+        <div class="q">3 s quiet → batch closes. Spacers are never read. Steps tick from their items' calls (step 7 → AC6).</div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

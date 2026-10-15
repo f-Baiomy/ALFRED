@@ -43,7 +43,7 @@ Draft both, **show them, and ask "Save these?"** - edit them as the user says, s
   - <what it does not - listen and review never card these>
 
   ## Test steps
-  1. <a step the tester does, one action each>
+  1. <a step the tester does, one action each> → AC<n>
   2. ...
 
   ## Data
@@ -52,8 +52,9 @@ Draft both, **show them, and ask "Save these?"** - edit them as the user says, s
   ## Decisions
   - <empty at first; the user's decisions are added here as they are made>
   ```
-  The numbered list under "Test steps" is what listen / review tick off - keep one action per step. A ticket pasted
-  or linked: its text goes under Description as given, and its acceptance criteria into the spec below.
+  The numbered list under "Test steps" is what listen / review tick off - keep one action per step, and end it with the
+  Acceptance items it exercises (`→ AC5, AC6`): a step is ticked from its items' calls, never from spacers. A ticket
+  pasted or linked: its text goes under Description as given, and its acceptance criteria into the spec below.
 - **Spec** (`board_put_spec`, name `spec.md` unless the user gives one) - only when the description holds
   requirements:
   ```
@@ -67,6 +68,12 @@ Draft both, **show them, and ask "Save these?"** - edit them as the user says, s
   - <what this task does not cover>
   ```
   Each Acceptance line is one checklist item: testable, one behaviour, no "and".
+- **Evidence** (`board_evidence_put`, all items in one call, right after the spec is saved - it needs no approval of
+  its own): for each Acceptance item, the endpoint whose calls show it and the checks each such call must pass (rules
+  "Requirement status"). Alfred then judges every call in code as it arrives and opens a "Missing feature" card the
+  moment a call shows an item is not built - with no model and nobody in the way. Write it for the FINISHED feature,
+  from the description and the spec - never from the code as it is today. Show the evidence as a short table with the
+  drafts (item · endpoint · checks); the user may change it later on the Task tab, and their version wins.
 
 `--dry`: show the drafts and stop.
 

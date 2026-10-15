@@ -13,7 +13,8 @@ asks (`--file`, or "save it").
    "since Monday" → `board_search` / `board_changes` with `since`).
 2. Gather: `board_search` for every card in scope (with its last comment), `board_get` for the ones whose decisions
    matter (the user's answers to questions), `get_brief` test steps and `read_spec` checklist (marks, cards per item)
-   for each cycle, `board_regressions`.
+   for each cycle, `board_requirements` for each cycle (each item's verdict by the calls and its deciding call - a
+   Requirements table in the report, MISSING first), `board_regressions`.
 3. Write it like this - short lines, card numbers as `#n`, no evidence dumps:
 
 ```
@@ -25,6 +26,7 @@ Fixed      #9 discount saved (OrderMapper.java:142) - verified in "ODY-482 retes
 Open       #14 waits on you (question, 2 d) · #15 To do
 Regressions  none / #7 login 500 again since 10/11 (reopen proposed)
 Spec       Acceptance 4/5 PASS · 1 not tested (Refund flow)
+Calls      by the requirement check: 3 met · 1 missing (#41) · 1 no data - one row per item in the Requirements table
 Test steps 4/5 seen · step 5 not tested
 Teams      Backend 2 open (#14, #15) · Frontend 1 (#15) · Database 0 · no team: #16
 Next       answer #14 · re-test step 5

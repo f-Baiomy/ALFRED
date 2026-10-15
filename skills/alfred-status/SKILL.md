@@ -16,8 +16,9 @@ Read `rules.md` in this skill's folder first. This skill only **reads**: no card
 2. `board_search` with `mine: true` and `status: [TO_DO, IN_PROGRESS, FIXED]`: your cards and each one's last state
    comment (what you were doing - its "next").
 3. `board_changes` cursor `claude`: what the user did since your last entry (answers say "ANSWERS your question").
-4. For a cycle: requirements met / bug / missing / can't tell from `task_context`, and the session log entries if the
-   user asks for history.
+4. For a cycle: requirements by the calls from `task_context` ("By the calls: 5 missing · 2 met · …") - MISSING and
+   WRONG items first under "Waiting on the developer" with their card - plus the user's marks, and the session log
+   entries if the user asks for history.
 
 Answer in this shape, short:
 
@@ -25,6 +26,7 @@ Answer in this shape, short:
 Waiting on you (3)      #11 answer Q2 (2 d) · #14 accept "Verified" (4 h) · Inbox: 2 to sort
 Waiting on Claude (2)   #9 To do · #12 In progress - next: run the tests
 Needs a re-test (1)     #7 Fixed 1 d ago
+Requirements (61813)    5 missing (#41) · 2 no data · 1 not exercised · 2 manual - not done
 Since my last visit     you answered Q1 on #11, moved #9 to To do
 Next                    answer #11's question, then /alfred-sync
 ```

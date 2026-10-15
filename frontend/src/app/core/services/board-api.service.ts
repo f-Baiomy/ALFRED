@@ -5,7 +5,7 @@ import {
   ActivityPage, AgentStatus, LiveWork, BoardAccess, BoardFilters, BoardStorage, BulkAction, CallBadge, CardDetail, CardEdit, CardStatus, CardsPage,
   CardRetest, ChecklistFile, ChecklistItem, CycleBrief, Expectation, Mark, MentionRef, NewCard, NextSteps, Resolution, RetestCheck, RetestPlan,
   RetestReport, RetestStep, SessionLogEntry, SpecFileInfo, Team, TeamEdit, TestStep,
-  CycleChatInfo, SkillRun, SkillRunRequest, SkillRunsPage, TextVersion,
+  CycleChatInfo, EvidenceCheck, ItemEvidence, RequirementsView, SkillRun, SkillRunRequest, SkillRunsPage, TextVersion,
 } from '../models/board.models';
 import { AppConfigService } from './app-config.service';
 
@@ -183,6 +183,20 @@ export class BoardApiService {
 
   checklist(cycleId: string): Observable<ChecklistFile[]> {
     return this.http.get<ChecklistFile[]>(`${this.base}/cycles/${encodeURIComponent(cycleId)}/checklist`);
+  }
+
+  /** specs/018: each Acceptance item's verdict by the calls (reading judges what is new first). */
+  requirements(cycleId: string): Observable<RequirementsView> {
+    return this.http.get<RequirementsView>(`${this.base}/cycles/${encodeURIComponent(cycleId)}/requirements`);
+  }
+
+  putEvidence(cycleId: string, evidence: { fileName: string; itemKey: string; project: string; endpoint: string;
+                                          checks: readonly EvidenceCheck[]; howTo: string }): Observable<ItemEvidence> {
+    return this.http.put<ItemEvidence>(`${this.base}/cycles/${encodeURIComponent(cycleId)}/evidence`, evidence);
+  }
+
+  deleteEvidence(cycleId: string, fileName: string, itemKey: string): Observable<void> {
+    return this.http.delete<void>(`${this.base}/cycles/${encodeURIComponent(cycleId)}/evidence`, { params: { fileName, itemKey } });
   }
 
   mark(cycleId: string, fileName: string, itemKey: string, mark: Mark, evidence: string): Observable<ChecklistItem> {

@@ -29,6 +29,12 @@ once) - each turn costs seconds. Several small batches may come as one run (`===
    sure expectation is a card; on an unsure one it waits for the flow's `Learn:` question. A group marked "seen before:
    fine because …" is judged again only to confirm that reason still holds. "Fine" needs a reason you can write in the
    ledger - never "same as before" without `board_link`ing it to that card.
+1b. **Requirements** (REQUIREMENTS BY THE CALLS below - Alfred judged every call of each item's endpoint in code,
+   flagged OR clean, and opened the cards): a MISSING item has its "Missing feature" card and a WRONG one its "Wrong
+   result" bug - `board_link` this batch's calls of that endpoint to it and say it in the `→` line; never open a second
+   card for it. An UNKNOWN item: find out why from one call (`get_call` `paths`) - a wildcard naming two fields, a body
+   that is not JSON - and say it in STATE. "The task branch has no change yet" or "old code" is never a reason for
+   "fine": the calls are what the user tests, and a call that cannot carry what an item needs is that item missing.
 2. **Write** (rules "Batches" 4): every new card of the batch in **one** `board_add_many` (`cycleId`, evidence in the
    description, the main call in `links`, `teams`, its `firstComment` with `waitingOn` USER, its `specItem` with the
    FULL key from the Acceptance list below); existing problems → `board_link` + one state comment. "ALREADY ON THE
@@ -39,10 +45,11 @@ once) - each turn costs seconds. Several small batches may come as one run (`===
    this flow" IS that dismissed problem: ledger its group `fine: same as closed #N | recurs`, never retry it under
    another title.
 3. **Ledger** - every group of the batch gets its outcome (the LEDGER block below): card, link, asked or fine with the
-   reason. A "Never completed" call is judged too: a BUG (a supplier call that hung, a report lost) or fine with why.
+   reason. A group whose calls are an item's MISSING / WRONG calls is `link #<that card>`, never `fine`. A "Never completed" call is judged too: a BUG (a supplier call that hung, a report lost) or fine with why.
 4. **Steps** - `board_mark_step` the steps this batch showed - and the clean batches listed below since the last run:
-   SEEN (call count) or FAILED (card number). Calls match steps by the user's spacers (listed below); with none, group
-   by endpoint and say so in STATE.
+   SEEN (call count) or FAILED (card number). A step's calls are the calls of the items it names (`→ AC6`); a step
+   whose item is MISSING or WRONG is FAILED with that card, never SEEN. A step that names no item: match it by the
+   batch's ACTIONS line (check_calls cuts the calls by pause and area) and its endpoints. Spacers are not used.
 5. **Unsure expectations** - when a flow's run ends (its last step arrived, or the user moved on), ask them in the
    flow's `Learn:` card (rules "Learning") - once per flow, not per call; the UNSURE list below says which were asked.
 6. **The user's answers and notes** below (answers to `Learn:` questions, comments on calls, decisions): act on them -

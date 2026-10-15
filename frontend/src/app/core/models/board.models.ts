@@ -261,6 +261,69 @@ export interface ChecklistItem {
   readonly cards?: readonly CardRef[];
 }
 
+/** specs/018: what a call must show for an Acceptance item - checked by Alfred in code on every call to its endpoint. */
+export type EvidenceKind = 'REQUEST_SHAPE' | 'REQUEST_WHEN' | 'ROWS_MATCH_FILTER' | 'ROWS_PRESENT' | 'STATUS';
+
+export interface EvidenceCheck {
+  readonly kind: EvidenceKind;
+  readonly path?: string | null;
+  readonly shape?: string | null;
+  readonly rows?: string | null;
+  readonly field?: string | null;
+  readonly min?: number | null;
+  readonly range?: string | null;
+}
+
+export interface ItemEvidence {
+  readonly cycleId: string;
+  readonly fileName: string;
+  readonly itemKey: string;
+  readonly project: string;
+  /** METHOD /path, or UI for an item no call can show. */
+  readonly endpoint: string;
+  readonly checks: readonly EvidenceCheck[];
+  readonly howTo: string;
+  readonly updatedBy: 'USER' | 'CLAUDE' | null;
+  readonly updatedAt: string | null;
+}
+
+export type Verdict = 'MISSING' | 'WRONG' | 'MET' | 'NO_DATA' | 'UNKNOWN' | 'NOT_EXERCISED' | 'MANUAL' | 'NO_EVIDENCE';
+
+/** Worst first - the order the counts are shown in. */
+export const VERDICTS: readonly Verdict[] = ['MISSING', 'WRONG', 'MET', 'NO_DATA', 'UNKNOWN', 'NOT_EXERCISED', 'MANUAL', 'NO_EVIDENCE'];
+export const VERDICT_LABELS: Record<Verdict, string> = {
+  MISSING: 'Missing', WRONG: 'Wrong', MET: 'Met', NO_DATA: 'No data', UNKNOWN: 'Unknown', NOT_EXERCISED: 'Not exercised',
+  MANUAL: 'Manual', NO_EVIDENCE: 'No evidence',
+};
+
+export interface ItemVerdict {
+  readonly verdict: Verdict;
+  /** The call that decided it. */
+  readonly callId: string | null;
+  /** The failing check and the value seen. */
+  readonly reason: string | null;
+  readonly cardId: string | null;
+  readonly judgedAt: string | null;
+  readonly counts: { readonly contradicts: number; readonly wrong: number; readonly meets: number; readonly noData: number; readonly unknown: number };
+}
+
+export interface Requirement {
+  readonly fileName: string;
+  readonly itemKey: string;
+  readonly text: string;
+  readonly mark: Mark | null;
+  readonly evidence: ItemEvidence | null;
+  readonly verdict: ItemVerdict;
+  readonly cardNumber: number | null;
+  readonly cardStatus: CardStatus | null;
+}
+
+export interface RequirementsView {
+  readonly cycleId: string;
+  readonly items: readonly Requirement[];
+  readonly counts: Partial<Record<Verdict, number>>;
+}
+
 export interface ChecklistSuggestion {
   readonly cycleId: string;
   readonly fileName: string;

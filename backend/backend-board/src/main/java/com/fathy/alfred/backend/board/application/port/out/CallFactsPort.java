@@ -16,6 +16,15 @@ public interface CallFactsPort {
     /** The facts of a live call ({@code cycleId} null) or of a call a cycle captured. Empty when the call is gone. */
     Optional<CallFacts> facts(String callId, String cycleId, Set<String> jsonPaths);
 
+    /** A call's status and request / response bodies, for the requirement check (specs/018). */
+    record CallBodies(Integer status, String requestBody, String responseBody) {
+    }
+
+    /** The status and bodies of a call a cycle captured; empty when it is gone or cannot be read. */
+    default Optional<CallBodies> bodies(String callId, String cycleId) {
+        return Optional.empty();
+    }
+
     /** A call mentioned as {@code in:<id>} or {@code in:<id>@<cycleId>}, signed. Empty when it is gone. */
     Optional<CycleCall> call(String ref);
 }

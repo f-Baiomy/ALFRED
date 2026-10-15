@@ -853,3 +853,71 @@ test('hop diffs: a call indexed late is compared with the call that follows it -
     assert.match(later.text, /0 checked \(0 entries, 2 earlier calls reported again \(their writes arrived\)\)/);
   } finally { await w.close(); }
 });
+
+// ------------------------------------------------------------------------------------- specs/018: small ids, shapes, actions
+
+test('flow diff: a small id links the calls that carry it, under its own name - and a filter is compared only with another endpoint', () => {
+  const side = (callId: string, kind: Side['kind'], at: number, root: unknown, endpoint: string): Side => ({ callId, kind, at, root, endpoint });
+  const a = analyseFlows([
+    side('lookup', 'res', 1, { branches: [{ branchId: 948, name: 'Cairo', status: 'ACTIVE' }] }, 'GET /branches'),
+    side('s1', 'req', 2, { branchId: 948, status: 'OPEN', page: 1 }, 'POST /search'),
+    side('s1', 'res', 3, { payload: [{ branchId: 948, status: 'PENDING' }] }, 'POST /search'),
+    side('s2', 'req', 4, { branchId: 948, status: 'CLOSED', page: 2 }, 'POST /search'),
+    side('export', 'req', 5, { branchId: 948, status: 'OPEN', page: 2 }, 'POST /export'),
+    side('other', 'req', 6, { typeId: 948, status: 'X' }, 'POST /other'),
+  ]);
+  const lines = a.diffs.map((d) => `${d.kind} ${d.key} ${d.from.callId}:${d.from.value} → ${d.to.callId}:${d.to.value}`);
+  assert.deepEqual(lines, ['changed status s2:"CLOSED" → export:"OPEN"'], 'the export carried another filter than the search before it');
+  assert.deepEqual(a.flows.map((f) => [...f.callIds].sort()), [['export', 'lookup', 's1', 's2']], 'typeId 948 is another thing');
+});
+
+test('flow diff: an id list links each of its ids; a bare small id and a status number link nothing', () => {
+  const a = analyseFlows([
+    { callId: 'a', kind: 'req', at: 1, root: { agencyIds: [949, 10646], id: 5, status: 1 } },
+    { callId: 'b', kind: 'res', at: 2, root: { agencyId: 949, name: 'Agency A' } },
+    { callId: 'c', kind: 'req', at: 3, root: { id: 5, status: 1 } },
+  ]);
+  assert.deepEqual(a.flows.map((f) => [...f.callIds].sort()), [['a', 'b']]);
+});
+
+test('request shape: field names and kinds, never values - a null field matches anything', async () => {
+  const { shapeOf } = await import('../src/tools/check.ts');
+  const old = shapeOf({ branchId: 948, agencyIds: [949], pnr: null });
+  assert.equal(old, shapeOf({ branchId: 1, agencyIds: [], pnr: null }));
+  assert.equal(old, shapeOf({ agencyIds: [1, 2], branchId: 5 }), 'a null field left out, key order does not matter');
+  assert.notEqual(old, shapeOf({ branchIds: [948], agencyIds: [949] }), 'branchId → branchIds is a new request');
+  assert.notEqual(shapeOf({ filter: { branchId: 1 } }), shapeOf({ filter: { branchIds: [1] } }), 'two levels deep');
+  assert.equal(shapeOf('text'), null);
+});
+
+test('actions: the pause that ends one is learned - automation ms apart and a person seconds apart both split per action', async () => {
+  const { actionGap, actionsOf } = await import('../src/tools/check.ts');
+  const call = (id: string, ms: number, path = '/odeysysadmin/Booking2/search'): CallRecord =>
+    ({ ...inbound(id, 0, 'POST', path, {}, {}), timestamp: new Date(T + ms).toISOString(), duration_ms: 20 });
+  // automation: bursts of 3 calls 5 ms apart, bursts 400 ms apart
+  const auto: CallRecord[] = [];
+  for (let b = 0; b < 6; b++) for (let i = 0; i < 3; i++) auto.push(call(`a${b}${i}`, b * 400 + i * 25));
+  const gap = actionGap(auto);
+  assert.ok(gap >= 250 && gap < 300, `learned ${gap} ms`);
+  const numbers = new Map(auto.map((c, i) => [c.id, i + 1]));
+  assert.deepEqual(actionsOf(auto, [], gap, numbers).map((a) => a.calls), [[1, 2, 3], [4, 5, 6], [7, 8, 9], [10, 11, 12], [13, 14, 15], [16, 17, 18]]);
+  // too few calls to learn from: 3 s, and another area starts an action on its own
+  const person = [call('p1', 0), call('p2', 900), call('p3', 1000, '/odeysysadmin/Users/profile')];
+  assert.equal(actionGap(person), 3_000);
+  const acts = actionsOf(person, [], 3_000, new Map([['p1', 1], ['p2', 2], ['p3', 3]]));
+  assert.deepEqual(acts.map((a) => a.calls), [[1, 2], [3]]);
+  assert.equal(acts[1].reason, 'area Users');
+});
+
+test('check_calls: each group lists its calls\' request shapes, so a fine verdict on the old request is judged again on a new one', async () => {
+  const w = await world();
+  try {
+    plainCycle(w);
+    addToCycle(w, 'internal', { ...payment('p1', 1, 500), request: { headers: {}, body: JSON.stringify({ branchId: 948 }) } });
+    addToCycle(w, 'internal', { ...payment('p2', 2, 500), request: { headers: {}, body: JSON.stringify({ branchIds: [948] }) } });
+    const r = await w.call('check_calls', { cycle: CY });
+    assert.deepEqual(members(r), [[1, 2]], r.text);
+    const g = (r.json.groups as { shapes: string[] }[])[0];
+    assert.equal(g.shapes.length, 2, r.text);
+  } finally { await w.close(); }
+});

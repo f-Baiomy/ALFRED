@@ -74,6 +74,7 @@ export function groupsOf(text, json) {
       id, key: g.key ?? null, endpoint: g.endpoint ?? (/· \d+ calls? · (\S+ \S+)/.exec(head)?.[1] ?? null),
       callIds: Array.isArray(g.callIds) ? g.callIds : [], exampleCallId: g.exampleCallId ?? (/id=([^\s,)]+)/.exec(block)?.[1] ?? null),
       severity: g.severity ?? 3, signals: Array.isArray(g.signals) ? g.signals : [], calls: g.calls, block,
+      shapes: Array.isArray(g.shapes) ? g.shapes : [],
     };
   });
 }
@@ -81,6 +82,34 @@ export function groupsOf(text, json) {
 /** The identity of a group across batches: check_calls' key, else the endpoint and its signals. */
 export function keyOf(group) {
   return group.key ?? (group.endpoint ? `${group.endpoint}|${(group.signals ?? []).join(',')}` : null);
+}
+
+/**
+ * Whether a recurring "fine" verdict still covers a group: not when the group's calls carry a request shape the verdict
+ * was never given on (new code sending a new request - specs/018). A verdict from before shapes were kept covers any.
+ */
+export function fineCovers(ledger, group) {
+  if (!Array.isArray(ledger?.shapes)) return true;
+  return (group.shapes ?? []).every((x) => ledger.shapes.includes(x));
+}
+
+/** The request shapes a ledger entry keeps: what it had and what the group showed, newest last, at most 20. */
+export function shapesAfter(before, group) {
+  return [...new Set([...(before ?? []), ...(group.shapes ?? [])])].slice(-20);
+}
+
+/** "5 missing · 2 no data · …" from a requirement view's counts, worst first (specs/018). */
+export function requirementCounts(view) {
+  const order = [['MISSING', 'missing'], ['WRONG', 'wrong'], ['MET', 'met'], ['NO_DATA', 'no data'], ['UNKNOWN', 'unknown'],
+    ['NOT_EXERCISED', 'not exercised'], ['MANUAL', 'manual'], ['NO_EVIDENCE', 'no evidence']];
+  const c = view?.counts ?? {};
+  return order.filter(([k]) => (c[k] ?? 0) > 0).map(([k, w]) => `${c[k]} ${w}`).join(' · ');
+}
+
+/** The brief's task branch ("Branch (odeysys): 61813-..."), or null. */
+export function briefBranch(brief) {
+  const m = /^\s*[-*]?\s*branch\b[^:\n]*:\s*`?([\w./-]{3,})/im.exec(String(brief ?? ''));
+  return m ? m[1] : null;
 }
 
 /** How many calls of a reply came back with late hop diffs (a number, or a list of ids, depending on the server). */
@@ -243,7 +272,8 @@ export class ListenRunner {
       writeFileSync(file, `${rules}\n\n---\n\n${this.readSkill(name) ?? ''}`);
       return file;
     };
-    this.systemFiles = { batch: sys('batch.md'), sweep: sys('finish-sweep.md'), steps: sys('finish-steps.md'), regressions: sys('finish-regressions.md') };
+    this.systemFiles = { batch: sys('batch.md'), sweep: sys('finish-sweep.md'), steps: sys('finish-steps.md'), regressions: sys('finish-regressions.md'),
+      evidence: sys('evidence.md') };
     // The pools are filled once the server's tool list is known (run()), so each run loads only the tools it needs.
     const poolOf = (size, system) => new ClaudePool({ size, warm: false, claude: o.claude, claudeArgs: o.claudeArgs, cwd: o.cwd, server: o.server,
       mcpConfigFile: o.mcpConfigFile, model: o.model, systemPromptFile: system, log: o.log, only: LISTEN_TOOLS, serverTools: this.serverTools,
@@ -312,13 +342,14 @@ export class ListenRunner {
 
   stepLine() {
     const q = this.s.queue.length;
-    return `listening to ${this.o.cycleId} · ${this.counts()}${q ? ` · ${q} batch${q === 1 ? '' : 'es'} being judged` : ''}`;
+    const req = requirementCounts(this.pack.requirements);
+    return `listening to ${this.o.cycleId} · ${this.counts()}${req ? ` · requirements ${req}` : ''}${q ? ` · ${q} batch${q === 1 ? '' : 'es'} being judged` : ''}`;
   }
 
   // ---------------------------------------------------------------------------------------------- the context pack
 
   /** What every run needs and the model should never fetch itself: read once, refreshed when the board says it changed. */
-  async loadPack(parts = ['task', 'brief', 'acceptance', 'closed', 'teams', 'steps', 'spacers', 'cards', 'diff']) {
+  async loadPack(parts = ['task', 'brief', 'acceptance', 'requirements', 'closed', 'teams', 'steps', 'cards', 'diff']) {
     const { mcp, alfred, cycleId, project } = this.o;
     const want = new Set(parts);
     const tasks = [];
@@ -337,11 +368,39 @@ export class ListenRunner {
     if (want.has('closed')) tasks.push(tryCall(() => mcp.call('board_closed_reasons', { project, limit: 200 }, 60_000).catch(() => mcp.call('board_closed_reasons', { project, limit: 60 }, 60_000))).then((t) => set('closed', t)));
     if (want.has('teams') && !this.pack.teams) tasks.push(tryCall(() => mcp.call('board_teams', { project }, 60_000)).then((t) => set('teams', t)));
     if (want.has('steps')) tasks.push(tryCall(() => alfred.call('GET', `/board/cycles/${encodeURIComponent(cycleId)}/steps`), []).then((s) => set('steps', Array.isArray(s) ? s : [])));
-    if (want.has('spacers')) tasks.push(tryCall(() => alfred.call('GET', `/session-cycles/${encodeURIComponent(cycleId)}/spacers`), []).then((s) => set('spacers', Array.isArray(s) ? s : [])));
+    if (want.has('requirements')) tasks.push(this.refreshRequirements());
     if (want.has('cards')) tasks.push(this.refreshCards());
     if (want.has('diff') && !this.pack.diff) tasks.push(Promise.resolve().then(() => set('diff', diffStat(this.o.cwd, this.pack.brief?.text ?? ''))));
     await Promise.all(tasks);
     this.packAt = Date.now();
+  }
+
+  /**
+   * Where each Acceptance item stands by the calls (specs/018): Alfred judges every call in code and opens the cards; the
+   * runner only reads the verdicts - for the pack, the strip and the chat (each change said once).
+   */
+  async refreshRequirements() {
+    const view = await this.o.alfred.call('GET', `/board/cycles/${encodeURIComponent(this.o.cycleId)}/requirements`).catch(() => null);
+    if (!view || !Array.isArray(view.items)) return null;
+    this.pack.requirements = view;
+    this.pack.requirementLines = view.items.map((r, i) => {
+      const v = r.verdict ?? {};
+      return `AC${i + 1} ${v.verdict ?? '?'}${r.cardNumber ? ` (#${r.cardNumber})` : ''} | ${r.fileName} | ${r.itemKey} | ${String(r.text ?? '').replace(/\s+/g, ' ').slice(0, 200)}`
+        + `${v.reason ? ` | ${String(v.reason).slice(0, 200)}` : ''}${v.callId ? ` | call ${v.callId}` : ''}`;
+    });
+    const before = this.s.verdicts ?? {};
+    const changes = [];
+    const now = {};
+    view.items.forEach((r, i) => {
+      const v = r.verdict?.verdict;
+      now[r.itemKey] = v;
+      if (before[r.itemKey] !== v && ['MISSING', 'WRONG', 'MET'].includes(v)) {
+        changes.push(`AC${i + 1} ${v}${r.cardNumber ? ` #${r.cardNumber}` : ''}${v !== 'MET' && r.verdict?.reason ? ` - ${String(r.verdict.reason).slice(0, 140)}` : ''}`);
+      }
+    });
+    this.s.verdicts = now;
+    if (changes.length && this.packAt) this.say(`  ◆ requirements: ${changes.join(' · ')}`);
+    return view;
   }
 
   /** The cards of this cycle and project, as the board holds them now (open ones first). */
@@ -358,9 +417,9 @@ export class ListenRunner {
 
   stepsText() {
     const steps = (this.pack.steps ?? []).map((s) => `[${s.key}] ${s.state === 'SEEN' ? '✓' : s.state === 'FAILED' ? '✗' : '·'} ${s.text}${s.state === 'SEEN' ? ` (${s.calls} calls)` : s.state === 'FAILED' ? ` (card #${s.cardNumber ?? '?'})` : ''}`);
-    const spacers = (this.pack.spacers ?? []).map((s) => `spacer "${s.label}" after ${s.afterCallId ? `call ${String(s.afterCallId).slice(0, 8)} (${s.anchorTimestamp ?? ''})` : 'the top'}`);
     return [steps.length ? `TEST STEPS (board_mark_step with the [key]):\n${steps.join('\n')}` : 'TEST STEPS: none in the brief',
-      spacers.length ? `THE USER'S SPACERS (a call belongs to the spacer above it):\n${spacers.join('\n')}` : 'SPACERS: none - group by endpoint and say so'].join('\n');
+      'STEPS AND CALLS: a step\'s calls are the calls of the Acceptance items it names (→ AC6) - see REQUIREMENTS - else the ACTIONS line '
+        + 'of the batch (check_calls cuts the calls into actions by pause and area, learned from the cycle). Spacers are not used.'].join('\n');
   }
 
   /** The pack as prompt text: the stable parts first (a cache hit across runs), the per-batch parts after. */
@@ -384,6 +443,8 @@ export class ListenRunner {
       p.brief?.outOfScope ? `OUT OF SCOPE (binding):\n${p.brief.outOfScope}` : '',
       p.brief?.decisions ? `DECISIONS (binding):\n${p.brief.decisions}` : '',
       p.acceptance?.length ? `ACCEPTANCE ITEMS (R# | file | FULL key for specItem / board_suggest_mark | mark | text):\n${p.acceptance.join('\n')}` : '',
+      p.requirementLines?.length ? `REQUIREMENTS BY THE CALLS (Alfred judges each call in code; a MISSING / WRONG item already has its card - link to it, `
+        + `never open a second; "old code" is never a reason for fine):\n${p.requirementLines.join('\n')}` : '',
       p.teams ? `TEAMS:\n${p.teams}` : '',
       this.stepsText(),
       p.closed ? `CLOSED CARDS (never raise a Fine / Not in this flow again):\n${p.closed}` : '',
@@ -410,6 +471,8 @@ export class ListenRunner {
       + ` · no model while calls are clean · ${this.o.parallel ?? 3} runs in parallel${this.o.dry ? ' · dry run: nothing is written' : ''}`);
     await this.loadPack();
     this.serverTools = await this.o.mcp.listTools().catch(() => null);
+    await this.branchCheck().catch((e) => this.o.log(`  (branch check: ${e.message.slice(0, 120)})`));
+    await this.draftEvidence().catch((e) => this.say(`  ⚠ drafting evidence failed: ${e.message.slice(0, 160)} - listening goes on`));
     if (this.serverTools?.length) this.pool.o.serverTools = this.serverTools;
     if (this.o.warm !== false) { this.pool.size = this.o.parallel ?? 3; this.pool.warmSize = Math.min(this.pool.size, this.o.warmSize ?? 1); this.pool.fill(); }
     if (this.o.liveLane !== false) this.startLiveLane();
@@ -439,8 +502,17 @@ export class ListenRunner {
     else {
       this.draining = false;
       await this.drainer;
-      await this.status(`stopped without the finish - /alfred-listen ${this.o.cycleId} --finish runs it`, 'STOPPED');
-      this.say('● Listen stopped without the finish - `/alfred-listen <cycle> --finish` runs it later.');
+      await this.refreshRequirements().catch(() => null);
+      const req = requirementCounts(this.pack.requirements);
+      if (!this.o.dry) {
+        await this.o.mcp.call('board_session_log', { cycleId: this.o.cycleId, skill: 'alfred-listen',
+          did: `Stopped at once (--now), without the finish: ${this.counts()} · ${this.s.batch} batches · ${this.s.runs} runs.`,
+          found: `${req ? `Requirements by the calls: ${req}.` : 'No requirement verdicts.'}${this.s.narrative ? `\n\n${this.s.narrative}` : ''}`,
+          next: `Not done at stop: the sweep, the steps and requirements pass, regressions - /alfred-listen ${this.o.cycleId} --finish runs them.` }, 60_000)
+          .catch((e) => this.o.log(`  (session log: ${e.message.slice(0, 120)})`));
+      }
+      await this.status(`stopped without the finish${req ? ` · requirements ${req}` : ''} - /alfred-listen ${this.o.cycleId} --finish runs it`, 'STOPPED');
+      this.say(`● Listen stopped without the finish${req ? ` - requirements: ${req}` : ''} · session log written - \`/alfred-listen ${this.o.cycleId} --finish\` runs the rest.`);
     }
     this.pool.close();
     this.o.mcp.close();
@@ -550,6 +622,7 @@ export class ListenRunner {
       (json.board?.changes?.length) ? `${json.board.changes.length} change${json.board.changes.length === 1 ? '' : 's'} of yours (live lane)` : null,
     ].filter(Boolean).join(' · ');
 
+    if ((json.checked ?? 0) > 0) await this.refreshRequirements().catch(() => null);
     const paused = await this.status(this.stepLine());
     if (!needsRun(json, unknown) && !hung.length) {
       const clean = cleanLine(text);
@@ -606,7 +679,9 @@ export class ListenRunner {
         if ((l.kind === 'card' || l.kind === 'link') && l.card && ['INBOX', 'TO_DO', 'IN_PROGRESS'].includes(open.get(l.card)?.status)) {
           handled = await this.linkRecurrence(g, l).catch((e) => { this.o.log(`  (link failed: ${e.message.slice(0, 120)})`); return false; });
         } else if (l.kind === 'fine' && l.recurs) {
-          handled = true;
+          handled = fineCovers(l, g);
+          if (!handled) this.o.log(`  ${g.id} ${g.endpoint ?? ''}: fine before, but its calls send a new request shape - judged again`);
+          else if (!Array.isArray(l.shapes) && (g.shapes ?? []).length) l.shapes = shapesAfter([], g);
         }
       }
       if (handled) { l.seen = (l.seen ?? 1) + 1; known.push({ group: g, ledger: l }); } else unknown.push(g);
@@ -811,7 +886,8 @@ export class ListenRunner {
       const entry = ledger.get(g.id);
       const k = keyOf(g);
       if (!entry || !k) continue;
-      this.s.ledger[k] = { ...entry, seen: this.s.ledger[k]?.seen ?? 1, batch: job.batch, endpoint: g.endpoint ?? null };
+      this.s.ledger[k] = { ...entry, seen: this.s.ledger[k]?.seen ?? 1, batch: job.batch, endpoint: g.endpoint ?? null,
+        shapes: shapesAfter(this.s.ledger[k]?.shapes, g) };
     }
     for (const raw of blockOf(text, 'UNSURE') ?? []) {
       const parts = raw.split('|').map((x) => x.trim());
@@ -861,6 +937,43 @@ export class ListenRunner {
     this.save();
   }
 
+  // -------------------------------------------------------------------------------------------------------- start
+
+  /** Items with no evidence yet get it drafted by one run before the first batch, so the calls are judged from the start. */
+  async draftEvidence() {
+    const view = this.pack.requirements;
+    const missing = (view?.items ?? []).map((r, i) => ({ r, n: i + 1 })).filter(({ r }) => r.verdict?.verdict === 'NO_EVIDENCE');
+    if (!missing.length || this.o.dry || this.s.finish.evidence) return;
+    this.say(`  ◆ ${missing.length} Acceptance item${missing.length === 1 ? ' has' : 's have'} no evidence - drafting it before the first batch`);
+    await this.phase('evidence', 'drafting evidence', this.systemFiles.evidence, async () => this.packText({ extra: [
+      `ITEMS WITHOUT EVIDENCE (AC# | file | key | text):\n${missing.map(({ r, n }) => `AC${n} | ${r.fileName} | ${r.itemKey} | ${r.text}`).join('\n')}`,
+    ] }), () => {}, 'starting');
+    await this.refreshRequirements();
+    await this.status(this.stepLine());
+  }
+
+  /** The task branch has no commit since its base: one TASK at start (once per cycle), and a strip warning. */
+  async branchCheck() {
+    if (this.s.noChangeCard || this.o.dry) return;
+    const diff = this.pack.diff;
+    if (!diff || !/no change on this branch yet/.test(diff.stat ?? '')) return;
+    const named = briefBranch(this.pack.brief?.text);
+    let current = null;
+    try { current = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: this.o.cwd, encoding: 'utf8', timeout: 10_000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch { /* no git */ }
+    if (!named || !current || named !== current) return; // another branch is checked out: this repo says nothing about the task
+    const base = String(diff.base ?? '').slice(0, 10);
+    const title = `Task branch has no changes since ${base}`;
+    if ((this.pack.cards ?? []).some((c) => c.title === title)) { this.s.noChangeCard = true; return; }
+    await this.o.mcp.call('board_add', { project: this.o.project, kind: 'TASK', cycleId: this.o.cycleId, teams: [], title,
+      description: `**The task branch \`${current}\` has no commit since its base ${base}, so the calls test the old code.**\n\n`
+        + `> found by the listen runner (git, no model)\n\n### Next\nBuild the task on the branch and deploy it, then use the page again.` }, 60_000)
+      .then(() => { this.s.cards++; })
+      .catch((e) => this.o.log(`  (no-change card: ${e.message.slice(0, 120)})`));
+    this.s.noChangeCard = true;
+    this.save();
+    this.say(`  ⚠ the task branch ${current} has no commit since ${base} - the calls test the old code`);
+  }
+
   // ------------------------------------------------------------------------------------------------------- finish
 
   /** Stop: settle, drain, sweep + a whole-cycle pass for what has no outcome, three finish runs in parallel, then code. */
@@ -882,7 +995,7 @@ export class ListenRunner {
     await this.drained();
     this.draining = false;
     await this.drainer;
-    await this.loadPack(['cards', 'closed', 'steps', 'acceptance', 'task']);
+    await this.loadPack(['cards', 'closed', 'steps', 'acceptance', 'requirements', 'task']);
 
     // Part 1: the sweep plus a whole-cycle pass - the groups with no outcome anywhere.
     if (!f.sweep) {
@@ -983,11 +1096,11 @@ export class ListenRunner {
   }
 
   /** One finish phase: a run on a transient process with its own system prompt, retried once, recorded in the state. */
-  async phase(key, name, systemFile, buildPrompt, onText) {
+  async phase(key, name, systemFile, buildPrompt, onText, verb = 'finishing') {
     const f = this.s.finish;
     for (let attempt = 0; attempt < 2 && !this.now; attempt++) {
       const started = Date.now();
-      this.o.log(`  ✦ finishing: ${name}…`);
+      this.o.log(`  ✦ ${verb}: ${name}…`);
       const prompt = await buildPrompt();
       if (typeof prompt === 'string' && /^nothing left/.test(prompt)) { f[key] = true; this.o.log(`  finish: ${name} - ${prompt}`); this.save(); return; }
       const pool = this.poolOf(0, systemFile);
@@ -997,7 +1110,7 @@ export class ListenRunner {
         onStep: async (step, steps, draft, tool, input) => {
           if (!step) return false;
           this.o.log(`    · ${step}`);
-          if (Date.now() - lastStatus > 1500) { lastStatus = Date.now(); this.status(`finishing · ${name} · ${step}`).catch(() => {}); }
+          if (Date.now() - lastStatus > 1500) { lastStatus = Date.now(); this.status(`${verb} · ${name} · ${step}`).catch(() => {}); }
           return this.now;
         },
         onToolResult: (_id, isError, text, tool) => { if (/board_add(_many)?$/.test(tool)) this.s.cards += [...String(text).matchAll(/added #(\d+)/g)].length; },
@@ -1013,13 +1126,13 @@ export class ListenRunner {
         f[key] = true;
         const summary = (summaryOf(result.text) ?? '→ done').replace(/^→\s*/, '');
         this.o.log(`  → ✦ ${name} (${secs} s): ${summary}`);
-        this.o.chat?.(`stop · ${name} → ${summary}`);
+        this.o.chat?.(`${verb === 'finishing' ? 'stop' : 'start'} · ${name} → ${summary}`);
         for (const x of findingsOf(result.text)) this.say(`  ${x}`);
         this.save();
         return;
       }
       const why = failureOf(result, stderr);
-      this.say(`  ⚠ finishing: ${name} failed: ${why}${attempt === 0 ? ' - once more' : ''}`);
+      this.say(`  ⚠ ${verb}: ${name} failed: ${why}${attempt === 0 ? ' - once more' : ''}`);
       if (failureKind(why) === 'limit' || failureKind(why) === 'auth') break;
     }
     this.save();

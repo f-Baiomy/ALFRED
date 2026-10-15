@@ -13,13 +13,17 @@ Read `rules.md` in this skill's folder first and follow it - especially "What be
 `task_context` on the cycle (rules §0) - the task, its description, scope, decisions, requirements with the user's
 marks, test steps, open findings, earlier runs. `read_spec` only for a requirement you need in full,
 `board_closed_reasons` for the project, the repo's "Project checks" (rules) when there are any. The task branch's change
-(rules §0 "Checking the code against the task"): `git diff --stat <base>...HEAD` and the files behind each requirement.
+(rules §0 "Checking the task against what was asked"): `git diff --stat <base>...HEAD` and the files behind each
+requirement - a hint, never the verdict. `board_requirements`: each Acceptance item's verdict by the calls (Alfred
+judges every call in code, so a cycle recorded before the evidence was written is judged on this read too); items
+with NO_EVIDENCE → draft it now with `board_evidence_put` and read `board_requirements` again.
 `board_status` WATCHING with `step` "reviewing <cycle>".
 
 ## 2. Map the flow
 
-Group the calls into the brief's test steps by the user's spacers and comments; with no spacers, `suggest_spacers`
-and use them as the grouping (do not add them without asking). Match each step to the Acceptance items it exercises.
+Group the calls into the brief's test steps by the Acceptance items each step names (`→ AC6`: the step's calls are
+its items' calls); for a step that names none, by the actions `check_calls` cuts the calls into (pause and area,
+learned from the cycle) and its endpoints. Spacers are not used and none are added.
 
 ## 3. Check every call - one pass
 
@@ -36,7 +40,10 @@ with `get_call` `paths`). Update `board_status` `step` as you go ("reviewing <cy
 - Problem already on a card → no new card: `board_link` the new calls and a state comment "seen again in <cycle>".
 - Two existing cards that are one problem → `board_propose` MERGE.
 - A card the user dismissed → skip.
-- Acceptance item never exercised → TASK; spec vs behaviour conflict → QUESTION.
+- Requirements by the calls (rules "Requirement status"): MISSING / WRONG already have their card - link the calls
+  and check it links the item; NO_DATA → a QA TASK for the test data; NOT_EXERCISED → TASK with the item's howTo;
+  MANUAL → check the page's code and `board_suggest_mark` ("met by code") or ask; spec vs behaviour conflict →
+  QUESTION. Never "fine" for a call that misses an item because the code is old.
 - Unsure expectations → the flow's `Learn:` card (rules "Learning"), one batched question per flow.
 
 ## 5. Regressions

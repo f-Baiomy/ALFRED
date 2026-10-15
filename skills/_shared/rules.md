@@ -51,13 +51,16 @@ work stands, and nothing depends on a conversation that is gone.
 
   The **requirements** are the Acceptance items of the spec files (the ticket or a spec): each one is checked as met,
   bug, missing or can't tell. "Out of scope" and "Decisions" are binding: never raise what they exclude or settle.
-- **Checking the code against the task** (review, listen, fix): this session runs in the app's repo. Read the task
-  branch's change (`git diff --stat <base>...HEAD`, then the files that matter) once per run and map each requirement
-  to the code that implements it. A requirement no change touches and the calls show is not done is **missing** - a
-  TASK card, not a bug. Code the change touches that no requirement asks for and no call ran is a NOTE titled
-  `Not in the task: <file> <what it adds>` - scope creep or a requirement nobody wrote down; ask, never judge.
-- **The Task tab shows what you write** (the cycle page's Task tab and the Board's cycle view): a requirement's state
-  comes from the user's mark, then the cards linked to its Acceptance item (`board_link_spec`: an open BUG = bug, an
+- **Checking the task against what was asked** (review, listen, verify, fix): every Acceptance item has **evidence** -
+  the endpoint whose calls show it and the checks each call must pass - and Alfred judges every call to it **in code**
+  as it arrives (`board_requirements`; "Requirement status" below). The calls decide, not the code: a call that cannot
+  carry what an item needs makes it MISSING whether or not code was written, and code written does not make an item
+  met - only a call does. The code is a hint: when the repo is here, read the task branch's change (`git diff --stat
+  <base>...HEAD`, then the files that matter) once per run to name the file that misses the item. Code the change
+  touches that no requirement asks for and no call ran is a NOTE titled `Not in the task: <file> <what it adds>` -
+  scope creep or a requirement nobody wrote down; ask, never judge.
+- **The Task tab shows what you write** (the cycle page's Task tab and the Board's cycle view): beside each item's
+  verdict by the calls, a requirement's state comes from the user's mark, then the cards linked to its Acceptance item (`board_link_spec`: an open BUG = bug, an
   open TASK = missing, FIXED = waiting on a re-test), then your `board_suggest_mark`. So link every bug or missing card
   to the item it breaks, and suggest a mark with evidence for each item you checked - an unlinked card shows only as a
   note, an item with nothing shows "not checked".
@@ -191,8 +194,8 @@ formatted, next to the user's own rich text. Write so the user gets it at a glan
 ## 4. What becomes a card
 
 Every call of the flow is checked (OPTIONS preflights, static files, health checks and 304s aside): status, response
-body, its log lines, its SQL, its outbound calls, its Redis commands, and the spec item the step belongs to (the user's
-spacers and comments say which step a call is). `check_calls` does the checking ("Batches" below); you decide what each
+body, its log lines, its SQL, its outbound calls, its Redis commands, and the spec item the step belongs to (the
+items a step names say which calls are its; the user's comments may add more - spacers are not used). `check_calls` does the checking ("Batches" below); you decide what each
 flagged call is, with the lines just before an error (`log_context`) and the statement (`db_statement`) when needed.
 
 - **BUG** - 5xx (BLOCKER when the flow cannot continue); an **ERROR / FATAL log line** even with a 200 (add the code
@@ -205,10 +208,35 @@ flagged call is, with the lines just before an error (`log_context`) and the sta
 - **NOTE flagged RISK** - N+1 queries, the same query or call repeated, a call over **2 s** or 3× slower than the
   endpoint's usual (`endpoint_health`), writes without a transaction; a noisy WARN once, not per call.
 - **TASK** - an Acceptance item the cycle never exercised; something the spec asks that the code does not do; a check
-  you could not make ("▤ log capture is off for <project>").
+  you could not make ("▤ log capture is off for <project>"). A **missing feature** - a call that cannot carry what an
+  item needs, or an endpoint still answering the pre-task request - is a TASK `Missing feature: <item>` that Alfred's
+  requirement check opens itself, in code, from the first call that shows it (BUG `Wrong result: <item>` when the
+  request is right and the answer breaks the item): link to it, never open a second.
 - **QUESTION** flagged NEEDS_DECISION - the spec and the behaviour disagree and you cannot tell which is right: ask it
   with `board_ask`.
 - **NOTE** - worth knowing, nothing to fix (flag AFFECTS_PROJECT when shared code is involved).
+
+### Requirement status - each Acceptance item by the calls
+
+Alfred keeps each item's **evidence** (`board_evidence_put`: endpoint + checks) and judges every call to that endpoint
+in code, once, as it arrives - flagged or clean, with no model. Checks apply in this order: `REQUEST_SHAPE` (what the
+request must be able to carry), `REQUEST_WHEN` (which calls exercise the item - others are about another choice),
+`STATUS` / `ROWS_MATCH_FILTER` (what the answer must be), `ROWS_PRESENT` (rows to prove it). The item's verdict is the
+worst among its calls since the app last started or its card was fixed:
+
+| Verdict | Meaning | What happens |
+|---|---|---|
+| MISSING | a call cannot meet the item (one `branchId` where several branches must fit) | Alfred opens TASK `Missing feature: …` at once (one card for the items one missing capability blocks) |
+| WRONG | the request can, the answer breaks it (a branch leaks into a multi-branch search) | Alfred opens BUG `Wrong result: …` |
+| MET | a call exercising it passed every check | a card about it is told; you propose Verified / Done, the user decides |
+| NO_DATA | the right request, no rows to prove anything | a QA task for the test data (at finish) |
+| UNKNOWN | a body not JSON, a wildcard naming two fields | find out why; fix the evidence |
+| NOT_EXERCISED | no call matched yet | a TASK at finish, with the item's howTo |
+| MANUAL | UI only (`UI` endpoint) | check it in the frontend code ("met by code", a suggestion) or ask the user |
+| NO_EVIDENCE | none written | draft it (`board_evidence_put`) |
+
+A step is SEEN only when its items' calls pass; a step whose item is MISSING or WRONG is FAILED with that card. The
+user's mark always wins over a verdict; an item whose card the user closed as Fine is never carded again.
 
 ### Batches - how listen and review check calls (one procedure, the same accuracy)
 

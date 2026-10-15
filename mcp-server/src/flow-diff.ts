@@ -9,6 +9,12 @@
  * are one key), each against the latest earlier snapshot that has the key. Different names on two sides (our
  * `departure`, the supplier's `dep.at`) are not matched - the diff is a list of candidates for Claude, who reads the
  * code, not a verdict.
+ *
+ * Small ids (`branchId: 948`, `agencyIds: [949, 10646]`) are anchors too, but WEAK ones: a small number means nothing
+ * on its own (status 1, type 2), so it links only under its own name (`branchid=948` - a list `agencyIds` gives
+ * `agencyid=949` per item), and only across calls: never a request against its own response (a filter against the rows
+ * it returned), never two requests to the same endpoint (two searches with other filters are not a flow) and never
+ * a row of a list (a result row and the next request share field names, not meaning) - those still link the flow.
  */
 
 export type Prim = string | number | boolean | null;
@@ -24,6 +30,8 @@ export interface Side {
   readonly root: unknown;
   /** For a written row: the table. */
   readonly table?: string;
+  /** The call's endpoint (METHOD /pattern), when known: weak anchors never link two requests of one endpoint. */
+  readonly endpoint?: string;
 }
 
 /** Where a snapshot sits - a side without its body, so the index never keeps a whole body alive. */
@@ -36,6 +44,8 @@ export interface Snapshot {
   readonly anchorKey: string;
   readonly leaves: ReadonlyMap<string, { readonly path: string; readonly value: Prim }>;
   readonly counts: ReadonlyMap<string, { readonly path: string; readonly count: number }>;
+  /** Anchored by a small id (see the header): compared only across calls, never request→request of one endpoint. */
+  readonly weak?: boolean;
 }
 
 export type DiffKind = 'changed' | 'count' | 'missing';
@@ -101,6 +111,30 @@ function isAnchor(key: string, value: Prim): value is string | number {
   return /^(?=.*\d)(?=.*[A-Za-z])[A-Za-z0-9_-]{5,}$/.test(v);
 }
 
+/**
+ * A small id under its own name (`branchid=948`), or null: an integer 1..999 under a key that ends in "id" and names
+ * the thing (not a bare `id`, which is every entity's).
+ */
+function weakAnchor(key: string, value: Prim): string | null {
+  const k = normKey(key);
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value >= 1000) return null;
+  return k.length > 2 && k.endsWith('id') ? `${k}=${value}` : null;
+}
+
+/** The items of an id list (`agencyIds: [949, 10646]`) as weak anchors (`agencyid=949`); none for another list. */
+function listAnchors(key: string, value: unknown[]): string[] {
+  const k = normKey(key);
+  if (!(k.length > 3 && k.endsWith('ids')) || value.length === 0 || value.length > 50) return [];
+  const one = k.slice(0, -1);
+  const out: string[] = [];
+  for (const v of value) {
+    if (typeof v === 'number' && Number.isInteger(v) && v >= 1) out.push(`${one}=${v}`);
+    else if (typeof v === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(v.trim()) && v.trim().toLowerCase() !== 'all') out.push(`${one}=${normValue(v)}`);
+    else return []; // not a list of ids
+  }
+  return out;
+}
+
 function shown(value: Prim): string {
   const s = value === null ? 'null' : typeof value === 'string' ? JSON.stringify(value) : String(value);
   return s.length > MAX_VALUE ? `${s.slice(0, MAX_VALUE)}…` : s;
@@ -130,7 +164,8 @@ function collect(node: Record<string, unknown>, path: string, prefix: string, de
 
 /** Every snapshot in one side: each object (at any depth) that holds an anchor value directly. */
 export function snapshotsOf(side: Side): { anchor: string; snapshot: Snapshot }[] {
-  const meta: SideMeta = { callId: side.callId, kind: side.kind, at: side.at, ...(side.table ? { table: side.table } : {}) };
+  const meta: SideMeta = { callId: side.callId, kind: side.kind, at: side.at, ...(side.table ? { table: side.table } : {}),
+    ...(side.endpoint ? { endpoint: side.endpoint } : {}) };
   const out: { anchor: string; snapshot: Snapshot }[] = [];
   const walk = (node: unknown, path: string, depth: number) => {
     if (depth > MAX_DEPTH || node === null || typeof node !== 'object') return;
@@ -141,15 +176,26 @@ export function snapshotsOf(side: Side): { anchor: string; snapshot: Snapshot }[
     const obj = node as Record<string, unknown>;
     let leaves: Map<string, { path: string; value: Prim }> | null = null;
     let counts: Map<string, { path: string; count: number }> | null = null;
-    for (const [key, value] of Object.entries(obj)) {
-      if (Array.isArray(value) || (value !== null && typeof value === 'object')) continue;
-      if (!isAnchor(key, value as Prim)) continue;
+    const snapshot = (anchor: string, key: string, weak: boolean) => {
       if (!leaves) {
         leaves = new Map();
         counts = new Map();
         collect(obj, path, '', 1, leaves, counts);
       }
-      out.push({ anchor: normValue(value as Prim), snapshot: { side: meta, path: path || '(root)', anchorKey: normKey(key), leaves, counts: counts! } });
+      out.push({ anchor, snapshot: { side: meta, path: path || '(root)', anchorKey: normKey(key), leaves, counts: counts!, ...(weak ? { weak } : {}) } });
+    };
+    for (const [key, value] of Object.entries(obj)) {
+      if (Array.isArray(value)) {
+        for (const a of listAnchors(key, value)) snapshot(a, key, true);
+        continue;
+      }
+      if (value !== null && typeof value === 'object') continue;
+      if (isAnchor(key, value as Prim)) {
+        snapshot(normValue(value as Prim), key, false);
+        continue;
+      }
+      const weak = weakAnchor(key, value as Prim);
+      if (weak) snapshot(weak, key, true);
     }
     for (const [key, value] of Object.entries(obj)) {
       if (value !== null && typeof value === 'object') walk(value, join(path, key), depth + 1);
@@ -274,7 +320,7 @@ export class FlowIndex {
       for (let i = 1; i < snaps.length; i++) {
         const y = snaps[i];
         if (!callIds.has(y.side.callId)) continue;
-        compare(anchor, y, snaps.slice(0, i).filter((x) => !sameSide(x.side, y.side)), push);
+        compare(anchor, y, snaps.slice(0, i).filter((x) => !sameSide(x.side, y.side) && (!y.weak || weakPair(x, y))), push);
       }
     }
     return diffs;
@@ -307,6 +353,15 @@ export class FlowIndex {
   }
 }
 
+/**
+ * A weak anchor compares two snapshots only across calls, never two requests to one endpoint, and never a row of a
+ * list (a search result) - those link calls into a flow, but their fields are other things that share a name.
+ */
+function weakPair(x: Snapshot, y: Snapshot): boolean {
+  if (x.side.callId === y.side.callId || x.path.includes('[') || y.path.includes('[')) return false;
+  return !(x.side.kind === 'req' && y.side.kind === 'req' && x.side.endpoint !== undefined && x.side.endpoint === y.side.endpoint);
+}
+
 /** One later snapshot against the earlier ones of the same thing: values that changed, counts that changed, keys gone. */
 function compare(anchor: string, y: Snapshot, earlier: readonly Snapshot[], push: (d: HopDiff) => void): void {
   if (!earlier.length) return;
@@ -323,6 +378,7 @@ function compare(anchor: string, y: Snapshot, earlier: readonly Snapshot[], push
     if (!x) continue;
     const from = x.leaves.get(key)!;
     if (normValue(from.value) === normValue(leaf.value)) continue;
+    if (y.weak && from.value === null) continue; // an empty filter that was filled in later is a choice, not a drift
     push({ kind: 'changed', anchor, key, from: { callId: x.side.callId, side: x.side.kind, path: from.path, value: shown(from.value) },
       to: { callId: y.side.callId, side: y.side.kind, path: leaf.path, value: shown(leaf.value) } });
   }

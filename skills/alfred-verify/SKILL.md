@@ -37,6 +37,16 @@ Read `rules.md` in this skill's folder first and follow it. Verified and Done ar
 3. A card without expectations: write them now with `board_retest_plan` from its "Verify:" text (ask in chat first,
    show them), so the next re-test checks more than the status.
 
+## 2b. The task
+
+When a cycle is named, or the repo's current branch is the one a cycle's brief names (`task_context` lists the
+tasks): `board_requirements` on it - each Acceptance item's verdict by the calls since the last build (`board_verify`
+with `cycleId` gives the one-line `task` too). Report it after the Fixed cards:
+`Task 61813: NOT DONE - 5 missing (#41), 2 no data, 1 not exercised, 2 manual`. A task is not done while an item is
+MISSING or WRONG, whatever the cards say. **No Fixed card of the task** → say it plainly first: "Nothing of task
+61813 was fixed or re-tested - verify covers Fixed cards; by the calls the task is …". Never let an unrelated card's
+result stand for the task. MET items whose card is still open → `board_propose` as the card's status allows.
+
 ## 3. Guards, regressions and the spec
 
 - `board_regressions` for the project: regressions and **guards failed** (a Verified / Done card's expectations broken

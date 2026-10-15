@@ -23,6 +23,7 @@ import * as investigate from './tools/investigate.ts';
 import * as redis from './tools/redis.ts';
 import * as board from './tools/board.ts';
 import * as boardVisuals from './tools/board-visuals.ts';
+import * as requirements from './tools/requirements.ts';
 import * as ruleProposals from './tools/rule-proposals.ts';
 
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string };
@@ -57,6 +58,6 @@ export function createServer(client: AlfredClient = new AlfredClient()): McpServ
       + 'rule_recipes, rule_from_call and rule_preview first; the user switches them on, edits or deletes them; rule_hits shows what one did.',
   });
   registerSessionTool(server);
-  for (const module of [cycles, spacers, calls, db, comments, exportTool, watch, redactions, cycleSearch, diff, rulesRelive, projects, triage, check, task, logs, investigate, redis, board, boardVisuals, live, ruleProposals]) module.register(server, client);
+  for (const module of [cycles, spacers, calls, db, comments, exportTool, watch, redactions, cycleSearch, diff, rulesRelive, projects, triage, check, task, logs, investigate, redis, board, boardVisuals, requirements, live, ruleProposals]) module.register(server, client);
   return server;
 }

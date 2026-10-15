@@ -38,8 +38,10 @@ does the listening (docs/mcp.md "Listen runner"):
 2. The cycle (`list_cycles` by name) and the Alfred MCP server name (`<server>`) as rules.md "Which Alfred" says.
    `get_cycle` with `limit: 1`: its id, its project and whether it is recording - if not, tell the user to press
    Record (listening still works; it waits for calls).
-3. **Steps need spacers.** Listening matches calls to the brief's steps by the user's spacers. Ask once: "Add a spacer
-   in the cycle before each test step - or I group them by endpoint and show you the grouping at the end."
+3. **Nothing to set up by hand.** Steps are ticked from the calls of the Acceptance items they name (`→ AC6`) and,
+   for the rest, from the actions `check_calls` cuts the calls into (pause and area, learned from the cycle) - no
+   spacers. Items with no evidence get it drafted by the runner before the first batch, and from then on Alfred judges
+   every call to an item's endpoint in code and opens a "Missing feature" card at once (rules "Requirement status").
 4. Start the runner with Bash, from this session's working folder (the app's repo):
 
    ```bash

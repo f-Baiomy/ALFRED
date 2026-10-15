@@ -105,6 +105,25 @@ public class BoardCallFactsAdapter implements CallFactsPort {
     }
 
     @Override
+    public Optional<CallBodies> bodies(String callId, String cycleId) {
+        try {
+            Optional<CallDetail> detail = cycleId == null ? liveCalls.getDetail(callId) : cycleCalls.getDetail(cycleId, callId);
+            if (detail.isEmpty() || detail.get().response() == null) {
+                return Optional.empty(); // gone, or not answered yet
+            }
+            String request = detail.get().request() == null ? null : detail.get().request().body();
+            String response = detail.get().response().body();
+            return Optional.of(new CallBodies(detail.get().response().status(), capped(request), capped(response)));
+        } catch (RuntimeException e) {
+            return Optional.empty();
+        }
+    }
+
+    private static String capped(String body) {
+        return body == null || body.length() > MAX_BODY ? null : body;
+    }
+
+    @Override
     public Optional<CycleCall> call(String ref) {
         if (ref == null || !ref.startsWith("in:")) {
             return Optional.empty();

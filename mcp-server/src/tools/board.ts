@@ -8,6 +8,7 @@ import { maskContext, maskMeta, maskText, type MaskContext } from '../masking.ts
 import { chunkText, fitItems, invalid, ok, preview, run, type ToolReply } from '../reply.ts';
 import { MaskSchema } from './cycles.ts';
 import { liveAnswerer } from './live.ts';
+import { countsLine, readRequirements } from './requirements.ts';
 
 /**
  * The task board (specs/014-task-board contracts/mcp-tools.md, docs/board.md "Claude"). Every request says it is Claude,
@@ -628,7 +629,9 @@ export function register(server: McpServer, client: AlfredClient): void {
       + 'pass cycleId - checked against the card\'s expectations (SQL count, status, log lines, duration, response), with the original call\'s '
       + 'value beside each. Verdicts: PASSES, PARTIAL (a step not done yet, or a duration needs more calls), FLAKY, FAILS, NO_CALLS, '
       + 'NOT_CHECKABLE. All Fixed cards, or only numbers. record=true keeps each card\'s re-test in its history and returns the report '
-      + '(Markdown). apply=true also proposes Verified on PASSES and comments on FAILS / FLAKY - the user accepts.',
+      + '(Markdown). apply=true also proposes Verified on PASSES and comments on FAILS / FLAKY - the user accepts. With a task\'s cycleId '
+      + 'the reply also has the task\'s requirement verdicts by the calls (specs/018): a task is not done while an item is MISSING or WRONG, '
+      + 'whatever the cards say.',
     inputSchema: {
       project: Project,
       numbers: z.array(CardNumber).max(100).default([]).describe('Only these cards; empty = every Fixed card'),
@@ -667,10 +670,21 @@ export function register(server: McpServer, client: AlfredClient): void {
       }
     }
     const rows = checks.map(retestLine);
-    const fitted = fitItems(rows, 400 + JSON.stringify(done).length + (report?.length ?? 0));
-    return ok({ source, checks: fitted.items, total: checks.length, ...(report ? { report } : {}), ...(input.apply ? { applied: done } : {}),
+    const task = input.cycleId ? await taskVerdict(client, input.cycleId) : null;
+    const fitted = fitItems(rows, 400 + JSON.stringify(done).length + (report?.length ?? 0) + (task?.length ?? 0));
+    return ok({ source, checks: fitted.items, total: checks.length, ...(checks.length ? {} : { none: 'No Fixed card was re-tested - verify covers Fixed cards' }),
+      ...(task ? { task } : {}), ...(report ? { report } : {}), ...(input.apply ? { applied: done } : {}),
       ...(fitted.cut ? { more: 'Some checks did not fit - pass numbers.' } : {}) });
   }));
+
+  /** The task's state by the calls, in one line: "not done - 5 missing, 2 no data, …" (null when the cycle has no requirement check). */
+  async function taskVerdict(c: AlfredClient, cycleId: string): Promise<string | null> {
+    const view = await readRequirements(c, cycleId).catch(() => null);
+    if (!view || !view.items.length) return null;
+    const open = (view.counts.MISSING ?? 0) + (view.counts.WRONG ?? 0);
+    const unproven = view.items.length - (view.counts.MET ?? 0);
+    return `${open ? 'NOT DONE' : unproven ? 'not proven yet' : 'every item met by the calls'} - ${countsLine(view)} (board_requirements has each item)`;
+  }
 
   server.registerTool('board_retest', {
     description: 'One card\'s re-test: its plan (expectations and steps, who wrote it), its check against the live calls since the fix (or a '

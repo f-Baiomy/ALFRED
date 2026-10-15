@@ -70,9 +70,10 @@ describe('TaskViewComponent', () => {
 
   beforeEach(() => {
     api = jasmine.createSpyObj<BoardApiService>('BoardApiService',
-      ['brief', 'checklist', 'cards', 'steps', 'sessionLog', 'specs', 'mark', 'acceptSuggestion', 'putBrief', 'restoreBrief']);
+      ['brief', 'checklist', 'requirements', 'cards', 'steps', 'sessionLog', 'specs', 'mark', 'acceptSuggestion', 'putBrief', 'restoreBrief']);
     api.brief.and.returnValue(of(BRIEF));
     api.checklist.and.returnValue(of(FILES));
+    api.requirements.and.returnValue(of({ cycleId: 'cy', items: [], counts: {} }));
     api.cards.and.returnValue(of({ cards: CARDS, total: CARDS.length, counts: { open: 5, fixed: 0, done: 0 } }));
     api.steps.and.returnValue(of(STEPS));
     api.sessionLog.and.returnValue(of([{ id: 1, cycleId: 'cy', skill: 'alfred-review', did: 'checked 40 calls', found: '1 bug', next: 'fix #38', at: '2026-10-12T11:00:00Z' }]));

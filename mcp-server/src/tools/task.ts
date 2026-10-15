@@ -7,6 +7,7 @@ import { maskContext, maskMeta, maskText, type MaskContext } from '../masking.ts
 import { ok, REPLY_BUDGET, run, text } from '../reply.ts';
 import { ago } from './board.ts';
 import { MaskSchema } from './cycles.ts';
+import { countsLine, readRequirements, type RequirementsView } from './requirements.ts';
 
 /**
  * The harness (task_context, the `resume` prompt): a session cycle is a TASK, and everything about it lives in Alfred -
@@ -113,15 +114,18 @@ async function listTasks(client: AlfredClient): Promise<string> {
 
 async function taskText(client: AlfredClient, ctx: MaskContext, cycle: SessionCycle): Promise<string> {
   const id = cycle.id;
-  const [brief, checklist, steps, cardsPage, log, calls] = await Promise.all([
+  const [brief, checklist, steps, cardsPage, log, calls, verdicts] = await Promise.all([
     client.get<{ text: string; updatedAt: string | null; updatedBy?: string }>(`/board/cycles/${seg(id)}/brief`).catch(() => ({ text: '', updatedAt: null })),
     client.get<ChecklistFile[]>(`/board/cycles/${seg(id)}/checklist`).catch(() => [] as ChecklistFile[]),
     client.get<StepRow[]>(`/board/cycles/${seg(id)}/steps`).catch(() => [] as StepRow[]),
     client.get<{ cards: CardHit[]; total: number }>('/board/search', { query: { cycleId: id, limit: 200 } }).catch(() => ({ cards: [] as CardHit[], total: 0 })),
     client.get<LogEntry[]>(`/board/cycles/${seg(id)}/log`, { query: { limit: 3 } }).catch(() => [] as LogEntry[]),
     cycleCallCount(client, id).catch(() => null),
+    readRequirements(client, id).catch(() => null as RequirementsView | null),
   ]);
   const cards = cardsPage.cards;
+  // specs/018: each item's verdict by the calls, worked out by Alfred in code
+  const verdictOf = new Map((verdicts?.items ?? []).map((r) => [`${r.fileName}\n${r.itemKey}`, r]));
   const project = cards.find((c) => c.project)?.project ?? '';
   const [next, agent] = await Promise.all([
     client.get<NextSteps>('/board/next-steps', { query: { project, cycleId: id } }).catch(() => null),
@@ -139,7 +143,11 @@ async function taskText(client: AlfredClient, ctx: MaskContext, cycle: SessionCy
   for (const i of items) counts[i.mark?.mark ?? 'none']++;
   const requirementLines = items.map((i) => {
     const mark = i.mark ? MARK[i.mark.mark] ?? i.mark.mark : '·';
-    const extra = [i.cards?.length ? `cards ${i.cards.map((c) => `#${c.number}`).join(' ')}` : '', i.suggestion ? `you suggested ${i.suggestion.mark}` : ''].filter(Boolean).join(' · ');
+    const v = verdictOf.get(`${i.file}\n${i.key}`)?.verdict;
+    const byCalls = v && v.verdict !== 'NO_EVIDENCE'
+      ? `calls: ${v.verdict}${v.reason ? ` (${maskText(ctx, v.reason)})` : ''}` : v ? 'calls: no evidence yet' : '';
+    const extra = [i.cards?.length ? `cards ${i.cards.map((c) => `#${c.number}`).join(' ')}` : '', i.suggestion ? `you suggested ${i.suggestion.mark}` : '',
+      byCalls].filter(Boolean).join(' · ');
     // The key in full: board_link_spec and board_suggest_mark take it as it is, and a shortened one matches nothing.
     return `  ${mark} ${requirementState(i, cards)} [${i.key}] ${maskText(ctx, i.text)}${extra ? ` - ${extra}` : ''}  (${i.file})`;
   });
@@ -185,6 +193,8 @@ async function taskText(client: AlfredClient, ctx: MaskContext, cycle: SessionCy
     if (!items.length) out.push('  (none) - no spec file has an Acceptance list; the task can only be checked against generic rules.');
     if (items.length) out.push('  (state as the Task tab shows it: the user\'s mark, then the linked cards - open BUG = bug, open TASK = missing, '
       + 'FIXED = re-test - then your suggestion, shown with "?")');
+    if (verdicts && verdicts.items.length) out.push(`  By the calls (Alfred's requirement check, in code): ${countsLine(verdicts)} - board_requirements has each `
+      + 'deciding call; a MISSING item already has its "Missing feature" card, link to it.');
     out.push(...requirementLines.slice(0, l.requirements));
     if (requirementLines.length > l.requirements) out.push(`  … +${requirementLines.length - l.requirements} more - read_spec lists every item with its key`);
 

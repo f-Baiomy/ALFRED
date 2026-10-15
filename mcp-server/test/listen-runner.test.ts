@@ -351,3 +351,83 @@ test('start runs the runner on this machine with one shared MCP server; stop fin
     assert.equal((await cli('status')).running, false);
   } finally { await fake.stop(); }
 });
+
+// ---------------------------------------------------------------------------------------------- specs/018 in the runner
+
+const VIEW = (verdicts: string[]) => ({
+  cycleId: CY,
+  items: verdicts.map((v, i) => ({ fileName: 'spec.md', itemKey: `k${i + 1}`, text: `Item ${i + 1}`, mark: null, evidence: null,
+    cardNumber: v === 'MISSING' ? 41 : null, cardStatus: v === 'MISSING' ? 'INBOX' : null,
+    verdict: { verdict: v, callId: v === 'MISSING' ? 'in-err-1' : null, reason: v === 'MISSING' ? 'request $.branch* is a list - sent branchId: 948' : null,
+      cardId: null, judgedAt: null, counts: { contradicts: 0, wrong: 0, meets: 0, noData: 0, unknown: 0 } } })),
+  counts: verdicts.reduce((c: Record<string, number>, v) => ({ ...c, [v]: (c[v] ?? 0) + 1 }), {}),
+});
+
+test('a fine verdict covers its group until the calls send a request shape it was never given on', () => {
+  assert.equal(listen.fineCovers({ kind: 'fine', recurs: true }, { shapes: ['a'] }), true, 'a verdict from before shapes were kept covers any');
+  assert.equal(listen.fineCovers({ kind: 'fine', recurs: true, shapes: ['a'] }, { shapes: ['a'] }), true);
+  assert.equal(listen.fineCovers({ kind: 'fine', recurs: true, shapes: ['a'] }, { shapes: ['a', 'b'] }), false);
+  assert.deepEqual(listen.shapesAfter(['a'], { shapes: ['b', 'a'] }), ['a', 'b']);
+  assert.equal(listen.requirementCounts(VIEW(['MISSING', 'MET', 'NO_EVIDENCE', 'MISSING'])), '2 missing · 1 met · 1 no evidence');
+  assert.equal(listen.briefBranch('## Task\n- User story: 61813\n- Branch (odeysys): 61813-Q4-INTE-feature\n- Base: 5e31161e93'), '61813-Q4-INTE-feature');
+  assert.equal(listen.briefBranch('no branch here'), null);
+});
+
+test('a known fine group is judged again when its calls carry a new request shape', async () => {
+  const w = await listenWorld();
+  try {
+    const g = { id: 'G1', key: 'k-fine', endpoint: 'POST /search', shapes: ['old'] };
+    w.runner.s.ledger['k-fine'] = { kind: 'fine', reason: 'empty on purpose', recurs: true, shapes: ['old'] };
+    assert.equal((await w.runner.splitKnown([g])).known.length, 1);
+    assert.equal((await w.runner.splitKnown([{ ...g, shapes: ['new'] }])).unknown.length, 1);
+    assert.ok(w.lines.some((l) => /fine before, but its calls send a new request shape - judged again/.test(l)), w.lines.join('\n'));
+  } finally { await w.close(); }
+});
+
+test('the pack holds the requirements by the calls and no spacers; a verdict that changes is said once, the strip counts them', async () => {
+  const w = await listenWorld();
+  try {
+    w.fake.board.requirements = { [CY]: VIEW(['NOT_EXERCISED', 'MET']) };
+    await w.runner.loadPack();
+    let text = w.runner.packText();
+    assert.match(text, /REQUIREMENTS BY THE CALLS[\s\S]*AC1 NOT_EXERCISED \| spec\.md \| k1 \| Item 1/);
+    assert.doesNotMatch(text, /SPACERS|THE USER'S SPACERS/);
+    assert.match(text, /Spacers are not used/);
+    w.fake.board.requirements = { [CY]: VIEW(['MISSING', 'MET']) };
+    await w.runner.refreshRequirements();
+    await w.runner.refreshRequirements();
+    const said = w.chat.filter((l) => /◆ requirements:/.test(l));
+    assert.deepEqual(said, ['  ◆ requirements: AC1 MISSING #41 - request $.branch* is a list - sent branchId: 948']);
+    assert.match(w.runner.stepLine(), /requirements 1 missing · 1 met/);
+    text = w.runner.packText();
+    assert.match(text, /AC1 MISSING \(#41\) \| spec\.md \| k1 \| Item 1 \| request \$\.branch\* is a list - sent branchId: 948 \| call in-err-1/);
+  } finally { await w.close(); }
+});
+
+test('items with no evidence get it drafted by one run before the first batch', async () => {
+  const w = await listenWorld();
+  try {
+    w.fake.board.requirements = { [CY]: VIEW(['NO_EVIDENCE', 'MET']) };
+    await w.runner.loadPack();
+    await w.runner.draftEvidence();
+    assert.match(w.prompt().prompt, /ITEMS WITHOUT EVIDENCE \(AC# \| file \| key \| text\):\nAC1 \| spec\.md \| k1 \| Item 1/);
+    assert.equal(w.runner.s.finish.evidence, true);
+    assert.ok(w.chat.some((l) => /1 Acceptance item has no evidence - drafting it/.test(l)), w.chat.join('\n'));
+  } finally { await w.close(); }
+});
+
+test('stop --now still writes the session log, with the requirement counts', async () => {
+  const w = await listenWorld();
+  try {
+    w.fake.board.requirements = { [CY]: VIEW(['MISSING', 'NOT_EXERCISED']) };
+    const running = w.runner.run();
+    for (let i = 0; i < 40 && !w.runner.drainer; i++) await new Promise((r) => setTimeout(r, 100));
+    w.runner.stop(true);
+    await running;
+    const logs = w.fake.requests('POST', '/board/cycles/cy-listen/log');
+    assert.equal(logs.length, 1, 'one session log');
+    assert.match((logs[0].body as any).found, /Requirements by the calls: 1 missing · 1 not exercised\./);
+    assert.match((logs[0].body as any).next, /--finish runs them/);
+    assert.match(w.chat.at(-1)!, /Listen stopped without the finish - requirements: 1 missing · 1 not exercised · session log written/);
+  } finally { await w.close(); }
+});

@@ -89,6 +89,14 @@ After `docker compose up -d --build backend`, the gateway may keep the old conta
 
 - **Native install = supervisor + `backend-server` slice** (specs/012-server-program, docs/server.md): `alfred run` (packaging/launcher/supervisor.py) starts backend, proxies, MCP (127.0.0.1, relayed at `/mcp` by `backend-app/mcpbridge`) and restarts them; its control API is on 127.0.0.1 with a token in `data/run/control.json`. Settings writes are allowed by `ALFRED_SETTINGS_EDIT_FROM` from the TCP peer, never X-Forwarded-For; the Cloudflare tunnel is always read-only. `alfred config` runs `ServerConfigCli` (fat jar: through `PropertiesLauncher`, see `Layout.config_cli`). `alfred attach` = `attach-cli/` (JDK 21) + `alfred-agent.jar`: features re-sent on every load, secret and CA in the environment, never a cross-user attach (spike S2), the CA trusted in-JVM by advice on `X509TrustManagerImpl` (spike S3).
 
+- **Acceptance items are judged by the calls, in code** (specs/018, docs/board.md "Requirements by the calls"): each
+  item's evidence (endpoint + REQUEST_SHAPE / REQUEST_WHEN / STATUS / ROWS_MATCH_FILTER / ROWS_PRESENT) is checked by
+  `backend-board`'s `RequirementService` on every captured call to it - flagged or clean, no model - and a MISSING /
+  WRONG item gets its `Missing feature` / `Wrong result` card at once, as Claude. A wildcard naming several keys is
+  UNKNOWN, never MISSING; a card the user closed as Fine stops it for good. No new `Flag`/`Actor`/card field: older
+  Alfreds throw on unknown enum values. Listen never reads spacers: steps follow the items they name (`→ AC6`) and the
+  `actions` check_calls cuts by pause/area; a fine verdict is re-judged when its calls send a new request `shape`.
+
 - **A fix is re-tested by the live calls after it, not a recorded cycle** (specs/016, docs/board.md "Re-test"): a card's
   re-test plan holds expectations (SQL count, status, no ERROR, duration, same response) checked per call with the
   original call's value beside it; `boardbridge/BoardRetestWatchAdapter` signals a watching card as calls complete

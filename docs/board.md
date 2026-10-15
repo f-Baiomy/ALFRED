@@ -336,6 +336,49 @@ re-test cycle is optional: given, only its calls count.
 
 Verified stays the user's: the card offers **✓ Verified** when every call passes; Claude proposes it.
 
+## Requirements by the calls (specs/018)
+
+Every Acceptance item can carry **evidence** - the endpoint whose calls show it and the checks each such call must
+pass - and Alfred judges **every** call a cycle captures to that endpoint in code, once, as it arrives: flagged or
+clean, with no model and nobody in the way. A feature the calls show is not built is a card from the first call.
+
+- **Evidence** (`item_evidence`, `PUT /board/cycles/{id}/evidence`, `GET …/evidence`, `DELETE …/evidence?fileName=&itemKey=`):
+  `endpoint` (`METHOD /path` - ids as they are or `{x}`; segments that are ids on either side match any - or `UI`)
+  and up to 10 checks, applied in this order:
+  `REQUEST_SHAPE` {path, shape: list | scalar | present} - what the request must be able to carry whatever the user
+  chose (a failure: the call CONTRADICTS the item); `REQUEST_WHEN` {path, shape: none | one | list | list>=2 | present}
+  - which calls exercise the item (others are about another choice: not counted); `STATUS` {range} and
+  `ROWS_MATCH_FILTER` {rows, field, path} - every row's field among the request filter's values (WRONG otherwise);
+  `ROWS_PRESENT` {rows, min} - without rows nothing is proven (NO_DATA). A path's last key may end in `*`
+  (`$.branch*`): it must match exactly one key, else the call is UNKNOWN - never MISSING. `none` is absent, null,
+  empty, `"all"`, `*` or `-1`. Claude drafts it (`board_evidence_put`, saved at once, no approval); the user's version
+  wins - Claude is refused on evidence the user wrote. New checks forget what calls showed under the old ones.
+- **Judging** (`RequirementService`, `domain/RequirementJudge`): `BoardRetestWatchAdapter` offers each completed
+  inbound call (project + endpoint); on its own single-thread executor, an in-memory list of watched endpoints is the
+  only cost of a call nothing watches. A watched one: the cycle's calls not judged yet are read (bodies once, ≤ 8 MB,
+  nothing kept) and one `item_call_results` row per item and call is written; again 20 s later for a call that was not
+  in the cycle yet. Calls arriving together cost one pass per cycle (500 ms window, plus one late pass), however many
+  there are; a pass reads up to 20,000 of the cycle's calls. `GET /board/cycles/{id}/requirements` judges what is new first, so a recording made before its
+  evidence is judged on read.
+- **Verdict per item**: the worst result among its calls since the newest of the project's last app start (when the
+  cycle has calls after it - a new build makes the old code's calls history) and the last status change of a Fixed card
+  about the item: MISSING > WRONG > MET > NO_DATA > UNKNOWN > NOT_EXERCISED; `UI` → MANUAL; no evidence → NO_EVIDENCE.
+- **Cards** (opened as Claude, so every Claude limit applies; `item_cards` remembers them): the items MISSING / WRONG
+  on the same failing check of the same call share one TASK `Missing feature: …` (BUG `Wrong result: …`), teams
+  Backend + Frontend (Backend), with the items linked, the deciding call linked first and each later call of the same
+  verdict linked (≤ 10 per run), and a first comment that says no model opened it. The card is created with no call in
+  its text, so a closed card that only shares a call is no reason to refuse it; instead an item whose card the user
+  closed as Fine / Not in this flow is never carded again, and another open card about the item means no new one.
+  When a card's items become MET it gets one comment, or - when every item of it is met and it is Fixed / Verified -
+  a proposal (Verified / Done) the user accepts. Nothing is closed, marked or moved in code. At most 10 such cards per
+  cycle per hour; over that one NOTE says the check paused (usually wrong evidence).
+- **Task tab**: each item shows its verdict pill beside the user's mark, the reason (the failing check and the value
+  seen) and the counts above the list; **checks** opens the evidence as lines (`shape $.branch* list`,
+  `when $.branch* list>=2`, `match $.payload branch* in $.branch*`, `rows $.payload`, `status 2xx`). The `/ws/board`
+  signal `requirements` reloads it - no timer.
+- Versions: the tables are new; verdicts and results are read tolerantly (a later value reads as UNKNOWN), and no
+  `Flag`, `Actor` or card field was added, so a board exported from this version imports into an older Alfred.
+
 ## Cleaning up after a cycle
 
 Deleting a session cycle always removes its board brief, spec files, checklist marks and suggestions, session log and

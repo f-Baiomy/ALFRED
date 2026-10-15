@@ -7,6 +7,7 @@ import { hydrate } from '../calls.ts';
 import { cycleEntries, findCycle } from '../cycle-calls.ts';
 import { dbSummaries, loadCapture } from '../db-capture.ts';
 import { FlowIndex, parseBody, writtenColumns, type HopDiff, type Side } from '../flow-diff.ts';
+import { areaOf } from './spacers.ts';
 import {
   callTime, type CallDbSummary, type CallLogsPage, type CallRecord, type CallStatementFailures, type LinkedLogLine, type SessionCycle, type TriageEntry,
 } from '../frontend.ts';
@@ -90,6 +91,17 @@ interface Batch {
   readonly diffsPending: number;
   readonly gaps: string;
   readonly captureGaps: readonly string[];
+  /** Each call's request shape (field names and kinds, no values) - a fine verdict is re-judged when a new one shows. */
+  readonly shapes: ReadonlyMap<string, string>;
+  /** The batch's calls cut into actions (a pause or another area starts one) - for the judge, no change to the batch. */
+  readonly actions: readonly Action[];
+  readonly actionGapMs: number;
+}
+
+/** One user (or script) action: the calls it fired, and what started it. */
+interface Action {
+  readonly calls: readonly number[];
+  readonly reason: string;
 }
 
 interface CycleMemory {
@@ -115,6 +127,8 @@ interface CycleMemory {
   started: boolean;
   /** The first page of the last batch - the later pages of the same batch show it again. */
   page?: Batch;
+  /** Each call's request shape, kept when the index is dropped (a few bytes a call). */
+  readonly shapes: Map<string, string>;
 }
 
 const memory = new Map<string, CycleMemory>();
@@ -127,7 +141,7 @@ function memoryOf(client: AlfredClient, cycleId: string, listener?: string): Cyc
   } else {
     m = {
       index: new FlowIndex(), diffsPending: new Set(), checked: new Map(), recheck: new Set(), hungReported: new Set(), indexTries: new Map(),
-      lastTimes: new Map(), started: false,
+      lastTimes: new Map(), started: false, shapes: new Map(),
     };
   }
   memory.set(key, m);
@@ -167,8 +181,9 @@ async function sidesOf(client: AlfredClient, cycleId: string, call: CallRecord, 
   const sides: Side[] = [];
   const req = parseBody(full.request?.body);
   const res = parseBody(full.response?.body);
-  if (req !== undefined) sides.push({ callId: call.id, kind: 'req', at: start, root: req });
-  if (res !== undefined) sides.push({ callId: call.id, kind: 'res', at: endOf(call), root: res });
+  const endpoint = endpointOf(call);
+  if (req !== undefined) sides.push({ callId: call.id, kind: 'req', at: start, root: req, endpoint });
+  if (res !== undefined) sides.push({ callId: call.id, kind: 'res', at: endOf(call), root: res, endpoint });
   if (writes) {
     const capture = await loadCapture(client, call.id)
       .catch((error) => { if (error instanceof AlfredError && error.kind === 'not_found') return null; throw error; });
@@ -179,7 +194,7 @@ async function sidesOf(client: AlfredClient, cycleId: string, call: CallRecord, 
       for (const set of st.params) {
         const row: Record<string, string | null> = {};
         cols.columns.forEach((c, i) => { if (set[i]) row[c] = set[i].value; });
-        sides.push({ callId: call.id, kind: 'db', at: start + st.offsetMicros / 1000, root: row, table: cols.table });
+        sides.push({ callId: call.id, kind: 'db', at: start + st.offsetMicros / 1000, root: row, table: cols.table, endpoint });
       }
     }
   }
@@ -224,6 +239,12 @@ async function indexCalls(client: AlfredClient, cycleId: string, mem: CycleMemor
     try {
       sides = await sidesOf(client, cycleId, c, (summary?.writeCount ?? 0) > 0);
       mem.indexTries.delete(c.id);
+      const req = sides.find((x) => x.kind === 'req');
+      const shape = req ? shapeOf(req.root) : null;
+      if (shape) {
+        mem.shapes.set(c.id, shape);
+        if (mem.shapes.size > SHAPES_KEPT) mem.shapes.delete(mem.shapes.keys().next().value!);
+      }
       if (!sides.length) result.noBody++;
     } catch {
       result.failed++;
@@ -235,6 +256,81 @@ async function indexCalls(client: AlfredClient, cycleId: string, mem: CycleMemor
     result.fresh.add(c.id);
   });
   return result;
+}
+
+const SHAPES_KEPT = 50_000;
+
+/**
+ * A request body's shape: its field names (two levels deep) and whether each is a list, an object or a value - no
+ * values, and a null field is left out (it matches anything). Two bodies of one shape carry the same kind of request;
+ * old code sending `branchId` and new code sending `branchIds` have two.
+ */
+export function shapeOf(root: unknown): string | null {
+  if (root === null || typeof root !== 'object') return null;
+  if (Array.isArray(root)) return 'list';
+  const parts: string[] = [];
+  const walk = (node: Record<string, unknown>, prefix: string, depth: number) => {
+    for (const key of Object.keys(node).sort()) {
+      const v = node[key];
+      if (v === null || v === undefined) continue;
+      const p = prefix ? `${prefix}.${key}` : key;
+      if (Array.isArray(v)) parts.push(`${p}:list`);
+      else if (typeof v === 'object') {
+        parts.push(`${p}:obj`);
+        if (depth < 2) walk(v as Record<string, unknown>, p, depth + 1);
+      } else parts.push(`${p}:val`);
+    }
+  };
+  walk(root as Record<string, unknown>, '', 1);
+  return createHash('sha1').update(parts.join(',')).digest('hex').slice(0, 10);
+}
+
+/** The pause that ends an action, learned from the cycle: 4 x the usual gap inside a burst, 250 ms to 3 s (3 s until 10 gaps). */
+export function actionGap(calls: readonly CallRecord[]): number {
+  const timeline = calls.filter((c) => c.source === 'internal' && c.method !== 'OPTIONS').map((c) => ({ start: callTime(c), end: endOf(c) }))
+    .sort((a, b) => a.start - b.start);
+  const gaps: number[] = [];
+  let lastEnd = -Infinity;
+  for (const t of timeline) {
+    const gap = t.start - lastEnd;
+    if (Number.isFinite(gap) && gap >= 0 && gap < 3_000) gaps.push(gap);
+    lastEnd = Math.max(lastEnd, t.end);
+  }
+  if (gaps.length < 10) return 3_000;
+  gaps.sort((a, b) => a - b);
+  const median = gaps[Math.floor(gaps.length / 2)];
+  return Math.min(3_000, Math.max(250, Math.round(4 * median)));
+}
+
+/** The batch's inbound calls cut into actions: a pause of at least `gapMs` since the calls before it ended, or another area. */
+export function actionsOf(window: readonly CallRecord[], before: readonly CallRecord[], gapMs: number,
+                          numberOf: ReadonlyMap<string, number>): Action[] {
+  const inbound = (c: CallRecord) => c.source === 'internal' && c.method !== 'OPTIONS' && numberOf.has(c.id);
+  const calls = window.filter(inbound).sort((a, b) => callTime(a) - callTime(b));
+  if (!calls.length) return [];
+  let lastEnd = -Infinity;
+  let lastArea: string | null = null;
+  for (const c of before.filter(inbound)) {
+    if (callTime(c) > callTime(calls[0])) continue;
+    lastEnd = Math.max(lastEnd, endOf(c));
+    lastArea = areaOf(c) ?? lastArea;
+  }
+  const out: { calls: number[]; reason: string }[] = [];
+  for (const c of calls) {
+    const area = areaOf(c);
+    const gap = callTime(c) - lastEnd;
+    const reason = !out.length ? (Number.isFinite(gap) ? `${pause(gap)} pause` : 'first call')
+      : gap >= gapMs ? `${pause(gap)} pause` : area && lastArea && area !== lastArea ? `area ${area}` : null;
+    if (reason) out.push({ calls: [], reason });
+    out[out.length - 1].calls.push(numberOf.get(c.id)!);
+    lastEnd = Math.max(lastEnd, endOf(c));
+    lastArea = area ?? lastArea;
+  }
+  return out;
+}
+
+function pause(ms: number): string {
+  return ms < 1_000 ? `${Math.max(0, Math.round(ms))} ms` : `${Math.round(ms / 100) / 10} s`;
 }
 
 /** "POST /api/bookings/:id" - one endpoint, whatever the ids in its path. */
@@ -673,6 +769,9 @@ async function computeBatch(client: AlfredClient, input: CheckInput, mem: CycleM
   })).sort((a, b) => a.severity - b.severity || b.members.length - a.members.length
     || (numberOf.get(a.members[0].call.id) ?? 0) - (numberOf.get(b.members[0].call.id) ?? 0));
 
+  const upTo = all.slice(0, s.endAt).map((e) => e.call);
+  const actionGapMs = actionGap(upTo);
+  const actions = actionsOf(heads, upTo.filter((c) => !subjectIds.has(c.id)), actionGapMs, numberOf);
   const itemOf = (c: CallRecord, entry: TriageEntry | null) => ({ label: '', entry, call: c }) as Item;
   const gaps = await unavailableNote(client, flagged.map((f) => itemOf(f.call, f.entry)));
   const captureGaps = await unavailableNotes(client, heads.map((c) => itemOf(c, marks[c.id] ?? null)));
@@ -684,6 +783,7 @@ async function computeBatch(client: AlfredClient, input: CheckInput, mem: CycleM
     hiddenOptions: s.hiddenOptions, unchanged: input.sweep ? s.windowCalls.length - subject.length : null, rechecked: rechecked.length,
     flagged, groups, clean, unmarked, flows, hopDiffs: diffs.length, noBody, indexFailed, lines, failures, numberOf, owner,
     pending: s.pending, stale: s.stale, recheckPending: mem.recheck.size, diffsPending: mem.diffsPending.size, gaps, captureGaps,
+    shapes: mem.shapes, actions, actionGapMs,
   };
 }
 
@@ -756,6 +856,7 @@ async function renderPage(ctx: MaskContext, input: CheckInput, b: Batch, extra: 
       group: id, key: g.hash, calls: nums.length > MEMBERS_LISTED ? `${nums.length} calls, #${nums[0]}..#${nums.at(-1)}` : nums,
       callIds: g.members.slice(0, IDS_LISTED).map((m) => m.call.id), exampleCallId: example.call.id, endpoint: endpointOf(example.call),
       severity: g.severity, signals: example.signals,
+      shapes: [...new Set(g.members.map((m) => b.shapes.get(m.call.id)).filter((x): x is string => !!x))].slice(0, 5),
     };
     const blockSize = block.join('\n').length + 1 + JSON.stringify(json).length + 1;
     if (gi > 0 && size + blockSize > REPLY_BUDGET) { next = input.offset + gi; break; }
@@ -775,6 +876,10 @@ async function renderPage(ctx: MaskContext, input: CheckInput, b: Batch, extra: 
       if (b.flows.length > 10) out.push(`  … ${b.flows.length - 10} more flows`);
     }
     if (b.clean.length) out.push('', `Clean (${b.clean.length}): ${ranges([...b.clean].sort((a, c) => a - c))}`);
+    if (b.actions.length > 1) {
+      out.push('', `Actions (${b.actions.length}, a pause of ${pause(b.actionGapMs)} or another area starts one - learned from this cycle): `
+        + b.actions.slice(0, 20).map((a, i) => `A${i + 1} ${ranges(a.calls)} (${a.reason})`).join(' · ') + (b.actions.length > 20 ? ` · … +${b.actions.length - 20}` : ''));
+    }
     if (b.unmarked.length) out.push(`No saved mark yet (${b.unmarked.length}, checked by status only - just captured, recorded before triage, or past its row cap; `
       + `re-checked next batch): ${ranges(b.unmarked)}`);
     if (b.stale.length) out.push(staleText(b.stale));
@@ -787,6 +892,7 @@ async function renderPage(ctx: MaskContext, input: CheckInput, b: Batch, extra: 
     cycleId: b.cycleId, checked: b.checked, flaggedCalls: b.flagged.length, totalGroups: groups.length, groups: shownGroups, next, clean: b.clean.length,
     pending: b.pending, stale: b.stale.slice(0, STALE_LISTED), hopDiffs: b.hopDiffs, lastCallId: b.lastCallId, recording: b.recording,
     rechecked: b.rechecked, recheckPending: b.recheckPending, lateWrites: b.lateWrites, captureGaps: b.captureGaps,
+    ...(b.actions.length > 1 ? { actions: b.actions.slice(0, 30).map((a) => ({ calls: ranges(a.calls), reason: a.reason })) } : {}),
     ...(b.indexFailed ? { indexFailed: b.indexFailed } : {}), ...(b.resumed ? { resumed: true } : {}), ...waitedJson(extra.waited),
     ...(extra.board ? { board: extra.board } : {}), ...maskMeta(ctx),
   }));

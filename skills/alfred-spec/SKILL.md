@@ -40,6 +40,10 @@ Brief test steps go under `## Test steps` as a numbered list, one action per ste
 3. Ask "Save this?". Only on yes:
    - small change → `board_edit_spec` (`name` = the file, or `brief`), with `find` exact text that occurs once;
    - new file or a rewrite → `board_put_spec` / `board_set_brief`.
+   - then the **evidence** of every new or changed Acceptance item (`board_evidence_put`, one call, no separate ask -
+     rules "Requirement status"): the endpoint whose calls show it and the checks, written for the finished feature.
+     A changed item's old evidence goes with its old text (the key is the text): write it again. Test steps name the
+     items they exercise (`→ AC6`).
 4. The user can Restore previous in the Brief tab - say so once.
 
 `--dry`: show the change and the effects, and stop.
