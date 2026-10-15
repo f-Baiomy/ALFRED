@@ -22,6 +22,27 @@ public class BoardChangeFeed {
 
     private final CopyOnWriteArrayList<Runnable> listeners = new CopyOnWriteArrayList<>();
 
+    /** Told of every "board changed" signal, for as long as the application runs (the chat's watches, specs/022). */
+    public interface ChangeObserver {
+        void changed(String project, String cycleId, String cardId, String what);
+    }
+
+    private final CopyOnWriteArrayList<ChangeObserver> observers = new CopyOnWriteArrayList<>();
+
+    public void observe(ChangeObserver observer) {
+        observers.add(observer);
+    }
+
+    void observed(String project, String cycleId, String cardId, String what) {
+        for (ChangeObserver o : observers) {
+            try {
+                o.changed(project, cycleId, cardId, what);
+            } catch (RuntimeException e) {
+                log.warn("A board change observer failed: {}", e.toString());
+            }
+        }
+    }
+
     public AutoCloseable once(Runnable listener) {
         listeners.add(listener);
         return () -> listeners.remove(listener);
@@ -49,6 +70,7 @@ public class BoardChangeFeed {
             @Override
             public void changed(String project, String cycleId, String cardId, String what) {
                 notifications.changed(project, cycleId, cardId, what);
+                observed(project, cycleId, cardId, what);
                 fire();
             }
 
@@ -70,6 +92,13 @@ public class BoardChangeFeed {
             @Override
             public void cycleChat(String project, String cycleId) {
                 notifications.cycleChat(project, cycleId);
+            }
+
+            /** A chat message waiting for Claude wakes board_wait like a card comment does (specs/022 R2). */
+            @Override
+            public void chatChanged(String project, String scope, Long id) {
+                notifications.chatChanged(project, scope, id);
+                fire();
             }
 
             @Override

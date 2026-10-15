@@ -52,6 +52,15 @@ export class LiveWorkStateService {
     return ended.length ? ended[ended.length - 1] : null;
   }
 
+  /** The run answering a chat message (specs/022): working now, else the one that ended recently. */
+  forChatMessage(messageId: number, now = Date.now()): LiveWork | null {
+    const mine = this.all().filter((w) => w.chatMessageId === messageId);
+    const working = mine.filter((w) => w.state === 'WORKING');
+    if (working.length) return working[working.length - 1];
+    const ended = mine.filter((w) => now - Date.parse(w.updatedAt) < LIVE_ENDED_SHOWN_MS);
+    return ended.length ? ended[ended.length - 1] : null;
+  }
+
   stop(id: string): void {
     this.api.stopLiveWork(id).subscribe({ next: (w) => this.put(w), error: () => undefined });
   }

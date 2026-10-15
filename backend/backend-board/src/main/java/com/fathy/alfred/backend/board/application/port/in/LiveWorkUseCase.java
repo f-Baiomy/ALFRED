@@ -42,7 +42,17 @@ public interface LiveWorkUseCase {
      * /alfred-listen runs for that cycle - one chat per cycle. Each of its runners beats with the chat's id; another chat
      * is refused while this one beats. {@code stopped} by the chat's last runner frees the cycle.
      */
-    ChatBeat chatBeat(String project, String cycleId, String chatId, String host, String cwd, String kind, boolean chatAlive, boolean stopped);
+    default ChatBeat chatBeat(String project, String cycleId, String chatId, String host, String cwd, String kind, boolean chatAlive,
+                              boolean stopped) {
+        return chatBeat(project, cycleId, chatId, host, cwd, kind, chatAlive, stopped, null);
+    }
+
+    /**
+     * {@code terminalAt}: the latest significant work of the cycle's terminal session the runner saw (specs/022 R4), written
+     * through to the chat's session row - the one place the panel reads "terminal moved on" from. Null when not known.
+     */
+    ChatBeat chatBeat(String project, String cycleId, String chatId, String host, String cwd, String kind, boolean chatAlive, boolean stopped,
+                      java.time.Instant terminalAt);
 
     /** The chat handling this cycle now, if any (empty once its runners stopped or went quiet). */
     Optional<CycleChat> cycleChat(String cycleId);
@@ -75,6 +85,16 @@ public interface LiveWorkUseCase {
     }
 
     record Report(String id, String project, int cardNumber, String head, List<String> steps, String draft, LiveWork.State state,
-                  String outcome) {
+                  String outcome, Long chatMessageId, java.util.Map<String, Double> usage) {
+
+        public Report(String id, String project, int cardNumber, String head, List<String> steps, String draft, LiveWork.State state,
+                      String outcome, Long chatMessageId) {
+            this(id, project, cardNumber, head, steps, draft, state, outcome, chatMessageId, null);
+        }
+
+        public Report(String id, String project, int cardNumber, String head, List<String> steps, String draft, LiveWork.State state,
+                      String outcome) {
+            this(id, project, cardNumber, head, steps, draft, state, outcome, null, null);
+        }
     }
 }

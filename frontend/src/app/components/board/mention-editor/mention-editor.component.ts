@@ -256,6 +256,8 @@ export class MentionEditorComponent implements AfterViewInit {
   readonly fileAccept = FILE_TYPES.map((t) => '.' + t).join(',');
   /** Where this field's unsent draft is kept (this browser) - e.g. "comment:<card id>"; null keeps none. */
   readonly draftKey = input<string | null>(null);
+  /** Commands listed first in the "/" menu - picking one writes `/name ` (the board chat's skills). */
+  readonly commands = input<readonly { readonly name: string; readonly what: string }[]>([]);
   readonly submitted = output<string>();
   readonly cancelled = output<void>();
 
@@ -329,6 +331,8 @@ export class MentionEditorComponent implements AfterViewInit {
       }));
     }
     const all: MenuItem[] = [
+      // Commands the host offers first (the board chat's /alfred-* skills, specs/022 FR-022): typed as text, read on send.
+      ...this.commands().map((c) => ({ id: `cmd-${c.name}`, label: `/${c.name}`, hint: c.what, run: () => this.slash(() => this.insertText(`/${c.name} `)) })),
       { id: 'h2', label: 'Heading', hint: '##', run: () => this.slash(() => this.styleBlock('h2')) },
       { id: 'h3', label: 'Subheading', hint: '###', run: () => this.slash(() => this.styleBlock('h3')) },
       { id: 'ul', label: '• Bulleted list', hint: '-', run: () => this.slash(() => this.list(false)) },

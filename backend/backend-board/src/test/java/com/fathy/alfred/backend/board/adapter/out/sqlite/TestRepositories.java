@@ -26,6 +26,13 @@ public final class TestRepositories {
         return new SqliteRequirementRepository((SqliteBoardRepository) store, json);
     }
 
+    /** The board chats' tables in the same board.db as {@code store} (specs/022). */
+    public static com.fathy.alfred.backend.board.application.port.out.ChatStorePort chats(BoardStorePort store, ObjectMapper json) {
+        SqliteChatRepository repo = new SqliteChatRepository((SqliteBoardRepository) store, json);
+        repo.init();
+        return repo;
+    }
+
     public static Opened open(ObjectMapper json, Path file) {
         SqliteBoardRepository repo = new SqliteBoardRepository(json, file.toString());
         repo.init();

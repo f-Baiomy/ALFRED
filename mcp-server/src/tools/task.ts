@@ -27,15 +27,16 @@ const NEVER_CUT = new Set(['out of scope', 'decisions']);
  * wins: the earlier runs go first (the board's session log has them), then the tail of the findings, and only then the
  * longer brief sections and the requirements. The brief's Out of scope and Decisions and every requirement's key are never cut.
  */
-interface Limits { runs: number; runChars: number; open: number; decided: number; section: number; requirements: number }
-const FULL: Limits = { runs: 3, runChars: 400, open: Infinity, decided: 15, section: SECTION_MAX, requirements: Infinity };
+interface Limits { runs: number; runChars: number; open: number; decided: number; section: number; requirements: number; chat: number }
+const FULL: Limits = { runs: 3, runChars: 400, open: Infinity, decided: 15, section: SECTION_MAX, requirements: Infinity, chat: 8 };
 const LADDER: readonly Limits[] = [
   FULL,
   { ...FULL, runs: 1, runChars: 250 },
   { ...FULL, runs: 0 },
   { ...FULL, runs: 0, open: 60, decided: 5 },
   { ...FULL, runs: 0, open: 25, decided: 0 },
-  { ...FULL, runs: 0, open: 25, decided: 0, section: 500, requirements: 40 },
+  { ...FULL, runs: 0, open: 25, decided: 0, section: 500, requirements: 40, chat: 3 },
+  { ...FULL, runs: 0, open: 25, decided: 0, section: 500, requirements: 40, chat: 0 },
 ];
 
 interface CardHit {
@@ -46,6 +47,13 @@ interface ChecklistFile { fileName: string; items: { key: string; text: string; 
 interface StepRow { key: string; text: string; state: string; calls: number; cardNumber: number | null; note: string | null }
 interface LogEntry { skill: string; did: string; found: string; next: string; at: string }
 interface NextSteps { waitingOnUser: { number: number; title: string; why: string; since: string }[]; waitingOnClaude: number; toDo: number; inProgress: number; fixed: number; inbox: number }
+/** The cycle's board chat as a new session takes it over (specs/022): its latest summary, what came after, the decisions. */
+interface ChatContext {
+  summary: { id: number; text: string; coversTo: number | null } | null;
+  after: { id: number; author: string; kind: string; text: string; createdAt: string }[];
+  decisions: { id: number; text: string }[];
+  terminal: { id: number; urgent: boolean; text: string; state: string }[];
+}
 interface AgentStatus { state: string; step?: string | null; cycleId: string | null; updatedAt: string }
 
 /** The brief's sections by heading ("## Task", "## Out of scope"...); text before the first heading is the "summary". */
@@ -127,10 +135,13 @@ async function taskText(client: AlfredClient, ctx: MaskContext, cycle: SessionCy
   // specs/018: each item's verdict by the calls, worked out by Alfred in code
   const verdictOf = new Map((verdicts?.items ?? []).map((r) => [`${r.fileName}\n${r.itemKey}`, r]));
   const project = cards.find((c) => c.project)?.project ?? '';
-  const [next, agent] = await Promise.all([
+  const [next, agent, chat] = await Promise.all([
     client.get<NextSteps>('/board/next-steps', { query: { project, cycleId: id } }).catch(() => null),
     client.get<AgentStatus | null>('/board/agent-status', { query: { project } }).catch(() => null),
+    client.get<ChatContext>(`/board/chats/${seg(id)}/context`, { query: { project } }).catch(() => null),
   ]);
+  const plainOf = (t: string) => maskText(ctx, t.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim());
+  const chatTalk = (chat?.after ?? []).filter((m) => m.kind === 'TEXT');
 
   // Everything that shows a masked value is masked here, once - rendering below may run several times to fit the reply.
   const taskName = maskText(ctx, cycle.name);
@@ -218,6 +229,17 @@ async function taskText(client: AlfredClient, ctx: MaskContext, cycle: SessionCy
         out.push(`  /${e.skill} · ${ago(e.at)} ago`, `    did: ${cut(e.did, l.runChars)}`, `    found: ${cut(e.found, l.runChars)}`, `    next: ${cut(e.next, l.runChars - 100)}`);
       }
       if (runs.length > l.runs) out.push(`  … ${runs.length - l.runs} earlier run(s) not shown to fit this reply`);
+    }
+    if (chat && (chat.summary || chatTalk.length || chat.decisions.length)) {
+      out.push('', `BOARD CHAT (the cycle's chat - chat_read for more)${chat.summary ? ` · summary #${chat.summary.id} covers up to #${chat.summary.coversTo}` : ''}`);
+      if (chat.summary) out.push(`  SUMMARY: ${cut(plainOf(chat.summary.text), l.section)}`);
+      for (const d of chat.decisions.slice(0, 10)) out.push(`  ★ #${d.id} ${cut(plainOf(d.text), 300)}`);
+      if (l.chat) {
+        for (const m of chatTalk.slice(-l.chat)) out.push(`  #${m.id} ${m.author === 'USER' ? 'user' : m.author === 'CLAUDE' ? 'claude' : 'alfred'}: ${cut(plainOf(m.text), 300)}`);
+        if (chatTalk.length > l.chat) out.push(`  … ${chatTalk.length - l.chat} earlier message(s) after the summary - chat_read`);
+      }
+      const unread = (chat.terminal ?? []).filter((t) => t.state !== 'READ' && t.state !== 'UNDONE');
+      if (unread.length) out.push(`  For the terminal session, not read yet: ${unread.length}${unread.some((t) => t.urgent) ? ' (⚡ act on these first)' : ''}`);
     }
     if (agent && agent.cycleId === id && agent.state !== 'STOPPED') out.push('', `NOW: Claude ${agent.state.toLowerCase()}${agent.step ? ` - ${agent.step}` : ''} (${ago(agent.updatedAt)} ago)`);
 

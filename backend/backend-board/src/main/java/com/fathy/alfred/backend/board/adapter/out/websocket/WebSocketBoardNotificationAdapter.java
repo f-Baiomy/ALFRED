@@ -85,6 +85,12 @@ public class WebSocketBoardNotificationAdapter implements BoardNotificationPort 
         w.put("stop", work.stop());
         w.put("startedAt", work.startedAt().toString());
         w.put("updatedAt", work.updatedAt().toString());
+        if (work.chatMessageId() != null) {
+            w.put("chatMessageId", work.chatMessageId());
+        }
+        if (work.usage() != null) {
+            w.put("usage", work.usage());
+        }
         event.put("work", w);
         send(event);
     }
@@ -95,6 +101,19 @@ public class WebSocketBoardNotificationAdapter implements BoardNotificationPort 
         event.put("type", "cycle-chat");
         event.put("project", project);
         event.put("cycleId", cycleId);
+        send(event);
+    }
+
+    /** A signal, not the message: the panel re-reads the chat (GET /board/chats/...) - message text never goes over the socket. */
+    @Override
+    public void chatChanged(String project, String scope, Long id) {
+        Map<String, Object> event = new LinkedHashMap<>();
+        event.put("type", "chat-changed");
+        event.put("project", project);
+        event.put("scope", scope);
+        if (id != null) {
+            event.put("id", id);
+        }
         send(event);
     }
 

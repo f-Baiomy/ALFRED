@@ -1,4 +1,8 @@
-import { ChangeDetectionStrategy, Component, input, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Injector, computed, inject, input, signal } from '@angular/core';
+import { CallRecord } from '../../core/models/call.model';
+import { ChatStateService } from '../../core/state/chat-state.service';
+import { logChip } from '../../shared/utils/chat-context';
+import { DbWindowService } from './db-window.service';
 import { LinkedLogLine, LogMatch } from '../../core/models/call-logs.model';
 import { lineFields, logLevelClass } from '../../shared/utils/call-log-rows';
 
@@ -41,13 +45,27 @@ import { lineFields, logLevelClass } from '../../shared/utils/call-log-rows';
           {{ line().sourceName }} · matched by <span class="pill" [class.exact]="line().matchedBy !== 'THREAD_TIME'">{{ how(line().matchedBy) }}</span>
           @if (line().thread) { · thread {{ line().thread }}}
           @if (line().logger) { · {{ line().logger }}}
+          @if (callOf(); as c) { · <button type="button" class="board-link" title="Ask Claude about this line - in the call's cycle chat, else the project's" (click)="$event.stopPropagation(); ask(c)">💬 Ask Claude</button> }
         </div>
       </div>
     }
   `,
 })
 export class DbLogRowComponent {
+  private readonly window = inject(DbWindowService);
+  /** Resolved on click: the chat's state is only needed when the user asks. */
+  private readonly injector = inject(Injector);
   readonly line = input.required<LinkedLogLine>();
+  /** The call the DB window shows - a line outside any call has none to ask about. */
+  readonly callOf = computed(() => {
+    const r = this.window.request();
+    return r?.kind === 'call' ? { call: r.call, cycleId: r.cycleId ?? null } : null;
+  });
+
+  ask(c: { call: CallRecord; cycleId: string | null }): void {
+    const l = this.line();
+    this.injector.get(ChatStateService).ask(c.call.source === 'internal' ? c.call.service_name ?? '' : '', c.cycleId, logChip(c.call.id, l.lineId, l.level ?? null, l.logger ?? null));
+  }
   /** Milliseconds from the call's start (or from the thread's first line, outside any call). */
   readonly atMs = input.required<number>();
   /** Show the line's source name (several sources). */

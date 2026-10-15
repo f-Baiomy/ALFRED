@@ -251,7 +251,7 @@ test('▶ without a chat (started outside a chat, or no cycle) the runner claims
   } finally { await close(); }
 });
 
-test('a comment that needs an investigation goes to the chat; a small one is answered here', async () => {
+test('a comment that needs an investigation is answered by the cycle chat session, on the card (specs/022 FR-060)', async () => {
   const { w, runner, chat, promptFile, close } = await runnerWorld();
   try {
     runner.o.chatId = 'chat-a';
@@ -259,14 +259,18 @@ test('a comment that needs an investigation goes to the chat; a small one is ans
     w.fake.board.changes = { entries: [change({ id: 9, text: 'why does the fare change at confirm? check the SQL' })], cycles: [], cursor: '9.1', more: false };
     await runner.once('now');
     await runner.idle();
-    assert.equal(w.fake.board.liveWork.at(-1).state, 'DONE');
-    assert.match(w.fake.board.liveWork.at(-1).outcome, /sent to the chat/);
-    assert.equal(chat.length, 1);
-    assert.match(chat[0], /^💬 #1 "Fare changes at confirm" · you commented: "why does the fare change at confirm\? check the SQL" - investigate in this chat/);
-    assert.ok(!existsSync(promptFile), 'not answered here');
+    await Promise.all([...runner.chatLane.chains.values()]);
+    const reports = w.fake.board.liveWork;
+    assert.ok(reports.some((r: any) => r.outcome === "answered by the cycle chat's session"), JSON.stringify(reports));
+    assert.ok(reports.some((r: any) => r.head === 'answering in the cycle chat' && r.state === 'DONE'), JSON.stringify(reports));
+    const sent = JSON.parse(readFileSync(promptFile, 'utf8'));
+    assert.ok(!sent.args.includes('--no-session-persistence'), 'the chat session persists');
+    assert.match(sent.prompt, /why does the fare change at confirm/);
+    assert.ok(w.fake.log.some((l) => l.path === '/board/chats/cy1/system' && /answered your comment on #1/.test(l.body.text)));
+    assert.equal(chat.length, 0, 'nothing for the terminal to do');
     assert.ok(live.forTheChat([{ kind: 'COMMENT', text: 'Please fix this' }]));
     assert.ok(!live.forTheChat([{ kind: 'COMMENT', text: 'thanks, looks good' }]));
-  } finally { await close(); }
+  } finally { await close(); runner.chatPool?.close(); }
 });
 
 test('with a chat the heartbeat says the chat handles the cycle and whether it is still open', async () => {

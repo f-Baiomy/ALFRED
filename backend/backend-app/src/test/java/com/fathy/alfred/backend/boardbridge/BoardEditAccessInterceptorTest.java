@@ -64,6 +64,21 @@ class BoardEditAccessInterceptorTest {
     }
 
     @Test
+    void theTunnelCannotWriteToAChatButReadsIt() throws Exception {
+        // specs/022: the chats are under /board, so the tunnel stays read-only for them too
+        BoardEditAccessInterceptor docker = interceptor(new EditAccess(false, EditAccess.Reason.DOCKER_MODE, "172.18.0.5", "restart.py"));
+        for (String[] write : new String[][] {{"POST", "/board/chats/c-1/messages"}, {"PATCH", "/board/chats/messages/4"},
+                {"POST", "/board/chats/records/1/undo"}, {"PUT", "/board/chats/c-1/settings"}}) {
+            MockHttpServletRequest viaTunnel = new MockHttpServletRequest(write[0], write[1]);
+            viaTunnel.addHeader("Cf-Ray", "abc");
+            assertThat(allows(docker, viaTunnel, new MockHttpServletResponse())).as(write[1]).isFalse();
+        }
+        MockHttpServletRequest read = new MockHttpServletRequest("GET", "/board/chats/c-1/messages");
+        read.addHeader("Cf-Ray", "abc");
+        assertThat(allows(docker, read, new MockHttpServletResponse())).isTrue();
+    }
+
+    @Test
     void aWriteFromAnAddressNotListedIsRefused() throws Exception {
         BoardEditAccessInterceptor refusing = interceptor(new EditAccess(false, EditAccess.Reason.NOT_LISTED, "8.8.8.8", "Open Alfred..."));
         MockHttpServletResponse response = new MockHttpServletResponse();

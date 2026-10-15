@@ -3,6 +3,7 @@
   <app-call-board-badge [badges]="boardBadges()" />
   <button type="button" class="action-btn" title="Add an Inbox card linked to this call to the board" [disabled]="boardLoading()"
           (click)="addToBoard()">{{ boardLoading() ? 'Adding…' : '＋ Board' }}</button>
+  <button type="button" class="action-btn" title="Ask Claude about this call - in this cycle's chat, else the project's" (click)="askClaude()">💬 Ask</button>
   <!-- Resent often enough, and from far more places, to earn a button of its own rather than a
        menu item nobody opens: every card gets one through CallActionsComponent, so a new list built
        from `app-call-card` needs nothing extra (same deal as PickCallButtonComponent). Still listed

@@ -378,11 +378,22 @@ public class CycleBriefService implements ManageBriefUseCase, ManageSpecFilesUse
         this.snippets = snippets;
     }
 
+    /** The cycle's chat - messages, records, terminal items, settings, session - goes with it (specs/022). Optional like snippets. */
+    private com.fathy.alfred.backend.board.application.port.out.ChatStorePort chats;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setChats(com.fathy.alfred.backend.board.application.port.out.ChatStorePort chats) {
+        this.chats = chats;
+    }
+
     @Override
     public void cycleRemoved(String cycleId) {
         store.cycleRemoved(cycleId);
         if (snippets != null) {
             snippets.cycleRemoved(cycleId);
+        }
+        if (chats != null) {
+            chats.cycleRemoved(cycleId);
         }
         mentionedCalls.mentionedCallsChanged();
         notifications.changed(null, cycleId, null, "deleted");

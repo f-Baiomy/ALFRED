@@ -29,6 +29,8 @@ export interface BoardExport {
   readonly images?: readonly BoardImageData[];
   /** Pages, saved values, pictures, files and widgets (specs/017 R43). */
   readonly visuals?: BoardVisuals;
+  /** The board chats' records as the backend writes them (specs/022: chat, chatRecord, chatTerminal, chatSettings) - .json only. */
+  readonly chats?: readonly unknown[];
 }
 
 export interface BoardImageData {
@@ -66,7 +68,7 @@ function directLinks(card: CardDetail, history: readonly ActivityEntry[]): Menti
 export function buildBoardJsonLines(data: BoardExport, exportedAt = new Date().toISOString()): string[] {
   const lines: string[] = [JSON.stringify({ format: BOARD_FORMAT, exportedAt, project: data.project, cards: data.cards.length,
     guide: 'One record per line: card, then activity (by cardNumber), brief, spec, mark, image (base64), page (with every version), state, shot (PNG, base64), '
-      + 'file (base64), widget. Texts are Markdown or HTML. Import with Board → Import .json.' })];
+      + 'file (base64), widget, chatSettings, chat, chatRecord, chatTerminal. Texts are Markdown or HTML. Import with Board → Import .json.' })];
   for (const card of data.cards) {
     const fields: Record<string, unknown> = {};
     for (const f of CARD_FIELDS) fields[f] = card[f];
@@ -89,6 +91,7 @@ export function buildBoardJsonLines(data: BoardExport, exportedAt = new Date().t
   }
   for (const i of data.images ?? []) lines.push(JSON.stringify({ record: 'image', id: i.id, mime: i.mime, data: i.data }));
   if (data.visuals) lines.push(...visualRecords(data.visuals));
+  for (const c of data.chats ?? []) lines.push(JSON.stringify(c));
   return lines;
 }
 

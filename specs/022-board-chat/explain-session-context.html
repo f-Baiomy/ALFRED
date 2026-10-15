@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en" data-theme="slate">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chat Session Context</title>
+<style>
+:root { color-scheme:dark; --bg:#141416; --card:rgba(255,255,255,.035); --card2:rgba(255,255,255,.05); --inner:rgba(0,0,0,.3); --border:rgba(255,255,255,.09);
+  --strong:rgba(255,255,255,.18); --purple:#5b8def; --pl:#8fb2f7; --cyan:#7ee3d8; --text:#f2f2f5; --dim:#8b8b93; --faint:#5b5b63; --green:#7ee3a0; --amber:#e3a24a; --red:#e36a6a; --pink:#e37ec4; }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--text); font:15px/1.6 'Segoe UI',system-ui,sans-serif; padding:28px 16px 80px; }
+main { max-width:1060px; margin:0 auto; }
+h1 { font-size:1.45rem; margin:0 0 .3rem; } h2 { font-size:1.08rem; margin:2.2rem 0 .6rem; color:var(--pl); } h3 { font-size:.95rem; margin:0 0 .4rem; }
+p { margin:.3rem 0 .7rem; } .dim { color:var(--dim); } .faint { color:var(--faint); font-size:.85rem; }
+code { font:.82rem Consolas,monospace; background:var(--inner); padding:.05rem .35rem; border-radius:4px; }
+.box { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:14px 16px; }
+.warn { border-color:color-mix(in srgb,var(--amber) 45%,transparent); background:color-mix(in srgb,var(--amber) 6%,transparent); }
+.bad { border-color:color-mix(in srgb,var(--red) 45%,transparent); background:color-mix(in srgb,var(--red) 6%,transparent); }
+.good { border-color:color-mix(in srgb,var(--green) 45%,transparent); background:color-mix(in srgb,var(--green) 5%,transparent); }
+.tabs { display:flex; gap:.4rem; flex-wrap:wrap; margin:.6rem 0 1rem; }
+.tabs button { font:inherit; font-size:.88rem; background:var(--card2); color:var(--dim); border:1px solid var(--border); border-radius:99px; padding:.3rem .9rem; cursor:pointer; }
+.tabs button.on { background:var(--purple); border-color:var(--purple); color:#fff; }
+.tabs button .rec { font-size:.68rem; font-weight:700; color:var(--green); margin-left:.3rem; }
+.tabs button.on .rec { color:#dfffe9; }
+.opt { display:none; } .opt.on { display:block; }
+svg text { font-family:'Segoe UI',system-ui,sans-serif; }
+.grid2 { display:grid; grid-template-columns:1fr 1fr; gap:14px; } @media (max-width:820px){ .grid2 { grid-template-columns:1fr; } }
+.chat { background:var(--inner); border:1px solid var(--border); border-radius:12px; padding:10px 12px; }
+.msg { margin:.45rem 0; } .who { font-size:.74rem; color:var(--dim); }
+.bub { border:1px solid var(--border); border-radius:10px; padding:.4rem .6rem; background:var(--card); font-size:.88rem; }
+.me .bub { background:color-mix(in srgb,var(--cyan) 7%,transparent); border-color:color-mix(in srgb,var(--cyan) 25%,var(--border)); margin-left:14%; }
+.me .who { text-align:right; }
+.cl .bub { margin-right:8%; }
+.cl .bub.weak { border-style:dashed; color:var(--dim); }
+.tag { display:inline-block; font-size:.68rem; font-weight:700; padding:0 .45rem; border-radius:99px; border:1px solid; margin-left:.3rem; }
+.tag.g { color:var(--green); } .tag.a { color:var(--amber); } .tag.r { color:var(--red); }
+table { width:100%; border-collapse:collapse; font-size:.86rem; }
+th, td { border-bottom:1px solid var(--border); padding:.45rem .5rem; text-align:left; vertical-align:top; }
+th { color:var(--dim); font-weight:600; }
+td.g { color:var(--green); } td.a { color:var(--amber); } td.r { color:var(--red); }
+.steps { counter-reset:s; list-style:none; padding:0; margin:.4rem 0; }
+.steps li { counter-increment:s; position:relative; padding-left:2rem; margin:.45rem 0; }
+.steps li::before { content:counter(s); position:absolute; left:0; top:.05rem; width:1.4rem; height:1.4rem; border-radius:50%; background:var(--purple); color:#fff; font-size:.75rem; font-weight:700; display:grid; place-items:center; }
+.cmd { font:.8rem/1.55 Consolas,monospace; background:var(--inner); border:1px solid var(--border); border-radius:9px; padding:.55rem .75rem; white-space:pre-wrap; margin:.4rem 0; }
+.cmd .c { color:var(--faint); }
+</style>
+</head>
+<body>
+<main>
+<h1>Where does the chat's memory come from?</h1>
+<p class="dim">You asked that the cycle chat should have "the context of the Claude session related to it". This page shows why it cannot be written into your open terminal session, and the three ways to give the chat that context, each tried on the same example.</p>
+
+<h2>First: what happens today</h2>
+<div class="box">
+  <p>You start Claude Code in a terminal and type <code>/alfred-live "Branch search"</code>. That terminal session is <b>your Claude Code session</b> - it has the whole morning in it: what it read, the files it changed, what you decided.</p>
+  <p><code>/alfred-live</code> then starts a small <b>runner</b> in the background (<code>alfred-live.mjs</code>). When you comment on a card, the runner does <b>not</b> type into your terminal session. It starts a <b>separate, fresh</b> <code>claude</code> run that sees only that comment and the card's recent thread, answers, and ends.</p>
+  <svg viewBox="0 0 980 170" width="100%" role="img" aria-label="Today: terminal session and separate fresh runs">
+    <text x="10" y="22" fill="var(--dim)" font-size="13">Your terminal session</text>
+    <rect x="200" y="8" width="760" height="26" rx="6" fill="color-mix(in srgb,var(--purple) 30%,transparent)" stroke="var(--purple)"/>
+    <text x="215" y="26" fill="var(--text)" font-size="12">9:00 investigates #49 · decides "dates in UTC" · edits BranchFilter.java · 12:05 still open</text>
+    <text x="10" y="78" fill="var(--dim)" font-size="13">Runner (background)</text>
+    <line x1="200" y1="73" x2="960" y2="73" stroke="var(--strong)" stroke-dasharray="4 4"/>
+    <text x="10" y="128" fill="var(--dim)" font-size="13">Fresh runs, one per comment</text>
+    <rect x="330" y="112" width="120" height="24" rx="6" fill="var(--card2)" stroke="var(--strong)"/><text x="342" y="129" fill="var(--text)" font-size="11">answers #47 comment</text>
+    <rect x="600" y="112" width="120" height="24" rx="6" fill="var(--card2)" stroke="var(--strong)"/><text x="612" y="129" fill="var(--text)" font-size="11">answers #49 comment</text>
+    <line x1="390" y1="76" x2="390" y2="110" stroke="var(--amber)" marker-end="url(#a)"/><line x1="660" y1="76" x2="660" y2="110" stroke="var(--amber)" marker-end="url(#a)"/>
+    <text x="200" y="160" fill="var(--faint)" font-size="12">Each fresh run knows only the comment and the card - not what your terminal session did this morning.</text>
+    <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="var(--amber)"/></marker></defs>
+  </svg>
+</div>
+
+<h2>Why not just send chat messages into the terminal session?</h2>
+<div class="box bad">
+  <p>A Claude Code session is one conversation held by <b>one</b> process - your terminal. Alfred cannot type into it, and a second process cannot safely add turns to it while it is open:</p>
+  <ul>
+    <li><b>Two writers, one session file:</b> the terminal and a chat answer would both append to the same conversation - turns interleave, and one can overwrite the other's state.</li>
+    <li><b>Your terminal would not see it:</b> the open terminal keeps its conversation in memory. Turns added from outside do not appear there until you restart it - so it would "forget" the chat anyway.</li>
+    <li><b>It would block you:</b> while you are working in the terminal, a chat message would have to wait for your turn to end, or interrupt it.</li>
+  </ul>
+  <p>So the chat needs its <b>own</b> conversation that <b>starts from</b> your session's memory. The question is how.</p>
+</div>
+
+<h2>The example used for all three</h2>
+<div class="box">
+  <p><b>Morning, in your terminal:</b> Claude investigated #49, you agreed <i>"dates are compared in UTC"</i>, and it changed <code>BranchFilter.java</code> to read <code>branchId</code> (singular). It never wrote the UTC decision to the board.</p>
+  <p><b>12:20, in the board chat:</b> you ask two things:</p>
+  <ol><li><i>"Why did you change BranchFilter?"</i></li><li>(later) <i>"And what did we decide about the dates?"</i></li></ol>
+  <p><b>13:00, in your terminal:</b> you ask Claude to also fix the export. Then in the chat: <i>"Did the export fix land?"</i></p>
+</div>
+
+<h2>The three ways</h2>
+<div class="tabs" id="tabs">
+  <button class="on" data-o="a">A · Fork once, continue the fork<span class="rec">RECOMMENDED</span></button>
+  <button data-o="b">B · Fresh run + transcript digest</button>
+  <button data-o="c">C · Fork on every message</button>
+</div>
+
+<div class="opt on" id="o-a">
+  <div class="grid2">
+    <div class="box good">
+      <h3>How it works</h3>
+      <ol class="steps">
+        <li>Your first chat message: the runner makes a <b>copy</b> ("fork") of your terminal session - its whole memory up to now - as a new chat session. Your terminal session is not touched.</li>
+        <li>That copy answers. Every later chat message <b>continues the same copy</b>, so the chat is one real conversation that remembers the morning <i>and</i> every chat turn.</li>
+        <li>When your terminal did more work since, the chat header offers <b>"Refresh from session"</b>: a new copy is taken; the chat's own history is carried over by the compact summary.</li>
+      </ol>
+      <div class="cmd"><span class="c"># first message</span>
+claude -p --resume &lt;terminal session&gt; --fork-session  → chat session X
+<span class="c"># every later message</span>
+claude -p --resume X</div>
+    </div>
+    <div class="chat">
+      <div class="msg me"><div class="who">You · 12:20</div><div class="bub">Why did you change BranchFilter?</div></div>
+      <div class="msg cl"><div class="who">Claude · 12:20 <span class="tag g">remembers</span></div><div class="bub">This morning we found the UI sends <code>branchId</code> but the filter read <code>branchIds</code>, so it filtered nothing. I changed line 42 to read the singular field - that's the fix for #49.</div></div>
+      <div class="msg me"><div class="who">You · 12:31</div><div class="bub">And what did we decide about the dates?</div></div>
+      <div class="msg cl"><div class="who">Claude · 12:31 <span class="tag g">remembers</span></div><div class="bub">Compare in UTC - you agreed at 10:15. Want me to write it to the brief so it sticks?</div></div>
+      <div class="msg me"><div class="who">You · 13:10</div><div class="bub">Did the export fix land?</div></div>
+      <div class="msg cl"><div class="who">Claude · 13:10 <span class="tag a">needs refresh</span></div><div class="bub weak">I don't see an export change since this chat started (12:20). Your terminal session may have done it after - press <b>Refresh from session</b> and I'll check.</div></div>
+    </div>
+  </div>
+  <p class="faint">Cost: the first message reads the whole session (the cache makes later ones cheap). The chat conversation grows; Alfred's compact keeps it in check, and a refresh starts a new copy.</p>
+</div>
+
+<div class="opt" id="o-b">
+  <div class="grid2">
+    <div class="box">
+      <h3>How it works</h3>
+      <ol class="steps">
+        <li>Every chat message gets a <b>fresh</b> run - like card comments today.</li>
+        <li>The runner hands it Alfred's context (the chat's summary and recent messages, the brief, the cards) plus a <b>short digest</b> it reads from your terminal session's transcript file on disk (the last steps and decisions).</li>
+        <li>No conversation grows; nothing is resumed.</li>
+      </ol>
+      <div class="cmd"><span class="c"># every message</span>
+claude -p "&lt;Alfred context&gt; + &lt;digest of the session transcript&gt; + &lt;your message&gt;"</div>
+    </div>
+    <div class="chat">
+      <div class="msg me"><div class="who">You · 12:20</div><div class="bub">Why did you change BranchFilter?</div></div>
+      <div class="msg cl"><div class="who">Claude · 12:20 <span class="tag a">from a digest</span></div><div class="bub">The session's notes say BranchFilter.java was edited to read <code>branchId</code> for #49. I don't have the reasoning behind it beyond that.</div></div>
+      <div class="msg me"><div class="who">You · 12:31</div><div class="bub">And what did we decide about the dates?</div></div>
+      <div class="msg cl"><div class="who">Claude · 12:31 <span class="tag r">may miss it</span></div><div class="bub weak">I don't see a date decision in the board or the digest. If it was in the terminal conversation, it may not have made the digest.</div></div>
+      <div class="msg me"><div class="who">You · 13:10</div><div class="bub">Did the export fix land?</div></div>
+      <div class="msg cl"><div class="who">Claude · 13:10 <span class="tag g">always fresh</span></div><div class="bub">Yes - the session's latest steps show RefundExport.java edited at 13:02.</div></div>
+    </div>
+  </div>
+  <p class="faint">Cheapest and always sees the latest terminal work, but the memory is a summary: details and reasoning that were only said in the conversation can be lost.</p>
+</div>
+
+<div class="opt" id="o-c">
+  <div class="grid2">
+    <div class="box">
+      <h3>How it works</h3>
+      <ol class="steps">
+        <li>Every chat message makes a <b>new copy</b> of your terminal session and answers from it.</li>
+        <li>So each answer knows <i>everything</i> the terminal did up to that moment.</li>
+        <li>But each copy is new: earlier chat turns are only known through Alfred's chat history passed in the prompt.</li>
+      </ol>
+      <div class="cmd"><span class="c"># every message</span>
+claude -p --resume &lt;terminal session&gt; --fork-session "&lt;chat history&gt; + &lt;your message&gt;"</div>
+    </div>
+    <div class="chat">
+      <div class="msg me"><div class="who">You · 12:20</div><div class="bub">Why did you change BranchFilter?</div></div>
+      <div class="msg cl"><div class="who">Claude · 12:20 <span class="tag g">remembers</span></div><div class="bub">The UI sends <code>branchId</code>, the filter read <code>branchIds</code> - line 42 now reads the singular field (#49).</div></div>
+      <div class="msg me"><div class="who">You · 12:31</div><div class="bub">And what did we decide about the dates?</div></div>
+      <div class="msg cl"><div class="who">Claude · 12:31 <span class="tag g">remembers</span></div><div class="bub">UTC - agreed at 10:15.</div></div>
+      <div class="msg me"><div class="who">You · 13:10</div><div class="bub">Did the export fix land?</div></div>
+      <div class="msg cl"><div class="who">Claude · 13:10 <span class="tag g">always fresh</span></div><div class="bub">Yes - RefundExport.java was changed at 13:02 in the session.</div></div>
+    </div>
+  </div>
+  <p class="faint">Best answers, highest cost: every message re-reads the whole terminal session (a long morning can be hundreds of thousands of tokens each time; the cache helps only within minutes). Many copies pile up in Claude Code's session list.</p>
+</div>
+
+<h2>Side by side</h2>
+<div class="box">
+<table>
+  <tr><th></th><th>A · Fork once, continue</th><th>B · Fresh + digest</th><th>C · Fork every message</th></tr>
+  <tr><td>Knows the morning's reasoning</td><td class="g">Yes, fully</td><td class="a">Only what the digest kept</td><td class="g">Yes, fully</td></tr>
+  <tr><td>Remembers earlier chat turns</td><td class="g">Yes, as a real conversation</td><td class="a">Through Alfred's summary</td><td class="a">Through Alfred's summary</td></tr>
+  <tr><td>Sees terminal work done after the chat began</td><td class="a">After "Refresh from session"</td><td class="g">Always</td><td class="g">Always</td></tr>
+  <tr><td>Cost per message</td><td class="g">Low after the first (cached)</td><td class="g">Lowest</td><td class="r">High - whole session each time</td></tr>
+  <tr><td>Touches your terminal session</td><td class="g">Never</td><td class="g">Never (reads its file)</td><td class="g">Never</td></tr>
+  <tr><td>Extra sessions in Claude Code's list</td><td class="g">One per chat (+1 per refresh)</td><td class="g">None</td><td class="r">One per message</td></tr>
+  <tr><td>No terminal session at all (project chat, or a new machine)</td><td>Starts a fresh chat session from Alfred's context, then continues it</td><td>Same as today</td><td>Falls back to B</td></tr>
+</table>
+</div>
+
+<h2>Recommendation</h2>
+<div class="box good">
+  <p><b>A · Fork once, continue the fork.</b> It is the only way that gives the chat the terminal session's real memory <i>and</i> a real conversation of its own, at a low cost per message, without ever touching your terminal session. Its one gap - work your terminal does after the chat began - is covered by <b>Refresh from session</b>, and the chat header shows when the terminal session has newer work than the chat's copy ("session moved on · Refresh").</p>
+  <p class="faint">If a cycle has no terminal session (you never ran Claude Code for it, or it was on another machine), A starts the chat's own session from Alfred's context and continues that - the same as the project chat.</p>
+</div>
+<h2>Then: mirroring the chat back into the terminal session</h2>
+<p class="dim">With A the chat knows the terminal. To make the terminal know the chat too, the chat is mirrored into it at its next turn (a "From the board chat" block). How much?</p>
+<div class="box">
+<table>
+  <tr><th></th><th>1 · All, sized by importance</th><th>2 · Everything in full</th><th>3 · Setting per chat</th></tr>
+  <tr><td>What the terminal gets</td><td>Decisions, records, urgent, @terminal: full text. Other Q&amp;A: one line each. Any message whole via <code>chat_read</code>.</td><td>Every chat message and answer, whole.</td><td>1 by default; ⚙ switches a chat to 2.</td></tr>
+  <tr><td>Nothing missed?</td><td class="g">Yes - every exchange is listed; details on demand</td><td class="g">Yes - all in context</td><td class="g">Yes</td></tr>
+  <tr><td>Terminal context use</td><td class="g">Small: ~1 line per exchange</td><td class="r">Large: a long answer with SQL/diffs can be thousands of tokens each</td><td class="a">Small, or large when switched</td></tr>
+  <tr><td>Terminal auto-compacts</td><td class="g">Rarely because of the chat</td><td class="r">Sooner - and its own earlier details (files read, reasoning) are what get squeezed</td><td class="a">Depends on the switch</td></tr>
+  <tr><td>Terminal acts on chat detail without asking</td><td class="a">Only when it fetches it (<code>chat_read</code>) - one extra step</td><td class="g">Always has it</td><td class="a">Per switch</td></tr>
+  <tr><td>Cost per terminal turn</td><td class="g">Low</td><td class="r">Grows with every chat answer</td><td class="a">Low or high</td></tr>
+  <tr><td>Noise in the terminal</td><td class="g">Low - explanations are one line</td><td class="r">High - every explanation lands in its flow</td><td class="a">Your choice per chat</td></tr>
+  <tr><td>Example: chat answered "why BranchFilter changed" (400 words)</td><td>Terminal sees: <i>Q: why BranchFilter changed? → A: UI sends branchId, filter read branchIds (#49) · chat_read 912</i></td><td>Terminal sees all 400 words</td><td>Either</td></tr>
+  <tr><td>Example: chat agreed "dates in local time"</td><td colspan="3">All three: full text at once, urgent if it contradicts the terminal's work</td></tr>
+</table>
+</div>
+<div class="box good" style="margin-top:12px"><p><b>Recommendation: 3 · Setting per chat, defaulting to 1.</b> Day to day the terminal knows everything that happened in the chat at a line each, never misses a decision, and can pull any answer whole. When you want the terminal to carry a whole chat (for example before handing the terminal a hard fix), switch that chat to "everything in full".</p></div>
+</main>
+<script>
+document.getElementById('tabs').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  document.querySelectorAll('#tabs button').forEach((x) => x.classList.toggle('on', x === b));
+  document.querySelectorAll('.opt').forEach((o) => o.classList.toggle('on', o.id === 'o-' + b.dataset.o));
+});
+</script>
+</body>
+</html>

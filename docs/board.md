@@ -557,6 +557,78 @@ Every board text can show a picture of its evidence. The words still come first;
   with `board_file` and attaches its own with `board_attach`; the backend's cleaner keeps no relative link but
   `/board/files/<id>`.
 
+## Board chat (specs/022)
+
+Every project has one chat and every session cycle has one, opened from the chats bar docked on the left of every tab
+(Messenger-style: a "Needs you" section on top, then the project chat, then the cycle chats newest first; Ctrl+K finds
+one by name). The panel follows the scope in view: a cycle when one is open, else the project. Views: docked (resizable),
+expanded, full screen (Esc / Ctrl+Shift+F) and a separate window (`/chat?project=&scope=`); the view, width and slim bar
+are this browser's own (localStorage, try/catch).
+
+- **Who answers.** A cycle chat is answered by its own Claude conversation on the machine of the terminal session that
+  holds the cycle: the runner (`/alfred-live`, `skills/alfred-live/chat.mjs`) forks that terminal session once
+  (`--resume <terminal> --fork-session`) and continues the fork (`--resume <fork>`) for every later message - the
+  terminal session itself is never written to. No terminal transcript on this machine: its own session, started from
+  Alfred's context, and it says so. The project chat is answered by the project's live runner. A message waits (with
+  the start steps in the panel) until one is running.
+- **States.** A user's message is WAITING -> TAKEN (compare-and-swap, `taken_by`) -> ANSWERED / STOPPED / CANCELLED. It
+  can be edited or cancelled only while waiting; "⚡ answer first" puts it ahead of everything waiting, after the step
+  Claude is on. A waiting message shows its place in line, counting a card Claude is answering ("busy on #N"). A runner
+  that went away gives its taken messages back to the queue (new `wait_seq`); a run that failed or was stopped stops the
+  message with a system line.
+- **Changes.** `board_changes` / `board_wait` carry the chats as a third cursor part (`activity.cycle.chatSeq`; a
+  two-part cursor still works) - messages to take, urgent first, and what the chat sent the terminal.
+- **Records** (FR-048): an answer records, unasked, what another session needs - DECISION / NEXT appended to the cycle
+  brief, CARD an Inbox card as Claude, ITEM a proposal on the spec file, FIX a fix report moving the card to Fixed. Each
+  shows as one "✓ recorded ..." line with Undo (the user's; refused when the brief changed since). Claude's board limits
+  apply to every record.
+- **Mirror to the terminal** (FR-050/051): each exchange is one item, masked like the MCP output, with bulky parts as
+  references (`chat_read`). It is written to the runner's chat log at the terminal's next turn (`💬 board chat ...`);
+  urgent items (`⚡ board chat: ...` - a decision that contradicts the terminal's step, files the chat changed,
+  `@terminal`) at once. An item is held while no session holds the cycle and handed to the next one; Undo while unread.
+- **Catch-up** (FR-052/055): the runner learns of the terminal's turns from `fs.watch` events on its transcript, never a
+  timer; before answering it adds only the terminal's new transcript entries (delta), and re-forks after a compact there.
+- **Compact** (FR-014/015): ⇊ or auto after 100 messages since the last summary (per chat, 20-1000, 0 = off) queues a
+  task; Claude writes a SUMMARY covering everything before the first message still in flight. Nothing is deleted: older
+  messages fold under it, stay searchable and are exported.
+- **Memory and meter** (FR-056/059): two pills - the Claude session (the chat's copy, on the runner's machine) and Alfred
+  (summary, decisions, records); the meter shows the last run's tokens. "Continue in terminal" gives
+  `claude --resume <chat session>` and names the machine. A new conversation taking over (another machine, another
+  terminal session) is marked with a system line (FR-016).
+- **Card comments** on a cycle's cards that need an investigation are answered by that cycle chat's session, on the card
+  (FR-060); the chat shows "↳ answered your comment on #N".
+- **Unread and notifications**: an unread line "- N new -", ↓ Latest, drafts per chat, the Board tab's 💬 count, and per
+  chat: every reply / only questions and failures / muted (no count, no pop-up).
+- **Mentions**: `@[chat:<project>/<scope>#<id>|...]` opens the chat at the message; a call mentioned in a chat is kept out
+  of the storage limits like a commented call. ＋ Card makes a card from a message.
+- **Looking at** (FR-020/021): 💬 Ask on a call (Live Calls, session cycles), a DB statement, a call's log line and
+  `ask` on an Acceptance item open the item's cycle chat (else the project chat) with the item as a removable chip; the
+  card open in a drawer is offered too. Chips travel as the message's `context` (`shared/utils/chat-context.ts`).
+- **"/" skills** (FR-022): the composer's "/" menu lists the shipped /alfred-* skills except alfred-live and
+  alfred-listen (`chat-skills.ts`, checked against `alfred_skill.SKILLS` by `test_alfred_skill.py`); the chat's Claude
+  loads the picked one with the Skill tool and runs it as far as its tools allow (the chat never edits code).
+- **While you were away** (FR-023): opening a chat after its digest gap (default 30 min, per chat) shows one folded
+  digest of the board's history since the last look - no model (`ChatDigest`, `GET /{scope}/digest`, 204 when nothing).
+- **★ decisions, questions, reactions, ask again, Shared** (FR-024/025/043-045): ★ records the same DECISION as an
+  answer does (brief + Undo); Claude's `extra.questions` are answered all or some and sent back once as one message in
+  the thread; reactions are the board's plus ❓ ("explain more" in the answer's thread); ↻ keeps the answer, marked asked
+  again, and asks once more with what to read; 🗂 lists everything the chat mentions.
+- **Proposals and consent** (FR-026..028, FR-046): Claude's `extra.proposals` (verify, close as Fine, move, a checklist
+  mark, a new acceptance item) are checked against the board when shown and again on Accept, applied as the user, one by
+  one or in bulk, with Undo for 60 s (`ChatProposalService`, tokens in memory). A resend or rule (`extra.consent`) runs
+  only through the consent dialog, into the existing resend dialog or rule editor. → Card posts a message (or the
+  selected part) to a card as a comment linked back.
+- **Watches** (FR-030/031): ◉ "watch while I test" keeps one waiting check task per cycle chat while its Claude is on;
+  calls join it until it is taken; a clean batch posts nothing (`{quiet: true}`); /alfred-listen's findings also appear
+  as "👂 listen runner". "Tell me when" (`chat_watch` STATUS / ERROR_LOG / ITEM_PASSES) posts one 🔔 line and ends -
+  driven by completed calls and the board's requirements signal, never a timer (`ChatWatchService`).
+- **Bridge and split** (FR-035/047): the project chat can ask the Claude of a cycle - the exchange lives in the cycle's
+  chat and shows in both; ◫ opens a second chat beside the first, ⇆ swaps them.
+- Through the tunnel the chat is read-only. Removing a cycle removes its chat.
+- **Retention**: chat messages are kept until their cycle is removed - deliberately unbounded like session-cycle capture
+  (people type them; a compact folds, never deletes). Every read is paged (50 per page, 200 per export page, search ≤ 200
+  hits), the bar reads one row per chat, and the Shared view walks the chat 500 messages at a time.
+
 ## Export and import
 
 - **Board export**: Board → .md, .html or .json, either the whole board or the selected cards.
@@ -569,6 +641,12 @@ Every board text can show a picture of its evidence. The words still come first;
   The .md writes each page's source whole with its picture embedded as a PNG, the inline snippets' pictures, the files
   and the widgets. The .html runs every snippet in the same locked frame, offline: its libraries inside, its saved values,
   files and declared `alfred/data` answered from what was read at export time; Python shows its picture.
+- **Board chats in the .json** (specs/022): a whole-board export adds every chat of the project, a cycle's export its
+  chat - `chatSettings`, `chat` (one per message), `chatRecord`, `chatTerminal`, written by the backend
+  (`GET /board/chats/export`, paged, `ChatTransfer`) and read back by the importer. Sessions never travel. Threads,
+  answers and summaries are remapped; a message still waiting comes back STOPPED, a record keeps its line but cannot be
+  undone here, terminal items come back read; a cycle chat whose cycle is not here lands in the project chat marked
+  `[from cycle <name>]`.
 - **Cycle export**: "Include brief & specs" and "Include board cards" are both off by default, and with both off the output is identical to before (guarded in `export-build.spec.ts`). When ticked, they append the board to the .md / .html report. With .json, the calls file stays the calls re-import format, and the board is written beside it as its own alfred-board file.
 
 ## Limits and measurements

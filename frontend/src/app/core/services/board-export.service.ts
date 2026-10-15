@@ -7,6 +7,7 @@ import { buildBoardMarkdownLines } from '../../shared/utils/board-md-builder';
 import { downloadBlob } from '../../shared/utils/download';
 import { exportBlob } from '../../shared/utils/export-file-io';
 import { BoardApiService } from './board-api.service';
+import { ChatApiService } from './chat-api.service';
 import { SnippetsApiService } from './snippets-api.service';
 import { BoardVisuals, ExportedFile, ExportedPage, ExportedShot, ExportedState, exportedSnippetId } from '../../shared/utils/board-visuals-export';
 import { WidgetInfo } from '../models/snippet.models';
@@ -33,6 +34,7 @@ export class BoardExportService {
   private readonly snippets = inject(SnippetsApiService);
   private readonly shelf = inject(SnippetShelfService);
   private readonly dataSource = inject(SnippetDataService);
+  private readonly chatApi = inject(ChatApiService);
 
   /** The whole board (or a cycle's cards), or only `ids` when given. */
   gather(project: string, cycleId: string | null, ids: readonly string[] | null = null): Promise<BoardExport> {
@@ -62,11 +64,31 @@ export class BoardExportService {
     const data = { ...gathered, visuals: await this.visuals(gathered, cycleId === null && ids === null, format === 'json') };
     const name = boardJsonFilename(project, cycleId ? title : null).replace(/\.json$/, `.${format}`);
     if (format === 'json') {
-      downloadBlob(await exportBlob(buildBoardJsonLines({ ...data, images: await this.images(data) }), false), name);
+      const chats = ids === null ? await this.chats(project, cycleId) : [];
+      downloadBlob(await exportBlob(buildBoardJsonLines({ ...data, images: await this.images(data), chats }), false), name);
     } else if (format === 'md') {
       downloadBlob(new Blob(buildBoardMarkdownLines(data, title).map((l) => `${l}\n`), { type: 'text/markdown' }), name);
     } else {
       downloadBlob(new Blob(buildBoardHtmlParts(data, title, await this.frameKit(data)), { type: 'text/html' }), name);
+    }
+  }
+
+  /**
+   * The board chats (specs/022): every chat of the project for a whole-board export, the cycle's chat for a cycle's.
+   * Unreadable (an older Alfred) → none; the cards still export.
+   */
+  async chats(project: string, cycleId: string | null): Promise<unknown[]> {
+    const out: unknown[] = [];
+    let after = 0;
+    try {
+      for (;;) {
+        const page = await lastValueFrom(this.chatApi.exportPage(project, cycleId, after));
+        out.push(...page.lines);
+        if (!page.more || page.next <= after) return out;
+        after = page.next;
+      }
+    } catch {
+      return out;
     }
   }
 

@@ -122,6 +122,11 @@ export interface FakeBoard {
   skillClaims?: any[];
   /** A test's own board routes (pages, asks, shots), tried before the fake's; undefined = not handled. */
   extra?: (method: string, p: string[], q: URLSearchParams, body: any) => [number, unknown?] | undefined;
+  /**
+   * The board chats (specs/022), as backend-board keeps them: messages by id, the chat id holding each cycle (a take by
+   * another is refused with 409), terminal items stored, watches set. The backend's own rules are tested in backend-board.
+   */
+  chats?: { messages: any[]; holder: Record<string, string>; terminal: any[]; watches: any[]; nextId: number };
   /** The chat part of the last heartbeat that had one. */
   chatBeat?: { cycleId: string; chatId: string; chatAlive: boolean };
   /** The /alfred-live runner's heartbeat (PUT /board/live-runner), or null. */
@@ -504,12 +509,99 @@ export class FakeAlfred {
       .sort((a, b) => b.startedAt - a.startedAt);
   }
 
+  /** /board/chats (specs/022 contracts/rest-api.md), the parts the MCP tools use. */
+  private chatRoute(method: string, p: string[], q: URLSearchParams, body: any): [number, unknown?] {
+    const c = this.board.chats ??= { messages: [], holder: {}, terminal: [], watches: [], nextId: 1 };
+    const add = (m: any) => {
+      const row = { parentId: null, kind: 'TEXT', state: 'DONE', urgent: false, decision: false, origin: null, context: [], quote: null, extra: null,
+        reactions: {}, coversTo: null, replyTo: null, bridgeFrom: null, superseded: false, createdAt: new Date().toISOString(), editedAt: null, ...m,
+        id: c.nextId++ };
+      c.messages.push(row);
+      return row;
+    };
+    const byId = (id: string) => c.messages.find((m) => m.id === Number(id));
+    if (p[2] === 'messages' && p[3]) {
+      const m = byId(p[3]);
+      if (!m) return [404, { outcome: 'NOT_FOUND', message: `No chat message ${p[3]}` }];
+      if (method === 'GET' && p.length === 4) return [200, m];
+      if (method === 'GET' && p[4] === 'answer') {
+        const answer = c.messages.filter((x) => x.replyTo === m.id && !x.superseded).pop();
+        return answer ? [200, answer] : [404, { outcome: 'NOT_FOUND', message: `Message ${m.id} has no answer yet` }];
+      }
+      if (method === 'POST' && p[4] === 'take') {
+        const held = c.holder[m.scope];
+        if (held && held !== body.chatId) return [409, { outcome: 'CONFLICT', message: `Another chat (${held}) holds this cycle` }];
+        if (m.state !== 'WAITING') return [409, { outcome: 'CONFLICT', message: `Message ${m.id} is ${m.state.toLowerCase()}` }];
+        m.state = 'TAKEN';
+        const thread = m.parentId ? c.messages.filter((x) => x.id === m.parentId || x.parentId === m.parentId).filter((x) => x.id !== m.id) : [];
+        const summary = c.messages.filter((x) => x.scope === m.scope && x.project === m.project && x.kind === 'SUMMARY').pop() ?? null;
+        return [200, { message: m, thread, summary }];
+      }
+      if (method === 'POST' && p[4] === 'release') {
+        if (m.state === 'TAKEN') m.state = body.failed ? 'STOPPED' : 'WAITING';
+        return [200, m];
+      }
+      if (method === 'POST' && p[4] === 'reply') {
+        const answer = body.updateId ? Object.assign(byId(String(body.updateId)), { text: body.text, editedAt: new Date().toISOString() })
+          : add({ project: m.project, scope: m.scope, author: 'CLAUDE', text: body.text, replyTo: m.id, extra: body.extra ?? null });
+        m.state = 'ANSWERED';
+        const records = (body.records ?? []).map((r: any, i: number) => ({ id: i + 1, messageId: answer.id, kind: r.kind,
+          line: r.kind === 'DECISION' ? `recorded the decision "${r.text}" in the brief` : `${r.kind.toLowerCase()}: ${r.text}` }));
+        const terminal = (body.toTerminal ?? []).map((t: any) => {
+          const item = { id: c.terminal.length + 1, project: m.project, scope: m.scope, messageId: m.id, state: 'SENT', ...t };
+          c.terminal.push(item);
+          return item;
+        });
+        return [200, { message: answer, records, terminal }];
+      }
+    }
+    if (p[3] === 'messages' && method === 'GET') {
+      const all = c.messages.filter((m) => m.project === (q.get('project') ?? '') && m.scope === p[2]
+        && (!q.get('before') || m.id < Number(q.get('before'))));
+      const limit = Number(q.get('limit') ?? 50);
+      return [200, { messages: all.slice(-limit), more: all.length > limit }];
+    }
+    if (p[3] === 'messages' && method === 'POST') {
+      return [200, add({ project: q.get('project') ?? '', scope: p[2], author: 'USER', state: 'WAITING', ...body })];
+    }
+    if (p[3] === 'context' && method === 'GET') {
+      const mine = c.messages.filter((m) => m.project === (q.get('project') ?? '') && m.scope === p[2]);
+      const summary = mine.filter((m) => m.kind === 'SUMMARY').pop() ?? null;
+      return [200, { summary, after: mine.filter((m) => !summary || m.id > summary.id), decisions: [], terminal: [], session: null }];
+    }
+    if (p[3] === 'terminal' && method === 'GET') return [200, c.terminal.filter((t) => t.scope === p[2])];
+    if (p[2] === 'terminal' && p[3] === 'delivered' && method === 'POST') {
+      for (const t of c.terminal) if (body.ids.includes(t.id)) t.state = body.read ? 'READ' : 'DELIVERED';
+      return [200, {}];
+    }
+    if (p[3] === 'session' && method === 'PUT') return [200, { chatSessionId: body.chatSessionId }];
+    if (p[3] === 'system' && method === 'POST') return [200, add({ project: q.get('project') ?? '', scope: p[2], author: 'ALFRED', kind: 'SYSTEM', text: body.text })];
+    if (p[3] === 'summary' && method === 'POST') {
+      return [200, add({ project: q.get('project') ?? '', scope: p[2], author: 'CLAUDE', kind: 'SUMMARY', text: body.text, coversTo: body.coversTo })];
+    }
+    if (p[3] === 'watches' && method === 'POST') {
+      const w = { id: c.watches.length + 1, project: q.get('project') ?? '', scope: p[2], ...body };
+      c.watches.push(w);
+      return [200, w];
+    }
+    if (p[3] === 'terminal' && method === 'POST') {
+      const stored = body.items.map((t: any) => {
+        const item = { id: c.terminal.length + 1, project: q.get('project') ?? '', scope: p[2], state: 'SENT', ...t };
+        c.terminal.push(item);
+        return item;
+      });
+      return [200, stored];
+    }
+    return [404, { error: 'not-found', message: `fake: no chat route ${method} /${p.join('/')}` }];
+  }
+
   /** /board, as backend-board answers it - the backend's own rules (Claude's limits) are tested in backend-board. */
   private boardRoute(method: string, p: string[], q: URLSearchParams, body: any): [number, unknown?] {
     const b = this.board;
     const find = (id: string) => b.cards.find((c) => c.id === id);
     const extra = b.extra?.(method, p, q, body);
     if (extra) return extra;
+    if (p[1] === 'chats') return this.chatRoute(method, p, q, body);
     if (p[1] === 'cards' && p.length === 2 && method === 'GET') {
       const status = (q.get('status') ?? '').split(',').filter(Boolean);
       const cards = b.cards.filter((c) => c.project === (q.get('project') ?? '') && (!status.length || status.includes(c.status)));

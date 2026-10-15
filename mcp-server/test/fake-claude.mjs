@@ -12,7 +12,7 @@ let mode = process.env.FAKE_CLAUDE_MODE || 'ok';
 const streamIn = process.argv.includes('--input-format');
 const out = (o) => process.stdout.write(JSON.stringify(o) + '\n');
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-if (streamIn) out({ type: 'system', subtype: 'init', tools: [] });
+if (streamIn) out({ type: 'system', subtype: 'init', tools: [], session_id: process.argv.includes('--resume') && !process.argv.includes('--fork-session') ? process.argv[process.argv.indexOf('--resume') + 1] : `session-${process.pid}` });
 
 async function answer(prompt) {
   if (process.env.FAKE_CLAUDE_PROMPT) writeFileSync(process.env.FAKE_CLAUDE_PROMPT, JSON.stringify({ prompt, args: process.argv.slice(2) }));
@@ -21,6 +21,16 @@ async function answer(prompt) {
     if (!existsSync(marker)) { writeFileSync(marker, '1'); mode = 'fail'; } else mode = /THE BATCH|THE SWEEP/.test(prompt) ? 'listen' : 'ok';
   }
   if (!streamIn) out({ type: 'system', subtype: 'init' });
+  if (mode === 'chat') {
+    // a board chat run: answers each message it was given with chat_reply, reports its usage
+    const ids = [...prompt.matchAll(/messageId (\d+):/g)].map((m) => Number(m[1]));
+    for (const [i, id] of ids.entries()) {
+      out({ type: 'assistant', message: { content: [{ type: 'tool_use', id: `c${i}`, name: 'mcp__alfred__chat_reply', input: { project: 'p', messageId: id, text: `answer ${id}` } }] } });
+      out({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: `c${i}`, content: [{ type: 'text', text: `{"replied":"#${100 + i}"}` }] }] } });
+    }
+    out({ type: 'result', subtype: 'success', is_error: false, result: `→ answered ${ids.length}`, usage: { input_tokens: 1200, output_tokens: 80, cache_read_input_tokens: 9000 } });
+    return;
+  }
   if (mode === 'listen') {
     // a listen batch / finish run: drills in, adds two cards in one call, ends with its summary, findings and blocks
     out({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 't1', name: 'mcp__alfred-t__investigate_call', input: { callId: 'in-err-1' } }] } });

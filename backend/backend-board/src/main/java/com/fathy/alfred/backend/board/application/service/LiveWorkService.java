@@ -2,6 +2,9 @@ package com.fathy.alfred.backend.board.application.service;
 
 import com.fathy.alfred.backend.board.application.port.in.LiveWorkUseCase;
 import com.fathy.alfred.backend.board.application.port.out.BoardNotificationPort;
+import com.fathy.alfred.backend.board.application.port.out.ChatStorePort;
+import com.fathy.alfred.backend.board.domain.model.ChatKey;
+import com.fathy.alfred.backend.board.domain.model.ChatSession;
 import com.fathy.alfred.backend.board.domain.model.LiveWork;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -58,6 +61,60 @@ public class LiveWorkService implements LiveWorkUseCase {
         this.clock = clock;
     }
 
+    /**
+     * The chats told when a runner starts holding a chat or a run on a chat message ends (specs/022). Looked up when used:
+     * the chat service itself reads this service, so a direct reference would be a cycle.
+     */
+    private org.springframework.beans.factory.ObjectProvider<com.fathy.alfred.backend.board.application.port.in.ChatRunnerEventsUseCase> chatEvents;
+
+    @Autowired(required = false)
+    void setChatEvents(org.springframework.beans.factory.ObjectProvider<com.fathy.alfred.backend.board.application.port.in.ChatRunnerEventsUseCase> chatEvents) {
+        this.chatEvents = chatEvents;
+    }
+
+    private void tellChats(java.util.function.Consumer<com.fathy.alfred.backend.board.application.port.in.ChatRunnerEventsUseCase> event) {
+        if (chatEvents != null) {
+            chatEvents.ifAvailable(event);
+        }
+    }
+
+    /** The board chats (specs/022), where a beat's terminal time is kept. Optional: tests build this service without them. */
+    private ChatStorePort chatStore;
+
+    @Autowired(required = false)
+    void setChatStore(ChatStorePort chatStore) {
+        this.chatStore = chatStore;
+    }
+
+    /** The known counters only, at most 6 - a report is the runner's, and a map from it is never trusted to be small. */
+    static java.util.Map<String, Double> usage(java.util.Map<String, Double> in) {
+        if (in == null || in.isEmpty()) {
+            return null;
+        }
+        java.util.Map<String, Double> out = new java.util.LinkedHashMap<>();
+        for (String k : List.of("input", "output", "cacheRead", "cacheWrite", "costUsd")) {
+            Double v = in.get(k);
+            if (v != null && v >= 0 && !v.isInfinite() && !v.isNaN()) {
+                out.put(k, v);
+            }
+        }
+        return out.isEmpty() ? null : java.util.Map.copyOf(out);
+    }
+
+    /** Only ever forward: a beat that saw older terminal work (a restarted runner) never moves it back. */
+    private void terminalWork(String project, String cycleId, Instant terminalAt) {
+        if (chatStore == null || terminalAt == null) {
+            return;
+        }
+        ChatKey key = new ChatKey(project, cycleId);
+        ChatSession was = chatStore.session(key).orElse(new ChatSession(key, null, null, null, null, null, null));
+        if (was.terminalAt() != null && !terminalAt.isAfter(was.terminalAt())) {
+            return;
+        }
+        chatStore.putSession(new ChatSession(key, was.chatSessionId(), was.forkedFrom(), was.host(), was.forkedAt(), was.seenUpTo(), terminalAt));
+        notifications.chatChanged(project, key.scope(), null);
+    }
+
     @Override
     public LiveWork report(Report r) {
         Instant now = clock.instant();
@@ -74,8 +131,11 @@ public class LiveWorkService implements LiveWorkUseCase {
         LiveWork next = new LiveWork(r.id(), r.project() == null ? "" : r.project(), r.cardNumber(),
                 r.head() == null || r.head().isBlank() ? "working" : r.head().strip(), steps, draft,
                 r.state() == null ? LiveWork.State.WORKING : r.state(), outcome,
-                previous != null && previous.stop(), previous == null ? now : previous.startedAt(), now);
+                previous != null && previous.stop(), previous == null ? now : previous.startedAt(), now, r.chatMessageId(), usage(r.usage()));
         runs.put(next.id(), next);
+        if (next.chatMessageId() != null && next.ended() && (previous == null || !previous.ended())) {
+            tellChats(c -> c.runEnded(next.chatMessageId(), next.state(), next.outcome()));
+        }
         forgetOld(now);
         runnersAreAlive(next.project(), now);
         notifications.liveWork(next);
@@ -106,7 +166,7 @@ public class LiveWorkService implements LiveWorkUseCase {
             }
             out.add(!w.ended() && w.updatedAt().plus(STALE).isBefore(now)
                     ? new LiveWork(w.id(), w.project(), w.cardNumber(), w.head(), w.steps(), w.draft(), LiveWork.State.FAILED,
-                    "stopped reporting", w.stop(), w.startedAt(), w.updatedAt())
+                    "stopped reporting", w.stop(), w.startedAt(), w.updatedAt(), w.chatMessageId(), w.usage())
                     : w);
         }
         out.sort(Comparator.comparing(LiveWork::startedAt).thenComparing(LiveWork::id));
@@ -130,12 +190,15 @@ public class LiveWorkService implements LiveWorkUseCase {
         if (stopped || previous == null) {
             notifications.liveRunner(key, stopped ? null : next.host(), runnerKind);
         }
+        if (!stopped && previous == null && KIND_LIVE.equals(runnerKind)) {
+            tellChats(c -> c.runnerStarted(key, null, null));
+        }
         return next;
     }
 
     @Override
     public synchronized ChatBeat chatBeat(String project, String cycleId, String chatId, String host, String cwd, String kind, boolean chatAlive,
-                                          boolean stopped) {
+                                          boolean stopped, Instant terminalAt) {
         Instant now = clock.instant();
         String p = project == null ? "" : project;
         String k = kindOf(kind);
@@ -161,6 +224,10 @@ public class LiveWorkService implements LiveWorkUseCase {
             chats.put(cycleId, next);
             notifications.cycleChat(p, cycleId);
             return new ChatBeat(next, false);
+        }
+        terminalWork(p, cycleId, terminalAt);
+        if (held == null) {
+            tellChats(c -> c.runnerStarted(p, cycleId, chatId));
         }
         java.util.Set<String> kinds = new java.util.TreeSet<>(held == null ? java.util.Set.of() : held.kinds());
         kinds.add(k);

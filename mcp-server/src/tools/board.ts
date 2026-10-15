@@ -274,8 +274,20 @@ export interface ChangeRow extends ActivityRow { project: string; number: number
 export interface ChangesPage {
   entries: ChangeRow[];
   cycles: { cycleId: string; what: string; name: string | null; detail: string | null; at: string }[];
+  /** specs/022: chat messages waiting for Claude, and what a cycle's chat sent its terminal (absent from older Alfreds) */
+  chats?: { messageId: number; project: string; scope: string; kind: string; urgent: boolean; parentId: number | null; origin: string | null;
+    text: string; at: string }[];
+  fromChat?: { id: number; urgent: boolean; mirror: boolean; text: string; reason: string | null; state: string }[];
   cursor: string;
   more: boolean;
+}
+
+/** A chat message to take, urgent first (the backend lists them in time order). */
+export function chatChangeLines(ctx: MaskContext, page: ChangesPage): string[] {
+  const rows = [...(page.chats ?? [])].sort((a, b) => Number(b.urgent) - Number(a.urgent) || a.messageId - b.messageId);
+  return rows.map((c) => `${c.at} ${c.urgent ? '⚡ ' : ''}chat ${c.scope === 'project' ? `${c.project || '(No project)'} project` : `cycle ${c.scope}`} `
+    + `#${c.messageId}${c.kind === 'TASK' ? ' (task)' : ''}${c.parentId ? ` ↳ thread #${c.parentId}` : ''}: `
+    + `"${preview(maskText(ctx, c.text).replace(/\s+/g, ' '), 200, 'chat_take')}" → chat_take ${JSON.stringify({ project: c.project, scope: c.scope, messageId: c.messageId })}`);
 }
 
 export function line(c: CardRow): string {
@@ -462,14 +474,19 @@ export async function parentsOf(client: AlfredClient, page: ChangesPage): Promis
 export function changesReply(ctx: MaskContext, page: ChangesPage, parents: ReadonlyMap<number, ActivityRow>): Record<string, unknown> {
   const entries = page.entries.map((e) => changeLine(ctx, e, parents));
   const cycles = page.cycles.map((c) => `${c.at} cycle ${c.cycleId}: ${c.what}${c.name ? ` ${c.name}` : ''}${c.detail ? ` (${c.detail})` : ''}`);
-  const fitted = fitItems(entries, 600 + JSON.stringify(cycles).length);
+  const chats = chatChangeLines(ctx, page);
+  // Read by the terminal session: ⚡ act on it before the next step; the rest is context only.
+  const fromChat = (page.fromChat ?? []).map((t) => `${t.urgent ? '⚡' : '💬'} ${preview(t.text, 1500, 'chat_read')}`);
+  const fitted = fitItems(entries, 600 + JSON.stringify(cycles).length + JSON.stringify(chats).length + JSON.stringify(fromChat).length);
   const cut = fitted.cut || page.more;
   return {
     changes: fitted.items,
     cycleChanges: cycles,
-    cursor: fitted.cut ? `${page.entries[fitted.items.length - 1].id}.${page.cursor.split('.')[1] ?? '0'}` : page.cursor,
+    ...(chats.length ? { chats } : {}),
+    ...(fromChat.length ? { fromChat } : {}),
+    cursor: fitted.cut ? `${page.entries[fitted.items.length - 1].id}.${page.cursor.split('.').slice(1).join('.') || '0'}` : page.cursor,
     ...(cut ? { more: 'More changes - call again with this cursor.' } : {}),
-    ...(entries.length === 0 && cycles.length === 0 ? { nothing: 'No changes after the cursor.' } : {}),
+    ...(entries.length === 0 && cycles.length === 0 && chats.length === 0 ? { nothing: 'No changes after the cursor.' } : {}),
     ...maskMeta(ctx),
   };
 }

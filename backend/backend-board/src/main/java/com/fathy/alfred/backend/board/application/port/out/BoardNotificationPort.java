@@ -27,6 +27,13 @@ public interface BoardNotificationPort {
     default void cycleChat(String project, String cycleId) {
     }
 
+    /**
+     * A board chat changed (specs/022): a message posted, edited, cancelled, taken, answered or compacted. {@code scope} is
+     * "project" or the cycle id, {@code id} the message (null when the change was not one message, e.g. settings).
+     */
+    default void chatChanged(String project, String scope, Long id) {
+    }
+
     /** A skill run started from the board was queued, taken, reported, stopped or ended. */
     default void skillRun(SkillRun run) {
     }

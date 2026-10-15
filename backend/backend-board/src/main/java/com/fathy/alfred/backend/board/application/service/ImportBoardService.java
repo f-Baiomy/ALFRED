@@ -15,6 +15,8 @@ import com.fathy.alfred.backend.board.domain.model.SnippetVersion;
 import com.fathy.alfred.backend.board.domain.model.Widget;
 import com.fathy.alfred.backend.board.application.port.out.BoardNotificationPort;
 import com.fathy.alfred.backend.board.application.port.out.BoardStorePort;
+import com.fathy.alfred.backend.board.application.port.out.ChatStorePort;
+import com.fathy.alfred.backend.board.application.port.out.CycleNamesPort;
 import com.fathy.alfred.backend.board.application.port.out.MentionedCallsChangedPort;
 import com.fathy.alfred.backend.board.domain.MentionParser;
 import com.fathy.alfred.backend.board.domain.RichText;
@@ -82,6 +84,21 @@ public class ImportBoardService implements ImportBoardUseCase {
         this.widgets = widgets;
     }
 
+    private ChatStorePort chats;
+    private CycleNamesPort cycleNames;
+
+    /** The board chats come back too (specs/022 T052) where the chat store is present. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setChats(ChatStorePort chats) {
+        this.chats = chats;
+    }
+
+    /** A cycle chat whose cycle is not here lands in the project chat; without this port every cycle counts as missing. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setCycleNames(CycleNamesPort cycleNames) {
+        this.cycleNames = cycleNames;
+    }
+
     public ImportBoardService(BoardStorePort store, BoardNotificationPort notifications, MentionedCallsChangedPort mentionedCalls,
                               BoardChangeFeed feed, BoardImageStorePort images) {
         this.store = store;
@@ -112,6 +129,7 @@ public class ImportBoardService implements ImportBoardUseCase {
         String sourceProject = null;
         boolean cardsWritten = false;
         Map<String, String> pageIds = new HashMap<>(); // an exported page id -> its id here
+        ChatTransfer.Importer chatImport = null;
         String line;
         while ((line = lines.readLine()) != null) {
             bytes += line.getBytes(StandardCharsets.UTF_8).length + 1L;
@@ -175,6 +193,15 @@ public class ImportBoardService implements ImportBoardUseCase {
                 case "shot" -> shot(r, idByOldNumber, newIds, pageIds);
                 case "file" -> file(r, target, idByOldNumber);
                 case "widget" -> widget(r, target);
+                case "chat", "chatRecord", "chatTerminal", "chatSettings" -> {
+                    if (chats != null) {
+                        if (chatImport == null) {
+                            String from = sourceProject;
+                            chatImport = new ChatTransfer(chats, cycleNames).new Importer(target, store, t -> rewrite(t, from, target, numbers));
+                        }
+                        chatImport.accept(r);
+                    }
+                }
                 default -> {
                     // A newer exporter's record this reader does not know: skipped, not fatal.
                 }
@@ -193,6 +220,9 @@ public class ImportBoardService implements ImportBoardUseCase {
         cycleImages.forEach((cycleId, ids) -> store.attachImages(ids, null, cycleId));
         mentionedCalls.mentionedCallsChanged();
         notifications.changed(target, null, null, "card");
+        if (chatImport != null && chatImport.count() > 0) {
+            notifications.chatChanged(target, null, null);
+        }
         return new ImportResult(pending.size(), renumbered);
     }
 
@@ -466,9 +496,22 @@ public class ImportBoardService implements ImportBoardUseCase {
 
     private static List<MentionRef> links(JsonNode links) {
         List<MentionRef> out = new ArrayList<>();
-        links.forEach(l -> out.add(new MentionRef(MentionType.valueOf(l.path("type").asText().toUpperCase(Locale.ROOT)),
-                l.path("ref").asText(), l.path("label").asText())));
+        links.forEach(l -> {
+            // A link type this Alfred does not know (a newer export, specs/022 R14) is skipped, never a failed import.
+            MentionType type = mentionType(l.path("type").asText());
+            if (type != null) {
+                out.add(new MentionRef(type, l.path("ref").asText(), l.path("label").asText()));
+            }
+        });
         return out;
+    }
+
+    private static MentionType mentionType(String name) {
+        try {
+            return MentionType.valueOf(name.strip().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
     }
 
     private static String text(JsonNode n, String field) {

@@ -790,6 +790,12 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort,
     }
 
     @Override
+    public long activityIdBefore(Instant at) {
+        Long n = jdbc.queryForObject("SELECT COALESCE(MAX(id), 0) FROM activity WHERE at < ?", Long.class, at.toEpochMilli());
+        return n == null ? 0 : n;
+    }
+
+    @Override
     public long lastActivityId() {
         Long n = jdbc.queryForObject("SELECT COALESCE(MAX(id), 0) FROM activity", Long.class);
         return n == null ? 0 : n;

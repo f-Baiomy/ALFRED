@@ -1,10 +1,15 @@
 package com.fathy.alfred.backend.board.application.service;
 
+import com.fathy.alfred.backend.board.application.port.in.ChatUseCase;
 import com.fathy.alfred.backend.board.application.port.in.ImportBoardUseCase;
 import com.fathy.alfred.backend.board.domain.model.ActivityEntry;
 import com.fathy.alfred.backend.board.domain.model.ActivityKind;
 import com.fathy.alfred.backend.board.domain.model.Actor;
 import com.fathy.alfred.backend.board.domain.model.CardDetail;
+import com.fathy.alfred.backend.board.domain.model.ChatKey;
+import com.fathy.alfred.backend.board.domain.model.ChatMessage;
+import com.fathy.alfred.backend.board.domain.model.ChatRecord;
+import com.fathy.alfred.backend.board.domain.model.TerminalItem;
 import com.fathy.alfred.backend.board.domain.model.CardKind;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -92,6 +97,18 @@ class ImportBoardServiceTest {
     }
 
     @Test
+    void aLinkTypeThisAlfredDoesNotKnowIsSkippedNotAFailedImport() throws Exception {
+        // specs/022 R14: a newer Alfred's export may carry link types (chat, or whatever comes next) this one never heard of.
+        String newer = card(1, "From a newer Alfred", "").replace("\"links\":[",
+                "\"links\":[{\"type\":\"hologram\",\"ref\":\"h-1\",\"label\":\"x\"},{\"type\":\"chat\",\"ref\":\"12\",\"label\":\"msg\"},");
+
+        ImportBoardUseCase.ImportResult result = run(newer);
+
+        assertThat(result.cards()).isEqualTo(1);
+        assertThat(f.board.getByNumber("dest", 1).orElseThrow().links()).extracting(l -> l.ref()).containsExactly("12", "c-1");
+    }
+
+    @Test
     void clashingNumbersAreRenumberedAndCardMentionsFollow() throws Exception {
         f.add(Actor.USER, "dest", CardKind.TASK, "already #1", "");
 
@@ -112,5 +129,86 @@ class ImportBoardServiceTest {
     void aFileThatIsNotABoardExportIsRefused() {
         assertThatThrownBy(() -> f.imports.importBoard("d", new BufferedReader(new StringReader("{\"format\":\"alfred-calls/3\"}\n"))))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    // ------------------------------------------------------------------------------------------- board chats (specs/022)
+
+    private List<String> exportChats(String project) {
+        List<String> lines = new java.util.ArrayList<>();
+        long after = 0;
+        while (true) {
+            ChatUseCase.ExportPage page = f.chat.exportChats(project, null, after, 2);
+            page.lines().forEach(l -> lines.add(l.toString()));
+            if (!page.more()) {
+                return lines;
+            }
+            after = page.next();
+        }
+    }
+
+    private ChatMessage post(ChatKey chat, String text, Long parentId) {
+        ChatUseCase.Result<ChatMessage> r = f.chat.post(Actor.USER, chat, new ChatUseCase.Post(text, parentId, List.of(), null, false, null, List.of()));
+        assertThat(r.isOk()).as(r.message()).isTrue();
+        return r.value();
+    }
+
+    @Test
+    void chatsComeBackWithThreadsAnswersRecordsAndItems() throws Exception {
+        f.cycleNames.put("c-1", "order-flow");
+        ChatKey cycle = new ChatKey("src", "c-1");
+        f.live.chatBeat("src", "c-1", "chat-a", "laptop", "C:/work", "live", true, false);
+        ChatMessage q = post(cycle, "why 500?", null);
+        post(cycle, "and the retry?", q.id());
+        assertThat(f.chat.take(Actor.CLAUDE, q.id(), "chat-a", "c-1").isOk()).isTrue();
+        var replied = f.chat.reply(Actor.CLAUDE, q.id(), new ChatUseCase.Reply("The null branch.",
+                List.of(new ChatUseCase.RecordRequest(ChatRecord.Kind.DECISION, "Keep the branch filter", null, null, null)),
+                List.of(new ChatUseCase.ToTerminal("contradicts your step", true, "contradicts", false)), null, null));
+        assertThat(replied.isOk()).as(replied.message()).isTrue();
+        post(new ChatKey("src", ""), "still waiting", null);
+
+        run(exportChats("src").toArray(String[]::new));
+
+        ChatUseCase.Page page = f.chat.page(new ChatKey("dest", "c-1"), null, 100);
+        List<ChatMessage> msgs = page.messages();
+        ChatMessage q2 = msgs.stream().filter(m -> m.text().equals("why 500?")).findFirst().orElseThrow();
+        ChatMessage child = msgs.stream().filter(m -> m.text().equals("and the retry?")).findFirst().orElseThrow();
+        ChatMessage answer = msgs.stream().filter(m -> m.text().equals("The null branch.")).findFirst().orElseThrow();
+        assertThat(q2.state()).isEqualTo(ChatMessage.State.ANSWERED);
+        assertThat(child.parentId()).isEqualTo(q2.id());
+        assertThat(child.state()).as("nobody here asked for it").isEqualTo(ChatMessage.State.STOPPED);
+        assertThat(answer.replyTo()).isEqualTo(q2.id());
+        assertThat(answer.author()).isEqualTo(ChatMessage.Author.CLAUDE);
+
+        List<ChatRecord> records = page.records().get(answer.id());
+        assertThat(records).extracting(ChatRecord::kind).containsExactly(ChatRecord.Kind.DECISION);
+        assertThat(f.chat.undoRecord(Actor.USER, records.get(0).id()).isOk()).as("its brief belongs to the other board").isFalse();
+        assertThat(f.chatStore.terminalItems(new ChatKey("dest", "c-1"), false, 10)).singleElement()
+                .satisfies(t -> assertThat(t.state()).isEqualTo(TerminalItem.State.READ));
+        assertThat(f.chatStore.terminalItems(new ChatKey("dest", "c-1"), true, 10)).as("never sent to this terminal").isEmpty();
+
+        assertThat(f.chat.page(new ChatKey("dest", ""), null, 100).messages()).extracting(ChatMessage::text, ChatMessage::state)
+                .containsExactly(org.assertj.core.groups.Tuple.tuple("still waiting", ChatMessage.State.STOPPED));
+        assertThat(f.chat.page(new ChatKey("src", "c-1"), null, 100).messages()).as("the source is untouched").hasSize(3);
+    }
+
+    @Test
+    void aCycleChatWhoseCycleIsNotHereLandsInTheProjectChatMarked() throws Exception {
+        f.cycleNames.put("c-9", "checkout");
+        post(new ChatKey("src", "c-9"), "is the total right?", null);
+        List<String> lines = exportChats("src");
+        f.cycleNames.clear();
+
+        run(lines.toArray(String[]::new));
+
+        assertThat(f.chat.page(new ChatKey("dest", "c-9"), null, 100).messages()).isEmpty();
+        assertThat(f.chat.page(new ChatKey("dest", ""), null, 100).messages()).extracting(ChatMessage::text)
+                .containsExactly("*[from cycle checkout]* is the total right?");
+    }
+
+    @Test
+    void anExportWithoutChatsLeavesTheChatsAlone() throws Exception {
+        post(new ChatKey("dest", ""), "mine", null);
+        run(card(1, "Q", ""));
+        assertThat(f.chat.page(new ChatKey("dest", ""), null, 100).messages()).extracting(ChatMessage::text).containsExactly("mine");
     }
 }

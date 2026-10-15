@@ -14,11 +14,13 @@ import { ScenarioToolbarComponent } from '../../components/scenario-toolbar/scen
 import { BoardNotifyService } from '../../core/services/board-notify.service';
 import { SpecViewerComponent } from '../../components/board/spec-viewer/spec-viewer.component';
 import { MentionCallPopupComponent } from '../../components/board/mention-call-popup/mention-call-popup.component';
+import { ChatDockComponent } from '../../components/chat/chat-dock/chat-dock.component';
+import { ChatStateService } from '../../core/state/chat-state.service';
 
 @Component({
   selector: 'app-main-layout',
   standalone: true,
-  imports: [RouterLink, RouterLinkActive, RouterOutlet, PickBarComponent, ResendDialogComponent, BulkResendDialogComponent, ScenarioToolbarComponent, RuleDialogComponent, GlobalVariablesComponent, CycleWidgetLaunchComponent, ReliveFingerprintScreenComponent, SpecViewerComponent, MentionCallPopupComponent],
+  imports: [RouterLink, RouterLinkActive, RouterOutlet, PickBarComponent, ResendDialogComponent, BulkResendDialogComponent, ScenarioToolbarComponent, RuleDialogComponent, GlobalVariablesComponent, CycleWidgetLaunchComponent, ReliveFingerprintScreenComponent, SpecViewerComponent, MentionCallPopupComponent, ChatDockComponent],
   templateUrl: './main-layout.component.html',
 })
 export class MainLayoutComponent {
@@ -31,4 +33,6 @@ export class MainLayoutComponent {
   readonly interception = inject(InterceptionStateService);
   /** Claude's questions and proposals as desktop notifications, once the user turned them on (specs/015). */
   private readonly boardNotify = inject(BoardNotifyService);
+  /** The board chats' unread count on the Board tab (specs/022). */
+  readonly chat = inject(ChatStateService);
 }

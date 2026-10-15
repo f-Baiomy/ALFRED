@@ -117,6 +117,8 @@ export class BoardMentionsService {
 
   /** Set when a card chip is clicked; the open board view picks it up. */
   readonly cardToOpen = signal<CardTarget | null>(null);
+  /** A chat mention clicked (specs/022): the chat panel opens that chat at the message. */
+  readonly chatToOpen = signal<{ project: string; scope: string; messageId: number } | null>(null);
   /** Set when a call (or statement, log line, Redis) chip is clicked; the call popup shows it. */
   readonly callToShow = signal<MentionCallTarget | null>(null);
   /** Set when a spec chip is clicked; the spec viewer shows it. */
@@ -452,6 +454,12 @@ export class BoardMentionsService {
     }
     if (type === 'rule') {
       void this.router.navigate(['/interception']);
+      return;
+    }
+    if (type === 'chat') {
+      // specs/022: `<project>/<scope>#<message id>` - the chat opens at that message, which flashes
+      const m = /^(.*)\/([^/#]+)#(\d+)$/.exec(ref.ref);
+      if (m) this.chatToOpen.set({ project: m[1], scope: m[2], messageId: Number(m[3]) });
       return;
     }
     void copyToClipboard(ref.ref);

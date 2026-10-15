@@ -486,6 +486,34 @@ one-line summary in text; a visual backs it up.
 - A question asked from a snippet or the editor's ✦ reaches you as `/alfred-ask <id>`: `board_ask_get`, then
   `board_ask_answer`.
 
+## Board chat - answer once, record what lasts
+
+The board has chats (specs/022): one per project, answered by the project's live runner, and one per session cycle,
+answered by the session that holds the cycle (a fork of the terminal session that worked on it). The runner hands you
+a message; you never poll for one.
+
+- `chat_take` first (the runner does it), then **one** `chat_reply` per message. Read the thread and the chat's latest
+  summary the take gave you; `chat_read` for an older message or an earlier answer, `chat_summary` when the runner asks
+  you to compact (cover only what came before the first message still waiting).
+- **Records** - a reply carries one only when the answer changes something another session needs:
+  - `DECISION` - the user decided something ("keep the old endpoint") - appended to the cycle brief, ★ in the chat.
+  - `NEXT` - the next step changed - appended to the brief's next step.
+  - `CARD` - a new problem worth tracking - an Inbox card as you, the same limits as `board_add`.
+  - `ITEM` - a new acceptance item - a proposal on the spec file, never written into it.
+  - `FIX` - you changed code for a card - a Did/Found/Next comment and the card moved to Fixed.
+  - None for plain questions and answers. Every record has Undo for the user; never repeat one they undid.
+- **To the terminal** (`toTerminal` on the reply): only what the terminal session must know before its next step. Mark
+  it urgent only for a decision that contradicts what the terminal is doing, files you changed, or the user writing
+  `@terminal`. Everything sent is masked like the export.
+- **Lines the terminal session sees** (written into the runner's chat log, read by the session that works in the
+  terminal):
+  - `⚡` - an urgent line from the board chat: act on it before the next step, or say why not.
+  - `💬` - context from the board chat: read it, do not stop for it.
+  - `↳` - a comment the chat already answered: do not answer it again.
+- Watches (`chat_watch`) wake the chat when an acceptance item passes, a card's status changes or an ERROR line is
+  caught - never a timer. `chat_mirror` copies a terminal exchange into the chat when the user asks for it.
+- A chat answer follows every other rule in this file: evidence by mentions, no invented numbers, Claude's board limits.
+
 ## 5. Every run
 
 - First call: `task_context` (rules §0). Last call: `board_session_log`.

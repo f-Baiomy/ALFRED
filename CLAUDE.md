@@ -108,6 +108,14 @@ After `docker compose up -d --build backend`, the gateway may keep the old conta
   `alfred_skill.py` (which also removes the retired `/alfred-qa`). A skill or the rules naming an MCP tool that does not
   exist fails `tests/python/test_alfred_skill.py` - rename a tool and the skills together.
 
+- **Board chats answer once and record what lasts** (specs/022, docs/board.md "Board chat"): one chat per project
+  (answered by the project's live runner) and per session cycle (answered by a fork of the terminal session that holds
+  it, made and continued by the runner on that machine - the terminal session is never written to; Alfred stores only
+  the text and the fork's ids, never a transcript). A message is WAITING -> TAKEN (compare-and-swap) -> ANSWERED; records
+  (DECISION/NEXT/CARD/ITEM/FIX) carry Undo; each exchange is mirrored to the terminal masked through the runner's chat
+  log (⚡ urgent, 💬 context) and the runner hears the terminal only through `fs.watch`. Compact never deletes. The
+  changes cursor has a third part (`chatSeq`); exports carry `chat*` records written and read by `ChatTransfer`.
+
 ## Detailed docs (read only when relevant)
 - docs/architecture.md — backend module/slice design, persistence/caching, pagination
 - docs/frontend-architecture.md — frontend state, WebSocket-driven fetch-on-demand, component-sharing patterns

@@ -1,0 +1,2188 @@
+<!doctype html>
+<html lang="en" data-theme="slate">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Board Chat Mock</title>
+<style>
+/* ===== Alfred's tokens: :root + the Slate block (frontend/src/styles.scss), copied as-is ===== */
+:root { color-scheme:dark; --card-blur:3px; }
+[data-theme='slate'] {
+  --bg:#141416; --nav-bg:#141416; --card:rgba(255,255,255,.035); --card-elevated:rgba(255,255,255,.05); --card-inner:rgba(0,0,0,.3);
+  --panel-bg:rgba(0,0,0,.2); --bg-2:rgba(255,255,255,.02); --border:rgba(255,255,255,.09); --border-strong:rgba(255,255,255,.18);
+  --purple:#5b8def; --purple-light:#8fb2f7; --cyan:#7ee3d8; --text:#f2f2f5; --text-dim:#8b8b93; --text-faint:#5b5b63;
+  --green:#7ee3a0; --amber:#e3a24a; --red:#e36a6a; --tok-key:#8fb2f7; --tok-string:#7ee3a0; --tok-number:#e3a24a; --tok-bool:#e37ec4; --tok-null:#6b6b73;
+  --popover-solid:#1e1e21;
+  --frost-tint:color-mix(in srgb,var(--popover-solid) 82%,transparent); --frost-tint-strong:color-mix(in srgb,var(--popover-solid) 92%,transparent);
+  --frost-filter:blur(26px) saturate(1.5);
+}
+* { box-sizing:border-box; }
+html,body { margin:0; height:100%; }
+body { font-family:'Segoe UI',system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--text); font-size:16px; overflow:hidden; }
+button { font:inherit; color:inherit; }
+code, .mono { font:0.75rem Consolas,"Cascadia Mono",monospace; }
+code { background:var(--card-inner); padding:0 0.3rem; border-radius:4px; }
+
+/* ===== tab nav (.tab-nav, .nav-brand, .tab-badge) ===== */
+.tab-nav { position:relative; z-index:11; display:flex; align-items:center; gap:.25rem; padding:0 1.25rem; background:var(--nav-bg); backdrop-filter:blur(var(--card-blur)); border-bottom:1px solid var(--border-strong); }
+.tab-nav a { padding:.75rem 1rem; color:var(--text-dim); text-decoration:none; font-size:.9rem; font-weight:600; border-bottom:2px solid transparent; cursor:pointer; white-space:nowrap; }
+.tab-nav a:hover { color:var(--text); } .tab-nav a.active { color:var(--purple-light); border-bottom-color:var(--purple); }
+.nav-brand { display:inline-flex; align-items:center; gap:.5rem; margin-right:.75rem; padding-right:1rem; border-right:1px solid var(--border); height:1.75rem; flex-shrink:0; font-weight:800; letter-spacing:.12em; font-size:.9rem; }
+.nav-brand i { width:7px; height:7px; border-radius:50%; background:var(--purple); display:inline-block; }
+.nav-logo { width:28px; height:28px; border-radius:7px; background:linear-gradient(135deg,#2a2a30,#3a3f55); display:grid; place-items:center; font-size:.9rem; }
+.tab-badge { font-size:.58rem; font-weight:700; letter-spacing:.04em; padding:.1rem .35rem; border-radius:6px; margin-left:.35rem; background:color-mix(in srgb,var(--purple) 25%,transparent); color:var(--purple-light); vertical-align:1px; }
+.tab-badge.urgent { background:var(--amber); color:#1a1247; }
+.nav-grow { flex:1; }
+.chat-toggle { display:inline-flex; align-items:center; gap:.4rem; background:color-mix(in srgb,var(--purple) 12%,transparent); border:1px solid var(--border); color:var(--purple-light); border-radius:8px; padding:.3rem .7rem; font-size:.78rem; font-weight:600; cursor:pointer; }
+.chat-toggle:hover { border-color:var(--border-strong); } .chat-toggle.on { background:var(--purple); color:#fff; border-color:var(--purple); }
+
+/* ===== layout: page + docked chat panel ===== */
+.shell { display:grid; grid-template-columns:minmax(0,1fr) auto; height:calc(100vh - 46px); }
+.page { overflow:auto; }
+.chat-dock { width:440px; border-left:1px solid var(--border-strong); background:var(--frost-tint-strong); backdrop-filter:var(--frost-filter); display:flex; flex-direction:column; min-height:0; position:relative; }
+.chat-dock.closed { display:none; }
+/* views: docked (left or right), expanded, full screen, separate window */
+.shell { grid-template-columns:auto auto minmax(0,1fr)!important; }
+.shell .chat-dock { border-left:0; border-right:1px solid var(--border-strong); }
+.shell .chat-resize { left:auto; right:-4px; }
+/* the chats bar - always docked on the left, like Messenger: every conversation, who is on, what is new */
+.chat-bar { grid-column:1; } .chat-dock { grid-column:2; } .page { grid-column:3; }
+.shell.full .chat-dock, body.popout .chat-dock { grid-column:2 / 4; }
+.chat-bar { width:268px; display:flex; flex-direction:column; min-height:0; background:var(--nav-bg); border-right:1px solid var(--border-strong); }
+.chat-bar.slim { width:64px; }
+.bar-head { display:flex; align-items:center; gap:.4rem; padding:.6rem .7rem .4rem; }
+.bar-head b { font-size:1rem; flex:1; }
+.chat-bar.slim .bar-head { flex-direction:column; padding:.55rem 0 .3rem; }
+.chat-bar.slim .bar-head b, .chat-bar.slim .bar-find, .chat-bar.slim .bar-txt, .chat-bar.slim .bar-sec, .chat-bar.slim .bar-wait { display:none; }
+.bar-find { margin:0 .7rem .4rem; }
+.bar-find input { width:100%; background:var(--card-inner); color:var(--text); border:1px solid var(--border); border-radius:99px; padding:.3rem .75rem; font-size:.78rem; }
+.bar-list { flex:1; overflow-y:auto; padding:0 .35rem .6rem; }
+.bar-sec { font-size:.6rem; text-transform:uppercase; letter-spacing:.07em; color:var(--text-faint); margin:.55rem .45rem .2rem; }
+.bar-item { position:relative; display:flex; align-items:center; gap:.6rem; width:100%; padding:.42rem .45rem; border:0; border-radius:10px; background:none; cursor:pointer; text-align:left; color:var(--text); }
+.bar-item:hover { background:var(--card-elevated); }
+.bar-item.on { background:color-mix(in srgb,var(--purple) 16%,transparent); }
+.chat-bar.slim .bar-item { justify-content:center; padding:.35rem 0; }
+.bar-av { position:relative; flex:none; width:40px; height:40px; border-radius:50%; display:grid; place-items:center; font-weight:700; font-size:.78rem; }
+.bar-av.project { background:color-mix(in srgb,var(--purple-light) 22%,transparent); color:var(--purple-light); }
+.bar-av.cycle { background:color-mix(in srgb,var(--cyan) 18%,transparent); color:var(--cyan); }
+.bar-st { position:absolute; right:-1px; bottom:-1px; width:12px; height:12px; border-radius:50%; border:2px solid #141416; background:var(--text-faint); }
+.bar-st.on { background:var(--green); }
+.bar-txt { flex:1; min-width:0; display:grid; grid-template-columns:minmax(0,1fr) auto; column-gap:.4rem; }
+.bar-name { font-size:.84rem; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.bar-time { font-size:.66rem; color:var(--text-faint); align-self:center; }
+.bar-prev { grid-column:1 / -1; font-size:.74rem; color:var(--text-dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.bar-item.unread .bar-name, .bar-item.unread .bar-prev { color:var(--text); font-weight:700; }
+.bar-item.unread .bar-time { color:var(--purple-light); font-weight:700; }
+.bar-prev.typing { color:var(--purple-light); font-style:italic; }
+.bar-typing { display:inline-flex; gap:2px; vertical-align:middle; margin-right:.2rem; }
+.bar-typing i { width:4px; height:4px; border-radius:50%; background:var(--purple-light); animation:live-blink 1s infinite; }
+.bar-typing i:nth-child(2) { animation-delay:.2s; } .bar-typing i:nth-child(3) { animation-delay:.4s; }
+.bar-ub { position:absolute; right:.45rem; bottom:.5rem; min-width:18px; height:18px; padding:0 5px; border-radius:99px; background:var(--purple); color:#fff; font-size:.62rem; font-weight:700; display:grid; place-items:center; }
+.chat-bar.slim .bar-ub { right:6px; top:2px; bottom:auto; }
+.bar-wait { font-size:.6rem; color:var(--amber); }
+.bar-foot { border-top:1px solid var(--border); padding:.4rem .7rem; font-size:.66rem; color:var(--text-faint); }
+.chat-bar.slim .bar-foot { display:none; }
+.chat-msg.me { margin-left:12%; }
+.chat-msg.me > .board-ev-who { text-align:right; }
+.chat-msg.claude, .chat-msg.alfred { margin-right:6%; }
+/* the fork model: what the chat recorded in Alfred, what it sent to the terminal session, its session line */
+.chat-auto { display:grid; grid-template-columns:1rem minmax(0,1fr) auto auto; align-items:baseline; gap:.4rem; font-size:.72rem; color:var(--text-dim); margin:.25rem 0 0 .2rem; }
+.chat-auto > span:nth-child(2) { min-width:0; overflow-wrap:anywhere; }
+.chat-auto .ic { width:1rem; text-align:center; flex:none; }
+.chat-auto.rec .ic { color:var(--green); } .chat-auto.term .ic { color:var(--amber); } .chat-auto.term.urgent .ic { color:var(--red); }
+.chat-auto.undone { text-decoration:line-through; opacity:.55; }
+.chat-auto .st { font-size:.64rem; border:1px solid var(--border-strong); border-radius:99px; padding:0 .4rem; color:var(--text-faint); }
+.chat-auto .st.read { color:var(--green); border-color:color-mix(in srgb,var(--green) 45%,transparent); }
+.chat-auto .st.urg { color:var(--red); border-color:color-mix(in srgb,var(--red) 45%,transparent); }
+.chat-session { display:flex; align-items:center; gap:.4rem; flex-wrap:wrap; font-size:.7rem; color:var(--text-faint); margin-top:.3rem; }
+.chat-session b { color:var(--text-dim); font-weight:600; }
+.chat-session .moved { color:var(--amber); }
+.chat-refresh { color:var(--cyan); }
+.term-preview { font:.74rem/1.55 Consolas,monospace; background:var(--card-inner); border:1px solid var(--border); border-radius:9px; padding:.55rem .7rem; white-space:pre-wrap; margin:.4rem 0; }
+.term-row { display:grid; grid-template-columns:auto minmax(0,1fr) auto auto; gap:.5rem; align-items:baseline; padding:.4rem 0; border-bottom:1px solid var(--border); font-size:.8rem; }
+/* the two memories (FR-059) */
+.mem-pill { display:inline-flex; align-items:center; gap:.3rem; border:1px solid var(--border-strong); border-radius:99px; padding:0 .5rem; font-size:.68rem; color:var(--text-dim); background:var(--card); cursor:pointer; }
+.mem-pill.claude { border-color:color-mix(in srgb,var(--purple) 45%,transparent); }
+.mem-pill.alfred { border-color:color-mix(in srgb,var(--amber) 45%,transparent); }
+.mem-pill b { color:var(--text); font-weight:600; }
+.mem-grid { display:grid; grid-template-columns:1fr 1fr; gap:.7rem; } @media (max-width:700px) { .mem-grid { grid-template-columns:1fr; } }
+.mem-col { border:1px solid var(--border); border-radius:10px; padding:.6rem .75rem; font-size:.8rem; }
+.mem-col.claude { border-color:color-mix(in srgb,var(--purple) 45%,transparent); }
+.mem-col.alfred { border-color:color-mix(in srgb,var(--amber) 45%,transparent); }
+.mem-col h4 { margin:0 0 .2rem; font-size:.82rem; } .mem-col ul { margin:.3rem 0 0; padding-left:1.1rem; } .mem-col li { margin:.15rem 0; }
+.mem-flow { margin-top:.7rem; font-size:.78rem; display:grid; grid-template-columns:auto 1fr; gap:.25rem .6rem; }
+.mem-flow b { color:var(--pl, var(--purple-light)); white-space:nowrap; }
+/* token meter (FR-056) */
+.chat-meter { display:flex; align-items:center; gap:.45rem; flex-wrap:wrap; font-size:.68rem; color:var(--text-faint); margin-top:.25rem; }
+.chat-meter b { color:var(--text-dim); font-weight:600; }
+.chat-meter .saved { color:var(--green); }
+/* delivery ticks, queue position, urgent */
+.chat-tick { font-size:.66rem; color:var(--text-faint); margin-left:.35rem; }
+.chat-tick.got { color:var(--purple-light); } .chat-tick.done { color:var(--green); }
+.chat-urgent { font-size:.62rem; font-weight:700; color:var(--red); border:1px solid color-mix(in srgb,var(--red) 50%,transparent); border-radius:99px; padding:0 .45rem; margin-left:.3rem; }
+/* unread line + jump to latest */
+.chat-newline { display:flex; align-items:center; gap:.5rem; font-size:.68rem; font-weight:700; color:var(--red); margin:.6rem 0; }
+.chat-newline::before, .chat-newline::after { content:""; flex:1; border-top:1px solid color-mix(in srgb,var(--red) 55%,transparent); }
+.chat-jump { position:absolute; right:1.2rem; bottom:9.5rem; z-index:6; border-radius:99px; box-shadow:0 6px 18px rgba(0,0,0,.45); }
+/* reactions (the board's .board-react) */
+.board-react { font-size:.74rem; background:var(--card-inner); border:1px solid var(--border); border-radius:999px; padding:0 .45rem; color:var(--text); cursor:pointer; line-height:1.5; }
+.board-react.mine { border-color:var(--purple); }
+.chat-reacts { display:flex; gap:.25rem; margin-top:.25rem; }
+.chat-msg.me .chat-reacts { justify-content:flex-end; }
+.chat-super { font-size:.62rem; color:var(--text-faint); border:1px dashed var(--border-strong); border-radius:99px; padding:0 .45rem; margin-left:.3rem; }
+/* Needs you, mute, drafts in the bar */
+.bar-sec.need { color:var(--amber); }
+.bar-need { grid-column:1 / -1; font-size:.72rem; color:var(--amber); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.bar-draft { color:var(--red); }
+.bar-mute { font-size:.7rem; margin-left:.25rem; opacity:.7; }
+.bar-av.need { box-shadow:0 0 0 2px var(--amber); }
+/* shared tab */
+.chat-tabs { display:flex; gap:.25rem; margin-top:.45rem; }
+.shared-group { margin-bottom:.8rem; }
+.shared-group h5 { margin:0 0 .3rem; font-size:.64rem; text-transform:uppercase; letter-spacing:.06em; color:var(--text-faint); display:flex; justify-content:space-between; }
+.shared-row { display:flex; gap:.5rem; align-items:center; padding:.2rem .3rem; border-radius:6px; font-size:.74rem; }
+.shared-row:hover { background:var(--card); }
+.shared-row .board-dim { margin-left:auto; white-space:nowrap; }
+/* two chats side by side */
+.chat-dock2 { grid-column:3; width:400px; border-right:1px solid var(--border-strong); background:var(--frost-tint-strong); display:flex; flex-direction:column; min-height:0; }
+.chat-dock2[hidden] { display:none; }
+.shell.split { grid-template-columns:auto auto auto minmax(0,1fr)!important; }
+.shell.split .page { grid-column:4; }
+.shell.full.split .chat-dock { grid-column:2; width:auto!important; } .shell.full.split { grid-template-columns:auto 1fr 1fr!important; }
+.shell.full.split .chat-dock2 { width:auto; }
+.chat-dock2 .chat-stream { flex:1; }
+.chat-dock2-foot { border-top:1px solid var(--border); padding:.5rem .8rem .7rem; display:flex; gap:.35rem; }
+.chat-dock2-foot input { flex:1; background:var(--card-inner); color:var(--text); border:1px solid var(--border-strong); border-radius:8px; padding:.35rem .55rem; font-size:.8rem; }
+/* quick switcher */
+.qs-input { width:100%; background:var(--card-inner); color:var(--text); border:1px solid var(--border-strong); border-radius:9px; padding:.5rem .7rem; font-size:.95rem; }
+.qs-list { margin-top:.5rem; }
+.chat-dock.wide { width:min(62vw,1000px)!important; }
+.chat-dock.wide .chat-resize { display:none; }
+.shell.full { grid-template-columns:minmax(0,1fr); } .shell.full .page { display:none; }
+.chat-dock.full { width:auto!important; border:0; background:var(--bg); }
+.chat-dock.full .chat-resize { display:none; }
+.chat-dock.full > .chat-head, .chat-dock.full > #chatBanners, .chat-dock.full > #chatSearch, .chat-dock.full > .chat-composer { width:min(980px,100%); margin-inline:auto; }
+.chat-dock.full > .chat-stream { padding-inline:max(.9rem,calc((100% - 980px) / 2 + .9rem)); }
+.chat-dock.away { width:250px!important; justify-content:center; align-items:center; text-align:center; padding:1rem; gap:.5rem; color:var(--text-dim); font-size:.8rem; }
+.chat-views { display:inline-flex; border:1px solid var(--border-strong); border-radius:7px; overflow:hidden; margin-right:.25rem; }
+.chat-views button { background:none; border:0; color:var(--text-dim); padding:.12rem .42rem; cursor:pointer; font-size:.8rem; line-height:1.2; }
+.chat-views button:hover { color:var(--text); background:var(--card-elevated); }
+.chat-views button.on { background:var(--purple); color:#fff; }
+.chat-scopeseg { display:inline-flex; border:1px solid var(--border-strong); border-radius:7px; overflow:hidden; margin-left:.4rem; }
+.chat-scopeseg button { background:none; border:0; color:var(--text-dim); padding:.08rem .55rem; cursor:pointer; font-size:.72rem; }
+.chat-scopeseg button.on { background:var(--purple); color:#fff; }
+body.popout .tab-nav, body.popout .page, body.popout .mockbar { display:none; }
+body.popout .shell { height:100vh; grid-template-columns:minmax(0,1fr); }
+body.popout .chat-dock { width:auto!important; border:0; }
+body.popout .chat-resize { display:none; }
+.chat-resize { position:absolute; left:-4px; top:0; bottom:0; width:8px; cursor:ew-resize; z-index:5; }
+.chat-resize:hover { background:color-mix(in srgb,var(--purple) 25%,transparent); }
+
+/* ===== board page (copied rules) ===== */
+.board-page { padding:.75rem 1.25rem 6rem; }
+.board-head { display:flex; align-items:center; gap:.75rem; flex-wrap:wrap; margin-bottom:.6rem; }
+.board-head h1 { margin:0; font-size:1.15rem; }
+.board-head select, select.board-select { background:var(--card-inner); color:var(--text); border:1px solid var(--border-strong); border-radius:8px; padding:.3rem .6rem; font:inherit; font-size:.82rem; }
+.board-seg { display:inline-flex; border:1px solid var(--border-strong); border-radius:9px; overflow:hidden; }
+.board-seg button { background:none; border:0; padding:.3rem .8rem; color:var(--text-dim); cursor:pointer; font-size:.8rem; }
+.board-seg button.on { background:var(--purple); color:#fff; }
+.board-viewonly { font-size:.78rem; color:var(--amber); border:1px dashed var(--amber); border-radius:99px; padding:.15rem .6rem; }
+.board-progress { display:flex; align-items:center; gap:.6rem; font-size:.75rem; color:var(--text-dim); margin-bottom:.6rem; flex-wrap:wrap; }
+.board-pbar { flex:1; max-width:420px; min-width:120px; height:7px; border-radius:99px; background:var(--card-inner); overflow:hidden; display:flex; }
+.board-pbar i { display:block; height:100%; }
+.board-columns { display:grid; grid-template-columns:repeat(7,minmax(180px,1fr)); gap:.6rem; overflow-x:auto; padding-bottom:1rem; }
+.board-col { background:var(--panel-bg); border:1px solid var(--border); border-radius:12px; padding:.45rem; min-height:320px; }
+.board-col-head { display:flex; justify-content:space-between; align-items:center; font-size:.68rem; text-transform:uppercase; letter-spacing:.06em; color:var(--text-dim); margin:.1rem .25rem .5rem; }
+.board-col-count { color:var(--text-faint); }
+.board-card { position:relative; background:var(--card-elevated); border:1px solid var(--border); border-radius:10px; padding:.5rem .6rem; margin-bottom:.45rem; cursor:pointer; overflow:hidden; }
+.board-card:hover { border-color:var(--border-strong); }
+.board-card.flash { animation:call-flash 2.4s ease-out; }
+.board-card-row { display:flex; gap:.25rem; flex-wrap:wrap; align-items:center; margin-bottom:.25rem; }
+.board-card-title { font-weight:600; font-size:.85rem; margin:.1rem 0 .25rem; color:var(--text); }
+.board-card-foot { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; color:var(--text-faint); font-size:.68rem; }
+.board-card-reason { color:var(--text-faint); font-size:.7rem; font-style:italic; }
+.board-kind { font-size:.6rem; font-weight:700; padding:.05rem .35rem; border-radius:4px; letter-spacing:.04em; }
+.board-kind-BUG { background:color-mix(in srgb,var(--red) 18%,transparent); color:var(--red); }
+.board-kind-TASK { background:color-mix(in srgb,var(--cyan) 15%,transparent); color:var(--cyan); }
+.board-kind-NOTE { background:color-mix(in srgb,var(--purple-light) 15%,transparent); color:var(--purple-light); }
+.board-kind-QUESTION { background:color-mix(in srgb,var(--amber) 15%,transparent); color:var(--amber); }
+.board-ai { color:var(--purple-light); } .board-cyc { color:var(--cyan); }
+.board-res { font-size:.65rem; padding:.02rem .45rem; border-radius:99px; background:var(--card-inner); border:1px solid var(--border); }
+.board-empty { color:var(--text-faint); font-size:.75rem; text-align:center; padding:1rem .4rem; border:1px dashed var(--border); border-radius:10px; }
+.board-dim { color:var(--text-faint); font-size:.75rem; }
+.board-link { background:none; border:0; color:var(--purple-light); cursor:pointer; font-size:.75rem; padding:0 .2rem; text-decoration:underline; }
+.board-widgets { display:flex; gap:.6rem; flex-wrap:wrap; margin:0 0 .7rem; }
+.board-widget { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:.5rem .7rem; width:340px; }
+.board-widget h5 { margin:0 0 .3rem; font-size:.7rem; text-transform:uppercase; letter-spacing:.05em; color:var(--text-dim); display:flex; justify-content:space-between; }
+
+/* ===== mention chips (.board-mention*) ===== */
+.board-mention { position:relative; display:inline-flex; align-items:center; gap:.2rem; padding:0 .4rem; border-radius:5px; font-size:.72rem; font-family:Consolas,"Cascadia Mono",monospace; background:color-mix(in srgb,var(--purple) 16%,transparent); color:var(--purple-light); border:1px solid var(--border); cursor:pointer; white-space:nowrap; max-width:100%; vertical-align:baseline; line-height:1.55; }
+.board-mention:hover { border-color:var(--border-strong); }
+.board-mention.removed { opacity:.55; text-decoration:line-through; }
+.board-mention-call { background:color-mix(in srgb,var(--cyan) 12%,transparent); color:var(--cyan); }
+.board-mention-log { background:color-mix(in srgb,var(--amber) 12%,transparent); color:var(--amber); }
+.board-mention-stmt { background:color-mix(in srgb,var(--green) 12%,transparent); color:var(--green); }
+.board-mention-code { background:color-mix(in srgb,var(--tok-bool) 12%,transparent); color:var(--tok-bool); }
+.board-mention-redis { background:color-mix(in srgb,var(--red) 10%,transparent); color:var(--red); }
+.board-mention-chat { background:color-mix(in srgb,var(--purple-light) 10%,transparent); color:var(--purple-light); border-style:dashed; }
+.board-mention-dot { display:inline-block; width:.45rem; height:.45rem; border-radius:50%; margin-left:.25rem; flex:none; background:var(--text-faint); }
+.dot-ok { background:var(--green)!important; } .dot-warn { background:var(--amber)!important; } .dot-bad { background:var(--red)!important; } .dot-info { background:var(--cyan)!important; }
+#tip { display:none; position:fixed; z-index:400; width:340px; background:var(--popover-solid); border:1px solid var(--border-strong); border-radius:9px; padding:.5rem .6rem; color:var(--text); font:.75rem/1.45 system-ui,sans-serif; box-shadow:0 10px 30px rgba(0,0,0,.5); pointer-events:none; }
+#tip .l { display:block; overflow-wrap:anywhere; } #tip .l:first-child { font-weight:600; } #tip .dim { color:var(--text-faint); }
+
+/* ===== buttons (.action-btn) ===== */
+.action-btn { background:color-mix(in srgb,var(--purple) 12%,transparent); border:1px solid var(--border); color:var(--purple-light); font-size:.68rem; font-weight:600; padding:.22rem .55rem; border-radius:6px; cursor:pointer; white-space:nowrap; }
+.action-btn:hover { border-color:var(--border-strong); background:color-mix(in srgb,var(--purple) 22%,transparent); }
+.action-btn.primary { background:var(--purple); border-color:var(--purple); color:#fff; }
+.action-btn.danger { background:color-mix(in srgb,var(--red) 18%,transparent); border-color:color-mix(in srgb,var(--red) 45%,transparent); color:var(--red); }
+.action-btn.ok { background:color-mix(in srgb,var(--green) 14%,transparent); border-color:color-mix(in srgb,var(--green) 45%,transparent); color:var(--green); }
+.action-btn:disabled { opacity:.45; cursor:default; }
+.board-tog { border:1px solid var(--border); background:none; border-radius:99px; padding:.05rem .55rem; font-size:.68rem; color:var(--text-faint); cursor:pointer; }
+.board-tog.on { color:var(--text); border-color:var(--purple); background:color-mix(in srgb,var(--purple) 15%,transparent); }
+.board-action-chip { font:.74rem system-ui,sans-serif; border:1px dashed var(--border-strong); border-radius:7px; padding:.15rem .6rem; color:var(--purple-light); background:color-mix(in srgb,var(--purple) 6%,transparent); cursor:pointer; }
+
+/* ===== live work (.live-box, .live-step ...) and the strip (.board-live) ===== */
+.live-spinner { display:inline-block; width:10px; height:10px; flex:none; border-radius:50%; border:2px solid color-mix(in srgb,var(--purple) 35%,transparent); border-top-color:var(--purple); animation:live-spin .8s linear infinite; }
+@keyframes live-spin { to { transform:rotate(360deg); } } @keyframes live-blink { 0%,100%{opacity:1} 50%{opacity:.2} }
+.live-box { margin:.4rem 0 .2rem 0; border-left:2px solid var(--purple); padding:.4rem .6rem; border-radius:0 8px 8px 0; background:color-mix(in srgb,var(--purple) 7%,transparent); font-size:.78rem; }
+.live-box.stopped { border-left-color:var(--text-faint); opacity:.8; }
+.live-head { display:flex; gap:.4rem; align-items:center; color:var(--purple-light); font-weight:600; margin-bottom:.25rem; }
+.live-head .live-time { margin-left:auto; font-weight:400; color:var(--text-faint); font-size:.7rem; }
+.live-step { display:flex; gap:.45rem; align-items:baseline; padding:.06rem 0; color:var(--text-dim); }
+.live-step.now { color:var(--text); } .live-step.now .live-mk { color:var(--purple-light); }
+.live-mk { width:.9rem; flex:none; text-align:center; color:var(--green); }
+.live-draft { margin-top:.3rem; color:var(--text); white-space:pre-wrap; }
+.live-caret { display:inline-block; width:7px; height:.95em; margin-left:1px; background:var(--purple-light); vertical-align:text-bottom; animation:live-blink .8s infinite; }
+.board-pulse { width:9px; height:9px; border-radius:50%; background:var(--green); animation:board-pulse 1.6s infinite; flex:none; display:inline-block; }
+.board-pulse.off { background:var(--text-faint); animation:none; } .board-pulse.amber { background:var(--amber); animation:none; }
+@keyframes board-pulse { 0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--green) 70%,transparent)} 70%{box-shadow:0 0 0 8px transparent} 100%{box-shadow:0 0 0 0 transparent} }
+@keyframes call-flash { 0%{background:color-mix(in srgb,var(--purple) 35%,transparent)} 100%{background:transparent} }
+
+/* ===== timeline entries (.board-ev*) reused for chat messages ===== */
+.board-ev-who { font-size:.72rem; color:var(--text-dim); }
+.board-ev-body { background:var(--panel-bg); border:1px solid var(--border); border-radius:9px; padding:.4rem .6rem; margin-top:.15rem; }
+.board-ev-acts { display:flex; gap:.7rem; align-items:center; margin-top:.2rem; font-size:.72rem; }
+.board-ev-badge { font-size:.62rem; padding:0 .45rem; border-radius:999px; border:1px solid var(--amber); color:var(--amber); margin-left:.3rem; }
+.board-ev-badge.answered { border-color:var(--green); color:var(--green); } .board-ev-badge.dim { border-color:var(--border-strong); color:var(--text-faint); } .board-ev-badge.info { border-color:var(--cyan); color:var(--cyan); }
+.board-ev-reply { margin:.35rem 0 0 1rem; padding-left:.6rem; border-left:2px solid var(--border-strong); }
+.board-ev-reply.claude { border-left-color:var(--purple); }
+.board-ev-replybox { margin:.4rem 0 0 1rem; padding:.45rem .55rem; border:1px solid var(--purple); border-radius:9px; background:var(--card-inner); }
+.board-ev-replyto { display:flex; justify-content:space-between; gap:.5rem; font-size:.72rem; color:var(--text-dim); margin-bottom:.3rem; }
+.board-md { line-height:1.65; font-size:.82rem; color:var(--text); }
+.board-md p { margin:0 0 .35rem; } .board-md p:last-child { margin:0; }
+.board-md-pre { background:var(--card-inner); border:1px solid var(--border); border-radius:8px; padding:.5rem .7rem; white-space:pre-wrap; word-break:break-word; font:.72rem/1.5 Consolas,monospace; margin:.3rem 0; }
+.board-md blockquote { margin:.2rem 0 .4rem; padding:.15rem .6rem; border-left:3px solid var(--border-strong); color:var(--text-dim); }
+.board-md-table { border-collapse:collapse; margin:.3rem 0; font-size:.72rem; width:100%; }
+.board-md-table th, .board-md-table td { border:1px solid var(--border); padding:.2rem .4rem; text-align:left; vertical-align:top; }
+.board-md-table th { color:var(--text-dim); font-weight:600; background:var(--card-inner); }
+.board-editor textarea { width:100%; box-sizing:border-box; resize:vertical; background:var(--card-inner); color:var(--text); border:1px solid var(--border-strong); border-radius:8px; padding:.45rem .6rem; font:inherit; font-size:.82rem; min-height:3.4rem; outline:none; }
+.board-editor textarea:focus { border-color:var(--purple); }
+.board-editor textarea:disabled { opacity:.5; }
+
+/* ===== the chat panel (new) - built from the pieces above ===== */
+.chat-head { padding:.7rem .9rem .5rem; border-bottom:1px solid var(--border); }
+.chat-title { display:flex; align-items:center; gap:.45rem; }
+.chat-title b { font-size:.95rem; }
+.chat-scope { font-size:.6rem; font-weight:700; letter-spacing:.05em; text-transform:uppercase; padding:.05rem .4rem; border-radius:4px; }
+.chat-scope.cycle { background:color-mix(in srgb,var(--cyan) 15%,transparent); color:var(--cyan); }
+.chat-scope.project { background:color-mix(in srgb,var(--purple-light) 15%,transparent); color:var(--purple-light); }
+.chat-x { margin-left:auto; display:flex; gap:.25rem; }
+.chat-icon { background:none; border:1px solid transparent; color:var(--text-dim); border-radius:6px; padding:.1rem .35rem; cursor:pointer; font-size:.82rem; }
+.chat-icon:hover { border-color:var(--border-strong); color:var(--text); } .chat-icon.on { color:var(--purple-light); border-color:var(--purple); }
+.chat-icon:disabled { opacity:.4; cursor:default; }
+.chat-runner { display:flex; align-items:center; gap:.45rem; font-size:.72rem; color:var(--text-dim); margin-top:.35rem; flex-wrap:wrap; }
+.chat-runner .host { color:var(--text-faint); }
+.chat-watch { display:flex; flex-wrap:wrap; gap:.3rem; margin-top:.4rem; }
+.chat-wchip { display:inline-flex; align-items:center; gap:.3rem; font-size:.68rem; border:1px solid var(--border-strong); border-radius:99px; padding:.05rem .5rem; color:var(--text-dim); background:var(--card); }
+.chat-wchip.live { border-color:color-mix(in srgb,var(--green) 50%,transparent); color:var(--green); }
+.chat-wchip.tell { border-color:color-mix(in srgb,var(--cyan) 50%,transparent); color:var(--cyan); }
+.chat-wchip.listen { border-color:color-mix(in srgb,var(--amber) 50%,transparent); color:var(--amber); }
+.chat-wchip button { background:none; border:0; color:inherit; cursor:pointer; padding:0; font-size:.68rem; opacity:.7; } .chat-wchip button:hover { opacity:1; }
+.chat-banner { margin:.5rem .9rem 0; font-size:.74rem; border-radius:9px; padding:.45rem .6rem; }
+.chat-banner.view { color:var(--amber); border:1px dashed var(--amber); }
+.chat-banner.start { border:1px solid color-mix(in srgb,var(--amber) 45%,transparent); background:color-mix(in srgb,var(--amber) 7%,transparent); color:var(--text); }
+.chat-banner.start h6 { margin:0 0 .25rem; font-size:.74rem; color:var(--amber); }
+.chat-cmd { display:flex; align-items:center; gap:.4rem; margin:.2rem 0; }
+.chat-cmd code { flex:1; padding:.15rem .4rem; }
+.chat-search { margin:.5rem .9rem 0; display:flex; gap:.35rem; align-items:center; }
+.chat-search input { flex:1; background:var(--card-inner); color:var(--text); border:1px solid var(--border-strong); border-radius:8px; padding:.25rem .55rem; font-size:.78rem; }
+.chat-search-sum { font-size:.68rem; color:var(--text-dim); margin:.2rem .9rem 0; }
+.chat-filters { display:flex; gap:.25rem; flex-wrap:wrap; margin:.3rem .9rem 0; }
+.chat-stream { flex:1; overflow-y:auto; padding:.6rem .9rem 1rem; overscroll-behavior:contain; }
+.chat-day { text-align:center; font-size:.65rem; color:var(--text-faint); margin:.4rem 0 .6rem; letter-spacing:.05em; text-transform:uppercase; }
+.chat-msg { position:relative; margin-bottom:.75rem; }
+.chat-msg.me .board-ev-body { background:color-mix(in srgb,var(--cyan) 6%,var(--panel-bg)); border-color:color-mix(in srgb,var(--cyan) 22%,var(--border)); }
+.chat-msg.flash > .board-ev-body { animation:call-flash 2.4s ease-out; }
+.chat-msg.hit > .board-ev-body { outline:1px solid var(--amber); }
+.chat-msg.dimmed { opacity:.35; }
+.chat-msg .who-dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:.3rem; vertical-align:0; background:var(--text-faint); }
+.chat-msg.me .who-dot { background:var(--cyan); } .chat-msg.claude .who-dot { background:var(--purple); } .chat-msg.alfred .who-dot { background:var(--amber); }
+.chat-hover { position:absolute; right:.3rem; top:-.55rem; display:none; flex-wrap:wrap; justify-content:flex-end; max-width:calc(100% - .6rem); gap:.15rem; background:var(--popover-solid); border:1px solid var(--border-strong); border-radius:7px; padding:.1rem .2rem; z-index:3; box-shadow:0 6px 18px rgba(0,0,0,.4); }
+.chat-msg:hover > .chat-hover { display:flex; }
+.chat-hover button { background:none; border:0; color:var(--text-dim); font-size:.68rem; padding:.1rem .3rem; border-radius:5px; cursor:pointer; white-space:nowrap; }
+.chat-hover button:hover { background:var(--card-elevated); color:var(--text); } .chat-hover button:disabled { opacity:.35; cursor:default; }
+.chat-ctx { display:flex; flex-wrap:wrap; gap:.25rem; align-items:center; margin-bottom:.25rem; font-size:.66rem; color:var(--text-faint); }
+.chat-decision { font-size:.62rem; font-weight:700; color:var(--amber); border:1px solid color-mix(in srgb,var(--amber) 50%,transparent); border-radius:99px; padding:0 .45rem; margin-left:.3rem; }
+.chat-origin { font-size:.62rem; color:var(--text-faint); border:1px solid var(--border); border-radius:99px; padding:0 .45rem; margin-left:.3rem; }
+.chat-thread-toggle { background:none; border:0; color:var(--purple-light); cursor:pointer; padding:0; font-size:.72rem; }
+.chat-sys { display:flex; align-items:center; gap:.5rem; font-size:.7rem; color:var(--text-faint); margin:.7rem 0; }
+.chat-sys::before, .chat-sys::after { content:""; flex:1; border-top:1px dashed var(--border-strong); }
+.chat-fold { border:1px solid var(--border); border-radius:10px; background:var(--card); margin-bottom:.75rem; }
+.chat-fold-head { display:flex; align-items:center; gap:.45rem; padding:.4rem .6rem; cursor:pointer; font-size:.74rem; color:var(--text-dim); }
+.chat-fold-head b { color:var(--text); font-weight:600; }
+.chat-fold-body { border-top:1px dashed var(--border); padding:.5rem .6rem; }
+.chat-fold.summary { border-color:color-mix(in srgb,var(--purple) 40%,var(--border)); }
+.chat-fold.digest { border-color:color-mix(in srgb,var(--amber) 45%,var(--border)); }
+.chat-fold.digest .chat-fold-head b { color:var(--amber); }
+.chat-old { opacity:.82; border-left:2px solid var(--border-strong); padding-left:.55rem; margin-top:.5rem; }
+.chat-proposals { display:flex; flex-direction:column; gap:.3rem; margin-top:.4rem; }
+.chat-prop { display:flex; gap:.45rem; align-items:center; flex-wrap:wrap; padding:.3rem .45rem; border:1px dashed var(--border-strong); border-radius:8px; background:color-mix(in srgb,var(--purple) 5%,transparent); font-size:.76rem; }
+.chat-prop { display:grid!important; grid-template-columns:auto minmax(0,1fr) auto auto; }
+.chat-prop:not(:has(input)) { grid-template-columns:minmax(0,1fr) auto auto; }
+.chat-prop .what { min-width:0; overflow-wrap:anywhere; }
+.chat-prop .what .board-mention, .board-md .board-mention, .chat-ctx .board-mention { white-space:normal; overflow-wrap:anywhere; word-break:break-word; max-width:100%; }
+.chat-prop .state { grid-column:1 / -1; }
+.chat-prop .action-btn { align-self:start; }
+.chat-prop.accepted { border-style:solid; border-color:color-mix(in srgb,var(--green) 50%,transparent); }
+.chat-prop.declined { opacity:.55; }
+.chat-prop.stale { border-color:color-mix(in srgb,var(--amber) 45%,transparent); }
+.chat-prop .state { font-size:.68rem; } .chat-prop .state.ok { color:var(--green); } .chat-prop .state.warn { color:var(--amber); } .chat-prop .state.dim { color:var(--text-faint); }
+.chat-prop input[type=checkbox] { accent-color:var(--purple); }
+.chat-bulk-foot { display:flex; gap:.35rem; justify-content:flex-end; margin-top:.3rem; }
+.chat-consent { margin-top:.4rem; border:1px solid color-mix(in srgb,var(--amber) 45%,transparent); border-radius:9px; padding:.4rem .55rem; font-size:.76rem; background:color-mix(in srgb,var(--amber) 6%,transparent); }
+.chat-consent h6 { margin:0 0 .2rem; font-size:.7rem; color:var(--amber); text-transform:uppercase; letter-spacing:.05em; }
+.chat-fix { margin-top:.4rem; border:1px solid color-mix(in srgb,var(--green) 40%,transparent); border-radius:9px; padding:.4rem .55rem; font-size:.76rem; }
+.chat-fix h6 { margin:0 0 .25rem; font-size:.7rem; color:var(--green); text-transform:uppercase; letter-spacing:.05em; }
+.diff { font:.7rem/1.5 Consolas,monospace; background:var(--card-inner); border:1px solid var(--border); border-radius:8px; padding:.35rem .5rem; margin:.3rem 0; white-space:pre; overflow-x:auto; }
+.diff .add { color:var(--green); } .diff .del { color:var(--red); }
+.calldiff { display:grid; grid-template-columns:1fr 1fr; gap:.35rem; margin-top:.35rem; }
+.calldiff > div { background:var(--card-inner); border:1px solid var(--border); border-radius:8px; padding:.35rem .45rem; font:.68rem/1.55 Consolas,monospace; min-width:0; overflow-wrap:anywhere; }
+.calldiff h6 { margin:0 0 .2rem; font:600 .66rem system-ui; color:var(--text-dim); }
+.calldiff .chg { background:color-mix(in srgb,var(--amber) 18%,transparent); border-radius:3px; }
+.calldiff .sec { color:var(--text-faint); margin-top:.25rem; display:block; }
+.visual { background:var(--card-inner); border:1px solid var(--border); border-radius:8px; padding:.4rem; margin-top:.35rem; }
+.visual-acts { display:flex; justify-content:space-between; align-items:center; font-size:.66rem; color:var(--text-faint); margin-top:.25rem; }
+.qblock { margin-top:.4rem; border:1px solid color-mix(in srgb,var(--amber) 40%,var(--border)); border-radius:10px; padding:.45rem .55rem; background:var(--card); }
+.qblock-tabs { display:flex; gap:.3rem; flex-wrap:wrap; margin-bottom:.4rem; }
+.qblock-tab { padding:.1rem .6rem; border-radius:99px; font-size:.72rem; border:1px solid var(--border); color:var(--text-dim); background:none; cursor:pointer; }
+.qblock-tab.on { border-color:var(--purple); color:var(--text); background:color-mix(in srgb,var(--purple) 25%,transparent); }
+.qblock-tab.ans { color:var(--green); border-color:color-mix(in srgb,var(--green) 50%,var(--border)); } .qblock-tab.ans::before { content:'✓ '; }
+.qblock-q { font-weight:650; font-size:.82rem; margin-bottom:.3rem; }
+.qblock-opt { display:grid; grid-template-columns:22px 1fr auto; gap:.45rem; align-items:start; padding:.35rem .5rem; border:1px solid var(--border); border-radius:8px; margin-bottom:.3rem; cursor:pointer; font-size:.76rem; background:var(--card-elevated); }
+.qblock-opt:hover { border-color:var(--border-strong); } .qblock-opt.sel { border-color:var(--purple); background:color-mix(in srgb,var(--purple) 14%,transparent); }
+.qblock-key { width:20px; height:20px; border-radius:5px; display:grid; place-items:center; font-size:.66rem; font-weight:700; background:var(--card-inner); border:1px solid var(--border); color:var(--text-dim); }
+.qblock-opt.sel .qblock-key { background:var(--purple); color:#fff; }
+.qblock-rec { font-size:.6rem; font-weight:700; color:var(--green); border:1px solid color-mix(in srgb,var(--green) 45%,transparent); border-radius:99px; padding:0 .4rem; }
+.qblock-od { color:var(--text-dim); font-size:.7rem; }
+.qblock-foot { display:flex; justify-content:space-between; align-items:center; margin-top:.3rem; font-size:.7rem; color:var(--text-dim); }
+
+.chat-composer { border-top:1px solid var(--border); padding:.55rem .9rem .7rem; position:relative; }
+.chat-cbar { display:flex; flex-wrap:wrap; gap:.3rem; align-items:center; margin-bottom:.35rem; font-size:.68rem; color:var(--text-faint); }
+.chat-cchip { display:inline-flex; align-items:center; gap:.2rem; }
+.chat-cchip > button { background:none; border:0; color:var(--text-faint); cursor:pointer; padding:0 .1rem; font-size:.7rem; } .chat-cchip > button:hover { color:var(--red); }
+.chat-quote { font-size:.72rem; color:var(--text-dim); border-left:3px solid var(--purple); padding:.15rem .5rem; margin-bottom:.35rem; display:flex; gap:.4rem; background:var(--card-inner); border-radius:0 6px 6px 0; }
+.chat-quote span { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.chat-quote button { background:none; border:0; color:var(--text-faint); cursor:pointer; }
+.chat-crow { display:flex; align-items:center; gap:.35rem; margin-top:.35rem; }
+.chat-crow .grow { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:.66rem; color:var(--text-faint); }
+.chat-crow .action-btn { flex:none; }
+.chat-img { display:inline-flex; align-items:center; gap:.3rem; border:1px solid var(--border); border-radius:6px; padding:.1rem .35rem; font-size:.66rem; color:var(--text-dim); background:var(--card); }
+.chat-thumb { display:inline-block; width:120px; height:66px; border-radius:6px; border:1px solid var(--border); background:linear-gradient(135deg,#25262c,#1a2a3a); margin:.25rem 0; position:relative; }
+.chat-thumb::after { content:"screenshot.png"; position:absolute; bottom:3px; left:5px; font:.58rem Consolas,monospace; color:var(--text-dim); }
+.picker { position:absolute; left:.9rem; right:.9rem; bottom:calc(100% - .3rem); max-height:300px; overflow:auto; background:var(--popover-solid); border:1px solid var(--border-strong); border-radius:10px; box-shadow:0 -10px 30px rgba(0,0,0,.5); z-index:20; padding:.3rem; display:none; }
+.picker.open { display:block; }
+.picker h6 { margin:.3rem .4rem .15rem; font-size:.62rem; text-transform:uppercase; letter-spacing:.06em; color:var(--text-faint); }
+.picker-row { display:flex; gap:.5rem; align-items:baseline; padding:.25rem .45rem; border-radius:6px; cursor:pointer; font-size:.76rem; }
+.picker-row:hover, .picker-row.sel { background:color-mix(in srgb,var(--purple) 18%,transparent); }
+.picker-row .k { font:.72rem Consolas,monospace; color:var(--purple-light); min-width:8.5rem; }
+.picker-row .d { color:var(--text-dim); font-size:.7rem; }
+.picker-hint { font-size:.64rem; color:var(--text-faint); padding:.2rem .45rem; border-top:1px solid var(--border); margin-top:.2rem; }
+
+/* settings popover, dialogs, toasts, menus */
+.pop { position:absolute; right:.6rem; top:3.2rem; width:300px; background:var(--popover-solid); border:1px solid var(--border-strong); border-radius:10px; padding:.7rem .8rem; box-shadow:0 20px 60px rgba(0,0,0,.5); z-index:30; font-size:.78rem; display:none; }
+.pop.open { display:block; }
+.pop h6 { margin:0 0 .5rem; font-size:.7rem; color:var(--text-dim); text-transform:uppercase; letter-spacing:.04em; }
+.pop label { display:flex; align-items:center; gap:.45rem; margin:.4rem 0; }
+.pop input[type=number] { width:4.5rem; background:var(--card-inner); color:var(--text); border:1px solid var(--border-strong); border-radius:6px; padding:.15rem .35rem; }
+.pop .note { font-size:.68rem; color:var(--text-faint); margin:-.2rem 0 .3rem 1.4rem; }
+.dlg-back { position:fixed; inset:0; background:rgba(0,0,0,.55); display:none; align-items:flex-start; justify-content:center; padding:60px 16px; z-index:200; overflow:auto; }
+.dlg-back.open { display:flex; }
+.dialog-card { background:var(--frost-tint-strong); backdrop-filter:var(--frost-filter); border:1px solid var(--border-strong); border-radius:14px; padding:1.2rem 1.4rem; width:100%; max-width:560px; box-shadow:0 20px 60px rgba(0,0,0,.5); }
+.dialog-card h2 { margin:0 0 .35rem; font-size:1.1rem; }
+.dialog-card .sub { color:var(--text-dim); font-size:.8rem; margin:0 0 .8rem; }
+.dialog-card label.f { display:block; font-size:.72rem; color:var(--text-dim); margin:.6rem 0 .2rem; }
+.dialog-card input[type=text], .dialog-card textarea, .dialog-card select { width:100%; background:var(--card-inner); color:var(--text); border:1px solid var(--border-strong); border-radius:8px; padding:.35rem .55rem; font:inherit; font-size:.82rem; }
+.dialog-card textarea { min-height:5rem; resize:vertical; }
+.dialog-foot { display:flex; justify-content:flex-end; gap:.4rem; margin-top:1rem; }
+.dialog-flagged-note { color:var(--amber); background:color-mix(in srgb,var(--amber) 10%,transparent); border:1px solid color-mix(in srgb,var(--amber) 30%,transparent); border-radius:8px; padding:.5rem .7rem; font-size:.78rem; margin:.5rem 0; }
+.kv { display:grid; grid-template-columns:7rem 1fr; gap:.25rem .6rem; font-size:.78rem; }
+.kv dt { color:var(--text-dim); } .kv dd { margin:0; overflow-wrap:anywhere; }
+.toasts { position:fixed; right:16px; top:56px; z-index:300; display:flex; flex-direction:column; gap:.4rem; width:330px; }
+.toast { background:var(--popover-solid); border:1px solid var(--border-strong); border-radius:10px; padding:.55rem .7rem; font-size:.78rem; box-shadow:0 10px 30px rgba(0,0,0,.5); cursor:pointer; animation:toast-in .2s ease-out; }
+.toast.notif { border-color:var(--purple); } .toast b { display:block; font-size:.74rem; color:var(--purple-light); margin-bottom:.15rem; }
+@keyframes toast-in { from { transform:translateY(-6px); opacity:0; } }
+.ctxmenu { position:fixed; z-index:250; background:var(--popover-solid); border:1px solid var(--border-strong); border-radius:9px; padding:.25rem; min-width:200px; box-shadow:0 10px 30px rgba(0,0,0,.5); display:none; }
+.ctxmenu.open { display:block; }
+.ctxmenu button { display:block; width:100%; text-align:left; background:none; border:0; padding:.35rem .6rem; border-radius:6px; font-size:.78rem; cursor:pointer; color:var(--text); }
+.ctxmenu button:hover { background:color-mix(in srgb,var(--purple) 18%,transparent); }
+.ctxmenu .sep { border-top:1px solid var(--border); margin:.2rem 0; }
+
+/* card drawer (.board-drawer) */
+.board-drawer { position:fixed; top:46px; right:0; bottom:0; width:min(560px,100vw); z-index:90; background:color-mix(in srgb,var(--popover-solid) 92%,transparent); backdrop-filter:var(--frost-filter); border-left:1px solid var(--border-strong); box-shadow:-20px 0 50px rgba(0,0,0,.5); display:none; flex-direction:column; }
+.board-drawer.open { display:flex; }
+.board-drawer.beside-chat { right:440px; }
+.board-drawer-head { padding:.9rem 1.1rem .6rem; border-bottom:1px solid var(--border); }
+.board-drawer-x { float:right; background:none; border:0; font-size:1.1rem; color:var(--text-dim); cursor:pointer; }
+.board-drawer-title { margin:.35rem 0 .5rem; font-size:1.05rem; }
+.board-drawer-body { flex:1; overflow-y:auto; padding:.75rem 1.1rem 1rem; }
+.board-drawer-body section { margin-bottom:1rem; }
+.board-drawer-body h4 { margin:0 0 .35rem; font-size:.68rem; text-transform:uppercase; letter-spacing:.06em; color:var(--text-faint); }
+.board-desc { background:var(--panel-bg); border:1px solid var(--border); border-radius:10px; padding:.55rem .7rem; font-size:.82rem; line-height:1.65; }
+
+/* Live Calls tab (simplified .call rows) */
+.lc-page { padding:.75rem 1.25rem 4rem; }
+.lc-head { display:flex; align-items:center; gap:.7rem; margin-bottom:.7rem; flex-wrap:wrap; }
+.lc-head h1 { font-size:1.15rem; margin:0; }
+.lc-row { display:grid; grid-template-columns:4.2rem 3.2rem minmax(0,1fr) 7rem 4rem auto; gap:.6rem; align-items:center; padding:.5rem .7rem; background:var(--card-elevated); border:1px solid var(--border); border-radius:10px; margin-bottom:.35rem; font-size:.8rem; cursor:pointer; }
+.lc-row:hover { border-color:var(--border-strong); } .lc-row.sel { border-color:var(--cyan); box-shadow:0 0 0 1px var(--cyan); }
+.lc-m { font:700 .72rem Consolas,monospace; color:var(--purple-light); }
+.lc-s { font:700 .74rem Consolas,monospace; } .lc-s.ok { color:var(--green); } .lc-s.bad { color:var(--red); }
+.lc-u { font:.74rem Consolas,monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.lc-t { color:var(--text-faint); font-size:.7rem; }
+.lc-cyc { font-size:.66rem; color:var(--cyan); overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.lc-ask { opacity:0; } .lc-row:hover .lc-ask, .lc-sub:hover .lc-ask { opacity:1; }
+.lc-detail { margin:-.2rem 0 .5rem 1.2rem; border-left:2px solid var(--border-strong); padding:.3rem .7rem; font-size:.76rem; }
+.lc-detail h5 { margin:.3rem 0 .2rem; font-size:.64rem; text-transform:uppercase; letter-spacing:.06em; color:var(--text-faint); }
+.lc-sub { display:flex; gap:.5rem; align-items:center; padding:.2rem .3rem; border-radius:6px; }
+.lc-sub:hover { background:var(--card); }
+.lc-sub code { flex:1; background:none; padding:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+/* mock-only controls - not part of the design */
+.mockbar { position:fixed; right:8px; top:6px; left:auto; bottom:auto; z-index:500; width:310px; background:#0d0d10; border:1px dashed #e3a24a; border-radius:12px; font-size:.74rem; box-shadow:0 10px 30px rgba(0,0,0,.6); }
+.mockbar:not([open]) { width:auto; }
+.mockbar summary { cursor:pointer; padding:.45rem .7rem; color:#e3a24a; font-weight:700; list-style:none; }
+.mockbar summary::-webkit-details-marker { display:none; }
+.mockbar .in { padding:0 .7rem .6rem; max-height:60vh; overflow:auto; }
+.mockbar h6 { margin:.55rem 0 .25rem; font-size:.62rem; text-transform:uppercase; letter-spacing:.06em; color:var(--text-faint); }
+.mockbar .row { display:flex; flex-wrap:wrap; gap:.25rem; }
+.mockbar button { background:var(--card-elevated); border:1px solid var(--border-strong); border-radius:6px; padding:.12rem .45rem; font-size:.68rem; cursor:pointer; color:var(--text); }
+.mockbar button:hover { border-color:#e3a24a; }
+.mockbar label { display:flex; align-items:center; gap:.35rem; margin:.15rem 0; cursor:pointer; }
+.cov-list { font-size:.76rem; max-height:60vh; overflow:auto; }
+.cov-item { display:grid; grid-template-columns:4rem 1fr auto; gap:.5rem; padding:.3rem 0; border-bottom:1px solid var(--border); align-items:baseline; }
+.cov-item b { color:var(--purple-light); font:.7rem Consolas,monospace; }
+.cov-item .ph { font-size:.6rem; color:var(--text-faint); }
+@media (max-width:900px) { .chat-bar { width:64px; } .chat-bar .bar-head b, .chat-bar .bar-find, .chat-bar .bar-txt, .chat-bar .bar-sec, .chat-bar .bar-foot { display:none; } .chat-bar .bar-item { justify-content:center; } .chat-dock:not(.away) { position:fixed; inset:46px 0 0 64px; width:auto!important; z-index:95; } body.popout .chat-dock { inset:0; } .chat-views .wide-only { display:none; } .board-drawer.beside-chat { right:0; } .shell { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<nav class="tab-nav">
+  <span class="nav-brand"><span class="nav-logo">🎩</span><i></i>ALFRED</span>
+  <a data-tab="live">Live Calls</a>
+  <a data-tab="cycles">Session Cycles</a>
+  <a data-tab="board" class="active">Board<span class="tab-badge" id="boardBadge" hidden></span></a>
+  <a data-tab="x">Profiles</a><a data-tab="x">Settings</a><a data-tab="x">Relive Cycles</a><a data-tab="x">Logs</a>
+  <span class="nav-grow"></span>
+</nav>
+
+<div class="shell">
+  <nav class="chat-bar" id="bar">
+    <div class="bar-head"><b>Chats</b><button class="chat-icon" id="chatToggle" title="Open or close the conversation (Ctrl+J)">💬<span class="tab-badge urgent" id="chatBadge" hidden></span></button><button class="chat-icon" id="barSlim" title="Narrow the bar to pictures only">«</button></div>
+    <div class="bar-find"><input id="barFind" placeholder="Search chats"></div>
+    <div class="bar-list" id="barList"></div>
+    <div class="bar-foot">● green = a Claude is on that chat</div>
+  </nav>
+  <aside class="chat-dock" id="dock">
+    <div class="chat-resize" id="resize" title="Drag to resize"></div>
+    <div class="chat-head" id="chatHead"></div>
+    <div id="chatBanners"></div>
+    <div id="chatSearch"></div>
+    <div class="chat-stream" id="stream"></div>
+    <button class="action-btn primary chat-jump" id="jump" hidden>↓ Latest</button>
+    <div class="chat-composer" id="composer">
+      <div class="picker" id="picker"></div>
+      <div id="cQuote"></div>
+      <div class="chat-cbar" id="cCtx"></div>
+      <div class="board-editor"><textarea id="ta" placeholder="Message Claude about this cycle - @ to mention, / for skills"></textarea></div>
+      <div id="cImgs"></div>
+      <div class="chat-crow">
+        <button class="chat-icon" id="btnAt" title="Mention (@)">@</button>
+        <button class="chat-icon" id="btnSlash" title="Skills (/)">/</button>
+        <button class="chat-icon" id="btnImg" title="Attach an image">🖼</button>
+        <button class="chat-icon" id="btnSnip" title="Insert a live snippet">{ }</button>
+        <span class="grow" id="cHint">Enter sends · Shift+Enter new line</span>
+        <button class="action-btn primary" id="send">Send</button>
+      </div>
+    </div>
+    <div class="pop" id="settings"></div>
+  </aside>
+  <aside class="chat-dock2" id="dock2" hidden></aside>
+  <div class="page" id="page"></div>
+</div>
+
+<aside class="board-drawer" id="drawer"></aside>
+<div class="dlg-back" id="dlg"><div class="dialog-card" id="dlgCard"></div></div>
+<div class="ctxmenu" id="menu"></div>
+<div class="toasts" id="toasts"></div>
+<div id="tip"></div>
+
+<details class="mockbar" open>
+  <summary title="Mock controls - not part of the design">⚙ Mock</summary>
+  <div class="in">
+    <h6>Who is on</h6>
+    <label><input type="checkbox" id="mkCycleOn" checked> Claude chat holds cycle "Branch search"</label>
+    <label><input type="checkbox" id="mkProjOn"> Project live runner on (odeysys)</label>
+    <label><input type="checkbox" id="mkListen" checked> /alfred-listen runner also on the cycle</label>
+    <label><input type="checkbox" id="mkTunnel"> View through Cloudflare tunnel</label>
+    <h6>Happen now</h6>
+    <div class="row">
+      <button id="mkAway">Return after 45 min</button>
+      <button id="mkHand">New Claude chat takes over</button>
+      <button id="mkCloseMid">Claude closes mid-answer</button>
+      <button id="mkFill">Reach auto-compact (100)</button>
+      <button id="mkBatch">Calls arrive (watch)</button>
+      <button id="mkClean">Clean batch arrives</button>
+      <button id="mkAc8">AC8 passes</button>
+      <button id="mk500">A 500 happens</button>
+      <button id="mkStale">#47 moved to Done elsewhere</button>
+      <button id="mkUnread">Reply while panel closed</button>
+      <button id="mkBusy">Claude busy on #47 (8 s)</button>
+    </div>
+    <h6>Chat ↔ terminal session</h6>
+    <div class="row">
+      <button id="mkTermWork">Terminal edits files (13:02)</button>
+      <button id="mkTermRead">Terminal reads the chat items</button>
+      <button id="mkTermClose">Close / reopen terminal session</button>
+      <button id="mkBusyTerm">Terminal takes a turn (delivers riding items)</button>
+      <button id="mkTermCompact">Terminal compacts itself</button>
+      <button id="mkLaptop">Runner on LAPTOP-QA / back on DESKTOP-FB</button>
+    </div>
+    <h6>Try what gets recorded / sent</h6>
+    <div class="row">
+      <button data-say="Why did you change BranchFilter?">Q&amp;A (nothing recorded)</button>
+      <button data-say="And what did we decide about the dates?">Decision found → brief</button>
+      <button data-say="Use agency local time for dates instead of UTC">Contradicting decision → urgent</button>
+      <button data-say="The date picker shows yesterday">New problem → Inbox</button>
+      <button data-say="Not sure yet about the export file name - leave it open for later">Open question → Next</button>
+      <button data-say="@terminal stop changing the export until I say">@terminal</button>
+    </div>
+    <h6>Try a reply (types + sends)</h6>
+    <div class="row">
+      <button data-say="Why did the branch search return all branches?">Question</button>
+      <button data-say="These Inbox cards look like the same problem as #47 - sort them">Bulk</button>
+      <button data-say="Resend call 75 with branchId=2">Resend</button>
+      <button data-say="Make the supplier return 503 for the next 3 calls">Rule</button>
+      <button data-say="Fix #49">Fix</button>
+      <button data-say="Chart the durations of the search calls">Visual</button>
+      <button data-say="Why does call 75 differ from call 81?">Diff</button>
+      <button data-say="Compare with yesterday's cycle">Compare</button>
+      <button data-say="Write a status report for this cycle">Report</button>
+      <button data-say="Tell me when AC8 passes">Tell me when</button>
+      <button data-say="AC3 is met by call 12">Checklist</button>
+      <button data-say="Add this as an acceptance item: export keeps the branch filter">Spec item</button>
+      <button data-say="What should we do about the date filter?">Questions</button>
+      <button data-say="/alfred-status">Slash</button>
+    </div>
+    <h6>Spec</h6>
+    <div class="row"><button id="mkCov">✓ Spec coverage (FR-001…035)</button><button id="mkPop">Preview the separate window here</button></div>
+  </div>
+</details>
+
+<script>
+'use strict';
+const $ = (s, r = document) => r.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let seq = 900;
+const nid = () => ++seq;
+const now = () => { const d = new Date(); return d.toLocaleTimeString('en', { hour: 'numeric', minute: '2-digit' }); };
+
+/* ------------------------------------------------------------------ data */
+const CYCLE = { id: 'c1', name: 'Branch search', project: 'odeysys' };
+const M = {
+  ac8: '@[spec:c1/*#ac8|one-branch search (AC8)]',
+  ac3: '@[spec:c1/*#ac3|refund list paging (AC3)]',
+  c47: '@[card:odeysys#47|all agencies listed (#47)]',
+  c49: '@[card:odeysys#49|branch search ignores branch (#49)]',
+  c51: '@[card:odeysys#51|search 2 s slower (#51)]',
+  call75: '@[call:n:75@c1|POST refunded-requests/search · 200 (call 75)]',
+  call81: '@[call:n:81@c1|POST refunded-requests/search · 200 (call 81)]',
+  call88: '@[call:n:88@c1|POST refunded-requests/search · 500 (call 88)]',
+  call12: '@[call:n:12@c1|GET refund-list?page=2 · 200 (call 12)]',
+  st408: '@[stmt:c1/75#408|SELECT … FROM REFUND_REQUEST WHERE … (stmt 408)]',
+  log1: '@[log:c1/88#3|ERROR NullPointerException in BranchFilter (log)]',
+  code1: '@[code:BranchFilter.java:42|BranchFilter.java:42]',
+  code2: '@[code:RefundSearchService.java:118|RefundSearchService.java:118]',
+};
+const TIPS = {
+  'card:odeysys#47': ['#47 · All agencies listed in branch dropdown', 'BUG · In progress · Claude', 'warn'],
+  'card:odeysys#49': ['#49 · Branch search ignores the chosen branch', 'BUG · To do · you', 'warn'],
+  'card:odeysys#51': ['#51 · Search is 2 s slower after the build', 'BUG · Inbox', 'info'],
+  'spec:c1/*#ac8': ["AC8 · Searching with one branch returns only that branch's requests", 'Verdict: WRONG · 3 calls', 'bad'],
+  'spec:c1/*#ac3': ['AC3 · Refund list pages by 20', 'Verdict: not judged yet', ''],
+};
+const DOT = { 'card:odeysys#47': 'warn', 'card:odeysys#49': 'warn', 'card:odeysys#51': 'info', 'spec:c1/*#ac8': 'bad', 'call:n:88@c1': 'bad' };
+
+const CHATS = {
+  project: { name: 'odeysys', kind: 'project', av: 'OD' },
+  cycle: { name: 'Branch search', kind: 'cycle', av: 'BS' },
+  export: { name: 'Refund export', kind: 'cycle', av: 'RE' },
+  dates: { name: 'Date filter', kind: 'cycle', av: 'DF' },
+};
+const isCycle = (k) => CHATS[k].kind === 'cycle';
+const nameOf = (k) => CHATS[k].name;
+const lastId = (k) => { const ms = S.chats[k].msgs; return ms.length ? ms[ms.length - 1].id : 0; };
+const S = {
+  tab: 'board', scope: 'cycle', panel: true, tunnel: false, width: 440, view: 'dock', prevView: 'dock', side: 'right',
+  on: { cycle: true, project: false, export: false, dates: false }, listen: true, barSlim: false, barFind: '',
+  /* the cycle chat's own Claude session: a fork of the terminal session (FR-002, FR-052) */
+  meter: null, runnerHost: 'DESKTOP-FB',
+  term: { open: true, compacted: false, host: 'DESKTOP-FB', id: '7f3c9a2e', forkAt: '12:20 PM', seenUpTo: '12:05 PM', newer: null, chatSession: 'c41d0b77', items: [], recSince: 0 }, readMark: {}, drafts: {}, mute: {}, cardBusy: {}, shared: false, split: null, urgentNext: false,
+  host: { cycle: 'DESKTOP-FB · C:\\projects\\odeysys', project: '' },
+  unread: { cycle: 0, project: 0, export: 1, dates: 0 }, notify: false,
+  search: '', searchOpen: false, filter: 'all',
+  ctx: [], dismissedCtx: new Set(), quote: null, replyTo: null, imgs: 0,
+  openCard: null, selCall: null, openCall: null,
+  widgets: [],
+  chats: {
+    cycle: { msgs: [], autoN: 100, autoOn: true, gap: 30, since: 41, watch: false, tells: [], openFolds: new Set() },
+    project: { msgs: [], autoN: 100, autoOn: true, gap: 30, since: 12, watch: false, tells: [], openFolds: new Set() },
+    export: { msgs: [], autoN: 100, autoOn: true, gap: 30, since: 3, watch: false, tells: [], openFolds: new Set() },
+    dates: { msgs: [], autoN: 100, autoOn: true, gap: 30, since: 8, watch: false, tells: [], openFolds: new Set() },
+  },
+  cards: [
+    { n: 51, kind: 'BUG', col: 'Inbox', title: 'Search is 2 s slower after the build', ai: true, reason: 'Found while listening: @[call:n:81@c1|call 81] took 2.3 s' },
+    { n: 52, kind: 'BUG', col: 'Inbox', title: 'Branch dropdown repeats "Head office"', ai: true },
+    { n: 53, kind: 'BUG', col: 'Inbox', title: 'Agencies list shows other branches', ai: true },
+    { n: 54, kind: 'NOTE', col: 'Inbox', title: 'Dropdown loads every agency at once', ai: true },
+    { n: 49, kind: 'BUG', col: 'To do', title: 'Branch search ignores the chosen branch', reason: 'Wrong result (AC8)' },
+    { n: 47, kind: 'BUG', col: 'In progress', title: 'All agencies listed in branch dropdown', ai: true },
+    { n: 44, kind: 'TASK', col: 'Fixed', title: 'Refund list pages by 20' },
+    { n: 40, kind: 'BUG', col: 'Verified', title: 'Date filter off by one day' },
+    { n: 38, kind: 'TASK', col: 'Done', title: 'Search by PNR' },
+  ],
+};
+
+/* seed history */
+function seed() {
+  const c = S.chats.cycle;
+  const old = [
+    me('Start with the refund search - does it respect the branch?', { at: '9:58 AM' }),
+    cl(`Not yet. ${M.call75} sent \`branchId=2\` but the SQL ${M.st408} has no branch condition. I filed ${M.c49}.`, { at: '10:01 AM' }),
+    me('Ok. Keep AC8 open until it really filters.', { at: '10:03 AM', decision: true }),
+    cl(`Noted - ${M.ac8} stays WRONG until a call with one branch returns only that branch.`, { at: '10:03 AM' }),
+  ];
+  c.msgs.push({ id: nid(), kind: 'summary', who: 'claude', at: '11:40 AM', covers: 132,
+    text: `**Compacted · 132 earlier messages (9:12 – 11:40 AM)**\n**Decisions:** AC8 stays WRONG until one branch returns only its rows · Dates are compared in UTC.\n**Findings:** ${M.c49} (no branch in SQL), ${M.c47} (dropdown lists all agencies).\n**Open:** is the 2 s slowdown the new join? Waiting for your next test run.`,
+    old });
+  c.msgs.push({ id: nid(), kind: 'sys', text: 'Chat session copied from your terminal session (DESKTOP-FB) · it knows the morning\'s work · handed the summary + 6 later messages', at: '12:20 PM' });
+  c.msgs.push(me(`Looks fixed? I clicked through the search again.`, { at: '12:20 PM', ctx: [M.c49] }));
+  c.msgs.push(cl(`Not fixed. ${M.call81} with one branch still returned 214 rows from 3 branches; ${M.call88} failed with ${M.log1}. The cause is ${M.code1} - it reads \`branchIds\` but the UI sends \`branchId\`.`, {
+    at: '12:21 PM', steps: ['check_calls since call 74', 'investigate_call 88', 'exception_source', 'locate_source BranchFilter'],
+    replies: [me('Can you confirm the UI field name?', { at: '12:24 PM' }), cl(`Yes: the request body of ${M.call81} has \`"branchId": 2\` (singular).`, { at: '12:24 PM' })],
+  }));
+  c.msgs.push({ id: nid(), kind: 'listen', who: 'claude', at: '12:31 PM', origin: 'listen runner',
+    text: `Batch of 6 calls (82–87): ${M.call88} 500 · 1 ERROR log. Others clean.` });
+  c.msgs.push(cl(`Proposals from what I saw:`, { at: '12:33 PM', proposals: [
+    { id: 'p1', text: `Move ${M.c49} to In progress - I start the fix`, state: 'open' },
+    { id: 'p2', text: `Mark ${M.ac3} met - evidence ${M.call12}`, state: 'open' },
+    { id: 'p3', text: `Close ${M.c47} as Fine`, state: 'open', staleIf: 'c47done' },
+  ] }));
+  const p = S.chats.project;
+  S.chats.export.msgs.push(me('Does the export keep the filters?', { at: 'Yesterday' }));
+  S.chats.export.msgs.push(cl('AC2 has no call yet - the export button was never clicked in this cycle. Click it once and I will judge it.', { at: '9:40 AM' }));
+  S.chats.dates.msgs.push(me('Is the date filter done?', { at: 'Mon' }));
+  S.chats.dates.msgs.push(cl('Yes - #40 Verified by you; all 4 items met.', { at: 'Mon' }));
+  p.msgs.push(me('Which cycles still have failing acceptance items?', { at: '11:02 AM' }));
+  p.msgs.push(cl(`Two: **Branch search** - ${M.ac8} WRONG; **Refund export** - AC2 missing (no call yet). Everything else passes.`, { at: '11:03 AM' }));
+}
+function me(text, o = {}) { return { id: nid(), who: 'me', kind: 'text', text, state: 'answered', at: o.at || now(), ctx: o.ctx || [], decision: !!o.decision, replies: o.replies || [], origin: o.origin }; }
+function cl(text, o = {}) { return { id: nid(), who: 'claude', kind: o.kind || 'text', text, at: o.at || now(), steps: o.steps, replies: o.replies || [], proposals: o.proposals, extra: o.extra, decision: !!o.decision, origin: o.origin }; }
+
+/* --------------------------------------------------------------- markdown */
+function md(text) {
+  const blocks = String(text).split(/\n```\n?/);
+  let html = '';
+  blocks.forEach((b, i) => {
+    if (i % 2) { html += `<pre class="board-md-pre">${esc(b)}</pre>`; return; }
+    b.split(/\n/).forEach((line) => {
+      if (!line.trim()) return;
+      if (line.startsWith('> ')) { html += `<blockquote>${inline(line.slice(2))}</blockquote>`; return; }
+      html += `<p>${inline(line)}</p>`;
+    });
+  });
+  return `<div class="board-md">${html}</div>`;
+}
+function inline(s) {
+  let out = '', at = 0;
+  const re = /@\[([a-z]+):([^|\]]+)\|([^\]]+)\]/g; let m;
+  while ((m = re.exec(s))) { out += fmt(s.slice(at, m.index)) + chip(m[1], m[2], m[3]); at = m.index + m[0].length; }
+  return out + fmt(s.slice(at));
+}
+function fmt(s) {
+  return esc(s).replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>').replace(/`([^`]+)`/g, '<code>$1</code>');
+}
+function chip(type, ref, label) {
+  const key = `${type}:${ref}`;
+  let dot = DOT[key];
+  if (key === 'card:odeysys#47' && S.c47done) dot = 'ok';
+  if (key === 'spec:c1/*#ac8' && S.ac8pass) dot = 'ok';
+  const status = /·\s*(5\d\d)/.exec(label);
+  if (type === 'call' && status) dot = 'bad';
+  return `<span class="board-mention board-mention-${type}" data-ref="${esc(key)}" data-label="${esc(label)}">${esc(label)}${dot ? `<i class="board-mention-dot dot-${dot}"></i>` : ''}</span>`;
+}
+
+/* ------------------------------------------------------------------ chat */
+const chat = () => S.chats[S.scope];
+const runnerOn = () => S.on[S.scope];
+const canWrite = () => !S.tunnel;
+
+function renderHead() {
+  const c = chat();
+  const on = runnerOn();
+  const title = isCycle(S.scope) ? `<span class="chat-scope cycle">Cycle</span><b>${esc(nameOf(S.scope))}</b>` : `<span class="chat-scope project">Project</span><b>odeysys</b>`;
+  const runner = on
+    ? `<span class="board-pulse"></span><span>${isCycle(S.scope) ? 'Claude chat on this cycle' : 'Project live runner'}</span><span class="host">· ${esc(S.host[S.scope] || 'DESKTOP-FB')}</span>`
+    : `<span class="board-pulse off"></span><span>No Claude ${isCycle(S.scope) ? 'chat on this cycle' : 'runner on this project'} - messages wait</span>`;
+  const waiting = c.msgs.filter((m) => m.state === 'waiting').length;
+  const chips = [];
+  if (isCycle(S.scope) && c.watch) chips.push(`<span class="chat-wchip live"><span class="board-pulse"></span>Watching while you test<button data-act="watchOff" title="Stop watching" ${canWrite() ? '' : 'disabled'}>✕</button></span>`);
+  if (S.scope === 'cycle' && S.listen) chips.push(`<span class="chat-wchip listen" title="Another /alfred-listen runner checks this cycle; its findings are posted here too">◉ listen runner${c.watch ? ' · both watching' : ''}</span>`);
+  c.tells.forEach((t) => chips.push(`<span class="chat-wchip tell" title="Posts once when it happens, then ends">⏰ ${esc(t.label)}<button data-act="tellOff" data-id="${t.id}" title="Cancel" ${canWrite() ? '' : 'disabled'}>✕</button></span>`));
+  const pageHidden = S.view === 'full' || POPOUT;
+  const scopeSeg = false && pageHidden ? `<span class="chat-scopeseg"><button data-scope="project" class="${S.scope === 'project' ? 'on' : ''}">Project</button><button data-scope="cycle" class="${S.scope === 'cycle' ? 'on' : ''}">Cycle</button></span>` : '';
+  const views = POPOUT
+    ? `<button class="action-btn" data-act="dockBack" title="Close this window and dock the chat in the board again">⇲ Dock in the board</button>`
+    : `<button class="chat-icon" data-act="viewMenu" title="Where the chat sits: docked, expanded, full screen, own window">${(VIEWS.find((x) => x[0] === S.view) || VIEWS[0])[1]} ▾</button>`;
+  $('#chatHead').innerHTML = `
+    <div class="chat-title">${title}${scopeSeg}
+      <div class="chat-x">${views}
+        <button class="chat-icon ${S.shared ? 'on' : ''}" data-act="shared" title="Shared in this chat - calls, cards, items, files, visuals">🗂</button>
+        ${POPOUT ? '' : `<button class="chat-icon ${S.split ? 'on' : ''}" data-act="split" title="Open a second chat side by side">◫</button>`}
+        <button class="chat-icon ${S.searchOpen ? 'on' : ''}" data-act="search" title="Search this chat (Ctrl+F)">🔍</button>
+        ${isCycle(S.scope) ? `<button class="chat-icon ${c.watch ? 'on' : ''}" data-act="watch" title="Watch while I test - Claude checks calls as they arrive" ${canWrite() ? '' : 'disabled'}>◉</button>` : ''}
+        <button class="chat-icon" data-act="compact" title="Compact now - Claude summarises; nothing is deleted" ${canWrite() ? '' : 'disabled'}>⇊</button>
+        <button class="chat-icon" data-act="settings" title="Chat settings">⚙</button>
+        ${POPOUT ? '' : '<button class="chat-icon" data-act="close" title="Close (Ctrl+J)">✕</button>'}
+      </div>
+    </div>
+    <div class="chat-runner">${runner}${waiting ? `<span class="board-ev-badge">${waiting} waiting</span>` : ''}
+${(S.cardBusy[S.scope] || 0) > Date.now() ? `<span class="board-ev-badge info">busy on #47 · a card comment</span>` : ''}${S.mute[S.scope] && S.mute[S.scope] !== 'all' ? `<span class="board-ev-badge dim">${S.mute[S.scope] === 'muted' ? '🔕 muted' : '🔔 questions & failures only'}</span>` : ''}
+      <span class="board-dim" style="margin-left:auto" title="Messages since the last summary · auto-compact">${c.autoOn ? `${c.since}/${c.autoN}` : 'auto-compact off'}</span></div>
+    ${chips.length ? `<div class="chat-watch">${chips.join('')}</div>` : ''}
+    ${sessionLine()}`;
+}
+
+/* Alfred's half of the memory: what any session or machine can read back */
+function alfredMemory() {
+  const msgs = S.chats.cycle.msgs;
+  const recs = msgs.flatMap((m) => (m.records || []).filter((r) => !r.undone));
+  return { decisions: 2 + recs.filter((r) => /decision/.test(r.text)).length + msgs.filter((m) => m.decision).length,
+    records: recs.length, summary: msgs.some((m) => m.kind === 'summary'), messages: msgs.length, items: S.term.items.length, recs };
+}
+function memoryDialog() {
+  const T = S.term; const am = alfredMemory();
+  dialog(`<h2>Where this chat's memory lives</h2><p class="sub">Two memories, kept in step automatically. The Claude session remembers how and why; Alfred remembers what was decided and done - for every session and machine.</p>
+    <div class="mem-grid">
+      <div class="mem-col claude"><h4>🧠 Claude session memory</h4><div class="board-dim">on ${esc(T.host)} · private to this chat's session</div>
+        <ul><li>your terminal session's work up to ${esc(T.seenUpTo)} (copied ${esc(T.forkAt)}, caught up since)</li><li>every turn of this chat</li><li>what it read: calls, SQL, files - and its reasoning</li></ul>
+        <div class="board-dim" style="margin-top:.3rem">Lost if the session file is gone or another machine answers - then Alfred's memory rebuilds the chat.</div></div>
+      <div class="mem-col alfred"><h4>🗄 Alfred memory</h4><div class="board-dim">on 192.168.1.83 · shared, durable</div>
+        <ul><li>${am.messages} chat messages${am.summary ? ' + the compact summary' : ''} - never deleted</li><li>${am.decisions} decisions in the brief</li><li>${am.records} record${am.records === 1 ? '' : 's'}: cards, items, fixes, Next</li><li>${am.items} item${am.items === 1 ? '' : 's'} sent to the terminal</li></ul>
+        <div class="board-dim" style="margin-top:.3rem">Every session reads it (task_context, board_wait) - a new terminal, another machine, tomorrow.</div></div>
+    </div>
+    <div class="mem-flow"><b>terminal → chat</b><span>catch-up adds the terminal's new entries to the Claude session</span>
+      <b>chat → terminal</b><span>every exchange mirrored in full (⚡ urgent wakes it)</span>
+      <b>chat → Alfred</b><span>decisions, cards, items, fixes, Next recorded automatically</span>
+      <b>Alfred → any session</b><span>handover: summary + messages + decisions + held items</span></div>
+    <div class="dialog-foot"><button class="action-btn primary" data-act="dlgClose">Close</button></div>`);
+}
+
+/* FR-056: what the last message cost and what the automatic savings avoided - nothing to configure */
+function meterLine() {
+  const m = S.meter;
+  if (!m) return '';
+  const k = (n) => (n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n));
+  return `<div class="chat-meter" title="Last answer: ${k(m.input)} in (${k(m.cached)} from cache), ${k(m.output)} out${m.mirror ? `, mirror ${k(m.mirror)}` : ''} · answered from ${esc(S.runnerHost)}">🔢 ${k(m.input)} in · ${k(m.output)} out${m.saved ? ` · <span class="saved">saved ${k(m.saved)}</span> <span title="${esc(m.why)}">ⓘ</span>` : ''}</div>`;
+}
+
+/* where this chat's memory comes from, and what went to the terminal session */
+function sessionLine() {
+  const T = S.term;
+  if (S.scope !== 'cycle') {
+    return `<div class="chat-session">🧠 <b>Own chat session</b> - started from Alfred's context (no terminal session on ${esc(nameOf(S.scope))}) · <button class="board-link" data-act="continueTerm" style="font-size:.7rem">⇱ Continue in terminal</button></div>${meterLine()}`;
+  }
+  const unread = T.items.filter((i) => i.state === 'sent').length;
+  if (S.runnerHost !== T.host) {
+    return `<div class="chat-session">🧠 <b>Own chat session on ${esc(S.runnerHost)}</b> - your terminal session's memory is on ${esc(T.host)}, so this chat started from Alfred's summary and recent messages · <button class="board-link" data-act="continueTerm" style="font-size:.7rem">⇱ Continue in terminal</button></div>${meterLine()}`;
+  }
+  const am = alfredMemory();
+  return `<div class="chat-session">🧠 <b>Memory</b>
+    <span class="mem-pill claude" data-act="memory" title="The chat's own Claude session on ${esc(T.host)} - a copy of your terminal session">Claude session · <b>terminal up to ${esc(T.seenUpTo)}</b> + this chat</span>
+    <span class="mem-pill alfred" data-act="memory" title="Alfred's shared memory - every session and machine reads it">Alfred · <b>${am.decisions} decision${am.decisions === 1 ? '' : 's'} · ${am.records} record${am.records === 1 ? '' : 's'}</b>${am.summary ? ' · summary' : ''}</span>
+    ${T.newer ? `<span class="moved">terminal moved on (${esc(T.newer)})</span>` : ''}
+    <button class="chat-icon chat-refresh" data-act="refreshFork" ${canWrite() ? '' : 'disabled'} title="Catch up with the terminal session now - only its new entries are added">↻</button>
+    <button class="chat-icon" data-act="termItems" title="What this chat sent to the terminal session">📤${T.items.length ? ` ${T.items.length}` : ''}${unread ? '•' : ''}</button>
+    <button class="chat-icon" data-act="continueTerm" title="Continue this conversation in a terminal">⇱</button>
+    ${T.open ? '' : '<span class="moved">· terminal session closed - items wait for the next one</span>'}</div>${meterLine()}`;
+}
+
+function renderBanners() {
+  let h = '';
+  if (S.tunnel) h += `<div class="chat-banner view">👁 View only through the tunnel - you can read this chat and Claude's live steps; sending, accepting and settings work on the local Alfred.</div>`;
+  if (!runnerOn()) {
+    const cmd = isCycle(S.scope) ? `/alfred-live "${nameOf(S.scope)}"` : '/alfred-live odeysys';
+    h += `<div class="chat-banner start"><h6>Start Claude ${isCycle(S.scope) ? 'on this cycle' : 'on this project'}</h6>
+      Messages wait here and are answered in order once it starts.
+      <div class="chat-cmd"><code>cd C:\\projects\\odeysys</code><button class="action-btn" data-copy="cd C:\\projects\\odeysys">Copy</button></div>
+      <div class="chat-cmd"><code>claude</code><button class="action-btn" data-copy="claude">Copy</button></div>
+      <div class="chat-cmd"><code>${esc(cmd)}</code><button class="action-btn" data-copy="${esc(cmd)}">Copy</button></div>
+      ${S.scope === 'project' && S.on.cycle ? `<div class="board-dim" style="margin-top:.25rem">A Claude chat is on cycle "${CYCLE.name}", but it answers only that cycle - ask it from here with <code>@cycle</code>.</div>` : ''}</div>`;
+  }
+  $('#chatBanners').innerHTML = h;
+}
+
+function renderSearch() {
+  if (!S.searchOpen) { $('#chatSearch').innerHTML = ''; return; }
+  const { hits, folded } = searchCount();
+  $('#chatSearch').innerHTML = `<div class="chat-search"><input id="sq" placeholder="Search messages, folded ones too" value="${esc(S.search)}"><button class="chat-icon" data-act="searchClose">✕</button></div>
+    <div class="chat-filters">${['all', 'mine', 'claude', 'decisions', 'mentions a call'].map((f) => `<button class="board-tog ${S.filter === f ? 'on' : ''}" data-filter="${f}">${f}</button>`).join('')}</div>
+    ${S.search || S.filter !== 'all' ? `<div class="chat-search-sum">${hits} match${hits === 1 ? '' : 'es'}${folded ? ` · ${folded} inside a compacted fold (opened)` : ''}</div>` : ''}`;
+  const i = $('#sq'); i.oninput = () => { S.search = i.value; renderStream(); renderSearchSum(); };
+  i.focus(); i.setSelectionRange(i.value.length, i.value.length);
+}
+function renderSearchSum() { const el = $('.chat-search-sum'); const { hits, folded } = searchCount(); if (el) el.textContent = `${hits} match${hits === 1 ? '' : 'es'}${folded ? ` · ${folded} inside a compacted fold (opened)` : ''}`; else renderSearch(); }
+function matches(m) {
+  const f = S.filter;
+  if (f === 'mine' && m.who !== 'me') return false;
+  if (f === 'claude' && m.who !== 'claude') return false;
+  if (f === 'decisions' && !m.decision) return false;
+  if (f === 'mentions a call' && !/@\[call:/.test(m.text || '')) return false;
+  if (S.search && !(m.text || '').toLowerCase().includes(S.search.toLowerCase())) return false;
+  return true;
+}
+function searchCount() {
+  let hits = 0, folded = 0;
+  if (!S.search && S.filter === 'all') return { hits, folded };
+  for (const m of chat().msgs) {
+    if (m.kind === 'summary') for (const o of m.old) if (matches(o)) { hits++; folded++; }
+    if (m.text && m.kind !== 'sys' && matches(m)) hits++;
+    for (const r of m.replies || []) if (matches(r)) hits++;
+  }
+  return { hits, folded };
+}
+
+function renderStream() {
+  const c = chat();
+  const searching = S.search || S.filter !== 'all';
+  let h = `<div class="chat-day">Today · 15 Oct</div>`;
+  if (S.shared) { $('#stream').innerHTML = sharedHtml(S.scope); $('#jump').hidden = true; return; }
+  const mark = S.readMark[S.scope];
+  const fresh = mark ? c.msgs.filter((m) => m.id > mark && m.who !== 'me' && m.kind !== 'sys').length : 0;
+  let lined = false;
+  for (const m of c.msgs) {
+    if (fresh && !lined && m.id > mark && m.who !== 'me' && m.kind !== 'sys') { h += `<div class="chat-newline" id="newline">${fresh} new</div>`; lined = true; }
+    h += renderMsg(m, searching);
+  }
+  const st = $('#stream');
+  const atBottom = st.scrollHeight - st.scrollTop - st.clientHeight < 40;
+  st.innerHTML = h;
+  if (atBottom || S.stick) st.scrollTop = st.scrollHeight;
+  if (S.stick && lined) { const nl = $('#newline'); if (nl) { st.scrollTop = nl.offsetTop - 60; } }
+  S.stick = false;
+  jumpCheck();
+  wireQuestions();
+}
+
+function renderMsg(m, searching) {
+  if (m.kind === 'sys') return `<div class="chat-sys">${esc(m.text)} · ${esc(m.at)}</div>`;
+  if (m.kind === 'summary') {
+    const open = chat().openFolds.has(m.id) || (searching && m.old.some(matches));
+    return `<div class="chat-fold summary" id="m${m.id}"><div class="chat-fold-head" data-fold="${m.id}"><span>${open ? '▾' : '▸'}</span><b>Compacted by Claude</b><span>· ${m.covers} messages folded · ${esc(m.at)}</span><span style="margin-left:auto" class="board-dim">nothing deleted</span></div>
+      <div class="chat-fold-body">${md(m.text)}${open ? m.old.map((o) => `<div class="chat-old ${searching && !matches(o) ? 'dimmed' : ''}">${bubble(o, searching, true)}</div>`).join('') + `<div class="board-dim" style="margin-top:.4rem">… ${m.covers - m.old.length} more - all kept, in search and in the board export</div>` : ''}</div></div>`;
+  }
+  if (m.kind === 'digest') {
+    const open = !m.read || chat().openFolds.has(m.id);
+    return `<div class="chat-fold digest" id="m${m.id}"><div class="chat-fold-head" data-fold="${m.id}" data-digest="1"><span>${open ? '▾' : '▸'}</span><b>Since you left</b><span>· 45 min · built by Alfred</span>${m.read ? '<span class="board-dim" style="margin-left:auto">read</span>' : ''}</div>
+      ${open ? `<div class="chat-fold-body">${md(m.text)}${m.claude ? `<div style="margin-top:.4rem;border-top:1px dashed var(--border);padding-top:.35rem"><span class="board-ev-who"><span class="who-dot" style="background:var(--purple)"></span>Claude's read</span>${md(m.claude)}</div>` : `<div class="board-dim" style="margin-top:.3rem">Claude adds its reading when it is on.</div>`}</div>` : ''}</div>`;
+  }
+  return bubble(m, searching, false);
+}
+
+function bubble(m, searching, inFold) {
+  const dim = searching && !matches(m) && !(m.replies || []).some(matches);
+  const who = m.who === 'me' ? 'You' : m.who === 'alfred' ? 'Alfred' : 'Claude';
+  const badges = [];
+  if (m.urgent && m.state === 'waiting') badges.push('<span class="chat-urgent">⚡ answer first</span>');
+  if (m.superseded) badges.push('<span class="chat-super">asked again ↓</span>');
+  if (m.state === 'answering') badges.push(`<span class="board-ev-badge info">Claude is on it</span>`);
+  if (m.state === 'cancelled') badges.push(`<span class="board-ev-badge dim">cancelled</span>`);
+  if (m.state === 'stopped') badges.push(`<span class="board-ev-badge dim">stopped</span>`);
+  if (m.edited) badges.push(`<span class="board-ev-badge dim">edited</span>`);
+  if (m.decision) badges.push(`<span class="chat-decision" title="Every later Claude session is handed this">★ Decision</span>`);
+  if (m.origin) badges.push(`<span class="chat-origin">${esc(m.origin)}</span>`);
+  const ctx = m.ctx && m.ctx.length ? `<div class="chat-ctx">looking at ${m.ctx.map((c) => inline(c)).join(' ')}</div>` : '';
+  const quote = m.quote ? `<blockquote style="margin:0 0 .3rem;padding:.1rem .5rem;border-left:3px solid var(--border-strong);color:var(--text-dim);font-size:.74rem">${inline(m.quote)}</blockquote>` : '';
+  const imgs = m.imgs ? '<span class="chat-thumb"></span>'.repeat(m.imgs) : '';
+  const body = m.state === 'cancelled' ? `<div class="board-md" style="text-decoration:line-through;color:var(--text-faint)">${inline(m.text)}</div>` : md(m.text);
+  const steps = m.steps && m.who === 'claude' ? `<div class="board-dim" style="margin-top:.25rem"><button class="board-link" data-steps="${m.id}" style="font-size:.68rem;padding:0">▸ ${m.steps.length} steps</button>${m.showSteps ? m.steps.map((s) => `<div class="live-step"><span class="live-mk">✓</span>${esc(s)}</div>`).join('') : ''}</div>` : '';
+  const live = m.live ? liveBox(m.live) : '';
+  const extra = (m.proposals ? proposals(m) : '') + (m.extra ? extraHtml(m) : '');
+  const autos = autoLines(m);
+  const acts = inFold ? '' : hoverActs(m);
+  const thread = inFold ? '' : threadHtml(m, searching);
+  const waitActs = m.state === 'waiting' && m.who === 'me' && canWrite() ? `<div class="board-ev-acts"><button class="board-link" data-act="edit" data-id="${m.id}">Edit</button><button class="board-link" data-act="cancel" data-id="${m.id}">Cancel</button>${m.urgent ? '' : `<button class="board-link" data-act="urgent" data-id="${m.id}" title="Put this ahead of everything waiting for this Claude">⚡ Answer first</button>`}</div>` : '';
+  const editing = S.editing === m.id;
+  return `<div class="chat-msg ${m.who} ${dim ? 'dimmed' : ''} ${searching && !dim && (S.search || S.filter !== 'all') && matches(m) ? 'hit' : ''}" id="m${m.id}">
+    ${acts}
+    <div class="board-ev-who"><span class="who-dot"></span><b style="color:var(--text)">${who}</b> · ${esc(m.at)}${m.who === 'me' ? tick(m) : ''}${badges.join('')}</div>
+    <div class="board-ev-body">${ctx}${quote}${editing ? `<div class="board-editor"><textarea id="editTa">${esc(m.text)}</textarea></div><div class="chat-crow"><span class="grow"></span><button class="action-btn" data-act="editCancel">Cancel</button><button class="action-btn primary" data-act="editSave" data-id="${m.id}">Save</button></div>` : body}${imgs}${extra}${steps}</div>
+    ${autos}${reactsHtml(m)}${live}${waitActs}${thread}</div>`;
+}
+
+/* delivery, like Messenger: sent → Claude has it → answered */
+function tick(m) {
+  if (m.state === 'cancelled') return '';
+  if (m.state === 'waiting') {
+    const n = S.on[S.scope] ? lineOf(m, S.scope) : 0;
+    return `<span class="chat-tick" title="Sent - Alfred holds it until this chat's Claude picks it up">✓ sent${n ? ` · ${nth(n)} in line` : ' · waiting for Claude'}</span>`;
+  }
+  if (m.state === 'answering') return '<span class="chat-tick got" title="Claude picked it up (board_wait)">✓✓ Claude has it</span>';
+  if (m.state === 'stopped') return '<span class="chat-tick">✓✓ stopped</span>';
+  return '<span class="chat-tick done" title="Answered">✓✓ answered</span>';
+}
+function reactsHtml(m) {
+  const r = m.reacts || {};
+  const keys = Object.keys(r).filter((k) => r[k]);
+  return keys.length ? `<div class="chat-reacts">${keys.map((k) => `<button class="board-react mine" data-act="react" data-id="${m.id}" data-r="${k}" title="${k === '❓' ? 'You asked Claude to explain more' : 'Your reaction'}">${k} ${r[k]}</button>`).join('')}</div>` : '';
+}
+
+/* "✓ recorded the UTC decision in the brief · Undo" and "→ sent to the terminal session · urgent · read" (FR-049, FR-051) */
+function autoLines(m) {
+  const out = [];
+  for (const r of m.records || []) {
+    out.push(`<div class="chat-auto rec ${r.undone ? 'undone' : ''}"><span class="ic">✓</span><span>${inline(r.text)}</span>${r.undone ? '<span class="st">undone</span>' : canWrite() ? `<button class="board-link" data-act="undoRec" data-id="${m.id}" data-r="${r.id}" style="font-size:.68rem">Undo</button>` : ''}</div>`);
+  }
+  for (const t of m.sent || []) {
+    const it = S.term.items.find((x) => x.id === t);
+    if (!it) continue;
+    const st = it.state === 'next-turn' ? '<span class="st" title="No extra wake-up: it reaches the terminal with the next turn it takes anyway">rides its next turn</span>' : it.state === 'queued' ? '<span class="st">queued - terminal busy</span>' : it.state === 'read' ? '<span class="st read">read</span>' : it.state === 'undone' ? '<span class="st">taken back</span>' : it.state === 'held' ? '<span class="st">waits for the next terminal session</span>' : '<span class="st">sent</span>';
+    const body = it.mirror ? 'mirrored to your terminal session in full <span class="board-dim">(SQL, diffs and charts as references)</span>' : `${it.urgent ? '<span class="st urg">urgent</span> ' : ''}sent to your terminal session: ${inline(it.text)}`;
+    out.push(`<div class="chat-auto term ${it.urgent ? 'urgent' : ''} ${it.state === 'undone' ? 'undone' : ''}"><span class="ic">→</span><span>${body}</span>${st}${it.state === 'sent' || it.state === 'held' || it.state === 'next-turn' ? (canWrite() ? `<button class="board-link" data-act="undoSent" data-r="${it.id}" style="font-size:.68rem">Undo</button>` : '') : ''}</div>`);
+  }
+  return out.join('');
+}
+
+function hoverActs(m) {
+  const w = canWrite();
+  const b = [];
+  b.push(`<button data-act="reply" data-id="${m.id}" ${w ? '' : 'disabled'} title="Reply in a thread">↩ Reply</button>`);
+  b.push(`<button data-act="quote" data-id="${m.id}" ${w ? '' : 'disabled'} title="Quote into a new message">❝ Quote</button>`);
+  b.push(`<button data-act="card" data-id="${m.id}" ${w ? '' : 'disabled'} title="Make a card from this message">＋ Card</button>`);
+  b.push(`<button data-act="decision" data-id="${m.id}" ${w ? '' : 'disabled'} title="Mark as a Decision - every later session follows it">★</button>`);
+  if (m.who === 'claude') b.push(`<button data-act="post" data-id="${m.id}" ${w ? '' : 'disabled'} title="Post this (or a part) to a card as a comment">→ Card comment</button>`);
+  b.push(`<button data-act="react" data-r="👍" data-id="${m.id}" ${w ? '' : 'disabled'} title="Thumbs up">👍</button>`);
+  if (m.who === 'claude') b.push(`<button data-act="react" data-r="❓" data-id="${m.id}" ${w ? '' : 'disabled'} title="Not clear - Claude explains more in a thread">❓</button>`);
+  if (m.who === 'claude') b.push(`<button data-act="again" data-id="${m.id}" ${w ? '' : 'disabled'} title="Ask again with more context">↻ Again</button>`);
+  b.push(`<button data-act="link" data-id="${m.id}" title="Copy a mention of this message">🔗</button>`);
+  return `<div class="chat-hover">${b.join('')}</div>`;
+}
+
+function threadHtml(m, searching) {
+  const n = (m.replies || []).length;
+  let h = '';
+  if (n) {
+    h += `<div class="board-ev-acts"><button class="chat-thread-toggle" data-thread="${m.id}">${m.open || (searching && m.replies.some(matches)) ? '▾' : '▸'} ${n} repl${n === 1 ? 'y' : 'ies'}</button></div>`;
+    if (m.open || (searching && m.replies.some(matches))) {
+      h += m.replies.map((r) => `<div class="board-ev-reply ${r.who === 'claude' ? 'claude' : ''}"><div class="board-ev-who"><b style="color:var(--text)">${r.who === 'me' ? 'You' : 'Claude'}</b> · ${esc(r.at)}${r.state === 'waiting' ? '<span class="board-ev-badge">waiting</span>' : ''}</div>${md(r.text)}${r.live ? liveBox(r.live) : ''}</div>`).join('');
+    }
+  }
+  if (S.replyTo === m.id) {
+    h += `<div class="board-ev-replybox"><div class="board-ev-replyto"><span>Reply in thread - Claude answers with this thread as focus</span><button class="board-link" data-act="replyCancel">✕</button></div>
+      <div class="board-editor"><textarea id="replyTa" placeholder="Reply…"></textarea></div><div class="chat-crow"><span class="grow"></span><button class="action-btn primary" data-act="replySend" data-id="${m.id}">Reply</button></div></div>`;
+  }
+  return h;
+}
+
+function liveBox(l) {
+  return `<div class="live-box ${l.stopped ? 'stopped' : ''}"><div class="live-head">${l.stopped ? '■' : '<span class="live-spinner"></span>'} ${l.stopped ? 'Stopped' : l.title || 'Claude is working'} <span class="live-time">${l.secs}s · ${l.steps.length} step${l.steps.length === 1 ? '' : 's'}</span>
+    ${l.stopped || !canWrite() ? '' : `<button class="action-btn danger" data-act="stop" style="margin-left:.4rem">Stop</button>`}</div>
+    ${l.steps.map((s, i) => `<div class="live-step ${i === l.steps.length - 1 && !l.stopped ? 'now' : ''}"><span class="live-mk">${i === l.steps.length - 1 && !l.stopped ? '›' : '✓'}</span>${esc(s)}</div>`).join('')}
+    ${l.draft ? `<div class="live-draft">${inline(l.draft)}${l.stopped ? '' : '<span class="live-caret"></span>'}</div>` : ''}</div>`;
+}
+
+/* proposals: re-checked against the board when shown and on Accept */
+function staleReason(p) {
+  if (p.staleIf === 'c47done' && S.c47done) return 'outdated: #47 is Done';
+  if (p.staleIf === 'ac8pass' && S.ac8pass) return 'already done';
+  return null;
+}
+function proposals(m) {
+  const bulk = m.bulk;
+  const rows = m.proposals.map((p) => {
+    const stale = p.state === 'open' && staleReason(p);
+    const cls = p.state === 'accepted' ? 'accepted' : p.state === 'declined' ? 'declined' : stale ? 'stale' : '';
+    const state = p.state === 'accepted' ? '<span class="state ok">✓ applied as you</span>' : p.state === 'declined' ? '<span class="state dim">declined</span>' : stale ? `<span class="state warn">${esc(stale)}</span>` : '';
+    const btns = p.state === 'open' && !stale
+      ? (bulk ? `<input type="checkbox" data-bulk="${m.id}" data-p="${p.id}" ${p.checked ? 'checked' : ''} ${canWrite() ? '' : 'disabled'}>` : `<button class="action-btn ok" data-act="accept" data-id="${m.id}" data-p="${p.id}" ${canWrite() ? '' : 'disabled'}>Accept</button><button class="action-btn" data-act="decline" data-id="${m.id}" data-p="${p.id}" ${canWrite() ? '' : 'disabled'}>Decline</button>`)
+      : '';
+    return `<div class="chat-prop ${cls}">${bulk ? btns : ''}<span class="what">${inline(p.text)}</span>${state}${bulk ? '' : btns}</div>`;
+  }).join('');
+  const open = m.proposals.filter((p) => p.state === 'open' && !staleReason(p));
+  const foot = bulk && open.length ? `<div class="chat-bulk-foot"><button class="action-btn" data-act="bulkDecline" data-id="${m.id}" ${canWrite() ? '' : 'disabled'}>Decline unticked</button><button class="action-btn ok" data-act="bulkAccept" data-id="${m.id}" ${canWrite() ? '' : 'disabled'}>Accept ticked (${open.filter((p) => p.checked).length})</button><button class="action-btn primary" data-act="bulkAll" data-id="${m.id}" ${canWrite() ? '' : 'disabled'}>Accept all ${open.length}</button></div>` : '';
+  return `<div class="chat-proposals">${rows}${foot}</div>${canWrite() ? '' : '<div class="board-dim" style="margin-top:.2rem">Accept on the local Alfred.</div>'}`;
+}
+
+function extraHtml(m) {
+  const x = m.extra;
+  if (x.type === 'consent') {
+    const done = x.state === 'done' ? `<div class="board-dim" style="color:var(--green)">✓ ${esc(x.doneText)}</div>` : x.state === 'declined' ? '<div class="board-dim">Not done - you said no.</div>' : '';
+    return `<div class="chat-consent"><h6>${x.kind === 'resend' ? 'Resend prepared - nothing sent yet' : 'Interception rule drafted - not live yet'}</h6>${md(x.summary)}
+      ${x.state === 'open' ? `<div class="chat-bulk-foot"><button class="action-btn" data-act="consentNo" data-id="${m.id}" ${canWrite() ? '' : 'disabled'}>Discard</button><button class="action-btn primary" data-act="consent" data-id="${m.id}" ${canWrite() ? '' : 'disabled'}>Review &amp; confirm…</button></div>` : done}</div>`;
+  }
+  if (x.type === 'fix') return `<div class="chat-fix"><h6>Fix report · ${M.c49 ? 'card #49' : ''}</h6>
+      <div>Changed: ${inline(M.code1)} ${inline(M.code2)}</div>
+      <div class="diff"><span class="del">-   List&lt;Long&gt; ids = req.getBranchIds();</span>
+<span class="add">+   List&lt;Long&gt; ids = req.getBranchId() == null ? List.of() : List.of(req.getBranchId());</span>
+<span class="del">-   query.where(REFUND.AGENCY.in(agencies));</span>
+<span class="add">+   query.where(REFUND.AGENCY.in(agencies)).and(REFUND.BRANCH_ID.in(ids));</span></div>
+      <div>Re-test plan set on ${inline(M.c49)} - checked on the next calls, each beside call 81's value:</div>
+      <table class="board-md-table"><tr><th>Expectation</th><th>Call 81 (before)</th><th>Next calls</th></tr>
+      <tr><td>Rows only from branch 2</td><td>214 rows · 3 branches</td><td><span class="board-ev-badge dim">waiting for a call</span></td></tr>
+      <tr><td>Status 200, no ERROR log</td><td>200 · 0 errors</td><td><span class="board-ev-badge dim">waiting</span></td></tr>
+      <tr><td>SQL has a branch condition</td><td>no</td><td><span class="board-ev-badge dim">waiting</span></td></tr></table>
+      <div class="board-dim">Card moved to Fixed by Claude. Verified stays yours.</div></div>`;
+  if (x.type === 'visual') return `<div class="visual">${chartSvg()}<div class="visual-acts"><span>live snippet · locked (no network) · data from this cycle</span>${x.pinned ? '<span style="color:var(--green)">📌 pinned to the board</span>' : `<button class="action-btn" data-act="pin" data-id="${m.id}" ${canWrite() ? '' : 'disabled'}>📌 Pin to board</button>`}</div></div>`;
+  if (x.type === 'diff') return `<div class="calldiff">
+      <div><h6>${inline(M.call75)}</h6><span class="sec">request body</span>{"branchId": <span class="chg">2</span>, "from": "2026-10-01"}<span class="sec">response</span><span class="chg">38 rows</span> · 1 branch<span class="sec">SQL</span>… WHERE AGENCY IN (…) <span class="sec">logs</span>none<span class="sec">duration</span>310 ms</div>
+      <div><h6>${inline(M.call81)}</h6><span class="sec">request body</span>{"branchId": <span class="chg">2</span>, "from": "2026-10-01"}<span class="sec">response</span><span class="chg">214 rows</span> · 3 branches<span class="sec">SQL</span>… WHERE AGENCY IN (…) <span class="chg">+ JOIN AGENCY_BRANCH</span><span class="sec">logs</span>WARN slow query<span class="sec">duration</span><span class="chg">2,310 ms</span></div></div>`;
+  if (x.type === 'compare') return `<table class="board-md-table"><tr><th>Endpoint</th><th>Yesterday</th><th>Today</th><th>Change</th></tr>
+      <tr><td>POST refunded-requests/search</td><td>12 calls · 0 errors · 300 ms</td><td>18 calls · 1×500 · 1.4 s</td><td style="color:var(--red)">slower, 1 new error</td></tr>
+      <tr><td>GET agencies</td><td>4 · 22 rows</td><td>5 · 61 rows</td><td style="color:var(--amber)">more rows (#47)</td></tr>
+      <tr><td>GET refund-list</td><td>6 · paged 20</td><td>7 · paged 20</td><td style="color:var(--green)">same</td></tr></table>`;
+  if (x.type === 'report') return `<div style="margin-top:.35rem">${chip('page', 'c1/status-report', 'page: Branch search - status report')} <button class="action-btn" data-act="openReport">Open</button> <button class="action-btn" data-act="exportReport">Export .md</button></div>`;
+  if (x.type === 'questions') return qblock(m);
+  return '';
+}
+
+function chartSvg() {
+  const bars = [['75', 310], ['76', 290], ['79', 330], ['81', 2310], ['84', 2150], ['88', 2600], ['90', 2280]];
+  const max = 2700;
+  return `<svg viewBox="0 0 360 150" width="100%" role="img" aria-label="Search call durations">
+    <text x="4" y="12" fill="var(--text-dim)" font-size="10">Search duration per call (ms) - build at call 80</text>
+    <line x1="30" y1="130" x2="356" y2="130" stroke="var(--border-strong)"/>
+    <line x1="${30 + 3.5 * 46}" y1="18" x2="${30 + 3.5 * 46}" y2="130" stroke="var(--amber)" stroke-dasharray="3 3"/>
+    <text x="${34 + 3.5 * 46}" y="26" fill="var(--amber)" font-size="9">new build</text>
+    ${bars.map(([n, v], i) => { const h = (v / max) * 105; const x = 38 + i * 46; return `<rect x="${x}" y="${130 - h}" width="28" height="${h}" rx="3" fill="${v > 1000 ? 'var(--red)' : 'var(--purple)'}" opacity=".85"><title>call ${n}: ${v} ms</title></rect><text x="${x + 14}" y="142" fill="var(--text-faint)" font-size="9" text-anchor="middle">${n}</text><text x="${x + 14}" y="${126 - h}" fill="var(--text-dim)" font-size="8" text-anchor="middle">${v}</text>`; }).join('')}
+  </svg>`;
+}
+
+/* specs/019 questions, answered in one batch */
+function qblock(m) {
+  const q = m.extra;
+  if (q.sent) return `<div class="qblock"><div class="qblock-q" style="color:var(--green)">✓ Answered in one batch</div>${q.qs.map((x) => `<div class="board-dim">${esc(x.h)}: <b style="color:var(--text)">${esc(x.opts[x.sel].l)}</b></div>`).join('')}</div>`;
+  const cur = q.qs[q.at];
+  return `<div class="qblock"><div class="qblock-tabs">${q.qs.map((x, i) => `<button class="qblock-tab ${i === q.at ? 'on' : ''} ${x.sel != null ? 'ans' : ''}" data-qtab="${m.id}" data-i="${i}">${esc(x.h)}</button>`).join('')}</div>
+    <div class="qblock-q">${esc(cur.q)}</div>
+    ${cur.opts.map((o, i) => `<div class="qblock-opt ${cur.sel === i ? 'sel' : ''}" data-qopt="${m.id}" data-i="${i}"><span class="qblock-key">${'ABC'[i]}</span><div>${esc(o.l)}<div class="qblock-od">${esc(o.d)}</div></div>${o.rec ? '<span class="qblock-rec">Recommended</span>' : '<span></span>'}</div>`).join('')}
+    <div class="qblock-foot"><span>${q.qs.filter((x) => x.sel != null).length}/${q.qs.length} answered</span><button class="action-btn primary" data-act="qsend" data-id="${m.id}" ${q.qs.every((x) => x.sel != null) && canWrite() ? '' : 'disabled'}>Send all answers</button></div></div>`;
+}
+function wireQuestions() {}
+
+function renderCtx() {
+  const ctx = lookingAt().filter((c) => !S.dismissedCtx.has(c));
+  S.ctx = ctx;
+  const bits = [];
+  if (ctx.length) bits.push(`<span>looking at</span>${ctx.map((c) => `<span class="chat-cchip">${inline(c)}<button data-ctxx="${esc(c)}" title="Don't send this context">✕</button></span>`).join('')}`);
+  if (S.replyTo) bits.push(`<span>· replying in a thread</span>`);
+  $('#cCtx').innerHTML = bits.join(' ');
+  $('#cQuote').innerHTML = S.quote ? `<div class="chat-quote"><span>❝ ${esc(S.quote.replace(/@\[[a-z]+:[^|\]]+\|([^\]]+)\]/g, '$1'))}</span><button data-act="unquote">✕</button></div>` : '';
+  $('#cImgs').innerHTML = S.imgs ? `<div style="margin-top:.3rem">${'<span class="chat-img">🖼 screenshot.png <button class="board-link" data-act="unimg">✕</button></span> '.repeat(S.imgs)}</div>` : '';
+}
+function lookingAt() {
+  const out = [];
+  if (S.openCard) { const c = S.cards.find((x) => x.n === S.openCard); if (c) out.push(`@[card:odeysys#${c.n}|${short(c.title)} (#${c.n})]`); }
+  if (S.tab === 'live' && S.selCall) out.push(CALLS.find((c) => c.n === S.selCall).m);
+  if (S.askItem) out.push(S.askItem);
+  return [...new Set(out)];
+}
+const short = (t) => t.split(' ').slice(0, 4).join(' ').replace(/^[A-Z]/, (c) => c.toLowerCase());
+
+function renderComposer() {
+  const ta = $('#ta');
+  const w = canWrite();
+  ta.disabled = !w; $('#send').disabled = !w;
+  ['#btnAt', '#btnSlash', '#btnImg', '#btnSnip'].forEach((s) => ($(s).disabled = !w));
+  ta.placeholder = !w ? 'View only through the tunnel' : isCycle(S.scope) ? `Message Claude about "${nameOf(S.scope)}" - @ to mention, / for skills` : 'Message the project runner - @cycle to ask a cycle\'s Claude, / for skills';
+  $('#cHint').textContent = !w ? 'Sending works on the local Alfred' : runnerOn() ? 'Enter sends · Shift+Enter new line' : 'Claude is off - your message waits and is answered in order';
+  renderCtx();
+}
+
+/* leaving a chat remembers where you read to and what you were typing; opening it brings both back */
+function leave(k) { if (!k) return; S.readMark[k] = lastId(k); S.drafts[k] = $('#ta').value; }
+function goTo(k) {
+  if (S.scope !== k || !S.panel) { leave(S.scope); $('#ta').value = S.drafts[k] || ''; }
+  if (S.split === k) S.split = S.scope !== k ? S.scope : null;
+  S.scope = k; S.panel = true; S.unread[k] = 0; S.stick = true; S.shared = false;
+}
+
+/* the chats bar (Messenger-style): every conversation, newest first, project on top */
+/* what in this chat waits on the user: Claude's open questions, proposals, a confirm */
+function needsYou(k) {
+  let q = 0, p = 0, c = 0;
+  for (const m of S.chats[k].msgs) {
+    if (m.extra && m.extra.type === 'questions' && !m.extra.sent) q++;
+    if (m.extra && m.extra.type === 'consent' && m.extra.state === 'open') c++;
+    if (m.proposals) p += m.proposals.filter((x) => x.state === 'open' && !staleReason(x)).length;
+  }
+  const parts = [];
+  if (q) parts.push(`${q} question${q > 1 ? 's' : ''}`);
+  if (p) parts.push(`${p} proposal${p > 1 ? 's' : ''}`);
+  if (c) parts.push(`${c} to confirm`);
+  return parts.length ? parts.join(' · ') + ' waiting on you' : '';
+}
+function lastOf(k) { const ms = S.chats[k].msgs.filter((m) => m.text && m.kind !== 'sys'); return ms[ms.length - 1]; }
+function renderBar() {
+  $('#bar').classList.toggle('slim', S.barSlim);
+  $('#barSlim').textContent = S.barSlim ? '»' : '«';
+  $('#barSlim').title = S.barSlim ? 'Show names and last messages' : 'Narrow the bar to pictures only';
+  const q = S.barFind.toLowerCase();
+  const row = (k) => {
+    const m = lastOf(k); const c = CHATS[k];
+    const typing = S.chats[k].msgs.some((x) => x.live && !x.live.stopped);
+    const waiting = S.chats[k].msgs.filter((x) => x.state === 'waiting').length;
+    const un = S.unread[k] || 0;
+    const who = m ? (m.who === 'me' ? 'You: ' : '') : '';
+    const draft = k !== S.scope && S.drafts[k];
+    const need = needsYou(k);
+    const prev = need ? `<span class="bar-need">⚑ ${esc(need)}</span>` : draft ? `<span class="bar-prev"><span class="bar-draft">Draft:</span> ${esc(draft)}</span>` : typing ? '<span class="bar-prev typing"><span class="bar-typing"><i></i><i></i><i></i></span>Claude is typing…</span>'
+      : `<span class="bar-prev">${esc(who + (m ? plainOf(m.text).replace(/\n/g, ' ') : 'No messages yet'))}</span>`;
+    return `<button class="bar-item ${S.scope === k && S.panel ? 'on' : ''} ${un ? 'unread' : ''}" data-chat="${k}" data-tipname="${esc(c.name)}" data-tipline="${esc((S.on[k] ? 'Claude is on · ' : 'No Claude · ') + (typing ? 'typing…' : m ? plainOf(m.text).slice(0, 80) : ''))}">
+      <span class="bar-av ${c.kind} ${need ? 'need' : ''}">${c.av}<i class="bar-st ${S.on[k] ? 'on' : ''}"></i></span>
+      <span class="bar-txt"><span class="bar-name">${esc(c.name)}${S.mute[k] === 'muted' ? '<span class="bar-mute" title="Muted">🔕</span>' : S.mute[k] === 'important' ? '<span class="bar-mute" title="Only questions and failures">🔔!</span>' : ''}</span><span class="bar-time">${m ? esc(m.at) : ''}</span>${prev}${waiting ? `<span class="bar-wait">${waiting} waiting for Claude</span>` : ''}</span>
+      ${un ? `<span class="bar-ub">${un}</span>` : ''}</button>`;
+  };
+  const needKeys = Object.keys(CHATS).filter((k) => needsYou(k) && CHATS[k].name.toLowerCase().includes(q));
+  const cycles = Object.keys(CHATS).filter((k) => isCycle(k) && !needKeys.includes(k) && CHATS[k].name.toLowerCase().includes(q));
+  const proj = 'odeysys'.includes(q) && !needKeys.includes('project') ? row('project') : '';
+  const needHtml = needKeys.length ? `<div class="bar-sec need">Needs you · ${needKeys.length}</div>${needKeys.map(row).join('')}` : '';
+  $('#barList').innerHTML = needHtml + `${proj ? `<div class="bar-sec">Project</div>${proj}` : ''}${cycles.length ? `<div class="bar-sec">Cycles</div>${cycles.map(row).join('')}` : ''}${!proj && !cycles.length && !needKeys.length ? '<div class="board-dim" style="padding:.6rem">No chat matches.</div>' : ''}`;
+}
+
+/* where the chat sits - remembered per viewer (browser storage; a convenience, safe to lose) */
+const VIEWS = [['dock', '▥', 'Docked on the left, beside the chats bar (drag the edge to resize)'], ['wide', '◧', 'Expand - wide, the page stays beside it', 'wide-only'],
+  ['full', '⛶', 'Full screen - Esc goes back'], ['window', '⧉', 'Open in a separate window']];
+let POPOUT = location.hash === '#chat-window';
+let popWin = null;
+let chan = null;
+try { chan = new BroadcastChannel('alfred-chat'); } catch { /* the product syncs both windows over the board socket */ }
+function saveView() { try { localStorage.setItem('alfred.chat.view', JSON.stringify({ view: S.view === 'window' ? 'dock' : S.view, width: S.width, slim: S.barSlim })); } catch { /* fine */ } }
+function loadView() { try { const v = JSON.parse(localStorage.getItem('alfred.chat.view') || '{}'); if (v.view) S.view = v.view; if (v.slim != null) S.barSlim = v.slim; if (v.width) S.width = v.width; } catch { /* fine */ } }
+function setView(v) {
+  if (v === 'window') return popOut();
+  if (S.view === 'window' && popWin && !popWin.closed) popWin.close();
+  S.prevView = S.view === 'full' ? S.prevView : S.view;
+  S.view = v; S.panel = true; saveView(); renderAll();
+}
+function popOut() {
+  const url = location.href.split('#')[0] + '#chat-window';
+  popWin = window.open(url, 'alfred-chat', 'popup,width=560,height=880');
+  if (!popWin) return toast('<b>The browser blocked the window</b>Allow pop-ups for Alfred, or use ⛶ full screen.');
+  S.view = 'window'; S.panel = true; renderAll();
+  toast('<b>Chat opened in its own window</b>Put it on a second screen. Both windows show the same chat, live (over the board socket).');
+  const watch = setInterval(() => { if (popWin.closed) { clearInterval(watch); if (S.view === 'window') { S.view = 'dock'; renderAll(); } } }, 700);
+}
+if (chan) chan.onmessage = (e) => { if (e.data === 'dock' && !POPOUT) { S.view = 'dock'; S.panel = true; renderAll(); window.focus(); } };
+
+function renderAll() {
+  const away = S.view === 'window' && !POPOUT;
+  const dock = $('#dock');
+  dock.classList.toggle('closed', !S.panel && !POPOUT);
+  dock.classList.toggle('wide', S.view === 'wide' && !POPOUT);
+  dock.classList.toggle('full', S.view === 'full' && !POPOUT);
+  dock.classList.toggle('away', away);
+  dock.style.width = S.width + 'px';
+  $('.shell').classList.toggle('full', S.view === 'full' && S.panel && !POPOUT);
+  $('#chatToggle').classList.toggle('on', S.panel);
+  $('#chatToggle').firstChild.textContent = away ? '↗' : '💬';
+  renderBar();
+  if (away) {
+    renderPage();
+    dock.querySelectorAll(':scope > :not(.chat-resize)').forEach((el) => (el.hidden = true));
+    let ph = $('#away'); if (!ph) { ph = document.createElement('div'); ph.id = 'away'; dock.append(ph); }
+    ph.hidden = false;
+    ph.innerHTML = `<div style="font-size:1.6rem">⧉</div><div>The chat is open in its own window.</div><button class="action-btn primary" data-act="focusWin">Show the window</button><button class="action-btn" data-act="dockHere">Dock it here again</button>`;
+    return;
+  }
+  dock.querySelectorAll(':scope > *').forEach((el) => (el.hidden = el.id === 'away'));
+  const unread = Object.values(S.unread).reduce((a, b) => a + b, 0);
+  $('#chatBadge').hidden = !unread; $('#chatBadge').textContent = unread;
+  $('#boardBadge').hidden = !unread; $('#boardBadge').textContent = unread;
+  $('#drawer').classList.remove('beside-chat');
+  $('#drawer').style.right = '0';
+  renderPage();
+  if (S.panel) { renderHead(); renderBanners(); renderSearch(); renderStream(); renderComposer(); renderSettings(); }
+  renderSplit();
+}
+
+/* -------------------------------------------------------------- the page */
+function renderPage() {
+  document.querySelectorAll('.tab-nav a').forEach((a) => a.classList.toggle('active', a.dataset.tab === S.tab));
+  if (S.tab === 'live') return renderLive();
+  if (S.tab === 'cycles') return renderCycles();
+  const cols = ['Inbox', 'To do', 'In progress', 'Fixed', 'Verified', 'Done', 'Closed'];
+  const cards = (col) => S.cards.filter((c) => c.col === col);
+  $('#page').innerHTML = `<div class="board-page">
+    <div class="board-head"><h1>Board</h1>
+      <select id="proj"><option>odeysys</option></select>
+      <div class="board-seg"><button data-scope="project" class="${S.scope === 'project' ? 'on' : ''}">Whole project</button><button data-scope="cycle" class="${S.scope === 'cycle' ? 'on' : ''}">Cycle: ${CYCLE.name}</button></div>
+      ${S.tunnel ? '<span class="board-viewonly">View only</span>' : ''}
+    </div>
+    <div class="board-progress"><span>${S.scope === 'cycle' ? 'Acceptance 6/9 met · AC8 wrong' : '4 cycles · 2 with failing items'}</span><div class="board-pbar"><i style="width:66%;background:var(--green)"></i><i style="width:11%;background:var(--red)"></i></div></div>
+    ${S.widgets.length ? `<div class="board-widgets">${S.widgets.map((w) => `<div class="board-widget"><h5><span>📌 ${esc(w)}</span><button class="board-link" data-act="unpin">Unpin</button></h5>${chartSvg()}<div class="board-dim">Live - updates as calls arrive · from chat</div></div>`).join('')}</div>` : ''}
+    <div class="board-columns">${cols.map((col) => `<div class="board-col"><div class="board-col-head"><span>${col}</span><span class="board-col-count">${cards(col).length}</span></div>
+      ${cards(col).map(cardHtml).join('') || '<div class="board-empty">Nothing here</div>'}</div>`).join('')}</div>
+    <p class="board-dim">The chats bar on the left lists every conversation - pick one there, or use this switch (<b>Whole project</b> → the project chat, <b>Cycle</b> → the cycle's chat). Bar and chat stay on every tab.</p>
+  </div>`;
+}
+function cardHtml(c) {
+  const live = S.cardLive === c.n;
+  return `<div class="board-card ${S.flashCard === c.n ? 'flash' : ''}" data-card="${c.n}" style="${live ? 'border-color:var(--purple)' : ''}">
+    <div class="board-card-row"><span class="board-kind board-kind-${c.kind}">${c.kind}</span>${c.ai ? '<span class="board-ai" title="Added by Claude">✦</span>' : ''}<span class="board-dim">#${c.n}</span>${c.fromChat ? `<span class="board-res" title="Made from a chat message">💬 chat</span>` : ''}</div>
+    <div class="board-card-title">${esc(c.title)}</div>
+    ${c.reason ? `<div class="board-card-reason">${inline(c.reason)}</div>` : ''}
+    ${live ? '<div class="board-card-reason" style="color:var(--purple-light);font-style:normal"><span class="live-spinner"></span> Claude is fixing…</div>' : ''}
+  </div>`;
+}
+
+const CALLS = [
+  { n: 90, m: '@[call:n:90@c1|POST refunded-requests/search · 200 (call 90)]', method: 'POST', url: '/odeysysadmin/Booking2/refunded-requests/search', st: 200, t: '2,280 ms', cyc: true },
+  { n: 88, m: M.call88, method: 'POST', url: '/odeysysadmin/Booking2/refunded-requests/search', st: 500, t: '2,600 ms', cyc: true },
+  { n: 81, m: M.call81, method: 'POST', url: '/odeysysadmin/Booking2/refunded-requests/search', st: 200, t: '2,310 ms', cyc: true },
+  { n: 0, m: '@[call:5f1c2a90|GET agencies · 200]', method: 'GET', url: '/odeysysadmin/agencies?all=true', st: 200, t: '120 ms', cyc: false },
+  { n: -1, m: '@[call:9b2e7d11|GET health · 200]', method: 'GET', url: '/odeysysadmin/health', st: 200, t: '8 ms', cyc: false },
+];
+function renderLive() {
+  $('#page').innerHTML = `<div class="lc-page"><div class="lc-head"><h1>Live calls</h1><span class="board-dim">Right-click any row, statement or log line → <b>Ask Claude</b>. In a recording cycle it goes to that cycle's chat, otherwise to the project chat.</span></div>
+    ${CALLS.map((c) => `<div class="lc-row ${S.selCall === c.n ? 'sel' : ''}" data-call="${c.n}"><span class="lc-m">${c.method}</span><span class="lc-s ${c.st >= 500 ? 'bad' : 'ok'}">${c.st}</span><span class="lc-u">${esc(c.url)}</span><span class="lc-cyc">${c.cyc ? '● ' + CYCLE.name : '<span class="board-dim">not in a cycle</span>'}</span><span class="lc-t">${c.t}</span><button class="action-btn lc-ask" data-ask="${c.n}" title="Ask Claude about this call">💬 Ask Claude</button></div>
+    ${S.openCall === c.n ? `<div class="lc-detail"><h5>Database statements</h5>
+      <div class="lc-sub" data-sub="stmt"><code>SELECT r.* FROM REFUND_REQUEST r JOIN AGENCY_BRANCH b ON … WHERE r.AGENCY IN (?, ?, ?)</code><button class="action-btn lc-ask" data-asksub="${esc(M.st408)}">💬 Ask Claude</button></div>
+      <h5>Log lines</h5>
+      <div class="lc-sub" data-sub="log"><code>ERROR c.o.b.BranchFilter - NullPointerException: branchIds is null</code><button class="action-btn lc-ask" data-asksub="${esc(M.log1)}">💬 Ask Claude</button></div></div>` : ''}`).join('')}
+  </div>`;
+}
+function renderCycles() {
+  $('#page').innerHTML = `<div class="lc-page"><div class="lc-head"><h1>Session cycles</h1></div>
+    <div class="lc-row" style="grid-template-columns:1fr auto auto"><span><b>${CYCLE.name}</b> <span class="board-dim">· recording · 90 calls</span></span><span class="board-dim">Claude chat ●</span><button class="action-btn" data-tab-go="board">Open board</button></div>
+    <div class="lc-row" style="grid-template-columns:1fr auto auto"><span><b>Refund export</b> <span class="board-dim">· 31 calls</span></span><span class="board-dim">no Claude</span><button class="action-btn">Open board</button></div>
+    <p class="board-dim">Here the chat shows the project chat (no cycle is open).</p></div>`;
+}
+
+/* --------------------------------------------------------------- drawer */
+function openDrawer(n) {
+  const c = S.cards.find((x) => x.n === n);
+  if (!c) return;
+  S.openCard = n;
+  const d = $('#drawer');
+  d.innerHTML = `<div class="board-drawer-head"><button class="board-drawer-x" data-act="closeDrawer">✕</button>
+    <div class="board-card-row"><span class="board-kind board-kind-${c.kind}">${c.kind}</span><span class="board-dim">#${c.n} · ${c.col}</span></div>
+    <h2 class="board-drawer-title">${esc(c.title)}</h2></div>
+    <div class="board-drawer-body">
+      <section><h4>Description</h4><div class="board-desc">${c.desc ? md(c.desc) : '<span class="board-dim">No description.</span>'}</div></section>
+      ${c.fromChat ? `<section><h4>From chat</h4>${chip('chat', c.fromChat.ref, c.fromChat.label)} <span class="board-dim">opens the chat at that message</span></section>` : ''}
+      <section><h4>Activity</h4>${(c.comments || []).map((x) => `<div class="board-ev-who"><b style="color:var(--text)">${x.who}</b> · ${x.at}${x.via ? `<span class="chat-origin" title="Answered with the cycle chat's memory: the terminal's work + the chat">${esc(x.via)}</span>` : ''}</div>${x.live ? liveBox(x.live) : `<div class="board-ev-body" style="margin-bottom:.3rem">${md(x.text)}</div>`}${x.lines || ''}`).join('') || '<span class="board-dim">Created ' + now() + '</span>'}</section>
+      <section><div class="board-editor"><textarea id="cardTa" placeholder="Comment - answered by the cycle chat's Claude session (it knows the terminal's work and the chat)"></textarea></div>
+        <div class="chat-crow"><span class="grow">${S.on.cycle ? 'Claude answers here, with the chat\'s memory' : 'No Claude on the cycle - your comment waits'}</span><button class="action-btn primary" data-act="cardComment" data-id="${c.n}">Comment</button></div></section>
+      <p class="board-dim">The chat's "looking at" chip now carries this card - ask "is this fixed?" and Claude knows which card.</p>
+    </div>`;
+  d.classList.add('open');
+  renderAll();
+}
+/* FR-060: a card comment is answered by the cycle chat's session - same memory, posted on the card */
+async function cardComment(n, text) {
+  if (!text.trim() || !canWrite()) return;
+  const card = S.cards.find((x) => x.n === n);
+  (card.comments ||= []).push({ who: 'You', at: now(), text });
+  const scope = 'cycle';
+  if (!S.on[scope]) { openDrawer(n); return toast('<b>Waiting</b>No Claude on the cycle - answered when its chat session starts.'); }
+  const ans = { who: 'Claude', at: now(), via: "cycle chat's session", live: { steps: ['board_wait → your comment on #' + n, 'resumes the cycle chat session (knows the terminal + chat)'], secs: 2, draft: '' } };
+  card.comments.push(ans); openDrawer(n);
+  await sleep(900); ans.live.steps.push('board_reply'); openDrawer(n);
+  await sleep(900);
+  delete ans.live;
+  const utc = /utc|date/i.test(text);
+  ans.text = utc ? `Yes - same thing we settled in the chat at 12:31 and the terminal changed DateFilter.java for: dates compare in UTC. This card is that bug's symptom.` : `Seen with the chat's context: ${M.call81} still returns 3 branches, so this is ${M.c49} again - linked.`;
+  const it = sendToTerm(`card #${n} · Q: "${text.slice(0, 80)}" → A: ${plainOf(ans.text)}`, false, 'exchange', true);
+  ans.lines = `<div class="chat-auto term"><span class="ic">→</span><span>mirrored to your terminal session in full</span><span class="st">rides its next turn</span></div>`;
+  S.chats.cycle.msgs.push({ id: nid(), kind: 'sys', text: `↳ answered your comment on #${n} (on the card) - same session, mirrored to the terminal`, at: now(), termItem: it });
+  S.meter = { input: 12800, cached: 12100, output: 210, mirror: 300, saved: 0, why: '' };
+  openDrawer(n);
+}
+function closeDrawer() { S.openCard = null; $('#drawer').classList.remove('open'); S.dismissedCtx.clear(); renderAll(); }
+
+/* ---------------------------------------------------------- sending & Claude */
+function send(text, opts = {}) {
+  text = text.trim();
+  if (!text && !S.imgs) return;
+  if (!canWrite()) return;
+  const scope = opts.scope || S.scope;
+  const c = S.chats[scope];
+  const slash = /^\/alfred-[a-z-]+/.exec(text);
+  const bridge = scope === 'project' && /^@cycle\b/i.test(text);
+  const m = me(text, { ctx: opts.ctx ?? S.ctx.slice(), origin: opts.origin || (slash ? 'skill ' + slash[0] : bridge ? 'asks cycle chat' : undefined) });
+  m.quote = S.quote; m.imgs = S.imgs; m.state = 'waiting'; m.urgent = S.urgentNext; S.urgentNext = false; S.drafts[scope] = '';
+  S.quote = null; S.imgs = 0; S.askItem = null; S.dismissedCtx.clear();
+  c.msgs.push(m); bump(scope);
+  S.stick = true;
+  renderAll();
+  if (bridge) return bridgeAsk(m);
+  if (S.on[scope]) queue(scope);
+}
+function bump(scope) {
+  const c = S.chats[scope];
+  c.since++;
+  if (c.autoOn && c.since >= c.autoN) { c.since = c.autoN; setTimeout(() => compact(scope, true), 400); }
+}
+
+/* one queue per Claude, in arrival order (card comments share it in the product) */
+const busy = {};
+async function queue(scope) {
+  if (busy[scope]) return;
+  busy[scope] = true;
+  try {
+    for (;;) {
+      while ((S.cardBusy[scope] || 0) > Date.now()) { await sleep(300); }
+      if (!S.on[scope]) break;
+      const pend = pending(scope);
+      const next = pend[0];
+      if (!next) break;
+      // FR-055c: messages waiting together are answered in one run - one context read, each keeps its own reply
+      if (pend.length > 1 && !next.oneRun) pend.forEach((m, i) => { m.oneRun = `one run · ${pend.length} messages`; if (i > 0) m.oneRunSaved = 13000; });
+      next.handled = true; next.state = 'answering';
+      await answer(scope, next);
+    }
+  } finally { busy[scope] = false; }
+}
+
+/* the line for one Claude: urgent first, then arrival order (card comments share it in the product) */
+function pending(scope) {
+  const all = S.chats[scope].msgs.filter((m) => m.who === 'me' && m.state === 'waiting' && !m.handled);
+  return [...all.filter((m) => m.urgent), ...all.filter((m) => !m.urgent)];
+}
+function lineOf(m, scope) {
+  const i = pending(scope).indexOf(m);
+  if (i < 0) return 0;
+  const ahead = i + ((S.cardBusy[scope] || 0) > Date.now() ? 1 : 0) + (S.chats[scope].msgs.some((x) => x.state === 'answering') ? 1 : 0);
+  return ahead + 1;
+}
+const nth = (n) => n + (n % 10 === 1 && n !== 11 ? 'st' : n % 10 === 2 && n !== 12 ? 'nd' : n % 10 === 3 && n !== 13 ? 'rd' : 'th');
+
+/* a new copy of the terminal session: the chat continues from it */
+function refork(note) {
+  const T = S.term;
+  T.forkAt = now(); T.seenUpTo = T.newer || now(); T.newer = null; T.chatSession = Math.random().toString(16).slice(2, 10);
+  S.chats.cycle.msgs.push({ id: nid(), kind: 'sys', text: note, at: now() });
+}
+/* FR-050/051: one item for the terminal session - in board_wait as "From the board chat"; held while no terminal is open */
+function sendToTerm(text, urgent, why, mirror) {
+  const it = { id: nid(), text, urgent: !!urgent, why: why || '', mirror: !!mirror, at: now(), state: !S.term.open ? 'held' : !urgent ? 'next-turn' : 'sent' };
+  S.term.items.push(it);
+  return it.id;
+}
+/* every 10 messages that recorded something, a summary goes to the terminal (and on every compact) */
+function countRecording() { /* every exchange is mirrored now (FR-050) - no separate batches */ }
+function batchToTerm(why) {
+  // the terminal already has every exchange in full - a compact sends only a pointer to the summary
+  const sum = [...S.chats.cycle.msgs].reverse().find((m) => m.kind === 'summary');
+  if (!sum) return;
+  sendToTerm(`the chat was compacted - summary at chat_read ${sum.id} (you already have the messages it covers)`, false, why);
+  S.chats.cycle.msgs.push({ id: nid(), kind: 'sys', text: '→ told your terminal session the chat was compacted (a pointer, not the text again)', at: now() });
+}
+
+async function answer(scope, q) {
+  const c = S.chats[scope];
+  const plan = reply(q.text, scope);
+  // FR-052: the terminal did significant work since the chat's copy - take a new copy before answering
+  if (scope === 'cycle' && S.term.newer && S.term.open) {
+    if (S.term.compacted) {
+      plan.steps = ['re-copy the terminal session (it compacted itself)', ...plan.steps];
+      refork(`↻ re-copied terminal session · ${S.term.newer} - it compacted itself, so a delta would not line up; the chat messages it lacked came along`);
+      S.term.compacted = false; plan.saved = null;
+    } else {
+      plan.steps = ['add the terminal\'s new entries (delta, +6.2k)', ...plan.steps];
+      refork(`↻ caught up with terminal session · ${S.term.newer} - added its 14 new entries (+6.2k), not a re-copy`);
+      plan.saved = { n: 113800, why: 'delta catch-up instead of re-copy' };
+    }
+  }
+  q.live = { steps: [], secs: 0, draft: '' };
+  const run = { stop: false, q };
+  S.run = run;
+  for (const s of plan.steps) {
+    if (run.stop || !S.on[scope]) break;
+    q.live.steps.push(s); q.live.secs += 1 + Math.floor(Math.random() * 2);
+    if (S.scope === scope && S.panel) renderStream();
+    renderBar();
+    await sleep(520);
+  }
+  if (!run.stop && S.on[scope]) {
+    const words = plan.text.match(/@\[[^\]]+\]|\s+|[^\s@]+|@/g) || [];
+    for (let i = 0; i < Math.min(words.length, 22); i += 3) {
+      q.live.draft = words.slice(0, i + 3).join(''); if (S.scope === scope && S.panel) renderStream(); await sleep(70);
+    }
+  }
+  if (run.stop || !S.on[scope]) {
+    q.live.stopped = true; q.state = S.on[scope] ? 'stopped' : 'waiting'; if (!S.on[scope]) { q.handled = false; }
+    renderAll(); return;
+  }
+  delete q.live;
+  q.state = 'answered';
+  const r = cl(plan.text, { steps: plan.steps, proposals: plan.proposals, extra: plan.extra });
+  if (plan.records) r.records = plan.records.map((x) => ({ ...x, id: nid() }));
+  if (q.oneRun) r.origin = q.oneRun;
+  const inTok = 12000 + Math.floor(Math.random() * 4000);
+  S.meter = { input: inTok, cached: inTok - 900, output: 300 + Math.floor(Math.random() * 500), mirror: scope === 'cycle' ? 420 : 0,
+    saved: plan.saved ? plan.saved.n : q.oneRunSaved || (scope === 'cycle' && !S.term.busy ? 12400 : 0),
+    why: plan.saved ? plan.saved.why : q.oneRunSaved ? 'one run for waiting messages' : 'mirror rides the terminal\'s next turn' };
+  if (plan.toTerm && scope === 'cycle') r.sent = plan.toTerm.map((x) => sendToTerm(x.text, x.urgent, x.why));
+  // FR-050: every exchange is mirrored into the terminal in full prose - one item, bulky parts as references
+  if (scope === 'cycle' && q.origin !== 'from project chat') (r.sent ||= []).push(sendToTerm(`Q: "${plainOf(q.text).slice(0, 90)}" → A: ${plainOf(r.text).replace(/\n/g, ' ')}${r.extra && /visual|diff|compare|fix/.test(r.extra.type) ? ` · ${r.extra.type} as a reference (chat_read ${r.id}#${r.extra.type})` : ''}`, false, 'exchange', true));
+  if (plan.bulk) r.bulk = true;
+  c.msgs.push(r); bump(scope);
+  if (plan.after) plan.after(r);
+  arrived(scope, r);
+  renderAll();
+}
+
+function arrived(scope, r) {
+  const visible = S.panel && (S.scope === scope || S.split === scope);
+  const level = S.mute[scope] || 'all';
+  const important = (r.extra && r.extra.type === 'questions') || /\b5\d\d\b|ERROR|fail/i.test(plainOf(r.text || ''));
+  if (level === 'muted' || (level === 'important' && !important)) return;
+  if (!visible) {
+    S.unread[scope]++;
+    toast(`<b>Claude replied · ${esc(nameOf(scope))}</b>${esc(plainOf(r.text).slice(0, 110))}`, () => { S.panel = true; S.scope = scope; S.unread[scope] = 0; S.stick = true; renderAll(); }, true);
+    if (S.notify) toast('<b>🔔 Browser notification</b>Shown by the browser while Alfred is in the background.', null, true);
+  }
+}
+const plainOf = (t) => t.replace(/@\[[a-z]+:[^|\]]+\|([^\]]+)\]/g, '$1').replace(/\*\*/g, '');
+
+/* canned replies - each shows one capability */
+function reply(t, scope) {
+  const s = t.toLowerCase();
+  const base = ['task_context', 'board_wait → your message'];
+  if (s.startsWith('/alfred-')) {
+    const name = s.split(/\s/)[0];
+    return { steps: [...base, `runs ${name} in this session`, 'board_status', 'board_list'],
+      text: `**${name}** - ran in this session.\n**Waits on you:** 1 question on ${M.c49}, 3 proposals below, Inbox has 4 cards.\n**Claude is on:** ${M.c47} (In progress).\n**Blocked:** none.` };
+  }
+  if (s.startsWith('ask again')) return { steps: [...base, 'call_logs 81, 88', 'db_statements 81', 'read_spec AC8', 'diff_calls 75 81'],
+    text: `With the logs and SQL: ${M.call88} logged ${M.log1} at the line that reads \`branchIds\`; ${M.st408} for ${M.call81} has no branch condition, and ${M.call75} (before the build) had none either - it only looked right because one agency had one branch. So ${M.ac8} has been wrong since before the build.` };
+  if (s.startsWith('**answers**')) return { steps: [...base, 'board_ask_get (your answers)', 'plans the change'],
+    text: `Got both: UTC, search and export together. I'll change the date filter in one place and add a re-test plan on ${M.c49} for the dates.` };
+  if (/sort them|same problem|bulk/.test(s)) return { steps: [...base, 'board_list status=INBOX', 'board_similar ×4', 'board_closed_reasons'], bulk: true,
+    text: `Three of the four Inbox cards are ${M.c47} again; one is new. Tick what you agree with:`,
+    proposals: [
+      { id: 'b1', text: `#52 "Branch dropdown repeats Head office" → link as duplicate of ${M.c47}`, state: 'open', checked: true, card: 52 },
+      { id: 'b2', text: `#53 "Agencies list shows other branches" → link as duplicate of ${M.c47}`, state: 'open', checked: true, card: 53 },
+      { id: 'b3', text: `#54 "Dropdown loads every agency at once" → move to To do (it is the cause of #47)`, state: 'open', checked: false, card: 54 },
+      { id: 'b4', text: `#51 "Search is 2 s slower" → keep in Inbox - a different problem (${M.call81})`, state: 'open', checked: true, card: 51 },
+    ] };
+  if (/resend/.test(s)) return { steps: [...base, 'get_call 75', 'prepare resend (backend-resend)'],
+    text: `Prepared a resend of ${M.call75} with one change. It goes out only after you confirm.`,
+    extra: { type: 'consent', kind: 'resend', state: 'open', summary: `**POST** /odeysysadmin/Booking2/refunded-requests/search\nBody change: \`"branchId": 2\` → \`"branchId": 3\` · headers and cookies as recorded`, doneText: 'Sent - new call 91 logged: POST refunded-requests/search · 200' } };
+  if (/503|rule/.test(s)) return { steps: [...base, 'rule_recipes', 'rule_preview'],
+    text: `Drafted an interception rule. Nothing changes until you confirm.`,
+    extra: { type: 'consent', kind: 'rule', state: 'open', summary: `**When** outbound call to \`api.supplier.example\` · **then** answer \`503 Service Unavailable\` · **for** the next 3 calls, then off\nPreview: would have matched 2 of the last 10 supplier calls.`, doneText: 'Rule live - "Supplier 503 ×3" · ends after 3 hits' } };
+  if (/^@terminal\b|tell the terminal/.test(s)) {
+    const what = t.replace(/^@terminal\s*/i, '').replace(/^tell the terminal (to )?/i, '');
+    return { steps: [...base, 'send to the terminal session (you addressed it)'], text: `Sent to your terminal session as urgent - it reads it before its next step.`,
+      toTerm: [{ text: `from you: "${what}"`, urgent: true, why: 'addressed to it' }] };
+  }
+  if (/local time|instead of utc/.test(s)) return { steps: [...base, 'reads the brief: Decisions', 'board_set_brief (decision)'],
+    text: `Agreed: dates in **agency local time**. That reverses this morning's UTC decision - and your terminal session changed \`DateFilter.java\` for UTC at 10:20, so I sent it a warning.`,
+    records: [{ text: 'recorded the decision "dates in agency local time" in the brief (replaces "dates in UTC")' }],
+    toTerm: [{ text: 'decision "dates in agency local time" contradicts the UTC change you made in DateFilter.java - read before your next step', urgent: true, why: 'contradicts its work' }] };
+  if (/date picker|shows yesterday/.test(s)) return { steps: [...base, 'board_similar', 'board_add (Inbox)'],
+    text: `New problem - not like any open or closed card. Added it to the Inbox for you to sort.`,
+    records: [{ text: 'added @[card:odeysys#56|date picker shows yesterday (#56)] to the Inbox' }],
+    after: () => S.cards.push({ n: 56, kind: 'BUG', col: 'Inbox', title: 'Date picker shows yesterday', ai: true }) };
+  if (/still open|later|not sure yet/.test(s)) return { steps: [...base, 'board_set_brief (next)'],
+    text: `I'll leave that open - noted in the brief's Next so whoever picks this up asks first.`,
+    records: [{ text: 'added "decide the export file name format" to Next in the brief' }] };
+  if (/why did you change branchfilter/.test(s)) return { steps: [...base, 'reads its own memory (the terminal copy)'],
+    text: `This morning we found the UI sends \`branchId\` but the filter read \`branchIds\`, so it filtered nothing. I changed line 42 of ${M.code1} to read the singular field - the fix for ${M.c49}.` };
+  if (/what did we decide about the dates/.test(s)) return { steps: [...base, 'reads its own memory + the brief'],
+    text: `Compare in UTC - you agreed at 10:15 in the terminal session. It wasn't in the brief, so I recorded it.`,
+    records: [{ text: 'recorded the decision "dates are compared in UTC" in the brief' }] };
+  if (/^fix\b|fix #49/.test(s)) return { steps: [...base, 'board_get #49', 'board_evidence', 'locate_source BranchFilter', 'edit 2 files', 'board_fix', 'board_retest_plan'],
+    text: `Fixed ${M.c49}: the filter read \`branchIds\` but the UI sends \`branchId\`, and the query had no branch condition.`,
+    extra: { type: 'fix' }, after: () => { const c = S.cards.find((x) => x.n === 49); c.col = 'Fixed'; },
+    records: [{ text: `added the fix report to ${M.c49} and set its re-test plan` }],
+    toTerm: [{ text: 'the chat changed BranchFilter.java and RefundSearchService.java - files you edited this morning; pull before you edit them', urgent: true, why: 'changed files it works on' }] };
+  if (/chart|visual|duration/.test(s)) return { steps: [...base, 'search_cycle refunded-requests/search', 'board_snippet_view'],
+    text: `Durations jump from ~300 ms to ~2.3 s from ${M.call81} on - the new build added a join (see ${M.c51}).`, extra: { type: 'visual' } };
+  if (/differ|diff/.test(s)) return { steps: [...base, 'diff_calls 75 81'],
+    text: `Same request, different query: ${M.call81} joins AGENCY_BRANCH and returns every branch.`, extra: { type: 'diff' } };
+  if (/compare/.test(s)) return { steps: [...base, 'list_cycles', 'compare_cycles'], text: `Compared with **Branch search (14 Oct)**:`, extra: { type: 'compare' } };
+  if (/report/.test(s)) return { steps: [...base, 'board_report', 'board_page_put'], text: `Wrote the status report as a board page: 6/9 items met, 2 bugs open, 1 fixed waiting for re-test.`, extra: { type: 'report' } };
+  if (/tell me when/.test(s)) {
+    const label = /500/.test(s) ? 'any 500 happens' : 'AC8 passes';
+    return { steps: [...base, 'set watch (event-driven)'], text: `I'll post here once when **${label}**, then the watch ends. It is listed at the top of the chat.`,
+      after: () => S.chats[scope].tells.push({ id: nid(), label }) };
+  }
+  if (/met by|checklist/.test(s)) return { steps: [...base, 'get_call 12', 'board_requirements'], text: `${M.call12} shows page 2 with 20 rows - matches ${M.ac3}.`,
+    proposals: [{ id: 'k1', text: `Mark ${M.ac3} **met**, evidence ${M.call12}`, state: 'open' }] };
+  if (/acceptance item/.test(s)) return { steps: [...base, 'read_spec', 'board_edit_spec (proposal)'], text: `Proposed a new acceptance item for **spec.md**:`, records: [{ text: 'proposed AC10 "export keeps the branch filter" - waits for you to accept' }],
+    proposals: [{ id: 's1', text: `**AC10** · Export keeps the branch filter - evidence: GET refund-export with \`branchId\`, ROWS_MATCH_FILTER branch`, state: 'open' }] };
+  if (/date filter|what should we do/.test(s)) return { steps: [...base, 'board_ask'], text: `Two choices before I touch the date filter:`,
+    extra: { type: 'questions', at: 0, qs: [
+      { h: 'Timezone', q: 'Which timezone should the date filter use?', sel: null, opts: [{ l: 'UTC', d: 'Matches the decision already taken', rec: true }, { l: 'Agency local time', d: 'Each agency sees its own day' }] },
+      { h: 'Scope', q: 'Fix only the search, or the export too?', sel: null, opts: [{ l: 'Both', d: 'One change, same filter code', rec: true }, { l: 'Search only', d: 'Export later' }] },
+    ] } };
+  if (/is this fixed|fixed\?/.test(s)) return { steps: [...base, 'board_get (from looking-at)', 'board_retest'], text: `Not yet - ${M.call90 || '@[call:n:90@c1|call 90]'} after the fix still returned 3 branches. The re-test of ${M.c49} shows 1 of 3 expectations failing.` };
+  if (scope === 'project') return { steps: [...base, 'list_cycles', 'board_requirements ×4'], text: `Across the project: **Branch search** ${M.ac8} wrong, **Refund export** AC2 missing. Ask a cycle's Claude with \`@cycle <name>: …\`.` };
+  return { steps: [...base, 'check_calls since 81', 'investigate_call 88', 'db_statement 408'],
+    text: `Because the SQL never filters by branch: ${M.st408} has \`WHERE AGENCY IN (…)\` only. ${M.call81} sent \`branchId=2\`, which ${M.code1} ignores (it reads \`branchIds\`). That is ${M.c49}; ${M.ac8} stays wrong.` };
+}
+
+/* project → cycle bridge: one record, shown in both chats */
+async function bridgeAsk(m) {
+  const q = m.text.replace(/^@cycle\s*/i, '').replace(/^branch search:\s*/i, '');
+  const inCycle = me(q, { origin: 'from project chat' });
+  inCycle.state = S.on.cycle ? 'answering' : 'waiting';
+  S.chats.cycle.msgs.push(inCycle); bump('cycle');
+  m.state = 'answering'; m.text += `\n> sent to cycle **${CYCLE.name}** - its Claude answers in both chats`;
+  renderAll();
+  if (!S.on.cycle) { m.state = 'waiting'; renderAll(); return; }
+  inCycle.handled = true;
+  await answer('cycle', inCycle);
+  const last = S.chats.cycle.msgs[S.chats.cycle.msgs.length - 1];
+  last.origin = 'answer also in project chat';
+  m.state = 'answered';
+  S.chats.project.msgs.push(cl(last.text, { origin: `from cycle "${CYCLE.name}"` }));
+  arrived('project', last);
+  renderAll();
+}
+
+/* compaction: Claude writes the summary, nothing is deleted */
+async function compact(scope, auto) {
+  const c = S.chats[scope];
+  if (!S.on[scope]) { c.msgs.push({ id: nid(), kind: 'sys', text: `${auto ? 'Auto-compact' : 'Compact'} waiting - runs when Claude starts`, at: now() }); renderAll(); return; }
+  const tmp = cl('', {}); tmp.live = { title: 'Compacting', steps: ['reads the messages since the last summary', 'keeps decisions, findings, open questions'], secs: 3, draft: '' };
+  tmp.text = auto ? `Auto-compact - ${c.autoN} messages since the last summary.` : 'Compacting on your request.';
+  c.msgs.push(tmp); renderAll();
+  await sleep(1400);
+  const idx = c.msgs.map((m) => m.kind).lastIndexOf('summary');
+  const prev = idx >= 0 ? c.msgs[idx] : null;
+  const from = idx >= 0 ? idx + 1 : 0;
+  // a message still waiting or being answered is never folded - it stays below the summary
+  const span = c.msgs.slice(from).filter((m) => m !== tmp);
+  const inFlight = (m) => m.state === 'waiting' || m.state === 'answering' || m.live;
+  const folded = span.filter((m) => m.kind !== 'sys' && !inFlight(m));
+  const kept = span.filter(inFlight);
+  // the earlier summary is folded into the new one: one fold, everything before it kept
+  c.msgs = c.msgs.slice(0, idx >= 0 ? idx : 0).filter((m) => m !== tmp);
+  const prevCovers = prev ? prev.covers : 0;
+  c.msgs.push({ id: nid(), kind: 'summary', who: 'claude', at: now(), covers: folded.length + prevCovers, old: [...(prev ? prev.old : []), ...folded],
+    text: `**Compacted · ${folded.length + prevCovers} messages folded**\n**Decisions:** AC8 stays WRONG until one branch returns only its rows · Dates in UTC.\n**Findings:** ${M.c49} fixed, waiting for re-test · ${M.c51} new (join added in the build).\n**Open:** confirm the 2 s slowdown after the fix.\nA new Claude chat on this cycle starts from here.` });
+  c.msgs.push(...kept);
+  c.since = kept.length;
+  if (scope === 'cycle') batchToTerm('compact');
+  renderAll();
+}
+
+function jumpCheck() { const st = $('#stream'); $('#jump').hidden = S.shared || st.scrollHeight - st.scrollTop - st.clientHeight < 160; }
+
+/* 🗂 Shared: everything the chat mentions, grouped, newest first - like Messenger's shared media */
+function sharedHtml(k) {
+  const groups = { call: 'Calls', stmt: 'Statements', log: 'Log lines', card: 'Cards', spec: 'Acceptance items and spec files', code: 'Code', page: 'Pages and reports', chat: 'Chat messages' };
+  const seen = {}; const out = {};
+  const walk = (m) => {
+    for (const x of String(m.text || '').matchAll(/@\[([a-z]+):([^|\]]+)\|([^\]]+)\]/g)) {
+      const key = x[1] + ':' + x[2]; if (seen[key]) continue; seen[key] = 1;
+      (out[x[1]] ||= []).push({ chip: chip(x[1], x[2], x[3]), id: m.id, at: m.at });
+    }
+    if (m.extra && m.extra.type === 'visual') (out.visual ||= []).push({ chip: '<span class="board-mention">📊 Search duration chart</span>', id: m.id, at: m.at });
+    if (m.extra && m.extra.type === 'report') (out.page ||= []).push({ chip: chip('page', 'c1/status-report', 'page: status report'), id: m.id, at: m.at });
+    if (m.imgs) (out.file ||= []).push({ chip: '<span class="board-mention">🖼 screenshot.png</span>', id: m.id, at: m.at });
+    (m.replies || []).forEach(walk); (m.old || []).forEach(walk);
+  };
+  [...S.chats[k].msgs].reverse().forEach(walk);
+  groups.visual = 'Visuals'; groups.file = 'Images and files';
+  const keys = Object.keys(groups).filter((g) => out[g]);
+  if (!keys.length) return '<div class="board-empty">Nothing shared in this chat yet.</div>';
+  return `<div class="board-dim" style="margin-bottom:.6rem">Everything this chat mentions - folded messages too. ↗ jumps to the message.</div>` + keys.map((g) => `<div class="shared-group"><h5><span>${groups[g]}</span><span>${out[g].length}</span></h5>${out[g].map((r) => `<div class="shared-row">${r.chip}<span class="board-dim">${esc(r.at)}</span><button class="board-link" data-act="jumpTo" data-id="${r.id}" title="Show the message">↗</button></div>`).join('')}</div>`).join('');
+}
+
+/* ◫ a second chat beside the first: read it, send to it; clicking into it makes it the main one */
+function renderSplit() {
+  const d2 = $('#dock2');
+  const k = S.split;
+  $('.shell').classList.toggle('split', !!k && S.panel && S.view !== 'window' && !POPOUT);
+  if (!k || !S.panel || S.view === 'window' || POPOUT) { d2.hidden = true; return; }
+  d2.hidden = false;
+  const save = S.scope; S.scope = k;
+  const msgs = S.chats[k].msgs.slice(-12).map((m) => renderMsg(m, false)).join('');
+  const c = CHATS[k];
+  S.scope = save;
+  d2.innerHTML = `<div class="chat-head"><div class="chat-title"><span class="chat-scope ${c.kind}">${c.kind === 'cycle' ? 'Cycle' : 'Project'}</span><b>${esc(c.name)}</b>
+      <div class="chat-x"><select class="board-select" id="splitPick" title="Which chat">${Object.keys(CHATS).filter((x) => x !== save).map((x) => `<option value="${x}" ${x === k ? 'selected' : ''}>${esc(CHATS[x].name)}</option>`).join('')}</select>
+      <button class="chat-icon" data-act="splitMain" title="Make this the main chat">⇆</button><button class="chat-icon" data-act="splitClose" title="Close the second chat">✕</button></div></div>
+      <div class="chat-runner"><span class="board-pulse ${S.on[k] ? '' : 'off'}"></span>${S.on[k] ? 'Claude is on' : 'No Claude - messages wait'}<span class="board-dim" style="margin-left:auto">last 12 · ⇆ for everything</span></div></div>
+    <div class="chat-stream" id="stream2">${msgs}</div>
+    <div class="chat-dock2-foot"><input id="ta2" placeholder="Message ${esc(c.name)}…" ${canWrite() ? '' : 'disabled'}><button class="action-btn primary" data-act="send2" ${canWrite() ? '' : 'disabled'}>Send</button></div>`;
+  const st2 = $('#stream2'); st2.scrollTop = st2.scrollHeight;
+  $('#splitPick').onchange = (e) => { S.split = e.target.value; renderAll(); };
+  $('#ta2').onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); act('send2', {}); } };
+}
+
+/* Ctrl+K: jump to any chat by name */
+function quickSwitch() {
+  dialog(`<h2>Go to a chat</h2><input class="qs-input" id="qs" placeholder="Type a cycle or project name…"><div class="qs-list" id="qsList"></div><p class="board-dim" style="margin-top:.6rem">↑↓ to choose · Enter opens · Esc closes</p>`);
+  let sel = 0;
+  const draw = () => {
+    const q = $('#qs').value.toLowerCase();
+    const ks = Object.keys(CHATS).filter((k) => CHATS[k].name.toLowerCase().includes(q));
+    sel = Math.min(sel, Math.max(0, ks.length - 1));
+    $('#qsList').innerHTML = ks.map((k, i) => `<div class="picker-row ${i === sel ? 'sel' : ''}" data-qs="${k}"><span class="bar-av ${CHATS[k].kind}" style="width:26px;height:26px;font-size:.62rem">${CHATS[k].av}</span><span>${esc(CHATS[k].name)}</span><span class="d" style="margin-left:auto">${S.on[k] ? '● Claude on' : 'no Claude'}${S.unread[k] ? ` · ${S.unread[k]} new` : ''}${needsYou(k) ? ' · ⚑ needs you' : ''}</span></div>`).join('') || '<div class="board-dim">No chat matches.</div>';
+    return ks;
+  };
+  let ks = draw();
+  const qs = $('#qs'); qs.focus();
+  qs.oninput = () => { sel = 0; ks = draw(); };
+  qs.onkeydown = (e) => {
+    if (e.key === 'ArrowDown') { sel = Math.min(sel + 1, ks.length - 1); ks = draw(); e.preventDefault(); }
+    if (e.key === 'ArrowUp') { sel = Math.max(sel - 1, 0); ks = draw(); e.preventDefault(); }
+    if (e.key === 'Enter' && ks[sel]) { closeDialog(); goTo(ks[sel]); renderAll(); }
+  };
+  $('#qsList').onclick = (e) => { const r = e.target.closest('[data-qs]'); if (r) { closeDialog(); goTo(r.dataset.qs); renderAll(); } };
+}
+
+/* ↻ ask again with more context */
+function againDialog(m) {
+  dialog(`<h2>Ask again</h2><p class="sub">Claude answers the same question again with more to go on. The first answer stays, marked "asked again".</p>
+    <label class="f">Add</label>
+    <label style="display:flex;gap:.4rem;font-size:.82rem"><input type="checkbox" id="agLogs" checked> the call's log lines</label>
+    <label style="display:flex;gap:.4rem;font-size:.82rem"><input type="checkbox" id="agSql" checked> its SQL statements</label>
+    <label style="display:flex;gap:.4rem;font-size:.82rem"><input type="checkbox" id="agSpec"> the spec's acceptance items</label>
+    <label class="f">And (optional)</label><input type="text" id="agText" placeholder="e.g. compare with yesterday's build">
+    <div class="dialog-foot"><button class="action-btn" data-act="dlgClose">Cancel</button><button class="action-btn primary" data-act="againGo" data-id="${m.id}">Ask again</button></div>`);
+}
+
+function offerUndo(props, before, what) {
+  let done = false;
+  const t = document.createElement('div'); t.className = 'toast';
+  t.innerHTML = `<b>${esc(what)}</b>Applied as you. <button class="action-btn" style="margin-left:.4rem">Undo</button> <span class="board-dim" id="undoT">5</span>`;
+  $('#toasts').append(t);
+  let n = 5; const iv = setInterval(() => { n--; const el = t.querySelector('#undoT'); if (el) el.textContent = n; if (n <= 0) { clearInterval(iv); t.remove(); } }, 1000);
+  t.querySelector('button').onclick = (e) => {
+    e.stopPropagation(); if (done) return; done = true; clearInterval(iv); t.remove();
+    props.forEach((p) => (p.state = 'open'));
+    before.forEach((b) => { const c = S.cards.find((x) => x.n === b.n); if (c) { c.col = b.col; c.reason = b.reason; } });
+    renderAll(); toast('<b>Undone</b>Back as it was - the proposals are open again.');
+  };
+}
+async function explainMore(m) {
+  const tmp = { id: nid(), who: 'claude', text: '', at: now(), live: { steps: ['❓ on its answer', 'reads the call again'], secs: 2, draft: '' } };
+  (m.replies ||= []).push(tmp); m.open = true; renderStream();
+  await sleep(1300);
+  delete tmp.live;
+  tmp.text = `More simply: the screen sends **one** branch, the code waits for a **list** of branches, finds none, and so filters nothing - every branch comes back. ${M.code1} is where it reads the list.`;
+  renderStream();
+}
+
+/* ------------------------------------------------------------- settings */
+function renderSettings() {
+  const c = chat();
+  const w = canWrite();
+  $('#settings').innerHTML = `<h6>${isCycle(S.scope) ? 'Cycle' : 'Project'} chat settings</h6>
+    <label><input type="checkbox" id="stAuto" ${c.autoOn ? 'checked' : ''} ${w ? '' : 'disabled'}> Auto-compact every <input type="number" id="stN" min="20" max="1000" value="${c.autoN}" ${w ? '' : 'disabled'}> messages</label>
+    <div class="note">Claude writes a summary; older messages fold under it and stay searchable and in the export.</div>
+    <label>Since-you-left digest after <input type="number" id="stGap" min="5" max="600" value="${c.gap}" ${w ? '' : 'disabled'}> min away</label>
+    <div class="note">Built by Alfred, no model; shown once per return.</div>
+    <div class="note" style="margin-left:0">Docked on the left beside the chats bar. ◧ expand, ⛶ full screen and ⧉ separate window are in the header; remembered in this browser.</div>
+    <label>Notify me <select id="stMute" class="board-select"><option value="all" ${(S.mute[S.scope] || 'all') === 'all' ? 'selected' : ''}>for every reply</option><option value="important" ${S.mute[S.scope] === 'important' ? 'selected' : ''}>only questions and failures</option><option value="muted" ${S.mute[S.scope] === 'muted' ? 'selected' : ''}>never (muted)</option></select></label>
+    <div class="note">This chat only. Muted: no unread count, no pop-up - it still shows in the bar.</div>
+    <label><input type="checkbox" id="stNotify" ${S.notify ? 'checked' : ''}> Browser notification when Claude replies or asks</label>
+    <div class="note">Only in this browser.</div>
+    <div class="dialog-foot" style="margin-top:.5rem"><button class="action-btn danger" data-act="clearInfo" ${w ? '' : 'disabled'}>Clear chat…</button><button class="action-btn primary" data-act="settingsClose">Done</button></div>`;
+  const a = $('#stAuto'), n = $('#stN'), g = $('#stGap'), nt = $('#stNotify');
+  if (a) a.onchange = () => { c.autoOn = a.checked; renderHead(); };
+  if (n) n.onchange = () => { c.autoN = Math.max(20, +n.value || 100); renderHead(); };
+  if (g) g.onchange = () => { c.gap = +g.value || 30; };
+  const mu = $('#stMute'); if (mu) mu.onchange = () => { S.mute[S.scope] = mu.value; renderHead(); renderBar(); };
+  if (nt) nt.onchange = () => { S.notify = nt.checked; if (S.notify) toast('<b>Notifications on</b>The browser asked once for permission.'); };
+}
+
+/* ------------------------------------------------------------- dialogs */
+function dialog(html) { $('#dlgCard').innerHTML = html; $('#dlg').classList.add('open'); }
+function closeDialog() { $('#dlg').classList.remove('open'); }
+function toast(html, onClick, notif) {
+  const t = document.createElement('div'); t.className = 'toast' + (notif ? ' notif' : ''); t.innerHTML = html;
+  t.onclick = () => { if (onClick) onClick(); t.remove(); };
+  $('#toasts').append(t); setTimeout(() => t.remove(), 6000);
+}
+function findMsg(id) {
+  for (const sc of Object.keys(S.chats)) for (const m of S.chats[sc].msgs) { if (m.id === id) return m; for (const r of m.replies || []) if (r.id === id) return r; }
+  return null;
+}
+
+function makeCardDialog(m) {
+  dialog(`<h2>New card from chat</h2><p class="sub">Prefilled from the message - its mentions come along. The card links back to the message.</p>
+    <label class="f">Kind</label><select id="nkKind"><option>BUG</option><option>TASK</option><option>NOTE</option><option>QUESTION</option></select>
+    <label class="f">Title</label><input type="text" id="nkTitle" value="${esc(plainOf(m.text).split(/[.\n]/)[0].slice(0, 80))}">
+    <label class="f">Description</label><textarea id="nkDesc">${esc(m.text)}</textarea>
+    <div class="board-dim" style="margin-top:.4rem">Linked: ${chip('chat', `${S.scope}/${m.id}`, `chat · ${m.who === 'me' ? 'your' : "Claude's"} message · ${m.at}`)}</div>
+    <div class="dialog-foot"><button class="action-btn" data-act="dlgClose">Cancel</button><button class="action-btn primary" data-act="nkSave" data-id="${m.id}">Add to Inbox</button></div>`);
+}
+function postDialog(m) {
+  dialog(`<h2>Post to a card</h2><p class="sub">Adds Claude's reply to the card's history as a comment, with a link back to the chat.</p>
+    <label class="f">Card</label><select id="pcCard">${S.cards.map((c) => `<option value="${c.n}">#${c.n} · ${esc(c.title)}</option>`).join('')}</select>
+    <label class="f">As</label><select id="pcAs"><option>Found</option><option>Did</option><option>Next</option></select>
+    <label class="f">Text (trim to the part you want)</label><textarea id="pcText">${esc(m.text)}</textarea>
+    <div class="dialog-foot"><button class="action-btn" data-act="dlgClose">Cancel</button><button class="action-btn primary" data-act="pcSave" data-id="${m.id}">Post comment</button></div>`);
+}
+function consentDialog(m) {
+  const x = m.extra;
+  dialog(`<h2>${x.kind === 'resend' ? 'Send this request?' : 'Turn this rule on?'}</h2>
+    <p class="sub">${x.kind === 'resend' ? 'Claude prepared it from the chat. It goes out through the proxy as a new logged call.' : 'Claude drafted it from the chat. Proxied calls that match are changed.'}</p>
+    ${x.kind === 'resend' ? `<dl class="kv"><dt>Original</dt><dd>${inline(M.call75)}</dd><dt>Method · URL</dt><dd><code>POST /odeysysadmin/Booking2/refunded-requests/search</code></dd><dt>Changed</dt><dd><code>branchId: 2 → 3</code></dd><dt>Kept</dt><dd>headers, cookies, rest of body</dd></dl>`
+      : `<dl class="kv"><dt>Match</dt><dd><code>host = api.supplier.example</code> (outbound)</dd><dt>Action</dt><dd>answer <code>503 Service Unavailable</code></dd><dt>Limit</dt><dd>next 3 matching calls, then off</dd><dt>Preview</dt><dd>2 of the last 10 supplier calls would match</dd></dl>`}
+    <div class="dialog-flagged-note">${x.kind === 'resend' ? 'This sends a real request to the application.' : 'This changes live traffic for every caller of the supplier.'}</div>
+    <div class="dialog-foot"><button class="action-btn" data-act="dlgClose">Cancel</button><button class="action-btn primary" data-act="consentYes" data-id="${m.id}">${x.kind === 'resend' ? 'Send' : 'Turn on'}</button></div>`);
+}
+function reportDialog() {
+  dialog(`<h2>Branch search - status report</h2><p class="sub">Board page written by Claude · ${now()}</p>
+    <div class="board-desc">${md(`**Acceptance:** 6/9 met · ${M.ac8} wrong · AC9 not tried\n**Bugs:** ${M.c49} fixed, waiting for re-test · ${M.c47} in progress · ${M.c51} new\n**Next:** re-run the one-branch search after the deploy.`)}</div>
+    <div class="dialog-foot"><button class="action-btn" data-act="exportReport">Export .md</button><button class="action-btn primary" data-act="dlgClose">Close</button></div>`);
+}
+function coverageDialog() {
+  const items = [
+    ['FR-001', 'One chat per cycle, one per project', 'Board → switch Whole project / Cycle', 'P1', () => {}],
+    ['FR-002', 'Cycle chat → owning Claude chat; project chat → project runner', 'Send a message in each', 'P1', () => say('Why did the branch search return all branches?')],
+    ['FR-003', 'Chat and card comments in arrival order', 'Turn Claude off, send 2, turn on', 'P1', () => { $('#mkCycleOn').click(); }],
+    ['FR-004', 'Waiting + start steps; project waits for its runner', 'Untick "Claude chat holds cycle"', 'P1', () => $('#mkCycleOn').click()],
+    ['FR-005', 'Live steps + Stop', 'Send anything, press Stop', 'P1', () => say('Why did the branch search return all branches?')],
+    ['FR-006', 'Edit / cancel while waiting; quote', 'Claude off → Edit/Cancel; hover → ❝ Quote', 'P1', () => {}],
+    ['FR-007', 'Same composer: mentions, refs, images, snippets', '@, 🖼, { } in the composer', 'P1', () => { $('#ta').value = '@'; openPicker('@'); }],
+    ['FR-008', 'Reply threads', 'Hover a message → ↩ Reply; "2 replies"', 'P1', () => {}],
+    ['FR-009', 'Search incl. folded', '🔍 → type "UTC"', 'P1', () => { S.searchOpen = true; S.search = 'UTC'; renderAll(); }],
+    ['FR-010', 'Message → card; chat: mention', 'Hover → ＋ Card; card drawer → From chat', 'P1', () => {}],
+    ['FR-011', 'Unread badge + browser notification', '"Reply while panel closed"', 'P1', () => $('#mkUnread').click()],
+    ['FR-012', 'Persisted, exported, removed with cycle', 'see plan (storage)', 'P1', () => {}],
+    ['FR-013', 'Mentioned calls kept from storage limits', 'see plan (storage)', 'P1', () => {}],
+    ['FR-014', 'Compact: summary, originals folded not deleted', '⇊ in the header; open the fold', 'P1', () => compact(S.scope, false)],
+    ['FR-015', 'Auto-compact every N (100), editable, can be off', '"Reach auto-compact" · ⚙ settings', 'P1', () => $('#mkFill').click()],
+    ['FR-016', 'Handover gets summary + later messages', '"New Claude chat takes over"', 'P1', () => $('#mkHand').click()],
+    ['FR-017', 'Global dock follows scope', 'Live Calls / Session Cycles tabs', 'P1', () => { S.tab = 'live'; S.scope = 'project'; renderAll(); }],
+    ['FR-018', 'Tunnel read-only', 'Tick "View through tunnel"', 'P1', () => $('#mkTunnel').click()],
+    ['FR-019', "Claude's board limits", 'proposals instead of closing; Verified stays yours', 'P1', () => {}],
+    ['FR-020', 'Looking-at context chip, removable', 'Open a card, see the chip above the box', 'P2', () => openDrawer(49)],
+    ['FR-021', 'Ask Claude from calls, statements, log lines', 'Live Calls → 💬 Ask Claude / right-click', 'P2', () => { S.tab = 'live'; renderAll(); }],
+    ['FR-022', '/ skills (13, not live/listen)', 'Type / in the composer', 'P2', () => { $('#ta').value = '/'; openPicker('/'); }],
+    ['FR-023', 'Since-you-left digest (≥30 min, built by Alfred)', '"Return after 45 min"', 'P2', () => $('#mkAway').click()],
+    ['FR-024', 'Decisions handed to every later session', 'Hover → ★', 'P2', () => {}],
+    ['FR-025', 'Grouped questions, one batch', '"Questions" reply', 'P2', () => say('What should we do about the date filter?')],
+    ['FR-026', 'Proposals + bulk, re-checked (stale)', '"Bulk" reply · "#47 moved to Done"', 'P3', () => say('These Inbox cards look like the same problem as #47 - sort them')],
+    ['FR-027', 'Reply → card comment', "Hover Claude's reply → → Card comment", 'P3', () => {}],
+    ['FR-028', 'Resend / rule through consent', '"Resend" or "Rule" reply', 'P3', () => say('Resend call 75 with branchId=2')],
+    ['FR-029', 'Fix report + re-test plan', '"Fix" reply', 'P3', () => say('Fix #49')],
+    ['FR-030', 'Watch while I test, batches, listen runner too', '◉ then "Calls arrive"', 'P4', () => { chat().watch = true; renderAll(); $('#mkBatch').click(); }],
+    ['FR-031', 'Tell me when… (event, once, chips)', '"Tell me when" then "AC8 passes"', 'P4', () => say('Tell me when AC8 passes')],
+    ['FR-032', 'Live visuals, pin as widget', '"Visual" reply → 📌', 'P4', () => say('Chart the durations of the search calls')],
+    ['FR-033', 'Call diff, cycle compare', '"Diff" / "Compare" replies', 'P4', () => say('Why does call 75 differ from call 81?')],
+    ['FR-034', 'Report page', '"Report" reply', 'P4', () => say('Write a status report for this cycle')],
+    ['FR-035', 'Project ↔ cycle bridge, both chats', 'Whole project → "@cycle Branch search: is AC8 done?"', 'P4', () => { S.scope = 'project'; S.on.project = true; $('#mkProjOn').checked = true; renderAll(); say('@cycle Branch search: is AC8 done?'); }],
+  ];
+  S.cov = items;
+  dialog(`<h2>Spec coverage</h2><p class="sub">Every requirement of specs/022 and where to try it in this mock. "Show" runs it.</p>
+    <div class="cov-list">${items.map((it, i) => `<div class="cov-item"><b>${it[0]}</b><div>${esc(it[1])}<div class="board-dim">${esc(it[2])}</div></div><div><span class="ph">${it[3]}</span> <button class="action-btn" data-cov="${i}">Show</button></div></div>`).join('')}</div>
+    <div class="dialog-foot"><button class="action-btn primary" data-act="dlgClose">Close</button></div>`);
+}
+function say(text) { closeDialog(); S.panel = true; renderAll(); $('#ta').value = text; send(text); $('#ta').value = ''; }
+
+/* -------------------------------------------------------------- picker */
+const SKILLS = [
+  ['/alfred-ask', 'Answer a question asked from the board'], ['/alfred-connect', 'Connect Claude Code to an Alfred'], ['/alfred-fix', 'Fix the cards you choose'],
+  ['/alfred-guide', 'How to use Alfred with Claude'], ['/alfred-report', 'Summary for a stand-up, PR or hand-over'], ['/alfred-review', 'Review a recorded cycle against the spec'],
+  ['/alfred-setup', 'Check Alfred is connected and capturing'], ['/alfred-spec', 'Write the brief or spec files'], ['/alfred-status', 'Where everything stands'],
+  ['/alfred-sync', 'Catch up with what you did on the board'], ['/alfred-triage', 'Sort the Inbox together'], ['/alfred-update-skills', 'Update the skills to this Alfred'],
+  ['/alfred-verify', 'Re-test Fixed cards against live calls'],
+];
+const MENTIONS = [
+  ['Calls (cycle numbering)', [[M.call75, 'call 75'], [M.call81, 'call 81'], [M.call88, 'call 88']]],
+  ['Acceptance items', [[M.ac8, 'AC8'], [M.ac3, 'AC3']]],
+  ['Cards', [[M.c47, '#47'], [M.c49, '#49'], [M.c51, '#51']]],
+  ['Statements', [[M.st408, 'stmt 408']]], ['Log lines', [[M.log1, 'ERROR …']]],
+  ['Chat messages', [['@[chat:cycle/' + 905 + "|chat · Claude's answer · 12:21 PM]", "Claude's answer 12:21"]]],
+];
+let pick = { kind: null, i: 0, rows: [] };
+function openPicker(kind) {
+  const p = $('#picker');
+  const q = ($('#ta').value.match(kind === '/' ? /^\/(\S*)$/ : /@(\S*)$/) || [])[1] || '';
+  let h = '', rows = [];
+  if (kind === '/') {
+    const list = SKILLS.filter(([k]) => k.includes(q));
+    h += '<h6>Skills - run by this chat\'s Claude in its own session</h6>' + list.map(([k, d], i) => { rows.push(k + ' '); return `<div class="picker-row" data-pick="${i}"><span class="k">${k}</span><span class="d">${esc(d)}</span></div>`; }).join('');
+    h += '<div class="picker-hint">/alfred-live and /alfred-listen are not listed - they are what runs this chat.</div>';
+  } else {
+    for (const [g, list] of MENTIONS) {
+      const f = list.filter(([v, k]) => (v + k).toLowerCase().includes(q.toLowerCase()));
+      if (!f.length) continue;
+      h += `<h6>${g}</h6>` + f.map(([v]) => { const i = rows.length; rows.push(v + ' '); return `<div class="picker-row" data-pick="${i}">${inline(v)}</div>`; }).join('');
+    }
+    h += '<div class="picker-hint">Same picker as card comments · ↑↓ Enter</div>';
+  }
+  if (!rows.length) return closePicker();
+  pick = { kind, i: 0, rows };
+  p.innerHTML = h; p.classList.add('open');
+  hiPick();
+}
+function hiPick() { document.querySelectorAll('.picker-row').forEach((r, i) => r.classList.toggle('sel', i === pick.i)); }
+function closePicker() { $('#picker').classList.remove('open'); pick.kind = null; }
+function choosePick(i) {
+  const ta = $('#ta');
+  ta.value = pick.kind === '/' ? pick.rows[i] : ta.value.replace(/@\S*$/, pick.rows[i]);
+  closePicker(); ta.focus();
+}
+
+/* -------------------------------------------------------------- events */
+document.addEventListener('click', (e) => {
+  const t = e.target.closest('[data-act],[data-tab],[data-scope],[data-card],[data-fold],[data-thread],[data-steps],[data-filter],[data-ctxx],[data-copy],[data-pick],[data-qtab],[data-qopt],[data-call],[data-ask],[data-asksub],[data-cov],[data-say],[data-tab-go],[data-view],[data-chat],.board-mention');
+  if (!t) { if (!e.target.closest('#menu')) $('#menu').classList.remove('open'); if (!e.target.closest('#settings,[data-act=settings]')) $('#settings').classList.remove('open'); return; }
+  $('#menu').classList.remove('open');
+  const d = t.dataset;
+  if (t.classList.contains('board-mention')) return openMention(d.ref, d.label);
+  if (d.view) return setView(d.view);
+  if (d.chat) { if (S.scope === d.chat && S.panel && S.view !== 'window') { leave(S.scope); S.panel = false; return renderAll(); } goTo(d.chat); return renderAll(); }
+  if (d.tab) { if (d.tab === 'x') return toast('<b>Mock</b>Only Live Calls, Session Cycles and Board are drawn here - the chat stays docked on every tab.'); S.tab = d.tab; if (d.tab !== 'board') S.scope = d.tab === 'live' && S.selCall > 0 ? 'cycle' : 'project'; return renderAll(); }
+  if (d.tabGo) { S.tab = 'board'; S.scope = 'cycle'; return renderAll(); }
+  if (d.scope) { goTo(d.scope); return renderAll(); }
+  if (d.card) return openDrawer(+d.card);
+  if (d.fold) { const f = chat().openFolds; const id = +d.fold; f.has(id) ? f.delete(id) : f.add(id); if (d.digest) { const m = findMsg(id); m.read = true; } return renderStream(); }
+  if (d.thread) { const m = findMsg(+d.thread); m.open = !m.open; return renderStream(); }
+  if (d.steps) { const m = findMsg(+d.steps); m.showSteps = !m.showSteps; return renderStream(); }
+  if (d.filter) { S.filter = d.filter; renderSearch(); return renderStream(); }
+  if (d.ctxx) { S.dismissedCtx.add(d.ctxx); if (S.askItem === d.ctxx) S.askItem = null; return renderCtx(); }
+  if (d.copy) return toast(`<b>Copied</b><code>${esc(d.copy)}</code>`);
+  if (d.pick != null) return choosePick(+d.pick);
+  if (d.qtab) { const m = findMsg(+d.qtab); m.extra.at = +d.i; return renderStream(); }
+  if (d.qopt) { const m = findMsg(+d.qopt); if (!canWrite()) return; const q = m.extra.qs[m.extra.at]; q.sel = +d.i; if (m.extra.at < m.extra.qs.length - 1) m.extra.at++; return renderStream(); }
+  if (d.call != null && !e.target.closest('[data-ask]')) { const n = +d.call; S.selCall = n; S.openCall = S.openCall === n ? null : n; S.scope = CALLS.find((c) => c.n === n).cyc ? 'cycle' : 'project'; return renderAll(); }
+  if (d.ask != null) return askAbout(CALLS.find((c) => c.n === +d.ask));
+  if (d.asksub) { S.askItem = d.asksub; S.scope = 'cycle'; S.panel = true; renderAll(); return $('#ta').focus(); }
+  if (d.cov != null) { const it = S.cov[+d.cov]; closeDialog(); return it[4](); }
+  if (d.say) return say(d.say);
+  act(d.act, d, t);
+});
+
+function act(a, d, t) {
+  const c = chat();
+  const m = d.id ? findMsg(+d.id) : null;
+  switch (a) {
+    case 'viewMenu': {
+      const r = t.getBoundingClientRect(); const menu = $('#menu');
+      menu.innerHTML = VIEWS.map(([v, icon, tip, cls]) => `<button data-view="${v}" class="${cls || ''}">${icon}&nbsp; ${esc(tip)}${S.view === v ? ' ✓' : ''}</button>`).join('') + '<div class="sep"></div><div class="board-dim" style="padding:.2rem .6rem">Ctrl+Shift+F full screen · Esc back</div>';
+      menu.style.left = Math.max(8, Math.min(r.left, innerWidth - 330)) + 'px'; menu.style.top = r.bottom + 4 + 'px'; menu.classList.add('open');
+      return;
+    }
+    case 'memory': return memoryDialog();
+    case 'cardComment': return cardComment(+d.id, $('#cardTa').value);
+    case 'refreshFork': refork(`↻ caught up with terminal session · ${S.term.newer || now()} (you asked) - only its new entries were added`); S.stick = true; return renderAll();
+    case 'continueTerm': return dialog(`<h2>Continue in a terminal</h2><p class="sub">Opens this chat's whole conversation - ${S.scope === 'cycle' ? "the terminal session's memory up to the copy, plus everything said here" : "everything said here"} - in Claude Code. The board chat keeps working; new chat messages go to the chat's own copy.</p>
+      <div class="term-preview">on ${esc(S.runnerHost)}:\ncd C:\\projects\\odeysys\nclaude --resume ${S.term.chatSession}</div><p class="board-dim">The chat's session lives on ${esc(S.runnerHost)} - run this there.</p>
+      <div class="dialog-foot"><button class="action-btn" data-act="dlgClose">Close</button><button class="action-btn primary" data-copy="claude --resume ${S.term.chatSession}">Copy command</button></div>`);
+    case 'termItems': {
+      const T = S.term;
+      const rows = T.items.map((it) => `<div class="term-row"><span>${it.urgent ? '<span class="chat-auto term urgent" style="margin:0"><span class="st urg">urgent</span></span>' : '<span class="board-dim">batched</span>'}</span><span>${inline(it.text)}<div class="board-dim">${esc(it.at)} · ${esc(it.why)}</div></span><span class="board-dim">${it.state === 'sent' ? 'sent' : it.state}</span>${(it.state === 'sent' || it.state === 'held') && canWrite() ? `<button class="action-btn" data-act="undoSent" data-r="${it.id}">Undo</button>` : '<span></span>'}</div>`).join('') || '<div class="board-empty">Nothing sent yet. Only what affects the terminal session\'s work goes there.</div>';
+      const urgent = T.items.filter((i) => i.urgent && i.state !== 'undone');
+      const live = T.items.filter((i) => i.state !== 'undone').slice(-4);
+      const preview = live.length ? live.map((i) => `${i.urgent ? '⚡ from the board chat · act on it before your next step' : '💬 from the board chat'}\n${plainOf(i.text)}`).join('\n\n') : '(nothing yet)';
+      return dialog(`<h2>Sent to your terminal session</h2><p class="sub">Every exchange, in full prose (SQL, diffs, charts as references it can open), one item each, through the chat log it already follows. ⚡ urgent: decisions that contradict its work, chat changes to its files, messages you address to it.</p>
+        ${rows}<label class="f">What the terminal session reads (board_wait / board_changes / task_context)</label><div class="term-preview">${esc(preview)}</div>
+        <div class="dialog-foot"><button class="action-btn primary" data-act="dlgClose">Close</button></div>`);
+    }
+    case 'undoRec': { const r = (m.records || []).find((x) => x.id === +d.r); if (r) { r.undone = true; S.chats[S.scope].msgs.push({ id: nid(), kind: 'sys', text: `↩ undone: ${plainOf(r.text)}`, at: now() }); if (/#56/.test(r.text)) S.cards = S.cards.filter((x) => x.n !== 56); } return renderAll(); }
+    case 'undoSent': { const it = S.term.items.find((x) => x.id === +d.r); if (it) { it.state = 'undone'; toast('<b>Taken back</b>The terminal session will not see it.'); } closeDialog(); return renderAll(); }
+    case 'urgent': m.urgent = true; renderAll(); return toast('<b>⚡ Answer first</b>It goes ahead of everything waiting for this Claude - after the step it is on now.');
+    case 'react': {
+      m.reacts ||= {}; m.reacts[d.r] = m.reacts[d.r] ? 0 : 1; renderStream();
+      if (d.r === '❓' && m.reacts['❓']) explainMore(m);
+      return;
+    }
+    case 'again': return againDialog(m);
+    case 'againGo': {
+      const adds = [$('#agLogs').checked && 'log lines', $('#agSql').checked && 'SQL', $('#agSpec').checked && 'acceptance items'].filter(Boolean);
+      const extra = $('#agText').value.trim();
+      closeDialog(); m.superseded = true;
+      const c2 = S.chats[S.scope]; const i = c2.msgs.indexOf(m);
+      const q = [...c2.msgs.slice(0, i)].reverse().find((x) => x.who === 'me');
+      return send(`Ask again${adds.length ? ' with ' + adds.join(', ') : ''}${extra ? ' - ' + extra : ''}: ${q ? plainOf(q.text).slice(0, 120) : ''}`, { origin: '↻ asked again' });
+    }
+    case 'shared': S.shared = !S.shared; return renderAll();
+    case 'jumpTo': { S.shared = false; renderAll(); const el = document.getElementById('m' + d.id); if (el) { el.scrollIntoView({ block: 'center' }); el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 2500); } else toast('<b>In a compacted fold</b>Open the fold to read it.'); return; }
+    case 'split': { if (S.split) { S.split = null; return renderAll(); } S.split = Object.keys(CHATS).find((k) => k !== S.scope && k === 'project') || Object.keys(CHATS).find((k) => k !== S.scope); return renderAll(); }
+    case 'splitClose': S.split = null; return renderAll();
+    case 'splitMain': { const k = S.split; S.split = S.scope; goTo(k); S.split = S.split === k ? null : S.split; return renderAll(); }
+    case 'send2': { const v = $('#ta2').value; if (!v.trim()) return; $('#ta2').value = ''; return send(v, { scope: S.split, ctx: [] }); }
+    case 'close': leave(S.scope); S.panel = false; if (S.view === 'full') S.view = S.prevView || 'dock'; return renderAll();
+    case 'focusWin': if (popWin && !popWin.closed) popWin.focus(); else { S.view = 'dock'; renderAll(); } return;
+    case 'dockHere': return setView('dock');
+    case 'dockBack': if (S.fakePop) { S.fakePop = false; POPOUT = false; document.body.classList.remove('popout'); S.view = 'dock'; return renderAll(); }
+      if (chan) chan.postMessage('dock'); if (window.opener) { try { window.opener.focus(); } catch { /* fine */ } } return window.close();
+    case 'search': S.searchOpen = !S.searchOpen; if (!S.searchOpen) { S.search = ''; S.filter = 'all'; } return renderAll();
+    case 'searchClose': S.searchOpen = false; S.search = ''; S.filter = 'all'; return renderAll();
+    case 'settings': renderSettings(); return $('#settings').classList.toggle('open');
+    case 'settingsClose': return $('#settings').classList.remove('open');
+    case 'clearInfo': $('#settings').classList.remove('open');
+      return dialog(`<h2>Clear this chat?</h2><p class="sub">You asked for Compact instead of deleting: Compact folds everything under a Claude summary and keeps it. Clearing is not offered - the history is the context a new Claude chat starts from.</p><div class="dialog-foot"><button class="action-btn" data-act="dlgClose">Close</button><button class="action-btn primary" data-act="compactFromDlg">Compact now</button></div>`);
+    case 'compactFromDlg': closeDialog(); return compact(S.scope, false);
+    case 'compact': return compact(S.scope, false);
+    case 'watch': c.watch = !c.watch; c.msgs.push({ id: nid(), kind: 'sys', text: c.watch ? 'Watch on - this Claude checks calls as they arrive, one message per batch' : 'Watch off', at: now() }); return renderAll();
+    case 'watchOff': c.watch = false; c.msgs.push({ id: nid(), kind: 'sys', text: 'Watch off', at: now() }); return renderAll();
+    case 'tellOff': c.tells = c.tells.filter((x) => x.id !== +d.id); return renderAll();
+    case 'stop': if (S.run) S.run.stop = true; return;
+    case 'edit': S.editing = +d.id; renderStream(); return $('#editTa')?.focus();
+    case 'editCancel': S.editing = null; return renderStream();
+    case 'editSave': m.text = $('#editTa').value; m.edited = true; S.editing = null; return renderStream();
+    case 'cancel': m.state = 'cancelled'; m.handled = true; return renderAll();
+    case 'reply': S.replyTo = +d.id; m.open = true; renderStream(); return $('#replyTa')?.focus();
+    case 'replyCancel': S.replyTo = null; return renderStream();
+    case 'replySend': return threadReply(m, $('#replyTa').value);
+    case 'quote': S.quote = m.text.split('\n')[0].slice(0, 160); renderCtx(); return $('#ta').focus();
+    case 'unquote': S.quote = null; return renderCtx();
+    case 'unimg': S.imgs = Math.max(0, S.imgs - 1); return renderCtx();
+    case 'card': return makeCardDialog(m);
+    case 'nkSave': {
+      const n = Math.max(...S.cards.map((x) => x.n)) + 1;
+      S.cards.push({ n, kind: $('#nkKind').value, col: 'Inbox', title: $('#nkTitle').value, desc: $('#nkDesc').value, fromChat: { ref: `${S.scope}/${m.id}`, label: `chat · ${m.who === 'me' ? 'your' : "Claude's"} message · ${m.at}` } });
+      closeDialog(); S.flashCard = n; S.tab = 'board'; renderAll(); setTimeout(() => (S.flashCard = null), 2500);
+      return toast(`<b>Card #${n} added to Inbox</b>It links back to the message - open it and click "From chat".`);
+    }
+    case 'decision': m.decision = !m.decision; renderStream(); return toast(m.decision ? '<b>★ Decision</b>Handed to every later Claude session on this cycle (task_context).' : '<b>Decision removed</b>');
+    case 'post': return postDialog(m);
+    case 'pcSave': {
+      const card = S.cards.find((x) => x.n === +$('#pcCard').value);
+      (card.comments ||= []).push({ who: 'Claude (from chat)', at: now(), text: `**${$('#pcAs').value}:** ${$('#pcText').value}\n${chip('chat', `${S.scope}/${m.id}`, 'from chat')}` });
+      closeDialog(); return toast(`<b>Posted to #${card.n}</b>As a comment with a link back to the chat.`, () => openDrawer(card.n));
+    }
+    case 'link': return toast(`<b>Mention copied</b><code>@[chat:${S.scope}/${d.id}|chat · ${m.at}]</code><br>Paste it in a card - the chip opens the chat here.`);
+    case 'accept': case 'decline': {
+      const p = m.proposals.find((x) => x.id === d.p);
+      if (a === 'accept' && staleReason(p)) { renderStream(); return toast(`<b>Not applied</b>${esc(staleReason(p))} - checked again on Accept.`); }
+      const before = S.cards.map((x) => ({ n: x.n, col: x.col, reason: x.reason }));
+      p.state = a === 'accept' ? 'accepted' : 'declined';
+      if (a === 'accept' && /Move .*#49|In progress/.test(p.text)) { const cc = S.cards.find((x) => x.n === 49); cc.col = 'In progress'; }
+      if (a === 'accept') offerUndo([p], before, 'Accepted');
+      if (a === 'accept' && /AC10/.test(p.text)) toast('<b>AC10 added to spec.md</b>Judged by its calls from now on.');
+      return renderAll();
+    }
+    case 'bulkAccept': case 'bulkAll': case 'bulkDecline': {
+      const before = S.cards.map((x) => ({ n: x.n, col: x.col, reason: x.reason }));
+      const changed = m.proposals.filter((p) => p.state === 'open' && !staleReason(p) && (a === 'bulkAll' || (a === 'bulkAccept' && p.checked)));
+      if (a !== 'bulkDecline' && changed.length) setTimeout(() => offerUndo(changed, before, `Accepted ${changed.length}`), 0);
+      for (const p of m.proposals) {
+        if (p.state !== 'open' || staleReason(p)) continue;
+        if (a === 'bulkAll' || (a === 'bulkAccept' && p.checked)) { p.state = 'accepted'; if (/duplicate/.test(p.text)) { const cc = S.cards.find((x) => x.n === p.card); if (cc) { cc.col = 'Closed'; cc.reason = `Duplicate of ${M.c47}`; } } if (/To do/.test(p.text)) { const cc = S.cards.find((x) => x.n === p.card); if (cc) cc.col = 'To do'; } }
+        else if (a === 'bulkDecline' && !p.checked) p.state = 'declined';
+      }
+      return renderAll();
+    }
+    case 'consent': return consentDialog(m);
+    case 'consentNo': m.extra.state = 'declined'; return renderStream();
+    case 'consentYes': m.extra.state = 'done'; closeDialog(); renderStream(); return toast(`<b>${m.extra.kind === 'resend' ? 'Sent' : 'Rule on'}</b>${esc(m.extra.doneText)}`);
+    case 'pin': m.extra.pinned = true; S.widgets.push('Search duration per call'); renderAll(); return toast('<b>Pinned</b>On the board above the columns, live.');
+    case 'unpin': S.widgets = []; return renderAll();
+    case 'openReport': return reportDialog();
+    case 'exportReport': return toast('<b>Export</b>branch-search-status-report.md written to your export folder.');
+    case 'qsend': { m.extra.sent = true; const ans = m.extra.qs.map((x) => `${x.h}: "${x.opts[x.sel].l}"`).join(' · ');
+      const am = me(`**Answers** ${ans}`, {}); am.state = runnerOn() ? 'answering' : 'waiting'; c.msgs.push(am); bump(S.scope); renderAll(); queue(S.scope);
+      return toast('<b>Sent</b>All answers in one batch.'); }
+    case 'closeDrawer': return closeDrawer();
+    case 'dlgClose': return closeDialog();
+  }
+}
+
+async function threadReply(m, text) {
+  if (!text.trim()) return;
+  const r = me(text, {}); r.state = S.on[S.scope] ? 'answered' : 'waiting';
+  m.replies.push(r); S.replyTo = null; m.open = true; bump(S.scope); renderStream();
+  if (!S.on[S.scope]) return;
+  const live = { steps: ['board_wait → thread reply', 'reads this thread only'], secs: 2, draft: '' };
+  const tmp = { id: nid(), who: 'claude', text: '', at: now(), live };
+  m.replies.push(tmp); renderStream();
+  await sleep(1200);
+  delete tmp.live; tmp.text = `In this thread: yes - ${M.call81} body has \`"branchId": 2\`, so the fix reads the singular field.`;
+  renderStream();
+}
+
+function askAbout(call) {
+  S.selCall = call.n; S.askItem = call.m; S.scope = call.cyc ? 'cycle' : 'project'; S.panel = true; S.dismissedCtx.clear();
+  renderAll(); $('#ta').focus();
+  toast(`<b>Ask Claude</b>${call.cyc ? `Goes to the chat of cycle "${CYCLE.name}" - the call was captured there.` : 'Not in a recording cycle → the project chat.'}`);
+}
+
+function openMention(ref, label) {
+  if (ref.startsWith('card:')) { const n = +ref.split('#')[1]; if (S.cards.find((c) => c.n === n)) return openDrawer(n); }
+  if (ref.startsWith('chat:')) {
+    const [scope, id] = ref.slice(5).split('/');
+    S.scope = scope === 'project' ? 'project' : 'cycle'; S.panel = true; renderAll();
+    const el = document.getElementById('m' + id);
+    if (el) { el.scrollIntoView({ block: 'center' }); el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 2500); }
+    return;
+  }
+  if (ref.startsWith('page:')) return reportDialog();
+  toast(`<b>Opens as today</b>${esc(label)} - the same popup/viewer as on cards (call card, DB window, spec viewer at the item, code).`);
+}
+
+/* right-click → Ask Claude */
+document.addEventListener('contextmenu', (e) => {
+  const row = e.target.closest('[data-call],.lc-sub,.chat-msg');
+  if (!row) return;
+  e.preventDefault();
+  const menu = $('#menu');
+  if (row.dataset.call != null) {
+    const call = CALLS.find((c) => c.n === +row.dataset.call);
+    menu.innerHTML = `<button data-ask="${call.n}">💬 Ask Claude about this call</button><div class="sep"></div><button data-act="dlgClose">Open call</button><button data-act="dlgClose">Add to cycle</button>`;
+  } else if (row.classList.contains('lc-sub')) {
+    const v = row.querySelector('[data-asksub]').dataset.asksub;
+    menu.innerHTML = `<button data-asksub="${esc(v)}">💬 Ask Claude about this ${row.dataset.sub === 'stmt' ? 'statement' : 'log line'}</button>`;
+  } else return;
+  menu.style.left = e.clientX + 'px'; menu.style.top = e.clientY + 'px'; menu.classList.add('open');
+});
+
+/* hover tips (the existing .board-mention-tip) */
+document.addEventListener('mouseover', (e) => {
+  const bi = e.target.closest('.chat-bar.slim .bar-item');
+  if (bi) { const tp = $('#tip'); tp.innerHTML = `<span class="l">${esc(bi.dataset.tipname)}</span><span class="l dim">${esc(bi.dataset.tipline)}</span>`; const r = bi.getBoundingClientRect(); tp.style.display = 'block'; tp.style.left = r.right + 8 + 'px'; tp.style.top = r.top + 'px'; return; }
+  const ch = e.target.closest('.board-mention'); const tip = $('#tip');
+  if (!ch) { tip.style.display = 'none'; return; }
+  const k = ch.dataset.ref; const info = TIPS[k];
+  const lines = info ? [info[0], info[1]] : [ch.dataset.label, k.startsWith('chat:') ? 'A chat message - opens the chat there' : k];
+  tip.innerHTML = `<span class="l">${esc(lines[0])}</span><span class="l dim">${esc(lines[1])}</span>`;
+  const r = ch.getBoundingClientRect();
+  tip.style.display = 'block'; tip.style.left = Math.min(r.left, innerWidth - 350) + 'px'; tip.style.top = r.bottom + 6 + 'px';
+});
+
+/* composer */
+const ta = $('#ta');
+ta.addEventListener('input', () => {
+  const v = ta.value;
+  if (/^\/\S*$/.test(v)) openPicker('/'); else if (/(^|\s)@\S*$/.test(v)) openPicker('@'); else closePicker();
+});
+ta.addEventListener('keydown', (e) => {
+  if (pick.kind && $('#picker').classList.contains('open')) {
+    if (e.key === 'ArrowDown') { pick.i = Math.min(pick.i + 1, pick.rows.length - 1); hiPick(); e.preventDefault(); return; }
+    if (e.key === 'ArrowUp') { pick.i = Math.max(pick.i - 1, 0); hiPick(); e.preventDefault(); return; }
+    if (e.key === 'Enter' || e.key === 'Tab') { choosePick(pick.i); e.preventDefault(); return; }
+    if (e.key === 'Escape') { closePicker(); return; }
+  }
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(ta.value); ta.value = ''; }
+});
+$('#send').onclick = () => { send(ta.value); ta.value = ''; ta.focus(); };
+$('#btnAt').onclick = () => { ta.value += (ta.value && !/\s$/.test(ta.value) ? ' ' : '') + '@'; ta.focus(); openPicker('@'); };
+$('#btnSlash').onclick = () => { ta.value = '/'; ta.focus(); openPicker('/'); };
+$('#btnImg').onclick = () => { S.imgs++; renderCtx(); };
+$('#btnSnip').onclick = () => { ta.value += '\n```html live\n<div id="chart"></div>\n```\n'; ta.focus(); };
+ta.addEventListener('paste', (e) => { if ([...(e.clipboardData?.items || [])].some((i) => i.type.startsWith('image/'))) { S.imgs++; renderCtx(); e.preventDefault(); } });
+$('#chatToggle').onclick = () => { if (S.panel) leave(S.scope); S.panel = !S.panel; if (S.panel) { S.unread[S.scope] = 0; S.stick = true; } renderAll(); };
+document.addEventListener('keydown', (e) => {
+  if (e.ctrlKey && e.key.toLowerCase() === 'k') { e.preventDefault(); quickSwitch(); return; }
+  if (e.ctrlKey && e.key.toLowerCase() === 'j') { e.preventDefault(); $('#chatToggle').click(); }
+  if (e.ctrlKey && e.key.toLowerCase() === 'f' && S.panel && document.activeElement?.closest('#dock')) { e.preventDefault(); S.searchOpen = true; renderAll(); }
+  if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'f' && !POPOUT) { e.preventDefault(); setView(S.view === 'full' ? (S.prevView || 'dock') : 'full'); }
+  if (e.key === 'Escape' && S.view === 'full' && !$('#dlg').classList.contains('open')) setView(S.prevView || 'dock');
+  if (e.key === 'Escape') { closeDialog(); $('#settings').classList.remove('open'); }
+});
+$('#dlg').addEventListener('click', (e) => { if (e.target.id === 'dlg') closeDialog(); });
+
+/* resize the dock */
+(() => { let x0, w0; const mv = (e) => { S.width = Math.min(760, Math.max(340, w0 + (e.clientX - x0))); saveView(); $('#dock').style.width = S.width + 'px'; };
+  $('#resize').onmousedown = (e) => { x0 = e.clientX; w0 = S.width; document.addEventListener('mousemove', mv); document.addEventListener('mouseup', () => document.removeEventListener('mousemove', mv), { once: true }); e.preventDefault(); }; })();
+
+/* --------------------------------------------------------- mock controls */
+$('#mkCycleOn').onchange = (e) => { S.on.cycle = e.target.checked; if (!S.on.cycle && S.run) S.run.stop = true; renderAll(); if (S.on.cycle) { toast('<b>Claude started on the cycle</b>Waiting messages are answered in arrival order.'); queue('cycle'); } };
+$('#mkProjOn').onchange = (e) => { S.on.project = e.target.checked; S.host.project = 'DESKTOP-FB · C:\\projects\\odeysys'; renderAll(); if (S.on.project) queue('project'); };
+$('#mkListen').onchange = (e) => { S.listen = e.target.checked; renderAll(); };
+$('#mkTunnel').onchange = (e) => { S.tunnel = e.target.checked; renderAll(); };
+$('#mkAway').onclick = () => {
+  const c = S.chats[S.scope];
+  c.msgs.push({ id: nid(), kind: 'digest', at: now(), read: false,
+    text: `**3 new cards** in Inbox (${M.c51} and 2 more) · **Verdicts:** ${M.ac3} not judged → met, ${M.ac8} still wrong · **Failed calls:** 2 (${M.call88}) · **Claude did:** moved ${M.c47} to In progress, answered 1 comment.`,
+    claude: S.on[S.scope] ? `The two failures are the same NullPointerException; the 2 s slowdown started at the build - I'd look at ${M.c51} before re-testing ${M.c49}.` : null });
+  S.stick = true; renderAll();
+};
+$('#mkHand').onclick = () => {
+  const c = S.chats.cycle; S.host.cycle = 'LAPTOP-QA · C:\\work\\odeysys';
+  c.msgs.push({ id: nid(), kind: 'sys', at: now(), text: `New Claude chat took over · LAPTOP-QA · handed the summary + ${c.since} later messages + 2 decisions` });
+  S.scope = 'cycle'; S.stick = true; renderAll();
+};
+$('#mkCloseMid').onclick = async () => {
+  S.scope = 'cycle'; S.on.cycle = true; $('#mkCycleOn').checked = true; renderAll();
+  say('Why did the branch search return all branches?');
+  await sleep(1300); S.on.cycle = false; $('#mkCycleOn').checked = false; if (S.run) S.run.stop = true;
+  setTimeout(() => { renderAll(); toast('<b>Claude chat closed</b>The message is back to waiting; the steps so far stay visible.'); }, 600);
+};
+$("#mkFill").onclick = () => { const c = chat(); c.since = Math.max(c.since, c.autoN - 3); for (let i = 0; i < 3; i++) { const m = me(`Clicked through the search again (${c.since + 1})`, {}); c.msgs.push(m); bump(S.scope); } S.stick = true; renderAll(); };
+$('#mkBatch').onclick = async () => {
+  const c = S.chats.cycle; S.scope = 'cycle';
+  if (!c.watch) { c.watch = true; c.msgs.push({ id: nid(), kind: 'sys', text: 'Watch on - this Claude checks calls as they arrive', at: now() }); }
+  const m = cl('', { origin: 'watch · batch' }); m.text = `**Batch: calls 91–92 · still arriving…**\n${'@[call:n:91@c1|POST refunded-requests/search · 200 (call 91)]'} 2.4 s - slow (${M.c51})`;
+  c.msgs.push(m); S.stick = true; renderAll();
+  await sleep(1300); m.text = `**Batch: calls 91–94 · still arriving…**\n@[call:n:91@c1|POST refunded-requests/search · 200 (call 91)] 2.4 s - slow (${M.c51})\n@[call:n:93@c1|POST refunded-requests/search · 500 (call 93)] 500 - same NullPointerException as ${M.call88}`; renderStream();
+  await sleep(1300); m.text = `**Batch: calls 91–95 · settled** - 2 findings, 3 clean\n@[call:n:91@c1|POST refunded-requests/search · 200 (call 91)] 2.4 s - slow (${M.c51})\n@[call:n:93@c1|POST refunded-requests/search · 500 (call 93)] 500 - same NullPointerException as ${M.call88}; ${M.ac8} still wrong`;
+  bump('cycle'); renderAll(); arrived('cycle', m);
+  if (S.listen) { await sleep(600); c.msgs.push({ id: nid(), kind: 'listen', who: 'claude', at: now(), origin: 'listen runner', text: `Batch 91–95: ${'@[call:n:93@c1|POST refunded-requests/search · 500 (call 93)]'} 500 · 1 ERROR log.` }); bump('cycle'); renderAll(); }
+};
+$('#mkClean').onclick = () => toast('<b>Batch of 4 calls - clean</b>Nothing posted to the chat (watch posts only batches with findings).');
+$('#mkAc8').onclick = () => fire('AC8 passes', `${M.ac8} **passes** - ${'@[call:n:96@c1|POST refunded-requests/search · 200 (call 96)]'} with branch 2 returned 38 rows, all from branch 2. Watch ended.`, () => { S.ac8pass = true; });
+$('#mk500').onclick = () => fire('any 500 happens', `${'@[call:n:97@c1|POST refunded-requests/search · 500 (call 97)]'} answered **500** - ${M.log1}. Watch ended.`);
+function fire(label, text, pre) {
+  const c = S.chats.cycle; const t = c.tells.find((x) => x.label === label);
+  if (pre) pre();
+  if (!t) { renderAll(); return toast(`<b>No watch for "${label}"</b>Ask "Tell me when ${label}" first.`); }
+  c.tells = c.tells.filter((x) => x !== t);
+  const m = cl(text, { origin: '⏰ ' + label }); c.msgs.push(m); bump('cycle'); S.stick = true; renderAll(); arrived('cycle', m);
+}
+$('#mkStale').onclick = async () => {
+  const c = S.chats.cycle; S.scope = 'cycle';
+  if (!c.msgs.some((m) => m.proposals && m.proposals.some((p) => p.staleIf && p.state === 'open'))) {
+    c.msgs.push(cl('One more proposal:', { proposals: [{ id: 'p9', text: `Close ${M.c47} as Fine`, state: 'open', staleIf: 'c47done' }] }));
+    S.stick = true; renderAll(); await sleep(1200);
+  }
+  S.c47done = true; S.cards.find((x) => x.n === 47).col = 'Done'; renderAll(); toast('<b>#47 is Done</b>The open "Close #47 as Fine" proposal now reads "outdated" and cannot be accepted.'); };
+$('#stream').addEventListener('scroll', jumpCheck);
+$('#jump').onclick = () => { const st = $('#stream'); st.scrollTop = st.scrollHeight; jumpCheck(); };
+$('#mkBusy').onclick = () => { S.cardBusy.cycle = Date.now() + 8000; S.scope = 'cycle'; renderAll(); toast('<b>Claude is answering a card comment on #47</b>Chat messages sent now wait their turn - see "Nth in line".'); const iv = setInterval(() => { renderHead(); renderStream(); if (S.cardBusy.cycle < Date.now()) { clearInterval(iv); queue('cycle'); renderAll(); } }, 1000); };
+$('#mkUnread').onclick = async () => {
+  leave(S.scope);
+  S.panel = false; renderAll();
+  await sleep(700);
+  const m = cl(`${M.call90 || '@[call:n:90@c1|POST refunded-requests/search · 200 (call 90)]'} after your click: still 3 branches. ${M.ac8} stays wrong.`, {});
+  S.chats.cycle.msgs.push(m); bump('cycle'); arrived('cycle', m); renderAll();
+};
+$('#mkCov').onclick = coverageDialog;
+$('#mkTermWork').onclick = () => { S.term.newer = '1:02 PM'; S.scope = 'cycle'; renderAll(); toast('<b>Terminal session edited RefundExport.java</b>The chat header says "terminal moved on". Your next chat message re-forks first.'); };
+$('#mkTermRead').onclick = () => { S.term.items.forEach((i) => { if (i.state === 'sent') i.state = 'read'; }); renderAll(); toast('<b>Read</b>The terminal session picked the items up in board_wait.'); };
+$('#mkTermClose').onclick = () => { const T = S.term; T.open = !T.open; if (T.open) T.items.forEach((i) => { if (i.state === 'held') i.state = 'sent'; }); renderAll(); toast(T.open ? '<b>Terminal session opened</b>Held items handed over in task_context.' : '<b>Terminal session closed</b>Items sent now wait for the next session on this cycle.'); };
+$('#mkBusyTerm').onclick = () => {
+  const q = S.term.items.filter((i) => i.state === 'next-turn' || i.state === 'queued');
+  q.forEach((i) => (i.state = 'read'));
+  if (q.length) S.chats.cycle.msgs.push({ id: nid(), kind: 'sys', text: `→ ${q.length} mirrored items reached your terminal session with its own turn - no extra wake-up`, at: now() });
+  S.scope = 'cycle'; S.stick = true; renderAll();
+  toast(q.length ? '<b>Delivered with the terminal\'s turn</b>It read every item before acting - no turn spent just to read them.' : '<b>Nothing was waiting</b>');
+};
+$('#mkTermCompact').onclick = () => { S.term.compacted = true; S.term.newer = now(); S.scope = 'cycle'; renderAll(); toast('<b>Terminal session compacted itself</b>The next chat message re-copies it (a delta would not line up) - the only case without a delta.'); };
+$('#mkLaptop').onclick = () => { S.runnerHost = S.runnerHost === 'DESKTOP-FB' ? 'LAPTOP-QA' : 'DESKTOP-FB'; S.scope = 'cycle'; renderAll(); toast(S.runnerHost === 'LAPTOP-QA' ? '<b>The runner now runs on LAPTOP-QA</b>It cannot see the terminal session on DESKTOP-FB, so the chat starts its own session from Alfred\'s summary.' : '<b>Back on DESKTOP-FB</b>The chat continues its copy of the terminal session.'); };
+$('#barSlim').onclick = () => { S.barSlim = !S.barSlim; saveView(); renderAll(); };
+$('#barFind').oninput = (e) => { S.barFind = e.target.value; renderBar(); };
+$('#mkPop').onclick = () => { S.fakePop = true; POPOUT = true; document.body.classList.add('popout'); S.view = 'dock'; S.panel = true; renderAll(); toast('<b>Separate window (preview)</b>What ⧉ opens: the chat alone. "⇲ Dock in the board" returns.'); };
+document.querySelectorAll('.mockbar [data-say]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); say(b.dataset.say); }, true));
+
+loadView();
+if (POPOUT) { document.body.classList.add('popout'); S.view = 'dock'; S.panel = true; document.title = 'Alfred chat'; window.addEventListener('beforeunload', () => chan && chan.postMessage('dock')); }
+seed();
+renderAll();
+</script>
+</body>
+</html>

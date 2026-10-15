@@ -6,7 +6,9 @@
   </span>
   <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">Live Calls</a>
   <a routerLink="/cycles" routerLinkActive="active">Session Cycles</a>
-  <a routerLink="/board" routerLinkActive="active">Board <span class="nav-new">new</span></a>
+  <a routerLink="/board" routerLinkActive="active">Board <span class="nav-new">new</span>
+    @if (chat.totalUnread()) { <span class="tab-badge chat" title="New in the board chats">💬 {{ chat.totalUnread() }}</span> }
+  </a>
   <a routerLink="/profiles" routerLinkActive="active">Profiles</a>
   <a routerLink="/interception" routerLinkActive="active">
     Interception
@@ -26,7 +28,14 @@
   <a routerLink="/settings" routerLinkActive="active">Settings</a>
 </nav>
 
-<router-outlet />
+<!-- specs/022: the board chats - the bar docked on the left on every tab, the open chat beside it; the page moves right. -->
+<!-- Loaded once the page is idle (the composer and the text view are big); the page keeps the bar's room meanwhile. -->
+@defer (on idle) {
+  <app-chat-dock />
+}
+<div class="chat-main">
+  <router-outlet />
+</div>
 
 <!-- Both follow the user across tabs: picking is done by moving between pages, and a resend can
      be started from a call on any page (Live Calls or a session cycle). -->

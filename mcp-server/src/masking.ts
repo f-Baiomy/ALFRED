@@ -95,3 +95,30 @@ export function maskText(ctx: MaskContext, value: string): string {
 export function maskMeta(ctx: MaskContext): { masked: boolean; maskedValues: number } {
   return { masked: ctx.on, maskedValues: ctx.count };
 }
+
+/**
+ * Text the board chat sends to the terminal session (specs/022 FR-050, analysis C1): always masked, whatever the session's
+ * setting - it is written to a chat log on disk. The secret values (as every reply masks them) and the shapes a secret
+ * takes in prose: a bearer token, an Authorization / Cookie / Set-Cookie header, a password-like field, a JWT.
+ */
+const PROSE_SECRETS: readonly RegExp[] = [
+  /\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{8,}/gi,
+  /\b(Authorization|Proxy-Authorization|Cookie|Set-Cookie|X-Api-Key|X-Auth-Token)(\s*[:=]\s*)[^\r\n]+/gi,
+  /("?(?:password|passwd|pwd|secret|api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret)"?\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;}&]+)/gi,
+  /\beyJ[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}\b/g,
+];
+
+export function maskProseWith(ctx: MaskContext, text: string): string {
+  let out = ctx.on ? redactSecrets(text) : text;
+  out = out.replace(PROSE_SECRETS[0], (_m, scheme: string) => `${scheme} ${REDACTED}`)
+    .replace(PROSE_SECRETS[1], (_m, name: string, sep: string) => `${name}${sep}${REDACTED}`)
+    .replace(PROSE_SECRETS[2], (_m, key: string) => `${key}${REDACTED}`)
+    .replace(PROSE_SECRETS[3], REDACTED);
+  if (out !== text) ctx.count++;
+  return out;
+}
+
+/** Loads the masking rules forced on and masks `text` as prose for the terminal. */
+export async function maskProse(client: AlfredClient, text: string): Promise<string> {
+  return maskProseWith(await maskContext(client, true), text);
+}

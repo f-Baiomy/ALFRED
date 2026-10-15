@@ -1,4 +1,7 @@
-import { ChangeDetectionStrategy, Component, OnInit, computed, inject, input, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Injector, OnInit, computed, inject, input, signal } from '@angular/core';
+import { ChatStateService } from '../../core/state/chat-state.service';
+import { statementChip } from '../../shared/utils/chat-context';
+import { DbWindowService } from './db-window.service';
 import { CodeLinkComponent } from '../code-link/code-link.component';
 import { shortFrame } from '../../shared/utils/code-frame';
 import { NgTemplateOutlet } from '@angular/common';
@@ -38,6 +41,7 @@ interface TabDef {
           <button type="button" class="tab2" [class.on]="t.key === current()" (click)="state.setTab(statement().seq, t.key)">{{ t.label }}</button>
         }
         <span class="sp"></span>
+        @if (askable()) { <button type="button" class="action-btn" title="Ask Claude about this statement - in the call's cycle chat, else the project's" (click)="ask()">💬 Ask</button> }
         <button type="button" class="action-btn" (click)="copySql()">{{ copied() ? 'Copied' : 'Copy SQL' }}</button>
       </div>
       @switch (current()) {
@@ -198,6 +202,19 @@ interface TabDef {
 })
 export class DbStatementDetailComponent implements OnInit {
   protected readonly state = inject(DbWindowState);
+  private readonly window = inject(DbWindowService);
+  /** Resolved on click: the chat's state is only needed when the user asks. */
+  private readonly injector = inject(Injector);
+  protected readonly askable = computed(() => this.window.request()?.kind === 'call');
+
+  /** "Ask Claude" (specs/022 FR-021): the chat opens in place with this statement attached. */
+  protected ask(): void {
+    const r = this.window.request();
+    if (r?.kind !== 'call') return;
+    const s = this.statement();
+    this.injector.get(ChatStateService).ask(r.call.source === 'internal' ? r.call.service_name ?? '' : '', r.cycleId ?? null,
+      statementChip(r.call.id, s.seq, s.kind, s.table ?? null));
+  }
   private readonly api = inject(DbCaptureApiService);
   readonly statement = input.required<CapturedStatement>();
   protected readonly copied = signal(false);

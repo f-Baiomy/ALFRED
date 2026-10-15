@@ -42,7 +42,9 @@ import { LiveWorkStateService, liveDuration } from '../../../core/state/live-wor
 export class LiveWorkBoxComponent implements OnDestroy {
   readonly state = inject(LiveWorkStateService);
   readonly project = input.required<string>();
-  readonly number = input.required<number>();
+  readonly number = input(0);
+  /** A chat message's run (specs/022) instead of a card's. */
+  readonly chatMessageId = input<number | null>(null);
   readonly editable = input(true);
 
   readonly open = signal(false);
@@ -51,7 +53,8 @@ export class LiveWorkBoxComponent implements OnDestroy {
 
   readonly work = computed<LiveWork | null>(() => {
     this.state.all();
-    return this.state.forCard(this.project(), this.number(), this.now());
+    const chat = this.chatMessageId();
+    return chat != null ? this.state.forChatMessage(chat, this.now()) : this.state.forCard(this.project(), this.number(), this.now());
   });
   readonly elapsed = computed(() => {
     const w = this.work();

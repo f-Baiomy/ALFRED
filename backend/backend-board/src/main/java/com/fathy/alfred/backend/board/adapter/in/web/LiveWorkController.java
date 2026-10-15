@@ -41,7 +41,7 @@ public class LiveWorkController {
     @PutMapping("/board/live-work")
     public ResponseEntity<?> report(@Valid @RequestBody LiveWorkRequestDto body) {
         return ResponseEntity.ok(work.report(new LiveWorkUseCase.Report(body.id(), body.project(), body.cardNumber(), body.head(),
-                body.steps(), body.draft(), body.state(), body.outcome())));
+                body.steps(), body.draft(), body.state(), body.outcome(), body.chatMessageId(), body.usage())));
     }
 
     /** The runner answering the board - the live runner, else the listen runner - or only the one of {@code kind} (live or listen). */
@@ -58,7 +58,7 @@ public class LiveWorkController {
     public ResponseEntity<?> beat(@Valid @RequestBody LiveRunnerRequestDto body) {
         if (body.cycleId() != null && !body.cycleId().isBlank() && body.chatId() != null && !body.chatId().isBlank()) {
             LiveWorkUseCase.ChatBeat chat = work.chatBeat(body.project(), body.cycleId().strip(), body.chatId().strip(), body.host(), body.cwd(), body.kind(),
-                    body.chatAlive() == null || body.chatAlive(), body.stopped());
+                    body.chatAlive() == null || body.chatAlive(), body.stopped(), body.terminalAt());
             if (chat.conflict()) {
                 LiveWorkUseCase.CycleChat c = chat.chat();
                 return BoardWeb.refused(CardChange.Outcome.CONFLICT, "This cycle already runs in a chat on " + c.host() + " (since "
@@ -89,12 +89,13 @@ public class LiveWorkController {
      */
     public record LiveRunnerRequestDto(@Size(max = 100) String project, @Size(max = 200) String host, @Size(max = 100) String model,
                                        @Size(max = 20) String kind, boolean stopped, @Size(max = 100) String cycleId, @Size(max = 100) String chatId,
-                                       @Size(max = 1000) String cwd, Boolean chatAlive) {
+                                       @Size(max = 1000) String cwd, Boolean chatAlive, java.time.Instant terminalAt) {
     }
 
     /** Steps, each step and the outcome are cut to the service's own bounds rather than refused: a long run's report must still land. */
-    public record LiveWorkRequestDto(@NotBlank @Size(max = 100) String id, @Size(max = 100) String project, @Min(1) @Max(10_000_000) int cardNumber,
+    public record LiveWorkRequestDto(@NotBlank @Size(max = 100) String id, @Size(max = 100) String project, @Min(0) @Max(10_000_000) int cardNumber,
                                      @Size(max = 200) String head, @Size(max = 200) List<@Size(max = 2000) String> steps,
-                                     @Size(max = 64 * 1024) String draft, LiveWork.State state, @Size(max = 2000) String outcome) {
+                                     @Size(max = 64 * 1024) String draft, LiveWork.State state, @Size(max = 2000) String outcome,
+                                     Long chatMessageId, @Size(max = 10) java.util.Map<String, Double> usage) {
     }
 }

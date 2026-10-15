@@ -1,4 +1,5 @@
-import { Component, DestroyRef, computed, effect, inject, input, signal, untracked } from '@angular/core';
+import { Component, DestroyRef, Injector, computed, effect, inject, input, signal, untracked } from '@angular/core';
+import { ChatStateService } from '../../../core/state/chat-state.service';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { filter } from 'rxjs';
 import {
@@ -35,7 +36,7 @@ import { MentionEditorComponent } from '../mention-editor/mention-editor.compone
         @for (f of files(); track f.fileName) {
           <div class="board-dim board-check-file">from {{ f.fileName }}</div>
           <ul class="board-checklist">
-            @for (item of f.items; track item.key) {
+            @for (item of f.items; track item.key; let i = $index) {
               <li>
                 <span class="board-check-mark" [class]="'board-check-mark board-check-' + (item.mark?.mark ?? 'NONE')">{{ symbol(item) }}</span>
                 <span class="board-check-text">{{ item.text }}</span>
@@ -50,6 +51,7 @@ import { MentionEditorComponent } from '../mention-editor/mention-editor.compone
                     }
                     <button type="button" class="board-link" (click)="editing.set(editing() === item.key ? null : item.key)">evidence</button>
                     <button type="button" class="board-link" title="How the calls show this item" (click)="openChecks(f, item)">checks</button>
+                    <button type="button" class="board-link" title="Ask Claude about this item in the cycle's chat" (click)="ask(f.fileName, i, item.text)">ask</button>
                   </span>
                 }
                 @if (requirement(f, item); as r) {
@@ -108,6 +110,15 @@ export class AcceptanceChecklistComponent {
   private readonly api = inject(BoardApiService);
   private readonly mentions = inject(BoardMentionsService);
   readonly cycleId = input.required<string>();
+  /** Resolved on click: the chat's state is only needed when the user asks. */
+  private readonly injector = inject(Injector);
+
+  /** "Ask Claude" about an Acceptance item (specs/022 FR-020): the cycle chat opens with the item attached. */
+  ask(fileName: string, index: number, text: string): void {
+    const label = text.length > 60 ? `${text.slice(0, 59)}…` : text;
+    this.injector.get(ChatStateService).ask(this.project(), this.cycleId(),
+      { type: 'spec', ref: `${this.cycleId()}/${fileName}#ac${index + 1}`, label: `AC${index + 1} ${label}` });
+  }
   readonly project = input('');
   readonly editable = input(true);
 

@@ -857,7 +857,14 @@ export class ListenRunner {
     this.o.log(`  → ✦ Claude (${secs} s): ${summary}`);
     for (const r of refused) this.o.log(`    (board: ${r})`);
     this.o.chat?.(`${job.what ?? head} → ${summary}`);
-    for (const f of findingsOf(result.text)) this.say(`  ${f}`);
+    const findings = findingsOf(result.text);
+    for (const f of findings) this.say(`  ${f}`);
+    // specs/022 FR-030: what listen found also shows in the cycle's board chat, marked as the listen runner's; a clean batch posts nothing.
+    if (findings.length) {
+      this.o.alfred.call('POST', `/board/chats/${encodeURIComponent(this.o.cycleId)}/system`, { headers: { 'X-Alfred-Actor': 'claude' },
+        query: { project: this.o.project ?? '' }, body: { text: `👂 listen runner: ${summary}\n${findings.map((f) => `- ${f}`).join('\n')}`.slice(0, 8000) } })
+        .catch(() => {});
+    }
     this.s.queue = this.s.queue.filter((j) => j.id !== job.id);
     if (job.kind === 'batch' || job.kind === 'second-look') this.s.cleanSince = [];
     if (job.kind === 'steps') this.s.cleanSince = [];

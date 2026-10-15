@@ -18,12 +18,15 @@ public class BoardRetestWatchAdapter implements NewInternalCallObserverPort {
     private final ObjectProvider<RetestWatchUseCase> watch;
     private final ObjectProvider<RequirementWatchUseCase> requirements;
     private final NormalizeEndpointUseCase endpoints;
+    private final ObjectProvider<com.fathy.alfred.backend.board.application.port.in.ChatWatchUseCase> chatWatches;
 
     public BoardRetestWatchAdapter(ObjectProvider<RetestWatchUseCase> watch, ObjectProvider<RequirementWatchUseCase> requirements,
-                                   NormalizeEndpointUseCase endpoints) {
+                                   NormalizeEndpointUseCase endpoints,
+                                   ObjectProvider<com.fathy.alfred.backend.board.application.port.in.ChatWatchUseCase> chatWatches) {
         this.watch = watch;
         this.requirements = requirements;
         this.endpoints = endpoints;
+        this.chatWatches = chatWatches;
     }
 
     @Override
@@ -37,6 +40,11 @@ public class BoardRetestWatchAdapter implements NewInternalCallObserverPort {
                 RequirementWatchUseCase check = requirements.getIfAvailable();
                 if (check != null) {
                     check.callArrived(project, endpoint);
+                }
+                // specs/022: the board chats' "tell me when" and "watch while I test" (queued, never slows the call)
+                var chat = chatWatches.getIfAvailable();
+                if (chat != null) {
+                    chat.callCompleted(project, call.id(), endpoint, call.response() == null ? null : call.response().status());
                 }
             }
         } catch (RuntimeException e) {

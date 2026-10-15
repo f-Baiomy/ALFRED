@@ -1,6 +1,6 @@
 import { LinkedLogLine } from '../../core/models/call-logs.model';
 import { CallLogsApiService } from '../../core/services/call-logs-api.service';
-import { Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
+import { Component, Injector, computed, effect, inject, input, signal, untracked } from '@angular/core';
 import { Observable, forkJoin, of } from 'rxjs';
 import { catchError, map, switchMap } from 'rxjs/operators';
 import { CallRecord } from '../../core/models/call.model';
@@ -29,6 +29,8 @@ import { DbCaptureApiService } from '../../core/services/db-capture-api.service'
 import { downloadBlob } from '../../shared/utils/download';
 import { callKey } from '../../shared/utils/call-utils';
 import { copyToClipboard } from '../../shared/utils/clipboard';
+import { ChatStateService } from '../../core/state/chat-state.service';
+import { callChip } from '../../shared/utils/chat-context';
 
 /**
  * Pin / copy-as-cURL / download-as-JSON / export-report actions for a single call - cURL/JSON/
@@ -65,6 +67,8 @@ export class CallActionsComponent {
   private readonly reliveActions = inject(ReliveQuickActionsService);
   private readonly boardApi = inject(BoardApiService);
   private readonly boardBadgesState = inject(BoardBadgesState);
+  /** Resolved on click: the chat's state is only needed when the user asks. */
+  private readonly injector = inject(Injector);
 
   readonly call = input.required<CallRecord>();
   readonly curlCopyFeedback = signal(false);
@@ -109,6 +113,14 @@ export class CallActionsComponent {
       },
       error: () => this.boardLoading.set(false),
     });
+  }
+
+  /** "Ask Claude" (specs/022 FR-021): the chat opens in place with this call attached - its cycle's chat, else the project's. */
+  askClaude(): void {
+    const call = this.call();
+    const cycleId = this.origin?.cycleId() ?? null;
+    const project = call.source === 'internal' ? call.service_name ?? '' : '';
+    this.injector.get(ChatStateService).ask(project, cycleId, callChip(call, cycleId));
   }
 
   togglePin(): void {

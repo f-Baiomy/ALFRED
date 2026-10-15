@@ -53,7 +53,14 @@ final class BoardFixture implements AutoCloseable {
     final RetestService retest;
     final com.fathy.alfred.backend.board.application.port.out.SnippetStorePort snippetStore;
     final SnippetsService snippets;
+    final com.fathy.alfred.backend.board.application.port.out.ChatStorePort chatStore;
     final BoardFilesService files;
+    final LiveWorkService live;
+    final ChatRecordService chatRecords;
+    final ChatService chat;
+    ChatProposalService proposals;
+    final com.fathy.alfred.backend.board.application.port.out.CallFactsPort factsPort;
+    final BoardNotificationPort notifications;
     final WidgetsService widgets;
     private final AutoCloseable closer;
 
@@ -61,7 +68,7 @@ final class BoardFixture implements AutoCloseable {
         TestRepositories.Opened opened = TestRepositories.open(JsonMapper.builder().findAndAddModules().build(), dir.resolve("board.db"));
         this.store = opened.store();
         this.closer = opened.closer();
-        BoardNotificationPort notifications = new BoardNotificationPort() {
+        notifications = new BoardNotificationPort() {
             @Override
             public void changed(String project, String cycleId, String cardId, String what) {
                 signals.add(what + ":" + project + ":" + cycleId);
@@ -70,6 +77,11 @@ final class BoardFixture implements AutoCloseable {
             @Override
             public void agentStatus(com.fathy.alfred.backend.board.domain.model.AgentStatus status) {
                 signals.add("agent:" + status.state());
+            }
+
+            @Override
+            public void chatChanged(String project, String scope, Long id) {
+                signals.add("chat:" + project + ":" + scope + ":" + id);
             }
         };
         CallSignaturePort signaturePort = (direction, callId, cycleId) -> Optional.ofNullable(signatures.get(callId));
@@ -81,7 +93,7 @@ final class BoardFixture implements AutoCloseable {
                 (com.fathy.alfred.backend.board.application.port.out.BoardImageStorePort) store);
         insights = new BoardInsightsService(store, signaturePort, (cycleId, limit) -> List.copyOf(cycleCalls), feed,
                 limit -> List.copyOf(liveCalls));
-        com.fathy.alfred.backend.board.application.port.out.CallFactsPort factsPort = new com.fathy.alfred.backend.board.application.port.out.CallFactsPort() {
+        factsPort = new com.fathy.alfred.backend.board.application.port.out.CallFactsPort() {
             @Override
             public Optional<com.fathy.alfred.backend.board.domain.model.CallFacts> facts(String callId, String cycleId, Set<String> paths) {
                 return Optional.ofNullable(facts.get(cycleId == null ? callId : cycleId + "/" + callId));
@@ -100,13 +112,29 @@ final class BoardFixture implements AutoCloseable {
         snippetStore = TestRepositories.snippets(store);
         snippets = new SnippetsService(snippetStore, store, notifications, JsonMapper.builder().findAndAddModules().build(), clock);
         briefs.setSnippets(snippetStore);
+        chatStore = TestRepositories.chats(store, JsonMapper.builder().findAndAddModules().build());
+        briefs.setChats(chatStore);
         files = new BoardFilesService((com.fathy.alfred.backend.board.application.port.out.BoardFileStorePort) snippetStore, store, notifications, clock);
         widgets = new WidgetsService((com.fathy.alfred.backend.board.application.port.out.WidgetStorePort) snippetStore, notifications, clock);
         imports.setVisualStores(snippetStore, (com.fathy.alfred.backend.board.application.port.out.BoardFileStorePort) snippetStore,
                 (com.fathy.alfred.backend.board.application.port.out.WidgetStorePort) snippetStore);
         retest = new RetestService(store, factsPort, limit -> List.copyOf(liveCalls), (cycleId, limit) -> List.copyOf(cycleCalls), notifications,
                 feed, clock);
+        live = new LiveWorkService(notifications, clock);
+        live.setChatStore(chatStore);
+        com.fasterxml.jackson.databind.ObjectMapper json = JsonMapper.builder().findAndAddModules().build();
+        chatRecords = new ChatRecordService(store, board, board, briefs, board, board, json, clock);
+        chat = new ChatService(chatStore, store, notifications, mentioned, live, chatRecords, feed, json, clock);
+        insights.setChats(chatStore);
+        com.fathy.alfred.backend.board.application.port.out.CycleNamesPort names = id -> java.util.Optional.ofNullable(cycleNames.get(id));
+        chat.setCycleNames(names);
+        imports.setChats(chatStore);
+        proposals = new ChatProposalService(chatStore, store, board, board, board, briefs, briefs, notifications, feed, clock);
+        imports.setCycleNames(names);
     }
+
+    /** The session cycles that exist here, by id (chat export names them, import checks them). */
+    final java.util.Map<String, String> cycleNames = new java.util.HashMap<>();
 
     CardDetail add(Actor actor, String project, CardKind kind, String title, String description) {
         CardChange change = board.create(actor, new CreateCardUseCase.NewCard(project, kind, title, description, Set.of(), null, null, List.of()));

@@ -48,6 +48,17 @@ class ShippedSkillsTest(unittest.TestCase):
             self.assertIn("description:", front, name)
             self.assertIn("rules.md", text, f"{name} must tell Claude to read the shared rules")
 
+    def test_the_chat_slash_list_is_every_shipped_skill_but_the_two_that_run_the_chat(self):
+        # specs/022 FR-022: the composer's "/" list (frontend) and the runner's (chat.mjs) follow the shipped set.
+        expected = [n for n in alfred_skill.SKILLS if n not in ("alfred-live", "alfred-listen")]
+        with open(os.path.join(ROOT, "frontend", "src", "app", "shared", "utils", "chat-skills.ts"), encoding="utf-8") as f:
+            frontend = re.findall(r"name: '(alfred-[a-z-]+)'", f.read())
+        with open(os.path.join(SKILLS_DIR, "alfred-live", "chat.mjs"), encoding="utf-8") as f:
+            block = re.search(r"CHAT_SKILLS = \[([^\]]*)\]", f.read()).group(1)
+        runner = re.findall(r"'(alfred-[a-z-]+)'", block)
+        self.assertEqual(sorted(expected), sorted(frontend))
+        self.assertEqual(sorted(expected), sorted(runner))
+
     def test_the_rules_hold_the_journal_the_limits_and_the_flow(self):
         with open(RULES, encoding="utf-8") as f:
             text = f.read()

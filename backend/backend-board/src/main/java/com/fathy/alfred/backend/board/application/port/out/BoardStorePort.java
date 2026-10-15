@@ -95,6 +95,9 @@ public interface BoardStorePort {
     Map<String, ActivityEntry> lastComments(Collection<String> cardIds);
 
     /** History entries of every card after {@code afterId}, oldest first, with their card; project/cycleId/actor narrow it when set. */
+    /** The newest history entry written before {@code at} (0 when none) - where a chat digest starts (specs/022 FR-023). */
+    long activityIdBefore(java.time.Instant at);
+
     List<BoardChanges.Entry> activityAfter(long afterId, String project, String cycleId, Actor actor, int limit);
 
     /** The id of the newest history entry (0 when none). */

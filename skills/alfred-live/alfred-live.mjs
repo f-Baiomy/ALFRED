@@ -28,6 +28,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statS
 import { homedir, hostname, tmpdir } from 'node:os';
 import { basename, delimiter, dirname, extname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { ChatLane, chatTools, sessionIdOf } from './chat.mjs';
 
 // ------------------------------------------------------------------------------------------------- what the user did
 
@@ -140,7 +141,7 @@ export const LISTEN_TOOLS = [...LIVE_TOOLS, 'board_add_many', 'board_link_spec',
   'board_requirements', 'board_evidence_put'];
 
 /** The tools whose call writes something on the board (a run that made none of these answered nothing). */
-export const WRITE_TOOLS = /board_(reply|ask|comment|edit|add|add_many|flag|assign|propose|retest_plan|link|link_spec|move|mark_step|suggest_mark|session_log|fix|evidence_put)$|^(mcp__.+__)?add_comments?$/;
+export const WRITE_TOOLS = /board_(reply|ask|comment|edit|add|add_many|flag|assign|propose|retest_plan|link|link_spec|move|mark_step|suggest_mark|session_log|fix|evidence_put)$|^(mcp__.+__)?add_comments?$|(^|__)chat_(reply|summary)$/;
 
 /** The reply text from a reply tool's partial JSON input - shown as it types in. */
 export function draftOf(partialJson) {
@@ -612,13 +613,15 @@ export class ClaudePool {
     if (o.warm !== false) this.fill();
   }
 
-  args() {
+  /** extra: per-run arguments (a chat's --resume / --fork-session); o.persist keeps the session on disk (a chat continues it). */
+  args(extra = []) {
     const o = this.o;
     const allowed = [`mcp__${o.server}`, 'Read', 'Grep', 'Glob', ...(o.allowed ?? [])];
     const lean = o.only && o.serverTools?.length ? o.serverTools.filter((t) => !o.only.includes(t.replace(/^mcp__.+?__/, ''))).map((t) => (t.startsWith('mcp__') ? t : `mcp__${o.server}__${t}`)) : [];
     const disallowed = [...(o.disallowed ?? []), ...lean];
     return [...(o.claudeArgs ?? []), '-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages',
-      '--mcp-config', o.mcpConfigFile, '--strict-mcp-config', '--no-session-persistence', '--disable-slash-commands',
+      '--mcp-config', o.mcpConfigFile, '--strict-mcp-config', ...(o.persist ? [] : ['--no-session-persistence']), '--disable-slash-commands',
+      ...extra,
       ...(o.tools ? ['--tools', o.tools.join(',')] : []),
       '--allowedTools', ...allowed,
       ...(disallowed.length ? ['--disallowedTools', ...disallowed] : []),
@@ -626,10 +629,10 @@ export class ClaudePool {
       ...(o.model ? ['--model', o.model] : [])];
   }
 
-  spawnOne() {
+  spawnOne(extra = []) {
     const useShell = process.platform === 'win32' && /\.(cmd|bat)$/i.test(this.claude);
     const quote = (a) => (useShell && /[\s"]/.test(a) ? `"${a.replace(/"/g, '\\"')}"` : a);
-    const args = this.args();
+    const args = this.args(extra);
     const child = spawn(useShell ? quote(this.claude) : this.claude, useShell ? args.map(quote) : args, {
       cwd: this.o.cwd, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, shell: useShell,
       env: { ...process.env, ...(this.o.only && this.o.serverTools?.length ? { ENABLE_TOOL_SEARCH: 'false' } : {}), ...(this.o.env ?? {}) },
@@ -654,7 +657,13 @@ export class ClaudePool {
   }
 
   /** A process ready to take a prompt: a warm one when there is one, else a new one. */
-  acquire() {
+  acquire(extra = []) {
+    if (extra.length) {
+      // a run that resumes a session cannot use a warm process (its arguments are fixed when it starts)
+      const own = this.spawnOne(extra);
+      this.active.add(own);
+      return own;
+    }
     const fresh = this.warm.filter((p) => !p.ended && Date.now() - p.startedAt < 20 * 60_000);
     for (const stale of this.warm.filter((p) => !fresh.includes(p))) { killTree(stale.child); }
     this.warm = fresh;
@@ -680,6 +689,8 @@ export class ClaudePool {
     let stopAsked = false;
     let lastText = '';
     let writes = 0;
+    let sessionId = null;
+    let usage = null;
     const toolNames = new Map();
     let lastLine = Date.now();
     let chain = Promise.resolve();
@@ -694,12 +705,13 @@ export class ClaudePool {
       lastLine = Date.now();
       let msg;
       try { msg = JSON.parse(line); } catch { return; }
+      sessionId = sessionIdOf(msg) ?? sessionId;
       if (msg.type === 'stream_event' && msg.event) {
         const ev = msg.event;
         if (ev.type === 'content_block_start' && ev.content_block?.type === 'tool_use') {
           partialTool = ev.content_block.name ?? null;
           partial = '';
-        } else if (ev.type === 'content_block_delta' && ev.delta?.type === 'input_json_delta' && partialTool && /board_(reply|ask|comment)$/.test(partialTool)) {
+        } else if (ev.type === 'content_block_delta' && ev.delta?.type === 'input_json_delta' && partialTool && /(board_(reply|ask|comment)|chat_reply)$/.test(partialTool)) {
           partial += ev.delta.partial_json ?? '';
           const d = draftOf(partial);
           if (d && Date.now() - lastDraftAt >= draftEveryMs) {
@@ -713,7 +725,7 @@ export class ClaudePool {
           if (c.type === 'text' && c.text) lastText = c.text;
           if (c.type !== 'tool_use' || !c.name) continue;
           toolNames.set(c.id, c.name);
-          if (/board_(reply|ask|comment)$/.test(c.name)) handle.draft = draftOf(JSON.stringify(c.input ?? {})) ?? handle.draft;
+          if (/(board_(reply|ask|comment)|chat_reply)$/.test(c.name)) handle.draft = draftOf(JSON.stringify(c.input ?? {})) ?? handle.draft;
           const s = stepLabel(c.name, c.input ?? {});
           steps.push(s);
           await ask(s, c.name, c.input ?? {});
@@ -728,6 +740,8 @@ export class ClaudePool {
         }
       } else if (msg.type === 'result') {
         result = { text: msg.result ?? lastText ?? '', error: !!msg.is_error };
+        if (msg.usage) usage = { input: msg.usage.input_tokens ?? 0, output: msg.usage.output_tokens ?? 0, cacheRead: msg.usage.cache_read_input_tokens ?? 0,
+          cacheWrite: msg.usage.cache_creation_input_tokens ?? 0, ...(msg.total_cost_usd != null ? { costUsd: msg.total_cost_usd } : {}) };
         // Done: let the process go (it would wait for a next message forever).
         try { p.child.stdin.end(); } catch { /* gone */ }
         setTimeout(() => killTree(p.child), 1500).unref?.();
@@ -740,7 +754,7 @@ export class ClaudePool {
       clearTimeout(hard);
       clearInterval(idle);
       this.active.delete(p);
-      finish({ steps, result, stderr: p.stderr, stopAsked, writes, error: p.error });
+      finish({ steps, result, stderr: p.stderr, stopAsked, writes, error: p.error, sessionId, usage });
     };
     if (p.ended) end();
     else p.waiters.push(end);
@@ -897,6 +911,13 @@ export class Runner {
     this.warmLater = o.warm !== false && !o.pool;
     this.sleepers = new Set();
     this.lastChatAlive = true;
+    // specs/022: the board chat - its own pool, whose runs keep their session (a chat continues it)
+    this.chatPool = (o.kind ?? 'live') === 'listen' || o.chats === false ? null : o.chatPool ?? new ClaudePool({ size: 2, claude: o.claude, claudeArgs: o.claudeArgs,
+      cwd: o.cwd, server: o.server, mcpConfigFile: o.mcpConfigFile, model: o.model, systemPromptFile: o.systemPromptFile, warm: false, persist: true,
+      tools: ['Read', 'Grep', 'Glob', 'Bash', 'Skill'], allowed: ['Bash(git diff:*)', 'Bash(git log:*)', 'Bash(git show:*)', 'Bash(git status:*)',
+        'Bash(codegraph explore:*)', 'Skill'],
+      only: chatTools(), serverTools: o.serverTools });
+    this.chatLane = this.chatPool ? new ChatLane(this, this.chatPool) : null;
   }
 
   /** A pause that a stop ends at once. */
@@ -960,7 +981,8 @@ export class Runner {
     this.lastChatAlive = chatAlive;
     return this.o.alfred.call('PUT', '/board/live-runner', {
       body: { project: this.o.project ?? '', host: this.o.host ?? hostname(), model: this.o.model ?? null, stopped, kind: this.o.kind ?? 'live',
-        ...(this.o.chatId && this.o.cycleId ? { cycleId: this.o.cycleId, chatId: this.o.chatId, cwd: this.o.cwd ?? null, chatAlive } : {}) },
+        ...(this.o.chatId && this.o.cycleId ? { cycleId: this.o.cycleId, chatId: this.o.chatId, cwd: this.o.cwd ?? null, chatAlive,
+          ...(this.chatLane?.terminalAt ? { terminalAt: this.chatLane.terminalAt } : {}) } : {}) },
       timeoutMs: 10_000,
     }).catch(() => null);
   }
@@ -1028,6 +1050,7 @@ export class Runner {
       await this.beat();
     }
     await this.prepare();
+    this.chatLane?.start();
     const beats = setInterval(() => { if (!this.stopped && !this.standingDown) this.beat(); }, 20_000);
     beats.unref?.();
     const skills = this.o.boardRuns === false ? Promise.resolve() : this.skillLoop();
@@ -1042,10 +1065,13 @@ export class Runner {
       }
     }
     clearInterval(beats);
+    this.chatLane?.stop();
     await Promise.allSettled([...this.inFlight.values()].map((v) => v.promise));
+    if (this.chatLane) await Promise.allSettled([...this.chatLane.chains.values()]);
     await skills;
     await this.beat(true);
     if (this.ownPool) this.pool.close();
+    if (this.chatPool && !this.o.chatPool) this.chatPool.close();
     this.say('● Live stopped.');
   }
 
@@ -1053,7 +1079,11 @@ export class Runner {
   async prepare() {
     if (this.ownPool && this.o.mcp && !this.pool.o.serverTools) {
       const tools = await this.o.mcp.listTools().catch(() => null);
-      if (tools?.length) { this.pool.o.serverTools = tools; this.pool.o.only = LIVE_TOOLS; }
+      if (tools?.length) {
+        this.pool.o.serverTools = tools;
+        this.pool.o.only = LIVE_TOOLS;
+        if (this.chatPool) { this.chatPool.o.serverTools = tools; this.chatPool.o.only = chatTools(); }
+      }
     }
     if (this.warmLater) { this.pool.size = this.o.parallel ?? 3; this.pool.warmSize = Math.min(this.pool.size, this.o.warmSize ?? 1); this.pool.fill(); this.warmLater = false; }
   }
@@ -1077,8 +1107,12 @@ export class Runner {
         await this.beat();
       }
     }
-    if (!page.entries.length && !page.cycles.length) return page.cursor;
+    const chats = page.chats ?? [];
+    if (!page.entries.length && !page.cycles.length && !chats.length) return page.cursor;
     if (this.standingDown) return page.cursor;
+    // The chat's messages are answered in their own lane (urgent first); a page with only those needs no settle.
+    if (chats.length && this.chatLane) this.chatLane.handle(chats);
+    if (!page.entries.length && !page.cycles.length) return page.cursor;
     // A short settle so a burst (type an answer, then move the card) is one answer, not two: re-read while more arrives.
     const settle = this.o.settleMs ?? 1200;
     const started = Date.now();
@@ -1218,6 +1252,14 @@ export class Runner {
       return;
     }
 
+    if (this.o.chatId && this.o.cycleId && this.chatLane && attempt === 0 && forTheChat(changes)) {
+      // specs/022 FR-060: the cycle chat's own session answers it - a copy of the terminal session, so it knows what the
+      // terminal did - on the card, without a turn of the terminal itself.
+      await reporter.end({ steps: changes.map(youDid), state: 'DONE', outcome: "answered by the cycle chat's session" });
+      this.o.log(`  → 💬 ${label} answered in the cycle chat's session`);
+      this.chatLane.answerCard(first, changes, promptFor(this.o.server, first, changes, context, await this.repoOf(first)));
+      return;
+    }
     if (this.o.chatId && this.o.chat && attempt === 0 && forTheChat(changes)) {
       // Needs the code or an investigation: the chat that handles the cycle answers it, with what it already knows.
       await reporter.end({ steps: changes.map(youDid), state: 'DONE', outcome: 'sent to the chat that handles this cycle - it answers on the card' });

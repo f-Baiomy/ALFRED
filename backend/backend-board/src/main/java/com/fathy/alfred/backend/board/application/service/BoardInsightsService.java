@@ -12,7 +12,11 @@ import com.fathy.alfred.backend.board.application.port.out.CallSignaturePort;
 import com.fathy.alfred.backend.board.application.port.out.CycleCallsPort;
 import com.fathy.alfred.backend.board.domain.model.ActivityEntry;
 import com.fathy.alfred.backend.board.domain.model.Actor;
+import com.fathy.alfred.backend.board.application.port.out.ChatStorePort;
 import com.fathy.alfred.backend.board.domain.model.BoardChanges;
+import com.fathy.alfred.backend.board.domain.model.ChatChange;
+import com.fathy.alfred.backend.board.domain.model.ChatKey;
+import com.fathy.alfred.backend.board.domain.model.TerminalItem;
 import com.fathy.alfred.backend.board.domain.model.Card;
 import com.fathy.alfred.backend.board.domain.model.CardQuery;
 import com.fathy.alfred.backend.board.domain.model.CardSearchHit;
@@ -53,6 +57,14 @@ public class BoardInsightsService implements SearchCardsUseCase, BoardChangesUse
     private final CycleCallsPort cycleCalls;
     private final BoardChangeFeed feed;
     private final LiveCallsPort liveCalls;
+    /** The board chats (specs/022). Optional: tests build this service without them. */
+    private ChatStorePort chats;
+    private static final int FROM_CHAT_LIMIT = 50;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setChats(ChatStorePort chats) {
+        this.chats = chats;
+    }
 
     public BoardInsightsService(BoardStorePort store, CallSignaturePort signatures, CycleCallsPort cycleCalls, BoardChangeFeed feed,
                                 LiveCallsPort liveCalls) {
@@ -153,20 +165,24 @@ public class BoardInsightsService implements SearchCardsUseCase, BoardChangesUse
         int clamped = limit <= 0 ? 200 : Math.min(limit, MAX_LIMIT);
         long afterId;
         long afterMillis;
+        long afterChat;
         String c = cursor == null ? "" : cursor.strip();
         if (c.equalsIgnoreCase("now")) {
-            return new BoardChanges(List.of(), List.of(), cursor(store.lastActivityId(), store.lastCycleChangeMillis()), false);
+            return new BoardChanges(List.of(), List.of(), cursor(store.lastActivityId(), store.lastCycleChangeMillis(), lastChatSeq()), false);
         } else if (c.equalsIgnoreCase("claude")) {
             afterId = store.lastActivityIdBy(Actor.CLAUDE, project);
             List<BoardChanges.Entry> mine = afterId == 0 ? List.of() : store.activityAfter(afterId - 1, project, null, Actor.CLAUDE, 1);
             afterMillis = mine.isEmpty() ? 0 : mine.get(0).entry().at().toEpochMilli();
+            afterChat = 0; // every chat message still waiting is still Claude's to take
         } else if (c.isEmpty()) {
             afterId = 0;
             afterMillis = 0;
+            afterChat = 0;
         } else {
             long[] parsed = parse(c);
             afterId = parsed[0];
             afterMillis = parsed[1];
+            afterChat = parsed[2];
         }
         long top = store.lastActivityId(); // read first: an entry written after it is found by the next call
         List<BoardChanges.Entry> entries = store.activityAfter(afterId, project, cycleId, actor, clamped + 1);
@@ -181,24 +197,42 @@ public class BoardInsightsService implements SearchCardsUseCase, BoardChangesUse
             cycles = cycles.subList(0, clamped);
             more = true;
         }
+        // Chat messages waiting for Claude are the user's (specs/022 R2); Claude's own answers never come back as changes.
+        List<ChatChange> chatChanges = chats == null || actor == Actor.CLAUDE ? List.of()
+                : chats.changesAfter(afterChat, project, cycleId, clamped + 1);
+        if (chatChanges.size() > clamped) {
+            chatChanges = chatChanges.subList(0, clamped);
+            more = true;
+        }
+        List<TerminalItem> fromChat = chats == null || cycleId == null ? List.of()
+                : chats.terminalItems(new ChatKey(project, cycleId), true, FROM_CHAT_LIMIT);
         long nextId = entries.isEmpty() ? afterId : entries.get(entries.size() - 1).entry().id();
         if (!more && entries.isEmpty()) {
             // Nothing of this actor/board: still move past what others wrote, so a wait does not wake for it again.
             nextId = Math.max(afterId, top);
         }
         long nextMillis = cycles.isEmpty() ? afterMillis : cycles.get(cycles.size() - 1).at().toEpochMilli();
-        return new BoardChanges(entries, cycles, cursor(nextId, nextMillis), more);
+        long nextChat = chatChanges.isEmpty() ? afterChat : chatChanges.get(chatChanges.size() - 1).seq();
+        return new BoardChanges(entries, cycles, chatChanges, fromChat, cursor(nextId, nextMillis, nextChat), more);
     }
 
-    private static String cursor(long id, long millis) {
-        return id + "." + millis;
+    private long lastChatSeq() {
+        return chats == null ? 0 : chats.lastWaitSeq();
+    }
+
+    /** {@code activityId.cycleMillis.chatWaitSeq}; a cursor from before specs/022 has no chat part and reads every waiting message. */
+    private static String cursor(long id, long millis, long chat) {
+        return id + "." + millis + "." + chat;
     }
 
     private static long[] parse(String cursor) {
-        int dot = cursor.indexOf('.');
+        String[] parts = cursor.split("[.]", -1);
         try {
-            return dot < 0 ? new long[]{Long.parseLong(cursor), 0}
-                    : new long[]{Long.parseLong(cursor.substring(0, dot)), Long.parseLong(cursor.substring(dot + 1))};
+            if (parts.length > 3) {
+                throw new NumberFormatException(cursor);
+            }
+            return new long[]{Long.parseLong(parts[0]), parts.length > 1 ? Long.parseLong(parts[1]) : 0,
+                    parts.length > 2 ? Long.parseLong(parts[2]) : 0};
         } catch (NumberFormatException e) {
             throw new IllegalArgumentException("Unreadable cursor " + cursor + " - pass one a previous answer gave, \"now\" or \"claude\"");
         }
