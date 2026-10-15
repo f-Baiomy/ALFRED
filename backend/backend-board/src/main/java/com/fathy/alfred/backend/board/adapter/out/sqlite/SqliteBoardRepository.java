@@ -274,6 +274,7 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort,
                 """);
         jdbc.execute("CREATE INDEX IF NOT EXISTS idx_retest_runs ON retest_runs(card_id, id)");
         jdbc.execute("CREATE TABLE IF NOT EXISTS app_starts (project TEXT PRIMARY KEY, at INTEGER NOT NULL)");
+        jdbc.execute("CREATE TABLE IF NOT EXISTS app_start_history (project TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (project, at))");
         // specs/018: the requirement check - each Acceptance item's evidence, what each call showed about it, its card
         jdbc.execute("""
                 CREATE TABLE IF NOT EXISTS item_evidence (cycle_id TEXT NOT NULL, file_name TEXT NOT NULL, item_key TEXT NOT NULL,
@@ -314,6 +315,7 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort,
                   parent_idx INTEGER, parent_option TEXT, asked_at INTEGER NOT NULL, PRIMARY KEY (entry_id, idx))
                 """);
         jdbc.execute("CREATE INDEX IF NOT EXISTS idx_card_questions ON card_questions(card_id, state)");
+        addColumn("card_questions", "recommended", "TEXT");
         jdbc.execute("CREATE TABLE IF NOT EXISTS board_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
         Integer seeded = jdbc.queryForObject("SELECT COUNT(*) FROM board_meta WHERE key = 'teams_seeded'", Integer.class);
         if (seeded == null || seeded == 0) {
@@ -324,7 +326,7 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort,
 
     // ------------------------------------------------------------------------------------------------- questions (019)
 
-    private static final String QUESTION_COLUMNS = "entry_id, card_id, idx, header, text, state, later_until, answer_entry, parent_idx, parent_option, asked_at";
+    private static final String QUESTION_COLUMNS = "entry_id, card_id, idx, header, text, state, later_until, answer_entry, parent_idx, parent_option, asked_at, recommended";
 
     private static final RowMapper<Question> QUESTION_ROW = (rs, n) -> {
         long later = rs.getLong(7);
@@ -334,7 +336,7 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort,
         int parent = rs.getInt(9);
         Integer parentIdx = rs.wasNull() ? null : parent;
         return new Question(rs.getLong(1), rs.getString(2), rs.getInt(3), rs.getString(4), rs.getString(5), QuestionState.valueOf(rs.getString(6)),
-                laterUntil, answerEntry, parentIdx, rs.getString(10), Instant.ofEpochMilli(rs.getLong(11)));
+                laterUntil, answerEntry, parentIdx, rs.getString(10), Instant.ofEpochMilli(rs.getLong(11)), rs.getString(12));
     };
 
     @Override
@@ -348,9 +350,9 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort,
     }
 
     private void insertQuestion(Question q) {
-        jdbc.update("INSERT INTO card_questions(" + QUESTION_COLUMNS + ") VALUES (?,?,?,?,?,?,?,?,?,?,?)", q.entryId(), q.cardId(), q.idx(), q.header(),
+        jdbc.update("INSERT INTO card_questions(" + QUESTION_COLUMNS + ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", q.entryId(), q.cardId(), q.idx(), q.header(),
                 q.text(), q.state().name(), q.laterUntil() == null ? null : q.laterUntil().toEpochMilli(), q.answerEntry(), q.parentIdx(),
-                q.parentOption(), q.askedAt().toEpochMilli());
+                q.parentOption(), q.askedAt().toEpochMilli(), q.recommended());
     }
 
     @Override
@@ -375,6 +377,19 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort,
             args.addAll(chunk);
             jdbc.query("SELECT card_id, COUNT(*) FROM card_questions WHERE " + OPEN_NOW + " AND card_id IN (" + marks(chunk.size()) + ") GROUP BY card_id",
                     rs -> { out.put(rs.getString(1), rs.getInt(2)); }, args.toArray());
+        }
+        return out;
+    }
+
+    @Override
+    public Map<String, String> openQuestionAdvice(Collection<String> cardIds, Instant now) {
+        Map<String, String> out = new HashMap<>();
+        for (List<String> chunk : chunks(new LinkedHashSet<>(cardIds))) {
+            List<Object> args = new ArrayList<>();
+            args.add(now.toEpochMilli());
+            args.addAll(chunk);
+            jdbc.query("SELECT card_id, recommended FROM card_questions WHERE " + OPEN_NOW + " AND recommended IS NOT NULL AND card_id IN ("
+                    + marks(chunk.size()) + ") ORDER BY entry_id, idx", rs -> { out.putIfAbsent(rs.getString(1), rs.getString(2)); }, args.toArray());
         }
         return out;
     }
@@ -1488,6 +1503,21 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort,
     public void putAppStart(String project, Instant at) {
         jdbc.update("INSERT INTO app_starts(project, at) VALUES (?,?) ON CONFLICT(project) DO UPDATE SET at = MAX(at, excluded.at)", project,
                 at.toEpochMilli());
+        jdbc.update("INSERT OR IGNORE INTO app_start_history(project, at) VALUES (?,?)", project, at.toEpochMilli());
+        jdbc.update("DELETE FROM app_start_history WHERE project = ? AND at NOT IN (SELECT at FROM app_start_history WHERE project = ? ORDER BY at DESC LIMIT "
+                + APP_STARTS_KEPT + ")", project, project);
+    }
+
+    /** App starts kept per project: enough to tell the build of any call a re-test still reads. */
+    static final int APP_STARTS_KEPT = 50;
+
+    @Override
+    public List<Instant> appStarts(String project) {
+        List<Instant> out = new ArrayList<>(jdbc.query("SELECT at FROM app_start_history WHERE project = ? ORDER BY at",
+                (rs, n) -> Instant.ofEpochMilli(rs.getLong(1)), project));
+        // a start recorded before the history existed
+        appStart(project).filter(a -> !out.contains(a)).ifPresent(a -> { out.add(a); out.sort(null); });
+        return out;
     }
 
     @Override

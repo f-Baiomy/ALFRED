@@ -36,7 +36,12 @@ final class QuestionBlocks {
     }
 
     /** One question as asked: its place, its header, its options; a follow-up names the question and option that open it. */
-    record Asked(int idx, String header, String question, boolean multiSelect, List<String> options, Integer parentIdx, String parentOption) {
+    record Asked(int idx, String header, String question, boolean multiSelect, List<String> options, Integer parentIdx, String parentOption,
+                 String recommended) {
+
+        Asked(int idx, String header, String question, boolean multiSelect, List<String> options, Integer parentIdx, String parentOption) {
+            this(idx, header, question, multiSelect, options, parentIdx, parentOption, null);
+        }
     }
 
     /** The questions a question comment asks, follow-ups after the questions; a comment with no block asks one, its text. */
@@ -68,10 +73,16 @@ final class QuestionBlocks {
 
     private static Asked of(JsonNode q, int idx, Integer parentIdx, String parentOption) {
         List<String> options = new ArrayList<>();
-        q.path("options").forEach(o -> options.add(o.path("label").asText("")));
+        String[] recommended = {null};
+        q.path("options").forEach(o -> {
+            options.add(o.path("label").asText(""));
+            if (recommended[0] == null && o.path("recommended").asBoolean(false)) {
+                recommended[0] = o.path("label").asText("");
+            }
+        });
         String header = q.path("header").asText("").strip();
         return new Asked(idx, header.isEmpty() ? "Q" + (idx + 1) : header, q.path("question").asText("").strip(), q.path("multiSelect").asBoolean(false),
-                options, parentIdx, parentOption);
+                options, parentIdx, parentOption, recommended[0]);
     }
 
     /** What is wrong with a ```questions block Claude wrote, or null. */

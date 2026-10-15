@@ -49,9 +49,17 @@ public record ItemVerdict(String cycleId, String fileName, String itemKey, Verdi
         }
     }
 
-    /** How many calls in the item's window gave each result. */
-    public record Counts(int contradicts, int wrong, int meets, int noData, int unknown) {
-        public static final Counts NONE = new Counts(0, 0, 0, 0, 0);
+    /**
+     * How many calls in the item's window gave each result; {@code skipped}: calls to the item's endpoint its REQUEST_WHEN
+     * left out as another choice (specs/020) - with none judged the item is NOT_EXERCISED, but the endpoint WAS called:
+     * check the evidence (an app's own "all" marker such as -11 needs has:-11) before saying nobody tried it.
+     */
+    public record Counts(int contradicts, int wrong, int meets, int noData, int unknown, int skipped) {
+        public static final Counts NONE = new Counts(0, 0, 0, 0, 0, 0);
+
+        public Counts(int contradicts, int wrong, int meets, int noData, int unknown) {
+            this(contradicts, wrong, meets, noData, unknown, 0);
+        }
 
         public int total() {
             return contradicts + wrong + meets + noData + unknown;

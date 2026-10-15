@@ -1,10 +1,11 @@
 import { SelectOption, SelectPickerComponent } from '../../select-picker/select-picker.component';
 import { Component, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
 import {
-  CardDetail, CardRetest, Expectation, ExpectationKind, RetestOutcome, RetestStep, expectationText, retestChip, suggestExpectations,
+  CardDetail, CardRetest, Expectation, ExpectationKind, RetestCheck, RetestOutcome, RetestStep, expectationText, onlyEmptyAnswers, retestChip, suggestExpectations,
 } from '../../../core/models/board.models';
 import { BoardApiService } from '../../../core/services/board-api.service';
 import { ConfirmDialogService } from '../../../core/services/confirm-dialog.service';
+import { VerifyGuardService } from '../../../core/services/verify-guard.service';
 import { ResendApiService } from '../../../core/services/resend-api.service';
 import { messageOf } from '../../../core/state/board-state.service';
 import { MentionChipComponent } from '../mention-chip/mention-chip.component';
@@ -88,10 +89,12 @@ const KIND_LABELS: Record<ExpectationKind, string> = {
               <app-mention-chip [mention]="{ type: 'call', ref: c.ref, label: c.label }" /></span>
           } @empty { <span class="board-dim">{{ d.check.newBuild ? 'New build running - nothing re-tested yet.' : 'No call to this endpoint since the fix.' }}</span> }
         </div>
+        @if (d.check.beforeBuild) { <div class="board-dim">{{ d.check.beforeBuild }} calls before the app start that carries the fix - old code, not counted.</div> }
+        @if (emptyOnly(d.check)) { <div class="board-retest-empty">⚠ Every answer was empty (0 rows) - the fix was not seen working on data.</div> }
         <h4>Re-test steps</h4>
         @for (s of d.check.steps; track $index) {
           <div class="board-retest-row"><span [class]="s.seen ? 'ok' : 'board-dim'">{{ s.seen ? '✓' : '○' }}</span><span>{{ s.text }}</span>
-            <span class="board-retest-vals">{{ s.seen ? s.calls + ' calls' : 'not seen' }}
+            <span class="board-retest-vals" [title]="s.note ?? ''">{{ s.seen ? s.calls + ' calls' : s.note ? 'called, request did not match' : 'not seen' }}
               @if (editable()) { <button type="button" class="board-link" title="Remove this step" (click)="removeStep($index)">✕</button> }</span></div>
         } @empty { <div class="board-dim">No steps - the card's own call is the re-test.</div> }
         @if (editable()) {
@@ -120,6 +123,7 @@ const KIND_LABELS: Record<ExpectationKind, string> = {
 })
 export class CardRetestComponent {
   private readonly api = inject(BoardApiService);
+  private readonly verifyGuard = inject(VerifyGuardService);
   private readonly resend = inject(ResendApiService);
   private readonly confirm = inject(ConfirmDialogService);
   readonly card = input.required<CardDetail>();
@@ -244,6 +248,12 @@ export class CardRetestComponent {
   }
 
   move(status: 'VERIFIED' | 'TO_DO'): void {
-    this.api.move(this.card().id, status).subscribe({ error: (e) => this.message.set(messageOf(e)) });
+    const go = () => this.api.move(this.card().id, status).subscribe({ error: (e) => this.message.set(messageOf(e)) });
+    if (status === 'VERIFIED') void this.verifyGuard.verify(this.card(), go);
+    else go();
+  }
+
+  emptyOnly(c: RetestCheck): boolean {
+    return onlyEmptyAnswers(c);
   }
 }

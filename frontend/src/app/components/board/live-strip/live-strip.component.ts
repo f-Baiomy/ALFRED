@@ -1,6 +1,10 @@
-import { Component, OnDestroy, computed, effect, inject, input, output, signal } from '@angular/core';
+import { Component, DestroyRef, OnDestroy, computed, effect, inject, input, output, signal } from '@angular/core';
 import { LiveWorkStateService, currentStep } from '../../../core/state/live-work-state.service';
-import { AgentStatus, SkillRun } from '../../../core/models/board.models';
+import { AgentStatus, LiveRunnerInfo, SkillRun, answererLabel } from '../../../core/models/board.models';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { filter } from 'rxjs';
+import { BoardApiService } from '../../../core/services/board-api.service';
+import { BoardSocketService } from '../../../core/services/board-socket.service';
 import { SkillRunsStateService, waiting } from '../../../core/state/skill-runs-state.service';
 import { runDuration } from '../../../shared/utils/skill-prompt';
 
@@ -16,6 +20,12 @@ export const AGENT_EXPIRY_MS = 10 * 60 * 1000;
   selector: 'app-live-strip',
   standalone: true,
   template: `
+    @if (answerer(); as a) {
+      <div class="board-live live-strip-answerer" role="status">
+        <span class="live-strip-dot"></span>
+        <span>Answering you: <b>{{ who(a).name }}</b>{{ a.host ? ' · ' + a.host : '' }} · <span class="board-dim">stop it with {{ who(a).stop }}</span></span>
+      </div>
+    }
     @for (w of liveNow(); track w.id) {
       <div class="board-live live-strip-work" role="status">
         <span class="live-spinner"></span><b>✦ Live</b>
@@ -92,6 +102,11 @@ export class LiveStripComponent implements OnDestroy {
   readonly runningText = computed(() => this.running().map((r) => `${label(r)} · ${runDuration(r)}`).join(', '));
   readonly queuedText = computed(() => this.queued().map(label).join(', '));
 
+  /** Who answers the user on this board (specs/020) - the board once said "/alfred-live" while listen's lane answered. */
+  readonly answerer = signal<LiveRunnerInfo | null>(null);
+  readonly who = answererLabel;
+  private readonly api = inject(BoardApiService);
+
   private readonly expired = signal(false);
   private timer: ReturnType<typeof setTimeout> | null = null;
 
@@ -115,7 +130,12 @@ export class LiveStripComponent implements OnDestroy {
       if (p === null) return;
       this.runs.watch(p);
       this.runs.watchCycle(p, this.cycleId());
+      this.loadAnswerer(p);
     }, { allowSignalWrites: true });
+    inject(BoardSocketService).events$.pipe(
+      filter((e) => e.type === 'live-runner' && (this.project() === null || e.project === this.project())),
+      takeUntilDestroyed(inject(DestroyRef)),
+    ).subscribe(() => { const p = this.project(); if (p !== null) this.loadAnswerer(p); });
     effect(() => {
       const s = this.status();
       if (this.timer) clearTimeout(this.timer);
@@ -125,6 +145,11 @@ export class LiveStripComponent implements OnDestroy {
       this.expired.set(left <= 0);
       if (left > 0) this.timer = setTimeout(() => this.expired.set(true), left);
     }, { allowSignalWrites: true });
+  }
+
+  private loadAnswerer(project: string): void {
+    // an Alfred without the heartbeat answers 404: no line
+    this.api.liveRunner(project).subscribe({ next: (r) => this.answerer.set(r ?? null), error: () => this.answerer.set(null) });
   }
 
   time(iso: string): string {

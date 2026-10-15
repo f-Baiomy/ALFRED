@@ -315,6 +315,15 @@ export class ListenRunner {
   }
 
   /** Stop: finish (sweep + review's finish) after the current wait, or at once with now. */
+  /** /alfred-live stop reached this runner (specs/020): the live lane stops answering; the calls are still checked. */
+  liveOff() {
+    if (!this.live || this.live.stopped) return;
+    this.live.stop(false);
+    this.live.beat(true);
+    this.o.log("  ■ live lane stopped (alfred-live stop) - listen keeps checking calls");
+    this.o.chat?.("■ /alfred-listen's live lane stopped - listen keeps checking calls");
+  }
+
   stop(now = false) {
     this.stopping = true;
     if (now) {
@@ -1218,6 +1227,7 @@ export async function main(argv) {
       const how = readFileSync(stopFile, 'utf8').trim();
       unlinkSync(stopFile);
       log(`  ■ stop file read: ${how}`);
+      if (how === 'live-off') { runner.liveOff(); return; }
       runner.stop(how === 'now');
     };
     const signal = (name) => { log(`  ■ ${name} received - stopping now`); runner.stop(true); };

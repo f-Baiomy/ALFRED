@@ -101,6 +101,10 @@ export interface FakeBoard {
   createExtra?: Record<string, unknown>;
   /** GET /board/cards/{id}/questions per card id (specs/019). */
   questions?: Record<string, any[]>;
+  /** Warnings the next PUT .../retest-plan answers with (specs/020: a step endpoint no call ever hit). */
+  planWarnings?: string[];
+  /** An Alfred before specs/019: no question index (404). */
+  questionsMissing?: boolean;
   /** When set, a question comment is not saved: the backend answers "already asked" with this note. */
   askedNote?: string;
   /** A GET /board/changes/wait is held until this settles - a wait the test controls. */
@@ -533,7 +537,7 @@ export class FakeAlfred {
       return card ? [200, card] : [404, { error: 'not-found', message: 'No card' }];
     }
     if (p[1] === 'cards' && p[3] === 'activity') return [200, { entries: b.activity[p[2]] ?? [], total: (b.activity[p[2]] ?? []).length }];
-    if (p[1] === 'cards' && p[3] === 'questions' && method === 'GET') return [200, b.questions?.[p[2]] ?? []];
+    if (p[1] === 'cards' && p[3] === 'questions' && method === 'GET') return b.questionsMissing ? [404, { error: 'not-found', message: 'No route' }] : [200, b.questions?.[p[2]] ?? []];
     if (p[1] === 'cards' && p[3] === 'questions' && p[5] === 'withdraw') return [201, { id: 99 }];
     if (p[1] === 'cards' && p[3] === 'comments' && body.question && b.askedNote) return [200, { entry: { id: 1 }, note: b.askedNote }];
     if (p[1] === 'cards' && p[3] === 'comments') {
@@ -581,7 +585,7 @@ export class FakeAlfred {
     if (p[1] === 'retest') return [200, { checks: b.retest, lastStart: null }];
     if (p[1] === 'cards' && p[3] === 'retest-plan' && method === 'PUT') {
       b.plans[p[2]] = body;
-      return [200, { cardId: p[2], ...body, updatedBy: 'CLAUDE', updatedAt: 't' }];
+      return [200, { cardId: p[2], ...body, updatedBy: 'CLAUDE', updatedAt: 't', ...(b.planWarnings ? { warnings: b.planWarnings } : {}) }];
     }
     if (p[1] === 'cards' && p[3] === 'retest') {
       return [200, { plan: { cardId: p[2], expectations: [], steps: [], updatedBy: null, ...(b.plans[p[2]] as object ?? {}) }, check: b.retest[0], history: [], lastStart: null }];

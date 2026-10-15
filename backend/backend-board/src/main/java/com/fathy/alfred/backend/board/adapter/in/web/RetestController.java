@@ -86,7 +86,18 @@ public class RetestController {
         if (change.outcome() != CardChange.Outcome.OK) {
             return BoardWeb.refused(change.outcome(), change.message());
         }
-        return new ResponseEntity<>(change.plan(), HttpStatus.OK);
+        if (change.warnings().isEmpty()) {
+            return new ResponseEntity<>(change.plan(), HttpStatus.OK);
+        }
+        // the plan as before, with what will keep a step from ticking (specs/020)
+        Map<String, Object> out = new java.util.LinkedHashMap<>();
+        out.put("cardId", change.plan().cardId());
+        out.put("expectations", change.plan().expectations());
+        out.put("steps", change.plan().steps());
+        out.put("updatedBy", change.plan().updatedBy());
+        out.put("updatedAt", change.plan().updatedAt());
+        out.put("warnings", change.warnings());
+        return new ResponseEntity<>(out, HttpStatus.OK);
     }
 
     private static String blank(String s) {

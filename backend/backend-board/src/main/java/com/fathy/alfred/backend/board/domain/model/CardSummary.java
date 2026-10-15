@@ -6,9 +6,17 @@ import java.util.List;
 
 /** A board row: the card without its description and history, plus what the row shows. */
 public record CardSummary(@JsonUnwrapped Card card, int commentCount, List<MentionRef> mentionChips, SimilarClosed similarClosed,
-                          Proposal proposal, WaitingOn waiting, List<CardRef> blockedBy, int openQuestions) {
+                          Proposal proposal, WaitingOn waiting, List<CardRef> blockedBy, int openQuestions, String advice) {
 
-    /** {@code openQuestions}: Claude's questions on the card still waiting on the user (specs/019) - the ❓ on the tile. */
+    /**
+     * {@code openQuestions}: Claude's questions on the card still waiting on the user (specs/019) - the ❓ on the tile;
+     * {@code advice}: the option Claude recommends in the first of them (specs/020), "✦ advises: To do".
+     */
+    public CardSummary(Card card, int commentCount, List<MentionRef> mentionChips, SimilarClosed similarClosed, Proposal proposal,
+                       WaitingOn waiting, List<CardRef> blockedBy, int openQuestions) {
+        this(card, commentCount, mentionChips, similarClosed, proposal, waiting, blockedBy, openQuestions, null);
+    }
+
     public CardSummary(Card card, int commentCount, List<MentionRef> mentionChips, SimilarClosed similarClosed, Proposal proposal,
                        WaitingOn waiting, List<CardRef> blockedBy) {
         this(card, commentCount, mentionChips, similarClosed, proposal, waiting, blockedBy, 0);

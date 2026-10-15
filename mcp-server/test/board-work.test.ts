@@ -375,3 +375,50 @@ test('board_get shows each question\'s state and the answers whole, previews cut
     assert.match(r.json.history[1], /answers: \{"Steps":\{"chose":\["Keep"\],"note":"all of them"\}\}/);
   } finally { await w.close(); }
 });
+
+test('board_ask on an Alfred without the questions index asks in words, options listed - never a raw block', async () => {
+  const w = await world();
+  try {
+    await w.call('board_add', { project: 'p', kind: 'BUG', title: 'x' });
+    w.fake.board.questionsMissing = true;
+    const r = await w.call('board_ask', { project: 'p', number: 1, questions: [
+      { header: 'Triage', question: 'What should happen to #50?', options: [{ label: 'To do', then: 'I move it', recommended: true }, { label: 'Fine' }] }] });
+    assert.equal(r.isError, false, r.text);
+    const text: string = w.fake.requests('POST', '/board/cards/card-1/comments')[0].body.question;
+    assert.doesNotMatch(text, /```questions/);
+    assert.match(text, /\*\*1\. Triage\*\* - What should happen to #50\?/);
+    assert.match(text, /a\) \*\*To do\*\* \(recommended\) → then I move it/);
+  } finally { await w.close(); }
+});
+
+test('board_retest_plan sends what a step\'s call must carry and passes on the warning about an endpoint no call ever hit (specs/020)', async () => {
+  const w = await world();
+  try {
+    await w.call('board_add', { project: 'p', kind: 'BUG', title: 'x' });
+    w.fake.board.planWarnings = ['No recorded call ever hit POST /agency/by-branch - the step cannot tick until one does. Did you mean POST /Admin2/agency/by-branch (12 calls)? Saved as written.'];
+    const r = await w.call('board_retest_plan', { project: 'p', number: 1, steps: [
+      { text: 'All Branches, Search', endpoint: 'POST /Booking2/refunded-requests/search', request: [{ path: '$.branchIds', shape: 'has:-11' }] },
+      { text: 'Open the agency list', endpoint: 'POST /agency/by-branch' }] });
+    assert.equal(r.isError, false, r.text);
+    assert.match(r.json.warnings[0], /Did you mean POST \/Admin2\/agency\/by-branch/);
+    const sent = w.fake.requests('PUT', '/board/cards/card-1/retest-plan')[0].body;
+    assert.deepEqual(sent.steps[0].request, [{ path: '$.branchIds', shape: 'has:-11' }]);
+  } finally { await w.close(); }
+});
+
+test('board_verify says which calls ran before the fix build, why a step did not tick, and that every answer was empty (specs/020)', async () => {
+  const w = await world();
+  try {
+    await w.call('board_add', { project: 'p', kind: 'BUG', title: 'Branch filter' });
+    w.fake.board.retest = [{ number: 1, title: 'Branch filter', status: 'FIXED', verdict: 'PASSES', statusOnly: false, newBuild: false,
+      summary: 'passes · 2 calls since the fix · every answer was empty (2 calls, 0 rows) - not seen working on data · 5 calls before the fix build not counted',
+      results: [], beforeBuild: 5, emptyAnswers: 2,
+      calls: [{ ref: 'in:a', label: 'POST /search · 200', passed: true, failed: null }, { ref: 'in:b', label: 'POST /search · 200', passed: true, failed: null }],
+      steps: [{ text: 'All Branches, Search', endpoint: 'POST /search', seen: false, calls: 0, note: '2 calls to the endpoint, none sent what the step asks: branchIds has -11' }] }];
+    const r = await w.call('board_verify', { project: 'p' });
+    const c = r.json.checks[0];
+    assert.match(c.beforeBuild, /5 calls before the app start that carries the fix/);
+    assert.match(c.emptyAnswers, /never propose Verified on it/);
+    assert.match(c.steps[0], /not done - All Branches, Search \[POST \/search\] \(2 calls to the endpoint, none sent what the step asks/);
+  } finally { await w.close(); }
+});

@@ -6,7 +6,7 @@ import {
   CardRetest, ChecklistFile, ChecklistItem, CycleBrief, Expectation, Mark, MentionRef, NewCard, NextSteps, Resolution, RetestCheck, RetestPlan,
   RetestReport, RetestStep, SessionLogEntry, SpecFileInfo, Team, TeamEdit, TestStep,
   CycleChatInfo, EvidenceCheck, ItemEvidence, RequirementsView, SkillRun, SkillRunRequest, SkillRunsPage, TextVersion,
-  ActivityEntry, BoardQuestion, EntryAnswers,
+  ActivityEntry, BoardQuestion, EntryAnswers, LiveRunnerInfo,
 } from '../models/board.models';
 import { AppConfigService } from './app-config.service';
 
@@ -142,6 +142,11 @@ export class BoardApiService {
   comment(id: string, text: string, replyTo?: number, clearDecision?: boolean): Observable<unknown> {
     return this.http.post(`${this.base}/cards/${encodeURIComponent(id)}/comments`,
       replyTo == null ? { text } : { text, replyTo, clearDecision: !!clearDecision });
+  }
+
+  /** Who answers the user on a project's board now - /alfred-live or /alfred-listen's live lane - or null (specs/020). */
+  liveRunner(project: string): Observable<LiveRunnerInfo | null> {
+    return this.http.get<LiveRunnerInfo | null>(`${this.base}/live-runner`, { params: { project } });
   }
 
   /** Every question Claude asked on a card, with its state (specs/019). */

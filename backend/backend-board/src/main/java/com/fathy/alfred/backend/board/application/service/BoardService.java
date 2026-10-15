@@ -380,7 +380,10 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
         if (actor == Actor.CLAUDE && !ClaudeRules.mayMove(card.status(), status)) {
             return CardChange.refused(CardChange.Outcome.REFUSED_FOR_CLAUDE, ClaudeRules.USER_ONLY);
         }
-        Card next = moveCard(actor, card, status);
+        if (actor == Actor.USER && card.status() == CardStatus.INBOX && status == CardStatus.TO_DO) {
+            answerBySorting(card.id(), "to do");
+        }
+        Card next = moveCard(actor, store.find(id).orElse(card), status);
         changed(next, "card");
         return CardChange.ok(detail(next));
     }
@@ -433,9 +436,46 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
         if (problem != null) {
             return CardChange.refused(CardChange.Outcome.INVALID, problem);
         }
-        Card next = closeCard(actor, found.get(), resolution, reason);
+        answerBySorting(id, switch (resolution) {
+            case FINE -> "fine";
+            case NOT_IN_FLOW -> "not in this flow";
+            case WONT_FIX -> "won't fix";
+            case DUPLICATE -> "duplicate";
+        });
+        Card next = closeCard(actor, store.find(id).orElse(found.get()), resolution, reason);
         changed(next, "card");
         return CardChange.ok(detail(next));
+    }
+
+    /**
+     * The user sorted a card with its own buttons (specs/020): an open question of Claude's that offers that choice -
+     * the triage question "To do / Fine / Not in this flow" - is answered with it, so Claude hears the decision and the
+     * question does not stay open on a sorted card.
+     */
+    private void answerBySorting(String cardId, String choice) {
+        Instant now = clock.instant();
+        java.util.Map<Long, java.util.Map<String, AnswerIn>> byEntry = new java.util.LinkedHashMap<>();
+        for (Question q : store.questionsOf(cardId)) {
+            if (!q.open(now) || q.parentIdx() != null) {
+                continue;
+            }
+            Optional<ActivityEntry> asked = store.activityEntry(q.entryId());
+            if (asked.isEmpty()) {
+                continue;
+            }
+            QuestionBlocks.asked(asked.get().text()).stream().filter(a -> a.idx() == q.idx()).findFirst()
+                    .flatMap(a -> a.options().stream().filter(o -> sameChoice(o, choice)).findFirst())
+                    .ifPresent(label -> byEntry.computeIfAbsent(q.entryId(), k -> new java.util.LinkedHashMap<>())
+                            .put(q.header(), new AnswerIn(List.of(label), null, "sorted on the board", null)));
+        }
+        if (!byEntry.isEmpty()) {
+            answer(Actor.USER, cardId, byEntry.entrySet().stream().map(e -> new EntryAnswers(e.getKey(), e.getValue())).toList(), true);
+        }
+    }
+
+    private static boolean sameChoice(String label, String choice) {
+        String l = label.toLowerCase(Locale.ROOT).replaceAll("[^a-z' ]", " ").replaceAll("\\s+", " ").strip();
+        return l.equals(choice) || l.startsWith(choice + " ") || (choice.equals("not in this flow") && l.startsWith("not in flow"));
     }
 
     /** Writes STATUS, SCOPE and REASON first and RESOLUTION last: Undo restores from that last entry (see undoClose). */
@@ -896,7 +936,7 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
         List<Question> rows = QuestionBlocks.asked(text).stream().map(a -> new Question(entryId, cardId, a.idx(), a.header(), a.question(),
                 answeredBy != null ? (a.parentIdx() == null ? QuestionState.ANSWERED : QuestionState.DROPPED)
                         : a.parentIdx() == null ? QuestionState.OPEN : QuestionState.PENDING,
-                null, answeredBy, a.parentIdx(), a.parentOption(), at)).toList();
+                null, answeredBy, a.parentIdx(), a.parentOption(), at, a.recommended())).toList();
         store.putQuestions(entryId, rows);
     }
 
@@ -1420,6 +1460,7 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
         Map<String, List<CardRef>> blockers = store.blockersOf(ids);
         ensureIndexed();
         Map<String, Integer> questions = store.openQuestionCounts(ids, clock.instant());
+        Map<String, String> advice = questions.isEmpty() ? Map.of() : store.openQuestionAdvice(questions.keySet(), clock.instant());
         Map<String, Map<String, SimilarClosed>> similar = new LinkedHashMap<>();
         cards.stream().filter(c -> c.status() == CardStatus.INBOX && c.signature() != null)
                 .collect(Collectors.groupingBy(Card::project, Collectors.mapping(Card::signature, Collectors.toSet())))
@@ -1428,7 +1469,7 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
                 chips.getOrDefault(c.id(), List.of()),
                 c.status() == CardStatus.INBOX && c.signature() != null
                         ? hintFor(c, similar.getOrDefault(c.project(), Map.of()).get(c.signature())) : null, proposals.get(c.id()), waiting.get(c.id()),
-                blockers.get(c.id()), questions.getOrDefault(c.id(), 0))).toList();
+                blockers.get(c.id()), questions.getOrDefault(c.id(), 0), advice.get(c.id()))).toList();
         return new CardsPage(rows, store.count(query), store.progress(query.project(), query.cycleId()));
     }
 

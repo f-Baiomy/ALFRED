@@ -119,6 +119,23 @@ question, whenever the answer is a choice:
   state (`questions: Steps ANSWERED · Checks OPEN`).
 - A question the evidence or another answer settled: `board_withdraw_question` with the reason, never leave it open
   and never clear Needs decision by hand while a question is open (refused).
+- A command started from the board (▶, `board_run_take`) leaves its result on the board: advice the user must act on
+  is a `board_ask` on the card, never only text in the chat - the user may not be at the chat. Then end the run; do
+  not wait for an answer in the chat.
+
+### Re-test evidence
+
+- A re-test step's `endpoint` is copied from a recorded call (`get_call`), never guessed - `board_retest_plan`
+  returns `warnings` for one no call ever hit, with the closest recorded endpoint: fix it at once. Give a step
+  `request` conditions when what it tests is in the request ("All Branches" → `$.branchIds` `has:-11`): a call to the
+  same path with another body must not tick it.
+- Calls before the fix build are not re-test evidence (`beforeBuild`). When every answer of a re-test was empty
+  (`emptyAnswers` - 0 rows), the fix was not seen working: say so, add steps whose calls return rows, and never
+  propose Verified on it.
+- An item exercised with only empty answers is "No data", never "Not exercised"; before writing that nobody sent
+  something, `search_calls` for it.
+- Answer about code from where the code is: a live answer's prompt says where the card's code links are on this
+  machine; when they are not here, say so and give the file:line - never that the code does not exist.
 
 ### Writing on the board - readable text
 

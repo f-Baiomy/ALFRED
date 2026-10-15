@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -344,4 +344,24 @@ test('a chat running both /alfred-live and /alfred-listen for a cycle answers on
   assert.equal(await owner('listen', ['listen']), null, 'no live runner for the cycle: the lane answers');
   assert.equal(await owner('live', ['live', 'listen']), null, 'the live runner itself answers');
   assert.ok(calls.some((c) => c.startsWith('/board/cycle-chat?cycleId=decc')));
+});
+
+test('the live lane finds where a card\'s code is: this folder, a folder beside it, or not on this machine (specs/020)', () => {
+  const root = mkdtempSync(join(tmpdir(), 'alfred-repo-'));
+  const front = join(root, 'ndc-web-channel');
+  const back = join(root, 'odeysys-claude', 'odeysys');
+  for (const d of [join(front, 'src'), join(back, 'odeysysadmin-tt', 'src')]) mkdirSync(d, { recursive: true });
+  writeFileSync(join(back, 'odeysysadmin-tt', 'src', 'RefundController.java'), 'class X {}');
+  const paths = live.codePaths([{ type: 'CODE', ref: 'odeysysadmin-tt/src/RefundController.java:88' }, { type: 'CALL', ref: 'in:x' }]);
+  assert.deepEqual(paths, ['odeysysadmin-tt/src/RefundController.java']);
+
+  const found = live.findRepo(paths, front);
+  assert.equal(found.dir, back);
+  assert.match(live.repoHint(paths, found), /is in .*odeysys \(not this runner's folder\) - read it there with absolute paths/);
+  assert.equal(live.repoHint(paths, live.findRepo(paths, back)), null, 'the runner\'s own folder needs no hint');
+
+  const missing = live.findRepo(['common-odeysys/src/A.java'], front);
+  assert.equal(missing.missing, true);
+  assert.match(live.repoHint(['common-odeysys/src/A.java'], missing), /NOT on this machine.*never say the code does not exist/);
+  assert.equal(live.findRepo([], front), null);
 });

@@ -26,7 +26,7 @@ export interface EvidenceRow {
 export type Verdict = 'MISSING' | 'WRONG' | 'MET' | 'NO_DATA' | 'UNKNOWN' | 'NOT_EXERCISED' | 'MANUAL' | 'NO_EVIDENCE';
 export interface VerdictRow {
   verdict: Verdict; callId: string | null; reason: string | null; cardId: string | null; judgedAt: string | null;
-  counts: { contradicts: number; wrong: number; meets: number; noData: number; unknown: number };
+  counts: { contradicts: number; wrong: number; meets: number; noData: number; unknown: number; skipped?: number };
 }
 export interface RequirementRow {
   fileName: string; itemKey: string; text: string; mark: string | null; evidence: EvidenceRow | null; verdict: VerdictRow;
@@ -62,13 +62,17 @@ export function requirementLine(ctx: MaskContext, r: RequirementRow, n: number, 
   const call = v.callId ? ` ${serializeMention({ type: 'call', ref: `in:${v.callId}@${cycleId}`, label: `call ${v.callId.slice(0, 8)}` })}` : '';
   const why = v.reason ? ` - ${maskText(ctx, v.reason)}` : v.verdict === 'NO_EVIDENCE' ? ' - board_evidence_put writes how the calls show it'
     : v.verdict === 'NOT_EXERCISED' && r.evidence?.howTo ? ` - how: ${maskText(ctx, r.evidence.howTo)}` : '';
-  return `AC${n} ${v.verdict}${card}${call} [${r.itemKey}] ${maskText(ctx, r.text)}${why}`;
+  // specs/020: the endpoint WAS called - its REQUEST_WHEN left every call out; never call that "not exercised" unchecked
+  const skipped = v.verdict === 'NOT_EXERCISED' && (v.counts?.skipped ?? 0) > 0
+    ? ` · BUT ${v.counts.skipped} call${v.counts.skipped === 1 ? '' : 's'} to the endpoint did not match its REQUEST_WHEN - read them (an app's own "all" `
+      + 'marker such as -11 needs shape has:-11) and fix the evidence with board_evidence_put before saying nobody tried it' : '';
+  return `AC${n} ${v.verdict}${card}${call} [${r.itemKey}] ${maskText(ctx, r.text)}${why}${skipped}`;
 }
 
 const CheckSchema = z.object({
   kind: z.enum(['REQUEST_SHAPE', 'REQUEST_WHEN', 'ROWS_MATCH_FILTER', 'ROWS_PRESENT', 'STATUS']),
   path: z.string().max(200).optional().describe('Request JSON path: $.branchIds, or $.branch* for the one key starting so'),
-  shape: z.string().max(20).optional().describe('REQUEST_SHAPE: list | scalar | present. REQUEST_WHEN: none | one | list | list>=2 | present'),
+  shape: z.string().max(104).optional().describe('REQUEST_SHAPE: list | scalar | present. REQUEST_WHEN: none | one | list | list>=2 | present | has:<value> (an app marker, e.g. has:-11 for "All")'),
   rows: z.string().max(200).optional().describe('ROWS_*: the response list, e.g. $.payload'),
   field: z.string().max(100).optional().describe('ROWS_MATCH_FILTER: the row key compared with the request filter at path, e.g. branchId or branch*'),
   min: z.number().int().min(1).max(10_000).optional().describe('ROWS_PRESENT: rows needed (1)'),
@@ -124,8 +128,9 @@ export function register(server: McpServer, client: AlfredClient): void {
       + 'once (no approval); refused for an item whose evidence the user wrote. Checks, in the order they are applied:\n'
       + '- REQUEST_SHAPE {path, shape: list|scalar|present} - what the request must be ABLE to carry whatever the user chose; a call that '
       + 'fails it makes the item MISSING. Use it for the capability the item needs ("several branches" → $.branch* list).\n'
-      + '- REQUEST_WHEN {path, shape: none|one|list|list>=2|present} - which calls exercise the item; others are about another choice and '
-      + 'do not count ("All Branches" → $.branch* none; "two branches" → list>=2).\n'
+      + '- REQUEST_WHEN {path, shape: none|one|list|list>=2|present|has:<value>} - which calls exercise the item; others are about another '
+      + 'choice and do not count ("All Branches" → $.branch* none, or has:-11 when the app sends its own "all" marker - read a recorded '
+      + 'call first; "two branches" → list>=2).\n'
       + '- STATUS {range} and ROWS_MATCH_FILTER {rows, field, path} - what the answer must be (every row\'s branch in the request\'s '
       + 'branches); a failure is WRONG.\n'
       + '- ROWS_PRESENT {rows, min} - without rows nothing is proven: NO_DATA.\n'

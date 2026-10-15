@@ -271,6 +271,11 @@ public interface BoardStorePort {
 
     java.util.Optional<java.time.Instant> appStart(String project);
 
+    /** The project's app starts Alfred saw, oldest first (the last ones kept) - which build a call ran on (specs/020). */
+    default List<java.time.Instant> appStarts(String project) {
+        return appStart(project).map(List::of).orElse(List.of());
+    }
+
     // ------------------------------------------------------------------------------------------------------- teams
 
     /** Every team, in the user's order. */
@@ -294,6 +299,11 @@ public interface BoardStorePort {
 
     /** Open questions per card (OPEN, or LATER whose time has come). */
     java.util.Map<String, Integer> openQuestionCounts(java.util.Collection<String> cardIds, java.time.Instant now);
+
+    /** Per card, the option Claude recommends in its first open question that has one (specs/020). */
+    default java.util.Map<String, String> openQuestionAdvice(java.util.Collection<String> cardIds, java.time.Instant now) {
+        return java.util.Map.of();
+    }
 
     /** Open questions per card of a project (and cycle, when given) - the nav's count and the questions list. */
     java.util.Map<String, Integer> openQuestionCards(String project, String cycleId, java.time.Instant now);

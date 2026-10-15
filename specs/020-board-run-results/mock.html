@@ -1,0 +1,466 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Board Run Results Mock</title>
+<style>
+:root { --bg:#0b0e24; --panel:#141834; --card:#1a1f40; --inner:#0f1330; --border:#2a3060; --strong:#4a4f8a; --text:#e6e8f5; --dim:#9aa3c7; --faint:#6b7399;
+  --purple:#8b5cf6; --pl:#c4b5fd; --cyan:#22d3ee; --green:#34d399; --amber:#fbbf24; --red:#f87171; }
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) { --bg:#f3f4fa; --panel:#fff; --card:#f7f7fd; --inner:#eceef7; --border:#d8dbee; --strong:#bfc4e4;
+  --text:#1b1f3a; --dim:#4c5478; --faint:#7a82a6; --pl:#6d4fd8; --cyan:#0e8fa6; --green:#0f8f62; --amber:#b7791f; --red:#c53030; } }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--text); font:14.5px/1.5 system-ui,"Segoe UI",sans-serif; padding:24px 16px 60px; }
+main { max-width:1180px; margin:0 auto; }
+h1 { font-size:22px; margin:0 0 4px; } h2 { font-size:16px; margin:34px 0 6px; color:var(--pl); }
+.sub { color:var(--dim); margin:0 0 18px; max-width:900px; }
+.prob { color:var(--dim); font-size:13px; margin:0 0 12px; max-width:950px; }
+.prob b { color:var(--amber); }
+code { font:12.5px Consolas,monospace; background:var(--inner); padding:1px 5px; border-radius:4px; }
+.grid2 { display:grid; grid-template-columns:1fr 1fr; gap:14px; } @media (max-width:860px){ .grid2 { grid-template-columns:1fr; } }
+.box { background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:14px 16px; }
+.box h3 { margin:0 0 8px; font-size:12px; text-transform:uppercase; letter-spacing:.05em; color:var(--faint); }
+.box.before h3 { color:var(--red); } .box.after h3 { color:var(--green); }
+.tile { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:10px 12px; margin-bottom:10px; }
+.tag { display:inline-block; font-size:11px; font-weight:700; padding:0 7px; border-radius:5px; background:color-mix(in srgb,var(--cyan) 18%,transparent); color:var(--cyan); }
+.flag { display:inline-block; font-size:11px; padding:0 7px; border-radius:99px; border:1px solid color-mix(in srgb,var(--green) 50%,transparent); color:var(--green); margin-left:4px; }
+.t { font-weight:650; margin:4px 0; }
+.foot { font-size:12px; color:var(--faint); }
+.qpill { display:inline-block; font-size:12.5px; font-weight:650; color:var(--amber); border:1px solid color-mix(in srgb,var(--amber) 55%,transparent); border-radius:99px; padding:0 9px; margin:4px 0; }
+.rec { display:inline-block; font-size:12px; color:var(--green); border:1px solid color-mix(in srgb,var(--green) 45%,transparent); border-radius:99px; padding:0 8px; margin:4px 4px 4px 0; }
+.btns { display:flex; gap:6px; margin-top:6px; } .btns span { flex:1; text-align:center; font-size:12px; border:1px solid var(--border); border-radius:7px; padding:3px 0; color:var(--dim); }
+.btns span.hl { border-color:var(--green); color:var(--green); }
+.dlg { background:var(--panel); border:1px solid var(--strong); border-radius:14px; padding:14px 16px; }
+.tabs { display:flex; gap:6px; flex-wrap:wrap; margin:6px 0 10px; } .tabs span { font-size:12px; padding:2px 10px; border:1px solid var(--border); border-radius:99px; color:var(--dim); }
+.tabs span.on { border-color:var(--purple); color:var(--text); background:color-mix(in srgb,var(--purple) 25%,transparent); }
+.tabs span.ans { color:var(--green); border-color:color-mix(in srgb,var(--green) 50%,var(--border)); }
+.q { font-weight:650; margin:2px 0 6px; }
+.why { font-size:12.5px; color:var(--dim); border-left:3px solid var(--purple); padding:3px 10px; margin:0 0 10px; background:color-mix(in srgb,var(--purple) 7%,transparent); }
+.body { display:grid; grid-template-columns:1.1fr 1fr; gap:12px; } @media (max-width:860px){ .body { grid-template-columns:1fr; } }
+.opt { display:grid; grid-template-columns:24px 1fr auto; gap:8px; padding:8px 10px; border:1px solid var(--border); border-radius:9px; background:var(--card); margin-bottom:6px; font-size:13px; }
+.opt.sel { border-color:var(--purple); background:color-mix(in srgb,var(--purple) 16%,var(--card)); }
+.k { width:22px; height:22px; border-radius:6px; display:grid; place-items:center; font-size:11px; font-weight:700; background:var(--inner); border:1px solid var(--border); color:var(--dim); }
+.opt.sel .k { background:var(--purple); color:#fff; }
+.then { font-size:12px; color:var(--dim); } .then b { color:var(--green); }
+.r { font-size:10.5px; font-weight:700; color:var(--green); border:1px solid color-mix(in srgb,var(--green) 45%,transparent); border-radius:99px; padding:0 7px; height:fit-content; }
+.pv { border:1px solid var(--border); border-radius:9px; background:var(--inner); padding:10px; font-size:12.5px; }
+.pv h4 { margin:0 0 6px; font-size:11px; text-transform:uppercase; color:var(--faint); letter-spacing:.04em; }
+.pv .s { border-top:1px solid var(--border); padding-top:6px; margin-top:6px; } .pv .s:first-of-type { border:0; margin:0; padding:0; }
+.pv b { color:var(--pl); }
+.send { display:flex; justify-content:flex-end; gap:8px; margin-top:10px; } .btn { font-size:12.5px; border:1px solid var(--strong); border-radius:8px; padding:4px 12px; }
+.btn.p { background:var(--purple); border-color:var(--purple); color:#fff; font-weight:650; }
+table { width:100%; border-collapse:collapse; font-size:12.5px; } th { text-align:left; color:var(--faint); font-weight:600; padding:4px; border-bottom:1px solid var(--border); }
+td { padding:5px 4px; border-bottom:1px solid color-mix(in srgb,var(--border) 60%,transparent); vertical-align:top; }
+.ok { color:var(--green); } .bad { color:var(--red); } .warn { color:var(--amber); } .dim { color:var(--faint); }
+.mono { font:12px Consolas,monospace; }
+.callout { border:1px solid color-mix(in srgb,var(--amber) 50%,transparent); background:color-mix(in srgb,var(--amber) 8%,transparent); border-radius:10px; padding:10px 12px; font-size:13px; margin-top:8px; }
+.callout.red { border-color:color-mix(in srgb,var(--red) 50%,transparent); background:color-mix(in srgb,var(--red) 8%,transparent); }
+.callout.green { border-color:color-mix(in srgb,var(--green) 50%,transparent); background:color-mix(in srgb,var(--green) 8%,transparent); }
+.chat { font:12.5px/1.6 Consolas,monospace; background:var(--inner); border:1px solid var(--border); border-radius:9px; padding:10px; white-space:pre-wrap; }
+ul.plan li { margin-bottom:5px; }
+.strip { display:flex; flex-wrap:wrap; gap:8px; align-items:center; font-size:12.5px; background:var(--card); border:1px solid var(--border); border-radius:10px; padding:6px 10px; }
+.dot { width:8px; height:8px; border-radius:50%; background:var(--green); display:inline-block; }
+button { font:inherit; color:inherit; cursor:pointer; }
+.btn { background:var(--card); color:var(--text); } .btn:hover { border-color:var(--pl); } .btn:disabled { opacity:.45; cursor:default; }
+.btns button { flex:1; text-align:center; font-size:12px; border:1px solid var(--border); border-radius:7px; padding:3px 0; color:var(--dim); background:none; }
+.btns button.hl { border-color:var(--green); color:var(--green); } .btns button:hover { border-color:var(--pl); color:var(--text); }
+.qpill { background:none; } .qpill:hover { border-color:var(--amber); }
+.tabs button { font-size:12px; padding:2px 10px; border:1px solid var(--border); border-radius:99px; color:var(--dim); background:none; }
+.tabs button.on { border-color:var(--purple); color:var(--text); background:color-mix(in srgb,var(--purple) 25%,transparent); }
+.tabs button.ans { color:var(--green); border-color:color-mix(in srgb,var(--green) 50%,var(--border)); } .tabs button.ans::before { content:'✓ '; }
+.opt { cursor:pointer; } .opt:hover { border-color:var(--strong); }
+.backdrop { position:fixed; inset:0; background:rgba(5,7,20,.6); display:none; align-items:flex-start; justify-content:center; padding:40px 16px; overflow:auto; z-index:10; }
+.backdrop.open { display:flex; } .backdrop .dlg { width:min(1000px,100%); }
+.x { float:right; background:none; border:0; color:var(--dim); font-size:18px; }
+.tile.gone { opacity:.45; } .state { font-size:12px; margin-top:4px; }
+.log { font:12px/1.6 Consolas,monospace; background:var(--inner); border:1px solid var(--border); border-radius:9px; padding:8px 10px; margin-top:8px; white-space:pre-wrap; min-height:2.4em; }
+.toggle { font-size:12.5px; color:var(--pl); background:none; border:0; padding:0; text-decoration:underline; }
+.hint { font-size:12px; color:var(--cyan); margin:-4px 0 10px; }
+textarea.other { width:100%; min-height:44px; background:var(--inner); color:var(--text); border:1px solid var(--border); border-radius:7px; padding:5px 8px; font:inherit; font-size:13px; margin-top:4px; }
+</style>
+</head>
+<body>
+<main>
+<h1>Run results on the board - mock</h1>
+<p class="sub">The eight problems from cycle 61813 (alfred-problems-2026-10-15.md), each with before and after, using its real example.
+Everything marked <span class="hint" style="margin:0">▸ try</span> is clickable. Nothing is built yet.</p>
+
+<!-- P1 -->
+<h2>P1 · ▶ /alfred-triage leaves its advice on the cards</h2>
+<p class="prob"><b>Now:</b> run 55fad7c9 wrote "#47-#50 Recommend: To do" in the chat only and waited for a chat answer. The board showed 4 bare Inbox cards.</p>
+<div class="hint">▸ try: press ▶ /alfred-triage, then open a ❓ (or "Answer all"), pick, hover for the preview, Send. Or sort a card with its buttons.</div>
+<div class="grid2">
+  <div class="box before"><h3>Before - board after the run</h3>
+    <div class="tile"><span class="tag">TASK</span><div class="t">Not exercised: All Agencies (AC2)</div>
+      <div class="btns"><button>✓ Fine</button><button>⊘ Not in flow</button><button>→ To do</button></div><div class="foot">#47 · ✦ Claude</div></div>
+    <div class="chat">(chat only)
+#47 Recommend: To do
+#48 Recommend: To do
+#49 Recommend: To do
+#50 Recommend: To do
+Answer in one line, e.g. "47-50 todo"</div>
+  </div>
+  <div class="box after"><h3>After - the Inbox, live</h3>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+      <button class="btn" id="runTriage">▶ /alfred-triage</button>
+      <button class="btn" id="answerAll" disabled>❓ Answer all</button>
+      <span class="foot" id="runState">Inbox · 4 cards</span>
+    </div>
+    <div id="inbox"></div>
+    <div class="log" id="p1log"></div>
+  </div>
+</div>
+
+<div class="backdrop" id="triageDlg"><div class="dlg">
+  <button class="x" data-close>✕</button>
+  <div class="foot">✦ Triage run 55fad7c9 · the run ended after asking - your answers reach Claude when you send</div>
+  <div class="tabs" id="tTabs"></div>
+  <div id="tPane"></div>
+  <div class="send"><span class="foot" id="tNote" style="flex:1"></span><button class="btn" id="tBack">‹ Back</button><button class="btn" id="tNext">Next ›</button><button class="btn p" id="tSend">Send</button></div>
+</div></div>
+
+<!-- P2 -->
+<h2>P2 · Re-test steps check the path and the request</h2>
+<p class="prob"><b>Now:</b> two steps named paths the app never calls, so they never ticked; one step ticked on 14 Oct calls that sent the old <code>branchId</code> body.</p>
+<div class="hint">▸ try: save the plan, then take the suggested path.</div>
+<div class="grid2">
+  <div class="box before"><h3>Before - board_retest_plan</h3>
+    <table><tr><th>Step</th><th>Endpoint</th><th>State</th></tr>
+      <tr><td>Branches A + B, open Agency list</td><td class="mono">POST /odeysysadmin/agency/by-branch</td><td class="dim">not done</td></tr>
+      <tr><td>All Branches + All Agencies, Search: branchIds [-11]</td><td class="mono">POST …/refunded-requests/search</td><td class="ok">done</td></tr>
+    </table>
+    <p class="foot">Saved silently. 6 of 9 steps were "done" before the new build was tested.</p>
+  </div>
+  <div class="box after"><h3>After</h3>
+    <button class="btn" id="p2save">Save plan (board_retest_plan)</button>
+    <div id="p2warn"></div>
+    <table style="margin-top:8px"><tr><th>Step</th><th>Expects</th><th>State</th></tr>
+      <tr><td>Branches A + B, open Agency list</td><td class="mono" id="p2path">…/agency/by-branch</td><td id="p2state" class="dim">not done</td></tr>
+      <tr><td>All Branches + All Agencies, Search</td><td class="mono">…/search · body branchIds contains -11</td><td class="warn">not yet <button class="toggle" id="p2why">why?</button></td></tr>
+    </table>
+    <div id="p2whyBox" class="foot" style="display:none;margin-top:6px">#1-#5 hit the path but sent <span class="mono">{"branchId":948,"agencyIds":[949,10646],…}</span> - path matched, request did not.
+      #75 #81 #88 sent <span class="mono">branchIds [948,10642,965]</span> - not [-11].</div>
+  </div>
+</div>
+
+<!-- P3 -->
+<h2>P3 · board_verify counts only calls after the fix build</h2>
+<div class="hint">▸ try: run board_verify.</div>
+<div class="grid2">
+  <div class="box before"><h3>Before</h3>
+    <div class="chat">#44 PARTIAL
+PASS Status 2xx · now 200, 200, 200, 200, 200
+calls: f89e0b77 (14 Oct 14:50) … 4df97712 (14 Oct 15:42)
+app started 2026-10-15T09:14:12Z</div>
+  </div>
+  <div class="box after"><h3>After</h3>
+    <button class="btn" id="p3run">board_verify #44 (cycle 61813)</button> <button class="toggle" id="p3old" style="display:none">show the 5 calls before the build</button>
+    <div class="log" id="p3log"></div>
+  </div>
+</div>
+
+<!-- P4 -->
+<h2>P4 · "No data" instead of "Not exercised"</h2>
+<div class="hint">▸ try: open the evidence.</div>
+<div class="grid2">
+  <div class="box before"><h3>Before - card #47</h3>
+    <div class="tile"><span class="tag">TASK</span><div class="t">Not exercised: Searching with All Agencies… (AC2)</div>
+      <div class="foot">Found: No refunded-requests/search with agencyIds [-11].</div></div>
+  </div>
+  <div class="box after"><h3>After</h3>
+    <div class="tile"><span class="tag">TASK</span><div class="t">No data: Searching with All Agencies… (AC2)</div>
+      <div class="foot">Found: 5 searches with agencyIds [-11] after the new build, all 200 with 0 rows. AC2 ran but nothing proved it.
+        Next: search a date range that has refunds. <button class="toggle" id="p4ev">evidence ▾</button></div>
+      <table id="p4tab" style="display:none;margin-top:6px"><tr><th>Call</th><th>Request</th><th>Answer</th></tr>
+        <tr><td>#75</td><td class="mono">branchIds [948,10642,965] · agencyIds [-11] · 10-08…10-15</td><td class="warn">200 · 0 rows</td></tr>
+        <tr><td>#81</td><td class="mono">… · fromDate 10-01</td><td class="warn">200 · 0 rows</td></tr>
+        <tr><td>#88</td><td class="mono">same as #81</td><td class="warn">200 · 0 rows</td></tr>
+        <tr><td>#108</td><td class="mono">… · fromDate 10-08</td><td class="warn">200 · 0 rows</td></tr>
+        <tr><td>#109</td><td class="mono">same as #108</td><td class="warn">200 · 0 rows</td></tr></table>
+    </div>
+  </div>
+</div>
+
+<!-- P5 -->
+<h2>P5 · Moving to Verified on empty answers warns you</h2>
+<p class="prob"><b>Now:</b> #44 went Fixed → Verified at 11:52; all 10 searches since the build returned <span class="mono">{"payload":[],"total":0}</span>. The card shows "guarded · 1 calls ok".</p>
+<div class="hint">▸ try: press ✓ Verified on the card, then pick any of the three.</div>
+<div class="grid2">
+  <div class="box before"><h3>Before</h3>
+    <div class="tile"><span class="tag">TASK</span><div class="t">Missing feature: one branch returns only that branch's requests</div>
+      <div class="foot">#44 · Verified · guarded · 1 calls ok</div></div>
+  </div>
+  <div class="box after"><h3>After</h3>
+    <div class="tile" id="p5tile"></div>
+    <div class="log" id="p5log"></div>
+  </div>
+</div>
+<div class="backdrop" id="verifyDlg"><div class="dlg" style="width:min(640px,100%)">
+  <button class="x" data-close>✕</button>
+  <div class="q">Move #44 to Verified?</div>
+  <div class="callout red">Every re-test answer was empty: 10 searches since the build (09:14), all 200 with 0 rows.
+    The behaviour this card is about - rows limited to the selected branches - was never seen.
+    Not sent either: <span class="mono">branchIds [-11]</span>, a one-element <span class="mono">branchIds</span>.</div>
+  <div class="send"><button class="btn" data-v="keep">Keep in Fixed</button><button class="btn" data-v="ask">Ask Claude for a re-test with data</button><button class="btn p" data-v="anyway">Verify anyway</button></div>
+</div></div>
+
+<!-- P6 -->
+<h2>P6 · The live lane answers from the right repository</h2>
+<div class="hint">▸ try: switch where the backend repo is.</div>
+<div class="grid2">
+  <div class="box before"><h3>Before - answer [82] on #44</h3>
+    <div class="chat">This repo only has the Angular side of the change…
+The Java backend for refunded-requests/search is not in this folder.</div>
+    <p class="foot">Run from C:\work\ndc-web-channel while the brief names odeysysadmin-tt and the card links 9 code lines there.</p>
+  </div>
+  <div class="box after"><h3>After - "can you put the breakpoints in intellij for the task ?"</h3>
+    <label class="foot"><input type="checkbox" id="p6here" checked> odeysysadmin-tt is on this machine (C:\work\odeysys-claude\odeysys)</label>
+    <div class="log" id="p6log"></div>
+  </div>
+</div>
+
+<!-- P7 + P8 -->
+<h2>P7 · P8 · One answerer, and the board says which</h2>
+<div class="hint">▸ try: start /alfred-listen while /alfred-live runs, then run alfred-live stop.</div>
+<div class="grid2">
+  <div class="box before"><h3>Before</h3>
+    <div class="strip"><span class="dot"></span>/alfred-live is answering the user on this board (from LAPTOP-34BNETR7)</div>
+    <div class="chat" style="margin-top:8px">● Live on … answering on the board (listen)
+batch 1 · 124 calls …
+⚠ another live runner answers this board - standing down
+
+alfred-live.mjs stop → { "stopped": false }</div>
+  </div>
+  <div class="box after"><h3>After</h3>
+    <div class="strip" id="p7strip"></div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
+      <button class="btn" id="p7live">/alfred-live start</button><button class="btn" id="p7listen">/alfred-listen start</button>
+      <button class="btn" id="p7stopLive">alfred-live stop</button><button class="btn" id="p7stopListen">alfred-listen stop</button></div>
+    <div class="log" id="p7log"></div>
+  </div>
+</div>
+
+<h2>What gets built</h2>
+<ul class="plan">
+  <li><b>P1</b> skill alfred-triage: from a board run, one <code>board_ask</code> per Inbox card (options Fine / Not in flow / To do / Merge into #N, the advice Recommended, the evidence in its preview); the run ends after asking; decisions are recorded when the answers arrive (live lane or /alfred-sync). Board: the advised sort button outlined from the open question; sorting a card with its buttons answers the question too.</li>
+  <li><b>P2</b> backend re-test plan: a step may carry a request expectation (the specs/018 shape check); a step ticks only on a call whose path and request match; saving a step whose endpoint no call ever hit returns a warning with the closest recorded path.</li>
+  <li><b>P3</b> board_verify / board_retest: calls before the app start that carries the fix are listed apart, never counted; none after = NOT RE-TESTED.</li>
+  <li><b>P4</b> listen finish: matching calls with only 0-row answers make a "No data" card, not "Not exercised".</li>
+  <li><b>P5</b> board: moving to Verified when every re-test answer since the fix was empty asks first; the card shows "re-tested on empty data only".</li>
+  <li><b>P6</b> runners: the live lane picks the repo from the card's code links / the brief; says when that repo is not on this machine.</li>
+  <li><b>P7</b> listen checks for /alfred-live before announcing its live lane. <b>P8</b> the heartbeat names the runner kind; alfred-live stop reaches listen's lane.</li>
+  <li>Tests per part; docs/board.md, rules.md, the triage skill.</li>
+</ul>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const say = (id, line) => { const el = $(id); el.textContent += (el.textContent ? '\n' : '') + line; };
+document.querySelectorAll('[data-close]').forEach((b) => b.onclick = () => b.closest('.backdrop').classList.remove('open'));
+document.querySelectorAll('.backdrop').forEach((d) => d.onclick = (e) => { if (e.target === d) d.classList.remove('open'); });
+
+// ---------- P1: triage on the board ----------
+const OPTS = ['Merge into #44', 'To do', 'Fine', 'Not in this flow'];
+const THEN = {
+  'Merge into #44': "propose the merge; #44's re-test plan gets this item's step with data",
+  'To do': 'move it to To do and wait on a re-test with data',
+  'Fine': 'propose closing as Fine (empty answers accepted)',
+  'Not in this flow': 'propose closing as Not in this flow',
+};
+const CARDS = [
+  { n: 47, ac: 'AC2', title: 'Not exercised: All Agencies (AC2)', rec: 'Merge into #44', calls: '#75 #81 #88 #108 #109 · agencyIds [-11] · 200 · 0 rows each',
+    why: '5 searches with agencyIds [-11] ran after the new build - all returned 0 rows. AC2 is exercised but not proven.' },
+  { n: 48, ac: 'AC7', title: 'Not exercised: All Branches (AC7)', rec: 'Merge into #44', calls: 'none with branchIds [-11] since the build',
+    why: 'No search sent branchIds [-11] after the new build; the old calls sent branchId.' },
+  { n: 49, ac: 'AC8', title: 'Not exercised: single branch (AC8)', rec: 'Merge into #44', calls: 'none with a one-element branchIds since the build',
+    why: 'Every search since the build sent 3 branches; a single branch was never searched.' },
+  { n: 50, ac: 'AC11', title: 'Not exercised: filters combined (AC11)', rec: 'To do', calls: '#35 (before the fix) · PNR + 2 branches · 200 · 0 rows',
+    why: 'The only search with a PNR (#35) was before the fix and returned nothing.' },
+];
+let triaged = false, cur = 0;
+const ans = {}; // n -> {pick, other}
+const done = {}; // n -> what happened
+function preview(c, o) {
+  if (!o) return '<h4>Preview</h4><p class="dim">Hover an option: what it changes, the calls, what it covers, why.</p>';
+  const changes = { 'Merge into #44': `#${c.n} closes into #44; #44 gains the ${c.ac} step with data.`, 'To do': `#${c.n} moves to To do; Claude waits on a re-test.`,
+    'Fine': `#${c.n} closes as Fine; ${c.ac} stays unproven.`, 'Not in this flow': `#${c.n} closes; ${c.ac} leaves this cycle's checklist.` }[o];
+  const covers = o === 'Fine' || o === 'Not in this flow' ? `<span class="warn">${c.ac} not covered</span>` : `${c.ac} (with data)`;
+  return `<h4>Preview · ${o}</h4><div class="s"><b>What changes</b><br>${changes}</div><div class="s"><b>On your calls</b><br>${c.calls}</div>`
+    + `<div class="s"><b>Covers</b><br>${covers}</div><div class="s"><b>Why</b><br>${o === c.rec ? 'Claude advises it: ' : ''}${c.why}</div>`;
+}
+function renderInbox() {
+  $('inbox').innerHTML = CARDS.map((c) => {
+    const d = done[c.n];
+    const open = triaged && !d;
+    return `<div class="tile ${d ? 'gone' : ''}"><span class="tag">TASK</span>${open ? '<span class="flag">Needs decision</span>' : ''}<div class="t">${c.title}</div>`
+      + (open ? `<button class="qpill" data-q="${c.n}">❓ 1 open question</button> <span class="rec">✦ advises: ${c.rec}</span>` : '')
+      + (d ? `<div class="state ok">✓ ${d}</div>` : `<div class="btns">${['Fine', 'Not in this flow', 'To do'].map((b) =>
+        `<button data-sort="${c.n}" data-b="${b}" class="${open && c.rec === b ? 'hl' : ''}">${b === 'Fine' ? '✓ Fine' : b === 'To do' ? '→ To do' : '⊘ Not in flow'}</button>`).join('')}</div>`)
+      + `<div class="foot">#${c.n} · ✦ Claude${triaged ? ' · 💬 1' : ''}</div></div>`;
+  }).join('');
+  $('inbox').querySelectorAll('[data-q]').forEach((b) => b.onclick = () => openTriage(CARDS.findIndex((c) => c.n === +b.dataset.q)));
+  $('inbox').querySelectorAll('[data-sort]').forEach((b) => b.onclick = () => {
+    const n = +b.dataset.sort, what = b.dataset.b;
+    done[n] = what === 'To do' ? 'moved to To do' : `closed as ${what}`;
+    say('p1log', `You sorted #${n}: ${what}${triaged ? ' - the open question is answered with it ("' + what + '")' : ''}`);
+    renderInbox();
+  });
+  const left = CARDS.filter((c) => triaged && !done[c.n]).length;
+  $('answerAll').disabled = !left;
+  $('answerAll').textContent = `❓ Answer all${left ? ` (${left})` : ''}`;
+}
+$('runTriage').onclick = () => {
+  if (triaged) return;
+  triaged = true;
+  $('runTriage').disabled = true;
+  $('runState').textContent = 'run 55fad7c9 · ended: asked on 4 cards';
+  say('p1log', '▶ /alfred-triage (from the board) · reading 4 Inbox cards…');
+  CARDS.forEach((c) => say('p1log', `  board_ask #${c.n} · Triage · recommended: ${c.rec}`));
+  say('p1log', '→ board_run_end: "asked on #47-#50 - answer on the cards"');
+  renderInbox();
+};
+$('answerAll').onclick = () => openTriage(0);
+const vis = () => CARDS.filter((c) => !done[c.n]);
+function openTriage(i) {
+  const v = vis(); cur = Math.max(0, v.findIndex((c) => c.n === CARDS[i]?.n)); $('triageDlg').classList.add('open'); renderTriage();
+}
+const answered = (c) => ans[c.n] && (ans[c.n].pick || (ans[c.n].other || '').trim());
+function renderTriage() {
+  const v = vis();
+  $('tTabs').innerHTML = v.map((c, i) => `<button class="${i === cur ? 'on' : ''} ${answered(c) ? 'ans' : ''}" data-t="${i}">#${c.n}</button>`).join('')
+    + `<button class="${cur === v.length ? 'on' : ''}" data-t="${v.length}">Review</button>`;
+  $('tTabs').querySelectorAll('[data-t]').forEach((b) => b.onclick = () => { cur = +b.dataset.t; renderTriage(); });
+  const n = v.filter(answered).length;
+  $('tSend').textContent = n === v.length && n ? `Send all ${n} answers` : `Send ${n} of ${v.length} answers`;
+  $('tSend').disabled = !n; $('tBack').disabled = cur === 0; $('tNext').disabled = cur >= v.length;
+  $('tNote').textContent = 'Unanswered ones stay open on their cards.';
+  if (cur >= v.length) {
+    $('tPane').innerHTML = '<div class="q">Review</div>' + v.map((c, i) => `<div class="opt" data-t="${i}"><span class="k">#</span><div><b>#${c.n}</b> `
+      + (answered(c) ? (ans[c.n].pick ?? '') + (ans[c.n].other ? ` "${ans[c.n].other}"` : '') : '<span class="dim">not answered - stays open</span>') + '</div><span class="then">edit</span></div>').join('');
+    $('tPane').querySelectorAll('[data-t]').forEach((b) => b.onclick = () => { cur = +b.dataset.t; renderTriage(); });
+    return;
+  }
+  const c = v[cur], a = (ans[c.n] ??= {});
+  $('tPane').innerHTML = `<div class="q">#${c.n} ${c.title} - what should happen to it?</div><div class="why">Why I ask: ${c.why}</div>`
+    + `<div class="body"><div id="tOpts">` + OPTS.map((o, k) => `<div class="opt ${a.pick === o ? 'sel' : ''}" data-o="${o}"><span class="k">${k + 1}</span><div><b>${o}</b>`
+      + `<div class="then"><b>Then I will:</b> ${THEN[o]}</div></div>${o === c.rec ? '<span class="r">Recommended</span>' : '<span></span>'}</div>`).join('')
+    + `<div class="opt" style="cursor:default"><span class="k">5</span><div><b>Something else</b><textarea class="other" placeholder="In your own words…">${a.other ?? ''}</textarea></div><span></span></div>`
+    + `</div><div class="pv" id="tPv">${preview(c, a.pick)}</div></div>`;
+  $('tPane').querySelectorAll('[data-o]').forEach((el) => {
+    el.onclick = () => { a.pick = a.pick === el.dataset.o ? undefined : el.dataset.o; if (a.pick) a.other = ''; renderTriage(); };
+    el.onmouseenter = () => ($('tPv').innerHTML = preview(c, el.dataset.o));
+  });
+  $('tOpts').onmouseleave = () => ($('tPv').innerHTML = preview(c, a.pick));
+  $('tPane').querySelector('textarea').oninput = (e) => { a.other = e.target.value; if (a.other.trim()) a.pick = undefined;
+    $('tPane').querySelectorAll('[data-o]').forEach((x) => x.classList.toggle('sel', a.pick === x.dataset.o)); renderTabsOnly(); };
+}
+function renderTabsOnly() {
+  const v = vis();
+  $('tTabs').querySelectorAll('[data-t]').forEach((b, i) => b.classList.toggle('ans', i < v.length && !!answered(v[i])));
+  const n = v.filter(answered).length; $('tSend').textContent = `Send ${n} of ${v.length} answers`; $('tSend').disabled = !n;
+}
+$('tBack').onclick = () => { cur--; renderTriage(); };
+$('tNext').onclick = () => { cur++; renderTriage(); };
+$('tSend').onclick = () => {
+  const sent = vis().filter(answered);
+  say('p1log', `You sent ${sent.length} answer${sent.length === 1 ? '' : 's'} · Claude (live lane) records each:`);
+  sent.forEach((c) => {
+    const a = ans[c.n];
+    const what = a.pick === 'To do' ? 'moved to To do' : a.pick === 'Merge into #44' ? 'merge into #44 proposed' : a.pick ? `close as ${a.pick} proposed` : `"${a.other}" - Claude replies first`;
+    done[c.n] = what; say('p1log', `  #${c.n} → ${what}`);
+  });
+  cur = 0; renderInbox();
+  if (vis().length) renderTriage(); else $('triageDlg').classList.remove('open');
+};
+document.addEventListener('keydown', (e) => {
+  if (!$('triageDlg').classList.contains('open') || /TEXTAREA|INPUT/.test(e.target.tagName)) return;
+  const v = vis(), c = v[cur];
+  if (e.key === 'Escape') $('triageDlg').classList.remove('open');
+  else if (e.key === 'ArrowRight' && cur < v.length) { cur++; renderTriage(); }
+  else if (e.key === 'ArrowLeft' && cur > 0) { cur--; renderTriage(); }
+  else if (c && /^[1-4]$/.test(e.key)) { const a = (ans[c.n] ??= {}); a.pick = OPTS[+e.key - 1]; a.other = ''; renderTriage(); }
+});
+renderInbox();
+
+// ---------- P2 ----------
+$('p2save').onclick = () => {
+  $('p2warn').innerHTML = `<div class="callout">⚠ No recorded call ever hit <span class="mono">POST /odeysysadmin/agency/by-branch</span>.
+    Did you mean <span class="mono">POST /odeysysadmin/Admin2/agency/by-branch</span> (12 calls, last #111)? Saved as written.
+    <div class="send" style="justify-content:flex-start"><button class="btn p" id="p2use">Use the suggested path</button></div></div>`;
+  $('p2use').onclick = () => {
+    $('p2path').textContent = '…/Admin2/agency/by-branch';
+    $('p2state').className = 'ok'; $('p2state').textContent = 'done · #78 #80 #110';
+    $('p2warn').innerHTML = '<div class="callout green">✓ Path fixed - the step ticked on #78, #80, #110 (200, 3-4 agencies each).</div>';
+  };
+};
+$('p2why').onclick = () => { const b = $('p2whyBox'); b.style.display = b.style.display === 'none' ? 'block' : 'none'; };
+
+// ---------- P3 ----------
+$('p3run').onclick = () => {
+  $('p3log').textContent = '#44 NOT RE-TESTED\nNo call to the card\'s endpoint since the fix build (app started 15 Oct 09:14).\n'
+    + 'Before the fix build (not evidence): 5 calls, 14 Oct 14:50-15:42.\nNext: run the re-test steps on the new build.';
+  $('p3old').style.display = 'inline';
+};
+$('p3old').onclick = () => {
+  say('p3log', '\nbefore the build · not counted:\n  f89e0b77 14 Oct 14:50 · branchId 948\n  2bbfaa7e 14:51 · branchId 948\n  0bbee5e4 14:56\n  82ea261f 15:19\n  4df97712 15:42');
+  $('p3old').style.display = 'none';
+};
+
+// ---------- P4 ----------
+$('p4ev').onclick = () => { const t = $('p4tab'); t.style.display = t.style.display === 'none' ? 'table' : 'none'; };
+
+// ---------- P5 ----------
+let p5 = 'FIXED';
+function renderP5() {
+  $('p5tile').innerHTML = `<span class="tag">TASK</span><div class="t">Missing feature: one branch returns only that branch's requests</div>`
+    + `<div class="foot">#44 · ${p5 === 'FIXED' ? 'Fixed · re-test: <span class="warn">10 calls, all empty</span>' : 'Verified · <span class="warn">re-tested on empty data only</span>'}</div>`
+    + (p5 === 'FIXED' ? '<div class="btns"><button id="p5verify" class="hl">✓ Verified</button><button>▶ Re-test</button></div>' : '');
+  if (p5 === 'FIXED') $('p5verify').onclick = () => $('verifyDlg').classList.add('open');
+}
+document.querySelectorAll('[data-v]').forEach((b) => b.onclick = () => {
+  $('verifyDlg').classList.remove('open');
+  if (b.dataset.v === 'keep') say('p5log', '#44 stays in Fixed.');
+  if (b.dataset.v === 'ask') say('p5log', '#44 stays in Fixed · comment to Claude: "re-test with data" → Claude adds re-test steps: a date range with refunds, branchIds [-11], a one-element branchIds.');
+  if (b.dataset.v === 'anyway') { p5 = 'VERIFIED'; say('p5log', '#44 → Verified · history: "verified on empty answers only (10 calls, 0 rows)".'); }
+  renderP5();
+});
+renderP5();
+
+// ---------- P6 ----------
+function renderP6() {
+  $('p6log').textContent = $('p6here').checked
+    ? '(run in C:\\work\\odeysys-claude\\odeysys - from the card\'s code links)\nBreakpoints for #44:\n  RefundApprovalRequestController.java:88  search(…)\n  RefundedRequestsRepository.java:142      branch filter'
+    : '(the card\'s code is in odeysysadmin-tt - not on this machine)\nThe backend repo for #44 (odeysysadmin-tt, branch feature/61813-…) is not here.\nFrom the card\'s links: RefundApprovalRequestController.java:88, RefundedRequestsRepository.java:142 -\nopen them in IntelliJ there. Clone it next to C:\\work\\ndc-web-channel and I can give exact lines.';
+}
+$('p6here').onchange = renderP6; renderP6();
+
+// ---------- P7 / P8 ----------
+let live = true, listen = false, lane = null;
+function renderP7() {
+  $('p7strip').innerHTML = lane ? `<span class="dot"></span>Answering you: <b>${lane}</b> · LAPTOP-34BNETR7 · stop with ${lane.startsWith('/alfred-live') ? '/alfred-live stop' : '/alfred-listen stop'}`
+    : '<span class="dot" style="background:var(--faint)"></span>Nobody answers on this board';
+  $('p7live').disabled = live; $('p7listen').disabled = listen;
+}
+lane = '/alfred-live';
+$('p7live').onclick = () => { live = true; if (!lane) lane = '/alfred-live'; say('p7log', lane === '/alfred-live' ? '● /alfred-live answering odeysys' : '● /alfred-live: listen\'s live lane already answers - staying quiet'); renderP7(); };
+$('p7listen').onclick = () => {
+  listen = true;
+  if (lane === '/alfred-live') say('p7log', '● /alfred-listen started · /alfred-live already answers odeysys - listen checks calls only, its live lane stays off');
+  else { lane = "/alfred-listen's live lane"; say('p7log', "● /alfred-listen started · its live lane answers the board"); }
+  renderP7();
+};
+$('p7stopLive').onclick = () => {
+  if (live && lane === '/alfred-live') { live = false; lane = listen ? "/alfred-listen's live lane" : null; say('p7log', `alfred-live stop → stopped${listen ? "; listen's live lane takes over answering" : ''}`); }
+  else if (lane) { lane = null; say('p7log', "alfred-live stop → the answering runner is /alfred-listen (cycle 61813); stopped its live lane - listen keeps checking calls"); }
+  else say('p7log', 'alfred-live stop → nothing answers this board');
+  renderP7();
+};
+$('p7stopListen').onclick = () => {
+  if (!listen) { say('p7log', 'alfred-listen stop → not running'); return; }
+  listen = false; if (lane && lane.includes('listen')) lane = live ? '/alfred-live' : null;
+  say('p7log', 'alfred-listen stop → stopped (finish sweep done)'); renderP7();
+};
+renderP7();
+</script>
+</body>
+</html>

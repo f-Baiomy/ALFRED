@@ -41,6 +41,7 @@ export type CardAction =
       @if (questionCount(); as n) {
         <button type="button" class="board-qpill" [disabled]="!editable()" [title]="editable() ? 'Answer the questions (A)' : 'Open questions from Claude'"
                 (click)="$event.stopPropagation(); answer.emit()">❓ {{ n }} open question{{ n === 1 ? '' : 's' }}</button>
+        @if (card().advice; as a) { <span class="board-advice" title="What Claude recommends - open the question for why">✦ advises: {{ a }}</span> }
       }
       @if (card().teams?.length) { <div class="board-card-row board-card-teams"><app-team-chips [teams]="card().teams" /></div> }
       @if (card().mentionChips?.length) {
@@ -85,9 +86,9 @@ export type CardAction =
       }
       @if (editable() && card().status === 'INBOX') {
         <div class="board-card-acts">
-          <button type="button" class="ok" title="Fine - not an issue (F)" (click)="act($event, { kind: 'close', resolution: 'FINE' })">{{ buttons.FINE }}</button>
-          <button type="button" title="Not in this flow (N)" (click)="act($event, { kind: 'close', resolution: 'NOT_IN_FLOW' })">{{ buttons.NOT_IN_FLOW }}</button>
-          <button type="button" title="To do (T)" (click)="act($event, { kind: 'move', status: 'TO_DO' })">→ To do</button>
+          <button type="button" class="ok" [class.advised]="advised() === 'FINE'" title="Fine - not an issue (F)" (click)="act($event, { kind: 'close', resolution: 'FINE' })">{{ buttons.FINE }}</button>
+          <button type="button" [class.advised]="advised() === 'NOT_IN_FLOW'" title="Not in this flow (N)" (click)="act($event, { kind: 'close', resolution: 'NOT_IN_FLOW' })">{{ buttons.NOT_IN_FLOW }}</button>
+          <button type="button" [class.advised]="advised() === 'TO_DO'" title="To do (T)" (click)="act($event, { kind: 'move', status: 'TO_DO' })">→ To do</button>
         </div>
       }
       @if (editable() && card().status === 'CLOSED') {
@@ -137,6 +138,8 @@ export class BoardCardComponent {
     return r && (this.card().status === 'FIXED' || this.card().status === 'VERIFIED' || this.card().status === 'DONE') ? retestChip(r) : null;
   });
   readonly hasOpenQuestion = computed(() => this.questionCount() > 0);
+  /** The sort button Claude's open question recommends (specs/020) - outlined; using it answers the question. */
+  readonly advised = computed(() => adviceButton(this.card().openQuestions ? this.card().advice : null));
   /** Claude's open questions (specs/019) - shown whatever the card's status or what else it waits on; an older backend: its flag. */
   readonly questionCount = computed(() => this.card().openQuestions
     ?? (this.card().waiting?.who === 'USER' && this.card().flags.includes('NEEDS_DECISION') ? 1 : 0));
@@ -181,4 +184,13 @@ export function proposalText(p: Proposal): string {
   if (p.kind === 'MERGE') return proposalTarget(`MERGE:#${p.intoNumber}`);
   if (p.kind === 'REOPEN') return proposalTarget('REOPEN');
   return proposalTarget(p.status === 'CLOSED' && p.resolution ? `CLOSED:${p.resolution}` : p.status);
+}
+
+/** "To do" → TO_DO, "Fine" → FINE, "Not in this flow" → NOT_IN_FLOW; anything else (a merge) has no button. */
+export function adviceButton(advice: string | null | undefined): 'FINE' | 'NOT_IN_FLOW' | 'TO_DO' | null {
+  const a = (advice ?? '').toLowerCase().replace(/[^a-z ]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (a === 'to do' || a.startsWith('to do ')) return 'TO_DO';
+  if (a === 'fine' || a.startsWith('fine ')) return 'FINE';
+  if (a.startsWith('not in this flow') || a.startsWith('not in flow')) return 'NOT_IN_FLOW';
+  return null;
 }

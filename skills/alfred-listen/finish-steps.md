@@ -15,8 +15,15 @@ the unsure expectations and the user's answers. Do not call `check_calls`, `boar
 3. **Requirements** - read REQUIREMENTS BY THE CALLS (Alfred's verdicts, judged in code; rules "Requirement status"):
    - MISSING / WRONG → their card is already open: only check it links the item (`board_link_spec`). Missing card (the
      check was paused or refused) → open it now as the check would have.
-   - NO_DATA → one TASK flagged AFFECTS_PROJECT "Test data: <what is needed> to prove AC<n>", teams QA.
-   - NOT_EXERCISED → TASK "Not exercised: <item>" with its howTo as the step to run.
+   - NO_DATA → one TASK flagged AFFECTS_PROJECT "No data: <item> (AC<n>)" - Found: the calls that ran it (as mentions,
+     with what each sent) and that every answer was empty; Next: the data needed ("a date range that has refunds").
+     The item WAS exercised - never write "not exercised" or "no call" for it. Teams QA.
+   - NOT_EXERCISED → first read the item's line: when it says calls to the endpoint did not match its REQUEST_WHEN,
+     open those calls (`get_call`) - an app's own "all" marker (`-11`) or another field name means the evidence is
+     wrong: fix it with `board_evidence_put` (e.g. `has:-11`), say so in your `→` line, and open no card (the next
+     listen judges it). Only when no call to the endpoint ran since the build → TASK "Not exercised: <item>" with its
+     howTo as the step to run. Before writing "No <call> with <value>", `search_calls` for it in this cycle - a claim
+     the calls contradict is worse than no card.
    - MANUAL → when the repo holds the page, read it and `board_suggest_mark` PASS / FAIL with the code line as
      evidence ("met by code" - the user marks); else `board_ask` the user to check it.
    - NO_EVIDENCE → draft it with `board_evidence_put` and say so; the next listen judges it.

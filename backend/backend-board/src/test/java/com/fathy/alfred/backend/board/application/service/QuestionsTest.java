@@ -11,6 +11,7 @@ import com.fathy.alfred.backend.board.domain.model.CardChange;
 import com.fathy.alfred.backend.board.domain.model.CardKind;
 import com.fathy.alfred.backend.board.domain.model.CardQuery;
 import com.fathy.alfred.backend.board.domain.model.Flag;
+import com.fathy.alfred.backend.board.domain.model.CardStatus;
 import com.fathy.alfred.backend.board.domain.model.Question;
 import com.fathy.alfred.backend.board.domain.model.QuestionState;
 import org.junit.jupiter.api.AfterEach;
@@ -91,6 +92,9 @@ class QuestionsTest {
         assertThat(f.board.get(card).orElseThrow().openQuestions()).isEqualTo(3);
         assertThat(f.board.get(card).orElseThrow().card().flags()).contains(Flag.NEEDS_DECISION);
         assertThat(f.board.query(new CardQuery("p", null, null, null, null, null, false, null, 0, 50)).cards().get(0).openQuestions()).isEqualTo(3);
+        // specs/020: the tile says what Claude advises in its first open question
+        assertThat(f.board.query(new CardQuery("p", null, null, null, null, null, false, null, 0, 50)).cards().get(0).advice())
+                .isEqualTo("Only the extra filters");
     }
 
     @Test
@@ -251,5 +255,25 @@ class QuestionsTest {
         f.board.comment(Actor.USER, card, new CommentOnCardUseCase.Comment("and then?", null, null, null, null, null, null, user, false));
         assertThat(f.board.comment(Actor.CLAUDE, card, new CommentOnCardUseCase.Comment(null, null, null, null, null, "then this", null, user, false))
                 .outcome()).isEqualTo(CardChange.Outcome.OK);
+    }
+
+    @Test
+    void sortingACardWithItsOwnButtonsAnswersTheTriageQuestion() {
+        String inbox = f.add(Actor.CLAUDE, "p", CardKind.TASK, "Not exercised: All Agencies", "").card().id();
+        String triage = """
+                What should happen to #2?
+
+                ```questions
+                {"questions": [{"header": "Triage", "question": "What should happen to #2?",
+                  "options": [{"label": "Merge into #1"}, {"label": "To do", "recommended": true}, {"label": "Fine"}, {"label": "Not in this flow"}]}]}
+                ```""";
+        var out = f.board.comment(Actor.CLAUDE, inbox, new CommentOnCardUseCase.Comment(null, null, null, null, null, null, triage));
+        assertThat(out.outcome()).isEqualTo(CardChange.Outcome.OK);
+        assertThat(f.board.get(inbox).orElseThrow().openQuestions()).isEqualTo(1);
+
+        f.board.move(Actor.USER, inbox, CardStatus.TO_DO);
+        assertThat(f.board.questions(inbox)).singleElement().satisfies(q -> assertThat(q.state()).isEqualTo(QuestionState.ANSWERED));
+        assertThat(f.board.get(inbox).orElseThrow().card().flags()).doesNotContain(Flag.NEEDS_DECISION);
+        assertThat(f.store.after(inbox, out.entry().id())).anySatisfy(e -> assertThat(e.text()).startsWith("**Answers** Triage: To do (note: sorted on the board)"));
     }
 }

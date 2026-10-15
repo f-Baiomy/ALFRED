@@ -40,12 +40,22 @@ function heartbeatFile(baseUrl: string): string {
  * Who answers the user right now on this Alfred: the /alfred-live runner's heartbeat Alfred holds (the runner may be on
  * any machine - the user's, while Alfred runs on a LAN host), else a board_live loop on this machine.
  */
-export async function liveAnswerer(client: AlfredClient, project?: string): Promise<{ project: string | null; host?: string } | null> {
-  const runner = await client.get<{ project: string; host: string } | undefined>('/board/live-runner', { query: { project: project ?? '' } })
+export async function liveAnswerer(client: AlfredClient, project?: string): Promise<{ project: string | null; host?: string; kind?: string } | null> {
+  const runner = await client.get<{ project: string; host: string; kind?: string } | undefined>('/board/live-runner', { query: { project: project ?? '' } })
     .catch(() => undefined);
-  if (runner) return { project: runner.project || null, host: runner.host };
+  if (runner) return { project: runner.project || null, host: runner.host, kind: runner.kind };
   const local = liveHolder(client.baseUrl);
   return local && (!local.project || !project || local.project === project) ? local : null;
+}
+
+/**
+ * Who answers the user on a board, for people (specs/020): "/alfred-live (from LAPTOP-1)" or "/alfred-listen's live lane
+ * (from LAPTOP-1) - stop it with alfred-live stop" - the board once said "/alfred-live" while listen's lane answered.
+ */
+export function answererText(live: { host?: string; kind?: string }): string {
+  const from = live.host ? ` (from ${live.host})` : '';
+  return live.kind === 'listen' ? `/alfred-listen's live lane is answering the user on this board${from}`
+    : `/alfred-live is answering the user on this board${from}`;
 }
 
 /** A board_live loop in a session on this machine - null when none is running. */

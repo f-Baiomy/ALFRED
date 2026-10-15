@@ -35,8 +35,8 @@ export class ConfirmDialogService {
   }
 
   /** Asks with a choice: the value picked when confirmed, null when cancelled. */
-  async choose(message: string, choices: readonly ConfirmChoice[], chosen: string, confirmLabel = 'Delete'): Promise<string | null> {
-    this.state.set({ message, confirmLabel, choices, chosen });
+  async choose(message: string, choices: readonly ConfirmChoice[], chosen: string, confirmLabel = 'Delete', cancelLabel?: string): Promise<string | null> {
+    this.state.set({ message, confirmLabel, choices, chosen, ...(cancelLabel ? { cancelLabel } : {}) });
     const confirmed = await new Promise<boolean>((resolve) => {
       this.resolve = resolve;
     });

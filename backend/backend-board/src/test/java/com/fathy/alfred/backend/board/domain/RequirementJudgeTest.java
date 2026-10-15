@@ -124,4 +124,34 @@ class RequirementJudgeTest {
         assertThat(EndpointPattern.matches("POST /api/v2/search", "POST /api/v3/search")).isFalse();
         assertThat(EndpointPattern.matches("POST /a/search", "POST /a/search/export")).isFalse();
     }
+
+    // ------------------------------------------------------------------------------------------------- specs/020
+
+    @Test
+    void anAppsOwnAllMarkerIsMatchedWithHas() throws Exception {
+        String all = "{\"branchIds\":[948,10642,965],\"agencyIds\":[-11],\"page\":1}";
+        // "-11" is not an all marker Alfred knows: REQUEST_WHEN none leaves the call out ...
+        assertThat(judge(List.of(when("$.agencyIds", "none"), ROWS), all, EMPTY)).isNull();
+        // ... has:-11 takes it, and its empty answer is NO_DATA - exercised, not proven
+        EvidenceCheck has = when("$.agencyIds", "has:-11");
+        assertThat(has.problem()).isNull();
+        assertThat(has.text()).isEqualTo("when request $.agencyIds is or holds -11");
+        assertThat(judge(List.of(has, ROWS), all, EMPTY).result()).isEqualTo(com.fathy.alfred.backend.board.domain.model.ItemVerdict.CallResult.NO_DATA);
+        assertThat(judge(List.of(has, ROWS), "{\"agencyIds\":[949]}", EMPTY)).isNull();
+        assertThat(when("$.agencyIds", "has:").problem()).contains("has:<value>");
+    }
+
+    @Test
+    void aStepsRequestAndAnEmptyAnswerAreReadTheSameWay() throws Exception {
+        assertThat(RequirementJudge.requestHolds(tree("{\"branchIds\":[-11]}"), "$.branchIds", "has:-11")).isTrue();
+        assertThat(RequirementJudge.requestHolds(tree(OLD), "$.branchIds", "has:-11")).isFalse();
+        assertThat(RequirementJudge.requestHolds(tree(OLD), "$.branch*", "one")).isTrue();
+        assertThat(RequirementJudge.requestHolds(null, "$.branchIds", "list")).isNull();
+        assertThat(RequirementJudge.emptyAnswer(tree(EMPTY))).isTrue();
+        assertThat(RequirementJudge.emptyAnswer(tree("[]"))).isTrue();
+        assertThat(RequirementJudge.emptyAnswer(tree("{\"data\":{\"items\":[]}}"))).isTrue();
+        assertThat(RequirementJudge.emptyAnswer(tree("{\"payload\":[{\"id\":1}],\"total\":1}"))).isFalse();
+        assertThat(RequirementJudge.emptyAnswer(tree("{\"payload\":[],\"total\":12}"))).isFalse();
+        assertThat(RequirementJudge.emptyAnswer(tree("{\"ok\":true}"))).isFalse();
+    }
 }

@@ -1,5 +1,7 @@
 package com.fathy.alfred.backend.board.application.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fathy.alfred.backend.board.application.port.in.AppStartedUseCase;
 import com.fathy.alfred.backend.board.application.port.in.RetestUseCase;
 import com.fathy.alfred.backend.board.application.port.out.BoardNotificationPort;
@@ -7,6 +9,7 @@ import com.fathy.alfred.backend.board.application.port.out.BoardStorePort;
 import com.fathy.alfred.backend.board.application.port.out.CallFactsPort;
 import com.fathy.alfred.backend.board.application.port.out.CycleCallsPort;
 import com.fathy.alfred.backend.board.application.port.out.LiveCallsPort;
+import com.fathy.alfred.backend.board.domain.RequirementJudge;
 import com.fathy.alfred.backend.board.domain.model.Actor;
 import com.fathy.alfred.backend.board.domain.model.CallFacts;
 import com.fathy.alfred.backend.board.domain.model.Card;
@@ -120,11 +123,78 @@ public class RetestService implements RetestUseCase, AppStartedUseCase, com.fath
                     || (s.endpoint() != null && s.endpoint().length() > 300)) {
                 return invalid("A step needs a text of at most " + RetestPlan.MAX_STEP_TEXT + " characters");
             }
+            if (s.request().size() > RetestPlan.Step.MAX_CONDITIONS) {
+                return invalid("At most " + RetestPlan.Step.MAX_CONDITIONS + " request conditions per step");
+            }
+            for (RetestPlan.When w : s.request()) {
+                if (w == null || w.problem() != null) {
+                    return invalid(w == null ? "A step's request condition is empty" : w.problem());
+                }
+            }
         }
         RetestPlan plan = new RetestPlan(cardId, exp, st, actor, clock.instant());
         store.putRetestPlan(plan);
         notifications.changed(card.project(), card.cycleId(), cardId, "retest");
-        return new PlanChange(CardChange.Outcome.OK, plan, null);
+        return new PlanChange(CardChange.Outcome.OK, plan, null, unknownEndpoints(card, st));
+    }
+
+    /**
+     * A step naming an endpoint no recorded call ever hit never ticks (specs/020): say so when the plan is saved, with
+     * the recorded endpoint it most likely means - same method, the most path segments in common from the end.
+     */
+    private List<String> unknownEndpoints(Card card, List<RetestPlan.Step> steps) {
+        List<String> named = steps.stream().map(RetestPlan.Step::endpoint).filter(e -> e != null).distinct().toList();
+        if (named.isEmpty()) {
+            return List.of();
+        }
+        java.util.Map<String, Long> seen = new java.util.HashMap<>();
+        List<CycleCall> calls = new ArrayList<>(liveCalls.recent(RECENT_CALLS));
+        if (card.cycleId() != null) {
+            calls.addAll(cycleCalls.calls(card.cycleId(), CYCLE_CALLS));
+        }
+        calls.stream().map(CycleCall::endpoint).filter(e -> e != null).forEach(e -> seen.merge(e, 1L, Long::sum));
+        if (seen.isEmpty()) {
+            return List.of(); // nothing recorded yet: nothing to compare with
+        }
+        List<String> out = new ArrayList<>();
+        for (String ep : named) {
+            if (seen.containsKey(ep)) {
+                continue;
+            }
+            String near = closest(ep, seen.keySet());
+            out.add("No recorded call ever hit " + ep + " - the step cannot tick until one does."
+                    + (near == null ? "" : " Did you mean " + near + " (" + seen.get(near) + (seen.get(near) == 1 ? " call" : " calls") + ")?")
+                    + " Saved as written.");
+        }
+        return out;
+    }
+
+    /** The recorded endpoint with the same method and the longest shared tail of path segments (at least 2), or null. */
+    static String closest(String endpoint, java.util.Collection<String> recorded) {
+        String[] want = endpoint.split(" ", 2);
+        if (want.length < 2) {
+            return null;
+        }
+        String[] wantSegs = want[1].replaceAll("^/+|/+$", "").split("/");
+        String best = null;
+        int bestScore = 0;
+        for (String r : recorded) {
+            String[] got = r.split(" ", 2);
+            if (got.length < 2 || !got[0].equalsIgnoreCase(want[0])) {
+                continue;
+            }
+            String[] gotSegs = got[1].replaceAll("^/+|/+$", "").split("/");
+            int score = 0;
+            while (score < wantSegs.length && score < gotSegs.length
+                    && wantSegs[wantSegs.length - 1 - score].equalsIgnoreCase(gotSegs[gotSegs.length - 1 - score])) {
+                score++;
+            }
+            if (score > bestScore || (score == bestScore && best != null && score > 0 && r.length() < best.length())) {
+                bestScore = score;
+                best = r;
+            }
+        }
+        return bestScore >= Math.min(2, wantSegs.length) ? best : null;
     }
 
     private static PlanChange invalid(String message) {
@@ -157,7 +227,14 @@ public class RetestService implements RetestUseCase, AppStartedUseCase, com.fath
             return List.of();
         }
         Pool pool = pool(null);
-        return cards.stream().map(c -> check(c, pool, Optional.empty())).toList();
+        return cards.stream().map(c -> {
+            RetestCheck g = check(c, pool, Optional.empty());
+            // accepted on a re-test that saw only empty answers: the guard says so for as long as it stands (specs/020)
+            boolean onEmpty = store.retestRuns(c.id(), 1).stream().findFirst()
+                    .filter(r -> g.since() == null || !r.at().isAfter(g.since()))
+                    .filter(r -> r.summary() != null && r.summary().contains(EMPTY_MARK)).isPresent();
+            return onEmpty ? g.withVerifiedOnEmpty() : g;
+        }).toList();
     }
 
     @Override
@@ -271,21 +348,27 @@ public class RetestService implements RetestUseCase, AppStartedUseCase, com.fath
 
     private RetestCheck check(Card card, Pool pool, Optional<Instant> started) {
         RetestPlan plan = plan(card.id());
-        Instant since = pool.cycleId() == null ? store.lastOf(card.id(), "STATUS").map(e -> e.at()).orElse(card.updatedAt()) : null;
+        Instant fixedAt = store.lastOf(card.id(), "STATUS").map(e -> e.at()).orElse(card.updatedAt());
+        Instant since = pool.cycleId() == null ? fixedAt : null;
+        // specs/020: a call made before the app start that carries the fix ran the old code - never re-test evidence
+        Instant build = started.isEmpty() ? null : fixBuild(card.project(), fixedAt, started.get());
+        Instant cutoff = since == null ? build : build == null || !build.isAfter(since) ? since : build;
         String endpoint = endpointOf(card.signature());
         List<StepResult> steps = new ArrayList<>();
         for (RetestPlan.Step s : plan.steps()) {
             String ep = s.endpoint() != null ? s.endpoint() : endpoint;
-            int seen = ep == null ? 0 : (int) pool.calls().stream().filter(c -> ep.equals(c.endpoint()) && after(c, since)).count();
-            steps.add(new StepResult(s.text(), ep, seen > 0, seen));
+            steps.add(step(s, ep, pool, cutoff));
         }
         if (endpoint == null) {
             return new RetestCheck(card.number(), card.project(), card.title(), card.status(), since, Verdict.NOT_CHECKABLE, plan.expectations().isEmpty(),
                     "No call on the card - Alfred cannot tell which endpoint to watch", List.of(), List.of(), steps, false);
         }
-        List<CycleCall> matched = pool.calls().stream().filter(c -> endpoint.equals(c.endpoint()) && after(c, since)).limit(CALLS_PER_CARD).toList();
-        boolean newBuild = since != null && started.isPresent() && started.get().isAfter(since)
-                && matched.stream().noneMatch(c -> c.at() != null && c.at().isAfter(started.get()));
+        List<CycleCall> matched = pool.calls().stream().filter(c -> endpoint.equals(c.endpoint()) && after(c, cutoff)).limit(CALLS_PER_CARD).toList();
+        int beforeBuild = build == null ? 0 : (int) pool.calls().stream()
+                .filter(c -> endpoint.equals(c.endpoint()) && after(c, since) && !after(c, cutoff)).count();
+        boolean newBuild = build != null && matched.isEmpty() && (since == null || build.isAfter(since));
+        int empty = (int) matched.stream().filter(c -> facts.bodies(c.callId(), pool.cycleId())
+                .map(b -> RequirementJudge.emptyAnswer(tree(b.responseBody()))).orElse(false)).count();
 
         boolean statusOnly = plan.expectations().isEmpty();
         List<Expectation> expectations = statusOnly ? List.of(new Expectation(Expectation.Kind.STATUS, null, null, okRange(card), null, null, null))
@@ -360,8 +443,94 @@ public class RetestService implements RetestUseCase, AppStartedUseCase, com.fath
         } else {
             verdict = Verdict.PASSES;
         }
+        String summary = summary(verdict, results, calls, steps, matched.size(), passed);
+        if (!matched.isEmpty() && empty >= matched.size()) {
+            summary += " · " + EMPTY_MARK + " (" + empty + (empty == 1 ? " call" : " calls") + ", 0 rows) - not seen working on data";
+        }
+        if (beforeBuild > 0) {
+            summary = (matched.isEmpty() ? "not re-tested · no call since the fix build (app started " + build + ")" : summary)
+                    + " · " + beforeBuild + (beforeBuild == 1 ? " call" : " calls") + " before the fix build not counted";
+        }
         return new RetestCheck(card.number(), card.project(), card.title(), card.status(), since, verdict, statusOnly,
-                summary(verdict, results, calls, steps, matched.size(), passed), results, calls, steps, newBuild);
+                summary, results, calls, steps, newBuild, beforeBuild, empty);
+    }
+
+    /**
+     * The app start that carries a card's fix: the first start after the card was fixed, or - when the app was restarted
+     * before the card was marked Fixed - the last start before it. Null when Alfred never saw the app start.
+     */
+    private Instant fixBuild(String project, Instant fixedAt, Instant latest) {
+        List<Instant> starts = store.appStarts(project == null ? "" : project);
+        if (starts.isEmpty()) {
+            starts = List.of(latest);
+        }
+        if (fixedAt == null) {
+            return starts.get(starts.size() - 1);
+        }
+        Instant before = null;
+        for (Instant s : starts) {
+            if (s.isAfter(fixedAt)) {
+                return s;
+            }
+            before = s;
+        }
+        return before;
+    }
+
+    /** One step: done when a call to its endpoint after the cutoff sent what the step asks (specs/020). */
+    private StepResult step(RetestPlan.Step s, String ep, Pool pool, Instant cutoff) {
+        if (ep == null) {
+            return new StepResult(s.text(), null, false, 0, null);
+        }
+        List<CycleCall> hits = pool.calls().stream().filter(c -> ep.equals(c.endpoint()) && after(c, cutoff)).toList();
+        if (s.request().isEmpty() || hits.isEmpty()) {
+            return new StepResult(s.text(), ep, !hits.isEmpty(), hits.size(), null);
+        }
+        int seen = 0;
+        String sent = null;
+        int read = 0;
+        for (CycleCall c : hits) {
+            if (read++ >= STEP_BODIES) {
+                break;
+            }
+            JsonNode request = facts.bodies(c.callId(), pool.cycleId()).map(b -> tree(b.requestBody())).orElse(null);
+            boolean all = true;
+            for (RetestPlan.When w : s.request()) {
+                Boolean holds = RequirementJudge.requestHolds(request, w.path(), w.shape());
+                if (!Boolean.TRUE.equals(holds)) {
+                    all = false;
+                    if (sent == null) {
+                        sent = w.text() + " - " + label(c) + " sent " + RequirementJudge.sentAt(request, w.path());
+                    }
+                    break;
+                }
+            }
+            if (all) {
+                seen++;
+            }
+        }
+        String note = seen > 0 ? null : hits.size() + (hits.size() == 1 ? " call" : " calls")
+                + " to the endpoint, none sent what the step asks: " + sent;
+        return new StepResult(s.text(), ep, seen > 0, seen, note);
+    }
+
+    /** In a check's summary when every answer was empty - read back from the run history by the guard. */
+    static final String EMPTY_MARK = "every answer was empty";
+
+    /** Calls whose request a step reads, newest first. */
+    static final int STEP_BODIES = 50;
+
+    private static final ObjectMapper JSON = new ObjectMapper();
+
+    private static JsonNode tree(String body) {
+        if (body == null || body.isBlank()) {
+            return null;
+        }
+        try {
+            return JSON.readTree(body);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     /** The status a card's call should now have: not the failing class its signature names, 2xx when it was ok. */

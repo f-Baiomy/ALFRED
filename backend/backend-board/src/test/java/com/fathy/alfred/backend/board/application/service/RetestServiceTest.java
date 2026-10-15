@@ -257,4 +257,123 @@ class RetestServiceTest {
         Thread.sleep(100);
         assertThat(f.signals).containsExactly("retest:odeysys:null");
     }
+
+    // ------------------------------------------------------------------------------------------------- specs/020
+
+    private void bodies(String id, String request, String response) {
+        f.bodies.put(id, new com.fathy.alfred.backend.board.application.port.out.CallFactsPort.CallBodies(200, request, response));
+    }
+
+    @Test
+    void callsBeforeTheAppStartThatCarriesTheFixAreListedApartNeverCounted() {
+        String id = fixedCard();
+        f.retest.setPlan(Actor.USER, id, List.of(SQL), List.of());
+        liveCall("old1", 200, 300.0, facts(200, 300, 3, 0));
+        liveCall("old2", 200, 300.0, facts(200, 300, 3, 0));
+        f.retest.appStarted("odeysys", f.clock.instant());
+        f.clock.advanceSeconds(5);
+
+        RetestCheck before = only();
+        assertThat(before.verdict()).isEqualTo(Verdict.NO_CALLS);
+        assertThat(before.beforeBuild()).isEqualTo(2);
+        assertThat(before.summary()).startsWith("not re-tested · no call since the fix build").contains("2 calls before the fix build not counted");
+
+        liveCall("new1", 200, 300.0, facts(200, 300, 3, 0));
+        RetestCheck after = only();
+        assertThat(after.calls()).extracting(RetestCheck.CallResult::ref).containsExactly("in:new1");
+        assertThat(after.beforeBuild()).isEqualTo(2);
+    }
+
+    @Test
+    void aReTestCycleAlsoSkipsTheCallsItCapturedBeforeTheFixBuild() {
+        String id = fixedCard();
+        f.retest.setPlan(Actor.USER, id, List.of(SQL), List.of());
+        f.cycleCalls.add(new CycleCall("in", "c-old", "POST", "/Admin2/agency/by-branch", 200, "ok|" + ENDPOINT, f.clock.instant(), 300.0));
+        f.facts.put("cyc/c-old", facts(200, 300, 3, 0));
+        f.clock.advanceSeconds(30);
+        f.retest.appStarted("odeysys", f.clock.instant());
+        f.clock.advanceSeconds(30);
+        // a later, unrelated restart does not hide the re-test made on the fix build
+        f.cycleCalls.add(new CycleCall("in", "c-new", "POST", "/Admin2/agency/by-branch", 200, "ok|" + ENDPOINT, f.clock.instant(), 300.0));
+        f.facts.put("cyc/c-new", facts(200, 300, 3, 0));
+        f.clock.advanceSeconds(30);
+        f.retest.appStarted("odeysys", f.clock.instant());
+
+        RetestCheck c = f.retest.check("odeysys", List.of(), "cyc").get(0);
+        assertThat(c.calls()).extracting(RetestCheck.CallResult::ref).containsExactly("in:c-new@cyc");
+        assertThat(c.beforeBuild()).isEqualTo(1);
+    }
+
+    @Test
+    void aStepTicksOnlyOnACallThatSentWhatItAsks() {
+        String id = fixedCard();
+        RetestPlan.Step step = new RetestPlan.Step("All Branches, Search", null, List.of(new RetestPlan.When("$.branchIds", "has:-11")));
+        f.retest.setPlan(Actor.USER, id, List.of(), List.of(step));
+        liveCall("s1", 200, 300.0, facts(200, 300, 3, 0));
+        bodies("s1", "{\"branchId\":948,\"agencyIds\":[949]}", "{\"payload\":[{\"id\":1}],\"total\":1}");
+
+        RetestCheck.StepResult open = only().steps().get(0);
+        assertThat(open.seen()).isFalse();
+        assertThat(open.note()).contains("none sent what the step asks").contains("branchIds has -11").contains("sent branchIds: nothing");
+
+        liveCall("s2", 200, 300.0, facts(200, 300, 3, 0));
+        bodies("s2", "{\"branchIds\":[-11],\"agencyIds\":[-11]}", "{\"payload\":[{\"id\":1}],\"total\":1}");
+        RetestCheck.StepResult done = only().steps().get(0);
+        assertThat(done.seen()).isTrue();
+        assertThat(done.calls()).isEqualTo(1);
+    }
+
+    @Test
+    void aStepRequestIsValidated() {
+        String id = fixedCard();
+        RetestUseCase.PlanChange bad = f.retest.setPlan(Actor.USER, id, List.of(),
+                List.of(new RetestPlan.Step("x", null, List.of(new RetestPlan.When("branchIds", "has:-11")))));
+        assertThat(bad.outcome()).isEqualTo(CardChange.Outcome.INVALID);
+        bad = f.retest.setPlan(Actor.USER, id, List.of(), List.of(new RetestPlan.Step("x", null, List.of(new RetestPlan.When("$.branchIds", "many")))));
+        assertThat(bad.message()).contains("none, one, list, list>=2, present or has:<value>");
+    }
+
+    @Test
+    void aStepEndpointNoCallEverHitIsSavedWithAWarningAndTheClosestRecordedOne() {
+        String id = fixedCard();
+        liveCall("r1", 200, 300.0, null);
+        RetestUseCase.PlanChange change = f.retest.setPlan(Actor.CLAUDE, id, List.of(),
+                List.of(new RetestPlan.Step("Open the agency list", "POST /agency/by-branch"), new RetestPlan.Step("Search", ENDPOINT)));
+        assertThat(change.outcome()).isEqualTo(CardChange.Outcome.OK);
+        assertThat(change.warnings()).singleElement().asString()
+                .contains("No recorded call ever hit POST /agency/by-branch").contains("Did you mean " + ENDPOINT + " (1 call)?");
+        assertThat(RetestService.closest("GET /lookup/branches", List.of("GET /Master2/Branch/lookup/branches", "POST /lookup/branches")))
+                .isEqualTo("GET /Master2/Branch/lookup/branches");
+        assertThat(RetestService.closest("GET /a/b", List.of("GET /x/y"))).isNull();
+    }
+
+    @Test
+    void everyAnswerEmptyIsSaidAndCounted() {
+        String id = fixedCard();
+        f.retest.setPlan(Actor.USER, id, List.of(SQL), List.of());
+        liveCall("e1", 200, 300.0, facts(200, 300, 3, 0));
+        bodies("e1", "{}", "{\"payload\":[],\"total\":0}");
+        liveCall("e2", 200, 300.0, facts(200, 300, 3, 0));
+        bodies("e2", "{}", "{\"payload\":[],\"total\":0}");
+        RetestCheck c = only();
+        assertThat(c.emptyAnswers()).isEqualTo(2);
+        assertThat(c.onlyEmptyAnswers()).isTrue();
+        assertThat(c.summary()).contains("every answer was empty (2 calls, 0 rows)");
+
+        liveCall("e3", 200, 300.0, facts(200, 300, 3, 0));
+        bodies("e3", "{}", "{\"payload\":[{\"id\":7}],\"total\":1}");
+        assertThat(only().onlyEmptyAnswers()).isFalse();
+    }
+
+    @Test
+    void aCardAcceptedOnARunThatSawOnlyEmptyAnswersStaysMarkedSo() {
+        String id = fixedCard();
+        f.retest.setPlan(Actor.USER, id, List.of(SQL), List.of());
+        liveCall("v1", 200, 300.0, facts(200, 300, 3, 0));
+        bodies("v1", "{}", "{\"payload\":[],\"total\":0}");
+        f.retest.run(Actor.USER, "odeysys", List.of(), null);
+        f.board.move(Actor.USER, id, CardStatus.VERIFIED);
+        f.clock.advanceSeconds(5);
+        assertThat(f.retest.guards("odeysys")).singleElement().satisfies(g -> assertThat(g.verifiedOnEmpty()).isTrue());
+    }
 }

@@ -282,6 +282,11 @@ question with no options.
   from the replies' text alone; an Answers comment shows its summary line.
 - **No duplicates**: the same question already open on the card is not asked again (the MCP reply says which one is),
   and a second Claude reply to the same user comment is refused - one answer per message, whichever runner sent it.
+- **Sorting answers the question** (specs/020): a question whose options include the sort the user makes with the
+  card's own buttons (To do, Fine, Not in this flow) is answered with it ("sorted on the board"), so Claude hears the
+  decision and no question stays open on a sorted card. The tile shows the option Claude recommends ("✦ advises: To
+  do", `CardSummary.advice`) and outlines that button. `/alfred-triage` started from the board asks this way - one
+  Triage question per Inbox card - and ends without waiting.
 - Claude reads the answers whole: `board_get`/`board_changes`/`board_wait`/`board_live` show the ```` ```answers ````
   block on one line and each question's state; it acts only on the answered ones.
 
@@ -363,6 +368,25 @@ re-test cycle is optional: given, only its calls count.
   cycle and opens the report. **Replay original call** resends the card's first inbound call (asks first for a write).
 
 Verified stays the user's: the card offers **✓ Verified** when every call passes; Claude proposes it.
+
+What a re-test counts (specs/020 - from cycle 61813, where old calls and empty answers read as a re-test):
+
+- **Only the fix build**: calls made before the app start that carries the fix ran the old code. That start is the
+  first one after the card was fixed (or the last one before, when the app was restarted before the card was marked
+  Fixed), read from `app_start_history` (the last 50 starts per project). Earlier calls - live or in a re-test cycle -
+  are counted apart (`beforeBuild`, "N calls before the fix build not counted") and never judged; none after it is
+  "not re-tested", not PARTIAL.
+- **A step checks the request, not just the path**: a step may carry `request` conditions (`{path: "$.branchIds",
+  shape: "has:-11"}` - none / one / list / list>=2 / present / has:<value>, the REQUEST_WHEN shapes); it ticks only on
+  a call that sent that, and says why it did not ("1 call to the endpoint, none sent what the step asks: branchIds has
+  -11 - … sent branchId: 948"). Saving a step whose endpoint no recorded call ever hit returns `warnings` with the
+  closest recorded endpoint (same method, longest shared tail of path segments) - saved as written.
+- **Empty answers prove nothing**: `emptyAnswers` counts the judged calls whose answer was an empty list
+  (`{"payload":[],"total":0}`); when it is all of them the summary says "every answer was empty … not seen working on
+  data". Moving such a card to Verified (drag, ✓ Verified, the drawer, Accept Verified) asks first
+  (`VerifyGuardService`): **Keep in Fixed**, **Ask Claude for a re-test with data** (a comment to Claude), or **Verify
+  anyway** - then the re-test is recorded first and the card's guard shows "⚠ verified on empty answers only" for as
+  long as it stands (read back from that run).
 
 ## Requirements by the calls (specs/018)
 

@@ -1,4 +1,5 @@
 import { NgTemplateOutlet } from '@angular/common';
+import { VerifyGuardService } from '../../../core/services/verify-guard.service';
 import { Component, DestroyRef, HostListener, computed, effect, inject, input, output, signal, untracked, viewChild } from '@angular/core';
 import {
   ActivityEntry, CardDetail, CardKind, Proposal, CardStatus, FLAGS, FLAG_LABELS, Flag, KINDS, MentionRef, OPEN_STATUSES, RESOLUTION_LABELS,
@@ -252,6 +253,7 @@ export class CardDrawerComponent {
   readonly closeRequested = output<{ id: string; number: number; resolution: Resolution }>();
 
   readonly card = signal<CardDetail | null>(null);
+  private readonly verifyGuard = inject(VerifyGuardService);
   /** The questions dialog is open over the drawer (specs/019). */
   readonly answering = signal(false);
   readonly activity = signal<readonly ActivityEntry[]>([]);
@@ -483,6 +485,10 @@ export class CardDrawerComponent {
         next: () => (value === 'INBOX' ? this.load(c.id) : this.apply(this.api.move(c.id, value as CardStatus))),
         error: (e) => this.error.set(messageOf(e)),
       });
+      return;
+    }
+    if (value === 'VERIFIED') {
+      void this.verifyGuard.verify(c, () => this.apply(this.api.move(c.id, 'VERIFIED')));
       return;
     }
     this.apply(this.api.move(c.id, value as CardStatus));

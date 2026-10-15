@@ -85,7 +85,7 @@ describe('CardRetestComponent', () => {
       updatedBy: 'CLAUDE', updatedAt: null }, check: check(), history: [], lastStart: null };
   });
 
-  it('shows each expectation before → now and accepts Verified when everything passes', () => {
+  it('shows each expectation before → now and accepts Verified when everything passes', async () => {
     const f = create();
     const text = f.nativeElement.textContent as string;
     expect(text).toContain('≤ 3 queries on TT_COUNTRY_AIRLINE_MAP');
@@ -94,6 +94,8 @@ describe('CardRetestComponent', () => {
     const accept = [...f.nativeElement.querySelectorAll('button')].find((b: HTMLButtonElement) => b.textContent?.includes('Accept Verified')) as HTMLButtonElement;
     expect(accept.disabled).toBeFalse();
     accept.click();
+    await f.whenStable(); // the Verified guard reads the re-test first (specs/020)
+    await new Promise((r) => setTimeout(r));
     expect(move).toHaveBeenCalledWith('k', 'VERIFIED');
   });
 

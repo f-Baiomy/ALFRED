@@ -45,7 +45,16 @@ public interface RetestUseCase {
     /** When the project's app last started, if Alfred saw it. */
     Optional<Instant> lastStart(String project);
 
-    record PlanChange(CardChange.Outcome outcome, RetestPlan plan, String message) {
+    /** A plan saved (or refused); {@code warnings} - a step whose endpoint no recorded call ever hit, with the closest one. */
+    record PlanChange(CardChange.Outcome outcome, RetestPlan plan, String message, List<String> warnings) {
+
+        public PlanChange {
+            warnings = warnings == null ? List.of() : List.copyOf(warnings);
+        }
+
+        public PlanChange(CardChange.Outcome outcome, RetestPlan plan, String message) {
+            this(outcome, plan, message, List.of());
+        }
     }
 
     /** A recorded re-test of several cards: each card's check, and the report as Markdown. */

@@ -1,4 +1,5 @@
 import { Component, DestroyRef, HostListener, computed, effect, inject, input, signal, untracked, viewChild } from '@angular/core';
+import { VerifyGuardService } from '../../../core/services/verify-guard.service';
 import { Title } from '@angular/platform-browser';
 import {
   ALL_STATUSES, Actor, BoardFilters, NO_TEAM, BulkAction, CardKind, CardSummary, FLAGS, FLAG_LABELS, Flag, KINDS, OPEN_STATUSES, Resolution, Waiting,
@@ -176,6 +177,7 @@ export class BoardViewComponent {
   readonly triageQueue = signal<readonly CardSummary[] | null>(null);
   /** The card whose questions are being answered from the board (specs/015 FR-5). */
   readonly answering = signal<string | null>(null);
+  private readonly verifyGuard = inject(VerifyGuardService);
   /** Cards shown with Claude's questions open (specs/019), the oldest change first. */
   readonly questionCards = computed(() => this.state.cards().filter((c) => (c.openQuestions ?? 0) > 0)
     .sort((a, b) => a.updatedAt.localeCompare(b.updatedAt)));
@@ -307,11 +309,13 @@ export class BoardViewComponent {
   }
 
   onMoved(drop: CardDrop): void {
-    this.state.move(drop.card.id, drop.to);
+    if (drop.to === 'VERIFIED') void this.verifyGuard.verify(drop.card, () => this.state.move(drop.card.id, drop.to));
+    else this.state.move(drop.card.id, drop.to);
   }
 
   onAction(card: CardSummary, action: CardAction): void {
     if (action.kind === 'close') this.state.close(card, action.resolution);
+    else if (action.kind === 'move' && action.status === 'VERIFIED') void this.verifyGuard.verify(card, () => this.state.move(card.id, 'VERIFIED'));
     else if (action.kind === 'move') this.state.move(card.id, action.status);
     else if (action.kind === 'retest') this.retest.start([card.number]);
     else this.state.reopen(card.id);

@@ -349,14 +349,15 @@ public class RequirementService implements RequirementUseCase, RequirementWatchU
             return new ItemVerdict(ev.cycleId(), ev.fileName(), ev.itemKey(), Verdict.MANUAL, null, null, ItemVerdict.Counts.NONE, null, null);
         }
         Instant since = windowStart(ev, newestCall, cards.getOrDefault(ev.fileName() + "\n" + ev.itemKey(), List.of()));
-        List<CallRow> rows = requirements.results(ev.cycleId(), ev.fileName(), ev.itemKey(), since, RESULTS).stream()
-                .filter(r -> r.result() != CallResult.SKIPPED).toList();
+        List<CallRow> all = requirements.results(ev.cycleId(), ev.fileName(), ev.itemKey(), since, RESULTS);
+        List<CallRow> rows = all.stream().filter(r -> r.result() != CallResult.SKIPPED).toList();
+        int skipped = all.size() - rows.size();
         int[] n = new int[CallResult.values().length];
         for (CallRow r : rows) {
             n[r.result().ordinal()]++;
         }
         ItemVerdict.Counts counts = new ItemVerdict.Counts(n[CallResult.CONTRADICTS.ordinal()], n[CallResult.WRONG.ordinal()],
-                n[CallResult.MEETS.ordinal()], n[CallResult.NO_DATA.ordinal()], n[CallResult.UNKNOWN.ordinal()]);
+                n[CallResult.MEETS.ordinal()], n[CallResult.NO_DATA.ordinal()], n[CallResult.UNKNOWN.ordinal()], skipped);
         for (CallResult worst : List.of(CallResult.CONTRADICTS, CallResult.WRONG, CallResult.MEETS, CallResult.NO_DATA, CallResult.UNKNOWN)) {
             Optional<CallRow> deciding = rows.stream().filter(r -> r.result() == worst).findFirst(); // newest first
             if (deciding.isPresent()) {

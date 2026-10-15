@@ -7,7 +7,7 @@ import { mentionsIn, serializeMention } from '../frontend.ts';
 import { maskContext, maskMeta, maskText, type MaskContext } from '../masking.ts';
 import { chunkText, fitItems, invalid, ok, preview, run, type ToolReply } from '../reply.ts';
 import { MaskSchema } from './cycles.ts';
-import { liveAnswerer } from './live.ts';
+import { answererText, liveAnswerer } from './live.ts';
 import { countsLine, readRequirements } from './requirements.ts';
 
 /**
@@ -28,6 +28,24 @@ const AS_CLAUDE: Pick<RequestOptions, 'headers'> = { headers: { 'X-Alfred-Actor'
  */
 const WRITE_TIMEOUT_MS = 30_000;
 const WRITE: Pick<RequestOptions, 'headers' | 'timeoutMs'> = { ...AS_CLAUDE, timeoutMs: WRITE_TIMEOUT_MS };
+
+interface PlainQuestion {
+  header: string; question: string; why?: string; multiSelect?: boolean;
+  options: { label: string; description?: string; then?: string; recommended?: boolean; followUp?: PlainQuestion }[];
+}
+
+/** Questions with options as board Markdown, for an Alfred that predates the questions dialog: numbered, options listed. */
+export function plainQuestions(qs: readonly PlainQuestion[]): string {
+  const one = (q: PlainQuestion, n: string): string[] => [
+    `**${n}. ${q.header}** - ${q.question}${q.multiSelect ? ' (choose any)' : ''}`,
+    ...(q.why ? [`  _Why I ask:_ ${q.why}`] : []),
+    ...q.options.map((o, k) => `  ${String.fromCharCode(97 + k)}) **${o.label}**${o.recommended ? ' (recommended)' : ''}`
+      + `${o.description ? ` - ${o.description}` : ''}${o.then ? ` → then I ${o.then.replace(/^I\s+/i, '')}` : ''}`
+      + `${o.followUp ? `\n    ↳ then: ${o.followUp.question}` : ''}`),
+  ];
+  return [`${qs[0].question.split('\n')[0]}`, '', ...qs.flatMap((q, i) => [...one(q, String(i + 1)), '']),
+    'Answer with the letters (e.g. "1a, 2b") or in your own words.'].join('\n');
+}
 
 /** One option of a question (specs/019): what picking it means, and what Claude does then. */
 const AskOptionBase = z.object({
@@ -69,13 +87,23 @@ const Expectation = z.object({
   path: z.string().max(200).optional(),
 });
 const ExpectList = z.array(Expectation).max(20).default([]);
-const StepList = z.array(z.object({ text: z.string().min(1).max(500), endpoint: z.string().max(300).optional() })).max(20).default([]);
+/** What a step's call must send (specs/020): without it any call to the endpoint ticks the step, whatever it carried. */
+const StepWhen = z.object({
+  path: z.string().min(2).max(200).describe('Request JSON path: "$.branchIds", "$.branch*" (the one key starting so)'),
+  shape: z.string().min(3).max(104).describe('none | one | list | list>=2 | present | has:<value> (e.g. "has:-11": the value, or a list holding it)'),
+});
+const StepList = z.array(z.object({
+  text: z.string().min(1).max(500),
+  endpoint: z.string().max(300).optional().describe('METHOD /path exactly as the app calls it - copy it from a recorded call (get_call), never guess'),
+  request: z.array(StepWhen).max(4).optional().describe('What the call must send to count, e.g. [{path: "$.branchIds", shape: "has:-11"}]'),
+})).max(20).default([]);
 
 type RetestResultRow = { text: string; outcome: string; before: string | null; after: string[]; note: string | null };
 type RetestCheckRow = { number: number; title: string; status: string; verdict: string; statusOnly: boolean; summary: string; newBuild: boolean;
   results: RetestResultRow[]; calls: { ref: string; label: string; passed: boolean; failed: string | null }[];
-  steps: { text: string; endpoint: string | null; seen: boolean; calls: number }[] };
-type RetestPlanRow = { expectations: unknown[]; steps: unknown[]; updatedBy: string | null };
+  steps: { text: string; endpoint: string | null; seen: boolean; calls: number; note?: string | null }[];
+  beforeBuild?: number; emptyAnswers?: number };
+type RetestPlanRow = { expectations: unknown[]; steps: unknown[]; updatedBy: string | null; warnings?: string[] };
 type RetestRunRow = { at: string; verdict: string; calls: number; source: string; summary: string };
 
 function retestLine(c: RetestCheckRow): Record<string, unknown> {
@@ -83,8 +111,12 @@ function retestLine(c: RetestCheckRow): Record<string, unknown> {
     card: `#${c.number} ${c.title} (${c.status}) - ${c.verdict}: ${c.summary}${c.newBuild ? ' · new build since the fix, not re-tested yet' : ''}`,
     ...(c.statusOnly ? { note: 'No expectations - only the status was compared; board_retest_plan adds them' } : {}),
     results: c.results.map((r) => `${r.outcome} ${r.text}${r.before != null ? ` · before ${r.before}` : ''}${r.after.length ? ` · now ${r.after.slice(0, 5).join(', ')}` : ''}${r.note ? ` (${r.note})` : ''}`),
-    ...(c.steps.length ? { steps: c.steps.map((s) => `${s.seen ? 'done' : 'not done'} - ${s.text}${s.endpoint ? ` [${s.endpoint}]` : ''}`) } : {}),
+    ...(c.steps.length ? { steps: c.steps.map((s) => `${s.seen ? 'done' : 'not done'} - ${s.text}${s.endpoint ? ` [${s.endpoint}]` : ''}${s.note ? ` (${s.note})` : ''}`) } : {}),
     calls: c.calls.slice(0, 5).map((x) => `${x.passed ? 'pass' : `FAIL ${x.failed}`} ${serializeMention({ type: 'call', ref: x.ref, label: x.label })}`),
+    ...(c.beforeBuild ? { beforeBuild: `${c.beforeBuild} calls before the app start that carries the fix - old code, not counted` } : {}),
+    ...(c.calls.length && (c.emptyAnswers ?? 0) >= c.calls.length
+      ? { emptyAnswers: 'Every answer was empty (0 rows): the fix was not seen working on data - say so, and never propose Verified on it; '
+        + 'ask for a re-test with data' } : {}),
   };
 }
 
@@ -597,7 +629,7 @@ export function register(server: McpServer, client: AlfredClient): void {
     const page = await client.get<ChangesPage>('/board/changes', { query: { cursor: input.cursor, project: input.project, cycleId: input.cycleId, actor: input.by, limit: input.limit } });
     const live = await liveAnswerer(client, input.project);
     return ok({ ...changesReply(ctx, page, await parentsOf(client, page)),
-      ...(live ? { live: `/alfred-live is answering the user on this board${live.host ? ` (from ${live.host})` : ''} - only note these changes; do not reply to them` } : {}) });
+      ...(live ? { live: `${answererText(live)} - only note these changes; do not reply to them` } : {}) });
   }));
 
   server.registerTool('board_wait', {
@@ -620,7 +652,7 @@ export function register(server: McpServer, client: AlfredClient): void {
     });
     const live = await liveAnswerer(client, input.project);
     return ok({ ...changesReply(ctx, page, await parentsOf(client, page)),
-      ...(live ? { live: `/alfred-live is answering the user on this board${live.host ? ` (from ${live.host})` : ''} - only note these changes; do not reply to them` } : {}) });
+      ...(live ? { live: `${answererText(live)} - only note these changes; do not reply to them` } : {}) });
   }));
 
   server.registerTool('board_closed_reasons', {
@@ -774,12 +806,16 @@ export function register(server: McpServer, client: AlfredClient): void {
     description: 'Write how a card\'s fix is re-tested (replaces the plan): expectations every call to its endpoint is checked against, and the '
       + 'steps a person follows. Kinds: SQL_COUNT {table, max} (an N+1), STATUS {range: "2xx" | "200" | "!405" | "!5xx"}, NO_LOG {level: '
       + 'ERROR | WARN}, DURATION {max ms, minCalls (default 3)}, SAME_RESPONSE {path: "$.countries.length"} (the value the original call '
-      + 'had). A step names the endpoint ("POST /Admin2/agency/by-branch") whose call shows it was done, or none for the card\'s own.',
+      + 'had). A step names the endpoint ("POST /Admin2/agency/by-branch") whose call shows it was done - exactly as a recorded call '
+      + 'has it, never guessed - or none for the card\'s own; `request` says what that call must send for the step to count '
+      + '({path: "$.branchIds", shape: "has:-11"}), so an old call that hit the path with another body does not tick it. A step naming '
+      + 'an endpoint no recorded call ever hit comes back in `warnings` with the closest recorded one - fix it.',
     inputSchema: { project: Project, number: CardNumber, expect: ExpectList, steps: StepList },
   }, (input) => run(async () => {
     const card = await cardByNumber(client, input.project, input.number);
     const plan = await client.put<RetestPlanRow>(`/board/cards/${seg(card.id)}/retest-plan`, { ...AS_CLAUDE, body: { expectations: input.expect, steps: input.steps } });
-    return ok({ saved: `#${card.number}`, expectations: plan.expectations.length, steps: plan.steps.length });
+    return ok({ saved: `#${card.number}`, expectations: plan.expectations.length, steps: plan.steps.length,
+      ...(plan.warnings?.length ? { warnings: plan.warnings, next: 'Correct those endpoints with board_retest_plan' } : {}) });
   }));
 
   // ------------------------------------------------------------------------------------------------------------ writing
@@ -984,7 +1020,10 @@ export function register(server: McpServer, client: AlfredClient): void {
         ...(input.because ? { because: { entry: idAt(input.because.entry, 'because'), ...(input.because.header ? { header: input.because.header } : {}) } } : {}),
         questions: input.questions.map((q) => question(q, true)),
       };
-      text = `${(block.questions[0].question as string).split('\n')[0]}\n\n\`\`\`questions\n${JSON.stringify(block, null, 2)}\n\`\`\``;
+      // An Alfred before specs/019 has no question index and its board would show the block as raw JSON: ask in words there.
+      const indexed = await client.get(`/board/cards/${seg(card.id)}/questions`).then(() => true, (e: unknown) => !(e instanceof AlfredError && e.status === 404));
+      text = indexed ? `${(block.questions[0].question as string).split('\n')[0]}\n\n\`\`\`questions\n${JSON.stringify(block, null, 2)}\n\`\`\``
+        : plainQuestions(block.questions as unknown as PlainQuestion[]);
     } else {
       const t = boardText(input.question!);
       snippets += t.snippets;
@@ -1109,8 +1148,8 @@ export function register(server: McpServer, client: AlfredClient): void {
     const card = await cardByNumber(client, input.project, input.number);
     let plan = '';
     if (input.expect.length || input.steps.length) {
-      await client.put(`/board/cards/${seg(card.id)}/retest-plan`, { ...AS_CLAUDE, body: { expectations: input.expect, steps: input.steps } });
-      plan = `${input.expect.length} expectations, ${input.steps.length} steps`;
+      const saved = await client.put<RetestPlanRow>(`/board/cards/${seg(card.id)}/retest-plan`, { ...AS_CLAUDE, body: { expectations: input.expect, steps: input.steps } });
+      plan = `${input.expect.length} expectations, ${input.steps.length} steps${saved?.warnings?.length ? ` - WARNING: ${saved.warnings.join(' ')}` : ''}`;
     }
     const files = input.files.map((f) => {
       const ref = f.line ? `${f.path}:${f.line}` : f.path;

@@ -24,7 +24,7 @@
 // Alfred (PUT /board/live-work) so the card shows Claude working - steps, the reply typing in, Stop - while it happens.
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir, hostname, tmpdir } from 'node:os';
 import { basename, delimiter, dirname, extname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -161,12 +161,61 @@ export const RULES = `You are Alfred live: you answer the user on the Alfred tas
 - End with one line: "→ " and what you did (e.g. "→ replied; turned #12 into a BUG").`;
 
 /** The prompt of one run: the rules, which tools, the card, its recent thread as the board gives it, and what the user did. */
-export function promptFor(server, card, changes, context = null) {
+export function promptFor(server, card, changes, context = null, repo = null) {
   const thread = context ? `\nTHE CARD (from the board):\n${typeof context === 'string' ? context : JSON.stringify(context, null, 1)}\n` : '';
   return `${RULES}\n\nThe Alfred tools are mcp__${server}__* (e.g. mcp__${server}__board_reply).\n\n`
     + `CARD: project "${card.project}" #${card.number} "${card.title}" (${card.status})\n${thread}`
+    + (repo ? `\nTHE CODE: ${repo}\n` : '')
     + `WHAT THE USER JUST DID:\n${changes.map((e) => `- ${youDid(e)}${e.replyTo != null && !context ? ' (a reply in a thread - board_get shows which comment)' : ''}`).join('\n')}\n\n`
     + 'Answer this change now.';
+}
+
+/** Who a live-runner heartbeat is, for people: "/alfred-live", "/alfred-listen's live lane (cycle decc8783)". */
+export function answererName(r) {
+  return (r?.kind ?? 'live') === 'listen' ? `/alfred-listen's live lane${r?.cycleId ? ` (cycle ${String(r.cycleId).slice(0, 8)})` : ''}` : '/alfred-live';
+}
+
+/** A card's code links as repo-relative paths: "odeysysadmin-tt/src/main/java/X.java" (the ":line" dropped). */
+export function codePaths(links) {
+  return [...new Set((links ?? []).filter((l) => String(l.type).toLowerCase() === 'code')
+    .map((l) => String(l.ref ?? '').replace(/:\d+(-\d+)?$/, '').replace(/\\/g, '/').replace(/^\/+/, '')).filter(Boolean))];
+}
+
+/**
+ * Where a card's code is on this machine (specs/020): the folder holding the files its code links name - this runner's
+ * folder, a folder beside it, or one level inside those. The live lane once answered "the backend is not in this folder"
+ * from the frontend repo while the card linked nine backend lines; now the prompt says where they are, or that they
+ * are not on this machine. Returns { dir, here } - here: the runner's own folder - or { missing: true, looked }.
+ */
+export function findRepo(paths, cwd) {
+  if (!paths.length) return null;
+  const has = (dir) => paths.some((p) => existsSync(join(dir, p)));
+  if (has(cwd)) return { dir: cwd, here: true };
+  const seen = new Set([resolve(cwd)]);
+  const candidates = [];
+  const listDirs = (dir) => { try { return readdirSync(dir, { withFileTypes: true }).filter((d) => d.isDirectory() && !d.name.startsWith('.')).map((d) => join(dir, d.name)); } catch { return []; } };
+  for (const sibling of listDirs(dirname(resolve(cwd)))) {
+    candidates.push(sibling, ...listDirs(sibling));
+  }
+  for (const dir of candidates) {
+    const r = resolve(dir);
+    if (seen.has(r)) continue;
+    seen.add(r);
+    if (has(r)) return { dir: r, here: false };
+  }
+  return { missing: true, looked: dirname(resolve(cwd)) };
+}
+
+/** The THE CODE line of a prompt, or null when the card links no code. */
+export function repoHint(paths, found) {
+  if (!found) return null;
+  const first = paths[0];
+  if (found.here) return null;
+  if (found.missing) {
+    return `the card's code (${first.split('/')[0]}/…) is NOT on this machine - looked in ${found.looked} and the folders in it. Say so and give `
+      + 'the file:line from the card\'s code links; never say the code does not exist or is not part of the change.';
+  }
+  return `the card's code is in ${found.dir} (not this runner's folder) - read it there with absolute paths, e.g. ${join(found.dir, first)}.`;
 }
 
 /**
@@ -795,6 +844,26 @@ export class Reporter {
 // ------------------------------------------------------------------------------------------------------- the runner
 
 /** Files of a runner on this machine, one set per Alfred and project (or cycle). */
+/**
+ * Asks every running /alfred-listen on this Alfred (and project) to stop its live lane only: its stop file reads
+ * "live-off" (the listen runner reads it within 2 s). Returns the cycles asked.
+ */
+export function listenLanesOff(url, project) {
+  const dir = join(tmpdir(), 'alfred-listen');
+  const out = [];
+  let names = [];
+  try { names = readdirSync(dir).filter((n) => n.endsWith('.pid.json')); } catch { return out; }
+  for (const name of names) {
+    try {
+      const p = JSON.parse(readFileSync(join(dir, name), 'utf8'));
+      if (p.alfred !== url || (project && p.project && p.project !== project) || !alive(Number(p.pid))) continue;
+      writeFileSync(join(dir, name.replace(/\.pid\.json$/, '.stop')), 'live-off');
+      out.push(p.cycleId ?? name);
+    } catch { /* not a runner's file */ }
+  }
+  return out;
+}
+
 export function files(url, project, kind = 'alfred-live') {
   const dir = join(tmpdir(), kind);
   mkdirSync(dir, { recursive: true });
@@ -946,9 +1015,18 @@ export class Runner {
 
   async run() {
     let cursor = this.o.cursorFile ? this.loadCursor() : 'now';
-    this.say(`● Live on for ${this.o.project || 'every board'}${this.o.cycleId ? ` (cycle ${this.o.cycleId})` : ''} at ${this.o.alfred.url}`
-      + ` - answering on the board from ${this.o.host ?? hostname()}${this.o.kind === 'listen' ? ' (listen)' : ''}; each answer shows here.`);
-    await this.beat();
+    // specs/020: ask first who answers this board - announcing first left a window where both answered
+    const first = this.o.kind === 'listen' ? await this.anotherOwner() : null;
+    this.lastHostCheck = Date.now();
+    if (first) {
+      this.standingDown = true;
+      this.say(`● ${answererName(first)} already answers ${this.o.project || 'this board'} from ${first.host ?? 'another machine'}`
+        + ' - listen checks calls only, its live lane stays off until that one stops.');
+    } else {
+      this.say(`● Live on for ${this.o.project || 'every board'}${this.o.cycleId ? ` (cycle ${this.o.cycleId})` : ''} at ${this.o.alfred.url}`
+        + ` - answering on the board from ${this.o.host ?? hostname()}${this.o.kind === 'listen' ? " (/alfred-listen's live lane)" : ''}; each answer shows here.`);
+      await this.beat();
+    }
     await this.prepare();
     const beats = setInterval(() => { if (!this.stopped && !this.standingDown) this.beat(); }, 20_000);
     beats.unref?.();
@@ -992,7 +1070,7 @@ export class Runner {
       const other = await this.anotherOwner();
       if (other && !this.standingDown) {
         this.standingDown = true;
-        this.say(`  ⚠ another ${other.kind ?? 'live'} runner answers this board from ${other.host} - standing down until it stops`);
+        this.say(`  ⚠ ${answererName(other)} answers this board from ${other.host} - standing down until it stops`);
       } else if (!other && this.standingDown) {
         this.standingDown = false;
         this.say('  ● the other runner stopped - answering again');
@@ -1087,6 +1165,23 @@ export class Runner {
     }
   }
 
+  /** Where the card's code is (specs/020), cached per card - one small request for its links. */
+  async repoOf(card) {
+    this.repos ??= new Map();
+    const key = `${card.project}#${card.number}`;
+    if (this.repos.has(key)) return this.repos.get(key);
+    let hint = null;
+    try {
+      const detail = await this.o.alfred.call('GET', `/board/cards/by-number/${card.number}`, { query: { project: card.project ?? '' } });
+      const paths = codePaths(detail?.links);
+      hint = repoHint(paths, findRepo(paths, this.o.cwd ?? process.cwd()));
+    } catch {
+      hint = null;
+    }
+    this.repos.set(key, hint);
+    return hint;
+  }
+
   /** Whether a reply answers one of Claude's questions - read from the card's thread (one small request). */
   async questionsOf(changes) {
     const replies = changes.filter((e) => e.kind === 'COMMENT' && e.replyTo != null);
@@ -1127,7 +1222,8 @@ export class Runner {
       // Needs the code or an investigation: the chat that handles the cycle answers it, with what it already knows.
       await reporter.end({ steps: changes.map(youDid), state: 'DONE', outcome: 'sent to the chat that handles this cycle - it answers on the card' });
       this.o.log(`  → 💬 ${label} sent to the chat`);
-      this.o.chat(commentLine(first, changes));
+      const repo = await this.repoOf(first);
+      this.o.chat(commentLine(first, changes) + (repo ? ` · the code: ${repo.replace(/\s+/g, ' ')}` : ''));
       return;
     }
 
@@ -1135,7 +1231,7 @@ export class Runner {
     this.o.log(`  ✦ ${head} on ${label}…`);
     let refused = null;
     const p = this.pool.acquire();
-    const handle = this.pool.run(p, promptFor(this.o.server, first, changes, context) + (attempt ? '\n\nYour last try posted no reply: post your answer with board_reply now.' : ''), {
+    const handle = this.pool.run(p, promptFor(this.o.server, first, changes, context, await this.repoOf(first)) + (attempt ? '\n\nYour last try posted no reply: post your answer with board_reply now.' : ''), {
       timeoutMs: this.o.runTimeoutMs ?? 5 * 60_000, draftEveryMs: this.o.draftEveryMs,
       onStep: async (step, steps, draft) => {
         if (step) this.o.log(`    · ${step}`);
@@ -1254,7 +1350,10 @@ export async function main(argv) {
     // frees the cycle at once (the runner's own last beat may come too late, or never)
     const chat = r?.chatId && r?.cycleId ? { cycleId: r.cycleId, chatId: r.chatId } : {};
     await new Alfred(url).call('PUT', '/board/live-runner', { body: { project: project ?? '', host: hostname(), stopped: true, kind: 'live', ...chat } }).catch(() => null);
-    print({ stopped: !!r, last: tail(f.log, 5) });
+    // specs/020: the answers may come from /alfred-listen's live lane - "stop answering me" reaches it too; listen keeps checking calls
+    const lanes = r ? [] : listenLanesOff(url, project);
+    print({ stopped: !!r, ...(lanes.length ? { listenLiveLaneStopped: lanes, note: "the answers came from /alfred-listen's live lane - "
+      + 'stopped it; listen keeps checking calls (alfred-listen stop ends listen itself)' } : {}), last: tail(f.log, 5) });
     return;
   }
   if (command === 'start') {

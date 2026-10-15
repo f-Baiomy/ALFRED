@@ -90,6 +90,8 @@ export interface CardSummary {
   readonly blockedBy?: readonly CardRef[];
   /** Claude's questions still open on the card (specs/019) - the tile's ❓ count. */
   readonly openQuestions?: number;
+  /** The option Claude recommends in its first open question (specs/020): "To do", "Merge into #44". */
+  readonly advice?: string | null;
   /** Empty in list rows; filled in a detail. */
   readonly description: string;
 }
@@ -165,6 +167,22 @@ export interface Proposal {
 export interface CardDetail extends CardSummary {
   readonly links: readonly MentionRef[];
   readonly specItems?: readonly SpecItemLink[];
+}
+
+/** The runner answering the user on a board (its heartbeat): kind "live" = /alfred-live, "listen" = /alfred-listen's live lane. */
+export interface LiveRunnerInfo {
+  readonly project: string;
+  readonly host: string | null;
+  readonly model: string | null;
+  readonly kind: string | null;
+  readonly startedAt: string | null;
+  readonly lastSeen: string | null;
+}
+
+/** "/alfred-live" or "/alfred-listen's live lane", and how to stop it (specs/020). */
+export function answererLabel(r: Pick<LiveRunnerInfo, 'kind'>): { readonly name: string; readonly stop: string } {
+  return r.kind === 'listen' ? { name: "/alfred-listen's live lane", stop: '/alfred-live stop (listen keeps checking calls)' }
+    : { name: '/alfred-live', stop: '/alfred-live stop' };
 }
 
 /** One of Claude's questions as the board keeps it (specs/019): PENDING is a follow-up waiting on its option, LATER is put off. */
@@ -594,6 +612,8 @@ export interface Expectation {
 export interface RetestStep {
   readonly text: string;
   readonly endpoint?: string | null;
+  /** What the step's call must send to count (specs/020), e.g. [{ path: '$.branchIds', shape: 'has:-11' }]. */
+  readonly request?: readonly { readonly path: string; readonly shape: string }[];
 }
 
 export interface RetestPlan {
@@ -627,8 +647,19 @@ export interface RetestCheck {
   readonly summary: string;
   readonly results: readonly RetestResult[];
   readonly calls: readonly { readonly ref: string; readonly label: string; readonly at: string | null; readonly passed: boolean; readonly failed: string | null }[];
-  readonly steps: readonly { readonly text: string; readonly endpoint: string | null; readonly seen: boolean; readonly calls: number }[];
+  readonly steps: readonly { readonly text: string; readonly endpoint: string | null; readonly seen: boolean; readonly calls: number; readonly note?: string | null }[];
   readonly newBuild: boolean;
+  /** Calls before the app start that carries the fix - old code, not counted (specs/020). */
+  readonly beforeBuild?: number;
+  /** Judged calls whose answer was an empty list. */
+  readonly emptyAnswers?: number;
+  /** A guard whose card was accepted on a re-test that saw only empty answers. */
+  readonly verifiedOnEmpty?: boolean;
+}
+
+/** Every judged call answered with nothing - the fix was never seen working on data (specs/020). */
+export function onlyEmptyAnswers(c: RetestCheck | null | undefined): boolean {
+  return !!c && c.calls.length > 0 && (c.emptyAnswers ?? 0) >= c.calls.length;
 }
 
 export interface RetestRun {
@@ -659,11 +690,14 @@ export interface CardRetest {
 export function retestChip(c: RetestCheck): { readonly text: string; readonly tone: 'pass' | 'fail' | 'part' | 'wait' } {
   const guard = c.status === 'VERIFIED' || c.status === 'DONE';
   switch (c.verdict) {
-    case 'PASSES': return { text: guard ? `🛡 guarded · ${c.calls.length} calls ok` : `✓ ${c.summary}`, tone: 'pass' };
+    case 'PASSES': return guard && c.verifiedOnEmpty ? { text: `⚠ verified on empty answers only · 🛡 ${c.calls.length} calls ok`, tone: 'part' }
+      : onlyEmptyAnswers(c) && !guard ? { text: `◐ ${c.summary}`, tone: 'part' }
+      : { text: guard ? `🛡 guarded · ${c.calls.length} calls ok` : `✓ ${c.summary}`, tone: 'pass' };
     case 'FAILS': return { text: guard ? `⚠ guard failed · ${c.summary.replace(/^fails · /, '')}` : `✗ ${c.summary}`, tone: 'fail' };
     case 'FLAKY': return { text: `≈ ${c.summary}`, tone: 'part' };
     case 'PARTIAL': return { text: `◐ ${c.summary}`, tone: 'part' };
-    case 'NO_CALLS': return { text: guard ? '🛡 guarded · no calls since' : c.newBuild ? '⟳ new build · ready to re-test' : `… ${c.summary}`, tone: 'wait' };
+    case 'NO_CALLS': return { text: guard ? (c.verifiedOnEmpty ? '⚠ verified on empty answers only · no calls since' : '🛡 guarded · no calls since')
+      : c.newBuild ? `⟳ new build · ready to re-test${c.beforeBuild ? ` (${c.beforeBuild} older calls not counted)` : ''}` : `… ${c.summary}`, tone: 'wait' };
     default: return { text: `? ${c.summary}`, tone: 'wait' };
   }
 }

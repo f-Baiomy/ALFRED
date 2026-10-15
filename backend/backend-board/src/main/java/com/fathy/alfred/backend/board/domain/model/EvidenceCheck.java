@@ -12,7 +12,8 @@ import java.util.regex.Pattern;
  *       meet the item - the feature is missing (one {@code branchId} where several branches must fit);</li>
  *   <li>REQUEST_WHEN - which calls exercise the item: the value at {@code path} is {@code none} (absent, null, empty or
  *       an "all" marker), {@code one} (a single value or a list of one), {@code list}, {@code list>=2} or
- *       {@code present}. A call that does not match is about another choice and says nothing about this item;</li>
+ *       {@code present} - or {@code has:<value>}, the app's own marker such as {@code -11} for "All" (specs/020). A call
+ *       that does not match is about another choice and says nothing about this item;</li>
  *   <li>ROWS_MATCH_FILTER - every row of the response list at {@code rows} has {@code field} among the request values at
  *       {@code path} (no filter in the request: every row matches);</li>
  *   <li>ROWS_PRESENT - the response list at {@code rows} has at least {@code min} rows (1 by default) - without rows
@@ -54,7 +55,8 @@ public record EvidenceCheck(Kind kind, String path, String shape, String rows, S
             case REQUEST_SHAPE -> !validPath(path) ? "REQUEST_SHAPE needs a request path such as $.branchIds or $.branch*"
                     : shape == null || !MUST_SHAPES.contains(shape) ? "REQUEST_SHAPE needs shape: list, scalar or present" : null;
             case REQUEST_WHEN -> !validPath(path) ? "REQUEST_WHEN needs a request path such as $.branch*"
-                    : shape == null || !WHEN_SHAPES.contains(shape) ? "REQUEST_WHEN needs shape: none, one, list, list>=2 or present" : null;
+                    : shape == null || !(WHEN_SHAPES.contains(shape) || hasValue(shape))
+                    ? "REQUEST_WHEN needs shape: none, one, list, list>=2, present or has:<value> (an \"all\" value the app sends, e.g. has:-11)" : null;
             case ROWS_MATCH_FILTER -> !validPath(rows) || rows.contains("*") ? "ROWS_MATCH_FILTER needs rows: the response list, such as $.payload"
                     : field == null || field.length() > 100 || !FIELD.matcher(field).matches() ? "ROWS_MATCH_FILTER needs field: a row key such as branchId or branch*"
                     : !validPath(path) ? "ROWS_MATCH_FILTER needs path: the request filter, such as $.branch*" : null;
@@ -64,7 +66,13 @@ public record EvidenceCheck(Kind kind, String path, String shape, String rows, S
         };
     }
 
-    private static boolean validPath(String p) {
+    /** {@code has:<value>}: the request sends that value, or a list holding it - an app's own "all" marker such as -11. */
+    public static boolean hasValue(String shape) {
+        return shape != null && shape.startsWith("has:") && shape.length() > 4 && shape.length() <= 104;
+    }
+
+    /** A request or response path such as {@code $.branchIds} or {@code $.branch*}. */
+    public static boolean validPath(String p) {
         return p != null && p.length() <= 200 && PATH.matcher(p).matches();
     }
 
@@ -86,7 +94,8 @@ public record EvidenceCheck(Kind kind, String path, String shape, String rows, S
                 case "one" -> "one value";
                 case "list>=2" -> "2 or more values";
                 case "list" -> "a list";
-                default -> "sent";
+                case "present" -> "sent";
+                default -> hasValue(shape) ? "or holds " + shape.substring(4) : "sent";
             };
             case ROWS_MATCH_FILTER -> "every row's " + field + " is in request " + path;
             case ROWS_PRESENT -> "response " + rows + " has " + (minRows() == 1 ? "rows" : "at least " + minRows() + " rows");

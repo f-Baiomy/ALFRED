@@ -68,7 +68,7 @@ public final class RequirementJudge {
                 unknown.add(c.text() + " - " + f.unknown);
                 continue;
             }
-            if (!whenHolds(c.shape(), f.node)) {
+            if (!(EvidenceCheck.hasValue(c.shape()) ? holdsValue(f.node, c.shape().substring(4)) : whenHolds(c.shape(), f.node))) {
                 return null;
             }
         }
@@ -99,6 +99,98 @@ public final class RequirementJudge {
             }
         }
         return unknown.isEmpty() ? new Judgement(CallResult.MEETS, null) : new Judgement(CallResult.UNKNOWN, String.join("; ", unknown));
+    }
+
+    /**
+     * Whether a request carries what a re-test step asks of it (specs/020): {@code shape} is one of the REQUEST_WHEN
+     * shapes ({@code none}, {@code one}, {@code list}, {@code list>=2}, {@code present}) or {@code has:<value>} - the value
+     * at {@code path}, or one of its list items, is that value. Null when it cannot be told (no JSON body, a wildcard
+     * naming several keys).
+     */
+    public static Boolean requestHolds(JsonNode request, String path, String shape) {
+        Found f = find(request, path);
+        if (f.unknown != null) {
+            return null;
+        }
+        return shape.startsWith("has:") ? holdsValue(f.node, shape.substring(4)) : whenHolds(shape, f.node);
+    }
+
+    /** The value, or a list holding it. */
+    private static boolean holdsValue(JsonNode n, String value) {
+        String want = normText(value.strip());
+        if (n == null) {
+            return false;
+        }
+        if (n.isArray()) {
+            for (JsonNode v : n) {
+                if (v.isValueNode() && norm(v).equals(want)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        return n.isValueNode() && norm(n).equals(want);
+    }
+
+    /** What a request sent at a path, for people: "branchId: 948", "nothing". */
+    public static String sentAt(JsonNode request, String path) {
+        Found f = find(request, path);
+        return f.unknown != null ? f.unknown : shown(f);
+    }
+
+    /**
+     * An answer with nothing in it (specs/020): an empty list, or an object whose lists are all empty (and whose
+     * {@code total}/{@code count}, if any, is 0) - {@code {"payload":[],"total":0}}. False when it cannot be told.
+     */
+    public static boolean emptyAnswer(JsonNode response) {
+        return listsIn(response) == 0 && response != null && (response.isArray() || hasEmptyList(response));
+    }
+
+    /** Items in the lists of an answer (one level of nesting), or -1 when a total/count says there are rows. */
+    private static int listsIn(JsonNode n) {
+        if (n == null) {
+            return -1;
+        }
+        if (n.isArray()) {
+            return n.size();
+        }
+        if (!n.isObject()) {
+            return -1;
+        }
+        int items = 0;
+        Iterator<java.util.Map.Entry<String, JsonNode>> fields = n.fields();
+        while (fields.hasNext()) {
+            java.util.Map.Entry<String, JsonNode> e = fields.next();
+            JsonNode v = e.getValue();
+            String k = e.getKey().toLowerCase(Locale.ROOT);
+            if (v.isArray()) {
+                items += v.size();
+            } else if (v.isObject()) {
+                int inner = listsIn(v);
+                if (inner < 0) {
+                    return -1;
+                }
+                items += inner;
+            } else if (v.isNumber() && v.asLong() > 0 && (k.equals("total") || k.equals("count") || k.equals("totalcount") || k.equals("totalelements"))) {
+                return -1;
+            }
+        }
+        return items;
+    }
+
+    private static boolean hasEmptyList(JsonNode n) {
+        Iterator<JsonNode> values = n.elements();
+        while (values.hasNext()) {
+            JsonNode v = values.next();
+            if (v.isArray() || (v.isObject() && hasEmptyList(v))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String normText(String t) {
+        return t.matches("-?\\d+(\\.\\d+)?") ? new java.math.BigDecimal(t).stripTrailingZeros().toPlainString() : t.toLowerCase(Locale.ROOT);
     }
 
     // ------------------------------------------------------------------------------------------------------- shapes

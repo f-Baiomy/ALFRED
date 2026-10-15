@@ -11249,6 +11249,9 @@ app-run-skill { display: inline-flex; flex-direction: column; align-items: flex-
 .board-qline-o { font-size: 0.78rem; color: var(--text-dim); padding: 0.05rem 0.5rem; border-radius: 6px; border: 1px solid var(--border);
   &.picked { color: var(--text); background: color-mix(in srgb, var(--green) 12%, transparent); border-color: color-mix(in srgb, var(--green) 40%, transparent); } }
 .board-qline-said { font-size: 0.8rem; margin: 0.25rem 0 0 1.5rem; }
+.board-advice { display: inline-block; font-size: 0.75rem; color: var(--green); border: 1px solid color-mix(in srgb, var(--green) 45%, transparent);
+  border-radius: 99px; padding: 0.05rem 0.55rem; margin: 0.25rem 0 0.25rem 0.3rem; }
+.board-card-acts button.advised { border-color: var(--green); color: var(--green); box-shadow: 0 0 0 1px color-mix(in srgb, var(--green) 35%, transparent); }
 .board-qpill { display: inline-flex; gap: 0.35rem; align-items: center; font: inherit; font-size: 0.78rem; font-weight: 650; color: var(--amber); background: none; cursor: pointer;
   border: 1px solid color-mix(in srgb, var(--amber) 55%, transparent); border-radius: 99px; padding: 0.05rem 0.6rem; margin: 0.25rem 0;
   &:hover { border-color: var(--amber); } &:disabled { cursor: default; } }
@@ -11860,6 +11863,7 @@ app-task-view .board-copy { max-width: 100%; overflow: hidden; text-overflow: el
   h4 { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
 }
 .board-retest-table { display: grid; gap: 0; }
+.board-retest-empty { font-size: 0.8rem; color: var(--amber); margin: 0.3rem 0; }
 .board-retest-row { display: grid; grid-template-columns: 1.1rem 1fr auto; gap: 0.45rem; padding: 0.25rem 0; border-bottom: 1px solid var(--border); font-size: 0.78rem; align-items: baseline;
   &.head { font-size: 0.66rem; color: var(--text-faint); font-weight: 600; }
 }

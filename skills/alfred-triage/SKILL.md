@@ -32,6 +32,23 @@ Recommendations: **To do** (real, in scope), **Fine** (expected behaviour - say 
 into #n** (same problem), **ask first** (a decision is needed - name the question). Then wait for the user's choice
 (they may answer for several cards at once: "11 todo, 12 fine, 14 merge 11").
 
+### Started from the board (▶, a `board_run_take` run)
+
+The user is on the board, not in this chat - advice shown only here is lost, and waiting here for an answer never
+ends. So, for every Inbox card, one `board_ask` on the card instead of the chat block:
+
+- `questions`: one question, header `Triage`, "What should happen to #n?", `why` = the one-line evidence (the calls
+  as mentions, what they sent and answered).
+- `options` (label exactly so - the card's own buttons answer the same question): `To do`, `Fine`,
+  `Not in this flow`, and `Merge into #n` when a card is the same problem; the one you advise `recommended`; each
+  with `then` (what you will do) and a `preview`: what changes, the calls, which Acceptance items it covers or leaves
+  uncovered, why.
+- Skip a card that already has an open Triage question (`board_get` lists it) - never ask twice.
+
+Then `board_run_end` with `→ asked on #47-#50 - answer on the cards` and stop: do not wait. The user answers in the
+questions dialog or just sorts the card with its buttons (that answers the question too); the answers reach Claude
+through `/alfred-live` or `/alfred-sync`, which records them as in step 3.
+
 ## 3. Record the decision
 
 - To do → `board_move` TO_DO (yours to do), state comment: what the user decided and why, `waitingOn` CLAUDE, next

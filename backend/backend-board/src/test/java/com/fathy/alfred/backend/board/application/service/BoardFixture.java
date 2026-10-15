@@ -48,6 +48,8 @@ final class BoardFixture implements AutoCloseable {
     final BoardInsightsService insights;
     /** Facts per call id (live) or "cycle/callId" (captured), for the re-test. */
     final Map<String, com.fathy.alfred.backend.board.domain.model.CallFacts> facts = new HashMap<>();
+    /** Request and response bodies per call id (live) or "cycle/callId", for the re-test's step and empty-answer checks. */
+    final Map<String, com.fathy.alfred.backend.board.application.port.out.CallFactsPort.CallBodies> bodies = new HashMap<>();
     final RetestService retest;
     final com.fathy.alfred.backend.board.application.port.out.SnippetStorePort snippetStore;
     final SnippetsService snippets;
@@ -88,6 +90,11 @@ final class BoardFixture implements AutoCloseable {
             @Override
             public Optional<com.fathy.alfred.backend.board.domain.model.CycleCall> call(String ref) {
                 return Optional.empty();
+            }
+
+            @Override
+            public Optional<CallBodies> bodies(String callId, String cycleId) {
+                return Optional.ofNullable(bodies.get(cycleId == null ? callId : cycleId + "/" + callId));
             }
         };
         snippetStore = TestRepositories.snippets(store);
