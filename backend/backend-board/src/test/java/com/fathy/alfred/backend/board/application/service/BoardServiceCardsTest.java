@@ -196,10 +196,18 @@ class BoardServiceCardsTest {
         f.board.close(Actor.USER, note, Resolution.FINE, "a debugger pause");
         List<MentionRef> sameCall = List.of(new MentionRef(MentionType.CALL, "in:s1", "POST search · 200"));
 
-        // the same searches lack a feature, or answer wrong: other problems, other kinds - added
-        assertThat(f.board.create(Actor.CLAUDE, new CreateCardUseCase.NewCard("p", CardKind.TASK,
-                "Missing feature: Branch dropdown is not multi-select", "", Set.of(), null, null, sameCall)).outcome())
-                .isEqualTo(CardChange.Outcome.OK);
+        // the same searches lack a feature, or answer wrong: other problems, other kinds - added, with no "Looks like #1"
+        CardChange task = f.board.create(Actor.CLAUDE, new CreateCardUseCase.NewCard("p", CardKind.TASK,
+                "Missing feature: Branch dropdown is not multi-select", "", Set.of(), null, null, sameCall));
+        assertThat(task.outcome()).isEqualTo(CardChange.Outcome.OK);
+        assertThat(task.card().similarClosed()).isNull();
+        assertThat(f.board.getByNumber("p", task.card().card().number()).orElseThrow().similarClosed()).isNull();
+        assertThat(f.board.query(new CardQuery("p", null, null, null, null, null, false, null, 0, 500)).cards().stream().filter(c -> c.card().kind() == CardKind.TASK)
+                .findFirst().orElseThrow().similarClosed()).isNull();
+        // another kind whose title names the dismissed problem still shows the hint
+        CardChange stalls = f.board.create(Actor.CLAUDE, new CreateCardUseCase.NewCard("p", CardKind.QUESTION,
+                "Do the stalls come back without the debugger?", "", Set.of(), null, null, sameCall));
+        assertThat(stalls.card().similarClosed()).isNotNull();
         assertThat(f.board.create(Actor.CLAUDE, new CreateCardUseCase.NewCard("p", CardKind.BUG,
                 "Wrong result: All Agencies returns no rows", "", Set.of(), null, null, sameCall)).outcome())
                 .isEqualTo(CardChange.Outcome.OK);

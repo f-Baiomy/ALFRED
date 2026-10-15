@@ -812,10 +812,10 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort,
             List<Object> args = new ArrayList<>();
             args.add(project == null ? "" : project);
             args.addAll(chunk);
-            jdbc.query("SELECT signature, number, title, resolution, reason FROM cards WHERE project = ? AND status = 'CLOSED' "
+            jdbc.query("SELECT signature, number, title, resolution, reason, kind FROM cards WHERE project = ? AND status = 'CLOSED' "
                     + "AND signature IN (" + marks(chunk.size()) + ") ORDER BY updated_at DESC", rs -> {
                         out.putIfAbsent(rs.getString(1), new SimilarClosed(rs.getInt(2), rs.getString(3), resolution(rs.getString(4)),
-                                rs.getString(5)));
+                                rs.getString(5), rs.getString(6) == null ? null : CardKind.valueOf(rs.getString(6))));
                     }, args.toArray());
         }
         return out;

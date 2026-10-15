@@ -1163,7 +1163,7 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
         List<CardSummary> rows = cards.stream().map(c -> new CardSummary(c, comments.getOrDefault(c.id(), 0),
                 chips.getOrDefault(c.id(), List.of()),
                 c.status() == CardStatus.INBOX && c.signature() != null
-                        ? similar.getOrDefault(c.project(), Map.of()).get(c.signature()) : null, proposals.get(c.id()), waiting.get(c.id()),
+                        ? hintFor(c, similar.getOrDefault(c.project(), Map.of()).get(c.signature())) : null, proposals.get(c.id()), waiting.get(c.id()),
                 blockers.get(c.id()))).toList();
         return new CardsPage(rows, store.count(query), store.progress(query.project(), query.cycleId()));
     }
@@ -1241,10 +1241,25 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
                 .orElse(false);
     }
 
+    /**
+     * The "Looks like #N, closed as Fine" hint, only for a card that could be that problem: the same kind, or a title
+     * sharing a word with the closed card's beyond the endpoint's own words. A signature is only the endpoint and its
+     * outcome class, so without this every finding on a dismissed endpoint carried the hint: 61813's missing-feature
+     * TASKs all said "Looks like #39" - a NOTE about a debugger stall on the same search.
+     */
+    private SimilarClosed hintFor(Card card, SimilarClosed closed) {
+        if (closed == null || closed.kind() == null || closed.kind() == card.kind() || card.signature() == null) {
+            return closed;
+        }
+        Set<String> endpointWords = new HashSet<>(BoardInsightsService.words(card.signature().replace('|', ' ')));
+        List<String> own = BoardInsightsService.words(card.title()).stream().filter(w -> !endpointWords.contains(w)).toList();
+        return BoardInsightsService.sharedWords(own, closed.title()).isEmpty() ? null : closed;
+    }
+
     private CardDetail detail(Card card) {
         Card full = card.description().isEmpty() ? store.find(card.id()).orElse(card) : card;
         SimilarClosed similar = full.status() == CardStatus.INBOX && full.signature() != null
-                ? store.closedBySignature(full.project(), List.of(full.signature())).get(full.signature()) : null;
+                ? hintFor(full, store.closedBySignature(full.project(), List.of(full.signature())).get(full.signature())) : null;
         SimilarOpen open = full.status() != CardStatus.CLOSED && full.signature() != null ? similarOpen(full) : null;
         int comments = store.commentCounts(List.of(full.id())).getOrDefault(full.id(), 0);
         List<SpecItemLink> items = store.specItemsOf(full.id()).stream()
