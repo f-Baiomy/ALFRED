@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flaky Picture Tests</title>
+<style>
+  :root { --bg:#0f1226; --card:#171b38; --inner:#0b0e22; --border:#2a3060; --text:#e6e8f5; --dim:#9aa2c8; --faint:#6b7399;
+          --red:#f87171; --green:#4ade80; --amber:#fbbf24; --blue:#60a5fa; --purple:#a78bfa; }
+  :root[data-theme="light"] { --bg:#f6f7fb; --card:#fff; --inner:#eef0f7; --border:#d7dbea; --text:#1b1f3a; --dim:#4c5478; --faint:#7a82a6; }
+  @media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) { --bg:#f6f7fb; --card:#fff; --inner:#eef0f7; --border:#d7dbea; --text:#1b1f3a; --dim:#4c5478; --faint:#7a82a6; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.55 system-ui, "Segoe UI", sans-serif; padding:28px 16px 60px; }
+  main { max-width:1100px; margin:0 auto; }
+  h1 { font-size:24px; margin:0 0 4px; } h2 { font-size:17px; margin:30px 0 10px; } .sub { color:var(--dim); margin:0 0 18px; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin-bottom:14px; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:14px; } @media (max-width:760px){ .grid2 { grid-template-columns:1fr; } }
+  .tag { display:inline-block; font-size:12px; font-weight:700; padding:1px 9px; border-radius:99px; }
+  .bad { background:color-mix(in srgb,var(--red) 18%,transparent); color:var(--red); } .good { background:color-mix(in srgb,var(--green) 18%,transparent); color:var(--green); }
+  table { width:100%; border-collapse:collapse; font-size:14px; } th,td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--border); } th { color:var(--dim); font-size:12px; text-transform:uppercase; }
+  td.r { color:var(--red); font-weight:700; } td.g { color:var(--green); font-weight:700; }
+  pre { background:var(--inner); border:1px solid var(--border); border-radius:8px; padding:12px; overflow:auto; font:12.5px/1.5 Consolas, monospace; margin:8px 0 0; }
+  .del { color:var(--red); } .add { color:var(--green); } .cm { color:var(--faint); }
+  .tl { display:flex; flex-direction:column; gap:8px; margin-top:6px; }
+  .step { display:grid; grid-template-columns:22px 1fr; gap:10px; align-items:start; }
+  .dot { width:22px; height:22px; border-radius:50%; display:grid; place-items:center; font-size:12px; font-weight:700; background:var(--inner); border:1px solid var(--border); }
+  .step.x .dot { background:color-mix(in srgb,var(--red) 25%,var(--inner)); border-color:var(--red); }
+  .step.ok .dot { background:color-mix(in srgb,var(--green) 25%,var(--inner)); border-color:var(--green); }
+  .pics { display:flex; gap:18px; align-items:flex-end; margin-top:10px; flex-wrap:wrap; }
+  .pic { text-align:center; font-size:12px; color:var(--dim); }
+  .frame { width:148px; height:60px; border:1px dashed var(--faint); border-radius:4px; position:relative; background:var(--inner); }
+  .shot1 { position:absolute; left:0; top:0; width:2px; height:2px; background:#1e2250; outline:2px solid var(--red); outline-offset:3px; }
+  .shotok { position:absolute; inset:0 2px 27px 0; background:#1e2250; border-radius:3px; display:flex; align-items:center; padding-left:8px; color:#fff; font-size:12px; }
+  .shotok b { background:#f00; width:60px; height:18px; display:inline-block; margin-right:6px; }
+  .note { color:var(--dim); font-size:13.5px; }
+  .callout { border-left:3px solid var(--blue); padding:8px 12px; background:color-mix(in srgb,var(--blue) 8%,transparent); border-radius:0 8px 8px 0; margin-top:10px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Why the picture tests are flaky - and the fix</h1>
+  <p class="sub">Two Karma specs, <code>snippet-frame.spec.ts</code> "draws a PNG of itself…" and <code>snippet-shot.spec.ts</code> "is opaque…",
+    fail about 1 run in 3 when the whole board suite runs, and never alone. The same happens on the code before today's changes.</p>
+
+  <h2>What the failing runs show</h2>
+  <div class="card">
+    <table>
+      <thead><tr><th>Run</th><th>Test</th><th>Frame on the page</th><th>Picture it made</th><th>Height reported</th><th>Result</th></tr></thead>
+      <tbody>
+        <tr><td>1-4, 6, 9, 10</td><td>both</td><td>300 × 120</td><td class="g">296 × 80 / 296 × 66</td><td class="g">80</td><td><span class="tag good">pass</span></td></tr>
+        <tr><td>5</td><td>draws a PNG</td><td>300 × 120</td><td class="r">1 × 1</td><td class="r">0</td><td><span class="tag bad">red = 20 (expected &gt; 200)</span></td></tr>
+        <tr><td>7</td><td>draws a PNG</td><td>300 × 120</td><td class="r">1 × 1</td><td class="r">0</td><td><span class="tag bad">red = 20, height 0</span></td></tr>
+        <tr><td>8</td><td>is opaque</td><td>300 × 120</td><td class="r">1 × 1</td><td>-</td><td><span class="tag bad">alpha = 0 (expected 255)</span></td></tr>
+      </tbody>
+    </table>
+    <div class="pics">
+      <div class="pic"><div class="frame"><div class="shot1"></div></div>failing: a 1 × 1 picture<br>(the test reads a pixel outside it → 0)</div>
+      <div class="pic"><div class="frame"><div class="shotok"><b></b>x</div></div>passing: the whole page</div>
+    </div>
+    <p class="note">The frame element is always 300 × 120 and visible. Inside it, the page measured itself as 0 wide and 0 high, so it
+      drew a 1 × 1 picture and never sent its height.</p>
+  </div>
+
+  <h2>Cause</h2>
+  <div class="grid2">
+    <div class="card">
+      <span class="tag bad">Before</span>
+      <div class="tl">
+        <div class="step"><div class="dot">1</div><div>The test adds the locked frame. Chrome runs a sandboxed frame in its own process.</div></div>
+        <div class="step"><div class="dot">2</div><div>The frame's page loads. At <code>DOMContentLoaded</code> it says <b>ready</b> at once.</div></div>
+        <div class="step x"><div class="dot">3</div><div>Under load, the frame's own size has <b>not arrived yet</b> from the page's process: its
+          window is 0 × 0.</div></div>
+        <div class="step x"><div class="dot">4</div><div>The test asks for a picture right after <b>ready</b>. The page measures 0 × 0 and draws
+          1 × 1. Its height was 0, so no height was sent.</div></div>
+        <div class="step"><div class="dot">5</div><div>A moment later the size arrives and the page lays out, too late for the test.</div></div>
+      </div>
+    </div>
+    <div class="card">
+      <span class="tag good">After</span>
+      <div class="tl">
+        <div class="step"><div class="dot">1</div><div>Same frame, same page.</div></div>
+        <div class="step ok"><div class="dot">2</div><div>The page says <b>ready</b> only once its window has a size. If it is still 0 wide, it
+          waits for the window's <code>resize</code> event (no timer, no polling).</div></div>
+        <div class="step ok"><div class="dot">3</div><div>Its height is sent first (the body was laid out), then <b>ready</b>.</div></div>
+        <div class="step ok"><div class="dot">4</div><div>A picture is also drawn only once the window has a size, so a <b>⬇ PNG</b> or a
+          kept picture can never be 1 × 1.</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="callout">This is not only a test problem. The same race can give Alfred a 1 × 1 kept picture, or a 1 × 1 <b>⬇ PNG</b>, when a
+    snippet is opened on a busy machine. The board usually waits 1.5 s before keeping a picture, which hides it most of the time.
+    The tests are not changed: they were right to fail.</div>
+
+  <h2>The change (frame runtime, <code>shared/utils/snippet-frame.ts</code>)</h2>
+  <div class="card">
+<pre><span class="cm">// Before: ready at DOMContentLoaded, whatever the window's size</span>
+<span class="del">- function start(){fileRefs();loadDeclared();size();try{new ResizeObserver(size).observe(document.body)}catch(e){}if(!boot.holdReady)post({t:"ready"})}</span>
+<span class="del">- window.__alfredReady=function(){size();post({t:"ready"})};</span>
+<span class="del">- function shot(id,scale){settled().then(function(){draw(id,scale)})}</span>
+
+<span class="cm">// After: a window with no size yet waits for its first resize - for ready, for Python's ready, and for a picture</span>
+<span class="add">+ function sized(f){if(window.innerWidth>0)return f();var h=function(){if(window.innerWidth>0){removeEventListener("resize",h);f()}};addEventListener("resize",h)}</span>
+<span class="add">+ function start(){fileRefs();loadDeclared();try{new ResizeObserver(size).observe(document.body)}catch(e){}</span>
+<span class="add">+   sized(function(){size();if(!boot.holdReady)post({t:"ready"})})}</span>
+<span class="add">+ window.__alfredReady=function(){sized(function(){size();post({t:"ready"})})};</span>
+<span class="add">+ function shot(id,scale){sized(function(){settled().then(function(){draw(id,scale)})})}</span></pre>
+    <p class="note">Plus one new spec: a frame whose window gets its size late still sends its height and then ready, and its picture
+      is the full page. The test adds the frame with <code>width:0</code>, then sets it to 300 px after load. Today that test fails every
+      time instead of 1 in 3.</p>
+  </div>
+
+  <h2>How it will be checked</h2>
+  <div class="card">
+    <ul style="margin:0;padding-left:20px">
+      <li>The new spec fails on the current code and passes with the change.</li>
+      <li>The full board suite (118 specs) 10 times in a row, with no failures. Before the change, 3 of 10 runs failed.</li>
+      <li>On card #39, live: the snippets still open, and ⬇ PNG gives the full page.</li>
+    </ul>
+  </div>
+</main>
+</body>
+</html>
