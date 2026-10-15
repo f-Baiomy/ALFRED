@@ -187,6 +187,29 @@ class BoardServiceCardsTest {
     }
 
     @Test
+    void aSharedCallHidesOnlyACardOfTheSameKind() {
+        // 61813's #39: a NOTE about slow searches, closed as Fine (a debugger pause), linked to the search calls
+        f.signatures.put("s1", "ok|POST /refunded-requests/search");
+        String note = f.board.create(Actor.USER, new CreateCardUseCase.NewCard("p", CardKind.NOTE,
+                "Refunded Requests search stalls 3.8 s to 52 s before its first SQL", "", Set.of(), null, null,
+                List.of(new MentionRef(MentionType.CALL, "in:s1", "POST search · 200")))).card().card().id();
+        f.board.close(Actor.USER, note, Resolution.FINE, "a debugger pause");
+        List<MentionRef> sameCall = List.of(new MentionRef(MentionType.CALL, "in:s1", "POST search · 200"));
+
+        // the same searches lack a feature, or answer wrong: other problems, other kinds - added
+        assertThat(f.board.create(Actor.CLAUDE, new CreateCardUseCase.NewCard("p", CardKind.TASK,
+                "Missing feature: Branch dropdown is not multi-select", "", Set.of(), null, null, sameCall)).outcome())
+                .isEqualTo(CardChange.Outcome.OK);
+        assertThat(f.board.create(Actor.CLAUDE, new CreateCardUseCase.NewCard("p", CardKind.BUG,
+                "Wrong result: All Agencies returns no rows", "", Set.of(), null, null, sameCall)).outcome())
+                .isEqualTo(CardChange.Outcome.OK);
+        // another NOTE over the very call the user dismissed is that note again
+        assertThat(f.board.create(Actor.CLAUDE, new CreateCardUseCase.NewCard("p", CardKind.NOTE,
+                "Waits before validateRequest", "", Set.of(), null, null, sameCall)).outcome())
+                .isEqualTo(CardChange.Outcome.DUPLICATE_OF_CLOSED);
+    }
+
+    @Test
     void theSameCallCapturedInACycleIsStillTheSameCall() {
         dismissedHealthCard("401 on /health");
 

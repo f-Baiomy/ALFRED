@@ -41,6 +41,7 @@ import com.fathy.alfred.backend.board.domain.model.CallBadge;
 import com.fathy.alfred.backend.board.domain.model.Card;
 import com.fathy.alfred.backend.board.domain.model.CardChange;
 import com.fathy.alfred.backend.board.domain.model.CardDetail;
+import com.fathy.alfred.backend.board.domain.model.CardKind;
 import com.fathy.alfred.backend.board.domain.model.CardQuery;
 import com.fathy.alfred.backend.board.domain.model.CardStatus;
 import com.fathy.alfred.backend.board.domain.model.CardSummary;
@@ -157,7 +158,7 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
         String signature = signatureOf(all);
         if (actor == Actor.CLAUDE && signature != null) {
             SimilarClosed same = store.closedBySignature(project, List.of(signature)).get(signature);
-            if (same != null && DISMISSED.contains(same.resolution()) && repeatsDismissed(project, same, all, in.title(), signature)) {
+            if (same != null && DISMISSED.contains(same.resolution()) && repeatsDismissed(project, same, all, in.title(), in.kind(), signature)) {
                 return CardChange.refused(CardChange.Outcome.DUPLICATE_OF_CLOSED, "Same as #" + same.number() + " \"" + same.title()
                         + "\", closed as " + resolutionName(same.resolution())
                         + (same.reason() == null || same.reason().isBlank() ? "" : ": " + same.reason()));
@@ -1219,8 +1220,12 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
      * slow", "flight search answers 500"), so the words of the signature's endpoint never count: with them, one dismissed
      * card closed that endpoint to every later finding. The same endpoint failing the same way for another reason is a
      * new finding, shown with the closed card as a hint.
+     * <p>A shared call counts only between cards of the same kind: one call can show several problems, and the user
+     * dismissed one of them. A NOTE closed as Fine over a slow search (61813's #39) must not hide a TASK saying the same
+     * searches lack a feature, nor a BUG in their result; another NOTE over those calls is the dismissed one again.
      */
-    private boolean repeatsDismissed(String project, SimilarClosed closed, List<MentionRef> mentions, String title, String signature) {
+    private boolean repeatsDismissed(String project, SimilarClosed closed, List<MentionRef> mentions, String title, CardKind kind,
+                                     String signature) {
         Set<String> endpointWords = new HashSet<>(BoardInsightsService.words(signature.replace('|', ' ')));
         List<String> own = BoardInsightsService.words(title).stream().filter(w -> !endpointWords.contains(w)).toList();
         if (BoardInsightsService.sharedWords(own, closed.title()).size() >= DISMISSED_SHARED_WORDS) {
@@ -1231,7 +1236,8 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
             return false;
         }
         return store.findByNumber(project, closed.number())
-                .map(card -> store.linksOf(card.id()).stream().map(MentionRef::callId).filter(Objects::nonNull).anyMatch(callIds::contains))
+                .map(card -> card.kind() == kind
+                        && store.linksOf(card.id()).stream().map(MentionRef::callId).filter(Objects::nonNull).anyMatch(callIds::contains))
                 .orElse(false);
     }
 
