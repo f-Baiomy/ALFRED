@@ -1,0 +1,109 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Call popup waterfall - mock</title>
+<style>
+:root{--bg:#0d1017;--card:#161a23;--inner:#11151d;--border:#2a3140;--text:#e6e9ef;--dim:#9aa3b2;--faint:#6b7383;--green:#4ade80;--amber:#fbbf24;--red:#f87171;--purple:#a78bfa;--cyan:#22d3ee;--blue:#60a5fa}
+body{margin:0;background:#07090d;color:var(--text);font:14px/1.45 system-ui,Segoe UI,sans-serif;padding:24px;display:grid;gap:28px}
+h1{font-size:15px;color:var(--dim);margin:0 0 6px;font-weight:600}
+.pop{max-width:1180px;background:var(--card);border:1px solid var(--border);border-radius:14px;overflow:hidden;box-shadow:0 20px 50px #0008}
+.head{display:flex;align-items:center;gap:8px;padding:14px 18px;border-bottom:1px solid var(--border)}
+.chip{font:12px ui-monospace,Consolas,monospace;color:var(--cyan);border:1px solid #22d3ee55;border-radius:6px;padding:2px 7px}
+.badge{font-size:12px;color:var(--dim);border:1px solid var(--border);border-radius:99px;padding:1px 8px}
+.grow{flex:1}.btn{background:var(--blue);color:#fff;border:0;border-radius:7px;padding:5px 11px;font-weight:600;font-size:13px}
+.x{color:var(--dim);font-size:20px;margin-left:8px}
+.body{padding:14px 18px}
+.sum{display:flex;gap:14px;align-items:center;flex-wrap:wrap;font-size:12.5px;color:var(--dim);margin-bottom:10px}
+.sum b{color:var(--text)} .tag{border:1px solid var(--border);border-radius:99px;padding:1px 8px}
+.tag.warn{color:var(--amber);border-color:#fbbf2455}
+.axis{display:grid;grid-template-columns:420px 1fr;font:11px ui-monospace,Consolas,monospace;color:var(--faint);margin-bottom:4px}
+.axis .ticks{display:flex;justify-content:space-between;border-bottom:1px solid var(--border);padding-bottom:3px}
+.row{display:grid;grid-template-columns:420px 1fr;align-items:center;min-height:30px;border-radius:6px;cursor:pointer}
+.row:hover{background:#ffffff08}
+.row.sel{background:#60a5fa14;outline:1px solid #60a5fa55}
+.lab{display:flex;align-items:center;gap:7px;font:12.5px ui-monospace,Consolas,monospace;white-space:nowrap;overflow:hidden}
+.rail{width:14px;align-self:stretch;border-left:2px solid var(--purple);margin-left:10px;opacity:.7}
+.m{font-weight:700;font-size:11px;border-radius:4px;padding:0 5px}
+.PATCH{color:#fdba74;background:#fdba7422}.GET{color:var(--green);background:#4ade8022}.POST{color:var(--blue);background:#60a5fa22}
+.st{font-size:11px;border-radius:4px;padding:0 5px;color:var(--green);background:#4ade8022}.st.e{color:var(--red);background:#f8717122}
+.ms{color:var(--dim);font-size:11.5px}.ms.slow{color:var(--red)}
+.idx{color:var(--faint);font-size:11px}
+.track{position:relative;height:16px;margin-right:6px;background:repeating-linear-gradient(90deg,transparent 0 calc(25% - 1px),#ffffff0d calc(25% - 1px) 25%)}
+.bar{position:absolute;top:3px;height:10px;border-radius:3px;background:var(--purple)}
+.bar.out{background:var(--cyan)}.bar.err{background:var(--red)}
+.open{position:absolute;top:2px;height:12px;border-left:2px solid var(--purple);width:40px;background:linear-gradient(90deg,#a78bfa55,transparent)}
+.split{position:absolute;top:3px;height:10px;display:flex;border-radius:3px;overflow:hidden}
+.split i{display:block;height:100%}.self{background:var(--purple)}.wait{background:repeating-linear-gradient(45deg,#a78bfa55 0 4px,#a78bfa22 4px 8px)}
+.note{font-size:11.5px;color:var(--faint);margin:2px 0 0 10px}
+.card{margin:6px 0 10px 24px;border:1px solid var(--border);border-radius:10px;background:var(--inner);padding:10px 12px;font-size:12.5px;color:var(--dim)}
+.card .acts{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+.card .acts span{border:1px solid var(--border);border-radius:6px;padding:2px 8px;color:var(--text);font-size:12px}
+.code{font:12px ui-monospace,Consolas,monospace;color:#86efac;background:#0b0e14;border-radius:6px;padding:8px 10px}
+.foot{border-top:1px solid var(--border);padding:9px 18px;font-size:12.5px;color:var(--dim)}
+.foot a{color:var(--blue)}
+.legend{font-size:12px;color:var(--faint);max-width:1180px}
+.legend b{color:var(--dim)}
+</style></head>
+<body>
+
+<div>
+<h1>A — inbound call WITH children: every level, as deep as the calls go (here 3), the root's card open</h1>
+<div class="pop">
+  <div class="head"><span class="chip">⇄ BRN155</span><span class="badge">inbound</span><span class="badge">live</span><span class="grow"></span><span class="btn">Open in Live Calls ↗</span><span class="x">✕</span></div>
+  <div class="body">
+    <div class="sum"><b>PATCH /odeysysadmin/Master2/Branch/approveOrReject</b><span class="tag">200</span><span class="tag">5 364.86 ms</span><span class="tag">6 calls under it · 3 levels</span><span class="tag">waiting on calls 2.7 s · own work 2.7 s</span><span class="tag warn">⚠ agent sent nothing for this call</span></div>
+    <div class="axis"><span></span><div class="ticks"><span>0</span><span>1.3 s</span><span>2.7 s</span><span>4.0 s</span><span>5.4 s</span></div></div>
+
+    <div class="row sel"><div class="lab">▾ <span class="m PATCH">PATCH</span> Branch/approveOrReject <span class="ms">opens</span></div><div class="track"><span class="open" style="left:0"></span></div></div>
+    <div class="row"><div class="lab"><span class="rail"></span><span class="idx">#1</span><span class="m GET">GET</span> amadeus · /v1/branches/7 <span class="st">200</span><span class="ms">410 ms</span></div><div class="track"><span class="bar out" style="left:6%;width:7.6%"></span></div></div>
+    <div class="row"><div class="lab"><span class="rail"></span>▾ <span class="idx">#2</span><span class="m POST">POST</span> notify · /mail/send <span class="ms">opens</span></div><div class="track"><span class="open" style="left:31%;border-color:var(--cyan)"></span></div></div>
+    <div class="row"><div class="lab"><span class="rail"></span><span class="rail" style="border-color:var(--cyan)"></span><span class="idx">#1</span><span class="m GET">GET</span> templates · /mail/approve <span class="st">200</span><span class="ms">120 ms</span></div><div class="track"><span class="bar out" style="left:33%;width:2.2%;background:#67e8f9"></span></div></div>
+    <div class="row"><div class="lab"><span class="rail"></span><span class="rail" style="border-color:var(--cyan)"></span>▾ <span class="idx">#2</span><span class="m POST">POST</span> smtp-relay · /send <span class="ms">opens</span></div><div class="track"><span class="open" style="left:36%;border-color:var(--green)"></span></div></div>
+    <div class="row"><div class="lab"><span class="rail"></span><span class="rail" style="border-color:var(--cyan)"></span><span class="rail" style="border-color:var(--green)"></span><span class="idx">#1</span><span class="m POST">POST</span> sendgrid · /v3/mail <span class="st">202</span><span class="ms">540 ms</span></div><div class="track"><span class="bar out" style="left:37%;width:10%;background:var(--green)"></span></div></div>
+    <div class="row"><div class="lab"><span class="rail"></span><span class="rail" style="border-color:var(--cyan)"></span>▴ <span class="m POST">POST</span> smtp-relay · /send <span class="st">200</span><span class="ms">690 ms</span></div><div class="track"><span class="bar out" style="left:36%;width:12.8%"></span></div></div>
+    <div class="row"><div class="lab"><span class="rail"></span>▴ <span class="m POST">POST</span> notify · /mail/send <span class="st">200</span><span class="ms">980 ms</span></div><div class="track"><span class="bar out" style="left:31%;width:18.3%"></span></div></div>
+    <div class="row"><div class="lab"><span class="rail"></span><span class="idx">#3</span><span class="m GET">GET</span> audit · /history?branch=7 <span class="st e">504</span><span class="ms slow">2.1 s</span></div><div class="track"><span class="bar err" style="left:52%;width:4%"></span></div></div>
+    <div class="row sel"><div class="lab">▴ <span class="m PATCH">PATCH</span> Branch/approveOrReject <span class="st">200</span><span class="ms slow">5 364.86 ms</span></div><div class="track"><span class="split" style="left:0;width:100%"><i class="self" style="width:6%"></i><i class="wait" style="width:50%"></i><i class="self" style="width:44%"></i></span></div></div>
+    <div class="note">own work before the first call 0.3 s · waiting on calls 2.7 s · own work after the last one 2.4 s</div>
+
+    <div class="card">
+      <div class="acts"><span>#55 inbox</span><span>+ Board</span><span>Ask</span><span>Resend…</span><span>☆ Pin</span><span>Export ▾</span><span>Relive ▾</span><span>⚡+ Rule</span></div>
+      <div>REQ <b>Headers</b> <b>Body</b> · RES <b>Headers</b> <b>Body</b> - the same Live Calls card, every block open</div>
+      <div class="code">{ "Host": "localhost:8080", "Content-Type": "application/json", … }</div>
+    </div>
+  </div>
+  <div class="foot">On cards: <a>#55 Branch approveOrReject takes 5.4 s (2 calls) - no database capture to show where</a> (Inbox)</div>
+</div>
+</div>
+
+<div>
+<h1>B — call with NO children: still a waterfall (one line, full bar), the card open under it</h1>
+<div class="pop">
+  <div class="head"><span class="chip">⇄ call 62</span><span class="badge">inbound</span><span class="badge">live</span><span class="grow"></span><span class="btn">Open in Live Calls ↗</span><span class="x">✕</span></div>
+  <div class="body">
+    <div class="sum"><b>PATCH /odeysysadmin/Master2/Branch/approveOrReject</b><span class="tag">200</span><span class="tag">5 402 ms</span><span class="tag">no outbound calls</span></div>
+    <div class="axis"><span></span><div class="ticks"><span>0</span><span>1.4 s</span><span>2.7 s</span><span>4.1 s</span><span>5.4 s</span></div></div>
+    <div class="row sel"><div class="lab">▾ <span class="m PATCH">PATCH</span> Branch/approveOrReject <span class="st">200</span><span class="ms slow">5 402 ms</span></div><div class="track"><span class="bar" style="left:0;width:100%"></span></div></div>
+    <div class="note">made no outbound calls - all 5.4 s were its own work</div>
+    <div class="card"><div class="acts"><span>+ Board</span><span>Ask</span><span>Resend…</span><span>Export ▾</span></div><div class="code">{ "Host": "localhost:8080", … }</div></div>
+  </div>
+</div>
+</div>
+
+<div>
+<h1>C — a call deep in the tree opened: the whole tree from its top call, every level, this call highlighted</h1>
+<div class="pop">
+  <div class="head"><span class="chip">⇄ GET audit /history</span><span class="badge">outbound</span><span class="badge">live</span><span class="grow"></span><span class="btn">Open in Live Calls ↗</span><span class="x">✕</span></div>
+  <div class="body">
+    <div class="sum"><b>GET audit · /history?branch=7</b><span class="tag">504</span><span class="tag">2.1 s</span><span class="tag">called by PATCH Branch/approveOrReject</span></div>
+    <div class="axis"><span></span><div class="ticks"><span>0</span><span>1.3 s</span><span>2.7 s</span><span>4.0 s</span><span>5.4 s</span></div></div>
+    <div class="row"><div class="lab">▸ <span class="m PATCH">PATCH</span> Branch/approveOrReject <span class="ms">opens</span></div><div class="track"><span class="open" style="left:0"></span></div></div>
+    <div class="row"><div class="lab"><span class="rail"></span><span class="idx">#1</span><span class="m GET">GET</span> amadeus · /v1/branches/7 <span class="st">200</span><span class="ms">410 ms</span></div><div class="track"><span class="bar out" style="left:6%;width:7.6%"></span></div></div>
+    <div class="row"><div class="lab"><span class="rail"></span><span class="idx">#2</span><span class="m POST">POST</span> notify · /mail/send <span class="st">200</span><span class="ms">980 ms</span></div><div class="track"><span class="bar out" style="left:31%;width:18.3%"></span></div></div>
+    <div class="row sel"><div class="lab"><span class="rail"></span><span class="idx">#3</span><span class="m GET">GET</span> audit · /history?branch=7 <span class="st e">504</span><span class="ms slow">2.1 s</span></div><div class="track"><span class="bar err" style="left:52%;width:4%"></span></div></div>
+    <div class="card"><div class="acts"><span>+ Board</span><span>Resend…</span><span>⚡+ Rule</span></div><div class="code">504 Gateway Timeout …</div></div>
+    <div class="row"><div class="lab">▴ <span class="m PATCH">PATCH</span> Branch/approveOrReject <span class="st">200</span><span class="ms slow">5 364.86 ms</span></div><div class="track"><span class="split" style="left:0;width:100%"><i class="self" style="width:6%"></i><i class="wait" style="width:50%"></i><i class="self" style="width:44%"></i></span></div></div>
+  </div>
+</div>
+</div>
+
+<p class="legend"><b>How it works:</b> the popup body becomes Live Calls' own waterfall (<code>app-call-waterfall</code>, reused - not a copy): the call opened, its outbound calls under it (fetched with <code>/calls/{id}/children</code>, live or from its cycle), each a line with its bar on one time axis; a parent is bracketed by an opening and a closing line with own-work / waiting split. Click any line to open its full call card under it (the opened call's card starts open, every block shown as today). Every level is shown, however deep: each child's own children are fetched the same way until a call has none (a loop guard stops a call that names itself as its own ancestor). No children → one line and a full bar, so the popup always reads the same way.</p>
+</body></html>

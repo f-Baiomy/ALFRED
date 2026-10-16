@@ -5,9 +5,9 @@ import { CallLogCountsService } from '../../core/state/call-log-counts.service';
 import { NgTemplateOutlet } from '@angular/common';
 import { CommentBadgeComponent } from '../comment-badge/comment-badge.component';
 import { DbCaptureStateService } from '../../core/state/db-capture-state.service';
-import { Component, ElementRef, computed, inject, input, signal } from '@angular/core';
+import { Component, ElementRef, computed, effect, inject, input, signal, untracked } from '@angular/core';
 import { CdkDrag, CdkDragDrop, CdkDragHandle, CdkDropList, moveItemInArray } from '@angular/cdk/drag-drop';
-import { CallRecord } from '../../core/models/call.model';
+import { CallDetailPart, CallRecord } from '../../core/models/call.model';
 import { CallDepthInfo, CallTreeNode, DepthRail, depthRails, depthTintClass } from '../../shared/utils/call-tree';
 
 import { durationClass, isInProgress, methodClass, statusClass, supplierOf, uriPath } from '../../shared/utils/call-utils';
@@ -220,6 +220,7 @@ interface WaterfallGroup {
           [class.waterfall-close]="row.kind === 'response'"
           [class.waterfall-root-start]="row.startsRootGroup"
           [class.waterfall-row-flash]="flashCallId() === row.call.id"
+          [class.waterfall-row-target]="targetCallId() === row.call.id"
           [attr.data-call-row]="row.call.id"
         >
           @if (row.axisTotalLabel) {
@@ -446,7 +447,8 @@ interface WaterfallGroup {
           </div>
           @if (isExpanded(row.rowKey)) {
             <div class="waterfall-detail">
-              <app-call-card [call]="row.call" [variant]="row.kind === 'single' ? 'full' : row.kind" />
+              <app-call-card [call]="row.call" [variant]="row.kind === 'single' ? 'full' : row.kind"
+                             [openAtStart]="row.call.id === targetCallId() ? targetOpenParts() : []" />
             </div>
           }
         </div>
@@ -488,7 +490,16 @@ export class CallWaterfallComponent {
    * against its root identically instead of each deriving it their own way. */
   readonly depths = input.required<ReadonlyMap<string, CallDepthInfo>>();
 
+  /**
+   * The one call this waterfall is about (a call opened from a board mention): its line is marked and its card opens
+   * by itself under its last line (the closing one when it holds calls) with `targetOpenParts` open. Null in Live Calls.
+   */
+  readonly targetCallId = input<string | null>(null);
+  readonly targetOpenParts = input<readonly CallDetailPart[]>([]);
+
   private readonly expandedIds = signal<ReadonlySet<string>>(new Set());
+  /** Lines the target opened by itself, once each - so a line the user closed stays closed when the tree grows. */
+  private readonly autoExpanded = new Set<string>();
   /** Which calls are currently showing their diagnostics panel, by call id - nothing shows one until
    * asked. Keyed on the call rather than the row, so a bracketed pair can't end up with two. */
   private readonly diagIds = signal<ReadonlySet<string>>(new Set());
@@ -730,6 +741,17 @@ export class CallWaterfallComponent {
   private readonly ruleDialog = inject(RuleDialogService);
   private readonly interceptionApi = inject(InterceptionApiService);
   private readonly callFocus = inject(CallFocusService);
+
+  private readonly openTarget = effect(() => {
+    const id = this.targetCallId();
+    if (!id) return;
+    // its last line only - the call alone, or the closing line of the calls it holds - so the lines under it stay in view
+    const own = this.rows().filter((r) => r.call.id === id && r.kind !== 'request');
+    const keys = own.slice(-1).map((r) => r.rowKey).filter((k) => !this.autoExpanded.has(k));
+    if (!keys.length) return;
+    keys.forEach((k) => this.autoExpanded.add(k));
+    untracked(() => this.expandedIds.set(new Set([...this.expandedIds(), ...keys])));
+  }, { allowSignalWrites: true });
   private readonly hostRef = inject(ElementRef<HTMLElement>);
   private readonly openingRuleId = signal<string | null>(null);
   readonly ruleOpenError = signal('');

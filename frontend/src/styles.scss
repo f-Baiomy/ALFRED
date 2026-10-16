@@ -11331,13 +11331,16 @@ app-run-skill { display: inline-flex; flex-direction: column; align-items: flex-
 .board-ev-clear { display: flex; align-items: center; gap: 0.35rem; font-size: 0.72rem; color: var(--text-dim); margin-top: 0.3rem; }
 
 /* A call mention opened in place: the Live Calls call card in a dialog (mention-call-popup). */
-.dialog-card.board-call-pop { width: min(980px, calc(100vw - 32px)); max-width: none; max-height: 88vh; display: flex; flex-direction: column; padding: 0; overflow: hidden; }
+.dialog-card.board-call-pop { width: min(1180px, calc(100vw - 32px)); max-width: none; max-height: 88vh; display: flex; flex-direction: column; padding: 0; overflow: hidden; }
 .board-call-pop-head { display: flex; align-items: center; gap: 0.6rem; padding: 0.6rem 0.9rem; border-bottom: 1px solid var(--border); }
 .board-call-pop-title { flex: 1; min-width: 0; display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;
   .board-mention { max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-size: 0.8rem; cursor: default; }
 }
 .board-call-pop-badge { font-size: 0.66rem; padding: 0 0.45rem; border-radius: 999px; border: 1px solid var(--border); color: var(--text-dim); }
 .board-call-pop-body { overflow: auto; padding: 0.7rem 0.9rem; flex: 1; min-height: 0; }
+// specs/025: the call's family as a waterfall - a line of what it holds above it, the opened call's line marked
+.board-call-pop-sum { display: flex; flex-wrap: wrap; gap: 0.4rem; font-size: 0.8rem; color: var(--text-dim); margin: 0 0 0.5rem; }
+.waterfall-line.waterfall-row-target > .waterfall-row { box-shadow: inset 3px 0 0 var(--blue); background: color-mix(in srgb, var(--blue) 8%, transparent); }
 .board-call-pop-gone { color: var(--text-dim); padding: 1rem 0; }
 .board-call-pop-foot { padding: 0.45rem 0.9rem; border-top: 1px solid var(--border); font-size: 0.75rem; color: var(--text-dim); display: flex; gap: 0.35rem; flex-wrap: wrap; align-items: center; }
 

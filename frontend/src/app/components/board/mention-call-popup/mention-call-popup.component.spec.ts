@@ -6,15 +6,22 @@ import { BoardApiService } from '../../../core/services/board-api.service';
 import { BoardMentionsService, MentionCallTarget } from '../../../core/services/board-mentions.service';
 import { CallsApiService } from '../../../core/services/calls-api.service';
 import { SessionCyclesApiService } from '../../../core/services/session-cycles-api.service';
-import { CallCardComponent } from '../../call-card/call-card.component';
+import { CallWaterfallComponent } from '../../call-waterfall/call-waterfall.component';
+import { CallFamilyService } from '../../../core/services/call-family.service';
+import { CallTreeNode } from '../../../shared/utils/call-tree';
 import { MentionCallPopupComponent, POPUP_OPEN_PARTS } from './mention-call-popup.component';
 
-/** The real card is tested on its own; here it is what the popup hands it. */
-@Component({ selector: 'app-call-card', standalone: true, template: '<span class="fake-card">{{ call().method }} {{ call().url }}</span>' })
-class FakeCallCardComponent {
-  readonly call = input.required<CallRecord>();
-  readonly openAtStart = input<readonly CallDetailPart[]>([]);
+/** The real waterfall (Live Calls' own) is tested on its own; here it is what the popup hands it. */
+@Component({ selector: 'app-call-waterfall', standalone: true,
+  template: '@for (n of nodes(); track n.call.id) { <span class="fake-card">{{ n.call.method }} {{ n.call.url }} +{{ n.children.length }}</span> }' })
+class FakeWaterfallComponent {
+  readonly nodes = input.required<readonly CallTreeNode[]>();
+  readonly depths = input<unknown>();
+  readonly targetCallId = input<string | null>(null);
+  readonly targetOpenParts = input<readonly CallDetailPart[]>([]);
 }
+
+const CHILD = { id: 'k1', method: 'GET', url: 'http://amadeus/v1', timestamp: '2026-10-10T09:00:00.100Z', duration_ms: 50, parentCallId: 'c1' } as unknown as CallRecord;
 
 const CALL = { id: 'c1', method: 'POST', url: 'http://localhost:8080/orders', timestamp: '2026-10-10T09:00:00Z', service_name: 'odeysys' } as unknown as CallRecord;
 
@@ -24,12 +31,15 @@ describe('MentionCallPopupComponent', () => {
   let getSummary: jasmine.Spy;
   let listCalls: jasmine.Spy;
   let cardToOpen: ReturnType<typeof signal<unknown>>;
+  let loadFamily: jasmine.Spy;
 
   function create() {
     callToShow = signal<MentionCallTarget | null>(null);
     cardToOpen = signal<unknown>(null);
     goToCall = jasmine.createSpy('goToCall');
     getSummary = jasmine.createSpy('getSummary').and.returnValue(of(CALL));
+    loadFamily = jasmine.createSpy('load').and.callFake((c: CallRecord) => of({ root: { call: c, depth: 0, children: [{ call: CHILD, depth: 1, children: [] }] },
+      calls: [c, CHILD], truncated: false }));
     listCalls = jasmine.createSpy('listCalls').and.returnValue(of({ calls: [{ id: 'x', capturedAt: '', call: CALL }], total: 1 }));
     TestBed.configureTestingModule({
       imports: [MentionCallPopupComponent],
@@ -37,9 +47,10 @@ describe('MentionCallPopupComponent', () => {
         { provide: BoardMentionsService, useValue: { callToShow, cardToOpen, goToCall } },
         { provide: CallsApiService, useValue: { getSummary, getDetail: () => of({}) } },
         { provide: SessionCyclesApiService, useValue: { listCalls, getDetail: () => of({}) } },
+        { provide: CallFamilyService, useValue: { load: loadFamily } },
         { provide: BoardApiService, useValue: { callBadges: () => of({ c1: [{ project: 'p', number: 5, kind: 'BUG', status: 'TO_DO', resolution: null, title: 'Orders fail' }] }) } },
       ],
-    }).overrideComponent(MentionCallPopupComponent, { remove: { imports: [CallCardComponent] }, add: { imports: [FakeCallCardComponent] } });
+    }).overrideComponent(MentionCallPopupComponent, { remove: { imports: [CallWaterfallComponent] }, add: { imports: [FakeWaterfallComponent] } });
     const fixture = TestBed.createComponent(MentionCallPopupComponent);
     fixture.detectChanges();
     return fixture;
@@ -50,15 +61,20 @@ describe('MentionCallPopupComponent', () => {
     expect(fixture.nativeElement.querySelector('.board-call-pop')).toBeNull();
   });
 
-  it('shows a live call in the Live Calls card with every block open, and the cards that mention it', () => {
+  it('shows a live call as Live Calls\' waterfall with its family, its own card open with every block, and the cards that mention it', async () => {
     const fixture = create();
     callToShow.set({ direction: 'in', callId: 'c1', cycleId: null, label: 'POST /orders · 500' });
     fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
 
     expect(getSummary).toHaveBeenCalledWith('c1', 'internal');
-    expect(fixture.nativeElement.querySelector('.fake-card').textContent).toContain('POST http://localhost:8080/orders');
-    const card = fixture.debugElement.query((d) => d.componentInstance instanceof FakeCallCardComponent).componentInstance as FakeCallCardComponent;
-    expect(card.openAtStart()).toEqual(POPUP_OPEN_PARTS);
+    expect(loadFamily).toHaveBeenCalledWith(CALL, null);
+    expect(fixture.nativeElement.querySelector('.fake-card').textContent).toContain('POST http://localhost:8080/orders +1');
+    expect(fixture.nativeElement.querySelector('.board-call-pop-sum').textContent).toContain('1 call under it · 1 level');
+    const wf = fixture.debugElement.query((d) => d.componentInstance instanceof FakeWaterfallComponent).componentInstance as FakeWaterfallComponent;
+    expect(wf.targetCallId()).toBe('c1');
+    expect(wf.targetOpenParts()).withContext('calls under it: its card folded, so they stay in view').toEqual([]);
     expect(fixture.nativeElement.querySelector('.board-call-pop-foot').textContent).toContain('#5 Orders fail');
     expect(fixture.nativeElement.textContent).toContain('Open in Live Calls');
   });
@@ -75,6 +91,20 @@ describe('MentionCallPopupComponent', () => {
     const button = [...fixture.nativeElement.querySelectorAll('button')].find((b: HTMLButtonElement) => b.textContent!.includes('Open in its cycle')) as HTMLButtonElement;
     button.click();
     expect(goToCall).toHaveBeenCalledWith(target, 'odeysys');
+  });
+
+  it('a call with no children is still a waterfall of one line, and says so', async () => {
+    const fixture = create();
+    loadFamily.and.callFake((c: CallRecord) => of({ root: { call: c, depth: 0, children: [] }, calls: [c], truncated: false }));
+    callToShow.set({ direction: 'in', callId: 'c1', cycleId: null, label: 'POST /orders · 500' });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.fake-card').textContent).toContain('+0');
+    expect(fixture.nativeElement.querySelector('.board-call-pop-sum').textContent).toContain('no outbound calls');
+    const wf = fixture.debugElement.query((d) => d.componentInstance instanceof FakeWaterfallComponent).componentInstance as FakeWaterfallComponent;
+    expect(wf.targetOpenParts()).withContext('a call alone: every block open, as before').toEqual(POPUP_OPEN_PARTS);
   });
 
   it('says the call is gone, with its saved label and no way to go to it', () => {
