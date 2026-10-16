@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { CYCLE } from './fixtures.ts';
 import { world } from './harness.ts';
 import { maskProseWith, type MaskContext } from '../src/masking.ts';
-import { mirrorText, partOf, MIRROR_INLINE_BLOCK, type ChatMessageRow } from '../src/tools/chat.ts';
+import { chatSnippetIds, mirrorText, partOf, MIRROR_INLINE_BLOCK, type ChatMessageRow } from '../src/tools/chat.ts';
 
 /** specs/022: the board chat tools - take, reply with records and terminal items, read, summary, watch, mirror. */
 
@@ -171,3 +171,22 @@ test('board_changes lists chat messages to take, urgent first, and what the chat
     assert.equal(r.json.cursor, '5.0.12');
   } finally { await w.close(); }
 });
+
+test('an answer\'s HTML is board text: drawn HTML becomes Markdown, HTML with a script a live snippet, and the reply names its id', async () => {
+  const w = await chatWorld();
+  try {
+    const m = w.ask('chart it');
+    const r = await w.call('chat_reply', { project: 'p', messageId: m.id,
+      text: 'Two endpoints.\n\n<table><tr><th>a</th></tr><tr><td>1</td></tr></table>\n\nThe chart:\n\n<div id="c"></div>\n<script>draw()</script>' });
+    const answer = w.fake.board.chats!.messages.find((x) => x.replyTo === m.id)!;
+    assert.match(answer.text, /\| a \|/);
+    assert.match(answer.text, /```html live/);
+    assert.match(String(r.json.snippets), new RegExp(`inline:chat:${answer.id}:a:0`));
+  } finally { await w.close(); }
+});
+
+test('chat snippet ids count the answer\'s live blocks in order, as the chat numbers them', () => {
+  const text = 'x\n```html live libs="echarts"\n<p>```mermaid</p>\n```\n```calls\nsince: 24h\n```\n```mermaid\nflowchart LR\n```\n```html\n<b>code</b>\n```';
+  assert.deepEqual(chatSnippetIds(7, text), ['inline:chat:7:a:0', 'inline:chat:7:a:1']);
+});
+

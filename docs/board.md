@@ -520,9 +520,21 @@ Every board text can show a picture of its evidence. The words still come first;
   Without a network the build still succeeds and Python snippets say Python is not on the shelf.
 - **The library shelf** (`/lib/<id>/<major>/…`, listed at `/lib/index.json` by `scripts/lib_index.py`): Chart.js,
   ECharts, D3, Plotly, Mermaid, Three.js, Preact + htm, Alpine.js, Tailwind, Marked, highlight.js, PapaParse, dayjs,
-  lodash - copied from npm by `angular.json`, served with `Access-Control-Allow-Origin: *` (the frame's origin is
+  lodash, Observable Plot (loads D3 with it), ApexCharts, Lucide icons, Grid.js (+ its theme), Cytoscape, anime.js -
+  copied from npm by `angular.json`, served with `Access-Control-Allow-Origin: *` (the frame's origin is
   opaque) by the frontend's nginx and natively by `SpaPageFilter`. When a browser keeps the frame from reading `/lib/`
   the board passes the libraries in (`SnippetShelfService`); Python cannot travel that way.
+- **The frame's design kit** (`snippet-frame.ts`): plain markup already looks like Alfred, and classes give a dashboard
+  with no CSS of its own - `.grid`, `.row`, `.stack`, `.card`, `.kpi` (`.label .value .note`), `.badge.ok|warn|err|info`,
+  `.bar` (`style="--v:.42"`), `.chart` (height `--h`), `.table-wrap`, `td.num`; every rule is in `:where()` so the
+  snippet's own styles win. ECharts, Chart.js, ApexCharts, Plotly, Observable Plot and Mermaid get the dark theme and one
+  palette by default (`alfred.palette`, `alfred.colors`); an ECharts chart follows its box's size. `alfred.calls(args)`
+  reads the calls of the cycle the snippet is shown for (a cycle's brief or chat; a card's snippet reads live calls) and
+  `alfred.fmt` formats ms, numbers, percentages, times, bytes and paths. A classic `<script>` declaring a window global
+  (`const top`, `var name`…) is put in a block of its own - in a page it would be a SyntaxError or a string.
+- **Chat answers** are snippets like any text: each live block of an answer is `inline:chat:<message>:a:<n>`, its
+  picture and console kept as the chat shows it, so `board_snippet_view` works on it; `chat_reply` turns HTML into board
+  text first and lists those ids. The chat Claude is taught the forms in its rules (`CHAT_RULES`, VISUALS).
 - **Pages** (`snippets` + `snippet_versions` in board.db, `GET/POST /board/pages?owner=card:|cycle:|project:`,
   `GET/PUT/DELETE /board/snippets/<id>`): named snippets, diagrams, Python or fixed blocks (kind BLOCK) on a card, a
   cycle's brief or the project (◈ Pages on the board), shown as tabs. Every save is a version (⟲ Versions: line diff,
@@ -559,11 +571,15 @@ Every board text can show a picture of its evidence. The words still come first;
 
 ## Board chat (specs/022)
 
-Every project has one chat and every session cycle has one, opened from the chats bar docked on the left of every tab
-(Messenger-style: a "Needs you" section on top, then the project chat, then the cycle chats newest first; Ctrl+K finds
-one by name). The panel follows the scope in view: a cycle when one is open, else the project. Views: docked (resizable),
-expanded, full screen (Esc / Ctrl+Shift+F) and a separate window (`/chat?project=&scope=`); the view, width and slim bar
-are this browser's own (localStorage, try/catch).
+Every project has one chat and every session cycle has one, opened from a pill floating bottom-right on every tab (the
+unread count and the three chats that changed last; an amber ring when one needs you). A click opens the list above it
+(a "Needs you" section on top, then the project chat, then the cycle chats newest first; Ctrl+K finds one by name); the
+page keeps its full width. A chat opens as a window above the pill: one header row (who answers and what it is doing,
+⌕ search, ⋯ for everything else, – to fold it to a tab beside the pill, ✕), a context line only when something is worth
+knowing (the terminal moved on, a watch), and a composer that is one box (@, /, Aa for formatting, ⚡ answer first,
+send). Dragged across the middle, the pill moves to the other side. Views: the window (resizable from its inner edge),
+expanded, full screen (Esc / Ctrl+Shift+F) and a separate window (`/chat?project=&scope=`); the view, width and side
+are this browser's own (localStorage, try/catch). On a cycle's page the chats follow that cycle's project.
 
 - **Who answers.** A cycle chat is answered by its own Claude conversation on the machine of the terminal session that
   holds the cycle: the runner (`/alfred-live`, `skills/alfred-live/chat.mjs`) forks that terminal session once
@@ -623,7 +639,7 @@ are this browser's own (localStorage, try/catch).
   as "👂 listen runner". "Tell me when" (`chat_watch` STATUS / ERROR_LOG / ITEM_PASSES) posts one 🔔 line and ends -
   driven by completed calls and the board's requirements signal, never a timer (`ChatWatchService`).
 - **Bridge and split** (FR-035/047): the project chat can ask the Claude of a cycle - the exchange lives in the cycle's
-  chat and shows in both; ◫ opens a second chat beside the first, ⇆ swaps them.
+  chat and shows in both; ⋯ → "Open another chat beside" opens a second window, ⇆ swaps them.
 - Through the tunnel the chat is read-only. Removing a cycle removes its chat.
 - **Retention**: chat messages are kept until their cycle is removed - deliberately unbounded like session-cycle capture
   (people type them; a compact folds, never deletes). Every read is paged (50 per page, 200 per export page, search ≤ 200

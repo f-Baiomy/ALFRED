@@ -32,8 +32,8 @@ import java.util.regex.Pattern;
 @Service
 public class SnippetsService implements SnippetsUseCase {
 
-    /** An inline block's id: where its text is and which html block of that text it is. */
-    static final Pattern INLINE = Pattern.compile("^inline:(card|cycle):([A-Za-z0-9-]{1,64}):([A-Za-z0-9-]{1,64}):(\\d{1,3})$");
+    /** An inline block's id: where its text is (a card, a cycle's brief, a chat answer) and which html block of that text it is. */
+    static final Pattern INLINE = Pattern.compile("^inline:(card|cycle|chat):([A-Za-z0-9-]{1,64}):([A-Za-z0-9-]{1,64}):(\\d{1,3})$");
     private static final Pattern PAGE_ID = Pattern.compile("^[A-Za-z0-9-]{8,64}$");
     private static final Pattern OWNER = Pattern.compile("^(card|cycle|project):(.{1,200})$");
     private static final String PNG_PREFIX = "data:image/png;base64,";
@@ -289,6 +289,10 @@ public class SnippetsService implements SnippetsUseCase {
                 Optional<Card> c = cards.find(m.group(2));
                 return c.map(card -> Result.ok(new Place(Snippet.Owner.CARD, card.id(), card.project(), card.id(), null)))
                         .orElseGet(() -> Result.refused(Outcome.NOT_FOUND, "No such card"));
+            }
+            if (m.group(1).equals("chat")) {
+                // a block in a chat answer: its picture is kept by the message, belonging to no card or cycle
+                return Result.ok(new Place(Snippet.Owner.PROJECT, "chat:" + m.group(2), null, null, null));
             }
             return Result.ok(new Place(Snippet.Owner.CYCLE, m.group(2), null, null, m.group(2)));
         }

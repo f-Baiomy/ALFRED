@@ -46,7 +46,7 @@ const BLOCK_TAGS = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'UL', 'OL', 'PRE', 'BLO
   standalone: true,
   imports: [MentionPickerComponent, ImageAnnotateComponent, VisualEditorComponent, MarkdownViewComponent],
   template: `
-    <div class="board-editor" [class.split]="split()">
+    <div class="board-editor" [class.split]="split()" [class.compact]="compact()">
       @if (draftNotice(); as d) {
         <div class="board-editor-draft">Unsaved draft from {{ d.at }} ·
           <button type="button" class="board-link" (click)="restoreDraft()">restore it</button> ·
@@ -57,7 +57,7 @@ const BLOCK_TAGS = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'UL', 'OL', 'PRE', 'BLO
                             [canPickAnywhere]="!!card() && !!pickField()" (pickAnywhere)="pickFromAnywhere()"
                             (picked)="picked($event)" (closed)="closePicker()" />
       }
-      @if (toolbar()) {
+      @if (toolbar() && (!compact() || fmtOpen())) {
         <div class="board-editor-tb" (mousedown)="keepSelection($event)">
           <select class="board-editor-style" title="Text style" (change)="styleBlock($any($event.target).value); $any($event.target).value = ''">
             <option value="">Style…</option><option value="p">Paragraph</option><option value="h2">Heading</option><option value="h3">Subheading</option>
@@ -217,16 +217,35 @@ const BLOCK_TAGS = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'UL', 'OL', 'PRE', 'BLO
         </div>
       }
       @if (uploadError(); as e) { <div class="run-msg run-msg-err">{{ e }}</div> }
-      <div class="board-editor-hint">
-        <span><kbd>&#64;</kbd> mention · <kbd>/</kbd> blocks · <kbd>{{ '{{' }}</kbd> variable · @if (enterSends()) {<kbd>Enter</kbd> {{ submitLabel().toLowerCase() }} · <kbd>Shift</kbd>+<kbd>Enter</kbd> new line} @else {<kbd>Ctrl</kbd>+<kbd>Enter</kbd> {{ submitLabel().toLowerCase() }}}</span>
-        <span class="board-editor-actions">
-          <button type="button" class="action-btn board-editor-dir" [class.on]="dirChoice() !== 'auto'" (mousedown)="$event.preventDefault()" (click)="flipDir()"
-                  title="Text direction: auto (each paragraph from what you type), right-to-left or left-to-right · Ctrl+Shift+X">{{ dirLabel(dirChoice()) }}</button>
-          <button type="button" class="action-btn" title="Mention something" (mousedown)="$event.preventDefault()" (click)="openPicker()">&#64; Mention</button>
-          @if (cancellable()) { <button type="button" class="action-btn" (click)="cancelled.emit()">Cancel</button> }
-          <button type="button" class="action-btn primary" [disabled]="!value().trim() && !allowEmpty()" (click)="submit()">{{ submitLabel() }}</button>
-        </span>
-      </div>
+      @if (compact()) {
+        <div class="board-editor-cbar">
+          <button type="button" class="board-editor-cbtn" title="Mention something (@)" (mousedown)="$event.preventDefault()" (click)="openPicker()">&#64;</button>
+          @if (commands().length || toolbar()) {
+            <button type="button" class="board-editor-cbtn" title="Skills and blocks (/)" (mousedown)="$event.preventDefault()" (click)="typeSlash()">/</button>
+          }
+          @if (toolbar()) {
+            <button type="button" class="board-editor-cbtn" [class.on]="fmtOpen()" title="Formatting" (mousedown)="$event.preventDefault()" (click)="fmtOpen.set(!fmtOpen())">Aa</button>
+          }
+          <button type="button" class="board-editor-cbtn" [class.on]="dirChoice() !== 'auto'" (mousedown)="$event.preventDefault()" (click)="flipDir()"
+                  title="Text direction: auto, right-to-left or left-to-right · Ctrl+Shift+X">{{ dirLabel(dirChoice()) }}</button>
+          <ng-content select="[editorTools]" />
+          <span class="board-editor-grow"></span>
+          @if (cancellable()) { <button type="button" class="board-editor-cbtn" (click)="cancelled.emit()">Cancel</button> }
+          <button type="button" class="board-editor-send" [disabled]="!value().trim() && !allowEmpty()"
+                  [title]="submitLabel() + (enterSends() ? ' (Enter · Shift+Enter new line)' : ' (Ctrl+Enter)')" (click)="submit()">↑</button>
+        </div>
+      } @else {
+        <div class="board-editor-hint">
+          <span><kbd>&#64;</kbd> mention · <kbd>/</kbd> blocks · <kbd>{{ '{{' }}</kbd> variable · @if (enterSends()) {<kbd>Enter</kbd> {{ submitLabel().toLowerCase() }} · <kbd>Shift</kbd>+<kbd>Enter</kbd> new line} @else {<kbd>Ctrl</kbd>+<kbd>Enter</kbd> {{ submitLabel().toLowerCase() }}}</span>
+          <span class="board-editor-actions">
+            <button type="button" class="action-btn board-editor-dir" [class.on]="dirChoice() !== 'auto'" (mousedown)="$event.preventDefault()" (click)="flipDir()"
+                    title="Text direction: auto (each paragraph from what you type), right-to-left or left-to-right · Ctrl+Shift+X">{{ dirLabel(dirChoice()) }}</button>
+            <button type="button" class="action-btn" title="Mention something" (mousedown)="$event.preventDefault()" (click)="openPicker()">&#64; Mention</button>
+            @if (cancellable()) { <button type="button" class="action-btn" (click)="cancelled.emit()">Cancel</button> }
+            <button type="button" class="action-btn primary" [disabled]="!value().trim() && !allowEmpty()" (click)="submit()">{{ submitLabel() }}</button>
+          </span>
+        </div>
+      }
     </div>`,
 })
 export class MentionEditorComponent implements AfterViewInit {
@@ -248,6 +267,9 @@ export class MentionEditorComponent implements AfterViewInit {
   readonly enterSends = input(true);
   /** The formatting toolbar (rich text); off keeps a bare box. */
   readonly toolbar = input(true);
+  /** One box like a chat's: the tools and Send in a row inside it, the formatting toolbar behind "Aa". */
+  readonly compact = input(false);
+  readonly fmtOpen = signal(false);
   /** Pictures may be pasted, dropped or picked. */
   readonly images = input(true);
   /** Where 📎 attaches files (specs/017 R36): the card or cycle the text belongs to; null hides 📎. */
@@ -1009,6 +1031,17 @@ export class MentionEditorComponent implements AfterViewInit {
     this.saveCaret();
     this.replacesAt = false;
     this.pickerOpen.set(true);
+  }
+
+  /** The compact bar's "/": types a slash where the caret is, so the "/" menu opens as if typed. */
+  typeSlash(): void {
+    const box = this.box().nativeElement;
+    box.focus();
+    const sel = this.selection();
+    if (this.at && sel) { sel.removeAllRanges(); sel.addRange(this.at); }
+    const before = box.textContent ?? '';
+    document.execCommand('insertText', false, before && !/\s$/.test(before) ? ' /' : '/');
+    this.onInput();
   }
 
   closePicker(): void {

@@ -31,6 +31,8 @@ interface Prefs {
   view: ChatView;
   width: number;
   slim: boolean;
+  /** Where the floating chats pill sits (dragged there; remembered). */
+  side: 'right' | 'left';
   mute: Record<string, ChatMute>;
   notify: boolean;
 }
@@ -71,7 +73,7 @@ export class ChatStateService {
   readonly error = signal<string | null>(null);
   /** A message to scroll to and flash (a chat mention, a search hit). */
   readonly focusId = signal<number | null>(null);
-  readonly prefs = signal<Prefs>(readJson<Prefs>(PREFS, { view: 'docked', width: 440, slim: false, mute: {}, notify: false }));
+  readonly prefs = signal<Prefs>(readJson<Prefs>(PREFS, { view: 'docked', width: 440, slim: false, side: 'right', mute: {}, notify: false }));
   readonly seen = signal<Record<string, number>>(readJson<Record<string, number>>(SEEN, {}));
   /** Bumped when a draft is saved or cleared, so the bar re-reads its draft marks. */
   readonly draftsVersion = signal(0);
@@ -117,13 +119,24 @@ export class ChatStateService {
       this.threads.set(new Map());
       this.openScope.set(null);
       this.splitScope.set(null);
+      this.tabs.set([]);
       this.loadSummaries();
       if (!this.cycles().length) this.loadCycles();
     }
     this.cycleInView.set(cycleId);
   }
 
+  /** The chat list above the floating pill is open. */
+  readonly listOpen = signal(false);
+  /** Chats folded to tabs beside the pill (– on a chat window), newest first. */
+  readonly tabs = signal<readonly string[]>([]);
+
   openChat(scope: string | null, focusId: number | null = null): void {
+    this.listOpen.set(false);
+    if (scope != null) {
+      this.tabs.update((t) => t.filter((x) => x !== scope));
+      if (scope === this.splitScope()) this.splitScope.set(null);
+    }
     this.openScope.set(scope);
     this.focusId.set(focusId);
     if (scope == null) return;
@@ -136,11 +149,23 @@ export class ChatStateService {
     this.splitScope.set(null);
   }
 
+  /** – folds a chat window to a tab beside the pill; a click on the tab opens it again. */
+  minimize(scope: string): void {
+    this.tabs.update((t) => [scope, ...t.filter((x) => x !== scope)].slice(0, 4));
+    if (scope === this.splitScope()) this.splitScope.set(null);
+    else if (scope === this.openScope()) this.close();
+  }
+
+  closeTab(scope: string): void {
+    this.tabs.update((t) => t.filter((x) => x !== scope));
+  }
+
   /** ◫ A second chat beside the first (FR-047), with its own send box. */
   readonly splitScope = signal<string | null>(null);
 
   openSplit(scope: string): void {
     if (scope === this.openScope()) return;
+    this.tabs.update((t) => t.filter((x) => x !== scope));
     this.splitScope.set(scope);
     if (!this.threads().has(scope)) this.loadPage(scope);
   }
@@ -228,6 +253,10 @@ export class ChatStateService {
 
   setWidth(width: number): void {
     this.savePrefs({ ...this.prefs(), width: Math.max(340, Math.min(900, Math.round(width))) });
+  }
+
+  setSide(side: 'right' | 'left'): void {
+    if (side !== this.prefs().side) this.savePrefs({ ...this.prefs(), side });
   }
 
   toggleSlim(): void {

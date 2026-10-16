@@ -121,7 +121,7 @@ export function buildSnippetDoc(o: SnippetDocOptions): string {
   const python = o.kind === 'python';
   const body = o.kind === 'mermaid' ? mermaidBody(o.source)
     : python ? pythonBody(split.main, o.origin, scriptJson)
-    : (split.error ? `<script>console.error(${scriptJson(split.error)})</script>` : '') + stripDoctype(hasFiles ? rewriteMain(split.main, split.files) : split.main);
+    : (split.error ? `<script>console.error(${scriptJson(split.error)})</script>` : '') + scopeClassicScripts(stripDoctype(hasFiles ? rewriteMain(split.main, split.files) : split.main));
   const inline = o.inline ?? null;
   const modules = inline
     ? Object.fromEntries(libs.filter((l) => l.kind === 'module' && l.provides !== '(styles)' && inline[l.file] !== undefined).map((l) => [l.provides, inline[l.file]]))
@@ -133,6 +133,7 @@ export function buildSnippetDoc(o: SnippetDocOptions): string {
     context: o.context ?? {},
     libs: Object.fromEntries(SNIPPET_LIBS.map((l) => [l.id, `${o.origin}/lib/${l.file}`])),
     vars: safeVars,
+    palette: SNIPPET_PALETTE,
     static: o.staticAnswers ?? null,
     offline: !!o.offline,
     direct: !inline,
@@ -157,6 +158,7 @@ export function buildSnippetDoc(o: SnippetDocOptions): string {
     + `<script type="application/json" id="alfred-boot">${scriptJson(boot)}</script>`
     + `<script>${SNIPPET_RUNTIME}</script>`
     + (inline ? '' : libs.map((l) => libTag(l, o.origin)).join(''))
+    + `<script>${THEME_SCRIPT}</script>`
     + '</head><body>' + body + '</body></html>';
 }
 
@@ -197,12 +199,95 @@ export function scriptJson(v: unknown): string {
   return JSON.stringify(v).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
 }
 
+/**
+ * The frame's design kit: a snippet that writes plain markup already looks like Alfred, and a few classes (`.grid`,
+ * `.card`, `.kpi`, `.badge`, `.bar`, `table`) give a dashboard without any CSS of its own. Every rule is wrapped in
+ * :where() - no specificity - so the snippet's own styles always win.
+ */
 const BASE_CSS = 'html{color-scheme:dark}'
-  + 'body{margin:0;padding:10px;color:var(--text,#e5e9f5);background:transparent;'
-  + 'font:13px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow-wrap:anywhere}'
-  + 'a{color:var(--purple-light,#c4b5fd)}'
-  + 'table{border-collapse:collapse}td,th{border:1px solid var(--border,#333);padding:3px 8px}'
-  + 'code,pre{font-family:ui-monospace,Consolas,monospace}';
+  + ':root{--k-text:var(--text,#e5e9f5);--k-dim:var(--text-dim,#a3acc9);--k-faint:var(--text-faint,#6b7394);'
+  + '--k-panel:color-mix(in srgb,var(--card-inner,#1b2150) 70%,transparent);--k-line:var(--border,#2c3466);'
+  + '--k-accent:var(--purple-light,#c4b5fd);--k-ok:var(--green,#34d399);--k-err:var(--red,#f87171);--k-warn:var(--amber,#fbbf24);'
+  + '--k-info:var(--blue,#60a5fa);--k-radius:10px;--k-font:"Inter","Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,Roboto,sans-serif;'
+  + '--k-mono:ui-monospace,"Cascadia Code",Consolas,monospace}'
+  + ':where(body){margin:0;padding:12px;color:var(--k-text);background:transparent;font:13.5px/1.55 var(--k-font);'
+  + 'overflow-wrap:anywhere;-webkit-font-smoothing:antialiased}'
+  + ':where(*,*::before,*::after){box-sizing:border-box}'
+  + ':where(h1,h2,h3,h4){margin:0 0 .5em;line-height:1.25;font-weight:650;letter-spacing:-.01em}'
+  + ':where(h1){font-size:20px}:where(h2){font-size:16px}:where(h3){font-size:14px}:where(h4){font-size:13px;color:var(--k-dim)}'
+  + ':where(p){margin:0 0 .6em}:where(a){color:var(--k-accent)}:where(small,.muted){color:var(--k-dim)}:where(.faint){color:var(--k-faint)}'
+  + ':where(code,pre,kbd){font-family:var(--k-mono);font-size:.92em}'
+  + ':where(pre){background:var(--k-panel);border:1px solid var(--k-line);border-radius:8px;padding:10px;overflow:auto}'
+  + ':where(hr){border:0;border-top:1px solid var(--k-line);margin:12px 0}'
+  // tables: full width, a sticky header, quiet rows, numbers right-aligned in .num
+  + ':where(table){border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}'
+  + ':where(th,td){padding:6px 10px;border-bottom:1px solid var(--k-line);text-align:start;vertical-align:top}'
+  + ':where(th){position:sticky;top:0;background:var(--popover-solid,#141a45);color:var(--k-dim);font-weight:600;font-size:12px;'
+  + 'text-transform:uppercase;letter-spacing:.04em}'
+  + ':where(tbody tr:hover){background:color-mix(in srgb,var(--k-accent) 7%,transparent)}'
+  + ':where(.num,td.num,th.num){text-align:end;font-variant-numeric:tabular-nums}'
+  + ':where(.table-wrap){max-height:420px;overflow:auto;border:1px solid var(--k-line);border-radius:var(--k-radius)}'
+  // layout
+  + ':where(.grid){display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(var(--min,170px),1fr))}'
+  + ':where(.row){display:flex;gap:12px;align-items:center;flex-wrap:wrap}:where(.stack){display:flex;flex-direction:column;gap:12px}'
+  + ':where(.spacer){flex:1}'
+  + ':where(.card){background:var(--k-panel);border:1px solid var(--k-line);border-radius:var(--k-radius);padding:14px 16px}'
+  + ':where(.card>h3:first-child,.card>h4:first-child){margin-bottom:10px}'
+  // numbers that matter
+  + ':where(.kpi){display:flex;flex-direction:column;gap:2px}'
+  + ':where(.kpi .label){color:var(--k-dim);font-size:12px;text-transform:uppercase;letter-spacing:.05em}'
+  + ':where(.kpi .value){font-size:28px;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1.15}'
+  + ':where(.kpi .note){color:var(--k-faint);font-size:12px}'
+  + ':where(.up){color:var(--k-ok)}:where(.down,.err){color:var(--k-err)}:where(.warn){color:var(--k-warn)}:where(.ok){color:var(--k-ok)}'
+  // badges: .badge.ok / .warn / .err / .info, or a method/status pill
+  + ':where(.badge){display:inline-flex;align-items:center;gap:4px;padding:1px 8px;border-radius:999px;font-size:11.5px;font-weight:600;'
+  + 'background:color-mix(in srgb,currentColor 14%,transparent);color:var(--k-dim);white-space:nowrap}'
+  + ':where(.badge.ok){color:var(--k-ok)}:where(.badge.warn){color:var(--k-warn)}:where(.badge.err){color:var(--k-err)}:where(.badge.info){color:var(--k-info)}'
+  // an inline bar: <div class="bar" style="--v:.42"></div> (0..1), .bar.err / .warn / .ok
+  + ':where(.bar){height:8px;border-radius:99px;background:color-mix(in srgb,var(--k-line) 70%,transparent);overflow:hidden;min-width:60px}'
+  + ':where(.bar)::after{content:"";display:block;height:100%;width:calc(var(--v,0)*100%);border-radius:inherit;background:var(--c,var(--k-accent))}'
+  + ':where(.bar.err){--c:var(--k-err)}:where(.bar.warn){--c:var(--k-warn)}:where(.bar.ok){--c:var(--k-ok)}'
+  // a chart's box: echarts/apex need a height
+  + ':where(.chart){width:100%;height:var(--h,320px)}'
+  // controls
+  + ':where(button,select,input,textarea){font:inherit;color:inherit;background:var(--k-panel);border:1px solid var(--k-line);border-radius:8px;padding:5px 10px}'
+  + ':where(button){cursor:pointer}:where(button:hover){border-color:var(--k-accent)}:where(button.primary){background:var(--k-accent);color:#120f2e;border-color:transparent;font-weight:600}'
+  + ':where(.tabs){display:flex;gap:4px;border-bottom:1px solid var(--k-line);margin-bottom:10px}'
+  + ':where(.tabs>button){border:0;border-bottom:2px solid transparent;border-radius:0;background:none;color:var(--k-dim)}'
+  + ':where(.tabs>button.on,.tabs>button[aria-selected="true"]){color:var(--k-text);border-bottom-color:var(--k-accent)}'
+  + ':where(svg text){fill:currentColor}'
+  + ':where(*){scrollbar-width:thin;scrollbar-color:var(--k-line) transparent}';
+
+/**
+ * The colours of a series, in order - the same in every library (applied by the runtime to ECharts, Chart.js,
+ * ApexCharts, Plotly, Observable Plot and Mermaid) and given to a snippet as `alfred.palette`.
+ */
+export const SNIPPET_PALETTE = ['#a78bfa', '#22d3ee', '#34d399', '#fbbf24', '#f472b6', '#60a5fa', '#fb923c', '#a3e635', '#f87171', '#2dd4bf'];
+
+/**
+ * A classic inline script that declares `top`, `name`, `status`… at its top level runs into the window's own globals:
+ * `const top` is a SyntaxError (the snippet draws nothing), `var name = [..]` becomes a string. Such a script is put in a
+ * block so its names are its own; functions it declares stay global (onclick="draw()" keeps working).
+ */
+const WINDOW_NAMES = 'top|window|document|location|name|status|parent|self|frames|length|origin|opener|closed|history|screen|event|'
+  + 'external|performance|crypto|navigator|close|open|print|stop|focus|blur|find|alert|scroll|menubar|toolbar|personalbar|statusbar|scrollbars|locationbar';
+const CLASHING_DECL = new RegExp(`\\b(?:var|let|const|class)\\s+(?:${WINDOW_NAMES})\\b`);
+export function scopeClassicScripts(html: string): string {
+  return html.replace(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi, (all, attrs: string, code: string) => {
+    if (/\bsrc\s*=/i.test(attrs)) return all;
+    const type = /\btype\s*=\s*(["']?)([^"'\s>]*)\1/i.exec(attrs)?.[2]?.toLowerCase() ?? '';
+    if (type && type !== 'text/javascript' && type !== 'application/javascript') return all;
+    if (!CLASHING_DECL.test(code)) return all;
+    const own = code.replace(new RegExp(`\\bvar(\\s+(?:${WINDOW_NAMES})\\b)`, 'g'), 'let$1');
+    return `<script${attrs}>{\n${own}\n}</script>`;
+  });
+}
+
+/**
+ * Run after the shelf's libraries load (and again when a snippet loads one with alfred.lib): each charting library
+ * gets Alfred's dark theme and palette by default - a snippet that sets its own colours keeps them.
+ */
+const THEME_SCRIPT = 'window.__alfredTheme&&window.__alfredTheme();';
 
 /** The theme variables the frame gets - read from the page so any theme carries over. */
 export const THEME_VARS = ['--text', '--text-dim', '--text-faint', '--card', '--card-inner', '--bg-2', '--border', '--border-strong',
@@ -279,7 +364,62 @@ function loadLib(id){var u=boot.libs&&boot.libs[id];if(!u)return Promise.reject(
     if(css){var st=document.createElement("style");st.textContent=code;document.head.appendChild(st);return}
     return addLib(URL.createObjectURL(new Blob([code],{type:"text/javascript"})),module,false)})};
   var first=boot.direct?addLib(u,module,css):Promise.reject();
-  return first.then(null,viaHost).then(null,function(){throw new Error("Could not load "+id)})}
+  return first.then(null,viaHost).then(function(v){themeLibs();return v},function(){throw new Error("Could not load "+id)})}
+var PAL=boot.palette||["#a78bfa","#22d3ee","#34d399","#fbbf24","#f472b6","#60a5fa"];
+function cssv(n,d){try{return getComputedStyle(document.documentElement).getPropertyValue(n).trim()||d}catch(e){return d}}
+function tone(){return{text:cssv("--text","#e5e9f5"),dim:cssv("--text-dim","#a3acc9"),faint:cssv("--text-faint","#6b7394"),line:cssv("--border","#2c3466"),
+  pop:cssv("--popover-solid","#141a45"),grid:"rgba(255,255,255,0.07)",font:'"Inter","Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,sans-serif'}}
+function alpha(c,a){if(/^#[0-9a-f]{6}$/i.test(c)){var n=parseInt(c.slice(1),16);return"rgba("+(n>>16)+","+(n>>8&255)+","+(n&255)+","+a+")"}return c}
+function merge(a,b){var o={},k;for(k in a)o[k]=a[k];for(k in b){var x=b[k];o[k]=x&&typeof x==="object"&&!Array.isArray(x)&&a[k]&&typeof a[k]==="object"?merge(a[k],x):x}return o}
+var themed={};
+// Each charting library on the page gets Alfred's dark theme and palette by default; a snippet's own colours win.
+function themeLibs(){var t=tone(),W=window;
+  if(W.echarts&&!themed.echarts){themed.echarts=1;try{var ax={axisLine:{lineStyle:{color:t.line}},axisTick:{lineStyle:{color:t.line}},axisLabel:{color:t.dim},
+      splitLine:{lineStyle:{color:t.grid}},nameTextStyle:{color:t.dim}};
+    W.echarts.registerTheme("alfred",{color:PAL,backgroundColor:"transparent",textStyle:{color:t.text,fontFamily:t.font},
+      title:{textStyle:{color:t.text,fontWeight:600,fontSize:14},subtextStyle:{color:t.dim}},legend:{textStyle:{color:t.dim},inactiveColor:t.faint},
+      tooltip:{backgroundColor:t.pop,borderColor:t.line,textStyle:{color:t.text}},categoryAxis:ax,valueAxis:ax,timeAxis:ax,logAxis:ax,
+      bar:{itemStyle:{borderRadius:[4,4,0,0]}},line:{symbolSize:5},grid:{top:48,right:28,bottom:24,left:16,containLabel:true},dataZoom:{textStyle:{color:t.dim},borderColor:t.line}});
+    var ei=W.echarts.init;W.echarts.init=function(el,th,o){var c=ei.call(W.echarts,el,th==null?"alfred":th,o);
+      try{new ResizeObserver(function(){if(!c.isDisposed())c.resize()}).observe(el)}catch(e){}return c}}catch(e){}}
+  if(W.Chart&&!themed.chart){themed.chart=1;try{var D=W.Chart.defaults,tt=D.plugins.tooltip;D.color=t.dim;D.borderColor=t.grid;D.font.family=t.font;D.font.size=12;
+    tt.backgroundColor=t.pop;tt.borderColor=t.line;tt.borderWidth=1;tt.titleColor=t.text;tt.bodyColor=t.text;tt.padding=10;D.plugins.legend.labels.usePointStyle=true;
+    if(D.elements&&D.elements.bar)D.elements.bar.borderRadius=4;
+    W.Chart.register({id:"alfredPalette",beforeUpdate:function(ch){var cfg=ch.config,ds=(cfg.data&&cfg.data.datasets)||[];
+      ds.forEach(function(d,i){if(d.backgroundColor!==undefined||d.borderColor!==undefined)return;var ty=d.type||cfg.type;
+        if(/pie|doughnut|polarArea/.test(ty)){d.backgroundColor=(cfg.data.labels||[]).map(function(_,j){return PAL[j%PAL.length]});d.borderColor=t.pop;d.borderWidth=2}
+        else{var c=PAL[i%PAL.length];d.borderColor=c;d.backgroundColor=/line|radar/.test(ty)?alpha(c,d.fill?0.18:1):alpha(c,0.85);
+          if(/line/.test(ty)&&d.pointRadius===undefined)d.pointRadius=2}})}})}catch(e){}}
+  if(W.ApexCharts&&!themed.apex){themed.apex=1;W.Apex=merge({theme:{mode:"dark"},colors:PAL,chart:{background:"transparent",foreColor:t.dim,fontFamily:t.font,toolbar:{show:false}},
+    grid:{borderColor:t.grid},tooltip:{theme:"dark"},dataLabels:{enabled:false},stroke:{width:2}},W.Apex||{})}
+  if(W.Plotly&&!themed.plotly){themed.plotly=1;try{var ax2={gridcolor:t.grid,zerolinecolor:t.line,linecolor:t.line},lay={paper_bgcolor:"rgba(0,0,0,0)",plot_bgcolor:"rgba(0,0,0,0)",
+      font:{color:t.text,family:t.font,size:12},colorway:PAL,margin:{t:36,r:16,b:44,l:56},xaxis:ax2,yaxis:ax2,legend:{font:{color:t.dim}},
+      hoverlabel:{bgcolor:t.pop,bordercolor:t.line,font:{color:t.text}}},cf={displaylogo:false,responsive:true};
+    var lo=function(l){var o=merge(lay,l||{});for(var k in o)if(/^[xy]axis\d+$/.test(k))o[k]=merge(ax2,o[k]);return o};
+    ["newPlot","react"].forEach(function(fn){var f=W.Plotly[fn];if(!f)return;W.Plotly[fn]=function(gd,data,layout,config){
+      if(data&&typeof data==="object"&&!Array.isArray(data)){var o=merge({},data);o.layout=lo(o.layout);o.config=merge(cf,o.config||{});return f.call(W.Plotly,gd,o)}
+      return f.call(W.Plotly,gd,data,lo(layout),merge(cf,config||{}))}})}catch(e){}}
+  if(W.Plot&&!themed.plot){themed.plot=1;try{var pp=W.Plot.plot;W.Plot.plot=function(o){o=o||{};if(o.style===undefined)o=merge(o,{style:{background:"transparent",color:t.text,fontFamily:t.font,fontSize:"12px"}});
+      if(o.color===undefined)o=merge(o,{color:{scheme:"observable10"}});return pp.call(W.Plot,o)}}catch(e){}}
+  if(W.mermaid&&!themed.mermaid){themed.mermaid=1;try{var mi=W.mermaid.initialize,mv={darkMode:true,background:"transparent",primaryColor:"#2b2f6e",primaryBorderColor:PAL[0],
+      primaryTextColor:t.text,secondaryColor:"#173847",tertiaryColor:"#1b2150",lineColor:t.dim,textColor:t.text,fontFamily:t.font,fontSize:"13px",
+      noteBkgColor:"#3a3216",noteTextColor:t.text,noteBorderColor:"#fbbf24",clusterBkg:"rgba(167,139,250,0.06)",clusterBorder:t.line,edgeLabelBackground:t.pop,
+      actorBkg:"#2b2f6e",actorBorder:PAL[0],actorTextColor:t.text,actorLineColor:t.line,signalColor:t.dim,signalTextColor:t.text,labelBoxBkgColor:"#2b2f6e",
+      labelBoxBorderColor:PAL[0],labelTextColor:t.text,loopTextColor:t.text,activationBkgColor:"#3b3f86",sequenceNumberColor:"#120f2e",
+      pie1:PAL[0],pie2:PAL[1],pie3:PAL[2],pie4:PAL[3],pie5:PAL[4],pie6:PAL[5],pie7:PAL[6],pie8:PAL[7],pieTitleTextColor:t.text,pieSectionTextColor:"#120f2e",pieLegendTextColor:t.text,
+      cScale0:PAL[0],cScale1:PAL[1],cScale2:PAL[2],cScale3:PAL[3],cScale4:PAL[4],cScale5:PAL[5],git0:PAL[0],git1:PAL[1],git2:PAL[2],git3:PAL[3]};
+    W.mermaid.initialize=function(c){c=c||{};var o=merge({},c);if(!o.theme||o.theme==="dark"||o.theme==="default"){o.theme="base";o.themeVariables=merge(mv,c.themeVariables||{})}
+      return mi.call(W.mermaid,o)};
+    W.mermaid.initialize({startOnLoad:true})}catch(e){}}}
+window.__alfredTheme=themeLibs;
+function fmtMs(v){v=Number(v);if(!isFinite(v))return"–";return v<1000?Math.round(v)+" ms":v<60000?(v/1000).toFixed(v<10000?2:1)+" s":Math.floor(v/60000)+" min "+Math.round(v%60000/1000)+" s"}
+var fmt={ms:fmtMs,num:function(v,d){return Number(v).toLocaleString(undefined,{maximumFractionDigits:d==null?1:d})},
+  pct:function(v,d){return(Number(v)*100).toFixed(d==null?0:d)+"%"},
+  time:function(v){var x=new Date(v);return isNaN(x)?"–":x.toLocaleTimeString(undefined,{hour12:false})},
+  bytes:function(v){v=Number(v);var u=["B","KB","MB","GB"],i=0;while(v>=1024&&i<3){v/=1024;i++}return(i?v.toFixed(1):v)+" "+u[i]},
+  path:function(p,n){p=String(p==null?"":p).replace(/^https?:\/\/[^/]+/,"");n=n||48;return p.length>n?"…"+p.slice(p.length-n+1):p}};
+function calls(a){var c=boot.context||{},o={limit:1000},k;if(c.cycleId&&c.card==null)o.cycle=c.cycleId;if(a)for(k in a)o[k]=a[k];
+  return req("data",{src:"calls",args:o})}
 var defaults={},blank=null;
 function defaultsOf(tag){if(defaults[tag])return defaults[tag];var d={};try{if(!blank){var h=document.createElement("div");h.style.cssText="all:initial;position:absolute;width:0;height:0;overflow:hidden";document.documentElement.appendChild(h);blank=h.attachShadow({mode:"open"})}
   var e=document.createElement(tag);blank.appendChild(e);var cs=getComputedStyle(e);for(var i=0;i<cs.length;i++)d[cs[i]]=cs.getPropertyValue(cs[i]);blank.removeChild(e)}catch(x){}return defaults[tag]=d}
@@ -315,6 +455,11 @@ window.addEventListener("message",function(e){if(e.source!==P)return;var m=e.dat
 var api={
   name:boot.name,dir:boot.dir,theme:"dark",vars:boot.vars,context:boot.context,card:boot.context&&boot.context.card,
   data:function(src,args){return req("data",{src:src,args:args||{}})},
+  calls:calls,
+  palette:PAL.slice(),
+  colors:{accent:PAL[0],ok:cssv("--green","#34d399"),err:cssv("--red","#f87171"),warn:cssv("--amber","#fbbf24"),info:cssv("--blue","#60a5fa"),
+    text:cssv("--text","#e5e9f5"),dim:cssv("--text-dim","#a3acc9"),line:cssv("--border","#2c3466")},
+  fmt:fmt,
   watch:function(src,args,cb){var key="w"+(++wseq);if(typeof cb==="function")(on["data:"+key]=on["data:"+key]||[]).push(cb);
     return req("data",{src:src,args:args||{},live:key}).then(function(v){if(typeof cb==="function")try{cb(v)}catch(e){console.error(e)}return v})},
   value:function(name){var d=slot(name);return d.has?Promise.resolve(d.value):new Promise(function(r){d.waiters.push(r)})},

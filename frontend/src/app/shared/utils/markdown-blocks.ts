@@ -338,11 +338,12 @@ const TOKEN = new RegExp([
   /(\{\{\s*[A-Za-z_][\w.-]*\s*\}\}|\{(?:red|green|amber|blue|purple)\|[^}\n]+\})/.source, // 3 variable or {red|colour}
   /(\[(?:ok|fail|wait|info)(?::[^\]\n]{1,60})?\](?!\())/.source, // 4 pill
   /(\*\*[^*\n]+\*\*)/.source,                                // 5 bold
-  /(__[^_\n]+__)/.source,                                    // 6 bold
+  // Underscores inside a word are not emphasis (CommonMark): TT_TS_AIRLINES_AUDIT_HISTORY stays a name.
+  /((?<![\wÀ-￿])__[^_\n]+__(?![\wÀ-￿]))/.source, // 6 bold
   /(==[^=\n]+==)/.source,                                    // 7 highlight
   /(~~[^~\n]+~~)/.source,                                    // 8 strike
   /(\*[^*\n]+\*)/.source,                                    // 9 italic
-  /(_[^_\n]+_)/.source,                                      // 10 italic
+  /((?<![\wÀ-￿])_[^_\n]+_(?![\wÀ-￿]))/.source, // 10 italic
 ].join('|'));
 
 function formatted(text: string): Inline[] {

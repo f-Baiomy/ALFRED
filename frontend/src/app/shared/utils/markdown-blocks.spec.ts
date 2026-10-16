@@ -27,6 +27,13 @@ describe('markdownBlocks', () => {
     expect(nodes.map((n) => n.kind)).toEqual(['text', 'code', 'text', 'bold', 'text', 'italic']);
   });
 
+  it('leaves underscores inside a word alone - a table or column name is not emphasis', () => {
+    expect(plainText(inlines('N+1 on TT_TS_AIRLINES_AUDIT_HISTORY and AUTOMATIC_REFUND_REQUESTS'))).toBe('N+1 on TT_TS_AIRLINES_AUDIT_HISTORY and AUTOMATIC_REFUND_REQUESTS');
+    expect(inlines('snake_case_name').map((n) => n.kind)).toEqual(['text']);
+    expect(inlines('an _italic_ word, a __bold__ one').map((n) => n.kind)).toEqual(['text', 'italic', 'text', 'bold', 'text']);
+    expect(inlines('(_x_)').map((n) => n.kind)).toEqual(['text', 'italic', 'text']);
+  });
+
   it('keeps only http(s) links and leaves the rest as text', () => {
     expect(inlines('[ok](https://example.com)')[0].kind).toBe('link');
     const bad = inlines('[x](javascript:alert(1))');

@@ -1,4 +1,4 @@
-import { Component, DestroyRef, afterNextRender, computed, effect, inject, untracked } from '@angular/core';
+import { Component, DestroyRef, afterNextRender, effect, inject, untracked } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router } from '@angular/router';
 import { filter, map } from 'rxjs';
@@ -12,11 +12,10 @@ import { ChatBarComponent } from '../chat-bar/chat-bar.component';
 import { ChatPanelComponent } from '../chat-panel/chat-panel.component';
 
 const LAST_PROJECT = 'alfred.chat.project';
-const BAR = { full: 268, slim: 64 };
 
 /**
- * Where the board chats live on every tab (specs/022 FR-017): the chats bar docked on the left, the open chat beside it
- * (docked, expanded or full screen), the page pushed right by what they take. It follows the page: a board's project, a
+ * Where the board chats live on every tab (specs/022 FR-017): a pill floating bottom-right (or left, where the user dragged
+ * it) with the open chats as windows above it - the page keeps its full width. It follows the page: a board's project, a
  * cycle's chat when a cycle is in view, and a chat mention clicked anywhere.
  */
 @Component({
@@ -24,10 +23,12 @@ const BAR = { full: 268, slim: 64 };
   standalone: true,
   imports: [ChatBarComponent, ChatPanelComponent],
   template: `
-    <div class="chat-rail" [class.full]="state.view() === 'full' && !!state.openScope()">
-      <app-chat-bar />
-      <app-chat-panel />
-      @if (state.splitScope() && state.openScope() && state.view() !== 'full') { <app-chat-panel [second]="true" /> }
+    <div class="chat-float" [class.left]="state.prefs().side === 'left'" [class.full]="state.view() === 'full' && !!state.openScope()">
+      <div class="chat-wins">
+        <app-chat-panel />
+        @if (state.splitScope() && state.openScope() && state.view() !== 'full') { <app-chat-panel [second]="true" /> }
+      </div>
+      <div class="chat-pillrow"><app-chat-bar /></div>
     </div>`,
 })
 export class ChatDockComponent {
@@ -38,19 +39,9 @@ export class ChatDockComponent {
   private readonly lastIds = new Map<string, number>();
   private readonly needs = new Map<string, number>();
 
-  /** How far the page moves right: the bar, plus the open chat when it is docked or expanded. */
-  readonly offset = computed(() => {
-    const bar = this.state.prefs().slim ? BAR.slim : BAR.full;
-    if (!this.state.openScope()) return bar;
-    const v = this.state.view();
-    if (v === 'full') return bar;
-    if (v === 'expanded') return bar + Math.min(window.innerWidth * 0.62, 1000);
-    return bar + this.state.prefs().width;
-  });
 
   constructor() {
     const destroyRef = inject(DestroyRef);
-    effect(() => document.documentElement.style.setProperty('--chat-offset', `${this.offset()}px`));
     // the rail starts under the tab nav, whatever its height (it wraps on a narrow window)
     afterNextRender(() => {
       const nav = document.querySelector('.tab-nav');
@@ -62,7 +53,6 @@ export class ChatDockComponent {
       destroyRef.onDestroy(() => ro.disconnect());
     });
     destroyRef.onDestroy(() => {
-      document.documentElement.style.removeProperty('--chat-offset');
       document.documentElement.style.removeProperty('--chat-top');
     });
 

@@ -13,7 +13,7 @@ import { ChatMessageComponent } from '../chat-message/chat-message.component';
 import { MentionEditorComponent } from '../../board/mention-editor/mention-editor.component';
 import { MarkdownViewComponent } from '../../board/markdown-view/markdown-view.component';
 import { copyToClipboard } from '../../../shared/utils/clipboard';
-import { dayLine, queuePosition, sinceSummary, threadsOf, tokens, unreadOf } from '../../../shared/utils/chat-queue';
+import { dayLine, initials, queuePosition, sinceSummary, threadsOf, tokens, unreadOf } from '../../../shared/utils/chat-queue';
 import { ChatView } from '../../../core/models/chat.models';
 import { SelectOption, SelectPickerComponent } from '../../select-picker/select-picker.component';
 import { DesktopNotificationsService } from '../../../core/services/desktop-notifications.service';
@@ -37,85 +37,90 @@ type Item = { kind: 'msg'; m: ChatMessage; day: string | null; unreadLine: numbe
              [style.width.px]="view() === 'docked' && !inWindow() ? state.prefs().width : null" aria-label="Board chat">
         @if (view() === 'docked' && !inWindow()) { <div class="chat-resize" (mousedown)="startResize($event)" title="Drag to resize"></div> }
         <div class="chat-head">
-          <div class="chat-title">
-            <span class="chat-scope" [class.cycle]="!isProject()" [class.project]="isProject()">{{ isProject() ? 'project' : 'cycle' }}</span>
-            <b>{{ title() }}</b>
-            <span class="chat-x">
-              <button type="button" class="chat-icon" [class.on]="searching()" title="Search this chat" (click)="toggleSearch()">🔍</button>
-              <button type="button" class="chat-icon" [class.on]="sharedOpen()" title="Shared: everything this chat mentions" (click)="toggleShared()">🗂</button>
-              <button type="button" class="chat-icon" title="Compact now: Claude writes a summary, nothing is deleted" [disabled]="!editable()" (click)="compact()">⇊</button>
-              <button type="button" class="chat-icon" [class.on]="settingsOpen()" title="Chat settings" (click)="toggleSettings()">⚙</button>
-              <span class="chat-views-menu">
-                <button type="button" class="chat-icon" title="Views" (click)="viewsOpen.set(!viewsOpen())">▥ ▾</button>
-                @if (viewsOpen()) {
-                  <div class="ctxmenu open chat-views-pop" (mouseleave)="viewsOpen.set(false)">
-                    @for (v of views; track v.id) {
-                      <button type="button" [class.on]="view() === v.id" (click)="setView(v.id)">{{ v.icon }} {{ v.label }}<span class="board-dim"> {{ v.keys }}</span></button>
-                    }
-                  </div>
+          <span class="bar-av" [class.project]="isProject()" [class.cycle]="!isProject()">{{ avatar() }}<span class="bar-st" [class.on]="claudeOn()"></span></span>
+          <div class="chat-who">
+            <b [title]="title()">{{ title() }}</b>
+            <small>
+              @if (answering()) { <span class="busy">● answering<span class="bar-typing"><i></i><i></i><i></i></span></span> }
+              @else if (claudeOn()) { <span class="on">● Claude on</span> }
+              @else { <span>○ Claude off - messages wait</span> }
+              @if (summary()?.terminal?.host; as h) { <span> · {{ h }}</span> }
+              @if (waitingCount()) { <span> · {{ waitingCount() }} waiting</span> }
+              @if (busyCards().length) { <span title="Claude finishes this card first; waiting messages come after it"> · busy on #{{ busyCards()[0] }}</span> }
+            </small>
+          </div>
+          <button type="button" class="chat-icon" [class.on]="searching()" title="Search this chat" (click)="toggleSearch()">⌕</button>
+          <span class="chat-views-menu">
+            <button type="button" class="chat-icon" [class.on]="menuOpen()" title="More" (click)="menuOpen.set(!menuOpen()); splitOpen.set(false)">⋯</button>
+            @if (menuOpen()) {
+              <div class="ctxmenu open chat-views-pop chat-menu" (mouseleave)="menuOpen.set(false); splitOpen.set(false)">
+                <div class="chat-menu-sec">This chat</div>
+                <button type="button" [class.on]="sharedOpen()" (click)="menu(toggleSharedFn)">🗂 Shared - everything mentioned</button>
+                @if (!isProject() && editable()) {
+                  <button type="button" [class.on]="settings().watching" (click)="menu(toggleWatchingFn)">◉ Watch while I test{{ settings().watching ? ' ✓' : '' }}</button>
                 }
-              </span>
-              @if (!inWindow() && !second()) {
-                <span class="chat-views-menu">
-                  <button type="button" class="chat-icon" [class.on]="!!state.splitScope()" title="Split: open a second chat beside this one" (click)="splitOpen.set(!splitOpen())">◫</button>
-                  @if (splitOpen()) {
-                    <div class="ctxmenu open chat-views-pop" (mouseleave)="splitOpen.set(false)">
-                      @for (r of otherChats(); track r.scope) { <button type="button" (click)="state.openSplit(r.scope); splitOpen.set(false)">{{ r.label }}</button> }
-                      @if (!otherChats().length) { <span class="board-dim">No other chat yet</span> }
-                    </div>
+                <button type="button" [disabled]="!editable()" (click)="menu(compactFn)">⇊ Compact now</button>
+                <button type="button" (click)="menu(openMemory)">🧠 What it remembers</button>
+                @if (!isProject() && editable()) {
+                  <button type="button" (click)="menu(refreshFn)">↻ Catch up with the terminal now</button>
+                  <button type="button" (click)="menu(openTerminal)">📤 What the terminal got</button>
+                  <button type="button" (click)="menu(openContinue)">⇱ Continue in a terminal</button>
+                }
+                <button type="button" [class.on]="settingsOpen()" (click)="menu(toggleSettingsFn)">⚙ Settings &amp; notifications</button>
+                @if (!inWindow()) {
+                  <div class="chat-menu-sec">View</div>
+                  @for (v of views; track v.id) {
+                    <button type="button" [class.on]="view() === v.id" (click)="menuOpen.set(false); setView(v.id)">{{ v.icon }} {{ v.label }}<span class="board-dim"> {{ v.keys }}</span></button>
                   }
-                </span>
-              }
-              @if (second()) {
-                <button type="button" class="chat-icon" title="Make this the main chat" (click)="state.swapSplit()">⇆</button>
-                <button type="button" class="chat-icon" title="Close this chat" (click)="state.closeSplit()">✕</button>
-              } @else if (!inWindow()) { <button type="button" class="chat-icon" title="Close (the bar stays)" (click)="state.close()">✕</button> }
-            </span>
-          </div>
-          <div class="chat-runner">
-            <span class="board-pulse" [class.off]="!claudeOn()"></span>
-            @if (claudeOn()) {
-              <span>{{ isProject() ? "The project's live runner answers" : "Claude chat on this cycle" }}</span>
-              @if (summary()?.terminal?.host; as h) { <span class="host">· {{ h }}</span> }
-            } @else {
-              <span>No Claude answers this chat right now - messages wait</span>
+                  @if (!second()) {
+                    <button type="button" (click)="splitOpen.set(!splitOpen())">◫ Open another chat beside ▸</button>
+                    @if (splitOpen()) {
+                      <div class="chat-menu-sub">
+                        @for (r of otherChats(); track r.scope) { <button type="button" (click)="state.openSplit(r.scope); menuOpen.set(false); splitOpen.set(false)">{{ r.label }}</button> }
+                        @if (!otherChats().length) { <span class="board-dim">No other chat yet</span> }
+                      </div>
+                    }
+                  }
+                }
+              </div>
             }
-            @if (busyCards().length) { <span class="board-ev-badge" title="Claude finishes this card first; waiting messages come after it">busy on #{{ busyCards()[0] }}</span> }
-            @if (waitingCount()) { <span class="board-ev-badge">{{ waitingCount() }} waiting</span> }
-            <span class="board-dim" title="Messages since the last summary / auto-compact at">{{ counter() }}</span>
-            @if (!isProject() && editable()) {
-              <button type="button" class="chat-icon" [class.on]="settings().watching"
-                      [title]="settings().watching ? 'Watching while you test - Claude checks each batch of calls; click to stop' : 'Watch while I test: Claude checks each batch of calls as they arrive'"
-                      (click)="toggleWatching()">◉</button>
-            }
-          </div>
-          @if (settings().watching || watches().length) {
-            <div class="chat-watches">
-              @if (settings().watching) { <span class="chat-chip watching">◉ watching while you test</span> }
-              @for (w of watches(); track w.id) {
-                <span class="chat-chip">🔔 {{ w.label }}@if (editable()) {<button type="button" title="Remove this watch" (click)="cancelWatch(w.id)">✕</button>}</span>
-              }
-            </div>
-          }
-          <div class="chat-session">
-            <button type="button" class="mem-pill claude" title="What the chat's Claude session holds" (click)="memoryOpen.set(true)">🧠 <b>Claude</b> {{ claudeMemory() }}</button>
-            <button type="button" class="mem-pill alfred" title="What Alfred keeps for every session" (click)="memoryOpen.set(true)">🗂 <b>Alfred</b> {{ alfredMemory() }}</button>
-            @if (movedOn()) {
-              <span class="moved" title="The terminal session did more since this chat's copy - the next answer catches up">⟳ terminal moved on</span>
-            }
-            @if (!isProject() && editable()) {
-              <button type="button" class="chat-icon chat-refresh" title="Copy the terminal session again before the next answer" (click)="refresh()">↻</button>
-              <button type="button" class="chat-icon" title="What the chat sent the terminal session" (click)="terminalOpen.set(true)">📤</button>
-              <button type="button" class="chat-icon" title="Continue this chat in a terminal" (click)="continueOpen.set(true)">⇱</button>
-            }
-          </div>
-          @if (meter(); as mt) {
-            <div class="chat-meter" title="Tokens of the last answer, as Claude reported them">
-              <span>last answer:</span><b>{{ mt.input }}</b> in · <b>{{ mt.cached }}</b> cached · <b>{{ mt.output }}</b> out
-              @if (mt.saved) { <span class="saved">· {{ mt.saved }} from cache</span> }
-            </div>
+          </span>
+          @if (second()) { <button type="button" class="chat-icon" title="Make this the main chat" (click)="state.swapSplit()">⇆</button> }
+          @if (!inWindow()) {
+            <button type="button" class="chat-icon" title="Fold to a tab beside the pill" (click)="state.minimize(sc)">–</button>
+            <button type="button" class="chat-icon" title="Close" (click)="second() ? state.closeSplit() : state.close()">✕</button>
           }
         </div>
+        @if (contextLine()) {
+          <button type="button" class="chat-ctxline" [class.open]="ctxOpen()" (click)="ctxOpen.set(!ctxOpen())" title="What this chat knows and remembers">
+            @if (movedOn()) { <span class="dot"></span><span class="grow">Terminal moved on · next answer catches up</span> }
+            @else if (settings().watching) { <span class="dot green"></span><span class="grow">◉ Watching while you test</span> }
+            @else { <span class="grow">🔔 {{ watches().length }} watch{{ watches().length === 1 ? '' : 'es' }} set</span> }
+            <span class="pill" title="Messages since the last summary / auto-compact at">{{ counter() }}</span><span class="chev">{{ ctxOpen() ? '▴' : '▾' }}</span>
+          </button>
+        }
+        @if (ctxOpen()) {
+          <div class="chat-ctxopen">
+            <div class="row"><span>🧠 Claude's memory</span><b>{{ claudeMemory() }}</b></div>
+            <div class="row"><span>🗂 Alfred keeps</span><b>{{ alfredMemory() }}</b></div>
+            @if (meter(); as mt) { <div class="row"><span>Last answer</span><b>{{ mt.input }} in · {{ mt.cached }} cached · {{ mt.output }} out{{ mt.saved ? ' · ' + mt.saved + ' from cache' : '' }}</b></div> }
+            @if (settings().watching || watches().length) {
+              <div class="chat-watches">
+                @if (settings().watching) { <span class="chat-chip watching">◉ watching while you test@if (editable()) {<button type="button" title="Stop watching" (click)="toggleWatching()">✕</button>}</span> }
+                @for (w of watches(); track w.id) {
+                  <span class="chat-chip">🔔 {{ w.label }}@if (editable()) {<button type="button" title="Remove this watch" (click)="cancelWatch(w.id)">✕</button>}</span>
+                }
+              </div>
+            }
+            @if (!isProject() && editable()) {
+              <div class="acts">
+                <button type="button" class="action-btn" (click)="refresh()">↻ Catch up now</button>
+                <button type="button" class="action-btn" (click)="terminalOpen.set(true)">What the terminal got</button>
+                <button type="button" class="action-btn" (click)="continueOpen.set(true)">Continue in a terminal</button>
+              </div>
+            }
+          </div>
+        }
 
         @if (!editable()) { <div class="chat-banner view">View only from here - {{ howToEdit() }}</div> }
         @if (!claudeOn() && editable()) {
@@ -180,7 +185,7 @@ type Item = { kind: 'msg'; m: ChatMessage; day: string | null; unreadLine: numbe
         }
         @if (state.error(); as e) { <div class="chat-banner view" role="alert">{{ e }} <button type="button" class="board-link" (click)="state.error.set(null)">✕</button></div> }
 
-        <div class="chat-stream" #stream (scroll)="onScroll()">
+        <div class="chat-stream" #stream (scroll)="onScroll()" (wheel)="onReadUp($event)" (keydown)="onReadUp($event)">
           @if (thread()?.more) { <div class="chat-day"><button type="button" class="board-link" (click)="state.loadOlder(sc)">Load earlier messages</button></div> }
           @if (!thread()) { <div class="board-empty">Loading…</div> }
           @else if (!items().length) {
@@ -227,17 +232,17 @@ type Item = { kind: 'msg'; m: ChatMessage; day: string | null; unreadLine: numbe
               </div>
             }
             <app-mention-editor [project]="state.project()" [cycleId]="isProject() ? null : sc" [(value)]="text" [draftKey]="state.draftKey(sc)" [commands]="skills"
-                                [rows]="2" submitLabel="Send" [placeholder]="placeholder()" (submitted)="send($event)" (valueChange)="state.draftChanged()" />
+                                [rows]="1" [compact]="true" submitLabel="Send" [placeholder]="placeholder()" (submitted)="send($event)" (valueChange)="state.draftChanged()">
+              <button editorTools type="button" class="board-editor-cbtn urgent" [class.on]="urgent()" (mousedown)="$event.preventDefault()" (click)="urgent.set(!urgent())"
+                      [title]="urgent() ? 'Answered before the waiting messages - click to send normally' : 'Answer first: Claude answers this before the waiting messages'">⚡</button>
+            </app-mention-editor>
             @if (isProject() && state.cycles().length) {
               <div class="chat-crow">
                 <label class="board-dim" title="Ask the Claude of a cycle - the question and its answer show here and in that cycle's chat">Ask
                   <app-select-picker class="select-compact" ariaLabel="Who answers" [options]="askOptions()" [value]="askCycle() ?? ''" (valueChange)="askCycle.set($event || null)" /></label>
               </div>
             }
-            <div class="chat-crow">
-              <label class="board-dim" title="Claude answers this before the other waiting messages"><input type="checkbox" [checked]="urgent()" (change)="urgent.set($any($event.target).checked)" /> ⚡ answer first</label>
-              <span class="grow">{{ claudeOn() ? 'Enter sends · Shift+Enter new line' : 'Claude is not on - it answers when it starts' }}</span>
-            </div>
+            @if (urgent()) { <div class="chat-hint">⚡ answered before the waiting messages</div> }
           </div>
         }
 
@@ -317,7 +322,7 @@ export class ChatPanelComponent implements AfterViewChecked {
   readonly inWindow = input(false);
 
   readonly views: { id: ChatView; icon: string; label: string; keys: string }[] = [
-    { id: 'docked', icon: '▥', label: 'Docked beside the bar', keys: '' },
+    { id: 'docked', icon: '▥', label: 'Window above the pill', keys: '' },
     { id: 'expanded', icon: '▭', label: 'Expanded', keys: '' },
     { id: 'full', icon: '⛶', label: 'Full screen', keys: 'Ctrl+Shift+F' },
     { id: 'window', icon: '⧉', label: 'Separate window', keys: '' },
@@ -345,6 +350,21 @@ export class ChatPanelComponent implements AfterViewChecked {
   readonly mute = computed<ChatMute>(() => this.state.prefs().mute[`${this.state.project()}/${this.scope()}`] ?? 'all');
 
   readonly viewsOpen = signal(false);
+  readonly menuOpen = signal(false);
+  readonly ctxOpen = signal(false);
+  /** The quiet context line shows only when something is worth knowing. */
+  readonly contextLine = computed(() => this.movedOn() || this.settings().watching || this.watches().length > 0);
+  readonly avatar = computed(() => (this.isProject() ? 'PR' : initials(this.title())));
+  /** Claude is answering in this chat right now (the bar's typing mark). */
+  readonly answering = computed(() => this.state.rows().find((r) => r.scope === this.scope())?.typing ?? false);
+  readonly openMemory = () => this.memoryOpen.set(true);
+  readonly openTerminal = () => this.terminalOpen.set(true);
+  readonly openContinue = () => this.continueOpen.set(true);
+  readonly toggleSharedFn = () => this.toggleShared();
+  readonly toggleWatchingFn = () => this.toggleWatching();
+  readonly compactFn = () => this.compact();
+  readonly refreshFn = () => this.refresh();
+  readonly toggleSettingsFn = () => this.toggleSettings();
   readonly settingsOpen = signal(false);
   readonly memoryOpen = signal(false);
   readonly continueOpen = signal(false);
@@ -365,6 +385,7 @@ export class ChatPanelComponent implements AfterViewChecked {
   private readonly unreadFrom = signal<{ scope: string; lastSeen: number } | null>(null);
   private stickToBottom = true;
   private scrolledFor: number | null = null;
+  private lastHeight = 0;
 
   readonly messages = computed(() => this.thread()?.messages ?? []);
   readonly threads = computed(() => threadsOf(this.messages()));
@@ -396,7 +417,7 @@ export class ChatPanelComponent implements AfterViewChecked {
     }
     return null;
   });
-  readonly placeholder = computed(() => (this.isProject() ? 'Ask about the whole project… @ to mention, / for skills' : 'Ask about this cycle… @ to mention, / for skills and blocks'));
+  readonly placeholder = computed(() => (this.isProject() ? 'Message Claude about the project… @ mention · / skills' : 'Message Claude about this cycle… @ mention · / skills'));
   readonly projectCommand = computed(() => `/alfred-live ${this.state.project() || '""'}`);
   readonly cycleCommand = computed(() => `/alfred-live ${this.state.project() || '""'} ${this.scope()}`);
 
@@ -465,11 +486,23 @@ export class ChatPanelComponent implements AfterViewChecked {
       if (target) {
         this.scrolledFor = focus;
         this.stickToBottom = false;
-        target.scrollIntoView({ block: 'center' });
+        // scroll the stream only: scrollIntoView also scrolled the window around it and pushed its header out of sight
+        const t = (target as HTMLElement).getBoundingClientRect();
+        const box = el.getBoundingClientRect();
+        el.scrollTop += t.top - box.top - (el.clientHeight - Math.min(t.height, el.clientHeight)) / 2;
         return;
       }
     }
-    if (this.stickToBottom) el.scrollTop = el.scrollHeight;
+    // Follow new content only when it grew: forcing the bottom on every check fought the user's own scrolling (a smooth
+    // wheel's first frame is still "at the bottom", and the next check snapped it back - it flickered and never went up).
+    if (this.stickToBottom && el.scrollHeight !== this.lastHeight) el.scrollTop = el.scrollHeight;
+    this.lastHeight = el.scrollHeight;
+  }
+
+  /** Reading up (wheel, keys) lets go of the bottom at once, before the scroll lands. */
+  onReadUp(e: WheelEvent | KeyboardEvent): void {
+    const up = e instanceof WheelEvent ? e.deltaY < 0 : ['ArrowUp', 'PageUp', 'Home'].includes(e.key);
+    if (up) this.stickToBottom = false;
   }
 
   onScroll(): void {
@@ -482,6 +515,7 @@ export class ChatPanelComponent implements AfterViewChecked {
 
   toBottom(): void {
     this.stickToBottom = true;
+    this.lastHeight = 0;
     this.atBottom.set(true);
     const el = this.stream()?.nativeElement;
     if (el) el.scrollTop = el.scrollHeight;
@@ -622,6 +656,13 @@ export class ChatPanelComponent implements AfterViewChecked {
     });
   });
 
+  /** A ⋯ menu entry: closes the menu, then does its thing. */
+  menu(action: () => void): void {
+    this.menuOpen.set(false);
+    this.splitOpen.set(false);
+    action();
+  }
+
   toggleSearch(): void {
     this.searching.set(!this.searching());
     if (!this.searching()) this.hits.set(null);
@@ -736,7 +777,9 @@ export class ChatPanelComponent implements AfterViewChecked {
     e.preventDefault();
     const startX = e.clientX;
     const start = this.state.prefs().width;
-    const move = (ev: MouseEvent) => this.state.setWidth(start + (ev.clientX - startX));
+    // the handle is on the window's inner edge: towards the page widens it
+    const sign = this.state.prefs().side === 'left' ? 1 : -1;
+    const move = (ev: MouseEvent) => this.state.setWidth(start + sign * (ev.clientX - startX));
     const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
     window.addEventListener('mousemove', move);
     window.addEventListener('mouseup', up);
@@ -745,6 +788,7 @@ export class ChatPanelComponent implements AfterViewChecked {
   @HostListener('document:keydown', ['$event'])
   keys(e: KeyboardEvent): void {
     if (this.scope() == null || this.inWindow() || this.second()) return; // the main panel answers the keys once
+    if (e.key === 'Escape' && this.menuOpen()) { this.menuOpen.set(false); return; }
     if (e.key === 'Escape' && this.state.view() === 'full') { this.state.setView('docked'); return; }
     if (e.ctrlKey && e.shiftKey && (e.key === 'F' || e.key === 'f')) {
       e.preventDefault();

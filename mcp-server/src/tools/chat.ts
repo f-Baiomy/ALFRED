@@ -4,6 +4,7 @@ import { seg, type AlfredClient, type RequestOptions } from '../alfred-client.ts
 import { maskContext, maskMeta, maskProseWith, maskText, type MaskContext } from '../masking.ts';
 import { invalid, ok, run } from '../reply.ts';
 import { ReadableWriter } from '../readable.ts';
+import { boardText } from '../board-text.ts';
 
 /**
  * The board chats (specs/022 contracts/mcp-tools.md). A cycle's chat is answered by the cycle's own Claude session (a fork
@@ -146,7 +147,9 @@ export function register(server: McpServer, client: AlfredClient): void {
     const question = await message(client, input.messageId);
     if (question.project !== input.project) throw invalid(`Message #${input.messageId} is in project "${question.project}", not "${input.project}"`);
     const w = new ReadableWriter(client, { project: input.project, cycleId: question.scope === 'project' ? null : question.scope });
-    const text = await w.text(input.text, 64 * 1024);
+    // HTML the board draws becomes board text, HTML with script/style/SVG a ```html live snippet - as on cards (board-text.ts).
+    const board = boardText(input.text);
+    const text = await w.text(board.text, 64 * 1024);
     const records = input.records ? await Promise.all(input.records.map(async (r) => ({ ...r, text: await w.text(r.text),
       ...(r.card ? { card: { ...r.card, description: await w.text(r.card.description) } } : {}),
       ...(r.fix ? { fix: { ...r.fix, report: await w.text(r.fix.report) } } : {}) }))) : undefined;
@@ -161,8 +164,11 @@ export function register(server: McpServer, client: AlfredClient): void {
     const stored = await client.post<{ message: ChatMessageRow; records: { line: string }[]; terminal: { id: number; urgent: boolean; state: string }[] }>(
       `/board/chats/messages/${input.messageId}/reply`, { ...AS_CLAUDE, body: { text, ...(records ? { records } : {}), toTerminal,
         ...(input.extra ? { extra: input.extra } : {}), ...(input.updateId ? { updateId: input.updateId } : {}) } });
+    const shown = chatSnippetIds(stored.message.id, text);
     return ok({
       replied: `#${stored.message.id}`,
+      ...(shown.length ? { snippets: `${shown.length} live snippet${shown.length === 1 ? '' : 's'} in the answer: ${shown.join(', ')} - once the `
+        + 'chat has shown it, board_snippet_view <id> gives its picture and console' + (board.snippets ? ` (${board.snippets} made from your HTML)` : '') } : {}),
       ...(stored.records.length ? { recorded: stored.records.map((r) => `✓ ${r.line}`) } : {}),
       ...(stored.terminal.some((t) => t.urgent) ? { toTerminal: stored.terminal.filter((t) => t.urgent).map((t) => `⚡ item ${t.id} (${t.state})`) } : {}),
       ...w.report(),
@@ -227,4 +233,26 @@ export function register(server: McpServer, client: AlfredClient): void {
       body: { items: input.items.map((t) => ({ text: maskProseWith(ctx, t.text), urgent: t.urgent, reason: t.reason, mirror: t.reason !== 'compact' })) } });
     return ok({ stored: stored.map((s) => `item ${s.id} (${s.state})`) });
   }));
+}
+
+/**
+ * The ids the chat gives the live snippets of an answer (chat-message.component's snippet owner): `inline:chat:<message>:a:<n>`,
+ * n counting the answer's ```html live / ```python live / ```mermaid blocks in order - the ids board_snippet_view reads.
+ */
+export function chatSnippetIds(messageId: number, text: string): string[] {
+  const ids: string[] = [];
+  let n = 0;
+  let fence: string | null = null;
+  for (const line of text.split('\n')) {
+    const open = /^\s*(`{3,}|~{3,})\s*([\w-]*)(.*)$/.exec(line);
+    if (fence) {
+      if (open && open[1].startsWith(fence) && !open[2] && !open[3].trim()) fence = null;
+      continue;
+    }
+    if (!open) continue;
+    fence = open[1];
+    const lang = open[2].toLowerCase();
+    if (lang === 'mermaid' || ((lang === 'html' || lang === 'python') && /\blive\b/.test(open[3]))) ids.push(`inline:chat:${messageId}:a:${n++}`);
+  }
+  return ids;
 }

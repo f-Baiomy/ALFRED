@@ -214,3 +214,17 @@ test('a runner reads the waiting chat messages from the start: those sent before
   assert.equal(live.chatsFromStart('now'), 'now');
   assert.equal(live.chatsFromStart('12.345'), '12.345');
 });
+
+test('a board change the user asks for is offered as a proposal, never sent back to the user to do by hand', () => {
+  assert.match(chatLane.CHAT_RULES, /extra\.proposals/);
+  assert.match(chatLane.CHAT_RULES, /Inbox too/);
+  assert.match(chatLane.CHAT_RULES, /never tell the user to do it by hand/);
+});
+
+test('the chat Claude is taught to draw: the visuals guide, the design kit and the tools to check what it drew', () => {
+  assert.match(chatLane.CHAT_RULES, /VISUALS/);
+  assert.match(chatLane.CHAT_RULES, /Never hand-draw SVG/);
+  assert.match(chatLane.CHAT_RULES, /await alfred\.calls\(/);
+  assert.match(chatLane.CHAT_RULES, /<script type="module">/);
+  for (const tool of ['board_lib', 'board_snippet_view', 'board_page_get', 'board_files', 'board_file']) assert.ok(chatLane.chatTools().includes(tool), tool);
+});

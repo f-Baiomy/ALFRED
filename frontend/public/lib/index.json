@@ -216,6 +216,90 @@
    "heavy": false,
    "url": "/lib/lodash/4/lodash.min.js",
    "size": 73015
+  },
+  {
+   "id": "plot",
+   "name": "Observable Plot",
+   "version": "0.6.16",
+   "file": "plot/0.6/plot.umd.min.js",
+   "kind": "script",
+   "provides": "Plot",
+   "about": "quick statistical charts (loads D3)",
+   "heavy": false,
+   "url": "/lib/plot/0.6/plot.umd.min.js",
+   "size": 207408
+  },
+  {
+   "id": "apexcharts",
+   "name": "ApexCharts",
+   "version": "3.54.1",
+   "file": "apexcharts/3/apexcharts.min.js",
+   "kind": "script",
+   "provides": "ApexCharts",
+   "about": "dashboard charts, sparklines, timelines",
+   "heavy": false,
+   "url": "/lib/apexcharts/3/apexcharts.min.js",
+   "size": 539664
+  },
+  {
+   "id": "lucide",
+   "name": "Lucide icons",
+   "version": "0.460.0",
+   "file": "lucide/0.460/lucide.min.js",
+   "kind": "script",
+   "provides": "lucide",
+   "about": "icons: <i data-lucide=\"name\">, lucide.createIcons()",
+   "heavy": false,
+   "url": "/lib/lucide/0.460/lucide.min.js",
+   "size": 355975
+  },
+  {
+   "id": "gridjs",
+   "name": "Grid.js",
+   "version": "6.2.0",
+   "file": "gridjs/6/gridjs.umd.js",
+   "kind": "script",
+   "provides": "gridjs",
+   "about": "sortable, searchable tables",
+   "heavy": false,
+   "url": "/lib/gridjs/6/gridjs.umd.js",
+   "size": 53178
+  },
+  {
+   "id": "gridjs-css",
+   "name": "Grid.js theme",
+   "version": "6.2.0",
+   "file": "gridjs/6/mermaid.min.css",
+   "kind": "css",
+   "provides": "(styles)",
+   "about": "Grid.js styles",
+   "heavy": false,
+   "url": "/lib/gridjs/6/mermaid.min.css",
+   "size": 7774
+  },
+  {
+   "id": "cytoscape",
+   "name": "Cytoscape",
+   "version": "3.30.2",
+   "file": "cytoscape/3/cytoscape.min.js",
+   "kind": "script",
+   "provides": "cytoscape",
+   "about": "graphs and networks",
+   "heavy": false,
+   "url": "/lib/cytoscape/3/cytoscape.min.js",
+   "size": 373304
+  },
+  {
+   "id": "anime",
+   "name": "anime.js",
+   "version": "3.2.2",
+   "file": "anime/3/anime.min.js",
+   "kind": "script",
+   "provides": "anime",
+   "about": "animation",
+   "heavy": false,
+   "url": "/lib/anime/3/anime.min.js",
+   "size": 17384
   }
  ],
  "python": {

@@ -49,8 +49,9 @@ describe('ChatPanelComponent - narrow dock', () => {
   it('keeps the Send button inside the panel', () => {
     const f = render();
     const dock: HTMLElement = f.nativeElement.querySelector('.chat-dock');
-    expect(dock.getBoundingClientRect().width).toBeCloseTo(466, 0);
-    const send = Array.from(dock.querySelectorAll('.chat-composer button')).find((b) => b.textContent?.includes('Send'));
+    // the chosen width, or under 900 px the window's width less its margins - never wider than the window
+    expect(dock.getBoundingClientRect().width).toBeLessThanOrEqual(innerWidth);
+    const send = dock.querySelector('.chat-composer .board-editor-send');
     expect(send).withContext('Send button').toBeTruthy();
     expect(inside(send!, dock)).withContext('Send inside the panel').toBeTrue();
     f.nativeElement.remove();
@@ -124,5 +125,56 @@ describe('ChatPanelComponent - in the rail', () => {
     const found = Array.from(rail.querySelectorAll('.chat-msg.hit')).map((e) => e.getAttribute('data-chat-id'));
     expect(found).toEqual(['2']);
     rail.remove();
+  });
+});
+
+/** The redesign: one header row, the composer as one box with its tools inside, the formatting behind "Aa". */
+describe('ChatPanelComponent - the window', () => {
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      imports: [ChatPanelComponent],
+      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([]),
+        { provide: BoardSocketService, useValue: { events$: NEVER, reconnected$: NEVER } }],
+    });
+  });
+
+  function render() {
+    const state = TestBed.inject(ChatStateService);
+    state.project.set('p');
+    state.summaries.set([{ scope: 'c1', name: 'c1', kind: 'cycle', lastId: 1, lastAt: null, lastPreview: '', lastAuthor: 'USER', waiting: 1,
+      typing: false, needsYou: { questions: 0, proposals: 0, confirms: 0 }, claudeOn: true, terminal: null }]);
+    state.threads.set(new Map([['c1', { scope: 'c1', more: false, messages: [msg(1, { state: 'WAITING' })] }]]));
+    state.openScope.set('c1');
+    const f = TestBed.createComponent(ChatPanelComponent);
+    document.body.appendChild(f.nativeElement);
+    f.detectChanges();
+    return f;
+  }
+
+  it('says who answers in one header row and keeps the rest in the ⋯ menu', () => {
+    const f = render();
+    const head: HTMLElement = f.nativeElement.querySelector('.chat-head');
+    expect(head.querySelector('.chat-who small')?.textContent).toContain('Claude on');
+    expect(head.querySelector('.chat-who small')?.textContent).toContain('1 waiting');
+    expect(f.nativeElement.querySelector('.chat-menu')).toBeNull();
+    (Array.from(head.querySelectorAll('.chat-icon')).find((b) => b.textContent?.trim() === '⋯') as HTMLElement).click();
+    f.detectChanges();
+    const menu = f.nativeElement.querySelector('.chat-menu')?.textContent ?? '';
+    expect(menu).toContain('Compact now');
+    expect(menu).toContain('Full screen');
+    f.nativeElement.remove();
+  });
+
+  it('shows the formatting toolbar only after Aa, and folds the chat to a tab with –', () => {
+    const f = render();
+    const state = TestBed.inject(ChatStateService);
+    expect(f.nativeElement.querySelector('.chat-composer .board-editor-tb')).toBeNull();
+    (Array.from(f.nativeElement.querySelectorAll('.board-editor-cbtn') as NodeListOf<HTMLElement>).find((b) => b.textContent?.trim() === 'Aa')!).click();
+    f.detectChanges();
+    expect(f.nativeElement.querySelector('.chat-composer .board-editor-tb')).not.toBeNull();
+    (Array.from(f.nativeElement.querySelectorAll('.chat-head .chat-icon') as NodeListOf<HTMLElement>).find((b) => b.textContent?.trim() === '–')!).click();
+    expect(state.openScope()).toBeNull();
+    expect(state.tabs()).toEqual(['c1']);
+    f.nativeElement.remove();
   });
 });

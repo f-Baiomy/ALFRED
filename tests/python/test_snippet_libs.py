@@ -30,7 +30,8 @@ class SnippetLibsTest(unittest.TestCase):
         names = {"chartjs": "chart.js", "echarts": "echarts", "d3": "d3", "plotly": "plotly.js-dist-min", "mermaid": "mermaid",
                  "three": "three", "preact": "preact", "htm": "htm", "alpine": "alpinejs", "tailwind": "@tailwindcss/browser",
                  "marked": "marked", "highlight": "@highlightjs/cdn-assets", "papaparse": "papaparse", "dayjs": "dayjs",
-                 "lodash": "lodash"}
+                 "lodash": "lodash", "plot": "@observablehq/plot", "apexcharts": "apexcharts", "lucide": "lucide", "gridjs": "gridjs",
+                 "cytoscape": "cytoscape", "anime": "animejs"}
         for lib in lib_index.shelf():
             package = names.get(lib["id"].split("-")[0])
             self.assertIsNotNone(package, lib["id"])

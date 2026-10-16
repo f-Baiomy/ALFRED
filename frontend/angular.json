@@ -125,6 +125,41 @@
                 "glob": "lodash.min.js",
                 "input": "node_modules/lodash",
                 "output": "lib/lodash/4"
+              },
+              {
+                "glob": "plot.umd.min.js",
+                "input": "node_modules/@observablehq/plot/dist",
+                "output": "lib/plot/0.6"
+              },
+              {
+                "glob": "apexcharts.min.js",
+                "input": "node_modules/apexcharts/dist",
+                "output": "lib/apexcharts/3"
+              },
+              {
+                "glob": "lucide.min.js",
+                "input": "node_modules/lucide/dist/umd",
+                "output": "lib/lucide/0.460"
+              },
+              {
+                "glob": "gridjs.umd.js",
+                "input": "node_modules/gridjs/dist",
+                "output": "lib/gridjs/6"
+              },
+              {
+                "glob": "mermaid.min.css",
+                "input": "node_modules/gridjs/dist/theme",
+                "output": "lib/gridjs/6"
+              },
+              {
+                "glob": "cytoscape.min.js",
+                "input": "node_modules/cytoscape/dist",
+                "output": "lib/cytoscape/3"
+              },
+              {
+                "glob": "anime.min.js",
+                "input": "node_modules/animejs/lib",
+                "output": "lib/anime/3"
               }
             ],
             "styles": [
@@ -143,7 +178,7 @@
                 {
                   "type": "initial",
                   "maximumWarning": "1MB",
-                  "maximumError": "1.35MB"
+                  "maximumError": "1.4MB"
                 },
                 {
                   "type": "anyComponentStyle",
@@ -279,6 +314,41 @@
                 "glob": "lodash.min.js",
                 "input": "node_modules/lodash",
                 "output": "lib/lodash/4"
+              },
+              {
+                "glob": "plot.umd.min.js",
+                "input": "node_modules/@observablehq/plot/dist",
+                "output": "lib/plot/0.6"
+              },
+              {
+                "glob": "apexcharts.min.js",
+                "input": "node_modules/apexcharts/dist",
+                "output": "lib/apexcharts/3"
+              },
+              {
+                "glob": "lucide.min.js",
+                "input": "node_modules/lucide/dist/umd",
+                "output": "lib/lucide/0.460"
+              },
+              {
+                "glob": "gridjs.umd.js",
+                "input": "node_modules/gridjs/dist",
+                "output": "lib/gridjs/6"
+              },
+              {
+                "glob": "mermaid.min.css",
+                "input": "node_modules/gridjs/dist/theme",
+                "output": "lib/gridjs/6"
+              },
+              {
+                "glob": "cytoscape.min.js",
+                "input": "node_modules/cytoscape/dist",
+                "output": "lib/cytoscape/3"
+              },
+              {
+                "glob": "anime.min.js",
+                "input": "node_modules/animejs/lib",
+                "output": "lib/anime/3"
               }
             ],
             "styles": [

@@ -1,0 +1,494 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Board chat redesign</title>
+<style>
+:root {
+  --bg: #141416; --panel: #18181b; --card: rgba(255,255,255,.035); --card-2: rgba(255,255,255,.06); --inner: rgba(0,0,0,.3);
+  --border: rgba(255,255,255,.09); --border-strong: rgba(255,255,255,.18);
+  --blue: #5b8def; --blue-light: #8fb2f7; --cyan: #7ee3d8; --green: #7ee3a0; --amber: #e3a24a; --red: #e36a6a;
+  --text: #f2f2f5; --dim: #8b8b93; --faint: #5b5b63; --pop: #1e1e21;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 "Segoe UI", system-ui, sans-serif; }
+.page { max-width: 1500px; margin: 0 auto; padding: 24px 16px 60px; }
+h1 { font-size: 20px; margin: 0 0 4px; }
+.lead { color: var(--dim); margin: 0 0 20px; max-width: 900px; }
+.frames { display: flex; gap: 22px; flex-wrap: wrap; align-items: flex-start; }
+.frame { width: 440px; max-width: 100%; }
+.frame > .cap { font-size: 12px; color: var(--dim); text-transform: uppercase; letter-spacing: .06em; margin: 0 0 6px; }
+.frame > .cap b { color: var(--text); }
+
+/* ---------- the chat ---------- */
+.chat { height: 760px; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--border-strong);
+  border-radius: 12px; overflow: hidden; position: relative; }
+
+.head { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--border); flex: none; }
+.av { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 700; flex: none;
+  background: color-mix(in srgb, var(--cyan) 18%, transparent); color: var(--cyan); position: relative; }
+.av::after { content: ""; position: absolute; right: -1px; bottom: -1px; width: 9px; height: 9px; border-radius: 50%;
+  background: var(--green); border: 2px solid var(--panel); }
+.who { flex: 1; min-width: 0; }
+.who b { display: block; font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.who small { display: block; font-size: 12px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.who small .on { color: var(--green); }
+.who small .busy { color: var(--blue-light); }
+.ib { width: 30px; height: 30px; border-radius: 8px; border: 0; background: none; color: var(--dim); display: grid; place-items: center;
+  font-size: 15px; cursor: pointer; flex: none; }
+.ib:hover, .ib.on { background: var(--card-2); color: var(--text); }
+.pill { font-size: 11px; padding: 1px 8px; border-radius: 99px; border: 1px solid var(--border-strong); color: var(--dim); white-space: nowrap; }
+.pill.amber { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 45%, transparent); }
+
+/* one quiet line: memory + catch-up, opens the details */
+.ctx { display: flex; align-items: center; gap: 8px; padding: 6px 12px; font-size: 12px; color: var(--dim); border-bottom: 1px solid var(--border);
+  background: var(--card); cursor: pointer; flex: none; }
+.ctx .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--amber); flex: none; }
+.ctx .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ctx .chev { color: var(--faint); }
+.ctx-open { padding: 10px 12px 12px; border-bottom: 1px solid var(--border); background: var(--card); font-size: 12px; color: var(--dim); flex: none; }
+.ctx-open .row { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; }
+.ctx-open .row b { color: var(--text); font-weight: 500; }
+.ctx-open .acts { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.btn { font: inherit; font-size: 12px; padding: 4px 10px; border-radius: 7px; border: 1px solid var(--border-strong); background: var(--card-2);
+  color: var(--text); cursor: pointer; }
+.btn.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+.btn.ghost { background: none; }
+
+.stream { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 14px 8px; }
+.day { text-align: center; font-size: 11px; color: var(--faint); margin: 2px 0 12px; }
+.sys { text-align: center; margin: 10px 0; }
+.sys span { font-size: 11px; color: var(--faint); background: var(--card); border: 1px solid var(--border); border-radius: 99px; padding: 2px 10px; }
+
+.me { display: flex; flex-direction: column; align-items: flex-end; margin: 14px 0 4px; }
+.bubble { max-width: 85%; background: color-mix(in srgb, var(--blue) 16%, var(--panel)); border: 1px solid color-mix(in srgb, var(--blue) 30%, transparent);
+  border-radius: 14px 14px 4px 14px; padding: 8px 12px; }
+.meta { font-size: 11px; color: var(--faint); margin-top: 3px; display: flex; gap: 8px; align-items: center; }
+.meta .ok { color: var(--green); }
+.meta .link { color: var(--blue-light); cursor: pointer; }
+
+.claude { margin: 12px 0 4px; }
+.claude .by { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--dim); margin-bottom: 4px; }
+.claude .by i { width: 18px; height: 18px; border-radius: 50%; background: color-mix(in srgb, var(--blue) 25%, transparent); color: var(--blue-light);
+  font-style: normal; display: grid; place-items: center; font-size: 10px; }
+.answer { padding: 0 2px 0 24px; }
+.answer p { margin: 0 0 8px; }
+.answer ul { margin: 0 0 8px; padding: 0; }
+.answer li { margin-inline-start: 18px; }
+.chip { font: 12px Consolas, monospace; color: var(--blue-light); background: color-mix(in srgb, var(--blue) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--blue) 25%, transparent); border-radius: 6px; padding: 0 6px; white-space: nowrap; unicode-bidi: isolate; }
+.foot { padding-left: 24px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font-size: 11px; color: var(--faint); }
+.tag { display: inline-flex; gap: 5px; align-items: center; border-radius: 99px; padding: 1px 9px; border: 1px solid var(--border); background: var(--card); }
+.tag.rec { color: var(--green); border-color: color-mix(in srgb, var(--green) 35%, transparent); }
+.tag .u { color: var(--blue-light); }
+
+.prop { margin: 8px 0 4px 24px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--card); padding: 10px 12px; }
+.prop .t { font-size: 13px; margin-bottom: 8px; }
+.prop .t small { display: block; color: var(--dim); font-size: 12px; }
+.prop .b { display: flex; gap: 6px; }
+
+.steps { margin-left: 24px; border-left: 2px solid color-mix(in srgb, var(--blue) 45%, transparent); padding: 2px 0 2px 10px; font-size: 12px; color: var(--dim); }
+.steps div::before { content: "✓ "; color: var(--green); }
+.steps div.now::before { content: "◌ "; color: var(--blue-light); }
+.typing { display: inline-flex; gap: 3px; margin-left: 4px; }
+.typing i { width: 5px; height: 5px; border-radius: 50%; background: var(--blue-light); animation: b 1s infinite; }
+.typing i:nth-child(2) { animation-delay: .2s; } .typing i:nth-child(3) { animation-delay: .4s; }
+@keyframes b { 50% { opacity: .2; } }
+
+.jump { position: absolute; right: 16px; bottom: 120px; font-size: 12px; background: var(--pop); border: 1px solid var(--border-strong);
+  border-radius: 99px; padding: 4px 12px; color: var(--text); box-shadow: 0 6px 18px rgba(0,0,0,.45); }
+
+/* composer: one box, tools inside */
+.comp { padding: 10px 12px 12px; border-top: 1px solid var(--border); flex: none; }
+.chips { display: flex; gap: 6px; margin-bottom: 6px; flex-wrap: wrap; font-size: 12px; color: var(--dim); align-items: center; }
+.box { border: 1px solid var(--border-strong); border-radius: 12px; background: var(--inner); }
+.box .in { padding: 10px 12px 4px; color: var(--faint); min-height: 42px; }
+.box .in.typed { color: var(--text); }
+.box .bar { display: flex; align-items: center; gap: 2px; padding: 4px 6px 6px; }
+.box .bar .sp { flex: 1; }
+.tb { font: inherit; font-size: 13px; color: var(--dim); background: none; border: 0; border-radius: 7px; padding: 3px 7px; cursor: pointer; }
+.tb:hover, .tb.on { background: var(--card-2); color: var(--text); }
+.tb.urgent.on { color: var(--amber); }
+.send { width: 32px; height: 32px; border-radius: 9px; border: 0; background: var(--blue); color: #fff; font-size: 15px; display: grid; place-items: center; }
+.send.off { background: var(--card-2); color: var(--faint); }
+.fmt { display: flex; gap: 2px; padding: 4px 6px; border-bottom: 1px solid var(--border); }
+.hint { font-size: 11px; color: var(--faint); margin-top: 5px; text-align: center; }
+
+/* menus */
+.menu { position: absolute; right: 10px; top: 48px; width: 230px; background: var(--pop); border: 1px solid var(--border-strong); border-radius: 10px;
+  padding: 5px; box-shadow: 0 16px 40px rgba(0,0,0,.55); z-index: 5; font-size: 13px; }
+.menu div { display: flex; gap: 10px; align-items: center; padding: 6px 9px; border-radius: 7px; }
+.menu div:hover { background: var(--card-2); }
+.menu div span { width: 18px; text-align: center; color: var(--dim); }
+.menu div kbd { margin-left: auto; font: 11px Consolas, monospace; color: var(--faint); }
+.menu hr { border: 0; border-top: 1px solid var(--border); margin: 4px 2px; }
+.menu .sec { font-size: 10px; text-transform: uppercase; letter-spacing: .07em; color: var(--faint); padding: 6px 9px 2px; }
+
+/* notes */
+.notes { flex: 1; min-width: 300px; max-width: 520px; }
+.notes h2 { font-size: 15px; margin: 22px 0 8px; }
+.notes h2:first-child { margin-top: 0; }
+.notes table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.notes td { border-top: 1px solid var(--border); padding: 7px 6px; vertical-align: top; }
+.notes td:first-child { color: var(--dim); width: 40%; }
+.notes ul { margin: 0; padding-left: 18px; color: var(--dim); font-size: 13px; }
+.notes li { margin: 4px 0; }
+.notes li b { color: var(--text); font-weight: 500; }
+.rtl { direction: rtl; text-align: right; }
+
+/* ---------- A: floating bar ---------- */
+.sec-h { font-size: 16px; margin: 28px 0 6px; }
+.pages { display: flex; gap: 18px; flex-wrap: wrap; }
+.pg-wrap { flex: 1 1 440px; max-width: 720px; }
+.pg-wrap .cap { font-size: 12px; color: var(--dim); text-transform: uppercase; letter-spacing: .06em; margin: 0 0 6px; }
+.pg-wrap .cap b { color: var(--text); }
+.pg { position: relative; height: 560px; border: 1px solid var(--border-strong); border-radius: 12px; overflow: hidden; background: var(--bg); }
+.pg-nav { display: flex; gap: 18px; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--border); font-size: 12px; color: var(--dim); }
+.pg-nav b { color: var(--text); letter-spacing: .08em; }
+.pg-nav .on { color: var(--blue-light); }
+.pg-body { padding: 18px; display: grid; gap: 12px; }
+.ph { height: 18px; border-radius: 6px; background: var(--card-2); }
+.ph.tall { height: 120px; }
+.w40 { width: 40%; } .w50 { width: 50%; } .w60 { width: 60%; } .w70 { width: 70%; } .w80 { width: 80%; }
+
+.fb { position: absolute; right: 16px; bottom: 16px; display: flex; align-items: center; gap: 10px; padding: 8px 10px 8px 16px;
+  background: var(--pop); border: 1px solid var(--border-strong); border-radius: 99px; box-shadow: 0 10px 30px rgba(0,0,0,.5); font-size: 14px; }
+.fb.open { border-color: var(--blue); }
+.fb-ic { position: relative; font-size: 17px; }
+.fb-ic em { position: absolute; left: 10px; top: 8px; min-width: 17px; height: 17px; border-radius: 99px; background: var(--red); color: #fff;
+  font: 700 10px/17px "Segoe UI", sans-serif; text-align: center; padding: 0 4px; font-style: normal; border: 2px solid var(--pop); }
+.fb-avs { display: flex; }
+.fb-avs .fa { margin-left: -6px; border: 2px solid var(--pop); }
+.fb-more { width: 26px; height: 26px; border-radius: 50%; background: var(--card-2); display: grid; place-items: center; color: var(--dim); font-size: 12px; }
+.fa { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-size: 10px; font-weight: 700; flex: none; position: relative; }
+.fa.cyc { background: #1f3b3a; color: var(--cyan); }
+.fa.prj { background: #1f2a44; color: var(--blue-light); }
+.fa.need { box-shadow: 0 0 0 2px var(--amber); }
+.fa.typing::after { content: "•••"; position: absolute; bottom: -9px; font-size: 10px; color: var(--blue-light); letter-spacing: -1px; animation: b 1s infinite; }
+
+.fl { position: absolute; right: 16px; bottom: 70px; width: 320px; background: var(--pop); border: 1px solid var(--border-strong); border-radius: 14px;
+  box-shadow: 0 20px 50px rgba(0,0,0,.6); padding: 8px; }
+.fl-head { display: flex; align-items: center; gap: 10px; padding: 4px 6px 8px; }
+.fl-head b { flex: 1; }
+.fl-find { font-size: 12px; color: var(--faint); border: 1px solid var(--border); border-radius: 99px; padding: 3px 10px; }
+.fl-sec { font-size: 10px; text-transform: uppercase; letter-spacing: .07em; color: var(--faint); padding: 6px 6px 3px; }
+.fl-sec.need { color: var(--amber); }
+.fl-row { display: flex; align-items: center; gap: 10px; padding: 6px; border-radius: 9px; position: relative; }
+.fl-row:hover { background: var(--card-2); }
+.fl-row > div { flex: 1; min-width: 0; }
+.fl-row b { display: block; font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fl-row small { display: block; font-size: 12px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fl-row small.amber { color: var(--amber); } .fl-row small.busy { color: var(--blue-light); font-style: italic; }
+.fl-row time { font-size: 11px; color: var(--faint); align-self: flex-start; margin-top: 2px; }
+.ub { font-style: normal; min-width: 18px; height: 18px; border-radius: 99px; background: var(--blue); color: #fff; font-size: 10px; font-weight: 700;
+  display: grid; place-items: center; padding: 0 5px; }
+.fl-row .ub { position: absolute; right: 8px; bottom: 8px; }
+
+.fw { position: absolute; right: 16px; bottom: 70px; width: 340px; height: 400px; display: flex; flex-direction: column; background: var(--panel);
+  border: 1px solid var(--border-strong); border-radius: 14px 14px 10px 10px; box-shadow: 0 20px 50px rgba(0,0,0,.6); overflow: hidden; }
+.fw-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--border); color: var(--dim); font-size: 13px; }
+.fw-head > div { flex: 1; min-width: 0; }
+.fw-head b { display: block; color: var(--text); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fw-head small { display: block; font-size: 11px; } .fw-head .on { color: var(--green); }
+.fw-head > span { width: 22px; text-align: center; cursor: pointer; }
+.fw-body { flex: 1; min-height: 0; overflow: auto; padding: 8px 12px; font-size: 13px; }
+.fw-comp { padding: 8px 10px 10px; border-top: 1px solid var(--border); }
+.fw-comp .box .in { min-height: 30px; padding: 7px 10px 2px; }
+.fw-fold { position: absolute; right: 372px; bottom: 16px; display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: var(--pop);
+  border: 1px solid var(--border-strong); border-radius: 12px 12px 8px 8px; font-size: 13px; color: var(--dim); box-shadow: 0 10px 30px rgba(0,0,0,.5); }
+.fw-fold b { color: var(--text); font-weight: 600; }
+.sm .bubble { font-size: 13px; padding: 6px 10px; }
+.claude.sm .answer { padding-left: 24px; }
+.prop.sm { padding: 8px 10px; }
+.notes.wide { max-width: none; margin-top: 12px; }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Board chat - redesign mock</h1>
+  <p class="lead">The docked chat at its real width (440 px), with the 61813 conversation. One rule throughout: the conversation gets the
+    space; everything else is one quiet line, one menu, or shown only when it needs you. Nothing is removed - it moves.</p>
+
+  <h2 class="sec-h">A · The chats bar floats bottom-right (replaces the left sidebar)</h2>
+  <p class="lead">The page keeps its full width - nothing is pushed right. One pill holds every chat; a chat opens as a window above it,
+    LinkedIn-style. Ctrl+K still opens the list.</p>
+
+  <div class="pages">
+    <!-- A1 collapsed -->
+    <div class="pg-wrap"><p class="cap"><b>A1 · Closed</b> - the pill</p>
+      <div class="pg">
+        <div class="pg-nav"><b>ALFRED</b><span>Live Calls</span><span class="on">Session Cycles</span><span>Board</span><span>Profiles</span><span>Settings</span></div>
+        <div class="pg-body"><div class="ph w60"></div><div class="ph w40"></div><div class="ph w80 tall"></div><div class="ph w70"></div><div class="ph w50"></div></div>
+        <div class="fb">
+          <span class="fb-ic">💬<em>4</em></span><b>Chats</b>
+          <span class="fb-avs"><span class="fa cyc need">6R</span><span class="fa prj">PR</span><span class="fa cyc typing">ZC</span></span>
+          <span class="fb-more">⋯</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- A2 list open -->
+    <div class="pg-wrap"><p class="cap"><b>A2 · Clicked</b> - the list opens above it</p>
+      <div class="pg">
+        <div class="pg-nav"><b>ALFRED</b><span>Live Calls</span><span class="on">Session Cycles</span><span>Board</span><span>Profiles</span><span>Settings</span></div>
+        <div class="pg-body"><div class="ph w60"></div><div class="ph w40"></div><div class="ph w80 tall"></div><div class="ph w70"></div><div class="ph w50"></div></div>
+        <div class="fl">
+          <div class="fl-head"><b>Chats</b><span class="fl-find">⌕ Find a chat</span></div>
+          <div class="fl-sec need">Needs you</div>
+          <div class="fl-row"><span class="fa cyc need">6R</span><div><b>61813 Refunded Requests…</b><small class="amber">1 proposal to accept</small></div><time>09:29</time></div>
+          <div class="fl-sec">Project</div>
+          <div class="fl-row"><span class="fa prj">PR</span><div><b>odeysys</b><small>Claude: the export needs 2+ branches…</small></div><time>08:12</time><em class="ub">2</em></div>
+          <div class="fl-sec">Cycles</div>
+          <div class="fl-row"><span class="fa cyc typing">ZC</span><div><b>Checkout retry</b><small class="busy">Claude is answering…</small></div><time>now</time></div>
+          <div class="fl-row"><span class="fa cyc">BF</span><div><b>Branch filter fix</b><small>You: thanks</small></div><time>Mon</time></div>
+        </div>
+        <div class="fb open">
+          <span class="fb-ic">💬<em>4</em></span><b>Chats</b>
+          <span class="fb-avs"><span class="fa cyc need">6R</span><span class="fa prj">PR</span><span class="fa cyc typing">ZC</span></span>
+          <span class="fb-more">▾</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- A3 a chat open -->
+    <div class="pg-wrap"><p class="cap"><b>A3 · A chat open</b> - window above the pill, a second one folded</p>
+      <div class="pg">
+        <div class="pg-nav"><b>ALFRED</b><span>Live Calls</span><span class="on">Session Cycles</span><span>Board</span><span>Profiles</span><span>Settings</span></div>
+        <div class="pg-body"><div class="ph w60"></div><div class="ph w40"></div><div class="ph w80 tall"></div><div class="ph w70"></div><div class="ph w50"></div></div>
+        <div class="fw-fold"><span class="fa prj">PR</span><b>odeysys</b><em class="ub">2</em><span>✕</span></div>
+        <div class="fw">
+          <div class="fw-head"><span class="fa cyc">6R</span><div><b>61813 Refunded Requests…</b><small><span class="on">● Claude on</span></small></div><span>⌕</span><span>⋯</span><span>⤢</span><span>–</span><span>✕</span></div>
+          <div class="fw-body">
+            <div class="me sm"><div class="bubble">move <span class="chip">#51</span> back to inbox</div></div>
+            <div class="claude sm"><div class="by"><i>✦</i> Claude · 09:29</div>
+              <div class="answer"><p>Here it is for you to accept:</p></div>
+              <div class="prop sm"><div class="t">Move <span class="chip">#51</span> → <b>Inbox</b></div><div class="b"><button class="btn primary">Accept</button><button class="btn ghost">Decline</button></div></div>
+            </div>
+          </div>
+          <div class="fw-comp"><div class="box"><div class="in">Message Claude…</div><div class="bar"><button class="tb">@</button><button class="tb">/</button><button class="tb">Aa</button><button class="tb urgent">⚡</button><span class="sp"></span><button class="send off">↑</button></div></div></div>
+        </div>
+        <div class="fb">
+          <span class="fb-ic">💬<em>3</em></span><b>Chats</b>
+          <span class="fb-avs"><span class="fa prj">PR</span><span class="fa cyc typing">ZC</span></span>
+          <span class="fb-more">⋯</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes wide">
+    <table>
+      <tr><td>The pill</td><td>💬 with the unread count, "Chats", the 3 chats that changed last (initials; a cycle teal, the project blue). An amber ring = it needs you (a question, a proposal, a resend to confirm); pulsing dots = Claude is answering.</td></tr>
+      <tr><td>Click the pill</td><td>The list opens above it: find, Needs you, Project, Cycles - the same rows the side bar has now. Click an avatar in the pill to open that chat directly.</td></tr>
+      <tr><td>A chat</td><td>A window (440 × 620) above the pill. – folds it to a tab beside the pill, ⤢ goes expanded / full screen, ✕ closes. A second chat opens beside the first (replaces split view); more than two fold into tabs.</td></tr>
+      <tr><td>The page</td><td>Never pushed right: the side bar and its 268 / 64 px are gone. The pill can be dragged to the bottom-left; it remembers.</td></tr>
+      <tr><td>Narrow window (&lt; 900 px)</td><td>The pill shrinks to the 💬 circle; a chat opens full height.</td></tr>
+    </table>
+  </div>
+
+  <h2 class="sec-h">B · Inside a chat window</h2>
+
+  <div class="frames">
+
+    <!-- ===================================================== 1. reading -->
+    <div class="frame">
+      <p class="cap"><b>1 · Reading</b> - head 1 row, composer 1 box</p>
+      <div class="chat">
+        <div class="head">
+          <div class="av">6R</div>
+          <div class="who"><b>61813 Refunded Requests filters</b><small><span class="on">● Claude on</span> · LAPTOP-34BNETR7</small></div>
+          <button class="ib" title="Search (Ctrl+F)">⌕</button>
+          <button class="ib" title="More">⋯</button>
+          <button class="ib" title="Close">✕</button>
+        </div>
+        <div class="ctx"><span class="dot"></span><span class="grow">Terminal moved on · next answer catches up</span><span class="pill">22/100</span><span class="chev">▾</span></div>
+
+        <div class="stream">
+          <div class="day">Today</div>
+          <div class="claude">
+            <div class="by"><i>✦</i> Claude · 09:27</div>
+            <div class="answer"><p>Agreed: Export To Excel is accepted only with a real export call with 2+ branches.</p></div>
+            <div class="foot"><span class="tag rec">✓ Decision saved in the brief <span class="u">Undo</span></span></div>
+          </div>
+
+          <div class="me">
+            <div class="bubble">move <span class="chip">▣ Export To Excel exports #51</span> back to inbox</div>
+            <div class="meta"><span>09:29</span><span class="ok">✓✓ answered</span><span title="Delivered to the terminal session">↗ terminal</span></div>
+          </div>
+
+          <div class="sys"><span>↻ caught up with the terminal (+1 entry)</span></div>
+
+          <div class="claude">
+            <div class="by"><i>✦</i> Claude · 09:29 · 14 s</div>
+            <div class="answer"><p>I can't move cards myself - here it is for you to accept:</p></div>
+            <div class="prop">
+              <div class="t">Move <span class="chip">#51</span> → <b>Inbox</b><small>Now in To do</small></div>
+              <div class="b"><button class="btn primary">Accept</button><button class="btn ghost">Decline</button></div>
+            </div>
+          </div>
+
+          <div class="claude">
+            <div class="by"><i>✦</i> Claude · 09:31</div>
+            <div class="answer rtl">
+              <p><b>ملخّص الحالة</b></p>
+              <ul>
+                <li><span class="chip">#44</span> اتعمله Verified، بس الـ re-test رجّع 0 rows.</li>
+                <li><span class="chip">#50</span> اتقفل Fine.</li>
+                <li dir="ltr" style="text-align:left"><span class="chip">#39 search stalls</span> : Fine, it was a breakpoint.</li>
+              </ul>
+              <p>تحب أعمل إيه؟</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="comp">
+          <div class="box">
+            <div class="in">Message Claude… <span style="opacity:.7">@ mention · / skills</span></div>
+            <div class="bar">
+              <button class="tb" title="Attach a mention">@</button>
+              <button class="tb" title="Skills">/</button>
+              <button class="tb" title="Formatting">Aa</button>
+              <button class="tb urgent" title="Answer this first">⚡</button>
+              <span class="sp"></span>
+              <button class="send off">↑</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================================================== 2. answering -->
+    <div class="frame">
+      <p class="cap"><b>2 · Claude answering</b> - steps live, then fold</p>
+      <div class="chat">
+        <div class="head">
+          <div class="av">6R</div>
+          <div class="who"><b>61813 Refunded Requests filters</b><small><span class="busy">● answering<span class="typing"><i></i><i></i><i></i></span></span> · 1 waiting</small></div>
+          <button class="ib">⌕</button><button class="ib">⋯</button><button class="ib">✕</button>
+        </div>
+
+        <div class="stream">
+          <div class="me">
+            <div class="bubble">why does the search with two branches return only one?</div>
+            <div class="meta"><span>09:40</span><span style="color:var(--blue-light)">✓ Claude has it</span></div>
+          </div>
+          <div class="claude">
+            <div class="by"><i>✦</i> Claude · working 6 s <span class="link" style="margin-left:auto;color:var(--blue-light)">Stop</span></div>
+            <div class="steps">
+              <div>reading the last 3 calls to /refunded-requests</div>
+              <div>comparing request bodies</div>
+              <div class="now">looking at BranchFilter.java</div>
+            </div>
+          </div>
+
+          <div class="me">
+            <div class="bubble">also check the export</div>
+            <div class="meta"><span>09:40</span><span>waiting · next</span><span class="link">Edit</span><span class="link">Cancel</span></div>
+          </div>
+        </div>
+        <div class="jump">↓ Latest</div>
+
+        <div class="comp">
+          <div class="chips">Sending with <span class="chip">↘ call in:8421</span> <span style="cursor:pointer">✕</span></div>
+          <div class="box">
+            <div class="fmt">
+              <button class="tb">B</button><button class="tb"><i>I</i></button><button class="tb">&lt;/&gt;</button><button class="tb">• list</button>
+              <button class="tb">1. list</button><button class="tb">☑</button><button class="tb">⇄</button>
+            </div>
+            <div class="in typed">and compare it with the cycle from yesterday|</div>
+            <div class="bar">
+              <button class="tb">@</button><button class="tb">/</button><button class="tb on">Aa</button><button class="tb urgent on">⚡</button>
+              <span class="sp"></span><button class="send">↑</button>
+            </div>
+          </div>
+          <div class="hint">⚡ answered before the waiting message · Enter sends · Shift+Enter new line</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================================================== 3. menus -->
+    <div class="frame">
+      <p class="cap"><b>3 · ⋯ menu and the context line opened</b></p>
+      <div class="chat">
+        <div class="head">
+          <div class="av">6R</div>
+          <div class="who"><b>61813 Refunded Requests filters</b><small><span class="on">● Claude on</span> · LAPTOP-34BNETR7</small></div>
+          <button class="ib">⌕</button><button class="ib on">⋯</button><button class="ib">✕</button>
+        </div>
+        <div class="ctx"><span class="dot"></span><span class="grow">Terminal moved on · next answer catches up</span><span class="pill">22/100</span><span class="chev">▴</span></div>
+        <div class="ctx-open">
+          <div class="row"><span>🧠 Claude's memory</span><b>copy of the terminal · 03:37</b></div>
+          <div class="row"><span>🗂 Alfred keeps</span><b>35 messages · 0 summaries · 2 decisions</b></div>
+          <div class="row"><span>Last answer</span><b>701k cached · 452 out · 100% from cache</b></div>
+          <div class="acts"><button class="btn">↻ Catch up now</button><button class="btn">What the terminal got</button><button class="btn ghost">Continue in a terminal</button></div>
+        </div>
+
+        <div class="menu">
+          <div class="sec">This chat</div>
+          <div><span>🗂</span>Shared - everything mentioned</div>
+          <div><span>◉</span>Watch while I test</div>
+          <div><span>⇊</span>Compact now</div>
+          <div><span>⚙</span>Settings &amp; notifications</div>
+          <hr>
+          <div class="sec">View</div>
+          <div><span>▭</span>Expanded</div>
+          <div><span>⛶</span>Full screen<kbd>Ctrl+Shift+F</kbd></div>
+          <div><span>◫</span>Open another chat beside</div>
+          <div><span>⧉</span>Separate window</div>
+        </div>
+
+        <div class="stream">
+          <div class="me">
+            <div class="bubble">move <span class="chip">▣ #51</span> back to inbox</div>
+            <div class="meta"><span>09:29</span><span class="ok">✓✓ answered</span></div>
+          </div>
+          <div class="claude">
+            <div class="by"><i>✦</i> Claude · 09:29</div>
+            <div class="answer"><p>Moved after your Accept.</p></div>
+            <div class="foot"><span class="tag rec">✓ #51 → Inbox <span class="u">Undo</span></span></div>
+          </div>
+        </div>
+
+        <div class="comp">
+          <div class="box">
+            <div class="in">Message Claude… <span style="opacity:.7">@ mention · / skills</span></div>
+            <div class="bar"><button class="tb">@</button><button class="tb">/</button><button class="tb">Aa</button><button class="tb urgent">⚡</button>
+              <span class="sp"></span><button class="send off">↑</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================================================== notes -->
+    <div class="notes">
+      <h2>What changes</h2>
+      <table>
+        <tr><td>Head: 4 rows, 11 icons</td><td>1 row: who answers + status in words, ⌕, ⋯, ✕. Everything else in ⋯ (frame 3).</td></tr>
+        <tr><td>Memory pills, meter, "terminal moved on", ↻ 📤 ⇱</td><td>One quiet context line, shown only when something is worth knowing; click opens the details and their actions.</td></tr>
+        <tr><td>Two "→ terminal … delivered · Undo" lines under each message</td><td>One small "↗ terminal" in the message's meta; Undo stays in its hover and in "What the terminal got".</td></tr>
+        <tr><td>Claude's answer in a bordered box</td><td>Plain text under a small "✦ Claude" line, like a document; only your messages are bubbles - easier to tell apart, more room.</td></tr>
+        <tr><td>Records ("✓ recorded … in the brief")</td><td>One green tag with Undo under the answer.</td></tr>
+        <tr><td>"Drag it yourself"</td><td>A proposal card with Accept / Decline (the rule fixed today).</td></tr>
+        <tr><td>Composer: 2 toolbar rows, a hint line, Auto / Mention / Send, a checkbox (~220 px)</td><td>One box (~90 px): @ / Aa ⚡ and Send inside. Formatting opens with Aa; the hint shows only while ⚡ or formatting is on.</td></tr>
+        <tr><td>"Claude is answering" box + live steps</td><td>Status in the head ("● answering…") and a thin step list under your message that folds into "14 s · 3 steps" when done.</td></tr>
+      </table>
+
+      <h2>Kept as is</h2>
+      <ul>
+        <li><b>Every feature</b> - search, Shared, compact, watch, views, split, settings, the terminal items, continue in terminal.</li>
+        <li><b>Text direction</b> - each paragraph and list item in its own direction (the Arabic answer in frame 1).</li>
+        <li><b>Mentions</b> - the same chips, slightly smaller.</li>
+      </ul>
+
+      <h2>Open choices</h2>
+      <ul>
+        <li><b>Claude's answers without a box</b> (frame 1) or keep a light box?</li>
+        <li><b>Search</b> stays an icon in the head, or moves into ⋯?</li>
+        <li><b>Context line</b> always visible, or only when the terminal moved on / Claude is off?</li>
+      </ul>
+    </div>
+  </div>
+</div>
+</body>
+</html>

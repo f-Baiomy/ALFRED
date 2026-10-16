@@ -1,4 +1,4 @@
-import { buildSnippetDoc, libsForDoc, splitSnippetFiles } from './snippet-frame';
+import { buildSnippetDoc, libsForDoc, scopeClassicScripts, SNIPPET_PALETTE, splitSnippetFiles } from './snippet-frame';
 import { importMap, libsOf, SNIPPET_LIBS } from './snippet-libs';
 import { SnippetBridge } from './snippet-bridge';
 import { markdownBlocks } from './markdown-blocks';
@@ -20,6 +20,8 @@ describe('snippet frame document', () => {
     expect(libsOf('preact htm').map((l) => l.id)).toEqual(['preact', 'preact-hooks', 'htm', 'htm-preact']);
     expect(libsOf('highlight').map((l) => l.id)).toEqual(['highlight', 'highlight-css']);
     expect(libsOf('nope')).toEqual([]);
+    expect(libsOf('plot').map((l) => l.id)).withContext('Observable Plot draws with D3').toEqual(['d3', 'plot']);
+    expect(libsOf('gridjs apex anime.js').map((l) => l.id)).toEqual(['gridjs', 'gridjs-css', 'apexcharts', 'anime']);
     expect(SNIPPET_LIBS.every((l) => !l.file.includes('..'))).toBeTrue();
   });
 
@@ -74,6 +76,61 @@ describe('snippet frame document', () => {
     expect(await got).toBe('function function');
     frame.remove();
   });
+
+  /** A snippet run in a real locked frame; resolves with what it posts as `{probe, v}`. */
+  async function probe(source: string, libs: string, files: string[], answer: (op: string, args: Record<string, unknown>) => unknown = () => null,
+                       context: Record<string, unknown> = {}): Promise<unknown> {
+    const inline: Record<string, string> = {};
+    for (const f of files) inline[f] = await fetch(`/lib/${f}`).then((r) => r.text());
+    const frame = document.createElement('iframe');
+    frame.setAttribute('sandbox', 'allow-scripts');
+    frame.style.cssText = 'width:400px;height:300px';
+    const bridge = new SnippetBridge(frame, async (op, args) => answer(op, args), {});
+    const got = new Promise<unknown>((resolve) => {
+      const on = (e: MessageEvent) => { if (e.source === frame.contentWindow && e.data?.probe) { window.removeEventListener('message', on); resolve(e.data.v); } };
+      window.addEventListener('message', on);
+    });
+    frame.srcdoc = buildSnippetDoc({ source, origin: location.origin, libs, inline, context });
+    document.body.appendChild(frame);
+    try {
+      return await got;
+    } finally {
+      bridge.close();
+      frame.remove();
+    }
+  }
+
+  it('gives a classic script that names a window global (const top, var name) its own block, so it runs', async () => {
+    expect(scopeClassicScripts('<script>const top = 1;</script>')).toBe('<script>{\nconst top = 1;\n}</script>');
+    expect(scopeClassicScripts('<script>var name = [1];</script>')).toBe('<script>{\nlet name = [1];\n}</script>');
+    const untouched = '<script>const rows = 1; function draw() {}</script><script type="module">const top = 1;</script><script src="./a.js"></script>';
+    expect(scopeClassicScripts(untouched)).toBe(untouched);
+    const v = await probe('<script>const top = [1, 2]; var name = [3]; function f() { return top.length + name.length; }'
+      + 'parent.postMessage({ probe: 1, v: f() + typeof window.top }, "*");</script>', '', []);
+    expect(v).toBe('3object');
+  }, 20000);
+
+  it('gives ECharts and Chart.js Alfred\'s dark theme and palette unless the snippet sets its own colours', async () => {
+    const v = await probe('<div id="e" style="width:300px;height:200px"></div><canvas id="c"></canvas><script type="module">'
+      + 'const e = echarts.init(document.getElementById("e")); e.setOption({ xAxis: { type: "category", data: ["a"] }, yAxis: {}, series: [{ type: "bar", data: [1] }] });'
+      + 'const c = new Chart(document.getElementById("c"), { type: "bar", data: { labels: ["a"], datasets: [{ data: [1] }, { data: [2], backgroundColor: "#123456" }] } });'
+      + 'parent.postMessage({ probe: 1, v: [e.getOption().color[0], c.data.datasets[0].borderColor, c.data.datasets[1].backgroundColor, '
+      + 'alfred.palette[1], alfred.fmt.ms(1520), getComputedStyle(document.querySelector("#e")).boxSizing, e.getOption().grid[0].containLabel] }, "*");</script>',
+      'echarts chartjs', ['echarts/5/echarts.min.js', 'chartjs/4/chart.umd.js']);
+    expect(v).toEqual([SNIPPET_PALETTE[0], SNIPPET_PALETTE[0], '#123456', SNIPPET_PALETTE[1], '1.52 s', 'border-box', true]);
+  }, 20000);
+
+  it('alfred.calls() reads the calls of the cycle it is shown for, a card\'s snippet the live calls', async () => {
+    const seen: unknown[] = [];
+    const answer = (op: string, args: Record<string, unknown>) => { seen.push(args); return [{ ref: 'in:x' }]; };
+    const src = '<script type="module">const rows = await alfred.calls({ endpoint: "GET /a" }); parent.postMessage({ probe: 1, v: rows.length }, "*");</script>';
+    expect(await probe(src, '', [], answer, { cycleId: 'c-1', chat: 5 })).toBe(1);
+    expect(await probe(src, '', [], answer, { cycleId: 'c-1', card: 12 })).toBe(1);
+    expect(seen).toEqual([
+      { src: 'calls', args: { limit: 1000, cycle: 'c-1', endpoint: 'GET /a' } },
+      { src: 'calls', args: { limit: 1000, endpoint: 'GET /a' } },
+    ]);
+  }, 20000);
 
   it('a frame told its size late says ready only then - with its height first, and a picture of the whole page', async () => {
     // What made the picture tests flaky under load: the frame loaded before it knew its size, said ready, and drew 1 x 1.

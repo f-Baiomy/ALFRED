@@ -477,6 +477,12 @@ one-line summary in text; a visual backs it up.
   block cannot say it - an interactive view, a join of several sources. It runs in a locked frame with no network:
   read data with `alfred.data()`/`alfred.watch()`, keep choices with `alfred.state`, load only what `board_lib` lists.
   Files you attach (`board_attach`) are read with `alfred.files(name)`.
+  - Write `<script type="module">` (own scope, top-level await) and read the data in it - `await alfred.calls()` is the
+    calls of the cycle it is shown for. Never hand-draw SVG with computed coordinates or paste rows into code.
+  - The frame has a design kit and a theme: `.grid`, `.card`, `.kpi` (`.label .value .note`), `.badge.ok|warn|err`,
+    `.bar` (`--v`), `.chart` (`--h`), `.table-wrap`, `td.num`; ECharts, Chart.js, ApexCharts, Plotly, Observable Plot and
+    Mermaid are dark-themed with one palette already (`alfred.palette`, `alfred.colors`) - set no colours unless they
+    mean something; format with `alfred.fmt.ms|num|pct|time|bytes|path`.
 - **Check it before you say it is ready**: open it once on the board, then `board_snippet_view` - read the picture and
   the console. An error in the console means it is not done.
 - Pin a page to the top of a card only when it is the card's dashboard (`board_pin`); save a view the project will

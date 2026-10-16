@@ -113,7 +113,8 @@ export function register(server: McpServer, client: AlfredClient): void {
 
   server.registerTool('board_snippet_view', {
     description: 'What a snippet drew, as a picture, with its console (errors and console.log) - for a page (its id) or a block in a text '
-      + '(inline:card:<cardId>:desc:<n>, inline:card:<cardId>:<commentEntryId>:<n>, inline:cycle:<cycleId>:goal|desc|o<k>:<n>). '
+      + '(inline:card:<cardId>:desc:<n>, inline:card:<cardId>:<commentEntryId>:<n>, inline:cycle:<cycleId>:goal|desc|o<k>:<n>, '
+      + 'inline:chat:<answerMessageId>:a:<n> - chat_reply lists them). '
       + 'Alfred keeps one after each version is first shown on the board; none yet = nobody has opened it since it changed.',
     inputSchema: { id: z.string().min(8).max(200) },
   }, (input) => run(async () => {

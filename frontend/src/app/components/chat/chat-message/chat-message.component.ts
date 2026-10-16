@@ -74,7 +74,8 @@ import { messageOf } from '../../../core/state/board-state.service';
           <app-mention-editor [project]="m.project" [cycleId]="m.scope === 'project' ? null : m.scope" [(value)]="draft" submitLabel="Save"
                               [cancellable]="true" (submitted)="saveEdit($event)" (cancelled)="editing.set(false)" />
         } @else {
-          <div class="board-ev-body"><app-markdown-view [text]="m.text" [previews]="m.author === 'CLAUDE'" [snippetContext]="snippetContext()" /></div>
+          <div class="board-ev-body"><app-markdown-view [text]="m.text" [previews]="m.author === 'CLAUDE'" [snippetContext]="snippetContext()"
+            [snippetOwner]="m.author === 'CLAUDE' ? 'inline:chat:' + m.id + ':a' : null" /></div>
         }
         @if (hasQuestions()) { <app-chat-questions [message]="m" [editable]="editable()" /> }
         @if (hasProposals()) { <app-chat-proposals [message]="m" [editable]="editable()" /> }
@@ -121,20 +122,16 @@ import { messageOf } from '../../../core/state/board-state.service';
         @if (mine() && (m.state === 'TAKEN' || work())) {
           <app-live-work-box [project]="m.project" [chatMessageId]="m.id" [editable]="editable()" />
         }
-        @for (r of records(); track r.id) {
-          <div class="chat-auto rec" [class.undone]="!!r.undoneAt">
-            <span class="ic">✓</span><span>{{ r.line }}</span>
-            <span class="st">{{ r.kind.toLowerCase() }}</span>
-            @if (!r.undoneAt && editable()) { <button type="button" class="board-link" (click)="undo(r)">Undo</button> } @else { <span></span> }
-          </div>
-        }
-        @for (t of terminal(); track t.id) {
-          <div class="chat-auto term" [class.urgent]="t.urgent" [class.undone]="t.state === 'UNDONE'"
-               [title]="t.mirror ? 'The exchange, written to the chat log of the terminal session' : t.text">
-            <span class="ic">{{ t.urgent ? '⚡' : '⇢' }}</span>
-            <span>{{ t.mirror ? 'mirrored to the terminal session' : 'to the terminal: ' + reasonOf(t.reason) }}</span>
-            <span class="st" [class.read]="t.state === 'READ'" [class.urg]="t.urgent && t.state !== 'READ'">{{ stateOf(t.state) }}</span>
-            @if (canUndo(t) && editable()) { <button type="button" class="board-link" (click)="undoTerminal(t.id)">Undo</button> } @else { <span></span> }
+        @if (records().length || terminal().length) {
+          <div class="chat-tags">
+            @for (r of records(); track r.id) {
+              <span class="chat-tag rec" [class.undone]="!!r.undoneAt" [title]="r.kind.toLowerCase() + ': ' + r.line"><span class="t">✓ {{ r.line }}</span>
+                @if (!r.undoneAt && editable()) { <button type="button" class="board-link" (click)="undo(r)">Undo</button> }</span>
+            }
+            @if (terminal().length) {
+              <span class="chat-tag term" [class.urgent]="termUrgent()" [title]="termTitle()"><span class="t">↗ terminal{{ termUrgent() ? ' ⚡' : '' }} · {{ termState() }}</span>
+                @if (termUndoable().length && editable()) { <button type="button" class="board-link" (click)="undoTerminalAll()">Undo</button> }</span>
+            }
           </div>
         }
         @if (error(); as e) { <div class="board-error" role="alert">{{ e }}</div> }
@@ -298,6 +295,22 @@ export class ChatMessageComponent {
 
   undoTerminal(id: number): void {
     this.call(this.api.undoTerminal(id));
+  }
+
+  /** What this exchange sent the terminal, as one tag: urgent if any part was, its state, every part in the tooltip. */
+  readonly termUrgent = computed(() => this.terminal().some((t) => t.urgent && t.state !== 'UNDONE'));
+  readonly termUndoable = computed(() => this.terminal().filter((t) => this.canUndo(t)));
+  readonly termState = computed(() => {
+    const live = this.terminal().filter((t) => t.state !== 'UNDONE');
+    if (!live.length) return 'undone';
+    return live.every((t) => t.state === 'READ') ? 'read' : this.stateOf(live[0].state);
+  });
+  readonly termTitle = computed(() => this.terminal()
+    .map((t) => `${t.urgent ? '⚡' : '💬'} ${t.mirror ? 'mirrored to the terminal session' : 'to the terminal: ' + this.reasonOf(t.reason)} - ${this.stateOf(t.state)}`)
+    .join('\n'));
+
+  undoTerminalAll(): void {
+    for (const t of this.termUndoable()) this.undoTerminal(t.id);
   }
 
   undo(r: ChatRecord): void {

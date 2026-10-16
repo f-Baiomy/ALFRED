@@ -154,6 +154,17 @@ class SnippetsServiceTest {
     }
 
     @Test
+    void aSnippetInAChatAnswerKeepsItsPictureSoClaudeCanSeeWhatItDrew() {
+        String inline = "inline:chat:5093:a:0";
+        assertThat(f.snippets.putShot(inline, 7, PNG, List.of("error: x is not defined")).outcome()).isEqualTo(Outcome.OK);
+        assertThat(f.snippets.shot(inline)).get().satisfies(s -> {
+            assertThat(s.version()).isEqualTo(7);
+            assertThat(s.console()).contains("x is not defined");
+        });
+        assertThat(f.snippets.putState(Actor.USER, inline, "tab", "\"errors\"").outcome()).isEqualTo(Outcome.OK);
+    }
+
+    @Test
     void aCyclesPagesAndWhatItsSnippetsKeptGoWithTheCycle() {
         Snippet p = page(Actor.USER, "cycle:c-9", "Cycle page", "x");
         f.snippets.putState(Actor.USER, p.id(), "k", "1");

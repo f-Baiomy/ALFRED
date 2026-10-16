@@ -37,7 +37,20 @@ export const SNIPPET_LIBS: readonly SnippetLib[] = [
   { id: 'papaparse', name: 'PapaParse', version: '5.4.1', file: 'papaparse/5/papaparse.min.js', kind: 'script', provides: 'Papa', about: 'CSV' },
   { id: 'dayjs', name: 'Day.js', version: '1.11.13', file: 'dayjs/1/dayjs.min.js', kind: 'script', provides: 'dayjs', about: 'dates' },
   { id: 'lodash', name: 'lodash', version: '4.17.21', file: 'lodash/4/lodash.min.js', kind: 'script', provides: '_', about: 'helpers' },
+  { id: 'plot', name: 'Observable Plot', version: '0.6.16', file: 'plot/0.6/plot.umd.min.js', kind: 'script', provides: 'Plot', about: 'quick statistical charts (loads D3)' },
+  { id: 'apexcharts', name: 'ApexCharts', version: '3.54.1', file: 'apexcharts/3/apexcharts.min.js', kind: 'script', provides: 'ApexCharts', about: 'dashboard charts, sparklines, timelines' },
+  { id: 'lucide', name: 'Lucide icons', version: '0.460.0', file: 'lucide/0.460/lucide.min.js', kind: 'script', provides: 'lucide', about: 'icons: <i data-lucide="name">, lucide.createIcons()' },
+  { id: 'gridjs', name: 'Grid.js', version: '6.2.0', file: 'gridjs/6/gridjs.umd.js', kind: 'script', provides: 'gridjs', about: 'sortable, searchable tables' },
+  { id: 'gridjs-css', name: 'Grid.js theme', version: '6.2.0', file: 'gridjs/6/mermaid.min.css', kind: 'css', provides: '(styles)', about: 'Grid.js styles' },
+  { id: 'cytoscape', name: 'Cytoscape', version: '3.30.2', file: 'cytoscape/3/cytoscape.min.js', kind: 'script', provides: 'cytoscape', about: 'graphs and networks' },
+  { id: 'anime', name: 'anime.js', version: '3.2.2', file: 'anime/3/anime.min.js', kind: 'script', provides: 'anime', about: 'animation' },
 ];
+
+/** Names a snippet may use for a shelf entry. */
+const LIB_ALIASES: Record<string, string> = {
+  'chart.js': 'chartjs', 'three.js': 'three', 'observable-plot': 'plot', '@observablehq/plot': 'plot', apex: 'apexcharts',
+  'grid.js': 'gridjs', 'animejs': 'anime', 'anime.js': 'anime', icons: 'lucide',
+};
 
 /** `libs="echarts@5 chartjs, d3"` → the shelf entries (unknown names are skipped). Version suffixes are only a hint. */
 export function libsOf(attr: string | undefined): SnippetLib[] {
@@ -45,7 +58,9 @@ export function libsOf(attr: string | undefined): SnippetLib[] {
   const ids = attr.split(/[\s,]+/).map((x) => x.replace(/@.*$/, '').toLowerCase()).filter(Boolean);
   const out: SnippetLib[] = [];
   for (const id of ids) {
-    const want = id === 'chart.js' ? 'chartjs' : id === 'three.js' ? 'three' : id;
+    const want = LIB_ALIASES[id] ?? id;
+    // Observable Plot is drawn with D3: it needs the d3 global loaded first.
+    if (want === 'plot' && !out.some((l) => l.id === 'd3')) out.push(...SNIPPET_LIBS.filter((l) => l.id === 'd3'));
     for (const lib of SNIPPET_LIBS) {
       if ((lib.id === want || lib.id === `${want}-css` || (want === 'preact' && lib.id === 'preact-hooks') || (want === 'htm' && lib.id === 'htm-preact'))
         && !out.includes(lib)) out.push(lib);

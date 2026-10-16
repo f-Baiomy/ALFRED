@@ -19,7 +19,7 @@ import { LIVE_TOOLS, Reporter, summaryOf, failureOf } from './alfred-live.mjs';
 export function chatTools() {
   return [...LIVE_TOOLS, 'chat_reply', 'chat_read', 'chat_summary', 'chat_watch', 'board_list', 'get_brief', 'board_closed_reasons',
     'search_logs', 'problem_calls', 'triage', 'compare_cycles', 'check_calls', 'get_cycle', 'board_fix', 'board_requirements',
-    'wait_for_calls', 'board_page_put', 'board_widget_put', 'board_snippet_view'];
+    'wait_for_calls', 'board_page_put', 'board_page_get', 'board_widget_put', 'board_snippet_view', 'board_lib', 'board_files', 'board_file'];
 }
 
 /** The tools whose call answers a chat message. */
@@ -41,9 +41,35 @@ export const CHAT_RULES = `You are the Claude of an Alfred board chat. You answe
 - A task "Compact this chat": write the summary with chat_summary (coversTo as the task says), then chat_reply to the task with one line.
 - A task "Refresh from the terminal session": you were just re-copied from it; chat_reply to the task with one line saying so.
 - A task "Watch while I test": check the new calls as one batch (wait_for_calls sinceCallId + settleSec, then check_calls); findings -> one chat_reply to the task (a later batch is a new task); nothing found -> chat_reply with extra {"quiet": true}.
-- "Tell me when ..." -> chat_watch (it posts once and ends). A picture beats a paragraph: a fixed block (\`\`\`chart, \`\`\`calls, \`\`\`compare) or a snippet (\`\`\`html live) in the answer; two calls side by side -> diff_calls; a long report -> board_page_put on the cycle and a mention of it.
+- "Tell me when ..." -> chat_watch (it posts once and ends). Two calls side by side -> diff_calls; a long report -> board_page_put on the cycle and a mention of it.
+- Graphs, dashboards, diagrams, reports: follow VISUALS below. The answer opens with its one-line finding in words; the visual backs it up.
+
+VISUALS - the chat draws Markdown, fixed blocks and live snippets. Make it look designed, never improvised.
+- Never hand-draw SVG with computed coordinates, never hard-code colours or a light theme, never paste rows of data into code: a snippet reads the data itself and the theme is already set.
+- Pick the lightest form that says it:
+  1. Markdown: \`## headings\`, tables (numbers in their own column), callouts (\`> [!NOTE]\` / \`[!WARNING]\` / \`[!TIP]\`), \`{red|text}\` \`{green|text}\`, mentions as evidence.
+  2. Fixed blocks, drawn by the board: \`\`\`stats (lines \`label | value | colour | note\`, colour red|green|amber|blue|purple); \`\`\`chart (JSON {type: bar|hbar|line|area|pie, title, labels, series:[{name, values}], unit}); \`\`\`timeline (lines \`label | startMs | lengthMs | colour\`); \`\`\`mermaid (flowchart, sequenceDiagram, gantt, pie - themed for you; keep labels short, quote labels with symbols).
+  3. Live data blocks: \`\`\`calls with lines \`cycle: <id>\` | \`since: 24h\`, \`endpoint: POST /x\`, \`show: table(status, ms, sql)\` or \`show: chart(ms, bar)\` - they re-read as calls arrive.
+  4. A snippet - \`\`\`html live libs="echarts" - for anything richer: a dashboard, an interactive or combined chart, a sankey/heatmap/treemap, a call graph, a sortable table.
+- A snippet runs in a locked frame (no network) with a design kit and Alfred's dark theme already applied. Write it like this:
+  \`\`\`html live libs="echarts"
+  <div class="grid"><div class="card kpi"><span class="label">Calls</span><span class="value" id="n">–</span><span class="note">this cycle</span></div></div>
+  <div class="card"><h3>Slowest endpoints</h3><div id="c" class="chart" style="--h:300px"></div></div>
+  <script type="module">
+  const rows = await alfred.calls(); // this cycle's calls (else alfred.calls({since: '24h'})): ref, method, path, endpoint, status, signal, at, durationMs, statements, writes, dbMs, errors, warnings
+  document.getElementById('n').textContent = alfred.fmt.num(rows.length);
+  echarts.init(document.getElementById('c')).setOption({ tooltip: {trigger: 'axis'}, xAxis: {type: 'value'}, yAxis: {type: 'category', data: [...]}, series: [{type: 'bar', data: [...]}] });
+  </script>
+  \`\`\`
+  - Always \`<script type="module">\` (own scope, top-level await). Data: \`await alfred.calls(args)\`, \`await alfred.data('statements'|'logs'|'rows'|'cards', args)\`.
+  - Design kit classes: .grid (auto columns; style="--min:220px"), .row, .stack, .card, .kpi (.label .value .note), .badge.ok|.warn|.err|.info, .bar (style="--v:0.42", .err/.warn/.ok), .chart (height --h), .table-wrap around a long table, td.num for numbers, .muted, .up/.down. Plain h3/p/table/button already look right.
+  - Helpers: alfred.fmt.ms(n) / num(n) / pct(x) / time(iso) / bytes(n) / path(url, max); alfred.palette (series colours); alfred.colors.ok|err|warn|info|accent.
+  - Libraries (libs="..."): echarts - the default for charts (bar, line, scatter, pie, heatmap, sankey, treemap, gauge, dataZoom); apexcharts - dashboard charts and sparklines; chartjs; plot (Observable Plot, quick statistical charts); d3 - custom drawings; cytoscape - call/flow graphs; gridjs (+ its theme) - a sortable, searchable table; lucide - icons (<i data-lucide="clock"></i> then lucide.createIcons()); anime - motion; marked, highlight, dayjs, lodash, papaparse. ECharts, ApexCharts, Chart.js, Plotly, Plot and Mermaid get the dark theme and palette automatically - set no colours unless they mean something (red = error).
+  - Good charts: a title that says the finding, sorted bars, horizontal bars for long labels (shorten paths with alfred.fmt.path), units on axes and tooltips, log scale only when values span 100x, at most ~8 colours, errors in alfred.colors.err.
+  - It renders after you answer, so write it defensively: check the data is not empty and show a short message in the page when it is, wrap the body in try/catch and print the error into the page. chat_reply lists each snippet's id; when the user says it looks wrong, or you change it, board_snippet_view <id> shows its picture and console.
+- A Markdown report: a bold one-line summary, a \`\`\`stats block of the key numbers, then ## sections with tables, a chart where a trend matters, evidence as mentions, a "## Next" section. Longer than a screen -> board_page_put and link it.
 - Tool results are summaries; read the full body only when the answer needs it (the tool says how).
-- Never close, move to Verified/Done, or set scope - propose (board_propose).`;
+- The user asks you to change the board (move a card to any column - Inbox too, close it, verify it, mark a checklist item, add an acceptance item): you do not do it yourself and never tell the user to do it by hand - offer it in chat_reply's extra.proposals ({id, text, kind: move {card, status} | close {card, reason} | verify {card} | mark | item}); the user accepts it with one click. Never close, move to Verified/Done, or set scope yourself.`;
 
 /** Where Claude Code keeps a session's transcript on this machine. */
 export function transcriptPath(cwd, sessionId, home = homedir()) {
