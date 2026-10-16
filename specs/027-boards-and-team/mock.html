@@ -1,0 +1,1136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Boards and Team tab</title>
+<style>
+  :root {
+    --bg: #15161a; --panel: #1c1d22; --panel2: #22232a; --inner: rgba(0,0,0,.28); --border: rgba(255,255,255,.08); --border-strong: rgba(255,255,255,.16);
+    --text: #e7e7ec; --dim: #9b9ca6; --faint: #676873; --purple: #8b5cf6; --purple-l: #b9a5ff; --blue: #8fb2f7; --cyan: #5fd3c6;
+    --green: #6fd38a; --amber: #f2b552; --red: #f07a7a; --code: rgba(255,255,255,.07);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 "Segoe UI", system-ui, sans-serif; padding: 16px 16px 80px; }
+  h1 { font-size: 1.25rem; margin: 0 0 .2rem; }
+  h3 { font-size: .9rem; margin: .2rem 0 .5rem; display: flex; justify-content: space-between; align-items: center; gap: .5rem; }
+  .lead { color: var(--dim); max-width: 100ch; margin: 0 0 .8rem; font-size: .88rem; }
+  code, .mono { font: .78rem Consolas, monospace; }
+  code { background: var(--code); padding: 0 .3rem; border-radius: 4px; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  input, select, textarea { background: var(--panel2); border: 1px solid var(--border-strong); border-radius: 6px; color: var(--text); padding: .22rem .45rem; font: .8rem "Segoe UI", system-ui; }
+  input:disabled, select:disabled, textarea:disabled { opacity: .5; }
+  .dim { color: var(--dim); } .faint { color: var(--faint); } .small { font-size: .74rem; }
+  .layout { display: grid; grid-template-columns: 1fr 270px; gap: 1rem; max-width: 1500px; margin: 0 auto; }
+  .note { border-left: 3px solid var(--amber); background: rgba(242,181,82,.07); padding: .4rem .7rem; border-radius: 0 6px 6px 0; color: var(--dim); font-size: .8rem; margin: .5rem 0; }
+  .note b { color: var(--amber); }
+  .banner { border-radius: 7px; padding: .45rem .7rem; font-size: .8rem; margin: .4rem 0 .6rem; display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; }
+  .banner.info { border: 1px solid rgba(143,178,247,.4); background: rgba(143,178,247,.08); }
+  .banner.warn { border: 1px solid rgba(242,181,82,.45); background: rgba(242,181,82,.08); }
+  .banner.err { border: 1px solid rgba(240,122,122,.45); background: rgba(240,122,122,.08); }
+  .banner.ok { border: 1px solid rgba(111,211,138,.4); background: rgba(111,211,138,.07); }
+
+  /* controls panel */
+  .ctl { position: sticky; top: 12px; align-self: start; background: var(--panel); border: 1px dashed rgba(242,181,82,.5); border-radius: 10px; padding: .7rem .8rem; font-size: .78rem; max-height: calc(100vh - 24px); overflow-y: auto; }
+  .ctl h2 { font-size: .8rem; color: var(--amber); margin: 0 0 .4rem; text-transform: uppercase; letter-spacing: .05em; }
+  .ctl label { display: block; color: var(--faint); margin: .55rem 0 .15rem; font-size: .7rem; text-transform: uppercase; letter-spacing: .04em; }
+  .ctl select { width: 100%; }
+  .ctl .row { display: flex; align-items: center; gap: .4rem; margin: .15rem 0; }
+  .ctl button { width: 100%; margin-top: .3rem; }
+  .ctl .cases { margin-top: .6rem; border-top: 1px solid var(--border); padding-top: .4rem; }
+  .ctl .cases div { color: var(--dim); padding: .08rem 0; }
+  .ctl .cases div.done::before { content: "✓ "; color: var(--green); }
+  .ctl .cases div:not(.done)::before { content: "○ "; color: var(--faint); }
+
+  /* app frame */
+  .app { border: 1px solid var(--border-strong); border-radius: 12px; background: var(--panel); overflow: hidden; min-width: 0; }
+  .appbar { display: flex; gap: 1.1rem; padding: .5rem 1rem 0; border-bottom: 1px solid var(--border); font-size: .86rem; color: var(--dim); flex-wrap: wrap; }
+  .appbar span { padding-bottom: .45rem; cursor: pointer; } .appbar .on { color: var(--text); border-bottom: 2px solid var(--purple); }
+  .appbar .new::after { content: "new"; font-size: .58rem; background: var(--purple); color: #fff; border-radius: 3px; padding: 0 .25rem; margin-left: .3rem; vertical-align: top; }
+  .appbar .doc { margin-left: auto; color: var(--amber); }
+  .body { padding: .8rem 1rem 1rem; min-height: 560px; }
+
+  .row { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+  .spacer { flex: 1; }
+  .btn { background: var(--panel2); border: 1px solid var(--border-strong); border-radius: 6px; padding: .2rem .62rem; font-size: .8rem; white-space: nowrap; }
+  .btn:hover:not(:disabled) { border-color: var(--purple-l); }
+  .btn.pri { background: var(--purple); border-color: var(--purple); color: #fff; }
+  .btn.ok { border-color: rgba(111,211,138,.5); color: var(--green); }
+  .btn.danger { border-color: rgba(240,122,122,.6); color: var(--red); }
+  .btn.sm { padding: .04rem .42rem; font-size: .72rem; }
+  .btn.link { background: none; border: none; color: var(--purple-l); padding: 0; }
+  .chip { display: inline-flex; gap: .3rem; align-items: center; border: 1px solid var(--border-strong); border-radius: 999px; padding: .04rem .5rem; font-size: .74rem; background: var(--inner); white-space: nowrap; }
+  .chip.cyc::before { content: "●"; color: var(--red); font-size: .6rem; }
+  .chip.cyc.retest::before { color: var(--amber); }
+  .chip.cyc.kept::before { color: var(--green); }
+  .chip.brd::before { content: "▦"; color: var(--purple-l); }
+  .chip.az::before { content: "◆"; color: var(--blue); }
+  .chip.az { cursor: pointer; }
+  .chip.claude { border-color: var(--cyan); color: var(--cyan); }
+  .chip .x { color: var(--faint); cursor: pointer; margin-left: .1rem; }
+  .chip .x:hover { color: var(--red); }
+  .chip.plus { border-style: dashed; color: var(--purple-l); cursor: pointer; }
+  .seg { display: inline-flex; border: 1px solid var(--border-strong); border-radius: 6px; overflow: hidden; font-size: .76rem; }
+  .seg span { padding: .12rem .55rem; cursor: pointer; } .seg .on { background: rgba(139,92,246,.25); color: var(--text); }
+  .subtabs { display: flex; gap: .2rem; margin: .7rem 0 .6rem; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .subtabs span { padding: .28rem .7rem; font-size: .83rem; color: var(--dim); cursor: pointer; border-radius: 6px 6px 0 0; }
+  .subtabs .on { color: var(--text); background: var(--panel2); }
+  .subtabs .off { opacity: .4; cursor: not-allowed; text-decoration: line-through; }
+  .badge { background: var(--purple); color: #fff; border-radius: 8px; font-size: .64rem; padding: 0 .35rem; margin-left: .25rem; }
+
+  /* picker */
+  .picker { position: relative; }
+  .picker > button { background: var(--panel2); border: 1px solid var(--border-strong); border-radius: 7px; padding: .32rem .7rem; display: flex; gap: .45rem; align-items: center; }
+  .picker > button b { font-size: .95rem; }
+  .menu { position: absolute; top: 2.3rem; left: 0; z-index: 20; min-width: 320px; background: var(--panel2); border: 1px solid var(--border-strong); border-radius: 8px; padding: .4rem; box-shadow: 0 10px 30px rgba(0,0,0,.5); }
+  .menu .grp { font-size: .66rem; text-transform: uppercase; letter-spacing: .05em; color: var(--faint); margin: .4rem .4rem .15rem; }
+  .menu .it { padding: .28rem .5rem; border-radius: 5px; display: flex; justify-content: space-between; gap: .8rem; font-size: .84rem; cursor: pointer; }
+  .menu .it:hover, .menu .it.on { background: rgba(139,92,246,.18); }
+  .menu .it small { color: var(--faint); }
+  .menu .add { border-top: 1px solid var(--border); margin-top: .3rem; padding: .35rem .5rem 0; color: var(--purple-l); font-size: .84rem; cursor: pointer; }
+  .strip { display: flex; gap: .35rem; align-items: center; flex-wrap: wrap; margin: .55rem 0 .2rem; font-size: .78rem; color: var(--dim); }
+
+  /* kanban */
+  .kb-wrap { display: grid; grid-template-columns: 1fr 320px; gap: .8rem; margin-top: .6rem; }
+  .kanban { display: grid; grid-template-columns: repeat(5, minmax(140px, 1fr)); gap: .5rem; overflow-x: auto; }
+  .col { background: var(--inner); border-radius: 8px; padding: .45rem; min-height: 300px; }
+  .col h4 { margin: 0 0 .4rem; font-size: .72rem; color: var(--dim); text-transform: uppercase; letter-spacing: .04em; display: flex; justify-content: space-between; }
+  .card { background: var(--panel2); border: 1px solid var(--border); border-radius: 7px; padding: .38rem .5rem; margin-bottom: .4rem; font-size: .79rem; cursor: pointer; }
+  .card:hover { border-color: var(--border-strong); }
+  .card .n { font: .7rem Consolas, monospace; color: var(--faint); display: flex; justify-content: space-between; }
+  .card .t { margin: .1rem 0 .3rem; }
+  .card .meta { display: flex; gap: .25rem; flex-wrap: wrap; }
+  .card .meta .chip { font-size: .64rem; padding: 0 .38rem; }
+  .card.related { border-style: dashed; opacity: .85; }
+  .card .home { font-size: .66rem; color: var(--purple-l); }
+  .card.claude { box-shadow: inset 3px 0 0 var(--cyan); }
+  .card.flash { animation: flash 1.2s; }
+  @keyframes flash { from { border-color: var(--cyan); background: rgba(95,211,198,.18); } }
+  .empty { color: var(--faint); font-size: .76rem; text-align: center; padding: 1rem .3rem; }
+
+  /* chat */
+  .chat { background: var(--inner); border-radius: 8px; padding: .55rem; display: flex; flex-direction: column; gap: .45rem; font-size: .79rem; max-height: 560px; }
+  .chat .msgs { overflow-y: auto; display: flex; flex-direction: column; gap: .4rem; flex: 1; min-height: 200px; }
+  .who { font-size: .72rem; display: flex; gap: .35rem; align-items: center; }
+  .who::before { content: ""; width: .5rem; height: .5rem; border-radius: 50%; background: var(--green); flex: none; }
+  .who.project::before { background: var(--blue); } .who.offline::before { background: var(--faint); }
+  .msg { background: var(--panel2); border-radius: 7px; padding: .35rem .5rem; }
+  .msg.me { background: rgba(139,92,246,.16); align-self: flex-end; max-width: 92%; }
+  .msg .state { font-size: .64rem; color: var(--faint); display: block; text-align: right; }
+  .msg .state.WAITING { color: var(--amber); } .msg .state.TAKEN { color: var(--cyan); }
+  .msg .rec { display: inline-flex; gap: .4rem; margin-top: .25rem; font-size: .68rem; border: 1px solid var(--border-strong); border-radius: 4px; padding: 0 .35rem; color: var(--cyan); }
+  .msg .rec.undone { text-decoration: line-through; color: var(--faint); }
+  .typing { font-size: .72rem; color: var(--cyan); }
+  .chat form { display: flex; gap: .3rem; } .chat form input { flex: 1; }
+
+  /* task */
+  .task { display: grid; grid-template-columns: 1.3fr 1fr; gap: .8rem; }
+  .pane { background: var(--inner); border-radius: 8px; padding: .65rem .75rem; font-size: .82rem; }
+  .pane + .pane { margin-top: .7rem; }
+  .req { display: grid; grid-template-columns: auto 1fr auto; gap: .45rem; padding: .28rem 0; border-bottom: 1px solid var(--border); align-items: start; }
+  .st { font-size: .64rem; font-weight: 700; border-radius: 4px; padding: .02rem .35rem; white-space: nowrap; }
+  .st.OK { background: rgba(111,211,138,.15); color: var(--green); } .st.WRONG, .st.MISSING { background: rgba(240,122,122,.15); color: var(--red); } .st.UNKNOWN { background: rgba(255,255,255,.07); color: var(--dim); }
+  .diff del { color: var(--red); } .diff ins { color: var(--green); text-decoration: none; }
+  .crow { display: grid; grid-template-columns: auto 1fr auto auto; gap: .5rem; align-items: center; padding: .3rem 0; border-bottom: 1px solid var(--border); }
+  .steps li { margin: .15rem 0; }
+
+  /* team */
+  .conns { display: flex; gap: .4rem; flex-wrap: wrap; align-items: stretch; }
+  .conn { border: 1px solid var(--border-strong); border-radius: 8px; padding: .28rem .6rem; font-size: .8rem; background: var(--panel2); cursor: pointer; }
+  .conn.on { border-color: var(--purple); background: rgba(139,92,246,.15); }
+  .conn small { display: block; color: var(--faint); font-size: .67rem; }
+  .conn.add { border-style: dashed; color: var(--purple-l); display: flex; align-items: center; }
+  .caps { display: flex; gap: .25rem; flex-wrap: wrap; margin: .5rem 0; align-items: center; }
+  .cap { font: .67rem Consolas, monospace; border-radius: 4px; padding: .02rem .4rem; background: rgba(95,211,198,.12); color: var(--cyan); }
+  .cap.no { background: rgba(255,255,255,.05); color: var(--faint); text-decoration: line-through; }
+  .filters { display: flex; gap: .4rem; flex-wrap: wrap; margin: .3rem 0 .6rem; }
+  table { width: 100%; border-collapse: collapse; font-size: .8rem; }
+  th { text-align: left; color: var(--faint); font-weight: 600; font-size: .68rem; text-transform: uppercase; letter-spacing: .04em; padding: .3rem .4rem; border-bottom: 1px solid var(--border-strong); }
+  td { padding: .34rem .4rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  tr.sel td { background: rgba(139,92,246,.1); }
+  tbody tr { cursor: pointer; } tbody tr:hover td { background: rgba(255,255,255,.03); }
+  tr.fresh td:first-child { box-shadow: inset 3px 0 0 var(--purple); }
+  .type { font-size: .69rem; font-weight: 600; padding: .02rem .4rem; border-radius: 4px; white-space: nowrap; }
+  .type.Bug { background: rgba(240,122,122,.15); color: var(--red); } .type.Task { background: rgba(242,181,82,.14); color: var(--amber); }
+  .type.UserStory { background: rgba(143,178,247,.15); color: var(--blue); } .type.Feature, .type.Epic { background: rgba(185,165,255,.15); color: var(--purple-l); }
+  .type.custom { background: rgba(95,211,198,.13); color: var(--cyan); }
+  .type.custom::after { content: " · custom"; font-weight: 400; opacity: .7; }
+  .av { display: inline-grid; place-items: center; width: 1.3rem; height: 1.3rem; border-radius: 50%; background: #3a3b46; font-size: .6rem; font-weight: 700; margin-right: .3rem; vertical-align: middle; }
+  .wait { font-size: .72rem; color: var(--amber); white-space: nowrap; }
+  .working { font-size: .72rem; color: var(--cyan); white-space: nowrap; }
+  .team-wrap { display: grid; grid-template-columns: 1fr 370px; gap: .8rem; }
+  .drawer { background: var(--inner); border-radius: 8px; padding: .65rem .75rem; font-size: .8rem; align-self: start; }
+  .kv { display: grid; grid-template-columns: 125px 1fr; gap: .15rem .6rem; margin: .4rem 0; }
+  .kv > span:nth-child(odd) { color: var(--faint); }
+  .mapped { color: var(--cyan); }
+  .rev { border-left: 2px solid var(--border-strong); padding: .05rem 0 .35rem .55rem; margin-left: .3rem; }
+  .rev .when { font-size: .69rem; color: var(--faint); }
+  .links a { color: var(--blue); text-decoration: none; display: block; font-size: .78rem; cursor: pointer; }
+  .squads { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: .6rem; }
+  .squad { background: var(--inner); border-radius: 8px; padding: .6rem .7rem; font-size: .8rem; }
+  .mem { display: flex; align-items: center; justify-content: space-between; padding: .18rem 0; }
+  .load { font-size: .7rem; color: var(--faint); }
+  .ev { display: grid; grid-template-columns: 80px auto 1fr; gap: .5rem; padding: .35rem 0; border-bottom: 1px solid var(--border); font-size: .8rem; align-items: start; }
+  .ev .when { color: var(--faint); font-size: .72rem; }
+  .ev.new { box-shadow: inset 2px 0 0 var(--purple); padding-left: .4rem; }
+  .boardsview { display: grid; grid-template-columns: 230px 1fr; gap: .8rem; }
+  .tree div { padding: .2rem .4rem; border-radius: 5px; font-size: .82rem; cursor: pointer; }
+  .tree .l2 { padding-left: 1.1rem; } .tree .l3 { padding-left: 2rem; color: var(--dim); }
+  .tree .on { background: rgba(139,92,246,.18); color: var(--text); }
+  .burn { height: 8px; border-radius: 4px; background: var(--panel2); overflow: hidden; display: flex; margin: .3rem 0 .6rem; }
+  .burn i { display: block; height: 100%; }
+  .tog { display: inline-block; width: 28px; height: 15px; border-radius: 8px; background: #3a3b46; position: relative; vertical-align: middle; cursor: pointer; flex: none; }
+  .tog::after { content: ""; position: absolute; left: 2px; top: 2px; width: 11px; height: 11px; border-radius: 50%; background: #aaa; transition: .15s; }
+  .tog.on { background: var(--purple); } .tog.on::after { left: 15px; background: #fff; }
+  .tog.dis { opacity: .4; cursor: not-allowed; }
+  .spin { display: inline-block; width: .8rem; height: .8rem; border: 2px solid var(--border-strong); border-top-color: var(--cyan); border-radius: 50%; animation: sp .7s linear infinite; vertical-align: middle; }
+  @keyframes sp { to { transform: rotate(360deg); } }
+
+  /* settings */
+  .set { display: grid; grid-template-columns: 1fr 1fr; gap: .8rem; }
+  .set label { display: block; font-size: .72rem; color: var(--faint); margin: .45rem 0 .15rem; }
+  .set .full { width: 100%; }
+  .maprow { display: grid; grid-template-columns: 1fr auto 1fr auto; gap: .4rem; align-items: center; margin: .3rem 0; font-size: .8rem; }
+  .lock { font-size: .72rem; color: var(--green); margin-top: .2rem; }
+
+  /* cycles tab */
+  .cyc-table td .chip { margin: .1rem .15rem .1rem 0; }
+  .cgrp { background: var(--inner); border-radius: 8px; margin-bottom: .6rem; padding: .2rem .5rem .3rem; }
+  .cgh { display: flex; gap: .5rem; align-items: center; padding: .35rem 0; cursor: pointer; flex-wrap: wrap; }
+  .ctl .row { flex-wrap: nowrap; align-items: flex-start; }
+  .ctl .row .tog { margin-top: 2px; }
+
+  /* modal */
+  .scrim { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 50; display: grid; place-items: center; padding: 16px; }
+  .dlg { width: min(640px, 100%); max-height: 90vh; overflow-y: auto; background: var(--panel2); border: 1px solid var(--border-strong); border-radius: 10px; padding: .9rem 1rem; font-size: .84rem; }
+  .dlg h2 { font-size: 1rem; margin: 0 0 .5rem; }
+  .dlg label { display: block; font-size: .72rem; color: var(--faint); margin: .5rem 0 .15rem; }
+  .dlg .full { width: 100%; }
+  .dlg .foot { display: flex; gap: .4rem; justify-content: flex-end; margin-top: .9rem; }
+  .box { border-radius: 7px; padding: .45rem .6rem; margin: .5rem 0; font-size: .8rem; }
+  .box.keep { border: 1px solid rgba(111,211,138,.35); } .box.gone { border: 1px solid rgba(240,122,122,.35); }
+  .box h4 { margin: 0 0 .25rem; font-size: .78rem; }
+  .box.keep h4 { color: var(--green); } .box.gone h4 { color: var(--red); }
+  .act { display: grid; grid-template-columns: 70px 1fr auto; gap: .4rem; font-size: .76rem; padding: .2rem 0; border-bottom: 1px solid var(--border); }
+  .act .who2 { color: var(--faint); }
+  .act.undone { text-decoration: line-through; color: var(--faint); }
+  .pop { position: fixed; z-index: 60; background: var(--panel2); border: 1px solid var(--border-strong); border-radius: 8px; padding: .5rem .65rem; font-size: .78rem; width: 280px; box-shadow: 0 10px 30px rgba(0,0,0,.5); }
+  .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--panel2); border: 1px solid var(--purple); border-radius: 8px; padding: .45rem .9rem; font-size: .82rem; z-index: 70; box-shadow: 0 6px 20px rgba(0,0,0,.5); }
+
+  /* doc tab */
+  .model { display: grid; grid-template-columns: 1fr 1fr; gap: .8rem; }
+  .mbox { background: var(--inner); border-radius: 10px; padding: .8rem; }
+  .mbox svg { width: 100%; height: auto; display: block; }
+  .arch { display: grid; grid-template-columns: repeat(3, 1fr); gap: .7rem; margin-top: .8rem; }
+  .arch pre { background: var(--inner); border-radius: 8px; padding: .65rem .75rem; margin: 0; font: .73rem/1.55 Consolas, monospace; color: var(--dim); overflow-x: auto; }
+  .arch pre b { color: var(--text); font-weight: 600; } .arch pre i { color: var(--cyan); font-style: normal; } .arch pre u { color: var(--faint); text-decoration: none; }
+
+  @media (max-width: 1100px) { .layout { grid-template-columns: 1fr; } .ctl { position: static; max-height: none; } }
+  @media (max-width: 900px) { .kb-wrap, .task, .team-wrap, .set, .arch, .boardsview, .model { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<h1 style="max-width:1500px;margin:0 auto .2rem">Boards rework + Team tab · interactive mock</h1>
+<p class="lead" style="max-width:1500px;margin:0 auto .8rem">specs/027. A board is the task; a cycle only stores calls, and boards and cycles are many-to-many. The Team tab is built on a provider-neutral connector, Azure DevOps first. Everything is clickable. Use <b style="color:var(--amber)">Mock controls</b> on the right to switch the cases: runner state, PAT, capabilities, tunnel, new items arriving. Data is fake and kept in memory only.</p>
+<div class="layout">
+  <div class="app">
+    <div class="appbar" id="nav"></div>
+    <div class="body" id="view"></div>
+  </div>
+  <aside class="ctl" id="ctl"></aside>
+</div>
+<div id="modal"></div>
+<div id="pop"></div>
+<div id="toast"></div>
+
+<script>
+/* ======================= STATE ======================= */
+const TEAMS = { odeysys: ['backend', 'frontend', 'db'], 'booking-api': ['api', 'data'] };
+const S = {
+  tab: 'board', board: 'b-ref', boardSub: 'cards', filter: 'all', teamSub: 'items', conn: 'az1',
+  selItem: '4521', treeSel: 'pay-42', menu: false,
+  ctl: { runner: { 'b-ody': 'project', 'b-ref': 'terminal', 'b-s42': 'offline', 'b-bk': 'project' }, tunnel: false, newItem: false, slow: false },
+  seq: 70, cycSeq: 10, boardSeq: 10,
+  boards: [
+    { id: 'b-ody', name: 'odeysys', project: 'odeysys', isDefault: true, brief: null, reqs: [], item: null },
+    { id: 'b-bk', name: 'booking-api', project: 'booking-api', isDefault: true, brief: null, reqs: [], item: null },
+    { id: 'b-ref', name: 'Refund by voucher', project: 'odeysys', migratedFrom: 'rec 14 Oct', item: 'az1/4521', azChanged: true,
+      brief: { purpose: 'Customer refunds a booking to a voucher; the voucher balance is right in KWD.', steps: ['Open booking 88120, choose Refund', 'Pick "to voucher"', 'Check the new voucher balance', 'Retry on a 504 from refund-svc'] },
+      reqs: [ { id: 'AC1', text: 'Refund by voucher returns 200 with the new balance', st: 'OK', cyc: 'c1', ep: 'POST /refunds' },
+              { id: 'AC3', text: 'Total rounded to 2 places', st: 'WRONG', cyc: 'c1', card: 'odeysys#61', ep: 'POST /refunds' },
+              { id: 'AC4', text: 'One call to refund-svc per refund', st: 'OK', cyc: 'c2', ep: 'POST /refund-svc/refund' },
+              { id: 'AC5', text: 'Refund email sent within 1 min', st: 'UNKNOWN', ep: 'POST /mail/send' } ] },
+    { id: 'b-s42', name: 'Sprint 42 Payments', project: 'odeysys', item: null, azMap: 'Sprint 42 · Payments',
+      brief: { purpose: 'Everything the Payments squad ships in Sprint 42, across odeysys and booking-api.', steps: [] },
+      reqs: [ { id: 'S1', text: 'Voucher response carries currency', st: 'MISSING', cyc: 'c1', card: 'booking-api#9', ep: 'GET /vouchers/{id}' },
+              { id: 'S2', text: 'Refund answers in under 800 ms', st: 'OK', cyc: 'c1', ep: 'POST /refunds' } ] },
+  ],
+  cycles: [
+    { id: 'c1', name: 'rec 14 Oct', project: 'odeysys', kind: 'rec', calls: 38 },
+    { id: 'c5', name: 'rec 17 Oct', project: 'odeysys', kind: 'rec', calls: 7, recording: true },
+    { id: 'c2', name: 're-test 16 Oct', project: 'odeysys', kind: 'retest', calls: 12 },
+    { id: 'c3', name: 'booking-api rec', project: 'booking-api', kind: 'rec', calls: 21 },
+    { id: 'c4', name: 'login rec 2 Oct', project: 'odeysys', kind: 'rec', calls: 15 },
+  ],
+  bc: [ ['b-ref', 'c1'], ['b-ref', 'c2'], ['b-s42', 'c1'], ['b-s42', 'c3'], ['b-ody', 'c4'], ['b-bk', 'c3'], ['b-s42', 'c5'] ],
+  bb: [ ['b-ref', 'b-s42'] ],
+  cards: [
+    { n: 'odeysys#61', t: 'Voucher total rounds to 2 places, spec says 3', st: 'inbox', home: 'b-ref', origin: 'c1', rel: [], by: 'claude', team: 'backend', ment: [{ cyc: 'c1', calls: 2, stmts: 6, logs: 1 }], item: null },
+    { n: 'odeysys#62', t: 'refund-svc called twice on retry', st: 'inbox', home: 'b-ref', origin: 'c2', rel: ['c1'], by: 'claude', team: 'backend', ment: [{ cyc: 'c2', calls: 2, stmts: 0, logs: 3 }], item: null },
+    { n: 'odeysys#55', t: 'Refund screen shows old balance', st: 'todo', home: 'b-ref', origin: 'c1', rel: [], by: 'user', team: 'frontend', ment: [], item: 'az1/4530' },
+    { n: 'odeysys#58', t: 'Voucher expiry check off by one day', st: 'progress', home: 'b-ref', origin: 'c1', rel: [], by: 'user', team: 'backend', ment: [{ cyc: 'c1', calls: 1, stmts: 4, logs: 0 }], item: null },
+    { n: 'odeysys#52', t: '500 on refund with zero amount', st: 'fixed', home: 'b-ref', origin: 'c1', rel: ['c2'], by: 'claude', team: 'backend', ment: [], item: null },
+    { n: 'odeysys#49', t: 'Refund email not sent', st: 'done', home: 'b-ref', origin: 'c1', rel: [], by: 'user', team: 'backend', ment: [], item: null },
+    { n: 'booking-api#9', t: 'Missing currency on voucher response', st: 'inbox', home: 'b-s42', origin: 'c3', rel: [], by: 'claude', team: 'api', ment: [{ cyc: 'c1', calls: 3, stmts: 14, logs: 2 }], item: null },
+    { n: 'odeysys#40', t: 'Slow SELECT on vouchers', st: 'todo', home: 'b-ody', origin: 'c1', rel: [], by: 'user', team: 'db', ment: [{ cyc: 'c1', calls: 1, stmts: 8, logs: 0 }], item: null },
+    { n: 'odeysys#33', t: 'Login lockout after 3 tries, spec says 5', st: 'todo', home: 'b-ody', origin: 'c4', rel: [], by: 'claude', team: 'backend', ment: [], item: null },
+  ],
+  chats: {
+    'b-ref': [ { me: true, text: 'Why does #62 call refund-svc twice?', state: 'ANSWERED' },
+               { me: false, text: 'The retry wrapper at RefundClient.java:88 resends on a 504, but refund-svc already committed. Both calls in re-test 16 Oct carry the same idempotency key; the second returns 409.', rec: 'NEXT · add idempotency check' } ],
+    'b-ody': [], 'b-s42': [], 'b-bk': [],
+  },
+  activity: [
+    { board: 'b-ref', who: 'claude', text: 'related cycle booking-api rec to Sprint 42 Payments', undo: null, at: '2 h ago' },
+    { board: 'b-ref', who: 'system', text: 'migrated from cycle "rec 14 Oct": brief, 1 spec, 4 requirements, chat, 6 cards', at: 'first start' },
+  ],
+  conns: [
+    { id: 'az1', kind: 'Azure DevOps', name: 'tildetech', url: 'https://dev.azure.com/tildetech', pat: 'ok', fetched: '3 min ago', by: 'you',
+      caps: { items: true, types: true, people: true, boards: true, sprints: true, squads: true, revisions: true, attachments: true, customTypes: true, itemWriter: false, webhooks: false },
+      scope: { odeysys: true, 'booking-api': true, 'hr-portal': false } },
+    { id: 'az2', kind: 'Azure DevOps', name: 'tilde-partners', url: 'https://dev.azure.com/tilde-partners', pat: 'missing', fetched: '2 h ago', by: 'Mona',
+      caps: { items: true, types: true, people: true, boards: true, sprints: true, squads: true, revisions: true, attachments: true, customTypes: true, itemWriter: false, webhooks: false },
+      scope: { 'partner-gw': true } },
+  ],
+  items: [
+    { conn: 'az1', id: '4521', type: 'Bug', title: 'Refund by voucher rounds wrong', state: 'Active', who: 'Mona Saleh', squad: 'Payments', sprint: 'Sprint 42', area: 'odeysys\\Payments', board: 'b-ref', start: null,
+      fields: { 'Repro Steps': 'Steps', 'Acceptance Criteria': 'Acceptance', 'Custom.Currency': 'Context' }, links: [['Parent', '4410'], ['Related', '4550'], ['PR', '!812 fix rounding']] },
+    { conn: 'az1', id: '4530', type: 'Task', title: 'Refund screen balance refresh', state: 'Active', who: 'Ali K.', squad: 'Payments', sprint: 'Sprint 42', area: 'odeysys\\Payments', board: null, start: null, fields: { Description: 'Purpose' }, links: [['Parent', '4521']] },
+    { conn: 'az1', id: '4533', type: 'User Story', title: 'Partial refunds for split payments', state: 'New', who: 'Fathy B.', squad: 'Payments', sprint: 'Sprint 42', area: 'odeysys\\Payments', board: null, start: null, fields: { Description: 'Purpose', 'Acceptance Criteria': 'Acceptance' }, links: [['Parent', '4410']] },
+    { conn: 'az1', id: '4540', type: 'Meeting', custom: true, title: 'Refund flow walkthrough with QA', state: 'Scheduled', who: 'Ali K.', squad: 'Payments', sprint: 'Sprint 42', area: 'odeysys\\Payments', board: null, start: null, fields: { 'Custom.Agenda': 'Steps', 'Custom.Outcome': 'Acceptance', 'Custom.Attendees': 'Context' }, links: [['Related', '4521']] },
+    { conn: 'az1', id: '4544', type: 'Thread', custom: true, title: 'Voucher currency decision', state: 'Open', who: 'Mona Saleh', squad: 'Payments', sprint: 'Sprint 42', area: 'odeysys\\Payments', board: null, start: null, fields: { 'Custom.Decision': 'Purpose', 'Custom.Participants': 'Context' }, links: [] },
+    { conn: 'az1', id: '4410', type: 'Feature', title: 'Vouchers v2', state: 'Active', who: 'Rana H.', squad: 'Booking', sprint: 'Sprint 42', area: 'booking-api\\Booking', board: null, start: null, fields: { Description: 'Purpose' }, links: [['Child', '4521'], ['Child', '4533'], ['Child', '4550']] },
+    { conn: 'az1', id: '4550', type: 'Task', title: 'Add idempotency key to refund-svc client', state: 'New', who: 'Fathy B.', squad: 'Payments', sprint: 'Sprint 42', area: 'odeysys\\Payments', board: null, start: null, fields: { Description: 'Purpose' }, links: [['Parent', '4410']] },
+    { conn: 'az1', id: '4560', type: 'Bug', title: 'Platform: health endpoint 404 behind gateway', state: 'New', who: 'Sara N.', squad: 'Platform', sprint: 'Sprint 42', area: 'odeysys\\Platform', board: null, start: null, fields: { 'Repro Steps': 'Steps' }, links: [] },
+    { conn: 'az2', id: '120', type: 'Bug', title: 'Partner gateway drops X-Request-Id', state: 'Active', who: 'Omar T.', squad: 'Partners', sprint: 'P-Sprint 9', area: 'partner-gw', board: null, start: null, fields: { 'Repro Steps': 'Steps' }, links: [] },
+  ],
+  revs: { '4521': [ ['rev 7 · 2 h ago · Mona Saleh', 'Acceptance Criteria edited'], ['rev 6 · yesterday · Ali K.', 'State New → Active'], ['rev 5 · 14 Oct · Rana H.', 'Assigned Ali K. → Mona Saleh'], ['rev 4 · 13 Oct · Rana H.', 'Iteration Sprint 41 → Sprint 42'] ] },
+  revLoaded: {},
+  squads: [
+    { conn: 'az1', name: 'Payments', team: 'backend', project: 'odeysys', auto: true, cap: 3, today: 0, members: [['MS', 'Mona Saleh', 4], ['AK', 'Ali K.', 2], ['FB', 'Fathy B.', 3]] },
+    { conn: 'az1', name: 'Booking', team: null, project: 'booking-api', auto: false, cap: 3, today: 0, members: [['RH', 'Rana H.', 5], ['SN', 'Sara N.', 1]] },
+    { conn: 'az1', name: 'Platform', team: null, project: 'odeysys', auto: false, cap: 3, today: 0, members: [['SN', 'Sara N.', 2]] },
+    { conn: 'az2', name: 'Partners', team: null, project: null, auto: false, cap: 3, today: 0, members: [['OT', 'Omar T.', 3]] },
+  ],
+  feed: [
+    { conn: 'az1', when: '2 h ago', who: 'MS', item: '4521', text: 'Acceptance Criteria edited', squad: 'Payments', new: true },
+    { conn: 'az1', when: 'yesterday', who: 'AK', item: '4521', text: 'State New → Active', squad: 'Payments', new: true },
+    { conn: 'az1', when: '14 Oct', who: 'RH', item: '4521', text: 'Assigned Ali K. → Mona Saleh', squad: 'Payments', new: false },
+    { conn: 'az1', when: '14 Oct', who: 'SN', item: '4410', text: 'Link added: child 4533', squad: 'Booking', new: false },
+    { conn: 'az2', when: '2 h ago', who: 'OT', item: '120', text: 'Created', squad: 'Partners', new: true },
+  ],
+  maps: [
+    { conn: 'az1', from: 'Sprint 42 · Payments', kind: 'sprint', project: 'odeysys', board: 'b-s42' },
+    { conn: 'az1', from: 'area odeysys\\Payments', kind: 'area', project: 'odeysys', board: null },
+    { conn: 'az1', from: 'area booking-api\\Booking', kind: 'area', project: 'booking-api', board: null },
+  ],
+  fieldMaps: [
+    { type: 'Meeting', field: 'Custom.Agenda', to: 'Steps' }, { type: 'Meeting', field: 'Custom.Outcome', to: 'Acceptance' }, { type: 'Thread', field: 'Custom.Decision', to: 'Purpose' },
+  ],
+  cases: {},
+};
+const COLS = [['inbox', 'Inbox'], ['todo', 'To do'], ['progress', 'In progress'], ['fixed', 'Fixed'], ['done', 'Verified · Done']];
+const CASES = {
+  pick: 'Switch board (picker)', newBoard: 'Create a named board', relate: 'Relate / unrelate a cycle or board', filter: 'Own vs related cards',
+  card: 'Open a card: move status, move home, relate cycle', claudeFind: 'Claude finding lands in run\'s board Inbox', chat: 'Chat: WAITING → TAKEN → ANSWERED',
+  offline: 'Chat with no runner: message waits', undo: 'Undo a Claude action', azChange: 'Azure changed → /alfred-spec review', defaultBrief: 'Default board: optional brief',
+  rec: 'New recording / re-test cycle from Task tab', delCycle: 'Delete cycle: rescue mentioned data', start: 'Start task from a work item', unmapped: 'Start on unmapped item asks once',
+  openTask: 'Already started → Open task menu', feature: 'Feature/Epic → one board, children as steps', noPat: 'No PAT: shared cache only', expired: 'Expired PAT on refresh',
+  autoStart: 'Refresh brings item → Claude suggests, user decides', chatOpen: 'Open a board from a board chat', shared: 'Shared cycle: per-board verdicts + filter', listenShared: 'Listen on shared cycle: evidence not duplicate, asks home', join: 'Record while another records: join or new', capGate: 'Missing capability hides a view', tunnel: 'Tunnel: settings read-only', mention: 'Work item mention chip', export: 'Export / import with boards',
+};
+const done = k => { if (!S.cases[k]) { S.cases[k] = true; renderCtl(); } };
+
+/* ======================= HELPERS ======================= */
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const B = id => S.boards.find(b => b.id === id);
+const C = id => S.cycles.find(c => c.id === id);
+const I = (conn, id) => S.items.find(i => i.conn === conn && i.id === id);
+const K = n => S.cards.find(c => c.n === n);
+const conn = () => S.conns.find(c => c.id === S.conn);
+const cyclesOf = b => S.bc.filter(r => r[0] === b).map(r => C(r[1])).filter(Boolean);
+const boardsOfCycle = c => S.bc.filter(r => r[1] === c).map(r => B(r[0])).filter(Boolean);
+const relBoards = b => S.bb.filter(r => r[0] === b || r[1] === b).map(r => B(r[0] === b ? r[1] : r[0])).filter(Boolean);
+function toast(t) { $('#toast').innerHTML = `<div class="toast">${t}</div>`; clearTimeout(toast.h); toast.h = setTimeout(() => $('#toast').innerHTML = '', 2600); }
+function modal(html) { $('#modal').innerHTML = html ? `<div class="scrim" onclick="if(event.target===this)modal('')"><div class="dlg">${html}</div></div>` : ''; }
+function closePop() { $('#pop').innerHTML = ''; }
+function cycChip(c, x) { return `<span class="chip cyc ${c.kind}">${esc(c.name)}${c.project ? ` <span class="faint">· ${esc(c.project)}</span>` : ''}${x || ''}</span>`; }
+function itemChip(ref) { const [cn, id] = ref.split('/'); const it = I(cn, id); return `<span class="chip az" onclick="event.stopPropagation();itemPop(event,'${ref}')">AB#${id}${it ? ' · ' + esc(it.state) : ''}</span>`; }
+function log(board, who, text, undo) { S.activity.unshift({ board, who, text, undo, at: 'just now' }); }
+
+/* board's visible cards: own + cards of related cycles + cards homed on related boards */
+function boardCards(bid) {
+  const cyc = new Set(cyclesOf(bid).map(c => c.id));
+  const rb = new Set(relBoards(bid).map(b => b.id));
+  return S.cards.map(k => {
+    if (k.home === bid) return { k, own: true };
+    if (S.filter === 'own') return null;
+    if (cyc.has(k.origin) || k.rel.some(r => cyc.has(r)) || rb.has(k.home)) return { k, own: false };
+    return null;
+  }).filter(Boolean);
+}
+
+/* ======================= NAV ======================= */
+function renderNav() {
+  const t = [['calls', 'Live Calls'], ['cycles', 'Session Cycles'], ['board', 'Board'], ['team', 'Team', 'new'], ['profiles', 'Profiles'], ['settings', 'Settings'], ['relive', 'Relive Cycles'], ['logs', 'Logs']];
+  $('#nav').innerHTML = t.map(([k, l, n]) => `<span class="${S.tab === k ? 'on' : ''} ${n || ''}" onclick="go('${k}')">${l}</span>`).join('') + `<span class="doc ${S.tab === 'doc' ? 'on' : ''}" onclick="go('doc')">📐 Model &amp; architecture</span>`;
+}
+function go(t) { S.tab = t; S.menu = false; closePop(); render(); }
+
+/* ======================= BOARD ======================= */
+function renderBoard() {
+  const b = B(S.board);
+  const groups = [['Project defaults', S.boards.filter(x => x.isDefault)], ['Task boards', S.boards.filter(x => !x.isDefault)]];
+  const menu = S.menu ? `<div class="menu">${groups.map(([g, l]) => `<div class="grp">${g}</div>` + l.map(x => {
+    const n = S.cards.filter(k => k.home === x.id).length;
+    return `<div class="it ${x.id === S.board ? 'on' : ''}" onclick="pickBoard('${x.id}')">${esc(x.name)} <small>${x.isDefault ? 'default · ' : ''}${x.item ? '◆ AB#' + x.item.split('/')[1] + ' · ' : ''}${x.azMap ? '◆ ' + esc(x.azMap) + ' · ' : ''}${n} cards</small></div>`;
+  }).join('')).join('')}<div class="add" onclick="newBoardDlg()">＋ New board…</div></div>` : '';
+  const cycs = cyclesOf(b.id), rbs = relBoards(b.id);
+  const sub = [['cards', 'Cards'], ['task', 'Task'], ['activity', 'Activity']];
+  let h = `<div class="row">
+    <div class="picker"><button onclick="event.stopPropagation();S.menu=!S.menu;render()"><span class="dim">▦</span> <b>${esc(b.name)}</b> <span class="faint">${esc(b.project)}${b.isDefault ? ' · default' : ''} ▾</span></button>${menu}</div>
+    ${b.item ? itemChip(b.item) : ''}${b.azMap ? `<span class="chip az">${esc(b.azMap)}</span>` : ''}
+    <span class="spacer"></span>
+    <button class="btn" onclick="exportDlg()">Export</button>
+    ${b.isDefault ? '' : `<button class="btn danger" onclick="delBoardDlg()">Delete board</button>`}
+  </div>
+  <div class="strip">Related cycles:
+    ${cycs.map(c => cycChip(c, `<span class="x" title="Unrelate" onclick="unrelate('${b.id}','${c.id}')">✕</span>`)).join('') || '<span class="faint">none</span>'}
+    &nbsp;Boards: ${rbs.map(x => `<span class="chip brd">${esc(x.name)}<span class="x" onclick="unrelateBoard('${b.id}','${x.id}')">✕</span></span>`).join('') || '<span class="faint">none</span>'}
+    <span class="chip plus" onclick="relateDlg()">＋ relate cycle or board</span>
+  </div>
+  ${b.migratedFrom ? `<div class="banner info">ⓘ Migrated on first start from cycle "<b>${esc(b.migratedFrom)}</b>": its brief, spec, requirements, chat and cards now live on this board, and the cycle only holds the calls.</div>` : ''}
+  <div class="subtabs">${sub.map(([k, l]) => `<span class="${S.boardSub === k ? 'on' : ''}" onclick="S.boardSub='${k}';render()">${l}</span>`).join('')}</div>`;
+  if (S.boardSub === 'cards') h += renderCards(b);
+  if (S.boardSub === 'task') h += renderTask(b);
+  if (S.boardSub === 'activity') h += renderActivity(b);
+  return h;
+}
+function renderCards(b) {
+  const vis = boardCards(b.id);
+  const kan = COLS.map(([k, l]) => {
+    const cs = vis.filter(v => v.k.st === k);
+    return `<div class="col"><h4>${l}<span>${cs.length}</span></h4>${cs.map(({ k: c, own }) => `
+      <div class="card ${own ? '' : 'related'} ${c.by === 'claude' ? 'claude' : ''} ${c.flash ? 'flash' : ''}" onclick="cardDlg('${c.n}')">
+        ${own ? '' : `<div class="home">home ▦ ${esc(B(c.home).name)}</div>`}
+        <div class="n"><span>${c.n}</span>${c.originGone ? '<span style="color:var(--red)">origin deleted</span>' : ''}</div>
+        <div class="t">${esc(c.t)}</div>
+        <div class="meta">${C(c.origin) ? cycChip(C(c.origin)) : ''}<span class="chip">${esc(c.team)}</span>${c.item ? itemChip(c.item) : ''}</div>
+      </div>`).join('') || '<div class="empty">empty</div>'}</div>`;
+  }).join('');
+  return `<div class="row"><span class="seg"><span class="${S.filter === 'all' ? 'on' : ''}" onclick="setFilter('all')">Own + related</span><span class="${S.filter === 'own' ? 'on' : ''}" onclick="setFilter('own')">Own only</span></span>
+    <span class="faint small">Dashed = homed on another board, shown here because it came from a related cycle or board.</span><span class="spacer"></span>
+    <button class="btn" onclick="claudeFinds()">⚙ Simulate: /alfred-listen finding</button></div>
+    <div class="kb-wrap"><div class="kanban">${kan}</div>${renderChat(b)}</div>`;
+}
+function renderChat(b) {
+  const r = S.ctl.runner[b.id];
+  const who = r === 'terminal' ? `<div class="who">Answered by your terminal · /alfred-live for this board</div>`
+    : r === 'project' ? `<div class="who project">Answered by ${esc(b.project)}'s live runner (no /alfred-live for this board)</div>`
+    : `<div class="who offline">Terminal offline · messages wait</div>`;
+  const msgs = (S.chats[b.id] || []).map((m, i) => `<div class="msg ${m.me ? 'me' : ''}">${esc(m.text)}${m.rec ? `<br><span class="rec ${m.undone ? 'undone' : ''}">${esc(m.rec)}${m.undo && !m.undone ? ` · <a style="cursor:pointer;color:var(--purple-l)" onclick="undoChat('${b.id}',${i})">Undo</a>` : ''}</span>` : ''}${m.pick ? `<div class="row" style="margin-top:.3rem">${m.answered ? `<span class="faint small">${esc(m.answered)}</span>` : m.pick.boards.map(h => `<button class="btn sm pri" onclick="pickHome('${b.id}',${i},'${h}')">${esc(B(h).name)}</button>`).join('')}</div>` : ''}${m.suggest ? `<div class="row" style="margin-top:.3rem">${m.answered ? `<span class="faint small">${m.answered}</span>` : `<button class="btn sm pri" onclick="suggestYes('${b.id}',${i})">Yes, open it</button><button class="btn sm" onclick="S.chats['${b.id}'][${i}].answered='You said no';render()">No</button>`}</div>` : ''}${m.me ? `<span class="state ${m.state}">${m.state}${m.state === 'WAITING' ? ` · <a style="cursor:pointer" onclick="cancelMsg('${b.id}',${i})">cancel</a>` : ''}</span>` : ''}</div>`).join('');
+  return `<div class="chat">${who}<div class="msgs" id="msgs">${msgs || '<div class="empty">No messages on this board yet. Try "relate the login cycle" or "move #40 here".</div>'}${b.typing ? '<div class="typing">Claude is answering…</div>' : ''}</div>
+    <form onsubmit="event.preventDefault();sendChat(this.q.value);this.q.value=''"><input name="q" placeholder="Message this board…" autocomplete="off"><button class="btn pri">Send</button></form>
+    <div class="faint" style="font-size:.68rem">Chat lives on boards only; a cycle has none. The old fork path stays for older runners (note: remove later).</div></div>`;
+}
+function renderTask(b) {
+  const it = b.item ? I(...b.item.split('/')) : null;
+  const az = b.azChanged ? `<div class="banner info"><b style="color:var(--blue)">◆ Azure changed</b> AB#${it.id}: Acceptance Criteria edited by Mona Saleh, 2 h ago. <button class="btn sm" onclick="azReview()">Review with /alfred-spec</button><button class="btn sm" onclick="azDismiss()">Dismiss</button></div>` : '';
+  const brief = b.brief ? `<div class="dim">${esc(b.brief.purpose)}</div>${b.brief.steps.length ? `<ol class="steps">${b.brief.steps.map(s => `<li>${s}</li>`).join('')}</ol>` : ''}`
+    : `<div class="empty">No brief. On a project default board it is optional: this board holds project-wide cards and chat.<br><button class="btn sm" style="margin-top:.4rem" onclick="writeBrief()">Write a brief</button></div>`;
+  const reqs = b.reqs.length ? b.reqs.map(r => `<div class="req"><span class="st ${r.st}">${r.st}</span><span><b>${r.id}</b> ${esc(r.text)} ${r.card ? `<span class="chip" style="font-size:.64rem">${r.card}</span>` : ''}</span><span class="faint mono">${r.cyc ? esc(C(r.cyc)?.name || 'deleted') : 'no call yet'}</span></div>`).join('')
+    : '<div class="empty">No Acceptance items.</div>';
+  const cycs = cyclesOf(b.id);
+  return az + `<div class="task"><div>
+      <div class="pane"><h3>Requirements <span class="faint small" style="font-weight:400">judged on related cycles + live calls while recording</span></h3>${reqs}</div>
+      <div class="pane"><h3>Brief</h3>${brief}</div>
+    </div><div>
+      <div class="pane"><h3>Cycles <span><button class="btn sm pri" onclick="newCycle('rec')">● New recording</button> <button class="btn sm" onclick="newCycle('retest')">New re-test</button></span></h3>
+        ${cycs.map(c => { const sh = boardsOfCycle(c.id).filter(x => x.id !== b.id); return `<div class="crow">${cycChip(c)}<span>${c.calls} calls${recBadge(c)}${sh.length ? `<br><span class="faint small">shared with ${sh.map(x => esc(x.name)).join(', ')}</span>` : ''}</span><button class="btn sm" onclick="cycleCallsDlg('${c.id}','${b.id}')">Calls</button><button class="btn sm" onclick="unrelate('${b.id}','${c.id}')">Unrelate</button></div>`; }).join('') || '<div class="empty">No cycles related.</div>'}
+      </div>
+      <div class="pane"><h3>Linked work item</h3>${it ? `${itemChip(b.item)} <span class="dim small">${esc(it.type)} · ${esc(it.who)} · ${esc(it.squad)} · ${esc(it.sprint)}</span>` : '<span class="faint">none</span>'}</div>
+    </div></div>`;
+}
+function renderActivity(b) {
+  const a = S.activity.filter(x => x.board === b.id);
+  return `<div class="pane">${a.map((x, i) => `<div class="act ${x.undone ? 'undone' : ''}"><span class="who2">${x.at}</span><span><b>${x.who}</b> ${esc(x.text)}</span>${x.undo && !x.undone ? `<button class="btn sm" onclick="undoAct(${S.activity.indexOf(x)})">Undo</button>` : '<span></span>'}</div>`).join('') || '<div class="empty">Nothing yet.</div>'}</div>`;
+}
+
+/* board actions */
+function pickBoard(id) { S.board = id; S.menu = false; done('pick'); render(); }
+function setFilter(f) { S.filter = f; done('filter'); render(); }
+function newBoardDlg(pref) {
+  S.menu = false;
+  modal(`<h2>New board</h2>
+    <label>Name</label><input id="nbName" class="full" value="${pref ? esc(pref.name) : ''}" placeholder="e.g. Login lockout">
+    <label>Project (where its recordings capture)</label><select id="nbProj" class="full">${Object.keys(TEAMS).map(p => `<option>${p}</option>`).join('')}</select>
+    <label>Relate existing cycles (optional)</label>${S.cycles.map(c => `<div class="row small"><input type="checkbox" value="${c.id}" class="nbC"> ${cycChip(c)}</div>`).join('')}
+    <div class="row small" style="margin-top:.4rem"><input type="checkbox" id="nbRec" checked> Start a first recording cycle</div>
+    <div class="foot"><button class="btn" onclick="modal('')">Cancel</button><button class="btn pri" onclick="createBoard()">Create</button></div>`);
+}
+function createBoard() {
+  const name = $('#nbName').value.trim() || 'Untitled board', project = $('#nbProj').value;
+  const id = 'b' + (++S.boardSeq);
+  S.boards.push({ id, name, project, brief: null, reqs: [], item: null });
+  S.chats[id] = []; S.ctl.runner[id] = 'project';
+  document.querySelectorAll('.nbC:checked').forEach(x => S.bc.push([id, x.value]));
+  if ($('#nbRec').checked) { const c = mkCycle(project, 'rec'); S.bc.push([id, c.id]); }
+  log(id, 'you', 'created board'); S.board = id; S.boardSub = 'task'; modal(''); done('newBoard'); toast(`Board "${esc(name)}" created`); render();
+}
+function mkCycle(project, kind) {
+  const base = (kind === 'retest' ? 're-test ' : 'rec ') + '17 Oct', same = S.cycles.filter(x => x.name.startsWith(base)).length;
+  const c = { id: 'c' + (++S.cycSeq), name: base + (same ? ` (${same + 1})` : ''), project, kind, calls: 0 };
+  S.cycles.push(c); return c;
+}
+function newCycle(kind) { recordDlg(kind); }
+function relateDlg() {
+  const b = B(S.board), have = new Set(cyclesOf(b.id).map(c => c.id)), hb = new Set(relBoards(b.id).map(x => x.id));
+  modal(`<h2>Relate to "${esc(b.name)}"</h2>
+    <div class="dim small">Cycles from any project can relate. Related cycles' calls are judged against this board's requirements; their cards show here.</div>
+    <label>Cycles</label>${S.cycles.map(c => `<div class="row small" style="margin:.15rem 0">${cycChip(c)} <span class="faint">${c.calls} calls · on ${boardsOfCycle(c.id).map(x => esc(x.name)).join(', ') || 'no board'}</span><span class="spacer"></span>${have.has(c.id) ? '<span class="faint">related</span>' : `<button class="btn sm" onclick="relate('${c.id}')">Relate</button>`}</div>`).join('')}
+    <label>Boards</label>${S.boards.filter(x => x.id !== b.id).map(x => `<div class="row small" style="margin:.15rem 0"><span class="chip brd">${esc(x.name)}</span><span class="spacer"></span>${hb.has(x.id) ? '<span class="faint">related</span>' : `<button class="btn sm" onclick="relateBoard('${x.id}')">Relate</button>`}</div>`).join('')}
+    <div class="foot"><button class="btn" onclick="modal('')">Done</button></div>`);
+}
+function relate(cid, who = 'you') { S.bc.push([S.board, cid]); log(S.board, who, `related cycle ${C(cid).name}`, who === 'claude' ? { t: 'bc', b: S.board, c: cid } : null); done('relate'); render(); if ($('#modal').innerHTML) relateDlg(); }
+function relateBoard(bid) { S.bb.push([S.board, bid]); log(S.board, 'you', `related board ${B(bid).name}`); done('relate'); render(); relateDlg(); }
+function unrelate(bid, cid) { S.bc = S.bc.filter(r => !(r[0] === bid && r[1] === cid)); log(bid, 'you', `unrelated cycle ${C(cid).name}`); done('relate'); toast(`Unrelated ${esc(C(cid).name)}: the cycle and its calls stay`); render(); }
+function unrelateBoard(a, bId) { S.bb = S.bb.filter(r => !((r[0] === a && r[1] === bId) || (r[1] === a && r[0] === bId))); log(a, 'you', `unrelated board ${B(bId).name}`); done('relate'); render(); }
+function cardDlg(n) {
+  const k = K(n), cycs = S.cycles;
+  modal(`<h2>${k.n} · ${esc(k.t)}</h2>
+    <div class="row small">${k.by === 'claude' ? '<span class="chip claude">found by Claude</span>' : ''}<span class="chip">${esc(k.team)}</span>${k.item ? itemChip(k.item) : ''}</div>
+    <label>Status</label><select id="cdSt" class="full">${COLS.map(([v, l]) => `<option value="${v}" ${k.st === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+    <label>Home board (number ${k.n} stays the same)</label><select id="cdHome" class="full">${S.boards.map(x => `<option value="${x.id}" ${k.home === x.id ? 'selected' : ''}>${esc(x.name)}${x.isDefault ? ' (default)' : ''}</option>`).join('')}</select>
+    <label>Origin cycle</label><div>${C(k.origin) ? cycChip(C(k.origin)) : '<span class="faint">deleted</span>'}</div>
+    <label>Related cycles</label><div class="row">${k.rel.map(r => C(r) ? cycChip(C(r), `<span class="x" onclick="cardUnrel('${n}','${r}')">✕</span>`) : '').join('') || '<span class="faint small">none</span>'}
+      <select id="cdRel"><option value="">＋ relate a cycle…</option>${cycs.filter(c => c.id !== k.origin && !k.rel.includes(c.id)).map(c => `<option value="${c.id}">${esc(c.name)} · ${c.project}</option>`).join('')}</select></div>
+    <label>Mentions kept on delete</label><div class="small dim">${k.ment.map(m => `${m.calls} calls, ${m.stmts} statements, ${m.logs} log lines in ${esc(C(m.cyc)?.name || 'kept cycle')}`).join('<br>') || 'none'}</div>
+    <label>Description</label><div class="small">Seen on ${itemChip('az1/4521')}, same voucher flow. Mention a work item with <code>@[workitem:az1/4521|Refund…]</code>.</div>
+    <div class="foot"><button class="btn" onclick="modal('')">Cancel</button><button class="btn pri" onclick="saveCard('${n}')">Save</button></div>`);
+  done('card');
+}
+function cardUnrel(n, r) { const k = K(n); k.rel = k.rel.filter(x => x !== r); cardDlg(n); }
+function saveCard(n) {
+  const k = K(n), st = $('#cdSt').value, home = $('#cdHome').value, rel = $('#cdRel').value;
+  if (home !== k.home) { log(home, 'you', `moved ${n} home from ${B(k.home).name}`); log(k.home, 'you', `moved ${n} home to ${B(home).name}`); toast(`${n} now lives on ${esc(B(home).name)}`); }
+  if (rel) k.rel.push(rel);
+  k.st = st; k.home = home; modal(''); render();
+}
+function claudeFinds() {
+  const b = B(S.board), cyc = cyclesOf(b.id)[0];
+  if (!cyc) { toast('Relate or record a cycle first: /alfred-listen listens to a board\'s cycles'); return; }
+  const n = `${b.project}#${++S.seq}`;
+  S.cards.push({ n, t: 'Voucher balance not refreshed after refund (listen finding)', st: 'inbox', home: b.id, origin: cyc.id, rel: [], by: 'claude', team: TEAMS[b.project][0], ment: [{ cyc: cyc.id, calls: 1, stmts: 2, logs: 1 }], item: null, flash: true });
+  log(b.id, 'claude', `added ${n} to Inbox (from ${cyc.name})`);
+  done('claudeFind'); toast(`/alfred-listen ran for "${esc(b.name)}": ${n} lands in this board's Inbox. Other boards relating ${esc(cyc.name)} show it dashed.`); render();
+  setTimeout(() => { S.cards.forEach(c => c.flash = false); }, 1300);
+}
+function sendChat(q) {
+  q = (q || '').trim(); if (!q) return;
+  const b = B(S.board), msgs = S.chats[b.id]; msgs.push({ me: true, text: q, state: 'WAITING' }); done('chat');
+  const i = msgs.length - 1; render();
+  if (S.ctl.runner[b.id] === 'offline') { done('offline'); toast('No runner for this board: the message waits until /alfred-live starts'); return; }
+  setTimeout(() => { if (msgs[i].state !== 'WAITING') return; msgs[i].state = 'TAKEN'; b.typing = true; render(); }, 700);
+  setTimeout(() => {
+    if (msgs[i].state !== 'TAKEN') return;
+    msgs[i].state = 'ANSWERED'; b.typing = false;
+    const low = q.toLowerCase();
+    const ab = low.match(/ab#?(\d+)/), opening = /open|start|new board/.test(low);
+    if (opening) {
+      const it = ab && S.items.find(x => x.id === ab[1]);
+      if (it && it.board) { msgs.push({ me: false, text: `AB#${it.id} already has a board: "${B(it.board).name}". I did not open a second one.` }); render(); return; }
+      if (it) {
+        const m = mapFor(it); it.target = { project: m ? m.project : b.project, board: b.id }; it.start = 'taken';
+        msgs.push({ me: false, text: `Opening a board for AB#${it.id} as you asked: /alfred-setup, then a first recording cycle. It will relate back to "${b.name}".`, rec: 'CARD · board requested by you' });
+        render(); setTimeout(() => finishStart(it, 'you', 'chat ' + b.name), 1200); done('chatOpen'); return;
+      }
+      const name = q.replace(/.*(board|for)\s*/i, '').trim() || 'New board';
+      const id = 'b' + (++S.boardSeq); S.boards.push({ id, name, project: b.project, brief: null, reqs: [], item: null }); S.chats[id] = []; S.ctl.runner[id] = 'project'; S.bb.push([id, b.id]);
+      log(id, 'you', `opened from ${b.name} chat`);
+      msgs.push({ me: false, text: `Opened board "${name}" as you asked, related to "${b.name}". It has no brief yet: run /alfred-setup there to write one.`, rec: 'CARD · board requested by you' });
+      done('chatOpen'); render(); return;
+    }
+    const free = S.cycles.find(c => !cyclesOf(b.id).some(x => x.id === c.id));
+    if (low.includes('relate') && free) {
+      S.bc.push([b.id, free.id]); log(b.id, 'claude', `related cycle ${free.name}`, { t: 'bc', b: b.id, c: free.id });
+      msgs.push({ me: false, text: `Related ${free.name} to this board. Its ${free.calls} calls now count for the requirements.`, rec: 'activity · Claude related cycle', undo: { t: 'bc', b: b.id, c: free.id } });
+    } else if (low.includes('move')) {
+      const k = S.cards.find(c => c.home !== b.id);
+      const from = k.home; k.home = b.id; log(b.id, 'claude', `moved ${k.n} home from ${B(from).name}`, { t: 'home', n: k.n, from });
+      msgs.push({ me: false, text: `Moved ${k.n} here from ${B(from).name}. Its number and history are unchanged.`, rec: 'activity · Claude moved home', undo: { t: 'home', n: k.n, from } });
+    } else msgs.push({ me: false, text: `Checked the ${cyclesOf(b.id).reduce((a, c) => a + c.calls, 0)} calls of this board's related cycles. Nothing new beyond the open cards.`, rec: 'DECISION · nothing to add' });
+    render();
+  }, 1900);
+}
+function suggestYes(bid, i) {
+  const m = S.chats[bid][i], it = I('az1', m.suggest); m.answered = 'You said yes';
+  const mp = mapFor(it); it.target = { project: mp.project, board: mp.board }; it.start = 'taken'; render();
+  setTimeout(() => finishStart(it, 'you', 'chat suggestion'), 1200);
+}
+function cancelMsg(bid, i) { S.chats[bid][i].state = 'CANCELLED'; render(); }
+function applyUndo(u) {
+  if (u.t === 'bc') S.bc = S.bc.filter(r => !(r[0] === u.b && r[1] === u.c));
+  if (u.t === 'home') K(u.n).home = u.from;
+  done('undo');
+}
+function undoChat(bid, i) { const m = S.chats[bid][i]; applyUndo(m.undo); m.undone = true; const a = S.activity.find(x => x.undo && JSON.stringify(x.undo) === JSON.stringify(m.undo)); if (a) a.undone = true; toast('Undone'); render(); }
+function undoAct(i) { const a = S.activity[i]; applyUndo(a.undo); a.undone = true; toast('Undone'); render(); }
+function azReview() {
+  const b = B(S.board);
+  modal(`<h2>/alfred-spec · AB#4521 changed in Azure</h2><div class="dim small">Claude proposes; you save. Nothing changes until you do.</div>
+    <div class="pane diff mono" style="margin-top:.5rem">AC3: Total <del>rounded to 2 places</del> <ins>rounded to 3 places (KWD)</ins></div>
+    <div class="small dim" style="margin-top:.4rem">Effect: AC3 is re-judged on the related cycles' calls. odeysys#61 stays as evidence.</div>
+    <div class="foot"><button class="btn" onclick="modal('')">Not now</button><button class="btn pri" onclick="azSave()">Save to spec</button></div>`);
+  done('azChange');
+}
+function azSave() { const b = B(S.board); const r = b.reqs.find(x => x.id === 'AC3'); r.text = 'Total rounded to 3 places (KWD)'; b.azChanged = false; log(b.id, 'you', 'saved AC3 from Azure change'); modal(''); toast('AC3 updated from Azure'); render(); }
+function azDismiss() { B(S.board).azChanged = false; done('azChange'); render(); }
+function writeBrief() { const b = B(S.board); b.brief = { purpose: 'Project-wide cards and decisions for ' + b.project + '.', steps: [] }; done('defaultBrief'); render(); }
+function exportDlg() {
+  const b = B(S.board);
+  modal(`<h2>Export "${esc(b.name)}"</h2>
+    <div class="small">Records written (JSON lines), with nothing truncated:</div>
+    <div class="pane mono small" style="margin-top:.4rem">board · ${esc(b.name)} (${b.project})<br>board-cycle × ${cyclesOf(b.id).length} · ${cyclesOf(b.id).map(c => esc(c.name)).join(', ')}<br>board-board × ${relBoards(b.id).length}<br>card × ${S.cards.filter(k => k.home === b.id).length} (home here) · origin + related cycles<br>${b.item ? 'workitem-snapshot · AB#' + b.item.split('/')[1] + ' (id, url, title, state at setup)<br>' : ''}chat* · brief · specs · requirements</div>
+    <div class="note"><b>Import:</b> an older file without <code>board</code> records imports onto the project default board. Older Alfreds skip the new records; there are no new enum values. A work-item chip shows its snapshot when the importer has no Azure access.</div>
+    <div class="foot"><button class="btn" onclick="modal('')">Close</button><button class="btn pri" onclick="modal('');toast('Mock: export written')">Export .json</button></div>`);
+  done('export');
+}
+function delBoardDlg() {
+  const b = B(S.board), own = S.cards.filter(k => k.home === b.id).length;
+  modal(`<h2>Delete board "${esc(b.name)}"?</h2>
+    <div class="box keep"><h4>Kept</h4>Every related cycle and its calls (cycles are separate). Its ${own} cards move to <b>${esc(B(S.boards.find(x => x.isDefault && x.project === b.project).id).name)}</b> (default).</div>
+    <div class="box gone"><h4>Deleted</h4>Brief, spec files, requirements, chat and the board's relations.</div>
+    <div class="foot"><button class="btn" onclick="modal('')">Cancel</button><button class="btn danger" onclick="delBoard()">Delete</button></div>`);
+}
+function delBoard() {
+  const b = B(S.board), def = S.boards.find(x => x.isDefault && x.project === b.project);
+  S.cards.forEach(k => { if (k.home === b.id) k.home = def.id; });
+  S.bc = S.bc.filter(r => r[0] !== b.id); S.bb = S.bb.filter(r => r[0] !== b.id && r[1] !== b.id);
+  S.items.forEach(i => { if (i.board === b.id) i.board = null; });
+  S.boards = S.boards.filter(x => x !== b); S.board = def.id; modal(''); toast('Board deleted; cards moved to ' + def.name); render();
+}
+function itemPop(e, ref) {
+  const [cn, id] = ref.split('/'), it = I(cn, id), c = S.conns.find(x => x.id === cn);
+  const r = e.target.getBoundingClientRect();
+  $('#pop').innerHTML = `<div class="pop" style="left:${Math.min(r.left, innerWidth - 300)}px;top:${r.bottom + 6}px">
+    <div class="row"><b>AB#${id}</b><span class="spacer"></span><a class="faint" style="cursor:pointer" onclick="closePop()">✕</a></div>
+    ${it ? `<div>${esc(it.title)}</div><div class="dim small">${esc(it.type)} · ${esc(it.state)} · ${esc(it.who)} · ${esc(it.squad)} · ${esc(it.sprint)}</div>` : ''}
+    <div class="faint small" style="margin-top:.3rem">${c.pat === 'ok' ? `From cache, fetched ${c.fetched}` : 'Snapshot from export / shared cache (no PAT in this browser)'}</div>
+    <div class="row" style="margin-top:.4rem"><button class="btn sm" onclick="closePop();S.tab='team';S.conn='${cn}';S.selItem='${id}';render()">Open in Team</button><button class="btn sm">↗ Azure</button></div></div>`;
+  done('mention');
+}
+
+/* ======================= SHARED CYCLE ======================= */
+const SAMPLE = {
+  c1: [ ['POST /refunds', 200, 640, ['odeysys#61']], ['GET /vouchers/{id}', 200, 90, ['booking-api#9']], ['POST /refund-svc/refund', 504, 15020, ['odeysys#62']],
+        ['POST /refund-svc/refund', 200, 410, []], ['POST /refunds', 200, 1210, []], ['GET /vouchers/{id}', 200, 85, []], ['GET /login', 200, 120, []], ['GET /health', 200, 4, []] ],
+  c5: [ ['POST /refunds', 200, 590, []], ['GET /vouchers/{id}', 200, 70, []], ['GET /bookings/88120', 200, 140, []] ],
+};
+function callsOf(cid) {
+  if (SAMPLE[cid]) return SAMPLE[cid];
+  return ['POST /refunds', 'GET /vouchers/{id}', 'GET /login', 'POST /mail/send'].map((e, i) => [e, 200, 100 + i * 50, []]);
+}
+function verdicts(b, ep) { return b.reqs.filter(r => r.ep === ep); }
+function callForBoard(b, call) { return verdicts(b, call[0]).length > 0 || call[3].some(n => K(n) && K(n).home === b.id); }
+function recBadge(c) { return c.recording ? ' <span class="st WRONG">● REC</span>' : c.paused ? ' <span class="st UNKNOWN">paused</span>' : ''; }
+function cycleCallsDlg(cid, bf) {
+  const c = C(cid), bs = boardsOfCycle(cid);
+  S.cvf = bf || S.cvf || 'all';
+  if (S.cvf !== 'all' && !bs.some(b => b.id === S.cvf)) S.cvf = 'all';
+  const fb = S.cvf !== 'all' ? B(S.cvf) : null, cols = fb ? [fb] : bs;
+  const calls = callsOf(cid).filter(cl => !fb || callForBoard(fb, cl));
+  modal(`<h2>${cycChip(c)}${recBadge(c)}</h2>
+    <div class="small dim">One cycle, ${bs.length} board(s). Every related board judges each call by its <b>own</b> Acceptance items. A call that no board's items name counts for none of them.</div>
+    <div class="row" style="margin:.5rem 0"><span class="small dim">Show calls</span><span class="seg">
+      <span class="${S.cvf === 'all' ? 'on' : ''}" onclick="cycleCallsDlg('${cid}','all')">All ${callsOf(cid).length}</span>
+      ${bs.map(b => `<span class="${S.cvf === b.id ? 'on' : ''}" onclick="cycleCallsDlg('${cid}','${b.id}')">for ${esc(b.name)} ${callsOf(cid).filter(cl => callForBoard(b, cl)).length}</span>`).join('')}</span>
+      <span class="spacer"></span><button class="btn sm pri" onclick="listenShared('${cid}')">▶ /alfred-listen this cycle</button></div>
+    <div style="overflow-x:auto"><table><thead><tr><th>Call</th><th>Status</th><th>ms</th>${cols.map(b => `<th>${esc(b.name)}</th>`).join('')}<th>Cards</th></tr></thead><tbody>
+    ${calls.map(cl => `<tr><td class="mono">${cl[0]}</td><td>${cl[1]}</td><td>${cl[2]}</td>
+      ${cols.map(b => { const v = verdicts(b, cl[0]); return `<td>${v.map(r => { const st = r.id === 'S2' ? (cl[2] > 800 ? 'WRONG' : 'OK') : r.st; return `<span class="st ${st}" title="${esc(r.text)}">${r.id} ${st}</span>`; }).join(' ') || '<span class="faint">—</span>'}</td>`; }).join('')}
+      <td>${cl[3].map(n => K(n) ? `<span class="chip" style="font-size:.64rem">${n} <span class="faint">▦ ${esc(B(K(n).home).name)}</span></span>` : '').join('')}</td></tr>`).join('') || '<tr><td colspan="9" class="empty">No call here is about this board.</td></tr>'}
+    </tbody></table></div>
+    <div class="note"><b>For a board</b> means calls its Acceptance items name, plus calls its cards mention. "All" shows every call.</div>
+    <div class="foot"><button class="btn" onclick="modal('')">Close</button></div>`);
+  done('shared');
+}
+function listenShared(cid) {
+  const c = C(cid), bs = boardsOfCycle(cid);
+  modal('');
+  const dup = K('booking-api#9');
+  if (dup && !dup.rel.includes(cid) && dup.origin !== cid) dup.rel.push(cid);
+  const f2 = { ep: 'POST /refunds', t: 'Refund took 1210 ms; S2 says under 800 ms' };
+  const own2 = bs.filter(b => verdicts(b, f2.ep).length);
+  const askIn = own2[0] || bs[0];
+  if (own2.length > 1) {
+    S.chats[askIn.id].push({ me: false, text: `/alfred-listen on "${c.name}" (shared by ${bs.map(b => b.name).join(', ')}). New finding: ${f2.t}. ${own2.map(b => b.name + ' (' + verdicts(b, f2.ep).map(r => r.id).join(', ') + ')').join(' and ')} both name ${f2.ep}. Which board is its home? The other shows it as related.`,
+      pick: { cid, t: f2.t, boards: own2.map(b => b.id) } });
+  } else {
+    const home = own2[0] || bs[0], n = `${home.project}#${++S.seq}`;
+    S.cards.push({ n, t: f2.t, st: 'inbox', home: home.id, origin: cid, rel: [], by: 'claude', team: TEAMS[home.project][0], ment: [{ cyc: cid, calls: 1, stmts: 3, logs: 0 }], item: null, flash: true });
+  }
+  log(askIn.id, 'claude', `listened to ${c.name} once for ${bs.length} boards: evidence added to booking-api#9 instead of a duplicate`);
+  S.tab = 'board'; S.board = askIn.id; S.boardSub = 'cards';
+  done('listenShared');
+  toast(`One listen for the whole cycle. The voucher finding matched booking-api#9, so it became evidence, not a new card.${own2.length > 1 ? ` The refund finding names ${own2.length} boards, so Claude asks in "${esc(askIn.name)}" chat.` : ''}`);
+  render();
+}
+function pickHome(bid, i, home) {
+  const m = S.chats[bid][i], b = B(home), n = `${b.project}#${++S.seq}`;
+  S.cards.push({ n, t: m.pick.t, st: 'inbox', home, origin: m.pick.cid, rel: [], by: 'claude', team: TEAMS[b.project][0], ment: [{ cyc: m.pick.cid, calls: 1, stmts: 3, logs: 0 }], item: null, flash: true });
+  m.answered = `Home: ${b.name}`; log(home, 'claude', `added ${n} (you chose the home)`);
+  S.board = home; toast(`${n} lives on "${esc(b.name)}". Other boards on this cycle show it dashed.`); render();
+}
+function recordDlg(kind) {
+  const b = B(S.board), run = S.cycles.find(c => c.recording && c.project === b.project);
+  if (run && boardsOfCycle(run.id).some(x => x.id === b.id)) { toast(`${esc(run.name)} is already recording for this board`); return; }
+  if (!run) { newCycleGo(kind, null); return; }
+  modal(`<h2>${cycChip(run)} is recording</h2>
+    <div class="small">It records for ${boardsOfCycle(run.id).map(x => `<span class="chip brd">${esc(x.name)}</span>`).join(' ')}. Only one cycle records per project at a time.</div>
+    <div class="pane" style="margin-top:.6rem"><b>Join it</b><div class="small dim">Relate ${esc(run.name)} to "${esc(b.name)}" too. Its calls so far, and from now on, count for this board's requirements as well.</div><button class="btn sm pri" style="margin-top:.35rem" onclick="joinRun('${run.id}')">Relate running cycle</button></div>
+    <div class="pane"><b>Start a new ${kind === 'retest' ? 're-test' : 'recording'}</b><div class="small dim">${esc(run.name)} pauses. The new cycle records for "${esc(b.name)}" only.</div><button class="btn sm" style="margin-top:.35rem" onclick="newCycleGo('${kind}','${run.id}')">New cycle, pause ${esc(run.name)}</button></div>
+    <div class="foot"><button class="btn" onclick="modal('')">Cancel</button></div>`);
+  done('join');
+}
+function joinRun(cid) { S.bc.push([S.board, cid]); log(S.board, 'you', `joined running cycle ${C(cid).name}`); modal(''); toast(`${esc(C(cid).name)} now records for this board too`); render(); }
+function newCycleGo(kind, pause) {
+  const b = B(S.board);
+  S.cycles.forEach(c => { if (c.recording && c.project === b.project) { c.recording = false; c.paused = true; } });
+  const c = mkCycle(b.project, kind); c.recording = true; S.bc.push([b.id, c.id]);
+  log(b.id, 'you', `started ${c.name}${pause ? ', paused ' + C(pause).name : ''}`); done('rec'); modal(''); toast(`${c.name} recording for ${esc(b.name)}`); render();
+}
+
+/* ======================= SESSION CYCLES ======================= */
+function cycRow(c, inBoard) {
+  const others = boardsOfCycle(c.id).filter(b => b.id !== inBoard);
+  return `<tr><td><span style="cursor:pointer" title="Open calls" onclick="cycleCallsDlg('${c.id}','${inBoard || 'all'}')">${cycChip(c)}</span>${recBadge(c)}</td><td>${c.project}</td><td>${c.calls}</td>
+    <td>${others.map(b => `<span class="chip brd" style="cursor:pointer" onclick="S.tab='board';S.board='${b.id}';render()">${esc(b.name)}</span>`).join('') || '<span class="faint">—</span>'}</td>
+    <td>${S.cards.filter(k => k.origin === c.id).length}</td>
+    <td style="text-align:right;white-space:nowrap">${inBoard ? `<button class="btn sm" onclick="unrelate('${inBoard}','${c.id}')">Unrelate</button> ` : `<button class="btn sm" onclick="relateCycleDlg('${c.id}')">Relate…</button> `}<button class="btn sm danger" onclick="delCycleDlg('${c.id}')">Delete</button></td></tr>`;
+}
+function renderCycles() {
+  S.cg = S.cg || { by: 'board', open: {} };
+  const head = `<thead><tr><th>Cycle</th><th>Project</th><th>Calls</th><th>${S.cg.by === 'board' ? 'Also on' : 'Related boards'}</th><th>Cards found here</th><th></th></tr></thead>`;
+  let body;
+  if (S.cg.by === 'none') body = `<table class="cyc-table">${head}<tbody>${S.cycles.map(c => cycRow(c, null)).join('')}</tbody></table>`;
+  else {
+    const groups = S.boards.map(b => [b, cyclesOf(b.id)]).filter(([, cs]) => cs.length);
+    const loose = S.cycles.filter(c => !boardsOfCycle(c.id).length);
+    body = groups.map(([b, cs]) => {
+      const closed = S.cg.open[b.id] === false;
+      return `<div class="cgrp"><div class="cgh" onclick="S.cg.open['${b.id}']=${closed};render()">
+          <span class="faint">${closed ? '▸' : '▾'}</span> <span class="chip brd">${esc(b.name)}</span>
+          <span class="faint small">${esc(b.project)}${b.isDefault ? ' · default' : ''} · ${cs.length} cycle${cs.length > 1 ? 's' : ''} · ${cs.reduce((a, c) => a + c.calls, 0)} calls</span>
+          <span class="spacer"></span>
+          <button class="btn sm" onclick="event.stopPropagation();S.tab='board';S.board='${b.id}';render()">Open board</button>
+          <button class="btn sm pri" onclick="event.stopPropagation();S.board='${b.id}';newCycle('rec')">● Record for it</button></div>
+        ${closed ? '' : `<table class="cyc-table">${head}<tbody>${cs.map(c => cycRow(c, b.id)).join('')}</tbody></table>`}</div>`;
+    }).join('') + (loose.length ? `<div class="cgrp"><div class="cgh"><span class="faint">▾</span> <b class="small">Not on any board</b> <span class="faint small">${loose.length} cycle(s) · relate them or delete</span></div>
+        <table class="cyc-table">${head}<tbody>${loose.map(c => cycRow(c, null)).join('')}</tbody></table></div>` : '');
+  }
+  return `<div class="note"><b>Cycles only store calls</b> now: a recording or a re-test. They have no brief, no chat and no board of their own. Grouped by board, a cycle related to two boards shows under both, and "Also on" names the others.</div>
+  <div class="row" style="margin-bottom:.5rem"><span class="small dim">Group by</span><span class="seg"><span class="${S.cg.by === 'board' ? 'on' : ''}" onclick="S.cg.by='board';render()">Board</span><span class="${S.cg.by === 'none' ? 'on' : ''}" onclick="S.cg.by='none';render()">None</span></span>
+    <span class="spacer"></span><button class="btn sm" onclick="Object.keys(S.cg.open).forEach(k=>S.cg.open[k]=true);render()">Expand all</button><button class="btn sm" onclick="S.boards.forEach(b=>S.cg.open[b.id]=false);render()">Collapse all</button></div>
+  ${body}`;
+}
+function relateCycleDlg(cid) {
+  const c = C(cid), have = new Set(boardsOfCycle(cid).map(b => b.id));
+  modal(`<h2>Relate ${esc(c.name)} to boards</h2>
+    ${S.boards.map(b => `<div class="row small" style="margin:.2rem 0"><span class="chip brd">${esc(b.name)}</span><span class="faint">${esc(b.project)}</span><span class="spacer"></span>${have.has(b.id) ? '<span class="faint">related</span>' : `<button class="btn sm" onclick="S.bc.push(['${b.id}','${cid}']);log('${b.id}','you','related cycle ${esc(c.name)}');done('relate');render();relateCycleDlg('${cid}')">Relate</button>`}</div>`).join('')}
+    <div class="foot"><button class="btn" onclick="modal('')">Done</button></div>`);
+}
+function delCycleDlg(cid) {
+  const c = C(cid), byBoard = {};
+  S.cards.forEach(k => k.ment.filter(m => m.cyc === cid).forEach(m => {
+    const x = byBoard[k.home] = byBoard[k.home] || { calls: 0, stmts: 0, logs: 0, cards: [] };
+    x.calls += m.calls; x.stmts += m.stmts; x.logs += m.logs; x.cards.push(k.n);
+  }));
+  const kept = Object.entries(byBoard), keptCalls = kept.reduce((a, [, v]) => a + v.calls, 0);
+  const origins = S.cards.filter(k => k.origin === cid).length;
+  modal(`<h2>Delete cycle "${esc(c.name)}"?</h2>
+    ${kept.length ? `<div class="box keep"><h4>Kept: boards mention it</h4>${kept.map(([bid, v]) => `▦ <b>${esc(B(bid).name)}</b> mentions ${v.calls} calls, ${v.stmts} statements and ${v.logs} log lines (${v.cards.join(', ')}).<br>These move into a new cycle ${cycChip({ name: 'kept from ' + c.name, kind: 'kept', project: c.project })}, related to that board.`).join('<br><br>')}</div>` : '<div class="box keep"><h4>Kept</h4>Nothing: no board mentions this cycle\'s data.</div>'}
+    <div class="box gone"><h4>Deleted</h4>${Math.max(c.calls - keptCalls, 0)} calls nobody mentions, with their statements, Redis commands, log lines and triage marks.<br>${origins} cards whose origin was this cycle stay on their home boards, marked "origin deleted".</div>
+    <div class="foot"><button class="btn" onclick="modal('')">Cancel</button><button class="btn danger" onclick="delCycle('${cid}')">Delete</button></div>`);
+}
+function delCycle(cid) {
+  const c = C(cid), byBoard = {};
+  S.cards.forEach(k => k.ment.filter(m => m.cyc === cid).forEach(m => { (byBoard[k.home] = byBoard[k.home] || []).push(m); }));
+  Object.entries(byBoard).forEach(([bid, ms]) => {
+    const kc = { id: 'c' + (++S.cycSeq), name: 'kept from ' + c.name, project: c.project, kind: 'kept', calls: ms.reduce((a, m) => a + m.calls, 0) };
+    S.cycles.push(kc); S.bc.push([bid, kc.id]); ms.forEach(m => m.cyc = kc.id); log(bid, 'system', `kept ${kc.calls} mentioned calls in "${kc.name}"`);
+  });
+  S.cards.forEach(k => { if (k.origin === cid) k.originGone = true; k.rel = k.rel.filter(r => r !== cid); });
+  S.bc = S.bc.filter(r => r[1] !== cid); S.cycles = S.cycles.filter(x => x.id !== cid);
+  modal(''); done('delCycle'); toast(`Deleted ${esc(c.name)}; ${Object.keys(byBoard).length} kept cycle(s) made`); render();
+}
+
+/* ======================= TEAM ======================= */
+const CAPVIEWS = { items: 'items', boards: 'boards', squads: 'squads', changes: 'revisions' };
+function renderTeam() {
+  const c = conn();
+  const busy = c.fetching;
+  let h = `<div class="conns">${S.conns.map(x => `<div class="conn ${x.id === S.conn ? 'on' : ''}" onclick="S.conn='${x.id}';S.selItem=null;render()">◆ ${esc(x.kind)} · ${esc(x.name)}<small>${esc(x.url.replace('https://', ''))} · PAT ${x.pat === 'ok' ? '✓' : x.pat === 'expired' ? 'expired' : 'not set'}</small></div>`).join('')}
+    <div class="conn add" onclick="addConnDlg()">＋ Add connection</div>
+    <span class="spacer"></span>
+    <span class="small dim" style="align-self:center">${busy ? '<span class="spin"></span> fetching…' : `fetched ${c.fetched} by ${c.by} · cache shared`}</span>
+    <button class="btn" onclick="refresh()" ${busy ? 'disabled' : ''}>⟳ Refresh</button></div>`;
+  if (c.pat === 'missing') h += `<div class="banner warn">⚠ No PAT in this browser for ${esc(c.name)}. You see the shared cache ${esc(c.by)} fetched ${c.fetched}. <button class="btn sm pri" onclick="S.tab='settings';render()">Add your PAT</button></div>`;
+  if (c.err) h += `<div class="banner err">✕ Azure answered 401: your PAT expired or lacks Work Items (Read). The cache from ${c.fetched} is still shown. <button class="btn sm" onclick="S.tab='settings';render()">Update PAT</button></div>`;
+  h += `<div class="caps"><span class="faint small">capabilities:</span>${Object.entries(c.caps).map(([k, v]) => `<span class="cap ${v ? '' : 'no'}">${k}</span>`).join('')}</div>`;
+  const newCount = S.feed.filter(f => f.conn === c.id && f.new).length;
+  h += `<div class="subtabs">${[['items', 'Work items'], ['boards', 'Boards & sprints'], ['squads', 'Squads & members'], ['changes', 'Changes']].map(([k, l]) => {
+    const ok = c.caps[CAPVIEWS[k]];
+    return `<span class="${S.teamSub === k ? 'on' : ''} ${ok ? '' : 'off'}" ${ok ? `onclick="S.teamSub='${k}';render()"` : `title="This connector has no ${CAPVIEWS[k]} capability"`}>${l}${k === 'changes' && newCount ? `<span class="badge">${newCount}</span>` : ''}</span>`;
+  }).join('')}</div>`;
+  if (!c.caps[CAPVIEWS[S.teamSub]]) { S.teamSub = 'items'; }
+  if (S.teamSub === 'items') h += renderItems(c);
+  if (S.teamSub === 'boards') h += renderTBoards(c);
+  if (S.teamSub === 'squads') h += renderSquads(c);
+  if (S.teamSub === 'changes') h += renderFeed(c);
+  return h;
+}
+const F = { q: '', type: '', squad: '', state: '', who: '' };
+function renderItems(c) {
+  const all = S.items.filter(i => i.conn === c.id);
+  const opt = (k, arr) => `<select onchange="F.${k}=this.value;render()"><option value="">${{ type: 'All types', squad: 'All squads', state: 'Any state', who: 'Anyone' }[k]}</option>${[...new Set(arr)].map(v => `<option ${F[k] === v ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select>`;
+  const list = all.filter(i => (!F.q || (i.id + i.title).toLowerCase().includes(F.q.toLowerCase())) && (!F.type || i.type === F.type) && (!F.squad || i.squad === F.squad) && (!F.state || i.state === F.state) && (!F.who || i.who === F.who));
+  const rows = list.map(i => `<tr class="${S.selItem === i.id ? 'sel' : ''} ${i.fresh ? 'fresh' : ''}" onclick="selItem('${i.id}')">
+    <td class="mono">${i.id}</td><td><span class="type ${i.type.replace(' ', '')} ${i.custom ? 'custom' : ''}">${i.type}</span></td><td>${esc(i.title)}</td><td>${i.state}</td>
+    <td><span class="av">${i.who.split(' ').map(w => w[0]).join('')}</span>${esc(i.who)}</td><td>${esc(i.squad)}</td><td onclick="event.stopPropagation()">${startCell(i)}</td></tr>`).join('');
+  return `<div class="filters"><input placeholder="Search id, title…" value="${esc(F.q)}" oninput="F.q=this.value;clearTimeout(window.qh);window.qh=setTimeout(render,250)" style="width:200px">
+    ${opt('type', all.map(i => i.type))}${opt('squad', all.map(i => i.squad))}${opt('state', all.map(i => i.state))}${opt('who', all.map(i => i.who))}
+    <span class="faint small" style="align-self:center">${list.length} of ${all.length}</span></div>
+    <div class="team-wrap"><div style="overflow-x:auto"><table><thead><tr><th>ID</th><th>Type</th><th>Title</th><th>State</th><th>Assigned</th><th>Squad</th><th></th></tr></thead><tbody>${rows || '<tr><td colspan="7" class="empty">No items match.</td></tr>'}</tbody></table></div>
+    ${renderDrawer(c)}</div>
+    <div class="note"><b>▶ Start</b> posts <code>/alfred-setup AB#id</code> as a WAITING message to the mapped board's chat. The board's terminal, or else the project's live runner, takes it and makes a board plus a first recording cycle. Every type has Start, custom ones included.</div>`;
+}
+function startCell(i) {
+  if (i.board) {
+    return `<span class="picker"><button class="btn sm ok" onclick="S.otMenu=S.otMenu==='${i.id}'?null:'${i.id}';render()">Open task ▾</button>${S.otMenu === i.id ? `<div class="menu" style="min-width:210px;right:0;left:auto">
+      <div class="it" onclick="openTask('${i.id}')">Open board <small>${esc(B(i.board)?.name || '')}</small></div>
+      <div class="it" onclick="retestFrom('${i.id}')">New re-test cycle</div>
+      <div class="it" onclick="S.otMenu=null;toast('Copied: /alfred-resume ${esc(B(i.board).name)}');render()">/alfred-resume <small>copy</small></div></div>` : ''}</span>`;
+  }
+  if (i.start === 'waiting') return `<span class="wait">⏳ waiting for runner</span> <button class="btn sm" onclick="i_(this,'${i.id}').start=null;render()">cancel</button>`;
+  if (i.start === 'taken') return `<span class="working"><span class="spin"></span> /alfred-setup running…</span>`;
+  return `<button class="btn sm pri" onclick="startItem('${i.id}')">▶ Start</button>`;
+}
+function i_(el, id) { return I(S.conn, id); }
+function mapFor(i) {
+  return S.maps.find(m => m.conn === i.conn && m.kind === 'sprint' && m.from === `${i.sprint} · ${i.squad}`)
+      || S.maps.find(m => m.conn === i.conn && m.kind === 'area' && m.from === 'area ' + i.area);
+}
+function startItem(id, chosen) {
+  const i = I(S.conn, id), m = chosen || mapFor(i);
+  done('start');
+  if (!m) { unmappedDlg(i); return; }
+  const target = m.board ? B(m.board) : S.boards.find(b => b.isDefault && b.project === m.project);
+  i.start = 'waiting'; i.target = { project: m.project, board: m.board };
+  render();
+  const runner = S.ctl.runner[target.id];
+  if (runner === 'offline') { toast(`Posted to "${esc(target.name)}" chat. No runner: it waits until /alfred-live starts.`); done('offline'); return; }
+  setTimeout(() => { i.start = 'taken'; render(); }, 700);
+  setTimeout(() => finishStart(i, 'you', 'Team tab ▶ Start'), 2000);
+}
+function finishStart(i, by, via) {
+  const id = 'b' + (++S.boardSeq), proj = i.target.project;
+  const isBig = i.type === 'Feature' || i.type === 'Epic';
+  const children = isBig ? i.links.filter(l => l[0] === 'Child').map(l => l[1]) : [];
+  const fm = Object.entries(i.fields);
+  const b = { id, name: i.title, project: proj, item: `${i.conn}/${i.id}`,
+    brief: { purpose: `${i.type} AB#${i.id} · ${i.title}. Seeded from: ${fm.map(([f, t]) => `${f} → ${t}`).join(', ')}, comments, links, attachments, ${i.who} / ${i.squad} / ${i.sprint}.`,
+      steps: isBig ? children.map(c => { const ch = I(i.conn, c); return `Child AB#${c} ${ch ? esc(ch.title) : ''} <button class="btn sm pri" onclick="S.tab='team';startItem('${c}')">▶ Start</button>`; }) : ['Step from Repro Steps / mapped field 1', 'Step 2'] },
+    reqs: [{ id: 'AC1', text: 'From ' + (fm.find(f => f[1] === 'Acceptance')?.[0] || 'Description'), st: 'UNKNOWN' }] };
+  S.boards.push(b); S.chats[id] = [{ me: true, text: `/alfred-setup AB#${i.id}`, state: 'ANSWERED' }, { me: false, text: `Set up "${i.title}": brief, ${b.reqs.length} Acceptance item(s), recording cycle started.`, rec: 'CARD · board created' }];
+  S.ctl.runner[id] = S.ctl.runner[i.target.board || S.boards.find(x => x.isDefault && x.project === proj).id] === 'terminal' ? 'terminal' : 'project';
+  const c = mkCycle(proj, 'rec'); S.bc.push([id, c.id]);
+  if (i.target.board) S.bb.push([id, i.target.board]);
+  i.board = id; i.start = null;
+  log(id, 'you', `opened from AB#${i.id} via ${via || 'UI'}`);
+  if (isBig) done('feature');
+  toast(`Board "${esc(i.title)}" + ${c.name} created${i.target.board ? ', related to ' + esc(B(i.target.board).name) : ''}`); render();
+}
+function unmappedDlg(i) {
+  modal(`<h2>Where should AB#${i.id} go?</h2><div class="dim small">Area <code>${esc(i.area)}</code> is not mapped yet. Choose once; Alfred remembers.</div>
+    <label>Alfred project (where calls are captured)</label><select id="umP" class="full">${Object.keys(TEAMS).map(p => `<option>${p}</option>`).join('')}</select>
+    <label>Relate the new board to (optional)</label><select id="umB" class="full"><option value="">nothing</option>${S.boards.map(b => `<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select>
+    <div class="row small" style="margin-top:.5rem"><input type="checkbox" id="umR" checked> Remember for area ${esc(i.area)}</div>
+    <div class="foot"><button class="btn" onclick="modal('')">Cancel</button><button class="btn pri" onclick="unmappedGo('${i.id}')">Start</button></div>`);
+  done('unmapped');
+}
+function unmappedGo(id) {
+  const i = I(S.conn, id), m = { conn: i.conn, from: 'area ' + i.area, kind: 'area', project: $('#umP').value, board: $('#umB').value || null };
+  if ($('#umR').checked) S.maps.push(m);
+  modal(''); startItem(id, m);
+}
+function openTask(id) { const i = I(S.conn, id); S.otMenu = null; S.tab = 'board'; S.board = i.board; S.boardSub = 'task'; done('openTask'); render(); }
+function retestFrom(id) { const i = I(S.conn, id), b = B(i.board); const c = mkCycle(b.project, 'retest'); S.bc.push([b.id, c.id]); S.otMenu = null; done('openTask'); toast(`${c.name} related to ${esc(b.name)}`); render(); }
+function selItem(id) {
+  S.selItem = id; const c = conn(); render();
+  if (c.caps.revisions && !S.revLoaded[id]) setTimeout(() => { S.revLoaded[id] = true; if (S.selItem === id) render(); }, S.ctl.slow ? 1600 : 600);
+}
+function renderDrawer(c) {
+  const i = S.selItem && I(c.id, S.selItem);
+  if (!i) return `<div class="drawer empty">Select a work item to see all its fields, links and history.</div>`;
+  const revs = !c.caps.revisions ? '<div class="faint small">This connector has no revisions capability.</div>'
+    : !S.revLoaded[i.id] ? '<div class="small dim"><span class="spin"></span> fetching all revisions with your PAT…</div>'
+    : (S.revs[i.id] || [['rev 1 · ' + (i.fresh ? 'just now' : '12 Oct'), 'Created']]).map(r => `<div class="rev"><div class="when">${r[0]}</div>${r[1]}</div>`).join('');
+  return `<div class="drawer"><div class="row"><b>AB#${i.id} · ${esc(i.title)}</b><span class="spacer"></span><a class="faint" title="Open in Azure">↗</a></div>
+    <div class="kv"><span>Type · State</span><span>${i.type}${i.custom ? ' (custom)' : ''} · ${i.state}</span><span>Assigned</span><span>${esc(i.who)}</span>
+    <span>Squad · Sprint</span><span>${esc(i.squad)} · ${esc(i.sprint)}</span><span>Area</span><span><code>${esc(i.area)}</code> ${mapFor(i) ? '<span class="mapped">mapped</span>' : '<span style="color:var(--amber)">unmapped</span>'}</span>
+    ${Object.entries(i.fields).map(([f, t]) => `<span>${esc(f)}</span><span class="mapped">→ ${t}</span>`).join('')}
+    <span>Alfred</span><span>${i.board ? `<span class="chip brd" style="cursor:pointer" onclick="openTask('${i.id}')">${esc(B(i.board).name)}</span>` : '<span class="faint">not started</span>'}</span></div>
+    <b class="small">Links</b><div class="links">${i.links.map(l => `<a onclick="${I(c.id, l[1]) ? `selItem('${l[1]}')` : ''}">${l[0]} · ${I(c.id, l[1]) ? 'AB#' + l[1] + ' ' + esc(I(c.id, l[1]).title) : esc(l[1])}</a>`).join('') || '<span class="faint small">none</span>'}</div>
+    <b class="small" style="display:block;margin-top:.5rem">History <span class="faint">(all revisions, fetched on open)</span></b>${revs}</div>`;
+}
+function renderTBoards(c) {
+  const sel = S.treeSel;
+  const cols = sel === 'pay-42' ? [['New', ['4533', '4550']], ['Active', ['4521', '4530']], ['Resolved', ['4544']], ['Closed', ['4540']]] : [['New', ['4410']], ['Active', []], ['Resolved', []], ['Closed', []]];
+  const m = S.maps.find(x => x.kind === 'sprint' && x.from === (sel === 'pay-42' ? 'Sprint 42 · Payments' : 'Sprint 41 · Payments'));
+  if (!c.caps.boards && !c.caps.sprints) return '<div class="empty">No boards or sprints capability.</div>';
+  return `<div class="boardsview"><div class="tree">
+      <div>▾ odeysys</div><div class="l2">Payments team board</div>
+      ${c.caps.sprints ? `<div class="l3 ${sel === 'pay-42' ? 'on' : ''}" onclick="S.treeSel='pay-42';render()">Sprint 42 · current</div><div class="l3 ${sel === 'pay-41' ? 'on' : ''}" onclick="S.treeSel='pay-41';render()">Sprint 41</div>` : '<div class="l3 faint">no sprints capability</div>'}
+      <div class="l2">Booking team board</div><div>▸ booking-api</div></div>
+    <div><h3>Payments · ${sel === 'pay-42' ? 'Sprint 42 <span class="faint" style="font-weight:400">6–20 Oct</span>' : 'Sprint 41'}
+      <span>${m ? `<span class="chip brd">mapped to ${esc(B(m.board).name)}</span>` : `<select onchange="mapSprint(this.value)"><option value="">Map to Alfred board…</option>${S.boards.map(b => `<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select>`}</span></h3>
+      <div class="burn"><i style="width:38%;background:var(--green)"></i><i style="width:27%;background:var(--blue)"></i><i style="width:35%;background:#3a3b46"></i></div>
+      <div class="kanban" style="grid-template-columns:repeat(4,minmax(120px,1fr))">${cols.map(([l, ids]) => `<div class="col" style="min-height:160px"><h4>${l}<span>${ids.length}</span></h4>${ids.map(x => { const it = I('az1', x); return `<div class="card" onclick="S.teamSub='items';selItem('${x}')"><div class="n">${x}</div><div class="t">${esc(it.title)}</div>${it.board ? '<div class="meta"><span class="chip brd">task</span></div>' : ''}</div>`; }).join('')}</div>`).join('')}</div>
+      <div class="faint small" style="margin-top:.4rem">Columns come from the provider. Neutral word "Sprint"; the provider word "Iteration" shows on hover.</div></div></div>`;
+}
+function mapSprint(bid) { if (!bid) return; S.maps.push({ conn: 'az1', from: S.treeSel === 'pay-42' ? 'Sprint 42 · Payments' : 'Sprint 41 · Payments', kind: 'sprint', project: B(bid).project, board: bid }); toast('Start on items of this sprint now relates to ' + esc(B(bid).name)); render(); }
+function renderSquads(c) {
+  const sq = S.squads.filter(s => s.conn === c.id);
+  return `<div class="squads">${sq.map((s, ix) => {
+    const k = S.squads.indexOf(s);
+    return `<div class="squad"><h3>${esc(s.name)} <select onchange="S.squads[${k}].team=this.value||null;render()" ${S.ctl.tunnel ? 'disabled' : ''}><option value="">＋ map to Alfred team</option>${s.project ? TEAMS[s.project].map(t => `<option ${s.team === t ? 'selected' : ''} value="${t}">↔ ${s.project} · ${t}</option>`).join('') : ''}</select></h3>
+      ${s.members.map(m => `<div class="mem"><span><span class="av">${m[0]}</span>${esc(m[1])}</span><span class="load">${m[2]} active</span></div>`).join('')}
+</div>`;
+  }).join('')}</div>
+  <div class="note">The squad list is read-only. Mapping a squad to an Alfred team (teams stay per project) lets cards name real people. <b>Only the user opens boards</b>: from the UI, by asking Claude (MCP / terminal), or from a board chat. A new item that a Refresh brings in is marked new, and Claude may suggest it in the mapped board's chat.</div>`;
+}
+function renderFeed(c) {
+  const fs = S.feed.filter(f => f.conn === c.id && (!F.fsq || f.squad === F.fsq));
+  return `<div class="filters"><select onchange="F.fsq=this.value;render()"><option value="">All squads</option>${[...new Set(S.feed.filter(f => f.conn === c.id).map(f => f.squad))].map(s => `<option ${F.fsq === s ? 'selected' : ''}>${s}</option>`).join('')}</select>
+    <button class="btn sm" onclick="S.feed.forEach(f=>{if(f.conn==='${c.id}')f.new=false});render()">Mark all seen</button></div>
+    ${fs.map(f => `<div class="ev ${f.new ? 'new' : ''}"><span class="when">${f.when}</span><span class="av">${f.who}</span><span><a style="cursor:pointer;color:var(--blue)" onclick="S.teamSub='items';selItem('${f.item}')">AB#${f.item}</a> ${esc(f.text)} ${f.tag ? `<span class="chip claude" style="font-size:.64rem">${f.tag}</span>` : ''}</span></div>`).join('') || '<div class="empty">No changes.</div>'}`;
+}
+function refresh() {
+  const c = conn();
+  if (c.pat === 'missing') { done('noPat'); toast('No PAT in this browser: Refresh needs your own token'); return; }
+  c.fetching = true; c.err = false; render();
+  setTimeout(() => {
+    c.fetching = false;
+    if (c.pat === 'expired') { c.err = true; done('expired'); render(); return; }
+    c.fetched = 'just now'; c.by = 'you';
+    if (S.ctl.newItem && c.id === 'az1' && !I('az1', '4561')) {
+      const it = { conn: 'az1', id: '4561', type: 'Bug', title: 'Voucher refund fails for multi-currency booking', state: 'New', who: 'Mona Saleh', squad: 'Payments', sprint: 'Sprint 42', area: 'odeysys\\Payments', board: null, start: null, fresh: true, fields: { 'Repro Steps': 'Steps', 'Acceptance Criteria': 'Acceptance' }, links: [['Parent', '4410']] };
+      S.items.unshift(it); S.feed.unshift({ conn: 'az1', when: 'just now', who: 'MS', item: '4561', text: 'Created in Sprint 42 · Payments', squad: 'Payments', new: true });
+      const m = mapFor(it), tb = m.board ? B(m.board) : S.boards.find(b => b.isDefault && b.project === m.project);
+      if (S.ctl.runner[tb.id] !== 'offline') {
+        S.chats[tb.id].push({ me: false, text: `New in ${it.sprint} · ${it.squad}: AB#${it.id} "${it.title}" (Bug, ${it.who}). Open a board for it?`, suggest: it.id });
+        S.feed[0].tag = 'Claude suggested in ' + tb.name;
+        toast(`Refresh brought AB#4561. Claude suggests it in "${esc(tb.name)}" chat; nothing starts until you say yes.`);
+      } else toast('Refresh brought AB#4561, marked new. No runner on its board, so there is no suggestion yet.');
+      done('autoStart');
+    }
+    render();
+  }, S.ctl.slow ? 2000 : 900);
+}
+function addConnDlg() {
+  modal(`<h2>Add connection</h2>
+    <label>Connector</label>
+    <div class="row" style="margin:.3rem 0"><input type="radio" name="ck" checked> ◆ Azure DevOps <span class="faint small">teamboards-azure · installed</span></div>
+    <div class="row faint" style="margin:.3rem 0"><input type="radio" disabled> Jira <span class="small">not installed: needs the teamboards-jira module</span></div>
+    <div class="row faint" style="margin:.3rem 0"><input type="radio" disabled> ClickUp <span class="small">not installed: needs teamboards-clickup</span></div>
+    <label>Base URL</label><input id="acU" class="full" placeholder="https://dev.azure.com/your-org">
+    <div class="foot"><button class="btn" onclick="modal('')">Cancel</button><button class="btn pri" ${S.ctl.tunnel ? 'disabled title="Read-only through the tunnel"' : ''} onclick="addConn()">Add</button></div>`);
+}
+function addConn() {
+  const u = $('#acU').value.trim() || 'https://dev.azure.com/new-org', id = 'az' + (S.conns.length + 1);
+  S.conns.push({ id, kind: 'Azure DevOps', name: u.split('/').pop(), url: u, pat: 'missing', fetched: 'never', by: '-', caps: { ...S.conns[0].caps }, scope: {} });
+  S.conn = id; modal(''); toast('Connection added. Add your PAT in Settings to fetch.'); render();
+}
+
+/* ======================= SETTINGS ======================= */
+function renderSettings() {
+  const c = conn(), ro = S.ctl.tunnel ? 'disabled' : '';
+  if (S.ctl.tunnel) done('tunnel');
+  return `${S.ctl.tunnel ? '<div class="banner warn">🔒 Viewing through the Cloudflare tunnel: settings are read-only (ALFRED_SETTINGS_EDIT_FROM). Your PAT still works; it lives in this browser.</div>' : ''}
+  <div class="row" style="margin-bottom:.5rem"><b>Team connections</b> ${S.conns.map(x => `<span class="chip ${x.id === S.conn ? 'brd' : ''}" style="cursor:pointer" onclick="S.conn='${x.id}';render()">${esc(x.name)}</span>`).join('')}</div>
+  <div class="set"><div class="pane">
+    <h3>◆ ${esc(c.kind)} · ${esc(c.name)}</h3>
+    <label>Organization URL</label><input class="full" value="${esc(c.url)}" ${ro}>
+    <label>Your PAT (this browser only)</label>
+    <div class="row"><input id="patIn" type="password" class="full" style="flex:1" placeholder="${c.pat === 'ok' ? '•••••••••••••••• (saved in this browser)' : 'paste a PAT with Work Items, Project and Team, Graph: Read'}">
+      <button class="btn sm pri" onclick="savePat()">Save</button>${c.pat !== 'missing' ? '<button class="btn sm" onclick="clearPat()">Clear</button>' : ''}</div>
+    <div class="lock">🔒 Kept in this browser and sent with each request. Never written to disk, the database or exports, and never given to Claude.</div>
+    <label>Projects to fetch</label>${Object.entries(c.scope).map(([p, on]) => `<div class="row small"><span class="tog ${on ? 'on' : ''} ${ro ? 'dis' : ''}" onclick="${ro ? '' : `conn().scope['${p}']=!conn().scope['${p}'];render()`}"></span> ${esc(p)}</div>`).join('') || '<div class="faint small">Fetch once to list projects.</div>'}
+    <div class="faint small" style="margin-top:.5rem">Fetched data goes into a shared cache: every viewer sees what any PAT fetched.</div>
+  </div><div class="pane">
+    <h3>Where Start lands</h3>
+    ${S.maps.filter(m => m.conn === c.id).map(m => `<div class="maprow"><span>◆ ${esc(m.from)}</span><span class="faint">→</span><span>${m.project}${m.board ? ' · ▦ ' + esc(B(m.board)?.name || 'deleted') : ''}</span><button class="btn sm" ${ro} onclick="S.maps.splice(${S.maps.indexOf(m)},1);render()">✕</button></div>`).join('') || '<div class="faint small">No mappings. The first Start on an item asks.</div>'}
+    <div class="faint small">The project decides where calls are captured; the board decides what the new task relates to.</div>
+    <h3 style="margin-top:.8rem">Field mapping per type</h3>
+    ${S.fieldMaps.map((f, ix) => `<div class="maprow"><span>${f.type} · ${esc(f.field)}</span><span class="faint">→</span><span>${f.to}</span><button class="btn sm" ${ro} onclick="S.fieldMaps.splice(${ix},1);render()">✕</button></div>`).join('')}
+    <div class="row" style="margin-top:.3rem"><select id="fmT" ${ro}><option>Meeting</option><option>Thread</option><option>Bug</option><option>Task</option><option>User Story</option></select><input id="fmF" placeholder="Custom.Field" style="width:120px" ${ro}><select id="fmTo" ${ro}><option>Purpose</option><option>Steps</option><option>Acceptance</option><option>Context</option></select><button class="btn sm" ${ro} onclick="addFm()">Add</button></div>
+    <div class="faint small">Unmapped fields go into the brief's Context section.</div>
+  </div></div>
+  <div class="pane" style="margin-top:.8rem"><h3>Storage</h3><div class="small dim">teamboards.db has its own share of the Storage budget: <b style="color:var(--text)">5%</b> (512 MB of 10 GB). Oldest revisions are evicted first. Items linked to a board are always kept.</div></div>`;
+}
+function savePat() { const c = conn(); if (!$('#patIn').value) { toast('Paste a token first'); return; } c.pat = 'ok'; c.err = false; toast('PAT saved in this browser only'); render(); }
+function clearPat() { conn().pat = 'missing'; done('noPat'); render(); }
+function addFm() { const f = $('#fmF').value.trim(); if (!f) return; S.fieldMaps.push({ type: $('#fmT').value, field: f, to: $('#fmTo').value }); render(); }
+
+/* ======================= DOC ======================= */
+function renderDoc() {
+  return `<div class="model"><div class="mbox"><h3>Before</h3>
+    <svg viewBox="0 0 420 170" font-family="Segoe UI" font-size="11"><rect x="150" y="8" width="120" height="28" rx="6" fill="#22232a" stroke="#555"/><text x="210" y="26" fill="#e7e7ec" text-anchor="middle">project</text>
+    <rect x="20" y="70" width="150" height="28" rx="6" fill="#22232a" stroke="#555"/><text x="95" y="88" fill="#e7e7ec" text-anchor="middle">one project board</text>
+    <rect x="250" y="70" width="150" height="28" rx="6" fill="#22232a" stroke="#f07a7a"/><text x="325" y="88" fill="#e7e7ec" text-anchor="middle">cycle = task</text>
+    <line x1="190" y1="36" x2="95" y2="70" stroke="#666"/><line x1="230" y1="36" x2="325" y2="70" stroke="#666"/>
+    <text x="325" y="118" fill="#9b9ca6" text-anchor="middle">brief · specs · chat · calls</text><text x="95" y="118" fill="#9b9ca6" text-anchor="middle">card.cycle_id 0..1</text></svg></div>
+    <div class="mbox"><h3>After</h3>
+    <svg viewBox="0 0 420 170" font-family="Segoe UI" font-size="11">
+    ${[['▦ odeysys (default)', 12], ['▦ Refund by voucher', 52], ['▦ Sprint 42 Payments', 92]].map(([t, y]) => `<rect x="10" y="${y}" width="130" height="28" rx="6" fill="#22232a" stroke="#8b5cf6"/><text x="75" y="${y + 18}" fill="#e7e7ec" text-anchor="middle">${t}</text>`).join('')}
+    ${[['● rec 14 Oct', 20, '#f07a7a'], ['● re-test 16 Oct', 60, '#f2b552'], ['● booking-api rec', 100, '#f07a7a']].map(([t, y, s]) => `<rect x="280" y="${y}" width="130" height="26" rx="13" fill="#22232a" stroke="${s}"/><text x="345" y="${y + 17}" fill="#e7e7ec" text-anchor="middle">${t}</text>`).join('')}
+    <g stroke="#6fd38a" stroke-opacity=".6"><line x1="140" y1="66" x2="280" y2="33"/><line x1="140" y1="66" x2="280" y2="73"/><line x1="140" y1="106" x2="280" y2="33"/><line x1="140" y1="106" x2="280" y2="113"/><line x1="140" y1="26" x2="280" y2="113"/></g>
+    <text x="210" y="150" fill="#6fd38a" text-anchor="middle">board ↔ cycle many-to-many, across projects · board = task · cycle = calls</text></svg></div></div>
+  <div class="arch">
+<pre><b>backend/backend-teamboards/</b> <u># parent</u>
+  <b>teamboards-spi/</b>  <u># no Spring</u>
+    Item, ItemType, Field, Revision,
+    Link, Person, Squad, Board, Sprint,
+    Connection, Capability
+    <i>Connector</i>         <u># base</u>
+    <i>BoardsReader</i>     <u># optional</u>
+    <i>SprintsReader</i>  <i>SquadsReader</i>
+    <i>RevisionsReader</i> <i>AttachmentsReader</i>
+    <i>SeedContributor</i>
+    <u>later: ItemWriter, WebhookReceiver</u>
+  <b>teamboards-core/</b>  <u># depends on spi</u>
+    service, REST /teamboards/**,
+    teamboards.db, capability list,
+    seed payload for /alfred-setup
+  <b>teamboards-azure/</b> <u># spi ONLY</u>
+  <u>teamboards-jira/ · -clickup/  later</u>
+<u>ArchUnit: connector ↛ core,
+core ↛ connector. Gateway + SpaPageFilter
+gain the /teamboards prefix.</u>
+
+<b>backend-board</b> (rework)
+  boards(id, name, project, is_default)
+  board_cycles(board, cycle)
+  board_boards(a, b)
+  cards.home_board, origin_cycle
+  card_cycles(card, cycle)
+  brief/specs/reqs/chat → board_id
+  <u>migration: cycle with brief → board</u></pre>
+<pre><b>teamboards.db</b> <u># owned by core</u>
+connections(id, kind, base_url, scope)
+items(conn, ext_id, type, title, state,
+      assignee, squad, sprint, area, url,
+      fetched_at, fetched_by, native_json)
+item_fields(conn, ext_id, key, value)
+revisions(conn, ext_id, rev, by, at,
+          changes_json)
+links(conn, from_id, to_id, kind)
+people(conn, ext_id, name, email)
+squads(conn, ext_id, name,
+       alfred_project, alfred_team)
+squad_members(squad, person)
+boards / sprints(conn, ext_id, …)
+mappings(conn, ext_scope, kind,
+         alfred_project, alfred_board)
+field_maps(conn, type, field, target)
+board_links(alfred_board, conn, ext_id,
+            snapshot_json, seen_rev)
+<u>Connectors never own tables; provider
+extras go in native_json. Own Storage
+budget share; linked items kept.
+PATs never stored.</u></pre>
+<pre><b>frontend/src/app/features/team/</b>
+  <b>core/</b>
+    team-tab, items, tboards, squads,
+    changes, item-drawer, start-button
+    <i>ConnectorUi</i> interface
+    <i>TEAM_CONNECTORS</i> multi-provider
+    pat-store (localStorage, try/catch)
+  <b>connectors/azure/</b>
+    settings form, field renderers,
+    icons, provider words
+  <u>connectors/jira/  later</u>
+<u>A spec fails if core/ imports
+connectors/.</u>
+
+<b>MCP</b> (reads the cache only)
+  team_items, team_item, team_changes,
+  team_squads, team_start
+  board_boards, board_relate, board_open
+  (board_open only when the user asks),
+  board_move_home
+  board param optional everywhere
+
+<b>Mentions</b>
+  @[workitem:&lt;conn&gt;/&lt;id&gt;|title]
+
+<b>Skills</b>
+  /alfred-setup AB#id → board + cycle
+  /alfred-live &lt;board&gt;
+  /alfred-listen &lt;board&gt;</pre></div>`;
+}
+
+/* ======================= CONTROLS ======================= */
+function renderCtl() {
+  const b = B(S.board), c = conn();
+  const n = Object.keys(CASES).filter(k => S.cases[k]).length;
+  $('#ctl').innerHTML = `<h2>Mock controls</h2>
+    <label>Runner for board "${esc(b ? b.name : '')}"</label>
+    <select onchange="S.ctl.runner[S.board]=this.value;render()">${[['terminal', 'Terminal (/alfred-live for board)'], ['project', 'Project live runner'], ['offline', 'Offline: messages wait']].map(([v, l]) => `<option value="${v}" ${S.ctl.runner[S.board] === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+    <label>PAT for ${esc(c.name)}</label>
+    <select onchange="conn().pat=this.value;conn().err=false;if(this.value==='missing')done('noPat');render()">${[['ok', 'Valid'], ['missing', 'Not set in this browser'], ['expired', 'Expired (401 on refresh)']].map(([v, l]) => `<option value="${v}" ${c.pat === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+    <label>Connector capabilities</label>
+    ${['boards', 'sprints', 'squads', 'revisions'].map(k => `<div class="row"><span class="tog ${c.caps[k] ? 'on' : ''}" onclick="conn().caps['${k}']=!conn().caps['${k}'];done('capGate');render()"></span>${k}</div>`).join('')}
+    <label>Situation</label>
+    <div class="row"><span class="tog ${S.ctl.newItem ? 'on' : ''}" onclick="S.ctl.newItem=!S.ctl.newItem;render()"></span>Next Refresh brings a new Payments bug</div>
+    <div class="row"><span class="tog ${S.ctl.tunnel ? 'on' : ''}" onclick="S.ctl.tunnel=!S.ctl.tunnel;render()"></span>Viewing through tunnel</div>
+    <div class="row"><span class="tog ${S.ctl.slow ? 'on' : ''}" onclick="S.ctl.slow=!S.ctl.slow;render()"></span>Slow provider</div>
+    <button class="btn" onclick="S.tab='team';S.ctl.newItem=true;S.conn='az1';refresh()">▶ Run: new item → suggestion</button>
+    <button class="btn" onclick="S.tab='board';S.board='b-ody';S.boardSub='cards';S.ctl.runner['b-ody']='project';render();sendChat('open a board for AB#4533')">▶ Run: open board from chat</button>
+    <button class="btn" onclick="S.tab='team';S.conn='az1';S.teamSub='items';selItem('4410');setTimeout(()=>startItem('4410'),50)">▶ Run: Start a Feature</button>
+    <button class="btn" onclick="S.tab='team';S.conn='az1';S.teamSub='items';selItem('4560');setTimeout(()=>startItem('4560'),50)">▶ Run: Start unmapped item</button>
+    <button class="btn" onclick="S.tab='cycles';render();cycleCallsDlg('c1','all')">▶ Run: shared cycle calls</button>
+    <button class="btn" onclick="S.tab='board';S.board='b-ref';S.boardSub='task';render();recordDlg('rec')">▶ Run: record while one records</button>
+    <button class="btn" onclick="S.tab='cycles';render();delCycleDlg('c1')">▶ Run: delete rec 14 Oct</button>
+    <button class="btn" onclick="S.tab='board';S.board='b-ody';S.boardSub='task';done('defaultBrief');render()">▶ Show default board Task</button>
+    <div class="cases"><b style="color:var(--text)">Cases seen ${n}/${Object.keys(CASES).length}</b>${Object.entries(CASES).map(([k, l]) => `<div class="${S.cases[k] ? 'done' : ''}">${l}</div>`).join('')}</div>`;
+}
+
+/* ======================= RENDER ======================= */
+function render() {
+  renderNav();
+  const v = { board: renderBoard, team: renderTeam, settings: renderSettings, cycles: renderCycles, doc: renderDoc }[S.tab];
+  $('#view').innerHTML = v ? v() : `<div class="empty" style="padding:4rem">Unchanged tab, not part of this mock.</div>`;
+  renderCtl();
+  const m = $('#msgs'); if (m) m.scrollTop = m.scrollHeight;
+}
+document.addEventListener('click', e => {
+  if (S.menu && !e.target.closest('.picker')) { S.menu = false; render(); }
+  if (S.otMenu && !e.target.closest('.picker')) { S.otMenu = null; render(); }
+  if ($('#pop').innerHTML && !e.target.closest('.pop') && !e.target.closest('.chip.az')) closePop();
+});
+render();
+</script>
+</body>
+</html>
