@@ -581,12 +581,19 @@ send). Dragged across the middle, the pill moves to the other side. Views: the w
 expanded, full screen (Esc / Ctrl+Shift+F) and a separate window (`/chat?project=&scope=`); the view, width and side
 are this browser's own (localStorage, try/catch). On a cycle's page the chats follow that cycle's project.
 
-- **Who answers.** A cycle chat is answered by its own Claude conversation on the machine of the terminal session that
-  holds the cycle: the runner (`/alfred-live`, `skills/alfred-live/chat.mjs`) forks that terminal session once
-  (`--resume <terminal> --fork-session`) and continues the fork (`--resume <fork>`) for every later message - the
-  terminal session itself is never written to. No terminal transcript on this machine: its own session, started from
-  Alfred's context, and it says so. The project chat is answered by the project's live runner. A message waits (with
-  the start steps in the panel) until one is running.
+- **Who answers.** A cycle chat - and every comment on a card of that cycle - is answered by the terminal session that
+  ran `/alfred-live` for it: that session itself, never a fork or a copy (specs/022 plan-terminal-answers.md). The
+  runner (`skills/alfred-live/chat.mjs`) takes the message for that session's id and writes one `✉ board chat #N` line
+  (a card: `✉ #N`) into the session's own chat log (`<board>.<session>.chat.log`), which the session follows with the
+  Monitor tool; the session answers with `chat_reply` / `board_reply` when its turn is free. Alfred stores only the
+  user's messages, the final answers, what needs the user (questions, proposals, confirmations) and records - never the
+  steps between. A decision needed mid-task is an ordinary reply that asks it; the job waits for the answer. The
+  session marker (`chatSessionId` = `forkedFrom` = the terminal's id) says so: the header shows "Answered by your
+  terminal", there is nothing to catch up and nothing is mirrored back. A busy terminal: messages wait. A closed one:
+  "Terminal offline - messages wait" - Alfred never starts or resumes a session itself. The newest `/alfred-live` for a
+  cycle takes it over: the old session gets `↪ handed over` in its log and stops listening, the messages it held are
+  queued again for the new one, which starts from the chat's summary and the brief. Cards of other cycles and the
+  project chat stay with the project's live runner, answered as before (a fork, below, still applies to an older runner).
 - **States.** A user's message is WAITING -> TAKEN (compare-and-swap, `taken_by`) -> ANSWERED / STOPPED / CANCELLED. It
   can be edited or cancelled only while waiting; "⚡ answer first" puts it ahead of everything waiting, after the step
   Claude is on. A waiting message shows its place in line, counting a card Claude is answering ("busy on #N"). A runner

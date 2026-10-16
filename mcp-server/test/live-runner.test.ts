@@ -251,7 +251,7 @@ test('▶ without a chat (started outside a chat, or no cycle) the runner claims
   } finally { await close(); }
 });
 
-test('a comment that needs an investigation is answered by the cycle chat session, on the card (specs/022 FR-060)', async () => {
+test('a change on a card of the cycle goes to the terminal session that answers the cycle - no run, no copy (plan-terminal-answers.md)', async () => {
   const { w, runner, chat, promptFile, close } = await runnerWorld();
   try {
     runner.o.chatId = 'chat-a';
@@ -259,18 +259,25 @@ test('a comment that needs an investigation is answered by the cycle chat sessio
     w.fake.board.changes = { entries: [change({ id: 9, text: 'why does the fare change at confirm? check the SQL' })], cycles: [], cursor: '9.1', more: false };
     await runner.once('now');
     await runner.idle();
-    await Promise.all([...runner.chatLane.chains.values()]);
     const reports = w.fake.board.liveWork;
-    assert.ok(reports.some((r: any) => r.outcome === "answered by the cycle chat's session"), JSON.stringify(reports));
-    assert.ok(reports.some((r: any) => r.head === 'answering in the cycle chat' && r.state === 'DONE'), JSON.stringify(reports));
-    const sent = JSON.parse(readFileSync(promptFile, 'utf8'));
-    assert.ok(!sent.args.includes('--no-session-persistence'), 'the chat session persists');
-    assert.match(sent.prompt, /why does the fare change at confirm/);
-    assert.ok(w.fake.log.some((l) => l.path === '/board/chats/cy1/system' && /answered your comment on #1/.test(l.body.text)));
-    assert.equal(chat.length, 0, 'nothing for the terminal to do');
+    assert.ok(reports.some((r: any) => /sent to your terminal session/.test(r.outcome ?? '') && r.state === 'DONE'), JSON.stringify(reports));
+    assert.ok(!existsSync(promptFile), 'no claude run for a card of the cycle');
+    const line = chat.find((l: string) => l.startsWith('✉ #1 '));
+    assert.ok(line, chat.join(' | '));
+    assert.match(line!, /why does the fare change at confirm/);
+    assert.match(line!, /board_get 1, then board_reply/);
     assert.ok(live.forTheChat([{ kind: 'COMMENT', text: 'Please fix this' }]));
     assert.ok(!live.forTheChat([{ kind: 'COMMENT', text: 'thanks, looks good' }]));
   } finally { await close(); runner.chatPool?.close(); }
+});
+
+test('a terminal session that answers a cycle has its own chat log; without one the log is the board\'s', () => {
+  const own = live.files('http://localhost:3000', 'p', 'alfred-live-test', 'e488c1e4-6e4c-45b6-883c-bb64516ede27');
+  const shared = live.files('http://localhost:3000', 'p', 'alfred-live-test');
+  assert.notEqual(own.chat, shared.chat);
+  assert.match(own.chat, /\.e488c1e46e4c\.chat\.log$/);
+  assert.match(shared.chat, /-p\.chat\.log$/);
+  assert.equal(own.pid, shared.pid, 'one runner per board: a new terminal takes the cycle over');
 });
 
 test('with a chat the heartbeat says the chat handles the cycle and whether it is still open', async () => {

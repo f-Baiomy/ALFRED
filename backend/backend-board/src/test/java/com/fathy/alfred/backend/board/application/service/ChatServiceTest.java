@@ -360,6 +360,22 @@ class ChatServiceTest {
         assertThat(f.chat.putSession(Actor.USER, CYCLE, "x", null, "h", t, t).isOk()).isFalse();
     }
 
+    /** plan-terminal-answers.md: the terminal session itself answers - no copy, so it never "moved on" from one. */
+    @Test
+    void theTerminalSessionAnsweringItselfIsMarkedOnceAndNeverMovesOn() {
+        java.time.Instant t = java.time.Instant.parse("2026-10-15T10:00:00Z");
+        f.chat.putSession(Actor.CLAUDE, CYCLE, "fork-1", "term-1", "laptop", t, t);
+        f.chat.putSession(Actor.CLAUDE, CYCLE, "term-1", "term-1", "laptop", null, null);
+        f.chat.putSession(Actor.CLAUDE, CYCLE, "term-1", "term-1", "laptop", null, null); // the same terminal restarting its runner
+        assertThat(f.chat.page(CYCLE, null, 50).messages()).singleElement()
+                .satisfies(m -> assertThat(m.text()).contains("Your terminal session answers this chat now").contains("no copy"));
+        assertThat(f.chatStore.session(CYCLE)).get().satisfies(s -> {
+            assertThat(s.answeredByTerminal()).isTrue();
+            assertThat(new com.fathy.alfred.backend.board.domain.model.ChatSession(s.chat(), s.chatSessionId(), s.forkedFrom(), s.host(),
+                    s.forkedAt(), null, t.plusSeconds(60)).terminalMovedOn()).isFalse();
+        });
+    }
+
     /** A catch-up stores how far the copy read the terminal, keeps where it was copied from, and never moves back. */
     @Test
     void aCatchUpMovesSeenUpToForwardAndKeepsTheCopysOrigin() {

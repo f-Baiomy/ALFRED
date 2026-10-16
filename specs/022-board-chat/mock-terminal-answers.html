@@ -1,0 +1,483 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chat Answered by the Terminal</title>
+<style>
+/* Layout: scenario tabs on top; a stage with the board chat (left) and the terminal session (right); a caption and a step player under it. */
+:root {
+  --bg: #0b0f26; --panel: #12173a; --panel-2: #181e4a; --line: #2a3270; --text: #e6e8f6; --dim: #a1a8cc; --faint: #6b7299;
+  --purple: #a78bfa; --cyan: #22d3ee; --green: #34d399; --amber: #fbbf24; --red: #f87171; --term: #07091a;
+  --font: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; --mono: "Cascadia Code", Consolas, ui-monospace, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 var(--font); padding-inline: 16px; padding-block: 20px 48px; }
+.wrap { max-width: 1240px; margin: 0 auto; display: grid; gap: 16px; }
+h1 { font-size: 22px; margin: 0; letter-spacing: -.01em; }
+.sub { color: var(--dim); margin: 2px 0 0; max-width: 80ch; }
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.tabs button { font: inherit; font-size: 13px; color: var(--dim); background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; cursor: pointer; }
+.tabs button.on { color: #120f2e; background: var(--purple); border-color: var(--purple); font-weight: 600; }
+.tabs button:focus-visible, .ctl button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+
+/* the stage */
+.stage { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
+@media (max-width: 860px) { .stage { grid-template-columns: 1fr; } }
+.pane { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; display: flex; flex-direction: column; min-height: 420px; min-width: 0; overflow: hidden; }
+.pane-title { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--faint); padding: 8px 12px 0; }
+
+/* chat */
+.chat-head { display: flex; align-items: center; gap: 10px; padding: 8px 12px 10px; border-bottom: 1px solid var(--line); }
+.av { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: #1d3b4a; color: #7ee7f7; font-weight: 700; font-size: 12px; position: relative; flex: none; }
+.av i { position: absolute; right: -1px; bottom: -1px; width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--panel); background: var(--faint); }
+.av i.on { background: var(--green); } .av i.busy { background: var(--amber); } .av i.off { background: var(--red); }
+.who { min-width: 0; } .who b { display: block; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.who small { color: var(--dim); font-size: 12px; } .who small .g { color: var(--green); } .who small .a { color: var(--amber); } .who small .r { color: var(--red); }
+.ctx { font-size: 12px; color: var(--dim); padding: 5px 12px; border-bottom: 1px solid var(--line); display: flex; gap: 6px; align-items: center; min-height: 28px; }
+.ctx .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--amber); flex: none; }
+.ctx.empty { display: none; }
+.stream { flex: 1; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; overflow: auto; }
+.msg { max-width: 92%; font-size: 13px; }
+.msg .meta { font-size: 11px; color: var(--faint); margin-top: 2px; }
+.msg.me { align-self: flex-end; text-align: right; }
+.msg.me .bub { background: color-mix(in srgb, var(--purple) 18%, var(--panel-2)); border: 1px solid color-mix(in srgb, var(--purple) 35%, transparent); border-radius: 14px 14px 4px 14px; padding: 6px 10px; display: inline-block; text-align: left; }
+.msg.cl .name { font-size: 12px; color: var(--dim); } .msg.cl .name::before { content: "● "; color: var(--purple); }
+.msg.cl .bub { padding-left: 14px; }
+.msg.sys { align-self: center; font-size: 12px; color: var(--dim); background: var(--panel-2); border: 1px dashed var(--line); border-radius: 8px; padding: 4px 10px; text-align: center; max-width: 100%; }
+.msg .tick { color: var(--faint); } .msg .tick.got { color: var(--purple); } .msg .tick.done { color: var(--green); }
+.wait { font-size: 12px; color: var(--amber); }
+.prog { font-size: 12px; display: flex; gap: 8px; align-items: center; background: color-mix(in srgb, var(--purple) 9%, transparent); border-radius: 8px; padding: 5px 9px; color: var(--dim); }
+.prog b { color: var(--text); font-weight: 500; flex: 1; }
+.spin { width: 11px; height: 11px; border-radius: 50%; border: 2px solid var(--purple); border-right-color: transparent; animation: s 0.8s linear infinite; flex: none; }
+@keyframes s { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spin { animation: none; } .fresh { animation: none !important; } }
+.consent { font-size: 12.5px; border: 1px solid color-mix(in srgb, var(--amber) 50%, transparent); background: color-mix(in srgb, var(--amber) 8%, transparent); border-radius: 10px; padding: 8px 10px; color: var(--dim); }
+.consent b { color: var(--text); font-weight: 600; }
+.consent .row { display: flex; gap: 6px; margin-top: 6px; }
+.consent button { font: inherit; font-size: 12px; border-radius: 7px; padding: 4px 10px; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); }
+.consent button.ok { background: var(--amber); border-color: var(--amber); color: #1a1405; font-weight: 600; }
+.store { font-size: 12.5px; border-radius: 10px; padding: 8px 12px; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap;
+  background: var(--panel); border: 1px solid var(--line); color: var(--dim); }
+.store b { color: var(--text); font-weight: 600; }
+.store .k { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--faint); }
+.store.saved { border-color: color-mix(in srgb, var(--green) 45%, transparent); }
+.store.saved b { color: var(--green); }
+.pane { position: relative; }
+.toast { position: absolute; top: 34px; right: 10px; z-index: 2; max-width: 92%; font-size: 12.5px; background: #fff; color: #1d1f2e; border-radius: 10px;
+  padding: 8px 12px; box-shadow: 0 10px 30px rgba(0,0,0,.5); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; animation: in .3s ease-out; }
+.toast b { color: #5b4bc4; }
+.toast .go { margin-left: auto; color: #5b4bc4; font-weight: 600; }
+.qcard { border: 1px solid color-mix(in srgb, var(--amber) 50%, transparent); background: color-mix(in srgb, var(--amber) 7%, transparent); border-radius: 10px; padding: 8px 10px !important; }
+.qcard .row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.qcard button { font: inherit; font-size: 12px; border-radius: 7px; padding: 4px 10px; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); }
+.qcard button:first-child { border-color: var(--amber); }
+.page-chip { display: inline-block; font-size: 12px; font-family: var(--mono); color: var(--cyan); background: #0e2a35; border-radius: 6px; padding: 1px 7px; }
+.compose { border-top: 1px solid var(--line); padding: 8px 12px; color: var(--faint); font-size: 12px; }
+
+/* terminal */
+.term { background: var(--term); }
+.term-head { display: flex; gap: 8px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: 12px; color: var(--dim); }
+.term-head .tag { font-family: var(--mono); font-size: 11px; padding: 1px 7px; border-radius: 5px; background: #1a1f45; color: var(--text); }
+.term-head .tag.a { background: #3a2f0c; color: var(--amber); } .term-head .tag.g { background: #0c3325; color: var(--green); } .term-head .tag.r { background: #3a1414; color: var(--red); }
+.term-body { flex: 1; padding: 10px 12px; font: 12.5px/1.55 var(--mono); color: #c9cdea; overflow: auto; }
+.tl { white-space: pre-wrap; overflow-wrap: anywhere; }
+.tl.you { color: #fff; } .tl.you::before { content: "> "; color: var(--purple); }
+.tl.claude { color: #c9cdea; } .tl.claude::before { content: "● "; color: var(--purple); }
+.tl.tool { color: var(--faint); } .tl.tool::before { content: "  ⎿ "; }
+.tl.bg { color: var(--cyan); } .tl.bg::before { content: "↺ "; }
+.tl.chat { color: var(--amber); } .tl.chat::before { content: "💬 "; }
+.tl.note { color: var(--faint); font-style: italic; }
+.fresh { animation: in .35s ease-out; }
+@keyframes in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+/* caption + player */
+.cap { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--purple); border-radius: 10px; padding: 12px 14px; display: grid; gap: 6px; }
+.cap h3 { margin: 0; font-size: 15px; }
+.cap p { margin: 0; color: var(--dim); max-width: 95ch; }
+.cap .why { color: var(--text); }
+.ctl { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.ctl button { font: inherit; font-size: 13px; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+.ctl button:disabled { opacity: .4; cursor: default; }
+.ctl button.primary { background: var(--purple); color: #120f2e; border-color: var(--purple); font-weight: 600; }
+.dots { display: flex; gap: 5px; flex-wrap: wrap; }
+.dots i { width: 9px; height: 9px; border-radius: 50%; background: var(--line); cursor: pointer; }
+.dots i.on { background: var(--purple); } .dots i.done { background: color-mix(in srgb, var(--purple) 45%, var(--line)); }
+.meter { margin-left: auto; font-size: 12px; color: var(--dim); display: flex; gap: 10px; flex-wrap: wrap; }
+.meter b { color: var(--text); font-variant-numeric: tabular-nums; font-weight: 600; }
+
+/* compare tab */
+.compare { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 14px; }
+.col { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: grid; gap: 10px; align-content: start; min-width: 0; }
+.col h2 { margin: 0; font-size: 16px; } .col.before h2 { color: var(--amber); } .col.after h2 { color: var(--green); }
+.flow { display: grid; gap: 6px; }
+.box { border: 1px solid var(--line); background: var(--panel-2); border-radius: 9px; padding: 7px 10px; font-size: 13px; }
+.box small { display: block; color: var(--dim); font-size: 12px; }
+.arrow { text-align: center; color: var(--faint); font-size: 12px; }
+.box.copy { border-style: dashed; border-color: var(--amber); }
+.box.same { border-color: var(--green); }
+table.cmp { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.cmp th, table.cmp td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.cmp th { color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+.tbl { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 6px 8px; }
+.good { color: var(--green); } .bad { color: var(--amber); }
+.fine { font-size: 12px; color: var(--faint); }
+[hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Chat answered by your terminal session</h1>
+    <p class="sub">Today each cycle chat answer comes from a copy (a fork) of the terminal session that ran /alfred-live. The proposal: the chat talks to that terminal session itself - one Claude, one memory. Decided: a busy terminal makes messages wait; a closed terminal never hands the chat to a copy; chat answers stay short and long work goes into pages.</p>
+  </header>
+
+  <nav class="tabs" role="tablist" id="tabs"></nav>
+
+  <section id="compare" hidden>
+    <div class="compare">
+      <div class="col before">
+        <h2>Before - a copy answers</h2>
+        <div class="flow">
+          <div class="box">You type in the board chat<small>Alfred stores the message (WAITING)</small></div>
+          <div class="arrow">↓ the runner from /alfred-live takes it</div>
+          <div class="box copy">claude -p --resume &lt;terminal&gt; --fork-session<small>a headless copy of your terminal conversation, made on the first answer</small></div>
+          <div class="arrow">↓ later answers resume the copy; the terminal's new work is pasted in as text</div>
+          <div class="box copy">The copy answers with chat_reply<small>your terminal never sees the question, only a mirrored line</small></div>
+          <div class="arrow">↓</div>
+          <div class="box">Two memories that drift apart<small>"Terminal moved on · next answer catches up", re-copy above 24,000 characters</small></div>
+        </div>
+      </div>
+      <div class="col after">
+        <h2>After - your terminal answers</h2>
+        <div class="flow">
+          <div class="box">You type in the board chat<small>Alfred stores the message (WAITING)</small></div>
+          <div class="arrow">↓ a background wait in your terminal session wakes it (no polling)</div>
+          <div class="box same">Your terminal session reads the message<small>the same session you are working in - nothing copied</small></div>
+          <div class="arrow">↓</div>
+          <div class="box same">It answers with chat_reply, then waits again<small>short in the chat; long work goes to a page and is linked</small></div>
+          <div class="arrow">↓</div>
+          <div class="box">One memory<small>what you did in the terminal and what you asked in the chat are the same conversation</small></div>
+        </div>
+      </div>
+    </div>
+    <div class="tbl">
+      <table class="cmp">
+        <thead><tr><th>Question</th><th>Before (copy)</th><th>After (your terminal)</th></tr></thead>
+        <tbody>
+          <tr><td>First answer of a cycle chat</td><td class="bad">Reads your whole terminal conversation into a new copy - full price when the cache is cold</td><td class="good">Nothing extra: the context is already loaded</td></tr>
+          <tr><td>Each later answer</td><td>Reads the copy's context (cheap from cache)</td><td>Reads the terminal's context (cheap from cache) - about the same</td></tr>
+          <tr><td>You keep working in the terminal</td><td class="bad">The copy goes stale; new work is pasted in, or the copy is redone</td><td class="good">Nothing to catch up</td></tr>
+          <tr><td>The terminal is busy on a long task</td><td>The copy answers at once</td><td class="bad">The message waits until the terminal's turn ends (your choice)</td></tr>
+          <tr><td>The terminal is closed</td><td>A copy can still answer</td><td>"Terminal offline - messages wait" (your choice: never a copy)</td></tr>
+          <tr><td>Where the chat lives</td><td>In the copy</td><td class="bad">In your terminal's context - so answers stay short and long work goes to pages</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="tbl">
+      <table class="cmp">
+        <thead><tr><th>What Alfred keeps for a chat exchange (after)</th><th>Stored?</th></tr></thead>
+        <tbody>
+          <tr><td>Your message</td><td class="good">Yes</td></tr>
+          <tr><td>Claude's final answer - short; long output goes to files or pages and is linked</td><td class="good">Yes</td></tr>
+          <tr><td>What needs you: a question with options, a proposal (Accept / Undo), a confirmation like "run it in terminal A"</td><td class="good">Yes - your decision is kept</td></tr>
+          <tr><td>Records: a decision, a card, a Next, a fix - with Undo</td><td class="good">Yes</td></tr>
+          <tr><td>The steps in between: tool calls, reads, drafts, phases of a long skill</td><td class="bad">No - live progress line only, gone when the answer lands; the terminal shows them</td></tr>
+          <tr><td>Copies of the terminal, catch-up text, mirror lines to the terminal</td><td class="bad">No - not needed any more: the terminal is the one answering</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="fine">Token figures in the scenarios are illustrative (a 120k-token terminal conversation), to show where the cost goes, not measured.</p>
+  </section>
+
+  <section id="player" hidden>
+    <div class="stage">
+      <div class="pane" aria-label="Board chat">
+        <div class="pane-title">Board chat - cycle 61813</div>
+        <div class="toast" id="toast" hidden></div>
+        <div class="chat-head">
+          <span class="av">6R<i id="st-dot"></i></span>
+          <div class="who"><b>61813 Refunded Requests filters</b><small id="st-line"></small></div>
+        </div>
+        <div class="ctx" id="ctx"></div>
+        <div class="stream" id="chat"></div>
+        <div class="compose">Message Claude about this cycle…</div>
+      </div>
+      <div class="pane term" aria-label="Terminal session">
+        <div class="pane-title" id="term-title">Terminal - Claude Code session A</div>
+        <div class="term-head"><span id="term-tags"></span></div>
+        <div class="term-body" id="term"></div>
+      </div>
+    </div>
+    <div class="store" id="store"></div>
+    <div class="cap" aria-live="polite">
+      <h3 id="cap-title"></h3>
+      <p id="cap-text"></p>
+      <p class="why" id="cap-why"></p>
+    </div>
+    <div class="ctl">
+      <button type="button" id="prev">◀ Back</button>
+      <button type="button" id="next" class="primary">Next ▶</button>
+      <button type="button" id="play">▶ Play</button>
+      <div class="dots" id="dots"></div>
+      <div class="meter" id="meter"></div>
+    </div>
+  </section>
+</div>
+
+<script>
+// Each scenario is a list of steps; a step adds chat items / terminal lines and sets the status. State accumulates.
+const ST = {
+  idle:   { dot: 'on',   line: '<span class="g">● Answered by terminal A</span> · idle, listening', tags: [['g', 'listening for the chat']] },
+  busy:   { dot: 'busy', line: '<span class="a">● Terminal A is working</span> · running the tests', tags: [['a', 'busy: running the tests']] },
+  answer: { dot: 'on',   line: '<span class="g">● answering…</span> in terminal A', tags: [['g', 'answering the chat']] },
+  off:    { dot: 'off',  line: '<span class="r">○ Terminal offline</span> · messages wait', tags: [['r', 'closed']] },
+  b:      { dot: 'on',   line: '<span class="g">● Answered by terminal B</span> · idle, listening', tags: [['g', 'listening for the chat']] },
+  busyPlan: { dot: 'busy', line: '<span class="a">● Terminal A is working</span> · /speckit-plan', tags: [['a', 'busy: /speckit-plan (from the chat)']] },
+  needs:  { dot: 'busy', line: '<span class="a">● Terminal A is waiting for you</span> · 1 decision', tags: [['a', 'paused: waiting for your answer']] },
+  perm:   { dot: 'busy', line: '<span class="a">● Terminal A asks for permission</span> · in the terminal', tags: [['a', 'Claude Code: allow this command?']] },
+  fork:   { dot: 'on',   line: '<span class="g">● Claude on</span> · a copy answers', tags: [['', 'working on your task']] },
+};
+const SCEN = [
+  { id: 'compare', label: 'Before vs after' },
+  { id: 'before', label: 'Before: a copy answers', steps: [
+    { st: 'fork', term: [['you', 'fix the branch filter in RefundedRequestQueryBuilder'], ['claude', 'Editing RefundedRequestQueryBuilder.java…'], ['tool', 'Edit RefundedRequestQueryBuilder.java (+12 -4)']],
+      title: 'You work in the terminal', text: 'Your terminal session holds the whole task: the code it read, the fix, the decisions.', tok: { t: 120 } },
+    { chat: [['me', 'why does the search return 0 rows?', 'waiting']],
+      title: 'You ask in the board chat', text: 'Alfred stores the message. The /alfred-live runner takes it.' },
+    { ctx: '⑂ copying the terminal session…', term: [['note', '(this terminal sees nothing - a headless copy is being made)']],
+      title: 'A copy of your terminal is made', text: 'claude -p --resume <terminal> --fork-session. The copy reads all 120k tokens of your conversation.', why: 'Cost: the whole context is written to the cache again for the copy.', tok: { add: 150, label: 'copy made' } },
+    { chat: [['cl', 'The COUNT on AUTOMATIC_REFUND_REQUESTS returns 0 for 1-15 Oct - there is no data in range, the filter is fine.']], ctx: '',
+      term: [['chat', 'board chat: why 0 rows? → no data in range (mirrored line)']],
+      title: 'The copy answers', text: 'The answer appears in the chat. Your terminal gets one mirrored line.', tok: { add: 14 } },
+    { term: [['you', 'now add the agency multi-select'], ['claude', 'Reading AgencyFilter.ts…'], ['tool', 'Edit refund-request.page.ts (+30 -6)']], ctx: 'Terminal moved on · next answer catches up',
+      title: 'You keep working', text: 'The copy does not know about the multi-select. Two memories drift apart.' },
+    { chat: [['me', 'is the multi-select sending agencyIds?', 'waiting']], ctx: '↻ pasting the terminal\'s new work into the copy…',
+      title: 'The next question needs a catch-up', text: 'The runner pastes the terminal\'s new work into the copy as text - or makes a new copy when it is over 24,000 characters.', why: 'Cost: the catch-up text, and sometimes a full new copy.', tok: { add: 22, label: 'catch-up' } },
+  ]},
+  { id: 'quick', label: 'After: a quick question', steps: [
+    { st: 'idle', term: [['you', '/alfred-live 61813'], ['claude', 'Live for cycle 61813. I answer the board chat from this session.'], ['bg', 'waiting for the board chat (background, no polling)']],
+      title: 'You start /alfred-live in your terminal', text: 'The terminal session starts a background wait on Alfred. The chat header says who answers.', tok: { t: 120 } },
+    { chat: [['me', 'why does the search return 0 rows?', 'got']], term: [['bg', 'board chat: 1 new message (#5141) - the wait ended']], st: 'answer',
+      title: 'You ask in the chat', text: 'The background wait returns at once with the message. Claude Code wakes this same session.', why: 'No copy, no catch-up: the session already knows the code it just edited.' },
+    { term: [['claude', 'Checking the SQL of the last search…'], ['tool', 'db_statements in:7c1… (3 statements)']], prog: 'Checking the SQL of the last search…',
+      title: 'Your terminal does the lookup', text: 'You see it working in the terminal; the chat shows one progress line.', tok: { add: 6 } },
+    { chat: [['cl', 'The COUNT returns 0 for 1-15 Oct: no data in range. The branch filter itself is right.']], prog: null, st: 'idle',
+      term: [['claude', 'Answered the board chat (#5141).'], ['bg', 'waiting for the board chat (background)']],
+      title: 'It answers and waits again', text: 'chat_reply posts the answer; the wait starts again. Alfred stores the message as before - with records and Undo.', tok: { add: 2 } },
+  ]},
+  { id: 'busy', label: 'After: terminal busy on long work', steps: [
+    { st: 'busy', term: [['you', 'run the full backend tests and fix what fails'], ['claude', 'Running mvn test…'], ['tool', 'Bash mvn -pl backend-board test (running 6 min)']],
+      title: 'Your terminal is on a long task', text: 'The chat header says so: "Terminal A is working · running the tests".', tok: { t: 120 } },
+    { chat: [['me', 'is the export endpoint covered by a test?', 'waiting']], ctx: 'Terminal A is busy · your message is next in line',
+      title: 'You ask while it works', text: 'The message waits (your choice). Nothing interrupts the tests. The chat shows where it is in line and what the terminal is doing.' },
+    { chat: [['me', '⚡ also check the 401 on login', 'waiting']], ctx: 'Terminal A is busy · 2 waiting · ⚡ one marked answer first',
+      title: 'A second message, marked ⚡', text: '⚡ changes the order, not the timing: it is answered first once the turn ends. It never stops the work in progress.' },
+    { term: [['tool', 'Tests run: 412, Failures: 0'], ['claude', 'All backend tests pass.'], ['bg', 'board chat: 2 waiting - answering them now']], st: 'answer', ctx: '',
+      title: 'The turn ends - the waiting messages come in', text: 'When the terminal finishes its turn, the background wait hands it the 2 waiting messages, ⚡ first.' },
+    { chat: [['cl', '401 on login: wrong password in 6 calls - expected, not a bug.'], ['cl', 'Export: no test covers POST /refunded-requests/export. I can add one - say yes.']], st: 'idle',
+      term: [['claude', 'Answered 2 board chat messages.'], ['bg', 'waiting for the board chat (background)']],
+      title: 'Both answered, in order', text: 'One turn answers both. The terminal goes back to waiting.', tok: { add: 9 } },
+  ]},
+  { id: 'long', label: 'After: a long answer', steps: [
+    { st: 'idle', term: [['bg', 'waiting for the board chat (background)']], title: 'The terminal is idle and listening', text: '', tok: { t: 120 } },
+    { chat: [['me', 'build me a dashboard of this cycle and a full report', 'got']], st: 'answer', term: [['bg', 'board chat: 1 new message - the wait ended']],
+      title: 'A request that produces a lot', text: 'A dashboard and a report are long. Written into the chat answer, all of it would also stay in your terminal\'s context.' },
+    { prog: 'Writing the page "Dashboard - 61813"…', term: [['claude', 'Building the dashboard page (alfred.calls, ECharts)…'], ['tool', 'board_page_put "Dashboard - 61813" (9 KB)'], ['tool', 'board_page_put "Report - 61813" (6 KB)']],
+      title: 'Long work goes into pages', text: 'The terminal writes the dashboard and the report as cycle pages. You can see it doing so in the terminal.', why: 'Your choice 3: the chat answer stays short so the terminal\'s context does not fill up with chat.', tok: { add: 18 } },
+    { chat: [['cl', 'Done: <span class="page-chip">◈ Dashboard - 61813</span> and <span class="page-chip">◈ Report - 61813</span>. 140 calls, 14 errors, the airline list is the slowest (4.2 s median).']], prog: null, st: 'idle',
+      term: [['claude', 'Answered the board chat - linked 2 pages.'], ['bg', 'waiting for the board chat (background)']],
+      title: 'The chat gets a short answer with links', text: 'Three lines and two page links. The pages render the full visuals; the terminal keeps only a short note.', tok: { add: 1 } },
+  ]},
+  { id: 'switch', label: 'After: switching terminals', steps: [
+    { st: 'idle', term: [['bg', 'waiting for the board chat (background)']], title: 'Terminal A answers the chat', text: 'One terminal session answers a cycle chat at a time.', tok: { t: 120 } },
+    { termB: true, term: [['you', '/alfred-live 61813   (in a new terminal, session B)']], ctx: 'Terminal B asks to answer this chat',
+      title: 'You run /alfred-live in another terminal', text: 'Session B asks Alfred to answer the same cycle chat. It does not have A\'s conversation in its memory.' },
+    { chat: [['sys', 'Now answered by terminal B (LAPTOP-34BNETR7). Terminal A stopped listening.']], st: 'b', ctx: '',
+      term: [['claude', 'Live for cycle 61813. Read the chat summary, the last 20 messages and the brief from Alfred.'], ['bg', 'waiting for the board chat (background)']],
+      termA: [['bg', 'handed over to terminal B - stopped listening']],
+      title: 'The chat moves to terminal B', text: 'Alfred moves the chat to B; A\'s background wait ends and says so. B starts from Alfred\'s memory: the chat summary, the recent messages, the brief and its records - not from A\'s conversation.', why: 'Nothing is copied from A. What lasts was recorded on the board (decisions, next steps, cards), so B can continue.', tok: { reset: 35, label: 'B starts from Alfred\'s context' } },
+    { chat: [['me', 'where were we?', 'got'], ['cl', 'Last decision: keep branch filters as OR. Next: a test for the export endpoint (from the brief).']], st: 'b',
+      title: 'B answers from what Alfred kept', text: 'Switching back later works the same way: run /alfred-live in A again and the chat moves back.', tok: { add: 3 } },
+  ]},
+  { id: 'verylong', label: 'After: a very long task (/speckit-plan)', steps: [
+    { st: 'idle', term: [['bg', 'waiting for the board chat (background)']], title: 'Terminal A is idle and listening', text: '', tok: { t: 120 } },
+    { chat: [['me', '/speckit-plan  (picked from the chat\'s "/" list)', 'waiting']], ctx: 'This runs in terminal A and keeps it busy for several minutes',
+      consent: true,
+      title: 'You start a long skill from the chat', text: 'A skill like /speckit-plan runs for many minutes and writes files. It runs in your terminal session - the one you work in - so before it starts the chat asks once: run it now in terminal A?', why: 'New: a heads-up for skills known to be long (speckit-plan, speckit-implement, alfred-review). A quick question never asks.' },
+    { chat: [['sys', 'You: Run it in terminal A']], st: 'busyPlan', ctx: '',
+      term: [['bg', 'board chat: /speckit-plan (#5150) - the wait ended'], ['claude', 'Running /speckit-plan for specs/023…'], ['tool', 'Read spec.md, constitution.md'], ['tool', 'Phase 0: research.md (resolving 4 unknowns)']],
+      prog: 'Phase 0: research - resolving 4 unknowns',
+      title: 'The skill runs in your terminal', text: 'You see every step in the terminal as if you had typed /speckit-plan there. The chat shows one progress line: the phase, the step count, the time, and Stop.', tok: { add: 40, label: 'the plan work itself' } },
+    { chat: [['me', 'meanwhile: is the export covered by a test?', 'waiting']], prog: 'Phase 1: writing data-model.md and contracts/',
+      term: [['tool', 'Write research.md (6 KB)'], ['tool', 'Phase 1: data-model.md, contracts/chat-api.md'], ['tool', 'Write plan.md (14 KB)']],
+      ctx: 'Terminal A is busy: /speckit-plan (step 9, 6 min) · your message is next',
+      title: 'Other chat messages wait', text: 'A question sent meanwhile waits, as you chose. Stop on the progress line asks the terminal to stop before its next step.', tok: { add: 45 } },
+    { chat: [['cl', 'Plan ready for specs/023: <span class="page-chip">📄 plan.md</span> <span class="page-chip">📄 research.md</span> <span class="page-chip">📄 data-model.md</span> <span class="page-chip">📄 contracts/</span> - 3 phases, 2 open questions recorded as Next.']],
+      prog: null, st: 'answer',
+      term: [['claude', '/speckit-plan done. Answering the board chat: links to the 4 files, 2 open questions recorded.']],
+      records: '2 Next records (open questions)',
+      title: 'The answer is short: links, not the plan', text: 'The plan is in the files (it is long - pasting it would flood the chat and the terminal twice). The chat gets one paragraph with the file links; open questions become Next records with Undo.', why: 'Your choice 3: the chat never carries the long output - the files do.', tok: { add: 2 } },
+    { chat: [['cl', 'Export: no test covers POST /refunded-requests/export - I can add one, say yes.']], st: 'idle',
+      term: [['claude', 'Answered 1 waiting board chat message.'], ['bg', 'waiting for the board chat (background)']],
+      title: 'Then the waiting question', text: 'The message that waited is answered next, in the same turn. The terminal goes back to waiting.' },
+    { term: [['note', '(the plan work stays in terminal A\'s conversation - it is the terminal\'s own work. Claude Code compacts it when it grows too big; the files and the board keep what matters.)']],
+      title: 'What stays in the terminal\'s memory', text: 'Exactly what would stay if you had typed /speckit-plan in the terminal yourself - no more. Before, the copy did this work and the terminal had to be told about it afterwards.' },
+  ]},
+  { id: 'decide', label: 'After: a decision in the middle', steps: [
+    { st: 'busyPlan', term: [['claude', 'Running /speckit-plan for specs/023…'], ['tool', 'Phase 0: research.md (resolving 4 unknowns)']], prog: 'Phase 0: research - resolving 4 unknowns',
+      title: 'A long task is running in terminal A', text: 'You are on another page of Alfred, or not looking at the chat at all.', tok: { t: 120 } },
+    { st: 'needs', prog: null, notify: true,
+      chat: [['q', 'Branch filter: should "All Branches" mean every branch the user may see, or every branch in the system?', ['Branches the user may see (Recommended)', 'Every branch in the system']]],
+      term: [['claude', 'I need a decision before Phase 1 - asked it in the board chat.'], ['bg', 'waiting for your answer in the board chat (paused, no polling)']],
+      ctx: 'Terminal A is paused - waiting for your answer',
+      title: 'Claude needs a decision - it replies in the chat', text: 'The terminal sends the question as an ordinary chat reply (with its options) and pauses: nothing is guessed. You get the same notification as for any reply - nothing opens by itself.', why: 'The question is stored - it needs you. The work around it is not.' },
+    { notify: false, chat: [['sys', 'You: Branches the user may see']], st: 'busyPlan', ctx: '',
+      term: [['bg', 'board chat: you answered - continuing'], ['claude', 'Using the branches the user may see. Phase 1: data-model.md…']], prog: 'Phase 1: data-model.md',
+      title: 'You answer when you get to it', text: 'Pick an option (or type an answer). It goes straight back to the paused terminal, which carries on. Your choice is kept, and also written to the brief as a decision.' },
+    { st: 'perm', prog: null, notify: 'perm', term: [['tool', 'Bash: mvn -pl backend-board test'], ['note', '  Do you want to run this command?  1. Yes  2. No   (Claude Code asks in the terminal)']],
+      chat: [['cl', 'Terminal A is waiting for your permission to run <code>mvn -pl backend-board test</code> - answer it in the terminal.']],
+      title: 'A permission prompt in the terminal', text: 'Some stops are Claude Code\'s own (allow this command?). Only the terminal can answer those, so the chat reply just says where to answer.' },
+    { notify: false, st: 'busyPlan', ctx: '', term: [['you', '(you, in the terminal)  1. Yes'], ['tool', 'Tests run: 64, Failures: 0'], ['tool', 'Write plan.md (14 KB)']], prog: 'Writing plan.md',
+      title: 'You answer it in the terminal', text: 'The work continues; the chat hint goes away by itself.' },
+    { st: 'idle', prog: null, chat: [['cl', 'Plan ready: <span class="page-chip">📄 plan.md</span> <span class="page-chip">📄 data-model.md</span> - "All Branches" = the branches the user may see (your decision).']],
+      term: [['claude', 'Answered the board chat.'], ['bg', 'waiting for the board chat (background)']],
+      title: 'The final answer', text: 'Stored: the question, your answer, the permission note, the final answer - all as chat replies. Not stored: everything the terminal did around them.', tok: { add: 3 } },
+  ]},
+  { id: 'card', label: 'After: a card comment', steps: [
+    { st: 'idle', term: [['bg', 'waiting for the board chat and the cycle\'s cards (background)']],
+      title: 'Terminal A also listens to the cycle\'s cards', text: 'The same background wait brings chat messages and what happens on the cards of cycle 61813: a comment to Claude, your answer to Claude\'s question on a card, ▶ Run on a card.', tok: { t: 120 } },
+    { chat: [['sys', '#53 Airline lookup slow · you commented: "is this the N+1 from the audit history?"']], st: 'answer',
+      term: [['bg', 'card #53: 1 new comment - the wait ended'], ['claude', 'Reading #53 and its calls…'], ['tool', 'db_statements in:937c… (757 statements)']], prog: 'Checking the statements of the airline call',
+      store: 'your comment on #53',
+      title: 'You comment on card #53', text: 'The comment goes into the same queue as the chat messages (oldest first, ⚡ first) and wakes terminal A - the session that already knows the airline code it read for the chat.', why: 'Before, a cycle card was answered by the chat\'s copy; a card outside a cycle by a fresh headless run.' },
+    { chat: [['sys', '#53 · Claude replied on the card: "Yes - 751 of the 757 statements are the audit-history N+1…"']], prog: null, st: 'idle', store: 'Claude\'s final comment on #53 + a one-line pointer in the chat',
+      term: [['claude', 'Replied on #53 (board_reply).'], ['bg', 'waiting for the board chat and the cycle\'s cards (background)']],
+      title: 'The answer goes on the card', text: 'One final comment on #53 - the card is where it belongs. The chat shows only a one-line pointer to it. The steps in between are not stored.', tok: { add: 4 } },
+    { chat: [['sys', '#53 · Claude asks on the card: "Fix it in this cycle, or open a follow-up card?"']], st: 'needs', notify: 'card', store: 'Claude\'s question on #53 (waiting for you) + a one-line pointer',
+      term: [['claude', 'Asked on #53 (board_ask) - paused until you answer.'], ['bg', 'waiting for your answer on #53']],
+      title: 'A decision on the card', text: 'When the work needs you, Claude asks on the card (the card turns "waiting on you"), you get the usual notification, and the terminal pauses.' },
+    { chat: [['sys', 'You answered on #53: Fix it in this cycle']], st: 'busyPlan', notify: false,
+      term: [['bg', 'card #53: you answered - continuing'], ['claude', 'Fixing the N+1 in AirlineService…'], ['tool', 'Edit AirlineService.java (+18 -9)']], prog: 'Fixing the N+1 in AirlineService',
+      store: 'your answer on #53',
+      title: 'You answer - the terminal continues', text: 'Same as a chat question: the answer goes back to the paused terminal. The fix lands in your working copy, in the session you work in.' },
+    { st: 'idle', prog: null, chat: [['sys', '#53 · Claude: fixed - board_fix recorded, re-test plan on the card']], store: 'the fix record and re-test plan on #53 + a one-line pointer',
+      term: [['claude', 'board_fix #53 - moved to Fixed.'], ['bg', 'waiting for the board chat and the cycle\'s cards (background)']],
+      title: 'Done, on the card', text: 'Cards of other cycles, and cards with no cycle, stay with whoever answers those (the project runner) - one terminal answers one cycle.' },
+  ]},
+  { id: 'off', label: 'After: terminal closed', steps: [
+    { st: 'idle', term: [['bg', 'waiting for the board chat (background)']], title: 'Terminal A answers the chat', text: '', tok: { t: 120 } },
+    { st: 'off', term: [['note', '(terminal window closed)']], ctx: 'Terminal offline · messages wait until you start /alfred-live in a terminal',
+      title: 'You close the terminal', text: 'Alfred notices the session stopped (no heartbeat) and says so in the chat header.' },
+    { chat: [['me', 'any errors in the last run?', 'waiting']],
+      title: 'You can still write - it waits', text: 'Messages wait. Alfred never answers them from a copy (your choice 2), and never opens, starts or resumes a terminal session by itself.', why: 'Nothing happens until you bring a terminal back - by hand.' },
+    { term: [['note', '(nothing runs: Alfred does not start Claude Code)']], ctx: 'Terminal offline · 1 waiting · to answer it: open a terminal in the repo, run claude (or claude --resume), then /alfred-live 61813',
+      title: 'The chat says how - you decide when', text: 'The header line spells out what to run. It is a hint; it does nothing on its own.' },
+    { st: 'idle', term: [['you', '(you, by hand)  claude --resume'], ['you', '/alfred-live 61813'], ['bg', 'board chat: 1 waiting - answering it now']], ctx: '',
+      title: 'You bring a terminal back yourself', text: 'Only when you run /alfred-live in a terminal does that session take the chat. The waiting messages are answered first.' },
+    { chat: [['cl', 'No errors in the last run: 22 calls, all 2xx.']], term: [['bg', 'waiting for the board chat (background)']], title: 'Answered', text: '', tok: { add: 2 } },
+  ]},
+];
+
+let scen = 0, step = 0, timer = null;
+const $ = (id) => document.getElementById(id);
+
+function tabs() {
+  $('tabs').innerHTML = SCEN.map((s, i) => `<button type="button" role="tab" aria-selected="${i === scen}" class="${i === scen ? 'on' : ''}" data-i="${i}">${s.label}</button>`).join('');
+  $('tabs').querySelectorAll('button').forEach((b) => b.onclick = () => { stop(); scen = +b.dataset.i; step = 0; render(); });
+}
+function esc(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
+
+function render() {
+  tabs();
+  const s = SCEN[scen];
+  $('compare').hidden = s.id !== 'compare';
+  $('player').hidden = s.id === 'compare';
+  if (s.id === 'compare') return;
+  // replay the steps up to the current one
+  let consent = false, notify = false;
+  let st = 'idle', ctx = '', prog = null, tokens = 0, added = [], chat = [], term = [], termB = false, termA = [];
+  s.steps.slice(0, step + 1).forEach((x, i) => {
+    const fresh = i === step;
+    if (x.st) st = x.st;
+    if (x.ctx !== undefined) ctx = x.ctx;
+    if (x.notify !== undefined) notify = x.notify;
+    consent = !!x.consent && fresh;
+    if (x.prog !== undefined) prog = x.prog;
+    if (x.termB) { termB = true; termA = term; term = []; }
+    (x.chat || []).forEach((c) => chat.push({ c, fresh }));
+    (x.term || []).forEach((t) => term.push({ t, fresh }));
+    (x.termA || []).forEach((t) => termA.push({ t, fresh }));
+    if (x.tok) {
+      if (x.tok.t) tokens = x.tok.t;
+      if (x.tok.reset != null) { tokens = x.tok.reset; added.push((x.tok.label || '') + ' ' + x.tok.reset + 'k'); }
+      if (x.tok.add) { tokens += x.tok.add; added.push((x.tok.label ? x.tok.label + ' ' : '') + '+' + x.tok.add + 'k'); }
+    }
+  });
+  // answered messages get their ticks updated: a waiting one before a Claude answer is answered
+  const lastCl = chat.map((x) => x.c[0]).lastIndexOf('cl');
+  const S = ST[st];
+  $('st-dot').className = S.dot;
+  $('st-line').innerHTML = S.line;
+  $('ctx').className = 'ctx' + (ctx ? '' : ' empty');
+  $('ctx').innerHTML = ctx ? `<span class="dot"></span>${esc(ctx)}` : '';
+  $('chat').innerHTML = chat.map(({ c, fresh }, i) => {
+    const f = fresh ? ' fresh' : '';
+    if (c[0] === 'sys') return `<div class="msg sys${f}">${esc(c[1])}</div>`;
+    if (c[0] === 'q') return `<div class="msg cl${f}"><div class="name">Claude · needs you</div><div class="bub qcard">${esc(c[1])}<div class="row">${c[2].map((o) => `<button type="button" tabindex="-1">${esc(o)}</button>`).join('')}</div></div></div>`;
+    if (c[0] === 'cl') return `<div class="msg cl${f}"><div class="name">Claude</div><div class="bub">${c[1]}</div></div>`;
+    const state = i < lastCl ? 'done' : c[2];
+    const tick = state === 'done' ? '<span class="tick done">✓✓ answered</span>' : state === 'got' ? '<span class="tick got">✓✓ Claude has it</span>' : '<span class="tick">✓ waiting</span>';
+    return `<div class="msg me${f}"><div class="bub">${esc(c[1])}</div><div class="meta">${tick}</div></div>`;
+  }).join('') + (consent ? `<div class="consent"><b>/speckit-plan runs in terminal A</b> and keeps it busy for several minutes - you will see it working there, and chat messages wait until it ends.<div class="row"><button type="button" class="ok" tabindex="-1">Run it in terminal A</button><button type="button" tabindex="-1">Not now</button></div></div>` : '') + (prog ? `<div class="prog"><span class="spin"></span><b>${esc(prog)}</b><span>step 2 · 8 s</span></div>` : '');
+  $('chat').scrollTop = 1e6;
+  $('toast').hidden = !notify;
+  $('toast').innerHTML = notify === 'card'
+    ? '<b>🔔 Alfred · #53</b> Claude asks: Fix it in this cycle, or open a follow-up card?'
+    : notify === 'perm'
+    ? '<b>🔔 Alfred · 61813</b> Claude: Terminal A is waiting for your permission - answer it in the terminal'
+    : '<b>🔔 Alfred · 61813</b> Claude: Branch filter - should "All Branches" mean…';
+  $('term-title').textContent = termB ? 'Terminal - Claude Code session B (new)' : 'Terminal - Claude Code session A';
+  const lines = (arr) => arr.map(({ t, fresh }) => `<div class="tl ${t[0]}${fresh ? ' fresh' : ''}">${esc(t[1])}</div>`).join('');
+  $('term').innerHTML = (termB && termA.length ? `<div class="tl note">— session A (other window) —</div>${lines(termA)}<div class="tl note">— session B —</div>` : '') + lines(term);
+  $('term').scrollTop = 1e6;
+  $('term-tags').innerHTML = S.tags.map(([k, v]) => `<span class="tag ${k}">${esc(v)}</span>`).join(' ');
+  const x = s.steps[step];
+  // What Alfred stores for this step: only messages, final answers and the user's decisions - never the work in between.
+  const freshChat = chat.filter((x) => x.fresh).map((x) => x.c);
+  const kept = [];
+  freshChat.forEach((c) => {
+    if (c[0] === 'me') kept.push('your message');
+    else if (c[0] === 'cl') kept.push(x.notify === 'perm' ? 'one chat reply saying where to answer' : `Claude's final answer (${c[1].replace(/<[^>]+>/g, '').length} characters)`);
+    else if (c[0] === 'q') kept.push('Claude\'s question (waiting for you)');
+    else if (c[0] === 'sys') kept.push(c[1].startsWith('You:') ? 'your decision' : 'one status line');
+  });
+  if (x.records) kept.push(x.records);
+  if (x.store) kept.splice(0, kept.length, x.store);
+  const live = s.id === 'before' && (x.ctx || '').includes('copying') ? 'a copy of the terminal session (its id), the catch-up text' : null;
+  $('store').className = 'store' + (kept.length ? ' saved' : '');
+  $('store').innerHTML = `<span class="k">Alfred stores</span>` + (kept.length ? `<b>${esc(kept.join(' + '))}</b>` : `<span>nothing - ${live ? esc(live) + ' (before)' : 'the progress line is live only and is gone when the answer lands'}</span>`);
+  $('cap-title').textContent = `${step + 1}/${s.steps.length} · ${x.title}`;
+  $('cap-text').textContent = x.text || '';
+  $('cap-why').textContent = x.why || '';
+  $('cap-why').hidden = !x.why;
+  $('dots').innerHTML = s.steps.map((_, i) => `<i class="${i === step ? 'on' : i < step ? 'done' : ''}" data-i="${i}" title="Step ${i + 1}"></i>`).join('');
+  $('dots').querySelectorAll('i').forEach((d) => d.onclick = () => { stop(); step = +d.dataset.i; render(); });
+  $('meter').innerHTML = `context read per answer ≈ <b>${tokens}k</b> tokens${added.length ? ` · extra so far: <b>${esc(added.join(', '))}</b>` : ''}`;
+  $('prev').disabled = step === 0;
+  $('next').disabled = step === s.steps.length - 1;
+}
+function stop() { if (timer) clearInterval(timer); timer = null; $('play').textContent = '▶ Play'; }
+$('prev').onclick = () => { stop(); if (step > 0) { step--; render(); } };
+$('next').onclick = () => { stop(); const n = (SCEN[scen].steps || []).length; if (step < n - 1) { step++; render(); } };
+$('play').onclick = () => {
+  if (timer) return stop();
+  $('play').textContent = '❚❚ Pause';
+  timer = setInterval(() => { const n = (SCEN[scen].steps || []).length; if (step < n - 1) { step++; render(); } else stop(); }, 2600);
+};
+document.addEventListener('keydown', (e) => { if (e.key === 'ArrowRight') $('next').click(); if (e.key === 'ArrowLeft') $('prev').click(); });
+render();
+</script>
+</body>
+</html>

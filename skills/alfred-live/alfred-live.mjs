@@ -28,7 +28,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statS
 import { homedir, hostname, tmpdir } from 'node:os';
 import { basename, delimiter, dirname, extname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { ChatLane, chatTools, sessionIdOf } from './chat.mjs';
+import { CHAT_RULES, ChatLane, chatTools, sessionIdOf } from './chat.mjs';
 
 // ------------------------------------------------------------------------------------------------- what the user did
 
@@ -251,6 +251,16 @@ export function commentLine(card, changes) {
   const said = changes.filter((e) => e.kind === 'COMMENT').map((e) => String(e.text ?? '').replace(/\s+/g, ' ').trim()).join(' / ');
   return `💬 #${card.number} "${String(card.title ?? '').slice(0, 120)}" · you commented: "${said.length > 600 ? `${said.slice(0, 600)}…` : said}"`
     + ` - investigate in this chat and answer on the card (board_get ${card.number}, then board_reply)`;
+}
+
+/**
+ * What the user did on a card of the cycle, handed to the terminal session that answers the cycle (plan-terminal-answers.md):
+ * it answers on the card itself, in the session that knows the code and the chat.
+ */
+export function cardLine(card, changes, head) {
+  const did = changes.map(youDid).join(' · ');
+  return `✉ #${card.number} "${String(card.title ?? '').slice(0, 120)}" · ${did.length > 700 ? `${did.slice(0, 700)}…` : did}`
+    + ` - ${head ?? 'answer it'} on the card in this session (board_get ${card.number}, then board_reply)`;
 }
 
 // ------------------------------------------------------------------------------------------------------- Alfred I/O
@@ -887,11 +897,13 @@ export function listenLanesOff(url, project) {
   return out;
 }
 
-export function files(url, project, kind = 'alfred-live') {
+export function files(url, project, kind = 'alfred-live', chatId = null) {
   const dir = join(tmpdir(), kind);
   mkdirSync(dir, { recursive: true });
   const key = `${url}|${project ?? ''}`.replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '').slice(-80);
-  return { dir, key, log: join(dir, `${key}.log`), chat: join(dir, `${key}.chat.log`), pid: join(dir, `${key}.pid.json`), mcp: join(dir, `${key}.mcp.json`),
+  // a terminal session that answers a cycle has its own chat log: after a hand-over the old one hears nothing more
+  const own = chatId ? `.${String(chatId).replace(/[^a-zA-Z0-9]/g, '').slice(0, 12)}` : '';
+  return { dir, key, log: join(dir, `${key}.log`), chat: join(dir, `${key}${own}.chat.log`), pid: join(dir, `${key}.pid.json`), mcp: join(dir, `${key}.mcp.json`),
     cursor: join(dir, `${key}.cursor.json`), system: join(dir, `${key}.system.md`) };
 }
 
@@ -1059,7 +1071,7 @@ export class Runner {
       await this.beat();
     }
     await this.prepare();
-    this.chatLane?.start();
+    await this.chatLane?.start();
     const beats = setInterval(() => { if (!this.stopped && !this.standingDown) this.beat(); }, 20_000);
     beats.unref?.();
     const skills = this.o.boardRuns === false ? Promise.resolve() : this.skillLoop();
@@ -1264,12 +1276,12 @@ export class Runner {
       return;
     }
 
-    if (this.o.chatId && this.o.cycleId && this.chatLane && attempt === 0 && forTheChat(changes)) {
-      // specs/022 FR-060: the cycle chat's own session answers it - a copy of the terminal session, so it knows what the
-      // terminal did - on the card, without a turn of the terminal itself.
-      await reporter.end({ steps: changes.map(youDid), state: 'DONE', outcome: "answered by the cycle chat's session" });
-      this.o.log(`  → 💬 ${label} answered in the cycle chat's session`);
-      this.chatLane.answerCard(first, changes, promptFor(this.o.server, first, changes, context, await this.repoOf(first)));
+    if (this.o.chatId && this.o.cycleId && this.o.chat && attempt === 0) {
+      // plan-terminal-answers.md: every change on a card of the cycle goes to the terminal session that answers the cycle -
+      // the same session as its chat, no copy and no run here; it answers on the card when its turn is free.
+      await reporter.end({ steps: changes.map(youDid), state: 'DONE', outcome: 'sent to your terminal session - it answers on the card' });
+      this.o.log(`  → ✉ ${label} handed to the terminal session`);
+      this.o.chat(cardLine(first, changes, head));
       return;
     }
     if (this.o.chatId && this.o.chat && attempt === 0 && forTheChat(changes)) {
@@ -1389,7 +1401,9 @@ export async function main(argv) {
   const entry = serverEntry(args.server, cwd, args.config); // --config: another Claude Code config (tests)
   const url = args.url ?? alfredUrlOf(entry);
   const project = args.project;
-  const f = files(url, project);
+  // the terminal session that answers a cycle: the chat that ran /alfred-live (read from Claude Code's environment)
+  const sessionChat = args.cycle ? (args.chat ?? process.env.CLAUDE_CODE_SESSION_ID ?? null) : null;
+  const f = files(url, project, 'alfred-live', sessionChat);
   const print = (o) => process.stdout.write(JSON.stringify(o, null, 1) + '\n');
 
   if (command === 'status') {
@@ -1412,7 +1426,25 @@ export async function main(argv) {
   }
   if (command === 'start') {
     const r = running(f.pid);
-    if (r) { print({ alreadyRunning: true, ...r, watch: `tail -n 0 -F "${f.chat}"` }); return; }
+    const chatIdNow = args.chat ?? process.env.CLAUDE_CODE_SESSION_ID ?? null;
+    if (r && args.cycle && chatIdNow && (r.chatId !== chatIdNow || r.cycleId !== args.cycle)) {
+      // The newest /alfred-live for a cycle takes it over (plan-terminal-answers.md): the old terminal is told in its own
+      // chat log and stops listening; its runner ends and frees the cycle.
+      if (r.chat) {
+        try {
+          appendFileSync(r.chat, `↪ handed over: another terminal session (${String(chatIdNow).slice(0, 8)}) answers ${r.cycleId ? `cycle ${r.cycleId}` : 'this board'}`
+            + ' now - this session no longer answers the board chat or its cards; stop watching this log.\n');
+        } catch { /* the log is gone: nothing to tell */ }
+      }
+      if (existsSync(f.pid)) unlinkSync(f.pid);
+      try { process.kill(r.pid); } catch { /* it ends itself: the pid file is gone */ }
+      await new Alfred(url).call('PUT', '/board/live-runner', { body: { project: project ?? '', host: hostname(), stopped: true, kind: 'live',
+        ...(r.chatId && r.cycleId ? { cycleId: r.cycleId, chatId: r.chatId } : {}) } }).catch(() => null);
+    } else if (r) {
+      print({ alreadyRunning: true, ...r, watch: `tail -n 0 -F "${r.chat ?? f.chat}"`,
+        ...(r.cycleId && existsSync(join(f.dir, 'chat-rules.md')) ? { chatRules: join(f.dir, 'chat-rules.md') } : {}) });
+      return;
+    }
     const alfred = new Alfred(url);
     // The chat that runs this: it owns the cycle, and every ▶ on the cycle's cards goes into it.
     const chatId = args.chat ?? process.env.CLAUDE_CODE_SESSION_ID ?? null;
@@ -1434,6 +1466,9 @@ export async function main(argv) {
       });
     writeFileSync(f.log, '');
     writeFileSync(f.chat, '');
+    // This session answers the cycle chat itself (plan-terminal-answers.md): the chat's rules, read once before the first ✉
+    const chatRules = byChat ? join(f.dir, 'chat-rules.md') : null;
+    if (chatRules) writeFileSync(chatRules, CHAT_RULES);
     const self = fileURLToPath(import.meta.url);
     const chatArgs = byChat ? ['--chat', chatId, ...(chatPid ? ['--chat-pid', String(chatPid)] : [])] : [];
     const child = spawn(process.execPath, [self, 'run', ...argv.slice(1), '--cwd', cwd, '--url', url, ...chatArgs], {
@@ -1443,7 +1478,8 @@ export async function main(argv) {
     const started = { pid: child.pid, alfred: url, project: project ?? null, cycleId: args.cycle ?? null, chatId: byChat ? chatId : null, model: args.model ?? null,
       parallel: Number(args.parallel ?? 3), log: f.log, chat: f.chat, startedAt: new Date().toISOString() };
     writeFileSync(f.pid, JSON.stringify(started));
-    print({ started: true, ...started, model: args.model ?? "Claude Code's default", watch: `tail -n 0 -F "${f.chat}"` });
+    print({ started: true, ...started, model: args.model ?? "Claude Code's default", watch: `tail -n 0 -F "${f.chat}"`,
+      ...(chatRules ? { chatRules } : {}) });
     return;
   }
   if (command === 'run') {

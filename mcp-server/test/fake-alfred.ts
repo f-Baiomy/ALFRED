@@ -567,14 +567,19 @@ export class FakeAlfred {
     if (p[3] === 'context' && method === 'GET') {
       const mine = c.messages.filter((m) => m.project === (q.get('project') ?? '') && m.scope === p[2]);
       const summary = mine.filter((m) => m.kind === 'SUMMARY').pop() ?? null;
-      return [200, { summary, after: mine.filter((m) => !summary || m.id > summary.id), decisions: [], terminal: [], session: null }];
+      return [200, { summary, after: mine.filter((m) => !summary || m.id > summary.id), decisions: [], terminal: [],
+        session: (c as any).sessions?.[p[2]] ?? null }];
     }
     if (p[3] === 'terminal' && method === 'GET') return [200, c.terminal.filter((t) => t.scope === p[2])];
     if (p[2] === 'terminal' && p[3] === 'delivered' && method === 'POST') {
       for (const t of c.terminal) if (body.ids.includes(t.id)) t.state = body.read ? 'READ' : 'DELIVERED';
       return [200, {}];
     }
-    if (p[3] === 'session' && method === 'PUT') return [200, { chatSessionId: body.chatSessionId }];
+    if (p[3] === 'session' && method === 'PUT') {
+      const sessions = ((c as any).sessions ??= {});
+      sessions[p[2]] = { ...body, answeredByTerminal: !!body.chatSessionId && body.chatSessionId === body.forkedFrom };
+      return [200, { chatSessionId: body.chatSessionId }];
+    }
     if (p[3] === 'system' && method === 'POST') return [200, add({ project: q.get('project') ?? '', scope: p[2], author: 'ALFRED', kind: 'SYSTEM', text: body.text })];
     if (p[3] === 'summary' && method === 'POST') {
       return [200, add({ project: q.get('project') ?? '', scope: p[2], author: 'CLAUDE', kind: 'SUMMARY', text: body.text, coversTo: body.coversTo })];

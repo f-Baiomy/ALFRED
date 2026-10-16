@@ -164,34 +164,39 @@ test('the project runner answers the project chat\'s waiting messages in one run
   } finally { await close(); }
 });
 
-test('a cycle chat forks the terminal session found on this machine, and writes what it sent the terminal to the chat log', async () => {
+test('a cycle chat is answered by the terminal session itself: the message becomes a ✉ line, no run, no copy (plan-terminal-answers.md)', async () => {
   const store = { messages: [] as any[], holder: {} as Record<string, string>, terminal: [] as any[], watches: [], nextId: 50 };
   const changes = [waiting(store, 4, 'cy1', 'why?')];
-  const { w, runner, chat, promptFile, dir, close } = await chatWorld(changes);
+  const { w, runner, chat, promptFile, close } = await chatWorld(changes);
   w.fake.board.chats = store;
-  const home = mkdtempSync(join(tmpdir(), 'chat-home-'));
-  const transcript = chatLane.transcriptPath(dir, 'term-1', home);
-  mkdirSync(join(transcript, '..'), { recursive: true });
-  writeFileSync(transcript, JSON.stringify({ type: 'user', timestamp: '2026-10-15T09:00:00Z', message: { content: 'start' } }) + '\n');
-  const realPath = chatLane.transcriptPath;
   try {
     runner.o.chatId = 'term-1';
     runner.o.cycleId = 'cy1';
-    process.env['USERPROFILE'] = home;
-    process.env['HOME'] = home;
-    store.terminal.push({ id: 1, project: 'p', scope: 'cy1', urgent: true, text: 'contradicts your step', state: 'SENT' },
-      { id: 2, project: 'p', scope: 'cy1', urgent: false, text: '💬 board chat #4 - you asked: why?', state: 'SENT' });
-    w.fake.board.extra = (method, p) => (method === 'GET' && p[1] === 'chats' && p[3] === 'terminal' ? [200, store.terminal] : undefined);
     await runner.once('0.0.0');
     await Promise.all([...runner.chatLane.chains.values()]);
-    const sent = JSON.parse(readFileSync(promptFile, 'utf8'));
-    if (realPath(dir, 'term-1') === transcript) {
-      assert.deepEqual(sent.args.slice(sent.args.indexOf('--resume'), sent.args.indexOf('--resume') + 3), ['--resume', 'term-1', '--fork-session']);
-    }
-    assert.deepEqual(chat.slice(-2), ['⚡ board chat: contradicts your step', '💬 board chat #4 - you asked: why?']);
-    const delivered = w.fake.log.find((l) => l.path === '/board/chats/terminal/delivered');
-    assert.deepEqual(delivered!.body.ids, [1, 2]);
+    assert.throws(() => readFileSync(promptFile, 'utf8'), 'no Claude run was started');
+    const line = chat.find((l: string) => l.startsWith('✉ board chat #4'));
+    assert.ok(line, `a ✉ line for the terminal: ${chat.join(' | ')}`);
+    assert.match(line!, /"why\?"/);
+    assert.match(line!, /chat_read \{"project":"p","scope":"cy1","id":4\}/);
+    assert.match(line!, /chat_reply/);
+    const took = w.fake.log.find((l) => l.path === '/board/chats/messages/4/take');
+    assert.ok(took, 'the message is taken for the terminal');
+    assert.equal(w.fake.log.some((l) => l.path === '/board/chats/messages/4/release'), false, 'and not given back');
   } finally { await close(); }
+});
+
+test('the ✉ line says urgent, and the runner tells Alfred the terminal answers the chat itself', async () => {
+  const line = chatLane.chatLine({ messageId: 7, urgent: true, text: 'stop!' }, { project: 'p', scope: 'cy1' });
+  assert.match(line, /^✉ board chat #7 ⚡: "stop!"/);
+  const calls: any[] = [];
+  const lane = new chatLane.ChatLane({ o: { chatId: 'term-1', cycleId: 'cy1', project: 'p', log: () => {},
+    alfred: { call: async (method: string, path: string, opts: any) => { calls.push({ method, path, body: opts?.body }); return {}; } } } });
+  await lane.start();
+  const put = calls.find((c) => c.method === 'PUT' && c.path === '/board/chats/cy1/session');
+  assert.ok(put, 'the session marker is stored');
+  assert.equal(put.body.chatSessionId, 'term-1');
+  assert.equal(put.body.forkedFrom, 'term-1');
 });
 
 test('a run that answers nothing gives the messages back with why', async () => {

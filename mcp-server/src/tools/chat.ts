@@ -154,7 +154,10 @@ export function register(server: McpServer, client: AlfredClient): void {
       ...(r.card ? { card: { ...r.card, description: await w.text(r.card.description) } } : {}),
       ...(r.fix ? { fix: { ...r.fix, report: await w.text(r.fix.report) } } : {}) }))) : undefined;
     const ctx = await maskContext(client, true);
-    const toTerminal = question.scope === 'project' ? [] : [
+    // The terminal session itself answers a cycle chat (plan-terminal-answers.md): nothing goes back to it - it wrote this.
+    const byTerminal = question.scope !== 'project' && await client.get<{ session: { answeredByTerminal?: boolean } | null }>(
+      `/board/chats/${seg(question.scope)}/context`, { query: { project: input.project } }).then((c) => c.session?.answeredByTerminal === true, () => false);
+    const toTerminal = question.scope === 'project' || byTerminal ? [] : [
       ...(input.toTerminal ?? []).map((t) => ({ text: maskProseWith(ctx, t.text), urgent: t.urgent, reason: t.reason, mirror: false })),
       // One item per exchange (FR-050): an answer edited in place is not sent again, and a question the terminal asked is not echoed back.
       ...(input.updateId || question.bridgeFrom === 'terminal' ? [] : [{ text: mirrorText(ctx, question, text,

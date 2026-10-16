@@ -495,8 +495,9 @@ one-line summary in text; a visual backs it up.
 ## Board chat - answer once, record what lasts
 
 The board has chats (specs/022): one per project, answered by the project's live runner, and one per session cycle,
-answered by the session that holds the cycle (a fork of the terminal session that worked on it). The runner hands you
-a message; you never poll for one.
+answered by the terminal session that ran /alfred-live for it - that session itself, never a copy, and the comments on
+the cycle's cards too. The runner hands you a message (a `✉` line in the terminal); you never poll for one. A closed
+terminal means the messages wait: Alfred never starts or resumes a session itself.
 
 - `chat_take` first (the runner does it), then **one** `chat_reply` per message. Read the thread and the chat's latest
   summary the take gave you; `chat_read` for an older message or an earlier answer, `chat_summary` when the runner asks
@@ -508,11 +509,17 @@ a message; you never poll for one.
   - `ITEM` - a new acceptance item - a proposal on the spec file, never written into it.
   - `FIX` - you changed code for a card - a Did/Found/Next comment and the card moved to Fixed.
   - None for plain questions and answers. Every record has Undo for the user; never repeat one they undid.
-- **To the terminal** (`toTerminal` on the reply): only what the terminal session must know before its next step. Mark
-  it urgent only for a decision that contradicts what the terminal is doing, files you changed, or the user writing
-  `@terminal`. Everything sent is masked like the export.
+- **Final answers only** in a cycle chat: the steps between two answers stay in the terminal session. Alfred keeps
+  the messages, the final answers, what needs the user (a question, a proposal) and the records. A decision needed
+  mid-task is a reply that asks it; the job pauses until the answer arrives as a new message. Long output goes to a
+  file or a board page, linked from a short answer.
+- **To the terminal** (`toTerminal` on the reply, the project chat only - a cycle chat IS the terminal): only what the
+  terminal session must know before its next step. Mark it urgent only for a decision that contradicts what the
+  terminal is doing, files you changed, or the user writing `@terminal`. Everything sent is masked like the export.
 - **Lines the terminal session sees** (written into the runner's chat log, read by the session that works in the
   terminal):
+  - `✉` - a chat message or a card comment for this session to answer (see the alfred-live skill).
+  - `↪ handed over` - another terminal session answers the cycle now: stop watching.
   - `⚡` - an urgent line from the board chat: act on it before the next step, or say why not.
   - `💬` - context from the board chat: read it, do not stop for it.
   - `↳` - a comment the chat already answered: do not answer it again.

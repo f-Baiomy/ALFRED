@@ -65,15 +65,25 @@ the answering (docs/mcp.md "Live answers"):
     exactly as if the user had typed it (the skill, with this chat's context - the note is the user's instruction for
     it), then `board_run_end <id>` with one `outcome` line ("→ plan posted on #35") and `result` (`#35`, `#35 [16]`)
     - `done: false` with the reason if it failed. Several lines → one after another, in order.
-  - `💬 #35 "…" · you commented: "…" - …` - a comment that needs an investigation: investigate with what this chat
-    knows (the code, the calls, the logs) and answer on the card (`board_get 35`, then `board_reply`). When the cycle
-    has a board chat, its own session (a copy of this one) answers such comments instead - you then see only
-    `↳ answered your comment on #35` in the chat, nothing to do.
-- **Lines from the board chat** (specs/022, rules "Board chat") - the chat's session talks to this one through the log:
-  - `⚡ board chat: …` - urgent (a decision that contradicts your step, files the chat changed, the user wrote
-    `@terminal`): act on it before your next step, or tell the user why not.
-  - `💬 board chat: …` / `💬 board chat #N - …` - context: read it, write nothing, do not stop for it.
-  - `↻` / `↳` lines - the chat caught up or answered something: context only.
+  - `💬 #35 "…" · you commented: "…" - …` - a comment that needs an investigation (a card outside this cycle):
+    investigate with what this chat knows (the code, the calls, the logs) and answer on the card (`board_get 35`, then
+    `board_reply`).
+- **This session answers the cycle's board chat and the comments on its cards itself** - no copy, no fork
+  (rules.md "Board chat"). Before the first such line, read the `chatRules` file the start printed, once.
+  - `✉ board chat #N ⚡?: "…" - …` - a chat message for you. When your turn is free (⚡ first): `chat_read` with the
+    line's `project`/`scope`/`id` for its thread when you need it, do the work here, then **one** `chat_reply`.
+  - `✉ #35 "…" · you commented: "…" - …` - a comment on a card of this cycle: `board_get 35`, then `board_reply`.
+  - **Final answers only**: what you did between them (tool calls, steps, drafts) stays in this session - Alfred keeps
+    the user's messages, your final answers, the questions or proposals that need the user, and records. Short: the
+    finding first; long output (a plan, a report) goes to a file or a board page and the answer links it.
+  - A long job (a skill like /speckit-plan, a big fix) - ask once in the reply first ("Run it here? ~20 min"), unless
+    the message already asked for it. A decision you need mid-task → a reply that asks it (or `board_ask` on a card),
+    then pause that job: the answer comes back as a new `✉` line.
+  - `↪ handed over: …` - another terminal session answers the cycle now: stop the Monitor watch, answer nothing more.
+  - After starting in a cycle that already has a chat: read the chat's summary and the brief (`chat_read`,
+    `get_brief`) before the first answer - they are what this session did not see.
+- **Other board-chat lines** (the project chat, or an older Alfred): `⚡ board chat: …` - act on it before your next
+  step, or tell the user why not; `💬 board chat: …`, `↻`, `↳` - context only, write nothing.
 - The watch expires after an hour: re-arm it with the same command, nothing else. A line starting `⚠` that repeats
   (the runner cannot reach Alfred or Claude) → tell the user once, with the line.
 - The user asks something about a live answer → answer from the board (`board_get`), not from the log.

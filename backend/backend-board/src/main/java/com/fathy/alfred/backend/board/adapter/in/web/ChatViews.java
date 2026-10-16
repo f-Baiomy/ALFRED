@@ -36,8 +36,9 @@ final class ChatViews {
     record NeedsYou(int questions, int proposals, int confirms) {
     }
 
+    /** answeredByTerminal: the terminal session itself answers (no copy, nothing to catch up). */
     record TerminalState(boolean open, Instant forkAt, Instant seenUpTo, Instant terminalAt, String host, String chatSessionId,
-                         String forkedFrom) {
+                         String forkedFrom, boolean answeredByTerminal) {
     }
 
     record Summary(String scope, String name, String kind, Long lastId, Instant lastAt, String lastPreview, String lastAuthor, int waiting,
@@ -76,7 +77,8 @@ final class ChatViews {
         TerminalState terminal = !s.cycle() ? null : new TerminalState(session != null && session.forkedFrom() != null && row.claudeOn(),
                 session == null ? null : session.forkedAt(), session == null ? null : session.seenUpTo(),
                 session == null ? null : session.terminalAt(), session == null ? null : session.host(),
-                session == null ? null : session.chatSessionId(), session == null ? null : session.forkedFrom());
+                session == null ? null : session.chatSessionId(), session == null ? null : session.forkedFrom(),
+                session != null && session.answeredByTerminal());
         return new Summary(s.scope(), s.name(), s.cycle() ? "cycle" : "project", s.lastId(), s.lastAt(), s.lastPreview(), s.lastAuthor(),
                 s.waiting(), row.typing(), new NeedsYou(s.questions(), s.proposals(), s.confirms()), row.claudeOn(), terminal);
     }

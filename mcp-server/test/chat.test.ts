@@ -88,6 +88,16 @@ test('the project chat has no terminal session: nothing is sent to one', async (
   } finally { await w.close(); }
 });
 
+test('a cycle chat the terminal session answers itself sends nothing back to it - it wrote the answer (plan-terminal-answers.md)', async () => {
+  const w = await chatWorld();
+  try {
+    const m = w.ask('why?');
+    (w.fake.board.chats as any).sessions = { [m.scope]: { chatSessionId: 'term-1', forkedFrom: 'term-1', answeredByTerminal: true } };
+    await w.call('chat_reply', { project: 'p', messageId: m.id, text: 'Because.', toTerminal: [{ text: 'x', urgent: true, reason: 'changed-files' }] });
+    assert.deepEqual(w.fake.log.filter((l) => l.path.endsWith('/reply')).pop()!.body.toTerminal, []);
+  } finally { await w.close(); }
+});
+
 test('updateId edits the earlier answer in place', async () => {
   const w = await chatWorld();
   try {

@@ -156,11 +156,11 @@ describe('ChatPanelComponent - the window', () => {
     });
   });
 
-  function render() {
+  function render(over: Record<string, unknown> = {}) {
     const state = TestBed.inject(ChatStateService);
     state.project.set('p');
     state.summaries.set([{ scope: 'c1', name: 'c1', kind: 'cycle', lastId: 1, lastAt: null, lastPreview: '', lastAuthor: 'USER', waiting: 1,
-      typing: false, needsYou: { questions: 0, proposals: 0, confirms: 0 }, claudeOn: true, terminal: null }]);
+      typing: false, needsYou: { questions: 0, proposals: 0, confirms: 0 }, claudeOn: true, terminal: null, ...over } as any]);
     state.threads.set(new Map([['c1', { scope: 'c1', more: false, messages: [msg(1, { state: 'WAITING' })] }]]));
     state.openScope.set('c1');
     const f = TestBed.createComponent(ChatPanelComponent);
@@ -180,6 +180,27 @@ describe('ChatPanelComponent - the window', () => {
     const menu = f.nativeElement.querySelector('.chat-menu')?.textContent ?? '';
     expect(menu).toContain('Compact now');
     expect(menu).not.toContain('Full screen');
+    f.nativeElement.remove();
+  });
+
+  it('a cycle chat the terminal answers itself says so, and offers no copy to catch up or continue', () => {
+    const terminal = { open: true, forkAt: null, seenUpTo: null, terminalAt: '2026-10-16T10:00:00Z', host: 'pc', chatSessionId: 't1', forkedFrom: 't1',
+      answeredByTerminal: true };
+    const f = render({ terminal });
+    const head: HTMLElement = f.nativeElement.querySelector('.chat-head');
+    expect(head.querySelector('.chat-who small')?.textContent).toContain('Answered by your terminal');
+    expect(f.componentInstance.movedOn()).toBeFalse();
+    (head.querySelector('.chat-icon[aria-label="More"]') as HTMLElement).click();
+    f.detectChanges();
+    const menu = f.nativeElement.querySelector('.chat-menu')?.textContent ?? '';
+    expect(menu).not.toContain('Catch up with the terminal');
+    expect(menu).not.toContain('Continue in a terminal');
+    f.nativeElement.remove();
+  });
+
+  it('a cycle chat with no terminal says the messages wait - Alfred starts nothing itself', () => {
+    const f = render({ claudeOn: false });
+    expect(f.nativeElement.querySelector('.chat-who small')?.textContent).toContain('Terminal offline - messages wait');
     f.nativeElement.remove();
   });
 

@@ -127,6 +127,8 @@ export interface ChatTerminal {
   readonly host?: string | null;
   readonly chatSessionId?: string | null;
   readonly forkedFrom?: string | null;
+  /** The terminal session itself answers (no copy): nothing to catch up, nothing mirrored back. */
+  readonly answeredByTerminal?: boolean;
 }
 
 /** One row of the chats bar. */

@@ -782,7 +782,10 @@ public class ChatService implements ChatUseCase, ChatRunnerEventsUseCase {
         chats.putSession(next);
         if (tookOver(was, next)) {
             // FR-016: another conversation answers from now on - it was handed the summary and the messages after it.
-            system(chat, null, "↻ A new Claude conversation answers this chat now" + (next.host() == null ? "" : " (on " + next.host() + ")")
+            system(chat, null, next.answeredByTerminal()
+                    ? "↻ Your terminal session answers this chat now" + (next.host() == null ? "" : " (on " + next.host() + ")")
+                    + " - the session itself, no copy; it reads the summary and the recent messages when it needs them."
+                    : "↻ A new Claude conversation answers this chat now" + (next.host() == null ? "" : " (on " + next.host() + ")")
                     + (next.forkedFrom() == null ? " - it started from the latest summary and the messages after it."
                     : " - a copy of that terminal session, handed the latest summary and the messages after it."));
         }
@@ -795,7 +798,8 @@ public class ChatService implements ChatUseCase, ChatRunnerEventsUseCase {
         if (was == null || was.chatSessionId() == null || java.util.Objects.equals(was.chatSessionId(), next.chatSessionId())) {
             return false;
         }
-        return !java.util.Objects.equals(was.host(), next.host()) || !java.util.Objects.equals(was.forkedFrom(), next.forkedFrom());
+        return !java.util.Objects.equals(was.host(), next.host()) || !java.util.Objects.equals(was.forkedFrom(), next.forkedFrom())
+                || next.answeredByTerminal() != was.answeredByTerminal(); // a copy replaced by the terminal session itself
     }
 
     @Override

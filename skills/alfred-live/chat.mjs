@@ -141,6 +141,21 @@ export function skillOf(origin) {
   return name && CHAT_SKILLS.includes(name) ? name : null;
 }
 
+/**
+ * A cycle chat message handed to the terminal session that answers the chat (specs/022, plan-terminal-answers.md): one
+ * chat-log line the session's Monitor wakes it with - it answers it itself with chat_reply. ⚡ = the user asked for it
+ * first; a task or a skill the user picked says so.
+ */
+export function chatLine(t, { project, scope }) {
+  const flat = (v, n) => { const x = String(v ?? '').replace(/\s+/g, ' ').trim(); return x.length > n ? `${x.slice(0, n)}…` : x; };
+  const skill = skillOf(t.origin);
+  const what = skill ? `the user picked /${skill} from the chat's "/" list - run it here, answer with its result`
+    : t.task ? 'a task from the chat - do it' : 'answer it';
+  const ref = JSON.stringify({ project, scope, id: t.messageId });
+  return `✉ board chat #${t.messageId}${t.urgent ? ' ⚡' : ''}: "${flat(t.text ?? t.take, 600)}" - ${what} in this session`
+    + ` (chat_read ${ref} for its thread), then chat_reply {"project":${JSON.stringify(project)},"messageId":${t.messageId},…}`;
+}
+
 /** A line of the chat log for the terminal: ⚡ act on it before your next step; 💬 context only. */
 export function terminalLine(item) {
   const text = String(item.text ?? '').replace(/\s*\n\s*/g, ' ').trim();
@@ -250,10 +265,17 @@ export class ChatLane {
   }
 
   /** Starts watching the terminal's transcript (cycle chats only); its newest work rides the heartbeat as terminalAt. */
-  start() {
+  /**
+   * A cycle chat is answered by the terminal session itself (plan-terminal-answers.md): Alfred is told so - the chat's
+   * session IS the terminal (chatSessionId = forkedFrom = the terminal's id) - and there is no copy to keep in step, so
+   * the terminal's transcript is not watched.
+   */
+  async start() {
     if (!this.r.o.chatId || !this.r.o.cycleId) return;
-    const path = transcriptPath(this.r.o.cwd ?? process.cwd(), this.r.o.chatId);
-    this.watch = new TranscriptWatch(path, (at) => { this.terminalAt = new Date(at).toISOString(); });
+    await this.r.o.alfred.call('PUT', `/board/chats/${encodeURIComponent(this.r.o.cycleId)}/session`, {
+      query: { project: this.r.o.project ?? '' }, headers: { 'X-Alfred-Actor': 'claude' },
+      body: { chatSessionId: this.r.o.chatId, forkedFrom: this.r.o.chatId, host: this.host, forkedAt: null, seenUpTo: null },
+    }).catch((error) => this.r.o.log(`  (could not tell Alfred the terminal answers the chat: ${error.message})`));
   }
 
   stop() {
@@ -299,6 +321,7 @@ export class ChatLane {
     const project = list[0].project;
     const taken = (await Promise.all(list.map((c) => this.take(c)))).filter(Boolean);
     if (!taken.length) return; // FR-055h: nothing to answer, no run
+    if (scope !== 'project' && this.r.o.chatId) return this.toTerminal(scope, project, list, taken);
     const ctx = await alfred.call('GET', `/board/chats/${encodeURIComponent(scope)}/context`, { query: { project } }).catch(() => null);
     const refork = taken.some((t) => t.task && /^Refresh from the terminal/.test(t.text ?? ''));
     const isCycle = scope !== 'project';
@@ -385,53 +408,23 @@ export class ChatLane {
   }
 
   /**
-   * A comment on a cycle card that needs an investigation (FR-060): answered on the card by the cycle chat's session, in
-   * turn with the chat's messages; the chat shows one line saying so.
+   * A cycle chat is answered by the terminal session that ran /alfred-live (plan-terminal-answers.md): the messages are
+   * taken for it (WAITING → TAKEN) and each becomes one chat-log line; the session answers them itself. No copy, no run -
+   * nothing of the work is stored here. A line that cannot be written gives its message back.
    */
-  answerCard(card, changes, prompt) {
-    const scope = this.r.o.cycleId;
-    const prev = this.chains.get(scope) ?? Promise.resolve();
-    const next = prev.then(() => this.runCard(card, changes, prompt)).catch((error) => this.r.say(`  ⚠ #${card.number}: ${error.message}`));
-    this.chains.set(scope, next);
-    return next;
-  }
-
-  async runCard(card, changes, prompt) {
-    const { alfred } = this.r.o;
-    const scope = this.r.o.cycleId;
-    const project = card.project ?? this.r.o.project ?? '';
-    const ctx = await alfred.call('GET', `/board/chats/${encodeURIComponent(scope)}/context`, { query: { project } }).catch(() => null);
-    const terminalId = this.r.o.chatId;
-    const path = transcriptPath(this.r.o.cwd ?? process.cwd(), terminalId);
-    const session = ctx?.session?.chatSessionId && ctx.session.chatSessionId !== 'null'
-      ? { chatSessionId: ctx.session.chatSessionId, host: ctx.session.host === 'null' ? null : ctx.session.host } : null;
-    const how = chatSessionArgs({ session, terminalId, transcriptExists: existsSync(path), host: this.host });
-    const reporter = new Reporter(alfred, { id: randomUUID(), project, cardNumber: card.number, head: 'answering in the cycle chat' },
-      { every: this.r.o.reportEveryMs ?? 250, onError: () => {} });
-    reporter.report({ steps: [], state: 'WORKING' });
-    let writes = 0;
-    const handle = this.pool.run(this.pool.acquire(how.args), prompt, {
-      timeoutMs: this.r.o.runTimeoutMs ?? 10 * 60_000, draftEveryMs: this.r.o.draftEveryMs,
-      onStep: async (step, steps, draft) => { reporter.report({ steps, draft, state: 'WORKING' }); return reporter.stop; },
-      onToolResult: (_id, isError, _text, name) => { if (!isError && /board_(reply|comment|ask)$/.test(name)) writes++; },
-    });
-    this.r.handles.add(handle);
-    reporter.onStop = () => handle.kill();
-    const { steps, result, stderr, stopAsked, sessionId, usage } = await handle.done;
-    this.r.handles.delete(handle);
-    if (sessionId && sessionId !== session?.chatSessionId) {
-      await alfred.call('PUT', `/board/chats/${encodeURIComponent(scope)}/session`, { query: { project },
-        body: { chatSessionId: sessionId, forkedFrom: how.forked ? terminalId : null, host: this.host, forkedAt: new Date().toISOString(),
-          seenUpTo: new Date().toISOString() } }).catch(() => null);
-    }
-    if (stopAsked) { await reporter.end({ steps, state: 'STOPPED', outcome: 'stopped by you' }); return; }
-    if (!result || result.error || !writes) {
-      await reporter.end({ steps, state: 'FAILED', outcome: !result || result.error ? failureOf(result, stderr) : 'no reply posted' });
+  async toTerminal(scope, project, list, taken) {
+    const urgent = new Set(list.filter((c) => c.urgent).map((c) => c.messageId));
+    if (!this.r.o.chat) {
+      for (const t of taken) {
+        await this.r.o.alfred.call('POST', `/board/chats/messages/${t.messageId}/release`, { headers: { 'X-Alfred-Actor': 'claude' },
+          body: { failed: true, why: 'no terminal session follows this runner' } }).catch(() => null);
+      }
       return;
     }
-    await reporter.end({ steps, state: 'DONE', outcome: summaryOf(result?.text) ?? 'answered on the card', ...(usage ? { usage } : {}) });
-    await alfred.call('POST', `/board/chats/${encodeURIComponent(scope)}/system`, { query: { project },
-      body: { text: `↳ answered your comment on #${card.number} "${String(card.title ?? '').slice(0, 80)}"` } }).catch(() => null);
+    for (const t of [...taken].sort((a, b) => Number(urgent.has(b.messageId)) - Number(urgent.has(a.messageId)))) {
+      this.r.o.chat(chatLine({ ...t, urgent: urgent.has(t.messageId) }, { project, scope }));
+    }
+    this.r.o.log(`  → 💬 chat ${scope}: ${taken.length} message${taken.length === 1 ? '' : 's'} handed to the terminal session`);
   }
 
   /** What the chat sent the terminal, written to the chat log the terminal follows - then reported delivered. */

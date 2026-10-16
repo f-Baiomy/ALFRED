@@ -42,7 +42,9 @@ type Item = { kind: 'msg'; m: ChatMessage; day: string | null; unreadLine: numbe
             <b [title]="title()">{{ title() }}</b>
             <small>
               @if (answering()) { <span class="busy">● answering<span class="bar-typing"><i></i><i></i><i></i></span></span> }
+              @else if (claudeOn() && byTerminal()) { <span class="on" title="The terminal session that ran /alfred-live answers here itself">● Answered by your terminal</span> }
               @else if (claudeOn()) { <span class="on">● Claude on</span> }
+              @else if (!isProject()) { <span title="Alfred never starts a terminal itself">○ Terminal offline - messages wait until you run /alfred-live in a terminal</span> }
               @else { <span>○ Claude off - messages wait</span> }
               @if (summary()?.terminal?.host; as h) { <span> · {{ h }}</span> }
               @if (waitingCount()) { <span> · {{ waitingCount() }} waiting</span> }
@@ -61,7 +63,7 @@ type Item = { kind: 'msg'; m: ChatMessage; day: string | null; unreadLine: numbe
                 }
                 <button type="button" [disabled]="!editable()" (click)="menu(compactFn)">⇊ Compact now</button>
                 <button type="button" (click)="menu(openMemory)">🧠 What it remembers</button>
-                @if (!isProject() && editable()) {
+                @if (!isProject() && editable() && !byTerminal()) {
                   <button type="button" (click)="menu(refreshFn)">↻ Catch up with the terminal now</button>
                   <button type="button" (click)="menu(openTerminal)">📤 What the terminal got</button>
                   <button type="button" (click)="menu(openContinue)">⇱ Continue in a terminal</button>
@@ -118,7 +120,7 @@ type Item = { kind: 'msg'; m: ChatMessage; day: string | null; unreadLine: numbe
                 }
               </div>
             }
-            @if (!isProject() && editable()) {
+            @if (!isProject() && editable() && !byTerminal()) {
               <div class="acts">
                 <button type="button" class="action-btn" (click)="refresh()">↻ Catch up now</button>
                 <button type="button" class="action-btn" (click)="terminalOpen.set(true)">What the terminal got</button>
@@ -136,7 +138,7 @@ type Item = { kind: 'msg'; m: ChatMessage; day: string | null; unreadLine: numbe
               <div>In a Claude Code session in the app's repo:</div>
               <div class="chat-cmd"><code>{{ projectCommand() }}</code><button type="button" class="action-btn" (click)="copy(projectCommand())">Copy</button></div>
             } @else {
-              <div>In the cycle's terminal session (the chat copies it), in the app's repo:</div>
+              <div>In the cycle's terminal session (it answers this chat itself), in the app's repo:</div>
               <div class="chat-cmd"><code>{{ cycleCommand() }}</code><button type="button" class="action-btn" (click)="copy(cycleCommand())">Copy</button></div>
             }
             <div class="board-dim">Your messages wait and are answered when it starts.</div>
@@ -413,13 +415,17 @@ export class ChatPanelComponent implements AfterViewChecked {
   readonly summariesCount = computed(() => this.messages().filter((m) => m.kind === 'SUMMARY').length);
   readonly decisionsCount = computed(() => this.messages().filter((m) => m.decision).length
     + this.messages().reduce((n, m) => n + (m.records ?? []).filter((r) => r.kind === 'DECISION' && !r.undoneAt).length, 0));
+  /** The terminal session itself answers this cycle chat (plan-terminal-answers.md): no copy to keep in step. */
+  readonly byTerminal = computed(() => !this.isProject() && !!this.summary()?.terminal?.answeredByTerminal);
   readonly movedOn = computed(() => {
     const t = this.summary()?.terminal;
+    if (this.byTerminal()) return false;
     return !!t?.terminalAt && (!t.seenUpTo || Date.parse(t.terminalAt) > Date.parse(t.seenUpTo));
   });
   readonly claudeMemory = computed(() => {
     if (this.isProject()) return this.claudeOn() ? 'project session' : 'off';
     const t = this.summary()?.terminal;
+    if (this.byTerminal()) return 'your terminal session itself';
     if (!t?.chatSessionId) return 'no copy yet';
     return t.forkedFrom ? `copy of the terminal · ${this.when(t.seenUpTo)}` : 'own session';
   });

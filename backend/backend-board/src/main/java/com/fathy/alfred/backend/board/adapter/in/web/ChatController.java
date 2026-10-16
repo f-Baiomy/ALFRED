@@ -149,6 +149,8 @@ public class ChatController {
             session.put("chatSessionId", String.valueOf(h.session().chatSessionId()));
             session.put("host", String.valueOf(h.session().host()));
             session.put("seenUpTo", h.session().seenUpTo());
+            // the terminal session itself answers (plan-terminal-answers.md): no copy - nothing is mirrored back to it
+            session.put("answeredByTerminal", h.session().answeredByTerminal());
             out.put("session", session);
         }
         return ResponseEntity.ok(out);

@@ -11,7 +11,15 @@ import java.time.Instant;
 public record ChatSession(ChatKey chat, String chatSessionId, String forkedFrom, String host, Instant forkedAt, Instant seenUpTo,
                           Instant terminalAt) {
 
+    /**
+     * The terminal session itself answers the chat (plan-terminal-answers.md): its id is both the chat's session and the one
+     * it is "from" - there is no copy, so nothing to catch up and nothing to mirror back to it.
+     */
+    public boolean answeredByTerminal() {
+        return chatSessionId != null && chatSessionId.equals(forkedFrom);
+    }
+
     public boolean terminalMovedOn() {
-        return terminalAt != null && (seenUpTo == null || terminalAt.isAfter(seenUpTo));
+        return !answeredByTerminal() && terminalAt != null && (seenUpTo == null || terminalAt.isAfter(seenUpTo));
     }
 }
