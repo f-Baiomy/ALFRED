@@ -88,6 +88,10 @@ public class SkillRunsService implements SkillRunsUseCase {
         if (chat.isEmpty()) {
             return Outcome.refused("not-found", "No chat handles this cycle - start /alfred-live for it in a Claude Code chat, or copy the prompt");
         }
+        String background = runsInBackground(command, chat.get());
+        if (background != null) {
+            return Outcome.refused("conflict", background + " - nothing to start; what it finds lands on the board as it comes");
+        }
         Integer card = r.cardNumber() == null || r.cardNumber() <= 0 ? null : r.cardNumber();
         for (SkillRun a : store.activeRuns(project)) {
             if (!cycleId.equals(a.cycleId())) {
@@ -115,8 +119,9 @@ public class SkillRunsService implements SkillRunsUseCase {
         Instant now = clock.instant();
         Map<String, SkillRun> out = new LinkedHashMap<>();
         for (SkillRun a : store.activeRuns(project)) {
-            if (cardNumber == null || cardNumber.equals(a.cardNumber())) {
-                out.put(a.id(), lostOrAsIs(a, now));
+            SkillRun shown = alreadyInBackground(a, now);
+            if (cardNumber == null || cardNumber.equals(shown.cardNumber())) {
+                out.put(shown.id(), lostOrAsIs(shown, now));
             }
         }
         for (SkillRun r : store.runs(project, cardNumber, clamped)) {
@@ -145,6 +150,41 @@ public class SkillRunsService implements SkillRunsUseCase {
         return out;
     }
 
+    /**
+     * "Already listening to this cycle on HOST in the background" when the command is a skill the cycle's chat already
+     * runs as its own background process (/alfred-listen, /alfred-live) - queued, it would wait for the chat's turn
+     * behind every other run for nothing; null otherwise.
+     */
+    static String runsInBackground(String command, LiveWorkUseCase.CycleChat chat) {
+        String skill = command.strip().split("\\s+", 2)[0].replaceFirst("^/", "").replaceFirst("^.*:", "");
+        String kind = switch (skill) {
+            case "alfred-listen" -> "listen";
+            case "alfred-live" -> "live";
+            default -> null;
+        };
+        if (kind == null || chat.kinds() == null || !chat.kinds().contains(kind)) {
+            return null;
+        }
+        String where = chat.host() == null || chat.host().isBlank() ? "" : " on " + chat.host();
+        return (kind.equals("listen") ? "Already listening to this cycle" : "Already answering this cycle live") + where + " in the background";
+    }
+
+    /** A run left waiting for a skill the chat now runs in the background (it started since) is done with: cancelled, saying so. */
+    private synchronized SkillRun alreadyInBackground(SkillRun run, Instant now) {
+        if (run.state() != SkillRun.State.QUEUED && run.state() != SkillRun.State.SENT) {
+            return run;
+        }
+        String background = chats.cycleChat(run.cycleId()).map(c -> runsInBackground(run.command(), c)).orElse(null);
+        if (background == null) {
+            return run;
+        }
+        SkillRun next = run.with(SkillRun.State.CANCELLED, background + " - this run was not needed", null, null, null, run.steps(), true,
+                run.takenBy(), null, now, now);
+        store.saveRun(next);
+        notifications.skillRun(next);
+        return next;
+    }
+
     /** An open run whose cycle has had no chat for a while: the chat was stopped or closed - shown as lost. */
     private SkillRun lostOrAsIs(SkillRun r, Instant now) {
         if (r.active() && r.updatedAt().plus(LOST).isBefore(now) && chats.cycleChat(r.cycleId()).isEmpty()) {
@@ -165,7 +205,7 @@ public class SkillRunsService implements SkillRunsUseCase {
             if (taken.size() >= Math.max(0, max)) {
                 break;
             }
-            if (a.state() != SkillRun.State.QUEUED) {
+            if (a.state() != SkillRun.State.QUEUED || alreadyInBackground(a, now).state() == SkillRun.State.CANCELLED) {
                 continue;
             }
             // the run goes to whichever chat handles its cycle now (a chat restarted for the cycle takes what waited)

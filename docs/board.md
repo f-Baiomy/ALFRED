@@ -272,6 +272,10 @@ that chat's own context, model and usage.
   copy only), 404 when no chat handles the cycle (the button shows how to start one), 409 when the card - or, for a
   card-less command, the same command - already has a run waiting or running, 403 through the board's edit access (the
   tunnel only copies).
+- **Background skills never queue**: `/alfred-listen` and `/alfred-live` run as the chat's own background processes, not
+  in its turns. ▶ for one the cycle's chat already runs is refused with "Already listening to this cycle on HOST in the
+  background" (409), and a run of one left waiting from before it started is cancelled saying so - queued, it would wait
+  for the chat's turn behind every other run for nothing.
 - The chat's runner waits on `POST /board/skill-runs/claim` with its `chatId` (`waitSeconds` up to 50, woken by the
   request - no polling), takes the runs of the cycles its chat handles (state SENT) and writes one line into its chat
   log, which the chat watches: `▶ from the board: /alfred-fix 35 · note: … · run <id> - board_run_take <id>, run it in

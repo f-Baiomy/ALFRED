@@ -82,6 +82,32 @@ public class SkillRunsServiceTest {
     }
 
     @Test
+    void listenAlreadyRunningInTheBackgroundIsNotQueuedBehindTheChat() {
+        chat("cy1", "chat-a", "live");
+        chat("cy1", "chat-a", "listen");
+
+        SkillRunsUseCase.Outcome out = run(null, "/alfred-listen cy1");
+
+        assertThat(out.run()).isNull();
+        assertThat(out.error()).isEqualTo("conflict");
+        assertThat(out.message()).contains("Already listening to this cycle on laptop in the background");
+        assertThat(run(35, "/alfred-fix 35").run()).as("other runs still queue for the chat").isNotNull();
+    }
+
+    @Test
+    void aListenRunLeftWaitingIsCancelledOnceListenRunsInTheBackground() {
+        chat("cy1", "chat-a", "live");
+        SkillRun waiting = run(null, "/alfred-listen cy1").run();
+        assertThat(waiting).isNotNull();
+
+        chat("cy1", "chat-a", "listen");
+
+        SkillRun shown = service.list("odeysys", null, 50).runs().stream().filter(r -> r.id().equals(waiting.id())).findFirst().orElseThrow();
+        assertThat(shown.state()).isEqualTo(SkillRun.State.CANCELLED);
+        assertThat(service.claim("chat-a", "laptop", 5)).isEmpty();
+    }
+
+    @Test
     void aCommandWithoutACycleIsCopyOnly() {
         chat("cy1", "chat-a", "live");
 
