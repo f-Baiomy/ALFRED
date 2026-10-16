@@ -79,6 +79,9 @@ public final class BoardRequests {
     }
 
     /** {@code kind}: STATUS (default - status and, for CLOSED, resolution), MERGE (into card #{@code intoNumber}) or REOPEN. */
+    public record MergeRequestDto(Integer intoNumber, @Size(max = 2000) String reason) {
+    }
+
     public record ProposalRequestDto(CardStatus status, Resolution resolution, @Size(max = 2000) String reason,
                                      @Size(max = 8 * 1024) String evidence, String kind, Integer intoNumber) {
     }

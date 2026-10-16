@@ -25,6 +25,22 @@ describe('question-blocks (specs/019)', () => {
     expect(withoutBlocks(ASK)).toBe('**Question** Keep?');
   });
 
+  it('reads triage facts: confidence on the recommended option only, checked, severity and group', () => {
+    const text = '**Question** What?\n\n```questions\n' + JSON.stringify({ questions: [
+      { header: 'Triage', question: 'What?', checked: 'line 121 unchanged', severity: { rank: 2, of: 4, note: '38 calls' }, group: [7, 'x', 9],
+        options: [{ label: 'To do', recommended: true, confidence: 'High' }, { label: 'Fine', confidence: 'low' }] },
+    ] }) + '\n```';
+    const q = askBlock(text)!.questions[0];
+    expect(q.options[0].confidence).toBe('high');
+    expect(q.options[1].confidence).toBeUndefined();
+    expect(q.checked).toBe('line 121 unchanged');
+    expect(q.severity).toEqual({ rank: 2, of: 4, note: '38 calls' });
+    expect(q.group).toEqual([7, 9]);
+    const line = questionLines(entry(1, text), [])![0];
+    expect(line.options[0].confidence).toBe('high');
+    expect(line.checked).toBe('line 121 unchanged');
+  });
+
   it('the thread shows each question\'s state from the replies; a follow-up once its option was picked', () => {
     const q = entry(1, ASK);
     expect(questionLines(q, [])!.map((l) => `${l.header}:${l.state}`)).toEqual(['Steps:open', 'Checks:open']);

@@ -5,7 +5,7 @@ import { cycleCallCount, findCycle } from '../cycle-calls.ts';
 import type { SessionCycle } from '../frontend.ts';
 import { maskContext, maskMeta, maskText, type MaskContext } from '../masking.ts';
 import { ok, REPLY_BUDGET, run, text } from '../reply.ts';
-import { ago } from './board.ts';
+import { ago, briefThreads, type BriefCommentRow } from './board.ts';
 import { MaskSchema } from './cycles.ts';
 import { countsLine, readRequirements, type RequirementsView } from './requirements.ts';
 
@@ -131,6 +131,7 @@ async function taskText(client: AlfredClient, ctx: MaskContext, cycle: SessionCy
     cycleCallCount(client, id).catch(() => null),
     readRequirements(client, id).catch(() => null as RequirementsView | null),
   ]);
+  const briefComments = await client.get<BriefCommentRow[]>(`/board/cycles/${seg(id)}/brief/comments`).catch(() => [] as BriefCommentRow[]);
   const cards = cardsPage.cards;
   // specs/018: each item's verdict by the calls, worked out by Alfred in code
   const verdictOf = new Map((verdicts?.items ?? []).map((r) => [`${r.fileName}\n${r.itemKey}`, r]));
@@ -197,6 +198,11 @@ async function taskText(client: AlfredClient, ctx: MaskContext, cycle: SessionCy
         if (sec.name === 'test steps' && steps.length) continue; // shown with their results below
         out.push(`  ${sec.name.toUpperCase()}: ${(NEVER_CUT.has(sec.name) ? sec.text : cut(sec.text, l.section)).replace(/\n/g, '\n    ')}`);
       }
+    }
+
+    if (briefComments.some((c) => c.replyTo == null && !c.resolvedAt)) {
+      out.push('', 'BRIEF COMMENTS (open threads - answer or act on them; board_brief_comment replies, asks, suggests a rewording)',
+        ...briefThreads(briefComments, (t) => maskText(ctx, t)).map((l) => `  ${l}`));
     }
 
     out.push('', `REQUIREMENTS (Acceptance items of the spec files; marks are the user's)${items.length

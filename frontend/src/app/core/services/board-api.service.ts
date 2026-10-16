@@ -6,7 +6,7 @@ import {
   CardRetest, ChecklistFile, ChecklistItem, CycleBrief, Expectation, Mark, MentionRef, NewCard, NextSteps, Resolution, RetestCheck, RetestPlan,
   RetestReport, RetestStep, SessionLogEntry, SpecFileInfo, Team, TeamEdit, TestStep,
   CycleChatInfo, EvidenceCheck, ItemEvidence, RequirementsView, SkillRun, SkillRunRequest, SkillRunsPage, TextVersion,
-  ActivityEntry, BoardQuestion, EntryAnswers, LiveRunnerInfo, ItemCall,
+  ActivityEntry, BoardQuestion, BriefComment, EntryAnswers, LiveRunnerInfo, ItemCall,
 } from '../models/board.models';
 import { AppConfigService } from './app-config.service';
 
@@ -91,6 +91,11 @@ export class BoardApiService {
 
   close(id: string, resolution: Resolution, reason?: string): Observable<CardDetail> {
     return this.http.post<CardDetail>(`${this.base}/cards/${encodeURIComponent(id)}/close`, { resolution, reason });
+  }
+
+  /** Merge this card into card #`intoNumber` of the project: its history and links move there, it closes as a duplicate. */
+  merge(id: string, intoNumber: number, reason?: string): Observable<CardDetail> {
+    return this.http.post<CardDetail>(`${this.base}/cards/${encodeURIComponent(id)}/merge`, { intoNumber, reason });
   }
 
   reopen(id: string): Observable<CardDetail> {
@@ -285,6 +290,20 @@ export class BoardApiService {
 
   restoreBrief(cycleId: string): Observable<CycleBrief> {
     return this.http.post<CycleBrief>(`${this.base}/cycles/${encodeURIComponent(cycleId)}/brief/restore`, {});
+  }
+
+  briefComments(cycleId: string): Observable<BriefComment[]> {
+    return this.http.get<BriefComment[]>(`${this.base}/cycles/${encodeURIComponent(cycleId)}/brief/comments`);
+  }
+
+  addBriefComment(cycleId: string, comment: { quote?: string | null; text: string; replyTo?: number | null }): Observable<{ comment: BriefComment }> {
+    return this.http.post<{ comment: BriefComment }>(`${this.base}/cycles/${encodeURIComponent(cycleId)}/brief/comments`, comment);
+  }
+
+  /** resolve / reopen / apply (Claude's rewording into the brief) / dismiss (the rewording). */
+  briefCommentAction(cycleId: string, id: number, action: 'resolve' | 'reopen' | 'apply' | 'dismiss'): Observable<{ comment: BriefComment; brief?: CycleBrief }> {
+    return this.http.post<{ comment: BriefComment; brief?: CycleBrief }>(
+      `${this.base}/cycles/${encodeURIComponent(cycleId)}/brief/comments/${id}/${action}`, {});
   }
 
   restoreSpec(cycleId: string, name: string): Observable<SpecFileInfo> {

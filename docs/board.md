@@ -160,7 +160,9 @@ no new popup: each is one of the mention types above, drawn by `MentionChipCompo
 ## Inbox sorting
 
 - Each Inbox card has one-click **Fine / Not in flow / To do**, also on the F, N and T keys.
-- **Triage mode** shows the Inbox one card at a time, with a reason box and F / N / T / S.
+- **Triage mode** shows the Inbox one card at a time, with a reason box and F / N / T / M (merge - the advised one, or
+  a number you type) / S. When Claude triaged first it goes worst first and shows Claude's advice, its confidence,
+  what it checked and the card's root-cause group, with the advised key outlined and **Accept all High**.
 - **Bulk actions** apply to the selected cards (X or Shift+click), up to 200 per request.
 - **Reopen** sends a closed card back to the Inbox.
 - **"Looks like a closed card"**: when the first call a card mentions gives a signature (`<5xx|4xx|error|ok>|<METHOD> <endpoint pattern>`, using triage's endpoint grouping) that matches a closed card in the same project, the Inbox card shows that card and its reason.
@@ -175,28 +177,61 @@ no new popup: each is one of the mention types above, drawn by `MentionChipCompo
 ## The Task tab
 
 A session cycle is a task (skills/_shared/rules.md §0). The cycle page's **Task** tab and the Board's cycle view show it
-with `TaskViewComponent`. Everything comes from what `/board` already serves (brief, checklist, cards, steps, session
-log) and is derived in `shared/utils/task-view.ts`; there is no backend model of its own. It re-fetches on each
-`/ws/board` signal and never polls.
+with `TaskViewComponent` (redesigned in specs/024). Everything comes from what `/board` already serves (brief, brief
+comments, checklist, requirement verdicts, cards, steps, session log) and is derived in `shared/utils/task-view.ts`.
+It re-fetches on each `/ws/board` signal and never polls.
 
-- **The brief, by section**: the one-line goal, `## Task` (ticket ids and the branch), `## Description` (the ticket as
-  written), `## Scope`, `## Out of scope`, `## Decisions`. `## Test steps` and `## Data` show under "How to test it".
-  Other headings show as written, and a brief with no headings shows whole. Edit opens the template on an empty brief.
-- **Requirements** are the Acceptance items, labelled R1, R2 … across the spec files. Each one's state is taken from
-  the user's mark first (Pass = met), then the cards linked to the item (an open BUG = bug, an open TASK = missing,
-  FIXED = waiting on a re-test), then Claude's suggestion. An item with none of these shows "not checked". Problems
-  come first and met items fold away. Pass / Fail / Can't tell and Accept ✦ write the same marks as the checklist.
-- **The verdict** answers "does the code match the task?". Its tiles count each state, notes and "not in task"; a tile
-  filters the view. **The phase** reads Coded → Verifying → Fixed → Re-tested → Done from the same data. Done means every
-  requirement is marked Pass by the user and no bug or task card is open or Fixed.
-- **Claude's notes**: open NOTE cards not linked to a requirement, plus TASK cards no requirement names. A NOTE titled
-  `Not in the task: …` goes under **Changed, but not in the task** instead. It is code the branch changes that the task
-  never asked for.
-- **Needs you**: open cards with a question, a proposal, or waiting on the user. **Done when** is the hand-over rule,
-  checked live.
-- **Continue anywhere**: the `/mcp__alfred__resume <task>` command. The MCP's `task_context` derives requirement states
-  the same way (`requirementState`), so the user and every Claude session see one picture.
-- The spec files and the full acceptance checklist stay beside it, unchanged.
+- **The header, always shown**: the ticket and branch chips, the title (the brief's goal line), **▶ Next** - the one
+  step that fits where the task stands, in plain words with its run button (`nextStepOf`: no requirements → Write the
+  requirements, a bug or missing item → Fix the bug, a fix in → Re-test the fix, Claude suggestions → open them, all
+  done → Hand-over report, else Check while I test) - and **Run ▾** with every skill in plain words plus **Continue
+  anywhere** (`/alfred-resume <task>`). Below them the phase stepper (Coded → Verifying → Fixed → Re-tested →
+  Done, each with its meaning on hover) and the verdict ("does the code match the task?") with a bar coloured by group.
+- **Needs you**: one strip of everything waiting on the user, each item leading where it is dealt with - Claude's
+  suggestions to accept, failed requirements, fixes to re-test, requirements not checked, Claude's questions on the
+  brief, cards with a question / proposal / waiting on the user, test steps not done (`needItems`).
+- **Tabs**: Requirements (default) · Test plan · Brief · Claude's runs · Spec & files, each with its count. The tab is
+  remembered per cycle in this browser. Each tab opens with **ⓘ How this works** - what the section is and how to
+  decide in it (`TAB_GUIDES`); hidden once, it stays hidden for that tab.
+- **Requirements** (`TaskRequirementsComponent`): the Acceptance items, R1, R2 … across the spec files, one list - the
+  separate Acceptance checklist is folded into it. Each item's state comes from the user's mark first (Pass = met), then
+  the cards linked to it (an open BUG = bug, an open TASK = missing, FIXED = re-test), then Claude's suggestion. Rows are
+  grouped by what they need: **Decide** (Claude suggests a mark - whatever its state), Bug, Missing, Re-test, Can't tell
+  yet, Not checked, **Met** (folded), and **Also found** (Claude's notes and "Not in the task: …" changes). Filter chips
+  show one group, the open ones or all. A row shows its state, its cards, a short pill for what the calls say (specs/018
+  verdict: `0 rows`, `no call yet`, `checked by hand`, `calls: wrong` … with the reason on hover) and one Pass / Fail /
+  Can't tell control. Opened, it shows Claude's suggestion (Accept / Dismiss), the user's evidence, the calls' verdict and
+  reason, the spec file and AC number, and **✎ your evidence**, **⚙ how the calls show it** (the checks editor) and
+  **💬 ask Claude**.
+- **Test plan**: the brief's `## Test steps` with what listen / review saw (✓ and its calls, ✗ and its card), the
+  `## Data`, and **Done when** - the hand-over rule checked live; a ✗ leads to what is left - with the report button.
+- **Brief**: the brief by section (goal, description beside in / out of scope, dated decisions, other headings as
+  written), pinned items and pages, Edit / Restore previous, and its **comments** in the margin (below).
+- **Claude's runs**: the session log, newest open, Did / Found / Next.
+- **Spec & files**: the spec files (upload, drop, paste, restore) and the files attached to the cycle.
+- The MCP's `task_context` derives requirement states the same way (`requirementState`), so the user and every Claude
+  session see one picture.
+
+## Brief comments (specs/024)
+
+- **Where**: the Brief tab's margin. Select a passage of the brief and **💬 Comment** appears under it; "+ On the whole
+  brief" comments on all of it. A comment keeps the passage it is about (`quote`) as it read then.
+- **Highlights** use the CSS Custom Highlight API (`shared/utils/brief-highlights.ts`): ranges over the rendered text,
+  never a change to the DOM Angular owns (wrapping text in `<mark>` breaks its bindings on the next update). Hovering a
+  passage lights its thread and the other way round; clicking a passage brings its thread into view. A quote the brief
+  no longer has as written shows "passage changed" and stays readable. A browser without the API shows no highlight.
+- **Threads**: a reply joins the thread of the comment it answers (`replyTo` is always the first comment); a reply to
+  a resolved thread reopens it. **Resolve / Reopen** are the user's; resolved threads fold under "N resolved".
+- **Claude** reads open threads in `task_context` (BRIEF COMMENTS) and `get_brief` (`comments`), and writes with
+  `board_brief_comment`: comment, reply, **ask** (`asks: true` - shown as "❓ asks you" and in Needs you until the
+  user answers) and **suggest a rewording** (`suggestFrom` - the words exactly as the brief holds them - and
+  `suggestTo`). The brief changes only when the user clicks **Apply**, through the brief's own save, so Restore previous
+  undoes it; the thread's quote follows the new words. A passage that changed since is refused ("edit the brief
+  yourself"). Claude never resolves, applies or dismisses.
+- **Storage**: `brief_comments` in board.db (`SqliteBriefCommentRepository`), deleted with the cycle's brief, REST under
+  `/board/cycles/{id}/brief/comments` (list, add, `{id}/resolve|reopen|apply|dismiss`), the `/ws/board` signal
+  `brief-comments`. Exported in the board .json as `briefComment` records and imported back (a repeated import does not
+  repeat them).
 
 ## Live answers
 
@@ -383,6 +418,21 @@ question with no options.
   decision and no question stays open on a sorted card. The tile shows the option Claude recommends ("✦ advises: To
   do", `CardSummary.advice`) and outlines that button. `/alfred-triage` started from the board asks this way - one
   Triage question per Inbox card - and ends without waiting.
+- **Triage facts** (skills/alfred-triage): a Triage question also carries, in its ```` ```questions ```` block,
+  `confidence` (`high` / `medium` / `low`, on the recommended option only), `checked` (what Claude looked at before
+  advising: earlier cards, the call, code, database, schema, spec, git), `severity` (`{rank, of, note}`, 1 = worst)
+  and `group` (Inbox cards of the same root cause to merge into this one). The text stays the source of truth -
+  `card_questions.advice_meta` only indexes it, read leniently (an unknown value is left out, never an error, so an
+  older Alfred importing it does not throw) - and `CardSummary.adviceDetail` serves it. The tile shows the confidence
+  label beside "✦ advises" and a ▲ rank badge; the questions dialog shows the label beside Recommended with the
+  Checked line; the Inbox is **worst first** when Claude ranked it.
+- **Merging** is the user's too: `POST /board/cards/{id}/merge` (`intoNumber`, `reason`) moves the card's history and
+  links into the other card and closes it as Duplicate, answering its Triage question ("Merge into #n"); Claude only
+  proposes a merge. The tile shows the advised merge as **⇢ Merge into #n** or, on a group's card, **⇢ Merge #14 #17
+  here** (each one merged in turn).
+- **Accept all High**: the Inbox header and Triage mode take every advice Claude gave with High confidence at once,
+  after one confirm that lists them - each as if its button were pressed (so each answers its question). Medium and
+  Low advice is never taken this way.
 - Claude reads the answers whole: `board_get`/`board_changes`/`board_wait`/`board_live` show the ```` ```answers ````
   block on one line and each question's state; it acts only on the answered ones.
 
@@ -520,8 +570,8 @@ clean, with no model and nobody in the way. A feature the calls show is not buil
   When a card's items become MET it gets one comment, or - when every item of it is met and it is Fixed / Verified -
   a proposal (Verified / Done) the user accepts. Nothing is closed, marked or moved in code. At most 10 such cards per
   cycle per hour; over that one NOTE says the check paused (usually wrong evidence).
-- **Task tab**: each item shows its verdict pill beside the user's mark, the reason (the failing check and the value
-  seen) and the counts above the list; **checks** opens the evidence as lines (`shape $.branch* list`,
+- **Task tab**: each requirement row shows its verdict as a short pill (reason on hover), and the opened row the reason
+  (the failing check and the value seen); **⚙ how the calls show it** opens the evidence as lines (`shape $.branch* list`,
   `when $.branch* list>=2`, `match $.payload branch* in $.branch*`, `rows $.payload`, `status 2xx`). The `/ws/board`
   signal `requirements` reloads it - no timer.
 - Versions: the tables are new; verdicts and results are read tolerantly (a later value reads as UNKNOWN), and no
@@ -719,7 +769,7 @@ are this browser's own (localStorage, try/catch). On a cycle's page the chats fo
 ## Export and import
 
 - **Board export**: Board → .md, .html or .json, either the whole board or the selected cards.
-- **`alfred-board/1`** (`board-json.ts`): a header line, then one record per line: card (fields plus direct links), activity (by card number), brief, spec (in full) and mark. Nothing is shortened. `POST /board/import?project=` streams it in. A clashing number gets the next free one, and `@[card:...]` mentions of moved cards are rewritten to match.
+- **`alfred-board/1`** (`board-json.ts`): a header line, then one record per line: card (fields plus direct links), activity (by card number), brief, briefComment, spec (in full) and mark. Nothing is shortened. `POST /board/import?project=` streams it in. A clashing number gets the next free one, and `@[card:...]` mentions of moved cards are rewritten to match.
 - **The HTML export** escapes every value; a rich text is written as the board's own clean HTML rebuilt from its blocks. The .md export converts rich text to Markdown; the .json keeps every text as stored and adds an `image` record (base64) per picture the texts show, so an import elsewhere shows them too (checked like an upload; an id already there is kept).
 - **Visuals in the exports** (specs/017 R43): the .json adds a `page` record per page with every version, `state`,
   `shot` (PNG, base64), `file` (base64) and `widget` records - an inline block's id is written with its card's number

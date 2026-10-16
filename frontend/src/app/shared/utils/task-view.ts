@@ -1,5 +1,5 @@
 import {
-  CardKind, CardRef, CardStatus, CardSummary, ChecklistFile, ChecklistItem, SessionLogEntry, TestStep,
+  BriefComment, CardKind, CardRef, CardStatus, CardSummary, ChecklistFile, ChecklistItem, SessionLogEntry, TestStep,
 } from '../../core/models/board.models';
 import { textAsMarkdown } from './rich-html';
 
@@ -237,8 +237,12 @@ export function verdictOf(reqs: readonly Requirement[]): Verdict {
   }
   if (c.FIXED) return { tone: 'warn', head: 'Fixed, not re-tested', detail: `${plural(c.FIXED, 'requirement')} waiting on a re-test` };
   if (c.UNTESTED || c.CANT_TELL) {
-    const parts = [c.UNTESTED ? `${c.UNTESTED} not checked yet` : '', c.CANT_TELL ? `${c.CANT_TELL} Alfred can't tell` : ''].filter(Boolean);
-    return { tone: 'warn', head: 'Partly checked', detail: `${c.MET} of ${reqs.length} met · ${parts.join(', ')}` };
+    // "met" counts what the user's mark or the cards say; a met that is only Claude's suggestion waits under "to decide"
+    const met = reqs.filter((r) => r.state === 'MET' && !r.suggested).length;
+    const decide = reqs.filter((r) => r.suggested).length;
+    const parts = [decide ? `${decide} to decide` : '', c.UNTESTED ? `${c.UNTESTED} not checked yet` : '',
+      c.CANT_TELL ? `${c.CANT_TELL} Alfred can't tell` : ''].filter(Boolean);
+    return { tone: 'warn', head: 'Partly checked', detail: `${met} of ${reqs.length} met · ${parts.join(', ')}` };
   }
   const unconfirmed = reqs.filter((r) => !r.byUser).length;
   return unconfirmed
@@ -273,3 +277,217 @@ export function needsYou(cards: readonly CardSummary[]): { card: CardSummary; wh
     return [];
   });
 }
+
+// --------------------------------------------------------------------------------------------- the Task tab (specs/024)
+
+/** The Task tab's sections, Requirements first. */
+export type TaskTab = 'req' | 'test' | 'brief' | 'runs' | 'files';
+export const TASK_TABS: readonly TaskTab[] = ['req', 'test', 'brief', 'runs', 'files'];
+
+/** A requirement's group in the list: one Claude suggests a mark for is decided first, whatever its state. */
+export type ReqGroup = 'DECIDE' | ReqState;
+
+export function groupOf(r: Requirement): ReqGroup {
+  return r.suggested ? 'DECIDE' : r.state;
+}
+
+export interface GroupInfo {
+  readonly key: ReqGroup;
+  readonly title: string;
+  /** Shown beside the title. */
+  readonly hint: string;
+  /** What to do with a row of it (ⓘ). */
+  readonly tip: string;
+}
+
+/** Problems and decisions first, met last (folded). The same words as the Requirements guide. */
+export const REQ_GROUPS: readonly GroupInfo[] = [
+  { key: 'DECIDE', title: 'Decide', hint: 'Claude suggests a mark; yours decides',
+    tip: 'Open the row, read Claude\'s reason, then Accept it or mark it yourself. Nothing counts until you do.' },
+  { key: 'BUG', title: 'Bug', hint: 'built but works wrong - a card holds the fix',
+    tip: 'Claude fixes it on its card (/alfred-fix); then you re-test.' },
+  { key: 'MISSING', title: 'Missing', hint: 'not built yet - a task, not a bug',
+    tip: 'Its card says what is missing. Once built, test it again.' },
+  { key: 'FIXED', title: 'Re-test', hint: 'fixed - check it again',
+    tip: 'Use the app as the card\'s re-test says, then /alfred-verify checks the calls since the fix.' },
+  { key: 'CANT_TELL', title: 'Can\'t tell yet', hint: 'the calls don\'t show it; test it, or mark it yourself',
+    tip: '0 rows = the search found nothing, so nothing could be checked: add test data and search again. No call yet = do the Test plan step while Claude listens.' },
+  { key: 'UNTESTED', title: 'Not checked', hint: 'nothing has tried it yet',
+    tip: 'Do its Test plan step while Claude listens, or mark it yourself if you already know.' },
+  { key: 'MET', title: 'Met', hint: 'done', tip: 'The calls or your Pass show it works.' },
+];
+
+/** The state pill of a row. */
+export const STATE_PILLS: Record<ReqGroup, string> = {
+  DECIDE: '✦ CLAUDE SUGGESTS', BUG: 'BUG', MISSING: 'MISSING', FIXED: 'RE-TEST', CANT_TELL: 'CAN\'T TELL', UNTESTED: 'NOT CHECKED', MET: '✓ MET',
+};
+
+export interface CallPill {
+  readonly text: string;
+  readonly tone: 'ok' | 'warn' | 'bad' | '';
+  /** Why, on hover. */
+  readonly tip: string;
+}
+
+/** A short pill for what the calls say about a requirement (specs/018's verdict), with the reason on hover. */
+export function callPill(v: { verdict: string; reason: string | null } | null | undefined): CallPill | null {
+  if (!v) return null;
+  const why = v.reason ? ` - ${v.reason}` : '';
+  switch (v.verdict) {
+    case 'MET': return { text: 'seen in calls', tone: 'ok', tip: `The calls show it works${why}` };
+    case 'WRONG': return { text: 'calls: wrong', tone: 'bad', tip: `A call shows a wrong result${why}` };
+    case 'MISSING': return { text: 'calls: missing', tone: 'bad', tip: `A call shows it is not there${why}` };
+    case 'NO_DATA': return { text: '0 rows', tone: 'warn',
+      tip: `The search ran fine but returned nothing, so Alfred cannot check the result. Add test data and search again${why}` };
+    case 'UNKNOWN': return { text: 'calls can\'t tell', tone: '', tip: `The calls do not decide it${why}` };
+    case 'NOT_EXERCISED': return { text: 'no call yet', tone: '', tip: 'No call has tried this yet: do the matching Test plan step while Claude listens.' };
+    case 'MANUAL': return { text: 'checked by hand', tone: '', tip: 'No call can show this (what a page lists, how it looks): check it in the app and mark it.' };
+    case 'NO_EVIDENCE': return { text: 'no checks yet', tone: '',
+      tip: 'Nobody has said how the calls show this yet - open the row, then "how the calls show it", or let /alfred-listen draft it.' };
+    default: return null;
+  }
+}
+
+export interface NextStep {
+  /** In plain words. */
+  readonly label: string;
+  /** The skill to run, or null when the step is the user's own (review Claude's suggestions). */
+  readonly skill: string | null;
+  readonly why: string;
+}
+
+/** The one thing to do next, from where the task stands. */
+export function nextStepOf(reqs: readonly Requirement[], done: readonly DoneCheck[]): NextStep {
+  if (!reqs.length) return { label: 'Write the requirements', skill: 'alfred-spec', why: 'No requirement yet: Claude drafts the spec file\'s Acceptance list from the brief.' };
+  if (done.every((d) => d.ok)) return { label: 'Hand-over report', skill: 'alfred-report', why: 'Every requirement is marked and nothing is open: write the hand-over for QA.' };
+  const c = countStates(reqs);
+  if (c.BUG || c.MISSING) return { label: 'Fix the bug', skill: 'alfred-fix', why: 'A requirement failed or is missing: Claude fixes it on its card, then you re-test.' };
+  if (c.FIXED) return { label: 'Re-test the fix', skill: 'alfred-verify', why: 'A fix is in: use the app as its card says, then Claude checks the calls since the fix.' };
+  if (reqs.some((r) => r.suggested)) return { label: 'Review Claude\'s suggestions', skill: null, why: 'Claude answered requirements from the code or the calls - accept or mark them yourself.' };
+  return { label: 'Check while I test', skill: 'alfred-listen', why: 'Use the app while Claude listens and judges each requirement from the calls.' };
+}
+
+/** Every skill of a task, in plain words - the Run menu. */
+export const TASK_SKILLS: readonly { skill: string; label: string; what: string }[] = [
+  { skill: 'alfred-listen', label: 'Check while I test', what: 'follows the calls live, judges each requirement' },
+  { skill: 'alfred-review', label: 'Review what was recorded', what: 'goes through the cycle\'s calls once' },
+  { skill: 'alfred-spec', label: 'Write the requirements', what: 'drafts or changes the spec file from the brief' },
+  { skill: 'alfred-fix', label: 'Fix the bugs', what: 'fixes the To do cards you choose, after a plan' },
+  { skill: 'alfred-verify', label: 'Re-test the fixes', what: 'checks the calls since each fix' },
+  { skill: 'alfred-report', label: 'Hand-over report', what: 'found, fixed, verified, still open - for QA' },
+];
+
+export interface NeedItem {
+  readonly text: string;
+  /** Where it leads: a tab (with a Requirements filter) or a card. */
+  readonly tab?: TaskTab;
+  readonly filter?: ReqGroup;
+  readonly card?: CardSummary;
+  readonly tone?: 'bad' | '';
+}
+
+/** Everything on the task waiting for the user, each leading where it is dealt with. */
+export function needItems(reqs: readonly Requirement[], cards: readonly CardSummary[], steps: readonly TestStep[], briefAsks: number): NeedItem[] {
+  const out: NeedItem[] = [];
+  const sugg = reqs.filter((r) => r.suggested).length;
+  if (sugg) out.push({ text: `✦ ${plural(sugg, 'suggestion')} to accept`, tab: 'req', filter: 'DECIDE' });
+  const c = countStates(reqs);
+  const bugs = reqs.filter((r) => !r.suggested && r.state === 'BUG').length;
+  if (bugs) out.push({ text: `✗ ${plural(bugs, 'requirement')} failed`, tab: 'req', filter: 'BUG', tone: 'bad' });
+  if (c.FIXED) out.push({ text: `${plural(c.FIXED, 'fix', 'fixes')} to re-test`, tab: 'req', filter: 'FIXED' });
+  const unchecked = reqs.filter((r) => !r.suggested && r.state === 'UNTESTED').length;
+  if (unchecked) out.push({ text: `${plural(unchecked, 'requirement')} not checked yet`, tab: 'req', filter: 'UNTESTED' });
+  if (briefAsks) out.push({ text: `💬 Claude asks about the brief${briefAsks > 1 ? ` (${briefAsks})` : ''}`, tab: 'brief' });
+  for (const n of needsYou(cards)) out.push({ text: `#${n.card.number} ${n.card.title} - ${n.why}`, card: n.card });
+  const left = steps.filter((s) => s.state !== 'SEEN').length;
+  if (steps.length && left) out.push({ text: `${left} of ${steps.length} test steps not done`, tab: 'test' });
+  return out;
+}
+
+// ----------------------------------------------------------------------------------------------------- brief comments
+
+export interface BriefThread {
+  readonly root: BriefComment;
+  readonly replies: readonly BriefComment[];
+  /** Claude asked and the user has not answered since. */
+  readonly asksYou: boolean;
+}
+
+/** The brief's comments as threads, oldest first; resolved ones apart. */
+export function briefThreads(comments: readonly BriefComment[]): { open: BriefThread[]; resolved: BriefThread[] } {
+  const replies = new Map<number, BriefComment[]>();
+  for (const c of comments) if (c.replyTo != null) replies.set(c.replyTo, [...(replies.get(c.replyTo) ?? []), c]);
+  const open: BriefThread[] = [];
+  const resolved: BriefThread[] = [];
+  for (const root of comments.filter((c) => c.replyTo == null)) {
+    const rs = replies.get(root.id) ?? [];
+    const all = [root, ...rs];
+    let lastAsk = -1;
+    all.forEach((c, i) => { if (c.asks) lastAsk = i; });
+    const asksYou = lastAsk >= 0 && !all.slice(lastAsk + 1).some((c) => c.actor === 'USER');
+    (root.resolvedAt ? resolved : open).push({ root, replies: rs, asksYou: asksYou && !root.resolvedAt });
+  }
+  return { open, resolved };
+}
+
+/** Where `quote` sits in `text`, whitespace runs matched loosely (a selection across lines reads its breaks as spaces). */
+export function findLoose(text: string, quote: string): { start: number; end: number } | null {
+  const q = quote.trim();
+  if (!q) return null;
+  const exact = text.indexOf(q);
+  if (exact >= 0) return { start: exact, end: exact + q.length };
+  const pattern = q.split(/\s+/).map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s+');
+  const m = new RegExp(pattern).exec(text);
+  return m ? { start: m.index, end: m.index + m[0].length } : null;
+}
+
+// ------------------------------------------------------------------------------------------------------------ guides
+
+/** "ⓘ How this works" per tab: what the section is, and how to decide in it. */
+export const TAB_GUIDES: Record<TaskTab, { title: string; lead: string; points: readonly { if: string; then: string }[] }> = {
+  req: {
+    title: 'Requirements - what the task must do, and whether the code does it',
+    lead: 'Each row is one Acceptance line of a spec file - the ticket\'s criteria. Alfred judges a row from the calls you record while using '
+      + 'the app; when the calls cannot show it, you decide with Pass / Fail / Can\'t tell. Your mark is what counts - Claude only suggests.',
+    points: [
+      { if: '✦ Claude suggests', then: 'open the row and read its reason. Agree? Accept. Else mark it yourself.' },
+      { if: '0 rows', then: 'the search found nothing to check: add test data (Test plan) and search again, or mark Can\'t tell.' },
+      { if: 'no call yet', then: 'do the matching Test plan step while Claude listens.' },
+      { if: 'you saw it work', then: '✓ Pass, and say how in your evidence.' },
+      { if: 'you saw it wrong', then: '✗ Fail - then ask Claude to fix it on a card.' },
+      { if: 'it cannot be shown', then: '? Can\'t tell, with a note why.' },
+    ],
+  },
+  test: {
+    title: 'Test plan - what to do in the app, and when the task is finished',
+    lead: 'Do the steps in the app while Claude listens (Run → Check while I test): a step gets ✓ and its calls when Claude sees them. '
+      + 'Set up the test data first, or searches come back with 0 rows. Done when is the hand-over rule: all three ✓, then the hand-over report.',
+    points: [
+      { if: 'a step says not yet', then: 'nobody has done it with Claude listening - do it now.' },
+      { if: 'a step failed', then: 'its card says what went wrong.' },
+      { if: 'Done when shows ✗', then: 'it says what is left; click it to go there.' },
+    ],
+  },
+  brief: {
+    title: 'Brief - the task in words, the source for everything else',
+    lead: 'The ticket as written, what is in and out of scope, and the decisions made on the way - every Claude session reads them first and '
+      + 'must follow them. Select a passage to comment on it, or comment on the whole brief.',
+    points: [
+      { if: 'Claude asks', then: 'answer in the thread - your answer is what the next session reads.' },
+      { if: 'Claude suggests a rewording', then: 'Apply changes the brief (Restore previous undoes it); Dismiss keeps it as it is.' },
+      { if: 'a thread is settled', then: '✓ Resolve it; resolved threads fold away and can be reopened.' },
+    ],
+  },
+  runs: {
+    title: 'Claude\'s runs - the session log',
+    lead: 'Every skill Claude runs on this task leaves one entry: Did, Found, Next. Read the newest one\'s Next when you come back; nothing '
+      + 'here needs a decision unless its Next says so.',
+    points: [],
+  },
+  files: {
+    title: 'Spec & files - where the requirements come from',
+    lead: 'A spec file (.md or .txt) holds the ticket\'s Acceptance lines - each becomes a row in Requirements. Drop the ticket\'s spec here, '
+      + 'or let Run → Write the requirements draft one from the brief. Replacing a file keeps the previous one. Files attached here go with the task.',
+    points: [],
+  },
+};

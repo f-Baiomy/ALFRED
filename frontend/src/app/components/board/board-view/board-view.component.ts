@@ -27,7 +27,8 @@ import { BulkBarComponent } from '../bulk-bar/bulk-bar.component';
 import { CardDrawerComponent, CardSiblings } from '../card-drawer/card-drawer.component';
 import { LiveStripComponent } from '../live-strip/live-strip.component';
 import { QuickAddComponent } from '../quick-add/quick-add.component';
-import { TriageDecision, TriageDialogComponent } from '../triage-dialog/triage-dialog.component';
+import { TriageDecision, TriageDialogComponent, decisionOf } from '../triage-dialog/triage-dialog.component';
+import { actionText, adviceAction } from '../../../shared/utils/triage-advice';
 import { UndoToastComponent } from '../undo-toast/undo-toast.component';
 
 /**
@@ -125,7 +126,7 @@ import { BoardPagesComponent } from '../visuals/board-pages.component';
       <app-board-columns [cards]="state.cards()" [editable]="state.editable()" [selected]="state.selected()" [focusedId]="state.focusedId()"
                          [showCycle]="!cycleId()" [now]="now()" [retests]="retest.byNumber()" (retest)="retest.start($event)"
                          (moved)="onMoved($event)" (opened)="openCard($event)" (toggled)="state.toggleSelected($event.id)"
-                         (action)="onAction($event.card, $event.action)" (triage)="startTriage()"
+                         (action)="onAction($event.card, $event.action)" (triage)="startTriage()" (acceptHigh)="acceptHigh($event)"
                          (answer)="answering.set($event.id)" />
     } @else {
       <app-board-list-view [cards]="sortedForList()" [editable]="state.editable()" [selected]="state.selected()" [focusedId]="state.focusedId()"
@@ -333,7 +334,19 @@ export class BoardViewComponent {
     else if (action.kind === 'move' && action.status === 'VERIFIED') void this.verifyGuard.verify(card, () => this.state.move(card.id, 'VERIFIED'));
     else if (action.kind === 'move') this.state.move(card.id, action.status);
     else if (action.kind === 'retest') this.retest.start([card.number]);
+    else if (action.kind === 'merge') this.state.merge(card.id, action.into);
+    else if (action.kind === 'mergeGroup') this.state.mergeGroup(action.group, card.number);
     else this.state.reopen(card.id);
+  }
+
+  /** "Accept all High": every High-confidence advice in the Inbox, after one confirm that lists them. */
+  async acceptHigh(cards: readonly CardSummary[]): Promise<void> {
+    const lines = cards.map((c) => `#${c.number} ${c.title} → ${actionText(adviceAction(c)!)}`);
+    const shown = lines.slice(0, 12).join('\n') + (lines.length > 12 ? `\n+${lines.length - 12} more` : '');
+    const ok = await this.confirm.confirm(`Take Claude's High-confidence advice on ${cards.length} ${cards.length === 1 ? 'card' : 'cards'}?\n\n${shown}`,
+      `Accept ${cards.length}`);
+    if (!ok) return;
+    for (const c of cards) this.onTriage(decisionOf(c, adviceAction(c)!));
   }
 
   startTriage(): void {
@@ -342,6 +355,8 @@ export class BoardViewComponent {
 
   onTriage(d: TriageDecision): void {
     if (d.kind === 'todo') this.state.move(d.card.id, 'TO_DO');
+    else if (d.kind === 'merge') this.state.merge(d.card.id, d.into, d.reason || undefined);
+    else if (d.kind === 'mergeGroup') this.state.mergeGroup(d.group, d.card.number);
     else this.state.run(this.api.close(d.card.id, d.resolution, d.reason || undefined));
   }
 

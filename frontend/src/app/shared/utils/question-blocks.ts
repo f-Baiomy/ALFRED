@@ -12,6 +12,8 @@ export interface AskOption {
   /** What Claude does if this option is picked. */
   readonly then?: string;
   readonly recommended?: boolean;
+  /** On the recommended option (triage): how sure Claude is - high, medium or low. */
+  readonly confidence?: string;
   /** Shown on hover: what changes, the effect on the recorded calls, the acceptance items covered, why. */
   readonly preview?: string;
   readonly followUp?: AskQuestion;
@@ -23,6 +25,12 @@ export interface AskQuestion {
   readonly why?: string;
   readonly multiSelect?: boolean;
   readonly options: readonly AskOption[];
+  /** Triage: what Claude checked before advising. */
+  readonly checked?: string;
+  /** Triage: where the card ranks in the Inbox, worst first. */
+  readonly severity?: { readonly rank: number; readonly of?: number; readonly note?: string };
+  /** Triage: Inbox cards of the same root cause to merge into this one. */
+  readonly group?: readonly number[];
 }
 
 export interface AskBlock {
@@ -77,8 +85,13 @@ export function askBlock(text: string | null | undefined): AskBlock | null {
     options: (Array.isArray(q?.options) ? q.options : []).map((o: any): AskOption => ({
       label: String(o?.label ?? ''), description: o?.description ? String(o.description) : undefined, then: o?.then ? String(o.then) : undefined,
       recommended: !!o?.recommended, preview: o?.preview ? String(o.preview) : undefined,
+      ...(o?.recommended && ['high', 'medium', 'low'].includes(String(o?.confidence ?? '').toLowerCase()) ? { confidence: String(o.confidence).toLowerCase() } : {}),
       followUp: o?.followUp && typeof o.followUp === 'object' ? question(o.followUp) : undefined,
     })),
+    ...(q?.checked ? { checked: String(q.checked) } : {}),
+    ...(Number(q?.severity?.rank) > 0 ? { severity: { rank: Number(q.severity.rank), ...(Number(q.severity.of) > 0 ? { of: Number(q.severity.of) } : {}),
+      ...(q.severity.note ? { note: String(q.severity.note) } : {}) } } : {}),
+    ...(Array.isArray(q?.group) && q.group.length ? { group: q.group.map(Number).filter((n: number) => Number.isInteger(n) && n > 0) } : {}),
   });
   const because = b!['because'] as { entry?: unknown; header?: unknown } | undefined;
   return {
@@ -141,8 +154,10 @@ export interface QuestionLine {
   readonly header: string;
   readonly question: string;
   readonly followUp: boolean;
-  readonly options: readonly { readonly label: string; readonly picked: boolean; readonly recommended: boolean }[];
+  readonly options: readonly { readonly label: string; readonly picked: boolean; readonly recommended: boolean; readonly confidence?: string }[];
   readonly state: 'answered' | 'open' | 'later' | 'withdrawn';
+  /** Triage: what Claude checked before advising. */
+  readonly checked?: string;
   readonly other?: string;
   readonly note?: string;
 }
@@ -175,7 +190,9 @@ export function questionLines(entry: ActivityEntry, replies: readonly ActivityEn
     const state = withdrawn.has(q.header.toLowerCase()) ? 'withdrawn' : !a ? 'open' : a.later ? 'later' : 'answered';
     const chose = state === 'answered' ? a?.chose ?? [] : [];
     return { header: q.header, question: q.question, followUp, state,
-      options: q.options.map((o) => ({ label: o.label, picked: chose.includes(o.label), recommended: !!o.recommended })),
+      options: q.options.map((o) => ({ label: o.label, picked: chose.includes(o.label), recommended: !!o.recommended,
+        ...(o.confidence ? { confidence: o.confidence } : {}) })),
+      ...(q.checked ? { checked: q.checked } : {}),
       ...(state === 'answered' && a?.other ? { other: a.other } : {}), ...(state === 'answered' && a?.note ? { note: a.note } : {}) };
   };
   const out: QuestionLine[] = [];

@@ -308,6 +308,14 @@ public interface BoardStorePort {
         return java.util.Map.of();
     }
 
+    /** The same advice with its triage facts (confidence, checked, severity, group) - {@link #openQuestionAdvice} when a store has none. */
+    default java.util.Map<String, com.fathy.alfred.backend.board.domain.model.Advice> openQuestionAdviceDetail(java.util.Collection<String> cardIds,
+                                                                                                             java.time.Instant now) {
+        java.util.Map<String, com.fathy.alfred.backend.board.domain.model.Advice> out = new java.util.HashMap<>();
+        openQuestionAdvice(cardIds, now).forEach((id, option) -> out.put(id, com.fathy.alfred.backend.board.domain.model.Advice.of(option)));
+        return out;
+    }
+
     /**
      * Short names (specs/021): the few words a mention reads. {@code kind} "card" is keyed by card id, "item" by
      * {@code cycleId/fileName/itemKey}. A blank name removes it.

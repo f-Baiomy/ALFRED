@@ -34,6 +34,7 @@ import com.fathy.alfred.backend.board.domain.model.TextVersion;
 import com.fathy.alfred.backend.board.application.port.in.CommentExtrasUseCase;
 import com.fathy.alfred.backend.board.domain.QuickAddParser;
 import com.fathy.alfred.backend.board.domain.Transitions;
+import com.fathy.alfred.backend.board.domain.model.Advice;
 import com.fathy.alfred.backend.board.domain.model.ActivityEntry;
 import com.fathy.alfred.backend.board.domain.model.ActivityKind;
 import com.fathy.alfred.backend.board.domain.model.Actor;
@@ -939,7 +940,7 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
         List<Question> rows = QuestionBlocks.asked(text).stream().map(a -> new Question(entryId, cardId, a.idx(), a.header(), a.question(),
                 answeredBy != null ? (a.parentIdx() == null ? QuestionState.ANSWERED : QuestionState.DROPPED)
                         : a.parentIdx() == null ? QuestionState.OPEN : QuestionState.PENDING,
-                null, answeredBy, a.parentIdx(), a.parentOption(), at, a.recommended())).toList();
+                null, answeredBy, a.parentIdx(), a.parentOption(), at, a.recommended(), a.adviceMeta())).toList();
         store.putQuestions(entryId, rows);
     }
 
@@ -1335,6 +1336,32 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
         return CardChange.ok(detail(next));
     }
 
+    @Override
+    public synchronized CardChange merge(Actor actor, String id, int intoNumber, String reason) {
+        if (actor == Actor.CLAUDE) {
+            return CardChange.refused(CardChange.Outcome.REFUSED_FOR_CLAUDE, ClaudeRules.PROPOSE_ONLY);
+        }
+        String problem = checkReason(reason);
+        if (problem != null) {
+            return CardChange.refused(CardChange.Outcome.INVALID, problem);
+        }
+        Optional<Card> found = store.find(id);
+        if (found.isEmpty()) {
+            return CardChange.notFound();
+        }
+        Card source = found.get();
+        Optional<Card> target = store.findByNumber(source.project(), intoNumber);
+        if (target.isEmpty() || target.get().id().equals(id)) {
+            return CardChange.refused(CardChange.Outcome.INVALID, "Merge into another card of the same project: #" + intoNumber + " is not one");
+        }
+        if (source.status() == CardStatus.CLOSED || target.get().status() == CardStatus.CLOSED) {
+            return CardChange.refused(CardChange.Outcome.INVALID, "Both cards must be open to merge");
+        }
+        store.deleteProposal(source.id());
+        answerBySorting(source.id(), "merge");
+        return mergeCards(actor, store.find(id).orElse(source), target.get(), reason == null || reason.isBlank() ? null : reason.strip());
+    }
+
     private CardChange acceptMerge(Actor actor, Card source, Proposal proposal) {
         Optional<Card> target = store.find(proposal.intoCardId());
         store.deleteProposal(source.id());
@@ -1342,11 +1369,16 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
             changed(source, "card");
             return CardChange.refused(CardChange.Outcome.CONFLICT, "The cards changed since Claude proposed this - the proposal is dropped");
         }
-        store.mergeInto(source.id(), target.get().id());
-        record(target.get().id(), actor, ActivityKind.MERGED, source.title(), null, "#" + source.number());
         record(source.id(), actor, ActivityKind.PROPOSAL_ACCEPTED, null, source.status().name(), proposal.target());
-        Card closed = closeCard(actor, source, Resolution.DUPLICATE, "merged into #" + target.get().number());
-        Card into = touched(target.get(), actor, List.of());
+        return mergeCards(actor, source, target.get(), null);
+    }
+
+    /** Moves the source's history and links into the target and closes the source as its duplicate. */
+    private CardChange mergeCards(Actor actor, Card source, Card target, String reason) {
+        store.mergeInto(source.id(), target.id());
+        record(target.id(), actor, ActivityKind.MERGED, source.title(), null, "#" + source.number());
+        Card closed = closeCard(actor, source, Resolution.DUPLICATE, "merged into #" + target.number() + (reason == null ? "" : ": " + reason));
+        Card into = touched(target, actor, List.of());
         mentionedCalls.mentionedCallsChanged();
         changed(closed, "card");
         changed(into, "card");
@@ -1485,7 +1517,7 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
         Map<String, List<CardRef>> blockers = store.blockersOf(ids);
         ensureIndexed();
         Map<String, Integer> questions = store.openQuestionCounts(ids, clock.instant());
-        Map<String, String> advice = questions.isEmpty() ? Map.of() : store.openQuestionAdvice(questions.keySet(), clock.instant());
+        Map<String, Advice> advice = questions.isEmpty() ? Map.of() : store.openQuestionAdviceDetail(questions.keySet(), clock.instant());
         Map<String, String> shortNames = ids.isEmpty() ? Map.of() : store.shortNames("card", ids);
         Map<String, Map<String, SimilarClosed>> similar = new LinkedHashMap<>();
         cards.stream().filter(c -> c.status() == CardStatus.INBOX && c.signature() != null)
@@ -1495,7 +1527,8 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
                 chips.getOrDefault(c.id(), List.of()),
                 c.status() == CardStatus.INBOX && c.signature() != null
                         ? hintFor(c, similar.getOrDefault(c.project(), Map.of()).get(c.signature())) : null, proposals.get(c.id()), waiting.get(c.id()),
-                blockers.get(c.id()), questions.getOrDefault(c.id(), 0), advice.get(c.id()), shortNames.get(c.id()))).toList();
+                blockers.get(c.id()), questions.getOrDefault(c.id(), 0), advice.containsKey(c.id()) ? advice.get(c.id()).option() : null,
+                shortNames.get(c.id()), advice.get(c.id()))).toList();
         return new CardsPage(rows, store.count(query), store.progress(query.project(), query.cycleId()));
     }
 

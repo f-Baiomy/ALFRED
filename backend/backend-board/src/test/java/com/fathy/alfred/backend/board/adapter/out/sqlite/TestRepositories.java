@@ -33,6 +33,11 @@ public final class TestRepositories {
         return repo;
     }
 
+    /** The brief comments' table in the same board.db as {@code store} (specs/024). */
+    public static com.fathy.alfred.backend.board.application.port.out.BriefCommentStorePort briefComments(BoardStorePort store) {
+        return new SqliteBriefCommentRepository((SqliteBoardRepository) store);
+    }
+
     public static Opened open(ObjectMapper json, Path file) {
         SqliteBoardRepository repo = new SqliteBoardRepository(json, file.toString());
         repo.init();

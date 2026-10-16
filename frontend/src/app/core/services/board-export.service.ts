@@ -1,6 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { Observable, expand, forkJoin, from, lastValueFrom, map, mergeMap, of, reduce, toArray, EMPTY, catchError } from 'rxjs';
-import { ActivityEntry, CardSummary, ChecklistMark, CycleBrief, NO_FILTERS } from '../models/board.models';
+import { ActivityEntry, BriefComment, CardSummary, ChecklistMark, CycleBrief, NO_FILTERS } from '../models/board.models';
 import { BoardExport, BoardImageData, BoardSpecFile, boardImageIds, boardJsonFilename, buildBoardJsonLines } from '../../shared/utils/board-json';
 import { buildBoardHtmlParts } from '../../shared/utils/board-html-builder';
 import { buildBoardMarkdownLines } from '../../shared/utils/board-md-builder';
@@ -217,10 +217,12 @@ export class BoardExportService {
     );
   }
 
-  private cycleParts(cycleIds: readonly string[]): Observable<{ briefs: CycleBrief[]; specs: BoardSpecFile[]; marks: ChecklistMark[] }> {
-    if (!cycleIds.length) return of({ briefs: [], specs: [], marks: [] });
+  private cycleParts(cycleIds: readonly string[]): Observable<{ briefs: CycleBrief[]; briefComments: BriefComment[]; specs: BoardSpecFile[]; marks: ChecklistMark[] }> {
+    if (!cycleIds.length) return of({ briefs: [], briefComments: [], specs: [], marks: [] });
     return forkJoin(cycleIds.map((id) => forkJoin({
       brief: this.api.brief(id).pipe(catchError(() => of(null))),
+      // specs/024; an Alfred without them answers 404
+      comments: this.api.briefComments(id).pipe(catchError(() => of([] as BriefComment[]))),
       specs: this.api.specs(id).pipe(
         mergeMap((files) => (files.length ? forkJoin(files.map((f) => this.api.spec(id, f.name).pipe(
           map((content) => ({ cycleId: id, name: f.name, content, uploadedAt: f.uploadedAt }))))) : of([] as BoardSpecFile[]))),
@@ -230,6 +232,7 @@ export class BoardExportService {
         catchError(() => of([] as ChecklistMark[]))),
     }))).pipe(map((all) => ({
       briefs: all.map((a) => a.brief).filter((b): b is CycleBrief => !!b && !!b.text),
+      briefComments: all.flatMap((a) => a.comments),
       specs: all.flatMap((a) => a.specs),
       marks: all.flatMap((a) => a.marks),
     })));

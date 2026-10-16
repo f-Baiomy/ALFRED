@@ -1,4 +1,4 @@
-import { ActivityEntry, CardDetail, ChecklistMark, CycleBrief, MentionRef } from '../../core/models/board.models';
+import { ActivityEntry, BriefComment, CardDetail, ChecklistMark, CycleBrief, MentionRef } from '../../core/models/board.models';
 import { mentionsIn } from './mention-syntax';
 import { BoardVisuals, visualRecords } from './board-visuals-export';
 
@@ -23,6 +23,8 @@ export interface BoardExport {
   /** History per card id, oldest first. */
   readonly activity: Readonly<Record<string, readonly ActivityEntry[]>>;
   readonly briefs: readonly CycleBrief[];
+  /** Comments on the briefs (specs/024), threads first comment before its replies. Older exports have none. */
+  readonly briefComments?: readonly BriefComment[];
   readonly specs: readonly BoardSpecFile[];
   readonly marks: readonly ChecklistMark[];
   /** The pictures the texts show (base64), so an import elsewhere shows them too - .json only. */
@@ -48,6 +50,7 @@ export function boardImageIds(data: BoardExport): string[] {
   for (const c of data.cards) add(c.description);
   for (const list of Object.values(data.activity)) for (const e of list) add(e.text);
   for (const b of data.briefs) add(b.text);
+  for (const c of data.briefComments ?? []) add(c.text);
   for (const s of data.specs) add(s.content);
   for (const m of data.marks) add(m.evidence);
   return [...ids];
@@ -67,7 +70,7 @@ function directLinks(card: CardDetail, history: readonly ActivityEntry[]): Menti
 
 export function buildBoardJsonLines(data: BoardExport, exportedAt = new Date().toISOString()): string[] {
   const lines: string[] = [JSON.stringify({ format: BOARD_FORMAT, exportedAt, project: data.project, cards: data.cards.length,
-    guide: 'One record per line: card, then activity (by cardNumber), brief, spec, mark, image (base64), page (with every version), state, shot (PNG, base64), '
+    guide: 'One record per line: card, then activity (by cardNumber), brief, briefComment, spec, mark, image (base64), page (with every version), state, shot (PNG, base64), '
       + 'file (base64), widget, chatSettings, chat, chatRecord, chatTerminal. Texts are Markdown or HTML. Import with Board → Import .json.' })];
   for (const card of data.cards) {
     const fields: Record<string, unknown> = {};
@@ -82,6 +85,12 @@ export function buildBoardJsonLines(data: BoardExport, exportedAt = new Date().t
     }
   }
   for (const b of data.briefs) lines.push(JSON.stringify({ record: 'brief', cycleId: b.cycleId, text: b.text, updatedAt: b.updatedAt }));
+  // by id: a thread's first comment is always older than its replies, so the import can point each reply at it
+  for (const c of [...(data.briefComments ?? [])].sort((a, b) => a.id - b.id)) {
+    lines.push(JSON.stringify({ record: 'briefComment', cycleId: c.cycleId, id: c.id, quote: c.quote, actor: c.actor, text: c.text,
+      replyTo: c.replyTo, asks: c.asks, suggestFrom: c.suggestFrom, suggestTo: c.suggestTo, createdAt: c.createdAt,
+      resolvedAt: c.resolvedAt, resolvedBy: c.resolvedBy }));
+  }
   for (const s of data.specs) {
     lines.push(JSON.stringify({ record: 'spec', cycleId: s.cycleId, name: s.name, content: s.content, uploadedAt: s.uploadedAt }));
   }
@@ -101,6 +110,7 @@ export interface ParsedBoard {
   readonly cards: readonly (Record<string, unknown> & { readonly links: readonly MentionRef[] })[];
   readonly activity: readonly { readonly cardNumber: number; readonly entry: Record<string, unknown> }[];
   readonly briefs: readonly Record<string, unknown>[];
+  readonly briefComments: readonly Record<string, unknown>[];
   readonly specs: readonly BoardSpecFile[];
   readonly marks: readonly Record<string, unknown>[];
 }
@@ -110,13 +120,15 @@ export function parseBoardJsonLines(lines: readonly string[]): ParsedBoard {
   const head = JSON.parse(header ?? '{}') as { format?: string; project?: string };
   if (head.format !== BOARD_FORMAT) throw new SyntaxError(`Not an ${BOARD_FORMAT} file`);
   const out = { project: head.project ?? '', cards: [] as ParsedBoard['cards'][number][], activity: [] as ParsedBoard['activity'][number][],
-    briefs: [] as Record<string, unknown>[], specs: [] as BoardSpecFile[], marks: [] as Record<string, unknown>[] };
+    briefs: [] as Record<string, unknown>[], briefComments: [] as Record<string, unknown>[], specs: [] as BoardSpecFile[],
+    marks: [] as Record<string, unknown>[] };
   for (const line of rest) {
     const r = JSON.parse(line) as Record<string, unknown> & { record: string };
     switch (r.record) {
       case 'card': out.cards.push({ ...(r['card'] as Record<string, unknown>), links: (r['links'] as MentionRef[]) ?? [] }); break;
       case 'activity': out.activity.push({ cardNumber: r['cardNumber'] as number, entry: r['entry'] as Record<string, unknown> }); break;
       case 'brief': out.briefs.push(r); break;
+      case 'briefComment': out.briefComments.push(r); break;
       case 'spec': out.specs.push(r as unknown as BoardSpecFile); break;
       case 'mark': out.marks.push(r); break;
     }

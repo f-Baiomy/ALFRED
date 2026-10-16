@@ -93,6 +93,14 @@ public class ImportBoardService implements ImportBoardUseCase {
         this.chats = chats;
     }
 
+    private com.fathy.alfred.backend.board.application.port.out.BriefCommentStorePort briefComments;
+
+    /** The briefs' comments come back too (specs/024) where their store is present. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setBriefComments(com.fathy.alfred.backend.board.application.port.out.BriefCommentStorePort briefComments) {
+        this.briefComments = briefComments;
+    }
+
     /** A cycle chat whose cycle is not here lands in the project chat; without this port every cycle counts as missing. */
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     void setCycleNames(CycleNamesPort cycleNames) {
@@ -122,6 +130,7 @@ public class ImportBoardService implements ImportBoardUseCase {
         Map<String, Integer> numbers = new HashMap<>();
         Map<Integer, String> idByOldNumber = new HashMap<>();
         Map<Long, Long> newIds = new HashMap<>(); // an exported entry id -> its id here, for replies
+        Map<Long, Long> briefCommentIds = new HashMap<>(); // an exported brief comment id -> its id here
         List<Renumbered> renumbered = new ArrayList<>();
         // Pictures the texts show, by the card (or cycle) that shows them - attached once their records are read.
         Map<String, Set<String>> cardImages = new HashMap<>();
@@ -180,6 +189,26 @@ public class ImportBoardService implements ImportBoardUseCase {
                     cycleImages.computeIfAbsent(r.path("cycleId").asText(), k -> new java.util.HashSet<>()).addAll(RichText.imageIds(text));
                     store.putBrief(new CycleBrief(r.path("cycleId").asText(), text, instant(r.path("updatedAt").asText())));
                     store.replaceMentions(MentionOwner.BRIEF, r.path("cycleId").asText(), null, MentionParser.mentions(text));
+                }
+                case "briefComment" -> {
+                    if (briefComments != null) {
+                        // a thread's first comment comes before its replies; a reply whose thread is not here starts its own
+                        Long replyTo = r.hasNonNull("replyTo") ? briefCommentIds.get(r.path("replyTo").asLong()) : null;
+                        String text = RichText.clean(rewrite(r.path("text").asText(""), sourceProject, target, numbers));
+                        boolean resolved = r.hasNonNull("resolvedAt");
+                        Instant created = instant(r.path("createdAt").asText());
+                        // the same file imported twice does not repeat a comment
+                        Long same = briefComments.briefComments(r.path("cycleId").asText()).stream()
+                                .filter(x -> x.createdAt().equals(created) && x.text().equals(text)).map(x -> x.id()).findFirst().orElse(null);
+                        long id = same != null ? same : briefComments.addBriefComment(new com.fathy.alfred.backend.board.domain.model.BriefComment(0,
+                                r.path("cycleId").asText(), replyTo == null ? text(r, "quote") : null, actor(r.path("actor").asText()), text,
+                                replyTo, r.path("asks").asBoolean(false), text(r, "suggestFrom"), text(r, "suggestTo"),
+                                created, resolved ? instant(r.path("resolvedAt").asText()) : null,
+                                resolved ? actor(r.path("resolvedBy").asText()) : null));
+                        if (r.hasNonNull("id")) {
+                            briefCommentIds.put(r.path("id").asLong(), id);
+                        }
+                    }
                 }
                 case "spec" -> {
                     String content = RichText.clean(r.path("content").asText(""));

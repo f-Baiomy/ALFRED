@@ -222,9 +222,10 @@ export interface TimelineReply {
                   @if (q.state !== 'answered') { <span class="board-dim">{{ q.state === 'open' ? 'still open' : q.state === 'later' ? 'put off' : 'withdrawn' }}</span> }</div>
                 @if (q.options.length) {
                   <div class="board-qline-opts">
-                    @for (o of q.options; track o.label) { <span class="board-qline-o" [class.picked]="o.picked">{{ o.label }}{{ o.recommended ? ' ★' : '' }}</span> }
+                    @for (o of q.options; track o.label) { <span class="board-qline-o" [class.picked]="o.picked">{{ o.label }}{{ o.recommended ? ' ★' : '' }}@if (o.recommended && o.confidence) { <span class="board-conf" [class]="'board-conf board-conf-' + o.confidence">{{ o.confidence }}</span> }</span> }
                   </div>
                 }
+                @if (q.checked) { <div class="board-qline-said board-dim">Checked: {{ q.checked }}</div> }
                 @if (q.other) { <div class="board-qline-said">“{{ q.other }}”</div> }
                 @if (q.note) { <div class="board-qline-said board-dim">note: {{ q.note }}</div> }
               </div>

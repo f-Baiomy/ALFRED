@@ -83,7 +83,8 @@ stops for the user, and one example command. Take it from the table above and `r
   `CLAUDE.md` under `## Alfred checks` (rules "Project checks") - after your yes - so nothing is asked twice.
 - **New session, another machine, another agent** - nothing is lost: a cycle is a task and Alfred keeps its brief,
   requirements, findings, decisions and Claude's earlier runs. Any skill starts from `task_context`; without the skills
-  (another agent, a fresh install) use the MCP prompt `resume` - in Claude Code `/mcp__alfred__resume <task>`.
+  (another agent, a fresh install) use the MCP prompt `resume` - in Claude Code `/mcp__<server>__resume <task>`.
+  With the skills installed, `/alfred-resume <task>` does it and says where the task stands.
 - **A `Learn:` card in the Inbox** - Claude's questions about a flow. Answer them on the card (or in `/alfred-triage`),
   then `/alfred-sync`.
 

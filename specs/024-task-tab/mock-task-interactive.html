@@ -1,0 +1,624 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Task tab interactive</title>
+<style>
+  :root {
+    --bg: #15161a; --panel: #1c1d22; --panel2: #22232a; --inner: rgba(0,0,0,.28); --border: rgba(255,255,255,.08); --border-strong: rgba(255,255,255,.16);
+    --text: #e7e7ec; --dim: #9b9ca6; --faint: #676873; --purple: #8b5cf6; --purple-l: #b9a5ff; --blue: #8fb2f7; --cyan: #5fd3c6;
+    --green: #6fd38a; --amber: #f2b552; --red: #f07a7a; --code: rgba(255,255,255,.07);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 "Segoe UI", system-ui, sans-serif; padding: 20px 16px 80px; }
+  h1 { font-size: 1.35rem; margin: 0 0 .3rem; }
+  h2.sec { font-size: 1.05rem; margin: 2.2rem 0 .6rem; color: var(--purple-l); }
+  .lead { color: var(--dim); max-width: 85ch; margin: 0 0 .9rem; }
+  code, .mono { font: .78rem Consolas, monospace; }
+  code { background: var(--code); padding: 0 .3rem; border-radius: 4px; }
+  button { font: inherit; color: inherit; }
+  .dim { color: var(--dim); } .faint { color: var(--faint); }
+
+  /* ---------------- BEFORE (schematic of today) ---------------- */
+  .before { border: 1px solid rgba(240,122,122,.35); border-radius: 10px; padding: .8rem; background: var(--panel); position: relative; }
+  .b-row { display: grid; grid-template-columns: 1.4fr 1fr; gap: .6rem; }
+  .b-box { border: 1px solid var(--border-strong); border-radius: 6px; padding: .45rem .55rem; margin-bottom: .5rem; font-size: .78rem; color: var(--dim); position: relative; }
+  .b-box b { color: var(--text); font-size: .82rem; }
+  .b-cmd { font: .7rem Consolas, monospace; color: var(--blue); border: 1px solid var(--border); border-radius: 4px; padding: .1rem .4rem; display: inline-block; margin: .15rem .2rem 0 0; }
+  .pin { position: absolute; top: -.55rem; right: -.45rem; width: 1.3rem; height: 1.3rem; border-radius: 50%; background: var(--red); color: #fff; font: 700 .7rem/1.3rem system-ui; text-align: center; }
+  .problems { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: .5rem; margin-top: .8rem; }
+  .problems div { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: .5rem .65rem; font-size: .84rem; color: var(--dim); }
+  .problems b { color: var(--text); }
+  .problems .n { display: inline-grid; place-items: center; width: 1.2rem; height: 1.2rem; border-radius: 50%; background: var(--red); color: #fff; font-size: .68rem; font-weight: 700; margin-right: .3rem; }
+
+  /* ---------------- AFTER ---------------- */
+  .app { border: 1px solid var(--border-strong); border-radius: 12px; background: var(--panel); overflow: hidden; }
+  .appbar { display: flex; gap: 1.2rem; padding: .5rem 1rem 0; border-bottom: 1px solid var(--border); font-size: .9rem; color: var(--dim); }
+  .appbar span { padding-bottom: .45rem; } .appbar .on { color: var(--text); border-bottom: 2px solid var(--purple); }
+
+  /* header: what task, where it stands, the one next thing to do */
+  .hd { padding: .9rem 1.1rem .7rem; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .4rem 1rem; align-items: start; border-bottom: 1px solid var(--border); }
+  .hd .ids { display: flex; gap: .35rem; flex-wrap: wrap; margin-bottom: .25rem; }
+  .chip { font: .7rem Consolas, monospace; border: 1px solid var(--border-strong); border-radius: 5px; padding: 0 .4rem; color: var(--dim); }
+  .hd h2 { margin: 0; font-size: 1.12rem; line-height: 1.35; text-wrap: balance; }
+  .acts { display: flex; gap: .4rem; align-items: center; justify-content: flex-end; }
+  .btn { border: 1px solid var(--border-strong); background: var(--panel2); border-radius: 8px; padding: .3rem .7rem; cursor: pointer; font-size: .82rem; white-space: nowrap; }
+  .btn:hover { border-color: var(--purple-l); }
+  .btn.primary { background: var(--purple); border-color: var(--purple); color: #fff; font-weight: 600; }
+  .btn small { opacity: .8; font-weight: 400; }
+  .menu { position: relative; }
+  .menu-pop { display: none; position: absolute; right: 0; top: calc(100% + 4px); width: 340px; background: #26272f; border: 1px solid var(--border-strong); border-radius: 10px; padding: .35rem; z-index: 5; box-shadow: 0 10px 30px rgba(0,0,0,.5); }
+  .menu.open .menu-pop { display: block; }
+  .mi { display: flex; gap: .55rem; align-items: flex-start; padding: .4rem .5rem; border-radius: 6px; cursor: pointer; font-size: .82rem; }
+  .mi:hover { background: rgba(255,255,255,.06); }
+  .mi .ic { width: 1.1rem; text-align: center; color: var(--purple-l); }
+  .mi small { display: block; color: var(--dim); font-size: .72rem; }
+  .mi .cp { margin-left: auto; color: var(--faint); font-size: .72rem; }
+  .sep { border-top: 1px solid var(--border); margin: .3rem 0; }
+
+  .stand { grid-column: 1 / -1; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .3rem 1.2rem; align-items: center; margin-top: .4rem; }
+  .stepper { display: flex; align-items: center; gap: .25rem; font-size: .76rem; }
+  .stepper span { padding: .05rem .5rem; border-radius: 999px; border: 1px solid var(--border); color: var(--faint); }
+  .stepper .done { color: var(--green); border-color: rgba(111,211,138,.35); }
+  .stepper .now { color: #1b1b1b; background: var(--amber); border-color: var(--amber); font-weight: 600; }
+  .stepper i { color: var(--faint); font-style: normal; }
+  .verdict { display: flex; gap: .7rem; align-items: center; min-width: 0; }
+  .verdict .txt { font-size: .86rem; white-space: nowrap; } .verdict .txt b { color: var(--amber); }
+  .bar { flex: 1; min-width: 120px; height: 8px; border-radius: 4px; overflow: hidden; display: flex; background: var(--inner); }
+  .bar i { display: block; height: 100%; }
+  .s-met { background: var(--green); } .s-bug { background: var(--red); } .s-miss { background: #f78c6c; } .s-retest { background: var(--amber); }
+  .s-cant { background: #7d7f8c; } .s-un { background: rgba(255,255,255,.12); } .s-sugg { background: var(--purple-l); }
+
+  /* needs you: the one strip that asks for something */
+  .needs { margin: .8rem 1.1rem 0; border: 1px solid rgba(242,181,82,.4); background: rgba(242,181,82,.06); border-radius: 10px; padding: .45rem .7rem; display: flex; gap: .5rem .9rem; flex-wrap: wrap; align-items: center; font-size: .83rem; }
+  .needs b { color: var(--amber); }
+  .needs .it { display: inline-flex; gap: .35rem; align-items: center; border: 1px solid var(--border); border-radius: 999px; padding: .05rem .55rem; background: var(--panel); cursor: pointer; }
+  .needs .it:hover { border-color: var(--amber); }
+
+  /* sub-tabs */
+  .tabs { display: flex; gap: .2rem; padding: .7rem 1.1rem 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .tab { background: none; border: 0; border-bottom: 2px solid transparent; padding: .45rem .7rem; color: var(--dim); cursor: pointer; font-size: .86rem; display: inline-flex; gap: .35rem; align-items: center; }
+  .tab .n { font-size: .7rem; border-radius: 999px; padding: 0 .4rem; background: var(--code); color: var(--dim); }
+  .tab .n.warn { background: rgba(242,181,82,.18); color: var(--amber); }
+  .tab.on { color: var(--text); border-bottom-color: var(--purple); }
+  .pane { display: none; padding: .9rem 1.1rem 1.1rem; }
+  .pane.on { display: block; }
+
+  /* requirements: one list */
+  .filters { display: flex; gap: .35rem; flex-wrap: wrap; align-items: center; margin-bottom: .7rem; }
+  .f { border: 1px solid var(--border); background: none; border-radius: 999px; padding: .05rem .6rem; font-size: .76rem; color: var(--dim); cursor: pointer; display: inline-flex; gap: .3rem; align-items: center; }
+  .f.on { color: var(--text); border-color: var(--border-strong); background: rgba(255,255,255,.06); }
+  .f .d { width: .5rem; height: .5rem; border-radius: 50%; }
+  .grow { flex: 1; }
+  .group { margin-bottom: .6rem; }
+  .gh { display: flex; align-items: center; gap: .45rem; font-size: .74rem; letter-spacing: .05em; text-transform: uppercase; color: var(--dim); padding: .3rem 0; cursor: pointer; user-select: none; }
+  .gh .car { transition: transform .12s; } .group.shut .gh .car { transform: rotate(-90deg); } .group.shut .rows { display: none; }
+  .gh .hint { text-transform: none; letter-spacing: 0; color: var(--faint); }
+  .rows { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .req { border-top: 1px solid var(--border); } .req:first-child { border-top: 0; }
+  .rq { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: .6rem; align-items: center; padding: .45rem .7rem; cursor: pointer; }
+  .rq:hover { background: rgba(255,255,255,.025); }
+  .st { font-size: .64rem; font-weight: 700; letter-spacing: .04em; border-radius: 4px; padding: .05rem .35rem; white-space: nowrap; }
+  .st.met { color: var(--green); background: rgba(111,211,138,.12); } .st.bug { color: var(--red); background: rgba(240,122,122,.12); }
+  .st.cant { color: #c6c7d2; background: rgba(255,255,255,.08); } .st.un { color: var(--faint); border: 1px dashed var(--border-strong); }
+  .st.sugg { color: var(--purple-l); background: rgba(139,92,246,.16); }
+  .rq .t { min-width: 0; font-size: .86rem; } .rq .t .k { color: var(--faint); font: .74rem Consolas, monospace; margin-right: .35rem; }
+  .rq .meta { display: flex; gap: .3rem; align-items: center; }
+  .cardref { font: .72rem Consolas, monospace; color: var(--blue); border: 1px solid rgba(143,178,247,.3); border-radius: 4px; padding: 0 .3rem; }
+  .calls { font-size: .7rem; border-radius: 999px; padding: 0 .45rem; border: 1px solid var(--border); color: var(--dim); white-space: nowrap; }
+  .calls.warn { color: var(--amber); border-color: rgba(242,181,82,.4); } .calls.ok { color: var(--green); border-color: rgba(111,211,138,.35); }
+  .seg { display: inline-flex; border: 1px solid var(--border-strong); border-radius: 7px; overflow: hidden; }
+  .seg button { border: 0; background: none; padding: .1rem .5rem; font-size: .74rem; color: var(--dim); cursor: pointer; border-left: 1px solid var(--border); }
+  .seg button:first-child { border-left: 0; }
+  .seg button.p.on { background: rgba(111,211,138,.16); color: var(--green); } .seg button.x.on { background: rgba(240,122,122,.16); color: var(--red); }
+  .seg button.q.on { background: rgba(255,255,255,.1); color: var(--text); }
+  .more { display: none; padding: .1rem .7rem .7rem 3.8rem; font-size: .83rem; }
+  .req.open .more { display: block; } .req.open .rq { background: rgba(255,255,255,.03); }
+  .kv { display: grid; grid-template-columns: 6.5rem minmax(0, 1fr); gap: .25rem .7rem; margin-top: .3rem; }
+  .kv .k { color: var(--faint); font-size: .74rem; text-transform: uppercase; letter-spacing: .04em; padding-top: .1rem; }
+  .sugg { border: 1px solid rgba(139,92,246,.4); background: rgba(139,92,246,.07); border-radius: 8px; padding: .45rem .6rem; margin: .4rem 0; }
+  .sugg .h { color: var(--purple-l); font-size: .78rem; margin-bottom: .15rem; }
+  .links { display: flex; gap: .8rem; margin-top: .4rem; }
+  .links a { color: var(--blue); font-size: .78rem; cursor: pointer; }
+  .sm { font-size: .78rem; padding: .1rem .5rem; border-radius: 6px; }
+  .accept { background: var(--purple); border: 0; color: #fff; cursor: pointer; }
+  .also { margin-top: .9rem; }
+  .note { display: flex; gap: .5rem; align-items: center; padding: .35rem .7rem; border-top: 1px solid var(--border); font-size: .84rem; }
+  .note:first-child { border-top: 0; }
+  .tag { font-size: .62rem; font-weight: 700; border-radius: 4px; padding: 0 .35rem; background: rgba(255,255,255,.08); color: var(--dim); }
+  .tag.extra { color: #f78c6c; background: rgba(247,140,108,.12); }
+
+  /* test plan */
+  .two { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 1rem; }
+  @media (max-width: 900px) { .two, .hd { grid-template-columns: 1fr; } .acts { justify-content: flex-start; } .stand { grid-template-columns: 1fr; } }
+  .card { border: 1px solid var(--border); border-radius: 10px; padding: .6rem .75rem; }
+  .card h4 { margin: 0 0 .45rem; font-size: .9rem; display: flex; align-items: baseline; gap: .5rem; } .card h4 small { color: var(--faint); font-weight: 400; font-size: .74rem; }
+  .step { display: grid; grid-template-columns: 1.2rem 1.6rem minmax(0, 1fr) auto; gap: .3rem; align-items: baseline; padding: .28rem 0; border-top: 1px solid var(--border); font-size: .85rem; }
+  .step:first-of-type { border-top: 0; }
+  .mk { text-align: center; } .mk.ok { color: var(--green); } .mk.bad { color: var(--red); }
+  .step .no { color: var(--faint); font: .76rem Consolas, monospace; }
+  .pill { font-size: .7rem; border-radius: 999px; padding: 0 .45rem; border: 1px solid var(--border); color: var(--faint); white-space: nowrap; }
+  .pill.ok { color: var(--green); border-color: rgba(111,211,138,.35); }
+  .data { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .4rem; }
+  .data span { font: .72rem Consolas, monospace; color: var(--cyan); border: 1px solid rgba(95,211,198,.35); border-radius: 5px; padding: 0 .35rem; }
+  .dw { display: flex; gap: .5rem; align-items: baseline; padding: .3rem 0; font-size: .86rem; border-top: 1px solid var(--border); }
+  .dw:first-of-type { border-top: 0; } .dw .v { margin-left: auto; color: var(--faint); font-size: .78rem; }
+
+  /* brief */
+  .brief-goal { font-size: 1rem; font-weight: 600; margin: 0 0 .6rem; }
+  .lbl { font-size: .7rem; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); margin: .7rem 0 .3rem; }
+  .lbl span { text-transform: none; letter-spacing: 0; }
+  ul.tight { margin: .2rem 0; padding-left: 1.2rem; } ul.tight li { margin: .1rem 0; }
+  table.ex { border-collapse: collapse; font-size: .82rem; width: 100%; } .ex td, .ex th { border: 1px solid var(--border-strong); padding: .25rem .5rem; text-align: left; }
+  .scope li { margin: .15rem 0; } .oos li { color: var(--faint); text-decoration: line-through; text-decoration-color: rgba(255,255,255,.18); }
+  .dec { display: grid; grid-template-columns: 6rem minmax(0, 1fr); gap: .5rem; padding: .35rem 0; border-top: 1px solid var(--border); font-size: .84rem; }
+  .dec:first-of-type { border-top: 0; } .dec .when { color: var(--faint); font-size: .76rem; }
+  .att { display: flex; gap: .5rem; flex-wrap: wrap; }
+  .att .a { border: 1px solid var(--border); border-radius: 8px; padding: .35rem .55rem; font-size: .8rem; display: flex; gap: .4rem; align-items: center; }
+  .att .a.add { border-style: dashed; color: var(--dim); cursor: pointer; }
+  .edit { font-size: .76rem; color: var(--faint); display: flex; gap: .7rem; align-items: center; }
+  .edit a { color: var(--blue); cursor: pointer; }
+
+  /* runs */
+  .run { border: 1px solid var(--border); border-radius: 10px; margin-bottom: .45rem; overflow: hidden; }
+  .run summary { list-style: none; cursor: pointer; padding: .45rem .7rem; display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; gap: .6rem; align-items: baseline; font-size: .84rem; }
+  .run summary::-webkit-details-marker { display: none; }
+  .run .sk { color: var(--purple-l); font: .78rem Consolas, monospace; } .run .nx { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .run .body { padding: 0 .7rem .6rem; font-size: .84rem; }
+  .run .p { margin: .35rem 0; } .run .p .ph { font-size: .64rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
+  .run .p.found { border-left: 2px solid var(--amber); padding-left: .55rem; } .run .p.found .ph { color: var(--amber); }
+  .run .p.next { background: rgba(139,92,246,.08); border: 1px solid rgba(139,92,246,.3); border-radius: 8px; padding: .3rem .55rem; } .run .p.next .ph { color: var(--purple-l); }
+
+
+  /* brief comments: anchored to a passage (like a document's margin comments) or about the whole brief */
+  .bwrap { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 1rem; align-items: start; }
+  @media (max-width: 1000px) { .bwrap { grid-template-columns: 1fr; } }
+  mark.hl { background: rgba(242,181,82,.18); color: inherit; border-bottom: 2px solid var(--amber); border-radius: 2px; cursor: pointer; padding: 0 1px; }
+  mark.hl.cl { background: rgba(139,92,246,.18); border-bottom-color: var(--purple-l); }
+  mark.hl.lit { background: rgba(242,181,82,.38); }
+  mark.hl.done { background: none; border-bottom: 1px dashed var(--faint); }
+  .margin { position: sticky; top: .5rem; display: flex; flex-direction: column; gap: .5rem; }
+  .mh { display: flex; align-items: center; gap: .4rem; font-size: .76rem; color: var(--dim); }
+  .mh .t { text-transform: uppercase; letter-spacing: .06em; font-size: .7rem; }
+  .mh button { margin-left: auto; }
+  .cmt { border: 1px solid var(--border); border-radius: 10px; background: var(--panel2); padding: .45rem .55rem; font-size: .82rem; cursor: pointer; }
+  .cmt.lit, .cmt:hover { border-color: rgba(242,181,82,.55); }
+  .cmt .q { font-size: .72rem; color: var(--faint); border-left: 2px solid var(--amber); padding-left: .4rem; margin-bottom: .3rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cmt.cl .q { border-left-color: var(--purple-l); }
+  .cw { display: flex; gap: .35rem; align-items: baseline; font-size: .74rem; margin-bottom: .1rem; }
+  .cw .av { width: 1.05rem; height: 1.05rem; border-radius: 50%; display: inline-grid; place-items: center; font-size: .5rem; font-weight: 700; background: rgba(95,211,198,.2); color: var(--cyan); align-self: center; }
+  .cw .av.cl { background: rgba(139,92,246,.25); color: var(--purple-l); }
+  .cw b { font-weight: 600; } .cw .cln { color: var(--purple-l); }
+  .cmt .rep { margin: .35rem 0 0 .5rem; padding-left: .5rem; border-left: 2px solid rgba(139,92,246,.55); }
+  .cmt .foot { display: flex; gap: .6rem; margin-top: .35rem; font-size: .72rem; }
+  .cmt .foot a { color: var(--blue); cursor: pointer; }
+  .cmt .foot .res { margin-left: auto; color: var(--green); }
+  .cmt.resolved { opacity: .6; } .cmt.resolved .q { text-decoration: line-through; }
+  .newc { border: 1px dashed var(--border-strong); border-radius: 10px; padding: .4rem .55rem; color: var(--faint); font-size: .8rem; }
+  .selpop { display: inline-flex; gap: .3rem; align-items: center; background: #2b2c35; border: 1px solid var(--border-strong); border-radius: 8px; padding: .15rem .45rem; font-size: .76rem; box-shadow: 0 6px 18px rgba(0,0,0,.45); margin-left: .4rem; vertical-align: middle; }
+  .selpop b { color: var(--amber); }
+  .proposal { border: 1px solid rgba(139,92,246,.4); background: rgba(139,92,246,.07); border-radius: 8px; padding: .35rem .5rem; margin-top: .35rem; font-size: .78rem; }
+  .proposal del { color: var(--red); } .proposal ins { color: var(--green); text-decoration: none; }
+  .proposal .btns { display: flex; gap: .4rem; margin-top: .3rem; }
+
+  /* section guides: ⓘ opens what the section is and how to decide in it; open the first time, then remembered */
+  .info { border: 0; background: none; color: var(--faint); cursor: pointer; font-size: .82rem; padding: 0 .2rem; }
+  .info:hover, .info.on { color: var(--blue); }
+  .guide { display: none; border: 1px solid rgba(143,178,247,.35); background: rgba(143,178,247,.06); border-radius: 10px; padding: .6rem .8rem; margin: 0 0 .8rem; font-size: .84rem; }
+  .guide.on { display: block; }
+  .guide h5 { margin: 0 0 .3rem; font-size: .88rem; color: var(--blue); display: flex; gap: .5rem; align-items: baseline; }
+  .guide h5 .x { margin-left: auto; color: var(--faint); cursor: pointer; font-weight: 400; font-size: .76rem; }
+  .guide p { margin: .2rem 0 .45rem; color: var(--dim); }
+  .guide .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: .6rem; }
+  .guide .q { font-size: .7rem; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); margin: .4rem 0 .2rem; }
+  .guide ul { margin: 0; padding-left: 1.1rem; } .guide li { margin: .15rem 0; }
+  .guide .flow { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .25rem .6rem; align-items: baseline; }
+  .guide .flow .if { color: var(--text); white-space: nowrap; }
+  .tabhead { display: flex; align-items: center; gap: .3rem; margin-bottom: .5rem; font-size: .8rem; color: var(--faint); }
+  .gh .info { font-size: .76rem; }
+  .tip { border-bottom: 1px dotted var(--faint); cursor: help; }
+  .table { width: 100%; border-collapse: collapse; font-size: .84rem; } .table th, .table td { text-align: left; padding: .35rem .5rem; border-bottom: 1px solid var(--border); vertical-align: top; } .table th { color: var(--dim); font-weight: 600; }
+  .ok { color: var(--green); }
+</style>
+<style>
+  #toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(20px); opacity: 0; background: #2b2c35; color: var(--text); border: 1px solid var(--border-strong);
+    border-radius: 999px; padding: .4rem .9rem; font-size: .84rem; box-shadow: 0 10px 30px rgba(0,0,0,.5); transition: all .2s; pointer-events: none; z-index: 20; max-width: 90vw; }
+  #toast.on { opacity: 1; transform: translateX(-50%) translateY(0); }
+  #selbtn { display: none; position: absolute; z-index: 15; background: #2b2c35; color: var(--amber); border: 1px solid var(--amber); border-radius: 8px; padding: .15rem .55rem; font-size: .8rem; cursor: pointer; box-shadow: 0 6px 18px rgba(0,0,0,.45); }
+  .links a { cursor: pointer; }
+  .rows.hidden { display: none; }
+  .f[disabled] { cursor: default; }
+  #brief-body { user-select: text; }
+  .pane { min-height: 320px; }
+</style>
+</head>
+<body>
+<h1>Task tab - interactive mock</h1>
+<p class="lead">Everything here works on the mock's own data: mark a requirement and the verdict, the bar, the filters, Needs you and Done when follow; accept or dismiss Claude's suggestion; add evidence; tick test steps; select text in the Brief to comment, reply, resolve or apply Claude's rewording; copy commands from Run ▾. ⓘ opens each tab's guide. <a href="#" id="reset" style="color:var(--blue)">Reset the mock</a></p>
+
+<div class="app">
+  <div class="appbar"><span>Calls</span><span>Board</span><span class="on">Task</span></div>
+  <div class="hd">
+    <div>
+      <div class="ids"><span class="chip">T3161-037</span><span class="chip">PROD-20261014</span><span class="chip" title="The task's branch">Multi-Select</span></div>
+      <h2>Refunded Requests (Admin) filters get "All Agencies", "All Branches" and a multi-select Branch dropdown</h2>
+    </div>
+    <div class="acts">
+      <button class="btn primary" id="next"></button>
+      <div class="menu" id="runmenu">
+        <button class="btn" id="runbtn">Run ▾</button>
+        <div class="menu-pop" id="runpop"></div>
+      </div>
+    </div>
+    <div class="stand">
+      <div class="stepper" id="stepper"></div>
+      <div class="verdict">
+        <span class="txt" id="verdict"></span>
+        <span class="bar" id="bar"></span>
+      </div>
+    </div>
+  </div>
+  <div class="needs" id="needs"></div>
+  <div class="tabs" id="tabs"></div>
+  <div class="pane" id="p-req"></div>
+  <div class="pane" id="p-test"></div>
+  <div class="pane" id="p-brief"></div>
+  <div class="pane" id="p-runs"></div>
+  <div class="pane" id="p-files"></div>
+</div>
+<div id="toast"></div>
+<button id="selbtn" type="button">💬 Comment</button>
+
+<script>
+'use strict';
+const CYCLE = '"61813 Refunded Requests filters - All Agencies, All Branches, Branch multi-select"';
+const store = { get(k, d) { try { const v = localStorage.getItem('mock-task:' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem('mock-task:' + k, JSON.stringify(v)); } catch {} } };
+const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+// ------------------------------------------------------------------ data
+function fresh() {
+  return {
+    tab: 'req', filter: 'all', open: { R1: true }, shut: { MET: true }, nextCard: 54,
+    reqs: [
+      { k: 'R1', text: 'The Agency dropdown lists an "All Agencies" option.', calls: 'hand', mark: null, cards: [],
+        suggest: { mark: 'PASS', why: 'Met by code (frontend ab70cf5f5): the Agency dropdown has allOption: true (refund-request.page.ts:97); the option is added first (dropdown-input.component.ts:318). Label shown is "All", not "All Agencies". Your screenshot on #44 confirms the list.' } },
+      { k: 'R2', text: 'Searching with All Agencies returns requests of every agency the Admin may access.', calls: '0rows', mark: 'CANT', cards: [47], evidence: 'No search with agencyIds [-11] in the cycle. #47.', at: '10/15 5:15 PM' },
+      { k: 'R3', text: "Searching with one specific agency returns only that agency's requests, as today.", calls: '0rows', mark: 'CANT', cards: [46], evidence: 'All 5 searches returned 0 rows (branch 948, agencies 949/10646, 7-14 Oct) - nothing to compare.', at: '10/15 5:15 PM' },
+      { k: 'R4', text: 'The Branch dropdown lists an "All Branches" option.', calls: 'hand', mark: 'PASS', cards: [], evidence: 'Met by code: Branch DropdownInput has allOption: true (default value -11).' },
+      { k: 'R5', text: 'The Branch dropdown allows several branches at once.', calls: 'ok', mark: 'PASS', cards: [44], evidence: 'branchIds [948, 10642] sent - #44 verified.' },
+      { k: 'R6', text: 'Searching with several branches returns requests of any selected branch (OR).', calls: '0rows', mark: 'CANT', cards: [44, 46], evidence: 'Request shape now right (branchIds list, #44 verified) but every search returned 0 rows. Test data: #46.', at: '10/15 5:15 PM' },
+      { k: 'R7', text: 'Searching with All Branches applies no branch restriction.', calls: 'none', mark: 'CANT', cards: [48], evidence: 'No search with branchIds [-11] in the cycle. #48.' },
+      { k: 'R8', text: "Searching with one branch returns only that branch's requests.", calls: '0rows', mark: 'CANT', cards: [44, 49], evidence: '0 rows in every search. Test data: #46.', at: '10/15 5:15 PM' },
+      { k: 'R9', text: 'The agency list follows the selected branches.', calls: 'ok', mark: 'PASS', cards: [], evidence: 'agency/by-branch [948,10642] → 3 agencies.' },
+      { k: 'R10', text: 'Agency A + Cairo + Mansoura returns only Agency A requests within those branches.', calls: 'none', mark: null, cards: [] },
+      { k: 'R11', text: 'Branch and Agency filters combine with PNR, dates, Refund Status and Request Type.', calls: 'none', mark: null, cards: [] },
+      { k: 'R12', text: 'Export To Excel uses the same filters as the search.', calls: 'none', mark: null, cards: [51] },
+      { k: 'R13', text: 'Export with several branches exports requests of every selected branch.', calls: 'none', mark: null, cards: [51] },
+      { k: 'R14', text: 'Approve / Reject still works on a request from a multi-branch result.', calls: 'none', mark: null, cards: [] },
+    ],
+    steps: [
+      ['Open Admin → Booking → Refunded Requests.', 2], ['Open the Agency dropdown and check that "All Agencies" is listed.', 7],
+      ['Open the Branch dropdown and check that "All Branches" is listed.', 0], ['Search with All Agencies + All Branches.', 7],
+      ['Search with Agency A + All Branches.', 0], ['Search with All Agencies + one branch (Cairo).', 0],
+      ['Search with All Agencies + two branches (Cairo + Mansoura).', 7], ['Search with Agency A + Cairo + Mansoura.', 1],
+      ['Switch Branch from All Branches to one specific branch and search again.', 0],
+      ['Combine Branch + Agency with PNR, date range, Refund Status and Request Type, then search.', 0],
+      ['Export To Excel with multi-branch filters applied.', 0], ['Open Refund Details, then Approve or Reject one pending request from a multi-branch result.', 0],
+    ].map(([text, calls]) => ({ text, calls })),
+    notes: [{ tag: 'NOTE', text: 'Branch still has Validators.required with defaultValue [] - the page opens with nothing selected', card: 52 },
+      { tag: 'NOT IN TASK', text: 'dropdown-input.component.ts changed - used by 9 other pages', card: 53 }],
+    brief: {
+      edited: '10/16/2026, 11:40 AM by you', prev: null,
+      scope: ['Search endpoint accepts several branch ids, or none for "All Branches"', 'Agency filter accepts "All Agencies"',
+        'Agency lookup for several selected branches', 'Export To Excel uses the same new filters', 'Branch is no longer required (defaults to All Branches)'],
+    },
+    comments: [
+      { id: 1, quote: 'Branch is no longer required (defaults to All Branches)', who: 'You', at: '11:52 AM', text: 'Is that still true? The page opens with nothing selected (Validators.required is still on).',
+        replies: [{ who: 'Claude', at: '11:54 AM', text: 'Not yet: refund-request.page.ts:79 keeps Validators.required with []. Card #52 has it. I can reword the line until it is fixed:' }],
+        suggestion: { from: 'Branch is no longer required (defaults to All Branches)', to: 'Branch should not be required - today it still is (#52); it defaults to All Branches' }, resolved: false },
+      { id: 2, quote: '"All Branches" = every branch the logged-in Admin may access', who: 'Claude', at: 'yesterday', asks: true,
+        text: 'Should a branch the Admin lost access to after the search was saved still be included? The calls never show that case.', replies: [], resolved: false },
+      { id: 3, quote: null, who: 'You', at: '10:02 AM', text: 'QA wants the filter table in the ticket too - keep it in sync.', replies: [], resolved: false },
+      { id: 4, quote: 'Multi-Select', who: 'You', at: 'Oct 14', text: 'Is this the shared multi-select or a new one?', replies: [{ who: 'Claude', at: 'Oct 14', text: 'The shared one (dropdown-input), with multiple: true.' }], resolved: true },
+    ],
+    replyOpen: null, nextComment: 5, guides: {},
+  };
+}
+let S = store.get('state', null) || fresh();
+const save = () => store.set('state', S);
+
+// ------------------------------------------------------------------ derived
+const stateOf = (r) => r.mark === 'PASS' ? 'MET' : r.mark === 'FAIL' ? 'BUG' : r.mark === 'CANT' ? 'CANT' : r.suggest ? 'SUGG' : 'UN';
+const LABEL = { SUGG: '✦ SUGGESTS PASS', MET: '✓ MET', BUG: 'BUG', CANT: "CAN'T TELL", UN: 'NOT CHECKED' };
+const CLS = { SUGG: 'sugg', MET: 'met', BUG: 'bug', CANT: 'cant', UN: 'un' };
+const counts = () => { const c = { SUGG: 0, MET: 0, BUG: 0, CANT: 0, UN: 0 }; S.reqs.forEach((r) => c[stateOf(r)]++); return c; };
+const marked = () => S.reqs.filter((r) => r.mark).length;
+const stepsDone = () => S.steps.filter((s) => s.calls > 0).length;
+const openComments = () => S.comments.filter((c) => !c.resolved);
+const asks = () => openComments().filter((c) => c.asks && !c.replies.some((r) => r.who === 'You'));
+const doneWhen = () => {
+  const c = counts();
+  return [
+    { ok: marked() === S.reqs.length, text: 'every requirement marked by you', v: marked() + ' / ' + S.reqs.length, go: () => go('req', 'open') },
+    { ok: c.BUG === 0, text: 'no open bug or task', v: String(c.BUG), go: () => go('req', 'BUG') },
+    { ok: true, text: 'every fix re-tested', v: '-' },
+  ];
+};
+const ready = () => doneWhen().every((d) => d.ok);
+
+// ------------------------------------------------------------------ helpers
+function toast(t) { const el = document.getElementById('toast'); el.textContent = t; el.classList.add('on'); clearTimeout(toast.h); toast.h = setTimeout(() => el.classList.remove('on'), 2200); }
+function copy(cmd) { (navigator.clipboard?.writeText(cmd) ?? Promise.reject()).catch(() => {}); toast('Copied: ' + cmd); }
+function go(tab, filter) { S.tab = tab; if (filter) S.filter = filter; render(); }
+const guideOpen = (id) => S.guides[id] === undefined ? true : S.guides[id];
+function guide(id, title, html) {
+  return `<div class="tabhead"><span>${title[1]}</span><button class="info ${guideOpen(id) ? 'on' : ''}" data-act="guide" data-id="${id}" title="What is this and how do I decide here?">ⓘ How this works</button></div>
+    <div class="guide ${guideOpen(id) ? 'on' : ''}"><h5>${title[0]} <span class="x" data-act="guide" data-id="${id}">hide ✕</span></h5>${html}</div>`;
+}
+const cardRef = (n) => `<span class="cardref" data-act="card" data-n="${n}" title="Open card #${n}">#${n}</span>`;
+const callPill = (r) => r.calls === '0rows' ? `<span class="calls warn" title="0 rows: the last search ran fine but returned nothing${r.at ? ' (' + r.at + ')' : ''}, so Alfred cannot check the result. Add test data and search again.">0 rows</span>`
+  : r.calls === 'none' ? `<span class="calls" title="No call has tried this yet: do the matching Test plan step while Claude listens.">no call yet</span>`
+  : r.calls === 'hand' ? `<span class="calls" title="No call can show this (what a dropdown lists): you check it in the app and mark it.">checked by hand</span>`
+  : `<span class="calls ok" title="The calls show it.">seen in calls</span>`;
+
+// ------------------------------------------------------------------ header
+function renderHeader() {
+  const c = counts(); const n = S.reqs.length;
+  const head = c.BUG ? ['Not yet', 'var(--red)'] : c.MET === n ? ['Yes', 'var(--green)'] : c.MET ? ['Partly', 'var(--amber)'] : ['Not checked', 'var(--faint)'];
+  document.getElementById('verdict').innerHTML = `Does the code match the task? <b style="color:${head[1]}">${head[0]}</b> - ${c.MET} of ${n} met${c.BUG ? ' · ' + c.BUG + ' bug' + (c.BUG > 1 ? 's' : '') : ''}
+    <button class="info" title="Counted from Requirements: met when the calls (or your Pass) show it works. Bar: green met, red bug, violet Claude suggests, grey can't tell, faint not checked.">ⓘ</button>`;
+  const seg = [['MET', 's-met'], ['BUG', 's-bug'], ['SUGG', 's-sugg'], ['CANT', 's-cant'], ['UN', 's-un']];
+  document.getElementById('bar').innerHTML = seg.map(([k, cl]) => c[k] ? `<i class="${cl}" style="width:${(c[k] / n) * 100}%" title="${c[k]} ${LABEL[k].toLowerCase()}"></i>` : '').join('');
+  const phases = ['Coded', 'Verifying', 'Fixed', 'Re-tested', 'Done'];
+  const now = ready() ? 4 : c.BUG ? 2 : 3;
+  const why = { Coded: 'the change is in', Verifying: 'calls checked against the requirements', Fixed: 'bugs found were fixed', 'Re-tested': 'the fixes checked again', Done: 'Done when is all ✓' };
+  document.getElementById('stepper').innerHTML = phases.map((p, i) => `${i ? '<i>›</i>' : ''}<span class="${i < now ? 'done' : i === now ? 'now' : ''}" title="${p}: ${why[p]}">${i < now ? '✓ ' : ''}${p}</span>`).join('');
+  const next = document.getElementById('next');
+  const nx = ready() ? ['Hand-over report', 'report', '/alfred-report', 'Every requirement is marked and nothing is open: write the hand-over for QA.']
+    : c.BUG ? ['Fix the bug', 'fix', '/alfred-fix', 'A requirement failed: Claude fixes it on its card, then you re-test.']
+    : c.SUGG ? ['Review Claude\'s suggestion', 'req', null, 'Claude answered a requirement from the code - accept it or mark it yourself.']
+    : ['Check while I test', 'listen', '/alfred-listen', 'Requirements can\'t be judged yet: use the app while Claude listens and judges each one from the calls.'];
+  next.innerHTML = `▶ Next: ${nx[0]} <small>${nx[2] ? nx[2] + ' · copy' : 'opens Requirements'}</small>`;
+  next.title = 'Picked from where the task stands. ' + nx[3];
+  next.onclick = () => nx[2] ? copy(nx[2] + ' ' + CYCLE) : go('req', 'SUGG');
+  const runs = [['▶', 'Check while I test', '/alfred-listen', 'follows the calls live, judges each requirement'], ['▶', 'Review what was recorded', '/alfred-review', 'goes through the cycle\'s calls once'],
+    ['▶', 'Write the requirements', '/alfred-spec', 'drafts the spec file from the brief'], ['▶', 'Hand-over report', '/alfred-report', ready() ? 'ready - Done when is all ✓' : 'when Done when is all ✓']];
+  document.getElementById('runpop').innerHTML = runs.map(([ic, t, cmd, d]) => `<div class="mi" data-act="copy" data-cmd="${cmd} ${esc(CYCLE)}"><span class="ic">${ic}</span><div>${t}<small>${cmd} · ${d}</small></div><span class="cp">⧉ copy</span></div>`).join('')
+    + `<div class="sep"></div><div class="mi" data-act="copy" data-cmd="/mcp__alfred__resume ${esc(CYCLE)}"><span class="ic">⇢</span><div>Continue anywhere<small>a new session, machine or agent picks the task up</small></div><span class="cp">⧉ copy</span></div>`;
+  const items = [];
+  if (c.SUGG) items.push(`<span class="it" data-act="go" data-tab="req" data-f="SUGG">✦ ${c.SUGG} suggestion${c.SUGG > 1 ? 's' : ''} to accept</span>`);
+  const toJudge = S.reqs.filter((r) => !r.mark && !r.suggest).length;
+  if (toJudge) items.push(`<span class="it" data-act="go" data-tab="req" data-f="UN">${toJudge} requirement${toJudge > 1 ? 's' : ''} not checked yet</span>`);
+  if (c.BUG) items.push(`<span class="it" data-act="go" data-tab="req" data-f="BUG" style="border-color:rgba(240,122,122,.5)">✗ ${c.BUG} failed - a fix card each</span>`);
+  if (asks().length) items.push(`<span class="it" data-act="go" data-tab="brief">💬 Claude asks about the brief</span>`);
+  items.push(`<span class="it" data-act="card" data-n="51">#51 Export To Excel - waiting for your answer</span>`);
+  const left = S.steps.length - stepsDone();
+  if (left) items.push(`<span class="it" data-act="go" data-tab="test">${left} of ${S.steps.length} test steps not done</span>`);
+  document.getElementById('needs').innerHTML = `<b>Needs you</b><button class="info" title="Everything on this task waiting for you; click one to go there.">ⓘ</button>` + items.join('');
+  const tabs = [['req', 'Requirements', `${n - c.MET} open`, n - c.MET > 0], ['test', 'Test plan', `${stepsDone()} / ${S.steps.length}`, false],
+    ['brief', 'Brief', openComments().length ? '💬 ' + openComments().length : '', asks().length > 0], ['runs', "Claude's runs", '3', false], ['files', 'Spec & files', '1 · 1', false]];
+  document.getElementById('tabs').innerHTML = tabs.map(([k, t, nn, warn]) => `<button class="tab ${S.tab === k ? 'on' : ''}" data-act="tab" data-tab="${k}">${t}${nn ? ` <span class="n ${warn ? 'warn' : ''}">${nn}</span>` : ''}</button>`).join('');
+  document.querySelectorAll('.pane').forEach((p) => p.classList.toggle('on', p.id === 'p-' + S.tab));
+}
+
+// ------------------------------------------------------------------ requirements
+function renderReq() {
+  const c = counts();
+  const chips = [['all', 'All', S.reqs.length, ''], ['open', 'Open', S.reqs.length - c.MET, ''], ['SUGG', 'Claude suggests', c.SUGG, 's-sugg'], ['BUG', 'Bug', c.BUG, 's-bug'],
+    ['CANT', "Can't tell yet", c.CANT, 's-cant'], ['UN', 'Not checked', c.UN, 's-un'], ['MET', 'Met', c.MET, 's-met']];
+  const keep = (r) => S.filter === 'all' || (S.filter === 'open' ? stateOf(r) !== 'MET' : stateOf(r) === S.filter);
+  const groups = [['SUGG', 'Decide', "Claude suggests a mark; yours decides", "Open the row, read Claude's reason, then Accept it or mark it yourself. Nothing counts until you do."],
+    ['BUG', 'Failed', 'a card holds the fix; re-test when it is fixed', 'You marked it Fail: Claude fixes it on the card, then you re-test.'],
+    ['CANT', "Can't tell yet", "the calls don't show it; test it, or mark it yourself", '0 rows = the search found nothing, so nothing could be checked: add data and search again. No call yet = do the Test plan step while Claude listens.'],
+    ['UN', 'Not checked', 'nothing has tried it yet', 'Do its Test plan step while Claude listens, or mark it yourself if you already know.'],
+    ['MET', 'Met', 'done', 'The calls or your Pass show it works.']];
+  let html = guide('req', ['Requirements - what the task must do, and whether the code does it', "The ticket's criteria, judged by the calls"], `
+      <p>Each row is one <b>Acceptance line</b> of the spec file. Alfred judges a row from the calls you record while using the app; when the calls can't show it, <b>you</b> decide with Pass / Fail / Can't tell. Your mark is what counts - Claude only suggests.</p>
+      <div class="cols"><div><div class="q">What the states mean</div><ul>
+        <li><span class="st met">✓ MET</span> the calls (or your Pass) show it works</li><li><span class="st bug">BUG</span> it was built but works wrong - a card holds the fix</li>
+        <li><span class="st cant">CAN'T TELL</span> calls exist but can't prove it (e.g. 0 rows)</li><li><span class="st un">NOT CHECKED</span> nothing has tried it yet</li>
+        <li><span class="st sugg">✦ SUGGESTS</span> Claude has an answer from the code - you accept or not</li></ul></div>
+        <div><div class="q">How to decide a row</div><div class="flow">
+          <span class="if">✦ Claude suggests →</span><span>read its reason (open the row). Agree? <b>Accept</b>.</span>
+          <span class="if">0 rows →</span><span>add test data (Test plan → Data) and search again; or mark <b>Can't tell</b>.</span>
+          <span class="if">no call yet →</span><span>do the matching Test plan step while Claude listens.</span>
+          <span class="if">you saw it work →</span><span><b>✓ Pass</b>, and say how in your evidence.</span>
+          <span class="if">you saw it wrong →</span><span><b>✗ Fail</b> - Claude opens a card for the fix.</span>
+          <span class="if">can't be shown →</span><span><b>? Can't tell</b> with a note why.</span></div></div></div>`);
+  html += `<div class="filters">${chips.map(([k, t, nn, d]) => `<button class="f ${S.filter === k ? 'on' : ''}" data-act="filter" data-f="${k}" ${nn === 0 && k !== 'all' ? 'disabled style="opacity:.45"' : ''}>${d ? `<span class="d ${d}"></span>` : ''}${t} ${nn}</button>`).join('')}</div>`;
+  let any = false;
+  for (const [key, title, hint, tip] of groups) {
+    const rows = S.reqs.filter((r) => stateOf(r) === key && keep(r));
+    if (!rows.length) continue;
+    any = true;
+    const shut = S.filter === 'all' || S.filter === 'open' ? !!S.shut[key] : false;
+    html += `<div class="group ${shut ? 'shut' : ''}"><div class="gh" data-act="group" data-g="${key}"><span class="car">▾</span>${title} · ${rows.length} <span class="hint">- ${hint}</span><span class="info" title="${esc(tip)}">ⓘ</span></div><div class="rows">`;
+    for (const r of rows) {
+      const st = stateOf(r); const open = !!S.open[r.k];
+      html += `<div class="req ${open ? 'open' : ''}"><div class="rq" data-act="row" data-k="${r.k}"><span class="st ${CLS[st]}">${LABEL[st]}</span><span class="t"><span class="k">${r.k}</span>${esc(r.text)}</span>
+        <span class="meta">${r.cards.map(cardRef).join('')}${callPill(r)}</span>
+        <span class="seg">${[['PASS', 'p', '✓ Pass'], ['FAIL', 'x', '✗ Fail'], ['CANT', 'q', "? Can't tell"]].map(([m, cl, t]) => `<button class="${cl} ${r.mark === m ? 'on' : ''}" data-act="mark" data-k="${r.k}" data-m="${m}">${t}</button>`).join('')}</span></div>
+        <div class="more">`;
+      if (r.suggest) html += `<div class="sugg"><div class="h">✦ Claude suggests ✓ Pass</div>${esc(r.suggest.why)}<div style="margin-top:.4rem;display:flex;gap:.5rem"><button class="sm accept" data-act="accept" data-k="${r.k}">Accept ✓ Pass</button><button class="sm btn" data-act="dismiss" data-k="${r.k}">Dismiss</button></div></div>`;
+      html += `<div class="kv">${r.evidence ? `<span class="k">${r.mark ? 'You' : 'Notes'}</span><span>${esc(r.evidence)}</span>` : ''}
+          ${r.calls === '0rows' ? `<span class="k">Calls</span><span>response <code>$.payload</code> has rows - <b>0 rows</b>${r.at ? ' · ' + r.at : ''}</span>` : ''}
+          <span class="k">From</span><span>spec.md · AC${r.k.slice(1)}${r.mark ? ' · marked by you' : ''}</span></div>`;
+      if (S.editing === r.k) html += `<div style="margin-top:.4rem"><textarea id="ev-${r.k}" rows="2" style="width:100%;background:var(--inner);color:var(--text);border:1px solid var(--border-strong);border-radius:6px;padding:.3rem;font:inherit">${esc(r.evidence ?? '')}</textarea><div style="display:flex;gap:.4rem;margin-top:.3rem"><button class="sm accept" data-act="saveev" data-k="${r.k}">Save</button><button class="sm btn" data-act="cancelev">Cancel</button></div></div>`;
+      html += `<div class="links"><a data-act="evidence" data-k="${r.k}">✎ your evidence</a><a data-act="toast" data-t="Checks editor: the endpoint, request shape and expected rows Alfred judges this by">⚙ how the calls show it</a><a data-act="toast" data-t="Asked Claude about ${r.k} in the cycle's chat">💬 ask Claude</a></div></div></div>`;
+    }
+    html += `</div></div>`;
+  }
+  if (!any) html += `<div class="dim" style="padding:1rem 0">Nothing here with this filter. <a data-act="filter" data-f="all" style="color:var(--blue);cursor:pointer">Show all</a></div>`;
+  if (S.filter === 'all' || S.filter === 'open') {
+    html += `<div class="group also"><div class="gh" data-act="group" data-g="ALSO"><span class="car">▾</span>Also found · ${S.notes.length} <span class="hint">- not tied to a requirement</span><span class="info" title="Claude's notes, and changes in the branch the task never asked for (scope creep, or a requirement nobody wrote down).">ⓘ</span></div><div class="rows ${S.shut.ALSO ? 'hidden' : ''}">`
+      + S.notes.map((x) => `<div class="note"><span class="tag ${x.tag === 'NOT IN TASK' ? 'extra' : ''}">${x.tag}</span><span>${esc(x.text)}</span><span class="grow"></span>${cardRef(x.card)}</div>`).join('') + `</div></div>`;
+  }
+  document.getElementById('p-req').innerHTML = html;
+}
+
+// ------------------------------------------------------------------ test plan
+function renderTest() {
+  let html = guide('test', ['Test plan - the steps to use the app, and the hand-over rule', 'What to do in the app, and when the task is finished'], `<div class="cols">
+      <div><div class="q">How to test it</div><p>Do the steps in the app while Claude listens (Run ▾ → Check while I test): a step gets <b>✓ and its calls</b> when Claude sees them, <b>not yet</b> until then. In this mock, click "not yet" to play Claude seeing it. Set up the test data first, or searches come back with 0 rows.</p></div>
+      <div><div class="q">Done when</div><p>All three must be ✓ before hand-over. A ✗ says what is left - click it to go there. Then <b>Hand-over report</b> writes the summary for QA.</p></div></div>`);
+  html += `<div class="two"><div class="card"><h4>How to test it <small>${stepsDone()} of ${S.steps.length} seen in the calls</small></h4>`
+    + S.steps.map((s, i) => `<div class="step"><span class="mk ${s.calls ? 'ok' : ''}">${s.calls ? '✓' : '·'}</span><span class="no">${i + 1}</span><span>${esc(s.text)}</span>${s.calls ? `<span class="pill ok">${s.calls} call${s.calls > 1 ? 's' : ''}</span>` : `<span class="pill" data-act="step" data-i="${i}" style="cursor:pointer" title="Mock: play Claude seeing this step's calls">not yet ▸</span>`}</div>`).join('')
+    + `<div class="lbl">Test data <span>- what the steps need</span></div><div class="data"><span>Admin user with access to several branches and agencies (fill in)</span><span>Agency A operating in two branches (fill in names)</span><span>Branches with refund requests in the last 7 days: e.g. Cairo, Mansoura</span><span>At least one request with status Pending For Approve</span></div></div>`;
+  html += `<div><div class="card"><h4>Done when <small>the hand-over rule, checked live</small></h4>`
+    + doneWhen().map((d, i) => `<div class="dw" ${d.ok ? '' : `data-act="dw" data-i="${i}" style="cursor:pointer" title="Go there"`}><span class="mk ${d.ok ? 'ok' : 'bad'}">${d.ok ? '✓' : '✗'}</span>${d.text}<span class="v">${d.v}</span></div>`).join('')
+    + `<div style="margin-top:.6rem"><button class="btn ${ready() ? 'primary' : ''}" data-act="${ready() ? 'copy' : 'toast'}" data-cmd="/alfred-report ${esc(CYCLE)}" data-t="Not yet - make all three ✓ first" ${ready() ? '' : 'style="opacity:.6"'}>▶ Hand-over report <small>${ready() ? 'ready' : 'when all three are ✓'}</small></button></div></div></div></div>`;
+  document.getElementById('p-test').innerHTML = html;
+}
+
+// ------------------------------------------------------------------ brief + comments
+function hl(text, quote, cls, id) { return quote && text.includes(quote) ? text.replace(quote, `<mark class="hl ${cls}" data-c="${id}">${quote}</mark>`) : text; }
+function briefText() {
+  let scope = S.brief.scope.map(esc);
+  let dec1 = esc('"All Branches" = every branch the logged-in Admin may access, not "no filter". All = [-11] for branchIds and agencyIds.');
+  let desc = 'Change the Branch dropdown to support Multi-Select.';
+  for (const c of S.comments) {
+    if (!c.quote) continue;
+    const cls = c.resolved ? 'done' : c.who === 'Claude' ? 'cl' : '';
+    scope = scope.map((t) => hl(t, esc(c.quote), cls, c.id));
+    dec1 = hl(dec1, esc(c.quote), cls, c.id);
+    desc = hl(desc, esc(c.quote), cls, c.id);
+  }
+  return `<div class="edit"><span>edited ${S.brief.edited}</span>${S.brief.prev ? '<a data-act="restore">Restore previous</a>' : ''}<a data-act="toast" data-t="Edit opens the brief in the editor">✎ Edit</a></div>
+    <div id="brief-body">
+    <p class="brief-goal" style="margin-top:.5rem">Refunded Requests (Admin) filters get "All Agencies", "All Branches" and a multi-select Branch dropdown; results combine selected branches with OR.</p>
+    <div class="two"><div><div class="lbl">Description <span>- as the ticket says it</span></div>Enhance the existing filters in Admin Dashboard → Refunded Requests:
+      <ul class="tight"><li>Add All Agencies option to the Agency dropdown.</li><li>Add All Branches option to the Branch dropdown.</li><li>${desc}</li><li>Allow the Admin User to select one or multiple branches within the same search.</li><li>Preserve the existing filtering behavior for all other Refunded Requests filters.</li></ul>
+      <div class="lbl">Filter examples</div><table class="ex"><tr><th>Agency</th><th>Branch</th><th>Expected result</th></tr><tr><td>All Agencies</td><td>All Branches</td><td>All applicable Refund Requests</td></tr><tr><td>Agency A</td><td>All Branches</td><td>Requests for Agency A across all applicable branches</td></tr><tr><td>All Agencies</td><td>Cairo + Mansoura</td><td>Requests associated with Cairo OR Mansoura</td></tr></table></div>
+      <div><div class="lbl">In scope</div><ul class="tight scope">${scope.map((t) => `<li>${t}</li>`).join('')}</ul>
+      <div class="lbl">Out of scope <span>- never carded</span></div><ul class="tight oos"><li>Refund request data, processing, refund status, Approve / Reject</li><li>Other Refunded Requests filters (PNR, dates, status, type)</li><li>Authorization rules for agencies / branches</li></ul></div></div>
+    <div class="lbl">Decisions <span>- binding for every session</span></div>
+    <div class="dec"><span class="when">2026-10-15</span><span>${dec1}</span></div>
+    <div class="dec"><span class="when">2026-10-15</span><span>#45 merged into #44 (one fix, one re-test).</span></div>
+    <div class="dec"><span class="when">chat #5060</span><span>#51 Export To Excel kept open: AC13 needs a real Export call with 2+ branches.</span></div>
+    </div>
+    <div class="lbl">Pinned, pages &amp; files</div><div class="att"><span class="a">📌 refund search walkthrough</span><span class="a">◆ Page: Refunded Requests walkthrough</span><span class="a add" data-act="toast" data-t="+ Page opens the page editor">+ Page</span><span class="a add" data-act="toast" data-t="Attach opens the file chooser">📎 Attach a file</span></div>`;
+}
+function commentHtml(c) {
+  const av = (w) => `<span class="av ${w === 'Claude' ? 'cl' : ''}">${w === 'Claude' ? '✦' : 'Y'}</span><b class="${w === 'Claude' ? 'cln' : ''}">${w}</b>`;
+  let h = `<div class="cmt ${c.who === 'Claude' ? 'cl' : ''} ${c.resolved ? 'resolved' : ''}" data-c="${c.id}">
+    <div class="q" ${c.quote ? '' : 'style="border-left-color:var(--border-strong)"'}>${c.quote ? '"' + esc(c.quote) + '"' : 'On the whole brief'}</div>
+    <div class="cw">${av(c.who)}<span class="faint">${c.at}</span>${c.asks && !c.replies.some((r) => r.who === 'You') ? '<span style="color:var(--amber);font-size:.7rem">❓ asks you</span>' : ''}</div><div>${esc(c.text)}</div>`;
+  for (const r of c.replies) h += `<div class="rep"><div class="cw">${av(r.who)}<span class="faint">${r.at}</span></div><div>${esc(r.text)}</div></div>`;
+  if (c.suggestion && !c.resolved) h += `<div class="proposal">✦ Suggests: <del>${esc(c.suggestion.from)}</del> → <ins>${esc(c.suggestion.to)}</ins><div class="btns"><button class="sm accept" data-act="apply" data-id="${c.id}">Apply to the brief</button><button class="sm btn" data-act="nosugg" data-id="${c.id}">Dismiss</button></div></div>`;
+  if (S.replyOpen === c.id) h += `<div style="margin-top:.4rem"><textarea id="rep-${c.id}" rows="2" placeholder="Reply…" style="width:100%;background:var(--inner);color:var(--text);border:1px solid var(--border-strong);border-radius:6px;padding:.3rem;font:inherit"></textarea><div style="display:flex;gap:.4rem;margin-top:.3rem"><button class="sm accept" data-act="sendrep" data-id="${c.id}">Reply</button><button class="sm btn" data-act="cancelrep">Cancel</button></div></div>`;
+  h += `<div class="foot">${c.resolved ? `<span class="faint">resolved by you</span><a class="res" data-act="reopen" data-id="${c.id}" style="color:var(--blue)">Reopen</a>` : `<a data-act="reply" data-id="${c.id}">${c.asks ? 'Answer' : 'Reply'}</a><a class="res" data-act="resolve" data-id="${c.id}">✓ Resolve</a>`}</div></div>`;
+  return h;
+}
+function renderBrief() {
+  const open = S.comments.filter((c) => !c.resolved), done = S.comments.filter((c) => c.resolved);
+  let html = guide('brief', ['Brief - the task in words', 'What the task is - the source for everything else'], `<div class="cols">
+      <div><div class="q">What it is</div><p>The ticket as written, what is in and out of scope, and the <b>decisions</b> made on the way - every Claude session reads them first and must follow them.</p></div>
+      <div><div class="q">Comments</div><p><b>Select a passage</b> → 💬 Comment to ask or note something about it; "+ On the whole brief" for the rest. Claude answers in the thread and may suggest a rewording - the brief only changes when you click <b>Apply</b> (Restore previous undoes it).</p></div></div>`);
+  html += `<div class="bwrap"><div>${briefText()}</div><aside class="margin"><div class="mh"><span class="t">Comments</span><span>${open.length} open · ${done.length} resolved</span><button class="btn sm" style="padding:.05rem .5rem" data-act="newwhole">+ On the whole brief</button></div>`;
+  if (S.draft) html += `<div class="cmt" style="border-color:rgba(242,181,82,.6)"><div class="q">${S.draft.quote ? '"' + esc(S.draft.quote) + '"' : 'On the whole brief'}</div><textarea id="draft" rows="3" placeholder="Your comment…" style="width:100%;background:var(--inner);color:var(--text);border:1px solid var(--border-strong);border-radius:6px;padding:.3rem;font:inherit"></textarea><div style="display:flex;gap:.4rem;margin-top:.3rem"><button class="sm accept" data-act="adddraft">Comment</button><button class="sm btn" data-act="canceldraft">Cancel</button></div></div>`;
+  html += open.map(commentHtml).join('');
+  if (done.length) html += `<details><summary class="faint" style="font-size:.76rem;cursor:pointer">${done.length} resolved</summary>${done.map(commentHtml).join('')}</details>`;
+  html += `</aside></div>`;
+  document.getElementById('p-brief').innerHTML = html;
+  if (S.draft) setTimeout(() => document.getElementById('draft')?.focus());
+}
+
+// ------------------------------------------------------------------ runs + files
+function renderRuns() {
+  const runs = [
+    ['/alfred-listen', 'today 9:24 AM', '140 calls · 88 flagged in 34 groups · 0 cards · 1 batch · 7 runs · every group judged as it came.',
+      '2 open cards in this cycle; steps: 4 seen, 0 failed, 8 untested. "Client disconnected" with no status means the page was left before the answer - not a bug unless the call also shows an error.',
+      'Sort the Inbox (/alfred-triage); the unasked expectations and check lines wait for you.'],
+    ['/alfred-listen', 'today 9:24 AM · part 3', 'Checked board regressions and compared this cycle with the most similar one.', 'No regressions: no Done or Verified card failed again, every guard holds.', 'Nothing - carry on testing.'],
+    ['/alfred-review', 'yesterday 6:02 PM', 'Judged 14 requirements against 140 recorded calls.', '3 met; 11 can\'t be told from the calls (searches returned 0 rows).', 'Add refund requests in the test branches and search again.'],
+  ];
+  document.getElementById('p-runs').innerHTML = guide('runs', ["Claude's runs - the session log", 'What each Claude run did - newest first'],
+    `<p>Every skill Claude runs on this task leaves one entry: <b>Did</b>, <b>Found</b>, <b>Next</b>. Read the newest one's Next when you come back; nothing here needs a decision unless its Next says so.</p>`)
+    + runs.map(([sk, at, did, found, next], i) => `<details class="run" ${i ? '' : 'open'}><summary><span class="sk">${sk}</span><span class="faint">${at}</span><span class="nx">Next: ${esc(next)}</span><span class="faint">▾</span></summary><div class="body">
+      <div class="p"><div class="ph">✓ Did</div>${esc(did)}</div><div class="p found"><div class="ph">⚑ Found</div>${esc(found)}</div><div class="p next"><div class="ph">→ Next</div>${esc(next)}</div></div></details>`).join('');
+}
+function renderFiles() {
+  document.getElementById('p-files').innerHTML = guide('files', ['Spec & files', 'The spec files the requirements come from, and attachments'],
+    `<p>A spec file (.md / .txt) holds the ticket's <b>Acceptance</b> lines - each becomes a row in Requirements. Drop the ticket's spec here, or let Run ▾ → Write the requirements draft one from the brief. Replacing a file keeps the previous one.</p>`)
+    + `<div class="two"><div class="card"><h4>Spec files <small>.md · .txt</small></h4><div style="display:flex;gap:.5rem;align-items:center;font-size:.85rem"><span class="chip">MD</span><b>spec.md</b><span class="faint">1.7 KB · 10/15 1:06 PM · ✦ by Claude</span><span class="grow"></span><a style="color:var(--blue);font-size:.78rem;cursor:pointer" data-act="toast" data-t="The previous spec.md is back">Restore previous</a></div>
+      <div data-act="toast" data-t="The file chooser opens" style="cursor:pointer;margin-top:.6rem;border:1px dashed var(--border-strong);border-radius:8px;padding:.5rem;text-align:center;color:var(--dim);font-size:.82rem">Drop .md / .txt here, choose, or paste text</div></div>
+      <div class="card"><h4>Files <small>attached to this task</small></h4><div class="dim" style="font-size:.84rem">refund-search-before.png · 120 KB</div></div></div>`;
+}
+
+function render() { renderHeader(); renderReq(); renderTest(); renderBrief(); renderRuns(); renderFiles(); save(); }
+
+// ------------------------------------------------------------------ actions
+const req = (k) => S.reqs.find((r) => r.k === k);
+const cmt = (id) => S.comments.find((c) => c.id === +id);
+document.addEventListener('click', (e) => {
+  const el = e.target.closest('[data-act]');
+  if (!e.target.closest('#runmenu')) document.getElementById('runmenu').classList.remove('open');
+  if (!el) return;
+  const d = el.dataset;
+  switch (d.act) {
+    case 'tab': S.tab = d.tab; break;
+    case 'go': S.tab = d.tab; if (d.f) S.filter = d.f; break;
+    case 'filter': S.filter = d.f; break;
+    case 'group': S.shut[d.g] = !S.shut[d.g]; break;
+    case 'row': S.open[d.k] = !S.open[d.k]; break;
+    case 'guide': S.guides[d.id] = !guideOpen(d.id); break;
+    case 'mark': {
+      const r = req(d.k); const m = r.mark === d.m ? null : d.m;
+      r.mark = m;
+      if (m === 'FAIL') { r.cards = [...r.cards, S.nextCard]; toast(`✗ ${r.k} failed - Claude opens #${S.nextCard} for the fix`); S.nextCard++; }
+      else if (m === 'PASS') toast(`✓ ${r.k} marked Pass - add how you saw it in your evidence`);
+      else if (m === 'CANT') toast(`? ${r.k} - say why in your evidence; it stays open in Done when`);
+      break;
+    }
+    case 'accept': { const r = req(d.k); r.mark = r.suggest.mark; r.evidence = r.suggest.why; r.suggest = null; toast(`${r.k} marked Pass, as Claude suggested`); break; }
+    case 'dismiss': { const r = req(d.k); r.suggest = null; toast('Suggestion dismissed - mark it yourself'); break; }
+    case 'evidence': S.editing = d.k; S.open[d.k] = true; break;
+    case 'saveev': { req(d.k).evidence = document.getElementById('ev-' + d.k).value; S.editing = null; toast('Evidence saved'); break; }
+    case 'cancelev': S.editing = null; break;
+    case 'step': { S.steps[+d.i].calls = 1 + Math.floor(Math.random() * 6); toast(`Claude saw step ${+d.i + 1} in the calls`); break; }
+    case 'dw': doneWhen()[+d.i].go?.(); return;
+    case 'card': toast(`Card #${d.n} opens in the drawer`); return;
+    case 'copy': copy(d.cmd); document.getElementById('runmenu').classList.remove('open'); return;
+    case 'toast': toast(d.t); return;
+    case 'reply': S.replyOpen = +d.id; break;
+    case 'cancelrep': S.replyOpen = null; break;
+    case 'sendrep': { const t = document.getElementById('rep-' + d.id).value.trim(); if (!t) return; const c = cmt(d.id); c.replies.push({ who: 'You', at: 'now', text: t }); S.replyOpen = null;
+      setTimeout(() => { c.replies.push({ who: 'Claude', at: 'now', text: 'Noted - I will keep the brief and the cards in line with that.' }); render(); }, 1400); break; }
+    case 'resolve': cmt(d.id).resolved = true; toast('Resolved'); break;
+    case 'reopen': cmt(d.id).resolved = false; break;
+    case 'apply': { const c = cmt(d.id); S.brief.prev = JSON.parse(JSON.stringify(S.brief.scope)); S.brief.scope = S.brief.scope.map((t) => t === c.suggestion.from ? c.suggestion.to : t);
+      c.quote = c.suggestion.to; c.suggestion = null; S.brief.edited = 'just now by you (Claude\'s wording)'; toast('Applied to the brief - Restore previous undoes it'); break; }
+    case 'nosugg': cmt(d.id).suggestion = null; break;
+    case 'restore': S.brief.scope = S.brief.prev; S.brief.prev = null; S.brief.edited = 'just now - restored'; toast('Previous brief restored'); break;
+    case 'newwhole': S.draft = { quote: null }; break;
+    case 'canceldraft': S.draft = null; break;
+    case 'adddraft': { const t = document.getElementById('draft').value.trim(); if (!t) return; S.comments.push({ id: S.nextComment++, quote: S.draft.quote, who: 'You', at: 'now', text: t, replies: [], resolved: false }); S.draft = null; toast('Comment added - Claude sees it in the task'); break; }
+    default: return;
+  }
+  render();
+});
+document.getElementById('runbtn').addEventListener('click', (e) => { e.stopPropagation(); document.getElementById('runmenu').classList.toggle('open'); });
+// select text in the brief → 💬 Comment
+const selbtn = document.getElementById('selbtn');
+document.addEventListener('mouseup', (e) => {
+  if (e.target === selbtn) return;
+  setTimeout(() => {
+    const sel = window.getSelection(); const t = sel?.toString().trim();
+    const body = document.getElementById('brief-body');
+    if (!t || !body || !sel.rangeCount || !body.contains(sel.getRangeAt(0).commonAncestorContainer) || t.length > 200) { selbtn.style.display = 'none'; return; }
+    const rect = sel.getRangeAt(0).getBoundingClientRect();
+    selbtn.style.display = 'block'; selbtn.style.left = (rect.left + window.scrollX) + 'px'; selbtn.style.top = (rect.bottom + window.scrollY + 6) + 'px';
+    selbtn.dataset.q = t;
+  });
+});
+selbtn.addEventListener('click', () => { S.draft = { quote: selbtn.dataset.q }; selbtn.style.display = 'none'; window.getSelection()?.removeAllRanges(); render(); });
+// a highlight and its comment light each other up
+document.addEventListener('mouseover', (e) => { const el = e.target.closest('[data-c]'); document.querySelectorAll('.lit').forEach((x) => x.classList.remove('lit')); if (el) document.querySelectorAll(`[data-c="${el.dataset.c}"]`).forEach((x) => x.classList.add('lit')); });
+document.getElementById('reset').addEventListener('click', (e) => { e.preventDefault(); S = fresh(); render(); toast('Mock reset'); });
+render();
+</script>
+
+</body>
+</html>

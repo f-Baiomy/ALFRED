@@ -62,6 +62,8 @@ final class BoardFixture implements AutoCloseable {
     final com.fathy.alfred.backend.board.application.port.out.CallFactsPort factsPort;
     final BoardNotificationPort notifications;
     final WidgetsService widgets;
+    final com.fathy.alfred.backend.board.application.port.out.BriefCommentStorePort briefCommentStore;
+    final BriefCommentService briefComments;
     private final AutoCloseable closer;
 
     BoardFixture(Path dir) {
@@ -114,6 +116,9 @@ final class BoardFixture implements AutoCloseable {
         briefs.setSnippets(snippetStore);
         chatStore = TestRepositories.chats(store, JsonMapper.builder().findAndAddModules().build());
         briefs.setChats(chatStore);
+        briefCommentStore = TestRepositories.briefComments(store);
+        briefComments = new BriefCommentService(briefCommentStore, briefs, notifications, feed, clock);
+        imports.setBriefComments(briefCommentStore);
         files = new BoardFilesService((com.fathy.alfred.backend.board.application.port.out.BoardFileStorePort) snippetStore, store, notifications, clock);
         widgets = new WidgetsService((com.fathy.alfred.backend.board.application.port.out.WidgetStorePort) snippetStore, notifications, clock);
         imports.setVisualStores(snippetStore, (com.fathy.alfred.backend.board.application.port.out.BoardFileStorePort) snippetStore,

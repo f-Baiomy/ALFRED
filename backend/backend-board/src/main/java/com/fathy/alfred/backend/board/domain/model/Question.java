@@ -11,11 +11,17 @@ import java.time.Instant;
  * the option Claude advises, shown on the card (specs/020).
  */
 public record Question(long entryId, String cardId, int idx, String header, String text, QuestionState state, Instant laterUntil,
-                       Long answerEntry, Integer parentIdx, String parentOption, Instant askedAt, String recommended) {
+                       Long answerEntry, Integer parentIdx, String parentOption, Instant askedAt, String recommended, String adviceMeta) {
 
     public Question(long entryId, String cardId, int idx, String header, String text, QuestionState state, Instant laterUntil,
                     Long answerEntry, Integer parentIdx, String parentOption, Instant askedAt) {
-        this(entryId, cardId, idx, header, text, state, laterUntil, answerEntry, parentIdx, parentOption, askedAt, null);
+        this(entryId, cardId, idx, header, text, state, laterUntil, answerEntry, parentIdx, parentOption, askedAt, null, null);
+    }
+
+    /** {@code adviceMeta}: the triage facts that come with the advice (confidence, checked, severity, group) as JSON, or null. */
+    public Question(long entryId, String cardId, int idx, String header, String text, QuestionState state, Instant laterUntil,
+                    Long answerEntry, Integer parentIdx, String parentOption, Instant askedAt, String recommended) {
+        this(entryId, cardId, idx, header, text, state, laterUntil, answerEntry, parentIdx, parentOption, askedAt, recommended, null);
     }
 
     /** Waiting on the user now. */
@@ -24,6 +30,6 @@ public record Question(long entryId, String cardId, int idx, String header, Stri
     }
 
     public Question with(QuestionState next, Instant later, Long answer) {
-        return new Question(entryId, cardId, idx, header, text, next, later, answer, parentIdx, parentOption, askedAt, recommended);
+        return new Question(entryId, cardId, idx, header, text, next, later, answer, parentIdx, parentOption, askedAt, recommended, adviceMeta);
     }
 }

@@ -155,6 +155,29 @@ test('get_brief and read_spec read the cycle\'s brief, spec text, one section an
   } finally { await w.close(); }
 });
 
+test('board_brief_comment comments as Claude and get_brief shows the open threads', async () => {
+  const w = await world();
+  try {
+    w.fake.board.briefs['c1'] = { text: 'Branch is required', updatedAt: null };
+    const half = await w.call('board_brief_comment', { cycleId: 'c1', text: 'x', suggestFrom: 'Branch' });
+    assert.match(half.text, /needs both/);
+    const r = await w.call('board_brief_comment', { cycleId: 'c1', text: 'Still true?', quote: 'Branch is required', asks: true });
+    assert.equal(r.isError, false, r.text);
+    assert.equal(r.json.comment, 1);
+    assert.equal(w.fake.requests('POST', '/board/cycles/c1/brief/comments')[0].headers?.['x-alfred-actor'], 'claude');
+    await w.call('board_brief_comment', { cycleId: 'c1', text: 'Reword:', replyTo: 1, suggestFrom: 'is required', suggestTo: 'should not be required' });
+    w.fake.board.briefComments!['c1'].push({ id: 3, quote: null, actor: 'USER', text: 'done', replyTo: null, asks: false, suggestFrom: null,
+      suggestTo: null, createdAt: '2026-10-11T09:00:00Z', resolvedAt: '2026-10-11T10:00:00Z' });
+    const brief = await w.call('get_brief', { cycleId: 'c1' });
+    assert.deepEqual(brief.json.comments, [
+      '[1] on "Branch is required" · you asked - waiting for the user',
+      '  you (1): Still true?',
+      '  you (2): Reword: · you suggested "is required" -> "should not be required", not applied yet',
+      '(1 resolved thread not shown)',
+    ]);
+  } finally { await w.close(); }
+});
+
 test('board_status says when the user paused Claude', async () => {
   const w = await world();
   try {

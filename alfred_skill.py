@@ -23,7 +23,7 @@ import shutil
 import sys
 
 SKILLS = ("alfred-guide", "alfred-connect", "alfred-setup", "alfred-spec", "alfred-listen", "alfred-review", "alfred-triage", "alfred-sync",
-          "alfred-live", "alfred-fix", "alfred-verify", "alfred-status", "alfred-report", "alfred-ask", "alfred-update-skills")
+          "alfred-live", "alfred-fix", "alfred-verify", "alfred-status", "alfred-resume", "alfred-report", "alfred-ask", "alfred-update-skills")
 SHARED = "_shared"
 RULES = "rules.md"
 # Skills older versions installed: removed by install when Alfred installed them (never someone else's folder).

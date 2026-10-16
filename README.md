@@ -39,7 +39,7 @@ A release must exist first: `python release.py` cuts one (GitHub Actions builds 
 
 Claude Code reads Alfred through its MCP server (docs/mcp.md); `/alfred-connect <address>` adds any instance (this
 machine, a LAN host, a tunnel). Fourteen `/alfred-*` skills turn that into a QA loop on the task board: `/alfred-setup` → `/alfred-listen` (while testing) or `/alfred-review` (after) → `/alfred-triage` →
-`/alfred-sync` ↔ `/alfred-fix` → `/alfred-verify` → `/alfred-report`, with `/alfred-status` and `/alfred-guide`
+`/alfred-sync` ↔ `/alfred-fix` → `/alfred-verify` → `/alfred-report`, with `/alfred-status`, `/alfred-resume` and `/alfred-guide`
 anytime, and `/alfred-live` answering you on the board within seconds as a background job. Install them with
 `alfred skill install` (native install) or `python setup_mcp.py` (this checkout - it registers the MCP server too);
 each release also carries `alfred-skills-<version>.zip`.

@@ -258,6 +258,57 @@ class QuestionsTest {
     }
 
     @Test
+    void theTileCarriesTheTriageFactsOfTheAdvice() {
+        ask("""
+                What should happen to #1?
+
+                ```questions
+                {"questions": [{"header": "Triage", "question": "What should happen to #1?",
+                  "checked": "#6 same 409 (closed Fine) · line 121 unchanged", "severity": {"rank": 2, "of": 4, "note": "38 calls, 6 branches"},
+                  "group": [7, 9],
+                  "options": [{"label": "To do", "recommended": true, "confidence": "High"}, {"label": "Fine"}, {"label": "Merge #7 #9 into #1"}]}]}
+                ```""");
+
+        var row = f.board.query(new CardQuery("p", null, null, null, null, null, false, null, 0, 50)).cards().get(0);
+        assertThat(row.advice()).isEqualTo("To do");
+        assertThat(row.adviceDetail().confidence()).isEqualTo("HIGH");
+        assertThat(row.adviceDetail().checked()).isEqualTo("#6 same 409 (closed Fine) · line 121 unchanged");
+        assertThat(row.adviceDetail().rank()).isEqualTo(2);
+        assertThat(row.adviceDetail().of()).isEqualTo(4);
+        assertThat(row.adviceDetail().note()).isEqualTo("38 calls, 6 branches");
+        assertThat(row.adviceDetail().group()).containsExactly(7, 9);
+    }
+
+    @Test
+    void anAdviceWithoutTriageFactsHasOnlyItsOption() {
+        ask(ASK);
+
+        var row = f.board.query(new CardQuery("p", null, null, null, null, null, false, null, 0, 50)).cards().get(0);
+        assertThat(row.adviceDetail().option()).isEqualTo("Only the extra filters");
+        assertThat(row.adviceDetail().confidence()).isNull();
+        assertThat(row.adviceDetail().group()).isEmpty();
+    }
+
+    @Test
+    void badTriageFactsAreRefusedWithTheReason() {
+        String bad = """
+                What should happen?
+
+                ```questions
+                {"questions": [{"header": "Triage", "question": "What should happen?",
+                  "options": [{"label": "To do", "recommended": true, "confidence": "sure"}, {"label": "Fine"}]}]}
+                ```""";
+        var out = f.board.comment(Actor.CLAUDE, card, new CommentOnCardUseCase.Comment(null, null, null, null, null, null, bad));
+        assertThat(out.outcome()).isEqualTo(CardChange.Outcome.INVALID);
+        assertThat(out.message()).contains("confidence is high, medium or low");
+
+        String group = bad.replace("\"confidence\": \"sure\"", "\"x\": 1").replace("\"What should happen?\",", "\"What should happen?\", \"group\": [\"#7\"],");
+        var out2 = f.board.comment(Actor.CLAUDE, card, new CommentOnCardUseCase.Comment(null, null, null, null, null, null, group));
+        assertThat(out2.outcome()).isEqualTo(CardChange.Outcome.INVALID);
+        assertThat(out2.message()).contains("group is a list of card numbers");
+    }
+
+    @Test
     void sortingACardWithItsOwnButtonsAnswersTheTriageQuestion() {
         String inbox = f.add(Actor.CLAUDE, "p", CardKind.TASK, "Not exercised: All Agencies", "").card().id();
         String triage = """

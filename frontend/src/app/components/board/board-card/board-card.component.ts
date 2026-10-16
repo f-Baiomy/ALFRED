@@ -11,13 +11,16 @@ import { TeamChipsComponent } from '../team-chips/team-chips.component';
 import { RunSkillComponent } from '../run-skill/run-skill.component';
 import { LiveWorkStateService, currentStep } from '../../../core/state/live-work-state.service';
 import { copyToClipboard } from '../../../shared/utils/clipboard';
+import { actionText, adviceAction, confidenceLabel, confidenceOf } from '../../../shared/utils/triage-advice';
 
 /** What a card asks of its board: one sort action, a reopen, or a selection toggle. */
 export type CardAction =
   | { readonly kind: 'close'; readonly resolution: Resolution }
   | { readonly kind: 'move'; readonly status: CardStatus }
   | { readonly kind: 'reopen' }
-  | { readonly kind: 'retest' };
+  | { readonly kind: 'retest' }
+  | { readonly kind: 'merge'; readonly into: number }
+  | { readonly kind: 'mergeGroup'; readonly group: readonly number[] };
 
 /**
  * One card on the board (mock-v2): kind, flags, title, the first mentions, number, author, cycle, comments, scope and
@@ -45,7 +48,12 @@ export type CardAction =
       @if (questionCount(); as n) {
         <button type="button" class="board-qpill" [disabled]="!editable()" [title]="editable() ? 'Answer the questions (A)' : 'Open questions from Claude'"
                 (click)="$event.stopPropagation(); answer.emit()">❓ {{ n }} open question{{ n === 1 ? '' : 's' }}</button>
-        @if (card().advice; as a) { <span class="board-advice" title="What Claude recommends - open the question for why">✦ advises: {{ a }}</span> }
+        @if (card().advice; as a) {
+          <span class="board-advice" [title]="adviceTitle()">✦ advises: {{ a }}@if (confidence(); as cf) { <span class="board-conf" [class]="'board-conf board-conf-' + cf.toLowerCase()">{{ confidenceText(cf) }}</span> }</span>
+        }
+      }
+      @if (card().status === 'INBOX' && card().adviceDetail?.rank; as r) {
+        <span class="board-sev" [title]="card().adviceDetail?.note ?? 'Claude ranks the Inbox worst first'">▲ {{ r }}{{ card().adviceDetail?.of ? ' of ' + card().adviceDetail?.of : '' }}{{ card().adviceDetail?.note ? ' · ' + card().adviceDetail?.note : '' }}</span>
       }
       @if (card().teams?.length) { <div class="board-card-row board-card-teams"><app-team-chips [teams]="card().teams" /></div> }
       @if (card().mentionChips?.length) {
@@ -92,6 +100,9 @@ export type CardAction =
           <button type="button" class="ok" [class.advised]="advised() === 'FINE'" title="Fine - not an issue (F)" (click)="act($event, { kind: 'close', resolution: 'FINE' })">{{ buttons.FINE }}</button>
           <button type="button" [class.advised]="advised() === 'NOT_IN_FLOW'" title="Not in this flow (N)" (click)="act($event, { kind: 'close', resolution: 'NOT_IN_FLOW' })">{{ buttons.NOT_IN_FLOW }}</button>
           <button type="button" [class.advised]="advised() === 'TO_DO'" title="To do (T)" (click)="act($event, { kind: 'move', status: 'TO_DO' })">→ To do</button>
+          @if (mergeAdvice(); as m) {
+            <button type="button" class="advised" [title]="'Claude advises: ' + mergeText(m)" (click)="act($event, m)">⇢ {{ mergeText(m) }}</button>
+          }
         </div>
       }
       @if (editable() && card().status === 'CLOSED') {
@@ -152,6 +163,22 @@ export class BoardCardComponent {
     return r && (this.card().status === 'FIXED' || this.card().status === 'VERIFIED' || this.card().status === 'DONE') ? retestChip(r) : null;
   });
   readonly hasOpenQuestion = computed(() => this.questionCount() > 0);
+  /** How sure Claude is of its advice (triage): High, Medium or Low. */
+  readonly confidence = computed(() => this.card().openQuestions ? confidenceOf(this.card()) : null);
+  readonly confidenceText = confidenceLabel;
+  readonly adviceTitle = computed(() => {
+    const d = this.card().adviceDetail;
+    return ['What Claude recommends - open the question for why', d?.checked ? `Checked: ${d.checked}` : ''].filter(Boolean).join('\n');
+  });
+  /** A merge Claude advises - into another card, or its root-cause group into this one - as a button. */
+  readonly mergeAdvice = computed((): CardAction | null => {
+    const a = adviceAction(this.card());
+    return a && (a.kind === 'merge' || a.kind === 'mergeGroup') ? a : null;
+  });
+
+  mergeText(a: CardAction): string {
+    return a.kind === 'merge' || a.kind === 'mergeGroup' ? actionText(a) : '';
+  }
   /** The sort button Claude's open question recommends (specs/020) - outlined; using it answers the question. */
   readonly advised = computed(() => adviceButton(this.card().openQuestions ? this.card().advice : null));
   /** Claude's open questions (specs/019) - shown whatever the card's status or what else it waits on; an older backend: its flag. */

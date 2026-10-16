@@ -59,6 +59,19 @@ export interface SimilarClosed {
   readonly reason: string | null;
 }
 
+/** Claude's triage advice on a card: the option, its confidence, what it checked, its rank worst first, the group to merge. */
+export interface Advice {
+  readonly option: string;
+  /** HIGH, MEDIUM or LOW - plain text, read leniently. */
+  readonly confidence?: string | null;
+  readonly checked?: string | null;
+  readonly rank?: number | null;
+  readonly of?: number | null;
+  readonly note?: string | null;
+  /** Inbox cards of the same root cause Claude proposes merging into this card. */
+  readonly group?: readonly number[];
+}
+
 export interface CardSummary {
   readonly id: string;
   readonly project: string;
@@ -92,6 +105,8 @@ export interface CardSummary {
   readonly openQuestions?: number;
   /** The option Claude recommends in its first open question (specs/020): "To do", "Merge into #44". */
   readonly advice?: string | null;
+  /** That advice with its triage facts: how sure Claude is, what it checked, the Inbox rank, the cards to merge here. */
+  readonly adviceDetail?: Advice | null;
   /** The few words every mention of the card reads (specs/021): "All Agencies untested (#47)". */
   readonly shortName?: string | null;
   /** Empty in list rows; filled in a detail. */
@@ -269,6 +284,24 @@ export interface ClosedReason {
   readonly signature: string | null;
   readonly resolution: Resolution;
   readonly reason: string | null;
+}
+
+/** A comment on a cycle's brief (specs/024): on a quoted passage or the whole brief; replies point at the thread's first comment. */
+export interface BriefComment {
+  readonly id: number;
+  readonly cycleId: string;
+  readonly quote: string | null;
+  readonly actor: Actor;
+  readonly text: string;
+  readonly replyTo: number | null;
+  /** Claude asks the user. */
+  readonly asks: boolean;
+  /** Claude's suggested rewording: the words as the brief has them, and the new ones. */
+  readonly suggestFrom: string | null;
+  readonly suggestTo: string | null;
+  readonly createdAt: string;
+  readonly resolvedAt: string | null;
+  readonly resolvedBy: Actor | null;
 }
 
 export interface CycleBrief {

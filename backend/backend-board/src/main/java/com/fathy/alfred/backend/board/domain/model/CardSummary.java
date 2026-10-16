@@ -6,7 +6,14 @@ import java.util.List;
 
 /** A board row: the card without its description and history, plus what the row shows. */
 public record CardSummary(@JsonUnwrapped Card card, int commentCount, List<MentionRef> mentionChips, SimilarClosed similarClosed,
-                          Proposal proposal, WaitingOn waiting, List<CardRef> blockedBy, int openQuestions, String advice, String shortName) {
+                          Proposal proposal, WaitingOn waiting, List<CardRef> blockedBy, int openQuestions, String advice, String shortName,
+                          Advice adviceDetail) {
+
+    /** {@code adviceDetail}: the advice with its triage facts - confidence, what Claude checked, Inbox rank, group to merge. */
+    public CardSummary(Card card, int commentCount, List<MentionRef> mentionChips, SimilarClosed similarClosed, Proposal proposal,
+                       WaitingOn waiting, List<CardRef> blockedBy, int openQuestions, String advice, String shortName) {
+        this(card, commentCount, mentionChips, similarClosed, proposal, waiting, blockedBy, openQuestions, advice, shortName, null);
+    }
 
     /** {@code shortName}: the few words a mention of the card reads (specs/021), null when none was given. */
     public CardSummary(Card card, int commentCount, List<MentionRef> mentionChips, SimilarClosed similarClosed, Proposal proposal,

@@ -2,7 +2,7 @@ import { CHAT_SKILLS, skillsMatching, slashSkill } from './chat-skills';
 
 describe('chat-skills', () => {
   it('offers every shipped skill but the two that run the chat', () => {
-    expect(CHAT_SKILLS).toHaveSize(13);
+    expect(CHAT_SKILLS).toHaveSize(14);
     expect(CHAT_SKILLS.some((s) => s.name === 'alfred-live' || s.name === 'alfred-listen')).toBeFalse();
   });
 
@@ -14,7 +14,7 @@ describe('chat-skills', () => {
   });
 
   it('narrows the list by what follows the slash', () => {
-    expect(skillsMatching('/').length).toBe(13);
+    expect(skillsMatching('/').length).toBe(14);
     expect(skillsMatching('/fi').map((s) => s.name)).toEqual(['alfred-fix']);
     expect(skillsMatching('/alfred-s').map((s) => s.name)).toEqual(['alfred-setup', 'alfred-spec', 'alfred-sync', 'alfred-status']);
     expect(skillsMatching('hello')).toEqual([]);

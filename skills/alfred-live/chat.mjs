@@ -133,7 +133,7 @@ export function chatPrompt({ server, project, scope, taken, context = null, delt
 
 /** The skills the chat's "/" list offers (FR-022): every shipped one except the two that run the chat. */
 export const CHAT_SKILLS = ['alfred-guide', 'alfred-connect', 'alfred-setup', 'alfred-spec', 'alfred-review', 'alfred-triage', 'alfred-sync',
-  'alfred-fix', 'alfred-verify', 'alfred-status', 'alfred-report', 'alfred-ask', 'alfred-update-skills'];
+  'alfred-fix', 'alfred-verify', 'alfred-status', 'alfred-resume', 'alfred-report', 'alfred-ask', 'alfred-update-skills'];
 
 /** `skill:alfred-fix` → `alfred-fix` when it is one the chat offers. */
 export function skillOf(origin) {

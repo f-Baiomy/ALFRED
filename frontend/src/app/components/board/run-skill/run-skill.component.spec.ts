@@ -155,9 +155,15 @@ describe('RunSkillComponent', () => {
     expect(copied[0]).toContain('/alfred-triage\nAlfred: http://localhost:3000');
     expect(api.requestSkillRun).not.toHaveBeenCalled();
     expect(go(render({ editable: false }).nativeElement).textContent).toContain('⧉');
-    const f = render({ command: '/mcp__alfred__resume Performance', copyOnly: true });
+    const f = render({ command: '/alfred-resume Performance', copyOnly: true });
     expect(f.nativeElement.querySelector('.run-cp')).toBeNull();
     expect(go(f.nativeElement).title).toContain('another Claude Code session');
+    // a command for another session copies as typed there, and says it did
+    go(f.nativeElement).click();
+    tick();
+    f.detectChanges();
+    expect(copied[copied.length - 1]).toBe('/alfred-resume Performance');
+    expect(go(f.nativeElement).textContent).toContain('copied');
     flush();
   }));
 

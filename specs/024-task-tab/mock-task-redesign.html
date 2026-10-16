@@ -1,0 +1,630 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Task tab redesign</title>
+<style>
+  :root {
+    --bg: #15161a; --panel: #1c1d22; --panel2: #22232a; --inner: rgba(0,0,0,.28); --border: rgba(255,255,255,.08); --border-strong: rgba(255,255,255,.16);
+    --text: #e7e7ec; --dim: #9b9ca6; --faint: #676873; --purple: #8b5cf6; --purple-l: #b9a5ff; --blue: #8fb2f7; --cyan: #5fd3c6;
+    --green: #6fd38a; --amber: #f2b552; --red: #f07a7a; --code: rgba(255,255,255,.07);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 "Segoe UI", system-ui, sans-serif; padding: 20px 16px 80px; }
+  h1 { font-size: 1.35rem; margin: 0 0 .3rem; }
+  h2.sec { font-size: 1.05rem; margin: 2.2rem 0 .6rem; color: var(--purple-l); }
+  .lead { color: var(--dim); max-width: 85ch; margin: 0 0 .9rem; }
+  code, .mono { font: .78rem Consolas, monospace; }
+  code { background: var(--code); padding: 0 .3rem; border-radius: 4px; }
+  button { font: inherit; color: inherit; }
+  .dim { color: var(--dim); } .faint { color: var(--faint); }
+
+  /* ---------------- BEFORE (schematic of today) ---------------- */
+  .before { border: 1px solid rgba(240,122,122,.35); border-radius: 10px; padding: .8rem; background: var(--panel); position: relative; }
+  .b-row { display: grid; grid-template-columns: 1.4fr 1fr; gap: .6rem; }
+  .b-box { border: 1px solid var(--border-strong); border-radius: 6px; padding: .45rem .55rem; margin-bottom: .5rem; font-size: .78rem; color: var(--dim); position: relative; }
+  .b-box b { color: var(--text); font-size: .82rem; }
+  .b-cmd { font: .7rem Consolas, monospace; color: var(--blue); border: 1px solid var(--border); border-radius: 4px; padding: .1rem .4rem; display: inline-block; margin: .15rem .2rem 0 0; }
+  .pin { position: absolute; top: -.55rem; right: -.45rem; width: 1.3rem; height: 1.3rem; border-radius: 50%; background: var(--red); color: #fff; font: 700 .7rem/1.3rem system-ui; text-align: center; }
+  .problems { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: .5rem; margin-top: .8rem; }
+  .problems div { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: .5rem .65rem; font-size: .84rem; color: var(--dim); }
+  .problems b { color: var(--text); }
+  .problems .n { display: inline-grid; place-items: center; width: 1.2rem; height: 1.2rem; border-radius: 50%; background: var(--red); color: #fff; font-size: .68rem; font-weight: 700; margin-right: .3rem; }
+
+  /* ---------------- AFTER ---------------- */
+  .app { border: 1px solid var(--border-strong); border-radius: 12px; background: var(--panel); overflow: hidden; }
+  .appbar { display: flex; gap: 1.2rem; padding: .5rem 1rem 0; border-bottom: 1px solid var(--border); font-size: .9rem; color: var(--dim); }
+  .appbar span { padding-bottom: .45rem; } .appbar .on { color: var(--text); border-bottom: 2px solid var(--purple); }
+
+  /* header: what task, where it stands, the one next thing to do */
+  .hd { padding: .9rem 1.1rem .7rem; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .4rem 1rem; align-items: start; border-bottom: 1px solid var(--border); }
+  .hd .ids { display: flex; gap: .35rem; flex-wrap: wrap; margin-bottom: .25rem; }
+  .chip { font: .7rem Consolas, monospace; border: 1px solid var(--border-strong); border-radius: 5px; padding: 0 .4rem; color: var(--dim); }
+  .hd h2 { margin: 0; font-size: 1.12rem; line-height: 1.35; text-wrap: balance; }
+  .acts { display: flex; gap: .4rem; align-items: center; justify-content: flex-end; }
+  .btn { border: 1px solid var(--border-strong); background: var(--panel2); border-radius: 8px; padding: .3rem .7rem; cursor: pointer; font-size: .82rem; white-space: nowrap; }
+  .btn:hover { border-color: var(--purple-l); }
+  .btn.primary { background: var(--purple); border-color: var(--purple); color: #fff; font-weight: 600; }
+  .btn small { opacity: .8; font-weight: 400; }
+  .menu { position: relative; }
+  .menu-pop { display: none; position: absolute; right: 0; top: calc(100% + 4px); width: 340px; background: #26272f; border: 1px solid var(--border-strong); border-radius: 10px; padding: .35rem; z-index: 5; box-shadow: 0 10px 30px rgba(0,0,0,.5); }
+  .menu.open .menu-pop { display: block; }
+  .mi { display: flex; gap: .55rem; align-items: flex-start; padding: .4rem .5rem; border-radius: 6px; cursor: pointer; font-size: .82rem; }
+  .mi:hover { background: rgba(255,255,255,.06); }
+  .mi .ic { width: 1.1rem; text-align: center; color: var(--purple-l); }
+  .mi small { display: block; color: var(--dim); font-size: .72rem; }
+  .mi .cp { margin-left: auto; color: var(--faint); font-size: .72rem; }
+  .sep { border-top: 1px solid var(--border); margin: .3rem 0; }
+
+  .stand { grid-column: 1 / -1; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .3rem 1.2rem; align-items: center; margin-top: .4rem; }
+  .stepper { display: flex; align-items: center; gap: .25rem; font-size: .76rem; }
+  .stepper span { padding: .05rem .5rem; border-radius: 999px; border: 1px solid var(--border); color: var(--faint); }
+  .stepper .done { color: var(--green); border-color: rgba(111,211,138,.35); }
+  .stepper .now { color: #1b1b1b; background: var(--amber); border-color: var(--amber); font-weight: 600; }
+  .stepper i { color: var(--faint); font-style: normal; }
+  .verdict { display: flex; gap: .7rem; align-items: center; min-width: 0; }
+  .verdict .txt { font-size: .86rem; white-space: nowrap; } .verdict .txt b { color: var(--amber); }
+  .bar { flex: 1; min-width: 120px; height: 8px; border-radius: 4px; overflow: hidden; display: flex; background: var(--inner); }
+  .bar i { display: block; height: 100%; }
+  .s-met { background: var(--green); } .s-bug { background: var(--red); } .s-miss { background: #f78c6c; } .s-retest { background: var(--amber); }
+  .s-cant { background: #7d7f8c; } .s-un { background: rgba(255,255,255,.12); } .s-sugg { background: var(--purple-l); }
+
+  /* needs you: the one strip that asks for something */
+  .needs { margin: .8rem 1.1rem 0; border: 1px solid rgba(242,181,82,.4); background: rgba(242,181,82,.06); border-radius: 10px; padding: .45rem .7rem; display: flex; gap: .5rem .9rem; flex-wrap: wrap; align-items: center; font-size: .83rem; }
+  .needs b { color: var(--amber); }
+  .needs .it { display: inline-flex; gap: .35rem; align-items: center; border: 1px solid var(--border); border-radius: 999px; padding: .05rem .55rem; background: var(--panel); cursor: pointer; }
+  .needs .it:hover { border-color: var(--amber); }
+
+  /* sub-tabs */
+  .tabs { display: flex; gap: .2rem; padding: .7rem 1.1rem 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .tab { background: none; border: 0; border-bottom: 2px solid transparent; padding: .45rem .7rem; color: var(--dim); cursor: pointer; font-size: .86rem; display: inline-flex; gap: .35rem; align-items: center; }
+  .tab .n { font-size: .7rem; border-radius: 999px; padding: 0 .4rem; background: var(--code); color: var(--dim); }
+  .tab .n.warn { background: rgba(242,181,82,.18); color: var(--amber); }
+  .tab.on { color: var(--text); border-bottom-color: var(--purple); }
+  .pane { display: none; padding: .9rem 1.1rem 1.1rem; }
+  .pane.on { display: block; }
+
+  /* requirements: one list */
+  .filters { display: flex; gap: .35rem; flex-wrap: wrap; align-items: center; margin-bottom: .7rem; }
+  .f { border: 1px solid var(--border); background: none; border-radius: 999px; padding: .05rem .6rem; font-size: .76rem; color: var(--dim); cursor: pointer; display: inline-flex; gap: .3rem; align-items: center; }
+  .f.on { color: var(--text); border-color: var(--border-strong); background: rgba(255,255,255,.06); }
+  .f .d { width: .5rem; height: .5rem; border-radius: 50%; }
+  .grow { flex: 1; }
+  .group { margin-bottom: .6rem; }
+  .gh { display: flex; align-items: center; gap: .45rem; font-size: .74rem; letter-spacing: .05em; text-transform: uppercase; color: var(--dim); padding: .3rem 0; cursor: pointer; user-select: none; }
+  .gh .car { transition: transform .12s; } .group.shut .gh .car { transform: rotate(-90deg); } .group.shut .rows { display: none; }
+  .gh .hint { text-transform: none; letter-spacing: 0; color: var(--faint); }
+  .rows { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .req { border-top: 1px solid var(--border); } .req:first-child { border-top: 0; }
+  .rq { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: .6rem; align-items: center; padding: .45rem .7rem; cursor: pointer; }
+  .rq:hover { background: rgba(255,255,255,.025); }
+  .st { font-size: .64rem; font-weight: 700; letter-spacing: .04em; border-radius: 4px; padding: .05rem .35rem; white-space: nowrap; }
+  .st.met { color: var(--green); background: rgba(111,211,138,.12); } .st.bug { color: var(--red); background: rgba(240,122,122,.12); }
+  .st.cant { color: #c6c7d2; background: rgba(255,255,255,.08); } .st.un { color: var(--faint); border: 1px dashed var(--border-strong); }
+  .st.sugg { color: var(--purple-l); background: rgba(139,92,246,.16); }
+  .rq .t { min-width: 0; font-size: .86rem; } .rq .t .k { color: var(--faint); font: .74rem Consolas, monospace; margin-right: .35rem; }
+  .rq .meta { display: flex; gap: .3rem; align-items: center; }
+  .cardref { font: .72rem Consolas, monospace; color: var(--blue); border: 1px solid rgba(143,178,247,.3); border-radius: 4px; padding: 0 .3rem; }
+  .calls { font-size: .7rem; border-radius: 999px; padding: 0 .45rem; border: 1px solid var(--border); color: var(--dim); white-space: nowrap; }
+  .calls.warn { color: var(--amber); border-color: rgba(242,181,82,.4); } .calls.ok { color: var(--green); border-color: rgba(111,211,138,.35); }
+  .seg { display: inline-flex; border: 1px solid var(--border-strong); border-radius: 7px; overflow: hidden; }
+  .seg button { border: 0; background: none; padding: .1rem .5rem; font-size: .74rem; color: var(--dim); cursor: pointer; border-left: 1px solid var(--border); }
+  .seg button:first-child { border-left: 0; }
+  .seg button.p.on { background: rgba(111,211,138,.16); color: var(--green); } .seg button.x.on { background: rgba(240,122,122,.16); color: var(--red); }
+  .seg button.q.on { background: rgba(255,255,255,.1); color: var(--text); }
+  .more { display: none; padding: .1rem .7rem .7rem 3.8rem; font-size: .83rem; }
+  .req.open .more { display: block; } .req.open .rq { background: rgba(255,255,255,.03); }
+  .kv { display: grid; grid-template-columns: 6.5rem minmax(0, 1fr); gap: .25rem .7rem; margin-top: .3rem; }
+  .kv .k { color: var(--faint); font-size: .74rem; text-transform: uppercase; letter-spacing: .04em; padding-top: .1rem; }
+  .sugg { border: 1px solid rgba(139,92,246,.4); background: rgba(139,92,246,.07); border-radius: 8px; padding: .45rem .6rem; margin: .4rem 0; }
+  .sugg .h { color: var(--purple-l); font-size: .78rem; margin-bottom: .15rem; }
+  .links { display: flex; gap: .8rem; margin-top: .4rem; }
+  .links a { color: var(--blue); font-size: .78rem; cursor: pointer; }
+  .sm { font-size: .78rem; padding: .1rem .5rem; border-radius: 6px; }
+  .accept { background: var(--purple); border: 0; color: #fff; cursor: pointer; }
+  .also { margin-top: .9rem; }
+  .note { display: flex; gap: .5rem; align-items: center; padding: .35rem .7rem; border-top: 1px solid var(--border); font-size: .84rem; }
+  .note:first-child { border-top: 0; }
+  .tag { font-size: .62rem; font-weight: 700; border-radius: 4px; padding: 0 .35rem; background: rgba(255,255,255,.08); color: var(--dim); }
+  .tag.extra { color: #f78c6c; background: rgba(247,140,108,.12); }
+
+  /* test plan */
+  .two { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 1rem; }
+  @media (max-width: 900px) { .two, .hd { grid-template-columns: 1fr; } .acts { justify-content: flex-start; } .stand { grid-template-columns: 1fr; } }
+  .card { border: 1px solid var(--border); border-radius: 10px; padding: .6rem .75rem; }
+  .card h4 { margin: 0 0 .45rem; font-size: .9rem; display: flex; align-items: baseline; gap: .5rem; } .card h4 small { color: var(--faint); font-weight: 400; font-size: .74rem; }
+  .step { display: grid; grid-template-columns: 1.2rem 1.6rem minmax(0, 1fr) auto; gap: .3rem; align-items: baseline; padding: .28rem 0; border-top: 1px solid var(--border); font-size: .85rem; }
+  .step:first-of-type { border-top: 0; }
+  .mk { text-align: center; } .mk.ok { color: var(--green); } .mk.bad { color: var(--red); }
+  .step .no { color: var(--faint); font: .76rem Consolas, monospace; }
+  .pill { font-size: .7rem; border-radius: 999px; padding: 0 .45rem; border: 1px solid var(--border); color: var(--faint); white-space: nowrap; }
+  .pill.ok { color: var(--green); border-color: rgba(111,211,138,.35); }
+  .data { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .4rem; }
+  .data span { font: .72rem Consolas, monospace; color: var(--cyan); border: 1px solid rgba(95,211,198,.35); border-radius: 5px; padding: 0 .35rem; }
+  .dw { display: flex; gap: .5rem; align-items: baseline; padding: .3rem 0; font-size: .86rem; border-top: 1px solid var(--border); }
+  .dw:first-of-type { border-top: 0; } .dw .v { margin-left: auto; color: var(--faint); font-size: .78rem; }
+
+  /* brief */
+  .brief-goal { font-size: 1rem; font-weight: 600; margin: 0 0 .6rem; }
+  .lbl { font-size: .7rem; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); margin: .7rem 0 .3rem; }
+  .lbl span { text-transform: none; letter-spacing: 0; }
+  ul.tight { margin: .2rem 0; padding-left: 1.2rem; } ul.tight li { margin: .1rem 0; }
+  table.ex { border-collapse: collapse; font-size: .82rem; width: 100%; } .ex td, .ex th { border: 1px solid var(--border-strong); padding: .25rem .5rem; text-align: left; }
+  .scope li { margin: .15rem 0; } .oos li { color: var(--faint); text-decoration: line-through; text-decoration-color: rgba(255,255,255,.18); }
+  .dec { display: grid; grid-template-columns: 6rem minmax(0, 1fr); gap: .5rem; padding: .35rem 0; border-top: 1px solid var(--border); font-size: .84rem; }
+  .dec:first-of-type { border-top: 0; } .dec .when { color: var(--faint); font-size: .76rem; }
+  .att { display: flex; gap: .5rem; flex-wrap: wrap; }
+  .att .a { border: 1px solid var(--border); border-radius: 8px; padding: .35rem .55rem; font-size: .8rem; display: flex; gap: .4rem; align-items: center; }
+  .att .a.add { border-style: dashed; color: var(--dim); cursor: pointer; }
+  .edit { font-size: .76rem; color: var(--faint); display: flex; gap: .7rem; align-items: center; }
+  .edit a { color: var(--blue); cursor: pointer; }
+
+  /* runs */
+  .run { border: 1px solid var(--border); border-radius: 10px; margin-bottom: .45rem; overflow: hidden; }
+  .run summary { list-style: none; cursor: pointer; padding: .45rem .7rem; display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; gap: .6rem; align-items: baseline; font-size: .84rem; }
+  .run summary::-webkit-details-marker { display: none; }
+  .run .sk { color: var(--purple-l); font: .78rem Consolas, monospace; } .run .nx { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .run .body { padding: 0 .7rem .6rem; font-size: .84rem; }
+  .run .p { margin: .35rem 0; } .run .p .ph { font-size: .64rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
+  .run .p.found { border-left: 2px solid var(--amber); padding-left: .55rem; } .run .p.found .ph { color: var(--amber); }
+  .run .p.next { background: rgba(139,92,246,.08); border: 1px solid rgba(139,92,246,.3); border-radius: 8px; padding: .3rem .55rem; } .run .p.next .ph { color: var(--purple-l); }
+
+
+  /* brief comments: anchored to a passage (like a document's margin comments) or about the whole brief */
+  .bwrap { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 1rem; align-items: start; }
+  @media (max-width: 1000px) { .bwrap { grid-template-columns: 1fr; } }
+  mark.hl { background: rgba(242,181,82,.18); color: inherit; border-bottom: 2px solid var(--amber); border-radius: 2px; cursor: pointer; padding: 0 1px; }
+  mark.hl.cl { background: rgba(139,92,246,.18); border-bottom-color: var(--purple-l); }
+  mark.hl.lit { background: rgba(242,181,82,.38); }
+  mark.hl.done { background: none; border-bottom: 1px dashed var(--faint); }
+  .margin { position: sticky; top: .5rem; display: flex; flex-direction: column; gap: .5rem; }
+  .mh { display: flex; align-items: center; gap: .4rem; font-size: .76rem; color: var(--dim); }
+  .mh .t { text-transform: uppercase; letter-spacing: .06em; font-size: .7rem; }
+  .mh button { margin-left: auto; }
+  .cmt { border: 1px solid var(--border); border-radius: 10px; background: var(--panel2); padding: .45rem .55rem; font-size: .82rem; cursor: pointer; }
+  .cmt.lit, .cmt:hover { border-color: rgba(242,181,82,.55); }
+  .cmt .q { font-size: .72rem; color: var(--faint); border-left: 2px solid var(--amber); padding-left: .4rem; margin-bottom: .3rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cmt.cl .q { border-left-color: var(--purple-l); }
+  .cw { display: flex; gap: .35rem; align-items: baseline; font-size: .74rem; margin-bottom: .1rem; }
+  .cw .av { width: 1.05rem; height: 1.05rem; border-radius: 50%; display: inline-grid; place-items: center; font-size: .5rem; font-weight: 700; background: rgba(95,211,198,.2); color: var(--cyan); align-self: center; }
+  .cw .av.cl { background: rgba(139,92,246,.25); color: var(--purple-l); }
+  .cw b { font-weight: 600; } .cw .cln { color: var(--purple-l); }
+  .cmt .rep { margin: .35rem 0 0 .5rem; padding-left: .5rem; border-left: 2px solid rgba(139,92,246,.55); }
+  .cmt .foot { display: flex; gap: .6rem; margin-top: .35rem; font-size: .72rem; }
+  .cmt .foot a { color: var(--blue); cursor: pointer; }
+  .cmt .foot .res { margin-left: auto; color: var(--green); }
+  .cmt.resolved { opacity: .6; } .cmt.resolved .q { text-decoration: line-through; }
+  .newc { border: 1px dashed var(--border-strong); border-radius: 10px; padding: .4rem .55rem; color: var(--faint); font-size: .8rem; }
+  .selpop { display: inline-flex; gap: .3rem; align-items: center; background: #2b2c35; border: 1px solid var(--border-strong); border-radius: 8px; padding: .15rem .45rem; font-size: .76rem; box-shadow: 0 6px 18px rgba(0,0,0,.45); margin-left: .4rem; vertical-align: middle; }
+  .selpop b { color: var(--amber); }
+  .proposal { border: 1px solid rgba(139,92,246,.4); background: rgba(139,92,246,.07); border-radius: 8px; padding: .35rem .5rem; margin-top: .35rem; font-size: .78rem; }
+  .proposal del { color: var(--red); } .proposal ins { color: var(--green); text-decoration: none; }
+  .proposal .btns { display: flex; gap: .4rem; margin-top: .3rem; }
+
+  /* section guides: ⓘ opens what the section is and how to decide in it; open the first time, then remembered */
+  .info { border: 0; background: none; color: var(--faint); cursor: pointer; font-size: .82rem; padding: 0 .2rem; }
+  .info:hover, .info.on { color: var(--blue); }
+  .guide { display: none; border: 1px solid rgba(143,178,247,.35); background: rgba(143,178,247,.06); border-radius: 10px; padding: .6rem .8rem; margin: 0 0 .8rem; font-size: .84rem; }
+  .guide.on { display: block; }
+  .guide h5 { margin: 0 0 .3rem; font-size: .88rem; color: var(--blue); display: flex; gap: .5rem; align-items: baseline; }
+  .guide h5 .x { margin-left: auto; color: var(--faint); cursor: pointer; font-weight: 400; font-size: .76rem; }
+  .guide p { margin: .2rem 0 .45rem; color: var(--dim); }
+  .guide .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: .6rem; }
+  .guide .q { font-size: .7rem; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); margin: .4rem 0 .2rem; }
+  .guide ul { margin: 0; padding-left: 1.1rem; } .guide li { margin: .15rem 0; }
+  .guide .flow { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .25rem .6rem; align-items: baseline; }
+  .guide .flow .if { color: var(--text); white-space: nowrap; }
+  .tabhead { display: flex; align-items: center; gap: .3rem; margin-bottom: .5rem; font-size: .8rem; color: var(--faint); }
+  .gh .info { font-size: .76rem; }
+  .tip { border-bottom: 1px dotted var(--faint); cursor: help; }
+  .table { width: 100%; border-collapse: collapse; font-size: .84rem; } .table th, .table td { text-align: left; padding: .35rem .5rem; border-bottom: 1px solid var(--border); vertical-align: top; } .table th { color: var(--dim); font-weight: 600; }
+  .ok { color: var(--green); }
+</style>
+</head>
+<body>
+<h1>Task tab - redesign</h1>
+<p class="lead">Before: one long page of equal-looking boxes. The same requirements appear twice (Requirements on the left, Acceptance checklist on the right) with two sets of Pass / Fail / Can't tell. Three long command lines sit at the top. After: a header that answers the three questions people open the tab for (what task, where it stands, what to do next), one strip for what needs you, and four tabs. Nothing is dropped - the table at the end maps every piece of today's page to its new place.</p>
+
+<h2 class="sec">Before - what is wrong with today's page</h2>
+<div class="before">
+  <div class="b-box"><span class="pin">1</span><b>T3161-037 · PROD-20261014 · Refunded Requests (Admin) filters get "All Agencies"…</b> &nbsp; Coded → Verifying → Fixed → <b>Re-tested</b> → Done</div>
+  <div class="b-box"><span class="pin">2</span>DOES THE CODE MATCH THE TASK? <b>Partly checked</b> - 3 of 14 met · 11 Alfred can't tell &nbsp; [3 met] [0 bug] [0 missing] [11 can't tell]<br>
+    <span class="b-cmd">▶ /alfred-review "61813 Refunded Requests filters - All Agencies, All Branches, Branch multi-select"</span><span class="b-cmd">▶ /alfred-listen "61813 Refunded…"</span><span class="b-cmd">▶ /alfred-spec "61813 Refunded…"</span></div>
+  <div class="b-row">
+    <div>
+      <div class="b-box"><span class="pin">3</span><b>The task</b> - title, description, filter table, business rules, scope, out of scope (dashed boxes), decisions (long paragraphs with @spec links), pinned, Pages, Files, Attach, "Continue anywhere"</div>
+      <div class="b-box"><span class="pin">4</span><b>Requirements</b> - R2 CAN'T TELL … Pass / Fail / Can't tell · R3 … · R6 … · R7 … · R8 … (one big card each, all open)</div>
+      <div class="b-box"><span class="pin">6</span><b>Claude's runs</b> - DID / FOUND / NEXT walls of text, all open</div>
+    </div>
+    <div>
+      <div class="b-box"><b>How to test it</b> - 12 steps</div>
+      <div class="b-box"><b>Done when</b> - 3 rules + /alfred-report</div>
+      <div class="b-box"><b>Spec files</b></div>
+      <div class="b-box"><span class="pin">5</span><b>Acceptance checklist</b> - the SAME 14 items again, with No data / Manual / Not exercised, Claude suggests, evidence · checks · ask, Pass / Fail / Can't tell</div>
+    </div>
+  </div>
+</div>
+<div class="problems">
+  <div><span class="n">1</span><b>No clear "what now".</b> The phase is shown, but nothing says what to do next.</div>
+  <div><span class="n">2</span><b>Commands shout.</b> Three long monospace lines are the loudest thing on the page, though they are all the same task name.</div>
+  <div><span class="n">3</span><b>The brief is a wall.</b> The description, rules, scope, decisions, pages, files and resume all share one box, so reading the task means scrolling past everything.</div>
+  <div><span class="n">4</span><b>Every requirement is a big open card.</b> 14 items fill several screens, and the met ones fold away in a different style.</div>
+  <div><span class="n">5</span><b>The requirements appear twice.</b> The right column repeats the same items with other words ("No data", "Manual", "Not exercised") and a second set of mark buttons. You can't tell which one counts.</div>
+  <div><span class="n">6</span><b>Runs are walls of text.</b> Every Did/Found/Next shows in full, and the newest is not distinguished.</div>
+  <div><span class="n">7</span><b>The words are jargon.</b> "Can't tell", "not exercised", "manual", "no data", "met", "listen", "review" - with no help on what they mean.</div>
+  <div><span class="n">8</span><b>No hierarchy.</b> Ten boxes all have the same weight, the same borders and the same title size.</div>
+</div>
+
+<h2 class="sec">After - the whole tab (click the tabs, rows, filters and the Run menu)</h2>
+<div class="app">
+  <div class="appbar"><span>Calls</span><span>Board</span><span class="on">Task</span></div>
+
+  <div class="hd">
+    <div>
+      <div class="ids"><span class="chip">T3161-037</span><span class="chip">PROD-20261014</span><span class="chip" title="The task's branch">Multi-Select</span></div>
+      <h2>Refunded Requests (Admin) filters get "All Agencies", "All Branches" and a multi-select Branch dropdown</h2>
+    </div>
+    <div class="acts">
+      <button class="btn primary" title="Picked from where the task stands. Now: requirements can't be judged yet, so the next thing is to use the app while Claude listens (/alfred-listen) and judges each requirement from the calls.">▶ Next: check while I test <small>listen</small></button>
+      <div class="menu" id="runmenu">
+        <button class="btn" onclick="this.parentElement.classList.toggle('open')">Run ▾</button>
+        <div class="menu-pop">
+          <div class="mi"><span class="ic">▶</span><div>Check while I test<small>/alfred-listen · follows the calls live, judges each requirement</small></div><span class="cp">⧉</span></div>
+          <div class="mi"><span class="ic">▶</span><div>Review what was recorded<small>/alfred-review · goes through the cycle's calls once</small></div><span class="cp">⧉</span></div>
+          <div class="mi"><span class="ic">▶</span><div>Write the requirements<small>/alfred-spec · drafts the spec file from the brief</small></div><span class="cp">⧉</span></div>
+          <div class="mi"><span class="ic">▶</span><div>Hand-over report<small>/alfred-report · when "Done when" is all green</small></div><span class="cp">⧉</span></div>
+          <div class="sep"></div>
+          <div class="mi"><span class="ic">⇢</span><div>Continue anywhere<small>copy /mcp__alfred__resume "61813 …" - a new session, machine or agent picks the task up</small></div><span class="cp">⧉</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="stand">
+      <div class="stepper" title="Where the task stands: Coded (the change is in) → Verifying (calls being checked against the requirements) → Fixed (bugs found were fixed) → Re-tested (the fixes checked again) → Done (Done when is all ✓)."><span class="done">✓ Coded</span><i>›</i><span class="done">✓ Verifying</span><i>›</i><span class="done">✓ Fixed</span><i>›</i><span class="now">Re-tested</span><i>›</i><span>Done</span></div>
+      <div class="verdict">
+        <span class="txt">Does the code match the task? <b>Partly</b> - 3 of 14 met <button class="info" title="Counted from Requirements: a requirement is met when the calls (or your Pass) show it works. The bar is all 14: green met, violet Claude suggests, grey can't tell yet. Partly = some met, none failed.">ⓘ</button></span>
+        <span class="bar" title="3 met · 1 Claude suggests · 10 can't tell yet"><i class="s-met" style="width:21.4%"></i><i class="s-sugg" style="width:7.1%"></i><i class="s-cant" style="width:71.5%"></i></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="needs">
+    <b>Needs you</b><button class="info" title="Everything on this task waiting for you, in one line: click one to go there. Empty = nothing waits on you right now.">ⓘ</button>
+    <span class="it" onclick="show('req')">✦ 1 suggestion to accept</span>
+    <span class="it" onclick="show('req')">10 requirements Alfred can't judge from the calls yet</span>
+    <span class="it">#51 Export To Excel - waiting for your answer</span>
+    <span class="it" onclick="show('test')">7 of 12 test steps not done</span>
+    <span class="it" onclick="show('brief')">💬 Claude asks about the brief</span>
+  </div>
+
+  <div class="tabs">
+    <button class="tab on" data-p="req">Requirements <span class="n warn">11 open</span></button>
+    <button class="tab" data-p="test">Test plan <span class="n">5 / 12</span></button>
+    <button class="tab" data-p="brief">Brief <span class="n warn">💬 3</span></button>
+    <button class="tab" data-p="runs">Claude's runs <span class="n">7</span></button>
+    <button class="tab" data-p="files">Spec &amp; files <span class="n">1 · 1</span></button>
+  </div>
+
+  <!-- ===== Requirements ===== -->
+  <div class="pane on" id="p-req">
+    <div class="tabhead"><span>The ticket's criteria, judged by the calls</span><button class="info" data-g="g-req" title="What is this and how do I decide here?">ⓘ How this works</button></div>
+    <div class="guide on" id="g-req">
+      <h5>Requirements - what the task must do, and whether the code does it <span class="x" data-g="g-req">hide ✕</span></h5>
+      <p>Each row is one <b>Acceptance line</b> of the spec file (the ticket's criteria). Alfred judges a row from the calls you record while using the app; when the calls can't show it, <b>you</b> decide with Pass / Fail / Can't tell. Your mark is what counts - Claude only suggests.</p>
+      <div class="cols">
+        <div><div class="q">What the states mean</div>
+          <ul>
+            <li><span class="st met">✓ MET</span> the calls (or your Pass) show it works</li>
+            <li><span class="st bug">BUG</span> it was built but the calls show it wrong - a card holds the fix</li>
+            <li><span class="st" style="color:#f78c6c;background:rgba(247,140,108,.12)">MISSING</span> nothing in the calls does it yet - a task, not a bug</li>
+            <li><span class="st" style="color:var(--amber);background:rgba(242,181,82,.12)">RE-TEST</span> a fix is in - use the app as the card says, then verify</li>
+            <li><span class="st cant">CAN'T TELL</span> calls exist but can't prove it (e.g. 0 rows came back)</li>
+            <li><span class="st un">NOT CHECKED</span> no call has tried it yet</li>
+            <li><span class="st sugg">✦ SUGGESTS</span> Claude has an answer from the code - you accept or not</li>
+          </ul></div>
+        <div><div class="q">How to decide a row</div>
+          <div class="flow">
+            <span class="if">✦ Claude suggests →</span><span>read its reason (open the row). Agree? <b>Accept</b>. Not sure? check it in the app first.</span>
+            <span class="if">0 rows →</span><span>the search ran but found nothing, so nothing could be checked. Add test data (Test plan → Data) and search again; or mark <b>Can't tell</b>.</span>
+            <span class="if">no call yet →</span><span>do the matching step in Test plan while Claude listens - the row fills in by itself.</span>
+            <span class="if">you saw it work →</span><span><b>✓ Pass</b>, and say how in your evidence (a screenshot, a call).</span>
+            <span class="if">you saw it wrong →</span><span><b>✗ Fail</b> - Claude opens a card for the fix.</span>
+            <span class="if">can't be shown at all →</span><span><b>? Can't tell</b> with a note why - it stays open in Done when.</span>
+          </div></div>
+      </div>
+    </div>
+    <div class="filters">
+      <button class="f on">All 14</button>
+      <button class="f"><span class="d s-sugg"></span>Claude suggests 1</button>
+      <button class="f"><span class="d s-bug"></span>Bug 0</button>
+      <button class="f"><span class="d s-miss"></span>Missing 0</button>
+      <button class="f"><span class="d s-cant"></span>Can't tell yet 10</button>
+      <button class="f"><span class="d s-met"></span>Met 3</button>
+      <span class="grow"></span>
+      <button class="info" data-g="g-req" title="What the states mean">ⓘ what the states mean</button>
+    </div>
+
+    <div class="group">
+      <div class="gh"><span class="car">▾</span>Decide <span class="hint">- Claude suggests a mark; yours decides</span><span class="info" title="Open the row, read Claude's reason, then Accept it or mark it yourself. Nothing counts until you do.">ⓘ</span></div>
+      <div class="rows">
+        <div class="req open">
+          <div class="rq"><span class="st sugg">✦ SUGGESTS PASS</span><span class="t"><span class="k">R1</span>The Agency dropdown lists an "All Agencies" option.</span>
+            <span class="meta"><span class="calls" title="No call can show this (e.g. what a dropdown lists): you check it in the app and mark it.">checked by hand</span></span>
+            <span class="seg"><button class="p">✓ Pass</button><button class="x">✗ Fail</button><button class="q">? Can't tell</button></span></div>
+          <div class="more">
+            <div class="sugg"><div class="h">✦ Claude suggests ✓ Pass</div>
+              Met by code (frontend <code>ab70cf5f5</code>): the Agency dropdown has <code>allOption: true</code> (<span class="cardref">refund-request.page.ts:97</span>); the option is added first (<span class="cardref">dropdown-input.component.ts:318</span>). Label shown is "All", not "All Agencies". Your screenshot on #44 confirms the list.
+              <div style="margin-top:.4rem;display:flex;gap:.5rem"><button class="sm accept">Accept ✓ Pass</button><button class="sm btn">Dismiss</button></div></div>
+            <div class="kv"><span class="k">From</span><span>spec.md · AC1</span><span class="k">Judged by</span><span>hand - no call can show a dropdown's options</span></div>
+            <div class="links"><a>✎ your evidence</a><a>⚙ how the calls show it</a><a>💬 ask Claude</a></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="gh"><span class="car">▾</span>Can't tell yet <span class="hint">- the calls don't show it; test it, or mark it yourself</span><span class="info" title="0 rows = the search found nothing, so the result can't be checked: add data and search again. No call yet = do the step in Test plan while Claude listens. Or mark it yourself.">ⓘ</span></div>
+      <div class="rows">
+        <div class="req">
+          <div class="rq"><span class="st cant">CAN'T TELL</span><span class="t"><span class="k">R2</span>Searching with All Agencies returns requests of every agency the Admin may access.</span>
+            <span class="meta"><span class="cardref">#47</span><span class="calls warn" title="0 rows: the last search ran fine but returned nothing (response $.payload has rows - 0 rows · 10/15 5:15 PM), so Alfred cannot check the result. Add test data and search again.">0 rows</span></span>
+            <span class="seg"><button class="p">✓ Pass</button><button class="x">✗ Fail</button><button class="q on">? Can't tell</button></span></div>
+          <div class="more">
+            <div class="kv"><span class="k">You</span><span>No search with agencyIds [-11] in the cycle. #47.</span>
+              <span class="k">Calls</span><span>response <code>$.payload</code> has rows - <b>0 rows</b> · 10/15/2026 5:15:26 PM</span>
+              <span class="k">From</span><span>spec.md · AC2 · marked by you</span></div>
+            <div class="links"><a>✎ your evidence</a><a>⚙ how the calls show it</a><a>💬 ask Claude</a><a>open #47</a></div>
+          </div>
+        </div>
+        <div class="req">
+          <div class="rq"><span class="st cant">CAN'T TELL</span><span class="t"><span class="k">R3</span>Searching with one specific agency returns only that agency's requests, as today.</span>
+            <span class="meta"><span class="cardref">#46</span><span class="calls warn" title="0 rows: the search ran but returned nothing - nothing to check. Add test data and search again.">0 rows</span></span>
+            <span class="seg"><button class="p">✓ Pass</button><button class="x">✗ Fail</button><button class="q on">? Can't tell</button></span></div>
+          <div class="more"><div class="kv"><span class="k">You</span><span>All 5 searches returned 0 rows (branch 948, agencies 949/10646, 7-14 Oct) - nothing to compare.</span></div></div>
+        </div>
+        <div class="req">
+          <div class="rq"><span class="st cant">CAN'T TELL</span><span class="t"><span class="k">R6</span>Searching with several branches returns requests of any selected branch (OR).</span>
+            <span class="meta"><span class="cardref">#44</span><span class="cardref">#46</span><span class="calls warn" title="0 rows: the search ran but returned nothing - nothing to check. Add test data and search again.">0 rows</span></span>
+            <span class="seg"><button class="p">✓ Pass</button><button class="x">✗ Fail</button><button class="q on">? Can't tell</button></span></div>
+          <div class="more"><div class="kv"><span class="k">You</span><span>Request shape now right (branchIds list, #44 verified) but every search returned 0 rows. Test data: #46.</span></div></div>
+        </div>
+        <div class="req">
+          <div class="rq"><span class="st cant">CAN'T TELL</span><span class="t"><span class="k">R7</span>Searching with All Branches applies no branch restriction.</span>
+            <span class="meta"><span class="cardref">#48</span><span class="calls" title="No call has tried this yet: do the matching Test plan step while Claude listens.">no call yet</span></span>
+            <span class="seg"><button class="p">✓ Pass</button><button class="x">✗ Fail</button><button class="q on">? Can't tell</button></span></div>
+          <div class="more"></div>
+        </div>
+        <div class="req">
+          <div class="rq"><span class="st cant">CAN'T TELL</span><span class="t"><span class="k">R8</span>Searching with one branch returns only that branch's requests.</span>
+            <span class="meta"><span class="cardref">#44</span><span class="cardref">#49</span><span class="calls warn" title="0 rows: the search ran but returned nothing - nothing to check. Add test data and search again.">0 rows</span></span>
+            <span class="seg"><button class="p">✓ Pass</button><button class="x">✗ Fail</button><button class="q on">? Can't tell</button></span></div>
+          <div class="more"></div>
+        </div>
+        <div class="req"><div class="rq"><span class="st un">NOT CHECKED</span><span class="t faint"><span class="k">R9…R14</span>5 more - Branch + Agency with PNR, dates…</span><span class="meta"></span><span class="faint" style="font-size:.76rem">show 5 ▾</span></div></div>
+      </div>
+    </div>
+
+    <div class="group shut">
+      <div class="gh"><span class="car">▾</span>Met · 3 <span class="hint">- done; folded</span></div>
+      <div class="rows">
+        <div class="req"><div class="rq"><span class="st met">✓ MET</span><span class="t"><span class="k">R4</span>The Branch dropdown lists an "All Branches" option.</span><span class="meta"><span class="calls">by hand</span></span><span class="seg"><button class="p on">✓ Pass</button><button class="x">✗ Fail</button><button class="q">? Can't tell</button></span></div></div>
+      </div>
+    </div>
+
+    <div class="group also">
+      <div class="gh"><span class="car">▾</span>Also found <span class="hint">- not tied to a requirement</span></div>
+      <div class="rows">
+        <div class="note"><span class="tag">NOTE</span><span>Branch still has Validators.required with defaultValue [] - page opens with nothing selected</span><span class="grow"></span><span class="cardref">#52</span></div>
+        <div class="note"><span class="tag extra">NOT IN TASK</span><span>dropdown-input.component.ts changed - used by 9 other pages</span><span class="grow"></span><span class="cardref">#53</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Test plan ===== -->
+  <div class="pane" id="p-test">
+    <div class="tabhead"><span>What to do in the app, and when the task is finished</span><button class="info" data-g="g-test" title="What is this and how do I decide here?">ⓘ How this works</button></div>
+    <div class="guide" id="g-test">
+      <h5>Test plan - the steps to use the app, and the hand-over rule <span class="x" data-g="g-test">hide ✕</span></h5>
+      <div class="cols">
+        <div><div class="q">How to test it</div><p>The brief's Test steps. Do them in the app while Claude listens (Run ▾ → Check while I test): a step gets <b>✓ and its calls</b> when Claude sees them, <b>✗</b> with a card when it went wrong, <b>not yet</b> until then. Test data says what the steps need - set it up first, or searches come back with 0 rows.</p></div>
+        <div><div class="q">Done when</div><p>The rule for handing the task over. All three must be ✓: every requirement marked by you, no open bug or task card, every fix re-tested. Then <b>Hand-over report</b> writes the summary for QA. A ✗ tells you what is left - click it to go there.</p></div>
+      </div>
+    </div>
+    <div class="two">
+      <div class="card"><h4>How to test it <small>ticked by Claude while it watches the calls</small></h4>
+        <div class="step"><span class="mk ok">✓</span><span class="no">1</span><span>Open Admin → Booking → Refunded Requests.</span><span class="pill ok">2 calls</span></div>
+        <div class="step"><span class="mk ok">✓</span><span class="no">2</span><span>Open the Agency dropdown and check that "All Agencies" is listed.</span><span class="pill ok">7 calls</span></div>
+        <div class="step"><span class="mk">·</span><span class="no">3</span><span>Open the Branch dropdown and check that "All Branches" is listed.</span><span class="pill">not yet</span></div>
+        <div class="step"><span class="mk ok">✓</span><span class="no">4</span><span>Search with All Agencies + All Branches.</span><span class="pill ok">7 calls</span></div>
+        <div class="step"><span class="mk">·</span><span class="no">5</span><span>Search with Agency A + All Branches.</span><span class="pill">not yet</span></div>
+        <div class="step"><span class="mk">·</span><span class="no">6</span><span>Search with All Agencies + one branch (Cairo).</span><span class="pill">not yet</span></div>
+        <div class="step"><span class="mk ok">✓</span><span class="no">7</span><span>Search with All Agencies + two branches (Cairo + Mansoura).</span><span class="pill ok">7 calls</span></div>
+        <div class="step"><span class="mk ok">✓</span><span class="no">8</span><span>Search with Agency A + Cairo + Mansoura.</span><span class="pill ok">1 call</span></div>
+        <div class="step"><span class="mk">·</span><span class="no">9</span><span>Switch Branch from All Branches to one specific branch and search again.</span><span class="pill">not yet</span></div>
+        <div class="step"><span class="mk">·</span><span class="no">10</span><span>Combine Branch + Agency with PNR, date range, Refund Status and Request Type, then search.</span><span class="pill">not yet</span></div>
+        <div class="step"><span class="mk">·</span><span class="no">11</span><span>Export To Excel with multi-branch filters applied.</span><span class="pill">not yet</span></div>
+        <div class="step"><span class="mk">·</span><span class="no">12</span><span>Open Refund Details, then Approve or Reject one pending request from a multi-branch result.</span><span class="pill">not yet</span></div>
+        <div class="lbl">Test data <span>- what the steps need</span></div>
+        <div class="data"><span>Admin user with access to several branches and agencies (fill in)</span><span>Agency A operating in two branches (fill in names)</span><span>Branches with refund requests in the last 7 days: e.g. Cairo, Mansoura</span><span>At least one request with status Pending For Approve</span></div>
+      </div>
+      <div>
+        <div class="card"><h4>Done when <small>the hand-over rule, checked live</small></h4>
+          <div class="dw"><span class="mk bad">✗</span>every requirement marked by you<span class="v">11 / 14</span></div>
+          <div class="dw"><span class="mk ok">✓</span>no open bug or task<span class="v">0</span></div>
+          <div class="dw"><span class="mk ok">✓</span>every fix re-tested<span class="v">-</span></div>
+          <div style="margin-top:.6rem"><button class="btn" disabled style="opacity:.55">▶ Hand-over report <small>when all three are ✓</small></button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Brief ===== -->
+  <div class="pane" id="p-brief">
+    <div class="tabhead"><span>What the task is - the source for everything else</span><button class="info" data-g="g-brief" title="What is this and how do I decide here?">ⓘ How this works</button></div>
+    <div class="guide" id="g-brief">
+      <h5>Brief - the task in words <span class="x" data-g="g-brief">hide ✕</span></h5>
+      <div class="cols">
+        <div><div class="q">What it is</div><p>The ticket as written (description, examples, rules), what is in and out of scope, and the <b>decisions</b> made on the way - every Claude session reads them first and must follow them. Edit it when the task changes; Restore previous undoes the last edit.</p></div>
+        <div><div class="q">Comments</div><p>Select a passage → 💬 to ask or note something about it; "+ On the whole brief" for the rest. Claude answers in the thread and may suggest a rewording - the brief only changes when you click <b>Apply</b>. Resolve a comment when it is settled.</p></div>
+      </div>
+    </div>
+    <div class="bwrap">
+      <div>
+    <div class="edit"><span>edited 10/16/2026, 11:40 AM by you</span><a>Restore previous</a><a>✎ Edit</a></div>
+    <p class="brief-goal" style="margin-top:.5rem">Refunded Requests (Admin) filters get "All Agencies", "All Branches" and a multi-select Branch dropdown; results combine selected branches with OR.</p>
+    <div class="two">
+      <div>
+        <div class="lbl">Description <span>- as the ticket says it</span></div>
+        Enhance the existing filters in Admin Dashboard → Refunded Requests:
+        <ul class="tight"><li>Add All Agencies option to the Agency dropdown.</li><li>Add All Branches option to the Branch dropdown.</li><li>Change the Branch dropdown to support <mark class="hl done" data-c="c3">Multi-Select</mark>.</li><li>Allow the Admin User to select one or multiple branches within the same search.</li><li>Preserve the existing filtering behavior for all other Refunded Requests filters.</li></ul>
+        <div class="lbl">Filter examples</div>
+        <table class="ex"><tr><th>Agency</th><th>Branch</th><th>Expected result</th></tr>
+          <tr><td>All Agencies</td><td>All Branches</td><td>All applicable Refund Requests</td></tr>
+          <tr><td>Agency A</td><td>All Branches</td><td>Requests for Agency A across all applicable branches</td></tr>
+          <tr><td>All Agencies</td><td>Cairo + Mansoura</td><td>Requests associated with Cairo OR Mansoura <span class="selpop">💬 <b>Comment</b> · select text to comment on it</span></td></tr></table>
+        <div class="lbl">Business rules</div>
+        <div class="dim">All Agencies / All Branches = no restriction on that field; multiple branches use OR; the Admin only sees what they are already authorized to access; all other filters unchanged.</div>
+      </div>
+      <div>
+        <div class="lbl">In scope</div>
+        <ul class="tight scope"><li>Search endpoint accepts several branch ids, or none for "All Branches"</li><li>Agency filter accepts "All Agencies"</li><li>Agency lookup for several selected branches</li><li>Export To Excel uses the same new filters</li><li><mark class="hl" data-c="c1">Branch is no longer required (defaults to All Branches)</mark></li></ul>
+        <div class="lbl">Out of scope <span>- never carded</span></div>
+        <ul class="tight oos"><li>Refund request data, processing, refund status, Approve / Reject</li><li>Other Refunded Requests filters (PNR, dates, status, type)</li><li>Authorization rules for agencies / branches</li></ul>
+      </div>
+    </div>
+    <div class="lbl">Decisions <span>- binding for every session</span></div>
+    <div class="dec"><span class="when">2026-10-15</span><span><mark class="hl cl" data-c="c2">"All Branches" = every branch the logged-in Admin may access, not "no filter".</mark> All = <code>[-11]</code> for branchIds and agencyIds.</span></div>
+    <div class="dec"><span class="when">2026-10-15</span><span>#45 merged into #44 (one fix, one re-test).</span></div>
+    <div class="dec"><span class="when">chat #5060</span><span>#51 Export To Excel kept open (you reopened it, wants it in To do): AC13 needs a real Export call with 2+ branches.</span></div>
+    <div class="lbl">Pinned, pages &amp; files</div>
+    <div class="att"><span class="a">📌 pinned: refund search walkthrough</span><span class="a">◆ Page: Refunded Requests walkthrough</span><span class="a add">+ Page</span><span class="a add">📎 Attach a file</span></div>
+      </div>
+    <aside class="margin">
+      <div class="mh"><span class="t">Comments</span><span>3 open · 1 resolved</span><button class="btn sm" style="padding:.05rem .5rem">+ On the whole brief</button></div>
+      <div class="cmt" data-c="c1">
+        <div class="q">"Branch is no longer required (defaults to All Branches)"</div>
+        <div class="cw"><span class="av">Y</span><b>You</b><span class="faint">11:52 AM</span></div>
+        <div>Is that still true? The page opens with nothing selected (Validators.required is still on).</div>
+        <div class="rep">
+          <div class="cw"><span class="av cl">✦</span><b class="cln">Claude</b><span class="faint">11:54 AM</span></div>
+          <div>Not yet: <code>refund-request.page.ts:79</code> keeps <code>Validators.required</code> with <code>[]</code>. Card #52 has it. I can reword the line until it is fixed:</div>
+          <div class="proposal">✦ Suggests: <del>Branch is no longer required</del> <ins>Branch should not be required (today it still is - #52)</ins> (defaults to All Branches)
+            <div class="btns"><button class="sm accept">Apply to the brief</button><button class="sm btn">Dismiss</button></div></div>
+        </div>
+        <div class="foot"><a>Reply</a><a>open #52</a><a class="res">✓ Resolve</a></div>
+      </div>
+      <div class="cmt cl" data-c="c2">
+        <div class="q">"All Branches" = every branch the logged-in Admin may access…</div>
+        <div class="cw"><span class="av cl">✦</span><b class="cln">Claude</b><span class="faint">yesterday</span><span style="color:var(--amber);font-size:.7rem">❓ asks you</span></div>
+        <div>Should a branch the Admin <i>lost</i> access to after the search was saved still be included? The calls never show that case.</div>
+        <div class="foot"><a>Answer</a><a class="res">✓ Resolve</a></div>
+      </div>
+      <div class="cmt">
+        <div class="q" style="border-left-color:var(--border-strong)">On the whole brief</div>
+        <div class="cw"><span class="av">Y</span><b>You</b><span class="faint">10:02 AM</span></div>
+        <div>QA wants the filter table in the ticket too - keep it in sync.</div>
+        <div class="foot"><a>Reply</a><a class="res">✓ Resolve</a></div>
+      </div>
+      <details><summary class="faint" style="font-size:.76rem;cursor:pointer">1 resolved</summary>
+        <div class="cmt resolved" data-c="c3" style="margin-top:.4rem">
+          <div class="q">"Multi-Select"</div>
+          <div class="cw"><span class="av">Y</span><b>You</b><span class="faint">Oct 14</span><span class="faint">· resolved by you</span></div>
+          <div>Is this the shared multi-select or a new one?</div>
+        </div></details>
+    </aside>
+    </div>
+  </div>
+
+  <!-- ===== Runs ===== -->
+  <div class="pane" id="p-runs">
+    <div class="tabhead"><span>What each Claude run did - newest first</span><button class="info" data-g="g-runs" title="What is this and how do I decide here?">ⓘ How this works</button></div>
+    <div class="guide" id="g-runs">
+      <h5>Claude's runs - the session log <span class="x" data-g="g-runs">hide ✕</span></h5>
+      <p>Every skill Claude runs on this task leaves one entry: <b>Did</b> (what it looked at), <b>Found</b> (what it learned), <b>Next</b> (what should happen next - often your part). Read the newest one's Next when you come back to the task; nothing here needs a decision unless its Next says so.</p>
+    </div>
+    <details class="run" open>
+      <summary><span class="sk">/alfred-listen</span><span class="faint">today 9:24 AM</span><span class="nx">Next: sort the Inbox (/alfred-triage); the unasked expectations and check lines wait for you.</span><span class="faint">▾</span></summary>
+      <div class="body">
+        <div class="p"><div class="ph">✓ Did</div>140 calls · 88 flagged in 34 groups · 0 cards · 1 batch · 7 runs · every group judged as it came.</div>
+        <div class="p found"><div class="ph">⚑ Found</div>2 open cards in this cycle; steps: 4 seen, 0 failed, 8 untested; 0 unsure expectations. "Client disconnected" with no status means the page was left before the answer - not a bug unless the call also shows an error. Searches stall tens of seconds before the first SQL: debugger pauses (closed #39 as Fine)…</div>
+        <div class="p next"><div class="ph">→ Next</div>Sort the Inbox (/alfred-triage); the unasked expectations and check lines wait for the user.</div>
+      </div>
+    </details>
+    <details class="run">
+      <summary><span class="sk">/alfred-listen</span><span class="faint">today 9:24 AM · part 3</span><span class="nx">No regressions: no Done or Verified card failed again, every guard holds.</span><span class="faint">▸</span></summary>
+      <div class="body"><div class="p">…</div></div>
+    </details>
+    <details class="run">
+      <summary><span class="sk">/alfred-review</span><span class="faint">yesterday 6:02 PM</span><span class="nx">14 requirements judged: 3 met, 11 can't tell from the calls.</span><span class="faint">▸</span></summary>
+      <div class="body"><div class="p">…</div></div>
+    </details>
+  </div>
+
+  <!-- ===== Spec & files ===== -->
+  <div class="pane" id="p-files">
+    <div class="tabhead"><span>The spec files the requirements come from, and attachments</span><button class="info" data-g="g-files" title="What is this and how do I decide here?">ⓘ How this works</button></div>
+    <div class="guide" id="g-files">
+      <h5>Spec &amp; files <span class="x" data-g="g-files">hide ✕</span></h5>
+      <p>A spec file (.md / .txt) holds the ticket's <b>Acceptance</b> lines - each line becomes a row in Requirements. Drop the ticket's spec here, or let Run ▾ → Write the requirements draft one from the brief. Replacing a file keeps the previous one (Restore previous). Files are anything else you attach for the task.</p>
+    </div>
+    <div class="two">
+      <div class="card"><h4>Spec files <small>.md · .txt - their Acceptance lines are the requirements</small></h4>
+        <div style="display:flex;gap:.5rem;align-items:center;font-size:.85rem"><span class="chip">MD</span><b>spec.md</b><span class="faint">1.7 KB · 10/15 1:06 PM · ✦ by Claude</span><span class="grow"></span><a style="color:var(--blue);font-size:.78rem">Restore previous</a><span class="faint">✕</span></div>
+        <div style="margin-top:.6rem;border:1px dashed var(--border-strong);border-radius:8px;padding:.5rem;text-align:center;color:var(--dim);font-size:.82rem">Drop .md / .txt here, <a style="color:var(--blue)">choose</a>, or <a style="color:var(--blue)">paste text</a></div>
+      </div>
+      <div class="card"><h4>Files <small>attached to this task</small></h4><div class="dim" style="font-size:.84rem">refund-search-before.png · 120 KB</div></div>
+    </div>
+  </div>
+</div>
+
+<h2 class="sec">Nothing dropped - where every piece of today's page goes</h2>
+<table class="table">
+  <tr><th>Today</th><th>After</th></tr>
+  <tr><td>Ticket chips, title, branch chip</td><td>Header, first line</td></tr>
+  <tr><td>Phase rail (Coded → … → Done)</td><td>Header stepper, done steps ticked</td></tr>
+  <tr><td>"Does the code match the task?" + 4-8 tiles</td><td>Header verdict + one segmented bar; the tiles become the <b>filter chips</b> of Requirements (same counts, same "show only these")</td></tr>
+  <tr><td>/alfred-review, /alfred-listen, /alfred-spec (run / copy / ▾)</td><td><b>Run ▾</b> menu, each with plain words + the command to copy; the phase's own next skill is the <b>primary button</b></td></tr>
+  <tr><td>The task (brief): goal, description, scope, out of scope, decisions, other sections, edit / restore, pinned, Pages, Files, Attach</td><td><b>Brief</b> tab - description beside scope; decisions as a dated list; pinned / pages / files as one row</td></tr>
+  <tr><td>"Continue anywhere" resume command</td><td>Run ▾ menu, last item (copy)</td></tr>
+  <tr><td>Requirements (left) <b>and</b> Acceptance checklist (right)</td><td><b>One</b> Requirements list: one row each, grouped by state (Decide · Bug · Missing · Re-test · Can't tell · Not checked · Met folded). One mark control. A row opens to: your evidence, Claude's suggestion (Accept / Dismiss), the calls' verdict and why, From file, cards, and the links evidence · checks · ask</td></tr>
+  <tr><td>Verdict words No data / Not exercised / Manual</td><td>Short call pill on the row: "0 rows", "no call yet", "checked by hand" (the reason on hover and in the open row)</td></tr>
+  <tr><td>Claude's notes · Changed, but not in the task</td><td>"Also found" group at the end of Requirements (NOTE / NOT IN TASK tags)</td></tr>
+  <tr><td>Needs you (side box)</td><td>The <b>Needs you</b> strip under the header - also counts suggestions to accept, requirements to judge and steps left</td></tr>
+  <tr><td>How to test it + Data</td><td><b>Test plan</b> tab, left</td></tr>
+  <tr><td>Done when + /alfred-report</td><td><b>Test plan</b> tab, right; the report button says when it is ready</td></tr>
+  <tr><td>Claude's runs</td><td><b>Claude's runs</b> tab - one line each (skill · when · its Next); the newest opens</td></tr>
+  <tr><td>Spec files (drop / choose / paste, restore, delete)</td><td><b>Spec &amp; files</b> tab</td></tr>
+  <tr><td>Live updates on /ws/board, card links (#47) opening the card</td><td>Unchanged</td></tr>
+  <tr><td><b>New:</b> how each section works</td><td>ⓘ How this works on every tab: what it is, where it comes from, and a decision guide (Requirements: what each state means and which mark to choose). Open the first time, then remembered closed; ⓘ hints on group headers, the verdict, Needs you, the stepper and every call pill (0 rows, no call yet, checked by hand)</td></tr>
+  <tr><td><b>New:</b> comments on the brief</td><td><b>Brief</b> tab margin: select text → 💬 Comment (anchored, highlighted) or "+ On the whole brief"; replies, Claude's answers and questions, Claude's suggested rewording (Apply / Dismiss - the brief changes only when you apply), Resolve; open ones counted on the tab and in Needs you</td></tr>
+</table>
+
+<script>
+  function show(p) {
+    document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('on', t.dataset.p === p));
+    document.querySelectorAll('.pane').forEach((x) => x.classList.toggle('on', x.id === 'p-' + p));
+  }
+  document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => show(t.dataset.p)));
+  document.querySelectorAll('.rq').forEach((r) => r.addEventListener('click', (e) => { if (!e.target.closest('.seg')) r.parentElement.classList.toggle('open'); }));
+  document.querySelectorAll('.gh').forEach((g) => g.addEventListener('click', () => g.parentElement.classList.toggle('shut')));
+  document.querySelectorAll('.f').forEach((f) => f.addEventListener('click', () => { document.querySelectorAll('.f').forEach((x) => x.classList.toggle('on', x === f)); }));
+  document.querySelectorAll('.seg').forEach((s) => s.addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; s.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b)); }));
+
+
+  // ⓘ toggles its section's guide; a guide closed once stays closed (remembered per section in this browser)
+  document.querySelectorAll('[data-g]').forEach((b) => b.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const g = document.getElementById(b.dataset.g);
+    if (g) g.classList.toggle('on');
+  }));
+  // brief comments: a highlight and its comment light each other up
+  document.querySelectorAll('[data-c]').forEach((el) => {
+    const id = el.dataset.c;
+    const both = () => document.querySelectorAll('[data-c="' + id + '"]');
+    el.addEventListener('mouseenter', () => both().forEach((x) => x.classList.add('lit')));
+    el.addEventListener('mouseleave', () => both().forEach((x) => x.classList.remove('lit')));
+  });
+  document.addEventListener('click', (e) => { if (!e.target.closest('.menu')) document.getElementById('runmenu').classList.remove('open'); });
+</script>
+</body>
+</html>

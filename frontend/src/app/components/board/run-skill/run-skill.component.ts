@@ -24,9 +24,9 @@ type View = 'idle' | 'copy' | 'start' | 'sending' | 'sent' | 'busy' | 'closed' |
   template: `
     <span [class]="'run-skill run-' + view()">
       <button type="button" class="run-go" [title]="title()" (click)="go($event)">
-        <span class="run-ico">@if (view() === 'sending') { <span class="run-spin"></span> } @else { {{ icon() }} }</span>
+        <span class="run-ico">@if (view() === 'sending') { <span class="run-spin"></span> } @else if (view() === 'copy' && copied() && copied() !== 'failed') { ✓ } @else { {{ icon() }} }</span>
         <span class="run-cmd">{{ command() }}</span>
-        @if (tail(); as t) { <span class="run-tail">{{ t }}</span> }
+        @if (copyOnly() && copied()) { <span class="run-tail" [class.run-copied]="copied() !== 'failed'">{{ copied() === 'failed' ? 'select it and press Ctrl+C' : 'copied' }}</span> } @else { @if (tail(); as t) { <span class="run-tail">{{ t }}</span> } }
       </button>
       @if (!copyOnly()) {
         <button type="button" class="run-cp" [title]="'Copy the full prompt - paste it into Claude Code or another agent'" (click)="copyPrompt()">
@@ -153,6 +153,8 @@ export class RunSkillComponent {
   readonly steps = computed(() => startSteps(this.cycleId() ?? '<cycle>', (this.state.cycles(), this.state.lastCwd(this.cycleId()))));
 
   readonly view = computed<View>(() => {
+    // a command for another session only copies: no run of this board ever takes it over
+    if (this.copyOnly()) return 'copy';
     if (this.sending()) return 'sending';
     const r = this.run();
     const now = this.now();
@@ -269,6 +271,8 @@ export class RunSkillComponent {
     if (v === 'sent' || v === 'busy' || v === 'closed' || v === 'running' || v === 'sending') return;
     if (this.canRun()) { this.send(this.prompt(), null); return; }
     if (this.forChat()) { this.starting.set(true); return; }
+    // a command for another session is pasted as typed there: the command, not the prompt
+    if (this.copyOnly()) { this.copyText(this.command(), 'cmd'); return; }
     this.copyPrompt();
   }
 
@@ -315,7 +319,14 @@ export class RunSkillComponent {
     void copyToClipboard(text).then(() => {
       this.copied.set(what);
       setTimeout(() => this.copied.set(null), 1500);
-    }, () => undefined);
+    }, () => {
+      // the browser refused the clipboard: say so and select the command, so Ctrl+C takes it
+      this.copied.set('failed');
+      const cmd = (this.host$.nativeElement as HTMLElement).querySelector('.run-cmd');
+      const sel = typeof window !== 'undefined' ? window.getSelection() : null;
+      if (cmd && sel) { const r = document.createRange(); r.selectNodeContents(cmd); sel.removeAllRanges(); sel.addRange(r); }
+      setTimeout(() => this.copied.set(null), 4000);
+    });
     if (what === 'cmd' || what === 'shell') this.menu.set(false);
   }
 

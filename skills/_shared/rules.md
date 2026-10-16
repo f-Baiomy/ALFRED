@@ -26,6 +26,10 @@ work stands, and nothing depends on a conversation that is gone.
   one call: the brief, the requirements with the user's marks, the test steps, the findings and who each waits on, what
   the user decided, earlier runs, and the next step. Read more only when it is not enough (`get_brief`, `read_spec`,
   `board_get`).
+- **Answer the brief's open comments** (task_context lists them under BRIEF COMMENTS): reply with `board_brief_comment`
+  (`replyTo`), ask the user there (`asks: true`) about a passage you are unsure of, and suggest a rewording with
+  `suggestFrom`/`suggestTo` (the exact words as the brief has them) - the brief changes only when the user applies it.
+  Never resolve a thread; that is the user's.
 - **Write everything worth keeping back to Alfred**, never only into the conversation: findings as cards, progress as
   state comments (did / found / next), decisions the user makes as answers on the board, and one `board_session_log`
   entry per run. A fact that is only in this chat is lost to the next session.
@@ -56,7 +60,9 @@ work stands, and nothing depends on a conversation that is gone.
   as it arrives (`board_requirements`; "Requirement status" below). The calls decide, not the code: a call that cannot
   carry what an item needs makes it MISSING whether or not code was written, and code written does not make an item
   met - only a call does. The code is a hint: when the repo is here, read the task branch's change (`git diff --stat
-  <base>...HEAD`, then the files that matter) once per run to name the file that misses the item. Code the change
+  <base>...HEAD`, then the files that matter) once per run to name the file that misses the item. `/alfred-verify`
+  goes further (its "2c"): every Acceptance item's code layer by layer - backend, frontend, database - in every source
+  the session can reach, on the task branch, saying plainly which layer it cannot reach; listen does not, it stays fast. Code the change
   touches that no requirement asks for and no call ran is a NOTE titled `Not in the task: <file> <what it adds>` -
   scope creep or a requirement nobody wrote down; ask, never judge.
 - **The Task tab shows what you write** (the cycle page's Task tab and the Board's cycle view): beside each item's
@@ -64,8 +70,9 @@ work stands, and nothing depends on a conversation that is gone.
   open TASK = missing, FIXED = waiting on a re-test), then your `board_suggest_mark`. So link every bug or missing card
   to the item it breaks, and suggest a mark with evidence for each item you checked - an unlinked card shows only as a
   note, an item with nothing shows "not checked".
-- No `/alfred-*` skills installed (another agent)? The MCP prompt `resume` (in Claude Code `/mcp__alfred__resume`)
-  gives the same start.
+- **Picking a task up again** - a new session, another machine, after a break: `/alfred-resume <task>` loads it from
+  Alfred and says where it stands as the Task tab shows it, then waits for Go. No `/alfred-*` skills installed
+  (another agent)? The MCP prompt `resume` (in Claude Code `/mcp__<server>__resume`) gives the same start.
 
 ## 1. The user decides
 

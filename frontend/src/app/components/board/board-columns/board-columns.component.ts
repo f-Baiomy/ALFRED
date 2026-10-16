@@ -2,6 +2,7 @@ import { Component, computed, input, output } from '@angular/core';
 import { CdkDrag, CdkDragDrop, CdkDropList, CdkDropListGroup } from '@angular/cdk/drag-drop';
 import { ALL_STATUSES, CardStatus, CardSummary, RetestCheck, STATUS_LABELS } from '../../../core/models/board.models';
 import { BoardCardComponent, CardAction } from '../board-card/board-card.component';
+import { highCards, worstFirst } from '../../../shared/utils/triage-advice';
 
 /** A move a drop asks for. Dropping on Closed is not a move - closing needs a resolution, so it opens the card. */
 export interface CardDrop {
@@ -23,6 +24,10 @@ export interface CardDrop {
             <span>{{ col.label }}</span>
             <span class="board-col-count">
               @if (col.status === 'INBOX' && col.cards.length && editable()) {
+                @if (high().length) {
+                  <button type="button" class="board-triage-btn" title="Accept all High: take every advice Claude gave with High confidence - Medium and Low stay yours"
+                          (click)="acceptHigh.emit(high())">✓ High {{ high().length }}</button>
+                }
                 <button type="button" class="board-triage-btn" (click)="triage.emit()">Triage {{ col.cards.length }} ›</button>
               }
               @if (col.status === 'FIXED' && col.cards.length && editable()) {
@@ -63,11 +68,16 @@ export class BoardColumnsComponent {
   readonly action = output<{ card: CardSummary; action: CardAction }>();
   readonly triage = output<void>();
   readonly answer = output<CardSummary>();
+  /** "Accept all High" (triage): the Inbox cards whose advice Claude gave with High confidence. */
+  readonly acceptHigh = output<readonly CardSummary[]>();
+
+  readonly high = computed(() => highCards(this.cards()));
 
   readonly columns = computed(() => ALL_STATUSES.map((status) => ({
     status,
     label: STATUS_LABELS[status],
-    cards: this.cards().filter((c) => c.status === status),
+    // The Inbox worst first when Claude ranked it (/alfred-triage); the other columns as the board orders them
+    cards: status === 'INBOX' ? worstFirst(this.cards().filter((c) => c.status === status)) : this.cards().filter((c) => c.status === status),
   })));
 
   readonly selectedFixed = computed(() => this.cards().filter((c) => c.status === 'FIXED' && this.selected().has(c.id)).map((c) => c.number));

@@ -1,6 +1,8 @@
 import { CardSummary, ChecklistFile, ChecklistItem } from '../../core/models/board.models';
+import { BriefComment } from '../../core/models/board.models';
 import {
-  briefParts, countStates, decisionsOf, doneWhen, itemsOf, needsYou, notesOf, phaseOf, requirementsOf, taskRefs, verdictOf,
+  briefParts, briefThreads, callPill, countStates, decisionsOf, doneWhen, findLoose, groupOf, itemsOf, needItems, needsYou, nextStepOf, notesOf,
+  phaseOf, requirementsOf, taskRefs, verdictOf,
 } from './task-view';
 
 function card(number: number, kind: CardSummary['kind'], status: CardSummary['status'], extra: Partial<CardSummary> = {}): CardSummary {
@@ -151,5 +153,66 @@ free text`;
       card(4, 'BUG', 'TO_DO', { waiting: { who: 'CLAUDE', since: '', setBy: 'CLAUDE' } }),
     ];
     expect(needsYou(cards).map((n) => [n.card.number, n.why])).toEqual([[1, 'a question'], [2, 'Claude proposes verified'], [3, 'waits on you']]);
+  });
+
+  describe('the Task tab (specs/024)', () => {
+    const files = (items: ChecklistItem[]): ChecklistFile[] => [{ fileName: 'spec.md', items }];
+
+    it('puts a requirement Claude suggests a mark for under Decide, whatever its state', () => {
+      const reqs = requirementsOf(files([item('a', { suggestion: suggestion('PASS') }), item('b', { mark: mark('PASS') }), item('c'),
+        item('d', { suggestion: suggestion('FAIL') })]), []);
+      const by = Object.fromEntries(reqs.map((r) => [r.item.key, groupOf(r)]));
+      expect(by).toEqual({ a: 'DECIDE', b: 'MET', c: 'UNTESTED', d: 'DECIDE' });
+    });
+
+    it('turns the calls\' verdict into a short pill with the reason on hover', () => {
+      expect(callPill({ verdict: 'NO_DATA', reason: '0 rows' })).toEqual(jasmine.objectContaining({ text: '0 rows', tone: 'warn' }));
+      expect(callPill({ verdict: 'NO_DATA', reason: '0 rows' })!.tip).toContain('Add test data and search again - 0 rows');
+      expect(callPill({ verdict: 'NOT_EXERCISED', reason: null })!.text).toBe('no call yet');
+      expect(callPill({ verdict: 'MANUAL', reason: null })!.text).toBe('checked by hand');
+      expect(callPill({ verdict: 'MET', reason: null })!.tone).toBe('ok');
+      expect(callPill({ verdict: 'WRONG', reason: 'sent 948' })!.tone).toBe('bad');
+      expect(callPill(null)).toBeNull();
+      expect(callPill({ verdict: 'LATER_KIND', reason: null })).toBeNull();
+    });
+
+    it('picks the one next step from where the task stands', () => {
+      expect(nextStepOf([], []).skill).toBe('alfred-spec');
+      const untested = requirementsOf(files([item('a')]), []);
+      expect(nextStepOf(untested, doneWhen(untested, [])).skill).toBe('alfred-listen');
+      const suggested = requirementsOf(files([item('a', { suggestion: suggestion('PASS') })]), []);
+      expect(nextStepOf(suggested, doneWhen(suggested, []))).toEqual(jasmine.objectContaining({ skill: null, label: 'Review Claude\'s suggestions' }));
+      const bug = requirementsOf(files([item('a', { cards: [ref(3, 'TO_DO')] })]), [card(3, 'BUG', 'TO_DO')]);
+      expect(nextStepOf(bug, doneWhen(bug, [card(3, 'BUG', 'TO_DO')])).skill).toBe('alfred-fix');
+      const fixed = requirementsOf(files([item('a', { cards: [ref(3, 'FIXED')] })]), [card(3, 'BUG', 'FIXED')]);
+      expect(nextStepOf(fixed, doneWhen(fixed, [card(3, 'BUG', 'FIXED')])).skill).toBe('alfred-verify');
+      const done = requirementsOf(files([item('a', { mark: mark('PASS') })]), []);
+      expect(nextStepOf(done, doneWhen(done, [])).skill).toBe('alfred-report');
+    });
+
+    it('lists what needs the user, each leading where it is dealt with', () => {
+      const reqs = requirementsOf(files([item('a', { suggestion: suggestion('PASS') }), item('b'), item('c', { mark: mark('FAIL') })]), []);
+      const steps = [{ key: '1', text: 's', state: 'UNTESTED' as const, calls: 0, cardNumber: null, note: null }];
+      const out = needItems(reqs, [card(9, 'QUESTION', 'INBOX')], steps, 2);
+      expect(out.map((n) => n.text)).toEqual(['✦ 1 suggestion to accept', '✗ 1 requirement failed', '1 requirement not checked yet',
+        '💬 Claude asks about the brief (2)', '#9 card 9 - a question', '1 of 1 test steps not done']);
+      expect(out.map((n) => n.filter ?? n.tab ?? n.card?.number)).toEqual(['DECIDE', 'BUG', 'UNTESTED', 'brief', 9, 'test']);
+    });
+
+    it('groups brief comments into threads; Claude\'s question waits until the user answers', () => {
+      const c = (id: number, extra: Partial<BriefComment>): BriefComment => ({ id, cycleId: 'cy', quote: null, actor: 'USER', text: 't', replyTo: null,
+        asks: false, suggestFrom: null, suggestTo: null, createdAt: '', resolvedAt: null, resolvedBy: null, ...extra });
+      const t = briefThreads([c(1, { actor: 'CLAUDE', asks: true }), c(2, { replyTo: 1, actor: 'CLAUDE' }), c(3, {}), c(4, { replyTo: 3 }),
+        c(5, { resolvedAt: 'x' }), c(6, { actor: 'CLAUDE', asks: true }), c(7, { replyTo: 6 })]);
+      expect(t.open.map((x) => [x.root.id, x.replies.map((r) => r.id), x.asksYou])).toEqual([[1, [2], true], [3, [4], false], [6, [7], false]]);
+      expect(t.resolved.map((x) => x.root.id)).toEqual([5]);
+    });
+
+    it('finds a quote with its line breaks read as spaces', () => {
+      expect(findLoose('Branch is\n  no longer required.', 'Branch is no longer required')).toEqual({ start: 0, end: 30 });
+      expect(findLoose('a (b) c', '(b)')).toEqual({ start: 2, end: 5 });
+      expect(findLoose('abc', 'x')).toBeNull();
+      expect(findLoose('abc', '  ')).toBeNull();
+    });
   });
 });

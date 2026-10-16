@@ -90,6 +90,8 @@ export interface FakeBoard {
   activity: Record<string, any[]>;
   closedReasons: Record<string, unknown>[];
   briefs: Record<string, { text: string; updatedAt: string | null }>;
+  /** Brief comments per cycle (specs/024). */
+  briefComments?: Record<string, Record<string, unknown>[]>;
   specs: Record<string, Record<string, string>>;
   checklist: Record<string, unknown[]>;
   /** specs/018: a cycle's requirement view (none = an Alfred without the check), and the evidence PUTs received. */
@@ -719,6 +721,16 @@ export class FakeAlfred {
       return [200, card];
     }
     if (p[1] === 'closed-reasons') return [200, b.closedReasons];
+    if (p[1] === 'cycles' && p[3] === 'brief' && p[4] === 'comments') {
+      const all = (b.briefComments ??= {})[p[2]] ??= [];
+      if (method === 'POST') {
+        const c = { id: all.length + 1, quote: body.quote ?? null, actor: 'CLAUDE', text: body.text, replyTo: body.replyTo ?? null, asks: !!body.asks,
+          suggestFrom: body.suggestFrom ?? null, suggestTo: body.suggestTo ?? null, createdAt: '2026-10-11T09:00:00Z', resolvedAt: null };
+        all.push(c);
+        return [200, { comment: c }];
+      }
+      return [200, all];
+    }
     if (p[1] === 'cycles' && p[3] === 'brief' && method === 'PUT') {
       b.briefs[p[2]] = { text: body.text, updatedAt: '2026-10-11T09:00:00Z' };
       return [200, b.briefs[p[2]]];

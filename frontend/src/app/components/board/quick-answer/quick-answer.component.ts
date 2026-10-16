@@ -50,6 +50,13 @@ const EMPTY: Draft = { pick: [], other: '', note: '', later: false };
               @else if (becauseText(q)) { <div class="board-qa-fu">✦ New from Claude · because {{ becauseText(q) }}</div> }
               <div class="board-qa-q"><app-markdown-view [text]="q.ask.question" />@if (q.ask.multiSelect) { <span class="board-dim"> (choose any)</span> }</div>
               @if (q.ask.why) { <div class="board-qa-why"><b>Why I ask:</b> <app-markdown-view [text]="q.ask.why" /></div> }
+              @if (q.ask.checked || q.ask.severity || q.ask.group?.length) {
+                <div class="board-qa-triage">
+                  @if (q.ask.severity; as s) { <span class="board-sev" [title]="s.note ?? ''">▲ {{ s.rank }}{{ s.of ? ' of ' + s.of : '' }}{{ s.note ? ' · ' + s.note : '' }}</span> }
+                  @if (q.ask.group?.length) { <span>Same root cause: @for (n of q.ask.group; track n) { #{{ n }} }</span> }
+                  @if (q.ask.checked) { <div class="board-dim"><b>Checked:</b> {{ q.ask.checked }}</div> }
+                </div>
+              }
               <div class="board-qa-body">
                 <div class="board-qa-opts" [class.multi]="q.ask.multiSelect" (mouseleave)="hover.set(null)">
                   @for (o of q.ask.options; track o.label; let k = $index) {
@@ -62,7 +69,10 @@ const EMPTY: Draft = { pick: [], other: '', note: '', later: false };
                         @if (o.then) { <div class="board-qa-then"><b>Then I will:</b> {{ o.then }}</div> }
                         @if (o.followUp) { <div class="board-qa-then">↳ asks next: {{ o.followUp.header }}</div> }
                       </div>
-                      @if (o.recommended) { <span class="board-qa-rec">Recommended</span> } @else { <span></span> }
+                      @if (o.recommended) {
+                        <span class="board-qa-rec">Recommended@if (o.confidence) { <span class="board-conf" [class]="'board-conf board-conf-' + o.confidence"
+                              [title]="confidenceTitle(o.confidence)">{{ o.confidence }}</span> }</span>
+                      } @else { <span></span> }
                     </div>
                   }
                   <div class="board-qa-opt board-qa-other" [class.sel]="!!draft(q).other.trim()">
@@ -134,6 +144,11 @@ export class QuickAnswerComponent {
   readonly closed = output<void>();
 
   readonly card = signal<CardDetail | null>(null);
+
+  confidenceTitle(c: string): string {
+    return c === 'high' ? 'High confidence - the evidence decides it on its own'
+      : c === 'medium' ? 'Medium confidence - one check could not be done' : 'Low confidence - it rests on a guess; Claude says which fact is missing';
+  }
   readonly history = signal<readonly ActivityEntry[]>([]);
   readonly rows = signal<readonly BoardQuestion[]>([]);
   readonly loaded = signal(false);

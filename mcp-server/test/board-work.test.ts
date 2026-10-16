@@ -316,6 +316,32 @@ test('board_ask with options writes a questions block; previews, then and follow
   } finally { await w.close(); }
 });
 
+test('board_ask carries triage facts: confidence on the recommended option, checked, severity and group', async () => {
+  const w = await world();
+  try {
+    await w.call('board_add', { project: 'p', kind: 'BUG', title: 'x' });
+    const asked = await w.call('board_ask', { project: 'p', number: 1, questions: [
+      { header: 'Triage', question: 'What should happen to #1?', checked: '#6 same 409 · line 121 unchanged',
+        severity: { rank: 1, of: 4, note: 'blocks AC6' }, group: [7, 9],
+        options: [{ label: 'To do', recommended: true, confidence: 'high' }, { label: 'Fine' }, { label: 'Merge #7 #9 into #1' }] },
+    ] });
+    assert.equal(asked.isError, false, asked.text);
+    const text: string = w.fake.requests('POST', '/board/cards/card-1/comments')[0].body.question;
+    const q = JSON.parse(/```questions\n([\s\S]*)\n```$/.exec(text)![1]).questions[0];
+    assert.equal(q.options[0].confidence, 'high');
+    assert.equal(q.checked, '#6 same 409 · line 121 unchanged');
+    assert.deepEqual(q.severity, { rank: 1, of: 4, note: 'blocks AC6' });
+    assert.deepEqual(q.group, [7, 9]);
+
+    const bad = [
+      { header: 'T', question: 'a?', options: [{ label: 'A', recommended: true }, { label: 'B', confidence: 'low' }] },
+      { header: 'T', question: 'a?', group: [1], options: [{ label: 'A' }, { label: 'B' }] },
+      { header: 'T', question: 'a?', options: [{ label: 'A', recommended: true, confidence: 'sure' }, { label: 'B' }] },
+    ];
+    for (const b of bad) assert.equal((await w.call('board_ask', { project: 'p', number: 1, questions: [b] })).isError, true, JSON.stringify(b));
+  } finally { await w.close(); }
+});
+
 test('board_ask refuses a repeated header, one option, two recommended, or both question and questions', async () => {
   const w = await world();
   try {

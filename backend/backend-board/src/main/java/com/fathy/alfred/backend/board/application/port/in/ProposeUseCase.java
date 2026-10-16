@@ -23,5 +23,11 @@ public interface ProposeUseCase {
 
     CardChange acceptProposal(Actor actor, String cardId);
 
+    /**
+     * The user merges this card into card #{@code intoNumber} of the same project (triage: a duplicate, or one card of a
+     * root-cause group): its history and links move there and it closes as a duplicate. Claude only proposes a merge.
+     */
+    CardChange merge(Actor actor, String cardId, int intoNumber, String reason);
+
     CardChange dismissProposal(Actor actor, String cardId);
 }

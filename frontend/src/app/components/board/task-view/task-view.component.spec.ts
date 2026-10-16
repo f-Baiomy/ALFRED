@@ -2,8 +2,8 @@ import { NO_SKILL_RUNS } from '../../../core/state/skill-runs-state.service';
 import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
-import { NEVER, of } from 'rxjs';
-import { CardSummary, ChecklistFile, CycleBrief, TestStep } from '../../../core/models/board.models';
+import { NEVER, Subject, of } from 'rxjs';
+import { BriefComment, CardSummary, ChecklistFile, CycleBrief, TestStep } from '../../../core/models/board.models';
 import { BoardApiService } from '../../../core/services/board-api.service';
 import { BoardMentionsService } from '../../../core/services/board-mentions.service';
 import { BoardSocketService } from '../../../core/services/board-socket.service';
@@ -41,6 +41,8 @@ const FILES: ChecklistFile[] = [{
     { key: 'a', text: 'Search returns offers', mark: { cycleId: 'cy', fileName: 'spec.md', itemKey: 'a', mark: 'PASS', actor: 'USER', evidence: '', history: [], updatedAt: '' } },
     { key: 'b', text: 'The booking keeps every passenger', mark: null, cards: [{ project: 'p', number: 38, title: 'passengers dropped', status: 'TO_DO' }] },
     { key: 'c', text: 'The traveller sees a price change', mark: null, cards: [{ project: 'p', number: 45, title: 'price change', status: 'INBOX' }] },
+    { key: 'd', text: 'The fare is shown', mark: null,
+      suggestion: { cycleId: 'cy', fileName: 'spec.md', itemKey: 'd', mark: 'PASS', evidence: 'seen in the code', at: '' } },
   ],
 }];
 
@@ -65,78 +67,166 @@ const STEPS: TestStep[] = [
   { key: '2', text: 'Book for both passengers', state: 'FAILED', calls: 2, cardNumber: 38, note: 'one passenger' },
 ];
 
-describe('TaskViewComponent', () => {
+const ASK: BriefComment = { id: 1, cycleId: 'cy', quote: 'OrderMapper', actor: 'CLAUDE', text: 'Only the mapper?', replyTo: null, asks: true,
+  suggestFrom: null, suggestTo: null, createdAt: '2026-10-12T10:00:00Z', resolvedAt: null, resolvedBy: null };
+
+describe('TaskViewComponent (specs/024)', () => {
   let api: jasmine.SpyObj<BoardApiService>;
+  let events: Subject<unknown>;
 
   beforeEach(() => {
+    for (const k of Object.keys(localStorage)) if (k.startsWith('alfred.task.')) localStorage.removeItem(k);
     api = jasmine.createSpyObj<BoardApiService>('BoardApiService',
-      ['brief', 'checklist', 'requirements', 'cards', 'steps', 'sessionLog', 'specs', 'mark', 'acceptSuggestion', 'putBrief', 'restoreBrief']);
+      ['brief', 'briefComments', 'checklist', 'requirements', 'cards', 'steps', 'sessionLog', 'specs', 'mark', 'acceptSuggestion', 'putBrief', 'restoreBrief']);
     api.brief.and.returnValue(of(BRIEF));
+    api.briefComments.and.returnValue(of([ASK]));
     api.checklist.and.returnValue(of(FILES));
     api.requirements.and.returnValue(of({ cycleId: 'cy', items: [], counts: {} }));
     api.cards.and.returnValue(of({ cards: CARDS, total: CARDS.length, counts: { open: 5, fixed: 0, done: 0 } }));
     api.steps.and.returnValue(of(STEPS));
-    api.sessionLog.and.returnValue(of([{ id: 1, cycleId: 'cy', skill: 'alfred-review', did: 'checked 40 calls', found: '1 bug', next: 'fix #38', at: '2026-10-12T11:00:00Z' }]));
-    api.specs.and.returnValue(of([]));
+    api.sessionLog.and.returnValue(of([
+      { id: 2, cycleId: 'cy', skill: 'alfred-listen', did: 'listened to 12 calls', found: 'nothing new', next: 'test step 2', at: '2026-10-12T12:00:00Z' },
+      { id: 1, cycleId: 'cy', skill: 'alfred-review', did: 'checked 40 calls', found: '1 bug', next: 'fix #38', at: '2026-10-12T11:00:00Z' },
+    ]));
+    api.specs.and.returnValue(of([{ name: 'spec.md', size: 120, uploadedAt: '2026-10-12T09:00:00Z' }]));
+    events = new Subject();
     TestBed.configureTestingModule({
       imports: [TaskViewComponent],
       providers: [
         NO_SKILL_RUNS,
         provideHttpClient(), provideHttpClientTesting(),
         { provide: BoardApiService, useValue: api },
-        { provide: BoardSocketService, useValue: { events$: NEVER } },
+        { provide: BoardSocketService, useValue: { events$: events } },
       ],
     });
   });
 
-  function render() {
+  function render(editable = true) {
     const f = TestBed.createComponent(TaskViewComponent);
     f.componentRef.setInput('cycleId', 'cy');
     f.componentRef.setInput('project', 'p');
     f.componentRef.setInput('cycleName', 'ODY-482 booking');
+    f.componentRef.setInput('editable', editable);
     f.detectChanges();
     f.detectChanges();
     return f;
   }
 
-  it('shows the task, the verdict, requirements by state, notes and what needs the user', () => {
+  function tab(el: HTMLElement, label: string): HTMLButtonElement {
+    return Array.from(el.querySelectorAll('.tv-tab')).find((t) => t.textContent?.includes(label)) as HTMLButtonElement;
+  }
+
+  it('the header says the task, the next step, where it stands and the verdict with a bar', () => {
     const el: HTMLElement = render().nativeElement;
-    const text = el.textContent ?? '';
-    expect(el.querySelector('.task-title')?.textContent).toContain('Bookings keep every passenger and the confirmed fare.');
-    expect(el.querySelector('.task-ticket')?.textContent).toBe('ODY-482');
-    expect(el.querySelector('.task-ph.now')?.textContent).toBe('Verifying');
-    expect(el.querySelector('.task-v-a')?.textContent).toContain('Not yet - 1 bug, 1 requirement missing');
-    expect(Array.from(el.querySelectorAll('.task-req .task-dot')).map((d) => d.textContent)).toEqual(['BUG', 'MISSING']);
-    expect(el.querySelector('.task-met summary')?.textContent).toContain('1 requirement met');
-    expect(text).toContain('When a customer books for two');
-    expect(text).toContain('fare may change at confirm - show it');
-    expect(Array.from(el.querySelectorAll('.task-note')).map((n) => Array.from(n.children).map((c) => c.textContent?.trim()).join(' ')))
-      .toEqual(['RISK N+1 airports #46', 'EXTRA AgencyService credential lookup #47']);
-    expect(el.querySelector('.task-need')?.textContent).toContain('May fare.total change?');
-    expect(text).toContain('/mcp__alfred__resume "ODY-482 booking"');
-    expect(text).toContain('checked 40 calls');
-    expect(el.querySelector('.task-data')?.textContent).toContain('Jane Doe');
+    expect(el.querySelector('.tv-title')?.textContent).toContain('Bookings keep every passenger and the confirmed fare.');
+    expect(Array.from(el.querySelectorAll('.tv-chip')).map((c) => c.textContent?.trim())).toEqual(['ODY-482', 'feature/ODY-482']);
+    expect(el.querySelector('.tv-stepper .now')?.textContent).toBe('Verifying');
+    expect(el.querySelector('.tv-verdict')?.textContent).toContain('Not yet - 1 bug, 1 requirement missing');
+    expect(Array.from(el.querySelectorAll('.tv-bar i')).map((i) => i.className)).toEqual(['tv-g-MET', 'tv-g-BUG', 'tv-g-MISSING', 'tv-g-DECIDE']);
+    // a bug is open: the next step is fixing it
+    expect(el.querySelector('.tv-next-l')?.textContent).toContain('Fix the bug');
+    expect(el.querySelector('.tv-next .run-cmd')?.textContent).toBe('/alfred-fix "ODY-482 booking"');
   });
 
-  it('a tile shows only its requirements; a card link opens the card', () => {
+  it('Run ▾ lists every skill in plain words and Continue anywhere; a click outside closes it', () => {
     const f = render();
     const el: HTMLElement = f.nativeElement;
-    const opened = jasmine.createSpy('opened');
-    f.componentInstance.cardOpened.subscribe(opened);
-    (el.querySelector('.task-t-MISSING') as HTMLButtonElement).click();
+    (Array.from(el.querySelectorAll('.tv-menu > .tv-btn'))[0] as HTMLButtonElement).click();
     f.detectChanges();
-    expect(Array.from(el.querySelectorAll('.task-req .task-dot')).map((d) => d.textContent)).toEqual(['MISSING']);
-    expect(el.querySelector('.task-met')).toBeNull();
-    (el.querySelector('.task-req-cards .board-link') as HTMLButtonElement).click();
-    expect(TestBed.inject(BoardMentionsService).cardToOpen()).toEqual({ project: 'p', number: 45 });
-    expect(opened).toHaveBeenCalled();
+    const items = Array.from(el.querySelectorAll('.tv-mi .tv-mi-t')).map((m) => m.firstChild?.textContent?.trim());
+    expect(items).toEqual(['Check while I test', 'Review what was recorded', 'Write the requirements', 'Fix the bugs', 'Re-test the fixes',
+      'Hand-over report', 'Continue anywhere']);
+    expect(el.textContent).toContain('/alfred-resume "ODY-482 booking"');
+    document.body.click();
+    f.detectChanges();
+    expect(el.querySelector('.tv-menu-pop')).toBeNull();
   });
 
-  it('marks a requirement with the user\'s mark', () => {
-    api.mark.and.returnValue(of(FILES[0].items[1]));
+  it('Needs you leads where each thing is dealt with', () => {
+    const f = render();
+    const el: HTMLElement = f.nativeElement;
+    const needs = Array.from(el.querySelectorAll('.tv-it')).map((b) => b.textContent?.trim());
+    expect(needs).toEqual(['✦ 1 suggestion to accept', '✗ 1 requirement failed', '💬 Claude asks about the brief',
+      '#48 May fare.total change? - a question', '1 of 2 test steps not done']);
+    (el.querySelectorAll('.tv-it')[0] as HTMLButtonElement).click();
+    f.detectChanges();
+    expect(Array.from(el.querySelectorAll('.tv-req .tv-st')).map((s) => s.textContent)).toEqual(['✦ CLAUDE SUGGESTS']);
+    (el.querySelectorAll('.tv-it')[2] as HTMLButtonElement).click();
+    f.detectChanges();
+    expect(tab(el, 'Brief').classList).toContain('on');
+    (el.querySelectorAll('.tv-it')[3] as HTMLButtonElement).click();
+    expect(TestBed.inject(BoardMentionsService).cardToOpen()).toEqual({ project: 'p', number: 48 });
+  });
+
+  it('tabs carry their counts, the tab is remembered per cycle, and each tab has its guide until hidden', () => {
+    const f = render();
+    const el: HTMLElement = f.nativeElement;
+    expect(Array.from(el.querySelectorAll('.tv-tab')).map((t) => [t.firstChild?.textContent?.trim(), t.querySelector('.tv-n')?.textContent ?? '']))
+      .toEqual([['Requirements', '3 open'], ['Test plan', '1 / 2'], ['Brief', '💬 1'], ["Claude's runs", '2'], ['Spec & files', '1']]);
+    expect(el.querySelector('.tv-guide')?.textContent).toContain('Each row is one Acceptance line');
+    (el.querySelector('.tv-info-btn') as HTMLButtonElement).click();
+    f.detectChanges();
+    expect(el.querySelector('.tv-guide')).toBeNull();
+    tab(el, 'Test plan').click();
+    f.detectChanges();
+    expect(el.querySelector('.tv-guide')?.textContent).toContain('Do the steps in the app');
+    expect(localStorage.getItem('alfred.task.tab.cy')).toBe('test');
+    expect(localStorage.getItem('alfred.task.guide.req')).toBe('closed');
+
+    const again = render();
+    expect((again.nativeElement as HTMLElement).querySelector('.tv-tab.on')?.textContent).toContain('Test plan');
+  });
+
+  it('the Test plan has the steps, the data, and Done when leading to what is left', () => {
+    const f = render();
+    const el: HTMLElement = f.nativeElement;
+    tab(el, 'Test plan').click();
+    f.detectChanges();
+    expect(Array.from(el.querySelectorAll('.tv-step')).map((s) => Array.from(s.children).map((c) => c.textContent?.trim()).join(' ')))
+      .toEqual(['✓ 1 Search DXB to LHR 31 calls', '✗ 2 Book for both passengers #38']);
+    expect(el.querySelector('.tv-card .tv-list')?.textContent).toContain('Jane Doe');
+    const dws = Array.from(el.querySelectorAll('.tv-dw')) as HTMLButtonElement[];
+    expect(dws.map((d) => d.disabled)).toEqual([false, false, true]);
+    dws[1].click();
+    f.detectChanges();
+    expect(tab(el, 'Requirements').classList).toContain('on');
+    expect(Array.from(el.querySelectorAll('.tv-req .tv-st')).map((s) => s.textContent)).toEqual(['BUG']);
+  });
+
+  it("Claude's runs: newest open, Did / Found / Next", () => {
+    const f = render();
+    const el: HTMLElement = f.nativeElement;
+    tab(el, "Claude's runs").click();
+    f.detectChanges();
+    const runs = Array.from(el.querySelectorAll('details.tv-run')) as HTMLDetailsElement[];
+    expect(runs.map((r) => r.open)).toEqual([true, false]);
+    expect(runs[0].textContent).toContain('listened to 12 calls');
+    expect(runs[1].querySelector('.tv-nx')?.textContent).toContain('fix #38');
+  });
+
+  it('the brief stays loaded behind its tab, so the title and the asks count come from it', () => {
     const el: HTMLElement = render().nativeElement;
-    const pass = Array.from(el.querySelectorAll('.task-req'))[0].querySelector('.task-req-acts .board-tog') as HTMLButtonElement;
-    pass.click();
-    expect(api.mark).toHaveBeenCalledWith('cy', 'spec.md', 'b', 'PASS', '');
+    expect((el.querySelector('app-cycle-brief') as HTMLElement).hidden).toBeTrue();
+    expect(api.brief).toHaveBeenCalledTimes(1);
+    expect(api.briefComments).toHaveBeenCalledTimes(1);
+  });
+
+  it('a board change for the cycle reloads it; brief comments reload only the brief', async () => {
+    render();
+    expect(api.cards).toHaveBeenCalledTimes(1);
+    events.next({ type: 'board-changed', cycleId: 'cy', what: 'checklist' });
+    await new Promise((r) => setTimeout(r, 200));
+    expect(api.cards).toHaveBeenCalledTimes(2);
+    events.next({ type: 'board-changed', cycleId: 'cy', what: 'brief-comments' });
+    await new Promise((r) => setTimeout(r, 200));
+    expect(api.cards).toHaveBeenCalledTimes(2);
+    expect(api.briefComments).toHaveBeenCalledTimes(2);
+  });
+
+  it('read-only: no mark controls', () => {
+    const el: HTMLElement = render(false).nativeElement;
+    expect(el.querySelector('.tv-seg')).toBeNull();
   });
 });
+
+void NEVER;

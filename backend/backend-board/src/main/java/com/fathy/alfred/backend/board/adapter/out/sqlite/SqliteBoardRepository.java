@@ -5,6 +5,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fathy.alfred.backend.board.application.port.out.BoardStorePort;
 import com.fathy.alfred.backend.board.application.port.out.SkillRunStorePort;
+import com.fathy.alfred.backend.board.domain.model.Advice;
 import com.fathy.alfred.backend.board.domain.model.SkillRun;
 import com.fathy.alfred.backend.board.domain.model.ActivityEntry;
 import com.fathy.alfred.backend.board.domain.model.ActivityKind;
@@ -294,6 +295,13 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort,
                 CREATE TABLE IF NOT EXISTS item_cards (cycle_id TEXT NOT NULL, file_name TEXT NOT NULL, item_key TEXT NOT NULL,
                   card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE, PRIMARY KEY (cycle_id, file_name, item_key))
                 """);
+        // specs/024: comments on a cycle's brief - anchored to a quoted passage or about the whole brief
+        jdbc.execute("""
+                CREATE TABLE IF NOT EXISTS brief_comments (id INTEGER PRIMARY KEY AUTOINCREMENT, cycle_id TEXT NOT NULL, quote TEXT,
+                  actor TEXT NOT NULL, text TEXT NOT NULL, reply_to INTEGER, asks INTEGER NOT NULL DEFAULT 0, suggest_from TEXT,
+                  suggest_to TEXT, created_at INTEGER NOT NULL, resolved_at INTEGER, resolved_by TEXT)
+                """);
+        jdbc.execute("CREATE INDEX IF NOT EXISTS idx_brief_comments_cycle ON brief_comments(cycle_id, id)");
         // Teams (Settings -> Teams): a card's teams are a comma list of team ids, like its flags. The default teams are
         // added once - a user who deletes them all does not get them back on the next start.
         addColumn("cards", "teams", "TEXT NOT NULL DEFAULT ''");
@@ -318,6 +326,8 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort,
                 """);
         jdbc.execute("CREATE INDEX IF NOT EXISTS idx_card_questions ON card_questions(card_id, state)");
         addColumn("card_questions", "recommended", "TEXT");
+        // Triage facts that come with the advice (confidence, checked, severity, group), JSON from the ```questions block.
+        addColumn("card_questions", "advice_meta", "TEXT");
         // Short names (specs/021): what a mention of a card or an Acceptance item reads, "one-branch search (AC8)".
         jdbc.execute("CREATE TABLE IF NOT EXISTS short_names (kind TEXT NOT NULL, owner TEXT NOT NULL, short TEXT NOT NULL, PRIMARY KEY (kind, owner))");
         jdbc.execute("CREATE TABLE IF NOT EXISTS board_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
@@ -330,7 +340,7 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort,
 
     // ------------------------------------------------------------------------------------------------- questions (019)
 
-    private static final String QUESTION_COLUMNS = "entry_id, card_id, idx, header, text, state, later_until, answer_entry, parent_idx, parent_option, asked_at, recommended";
+    private static final String QUESTION_COLUMNS = "entry_id, card_id, idx, header, text, state, later_until, answer_entry, parent_idx, parent_option, asked_at, recommended, advice_meta";
 
     private static final RowMapper<Question> QUESTION_ROW = (rs, n) -> {
         long later = rs.getLong(7);
@@ -340,7 +350,7 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort,
         int parent = rs.getInt(9);
         Integer parentIdx = rs.wasNull() ? null : parent;
         return new Question(rs.getLong(1), rs.getString(2), rs.getInt(3), rs.getString(4), rs.getString(5), QuestionState.valueOf(rs.getString(6)),
-                laterUntil, answerEntry, parentIdx, rs.getString(10), Instant.ofEpochMilli(rs.getLong(11)), rs.getString(12));
+                laterUntil, answerEntry, parentIdx, rs.getString(10), Instant.ofEpochMilli(rs.getLong(11)), rs.getString(12), rs.getString(13));
     };
 
     @Override
@@ -354,9 +364,9 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort,
     }
 
     private void insertQuestion(Question q) {
-        jdbc.update("INSERT INTO card_questions(" + QUESTION_COLUMNS + ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", q.entryId(), q.cardId(), q.idx(), q.header(),
+        jdbc.update("INSERT INTO card_questions(" + QUESTION_COLUMNS + ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", q.entryId(), q.cardId(), q.idx(), q.header(),
                 q.text(), q.state().name(), q.laterUntil() == null ? null : q.laterUntil().toEpochMilli(), q.answerEntry(), q.parentIdx(),
-                q.parentOption(), q.askedAt().toEpochMilli(), q.recommended());
+                q.parentOption(), q.askedAt().toEpochMilli(), q.recommended(), q.adviceMeta());
     }
 
     @Override
@@ -417,6 +427,20 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort,
             args.addAll(chunk);
             jdbc.query("SELECT card_id, recommended FROM card_questions WHERE " + OPEN_NOW + " AND recommended IS NOT NULL AND card_id IN ("
                     + marks(chunk.size()) + ") ORDER BY entry_id, idx", rs -> { out.putIfAbsent(rs.getString(1), rs.getString(2)); }, args.toArray());
+        }
+        return out;
+    }
+
+    @Override
+    public Map<String, Advice> openQuestionAdviceDetail(Collection<String> cardIds, Instant now) {
+        Map<String, Advice> out = new HashMap<>();
+        for (List<String> chunk : chunks(new LinkedHashSet<>(cardIds))) {
+            List<Object> args = new ArrayList<>();
+            args.add(now.toEpochMilli());
+            args.addAll(chunk);
+            jdbc.query("SELECT card_id, recommended, advice_meta FROM card_questions WHERE " + OPEN_NOW + " AND recommended IS NOT NULL AND card_id IN ("
+                    + marks(chunk.size()) + ") ORDER BY entry_id, idx",
+                    rs -> { out.putIfAbsent(rs.getString(1), AdviceMeta.read(rs.getString(2), rs.getString(3))); }, args.toArray());
         }
         return out;
     }
@@ -1327,6 +1351,7 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort,
         String like = cycleId.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "/%";
         tx.executeWithoutResult(status -> {
             jdbc.update("DELETE FROM cycle_briefs WHERE cycle_id = ?", cycleId);
+            jdbc.update("DELETE FROM brief_comments WHERE cycle_id = ?", cycleId);
             jdbc.update("DELETE FROM spec_files WHERE cycle_id = ?", cycleId);
             jdbc.update("DELETE FROM checklist_marks WHERE cycle_id = ?", cycleId);
             jdbc.update("DELETE FROM checklist_suggestions WHERE cycle_id = ?", cycleId);

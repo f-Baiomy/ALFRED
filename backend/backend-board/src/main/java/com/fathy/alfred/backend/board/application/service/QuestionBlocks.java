@@ -21,7 +21,10 @@ import java.util.regex.Pattern;
  * <pre>{"about": 687, "because": {"entry": 688, "header": "Steps"},
  *  "questions": [{"header": "Steps", "question": "…", "why": "…", "multiSelect": false,
  *                 "options": [{"label": "…", "description": "…", "then": "…", "recommended": true, "preview": "…",
- *                              "followUp": {"header": "Plan", "question": "…", "options": […]}}]}]}</pre>
+ *                              "confidence": "high", "followUp": {"header": "Plan", "question": "…", "options": […]}}],
+ *                 "checked": "…", "severity": {"rank": 1, "of": 4, "note": "…"}, "group": [14, 17]}]}</pre>
+ * {@code confidence} (on the recommended option: high, medium or low), {@code checked}, {@code severity} and {@code group}
+ * are triage's (the Inbox worst first, cards of one root cause to merge into this one) - all optional.
  * An answer is {@code **Answers** Steps: … · Checks: …} with a {@code ```answers} block: {@code {"Steps": {"chose":
  * ["…"], "other": "…", "note": "…", "later": "<instant>"}}}. The text stays the source of truth - this reads it.
  */
@@ -37,12 +40,14 @@ final class QuestionBlocks {
 
     /** One question as asked: its place, its header, its options; a follow-up names the question and option that open it. */
     record Asked(int idx, String header, String question, boolean multiSelect, List<String> options, Integer parentIdx, String parentOption,
-                 String recommended) {
+                 String recommended, String adviceMeta) {
 
         Asked(int idx, String header, String question, boolean multiSelect, List<String> options, Integer parentIdx, String parentOption) {
-            this(idx, header, question, multiSelect, options, parentIdx, parentOption, null);
+            this(idx, header, question, multiSelect, options, parentIdx, parentOption, null, null);
         }
     }
+
+    static final List<String> CONFIDENCE = List.of("high", "medium", "low");
 
     /** The questions a question comment asks, follow-ups after the questions; a comment with no block asks one, its text. */
     static List<Asked> asked(String text) {
@@ -74,15 +79,51 @@ final class QuestionBlocks {
     private static Asked of(JsonNode q, int idx, Integer parentIdx, String parentOption) {
         List<String> options = new ArrayList<>();
         String[] recommended = {null};
+        String[] confidence = {null};
         q.path("options").forEach(o -> {
             options.add(o.path("label").asText(""));
             if (recommended[0] == null && o.path("recommended").asBoolean(false)) {
                 recommended[0] = o.path("label").asText("");
+                String c = o.path("confidence").asText("").strip().toLowerCase(Locale.ROOT);
+                confidence[0] = CONFIDENCE.contains(c) ? c.toUpperCase(Locale.ROOT) : null;
             }
         });
         String header = q.path("header").asText("").strip();
         return new Asked(idx, header.isEmpty() ? "Q" + (idx + 1) : header, q.path("question").asText("").strip(), q.path("multiSelect").asBoolean(false),
-                options, parentIdx, parentOption, recommended[0]);
+                options, parentIdx, parentOption, recommended[0], recommended[0] == null ? null : meta(q, confidence[0]));
+    }
+
+    /** The triage facts of a question with a recommended option, as the JSON the index keeps, or null when it has none. */
+    private static String meta(JsonNode q, String confidence) {
+        ObjectNode m = JSON.createObjectNode();
+        if (confidence != null) {
+            m.put("confidence", confidence);
+        }
+        String checked = text(q, "checked");
+        if (checked != null) {
+            m.put("checked", oneLine(checked, 600));
+        }
+        JsonNode sev = q.path("severity");
+        if (sev.path("rank").canConvertToInt() && sev.path("rank").asInt() > 0) {
+            ObjectNode s = m.putObject("severity");
+            s.put("rank", sev.path("rank").asInt());
+            if (sev.path("of").canConvertToInt() && sev.path("of").asInt() > 0) {
+                s.put("of", sev.path("of").asInt());
+            }
+            String note = text(sev, "note");
+            if (note != null) {
+                s.put("note", oneLine(note, 200));
+            }
+        }
+        if (q.path("group").isArray() && !q.path("group").isEmpty()) {
+            var g = m.putArray("group");
+            q.path("group").forEach(n -> {
+                if (n.canConvertToInt() && n.asInt() > 0) {
+                    g.add(n.asInt());
+                }
+            });
+        }
+        return m.isEmpty() ? null : m.toString();
     }
 
     /** What is wrong with a ```questions block Claude wrote, or null. */
@@ -112,6 +153,31 @@ final class QuestionBlocks {
             }
             if (a.options().size() == 1) {
                 return "Question " + a.header() + " has one option - give 2 to " + MAX_OPTIONS + ", or none for a free answer";
+            }
+        }
+        for (JsonNode q : qs) {
+            String header = q.path("header").asText("").strip();
+            for (JsonNode o : q.path("options")) {
+                String c = o.path("confidence").asText("").strip().toLowerCase(Locale.ROOT);
+                if (o.has("confidence") && !CONFIDENCE.contains(c)) {
+                    return "Question " + header + ": confidence is high, medium or low";
+                }
+                if (o.has("confidence") && !o.path("recommended").asBoolean(false)) {
+                    return "Question " + header + ": confidence goes on the recommended option";
+                }
+            }
+            JsonNode sev = q.path("severity");
+            if (q.has("severity") && !(sev.path("rank").canConvertToInt() && sev.path("rank").asInt() > 0)) {
+                return "Question " + header + ": severity needs a rank of 1 or more (1 = worst)";
+            }
+            if (q.has("group")) {
+                boolean ok = q.path("group").isArray();
+                for (JsonNode n : q.path("group")) {
+                    ok &= n.canConvertToInt() && n.asInt() > 0;
+                }
+                if (!ok) {
+                    return "Question " + header + ": group is a list of card numbers";
+                }
             }
         }
         return null;
@@ -191,7 +257,11 @@ final class QuestionBlocks {
     }
 
     private static String oneLine(String s) {
+        return oneLine(s, 200);
+    }
+
+    private static String oneLine(String s, int max) {
         String flat = s.replaceAll("\\s+", " ").strip();
-        return flat.length() > 200 ? flat.substring(0, 199) + "…" : flat;
+        return flat.length() > max ? flat.substring(0, max - 1) + "…" : flat;
     }
 }

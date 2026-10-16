@@ -147,6 +147,21 @@ export class BoardStateService {
     this.run(this.api.reopen(id));
   }
 
+  /** Merge one card into another of the project (triage). */
+  merge(id: string, intoNumber: number, reason?: string): void {
+    this.run(this.api.merge(id, intoNumber, reason));
+  }
+
+  /** Merge the open cards with these numbers into card #`intoNumber` - a root-cause group, one after another. */
+  mergeGroup(numbers: readonly number[], intoNumber: number): void {
+    const ids = numbers.map((n) => this.cards().find((c) => c.number === n && c.status !== 'CLOSED')?.id).filter((id): id is string => !!id);
+    const next = (i: number): void => {
+      if (i >= ids.length) return;
+      this.run(this.api.merge(ids[i], intoNumber, 'same root cause'), () => next(i + 1));
+    };
+    next(0);
+  }
+
   bulk(action: BulkAction, reason?: string): void {
     const ids = [...this.selected()];
     if (!ids.length) return;

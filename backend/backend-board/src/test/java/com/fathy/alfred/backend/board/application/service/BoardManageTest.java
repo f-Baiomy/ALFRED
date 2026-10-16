@@ -110,6 +110,39 @@ class BoardManageTest {
     }
 
     @Test
+    void theUserMergesACardThemselvesAndItsTriageQuestionIsAnswered() {
+        String target = card("read-pnr 409");
+        String dup = card("409 again");
+        f.board.comment(Actor.CLAUDE, dup, new CommentOnCardUseCase.Comment(null, null, null, null, null, null, """
+                What should happen?
+
+                ```questions
+                {"questions": [{"header": "Triage", "question": "What should happen?",
+                  "options": [{"label": "To do"}, {"label": "Merge into #%d", "recommended": true, "confidence": "high"}]}]}
+                ```""".formatted(number(target))));
+
+        var merged = f.board.merge(Actor.USER, dup, number(target), "same root cause");
+
+        assertThat(merged.outcome()).isEqualTo(CardChange.Outcome.OK);
+        assertThat(merged.card().card().id()).isEqualTo(target);
+        var closed = f.board.get(dup).orElseThrow().card();
+        assertThat(closed.resolution()).isEqualTo(Resolution.DUPLICATE);
+        assertThat(closed.reason()).isEqualTo("merged into #" + number(target) + ": same root cause");
+        assertThat(f.board.questions(dup)).singleElement().satisfies(q -> assertThat(q.state().name()).isEqualTo("ANSWERED"));
+    }
+
+    @Test
+    void claudeCannotMergeAndOnlyOpenCardsOfTheProjectMerge() {
+        String a = card("A");
+        String b = card("B");
+        assertThat(f.board.merge(Actor.CLAUDE, a, number(b), null).outcome()).isEqualTo(CardChange.Outcome.REFUSED_FOR_CLAUDE);
+        assertThat(f.board.merge(Actor.USER, a, number(a), null).outcome()).isEqualTo(CardChange.Outcome.INVALID);
+        assertThat(f.board.merge(Actor.USER, a, 999, null).outcome()).isEqualTo(CardChange.Outcome.INVALID);
+        f.board.close(Actor.USER, b, Resolution.FINE, null);
+        assertThat(f.board.merge(Actor.USER, a, number(b), null).outcome()).isEqualTo(CardChange.Outcome.INVALID);
+    }
+
+    @Test
     void acceptingAMergeMovesTheHistoryAndClosesTheDuplicate() {
         String target = card("read-pnr 409");
         String dup = card("409 again");

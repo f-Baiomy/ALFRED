@@ -1,6 +1,7 @@
 package com.fathy.alfred.backend.board.adapter.in.web;
 
 import com.fathy.alfred.backend.board.adapter.in.web.dto.BoardRequests.MarkRequestDto;
+import com.fathy.alfred.backend.board.adapter.in.web.dto.BoardRequests.MergeRequestDto;
 import com.fathy.alfred.backend.board.adapter.in.web.dto.BoardRequests.ProposalRequestDto;
 import com.fathy.alfred.backend.board.application.port.in.BoardChangesUseCase;
 import com.fathy.alfred.backend.board.application.port.in.MarkChecklistUseCase;
@@ -230,6 +231,14 @@ public class BoardInsightsController {
     @PostMapping("/board/cards/{id}/proposal/accept")
     public ResponseEntity<?> accept(@RequestHeader(value = ACTOR, required = false) String actor, @PathVariable String id) {
         return BoardWeb.respond(proposals.acceptProposal(BoardWeb.actor(actor), id), HttpStatus.OK);
+    }
+
+    @PostMapping("/board/cards/{id}/merge")
+    public ResponseEntity<?> merge(@RequestHeader(value = ACTOR, required = false) String actor, @PathVariable String id,
+                                   @Valid @RequestBody MergeRequestDto body) {
+        CardChange change = body.intoNumber() == null ? CardChange.refused(CardChange.Outcome.INVALID, "A merge needs intoNumber")
+                : proposals.merge(BoardWeb.actor(actor), id, body.intoNumber(), body.reason());
+        return BoardWeb.respond(change, HttpStatus.OK);
     }
 
     @DeleteMapping("/board/cards/{id}/proposal")

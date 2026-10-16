@@ -65,6 +65,19 @@ describe('board .json export (alfred-board/1)', () => {
     expect(lines.length).toBe(1 + 2 + 203 + 1 + 1 + 1);
   });
 
+  it('carries the brief comments, a thread before its replies, every field kept (specs/024)', () => {
+    const c = { cycleId: 'cy1', quote: null, actor: 'USER' as const, asks: false, suggestFrom: null, suggestTo: null, resolvedAt: null, resolvedBy: null };
+    const withComments: BoardExport = { ...data, briefComments: [
+      { ...c, id: 9, replyTo: 7, actor: 'CLAUDE', text: 'Not yet', suggestFrom: 'is no longer', suggestTo: 'should not be', createdAt: '2026-10-01T10:01:00Z' },
+      { ...c, id: 7, replyTo: null, quote: 'Branch is no longer required', text: 'Still true?', createdAt: '2026-10-01T10:00:00Z',
+        resolvedAt: '2026-10-02T10:00:00Z', resolvedBy: 'USER' },
+    ] };
+    const back = parseBoardJsonLines(buildBoardJsonLines(withComments));
+    expect(back.briefComments.map((r) => r['id'])).toEqual([7, 9]);
+    expect(back.briefComments[0]).toEqual(jasmine.objectContaining({ quote: 'Branch is no longer required', resolvedBy: 'USER' }));
+    expect(back.briefComments[1]).toEqual(jasmine.objectContaining({ replyTo: 7, actor: 'CLAUDE', suggestTo: 'should not be' }));
+  });
+
   it('refuses a file that is not a board export', () => {
     expect(() => parseBoardJsonLines(['{"format":"alfred-calls/3"}'])).toThrowError(SyntaxError);
   });

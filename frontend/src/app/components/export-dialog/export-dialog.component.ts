@@ -282,6 +282,7 @@ export class ExportDialogComponent {
           cards: this.includeCards() ? data.cards : [],
           activity: this.includeCards() ? data.activity : {},
           briefs: this.includeBrief() ? data.briefs : [],
+          briefComments: this.includeBrief() ? data.briefComments : [],
           specs: this.includeBrief() ? data.specs : [],
           marks: this.includeBrief() ? data.marks : [],
         };

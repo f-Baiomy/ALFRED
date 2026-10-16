@@ -32,7 +32,7 @@ const WRITE: Pick<RequestOptions, 'headers' | 'timeoutMs'> = { ...AS_CLAUDE, tim
 
 interface PlainQuestion {
   header: string; question: string; why?: string; multiSelect?: boolean;
-  options: { label: string; description?: string; then?: string; recommended?: boolean; followUp?: PlainQuestion }[];
+  options: { label: string; description?: string; then?: string; recommended?: boolean; confidence?: string; followUp?: PlainQuestion }[];
 }
 
 /** Questions with options as board Markdown, for an Alfred that predates the questions dialog: numbered, options listed. */
@@ -40,7 +40,7 @@ export function plainQuestions(qs: readonly PlainQuestion[]): string {
   const one = (q: PlainQuestion, n: string): string[] => [
     `**${n}. ${q.header}** - ${q.question}${q.multiSelect ? ' (choose any)' : ''}`,
     ...(q.why ? [`  _Why I ask:_ ${q.why}`] : []),
-    ...q.options.map((o, k) => `  ${String.fromCharCode(97 + k)}) **${o.label}**${o.recommended ? ' (recommended)' : ''}`
+    ...q.options.map((o, k) => `  ${String.fromCharCode(97 + k)}) **${o.label}**${o.recommended ? ` (recommended${o.confidence ? ` · ${o.confidence} confidence` : ''})` : ''}`
       + `${o.description ? ` - ${o.description}` : ''}${o.then ? ` → then I ${o.then.replace(/^I\s+/i, '')}` : ''}`
       + `${o.followUp ? `\n    ↳ then: ${o.followUp.question}` : ''}`),
   ];
@@ -54,6 +54,8 @@ const AskOptionBase = z.object({
   description: z.string().max(2000).optional().describe('What it means, in one or two lines'),
   then: z.string().max(2000).optional().describe('What you will do if the user picks it'),
   recommended: z.boolean().optional().describe('The one you advise - at most one per question'),
+  confidence: z.enum(['high', 'medium', 'low']).optional().describe('On the recommended option only (triage): high = the evidence decides '
+    + 'it on its own, medium = one check could not be done, low = it rests on a guess. The tile shows it; "Accept all High" applies only high'),
   preview: z.string().max(16 * 1024).optional().describe('Shown on hover (Markdown or HTML): what changes, the effect on the recorded calls, '
     + 'the acceptance items it covers, why'),
 });
@@ -65,7 +67,18 @@ const AskFollowUp = z.object({
   options: z.array(AskOptionBase).max(4).default([]).describe('2-4 options, or none for a free answer'),
 });
 const AskOption = AskOptionBase.extend({ followUp: AskFollowUp.optional().describe('Asked at once when the user picks this option (one level)') });
-const AskQuestion = AskFollowUp.extend({ options: z.array(AskOption).max(4).default([]).describe('2-4 options, or none for a free answer') });
+const AskQuestion = AskFollowUp.extend({
+  options: z.array(AskOption).max(4).default([]).describe('2-4 options, or none for a free answer'),
+  checked: z.string().max(600).optional().describe('Triage: what you checked before advising, one line - earlier cards, the call, code, '
+    + 'database, schema, spec, git - and what you could not check and why'),
+  severity: z.object({
+    rank: z.number().int().min(1).describe('1 = worst in this Inbox'),
+    of: z.number().int().min(1).optional().describe('How many cards / groups were ranked'),
+    note: z.string().max(200).optional().describe('Why it ranks there: calls affected, spread, impact, the Acceptance item it blocks'),
+  }).optional().describe('Triage: where the card ranks, worst first - the Inbox can sort by it'),
+  group: z.array(z.number().int().min(1)).max(50).optional().describe('Triage: Inbox cards of the same root cause to merge into THIS card '
+    + '(their numbers); offer an option labelled "Merge #14 #17 into #12"'),
+});
 const Kind = z.enum(['BUG', 'TASK', 'NOTE', 'QUESTION']);
 const Status = z.enum(['INBOX', 'TO_DO', 'IN_PROGRESS', 'FIXED', 'VERIFIED', 'DONE', 'CLOSED']);
 const Flag = z.enum(['URGENT', 'RISK', 'BLOCKER', 'AFFECTS_PROJECT', 'NEEDS_DECISION']);
@@ -367,6 +380,32 @@ export function entryLine(ctx: MaskContext, e: ActivityRow, index: number, inlin
   if (e.kind === 'COMMENT_EDITED') return `${e.at} ${who(e.actor)} edited a comment; it now reads: ${body}`;
   const change = e.oldValue || e.newValue ? ` ${e.oldValue ?? ''} → ${e.newValue ?? ''}` : '';
   return `${e.at} ${who(e.actor)} ${e.kind}${change}${body ? ` (${body})` : ''}`;
+}
+
+/** A comment on a cycle's brief (specs/024). */
+export interface BriefCommentRow {
+  id: number; quote: string | null; actor: string; text: string; replyTo: number | null; asks: boolean;
+  suggestFrom: string | null; suggestTo: string | null; createdAt: string; resolvedAt: string | null;
+}
+
+/** The brief's comment threads for a reply: open ones in full, resolved ones counted. */
+export function briefThreads(rows: readonly BriefCommentRow[], mask: (t: string) => string): string[] {
+  const plain = (t: string) => mask(t.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim());
+  const roots = rows.filter((r) => r.replyTo == null);
+  const out: string[] = [];
+  for (const root of roots.filter((r) => !r.resolvedAt)) {
+    const thread = [root, ...rows.filter((r) => r.replyTo === root.id)];
+    const last = thread[thread.length - 1];
+    const waits = thread.some((c) => c.asks) && last.actor === 'CLAUDE';
+    out.push(`[${root.id}] on ${root.quote ? JSON.stringify(mask(root.quote)) : 'the whole brief'}${waits ? ' · you asked - waiting for the user' : ''}`);
+    for (const c of thread) {
+      out.push(`  ${c.actor === 'CLAUDE' ? 'you' : 'user'} (${c.id}): ${plain(c.text)}`
+        + `${c.suggestTo ? ` · you suggested ${JSON.stringify(mask(c.suggestFrom ?? ''))} -> ${JSON.stringify(mask(c.suggestTo))}, not applied yet` : ''}`);
+    }
+  }
+  const resolved = roots.length - roots.filter((r) => !r.resolvedAt).length;
+  if (resolved) out.push(`(${resolved} resolved thread${resolved === 1 ? '' : 's'} not shown)`);
+  return out;
 }
 
 interface StepRow { key: string; text: string; state: string; calls: number; cardNumber: number | null; note: string | null }
@@ -757,6 +796,7 @@ export function register(server: McpServer, client: AlfredClient): void {
       client.get<{ cards: SearchHit[]; total: number }>('/board/search', { query: { cycleId: input.cycleId, limit: 100 } }).catch(() => ({ cards: [], total: 0 })),
       client.get<StepRow[]>(`/board/cycles/${seg(input.cycleId)}/steps`).catch(() => [] as StepRow[]),
     ]);
+    const comments = await client.get<BriefCommentRow[]>(`/board/cycles/${seg(input.cycleId)}/brief/comments`).catch(() => [] as BriefCommentRow[]);
     const briefText = chunkText(maskText(ctx, brief.text || '(no brief yet)'), 0, 6000);
     const rows = cards.cards.map((h) => hitLine(ctx, h));
     const fitted = fitItems(rows, JSON.stringify(briefText).length + 800);
@@ -765,12 +805,40 @@ export function register(server: McpServer, client: AlfredClient): void {
       updatedAt: brief.updatedAt,
       ...(brief.updatedBy === 'CLAUDE' ? { writtenBy: 'Claude (the user can Restore previous)' } : {}),
       ...(steps.length ? { testSteps: steps.map(stepLine) } : {}),
+      ...(comments.length ? { comments: briefThreads(comments, (t) => maskText(ctx, t)) } : {}),
       specFiles: specs.map((s) => `${s.name} (${s.size} bytes)`),
       cards: fitted.items,
       cardsTotal: cards.total,
       ...(fitted.cut || cards.total > rows.length ? { moreCards: `board_search ${JSON.stringify({ cycleId: input.cycleId, offset: fitted.items.length })}` } : {}),
       ...maskMeta(ctx),
     });
+  }));
+
+  server.registerTool('board_brief_comment', {
+    description: 'Comments on a cycle\'s brief (specs/024; the user reads them in the Task tab\'s Brief margin). Comment on a passage (quote: '
+      + 'the exact words of the brief) or on the whole brief; reply to a thread (replyTo: any comment id of it - get_brief lists them); '
+      + 'ask the user (asks: true - shown as a question in Needs you); or suggest a rewording of a passage (suggestFrom: the exact words '
+      + 'as the brief holds them, suggestTo: the new wording) - the brief changes only when the user clicks Apply. You never resolve, '
+      + 'apply or dismiss: those are the user\'s.',
+    inputSchema: {
+      cycleId: z.string().min(1),
+      text: z.string().min(1).max(16_000),
+      quote: z.string().max(2000).optional().describe('The passage this comment is about, exactly as the brief has it; leave out for the whole brief'),
+      replyTo: z.number().int().optional(),
+      asks: z.boolean().default(false),
+      suggestFrom: z.string().max(2000).optional(),
+      suggestTo: z.string().max(2000).optional(),
+    },
+  }, (input) => run(async () => {
+    if ((input.suggestFrom == null) !== (input.suggestTo == null)) {
+      return ok({ error: 'A suggestion needs both suggestFrom (the words as written) and suggestTo (the new wording).' });
+    }
+    const out = await client.post<{ comment: BriefCommentRow }>(`/board/cycles/${seg(input.cycleId)}/brief/comments`, { ...WRITE, body: {
+      quote: input.quote ?? null, text: input.text, replyTo: input.replyTo ?? null, asks: input.asks,
+      suggestFrom: input.suggestFrom ?? null, suggestTo: input.suggestTo ?? null,
+    } });
+    return ok({ comment: out.comment.id, thread: out.comment.replyTo ?? out.comment.id,
+      ...(out.comment.suggestTo ? { note: 'The user applies or dismisses the suggestion in the Brief tab.' } : {}) });
   }));
 
   server.registerTool('read_spec', {
@@ -1094,13 +1162,20 @@ export function register(server: McpServer, client: AlfredClient): void {
         headers.add(key);
         if (q.options.length === 1) throw invalid(`Question "${q.header}" has one option - give 2 to 4, or none for a free answer.`);
         if (q.options.filter((o) => o.recommended).length > 1) throw invalid(`Question "${q.header}": mark one option recommended, not more.`);
+        if (q.options.some((o) => o.confidence && !o.recommended)) throw invalid(`Question "${q.header}": confidence goes on the recommended option.`);
+        const t = q as z.infer<typeof AskQuestion>;
+        if (t.group?.includes(card.number)) throw invalid(`Question "${q.header}": group lists the other cards - not #${card.number} itself.`);
         return {
           header: q.header, question: conv(q.question), ...(q.why ? { why: conv(q.why) } : {}), ...(q.multiSelect ? { multiSelect: true } : {}),
           options: q.options.map((o) => ({
             label: o.label, ...(o.description ? { description: conv(o.description) } : {}), ...(o.then ? { then: conv(o.then) } : {}),
-            ...(o.recommended ? { recommended: true } : {}), ...(o.preview ? { preview: conv(o.preview) } : {}),
+            ...(o.recommended ? { recommended: true } : {}), ...(o.recommended && o.confidence ? { confidence: o.confidence } : {}),
+            ...(o.preview ? { preview: conv(o.preview) } : {}),
             ...(followUps && (o as z.infer<typeof AskOption>).followUp ? { followUp: question((o as z.infer<typeof AskOption>).followUp!, false) } : {}),
           })),
+          ...(followUps && t.checked ? { checked: t.checked } : {}),
+          ...(followUps && t.severity ? { severity: t.severity } : {}),
+          ...(followUps && t.group?.length ? { group: t.group } : {}),
         };
       };
       const block = {

@@ -102,7 +102,7 @@ After `docker compose up -d --build backend`, the gateway may keep the old conta
   original call's value beside it; `boardbridge/BoardRetestWatchAdapter` signals a watching card as calls complete
   (no timer). Something not captured is UNKNOWN, never a pass. Verified stays the user's.
 
-- **The fifteen `/alfred-*` skills ship with Alfred** (`skills/alfred-*/SKILL.md` + one `skills/_shared/rules.md`
+- **The sixteen `/alfred-*` skills ship with Alfred** (`skills/alfred-*/SKILL.md` + one `skills/_shared/rules.md`
   copied into each skill as `rules.md` on install, specs/015): in both installers (`app/skills`, `build_dist.stage_app`),
   zipped as `alfred-skills-<version>.zip`, installed by `alfred skill install` / `setup_mcp.py` through
   `alfred_skill.py` (which also removes the retired `/alfred-qa`). A skill or the rules naming an MCP tool that does not
@@ -115,6 +115,12 @@ After `docker compose up -d --build backend`, the gateway may keep the old conta
   (DECISION/NEXT/CARD/ITEM/FIX) carry Undo; each exchange is mirrored to the terminal masked through the runner's chat
   log (⚡ urgent, 💬 context) and the runner hears the terminal only through `fs.watch`. Compact never deletes. The
   changes cursor has a third part (`chatSeq`); exports carry `chat*` records written and read by `ChatTransfer`.
+
+- **The Task tab is one page per task, and its brief takes comments** (specs/024, docs/board.md "The Task tab", "Brief
+  comments"): Requirements is the only list of Acceptance items (the old checklist component is gone - the checks editor,
+  evidence and Accept live in `TaskRequirementsComponent`). Commented passages are painted with the CSS Custom Highlight
+  API (`brief-highlights.ts`), never by wrapping rendered text in `<mark>` - that DOM is Angular's. Claude comments, asks
+  and suggests rewordings (`board_brief_comment`); only the user applies (through the brief's own save) or resolves.
 
 ## Detailed docs (read only when relevant)
 - docs/architecture.md — backend module/slice design, persistence/caching, pagination

@@ -52,11 +52,14 @@ export class ChatDockComponent {
     afterNextRender(() => {
       const nav = document.querySelector('.tab-nav');
       if (!nav || typeof ResizeObserver === 'undefined') return;
-      const set = () => document.documentElement.style.setProperty('--chat-top', `${nav.getBoundingClientRect().bottom}px`);
+      // never below 0: a page scrolled past the nav would otherwise make the window taller than the screen
+      const set = () => document.documentElement.style.setProperty('--chat-top', `${Math.max(0, nav.getBoundingClientRect().bottom)}px`);
       const ro = new ResizeObserver(set);
       ro.observe(nav);
+      // zooming changes the viewport, not always the nav's box: measure again then too
+      window.addEventListener('resize', set);
       set();
-      destroyRef.onDestroy(() => ro.disconnect());
+      destroyRef.onDestroy(() => { ro.disconnect(); window.removeEventListener('resize', set); });
     });
     destroyRef.onDestroy(() => {
       document.documentElement.style.removeProperty('--chat-top');

@@ -1,4 +1,4 @@
-import { Component, computed, inject, input, signal } from '@angular/core';
+import { Component, ElementRef, computed, inject, input, signal } from '@angular/core';
 import { MENTION_ICONS, MentionRef, mentionTypeOf } from '../../../core/models/board.models';
 import { BoardMentionsService, MentionPreview } from '../../../core/services/board-mentions.service';
 
@@ -14,7 +14,7 @@ import { BoardMentionsService, MentionPreview } from '../../../core/services/boa
   selector: 'app-mention-chip',
   standalone: true,
   template: `<span class="board-mention" [class]="'board-mention board-mention-' + type()" [class.removed]="preview()?.removed"
-      role="button" tabindex="0" [title]="title()" (mouseenter)="load()" (focus)="load()" (click)="open($event)" (keydown.enter)="open($event)">
+      role="button" tabindex="0" [title]="title()"  (mouseenter)="load(); place()" (focus)="load(); place()" (click)="open($event)" (keydown.enter)="open($event)">
     <span class="board-mention-icon">{{ icon() }}</span>{{ label() }}
     @if (live()?.tone; as tone) { <span class="board-mention-dot" [class]="'board-mention-dot dot-' + tone" [title]="live()?.state ?? ''"></span> }
     @if (showPreview() && preview(); as p) {
@@ -40,11 +40,39 @@ export class MentionChipComponent {
   readonly title = computed(() => `${this.label()}${this.live()?.state ? ` · ${this.live()!.state}` : ''}
 ${this.type()}: ${this.mention().ref}`);
   private loading = false;
+  private readonly host = inject(ElementRef<HTMLElement>);
 
   load(): void {
     if (!this.showPreview() || this.loading || this.preview()) return;
     this.loading = true;
-    this.mentions.preview(this.mention()).subscribe((p) => this.preview.set(p));
+    this.mentions.preview(this.mention()).subscribe((p) => { this.preview.set(p); this.place(); });
+  }
+
+  /**
+   * Fixes the preview to the screen under the chip (above it near the bottom, inside the window's width). A fixed box
+   * is placed against the nearest ancestor that makes one its containing block (a transform, a backdrop filter), so
+   * that box's own offset is measured first and taken off.
+   */
+  place(): void {
+    if (typeof window === 'undefined') return;
+    requestAnimationFrame(() => {
+      const host = this.host.nativeElement as HTMLElement;
+      const tip = host.querySelector('.board-mention-tip') as HTMLElement | null;
+      const chip = host.querySelector('.board-mention') as HTMLElement | null;
+      if (!tip || !chip || getComputedStyle(tip).display === 'none') return;
+      tip.style.position = 'fixed';
+      tip.style.left = '0px';
+      tip.style.top = '0px';
+      const origin = tip.getBoundingClientRect();
+      const r = chip.getBoundingClientRect();
+      const w = origin.width;
+      const h = origin.height;
+      const left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8));
+      const below = r.bottom + 6;
+      const top = below + h > window.innerHeight - 8 ? Math.max(8, r.top - h - 6) : below;
+      tip.style.left = `${left - origin.left}px`;
+      tip.style.top = `${top - origin.top}px`;
+    });
   }
 
   open(event: Event): void {
