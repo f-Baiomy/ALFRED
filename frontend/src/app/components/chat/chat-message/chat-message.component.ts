@@ -1,4 +1,4 @@
-import { Component, computed, inject, input, output, signal } from '@angular/core';
+import { Component, ElementRef, HostListener, computed, inject, input, output, signal } from '@angular/core';
 import { ChatMessage, ChatRecord, TerminalItem } from '../../../core/models/chat.models';
 import { ChatApiService } from '../../../core/services/chat-api.service';
 import { ChatQuestionsComponent } from './chat-questions.component';
@@ -37,23 +37,6 @@ import { messageOf } from '../../../core/state/board-state.service';
     } @else {
       <div class="chat-msg" [class.me]="mine()" [class.claude]="m.author === 'CLAUDE'" [class.alfred]="m.author === 'ALFRED'"
            [class.flash]="flash()" [class.hit]="hit()" [attr.data-chat-id]="m.id">
-        @if (editable() && !editing()) {
-          <div class="chat-hover">
-            <button type="button" title="Reply in a thread" (click)="replying.set(!replying())">↩ Reply</button>
-            <button type="button" title="Quote it in your next message" (click)="quote.emit(plain(m.text))">❝ Quote</button>
-            <button type="button" title="Make a card from this message" (click)="makeCard()">＋ Card</button>
-            <button type="button" title="Post this (or a part of it) to a card as a comment" (click)="openToCard()">→ Card</button>
-            <button type="button" [title]="m.decision ? 'No longer a decision (undoes the brief line)' : 'Mark as a decision - recorded in the cycle brief for every later session'"
-                    (click)="toggleDecision()">{{ m.decision ? '☆ Undecide' : '★ Decision' }}</button>
-            @if (m.author === 'CLAUDE' && m.replyTo != null && !m.superseded) {
-              <button type="button" title="Ask again with more context - this answer stays, marked asked again" (click)="askingAgain.set(true)">↻ Again</button>
-            }
-            @for (e of reactionChoices(); track e) {
-              <button type="button" [title]="e === '❓' ? 'Explain more - Claude answers in the thread' : 'React'" (click)="react(e)">{{ e }}</button>
-            }
-            <button type="button" title="Copy a link to this message (paste it anywhere on the board)" (click)="copyLink()">🔗</button>
-          </div>
-        }
         <div class="board-ev-who">
           <span class="who-dot"></span>
           <b>{{ m.author === 'USER' ? 'You' : m.author === 'CLAUDE' ? 'Claude' : 'Alfred' }}</b>
@@ -65,6 +48,35 @@ import { messageOf } from '../../../core/state/board-state.service';
           @if (m.superseded) { <span class="chat-super">asked again</span> }
           @if (ticks(); as t) { <span class="chat-tick" [class.got]="t.tone === 'got'" [class.done]="t.tone === 'done'" [title]="t.text">{{ t.marks }} {{ t.text }}</span> }
           @if (position(); as n) { <span class="board-ev-badge dim">{{ nthOf(n) }} in line</span> }
+          @if (editable() && !editing()) {
+            <!-- On the name/time row, never over the text: three quiet icons on hover, the rest under ⋯. -->
+            <div class="chat-hover" [class.open]="moreOpen()">
+              <button type="button" title="Reply in a thread" aria-label="Reply" (click)="replying.set(!replying())">↩</button>
+              @for (e of quickReactions(); track e) {
+                <button type="button" [title]="e === '❓' ? 'Explain more - Claude answers in the thread' : 'React ' + e" (click)="react(e)">{{ e }}</button>
+              }
+              <button type="button" class="more" title="More" aria-label="More" [class.on]="moreOpen()" [attr.aria-expanded]="moreOpen()" (click)="toggleMore($event)">⋯</button>
+              @if (moreOpen()) {
+                <div class="chat-hover-menu" role="menu" [class.up]="moreUp()">
+                  <button type="button" role="menuitem" (click)="moreOpen.set(false); quote.emit(plain(m.text))">❝ Quote in my next message</button>
+                  <button type="button" role="menuitem" (click)="moreOpen.set(false); makeCard()">＋ Make a card from it</button>
+                  <button type="button" role="menuitem" (click)="moreOpen.set(false); openToCard()">→ Post it to a card</button>
+                  <button type="button" role="menuitem" (click)="moreOpen.set(false); toggleDecision()">{{ m.decision ? '☆ No longer a decision' : '★ Mark as a decision' }}</button>
+                  @if (m.author === 'CLAUDE' && m.replyTo != null && !m.superseded) {
+                    <button type="button" role="menuitem" (click)="moreOpen.set(false); askingAgain.set(true)">↻ Ask again with more context</button>
+                  }
+                  <button type="button" role="menuitem" (click)="moreOpen.set(false); copyLink()">🔗 Copy a link to it</button>
+                  @if (moreReactions().length) {
+                    <div class="chat-hover-reacts">
+                      @for (e of moreReactions(); track e) {
+                        <button type="button" [title]="e === '❓' ? 'Explain more - Claude answers in the thread' : 'React ' + e" (click)="moreOpen.set(false); react(e)">{{ e }}</button>
+                      }
+                    </div>
+                  }
+                </div>
+              }
+            </div>
+          }
         </div>
         @if (contextRefs().length) {
           <div class="chat-ctx">looking at @for (r of contextRefs(); track $index) { <app-mention-chip [mention]="r" /> }</div>
@@ -120,7 +132,7 @@ import { messageOf } from '../../../core/state/board-state.service';
           </div>
         }
         @if (mine() && (m.state === 'TAKEN' || work())) {
-          <app-live-work-box [project]="m.project" [chatMessageId]="m.id" [editable]="editable()" />
+          <app-live-work-box [project]="m.project" [chatMessageId]="m.id" [editable]="editable()" [compact]="true" />
         }
         @if (records().length || terminal().length) {
           <div class="chat-tags">
@@ -233,6 +245,36 @@ export class ChatMessageComponent {
 
   readonly editing = signal(false);
   readonly replying = signal(false);
+  readonly moreOpen = signal(false);
+  /** The ⋯ menu opens upward when the chat has no room for it below (it would hide behind the composer). */
+  readonly moreUp = signal(false);
+  private readonly host = inject(ElementRef<HTMLElement>);
+
+  toggleMore(e: MouseEvent): void {
+    if (this.moreOpen()) {
+      this.moreOpen.set(false);
+      return;
+    }
+    const btn = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const box = (this.host.nativeElement.closest('.chat-stream, .chat-dock') as HTMLElement | null)?.getBoundingClientRect();
+    const below = (box ? box.bottom : window.innerHeight) - btn.bottom;
+    this.moreUp.set(below < 300 && btn.top - (box ? box.top : 0) > below);
+    this.moreOpen.set(true);
+  }
+
+  /** The menu stays while the pointer travels to it; a click elsewhere or Esc closes it. */
+  @HostListener('document:click', ['$event'])
+  closeMoreOutside(e: MouseEvent): void {
+    if (this.moreOpen() && !this.host.nativeElement.querySelector('.chat-hover')?.contains(e.target as Node)) this.moreOpen.set(false);
+  }
+
+  @HostListener('document:keydown.escape')
+  closeMore(): void {
+    this.moreOpen.set(false);
+  }
+  /** On the bar itself: the two most used reactions; the rest sit in the ⋯ menu. */
+  readonly quickReactions = computed(() => this.reactionChoices().slice(0, 2));
+  readonly moreReactions = computed(() => this.reactionChoices().slice(2));
   readonly threadOpen = signal(true);
   readonly error = signal<string | null>(null);
   draft = '';

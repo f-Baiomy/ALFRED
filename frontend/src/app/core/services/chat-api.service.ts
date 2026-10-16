@@ -118,6 +118,11 @@ export class ChatApiService {
     return this.http.post<void>(`${this.base}/undo/${encodeURIComponent(token)}`, {});
   }
 
+  /** One applied proposal of a message put back (no time limit; refused when the board changed since). */
+  undoProposal(messageId: number, proposalId: string): Observable<void> {
+    return this.http.post<void>(`${this.message(messageId)}/proposals/${encodeURIComponent(proposalId)}/undo`, {});
+  }
+
   undoRecord(id: number): Observable<void> {
     return this.http.post<void>(`${this.base}/records/${id}/undo`, {});
   }

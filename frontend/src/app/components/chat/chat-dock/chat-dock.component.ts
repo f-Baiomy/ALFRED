@@ -42,6 +42,12 @@ export class ChatDockComponent {
 
   constructor() {
     const destroyRef = inject(DestroyRef);
+    // Full screen: the page behind neither shows nor scrolls.
+    effect(() => {
+      const full = this.state.view() === 'full' && !!this.state.openScope();
+      document.documentElement.classList.toggle('chat-fullscreen', full);
+    });
+    destroyRef.onDestroy(() => document.documentElement.classList.remove('chat-fullscreen'));
     // the rail starts under the tab nav, whatever its height (it wraps on a narrow window)
     afterNextRender(() => {
       const nav = document.querySelector('.tab-nav');

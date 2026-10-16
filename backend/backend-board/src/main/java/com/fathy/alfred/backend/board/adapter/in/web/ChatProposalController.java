@@ -53,6 +53,13 @@ public class ChatProposalController {
         return respond(proposals.undo(BoardWeb.actor(actor), token));
     }
 
+    /** One applied proposal put back, at any time - while the board is still as it left it. */
+    @PostMapping("/board/chats/messages/{id}/proposals/{proposalId}/undo")
+    public ResponseEntity<?> undoOne(@PathVariable long id, @PathVariable String proposalId,
+                                     @RequestHeader(value = BoardWeb.ACTOR_HEADER, required = false) String actor) {
+        return respond(proposals.undoOne(BoardWeb.actor(actor), id, proposalId));
+    }
+
     public record ConsentDto(boolean yes) {
     }
 

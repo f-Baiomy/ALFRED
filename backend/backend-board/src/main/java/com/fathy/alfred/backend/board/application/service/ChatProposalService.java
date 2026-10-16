@@ -8,6 +8,7 @@ import com.fathy.alfred.backend.board.application.port.in.CloseCardUseCase;
 import com.fathy.alfred.backend.board.application.port.in.ManageSpecFilesUseCase;
 import com.fathy.alfred.backend.board.application.port.in.MarkChecklistUseCase;
 import com.fathy.alfred.backend.board.application.port.in.MoveCardUseCase;
+import com.fathy.alfred.backend.board.application.port.in.ReopenCardUseCase;
 import com.fathy.alfred.backend.board.application.port.in.UndoCloseUseCase;
 import com.fathy.alfred.backend.board.application.port.out.BoardNotificationPort;
 import com.fathy.alfred.backend.board.application.port.out.BoardStorePort;
@@ -59,6 +60,7 @@ public class ChatProposalService implements ChatProposalUseCase {
     private final MoveCardUseCase moves;
     private final CloseCardUseCase closes;
     private final UndoCloseUseCase undoClose;
+    private final ReopenCardUseCase reopens;
     private final MarkChecklistUseCase marks;
     private final ManageSpecFilesUseCase specs;
     private final BoardNotificationPort notifications;
@@ -71,17 +73,20 @@ public class ChatProposalService implements ChatProposalUseCase {
 
     @Autowired
     public ChatProposalService(ChatStorePort chats, BoardStorePort store, MoveCardUseCase moves, CloseCardUseCase closes, UndoCloseUseCase undoClose,
-                               MarkChecklistUseCase marks, ManageSpecFilesUseCase specs, BoardNotificationPort notifications, BoardChangeFeed feed) {
-        this(chats, store, moves, closes, undoClose, marks, specs, notifications, feed, Clock.systemUTC());
+                               ReopenCardUseCase reopens, MarkChecklistUseCase marks, ManageSpecFilesUseCase specs, BoardNotificationPort notifications,
+                               BoardChangeFeed feed) {
+        this(chats, store, moves, closes, undoClose, reopens, marks, specs, notifications, feed, Clock.systemUTC());
     }
 
     ChatProposalService(ChatStorePort chats, BoardStorePort store, MoveCardUseCase moves, CloseCardUseCase closes, UndoCloseUseCase undoClose,
-                        MarkChecklistUseCase marks, ManageSpecFilesUseCase specs, BoardNotificationPort notifications, BoardChangeFeed feed, Clock clock) {
+                        ReopenCardUseCase reopens, MarkChecklistUseCase marks, ManageSpecFilesUseCase specs, BoardNotificationPort notifications,
+                        BoardChangeFeed feed, Clock clock) {
         this.chats = chats;
         this.store = store;
         this.moves = moves;
         this.closes = closes;
         this.undoClose = undoClose;
+        this.reopens = reopens;
         this.marks = marks;
         this.specs = specs;
         this.notifications = feed.feeding(notifications);
@@ -131,7 +136,7 @@ public class ChatProposalService implements ChatProposalUseCase {
                 results.put(id, why);
                 continue;
             }
-            Applied a = apply(m, p);
+            Applied a = apply(m, p, p);
             if (a.failed() != null) {
                 results.put(id, a.failed()); // stays open: nothing changed, it can be tried again
                 continue;
@@ -199,6 +204,90 @@ public class ChatProposalService implements ChatProposalUseCase {
             notifications.chatChanged(m.chat().project(), m.chat().scope(), m.id());
         });
         return failed.isEmpty() ? Result.ok(null) : Result.no(CardChange.Outcome.CONFLICT, "Undone, except: " + String.join("; ", failed));
+    }
+
+    @Override
+    public synchronized Result<Void> undoOne(Actor actor, long messageId, String proposalId) {
+        if (actor == Actor.CLAUDE) {
+            return Result.no(CardChange.Outcome.REFUSED_FOR_CLAUDE, "Undo is the user's");
+        }
+        ChatMessage m = chats.find(messageId).orElse(null);
+        ObjectNode extra = m == null || m.extra() == null ? null : ((ObjectNode) m.extra()).deepCopy();
+        ObjectNode p = null;
+        if (extra != null) {
+            for (JsonNode node : extra.path("proposals")) {
+                if (node.isObject() && node.path("id").asText("").equals(proposalId)) {
+                    p = (ObjectNode) node;
+                }
+            }
+        }
+        if (p == null) {
+            return Result.no(CardChange.Outcome.NOT_FOUND, "No proposal " + proposalId + " on message " + messageId);
+        }
+        if (!"applied".equals(p.path("state").asText())) {
+            return Result.no(CardChange.Outcome.CONFLICT, "Only an applied proposal can be undone");
+        }
+        String failed = putBack(m, p);
+        if (failed != null) {
+            return Result.no(CardChange.Outcome.CONFLICT, failed);
+        }
+        p.remove(List.of("state", "why", "before", "after", "wasMark", "wasEvidence"));
+        chats.update(withExtra(m, extra));
+        pending.values().removeIf(x -> x.messageId() == messageId && x.ids().contains(proposalId));
+        notifications.chatChanged(m.chat().project(), m.chat().scope(), m.id());
+        return Result.ok(null);
+    }
+
+    /** What an applied proposal changed, put back - or why not (the board changed since). */
+    private String putBack(ChatMessage m, ObjectNode p) {
+        String kind = p.path("kind").asText("").toLowerCase(Locale.ROOT);
+        String cycleId = m.chat().cycleId();
+        switch (kind) {
+            case "verify", "move", "close" -> {
+                Card card = card(m, p).orElse(null);
+                CardStatus before = p.hasNonNull("before") ? status(p.path("before").asText()) : null;
+                // a close needs no kept status (undo-close or reopen puts the card back); a move does
+                CardStatus after = p.hasNonNull("after") ? status(p.path("after").asText()) : kind.equals("close") ? CardStatus.CLOSED : null;
+                if (card == null || after == null || (before == null && !kind.equals("close"))) {
+                    return "This was applied before Undo kept what it changed - change the card on the board";
+                }
+                if (card.status() != after) {
+                    return "#" + card.number() + " changed since (it is " + card.status().name().replace('_', ' ').toLowerCase(Locale.ROOT)
+                            + " now) - change it on the board";
+                }
+                if (kind.equals("close")) {
+                    CardChange quick = undoClose.undoClose(Actor.USER, card.id());
+                    return quick.outcome() == CardChange.Outcome.OK ? null : message(reopens.reopen(Actor.USER, card.id()));
+                }
+                return message(moves.move(Actor.USER, card.id(), before));
+            }
+            case "mark" -> {
+                if (!p.hasNonNull("wasMark")) {
+                    return "A checklist mark cannot be cleared - change it in the checklist";
+                }
+                var out = marks.mark(Actor.USER, cycleId, p.path("file").asText(), p.path("itemKey").asText(), mark(p.path("wasMark").asText()),
+                        p.path("wasEvidence").asText(""));
+                return out.outcome() == CardChange.Outcome.OK ? null : out.message();
+            }
+            case "item" -> {
+                String file = p.path("file").asText("spec.md");
+                String line = "- [ ] " + p.path("item").asText().strip();
+                String now = store.spec(cycleId, file).map(SpecFile::content).orElse(null);
+                int at = now == null ? -1 : now.indexOf(line);
+                if (at < 0) {
+                    return file + " changed since - edit it there";
+                }
+                int end = at + line.length();
+                if (end < now.length() && now.charAt(end) == '\n') {
+                    end++;
+                }
+                String without = now.substring(0, at) + now.substring(end);
+                return specs.put(Actor.USER, cycleId, file, without).outcome() == CardChange.Outcome.OK ? null : file + " could not be changed";
+            }
+            default -> {
+                return "Nothing to put back";
+            }
+        }
     }
 
     @Override
@@ -280,7 +369,8 @@ public class ChatProposalService implements ChatProposalUseCase {
     private record Applied(String failed, Supplier<String> undo) {
     }
 
-    private Applied apply(ChatMessage m, JsonNode p) {
+    /** Applies one proposal as the user; {@code kept} gets what it changed (before, wasMark...) so Undo can put it back later. */
+    private Applied apply(ChatMessage m, JsonNode p, ObjectNode kept) {
         String kind = p.path("kind").asText("").toLowerCase(Locale.ROOT);
         String cycleId = m.chat().cycleId();
         switch (kind) {
@@ -289,12 +379,14 @@ public class ChatProposalService implements ChatProposalUseCase {
                 CardStatus before = card.status();
                 CardStatus target = kind.equals("verify") ? CardStatus.VERIFIED : status(p.path("status").asText());
                 CardChange out = moves.move(Actor.USER, card.id(), target);
+                kept.put("before", before.name()).put("after", target.name());
                 return out.outcome() == CardChange.Outcome.OK ? new Applied(null, () -> message(moves.move(Actor.USER, card.id(), before)))
                         : new Applied(out.message(), null);
             }
             case "close" -> {
                 Card card = card(m, p).orElseThrow();
                 String reason = p.path("reason").asText("").isBlank() ? "Accepted from the board chat" : p.path("reason").asText();
+                kept.put("before", card.status().name()).put("after", CardStatus.CLOSED.name());
                 CardChange out = closes.close(Actor.USER, card.id(), Resolution.FINE, reason);
                 return out.outcome() == CardChange.Outcome.OK ? new Applied(null, () -> message(undoClose.undoClose(Actor.USER, card.id())))
                         : new Applied(out.message(), null);
@@ -309,6 +401,9 @@ public class ChatProposalService implements ChatProposalUseCase {
                     return new Applied(out.message(), null);
                 }
                 var was = item.mark();
+                if (was != null) {
+                    kept.put("wasMark", was.mark().name()).put("wasEvidence", was.evidence() == null ? "" : was.evidence());
+                }
                 return new Applied(null, () -> was == null ? "the new mark on " + key + " stays (a checklist mark cannot be cleared - change it there)"
                         : marks.mark(Actor.USER, cycleId, file, key, was.mark(), was.evidence()).outcome() == CardChange.Outcome.OK ? null
                         : "the mark on " + key + " could not be put back");

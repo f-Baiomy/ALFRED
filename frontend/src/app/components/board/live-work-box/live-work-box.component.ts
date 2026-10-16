@@ -12,7 +12,18 @@ import { LiveWorkStateService, liveDuration } from '../../../core/state/live-wor
   standalone: true,
   template: `
     @if (work(); as w) {
-      @if (w.state === 'WORKING') {
+      @if (w.state === 'WORKING' && compact()) {
+        <!-- A chat answer arrives as its own message: here only where Claude is, never the draft. -->
+        <div class="live-line" role="status" aria-live="polite">
+          <span class="live-spinner"></span>
+          <span class="live-now">{{ nowStep() }}</span>
+          @if (w.steps.length > 1) { <span class="live-count">step {{ w.steps.length }}</span> }
+          <span class="live-time">{{ elapsed() }}</span>
+          @if (editable()) {
+            <button type="button" class="board-link" [disabled]="w.stop" (click)="state.stop(w.id)">{{ w.stop ? 'stopping…' : 'Stop' }}</button>
+          }
+        </div>
+      } @else if (w.state === 'WORKING') {
         <div class="live-box" role="status" aria-live="polite">
           <div class="live-head"><span class="live-spinner"></span>✦ Claude is {{ w.head }}
             <span class="live-time">{{ elapsed() }}</span>
@@ -46,8 +57,16 @@ export class LiveWorkBoxComponent implements OnDestroy {
   /** A chat message's run (specs/022) instead of a card's. */
   readonly chatMessageId = input<number | null>(null);
   readonly editable = input(true);
+  /** One line - what Claude is doing now - instead of every step and the reply typing in (the chat). */
+  readonly compact = input(false);
 
   readonly open = signal(false);
+  /** The step Claude is on, as a sentence. */
+  readonly nowStep = computed(() => {
+    const steps = this.work()?.steps ?? [];
+    const last = steps.length ? steps[steps.length - 1] : this.chatMessageId() != null ? 'reading your message' : 'reading the card';
+    return last.charAt(0).toUpperCase() + last.slice(1) + '…';
+  });
   private readonly now = signal(Date.now());
   private tick: ReturnType<typeof setInterval> | null = null;
 

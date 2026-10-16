@@ -65,9 +65,27 @@ describe('ChatPanelComponent - narrow dock', () => {
     for (const m of messages) {
       const hover = m.querySelector('.chat-hover') as HTMLElement | null;
       expect(hover).toBeTruthy();
-      hover!.style.display = 'flex'; // what :hover does
+      hover!.style.opacity = '1'; // what :hover does
+      hover!.style.visibility = 'visible';
+      expect(hover!.querySelectorAll(':scope > button').length).withContext('a small bar: reply, two reactions, more').toBeLessThanOrEqual(4);
       for (const b of Array.from(hover!.querySelectorAll('button'))) expect(inside(b, m)).withContext(`${b.textContent} inside the message`).toBeTrue();
     }
+    f.nativeElement.remove();
+  });
+
+  it('puts a message\'s actions on its name row, and its ⋯ menu stays until a click elsewhere', () => {
+    const f = render();
+    const m: HTMLElement = f.nativeElement.querySelector('.chat-msg');
+    const hover = m.querySelector('.chat-hover') as HTMLElement;
+    expect(hover.parentElement?.classList).withContext('on the name/time row, not over the text').toContain('board-ev-who');
+    (hover.querySelector('.more') as HTMLElement).click();
+    f.detectChanges();
+    hover.dispatchEvent(new MouseEvent('mouseleave'));
+    f.detectChanges();
+    expect(m.querySelector('.chat-hover-menu')).withContext('leaving the bar on the way to the menu').not.toBeNull();
+    document.body.click();
+    f.detectChanges();
+    expect(m.querySelector('.chat-hover-menu')).toBeNull();
     f.nativeElement.remove();
   });
 });
@@ -157,11 +175,29 @@ describe('ChatPanelComponent - the window', () => {
     expect(head.querySelector('.chat-who small')?.textContent).toContain('Claude on');
     expect(head.querySelector('.chat-who small')?.textContent).toContain('1 waiting');
     expect(f.nativeElement.querySelector('.chat-menu')).toBeNull();
-    (Array.from(head.querySelectorAll('.chat-icon')).find((b) => b.textContent?.trim() === '⋯') as HTMLElement).click();
+    (head.querySelector('.chat-icon[aria-label="More"]') as HTMLElement).click();
     f.detectChanges();
     const menu = f.nativeElement.querySelector('.chat-menu')?.textContent ?? '';
     expect(menu).toContain('Compact now');
-    expect(menu).toContain('Full screen');
+    expect(menu).not.toContain('Full screen');
+    f.nativeElement.remove();
+  });
+
+  it('switches the view from the header: expand, full screen and back with the same button', () => {
+    const f = render();
+    const state = TestBed.inject(ChatStateService);
+    const modes = () => Array.from(f.nativeElement.querySelectorAll('.chat-modes .chat-icon') as NodeListOf<HTMLElement>);
+    expect(modes().map((b) => b.getAttribute('aria-label'))).toEqual(['Expanded', 'Full screen', 'Separate window']);
+    modes()[0].click();
+    f.detectChanges();
+    expect(state.view()).toBe('expanded');
+    expect(modes()[0].classList).toContain('on');
+    modes()[1].click();
+    f.detectChanges();
+    expect(state.view()).toBe('full');
+    modes()[1].click();
+    f.detectChanges();
+    expect(state.view()).toBe('docked');
     f.nativeElement.remove();
   });
 
@@ -172,7 +208,7 @@ describe('ChatPanelComponent - the window', () => {
     (Array.from(f.nativeElement.querySelectorAll('.board-editor-cbtn') as NodeListOf<HTMLElement>).find((b) => b.textContent?.trim() === 'Aa')!).click();
     f.detectChanges();
     expect(f.nativeElement.querySelector('.chat-composer .board-editor-tb')).not.toBeNull();
-    (Array.from(f.nativeElement.querySelectorAll('.chat-head .chat-icon') as NodeListOf<HTMLElement>).find((b) => b.textContent?.trim() === '–')!).click();
+    (f.nativeElement.querySelector('.chat-head .chat-icon[aria-label="Minimize"]') as HTMLElement).click();
     expect(state.openScope()).toBeNull();
     expect(state.tabs()).toEqual(['c1']);
     f.nativeElement.remove();

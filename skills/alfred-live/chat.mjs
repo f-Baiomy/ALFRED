@@ -342,7 +342,7 @@ export class ChatLane {
       timeoutMs: this.r.o.runTimeoutMs ?? 10 * 60_000, draftEveryMs: this.r.o.draftEveryMs,
       onStep: async (step, steps, draft) => {
         if (step) this.r.o.log(`    · ${step}`);
-        reporter.report({ steps, draft, state: 'WORKING' });
+        reporter.report({ steps, state: 'WORKING' }); // the answer arrives as its own message: no draft to stream
         return reporter.stop;
       },
       onToolResult: (_id, isError, _text, name) => { if (!isError && CHAT_WRITES.test(name)) replied++; },

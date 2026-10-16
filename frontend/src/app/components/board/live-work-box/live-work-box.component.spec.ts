@@ -58,6 +58,23 @@ describe('LiveWorkBoxComponent', () => {
     expect(el.querySelector('.live-head .board-link')?.textContent?.trim()).toBe('stopping…');
   });
 
+  it('in the chat shows one line - where Claude is - never the reply typing in', () => {
+    const f = TestBed.createComponent(LiveWorkBoxComponent);
+    f.componentRef.setInput('project', 'p');
+    f.componentRef.setInput('chatMessageId', 77);
+    f.componentRef.setInput('compact', true);
+    f.detectChanges();
+    const el: HTMLElement = f.nativeElement;
+    events.next({ type: 'live-work', work: work({ cardNumber: 0, chatMessageId: 77, head: 'answering in the chat',
+      steps: ['reading the card', 'reading the SQL', 'writing the reply'], draft: '**How the new filters work** ```html live <div class="card">' }) });
+    f.detectChanges();
+    expect(el.querySelector('.live-line .live-now')?.textContent?.trim()).toBe('Writing the reply…');
+    expect(el.querySelector('.live-line .live-count')?.textContent).toContain('step 3');
+    expect(el.querySelector('.live-draft')).toBeNull();
+    expect(el.querySelector('.live-step')).toBeNull();
+    expect(el.textContent).not.toContain('html live');
+  });
+
   it('folds to one line once it ended, and only for its own card', () => {
     const f = render();
     events.next({ type: 'live-work', work: work({ state: 'DONE', outcome: '→ replied; turned #12 into a BUG',

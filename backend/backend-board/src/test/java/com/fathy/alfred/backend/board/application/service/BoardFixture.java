@@ -129,7 +129,7 @@ final class BoardFixture implements AutoCloseable {
         com.fathy.alfred.backend.board.application.port.out.CycleNamesPort names = id -> java.util.Optional.ofNullable(cycleNames.get(id));
         chat.setCycleNames(names);
         imports.setChats(chatStore);
-        proposals = new ChatProposalService(chatStore, store, board, board, board, briefs, briefs, notifications, feed, clock);
+        proposals = new ChatProposalService(chatStore, store, board, board, board, board, briefs, briefs, notifications, feed, clock);
         imports.setCycleNames(names);
     }
 

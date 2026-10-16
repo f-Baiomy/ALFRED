@@ -10,7 +10,8 @@ const TOAST_MS = 8000;
 /**
  * Claude's proposals in a chat answer (specs/022 FR-026, FR-046): Accept / Decline one by one, or tick several and accept
  * them together. Each is checked against the board when shown and again on Accept - one that no longer applies reads
- * "already done" or "outdated: …" and cannot be accepted. An accept offers Undo for the minute the server keeps it.
+ * "already done" or "outdated: …" and cannot be accepted. An accept offers Undo in a toast for the minute the server keeps
+ * it, and an applied one keeps its own Undo after that - refused, with why, when the board changed since.
  */
 @Component({
   selector: 'app-chat-proposals',
@@ -25,6 +26,9 @@ const TOAST_MS = 8000;
           <span class="txt">{{ p.text || p.kind }}</span>
           @if (p.state) {
             <span class="st" [class.ok]="p.state === 'applied'">{{ p.state === 'outdated' ? (p.why ?? 'outdated') : p.state }}</span>
+            @if (p.state === 'applied' && editable()) {
+              <button type="button" class="board-link" [disabled]="undoing() === p.id" title="Put back what this changed" (click)="undoOne(p.id)">{{ undoing() === p.id ? 'undoing…' : 'Undo' }}</button>
+            }
           } @else if (stale()[p.id]) {
             <span class="st">{{ stale()[p.id] }}</span>
           } @else if (editable()) {
@@ -66,6 +70,7 @@ export class ChatProposalsComponent implements OnDestroy {
   readonly ticked = signal<ReadonlySet<string>>(new Set());
   readonly toast = signal<{ text: string; token: string | null } | null>(null);
   readonly error = signal<string | null>(null);
+  readonly undoing = signal<string | null>(null);
   private timer: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
@@ -99,6 +104,16 @@ export class ChatProposalsComponent implements OnDestroy {
         this.state.changedLocally(m.scope);
       },
       error: (e) => this.error.set(messageOf(e)),
+    });
+  }
+
+  /** One applied proposal put back - any time, while the board is still as it left it (else the server says why). */
+  undoOne(id: string): void {
+    const m = this.message();
+    this.undoing.set(id);
+    this.api.undoProposal(m.id, id).subscribe({
+      next: () => { this.undoing.set(null); this.error.set(null); this.toast.set(null); this.state.changedLocally(m.scope); },
+      error: (e) => { this.undoing.set(null); this.error.set(messageOf(e)); this.state.changedLocally(m.scope); },
     });
   }
 

@@ -49,9 +49,9 @@ type Item = { kind: 'msg'; m: ChatMessage; day: string | null; unreadLine: numbe
               @if (busyCards().length) { <span title="Claude finishes this card first; waiting messages come after it"> · busy on #{{ busyCards()[0] }}</span> }
             </small>
           </div>
-          <button type="button" class="chat-icon" [class.on]="searching()" title="Search this chat" (click)="toggleSearch()">⌕</button>
+          <button type="button" class="chat-icon" [class.on]="searching()" title="Search this chat" aria-label="Search" (click)="toggleSearch()"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path [attr.d]="icons['search']"/></svg></button>
           <span class="chat-views-menu">
-            <button type="button" class="chat-icon" [class.on]="menuOpen()" title="More" (click)="menuOpen.set(!menuOpen()); splitOpen.set(false)">⋯</button>
+            <button type="button" class="chat-icon" [class.on]="menuOpen()" title="More" aria-label="More" (click)="menuOpen.set(!menuOpen()); splitOpen.set(false)"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path [attr.d]="icons['more']"/></svg></button>
             @if (menuOpen()) {
               <div class="ctxmenu open chat-views-pop chat-menu" (mouseleave)="menuOpen.set(false); splitOpen.set(false)">
                 <div class="chat-menu-sec">This chat</div>
@@ -67,11 +67,8 @@ type Item = { kind: 'msg'; m: ChatMessage; day: string | null; unreadLine: numbe
                   <button type="button" (click)="menu(openContinue)">⇱ Continue in a terminal</button>
                 }
                 <button type="button" [class.on]="settingsOpen()" (click)="menu(toggleSettingsFn)">⚙ Settings &amp; notifications</button>
-                @if (!inWindow()) {
+                @if (!inWindow() && !second()) {
                   <div class="chat-menu-sec">View</div>
-                  @for (v of views; track v.id) {
-                    <button type="button" [class.on]="view() === v.id" (click)="menuOpen.set(false); setView(v.id)">{{ v.icon }} {{ v.label }}<span class="board-dim"> {{ v.keys }}</span></button>
-                  }
                   @if (!second()) {
                     <button type="button" (click)="splitOpen.set(!splitOpen())">◫ Open another chat beside ▸</button>
                     @if (splitOpen()) {
@@ -85,10 +82,19 @@ type Item = { kind: 'msg'; m: ChatMessage; day: string | null; unreadLine: numbe
               </div>
             }
           </span>
-          @if (second()) { <button type="button" class="chat-icon" title="Make this the main chat" (click)="state.swapSplit()">⇆</button> }
+          @if (second()) { <button type="button" class="chat-icon" title="Make this the main chat" aria-label="Swap" (click)="state.swapSplit()"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path [attr.d]="icons['swap']"/></svg></button> }
+          @if (!inWindow() && !second()) {
+            <span class="chat-modes" role="group" aria-label="Chat view">
+              @for (v of headViews; track v.id) {
+                <button type="button" class="chat-icon" [class.on]="view() === v.id" [attr.aria-pressed]="view() === v.id"
+                        [title]="view() === v.id && v.id !== 'window' ? 'Back to the window above the pill' : v.label + (v.keys ? ' (' + v.keys + ')' : '')"
+                        [attr.aria-label]="v.label" (click)="setView(view() === v.id && v.id !== 'window' ? 'docked' : v.id)"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path [attr.d]="icons[v.id]"/></svg></button>
+              }
+            </span>
+          }
           @if (!inWindow()) {
-            <button type="button" class="chat-icon" title="Fold to a tab beside the pill" (click)="state.minimize(sc)">–</button>
-            <button type="button" class="chat-icon" title="Close" (click)="second() ? state.closeSplit() : state.close()">✕</button>
+            <button type="button" class="chat-icon" title="Fold to a tab beside the pill" aria-label="Minimize" (click)="state.minimize(sc)"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path [attr.d]="icons['minimize']"/></svg></button>
+            <button type="button" class="chat-icon" title="Close" aria-label="Close" (click)="second() ? state.closeSplit() : state.close()"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path [attr.d]="icons['close']"/></svg></button>
           }
         </div>
         @if (contextLine()) {
@@ -327,6 +333,19 @@ export class ChatPanelComponent implements AfterViewChecked {
     { id: 'full', icon: '⛶', label: 'Full screen', keys: 'Ctrl+Shift+F' },
     { id: 'window', icon: '⧉', label: 'Separate window', keys: '' },
   ];
+  /** The modes the header switches between with one click; a mode's own button takes the chat back to the window. */
+  readonly headViews = this.views.filter((v) => v.id !== 'docked');
+  /** The header's icons: one 16px stroke set, so every button has the same size and baseline (text glyphs did not). */
+  readonly icons: Record<string, string> = {
+    search: 'M10.5 10.5 14 14M11.5 7a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0',
+    more: 'M3.5 8h.01M8 8h.01M12.5 8h.01',
+    expanded: 'M9.5 2.5h4v4M13.5 2.5 9 7M6.5 13.5h-4v-4M2.5 13.5 7 9',
+    full: 'M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10',
+    window: 'M9 2.5h4.5V7M13.5 2.5l-6 6M12 10v3.5H2.5V4H6',
+    minimize: 'M3.5 8h9',
+    close: 'M4 4l8 8M12 4l-8 8',
+    swap: 'M2.5 5.5h10L10 3M13.5 10.5h-10L6 13',
+  };
   readonly filters: { id: ChatSearchFilter; label: string }[] = [
     { id: 'all', label: 'All' }, { id: 'mine', label: 'Mine' }, { id: 'claude', label: 'Claude' }, { id: 'decisions', label: '★ Decisions' }, { id: 'calls', label: '⇄ Calls' },
   ];

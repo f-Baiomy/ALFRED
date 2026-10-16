@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
 import { ChatMessage } from '../../../core/models/chat.models';
 import { ChatApiService } from '../../../core/services/chat-api.service';
 import { ChatStateService } from '../../../core/state/chat-state.service';
@@ -16,7 +16,7 @@ describe('ChatProposalsComponent', () => {
   let api: jasmine.SpyObj<ChatApiService>;
 
   beforeEach(() => {
-    api = jasmine.createSpyObj<ChatApiService>('ChatApiService', ['checkProposals', 'proposals', 'undo']);
+    api = jasmine.createSpyObj<ChatApiService>('ChatApiService', ['checkProposals', 'proposals', 'undo', 'undoProposal']);
     api.checkProposals.and.returnValue(of({ checks: { a: null, b: 'outdated: #7 is closed' } }));
     api.proposals.and.returnValue(of({ results: { a: 'applied' }, undoToken: 'tok' }));
     TestBed.configureTestingModule({
@@ -56,5 +56,17 @@ describe('ChatProposalsComponent', () => {
     api.undo.and.returnValue(of(undefined));
     undo.click();
     expect(api.undo).toHaveBeenCalledWith('tok');
+  });
+
+  it('keeps Undo on an applied proposal after the toast is gone, and says why when the board moved on', () => {
+    const f = render({ proposals: [{ id: 'c', text: 'Close #51 as Fine', state: 'applied' }] });
+    const el: HTMLElement = f.nativeElement;
+    const undo = () => Array.from(el.querySelectorAll('.chat-prop button')).find((b) => b.textContent?.trim() === 'Undo') as HTMLButtonElement;
+    expect(undo()).toBeTruthy();
+    api.undoProposal.and.returnValue(throwError(() => ({ error: { message: '#51 changed since (it is in progress now) - change it on the board' } })));
+    undo().click();
+    f.detectChanges();
+    expect(api.undoProposal).toHaveBeenCalledWith(5, 'c');
+    expect(el.querySelector('.board-error')?.textContent).toContain('changed since');
   });
 });

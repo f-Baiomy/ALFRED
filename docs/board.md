@@ -631,7 +631,7 @@ are this browser's own (localStorage, try/catch). On a cycle's page the chats fo
   again, and asks once more with what to read; 🗂 lists everything the chat mentions.
 - **Proposals and consent** (FR-026..028, FR-046): Claude's `extra.proposals` (verify, close as Fine, move, a checklist
   mark, a new acceptance item) are checked against the board when shown and again on Accept, applied as the user, one by
-  one or in bulk, with Undo for 60 s (`ChatProposalService`, tokens in memory). A resend or rule (`extra.consent`) runs
+  one or in bulk, with Undo for 60 s (`ChatProposalService`, tokens in memory); an applied one keeps its own Undo after that (`undoOne`, from the status or mark it kept), refused when the board changed since. A resend or rule (`extra.consent`) runs
   only through the consent dialog, into the existing resend dialog or rule editor. → Card posts a message (or the
   selected part) to a card as a comment linked back.
 - **Watches** (FR-030/031): ◉ "watch while I test" keeps one waiting check task per cycle chat while its Claude is on;

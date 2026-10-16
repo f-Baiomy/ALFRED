@@ -10,6 +10,7 @@ import { BoardSeenService } from '../../../core/services/board-seen.service';
 import { TeamChipsComponent } from '../team-chips/team-chips.component';
 import { RunSkillComponent } from '../run-skill/run-skill.component';
 import { LiveWorkStateService, currentStep } from '../../../core/state/live-work-state.service';
+import { copyToClipboard } from '../../../shared/utils/clipboard';
 
 /** What a card asks of its board: one sort action, a reopen, or a selection toggle. */
 export type CardAction =
@@ -35,6 +36,8 @@ export type CardAction =
                 (click)="$event.stopPropagation(); toggled.emit()">{{ selected() ? '✓' : '' }}</button>
       }
       <div class="board-card-row">
+        <button type="button" class="board-card-num" [class.copied]="copied()" [title]="copied() ? 'Copied' : 'Copy #' + card().number"
+                (click)="copyNumber($event)">{{ copied() ? '✓ copied' : '#' + card().number }}</button>
         <span class="board-kind" [class]="'board-kind board-kind-' + card().kind">{{ card().kind }}</span>
         @for (f of card().flags; track f) { <span class="board-flag" [class]="'board-flag board-flag-' + f">{{ flagLabel(f) }}</span> }
       </div>
@@ -51,7 +54,6 @@ export type CardAction =
         </div>
       }
       <div class="board-card-foot">
-        <span>#{{ card().number }}</span>
         @if (card().author === 'CLAUDE') { <span class="board-ai">✦ Claude</span> }
         @if (showCycle() && card().cycleId) {
           <span class="board-cyc" [class.gone]="card().cycleDeleted">◷ {{ card().cycleDeleted ? 'cycle deleted' : cycleLabel() }}</span>
@@ -129,6 +131,17 @@ export class BoardCardComponent {
   private readonly seen = inject(BoardSeenService);
   private readonly live = inject(LiveWorkStateService);
   /** /alfred-live working on this card right now. */
+  readonly copied = signal(false);
+
+  /** The number pill copies `#53` - the way the board and Claude mention a card - without opening the card. */
+  copyNumber(e: Event): void {
+    e.stopPropagation();
+    void copyToClipboard('#' + this.card().number).then(() => {
+      this.copied.set(true);
+      setTimeout(() => this.copied.set(false), 1200);
+    });
+  }
+
   readonly liveWork = computed(() => this.live.working().find((w) => w.project === this.card().project && w.cardNumber === this.card().number) ?? null);
   readonly liveStep = currentStep;
   readonly unread = computed(() => this.seen.isUnread(this.card()));

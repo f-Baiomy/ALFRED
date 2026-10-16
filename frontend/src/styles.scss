@@ -10751,6 +10751,12 @@ app-name-suggest {
   button.ok:hover { border-color: var(--green); color: var(--green); }
 }
 .board-kind { font-size: 0.6rem; font-weight: 700; padding: 0.05rem 0.35rem; border-radius: 4px; letter-spacing: 0.04em; }
+// The card's number as a pill beside its kind, where the eye starts - not in the footer's small print.
+.board-card-num { order: -1; font: inherit; font-size: 0.66rem; font-weight: 700; padding: 0.05rem 0.4rem; border-radius: 999px; color: var(--text);
+  background: var(--card-elevated); border: 1px solid var(--border-strong); font-variant-numeric: tabular-nums; letter-spacing: 0.02em;
+  cursor: copy; user-select: all; }
+.board-card-num:hover { border-color: var(--purple-light); }
+.board-card-num.copied { color: var(--green); border-color: var(--green); }
 .board-kind-BUG { background: color-mix(in srgb, var(--red) 18%, transparent); color: var(--red); }
 .board-kind-TASK { background: color-mix(in srgb, var(--cyan) 15%, transparent); color: var(--cyan); }
 .board-kind-NOTE { background: color-mix(in srgb, var(--purple-light) 15%, transparent); color: var(--purple-light); }
@@ -11757,6 +11763,13 @@ app-board-view { display: block; padding: 0 1.25rem 6rem; }
 }
 .live-mk { width: 0.9rem; flex: none; text-align: center; color: var(--green); }
 .live-draft { margin-top: 0.3rem; color: var(--text); white-space: pre-wrap; }
+// The chat's progress: one line saying where Claude is (the answer itself comes as its own message).
+.live-line { display: flex; align-items: center; gap: 0.5rem; margin: 0.35rem 0 0.1rem; padding: 0.35rem 0.6rem; border-radius: 8px;
+  background: color-mix(in srgb, var(--purple) 8%, transparent); font-size: 0.78rem; color: var(--text-dim); min-width: 0;
+  .live-now { color: var(--text); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .live-count, .live-time { flex: none; color: var(--text-faint); font-size: 0.7rem; font-variant-numeric: tabular-nums; }
+  .board-link { flex: none; }
+}
 .live-caret { display: inline-block; width: 7px; height: 0.95em; margin-left: 1px; background: var(--purple-light); vertical-align: text-bottom; animation: live-blink 0.8s infinite; }
 .live-done { margin: 0.3rem 0 0.2rem 1rem; font-size: 0.74rem; display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: baseline;
   .live-step { width: 100%; }
@@ -12021,7 +12034,10 @@ textarea.board-input { width: 100%; resize: vertical; }
 .chat-wins { display: flex; flex-direction: row-reverse; align-items: flex-end; gap: 12px; max-width: 100%; }
 .chat-wins:empty { display: none; }
 .chat-float.left .chat-wins { flex-direction: row; }
-.chat-float.full { inset: var(--chat-top, 46px) 0 0 0; max-width: none; gap: 0; }
+// Full screen covers the whole window, the app's tabs too, on a solid ground - nothing of the page shows or scrolls behind
+// it (html.chat-fullscreen stops the page scrolling). Dialogs (z-index 1000+) still open above it.
+.chat-float.full { inset: 0; max-width: none; gap: 0; z-index: 900; background: var(--bg); }
+html.chat-fullscreen, html.chat-fullscreen body { overflow: hidden !important; overscroll-behavior: none; }
 .chat-float.full .chat-wins { flex: 1; min-height: 0; align-self: stretch; }
 .chat-float.full .chat-dock { flex: 1; width: auto !important; height: 100%; border: 0; border-radius: 0; box-shadow: none; background: var(--bg); }
 .chat-float.full .chat-pillrow { display: none; }
@@ -12055,11 +12071,16 @@ textarea.board-input { width: 100%; resize: vertical; }
 .chat-tab-x { background: none; border: 0; color: var(--text-faint); cursor: pointer; padding: .3rem .5rem; }
 .chat-tab-x:hover { color: var(--text); }
 .chat-window .chat-dock { flex: 1; width: auto !important; height: auto; border: 0; border-radius: 0; box-shadow: none; }
-.chat-head { display: flex; align-items: center; gap: .5rem; padding: .55rem .6rem .55rem .75rem; border-bottom: 1px solid var(--border); min-width: 0; }
+.chat-head { display: flex; align-items: center; gap: .25rem; padding: .55rem .6rem .55rem .75rem; border-bottom: 1px solid var(--border); min-width: 0; }
 .chat-head > .bar-av { width: 32px; height: 32px; font-size: .7rem; }
 .chat-head > .bar-av .bar-st { width: 10px; height: 10px; border-color: var(--popover-solid); }
 .chat-head .chat-icon { width: 30px; height: 30px; display: grid; place-items: center; padding: 0; border-radius: 8px; font-size: .95rem; flex: none; }
 .chat-head .chat-icon:hover, .chat-head .chat-icon.on { background: var(--card-elevated); border-color: transparent; }
+.chat-head .chat-icon .ico { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.chat-head .chat-icon[aria-label="More"] .ico { stroke-width: 2.4; }
+.chat-head .chat-icon.on { color: var(--purple-light); }
+.chat-head .chat-who { margin-inline: .25rem .25rem; }
+.chat-head .chat-modes { display: flex; align-items: center; gap: .25rem; flex: none; padding-inline-start: .5rem; margin-inline-start: 2px; border-inline-start: 1px solid var(--border); }
 .chat-who { flex: 1; min-width: 0; line-height: 1.3; }
 .chat-who b { display: block; font-size: .9rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-who small { display: block; font-size: .72rem; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -12130,7 +12151,6 @@ textarea.board-input { width: 100%; resize: vertical; }
 .chat-msg.me > .board-ev-body { order: 1; }
 .chat-msg.me > .board-ev-who { order: 2; font-size: .7rem; margin-top: .15rem; }
 .chat-msg.me > .board-ev-who > b, .chat-msg.me > .board-ev-who > .who-dot { display: none; }
-.chat-msg.me > .chat-hover { order: 0; }
 .chat-msg.me > .board-ev-who { text-align: right; }
 .chat-msg.claude, .chat-msg.alfred { margin-right: 2%; }
 .chat-msg > .board-ev-body { background: var(--panel-bg); border: 1px solid var(--border); border-radius: 9px; padding: .4rem .6rem; margin-top: .15rem; overflow-wrap: anywhere; }
@@ -12146,11 +12166,29 @@ textarea.board-input { width: 100%; resize: vertical; }
 .chat-msg.claude .who-dot { background: var(--purple); }
 .chat-msg.alfred .who-dot { background: var(--amber); }
 .chat-msg.me .board-ev-acts { justify-content: flex-end; }
-.chat-hover { position: absolute; right: .3rem; top: -.55rem; display: none; flex-wrap: wrap; justify-content: flex-end; max-width: calc(100% - .6rem); gap: .15rem;
-  background: var(--popover-solid); border: 1px solid var(--border-strong); border-radius: 7px; padding: .1rem .2rem; z-index: 3; box-shadow: 0 6px 18px rgba(0, 0, 0, .4); }
-.chat-msg:hover > .chat-hover { display: flex; }
-.chat-hover button { background: none; border: 0; color: var(--text-dim); font-size: .68rem; padding: .1rem .3rem; border-radius: 5px; cursor: pointer; white-space: nowrap; }
-.chat-hover button:hover { background: var(--card-elevated); color: var(--text); }
+// The message's actions sit on its name/time row (free space), never over the text: hidden until the pointer rests on
+// the message; kept open only by its own menu or keyboard focus - a clicked button's focus does not keep it.
+.chat-msg > .board-ev-who { display: flex; flex-wrap: wrap; align-items: center; column-gap: .15rem; min-height: 26px; }
+.chat-msg.me > .board-ev-who { justify-content: flex-end; }
+.chat-hover { position: relative; display: inline-flex; align-items: center; gap: 1px; margin-inline-start: auto; order: 9;
+  opacity: 0; visibility: hidden; transition: opacity .12s ease 0s, visibility 0s linear .12s; }
+.chat-msg.me > .board-ev-who > .chat-hover { order: -1; margin-inline: 0 .35rem; }
+.chat-msg:hover .chat-hover, .chat-hover.open, .chat-hover:has(:focus-visible) {
+  opacity: 1; visibility: visible; transition: opacity .12s ease .25s, visibility 0s linear .25s; }
+.chat-hover.open, .chat-hover:has(:focus-visible) { transition-delay: 0s; }
+.chat-hover > button { width: 26px; height: 24px; display: grid; place-items: center; background: none; border: 0; color: var(--text-dim);
+  font-size: .8rem; padding: 0; border-radius: 6px; cursor: pointer; }
+.chat-hover > button.more { font-size: .95rem; }
+.chat-hover > button:hover, .chat-hover > button.on { background: var(--card-elevated); color: var(--text); }
+// No gap between ⋯ and its menu (crossing one used to close it); .up opens it above when there is no room below.
+.chat-hover-menu { position: absolute; top: 100%; right: 0; min-width: 220px; display: flex; flex-direction: column; padding: .25rem;
+  background: var(--popover-solid); border: 1px solid var(--border-strong); border-radius: 9px; box-shadow: 0 10px 28px rgba(0, 0, 0, .45); z-index: 6; }
+.chat-hover-menu.up { top: auto; bottom: 100%; }
+.chat-hover-menu > button { text-align: start; background: none; border: 0; color: var(--text); font-size: .78rem; padding: .35rem .55rem; border-radius: 6px; cursor: pointer; white-space: nowrap; }
+.chat-hover-menu > button:hover { background: var(--card-elevated); }
+.chat-hover-reacts { display: flex; gap: 2px; padding: .25rem .3rem 0; margin-top: .2rem; border-top: 1px solid var(--border); }
+.chat-hover-reacts > button { background: none; border: 0; font-size: .9rem; padding: .15rem .3rem; border-radius: 6px; cursor: pointer; }
+.chat-hover-reacts > button:hover { background: var(--card-elevated); }
 .chat-hover button:disabled { opacity: .35; cursor: default; }
 .chat-ctx { display: flex; flex-wrap: wrap; gap: .25rem; align-items: center; margin: .2rem 0 .25rem; font-size: .66rem; color: var(--text-faint); }
 .chat-ctx .board-mention, .chat-msg .board-md .board-mention { white-space: normal; overflow-wrap: anywhere; word-break: break-word; max-width: 100%; }

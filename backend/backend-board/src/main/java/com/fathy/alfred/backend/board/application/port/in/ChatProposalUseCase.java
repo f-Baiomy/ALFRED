@@ -26,6 +26,12 @@ public interface ChatProposalUseCase {
     /** Restores what an accept changed and reopens its proposals - within {@link #UNDO_SECONDS} of the accept. */
     ChatUseCase.Result<Void> undo(Actor actor, String token);
 
+    /**
+     * Puts back one applied proposal at any time, from what it kept when applied (the card's status, the item's mark) -
+     * refused when the board changed since (the card moved on, the item was marked again): then it is changed there.
+     */
+    ChatUseCase.Result<Void> undoOne(Actor actor, long messageId, String proposalId);
+
     /** Records the user's yes or no on a consent (a resend, a rule) - the frontend runs it through the consent dialog. */
     ChatUseCase.Result<Void> consent(Actor actor, long messageId, boolean yes);
 }

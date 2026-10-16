@@ -103,6 +103,33 @@ class ChatProposalServiceTest {
     }
 
     @Test
+    void anAppliedProposalCanBeUndoneLaterWhileTheBoardIsStillAsItLeftIt() {
+        int toClose = card("Export with no rows", CardStatus.TO_DO);
+        int toMove = card("Typo", CardStatus.INBOX);
+        ObjectNode extra = JsonNodeFactory.instance.objectNode();
+        ArrayNode ps = extra.putArray("proposals");
+        ps.addObject().put("id", "c").put("kind", "close").put("card", toClose).put("reason", "cannot be clicked without rows");
+        ps.addObject().put("id", "m").put("kind", "move").put("card", toMove).put("status", "TO_DO");
+        ChatMessage a = answerWith(extra);
+        assertThat(f.proposals.decide(Actor.USER, a.id(), List.of("c", "m"), List.of()).isOk()).isTrue();
+        assertThat(status(toClose)).isEqualTo(CardStatus.CLOSED);
+        f.clock.advanceSeconds(600); // long after the toast's minute
+
+        assertThat(f.proposals.undoOne(Actor.CLAUDE, a.id(), "c").outcome()).isEqualTo(Outcome.REFUSED_FOR_CLAUDE);
+        var undone = f.proposals.undoOne(Actor.USER, a.id(), "c");
+        assertThat(undone.isOk()).as(undone.message()).isTrue();
+        assertThat(status(toClose)).as("reopened").isNotEqualTo(CardStatus.CLOSED);
+        assertThat(f.proposals.check(a.id()).value()).as("open again, can be accepted again").containsEntry("c", null);
+
+        f.board.move(Actor.USER, f.store.findByNumber("odeysys", toMove).orElseThrow().id(), CardStatus.IN_PROGRESS);
+        var refused = f.proposals.undoOne(Actor.USER, a.id(), "m");
+        assertThat(refused.outcome()).isEqualTo(Outcome.CONFLICT);
+        assertThat(refused.message()).contains("changed since");
+        assertThat(status(toMove)).as("the user's later move stays").isEqualTo(CardStatus.IN_PROGRESS);
+        assertThat(f.proposals.undoOne(Actor.USER, a.id(), "c").outcome()).as("not applied any more").isEqualTo(Outcome.CONFLICT);
+    }
+
+    @Test
     void undoIsRefusedAfterTheMinuteAndAcceptingIsTheUsers() {
         int fixed = card("Search", CardStatus.FIXED);
         ObjectNode extra = JsonNodeFactory.instance.objectNode();
