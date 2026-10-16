@@ -189,12 +189,6 @@ public class SqliteChatRepository implements ChatStorePort {
     }
 
     @Override
-    public long lastWaitSeq() {
-        Long seq = jdbc.queryForObject("SELECT COALESCE(MAX(wait_seq), 0) FROM chat_messages", Long.class);
-        return seq == null ? 0 : seq;
-    }
-
-    @Override
     public boolean changeState(long id, ChatMessage.State expected, ChatMessage.State next) {
         return jdbc.update("UPDATE chat_messages SET state = ? WHERE id = ? AND state = ?", next.name(), id, expected.name()) == 1;
     }

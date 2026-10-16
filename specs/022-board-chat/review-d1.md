@@ -38,5 +38,18 @@ Races checked and already covered: two takes (compare-and-swap, `ChatServiceTest
 
 ## SC-001 measured (2026-10-16, deployed Docker build)
 
-Send to first live step, throwaway project `zz-chat-sc`, Claude on: 0.27 s, 4.56 s, 3.99 s (3 tries, not the planned
-10, to keep the model cost down). All under 5 s. The throwaway project's chat was deleted afterwards.
+Send to first live step, throwaway project and cycle, Claude on - 10 tries: 0.27, 4.56, 3.99, 0.28, 0.30, 0.28, 0.28,
+0.28, 4.03, 4.86 s. All under 5 s. The throwaway chats were deleted afterwards.
+
+## T067 walk-through (2026-10-16, quickstart P1 on a throwaway cycle, the runner on a small terminal session)
+
+| Step | Result | Bug found and fixed |
+|------|--------|---------------------|
+| 1-2 | Bar, cycle chat, "sent · waiting for Claude", start steps, "1st in line". | The chat never scrolled: the panel's and bar's host elements added a box, so the column grew with its messages (also broke full screen and the window). Hosts are `display: contents`. A cycle page kept the last project, so its chat opened empty with the wrong start command: the page now gives the chat the cycle's project. |
+| 3 | A message sent before the runner started was taken within 3 s. | It stayed WAITING forever: the runner's "now" cursor skipped waiting chat messages. The chat part of the cursor starts at 0 (only WAITING messages come back). |
+| 4 | Recalled a terminal decision; a decision agreed in chat was recorded in the brief with Undo. | - (FR-048 records decisions agreed in chat, not every recalled one; the quickstart said otherwise and is corrected.) |
+| 5 | "terminal moved on", then "caught up (+N new entries)" and the right answer. | Never shown: the transcript watcher sliced the text by a byte offset (multi-byte characters). After a catch-up the header never cleared and a restarted runner re-sent the whole transcript: `seenUpTo` is stored after each catch-up and read back on start. |
+| 6 | One 💬 line per exchange; "@terminal" arrived as ⚡. | - |
+| 7 | ⇊ folded 12 messages under a summary; search found 3 (2 in the summary, opened); the terminal got a pointer. | Search matches were never outlined (the message's `hit` was never set). |
+| 8 | Docked, expanded, full screen, the separate window, an 800 px window. | Unstyled inputs and native selects (now the app's select picker); the head, banners and composer could shrink over the stream; "↓ Latest" sat over the composer. |
+| 9 | Through the tunnel: covered by `BoardEditAccessInterceptorTest` (no tunnel on this machine). | - |

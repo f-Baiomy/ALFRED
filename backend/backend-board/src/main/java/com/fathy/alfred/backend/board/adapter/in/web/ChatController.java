@@ -141,8 +141,16 @@ public class ChatController {
         out.put("after", h.after().stream().map(ChatViews::message).toList());
         out.put("decisions", h.decisions().stream().map(ChatViews::message).toList());
         out.put("terminal", h.terminal().stream().map(ChatViews::terminal).toList());
-        out.put("session", h.session() == null ? null : Map.of("chatSessionId", String.valueOf(h.session().chatSessionId()),
-                "host", String.valueOf(h.session().host())));
+        if (h.session() == null) {
+            out.put("session", null);
+        } else {
+            // seenUpTo: how far the chat's copy has read the terminal, so a restarted runner catches up only on what is new
+            Map<String, Object> session = new LinkedHashMap<>();
+            session.put("chatSessionId", String.valueOf(h.session().chatSessionId()));
+            session.put("host", String.valueOf(h.session().host()));
+            session.put("seenUpTo", h.session().seenUpTo());
+            out.put("session", session);
+        }
         return ResponseEntity.ok(out);
     }
 

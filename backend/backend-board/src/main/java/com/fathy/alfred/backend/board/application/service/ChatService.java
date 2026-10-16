@@ -769,6 +769,15 @@ public class ChatService implements ChatUseCase, ChatRunnerEventsUseCase {
             return Result.no(Outcome.INVALID, "The runner keeps the chat's session");
         }
         ChatSession was = chats.session(chat).orElse(null);
+        // The same session caught up (FR-052): it keeps where it was copied from, and what it has seen never moves back.
+        boolean same = was != null && java.util.Objects.equals(was.chatSessionId(), chatSessionId);
+        if (same && forkedFrom == null && forkedAt == null) {
+            forkedFrom = was.forkedFrom();
+            forkedAt = was.forkedAt();
+            if (was.seenUpTo() != null && (seenUpTo == null || seenUpTo.isBefore(was.seenUpTo()))) {
+                seenUpTo = was.seenUpTo();
+            }
+        }
         ChatSession next = new ChatSession(chat, chatSessionId, forkedFrom, host, forkedAt, seenUpTo, was == null ? null : was.terminalAt());
         chats.putSession(next);
         if (tookOver(was, next)) {

@@ -2404,6 +2404,7 @@ main {
 
 .cycle-row-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.4rem;
 }
 
@@ -11953,6 +11954,13 @@ app-task-view .board-copy { max-width: 100%; overflow: hidden; text-overflow: el
 // pushed right by --chat-offset (set by app-chat-dock). Built from the board's own pieces: .board-ev-*, .live-box,
 // .board-mention, .action-btn, .dialog-card - only what is new to the chat is here.
 
+// The bar and the panel are flex items of .chat-rail / .chat-window: their hosts must not add a box, or the column
+// grows with its messages instead of filling the rail and the stream never scrolls.
+app-chat-bar, app-chat-panel { display: contents; }
+app-chat-message, app-chat-questions, app-chat-proposals, app-chat-consent { display: block; min-width: 0; }
+.board-input { background: var(--card-inner); color: var(--text); border: 1px solid var(--border-strong); border-radius: 6px; padding: .25rem .45rem; font: inherit; font-size: .78rem; box-sizing: border-box; max-width: 100%; }
+textarea.board-input { width: 100%; resize: vertical; }
+.board-input:focus { outline: none; border-color: var(--purple); }
 .chat-main { margin-left: var(--chat-offset, 268px); transition: margin-left .12s ease-out; min-width: 0; }
 .chat-rail { position: fixed; left: 0; top: var(--chat-top, 46px); bottom: 0; z-index: 60; display: flex; min-height: 0; }
 .chat-rail.full { right: 0; }
@@ -12006,6 +12014,8 @@ app-task-view .board-copy { max-width: 100%; overflow: hidden; text-overflow: el
 .chat-dock.wide { width: min(62vw, 1000px) !important; }
 .chat-dock.full > .chat-head, .chat-dock.full > .chat-banner, .chat-dock.full > .chat-search, .chat-dock.full > .chat-composer { width: min(980px, 100%); margin-inline: auto; box-sizing: border-box; }
 .chat-dock.full > .chat-stream { padding-inline: max(.9rem, calc((100% - 980px) / 2 + .9rem)); }
+// Only the stream gives up height: the head, banners and composer keep theirs (shrunk, their content spilled over the stream).
+.chat-dock > :not(.chat-stream) { flex: none; }
 .chat-resize { position: absolute; right: -4px; top: 0; bottom: 0; width: 8px; cursor: ew-resize; z-index: 5; }
 .chat-resize:hover { background: color-mix(in srgb, var(--purple) 25%, transparent); }
 .chat-window { position: fixed; inset: 0; display: flex; background: var(--bg); }
@@ -12029,8 +12039,11 @@ app-task-view .board-copy { max-width: 100%; overflow: hidden; text-overflow: el
 .chat-runner .host { color: var(--text-faint); }
 .chat-session { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; font-size: .7rem; color: var(--text-faint); margin-top: .3rem; }
 .chat-session .moved { color: var(--amber); }
+.chat-session { flex-wrap: nowrap; min-width: 0; }
+.chat-session .mem-pill { flex: 0 1 auto; min-width: 0; }
+.chat-session .chat-icon, .chat-session .moved { flex: none; white-space: nowrap; }
 .chat-refresh { color: var(--cyan); }
-.mem-pill { display: inline-flex; align-items: center; gap: .3rem; border: 1px solid var(--border-strong); border-radius: 99px; padding: 0 .5rem; font-size: .68rem; color: var(--text-dim); background: var(--card); cursor: pointer; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mem-pill { display: inline-block; line-height: 1.6; border: 1px solid var(--border-strong); border-radius: 99px; padding: 0 .5rem; font-size: .68rem; color: var(--text-dim); background: var(--card); cursor: pointer; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mem-pill.claude { border-color: color-mix(in srgb, var(--purple) 45%, transparent); }
 .mem-pill.alfred { border-color: color-mix(in srgb, var(--amber) 45%, transparent); }
 .mem-pill b { color: var(--text); font-weight: 600; }
@@ -12097,7 +12110,10 @@ app-task-view .board-copy { max-width: 100%; overflow: hidden; text-overflow: el
 .chat-sys::before, .chat-sys::after { content: ""; flex: 1; border-top: 1px dashed var(--border-strong); }
 .chat-newline { display: flex; align-items: center; gap: .5rem; font-size: .68rem; font-weight: 700; color: var(--red); margin: .6rem 0; }
 .chat-newline::before, .chat-newline::after { content: ""; flex: 1; border-top: 1px solid color-mix(in srgb, var(--red) 55%, transparent); }
-.chat-jump { position: absolute; right: 1.2rem; bottom: 9rem; z-index: 6; border-radius: 99px !important; box-shadow: 0 6px 18px rgba(0, 0, 0, .45); }
+// Last in the stream, held at its bottom edge while the user reads further up (the composer's height varies). It takes no
+// height, so showing it never changes whether the stream counts as scrolled to the bottom.
+.chat-jump { position: sticky; bottom: .5rem; height: 0; display: flex; justify-content: flex-end; align-items: flex-end; z-index: 6; }
+.chat-jump > button { background: var(--popover-solid) !important; border-radius: 99px !important; box-shadow: 0 6px 18px rgba(0, 0, 0, .45); }
 .chat-fold { border: 1px solid var(--border); border-radius: 10px; background: var(--card); margin-bottom: .75rem; }
 .chat-fold.summary { border-color: color-mix(in srgb, var(--purple) 40%, var(--border)); }
 .chat-fold.digest { border-color: color-mix(in srgb, var(--amber) 45%, var(--border)); }

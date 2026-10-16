@@ -64,6 +64,19 @@ class ChatServiceTest {
         f.live.chatBeat("odeysys", "c-1", chatId, "laptop", "C:/work", "live", true, false);
     }
 
+    /** A runner starting with "now" still finds the message sent before it started (it stayed WAITING forever). */
+    @Test
+    void aMessageSentBeforeTheRunnerStartedIsStillFoundFromNow() {
+        ChatMessage early = send(CYCLE, "hey");
+        BoardChanges start = f.insights.changes("now", "odeysys", "c-1", Actor.USER, 100);
+
+        BoardChanges first = f.insights.changes(start.cursor(), "odeysys", "c-1", Actor.USER, 100);
+
+        assertThat(first.chats()).extracting(c -> c.messageId()).containsExactly(early.id());
+        takeAndAnswer(early, "hi", List.of());
+        assertThat(f.insights.changes(start.cursor(), "odeysys", "c-1", Actor.USER, 100).chats()).isEmpty();
+    }
+
     private ChatMessage takeAndAnswer(ChatMessage m, String text, List<RecordRequest> records) {
         assertThat(f.chat.take(Actor.CLAUDE, m.id(), "chat-a", m.chat().isProject() ? null : m.chat().cycleId()).isOk()).isTrue();
         Result<ChatUseCase.Replied> r = f.chat.reply(Actor.CLAUDE, m.id(), new Reply(text, records, List.of(), null, null));
@@ -345,6 +358,22 @@ class ChatServiceTest {
             assertThat(m.text()).contains("desktop").contains("latest summary");
         });
         assertThat(f.chat.putSession(Actor.USER, CYCLE, "x", null, "h", t, t).isOk()).isFalse();
+    }
+
+    /** A catch-up stores how far the copy read the terminal, keeps where it was copied from, and never moves back. */
+    @Test
+    void aCatchUpMovesSeenUpToForwardAndKeepsTheCopysOrigin() {
+        java.time.Instant t = java.time.Instant.parse("2026-10-15T10:00:00Z");
+        f.chat.putSession(Actor.CLAUDE, CYCLE, "fork-1", "term-1", "laptop", t, t);
+
+        f.chat.putSession(Actor.CLAUDE, CYCLE, "fork-1", null, "laptop", null, t.plusSeconds(60));
+        assertThat(f.chatStore.session(CYCLE)).get().satisfies(s -> {
+            assertThat(s.forkedFrom()).isEqualTo("term-1");
+            assertThat(s.forkedAt()).isEqualTo(t);
+            assertThat(s.seenUpTo()).isEqualTo(t.plusSeconds(60));
+        });
+        f.chat.putSession(Actor.CLAUDE, CYCLE, "fork-1", null, "laptop", null, t);
+        assertThat(f.chatStore.session(CYCLE)).get().satisfies(s -> assertThat(s.seenUpTo()).isEqualTo(t.plusSeconds(60)));
     }
 
     @Test

@@ -42,9 +42,6 @@ public interface ChatStorePort {
     /** Puts one taken message back to waiting, as {@link #requeue(ChatKey, String)}. */
     boolean requeue(long id);
 
-    /** The newest place in the waiting order (0 when nothing ever waited). */
-    long lastWaitSeq();
-
     /**
      * Swaps a message's state only when it still has {@code expected} - two runners taking one message, or a take racing a
      * cancel, leave exactly one winner. Returns whether this call changed it.

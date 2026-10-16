@@ -190,7 +190,8 @@ export class TranscriptWatch {
       const size = statSync(this.path).size;
       if (size < this.size) this.size = 0; // replaced
       if (size === this.size) return;
-      const text = readFileSync(this.path, 'utf8').slice(this.size);
+      // sizes are bytes: slice the bytes, not the decoded text (a transcript holds multi-byte characters)
+      const text = readFileSync(this.path).subarray(this.size).toString('utf8');
       this.size = size;
       const d = deltaOf(text.split('\n'), 0);
       if (d.entries) this.onChange(d.at);
@@ -280,7 +281,8 @@ export class ChatLane {
     const lines = path && existsSync(path) ? readFileSync(path, 'utf8').split('\n') : [];
     const session = ctx?.session?.chatSessionId && ctx.session.chatSessionId !== 'null'
       ? { chatSessionId: ctx.session.chatSessionId, host: ctx.session.host === 'null' ? null : ctx.session.host } : null;
-    const seenUpTo = this.seenUpTo?.get(scope) ?? 0;
+    // what the copy has read of the terminal: this runner's own memory, else Alfred's (a restarted runner)
+    const seenUpTo = this.seenUpTo?.get(scope) ?? (Date.parse(ctx?.session?.seenUpTo ?? '') || 0);
     const delta = session && path ? deltaOf(lines, seenUpTo) : { text: '', at: seenUpTo, entries: 0 };
     // re-fork only after the terminal compacted itself or when the delta is too large (FR-055a)
     const mustRefork = refork || (session && path && (compactedSince(lines, seenUpTo) || delta.text.length > MAX_DELTA_CHARS));
@@ -330,6 +332,12 @@ export class ChatLane {
           seenUpTo: new Date().toISOString() } }).catch((error) => this.r.o.log(`  (chat session not stored: ${error.message})`));
     }
     (this.seenUpTo ??= new Map()).set(scope, Math.max(delta.at, Date.now()));
+    if (sessionId && how.continued && !how.forked && sessionId === session?.chatSessionId && delta.entries) {
+      // caught up: Alfred keeps how far the copy has read, so the header stops saying "terminal moved on"
+      await alfred.call('PUT', `/board/chats/${encodeURIComponent(scope)}/session`, { query: { project }, headers: { 'X-Alfred-Actor': 'claude' },
+        body: { chatSessionId: sessionId, forkedFrom: null, host: this.host, forkedAt: null, seenUpTo: new Date(Math.max(delta.at, Date.now())).toISOString() } })
+        .catch((error) => this.r.o.log(`  (chat session not stored: ${error.message})`));
+    }
     if (stopAsked || this.r.stopped) {
       await reporter.end({ steps, state: 'STOPPED', outcome: 'stopped by you' });
     } else if (!result || result.error || replied < taken.length) {

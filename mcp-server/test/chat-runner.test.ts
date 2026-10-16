@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -102,6 +102,19 @@ test('the transcript is watched through fs.watch events only - no timer in the c
   w.close();
 });
 
+test('new transcript entries after multi-byte text are still seen (the size is bytes, not characters)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'chat-watch-'));
+  const path = join(dir, 't.jsonl');
+  writeFileSync(path, JSON.stringify({ type: 'user', timestamp: '2026-10-15T09:00:00Z', message: { content: 'قرار ─ ✓ 🧠 '.repeat(50) } }) + '\n');
+  let listener: ((event: string) => void) | null = null;
+  const seen: number[] = [];
+  const w = new chatLane.TranscriptWatch(path, (at: number) => seen.push(at), { fsWatch: (_p: string, l: any) => { listener = l; return { close() {} }; } });
+  appendFileSync(path, JSON.stringify({ type: 'user', timestamp: '2026-10-15T10:00:00Z', message: { content: 'edit notes' } }) + '\n');
+  listener!('change');
+  assert.deepEqual(seen, [Date.parse('2026-10-15T10:00:00Z')]);
+  w.close();
+});
+
 async function chatWorld(chats: any[]) {
   const w = await world();
   w.fake.board.changes = { entries: [], cycles: [], chats, cursor: '0.0.9', more: false };
@@ -194,4 +207,10 @@ test('a run that answers nothing gives the messages back with why', async () => 
     assert.equal(released!.body.failed, true);
     assert.equal(w.fake.board.liveWork.at(-1).state, 'FAILED');
   } finally { await close(); }
+});
+
+test('a runner reads the waiting chat messages from the start: those sent before it started are not skipped', () => {
+  assert.equal(live.chatsFromStart('12.345.67'), '12.345.0');
+  assert.equal(live.chatsFromStart('now'), 'now');
+  assert.equal(live.chatsFromStart('12.345'), '12.345');
 });

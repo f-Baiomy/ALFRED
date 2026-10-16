@@ -15,8 +15,8 @@ python alfred_skill.py install
 2. With no Claude on the cycle: send a message → "✓ sent · waiting for Claude" and the start steps.
 3. In a terminal in the app's repo: `claude`, then `/alfred-live "<cycle>"`. The waiting message is taken ("✓✓ Claude
    has it"), live steps show, the answer lands. The header reads "Copy of your terminal session · taken …".
-4. Ask "what did we decide about X?" for something decided in the terminal → answered from its memory; if it was not on
-   the board, "✓ recorded … in the brief" appears with Undo.
+4. Ask "what did we decide about X?" for something decided in the terminal → answered from its memory. Agree a decision
+   in the chat ("let's decide: …") → "✓ recorded … in the brief" appears with Undo (FR-048: decisions agreed in chat).
 5. In the terminal, edit a file → the chat header says "terminal moved on"; the next chat message shows
    "↻ updated from terminal session".
 6. In the terminal session's Monitor: one 💬 line per chat exchange; "@terminal …" in the chat arrives as ⚡.

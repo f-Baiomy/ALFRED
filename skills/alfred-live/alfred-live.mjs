@@ -35,6 +35,15 @@ import { ChatLane, chatTools, sessionIdOf } from './chat.mjs';
 const pretty = (v) => String(v ?? '').toLowerCase().replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
 
 /** "You moved it In progress → Fixed" - for the log, the quiet note and the run's prompt. */
+/**
+ * The cursor with its chat part reset: only WAITING chat messages come back, so reading them from the start never
+ * repeats an answered one - it finds those sent before this runner started or while it stood down.
+ */
+export function chatsFromStart(cursor) {
+  const parts = String(cursor ?? 'now').split('.');
+  return parts.length === 3 ? `${parts[0]}.${parts[1]}.0` : cursor;
+}
+
 export function youDid(e) {
   // a rich text comment is HTML: its words only, for a one-line note
   const text = String(e.text ?? '').replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
@@ -1036,7 +1045,7 @@ export class Runner {
   }
 
   async run() {
-    let cursor = this.o.cursorFile ? this.loadCursor() : 'now';
+    let cursor = chatsFromStart(this.o.cursorFile ? this.loadCursor() : 'now');
     // specs/020: ask first who answers this board - announcing first left a window where both answered
     const first = this.o.kind === 'listen' ? await this.anotherOwner() : null;
     this.lastHostCheck = Date.now();
@@ -1105,6 +1114,9 @@ export class Runner {
         this.standingDown = false;
         this.say('  ● the other runner stopped - answering again');
         await this.beat();
+        // the chat messages skipped while standing down are still waiting: read them again from the start
+        const fresh = await alfred.call('GET', '/board/changes', { query: { ...query, cursor: chatsFromStart(cursor), limit: 200 } }).catch(() => null);
+        if (fresh) page = { ...page, chats: fresh.chats ?? page.chats };
       }
     }
     const chats = page.chats ?? [];

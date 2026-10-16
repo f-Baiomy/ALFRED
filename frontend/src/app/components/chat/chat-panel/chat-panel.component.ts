@@ -15,6 +15,7 @@ import { MarkdownViewComponent } from '../../board/markdown-view/markdown-view.c
 import { copyToClipboard } from '../../../shared/utils/clipboard';
 import { dayLine, queuePosition, sinceSummary, threadsOf, tokens, unreadOf } from '../../../shared/utils/chat-queue';
 import { ChatView } from '../../../core/models/chat.models';
+import { SelectOption, SelectPickerComponent } from '../../select-picker/select-picker.component';
 import { DesktopNotificationsService } from '../../../core/services/desktop-notifications.service';
 
 /** A summary and the messages folded under it, or one message, in the order the stream shows them. */
@@ -29,7 +30,7 @@ type Item = { kind: 'msg'; m: ChatMessage; day: string | null; unreadLine: numbe
 @Component({
   selector: 'app-chat-panel',
   standalone: true,
-  imports: [ChatMessageComponent, MentionEditorComponent, MarkdownViewComponent, MentionChipComponent],
+  imports: [ChatMessageComponent, MentionEditorComponent, MarkdownViewComponent, MentionChipComponent, SelectPickerComponent],
   template: `
     @if (scope(); as sc) {
       <aside class="chat-dock" [class.wide]="view() === 'expanded'" [class.full]="view() === 'full' || inWindow()"
@@ -138,9 +139,7 @@ type Item = { kind: 'msg'; m: ChatMessage; day: string | null; unreadLine: numbe
             <div class="note">Claude writes a summary; the messages fold under it, never deleted.</div>
             <label>Digest after <input type="number" min="5" max="600" [value]="settings().digestGapMin" (change)="setDigest(+$any($event.target).value)" /> min away</label>
             <label>Notify me
-              <select class="board-select" [value]="mute()" (change)="setMute($any($event.target).value)">
-                <option value="all">every message</option><option value="questions">only questions and failures</option><option value="none">never (muted)</option>
-              </select></label>
+              <app-select-picker class="select-compact" ariaLabel="Notify me" [options]="muteOptions" [value]="mute()" (valueChange)="setMute($any($event))" /></label>
             <label><input type="checkbox" [checked]="state.prefs().notify" (change)="setNotify($any($event.target).checked)" /> Desktop notifications</label>
           </div>
         }
@@ -200,7 +199,7 @@ type Item = { kind: 'msg'; m: ChatMessage; day: string | null; unreadLine: numbe
                   @if (openFolds().has(it.summary.id)) {
                     <div class="chat-old">
                       @for (m of it.folded; track m.id) {
-                        <app-chat-message [message]="m" [records]="recordsOf(m.id)" [claudeOn]="claudeOn()" [editable]="false" [focusId]="state.focusId()" />
+                        <app-chat-message [message]="m" [records]="recordsOf(m.id)" [claudeOn]="claudeOn()" [editable]="false" [focusId]="state.focusId()" [hitIds]="hitIds()" />
                       }
                     </div>
                   }
@@ -209,12 +208,12 @@ type Item = { kind: 'msg'; m: ChatMessage; day: string | null; unreadLine: numbe
             } @else {
               @if (it.unreadLine) { <div class="chat-newline">{{ it.unreadLine }} new</div> }
               <app-chat-message [message]="it.m" [replies]="repliesOf(it.m.id)" [records]="recordsOf(it.m.id)" [terminal]="terminalOf(it.m.id)" [claudeOn]="claudeOn()"
-                                [editable]="editable()" [position]="positionOf(it.m.id)" [focusId]="state.focusId()"
+                                [editable]="editable()" [position]="positionOf(it.m.id)" [focusId]="state.focusId()" [hitIds]="hitIds()"
                                 [recordsOf]="recordsFn" [positionOf]="positionFn" (quote)="quote.set($event)" />
             }
           }
+          @if (!atBottom()) { <div class="chat-jump"><button type="button" class="action-btn" (click)="toBottom()">↓ Latest</button></div> }
         </div>
-        @if (!atBottom()) { <button type="button" class="action-btn chat-jump" (click)="toBottom()">↓ Latest</button> }
 
         @if (editable()) {
           <div class="chat-composer">
@@ -232,10 +231,7 @@ type Item = { kind: 'msg'; m: ChatMessage; day: string | null; unreadLine: numbe
             @if (isProject() && state.cycles().length) {
               <div class="chat-crow">
                 <label class="board-dim" title="Ask the Claude of a cycle - the question and its answer show here and in that cycle's chat">Ask
-                  <select class="board-select" [value]="askCycle() ?? ''" (change)="askCycle.set($any($event.target).value || null)">
-                    <option value="">this project's Claude</option>
-                    @for (c of state.cycles(); track c.id) { <option [value]="c.id">the Claude of {{ c.name }}</option> }
-                  </select></label>
+                  <app-select-picker class="select-compact" ariaLabel="Who answers" [options]="askOptions()" [value]="askCycle() ?? ''" (valueChange)="askCycle.set($event || null)" /></label>
               </div>
             }
             <div class="chat-crow">
@@ -357,6 +353,7 @@ export class ChatPanelComponent implements AfterViewChecked {
   readonly query = signal('');
   readonly filter = signal<ChatSearchFilter>('all');
   readonly hits = signal<{ id: number; folded: boolean }[] | null>(null);
+  readonly hitIds = computed<ReadonlySet<number>>(() => new Set((this.hits() ?? []).map((h) => h.id)));
   readonly foldedHits = computed(() => (this.hits() ?? []).filter((h) => h.folded).length);
   readonly openFolds = signal<ReadonlySet<number>>(new Set());
   readonly quote = signal<string | null>(null);
@@ -571,6 +568,15 @@ export class ChatPanelComponent implements AfterViewChecked {
   readonly skills = CHAT_SKILLS;
   /** FR-035: the cycle whose Claude a project-chat message asks (null: the project's). */
   readonly askCycle = signal<string | null>(null);
+  readonly askOptions = computed<SelectOption[]>(() => [
+    { value: '', label: "this project's Claude" },
+    ...this.state.cycles().map((c) => ({ value: c.id, label: `the Claude of ${c.name}` })),
+  ]);
+  readonly muteOptions: SelectOption[] = [
+    { value: 'all', label: 'every message' },
+    { value: 'questions', label: 'only questions and failures' },
+    { value: 'none', label: 'never (muted)' },
+  ];
   readonly splitOpen = signal(false);
   readonly otherChats = computed(() => this.state.rows().filter((r) => r.scope !== this.scope()));
   readonly sharedOpen = signal(false);

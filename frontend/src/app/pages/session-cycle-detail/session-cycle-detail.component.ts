@@ -43,6 +43,7 @@ import { findCallRow, pointAtCall } from '../../shared/utils/call-reveal';
 import { CardSummary, NO_FILTERS } from '../../core/models/board.models';
 import { BoardApiService } from '../../core/services/board-api.service';
 import { BoardSocketService } from '../../core/services/board-socket.service';
+import { ChatStateService } from '../../core/state/chat-state.service';
 import { BoardViewComponent } from '../../components/board/board-view/board-view.component';
 import { TaskViewComponent } from '../../components/board/task-view/task-view.component';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -132,6 +133,14 @@ export class SessionCycleDetailComponent {
     effect(() => {
       const id = this.state.cycleId();
       untracked(() => this.loadBoardCards(id));
+    });
+    // The chats bar follows the cycle's project, the one its Board tab files cards in - not the last project a page showed,
+    // or the cycle's chat (kept under its project) opens empty with the wrong start command.
+    const chats = inject(ChatStateService);
+    effect(() => {
+      const project = this.cycleProject();
+      const id = this.state.cycleId();
+      if (project && id) untracked(() => chats.show(project, id));
     });
     inject(BoardSocketService).events$.pipe(takeUntilDestroyed()).subscribe((e) => {
       if (e.type === 'board-changed' && (e.cycleId === this.state.cycleId() || (!e.cycleId && e.project !== undefined))) {

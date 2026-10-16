@@ -70,3 +70,59 @@ describe('ChatPanelComponent - narrow dock', () => {
     f.nativeElement.remove();
   });
 });
+
+/** The chat in the rail: the stream scrolls inside the rail's height, and the search outlines what it found. */
+describe('ChatPanelComponent - in the rail', () => {
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      imports: [ChatPanelComponent],
+      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([]),
+        { provide: BoardSocketService, useValue: { events$: NEVER, reconnected$: NEVER } }],
+    });
+  });
+
+  function render(count: number) {
+    const state = TestBed.inject(ChatStateService);
+    state.project.set('p');
+    state.prefs.update((p) => ({ ...p, view: 'docked', width: 440 }));
+    state.summaries.set([{ scope: 'c1', name: 'c1', kind: 'cycle', lastId: count, lastAt: null, lastPreview: '', lastAuthor: 'CLAUDE', waiting: 0,
+      typing: false, needsYou: { questions: 0, proposals: 0, confirms: 0 }, claudeOn: true, terminal: null }]);
+    state.threads.set(new Map([['c1', { scope: 'c1', more: false, messages: Array.from({ length: count }, (_, i) => msg(i + 1)) }]]));
+    state.openScope.set('c1');
+    const rail = document.createElement('div');
+    rail.className = 'chat-rail';
+    rail.style.cssText = 'position: fixed; top: 0; left: 0; height: 500px; bottom: auto;';
+    document.body.appendChild(rail);
+    const f = TestBed.createComponent(ChatPanelComponent);
+    // TestBed's host is a plain div: give it what the real <app-chat-panel> host gets from styles.scss
+    (f.nativeElement as HTMLElement).style.display = 'contents';
+    rail.appendChild(f.nativeElement);
+    f.detectChanges();
+    return { f, rail };
+  }
+
+  it('fills the rail and scrolls its messages instead of growing with them', () => {
+    const host = document.createElement('app-chat-panel');
+    document.body.appendChild(host);
+    expect(getComputedStyle(host).display).withContext('the real host adds no box').toBe('contents');
+    host.remove();
+    const { rail } = render(40);
+    const dock = rail.querySelector('.chat-dock') as HTMLElement;
+    const stream = rail.querySelector('.chat-stream') as HTMLElement;
+    // the rail's height (or, narrower than 900 px, the window under the nav) - never the height of 40 messages
+    expect(dock.getBoundingClientRect().height).toBeLessThanOrEqual(Math.max(500, innerHeight));
+    expect(dock.getBoundingClientRect().height).toBeLessThan(stream.scrollHeight);
+    expect(stream.scrollHeight).toBeGreaterThan(stream.clientHeight);
+    expect(getComputedStyle(stream).overflowY).toBe('auto');
+    rail.remove();
+  });
+
+  it('outlines the messages the search found', () => {
+    const { f, rail } = render(3);
+    f.componentInstance.hits.set([{ id: 2, folded: false }]);
+    f.detectChanges();
+    const found = Array.from(rail.querySelectorAll('.chat-msg.hit')).map((e) => e.getAttribute('data-chat-id'));
+    expect(found).toEqual(['2']);
+    rail.remove();
+  });
+});

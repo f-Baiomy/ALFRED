@@ -145,7 +145,7 @@ import { messageOf } from '../../../core/state/board-state.service';
             } @else {
               @for (r of replies(); track r.id) {
                 <app-chat-message [message]="r" [records]="recordsOf()(r.id)" [claudeOn]="claudeOn()" [editable]="editable()" [position]="positionOf()(r.id)"
-                                  [focusId]="focusId()" [recordsOf]="recordsOf()" [positionOf]="positionOf()" (quote)="quote.emit($event)" />
+                                  [focusId]="focusId()" [hitIds]="hitIds()" [recordsOf]="recordsOf()" [positionOf]="positionOf()" (quote)="quote.emit($event)" />
               }
             }
             @if (replying()) {
@@ -244,7 +244,9 @@ export class ChatMessageComponent {
   readonly ticks = computed(() => ticksOf(this.message(), this.claudeOn()));
   readonly work = computed(() => this.state.workByMessage().get(this.message().id) ?? null);
   readonly flash = computed(() => this.focusId() === this.message().id);
-  readonly hit = signal(false);
+  /** The ids the chat's search found - a found message is outlined. */
+  readonly hitIds = input<ReadonlySet<number>>(new Set());
+  readonly hit = computed(() => this.hitIds().has(this.message().id));
   readonly contextRefs = computed(() => mentionsIn(this.message().context.join(' ')));
 
   nthOf(n: number): string {

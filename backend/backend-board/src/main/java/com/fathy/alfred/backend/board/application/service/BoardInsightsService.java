@@ -168,7 +168,9 @@ public class BoardInsightsService implements SearchCardsUseCase, BoardChangesUse
         long afterChat;
         String c = cursor == null ? "" : cursor.strip();
         if (c.equalsIgnoreCase("now")) {
-            return new BoardChanges(List.of(), List.of(), cursor(store.lastActivityId(), store.lastCycleChangeMillis(), lastChatSeq()), false);
+            // Only waiting chat messages come back, so the chat part starts at 0: a message sent before the runner
+            // started is still Claude's to answer ("answered when it starts"), not skipped as history.
+            return new BoardChanges(List.of(), List.of(), cursor(store.lastActivityId(), store.lastCycleChangeMillis(), 0), false);
         } else if (c.equalsIgnoreCase("claude")) {
             afterId = store.lastActivityIdBy(Actor.CLAUDE, project);
             List<BoardChanges.Entry> mine = afterId == 0 ? List.of() : store.activityAfter(afterId - 1, project, null, Actor.CLAUDE, 1);
@@ -214,10 +216,6 @@ public class BoardInsightsService implements SearchCardsUseCase, BoardChangesUse
         long nextMillis = cycles.isEmpty() ? afterMillis : cycles.get(cycles.size() - 1).at().toEpochMilli();
         long nextChat = chatChanges.isEmpty() ? afterChat : chatChanges.get(chatChanges.size() - 1).seq();
         return new BoardChanges(entries, cycles, chatChanges, fromChat, cursor(nextId, nextMillis, nextChat), more);
-    }
-
-    private long lastChatSeq() {
-        return chats == null ? 0 : chats.lastWaitSeq();
     }
 
     /** {@code activityId.cycleMillis.chatWaitSeq}; a cursor from before specs/022 has no chat part and reads every waiting message. */

@@ -680,9 +680,11 @@ On the running Docker stack (2026-10-10 quickstart walk-through), a change made 
 
 - With 5,000 messages in one chat: a page of 50 **5-9 ms**, the bar **9 ms**, search **~80 ms**, the Shared view
   **~75 ms**, `task_context`'s chat section **~12 ms**, an export page of 200 **~18 ms**.
-- SC-001 (send to Claude's first live step, Claude on): **0.27 s, 4.56 s, 3.99 s** over 3 tries - under 5 s each time.
-  The first try was quick because the runner was already waiting; the others include starting the model turn. The full
-  answer to a one-word question took about 22 s.
+- SC-001 (send to Claude's first live step, Claude on), 10 tries over a project chat and a cycle chat: **0.27, 4.56, 3.99,
+  0.28, 0.30, 0.28, 0.28, 0.28, 4.03, 4.86 s** - under 5 s each time. About 0.3 s when the runner is idle; about 4-5 s
+  when the message arrives while the runner is still finishing the previous answer (its mirror and session update). A
+  message sent before the runner started is taken within 3 s of the start. A short answer lands in 5-9 s.
 - Tokens per exchange (the meter): about 57k prompt tokens per model turn, two turns for a trivial question. After the
   first exchange almost all of it is cache reads (114-118k read, about 2k written), about $0.46-0.55 per exchange.
-  Monitor events per exchange were not counted separately.
+- Monitor events per exchange: one 💬 line in the runner's chat log per exchange, plus one ⚡ line when the user wrote
+  "@terminal" (6 exchanges gave 6 💬 and 1 ⚡); a compact sends one pointer line.
