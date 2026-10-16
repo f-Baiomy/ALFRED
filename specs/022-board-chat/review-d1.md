@@ -35,3 +35,8 @@ Races checked and already covered: two takes (compare-and-swap, `ChatServiceTest
 | S6 | No timers/polling | `grep setInterval|interval(|timer(|setTimeout` over the chat components, chat state and chat.mjs: none. The transcript is watched by `fs.watch` only (`chat-runner.test`). |
 | S7 | Bar / list SQL | The bar is one GROUP BY over `idx_chat_messages_chat` plus one read of the last message per chat (preview cut). **Finding:** `terminalOf` (export) had no index on `message_id` - added `idx_chat_terminal_message`. |
 | S8 | Monitor events | One chat-log line per mirrored exchange; urgent items as their own ⚡ line. |
+
+## SC-001 measured (2026-10-16, deployed Docker build)
+
+Send to first live step, throwaway project `zz-chat-sc`, Claude on: 0.27 s, 4.56 s, 3.99 s (3 tries, not the planned
+10, to keep the model cost down). All under 5 s. The throwaway project's chat was deleted afterwards.

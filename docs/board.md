@@ -675,3 +675,14 @@ are this browser's own (localStorage, try/catch).
 This is SC-005's "open and filter in under a second" with plenty of room. The list query never selects descriptions.
 
 On the running Docker stack (2026-10-10 quickstart walk-through), a change made in one tab reached another tab's `/ws/board` listener in **22 ms**, and its re-fetch of the board took **6 ms** (SC-004: under 2 s).
+
+**Board chat** (specs/022, running Docker stack, 2026-10-16, throwaway project/cycle):
+
+- With 5,000 messages in one chat: a page of 50 **5-9 ms**, the bar **9 ms**, search **~80 ms**, the Shared view
+  **~75 ms**, `task_context`'s chat section **~12 ms**, an export page of 200 **~18 ms**.
+- SC-001 (send to Claude's first live step, Claude on): **0.27 s, 4.56 s, 3.99 s** over 3 tries - under 5 s each time.
+  The first try was quick because the runner was already waiting; the others include starting the model turn. The full
+  answer to a one-word question took about 22 s.
+- Tokens per exchange (the meter): about 57k prompt tokens per model turn, two turns for a trivial question. After the
+  first exchange almost all of it is cache reads (114-118k read, about 2k written), about $0.46-0.55 per exchange.
+  Monitor events per exchange were not counted separately.

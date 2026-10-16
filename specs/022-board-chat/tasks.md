@@ -168,7 +168,7 @@ phase is one commit.
 - [X] T064 Security/performance pass: input clamps, 64 KB cap, tunnel read-only on every write route, no transcript ever sent to Alfred, no bodies in bar/list SQL, no timers/polling in the frontend (grep `setInterval|interval(|timer(`), Monitor events ≤ 1 per exchange; findings into specs/022-board-chat/review-d1.md
 - [X] T065 Fix every finding with a failing-first test in the matching test file; re-run until review-d1.md has no open item
 - [X] T066 Run all suites: backend (Docker JDK 21: `mvn -B -pl backend-board,backend-app,backend-architecture-test -am test`), `npx ng test --watch=false --browsers=ChromeHeadless`, `npx ng build`, `npx tsx --test test/*.test.ts` in mcp-server, `pytest tests/python/test_alfred_skill.py`
-- [ ] T067 Measure SC-001 on the deployed build (send → first live step ≤ 5 s, 10 tries, record in review-d1.md); then deploy (`docker compose up -d --build backend frontend && docker compose restart app-gateway`, `python alfred_skill.py install`) and browser-check quickstart.md P1 steps on a throwaway project/cycle (never the user's cards); screenshots of bar, panel views, records, mirror, memory dialog, meter; delete the throwaway data
+- [X] T067 Measure SC-001 on the deployed build (send → first live step ≤ 5 s, 10 tries, record in review-d1.md); then deploy (`docker compose up -d --build backend frontend && docker compose restart app-gateway`, `python alfred_skill.py install`) and browser-check quickstart.md P1 steps on a throwaway project/cycle (never the user's cards); screenshots of bar, panel views, records, mirror, memory dialog, meter; delete the throwaway data
 - [X] T068 Update docs: docs/board.md "Chat", docs/mcp.md chat tools + mirroring, CLAUDE.md one bullet; then commit D1
 
 ---
@@ -239,7 +239,7 @@ phase is one commit.
 ## Phase 15: Polish & cross-cutting
 
 - [X] T093 [P] Final whole-feature review across D1-D4 with fresh eyes (one pass per constitution principle, in order: security, performance, architecture, style, cleanliness, tests); write specs/022-board-chat/review-final.md and fix findings
-- [ ] T094 [P] Measure and record in docs/board.md: SC-001 first live step, chat page latency at 5,000 messages, Monitor events per exchange, tokens per exchange with and without the savings (meter numbers)
+- [X] T094 [P] Measure and record in docs/board.md: SC-001 first live step, chat page latency at 5,000 messages, Monitor events per exchange, tokens per exchange with and without the savings (meter numbers)
 - [X] T095 Walk the mock's "Spec coverage" list FR-001…060 against the live build; any gap → task + fix before closing the feature
 
 ---
