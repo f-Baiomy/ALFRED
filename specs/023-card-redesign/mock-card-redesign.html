@@ -1,0 +1,838 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Card Redesign Mock</title>
+<style>
+:root {
+  --bg: #12151b; --panel: #1a1e26; --panel2: #20252f; --line: #2c3340; --line2: #394152;
+  --fg: #e3e7ee; --dim: #8b94a5; --dim2: #6a7384; --acc: #6ea8fe; --acc-bg: #1d3150;
+  --ok: #52c08a; --ok-bg: #173728; --warn: #e6b450; --warn-bg: #3a2f14; --bad: #ef6f6c; --bad-bg: #3b1d1f;
+  --ai: #b79cff; --ai-bg: #2b2442; --teal: #4fd1c5; --task: #2f9e8f;
+  --r: 8px; --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.45 "Segoe UI", system-ui, sans-serif; }
+.wrap { max-width: 1320px; margin: 0 auto; padding-inline: 16px; padding-block: 16px 60px; }
+h1 { font-size: 20px; margin: 0 0 4px; }
+.sub { color: var(--dim); margin: 0 0 14px; max-width: 80ch; }
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; position: sticky; top: 0; background: var(--bg); padding-block: 8px; z-index: 5; border-bottom: 1px solid var(--line); }
+.tabs button { background: var(--panel); color: var(--dim); border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; cursor: pointer; font: inherit; font-size: 13px; }
+.tabs button.on { background: var(--acc-bg); color: var(--fg); border-color: var(--acc); }
+.page { display: none; padding-top: 16px; }
+.page.on { display: block; }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; align-items: start; }
+@media (max-width: 960px) { .pair { grid-template-columns: 1fr; } }
+.pane { min-width: 0; }
+.pane > .lbl { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); margin-bottom: 6px; display: flex; gap: 8px; align-items: center; }
+.pane > .lbl b { color: var(--bad); } .pane.after > .lbl b { color: var(--ok); }
+.why { margin-top: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 10px 14px; }
+.why h3 { font-size: 13px; margin: 0 0 6px; color: var(--dim); text-transform: uppercase; letter-spacing: .06em; }
+.why ul { margin: 0; padding-left: 18px; } .why li { margin: 3px 0; }
+.why li .k { color: var(--ok); }
+.note { color: var(--dim); font-size: 12px; margin-top: 6px; }
+
+/* ------------------------------------------------ shared bits */
+.btn { background: var(--panel2); color: var(--fg); border: 1px solid var(--line2); border-radius: 6px; padding: 3px 10px; font: inherit; font-size: 13px; cursor: pointer; }
+.btn.primary { background: var(--acc); color: #0b1220; border-color: var(--acc); font-weight: 600; }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--dim); }
+.btn.ghost:hover { color: var(--fg); background: var(--panel2); }
+.lnk { color: var(--acc); background: none; border: 0; padding: 0; font: inherit; font-size: 12px; cursor: pointer; }
+.pill { display: inline-flex; align-items: center; gap: 4px; border-radius: 999px; padding: 1px 9px; font-size: 12px; border: 1px solid var(--line2); background: var(--panel2); white-space: nowrap; }
+.kind { background: #18403b; color: #7fe3d3; border: 0; font-weight: 700; font-size: 11px; letter-spacing: .05em; border-radius: 4px; padding: 1px 6px; }
+.ai { color: var(--ai); }
+.dim { color: var(--dim); }
+code, .mono { font-family: var(--mono); font-size: 12px; background: #252b36; border-radius: 4px; padding: 0 4px; }
+
+/* ------------------------------------------------ BEFORE (faithful to today) */
+.old { background: #1b1f27; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; font-size: 14px; }
+.old .head { padding: 14px 18px 10px; border-bottom: 1px solid var(--line); position: relative; }
+.old .x { position: absolute; right: 14px; top: 12px; color: var(--dim); font-size: 18px; }
+.old .seg { position: absolute; right: 44px; top: 12px; display: flex; border: 1px solid var(--line2); border-radius: 6px; overflow: hidden; font-size: 12px; }
+.old .seg span { padding: 2px 8px; color: var(--dim); } .old .seg span.on { background: var(--acc); color: #0b1220; }
+.old .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0; }
+.old .cyc { color: var(--teal); font-size: 19px; word-break: break-all; }
+.old .title { font-size: 19px; font-weight: 700; margin: 8px 0 4px; line-height: 1.3; }
+.old .ctl { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin: 8px 0; color: var(--dim); }
+.old .sel { background: #252b36; color: var(--fg); border-radius: 5px; padding: 3px 10px; font-weight: 600; margin-left: 6px; }
+.old .tog { border: 1px solid var(--line2); color: var(--dim2); border-radius: 999px; padding: 1px 10px; font-size: 12px; }
+.old .team { border: 1px solid; border-radius: 999px; padding: 1px 8px; font-size: 12px; }
+.old .body { padding: 12px 18px; }
+.old h4 { margin: 14px 0 6px; font-size: 14px; }
+.old .ev { border-left: 3px solid #4b6fae; margin: 10px 0 10px 8px; padding-left: 12px; }
+.old .who { color: var(--dim); font-size: 12px; display: flex; gap: 8px; }
+.old .who .r { margin-left: auto; color: var(--dim2); }
+.old .bubble { background: #20252f; border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; margin-top: 6px; display: grid; grid-template-columns: 70px 1fr; gap: 10px; }
+.old .bubble .tag { color: var(--acc); font-size: 11px; font-weight: 700; letter-spacing: .06em; padding-top: 2px; }
+.old .acts { display: flex; gap: 16px; font-size: 13px; color: var(--acc); margin: 6px 0 0 4px; }
+.old .comp { border-top: 1px solid var(--line); padding: 10px 18px 12px; background: #181c23; }
+.old .tb { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--dim); font-size: 13px; border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; }
+.old .tb .sty { border: 1px solid var(--line2); border-radius: 4px; padding: 0 30px 0 6px; }
+.old .ta { border: 1px solid var(--line2); border-radius: 6px; height: 62px; margin-top: 8px; padding: 8px 10px; color: var(--dim2); }
+.old .foot { display: flex; align-items: center; gap: 8px; margin-top: 8px; color: var(--dim2); font-size: 12px; }
+.old .foot .sp { flex: 1; }
+.old .tools { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.old .run { border: 1px solid var(--line2); border-radius: 6px; padding: 2px 8px; font-size: 13px; }
+.old .chip { display: inline-block; border: 1px solid var(--line2); border-radius: 999px; padding: 1px 8px; font-size: 12px; margin: 2px 4px 2px 0; }
+.old .sysline { color: var(--dim); font-size: 12px; margin: 6px 0; }
+.old .scrollhint { height: 0; border-top: 2px dashed var(--bad); margin: 0 -18px; position: relative; }
+.old .scrollhint span { position: absolute; right: 18px; top: -11px; background: var(--bad-bg); color: var(--bad); font-size: 11px; padding: 0 6px; border-radius: 4px; }
+
+/* ------------------------------------------------ AFTER */
+.new { background: #1b1f27; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; }
+.new.side { height: 860px; }
+.new .h { padding: 10px 14px 8px; border-bottom: 1px solid var(--line); background: #1d222b; }
+.new .bar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.new .bar .sp { flex: 1; }
+.num { font-family: var(--mono); font-size: 12px; font-weight: 700; background: var(--panel2); border: 1px solid var(--line2); color: var(--fg); border-radius: 5px; padding: 1px 6px; cursor: pointer; }
+.num.ok { border-color: var(--ok); color: var(--ok); }
+.cy { color: var(--teal); font-size: 12px; cursor: pointer; border-radius: 4px; padding: 0 4px; }
+.cy:hover { background: #163533; }
+.icon { width: 28px; height: 28px; border-radius: 6px; border: 1px solid transparent; background: none; color: var(--dim); display: inline-grid; place-items: center; cursor: pointer; font-size: 14px; position: relative; }
+.icon:hover, .icon.on { color: var(--fg); background: var(--panel2); border-color: var(--line2); }
+.new .t { font-size: 17px; font-weight: 650; line-height: 1.3; margin: 8px 0 2px; text-wrap: balance; cursor: text; border-radius: 4px; }
+.new .t:hover { background: #222833; }
+.aka { color: var(--dim); font-size: 12px; display: flex; gap: 6px; align-items: center; }
+.aka b { color: var(--fg); font-weight: 600; }
+.aka .ed { opacity: 0; } .aka:hover .ed { opacity: 1; }
+.props { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; align-items: center; }
+.prop { display: inline-flex; align-items: center; gap: 5px; background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; font-size: 12.5px; cursor: pointer; position: relative; }
+.prop:hover { border-color: var(--line2); }
+.prop .k { color: var(--dim); }
+.prop .v { font-weight: 600; }
+.prop.st-done .v { color: var(--ok); } .prop.st-done { border-color: #245a40; }
+.prop.dash { border-style: dashed; color: var(--dim); background: transparent; }
+.flag { border-radius: 999px; padding: 1px 8px; font-size: 12px; font-weight: 600; }
+.flag.URGENT { background: var(--bad-bg); color: var(--bad); } .flag.RISK { background: var(--warn-bg); color: var(--warn); }
+.flag.BLOCKER { background: #3b1d33; color: #f08ac8; } .flag.AFFECTS_PROJECT { background: #23304a; color: var(--acc); }
+.flag.NEEDS_DECISION { background: var(--ai-bg); color: var(--ai); }
+.tm { display: inline-flex; gap: 4px; align-items: center; border-radius: 999px; padding: 1px 8px; font-size: 12px; border: 1px solid; }
+.tm .xx { opacity: 0; cursor: pointer; } .tm:hover .xx { opacity: .8; }
+.menu { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; min-width: 210px; background: #222833; border: 1px solid var(--line2); border-radius: 8px; padding: 4px; box-shadow: 0 10px 30px #0008; display: none; text-align: left; }
+.menu.r { left: auto; right: 0; }
+.menu.open { display: block; }
+.menu button, .menu .mi { display: flex; width: 100%; gap: 8px; align-items: center; background: none; border: 0; color: var(--fg); font: inherit; font-size: 13px; padding: 5px 8px; border-radius: 5px; cursor: pointer; text-align: left; }
+.menu button:hover { background: var(--panel2); }
+.menu .sep { height: 1px; background: var(--line); margin: 4px 0; }
+.menu .grp { font-size: 11px; color: var(--dim); padding: 4px 8px 2px; text-transform: uppercase; letter-spacing: .06em; }
+.menu .danger { color: var(--bad); }
+.menu kbd { margin-left: auto; color: var(--dim); font-size: 11px; font-family: var(--mono); }
+.menu .chk { width: 14px; color: var(--ok); }
+.attn { margin-top: 8px; display: grid; gap: 6px; }
+.callout { border-radius: 8px; padding: 5px 10px; font-size: 13px; display: grid; gap: 4px; }
+.callout.ai { background: var(--ai-bg); border: 1px solid #4a3d73; }
+.callout.q { background: var(--warn-bg); border: 1px solid #6b5520; }
+.callout.sim { background: #2d2620; border: 1px solid #5a4630; }
+.callout.reason { background: var(--panel2); border: 1px solid var(--line); }
+.callout .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.callout .row .sp { flex: 1; }
+.scroll { flex: 1; overflow: auto; }
+.navtabs { display: flex; gap: 2px; padding: 0 10px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: #1b1f27; z-index: 3; }
+.navtabs button { background: none; border: 0; color: var(--dim); font: inherit; font-size: 13px; padding: 8px 10px; cursor: pointer; border-bottom: 2px solid transparent; }
+.navtabs button.on { color: var(--fg); border-bottom-color: var(--acc); }
+.navtabs .n { font-size: 11px; background: var(--panel2); border-radius: 999px; padding: 0 6px; margin-left: 4px; color: var(--dim); }
+.sec { padding: 10px 14px; border-bottom: 1px solid #232933; }
+.sec > .sh { display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+.sec > .sh h5 { margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: var(--dim); font-weight: 600; }
+.sec > .sh .cnt { font-size: 11px; color: var(--dim); }
+.sec > .sh .sp { flex: 1; }
+.sec > .sh .car { color: var(--dim); transition: transform .15s; }
+.sec.closed > .sh .car { transform: rotate(-90deg); }
+.sec.closed > .sb { display: none; }
+.sec > .sb { margin-top: 8px; }
+.sum { color: var(--dim); font-size: 12px; }
+.sec.closed .sum { display: inline; } .sec:not(.closed) .sum { display: none; }
+.desc { font-size: 14px; } .desc p { margin: 0 0 8px; }
+.att { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.att .pill { cursor: pointer; }
+.mchip { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--line2); background: #1f2530; border-radius: 6px; padding: 1px 7px; font-size: 12px; margin: 2px 4px 2px 0; }
+.mchip .ic { color: var(--acc); }
+.mchip.st-bad .ic { color: var(--bad); }
+.kv { display: grid; grid-template-columns: 92px 1fr; gap: 6px 10px; font-size: 13px; align-items: start; }
+.kv > .k { color: var(--dim); font-size: 12px; padding-top: 2px; }
+/* activity */
+.afilter { display: flex; gap: 4px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+.afilter button { background: var(--panel2); border: 1px solid var(--line); color: var(--dim); border-radius: 999px; padding: 1px 10px; font: inherit; font-size: 12px; cursor: pointer; }
+.afilter button.on { color: var(--fg); border-color: var(--acc); }
+.afilter .sp { flex: 1; }
+.c { display: grid; grid-template-columns: 26px 1fr; gap: 0 8px; margin: 10px 0; position: relative; }
+.av { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 700; }
+.av.cl { background: var(--ai-bg); color: var(--ai); } .av.me { background: var(--acc-bg); color: var(--acc); }
+.c .top { display: flex; gap: 6px; align-items: baseline; font-size: 12.5px; min-height: 22px; }
+.c .top b { font-weight: 600; }
+.c .top .when { color: var(--dim); font-size: 12px; }
+.c .hov { margin-left: auto; display: flex; gap: 2px; opacity: 0; transition: opacity .12s; position: relative; }
+.c:hover .hov, .c .hov.keep { opacity: 1; }
+.c .hov .icon { width: 24px; height: 22px; font-size: 12.5px; }
+.c .txt { font-size: 14px; min-width: 0; }
+.c .txt.fold { max-height: 120px; overflow: hidden; mask-image: linear-gradient(#000 70%, transparent); }
+.c .more { font-size: 12px; }
+.part { font-size: 10.5px; font-weight: 700; letter-spacing: .07em; color: var(--acc); background: var(--acc-bg); border-radius: 4px; padding: 0 5px; margin-right: 6px; vertical-align: 1px; }
+.c ol { margin: 4px 0 4px; padding-left: 20px; } .c li { margin: 2px 0; }
+.reacts { display: flex; gap: 4px; margin-top: 4px; }
+.react { border: 1px solid var(--line2); background: var(--panel2); border-radius: 999px; font-size: 12px; padding: 0 7px; }
+.replies { margin-top: 4px; border-left: 2px solid var(--line); padding-left: 10px; }
+.replies .c { grid-template-columns: 22px 1fr; margin: 6px 0; }
+.replies .av { width: 22px; height: 22px; font-size: 11px; }
+.sys { color: var(--dim); font-size: 12px; display: flex; gap: 8px; align-items: center; margin: 6px 0 6px 34px; }
+.sys .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--line2); }
+.grp { color: var(--dim); font-size: 12px; margin: 6px 0 6px 34px; cursor: pointer; }
+.grp:hover { color: var(--fg); }
+.livebox { border: 1px solid #3a5684; background: #172338; border-radius: 8px; padding: 8px 10px; font-size: 13px; margin-bottom: 8px; }
+.livebox .row { display: flex; gap: 8px; align-items: center; }
+.spin { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--acc); border-right-color: transparent; animation: s 0.8s linear infinite; }
+@keyframes s { to { transform: rotate(360deg); } }
+/* composer */
+.compose { border-top: 1px solid var(--line); background: #181c23; padding: 8px 12px; }
+.cbox { border: 1px solid var(--line2); border-radius: 8px; background: #1d222b; }
+.cbox .ph { padding: 8px 10px; color: var(--dim2); min-height: 36px; cursor: text; }
+.cbox .tb2 { display: none; gap: 2px; padding: 4px 6px; border-top: 1px solid var(--line); align-items: center; flex-wrap: wrap; position: relative; }
+.cbox.open .tb2 { display: flex; }
+.cbox.open .ph { min-height: 84px; }
+.cbox .tb2 .sp { flex: 1; }
+.cbox .tb2 .icon { width: 26px; height: 26px; font-size: 13px; }
+.cbox .tb2 .vs { width: 1px; height: 16px; background: var(--line2); margin: 0 4px; }
+.chint { font-size: 11.5px; color: var(--dim2); margin-top: 4px; display: none; }
+.cbox.open + .chint { display: block; }
+/* full layout */
+.fullgrid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; min-height: 0; }
+.fullgrid .rail { border-left: 1px solid var(--line); background: #1a1e26; }
+@media (max-width: 760px) { .fullgrid { grid-template-columns: 1fr; } .fullgrid .rail { border-left: 0; border-top: 1px solid var(--line); } }
+table.map { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.map th, table.map td { text-align: left; border-bottom: 1px solid var(--line); padding: 6px 8px; vertical-align: top; }
+table.map th { color: var(--dim); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; position: sticky; top: 45px; background: var(--bg); }
+table.map td:first-child { font-weight: 600; }
+.tbl { overflow-x: auto; }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--dim); margin: 6px 0 0; }
+.toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: #263042; border: 1px solid var(--line2); padding: 6px 14px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+.toast.on { opacity: 1; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Card drawer redesign</h1>
+  <p class="sub">Before = today's drawer (card #44, side view). After = the same card, nothing dropped: every control, list and action from today still has a home, but you see less of it at once. The After panes are clickable: menus, sections, the comment box, hover actions on comments.</p>
+  <nav class="tabs" id="tabs">
+    <button data-p="whole" class="on">Whole card</button>
+    <button data-p="header">1 · Header</button>
+    <button data-p="props">2 · Properties</button>
+    <button data-p="attn">3 · Needs you</button>
+    <button data-p="desc">4 · Description &amp; files</button>
+    <button data-p="links">5 · Links, blocks, spec</button>
+    <button data-p="retest">6 · Re-test</button>
+    <button data-p="activity">7 · Activity</button>
+    <button data-p="live">8 · Live work &amp; runs</button>
+    <button data-p="compose">9 · Comment box</button>
+    <button data-p="full">10 · Full screen</button>
+    <button data-p="map">Nothing dropped</button>
+  </nav>
+
+  <!-- =========================================================== WHOLE CARD -->
+  <section class="page on" id="p-whole">
+    <div class="pair">
+      <div class="pane"><div class="lbl"><b>Before</b> today, side view - what fits in one screen</div>
+        <div class="old">
+          <div class="head">
+            <span class="seg"><span class="on">▌Side</span><span>⛶ Full</span><span>↗ Window</span></span><span class="x">✕</span>
+            <div class="row"><span class="kind">TASK</span><span class="ai">✦ found by Claude</span></div>
+            <div class="row"><span class="cyc">◷ decc8783-8f75-40cd-b751-4b42c00b1d84</span><span class="dim">#44</span></div>
+            <div class="tools"><span class="run">▶ /alfred-fix 44 ⧉ ▾</span><span class="dim" style="font-size:11px">R · C · ⇧R</span><span class="run">⧉ Copy as issue</span></div>
+            <div class="title">Missing feature: Searching with one branch returns only that branch's requests (and 1 more)</div>
+            <div class="row dim" style="font-size:13px">Mentioned as <b style="color:var(--fg)">searching with one branch (#44)</b> · from the title <span style="color:var(--acc)">✎ short name</span></div>
+            <div class="ctl">Status<span class="sel">Done ▾</span> Kind<span class="sel">TASK ▾</span> Scope<span class="sel">Not decided ▾</span></div>
+            <div class="ctl"><span class="tog">Urgent</span><span class="tog">Risk</span><span class="tog">Blocker</span><span class="tog">Affects project</span><span class="tog">Needs decision</span></div>
+            <div class="ctl">Teams <span class="team" style="color:#6ea8fe">▣ Frontend ✕</span><span class="team" style="color:#52c08a">⚙ Backend ✕</span><span class="tog">+ team ▾</span></div>
+          </div>
+          <div class="body">
+            <div class="scrollhint"><span>first comment only after ~2 screens of scrolling</span></div>
+            <div class="ev">
+              <div class="who">✦ Claude · 10/15/2026 11:13 AM <span class="r">⇥ Scroll ⇄ Auto</span></div>
+              <div class="bubble"><span class="tag">REPLY</span><div><b>Steps, from the card's spec evidence:</b><ol style="margin:6px 0 0;padding-left:18px"><li>Open the Refunded Requests search page and select <b>All Agencies</b>.</li><li>In the branch filter, select <b>Cairo</b> and <b>Mansoura</b>, then click <b>Search</b>…</li></ol></div></div>
+              <div class="acts"><span>☺+</span><span>↩ Reply</span><span>⧉ Copy</span></div>
+            </div>
+            <div class="ev">
+              <div class="who">✦ Claude · 10/15/2026 11:13 AM <span class="r">⇥ Scroll ⇄ Auto</span></div>
+              <div class="bubble"><span class="tag">REPLY</span><div><b>Steps (from the card's evidence, nothing new looked up):</b> …</div></div>
+            </div>
+          </div>
+          <div class="comp">
+            <div class="tb"><span class="sty">Style… ▾</span><b>B</b><i>I</i><u>U</u><s>S</s><span>&lt;/&gt;</span><span>▮</span><span>A▾</span><span>•</span><span>1.</span><span>☑</span><span>▤▾</span><span>▦</span><span>◇▾</span><span>▸</span><span>✓▾</span><span>—</span><span>🔗</span><span>🖼</span><span>📎</span><span>⧉▾</span><span>✦▾</span><span style="margin-left:auto">⇆</span><span>&lt;&gt;</span></div>
+            <div class="ta">Write… type @ to mention, / for blocks, {{ for a variable</div>
+            <div class="foot">@ mention · / blocks · {{ variable · Enter comment · Shift+Enter new line<span class="sp"></span><span class="run">⇄ Auto</span><span class="run">@ Mention</span><span class="run" style="opacity:.6">Comment</span></div>
+          </div>
+        </div>
+        <div class="note">Measured on the screenshot: header + controls take ~55% of the drawer, the comment box ~25%; the activity you came for gets ~20%.</div>
+      </div>
+
+      <div class="pane after"><div class="lbl"><b>After</b> same card, same features - try it</div>
+        <div class="new side" id="card-after"></div>
+      </div>
+    </div>
+    <div class="why"><h3>What changed, in one look</h3><ul>
+      <li><span class="k">Header 9 rows → 3.</span> One bar (number, kind, cycle, state pills, ▶ run, ⋯, view, ✕), the title, one line of properties.</li>
+      <li><span class="k">Only what is set is shown.</span> Flags that are off, empty teams, "Not blocked", "Nothing linked" no longer take rows - they live in "+ add" menus.</li>
+      <li><span class="k">Things that need you come first</span> - Claude's proposal, open questions, "looks like #31" - as one stack of callouts under the title, each with its buttons.</li>
+      <li><span class="k">Body in tabs:</span> Activity (default when there are comments), Details (description, pins, pages, files), Links, Re-test - each tab with a count.</li>
+      <li><span class="k">Comments read like a conversation:</span> avatar, name, time; Reply/React/Copy/direction appear on hover; long answers fold.</li>
+      <li><span class="k">Comment box is one line until you click it</span>; the 25-icon toolbar becomes 9 icons + "⋯ more" with the rest.</li>
+    </ul></div>
+  </section>
+
+  <!-- =========================================================== HEADER -->
+  <section class="page" id="p-header">
+    <div class="pair">
+      <div class="pane"><div class="lbl"><b>Before</b></div>
+        <div class="old"><div class="head">
+          <span class="seg"><span class="on">▌Side</span><span>⛶ Full</span><span>↗ Window</span></span><span class="x">✕</span>
+          <div class="row"><span class="kind">TASK</span><span class="ai">✦ found by Claude</span></div>
+          <div class="row"><span class="cyc">◷ decc8783-8f75-40cd-b751-4b42c00b1d84</span><span class="dim">#44</span><span class="pill" style="color:var(--warn)">waiting on you · 2 h</span><span class="pill" style="color:var(--warn)">❓ 2 open questions</span></div>
+          <div class="tools"><span class="run">▶ /alfred-fix 44 ⧉ ▾</span><span class="dim" style="font-size:11px">R · C · ⇧R</span><span class="run">⧉ Copy as issue</span></div>
+          <div class="title">Missing feature: Searching with one branch returns only that branch's requests (and 1 more)</div>
+          <div class="row dim" style="font-size:13px">Mentioned as <b style="color:var(--fg)">searching with one branch (#44)</b> · from the title <span style="color:var(--acc)">✎ short name</span></div>
+        </div></div>
+      </div>
+      <div class="pane after"><div class="lbl"><b>After</b></div>
+        <div class="new"><div class="h" data-part="head"></div></div>
+      </div>
+    </div>
+    <div class="why"><h3>Changes</h3><ul>
+      <li><span class="k">#44 first</span>, as a pill - click copies <code>#44</code> (as on the board cards).</li>
+      <li><span class="k">The cycle by its name</span> ("Refund search · 61813"), small; hover shows the full id, click opens the cycle, ⋯ copies the id. The 36-character UUID no longer takes a whole line at 19 px.</li>
+      <li><span class="k">One action bar:</span> ▶ run split button (same menu: edit prompt, note, notify, copy command / shell); ⋯ holds Copy as issue, the keyboard keys (R · C · ⇧R), Copy link, Delete card…; view switch shrinks to three icons.</li>
+      <li><span class="k">Title 19 → 17 px</span>, still click-to-rename; the short name becomes one quiet "Mentioned as …" line whose ✎ appears on hover.</li>
+      <li><span class="k">Waiting and open questions</span> stay pills in the bar; the questions pill still opens the answer-all dialog.</li>
+    </ul></div>
+  </section>
+
+  <!-- =========================================================== PROPERTIES -->
+  <section class="page" id="p-props">
+    <div class="pair">
+      <div class="pane"><div class="lbl"><b>Before</b> 3 rows, 5 toggles that look disabled</div>
+        <div class="old"><div class="head">
+          <div class="ctl">Status<span class="sel">Done ▾</span> Kind<span class="sel">TASK ▾</span> Scope<span class="sel">Not decided ▾</span></div>
+          <div class="ctl"><span class="tog">Urgent</span><span class="tog">Risk</span><span class="tog">Blocker</span><span class="tog">Affects project</span><span class="tog">Needs decision</span></div>
+          <div class="ctl">Teams <span class="team" style="color:#6ea8fe">▣ Frontend ✕</span><span class="team" style="color:#52c08a">⚙ Backend ✕</span><span class="tog">+ team ▾</span></div>
+        </div></div>
+      </div>
+      <div class="pane after"><div class="lbl"><b>After</b> one line - click any chip</div>
+        <div class="new"><div class="h"><div class="props" data-part="props"></div></div></div>
+      </div>
+    </div>
+    <div class="why"><h3>Changes</h3><ul>
+      <li><span class="k">Status, Kind, Scope</span> as chips with the same pickers; Done is green, Inbox grey, In progress blue - the status reads at a glance.</li>
+      <li><span class="k">Flags:</span> only the ones that are on show, in their colour; "⚑ +" opens all five with checkmarks. Nothing set = nothing shown.</li>
+      <li><span class="k">Teams</span> on the same line; ✕ shows on hover; "+ team" keeps the team picker with what each team owns.</li>
+      <li>Read-only boards: chips show the values without the ▾ and do not open.</li>
+    </ul></div>
+  </section>
+
+  <!-- =========================================================== NEEDS YOU -->
+  <section class="page" id="p-attn">
+    <div class="pair">
+      <div class="pane"><div class="lbl"><b>Before</b> scattered between header rows</div>
+        <div class="old"><div class="head">
+          <div class="row"><span class="pill" style="color:var(--warn)">❓ 2 open questions</span></div>
+          <div style="font-size:13px;margin:6px 0">Reason: “branchId is sent as a single value”</div>
+          <div style="font-size:13px;margin:6px 0;color:var(--warn)">⚠ Looks like #31, closed as Fine - not an issue: one branch is the agency rule</div>
+          <div style="border:1px solid #4a3d73;border-radius:8px;padding:8px 10px;margin-top:6px">
+            <b>✦ Claude proposes: Verified</b><div style="font-size:13px">“The re-test passed: 2 of 2 checks”</div>
+            <div style="font-size:13px" class="dim">evidence: POST /refunded-requests/search → 200, branchId [948, 951]</div>
+            <div style="margin-top:6px;display:flex;gap:6px"><span class="btn primary">Accept</span><span class="btn">Dismiss</span></div>
+          </div>
+        </div></div>
+      </div>
+      <div class="pane after"><div class="lbl"><b>After</b> one "needs you" stack, most urgent first</div>
+        <div class="new"><div class="h"><div class="attn" data-part="attn"></div></div></div>
+      </div>
+    </div>
+    <div class="why"><h3>Changes</h3><ul>
+      <li><span class="k">One stack under the title</span>, ordered: Claude's proposal → open questions → looks-like warning → reason. Each callout has its own colour and its buttons in it.</li>
+      <li><span class="k">Proposal evidence folds</span> ("show evidence") - the full Markdown is still there.</li>
+      <li><span class="k">Open questions</span> get an "Answer now" button (the same answer-all dialog) beside the bar pill.</li>
+      <li>Shown only when present - a quiet card has no stack at all.</li>
+    </ul></div>
+  </section>
+
+  <!-- =========================================================== DESCRIPTION -->
+  <section class="page" id="p-desc">
+    <div class="pair">
+      <div class="pane"><div class="lbl"><b>Before</b></div>
+        <div class="old"><div class="body">
+          <h4>Description <span class="lnk">Edit</span> <span class="lnk dim">edited · history</span></h4>
+          <div class="chip">📌 Pinned: the search request</div>
+          <p style="margin:6px 0">The refunded-requests search sends <code>branchId: 948</code> - one branch. Searching Cairo + Mansoura needs a list…</p>
+          <h4>Pages</h4><div class="chip">📄 Branch filter plan</div><span class="lnk">+ page</span>
+          <h4>Files</h4><div class="chip">📎 search-request.har · 214 KB</div><span class="lnk">+ file</span>
+        </div></div>
+      </div>
+      <div class="pane after"><div class="lbl"><b>After</b> "Details" tab</div>
+        <div class="new"><div data-part="details"></div></div>
+      </div>
+    </div>
+    <div class="why"><h3>Changes</h3><ul>
+      <li><span class="k">Edit and history</span> become icons on the section's hover bar (✎, 🕘); double-click the text also edits.</li>
+      <li><span class="k">Pins, pages and files</span> become one "Attached" row of chips with one "+ add ▾" (pin, page, file, picture) - same components, same viewers.</li>
+      <li>The outline (headings) of a long description shows as a small "On this page" list at the top, as today's outline does.</li>
+    </ul></div>
+  </section>
+
+  <!-- =========================================================== LINKS -->
+  <section class="page" id="p-links">
+    <div class="pair">
+      <div class="pane"><div class="lbl"><b>Before</b> three sections, even when empty</div>
+        <div class="old"><div class="body">
+          <h4>Linked <span class="dim" style="font-weight:400">from mentions</span> <span class="lnk">+ link</span></h4>
+          <span class="chip">⇄ POST /refunded-requests/search · 200</span><span class="chip">◆ SELECT … branch_id = ?</span><span class="chip">📄 spec.md AC6</span>
+          <h4>Breaks the spec</h4><div style="font-size:13px">📄 spec.md · AC6 Multi-branch search returns every selected branch</div>
+          <h4>Blocked by <span class="lnk">+ blocked by…</span></h4><span class="dim" style="font-size:13px">Not blocked.</span>
+        </div></div>
+      </div>
+      <div class="pane after"><div class="lbl"><b>After</b> "Links" tab</div>
+        <div class="new"><div data-part="links"></div></div>
+      </div>
+    </div>
+    <div class="why"><h3>Changes</h3><ul>
+      <li><span class="k">One tab, three groups</span> with counts; empty groups shrink to one dim line ("Not blocked · + blocked by…").</li>
+      <li>Mention chips keep their preview popup; spec items show the AC key as a chip that opens the spec viewer.</li>
+      <li>"+ link" and "+ blocked by…" stay, as buttons on each group's line.</li>
+    </ul></div>
+  </section>
+
+  <!-- =========================================================== RETEST -->
+  <section class="page" id="p-retest">
+    <div class="pair">
+      <div class="pane"><div class="lbl"><b>Before</b> inside the aside, under Blocked by</div>
+        <div class="old"><div class="body">
+          <h4>Re-test <span class="pill" style="color:var(--ok)">✓ passed 2/2</span> <span class="lnk">▶ Re-test this card</span> <span class="lnk">Check now</span></h4>
+          <div style="font-size:13px;display:grid;grid-template-columns:20px 1fr 1fr;gap:4px"><span></span><span class="dim">Check</span><span class="dim">before → now</span>
+            <span style="color:var(--ok)">✓</span><span>branchId is a list</span><span><span style="color:var(--bad)">948</span> → <span style="color:var(--ok)">[948, 951]</span></span>
+            <span style="color:var(--ok)">✓</span><span>status 200</span><span>200 → 200</span></div>
+          <div style="margin-top:6px"><span class="lnk">+ expectation</span></div>
+        </div></div>
+      </div>
+      <div class="pane after"><div class="lbl"><b>After</b> "Re-test" tab, result in the tab label</div>
+        <div class="new"><div data-part="retest"></div></div>
+      </div>
+    </div>
+    <div class="why"><h3>Changes</h3><ul>
+      <li>The tab label carries the verdict (<span style="color:var(--ok)">✓ 2/2</span>) so you see it without opening it.</li>
+      <li>Same table, same ▶ Re-test / Check now / + expectation / ✕ per row; the tab only appears when the card is past Inbox and not closed, as today.</li>
+    </ul></div>
+  </section>
+
+  <!-- =========================================================== ACTIVITY -->
+  <section class="page" id="p-activity">
+    <div class="pair">
+      <div class="pane"><div class="lbl"><b>Before</b></div>
+        <div class="old"><div class="body">
+          <h4>Activity · what was done <span class="dim" style="font-weight:400">14 entries</span></h4>
+          <div class="sysline">You moved it Fixed → Done · 10/15/2026 11:40 AM</div>
+          <div class="sysline">Claude added the team Backend · 10/15/2026 11:12 AM</div>
+          <div class="ev">
+            <div class="who">✦ Claude · 10/15/2026 11:13 AM <span class="r">⇥ Scroll ⇄ Auto</span></div>
+            <div class="bubble"><span class="tag">REPLY</span><div><b>Steps, from the card's spec evidence:</b><ol style="margin:6px 0 0;padding-left:18px"><li>Open the Refunded Requests search page and select <b>All Agencies</b>.</li><li>In the branch filter, select <b>Cairo</b> and <b>Mansoura</b>, then click <b>Search</b>. For the one-branch case, select only Cairo and click Search again.</li><li>Look at <code>POST /Booking2/refunded-requests/search</code>. Expected: <code>branchId</code> is a list…</li></ol></div></div>
+            <div class="acts"><span>☺+</span><span>↩ Reply</span><span>⧉ Copy</span></div>
+          </div>
+          <div class="ev">
+            <div class="who">✦ Claude · 10/15/2026 11:13 AM <span class="r">⇥ Scroll ⇄ Auto</span></div>
+            <div class="bubble"><span class="tag">REPLY</span><div><b>Steps (from the card's evidence, nothing new looked up):</b> …</div></div>
+            <div class="acts"><span>☺+</span><span>↩ Reply</span><span>⧉ Copy</span></div>
+          </div>
+        </div></div>
+      </div>
+      <div class="pane after"><div class="lbl"><b>After</b> hover a comment</div>
+        <div class="new"><div class="sec" style="border:0" data-part="activity"></div></div>
+      </div>
+    </div>
+    <div class="why"><h3>Changes</h3><ul>
+      <li><span class="k">Avatar + name + relative time</span> ("yesterday 11:13", exact time on hover) instead of a full timestamp line.</li>
+      <li><span class="k">Hover bar</span> per comment: ☺ react, ↩ reply, ⧉ copy (formatted / Markdown / plain), ⋯ (text direction, wrap/scroll, ✎ edit, edited·history). Today's "⇥ Scroll ⇄ Auto" on every comment moves into ⋯.</li>
+      <li><span class="k">No bubble-in-a-rail:</span> the REPLY / FOUND / NEXT labels become a small inline tag before the text; the left rail is kept only for replies.</li>
+      <li><span class="k">Long comments fold</span> after ~6 lines with "Show more" (as today's fold, one click).</li>
+      <li><span class="k">Changes group:</span> runs of status/team/link changes collapse to "3 changes ▸"; a filter shows All · Comments · Changes. Questions keep their ❓ list and "waiting for you" badge.</li>
+      <li><span class="k">Newest first toggle</span> (⇅) so the latest answer is on top when you open a long card.</li>
+    </ul></div>
+  </section>
+
+  <!-- =========================================================== LIVE -->
+  <section class="page" id="p-live">
+    <div class="pair">
+      <div class="pane"><div class="lbl"><b>Before</b> under the whole timeline</div>
+        <div class="old"><div class="body">
+          <div class="sysline">… 14 activity entries above …</div>
+          <div style="border:1px solid #3a5684;border-radius:8px;padding:8px 10px;font-size:13px">● Claude is working on your change · reading Search.java · Stop</div>
+          <h4 style="font-size:13px">Runs</h4>
+          <div style="font-size:13px">▶ /alfred-fix 44 · done · 12 min · → plan posted on #44</div>
+          <div style="font-size:13px">▶ /alfred-verify 44 · failed · 3 min</div>
+        </div></div>
+      </div>
+      <div class="pane after"><div class="lbl"><b>After</b> on top of Activity while it runs</div>
+        <div class="new"><div class="sec" style="border:0" data-part="live"></div></div>
+      </div>
+    </div>
+    <div class="why"><h3>Changes</h3><ul>
+      <li><span class="k">Live work sits at the top of Activity</span> (and a ● dot on the Activity tab) - you see Claude working without scrolling past the history. Stop stays on it.</li>
+      <li><span class="k">Runs</span> become one line "Runs: 2 · last done 12 min ago ▸" that expands to today's list.</li>
+    </ul></div>
+  </section>
+
+  <!-- =========================================================== COMPOSER -->
+  <section class="page" id="p-compose">
+    <div class="pair">
+      <div class="pane"><div class="lbl"><b>Before</b> always ~190 px tall</div>
+        <div class="old"><div class="comp">
+          <div class="tb"><span class="sty">Style… ▾</span><b>B</b><i>I</i><u>U</u><s>S</s><span>&lt;/&gt;</span><span>▮</span><span>A▾</span><span>•</span><span>1.</span><span>☑</span><span>▤▾</span><span>▦</span><span>◇▾</span><span>▸</span><span>✓▾</span><span>—</span><span>🔗</span><span>🖼</span><span>📎</span><span>⧉▾</span><span>✦▾</span><span style="margin-left:auto">⇆</span><span>&lt;&gt;</span></div>
+          <div class="ta">Write… type @ to mention, / for blocks, {{ for a variable</div>
+          <div class="foot">@ mention · / blocks · {{ variable · Enter comment · Shift+Enter new line<span class="sp"></span><span class="run">⇄ Auto</span><span class="run">@ Mention</span><span class="run" style="opacity:.6">Comment</span></div>
+        </div></div>
+      </div>
+      <div class="pane after"><div class="lbl"><b>After</b> click the box</div>
+        <div class="new"><div data-part="compose"></div></div>
+      </div>
+    </div>
+    <div class="why"><h3>Changes</h3><ul>
+      <li><span class="k">Closed: one line</span> (~44 px) with the placeholder. A draft keeps it open (drafts are kept per card, as today).</li>
+      <li><span class="k">Open: one toolbar row</span> - Style, B, I, code, list, ☑, link, @, / , 📎, ✦ - then "⋯" with the rest: underline, strike, highlight, colour, numbered list, table, visual, collapsible, status pill, callout, divider, picture, templates, split view, source, text direction.</li>
+      <li><span class="k">The hint line</span> moves into the placeholder and a tooltip on "?"; "@ Mention" and "⇄ Auto" buttons are in the toolbar/⋯, Comment stays the primary button.</li>
+      <li>Every shortcut (Ctrl+B/I/U/E/K, Ctrl+Shift+H/X, @, /, {{) works as before.</li>
+    </ul></div>
+  </section>
+
+  <!-- =========================================================== FULL -->
+  <section class="page" id="p-full">
+    <div class="lbl" style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin-bottom:6px"><b style="color:var(--ok)">After</b> ⛶ Full and ↗ Window: conversation on the left, details on the right</div>
+    <div class="new" style="height:760px" id="card-full"></div>
+    <div class="why"><h3>Changes</h3><ul>
+      <li>With room, tabs are not needed: <span class="k">left</span> = needs-you stack, description, activity, comment box; <span class="k">right rail</span> = properties as a form (Status, Kind, Scope, Flags, Teams), Links, Blocked by, Breaks the spec, Re-test, Runs.</li>
+      <li>The rail scrolls on its own, so properties stay beside the conversation.</li>
+      <li>Side view keeps the tabs (narrow); the same components, laid out by width.</li>
+    </ul></div>
+  </section>
+
+  <!-- =========================================================== MAP -->
+  <section class="page" id="p-map">
+    <p class="sub">Every element of today's drawer (card-drawer.component.ts and what it embeds) and where it lives after. None is removed.</p>
+    <div class="tbl"><table class="map">
+      <thead><tr><th>Today</th><th>After - side view</th><th>After - full / window</th></tr></thead>
+      <tbody id="maprows"></tbody>
+    </table></div>
+  </section>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+function toast(t) { const el = $('#toast'); el.textContent = t; el.classList.add('on'); clearTimeout(toast.h); toast.h = setTimeout(() => el.classList.remove('on'), 1400); }
+
+/* ---------- state of the after-card ---------- */
+const S = { status: 'Done', kind: 'TASK', scope: 'Not decided', flags: new Set(), teams: ['Frontend', 'Backend'], tab: 'activity', filter: 'all', newest: false };
+const STATUSES = ['Inbox', 'To do', 'In progress', 'Fixed', 'Verified', 'Done', 'Closed…'];
+const FLAGS = [['URGENT', 'Urgent'], ['RISK', 'Risk'], ['BLOCKER', 'Blocker'], ['AFFECTS_PROJECT', 'Affects project'], ['NEEDS_DECISION', 'Needs decision']];
+const TEAMS = { Frontend: ['▣', '#6ea8fe', 'pages, filters, the request the page sends'], Backend: ['⚙', '#52c08a', 'services, SQL, the API'], QA: ['✓', '#e6b450', 'test plans, regressions'], DBA: ['◆', '#b79cff', 'schema, indexes'] };
+
+/* ---------- parts (each returns HTML) ---------- */
+const P = {};
+P.bar = () => `
+  <div class="bar">
+    <span class="num" data-act="copynum" title="Copy #44">#44</span>
+    <span class="kind">${S.kind}</span>
+    <span class="ai" style="font-size:12px">✦ Claude</span>
+    <span class="cy" title="cycle decc8783-8f75-40cd-b751-4b42c00b1d84 - click to open">◷ Refund search · 61813</span>
+    <span class="pill" style="color:var(--warn);border-color:#6b5520">⏳ waiting on you · 2 h</span>
+    <span class="pill" style="color:var(--warn);border-color:#6b5520;cursor:pointer" data-act="answer">❓ 2</span>
+    <span class="sp"></span>
+    <span style="position:relative;display:inline-flex">
+      <button class="btn" style="border-radius:6px 0 0 6px" title="Run /alfred-fix 44 in the cycle's chat (R)">▶ /alfred-fix 44</button><button class="btn" style="border-radius:0 6px 6px 0;border-left:0;padding:3px 6px" data-menu="m-run">▾</button>
+      <div class="menu r" id="m-run">
+        <button>✎ Edit the prompt, then run… <kbd>⇧R</kbd></button><button>✚ Add a note for Claude…</button>
+        <button>🔔 Tell me when it ends <kbd>off</kbd></button><div class="sep"></div>
+        <button>⧉ Copy the full prompt <kbd>C</kbd></button><button>⧉ Copy the command only</button><button>⧉ Copy as a shell line</button>
+      </div>
+    </span>
+    <span style="position:relative">
+      <button class="icon" data-menu="m-more" title="More">⋯</button>
+      <div class="menu r" id="m-more">
+        <button data-act="issue">⧉ Copy as issue (Jira / GitHub)</button><button>🔗 Copy link to this card</button><button>⧉ Copy cycle id</button>
+        <div class="sep"></div><div class="grp">Keys while open</div><div class="mi dim">R run · C copy prompt · ⇧R edit · Esc close</div>
+        <div class="sep"></div><button class="danger">🗑 Delete card…</button>
+      </div>
+    </span>
+    <span style="display:inline-flex;border:1px solid var(--line2);border-radius:6px">
+      <button class="icon on" title="Side" style="width:26px;height:24px">▌</button><button class="icon" title="Full screen" style="width:26px;height:24px">⛶</button><button class="icon" title="Separate window" style="width:26px;height:24px">↗</button>
+    </span>
+    <button class="icon" title="Close (Esc)">✕</button>
+  </div>`;
+P.title = () => `
+  <div class="t" title="Click to rename">Missing feature: Searching with one branch returns only that branch's requests (and 1 more)</div>
+  <div class="aka">Mentioned as <b>searching with one branch (#44)</b> <span>· from the title</span> <button class="lnk ed">✎ short name</button></div>`;
+P.props = () => {
+  const st = S.status === 'Done' ? 'st-done' : '';
+  const flags = FLAGS.filter(([k]) => S.flags.has(k)).map(([k, l]) => `<span class="flag ${k}">${l}</span>`).join('');
+  const teams = S.teams.map((t) => { const [i, c] = TEAMS[t]; return `<span class="tm" style="color:${c};border-color:${c}55" title="${TEAMS[t][2]}">${i} ${t} <span class="xx" data-act="rmteam" data-t="${t}">✕</span></span>`; }).join('');
+  const others = Object.keys(TEAMS).filter((t) => !S.teams.includes(t));
+  return `
+  <span class="prop ${st}" data-menu="m-status"><span class="k">Status</span><span class="v">${S.status}</span> ▾
+    <div class="menu" id="m-status">${STATUSES.map((s) => `<button data-act="status" data-v="${s}"><span class="chk">${s === S.status ? '✓' : ''}</span>${s}</button>`).join('')}</div></span>
+  <span class="prop" data-menu="m-kind"><span class="k">Kind</span><span class="v">${S.kind}</span> ▾
+    <div class="menu" id="m-kind">${['BUG', 'TASK', 'NOTE', 'QUESTION'].map((s) => `<button data-act="kind" data-v="${s}"><span class="chk">${s === S.kind ? '✓' : ''}</span>${s}</button>`).join('')}</div></span>
+  <span class="prop" data-menu="m-scope"><span class="k">Scope</span><span class="v" style="${S.scope === 'Not decided' ? 'color:var(--dim);font-weight:500' : ''}">${S.scope}</span> ▾
+    <div class="menu" id="m-scope">${['Not decided', 'In scope', 'Out of scope'].map((s) => `<button data-act="scope" data-v="${s}"><span class="chk">${s === S.scope ? '✓' : ''}</span>${s}</button>`).join('')}</div></span>
+  ${flags}
+  <span class="prop dash" data-menu="m-flags" title="Flags">⚑ ${S.flags.size ? '' : 'flag'} +
+    <div class="menu" id="m-flags">${FLAGS.map(([k, l]) => `<button data-act="flag" data-v="${k}"><span class="chk">${S.flags.has(k) ? '✓' : ''}</span><span class="flag ${k}">${l}</span></button>`).join('')}</div></span>
+  ${teams}
+  ${others.length ? `<span class="prop dash" data-menu="m-team">+ team
+    <div class="menu" id="m-team">${others.map((t) => `<button data-act="addteam" data-v="${t}">${TEAMS[t][0]} ${t} <kbd>${TEAMS[t][2]}</kbd></button>`).join('')}</div></span>` : ''}`;
+};
+P.attn = () => `
+  <div class="callout ai">
+    <div class="row"><b class="ai">✦ Proposes Verified</b><span class="dim" style="font-size:12.5px">“re-test passed 2/2”</span><button class="lnk" data-act="ev">evidence</button><span class="sp"></span><button class="btn primary" data-act="toast" data-t="Accepted - moved to Verified (as you)">Accept</button><button class="btn">Dismiss</button></div>
+    <div class="dim" style="display:none;font-size:12.5px" data-ev>POST /Booking2/refunded-requests/search → 200, <code>branchId: [948, 951]</code>, rows from both branches.</div>
+  </div>
+  <div class="callout q"><div class="row"><b style="color:var(--warn)">❓ 2 open questions</b><span class="dim" style="font-size:12.5px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1" title="Keep one-branch search as the default? · Send branchId as a list or repeated param?">Keep one-branch search as the default? · Send branchId as a list…</span><button class="btn" data-act="answer">Answer</button></div></div>
+  <div class="callout sim"><div class="row"><span style="color:var(--warn)">⚠ Looks like <span class="mchip" style="margin:0">▣ #31</span> closed as Fine</span><span class="dim" style="font-size:12.5px">“one branch is the agency rule”</span></div></div>
+  <div class="callout reason"><span><span class="dim">Reason:</span> “branchId is sent as a single value”</span></div>`;
+P.livebox = () => `
+  <div class="livebox">
+    <div class="row"><span class="spin"></span><b>Claude is working on your change</b><span class="sp" style="flex:1"></span><button class="btn">■ Stop</button></div>
+    <div class="dim" style="font-size:12.5px;margin-top:2px">your terminal: reading Search.java · 3 steps ▸</div>
+  </div>`;
+P.runs = () => `<div class="sec closed" style="padding:6px 0;border:0"><div class="sh" data-act="toggle"><span class="car">▾</span><h5>Runs</h5><span class="cnt">2</span><span class="sum">· last: /alfred-fix 44 done 12 min ago → plan posted</span><span class="sp"></span></div>
+  <div class="sb" style="font-size:13px"><div>▶ /alfred-fix 44 · <span style="color:var(--ok)">done</span> · 12 min · → plan posted on #44</div><div>▶ /alfred-verify 44 · <span style="color:var(--bad)">failed</span> · 3 min · <button class="lnk">retry</button></div></div></div>`;
+const STEPS = `<ol><li>Open the Refunded Requests search page and select <b>All Agencies</b>.</li><li>In the branch filter, select <b>Cairo</b> and <b>Mansoura</b>, then click <b>Search</b>. For the one-branch case, select only Cairo and click Search again.</li><li>Look at <code>POST /Booking2/refunded-requests/search</code>. Expected: <code>branchId</code> is a list (for example <code>[948, …]</code>) and the results contain requests from both branches. Today the page sends a single value, <code>branchId: 948</code>, so you cannot select more than one branch. That gap is the missing feature.</li></ol>`;
+function comment({ who, me, when, part, body, fold, reacts, replies = '', id }) {
+  return `<div class="c">
+    <div class="av ${me ? 'me' : 'cl'}">${me ? 'Y' : '✦'}</div>
+    <div style="min-width:0">
+      <div class="top"><b class="${me ? '' : 'ai'}">${who}</b><span class="when" title="10/15/2026 11:13 AM">${when}</span>
+        <span class="hov">
+          <button class="icon" title="React - ✅ is your go-ahead">☺</button>
+          <button class="icon" title="Reply">↩</button>
+          <span style="position:relative"><button class="icon" data-menu="cp-${id}" title="Copy">⧉</button>
+            <div class="menu r" id="cp-${id}"><button>Formatted (mail, Word, Teams)</button><button>Markdown</button><button>Plain text</button></div></span>
+          <span style="position:relative"><button class="icon" data-menu="mm-${id}" title="More">⋯</button>
+            <div class="menu r" id="mm-${id}">${me ? '<button>✎ Edit</button>' : ''}<button>⇄ Text direction: auto ▸ RTL ▸ LTR</button><button>⇥ Long lines: scroll sideways</button><button>🕘 edited · history</button><button>🔗 Copy link to this comment</button></div></span>
+        </span>
+      </div>
+      <div class="txt ${fold ? 'fold' : ''}">${part ? `<span class="part">${part}</span>` : ''}${body}</div>
+      ${fold ? '<button class="lnk more" data-act="unfold">Show more</button>' : ''}
+      ${reacts ? `<div class="reacts">${reacts}</div>` : ''}
+      ${replies}
+    </div></div>`;
+}
+P.activity = (withLive = true) => `
+  <div class="afilter">
+    ${['all:All 14', 'comments:Comments 5', 'changes:Changes 9'].map((x) => { const [k, l] = x.split(':'); return `<button data-act="filter" data-v="${k}" class="${S.filter === k ? 'on' : ''}">${l}</button>`; }).join('')}
+    <span class="sp"></span><button class="icon" title="Newest first" data-act="newest">⇅</button>
+  </div>
+  ${withLive ? P.livebox() : ''}
+  <div data-feed>
+  <div class="grp" data-kind="changes" data-act="grp">▸ 3 changes · Claude added the teams Frontend, Backend and moved it Inbox → To do</div>
+  <div data-kind="comments">${comment({ id: 1, who: 'You', me: true, when: 'yesterday 11:05', body: 'Give me the steps to reproduce this, from what the card already has.' })}</div>
+  <div data-kind="comments">${comment({ id: 2, who: 'Claude', when: 'yesterday 11:13', part: 'REPLY', body: '<b>Steps, from the card\'s spec evidence:</b>' + STEPS, fold: true, reacts: '<span class="react">✅ 1</span>',
+    replies: `<div class="replies">${comment({ id: 3, who: 'You', me: true, when: 'yesterday 11:20', body: 'good - do the same for the one-branch case' })}${comment({ id: 4, who: 'Claude', when: 'yesterday 11:21', part: 'REPLY', body: '<b>Steps (from the card\'s evidence, nothing new looked up):</b> select only Cairo, Search, the request sends <code>branchId: 948</code> and every row is Cairo\'s.' })}</div>` })}</div>
+  <div class="sys" data-kind="changes"><span class="dot"></span>You moved it Fixed → Done · today 10:40</div>
+  </div>
+  ${P.runs()}`;
+P.compose = () => `
+  <div class="compose">
+    <div class="cbox" data-act="openbox">
+      <div class="ph">Write a comment… @ to mention, / for blocks</div>
+      <div class="tb2">
+        <button class="icon" title="Text style">¶▾</button><button class="icon" title="Bold (Ctrl+B)"><b>B</b></button><button class="icon" title="Italic (Ctrl+I)"><i>I</i></button><button class="icon" title="Inline code (Ctrl+E)">&lt;/&gt;</button>
+        <span class="vs"></span><button class="icon" title="Bulleted list">•</button><button class="icon" title="Checklist">☑</button><button class="icon" title="Link (Ctrl+K)">🔗</button>
+        <span class="vs"></span><button class="icon" title="Mention something (@)">@</button><button class="icon" title="Skills and blocks (/)">/</button><button class="icon" title="Attach a file / picture">📎</button><button class="icon ai" title="Ask Claude about the text">✦</button>
+        <span style="position:relative"><button class="icon" data-menu="m-fmt" title="More formatting">⋯</button>
+          <div class="menu" id="m-fmt" style="top:auto;bottom:calc(100% + 4px);min-width:250px">
+            <div class="grp">Text</div><button>U Underline <kbd>Ctrl+U</kbd></button><button>S̶ Strikethrough</button><button>▮ Highlight <kbd>Ctrl+⇧H</kbd></button><button>A Text colour ▸</button>
+            <div class="grp">Blocks</div><button>1. Numbered list</button><button>▦ Table</button><button>◇ Visual: chart, stats, diagram, HTML ▸</button><button>▸ Collapsible section</button><button>✓ Status pill ▸</button><button>ℹ Callout ▸</button><button>— Divider</button><button>🖼 Picture</button><button>⧉ Templates ▸</button>
+            <div class="grp">View</div><button>⇆ Split: text beside preview</button><button>&lt;&gt; See / edit what is stored</button><button>⇄ Text direction: Auto <kbd>Ctrl+⇧X</kbd></button>
+          </div></span>
+        <span class="sp"></span><button class="icon" title="@ mention · / blocks · {{ variable · Enter sends · Shift+Enter new line">?</button><button class="btn primary">Comment</button>
+      </div>
+    </div>
+  </div>`;
+P.details = () => `
+  <div class="sec" style="border:0">
+    <div class="sh"><h5>Description</h5><span class="sp"></span><button class="icon" title="Edit (or double-click the text)">✎</button><button class="icon" title="edited · earlier descriptions">🕘</button></div>
+    <div class="sb desc"><p>The refunded-requests search sends <code>branchId: 948</code> - one branch. Searching <b>Cairo + Mansoura</b> needs <code>branchId</code> as a list, and the results must hold requests from every selected branch.</p>
+      <p class="dim" style="font-size:13px">From @spec.md AC6 · found in <span class="mchip">⇄ POST /refunded-requests/search · 200</span></p></div>
+  </div>
+  <div class="sec" style="border:0;padding-top:0">
+    <div class="sh"><h5>Attached</h5><span class="cnt">3</span><span class="sp"></span>
+      <span style="position:relative"><button class="btn ghost" data-menu="m-add">+ add ▾</button>
+      <div class="menu r" id="m-add"><button>📌 Pin something</button><button>📄 New page</button><button>📎 Upload a file (≤ 10 MB)</button><button>🖼 Picture</button></div></span></div>
+    <div class="att"><span class="pill">📌 the search request</span><span class="pill">📄 Branch filter plan</span><span class="pill">📎 search-request.har · 214 KB</span></div>
+  </div>`;
+P.links = () => `
+  <div class="sec" style="border:0"><div class="sh"><h5>Linked</h5><span class="cnt">3</span><span class="sp"></span><button class="btn ghost">+ link</button></div>
+    <div class="sb"><span class="mchip"><span class="ic">⇄</span>POST /refunded-requests/search · 200</span><span class="mchip"><span class="ic">◆</span>SELECT … branch_id = ?</span><span class="mchip"><span class="ic">📄</span>spec.md AC6</span></div></div>
+  <div class="sec" style="border:0;padding-top:0"><div class="sh"><h5>Breaks the spec</h5><span class="cnt">1</span></div>
+    <div class="sb" style="font-size:13px"><span class="mchip st-bad"><span class="ic">📄</span>AC6</span> Multi-branch search returns every selected branch <span class="dim">· spec.md</span></div></div>
+  <div class="sec" style="border:0;padding-top:0"><div class="sh"><h5>Blocked by</h5><span class="cnt">0</span><span class="sum" style="display:inline">· not blocked</span><span class="sp"></span><button class="btn ghost">+ blocked by…</button></div></div>`;
+P.retest = () => `
+  <div class="sec" style="border:0"><div class="sh"><h5>Re-test</h5><span class="pill" style="color:var(--ok);border-color:#245a40">✓ passed 2/2</span><span class="sp"></span><button class="btn">▶ Re-test this card</button><button class="btn ghost">Check now</button></div>
+    <div class="sb"><div class="kv" style="grid-template-columns:18px 1fr auto">
+      <span style="color:var(--ok)">✓</span><span>branchId is a list</span><span><span style="color:var(--bad)">948</span> → <span style="color:var(--ok)">[948, 951]</span> <button class="lnk">✕</button></span>
+      <span style="color:var(--ok)">✓</span><span>status 200</span><span>200 → 200 <button class="lnk">✕</button></span>
+    </div><button class="lnk" style="margin-top:6px">+ expectation</button></div></div>`;
+P.head = () => `${P.bar()}${P.title()}<div class="props">${P.props()}</div>`;
+
+/* ---------- the whole side card ---------- */
+function renderSide() {
+  const el = $('#card-after');
+  const tab = S.tab;
+  const body = tab === 'activity' ? `<div class="sec" style="border:0">${P.activity()}</div>`
+    : tab === 'details' ? P.details() : tab === 'links' ? P.links() : P.retest();
+  el.innerHTML = `
+    <div class="h">${P.head()}</div>
+    <div class="scroll">
+      <div class="sec" style="padding:8px 14px"><div class="attn" style="margin:0">${P.attn()}</div></div>
+      <div class="navtabs">
+        <button data-act="tab" data-v="activity" class="${tab === 'activity' ? 'on' : ''}">● Activity<span class="n">14</span></button>
+        <button data-act="tab" data-v="details" class="${tab === 'details' ? 'on' : ''}">Details<span class="n">3</span></button>
+        <button data-act="tab" data-v="links" class="${tab === 'links' ? 'on' : ''}">Links<span class="n">4</span></button>
+        <button data-act="tab" data-v="retest" class="${tab === 'retest' ? 'on' : ''}">Re-test<span class="n" style="color:var(--ok)">✓ 2/2</span></button>
+      </div>
+      ${body}
+    </div>
+    ${P.compose()}`;
+  applyFilter(el);
+}
+function renderFull() {
+  const el = $('#card-full');
+  el.innerHTML = `
+    <div class="h">${P.bar()}${P.title()}</div>
+    <div class="fullgrid" style="flex:1;min-height:0">
+      <div style="display:flex;flex-direction:column;min-height:0">
+        <div class="scroll">
+          <div class="sec"><div class="attn" style="margin:0">${P.attn()}</div></div>
+          ${P.details()}
+          <div class="sec"><div class="sh"><h5>Activity</h5><span class="cnt">14</span></div><div class="sb">${P.activity()}</div></div>
+        </div>
+        ${P.compose()}
+      </div>
+      <div class="rail scroll">
+        <div class="sec"><div class="kv">
+          <span class="k">Status</span><span><span class="prop st-done"><span class="v">Done</span> ▾</span></span>
+          <span class="k">Kind</span><span><span class="prop"><span class="v">${S.kind}</span> ▾</span></span>
+          <span class="k">Scope</span><span><span class="prop"><span class="v" style="color:var(--dim);font-weight:500">Not decided</span> ▾</span></span>
+          <span class="k">Flags</span><span><span class="prop dash">⚑ flag +</span></span>
+          <span class="k">Teams</span><span style="display:flex;flex-wrap:wrap;gap:4px">${S.teams.map((t) => `<span class="tm" style="color:${TEAMS[t][1]};border-color:${TEAMS[t][1]}55">${TEAMS[t][0]} ${t}</span>`).join('')}<span class="prop dash">+ team</span></span>
+          <span class="k">Mentioned as</span><span>searching with one branch <button class="lnk">✎</button></span>
+        </div></div>
+        ${P.links()}
+        ${P.retest()}
+        <div class="sec">${P.runs()}</div>
+      </div>
+    </div>`;
+}
+/* ---------- part pages ---------- */
+function renderParts() {
+  $$('[data-part]').forEach((el) => {
+    const k = el.dataset.part;
+    el.innerHTML = k === 'head' ? P.head() : k === 'props' ? P.props() : k === 'attn' ? P.attn() : k === 'details' ? P.details()
+      : k === 'links' ? P.links() : k === 'retest' ? P.retest() : k === 'activity' ? P.activity(false) : k === 'live' ? P.livebox() + P.runs().replace('sec closed', 'sec') : k === 'compose' ? P.compose() : '';
+  });
+}
+function renderAll() { renderSide(); renderFull(); renderParts(); }
+function applyFilter(root) {
+  $$('[data-feed] > [data-kind]', root).forEach((n) => { n.style.display = S.filter === 'all' || n.dataset.kind === S.filter ? '' : 'none'; });
+  const feed = $('[data-feed]', root); if (feed) feed.style.display = 'flex', feed.style.flexDirection = S.newest ? 'column-reverse' : 'column';
+}
+
+/* ---------- interactions ---------- */
+document.addEventListener('click', (e) => {
+  const tabBtn = e.target.closest('#tabs button');
+  if (tabBtn) { $$('#tabs button').forEach((b) => b.classList.toggle('on', b === tabBtn)); $$('.page').forEach((p) => p.classList.toggle('on', p.id === 'p-' + tabBtn.dataset.p)); return; }
+  const m = e.target.closest('[data-menu]');
+  const inMenu = e.target.closest('.menu');
+  const act = e.target.closest('[data-act]');
+  if (act && (!m || act !== m)) {
+    const a = act.dataset.act, v = act.dataset.v;
+    if (a === 'copynum') { act.classList.add('ok'); act.textContent = '✓ #44'; setTimeout(() => { act.classList.remove('ok'); act.textContent = '#44'; }, 1200); toast('Copied #44'); return; }
+    if (a === 'status') { S.status = v.replace('…', ''); if (v === 'Closed…') toast('Opens the close dialog: Fine / Not in flow / Won\'t fix / Duplicate'); renderAll(); return; }
+    if (a === 'kind') { S.kind = v; renderAll(); return; }
+    if (a === 'scope') { S.scope = v; renderAll(); return; }
+    if (a === 'flag') { S.flags.has(v) ? S.flags.delete(v) : S.flags.add(v); renderAll(); return; }
+    if (a === 'addteam') { S.teams.push(v); renderAll(); return; }
+    if (a === 'rmteam') { S.teams = S.teams.filter((t) => t !== act.dataset.t); renderAll(); return; }
+    if (a === 'tab') { S.tab = v; renderSide(); return; }
+    if (a === 'filter') { S.filter = v; renderAll(); return; }
+    if (a === 'newest') { S.newest = !S.newest; renderAll(); toast(S.newest ? 'Newest first' : 'Oldest first'); return; }
+    if (a === 'unfold') { const t = act.previousElementSibling; t.classList.toggle('fold'); act.textContent = t.classList.contains('fold') ? 'Show more' : 'Show less'; return; }
+    if (a === 'toggle') { act.parentElement.classList.toggle('closed'); return; }
+    if (a === 'grp') { act.textContent = act.textContent.startsWith('▸') ? '▾ You: Inbox → To do · Claude added Frontend · Claude added Backend' : '▸ 3 changes · Claude added the teams Frontend, Backend and moved it Inbox → To do'; return; }
+    if (a === 'ev') { const d = act.closest('.callout').querySelector('[data-ev]'); d.style.display = d.style.display === 'none' ? '' : 'none'; act.textContent = d.style.display === 'none' ? 'show evidence' : 'hide evidence'; return; }
+    if (a === 'answer') { toast('Opens the answer-all questions dialog'); return; }
+    if (a === 'issue') { toast('Copied the card as Markdown'); closeMenus(); return; }
+    if (a === 'toast') { toast(act.dataset.t); return; }
+    if (a === 'openbox') { if (!inMenu) { act.classList.add('open'); } }
+  }
+  if (m && !inMenu) {
+    e.stopPropagation();
+    const id = m.dataset.menu; const menu = document.getElementById(id) || m.querySelector('.menu');
+    const was = menu && menu.classList.contains('open');
+    closeMenus();
+    if (menu && !was) { menu.classList.add('open'); m.closest('.hov')?.classList.add('keep'); }
+    return;
+  }
+  if (!inMenu) { closeMenus(); if (!e.target.closest('.cbox')) $$('.cbox.open').forEach((b) => b.classList.remove('open')); }
+});
+function closeMenus() { $$('.menu.open').forEach((x) => x.classList.remove('open')); $$('.hov.keep').forEach((x) => x.classList.remove('keep')); }
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMenus(); });
+
+/* ---------- nothing-dropped map ---------- */
+const MAP = [
+  ['✕ Close, Side / Full / Window switch', 'Bar, right: three icons + ✕', 'Same'],
+  ['Kind badge, ✦ found by Claude', 'Bar: TASK badge, "✦ Claude"', 'Same'],
+  ['◷ cycle id (full UUID)', 'Bar: cycle name, id on hover; ⋯ → Copy cycle id', 'Same'],
+  ['#number', 'Bar, first: #44 pill, click copies', 'Same'],
+  ['Waiting pill', 'Bar pill', 'Same'],
+  ['❓ N open questions pill → answer dialog', 'Bar pill ❓ N + "Answer now" in the Needs-you stack', 'Same'],
+  ['▶ run skill (copy, ▾ edit prompt / note / notify / copy command / shell, ✕ cancel, result message)', 'Bar split button, same menu and messages', 'Same'],
+  ['R · C · ⇧R keys hint', '⋯ menu "Keys while open" + shown in the run menu', 'Same'],
+  ['⧉ Copy as issue', '⋯ menu', '⋯ menu'],
+  ['Title (click to rename)', 'Title, 17 px, click to rename', 'Same'],
+  ['Mentioned as … / from the title / ✎ short name', 'Quiet line, ✎ on hover', 'Rail: "Mentioned as" row'],
+  ['Status / Kind / Scope pickers', 'Property chips', 'Rail form rows'],
+  ['5 flag toggles', 'Active flags as chips + "⚑ +" menu with all five', 'Rail "Flags" row'],
+  ['Teams (✕ remove, + team picker)', 'Chips on the property line, ✕ on hover, + team', 'Rail "Teams" row'],
+  ['Reason', 'Needs-you stack (last)', 'Same, left column'],
+  ['⚠ Looks like #N closed as …', 'Needs-you stack', 'Same'],
+  ['✦ Claude proposes (reason, evidence, Accept, Dismiss)', 'Needs-you stack, first; evidence folds', 'Same'],
+  ['Description (Edit, edited · history dialog, outline, snippets)', 'Details tab: ✎ and 🕘 icons, double-click edits', 'Left column'],
+  ['Pinned items', 'Details tab → Attached', 'Left column → Attached'],
+  ['Pages', 'Details tab → Attached', 'Same'],
+  ['Files', 'Details tab → Attached', 'Same'],
+  ['Linked (+ link, mention picker, pick anywhere)', 'Links tab', 'Rail'],
+  ['Breaks the spec', 'Links tab', 'Rail'],
+  ['Blocked by (+ blocked by…, ✕ unblock)', 'Links tab', 'Rail'],
+  ['Re-test (chip, ▶ Re-test, Check now, table, ✕, + expectation)', 'Re-test tab, verdict in the tab label', 'Rail'],
+  ['Activity count', 'Tab count + filter counts', 'Section count'],
+  ['Comments: who, time, edited · history', 'Avatar, name, relative time; history in ⋯', 'Same'],
+  ['Per-comment ⇥ Scroll / ⇄ Auto', 'Comment ⋯ menu', 'Same'],
+  ['☺+ react, reactions', 'Hover ☺, reactions under the text', 'Same'],
+  ['↩ Reply / ↩ Answer / ❓ Answer…, reply box, "Clear Needs decision"', 'Hover ↩ (Answer when it is a question), same reply box', 'Same'],
+  ['✎ Edit (own comments)', 'Comment ⋯ menu', 'Same'],
+  ['⧉ Copy (formatted / Markdown / plain)', 'Hover ⧉ menu', 'Same'],
+  ['REPLY / FOUND / NEXT part labels', 'Small inline tag', 'Same'],
+  ['Questions list (❓ / ✓ / ⊘ / ⏰, options, notes)', 'Unchanged inside the comment', 'Same'],
+  ['Long comment fold', 'Fold + Show more', 'Same'],
+  ['System change lines', 'Grouped "N changes ▸" + Changes filter', 'Same'],
+  ['Live work box (steps, Stop)', 'Top of Activity, ● on the tab', 'Top of Activity'],
+  ['Run history', 'Runs line under Activity, expands', 'Rail'],
+  ['Delete card…', '⋯ menu (same confirm)', '⋯ menu'],
+  ['Comment box (draft per card, @, /, {{, attach)', 'One line until clicked, then the editor', 'Same'],
+  ['Toolbar: Style, B, I, U, S, code, highlight, colour, lists, checklist, table, visual, collapsible, status pill, callout, divider, link, picture, attach, templates, ✦, split, source, direction', '9 icons + ⋯ (grouped Text / Blocks / View)', 'Same'],
+  ['Hint line, ⇄ Auto, @ Mention buttons', '? tooltip, ⋯ View → direction, @ icon', 'Same'],
+  ['Error line, quick-answer dialog', 'Unchanged', 'Unchanged'],
+];
+$('#maprows').innerHTML = MAP.map((r) => `<tr><td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td></tr>`).join('');
+renderAll();
+</script>
+</body>
+</html>

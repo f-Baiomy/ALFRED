@@ -12302,3 +12302,225 @@ html.chat-fullscreen, html.chat-fullscreen body { overflow: hidden !important; o
 .board-editor-cbtn.urgent.on { color: var(--amber); }
 .board-editor-send { width: 30px; height: 30px; border-radius: 9px; border: 0; background: var(--purple); color: #fff; font-size: .95rem; cursor: pointer; display: grid; place-items: center; }
 .board-editor-send:disabled { background: var(--card-elevated); color: var(--text-faint); cursor: default; }
+
+// ================================================================================== card drawer v3 (specs/023)
+// The header: one bar, the title, one line of property chips and the card's journey - one line once the body scrolls.
+.cd-head { padding: 0.7rem 1.1rem 0.6rem; }
+.cd-bar { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; min-width: 0; }
+.cd-grow { flex: 1 1 auto; }
+.cd-x { float: none; padding: 0 0.2rem; }
+.cd-modes { float: none; margin: 0; display: inline-flex;
+  button { padding: 0.1rem 0.45rem; font-size: 0.78rem; }
+}
+.cd-num { font: inherit; font-family: ui-monospace, Consolas, monospace; font-size: 0.74rem; font-weight: 700; color: var(--text); background: var(--card-inner);
+  border: 1px solid var(--border-strong); border-radius: 6px; padding: 0.05rem 0.45rem; cursor: pointer; white-space: nowrap;
+  &:hover { border-color: var(--purple); }
+}
+.cd-cycle { color: var(--cyan); font-size: 0.74rem; white-space: nowrap; max-width: 16rem; overflow: hidden; text-overflow: ellipsis; }
+.cd-ib { background: none; border: 1px solid transparent; color: var(--text-dim); border-radius: 6px; min-width: 1.7rem; height: 1.6rem; padding: 0 0.3rem;
+  font: inherit; font-size: 0.82rem; cursor: pointer; display: inline-grid; place-items: center;
+  &:hover, &.on, &[aria-expanded="true"] { color: var(--text); background: var(--card-elevated); border-color: var(--border); }
+}
+.cd-pager { display: inline-flex; border: 1px solid var(--border); border-radius: 6px;
+  button { background: none; border: 0; color: var(--text-dim); cursor: pointer; padding: 0 0.45rem; font-size: 0.95rem; line-height: 1.5rem;
+    &:hover:not(:disabled) { color: var(--text); }
+    &:disabled { opacity: 0.35; cursor: default; }
+  }
+}
+.cd-title { margin: 0.5rem 0 0.15rem; font-size: 1.05rem; line-height: 1.35; text-wrap: balance; }
+.cd-short { margin: 0 0 0.45rem; }
+.cd-hover-only { opacity: 0; transition: opacity 0.12s; }
+.cd-short:hover .cd-hover-only, .cd-hover-only:focus-visible { opacity: 1; }
+.cd-props { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; }
+.cd-prop { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.74rem; color: var(--text-dim); background: var(--card-inner);
+  border: 1px solid var(--border); border-radius: 7px; padding: 0 0 0 0.45rem; min-height: 1.6rem;
+  .theme-picker-btn { font-weight: 650; }
+  &.cd-quiet .theme-picker-btn { color: var(--text-dim); font-weight: 500; }
+}
+.cd-prop-DONE, .cd-prop-VERIFIED { border-color: color-mix(in srgb, var(--green) 45%, transparent);
+  .theme-picker-btn { color: var(--green); }
+}
+.cd-prop-IN_PROGRESS, .cd-prop-TO_DO { border-color: color-mix(in srgb, var(--cyan) 40%, transparent); }
+.cd-prop-FIXED { border-color: color-mix(in srgb, var(--purple) 55%, transparent); }
+.cd-prop.cd-dash { border-style: dashed; background: none; padding: 0 0.5rem; cursor: pointer; font: inherit; font-size: 0.74rem; color: var(--text-dim);
+  &:hover { color: var(--text); }
+}
+.cd-flag { font: inherit; font-size: 0.72rem; font-weight: 650; border-radius: 999px; padding: 0.05rem 0.55rem; border: 1px solid currentColor;
+  background: color-mix(in srgb, currentColor 14%, transparent); color: var(--amber); cursor: pointer;
+  &.board-flag-URGENT, &.board-flag-BLOCKER { color: var(--red); }
+  &.board-flag-NEEDS_DECISION { color: var(--purple-light); }
+  &.board-flag-AFFECTS_PROJECT { color: var(--cyan); }
+  &:disabled { cursor: default; }
+}
+.cd-menu { min-width: 13rem; }
+.cd-menu-r { inset-inline-start: auto; inset-inline-end: 0; }
+.cd-chk { display: inline-block; width: 1rem; color: var(--green); }
+.cd-danger { color: var(--red) !important; }
+.cd-journey { display: flex; flex-wrap: wrap; align-items: center; gap: 0 0.1rem; margin-top: 0.45rem; font-size: 0.68rem; color: var(--text-faint); }
+.cd-j { font: inherit; background: none; border: 1px solid transparent; color: var(--text-faint); border-radius: 999px; padding: 0 0.4rem; cursor: pointer; white-space: nowrap;
+  &:hover:not(:disabled) { color: var(--text); background: var(--card-elevated); }
+  &:disabled { cursor: default; }
+  &.done { color: var(--green); }
+  &.now { color: var(--green); font-weight: 700; background: color-mix(in srgb, var(--green) 14%, transparent); }
+  &.proposed { color: var(--purple-light); border: 1px dashed var(--purple); }
+  small { color: var(--text-faint); font-weight: 400; }
+}
+.cd-j-arrow { color: var(--text-faint); opacity: 0.6; }
+.cd-head.cd-mini { padding-block: 0.4rem; }
+.cd-minibar .cd-bar { flex-wrap: nowrap; }
+.cd-mini-title { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 0.85rem; cursor: pointer; }
+.cd-st { font-size: 0.7rem; font-weight: 650; border-radius: 999px; padding: 0 0.5rem; border: 1px solid var(--border-strong); color: var(--text-dim); white-space: nowrap;
+  &.cd-st-DONE, &.cd-st-VERIFIED { color: var(--green); border-color: color-mix(in srgb, var(--green) 45%, transparent); }
+}
+
+// The body: "Needs you", then the tabs (side) or a main column and a rail (Full / Window).
+.board-drawer-body.cd-body { padding: 0 0 1rem; overflow-anchor: none; } // the drawer keeps the place itself when earlier history comes in above
+.board-drawer.board-drawer-full .board-drawer-body.cd-body { display: block; padding-left: max(0rem, calc((100vw - 1800px) / 2)); padding-right: max(0rem, calc((100vw - 1800px) / 2)); }
+.cd-sec { border-bottom: 1px solid var(--border); margin: 0 !important; }
+.cd-sh { display: flex; align-items: center; gap: 0.5rem; width: 100%; padding: 0.55rem 1.1rem; background: none; border: 0; color: var(--text); font: inherit;
+  text-align: start; cursor: pointer; min-width: 0;
+  &:hover { background: color-mix(in srgb, var(--card-elevated) 60%, transparent); }
+  h5 { margin: 0; font-size: 0.78rem; font-weight: 650; white-space: nowrap; }
+  &.cd-sh-static { cursor: default; &:hover { background: none; } }
+}
+.cd-car { color: var(--text-faint); font-size: 0.65rem; width: 0.7rem; transition: transform 0.15s; }
+.cd-sec.closed > .cd-sh .cd-car { transform: rotate(-90deg); }
+.cd-smry { flex: 1 1 auto; min-width: 0; color: var(--text-dim); font-size: 0.74rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cd-sec:not(.closed) > .cd-sh:not(.cd-sh-static) .cd-smry { visibility: hidden; }
+.cd-sacts { display: inline-flex; gap: 0.15rem; opacity: 0; transition: opacity 0.12s; }
+.cd-sh:hover .cd-sacts, .cd-sacts:focus-within { opacity: 1; }
+@media (hover: none) { .cd-sacts, .cd-hover-only { opacity: 1; } }
+.cd-sb { padding: 0 1.1rem 0.8rem 2.3rem; min-width: 0; }
+.cd-needs.cd-attn { border-left: 3px solid var(--amber); background: color-mix(in srgb, var(--amber) 6%, transparent);
+  > .cd-sh h5 { color: var(--amber); }
+}
+.cd-row { display: flex; align-items: center; gap: 0.5rem; padding: 0.3rem 0; font-size: 0.8rem; border-top: 1px solid var(--border); min-width: 0; width: 100%;
+  &:first-child { border-top: 0; }
+  .action-btn { flex: none; }
+}
+.cd-row-text { flex: 1 1 auto; min-width: 0; }
+.cd-ico { flex: none; width: 1.1rem; text-align: center; }
+.cd-amber { color: var(--amber); }
+.cd-red { color: var(--red); }
+.cd-notes-line { background: none; border: 0; border-top: 1px solid var(--border); color: var(--text-dim); font: inherit; font-size: 0.78rem; cursor: pointer; text-align: start;
+  &:hover { color: var(--text); }
+}
+.cd-evidence { display: block; margin: 0 0 0.4rem 1.6rem; font-size: 0.78rem; }
+.cd-tabs { display: flex; gap: 0.1rem; padding: 0 0.8rem; border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 4;
+  background: color-mix(in srgb, var(--popover-solid) 96%, transparent);
+  button { background: none; border: 0; border-bottom: 2px solid transparent; color: var(--text-dim); font: inherit; font-size: 0.8rem; padding: 0.55rem 0.6rem;
+    cursor: pointer; display: inline-flex; align-items: center; gap: 0.3rem; white-space: nowrap;
+    &:hover { color: var(--text); }
+    &.on { color: var(--text); border-bottom-color: var(--purple); }
+  }
+}
+.cd-n { font-size: 0.66rem; background: var(--card-elevated); color: var(--text-dim); border-radius: 999px; padding: 0 0.4rem; font-variant-numeric: tabular-nums; }
+.cd-v-pass { color: var(--green); }
+.cd-v-fail { color: var(--red); }
+.cd-v-part { color: var(--amber); }
+.cd-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--cyan); display: inline-block; flex: none; }
+.cd-panel { padding: 0.6rem 1.1rem 0; min-width: 0;
+  > .cd-sec { margin-inline: -1.1rem !important; }
+}
+.cd-afilter { display: flex; align-items: center; gap: 0.3rem; margin-bottom: 0.5rem; flex-wrap: wrap;
+  position: sticky; top: 0; z-index: 3; padding: 0.35rem 0; background: color-mix(in srgb, var(--popover-solid) 96%, transparent); }
+/* it stays under the sticky tabs */
+.cd-panel .cd-afilter { top: var(--cd-tabs-h, 2.35rem); }
+.cd-fb { background: var(--card-inner); border: 1px solid var(--border); color: var(--text-dim); border-radius: 999px; padding: 0.05rem 0.6rem; font: inherit; font-size: 0.74rem; cursor: pointer;
+  &.on { color: var(--text); border-color: var(--purple); }
+}
+.cd-find { flex: 1 1 12rem; min-width: 0; background: var(--card-inner); color: var(--text); border: 1px solid var(--border-strong); border-radius: 999px; padding: 0.15rem 0.7rem; font: inherit; font-size: 0.78rem; }
+.cd-newbar { display: flex; align-items: center; gap: 0.5rem; padding: 0.3rem 0.6rem; margin-bottom: 0.5rem; border: 1px solid color-mix(in srgb, var(--cyan) 40%, transparent);
+  background: color-mix(in srgb, var(--cyan) 8%, transparent); border-radius: 8px; font-size: 0.78rem;
+}
+.cd-runs { margin-top: 0.6rem !important; margin-inline: -1.1rem !important; border-top: 1px solid var(--border); border-bottom: 0; }
+.cd-desc { background: none; border: 0; padding: 0; font-size: 0.86rem; line-height: 1.6; }
+.cd-clamp { max-height: 18rem; overflow: hidden; -webkit-mask-image: linear-gradient(#000 70%, transparent); mask-image: linear-gradient(#000 70%, transparent); }
+.cd-attached { display: flex; flex-direction: column; gap: 0.4rem; }
+.cd-links { display: flex; flex-direction: column; gap: 0.4rem; padding-bottom: 0.6rem; }
+.cd-lh { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.4rem;
+  h5 { margin: 0; font-size: 0.74rem; font-weight: 650; }
+}
+.cd-composer { padding: 0.5rem 1.1rem 0.6rem; }
+.cd-quick { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; margin-bottom: 0.4rem; font-size: 0.74rem; }
+.cd-qr { background: var(--card-inner); border: 1px solid var(--border-strong); color: var(--text); border-radius: 999px; padding: 0.1rem 0.65rem; font: inherit; font-size: 0.76rem; cursor: pointer;
+  &:hover { border-color: var(--purple); }
+}
+.cd-keys { max-width: 30rem; }
+.cd-keys-grid { display: grid; grid-template-columns: auto 1fr; gap: 0.4rem 0.9rem; font-size: 0.82rem; align-items: center;
+  kbd { font-family: ui-monospace, Consolas, monospace; font-size: 0.74rem; background: var(--card-inner); border: 1px solid var(--border-strong); border-radius: 4px; padding: 0 0.3rem; }
+}
+.board-editor-saved { font-size: 0.68rem; color: var(--text-faint); white-space: nowrap; }
+
+// Activity: day dividers, threads (avatar, name, time, actions on hover), folded threads and runs of changes.
+.cd-timeline { min-width: 0; }
+.cd-day { display: flex; align-items: center; gap: 0.7rem; margin: 0.8rem 0 0.3rem; font-size: 0.66rem; letter-spacing: 0.07em; text-transform: uppercase; color: var(--text-faint);
+  &::before, &::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+}
+.cd-time { color: var(--text-faint); font-size: 0.7rem; }
+.board-ev.sys.cd-change { margin: 0.2rem 0 0.2rem 2.2rem;
+  &::before { display: none; }
+}
+.cd-changes { display: block; width: 100%; min-width: 0; background: none; border: 0; border-radius: 6px; font: inherit; text-align: start; cursor: pointer;
+  color: var(--text-faint); font-size: 0.72rem; padding: 0.15rem 0 0.15rem 2.2rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  &:hover { color: var(--text-dim); }
+}
+.cd-thread { margin: 0.35rem 0 0.7rem; }
+.board-ev.cd-c { display: grid; grid-template-columns: 1.65rem minmax(0, 1fr); gap: 0 0.55rem; margin-bottom: 0.2rem;
+  &::before { display: none; }
+  .board-ev-body { background: none; border: 0; padding: 0; margin-top: 0.1rem; font-size: 0.86rem; line-height: 1.6; }
+  .board-ev-label { flex: none; min-width: 0; align-self: baseline; margin-right: 0.35rem; font-size: 0.6rem; color: var(--purple-light); background: color-mix(in srgb, var(--purple) 16%, transparent);
+    border-radius: 4px; padding: 0 0.3rem;
+  }
+  &.cd-new .cd-av { box-shadow: 0 0 0 2px var(--cyan); }
+  &.claude .cd-who b { color: var(--purple-light); }
+}
+.cd-av { width: 1.65rem; height: 1.65rem; border-radius: 50%; display: grid; place-items: center; font-size: 0.72rem; font-weight: 700;
+  background: color-mix(in srgb, var(--cyan) 18%, transparent); color: var(--cyan);
+  &.claude { background: color-mix(in srgb, var(--purple) 22%, transparent); color: var(--purple-light); }
+}
+.cd-c-main { min-width: 0; }
+.cd-who { display: flex; align-items: center; gap: 0.4rem; min-height: 1.6rem; flex-wrap: wrap;
+  b { color: var(--text); font-weight: 600; }
+}
+.cd-newdot { width: 6px; height: 6px; border-radius: 50%; background: var(--cyan); display: inline-block; }
+.cd-edited { font-size: 0.7rem; }
+.cd-hov { margin-left: auto; display: inline-flex; gap: 0.1rem; opacity: 0; transition: opacity 0.12s;
+  .cd-ib { min-width: 1.5rem; height: 1.4rem; font-size: 0.78rem; }
+}
+.board-ev.cd-c:hover .cd-hov, .cd-hov.keep, .cd-hov:focus-within { opacity: 1; }
+@media (hover: none) { .cd-hov { opacity: 1; } }
+.cd-reacts { margin-top: 0.15rem; }
+.cd-replies { margin-left: 0.8rem; padding-left: 0.8rem; border-left: 2px solid var(--border-strong);
+  .board-ev-reply { margin: 0.2rem 0 0; padding: 0; border: 0; }
+  .board-ev.cd-c { grid-template-columns: 1.35rem minmax(0, 1fr); }
+  .cd-av { width: 1.35rem; height: 1.35rem; font-size: 0.64rem; }
+}
+.cd-more { display: block; margin: 0.15rem 0; font-size: 0.74rem; }
+.cd-thread-foot { display: flex; align-items: center; gap: 0.5rem; margin: 0.25rem 0 0 2.2rem; }
+.cd-reply-line { flex: 1 1 auto; text-align: start; background: var(--card-inner); border: 1px solid var(--border); color: var(--text-faint); border-radius: 999px;
+  padding: 0.15rem 0.75rem; font: inherit; font-size: 0.76rem; cursor: text;
+  &:hover { border-color: var(--border-strong); color: var(--text-dim); }
+}
+.cd-thread .board-ev-replybox { margin-left: 2.2rem; }
+.board-drawer-head.cd-head.cd-peek { max-height: 70vh; overflow-y: auto; box-shadow: 0 8px 18px rgba(0, 0, 0, 0.35); }
+// a menu opened in the peeked header (flags, more) must not be cut off by the header's scroll box
+.board-drawer-head.cd-head.cd-peek:has(.board-editor-dd-menu) { overflow: visible; }
+.cd-peek-needs { margin-top: 0.5rem; }
+.cd-latest { position: sticky; bottom: 0.6rem; float: right; margin: -2.2rem 0 0 auto; z-index: 3; border-radius: 999px; border: 1px solid var(--border-strong);
+  background: var(--popover-solid); color: var(--text); font: inherit; font-size: 0.76rem; padding: 0.2rem 0.75rem; cursor: pointer; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  &:hover { border-color: var(--purple); }
+}
+.cd-needs-pill { flex: 0 1 auto; min-width: 0; max-width: 45%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: color-mix(in srgb, var(--amber) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--amber) 50%, transparent); color: var(--amber); border-radius: 999px; font: inherit; font-size: 0.7rem; padding: 0 0.55rem; cursor: pointer; }
+.cd-earlier { display: block; width: 100%; text-align: center; background: none; border: 1px dashed var(--border); border-radius: 8px; color: var(--text-dim);
+  font: inherit; font-size: 0.76rem; padding: 0.3rem; margin: 0.3rem 0 0.5rem; cursor: pointer;
+  &:hover { color: var(--text); border-color: var(--border-strong); }
+}
+
+// ☰ Compact spacing
+.board-drawer.cd-dense {
+  .cd-sh { padding-block: 0.35rem; }
+  .board-ev.cd-c .board-ev-body, .cd-desc { font-size: 0.8rem; line-height: 1.45; }
+  .cd-thread { margin-block: 0.2rem 0.4rem; }
+}

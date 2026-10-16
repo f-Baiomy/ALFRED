@@ -192,18 +192,18 @@ test('a message handed to the terminal shows its progress from the transcript: q
   const lane = new chatLane.ChatLane({ o: { chatId: null, log: () => {}, chat: () => {} } });
   lane.track({ key: 'm:7', marker: '✉ board chat #7', reporter,
     done: (name: string, input: any) => /(^|__)chat_reply$/.test(name) && input.messageId === 7 });
-  assert.match(sent.at(-1).head, /waiting for its turn/);
+  assert.match(sent.at(-1).head, /waiting for your terminal/);
   const line = (o: any) => JSON.stringify(o);
   const ev = '<task-notification><event>✉ board chat #7: \\"make it interactive\\"</event></task-notification>';
   lane.onTerminal(line({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Read', input: { file_path: 'x/A.java' } }] } }));
   assert.equal(sent.length, 1, 'work before the terminal took the message is not its progress');
   lane.onTerminal(line({ type: 'queue-operation', operation: 'enqueue', content: ev }));
-  assert.match(sent.at(-1).head, /busy/);
+  assert.match(sent.at(-1).head, /queued in your terminal/);
   lane.onTerminal([line({ type: 'user', message: { content: ev } }),
     line({ type: 'assistant', message: { content: [{ type: 'thinking', thinking: '' }] } }),
     line({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'mcp__alfred-docker__search_cycle', input: {} }] } }),
     line({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Read', input: { file_path: 'src/Page.ts' } }] } })].join('\n'));
-  assert.equal(sent.at(-1).head, 'your terminal: reading Page.ts');
+  assert.equal(sent.at(-1).head, 'working in your terminal: reading Page.ts');
   assert.deepEqual(sent.at(-1).steps, ['thinking', 'search cycle', 'reading Page.ts']);
   lane.onTerminal(line({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'mcp__alfred-docker__chat_reply', input: { messageId: 7 } }] } }));
   assert.equal(sent.at(-1).ended, true);

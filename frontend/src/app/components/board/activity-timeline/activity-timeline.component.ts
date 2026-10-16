@@ -2,7 +2,7 @@ import { TeamsStateService } from '../../../core/state/teams-state.service';
 import { TextDirectionStateService } from '../../../core/state/text-direction-state.service';
 import { choiceLabel, nextChoice } from '../../../shared/utils/text-direction';
 import { NgTemplateOutlet } from '@angular/common';
-import { Component, ElementRef, Injector, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, Injector, afterNextRender, computed, effect, inject, input, output, signal, untracked, viewChild } from '@angular/core';
 import { ActivityEntry, MentionRef, REACTIONS, TextVersion } from '../../../core/models/board.models';
 import { BoardApiService } from '../../../core/services/board-api.service';
 import { GlobalVariablesService } from '../../../core/services/global-variables.service';
@@ -13,6 +13,7 @@ import { ClaudeParts, changeText, claudeParts } from '../../../shared/utils/boar
 import { QuestionLine, questionLines, withoutBlocks } from '../../../shared/utils/question-blocks';
 import { HistoryItem, Reaction, historyThreads, openQuestions, reactionsOf } from '../../../shared/utils/board-threads';
 import { parseMentions } from '../../../shared/utils/mention-syntax';
+import { EARLIER_PAGE, RECENT_THREADS, TimelineFilter, isNewEntry, timelineRows, visibleReplies } from '../../../shared/utils/timeline-view';
 import { MarkdownViewComponent } from '../markdown-view/markdown-view.component';
 import { MentionChipComponent } from '../mention-chip/mention-chip.component';
 import { MentionEditorComponent } from '../mention-editor/mention-editor.component';
@@ -25,129 +26,152 @@ export interface TimelineReply {
 }
 
 /**
- * A card's history, oldest first (FR-027, FR-028): comments in full, every change in one line, and the replies to a
- * comment gathered under it. Every comment has ↩ Reply; Claude's open question has Answer, with "clear Needs decision"
- * ticked when it is the last open one.
+ * A card's history (FR-027, FR-028; layout specs/023): day dividers, each comment with its replies as one thread, runs of
+ * changes as one line. On a long card the history before the last few threads waits behind one "Show N earlier" line
+ * (never an open question or anything new), a long thread folds its middle replies, and a comment's actions sit in a bar that shows on hover. Every thread has
+ * Reply…; Claude's open question has Answer, with "clear Needs decision" ticked when it is the last open one.
  */
 @Component({
   selector: 'app-activity-timeline',
   standalone: true,
+  // all of its state is signals: the drawer's scrolling, typing and hovering never re-check a long history
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [MarkdownViewComponent, MentionChipComponent, MentionEditorComponent, NgTemplateOutlet],
   template: `
-    <div class="board-timeline">
-      @for (item of items(); track item.entry.id) {
-        @if (item.entry.kind === 'COMMENT') {
-          <div class="board-ev" [class.claude]="item.entry.actor === 'CLAUDE'" [class.me]="item.entry.actor === 'USER'" [attr.data-entry]="item.entry.id">
-            <div class="board-ev-who"><b>{{ who(item.entry) }}</b> · {{ when(item.entry.at) }}
-              @if (item.question) {
-                <span class="board-ev-badge" [class.answered]="item.answered">{{ item.answered ? '✓ answered' : 'waiting for you' }}</span>
+    <div class="board-timeline cd-timeline">
+      @for (row of rows(); track row.key) {
+        @switch (row.kind) {
+          @case ('day') { <div class="cd-day">{{ row.label }}</div> }
+          @case ('changes') {
+            @if (row.entries.length === 1 || openChanges().has(row.key)) {
+              @for (c of row.entries; track c.entry.id) {
+                <div class="board-ev sys cd-change" [attr.data-entry]="c.entry.id">
+                  @for (seg of change(c.entry); track $index) {
+                    @if (seg.mention; as m) { <app-mention-chip [mention]="m" [showPreview]="false" /> } @else { {{ seg.text }} }
+                  } <span class="cd-time" [title]="full(c.entry.at)">· {{ time(c.entry.at) }}</span>
+                </div>
               }
-              @if (item.edited) { <button type="button" class="board-link board-dim" title="See the earlier texts" (click)="showHistory(item.entry)">edited · history</button> }
-              <ng-container [ngTemplateOutlet]="dirSwitch" [ngTemplateOutletContext]="{ $implicit: item.entry }" />
-            </div>
-            @if (editingId() === item.entry.id) {
-              <app-mention-editor [value]="item.entry.text ?? ''" [project]="project()" [cycleId]="cycleId()" [card]="card()" [attach]="card() ? { card: card()!.id } : null" [rows]="4"
-                                  [cancellable]="true" [enterSends]="false" submitLabel="Save" [draftKey]="card() ? 'edit:' + card()!.id + ':' + item.entry.id : null"
-                                  (submitted)="saveEdit(item.entry, $event)" (cancelled)="editingId.set(null)" />
-              @if (error()) { <div class="run-msg run-msg-err">{{ error() }}</div> }
             } @else {
-              <ng-container [ngTemplateOutlet]="body" [ngTemplateOutletContext]="{ $implicit: item.entry }" />
+              <button type="button" class="cd-changes" (click)="openChange(row.key)" [title]="'Show the ' + row.entries.length + ' changes'">
+                · {{ row.entries.length }} changes - {{ changesSummary(row.entries) }}</button>
             }
-            <div class="board-ev-acts">
-              @for (r of item.reactions; track r.emoji) {
-                <button type="button" class="board-react" [class.mine]="r.mine" [disabled]="!editable()" [title]="reactionTitle(item.entry, r)"
-                        (click)="react(item.entry, r.emoji)">{{ r.emoji }} {{ r.count }}</button>
-              }
+          }
+          @case ('thread') {
+            @let item = row.item;
+              <div class="cd-thread">
+                <ng-container [ngTemplateOutlet]="comment" [ngTemplateOutletContext]="{ $implicit: item.entry, item: item, root: true }" />
+                @if (item.replies.length) {
+                  <div class="cd-replies">
+                    @let vis = shownReplies(item);
+                    @if (vis.hidden) {
+                      <button type="button" class="board-link cd-more" (click)="openMiddle(item.entry.id)">▸ {{ vis.hidden }} more {{ vis.hidden === 1 ? 'reply' : 'replies' }}</button>
+                    }
+                    @for (r of vis.shown; track r.id) {
+                      <div class="board-ev-reply" [class.claude]="r.actor === 'CLAUDE'">
+                        <ng-container [ngTemplateOutlet]="comment" [ngTemplateOutletContext]="{ $implicit: r, item: item, root: false }" />
+                      </div>
+                    }
+                  </div>
+                }
+                @if (replyingTo() === item.entry.id) {
+                  <div class="board-ev-replybox">
+                    <div class="board-ev-replyto">
+                      <span>{{ item.question && !item.answered ? 'Answering' : 'Replying to' }} {{ name(item.entry) }}: “{{ quote(item.entry, 80) }}”</span>
+                      <button type="button" class="board-link" title="Cancel" (click)="replyingTo.set(null)">✕</button>
+                    </div>
+                    <app-mention-editor #replyBox [project]="project()" [cycleId]="cycleId()" [card]="card()" [attach]="card() ? { card: card()!.id } : null" [rows]="2" [cancellable]="true"
+                                        [compact]="true" [submitLabel]="item.question && !item.answered ? 'Answer' : 'Reply'"
+                                        placeholder="Write your reply… @ to mention, / for blocks" [draftKey]="card() ? 'reply:' + card()!.id + ':' + item.entry.id : null"
+                                        (submitted)="send(item, $event)" (cancelled)="replyingTo.set(null)" />
+                    @if (item.question && !item.answered) {
+                      <label class="board-ev-clear"><input type="checkbox" [checked]="clearDecision()" (change)="clearDecision.set($any($event.target).checked)" />
+                        Clear "Needs decision"{{ otherOpen(item) ? ' (' + otherOpen(item) + ' other question' + (otherOpen(item) === 1 ? '' : 's') + ' still open - stays on)' : '' }}</label>
+                    }
+                  </div>
+                } @else if (editable()) {
+                  <div class="cd-thread-foot">
+                    @if (item.question && !item.answered && hasOptions(item)) {
+                      <button type="button" class="action-btn" (click)="answerQuestions.emit()">❓ Answer…</button>
+                    }
+                    <button type="button" class="cd-reply-line" (click)="startReply(item)">{{ item.question && !item.answered ? '↩ Answer in your own words…' : 'Reply…' }}</button>
+                  </div>
+                }
+              </div>
+          }
+          @case ('earlier') {
+            <button type="button" class="cd-earlier" (click)="showMore()">
+              ▸ Show {{ row.threads }} earlier {{ row.threads === 1 ? 'thread' : 'threads' }}{{ row.changes ? ' and ' + row.changes + (row.changes === 1 ? ' change' : ' changes') : '' }}</button>
+          }
+        }
+      } @empty {
+        <div class="board-dim">{{ query() ? 'Nothing in the activity matches “' + query() + '”.' : 'No history yet.' }}</div>
+      }
+    </div>
+    <ng-template #comment let-e let-item="item" let-root="root">
+      <div class="board-ev cd-c" [class.claude]="e.actor === 'CLAUDE'" [class.me]="e.actor === 'USER'" [class.cd-new]="isNew(e)" [attr.data-entry]="e.id"
+           [attr.data-new]="isNew(e) ? '' : null">
+        <span class="cd-av" [class.claude]="e.actor === 'CLAUDE'" aria-hidden="true">{{ e.actor === 'CLAUDE' ? '✦' : 'Y' }}</span>
+        <div class="cd-c-main">
+          <div class="board-ev-who cd-who"><b>{{ who(e) }}</b> <span class="cd-time" [title]="full(e.at)">{{ time(e.at) }}</span>
+            @if (isNew(e)) { <span class="cd-newdot" title="New since you last looked"></span> }
+            @if (root && item.question) {
+              <span class="board-ev-badge" [class.answered]="item.answered">{{ item.answered ? '✓ answered' : 'waiting for you' }}</span>
+            }
+            @if (!root && item.question && e.actor === 'USER') { <span class="board-dim">answer</span> }
+            @if (root && item.edited) { <button type="button" class="board-link board-dim cd-edited" title="See the earlier texts" (click)="showHistory(e)">· edited</button> }
+            <span class="cd-hov" [class.keep]="menuFor(e.id)">
               @if (editable()) {
                 <span class="board-editor-dd">
-                  <button type="button" class="board-link" title="React - ✅ on Claude's plan or question is your go-ahead" (click)="toggleMenu('react', item.entry.id)">☺+</button>
-                  @if (menuOpen('react', item.entry.id)) {
+                  <button type="button" class="cd-ib" title="React - ✅ on Claude's plan or question is your go-ahead" (click)="toggleMenu('react', e.id)">☺</button>
+                  @if (menuOpen('react', e.id)) {
                     <span class="board-editor-dd-menu board-react-menu">
-                      @for (e of reactions; track e) {
-                        <button type="button" class="board-react" [title]="e === '✅' && item.entry.actor === 'CLAUDE' ? 'Go - Claude may go ahead' : e" (click)="react(item.entry, e)">{{ e }}</button>
+                      @for (x of reactions; track x) {
+                        <button type="button" class="board-react" [title]="x === '✅' && e.actor === 'CLAUDE' ? 'Go - Claude may go ahead' : x" (click)="react(e, x)">{{ x }}</button>
                       }
                     </span>
                   }
                 </span>
-                @if (item.question && !item.answered && hasOptions(item)) {
-                  <button type="button" class="board-link" (click)="answerQuestions.emit()">❓ Answer…</button>
-                  <button type="button" class="board-link" (click)="startReply(item)">↩ Reply</button>
-                } @else {
-                  <button type="button" class="board-link" (click)="startReply(item)">
-                    {{ item.question && !item.answered ? '↩ Answer' : '↩ Reply' }}</button>
-                }
-                @if (item.entry.actor === 'USER' && card()) { <button type="button" class="board-link" (click)="startEdit(item.entry)">✎ Edit</button> }
+                <button type="button" class="cd-ib" [title]="item.question && !item.answered ? 'Answer' : 'Reply'" (click)="startReply(item)">↩</button>
               }
-              <ng-container [ngTemplateOutlet]="copyMenu" [ngTemplateOutletContext]="{ $implicit: item.entry }" />
-              @if (item.replies.length) { <span class="board-dim">{{ item.replies.length }} {{ item.replies.length === 1 ? 'reply' : 'replies' }}</span> }
-            </div>
-            @for (r of item.replies; track r.id) {
-              <div class="board-ev-reply" [class.claude]="r.actor === 'CLAUDE'" [attr.data-entry]="r.id">
-                <div class="board-ev-who"><b>{{ who(r) }}</b> · {{ when(r.at) }}
-                  @if (item.question && r.actor === 'USER') { <span class="board-dim">answer</span> }
-                  <ng-container [ngTemplateOutlet]="dirSwitch" [ngTemplateOutletContext]="{ $implicit: r }" />
-                </div>
-                <ng-container [ngTemplateOutlet]="body" [ngTemplateOutletContext]="{ $implicit: r }" />
-                <div class="board-ev-acts">
-                  @for (x of reactionsOf(r); track x.emoji) {
-                    <button type="button" class="board-react" [class.mine]="x.mine" [disabled]="!editable()" [title]="reactionTitle(r, x)" (click)="react(r, x.emoji)">{{ x.emoji }} {{ x.count }}</button>
-                  }
-                  @if (editable()) {
-                    <span class="board-editor-dd">
-                      <button type="button" class="board-link" title="React" (click)="toggleMenu('react', r.id)">☺+</button>
-                      @if (menuOpen('react', r.id)) {
-                        <span class="board-editor-dd-menu board-react-menu">
-                          @for (e of reactions; track e) { <button type="button" class="board-react" (click)="react(r, e)">{{ e }}</button> }
-                        </span>
-                      }
-                    </span>
-                    <button type="button" class="board-link" (click)="startReply(item)">↩ Reply</button>
-                  }
-                  <ng-container [ngTemplateOutlet]="copyMenu" [ngTemplateOutletContext]="{ $implicit: r }" />
-                </div>
-              </div>
-            }
-            @if (replyingTo() === item.entry.id) {
-              <div class="board-ev-replybox">
-                <div class="board-ev-replyto">
-                  <span>{{ item.question && !item.answered ? 'Answering' : 'Replying to' }} {{ who(item.entry) }}: “{{ quote(item.entry) }}”</span>
-                  <button type="button" class="board-link" title="Cancel" (click)="replyingTo.set(null)">✕</button>
-                </div>
-                <app-mention-editor [project]="project()" [cycleId]="cycleId()" [card]="card()" [attach]="card() ? { card: card()!.id } : null" [rows]="2" [cancellable]="true"
-                                    [submitLabel]="item.question && !item.answered ? 'Answer' : 'Reply'"
-                                    placeholder="Write your reply… type @ to mention, / for blocks" [draftKey]="card() ? 'reply:' + card()!.id + ':' + item.entry.id : null"
-                                    (submitted)="send(item, $event)"
-                                    (cancelled)="replyingTo.set(null)" />
-                @if (item.question && !item.answered) {
-                  <label class="board-ev-clear"><input type="checkbox" [checked]="clearDecision()" (change)="clearDecision.set($any($event.target).checked)" />
-                    Clear "Needs decision"{{ otherOpen(item) ? ' (' + otherOpen(item) + ' other question' + (otherOpen(item) === 1 ? '' : 's') + ' still open - stays on)' : '' }}</label>
+              <ng-container [ngTemplateOutlet]="copyMenu" [ngTemplateOutletContext]="{ $implicit: e }" />
+              <span class="board-editor-dd">
+                <button type="button" class="cd-ib" title="More: text direction, long lines, edit, history" (click)="toggleMenu('more', e.id)">⋯</button>
+                @if (menuOpen('more', e.id)) {
+                  <span class="board-editor-dd-menu cd-more-menu">
+                    <button type="button" class="board-editor-swatch" (click)="flipDir(e)">⇄ Text direction: {{ dirLabel(dirs.choice(e.id)) }}</button>
+                    <button type="button" class="board-editor-swatch" (click)="dirs.toggleWrap(e.id); menu.set(null)">{{ dirs.wraps(e.id) ? '⇥ Long lines: scroll sideways' : '⤶ Long lines: wrap' }}</button>
+                    @if (e.actor === 'USER' && card() && editable()) { <button type="button" class="board-editor-swatch" (click)="startEdit(e)">✎ Edit</button> }
+                    @if (item.edited && root) { <button type="button" class="board-editor-swatch" (click)="menu.set(null); showHistory(e)">🕘 Earlier texts</button> }
+                  </span>
                 }
+              </span>
+            </span>
+          </div>
+          @if (editingId() === e.id) {
+            <app-mention-editor [value]="e.text ?? ''" [project]="project()" [cycleId]="cycleId()" [card]="card()" [attach]="card() ? { card: card()!.id } : null" [rows]="4"
+                                [cancellable]="true" [enterSends]="false" submitLabel="Save" [draftKey]="card() ? 'edit:' + card()!.id + ':' + e.id : null"
+                                (submitted)="saveEdit(e, $event)" (cancelled)="editingId.set(null)" />
+            @if (error()) { <div class="run-msg run-msg-err">{{ error() }}</div> }
+          } @else {
+            <ng-container [ngTemplateOutlet]="body" [ngTemplateOutletContext]="{ $implicit: e }" />
+          }
+          @if (reactionsOf(e); as rs) {
+            @if (rs.length) {
+              <div class="board-ev-acts cd-reacts">
+                @for (r of rs; track r.emoji) {
+                  <button type="button" class="board-react" [class.mine]="r.mine" [disabled]="!editable()" [title]="reactionTitle(e, r)" (click)="react(e, r.emoji)">{{ r.emoji }} {{ r.count }}</button>
+                }
+                @if (goAhead(e, rs)) { <span class="board-dim">✅ go-ahead given</span> }
               </div>
             }
-          </div>
-        } @else {
-          <div class="board-ev sys" [attr.data-entry]="item.entry.id">
-            @for (seg of change(item.entry); track $index) {
-              @if (seg.mention; as m) { <app-mention-chip [mention]="m" [showPreview]="false" /> } @else { {{ seg.text }} }
-            } · {{ when(item.entry.at) }}
-          </div>
-        }
-      } @empty {
-        <div class="board-dim">No history yet.</div>
-      }
-    </div>
-    <ng-template #dirSwitch let-e>
-      <button type="button" class="board-link board-ev-dir" [class.on]="dirs.choice(e.id) !== 'auto'"
-              title="Text direction: auto (from its words), right-to-left or left-to-right - for you, in this browser" (click)="flipDir(e)">
-        {{ dirLabel(dirs.choice(e.id)) }}</button>
-      <button type="button" class="board-link board-ev-dir" [class.on]="dirs.wraps(e.id)"
-              [title]="dirs.wraps(e.id) ? 'Long lines wrap - click to keep table rows and code lines whole and scroll them sideways' : 'Table rows and code lines stay whole and scroll sideways - click to wrap them'"
-              (click)="dirs.toggleWrap(e.id)">{{ dirs.wraps(e.id) ? '⤶ Wrap' : '⇥ Scroll' }}</button>
+          }
+        </div>
+      </div>
     </ng-template>
     <ng-template #copyMenu let-e>
       <span class="board-editor-dd">
-        <button type="button" class="board-link" title="Copy this comment out - to mail, a chat or a document" (click)="toggleMenu('copy', e.id)">
-          {{ copied() === e.id ? '✓ copied' : '⧉ Copy' }}</button>
+        <button type="button" class="cd-ib" title="Copy this comment out - to mail, a chat or a document" (click)="toggleMenu('copy', e.id)">
+          {{ copied() === e.id ? '✓' : '⧉' }}</button>
         @if (menuOpen('copy', e.id)) {
           <span class="board-editor-dd-menu">
             <button type="button" class="board-editor-swatch" (click)="copy(e, 'rich')">Formatted (mail, Word, Teams)</button>
@@ -218,6 +242,13 @@ export class ActivityTimelineComponent {
   readonly project = input('');
   readonly cycleId = input<string | null>(null);
   readonly card = input<CardPickTarget | null>(null);
+  /** All, the conversation, or the changes (the drawer's filter). */
+  readonly filter = input<TimelineFilter>('all');
+  readonly newestFirst = input(false);
+  /** Find in the activity: only the threads that hold it. */
+  readonly query = input('');
+  /** Entries after this, not the user's own, are new since the user last looked (null: nothing is). */
+  readonly newSince = input<string | null>(null);
   private readonly host = inject(ElementRef<HTMLElement>);
   private readonly mentions = inject(BoardMentionsService);
 
@@ -228,6 +259,12 @@ export class ActivityTimelineComponent {
       if (id === null || !this.entries().some((e) => e.id === id)) return;
       untracked(() => {
         this.mentions.entryToShow.set(null);
+        // the entry may sit in the earlier history or among a long thread's hidden middle replies: show both first
+        const thread = this.items().find((i) => i.entry.id === id || i.replies.some((r) => r.id === id));
+        if (thread) {
+          this.recent.set(Infinity);
+          this.openMiddle(thread.entry.id);
+        }
         setTimeout(() => {
           const el = (this.host.nativeElement as HTMLElement).querySelector(`[data-entry="${id}"]`) as HTMLElement | null;
           if (!el) return;
@@ -270,15 +307,30 @@ export class ActivityTimelineComponent {
   /** Open the questions dialog (a question with options is answered there). */
   readonly answerQuestions = output<void>();
   private readonly injector = inject(Injector);
+  private readonly replyBox = viewChild<MentionEditorComponent>('replyBox');
   readonly reactions = REACTIONS;
 
   readonly items = computed(() => historyThreads(this.entries()));
+  /** How many of the latest threads show; the earlier history comes in a page at a time (a long card stays light). */
+  readonly recent = signal(RECENT_THREADS);
+  /** Older history waits behind the "Show N earlier" line (the drawer brings it in when the user scrolls up to it). */
+  readonly hasEarlier = computed(() => this.rows().some((r) => r.kind === 'earlier'));
+  readonly middleOpen = signal<ReadonlySet<number>>(new Set());
+  readonly openChanges = signal<ReadonlySet<string>>(new Set());
+  readonly rows = computed(() => timelineRows(this.items(), {
+    filter: this.filter(), newestFirst: this.newestFirst(), query: this.query(), newSince: this.newSince(), recent: this.recent(),
+    now: new Date(), textOf: (e) => textAsPlain(e.text),
+  }));
+  showMore(): void {
+    this.recent.update((n) => n + EARLIER_PAGE);
+  }
+
   readonly replyingTo = signal<number | null>(null);
   readonly clearDecision = signal(true);
   readonly editingId = signal<number | null>(null);
   readonly error = signal<string | null>(null);
   /** The open menu: a reaction picker or the copy menu, of one entry. */
-  private readonly menu = signal<{ kind: 'react' | 'copy'; id: number } | null>(null);
+  readonly menu = signal<{ kind: 'react' | 'copy' | 'more'; id: number } | null>(null);
   readonly copied = signal<number | null>(null);
   /** Long comments the user opened in full. */
   readonly expanded = signal<ReadonlySet<number>>(new Set());
@@ -297,12 +349,16 @@ export class ActivityTimelineComponent {
     return `${r.mine ? 'You reacted' : 'Reacted'} ${r.emoji}${go}${this.editable() ? (r.mine ? ' · click to take it back' : ' · click to add yours') : ''}`;
   }
 
-  menuOpen(kind: 'react' | 'copy', id: number): boolean {
+  menuFor(id: number): boolean {
+    return this.menu()?.id === id;
+  }
+
+  menuOpen(kind: 'react' | 'copy' | 'more', id: number): boolean {
     const m = this.menu();
     return !!m && m.kind === kind && m.id === id;
   }
 
-  toggleMenu(kind: 'react' | 'copy', id: number): void {
+  toggleMenu(kind: 'react' | 'copy' | 'more', id: number): void {
     this.menu.set(this.menuOpen(kind, id) ? null : { kind, id });
   }
 
@@ -370,9 +426,40 @@ export class ActivityTimelineComponent {
     return text.replace(/\{\{([\w.-]+)\}\}/g, (all, name: string) => (values[name] !== undefined && !vars.isSecret(name) ? values[name] : all));
   }
 
+  isNew(e: ActivityEntry): boolean {
+    return isNewEntry(e, this.newSince());
+  }
+
+  shownReplies(item: HistoryItem): ReturnType<typeof visibleReplies> {
+    return visibleReplies(item.replies, this.middleOpen().has(item.entry.id));
+  }
+
+  openMiddle(id: number): void {
+    this.middleOpen.update((s) => new Set(s).add(id));
+  }
+
+  openChange(key: string): void {
+    this.openChanges.update((s) => new Set(s).add(key));
+  }
+
+  /** "Claude added Frontend; moved Inbox → To do" - the first two changes of a run, for its one line. */
+  changesSummary(run: readonly HistoryItem[]): string {
+    const lines = run.slice(0, 2).map((c) => this.change(c.entry).map((s) => s.text ?? s.mention?.label ?? '').join('').trim());
+    return lines.join('; ') + (run.length > 2 ? '…' : '');
+  }
+
+  /** ✅ from the user on Claude's comment: Claude may go ahead. */
+  goAhead(e: ActivityEntry, rs: readonly Reaction[]): boolean {
+    return e.actor === 'CLAUDE' && rs.some((r) => r.emoji === '✅' && r.mine);
+  }
+
+
   startReply(item: HistoryItem): void {
+    this.menu.set(null);
     this.clearDecision.set(true);
     this.replyingTo.set(item.entry.id);
+    // ready to type at once, as after clicking into a box
+    afterNextRender(() => this.replyBox()?.focus(), { injector: this.injector });
   }
 
   send(item: HistoryItem, text: string): void {
@@ -387,13 +474,17 @@ export class ActivityTimelineComponent {
   }
 
   who(e: ActivityEntry): string {
-    return e.actor === 'CLAUDE' ? '✦ Claude' : 'You';
+    return e.actor === 'CLAUDE' ? 'Claude' : 'You';
   }
 
-  quote(e: ActivityEntry): string {
+  name(e: ActivityEntry): string {
+    return this.who(e);
+  }
+
+  quote(e: ActivityEntry, max = 80): string {
     const plain = textAsPlain(withoutBlocks(e.text)).replace(/^\*\*(Did|Found|Next|Impact|Reply|Question|Answers|Withdrawn)\*\*\s*/, '').replace(/@\[[a-z]+:[^|\]]*\|([^\]]*)\]/g, '$1')
       .replace(/\s+/g, ' ').trim();
-    return plain.length > 80 ? `${plain.slice(0, 80)}…` : plain;
+    return plain.length > max ? `${plain.slice(0, max)}…` : plain;
   }
 
   flipDir(e: ActivityEntry): void {
@@ -426,6 +517,15 @@ export class ActivityTimelineComponent {
   }
 
   when(iso: string): string {
+    return this.full(iso);
+  }
+
+  /** The time of day - the day is in the divider above. */
+  time(iso: string): string {
+    return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+
+  full(iso: string): string {
     const d = new Date(iso);
     return `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
   }

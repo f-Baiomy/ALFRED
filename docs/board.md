@@ -32,6 +32,60 @@ The board (specs/014-task-board) tracks bugs, tasks, notes and questions next to
 - **Done and Closed cards are kept forever.** Only the user deletes a card, after a confirmation. A deleted card takes its history and mention rows with it.
 - **Undo** (`POST /board/cards/{id}/undo-close`): the toast offers it for 7 s, and the server allows it for 60 s. It restores the state recorded in the close's own RESOLUTION entry, and only while nothing but a reason was added after the close.
 
+### The card drawer (specs/023)
+
+`card-drawer.component.ts`, frontend only. Mocks and plan: `specs/023-card-redesign/`.
+
+- **Header**:
+  - One bar holds:
+    - `#N` (click copies it), the kind, ✦ Claude, the cycle by name (looked up once, the id on hover);
+    - waiting and ❓ N;
+    - ▶ run;
+    - ⋯: Copy as issue, Copy cycle id, Expand/Fold all, Compact spacing, Keyboard shortcuts, Delete card…;
+    - ‹ › (the previous/next card in the same column, `siblings` from `board-view`), the view icons and ✕.
+  - Below the bar: the title, "Mentioned as", and one line of chips (Status, Kind, Scope, the flags that are on + "⚑ +", teams + "+ team").
+  - The **journey**: Inbox › … › Done, built from STATUS entries, with ✓ only on steps the card really went through. Click a step to move the card (the same path as the Status picker).
+  - Once the body scrolls, the header shrinks to one line. The full header stays rendered (hidden), so ▶ and R keep working.
+  - The shrunk header opens in place: its title, ▾ or the ⚠ pill shows the whole header and "Needs you" above the activity without scrolling it. ▴, or scrolling on by more than 80 px, shrinks it again.
+- **Needs you** comes first, and only when something waits on the user: a proposal, open questions, a blocker, a failing re-test.
+  - Context-only notes ("looks like #N", the reason) fold inside it. Alone, they show as a closed "Notes" line.
+  - Folding it is remembered per card, so a new proposal on another card is never hidden.
+- **Side view tabs**: Activity · Details · Links · Re-test, with counts and state (● new, 🔒 blocked, the re-test verdict).
+  - Activity opens by default when the card has comments; otherwise Details.
+  - `app-card-retest` stays rendered off its tab, because its verdict fills the tab label and the "needs you" row.
+  - Full screen and the window use the same tabs as the side view, across their whole width.
+- **Sections** fold by what the card holds:
+  - Description is open, folded to its first lines only when long.
+  - Attached is open. Runs is closed.
+  - The user's own choice is kept in this browser (`alfred.card.sections`, try/catch).
+- **Activity** (`activity-timeline`, `shared/utils/timeline-view.ts`):
+  - Day dividers. Each comment and its replies form one thread; runs of changes collapse into one dim line.
+  - It opens like a chat: at the first comment that is new since the user looked (`BoardSeenService.seenAt`, read
+    before the card is marked seen; times compared as instants), else at the latest; it stays at the latest as answers
+    arrive unless the user scrolled away ("↓ Latest" brings them back). Claude's live work sits at the bottom.
+  - Only the last five threads are drawn at first; the older history comes in above, 15 threads at a time, when the
+    user scrolls up to it (or clicks "Show N earlier"), with the thread in view kept in place. An open question or
+    anything new is never left out of the first part. The timeline is OnPush (all signals), so scrolling, typing and
+    hovering in the drawer never re-check a long history.
+  - A thread with more than four replies shows its last two; the earlier ones open on request.
+  - A comment's actions (react, reply, copy, ⋯ direction/wrap/edit/history) show on hover.
+  - Filter (All · Comments · Changes), ⇅ newest first, 🔍 find - the bar stays in view (under the tabs) while scrolling.
+  - A reference to a comment shows the earlier history and the thread's hidden replies before scrolling to it.
+- **Comment box**: the compact editor (one line, the formatting behind "Aa"), with "✓ draft saved" shown while a draft is kept.
+  - Quick replies appear while Claude waits on the user:
+    - ✅ Go ahead - a ✅ on Claude's latest comment, offered only while the user's ✅ is not on it yet;
+    - Answer the questions;
+    - Explain more / Not now - replies to Claude's latest comment.
+- **Keys** while a card is open (none clashes with the board's card keys):
+  - Shift+1–4: the tabs.
+  - `[` `]`: the previous/next card.
+  - `/`: the comment box.
+  - `E`: edit the description.
+  - `?`: this list.
+  - R / C / ⇧R: run, copy the prompt, edit the prompt (as before).
+
+  `board-view` leaves `?`, `/`, `[` and `]` to the drawer while a card is open.
+
 ## Teams
 
 Every card can be assigned to one or more **teams** (Settings → Teams, stored in board.db's `teams` table; a card keeps

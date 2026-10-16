@@ -143,6 +143,8 @@ export class CardRetestComponent {
     const d = this.data();
     return d && d.check.verdict !== 'NOT_CHECKABLE' ? retestChip(d.check) : null;
   });
+  /** The verdict for the drawer's Re-test tab and its "needs you" row (specs/023). */
+  readonly verdict = output<{ readonly text: string; readonly tone: 'pass' | 'fail' | 'part' | 'wait' } | null>();
   /** Suggested expectations not in the plan yet (FR-9). */
   readonly suggestions = computed(() => {
     const d = this.data();
@@ -158,6 +160,10 @@ export class CardRetestComponent {
       const id = this.card().id;
       this.version();
       untracked(() => this.load(id));
+    });
+    effect(() => {
+      const chip = this.chip();
+      untracked(() => this.verdict.emit(chip));
     });
   }
 

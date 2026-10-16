@@ -261,7 +261,7 @@ test('a change on a card of the cycle goes to the terminal session that answers 
     await runner.idle();
     await runner.chatLane.pending.get('c:1')?.reporter.flush();
     const reports = w.fake.board.liveWork;
-    assert.ok(reports.some((r: any) => /sent to your terminal/.test(r.head ?? '') && r.state === 'WORKING'), JSON.stringify(reports));
+    assert.ok(reports.some((r: any) => /waiting for your terminal/.test(r.head ?? '') && r.state === 'WORKING'), JSON.stringify(reports));
     runner.chatLane.stop();
     assert.ok(!existsSync(promptFile), 'no claude run for a card of the cycle');
     const line = chat.find((l: string) => l.startsWith('✉ #1 '));

@@ -19,6 +19,7 @@ class FakeEditorComponent {
   readonly draftKey = input<string | null>(null);
   readonly value = input('');
   readonly enterSends = input(true);
+  readonly compact = input(false);
   readonly submitted = output<string>();
   readonly cancelled = output<void>();
 }
@@ -39,7 +40,7 @@ describe('ActivityTimelineComponent', () => {
   }
 
   function buttons(fixture: ReturnType<typeof create>): HTMLButtonElement[] {
-    return [...fixture.nativeElement.querySelectorAll('.board-ev-acts button')];
+    return [...fixture.nativeElement.querySelectorAll('.cd-thread-foot button')];
   }
 
   it('gives a comment\'s snippets the same context object on every check (a new one each time froze the page)', () => {
@@ -61,9 +62,9 @@ describe('ActivityTimelineComponent', () => {
   it('shows replies under their comment, and an open question with Answer', () => {
     const fixture = create([e(1, 'USER', 'why?'), e(2, 'CLAUDE', '**Reply** because', 1), e(3, 'CLAUDE', '**Question** which?')]);
     expect(fixture.nativeElement.querySelectorAll('.board-ev-reply').length).toBe(1);
-    expect(fixture.nativeElement.textContent).toContain('1 reply');
     expect(fixture.nativeElement.querySelector('.board-ev-badge').textContent).toContain('waiting for you');
-    expect(buttons(fixture).map((b) => b.textContent!.trim())).toContain('↩ Answer');
+    expect(buttons(fixture).map((b) => b.textContent!.trim())).toContain('↩ Answer in your own words…');
+    expect(buttons(fixture).map((b) => b.textContent!.trim())).toContain('Reply…');
   });
 
   it('an answer carries the question it answers and clears Needs decision by default', () => {
@@ -92,5 +93,75 @@ describe('ActivityTimelineComponent', () => {
     const fixture = create([e(1, 'USER', 'note'), e(2, 'CLAUDE', '**Reply** ok', 1)], false);
     expect(fixture.nativeElement.querySelectorAll('.board-ev-reply').length).toBe(1);
     expect(buttons(fixture).filter((b) => /Reply|Answer|Edit|☺/.test(b.textContent ?? '')).length).toBe(0); // ⧉ Copy stays: reading
+  });
+  // ------------------------------------------------------------------------------------------- specs/023 layout
+  function at(id: number, actor: ActivityEntry['actor'], text: string, when: string, replyTo: number | null = null): ActivityEntry {
+    return { ...e(id, actor, text, replyTo), at: when };
+  }
+
+  it('shows the last five threads whole and the older history behind one "Show N earlier" line - never an open question', () => {
+    const t = (id: number, day: number, text: string) => at(id, 'USER', text, `2026-10-${String(day).padStart(2, '0')}T09:00:00Z`);
+    const many = [1, 2, 3, 4, 5, 6, 7, 8].map((n) => t(n, n + 1, `thread ${n}`));
+    const fixture = create(many);
+    const earlier = () => fixture.nativeElement.querySelector('.cd-earlier') as HTMLButtonElement | null;
+    expect(fixture.nativeElement.querySelectorAll('.cd-thread').length).toBe(5);
+    expect(earlier()!.textContent).toContain('Show 3 earlier threads');
+    earlier()!.click();
+    fixture.detectChanges();
+    expect(earlier()).toBeNull();
+    expect(fixture.nativeElement.querySelectorAll('.cd-thread').length).toBe(8);
+
+    TestBed.resetTestingModule();
+    const withQuestion = create([at(20, 'CLAUDE', '**Question** still open?', '2026-10-01T09:00:00Z'), ...many]);
+    expect(withQuestion.nativeElement.querySelector('.cd-earlier')).toBeNull();
+    expect(withQuestion.nativeElement.querySelectorAll('.cd-thread').length).toBe(9);
+  });
+
+  it('brings a long history in a page at a time, never all at once', () => {
+    const many = Array.from({ length: 30 }, (_, n) => at(n + 1, 'USER', `thread ${n + 1}`, `2026-10-01T${String(n % 24).padStart(2, '0')}:00:00Z`));
+    const fixture = create(many);
+    const earlier = () => fixture.nativeElement.querySelector('.cd-earlier') as HTMLButtonElement | null;
+    earlier()!.click();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('.cd-thread').length).toBe(20);
+    expect(earlier()!.textContent).toContain('Show 10 earlier threads');
+  });
+
+  it('marks what is new since the user looked, and never folds it', () => {
+    const fixture = create([
+      at(1, 'USER', 'old', '2026-10-01T09:00:00Z'), at(2, 'CLAUDE', '**Reply** new answer', '2026-10-05T09:00:00Z', 1),
+      at(3, 'USER', 'x', '2026-10-06T09:00:00Z'), at(4, 'USER', 'y', '2026-10-07T09:00:00Z'),
+    ]);
+    fixture.componentRef.setInput('newSince', '2026-10-04T00:00:00Z');
+    fixture.detectChanges();
+    const fresh = fixture.nativeElement.querySelectorAll('[data-new]');
+    expect(fresh.length).toBe(1);
+    expect(fresh[0].textContent).toContain('new answer');
+  });
+
+  it('a long thread shows its last two replies and opens the middle on request', () => {
+    const replies = [2, 3, 4, 5, 6].map((id) => at(id, id % 2 ? 'USER' : 'CLAUDE', `reply ${id}`, `2026-10-01T09:0${id}:00Z`, 1));
+    const fixture = create([at(1, 'USER', 'root', '2026-10-01T09:00:00Z'), ...replies]);
+    expect(fixture.nativeElement.querySelectorAll('.board-ev-reply').length).toBe(2);
+    const more = fixture.nativeElement.querySelector('.cd-more') as HTMLButtonElement;
+    expect(more.textContent).toContain('3 more replies');
+    more.click();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('.board-ev-reply').length).toBe(5);
+  });
+
+  it('filters to the changes, gathers a run of them into one line, and finds text in the threads', () => {
+    const change = (id: number, when: string): ActivityEntry => ({ id, cardId: 'k', actor: 'USER', kind: 'STATUS', text: null, oldValue: 'INBOX', newValue: 'TO_DO', at: when });
+    const fixture = create([change(10, '2026-10-01T08:00:00Z'), change(11, '2026-10-01T08:01:00Z'), at(1, 'USER', 'about the SQL', '2026-10-01T09:00:00Z'),
+      at(2, 'USER', 'about the page', '2026-10-01T10:00:00Z')]);
+    expect(fixture.nativeElement.querySelector('.cd-changes').textContent).toContain('2 changes');
+    fixture.componentRef.setInput('filter', 'changes');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('.cd-thread').length).toBe(0);
+    fixture.componentRef.setInput('filter', 'all');
+    fixture.componentRef.setInput('query', 'sql');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('.cd-thread').length).toBe(1);
+    expect(fixture.nativeElement.querySelector('.cd-changes')).toBeNull();
   });
 });

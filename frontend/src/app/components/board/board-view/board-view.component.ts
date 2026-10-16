@@ -2,7 +2,7 @@ import { Component, DestroyRef, HostListener, computed, effect, inject, input, s
 import { VerifyGuardService } from '../../../core/services/verify-guard.service';
 import { Title } from '@angular/platform-browser';
 import {
-  ALL_STATUSES, Actor, BoardFilters, NO_TEAM, BulkAction, CardKind, CardSummary, FLAGS, FLAG_LABELS, Flag, KINDS, OPEN_STATUSES, Resolution, Waiting,
+  ALL_STATUSES, Actor, BoardFilters, NO_TEAM, BulkAction, CardKind, CardSummary, FLAGS, FLAG_LABELS, Flag, KINDS, OPEN_STATUSES, Resolution, STATUS_LABELS, Waiting,
 } from '../../../core/models/board.models';
 import { BoardNotifyService } from '../../../core/services/board-notify.service';
 import { ConfirmDialogService } from '../../../core/services/confirm-dialog.service';
@@ -24,7 +24,7 @@ import { BoardHelpComponent } from '../board-help/board-help.component';
 import { BoardListViewComponent } from '../board-list-view/board-list-view.component';
 import { BoardProgressComponent } from '../board-progress/board-progress.component';
 import { BulkBarComponent } from '../bulk-bar/bulk-bar.component';
-import { CardDrawerComponent } from '../card-drawer/card-drawer.component';
+import { CardDrawerComponent, CardSiblings } from '../card-drawer/card-drawer.component';
 import { LiveStripComponent } from '../live-strip/live-strip.component';
 import { QuickAddComponent } from '../quick-add/quick-add.component';
 import { TriageDecision, TriageDialogComponent } from '../triage-dialog/triage-dialog.component';
@@ -143,7 +143,7 @@ import { BoardPagesComponent } from '../visuals/board-pages.component';
     }
     @if (state.openCardId(); as id) {
       <app-card-drawer [cardId]="id" [version]="state.openCardVersion()" [editable]="state.editable()" [inCycle]="!!cycleId()" [layout]="layout()"
-                       (modeChange)="changeMode(id, $event)" (closed)="closeCard()" (retestRequested)="retest.start([$event])" (closeRequested)="state.close($event, $event.resolution)" />
+                       [siblings]="openSiblings()" (step)="stepCard($event)" (modeChange)="changeMode(id, $event)" (closed)="closeCard()" (retestRequested)="retest.start([$event])" (closeRequested)="state.close($event, $event.resolution)" />
     }`,
 })
 export class BoardViewComponent {
@@ -193,6 +193,21 @@ export class BoardViewComponent {
   readonly progressLabel = computed(() => (this.cycleId() ? this.cycleName() ?? this.cycleId()! : this.project() || 'No project'));
   readonly sortedForList = computed(() => [...this.state.cards()].sort((a, b) =>
     ALL_STATUSES.indexOf(a.status) - ALL_STATUSES.indexOf(b.status) || b.updatedAt.localeCompare(a.updatedAt)));
+  /** The open card's neighbours in its column, in the list's order (the drawer's ‹ › and [ ]). */
+  readonly openSiblings = computed<CardSiblings | null>(() => {
+    const id = this.state.openCardId();
+    const me = id ? this.state.cards().find((c) => c.id === id) : undefined;
+    if (!me) return null;
+    const column = this.sortedForList().filter((c) => c.status === me.status);
+    const at = column.findIndex((c) => c.id === me.id);
+    return { prev: column[at - 1]?.id ?? null, next: column[at + 1]?.id ?? null, index: at, total: column.length, column: STATUS_LABELS[me.status] };
+  });
+
+  stepCard(id: string): void {
+    this.state.focusedId.set(id);
+    this.state.open(id);
+  }
+
   /** Cards in the order J/K walks them: the board's columns left to right, or the list's rows. */
   private readonly walkOrder = computed(() => this.sortedForList());
 
@@ -446,6 +461,8 @@ export class BoardViewComponent {
       return;
     }
     if (document.querySelector('.dialog-backdrop')) return;
+    // an open card has its own ? (its keys), / (its comment box) and [ ] (the next card) - specs/023
+    if (this.state.openCardId() && ['?', '/', '[', ']'].includes(event.key)) return;
     const key = event.key.toLowerCase();
     if (key === '?') {
       this.help.set(true);

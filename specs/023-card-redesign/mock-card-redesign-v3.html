@@ -1,0 +1,909 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Card Redesign v3</title>
+<style>
+
+:root {
+  --bg: #12151b; --panel: #1a1e26; --panel2: #20252f; --line: #2c3340; --line2: #394152;
+  --fg: #e3e7ee; --dim: #8b94a5; --dim2: #6a7384; --acc: #6ea8fe; --acc-bg: #1d3150;
+  --ok: #52c08a; --ok-bg: #173728; --warn: #e6b450; --warn-bg: #3a2f14; --bad: #ef6f6c; --bad-bg: #3b1d1f;
+  --ai: #b79cff; --ai-bg: #2b2442; --teal: #4fd1c5; --task: #2f9e8f;
+  --r: 8px; --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.45 "Segoe UI", system-ui, sans-serif; }
+.wrap { max-width: 1320px; margin: 0 auto; padding-inline: 16px; padding-block: 16px 60px; }
+h1 { font-size: 20px; margin: 0 0 4px; }
+.sub { color: var(--dim); margin: 0 0 14px; max-width: 80ch; }
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; position: sticky; top: 0; background: var(--bg); padding-block: 8px; z-index: 5; border-bottom: 1px solid var(--line); }
+.tabs button { background: var(--panel); color: var(--dim); border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; cursor: pointer; font: inherit; font-size: 13px; }
+.tabs button.on { background: var(--acc-bg); color: var(--fg); border-color: var(--acc); }
+.page { display: none; padding-top: 16px; }
+.page.on { display: block; }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; align-items: start; }
+@media (max-width: 960px) { .pair { grid-template-columns: 1fr; } }
+.pane { min-width: 0; }
+.pane > .lbl { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); margin-bottom: 6px; display: flex; gap: 8px; align-items: center; }
+.pane > .lbl b { color: var(--bad); } .pane.after > .lbl b { color: var(--ok); }
+.why { margin-top: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 10px 14px; }
+.why h3 { font-size: 13px; margin: 0 0 6px; color: var(--dim); text-transform: uppercase; letter-spacing: .06em; }
+.why ul { margin: 0; padding-left: 18px; } .why li { margin: 3px 0; }
+.why li .k { color: var(--ok); }
+.note { color: var(--dim); font-size: 12px; margin-top: 6px; }
+
+/* ------------------------------------------------ shared bits */
+.btn { background: var(--panel2); color: var(--fg); border: 1px solid var(--line2); border-radius: 6px; padding: 3px 10px; font: inherit; font-size: 13px; cursor: pointer; }
+.btn.primary { background: var(--acc); color: #0b1220; border-color: var(--acc); font-weight: 600; }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--dim); }
+.btn.ghost:hover { color: var(--fg); background: var(--panel2); }
+.lnk { color: var(--acc); background: none; border: 0; padding: 0; font: inherit; font-size: 12px; cursor: pointer; }
+.pill { display: inline-flex; align-items: center; gap: 4px; border-radius: 999px; padding: 1px 9px; font-size: 12px; border: 1px solid var(--line2); background: var(--panel2); white-space: nowrap; }
+.kind { background: #18403b; color: #7fe3d3; border: 0; font-weight: 700; font-size: 11px; letter-spacing: .05em; border-radius: 4px; padding: 1px 6px; }
+.ai { color: var(--ai); }
+.dim { color: var(--dim); }
+code, .mono { font-family: var(--mono); font-size: 12px; background: #252b36; border-radius: 4px; padding: 0 4px; }
+
+/* ------------------------------------------------ BEFORE (faithful to today) */
+.old { background: #1b1f27; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; font-size: 14px; }
+.old .head { padding: 14px 18px 10px; border-bottom: 1px solid var(--line); position: relative; }
+.old .x { position: absolute; right: 14px; top: 12px; color: var(--dim); font-size: 18px; }
+.old .seg { position: absolute; right: 44px; top: 12px; display: flex; border: 1px solid var(--line2); border-radius: 6px; overflow: hidden; font-size: 12px; }
+.old .seg span { padding: 2px 8px; color: var(--dim); } .old .seg span.on { background: var(--acc); color: #0b1220; }
+.old .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0; }
+.old .cyc { color: var(--teal); font-size: 19px; word-break: break-all; }
+.old .title { font-size: 19px; font-weight: 700; margin: 8px 0 4px; line-height: 1.3; }
+.old .ctl { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin: 8px 0; color: var(--dim); }
+.old .sel { background: #252b36; color: var(--fg); border-radius: 5px; padding: 3px 10px; font-weight: 600; margin-left: 6px; }
+.old .tog { border: 1px solid var(--line2); color: var(--dim2); border-radius: 999px; padding: 1px 10px; font-size: 12px; }
+.old .team { border: 1px solid; border-radius: 999px; padding: 1px 8px; font-size: 12px; }
+.old .body { padding: 12px 18px; }
+.old h4 { margin: 14px 0 6px; font-size: 14px; }
+.old .ev { border-left: 3px solid #4b6fae; margin: 10px 0 10px 8px; padding-left: 12px; }
+.old .who { color: var(--dim); font-size: 12px; display: flex; gap: 8px; }
+.old .who .r { margin-left: auto; color: var(--dim2); }
+.old .bubble { background: #20252f; border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; margin-top: 6px; display: grid; grid-template-columns: 70px 1fr; gap: 10px; }
+.old .bubble .tag { color: var(--acc); font-size: 11px; font-weight: 700; letter-spacing: .06em; padding-top: 2px; }
+.old .acts { display: flex; gap: 16px; font-size: 13px; color: var(--acc); margin: 6px 0 0 4px; }
+.old .comp { border-top: 1px solid var(--line); padding: 10px 18px 12px; background: #181c23; }
+.old .tb { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--dim); font-size: 13px; border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; }
+.old .tb .sty { border: 1px solid var(--line2); border-radius: 4px; padding: 0 30px 0 6px; }
+.old .ta { border: 1px solid var(--line2); border-radius: 6px; height: 62px; margin-top: 8px; padding: 8px 10px; color: var(--dim2); }
+.old .foot { display: flex; align-items: center; gap: 8px; margin-top: 8px; color: var(--dim2); font-size: 12px; }
+.old .foot .sp { flex: 1; }
+.old .tools { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.old .run { border: 1px solid var(--line2); border-radius: 6px; padding: 2px 8px; font-size: 13px; }
+.old .chip { display: inline-block; border: 1px solid var(--line2); border-radius: 999px; padding: 1px 8px; font-size: 12px; margin: 2px 4px 2px 0; }
+.old .sysline { color: var(--dim); font-size: 12px; margin: 6px 0; }
+.old .scrollhint { height: 0; border-top: 2px dashed var(--bad); margin: 0 -18px; position: relative; }
+.old .scrollhint span { position: absolute; right: 18px; top: -11px; background: var(--bad-bg); color: var(--bad); font-size: 11px; padding: 0 6px; border-radius: 4px; }
+
+/* ------------------------------------------------ AFTER */
+.new { background: #1b1f27; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; }
+.new.side { height: 860px; }
+.new .h { padding: 10px 14px 8px; border-bottom: 1px solid var(--line); background: #1d222b; }
+.new .bar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.new .bar .sp { flex: 1; }
+.num { font-family: var(--mono); font-size: 12px; font-weight: 700; background: var(--panel2); border: 1px solid var(--line2); color: var(--fg); border-radius: 5px; padding: 1px 6px; cursor: pointer; }
+.num.ok { border-color: var(--ok); color: var(--ok); }
+.cy { color: var(--teal); font-size: 12px; cursor: pointer; border-radius: 4px; padding: 0 4px; }
+.cy:hover { background: #163533; }
+.icon { width: 28px; height: 28px; border-radius: 6px; border: 1px solid transparent; background: none; color: var(--dim); display: inline-grid; place-items: center; cursor: pointer; font-size: 14px; position: relative; }
+.icon:hover, .icon.on { color: var(--fg); background: var(--panel2); border-color: var(--line2); }
+.new .t { font-size: 17px; font-weight: 650; line-height: 1.3; margin: 8px 0 2px; text-wrap: balance; cursor: text; border-radius: 4px; }
+.new .t:hover { background: #222833; }
+.aka { color: var(--dim); font-size: 12px; display: flex; gap: 6px; align-items: center; }
+.aka b { color: var(--fg); font-weight: 600; }
+.aka .ed { opacity: 0; } .aka:hover .ed { opacity: 1; }
+.props { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; align-items: center; }
+.prop { display: inline-flex; align-items: center; gap: 5px; background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; font-size: 12.5px; cursor: pointer; position: relative; }
+.prop:hover { border-color: var(--line2); }
+.prop .k { color: var(--dim); }
+.prop .v { font-weight: 600; }
+.prop.st-done .v { color: var(--ok); } .prop.st-done { border-color: #245a40; }
+.prop.dash { border-style: dashed; color: var(--dim); background: transparent; }
+.flag { border-radius: 999px; padding: 1px 8px; font-size: 12px; font-weight: 600; }
+.flag.URGENT { background: var(--bad-bg); color: var(--bad); } .flag.RISK { background: var(--warn-bg); color: var(--warn); }
+.flag.BLOCKER { background: #3b1d33; color: #f08ac8; } .flag.AFFECTS_PROJECT { background: #23304a; color: var(--acc); }
+.flag.NEEDS_DECISION { background: var(--ai-bg); color: var(--ai); }
+.tm { display: inline-flex; gap: 4px; align-items: center; border-radius: 999px; padding: 1px 8px; font-size: 12px; border: 1px solid; }
+.tm .xx { opacity: 0; cursor: pointer; } .tm:hover .xx { opacity: .8; }
+.menu { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; min-width: 210px; background: #222833; border: 1px solid var(--line2); border-radius: 8px; padding: 4px; box-shadow: 0 10px 30px #0008; display: none; text-align: left; }
+.menu.r { left: auto; right: 0; }
+.menu.open { display: block; }
+.menu button, .menu .mi { display: flex; width: 100%; gap: 8px; align-items: center; background: none; border: 0; color: var(--fg); font: inherit; font-size: 13px; padding: 5px 8px; border-radius: 5px; cursor: pointer; text-align: left; }
+.menu button:hover { background: var(--panel2); }
+.menu .sep { height: 1px; background: var(--line); margin: 4px 0; }
+.menu .grp { font-size: 11px; color: var(--dim); padding: 4px 8px 2px; text-transform: uppercase; letter-spacing: .06em; }
+.menu .danger { color: var(--bad); }
+.menu kbd { margin-left: auto; color: var(--dim); font-size: 11px; font-family: var(--mono); }
+.menu .chk { width: 14px; color: var(--ok); }
+.attn { margin-top: 8px; display: grid; gap: 6px; }
+.callout { border-radius: 8px; padding: 5px 10px; font-size: 13px; display: grid; gap: 4px; }
+.callout.ai { background: var(--ai-bg); border: 1px solid #4a3d73; }
+.callout.q { background: var(--warn-bg); border: 1px solid #6b5520; }
+.callout.sim { background: #2d2620; border: 1px solid #5a4630; }
+.callout.reason { background: var(--panel2); border: 1px solid var(--line); }
+.callout .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.callout .row .sp { flex: 1; }
+.scroll { flex: 1; overflow: auto; }
+.navtabs { display: flex; gap: 2px; padding: 0 10px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: #1b1f27; z-index: 3; }
+.navtabs button { background: none; border: 0; color: var(--dim); font: inherit; font-size: 13px; padding: 8px 10px; cursor: pointer; border-bottom: 2px solid transparent; }
+.navtabs button.on { color: var(--fg); border-bottom-color: var(--acc); }
+.navtabs .n { font-size: 11px; background: var(--panel2); border-radius: 999px; padding: 0 6px; margin-left: 4px; color: var(--dim); }
+.sec { padding: 10px 14px; border-bottom: 1px solid #232933; }
+.sec > .sh { display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+.sec > .sh h5 { margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: var(--dim); font-weight: 600; }
+.sec > .sh .cnt { font-size: 11px; color: var(--dim); }
+.sec > .sh .sp { flex: 1; }
+.sec > .sh .car { color: var(--dim); transition: transform .15s; }
+.sec.closed > .sh .car { transform: rotate(-90deg); }
+.sec.closed > .sb { display: none; }
+.sec > .sb { margin-top: 8px; }
+.sum { color: var(--dim); font-size: 12px; }
+.sec.closed .sum { display: inline; } .sec:not(.closed) .sum { display: none; }
+.desc { font-size: 14px; } .desc p { margin: 0 0 8px; }
+.att { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.att .pill { cursor: pointer; }
+.mchip { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--line2); background: #1f2530; border-radius: 6px; padding: 1px 7px; font-size: 12px; margin: 2px 4px 2px 0; }
+.mchip .ic { color: var(--acc); }
+.mchip.st-bad .ic { color: var(--bad); }
+.kv { display: grid; grid-template-columns: 92px 1fr; gap: 6px 10px; font-size: 13px; align-items: start; }
+.kv > .k { color: var(--dim); font-size: 12px; padding-top: 2px; }
+/* activity */
+.afilter { display: flex; gap: 4px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+.afilter button { background: var(--panel2); border: 1px solid var(--line); color: var(--dim); border-radius: 999px; padding: 1px 10px; font: inherit; font-size: 12px; cursor: pointer; }
+.afilter button.on { color: var(--fg); border-color: var(--acc); }
+.afilter .sp { flex: 1; }
+.c { display: grid; grid-template-columns: 26px 1fr; gap: 0 8px; margin: 10px 0; position: relative; }
+.av { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 700; }
+.av.cl { background: var(--ai-bg); color: var(--ai); } .av.me { background: var(--acc-bg); color: var(--acc); }
+.c .top { display: flex; gap: 6px; align-items: baseline; font-size: 12.5px; min-height: 22px; }
+.c .top b { font-weight: 600; }
+.c .top .when { color: var(--dim); font-size: 12px; }
+.c .hov { margin-left: auto; display: flex; gap: 2px; opacity: 0; transition: opacity .12s; position: relative; }
+.c:hover .hov, .c .hov.keep { opacity: 1; }
+.c .hov .icon { width: 24px; height: 22px; font-size: 12.5px; }
+.c .txt { font-size: 14px; min-width: 0; }
+.c .txt.fold { max-height: 120px; overflow: hidden; mask-image: linear-gradient(#000 70%, transparent); }
+.c .more { font-size: 12px; }
+.part { font-size: 10.5px; font-weight: 700; letter-spacing: .07em; color: var(--acc); background: var(--acc-bg); border-radius: 4px; padding: 0 5px; margin-right: 6px; vertical-align: 1px; }
+.c ol { margin: 4px 0 4px; padding-left: 20px; } .c li { margin: 2px 0; }
+.reacts { display: flex; gap: 4px; margin-top: 4px; }
+.react { border: 1px solid var(--line2); background: var(--panel2); border-radius: 999px; font-size: 12px; padding: 0 7px; }
+.replies { margin-top: 4px; border-left: 2px solid var(--line); padding-left: 10px; }
+.replies .c { grid-template-columns: 22px 1fr; margin: 6px 0; }
+.replies .av { width: 22px; height: 22px; font-size: 11px; }
+.sys { color: var(--dim); font-size: 12px; display: flex; gap: 8px; align-items: center; margin: 6px 0 6px 34px; }
+.sys .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--line2); }
+.grp { color: var(--dim); font-size: 12px; margin: 6px 0 6px 34px; cursor: pointer; }
+.grp:hover { color: var(--fg); }
+.livebox { border: 1px solid #3a5684; background: #172338; border-radius: 8px; padding: 8px 10px; font-size: 13px; margin-bottom: 8px; }
+.livebox .row { display: flex; gap: 8px; align-items: center; }
+.spin { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--acc); border-right-color: transparent; animation: s 0.8s linear infinite; }
+@keyframes s { to { transform: rotate(360deg); } }
+/* composer */
+.compose { border-top: 1px solid var(--line); background: #181c23; padding: 8px 12px; }
+.cbox { border: 1px solid var(--line2); border-radius: 8px; background: #1d222b; }
+.cbox .ph { padding: 8px 10px; color: var(--dim2); min-height: 36px; cursor: text; }
+.cbox .tb2 { display: none; gap: 2px; padding: 4px 6px; border-top: 1px solid var(--line); align-items: center; flex-wrap: wrap; position: relative; }
+.cbox.open .tb2 { display: flex; }
+.cbox.open .ph { min-height: 84px; }
+.cbox .tb2 .sp { flex: 1; }
+.cbox .tb2 .icon { width: 26px; height: 26px; font-size: 13px; }
+.cbox .tb2 .vs { width: 1px; height: 16px; background: var(--line2); margin: 0 4px; }
+.chint { font-size: 11.5px; color: var(--dim2); margin-top: 4px; display: none; }
+.cbox.open + .chint { display: block; }
+/* full layout */
+.fullgrid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; min-height: 0; }
+.fullgrid .rail { border-left: 1px solid var(--line); background: #1a1e26; }
+@media (max-width: 760px) { .fullgrid { grid-template-columns: 1fr; } .fullgrid .rail { border-left: 0; border-top: 1px solid var(--line); } }
+table.map { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.map th, table.map td { text-align: left; border-bottom: 1px solid var(--line); padding: 6px 8px; vertical-align: top; }
+table.map th { color: var(--dim); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; position: sticky; top: 45px; background: var(--bg); }
+table.map td:first-child { font-weight: 600; }
+.tbl { overflow-x: auto; }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--dim); margin: 6px 0 0; }
+.toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: #263042; border: 1px solid var(--line2); padding: 6px 14px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+.toast.on { opacity: 1; }
+
+/* ================================================= v2 */
+.v2 { background: #1b1f27; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; height: 900px; }
+.v2 .hd { padding: 10px 16px 10px; border-bottom: 1px solid var(--line); background: #1d222b; transition: padding .15s; }
+.v2 .meta { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--dim); flex-wrap: wrap; }
+.v2 .meta .sp { flex: 1; }
+.v2 .meta .runb { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line2); border-radius: 6px; padding: 2px 8px; color: var(--fg); cursor: pointer; background: var(--panel2); font-size: 12.5px; }
+.v2 .ttl { font-size: 17px; font-weight: 650; line-height: 1.35; margin: 6px 0 4px; text-wrap: balance; }
+.v2 .sentence { font-size: 13.5px; color: var(--dim); display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; }
+.tok { color: var(--fg); cursor: pointer; border-bottom: 1px dashed transparent; position: relative; }
+.tok:hover { border-bottom-color: var(--dim); }
+.tok.st { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; }
+.tok.st::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+.tok.muted { color: var(--dim); }
+.v2 .mini { display: none; align-items: center; gap: 8px; font-size: 13px; }
+.v2 .mini .tt { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+.v2.compact .hd { padding-block: 6px; }
+.v2.compact .full-only { display: none; }
+.v2.compact .mini { display: flex; }
+.v2 .bd { flex: 1; overflow: auto; }
+.v2 .tools2 { display: flex; gap: 6px; align-items: center; padding: 6px 16px; border-bottom: 1px solid #232933; font-size: 12px; color: var(--dim); }
+.v2 .tools2 .sp { flex: 1; }
+.v2 .tools2 button { background: none; border: 0; color: var(--dim); font: inherit; cursor: pointer; padding: 2px 6px; border-radius: 4px; }
+.v2 .tools2 button:hover, .v2 .tools2 button.on { color: var(--fg); background: var(--panel2); }
+.s2 { border-bottom: 1px solid #232933; }
+.s2 > .sh2 { display: flex; align-items: center; gap: 8px; padding: 9px 16px; cursor: pointer; user-select: none; }
+.s2 > .sh2:hover { background: #1e232c; }
+.s2 > .sh2 .car { color: var(--dim2); width: 12px; transition: transform .15s; font-size: 11px; }
+.s2.closed > .sh2 .car { transform: rotate(-90deg); }
+.s2 > .sh2 h5 { margin: 0; font-size: 13px; font-weight: 600; }
+.s2 > .sh2 .smry { color: var(--dim); font-size: 12.5px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.s2:not(.closed) > .sh2 .smry { visibility: hidden; }
+.s2 > .sh2 .acts2 { display: flex; gap: 2px; opacity: 0; }
+.s2 > .sh2:hover .acts2 { opacity: 1; }
+.s2 > .sb2 { padding: 0 16px 12px 36px; }
+.s2.closed > .sb2 { display: none; }
+.s2.attn2 { border-left: 3px solid var(--warn); background: #211e17; }
+.s2.attn2 > .sh2 h5 { color: var(--warn); }
+.nrow { display: flex; gap: 8px; align-items: center; padding: 5px 0; font-size: 13.5px; border-top: 1px solid #2a2a24; }
+.nrow:first-child { border-top: 0; }
+.nrow .sp { flex: 1; }
+.clamp { max-height: 6.2em; overflow: hidden; mask-image: linear-gradient(#000 55%, transparent); }
+.prose { font-size: 14.5px; line-height: 1.6; max-width: 68ch; }
+.prose p { margin: 0 0 8px; }
+.daydiv { display: flex; align-items: center; gap: 10px; color: var(--dim2); font-size: 11.5px; margin: 12px 0 4px; text-transform: uppercase; letter-spacing: .07em; }
+.daydiv::before, .daydiv::after { content: ""; height: 1px; background: #2a303b; flex: 1; }
+.turn { border-radius: 8px; margin: 6px 0; }
+.turn.closed .tbody { display: none; }
+.turn .tline { display: none; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 13px; color: var(--dim); }
+.turn .tline:hover { background: #1f242d; color: var(--fg); }
+.turn.closed .tline { display: flex; }
+.turn .tline b { color: var(--fg); font-weight: 600; }
+.turn .tline .sp { flex: 1; }
+.chg { color: var(--dim2); font-size: 12px; margin: 4px 0 4px 34px; cursor: pointer; }
+.chg:hover { color: var(--dim); }
+.tldr { font-weight: 600; margin-bottom: 4px; }
+.det { margin-top: 4px; }
+.det summary { cursor: pointer; color: var(--acc); font-size: 12.5px; list-style: none; }
+.det summary::-webkit-details-marker { display: none; }
+.reply2 { border-top: 1px solid var(--line); background: #181c23; padding: 8px 12px; }
+.focus .hide-in-focus { display: none; }
+.statebar { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+.cmp { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 960px) { .cmp { grid-template-columns: 1fr; } }
+.metric { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.metric small { font-size: 12px; color: var(--dim); font-weight: 400; margin-left: 4px; }
+.mcard { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; }
+.popform { position: absolute; z-index: 30; top: calc(100% + 6px); left: 0; width: 300px; background: #222833; border: 1px solid var(--line2); border-radius: 10px; padding: 10px; box-shadow: 0 12px 34px #000a; display: none; }
+.popform.open { display: block; }
+.popform .kv { grid-template-columns: 70px 1fr; }
+
+/* ================================================= v3 */
+.hlnew { display: inline-flex; gap: 6px; align-items: center; font-size: 12.5px; color: var(--dim); margin: 0 0 8px; cursor: pointer; }
+.v3tag { background: var(--ok-bg); color: var(--ok); border-radius: 4px; padding: 0 5px; font-size: 10.5px; font-weight: 700; letter-spacing: .05em; }
+body.hl .v3n { outline: 1.5px dashed #52c08a99; outline-offset: 2px; border-radius: 6px; }
+.journey { display: flex; align-items: center; gap: 0; margin-top: 6px; font-size: 11.5px; color: var(--dim); flex-wrap: wrap; }
+.journey .js { display: inline-flex; align-items: center; gap: 3px; padding: 0 5px; border-radius: 999px; cursor: pointer; white-space: nowrap; }
+.journey .js:hover { background: var(--panel2); color: var(--fg); }
+.journey .js.done { color: var(--ok); }
+.journey .js.now { background: var(--ok-bg); color: var(--ok); font-weight: 700; }
+.journey .js.prop { color: var(--ai); border: 1px dashed #4a3d73; }
+.journey .js small { color: var(--dim2); font-weight: 400; }
+.journey .ar { color: var(--dim2); }
+.pager { display: inline-flex; align-items: center; gap: 0; border: 1px solid var(--line2); border-radius: 6px; font-size: 12px; color: var(--dim); }
+.pager button { background: none; border: 0; color: var(--dim); cursor: pointer; padding: 2px 6px; font: inherit; }
+.pager button:hover { color: var(--fg); }
+.newbar { display: flex; align-items: center; gap: 8px; background: var(--acc-bg); border: 1px solid #3a5684; border-radius: 8px; padding: 5px 10px; font-size: 13px; margin-bottom: 8px; }
+.newbar .sp { flex: 1; }
+.c.isnew > .av { box-shadow: 0 0 0 2px var(--acc); }
+.c .newdot { width: 7px; height: 7px; border-radius: 50%; background: var(--acc); display: inline-block; }
+.srch { display: none; flex: 1; min-width: 120px; background: #1d222b; border: 1px solid var(--line2); color: var(--fg); border-radius: 999px; padding: 1px 10px; font: inherit; font-size: 12.5px; }
+.afilter.searching .srch { display: block; }
+.afilter.searching .fb { display: none; }
+mark { background: #6b5520; color: var(--fg); border-radius: 3px; padding: 0 2px; }
+.codeblk { border: 1px solid var(--line2); border-radius: 8px; overflow: hidden; margin: 6px 0; }
+.codeblk .ch { display: flex; gap: 8px; align-items: center; background: #222833; padding: 3px 8px; font-size: 11.5px; color: var(--dim); }
+.codeblk .ch .sp { flex: 1; }
+.codeblk pre { margin: 0; padding: 8px 10px; font-family: var(--mono); font-size: 12px; background: #161a21; overflow-x: auto; }
+.codeblk.folded pre { display: none; }
+.quick { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; align-items: center; }
+.quick .lbl2 { font-size: 11.5px; color: var(--dim); }
+.quick button { background: var(--panel2); border: 1px solid var(--line2); color: var(--fg); border-radius: 999px; padding: 2px 10px; font: inherit; font-size: 12.5px; cursor: pointer; }
+.quick button:hover { border-color: var(--acc); }
+.draft { font-size: 11px; color: var(--dim2); margin-right: 6px; }
+.keys { position: fixed; inset: 0; background: #0009; display: none; place-items: center; z-index: 50; }
+.keys.on { display: grid; }
+.keys .kb { background: #1f242d; border: 1px solid var(--line2); border-radius: 12px; padding: 16px 20px; width: min(460px, 92vw); }
+.keys .kb h3 { margin: 0 0 10px; font-size: 15px; }
+.keys .kv kbd { font-family: var(--mono); background: var(--panel2); border: 1px solid var(--line2); border-radius: 4px; padding: 0 5px; font-size: 12px; }
+.v2.dense .s2 > .sh2 { padding-block: 5px; }
+.v2.dense .c { margin: 5px 0; }
+.v2.dense .prose { font-size: 13.5px; line-height: 1.45; }
+.navtabs .dotnew { width: 6px; height: 6px; border-radius: 50%; background: var(--acc); display: inline-block; margin-left: 4px; vertical-align: 2px; }
+.rtl { direction: rtl; text-align: right; font-family: "Segoe UI", Tahoma, sans-serif; }
+
+/* ---- threads */
+.th { margin: 8px 0 14px; }
+.th .rp { margin-left: 34px; border-left: 2px solid #2c3340; padding-left: 12px; }
+.th .rp .c { grid-template-columns: 22px 1fr; margin: 8px 0; }
+.th .rp .av { width: 22px; height: 22px; font-size: 11px; }
+.th .more { margin: 4px 0 4px 0; font-size: 12.5px; color: var(--acc); cursor: pointer; background: none; border: 0; padding: 2px 0; font-family: inherit; }
+.th .more:hover { text-decoration: underline; }
+.th .hidden { display: none; }
+.th .foot { margin: 2px 0 0 34px; display: flex; gap: 10px; align-items: center; font-size: 12.5px; }
+.th .foot .rl { color: var(--dim); cursor: pointer; border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; background: #1d222b; flex: 1; }
+.th .foot .rl:hover { border-color: var(--line2); color: var(--fg); }
+.rbox { margin: 6px 0 0 34px; border: 1px solid var(--acc); border-radius: 8px; background: #1d222b; }
+.rbox .q { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--dim); padding: 5px 10px; border-bottom: 1px solid var(--line); }
+.rbox .q .sp { flex: 1; }
+.rbox .q blockquote { margin: 0; border-left: 2px solid var(--line2); padding-left: 6px; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 360px; }
+.rbox .ta2 { padding: 8px 10px; min-height: 56px; color: var(--dim2); }
+.rbox .bt { display: flex; gap: 6px; align-items: center; padding: 5px 8px; border-top: 1px solid var(--line); font-size: 12px; flex-wrap: wrap; }
+.rbox .bt .sp { flex: 1; }
+.qcard { border: 1px solid #6b5520; background: #221f17; border-radius: 8px; padding: 6px 10px; margin-top: 4px; }
+.qcard .qh { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--warn); font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.qcard .qh .sp { flex: 1; }
+.qitem { padding: 6px 0; border-top: 1px solid #3a3320; font-size: 13.5px; }
+.qitem:first-of-type { border-top: 0; }
+.qitem .opts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+.qitem .opts button { background: var(--panel2); border: 1px solid var(--line2); color: var(--fg); border-radius: 999px; padding: 1px 10px; font: inherit; font-size: 12.5px; cursor: pointer; }
+.qitem .opts button.rec { border-color: var(--ok); }
+.qitem .opts button.picked { background: var(--ok-bg); border-color: var(--ok); color: var(--ok); }
+.qitem.done { color: var(--dim); }
+.badge { font-size: 11px; border-radius: 999px; padding: 0 7px; font-weight: 600; }
+.badge.wait { background: var(--warn-bg); color: var(--warn); }
+.badge.ok { background: var(--ok-bg); color: var(--ok); }
+.edited { color: var(--dim2); font-size: 11.5px; cursor: pointer; }
+.edited:hover { color: var(--fg); }
+.scnhead { font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: var(--dim); margin: 22px 0 6px; }
+.scnhead b { color: var(--fg); text-transform: none; letter-spacing: 0; font-size: 14px; margin-left: 6px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Card drawer redesign · v3 <span class="dim" style="font-size:13px;font-weight:400">v2 + journey, what's new, quick replies, keyboard, RTL</span></h1>
+  <label class="hlnew"><input type="checkbox" id="hl" checked> Outline what v3 adds <span class="v3tag">v3</span></label>
+  <p class="sub">v2 is kept as it is in <code>mock-card-redesign-v2.html</code>; v1 in <code>mock-card-redesign.html</code>. v3 = v2 plus the additions outlined in green (switch it off above to see the card as it will look). v2 keeps v1's tabs (Activity · Details · Links · Re-test) under a calmer header, and folds sections only where the card's state says so; a folded section still says what is in it. Same card, nothing dropped. Everything in the v2 panes is clickable.</p>
+  <nav class="tabs" id="tabs">
+    <button data-p="whole" class="on">Whole card</button>
+    <button data-p="v3new">★ New in v3</button>
+    <button data-p="threads">★ Threads &amp; replies</button>
+    <button data-p="collapse">1 · Tabs + smart sections</button>
+    <button data-p="header">2 · Header</button>
+    <button data-p="conv">3 · Conversation</button>
+    <button data-p="reading">4 · Reading</button>
+    <button data-p="full">5 · Full screen</button>
+    <button data-p="v1v2">v1 → v2</button>
+    <button data-p="map">Nothing dropped</button>
+  </nav>
+
+  <section class="page on" id="p-whole">
+    <div class="pair">
+      <div class="pane"><div class="lbl"><b>Before</b> today</div><div class="old">
+          <div class="head">
+            <span class="seg"><span class="on">▌Side</span><span>⛶ Full</span><span>↗ Window</span></span><span class="x">✕</span>
+            <div class="row"><span class="kind">TASK</span><span class="ai">✦ found by Claude</span></div>
+            <div class="row"><span class="cyc">◷ decc8783-8f75-40cd-b751-4b42c00b1d84</span><span class="dim">#44</span></div>
+            <div class="tools"><span class="run">▶ /alfred-fix 44 ⧉ ▾</span><span class="dim" style="font-size:11px">R · C · ⇧R</span><span class="run">⧉ Copy as issue</span></div>
+            <div class="title">Missing feature: Searching with one branch returns only that branch's requests (and 1 more)</div>
+            <div class="row dim" style="font-size:13px">Mentioned as <b style="color:var(--fg)">searching with one branch (#44)</b> · from the title <span style="color:var(--acc)">✎ short name</span></div>
+            <div class="ctl">Status<span class="sel">Done ▾</span> Kind<span class="sel">TASK ▾</span> Scope<span class="sel">Not decided ▾</span></div>
+            <div class="ctl"><span class="tog">Urgent</span><span class="tog">Risk</span><span class="tog">Blocker</span><span class="tog">Affects project</span><span class="tog">Needs decision</span></div>
+            <div class="ctl">Teams <span class="team" style="color:#6ea8fe">▣ Frontend ✕</span><span class="team" style="color:#52c08a">⚙ Backend ✕</span><span class="tog">+ team ▾</span></div>
+          </div>
+          <div class="body">
+            <div class="scrollhint"><span>first comment only after ~2 screens of scrolling</span></div>
+            <div class="ev">
+              <div class="who">✦ Claude · 10/15/2026 11:13 AM <span class="r">⇥ Scroll ⇄ Auto</span></div>
+              <div class="bubble"><span class="tag">REPLY</span><div><b>Steps, from the card's spec evidence:</b><ol style="margin:6px 0 0;padding-left:18px"><li>Open the Refunded Requests search page and select <b>All Agencies</b>.</li><li>In the branch filter, select <b>Cairo</b> and <b>Mansoura</b>, then click <b>Search</b>…</li></ol></div></div>
+              <div class="acts"><span>☺+</span><span>↩ Reply</span><span>⧉ Copy</span></div>
+            </div>
+            <div class="ev">
+              <div class="who">✦ Claude · 10/15/2026 11:13 AM <span class="r">⇥ Scroll ⇄ Auto</span></div>
+              <div class="bubble"><span class="tag">REPLY</span><div><b>Steps (from the card's evidence, nothing new looked up):</b> …</div></div>
+            </div>
+          </div>
+          <div class="comp">
+            <div class="tb"><span class="sty">Style… ▾</span><b>B</b><i>I</i><u>U</u><s>S</s><span>&lt;/&gt;</span><span>▮</span><span>A▾</span><span>•</span><span>1.</span><span>☑</span><span>▤▾</span><span>▦</span><span>◇▾</span><span>▸</span><span>✓▾</span><span>—</span><span>🔗</span><span>🖼</span><span>📎</span><span>⧉▾</span><span>✦▾</span><span style="margin-left:auto">⇆</span><span>&lt;&gt;</span></div>
+            <div class="ta">Write… type @ to mention, / for blocks, {{ for a variable</div>
+            <div class="foot">@ mention · / blocks · {{ variable · Enter comment · Shift+Enter new line<span class="sp"></span><span class="run">⇄ Auto</span><span class="run">@ Mention</span><span class="run" style="opacity:.6">Comment</span></div>
+          </div>
+        </div>
+        </div>
+      <div class="pane after"><div class="lbl"><b>v2</b> scroll inside it - the header shrinks</div><div class="v2" data-card="side"></div></div>
+    </div>
+    <div class="cmp" style="margin-top:14px">
+      <div class="mcard"><div class="dim">Fixed header</div><div class="metric">~190 px<small>~50 after scrolling · today ~460 · v1 ~207</small></div></div>
+      <div class="mcard"><div class="dim">Rows before the first comment</div><div class="metric">5<small>today ~22 · v1 ~9</small></div></div>
+      <div class="mcard"><div class="dim">Buttons always visible</div><div class="metric">8<small>today ~60 · v1 ~30</small></div></div>
+    </div>
+  </section>
+
+  <section class="page" id="p-threads">
+    <p class="sub">A thread = one comment and its replies (Alfred keeps one level of replies, as today). Five situations, today on the left, v3 on the right. Click "N more replies", "Reply", the question options and "edited".</p>
+    <div id="threads"></div>
+    <div class="why"><h3>Threads in v3</h3><ul>
+      <li><span class="k">Replies sit under their comment</span> on a thin rail, with smaller avatars - no box around each one, no repeated full timestamp.</li>
+      <li><span class="k">Long threads fold in the middle</span>: the first comment, "▸ 4 more replies", then the last two - the start and where it stands now.</li>
+      <li><span class="k">"Reply…" line under each thread</span> opens the reply box right there, quoting what you answer; Esc cancels; your draft is kept.</li>
+      <li><span class="k">Claude's questions are a card inside the thread</span>: each question with its options as buttons (★ = Claude's recommendation), "waiting for you" until answered, then ✓ with your pick. "Answer all" still opens the dialog; "Clear Needs decision" stays as a checkbox on the reply box.</li>
+      <li><span class="k">✅ on a Claude plan or question</span> = your go-ahead, shown as "✅ go-ahead given" under it.</li>
+      <li><span class="k">Edits</span>: a small "edited" after the time opens the earlier texts.</li>
+      <li><span class="k">Folded thread line</span> (older, answered threads): "▸ You asked for the steps · 3 replies · last Claude 11:21 · ✅".</li>
+    </ul></div>
+  </section>
+
+  <section class="page" id="p-v3new">
+    <div class="pair">
+      <div class="pane after"><div class="lbl"><b>v3</b> green outline = new in v3</div><div class="v2" data-card="side3"></div></div>
+      <div class="pane"><div class="why" style="margin:0"><h3>What v3 adds to v2</h3><ul>
+        <li><span class="k">Journey line</span> under the chips: ✓ Inbox Oct 14 › ✓ To do › ✓ In progress Oct 15 › ✓ Fixed › Verified ✦ proposed › ● Done today. Where the card is and how it got there, in one glance; click a step to move it there.</li>
+        <li><span class="k">‹ 3 / 12 ›</span> in the bar: previous / next card in the same column, without closing the drawer ([ and ]).</li>
+        <li><span class="k">"2 new since you looked"</span> bar at the top of Activity with Jump ↓ and Mark seen; new comments get a blue ring and dot; a dot on a tab whose content changed (Details: the description was edited).</li>
+        <li><span class="k">🔍 Find in the activity</span>: filters the exchanges as you type and opens the ones that match.</li>
+        <li><span class="k">Arabic and English side by side</span>: each comment picks its direction from its own text (dir=auto) - an Arabic answer reads right-to-left with code still left-to-right; no more per-comment "⇄ Auto" button needed.</li>
+        <li><span class="k">Code blocks with a header</span>: what it is, ⧉ copy, fold - SQL and JSON in answers stay readable and short.</li>
+        <li><span class="k">Quick replies</span> above the comment box when Claude is waiting on you: ✅ Go ahead · ❓ Answer the questions · Explain more · Not now.</li>
+        <li><span class="k">"✓ draft saved"</span> in the comment box - your unsent text is kept per card (as today, now visible).</li>
+        <li><span class="k">Keyboard</span>: ? shows the list - 1–4 tabs, J/K exchanges, N new, / reply, E edit, [ ] cards.</li>
+        <li><span class="k">Compact spacing</span> switch in ⋯ for long cards on small screens.</li>
+      </ul></div></div>
+    </div>
+  </section>
+
+  <section class="page" id="p-collapse">
+    <p class="sub">Tabs from v1 under the v2 header. Inside them, sections open or fold by what the card holds - not all closed, not all open. Pick a card below and watch the defaults change. Anything you open or close yourself stays that way (per browser).</p>
+    <div class="statebar">
+      <button class="btn" data-act="scen" data-v="today">Today's #44 (needs you, Claude running)</button>
+      <button class="btn" data-act="scen" data-v="quiet">Quiet card</button>
+      <button class="btn" data-act="scen" data-v="blocked">Blocked</button>
+      <button class="btn" data-act="scen" data-v="failed">Re-test failed</button>
+      <button class="btn" data-act="scen" data-v="running">Claude running</button>
+      <button class="btn" data-act="scen" data-v="fresh">New card, no comments, long description</button>
+    </div>
+    <div class="pair">
+      <div class="pane after"><div class="lbl"><b>v2</b> <span id="scen-name">Today's #44</span></div><div class="v2" data-card="side2"></div></div>
+      <div class="pane"><div class="why" style="margin:0"><h3>Smart defaults</h3><ul>
+        <li><span class="k">Needs you</span> - open when something asks for your hand (proposal, questions, blocked, re-test failed), each with its button. Context only (looks like #31, reason) folds to "▸ 2 notes" inside it; alone, it shows as a closed "Notes" line. Nothing pending → no section.</li>
+        <li><span class="k">Tab</span> - Activity when there is a conversation, Details on a new card. Tab labels carry their state: ● Activity while Claude runs, 🔒 Links when blocked, ✓ 2/2 or ✗ 1/2 on Re-test. Needs-you rows jump to the right tab.</li>
+        <li><span class="k">Description</span> - open. Folded to 6 lines with "Read all" only when it is long.</li>
+        <li><span class="k">Attached</span> - open (one row of chips).</li>
+        <li><span class="k">Exchanges</span> - the last two open; older answered ones fold to one line. An exchange with an open question never folds.</li>
+        <li><span class="k">Runs</span> - one line; open while a run is going.</li>
+        <li><span class="k">Links, Re-test</span> - their own tabs, shown whole (no folding needed there).</li>
+      </ul></div></div>
+    </div>
+  </section>
+
+  <section class="page" id="p-header">
+    <div class="pair">
+      <div class="pane"><div class="lbl"><b>Before</b> today</div><div class="old"><div class="head">
+          <span class="seg"><span class="on">▌Side</span><span>⛶ Full</span><span>↗ Window</span></span><span class="x">✕</span>
+          <div class="row"><span class="kind">TASK</span><span class="ai">✦ found by Claude</span></div>
+          <div class="row"><span class="cyc">◷ decc8783-8f75-40cd-b751-4b42c00b1d84</span><span class="dim">#44</span></div>
+          <div class="tools"><span class="run">▶ /alfred-fix 44 ⧉ ▾</span><span class="dim" style="font-size:11px">R · C · ⇧R</span><span class="run">⧉ Copy as issue</span></div>
+          <div class="title">Missing feature: Searching with one branch returns only that branch's requests (and 1 more)</div>
+          <div class="row dim" style="font-size:13px">Mentioned as <b style="color:var(--fg)">searching with one branch (#44)</b> · from the title <span style="color:var(--acc)">✎ short name</span></div>
+          <div class="ctl">Status<span class="sel">Done ▾</span> Kind<span class="sel">TASK ▾</span> Scope<span class="sel">Not decided ▾</span></div>
+          <div class="ctl"><span class="tog">Urgent</span><span class="tog">Risk</span><span class="tog">Blocker</span><span class="tog">Affects project</span><span class="tog">Needs decision</span></div>
+          <div class="ctl">Teams <span class="team" style="color:#6ea8fe">▣ Frontend ✕</span><span class="team" style="color:#52c08a">⚙ Backend ✕</span><span class="tog">+ team ▾</span></div>
+        </div></div></div>
+      <div class="pane after"><div class="lbl"><b>v2</b> v1's header, kept - click the chips</div><div class="v2" style="height:auto;overflow:visible" data-card="head"></div>
+        <div class="lbl" style="margin-top:14px"><b>v2</b> after scrolling 40 px</div><div class="v2 compact" style="height:auto" data-card="headmini"></div></div>
+    </div>
+    <div class="why"><h3>Header</h3><ul>
+      <li><span class="k">v1's header, as you liked it</span>: one bar (#44 pill that copies, kind, ✦ Claude, cycle name, waiting, ❓ N, ▶ run split button, ⋯, view icons, ✕), the title, "Mentioned as", one line of chips.</li>
+      <li><span class="k">Chips</span>: Status (coloured by status), Kind, Scope; only the flags that are on, "⚑ +" for all five; teams with ✕ on hover and "+ team".</li>
+      <li><span class="k">From v2</span>: the header shrinks to one line when you scroll the card (#44 · title · status · ▶ · ⋯ · ✕).</li>
+      <li>"⋯" also holds Expand / Fold all sections.</li>
+    </ul></div>
+  </section>
+
+  <section class="page" id="p-conv">
+    <div class="pair">
+      <div class="pane after"><div class="lbl"><b>v1</b></div><div class="new"><div class="sec" style="border:0" data-v1act></div></div></div>
+      <div class="pane after"><div class="lbl"><b>v2</b> exchanges, older ones folded</div><div class="v2" style="height:auto" data-card="conv"></div></div>
+    </div>
+    <div class="why"><h3>Changes</h3><ul>
+      <li><span class="k">Exchanges, not entries</span>: your comment + Claude's answer (+ their replies) are one exchange. Older exchanges fold to one line: "You asked for the steps · Claude answered (3 steps) · ✅".</li>
+      <li><span class="k">Day dividers</span> (Yesterday, Today) instead of a timestamp on every comment; exact time on hover.</li>
+      <li><span class="k">Changes become a dim one-liner</span> between exchanges ("· 3 changes"), opened on click.</li>
+      <li><span class="k">Answer first</span>: Claude's first sentence shows bold; the rest (steps, SQL, evidence) under "Details ▸" when the answer is long.</li>
+      <li><span class="k">View options</span> (comments only, with changes, newest first) move into the conversation's ⋯ - no filter bar.</li>
+    </ul></div>
+  </section>
+
+  <section class="page" id="p-reading">
+    <div class="pair">
+      <div class="pane"><div class="lbl"><b>v1</b> comment text</div>
+        <div class="new" style="padding:12px 14px" data-v1one></div></div>
+      <div class="pane after"><div class="lbl"><b>v2</b> comment text</div>
+        <div class="v2" style="height:auto;padding:12px 16px" data-v2one></div></div>
+    </div>
+    <div class="why"><h3>Reading</h3><ul>
+      <li><span class="k">Text 14.5 px, line height 1.6, at most 68 characters wide</span> - in Full screen the text no longer runs across 1,200 px.</li>
+      <li><span class="k">Fewer boxes</span>: no border around comments or sections, spacing and one hairline separate them; colour only for status, Claude and things that need you.</li>
+      <li><span class="k">One accent</span> (blue) for actions; green/amber/red only mean pass/needs you/fail.</li>
+      <li><span class="k">Inline tags</span> (REPLY, FOUND, NEXT) small and grey; code and endpoints in mono chips.</li>
+      <li><span class="k">Empty means hidden</span>: no "Nothing linked", "Not blocked", "No team yet" rows - the section line says it.</li>
+    </ul></div>
+  </section>
+
+  <section class="page" id="p-full">
+    <div class="lbl" style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin-bottom:6px"><b style="color:var(--ok)">v2</b> ⛶ Full / ↗ Window - reading column + details rail</div>
+    <div class="v2" style="height:760px" data-card="full"></div>
+  </section>
+
+  <section class="page" id="p-v1v2">
+    <div class="why" style="margin:0"><h3>v2 = v1 tabs + these</h3><ul>
+      <li><span class="k">Kept from v1</span>: the four tabs with counts, the Activity filter (All · Comments · Changes) and ⇅, hover actions on comments, live work at the top of Activity, the compact comment box, ⋯ menus, Full screen with a rail.</li>
+      <li><span class="k">Header from v1</span> (bar, title, property chips) - unchanged.</li>
+      <li><span class="k">Shrinking header</span> on scroll (~160 → ~50 px).</li>
+      <li><span class="k">Needs you</span> as one section above the tabs, open only when something waits on you; notes fold inside it; rows jump to the tab they concern.</li>
+      <li><span class="k">Tab labels carry state</span>: ● running, 🔒 blocked, ✓/✗ re-test.</li>
+      <li><span class="k">Smart folding</span>: older answered exchanges, long descriptions, finished runs - never open questions or anything failing.</li>
+      <li><span class="k">Answer-first comments</span> (bold first sentence, Details ▸), day dividers, one-line change runs.</li>
+      <li><span class="k">Reading width and spacing</span>; fewer borders and colours.</ul></div>
+  </section>
+
+  <section class="page" id="p-map">
+    <p class="sub">Every element of today's drawer and where it lives in v2. None is removed.</p>
+    <div class="tbl"><table class="map"><thead><tr><th>Today</th><th>v2</th></tr></thead><tbody id="maprows"></tbody></table></div>
+  </section>
+</div>
+<div class="toast" id="toast"></div>
+<div class="keys" id="keys"><div class="kb"><h3>Keyboard - while a card is open</h3><div class="kv">
+  <span class="k"><kbd>1</kbd>–<kbd>4</kbd></span><span>Activity · Details · Links · Re-test</span>
+  <span class="k"><kbd>J</kbd> <kbd>K</kbd></span><span>next / previous exchange (opens it)</span>
+  <span class="k"><kbd>N</kbd></span><span>jump to the first new comment</span>
+  <span class="k"><kbd>/</kbd></span><span>write a reply</span>
+  <span class="k"><kbd>E</kbd></span><span>edit the description</span>
+  <span class="k"><kbd>[</kbd> <kbd>]</kbd></span><span>previous / next card</span>
+  <span class="k"><kbd>R</kbd> <kbd>C</kbd> <kbd>⇧R</kbd></span><span>run · copy prompt · edit prompt</span>
+  <span class="k"><kbd>?</kbd></span><span>this list</span>
+  <span class="k"><kbd>Esc</kbd></span><span>close</span>
+</div></div></div>
+<script>
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+function toast(t) { const el = $('#toast'); el.textContent = t; el.classList.add('on'); clearTimeout(toast.h); toast.h = setTimeout(() => el.classList.remove('on'), 1500); }
+const S = { status: 'Done', kind: 'Task', scope: 'Not decided', flags: [], teams: ['Frontend', 'Backend'] };
+
+const TEAMS = { Frontend: ['▣', '#6ea8fe', 'pages, filters, the request the page sends'], Backend: ['⚙', '#52c08a', 'services, SQL, the API'], QA: ['✓', '#e6b450', 'test plans, regressions'], DBA: ['◆', '#b79cff', 'schema, indexes'] };
+const FLAGS = [['URGENT', 'Urgent'], ['RISK', 'Risk'], ['BLOCKER', 'Blocker'], ['AFFECTS_PROJECT', 'Affects project'], ['NEEDS_DECISION', 'Needs decision']];
+/* v1's header, kept: one bar, the title, one line of property chips */
+const bar = () => `
+  <div class="bar">
+    <span class="num" data-act="copynum" title="Copy #44">#44</span>
+    <span class="kind">${S.kind.toUpperCase()}</span>
+    <span class="ai" style="font-size:12px">✦ Claude</span>
+    <span class="cy" title="cycle decc8783-8f75-40cd-b751-4b42c00b1d84 - click to open">◷ Refund search · 61813</span>
+    <span class="pill" style="color:var(--warn);border-color:#6b5520">⏳ waiting on you · 2 h</span>
+    <span class="pill" style="color:var(--warn);border-color:#6b5520;cursor:pointer" data-act="toast" data-t="Opens the answer-all dialog">❓ 2</span>
+    <span class="sp"></span>
+    <span style="position:relative;display:inline-flex">
+      <button class="btn" style="border-radius:6px 0 0 6px" title="Run /alfred-fix 44 in the cycle's chat (R)">▶ /alfred-fix 44</button><button class="btn" style="border-radius:0 6px 6px 0;border-left:0;padding:3px 6px" data-menu="m-run-${CARD}">▾</button>
+      <div class="menu r" id="m-run-${CARD}"><button>✎ Edit the prompt, then run… <kbd>⇧R</kbd></button><button>✚ Add a note for Claude…</button><button>🔔 Tell me when it ends <kbd>off</kbd></button><div class="sep"></div><button>⧉ Copy the full prompt <kbd>C</kbd></button><button>⧉ Copy the command only</button><button>⧉ Copy as a shell line</button></div>
+    </span>
+    <span style="position:relative">
+      <button class="icon" data-menu="m-more-${CARD}" title="More">⋯</button>
+      <div class="menu r" id="m-more-${CARD}"><button data-act="issue">⧉ Copy as issue (Jira / GitHub)</button><button>🔗 Copy link to this card</button><button>⧉ Copy cycle id</button><div class="sep"></div><button>⇲ Expand all sections</button><button>⇱ Fold all sections</button><button class="v3n" data-act="dense">☰ Compact spacing <kbd>on/off</kbd></button><div class="sep"></div><button class="v3n" data-act="keys">⌨ Keyboard shortcuts <kbd>?</kbd></button><div class="sep"></div><button class="danger">🗑 Delete card…</button></div>
+    </span>
+    <span class="pager v3n" title="Previous / next card in Done (J/K moves between exchanges)"><button data-act="toast" data-t="Opens #43" title="Previous card in Done ([)">‹</button><button data-act="toast" data-t="Opens #45" title="Next card in Done (]) - 3 of 12">›</button></span>
+    <span style="display:inline-flex;border:1px solid var(--line2);border-radius:6px">
+      <button class="icon on" title="Side" style="width:26px;height:24px">▌</button><button class="icon" title="Full screen" style="width:26px;height:24px">⛶</button><button class="icon" title="Separate window" style="width:26px;height:24px">↗</button>
+    </span>
+    <button class="icon" title="Close (Esc)">✕</button>
+  </div>`;
+const props = () => {
+  const st = S.status === 'Done' ? 'st-done' : '';
+  const flags = FLAGS.filter(([k]) => S.flags.includes(k)).map(([k, l]) => `<span class="flag ${k}">${l}</span>`).join('');
+  const teams = S.teams.map((t) => { const [i, c, owns] = TEAMS[t]; return `<span class="tm" style="color:${c};border-color:${c}55" title="${owns}">${i} ${t} <span class="xx" data-act="team" data-v="${t}">✕</span></span>`; }).join('');
+  const others = Object.keys(TEAMS).filter((t) => !S.teams.includes(t));
+  const pick = (id, k, list, cur) => `<div class="menu" id="${id}-${CARD}">${list.map((x) => `<button data-act="set" data-k="${k}" data-v="${x}"><span class="chk">${x === cur ? '✓' : ''}</span>${x}</button>`).join('')}</div>`;
+  return `<div class="props">
+  <span class="prop ${st}" data-menu="p-status-${CARD}"><span class="k">Status</span><span class="v">${S.status}</span> ▾${pick('p-status', 'status', ['Inbox', 'To do', 'In progress', 'Fixed', 'Verified', 'Done', 'Close…'], S.status)}</span>
+  <span class="prop" data-menu="p-kind-${CARD}"><span class="k">Kind</span><span class="v">${S.kind.toUpperCase()}</span> ▾${pick('p-kind', 'kind', ['Bug', 'Task', 'Note', 'Question'], S.kind)}</span>
+  <span class="prop" data-menu="p-scope-${CARD}"><span class="k">Scope</span><span class="v" style="${S.scope === 'Not decided' ? 'color:var(--dim);font-weight:500' : ''}">${S.scope}</span> ▾${pick('p-scope', 'scope', ['Not decided', 'In scope', 'Out of scope'], S.scope)}</span>
+  ${flags}
+  <span class="prop dash" data-menu="p-flags-${CARD}" title="Flags">⚑ ${S.flags.length ? '' : 'flag'} +
+    <div class="menu" id="p-flags-${CARD}">${FLAGS.map(([k, l]) => `<button data-act="flag" data-v="${k}"><span class="chk">${S.flags.includes(k) ? '✓' : ''}</span><span class="flag ${k}">${l}</span></button>`).join('')}</div></span>
+  ${teams}
+  ${others.length ? `<span class="prop dash" data-menu="p-team-${CARD}">+ team<div class="menu" id="p-team-${CARD}">${others.map((t) => `<button data-act="team" data-v="${t}">${TEAMS[t][0]} ${t} <kbd>${TEAMS[t][2]}</kbd></button>`).join('')}</div></span>` : ''}
+  </div>`;
+};
+const STEPS_J = [['Inbox', 'Oct 14'], ['To do', 'Oct 14'], ['In progress', 'Oct 15'], ['Fixed', 'Oct 15'], ['Verified', ''], ['Done', 'today']];
+const journey = () => {
+  const at = STEPS_J.findIndex(([n]) => n === S.status);
+  return `<div class="journey v3n" title="Where the card is - click a step to move it there">${STEPS_J.map(([n, d], i) => {
+    const cls = i === at ? 'now' : i < at ? 'done' : (n === 'Verified' && SC.proposal ? 'prop' : '');
+    return `${i ? '<span class="ar">›</span>' : ''}<span class="js ${cls}" data-act="set" data-k="status" data-v="${n}">${i < at ? '✓ ' : i === at ? '● ' : ''}<span title="${d ? n + ' on ' + d : n}">${n}</span>${i === at && d ? ` <small>${d}</small>` : ''}${n === 'Verified' && SC.proposal && i > at ? ' <small>✦ proposed</small>' : ''}</span>`;
+  }).join('')}</div>`;
+};
+const head = () => `
+  <div class="hd">
+    <div class="full-only">${bar()}
+      <div class="ttl" title="Click to rename">Missing feature: Searching with one branch returns only that branch's requests (and 1 more)</div>
+      <div class="aka">Mentioned as <b>searching with one branch (#44)</b> <span>· from the title</span> <button class="lnk ed">✎ short name</button></div>
+      ${props()}${journey()}</div>
+    <div class="mini"><span class="num">#44</span><span class="tt">Missing feature: Searching with one branch returns only that branch's requests (and 1 more)</span><span class="prop st-done" style="padding:0 7px"><span class="v">${S.status}</span></span><button class="btn" style="padding:1px 8px">▶ /alfred-fix 44</button><button class="icon">⋯</button><button class="icon">✕</button></div>
+  </div>`;
+
+/* ---------- card state: what is on the card decides what is open ---------- */
+const QUIET = { proposal: false, questions: false, similar: false, reason: false, blocked: false, retestFail: false, running: false, longDesc: false, comments: true };
+const SCEN = {
+  today: { ...QUIET, proposal: true, questions: true, similar: true, reason: true, running: true },
+  quiet: { ...QUIET },
+  blocked: { ...QUIET, blocked: true },
+  failed: { ...QUIET, retestFail: true, proposal: false },
+  running: { ...QUIET, running: true },
+  fresh: { ...QUIET, comments: false, longDesc: true, reason: true },
+};
+let SC = SCEN.today;
+let PICK = 'today';
+const TABS = {};   // per card: the tab the user picked (none = smart)
+const USER = {};   // per section: what the user opened/closed (none = smart)
+let CARD = 'side';
+const isOpen = (id, smart) => USER[CARD + ':' + id] ?? smart;
+const sec = (id, title, summary, body, acts = '', extra = '', smart = true) => `
+  <div class="s2 ${isOpen(id, smart) ? '' : 'closed'} ${extra}" data-sec="${id}">
+    <div class="sh2" data-act="sec" data-v="${id}"><span class="car">▾</span><h5>${title}</h5><span class="smry">${summary}</span><span class="acts2">${acts}</span></div>
+    <div class="sb2">${body}</div>
+  </div>`;
+
+/* Needs you: open when something asks for your hand; context-only notes fold inside it */
+function needs() {
+  const rows = [], sum = [];
+  if (SC.proposal) { sum.push('1 proposal'); rows.push(`<div class="nrow"><span class="ai">✦</span><span><b>Claude proposes Verified</b> <span class="dim">- re-test passed 2/2</span> <button class="lnk" data-act="ev">evidence</button></span><span class="sp"></span><button class="btn primary" data-act="toast" data-t="Accepted - moved to Verified">Accept</button><button class="btn ghost">Dismiss</button></div>
+    <div class="dim" data-ev style="display:none;font-size:13px;padding:0 0 6px 22px">POST /Booking2/refunded-requests/search → 200, <code>branchId: [948, 951]</code>, rows from both branches.</div>`); }
+  if (SC.questions) { sum.push('2 questions'); rows.push(`<div class="nrow"><span style="color:var(--warn)">❓</span><span><b>2 questions</b> <span class="dim">- keep one-branch as default? · list or repeated param?</span></span><span class="sp"></span><button class="btn" data-act="toast" data-t="Opens the answer-all dialog">Answer</button></div>`); }
+  if (SC.blocked) { sum.push('blocked by #12'); rows.push(`<div class="nrow"><span style="color:var(--bad)">🔒</span><span><b>Blocked by</b> <span class="mchip" style="margin:0">▣ #12</span> <span class="dim">branch list endpoint · In progress</span></span><span class="sp"></span><button class="btn ghost" data-act="tab" data-v="links">Links</button></div>`); }
+  if (SC.retestFail) { sum.push('re-test failed 1/2'); rows.push(`<div class="nrow"><span style="color:var(--bad)">✗</span><span><b>Re-test failed</b> <span class="dim">- branchId is still one value</span></span><span class="sp"></span><button class="btn" data-act="tab" data-v="retest">See it</button></div>`); }
+  const notes = [];
+  if (SC.similar) notes.push(`<div class="nrow"><span style="color:var(--warn)">⚠</span><span>Looks like <span class="mchip" style="margin:0">▣ #31</span> <span class="dim">closed as Fine - “one branch is the agency rule”</span></span></div>`);
+  if (SC.reason) notes.push(`<div class="nrow"><span class="dim">❝</span><span class="dim">Reason: “branchId is sent as a single value”</span></div>`);
+  if (!rows.length && !notes.length) return '';
+  const noteSum = [SC.similar ? 'looks like #31' : '', SC.reason ? 'reason' : ''].filter(Boolean).join(' · ');
+  const body = rows.join('') + (notes.length ? (rows.length
+    ? `<div class="nrow notes" data-act="notes" style="cursor:pointer;color:var(--dim)">▸ ${notes.length} note${notes.length > 1 ? 's' : ''} · ${noteSum}</div><div data-notes style="display:none">${notes.join('')}</div>`
+    : notes.join('')) : '');
+  return sec('needs', rows.length ? 'Needs you' : 'Notes', (sum.length ? sum : [noteSum]).join(' · '), body, '', rows.length ? 'attn2' : '', rows.length > 0);
+}
+
+/* Tabs (from v1), with the smart default: Activity when there is a conversation, else Details */
+const tabOf = () => TABS[CARD] ?? (SC.comments ? 'activity' : 'details');
+function tabs() {
+  const t = tabOf();
+  const b = (k, l, n, color = '') => `<button data-act="tab" data-v="${k}" class="${t === k ? 'on' : ''}">${l}<span class="n" style="${color}">${n}</span></button>`;
+  return `<div class="navtabs">${b('activity', (SC.running ? '<span style="color:var(--acc)">● </span>' : '') + 'Activity', SC.comments ? 14 : 2)}${b('details', 'Details' + '<span class="dotnew v3n" title="The description changed since you last looked"></span>', 3)}${b('links', (SC.blocked ? '🔒 ' : '') + 'Links', SC.blocked ? 5 : 4)}${b('retest', 'Re-test', SC.retestFail ? '✗ 1/2' : '✓ 2/2', SC.retestFail ? 'color:var(--bad)' : 'color:var(--ok)')}</div>`;
+}
+const descBody = () => `
+  <div class="prose ${SC.longDesc ? 'clamp' : ''}"><p>The refunded-requests search sends <code>branchId: 948</code> - one branch. Searching <b>Cairo + Mansoura</b> needs <code>branchId</code> as a list, and the results must hold requests from every selected branch.</p>
+  <p>From <span class="mchip">📄 spec.md AC6</span>, found in <span class="mchip"><span class="ic">⇄</span>POST /refunded-requests/search · 200</span>. The backend already accepts a list (<code>IN (…)</code> in the SELECT); only the page sends one value.</p>
+  ${SC.longDesc ? '<p>Steps tried so far: … (a long investigation, 40 lines) …</p><p>More notes …</p>' : ''}</div>
+  ${SC.longDesc ? '<button class="lnk" data-act="readall">Read all (40 lines)</button>' : ''}`;
+const attached = () => `<div class="att"><span class="pill">📌 the search request</span><span class="pill">📄 Branch filter plan</span><span class="pill">📎 search-request.har · 214 KB</span>
+    <span style="position:relative"><button class="lnk" data-menu="d-add-${CARD}">+ add</button><div class="menu" id="d-add-${CARD}"><button>📌 Pin something</button><button>📄 New page</button><button>📎 Upload a file</button><button>🖼 Picture</button></div></span></div>`;
+const detailsTab = () => `
+  ${sec('desc', 'Description', 'branchId is sent as one value; multi-branch search needs a list', descBody(), '<button class="icon" title="Edit (or double-click the text)">✎</button><button class="icon" title="Earlier descriptions">🕘</button>')}
+  ${sec('att', 'Attached', '3 · the search request · Branch filter plan · search-request.har', attached(), '', '', true)}`;
+const linksBody = () => `
+  <div class="kv"><span class="k">Linked</span><span><span class="mchip"><span class="ic">⇄</span>POST /refunded-requests/search · 200</span><span class="mchip"><span class="ic">◆</span>SELECT … branch_id = ?</span><span class="mchip"><span class="ic">📄</span>spec.md AC6</span> <button class="lnk">+ link</button></span>
+  <span class="k">Breaks</span><span><span class="mchip st-bad"><span class="ic">📄</span>AC6</span> multi-branch search returns every selected branch</span>
+  <span class="k">Blocked by</span>${SC.blocked ? `<span><span class="mchip st-bad"><span class="ic">🔒</span>#12 branch list endpoint · In progress</span> <button class="lnk">✕</button> <button class="lnk">+ blocked by…</button></span>` : '<span class="dim">nothing · <button class="lnk">+ blocked by…</button></span>'}</div>`;
+const retestBody = () => `
+  <div class="kv" style="grid-template-columns:18px 1fr auto">
+    ${SC.retestFail ? `<span style="color:var(--bad)">✗</span><span>branchId is a list</span><span><span style="color:var(--bad)">948</span> → <span style="color:var(--bad)">948</span> <button class="lnk">✕</button></span>`
+    : `<span style="color:var(--ok)">✓</span><span>branchId is a list</span><span><span style="color:var(--bad)">948</span> → <span style="color:var(--ok)">[948, 951]</span> <button class="lnk">✕</button></span>`}
+    <span style="color:var(--ok)">✓</span><span>status 200</span><span>200 → 200 <button class="lnk">✕</button></span></div>
+  <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap"><button class="btn">▶ Re-test this card</button><button class="btn ghost">Check now</button><button class="btn ghost">+ expectation</button></div>`;
+const pad = (h) => `<div style="padding:12px 16px">${h}</div>`;
+
+const STEPS = `<ol><li>Open Refunded Requests, select <b>All Agencies</b>.</li><li>Select <b>Cairo</b> and <b>Mansoura</b>, click <b>Search</b>; then only Cairo, Search again.</li><li>Check <code>POST /Booking2/refunded-requests/search</code>: <code>branchId</code> should be a list; today it is <code>948</code>.</li></ol>`;
+function c2({ id, who, me, body, react, reply, isNew, when = '11:13', rtl }) {
+  return `<div class="c ${isNew ? 'isnew' : ''}" ${isNew ? 'data-new' : ''}><div class="av ${me ? 'me' : 'cl'}">${me ? 'Y' : '✦'}</div><div style="min-width:0">
+    <div class="top"><b class="${me ? '' : 'ai'}">${who}</b><span class="when" title="10/16/2026 ${when}">${when}</span>${isNew ? '<span class="newdot v3n" title="New since you looked"></span>' : ''}
+      <span class="hov"><button class="icon" title="React">☺</button><button class="icon" title="Reply">↩</button>
+      <span style="position:relative"><button class="icon" data-menu="c2cp${id}${CARD}">⧉</button><div class="menu r" id="c2cp${id}${CARD}"><button>Formatted</button><button>Markdown</button><button>Plain text</button></div></span>
+      <span style="position:relative"><button class="icon" data-menu="c2m${id}${CARD}">⋯</button><div class="menu r" id="c2m${id}${CARD}">${me ? '<button>✎ Edit</button>' : ''}<button>⇄ Text direction</button><button>⇥ Long lines: scroll</button><button>🕘 edited · history</button><button>🔗 Copy link</button></div></span></span></div>
+    <div class="txt prose ${rtl ? 'rtl' : ''}" dir="auto">${body}</div>${react ? `<div class="reacts"><span class="react">${react}</span></div>` : ''}${reply ?? ''}</div></div>`;
+}
+/* exchanges: fold answered ones older than the last two; never one with an open question */
+function exchanges() {
+  if (!SC.comments) return `<div class="dim" style="padding:10px 0">No comments yet - ask Claude or add a note below.</div><div class="chg" style="margin-left:0">· Claude created the card · 2 changes</div>`;
+  return `
+  <div class="daydiv">Oct 14</div>
+  <div class="turn closed"><div class="tline" data-act="turn"><span>▸</span><span><b>Claude</b> found it: multi-branch search sends one id</span><span class="sp"></span><span>1 comment</span></div><div class="tbody">${c2({ id: 9, who: 'Claude', body: '<span class="part">FOUND</span>The page sends <code>branchId: 948</code> even with two branches selected.' })}</div></div>
+  <div class="chg" data-act="chg">· 3 changes - Claude added Frontend, Backend; moved Inbox → To do</div>
+  <div class="daydiv">Yesterday</div>
+  <div class="turn"><div class="tline" data-act="turn"><span>▸</span><span><b>You</b> asked for the steps · <b>Claude</b> answered (3 steps)</span><span class="sp"></span><span>✅ 1</span></div>
+    <div class="tbody">${c2({ id: 1, who: 'You', me: true, body: 'Give me the steps to reproduce this, from what the card already has.' })}${c2({ id: 2, who: 'Claude', body: '<div class="tldr">Three steps reproduce it: select two branches and the request still carries one id.</div><details class="det"><summary>Details ▸</summary>' + STEPS + '</details>', react: '✅ 1' })}</div></div>
+  <div class="turn"><div class="tline" data-act="turn"><span>▸</span><span><b>You</b>: same for one branch · <b>Claude</b> answered</span></div>
+    <div class="tbody">${c2({ id: 3, who: 'You', me: true, body: 'good - do the same for the one-branch case' })}${c2({ id: 4, who: 'Claude', body: '<div class="tldr">One branch works: the request sends <code>branchId: 948</code> and every row is Cairo\'s.</div><details class="det"><summary>Details ▸</summary><ol><li>Select only Cairo, Search.</li><li>The request: <code>branchId: 948</code>.</li><li>All 41 rows have branch Cairo.</li></ol><div class="codeblk v3n"><div class="ch"><span>SQL · the statement the search ran</span><span class="sp"></span><button class="lnk" data-act="toast" data-t="Copied the SQL">⧉ copy</button><button class="lnk" data-act="fold">fold</button></div><pre>SELECT r.id, r.branch_id, r.amount\n  FROM refund_requests r\n WHERE r.agency_id = ?\n   AND r.branch_id IN (?)      -- one value: 948\n ORDER BY r.created_at DESC</pre></div></details>' })}</div></div>
+  <div class="daydiv">Today</div>
+  <div class="chg" data-act="chg">· You moved it Fixed → Done · 10:40</div>
+  <div class="turn"><div class="tbody">${c2({ id: 5, who: 'You', me: true, isNew: true, when: '10:52', rtl: true, body: 'تمام، ابعتلي نفس الخطوات بس على <code>Mansoura</code> لوحدها' })}${c2({ id: 6, who: 'Claude', isNew: true, when: '10:53', rtl: true, body: '<div class="tldr">نفس النتيجة: الطلب بيبعت <code>branchId: 951</code> وكل الصفوف من فرع المنصورة.</div><details class="det"><summary>التفاصيل ▸</summary><ol><li>اختار المنصورة بس واضغط Search.</li><li>الطلب: <code>branchId: 951</code>.</li></ol></details>' })}</div></div>`;
+}
+const live = () => SC.running ? `<div class="livebox"><div class="row"><span class="spin"></span><b>Claude is working on your change</b><span style="flex:1"></span><button class="btn">■ Stop</button></div><div class="dim" style="font-size:12.5px;margin-top:2px">your terminal: reading Search.java · 3 steps ▸</div></div>` : '';
+const runs = () => sec('runs', 'Runs', SC.running ? '● /alfred-fix 44 running · 1 earlier' : '2 · last /alfred-fix 44 done 12 min ago → plan posted', `
+  ${SC.running ? '<div style="font-size:13px">▶ /alfred-fix 44 · <span style="color:var(--acc)">running</span> · 2 min</div>' : ''}
+  <div style="font-size:13px">▶ /alfred-fix 44 · <span style="color:var(--ok)">done</span> · 12 min · → plan posted on #44</div>
+  <div style="font-size:13px">▶ /alfred-verify 44 · <span style="color:var(--bad)">failed</span> · 3 min · <button class="lnk">retry</button></div>`, '', '', SC.running);
+const activityTab = () => `<div style="padding:10px 16px 4px">
+  <div class="afilter">${['All 16', 'Comments 7', 'Changes 9'].map((l, i) => `<button class="fb ${i === 0 ? 'on' : ''}">${l}</button>`).join('')}<input class="srch" placeholder="Find in this card's activity…" data-srch><span class="sp"></span><button class="icon v3n" title="Find in the activity (Ctrl+F inside the card)" data-act="search">🔍</button><button class="icon" title="Newest first">⇅</button>
+    <span style="position:relative"><button class="icon" data-menu="cv-${CARD}" title="View">⋯</button><div class="menu r" id="cv-${CARD}"><button>⇲ Open all exchanges</button><button>⇱ Fold all but the last</button></div></span></div>
+  ${SC.comments ? `<div class="newbar v3n"><span class="newdot" style="width:7px;height:7px;border-radius:50%;background:var(--acc)"></span><b>2 new</b><span class="dim">since you looked, yesterday 18:02</span><span class="sp"></span><button class="lnk" data-act="jump">Jump ↓</button><button class="lnk" data-act="toast" data-t="Marked as seen">Mark seen</button></div>` : ''}${live()}${exchanges()}</div>${runs()}`;
+const tabBody = () => ({ activity: activityTab, details: detailsTab, links: () => pad(linksBody()), retest: () => pad(retestBody()) })[tabOf()]();
+
+const quick = () => (SC.questions || SC.proposal) ? `<div class="quick v3n"><span class="lbl2">Quick reply:</span><button data-act="toast" data-t="Sent: ✅ Go ahead">✅ Go ahead</button><button data-act="toast" data-t="Opens the answer-all dialog">❓ Answer the 2 questions</button><button data-act="toast" data-t="Sent: Explain more">Explain more</button><button data-act="toast" data-t="Sent: Not now">Not now</button></div>` : '';
+const reply = () => `<div class="reply2">${quick()}<div class="cbox" data-act="openbox"><div class="ph">Reply… @ mention, / blocks</div><div class="tb2">
+  <button class="icon"><b>B</b></button><button class="icon"><i>I</i></button><button class="icon">&lt;/&gt;</button><button class="icon">•</button><button class="icon">☑</button><button class="icon">🔗</button><span class="vs"></span><button class="icon">@</button><button class="icon">/</button><button class="icon">📎</button><button class="icon ai">✦</button><button class="icon" title="More formatting">⋯</button><span class="sp"></span><span class="draft v3n">✓ draft saved</span><button class="btn primary">Comment</button></div></div></div>`;
+function side(el, card, scen) {
+  CARD = card; SC = SCEN[scen];
+  el.innerHTML = head() + `<div class="bd">${needs()}${tabs()}${tabBody()}</div>` + reply();
+  el.dataset.scen = scen;
+  const bd = $('.bd', el);
+  bd.addEventListener('scroll', () => el.classList.toggle('compact', bd.scrollTop > 40));
+}
+function full(el) {
+  CARD = 'full'; SC = SCEN.today;
+  el.innerHTML = head() + `<div class="fullgrid" style="flex:1;min-height:0"><div style="display:flex;flex-direction:column;min-height:0"><div class="bd">${needs()}${detailsTab()}${sec('conv', 'Activity', '14 entries', activityTab().replace(/<div class="s2[\s\S]*$/, ''))}</div>${reply()}</div>
+    <div class="rail bd">${sec('links', 'Links', '3 linked · breaks AC6 · not blocked', linksBody())}${sec('retest', 'Re-test', '<span style="color:var(--ok)">✓ passed 2/2</span>', retestBody())}${runs()}</div></div>`;
+}
+
+/* ---------- threads page ---------- */
+const OLD = (who, body, tag = 'REPLY', ext = '') => `<div class="ev"><div class="who">${who} · 10/15/2026 11:13 AM <span class="r">⇥ Scroll ⇄ Auto</span></div><div class="bubble"><span class="tag">${tag}</span><div>${body}</div></div>${ext}<div class="acts"><span>☺+</span><span>↩ Reply</span><span>⧉ Copy</span></div></div>`;
+const OLDR = (who, body) => `<div style="margin:8px 0 8px 22px;border-left:2px solid #4b6fae;padding-left:10px"><div class="who">${who} · 10/15/2026 11:20 AM <span class="r">⇥ Scroll ⇄ Auto</span></div><div style="font-size:13.5px;margin-top:4px">${body}</div><div class="acts"><span>☺+</span><span>↩ Reply</span><span>⧉ Copy</span></div></div>`;
+const R = (o) => c2({ ...o, id: 't' + Math.random().toString(36).slice(2, 7) });
+const footReply = (to) => `<div class="foot"><span class="rl" data-act="openreply" data-to="${to}">Reply to this thread…</span></div>`;
+const rbox = (to, q) => `<div class="rbox"><div class="q"><span>Replying to ${to}</span><blockquote>${q}</blockquote><span class="sp"></span><button class="lnk" data-act="closereply">✕</button></div>
+  <div class="ta2">Write your reply… @ mention, / blocks</div>
+  <div class="bt"><button class="icon"><b>B</b></button><button class="icon">&lt;/&gt;</button><button class="icon">@</button><button class="icon">📎</button><span class="sp"></span><span class="draft">✓ draft saved</span><button class="btn ghost" data-act="closereply">Cancel</button><button class="btn primary">Reply</button></div></div>`;
+function scn(title, before, after) {
+  return `<div class="scnhead">Situation<b>${title}</b></div><div class="pair"><div class="pane"><div class="lbl"><b>Before</b></div><div class="old"><div class="body">${before}</div></div></div>
+    <div class="pane after"><div class="lbl"><b>v3</b></div><div class="v2" style="height:auto;padding:4px 16px 10px">${after}</div></div></div>`;
+}
+function renderThreads() {
+  CARD = 'thr';
+  const t1 = scn('1 · A question and its answers',
+    OLD('You', 'Give me the steps to reproduce this, from what the card already has.', '') + OLDR('✦ Claude', '<b>Steps, from the card\'s spec evidence:</b> 1. Open the Refunded Requests… 2. Select Cairo and Mansoura… 3. Look at POST /Booking2/…') + OLDR('You', 'good - do the same for the one-branch case') + OLDR('✦ Claude', '<b>Steps (from the card\'s evidence, nothing new looked up):</b> select only Cairo…'),
+    `<div class="th">${R({ who: 'You', me: true, body: 'Give me the steps to reproduce this, from what the card already has.' })}
+      <div class="rp">${R({ who: 'Claude', when: '11:13', body: '<div class="tldr">Three steps reproduce it: select two branches and the request still carries one id.</div><details class="det"><summary>Details ▸</summary>' + STEPS + '</details>', react: '✅ 1' })}
+      <div class="dim" style="font-size:12px;margin:-4px 0 6px 30px">✅ go-ahead given by you</div>
+      ${R({ who: 'You', me: true, when: '11:20', body: 'good - do the same for the one-branch case' })}
+      ${R({ who: 'Claude', when: '11:21', body: '<div class="tldr">One branch works: the request sends <code>branchId: 948</code> and every row is Cairo\'s.</div>' })}</div>
+      ${footReply('Claude')}<div data-rb></div></div>`);
+  const qs = [
+    ['Keep one-branch search as the default?', [['Yes, default to the user\'s branch', true], ['No, default to all branches', false]]],
+    ['How should the page send several branches?', [['branchId as a list [948, 951]', true], ['repeated branchId=948&branchId=951', false]]],
+  ];
+  const t2 = scn('2 · Claude asks you something',
+    OLD('✦ Claude', '<b>QUESTIONS</b> 2 questions<br>❓ <b>Default</b> Keep one-branch search as the default? <span class="chip">Yes ★</span><span class="chip">No</span> still open<br>❓ <b>Format</b> How should the page send several branches? <span class="chip">list ★</span><span class="chip">repeated</span> still open', 'QUESTIONS', '<div class="pill" style="color:var(--warn);margin-top:6px">waiting for you</div>'),
+    `<div class="th">${R({ who: 'Claude', when: '11:30', body: `<div class="tldr">Two choices before I change the page.</div><div class="qcard"><div class="qh">❓ 2 questions<span class="badge wait">waiting for you</span><span class="sp"></span><button class="lnk" data-act="toast" data-t="Opens the answer-all dialog">Answer all…</button></div>
+      ${qs.map(([q, opts], i) => `<div class="qitem" data-q="${i}"><b>${q}</b><div class="opts">${opts.map(([o, rec]) => `<button class="${rec ? 'rec' : ''}" data-act="pick">${o}${rec ? ' ★' : ''}</button>`).join('')}<button data-act="toast" data-t="Opens a reply quoting this question">Other…</button><button data-act="toast" data-t="Put off - asks again tomorrow">⏰ Later</button></div></div>`).join('')}</div>` })}
+      <div class="rp" data-answers></div>
+      <div class="foot"><span class="rl" data-act="openreply" data-to="Claude" data-q="1">Answer in your own words…</span></div><div data-rb></div></div>`);
+  const many = [['Claude', 'Found it: the page sends one id.'], ['You', 'why only one?'], ['Claude', 'The branch picker is single-select; <code>BranchFilter.tsx</code> keeps a string.'], ['You', 'can the backend take a list?'], ['Claude', 'Yes - <code>IN (?)</code> already; only the page limits it.'], ['You', 'ok make it multi-select'], ['Claude', '<div class="tldr">Done in the plan: multi-select picker, <code>branchId</code> as a list.</div>'], ['You', 'tested, both branches show 👍']];
+  const t3 = scn('3 · A long thread (8 replies)',
+    OLD('✦ Claude', 'Found it: the page sends one id.', 'FOUND') + many.slice(1).map(([w, b]) => OLDR(w === 'You' ? 'You' : '✦ Claude', b)).join(''),
+    `<div class="th" data-thread>${R({ who: 'Claude', when: '09:02', body: '<span class="part">FOUND</span>Found it: the page sends one id.' })}
+      <div class="rp">${many.slice(1, 5).map(([w, b]) => `<div class="hidden" data-mid>${R({ who: w, me: w === 'You', when: '09:1' + Math.floor(Math.random() * 9), body: b })}</div>`).join('')}
+      <button class="more" data-act="moreRep">▸ 4 more replies · You and Claude, 09:10 – 09:40</button>
+      ${many.slice(5).map(([w, b], i) => R({ who: w, me: w === 'You', when: '10:' + (10 + i * 7), body: b, isNew: i === 2 })).join('')}</div>
+      ${footReply('You')}<div data-rb></div></div>
+     <div class="th"><div class="turn closed"><div class="tline" data-act="turn"><span>▸</span><span><b>You</b> asked for the steps · <b>3 replies</b> · last Claude 11:21</span><span class="sp"></span><span>✅ 1</span></div><div class="tbody dim" style="padding:6px 34px;font-size:13px">(the whole thread, as in situation 1)</div></div></div>`);
+  const t4 = scn('4 · Replying',
+    OLD('✦ Claude', 'One branch works: the request sends branchId: 948.') + `<div style="border:1px solid var(--line2);border-radius:6px;padding:8px;margin:6px 0 0 22px"><div class="dim" style="font-size:12px">Replying to Claude: “One branch works: the request sends branchId: 948.” ✕</div><div class="tb" style="margin-top:6px"><span class="sty">Style… ▾</span><b>B</b><i>I</i><u>U</u><s>S</s><span>&lt;/&gt;</span><span>▮</span><span>A▾</span><span>•</span><span>1.</span><span>☑</span><span>▤▾</span><span>▦</span><span>◇▾</span><span>▸</span><span>🔗</span><span>📎</span></div><div class="ta" style="height:44px">Write your reply… type @ to mention, / for blocks</div><div class="foot"><span class="sp"></span><span class="run">⇄ Auto</span><span class="run">@ Mention</span><span class="run">Cancel</span><span class="run">Reply</span></div></div>`,
+    `<div class="th">${R({ who: 'Claude', when: '11:21', body: '<div class="tldr">One branch works: the request sends <code>branchId: 948</code> and every row is Cairo\'s.</div>' })}
+      ${rbox('Claude', 'One branch works: the request sends branchId: 948 and every row is Cairo\'s.')}</div>`);
+  const t5 = scn('5 · Edited, reactions, Arabic',
+    OLD('You', 'تمام، ابعتلي نفس الخطوات بس على Mansoura لوحدها', '') + OLDR('✦ Claude', 'نفس النتيجة: الطلب بيبعت branchId: 951'),
+    `<div class="th">${c2({ id: 'e1', who: 'You', me: true, when: '10:52', rtl: true, body: 'تمام، ابعتلي نفس الخطوات بس على <code>Mansoura</code> لوحدها' }).replace('<span class="hov">', '<span class="edited" data-act="toast" data-t="Opens the earlier texts">· edited</span><span class="hov">')}
+      <div class="rp">${c2({ id: 'e2', who: 'Claude', when: '10:53', rtl: true, body: '<div class="tldr">نفس النتيجة: الطلب بيبعت <code>branchId: 951</code> وكل الصفوف من فرع المنصورة.</div>', react: '👍 1' })}</div>
+      ${footReply('Claude')}<div data-rb></div></div>`);
+  $('#threads').innerHTML = t1 + t2 + t3 + t4 + t5;
+}
+
+function renderAll() {
+  side($('[data-card="side"]'), 'side', 'today');
+  side($('[data-card="side2"]'), 'side2', PICK);
+  side($('[data-card="side3"]'), 'side3', 'today');
+  renderThreads();
+  CARD = 'head'; SC = SCEN.today;
+  $('[data-card="head"]').innerHTML = head();
+  $('[data-card="headmini"]').innerHTML = head();
+  CARD = 'conv'; $('[data-card="conv"]').innerHTML = `<div style="padding:10px 16px">${live()}${exchanges()}</div>`;
+  full($('[data-card="full"]'));
+  CARD = 'one'; $('[data-v2one]').innerHTML = c2({ id: 7, who: 'Claude', body: '<div class="tldr">Three steps reproduce it: select two branches and the request still carries one id.</div>' + STEPS });
+}
+
+/* v1 bits for comparison */
+const V1STEPS = `<b>Steps, from the card's spec evidence:</b><ol><li>Open the Refunded Requests search page and select <b>All Agencies</b>.</li><li>In the branch filter, select <b>Cairo</b> and <b>Mansoura</b>, then click <b>Search</b>. For the one-branch case, select only Cairo and click Search again.</li><li>Look at <code>POST /Booking2/refunded-requests/search</code>. Expected: <code>branchId</code> is a list (for example <code>[948, …]</code>) and the results contain requests from both branches. Today the page sends a single value, <code>branchId: 948</code>.</li></ol>`;
+const v1c = (who, me, body) => `<div class="c"><div class="av ${me ? 'me' : 'cl'}">${me ? 'Y' : '✦'}</div><div><div class="top"><b class="${me ? '' : 'ai'}">${who}</b><span class="when">yesterday 11:13</span></div><div class="txt">${body}</div></div></div>`;
+$('[data-v1act]').innerHTML = `<div class="afilter"><button class="on">All 14</button><button>Comments 5</button><button>Changes 9</button></div><div class="grp">▸ 3 changes · Claude added the teams…</div>${v1c('You', true, 'Give me the steps to reproduce this, from what the card already has.')}${v1c('Claude', false, '<span class="part">REPLY</span>' + V1STEPS)}${v1c('You', true, 'good - do the same for the one-branch case')}${v1c('Claude', false, '<span class="part">REPLY</span><b>Steps (from the card\'s evidence, nothing new looked up):</b> select only Cairo…')}`;
+$('[data-v1one]').innerHTML = v1c('Claude', false, '<span class="part">REPLY</span>' + V1STEPS);
+
+document.addEventListener('click', (e) => {
+  const tb = e.target.closest('#tabs button');
+  if (tb) { $$('#tabs button').forEach((b) => b.classList.toggle('on', b === tb)); $$('.page').forEach((p) => p.classList.toggle('on', p.id === 'p-' + tb.dataset.p)); return; }
+  const inMenu = e.target.closest('.menu, .popform');
+  const act = e.target.closest('[data-act]');
+  const m = e.target.closest('[data-menu]');
+  if (act && !(m && m.contains(act) && act === m)) {
+    const a = act.dataset.act, v = act.dataset.v;
+    if (a === 'sec') { if (e.target.closest('.acts2')) return; const box = act.closest('[data-card]'); const k = (box?.dataset.card ?? 'side') + ':' + v; USER[k] = act.parentElement.classList.contains('closed'); act.parentElement.classList.toggle('closed'); return; }
+    if (a === 'tab') { const box = act.closest('[data-card]'); TABS[box.dataset.card] = v; renderAll(); return; }
+    if (a === 'scen') { PICK = v; $('#scen-name').textContent = act.textContent; renderAll(); return; }
+    if (a === 'notes') { const d = act.nextElementSibling; d.style.display = d.style.display === 'none' ? '' : 'none'; act.textContent = act.textContent.replace(/^[▸▾]/, d.style.display === 'none' ? '▸' : '▾'); return; }
+    if (a === 'focus') { toast('Focus: the conversation only (F again to leave)'); return; }
+    if (a === 'turn') { act.parentElement.classList.toggle('closed'); return; }
+    if (a === 'chg') { act.textContent = act.textContent.includes('Claude added Frontend') ? '· Claude added the team Frontend · Claude added the team Backend · Claude moved it Inbox → To do' : act.textContent; return; }
+    if (a === 'readall') { const c = act.previousElementSibling; c.classList.toggle('clamp'); act.textContent = c.classList.contains('clamp') ? 'Read all' : 'Show less'; return; }
+    if (a === 'ev') { const d = act.closest('.sb2').querySelector('[data-ev]'); d.style.display = d.style.display === 'none' ? '' : 'none'; return; }
+    if (a === 'set') { S[act.dataset.k] = v.replace('…', ''); renderAll(); return; }
+    if (a === 'team') { S.teams = S.teams.includes(v) ? S.teams.filter((t) => t !== v) : [...S.teams, v]; renderAll(); return; }
+    if (a === 'flag') { S.flags = S.flags.includes(v) ? S.flags.filter((f) => f !== v) : [...S.flags, v]; renderAll(); return; }
+    if (a === 'openreply') { const th = act.closest('.th'); const rb = th.querySelector('[data-rb]'); act.closest('.foot').style.display = 'none'; rb.innerHTML = rbox(act.dataset.to, act.dataset.q ? 'the 2 questions' : (th.querySelector('.c:last-of-type .txt')?.textContent ?? '').slice(0, 80)) + (act.dataset.q ? '<label class="board-ev-clear" style="display:block;margin:6px 0 0 34px;font-size:12.5px;color:var(--dim)"><input type="checkbox" checked> Clear "Needs decision"</label>' : ''); return; }
+    if (a === 'closereply') { const th = act.closest('.th'); if (!th) return; th.querySelector('[data-rb]') && (th.querySelector('[data-rb]').innerHTML = ''); const f = th.querySelector('.foot'); if (f) f.style.display = ''; return; }
+    if (a === 'moreRep') { act.closest('.rp').querySelectorAll('[data-mid]').forEach((x) => x.classList.remove('hidden')); act.remove(); return; }
+    if (a === 'pick') { const it = act.closest('.qitem'); it.querySelectorAll('button').forEach((b) => b.classList.remove('picked')); act.classList.add('picked'); it.classList.add('done');
+      const card = act.closest('.qcard'); const left = [...card.querySelectorAll('.qitem')].filter((q) => !q.classList.contains('done')).length;
+      const b = card.querySelector('.badge'); b.className = 'badge ' + (left ? 'wait' : 'ok'); b.textContent = left ? left + ' still open' : '✓ answered';
+      if (!left) { const ans = act.closest('.th').querySelector('[data-answers]'); ans.innerHTML = R({ who: 'You', me: true, when: 'now', body: [...card.querySelectorAll('.qitem')].map((q) => '<b>' + q.querySelector('b').textContent + '</b> → ' + q.querySelector('.picked').textContent.replace(' ★', '')).join('<br>') }) + R({ who: 'Claude', when: 'now', body: '<div class="tldr">Got it - changing the picker to multi-select and sending a list.</div>' }); }
+      return; }
+    if (a === 'search') { const f = act.closest('.afilter'); f.classList.toggle('searching'); f.querySelector('[data-srch]').focus(); return; }
+    if (a === 'jump') { const n = act.closest('.bd, .v2')?.querySelector('[data-new]'); n?.scrollIntoView({ block: 'center', behavior: 'smooth' }); return; }
+    if (a === 'fold') { act.closest('.codeblk').classList.toggle('folded'); act.textContent = act.closest('.codeblk').classList.contains('folded') ? 'show' : 'fold'; return; }
+    if (a === 'keys') { $('#keys').classList.add('on'); closeMenus(); return; }
+    if (a === 'dense') { $$('.v2').forEach((x) => x.classList.toggle('dense')); closeMenus(); toast('Compact spacing'); return; }
+    if (a === 'copynum') { toast('Copied #44'); return; }
+    if (a === 'issue') { toast('Copied the card as Markdown'); closeMenus(); return; }
+    if (a === 'toast') { toast(act.dataset.t); return; }
+    if (a === 'openbox') { act.classList.add('open'); return; }
+  }
+  if (m && !inMenu) {
+    e.stopPropagation();
+    const menu = document.getElementById(m.dataset.menu) || m.parentElement.querySelector('#' + m.dataset.menu);
+    const scoped = m.closest('.v2, .new')?.querySelector('#' + CSS.escape(m.dataset.menu)) || menu;
+    const was = scoped?.classList.contains('open'); closeMenus();
+    if (scoped && !was) { scoped.classList.add('open'); m.closest('.hov')?.classList.add('keep'); }
+    return;
+  }
+  if (!inMenu) { closeMenus(); if (!e.target.closest('.cbox')) $$('.cbox.open').forEach((b) => b.classList.remove('open')); }
+});
+function closeMenus() { $$('.menu.open, .popform.open').forEach((x) => x.classList.remove('open')); $$('.hov.keep').forEach((x) => x.classList.remove('keep')); }
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') { closeMenus(); $('#keys').classList.remove('on'); }
+  if (e.key === '?' && !e.target.closest('input, textarea')) $('#keys').classList.add('on');
+});
+document.addEventListener('input', (e) => {
+  if (!e.target.matches('[data-srch]')) return;
+  const q = e.target.value.trim().toLowerCase(); const box = e.target.closest('.bd, .v2, [data-card]');
+  $$('.turn', box).forEach((t) => { const hit = !q || t.textContent.toLowerCase().includes(q); t.style.display = hit ? '' : 'none'; if (q && hit) t.classList.remove('closed'); });
+});
+$('#hl').addEventListener('change', (e) => document.body.classList.toggle('hl', e.target.checked));
+document.body.classList.add('hl');
+$('#keys').addEventListener('click', (e) => { if (e.target.id === 'keys') e.target.classList.remove('on'); });
+
+const MAP = [
+  ['✕, Side / Full / Window', 'Meta line: view icon menu + ✕'], ['Kind badge', 'Bar badge + Kind chip'], ['✦ found by Claude', 'Meta line'],
+  ['◷ cycle id', 'Meta line: cycle name; ⋯ → Copy cycle id'], ['#number', 'Meta line pill, copies; mini header'], ['Waiting pill', 'Meta line'],
+  ['❓ open questions pill → dialog', 'Needs you → Answer'], ['▶ run skill + menu + messages', '"▶ fix ▾" button, same menu; mini header'], ['R · C · ⇧R hint', '⋯ menu "Keys", run menu kbd'],
+  ['⧉ Copy as issue', '⋯ menu'], ['Title (rename)', 'Title, click to rename; mini header'], ['Mentioned as / ✎ short name', 'Line under the title, ✎ on hover'],
+  ['Status / Kind / Scope', 'Property chips'], ['5 flags', 'Active flag chips + ⚑ + menu'], ['Teams', 'Team chips, ✕ on hover, + team'],
+  ['Reason', 'Needs you'], ['Looks like #N', 'Needs you'], ['Claude proposes (reason, evidence, Accept, Dismiss)', 'Needs you, evidence folds'],
+  ['Description, Edit, history, outline, snippets', 'Details tab, ✎ 🕘 on hover, folds only when long'], ['Pinned / Pages / Files', 'Details tab, Attached row + "+ add"'],
+  ['Linked (+ link)', 'Links tab'], ['Breaks the spec', 'Links tab'], ['Blocked by (+, ✕)', 'Links tab; Needs you row + 🔒 on the tab when blocked'],
+  ['Re-test (all of it)', 'Re-test tab, verdict in its label; Needs you row on a failure'], ['Activity count', 'Activity tab count + filter counts'],
+  ['Comments (who, time, edited, react, reply/answer, edit, copy, direction, wrap)', 'Exchanges; hover bar; ⋯ per comment; day dividers'],
+  ['Questions list in comments', 'Unchanged'], ['Long comment fold', 'Answer first + Details ▸'], ['System change lines', 'Dim "· N changes" lines, open on click'],
+  ['Order / folding', 'Activity filter (All · Comments · Changes), ⇅, ⋯ open/fold all'], ['Live work box + Stop', 'Top of Activity, ● on the tab'], ['Run history', 'Runs line under Activity, open while running'],
+  ['Delete card…', '⋯ menu'], ['Comment box + full toolbar + hints', 'One-line Reply box, opens to toolbar + ⋯'], ['Error line, quick-answer dialog', 'Unchanged'],
+];
+$('#maprows').innerHTML = MAP.map((r) => `<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join('');
+renderAll();
+</script>
+</body>
+</html>

@@ -229,6 +229,7 @@ const BLOCK_TAGS = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'UL', 'OL', 'PRE', 'BLO
           <button type="button" class="board-editor-cbtn" [class.on]="dirChoice() !== 'auto'" (mousedown)="$event.preventDefault()" (click)="flipDir()"
                   title="Text direction: auto, right-to-left or left-to-right · Ctrl+Shift+X">{{ dirLabel(dirChoice()) }}</button>
           <ng-content select="[editorTools]" />
+          @if (draftKey() && value().trim()) { <span class="board-editor-saved" title="Kept in this browser until you send it">✓ draft saved</span> }
           <span class="board-editor-grow"></span>
           @if (cancellable()) { <button type="button" class="board-editor-cbtn" (click)="cancelled.emit()">Cancel</button> }
           <button type="button" class="board-editor-send" [disabled]="!value().trim() && !allowEmpty()"
@@ -321,6 +322,18 @@ export class MentionEditorComponent implements AfterViewInit {
   readonly pills: readonly { tone: PillTone; text: string }[] = [{ tone: 'ok', text: '✓ ok' }, { tone: 'fail', text: '✕ fail' },
     { tone: 'wait', text: '⏳ waiting' }, { tone: 'info', text: 'ℹ info' }];
   private readonly box = viewChild.required<ElementRef<HTMLDivElement>>('box');
+
+  /** Puts the caret in the box, after any draft it holds (the card's "/" key, Reply…). */
+  focus(): void {
+    const box = this.box().nativeElement;
+    box.focus();
+    const range = document.createRange();
+    range.selectNodeContents(box);
+    range.collapse(false);
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+  }
   /** The text this box last showed or produced - a value that differs came from outside and is rendered again. */
   private shown: string | null = null;
   private ready = false;

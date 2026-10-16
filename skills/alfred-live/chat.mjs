@@ -340,7 +340,7 @@ export class ChatLane {
   track({ key, marker, reporter, done }) {
     const steps = [];
     this.pending.set(key, { key, marker, reporter, done, steps, picked: false });
-    reporter.report({ steps, state: 'WORKING', head: 'sent to your terminal · waiting for its turn' });
+    reporter.report({ steps, state: 'WORKING', head: 'waiting for your terminal to be free' });
     reporter.onStop = () => {
       this.r.o.chat?.(`⏹ ${marker}: the user pressed Stop - stop working on it and answer nothing more for it.`);
       this.untrack(key, { state: 'STOPPED', outcome: 'stopped - your terminal was told' });
@@ -364,7 +364,7 @@ export class ChatLane {
         if ((ev.kind === 'received' || ev.kind === 'queued') && ev.raw.includes(p.marker)) {
           if (ev.kind === 'received') p.picked = true;
           p.reporter.report({ steps: p.steps, state: 'WORKING',
-            head: ev.kind === 'received' ? 'your terminal is on it' : 'your terminal is busy · queued after its current step' });
+            head: ev.kind === 'received' ? 'working on it in your terminal' : 'queued in your terminal after its current step' });
           continue;
         }
         if (!p.picked) continue;
@@ -375,7 +375,7 @@ export class ChatLane {
         const step = ev.kind === 'thinking' ? 'thinking' : stepOf(ev.name, ev.input);
         if (p.steps.at(-1) === step) continue;
         p.steps.push(step);
-        p.reporter.report({ steps: p.steps.slice(-40), state: 'WORKING', head: `your terminal: ${step}` });
+        p.reporter.report({ steps: p.steps.slice(-40), state: 'WORKING', head: `working in your terminal: ${step}` });
       }
     }
   }
@@ -520,7 +520,7 @@ export class ChatLane {
       return;
     }
     for (const t of [...taken].sort((a, b) => Number(urgent.has(b.messageId)) - Number(urgent.has(a.messageId)))) {
-      const reporter = new Reporter(this.r.o.alfred, { id: randomUUID(), project, cardNumber: 0, chatMessageId: t.messageId, head: 'sent to your terminal' },
+      const reporter = new Reporter(this.r.o.alfred, { id: randomUUID(), project, cardNumber: 0, chatMessageId: t.messageId, head: 'waiting for your terminal to be free' },
         { every: this.r.o.reportEveryMs ?? 250, onError: (error) => this.r.o.log(`  (live-work report failed: ${error.message})`) });
       this.track({ key: `m:${t.messageId}`, marker: `✉ board chat #${t.messageId}`, reporter,
         done: (name, input) => /(^|__)chat_reply$/.test(name) && Number(input.messageId) === t.messageId });

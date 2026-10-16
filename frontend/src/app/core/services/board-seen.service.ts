@@ -20,6 +20,11 @@ export class BoardSeenService {
     return at === undefined ? this.trackingSince() < card.updatedAt : at < card.updatedAt;
   }
 
+  /** When this browser last opened the card (null: never, or not tracked) - read before markSeen for "new since you looked". */
+  seenAt(id: string): string | null {
+    return this.seen()[id] ?? null;
+  }
+
   markSeen(card: Pick<CardSummary, 'id' | 'updatedAt'>): void {
     const now = new Date().toISOString();
     const at = card.updatedAt > now ? card.updatedAt : now;
