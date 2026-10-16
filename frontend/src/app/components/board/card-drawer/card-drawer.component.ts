@@ -348,6 +348,8 @@ function writeJson(key: string, value: unknown): void {
               }
             }
             <span class="cd-grow"></span>
+            <button type="button" class="cd-ib" title="Open every reply" (click)="tl.openAll()">⊞</button>
+            <button type="button" class="cd-ib" title="Fold every reply (as the card opens)" (click)="tl.foldAll()">⊟</button>
             <button type="button" class="cd-ib" [class.on]="searching()" title="Find in the activity" (click)="searching() ? closeFind() : openFind()">🔍</button>
             <button type="button" class="cd-ib" [class.on]="newestFirst()" [title]="newestFirst() ? 'Newest first - click for oldest first' : 'Oldest first - click for newest first'" (click)="newestFirst.set(!newestFirst())">⇅</button>
           </div>
@@ -998,13 +1000,18 @@ export class CardDrawerComponent {
     });
   }
 
+  /** The cycle whose name the drawer is waiting for - the card itself is set only after the name is asked for. */
+  private wantedCycle: string | null = null;
+
   private loadCycleName(id: string | null): void {
+    this.wantedCycle = id;
     this.cycleName.set(id ? cycleNames.get(id) ?? null : null);
     if (!id || cycleNames.has(id)) return;
     this.cyclesApi.get(id).subscribe({
       next: (cycle) => {
         cycleNames.set(id, cycle.name);
-        if (this.card()?.cycleId === id) this.cycleName.set(cycle.name);
+        // compared with the cycle asked for, not the card: a quick (or cached) answer comes before the card is set
+        if (this.wantedCycle === id) this.cycleName.set(cycle.name);
       },
       error: () => undefined,
     });

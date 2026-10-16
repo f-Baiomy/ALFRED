@@ -162,9 +162,11 @@ public class ImportBoardService implements ImportBoardUseCase {
                         cardImages.computeIfAbsent(cardId, k -> new java.util.HashSet<>()).addAll(RichText.imageIds(text));
                         // Replies point at the new id of the comment they answer (comments come before their replies).
                         Long replyTo = e.hasNonNull("replyTo") ? newIds.get(e.path("replyTo").asLong()) : null;
+                        // the reply a reply to a reply answers (specs/023); older files have none
+                        Long answers = e.hasNonNull("answers") ? newIds.get(e.path("answers").asLong()) : null;
                         long id = store.append(new ActivityEntry(0, cardId, actor(e.path("actor").asText()),
                                 ActivityKind.valueOf(e.path("kind").asText()), text, text(e, "oldValue"), text(e, "newValue"),
-                                instant(e.path("at").asText()), replyTo));
+                                instant(e.path("at").asText()), replyTo, answers));
                         if (e.hasNonNull("id")) {
                             newIds.put(e.path("id").asLong(), id);
                         }

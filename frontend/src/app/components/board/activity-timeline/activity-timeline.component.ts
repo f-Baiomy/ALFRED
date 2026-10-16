@@ -13,7 +13,8 @@ import { ClaudeParts, changeText, claudeParts } from '../../../shared/utils/boar
 import { QuestionLine, questionLines, withoutBlocks } from '../../../shared/utils/question-blocks';
 import { HistoryItem, Reaction, historyThreads, openQuestions, reactionsOf } from '../../../shared/utils/board-threads';
 import { parseMentions } from '../../../shared/utils/mention-syntax';
-import { EARLIER_PAGE, RECENT_THREADS, TimelineFilter, isNewEntry, timelineRows, visibleReplies } from '../../../shared/utils/timeline-view';
+import { depthTintClass } from '../../../shared/utils/call-tree';
+import { EARLIER_PAGE, RECENT_THREADS, ReplyNode, TimelineFilter, isNewEntry, pathTo, replyTree, timelineRows } from '../../../shared/utils/timeline-view';
 import { MarkdownViewComponent } from '../markdown-view/markdown-view.component';
 import { MentionChipComponent } from '../mention-chip/mention-chip.component';
 import { MentionEditorComponent } from '../mention-editor/mention-editor.component';
@@ -58,36 +59,22 @@ export interface TimelineReply {
           }
           @case ('thread') {
             @let item = row.item;
-              <div class="cd-thread">
+            @let kids = treeOf(item);
+              <div class="cd-thread" [class]="kids.length && repliesOpen(item.entry.id) ? 'cd-thread cd-has-open ' + kidsTint(1) : 'cd-thread'">
                 <ng-container [ngTemplateOutlet]="comment" [ngTemplateOutletContext]="{ $implicit: item.entry, item: item, root: true }" />
-                @if (item.replies.length) {
-                  <div class="cd-replies">
-                    @let vis = shownReplies(item);
-                    @if (vis.hidden) {
-                      <button type="button" class="board-link cd-more" (click)="openMiddle(item.entry.id)">▸ {{ vis.hidden }} more {{ vis.hidden === 1 ? 'reply' : 'replies' }}</button>
-                    }
-                    @for (r of vis.shown; track r.id) {
-                      <div class="board-ev-reply" [class.claude]="r.actor === 'CLAUDE'">
-                        <ng-container [ngTemplateOutlet]="comment" [ngTemplateOutletContext]="{ $implicit: r, item: item, root: false }" />
+                @if (kids.length) {
+                  <div class="cd-branch">
+                    <div class="cd-fold-row"><ng-container [ngTemplateOutlet]="fold" [ngTemplateOutletContext]="{ id: item.entry.id, size: item.replies.length, fresh: freshIn(kids) }" /></div>
+                    @if (repliesOpen(item.entry.id)) {
+                      <div [class]="'cd-kids ' + tint(1)">
+                        <button type="button" class="cd-rail" title="Fold these replies" aria-label="Fold these replies" (click)="toggleReplies(item.entry.id)"></button>
+                        @for (n of kids; track n.entry.id) { <ng-container [ngTemplateOutlet]="node" [ngTemplateOutletContext]="{ $implicit: n, item: item, depth: 1 }" /> }
                       </div>
                     }
                   </div>
                 }
                 @if (replyingTo() === item.entry.id) {
-                  <div class="board-ev-replybox">
-                    <div class="board-ev-replyto">
-                      <span>{{ item.question && !item.answered ? 'Answering' : 'Replying to' }} {{ name(item.entry) }}: “{{ quote(item.entry, 80) }}”</span>
-                      <button type="button" class="board-link" title="Cancel" (click)="replyingTo.set(null)">✕</button>
-                    </div>
-                    <app-mention-editor #replyBox [project]="project()" [cycleId]="cycleId()" [card]="card()" [attach]="card() ? { card: card()!.id } : null" [rows]="2" [cancellable]="true"
-                                        [compact]="true" [submitLabel]="item.question && !item.answered ? 'Answer' : 'Reply'"
-                                        placeholder="Write your reply… @ to mention, / for blocks" [draftKey]="card() ? 'reply:' + card()!.id + ':' + item.entry.id : null"
-                                        (submitted)="send(item, $event)" (cancelled)="replyingTo.set(null)" />
-                    @if (item.question && !item.answered) {
-                      <label class="board-ev-clear"><input type="checkbox" [checked]="clearDecision()" (change)="clearDecision.set($any($event.target).checked)" />
-                        Clear "Needs decision"{{ otherOpen(item) ? ' (' + otherOpen(item) + ' other question' + (otherOpen(item) === 1 ? '' : 's') + ' still open - stays on)' : '' }}</label>
-                    }
-                  </div>
+                  <ng-container [ngTemplateOutlet]="replyForm" [ngTemplateOutletContext]="{ $implicit: item.entry, item: item }" />
                 } @else if (editable()) {
                   <div class="cd-thread-foot">
                     @if (item.question && !item.answered && hasOptions(item)) {
@@ -107,6 +94,47 @@ export interface TimelineReply {
         <div class="board-dim">{{ query() ? 'Nothing in the activity matches “' + query() + '”.' : 'No history yet.' }}</div>
       }
     </div>
+    <!-- a reply in the thread's tree (specs/023): one step right of what it answers; its own replies fold under it -->
+    <ng-template #node let-n let-item="item" let-depth="depth">
+      <div [class]="n.children.length && repliesOpen(n.entry.id) ? 'cd-kid cd-has-open ' + kidsTint(depth + 1) : 'cd-kid'">
+        <ng-container [ngTemplateOutlet]="comment" [ngTemplateOutletContext]="{ $implicit: n.entry, item: item, root: false }" />
+        @if (replyingTo() === n.entry.id) {
+          <ng-container [ngTemplateOutlet]="replyForm" [ngTemplateOutletContext]="{ $implicit: n.entry, item: item }" />
+        }
+        @if (n.children.length) {
+          <div class="cd-branch">
+            <div class="cd-fold-row"><ng-container [ngTemplateOutlet]="fold" [ngTemplateOutletContext]="{ id: n.entry.id, size: n.size, fresh: n.fresh }" /></div>
+            @if (repliesOpen(n.entry.id)) {
+              <div [class]="'cd-kids ' + tint(depth + 1)">
+                <button type="button" class="cd-rail" title="Fold these replies" aria-label="Fold these replies" (click)="toggleReplies(n.entry.id)"></button>
+                @for (c of n.children; track c.entry.id) { <ng-container [ngTemplateOutlet]="node" [ngTemplateOutletContext]="{ $implicit: c, item: item, depth: depth + 1 }" /> }
+              </div>
+            }
+          </div>
+        }
+      </div>
+    </ng-template>
+    <ng-template #fold let-id="id" let-size="size" let-fresh="fresh">
+      <button type="button" class="cd-fold" [attr.aria-expanded]="repliesOpen(id)" (click)="toggleReplies(id)">
+        {{ repliesOpen(id) ? '▾' : '▸' }} {{ size }} {{ size === 1 ? 'reply' : 'replies' }}@if (fresh && !repliesOpen(id)) {<span class="cd-fold-new"> · {{ fresh }} new</span>}</button>
+    </ng-template>
+    <ng-template #replyForm let-to let-item="item">
+      @let answering = to.id === item.entry.id && item.question && !item.answered;
+      <div class="board-ev-replybox">
+        <div class="board-ev-replyto">
+          <span>{{ answering ? 'Answering' : 'Replying to' }} {{ name(to) }}: “{{ quote(to, 80) }}”</span>
+          <button type="button" class="board-link" title="Cancel" (click)="replyingTo.set(null)">✕</button>
+        </div>
+        <app-mention-editor #replyBox [project]="project()" [cycleId]="cycleId()" [card]="card()" [attach]="card() ? { card: card()!.id } : null" [rows]="2" [cancellable]="true"
+                            [compact]="true" [submitLabel]="answering ? 'Answer' : 'Reply'"
+                            placeholder="Write your reply… @ to mention, / for blocks" [draftKey]="card() ? 'reply:' + card()!.id + ':' + to.id : null"
+                            (submitted)="send(item, $event, to.id)" (cancelled)="replyingTo.set(null)" />
+        @if (answering) {
+          <label class="board-ev-clear"><input type="checkbox" [checked]="clearDecision()" (change)="clearDecision.set($any($event.target).checked)" />
+            Clear "Needs decision"{{ otherOpen(item) ? ' (' + otherOpen(item) + ' other question' + (otherOpen(item) === 1 ? '' : 's') + ' still open - stays on)' : '' }}</label>
+        }
+      </div>
+    </ng-template>
     <ng-template #comment let-e let-item="item" let-root="root">
       <div class="board-ev cd-c" [class.claude]="e.actor === 'CLAUDE'" [class.me]="e.actor === 'USER'" [class.cd-new]="isNew(e)" [attr.data-entry]="e.id"
            [attr.data-new]="isNew(e) ? '' : null">
@@ -131,7 +159,7 @@ export interface TimelineReply {
                     </span>
                   }
                 </span>
-                <button type="button" class="cd-ib" [title]="item.question && !item.answered ? 'Answer' : 'Reply'" (click)="startReply(item)">↩</button>
+                <button type="button" class="cd-ib" [title]="root && item.question && !item.answered ? 'Answer' : 'Reply'" (click)="startReply(item, e)">↩</button>
               }
               <ng-container [ngTemplateOutlet]="copyMenu" [ngTemplateOutletContext]="{ $implicit: e }" />
               <span class="board-editor-dd">
@@ -205,8 +233,10 @@ export interface TimelineReply {
         } @else {
         @if (parts(e.text); as ps) {
           @for (p of ps; track $index) {
-            <div class="board-ev-part"><span class="board-ev-label">{{ p.label }}</span><app-markdown-view [text]="p.text" [dir]="dirs.choice(e.id)" [wrap]="dirs.wraps(e.id)"
-              [snippetOwner]="snippetOwner(e.id, $index)" [snippetContext]="snippetContext(e.id)" /></div>
+            <div class="cd-part" [class]="'cd-part cd-part-' + p.label.toLowerCase()">
+              @if (p.label && p.label !== 'REPLY') { <div class="cd-ph">{{ partHead(p.label) }}</div> }
+              <app-markdown-view [text]="p.text" [dir]="dirs.choice(e.id)" [wrap]="dirs.wraps(e.id)"
+                [snippetOwner]="snippetOwner(e.id, $index)" [snippetContext]="snippetContext(e.id)" /></div>
           }
         } @else {
           <app-markdown-view [text]="e.text" [dir]="dirs.choice(e.id)" [wrap]="dirs.wraps(e.id)" [snippetOwner]="snippetOwner(e.id, null)"
@@ -259,11 +289,11 @@ export class ActivityTimelineComponent {
       if (id === null || !this.entries().some((e) => e.id === id)) return;
       untracked(() => {
         this.mentions.entryToShow.set(null);
-        // the entry may sit in the earlier history or among a long thread's hidden middle replies: show both first
+        // the entry may sit in the earlier history or inside folded replies: show both first
         const thread = this.items().find((i) => i.entry.id === id || i.replies.some((r) => r.id === id));
         if (thread) {
           this.recent.set(Infinity);
-          this.openMiddle(thread.entry.id);
+          this.openPath(thread, id);
         }
         setTimeout(() => {
           const el = (this.host.nativeElement as HTMLElement).querySelector(`[data-entry="${id}"]`) as HTMLElement | null;
@@ -275,6 +305,52 @@ export class ActivityTimelineComponent {
         });
       });
     });
+  }
+
+  /** The entries this card already showed - one that arrives after is shown, never folded away. */
+  private known = new Set<number>();
+  /** undefined until the first entries came: then they are the card's opening state, not arrivals. */
+  private knownCard: string | null | undefined = undefined;
+
+  /**
+   * New replies are shown, not folded (specs/023): on opening a card, the branches holding replies that are new since
+   * the user looked open; while it is open, a reply that arrives (Claude answering, say) opens its branch.
+   */
+  private readonly revealNew = effect(() => {
+    const entries = this.entries();
+    // the card the entries belong to - not the card input, which can change a moment before its history arrives
+    const cardId = entries[0]?.cardId ?? null;
+    const since = this.newSince();
+    if (cardId === null) return;
+    untracked(() => {
+      const fresh = cardId !== this.knownCard;
+      const reveal = entries.filter((e) => e.kind === 'COMMENT' && e.replyTo != null
+        && (fresh ? isNewEntry(e, since) : !this.known.has(e.id)));
+      // on opening, Claude's latest answer in the newest thread shows too, even when already seen: it is where the
+      // conversation stands
+      const last = [...this.items()].reverse().find((i) => i.entry.kind === 'COMMENT');
+      const answer = last?.replies[last.replies.length - 1];
+      if (fresh && answer?.actor === 'CLAUDE' && answer.kind === 'COMMENT') reveal.push(answer);
+      if (fresh) {
+        this.knownCard = cardId;
+        this.known = new Set();
+      }
+      entries.forEach((e) => this.known.add(e.id));
+      for (const e of reveal) {
+        const thread = this.items().find((i) => i.entry.id === e.replyTo);
+        if (thread) this.openPath(thread, e.id);
+      }
+    });
+  });
+
+  /** The rail colour of a level of replies - the call waterfall's ramp, its first colour for the first level. */
+  tint(depth: number): string {
+    return depthTintClass(depth - 1);
+  }
+
+  /** The same colour for the line a comment drops to its replies (`--kids-color`, see styles.scss). */
+  kidsTint(depth: number): string {
+    return this.tint(depth).replace('depth-tint-', 'kids-tint-');
   }
 
   /** Where a comment's snippets keep state and shots (specs/017): its card and entry; a part of a Did/Found/Next comment adds its place. */
@@ -307,7 +383,7 @@ export class ActivityTimelineComponent {
   /** Open the questions dialog (a question with options is answered there). */
   readonly answerQuestions = output<void>();
   private readonly injector = inject(Injector);
-  private readonly replyBox = viewChild<MentionEditorComponent>('replyBox');
+  private readonly replyBox = viewChild('replyBox', { read: MentionEditorComponent });
   readonly reactions = REACTIONS;
 
   readonly items = computed(() => historyThreads(this.entries()));
@@ -315,7 +391,13 @@ export class ActivityTimelineComponent {
   readonly recent = signal(RECENT_THREADS);
   /** Older history waits behind the "Show N earlier" line (the drawer brings it in when the user scrolls up to it). */
   readonly hasEarlier = computed(() => this.rows().some((r) => r.kind === 'earlier'));
-  readonly middleOpen = signal<ReadonlySet<number>>(new Set());
+  /** Comments whose replies are open (specs/023): every thread starts with its replies folded, level 1 too. */
+  readonly openReplies = signal<ReadonlySet<number>>(new Set());
+  /** Each thread's replies as a tree, by its first comment. */
+  readonly trees = computed(() => {
+    const since = this.newSince();
+    return new Map(this.items().map((i) => [i.entry.id, replyTree(i.replies, since)]));
+  });
   readonly openChanges = signal<ReadonlySet<string>>(new Set());
   readonly rows = computed(() => timelineRows(this.items(), {
     filter: this.filter(), newestFirst: this.newestFirst(), query: this.query(), newSince: this.newSince(), recent: this.recent(),
@@ -430,12 +512,54 @@ export class ActivityTimelineComponent {
     return isNewEntry(e, this.newSince());
   }
 
-  shownReplies(item: HistoryItem): ReturnType<typeof visibleReplies> {
-    return visibleReplies(item.replies, this.middleOpen().has(item.entry.id));
+  treeOf(item: HistoryItem): readonly ReplyNode[] {
+    return this.trees().get(item.entry.id) ?? [];
   }
 
-  openMiddle(id: number): void {
-    this.middleOpen.update((s) => new Set(s).add(id));
+  /** New replies anywhere under a thread's first comment. */
+  freshIn(kids: readonly ReplyNode[]): number {
+    return kids.reduce((n, k) => n + (this.isNew(k.entry) ? 1 : 0) + k.fresh, 0);
+  }
+
+  /** Find shows every reply: a match must never sit in a folded branch. */
+  repliesOpen(id: number): boolean {
+    return !!this.query().trim() || this.openReplies().has(id);
+  }
+
+  toggleReplies(id: number): void {
+    this.openReplies.update((s) => {
+      const next = new Set(s);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+  }
+
+  /** Opens the replies on the way to an entry - its thread and every reply above it. */
+  openPath(item: HistoryItem, id: number): void {
+    const way = id === item.entry.id ? [] : [item.entry.id, ...pathTo(item.replies, id)];
+    if (way.length) this.openReplies.update((s) => new Set([...s, ...way]));
+  }
+
+  /** Every reply of every thread, open (the drawer's ⊞). */
+  openAll(): void {
+    const all = new Set<number>();
+    const walk = (ns: readonly ReplyNode[]) => ns.forEach((n) => { if (n.children.length) { all.add(n.entry.id); walk(n.children); } });
+    for (const [root, kids] of this.trees()) {
+      if (kids.length) all.add(root);
+      walk(kids);
+    }
+    this.openReplies.set(all);
+  }
+
+  /** Back to the start: every set of replies folded (the drawer's ⊟). */
+  foldAll(): void {
+    this.openReplies.set(new Set());
+  }
+
+  /** "✓ Did", "⚑ Found", "→ Next" - the heading line of a part of Claude's report. */
+  partHead(label: string): string {
+    const icon: Record<string, string> = { DID: '✓', FOUND: '⚑', NEXT: '→', IMPACT: '◎', QUESTION: '❓', ANSWERS: '✓', WITHDRAWN: '⊘' };
+    return `${icon[label] ?? ''} ${label.charAt(0)}${label.slice(1).toLowerCase()}`.trim();
   }
 
   openChange(key: string): void {
@@ -454,18 +578,22 @@ export class ActivityTimelineComponent {
   }
 
 
-  startReply(item: HistoryItem): void {
+  /** Reply… under a thread answers its first comment; ↩ on a reply answers that reply. */
+  startReply(item: HistoryItem, to?: ActivityEntry): void {
     this.menu.set(null);
     this.clearDecision.set(true);
-    this.replyingTo.set(item.entry.id);
+    this.replyingTo.set(to?.id ?? item.entry.id);
     // ready to type at once, as after clicking into a box
     afterNextRender(() => this.replyBox()?.focus(), { injector: this.injector });
   }
 
-  send(item: HistoryItem, text: string): void {
-    const answering = item.question && !item.answered;
-    this.replied.emit({ text, replyTo: item.entry.id, clearDecision: answering && this.clearDecision() });
+  send(item: HistoryItem, text: string, to: number = item.entry.id): void {
+    const answering = to === item.entry.id && item.question && !item.answered;
+    this.replied.emit({ text, replyTo: to, clearDecision: answering && this.clearDecision() });
     this.replyingTo.set(null);
+    // the new reply lands under what it answers: keep that open so the user sees it arrive
+    this.openPath(item, to);
+    this.openReplies.update((s) => new Set(s).add(to));
   }
 
   /** Claude's other unanswered questions on the card - while any stays open, the flag stays on. */

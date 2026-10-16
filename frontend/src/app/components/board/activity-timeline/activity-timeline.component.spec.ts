@@ -59,9 +59,15 @@ describe('ActivityTimelineComponent', () => {
     expect(t.snippetContext(1)['card']).toBe(40);
   });
 
-  it('shows replies under their comment, and an open question with Answer', () => {
+  it('shows replies under their comment (folded until opened), and an open question with Answer', () => {
     const fixture = create([e(1, 'USER', 'why?'), e(2, 'CLAUDE', '**Reply** because', 1), e(3, 'CLAUDE', '**Question** which?')]);
-    expect(fixture.nativeElement.querySelectorAll('.board-ev-reply').length).toBe(1);
+    expect(fixture.nativeElement.querySelectorAll('.cd-kid').length).toBe(0);
+    const fold = fixture.nativeElement.querySelector('.cd-fold') as HTMLButtonElement;
+    expect(fold.textContent).toContain('▸ 1 reply');
+    fold.click();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('.cd-kid').length).toBe(1);
+    expect(fixture.nativeElement.querySelector('.cd-fold').textContent).toContain('▾ 1 reply');
     expect(fixture.nativeElement.querySelector('.board-ev-badge').textContent).toContain('waiting for you');
     expect(buttons(fixture).map((b) => b.textContent!.trim())).toContain('↩ Answer in your own words…');
     expect(buttons(fixture).map((b) => b.textContent!.trim())).toContain('Reply…');
@@ -91,7 +97,9 @@ describe('ActivityTimelineComponent', () => {
 
   it('a viewer who may not edit sees the threads but no Reply', () => {
     const fixture = create([e(1, 'USER', 'note'), e(2, 'CLAUDE', '**Reply** ok', 1)], false);
-    expect(fixture.nativeElement.querySelectorAll('.board-ev-reply').length).toBe(1);
+    // Claude's latest answer in the newest thread shows as the card opens
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('.cd-kid').length).toBe(1);
     expect(buttons(fixture).filter((b) => /Reply|Answer|Edit|☺/.test(b.textContent ?? '')).length).toBe(0); // ⧉ Copy stays: reading
   });
   // ------------------------------------------------------------------------------------------- specs/023 layout
@@ -127,27 +135,89 @@ describe('ActivityTimelineComponent', () => {
     expect(earlier()!.textContent).toContain('Show 10 earlier threads');
   });
 
-  it('marks what is new since the user looked, and never folds it', () => {
-    const fixture = create([
+  it('marks what is new since the user looked and shows it - a new reply is never folded away', () => {
+    TestBed.configureTestingModule({ imports: [ActivityTimelineComponent], providers: [{ provide: BoardMentionsService, useValue: { entryToShow: signal<number | null>(null) } }] })
+      .overrideComponent(ActivityTimelineComponent, { remove: { imports: [MentionEditorComponent] }, add: { imports: [FakeEditorComponent] } });
+    const fixture = TestBed.createComponent(ActivityTimelineComponent);
+    // the drawer gives the card's "seen at" with its entries: the branch holding the new answer opens by itself
+    fixture.componentRef.setInput('newSince', '2026-10-04T00:00:00Z');
+    fixture.componentRef.setInput('entries', [
       at(1, 'USER', 'old', '2026-10-01T09:00:00Z'), at(2, 'CLAUDE', '**Reply** new answer', '2026-10-05T09:00:00Z', 1),
       at(3, 'USER', 'x', '2026-10-06T09:00:00Z'), at(4, 'USER', 'y', '2026-10-07T09:00:00Z'),
     ]);
-    fixture.componentRef.setInput('newSince', '2026-10-04T00:00:00Z');
+    fixture.componentRef.setInput('editable', true);
     fixture.detectChanges();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.cd-fold').textContent).toContain('▾');
     const fresh = fixture.nativeElement.querySelectorAll('[data-new]');
     expect(fresh.length).toBe(1);
     expect(fresh[0].textContent).toContain('new answer');
   });
 
-  it('a long thread shows its last two replies and opens the middle on request', () => {
-    const replies = [2, 3, 4, 5, 6].map((id) => at(id, id % 2 ? 'USER' : 'CLAUDE', `reply ${id}`, `2026-10-01T09:0${id}:00Z`, 1));
-    const fixture = create([at(1, 'USER', 'root', '2026-10-01T09:00:00Z'), ...replies]);
-    expect(fixture.nativeElement.querySelectorAll('.board-ev-reply').length).toBe(2);
-    const more = fixture.nativeElement.querySelector('.cd-more') as HTMLButtonElement;
-    expect(more.textContent).toContain('3 more replies');
-    more.click();
+  it('draws replies as a tree: each level opens on its own, ↩ answers that reply, ⊞ opens all and ⊟ folds all', () => {
+    const r = (id: number, text: string, answers: number | null) => ({ ...at(id, id % 2 ? 'USER' : 'CLAUDE', text, `2026-10-01T09:0${id}:00Z`, 1), answers });
+    // 2 and 5 answer the first comment; 3 answers 2; 4 answers 3
+    const fixture = create([at(1, 'USER', 'root', '2026-10-01T09:00:00Z'), r(2, 'two', null), r(3, 'three', 2), r(4, 'four', 3), r(5, 'five', null)]);
+    const t = fixture.componentInstance;
+    const shown = () => [...fixture.nativeElement.querySelectorAll('.cd-kid')].map((k) => Number((k as HTMLElement).querySelector('[data-entry]')!.getAttribute('data-entry')));
+    const folds = () => [...fixture.nativeElement.querySelectorAll('.cd-fold')].map((f) => (f as HTMLElement).textContent!.replace(/\s+/g, ' ').trim());
+    expect(folds()).toEqual(['▸ 4 replies']);
+    (fixture.nativeElement.querySelector('.cd-fold') as HTMLButtonElement).click();
     fixture.detectChanges();
-    expect(fixture.nativeElement.querySelectorAll('.board-ev-reply').length).toBe(5);
+    // level 1 open: 2 and 5; 2 keeps its two below it folded
+    expect(shown()).toEqual([2, 5]);
+    expect(folds()).toEqual(['▾ 4 replies', '▸ 2 replies']);
+    // one step right per level: a reply sits inside the replies of what it answers
+    t.toggleReplies(2);
+    fixture.detectChanges();
+    expect(shown()).toEqual([2, 3, 5]);
+    const three = fixture.nativeElement.querySelector('[data-entry="3"]') as HTMLElement;
+    expect(three.closest('.cd-kids')!.parentElement!.closest('.cd-kid')!.querySelector('[data-entry]')!.getAttribute('data-entry')).toBe('2');
+
+    const sent: TimelineReply[] = [];
+    t.replied.subscribe((x) => sent.push(x));
+    t.startReply(t.items()[0], t.entries().find((x) => x.id === 3));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.board-ev-replyto').textContent).toContain('three');
+    t.send(t.items()[0], 'ok', 3);
+    expect(sent).toEqual([{ text: 'ok', replyTo: 3, clearDecision: false }]);
+    fixture.detectChanges();
+    // the reply lands under 3: it stays open to show it
+    expect(t.repliesOpen(3)).toBeTrue();
+
+    t.foldAll();
+    fixture.detectChanges();
+    expect(shown()).toEqual([]);
+    t.openAll();
+    fixture.detectChanges();
+    expect(shown()).toEqual([2, 3, 4, 5]);
+  });
+
+  it('a reply that arrives while the card is open opens its branch (Claude answering is shown, not folded)', () => {
+    const root = at(1, 'USER', 'hey', '2026-10-01T09:00:00Z');
+    const fixture = create([root, at(2, 'USER', 'older reply', '2026-10-01T09:01:00Z', 1)]);
+    expect(fixture.nativeElement.querySelectorAll('.cd-kid').length).toBe(0);
+    fixture.componentRef.setInput('entries', [root, at(2, 'USER', 'older reply', '2026-10-01T09:01:00Z', 1),
+      at(3, 'CLAUDE', '**Reply** here I am', '2026-10-01T09:02:00Z', 1)]);
+    fixture.detectChanges();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('.cd-kid').length).toBe(2);
+    expect(fixture.nativeElement.querySelector('.cd-kids').className).toContain('depth-tint-0');
+  });
+
+  it('Find opens every reply, so a match never sits in a folded branch', () => {
+    const fixture = create([at(1, 'USER', 'root', '2026-10-01T09:00:00Z'), { ...at(2, 'CLAUDE', 'about the SQL', '2026-10-01T09:01:00Z', 1), answers: null }]);
+    fixture.componentRef.setInput('query', 'sql');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('.cd-kid').length).toBe(1);
+  });
+
+  it('shows the parts of a Claude report as blocks, and no heading for a part that only says Reply', () => {
+    const fixture = create([e(1, 'CLAUDE', '**Did** ran it\n\n**Found** a bug\n\n**Next** fix it'), e(2, 'CLAUDE', '**Reply** sure')]);
+    const heads = [...fixture.nativeElement.querySelectorAll('.cd-ph')].map((h) => (h as HTMLElement).textContent!.trim());
+    expect(heads).toEqual(['✓ Did', '⚑ Found', '→ Next']);
+    expect(fixture.nativeElement.querySelector('.cd-part-next')).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('.cd-part-reply .cd-ph')).toBeNull();
   });
 
   it('filters to the changes, gathers a run of them into one line, and finds text in the threads', () => {

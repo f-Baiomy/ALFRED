@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Comments simple waterfall</title>
+<style>
+  :root {
+    --bg: #1b1b1d; --panel: #1f1f22; --inner: rgba(0,0,0,.3); --border: rgba(255,255,255,.08); --border-strong: rgba(255,255,255,.18);
+    --text: #e6e6ea; --dim: #9a9aa3; --faint: #686872; --purple: #6d8ff0; --purple-light: #8fb2f7; --cyan: #5fd3c6; --amber: #f2b552; --green: #6fd38a;
+    --code: rgba(255,255,255,.07); --line: rgba(255,255,255,.16);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.55 "Segoe UI", system-ui, sans-serif; padding: 24px 16px 80px; }
+  h1 { font-size: 1.35rem; margin: 0 0 .25rem; }
+  h2 { font-size: 1.05rem; margin: 2.2rem 0 .5rem; color: var(--purple-light); }
+  .lead { color: var(--dim); max-width: 78ch; margin: 0 0 .8rem; }
+  .frame { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: .7rem .8rem .9rem; }
+  .row2 { display: grid; grid-template-columns: minmax(0, 1fr) 430px; gap: 14px; align-items: start; }
+  @media (max-width: 1000px) { .row2 { grid-template-columns: 1fr; } }
+  .row2 > * { min-width: 0; }
+  .hd { min-width: 0; }
+  .cap { font-size: .7rem; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); margin-bottom: .4rem; }
+  code { font: .78rem Consolas, monospace; background: var(--code); padding: 0 .3rem; border-radius: 4px; }
+  table { border-collapse: collapse; font-size: .8rem; margin: .35rem 0; width: 100%; }
+  td, th { border: 1px solid var(--border-strong); padding: .3rem .55rem; text-align: left; vertical-align: top; }
+
+  /* one comment. Only the avatar moves with the level; the text always starts at the same place. */
+  .thread { position: relative; --gut: 2rem; }
+  .thread > svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+  /* each level moves the avatar AND the text one step right; the gap between them stays the same */
+  .m { position: relative; padding: .3rem .4rem .3rem calc(.35rem + var(--d, 0) * 1rem + 1.65rem); border-radius: 8px; }
+  .m:hover { background: rgba(255,255,255,.025); }
+  .av { position: absolute; left: calc(.35rem + var(--d, 0) * 1rem); top: .4rem; width: 1.25rem; height: 1.25rem; border-radius: 50%; display: grid; place-items: center;
+    font-size: .6rem; font-weight: 700; background: rgba(95,211,198,.18); color: var(--cyan); z-index: 1; }
+  .av.cl { background: rgba(109,143,240,.22); color: var(--purple-light); }
+  .av.ring { box-shadow: 0 0 0 2px var(--cyan); }
+  .hd { display: flex; align-items: baseline; gap: .45rem; font-size: .78rem; min-height: 1.35rem; flex-wrap: wrap; }
+  .hd b { font-weight: 600; } .cln { color: var(--purple-light); }
+  .tm { color: var(--faint); font-size: .72rem; white-space: nowrap; flex: none; }
+  .hd b, .hd .chip { flex: none; }
+  .chip { font-size: .62rem; font-weight: 700; letter-spacing: .04em; border-radius: 4px; padding: 0 .3rem; background: rgba(109,143,240,.16); color: var(--purple-light); }
+  .chip.done { background: rgba(111,211,138,.14); color: var(--green); }
+  .chip.amb { background: rgba(242,181,82,.14); color: var(--amber); }
+  .new { font-size: .66rem; color: var(--cyan); }
+  .hov { margin-left: auto; display: inline-flex; gap: .15rem; opacity: 0; }
+  .m:hover .hov { opacity: 1; }
+  .hov span { width: 1.4rem; height: 1.3rem; display: grid; place-items: center; border-radius: 4px; color: var(--dim); font-size: .78rem; }
+  .bd { font-size: .86rem; line-height: 1.55; }
+  .bd p { margin: .05rem 0 .25rem; }
+
+  /* the one fold control: "▾ 3 replies" after the comment, nothing else */
+  .tog { display: inline-flex; align-items: center; gap: .3rem; margin: 0 0 .1rem; padding: .05rem .5rem; border-radius: 999px; border: 1px solid var(--border);
+    background: none; color: var(--dim); font: inherit; font-size: .72rem; cursor: pointer; }
+  .tog:hover { color: var(--text); border-color: var(--border-strong); }
+  .tog .new { margin-left: .2rem; }
+  .hid { display: none; }
+  .reply-line { margin: .35rem .4rem 0 var(--gut); display: block; width: calc(100% - var(--gut) - .4rem); text-align: left; background: var(--inner); border: 1px solid var(--border);
+    color: var(--faint); border-radius: 999px; padding: .12rem .7rem; font: inherit; font-size: .74rem; }
+
+  .part { margin: .15rem 0 .4rem; }
+  .part .ph { font-size: .64rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
+  .part.found { border-left: 2px solid var(--amber); padding-left: .6rem; } .part.found .ph { color: var(--amber); }
+  .part.next { background: rgba(109,143,240,.10); border: 1px solid rgba(109,143,240,.35); border-radius: 8px; padding: .35rem .6rem; } .part.next .ph { color: var(--purple-light); }
+
+
+  /* ---- collapsing: every comment folds the same way - chevron by the name, or a click on its line ---- */
+  .chev { width: 1rem; height: 1rem; margin-left: -1.15rem; margin-right: .15rem; border: 0; padding: 0; background: none; color: var(--faint); cursor: pointer;
+    font-size: .7rem; line-height: 1; border-radius: 3px; opacity: 0; transition: opacity .12s, transform .12s; }
+  .m:hover > .hd .chev, .m.shut > .hd .chev { opacity: 1; }
+  .chev:hover { color: var(--text); background: var(--code); }
+  .m.shut > .hd .chev { transform: rotate(-90deg); }
+  .snip { display: none; color: var(--dim); font-size: .8rem; min-width: 0; max-width: 60ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hiddenN { display: none; font-size: .7rem; border: 1px solid var(--border); border-radius: 999px; padding: 0 .45rem; color: var(--dim); }
+  .hiddenN .new { margin-left: .2rem; }
+  .m.shut { cursor: pointer; padding-bottom: .25rem; }
+  .m.shut > .bd, .m.shut > .tog { display: none; }
+  .m.shut > .hd .snip, .m.shut > .hd .hiddenN { display: inline-block; }
+  .m.shut > .hd .hov { display: none; }
+  .m.shut > .hd { flex-wrap: nowrap; }
+  .m.shut > .hd .snip { flex: 0 1 auto; }
+  .m.shut > .hd .hiddenN { flex: none; }
+  .m.shut > .av { opacity: .7; }
+  .hit { stroke: transparent; stroke-width: 12; fill: none; pointer-events: stroke; cursor: pointer; }
+  .thread > svg path.line { transition: stroke .12s, stroke-width .12s; }
+  .thread > svg path.line.hot { stroke: var(--purple-light) !important; stroke-width: 2.4; }
+  .bar { display: flex; gap: .4rem; margin: 0 0 .35rem var(--gut); }
+  .bar button { font: inherit; font-size: .72rem; border: 1px solid var(--border); background: none; color: var(--dim); border-radius: 999px; padding: 0 .55rem; cursor: pointer; }
+  .bar button:hover { color: var(--text); border-color: var(--border-strong); }
+
+  .bd.cut { max-height: 11.5rem; overflow: hidden; -webkit-mask-image: linear-gradient(#000 70%, transparent); mask-image: linear-gradient(#000 70%, transparent); }
+  .showall { display: block; margin: 0 0 .2rem; padding: 0; border: 0; background: none; font: inherit; font-size: .74rem; color: var(--purple-light); cursor: pointer; }
+
+  /* rich comment pieces, as the board draws them */
+  .bd h3 { font-size: .98rem; margin: .5rem 0 .25rem; }
+  .bd h4 { font-size: .86rem; margin: .5rem 0 .2rem; color: var(--purple-light); }
+  .mention { display: inline-flex; align-items: center; gap: .25rem; font-size: .76rem; padding: 0 .4rem; border-radius: 4px; border: 1px solid rgba(109,143,240,.35); background: rgba(109,143,240,.12); color: var(--purple-light); white-space: nowrap; }
+  .mention.call { border-color: rgba(111,211,138,.4); background: rgba(111,211,138,.1); color: var(--green); font-family: Consolas, monospace; }
+  .mention.code { border-color: rgba(240,122,122,.35); background: rgba(240,122,122,.08); color: #f3a0a0; font-family: Consolas, monospace; }
+  pre.code { background: rgba(0,0,0,.35); border: 1px solid var(--border); border-radius: 8px; padding: .55rem .7rem; overflow-x: auto; font: .76rem/1.5 Consolas, monospace; margin: .35rem 0; }
+  pre.code .k { color: #c792ea; } pre.code .s { color: #c3e88d; } pre.code .c { color: #676e95; } pre.code .n { color: #f78c6c; }
+  .snip-box { border: 1px solid rgba(109,143,240,.45); border-radius: 8px; margin: .45rem 0; overflow: hidden; }
+  .snip-bar { display: flex; align-items: center; gap: .35rem; padding: .25rem .5rem; background: rgba(109,143,240,.12); font-size: .74rem; }
+  .snip-bar b { color: var(--purple-light); } .snip-bar .lock { color: var(--amber); font-size: .68rem; }
+  .snip-bar .sp { flex: 1; }
+  .snip-bar span.btn { border: 1px solid var(--border-strong); border-radius: 5px; padding: 0 .4rem; color: var(--dim); font-size: .7rem; }
+  .snip-page { background: #0d1330; padding: .7rem .8rem; color: #dfe6ff; }
+  .snip-page h5 { margin: 0 0 .15rem; font-size: .92rem; }
+  .snip-page .sub { font-size: .7rem; color: #8a94c4; margin-bottom: .5rem; }
+  .steps { display: grid; grid-template-columns: repeat(5, 1fr); gap: .35rem; }
+  .step { border: 1px solid #2c3770; border-radius: 6px; padding: .3rem .4rem; font-size: .68rem; background: #131b44; }
+  .step b { display: block; font-size: .72rem; color: #a9bbff; }
+  .step.bad { border-color: #8a3b3b; background: #2a1520; } .step.bad b { color: #ff9b9b; }
+  .player { display: flex; gap: .4rem; align-items: center; margin-top: .5rem; font-size: .7rem; color: #8a94c4; }
+  .player .track { flex: 1; height: 4px; background: #2c3770; border-radius: 2px; position: relative; }
+  .player .track i { position: absolute; left: 0; top: 0; bottom: 0; width: 60%; background: #6d8ff0; border-radius: 2px; }
+  .chart { background: rgba(0,0,0,.2); border: 1px solid var(--border); border-radius: 8px; padding: .5rem .6rem; margin: .4rem 0; }
+  .chart .ttl { font-size: .74rem; color: var(--dim); margin-bottom: .2rem; display: flex; gap: .6rem; flex-wrap: wrap; }
+  .chart .ttl i { display: inline-block; width: .6rem; height: .6rem; border-radius: 2px; margin-right: .25rem; vertical-align: -1px; }
+  .chart svg { width: 100%; height: auto; display: block; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
+  @media (max-width: 700px) { .two { grid-template-columns: 1fr; } }
+  .verdict { display: flex; gap: .4rem; flex-wrap: wrap; margin: .3rem 0; }
+  .verdict span { font-size: .72rem; border-radius: 999px; padding: 0 .5rem; border: 1px solid var(--border); }
+  .verdict .ok { color: var(--green); border-color: rgba(111,211,138,.4); } .verdict .bad { color: #ff9b9b; border-color: rgba(240,122,122,.4); }
+  .rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: .6rem; margin: .4rem 0 0; }
+  .rules div { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: .55rem .7rem; font-size: .84rem; color: var(--dim); }
+  .rules b { display: block; color: var(--text); margin-bottom: .1rem; }
+</style>
+</head>
+<body>
+<h1>Comments - simple waterfall</h1>
+<p class="lead">Every comment you can see is shown whole; what folds is the replies under a comment - from level 1 down.</p>
+<div class="rules">
+  <div><b>1 · A reply sits right under what it answers</b>A whole conversation stays together, so lines never cross another one.</div>
+  <div><b>2 · Each level steps right</b>Every reply moves one small step (1 rem) right of what it answers - avatar and text together, so the gap between them is always the same. Every level steps, however deep. A thin line joins it to its parent.</div>
+  <div><b>3 · Comments are always shown; only replies fold</b>Every comment you can see shows its text. A long one is cut at about 9 lines with "▾ Show all", as today.</div>
+  <div><b>4 · All replies start folded, level 1 too</b>A thread opens as its first comment plus "▸ 5 replies · 1 new". Click it (or the line under the avatar) to open one level; each reply that has its own replies shows its own "▸ N replies".</div>
+</div>
+
+<h2>1 · Your #44 thread</h2>
+<div class="frame"><div class="cap">wide view</div>
+  <div class="thread">
+    <div class="m" data-id="a1" data-d="0"><span class="av">Y</span><div class="hd"><b>You</b><span class="tm">02:47 PM</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+      <div class="bd"><p>can you put the breakpoints in intellij for the task ?</p></div></div>
+    <div class="m" data-id="a2" data-p="a1" data-d="1"><span class="av cl">✦</span><div class="hd"><b class="cln">Claude</b><span class="tm">02:47 PM</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+      <div class="bd"><p><b>I can't set breakpoints in IntelliJ for you. I have no IDE access, and I don't change files.</b> This repo only has the Angular side of the change (commit <code>ab70cf5f5</code>).</p>
+        <table><tr><th>File:line</th><th>What to check</th></tr>
+          <tr><td><code>…/refund-request.page.ts:101</code></td><td><code>asyncOptions</code>: the <code>branchIds</code> sent to <code>agency/by-branch</code></td></tr>
+          <tr><td><code>…/refund-request.page.ts:316</code></td><td><code>agencyIds</code> read from the form</td></tr></table></div></div>
+    <div class="m" data-id="a3" data-p="a1" data-d="1"><span class="av cl">✦</span><div class="hd"><b class="cln">Claude</b><span class="tm">02:47 PM</span><span class="chip amb">CORRECTION</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+      <div class="bd"><p>The backend is in <code>C:\work\odeysys-claude\odeysys</code>, on the task branch. These are the exact lines to set in IntelliJ.</p>
+        <table><tr><th>File:line</th><th>What to check</th></tr>
+          <tr><td><code>odeysysadmin-tt/…/RefundApprovalRequestController.java:52</code></td><td>search: request body as received (<code>branchIds</code>, <code>agencyIds</code>)</td></tr>
+          <tr><td><code>common-odeysys/…/RefundApprovalRequestServiceImpl.java:608</code></td><td><code>resolveBranchCodes</code>: which branch codes come out</td></tr></table></div></div>
+    <button class="reply-line">Reply…</button>
+  </div>
+</div>
+
+<h2>2 · A thread with two conversations</h2>
+<p class="lead">The export talk comes first and stays together, then the All Agencies talk. Click "▸ N replies" (or the line under an avatar) to open or fold the replies under a comment. ⊟ Fold replies goes back to the start; ⊞ Open all replies opens everything.</p>
+<div class="row2">
+<div class="frame"><div class="cap">wide view</div>
+  <div class="thread">
+    <div class="m" data-id="b0" data-d="0"><span class="av">Y</span><div class="hd"><b>You</b><span class="tm">09:02 AM</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+      <div class="bd"><p>the agencies list is empty when two branches are picked</p></div></div>
+    <div class="m" data-id="b1" data-p="b0" data-d="1"><span class="av cl">✦</span><div class="hd"><b class="cln">Claude</b><span class="tm">09:10 AM</span><span class="chip amb">FOUND</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+      <div class="bd"><p><code>agency/by-branch</code> is called with <code>branchIds=[948]</code> only - the second branch is dropped in <code>refund-request.page.ts:101</code>.</p></div></div>
+    <div class="m" data-id="b2" data-p="b1" data-d="2"><span class="av">Y</span><div class="hd"><b>You</b><span class="tm">09:14 AM</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+      <div class="bd"><p>is that the same for the export?</p></div></div>
+    <div class="m" data-id="b3" data-p="b2" data-d="3"><span class="av cl">✦</span><div class="hd"><b class="cln">Claude</b><span class="tm">09:16 AM</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+      <div class="bd"><p>Yes - <code>RefundApprovalRequestController.java:85</code> reads the same single id.</p></div></div>
+    <div class="m" data-id="b5" data-p="b3" data-d="3"><span class="av">Y</span><div class="hd"><b>You</b><span class="tm">09:20 AM</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+      <div class="bd"><p>fix both then</p></div></div>
+    <div class="m" data-id="b7" data-p="b5" data-d="3"><span class="av cl ring">✦</span><div class="hd"><b class="cln">Claude</b><span class="tm">09:41 AM</span><span class="chip done">DONE</span><span class="new">● new</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+      <div class="bd"><p>Both read <code>branchIds</code> now. Search returns 3 agencies for Cairo + Mansoura, and the export has the same 41 rows.</p></div></div>
+    <div class="m" data-id="b4" data-p="b0" data-d="1"><span class="av">Y</span><div class="hd"><b>You</b><span class="tm">09:18 AM</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+      <div class="bd"><p>one more: the All Agencies option still shows when no branch is picked</p></div></div>
+    <div class="m" data-id="b6" data-p="b4" data-d="2"><span class="av cl">✦</span><div class="hd"><b class="cln">Claude</b><span class="tm">09:25 AM</span><span class="chip done">FIXED</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+      <div class="bd"><p>Hidden until a branch is picked (<code>refund-request.page.ts:288</code>).</p></div></div>
+    <div class="m" data-id="b8" data-p="b6" data-d="2"><span class="av ring">Y</span><div class="hd"><b>You</b><span class="tm">10:48 AM</span><span class="new">● new</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+      <div class="bd"><p>confirmed on my side</p></div></div>
+    <button class="reply-line">Reply…</button>
+  </div>
+</div>
+<div class="frame"><div class="cap">side panel · 430 px · as it opens</div>
+  <div class="thread" data-fold="b1">
+    <div class="m" data-id="s0" data-d="0"><span class="av">Y</span><div class="hd"><b>You</b><span class="tm">09:02</span></div>
+      <div class="bd"><p>the agencies list is empty when two branches are picked</p></div></div>
+    <div class="m" data-id="s1" data-p="s0" data-d="1"><span class="av cl">✦</span><div class="hd"><b class="cln">Claude</b><span class="tm">09:10</span><span class="chip amb">FOUND</span></div>
+      <div class="bd"><p><code>agency/by-branch</code> gets <code>[948]</code> only - the second branch is dropped.</p></div></div>
+    <div class="m" data-id="s2" data-p="s1" data-d="2"><span class="av">Y</span><div class="hd"><b>You</b><span class="tm">09:14</span></div><div class="bd"><p>is that the same for the export?</p></div></div>
+    <div class="m" data-id="s3" data-p="s2" data-d="3"><span class="av cl">✦</span><div class="hd"><b class="cln">Claude</b><span class="tm">09:16</span></div><div class="bd"><p>Yes - line 85 reads the same single id.</p></div></div>
+    <div class="m" data-id="s5" data-p="s3" data-d="3"><span class="av">Y</span><div class="hd"><b>You</b><span class="tm">09:20</span></div><div class="bd"><p>fix both then</p></div></div>
+    <div class="m" data-id="s7" data-p="s5" data-d="3"><span class="av cl ring">✦</span><div class="hd"><b class="cln">Claude</b><span class="tm">09:41</span><span class="new">● new</span></div><div class="bd"><p>Both read <code>branchIds</code> now.</p></div></div>
+    <div class="m" data-id="s4" data-p="s0" data-d="1"><span class="av">Y</span><div class="hd"><b>You</b><span class="tm">09:18</span></div>
+      <div class="bd"><p>one more: the All Agencies option still shows when no branch is picked</p></div></div>
+    <div class="m" data-id="s6" data-p="s4" data-d="2"><span class="av cl">✦</span><div class="hd"><b class="cln">Claude</b><span class="tm">09:25</span><span class="chip done">FIXED</span></div><div class="bd"><p>Hidden until a branch is picked.</p></div></div>
+    <div class="m" data-id="s8" data-p="s6" data-d="2"><span class="av ring">Y</span><div class="hd"><b>You</b><span class="tm">10:48</span><span class="new">● new</span></div><div class="bd"><p>confirmed on my side</p></div></div>
+    <button class="reply-line">Reply…</button>
+  </div>
+</div>
+</div>
+
+<h2>2b · One comment, many level-1 replies</h2>
+<p class="lead">Your request at the top; its five level-1 replies wait behind "▸ 10 replies · 2 new". Click it: the five open, and the two that have their own talk keep it behind their own "▸ N replies". The long one (the filter table) is cut with "▾ Show all"; replies with nothing under them have no button.</p>
+<div class="frame"><div class="cap">wide view · as it opens</div>
+  <div class="thread">
+    <div class="m" data-id="g0" data-d="0"><span class="av">Y</span><div class="hd"><b>You</b><span class="tm">08:30 AM</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+      <div class="bd"><p>Refunded Requests search - check everything before I send it to QA: filters, export, paging, the empty state.</p></div></div>
+    <div class="m" data-id="g1" data-p="g0" data-d="1"><span class="av cl">✦</span><div class="hd"><b class="cln">Claude</b><span class="tm">08:52 AM</span><span class="chip amb">FOUND</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+      <div class="bd"><p><b>Checked the 6 filters against the calls from cycle 61813.</b> Branch, agency, status and date work; two do not.</p><table><tr><th>Filter</th><th>Call</th><th>Result</th></tr><tr><td>Branch (one)</td><td><code>POST …/refunded-requests/search</code> · 200</td><td>✓ 12 rows, all branch 948</td></tr><tr><td>Branch (two)</td><td><code>branchIds=[948,10642]</code></td><td>✗ only 948 searched</td></tr><tr><td>Agency</td><td><code>agencyIds=[31]</code></td><td>✓ 4 rows</td></tr><tr><td>Status</td><td><code>status=PENDING</code></td><td>✓ 9 rows</td></tr><tr><td>Date range</td><td><code>from=2026-10-01&amp;to=2026-10-15</code></td><td>✓ 31 rows</td></tr><tr><td>All Agencies</td><td><code>agencyIds=[-11]</code></td><td>✗ shows with no branch picked</td></tr></table><p>Both failures come from the page: <code>refund-request.page.ts:101</code> and <code>:288</code>.</p></div></div>
+    <div class="m" data-id="g1a" data-p="g1" data-d="2"><span class="av">Y</span><div class="hd"><b>You</b><span class="tm">09:05 AM</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+      <div class="bd"><p>fix both on the page, the backend is fine</p></div></div>
+    <div class="m" data-id="g1b" data-p="g1a" data-d="3"><span class="av cl">✦</span><div class="hd"><b class="cln">Claude</b><span class="tm">09:30 AM</span><span class="chip done">FIXED</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+      <div class="bd"><p>Both fixed (commit <code>ab70cf5f5</code>). Two branches now search both; All Agencies waits for a branch.</p></div></div>
+    <div class="m" data-id="g1c" data-p="g1b" data-d="3"><span class="av">Y</span><div class="hd"><b>You</b><span class="tm">09:41 AM</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+      <div class="bd"><p>confirmed</p></div></div>
+    <div class="m" data-id="g2" data-p="g0" data-d="1"><span class="av cl">✦</span><div class="hd"><b class="cln">Claude</b><span class="tm">08:55 AM</span><span class="chip done">DONE</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+      <div class="bd"><p><b>Export:</b> the file has the same 41 rows as the page for every filter I tried, columns in page order. Nothing to fix.</p></div></div>
+    <div class="m" data-id="g3" data-p="g0" data-d="1"><span class="av cl">✦</span><div class="hd"><b class="cln">Claude</b><span class="tm">08:58 AM</span><span class="chip amb">QUESTION</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+      <div class="bd"><p>Paging: the page asks for 20 rows, the backend returns 50 and the page cuts them. Should the request send <code>size=20</code>, or keep 50 and page in the browser?</p></div></div>
+    <div class="m" data-id="g3a" data-p="g3" data-d="2"><span class="av">Y</span><div class="hd"><b>You</b><span class="tm">09:10 AM</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+      <div class="bd"><p>send size=20, the list can be big</p></div></div>
+    <div class="m" data-id="g3b" data-p="g3a" data-d="3"><span class="av cl ring">✦</span><div class="hd"><b class="cln">Claude</b><span class="tm">10:02 AM</span><span class="chip done">DONE</span><span class="new">● new</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+      <div class="bd"><p>Done - <code>size=20&amp;page=N</code> now, and the total comes from the response.</p></div></div>
+    <div class="m" data-id="g4" data-p="g0" data-d="1"><span class="av">Y</span><div class="hd"><b>You</b><span class="tm">09:12 AM</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+      <div class="bd"><p>also check the empty state text, QA flagged it last release</p></div></div>
+    <div class="m" data-id="g5" data-p="g0" data-d="1"><span class="av cl ring">✦</span><div class="hd"><b class="cln">Claude</b><span class="tm">10:15 AM</span><span class="new">● new</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+      <div class="bd"><p>Empty state: "No refunded requests match these filters" with a Clear filters link - same as the design. Fine.</p></div></div>
+    <button class="reply-line">Reply…</button>
+  </div>
+</div>
+
+<h2>2c · A very large comment (HTML snippet, charts, diagram, code, table)</h2>
+<p class="lead">A full report from Claude: a sequence diagram, a live HTML walkthrough, two charts, a code diff, a table with call mentions, and a Next box. It is cut at about 9 lines with "▾ Show all" like any long comment; open it and everything is at full width. Its replies wait behind "▸ 2 replies".</p>
+<div class="frame"><div class="cap">wide view · "▸ 3 replies" clicked once</div>
+  <div class="thread" data-open-first="1">
+    <div class="m" data-id="h0" data-d="0"><span class="av">Y</span><div class="hd"><b>You</b><span class="tm">08:30 AM</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+      <div class="bd"><p>run the whole check for 61813 and give me one report I can forward to QA</p></div></div>
+    <div class="m" data-id="h1" data-p="h0" data-d="1"><span class="av cl ring">✦</span><div class="hd"><b class="cln">Claude</b><span class="tm">11:04 AM</span><span class="chip done">DONE</span><span class="new">● new</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+      <div class="bd"><h3>Refunded Requests - full check before QA (task 61813)</h3>
+<p>I replayed the 12 searches from <span class="mention">◷ cycle 61813</span> against the fixed build and compared every call with the recording. Summary first, then the evidence.</p>
+<div class="verdict"><span class="ok">✓ all 7 checks pass now</span><span class="bad">✗ 2 failed before the fix</span><span class="ok">✓ export matches the page</span><span>⏱ export 5.6× faster</span></div>
+<h4>1 · How one search runs (before the fix)</h4>
+<div class="chart"><svg viewBox="0 0 420 170" role="img" aria-label="Sequence of one search"><text x="40" y="14" fill="#c9c9d0" font-size="9" text-anchor="middle">Page</text><line x1="40" y1="20" x2="40" y2="165" stroke="rgba(255,255,255,.15)" stroke-dasharray="3 3"/><text x="140" y="14" fill="#c9c9d0" font-size="9" text-anchor="middle">Controller</text><line x1="140" y1="20" x2="140" y2="165" stroke="rgba(255,255,255,.15)" stroke-dasharray="3 3"/><text x="250" y="14" fill="#c9c9d0" font-size="9" text-anchor="middle">Service</text><line x1="250" y1="20" x2="250" y2="165" stroke="rgba(255,255,255,.15)" stroke-dasharray="3 3"/><text x="360" y="14" fill="#c9c9d0" font-size="9" text-anchor="middle">MySQL</text><line x1="360" y1="20" x2="360" y2="165" stroke="rgba(255,255,255,.15)" stroke-dasharray="3 3"/><defs><marker id="ar" viewBox="0 0 6 6" refX="5" refY="3" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L6,3 L0,6 z" fill="#8fb2f7"/></marker><marker id="arr" viewBox="0 0 6 6" refX="5" refY="3" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L6,3 L0,6 z" fill="#f07a7a"/></marker></defs><line x1="40" y1="38" x2="138" y2="38" stroke="#8fb2f7" marker-end="url(#ar)"/><text x="89" y="34" fill="#c9c9d0" font-size="7.5" text-anchor="middle">POST search {branchIds:[948,10642]}</text><line x1="140" y1="62" x2="248" y2="62" stroke="#f07a7a" marker-end="url(#arr)"/><text x="194" y="58" fill="#ff9b9b" font-size="7.5" text-anchor="middle">search(branchId = 948)  ✗ list dropped</text><line x1="250" y1="86" x2="358" y2="86" stroke="#8fb2f7" marker-end="url(#ar)"/><text x="304" y="82" fill="#c9c9d0" font-size="7.5" text-anchor="middle">WHERE branch_id = ?</text><line x1="358" y1="110" x2="252" y2="110" stroke="#8fb2f7" stroke-dasharray="4 2" marker-end="url(#ar)"/><text x="304" y="106" fill="#c9c9d0" font-size="7.5" text-anchor="middle">12 rows</text><line x1="138" y1="140" x2="42" y2="140" stroke="#8fb2f7" stroke-dasharray="4 2" marker-end="url(#ar)"/><text x="89" y="136" fill="#c9c9d0" font-size="7.5" text-anchor="middle">200 · 12 rows (expected 41)</text></svg></div>
+<p>The list is lost in <span class="mention code">{ } RefundApprovalRequestController.java:52</span> - it reads <code>branchId</code>, a single value, so only the first branch reaches the query.</p>
+<h4>2 · Walkthrough</h4>
+<div class="snip-box"><div class="snip-bar"><b>◆ HTML snippet</b><span class="lock">🔒 locked</span><span class="sp"></span><span class="btn">⤢</span><span class="btn">&lt;/&gt;</span><span class="btn">⬇ PNG</span><span class="btn">⬇ .html</span><span class="btn">▶ auto</span></div>
+  <div class="snip-page"><h5>Refunded Requests · how one search works</h5><div class="sub">backend 07e29ec81f · real calls from cycle 61813 · step 3 of 5</div>
+    <div class="steps"><div class="step"><b>1 · Page</b>branches Cairo + Mansoura</div><div class="step"><b>2 · by-branch</b>3 agencies</div><div class="step bad"><b>3 · Controller</b>branchId = 948 only</div><div class="step"><b>4 · Service</b>WHERE branch_id = ?</div><div class="step"><b>5 · Result</b>12 of 41 rows</div></div>
+    <div class="player"><span>⏮ ⏯ ⏭</span><span class="track"><i></i></span><span>3 / 5</span></div></div></div>
+<h4>3 · Rows per search and response times</h4>
+<div class="two">
+  <div class="chart"><div class="ttl"><span><i style="background:rgba(240,122,122,.85)"></i>before</span><span><i style="background:rgba(111,211,138,.9)"></i>after</span><span>rows returned per search</span></div><svg viewBox="0 0 320 130" role="img" aria-label="Rows returned per search"><line x1="30" y1="10" x2="30" y2="110" stroke="rgba(255,255,255,.2)"/><line x1="30" y1="110" x2="310" y2="110" stroke="rgba(255,255,255,.2)"/><text x="26" y="113" fill="#8a8a93" font-size="7.5" text-anchor="end">0</text><line x1="30" x2="310" y1="110" y2="110" stroke="rgba(255,255,255,.05)"/><text x="26" y="91" fill="#8a8a93" font-size="7.5" text-anchor="end">10</text><line x1="30" x2="310" y1="88" y2="88" stroke="rgba(255,255,255,.05)"/><text x="26" y="69" fill="#8a8a93" font-size="7.5" text-anchor="end">20</text><line x1="30" x2="310" y1="66" y2="66" stroke="rgba(255,255,255,.05)"/><text x="26" y="47" fill="#8a8a93" font-size="7.5" text-anchor="end">30</text><line x1="30" x2="310" y1="44" y2="44" stroke="rgba(255,255,255,.05)"/><text x="26" y="25" fill="#8a8a93" font-size="7.5" text-anchor="end">40</text><line x1="30" x2="310" y1="22" y2="22" stroke="rgba(255,255,255,.05)"/><polyline points="30,84 55,84 80,84 105,84 130,84 155,84 180,84 205,84 230,84 255,84 280,84 305,84" fill="none" stroke="rgba(240,122,122,.85)" stroke-width="1.6"/><circle cx="30" cy="84" r="2.2" fill="rgba(240,122,122,.85)"/><circle cx="55" cy="84" r="2.2" fill="rgba(240,122,122,.85)"/><circle cx="80" cy="84" r="2.2" fill="rgba(240,122,122,.85)"/><circle cx="105" cy="84" r="2.2" fill="rgba(240,122,122,.85)"/><circle cx="130" cy="84" r="2.2" fill="rgba(240,122,122,.85)"/><circle cx="155" cy="84" r="2.2" fill="rgba(240,122,122,.85)"/><circle cx="180" cy="84" r="2.2" fill="rgba(240,122,122,.85)"/><circle cx="205" cy="84" r="2.2" fill="rgba(240,122,122,.85)"/><circle cx="230" cy="84" r="2.2" fill="rgba(240,122,122,.85)"/><circle cx="255" cy="84" r="2.2" fill="rgba(240,122,122,.85)"/><circle cx="280" cy="84" r="2.2" fill="rgba(240,122,122,.85)"/><circle cx="305" cy="84" r="2.2" fill="rgba(240,122,122,.85)"/><polyline points="30,84 55,46 80,20 105,20 130,90 155,37 180,20 205,70 230,20 255,53 280,20 305,20" fill="none" stroke="rgba(111,211,138,.9)" stroke-width="1.6"/><circle cx="30" cy="84" r="2.2" fill="rgba(111,211,138,.9)"/><circle cx="55" cy="46" r="2.2" fill="rgba(111,211,138,.9)"/><circle cx="80" cy="20" r="2.2" fill="rgba(111,211,138,.9)"/><circle cx="105" cy="20" r="2.2" fill="rgba(111,211,138,.9)"/><circle cx="130" cy="90" r="2.2" fill="rgba(111,211,138,.9)"/><circle cx="155" cy="37" r="2.2" fill="rgba(111,211,138,.9)"/><circle cx="180" cy="20" r="2.2" fill="rgba(111,211,138,.9)"/><circle cx="205" cy="70" r="2.2" fill="rgba(111,211,138,.9)"/><circle cx="230" cy="20" r="2.2" fill="rgba(111,211,138,.9)"/><circle cx="255" cy="53" r="2.2" fill="rgba(111,211,138,.9)"/><circle cx="280" cy="20" r="2.2" fill="rgba(111,211,138,.9)"/><circle cx="305" cy="20" r="2.2" fill="rgba(111,211,138,.9)"/><text x="170" y="126" fill="#8a8a93" font-size="7.5" text-anchor="middle">search #1 … #12 (cycle 61813)</text></svg></div>
+  <div class="chart"><div class="ttl"><span><i style="background:rgba(240,122,122,.75)"></i>before</span><span><i style="background:rgba(111,211,138,.85)"></i>after</span><span>p95 response time per call</span></div><svg viewBox="0 0 320 150" role="img" aria-label="Response time before and after the fix"><line x1="60" y1="10" x2="60" y2="120" stroke="rgba(255,255,255,.2)"/><line x1="60" y1="120" x2="315" y2="120" stroke="rgba(255,255,255,.2)"/><line x1="60" y1="120" x2="60" y2="124" stroke="rgba(255,255,255,.3)"/><text x="60" y="135" fill="#8a8a93" font-size="8" text-anchor="middle">0</text><line x1="110" y1="120" x2="110" y2="124" stroke="rgba(255,255,255,.3)"/><text x="110" y="135" fill="#8a8a93" font-size="8" text-anchor="middle">500</text><line x1="160" y1="120" x2="160" y2="124" stroke="rgba(255,255,255,.3)"/><text x="160" y="135" fill="#8a8a93" font-size="8" text-anchor="middle">1000</text><line x1="210" y1="120" x2="210" y2="124" stroke="rgba(255,255,255,.3)"/><text x="210" y="135" fill="#8a8a93" font-size="8" text-anchor="middle">1500</text><line x1="260" y1="120" x2="260" y2="124" stroke="rgba(255,255,255,.3)"/><text x="260" y="135" fill="#8a8a93" font-size="8" text-anchor="middle">2000</text><line x1="310" y1="120" x2="310" y2="124" stroke="rgba(255,255,255,.3)"/><text x="310" y="135" fill="#8a8a93" font-size="8" text-anchor="middle">2500</text><text x="187" y="147" fill="#8a8a93" font-size="8" text-anchor="middle">ms (p95)</text><text x="56" y="23" fill="#c9c9d0" font-size="8.5" text-anchor="end">search</text><rect x="60" y="14" width="95.0" height="7" rx="2" fill="rgba(240,122,122,.75)"/><rect x="60" y="22" width="18.0" height="7" rx="2" fill="rgba(111,211,138,.85)"/><text x="159.0" y="21" fill="#9a9aa3" font-size="7">950</text><text x="56" y="44" fill="#c9c9d0" font-size="8.5" text-anchor="end">by-branch</text><rect x="60" y="35" width="6.0" height="7" rx="2" fill="rgba(240,122,122,.75)"/><rect x="60" y="43" width="4.0" height="7" rx="2" fill="rgba(111,211,138,.85)"/><text x="70.0" y="42" fill="#9a9aa3" font-size="7">60</text><text x="56" y="65" fill="#c9c9d0" font-size="8.5" text-anchor="end">lookup</text><rect x="60" y="56" width="2.5" height="7" rx="2" fill="rgba(240,122,122,.75)"/><rect x="60" y="64" width="2.2" height="7" rx="2" fill="rgba(111,211,138,.85)"/><text x="66.5" y="63" fill="#9a9aa3" font-size="7">25</text><text x="56" y="86" fill="#c9c9d0" font-size="8.5" text-anchor="end">export</text><rect x="60" y="77" width="230.0" height="7" rx="2" fill="rgba(240,122,122,.75)"/><rect x="60" y="85" width="41.0" height="7" rx="2" fill="rgba(111,211,138,.85)"/><text x="294.0" y="84" fill="#9a9aa3" font-size="7">2300</text><text x="56" y="107" fill="#c9c9d0" font-size="8.5" text-anchor="end">count</text><rect x="60" y="98" width="64.0" height="7" rx="2" fill="rgba(240,122,122,.75)"/><rect x="60" y="106" width="3.5" height="7" rx="2" fill="rgba(111,211,138,.85)"/><text x="128.0" y="105" fill="#9a9aa3" font-size="7">640</text></svg></div>
+</div>
+<h4>4 · The fix</h4>
+<pre class="code"><span class="c">// RefundApprovalRequestController.java:52</span>
+<span class="k">public</span> Page&lt;RefundRow&gt; search(<span class="k">@RequestBody</span> RefundSearch body) {
+-   <span class="k">return</span> service.search(body.getBranchId(), body.getAgencyIds(), body.page());
++   <span class="k">return</span> service.search(body.getBranchIds(), body.getAgencyIds(), body.page());
+}
+<span class="c">-- RefundApprovalRequestServiceImpl.java:608 builds</span>
+<span class="k">WHERE</span> branch_id <span class="k">IN</span> (:branchIds) <span class="k">AND</span> agency_id <span class="k">IN</span> (:agencyIds) <span class="k">LIMIT</span> <span class="n">20</span></pre>
+<h4>5 · Every check</h4>
+<table><tr><th>#</th><th>Check</th><th>Call</th><th>Before</th><th>After</th></tr>
+<tr><td>1</td><td>One branch</td><td><span class="mention call">⇄ POST search · 200</span></td><td>12 rows</td><td>✓ 12 rows</td></tr>
+<tr><td>2</td><td>Two branches</td><td><span class="mention call">⇄ POST search · 200</span></td><td>✗ 12 rows</td><td>✓ 41 rows</td></tr>
+<tr><td>3</td><td>All agencies</td><td><span class="mention call">⇄ POST search · 200</span></td><td>✗ shown with no branch</td><td>✓ hidden</td></tr>
+<tr><td>4</td><td>Agency filter</td><td><span class="mention call">⇄ POST agency/by-branch · 200</span></td><td>3 agencies</td><td>✓ 3 agencies</td></tr>
+<tr><td>5</td><td>Paging</td><td><span class="mention call">⇄ POST search?size=20</span></td><td>50 rows cut</td><td>✓ 20 + total</td></tr>
+<tr><td>6</td><td>Export</td><td><span class="mention call">⇄ POST export · 200</span></td><td>2.3 s · 12 rows</td><td>✓ 410 ms · 41 rows</td></tr>
+<tr><td>7</td><td>Empty state</td><td>-</td><td>text ok</td><td>✓ text ok</td></tr></table>
+<div class="part next" style="margin-top:.5rem"><div class="ph">→ Next</div><p>Deploy the backend (<code>07e29ec81f</code>) and run re-test <span class="mention">#110</span>; I will mark the checklist items when its calls come in.</p></div></div></div>
+    <div class="m" data-id="h2" data-p="h1" data-d="2"><span class="av">Y</span><div class="hd"><b>You</b><span class="tm">11:20 AM</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+      <div class="bd"><p>perfect - forwarding. can the walkthrough start at step 3?</p></div></div>
+    <div class="m" data-id="h3" data-p="h2" data-d="3"><span class="av cl">✦</span><div class="hd"><b class="cln">Claude</b><span class="tm">11:22 AM</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+      <div class="bd"><p>Yes - it opens on step 3 now (the failing one) and plays from there.</p></div></div>
+    <button class="reply-line">Reply…</button>
+  </div>
+</div>
+<p class="lead" style="margin-top:.6rem">Below: the same comment opened with "▾ Show all".</p>
+<div class="frame"><div class="cap">the same comment, opened</div>
+  <div class="thread">
+    <div class="m" data-id="k0" data-d="0"><span class="av cl">✦</span><div class="hd"><b class="cln">Claude</b><span class="tm">11:04 AM</span><span class="chip done">DONE</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+      <div class="bd" data-open="1"><h3>Refunded Requests - full check before QA (task 61813)</h3>
+<p>I replayed the 12 searches from <span class="mention">◷ cycle 61813</span> against the fixed build and compared every call with the recording. Summary first, then the evidence.</p>
+<div class="verdict"><span class="ok">✓ all 7 checks pass now</span><span class="bad">✗ 2 failed before the fix</span><span class="ok">✓ export matches the page</span><span>⏱ export 5.6× faster</span></div>
+<h4>1 · How one search runs (before the fix)</h4>
+<div class="chart"><svg viewBox="0 0 420 170" role="img" aria-label="Sequence of one search"><text x="40" y="14" fill="#c9c9d0" font-size="9" text-anchor="middle">Page</text><line x1="40" y1="20" x2="40" y2="165" stroke="rgba(255,255,255,.15)" stroke-dasharray="3 3"/><text x="140" y="14" fill="#c9c9d0" font-size="9" text-anchor="middle">Controller</text><line x1="140" y1="20" x2="140" y2="165" stroke="rgba(255,255,255,.15)" stroke-dasharray="3 3"/><text x="250" y="14" fill="#c9c9d0" font-size="9" text-anchor="middle">Service</text><line x1="250" y1="20" x2="250" y2="165" stroke="rgba(255,255,255,.15)" stroke-dasharray="3 3"/><text x="360" y="14" fill="#c9c9d0" font-size="9" text-anchor="middle">MySQL</text><line x1="360" y1="20" x2="360" y2="165" stroke="rgba(255,255,255,.15)" stroke-dasharray="3 3"/><defs><marker id="ar" viewBox="0 0 6 6" refX="5" refY="3" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L6,3 L0,6 z" fill="#8fb2f7"/></marker><marker id="arr" viewBox="0 0 6 6" refX="5" refY="3" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L6,3 L0,6 z" fill="#f07a7a"/></marker></defs><line x1="40" y1="38" x2="138" y2="38" stroke="#8fb2f7" marker-end="url(#ar)"/><text x="89" y="34" fill="#c9c9d0" font-size="7.5" text-anchor="middle">POST search {branchIds:[948,10642]}</text><line x1="140" y1="62" x2="248" y2="62" stroke="#f07a7a" marker-end="url(#arr)"/><text x="194" y="58" fill="#ff9b9b" font-size="7.5" text-anchor="middle">search(branchId = 948)  ✗ list dropped</text><line x1="250" y1="86" x2="358" y2="86" stroke="#8fb2f7" marker-end="url(#ar)"/><text x="304" y="82" fill="#c9c9d0" font-size="7.5" text-anchor="middle">WHERE branch_id = ?</text><line x1="358" y1="110" x2="252" y2="110" stroke="#8fb2f7" stroke-dasharray="4 2" marker-end="url(#ar)"/><text x="304" y="106" fill="#c9c9d0" font-size="7.5" text-anchor="middle">12 rows</text><line x1="138" y1="140" x2="42" y2="140" stroke="#8fb2f7" stroke-dasharray="4 2" marker-end="url(#ar)"/><text x="89" y="136" fill="#c9c9d0" font-size="7.5" text-anchor="middle">200 · 12 rows (expected 41)</text></svg></div>
+<p>The list is lost in <span class="mention code">{ } RefundApprovalRequestController.java:52</span> - it reads <code>branchId</code>, a single value, so only the first branch reaches the query.</p>
+<h4>2 · Walkthrough</h4>
+<div class="snip-box"><div class="snip-bar"><b>◆ HTML snippet</b><span class="lock">🔒 locked</span><span class="sp"></span><span class="btn">⤢</span><span class="btn">&lt;/&gt;</span><span class="btn">⬇ PNG</span><span class="btn">⬇ .html</span><span class="btn">▶ auto</span></div>
+  <div class="snip-page"><h5>Refunded Requests · how one search works</h5><div class="sub">backend 07e29ec81f · real calls from cycle 61813 · step 3 of 5</div>
+    <div class="steps"><div class="step"><b>1 · Page</b>branches Cairo + Mansoura</div><div class="step"><b>2 · by-branch</b>3 agencies</div><div class="step bad"><b>3 · Controller</b>branchId = 948 only</div><div class="step"><b>4 · Service</b>WHERE branch_id = ?</div><div class="step"><b>5 · Result</b>12 of 41 rows</div></div>
+    <div class="player"><span>⏮ ⏯ ⏭</span><span class="track"><i></i></span><span>3 / 5</span></div></div></div>
+<h4>3 · Rows per search and response times</h4>
+<div class="two">
+  <div class="chart"><div class="ttl"><span><i style="background:rgba(240,122,122,.85)"></i>before</span><span><i style="background:rgba(111,211,138,.9)"></i>after</span><span>rows returned per search</span></div><svg viewBox="0 0 320 130" role="img" aria-label="Rows returned per search"><line x1="30" y1="10" x2="30" y2="110" stroke="rgba(255,255,255,.2)"/><line x1="30" y1="110" x2="310" y2="110" stroke="rgba(255,255,255,.2)"/><text x="26" y="113" fill="#8a8a93" font-size="7.5" text-anchor="end">0</text><line x1="30" x2="310" y1="110" y2="110" stroke="rgba(255,255,255,.05)"/><text x="26" y="91" fill="#8a8a93" font-size="7.5" text-anchor="end">10</text><line x1="30" x2="310" y1="88" y2="88" stroke="rgba(255,255,255,.05)"/><text x="26" y="69" fill="#8a8a93" font-size="7.5" text-anchor="end">20</text><line x1="30" x2="310" y1="66" y2="66" stroke="rgba(255,255,255,.05)"/><text x="26" y="47" fill="#8a8a93" font-size="7.5" text-anchor="end">30</text><line x1="30" x2="310" y1="44" y2="44" stroke="rgba(255,255,255,.05)"/><text x="26" y="25" fill="#8a8a93" font-size="7.5" text-anchor="end">40</text><line x1="30" x2="310" y1="22" y2="22" stroke="rgba(255,255,255,.05)"/><polyline points="30,84 55,84 80,84 105,84 130,84 155,84 180,84 205,84 230,84 255,84 280,84 305,84" fill="none" stroke="rgba(240,122,122,.85)" stroke-width="1.6"/><circle cx="30" cy="84" r="2.2" fill="rgba(240,122,122,.85)"/><circle cx="55" cy="84" r="2.2" fill="rgba(240,122,122,.85)"/><circle cx="80" cy="84" r="2.2" fill="rgba(240,122,122,.85)"/><circle cx="105" cy="84" r="2.2" fill="rgba(240,122,122,.85)"/><circle cx="130" cy="84" r="2.2" fill="rgba(240,122,122,.85)"/><circle cx="155" cy="84" r="2.2" fill="rgba(240,122,122,.85)"/><circle cx="180" cy="84" r="2.2" fill="rgba(240,122,122,.85)"/><circle cx="205" cy="84" r="2.2" fill="rgba(240,122,122,.85)"/><circle cx="230" cy="84" r="2.2" fill="rgba(240,122,122,.85)"/><circle cx="255" cy="84" r="2.2" fill="rgba(240,122,122,.85)"/><circle cx="280" cy="84" r="2.2" fill="rgba(240,122,122,.85)"/><circle cx="305" cy="84" r="2.2" fill="rgba(240,122,122,.85)"/><polyline points="30,84 55,46 80,20 105,20 130,90 155,37 180,20 205,70 230,20 255,53 280,20 305,20" fill="none" stroke="rgba(111,211,138,.9)" stroke-width="1.6"/><circle cx="30" cy="84" r="2.2" fill="rgba(111,211,138,.9)"/><circle cx="55" cy="46" r="2.2" fill="rgba(111,211,138,.9)"/><circle cx="80" cy="20" r="2.2" fill="rgba(111,211,138,.9)"/><circle cx="105" cy="20" r="2.2" fill="rgba(111,211,138,.9)"/><circle cx="130" cy="90" r="2.2" fill="rgba(111,211,138,.9)"/><circle cx="155" cy="37" r="2.2" fill="rgba(111,211,138,.9)"/><circle cx="180" cy="20" r="2.2" fill="rgba(111,211,138,.9)"/><circle cx="205" cy="70" r="2.2" fill="rgba(111,211,138,.9)"/><circle cx="230" cy="20" r="2.2" fill="rgba(111,211,138,.9)"/><circle cx="255" cy="53" r="2.2" fill="rgba(111,211,138,.9)"/><circle cx="280" cy="20" r="2.2" fill="rgba(111,211,138,.9)"/><circle cx="305" cy="20" r="2.2" fill="rgba(111,211,138,.9)"/><text x="170" y="126" fill="#8a8a93" font-size="7.5" text-anchor="middle">search #1 … #12 (cycle 61813)</text></svg></div>
+  <div class="chart"><div class="ttl"><span><i style="background:rgba(240,122,122,.75)"></i>before</span><span><i style="background:rgba(111,211,138,.85)"></i>after</span><span>p95 response time per call</span></div><svg viewBox="0 0 320 150" role="img" aria-label="Response time before and after the fix"><line x1="60" y1="10" x2="60" y2="120" stroke="rgba(255,255,255,.2)"/><line x1="60" y1="120" x2="315" y2="120" stroke="rgba(255,255,255,.2)"/><line x1="60" y1="120" x2="60" y2="124" stroke="rgba(255,255,255,.3)"/><text x="60" y="135" fill="#8a8a93" font-size="8" text-anchor="middle">0</text><line x1="110" y1="120" x2="110" y2="124" stroke="rgba(255,255,255,.3)"/><text x="110" y="135" fill="#8a8a93" font-size="8" text-anchor="middle">500</text><line x1="160" y1="120" x2="160" y2="124" stroke="rgba(255,255,255,.3)"/><text x="160" y="135" fill="#8a8a93" font-size="8" text-anchor="middle">1000</text><line x1="210" y1="120" x2="210" y2="124" stroke="rgba(255,255,255,.3)"/><text x="210" y="135" fill="#8a8a93" font-size="8" text-anchor="middle">1500</text><line x1="260" y1="120" x2="260" y2="124" stroke="rgba(255,255,255,.3)"/><text x="260" y="135" fill="#8a8a93" font-size="8" text-anchor="middle">2000</text><line x1="310" y1="120" x2="310" y2="124" stroke="rgba(255,255,255,.3)"/><text x="310" y="135" fill="#8a8a93" font-size="8" text-anchor="middle">2500</text><text x="187" y="147" fill="#8a8a93" font-size="8" text-anchor="middle">ms (p95)</text><text x="56" y="23" fill="#c9c9d0" font-size="8.5" text-anchor="end">search</text><rect x="60" y="14" width="95.0" height="7" rx="2" fill="rgba(240,122,122,.75)"/><rect x="60" y="22" width="18.0" height="7" rx="2" fill="rgba(111,211,138,.85)"/><text x="159.0" y="21" fill="#9a9aa3" font-size="7">950</text><text x="56" y="44" fill="#c9c9d0" font-size="8.5" text-anchor="end">by-branch</text><rect x="60" y="35" width="6.0" height="7" rx="2" fill="rgba(240,122,122,.75)"/><rect x="60" y="43" width="4.0" height="7" rx="2" fill="rgba(111,211,138,.85)"/><text x="70.0" y="42" fill="#9a9aa3" font-size="7">60</text><text x="56" y="65" fill="#c9c9d0" font-size="8.5" text-anchor="end">lookup</text><rect x="60" y="56" width="2.5" height="7" rx="2" fill="rgba(240,122,122,.75)"/><rect x="60" y="64" width="2.2" height="7" rx="2" fill="rgba(111,211,138,.85)"/><text x="66.5" y="63" fill="#9a9aa3" font-size="7">25</text><text x="56" y="86" fill="#c9c9d0" font-size="8.5" text-anchor="end">export</text><rect x="60" y="77" width="230.0" height="7" rx="2" fill="rgba(240,122,122,.75)"/><rect x="60" y="85" width="41.0" height="7" rx="2" fill="rgba(111,211,138,.85)"/><text x="294.0" y="84" fill="#9a9aa3" font-size="7">2300</text><text x="56" y="107" fill="#c9c9d0" font-size="8.5" text-anchor="end">count</text><rect x="60" y="98" width="64.0" height="7" rx="2" fill="rgba(240,122,122,.75)"/><rect x="60" y="106" width="3.5" height="7" rx="2" fill="rgba(111,211,138,.85)"/><text x="128.0" y="105" fill="#9a9aa3" font-size="7">640</text></svg></div>
+</div>
+<h4>4 · The fix</h4>
+<pre class="code"><span class="c">// RefundApprovalRequestController.java:52</span>
+<span class="k">public</span> Page&lt;RefundRow&gt; search(<span class="k">@RequestBody</span> RefundSearch body) {
+-   <span class="k">return</span> service.search(body.getBranchId(), body.getAgencyIds(), body.page());
++   <span class="k">return</span> service.search(body.getBranchIds(), body.getAgencyIds(), body.page());
+}
+<span class="c">-- RefundApprovalRequestServiceImpl.java:608 builds</span>
+<span class="k">WHERE</span> branch_id <span class="k">IN</span> (:branchIds) <span class="k">AND</span> agency_id <span class="k">IN</span> (:agencyIds) <span class="k">LIMIT</span> <span class="n">20</span></pre>
+<h4>5 · Every check</h4>
+<table><tr><th>#</th><th>Check</th><th>Call</th><th>Before</th><th>After</th></tr>
+<tr><td>1</td><td>One branch</td><td><span class="mention call">⇄ POST search · 200</span></td><td>12 rows</td><td>✓ 12 rows</td></tr>
+<tr><td>2</td><td>Two branches</td><td><span class="mention call">⇄ POST search · 200</span></td><td>✗ 12 rows</td><td>✓ 41 rows</td></tr>
+<tr><td>3</td><td>All agencies</td><td><span class="mention call">⇄ POST search · 200</span></td><td>✗ shown with no branch</td><td>✓ hidden</td></tr>
+<tr><td>4</td><td>Agency filter</td><td><span class="mention call">⇄ POST agency/by-branch · 200</span></td><td>3 agencies</td><td>✓ 3 agencies</td></tr>
+<tr><td>5</td><td>Paging</td><td><span class="mention call">⇄ POST search?size=20</span></td><td>50 rows cut</td><td>✓ 20 + total</td></tr>
+<tr><td>6</td><td>Export</td><td><span class="mention call">⇄ POST export · 200</span></td><td>2.3 s · 12 rows</td><td>✓ 410 ms · 41 rows</td></tr>
+<tr><td>7</td><td>Empty state</td><td>-</td><td>text ok</td><td>✓ text ok</td></tr></table>
+<div class="part next" style="margin-top:.5rem"><div class="ph">→ Next</div><p>Deploy the backend (<code>07e29ec81f</code>) and run re-test <span class="mention">#110</span>; I will mark the checklist items when its calls come in.</p></div></div></div>
+  </div>
+</div>
+
+<h2>3 · A Claude report and the talk under it</h2>
+<div class="frame"><div class="cap">report · reply · done</div>
+  <div class="thread">
+    <div class="m" data-id="d1" data-d="0"><span class="av cl">✦</span><div class="hd"><b class="cln">Claude</b><span class="tm">10:12 AM</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+      <div class="bd">
+        <div class="part"><div class="ph">✓ Did</div><p>Ran the search with Cairo + Mansoura and checked the call against the acceptance items.</p></div>
+        <div class="part found"><div class="ph">⚑ Found</div><p>The request still sends <code>branchId: 948</code>, not the <code>branchIds</code> list - only the first branch is searched.</p></div>
+        <div class="part next"><div class="ph">→ Next</div><p>Send <code>branchIds</code> from <code>refund-request.page.ts:319</code> and read the list at line 52, then search again.</p></div></div></div>
+    <div class="m" data-id="d2" data-p="d1" data-d="1"><span class="av">Y</span><div class="hd"><b>You</b><span class="tm">10:20 AM</span></div><div class="bd"><p>do the page first, I'll deploy the backend myself</p></div></div>
+    <div class="m" data-id="d3" data-p="d2" data-d="2"><span class="av cl">✦</span><div class="hd"><b class="cln">Claude</b><span class="tm">10:31 AM</span><span class="chip done">DONE</span></div>
+      <div class="bd"><p>The page sends <code>branchIds: [948, 10642]</code> now. Waiting for the backend deploy to re-test.</p></div></div>
+    <button class="reply-line">Reply…</button>
+  </div>
+</div>
+
+<h2>4 · A long thread, folded</h2>
+<p class="lead">The first comment is open; all its replies wait behind one line.</p>
+<div class="frame"><div class="cap">folded</div>
+  <div class="thread" data-fold="f0">
+    <div class="m" data-id="f0" data-d="0"><span class="av cl">✦</span><div class="hd"><b class="cln">Claude</b><span class="tm">Oct 14</span><span class="chip amb">FOUND</span></div>
+      <div class="bd"><p>multi-branch search sends one id</p></div></div>
+    <div class="m" data-id="f1" data-p="f0" data-d="1"><span class="av">Y</span><div class="hd"><b>You</b><span class="tm">Oct 14</span></div><div class="bd"><p>which page?</p></div></div>
+    <div class="m" data-id="f2" data-p="f1" data-d="2"><span class="av cl">✦</span><div class="hd"><b class="cln">Claude</b><span class="tm">Oct 14</span></div><div class="bd"><p>Refunded Requests, the search form.</p></div></div>
+    <div class="m" data-id="f3" data-p="f0" data-d="1"><span class="av ring">Y</span><div class="hd"><b>You</b><span class="tm">10:48 AM</span><span class="new">● new</span></div><div class="bd"><p>confirmed on my side</p></div></div>
+  </div>
+</div>
+
+<script>
+// collapsing: a ▾ by each name folds that comment and everything under it to one line; "▾ N replies" folds a conversation's replies
+document.querySelectorAll('.thread').forEach((th) => {
+  const ms = Array.from(th.querySelectorAll(':scope > .m'));
+  const byId = new Map(ms.map((m) => [m.dataset.id, m]));
+  const kids = new Map(ms.map((m) => [m, []]));
+  // every reply sits one level right of what it answers - no limit
+  ms.forEach((m) => { const p = byId.get(m.dataset.p); if (p) kids.get(p).push(m); m.dataset.d = p ? +p.dataset.d + 1 : 0; m.style.setProperty('--d', m.dataset.d); });
+  const maxD = Math.max(...ms.map((m) => +m.dataset.d));
+  th.style.setProperty('--gut', '2rem');
+  const below = (m) => kids.get(m).flatMap((k) => [k, ...below(k)]);
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  th.prepend(svg);
+
+  // what is hidden: everything under a folded comment, and under a conversation whose replies are folded
+  const shut = new Set(), repliesShut = new Set();
+  function apply() {
+    const hidden = new Set();
+    ms.forEach((m) => { if (shut.has(m) || repliesShut.has(m)) below(m).forEach((k) => hidden.add(k)); });
+    ms.forEach((m) => {
+      m.classList.toggle('hid', hidden.has(m));
+      m.classList.toggle('shut', shut.has(m));
+      const sub = below(m), fresh = sub.filter((k) => k.querySelector(':scope > .hd > .new')).length;
+      const n = m.querySelector('.hiddenN');
+      if (n) n.innerHTML = sub.length ? `${sub.length} ${sub.length === 1 ? 'reply' : 'replies'}${fresh ? `<span class="new">· ${fresh} new</span>` : ''}` : '';
+      if (n) n.style.visibility = sub.length ? '' : 'hidden';
+      const tog = m.querySelector(':scope > .tog');
+      if (tog) { const open = !repliesShut.has(m); tog.innerHTML = `${open ? '▾' : '▸'} ${sub.length} ${sub.length === 1 ? 'reply' : 'replies'}${!open && fresh ? `<span class="new">· ${fresh} new</span>` : ''}`; }
+    });
+    draw();
+  }
+  const flipReplies = (m) => { repliesShut.has(m) ? repliesShut.delete(m) : repliesShut.add(m); apply(); };
+
+  function draw() {
+    svg.innerHTML = '';
+    const box = th.getBoundingClientRect();
+    ms.forEach((m) => {
+      const p = byId.get(m.dataset.p);
+      if (!p || m.classList.contains('hid')) return;
+      const a = p.querySelector('.av').getBoundingClientRect(), b = m.querySelector('.av').getBoundingClientRect();
+      const x1 = a.left + a.width / 2 - box.left, y1 = a.bottom - box.top + 2, x2 = b.left - box.left - 2, y2 = b.top + b.height / 2 - box.top;
+      const d = x2 - x1 < 6 ? `M ${x1} ${y1} V ${b.top - box.top - 2}` : `M ${x1} ${y1} V ${y2 - 6} Q ${x1} ${y2} ${x1 + 6} ${y2} H ${x2}`;
+      const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      line.setAttribute('d', d); line.setAttribute('fill', 'none'); line.setAttribute('stroke', 'rgba(255,255,255,.3)'); line.setAttribute('stroke-width', '1.5');
+      line.classList.add('line'); line.dataset.from = p.dataset.id;
+      // the line is a fold handle too: it folds the comment it comes from
+      const hit = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      hit.setAttribute('d', d); hit.classList.add('hit');
+      hit.innerHTML = '<title>Fold these replies</title>';
+      hit.addEventListener('mouseenter', () => svg.querySelectorAll(`path.line[data-from="${p.dataset.id}"]`).forEach((l) => l.classList.add('hot')));
+      hit.addEventListener('mouseleave', () => svg.querySelectorAll('path.line.hot').forEach((l) => l.classList.remove('hot')));
+      hit.addEventListener('click', () => flipReplies(p));
+      svg.append(line, hit);
+    });
+  }
+
+  ms.forEach((m) => {
+    // a long comment is cut at a height, with "▾ Show all" (as the drawer does today)
+    const bd = m.querySelector('.bd');
+    if (bd.scrollHeight > 190 && !bd.dataset.open) {
+      bd.classList.add('cut');
+      const more = document.createElement('button');
+      more.className = 'showall'; more.textContent = '▾ Show all';
+      more.onclick = () => { const cut = bd.classList.toggle('cut'); more.textContent = cut ? '▾ Show all' : '▴ Show less'; draw(); };
+      bd.after(more);
+    }
+    // every comment with replies has "▸ N replies" - the one thing that folds
+    if (below(m).length) {
+      const tog = document.createElement('button');
+      tog.className = 'tog';
+      tog.addEventListener('click', () => { repliesShut.has(m) ? repliesShut.delete(m) : repliesShut.add(m); apply(); });
+      (m.querySelector('.showall') ?? m.querySelector('.bd')).after(tog);
+    }
+  });
+
+  // Fold all / Open all for the thread
+  const first = ms[0];
+  if (below(first).length > 1) {
+    const bar = document.createElement('div');
+    bar.className = 'bar';
+    const all = document.createElement('button'); all.textContent = '⊟ Fold all';
+    all.onclick = () => { foldDefault(); apply(); };
+    all.textContent = '⊟ Fold replies';
+    const open = document.createElement('button'); open.textContent = '⊞ Open all';
+    open.onclick = () => { shut.clear(); repliesShut.clear(); apply(); };
+    open.textContent = '⊞ Open all replies';
+    bar.append(all, open);
+    th.insertBefore(bar, first);
+  }
+
+  // by default every comment you see is shown whole (cut at a height when long) and every set of replies - level 1 too - is folded
+  const foldDefault = () => { shut.clear(); repliesShut.clear(); ms.forEach((m) => { if (below(m).length) repliesShut.add(m); }); };
+  foldDefault();
+  if (th.dataset.openFirst) repliesShut.delete(first);
+  apply();
+  addEventListener('resize', draw);
+});
+</script>
+</body>
+</html>

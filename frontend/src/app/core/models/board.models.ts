@@ -232,8 +232,10 @@ export interface ActivityEntry {
   readonly oldValue: string | null;
   readonly newValue: string | null;
   readonly at: string;
-  /** The comment this one answers (one level), or null. */
+  /** The thread this comment belongs to: its first comment (one level), or null. */
   readonly replyTo?: number | null;
+  /** The reply this one was written to, when that is itself a reply (specs/023: replies show as a tree), or null. */
+  readonly answers?: number | null;
 }
 
 /** An earlier text of a comment or description, kept when it was edited. */

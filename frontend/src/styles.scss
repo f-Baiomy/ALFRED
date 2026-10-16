@@ -1611,17 +1611,17 @@ main {
 // Green, amber and red are deliberately absent: they mean status and duration everywhere else in
 // Alfred (badges, durations, the diagnose bar), so a level-2 rail in green would read as a health
 // signal. These four carry no existing meaning.
-.depth-tint-0 {
-  --depth-color: #8b5cf6;
-}
-.depth-tint-1 {
-  --depth-color: #38bdf8;
-}
-.depth-tint-2 {
-  --depth-color: #e879f9;
-}
-.depth-tint-3 {
-  --depth-color: #818cf8;
+$depth-tints: #8b5cf6, #38bdf8, #e879f9, #818cf8;
+@each $tint in $depth-tints {
+  $i: index($depth-tints, $tint) - 1;
+  .depth-tint-#{$i} {
+    --depth-color: #{$tint};
+  }
+  // the card's reply tree (specs/023): the colour a comment's line down to its replies takes, kept apart from
+  // --depth-color so the comment's own avatar ring stays its own level's colour
+  .kids-tint-#{$i} {
+    --kids-color: #{$tint};
+  }
 }
 
 .calls-tree-list {
@@ -12466,7 +12466,7 @@ html.chat-fullscreen, html.chat-fullscreen body { overflow: hidden !important; o
   &:hover { color: var(--text-dim); }
 }
 .cd-thread { margin: 0.35rem 0 0.7rem; }
-.board-ev.cd-c { display: grid; grid-template-columns: 1.65rem minmax(0, 1fr); gap: 0 0.55rem; margin-bottom: 0.2rem;
+.board-ev.cd-c { display: grid; grid-template-columns: 1.3rem minmax(0, 1fr); gap: 0 0.45rem; margin-bottom: 0.2rem;
   &::before { display: none; }
   .board-ev-body { background: none; border: 0; padding: 0; margin-top: 0.1rem; font-size: 0.86rem; line-height: 1.6; }
   .board-ev-label { flex: none; min-width: 0; align-self: baseline; margin-right: 0.35rem; font-size: 0.6rem; color: var(--purple-light); background: color-mix(in srgb, var(--purple) 16%, transparent);
@@ -12475,7 +12475,7 @@ html.chat-fullscreen, html.chat-fullscreen body { overflow: hidden !important; o
   &.cd-new .cd-av { box-shadow: 0 0 0 2px var(--cyan); }
   &.claude .cd-who b { color: var(--purple-light); }
 }
-.cd-av { width: 1.65rem; height: 1.65rem; border-radius: 50%; display: grid; place-items: center; font-size: 0.72rem; font-weight: 700;
+.cd-av { width: 1.3rem; height: 1.3rem; border-radius: 50%; display: grid; place-items: center; font-size: 0.62rem; font-weight: 700; position: relative; z-index: 2;
   background: color-mix(in srgb, var(--cyan) 18%, transparent); color: var(--cyan);
   &.claude { background: color-mix(in srgb, var(--purple) 22%, transparent); color: var(--purple-light); }
 }
@@ -12491,18 +12491,54 @@ html.chat-fullscreen, html.chat-fullscreen body { overflow: hidden !important; o
 .board-ev.cd-c:hover .cd-hov, .cd-hov.keep, .cd-hov:focus-within { opacity: 1; }
 @media (hover: none) { .cd-hov { opacity: 1; } }
 .cd-reacts { margin-top: 0.15rem; }
-.cd-replies { margin-left: 0.8rem; padding-left: 0.8rem; border-left: 2px solid var(--border-strong);
-  .board-ev-reply { margin: 0.2rem 0 0; padding: 0; border: 0; }
-  .board-ev.cd-c { grid-template-columns: 1.35rem minmax(0, 1fr); }
-  .cd-av { width: 1.35rem; height: 1.35rem; font-size: 0.64rem; }
+/* Claude's Did / Found / Next as blocks with a heading line (a part that only says Reply has none) */
+.cd-part { margin: 0.1rem 0 0.45rem; }
+.cd-ph { font-size: 0.64rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-dim); margin-bottom: 0.05rem; }
+.cd-part-found { border-left: 2px solid var(--amber); padding-left: 0.6rem; .cd-ph { color: var(--amber); } }
+.cd-part-next { background: color-mix(in srgb, var(--purple) 10%, transparent); border: 1px solid color-mix(in srgb, var(--purple) 35%, transparent); border-radius: 8px;
+  padding: 0.35rem 0.6rem; .cd-ph { color: var(--purple-light); } }
+.cd-part-question .cd-ph, .cd-part-withdrawn .cd-ph { color: var(--amber); }
+.cd-fold { display: inline-flex; align-items: center; gap: 0.25rem; margin: 0.05rem 0 0.25rem 1.75rem; padding: 0.02rem 0.55rem; border-radius: 999px;
+  border: 1px solid var(--border); background: none; color: var(--text-dim); font: inherit; font-size: 0.72rem; cursor: pointer;
+  &:hover { color: var(--text); border-color: var(--border-strong); }
 }
-.cd-more { display: block; margin: 0.15rem 0; font-size: 0.74rem; }
-.cd-thread-foot { display: flex; align-items: center; gap: 0.5rem; margin: 0.25rem 0 0 2.2rem; }
+.cd-fold-new { color: var(--cyan); }
+/* the reply tree (specs/023): each level one step (1 rem) right - avatar and text together - joined by tree lines in
+   the call waterfall's colours: a line drops from a comment's avatar and turns into each reply's avatar (├ └); the
+   last reply ends it. A click on the line folds that level. */
+$cd-line: 2px;
+$cd-x: 0.6rem; // the line, under the middle of the avatar
+.cd-has-open { position: relative; }
+.cd-has-open > .board-ev.cd-c { position: relative;
+  &::after { content: ""; position: absolute; left: calc(#{$cd-x} - #{$cd-line} / 2); top: 1.3rem; bottom: -0.2rem;
+    border-left: $cd-line solid color-mix(in srgb, var(--kids-color, var(--purple)) 70%, transparent); pointer-events: none; }
+}
+.cd-has-open > .cd-branch > .cd-fold-row { position: relative;
+  &::before { content: ""; position: absolute; left: calc(#{$cd-x} - #{$cd-line} / 2); top: -0.2rem; bottom: 0;
+    border-left: $cd-line solid color-mix(in srgb, var(--kids-color, var(--purple)) 70%, transparent); pointer-events: none; }
+}
+.cd-branch { position: relative; }
+.cd-kids { position: relative; margin-left: $cd-x; padding-left: calc(1rem - #{$cd-x}); }
+.cd-kid { position: relative; padding-top: 0.15rem;
+  // ├ or └ : down from the line above to this reply's avatar, then across to it
+  &::before { content: ""; position: absolute; left: calc(#{$cd-x} - 1rem - #{$cd-line} / 2); top: 0; height: 0.8rem; width: calc(1rem - #{$cd-x} - 2px);
+    border-left: $cd-line solid color-mix(in srgb, var(--depth-color, var(--purple)) 70%, transparent);
+    border-bottom: $cd-line solid color-mix(in srgb, var(--depth-color, var(--purple)) 70%, transparent); pointer-events: none; }
+  // the line goes on past this reply to the next one
+  &:not(:last-child)::after { content: ""; position: absolute; left: calc(#{$cd-x} - 1rem - #{$cd-line} / 2); top: 0.8rem; bottom: 0;
+    border-left: $cd-line solid color-mix(in srgb, var(--depth-color, var(--purple)) 70%, transparent); pointer-events: none; }
+}
+.cd-kids > .cd-kid > .board-ev.cd-c > .cd-av { box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--depth-color, var(--purple)) 75%, transparent); }
+.cd-kids > .cd-kid > .board-ev.cd-c.cd-new > .cd-av { box-shadow: 0 0 0 2px var(--cyan); }
+/* the line is the fold handle: a 12 px wide hit area over it, brighter on hover */
+.cd-rail { position: absolute; left: calc(#{$cd-x} - 1rem - 6px); top: 0; bottom: 0; width: 12px; padding: 0; border: 0; background: none; cursor: pointer; z-index: 1; }
+.cd-kids:has(> .cd-rail:hover) > .cd-kid::before, .cd-kids:has(> .cd-rail:hover) > .cd-kid::after { border-color: var(--depth-color, var(--purple)); }
+.cd-thread-foot { display: flex; align-items: center; gap: 0.5rem; margin: 0.25rem 0 0 1.75rem; }
 .cd-reply-line { flex: 1 1 auto; text-align: start; background: var(--card-inner); border: 1px solid var(--border); color: var(--text-faint); border-radius: 999px;
   padding: 0.15rem 0.75rem; font: inherit; font-size: 0.76rem; cursor: text;
   &:hover { border-color: var(--border-strong); color: var(--text-dim); }
 }
-.cd-thread .board-ev-replybox { margin-left: 2.2rem; }
+.cd-thread .board-ev-replybox { margin-left: 1.75rem; }
 .board-drawer-head.cd-head.cd-peek { max-height: 70vh; overflow-y: auto; box-shadow: 0 8px 18px rgba(0, 0, 0, 0.35); }
 // a menu opened in the peeked header (flags, more) must not be cut off by the header's scroll box
 .board-drawer-head.cd-head.cd-peek:has(.board-editor-dd-menu) { overflow: visible; }

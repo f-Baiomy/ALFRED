@@ -224,6 +224,8 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort,
         jdbc.execute("CREATE INDEX IF NOT EXISTS idx_board_images_card ON board_images(card_id)");
         // Replies (one level): the comment an entry answers. Added in place to a board.db made before replies existed.
         addColumn("activity", "reply_to", "INTEGER");
+        // specs/023: the comment a reply to a reply was written to (reply_to stays the thread's first comment)
+        addColumn("activity", "answers", "INTEGER");
         // Who a card waits on (specs/015): set by the services' rules and by Claude.
         jdbc.execute("""
                 CREATE TABLE IF NOT EXISTS card_waiting (card_id TEXT PRIMARY KEY REFERENCES cards(id) ON DELETE CASCADE,
@@ -436,7 +438,7 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort,
 
     @Override
     public List<ActivityEntry> unindexedQuestions() {
-        return jdbc.query("SELECT id, card_id, actor, kind, text, old_value, new_value, at, reply_to FROM activity a WHERE a.actor = 'CLAUDE' "
+        return jdbc.query("SELECT id, card_id, actor, kind, text, old_value, new_value, at, reply_to, answers FROM activity a WHERE a.actor = 'CLAUDE' "
                 + "AND a.kind = 'COMMENT' AND a.text LIKE '**Question**%' AND NOT EXISTS (SELECT 1 FROM card_questions q WHERE q.entry_id = a.id) "
                 + "ORDER BY a.id", ACTIVITY_ROW);
     }
@@ -654,8 +656,9 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort,
     @Override
     public long append(ActivityEntry e) {
         return tx.execute(status -> {
-            jdbc.update("INSERT INTO activity(card_id, actor, kind, text, old_value, new_value, at, reply_to) VALUES (?,?,?,?,?,?,?,?)",
-                    e.cardId(), e.actor().name(), e.kind().name(), e.text(), e.oldValue(), e.newValue(), e.at().toEpochMilli(), e.replyTo());
+            jdbc.update("INSERT INTO activity(card_id, actor, kind, text, old_value, new_value, at, reply_to, answers) VALUES (?,?,?,?,?,?,?,?,?)",
+                    e.cardId(), e.actor().name(), e.kind().name(), e.text(), e.oldValue(), e.newValue(), e.at().toEpochMilli(), e.replyTo(),
+                    e.answers());
             Long id = jdbc.queryForObject("SELECT last_insert_rowid()", Long.class);
             return id == null ? 0L : id;
         });
@@ -663,7 +666,7 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort,
 
     @Override
     public List<ActivityEntry> activity(String cardId, int offset, int limit) {
-        return jdbc.query("SELECT id, card_id, actor, kind, text, old_value, new_value, at, reply_to FROM activity WHERE card_id = ? "
+        return jdbc.query("SELECT id, card_id, actor, kind, text, old_value, new_value, at, reply_to, answers FROM activity WHERE card_id = ? "
                 + "ORDER BY id LIMIT ? OFFSET ?", ACTIVITY_ROW, cardId, limit, offset);
     }
 
@@ -687,13 +690,13 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort,
 
     @Override
     public Optional<ActivityEntry> lastOf(String cardId, String kind) {
-        return jdbc.query("SELECT id, card_id, actor, kind, text, old_value, new_value, at, reply_to FROM activity WHERE card_id = ? AND kind = ? "
+        return jdbc.query("SELECT id, card_id, actor, kind, text, old_value, new_value, at, reply_to, answers FROM activity WHERE card_id = ? AND kind = ? "
                 + "ORDER BY id DESC LIMIT 1", ACTIVITY_ROW, cardId, kind).stream().findFirst();
     }
 
     @Override
     public Optional<ActivityEntry> activityEntry(long id) {
-        return jdbc.query("SELECT id, card_id, actor, kind, text, old_value, new_value, at, reply_to FROM activity WHERE id = ?", ACTIVITY_ROW, id)
+        return jdbc.query("SELECT id, card_id, actor, kind, text, old_value, new_value, at, reply_to, answers FROM activity WHERE id = ?", ACTIVITY_ROW, id)
                 .stream().findFirst();
     }
 
@@ -748,7 +751,7 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort,
 
     @Override
     public List<ActivityEntry> after(String cardId, long afterId) {
-        return jdbc.query("SELECT id, card_id, actor, kind, text, old_value, new_value, at, reply_to FROM activity WHERE card_id = ? AND id > ? "
+        return jdbc.query("SELECT id, card_id, actor, kind, text, old_value, new_value, at, reply_to, answers FROM activity WHERE card_id = ? AND id > ? "
                 + "ORDER BY id LIMIT 1000", ACTIVITY_ROW, cardId, afterId);
     }
 
@@ -756,7 +759,7 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort,
     public Map<String, ActivityEntry> lastComments(Collection<String> cardIds) {
         Map<String, ActivityEntry> out = new HashMap<>();
         for (List<String> chunk : chunks(cardIds)) {
-            jdbc.query("SELECT id, card_id, actor, kind, text, old_value, new_value, at, reply_to FROM activity WHERE id IN (SELECT MAX(id) FROM activity "
+            jdbc.query("SELECT id, card_id, actor, kind, text, old_value, new_value, at, reply_to, answers FROM activity WHERE id IN (SELECT MAX(id) FROM activity "
                     + "WHERE kind = 'COMMENT' AND card_id IN (" + marks(chunk.size()) + ") GROUP BY card_id)", rs -> {
                         ActivityEntry e = ACTIVITY_ROW.mapRow(rs, 0);
                         out.put(e.cardId(), e);
@@ -770,7 +773,7 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort,
         List<Object> args = new ArrayList<>();
         args.add(afterId);
         StringBuilder sql = new StringBuilder("SELECT a.id, a.card_id, a.actor, a.kind, a.text, a.old_value, a.new_value, a.at, a.reply_to, "
-                + "c.project, c.number, c.title, c.status, c.cycle_id FROM activity a JOIN cards c ON c.id = a.card_id WHERE a.id > ?");
+                + "c.project, c.number, c.title, c.status, c.cycle_id, a.answers FROM activity a JOIN cards c ON c.id = a.card_id WHERE a.id > ?");
         if (project != null) {
             sql.append(" AND c.project = ?");
             args.add(project);
@@ -1412,10 +1415,16 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort,
 
     private static final RowMapper<ActivityEntry> ACTIVITY_ROW = (rs, n) -> new ActivityEntry(rs.getLong(1), rs.getString(2),
             Actor.valueOf(rs.getString(3)), ActivityKind.valueOf(rs.getString(4)), rs.getString(5), rs.getString(6), rs.getString(7),
-            Instant.ofEpochMilli(rs.getLong(8)), replyTo(rs));
+            Instant.ofEpochMilli(rs.getLong(8)), replyTo(rs), answers(rs));
 
     private static Long replyTo(ResultSet rs) throws SQLException {
         long v = rs.getLong(9);
+        return rs.wasNull() ? null : v;
+    }
+
+    /** By name: every activity query selects it, though not always as its 10th column. */
+    private static Long answers(ResultSet rs) throws SQLException {
+        long v = rs.getLong("answers");
         return rs.wasNull() ? null : v;
     }
 

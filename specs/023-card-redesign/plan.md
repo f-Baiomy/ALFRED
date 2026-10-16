@@ -66,3 +66,14 @@ Built as planned. Changes from the plan, found in the code review:
 - The activity's filter bar stays in view under the tabs. Earlier history comes in 15 threads at a time, and the
   timeline is OnPush, so a long card stays smooth.
 - Full screen and the window keep the tabs (no two-column layout, which left a wide empty gap) and use their whole width.
+
+## Comment threads (mock-comments-e.html, built 2026-10-16)
+
+- Replies are a tree: backend keeps `answers` (the reply a reply to a reply was written to; `reply_to` stays the
+  thread's first comment, so questions, reactions and Claude's tools are unchanged). Old replies hang under the first
+  comment.
+- Each level steps 1 rem right (avatar and text together), with a clickable rail that folds. All replies start folded,
+  level 1 too ("▸ N replies · K new"); one click opens one level. ⊞ / ⊟ open or fold all; Find opens all.
+- ↩ on a reply answers that reply; a sent reply keeps its branch open.
+- Did / Found / Next as blocks with a heading line; "Reply" part has no heading; smaller avatar.
+- Review fixes: a reply whose `answers` is missing or later than itself hangs under the first comment (never dropped).

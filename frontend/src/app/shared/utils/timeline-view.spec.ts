@@ -1,5 +1,5 @@
 import { ActivityEntry } from '../../core/models/board.models';
-import { after, dayLabel, isNewEntry, visibleReplies } from './timeline-view';
+import { after, dayLabel, isNewEntry, pathTo, replyTree } from './timeline-view';
 
 describe('timeline-view (specs/023)', () => {
   const e = (at: string, actor: ActivityEntry['actor'] = 'CLAUDE'): ActivityEntry =>
@@ -23,10 +23,18 @@ describe('timeline-view (specs/023)', () => {
     expect(dayLabel(new Date(2026, 9, 1, 9, 0).toISOString(), now)).not.toMatch(/Today|Yesterday/);
   });
 
-  it('a long thread shows its last two replies until the middle is opened', () => {
-    const replies = [1, 2, 3, 4, 5].map((i) => e(`2026-10-15T0${i}:00:00Z`));
-    expect(visibleReplies(replies.slice(0, 4), false).hidden).toBe(0);
-    expect(visibleReplies(replies, false)).toEqual({ hidden: 3, shown: replies.slice(-2) });
-    expect(visibleReplies(replies, true).hidden).toBe(0);
+  it('draws the replies of a thread as a tree by the reply each was written to, counting what is new below each', () => {
+    const r = (id: number, answers: number | null, at = `2026-10-15T0${id}:00:00Z`): ActivityEntry => ({ ...e(at), id, replyTo: 1, answers });
+    // 2 and 5 answer the first comment; 3 answers 2, 4 answers 3; 6 answers a reply that is gone; 7 is an older reply
+    const replies = [r(2, null), r(3, 2), r(4, 3, '2026-10-15T09:30:00Z'), r(5, null), r(6, 99), { ...r(7, null), answers: undefined }];
+    const tree = replyTree(replies, '2026-10-15T08:00:00Z');
+    expect(tree.map((n) => n.entry.id)).toEqual([2, 5, 6, 7]);
+    expect(tree[0].children.map((n) => n.entry.id)).toEqual([3]);
+    expect(tree[0].children[0].children.map((n) => n.entry.id)).toEqual([4]);
+    expect(tree[0].size).toBe(2);
+    expect(tree[0].fresh).toBe(1);
+    expect(tree[1].size).toBe(0);
+    expect(pathTo(replies, 4)).toEqual([2, 3]);
+    expect(pathTo(replies, 2)).toEqual([]);
   });
 });

@@ -97,6 +97,31 @@ class BoardRichTextTest {
     }
 
     @Test
+    void aReplyToAReplyStaysInTheThreadAndKeepsTheReplyItAnswers() {
+        String id = card();
+        ActivityEntry root = comment(Actor.USER, id, "the agencies list is empty");
+        ActivityEntry first = reply(id, root.id(), "is that the same for the export?");
+        ActivityEntry second = reply(id, first.id(), "fix both then");
+
+        // the thread is still the first comment's; the tree is told by the reply it was written to (specs/023)
+        assertThat(first.replyTo()).isEqualTo(root.id());
+        assertThat(first.answers()).isNull();
+        assertThat(second.replyTo()).isEqualTo(root.id());
+        assertThat(second.answers()).isEqualTo(first.id());
+        ActivityEntry stored = f.store.activityEntry(second.id()).orElseThrow();
+        assertThat(stored.replyTo()).isEqualTo(root.id());
+        assertThat(stored.answers()).isEqualTo(first.id());
+        assertThat(f.store.activity(id, 0, 100)).filteredOn(e -> e.id() == second.id()).extracting(ActivityEntry::answers).containsExactly(first.id());
+    }
+
+    private ActivityEntry reply(String id, long to, String text) {
+        CommentOnCardUseCase.CommentOutcome out = f.board.comment(Actor.USER, id,
+                new CommentOnCardUseCase.Comment(text, null, null, null, null, null, null, to, false));
+        assertThat(out.outcome()).as(out.message()).isEqualTo(CardChange.Outcome.OK);
+        return out.entry();
+    }
+
+    @Test
     void theUserEditsTheirOwnCommentAndTheEarlierTextIsKept() {
         String id = card();
         ActivityEntry c = comment(Actor.USER, id, "first @[call:in:c1|GET /a]");

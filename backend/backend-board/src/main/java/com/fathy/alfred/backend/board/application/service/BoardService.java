@@ -742,13 +742,16 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
             return new CommentOutcome(CardChange.Outcome.NOT_FOUND, null, "No such card");
         }
         Long replyTo = null;
+        Long answers = null;
         if (comment.replyTo() != null) {
             Optional<ActivityEntry> parent = store.activityEntry(comment.replyTo());
             if (parent.isEmpty() || !parent.get().cardId().equals(id) || parent.get().kind() != ActivityKind.COMMENT) {
                 return new CommentOutcome(CardChange.Outcome.INVALID, null, "replyTo must be a comment on this card");
             }
-            // One level: a reply to a reply joins the thread of the first comment.
+            // One level: a reply to a reply joins the thread of the first comment, and keeps the reply it answers
+            // (specs/023: the timeline draws the tree from it).
             replyTo = parent.get().replyTo() != null ? parent.get().replyTo() : parent.get().id();
+            answers = parent.get().replyTo() != null ? parent.get().id() : null;
         }
         if (actor == Actor.CLAUDE && replyTo != null && !blank(comment.reply())) {
             Optional<ActivityEntry> already = claudeAnsweredLast(id, replyTo);
@@ -792,7 +795,7 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
                         + " - wait for the user's answer");
             }
         }
-        long entryId = store.append(new ActivityEntry(0, id, actor, ActivityKind.COMMENT, text, null, null, clock.instant(), replyTo));
+        long entryId = store.append(new ActivityEntry(0, id, actor, ActivityKind.COMMENT, text, null, null, clock.instant(), replyTo, answers));
         boolean answersQuestion = actor == Actor.USER && replyTo != null && store.activityEntry(replyTo).map(ActivityEntry::isQuestion).orElse(false);
         if (question) {
             indexQuestions(id, entryId, text, clock.instant(), null);
@@ -821,7 +824,7 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
             mentionedCalls.mentionedCallsChanged();
         }
         changed(next, "activity");
-        ActivityEntry entry = new ActivityEntry(entryId, id, actor, ActivityKind.COMMENT, text, null, null, next.updatedAt(), replyTo);
+        ActivityEntry entry = new ActivityEntry(entryId, id, actor, ActivityKind.COMMENT, text, null, null, next.updatedAt(), replyTo, answers);
         return new CommentOutcome(CardChange.Outcome.OK, entry, null);
     }
 

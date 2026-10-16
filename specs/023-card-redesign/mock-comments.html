@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Card comments redesign</title>
+<style>
+  :root {
+    --bg: #1b1b1d; --panel: #1f1f22; --inner: rgba(0,0,0,.3); --border: rgba(255,255,255,.08); --border-strong: rgba(255,255,255,.18);
+    --text: #e6e6ea; --dim: #9a9aa3; --faint: #686872; --purple: #6d8ff0; --purple-light: #8fb2f7; --cyan: #5fd3c6; --amber: #f2b552; --green: #6fd38a; --red: #f07a7a;
+    --code: rgba(255,255,255,.07);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.55 "Segoe UI", system-ui, sans-serif; padding: 24px 16px 80px; }
+  h1 { font-size: 1.35rem; margin: 0 0 .25rem; }
+  h2 { font-size: 1.05rem; margin: 2.2rem 0 .6rem; color: var(--purple-light); }
+  .lead { color: var(--dim); max-width: 75ch; margin: 0 0 1rem; }
+  .pair { display: grid; grid-template-columns: 1fr; gap: 14px; }
+  .frame { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .frame > .cap { display: flex; gap: .5rem; align-items: center; padding: .35rem .8rem; font-size: .72rem; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); border-bottom: 1px solid var(--border); }
+  .cap .tag { padding: 0 .45rem; border-radius: 4px; font-weight: 700; }
+  .before .tag { background: rgba(240,122,122,.15); color: var(--red); }
+  .after .tag { background: rgba(111,211,138,.15); color: var(--green); }
+  .frame > .in { padding: .9rem 1rem; }
+  .narrow { max-width: 430px; }
+  code { font: .78rem Consolas, monospace; background: var(--code); padding: 0 .3rem; border-radius: 4px; }
+  table { border-collapse: collapse; font-size: .8rem; margin: .35rem 0; }
+  td, th { border: 1px solid var(--border-strong); padding: .3rem .55rem; text-align: left; vertical-align: top; }
+  th { font-weight: 600; }
+  .notes { margin: .6rem 0 0; padding-left: 1.1rem; color: var(--dim); font-size: .85rem; }
+  .notes b { color: var(--text); }
+  .dim { color: var(--dim); }
+  .faint { color: var(--faint); }
+
+  /* ---------- BEFORE (today's drawer) ---------- */
+  .b-thread { margin: .4rem 0 .8rem; }
+  .b-c { display: grid; grid-template-columns: 1.65rem minmax(0,1fr); gap: 0 .55rem; margin-bottom: .2rem; }
+  .b-av { width: 1.65rem; height: 1.65rem; border-radius: 50%; display: grid; place-items: center; font-size: .72rem; font-weight: 700; background: rgba(95,211,198,.18); color: var(--cyan); }
+  .b-av.cl { background: rgba(109,143,240,.22); color: var(--purple-light); }
+  .b-who { display: flex; gap: .4rem; align-items: center; min-height: 1.6rem; font-size: .8rem; }
+  .b-who b { font-weight: 600; } .cl-name { color: var(--purple-light); }
+  .b-time { color: var(--faint); font-size: .74rem; }
+  .b-part { display: flex; gap: .35rem; align-items: baseline; }
+  .b-label { flex: none; font-size: .6rem; font-weight: 700; letter-spacing: .05em; color: var(--purple-light); background: rgba(109,143,240,.16); border-radius: 4px; padding: 0 .3rem; margin-right: .35rem; }
+  .b-body { font-size: .86rem; line-height: 1.6; }
+  .b-replies { margin-left: .8rem; padding-left: .8rem; border-left: 2px solid var(--border-strong); }
+  .b-replies .b-c { grid-template-columns: 1.35rem minmax(0,1fr); }
+  .b-replies .b-av { width: 1.35rem; height: 1.35rem; font-size: .64rem; }
+  .b-foot { margin: .25rem 0 0 2.2rem; }
+  .b-reply { display: block; width: 100%; text-align: left; background: var(--inner); border: 1px solid var(--border); color: var(--faint); border-radius: 999px; padding: .15rem .75rem; font: inherit; font-size: .76rem; }
+  .ruler { position: relative; }
+  .ruler::after { content: attr(data-gap); position: absolute; top: -2px; left: 0; height: 1.2rem; display: flex; align-items: center; padding: 0 .3rem;
+    font-size: .64rem; color: var(--red); border: 1px dashed var(--red); border-radius: 3px; background: rgba(240,122,122,.06); pointer-events: none; }
+
+  /* ---------- AFTER ---------- */
+  .t { margin: .3rem 0 .9rem; }
+  /* the root: one header line, the text under it at a 1.6rem indent */
+  .c { position: relative; padding-left: 1.6rem; }
+  .c .av { position: absolute; left: 0; top: .1rem; width: 1.25rem; height: 1.25rem; border-radius: 50%; display: grid; place-items: center; font-size: .62rem; font-weight: 700;
+    background: rgba(95,211,198,.18); color: var(--cyan); }
+  .c .av.cl { background: rgba(109,143,240,.22); color: var(--purple-light); }
+  .hd { display: flex; align-items: baseline; gap: .4rem; font-size: .78rem; min-height: 1.35rem; flex-wrap: wrap; }
+  .hd b { font-weight: 600; } .hd .tm { color: var(--faint); font-size: .72rem; }
+  .chip { font-size: .62rem; font-weight: 700; letter-spacing: .04em; border-radius: 4px; padding: 0 .3rem; background: rgba(109,143,240,.16); color: var(--purple-light); }
+  .chip.done { background: rgba(111,211,138,.14); color: var(--green); }
+  .chip.fix { background: rgba(242,181,82,.14); color: var(--amber); }
+  .chip.q { background: rgba(242,181,82,.14); color: var(--amber); }
+  .chip.ok { background: rgba(111,211,138,.14); color: var(--green); }
+  .hov { margin-left: auto; display: inline-flex; gap: .15rem; opacity: .0; transition: opacity .12s; }
+  .c:hover > .hd .hov, .show-hov .hov { opacity: 1; }
+  .hov span { width: 1.4rem; height: 1.3rem; display: grid; place-items: center; border-radius: 4px; color: var(--dim); font-size: .78rem; }
+  .hov span:hover { background: var(--code); color: var(--text); }
+  .bd { font-size: .86rem; line-height: 1.55; }
+  .bd p { margin: .1rem 0 .35rem; }
+  .bd table { width: 100%; }
+  /* replies: a tree under the root avatar - an elbow per reply, the rail stops at the last one */
+  /* ---- thread levels: curved elbows, author-tinted, a toggle on each branch ---- */
+  .kids { position: relative; margin: .2rem 0 0 .55rem; padding-left: .95rem; }
+  .kid { position: relative; padding: .1rem 0 .3rem; --rail: var(--border-strong); }
+  .kid.cl { --rail: rgba(143,178,247,.55); }
+  .kid.me { --rail: rgba(95,211,198,.5); }
+  /* the elbow from the parent's rail into this reply, rounded */
+  .kid::before { content: ""; position: absolute; left: -.95rem; top: 0; width: .8rem; height: .85rem;
+    border-left: 1.5px solid var(--border-strong); border-bottom: 1.5px solid var(--rail); border-bottom-left-radius: .6rem; }
+  /* the parent's rail goes on past this reply to its next sibling */
+  .kid:not(:last-child)::after { content: ""; position: absolute; left: -.95rem; top: .6rem; bottom: 0; border-left: 1.5px solid var(--border-strong); }
+  .kid > .c { padding-left: 1.35rem; }
+  .kid > .c .av { width: 1.05rem; height: 1.05rem; font-size: .55rem; top: .15rem; }
+  .kid .kids { margin-left: .5rem; }
+  /* hovering a reply lights its own branch, not its ancestors' */
+  .kid:hover:not(:has(.kid:hover))::before { border-bottom-color: var(--rail); filter: brightness(1.7); }
+  .kid:hover:not(:has(.kid:hover)) .kid::before,
+  .kid:hover:not(:has(.kid:hover)) .kid::after { border-left-color: var(--rail); border-bottom-color: var(--rail); filter: brightness(1.4); }
+  /* fold a branch: a small +/- where the branch starts */
+  .tg { position: absolute; left: .07rem; top: 1.3rem; width: .95rem; height: .95rem; border-radius: 50%; display: grid; place-items: center; z-index: 2;
+    font: 700 .62rem/1 system-ui; color: var(--dim); background: var(--panel); border: 1px solid var(--border-strong); cursor: pointer; opacity: 0; transition: opacity .12s; padding: 0; }
+  .kid:hover > .tg, .kid.shut > .tg { opacity: 1; }
+  .tg:hover { color: var(--text); border-color: var(--purple-light); }
+  .kid.shut > .kids { display: none; }
+  .shut-line { display: none; margin: .1rem 0 0 1.35rem; font-size: .74rem; color: var(--dim); cursor: pointer; }
+  .kid.shut > .shut-line { display: block; }
+  .shut-line:hover { color: var(--purple-light); }
+  /* deeper than three levels: no more indent, the reply says whom it answers */
+  .flat-note { font-size: .7rem; color: var(--faint); margin: 0 0 .1rem 1.35rem; }
+  .lvl { font-size: .6rem; color: var(--faint); border: 1px solid var(--border); border-radius: 4px; padding: 0 .25rem; }
+  .to { font-size: .72rem; color: var(--faint); }
+  .to i { font-style: normal; color: var(--dim); }
+  .tsum { display: flex; align-items: center; gap: .45rem; margin: .1rem 0 .1rem 1.6rem; font-size: .74rem; color: var(--dim); }
+  .tsum button, .more { background: none; border: 0; padding: 0; font: inherit; color: var(--purple-light); cursor: pointer; }
+  .more { font-size: .74rem; margin: .1rem 0 .25rem; display: block; }
+  .faces { display: inline-flex; }
+  .faces span { width: .95rem; height: .95rem; border-radius: 50%; display: grid; place-items: center; font-size: .5rem; font-weight: 700; margin-left: -3px; border: 1.5px solid var(--panel);
+    background: rgba(95,211,198,.25); color: var(--cyan); }
+  .faces span.cl { background: rgba(109,143,240,.3); color: var(--purple-light); }
+  .reply-line { margin: .3rem 0 0 1.6rem; display: block; width: calc(100% - 1.6rem); text-align: left; background: var(--inner); border: 1px solid var(--border); color: var(--faint); border-radius: 999px; padding: .1rem .7rem; font: inherit; font-size: .74rem; }
+  .collapsed .kids, .collapsed .reply-line { display: none; }
+  .badge { font-size: .66rem; border-radius: 999px; padding: 0 .45rem; background: rgba(242,181,82,.14); color: var(--amber); }
+  .badge.ok { background: rgba(111,211,138,.14); color: var(--green); }
+  .react { font-size: .74rem; border: 1px solid var(--border); border-radius: 999px; padding: 0 .4rem; margin-right: .25rem; }
+  .ring { box-shadow: 0 0 0 2px var(--cyan); }
+  .part { margin: .15rem 0 .45rem; }
+  .part .ph { font-size: .66rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); margin-bottom: .05rem; }
+  .part p { margin: 0; }
+  .part.found { border-left: 2px solid var(--amber); padding-left: .6rem; }
+  .part.found .ph { color: var(--amber); }
+  .part.next { background: rgba(109,143,240,.10); border: 1px solid rgba(109,143,240,.35); border-radius: 8px; padding: .4rem .65rem; }
+  .part.next .ph { color: var(--purple-light); }
+
+  /* ---- 2c: boxed branches - each branch a soft card, deeper = a shade lighter ---- */
+  .bx { margin: .3rem 0 .2rem 1.6rem; display: flex; flex-direction: column; gap: .35rem; }
+  .bx-b { border: 1px solid var(--border); border-left: 3px solid var(--lane); border-radius: 8px; padding: .4rem .6rem .45rem;
+    background: color-mix(in srgb, var(--lane) 6%, transparent); --lane: var(--border-strong); }
+  .bx-b.cl { --lane: rgba(143,178,247,.7); }
+  .bx-b.me { --lane: rgba(95,211,198,.65); }
+  .bx-b .bx { margin-left: 0; margin-top: .4rem; }
+  .bx-h { display: flex; align-items: baseline; gap: .4rem; font-size: .76rem; }
+  .bx-h .mini-av { width: .95rem; height: .95rem; border-radius: 50%; display: inline-grid; place-items: center; font-size: .5rem; font-weight: 700; align-self: center;
+    background: rgba(95,211,198,.2); color: var(--cyan); }
+  .bx-h .mini-av.cl { background: rgba(109,143,240,.25); color: var(--purple-light); }
+  .bx-t { font-size: .85rem; line-height: 1.5; margin-top: .1rem; }
+  .bx-n { margin-left: auto; font-size: .68rem; color: var(--faint); }
+  .bx-b.shut > .bx, .bx-b.shut > .bx-t { display: none; }
+  .bx-fold { background: none; border: 0; color: var(--faint); cursor: pointer; font: inherit; font-size: .72rem; padding: 0; }
+  .bx-fold:hover { color: var(--purple-light); }
+
+  /* ---- 2d: flat with quotes - time order, no indent; a reply quotes what it answers ---- */
+  .fl { margin-left: 0; }
+  .fl .c { margin-bottom: .55rem; }
+  .q { display: flex; gap: .4rem; align-items: baseline; margin: .1rem 0 .2rem; padding: .15rem .5rem; border-left: 2px solid var(--qc, var(--border-strong));
+    background: rgba(255,255,255,.035); border-radius: 0 6px 6px 0; font-size: .74rem; color: var(--dim); cursor: pointer; max-width: 100%; }
+  .q b { color: var(--text); font-weight: 600; white-space: nowrap; }
+  .q span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .q.cl { --qc: rgba(143,178,247,.7); } .q.me { --qc: rgba(95,211,198,.65); }
+  .q:hover { background: rgba(255,255,255,.07); }
+  .branch-dot { width: .45rem; height: .45rem; border-radius: 50%; display: inline-block; align-self: center; }
+  .legend { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: .6rem; margin-top: .6rem; }
+  .legend div { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: .55rem .7rem; font-size: .82rem; color: var(--dim); }
+  .legend b { display: block; color: var(--text); margin-bottom: .15rem; }
+  .measure { display: flex; flex-wrap: wrap; gap: .5rem; margin: .4rem 0 0; }
+  .measure span { font-size: .76rem; border: 1px solid var(--border); border-radius: 999px; padding: .05rem .55rem; color: var(--dim); }
+  .measure b { color: var(--green); }
+</style>
+</head>
+<body>
+<h1>Card comments - before and after</h1>
+<p class="lead">The thread from your screenshot (card #44), drawn the way the drawer draws it today and the way the redesign would. The text is the same in both; only the layout changes. Hover a comment in the "after" frames to see its actions.</p>
+
+<h2>1 · One thread, wide view</h2>
+<div class="pair">
+  <div class="frame before"><div class="cap"><span class="tag">Before</span> today: 165 px before the first letter of a reply</div><div class="in">
+    <div class="b-thread">
+      <div class="b-c"><span class="b-av">Y</span><div>
+        <div class="b-who"><b>You</b><span class="b-time">02:47 PM</span></div>
+        <div class="b-body">can you put the breakpoints in intellij for the task ?</div></div></div>
+      <div class="b-replies">
+        <div class="b-c"><span class="b-av cl">✦</span><div>
+          <div class="b-who"><b class="cl-name">Claude</b><span class="b-time">02:47 PM</span></div>
+          <div class="b-body ruler" data-gap="← avatar + rail + REPLY label"><div class="b-part"><span class="b-label">REPLY</span><div>
+            <b>I can't set breakpoints in IntelliJ for you. I have no IDE access, and I don't change files. Set these lines yourself.</b> This repo only has the Angular side of the change (commit <code>ab70cf5f5</code>). The Java backend for <code>refunded-requests/search</code> is not in this folder.
+            <table><tr><th>File:line</th><th>What to check</th></tr>
+              <tr><td><code>…/refund-request.page.ts:101</code></td><td><code>asyncOptions</code>: the <code>branchIds</code> sent to <code>agency/by-branch</code></td></tr>
+              <tr><td><code>…/refund-request.page.ts:316</code></td><td><code>agencyIds</code> read from the form</td></tr></table>
+            Debug these through IntelliJ's JavaScript debug config, or Chrome DevTools, against <code>ng serve</code>.</div></div></div></div></div>
+        <div class="b-c"><span class="b-av cl">✦</span><div>
+          <div class="b-who"><b class="cl-name">Claude</b><span class="b-time">02:47 PM</span></div>
+          <div class="b-body"><div class="b-part"><span class="b-label">REPLY</span><div>
+            <b>Correction to the reply above:</b> the backend is in <code>C:\work\odeysys-claude\odeysys</code>, on the task branch. These are the exact lines to set in IntelliJ.
+            <table><tr><th>File:line</th><th>What to check</th></tr>
+              <tr><td><code>…/RefundApprovalRequestController.java:52</code></td><td>search: request body as received (<code>branchIds</code>, <code>agencyIds</code>)</td></tr>
+              <tr><td><code>…/RefundApprovalRequestServiceImpl.java:608</code></td><td><code>resolveBranchCodes</code>: which branch codes come out</td></tr></table></div></div></div></div></div>
+      </div>
+      <div class="b-foot"><button class="b-reply">Reply…</button></div>
+    </div>
+  </div></div>
+
+  <div class="frame after"><div class="cap"><span class="tag">After</span> 42 px before the first letter of a reply · tables use the width · the reply-to-a-reply sits under what it answers</div><div class="in">
+    <div class="t">
+      <div class="c"><span class="av">Y</span>
+        <div class="hd"><b>You</b><span class="tm">02:47 PM</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+        <div class="bd"><p>can you put the breakpoints in intellij for the task ?</p></div></div>
+      <div class="tsum"><button>▾</button><span class="faces"><span class="cl">✦</span></span> 2 replies from Claude · last 02:47 PM</div>
+      <div class="kids">
+        <div class="kid"><div class="c"><span class="av cl">✦</span>
+          <div class="hd"><b class="cl-name">Claude</b><span class="tm">02:47 PM</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+          <div class="bd"><p><b>I can't set breakpoints in IntelliJ for you. I have no IDE access, and I don't change files. Set these lines yourself.</b> This repo only has the Angular side of the change (commit <code>ab70cf5f5</code>). The Java backend for <code>refunded-requests/search</code> is not in this folder.</p>
+            <table><tr><th>File:line</th><th>What to check</th></tr>
+              <tr><td><code>…/refund-request.page.ts:101</code></td><td><code>asyncOptions</code>: the <code>branchIds</code> sent to <code>agency/by-branch</code></td></tr>
+              <tr><td><code>…/refund-request.page.ts:316</code></td><td><code>agencyIds</code> read from the form</td></tr></table>
+            <p>Debug these through IntelliJ's JavaScript debug config, or Chrome DevTools, against <code>ng serve</code>.</p></div></div>
+          <div class="kids">
+            <div class="kid"><div class="c"><span class="av cl">✦</span>
+              <div class="hd"><b class="cl-name">Claude</b><span class="tm">02:47 PM</span><span class="chip fix">CORRECTION</span><span class="to">↳ to <i>“I can't set breakpoints…”</i></span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+              <div class="bd"><p>The backend is in <code>C:\work\odeysys-claude\odeysys</code>, on the task branch. These are the exact lines to set in IntelliJ.</p>
+                <table><tr><th>File:line</th><th>What to check</th></tr>
+                  <tr><td><code>odeysysadmin-tt/…/RefundApprovalRequestController.java:52</code></td><td>search: request body as received (<code>branchIds</code>, <code>agencyIds</code>)</td></tr>
+                  <tr><td><code>odeysysadmin-tt/…/RefundApprovalRequestController.java:85</code></td><td>export: the same body</td></tr>
+                  <tr><td><code>common-odeysys/…/RefundApprovalRequestServiceImpl.java:608</code></td><td><code>resolveBranchCodes</code>: which branch codes come out</td></tr></table></div></div></div>
+          </div>
+        </div>
+      </div>
+      <button class="reply-line">Reply…</button>
+    </div>
+  </div></div>
+</div>
+<div class="measure"><span>first letter of a reply: 165 px → <b>42 px</b></span><span>first letter of a reply to a reply: - → <b>68 px</b></span><span>“REPLY” label column: <b>gone</b> (it says what the indent already shows)</span><span>name + time line: 26 px → <b>21 px</b></span><span>tables: content width → <b>full width</b></span></div>
+
+<h2>2 · The subtree: replies to replies, folded and unfolded</h2>
+<p class="lead">Each reply hangs from the comment it answers, with a rail and an elbow, so a thread reads as a tree. A branch folds with ▾ on its summary line; a folded thread keeps one line with who answered and when.</p>
+<div class="pair">
+  <div class="frame after"><div class="cap"><span class="tag">After</span> a deeper thread · hover any comment for ☺ ↩ ⧉ ⋯</div><div class="in">
+    <div class="t">
+      <div class="c"><span class="av cl">✦</span>
+        <div class="hd"><b class="cl-name">Claude</b><span class="tm">11:20 AM</span><span class="chip q">QUESTION</span><span class="badge ok">✓ answered</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+        <div class="bd"><p>Should the export use the same branch filter as the search, or always every branch?</p></div></div>
+      <div class="tsum"><button>▾</button><span class="faces"><span>Y</span><span class="cl">✦</span><span>Y</span></span> 4 replies · You, Claude · last 12:05 PM</div>
+      <div class="kids">
+        <div class="kid"><div class="c"><span class="av">Y</span>
+          <div class="hd"><b>You</b><span class="tm">11:31 AM</span><span class="chip ok">ANSWER</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+          <div class="bd"><p>Same as the search - the export is what the user sees on the page.</p></div></div>
+          <div class="kids">
+            <div class="kid"><div class="c"><span class="av cl">✦</span>
+              <div class="hd"><b class="cl-name">Claude</b><span class="tm">11:33 AM</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+              <div class="bd"><p>Then line 85 must read <code>branchIds</code> too - it still reads <code>branchId</code>. Fix it there?</p><span class="react">✅ 1</span></div></div>
+              <div class="kids">
+                <div class="kid"><div class="c"><span class="av">Y</span>
+                  <div class="hd"><b>You</b><span class="tm">11:40 AM</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+                  <div class="bd"><p>yes go</p></div></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="kid"><div class="c"><span class="av cl ring">✦</span>
+          <div class="hd"><b class="cl-name">Claude</b><span class="tm">12:05 PM</span><span class="chip done">DONE</span><span class="faint">● new</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+          <div class="bd"><p>Export now takes the same <code>branchIds</code> list. Re-test #110 covers it.</p></div></div></div>
+      </div>
+      <button class="reply-line">Reply…</button>
+    </div>
+  </div></div>
+
+  <div class="frame after"><div class="cap"><span class="tag">After</span> the same thread folded - one line</div><div class="in">
+    <div class="t collapsed">
+      <div class="c"><span class="av cl">✦</span>
+        <div class="hd"><b class="cl-name">Claude</b><span class="tm">11:20 AM</span><span class="chip q">QUESTION</span><span class="badge ok">✓ answered</span></div>
+        <div class="bd"><p>Should the export use the same branch filter as the search, or always every branch?</p></div></div>
+      <div class="tsum"><button>▸</button><span class="faces"><span>Y</span><span class="cl">✦</span><span>Y</span></span> 4 replies · You, Claude · last 12:05 PM · <span style="color:var(--cyan)">1 new</span></div>
+    </div>
+  </div></div>
+
+  <div class="frame after"><div class="cap"><span class="tag">After</span> a long thread - the middle folds (as today), the tree stays</div><div class="in">
+    <div class="t">
+      <div class="c"><span class="av">Y</span>
+        <div class="hd"><b>You</b><span class="tm">09:02 AM</span></div>
+        <div class="bd"><p>the agencies list is empty when two branches are picked</p></div></div>
+      <div class="tsum"><button>▾</button><span class="faces"><span class="cl">✦</span><span>Y</span></span> 9 replies · Claude, You · last 10:48 AM</div>
+      <div class="kids">
+        <button class="more">▸ 7 earlier replies</button>
+        <div class="kid"><div class="c"><span class="av cl">✦</span>
+          <div class="hd"><b class="cl-name">Claude</b><span class="tm">10:41 AM</span><span class="chip done">FIXED</span></div>
+          <div class="bd"><p><code>agency/by-branch</code> now gets <code>[948,10642]</code> and returns 3 agencies.</p></div></div></div>
+        <div class="kid"><div class="c"><span class="av">Y</span>
+          <div class="hd"><b>You</b><span class="tm">10:48 AM</span></div>
+          <div class="bd"><p>confirmed on my side</p></div></div></div>
+      </div>
+      <button class="reply-line">Reply…</button>
+    </div>
+  </div></div>
+</div>
+
+<h2>2b · Thread levels, enhanced (option B: tree)</h2>
+<p class="lead">The tree, made easier to follow. Each branch curves out of its parent and is tinted by its author (Claude blue, you teal). Hover a reply and only its own branch lights up. The ± on a branch folds just that branch to one line - try it. After four levels the indent stops and the reply says whom it answers, so a long back-and-forth never squeezes the text.</p>
+<div class="pair">
+  <div class="frame after"><div class="cap"><span class="tag">After</span> hover a reply · click ± to fold a branch</div><div class="in">
+    <div class="t">
+      <div class="c"><span class="av">Y</span>
+        <div class="hd"><b>You</b><span class="tm">09:02 AM</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+        <div class="bd"><p>the agencies list is empty when two branches are picked</p></div></div>
+      <div class="tsum"><button>▾</button><span class="faces"><span class="cl">✦</span><span>Y</span></span> 8 replies in 2 branches · Claude, You · last 10:48 AM</div>
+      <div class="kids"><div class="kid"><div class="c"><span class="av cl">✦</span><div class="hd"><b class="cl-name">Claude</b><span class="tm">09:10 AM</span><span class="chip fix">FOUND</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div><div class="bd"><p><code>agency/by-branch</code> is called with <code>branchIds=[948]</code> only - the second branch is dropped in <code>refund-request.page.ts:101</code>.</p></div></div><div class="kids"><div class="kid"><div class="c"><span class="av">Y</span><div class="hd"><b>You</b><span class="tm">09:14 AM</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div><div class="bd"><p>is that the same for the export?</p></div></div><div class="kids"><div class="kid"><div class="c"><span class="av cl">✦</span><div class="hd"><b class="cl-name">Claude</b><span class="tm">09:16 AM</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div><div class="bd"><p>Yes - <code>RefundApprovalRequestController.java:85</code> reads the same single id.</p></div></div><div class="kids"><div class="kid"><div class="c"><span class="av">Y</span><div class="hd"><b>You</b><span class="tm">09:20 AM</span><span class="lvl">level 4</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div><div class="bd"><p>fix both then</p></div></div></div><div class="kid"><div class="flat-note">↳ to You: “fix both then”</div><div class="c"><span class="av cl">✦</span><div class="hd"><b class="cl-name">Claude</b><span class="tm">09:41 AM</span><span class="chip done">DONE</span><span class="lvl">level 5, kept at 4</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div><div class="bd"><p>Both read <code>branchIds</code> now. Search returns 3 agencies for Cairo + Mansoura.</p></div></div></div></div></div></div></div></div></div><div class="kid"><div class="c"><span class="av">Y</span><div class="hd"><b>You</b><span class="tm">10:30 AM</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div><div class="bd"><p>one more: the All Agencies option still shows when no branch is picked</p></div></div><div class="kids"><div class="kid"><div class="c"><span class="av cl">✦</span><div class="hd"><b class="cl-name">Claude</b><span class="tm">10:41 AM</span><span class="chip done">FIXED</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div><div class="bd"><p>Hidden until a branch is picked.</p></div></div></div><div class="kid"><div class="c"><span class="av ring">Y</span><div class="hd"><b>You</b><span class="tm">10:48 AM</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div><div class="bd"><p>confirmed on my side</p></div></div></div></div></div></div>
+      <button class="reply-line">Reply…</button>
+    </div>
+  </div></div>
+</div>
+<div class="measure"><span>indent per level: <b>~22 px</b></span><span>levels drawn: <b>4</b>; deeper replies stay at level 4 with “↳ to …”</span><span>branch fold: <b>±</b> on hover; folded = one line with how many and who</span><span>new reply: <b>ring</b> on its avatar; its branch never folds by itself</span></div>
+
+<h2>2c · Another threading design: boxed branches</h2>
+<p class="lead">No lines at all. Each reply is a soft box with a coloured edge for its author; a reply to it sits inside the box. Depth reads as boxes inside boxes, and every box folds from its own "▾ N replies" (click it). Calm to read, but each level costs a box edge and padding (~14 px), so deep threads get narrower faster than the tree.</p>
+<div class="pair"><div class="frame after"><div class="cap"><span class="tag">Option C</span> boxes inside boxes · click ▾ N replies to fold</div><div class="in">
+  <div class="t"><div class="c"><span class="av">Y</span><div class="hd"><b>You</b><span class="tm">09:02 AM</span></div><div class="bd"><p>the agencies list is empty when two branches are picked</p></div></div><div class="bx"><div class="bx-b cl"><div class="bx-h"><span class="mini-av cl">✦</span><b class="cl-name">Claude</b><span class="tm">09:10 AM</span><span class="chip fix">FOUND</span><span class="bx-n"><button class="bx-fold" onclick="this.closest('.bx-b').classList.toggle('shut')">▾ 4 replies</button></span></div><div class="bx-t"><code>agency/by-branch</code> is called with <code>branchIds=[948]</code> only - the second branch is dropped in <code>refund-request.page.ts:101</code>.</div><div class="bx"><div class="bx-b me"><div class="bx-h"><span class="mini-av">Y</span><b>You</b><span class="tm">09:14 AM</span><span class="bx-n"><button class="bx-fold" onclick="this.closest('.bx-b').classList.toggle('shut')">▾ 3 replies</button></span></div><div class="bx-t">is that the same for the export?</div><div class="bx"><div class="bx-b cl"><div class="bx-h"><span class="mini-av cl">✦</span><b class="cl-name">Claude</b><span class="tm">09:16 AM</span><span class="bx-n"><button class="bx-fold" onclick="this.closest('.bx-b').classList.toggle('shut')">▾ 2 replies</button></span></div><div class="bx-t">Yes - <code>RefundApprovalRequestController.java:85</code> reads the same single id.</div><div class="bx"><div class="bx-b me"><div class="bx-h"><span class="mini-av">Y</span><b>You</b><span class="tm">09:20 AM</span><span class="bx-n"></span></div><div class="bx-t">fix both then</div></div><div class="bx-b cl"><div class="bx-h"><span class="mini-av cl">✦</span><b class="cl-name">Claude</b><span class="tm">09:41 AM</span><span class="chip done">DONE</span><span class="bx-n"></span></div><div class="bx-t">Both read <code>branchIds</code> now. Search returns 3 agencies for Cairo + Mansoura.</div></div></div></div></div></div></div></div><div class="bx-b me"><div class="bx-h"><span class="mini-av">Y</span><b>You</b><span class="tm">10:30 AM</span><span class="bx-n"><button class="bx-fold" onclick="this.closest('.bx-b').classList.toggle('shut')">▾ 2 replies</button></span></div><div class="bx-t">one more: the All Agencies option still shows when no branch is picked</div><div class="bx"><div class="bx-b cl"><div class="bx-h"><span class="mini-av cl">✦</span><b class="cl-name">Claude</b><span class="tm">10:41 AM</span><span class="chip done">FIXED</span><span class="bx-n"></span></div><div class="bx-t">Hidden until a branch is picked.</div></div><div class="bx-b me"><div class="bx-h"><span class="mini-av">Y</span><b>You</b><span class="tm">10:48 AM</span><span class="bx-n"></span></div><div class="bx-t">confirmed on my side</div></div></div></div></div><button class="reply-line">Reply…</button></div>
+</div></div></div>
+
+<h2>2d · Another threading design: flat with quotes</h2>
+<p class="lead">No indent at all - every comment in time order at full width, like a chat. A reply carries a one-line quote of what it answers (click it to jump there), and a small dot gives each branch a colour, so two conversations in one thread stay apart. Best for reading on the side panel; the shape of the tree is told by quotes and dots instead of lines.</p>
+<div class="pair"><div class="frame after"><div class="cap"><span class="tag">Option D</span> chat order · ↩ quote · branch dot</div><div class="in">
+  <div class="t fl"><div class="c"><span class="av">Y</span><div class="hd"><b>You</b><span class="tm">09:02 AM</span></div><div class="bd"><p>the agencies list is empty when two branches are picked</p></div></div><div class="c"><span class="av cl">✦</span><div class="hd"><b class="cl-name">Claude</b><span class="tm">09:10 AM</span><span class="branch-dot" style="background:rgba(143,178,247,.9)" title="Branch"></span><span class="chip fix">FOUND</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div><div class="q me" title="Show the comment it answers"><b>↩ You</b><span>the agencies list is empty when two branches are picked</span></div><div class="bd"><p><code>agency/by-branch</code> is called with <code>branchIds=[948]</code> only - the second branch is dropped in <code>refund-request.page.ts:101</code>.</p></div></div><div class="c"><span class="av">Y</span><div class="hd"><b>You</b><span class="tm">09:14 AM</span><span class="branch-dot" style="background:rgba(143,178,247,.9)" title="Branch"></span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div><div class="q cl" title="Show the comment it answers"><b>↩ Claude</b><span><code>agency/by-branch</code> is called with branchIds=[948] only…</span></div><div class="bd"><p>is that the same for the export?</p></div></div><div class="c"><span class="av cl">✦</span><div class="hd"><b class="cl-name">Claude</b><span class="tm">09:16 AM</span><span class="branch-dot" style="background:rgba(143,178,247,.9)" title="Branch"></span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div><div class="q me" title="Show the comment it answers"><b>↩ You</b><span>is that the same for the export?</span></div><div class="bd"><p>Yes - <code>RefundApprovalRequestController.java:85</code> reads the same single id.</p></div></div><div class="c"><span class="av">Y</span><div class="hd"><b>You</b><span class="tm">09:20 AM</span><span class="branch-dot" style="background:rgba(143,178,247,.9)" title="Branch"></span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div><div class="q cl" title="Show the comment it answers"><b>↩ Claude</b><span>Yes - RefundApprovalRequestController.java:85 reads…</span></div><div class="bd"><p>fix both then</p></div></div><div class="c"><span class="av cl">✦</span><div class="hd"><b class="cl-name">Claude</b><span class="tm">09:41 AM</span><span class="branch-dot" style="background:rgba(143,178,247,.9)" title="Branch"></span><span class="chip done">DONE</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div><div class="q me" title="Show the comment it answers"><b>↩ You</b><span>fix both then</span></div><div class="bd"><p>Both read <code>branchIds</code> now. Search returns 3 agencies for Cairo + Mansoura.</p></div></div><div class="c"><span class="av">Y</span><div class="hd"><b>You</b><span class="tm">10:30 AM</span><span class="branch-dot" style="background:rgba(242,181,82,.9)" title="Branch"></span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div><div class="q me" title="Show the comment it answers"><b>↩ You</b><span>the agencies list is empty when two branches are picked</span></div><div class="bd"><p>one more: the All Agencies option still shows when no branch is picked</p></div></div><div class="c"><span class="av cl">✦</span><div class="hd"><b class="cl-name">Claude</b><span class="tm">10:41 AM</span><span class="branch-dot" style="background:rgba(242,181,82,.9)" title="Branch"></span><span class="chip done">FIXED</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div><div class="q me" title="Show the comment it answers"><b>↩ You</b><span>one more: the All Agencies option still shows…</span></div><div class="bd"><p>Hidden until a branch is picked.</p></div></div><div class="c"><span class="av">Y</span><div class="hd"><b>You</b><span class="tm">10:48 AM</span><span class="branch-dot" style="background:rgba(242,181,82,.9)" title="Branch"></span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div><div class="q cl" title="Show the comment it answers"><b>↩ Claude</b><span>Hidden until a branch is picked.</span></div><div class="bd"><p>confirmed on my side</p></div></div><button class="reply-line" style="margin-left:1.6rem">Reply…</button></div>
+</div></div></div>
+<div class="measure"><span><b>B</b> tree (2b): shape at a glance, ~22 px per level</span><span><b>C</b> boxes: calmest, ~14 px per level plus box edges</span><span><b>D</b> flat + quotes: full width always, shape told by quotes</span></div>
+
+<h2>3 · Claude's Did / Found / Next comments</h2>
+<p class="lead">A work report from Claude has parts (Did, Found, Next, and sometimes Impact). Today each part puts its label in a left column, so the text loses about 70 px on every line. After: each part is a block with a small heading line and its text at full width. Found is marked as a finding, and Next is a box, because Next is what waits on someone.</p>
+<div class="pair">
+  <div class="frame before"><div class="cap"><span class="tag">Before</span> a label column beside every part</div><div class="in">
+    <div class="b-c"><span class="b-av cl">✦</span><div>
+      <div class="b-who"><b class="cl-name">Claude</b><span class="b-time">10:12 AM</span></div>
+      <div class="b-body">
+        <div class="b-part"><span class="b-label">DID</span><div>Ran the search with Cairo + Mansoura and checked the call against the acceptance items.</div></div>
+        <div class="b-part"><span class="b-label">FOUND</span><div>The request still sends <code>branchId: 948</code>, not the <code>branchIds</code> list. <code>RefundApprovalRequestController.java:52</code> reads one id, so only the first branch is searched.</div></div>
+        <div class="b-part"><span class="b-label">NEXT</span><div>Send <code>branchIds</code> from <code>refund-request.page.ts:319</code> and read the list at line 52; then search again - the check re-judges every new call.</div></div>
+      </div></div></div>
+  </div></div>
+
+  <div class="frame after"><div class="cap"><span class="tag">After</span> heading line per part · text at full width · Next as a box</div><div class="in">
+    <div class="c"><span class="av cl">✦</span>
+      <div class="hd"><b class="cl-name">Claude</b><span class="tm">10:12 AM</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+      <div class="bd">
+        <div class="part"><div class="ph">✓ Did</div><p>Ran the search with Cairo + Mansoura and checked the call against the acceptance items.</p></div>
+        <div class="part found"><div class="ph">⚑ Found</div><p>The request still sends <code>branchId: 948</code>, not the <code>branchIds</code> list. <code>RefundApprovalRequestController.java:52</code> reads one id, so only the first branch is searched.</p></div>
+        <div class="part next"><div class="ph">→ Next</div><p>Send <code>branchIds</code> from <code>refund-request.page.ts:319</code> and read the list at line 52; then search again - the check re-judges every new call.</p></div>
+      </div></div>
+  </div></div>
+
+  <div class="frame after"><div class="cap"><span class="tag">After</span> when the thread is folded, its summary line names the Next step</div><div class="in">
+    <div class="t collapsed">
+      <div class="c"><span class="av cl">✦</span>
+        <div class="hd"><b class="cl-name">Claude</b><span class="tm">10:12 AM</span><span class="chip">DID · FOUND · NEXT</span></div>
+        <div class="bd"><p class="dim">Ran the search with Cairo + Mansoura and checked the call against the acceptance items.</p></div></div>
+      <div class="tsum"><button>▸</button>Next: <span style="color:var(--text)">send <code>branchIds</code> from the page and read the list at line 52</span> · 2 replies</div>
+    </div>
+  </div></div>
+</div>
+
+<h2>4 · Side panel (430 px)</h2>
+<div class="pair" style="grid-template-columns: repeat(auto-fit, minmax(300px, 430px));">
+  <div class="frame before narrow"><div class="cap"><span class="tag">Before</span></div><div class="in">
+    <div class="b-thread">
+      <div class="b-c"><span class="b-av">Y</span><div><div class="b-who"><b>You</b><span class="b-time">02:47 PM</span></div>
+        <div class="b-body">can you put the breakpoints in intellij for the task ?</div></div></div>
+      <div class="b-replies"><div class="b-c"><span class="b-av cl">✦</span><div>
+        <div class="b-who"><b class="cl-name">Claude</b><span class="b-time">02:47 PM</span></div>
+        <div class="b-body"><div class="b-part"><span class="b-label">REPLY</span><div><b>Correction to the reply above:</b> the backend is in <code>C:\work\odeysys-claude\odeysys</code>, on the task branch. These are the exact lines to set in IntelliJ.</div></div></div></div></div></div>
+    </div>
+  </div></div>
+  <div class="frame after narrow"><div class="cap"><span class="tag">After</span></div><div class="in">
+    <div class="t">
+      <div class="c"><span class="av">Y</span><div class="hd"><b>You</b><span class="tm">02:47 PM</span></div>
+        <div class="bd"><p>can you put the breakpoints in intellij for the task ?</p></div></div>
+      <div class="kids"><div class="kid"><div class="c"><span class="av cl">✦</span>
+        <div class="hd"><b class="cl-name">Claude</b><span class="tm">02:47 PM</span><span class="chip fix">CORRECTION</span></div>
+        <div class="bd"><p>The backend is in <code>C:\work\odeysys-claude\odeysys</code>, on the task branch. These are the exact lines to set in IntelliJ.</p></div></div></div></div>
+      <button class="reply-line">Reply…</button>
+    </div>
+  </div></div>
+</div>
+
+<h2>What changes</h2>
+<div class="legend">
+  <div><b>Avatar beside the name, not a column</b>A smaller avatar sits at the start of the name line; the text starts under the name, 1.6 rem in.</div>
+  <div><b>No "REPLY" column</b>A part label that only says "Reply" is dropped. Meaningful ones (Done, Fixed, Correction, Question, Found) become a chip on the name line, so the text keeps the whole width.</div>
+  <div><b>Readable levels</b>Curved elbows tinted by author, about 22 px per level, at most 4 levels drawn (deeper replies say “↳ to …”). Hover lights one branch; ± folds a single branch to one line.</div>
+  <div><b>Replies as a tree</b>A thin rail from the parent and an elbow per reply. A reply to a reply hangs under the reply it answers, with "↳ to “…”" when it is not the one right above.</div>
+  <div><b>Thread summary line</b>“▾ 4 replies · You, Claude · last 12:05 PM” under the root: fold or unfold a thread, see who answered and whether something is new.</div>
+  <div><b>Did / Found / Next as blocks</b>Each part gets a small heading line above its text instead of a label column. Found has an amber edge, Next sits in a box, and a folded thread shows its Next on the summary line.</div>
+  <div><b>Full-width tables and code</b>Tables in a comment stretch to the text width instead of their content width.</div>
+  <div><b>Unchanged</b>Hover actions (☺ ↩ ⧉ ⋯), reactions, ✅ go-ahead, questions with Answer…, edit and history, new rings, "▸ N earlier replies", Reply… at the end of a thread.</div>
+</div>
+<p class="notes"><b>One thing needs the backend:</b> today a reply to a reply is stored pointing at the thread's first comment, so the tree has one level. To hang a reply under the reply it answers, the backend keeps the comment it was written to (a new nullable column) and the timeline nests by it. Older replies, without it, stay one level - as they are now.</p>
+<script>
+// tint each reply's elbow by its author; give every reply with replies a +/- that folds its branch to one line
+document.querySelectorAll('.kid').forEach((kid) => {
+  const av = kid.querySelector(':scope > .c > .av');
+  kid.classList.add(av && av.classList.contains('cl') ? 'cl' : 'me');
+  const sub = kid.querySelector(':scope > .kids');
+  if (!sub) return;
+  const replies = sub.querySelectorAll('.kid');
+  const who = new Set(Array.from(replies, (k) => k.querySelector(':scope > .c > .av').classList.contains('cl') ? 'Claude' : 'You'));
+  const tg = document.createElement('button');
+  tg.className = 'tg'; tg.type = 'button'; tg.title = 'Fold this branch'; tg.textContent = '−';
+  const line = document.createElement('div');
+  line.className = 'shut-line';
+  line.textContent = '▸ ' + replies.length + (replies.length === 1 ? ' reply' : ' replies') + ' · ' + Array.from(who).join(', ');
+  const flip = () => { const shut = kid.classList.toggle('shut'); tg.textContent = shut ? '+' : '−'; tg.title = shut ? 'Unfold this branch' : 'Fold this branch'; };
+  tg.onclick = flip; line.onclick = flip;
+  kid.insertBefore(tg, sub);
+  kid.insertBefore(line, sub);
+});
+</script>
+</body>
+</html>

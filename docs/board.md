@@ -67,10 +67,18 @@ The board (specs/014-task-board) tracks bugs, tasks, notes and questions next to
     user scrolls up to it (or clicks "Show N earlier"), with the thread in view kept in place. An open question or
     anything new is never left out of the first part. The timeline is OnPush (all signals), so scrolling, typing and
     hovering in the drawer never re-check a long history.
-  - A thread with more than four replies shows its last two; the earlier ones open on request.
+  - Replies are a tree: each one sits one step (1 rem) right of the comment it answers - avatar and text together. Like
+    the call waterfall's rails, every level of replies has a coloured line down its left (the `depth-tint` ramp);
+    clicking the line folds that level. Replies start folded, level 1 too, behind "▸ N replies · K new"; one click
+    opens one level. A new reply is never folded away: opening a card opens the branches with replies new since you
+    looked, and Claude's latest answer in the newest thread; a reply that arrives while the card is open opens its
+    branch; a reply you send keeps its branch open. ⊞ / ⊟ in the filter bar open or fold every reply; Find opens them
+    all.
+  - Claude's Did / Found / Next (and Impact, Question…) show as blocks with a small heading line - Found with an amber
+    edge, Next in a box; a part that only says Reply has no heading. A long comment is cut with "▾ Show all".
   - A comment's actions (react, reply, copy, ⋯ direction/wrap/edit/history) show on hover.
   - Filter (All · Comments · Changes), ⇅ newest first, 🔍 find - the bar stays in view (under the tabs) while scrolling.
-  - A reference to a comment shows the earlier history and the thread's hidden replies before scrolling to it.
+  - A reference to a comment shows the earlier history and opens the replies on the way to it before scrolling to it.
 - **Comment box**: the compact editor (one line, the formatting behind "Aa"), with "✓ draft saved" shown while a draft is kept.
   - Quick replies appear while Claude waits on the user:
     - ✅ Go ahead - a ✅ on Claude's latest comment, offered only while the user's ✅ is not on it yet;
@@ -334,8 +342,10 @@ The live strip status is held in memory per project. It reads as STOPPED when it
 ## Replies and answers
 
 Every comment in a card's history has **↩ Reply**: the reply is stored with `reply_to` (the comment it answers) and
-shown indented under it. Threads are one level - a reply to a reply points at the thread's first comment - and must
-stay on the same card. Claude's question (a comment starting `**Question**`, from `board_ask`) shows **waiting for
+shown under it. `reply_to` is always the thread's first comment (a reply to a reply points at it, so everything
+that reads threads by it - questions answered, reactions, Claude's tools - stays one level); since specs/023 a reply to a
+reply also keeps `answers`, the reply it was written to, and the timeline draws the tree from it (older replies have
+none and hang under the first comment). Replies must stay on the same card; the board .json carries `answers` too. Claude's question (a comment starting `**Question**`, from `board_ask`) shows **waiting for
 you** until the user replies to it, then **✓ answered**; its button reads **Answer**, with "Clear Needs decision"
 ticked: the flag comes off only when no other question on the card is still unanswered (`BoardService.unansweredQuestions`).
 The answered state is worked out from the replies, never stored. Exports note "↳ reply to ..." on each reply, and the

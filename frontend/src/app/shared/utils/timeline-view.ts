@@ -113,8 +113,47 @@ export function dayLabel(iso: string, now: Date): string {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', ...(d.getFullYear() !== now.getFullYear() ? { year: 'numeric' } : {}) });
 }
 
-/** The replies a long thread shows: all of them up to four, else the last two (the middle opens on request). */
-export function visibleReplies(replies: readonly ActivityEntry[], middleOpen: boolean): { readonly hidden: number; readonly shown: readonly ActivityEntry[] } {
-  if (middleOpen || replies.length <= 4) return { hidden: 0, shown: replies };
-  return { hidden: replies.length - 2, shown: replies.slice(-2) };
+/**
+ * One reply in a thread's tree (specs/023): its replies under it, how many sit below it in all, and how many of those
+ * are new - a folded reply says so on its "▸ N replies" line, so nothing new is hidden silently.
+ */
+export interface ReplyNode {
+  readonly entry: ActivityEntry;
+  readonly children: readonly ReplyNode[];
+  readonly size: number;
+  readonly fresh: number;
+}
+
+/**
+ * The replies of a thread as a tree. A reply hangs under the reply it was written to ({@code answers}); a reply to the
+ * thread's first comment, an older reply (written before the backend kept it) or one whose reply is gone hangs under
+ * the first comment. Children keep their time order.
+ */
+export function replyTree(replies: readonly ActivityEntry[], newSince: string | null): ReplyNode[] {
+  const ids = new Set(replies.map((r) => r.id));
+  const kids = new Map<number | null, ActivityEntry[]>();
+  for (const r of [...replies].sort((a, b) => a.id - b.id)) {
+    // a reply answers an earlier entry; anything else (a reply that is gone, a bad id) hangs under the first comment
+    const parent = r.answers != null && r.answers < r.id && ids.has(r.answers) ? r.answers : null;
+    (kids.get(parent) ?? kids.set(parent, []).get(parent)!).push(r);
+  }
+  const seen = new Set<number>();
+  const build = (parent: number | null): ReplyNode[] => (kids.get(parent) ?? []).filter((e) => !seen.has(e.id) && seen.add(e.id)).map((entry) => {
+    const children = build(entry.id);
+    return { entry, children, size: children.reduce((n, c) => n + 1 + c.size, 0),
+      fresh: children.reduce((n, c) => n + (isNewEntry(c.entry, newSince) ? 1 : 0) + c.fresh, 0) };
+  });
+  return build(null);
+}
+
+/** The replies on the way to an entry in a thread's tree (its parents, nearest last), not the entry itself. */
+export function pathTo(replies: readonly ActivityEntry[], id: number): number[] {
+  const byId = new Map(replies.map((r) => [r.id, r]));
+  const out: number[] = [];
+  let at = byId.get(id);
+  while (at && at.answers != null && at.answers < at.id && byId.has(at.answers)) {
+    out.unshift(at.answers);
+    at = byId.get(at.answers);
+  }
+  return out;
 }

@@ -194,8 +194,10 @@ function waitingText(c: CardRow): string {
 
 export interface ActivityRow {
   id?: number; cardId?: string; actor: string; kind: string; text: string | null; oldValue: string | null; newValue: string | null; at: string;
-  /** The comment this one answers (one level), or null. */
+  /** The thread this comment belongs to: its first comment (one level), or null. */
   replyTo?: number | null;
+  /** The reply this one was written to, when that is itself a reply (the board shows replies as a tree), or null. */
+  answers?: number | null;
 }
 
 export function isQuestion(e: ActivityRow): boolean {
@@ -620,7 +622,8 @@ export function register(server: McpServer, client: AlfredClient): void {
     const answered = new Set(entries.filter((e) => e.actor === 'USER' && e.replyTo != null).map((e) => e.replyTo));
     const lines = entries.slice(input.historyOffset).map((e, n) => {
       const i = input.historyOffset + n;
-      const thread = e.replyTo != null ? `↳ reply to [${indexOf.get(e.replyTo) ?? '?'}] ` : '';
+      const under = e.answers != null && e.answers !== e.replyTo ? ` answering [${indexOf.get(e.answers) ?? '?'}]` : '';
+      const thread = e.replyTo != null ? `↳ reply to [${indexOf.get(e.replyTo) ?? '?'}]${under} ` : '';
       const state = questionNote(e, states, answered);
       return `[${i}] ${thread}${entryLine(ctx, e, i)}${state}`;
     });

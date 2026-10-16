@@ -1,0 +1,552 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Comments option D</title>
+<style>
+  :root {
+    --bg: #1b1b1d; --panel: #1f1f22; --inner: rgba(0,0,0,.3); --border: rgba(255,255,255,.08); --border-strong: rgba(255,255,255,.18);
+    --text: #e6e6ea; --dim: #9a9aa3; --faint: #686872; --purple: #6d8ff0; --purple-light: #8fb2f7; --cyan: #5fd3c6; --amber: #f2b552; --green: #6fd38a; --red: #f07a7a;
+    --code: rgba(255,255,255,.07);
+    --b1: #8fb2f7; --b2: #f2b552; --b3: #e08ad8; --b4: #6fd38a;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.55 "Segoe UI", system-ui, sans-serif; padding: 24px 16px 80px; }
+  h1 { font-size: 1.35rem; margin: 0 0 .25rem; }
+  h2 { font-size: 1.05rem; margin: 2.4rem 0 .5rem; color: var(--purple-light); }
+  .lead { color: var(--dim); max-width: 80ch; margin: 0 0 .9rem; }
+  .frame { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .frame > .cap { display: flex; gap: .5rem; align-items: center; padding: .35rem .8rem; font-size: .72rem; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .cap .tag { padding: 0 .45rem; border-radius: 4px; font-weight: 700; background: rgba(111,211,138,.15); color: var(--green); }
+  .frame > .in { padding: .8rem 1rem 1rem; }
+  .row2 { display: grid; grid-template-columns: minmax(0, 1fr) 430px; gap: 14px; align-items: start; }
+  @media (max-width: 1000px) { .row2 { grid-template-columns: 1fr; } }
+  code { font: .78rem Consolas, monospace; background: var(--code); padding: 0 .3rem; border-radius: 4px; }
+  table { border-collapse: collapse; font-size: .8rem; margin: .35rem 0; width: 100%; }
+  td, th { border: 1px solid var(--border-strong); padding: .3rem .55rem; text-align: left; vertical-align: top; }
+  th { font-weight: 600; }
+  .dim { color: var(--dim); } .faint { color: var(--faint); }
+
+  /* ---------- a comment ---------- */
+  .tl { display: flex; flex-direction: column; }
+  .m { position: relative; padding: .3rem .5rem .3rem 2.1rem; border-radius: 8px; transition: background .2s; }
+  .m:hover { background: rgba(255,255,255,.025); }
+  /* the branch strip: a 2px colour on the left edge, so two conversations in one thread stay apart */
+  .m[data-b]::before { content: ""; position: absolute; left: .2rem; top: .35rem; bottom: .35rem; width: 2px; border-radius: 2px; background: var(--bc); opacity: .75; }
+  .m[data-b="1"] { --bc: var(--b1); } .m[data-b="2"] { --bc: var(--b2); } .m[data-b="3"] { --bc: var(--b3); } .m[data-b="4"] { --bc: var(--b4); }
+  .av { position: absolute; left: .55rem; top: .4rem; width: 1.25rem; height: 1.25rem; border-radius: 50%; display: grid; place-items: center; font-size: .6rem; font-weight: 700;
+    background: rgba(95,211,198,.18); color: var(--cyan); }
+  .av.cl { background: rgba(109,143,240,.22); color: var(--purple-light); }
+  .av.ring { box-shadow: 0 0 0 2px var(--cyan); }
+  .hd { display: flex; align-items: baseline; gap: .4rem; font-size: .78rem; min-height: 1.35rem; flex-wrap: wrap; }
+  .hd b { font-weight: 600; } .cln { color: var(--purple-light); }
+  .tm { color: var(--faint); font-size: .72rem; }
+  .chip { font-size: .62rem; font-weight: 700; letter-spacing: .04em; border-radius: 4px; padding: 0 .3rem; background: rgba(109,143,240,.16); color: var(--purple-light); }
+  .chip.done { background: rgba(111,211,138,.14); color: var(--green); }
+  .chip.amb { background: rgba(242,181,82,.14); color: var(--amber); }
+  .badge { font-size: .66rem; border-radius: 999px; padding: 0 .45rem; background: rgba(242,181,82,.14); color: var(--amber); }
+  .badge.ok { background: rgba(111,211,138,.14); color: var(--green); }
+  .newdot { font-size: .66rem; color: var(--cyan); }
+  .hov { margin-left: auto; display: inline-flex; gap: .15rem; opacity: 0; transition: opacity .12s; }
+  .m:hover .hov { opacity: 1; }
+  .hov span { width: 1.4rem; height: 1.3rem; display: grid; place-items: center; border-radius: 4px; color: var(--dim); font-size: .78rem; cursor: pointer; }
+  .hov span:hover { background: var(--code); color: var(--text); }
+  .bd { font-size: .86rem; line-height: 1.55; }
+  .bd p { margin: .05rem 0 .3rem; }
+  /* a follow-up from the same person within minutes: no repeated name line */
+  .m.cont { padding-top: 0; }
+  .m.cont .av, .m.cont .hd { display: none; }
+  .m.cont .ctm { position: absolute; left: .1rem; top: .2rem; width: 1.9rem; text-align: center; font-size: .6rem; color: var(--faint); opacity: 0; }
+  .m.cont:hover .ctm { opacity: 1; }
+  .m.cont .hov2 { position: absolute; right: .4rem; top: .1rem; display: inline-flex; gap: .15rem; opacity: 0; }
+  .m.cont:hover .hov2 { opacity: 1; }
+  .m.cont .hov2 span { width: 1.4rem; height: 1.3rem; display: grid; place-items: center; border-radius: 4px; color: var(--dim); font-size: .78rem; background: var(--panel); }
+
+  /* the quote: what this reply answers - shown only when that is not the comment right above */
+  .q { display: flex; gap: .4rem; align-items: center; margin: .1rem 0 .25rem; padding: .12rem .5rem; border-left: 2px solid var(--qc, var(--border-strong));
+    background: rgba(255,255,255,.035); border-radius: 0 6px 6px 0; font-size: .74rem; color: var(--dim); cursor: pointer; max-width: 100%; width: fit-content; }
+  .q .qa { width: .9rem; height: .9rem; border-radius: 50%; display: grid; place-items: center; font-size: .48rem; font-weight: 700; flex: none;
+    background: rgba(95,211,198,.2); color: var(--cyan); }
+  .q .qa.cl { background: rgba(109,143,240,.25); color: var(--purple-light); }
+  .q b { color: var(--text); font-weight: 600; white-space: nowrap; }
+  .q span.t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .q .qt { color: var(--faint); font-size: .66rem; white-space: nowrap; }
+  .q:hover { background: rgba(255,255,255,.075); color: var(--text); }
+  .m[data-b] .q { --qc: var(--bc); }
+  .q.ok b::after { content: " ✓"; color: var(--green); }
+  /* the comment a quote points at, while the quote is hovered or after a jump */
+  .m.lit { background: rgba(143,178,247,.10); box-shadow: inset 0 0 0 1px rgba(143,178,247,.35); }
+  .m.flash { animation: flash 1.6s ease-out; }
+  @keyframes flash { 0% { background: rgba(143,178,247,.28); } 100% { background: transparent; } }
+
+  /* thread head: the first comment, then a strip with branches you can filter by */
+  .th { margin: .2rem 0 .8rem; border: 1px solid var(--border); border-radius: 10px; padding: .35rem .3rem .5rem; }
+  .bar { display: flex; align-items: center; gap: .35rem; flex-wrap: wrap; margin: .15rem .5rem .35rem 2.1rem; font-size: .72rem; color: var(--dim); }
+  .bar button { font: inherit; font-size: .72rem; border: 1px solid var(--border); background: none; color: var(--dim); border-radius: 999px; padding: 0 .5rem; cursor: pointer; display: inline-flex; gap: .3rem; align-items: center; }
+  .bar button:hover, .bar button.on { color: var(--text); border-color: var(--border-strong); }
+  .bar button.on { background: rgba(255,255,255,.06); }
+  .bar .dot { width: .45rem; height: .45rem; border-radius: 50%; display: inline-block; }
+  .bar .sep { flex: 1; }
+  .hidden-by-branch { display: none; }
+  .more { display: block; margin: .1rem 0 .2rem 2.1rem; background: none; border: 0; padding: 0; font: inherit; font-size: .74rem; color: var(--purple-light); cursor: pointer; }
+  .daysep { display: flex; align-items: center; gap: .6rem; margin: .6rem 0 .3rem; font-size: .68rem; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); }
+  .daysep::before, .daysep::after { content: ""; flex: 1; border-top: 1px solid var(--border); }
+  .newsep { display: flex; align-items: center; gap: .6rem; margin: .4rem 0 .2rem; font-size: .68rem; color: var(--cyan); }
+  .newsep::after { content: ""; flex: 1; border-top: 1px solid rgba(95,211,198,.5); }
+  .reply-line { margin: .35rem .5rem 0 2.1rem; display: block; width: calc(100% - 2.6rem); text-align: left; background: var(--inner); border: 1px solid var(--border); color: var(--faint); border-radius: 999px; padding: .12rem .7rem; font: inherit; font-size: .74rem; }
+  .react { font-size: .72rem; border: 1px solid var(--border); border-radius: 999px; padding: 0 .4rem; margin-right: .25rem; display: inline-block; }
+  .react.mine { border-color: rgba(95,211,198,.5); background: rgba(95,211,198,.08); }
+  .back { position: sticky; bottom: .5rem; margin: .4rem auto 0; display: none; width: fit-content; font: inherit; font-size: .74rem; border: 1px solid var(--border-strong); background: #26262b;
+    color: var(--text); border-radius: 999px; padding: .15rem .7rem; cursor: pointer; box-shadow: 0 6px 18px rgba(0,0,0,.4); }
+  .back.show { display: block; }
+
+  /* Did / Found / Next parts */
+  .part { margin: .15rem 0 .45rem; }
+  .part .ph { font-size: .64rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); margin-bottom: .05rem; }
+  .part p { margin: 0; }
+  .part.found { border-left: 2px solid var(--amber); padding-left: .6rem; } .part.found .ph { color: var(--amber); }
+  .part.next { background: rgba(109,143,240,.10); border: 1px solid rgba(109,143,240,.35); border-radius: 8px; padding: .35rem .6rem; } .part.next .ph { color: var(--purple-light); }
+
+  /* questions with options */
+  .ql { border: 1px solid var(--border); border-radius: 8px; padding: .4rem .6rem; margin: .2rem 0 .35rem; }
+  .ql + .ql { margin-top: .3rem; }
+  .ql b { font-size: .84rem; }
+  .opts { display: flex; gap: .3rem; flex-wrap: wrap; margin-top: .25rem; }
+  .opt { font-size: .74rem; border: 1px solid var(--border); border-radius: 999px; padding: 0 .5rem; color: var(--dim); }
+  .opt.picked { border-color: rgba(111,211,138,.55); color: var(--green); background: rgba(111,211,138,.08); }
+  .action { font: inherit; font-size: .76rem; border: 1px solid rgba(242,181,82,.5); background: rgba(242,181,82,.1); color: var(--amber); border-radius: 6px; padding: .1rem .6rem; cursor: pointer; }
+
+  /* folded thread */
+  .fold { display: flex; align-items: center; gap: .45rem; margin: .1rem .5rem 0 2.1rem; font-size: .76rem; color: var(--dim); cursor: pointer; flex-wrap: wrap; }
+  .fold:hover { color: var(--text); }
+  .faces { display: inline-flex; }
+  .faces span { width: .95rem; height: .95rem; border-radius: 50%; display: grid; place-items: center; font-size: .5rem; font-weight: 700; margin-left: -3px; border: 1.5px solid var(--panel);
+    background: rgba(95,211,198,.25); color: var(--cyan); }
+  .faces span.cl { background: rgba(109,143,240,.3); color: var(--purple-light); }
+
+  /* composer */
+  .composer { margin: .5rem .5rem 0 2.1rem; border: 1px solid rgba(109,143,240,.6); border-radius: 10px; padding: .4rem .55rem .5rem; }
+  .composer .q { margin: 0 0 .35rem; }
+  .composer .box { min-height: 2.2rem; color: var(--faint); font-size: .84rem; padding: .2rem .1rem; }
+  .composer .tools { display: flex; gap: .7rem; align-items: center; color: var(--dim); font-size: .78rem; }
+  .composer .tools .grow { flex: 1; }
+  .composer .send { border: 0; border-radius: 8px; background: var(--purple); color: #fff; padding: .15rem .6rem; font: inherit; font-size: .78rem; }
+
+
+  /* ---- waterfall: the avatars step right by level in a gutter, joined by curved lines; the text column never moves ---- */
+  .th { position: relative; --gut: 2.1rem; }
+  .th > svg.wf { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; z-index: 0; }
+  .th .m { padding-left: var(--gut); z-index: 1; }
+  .th .m .av { left: calc(.45rem + var(--d, 0) * .8rem); z-index: 2; }
+  .th .m[data-b]::before { display: none; }
+  .th .bar, .th .more, .th .fold { margin-left: var(--gut); }
+  .th .reply-line { margin-left: var(--gut); width: calc(100% - var(--gut) - .5rem); }
+  .th .composer { margin-left: var(--gut); }
+  .th .m.cont .ctm { width: var(--gut); }
+  .wf path { fill: none; stroke-width: 1.6; stroke-linecap: round; transition: opacity .15s, stroke-width .15s; }
+  .wf path.hot { stroke-width: 2.6; }
+  .wf.dim path:not(.hot) { opacity: .25; }
+  .lvl { font-size: .6rem; color: var(--faint); border: 1px solid var(--border); border-radius: 4px; padding: 0 .25rem; }
+
+  /* ---- collapsing: a ± on any comment with replies folds its whole subtree to one line ---- */
+  .tg { position: absolute; left: calc(.45rem + var(--d, 0) * .8rem + .14rem); top: 1.78rem; width: .95rem; height: .95rem; border-radius: 50%; padding: 0;
+    display: grid; place-items: center; font: 700 .62rem/1 system-ui; color: var(--dim); background: var(--panel); border: 1px solid var(--border-strong);
+    cursor: pointer; z-index: 3; opacity: 0; transition: opacity .12s; }
+  .m:hover > .tg, .m.shut > .tg, .tg:focus-visible { opacity: 1; }
+  .tg:hover { color: var(--text); border-color: var(--purple-light); }
+  .wf-hidden { display: none !important; }
+  .m.sum { cursor: pointer; padding-top: .15rem; padding-bottom: .15rem; color: var(--dim); font-size: .78rem; display: flex; align-items: center; gap: .45rem; flex-wrap: wrap; min-height: 1.6rem; }
+  .m.sum:hover { color: var(--text); background: rgba(255,255,255,.035); }
+  .m.sum > .av { background: var(--panel) !important; border: 1px dashed var(--border-strong); color: var(--dim) !important; font-size: .52rem; top: .2rem; }
+  .m.sum .last { color: var(--text); max-width: 32ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .m.sum .nw { color: var(--cyan); }
+  .wf path.hit { stroke: transparent; stroke-width: 12; pointer-events: stroke; cursor: pointer; }
+  .wf path.hit:hover + path, .wf path.hit:hover { }
+  .bar .fold-all { margin-left: .2rem; }
+  .legend { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: .6rem; margin-top: .6rem; }
+  .legend div { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: .55rem .7rem; font-size: .82rem; color: var(--dim); }
+  .legend b { display: block; color: var(--text); margin-bottom: .15rem; }
+</style>
+</head>
+<body>
+<h1>Comments - option D, in full (waterfall)</h1>
+<p class="lead">Every comment in time order at full width, like a chat. Nothing is indented. How a thread branches is shown in three quiet ways:</p>
+<ul class="lead" style="margin-top:-.4rem">
+  <li><b>A quote</b> on a reply, naming what it answers. It shows only when that comment is not the one right above, so a plain back-and-forth reads with no quotes at all.</li>
+  <li><b>A thin colour strip</b> per branch.</li>
+  <li><b>Branch chips</b> on the thread, which filter it to one conversation.</li>
+</ul>
+<p class="lead"><b>Waterfall:</b> each reply's avatar steps one level to the right of the comment it answers, and a curved line joins them, coloured by conversation. Only the avatars step; the text column stays put, so a deep thread never squeezes the text. Past level 4 the step stops. Hover a comment to light its line up.</p>
+<p class="lead"><b>Collapsing:</b> the ± under any avatar with replies folds its whole subtree into one line ("▸ 3 replies · You, Claude · last: “…” · 1 new"), which stays in the waterfall at the reply's level. Click that line, the ±, or the curved line itself to unfold. Folds inside a folded branch are remembered. The thread bar has ⊟ Fold branches (one line per conversation) and ⊞ Unfold all. In example 2 the Export conversation starts folded below “Yes - …:85”.</p>
+<p class="lead">Try it: hover a quote to light up the comment it answers, click the quote to jump there and "↩ Back" to return, and click a branch chip to filter.</p>
+
+<!-- ============================================================ -->
+<h2>1 · A simple question and answers (your #44 thread)</h2>
+<p class="lead">Claude answered twice in a row, so the second reply has no name line of its own (hover it for the time). No quotes are needed: each reply answers the comment right above it.</p>
+<div class="frame"><div class="cap"><span class="tag">D</span> wide view</div><div class="in">
+  <div class="th tl">
+    <div class="m" id="a1"><span class="av">Y</span><div class="hd"><b>You</b><span class="tm">02:47 PM</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+      <div class="bd"><p>can you put the breakpoints in intellij for the task ?</p></div></div>
+    <div class="m" id="a2" data-p="a1"><span class="av cl">✦</span><div class="hd"><b class="cln">Claude</b><span class="tm">02:47 PM</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+      <div class="bd"><p><b>I can't set breakpoints in IntelliJ for you. I have no IDE access, and I don't change files. Set these lines yourself.</b> This repo only has the Angular side of the change (commit <code>ab70cf5f5</code>). The Java backend for <code>refunded-requests/search</code> is not in this folder.</p>
+        <table><tr><th>File:line</th><th>What to check</th></tr>
+          <tr><td><code>apps/ndc-admin/…/refund-request.page.ts:101</code></td><td><code>asyncOptions</code>: the <code>branchIds</code> sent to <code>agency/by-branch</code></td></tr>
+          <tr><td><code>…/refund-request.page.ts:316</code></td><td><code>agencyIds</code> read from the form</td></tr>
+          <tr><td><code>…/refund-request.page.ts:319-320</code></td><td>the <code>branchIds</code> / <code>agencyIds</code> put into the search request (All Agencies becomes <code>[-11]</code>)</td></tr></table></div></div>
+    <div class="m cont" id="a3" data-p="a1"><span class="ctm">02:47</span><span class="hov2"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span>
+      <div class="bd"><p><span class="chip amb">CORRECTION</span> The backend is in <code>C:\work\odeysys-claude\odeysys</code>, on the task branch. These are the exact lines to set in IntelliJ.</p>
+        <table><tr><th>File:line</th><th>What to check</th></tr>
+          <tr><td><code>odeysysadmin-tt/…/RefundApprovalRequestController.java:52</code></td><td>search: request body as received (<code>branchIds</code>, <code>agencyIds</code>)</td></tr>
+          <tr><td><code>odeysysadmin-tt/…/RefundApprovalRequestController.java:85</code></td><td>export: the same body</td></tr>
+          <tr><td><code>common-odeysys/…/RefundApprovalRequestServiceImpl.java:608</code></td><td><code>resolveBranchCodes</code>: which branch codes come out</td></tr></table></div></div>
+    <button class="reply-line">Reply…</button>
+  </div>
+</div></div>
+
+<!-- ============================================================ -->
+<h2>2 · Two conversations in one thread - branches, quotes, filter</h2>
+<p class="lead">Two conversations grew from one comment: the export and the All Agencies option. Each has its own colour strip. A reply that answers something further up carries a quote. Click <b>● Export</b> or <b>● All Agencies</b> to read one conversation alone.</p>
+<div class="row2">
+<div class="frame"><div class="cap"><span class="tag">D</span> wide view · hover / click a quote · click a branch</div><div class="in">
+  <div class="th tl" data-thread="t2">
+    <div class="m" id="b0"><span class="av">Y</span><div class="hd"><b>You</b><span class="tm">09:02 AM</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+      <div class="bd"><p>the agencies list is empty when two branches are picked</p></div></div>
+    <div class="bar"><span>8 replies ·</span>
+      <button class="on" data-filter="all">All</button>
+      <button data-filter="1"><span class="dot" style="background:var(--b1)"></span>Export · 5</button>
+      <button data-filter="2"><span class="dot" style="background:var(--b2)"></span>All Agencies · 3</button>
+      <span class="sep"></span><span class="faint">last 10:48 AM</span></div>
+    <div class="m" id="b1" data-p="b0" data-b="1"><span class="av cl">✦</span><div class="hd"><b class="cln">Claude</b><span class="tm">09:10 AM</span><span class="chip amb">FOUND</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+      <div class="bd"><p><code>agency/by-branch</code> is called with <code>branchIds=[948]</code> only - the second branch is dropped in <code>refund-request.page.ts:101</code>.</p></div></div>
+    <div class="m" id="b2" data-p="b1" data-b="1"><span class="av">Y</span><div class="hd"><b>You</b><span class="tm">09:14 AM</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+      <div class="bd"><p>is that the same for the export?</p></div></div>
+    <div class="m" id="b3" data-p="b2" data-b="1"><span class="av cl">✦</span><div class="hd"><b class="cln">Claude</b><span class="tm">09:16 AM</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+      <div class="bd"><p>Yes - <code>RefundApprovalRequestController.java:85</code> reads the same single id.</p></div></div>
+    <div class="m" id="b4" data-p="b0" data-b="2"><span class="av">Y</span><div class="hd"><b>You</b><span class="tm">09:18 AM</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+      <div class="q" data-to="b0"><span class="qa">Y</span><b>You</b><span class="t">the agencies list is empty when two branches are picked</span><span class="qt">09:02</span></div>
+      <div class="bd"><p>one more: the All Agencies option still shows when no branch is picked</p></div></div>
+    <div class="m" id="b5" data-p="b3" data-b="1"><span class="av">Y</span><div class="hd"><b>You</b><span class="tm">09:20 AM</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+      <div class="q" data-to="b3"><span class="qa cl">✦</span><b>Claude</b><span class="t">Yes - RefundApprovalRequestController.java:85 reads the same single id.</span><span class="qt">09:16</span></div>
+      <div class="bd"><p>fix both then</p></div></div>
+    <div class="m" id="b6" data-p="b4" data-b="2"><span class="av cl">✦</span><div class="hd"><b class="cln">Claude</b><span class="tm">09:25 AM</span><span class="chip done">FIXED</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+      <div class="q" data-to="b4"><span class="qa">Y</span><b>You</b><span class="t">one more: the All Agencies option still shows when no branch is picked</span><span class="qt">09:18</span></div>
+      <div class="bd"><p>Hidden until a branch is picked (<code>refund-request.page.ts:288</code>).</p></div></div>
+    <div class="daysep">Today</div>
+    <div class="newsep">2 new since you looked</div>
+    <div class="m" id="b7" data-p="b5" data-b="1"><span class="av cl ring">✦</span><div class="hd"><b class="cln">Claude</b><span class="tm">09:41 AM</span><span class="chip done">DONE</span><span class="newdot">● new</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+      <div class="q" data-to="b5"><span class="qa">Y</span><b>You</b><span class="t">fix both then</span><span class="qt">09:20</span></div>
+      <div class="bd"><p>Both read <code>branchIds</code> now. Search returns 3 agencies for Cairo + Mansoura, and the export has the same 41 rows.</p><span class="react mine">✅ 1</span></div></div>
+    <div class="m" id="b8" data-p="b6" data-b="2"><span class="av ring">Y</span><div class="hd"><b>You</b><span class="tm">10:48 AM</span><span class="newdot">● new</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+      <div class="q ok" data-to="b6"><span class="qa cl">✦</span><b>Claude</b><span class="t">Hidden until a branch is picked</span><span class="qt">09:25</span></div>
+      <div class="bd"><p>confirmed on my side</p></div></div>
+    <button class="reply-line">Reply…</button>
+    <button class="back">↩ Back to where you were</button>
+  </div>
+</div></div>
+
+<div class="frame"><div class="cap"><span class="tag">D</span> side panel · 430 px</div><div class="in">
+  <div class="th tl">
+    <div class="m"><span class="av">Y</span><div class="hd"><b>You</b><span class="tm">09:02 AM</span></div>
+      <div class="bd"><p>the agencies list is empty when two branches are picked</p></div></div>
+    <div class="bar"><button class="on">All 8</button><button><span class="dot" style="background:var(--b1)"></span>Export 5</button><button><span class="dot" style="background:var(--b2)"></span>Agencies 3</button></div>
+    <button class="more">▸ 5 earlier replies</button>
+    <div class="m" data-b="2"><span class="av cl">✦</span><div class="hd"><b class="cln">Claude</b><span class="tm">09:25</span><span class="chip done">FIXED</span></div>
+      <div class="q"><span class="qa">Y</span><b>You</b><span class="t">one more: the All Agencies option still shows…</span></div>
+      <div class="bd"><p>Hidden until a branch is picked.</p></div></div>
+    <div class="newsep">2 new</div>
+    <div class="m" data-b="1"><span class="av cl ring">✦</span><div class="hd"><b class="cln">Claude</b><span class="tm">09:41</span><span class="chip done">DONE</span></div>
+      <div class="q"><span class="qa">Y</span><b>You</b><span class="t">fix both then</span></div>
+      <div class="bd"><p>Both read <code>branchIds</code> now. Search returns 3 agencies for Cairo + Mansoura.</p></div></div>
+    <div class="m" data-b="2"><span class="av ring">Y</span><div class="hd"><b>You</b><span class="tm">10:48</span></div>
+      <div class="q ok"><span class="qa cl">✦</span><b>Claude</b><span class="t">Hidden until a branch is picked</span></div>
+      <div class="bd"><p>confirmed on my side</p></div></div>
+    <button class="reply-line">Reply…</button>
+  </div>
+</div></div>
+</div>
+
+<!-- ============================================================ -->
+<h2>3 · Claude's question with options, answered</h2>
+<p class="lead">Claude asks two questions at once, and your answer quotes the question with a ✓ once it is answered. The follow-up from Claude needs no quote: it answers the comment right above.</p>
+<div class="frame"><div class="cap"><span class="tag">D</span> question · answer · follow-up</div><div class="in">
+  <div class="th tl">
+    <div class="m" id="c1"><span class="av cl">✦</span><div class="hd"><b class="cln">Claude</b><span class="tm">11:20 AM</span><span class="chip amb">QUESTION</span><span class="badge ok">✓ answered</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+      <div class="bd">
+        <div class="ql"><b>1 · Export filter</b> <span class="dim">- should the export use the same branches as the search?</span>
+          <div class="opts"><span class="opt picked">Same as the search ★</span><span class="opt">Always every branch</span></div></div>
+        <div class="ql"><b>2 · Request shape</b> <span class="dim">- send the branches as a list or as repeated parameters?</span>
+          <div class="opts"><span class="opt picked">List (branchIds) ★</span><span class="opt">Repeated branchId</span></div></div></div></div>
+    <div class="m" id="c2" data-p="c1"><span class="av">Y</span><div class="hd"><b>You</b><span class="tm">11:31 AM</span><span class="chip done">ANSWERS</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+      <div class="bd"><p>1 · Same as the search &nbsp;·&nbsp; 2 · List (branchIds)<br><span class="dim">the export is what the user sees on the page</span></p></div></div>
+    <div class="m" id="c3" data-p="c2"><span class="av cl">✦</span><div class="hd"><b class="cln">Claude</b><span class="tm">11:33 AM</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+      <div class="bd"><p>Then line 85 must read <code>branchIds</code> too - it still reads <code>branchId</code>. Fix it there?</p><span class="react mine">✅ 1</span> <span class="dim" style="font-size:.74rem">✅ go-ahead given</span></div></div>
+    <button class="reply-line">Reply…</button>
+  </div>
+  <div class="th tl" style="margin-top:.9rem">
+    <div class="m"><span class="av cl">✦</span><div class="hd"><b class="cln">Claude</b><span class="tm">12:02 PM</span><span class="chip amb">QUESTION</span><span class="badge">waiting for you</span></div>
+      <div class="bd"><div class="ql"><b>Re-test</b> <span class="dim">- run the 9-step plan now, or after the backend is deployed?</span>
+        <div class="opts"><span class="opt">Now ★</span><span class="opt">After deploy</span></div></div></div></div>
+    <div style="display:flex; gap:.5rem; margin:.3rem .5rem 0 2.1rem; align-items:center"><button class="action">❓ Answer…</button>
+      <button class="reply-line" style="margin:0; flex:1">↩ Answer in your own words…</button></div>
+  </div>
+</div></div>
+
+<!-- ============================================================ -->
+<h2>4 · A work report (Did / Found / Next) and the talk under it</h2>
+<p class="lead">Claude's report keeps its parts as blocks. Your reply quotes the <b>part</b> it answers (here, Next), not the whole report.</p>
+<div class="frame"><div class="cap"><span class="tag">D</span> report · reply to one part</div><div class="in">
+  <div class="th tl">
+    <div class="m" id="d1"><span class="av cl">✦</span><div class="hd"><b class="cln">Claude</b><span class="tm">10:12 AM</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+      <div class="bd">
+        <div class="part"><div class="ph">✓ Did</div><p>Ran the search with Cairo + Mansoura and checked the call against the acceptance items.</p></div>
+        <div class="part found"><div class="ph">⚑ Found</div><p>The request still sends <code>branchId: 948</code>, not the <code>branchIds</code> list. <code>RefundApprovalRequestController.java:52</code> reads one id, so only the first branch is searched.</p></div>
+        <div class="part next"><div class="ph">→ Next</div><p>Send <code>branchIds</code> from <code>refund-request.page.ts:319</code> and read the list at line 52, then search again.</p></div></div></div>
+    <div class="m" id="d2" data-p="d1"><span class="av">Y</span><div class="hd"><b>You</b><span class="tm">10:20 AM</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+      <div class="q" data-to="d1"><span class="qa cl">✦</span><b>Claude · Next</b><span class="t">Send branchIds from refund-request.page.ts:319 and read the list at line 52…</span></div>
+      <div class="bd"><p>do the page first, I'll deploy the backend myself</p></div></div>
+    <div class="m" id="d3" data-p="d2"><span class="av cl">✦</span><div class="hd"><b class="cln">Claude</b><span class="tm">10:31 AM</span><span class="chip done">DONE</span><span class="hov"><span>☺</span><span>↩</span><span>⧉</span><span>⋯</span></span></div>
+      <div class="bd"><p>The page sends <code>branchIds: [948, 10642]</code> now (commit <code>ab70cf5f5</code>). Waiting for the backend deploy to re-test.</p></div></div>
+    <button class="reply-line">Reply…</button>
+  </div>
+</div></div>
+
+<!-- ============================================================ -->
+<h2>5 · Long threads: folded, and the earlier part</h2>
+<p class="lead">A folded thread is one line: who took part, the last word, and how many are new. Open, a long thread shows its last replies with "▸ N earlier replies" above them. Quotes still point into the hidden part, and clicking one opens it.</p>
+<div class="frame"><div class="cap"><span class="tag">D</span> folded · open with earlier hidden</div><div class="in">
+  <div class="th tl">
+    <div class="m"><span class="av cl">✦</span><div class="hd"><b class="cln">Claude</b><span class="tm">Oct 14</span><span class="chip amb">FOUND</span></div>
+      <div class="bd"><p>multi-branch search sends one id</p></div></div>
+    <div class="fold"><span>▸</span><span class="faces"><span class="cl">✦</span><span>Y</span></span> 14 replies · last: <span style="color:var(--text)">“confirmed on my side”</span> · You, 10:48 AM · <span style="color:var(--cyan)">2 new</span></div>
+  </div>
+  <div class="th tl" style="margin-top:.8rem">
+    <div class="m"><span class="av">Y</span><div class="hd"><b>You</b><span class="tm">Oct 14</span></div>
+      <div class="bd"><p>the export file has the old column order</p></div></div>
+    <div class="bar"><span>11 replies</span></div>
+    <button class="more">▸ 9 earlier replies</button>
+    <div class="m" data-b="1"><span class="av cl">✦</span><div class="hd"><b class="cln">Claude</b><span class="tm">09:05 AM</span></div>
+      <div class="q"><span class="qa">Y</span><b>You</b><span class="t">keep Agency before Branch like the page</span><span class="qt">Oct 15 · in the earlier replies</span></div>
+      <div class="bd"><p>Done - <code>ExportColumns.java:40</code> now writes Agency, Branch, Amount, Status.</p></div></div>
+    <div class="m" data-b="1"><span class="av">Y</span><div class="hd"><b>You</b><span class="tm">09:12 AM</span></div>
+      <div class="bd"><p>👍</p></div></div>
+    <button class="reply-line">Reply…</button>
+  </div>
+</div></div>
+
+<!-- ============================================================ -->
+<h2>6 · Replying: the box quotes what you answer</h2>
+<p class="lead">↩ on any comment (or on one part of a report) opens the box at the end of the thread. The quote sits on top of the box, and ✕ drops it to make a plain reply to the thread.</p>
+<div class="frame"><div class="cap"><span class="tag">D</span> composer</div><div class="in">
+  <div class="th tl">
+    <div class="m"><span class="av cl">✦</span><div class="hd"><b class="cln">Claude</b><span class="tm">09:41 AM</span><span class="chip done">DONE</span></div>
+      <div class="bd"><p>Both read <code>branchIds</code> now. Search returns 3 agencies for Cairo + Mansoura.</p></div></div>
+    <div class="composer">
+      <div class="q"><span class="qa cl">✦</span><b>Replying to Claude</b><span class="t">Both read branchIds now. Search returns 3 agencies…</span><span class="qt" style="cursor:pointer">✕</span></div>
+      <div class="box">Write your reply… @ to mention, / for blocks</div>
+      <div class="tools"><span>@</span><span>/</span><span>Aa</span><span>⇄ Auto</span><span class="grow"></span><span>Cancel</span><button class="send">Reply ↵</button></div>
+    </div>
+  </div>
+</div></div>
+
+<!-- ============================================================ -->
+<h2>What option D does</h2>
+<div class="legend">
+  <div><b>Waterfall gutter</b>Avatars step right by level (0.8 rem a step, at most 4) and curved lines join each reply to what it answers. The gutter is only as wide as the thread's deepest level: 2.1 rem for a plain thread.</div>
+  <div><b>Collapsing</b>± on a comment, or a click on its line, folds everything under it into one summary line: how many, who, the last words, and how many are new. ⊟ Fold branches leaves one line per conversation. A new reply never folds itself away: its summary says "N new".</div>
+  <div><b>Full width, always</b>The text never indents, at any depth. Text and tables use the whole width in the side panel and in full screen.</div>
+  <div><b>Quote only when needed</b>A reply quotes what it answers only when that is not the comment right above. A plain back-and-forth shows no quotes.</div>
+  <div><b>Quote = jump</b>Hovering a quote lights up the comment it answers. Clicking scrolls there and flashes it, "↩ Back" returns, and a quote into the hidden part opens that part.</div>
+  <div><b>Branches by colour</b>Each conversation in a thread gets a thin colour strip. The thread's chips (● Export · 5) filter to one conversation.</div>
+  <div><b>Grouped follow-ups</b>The same person within a few minutes gets no second name line. The time shows on hover.</div>
+  <div><b>Parts quoted alone</b>Replying to the Next of a report quotes "Claude · Next", not the whole report.</div>
+  <div><b>Kept from today</b>Hover actions ☺ ↩ ⧉ ⋯, reactions and ✅ go-ahead, questions with Answer…, edit and history, new rings and "N new since you looked", "▸ N earlier replies", Reply….</div>
+  <div><b>Backend</b>Quotes need the comment a reply was written to. Today a reply to a reply is stored as a reply to the thread's first comment, so the backend keeps the real one in one new nullable column. Older replies just show no quote.</div>
+</div>
+
+<script>
+// hover a quote: light the comment it answers; click: jump there, flash it, offer "Back"
+let backTo = null;
+document.querySelectorAll('.q[data-to]').forEach((q) => {
+  const target = () => document.getElementById(q.dataset.to);
+  q.addEventListener('mouseenter', () => target()?.classList.add('lit'));
+  q.addEventListener('mouseleave', () => target()?.classList.remove('lit'));
+  q.addEventListener('click', () => {
+    const t = target();
+    if (!t) return;
+    backTo = q.closest('.m');
+    t.classList.remove('lit', 'flash');
+    void t.offsetWidth;
+    t.classList.add('flash');
+    t.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    q.closest('.th')?.querySelector('.back')?.classList.add('show');
+  });
+});
+document.querySelectorAll('.back').forEach((b) => b.addEventListener('click', () => {
+  backTo?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  backTo?.classList.add('flash');
+  b.classList.remove('show');
+}));
+// branch chips: show one conversation of the thread
+document.querySelectorAll('[data-thread] .bar button').forEach((btn) => btn.addEventListener('click', () => {
+  const th = btn.closest('[data-thread]');
+  th.querySelectorAll('.bar button').forEach((b) => b.classList.toggle('on', b === btn));
+  const f = btn.dataset.filter;
+  th.querySelectorAll('.m[data-b]').forEach((m) => m.classList.toggle('hidden-by-branch', f !== 'all' && m.dataset.b !== f));
+  th.querySelectorAll('.daysep, .newsep').forEach((s) => s.classList.toggle('hidden-by-branch', f !== 'all'));
+}));
+
+// waterfall: each reply's avatar steps one level right of the comment it answers (at most 4), and a curved line joins them
+const MAX = 4, STEP = 0.8;
+const branchColour = { 1: '#8fb2f7', 2: '#f2b552', 3: '#e08ad8', 4: '#6fd38a' };
+function drawThread(th) {
+  const msgs = Array.from(th.querySelectorAll(':scope > .m'));
+  if (!msgs.length) return;
+  const byId = new Map(msgs.filter((m) => m.id).map((m) => [m.id, m]));
+  const depth = new Map();
+  msgs.forEach((m, i) => {
+    let parent = m.dataset.p ? byId.get(m.dataset.p) : (i === 0 ? null : msgs[0]);
+    if (m.classList.contains('cont')) parent = null;
+    m._parent = parent;
+    const d = m.classList.contains('cont') ? (depth.get(msgs[i - 1]) ?? 0) : parent ? Math.min((depth.get(parent) ?? 0) + 1, MAX) : 0;
+    depth.set(m, d);
+    m.style.setProperty('--d', d);
+    const deep = parent && (depth.get(parent) ?? 0) + 1 > MAX;
+    const hd = m.querySelector('.hd');
+    if (deep && hd && !hd.querySelector('.lvl')) hd.insertAdjacentHTML('beforeend', '<span class="lvl">deeper - kept at level 4</span>');
+  });
+  const maxD = Math.max(...Array.from(depth.values()));
+  const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
+  th.style.setProperty('--gut', (0.45 + maxD * STEP + 1.65) + 'rem');
+  let svg = th.querySelector(':scope > svg.wf');
+  if (!svg) { svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); svg.classList.add('wf'); th.prepend(svg); }
+  svg.innerHTML = '';
+  const box = th.getBoundingClientRect();
+  for (const m of msgs) {
+    const p = m._parent;
+    if (!p || m.offsetParent === null || p.offsetParent === null) continue;
+    const a = p.querySelector(':scope > .av').getBoundingClientRect();
+    const b = m.querySelector(':scope > .av').getBoundingClientRect();
+    const x1 = a.left + a.width / 2 - box.left, y1 = a.bottom - box.top + 2;
+    const x2 = b.left - box.left - 2, y2 = b.top + b.height / 2 - box.top;
+    const rr = Math.min(7, Math.max(2, (x2 - x1) / 2));
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', `M ${x1} ${y1} V ${y2 - rr} Q ${x1} ${y2} ${x1 + rr} ${y2} H ${x2}`);
+    path.setAttribute('stroke', branchColour[m.dataset.b] || 'rgba(255,255,255,.22)');
+    path.dataset.from = p.id || ''; path.dataset.to = m.id || '';
+    m._path = path;
+    svg.appendChild(path);
+  }
+}
+function drawAll() { document.querySelectorAll('.th').forEach(drawThread); }
+drawAll();
+addEventListener('resize', drawAll);
+// hovering a comment lights its line to its parent and the lines down to its replies
+document.querySelectorAll('.th > .m').forEach((m) => {
+  m.addEventListener('mouseenter', () => {
+    const svg = m.closest('.th').querySelector('svg.wf');
+    if (!svg) return;
+    svg.classList.add('dim');
+    svg.querySelectorAll('path').forEach((pa) => pa.classList.toggle('hot', !!m.id && (pa.dataset.to === m.id || pa.dataset.from === m.id)));
+  });
+  m.addEventListener('mouseleave', () => {
+    const svg = m.closest('.th').querySelector('svg.wf');
+    svg?.classList.remove('dim');
+    svg?.querySelectorAll('path').forEach((pa) => pa.classList.remove('hot'));
+  });
+});
+// redraw after the branch filter changes what is shown (folds stay)
+document.querySelectorAll('[data-thread] .bar button[data-filter]').forEach((btn) => btn.addEventListener('click', () => setTimeout(() => document.querySelectorAll('.th').forEach(applyFolds))));
+
+// collapsing: fold a comment's whole subtree into one summary line (it keeps its place in the waterfall)
+const who = (m) => (m.querySelector(':scope > .av')?.classList.contains('cl') ? 'Claude' : 'You');
+function kidsOf(th) {
+  const msgs = Array.from(th.querySelectorAll(':scope > .m:not(.sum)'));
+  const kids = new Map(msgs.map((m) => [m, []]));
+  msgs.forEach((m) => { if (m._parent && kids.has(m._parent)) kids.get(m._parent).push(m); });
+  return kids;
+}
+function below(m, kids) {
+  const out = [];
+  const walk = (x) => (kids.get(x) || []).forEach((k) => { out.push(k); walk(k); });
+  walk(m);
+  return out;
+}
+function applyFolds(th) {
+  th.querySelectorAll(':scope > .m.sum').forEach((x) => x.remove());
+  const kids = kidsOf(th);
+  th.querySelectorAll(':scope > .m:not(.sum)').forEach((m) => m.classList.remove('wf-hidden'));
+  // a fold inside a folded subtree stays remembered, but only the outermost one shows its line
+  const shut = Array.from(th.querySelectorAll(':scope > .m.shut'));
+  const hidden = new Set();
+  shut.forEach((m) => below(m, kids).forEach((k) => hidden.add(k)));
+  hidden.forEach((k) => k.classList.add('wf-hidden'));
+  shut.filter((m) => !hidden.has(m)).forEach((m) => {
+    const sub = below(m, kids);
+    const last = sub.reduce((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? b : a), sub[0]);
+    const people = Array.from(new Set(sub.map(who))).join(', ');
+    const fresh = sub.filter((k) => k.querySelector('.newdot')).length;
+    const text = last?.querySelector('.bd p')?.textContent.trim() ?? '';
+    const tm = last?.querySelector('.tm')?.textContent ?? '';
+    const row = document.createElement('div');
+    row.className = 'm sum';
+    row.dataset.p = m.id;
+    if (m.dataset.b) row.dataset.b = m.dataset.b;
+    row.title = 'Unfold';
+    row.innerHTML = `<span class="av">+${sub.length}</span><span>▸ ${sub.length} ${sub.length === 1 ? 'reply' : 'replies'} · ${people}</span>`
+      + `<span class="faint">last:</span><span class="last">“${text}”</span><span class="faint">${tm}</span>${fresh ? `<span class="nw">· ${fresh} new</span>` : ''}`;
+    row.onclick = () => toggle(m);
+    if (m.classList.contains('hidden-by-branch')) row.classList.add('hidden-by-branch');
+    m.after(row);
+  });
+  // a fresh draw: the waterfall counts the summary rows as replies of the comment they fold
+  drawThread(th);
+  th.querySelectorAll('svg.wf path').forEach((pa) => {
+    const from = pa.dataset.from && document.getElementById(pa.dataset.from);
+    if (!from || !(kids.get(from) || []).length) return;
+    const hit = pa.cloneNode();
+    hit.classList.add('hit');
+    hit.addEventListener('click', () => toggle(from));
+    hit.innerHTML = '<title>Fold this branch</title>';
+    pa.after(hit);
+  });
+}
+function toggle(m) {
+  m.classList.toggle('shut');
+  const tg = m.querySelector(':scope > .tg');
+  if (tg) { const shut = m.classList.contains('shut'); tg.textContent = shut ? '+' : '−'; tg.title = shut ? 'Unfold the replies' : 'Fold the replies'; }
+  applyFolds(m.closest('.th'));
+}
+document.querySelectorAll('.th').forEach((th) => {
+  const kids = kidsOf(th);
+  kids.forEach((list, m) => {
+    if (!list.length) return;
+    const tg = document.createElement('button');
+    tg.className = 'tg'; tg.type = 'button'; tg.textContent = '−'; tg.title = 'Fold the replies';
+    tg.addEventListener('click', (e) => { e.stopPropagation(); toggle(m); });
+    m.appendChild(tg);
+  });
+  // the thread's bar gets "Fold branches" (one line per conversation) and "Unfold all"
+  const bar = th.querySelector(':scope > .bar');
+  const root = th.querySelector(':scope > .m');
+  if (bar && root && (kids.get(root) || []).length) {
+    const fold = document.createElement('button');
+    fold.className = 'fold-all'; fold.textContent = '⊟ Fold branches';
+    fold.onclick = () => { th.querySelectorAll(':scope > .m.shut').forEach((m) => m.classList.remove('shut'));
+      (kidsOf(th).get(root) || []).forEach((k) => { if ((kidsOf(th).get(k) || []).length) k.classList.add('shut'); });
+      th.querySelectorAll(':scope > .m > .tg').forEach((t) => { const sh = t.parentElement.classList.contains('shut'); t.textContent = sh ? '+' : '−'; });
+      applyFolds(th); };
+    const open = document.createElement('button');
+    open.className = 'fold-all'; open.textContent = '⊞ Unfold all';
+    open.onclick = () => { th.querySelectorAll(':scope > .m.shut').forEach((m) => m.classList.remove('shut'));
+      th.querySelectorAll(':scope > .m > .tg').forEach((t) => { t.textContent = '−'; }); applyFolds(th); };
+    bar.querySelector('.sep')?.before(fold, open);
+  }
+  applyFolds(th);
+});
+// the example of a folded branch: the Export conversation's middle starts folded in example 2
+const b3 = document.getElementById('b3');
+if (b3) toggle(b3);
+</script>
+</body>
+</html>
