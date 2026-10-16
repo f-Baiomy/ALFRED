@@ -1276,10 +1276,12 @@ export class Runner {
       return;
     }
 
-    if (this.o.chatId && this.o.cycleId && this.o.chat && attempt === 0) {
+    if (this.o.chatId && this.o.cycleId && this.o.chat && this.chatLane && attempt === 0) {
       // plan-terminal-answers.md: every change on a card of the cycle goes to the terminal session that answers the cycle -
       // the same session as its chat, no copy and no run here; it answers on the card when its turn is free.
-      await reporter.end({ steps: changes.map(youDid), state: 'DONE', outcome: 'sent to your terminal session - it answers on the card' });
+      // its progress follows the terminal's transcript until the terminal's reply on the card
+      this.chatLane.track({ key: `c:${first.number}`, marker: `✉ #${first.number} `, reporter,
+        done: (name, input) => /(^|__)board_reply$/.test(name) && Number(input.number) === first.number });
       this.o.log(`  → ✉ ${label} handed to the terminal session`);
       this.o.chat(cardLine(first, changes, head));
       return;

@@ -200,14 +200,57 @@ export function compactedSince(lines, since = 0) {
   });
 }
 
+const base = (p) => String(p ?? '').split(/[\\/]/).pop();
+const short = (v, n = 70) => { const t = String(v ?? '').replace(/\s+/g, ' ').trim(); return t.length > n ? `${t.slice(0, n)}…` : t; };
+
+/** One tool call of the terminal, as the chat's progress line shows it: what it does, never its output. */
+export function stepOf(name, input = {}) {
+  const tool = String(name ?? '').replace(/^mcp__[^_]+(?:[-\w]*?)__/, '');
+  switch (tool) {
+    case 'Read': return `reading ${base(input.file_path)}`;
+    case 'Edit': case 'Write': case 'NotebookEdit': return `editing ${base(input.file_path ?? input.notebook_path)}`;
+    case 'Bash': case 'PowerShell': return short(input.description || input.command);
+    case 'Grep': return `searching "${short(input.pattern, 40)}"`;
+    case 'Glob': return `finding ${short(input.pattern, 40)}`;
+    case 'Agent': return `subagent: ${short(input.description, 50)}`;
+    case 'Skill': return `/${input.skill}`;
+    case 'ToolSearch': return 'loading tools';
+    case 'chat_read': return 'reading the chat thread';
+    case 'chat_reply': return 'writing the answer';
+    case 'board_get': return `reading card #${input.number ?? ''}`;
+    case 'board_reply': return `answering on #${input.number ?? ''}`;
+    default: return tool.replace(/_/g, ' ');
+  }
+}
+
+/** What a transcript chunk says: the lines that reached the session (Monitor events) and the tool calls it made. */
+export function terminalEvents(text) {
+  const out = [];
+  for (const raw of String(text).split('\n')) {
+    if (!raw.trim()) continue;
+    let e;
+    try { e = JSON.parse(raw); } catch { continue; }
+    if (e.type === 'user' && raw.includes('✉')) out.push({ kind: 'received', raw });
+    else if (e.type === 'queue-operation' && e.operation === 'enqueue' && raw.includes('✉')) out.push({ kind: 'queued', raw });
+    else if (e.type === 'assistant' && Array.isArray(e.message?.content)) {
+      for (const c of e.message.content) {
+        if (c?.type === 'tool_use') out.push({ kind: 'tool', name: c.name, input: c.input ?? {} });
+        else if (c?.type === 'thinking') out.push({ kind: 'thinking' });
+      }
+    }
+  }
+  return out;
+}
+
 /**
  * Watches the terminal's transcript with fs.watch events (re-armed when the file is replaced) - the only trigger for
  * "the terminal moved on"; no timer. onChange(atMs) is called with the newest significant entry's time.
  */
 export class TranscriptWatch {
-  constructor(path, onChange, { fsWatch = watch } = {}) {
+  constructor(path, onChange, { fsWatch = watch, onRaw = null } = {}) {
     this.path = path;
     this.onChange = onChange;
+    this.onRaw = onRaw;
     this.fsWatch = fsWatch;
     this.size = 0;
     this.watcher = null;
@@ -235,7 +278,8 @@ export class TranscriptWatch {
       const text = readFileSync(this.path).subarray(this.size).toString('utf8');
       this.size = size;
       const d = deltaOf(text.split('\n'), 0);
-      if (d.entries) this.onChange(d.at);
+      if (d.entries) this.onChange(d.at, text);
+      else this.onRaw?.(text);
     } catch { /* gone for now; the next event re-arms */ }
   }
 
@@ -258,6 +302,9 @@ export class ChatLane {
     this.host = runner.o.host ?? hostname();
     this.terminalAt = null;
     this.watch = null;
+    /** What was handed to the terminal and is not answered yet: its live progress under the message or card. */
+    this.pending = new Map();
+    this.follow = null;
   }
 
   get chatId() {
@@ -280,6 +327,57 @@ export class ChatLane {
 
   stop() {
     this.watch?.close();
+    this.follow?.close();
+    for (const p of this.pending.values()) p.reporter.end({ steps: p.steps, state: 'DONE', outcome: 'the runner stopped - your terminal still has it' }).catch(() => null);
+    this.pending.clear();
+  }
+
+  /**
+   * Shows the terminal's work on something handed to it (plan-terminal-answers.md): waiting -> on it -> each tool step,
+   * read from the terminal's transcript by fs.watch events (no timer), until the terminal's reply to it. The steps are
+   * Alfred's live progress only - never stored.
+   */
+  track({ key, marker, reporter, done }) {
+    const steps = [];
+    this.pending.set(key, { key, marker, reporter, done, steps, picked: false });
+    reporter.report({ steps, state: 'WORKING', head: 'sent to your terminal · waiting for its turn' });
+    reporter.onStop = () => {
+      this.r.o.chat?.(`⏹ ${marker}: the user pressed Stop - stop working on it and answer nothing more for it.`);
+      this.untrack(key, { state: 'STOPPED', outcome: 'stopped - your terminal was told' });
+    };
+    if (this.follow || !this.r.o.chatId) return;
+    const path = transcriptPath(this.r.o.cwd ?? process.cwd(), this.r.o.chatId);
+    this.follow = new TranscriptWatch(path, (_, text) => this.onTerminal(text ?? ''), { onRaw: (text) => this.onTerminal(text) });
+  }
+
+  untrack(key, end) {
+    const p = this.pending.get(key);
+    if (!p) return;
+    this.pending.delete(key);
+    p.reporter.end({ steps: p.steps, ...end }).catch(() => null);
+  }
+
+  onTerminal(text) {
+    if (!this.pending.size) return;
+    for (const ev of terminalEvents(text)) {
+      for (const p of [...this.pending.values()]) {
+        if ((ev.kind === 'received' || ev.kind === 'queued') && ev.raw.includes(p.marker)) {
+          if (ev.kind === 'received') p.picked = true;
+          p.reporter.report({ steps: p.steps, state: 'WORKING',
+            head: ev.kind === 'received' ? 'your terminal is on it' : 'your terminal is busy · queued after its current step' });
+          continue;
+        }
+        if (!p.picked) continue;
+        if (ev.kind === 'tool' && p.done(ev.name, ev.input)) {
+          this.untrack(p.key, { state: 'DONE', outcome: 'answered by your terminal' });
+          continue;
+        }
+        const step = ev.kind === 'thinking' ? 'thinking' : stepOf(ev.name, ev.input);
+        if (p.steps.at(-1) === step) continue;
+        p.steps.push(step);
+        p.reporter.report({ steps: p.steps.slice(-40), state: 'WORKING', head: `your terminal: ${step}` });
+      }
+    }
   }
 
   /** The waiting messages of one page of changes that this runner answers, one chain per chat. */
@@ -422,6 +520,10 @@ export class ChatLane {
       return;
     }
     for (const t of [...taken].sort((a, b) => Number(urgent.has(b.messageId)) - Number(urgent.has(a.messageId)))) {
+      const reporter = new Reporter(this.r.o.alfred, { id: randomUUID(), project, cardNumber: 0, chatMessageId: t.messageId, head: 'sent to your terminal' },
+        { every: this.r.o.reportEveryMs ?? 250, onError: (error) => this.r.o.log(`  (live-work report failed: ${error.message})`) });
+      this.track({ key: `m:${t.messageId}`, marker: `✉ board chat #${t.messageId}`, reporter,
+        done: (name, input) => /(^|__)chat_reply$/.test(name) && Number(input.messageId) === t.messageId });
       this.r.o.chat(chatLine({ ...t, urgent: urgent.has(t.messageId) }, { project, scope }));
     }
     this.r.o.log(`  → 💬 chat ${scope}: ${taken.length} message${taken.length === 1 ? '' : 's'} handed to the terminal session`);

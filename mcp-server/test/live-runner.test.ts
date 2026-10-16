@@ -259,8 +259,10 @@ test('a change on a card of the cycle goes to the terminal session that answers 
     w.fake.board.changes = { entries: [change({ id: 9, text: 'why does the fare change at confirm? check the SQL' })], cycles: [], cursor: '9.1', more: false };
     await runner.once('now');
     await runner.idle();
+    await runner.chatLane.pending.get('c:1')?.reporter.flush();
     const reports = w.fake.board.liveWork;
-    assert.ok(reports.some((r: any) => /sent to your terminal session/.test(r.outcome ?? '') && r.state === 'DONE'), JSON.stringify(reports));
+    assert.ok(reports.some((r: any) => /sent to your terminal/.test(r.head ?? '') && r.state === 'WORKING'), JSON.stringify(reports));
+    runner.chatLane.stop();
     assert.ok(!existsSync(promptFile), 'no claude run for a card of the cycle');
     const line = chat.find((l: string) => l.startsWith('✉ #1 '));
     assert.ok(line, chat.join(' | '));
