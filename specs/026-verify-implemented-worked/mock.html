@@ -1,0 +1,127 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Verify: implemented + worked - mock</title>
+<style>
+:root{--bg:#0d1017;--card:#161a23;--inner:#11151d;--border:#2a3140;--text:#e6e9ef;--dim:#9aa3b2;--faint:#6b7383;--green:#4ade80;--amber:#fbbf24;--red:#f87171;--purple:#a78bfa;--cyan:#22d3ee;--blue:#60a5fa}
+body{margin:0;background:#07090d;color:var(--text);font:14px/1.45 system-ui,Segoe UI,sans-serif;padding:24px;display:grid;gap:26px}
+h1{font-size:15px;color:var(--dim);margin:0 0 8px;font-weight:600}
+.row{display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap}
+.col{width:270px;background:#0f131b;border:1px solid var(--border);border-radius:12px;padding:10px}
+.colh{display:flex;justify-content:space-between;font-size:12px;color:var(--dim);letter-spacing:.05em;margin-bottom:8px}
+.tile{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:10px}
+.num{font-size:11px;border:1px solid var(--border);border-radius:99px;padding:0 6px;color:var(--dim)}
+.kind{font-size:10px;font-weight:700;color:var(--red);background:#f8717122;border-radius:4px;padding:0 5px;margin-left:4px}
+.t{font-weight:650;margin:6px 0}
+.vchips{display:flex;flex-direction:column;gap:4px;margin:6px 0}
+.vc{display:flex;gap:6px;align-items:baseline;font-size:12px;border-radius:7px;padding:3px 7px;border:1px solid var(--border)}
+.vc b{min-width:86px}.vc span{color:var(--dim)}
+.ok{border-color:#4ade8055;background:#4ade8010}.ok b{color:var(--green)}
+.no{border-color:#f8717155;background:#f8717110}.no b{color:var(--red)}
+.wait{border-color:#fbbf2455;background:#fbbf2410}.wait b{color:var(--amber)}
+.unk{border-color:var(--border)}.unk b{color:var(--dim)}
+.next{font-size:12px;color:var(--dim);margin-top:4px}.next b{color:var(--text)}
+.acts{display:flex;gap:6px;margin-top:8px}.acts span{font-size:12px;border:1px solid var(--border);border-radius:7px;padding:3px 8px}
+.acts .g{border-color:var(--green);color:var(--green)}
+.prop{font-size:12px;color:var(--purple);margin-top:6px}
+.drawer{width:560px;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px 16px}
+.sec{font-size:11px;letter-spacing:.06em;color:var(--faint);margin:10px 0 6px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.box{border:1px solid var(--border);border-radius:10px;padding:9px 11px;background:var(--inner)}
+.box h3{margin:0 0 6px;font-size:13px;display:flex;justify-content:space-between}
+.box ul{margin:0;padding-left:16px;font-size:12.5px;color:var(--dim)}
+.box li{margin:2px 0}.box li.okk::marker{content:'✓ ';color:var(--green)}.box li.bad::marker{content:'✗ ';color:var(--red)}.box li.q::marker{content:'? ';color:var(--faint)}
+.mono{font-family:ui-monospace,Consolas,monospace;font-size:12px;color:var(--cyan)}
+.verdict{margin-top:10px;padding:8px 10px;border-radius:8px;background:#4ade8012;border:1px solid #4ade8055;font-size:13px}
+.dialog{width:520px;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px 18px}
+.dialog p{color:var(--dim);font-size:13px;margin:0 0 10px}
+.choice{border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:6px;font-size:13px}.choice small{display:block;color:var(--faint)}
+.choice.sel{border-color:var(--blue);background:#60a5fa12}
+.btns{display:flex;justify-content:flex-end;gap:8px;margin-top:10px}.btns span{border:1px solid var(--border);border-radius:7px;padding:4px 12px;font-size:13px}.btns .p{background:var(--blue);border-color:var(--blue);color:#fff}
+.note{font-size:12px;color:var(--faint);max-width:1100px}
+</style></head><body>
+
+<div>
+<h1>1 — Fixed column: two checks on every card, and what happens next</h1>
+<div class="row">
+<div class="col"><div class="colh"><span>FIXED</span><span>5</span></div>
+
+<div class="tile"><span class="num">#41</span><span class="kind">BUG</span>
+ <div class="t">All Agencies search returns only branch 7</div>
+ <div class="vchips"><div class="vc ok"><b>✓ Implemented</b><span>in build · backend + frontend</span></div>
+ <div class="vc ok"><b>✓ Worked</b><span>6 calls · 0 → 14 rows</span></div></div>
+ <div class="prop">✦ Claude proposes Verified</div>
+ <div class="acts"><span class="g">✓ Verified</span><span>▶ Re-test</span></div></div>
+
+<div class="tile"><span class="num">#44</span><span class="kind">BUG</span>
+ <div class="t">Branch multi-select sends one branchId</div>
+ <div class="vchips"><div class="vc ok"><b>✓ Implemented</b><span>in build since 10:42</span></div>
+ <div class="vc wait"><b>⏳ Not re-tested</b><span>no call since the fix</span></div></div>
+ <div class="next">Next: <b>re-test now</b> - select 2 branches, search</div>
+ <div class="acts"><span>▶ Re-test</span></div></div>
+
+<div class="tile"><span class="num">#47</span><span class="kind">BUG</span>
+ <div class="t">Refund count query has no index</div>
+ <div class="vchips"><div class="vc no"><b>✗ Not in build</b><span>app started 09:58, fix 10:31</span></div>
+ <div class="vc unk"><b>– Worked</b><span>3 calls ran the old code</span></div></div>
+ <div class="next">Next: <b>restart / redeploy</b>, then re-test</div></div>
+</div>
+
+<div class="col"><div class="colh"><span>FIXED</span><span>…</span></div>
+
+<div class="tile"><span class="num">#49</span><span class="kind">BUG</span>
+ <div class="t">Status filter ignored on export</div>
+ <div class="vchips"><div class="vc ok"><b>✓ Implemented</b><span>in build</span></div>
+ <div class="vc no"><b>✗ Failed</b><span>status still ignored · 2 of 2 calls</span></div></div>
+ <div class="next">→ back to In progress: <b>the fix is wrong</b></div></div>
+
+<div class="tile"><span class="num">#52</span><span class="kind">BUG</span>
+ <div class="t">Agency picker shows deleted agencies</div>
+ <div class="vchips"><div class="vc no"><b>✗ Layer missing</b><span>Frontend - no change on feature/61813</span></div>
+ <div class="vc ok"><b>✓ Worked</b><span>API filters deleted</span></div></div>
+ <div class="next">→ back to In progress: <b>the page still lists them</b></div></div>
+
+<div class="tile"><span class="num">#53</span><span class="kind">BUG</span>
+ <div class="t">Date range off by one day</div>
+ <div class="vchips"><div class="vc unk"><b>? Code not checked</b><span>frontend repo not in the session</span></div>
+ <div class="vc ok"><b>✓ Worked</b><span>4 calls · from = 2026-10-01</span></div></div>
+ <div class="prop">✦ Claude proposes Verified · code not checked</div></div>
+</div>
+</div>
+</div>
+
+<div class="row">
+<div>
+<h1>2 — The card's re-test: both checks with their evidence</h1>
+<div class="drawer">
+ <div><span class="num">#41</span> <b>All Agencies search returns only branch 7</b></div>
+ <div class="sec">RE-TEST · after the fix</div>
+ <div class="two">
+  <div class="box"><h3><span>✓ Implemented</span><span style="color:var(--faint);font-weight:400">by Claude, 11:05</span></h3>
+   <ul><li class="okk">commit <span class="mono">a1b2c3d</span> on <span class="mono">feature/61813</span></li>
+   <li class="okk">in the running build (app started 10:52)</li>
+   <li class="okk">Backend: RefundSearchService.java:88</li>
+   <li class="okk">Frontend: refund-filters.component.ts:141</li>
+   <li class="okk">tests: RefundSearchServiceTest 12 passed</li></ul></div>
+  <div class="box"><h3><span>✓ Worked</span><span style="color:var(--faint);font-weight:400">6 calls since the fix</span></h3>
+   <ul><li class="okk">status 200 · 6 of 6</li>
+   <li class="okk">rows 0 → 14 (All Agencies)</li>
+   <li class="okk">SQL ≤ 6 · was 41</li>
+   <li class="okk">no ERROR log line</li></ul></div>
+ </div>
+ <div class="verdict">✓ Implemented and worked - Claude proposes <b>Verified</b>. <span style="color:var(--dim)">Accept · Dismiss</span></div>
+</div>
+</div>
+
+<div>
+<h1>3 — Moving to Verified when a check is not ✓</h1>
+<div class="dialog">
+ <p><b style="color:var(--text)">Move #53 to Verified?</b><br>It worked on 4 calls, but its code was not checked: the frontend repo is not in Claude's session, so it cannot tell whether the fix is on the task branch.</p>
+ <div class="choice sel">Ask Claude to check the code<small>It stays in Fixed; open the frontend repo in the session and run /alfred-verify 53</small></div>
+ <div class="choice">Verify anyway<small>The card then shows "verified - code not checked"</small></div>
+ <div class="btns"><span>Keep in Fixed</span><span class="p">Go</span></div>
+</div>
+<p class="note" style="margin-top:10px">Same dialog for ✗ Not in build ("its calls ran the old code"), ⏳ Not re-tested, ⚠ Empty answers only (today's). Both ✓ → no dialog, it just moves.</p>
+</div>
+</div>
+
+<p class="note"><b>How it works:</b> /alfred-verify judges each Fixed card twice. <b>Implemented</b> - from the code and git, which only Claude can read: the fix's commit on the task branch, in the running build, every layer of the card's teams changed, nothing reverted, its tests (--tests). <b>Worked</b> - from the calls since the fix, as today. Both are recorded in the card's re-test history; Claude proposes Verified only on ✓ + ✓ (or ✓ worked + code not reachable, labelled). Verified stays your click.</p>
+</body></html>

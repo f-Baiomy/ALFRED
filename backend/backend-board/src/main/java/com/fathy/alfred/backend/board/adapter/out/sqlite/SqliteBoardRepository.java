@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fathy.alfred.backend.board.application.port.out.BoardStorePort;
 import com.fathy.alfred.backend.board.application.port.out.SkillRunStorePort;
 import com.fathy.alfred.backend.board.domain.model.Advice;
+import com.fathy.alfred.backend.board.domain.model.CodeCheck;
 import com.fathy.alfred.backend.board.domain.model.SkillRun;
 import com.fathy.alfred.backend.board.domain.model.ActivityEntry;
 import com.fathy.alfred.backend.board.domain.model.ActivityKind;
@@ -276,6 +277,13 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort,
                   calls INTEGER NOT NULL, summary TEXT NOT NULL)
                 """);
         jdbc.execute("CREATE INDEX IF NOT EXISTS idx_retest_runs ON retest_runs(card_id, id)");
+        // specs/026: is a fix implemented - Claude's looks at the code, the latest per card is the card's
+        jdbc.execute("""
+                CREATE TABLE IF NOT EXISTS code_checks (id INTEGER PRIMARY KEY AUTOINCREMENT, card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+                  number INTEGER NOT NULL, verdict TEXT NOT NULL, commit_sha TEXT, branch TEXT, layers_json TEXT, tests TEXT, note TEXT,
+                  at INTEGER NOT NULL, actor TEXT NOT NULL)
+                """);
+        jdbc.execute("CREATE INDEX IF NOT EXISTS idx_code_checks ON code_checks(card_id, id)");
         jdbc.execute("CREATE TABLE IF NOT EXISTS app_starts (project TEXT PRIMARY KEY, at INTEGER NOT NULL)");
         jdbc.execute("CREATE TABLE IF NOT EXISTS app_start_history (project TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (project, at))");
         // specs/018: the requirement check - each Acceptance item's evidence, what each call showed about it, its card
@@ -1566,6 +1574,26 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort,
             Long id = jdbc.queryForObject("SELECT last_insert_rowid()", Long.class);
             return id == null ? 0L : id;
         });
+    }
+
+    @Override
+    public void putCodeCheck(CodeCheck c) {
+        tx.executeWithoutResult(status -> {
+            jdbc.update("INSERT INTO code_checks(card_id, number, verdict, commit_sha, branch, layers_json, tests, note, at, actor) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    c.cardId(), c.number(), c.verdict(), c.commit(), c.branch(), CodeChecks.layersJson(c.layers()), c.tests(), c.note(),
+                    c.at().toEpochMilli(), c.by().name());
+            // keep the last 20 looks per card
+            jdbc.update("DELETE FROM code_checks WHERE card_id = ? AND id NOT IN (SELECT id FROM code_checks WHERE card_id = ? ORDER BY id DESC LIMIT 20)",
+                    c.cardId(), c.cardId());
+        });
+    }
+
+    @Override
+    public Optional<CodeCheck> codeCheck(String cardId) {
+        return jdbc.query("SELECT card_id, number, verdict, commit_sha, branch, layers_json, tests, note, at, actor FROM code_checks WHERE card_id = ? "
+                + "ORDER BY id DESC LIMIT 1", (rs, n) -> new CodeCheck(rs.getString(1), rs.getInt(2), rs.getString(3), rs.getString(4), rs.getString(5),
+                CodeChecks.layers(rs.getString(6)), rs.getString(7), rs.getString(8), Instant.ofEpochMilli(rs.getLong(9)),
+                CodeChecks.actor(rs.getString(10))), cardId).stream().findFirst();
     }
 
     @Override

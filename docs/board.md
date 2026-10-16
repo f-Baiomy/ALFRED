@@ -485,6 +485,25 @@ The MCP tools built on these are listed in docs/mcp.md: `board_search`, `board_c
   (`boardbridge/BoardCycleCallsAdapter` signs them like a card's call). **Copy as issue** builds Markdown for Jira /
   GitHub in the browser (`shared/utils/board-skills.ts`).
 
+## Implemented and worked (specs/026)
+
+A Fixed card is judged twice before Verified, and the two are different questions:
+
+- **Implemented** - is the fix in the code that runs: its commit on the task branch, in the running build (the app
+  started after it), every layer the card's teams own changed, nothing reverted it, its tests (when run). Only Claude
+  can read the code and git, so `/alfred-verify` records it: `PUT /board/cards/{id}/code-check` (`board_verify`'s
+  `implemented`) with a verdict - IMPLEMENTED, NOT_ON_BRANCH, NOT_IN_BUILD, LAYER_MISSING, REVERTED, TESTS_FAIL or
+  UNKNOWN (plain text, read leniently) - the commit, the branch, each layer `{team, where, ok}`, the tests and a note.
+  Kept in `code_checks` (board.db, the last 20 per card); a check made before the card's fix says nothing about it.
+- **Worked** - the re-test of the calls since the fix (below).
+
+Every re-test check carries the latest code check as `code`. A Fixed tile shows both as two chips (`✓ Implemented ·
+✓ Worked`, `✗ Not in build · – 3 calls ran the old code`, `? Code not checked · ✓ Worked`); the drawer's re-test shows
+both with their evidence and "ready for Verified" when both hold. Claude proposes Verified only on implemented ✓ +
+worked ✓ (or worked ✓ with the code out of reach, saying so); a card that worked on the API but misses a layer goes back
+to In progress. Moving a card to Verified with either check short asks first (Ask Claude to verify it / Verify anyway /
+Keep in Fixed) - Verified stays the user's.
+
 ## Re-test without a cycle (specs/016)
 
 A Fixed card is re-tested by the **live calls to its endpoint made after the fix** - the user just uses the app. A

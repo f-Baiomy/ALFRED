@@ -1,6 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
-import { RetestCheck, onlyEmptyAnswers } from '../models/board.models';
+import { RetestCheck, onlyEmptyAnswers, verifyGaps } from '../models/board.models';
 import { BoardApiService } from './board-api.service';
 import { ConfirmDialogService } from './confirm-dialog.service';
 
@@ -29,6 +29,27 @@ export class VerifyGuardService {
       check = (await firstValueFrom(this.api.cardRetest(card.id))).check;
     } catch {
       check = null; // an Alfred without the re-test: move as before
+    }
+    // specs/026: a Fixed card is ready when it is implemented AND it worked; anything less asks first (empty answers below)
+    const gaps = check && check.status === 'FIXED' && !onlyEmptyAnswers(check) ? verifyGaps(check) : [];
+    if (gaps.length) {
+      const pick = await this.dialog.choose(
+        `Move #${card.number} to Verified? ${gaps.map((g) => g.charAt(0).toUpperCase() + g.slice(1)).join('. ')}.`,
+        [
+          { value: 'ask', label: 'Ask Claude to verify it', hint: `It stays in Fixed; Claude runs /alfred-verify ${card.number} - the code and the calls` },
+          { value: 'anyway', label: 'Verify anyway', hint: 'Your call - the card keeps what was not checked in its re-test' },
+        ],
+        'ask', 'Go', 'Keep in Fixed');
+      if (pick === 'anyway') {
+        move();
+        return 'moved';
+      }
+      if (pick === 'ask') {
+        this.api.comment(card.id, `Verify #${card.number} please: ${gaps.join('; ')}. Check that it is implemented (the commit on the task branch, `
+          + 'in the running build, every layer) and that it worked on the calls since the fix - /alfred-verify.').subscribe({ error: () => undefined });
+        return 'asked';
+      }
+      return 'kept';
     }
     if (!onlyEmptyAnswers(check)) {
       move();

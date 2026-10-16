@@ -84,7 +84,9 @@ describe('BoardColumnsComponent', () => {
     buttons.find((x) => x.textContent?.includes('Re-test 1 selected'))!.click();
     buttons.filter((x) => x.textContent?.trim() === '▶ Re-test')[0].click();
     expect(asked).toEqual([[18, 19], [19], [18]]);
-    expect(el.querySelector('.board-retest-pass')?.textContent).toContain('passes · 3 calls since the fix');
+    // specs/026: a Fixed card shows its two checks - implemented (nobody looked yet) and worked
+    const checks = Array.from(el.querySelectorAll('.board-vcheck')).map((c) => c.textContent?.replace(/\s+/g, ' ').trim());
+    expect(checks).toEqual(['? Code not checked/alfred-verify checks it', '✓ Worked3 calls since the fix']);
     expect(buttons.some((x) => x.textContent?.includes('✓ Verified'))).toBeTrue();
   });
 });

@@ -23,7 +23,25 @@ import java.util.List;
  */
 public record RetestCheck(int number, String project, String title, CardStatus status, Instant since, Verdict verdict,
                           boolean statusOnly, String summary, List<Result> results, List<CallResult> calls, List<StepResult> steps,
-                          boolean newBuild, int beforeBuild, int emptyAnswers, boolean verifiedOnEmpty) {
+                          boolean newBuild, int beforeBuild, int emptyAnswers, boolean verifiedOnEmpty, CodeCheck code) {
+
+    /** {@code code}: is the fix implemented (specs/026) - Claude's latest look at the code since the fix, or null. */
+    public RetestCheck(int number, String project, String title, CardStatus status, Instant since, Verdict verdict, boolean statusOnly,
+                       String summary, List<Result> results, List<CallResult> calls, List<StepResult> steps, boolean newBuild,
+                       int beforeBuild, int emptyAnswers, boolean verifiedOnEmpty) {
+        this(number, project, title, status, since, verdict, statusOnly, summary, results, calls, steps, newBuild, beforeBuild, emptyAnswers,
+                verifiedOnEmpty, null);
+    }
+
+    public RetestCheck withCode(CodeCheck check) {
+        return new RetestCheck(number, project, title, status, since, verdict, statusOnly, summary, results, calls, steps, newBuild,
+                beforeBuild, emptyAnswers, verifiedOnEmpty, check);
+    }
+
+    /** Implemented and worked: the code check says IMPLEMENTED and every call since the fix passes (specs/026). */
+    public boolean implementedAndWorked() {
+        return code != null && code.implemented() && verdict == Verdict.PASSES;
+    }
 
     /** Without the specs/020 counts: none before the build, no empty answers. */
     public RetestCheck(int number, String project, String title, CardStatus status, Instant since, Verdict verdict, boolean statusOnly,
@@ -40,7 +58,7 @@ public record RetestCheck(int number, String project, String title, CardStatus s
     /** A Verified / Done card whose last re-test before it was accepted saw only empty answers (specs/020). */
     public RetestCheck withVerifiedOnEmpty() {
         return new RetestCheck(number, project, title, status, since, verdict, statusOnly, summary, results, calls, steps, newBuild,
-                beforeBuild, emptyAnswers, true);
+                beforeBuild, emptyAnswers, true, code);
     }
 
     /** Every call judged answered with nothing (an empty list) - the fix was never seen working on data. */

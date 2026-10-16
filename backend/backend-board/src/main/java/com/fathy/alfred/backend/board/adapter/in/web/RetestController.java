@@ -76,6 +76,19 @@ public class RetestController {
         }).orElseGet(() -> BoardWeb.refused(CardChange.Outcome.NOT_FOUND, "No such card"));
     }
 
+    public record CodeRequestDto(String verdict, String commit, String branch, List<com.fathy.alfred.backend.board.domain.model.CodeCheck.Layer> layers,
+                                 String tests, String note) {
+    }
+
+    /** Is the card's fix implemented (specs/026): what Claude found in the code and git, shown beside the re-test of the calls. */
+    @PutMapping("/board/cards/{id}/code-check")
+    public ResponseEntity<?> code(@RequestHeader(value = BoardWeb.ACTOR_HEADER, required = false) String actor, @PathVariable String id,
+                                  @RequestBody CodeRequestDto body) {
+        RetestUseCase.CodeChange change = retest.recordCode(BoardWeb.actor(actor), id,
+                new RetestUseCase.CodeIn(body.verdict(), body.commit(), body.branch(), body.layers(), body.tests(), body.note()));
+        return change.outcome() == CardChange.Outcome.OK ? ResponseEntity.ok(change.check()) : BoardWeb.refused(change.outcome(), change.message());
+    }
+
     public record PlanRequestDto(List<Expectation> expectations, List<RetestPlan.Step> steps) {
     }
 

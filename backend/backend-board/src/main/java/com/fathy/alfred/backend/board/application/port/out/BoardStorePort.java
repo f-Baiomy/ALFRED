@@ -270,6 +270,15 @@ public interface BoardStorePort {
     /** A card's recorded re-tests, newest first. */
     List<com.fathy.alfred.backend.board.domain.model.RetestRun> retestRuns(String cardId, int limit);
 
+    /** Keeps one look at a card's code (specs/026); the latest is the card's. */
+    default void putCodeCheck(com.fathy.alfred.backend.board.domain.model.CodeCheck check) {
+    }
+
+    /** The card's latest code check, if Claude ever looked. */
+    default java.util.Optional<com.fathy.alfred.backend.board.domain.model.CodeCheck> codeCheck(String cardId) {
+        return java.util.Optional.empty();
+    }
+
     void putAppStart(String project, java.time.Instant at);
 
     java.util.Optional<java.time.Instant> appStart(String project);

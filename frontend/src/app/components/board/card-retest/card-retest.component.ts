@@ -1,7 +1,8 @@
 import { SelectOption, SelectPickerComponent } from '../../select-picker/select-picker.component';
 import { Component, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
 import {
-  CardDetail, CardRetest, Expectation, ExpectationKind, RetestCheck, RetestOutcome, RetestStep, expectationText, onlyEmptyAnswers, retestChip, suggestExpectations,
+  CardDetail, CardRetest, Expectation, ExpectationKind, RetestCheck, RetestOutcome, RetestStep, expectationText, implementedAndWorked, implementedChip,
+  onlyEmptyAnswers, retestChip, suggestExpectations, workedChip,
 } from '../../../core/models/board.models';
 import { BoardApiService } from '../../../core/services/board-api.service';
 import { ConfirmDialogService } from '../../../core/services/confirm-dialog.service';
@@ -33,6 +34,30 @@ const KIND_LABELS: Record<ExpectationKind, string> = {
             <button type="button" class="board-link" title="Check the live calls since the fix now and keep it in the history" (click)="checkNow()">Check now</button>
           }
         </h4>
+        @if (card().status === 'FIXED') {
+          <!-- specs/026: two checks - implemented (the code, by Claude) and worked (the calls) - both before Verified -->
+          <div class="board-vboxes">
+            <div class="board-vbox" [class]="'board-vbox board-vcheck-' + impl().tone">
+              <div class="board-vbox-h"><b>{{ impl().text }}</b>@if (d.check.code?.at; as at) { <span class="board-dim">by Claude · {{ when(at) }}</span> }</div>
+              @if (d.check.code; as code) {
+                <ul>
+                  @if (code.commit) { <li>commit <code>{{ code.commit }}</code>@if (code.branch) { on <code>{{ code.branch }}</code> }</li> }
+                  @for (l of code.layers; track $index) { <li [class.bad]="!l.ok">{{ l.ok ? '✓' : '✗' }} {{ l.team }}@if (l.where) { : {{ l.where }} }@if (l.note) { <span class="board-dim"> · {{ l.note }}</span> }</li> }
+                  @if (code.tests) { <li>tests: {{ code.tests }}</li> }
+                  @if (code.note) { <li class="board-dim">{{ code.note }}</li> }
+                </ul>
+              } @else {
+                <div class="board-dim">Nobody checked the code since the fix: the commit on the task branch, in the running build, every layer.
+                  <code>/alfred-verify {{ card().number }}</code> checks it.</div>
+              }
+            </div>
+            <div class="board-vbox" [class]="'board-vbox board-vcheck-' + worked().tone">
+              <div class="board-vbox-h"><b>{{ worked().text }}</b><span class="board-dim">{{ d.check.calls.length }} call{{ d.check.calls.length === 1 ? '' : 's' }} since the fix</span></div>
+              <div class="board-dim">{{ worked().detail }}</div>
+            </div>
+          </div>
+          @if (ready()) { <div class="board-vready">✓ Implemented and worked - ready for Verified</div> }
+        }
         @if (d.check.statusOnly) {
           <div class="board-dim">No expectations yet - only the status is compared. Add what "fixed" means below.</div>
         }
@@ -113,7 +138,8 @@ const KIND_LABELS: Record<ExpectationKind, string> = {
         @if (editable() && card().status === 'FIXED') {
           <div class="board-retest-foot">
             <button type="button" class="action-btn primary" [disabled]="d.check.verdict !== 'PASSES'"
-                    [title]="d.check.verdict === 'PASSES' ? 'Every call since the fix passes' : 'Not every check passes yet'" (click)="move('VERIFIED')">✓ Accept Verified</button>
+                    [title]="ready() ? 'Implemented and worked' : d.check.verdict === 'PASSES' ? 'It worked - its code was not confirmed yet' : 'Not every check passes yet'"
+                    (click)="move('VERIFIED')">✓ Accept Verified</button>
             <button type="button" class="action-btn" title="Back to To do - Claude picks it up again" (click)="move('TO_DO')">Still wrong…</button>
           </div>
         }
@@ -143,6 +169,9 @@ export class CardRetestComponent {
     const d = this.data();
     return d && d.check.verdict !== 'NOT_CHECKABLE' ? retestChip(d.check) : null;
   });
+  readonly impl = computed(() => (this.data() ? implementedChip(this.data()!.check) : { text: '', detail: '', tone: 'wait' as const }));
+  readonly worked = computed(() => (this.data() ? workedChip(this.data()!.check) : { text: '', detail: '', tone: 'wait' as const }));
+  readonly ready = computed(() => implementedAndWorked(this.data()?.check));
   /** The verdict for the drawer's Re-test tab and its "needs you" row (specs/023). */
   readonly verdict = output<{ readonly text: string; readonly tone: 'pass' | 'fail' | 'part' | 'wait' } | null>();
   /** Suggested expectations not in the plan yet (FR-9). */

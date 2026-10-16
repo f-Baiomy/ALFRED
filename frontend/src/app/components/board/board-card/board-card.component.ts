@@ -1,6 +1,7 @@
 import { Component, computed, inject, input, output, signal } from '@angular/core';
 import {
-  CardStatus, CardSummary, FLAG_LABELS, Proposal, RESOLUTION_BUTTONS, RESOLUTION_LABELS, Resolution, RetestCheck, ageText, isStale, retestChip,
+  CardStatus, CardSummary, FLAG_LABELS, Proposal, RESOLUTION_BUTTONS, RESOLUTION_LABELS, Resolution, RetestCheck, ageText, implementedChip, isStale,
+  retestChip, workedChip,
 } from '../../../core/models/board.models';
 import { MentionChipComponent } from '../mention-chip/mention-chip.component';
 import { RefTextComponent } from '../mention-chip/ref-text.component';
@@ -81,7 +82,17 @@ export type CardAction =
       @if (waiting(); as w) {
         <div class="board-card-row"><span class="board-wait" [class]="'board-wait board-wait-' + card().waiting!.who">{{ w }}</span></div>
       }
-      @if (chip(); as ch) {
+      @if (checks(); as two) {
+        <!-- specs/026: a Fixed card is ready for Verified when it is implemented AND it worked -->
+        <div class="board-vchecks">
+          @for (k of two; track k.text) {
+            <div class="board-vcheck" [class]="'board-vcheck board-vcheck-' + k.tone" [title]="k.text + (k.detail ? ' - ' + k.detail : '')">
+              <b>{{ k.text }}</b>@if (k.detail) { <span>{{ k.detail }}</span> }
+            </div>
+          }
+        </div>
+      }
+      @if (!checks() && chip(); as ch) {
         <div class="board-card-row"><span class="board-retest" [class]="'board-retest board-retest-' + ch.tone"
               [title]="'Re-test: ' + retest()!.summary">{{ ch.text }}</span></div>
       }
@@ -166,6 +177,11 @@ export class BoardCardComponent {
     return r && (this.card().status === 'FIXED' || this.card().status === 'VERIFIED' || this.card().status === 'DONE') ? retestChip(r) : null;
   });
   readonly hasOpenQuestion = computed(() => this.questionCount() > 0);
+  /** A Fixed card's two checks (specs/026): implemented, and worked. */
+  readonly checks = computed(() => {
+    const r = this.retest();
+    return r && this.card().status === 'FIXED' ? [implementedChip(r), workedChip(r)] : null;
+  });
   /** How sure Claude is of its advice (triage): High, Medium or Low. */
   readonly confidence = computed(() => this.card().openQuestions ? confidenceOf(this.card()) : null);
   readonly confidenceText = confidenceLabel;

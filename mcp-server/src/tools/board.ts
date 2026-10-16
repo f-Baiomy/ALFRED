@@ -118,13 +118,39 @@ type RetestResultRow = { text: string; outcome: string; before: string | null; a
 type RetestCheckRow = { number: number; title: string; status: string; verdict: string; statusOnly: boolean; summary: string; newBuild: boolean;
   results: RetestResultRow[]; calls: { ref: string; label: string; passed: boolean; failed: string | null }[];
   steps: { text: string; endpoint: string | null; seen: boolean; calls: number; note?: string | null }[];
-  beforeBuild?: number; emptyAnswers?: number };
+  beforeBuild?: number; emptyAnswers?: number; code?: CodeCheckRow | null };
+/** Is the fix implemented (specs/026): Claude's latest look at the code since the fix. */
+type CodeCheckRow = { verdict: string; commit: string | null; branch: string | null; layers: { team: string | null; where: string | null; ok: boolean; note?: string | null }[];
+  tests: string | null; note: string | null; at: string };
 type RetestPlanRow = { expectations: unknown[]; steps: unknown[]; updatedBy: string | null; warnings?: string[] };
 type RetestRunRow = { at: string; verdict: string; calls: number; source: string; summary: string };
+
+/** "implemented ✓ (a1b2c3d on feature/61813 · backend RefundSearchService.java:88)", "NOT_IN_BUILD - …", or not checked. */
+export function implementedLine(code: CodeCheckRow | null | undefined): string {
+  if (!code) return 'code not checked since the fix - check it (git, the task branch, the running build, each layer) and pass `implemented`';
+  const where = [code.commit && `${code.commit}${code.branch ? ` on ${code.branch}` : ''}`,
+    ...code.layers.map((l) => `${l.ok ? '' : 'MISSING '}${l.team ?? ''} ${l.where ?? ''}`.trim()), code.tests && `tests: ${code.tests}`].filter(Boolean).join(' · ');
+  return `${code.verdict === 'IMPLEMENTED' ? 'implemented ✓' : code.verdict}${where ? ` (${where})` : ''}${code.note ? ` - ${code.note}` : ''}`;
+}
+
+/** What a Fixed card's two checks add up to (specs/026): ready for Verified only when it is implemented and it worked. */
+export function readiness(c: RetestCheckRow): string {
+  const impl = c.code?.verdict;
+  if (impl && impl !== 'IMPLEMENTED' && impl !== 'UNKNOWN') {
+    return impl === 'NOT_IN_BUILD' ? 'not ready - the running build does not carry the fix: restart / redeploy, then re-test (its calls ran the old code)'
+      : impl === 'NOT_ON_BRANCH' ? 'not ready - the fix is not on the task branch: merge it'
+        : `not ready - ${impl.toLowerCase().replace(/_/g, ' ')}: back to In progress`;
+  }
+  if (c.verdict === 'FAILS' || c.verdict === 'FLAKY') return 'not ready - it did not work: back to In progress';
+  if (c.verdict !== 'PASSES') return `not ready - not re-tested yet (${c.verdict})`;
+  if (!c.code) return 'worked ✓ - code not checked: check it before proposing Verified';
+  return impl === 'UNKNOWN' ? 'worked ✓, code not reachable - propose Verified saying "code not checked"' : 'ready for Verified - implemented ✓ and worked ✓';
+}
 
 function retestLine(c: RetestCheckRow): Record<string, unknown> {
   return {
     card: `#${c.number} ${c.title} (${c.status}) - ${c.verdict}: ${c.summary}${c.newBuild ? ' · new build since the fix, not re-tested yet' : ''}`,
+    ...(c.status === 'FIXED' ? { implemented: implementedLine(c.code), ready: readiness(c) } : {}),
     ...(c.statusOnly ? { note: 'No expectations - only the status was compared; board_retest_plan adds them' } : {}),
     results: c.results.map((r) => `${r.outcome} ${r.text}${r.before != null ? ` · before ${r.before}` : ''}${r.after.length ? ` · now ${r.after.slice(0, 5).join(', ')}` : ''}${r.note ? ` (${r.note})` : ''}`),
     ...(c.steps.length ? { steps: c.steps.map((s) => `${s.seen ? 'done' : 'not done'} - ${s.text}${s.endpoint ? ` [${s.endpoint}]` : ''}${s.note ? ` (${s.note})` : ''}`) } : {}),
@@ -877,8 +903,24 @@ export function register(server: McpServer, client: AlfredClient): void {
       cycleId: z.string().optional().describe('A re-test cycle; omit to use the live calls since each fix'),
       record: z.boolean().default(false),
       apply: z.boolean().default(false),
+      implemented: z.array(z.object({
+        number: CardNumber,
+        verdict: z.enum(['implemented', 'not_on_branch', 'not_in_build', 'layer_missing', 'reverted', 'tests_fail', 'unknown']),
+        commit: z.string().max(200).optional().describe('The fix\'s commit (from board_fix)'),
+        branch: z.string().max(200).optional().describe('The task branch you checked it on'),
+        layers: z.array(z.object({ team: z.string().max(80), where: z.string().max(400).describe('file:line of its change, or what is missing'),
+          ok: z.boolean(), note: z.string().max(400).optional() })).max(12).optional(),
+        tests: z.string().max(400).optional().describe('The fix\'s tests you ran and their result'),
+        note: z.string().max(1000).optional(),
+      })).max(100).optional().describe('Is each fix implemented (specs/026) - what YOU found in the code and git before judging the calls: the '
+        + 'commit on the task branch, in the running build (app started after it), every layer of the card\'s teams changed, nothing '
+        + 'reverted, its tests. Recorded on the card beside the calls\' verdict; a card is ready for Verified only when it is implemented AND worked.'),
     },
   }, (input) => run(async () => {
+    for (const code of input.implemented ?? []) {
+      const card = await cardByNumber(client, input.project, code.number);
+      await client.put(`/board/cards/${seg(card.id)}/code-check`, { ...AS_CLAUDE, body: { ...code, verdict: code.verdict.toUpperCase() } });
+    }
     let checks: RetestCheckRow[];
     let report: string | undefined;
     if (input.record || input.apply) {
@@ -897,9 +939,18 @@ export function register(server: McpServer, client: AlfredClient): void {
       for (const c of checks) {
         const card = await cardByNumber(client, input.project, c.number);
         const evidence = c.calls.slice(0, 10).map((x) => serializeMention({ type: 'call', ref: x.ref, label: x.label })).join(' ');
-        if (c.verdict === 'PASSES') {
-          await client.put(`/board/cards/${seg(card.id)}/proposal`, { ...AS_CLAUDE, body: { status: 'VERIFIED', reason: `Re-test from ${source}: ${c.summary}`, evidence } });
-          done.push(`#${c.number} proposed Verified`);
+        const impl = c.code?.verdict;
+        if (impl && impl !== 'IMPLEMENTED' && impl !== 'UNKNOWN') {
+          await client.post(`/board/cards/${seg(card.id)}/comments`, { ...AS_CLAUDE, body: {
+            did: `Checked the code and re-tested from ${source}`, found: `Not implemented: ${implementedLine(c.code)}\n\nCalls: ${c.verdict} - ${c.summary}`,
+            next: readiness(c), waitingOn: impl === 'NOT_IN_BUILD' || impl === 'NOT_ON_BRANCH' ? 'USER' : 'CLAUDE' } });
+          done.push(`#${c.number} commented not implemented (${impl})`);
+        } else if (c.verdict === 'PASSES') {
+          const unchecked = !c.code || impl === 'UNKNOWN';
+          await client.put(`/board/cards/${seg(card.id)}/proposal`, { ...AS_CLAUDE, body: { status: 'VERIFIED',
+            reason: `${unchecked ? 'Worked - code not checked' : 'Implemented and worked'}. Re-test from ${source}: ${c.summary}`
+              + `${c.code ? ` · ${implementedLine(c.code)}` : ''}`, evidence } });
+          done.push(`#${c.number} proposed Verified${unchecked ? ' (code not checked)' : ''}`);
         } else if (c.verdict === 'FAILS' || c.verdict === 'FLAKY') {
           await client.post(`/board/cards/${seg(card.id)}/comments`, { ...AS_CLAUDE, body: {
             did: `Re-tested from ${source}`, found: `${c.verdict === 'FLAKY' ? 'Flaky' : 'Still failing'}: ${c.summary}\n\n${evidence}`,

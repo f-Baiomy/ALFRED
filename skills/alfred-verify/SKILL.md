@@ -1,6 +1,6 @@
 ---
 name: alfred-verify
-description: Verify fixes with Alfred - re-test every Fixed card (or the ones named) against the live calls since its fix, or a re-test cycle, by the card's expectations (SQL count, status, log lines, duration, response) with before → after; check each Acceptance item's code layer by layer (backend, frontend, database) in every source this session can reach, on the task branch, and say which layer it cannot reach; check every open card against the code (a fix still there, a To do already written - asks "Record as fixed?"); find Acceptance items added to the spec since the last verify and draft their evidence; catch a fix the running build does not carry yet; runs before testing (is everything built?) and after fixes, and beside a running /alfred-listen; propose Verified or comment "still failing" with the evidence, check guards and regressions of Done cards, and suggest checklist marks. Use when the user says "verify", "check the fixes", "re-test", or "/alfred-verify".
+description: Verify fixes with Alfred - every Fixed card judged twice, implemented (the code, the branch, the running build, every layer) and worked (the calls), ready for Verified only when both hold; re-test every Fixed card (or the ones named) against the live calls since its fix, or a re-test cycle, by the card's expectations (SQL count, status, log lines, duration, response) with before → after; check each Acceptance item's code layer by layer (backend, frontend, database) in every source this session can reach, on the task branch, and say which layer it cannot reach; check every open card against the code (a fix still there, a To do already written - asks "Record as fixed?"); find Acceptance items added to the spec since the last verify and draft their evidence; catch a fix the running build does not carry yet; runs before testing (is everything built?) and after fixes, and beside a running /alfred-listen; propose Verified or comment "still failing" with the evidence, check guards and regressions of Done cards, and suggest checklist marks. Use when the user says "verify", "check the fixes", "re-test", or "/alfred-verify".
 argument-hint: "[card numbers] [re-test cycle] [project] [--wait] [--tests] [--dry]"
 ---
 
@@ -41,10 +41,23 @@ Then:
   an error.
 - In the chat that runs listen, its watch lines keep coming: write nothing in reply to them (listen's rule).
 
-## 2. Fixed cards
+## 2. Fixed cards - implemented, and worked
 
-0. **Is the fix in the running build?** For each card, before judging it: the commit its fix recorded (`board_get`,
-   the `board_fix` entry; none → skip this step for the card) and the repo that holds the fix's files (see 2c "Sources").
+A Fixed card is judged twice (specs/026), and both are recorded on the card - the board shows them as two chips:
+
+- **Implemented** - from the code and git, which only you can read: the fix's commit on the task branch, in the running
+  build, every layer the card's teams own changed (a Backend + Frontend card needs both), nothing reverted it since,
+  and with `--tests` its tests pass. Verdict: `implemented`, `not_on_branch`, `not_in_build`, `layer_missing`,
+  `reverted`, `tests_fail`, or `unknown` (the code is not reachable in this session - say which repo).
+- **Worked** - from the calls since the fix, by the card's expectations (step 1).
+
+Only **implemented ✓ and worked ✓** is ready for Verified. Pass every card's implemented verdict to `board_verify` as
+`implemented: [{number, verdict, commit, branch, layers: [{team, where, ok}], tests, note}]` - it records each on the
+card before the calls are judged, and each check comes back with `implemented` and `ready` lines.
+
+0. **Is the fix implemented?** For each card, before judging it: the commit its fix recorded (`board_get`,
+   the `board_fix` entry; none → find it with `git log` on the fix's files, else `unknown`) and the repo that holds the
+   fix's files (see 2c "Sources").
    - `git merge-base --is-ancestor <commit> <task branch>` fails → the fix is **not on the task branch** (another branch,
      not merged, rebased away). Say which branches hold it (`git branch -a --contains <commit>`).
    - `board_retest` gives `appStarted` (the app's last start Alfred saw). The commit is newer
@@ -53,12 +66,22 @@ Then:
    A card in either case is never moved back to In progress for what its calls show: those calls ran the old code.
    State comment "the running build does not carry the fix (commit <sha> at <time>, app started <time>) - restart /
    redeploy, then re-test" (or "the fix is not on <branch> - merge it"), `waitingOn` RETEST.
-1. `board_verify` with the project, `numbers`, and `cycleId` if one was named, `record: true` (keeps each card's
-   re-test in its history and returns the report). Verdicts per card:
-   - **PASSES** - every call since the fix meets every expectation. Look at the before → after values; when the card has
-     no expectations (`statusOnly`) check its own evidence too: the new calls' ERROR / WARN lines (`call_logs`), the SQL
-     the card was about (`db_statements`). Then `board_propose` VERIFIED with the calls as evidence, state comment,
-     `waitingOn` USER.
+   - Each layer of the card's teams (`board_teams`, the card's `teams`): the change in that layer's repo on the task
+     branch (`git diff <base>...<branch> -- <files>`, CodeGraph, the fix's `files`) → `{team, where: "File.java:88", ok}`;
+     a layer with no change → `ok: false` and the verdict `layer_missing`.
+   - `git log <commit>..<branch> -- <the fix's files>`: a later commit that undid it → `reverted`, name the commit.
+1. `board_verify` with the project, `numbers`, `cycleId` if one was named, `record: true` (keeps each card's
+   re-test in its history and returns the report) and `implemented` (step 0, one per card). Then per card, by **both**:
+   - **Not implemented** (`layer_missing`, `reverted`, `tests_fail`) - whatever the calls say: state comment naming what
+     is missing (the layer, the reverting commit, the failing test), `board_move` IN_PROGRESS, `waitingOn` CLAUDE, next
+     `/alfred-fix <n>`. A card that worked on the API but misses its Frontend change is not fixed.
+   - **`not_in_build` / `not_on_branch`** - step 0's comment; never judged by its calls (they ran the old code).
+   - **PASSES and implemented** - every call since the fix meets every expectation. Look at the before → after values;
+     when the card has no expectations (`statusOnly`) check its own evidence too: the new calls' ERROR / WARN lines
+     (`call_logs`), the SQL the card was about (`db_statements`). Then `board_propose` VERIFIED with the calls and the
+     commit as evidence ("Implemented and worked: …"), state comment, `waitingOn` USER.
+   - **PASSES, code `unknown`** - propose Verified saying plainly "worked - code not checked (<repo> not in this
+     session)"; the user decides.
    - **FAILS / FLAKY** - state comment with the failing values and calls, `board_move` IN_PROGRESS, `waitingOn` CLAUDE,
      next `/alfred-fix <n>` - unless step 0 found the build does not carry the fix (then step 0's comment, no move).
    - **PARTIAL** - a step not done yet, or a duration waiting for more calls: state comment naming what is left,

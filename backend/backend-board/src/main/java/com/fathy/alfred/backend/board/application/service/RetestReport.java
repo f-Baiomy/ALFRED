@@ -30,13 +30,24 @@ final class RetestReport {
         return out.toString().trim() + "\n";
     }
 
+    /** " · implemented ✓" / " · not implemented: NOT_IN_BUILD" / " · code not checked" (specs/026). */
+    static String implemented(RetestCheck c) {
+        if (c.code() == null) {
+            return " · code not checked";
+        }
+        if (c.code().implemented()) {
+            return c.verdict() == Verdict.PASSES ? " · implemented ✓ and worked ✓ - ready for Verified" : " · implemented ✓";
+        }
+        return " · not implemented: " + c.code().verdict() + (c.code().note() == null ? "" : " (" + c.code().note() + ")");
+    }
+
     private static void section(StringBuilder out, String title, List<RetestCheck> checks, Verdict verdict) {
         List<RetestCheck> these = checks.stream().filter(c -> c.verdict() == verdict).toList();
         if (these.isEmpty()) {
             return;
         }
         out.append("**").append(title).append(" (").append(these.size()).append(")**\n");
-        out.append(these.stream().map(c -> "- #" + c.number() + " " + c.title() + " - " + c.summary()).collect(Collectors.joining("\n")));
+        out.append(these.stream().map(c -> "- #" + c.number() + " " + c.title() + " - " + c.summary() + implemented(c)).collect(Collectors.joining("\n")));
         out.append("\n\n");
     }
 }

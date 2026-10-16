@@ -182,10 +182,39 @@ test('board_for_call, board_similar and board_verify report what the backend fou
       calls: [{ ref: 'in:r1@cy', label: 'POST /orders · 201', passed: true, failed: null }], steps: [] }];
     const verified = await w.call('board_verify', { project: 'p', cycleId: 'cy', apply: true });
     assert.equal(verified.isError, false, verified.text);
-    assert.deepEqual(verified.json.applied, ['#1 proposed Verified']);
+    assert.deepEqual(verified.json.applied, ['#1 proposed Verified (code not checked)'], 'worked, but nobody looked at the code (specs/026)');
     assert.equal(verified.json.report, '## Re-test p');
     assert.match(verified.json.checks[0].results[0], /^PASS Status !5xx · before 500 · now 201$/);
     assert.match(w.fake.requests('PUT', '/board/cards/card-1/proposal')[0].body.evidence, /@\[call:in:r1@cy\|POST \/orders · 201\]/);
+  } finally { await w.close(); }
+});
+
+test('board_verify records whether each fix is implemented and proposes Verified only when it is implemented and worked (specs/026)', async () => {
+  const w = await world();
+  try {
+    await w.call('board_add', { project: 'p', kind: 'BUG', title: 'A' });
+    await w.call('board_add', { project: 'p', kind: 'BUG', title: 'B' });
+    w.fake.board.cards.forEach((c) => { c.status = 'FIXED'; });
+    const passes = { status: 'FIXED', verdict: 'PASSES', statusOnly: false, newBuild: false, summary: 'passes · 3 calls', results: [], steps: [],
+      calls: [{ ref: 'in:c1', label: 'GET /a', passed: true, failed: null }] };
+    w.fake.board.retest = [
+      { ...passes, number: 1, title: 'A', code: { verdict: 'IMPLEMENTED', commit: 'a1b2c3d', branch: 'feature/x', layers: [{ team: 'backend', where: 'A.java:8', ok: true }], tests: null, note: null, at: 't' } },
+      { ...passes, number: 2, title: 'B', code: { verdict: 'NOT_IN_BUILD', commit: 'b2', branch: 'feature/x', layers: [], tests: null, note: 'app started before the fix', at: 't' } },
+    ];
+    const out = await w.call('board_verify', { project: 'p', apply: true, implemented: [
+      { number: 1, verdict: 'implemented', commit: 'a1b2c3d', branch: 'feature/x', layers: [{ team: 'backend', where: 'A.java:8', ok: true }] },
+      { number: 2, verdict: 'not_in_build', commit: 'b2', note: 'app started before the fix' },
+    ] });
+    assert.equal(out.isError, false, out.text);
+    const codes = w.fake.requests('PUT', '/board/cards/card-1/code-check');
+    assert.equal(codes[0].body.verdict, 'IMPLEMENTED');
+    assert.equal(codes[0].headers?.['x-alfred-actor'], 'claude');
+    assert.equal(w.fake.requests('PUT', '/board/cards/card-2/code-check')[0].body.verdict, 'NOT_IN_BUILD');
+    assert.match(out.json.checks[0].implemented, /^implemented ✓ \(a1b2c3d on feature\/x · backend A\.java:8\)/);
+    assert.equal(out.json.checks[0].ready, 'ready for Verified - implemented ✓ and worked ✓');
+    assert.match(out.json.checks[1].ready, /running build does not carry the fix/);
+    assert.deepEqual(out.json.applied, ['#1 proposed Verified', '#2 commented not implemented (NOT_IN_BUILD)']);
+    assert.equal(w.fake.requests('PUT', '/board/cards/card-2/proposal').length, 0);
   } finally { await w.close(); }
 });
 

@@ -5,6 +5,7 @@ import com.fathy.alfred.backend.board.domain.model.Actor;
 import com.fathy.alfred.backend.board.domain.model.CallFacts;
 import com.fathy.alfred.backend.board.domain.model.CardChange;
 import com.fathy.alfred.backend.board.domain.model.CardStatus;
+import com.fathy.alfred.backend.board.domain.model.CodeCheck;
 import com.fathy.alfred.backend.board.domain.model.CycleCall;
 import com.fathy.alfred.backend.board.domain.model.Expectation;
 import com.fathy.alfred.backend.board.domain.model.MentionRef;
@@ -104,6 +105,44 @@ class RetestServiceTest {
         assertThat(check.summary()).isEqualTo("passes · 2 calls since the fix · ≤ 3 queries on TT_COUNTRY_AIRLINE_MAP: 257 → 3");
         assertThat(check.calls()).extracting(RetestCheck.CallResult::ref).containsExactly("in:a2", "in:a1");
         assertThat(check.steps()).singleElement().satisfies(s -> assertThat(s.seen()).isTrue());
+    }
+
+    @Test
+    void implementedAndWorkedAreTwoChecksAndOnlyBothMakeACardReady() {
+        String id = fixedCard();
+        f.retest.setPlan(Actor.CLAUDE, id, List.of(SQL), List.of());
+        liveCall("a1", 200, 410.0, facts(200, 410, 3, 0));
+        assertThat(only().code()).as("nobody looked at the code yet").isNull();
+        assertThat(only().implementedAndWorked()).isFalse();
+
+        var notInBuild = f.retest.recordCode(Actor.CLAUDE, id, new RetestUseCase.CodeIn("not_in_build", "a1b2c3d", "feature/61813", List.of(), null,
+                "app started 09:58, fix 10:31"));
+        assertThat(notInBuild.outcome()).isEqualTo(CardChange.Outcome.OK);
+        assertThat(only().code().verdict()).isEqualTo("NOT_IN_BUILD");
+        assertThat(only().implementedAndWorked()).as("worked, but not implemented in the build").isFalse();
+
+        f.clock.advanceSeconds(5);
+        f.retest.recordCode(Actor.CLAUDE, id, new RetestUseCase.CodeIn("IMPLEMENTED", "a1b2c3d", "feature/61813",
+                List.of(new CodeCheck.Layer("backend", "RefundSearchService.java:88", true, null)), "12 passed", null));
+        RetestCheck check = only();
+        assertThat(check.code().layers()).singleElement().satisfies(l -> assertThat(l.where()).isEqualTo("RefundSearchService.java:88"));
+        assertThat(check.implementedAndWorked()).isTrue();
+        assertThat(f.retest.run(Actor.CLAUDE, "odeysys", List.of(), null).markdown()).contains("implemented ✓ and worked ✓ - ready for Verified");
+    }
+
+    @Test
+    void aCodeCheckFromBeforeTheFixSaysNothingAndAWrongVerdictIsRefused() {
+        String id = f.create(Actor.USER, "odeysys", "N+1 countries", List.of(new MentionRef(MentionType.CALL, "in:orig", "POST /Admin2/agency/by-branch · 200")))
+                .card().card().id();
+        f.board.move(Actor.USER, id, CardStatus.TO_DO);
+        f.retest.recordCode(Actor.CLAUDE, id, new RetestUseCase.CodeIn("IMPLEMENTED", null, null, List.of(), null, null));
+        f.clock.advanceSeconds(30);
+        f.board.move(Actor.USER, id, CardStatus.FIXED);
+        f.clock.advanceSeconds(30);
+
+        assertThat(only().code()).isNull();
+        assertThat(f.retest.recordCode(Actor.CLAUDE, id, new RetestUseCase.CodeIn("probably", null, null, List.of(), null, null)).outcome())
+                .isEqualTo(CardChange.Outcome.INVALID);
     }
 
     @Test

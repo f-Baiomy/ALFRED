@@ -709,6 +709,74 @@ export interface RetestCheck {
   readonly emptyAnswers?: number;
   /** A guard whose card was accepted on a re-test that saw only empty answers. */
   readonly verifiedOnEmpty?: boolean;
+  /** Is the fix implemented (specs/026): Claude's latest look at the code since the fix, null when none. */
+  readonly code?: CodeCheck | null;
+}
+
+/** What Claude found in the code and git about a fix (specs/026); `verdict` is plain text, read leniently. */
+export interface CodeCheck {
+  readonly verdict: string;
+  readonly commit: string | null;
+  readonly branch: string | null;
+  readonly layers: readonly { readonly team: string | null; readonly where: string | null; readonly ok: boolean; readonly note?: string | null }[];
+  readonly tests: string | null;
+  readonly note: string | null;
+  readonly at: string;
+}
+
+export type CheckTone = 'pass' | 'fail' | 'part' | 'wait';
+
+const NOT_IMPLEMENTED: Record<string, string> = {
+  NOT_ON_BRANCH: 'Not on the branch', NOT_IN_BUILD: 'Not in build', LAYER_MISSING: 'Layer missing', REVERTED: 'Reverted', TESTS_FAIL: 'Tests fail',
+};
+
+/** A Fixed card's first check (specs/026): is its fix implemented - in the code, on the branch, in the running build. */
+export function implementedChip(c: RetestCheck): { readonly text: string; readonly detail: string; readonly tone: CheckTone } {
+  const code = c.code;
+  if (!code) return { text: '? Code not checked', detail: '/alfred-verify checks it', tone: 'wait' };
+  const v = (code.verdict ?? '').toUpperCase();
+  const missing = code.layers.filter((l) => !l.ok).map((l) => [l.team, l.where].filter(Boolean).join(' - '));
+  const where = [code.commit && `${code.commit}${code.branch ? ` on ${code.branch}` : ''}`, ...code.layers.filter((l) => l.ok).map((l) => l.team)]
+    .filter(Boolean).join(' · ');
+  if (v === 'IMPLEMENTED') return { text: '✓ Implemented', detail: where || 'in the running build', tone: 'pass' };
+  if (v === 'UNKNOWN') return { text: '? Code not checked', detail: code.note ?? 'the code could not be reached', tone: 'wait' };
+  return { text: `✗ ${NOT_IMPLEMENTED[v] ?? v.toLowerCase()}`, detail: missing.join(' · ') || code.note || where, tone: 'fail' };
+}
+
+/** A Fixed card's second check (specs/026): did it work on the calls since the fix. */
+export function workedChip(c: RetestCheck): { readonly text: string; readonly detail: string; readonly tone: CheckTone } {
+  if ((c.code?.verdict ?? '').toUpperCase() === 'NOT_IN_BUILD') {
+    return { text: '– Worked', detail: c.calls.length ? `${c.calls.length} call${c.calls.length === 1 ? '' : 's'} ran the old code` : 'wait for the new build', tone: 'wait' };
+  }
+  const detail = c.summary.replace(/^(passes|fails|flaky|partly checked|no calls since the fix) · /, '');
+  switch (c.verdict) {
+    case 'PASSES': return onlyEmptyAnswers(c) ? { text: '⚠ Empty answers only', detail: 'never seen working on data', tone: 'part' }
+      : { text: '✓ Worked', detail, tone: 'pass' };
+    case 'FAILS': return { text: '✗ Failed', detail, tone: 'fail' };
+    case 'FLAKY': return { text: '≈ Flaky', detail, tone: 'part' };
+    case 'PARTIAL': return { text: '◐ Partly', detail, tone: 'part' };
+    case 'NO_CALLS': return { text: '⏳ Not re-tested', detail: c.newBuild ? 'new build - re-test now' : 'no call since the fix', tone: 'wait' };
+    default: return { text: '? Cannot check', detail: c.summary, tone: 'wait' };
+  }
+}
+
+/** Implemented and worked: what a Fixed card needs before Verified (specs/026). */
+export function implementedAndWorked(c: RetestCheck | null | undefined): boolean {
+  return !!c && (c.code?.verdict ?? '').toUpperCase() === 'IMPLEMENTED' && c.verdict === 'PASSES' && !onlyEmptyAnswers(c);
+}
+
+/** What a Fixed card still lacks for Verified, in words - empty when it was implemented and worked. */
+export function verifyGaps(c: RetestCheck | null | undefined): string[] {
+  if (!c) return [];
+  const out: string[] = [];
+  const impl = implementedChip(c);
+  if (impl.tone !== 'pass') {
+    out.push(impl.tone === 'fail' ? `it is not implemented: ${impl.text.replace(/^✗ /, '').toLowerCase()}${impl.detail ? ` (${impl.detail})` : ''}`
+      : 'its code was not checked - nobody confirmed the fix is on the task branch and in the running build');
+  }
+  const worked = workedChip(c);
+  if (worked.tone !== 'pass') out.push(`it has not been seen working: ${worked.text.replace(/^\S+ /, '').toLowerCase()}${worked.detail ? ` (${worked.detail})` : ''}`);
+  return out;
 }
 
 /** Every judged call answered with nothing - the fix was never seen working on data (specs/020). */

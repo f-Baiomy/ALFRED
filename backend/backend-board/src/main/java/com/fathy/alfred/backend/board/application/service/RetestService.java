@@ -16,6 +16,7 @@ import com.fathy.alfred.backend.board.domain.model.Card;
 import com.fathy.alfred.backend.board.domain.model.CardChange;
 import com.fathy.alfred.backend.board.domain.model.CardQuery;
 import com.fathy.alfred.backend.board.domain.model.CardStatus;
+import com.fathy.alfred.backend.board.domain.model.CodeCheck;
 import com.fathy.alfred.backend.board.domain.model.CycleCall;
 import com.fathy.alfred.backend.board.domain.model.Expectation;
 import com.fathy.alfred.backend.board.domain.model.MentionRef;
@@ -211,12 +212,52 @@ public class RetestService implements RetestUseCase, AppStartedUseCase, com.fath
         }
         Pool pool = pool(cycleId);
         Optional<Instant> started = lastStart(project);
-        return cards.stream().map(c -> check(c, pool, started)).toList();
+        return cards.stream().map(c -> withCode(c, check(c, pool, started))).toList();
     }
 
     @Override
     public Optional<RetestCheck> checkCard(String cardId, String cycleId) {
-        return store.find(cardId).map(c -> check(c, pool(cycleId), lastStart(c.project())));
+        return store.find(cardId).map(c -> withCode(c, check(c, pool(cycleId), lastStart(c.project()))));
+    }
+
+    /** The card's latest code check - only one made since its fix: a look before the fix says nothing about it. */
+    private RetestCheck withCode(Card card, RetestCheck check) {
+        Instant fixedAt = store.lastOf(card.id(), "STATUS").map(e -> e.at()).orElse(card.updatedAt());
+        return store.codeCheck(card.id()).filter(c -> !c.at().isBefore(fixedAt)).map(check::withCode).orElse(check);
+    }
+
+    private static final int MAX_LAYERS = 12;
+    private static final int MAX_CODE_TEXT = 2000;
+
+    @Override
+    public CodeChange recordCode(Actor actor, String cardId, CodeIn in) {
+        Optional<Card> found = store.find(cardId);
+        if (found.isEmpty()) {
+            return new CodeChange(CardChange.Outcome.NOT_FOUND, null, "No such card");
+        }
+        String verdict = in == null || in.verdict() == null ? "" : in.verdict().strip().toUpperCase(java.util.Locale.ROOT);
+        if (!CodeCheck.VERDICTS.contains(verdict)) {
+            return new CodeChange(CardChange.Outcome.INVALID, null, "verdict is one of " + String.join(", ", CodeCheck.VERDICTS));
+        }
+        List<CodeCheck.Layer> layers = in.layers() == null ? List.of() : in.layers();
+        if (layers.size() > MAX_LAYERS) {
+            return new CodeChange(CardChange.Outcome.INVALID, null, "At most " + MAX_LAYERS + " layers");
+        }
+        for (String t : java.util.Arrays.asList(in.commit(), in.branch(), in.tests(), in.note())) {
+            if (t != null && t.length() > MAX_CODE_TEXT) {
+                return new CodeChange(CardChange.Outcome.INVALID, null, "A code check text is at most " + MAX_CODE_TEXT + " characters");
+            }
+        }
+        Card card = found.get();
+        CodeCheck check = new CodeCheck(card.id(), card.number(), verdict, blank(in.commit()), blank(in.branch()), layers, blank(in.tests()),
+                blank(in.note()), clock.instant(), actor);
+        store.putCodeCheck(check);
+        notifications.changed(card.project(), card.cycleId(), card.id(), "retest");
+        return new CodeChange(CardChange.Outcome.OK, check, null);
+    }
+
+    private static String blank(String s) {
+        return s == null || s.isBlank() ? null : s.strip();
     }
 
     @Override

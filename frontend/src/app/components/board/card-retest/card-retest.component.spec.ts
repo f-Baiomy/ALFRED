@@ -70,7 +70,7 @@ describe('CardRetestComponent', () => {
       providers: [
         { provide: BoardApiService, useValue: { cardRetest: () => of(data), setRetestPlan: setPlan, move, retestRun: () => of({ checks: [] }) } },
         { provide: ResendApiService, useValue: { resend } },
-        { provide: ConfirmDialogService, useValue: { confirm } },
+        { provide: ConfirmDialogService, useValue: { confirm, choose: () => Promise.resolve(null) } },
       ],
     }).overrideComponent(CardRetestComponent, { remove: { imports: [MentionChipComponent] }, add: { imports: [FakeChipComponent] } });
     const fixture = TestBed.createComponent(CardRetestComponent);
@@ -85,8 +85,16 @@ describe('CardRetestComponent', () => {
       updatedBy: 'CLAUDE', updatedAt: null }, check: check(), history: [], lastStart: null };
   });
 
-  it('shows each expectation before → now and accepts Verified when everything passes', async () => {
+  it('shows each expectation before → now and accepts Verified when it is implemented and worked', async () => {
+    data = { ...data, check: check({ code: { verdict: 'IMPLEMENTED', commit: 'a1b2c3d', branch: 'feature/61813', tests: '12 passed', note: null, at: '2026-10-11T01:00:00Z',
+      layers: [{ team: 'backend', where: 'RefundSearchService.java:88', ok: true }] } }) };
     const f = create();
+    const boxes = Array.from(f.nativeElement.querySelectorAll('.board-vbox')).map((b) => (b as HTMLElement).textContent?.replace(/\s+/g, ' '));
+    expect(boxes[0]).toContain('✓ Implemented');
+    expect(boxes[0]).toContain('a1b2c3d on feature/61813');
+    expect(boxes[0]).toContain('backend : RefundSearchService.java:88');
+    expect(boxes[1]).toContain('✓ Worked');
+    expect(f.nativeElement.querySelector('.board-vready').textContent).toContain('Implemented and worked');
     const text = f.nativeElement.textContent as string;
     expect(text).toContain('≤ 3 queries on TT_COUNTRY_AIRLINE_MAP');
     expect(text).toContain('257');
@@ -97,6 +105,20 @@ describe('CardRetestComponent', () => {
     await f.whenStable(); // the Verified guard reads the re-test first (specs/020)
     await new Promise((r) => setTimeout(r));
     expect(move).toHaveBeenCalledWith('k', 'VERIFIED');
+  });
+
+  it('worked but its code was not checked: Verified asks first, and Keep in Fixed keeps it', async () => {
+    const f = create();
+    expect(f.nativeElement.querySelector('.board-vbox').textContent).toContain('Code not checked');
+    const dialog = TestBed.inject(ConfirmDialogService);
+    const choose = spyOn(dialog, 'choose').and.resolveTo(null);
+    const accept = [...f.nativeElement.querySelectorAll('button')].find((b: HTMLButtonElement) => b.textContent?.includes('Accept Verified')) as HTMLButtonElement;
+    accept.click();
+    await f.whenStable();
+    await new Promise((r) => setTimeout(r));
+    expect(choose).toHaveBeenCalled();
+    expect(choose.calls.mostRecent().args[0]).toContain('Its code was not checked');
+    expect(move).not.toHaveBeenCalled();
   });
 
   it('cannot accept Verified while a check is open', () => {

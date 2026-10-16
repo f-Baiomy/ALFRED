@@ -697,6 +697,7 @@ export class FakeAlfred {
     if (p[1] === 'retest' && p[2] === 'run') return [200, { at: 't', source: body.cycleId ? `cycle:${body.cycleId}` : 'live', checks: b.retest, markdown: '## Re-test p' }];
     if (p[1] === 'retest' && p[2] === 'guards') return [200, b.guards];
     if (p[1] === 'retest') return [200, { checks: b.retest, lastStart: null }];
+    if (p[1] === 'cards' && p[3] === 'code-check' && method === 'PUT') return [200, { ...body, at: 't' }];
     if (p[1] === 'cards' && p[3] === 'retest-plan' && method === 'PUT') {
       b.plans[p[2]] = body;
       return [200, { cardId: p[2], ...body, updatedBy: 'CLAUDE', updatedAt: 't', ...(b.planWarnings ? { warnings: b.planWarnings } : {}) }];

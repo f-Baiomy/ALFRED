@@ -42,6 +42,20 @@ public interface RetestUseCase {
 
     List<RetestRun> history(String cardId);
 
+    /**
+     * Records whether a card's fix is implemented (specs/026): what Claude found in the code and git. {@code verdict} one
+     * of {@link com.fathy.alfred.backend.board.domain.model.CodeCheck#VERDICTS}; the card's re-test shows it beside the calls.
+     */
+    CodeChange recordCode(Actor actor, String cardId, CodeIn code);
+
+    /** A code check as sent: the verdict, the fix's commit and branch, each layer, the tests run, a note. */
+    record CodeIn(String verdict, String commit, String branch, List<com.fathy.alfred.backend.board.domain.model.CodeCheck.Layer> layers,
+                  String tests, String note) {
+    }
+
+    record CodeChange(CardChange.Outcome outcome, com.fathy.alfred.backend.board.domain.model.CodeCheck check, String message) {
+    }
+
     /** When the project's app last started, if Alfred saw it. */
     Optional<Instant> lastStart(String project);
 
