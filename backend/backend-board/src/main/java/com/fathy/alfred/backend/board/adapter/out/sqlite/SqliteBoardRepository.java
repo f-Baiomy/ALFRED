@@ -467,6 +467,17 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort,
                 + "ORDER BY a.id", ACTIVITY_ROW);
     }
 
+    @Override
+    public List<ActivityEntry> questionsWithoutAdviceMeta() {
+        return jdbc.query("SELECT id, card_id, actor, kind, text, old_value, new_value, at, reply_to, answers FROM activity a WHERE EXISTS (SELECT 1 FROM "
+                + "card_questions q WHERE q.entry_id = a.id AND q.recommended IS NOT NULL AND q.advice_meta IS NULL) ORDER BY a.id", ACTIVITY_ROW);
+    }
+
+    @Override
+    public void putAdviceMeta(long entryId, int idx, String meta) {
+        jdbc.update("UPDATE card_questions SET advice_meta = ? WHERE entry_id = ? AND idx = ?", meta, entryId, idx);
+    }
+
     /** Adds a column to a table made by an older version (SQLite has no ADD COLUMN IF NOT EXISTS). */
     private void addColumn(String table, String column, String definition) {
         Integer has = jdbc.queryForObject("SELECT COUNT(*) FROM pragma_table_info('" + table + "') WHERE name = ?", Integer.class, column);

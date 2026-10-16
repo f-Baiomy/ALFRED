@@ -1,4 +1,4 @@
-import { TestBed } from '@angular/core/testing';
+import { TestBed, fakeAsync, tick } from '@angular/core/testing';
 import { Subject, of } from 'rxjs';
 import { ActivityEntry, BoardQuestion, BoardSocketEvent } from '../../../core/models/board.models';
 import { BoardApiService } from '../../../core/services/board-api.service';
@@ -75,6 +75,25 @@ describe('QuickAnswerComponent (the questions dialog, specs/019)', () => {
     c.pick(steps, 'Keep all');
     expect(c.visible().map((q) => q.ask.header)).toEqual(['Steps', 'Checks']);
   });
+
+  it('a single choice opens the next question by itself - its follow-up first, then the next open one, then Review', fakeAsync(() => {
+    const fixture = create();
+    const c = fixture.componentInstance;
+    c.pick(c.visible()[0], 'Rewrite');
+    tick(300);
+    expect(c.current()?.ask.header).toBe('Plan');
+    c.pick(c.current()!, 'Short');
+    tick(300);
+    expect(c.current()?.ask.header).toBe('Checks');
+    c.pick(c.current()!, 'SQL');
+    tick(300);
+    expect(c.current()?.ask.header).withContext('multi-select stays: several may be picked').toBe('Checks');
+    c.go(0);
+    c.pick(c.visible()[0], 'Keep all');
+    tick(300);
+    expect(c.current()).withContext('every question answered: the Review').toBeNull();
+    expect(c.cur()).toBe(c.visible().length);
+  }));
 
   it('hovering an option shows its preview', () => {
     const fixture = create();

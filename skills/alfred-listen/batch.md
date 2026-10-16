@@ -35,6 +35,10 @@ once) - each turn costs seconds. Several small batches may come as one run (`===
    card for it. An UNKNOWN item: find out why from one call (`get_call` `paths`) - a wildcard naming two fields, a body
    that is not JSON - and say it in STATE. "The task branch has no change yet" or "old code" is never a reason for
    "fine": the calls are what the user tests, and a call that cannot carry what an item needs is that item missing.
+1c. **A group on a Fixed card's problem** (ALREADY ON THE BOARD names a Fixed card for its calls, or the same
+   endpoint and failure): `board_link` the calls to that card and one state comment "calls after the fix -
+   `/alfred-verify <n>` judges it" (`waitingOn` RETEST). No verdict, no move, no new card: the re-test is verify's (it
+   checks the build, the code and the card's expectations).
 2. **Write** (rules "Batches" 4): every new card of the batch in **one** `board_add_many` (`cycleId`, evidence in the
    description, the main call in `links`, `teams`, its `firstComment` with `waitingOn` USER, its `specItem` with the
    FULL key from the Acceptance list below); existing problems → `board_link` + one state comment. "ALREADY ON THE

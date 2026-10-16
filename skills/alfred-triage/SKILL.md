@@ -66,7 +66,8 @@ board): one `board_ask` per card or group, in severity order, with the triage fi
   mentions, what they sent and answered).
 - `options`, labelled exactly so (the card's buttons and Triage mode answer the same question by label): `To do`,
   `Fine`, `Not in this flow`, `Merge into #n` (a duplicate of #n), and on a group's target card `Merge #14 #17 into #12`.
-  The one you advise `recommended: true` with **`confidence`** `high` / `medium` / `low` (2 above) - the tile, the
+  The one you advise `recommended: true` with a **`description`** - why, in one line the user reads on the tile
+  ("Branch approval is not part of task 61813 - no SQL to act on"), never just the option again - and **`confidence`** `high` / `medium` / `low` (2 above) - the tile, the
   questions dialog and Triage mode show it as a label, and the board's **Accept all High** applies only `high`. Each
   option with `then` (what you will do) and a `preview`: what changes, the calls, which Acceptance items it covers or
   leaves uncovered, why, and the earlier cards it found as mentions.

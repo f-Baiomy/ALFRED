@@ -64,6 +64,8 @@ export interface Advice {
   readonly option: string;
   /** HIGH, MEDIUM or LOW - plain text, read leniently. */
   readonly confidence?: string | null;
+  /** Why Claude advises it, one line: the option's description, else why it asks. */
+  readonly reason?: string | null;
   readonly checked?: string | null;
   readonly rank?: number | null;
   readonly of?: number | null;

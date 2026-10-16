@@ -266,7 +266,7 @@ class QuestionsTest {
                 {"questions": [{"header": "Triage", "question": "What should happen to #1?",
                   "checked": "#6 same 409 (closed Fine) · line 121 unchanged", "severity": {"rank": 2, "of": 4, "note": "38 calls, 6 branches"},
                   "group": [7, 9],
-                  "options": [{"label": "To do", "recommended": true, "confidence": "High"}, {"label": "Fine"}, {"label": "Merge #7 #9 into #1"}]}]}
+                  "options": [{"label": "To do", "recommended": true, "confidence": "High", "description": "real N+1, blocks AC6"}, {"label": "Fine"}, {"label": "Merge #7 #9 into #1"}]}]}
                 ```""");
 
         var row = f.board.query(new CardQuery("p", null, null, null, null, null, false, null, 0, 50)).cards().get(0);
@@ -277,6 +277,7 @@ class QuestionsTest {
         assertThat(row.adviceDetail().of()).isEqualTo(4);
         assertThat(row.adviceDetail().note()).isEqualTo("38 calls, 6 branches");
         assertThat(row.adviceDetail().group()).containsExactly(7, 9);
+        assertThat(row.adviceDetail().reason()).isEqualTo("real N+1, blocks AC6");
     }
 
     @Test
@@ -287,6 +288,7 @@ class QuestionsTest {
         assertThat(row.adviceDetail().option()).isEqualTo("Only the extra filters");
         assertThat(row.adviceDetail().confidence()).isNull();
         assertThat(row.adviceDetail().group()).isEmpty();
+        assertThat(row.adviceDetail().reason()).as("no description on the option: why Claude asks").isEqualTo("too long");
     }
 
     @Test

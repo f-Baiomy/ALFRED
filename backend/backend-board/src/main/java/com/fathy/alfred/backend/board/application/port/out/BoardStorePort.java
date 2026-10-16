@@ -332,4 +332,13 @@ public interface BoardStorePort {
 
     /** Claude's question comments with no index yet: written before specs/019, or imported. */
     java.util.List<ActivityEntry> unindexedQuestions();
+
+    /** Question comments indexed before the advice's triage facts were kept: their recommended rows have no advice_meta. */
+    default java.util.List<ActivityEntry> questionsWithoutAdviceMeta() {
+        return java.util.List.of();
+    }
+
+    /** Sets one question row's advice facts ("{}" when it has none, so it is not looked at again). */
+    default void putAdviceMeta(long entryId, int idx, String meta) {
+    }
 }

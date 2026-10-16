@@ -52,6 +52,7 @@ export function decisionOf(card: CardSummary, a: TriageAction, reason = ''): Tri
             <div class="board-triage-advice">
               <div>✦ Claude advises: <b>{{ actionLabel(a) }}</b>
                 @if (confidence(); as cf) { <span class="board-conf" [class]="'board-conf board-conf-' + cf.toLowerCase()">{{ confidenceText(cf) }}</span> }</div>
+              @if (c.adviceDetail?.reason; as why) { <div><b>Why:</b> {{ why }}</div> }
               @if (c.adviceDetail?.checked; as ch) { <div class="board-dim"><b>Checked:</b> {{ ch }}</div> }
               @if (a.kind === 'mergeGroup') { <div class="board-dim">Same root cause: @for (n of a.group; track n) { #{{ n }} } - merge them into #{{ c.number }}</div> }
               @else if (c.adviceDetail?.group?.length) { <div class="board-dim">Same root cause: @for (n of c.adviceDetail?.group; track n) { #{{ n }} } - their cards advise merging into #{{ c.number }}</div> }

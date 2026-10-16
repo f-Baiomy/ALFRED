@@ -37,6 +37,16 @@ For each card, in order:
 
 `--dry`: post nothing; show the plans and stop.
 
+**Record code already written** - the card has `/alfred-verify`'s question "The code for this looks written … Record it
+as fixed?" answered **Record as fixed** (or the user says "record it"): no investigation and no new code. Instead of
+steps 2-3: read the code verify named (file, line, commit) on the task branch and check it does what the card asks;
+post it as the plan (did: the code read; found: what it does against the card and its Acceptance item; next: record
+it with board_fix, the tests you will run, the re-test plan), `waitingOn` USER, and ask **"Go?"**. After Go: run the
+tests as in 3.2, then `board_fix` as in 3.3 with the commit verify found (it already exists - do not commit), the
+files and lines, the re-test plan from the linked Acceptance item and the card's evidence, and the root cause "built
+on <branch> in <commit>, not recorded on the board". The code does not do what the card asks → say so in the plan,
+`board_reply` under the question, and fix it the normal way (steps 2-3) only after the user's Go.
+
 ## 3. Fix (after Go)
 
 1. The smallest change that fixes the root cause; add or update a test that fails without it.

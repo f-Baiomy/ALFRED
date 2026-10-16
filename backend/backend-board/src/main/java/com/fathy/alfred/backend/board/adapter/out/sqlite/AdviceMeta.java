@@ -29,7 +29,7 @@ final class AdviceMeta {
             });
             JsonNode sev = m.path("severity");
             return new Advice(option, text(m, "confidence"), text(m, "checked"), sev.path("rank").isInt() ? sev.path("rank").asInt() : null,
-                    sev.path("of").isInt() ? sev.path("of").asInt() : null, text(sev, "note"), group);
+                    sev.path("of").isInt() ? sev.path("of").asInt() : null, text(sev, "note"), group, text(m, "reason"));
         } catch (Exception e) {
             return Advice.of(option);
         }

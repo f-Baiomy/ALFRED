@@ -11298,6 +11298,8 @@ app-run-skill { display: inline-flex; flex-direction: column; align-items: flex-
   button { background: var(--card); border: 1px solid var(--border-strong); border-radius: 8px; padding: 0.25rem 0.7rem; color: var(--text); cursor: pointer; }
   button.ok:not(:disabled) { border-color: var(--green); color: var(--green); } }
 .board-triage-high { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-top: 0.7rem; font-size: 0.78rem; }
+.board-advice-why { font-size: 0.75rem; color: var(--text-dim); margin: 0 0 0.3rem 0.3rem; line-height: 1.35;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; b { color: var(--text); font-weight: 650; } }
 .board-card-acts button.advised { border-color: var(--green); color: var(--green); box-shadow: 0 0 0 1px color-mix(in srgb, var(--green) 35%, transparent); }
 .board-qpill { display: inline-flex; gap: 0.35rem; align-items: center; font: inherit; font-size: 0.78rem; font-weight: 650; color: var(--amber); background: none; cursor: pointer;
   border: 1px solid color-mix(in srgb, var(--amber) 55%, transparent); border-radius: 99px; padding: 0.05rem 0.6rem; margin: 0.25rem 0;

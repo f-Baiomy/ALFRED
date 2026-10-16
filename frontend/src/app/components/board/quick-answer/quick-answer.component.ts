@@ -238,8 +238,26 @@ export class QuickAnswerComponent {
     if (q.ask.multiSelect) {
       this.set(q, { pick: d.pick.includes(label) ? d.pick.filter((l) => l !== label) : [...d.pick, label], later: false });
     } else {
-      this.set(q, { pick: d.pick.includes(label) ? [] : [label], other: '', later: false });
+      const picked = !d.pick.includes(label);
+      this.set(q, { pick: picked ? [label] : [], other: '', later: false });
+      if (picked) this.advanceFrom(q, label);
     }
+  }
+
+  /**
+   * A single choice made: after a moment (to see it picked) the next question still unanswered opens - a follow-up the
+   * pick opened included - or the Review when none is left. Not when the user moved on already.
+   */
+  private advanceFrom(q: DialogQuestion, label: string): void {
+    setTimeout(() => {
+      const list = this.visible();
+      const at = list.findIndex((x) => x.key === q.key);
+      if (at < 0 || this.cur() !== at) return;
+      const followUp = list.findIndex((x) => x.parent?.header === q.ask.header && x.parent.option === label && !this.answered(x));
+      const next = followUp >= 0 ? followUp : list.findIndex((x, i) => i > at && !this.answered(x));
+      const earlier = list.findIndex((x, i) => i < at && !this.answered(x));
+      this.go(next >= 0 ? next : earlier >= 0 ? earlier : list.length);
+    }, 280);
   }
 
   setOther(q: DialogQuestion, text: string): void {

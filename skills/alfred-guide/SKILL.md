@@ -26,13 +26,13 @@ to learn. Always end with the exact next command.
 | 6 | `/alfred-sync` | After you answered questions or changed cards: one state comment per card |
 | - | `/alfred-live [project] [cycle] [--model m]` | Claude answers you on the board within seconds - comments, replies, answers, questions, any change - showing each step on the card while it works; its own background process beside listen, warm so it starts at once, cards in parallel, a line per answer here, until `/alfred-live stop` |
 | 7 | `/alfred-fix [card#]` | Fixes only the cards you choose, after you say Go |
-| 8 | `/alfred-verify [cards] [cycle]` | Re-tests the fixes from the live calls since each fix (or a cycle), proposes Verified, suggests checklist marks |
+| 8 | `/alfred-verify [cards] [cycle] [--wait] [--tests]` | **Before testing** (after writing the code): is every Acceptance item built - backend, frontend, database, each found / not found / out of reach on the task branch - and what the spec added since. **After fixes**: re-tests them from the live calls since each fix (or a cycle), catches a fix the running build does not carry, checks every card against the code (asks "Record as fixed?" when a To do is already written), proposes Verified, suggests checklist marks. Also runs beside `/alfred-listen` |
 | 9 | `/alfred-status` | What waits on you, on Claude, on a re-test - and the next step |
 | 10 | `/alfred-report` | A summary for a stand-up or PR |
 | - | `/alfred-update-skills` | After updating Alfred: brings these skills up to the installed version (for you and the repo's own copy) |
 
-The flow: **setup → (spec) → listen or review → triage → sync ↔ fix → re-test → verify → report**; status and guide
-anytime.
+The flow: **setup → (spec) → write the code → verify (all built?) → listen or review → triage → sync ↔ fix → re-test →
+verify → report**; status and guide anytime. Spec changed mid-task → `/alfred-verify` shows what is new and not built.
 
 ## "What should I do next?"
 
@@ -42,7 +42,8 @@ when useful) for the rest. Then answer with the one most useful next step and it
 
 - questions wait on the user → "Answer the 2 questions on #11 (the Answer button on the card), then `/alfred-sync`."
 - cards in the Inbox → `/alfred-triage`
-- To do cards → `/alfred-fix` (it asks which)
+- a task set up, nothing tried yet → write the code, then `/alfred-verify` (is everything built?)
+- To do cards → `/alfred-fix` (it asks which); a "Record as fixed?" question answered → `/alfred-fix <n>` records it
 - Fixed cards → "Use the app as each card's re-test steps say (or ▶ Re-test on the board), then `/alfred-verify`."
 - a cycle with no brief or spec → `/alfred-spec <cycle>` or `/alfred-setup`
 - nothing open → `/alfred-report`, or start a new task with `/alfred-setup`
@@ -53,6 +54,7 @@ Small steps; after each, wait for the user to do it and check it happened before
 
 1. Alfred is running and connected (`list_projects` answers). If not: `/alfred-connect <its address>`.
 2. `/alfred-setup <project> "<what the task is>"` - read the brief and spec drafts, say OK.
+2b. Write the code on the task branch, then `/alfred-verify` - every Acceptance item per layer; build what is not found.
 3. Start recording the cycle (Session Cycles → the cycle → Record), run `/alfred-listen <cycle>`, click through the flow.
    Check new calls appear (`get_cycle`).
 4. Stop; open the Board: the Inbox has the findings. Run `/alfred-triage`.

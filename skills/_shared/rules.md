@@ -62,7 +62,9 @@ work stands, and nothing depends on a conversation that is gone.
   met - only a call does. The code is a hint: when the repo is here, read the task branch's change (`git diff --stat
   <base>...HEAD`, then the files that matter) once per run to name the file that misses the item. `/alfred-verify`
   goes further (its "2c"): every Acceptance item's code layer by layer - backend, frontend, database - in every source
-  the session can reach, on the task branch, saying plainly which layer it cannot reach; listen does not, it stays fast. Code the change
+  the session can reach, on the task branch, saying plainly which layer it cannot reach, and every open card against the
+  code: a To do whose change is already written gets a `board_ask` "Record as fixed?" - `/alfred-fix` records it, verify
+  never moves it. Listen does not read code this way, it stays fast. Code the change
   touches that no requirement asks for and no call ran is a NOTE titled `Not in the task: <file> <what it adds>` -
   scope creep or a requirement nobody wrote down; ask, never judge.
 - **The Task tab shows what you write** (the cycle page's Task tab and the Board's cycle view): beside each item's

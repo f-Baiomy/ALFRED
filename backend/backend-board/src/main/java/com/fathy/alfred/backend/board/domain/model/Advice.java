@@ -5,16 +5,22 @@ import java.util.List;
 /**
  * What Claude advises in a card's first open question that recommends an option (specs/020, triage): the option, how
  * sure Claude is ({@code HIGH}, {@code MEDIUM}, {@code LOW} - plain text, read leniently, never an enum: an older Alfred
- * importing it must not throw), what it checked, where the card ranks in the Inbox (worst first, {@code rank} of
- * {@code of}, with the reason) and the cards of the same root cause it proposes merging into this one.
+ * importing it must not throw), why ({@code reason}: the recommended option's description, else the question's why),
+ * what it checked, where the card ranks in the Inbox (worst first, {@code rank} of {@code of}, with the reason) and the
+ * cards of the same root cause it proposes merging into this one.
  */
-public record Advice(String option, String confidence, String checked, Integer rank, Integer of, String note, List<Integer> group) {
+public record Advice(String option, String confidence, String checked, Integer rank, Integer of, String note, List<Integer> group,
+                     String reason) {
 
     public Advice {
         group = group == null ? List.of() : List.copyOf(group);
     }
 
+    public Advice(String option, String confidence, String checked, Integer rank, Integer of, String note, List<Integer> group) {
+        this(option, confidence, checked, rank, of, note, group, null);
+    }
+
     public static Advice of(String option) {
-        return new Advice(option, null, null, null, null, null, List.of());
+        return new Advice(option, null, null, null, null, null, List.of(), null);
     }
 }

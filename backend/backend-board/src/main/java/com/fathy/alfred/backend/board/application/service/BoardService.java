@@ -933,6 +933,11 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
                     .filter(e -> e.actor() == Actor.USER && e.kind() == ActivityKind.COMMENT && Long.valueOf(q.id()).equals(e.replyTo())).findFirst();
             indexQuestions(q.cardId(), q.id(), q.text(), q.at(), answer.map(ActivityEntry::id).orElse(null));
         }
+        // questions asked before the advice kept why, how sure and where it ranks: read those facts from their text once
+        for (ActivityEntry q : store.questionsWithoutAdviceMeta()) {
+            QuestionBlocks.asked(q.text()).stream().filter(a -> a.recommended() != null)
+                    .forEach(a -> store.putAdviceMeta(q.id(), a.idx(), a.adviceMeta() == null ? "{}" : a.adviceMeta()));
+        }
     }
 
     /** The rows of one question comment: its questions OPEN, follow-ups PENDING - or all done when it was answered in words. */

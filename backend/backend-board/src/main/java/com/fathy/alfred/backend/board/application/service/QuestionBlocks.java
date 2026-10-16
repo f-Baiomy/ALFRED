@@ -80,24 +80,31 @@ final class QuestionBlocks {
         List<String> options = new ArrayList<>();
         String[] recommended = {null};
         String[] confidence = {null};
+        String[] reason = {null};
         q.path("options").forEach(o -> {
             options.add(o.path("label").asText(""));
             if (recommended[0] == null && o.path("recommended").asBoolean(false)) {
                 recommended[0] = o.path("label").asText("");
                 String c = o.path("confidence").asText("").strip().toLowerCase(Locale.ROOT);
                 confidence[0] = CONFIDENCE.contains(c) ? c.toUpperCase(Locale.ROOT) : null;
+                reason[0] = text(o, "description");
             }
         });
         String header = q.path("header").asText("").strip();
         return new Asked(idx, header.isEmpty() ? "Q" + (idx + 1) : header, q.path("question").asText("").strip(), q.path("multiSelect").asBoolean(false),
-                options, parentIdx, parentOption, recommended[0], recommended[0] == null ? null : meta(q, confidence[0]));
+                options, parentIdx, parentOption, recommended[0], recommended[0] == null ? null : meta(q, confidence[0], reason[0]));
     }
 
     /** The triage facts of a question with a recommended option, as the JSON the index keeps, or null when it has none. */
-    private static String meta(JsonNode q, String confidence) {
+    private static String meta(JsonNode q, String confidence, String optionReason) {
         ObjectNode m = JSON.createObjectNode();
         if (confidence != null) {
             m.put("confidence", confidence);
+        }
+        // why Claude advises it: the recommended option's own description, else why it asks - the tile shows it
+        String reason = optionReason != null ? optionReason : text(q, "why");
+        if (reason != null) {
+            m.put("reason", oneLine(reason, 400));
         }
         String checked = text(q, "checked");
         if (checked != null) {

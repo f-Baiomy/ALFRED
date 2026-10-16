@@ -50,6 +50,9 @@ export type CardAction =
                 (click)="$event.stopPropagation(); answer.emit()">❓ {{ n }} open question{{ n === 1 ? '' : 's' }}</button>
         @if (card().advice; as a) {
           <span class="board-advice" [title]="adviceTitle()">✦ advises: {{ a }}@if (confidence(); as cf) { <span class="board-conf" [class]="'board-conf board-conf-' + cf.toLowerCase()">{{ confidenceText(cf) }}</span> }</span>
+          @if (card().adviceDetail?.reason; as why) {
+            <div class="board-advice-why" [title]="why"><b>Why:</b> <app-ref-text [text]="why" [project]="card().project" [cycleId]="card().cycleId" [showPreview]="false" /></div>
+          }
         }
       }
       @if (card().status === 'INBOX' && card().adviceDetail?.rank; as r) {
@@ -168,7 +171,8 @@ export class BoardCardComponent {
   readonly confidenceText = confidenceLabel;
   readonly adviceTitle = computed(() => {
     const d = this.card().adviceDetail;
-    return ['What Claude recommends - open the question for why', d?.checked ? `Checked: ${d.checked}` : ''].filter(Boolean).join('\n');
+    return ['What Claude recommends - open the question for the full answer', d?.reason ? `Why: ${d.reason}` : '', d?.checked ? `Checked: ${d.checked}` : '']
+      .filter(Boolean).join('\n');
   });
   /** A merge Claude advises - into another card, or its root-cause group into this one - as a button. */
   readonly mergeAdvice = computed((): CardAction | null => {
