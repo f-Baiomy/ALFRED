@@ -34,8 +34,20 @@ no task; it is never written until something writes to it (reads use `readDefaul
   changed" when it changed after setup (Review shows before/after; Save to brief, or Dismiss - both mark it seen), and
   "Fetch attachments" for the item's files the board does not hold. Deleting the board removes its link
   (`LinkedWorkItemPort.boardDeleted`). See [team.md](team.md).
-- **Work item mentions**: `@[workitem:<conn>/<id>|AB#<id> <title>]` - the chip previews the item from the Team cache and
-  opens it on the Team tab.
+- **Work item mentions**: `@[workitem:<conn>/<id>|AB#<id> <title>]` - the chip previews the item live (or from Alfred's
+  copy without a token) and opens it on the Team tab. **Person mentions** (specs/028): `@[person:<conn>/<id>|Name]` - a
+  pill with the person's card; the @ picker has a People tab.
+- **The tracker on a board** (specs/028, see [team.md](team.md)): the Task tab's **Related items** tab holds the board's
+  main work item and its tree (full copies of the main and of every card's item, references for the rest, "● changed"
+  after a sync), **Incoming** (items that arrived, each New card / Link to card / Ignore) and **watch rules**. A card's
+  drawer shows **Linked in Azure** (many to many, the tracker's comments, Create in Azure), its **owner** (one person,
+  `<conn>/<id>|<name>`, kept in `card_owners`, exported as `card-owner`), the consent bundles waiting for it, and "Also
+  post to <item>" under the comment box. Moving a card to Verified or Done prepares a "Tell Azure" bundle per linked
+  item; nothing reaches the tracker before the user approves it.
+- **Cycles tab** (specs/028 US7): a board's recordings with Record a cycle / Re-test cycle. A session cycle holds only
+  calls - its page lists the boards it is on ("Recorded for board X · also on Y · + Add to a board"), no Board or Task
+  tabs - and New Cycle asks which board it records for (or none). Session Cycles grouped by board lists a cycle under
+  every board it is on and under "Not on a board".
 
 ## Where it lives
 

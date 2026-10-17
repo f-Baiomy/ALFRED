@@ -195,26 +195,33 @@ answer "what's the newest header this host has seen."
 
 **Security posture:** DTOs validated via `@Valid` + `GlobalExceptionHandler`; `GET /calls?limit=` clamped; deletes return 404/204/409 (`409` = session-cycle still recording, must pause first) via explicit outcome enums, not re-derived checks; CORS origins and webhook secret (`X-Webhook-Secret` vs `alfred.webhook.secret`/`WEBHOOK_SECRET`) are env-configurable, default permissive; adapters never swallow file I/O errors silently (SLF4J WARN/ERROR) and check writability at `@PostConstruct`.
 
-## Team trackers (`backend-teamboards`, specs/027)
+## Team trackers (`backend-teamboards`, specs/027, 028)
 
-A family of three modules under one parent, a leaf like the other slices (docs/team.md):
+The team's tracker is read **live** (specs/028): nothing a search finds is stored. `teamboards.db` holds the filter
+lists, a board's items (full copies of the main and card items in `item_copies`, references in `board_items`), card
+links, Incoming, watch rules, consent bundles and the hook settings.
 
 ```
 backend-teamboards/
-  teamboards-spi     the connector interface: Connector + optional readers (boards, sprints, squads, revisions,
-                     attachments) and SeedContributor; neutral records; no Spring, no write methods
-  teamboards-core    teamboards.db (the shared cache, FTS5 search), /teamboards REST, /ws/teamboards;
-                     TeamService, StartService, LinksService, SeedBuilder; ports TeamCachePort,
-                     TeamChangeSignalPort, TeamBoardsPort (implemented by backend-app/teamboardsbridge)
-  teamboards-azure   AzureDevOpsConnector, AzureClient, AzureMapper - one module per connector
+  teamboards-spi     Connector + optional capabilities, each an interface (instanceof): reads (ItemSearcher,
+                     QueryRunner, ItemReader, TreeReader, IdentityReader, StateCatalog, AttachmentsReader, HookReader)
+                     and writes (ItemWriter, AttachmentWriter). No Spring.
+  teamboards-core    teamboards.db, /teamboards REST, /ws/teamboards; TokenVault (the token, 8 h, memory only) and
+                     Live (every live call); AzureWritesService is the only caller of the writers; TeamBoardsPort and
+                     TeamChangeSignalPort (implemented by backend-app/teamboardsbridge)
+  teamboards-azure   AzureDevOpsConnector, AzureClient, AzureMapper, AzureWiql - one module per connector
 ```
 
-ArchUnit (`HexagonalArchitectureTest`): teamboards depends on no other slice and no slice depends on it; the core
-and the connectors never import each other (connectors arrive as Spring beans of the SPI type, capabilities by
-`instanceof`); the SPI has no Spring and no `create*`/`update*`/`delete*` methods. `backend-app/teamboardsbridge`
-joins it to the board (Start messages in board chats, files on boards, `askedIn`, `LinkedWorkItemPort`) and holds
-`TeamTokenLogFilter`. A new connector is one new module under `backend-teamboards` plus one folder under
-`frontend/src/app/components/team/connectors/`.
+ArchUnit (`HexagonalArchitectureTest`): teamboards depends on no other slice and no slice depends on it; the core and
+the connectors never import each other; the SPI has no Spring and its write methods live only in `ItemWriter` /
+`AttachmentWriter` (`theConnectorSpiHasNoSpringAndWritesOnlyInItsWriters`); only the consent-bundle service calls them
+(`onlyTheConsentBundlesCallTheTrackerWriters`). `backend-app/teamboardsbridge`: `TeamBoardsAdapter`,
+`LinkedWorkItemAdapter` (also the board's `CardStatusChangedPort` - Tell Azure on Verified / Done),
+`TeamRecordsImportAdapter` (a board import's team records), `TeamTokenLogFilter`, and `TeamTunnelGuard` (no live read
+through the tunnel - the token is the owner's). The service hook `POST /teamboards/hooks/azure` is the one route
+`BoardWebConfig` leaves outside the edit rule (it checks its own secret). A new connector is one new module under
+`backend-teamboards` (with its `COPY` line in `backend/Dockerfile`) plus one folder under
+`frontend/src/app/components/team/connectors/`. See docs/team.md.
 
 ## Database capture (`backend-db-capture`, `db-agent/`)
 

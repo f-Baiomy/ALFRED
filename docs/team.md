@@ -1,102 +1,159 @@
 # Team tab (team trackers)
 
-The Team tab (specs/027 US7-US9) shows what the team's tracker holds - work items, their links and history, the
-tracker's boards and sprints, its squads and members, and what changed - and opens an Alfred board from a work item.
-Azure DevOps is the first tracker; Jira and ClickUp are listed as "not installed" until their connectors exist.
+The Team tab (specs/027, rebuilt by specs/028) searches the team's tracker **live** and puts what matters on Alfred
+boards: a board's main work item and its tree, the items its cards are about, what arrives from the tracker, and the
+updates the user approves for it. Azure DevOps is the first tracker; Jira and ClickUp are listed as "not installed"
+until their connectors exist.
+
+Nothing found by a search is stored. Alfred keeps only the filter lists, and for a board its items (a full copy of the
+main and of each card's item, references for the rest).
 
 ## Where it lives
 
-- **Backend**: the `backend-teamboards` family, one leaf of three modules:
-  - `teamboards-spi` - the connector interface, Spring-free and read-only: `Connector` (items, types, people), and
-    the optional `BoardsReader`, `SprintsReader`, `SquadsReader`, `RevisionsReader`, `AttachmentsReader` (with
-    `listedIn` - the attachments a cached item names, no network) and `SeedContributor`. A connector's capabilities are
-    the interfaces it implements (`instanceof`), nothing it declares. No method creates, updates or deletes anything
-    in a tracker (FR-026, an ArchUnit rule).
-  - `teamboards-core` - the shared cache `teamboards.db` (`TEAMBOARDS_DB_FILE`; set by the supervisor natively and by
-    compose in Docker), `/teamboards/**` REST and the `/ws/teamboards` signal; `TeamService` (connections, refresh,
-    reads, squads, mappings, field maps), `StartService` (Start), `LinksService` (board links, changed since setup,
-    attachments) and `SeedBuilder` (the board seed).
-  - `teamboards-azure` - `AzureDevOpsConnector`, `AzureClient` (JDK HttpClient, Basic auth with the PAT, 5 s / 30 s
-    timeouts, one `Retry-After` retry when it is 10 s or less, no redirects followed with the token), `AzureMapper`.
-  - ArchUnit: teamboards depends on no other slice and no slice on it; the core and the connectors never import each
-    other; the SPI has no Spring.
-- **Bridge**: `backend-app/teamboardsbridge` - `TeamBoardsAdapter` (posts a Start to a board chat, attaches files to a
-  board, checks `askedIn`, posts suggestions), `LinkedWorkItemAdapter` (the board reads its work item), and
-  `TeamTokenLogFilter` (every route outside `/teamboards/` sees the request without the token header).
-- **Frontend**: `pages/team` and `components/team/*` (connection switcher, items table, item drawer, boards and sprints,
-  squads, changes feed, start button, connection settings in Settings → Team trackers), `core/team/*` (models, API,
-  state, token store). A connector's UI lives only in `components/team/connectors/<kind>/` and is provided once through
-  the `TEAM_CONNECTORS` token in `app.config.ts`; `scripts/check-team-boundaries.mjs` fails the build when anything else
-  imports a connector, or when Team code polls.
-- **MCP**: `mcp-server/src/tools/team.ts` - `team_items`, `team_item`, `team_changes`, `team_squads` (the cache only),
-  `team_link` and `team_start`.
+- **Backend**: the `backend-teamboards` family:
+  - `teamboards-spi` - the connector interface, Spring-free. `Connector` (kind, words, one item, types, people) plus
+    optional capabilities, each an interface a connector implements (`instanceof`, never declared): reads -
+    `ItemSearcher`, `QueryRunner`, `ItemReader` (items in batches of 200, comments), `TreeReader`, `IdentityReader`
+    (who owns the token, people by id), `StateCatalog` (states with their categories, areas), `AttachmentsReader`,
+    `HookReader` (the ids a service-hook ping names); writes - `ItemWriter` (comment, state, create, hyperlink, tag)
+    and `AttachmentWriter`. ArchUnit: the SPI has no Spring, write methods live only in the writer interfaces, and only
+    the consent-bundle service calls them.
+  - `teamboards-core` - `teamboards.db` (schema 2), `/teamboards/**` REST, the `/ws/teamboards` signal. Services:
+    `TokenVault` + `Live` (the token and every live call), `TeamService` (connections, lists, mappings, me),
+    `TeamSearchService`, `BoardItemsService` (main item, tree, sync), `CardItemsService` (card links),
+    `IncomingService`, `WatchRulesService`, `HookService`, `AzureWritesService` (consent bundles - the only caller of
+    the writers), `PeopleService`, `StartService`, `SeedBuilder`, `TeamTransferService` (export/import),
+    `TeamRetention` (every 6 h).
+  - `teamboards-azure` - `AzureDevOpsConnector`, `AzureClient` (JDK HttpClient, Basic auth with the PAT, 60 s timeout,
+    one short `Retry-After` retry, no redirects followed with the token), `AzureMapper`, `AzureWiql`.
+- **Bridge**: `backend-app/teamboardsbridge` - `TeamBoardsAdapter` (the board slice for the Team slice: cards, chat,
+  similar cards, proposals, owners), `LinkedWorkItemAdapter` (the board's main for the Task tab; card status changes
+  heard by the Team slice), `TeamRecordsImportAdapter` (a board import's team records), `TeamTokenLogFilter` and
+  `TeamTunnelGuard`.
+- **Frontend**: `pages/team` (Search, Mine, Teams, Iterations & boards) and `components/team/*` - connection switcher
+  (token form, owner, time left, Forget), search form, results table (Add ▾), item drawer, person pill, board picker,
+  related items, incoming lane, watch rules, card items ("Linked in Azure"), card owner, consent bundle, hook settings,
+  start button, connection settings. `core/team/*` - models, API, state, `azure-export.ts` (evidence files) and
+  `azure-evidence.service.ts`. A connector's UI lives only in `components/team/connectors/<kind>/`, provided once
+  through `TEAM_CONNECTORS` in `app.config.ts`; `scripts/check-team-boundaries.mjs` enforces it.
+- **MCP**: `mcp-server/src/tools/team.ts` (see docs/mcp.md "Team tracker"), and the `/alfred-team` skill.
 
 ## The token
 
-Each person keeps their own personal access token in their browser (`localStorage`, per connection). It rides only in
-`X-Alfred-Team-Token` on the calls that reach the tracker - refresh, a history fetch, a Start (for its attachments) and
-"Fetch attachments" - and Alfred never stores, logs or echoes it (`TeamServiceTest`, `TeamTokenNeverStoredTest`). A
-refused token is forgotten and the banner asks for a new one. Claude never has a token: its tools read the cache.
+The user enters a personal access token once on the Team tab (`PUT /teamboards/connections/{id}/token`, in the body).
+Alfred checks it (`whoAmI` names its owner - "me") and keeps it **8 hours in memory only** (`TokenVault`): never on
+disk, in a log, in a response or in a browser; a restart or **Forget** drops it, and a token the tracker refuses is
+dropped at once. Everyone using this Alfred reads the tracker with the last token entered. Claude never holds a token:
+with none live its tools answer `TOKEN_MISSING` and tell it to ask the user to enter one. Through the Cloudflare tunnel
+no live read is served (`TeamTunnelGuard`) - a tunnel viewer cannot read the tracker with the owner's token.
+Tests: `TeamServicesTest.theTokenIsNeverWrittenToTheDatabase` (no file, status, search, bundle or vault text holds it),
+`TokenVaultTest`, `TeamTokenNeverStoredTest`.
 
-## The shared cache
+## Search
 
-What anyone fetches, everyone sees. **Refresh** fetches only what changed since the last fetch (`since = fetchedAt`),
-pages streamed into the cache, one refresh per connection at a time (`429 PROVIDER_BUSY` with `retryAfter` from the
-tracker, or 5 s while another runs). A new scope fetches everything again on the next refresh, and a refresh that started
-on the old scope does not mark it fetched. Each change becomes a line in the **changes feed** ("State Active →
-Resolved"); the **seen** mark is shared too. Lists read summaries only - the raw item is stored, never listed. The cache
-trims itself: old or excess change lines, revisions over their cap, then unlinked items (an item a board links is never
-removed); attachments a Start fetched wait 24 h at most. Settings → Storage lists `teamboards.db`.
+`POST /teamboards/connections/{id}/search`: text plus filters - types, states, Open only (default on: states whose
+category is not Completed or Removed, read from the process), areas, teams (`Project\Team`, by the team's own area
+paths), iterations (or `@current`), assigned / created by (a unique name, or `me`), changed within, tags, parent, and
+Mine (assigned, created, changed, mentioned, followed - OR'ed). Azure's Search API (`almsearch.dev.azure.com`) does
+full-text; where the organisation has none (404) the connection falls back to WIQL title matching and the answer says
+`fullText: false`. 50 a page; each row carries where it already sits in Alfred (main of board X, on card #n, related)
+and whether the tracker moved past Alfred's copy. `POST .../query` runs a WIQL SELECT (≤ 200). Every WIQL value is
+quoted.
 
-**Gone items**: every refresh also asks the tracker for the ids still in scope (a connector's `ItemIdsReader`); an item
-deleted there or moved out of scope leaves the cache with its fields, links, history, waiting start and pending files,
-and the refresh's change list says so. An item a board is linked to stays (its board keeps the snapshot). An empty id
-list from the tracker removes nothing.
+**Lists** (`GET .../lists`): types, states with categories, areas, teams with members, iterations, people, the
+tracker's boards - read in the background when the tab opens and they are older than 10 minutes (or on ↻ Refresh
+lists). They feed the filters, the person pills (a person is named, never a raw id) and the browsers - a team, a member
+or an iteration clicked runs a search.
 
-**Refresh in the background**: the Team tab sends `POST .../refresh?background=true` - `202 STARTED` at once, and the
-outcome (`OK` with the changed count, `TOKEN_REJECTED`, `PROVIDER_BUSY` with `retryAfter`, `UNREACHABLE`) arrives on
-`/ws/teamboards` as `{what:"refresh", outcome, ...}`, so a first fetch of a big project never meets a proxy's timeout.
-Without the parameter the call still answers when the refresh is done. **Open items only**: Azure is asked only for items whose state is not in a Completed or Removed category (Closed,
-Done, Removed, or a custom process's names for them, read from the project's work item types). An item closed or
-removed after it was cached leaves the cache at the next refresh, unless a board links it. Changes are read in `ChangedDate` windows: Azure refuses
-any WIQL query matching more than 20,000 items, `$top` or not (VS402337), so a refused window is split in halves until
-each answers. A refused Azure call shows which call and Azure's own message.
+**An item** (`GET .../items/{id}?include=comments,history,attachments`) is read live with every field, its links and
+where it sits in Alfred; for an item Alfred keeps, the diff against the copy. From the drawer the user's own state move
+or comment goes to the tracker at once (`PATCH`, with the "via Alfred" footer) and is recorded as a done bundle; the
+same call from Claude creates a waiting bundle.
+
+## A board's items
+
+`/teamboards/boards/{board}/items`: the first item added is the board's **main** (one per board, `ux_board_main`);
+adding it reads its **tree** - ancestors, descendants, one hop of other links - as references. More than 200 related
+items asks first (up to 1000). Make main re-roots the tree and keeps a copy of the new main. The main and every item on
+a card are **full copies**; the rest are references read live. **Sync** (on opening Related items, at most once a
+minute, or Refresh all) re-reads the copies and the tree: each change field by field into `item_syncs` (shown as
+"● changed" until the user keeps the new copy), new descendants offered in Incoming, items gone from the tree marked
+"left the tree", and an item closed or reopened in the tracker gives its cards a move proposal.
+
+The board's **Related items** tab shows Tree / By type, the Kept column, Add by id or URL, Incoming and watch rules.
+The Task tab's chip shows the main and its changes (Save to brief / Dismiss keep the new copy).
+
+## Cards and items
+
+A card links to any number of items and an item to any number of cards (`/teamboards/cards/{card}/items`). Linking
+saves the item's copy, writes a "Linked in Azure" pill into the card and makes it a CARD item of the board. The markers
+in the tracker (a hyperlink back to Alfred, a comment, a tag) are always a bundle the user approves. Create in Azure
+from a card prepares the new item as a bundle; once approved it is linked to the card. Unlinking (the user's only)
+offers a cleanup bundle. "Also post to <item>" sends the user's own card comment to each linked item.
+
+## Incoming, watch rules, the service hook
+
+**Incoming** (per board): items that arrived - new in the main's tree (TREE), a watch rule (RULE), the hook (HOOK), by
+hand (HAND), from Claude (MCP) - each offered once, with its closest card ("Looks like …", similarity ≥ 40) and any
+proposal of Claude's. The user makes a New card (kind from the type → kind map; Epics and Features stay related items),
+Links it to a card, or Ignores it until it changes.
+
+**Watch rules**: a board's saved searches, run when the board opens, on Refresh, on a hook ping and from Claude; each
+new match lands once in Incoming (200 matches a run at most).
+
+**Service hook**: `POST /teamboards/hooks/azure` - the one write reachable through the tunnel (`BoardWebConfig`
+excludes it from the edit rule). Basic auth whose password is the secret (stored as PBKDF2, 120k iterations, checked in
+constant time; a route rate limit runs before any hashing). A ping names ids only; with a token live Alfred reads them
+and routes them to the boards whose tree or rules they match, else it keeps the ids (`hook_waiting`, 7 days) and drains
+them when a token is entered. Settings → Team trackers → Hook & kinds shows the URL, makes the secret (shown once),
+keeps Alfred's public address (for the links written into the tracker) and the type → card kind map.
+
+## Telling the tracker: consent bundles
+
+Nothing is written to the tracker without the user's approval, except the user's own direct state change or comment.
+Every other write - Claude's comments and state moves, card markers, created items, Tell Azure on Verified / Done
+(origin ALFRED), cleanups - is a **bundle** (`/teamboards/writes`): steps in order, each tickable and editable, an
+ATTACH step's file built in the user's browser from Alfred's own HTML export with the user's redactions and the
+always-masked credential headers (`ALWAYS_MASKED_HEADERS`) unless that file is ticked "send unmasked". Approve sends the
+ticked steps with the vault's token (waits with none) and records each step's result (DONE or PARTIAL); only the user
+approves. Comments end with "via Alfred: board …" and a link when the public address is set. Files are deleted when a
+bundle ends.
+
+## People and "me"
+
+A person is a pill: name, "me" marked, a hover card (email, teams, open items assigned, Alfred cards they own or are
+mentioned on). "Me" is the token's owner, or the person picked as "This is me" until the token changes hands. Board text
+mentions a person as `@[person:<conn>/<id>|Name]` (the @ picker has a People tab). A card has one owner,
+`<conn>/<person id>|<name>`, kept in the board slice next to the card (Claude sets it only on its own Inbox cards).
+**Mine** lists what is the user's: assigned, created, changed, mentioning, followed in the tracker, plus the boards of
+their items and the cards they own or are mentioned on.
 
 ## Start: a board from a work item
 
-1. **Where**: the mapping of the item's sprint, then squad, then area, then project; then a squad mapped to a project in
-   Squads. None: the user picks a project (and board) and may remember it for the item's squad (or area, or project).
-2. **One start per item**, claimed with a plain insert (two clicks post once). With the viewer's token the item's
-   attachments come down now (10 MB each, 50 MB per item) and wait for the board.
-3. A waiting `/alfred-setup <conn>/<id>` message (the title on one capped line) is posted **as the user** to the target
-   board's chat (the project chat for no board): the terminal holding that board, else the project's runner, runs
-   /alfred-setup. Cancel withdraws it while nobody took it (`409 TAKEN` after). The answer names who will run it
-   (`answeredBy`); with nobody live it says so - the message waits until /alfred-live starts or the board is opened in
-   a terminal. A picked project Alfred does not know (not a project it fronts, no boards) is refused before anything is
-   posted or remembered.
-4. /alfred-setup reads the seed (`team_item`), opens the board (`board_open` with `askedIn`), writes the brief and spec,
-   and calls `team_link`: Alfred keeps a snapshot of the item and moves the fetched attachments onto the board (each
-   leaves the store only once the board holds it).
+Unchanged from specs/027 in shape: the item's mapping (sprint, squad, area, project) or the user's pick says where; one
+start per item; a waiting `/alfred-setup <conn>/<id>` message is posted as the user to the target board's chat. Since
+028 the Start needs no token in the request (the vault's is used for the attachments), and `team_link` makes the item
+the board's **main**, so the seed (`GET /teamboards/items/{conn}/{id}/seed`, from the copy or live) and the changes
+come from it.
 
-As Claude, `team_start` needs `askedIn` naming the user's request, and `team_link` is refused unless a Start waits for
-the item or `askedIn` names one. After a refresh, a new mapped item gets Alfred's **Yes / No** suggestion in a chat with
-a live runner (at most 5 per refresh, once per item per chat, never after a first full fetch); only the user's Yes
-starts it.
+## Export and import
 
-## The seed
+A board's JSON export carries its tracker side (`GET /teamboards/boards/{board}/export`): `team-item` (with full
+copies, never cut), `team-card-link` (by card number), `team-incoming` (waiting ones), `team-watch-rule`, and
+`card-owner`. Import writes them onto the board's and cards' ids here; a record naming a connection this Alfred does not
+have is skipped; a 027 `workitem-snapshot` becomes the board's main.
 
-`GET /teamboards/items/{conn}/{id}/seed`: every field goes where the **field maps** say (Settings, per item type or `*`),
-else description to purpose, repro steps to steps, acceptance criteria to acceptance, the rest to context; the
-connector's `SeedContributor` fills a part the fields left empty; then the parent's acceptance, a Feature's or Epic's
-children as steps, and the attachments by name and link. Values are whole; the MCP tool pages a long part.
+## Upgrade from 027
 
-## Changed since setup
+Schema 2 drops the 027 cache (items, fields, full-text index, revisions, links, changes, board links) - nothing is
+migrated - and the Team tab shows a one-time notice. Connections, mappings, field maps and people stay.
 
-The board link's snapshot (neutral fields plus every field) against the item as cached now: each differing field, with
-who and when from the newest cached revision after the seen rev. Save to brief adds a "Changed in <tracker>" section and
-marks it seen; Dismiss marks it seen.
+## Retention
+
+`TeamRetention` every 6 hours: 50 syncs per item, decided Incoming 90 days, ended bundles 180 days (their files with
+them), hook ids 7 days, fetched attachments 24 hours. Settings → Storage lists `teamboards.db`.
 
 ## REST
 
-See `specs/027-boards-and-team/contracts/teamboards-rest.md`. Writes follow the board's edit rule (`BoardWebConfig`
-covers `/teamboards/**`): read-only through the tunnel. A GET never reaches the tracker.
+See `specs/028-team-live-search/contracts/teamboards-rest.md`. Writes follow the board's edit rule (`BoardWebConfig`
+covers `/teamboards/**`, except the hook); live reads are refused through the tunnel.
