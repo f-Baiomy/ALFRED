@@ -73,7 +73,7 @@ public class BoardCallFactsAdapter implements CallFactsPort {
                     body = liveCalls.getDetail(callId).map(CallDetail::response).map(r -> r.body()).orElse(null);
                 }
             } else {
-                Optional<CallDetail> detail = cycleCalls.getDetail(cycleId, callId);
+                Optional<CallDetail> detail = capturedDetail(cycleId, callId);
                 if (detail.isEmpty()) {
                     return Optional.empty();
                 }
@@ -104,10 +104,21 @@ public class BoardCallFactsAdapter implements CallFactsPort {
         }
     }
 
+    /** A call one of the task's cycles captured (specs/027: a board's key stands for all its related cycles). */
+    private Optional<CallDetail> capturedDetail(String taskKey, String callId) {
+        for (String cycleId : signer == null ? List.of(taskKey) : signer.cyclesOf(taskKey)) {
+            Optional<CallDetail> d = cycleCalls.getDetail(cycleId, callId);
+            if (d.isPresent()) {
+                return d;
+            }
+        }
+        return Optional.empty();
+    }
+
     @Override
     public Optional<CallBodies> bodies(String callId, String cycleId) {
         try {
-            Optional<CallDetail> detail = cycleId == null ? liveCalls.getDetail(callId) : cycleCalls.getDetail(cycleId, callId);
+            Optional<CallDetail> detail = cycleId == null ? liveCalls.getDetail(callId) : capturedDetail(cycleId, callId);
             if (detail.isEmpty() || detail.get().response() == null) {
                 return Optional.empty(); // gone, or not answered yet
             }

@@ -30,12 +30,12 @@ public class BriefCommentController {
         this.comments = comments;
     }
 
-    @GetMapping("/board/cycles/{cycleId}/brief/comments")
+    @GetMapping({"/board/cycles/{cycleId}/brief/comments", "/board/boards/{cycleId}/brief/comments"})
     public ResponseEntity<?> list(@PathVariable String cycleId) {
         return ResponseEntity.ok(comments.comments(cycleId));
     }
 
-    @PostMapping("/board/cycles/{cycleId}/brief/comments")
+    @PostMapping({"/board/cycles/{cycleId}/brief/comments", "/board/boards/{cycleId}/brief/comments"})
     public ResponseEntity<?> add(@RequestHeader(value = ACTOR, required = false) String actor, @PathVariable String cycleId,
                                  @RequestBody CommentRequest body) {
         if (body == null) {
@@ -45,25 +45,25 @@ public class BriefCommentController {
                 body.replyTo(), Boolean.TRUE.equals(body.asks()), body.suggestFrom(), body.suggestTo())));
     }
 
-    @PostMapping("/board/cycles/{cycleId}/brief/comments/{id}/resolve")
+    @PostMapping({"/board/cycles/{cycleId}/brief/comments/{id}/resolve", "/board/boards/{cycleId}/brief/comments/{id}/resolve"})
     public ResponseEntity<?> resolve(@RequestHeader(value = ACTOR, required = false) String actor, @PathVariable String cycleId,
                                      @PathVariable long id) {
         return answer(comments.resolve(BoardWeb.actor(actor), cycleId, id, true));
     }
 
-    @PostMapping("/board/cycles/{cycleId}/brief/comments/{id}/reopen")
+    @PostMapping({"/board/cycles/{cycleId}/brief/comments/{id}/reopen", "/board/boards/{cycleId}/brief/comments/{id}/reopen"})
     public ResponseEntity<?> reopen(@RequestHeader(value = ACTOR, required = false) String actor, @PathVariable String cycleId,
                                     @PathVariable long id) {
         return answer(comments.resolve(BoardWeb.actor(actor), cycleId, id, false));
     }
 
-    @PostMapping("/board/cycles/{cycleId}/brief/comments/{id}/apply")
+    @PostMapping({"/board/cycles/{cycleId}/brief/comments/{id}/apply", "/board/boards/{cycleId}/brief/comments/{id}/apply"})
     public ResponseEntity<?> apply(@RequestHeader(value = ACTOR, required = false) String actor, @PathVariable String cycleId,
                                    @PathVariable long id) {
         return answer(comments.apply(BoardWeb.actor(actor), cycleId, id));
     }
 
-    @PostMapping("/board/cycles/{cycleId}/brief/comments/{id}/dismiss")
+    @PostMapping({"/board/cycles/{cycleId}/brief/comments/{id}/dismiss", "/board/boards/{cycleId}/brief/comments/{id}/dismiss"})
     public ResponseEntity<?> dismiss(@RequestHeader(value = ACTOR, required = false) String actor, @PathVariable String cycleId,
                                      @PathVariable long id) {
         return answer(comments.dismiss(BoardWeb.actor(actor), cycleId, id));

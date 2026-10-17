@@ -31,29 +31,29 @@ Aliases used in task paths (all relative to the repo root):
 
 ## Phase 1: Setup
 
-- [ ] T001 Create the Maven parent `TB/pom.xml` (packaging pom) with modules `teamboards-spi`, `teamboards-core`, `teamboards-azure`, each with its own `pom.xml` (spi: Jackson only; core: spi + Spring web/jdbc + sqlite like `backend-logs`; azure: spi only), and add `backend-teamboards` to `backend/pom.xml` `<modules>`
-- [ ] T002 Add `teamboards-core` and `teamboards-azure` dependencies to `backend/backend-app/pom.xml` and `backend/backend-architecture-test/pom.xml`
-- [ ] T003 [P] Add `teamboards` to the API prefix regex in `gateway/nginx.conf` and to the prefix list in `APP/web/SpaPageFilter.java`; extend `SpaPageFilterTest` expectations (confirm its path with `codegraph explore "SpaPageFilterTest"` first)
-- [ ] T004 [P] Add `frontend/scripts/check-team-boundaries.mjs` (fails if a file outside `FE/components/team/connectors/` imports from it, and if `interval(`, `setInterval(` or a periodic `timer(` appears under `FE/components/team/`, `FE/pages/team/` or the new board components: SC-009) and chain it into `pretest` in `frontend/package.json`
+- [X] T001 Create the Maven parent `TB/pom.xml` (packaging pom) with modules `teamboards-spi`, `teamboards-core`, `teamboards-azure`, each with its own `pom.xml` (spi: Jackson only; core: spi + Spring web/jdbc + sqlite like `backend-logs`; azure: spi only), and add `backend-teamboards` to `backend/pom.xml` `<modules>`
+- [X] T002 Add `teamboards-core` and `teamboards-azure` dependencies to `backend/backend-app/pom.xml` and `backend/backend-architecture-test/pom.xml`
+- [X] T003 [P] Add `teamboards` to the API prefix regex in `gateway/nginx.conf` and to the prefix list in `APP/web/SpaPageFilter.java`; extend `SpaPageFilterTest` expectations (confirm its path with `codegraph explore "SpaPageFilterTest"` first)
+- [X] T004 [P] Add `frontend/scripts/check-team-boundaries.mjs` (fails if a file outside `FE/components/team/connectors/` imports from it, and if `interval(`, `setInterval(` or a periodic `timer(` appears under `FE/components/team/`, `FE/pages/team/` or the new board components: SC-009) and chain it into `pretest` in `frontend/package.json`
 
 ---
 
 ## Phase 2: Foundational (blocks every story)
 
-- [ ] T005 Add `Board`, `BoardState`, `BoardActivity`, `BoardRelations` records in `BOARD/domain/model/` per data-model.md
-- [ ] T006 Add the new tables (`boards`, `board_cycles`, `board_boards`, `card_cycles`, `board_activity`, `cards.board_id` + index) to the schema init in `BOARD/adapter/out/sqlite/SqliteBoardRepository.java`
-- [ ] T007 Create `BOARD/adapter/out/sqlite/BoardModelMigration.java`. Steps:
+- [X] T005 Add `Board`, `BoardState`, `BoardActivity`, `BoardRelations` records in `BOARD/domain/model/` per data-model.md
+- [X] T006 Add the new tables (`boards`, `board_cycles`, `board_boards`, `card_cycles`, `board_activity`, `cards.board_id` + index) to the schema init in `BOARD/adapter/out/sqlite/SqliteBoardRepository.java`
+- [X] T007 Create `BOARD/adapter/out/sqlite/BoardModelMigration.java`. Steps:
   - guard on `board_meta.boards_v1`;
   - rename `cycle_id` → `board_id` in the task and chat tables listed in data-model.md (check `PRAGMA table_info` first);
   - create one `default:<project>` board per project;
   - set `cards.board_id`;
   - rewrite project chat keys `''` → `default:<project>`;
   - run everything in one transaction.
-- [ ] T008 Re-key every SQL string from `cycle_id` to `board_id` for the renamed tables in `SqliteBoardRepository.java`, `SqliteChatRepository.java`, `SqliteRequirementRepository.java`, `SqliteBriefCommentRepository.java` and `SqliteSnippetRepository.java` (leave `mentions.cycle_id` and `cards.cycle_id` as origin)
-- [ ] T009 Change `ChatKey` in `BOARD/domain/model/ChatKey.java` to `(project, boardId)` with `PROJECT_SCOPE` resolving to `default:<project>`; update callers found by `codegraph explore "ChatKey"`
-- [ ] T010 Add out-ports `BOARD/application/port/out/CycleControlPort.java` (create, start, pause, status, names) and `BOARD/application/port/out/LinkedWorkItemPort.java` (Optional linked item + changes since setup); add no-op defaults so the board slice runs without the bridge
-- [ ] T011 Implement `CycleControlPort` in `APP/boardbridge/BoardCycleControlAdapter.java` over the session-cycles use cases
-- [ ] T012 [P] Test the migration in `BOARD_T/adapter/out/sqlite/BoardModelMigrationTest.java`. The old-schema fixture is built with the pre-change DDL copied verbatim into the test. Assert: columns renamed, default boards created, card homes set, project chat re-keyed, second run is a no-op.
+- [X] T008 (amended, research.md R1: the task key keeps the name `cycle_id`/`cycleId` and holds the board id) Re-key every SQL string from `cycle_id` to `board_id` for the renamed tables in `SqliteBoardRepository.java`, `SqliteChatRepository.java`, `SqliteRequirementRepository.java`, `SqliteBriefCommentRepository.java` and `SqliteSnippetRepository.java` (leave `mentions.cycle_id` and `cards.cycle_id` as origin)
+- [X] T009 (amended, R1: `ChatKey.cycleId` is the board id; `default:<project>` maps to the project chat `''`) Change `ChatKey` in `BOARD/domain/model/ChatKey.java` to `(project, boardId)` with `PROJECT_SCOPE` resolving to `default:<project>`; update callers found by `codegraph explore "ChatKey"`
+- [X] T010 Add out-ports `BOARD/application/port/out/CycleControlPort.java` (create, start, pause, status, names) and `BOARD/application/port/out/LinkedWorkItemPort.java` (Optional linked item + changes since setup); add no-op defaults so the board slice runs without the bridge
+- [X] T011 Implement `CycleControlPort` in `APP/boardbridge/BoardCycleControlAdapter.java` over the session-cycles use cases
+- [X] T012 [P] Test the migration in `BOARD_T/adapter/out/sqlite/BoardModelMigrationTest.java`. The old-schema fixture is built with the pre-change DDL copied verbatim into the test. Assert: columns renamed, default boards created, card homes set, project chat re-keyed, second run is a no-op.
 
 **Checkpoint**: the app starts on an old database and everything shows on default boards.
 
@@ -64,25 +64,25 @@ Aliases used in task paths (all relative to the repo root):
 **Goal**: named boards holding brief, specs, requirements and chat; cycles related many-to-many.
 **Independent test**: create a board, relate two cycles; the Task tab judges on both; Session Cycles shows no brief or chat.
 
-- [ ] T013 [P] [US1] Create use cases `ManageBoardsUseCase.java` and `RelateCycleUseCase.java` in `BOARD/application/port/in/`, with outcome enum `BoardOutcome` (OK, NOT_FOUND, DEFAULT_PROTECTED, REFUSED_FOR_CLAUDE) in `BOARD/domain/model/BoardOutcome.java`
-- [ ] T014 [US1] Implement `BOARD/application/service/BoardsService.java`:
+- [X] T013 [P] [US1] Create use cases `ManageBoardsUseCase.java` and `RelateCycleUseCase.java` in `BOARD/application/port/in/`, with outcome enum `BoardOutcome` (OK, NOT_FOUND, DEFAULT_PROTECTED, REFUSED_FOR_CLAUDE) in `BOARD/domain/model/BoardOutcome.java`
+- [X] T014 [US1] Implement `BOARD/application/service/BoardsService.java`:
   - create, rename, state, delete (cards to default, cascade task rows by `board_id`), list;
   - relate/unrelate a cycle or a board;
   - write `board_activity` rows, with Undo JSON for Claude's actions;
   - enforce Claude's limits (FR-001b; FR-013: Inbox-only new cards, allowed moves and own-Inbox edits apply per board);
   - check `askedIn` for Claude's create: a user chat message on a board chat under 30 min old, or `"terminal"` recorded in activity; else `403 NOT_ASKED` (FR-040, R13a).
-- [ ] T015 [US1] Add repository methods for boards, relations and activity in `SqliteBoardRepository.java` (indexed, `LIMIT`, summary columns); cap `board_activity` at `alfred.board.activity-max-rows` per board, trimming ≤ 200 oldest rows per insert
-- [ ] T016 [US1] Add `BOARD/adapter/in/web/BoardsController.java` for the boards and relations routes in contracts/board-rest.md, with `@Valid` DTOs and clamped limits, behind `BoardEditAccess`
-- [ ] T017 [US1] Move the task routes to `/board/boards/{id}/…` in `CycleBriefController.java`, `RequirementController.java` and `BoardInsightsController.java`, and keep `/board/cycles/{id}/…` as aliases (resolve cycle → board, or `409 {boards}`)
-- [ ] T018 [US1] Re-key `RequirementService.java` to judge per board: boards related to the call's cycle, plus every OPEN board of the project for live calls; skip DONE/ARCHIVED (FR-005, R4)
-- [ ] T019 [P] [US1] Test `BOARD_T/application/service/BoardsServiceTest.java` (create, default protected, delete moves cards, Undo, activity cap; Claude: `NOT_ASKED` without `askedIn`, refused for a stale or non-user message, accepted with "terminal" and recorded, Claude limits per board)
-- [ ] T020 [P] [US1] Test `BOARD_T/adapter/in/web/BoardsControllerTest.java` (`@WebMvcTest`: validation, clamps, tunnel refused, aliases)
-- [ ] T021 [P] [US1] Extend `BOARD_T/application/service/RequirementServiceTest.java`: per-board verdicts kept apart; archived board not judged; live call judged by every open board of the project
-- [ ] T022 [P] [US1] Add `Board` models and boards/relations calls to `FE/core/models/board.models.ts` and `FE/core/services/board-api.service.ts`
-- [ ] T023 [US1] Create `FE/components/board/board-picker/` (grouped default/task, Show archived, New board dialog) and `FE/components/board/related-strip/` (cycles + boards chips, relate dialog, unrelate), and use them in `FE/components/board/board-view/` per mock.html §Board
-- [ ] T024 [US1] Re-key `FE/components/board/task-view/` and `FE/components/board/cycle-brief/` to `boardId`; add the Cycles pane (REC/paused badge, shared-with, Unrelate) and the board state menu (Open/Done/Archive)
-- [ ] T025 [US1] Group `FE/pages/session-cycles-list/` by board (a cycle under each of its boards, "Also on", "Not on any board", Group by None, Record for it) per mock.html
-- [ ] T026 [P] [US1] Add the Board activity tab component `FE/components/board/board-activity/` with Undo
+- [X] T015 [US1] Add repository methods for boards, relations and activity in `SqliteBoardRepository.java` (indexed, `LIMIT`, summary columns); cap `board_activity` at `alfred.board.activity-max-rows` per board, trimming ≤ 200 oldest rows per insert
+- [X] T016 [US1] Add `BOARD/adapter/in/web/BoardsController.java` for the boards and relations routes in contracts/board-rest.md, with `@Valid` DTOs and clamped limits, behind `BoardEditAccess`
+- [X] T017 [US1] Move the task routes to `/board/boards/{id}/…` in `CycleBriefController.java`, `RequirementController.java` and `BoardInsightsController.java`, and keep `/board/cycles/{id}/…` as aliases (resolve cycle → board, or `409 {boards}`)
+- [X] T018 [US1] Re-key `RequirementService.java` to judge per board: boards related to the call's cycle, plus every OPEN board of the project for live calls; skip DONE/ARCHIVED (FR-005, R4)
+- [X] T019 [P] [US1] Test `BOARD_T/application/service/BoardsServiceTest.java` (create, default protected, delete moves cards, Undo, activity cap; Claude: `NOT_ASKED` without `askedIn`, refused for a stale or non-user message, accepted with "terminal" and recorded, Claude limits per board)
+- [X] T020 [P] [US1] Test `BOARD_T/adapter/in/web/BoardsControllerTest.java` (`@WebMvcTest`: validation, clamps, tunnel refused, aliases)
+- [X] T021 [P] [US1] Extend `BOARD_T/application/service/RequirementServiceTest.java`: per-board verdicts kept apart; archived board not judged; live call judged by every open board of the project
+- [X] T022 [P] [US1] Add `Board` models and boards/relations calls to `FE/core/models/board.models.ts` and `FE/core/services/board-api.service.ts`
+- [X] T023 [US1] Create `FE/components/board/board-picker/` (grouped default/task, Show archived, New board dialog) and `FE/components/board/related-strip/` (cycles + boards chips, relate dialog, unrelate), and use them in `FE/components/board/board-view/` per mock.html §Board
+- [X] T024 [US1] Re-key `FE/components/board/task-view/` and `FE/components/board/cycle-brief/` to `boardId`; add the Cycles pane (REC/paused badge, shared-with, Unrelate) and the board state menu (Open/Done/Archive)
+- [X] T025 [US1] Group `FE/pages/session-cycles-list/` by board (a cycle under each of its boards, "Also on", "Not on any board", Group by None, Record for it) per mock.html
+- [X] T026 [P] [US1] Add the Board activity tab component `FE/components/board/board-activity/` with Undo
 
 **Checkpoint**: US1 works alone on migrated data.
 
@@ -93,15 +93,15 @@ Aliases used in task paths (all relative to the repo root):
 **Goal**: briefed cycles become boards; nothing lost; re-run safe.
 **Independent test**: start on a copy of real data and compare counts (quickstart §2).
 
-- [ ] T027 [US5] Extend `BoardModelMigration.java` for briefed cycles:
+- [X] T027 [US5] Extend `BoardModelMigration.java` for briefed cycles:
   - each id in `cycle_briefs` ∪ `spec_files` ∪ keyed chats ∪ `item_evidence` becomes a board with the same id;
   - its name and `migrated_from` come from `CycleControlPort.names`;
   - add `board_cycles(id, id)`;
   - move cards with that origin home;
   - relate unbriefed cycles to the default board;
   - write MIGRATED activity.
-- [ ] T028 [P] [US5] Extend `BoardModelMigrationTest.java` with SC-001 counts on a fixture with briefed and unbriefed cycles, chats and cards
-- [ ] T029 [US5] Show the "Migrated from cycle …" banner in `FE/components/board/board-view/` from `Board.migratedFrom`
+- [X] T028 [P] [US5] Extend `BoardModelMigrationTest.java` with SC-001 counts on a fixture with briefed and unbriefed cycles, chats and cards
+- [X] T029 [US5] Show the "Migrated from cycle …" banner in `FE/components/board/board-view/` from `Board.migratedFrom`
 
 ---
 
@@ -110,12 +110,12 @@ Aliases used in task paths (all relative to the repo root):
 **Goal**: home board, origin cycle, related cycles, own/related view, move home.
 **Independent test**: a card from a shared cycle shows dashed on the other board with one status; Own only hides it.
 
-- [ ] T030 [P] [US2] Create the use case `BOARD/application/port/in/MoveCardHomeUseCase.java`, and add related-cycle methods to `LinkCardUseCase.java`
-- [ ] T031 [US2] Implement move home (activity on both boards, Undo for Claude) and relate/unrelate a card's cycle in `BOARD/application/service/BoardService.java`
-- [ ] T032 [US2] Implement the own + related visibility query from data-model.md in `SqliteBoardRepository.java` and the `GET /board/cards?board=&scope=` param (old `project/cycleId` params still accepted) in the card controller
-- [ ] T033 [P] [US2] Test `BOARD_T/application/service/CardHomeTest.java` (number unchanged, both activities, visibility own/all, related board's cards)
-- [ ] T034 [P] [US2] Add the pure util `FE/shared/utils/board-cards-visibility.ts` (+ `.spec.ts`) for the dashed "home X" marking
-- [ ] T035 [US2] Update `FE/components/board/board-card/` (home label, origin chip, origin deleted) and `FE/components/board/card-drawer/` (home select, origin, related cycles add/remove), and the Own+related / Own only switch in `board-view`
+- [X] T030 [P] [US2] Create the use case `BOARD/application/port/in/MoveCardHomeUseCase.java`, and add related-cycle methods to `LinkCardUseCase.java`
+- [X] T031 [US2] Implement move home (activity on both boards, Undo for Claude) and relate/unrelate a card's cycle in `BOARD/application/service/BoardService.java`
+- [X] T032 [US2] Implement the own + related visibility query from data-model.md in `SqliteBoardRepository.java` and the `GET /board/cards?board=&scope=` param (old `project/cycleId` params still accepted) in the card controller
+- [X] T033 [P] [US2] (in `BoardsServiceTest.java`) Test `BOARD_T/application/service/CardHomeTest.java` (number unchanged, both activities, visibility own/all, related board's cards)
+- [X] T034 [P] [US2] Add the pure util `FE/shared/utils/board-cards-visibility.ts` (+ `.spec.ts`) for the dashed "home X" marking
+- [X] T035 [US2] Update `FE/components/board/board-card/` (home label, origin chip, origin deleted) and `FE/components/board/card-drawer/` (home select, origin, related cycles add/remove), and the Own+related / Own only switch in `board-view`
 
 ---
 

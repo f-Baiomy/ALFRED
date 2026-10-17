@@ -145,6 +145,21 @@ public class RequirementService implements RequirementUseCase, RequirementWatchU
         this.clock = clock;
     }
 
+    /** Boards (specs/027): only an open board judges, and it judges its project's live calls too. Optional for tests. */
+    private com.fathy.alfred.backend.board.application.port.out.BoardModelStorePort boardModel;
+    private com.fathy.alfred.backend.board.application.port.out.LiveCallsPort liveCalls;
+    /** The live (not captured) calls of the judging pass under way - judgeCycle is synchronized, act() runs inside it. */
+    private volatile Set<String> judgingLive = Set.of();
+    /** How many of the newest live calls an open board looks at per pass. */
+    static final int LIVE_CALLS = 500;
+
+    @Autowired(required = false)
+    void setBoards(com.fathy.alfred.backend.board.application.port.out.BoardModelStorePort boardModel,
+                   com.fathy.alfred.backend.board.application.port.out.LiveCallsPort liveCalls) {
+        this.boardModel = boardModel;
+        this.liveCalls = liveCalls;
+    }
+
     @jakarta.annotation.PreDestroy
     void stop() {
         worker.shutdownNow();
@@ -278,11 +293,28 @@ public class RequirementService implements RequirementUseCase, RequirementWatchU
 
     /** Judges the cycle's calls not judged yet, then acts on the verdicts that call for a card. One cycle at a time. */
     synchronized void judgeCycle(String cycleId) {
+        judgingLive = Set.of(); // never the last pass's live calls, whatever this one returns early on
         List<ItemEvidence> all = requirements.evidence(cycleId).stream().filter(e -> !e.manual() && e.problem() == null).toList();
         if (all.isEmpty()) {
             return;
         }
-        List<CycleCall> calls = cycleCalls.calls(cycleId, CYCLE_CALLS).stream().filter(c -> "in".equals(c.direction())).toList();
+        var board = boardModel == null ? java.util.Optional.<com.fathy.alfred.backend.board.domain.model.Board>empty() : boardModel.board(cycleId);
+        if (board.isPresent() && !board.get().open()) {
+            return; // a done or archived board judges no new calls (FR-001a)
+        }
+        List<CycleCall> calls = new ArrayList<>(cycleCalls.calls(cycleId, CYCLE_CALLS).stream().filter(c -> "in".equals(c.direction())).toList());
+        // An open board also judges its project's live calls (FR-005, clarified 2026-10-17); their bodies are read live.
+        Set<String> live = new HashSet<>();
+        judgingLive = live;
+        if (board.isPresent() && liveCalls != null) {
+            Set<String> captured = new HashSet<>(calls.stream().map(CycleCall::callId).toList());
+            for (CycleCall c : liveCalls.recentOf(board.get().project(), LIVE_CALLS)) {
+                if ("in".equals(c.direction()) && captured.add(c.callId())) {
+                    calls.add(c);
+                    live.add(c.callId());
+                }
+            }
+        }
         Map<String, Parsed> bodies = new HashMap<>();
         Map<String, List<CallRow>> fresh = new LinkedHashMap<>();
         boolean changed = false;
@@ -293,7 +325,7 @@ public class RequirementService implements RequirementUseCase, RequirementWatchU
                 if (judged.contains(c.callId()) || !EndpointPattern.matches(ev.endpoint(), c.method() + " " + c.endpoint().replaceFirst("^\\S+\\s+", ""))) {
                     continue;
                 }
-                Parsed p = bodies.computeIfAbsent(c.callId(), id -> parse(id, cycleId));
+                Parsed p = bodies.computeIfAbsent(c.callId(), id -> parse(id, live.contains(id) ? null : cycleId));
                 Instant at = c.at() == null ? clock.instant() : c.at();
                 if (p == null) {
                     if (Duration.between(at, clock.instant()).compareTo(BODY_WAIT) < 0) {
@@ -602,9 +634,15 @@ public class RequirementService implements RequirementUseCase, RequirementWatchU
         return ids.isEmpty() ? null : ids;
     }
 
-    private static MentionRef callRef(CycleCall c, String cycleId) {
+    /**
+     * A judged call as a mention: in the cycle the task key names, or - for a board whose id is not one of its cycles
+     * (specs/027) - by its live id, which every cycle's copy of it shares.
+     */
+    private MentionRef callRef(CycleCall c, String cycleId) {
         String label = clip(c.method() + " " + c.path() + " · " + c.status(), 120);
-        return new MentionRef(MentionType.CALL, "in:" + c.callId() + "@" + cycleId, label);
+        boolean keyIsCycle = boardModel == null || boardModel.board(cycleId).isEmpty() || boardModel.cyclesOf(cycleId).contains(cycleId);
+        return new MentionRef(MentionType.CALL, keyIsCycle && !judgingLive.contains(c.callId()) ? "in:" + c.callId() + "@" + cycleId
+                : c.liveRef(), label);
     }
 
     // ------------------------------------------------------------------------------------------------- the view

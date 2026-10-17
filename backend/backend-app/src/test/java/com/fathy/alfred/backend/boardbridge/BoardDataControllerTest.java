@@ -37,7 +37,8 @@ class BoardDataControllerTest {
         when(endpoints.endpointOf(any(), any())).thenAnswer(i -> i.getArgument(0) + " " + java.net.URI.create(i.getArgument(1)).getPath()
                 .replaceAll("/\\d+", "/{n}"));
         BoardCycleCallsAdapter signer = new BoardCycleCallsAdapter(mock(ListCapturedCallsUseCase.class), mock(ListPagedCapturedInternalCallsUseCase.class),
-                endpoints, inbound);
+                endpoints, inbound, new org.springframework.beans.factory.support.StaticListableBeanFactory()
+                        .getBeanProvider(com.fathy.alfred.backend.board.application.port.in.RelateCycleUseCase.class));
         controller = new BoardDataController(inbound, mock(ListCapturedCallsUseCase.class), mock(ListPagedCapturedInternalCallsUseCase.class), signer,
                 db, logs);
     }

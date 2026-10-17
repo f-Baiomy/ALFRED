@@ -120,7 +120,8 @@ public class BoardController {
                                   @RequestParam(required = false) String q, @RequestParam(defaultValue = "0") int offset,
                                   @RequestParam(defaultValue = "200") int limit, @RequestParam(required = false) String waiting,
                                   @RequestParam(defaultValue = "false") boolean cycleDeleted,
-                                  @RequestParam(required = false) List<String> team) {
+                                  @RequestParam(required = false) List<String> team, @RequestParam(required = false) String board,
+                                  @RequestParam(defaultValue = "all") String scope) {
         try {
             CardQuery cardQuery = new CardQuery(project, blankToNull(cycleId), enums(kind, CardKind::valueOf, CardKind.class),
                     enums(status, CardStatus::valueOf, CardStatus.class), enums(flag, Flag::valueOf, Flag.class),
@@ -128,6 +129,10 @@ public class BoardController {
                     offset, limit, false, null, false,
                     waiting == null || waiting.isBlank() ? null : com.fathy.alfred.backend.board.domain.model.Waiting.valueOf(waiting.strip().toUpperCase(Locale.ROOT)),
                     cycleDeleted, team == null ? Set.of() : Set.copyOf(team));
+            if (board != null && !board.isBlank()) {
+                // specs/027 FR-011: a board's own cards, and unless scope=own those of its related cycles and boards
+                cardQuery = cardQuery.onBoard(board.strip(), !"own".equalsIgnoreCase(scope));
+            }
             return ResponseEntity.ok(query.query(cardQuery));
         } catch (IllegalArgumentException e) {
             return BoardWeb.refused(CardChange.Outcome.INVALID, "Unknown filter value: " + e.getMessage());
@@ -179,7 +184,7 @@ public class BoardController {
     }
 
     /** The cards of a cycle the user is deleting with it. */
-    @DeleteMapping("/board/cycles/{cycleId}/cards")
+    @DeleteMapping({"/board/cycles/{cycleId}/cards", "/board/boards/{cycleId}/cards"})
     public ResponseEntity<?> deleteCycleCards(@RequestHeader(value = ACTOR, required = false) String actor, @PathVariable String cycleId) {
         DeleteCardUseCase.CycleCardsDeleted out = delete.deleteCycleCards(BoardWeb.actor(actor), cycleId);
         if (out.outcome() != CardChange.Outcome.OK) {
@@ -261,7 +266,7 @@ public class BoardController {
 
     // ------------------------------------------------------------------------------------------ badges, Claude context
 
-    @GetMapping("/board/cycles/{cycleId}/call-badges")
+    @GetMapping({"/board/cycles/{cycleId}/call-badges", "/board/boards/{cycleId}/call-badges"})
     public ResponseEntity<?> cycleBadges(@PathVariable String cycleId) {
         return ResponseEntity.ok(badges.badgesOfCycle(cycleId));
     }

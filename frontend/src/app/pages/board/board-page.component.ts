@@ -11,15 +11,23 @@ import { BoardViewComponent } from '../../components/board/board-view/board-view
 import { TaskViewComponent } from '../../components/board/task-view/task-view.component';
 import { BoardApiService } from '../../core/services/board-api.service';
 import { ConfirmDialogComponent } from '../../components/confirm-dialog/confirm-dialog.component';
+import { BoardPickerComponent } from '../../components/board/board-picker/board-picker.component';
+import { RelatedStripComponent } from '../../components/board/related-strip/related-strip.component';
+import { BoardActivityComponent } from '../../components/board/board-activity/board-activity.component';
+import { BoardSummary } from '../../core/models/board.models';
+import { BoardSocketService } from '../../core/services/board-socket.service';
+import { filter } from 'rxjs';
 
 /**
- * The Board tab (specs/014-task-board US1): a project's board, or one session cycle's board with its brief, spec files
- * and checklist above it. The choice is in the URL (?project=&cycle=&card=), so "Add to board" and links land here.
+ * The Board tab (specs/014-task-board US1, specs/027): every card of a project ("All cards"), or one board - a task - with
+ * its related cycles and boards, its brief, spec files, requirements and chat above its cards. The board id travels as the
+ * task key (?cycle=<board id>; a migrated board's id is its old cycle's), so old links still land on the right task.
  */
 @Component({
   selector: 'app-board-page',
   standalone: true,
-  imports: [SelectPickerComponent, BoardViewComponent, TaskViewComponent, ConfirmDialogComponent],
+  imports: [SelectPickerComponent, BoardViewComponent, TaskViewComponent, ConfirmDialogComponent, BoardPickerComponent, RelatedStripComponent,
+    BoardActivityComponent],
   template: `
     @if (windowMode()) {
       <app-board-view [project]="project()" [cycleId]="cycleId()" [windowMode]="true" />
@@ -27,17 +35,13 @@ import { ConfirmDialogComponent } from '../../components/confirm-dialog/confirm-
     <div class="board-page">
       <div class="board-head">
         <h1>Board</h1>
-        <div class="board-seg" role="group" aria-label="Which board">
-          <button type="button" [class.on]="!cycleId()" (click)="go(project(), null)">Project board</button>
-          <button type="button" [class.on]="!!cycleId()" (click)="go(project(), cycleId() ?? firstCycleId())">Cycle board</button>
-        </div>
-        @if (!cycleId()) {
-          <app-select-picker [options]="projectOptions()" [value]="project()" ariaLabel="Project" (valueChange)="go($event, null)" />
-        } @else {
-          <app-select-picker [options]="cycleOptions()" [value]="cycleId() ?? ''" ariaLabel="Session cycle" (valueChange)="go(project(), $event)" />
-        }
+        <app-board-picker [project]="project()" [selected]="cycleId()" [editable]="editable()" (picked)="go(project(), $event)" />
+        <app-select-picker [options]="projectOptions()" [value]="project()" ariaLabel="Project" (valueChange)="go($event, null)" />
       </div>
       @if (cycleId(); as id) {
+        <app-related-strip [summary]="summary()" [cycles]="cycles()" [allBoards]="allBoards()" [editable]="editable()"
+                           (changed)="reloadSummary()" (deleted)="go(project(), null)" />
+        <app-board-activity [boardId]="id" [editable]="editable()" />
         <app-task-view [cycleId]="id" [project]="project()" [editable]="editable()" [cycleName]="cycleName()" />
       }
       <app-board-view [project]="project()" [cycleId]="cycleId()" [cycleName]="cycleName()" [onlyCycleDeleted]="onlyCycleDeleted()" />
@@ -59,16 +63,17 @@ export class BoardPageComponent {
   readonly project = computed(() => this.query().get('project') ?? this.projects()[0] ?? '');
   /** ?cycleDeleted=1 (from Settings -> Storage): open with the "cycle deleted" filter on. */
   readonly onlyCycleDeleted = computed(() => this.query().get('cycleDeleted') === '1');
-  readonly cycleId = computed(() => this.query().get('cycle'));
+  /** The selected board (?board=, or ?cycle= from before boards: a migrated board has its cycle's id). Null = All cards. */
+  readonly cycleId = computed(() => this.query().get('board') ?? this.query().get('cycle'));
   /** ?window=1: a card window (↗ Window) - only the card, no nav, no board. */
   readonly windowMode = computed(() => this.query().get('window') === '1');
   readonly projects = toSignal(this.db.projects().pipe(map((ps) => [...ps.map((p) => p.project), '']), catchError(() => of(['']))),
     { initialValue: [''] as string[] });
   readonly cycles = toSignal(this.cyclesApi.list().pipe(catchError(() => of([] as SessionCycle[]))), { initialValue: [] as SessionCycle[] });
   readonly projectOptions = computed<SelectOption[]>(() => this.projects().map((p) => ({ value: p, label: p || 'No project' })));
-  readonly cycleOptions = computed<SelectOption[]>(() => this.cycles().map((c) => ({ value: c.id, label: c.name })));
-  readonly firstCycleId = computed(() => this.cycles()[0]?.id ?? null);
-  readonly cycleName = computed(() => this.cycles().find((c) => c.id === this.cycleId())?.name ?? null);
+  readonly summary = signal<BoardSummary | null>(null);
+  readonly allBoards = signal<BoardSummary[]>([]);
+  readonly cycleName = computed(() => this.summary()?.board.name ?? this.cycles().find((c) => c.id === this.cycleId())?.name ?? null);
   readonly editable = signal(true);
 
   constructor() {
@@ -76,13 +81,30 @@ export class BoardPageComponent {
     inject(DestroyRef).onDestroy(() => document.body.classList.remove('card-window'));
     this.board.access().subscribe({ next: (a) => this.editable.set(a.editable), error: () => undefined });
     effect(() => {
+      const id = this.cycleId();
+      untracked(() => this.reloadSummary(id));
+    });
+    const socket = inject(BoardSocketService);
+    const sub = socket.events$.pipe(filter((e) => e.type === 'board-changed' && (e.what === 'boards' || e.what === 'deleted')))
+      .subscribe(() => this.reloadSummary());
+    inject(DestroyRef).onDestroy(() => sub.unsubscribe());
+    effect(() => {
       const card = this.query().get('card');
       if (!card) return;
       untracked(() => this.mentions.cardToOpen.set({ project: this.project(), number: Number(card) }));
     });
   }
 
-  go(project: string, cycleId: string | null): void {
-    void this.router.navigate([], { relativeTo: this.route, queryParams: { project: project || null, cycle: cycleId, card: null } });
+  go(project: string, boardId: string | null): void {
+    void this.router.navigate([], { relativeTo: this.route, queryParams: { project: project || null, board: boardId, cycle: null, card: null } });
+  }
+
+  reloadSummary(id: string | null = this.cycleId()): void {
+    this.board.boards(null).subscribe({ next: (b) => this.allBoards.set(b), error: () => undefined });
+    if (!id) {
+      this.summary.set(null);
+      return;
+    }
+    this.board.board(id).subscribe({ next: (b) => this.summary.set(b), error: () => this.summary.set(null) });
   }
 }

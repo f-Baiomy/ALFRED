@@ -57,6 +57,9 @@ public interface BoardStorePort {
 
     CardsPage.Progress progress(String project, String cycleId);
 
+    /** Progress of the cards homed on a board (specs/027). */
+    CardsPage.Progress boardProgress(String boardId);
+
     // activity
 
     long append(ActivityEntry entry);

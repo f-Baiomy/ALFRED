@@ -137,6 +137,33 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
         this.clock = clock;
     }
 
+    /** Boards (specs/027): where a new card lives. Optional, so tests build this service without it. */
+    private com.fathy.alfred.backend.board.application.port.out.BoardModelStorePort boardModel;
+
+    @Autowired(required = false)
+    void setBoardModel(com.fathy.alfred.backend.board.application.port.out.BoardModelStorePort boardModel) {
+        this.boardModel = boardModel;
+    }
+
+    /**
+     * A new card's home board (specs/027 FR-013): the board its task key names; for a cycle id, the one open board related
+     * to that cycle, else the first; otherwise (or with no boards wired) the project's default board.
+     */
+    String homeOf(String project, String taskKey) {
+        if (boardModel == null || taskKey == null || taskKey.isBlank()) {
+            return null;
+        }
+        var named = boardModel.board(taskKey);
+        if (named.isPresent()) {
+            return named.get().project().equals(project) ? taskKey : null;
+        }
+        // a card's home is a board of its own project: an open one related to the cycle, else any, else the default board
+        List<com.fathy.alfred.backend.board.domain.model.Board> mine = boardModel.boardsOfCycle(taskKey).stream().map(boardModel::board)
+                .flatMap(java.util.Optional::stream).filter(b -> b.project().equals(project)).toList();
+        return mine.stream().filter(com.fathy.alfred.backend.board.domain.model.Board::open).findFirst()
+                .or(() -> mine.stream().findFirst()).map(com.fathy.alfred.backend.board.domain.model.Board::id).orElse(null);
+    }
+
     // ---------------------------------------------------------------------------------------------------------- create
 
     @Override
@@ -193,7 +220,8 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
         }
         Instant now = clock.instant();
         Card card = new Card(UUID.randomUUID().toString(), project, store.nextNumber(project), in.kind(), in.title().strip(), description,
-                status, null, null, in.flags(), Scope.NOT_DECIDED, actor, blankToNull(in.cycleId()), false, signature, now, now, actor, teams);
+                status, null, null, in.flags(), Scope.NOT_DECIDED, actor, blankToNull(in.cycleId()), false, signature, now, now, actor, teams,
+                homeOf(project, in.cycleId()));
         store.insert(card);
         record(card.id(), actor, ActivityKind.CREATED, null, null, status.name());
         if (!teams.isEmpty()) {
@@ -1513,6 +1541,10 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
 
     @Override
     public CardsPage query(CardQuery query) {
+        if (query.boardId() == null && query.cycleId() != null && boardModel != null && boardModel.board(query.cycleId()).isPresent()) {
+            // an old caller asking for a task by its key (a migrated board's id is its cycle's): the board, own + related
+            query = query.onBoard(query.cycleId(), true);
+        }
         List<Card> cards = store.query(query);
         List<String> ids = cards.stream().map(Card::id).toList();
         Map<String, Integer> comments = store.commentCounts(ids);
@@ -1534,7 +1566,8 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
                         ? hintFor(c, similar.getOrDefault(c.project(), Map.of()).get(c.signature())) : null, proposals.get(c.id()), waiting.get(c.id()),
                 blockers.get(c.id()), questions.getOrDefault(c.id(), 0), advice.containsKey(c.id()) ? advice.get(c.id()).option() : null,
                 shortNames.get(c.id()), advice.get(c.id()))).toList();
-        return new CardsPage(rows, store.count(query), store.progress(query.project(), query.cycleId()));
+        return new CardsPage(rows, store.count(query), query.boardId() != null ? store.boardProgress(query.boardId())
+                : store.progress(query.project(), query.cycleId()));
     }
 
     @Override

@@ -13,6 +13,7 @@ import { RunSkillComponent } from '../run-skill/run-skill.component';
 import { LiveWorkStateService, currentStep } from '../../../core/state/live-work-state.service';
 import { copyToClipboard } from '../../../shared/utils/clipboard';
 import { actionText, adviceAction, confidenceLabel, confidenceOf } from '../../../shared/utils/triage-advice';
+import { homeLabel, placementOf } from '../../../shared/utils/board-cards-visibility';
 
 /** What a card asks of its board: one sort action, a reopen, or a selection toggle. */
 export type CardAction =
@@ -33,7 +34,7 @@ export type CardAction =
   imports: [MentionChipComponent, RefTextComponent, TeamChipsComponent, RunSkillComponent],
   template: `
     <div class="board-card" [class.live-busy]="!!liveWork()" [class.selected]="selected()" [class.focused]="focused()" [class.closed]="card().status === 'CLOSED'"
-         [class.blocked]="!!card().blockedBy?.length" [attr.data-card]="card().id" tabindex="-1" (click)="onClick($event)">
+         [class.blocked]="!!card().blockedBy?.length" [class.related]="!placement().own" [attr.data-card]="card().id" tabindex="-1" (click)="onClick($event)">
       @if (unread()) { <span class="board-unread" title="Claude changed it since you last opened it"></span> }
       @if (editable()) {
         <button type="button" class="board-card-check" [class.on]="selected()" title="Select (X or Shift+click)"
@@ -67,6 +68,7 @@ export type CardAction =
       }
       <div class="board-card-foot">
         @if (card().author === 'CLAUDE') { <span class="board-ai">✦ Claude</span> }
+        @if (home(); as h) { <span class="board-home" title="This card lives on another board and shows here through a relation">⌂ {{ h }}</span> }
         @if (showCycle() && card().cycleId) {
           <span class="board-cyc" [class.gone]="card().cycleDeleted">◷ {{ card().cycleDeleted ? 'cycle deleted' : cycleLabel() }}</span>
         }
@@ -147,6 +149,11 @@ export class BoardCardComponent {
   readonly now = input(Date.now());
   /** The card's re-test (specs/016): its Fixed check or its guard, null when there is none. */
   readonly retest = input<RetestCheck | null>(null);
+  /** The board being looked at (specs/027): a card homed elsewhere is drawn dashed with its home. */
+  readonly viewBoard = input<string | null>(null);
+  readonly boardNames = input<ReadonlyMap<string, string>>(new Map());
+  readonly placement = computed(() => placementOf(this.card(), this.viewBoard()));
+  readonly home = computed(() => homeLabel(this.placement(), this.boardNames()));
   readonly opened = output<void>();
   readonly toggled = output<void>();
   readonly action = output<CardAction>();

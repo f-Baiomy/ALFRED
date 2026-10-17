@@ -1,5 +1,6 @@
-import { DatePipe } from '@angular/common';
-import { Component, inject, signal } from '@angular/core';
+import { DatePipe, NgTemplateOutlet } from '@angular/common';
+import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { filter } from 'rxjs';
 import { Router } from '@angular/router';
 import { ActionMenuComponent } from '../../components/action-menu/action-menu.component';
 import { AssignedToFilterComponent } from '../../components/assigned-to-filter/assigned-to-filter.component';
@@ -19,6 +20,20 @@ import { EditCycleDialogService } from '../../core/services/edit-cycle-dialog.se
 import { ImportCallsDialogService } from '../../core/services/import-calls-dialog.service';
 import { CycleSortMode, SessionCyclesStateService } from '../../core/state/session-cycles-state.service';
 import { ProfilesStateService } from '../../core/state/profiles-state.service';
+import { BoardSummary } from '../../core/models/board.models';
+import { BoardApiService } from '../../core/services/board-api.service';
+import { BoardSocketService } from '../../core/services/board-socket.service';
+import { groupCyclesByBoard } from '../../shared/utils/cycle-groups';
+
+const GROUP_KEY = 'alfred.cycles.groupBy';
+
+function readGroupBy(): 'board' | 'none' {
+  try {
+    return localStorage.getItem(GROUP_KEY) === 'none' ? 'none' : 'board';
+  } catch {
+    return 'board';
+  }
+}
 
 const SORT_OPTIONS: readonly SelectOption[] = [
   { value: 'newest', label: 'Newest first' },
@@ -40,6 +55,7 @@ const SORT_OPTIONS: readonly SelectOption[] = [
     AssignedToFilterComponent,
     ProfilePickerComponent,
     SelectPickerComponent,
+    NgTemplateOutlet,
   ],
   templateUrl: './session-cycles-list.component.html',
 })
@@ -59,6 +75,37 @@ export class SessionCyclesListComponent {
   readonly newAssignedTo = signal<string | null>(null);
   readonly creating = signal(false);
   readonly bulkActionMessage = signal<string | null>(null);
+
+  // Grouped by board (specs/027 FR-007): a cycle on two boards shows under both; this browser remembers the choice.
+  private readonly boardApi = inject(BoardApiService);
+  readonly boards = signal<BoardSummary[]>([]);
+  readonly groupBy = signal<'board' | 'none'>(readGroupBy());
+  readonly groups = computed(() => groupCyclesByBoard(this.state.sortedCycles(), this.boards()));
+
+  constructor() {
+    this.loadBoards();
+    const sub = inject(BoardSocketService).events$
+      .pipe(filter((e) => e.type === 'board-changed' && (e.what === 'boards' || e.what === 'deleted')))
+      .subscribe(() => this.loadBoards());
+    inject(DestroyRef).onDestroy(() => sub.unsubscribe());
+  }
+
+  private loadBoards(): void {
+    this.boardApi.boards(null).subscribe({ next: (b) => this.boards.set(b), error: () => undefined });
+  }
+
+  setGroupBy(g: 'board' | 'none'): void {
+    this.groupBy.set(g);
+    try {
+      localStorage.setItem(GROUP_KEY, g);
+    } catch {
+      // private window: the choice lasts for this page only
+    }
+  }
+
+  openBoard(project: string, boardId: string): void {
+    void this.router.navigate(['/board'], { queryParams: { project, board: boardId } });
+  }
 
   /** Paused + zero captured calls is shown as "Empty" rather than "Paused" - purely a display label, not a stored status. */
   statusLabel(cycle: SessionCycle): 'Recording' | 'Paused' {

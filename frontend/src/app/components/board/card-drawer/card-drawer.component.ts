@@ -32,6 +32,7 @@ import { CardViewMode } from '../../../core/services/card-view-mode.service';
 import { TeamsStateService } from '../../../core/state/teams-state.service';
 import { ReturnPointService } from '../../../core/services/return-point.service';
 import { SelectOption, SelectPickerComponent } from '../../select-picker/select-picker.component';
+import { CardHomeComponent } from '../card-home/card-home.component';
 
 import { BoardPagesComponent } from '../visuals/board-pages.component';
 import { BoardFilesComponent } from '../visuals/board-files.component';
@@ -82,7 +83,7 @@ function writeJson(key: string, value: unknown): void {
 @Component({
   selector: 'app-card-drawer',
   standalone: true,
-  imports: [BoardPagesComponent, BoardFilesComponent, BoardPinnedComponent, NgTemplateOutlet, SelectPickerComponent, ActivityTimelineComponent, CardRetestComponent, LiveWorkBoxComponent, MarkdownViewComponent, MentionChipComponent, RefTextComponent, MentionEditorComponent, MentionPickerComponent, RunSkillComponent, RunHistoryComponent, QuickAnswerComponent],
+  imports: [CardHomeComponent, BoardPagesComponent, BoardFilesComponent, BoardPinnedComponent, NgTemplateOutlet, SelectPickerComponent, ActivityTimelineComponent, CardRetestComponent, LiveWorkBoxComponent, MarkdownViewComponent, MentionChipComponent, RefTextComponent, MentionEditorComponent, MentionPickerComponent, RunSkillComponent, RunHistoryComponent, QuickAnswerComponent],
   template: `
     <ng-template #modeSwitch>
       <div class="board-seg board-drawer-modes cd-modes" role="group" aria-label="Show the card as">
@@ -151,6 +152,7 @@ function writeJson(key: string, value: unknown): void {
                 @if (editable()) { <button type="button" class="board-link cd-hover-only" (click)="editingShort.set(true)">✎ short name</button> }
               }
             </div>
+            <app-card-home [card]="c" [editable]="editable()" />
             <div class="cd-props">
               <span class="cd-prop" [class]="'cd-prop cd-prop-' + c.status"><span class="cd-k">Status</span>
                 <app-select-picker class="select-compact" [disabled]="!editable()" [options]="statusOptions" [value]="statusValue()"
@@ -1013,7 +1015,14 @@ export class CardDrawerComponent {
         // compared with the cycle asked for, not the card: a quick (or cached) answer comes before the card is set
         if (this.wantedCycle === id) this.cycleName.set(cycle.name);
       },
-      error: () => undefined,
+      // specs/027: a card's task key is its board's id - a board made after the update is no cycle, so show its name
+      error: () => this.api.board(id).subscribe({
+        next: (b) => {
+          cycleNames.set(id, b.board.name);
+          if (this.wantedCycle === id) this.cycleName.set(b.board.name);
+        },
+        error: () => undefined,
+      }),
     });
   }
 

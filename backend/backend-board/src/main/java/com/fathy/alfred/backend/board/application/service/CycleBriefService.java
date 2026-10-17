@@ -53,7 +53,8 @@ import java.util.stream.Stream;
  */
 @Service
 public class CycleBriefService implements ManageBriefUseCase, ManageSpecFilesUseCase, MarkChecklistUseCase, SuggestMarkUseCase,
-        CycleRemovedUseCase, SessionLogUseCase, TestStepsUseCase {
+        CycleRemovedUseCase, SessionLogUseCase, TestStepsUseCase,
+        com.fathy.alfred.backend.board.application.port.in.TaskDataUseCase {
 
     static final int MAX_NAME = 200;
 
@@ -386,8 +387,36 @@ public class CycleBriefService implements ManageBriefUseCase, ManageSpecFilesUse
         this.chats = chats;
     }
 
+    /** Boards (specs/027): a deleted cycle only leaves the boards it was related to. Optional like snippets. */
+    private com.fathy.alfred.backend.board.application.port.out.BoardModelStorePort boardModel;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setBoardModel(com.fathy.alfred.backend.board.application.port.out.BoardModelStorePort boardModel) {
+        this.boardModel = boardModel;
+    }
+
+    /**
+     * A session cycle was deleted (specs/027): it leaves every board and card it was related to, and the cards found in it
+     * are marked "origin deleted". A board keeps its brief, spec files, Acceptance items and chat - even a board migrated
+     * from this very cycle, whose id is the cycle's. Only a task key that names no board (data from before the boards)
+     * loses its task data with the cycle, as before.
+     */
     @Override
     public void cycleRemoved(String cycleId) {
+        boolean board = boardModel != null && boardModel.board(cycleId).isPresent();
+        if (boardModel != null) {
+            boardModel.cycleGone(cycleId);
+        }
+        if (!board) {
+            taskRemoved(cycleId);
+            return;
+        }
+        notifications.changed(null, cycleId, null, "boards");
+    }
+
+    /** Everything the task key holds goes: brief, spec files, checklist, evidence, its pages and its chat. */
+    @Override
+    public void taskRemoved(String cycleId) {
         store.cycleRemoved(cycleId);
         if (snippets != null) {
             snippets.cycleRemoved(cycleId);

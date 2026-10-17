@@ -279,12 +279,12 @@ public class BoardInsightsController {
 
     // ---------------------------------------------------------------------------------------- session log, test steps
 
-    @GetMapping("/board/cycles/{cycleId}/log")
+    @GetMapping({"/board/cycles/{cycleId}/log", "/board/boards/{cycleId}/log"})
     public ResponseEntity<?> log(@PathVariable String cycleId, @RequestParam(defaultValue = "50") int limit) {
         return ResponseEntity.ok(sessionLog.log(cycleId, limit));
     }
 
-    @PostMapping("/board/cycles/{cycleId}/log")
+    @PostMapping({"/board/cycles/{cycleId}/log", "/board/boards/{cycleId}/log"})
     public ResponseEntity<?> appendLog(@RequestHeader(value = ACTOR, required = false) String actor, @PathVariable String cycleId,
                                        @Valid @RequestBody SessionLogRequestDto body) {
         var entry = sessionLog.append(BoardWeb.actor(actor), cycleId, body.skill(), body.did(), body.found(), body.next());
@@ -292,12 +292,12 @@ public class BoardInsightsController {
                 : ResponseEntity.status(HttpStatus.CREATED).body(entry);
     }
 
-    @GetMapping("/board/cycles/{cycleId}/steps")
+    @GetMapping({"/board/cycles/{cycleId}/steps", "/board/boards/{cycleId}/steps"})
     public ResponseEntity<?> steps(@PathVariable String cycleId) {
         return ResponseEntity.ok(testSteps.steps(cycleId));
     }
 
-    @PutMapping("/board/cycles/{cycleId}/steps/{stepKey}")
+    @PutMapping({"/board/cycles/{cycleId}/steps/{stepKey}", "/board/boards/{cycleId}/steps/{stepKey}"})
     public ResponseEntity<?> markStep(@RequestHeader(value = ACTOR, required = false) String actor, @PathVariable String cycleId,
                                       @PathVariable String stepKey, @Valid @RequestBody StepRequestDto body) {
         TestStepsUseCase.StepOutcome outcome = testSteps.mark(BoardWeb.actor(actor), cycleId, stepKey, body.state(), body.calls(),
@@ -307,19 +307,19 @@ public class BoardInsightsController {
 
     // ------------------------------------------------------------------------------------------------ suggested marks
 
-    @PutMapping("/board/cycles/{cycleId}/checklist/{fileName}/{itemKey}/suggestion")
+    @PutMapping({"/board/cycles/{cycleId}/checklist/{fileName}/{itemKey}/suggestion", "/board/boards/{cycleId}/checklist/{fileName}/{itemKey}/suggestion"})
     public ResponseEntity<?> suggest(@RequestHeader(value = ACTOR, required = false) String actor, @PathVariable String cycleId,
                                      @PathVariable String fileName, @PathVariable String itemKey, @Valid @RequestBody MarkRequestDto body) {
         return item(suggestions.suggest(BoardWeb.actor(actor), cycleId, fileName, itemKey, body.mark(), body.evidence()));
     }
 
-    @PostMapping("/board/cycles/{cycleId}/checklist/{fileName}/{itemKey}/suggestion/accept")
+    @PostMapping({"/board/cycles/{cycleId}/checklist/{fileName}/{itemKey}/suggestion/accept", "/board/boards/{cycleId}/checklist/{fileName}/{itemKey}/suggestion/accept"})
     public ResponseEntity<?> acceptSuggestion(@RequestHeader(value = ACTOR, required = false) String actor, @PathVariable String cycleId,
                                               @PathVariable String fileName, @PathVariable String itemKey) {
         return item(suggestions.acceptSuggestion(BoardWeb.actor(actor), cycleId, fileName, itemKey));
     }
 
-    @DeleteMapping("/board/cycles/{cycleId}/checklist/{fileName}/{itemKey}/suggestion")
+    @DeleteMapping({"/board/cycles/{cycleId}/checklist/{fileName}/{itemKey}/suggestion", "/board/boards/{cycleId}/checklist/{fileName}/{itemKey}/suggestion"})
     public ResponseEntity<?> dismissSuggestion(@RequestHeader(value = ACTOR, required = false) String actor, @PathVariable String cycleId,
                                                @PathVariable String fileName, @PathVariable String itemKey) {
         return item(suggestions.dismissSuggestion(BoardWeb.actor(actor), cycleId, fileName, itemKey));

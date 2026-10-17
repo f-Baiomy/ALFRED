@@ -30,19 +30,19 @@ public class RequirementController {
         this.requirements = requirements;
     }
 
-    @GetMapping("/board/cycles/{cycleId}/requirements")
+    @GetMapping({"/board/cycles/{cycleId}/requirements", "/board/boards/{cycleId}/requirements"})
     public ResponseEntity<?> requirements(@PathVariable String cycleId) {
         return ResponseEntity.ok(requirements.requirements(cycleId));
     }
 
     /** The calls judged for one item, newest first (specs/021: an item's calls in the spec viewer). */
-    @GetMapping("/board/cycles/{cycleId}/requirements/calls")
+    @GetMapping({"/board/cycles/{cycleId}/requirements/calls", "/board/boards/{cycleId}/requirements/calls"})
     public ResponseEntity<?> itemCalls(@PathVariable String cycleId, @RequestParam String fileName, @RequestParam String itemKey,
                                        @RequestParam(defaultValue = "50") int limit) {
         return ResponseEntity.ok(Map.of("calls", requirements.itemCalls(cycleId, fileName, itemKey, limit)));
     }
 
-    @GetMapping("/board/cycles/{cycleId}/evidence")
+    @GetMapping({"/board/cycles/{cycleId}/evidence", "/board/boards/{cycleId}/evidence"})
     public ResponseEntity<?> evidence(@PathVariable String cycleId) {
         return ResponseEntity.ok(Map.of("evidence", requirements.evidence(cycleId)));
     }
@@ -50,7 +50,7 @@ public class RequirementController {
     public record EvidenceDto(String fileName, String itemKey, String project, String endpoint, List<EvidenceCheck> checks, String howTo) {
     }
 
-    @PutMapping("/board/cycles/{cycleId}/evidence")
+    @PutMapping({"/board/cycles/{cycleId}/evidence", "/board/boards/{cycleId}/evidence"})
     public ResponseEntity<?> put(@RequestHeader(value = BoardWeb.ACTOR_HEADER, required = false) String actor, @PathVariable String cycleId,
                                  @RequestBody EvidenceDto body) {
         if (body == null) {
@@ -64,7 +64,7 @@ public class RequirementController {
         return ResponseEntity.ok(change.evidence());
     }
 
-    @DeleteMapping("/board/cycles/{cycleId}/evidence")
+    @DeleteMapping({"/board/cycles/{cycleId}/evidence", "/board/boards/{cycleId}/evidence"})
     public ResponseEntity<?> delete(@RequestHeader(value = BoardWeb.ACTOR_HEADER, required = false) String actor, @PathVariable String cycleId,
                                     @RequestParam String fileName, @RequestParam String itemKey) {
         RequirementUseCase.EvidenceChange change = requirements.deleteEvidence(BoardWeb.actor(actor), cycleId, fileName, itemKey);

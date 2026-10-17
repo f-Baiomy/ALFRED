@@ -340,4 +340,66 @@ class RequirementServiceTest {
         assertThat(f.board.setShortName(Actor.USER, id, "x".repeat(61)).outcome()).isEqualTo(CardChange.Outcome.INVALID);
         assertThat(f.board.setShortName(Actor.USER, id, "agencies").card().shortName()).isEqualTo("agencies");
     }
+
+    // ------------------------------------------------------------------------------------- boards (specs/027 FR-001a, FR-005)
+
+    private com.fathy.alfred.backend.board.domain.model.Board taskBoard(String id, com.fathy.alfred.backend.board.domain.model.BoardState state) {
+        var b = new com.fathy.alfred.backend.board.domain.model.Board(id, PROJECT, "Refunded filters", false, state, null,
+                f.clock.instant(), f.clock.instant(), Actor.USER);
+        f.boardModel.putBoard(b);
+        return b;
+    }
+
+    /** A service whose task has no captured calls: everything it judges comes from the project's live calls. */
+    private RequirementService liveOnly() {
+        RequirementService s = new RequirementService(TestRepositories.requirements(f.store, JsonMapper.builder().findAndAddModules().build()), f.store,
+                (cycleId, limit) -> List.of(), facts, f.board, f.board, f.board, f.board, f.board, quiet, f.clock);
+        s.stop();
+        s.setBoards(f.boardModel, new com.fathy.alfred.backend.board.application.port.out.LiveCallsPort() {
+            @Override
+            public List<CycleCall> recent(int limit) {
+                return List.copyOf(f.cycleCalls);
+            }
+        });
+        return s;
+    }
+
+    @Test
+    void anArchivedBoardJudgesNoNewCalls() {
+        taskBoard(CYCLE, com.fathy.alfred.backend.board.domain.model.BoardState.ARCHIVED);
+        service.setBoards(f.boardModel, null);
+        draftAll();
+        search(OLD_REQUEST, EMPTY);
+
+        assertThat(verdicts()).containsEntry(3, Verdict.NOT_EXERCISED);
+        assertThat(cardsOf(3, 4, 5, 7)).isEmpty();
+    }
+
+    @Test
+    void anOpenBoardJudgesItsProjectsLiveCallsAndMentionsThemLive() {
+        taskBoard(CYCLE, com.fathy.alfred.backend.board.domain.model.BoardState.OPEN);
+        service = liveOnly();
+        draftAll();
+        String id = search(OLD_REQUEST, EMPTY);
+
+        assertThat(verdicts()).containsEntry(3, Verdict.MISSING);
+        Set<Integer> numbers = cardsOf(3, 4, 5, 7);
+        assertThat(numbers).hasSize(1);
+        Card card = f.store.findByNumber(PROJECT, numbers.iterator().next()).orElseThrow();
+        assertThat(f.store.linksOf(card.id())).extracting(MentionRef::ref).contains("in:" + id);
+    }
+
+    @Test
+    void eachBoardKeepsItsOwnVerdicts() {
+        String other = "b-other";
+        taskBoard(CYCLE, com.fathy.alfred.backend.board.domain.model.BoardState.OPEN);
+        taskBoard(other, com.fathy.alfred.backend.board.domain.model.BoardState.OPEN);
+        f.briefs.put(Actor.USER, other, "spec.md", SPEC);
+        service = liveOnly();
+        draftAll(); // evidence on CYCLE only
+        search(OLD_REQUEST, EMPTY);
+
+        assertThat(verdicts()).containsEntry(3, Verdict.MISSING);
+        assertThat(service.requirements(other).items()).allSatisfy(r -> assertThat(r.verdict().verdict()).isNotEqualTo(Verdict.MISSING));
+    }
 }

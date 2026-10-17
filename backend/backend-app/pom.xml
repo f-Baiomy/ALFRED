@@ -120,6 +120,16 @@
     </dependency>
     <dependency>
       <groupId>com.fathy.alfred</groupId>
+      <artifactId>teamboards-core</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.fathy.alfred</groupId>
+      <artifactId>teamboards-azure</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.fathy.alfred</groupId>
       <artifactId>backend-server</artifactId>
       <version>${project.version}</version>
     </dependency>

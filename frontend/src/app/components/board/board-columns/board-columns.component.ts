@@ -43,7 +43,7 @@ export interface CardDrop {
           </div>
           @for (c of col.cards; track c.id) {
             <app-board-card cdkDrag [cdkDragData]="c" [cdkDragDisabled]="!editable()" [card]="c" [editable]="editable()"
-                            [selected]="selected().has(c.id)" [focused]="focusedId() === c.id" [showCycle]="showCycle()" [now]="now()" [retest]="retests().get(c.number) ?? null"
+                            [selected]="selected().has(c.id)" [focused]="focusedId() === c.id" [showCycle]="showCycle()" [now]="now()" [retest]="retests().get(c.number) ?? null" [viewBoard]="viewBoard()" [boardNames]="boardNames()"
                             (opened)="opened.emit(c)" (toggled)="toggled.emit(c)" (action)="$event.kind === 'retest' ? retest.emit([c.number]) : action.emit({ card: c, action: $event })" (answer)="answer.emit(c)" />
           } @empty {
             <div class="board-empty">{{ col.status === 'INBOX' ? 'Inbox clear ✓ - new findings land here' : 'Drop cards here' }}</div>
@@ -60,6 +60,8 @@ export class BoardColumnsComponent {
   readonly showCycle = input(true);
   readonly now = input(Date.now());
   readonly retests = input<ReadonlyMap<number, RetestCheck>>(new Map());
+  readonly viewBoard = input<string | null>(null);
+  readonly boardNames = input<ReadonlyMap<string, string>>(new Map());
   readonly moved = output<CardDrop>();
   /** ▶ Re-test for these card numbers (specs/016): one card, the selected ones or every Fixed card. */
   readonly retest = output<readonly number[]>();

@@ -8,7 +8,7 @@
     "prebuild": "node scripts/prune-ng-cache.mjs && node scripts/fetch-pyodide.mjs",
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
-    "pretest": "node scripts/prune-ng-cache.mjs",
+    "pretest": "node scripts/prune-ng-cache.mjs && node scripts/check-team-boundaries.mjs",
     "test": "ng test"
   },
   "private": true,

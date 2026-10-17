@@ -47,12 +47,12 @@ public class CycleBriefController {
         this.checklist = checklist;
     }
 
-    @GetMapping("/board/cycles/{cycleId}/brief")
+    @GetMapping({"/board/cycles/{cycleId}/brief", "/board/boards/{cycleId}/brief"})
     public ResponseEntity<?> brief(@PathVariable String cycleId) {
         return ResponseEntity.ok(briefs.brief(cycleId));
     }
 
-    @PutMapping("/board/cycles/{cycleId}/brief")
+    @PutMapping({"/board/cycles/{cycleId}/brief", "/board/boards/{cycleId}/brief"})
     public ResponseEntity<?> putBrief(@RequestHeader(value = ACTOR, required = false) String actor, @PathVariable String cycleId,
                                       @Valid @RequestBody BriefRequestDto body) {
         ManageBriefUseCase.BriefOutcome outcome = briefs.putBrief(BoardWeb.actor(actor), cycleId, body.text());
@@ -60,14 +60,14 @@ public class CycleBriefController {
                 : BoardWeb.refused(outcome.outcome(), outcome.message());
     }
 
-    @org.springframework.web.bind.annotation.PostMapping("/board/cycles/{cycleId}/brief/restore")
+    @org.springframework.web.bind.annotation.PostMapping({"/board/cycles/{cycleId}/brief/restore", "/board/boards/{cycleId}/brief/restore"})
     public ResponseEntity<?> restoreBrief(@RequestHeader(value = ACTOR, required = false) String actor, @PathVariable String cycleId) {
         ManageBriefUseCase.BriefOutcome outcome = briefs.restoreBrief(BoardWeb.actor(actor), cycleId);
         return outcome.outcome() == CardChange.Outcome.OK ? ResponseEntity.ok(outcome.brief())
                 : BoardWeb.refused(outcome.outcome(), outcome.message());
     }
 
-    @org.springframework.web.bind.annotation.PostMapping("/board/cycles/{cycleId}/specs/{name}/restore")
+    @org.springframework.web.bind.annotation.PostMapping({"/board/cycles/{cycleId}/specs/{name}/restore", "/board/boards/{cycleId}/specs/{name}/restore"})
     public ResponseEntity<?> restoreSpec(@RequestHeader(value = ACTOR, required = false) String actor, @PathVariable String cycleId,
                                          @PathVariable String name) {
         ManageSpecFilesUseCase.SpecOutcome outcome = specs.restore(BoardWeb.actor(actor), cycleId, name);
@@ -75,12 +75,12 @@ public class CycleBriefController {
                 : BoardWeb.refused(outcome.outcome(), outcome.message());
     }
 
-    @GetMapping("/board/cycles/{cycleId}/specs")
+    @GetMapping({"/board/cycles/{cycleId}/specs", "/board/boards/{cycleId}/specs"})
     public ResponseEntity<?> specs(@PathVariable String cycleId) {
         return ResponseEntity.ok(specs.specs(cycleId));
     }
 
-    @GetMapping("/board/cycles/{cycleId}/specs/{name:.+}")
+    @GetMapping({"/board/cycles/{cycleId}/specs/{name:.+}", "/board/boards/{cycleId}/specs/{name:.+}"})
     public ResponseEntity<?> spec(@PathVariable String cycleId, @PathVariable String name) {
         return specs.spec(cycleId, name).<ResponseEntity<?>>map(f -> ResponseEntity.ok()
                         .contentType(new MediaType("text", "plain", StandardCharsets.UTF_8))
@@ -89,7 +89,7 @@ public class CycleBriefController {
                 .orElseGet(() -> BoardWeb.refused(CardChange.Outcome.NOT_FOUND, "No spec file " + name));
     }
 
-    @PutMapping("/board/cycles/{cycleId}/specs/{name:.+}")
+    @PutMapping({"/board/cycles/{cycleId}/specs/{name:.+}", "/board/boards/{cycleId}/specs/{name:.+}"})
     public ResponseEntity<?> putSpec(@RequestHeader(value = ACTOR, required = false) String actor, @PathVariable String cycleId,
                                      @PathVariable String name, HttpServletRequest request) throws IOException {
         String content;
@@ -117,7 +117,7 @@ public class CycleBriefController {
                 "uploadedAt", outcome.file().uploadedAt().toString(), "replaced", outcome.replaced()));
     }
 
-    @DeleteMapping("/board/cycles/{cycleId}/specs/{name:.+}")
+    @DeleteMapping({"/board/cycles/{cycleId}/specs/{name:.+}", "/board/boards/{cycleId}/specs/{name:.+}"})
     public ResponseEntity<?> deleteSpec(@RequestHeader(value = ACTOR, required = false) String actor, @PathVariable String cycleId,
                                         @PathVariable String name) {
         CardChange.Outcome outcome = specs.delete(BoardWeb.actor(actor), cycleId, name);
@@ -125,12 +125,12 @@ public class CycleBriefController {
                 : BoardWeb.refused(outcome, outcome == CardChange.Outcome.NOT_FOUND ? "No spec file " + name : "Only the user deletes spec files");
     }
 
-    @GetMapping("/board/cycles/{cycleId}/checklist")
+    @GetMapping({"/board/cycles/{cycleId}/checklist", "/board/boards/{cycleId}/checklist"})
     public ResponseEntity<?> checklist(@PathVariable String cycleId) {
         return ResponseEntity.ok(checklist.checklist(cycleId));
     }
 
-    @PutMapping("/board/cycles/{cycleId}/checklist/{fileName}/{itemKey}")
+    @PutMapping({"/board/cycles/{cycleId}/checklist/{fileName}/{itemKey}", "/board/boards/{cycleId}/checklist/{fileName}/{itemKey}"})
     public ResponseEntity<?> mark(@RequestHeader(value = ACTOR, required = false) String actor, @PathVariable String cycleId,
                                   @PathVariable String fileName, @PathVariable String itemKey, @Valid @RequestBody MarkRequestDto body) {
         MarkChecklistUseCase.MarkOutcome outcome = checklist.mark(BoardWeb.actor(actor), cycleId, fileName, itemKey, body.mark(),

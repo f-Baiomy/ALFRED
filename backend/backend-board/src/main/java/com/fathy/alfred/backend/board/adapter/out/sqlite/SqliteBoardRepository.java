@@ -98,7 +98,7 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort,
     private static final TypeReference<List<ChecklistMark.Change>> CHANGES = new TypeReference<>() { };
 
     static final String SUMMARY_COLUMNS = "id, project, number, kind, title, status, resolution, reason, flags, scope, author, "
-            + "cycle_id, cycle_deleted, signature, created_at, updated_at, updated_by, teams";
+            + "cycle_id, cycle_deleted, signature, created_at, updated_at, updated_by, teams, board_id";
     private static final String DETAIL_COLUMNS = SUMMARY_COLUMNS + ", description";
 
     private final ObjectMapper objectMapper;
@@ -174,6 +174,35 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort,
         jdbc.execute("CREATE INDEX IF NOT EXISTS idx_cards_project_status ON cards(project, status)");
         jdbc.execute("CREATE INDEX IF NOT EXISTS idx_cards_cycle ON cards(cycle_id)");
         jdbc.execute("CREATE INDEX IF NOT EXISTS idx_cards_signature ON cards(signature)");
+        // specs/027 boards: a board is the task, a session cycle only stores calls; both relate many-to-many.
+        jdbc.execute("""
+                CREATE TABLE IF NOT EXISTS boards (id TEXT PRIMARY KEY, project TEXT NOT NULL, name TEXT NOT NULL,
+                  is_default INTEGER NOT NULL DEFAULT 0, state TEXT NOT NULL DEFAULT 'OPEN', migrated_from TEXT,
+                  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, updated_by TEXT NOT NULL)
+                """);
+        jdbc.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_boards_default ON boards(project) WHERE is_default = 1");
+        jdbc.execute("CREATE INDEX IF NOT EXISTS idx_boards_project_state ON boards(project, state)");
+        jdbc.execute("""
+                CREATE TABLE IF NOT EXISTS board_cycles (board_id TEXT NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
+                  cycle_id TEXT NOT NULL, related_by TEXT NOT NULL, related_at INTEGER NOT NULL, PRIMARY KEY (board_id, cycle_id))
+                """);
+        jdbc.execute("CREATE INDEX IF NOT EXISTS idx_board_cycles_cycle ON board_cycles(cycle_id)");
+        jdbc.execute("""
+                CREATE TABLE IF NOT EXISTS board_boards (a TEXT NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
+                  b TEXT NOT NULL REFERENCES boards(id) ON DELETE CASCADE, PRIMARY KEY (a, b), CHECK (a < b))
+                """);
+        jdbc.execute("CREATE INDEX IF NOT EXISTS idx_board_boards_b ON board_boards(b)");
+        jdbc.execute("""
+                CREATE TABLE IF NOT EXISTS card_cycles (card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+                  cycle_id TEXT NOT NULL, PRIMARY KEY (card_id, cycle_id))
+                """);
+        jdbc.execute("CREATE INDEX IF NOT EXISTS idx_card_cycles_cycle ON card_cycles(cycle_id)");
+        jdbc.execute("""
+                CREATE TABLE IF NOT EXISTS board_activity (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  board_id TEXT NOT NULL REFERENCES boards(id) ON DELETE CASCADE, actor TEXT NOT NULL, kind TEXT NOT NULL,
+                  text TEXT NOT NULL, undo_json TEXT, at INTEGER NOT NULL, undone_at INTEGER)
+                """);
+        jdbc.execute("CREATE INDEX IF NOT EXISTS idx_board_activity ON board_activity(board_id, id)");
         // The highest number a project ever gave out, so a deleted card's number is never handed out again.
         jdbc.execute("CREATE TABLE IF NOT EXISTS card_numbers (project TEXT PRIMARY KEY, last INTEGER NOT NULL)");
         jdbc.execute("""
@@ -313,6 +342,11 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort,
         // Teams (Settings -> Teams): a card's teams are a comma list of team ids, like its flags. The default teams are
         // added once - a user who deletes them all does not get them back on the next start.
         addColumn("cards", "teams", "TEXT NOT NULL DEFAULT ''");
+        // specs/027: a card's home board. Cards from before it live on their project's default board until the board
+        // model migration moves those of a briefed cycle onto that cycle's board.
+        addColumn("cards", "board_id", "TEXT");
+        jdbc.update("UPDATE cards SET board_id = 'default:' || project WHERE board_id IS NULL");
+        jdbc.execute("CREATE INDEX IF NOT EXISTS idx_cards_board ON cards(board_id, status)");
         jdbc.execute("""
                 CREATE TABLE IF NOT EXISTS teams (id TEXT PRIMARY KEY, name TEXT NOT NULL, color TEXT NOT NULL, icon TEXT NOT NULL,
                   owns TEXT NOT NULL, hints TEXT NOT NULL, position INTEGER NOT NULL)
@@ -511,7 +545,7 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort,
 
     @Override
     public void insert(Card c) {
-        jdbc.update("INSERT INTO cards(" + DETAIL_COLUMNS + ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", values(c));
+        jdbc.update("INSERT INTO cards(" + DETAIL_COLUMNS + ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", values(c));
     }
 
     @Override
@@ -519,18 +553,18 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort,
         jdbc.update("""
                 UPDATE cards SET project = ?, number = ?, kind = ?, title = ?, status = ?, resolution = ?, reason = ?, flags = ?,
                   scope = ?, author = ?, cycle_id = ?, cycle_deleted = ?, signature = ?, created_at = ?, updated_at = ?,
-                  updated_by = ?, teams = ?, description = ? WHERE id = ?
+                  updated_by = ?, teams = ?, board_id = ?, description = ? WHERE id = ?
                 """, c.project(), c.number(), c.kind().name(), c.title(), c.status().name(), name(c.resolution()), c.reason(),
                 flagsText(c.flags()), c.scope().name(), c.author().name(), c.cycleId(), c.cycleDeleted() ? 1 : 0, c.signature(),
                 c.createdAt().toEpochMilli(), c.updatedAt().toEpochMilli(), c.updatedBy().name(), String.join(",", c.teams()),
-                c.description(), c.id());
+                c.boardId(), c.description(), c.id());
     }
 
     private Object[] values(Card c) {
         return new Object[]{c.id(), c.project(), c.number(), c.kind().name(), c.title(), c.status().name(), name(c.resolution()),
                 c.reason(), flagsText(c.flags()), c.scope().name(), c.author().name(), c.cycleId(), c.cycleDeleted() ? 1 : 0,
                 c.signature(), c.createdAt().toEpochMilli(), c.updatedAt().toEpochMilli(), c.updatedBy().name(),
-                String.join(",", c.teams()), c.description()};
+                String.join(",", c.teams()), c.boardId(), c.description()};
     }
 
     @Override
@@ -607,8 +641,23 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort,
 
     private static String where(CardQuery q, List<Object> args) {
         List<String> parts = new ArrayList<>();
-        if (q.cycleId() != null) {
-            parts.add("cycle_id = ?");
+        if (q.boardId() != null) {
+            // specs/027 FR-011: the board's own cards, and unless "own only" the cards of its related cycles and boards
+            if (q.withRelated()) {
+                parts.add("(board_id = ? OR cycle_id IN (SELECT cycle_id FROM board_cycles WHERE board_id = ?)"
+                        + " OR id IN (SELECT cc.card_id FROM card_cycles cc JOIN board_cycles bc ON bc.cycle_id = cc.cycle_id WHERE bc.board_id = ?)"
+                        + " OR board_id IN (SELECT b FROM board_boards WHERE a = ? UNION SELECT a FROM board_boards WHERE b = ?))");
+                for (int i = 0; i < 5; i++) {
+                    args.add(q.boardId());
+                }
+            } else {
+                parts.add("board_id = ?");
+                args.add(q.boardId());
+            }
+        } else if (q.cycleId() != null) {
+            // a cycle's cards: found in it, or related to it since (specs/027 card_cycles)
+            parts.add("(cycle_id = ? OR id IN (SELECT card_id FROM card_cycles WHERE cycle_id = ?))");
+            args.add(q.cycleId());
             args.add(q.cycleId());
         } else if (!q.allProjects()) {
             parts.add("project = ?");
@@ -673,8 +722,15 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort,
 
     @Override
     public CardsPage.Progress progress(String project, String cycleId) {
-        String where = cycleId != null ? "cycle_id = ?" : "project = ?";
-        Object arg = cycleId != null ? cycleId : (project == null ? "" : project);
+        return progressWhere(cycleId != null ? "cycle_id = ?" : "project = ?", cycleId != null ? cycleId : (project == null ? "" : project));
+    }
+
+    @Override
+    public CardsPage.Progress boardProgress(String boardId) {
+        return progressWhere("board_id = ?", boardId);
+    }
+
+    private CardsPage.Progress progressWhere(String where, Object arg) {
         Map<String, Integer> byStatus = new HashMap<>();
         jdbc.query("SELECT status, COUNT(*) FROM cards WHERE " + where + " GROUP BY status",
                 rs -> {
@@ -1407,7 +1463,7 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort,
                 rs.getString("reason"), flags(rs.getString("flags")), Scope.valueOf(rs.getString("scope")),
                 Actor.valueOf(rs.getString("author")), rs.getString("cycle_id"), rs.getInt("cycle_deleted") == 1,
                 rs.getString("signature"), Instant.ofEpochMilli(rs.getLong("created_at")), Instant.ofEpochMilli(rs.getLong("updated_at")),
-                Actor.valueOf(rs.getString("updated_by")), teamsOf(rs.getString("teams")));
+                Actor.valueOf(rs.getString("updated_by")), teamsOf(rs.getString("teams")), rs.getString("board_id"));
     }
 
     private static List<String> teamsOf(String s) {

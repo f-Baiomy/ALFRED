@@ -22,6 +22,18 @@ Facts below were read from the code on 2026-10-17 (branch `027-boards-and-team`)
 - **Rationale**: Every task table is keyed by `cycle_id`. If the board id equals the cycle id, none of those rows move: the key column is only renamed to `board_id` (SQLite `ALTER TABLE … RENAME COLUMN`, available since 3.25). The project chat (`cycle_id = ''`) and cards without a briefed cycle are the only rows rewritten, to `default:<project>`. Migration becomes a few `UPDATE`s, not a data copy, and is safe to re-run.
 - **Alternatives rejected**: New UUIDs plus a copy of every row: a slow, error-prone copy of chat and requirement history. Keeping the column named `cycle_id`: it would lie about its meaning forever.
 
+**Implementation amendment (2026-10-17, start of implementation)**: a count showed about 2,600 `cycleId` / `cycle_id` references in the task code paths:
+
+| Where | References |
+|---|---|
+| Board slice SQL | 204 |
+| Board slice Java | 1,006 |
+| backend-app | 87 |
+| Frontend | 1,275 |
+| mcp-server | 312 |
+
+Renaming them all would be a large, risky change that adds no behaviour. So the task tables and the existing task APIs **keep the name `cycleId` for the task key, and its value is the board id**. For migrated boards that value is unchanged (R1). The project chat keeps its key `''`, which now means "the project's default board" (`ChatKey` maps `default:<project>` ⇄ `''`). New code (boards, relations, card homes) says `boardId`. The places that used the task key **as a cycle** (to read its calls through `CycleCallsPort`) now read the calls of every cycle related to the board (`BoardCycles`). `cards.cycle_id` keeps meaning the origin cycle, and a new `cards.board_id` holds the home. The full rename stays possible later, one layer at a time.
+
 ### R2. Where boards and relations live
 
 - **Decision**: `boards`, `board_cycles` and `board_boards` tables in `board.db`, owned by `backend-board`. Cycles stay in `backend-session-cycles`, unchanged except as listed in R3.

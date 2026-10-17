@@ -7,6 +7,7 @@ import {
   RetestReport, RetestStep, SessionLogEntry, SpecFileInfo, Team, TeamEdit, TestStep,
   CycleChatInfo, EvidenceCheck, ItemEvidence, RequirementsView, SkillRun, SkillRunRequest, SkillRunsPage, TextVersion,
   ActivityEntry, BoardQuestion, BriefComment, EntryAnswers, LiveRunnerInfo, ItemCall,
+  Board, BoardActivity, BoardState, BoardSummary, NewBoard,
 } from '../models/board.models';
 import { AppConfigService } from './app-config.service';
 
@@ -35,7 +36,69 @@ export class BoardApiService {
     if (filters.waiting) params = params.set('waiting', filters.waiting);
     if (filters.cycleDeleted) params = params.set('cycleDeleted', true);
     if (filters.teams?.length) params = params.set('team', filters.teams.join(','));
+    if (filters.ownOnly && cycleId) params = params.set('board', cycleId).set('scope', 'own');
     return this.http.get<CardsPage>(`${this.base}/cards`, { params });
+  }
+
+  // ---------------------------------------------------------------------------------------------- boards (specs/027)
+
+  boards(project: string | null, states: readonly BoardState[] = [], q = ''): Observable<BoardSummary[]> {
+    let params = new HttpParams();
+    if (project) params = params.set('project', project);
+    if (states.length) params = params.set('state', states.join(','));
+    if (q.trim()) params = params.set('q', q.trim());
+    return this.http.get<BoardSummary[]>(`${this.base}/boards`, { params });
+  }
+
+  board(id: string): Observable<BoardSummary> {
+    return this.http.get<BoardSummary>(`${this.base}/boards/${encodeURIComponent(id)}`);
+  }
+
+  createBoard(board: NewBoard): Observable<Board> {
+    return this.http.post<Board>(`${this.base}/boards`, board);
+  }
+
+  updateBoard(id: string, change: { name?: string; state?: BoardState }): Observable<Board> {
+    return this.http.patch<Board>(`${this.base}/boards/${encodeURIComponent(id)}`, change);
+  }
+
+  deleteBoard(id: string): Observable<void> {
+    return this.http.delete<void>(`${this.base}/boards/${encodeURIComponent(id)}`);
+  }
+
+  relateCycle(boardId: string, cycleId: string, relate: boolean): Observable<Board> {
+    const url = `${this.base}/boards/${encodeURIComponent(boardId)}/cycles/${encodeURIComponent(cycleId)}`;
+    return relate ? this.http.put<Board>(url, {}) : this.http.delete<Board>(url);
+  }
+
+  relateBoard(boardId: string, otherId: string, relate: boolean): Observable<Board> {
+    const url = `${this.base}/boards/${encodeURIComponent(boardId)}/boards/${encodeURIComponent(otherId)}`;
+    return relate ? this.http.put<Board>(url, {}) : this.http.delete<Board>(url);
+  }
+
+  boardsOfCycle(cycleId: string): Observable<BoardSummary[]> {
+    return this.http.get<BoardSummary[]>(`${this.base}/cycles/${encodeURIComponent(cycleId)}/boards`);
+  }
+
+  boardActivity(id: string, after = 0, limit = 100): Observable<BoardActivity[]> {
+    return this.http.get<BoardActivity[]>(`${this.base}/boards/${encodeURIComponent(id)}/activity`, { params: { after, limit } });
+  }
+
+  undoBoardActivity(boardId: string, activityId: number): Observable<Board> {
+    return this.http.post<Board>(`${this.base}/boards/${encodeURIComponent(boardId)}/activity/${activityId}/undo`, {});
+  }
+
+  moveHome(cardId: string, boardId: string): Observable<CardDetail> {
+    return this.http.put<CardDetail>(`${this.base}/cards/${encodeURIComponent(cardId)}/home`, { boardId });
+  }
+
+  cardCycles(cardId: string): Observable<string[]> {
+    return this.http.get<string[]>(`${this.base}/cards/${encodeURIComponent(cardId)}/cycles`);
+  }
+
+  relateCardCycle(cardId: string, cycleId: string, relate: boolean): Observable<CardDetail> {
+    const url = `${this.base}/cards/${encodeURIComponent(cardId)}/cycles/${encodeURIComponent(cycleId)}`;
+    return relate ? this.http.put<CardDetail>(url, {}) : this.http.delete<CardDetail>(url);
   }
 
   card(id: string): Observable<CardDetail> {

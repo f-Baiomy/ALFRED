@@ -54,7 +54,7 @@ export class BoardStateService {
       // Live work steps, runners and board runs are their own services'; they change no card.
       if (event.type === 'live-work' || event.type === 'live-runner' || event.type === 'skill-run' || event.type === 'cycle-chat'
         || event.type === 'chat-changed') return;
-      if (this.concerns(event.project, event.cycleId)) {
+      if (this.concerns(event.project, event.cycleId, event.cardId)) {
         this.refresh$.next();
         if (event.cardId && event.cardId === this.openCardId()) this.openCardVersion.update((v) => v + 1);
       }
@@ -84,9 +84,14 @@ export class BoardStateService {
     this.refresh$.next();
   }
 
-  private concerns(project: string | undefined, cycleId: string | undefined): boolean {
+  private concerns(project: string | undefined, cycleId: string | undefined, cardId?: string | null): boolean {
     const mine = this.cycleId();
-    if (mine) return cycleId === mine || (cycleId === undefined && project !== undefined);
+    // specs/027: a board also shows cards homed elsewhere (shared cycles, related boards), and a card moving home is
+    // signalled on its new board - so any change in the board's project, or to a card on screen, concerns it.
+    if (mine) {
+      return cycleId === mine || (project !== undefined && project === this.project()) || (cycleId === undefined && project !== undefined)
+        || (!!cardId && this.cards().some((c) => c.id === cardId));
+    }
     return project === undefined ? false : project === this.project();
   }
 

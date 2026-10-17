@@ -40,7 +40,7 @@ public class ShortNameController {
         return BoardWeb.respond(cards.setShortName(BoardWeb.actor(actor), id, body == null ? null : body.shortName()), HttpStatus.OK);
     }
 
-    @PutMapping("/board/cycles/{cycleId}/requirements/short-name")
+    @PutMapping({"/board/cycles/{cycleId}/requirements/short-name", "/board/boards/{cycleId}/requirements/short-name"})
     public ResponseEntity<?> item(@RequestHeader(value = BoardWeb.ACTOR_HEADER, required = false) String actor, @PathVariable String cycleId,
                                   @RequestBody ItemNameDto body) {
         if (body == null || body.fileName() == null || body.itemKey() == null) {

@@ -91,6 +91,11 @@ import { BoardPagesComponent } from '../visuals/board-pages.component';
       <button type="button" class="board-pill" [class.on]="state.filters().waiting === 'RETEST'" (click)="toggleWaiting('RETEST')">Needs re-test</button>
       <button type="button" class="board-pill" [class.on]="state.filters().author === 'CLAUDE'" (click)="toggleAuthor('CLAUDE')">✦ by Claude</button>
       <button type="button" class="board-pill" [class.on]="state.filters().scopeNotDecided" (click)="toggleScope()">Scope not decided</button>
+      @if (cycleId()) {
+        <button type="button" class="board-pill" [class.on]="!!state.filters().ownOnly"
+                title="Own only hides cards that live on another board and show here through a shared cycle or a related board"
+                (click)="setFilters({ ownOnly: !state.filters().ownOnly })">{{ state.filters().ownOnly ? 'Own only' : 'Own + related' }}</button>
+      }
       @if (!cycleId()) {
         <button type="button" class="board-pill" [class.on]="!!state.filters().cycleDeleted" title="Cards whose session cycle was deleted - clean them up"
                 (click)="toggleCycleDeleted()">◷ Cycle deleted</button>
@@ -124,7 +129,7 @@ import { BoardPagesComponent } from '../visuals/board-pages.component';
 
     @if (state.view() === 'board') {
       <app-board-columns [cards]="state.cards()" [editable]="state.editable()" [selected]="state.selected()" [focusedId]="state.focusedId()"
-                         [showCycle]="!cycleId()" [now]="now()" [retests]="retest.byNumber()" (retest)="retest.start($event)"
+                         [showCycle]="!cycleId()" [now]="now()" [retests]="retest.byNumber()" [viewBoard]="cycleId()" [boardNames]="boardNames()" (retest)="retest.start($event)"
                          (moved)="onMoved($event)" (opened)="openCard($event)" (toggled)="state.toggleSelected($event.id)"
                          (action)="onAction($event.card, $event.action)" (triage)="startTriage()" (acceptHigh)="acceptHigh($event)"
                          (answer)="answering.set($event.id)" />
@@ -190,6 +195,8 @@ export class BoardViewComponent {
   /** "Now" for ages and the stale marker - refreshed whenever the cards are, so it needs no clock of its own. */
   readonly now = computed(() => (this.state.page(), Date.now()));
   private readonly quick = viewChild<QuickAddComponent>('quick');
+  /** Board names by id, for the "home: <board>" of a card seen through a relation (specs/027 US2). */
+  readonly boardNames = signal<ReadonlyMap<string, string>>(new Map());
 
   readonly progressLabel = computed(() => (this.cycleId() ? this.cycleName() ?? this.cycleId()! : this.project() || 'No project'));
   readonly sortedForList = computed(() => [...this.state.cards()].sort((a, b) =>
@@ -226,6 +233,12 @@ export class BoardViewComponent {
       untracked(() => {
         this.state.show(project, cycleId);
         this.retest.show(project);
+        if (cycleId) {
+          this.api.boards(null).subscribe({
+            next: (all) => this.boardNames.set(new Map(all.map((b) => [b.board.id, b.board.name]))),
+            error: () => undefined,
+          });
+        }
       });
     });
     effect(() => {
@@ -382,7 +395,7 @@ export class BoardViewComponent {
     this.setFilters({ cycleDeleted: !this.state.filters().cycleDeleted });
   }
 
-  private setFilters(change: Partial<BoardFilters>): void {
+  setFilters(change: Partial<BoardFilters>): void {
     this.state.setFilters({ ...this.state.filters(), ...change });
   }
 

@@ -94,6 +94,8 @@ export interface CardSummary {
   readonly updatedBy: Actor;
   /** Ids of the teams the card is assigned to (Settings → Teams); several when the fix spans them. */
   readonly teams?: readonly string[];
+  /** The card's home board (specs/027): its status and history live there; other boards show it as related. */
+  readonly boardId?: string;
   readonly commentCount: number;
   readonly mentionChips?: readonly MentionRef[];
   readonly similarClosed: SimilarClosed | null;
@@ -488,6 +490,8 @@ export interface BoardFilters {
   readonly cycleDeleted?: boolean;
   /** Cards of any of these team ids; NO_TEAM for cards with none. */
   readonly teams?: readonly string[];
+  /** On a board (specs/027): its own cards only, or also those of its related cycles and boards (the default). */
+  readonly ownOnly?: boolean;
 }
 
 /** The team filter value for cards with no team. */
@@ -847,4 +851,63 @@ export function expectationText(e: Expectation): string {
     case 'DURATION': return `Under ${e.max} ms (${e.minCalls ?? 3} calls)`;
     case 'SAME_RESPONSE': return `Response ${e.path} the same as before the fix`;
   }
+}
+
+// ------------------------------------------------------------------------------------------------- boards (specs/027)
+
+/** A board's state: only the user sets it; done and archived boards judge no new calls; archived ones leave the picker. */
+export type BoardState = 'OPEN' | 'DONE' | 'ARCHIVED';
+
+/** A board: one task. Its id travels as the task key (`cycleId`) wherever the board's brief, chat and cards are read. */
+export interface Board {
+  readonly id: string;
+  readonly project: string;
+  readonly name: string;
+  readonly isDefault: boolean;
+  readonly state: BoardState;
+  /** The cycle it was made from on the first start after the update; shown once as a banner. */
+  readonly migratedFrom: string | null;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+/** A board in the picker: how many cards live there, what it is related to, the work item it came from. */
+export interface BoardSummary {
+  readonly board: Board;
+  readonly cards: number;
+  readonly cycleIds: readonly string[];
+  readonly boardIds: readonly string[];
+  readonly linkedItem: string | null;
+}
+
+export type BoardActivityKind = 'CREATED' | 'MIGRATED' | 'RENAMED' | 'STATE' | 'RELATE_CYCLE' | 'UNRELATE_CYCLE' | 'RELATE_BOARD'
+  | 'UNRELATE_BOARD' | 'MOVE_HOME_IN' | 'MOVE_HOME_OUT' | 'KEPT_CYCLE';
+
+export interface BoardActivity {
+  readonly id: number;
+  readonly boardId: string;
+  readonly actor: Actor;
+  readonly kind: BoardActivityKind;
+  readonly text: string;
+  /** Set for Claude's reversible changes. */
+  readonly undo: { readonly kind: BoardActivityKind } | null;
+  readonly at: string;
+  readonly undoneAt: string | null;
+}
+
+export interface NewBoard {
+  readonly project: string;
+  readonly name: string;
+  readonly cycleIds?: readonly string[];
+  readonly relateTo?: string | null;
+  readonly startRecording?: boolean;
+}
+
+/** A project's default board id: the old project board and its chat. */
+export function defaultBoardId(project: string): string {
+  return 'default:' + project;
+}
+
+export function isDefaultBoard(id: string | null | undefined): boolean {
+  return !!id && id.startsWith('default:');
 }

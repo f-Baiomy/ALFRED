@@ -12772,3 +12772,17 @@ $cd-x: 0.6rem; // the line, under the middle of the avatar
   .board-ev.cd-c .board-ev-body, .cd-desc { font-size: 0.8rem; line-height: 1.45; }
   .cd-thread { margin-block: 0.2rem 0.4rem; }
 }
+
+/* Session Cycles grouped by board (specs/027 FR-007): a cycle on two boards shows under both. */
+.cycle-group-by { display: flex; gap: .6rem; align-items: center; margin: .6rem 0; font-size: .85rem; color: var(--text-dim); flex-wrap: wrap; }
+.cycle-group-note { color: var(--text-faint); font-size: .78rem; }
+.cycle-group { margin: .4rem 0 1rem; padding: .3rem .6rem .5rem; border: 1px solid var(--border); border-radius: 10px; background: var(--card-inner); }
+.cycle-group-head { display: flex; gap: .6rem; align-items: center; padding: .35rem 0; flex-wrap: wrap; }
+.cycle-group-board { font-weight: 600; }
+.cycle-group-board::first-letter { color: var(--purple-light); }
+.cycle-group-meta { color: var(--text-faint); font-size: .8rem; flex: 1; }
+.cycle-also-on { display: block; color: var(--text-faint); font-size: .74rem; }
+
+/* A card seen through a relation (specs/027 US2): it lives on another board. */
+.board-card.related { border-style: dashed; opacity: .88; }
+.board-home { color: var(--purple-light); font-size: .74rem; }

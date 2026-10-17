@@ -38,6 +38,11 @@ public final class TestRepositories {
         return new SqliteBriefCommentRepository((SqliteBoardRepository) store);
     }
 
+    /** Boards, relations, homes and board activity in the same board.db as {@code store} (specs/027). */
+    public static com.fathy.alfred.backend.board.application.port.out.BoardModelStorePort boardModel(BoardStorePort store, ObjectMapper json) {
+        return new SqliteBoardModelRepository((SqliteBoardRepository) store, json);
+    }
+
     public static Opened open(ObjectMapper json, Path file) {
         SqliteBoardRepository repo = new SqliteBoardRepository(json, file.toString());
         repo.init();

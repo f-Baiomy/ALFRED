@@ -64,6 +64,12 @@ final class BoardFixture implements AutoCloseable {
     final WidgetsService widgets;
     final com.fathy.alfred.backend.board.application.port.out.BriefCommentStorePort briefCommentStore;
     final BriefCommentService briefComments;
+    final com.fathy.alfred.backend.board.application.port.out.BoardModelStorePort boardModel;
+    final BoardsService boards;
+    final BoardModelMigration migration;
+    /** Fake session cycles for the boards: those that exist, and those recording. */
+    final java.util.Set<String> cyclesHere = new java.util.LinkedHashSet<>();
+    final java.util.Set<String> recordingHere = new java.util.LinkedHashSet<>();
     private final AutoCloseable closer;
 
     BoardFixture(Path dir) {
@@ -136,6 +142,59 @@ final class BoardFixture implements AutoCloseable {
         imports.setChats(chatStore);
         proposals = new ChatProposalService(chatStore, store, board, board, board, board, briefs, briefs, notifications, feed, clock);
         imports.setCycleNames(names);
+        boardModel = TestRepositories.boardModel(store, json);
+        board.setBoardModel(boardModel);
+        briefs.setBoardModel(boardModel);
+        com.fathy.alfred.backend.board.application.port.out.CycleControlPort control = new com.fathy.alfred.backend.board.application.port.out.CycleControlPort() {
+            private int n;
+
+            @Override
+            public Optional<String> create(String name) {
+                String id = "cyc-new-" + (++n);
+                cyclesHere.add(id);
+                cycleNames.put(id, name);
+                recordingHere.add(id);
+                return Optional.of(id);
+            }
+
+            @Override
+            public boolean start(String cycleId) {
+                recordingHere.add(cycleId);
+                return cyclesHere.contains(cycleId);
+            }
+
+            @Override
+            public boolean pause(String cycleId) {
+                recordingHere.remove(cycleId);
+                return cyclesHere.contains(cycleId);
+            }
+
+            @Override
+            public boolean recording(String cycleId) {
+                return recordingHere.contains(cycleId);
+            }
+
+            @Override
+            public List<String> recordingCycles() {
+                return List.copyOf(recordingHere);
+            }
+
+            @Override
+            public boolean exists(String cycleId) {
+                return cyclesHere.contains(cycleId);
+            }
+        };
+        boards = new BoardsService(boardModel, store, chatStore, board, briefs, notifications, provider(control),
+                provider(new com.fathy.alfred.backend.board.application.port.out.LinkedWorkItemPort() { }), clock);
+        migration = new BoardModelMigration(boardModel, names, provider(control), clock);
+    }
+
+    static <T> org.springframework.beans.factory.ObjectProvider<T> provider(T bean) {
+        org.springframework.beans.factory.support.StaticListableBeanFactory f = new org.springframework.beans.factory.support.StaticListableBeanFactory();
+        f.addBean("bean", bean);
+        @SuppressWarnings("unchecked")
+        org.springframework.beans.factory.ObjectProvider<T> p = (org.springframework.beans.factory.ObjectProvider<T>) f.getBeanProvider(bean.getClass().getInterfaces()[0]);
+        return p;
     }
 
     /** The session cycles that exist here, by id (chat export names them, import checks them). */

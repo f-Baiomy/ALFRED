@@ -1,5 +1,8 @@
 package com.fathy.alfred.backend.boardbridge;
 
+import com.fathy.alfred.backend.board.application.port.in.RelateCycleUseCase;
+import org.springframework.beans.factory.ObjectProvider;
+
 import com.fathy.alfred.backend.board.application.port.out.CycleCallsPort;
 import com.fathy.alfred.backend.board.application.port.out.LiveCallsPort;
 import com.fathy.alfred.backend.board.domain.model.CycleCall;
@@ -24,23 +27,33 @@ public class BoardCycleCallsAdapter implements CycleCallsPort, LiveCallsPort {
     private final NormalizeEndpointUseCase endpoints;
     private final com.fathy.alfred.backend.internalcalls.application.port.in.GetCallsUseCase inbound;
 
+    private final ObjectProvider<RelateCycleUseCase> relations;
+
     public BoardCycleCallsAdapter(ListCapturedCallsUseCase capturedCalls, ListPagedCapturedInternalCallsUseCase capturedInternalCalls,
                                   NormalizeEndpointUseCase endpoints,
-                                  com.fathy.alfred.backend.internalcalls.application.port.in.GetCallsUseCase inbound) {
+                                  com.fathy.alfred.backend.internalcalls.application.port.in.GetCallsUseCase inbound,
+                                  ObjectProvider<RelateCycleUseCase> relations) {
         this.reader = new CycleCallsReader(capturedCalls, capturedInternalCalls);
         this.endpoints = endpoints;
         this.inbound = inbound;
+        this.relations = relations;
     }
 
     /** The newest live inbound calls (the regression watch, specs/015 FR-17), signed, with their time. */
     @Override
     public List<CycleCall> recent(int limit) {
+        return recentOf("", limit);
+    }
+
+    /** The newest live inbound calls of one project (its reverse-proxy service name); every project when blank. */
+    @Override
+    public List<CycleCall> recentOf(String project, int limit) {
         List<CycleCall> out = new ArrayList<>();
         int page = 200;
         try {
             for (int offset = 0; offset < limit; offset += page) {
                 var query = new com.fathy.alfred.backend.internalcalls.domain.model.CallsQuery("", "", "newest", offset, Math.min(page, limit - offset),
-                        "", "", "");
+                        "", "", "", project == null ? "" : project);
                 var calls = inbound.getCalls(query).calls();
                 for (var c : calls) {
                     CycleCall signed = call("in", c.id(), c.method(), c.url(), c.status());
@@ -65,9 +78,43 @@ public class BoardCycleCallsAdapter implements CycleCallsPort, LiveCallsPort {
         }
     }
 
+    /**
+     * The calls of a task (specs/027 research R1 amendment): every cycle related to the board the key names, or the cycle
+     * the key itself is when it names no board. A call two cycles both captured is listed once.
+     */
     @Override
-    public List<CycleCall> calls(String cycleId, int limit) {
+    public List<CycleCall> calls(String taskKey, int limit) {
         List<CycleCall> out = new ArrayList<>();
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        for (String cycleId : cyclesOf(taskKey)) {
+            for (CycleCall c : cycleCalls(cycleId, limit - out.size())) {
+                if (seen.add(c.direction() + ":" + c.callId())) {
+                    out.add(c);
+                }
+            }
+            if (out.size() >= limit) {
+                break;
+            }
+        }
+        return out;
+    }
+
+    @Override
+    public List<CycleCall> ofCycle(String cycleId, int limit) {
+        return cycleCalls(cycleId, limit);
+    }
+
+    /** The cycles a task key stands for; the key alone when the board slice is not there to say. */
+    List<String> cyclesOf(String taskKey) {
+        RelateCycleUseCase r = relations.getIfAvailable();
+        return r == null ? List.of(taskKey) : r.cyclesOfTask(taskKey);
+    }
+
+    private List<CycleCall> cycleCalls(String cycleId, int limit) {
+        List<CycleCall> out = new ArrayList<>();
+        if (limit <= 0) {
+            return out;
+        }
         try {
             reader.inbound(cycleId, c -> {
                 if (out.size() < limit && c.call() != null) {

@@ -12,4 +12,9 @@ import java.util.List;
 public interface CycleCallsPort {
 
     List<CycleCall> calls(String cycleId, int limit);
+
+    /** One session cycle's own calls - never its board's other cycles (specs/027: a task key resolves to every related cycle). */
+    default List<CycleCall> ofCycle(String cycleId, int limit) {
+        return calls(cycleId, limit);
+    }
 }

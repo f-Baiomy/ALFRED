@@ -66,24 +66,35 @@
   } @else if (state.sortedCycles().length === 0) {
     <div class="empty">No cycles match "{{ state.searchQuery() }}".</div>
   } @else {
-    <table class="cycles-table">
-      <thead>
-        <tr>
-          <th></th>
-          <th>Name</th>
-          <th>Status</th>
-          <th>Assigned to</th>
-          <th>Created</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        @for (cycle of state.visibleCycles(); track cycle.id) {
+    <div class="cycle-group-by">
+      <span>Group by</span>
+      <span class="board-seg" role="group" aria-label="Group cycles">
+        <button type="button" [class.on]="groupBy() === 'board'" (click)="setGroupBy('board')">Board</button>
+        <button type="button" [class.on]="groupBy() === 'none'" (click)="setGroupBy('none')">None</button>
+      </span>
+      <span class="cycle-group-note">A cycle only stores calls; it relates to any number of boards (a board is the task).</span>
+    </div>
+    <ng-template #rows let-list let-alsoOn="alsoOn">
+      <table class="cycles-table">
+        <thead>
+          <tr>
+            <th></th>
+            <th>Name</th>
+            <th>Status</th>
+            <th>Assigned to</th>
+            <th>Created</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (cycle of list; track cycle.id) {
           <tr class="cycle-row" (click)="open(cycle)">
             <td (click)="toggleSelected(cycle, $event)">
               <input type="checkbox" [checked]="state.isSelected(cycle)" (change)="toggleSelected(cycle, $event)" />
             </td>
-            <td>{{ cycle.name }}</td>
+            <td>{{ cycle.name }}
+              @if (alsoOn?.get(cycle.id)?.length) { <span class="cycle-also-on">also on {{ alsoOn.get(cycle.id)!.join(', ') }}</span> }
+            </td>
             <td>
               <span class="badge" [class]="statusClass(cycle)">{{ statusLabel(cycle) }}</span>
             </td>
@@ -124,11 +135,30 @@
               </button>
             </td>
           </tr>
-        }
-      </tbody>
-    </table>
-
-    @if (state.remainingCount() > 0) {
+          }
+        </tbody>
+      </table>
+    </ng-template>
+    @if (groupBy() === 'board') {
+      @for (g of groups(); track g.board?.board?.id ?? '-') {
+        <section class="cycle-group">
+          <div class="cycle-group-head">
+            @if (g.board; as b) {
+              <span class="cycle-group-board">▦ {{ b.board.name }}</span>
+              <span class="cycle-group-meta">{{ b.board.project }}{{ b.board.isDefault ? ' · default' : '' }} · {{ g.cycles.length }} cycle(s)</span>
+              <button type="button" class="action-btn" (click)="openBoard(b.board.project, b.board.id)">Open board</button>
+            } @else {
+              <span class="cycle-group-board">Not on any board</span>
+              <span class="cycle-group-meta">{{ g.cycles.length }} cycle(s) · relate them from a board, or delete</span>
+            }
+          </div>
+          <ng-container *ngTemplateOutlet="rows; context: { $implicit: g.cycles, alsoOn: g.alsoOn }" />
+        </section>
+      }
+    } @else {
+      <ng-container *ngTemplateOutlet="rows; context: { $implicit: state.visibleCycles(), alsoOn: null }" />
+    }
+    @if (groupBy() === 'none' && state.remainingCount() > 0) {
       <button type="button" class="load-more-btn" (click)="loadMore()">
         Load {{ state.loadMorePageSize < state.remainingCount() ? state.loadMorePageSize : state.remainingCount() }} more
         (showing {{ state.visibleCycles().length }} of {{ state.sortedCycles().length }})
