@@ -25,6 +25,7 @@ import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.SquadRow
 import com.fathy.alfred.backend.teamboards.spi.AttachmentsReader;
 import com.fathy.alfred.backend.teamboards.spi.BoardsReader;
 import com.fathy.alfred.backend.teamboards.spi.Connector;
+import com.fathy.alfred.backend.teamboards.spi.ItemIdsReader;
 import com.fathy.alfred.backend.teamboards.spi.ProviderException;
 import com.fathy.alfred.backend.teamboards.spi.ProviderWords;
 import com.fathy.alfred.backend.teamboards.spi.RevisionsReader;
@@ -279,6 +280,9 @@ public class TeamService implements TeamUseCase {
             int[] changed = {0};
             List<ItemSummaryRef> fresh = new ArrayList<>();
             k.changedItems(connection, token, c.fetchedAt(), page -> changed[0] += store(c.id(), page, started, fresh));
+            if (k instanceof ItemIdsReader r) {
+                changed[0] += reconcile(c.id(), r.allIds(connection, token), started);
+            }
             if (k instanceof SquadsReader r) {
                 cache.replaceSquads(c.id(), r.squads(connection, token).stream()
                         .map(s -> new SquadRow(c.id(), s.extId(), s.name(), s.project(), null, null, s.memberIds())).toList());
@@ -316,7 +320,56 @@ public class TeamService implements TeamUseCase {
         }
     }
 
-    /** One page into the cache, and a feed line for every item that is new or has a newer revision. Items changed. */
+    /**
+     * An incremental fetch never sees an item go: what the cache holds and the tracker no longer has (deleted, or moved
+     * out of the scope) leaves the cache, with a line in the changes feed. An empty answer removes nothing - a token
+     * that suddenly sees nothing must not empty everyone's cache.
+     */
+    int reconcile(String conn, Set<String> present, Instant at) {
+        if (present == null || present.isEmpty()) {
+            return 0;
+        }
+        List<TeamCachePort.RemovedItem> gone = cache.removeAbsent(conn, present);
+        for (TeamCachePort.RemovedItem r : gone) {
+            cache.addChange(conn, r.extId(), r.rev(), null, r.squad(), at,
+                    "removed from the tracker or its scope: " + r.type() + " \"" + (r.title() == null ? "" : r.title()) + "\"");
+        }
+        return gone.size();
+    }
+
+    /**
+     * A refresh that runs on after the request returns (a first fetch can outlast a proxy's timeout): the checks that
+     * need no provider answer at once; the outcome arrives on /ws/teamboards ({@code what: refresh}). The token lives
+     * only as long as the run, in memory.
+     */
+    @Override
+    public RefreshResult refreshInBackground(String id, Token token, String who) {
+        Optional<StoredConnection> found = cache.connection(id);
+        if (found.isEmpty()) {
+            return RefreshResult.of(RefreshOutcome.NOT_FOUND, "No such connection");
+        }
+        if (!connectors.containsKey(found.get().kind())) {
+            return RefreshResult.of(RefreshOutcome.NOT_FOUND, "The " + found.get().kind() + " connector is not installed");
+        }
+        if (token == null || token.blank()) {
+            return RefreshResult.of(RefreshOutcome.TOKEN_MISSING, "Add your personal access token for " + found.get().name() + " first");
+        }
+        if (refreshing.contains(id)) {
+            return new RefreshResult(RefreshOutcome.PROVIDER_BUSY, 0, null, 5, "A refresh of this connection is already running");
+        }
+        Thread.ofVirtual().name("teamboards-refresh-" + id).start(() -> {
+            RefreshResult r;
+            try {
+                r = refresh(id, token, who);
+            } catch (RuntimeException e) {
+                log.warn("Refresh of {} failed: {}", id, e.getClass().getSimpleName());
+                r = RefreshResult.of(RefreshOutcome.BAD_RESPONSE, "The refresh stopped - try again");
+            }
+            signals.refreshed(id, r);
+        });
+        return new RefreshResult(RefreshOutcome.STARTED, 0, null, null, "Refreshing - the lists update as it goes");
+    }
+
     /** A new item seen by a refresh: what Claude's suggestion names. */
     record ItemSummaryRef(String extId, String type, String title) {
     }
@@ -360,6 +413,7 @@ public class TeamService implements TeamUseCase {
         }
     }
 
+    /** One page into the cache, and a feed line for every item that is new or has a newer revision. Items changed. */
     int store(String conn, List<Item> page, Instant fetchedAt) {
         return store(conn, page, fetchedAt, new ArrayList<>());
     }

@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { TeamApiService } from '../../../core/team/team-api.service';
@@ -76,6 +76,43 @@ export class ConnectionSwitcherComponent {
   who = this.state.tokens.who();
 
   readonly picked = computed(() => this.state.picked());
+  /** The connection this browser is refreshing in the background, until its outcome arrives. */
+  private running: string | null = null;
+
+  constructor() {
+    const sub = this.api.events$.subscribe((e) => {
+      if (e.what !== 'refresh' || !e.conn || e.conn !== this.running) return;
+      this.running = null;
+      this.done(e.conn, e.outcome ?? 'OK', e.changed ?? 0, e.message ?? null, e.retryAfter ?? null);
+    });
+    // the socket dropped: the outcome may have gone by - stop waiting; the lists still refill on their own signals
+    const again = this.api.reconnected$.subscribe(() => {
+      if (!this.running) return;
+      this.running = null;
+      this.busy.set(false);
+      this.message.set('The connection to Alfred was interrupted - the refresh may still be running');
+    });
+    inject(DestroyRef).onDestroy(() => {
+      sub.unsubscribe();
+      again.unsubscribe();
+    });
+  }
+
+  private done(conn: string, outcome: string, changed: number, message: string | null, retryAfter: number | null): void {
+    this.busy.set(false);
+    if (outcome === 'OK') {
+      this.isError.set(false);
+      this.message.set(changed ? `${changed} item${changed === 1 ? '' : 's'} changed` : 'Up to date');
+      return;
+    }
+    this.isError.set(true);
+    if (outcome === 'TOKEN_REJECTED') {
+      this.rejected.set(true);
+      this.state.tokens.clear(conn); // a refused token is not kept: the banner asks for a new one
+    }
+    this.message.set(outcome === 'PROVIDER_BUSY' ? `${this.state.ui().label} asks to wait ${retryAfter ?? 30} s - try again then`
+      : message || 'Refresh failed');
+  }
 
   ago(iso: string): string {
     const s = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 1000));
@@ -100,11 +137,15 @@ export class ConnectionSwitcherComponent {
     if (!c) return;
     this.busy.set(true);
     this.message.set(null);
-    this.api.refresh(c.id).subscribe({
+    this.api.refresh(c.id, true).subscribe({
       next: (r) => {
-        this.busy.set(false);
-        this.isError.set(false);
-        this.message.set(r.changed ? `${r.changed} item${r.changed === 1 ? '' : 's'} changed` : 'Up to date');
+        if (r.state === 'STARTED') {
+          this.running = c.id; // the outcome comes on /ws/teamboards; the lists refill as pages land
+          this.message.set(r.message ?? 'Refreshing…');
+          this.isError.set(false);
+          return;
+        }
+        this.done(c.id, 'OK', r.changed ?? 0, null, null);
       },
       error: (e) => {
         this.busy.set(false);

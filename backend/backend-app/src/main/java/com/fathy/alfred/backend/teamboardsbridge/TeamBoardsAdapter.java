@@ -6,12 +6,16 @@ import com.fathy.alfred.backend.board.application.port.in.LiveWorkUseCase;
 import com.fathy.alfred.backend.board.application.port.in.ManageBoardsUseCase;
 import com.fathy.alfred.backend.board.domain.model.Actor;
 import com.fathy.alfred.backend.board.domain.model.BoardFile;
+import com.fathy.alfred.backend.board.domain.model.BoardState;
 import com.fathy.alfred.backend.board.domain.model.CardChange;
 import com.fathy.alfred.backend.board.domain.model.ChatKey;
 import com.fathy.alfred.backend.board.domain.model.ChatMessage;
+import com.fathy.alfred.backend.dbcapture.application.port.in.ManageDbCaptureUseCase;
 import com.fathy.alfred.backend.teamboards.core.application.port.out.TeamBoardsPort;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -31,12 +35,37 @@ public class TeamBoardsAdapter implements TeamBoardsPort {
     private final ChatUseCase chats;
     private final BoardFilesUseCase files;
     private final LiveWorkUseCase live;
+    private final ObjectProvider<ManageDbCaptureUseCase> projects;
 
-    public TeamBoardsAdapter(ManageBoardsUseCase boards, ChatUseCase chats, BoardFilesUseCase files, LiveWorkUseCase live) {
+    public TeamBoardsAdapter(ManageBoardsUseCase boards, ChatUseCase chats, BoardFilesUseCase files, LiveWorkUseCase live,
+                             ObjectProvider<ManageDbCaptureUseCase> projects) {
         this.boards = boards;
         this.chats = chats;
         this.files = files;
         this.live = live;
+        this.projects = projects;
+    }
+
+    @Override
+    public boolean projectExists(String project) {
+        if (project == null || project.isBlank()) {
+            return false;
+        }
+        var capture = projects.getIfAvailable();
+        if (capture != null && capture.projects().stream().anyMatch(p -> project.equals(p.project()))) {
+            return true; // a project Alfred fronts
+        }
+        // the default board is listed for any name (a read never writes it), so it counts only once it holds cards
+        return boards.list(project, EnumSet.allOf(BoardState.class), null, 2).stream()
+                .anyMatch(s -> project.equals(s.board().project()) && (!s.board().isDefault() || s.cards() > 0));
+    }
+
+    @Override
+    public String whoAnswers(String project, String boardId) {
+        if (boardId != null && live.cycleChat(boardId).isPresent()) {
+            return "the terminal holding this board";
+        }
+        return live.runner(project).isPresent() ? "the project's live runner" : null;
     }
 
     /** A board's chat; the default board's is the project chat. */

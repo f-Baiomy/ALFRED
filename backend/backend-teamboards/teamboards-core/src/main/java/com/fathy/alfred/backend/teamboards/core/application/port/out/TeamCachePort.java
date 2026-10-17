@@ -123,6 +123,16 @@ public interface TeamCachePort {
 
     boolean deleteLink(String alfredBoard);
 
+    /** An item the tracker no longer has (deleted, or moved out of the scope). */
+    record RemovedItem(String extId, String type, String title, String squad, int rev) {
+    }
+
+    /**
+     * Removes the connection's cached items whose ids are not in {@code present} - never one a board links (its board
+     * keeps showing what it was). The items removed.
+     */
+    List<RemovedItem> removeAbsent(String conn, java.util.Set<String> present);
+
     /** Trims the cache to its limits (data-model "Retention"); items a board links are never removed. Rows removed. */
     int evict(int maxItems, int maxRevisions, int maxChangeRows, Instant changesOlderThan);
 

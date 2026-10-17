@@ -9,6 +9,15 @@ import java.util.Set;
  */
 public interface TeamBoardsPort {
 
+    /** Whether Alfred knows the project (a project it fronts, or one with boards) - a start never goes to a typo. */
+    boolean projectExists(String project);
+
+    /**
+     * Who will answer a start posted there now: "the terminal holding <board>", "the project's live runner", or null
+     * when nobody is live - the message then waits until someone starts /alfred-live.
+     */
+    String whoAnswers(String project, String boardId);
+
     /** The board's project, or empty when there is no such board. */
     Optional<String> projectOf(String boardId);
 

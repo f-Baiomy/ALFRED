@@ -109,6 +109,12 @@ public record Card(
                 cycleDeleted, signature, createdAt, updatedAt, updatedBy, teams, boardId);
     }
 
+    /** The same card under another task key (an imported board that got a new id here). */
+    public Card withCycleId(String newCycleId) {
+        return new Card(id, project, number, kind, title, description, status, resolution, reason, flags, scope, author, newCycleId,
+                cycleDeleted, signature, createdAt, updatedAt, updatedBy, teams, boardId);
+    }
+
     /** The same card on another home board (its number and history stay). */
     public Card withBoard(String newBoardId, Instant at, Actor by) {
         return new Card(id, project, number, kind, title, description, status, resolution, reason, flags, scope, author, cycleId,

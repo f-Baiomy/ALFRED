@@ -155,6 +155,11 @@ export interface TeamSocketEvent {
   readonly type: 'team-changed';
   readonly conn: string | null;
   readonly what: string;
+  /** what: refresh - how a background refresh ended (OK, TOKEN_REJECTED, PROVIDER_BUSY, UNREACHABLE...). */
+  readonly outcome?: string;
+  readonly changed?: number;
+  readonly retryAfter?: number | null;
+  readonly message?: string | null;
 }
 
 export interface StartTarget {
@@ -169,6 +174,8 @@ export interface StartAnswer {
   readonly boardId: string | null;
   readonly messageId: number | null;
   readonly attachmentsFetched: number;
+  /** Who runs /alfred-setup now; null: nobody is live and `message` says so. */
+  readonly answeredBy?: string | null;
   readonly message: string | null;
 }
 

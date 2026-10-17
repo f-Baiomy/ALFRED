@@ -126,6 +126,13 @@ class StartServiceTest {
         }
 
         public boolean suggest(String project, String boardId, String conn, String extId, String text) { return false; }
+
+        final Set<String> known = new HashSet<>(Set.of("odeysys", "billing"));
+        String who;
+
+        public boolean projectExists(String project) { return known.contains(project); }
+
+        public String whoAnswers(String project, String boardId) { return who; }
     }
 
     Fake fake = new Fake();
@@ -199,6 +206,29 @@ class StartServiceTest {
         assertThat(starts.cancel("c1", "7")).isEqualTo(CancelOutcome.NOT_WAITING);
         assertThat(starts.askedByUser("41")).isTrue();
         assertThat(starts.askedByUser("1")).isFalse();
+    }
+
+    @Test
+    void anUnknownProjectIsRefusedBeforeAnythingIsPostedOrRemembered() {
+        StartResult r = starts.start("c1", "9", new Target("odeyssys", null, true), null);
+        assertThat(r.outcome()).isEqualTo(StartOutcome.INVALID);
+        assertThat(r.message()).contains("odeyssys");
+        assertThat(boards.posted).isEmpty();
+        assertThat(cache.mappings("c1")).isEmpty();
+        assertThat(starts.isWaiting("c1", "9")).isFalse();
+    }
+
+    @Test
+    void aStartSaysWhoAnswersOrThatNobodyIsLive() {
+        StartResult none = starts.start("c1", "9", new Target("odeysys", null, false), null);
+        assertThat(none.outcome()).isEqualTo(StartOutcome.WAITING);
+        assertThat(none.answeredBy()).isNull();
+        assertThat(none.message()).contains("Nobody is live for odeysys").contains("/alfred-live");
+
+        boards.who = "the project's live runner";
+        StartResult live = starts.start("c1", "7", new Target("odeysys", "b-refund", false), null);
+        assertThat(live.answeredBy()).isEqualTo("the project's live runner");
+        assertThat(live.message()).isNull();
     }
 
     @Test

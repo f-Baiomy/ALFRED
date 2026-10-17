@@ -59,6 +59,9 @@ public interface TeamUseCase {
     /** Fetches what changed since the last fetch into the shared cache. {@code who}: a name for "fetched by". */
     RefreshResult refresh(String conn, Token token, String who);
 
+    /** The same, run on after the call returns STARTED; the outcome arrives on /ws/teamboards (what: refresh). */
+    RefreshResult refreshInBackground(String conn, Token token, String who);
+
     ItemsPage items(ItemQuery q);
 
     Optional<ItemDetail> item(String conn, String extId);

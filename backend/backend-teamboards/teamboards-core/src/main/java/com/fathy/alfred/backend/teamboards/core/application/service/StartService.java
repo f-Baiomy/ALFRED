@@ -157,6 +157,9 @@ public class StartService implements StartFromItemUseCase {
             if (project.length() > 200) {
                 return StartResult.of(StartOutcome.INVALID, "A project name is at most 200 characters");
             }
+            if (!port.projectExists(project)) {
+                return StartResult.of(StartOutcome.INVALID, "Alfred has no project " + project);
+            }
             where = new Target(project, board, target.remember());
             if (target.remember()) {
                 MappingKind kind = rememberAs(s);
@@ -192,7 +195,10 @@ public class StartService implements StartFromItemUseCase {
         }
         cache.putStart(new StartRow(conn, extId, targetKey, message.get(), WAITING, clock.instant()));
         signals.changed(conn, "start");
-        return new StartResult(StartOutcome.WAITING, where.project(), where.boardId(), message.get(), null, null, fetched);
+        String who = port.whoAnswers(where.project(), where.boardId());
+        return new StartResult(StartOutcome.WAITING, where.project(), where.boardId(), message.get(), null,
+                who == null ? "Nobody is live for " + where.project() + ": start /alfred-live there (or open the board in a terminal); "
+                        + "the setup waits until then" : null, fetched, who);
     }
 
     /** FR-037a: with the viewer's token, the attachments come down now and wait for the board (24 h at most). */

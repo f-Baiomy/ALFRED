@@ -58,9 +58,13 @@ export class TeamApiService {
     return this.http.delete<void>(`${this.base}/connections/${encodeURIComponent(id)}`);
   }
 
-  refresh(conn: string): Observable<{ changed: number; fetchedAt: string }> {
-    return this.http.post<{ changed: number; fetchedAt: string }>(`${this.base}/connections/${encodeURIComponent(conn)}/refresh`, {},
-      this.withToken(conn));
+  /**
+   * Refresh. In the background (the Team tab): 202 STARTED at once, the outcome on /ws/teamboards (what: refresh) - a first
+   * fetch can outlast a proxy's timeout. Else it answers when done: {changed, fetchedAt}.
+   */
+  refresh(conn: string, background = false): Observable<{ changed?: number; fetchedAt?: string; state?: 'STARTED'; message?: string }> {
+    return this.http.post<{ changed?: number; fetchedAt?: string; state?: 'STARTED'; message?: string }>(
+      `${this.base}/connections/${encodeURIComponent(conn)}/refresh`, {}, { ...this.withToken(conn), params: background ? { background: 'true' } : {} });
   }
 
   items(conn: string, filters: TeamItemFilters, offset = 0, limit = 50): Observable<TeamItemsPage> {

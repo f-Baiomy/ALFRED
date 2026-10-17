@@ -84,7 +84,7 @@ public final class TeamModels {
     public record BoardLinkRow(String alfredBoard, String conn, String extId, String snapshotJson, int seenRev) {
     }
 
-    public enum RefreshOutcome { OK, TOKEN_MISSING, TOKEN_REJECTED, PROVIDER_BUSY, UNREACHABLE, NOT_FOUND, BAD_RESPONSE }
+    public enum RefreshOutcome { OK, STARTED, TOKEN_MISSING, TOKEN_REJECTED, PROVIDER_BUSY, UNREACHABLE, NOT_FOUND, BAD_RESPONSE }
 
     public record RefreshResult(RefreshOutcome outcome, int changed, Instant fetchedAt, Integer retryAfter, String message) {
         public static RefreshResult of(RefreshOutcome o, String message) {

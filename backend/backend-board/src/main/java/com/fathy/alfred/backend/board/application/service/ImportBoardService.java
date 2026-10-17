@@ -291,6 +291,16 @@ public class ImportBoardService implements ImportBoardUseCase {
                 }
             });
         }
+        // a card's task is its board's key: the board records come after the cards, so a board renamed on the way in
+        // moves its cards' key here, as it moved its briefs, specs and marks
+        for (PendingCard p : pending) {
+            String old = p.card().cycleId();
+            String here = old == null ? null : boardIds.get(old);
+            String cardId = idByOldNumber.get(p.card().number());
+            if (here != null && !here.equals(old) && cardId != null) {
+                store.find(cardId).ifPresent(c -> store.update(c.withCycleId(here)));
+            }
+        }
         cardImages.forEach((cardId, ids) -> store.attachImages(ids, cardId, null));
         cycleImages.forEach((cycleId, ids) -> store.attachImages(ids, null, cycleId));
         mentionedCalls.mentionedCallsChanged();

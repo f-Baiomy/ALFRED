@@ -54,6 +54,24 @@ public class TeamWebSocket extends TextWebSocketHandler implements WebSocketConf
         body.put("type", "team-changed");
         body.put("conn", conn);
         body.put("what", what);
+        send(body);
+    }
+
+    /** {what: refresh, outcome, changed, retryAfter, message} - never the token. */
+    @Override
+    public void refreshed(String conn, com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.RefreshResult r) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("type", "team-changed");
+        body.put("conn", conn);
+        body.put("what", "refresh");
+        body.put("outcome", r.outcome().name());
+        body.put("changed", r.changed());
+        body.put("retryAfter", r.retryAfter());
+        body.put("message", r.message());
+        send(body);
+    }
+
+    private void send(Map<String, Object> body) {
         TextMessage message;
         try {
             message = new TextMessage(json.writeValueAsString(body));

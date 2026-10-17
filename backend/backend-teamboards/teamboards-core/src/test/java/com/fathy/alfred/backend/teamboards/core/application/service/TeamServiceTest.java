@@ -49,11 +49,13 @@ class TeamServiceTest {
     SqliteTeamCacheRepository cache;
     FakeConnector fake;
     TeamService team;
-    List<String> signals = new ArrayList<>();
+    List<String> signals = java.util.Collections.synchronizedList(new ArrayList<>());
     Instant now = Instant.parse("2026-10-17T09:00:00Z");
 
     /** A provider with whatever items the test puts in; it remembers the {@code since} it was asked for. */
-    static class FakeConnector implements Connector, SquadsReader {
+    static class FakeConnector implements Connector, SquadsReader, com.fathy.alfred.backend.teamboards.spi.ItemIdsReader {
+        /** What the tracker holds now; null: every item of {@code items}. */
+        java.util.Set<String> present;
         final List<Item> items = new ArrayList<>();
         final List<Instant> asked = new ArrayList<>();
         ProviderException fail;
@@ -100,6 +102,16 @@ class TeamServiceTest {
         @Override
         public List<Person> people(Connection c, Token t) {
             return List.of(new Person("p1", "Sara", "sara@example.test"));
+        }
+
+        @Override
+        public java.util.Set<String> allIds(Connection c, Token t) {
+            if (present != null) {
+                return present;
+            }
+            java.util.Set<String> out = new java.util.HashSet<>();
+            items.forEach(i -> out.add(i.extId()));
+            return out;
         }
 
         @Override
@@ -222,5 +234,40 @@ class TeamServiceTest {
             assertThat(new String(Files.readAllBytes(f), StandardCharsets.ISO_8859_1)).as(f.toString()).doesNotContain(SECRET);
         }
         assertThat(new Token(SECRET).toString()).doesNotContain(SECRET);
+    }
+
+    @Test
+    void anItemTheTrackerNoLongerHasLeavesTheCacheUnlessABoardLinksIt() {
+        String conn = connection();
+        fake.items.add(item("1", "Bug", "Kept", "Active", 1, now.minusSeconds(60)));
+        fake.items.add(item("2", "Bug", "Deleted in Azure", "Active", 1, now.minusSeconds(60)));
+        fake.items.add(item("3", "Bug", "Linked", "Active", 1, now.minusSeconds(60)));
+        team.refresh(conn, new Token(SECRET), null);
+        cache.putLink(new com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.BoardLinkRow("b-1", conn, "3", "{}", 1));
+
+        fake.present = java.util.Set.of();
+        team.refresh(conn, new Token(SECRET), null);
+        assertThat(team.items(new ItemQuery(conn, null, null, null, null, null, null, 0, 50)).total()).as("an empty answer removes nothing")
+                .isEqualTo(3);
+
+        fake.present = java.util.Set.of("1");
+        var r = team.refresh(conn, new Token(SECRET), null);
+        assertThat(r.changed()).isEqualTo(1);
+        assertThat(team.items(new ItemQuery(conn, null, null, null, null, null, null, 0, 50)).items()).extracting(i -> i.extId())
+                .containsExactlyInAnyOrder("1", "3");
+        assertThat(team.changes(conn, null, null, null, 10).get(0).summary()).isEqualTo("removed from the tracker or its scope: Bug \"Deleted in Azure\"");
+    }
+
+    @Test
+    void aBackgroundRefreshAnswersAtOnceAndSignalsItsOutcome() throws Exception {
+        String conn = connection();
+        assertThat(team.refreshInBackground(conn, null, null).outcome()).isEqualTo(RefreshOutcome.TOKEN_MISSING);
+        fake.items.add(item("1", "Bug", "One", "Active", 1, now.minusSeconds(60)));
+        assertThat(team.refreshInBackground(conn, new Token(SECRET), "Sara").outcome()).isEqualTo(RefreshOutcome.STARTED);
+        for (int i = 0; i < 100 && !signals.contains(conn + ":refresh"); i++) {
+            Thread.sleep(50);
+        }
+        assertThat(signals).contains(conn + ":refresh");
+        assertThat(team.connections().get(0).fetchedBy()).isEqualTo("Sara");
     }
 }

@@ -40,7 +40,8 @@ describe('TeamStartButtonComponent (specs/027 US8)', () => {
   it('an unmapped item asks where its board goes, then starts there and remembers it', () => {
     const { f, api, el } = setUp();
     api.start.and.returnValues(throwError(() => ({ error: { error: 'NEEDS_TARGET' } })),
-      of({ state: 'WAITING', project: 'odeysys', boardId: null, messageId: 9, attachmentsFetched: 0, message: null }));
+      of({ state: 'WAITING', project: 'odeysys', boardId: null, messageId: 9, attachmentsFetched: 0, answeredBy: null,
+        message: 'Nobody is live for odeysys: start /alfred-live there' }));
     f.componentInstance.start(null);
     f.detectChanges();
     expect(el.querySelector('.tsb-dialog')).toBeTruthy();
@@ -50,6 +51,7 @@ describe('TeamStartButtonComponent (specs/027 US8)', () => {
     expect(api.start.calls.mostRecent().args).toEqual(['c1', '7', { project: 'odeysys', boardId: null, remember: true }]);
     expect(el.querySelector('.tsb-dialog')).toBeNull();
     expect(el.textContent).toContain('Waiting for /alfred-setup');
+    expect(el.textContent).toContain('Nobody is live for odeysys');
   });
 
   it('a waiting start can be cancelled; a board shows Open task', () => {

@@ -133,7 +133,9 @@ export class TeamStartButtonComponent {
         this.busy.set(false);
         this.asking.set(false);
         this.started.set('WAITING');
-        this.say(r.attachmentsFetched ? `${r.attachmentsFetched} attachment(s) fetched for the board` : null);
+        const fetched = r.attachmentsFetched ? `${r.attachmentsFetched} attachment(s) fetched for the board` : '';
+        const who = r.answeredBy ? `Set up by ${r.answeredBy}` : r.message || '';
+        this.say([who, fetched].filter(Boolean).join(' · ') || null);
         this.changed.emit();
       },
       error: (e) => {

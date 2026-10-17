@@ -124,10 +124,12 @@ public class TeamboardsController {
 
     @PostMapping("/teamboards/connections/{id}/refresh")
     public ResponseEntity<?> refresh(@PathVariable String id, @RequestHeader(value = TOKEN_HEADER, required = false) String token,
-                                     @RequestHeader(value = WHO_HEADER, required = false) String who) {
-        RefreshResult r = team.refresh(id, token(token), who);
+                                     @RequestHeader(value = WHO_HEADER, required = false) String who,
+                                     @RequestParam(defaultValue = "false") boolean background) {
+        RefreshResult r = background ? team.refreshInBackground(id, token(token), who) : team.refresh(id, token(token), who);
         return switch (r.outcome()) {
             case OK -> ResponseEntity.ok(Map.of("changed", r.changed(), "fetchedAt", r.fetchedAt().toString()));
+            case STARTED -> ResponseEntity.status(HttpStatus.ACCEPTED).body(Map.of("state", "STARTED", "message", r.message()));
             case TOKEN_MISSING -> error(HttpStatus.UNAUTHORIZED, "TOKEN_MISSING", r.message());
             case TOKEN_REJECTED -> error(HttpStatus.FORBIDDEN, "TOKEN_REJECTED", r.message());
             case PROVIDER_BUSY -> {

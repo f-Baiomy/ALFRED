@@ -638,6 +638,36 @@ public class SqliteTeamCacheRepository implements TeamCachePort {
         }
     }
 
+    @Override
+    public List<RemovedItem> removeAbsent(String conn, java.util.Set<String> present) {
+        List<RemovedItem> gone = new ArrayList<>();
+        jdbc.query("SELECT rowid, ext_id, type, title, squad, rev FROM items i WHERE conn = ? "
+                + "AND NOT EXISTS (SELECT 1 FROM board_links l WHERE l.conn = i.conn AND l.ext_id = i.ext_id)", rs -> {
+            if (!present.contains(rs.getString(2))) {
+                gone.add(new RemovedItem(rs.getString(2), rs.getString(3), rs.getString(4), rs.getString(5), rs.getInt(6)));
+            }
+        }, conn);
+        for (int i = 0; i < gone.size(); i += 500) {
+            List<RemovedItem> chunk = gone.subList(i, Math.min(gone.size(), i + 500));
+            tx.executeWithoutResult(s -> {
+                for (RemovedItem r : chunk) {
+                    Long rowid = jdbc.queryForList("SELECT rowid FROM items WHERE conn = ? AND ext_id = ?", Long.class, conn, r.extId()).stream()
+                            .findFirst().orElse(null);
+                    jdbc.update("DELETE FROM item_fields WHERE conn = ? AND ext_id = ?", conn, r.extId());
+                    jdbc.update("DELETE FROM links WHERE conn = ? AND from_id = ?", conn, r.extId());
+                    if (rowid != null) {
+                        jdbc.update("DELETE FROM items_fts WHERE rowid = ?", rowid);
+                    }
+                    jdbc.update("DELETE FROM revisions WHERE conn = ? AND ext_id = ?", conn, r.extId());
+                    jdbc.update("DELETE FROM start_requests WHERE conn = ? AND ext_id = ?", conn, r.extId());
+                    jdbc.update("DELETE FROM pending_attachments WHERE conn = ? AND ext_id = ?", conn, r.extId());
+                    jdbc.update("DELETE FROM items WHERE conn = ? AND ext_id = ?", conn, r.extId());
+                }
+            });
+        }
+        return gone;
+    }
+
     // ------------------------------------------------------------------------------------------- starts, pending files
 
     @Override

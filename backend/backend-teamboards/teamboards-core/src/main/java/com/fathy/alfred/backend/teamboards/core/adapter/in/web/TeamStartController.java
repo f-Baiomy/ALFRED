@@ -77,6 +77,7 @@ public class TeamStartController {
         out.put("boardId", r.boardId());
         out.put("messageId", r.messageId());
         out.put("attachmentsFetched", r.attachmentsFetched());
+        out.put("answeredBy", r.answeredBy());
         out.put("message", r.message());
         return switch (r.outcome()) {
             case WAITING -> ResponseEntity.status(HttpStatus.ACCEPTED).body(out);

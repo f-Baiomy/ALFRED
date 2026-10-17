@@ -16,10 +16,16 @@ public interface StartFromItemUseCase {
     }
 
     /** {@code suggestedProject}: with NEEDS_TARGET, a project the item's squad points to, else null. */
+    /** {@code answeredBy}: who will run /alfred-setup now (null: nobody is live - it waits). */
     record StartResult(StartOutcome outcome, String project, String boardId, Long messageId, String suggestedProject, String message,
-                       int attachmentsFetched) {
+                       int attachmentsFetched, String answeredBy) {
+        public StartResult(StartOutcome outcome, String project, String boardId, Long messageId, String suggestedProject, String message,
+                           int attachmentsFetched) {
+            this(outcome, project, boardId, messageId, suggestedProject, message, attachmentsFetched, null);
+        }
+
         public static StartResult of(StartOutcome outcome, String message) {
-            return new StartResult(outcome, null, null, null, null, message, 0);
+            return new StartResult(outcome, null, null, null, null, message, 0, null);
         }
     }
 

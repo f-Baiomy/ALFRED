@@ -247,12 +247,13 @@ class ImportBoardServiceTest {
         f.boardModel.putBoard(new com.fathy.alfred.backend.board.domain.model.Board("b-x", "elsewhere", "Theirs", false,
                 com.fathy.alfred.backend.board.domain.model.BoardState.OPEN, null, java.time.Instant.now(), java.time.Instant.now(),
                 com.fathy.alfred.backend.board.domain.model.Actor.USER));
-        run(card(1, "A", ""),
+        run(card(1, "A", "").replace("\"cycleId\":\"c-1\"", "\"cycleId\":\"b-x\""),
                 "{\"record\":\"board\",\"board\":{\"id\":\"b-x\",\"name\":\"Mine\",\"isDefault\":false,\"state\":\"OPEN\"}}",
                 "{\"record\":\"brief\",\"cycleId\":\"b-x\",\"text\":\"mine\",\"updatedAt\":\"2026-10-01T10:00:00Z\"}");
         assertThat(f.boardModel.board("b-x").orElseThrow().name()).isEqualTo("Theirs");
         var mine = f.boardModel.boards("dest", java.util.Set.of(com.fathy.alfred.backend.board.domain.model.BoardState.OPEN), null, 50).stream()
                 .filter(b -> b.name().equals("Mine")).findFirst().orElseThrow();
         assertThat(f.briefs.brief(mine.id()).text()).isEqualTo("mine");
+        assertThat(f.board.getByNumber("dest", 1).orElseThrow().card().cycleId()).as("its card follows the new key").isEqualTo(mine.id());
     }
 }

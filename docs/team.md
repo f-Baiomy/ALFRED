@@ -48,8 +48,16 @@ Resolved"); the **seen** mark is shared too. Lists read summaries only - the raw
 trims itself: old or excess change lines, revisions over their cap, then unlinked items (an item a board links is never
 removed); attachments a Start fetched wait 24 h at most. Settings → Storage lists `teamboards.db`.
 
-Known limits: an item deleted in the tracker or moved out of scope stays in the cache until the item cap trims it;
-Refresh is one request (a first fetch of a big project can outlast a proxy's timeout while the cache still fills).
+**Gone items**: every refresh also asks the tracker for the ids still in scope (a connector's `ItemIdsReader`); an item
+deleted there or moved out of scope leaves the cache with its fields, links, history, waiting start and pending files,
+and the refresh's change list says so. An item a board is linked to stays (its board keeps the snapshot). An empty id
+list from the tracker removes nothing.
+
+**Refresh in the background**: the Team tab sends `POST .../refresh?background=true` - `202 STARTED` at once, and the
+outcome (`OK` with the changed count, `TOKEN_REJECTED`, `PROVIDER_BUSY` with `retryAfter`, `UNREACHABLE`) arrives on
+`/ws/teamboards` as `{what:"refresh", outcome, ...}`, so a first fetch of a big project never meets a proxy's timeout.
+Without the parameter the call still answers when the refresh is done. Changes are read by `ChangedDate` and id, so
+items changed in the same second as the window's last one are never skipped.
 
 ## Start: a board from a work item
 
@@ -59,7 +67,10 @@ Refresh is one request (a first fetch of a big project can outlast a proxy's tim
    attachments come down now (10 MB each, 50 MB per item) and wait for the board.
 3. A waiting `/alfred-setup <conn>/<id>` message (the title on one capped line) is posted **as the user** to the target
    board's chat (the project chat for no board): the terminal holding that board, else the project's runner, runs
-   /alfred-setup. Cancel withdraws it while nobody took it (`409 TAKEN` after).
+   /alfred-setup. Cancel withdraws it while nobody took it (`409 TAKEN` after). The answer names who will run it
+   (`answeredBy`); with nobody live it says so - the message waits until /alfred-live starts or the board is opened in
+   a terminal. A picked project Alfred does not know (not a project it fronts, no boards) is refused before anything is
+   posted or remembered.
 4. /alfred-setup reads the seed (`team_item`), opens the board (`board_open` with `askedIn`), writes the brief and spec,
    and calls `team_link`: Alfred keeps a snapshot of the item and moves the fetched attachments onto the board (each
    leaves the store only once the board holds it).
