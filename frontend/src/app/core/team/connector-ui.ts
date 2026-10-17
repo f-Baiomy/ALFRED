@@ -16,8 +16,11 @@ export interface ConnectorUi {
   readonly help: string;
   /** The base URL's example, e.g. https://dev.azure.com/your-org. */
   readonly urlHint: string;
-  /** Renders one field's value (e.g. Azure HTML fields); none: plain text. */
-  readonly fieldRenderer?: Type<unknown>;
+  /**
+   * Loads the component that renders one field's value (e.g. Azure HTML fields); none: plain text. Loaded on first use,
+   * so a connector's renderer (and what it imports) never weighs on the app's first download.
+   */
+  readonly loadFieldRenderer?: () => Promise<Type<unknown>>;
   word(neutral: NeutralWord): string;
 }
 

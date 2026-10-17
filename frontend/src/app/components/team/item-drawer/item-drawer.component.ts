@@ -1,5 +1,5 @@
 import { NgComponentOutlet } from '@angular/common';
-import { Component, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
+import { Component, Type, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
 import { TeamApiService } from '../../../core/team/team-api.service';
 import { TeamStateService } from '../../../core/team/team-state.service';
 import { TeamItem, TeamItemDetail, TeamRevision } from '../../../core/team/team.models';
@@ -110,7 +110,7 @@ export class TeamItemDrawerComponent {
   readonly historyError = signal<string | null>(null);
   /** The cached item once read (a change line opens the drawer with only its head). */
   readonly shown = computed(() => this.detail()?.item ?? this.item());
-  readonly renderer = computed(() => this.state.ui().fieldRenderer ?? null);
+  readonly renderer = signal<Type<unknown> | null>(null);
 
   constructor() {
     effect(() => {
@@ -120,6 +120,14 @@ export class TeamItemDrawerComponent {
         this.history.set([]);
         this.api.item(i.conn, i.extId).subscribe({ next: (d) => this.isCurrent(i) && this.detail.set(d), error: () => undefined });
         this.loadHistory(false);
+      });
+    });
+    // the connector's field renderer, loaded once it is needed
+    effect(() => {
+      const load = this.state.ui().loadFieldRenderer;
+      untracked(() => {
+        if (load) void load().then((c) => this.renderer.set(c), () => this.renderer.set(null));
+        else this.renderer.set(null);
       });
     });
     // a start, cancel or link (by anyone) changes the item's board state

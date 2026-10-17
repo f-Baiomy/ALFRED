@@ -24,9 +24,11 @@ describe('VerifyGuardService (specs/020)', () => {
     return TestBed.inject(VerifyGuardService);
   }
 
-  it('moves at once when the re-test saw rows', async () => {
+  it('moves at once when the re-test saw rows and the fix is implemented', async () => {
     const move = jasmine.createSpy('move');
-    expect(await make(check(1)).verify({ id: 'k', number: 44, project: 'p' }, move)).toBe('moved');
+    // specs/026: Verified needs both - implemented (the code check) and worked (the calls)
+    const implemented = { ...check(1), code: { verdict: 'IMPLEMENTED', layers: [], commit: 'abc123', branch: 'task', note: null } } as unknown as RetestCheck;
+    expect(await make(implemented).verify({ id: 'k', number: 44, project: 'p' }, move)).toBe('moved');
     expect(move).toHaveBeenCalled();
   });
 
