@@ -373,11 +373,13 @@ export class ChatLane {
             head: ev.kind === 'received' ? 'working on it in your terminal' : 'queued in your terminal after its current step' });
           continue;
         }
-        if (!p.picked) continue;
+        // its reply ends it even when no "received" was seen: a message queued while the terminal was busy reaches it
+        // inside a later turn, often with no event of its own, and its row then stayed "queued" after the reply
         if (ev.kind === 'tool' && p.done(ev.name, ev.input)) {
           this.untrack(p.key, { state: 'DONE', outcome: 'answered by your terminal' });
           continue;
         }
+        if (!p.picked) continue;
         const step = ev.kind === 'thinking' ? 'thinking' : stepOf(ev.name, ev.input);
         if (p.steps.at(-1) === step) continue;
         p.steps.push(step);

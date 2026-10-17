@@ -1008,18 +1008,32 @@ export class Runner {
     }).catch(() => null);
   }
 
+  /** The open boards this runner's cycle is on (their chats are kept under the board id). */
+  async boardsOfCycle() {
+    const boards = await this.o.alfred.call('GET', '/board/boards', { query: { project: this.o.project ?? '', state: 'OPEN' }, timeoutMs: 10_000 })
+      .catch(() => null);
+    return Array.isArray(boards)
+      ? boards.filter((b) => b?.board?.id !== this.o.cycleId && (b?.cycleIds ?? []).includes(this.o.cycleId)).map((b) => b.board.id)
+      : [];
+  }
+
   /** Whether another runner holds this board: /alfred-live on another machine, or a live runner while this is listen's lane. */
   async anotherOwner() {
     if (this.o.chatId && this.o.cycleId) {
       // One chat per cycle is Alfred's rule (409 at start), so several cycles may run at once - but that one chat may run
       // /alfred-live AND /alfred-listen for the cycle: then both answered every comment (specs/019). The listen lane stands down.
       if ((this.o.kind ?? 'live') !== 'listen') return null;
-      const c = await this.o.alfred.call('GET', '/board/cycle-chat', { query: { cycleId: this.o.cycleId, project: this.o.project ?? '' }, timeoutMs: 10_000 })
-        .catch(() => null);
-      if (!c?.chat?.kinds?.includes('live')) return null;
-      const r = await this.o.alfred.call('GET', '/board/live-runner', { query: { project: this.o.project ?? '', kind: 'live' }, timeoutMs: 10_000 })
-        .catch(() => null);
-      return r ?? { kind: 'live', host: c.chat.host };
+      // /alfred-live may hold the cycle's chat, or the chat of a board the cycle is on (a board's chat is kept under the
+      // board id, specs/027): asking only about this cycle's own chat let both answer every change on the board.
+      for (const scope of [this.o.cycleId, ...await this.boardsOfCycle()]) {
+        const c = await this.o.alfred.call('GET', '/board/cycle-chat', { query: { cycleId: scope, project: this.o.project ?? '' }, timeoutMs: 10_000 })
+          .catch(() => null);
+        if (!c?.chat?.kinds?.includes('live')) continue;
+        const r = await this.o.alfred.call('GET', '/board/live-runner', { query: { project: this.o.project ?? '', kind: 'live' }, timeoutMs: 10_000 })
+          .catch(() => null);
+        return r ?? { kind: 'live', host: c.chat.host };
+      }
+      return null;
     }
     const r = await this.o.alfred.call('GET', '/board/live-runner', { query: { project: this.o.project ?? '' }, timeoutMs: 10_000 }).catch(() => null);
     if (!r) return null;
@@ -1034,8 +1048,11 @@ export class Runner {
     this.stopped = true;
     for (const wake of [...(this.sleepers ?? [])]) wake();
     for (const h of this.handles) h.kill();
+    const waiting = this.waiting;
     this.waiting = [];
     if (abort) this.o.alfred.abort?.();
+    // calls made after abort() work: no "waiting its turn" row outlives the runner
+    for (const w of waiting) w.reporter.end({ steps: [], state: 'STOPPED', outcome: 'the runner stopped before its turn' }).catch(() => null);
   }
 
   /** Resolves once every answer in flight has ended (the tests, and the listen runner's stop). */
@@ -1172,14 +1189,20 @@ export class Runner {
   }
 
   /** Starts (or queues) the answer for one card: a card already being answered gets its new changes in a follow-up run. */
-  dispatch(changes) {
+  dispatch(changes, rowId = null) {
     const key = `${changes[0].project}\u0000${changes[0].number}`;
     const running = this.inFlight.get(key);
-    if (running) { running.queued.push(...changes); return; }
+    if (running) {
+      running.queued.push(...changes);
+      // its card's own run picks these up: the row that waited for them ends here, not never
+      if (rowId) new Reporter(this.o.alfred, { id: rowId, project: changes[0].project, cardNumber: changes[0].number, head: 'waiting its turn' })
+        .end({ steps: [], state: 'DONE', outcome: 'joined the run already working on this card' }).catch(() => null);
+      return;
+    }
     const limit = this.o.parallel ?? 3;
     if (this.inFlight.size >= limit) {
       // Visible and stoppable while it waits.
-      const id = randomUUID();
+      const id = rowId ?? randomUUID();
       const reporter = new Reporter(this.o.alfred, { id, project: changes[0].project, cardNumber: changes[0].number, head: 'waiting its turn' });
       reporter.report({ steps: [], state: 'WORKING' });
       this.waiting.push({ key, changes, reporter, id });
@@ -1189,7 +1212,7 @@ export class Runner {
     this.inFlight.set(key, entry);
     entry.promise = (async () => {
       try {
-        await this.answer(changes);
+        await this.answer(changes, 0, rowId);
         while (entry.queued.length && !this.stopped) {
           const next = entry.queued.splice(0);
           await this.answer(next);
@@ -1200,9 +1223,11 @@ export class Runner {
         this.inFlight.delete(key);
         const w = this.waiting.shift();
         if (w && !this.stopped) {
+          // the run takes over the waiting row (same id), so one row goes from "waiting its turn" to its end - ended
+          // only here, the waiting row stayed WORKING on the board for good
           w.reporter.ended = true;
           clearInterval(w.reporter.ticker);
-          this.dispatch(w.changes.length ? [...w.changes] : w.changes);
+          this.dispatch(w.changes.length ? [...w.changes] : w.changes, w.id);
         }
       }
     })();
@@ -1256,11 +1281,11 @@ export class Runner {
     return new Set(replies.filter((e) => questions.has(e.replyTo)).map((e) => e.id));
   }
 
-  async answer(changes, attempt = 0) {
+  async answer(changes, attempt = 0, rowId = null) {
     const first = changes[0];
     const label = `#${first.number}`;
     if (attempt === 0) for (const e of changes) this.o.log(`${label} "${first.title}"  ${youDid(e)}`);
-    const id = randomUUID();
+    const id = rowId ?? randomUUID();
     const started = Date.now();
     const reporter = new Reporter(this.o.alfred, { id, project: first.project, cardNumber: first.number, head: 'working on your change' },
       { every: this.o.reportEveryMs ?? 250, onError: (error) => this.o.log(`  (live-work report failed: ${error.message})`) });

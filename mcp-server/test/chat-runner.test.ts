@@ -214,6 +214,23 @@ test('a message handed to the terminal shows its progress from the transcript: q
   assert.equal(lane.pending.size, 0);
 });
 
+test('a message queued while the terminal was busy ends on its chat_reply even with no "received" event', () => {
+  const sent: any[] = [];
+  const reporter: any = { report: (b: any) => sent.push({ ...b }), end: async (b: any) => { sent.push({ ...b, ended: true }); } };
+  const lane = new chatLane.ChatLane({ o: { chatId: null, log: () => {}, chat: () => {} } });
+  lane.track({ key: 'm:8', marker: '✉ board chat #8', reporter,
+    done: (name: string, input: any) => /(^|__)chat_reply$/.test(name) && input.messageId === 8 });
+  const line = (o: any) => JSON.stringify(o);
+  lane.onTerminal(line({ type: 'queue-operation', operation: 'enqueue', content: '<event>✉ board chat #8: \\"hi\\"</event>' }));
+  assert.match(sent.at(-1).head, /queued in your terminal/);
+  lane.onTerminal(line({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Read', input: { file_path: 'x/B.java' } }] } }));
+  assert.equal(sent.at(-1).steps.length, 0, 'other work of the terminal is not its progress');
+  lane.onTerminal(line({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'mcp__alfred-docker__chat_reply', input: { messageId: 8 } }] } }));
+  assert.equal(sent.at(-1).ended, true);
+  assert.equal(sent.at(-1).outcome, 'answered by your terminal');
+  assert.equal(lane.pending.size, 0);
+});
+
 test('the ✉ line says urgent, and the runner tells Alfred the terminal answers the chat itself', async () => {
   const line = chatLane.chatLine({ messageId: 7, urgent: true, text: 'stop!' }, { project: 'p', scope: 'cy1' });
   assert.match(line, /^✉ board chat #7 ⚡: "stop!"/);

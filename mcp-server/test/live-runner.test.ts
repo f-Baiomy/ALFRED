@@ -223,6 +223,39 @@ test('two cards are answered at the same time; a third waits visibly for a slot'
   } finally { await close(); }
 });
 
+test('a card that waited for a slot keeps one row from "waiting its turn" to its end - no row stays WORKING', async () => {
+  const { w, runner, close } = await runnerWorld();
+  try {
+    w.fake.board.changes = { entries: [change({ id: 5, number: 1 }), change({ id: 6, number: 2, title: 'Second', cardId: 'card-2' }), change({ id: 7, number: 3, title: 'Third', cardId: 'card-3' })],
+      cycles: [], cursor: '7.1', more: false };
+    await runner.once('now');
+    await runner.idle();
+    for (let i = 0; i < 40 && runner.inFlight.size; i++) await new Promise((r) => setTimeout(r, 50));
+    await runner.idle();
+    const last = new Map<string, any>();
+    for (const r of w.fake.board.liveWork) last.set(r.id, r);
+    const waited = w.fake.board.liveWork.find((r) => r.head === 'waiting its turn');
+    assert.ok(waited, 'the third card waited');
+    assert.notEqual(last.get(waited.id).head, 'waiting its turn', 'its run took the same row over');
+    assert.deepEqual([...last.values()].filter((r) => r.state === 'WORKING'), [], 'every row ended');
+  } finally { await close(); }
+});
+
+test('a runner that stops ends the rows still waiting their turn', async () => {
+  const { w, runner, close } = await runnerWorld('slow');
+  try {
+    w.fake.board.changes = { entries: [change({ id: 5, number: 1 }), change({ id: 6, number: 2, title: 'Second', cardId: 'card-2' }), change({ id: 7, number: 3, title: 'Third', cardId: 'card-3' })],
+      cycles: [], cursor: '7.1', more: false };
+    await runner.once('now');
+    for (let i = 0; i < 100 && !w.fake.board.liveWork.some((r) => r.head === 'waiting its turn'); i++) await new Promise((r) => setTimeout(r, 50));
+    const waited = w.fake.board.liveWork.find((r) => r.head === 'waiting its turn');
+    runner.stop();
+    await runner.idle();
+    for (let i = 0; i < 40 && w.fake.board.liveWork.filter((r) => r.id === waited.id).at(-1).state === 'WORKING'; i++) await new Promise((r) => setTimeout(r, 50));
+    assert.equal(w.fake.board.liveWork.filter((r) => r.id === waited.id).at(-1).state, 'STOPPED');
+  } finally { await close(); }
+});
+
 test('▶ on the board: the runner claims the run for its chat and puts it in the chat - one line with the run id; nothing runs here', async () => {
   const { w, runner, lines, chat, promptFile, close } = await runnerWorld();
   try {
@@ -343,19 +376,25 @@ test('start runs the runner in the background on this machine; status sees it; s
 
 test('a chat running both /alfred-live and /alfred-listen for a cycle answers once: the listen lane stands down for the live runner', async () => {
   const calls: string[] = [];
-  const alfred = (kinds: string[]) => ({
+  const alfred = (kinds: string[], boardKinds: string[] = []) => ({
     call: async (_m: string, path: string, o: { query?: Record<string, string> }) => {
       calls.push(`${path}?${new URLSearchParams(o.query ?? {}).toString()}`);
-      if (path === '/board/cycle-chat') return { chat: { host: 'LAPTOP', kinds } };
-      if (path === '/board/live-runner') return o.query?.kind === 'live' && kinds.includes('live') ? { kind: 'live', host: 'LAPTOP' } : null;
+      if (path === '/board/cycle-chat') return { chat: { host: 'LAPTOP', kinds: o.query?.cycleId === 'board-1' ? boardKinds : kinds } };
+      if (path === '/board/live-runner') return o.query?.kind === 'live' && [...kinds, ...boardKinds].includes('live') ? { kind: 'live', host: 'LAPTOP' } : null;
+      if (path === '/board/boards') return [{ board: { id: 'board-1' }, cycleIds: ['decc'] }, { board: { id: 'other' }, cycleIds: ['x'] }];
       return null;
     },
   });
-  const owner = (kind: string, kinds: string[]) => live.Runner.prototype.anotherOwner.call({ o: { alfred: alfred(kinds), project: 'odeysys', cycleId: 'decc', chatId: 'chat-1', kind } });
+  const owner = (kind: string, kinds: string[], boardKinds: string[] = []) => live.Runner.prototype.anotherOwner.call(
+    Object.assign(Object.create(live.Runner.prototype), { o: { alfred: alfred(kinds, boardKinds), project: 'odeysys', cycleId: 'decc', chatId: 'chat-1', kind } }));
 
   assert.deepEqual(await owner('listen', ['live', 'listen']), { kind: 'live', host: 'LAPTOP' });
   assert.equal(await owner('listen', ['listen']), null, 'no live runner for the cycle: the lane answers');
   assert.equal(await owner('live', ['live', 'listen']), null, 'the live runner itself answers');
+  // /alfred-live started with the board's id holds the board's chat, not the cycle's: listen still stands down
+  assert.deepEqual(await owner('listen', ['listen'], ['live']), { kind: 'live', host: 'LAPTOP' });
+  assert.ok(calls.some((c) => c.startsWith('/board/cycle-chat?cycleId=board-1')));
+  assert.equal(calls.some((c) => c.startsWith('/board/cycle-chat?cycleId=other')), false, 'a board the cycle is not on is not asked');
   assert.ok(calls.some((c) => c.startsWith('/board/cycle-chat?cycleId=decc')));
 });
 
