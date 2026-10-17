@@ -19,7 +19,6 @@ export type RowAction = 'NEW_CARD' | 'LINK_CARD' | 'RELATED' | 'MAIN' | 'START';
       <div class="trt-head">
         <span>{{ r.total }} found{{ r.total > r.items.length ? ' · page ' + (r.page + 1) + ' of ' + pages(r) : '' }}</span>
         @if (!r.fullText) { <span class="trt-warn" title="This tracker has no full-text search (Search is off for the organisation)">titles only</span> }
-        <span class="trt-grow"></span>
         @if (r.page > 0) { <button type="button" class="action-btn" (click)="page.emit(r.page - 1)">‹ Prev</button> }
         @if (r.page + 1 < pages(r)) { <button type="button" class="action-btn" (click)="page.emit(r.page + 1)">Next ›</button> }
       </div>
@@ -35,7 +34,7 @@ export type RowAction = 'NEW_CARD' | 'LINK_CARD' | 'RELATED' | 'MAIN' | 'START';
               <td (click)="$event.stopPropagation()"><app-person-pill [person]="row.assigned" [conn]="state.picked()?.id ?? null" /></td>
               <td class="trt-dim">{{ last(row.iteration) }}</td>
               <td class="trt-dim" [title]="row.changedAt ?? ''">{{ ago(row.changedAt) }}</td>
-              <td class="trt-badges">
+              <td><div class="trt-badges">
                 @for (b of row.boards; track b.boardId) {
                   <span class="trt-badge" [class.main]="b.role === 'MAIN'" [class.changed]="b.changed"
                         [title]="(b.role === 'MAIN' ? 'Main item of ' : b.role === 'CARD' ? 'On a card of ' : 'Related item of ') + (b.name ?? b.boardId) + (b.changed ? ' - changed since the saved copy' : '')">
@@ -43,7 +42,7 @@ export type RowAction = 'NEW_CARD' | 'LINK_CARD' | 'RELATED' | 'MAIN' | 'START';
                   </span>
                 }
                 @if (row.cards.length) { <span class="trt-badge">▣ {{ row.cards.length }} card{{ row.cards.length > 1 ? 's' : '' }}</span> }
-              </td>
+              </div></td>
               <td class="trt-add" (click)="$event.stopPropagation()">
                 <button type="button" class="action-btn" (click)="toggle(row.id)" aria-haspopup="menu" [attr.aria-expanded]="menu() === row.id">Add ▾</button>
                 @if (menu() === row.id) {
@@ -65,8 +64,7 @@ export type RowAction = 'NEW_CARD' | 'LINK_CARD' | 'RELATED' | 'MAIN' | 'START';
     }`,
   styles: [`
     .trt-head { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; font-size: .82rem; color: var(--text-dim); margin: .3rem 0; }
-    .trt-grow { flex: 1; }
-    .trt-warn { padding: 0 .4rem; border-radius: 4px; border: 1px solid var(--amber); color: var(--amber); font-size: .72rem; }
+        .trt-warn { padding: 0 .4rem; border-radius: 4px; border: 1px solid var(--amber); color: var(--amber); font-size: .72rem; }
     .trt { width: 100%; border-collapse: collapse; font-size: .82rem; }
     .trt th, .trt td { padding: .32rem .45rem; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
     .trt th { color: var(--text-dim); font-weight: 500; font-size: .74rem; }
@@ -80,7 +78,10 @@ export type RowAction = 'NEW_CARD' | 'LINK_CARD' | 'RELATED' | 'MAIN' | 'START';
     .trt-state[data-cat='InProgress'] { color: var(--blue, #60a5fa); }
     .trt-state[data-cat='Resolved'] { color: var(--green); }
     .trt-state[data-cat='Completed'], .trt-state[data-cat='Removed'] { color: var(--text-faint); }
-    .trt-badges { display: flex; flex-wrap: wrap; gap: .2rem; }
+    .trt-badges { display: flex; flex-wrap: wrap; gap: .2rem; } /* a div inside the td: a flex td stops being a table cell */
+    .trt td { vertical-align: middle; }
+    .trt-add { white-space: nowrap; text-align: right; }
+    .trt-add .action-btn { padding: .15rem .5rem; font-size: .76rem; }
     .trt-badge { padding: 0 .35rem; border-radius: 4px; border: 1px solid var(--border-strong); font-size: .72rem; white-space: nowrap; }
     .trt-badge.main { border-color: var(--purple-light); }
     .trt-badge.changed { color: var(--amber); }

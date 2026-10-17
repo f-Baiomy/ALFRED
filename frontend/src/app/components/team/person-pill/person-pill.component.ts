@@ -25,13 +25,13 @@ import { PersonCard, TeamPerson } from '../../../core/team/team.models';
           </span>
         }
       </span>
-    } @else { <span class="pp pp-none">-</span> }`,
+    } @else { <span class="pp-none">Unassigned</span> }`,
   styles: [`
     :host { display: inline-block; }
     .pp { position: relative; display: inline-flex; align-items: center; gap: .3rem; padding: 0 .45rem 0 .1rem; border-radius: 999px;
       background: var(--card-inner); border: 1px solid var(--border); font-size: .78rem; white-space: nowrap; cursor: default; }
     .pp.me { border-color: var(--purple-light); }
-    .pp-none { padding: 0 .4rem; color: var(--text-faint); }
+    .pp-none { font-size: .76rem; color: var(--text-faint); }
     .pp-av { display: inline-grid; place-items: center; width: 1.2rem; height: 1.2rem; border-radius: 50%; background: var(--purple-dim, #4b3b77);
       color: #fff; font-size: .6rem; font-weight: 600; }
     .pp-me { margin-left: .2rem; padding: 0 .3rem; border-radius: 4px; background: var(--purple-light); color: #fff; font-size: .62rem; }

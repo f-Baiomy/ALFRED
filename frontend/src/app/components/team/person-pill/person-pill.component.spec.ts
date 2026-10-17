@@ -50,6 +50,6 @@ describe('PersonPillComponent (specs/028 FR-085)', () => {
 
   it('a missing person is a dash', () => {
     const { el } = setUp({});
-    expect(el.textContent?.trim()).toBe('-');
+    expect(el.textContent?.trim()).toBe('Unassigned');
   });
 });

@@ -95,10 +95,17 @@ export const CURRENT = '@current';
     .tsf-main { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
     .tsf-text { flex: 1 1 280px; padding: .35rem .55rem; border: 1px solid var(--border-strong); border-radius: 7px; background: var(--card-inner); color: inherit; }
     .tsf-check { font-size: .82rem; display: inline-flex; gap: .25rem; align-items: center; }
-    .tsf-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: .5rem .8rem; margin-top: .5rem; padding: .6rem;
-      border: 1px solid var(--border); border-radius: 8px; }
-    .tsf-grid label { display: grid; gap: .2rem; font-size: .76rem; color: var(--text-dim); }
-    .tsf-grid select, .tsf-grid input { padding: .25rem .4rem; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--card-inner); color: var(--text); }
+    .tsf-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: .5rem .8rem; align-items: start; margin-top: .5rem;
+      padding: .6rem; border: 1px solid var(--border); border-radius: 8px; }
+    /* a label never stretches its control to the row's height (the multi-selects make the row tall), and a long option
+       (an iteration path, a person's name) never pushes the control past its column */
+    .tsf-grid label { display: grid; gap: .2rem; align-content: start; min-width: 0; font-size: .76rem; color: var(--text-dim); }
+    .tsf-grid select, .tsf-grid input { box-sizing: border-box; width: 100%; min-width: 0; height: auto; margin: 0; padding: .3rem .45rem;
+      border: 1px solid var(--border-strong); border-radius: 6px; background: var(--card-inner); color: var(--text); font: inherit;
+      font-size: .82rem; line-height: 1.3; text-overflow: ellipsis; }
+    .tsf-grid select:not([multiple]) { height: 2rem; }
+    .tsf-grid select[multiple] { padding: .2rem; }
+    .tsf-grid select[multiple] option { padding: .1rem .3rem; border-radius: 4px; }
   `],
 })
 export class TeamSearchFormComponent {
