@@ -76,6 +76,20 @@ export class BoardApiService {
     return relate ? this.http.put<Board>(url, {}) : this.http.delete<Board>(url);
   }
 
+  /** A card's owner (specs/028 FR-089): "<conn>/<person id>", or null. */
+  cardOwner(cardId: string): Observable<{ owner: string | null }> {
+    return this.http.get<{ owner: string | null }>(`${this.base}/cards/${encodeURIComponent(cardId)}/owner`);
+  }
+
+  setCardOwner(cardId: string, owner: string | null): Observable<unknown> {
+    return this.http.put(`${this.base}/cards/${encodeURIComponent(cardId)}/owner`, { owner });
+  }
+
+  /** The owners of many cards at once (at most 200 ids). */
+  cardOwners(ids: readonly string[]): Observable<Record<string, string>> {
+    return this.http.get<Record<string, string>>(`${this.base}/owners`, { params: { ids: ids.slice(0, 200).join(',') } });
+  }
+
   boardsOfCycle(cycleId: string): Observable<BoardSummary[]> {
     return this.http.get<BoardSummary[]>(`${this.base}/cycles/${encodeURIComponent(cycleId)}/boards`);
   }

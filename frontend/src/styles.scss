@@ -12656,6 +12656,8 @@ html.chat-fullscreen .board-drawer { z-index: 940; }
 .cd-clamp { max-height: 18rem; overflow: hidden; -webkit-mask-image: linear-gradient(#000 70%, transparent); mask-image: linear-gradient(#000 70%, transparent); }
 .cd-attached { display: flex; flex-direction: column; gap: 0.4rem; }
 .cd-links { display: flex; flex-direction: column; gap: 0.4rem; padding-bottom: 0.6rem; }
+// "Also post to <item>" under a card's comment box (specs/028 FR-080).
+.cd-also { display: inline-flex; gap: 0.3rem; align-items: center; font-size: 0.76rem; color: var(--text-dim); margin-top: 0.25rem; }
 .cd-lh { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.4rem;
   h5 { margin: 0; font-size: 0.74rem; font-weight: 650; }
 }

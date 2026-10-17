@@ -74,9 +74,9 @@
 - [X] T028 [P] [US2] Azure `TreeReader` in `AZ/AzureTree.java`: descendants by WIQL `WorkItemLinks MODE (Recursive)`, ancestors by Hierarchy-Reverse walk, one hop of other links from relations, refs fields-only; cap → ASK; fixtures
 - [X] T029 [US2] `BoardItemsService` in `CORE`: add item (first → MAIN), add by URL, make main (re-root, copy new main, demote old unless CARD), unlink (MAIN needs a replacement), siblings listed; `BoardItemsController` (`/boards/{board}/items`, `/main`)
 - [X] T030 [US2] `ItemSyncService`: sync main + CARD items in full, diff field by field (`ItemDiff`), `item_syncs`, update refs, mark new descendants and LEFT_TREE, offer new ones to Incoming, ≤ 1/min on open, `keep`; `ItemCopyGc`
-- [ ] T031 [US2] Tests: `BoardItemsServiceTest` (one main, re-root, demotion, 200 cap), `ItemSyncServiceTest` (diff kinds, new/left tree, keep), `ItemDiffTest`
+- [X] T031 [US2] Tests: `BoardItemsServiceTest` (one main, re-root, demotion, 200 cap), `ItemSyncServiceTest` (diff kinds, new/left tree, keep), `ItemDiffTest`
 - [X] T032 [US2] Start → main: `StartService` makes the started item the board's main through `BoardItemsService`; `SeedBuilder` reads the main's copy; 027 `team_link` maps to "add as main"
-- [ ] T033 [US2] Task tab seed and re-seed offer from the main (brief, Acceptance items, children as steps) via the bridge into `backend-board`'s brief/requirements use cases; change in Azure → offer with before/after (FR-039)
+- [X] T033 [US2] Task tab seed and re-seed offer from the main (brief, Acceptance items, children as steps) via the bridge into `backend-board`'s brief/requirements use cases; change in Azure → offer with before/after (FR-039)
 - [X] T034 [P] [US2] Frontend `FE/components/team/related-items/` as the board's last tab: main strip + picker, Tree / By type, Kept column (full copy / reference), live drawer on click, Add by id/URL, Find in Team, Refresh all, Changed since last look; `item-diff` component for the sync diff and history
 - [X] T035 [P] [US2] `FE/shared/utils/tree-layout.ts` (+ spec) and `item-diff.ts` (+ spec)
 
@@ -91,7 +91,7 @@
 - [X] T038 [US3] `IncomingService` + `IncomingController`: entries from TREE/RULE/HOOK/HAND/MCP once per board, close match, Claude proposals, New card (type → kind map, Features/Epics refused), Link, Ignore until a new rev
 - [X] T039 [US3] Tests: `CardLinksServiceTest`, `IncomingServiceTest` (match first, proposal waits, ignore/re-open, kind map)
 - [X] T040 [US3] Azure close/reopen of a linked item → card badge + move proposal (through the board's existing proposal mechanism) on sync
-- [ ] T041 [P] [US3] Frontend card: "Linked in Azure" strip, pill opens the saved copy, Azure comments in activity ("from Azure"), Closed-in-Azure badge + proposal, Link another / Create in Azure dialogs in `FE/components/board/`
+- [X] T041 [P] [US3] Frontend card: "Linked in Azure" strip, pill opens the saved copy, Azure comments in activity ("from Azure"), Closed-in-Azure badge + proposal, Link another / Create in Azure dialogs in `FE/components/board/`
 - [X] T042 [P] [US3] Frontend Incoming lane in the board view (`FE/components/team/incoming-lane/`): entries, "Looks like #n", Claude's proposal with Accept, New card / Link to card… picker (close matches first, other boards) / Ignore
 - [X] T043 [P] [US3] Search row Add ▾ menu: New card on board…, Link to card…, Related items only, Start board (FR-060)
 
@@ -104,9 +104,9 @@
 - [X] T044 [US4] `AzureWritesService` + `AzureWritesController` (`/writes` create/extend/list/edit/files/approve/reject): steps in order, per-step results, PARTIAL, waits with no token, `approve` refuses Claude, files deleted on end
 - [X] T045 [US4] `AzureWritesServiceTest`: nothing written before approve (SC-004), ticks honoured, order, partial failure, Claude refused, "via Alfred" footer + link when the public address is set
 - [X] T046 [US4] Tell Azure on Verified/Done: board status change → bridge → prepared bundle per linked item (state from the item's process, evidence summary, attachment request)
-- [ ] T047 [P] [US4] Frontend consent bundle card `FE/components/team/consent-bundle/` (steps with ticks, edit, preview, size, "send unmasked" per file, Approve n steps, results); built exports with redactions (`export-file-io.ts` + redaction rules) uploaded to `/writes/{id}/files`
-- [ ] T048 [P] [US4] "Also post to Azure" on the user's card comment (direct action); cleanup proposal on unlink / close as Not in this flow
-- [ ] T049 [P] [US4] Redaction test: a call with an Authorization header exported for Azure is masked unless "send unmasked" is ticked (SC-007) in `FE/core/team/azure-export.spec.ts`
+- [X] T047 [P] [US4] Frontend consent bundle card `FE/components/team/consent-bundle/` (steps with ticks, edit, preview, size, "send unmasked" per file, Approve n steps, results); built exports with redactions (`export-file-io.ts` + redaction rules) uploaded to `/writes/{id}/files`
+- [X] T048 [P] [US4] "Also post to Azure" on the user's card comment (direct action); cleanup proposal on unlink / close as Not in this flow
+- [X] T049 [P] [US4] Redaction test: a call with an Authorization header exported for Azure is masked unless "send unmasked" is ticked (SC-007) in `FE/core/team/azure-export.spec.ts`
 
 **Checkpoint**: quickstart 9 passes.
 
@@ -128,8 +128,8 @@
 
 - [X] T055 [US6] `PeopleService`: person card (teams, projects, live assigned count, board counts via `BoardMineCountsPort`), me = vault owner, `me_override` (cleared when the owner changes), `/people/{id}`, `/me`, `/mine` (eight sources: WIQL @Me/uniqueName for assigned/created/changed, `@RecentMentions`, `@Follows`; board side through the bridge)
 - [X] T056 [US6] `backend-board`: `MentionType.PERSON` in `MentionParser` and indexing; `cards.owner` column, DTO, edit rule (Claude only on its own Inbox cards), export/import field; `board_search mine` (owned, mentioned, boards whose items are mine via port) + tests in `BOARD_T`
-- [ ] T057 [P] [US6] Frontend `person-pill` + `person-card` (reusing `MentionChip`), `@` picker for people in the board editors and chat, owner on cards, "Mine" chip with the eight counts, "This is me"
-- [ ] T058 [P] [US6] Specs: `person-pill.component.spec.ts`, `FE/shared/utils/mine-merge.ts` (+ spec)
+- [X] T057 [P] [US6] Frontend `person-pill` + `person-card` (reusing `MentionChip`), `@` picker for people in the board editors and chat, owner on cards, "Mine" chip with the eight counts, "This is me"
+- [X] T058 [P] [US6] Specs: `person-pill.component.spec.ts`, `FE/shared/utils/mine-merge.ts` (+ spec)
 
 **Checkpoint**: quickstart 12 passes.
 

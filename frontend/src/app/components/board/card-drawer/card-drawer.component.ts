@@ -38,6 +38,10 @@ import { BoardPagesComponent } from '../visuals/board-pages.component';
 import { BoardFilesComponent } from '../visuals/board-files.component';
 import { BoardPinnedComponent } from '../visuals/board-pinned.component';
 import { QuickAnswerComponent } from '../quick-answer/quick-answer.component';
+import { TeamCardItemsComponent } from '../../team/card-items/card-items.component';
+import { TeamCardOwnerComponent } from '../../team/card-owner/card-owner.component';
+import { TeamApiService } from '../../../core/team/team-api.service';
+import { CardItem } from '../../../core/team/team.models';
 
 export type CardTab = 'activity' | 'details' | 'links' | 'retest';
 /** The card before and after this one in its column (the drawer's ‹ › and [ ]). */
@@ -83,7 +87,7 @@ function writeJson(key: string, value: unknown): void {
 @Component({
   selector: 'app-card-drawer',
   standalone: true,
-  imports: [CardHomeComponent, BoardPagesComponent, BoardFilesComponent, BoardPinnedComponent, NgTemplateOutlet, SelectPickerComponent, ActivityTimelineComponent, CardRetestComponent, LiveWorkBoxComponent, MarkdownViewComponent, MentionChipComponent, RefTextComponent, MentionEditorComponent, MentionPickerComponent, RunSkillComponent, RunHistoryComponent, QuickAnswerComponent],
+  imports: [TeamCardItemsComponent, TeamCardOwnerComponent, CardHomeComponent, BoardPagesComponent, BoardFilesComponent, BoardPinnedComponent, NgTemplateOutlet, SelectPickerComponent, ActivityTimelineComponent, CardRetestComponent, LiveWorkBoxComponent, MarkdownViewComponent, MentionChipComponent, RefTextComponent, MentionEditorComponent, MentionPickerComponent, RunSkillComponent, RunHistoryComponent, QuickAnswerComponent],
   template: `
     <ng-template #modeSwitch>
       <div class="board-seg board-drawer-modes cd-modes" role="group" aria-label="Show the card as">
@@ -189,6 +193,7 @@ function writeJson(key: string, value: unknown): void {
                 <app-select-picker class="board-team-add" [options]="teamOptions()" value="" placeholder="+ team" ariaLabel="Add a team"
                                    (valueChange)="addTeam($event)" />
               }
+              <app-team-card-owner [cardId]="c.id" [editable]="editable()" />
             </div>
             <div class="cd-journey" aria-label="Where the card is">
               @for (j of journey(); track j.status; let first = $first) {
@@ -242,6 +247,11 @@ function writeJson(key: string, value: unknown): void {
             <app-mention-editor #composer [value]="draft()" (valueChange)="draft.set($event)" [project]="c.project" [cycleId]="c.cycleId" [compact]="true" [rows]="1"
                                 placeholder="Write a comment… @ to mention, / for blocks" [contextMentions]="c.links" [card]="pickTarget()" pickField="comment"
                                 [attach]="{ card: c.id }" [draftKey]="'comment:' + c.id" (submitted)="comment($event)" />
+            @if (teamItems().length && editable()) {
+              <label class="cd-also" title="Your own comment - posted to each linked item at once, with the via Alfred footer">
+                <input type="checkbox" [checked]="alsoTracker()" (change)="alsoTracker.set($any($event.target).checked)" />
+                Also post to {{ teamItems().length === 1 ? teamItems()[0].item : teamItems().length + ' linked items' }}</label>
+            }
           </div>
         }
         @if (error()) { <div class="board-error">{{ error() }}</div> }
@@ -407,6 +417,8 @@ function writeJson(key: string, value: unknown): void {
 
         <ng-template #linksPart>
           <div class="cd-links">
+            <app-team-card-items [cardId]="c.id" [cardTitle]="c.title" [cardDescription]="c.description" [editable]="editable()"
+                                 (linked)="teamItems.set($event)" />
             <div class="cd-lh"><h5>Linked <span class="board-dim">from mentions</span></h5>
               @if (editable()) { <button type="button" class="board-link" (click)="linking.set(!linking())">+ link</button> }</div>
             @if (linking()) {
@@ -455,6 +467,10 @@ function writeJson(key: string, value: unknown): void {
 })
 export class CardDrawerComponent {
   private readonly api = inject(BoardApiService);
+  private readonly teamApi = inject(TeamApiService);
+  /** The card's linked work items (from "Linked in …") and whether a comment also goes to them. */
+  readonly teamItems = signal<CardItem[]>([]);
+  readonly alsoTracker = signal(false);
   private readonly confirm = inject(ConfirmDialogService);
   private readonly mentions = inject(BoardMentionsService);
 
@@ -1184,9 +1200,19 @@ export class CardDrawerComponent {
       next: () => {
         this.draft.set('');
         this.load(c.id);
+        if (this.alsoTracker()) this.postToTracker(c.id, c.cycleId, text);
       },
       error: (e) => this.error.set(messageOf(e)),
     });
+  }
+
+  /** "Also post to …" (specs/028 FR-080): the user's own comment, sent to each linked work item now. */
+  private postToTracker(cardId: string, boardId: string | null, text: string): void {
+    for (const i of this.teamItems()) {
+      this.teamApi.direct(i.conn, i.item, { comment: text, card: cardId, board: boardId }).subscribe({
+        error: (e) => this.error.set(e?.error?.message || `Could not post to ${i.item}`),
+      });
+    }
   }
 
   /** A reply (or an answer to Claude's question) written under a comment in the history. */

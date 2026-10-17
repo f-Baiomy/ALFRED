@@ -162,7 +162,8 @@ describe('TaskViewComponent (specs/024)', () => {
     const f = render();
     const el: HTMLElement = f.nativeElement;
     expect(Array.from(el.querySelectorAll('.tv-tab')).map((t) => [t.firstChild?.textContent?.trim(), t.querySelector('.tv-n')?.textContent ?? '']))
-      .toEqual([['Requirements', '3 open'], ['Test plan', '1 / 2'], ['Brief', '💬 1'], ["Claude's runs", '2'], ['Spec & files', '1']]);
+      .toEqual([['Requirements', '3 open'], ['Test plan', '1 / 2'], ['Brief', '💬 1'], ["Claude's runs", '2'], ['Spec & files', '1'],
+        ['Cycles', ''], ['Related items', '']]);
     expect(el.querySelector('.tv-guide')?.textContent).toContain('Each row is one Acceptance line');
     (el.querySelector('.tv-info-btn') as HTMLButtonElement).click();
     f.detectChanges();

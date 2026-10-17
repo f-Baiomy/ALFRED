@@ -11,8 +11,9 @@ import { CallFinderComponent, FoundCall } from '../../call-finder/call-finder.co
 import { callOf, slug } from '../../../shared/utils/mention-syntax';
 import { acLabel, callMeaning, cardLabel, cycleCallLabel, shortOf } from '../../../shared/utils/readable-refs';
 import { BoardMentionsService } from '../../../core/services/board-mentions.service';
+import { TeamStateService } from '../../../core/team/team-state.service';
 
-type Tab = 'call' | 'stmt' | 'log' | 'redis' | 'spec' | 'code' | 'other';
+type Tab = 'call' | 'stmt' | 'log' | 'redis' | 'spec' | 'code' | 'person' | 'other';
 
 interface Option {
   readonly ref: MentionRef;
@@ -26,6 +27,7 @@ const TABS: readonly { readonly id: Tab; readonly label: string }[] = [
   { id: 'redis', label: `${MENTION_ICONS.redis} Redis` },
   { id: 'spec', label: `${MENTION_ICONS.spec} Spec files` },
   { id: 'code', label: `${MENTION_ICONS.code} Code` },
+  { id: 'person', label: `${MENTION_ICONS.person} People` },
   { id: 'other', label: `${MENTION_ICONS.cycle} Cards · cycle calls · cycles · spacers · rules` },
 ];
 
@@ -99,6 +101,7 @@ export class MentionPickerComponent {
   readonly picked = output<MentionRef>();
   readonly closed = output<void>();
 
+  private readonly team = inject(TeamStateService);
   readonly tabs = TABS;
   readonly tab = signal<Tab>('call');
   readonly query = signal('');
@@ -187,6 +190,15 @@ export class MentionPickerComponent {
   private loadOptions(tab: Tab, callRef: string | null): void {
     this.options.set([]);
     if (tab === 'call' || tab === 'code') return;
+    if (tab === 'person') {
+      // specs/028 FR-086: the tracker's people, from the lists Alfred keeps - a person is named, never a raw id
+      const conn = this.team.picked()?.id;
+      const people = this.team.lists()?.people ?? [];
+      this.options.set(conn ? people.filter((p) => p.extId).map((p) => ({ ref: { type: 'person' as MentionType, ref: `${conn}/${p.extId}`,
+        label: p.name }, detail: p.email ?? '' })) : []);
+      if (!this.team.loaded()) this.team.load();
+      return;
+    }
     const call = callRef ? callOf({ type: 'call', ref: callRef, label: '' }) : null;
     if ((tab === 'stmt' || tab === 'log' || tab === 'redis') && !call) return;
     this.loading.set(true);
