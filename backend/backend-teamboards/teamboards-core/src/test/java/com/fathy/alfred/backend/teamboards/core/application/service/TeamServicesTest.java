@@ -24,6 +24,7 @@ import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.WriteSta
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.WriteStep;
 import com.fathy.alfred.backend.teamboards.spi.model.Comment;
 import com.fathy.alfred.backend.teamboards.spi.model.Token;
+import com.fathy.alfred.backend.teamboards.core.application.port.in.StartFromItemUseCase;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -437,6 +438,42 @@ class TeamServicesTest {
         assertThatThrownBy(() -> f.writes.approve(Who.USER, b.id())).isInstanceOf(TeamException.class);
         assertThat(f.tracker.writes).isEmpty();
         assertThatThrownBy(() -> f.writes.putFile(Who.CLAUDE, b.id(), 0, "calls.html", "x".getBytes())).isInstanceOf(TeamException.class);
+    }
+
+    /** A board made from a work item: named, its first cycle, the item its main; a taken name or Claude unasked makes nothing. */
+    @Test
+    void aNewBoardFromAnItemMakesTheItemItsMain() {
+        f.withToken();
+        var r = f.starts.newBoard(Who.USER, CONN, "101", new StartFromItemUseCase.NewBoardIn("odeysys", "  #101_Refund   a card ", true, null, false, false, null));
+        assertThat(r.boardId()).isEqualTo("nb1");
+        assertThat(r.name()).isEqualTo("#101_Refund a card");
+        assertThat(r.main()).isTrue();
+        assertThat(r.cycle()).isEqualTo("NEW");
+        assertThat(f.boards.made).containsExactly("nb1 #101_Refund a card NEW");
+        assertThat(f.cache.main("nb1")).get().extracting(BoardItemRow::item).isEqualTo("101");
+
+        assertThatThrownBy(() -> f.starts.newBoard(Who.USER, CONN, "101", new StartFromItemUseCase.NewBoardIn("odeysys", "#101_REFUND A CARD", true,
+                "RECORD", false, false, null))).extracting(e -> ((TeamException) e).code()).isEqualTo(Code.CONFLICT);
+        assertThatThrownBy(() -> f.starts.newBoard(Who.CLAUDE, CONN, "101", new StartFromItemUseCase.NewBoardIn("odeysys", "Other", true, null, false,
+                false, null))).extracting(e -> ((TeamException) e).code()).isEqualTo(Code.USER_ONLY);
+        assertThatThrownBy(() -> f.starts.newBoard(Who.USER, CONN, "101", new StartFromItemUseCase.NewBoardIn("nowhere", "Other", true, null, false,
+                false, null))).extracting(e -> ((TeamException) e).code()).isEqualTo(Code.INVALID);
+        assertThatThrownBy(() -> f.starts.newBoard(Who.USER, CONN, "101", new StartFromItemUseCase.NewBoardIn("odeysys", "Other", true, "SOMETIMES",
+                false, false, null))).extracting(e -> ((TeamException) e).code()).isEqualTo(Code.INVALID);
+        assertThat(f.boards.made).hasSize(1);
+
+        // the item is nb1's main already: a second board gets it as a related item, and says so
+        var second = f.starts.newBoard(Who.USER, CONN, "101", new StartFromItemUseCase.NewBoardIn("odeysys", "Second look", true, "NONE", false, false,
+                null));
+        assertThat(second.main()).isFalse();
+        assertThat(second.note()).contains("main item of another board");
+        assertThat(f.cache.main("nb2")).isEmpty();
+        assertThat(f.cache.boardItems("nb2")).extracting(BoardItemRow::item).containsExactly("101");
+        assertThat(f.cache.main("nb1")).get().extracting(BoardItemRow::item).isEqualTo("101");
+
+        // no name: "#id_title"
+        var third = f.starts.newBoard(Who.USER, CONN, "102", new StartFromItemUseCase.NewBoardIn("odeysys", " ", true, "NONE", false, false, null));
+        assertThat(third.name()).startsWith("#102_");
     }
 
     /** Claude never changes a board's main - not through add(asMain), not through team_link onto another board. */

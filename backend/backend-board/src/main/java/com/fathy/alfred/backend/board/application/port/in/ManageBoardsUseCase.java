@@ -18,11 +18,17 @@ public interface ManageBoardsUseCase {
 
     /**
      * A new board: in {@code project}, related to {@code cycleIds} and to {@code relateTo}; {@code startRecording} makes a
-     * first recording cycle. {@code askedIn} is required from Claude (FR-040): a user chat message id, or "terminal".
+     * first recording cycle; {@code emptyCycle} (without it) a first cycle that does not record yet (specs/029: a board made
+     * from a work item). {@code askedIn} is required from Claude (FR-040): a user chat message id, or "terminal".
      */
-    record NewBoard(String project, String name, List<String> cycleIds, String relateTo, boolean startRecording, String askedIn) {
+    record NewBoard(String project, String name, List<String> cycleIds, String relateTo, boolean startRecording, String askedIn,
+                    boolean emptyCycle) {
         public NewBoard {
             cycleIds = cycleIds == null ? List.of() : List.copyOf(cycleIds);
+        }
+
+        public NewBoard(String project, String name, List<String> cycleIds, String relateTo, boolean startRecording, String askedIn) {
+            this(project, name, cycleIds, relateTo, startRecording, askedIn, false);
         }
     }
 

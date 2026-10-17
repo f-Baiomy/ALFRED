@@ -3,7 +3,7 @@ import { TeamStateService } from '../../../core/team/team-state.service';
 import { SearchResult, SearchRow, ShowMode, closedCategory } from '../../../core/team/team.models';
 import { PersonPillComponent } from '../person-pill/person-pill.component';
 
-export type RowAction = 'NEW_CARD' | 'LINK_CARD' | 'RELATED' | 'MAIN' | 'START';
+export type RowAction = 'NEW_CARD' | 'LINK_CARD' | 'RELATED' | 'MAIN' | 'START' | 'NEW_BOARD';
 
 /** One table line: a match or a parent / child shown for context, at its depth in the tree. */
 export interface TreeLine {
@@ -174,6 +174,7 @@ export function treeLines(r: SearchResult, folded: ReadonlySet<string>): TreeLin
                 <button type="button" class="action-btn" (click)="toggle(row.id)" aria-haspopup="menu" [attr.aria-expanded]="menu() === row.id">Add ▾</button>
                 @if (menu() === row.id) {
                   <span class="trt-pop" role="menu">
+                    <button type="button" role="menuitem" (click)="act('NEW_BOARD', row)">＋ New board from this item…</button>
                     <button type="button" role="menuitem" (click)="act('NEW_CARD', row)">New card on board…</button>
                     <button type="button" role="menuitem" (click)="act('LINK_CARD', row)">Link to card…</button>
                     <button type="button" role="menuitem" (click)="act('RELATED', row)">Related items only…</button>

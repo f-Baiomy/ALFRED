@@ -158,6 +158,15 @@ start per item; a waiting `/alfred-setup <conn>/<id>` message is posted as the u
 the board's **main**, so the seed (`GET /teamboards/items/{conn}/{id}/seed`, from the copy or live) and the changes
 come from it.
 
+**New board from this item** (specs/029; Add to board ▾ in the item drawer, Add ▾ in the results; `POST
+/teamboards/items/{conn}/{id}/board`; MCP `team_new_board`, which needs `askedIn` like `team_start`) makes the board at
+once, with no Claude and nothing written to the tracker: the name defaults to `#<id>_<title>` cut at a word to 120
+characters (a name an open board of the project already has is a 409), the item becomes its main with its tree as
+related items (or a related item, with a note, when it is another board's main already), and its first cycle is
+`NEW` (made, then paused before it joins the board, so it records nothing), `RECORD` (records now; the project's
+running recording pauses) or `NONE`. The item is read live first, so an unknown item makes nothing, and a failure to
+link it deletes the board just made. ▶ Start stays the way to have Claude set a board up.
+
 ## Export and import
 
 A board's JSON export carries its tracker side (`GET /teamboards/boards/{board}/export`): `team-item` (with full

@@ -6,6 +6,7 @@ import { TeamStateService } from '../../../core/team/team-state.service';
 import { BoardBadge, TeamItemView, TeamRevision } from '../../../core/team/team.models';
 import { PersonPillComponent } from '../person-pill/person-pill.component';
 import { TeamStartButtonComponent } from '../start-button/start-button.component';
+import { TeamNewBoardDialogComponent } from '../new-board/new-board-dialog.component';
 import { RowAction } from '../results-table/results-table.component';
 
 /**
@@ -16,7 +17,7 @@ import { RowAction } from '../results-table/results-table.component';
 @Component({
   selector: 'app-team-item-drawer',
   standalone: true,
-  imports: [NgComponentOutlet, FormsModule, PersonPillComponent, TeamStartButtonComponent],
+  imports: [NgComponentOutlet, FormsModule, PersonPillComponent, TeamStartButtonComponent, TeamNewBoardDialogComponent],
   template: `
     <div class="tid-backdrop" (click)="closed.emit()"></div>
     <aside class="tid" role="dialog" aria-modal="true" [attr.aria-label]="view()?.item?.title ?? itemId()">
@@ -47,9 +48,22 @@ import { RowAction } from '../results-table/results-table.component';
           <span class="tid-acts">
             <button type="button" class="action-btn" (click)="action.emit('NEW_CARD')">+ Card</button>
             <button type="button" class="action-btn" (click)="action.emit('LINK_CARD')">Link to card</button>
-            <button type="button" class="action-btn" (click)="action.emit('RELATED')">Add to board</button>
+            <span class="tid-menu">
+              <button type="button" class="action-btn" (click)="addMenu.set(!addMenu())" aria-haspopup="menu" [attr.aria-expanded]="addMenu()">Add to board ▾</button>
+              @if (addMenu()) {
+                <span class="tid-pop" role="menu">
+                  <button type="button" role="menuitem" (click)="addMenu.set(false); newBoard.set(true)">＋ New board from this item…
+                    <span class="tid-sub">Named #{{ v.item.extId }}_…, this item its main, with a new cycle</span></button>
+                  <button type="button" role="menuitem" (click)="addMenu.set(false); action.emit('RELATED')">Related item of a board…</button>
+                </span>
+              }
+            </span>
             <button type="button" class="action-btn" (click)="action.emit('MAIN')">Make main of…</button>
             <app-team-start-button [item]="v.item" [conn]="conn()" [linkedBoard]="mainBoard()" (changed)="reload()" />
+            @if (newBoard()) {
+              <app-team-new-board-dialog [conn]="conn()" [extId]="v.item.extId" [title]="v.item.title" [squad]="v.item.squad"
+                                         (changed)="boardMade = true" (closed)="newBoardClosed()" />
+            }
           </span>
         </div>
 
@@ -115,6 +129,12 @@ import { RowAction } from '../results-table/results-table.component';
       }
     </aside>`,
   styles: [`
+    .tid-menu { position: relative; display: inline-flex; }
+    .tid-pop { position: absolute; z-index: 60; right: 0; top: 110%; display: grid; min-width: 260px; padding: .25rem;
+      background: var(--popover-solid); border: 1px solid var(--border-strong); border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,.35); }
+    .tid-pop button { border: 0; background: none; color: inherit; text-align: left; padding: .4rem .55rem; cursor: pointer; border-radius: 5px; font: inherit; font-size: .84rem; }
+    .tid-pop button:hover { background: rgba(139,92,246,.15); }
+    .tid-sub { display: block; font-size: .72rem; color: var(--text-dim); }
     .tid-backdrop { position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,.35); }
     .tid { position: fixed; z-index: 51; top: 0; right: 0; bottom: 0; width: min(680px, 100vw); overflow: auto; padding: 1rem;
       background: var(--popover-solid); border-left: 1px solid var(--border-strong); }
@@ -148,7 +168,7 @@ import { RowAction } from '../results-table/results-table.component';
     .tid-dim { color: var(--text-dim); }
     .tid-empty { color: var(--text-faint); font-size: .82rem; margin: .4rem 0; }
   `],
-  host: { '(document:keydown.escape)': 'closed.emit()' },
+  host: { '(document:keydown.escape)': 'escape()' },
 })
 export class TeamItemDrawerComponent {
   readonly state = inject(TeamStateService);
@@ -219,6 +239,28 @@ export class TeamItemDrawerComponent {
       next: (v) => this.isCurrent(conn, id) && this.view.set(v),
       error: (e) => this.isCurrent(conn, id) && this.error.set(e?.error?.message || `Could not read ${id}`),
     });
+  }
+
+  /** Add to board ▾ and the new-board dialog. */
+  readonly addMenu = signal(false);
+  readonly newBoard = signal(false);
+
+  /** A board was made while the dialog was open: the drawer reloads once it closes (a reload now would remake the dialog). */
+  boardMade = false;
+
+  newBoardClosed(): void {
+    this.newBoard.set(false);
+    if (this.boardMade) {
+      this.boardMade = false;
+      this.reload();
+    }
+  }
+
+  /** Escape closes the menu or the dialog (the dialog's own), else the drawer. */
+  escape(): void {
+    if (this.newBoard()) return;
+    if (this.addMenu()) return this.addMenu.set(false);
+    this.closed.emit();
   }
 
   reload(): void {

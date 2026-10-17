@@ -524,6 +524,38 @@ export interface StartAnswer {
 }
 
 /** A start waiting for /alfred-setup: where it was posted. */
+/** A board made from a work item now (specs/029): no Claude, nothing written to the tracker. */
+export interface NewBoardBody {
+  readonly project: string;
+  readonly name: string;
+  readonly main: boolean;
+  readonly cycle: 'NEW' | 'RECORD' | 'NONE';
+  readonly attachments: boolean;
+  readonly remember: boolean;
+}
+
+export interface NewBoardResult {
+  readonly boardId: string;
+  readonly project: string;
+  readonly name: string;
+  readonly main: boolean;
+  readonly cycle: 'NEW' | 'RECORD' | 'NONE';
+  readonly files: { readonly attached: readonly string[]; readonly notAttached: readonly string[] } | null;
+  readonly note: string | null;
+}
+
+/** A board's longest name. */
+export const MAX_BOARD_NAME = 120;
+
+/** The default name of a board made from an item: "#<id>_<title>", cut at a word to fit. */
+export function boardNameFor(id: string, title: string): string {
+  const full = `#${id}_${(title ?? '').trim().replace(/\s+/g, ' ')}`;
+  if (full.length <= MAX_BOARD_NAME) return full;
+  const cut = full.slice(0, MAX_BOARD_NAME - 1);
+  const space = cut.lastIndexOf(' ');
+  return (space > id.length + 2 ? cut.slice(0, space) : cut).trimEnd() + '…';
+}
+
 export interface StartWaiting {
   readonly project: string | null;
   readonly boardId: string | null;

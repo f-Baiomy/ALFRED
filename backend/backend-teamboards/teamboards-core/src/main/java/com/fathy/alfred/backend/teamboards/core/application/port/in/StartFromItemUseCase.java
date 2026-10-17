@@ -61,6 +61,20 @@ public interface StartFromItemUseCase {
         return link(boardId, conn, extId);
     }
 
+    /**
+     * A board made from a work item now, without Claude (specs/029): {@code name} (default "#id_title"), in {@code project};
+     * the item its main ({@code main}, else a related item - also when it is another board's main already); a first cycle
+     * NONE / NEW / RECORD; its attachments fetched to the board; the project remembered for the item's team or area.
+     */
+    record NewBoardIn(String project, String name, boolean main, String cycle, boolean attachments, boolean remember, String askedIn) {
+    }
+
+    /** What was made: the board, whether the item is its main, its first cycle, the files attached. */
+    record NewBoardResult(String boardId, String project, String name, boolean main, String cycle, LinkResult files, String note) {
+    }
+
+    NewBoardResult newBoard(com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.Who who, String conn, String extId, NewBoardIn in);
+
     /** Downloads the main item's attachments the board does not hold yet (vault token). */
     LinkResult fetchAttachments(String boardId);
 }

@@ -5,7 +5,7 @@ import { AppConfigService } from '../services/app-config.service';
 import { reconnectingSocket } from '../state/reconnecting-socket';
 import {
   BoardItemsView, CardItem, ConnectorInfo, HookInfo, IncomingRow, MainSummary, MappingKind, Markers, MineView, PersonCard, SearchResult,
-  SeedTarget, SavedSearch, StartAnswer, StartWaiting, StartTarget, SyncRow, TeamConnection, TeamFieldMap, TeamItemView, TeamLists, TeamMapping, TeamMe, TeamPerson,
+  NewBoardBody, NewBoardResult, SeedTarget, SavedSearch, StartAnswer, StartWaiting, StartTarget, SyncRow, TeamConnection, TeamFieldMap, TeamItemView, TeamLists, TeamMapping, TeamMe, TeamPerson,
   TeamScope, TeamSearch, TeamSocketEvent, TeamSprint, TeamSquad, TeamBoard, TokenStatus, TypeKind, WatchRule, WriteBundle, WriteStep,
 } from './team.models';
 
@@ -339,6 +339,16 @@ export class TeamApiService {
   /** The user's Start: 202 WAITING, 409 NEEDS_TARGET / ALREADY_STARTED. The live token also fetches the attachments. */
   start(conn: string, extId: string, target: StartTarget | null): Observable<StartAnswer> {
     return this.http.post<StartAnswer>(`${this.base}/items/${e(conn)}/${e(extId)}/start`, { target });
+  }
+
+  /** A board made from the item now (201): the board, its first cycle and the main link together. */
+  newBoardFromItem(conn: string, extId: string, body: NewBoardBody): Observable<NewBoardResult> {
+    return this.http.post<NewBoardResult>(`${this.base}/items/${e(conn)}/${e(extId)}/board`, body);
+  }
+
+  /** The Alfred project a mapping names for the item (204: none). */
+  itemTarget(conn: string, extId: string): Observable<{ project: string | null; boardId: string | null } | null> {
+    return this.http.get<{ project: string | null; boardId: string | null } | null>(`${this.base}/items/${e(conn)}/${e(extId)}/target`);
   }
 
   // ------------------------------------------------------------------------------------------ saved searches (029)

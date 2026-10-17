@@ -6,6 +6,7 @@ import { MineView, SavedSearch, SearchResult, SearchRow, ShowMode, TeamSearch, s
 import { ConnectionSwitcherComponent } from '../../components/team/connection-switcher/connection-switcher.component';
 import { TeamSearchFormComponent } from '../../components/team/search-form/search-form.component';
 import { RowAction, TeamResultsTableComponent } from '../../components/team/results-table/results-table.component';
+import { TeamNewBoardDialogComponent } from '../../components/team/new-board/new-board-dialog.component';
 import { TeamItemDrawerComponent } from '../../components/team/item-drawer/item-drawer.component';
 import { TeamBoardsSprintsComponent } from '../../components/team/boards-sprints/boards-sprints.component';
 import { TeamSquadsComponent } from '../../components/team/squads/squads.component';
@@ -27,7 +28,7 @@ function remembered(): { show: ShowMode; depth: number } {
   return { show: 'ITEMS', depth: 1 };
 }
 
-const PICKER: Record<Exclude<RowAction, 'START'>, { title: string; action: string; card: boolean }> = {
+const PICKER: Record<Exclude<RowAction, 'START' | 'NEW_BOARD'>, { title: string; action: string; card: boolean }> = {
   NEW_CARD: { title: 'New card on which board?', action: 'Create card', card: false },
   LINK_CARD: { title: 'Link to which card?', action: 'Link', card: true },
   RELATED: { title: 'Add as a related item of which board?', action: 'Add', card: false },
@@ -41,7 +42,7 @@ const PICKER: Record<Exclude<RowAction, 'START'>, { title: string; action: strin
 @Component({
   selector: 'app-team-page',
   standalone: true,
-  imports: [ConnectionSwitcherComponent, TeamSearchFormComponent, TeamResultsTableComponent, TeamItemDrawerComponent, TeamBoardsSprintsComponent,
+  imports: [ConnectionSwitcherComponent, TeamNewBoardDialogComponent, TeamSearchFormComponent, TeamResultsTableComponent, TeamItemDrawerComponent, TeamBoardsSprintsComponent,
     TeamSquadsComponent, TeamBoardPickerComponent, TeamSavedSearchesComponent],
   template: `
     <div class="team-page">
@@ -66,7 +67,7 @@ const PICKER: Record<Exclude<RowAction, 'START'>, { title: string; action: strin
             @if (searchError()) { <div class="team-err" role="alert">{{ searchError() }}</div> }
             <app-team-results-table [result]="result()" [loading]="skeleton()" [openOnly]="last()?.openOnly ?? true" [show]="showMode()" [childDepth]="childDepth()"
                                     (showChange)="setShow($event)" (depthChange)="setDepth($event)" (opened)="open($event.id)" (page)="page($event)"
-                                    (action)="act($event.action, $event.row.id)" />
+                                    (action)="act($event.action, $event.row.id, $event.row.title)" />
           }
           @case ('mine') {
             @if (mine(); as m) {
@@ -90,6 +91,9 @@ const PICKER: Record<Exclude<RowAction, 'START'>, { title: string; action: strin
         }
         @if (opened(); as id) {
           <app-team-item-drawer [conn]="c.id" [itemId]="id" (closed)="opened.set(null)" (openOther)="open($event)" (action)="act($event, id)" />
+        }
+        @if (newBoardFor(); as nb) {
+          <app-team-new-board-dialog [conn]="c.id" [extId]="nb.id" [title]="nb.title" (changed)="reloadResult()" (closed)="newBoardFor.set(null)" />
         }
         @if (picking(); as p) {
           <app-team-board-picker [title]="p.title" [action]="p.action" [card]="p.card" (picked)="placed($event)" (closed)="picking.set(null)" />
@@ -149,6 +153,8 @@ export class TeamPageComponent {
   readonly note = signal<string | null>(null);
   readonly noteErr = signal(false);
   private asked = 0;
+  /** The item a new board is being made from (Add ▾ → New board from this item…). */
+  readonly newBoardFor = signal<{ id: string; title: string } | null>(null);
   readonly picking = signal<{ title: string; action: string; card: boolean; what: RowAction; item: string } | null>(null);
 
   readonly views = computed(() => {
@@ -331,7 +337,11 @@ export class TeamPageComponent {
       CARDS_OWNED: 'Cards I own', CARDS_MENTIONING: 'Cards mentioning me', BOARDS: 'Boards of my items' } as Record<string, string>)[s] ?? s;
   }
 
-  act(what: RowAction, item: string): void {
+  act(what: RowAction, item: string, title = ''): void {
+    if (what === 'NEW_BOARD') {
+      this.newBoardFor.set({ id: item, title });
+      return;
+    }
     if (what === 'START') {
       this.open(item);
       return;
@@ -377,7 +387,7 @@ export class TeamPageComponent {
   }
 
   /** Badges changed: the page again. */
-  private reloadResult(): void {
+  reloadResult(): void {
     const s = this.last();
     if (s && this.result()) this.run({ ...s, page: this.result()!.page });
   }

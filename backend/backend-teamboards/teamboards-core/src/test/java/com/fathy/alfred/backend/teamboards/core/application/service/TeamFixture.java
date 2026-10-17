@@ -214,6 +214,32 @@ final class TeamFixture {
             return true;
         }
 
+        final Map<String, String> boardNames = new LinkedHashMap<>();
+        final List<String> made = new ArrayList<>();
+        final List<String> deleted = new ArrayList<>();
+
+        @Override
+        public MadeBoard createBoard(String project, String name, FirstCycle cycle, boolean asClaude, String askedIn) {
+            String id = "nb" + (made.size() + 1);
+            boardProject.put(id, project);
+            boardNames.put(id, name);
+            made.add(id + " " + name + " " + cycle + (asClaude ? " claude" : ""));
+            return new MadeBoard(id, null);
+        }
+
+        @Override
+        public void deleteBoard(String boardId) {
+            deleted.add(boardId);
+            boardProject.remove(boardId);
+            boardNames.remove(boardId);
+        }
+
+        @Override
+        public Optional<String> boardNamed(String project, String name) {
+            return boardNames.entrySet().stream().filter(e -> project.equals(boardProject.get(e.getKey())) && e.getValue().equalsIgnoreCase(name))
+                    .map(Map.Entry::getKey).findFirst();
+        }
+
         @Override
         public boolean proposeReopen(String cardId, String reason) {
             proposals.add(cardId + " REOPEN " + reason);

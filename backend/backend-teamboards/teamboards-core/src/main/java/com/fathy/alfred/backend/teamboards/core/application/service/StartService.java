@@ -259,6 +259,104 @@ public class StartService implements StartFromItemUseCase {
     }
 
     @Override
+    public NewBoardResult newBoard(com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.Who who, String conn, String extId, NewBoardIn in) {
+        TeamBoardsPort port = boards.getIfAvailable();
+        BoardItemsUseCase bi = boardItems.getIfAvailable();
+        if (port == null || bi == null) {
+            throw new TeamException(TeamException.Code.NOT_SUPPORTED, "Boards are not available here");
+        }
+        boolean claude = who == com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.Who.CLAUDE;
+        if (claude && !askedByUser(in.askedIn())) {
+            throw TeamException.userOnly("Only the user opens a board: askedIn must name the chat message (or \"terminal\") where the user asked");
+        }
+        String project = in.project() == null ? "" : in.project().strip();
+        if (project.isEmpty() || project.length() > 200 || !port.projectExists(project)) {
+            throw TeamException.invalid(project.isEmpty() ? "Pick the Alfred project the board goes to" : "Alfred has no project " + project);
+        }
+        TeamBoardsPort.FirstCycle cycle;
+        try {
+            cycle = in.cycle() == null || in.cycle().isBlank() ? TeamBoardsPort.FirstCycle.NEW
+                    : TeamBoardsPort.FirstCycle.valueOf(in.cycle().strip().toUpperCase(java.util.Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            throw TeamException.invalid("First cycle is NONE, NEW or RECORD");
+        }
+        Ctx c = live.ctx(conn);
+        Item s = live.item(c, extId); // read before anything is made: an unknown item makes nothing
+        String name = in.name() == null || in.name().isBlank() ? defaultBoardName(s) : in.name().strip().replaceAll("\\s+", " ");
+        if (name.length() > MAX_BOARD_NAME) {
+            throw TeamException.invalid("A board's name is 1 to " + MAX_BOARD_NAME + " characters");
+        }
+        Optional<String> same = port.boardNamed(project, name);
+        if (same.isPresent()) {
+            throw new TeamException(TeamException.Code.CONFLICT, "A board in " + project + " is already called that (" + same.get() + ") - open it, or change the name");
+        }
+        Optional<String> mainOf = cache.boardsOfItem(conn, s.extId()).stream().filter(r -> "MAIN".equals(r.role())).map(BoardItemRow::boardId)
+                .findFirst();
+        boolean asMain = in.main() && mainOf.isEmpty();
+        if (in.remember()) {
+            MappingKind kind = rememberAs(s);
+            cache.putMapping(conn, kind, valueFor(kind, conn, s), project, null);
+            signals.changed(conn, "mappings");
+        }
+        TeamBoardsPort.MadeBoard made = port.createBoard(project, name, cycle, claude, in.askedIn());
+        if (made.boardId() == null) {
+            throw TeamException.invalid(made.why() == null ? "The board could not be made" : made.why());
+        }
+        String board = made.boardId();
+        LinkResult files;
+        try {
+            if (in.attachments()) {
+                fetchPending(c, s);
+            }
+            if (asMain) {
+                files = link(board, conn, s.extId());
+            } else {
+                // a related item, not the main: add() would make the first item of an empty board its main
+                cache.putBoardItem(new BoardItemRow(board, conn, s.extId(), "REF", "ADDED", null, null, 0, s.type(), s.title(), s.state(),
+                        live.category(conn, s.type(), s.state()), s.rev(), null, clock.instant(), who == null ? "user" : who.name().toLowerCase()));
+                signals.board(board, conn, "items", java.util.Map.of());
+                files = in.attachments() ? fetchAttachmentsFor(board, conn, s.extId()) : new LinkResult(List.of(), List.of());
+            }
+        } catch (RuntimeException e) {
+            port.deleteBoard(board); // the item could not join it: no half-made board is left behind
+            cache.takePending(conn, s.extId());
+            throw e;
+        }
+        String note = in.main() && !asMain ? "AB#" + s.extId() + " is the main item of another board already, so it is a related item here" : null;
+        return new NewBoardResult(board, project, name, asMain, cycle.name(), files, note);
+    }
+
+    /** The files fetched for an item that joins a board as a related item (no main link moves them). */
+    private LinkResult fetchAttachmentsFor(String boardId, String conn, String extId) {
+        TeamBoardsPort port = boards.getIfAvailable();
+        List<String> attached = new ArrayList<>();
+        List<String> not = new ArrayList<>();
+        for (PendingFile f : cache.takePending(conn, extId)) {
+            String why = port == null ? "no boards here" : port.attach(boardId, f.name(), f.data());
+            if (why == null) {
+                attached.add(f.name());
+            } else {
+                not.add(f.name() + ": " + why);
+            }
+        }
+        return new LinkResult(attached, not);
+    }
+
+    /** "#id_title", cut at a word to the board slice's limit - the name the dialog suggests. */
+    static String defaultBoardName(Item s) {
+        String full = "#" + s.extId() + "_" + (s.title() == null ? "" : s.title().strip().replaceAll("\\s+", " "));
+        if (full.length() <= MAX_BOARD_NAME) {
+            return full;
+        }
+        String cut = full.substring(0, MAX_BOARD_NAME - 1);
+        int space = cut.lastIndexOf(' ');
+        return (space > s.extId().length() + 2 ? cut.substring(0, space) : cut).stripTrailing() + "…";
+    }
+
+    /** The board slice's limit on a board's name. */
+    static final int MAX_BOARD_NAME = 120;
+
+    @Override
     public Optional<Waiting> waiting(String conn, String extId) {
         return cache.start(conn, extId).filter(r -> WAITING.equals(r.state())).map(r -> {
             String[] t = r.target() == null ? new String[0] : r.target().split("\\|", -1);

@@ -53,7 +53,7 @@ public class BoardsController {
 
     record NewBoardDto(@NotBlank @Size(max = 200) String project, @NotBlank @Size(max = Board.MAX_NAME) String name,
                        @Size(max = 100) List<@Size(max = 200) String> cycleIds, @Size(max = 200) String relateTo, boolean startRecording,
-                       @Size(max = 40) String askedIn) {
+                       @Size(max = 40) String askedIn, boolean emptyCycle) {
     }
 
     record UpdateBoardDto(@Size(max = Board.MAX_NAME) String name, String state) {
@@ -85,7 +85,7 @@ public class BoardsController {
     @PostMapping("/board/boards")
     public ResponseEntity<?> create(@RequestHeader(value = ACTOR, required = false) String actor, @Valid @RequestBody NewBoardDto body) {
         Result r = boards.create(BoardWeb.actor(actor), new NewBoard(body.project().strip(), body.name(), body.cycleIds(), body.relateTo(),
-                body.startRecording(), body.askedIn()));
+                body.startRecording(), body.askedIn(), body.emptyCycle()));
         return respond(r, HttpStatus.CREATED);
     }
 

@@ -70,6 +70,17 @@ class BoardsServiceTest {
         assertThat(f.boards.list("odeysys", Set.of(), null, 50)).extracting(s -> s.board().name()).containsExactly("odeysys", "Login lockout");
     }
 
+    /** specs/029: a board made from a work item gets a first cycle that does not record until the user says so. */
+    @Test
+    void anEmptyFirstCycleIsMadeButNotRecording() {
+        f.recordingHere.add("c-running");
+        f.cyclesHere.add("c-running");
+        Result r = f.boards.create(Actor.USER, new NewBoard("odeysys", "#59851_Baggage", List.of(), null, false, null, true));
+        String cycle = f.boards.cyclesOf(r.board().id()).get(0);
+        assertThat(f.cycleNames.get(cycle)).isEqualTo("#59851_Baggage");
+        assertThat(f.recordingHere).containsExactly("c-running"); // its own cycle is paused, the running one untouched
+    }
+
     @Test
     void defaultBoardIsProtected() {
         String def = f.boards.defaultBoard("odeysys").id();

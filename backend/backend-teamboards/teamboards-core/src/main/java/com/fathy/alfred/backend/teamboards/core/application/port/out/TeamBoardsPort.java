@@ -33,6 +33,27 @@ public interface TeamBoardsPort {
      */
     Optional<Long> postStart(String project, String boardId, String text);
 
+    /** A first cycle for a new board: none, one not recording yet, or one recording now (pausing the project's running one). */
+    enum FirstCycle { NONE, NEW, RECORD }
+
+    /** A board made from a work item: its id, or the board's reason in {@code why}. */
+    record MadeBoard(String boardId, String why) {
+    }
+
+    /** Opens a board in {@code project} (as the user, or as Claude with {@code askedIn}). */
+    default MadeBoard createBoard(String project, String name, FirstCycle cycle, boolean asClaude, String askedIn) {
+        return new MadeBoard(null, "Boards are not available here");
+    }
+
+    /** Removes a board just made (its main link failed): nothing is left half made. */
+    default void deleteBoard(String boardId) {
+    }
+
+    /** An open board of the project with exactly this name (any case), if there is one. */
+    default Optional<String> boardNamed(String project, String name) {
+        return Optional.empty();
+    }
+
     /** Withdraws a waiting start's message (the user cancelled it before anyone took it). False when it was taken already. */
     boolean withdrawStart(long messageId);
 

@@ -176,6 +176,13 @@ public class BoardsService implements ManageBoardsUseCase, RelateCycleUseCase, M
                 boards.relateCycle(board.id(), cycleId, actor, now);
                 log(board.id(), actor, Kind.RELATE_CYCLE, "started its first recording", null);
             });
+        } else if (in.emptyCycle()) {
+            // a cycle is made recording: paused before it belongs to the board, so it never records the project's calls
+            cyclePort().create(name).ifPresent(cycleId -> {
+                cyclePort().pause(cycleId);
+                boards.relateCycle(board.id(), cycleId, actor, now);
+                log(board.id(), actor, Kind.RELATE_CYCLE, "made its first cycle (not recording)", null);
+            });
         }
         changed(board.project(), board.id());
         return new Result(BoardOutcome.OK, board, null);

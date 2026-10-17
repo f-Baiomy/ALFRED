@@ -31,6 +31,8 @@ TOKEN_MISSING, tell the user to enter it in the Team tab and stop.
   `asMain` only when the board has no main yet (changing a main is the user's). Not asked in words → the same tool without `askedIn`: a proposal
   the user approves on the board.
 - "Start a board for AB#…" → `team_start` with `askedIn` (rules: only the user opens a board).
+- "Make a board for AB#… now" (no setup by Claude) → `team_new_board` with `askedIn` and the project (ask for it when
+  no mapping names one); it names the board `#<id>_<title>` and makes a first cycle that does not record.
 - "Link it to card #n" → `team_link_card` (with `askedIn` when asked in words). The tracker markers (link back,
   comment, tag) always wait as a bundle.
 - A watch rule ("tell me when new refund bugs come in") → describe the search and ask the user to add it under the

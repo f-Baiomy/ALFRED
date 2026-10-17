@@ -52,6 +52,10 @@ function team(opts: { token?: boolean; conns?: unknown[] } = {}) {
       return body.target ? [202, { state: 'WAITING', project: body.target.project, boardId: null, messageId: 41 }]
         : [409, { error: 'NEEDS_TARGET', message: 'Pick the Alfred project' }];
     }
+    if (method === 'POST' && p[1] === 'items' && p[4] === 'board') {
+      return [201, { boardId: 'nb1', project: body.project, name: body.name ?? '#' + p[3] + '_Refund a card', main: body.main, cycle: body.cycle,
+        files: { attached: [], notAttached: [] }, note: null, askedIn: body.askedIn }];
+    }
     if (method === 'PUT' && p[1] === 'links') return [200, { attached: ['trace.txt'], notAttached: ['huge.zip (over the size limit)'] }];
     return undefined;
   };
@@ -213,6 +217,20 @@ test('team_start needs askedIn and asks for a target when unmapped; team_link re
     w.fake.team = team({ conns: [CONN, { ...CONN, id: 'c2', name: 'Other' }] });
     const several = await w.call('team_search', {});
     assert.match(several.text, /Several connections - pass conn: c1 \(Contoso\), c2 \(Other\)/);
+  } finally { await w.close(); }
+});
+
+test('team_new_board needs askedIn and a project, defaults the name and a cycle that does not record', async () => {
+  const w = await world();
+  try {
+    w.fake.team = team();
+    const refused = await w.call('team_new_board', { id: 'AB#1234', project: 'odeysys' });
+    assert.ok(refused.isError, 'askedIn is required');
+    const made = await w.call('team_new_board', { id: 'AB#1234', askedIn: 'm12', project: 'odeysys' });
+    assert.equal(made.json.board, 'nb1');
+    assert.equal(made.json.name, '#1234_Refund a card');
+    assert.equal(made.json.cycle, 'NEW');
+    assert.equal(made.json.main, true);
   } finally { await w.close(); }
 });
 

@@ -684,6 +684,34 @@ export function register(server: McpServer, client: AlfredClient): void {
       ...(r.notAttached.length ? { note: 'List the files not attached in the brief by name; the user fetches them with "Fetch attachments".' } : {}) });
   }));
 
+  server.registerTool('team_new_board', {
+    description: 'Make an Alfred board from a work item now - the same as Add to board > New board from this item - ONLY when the user asked '
+      + 'for it (askedIn: the id of that chat message, or "terminal"). Unlike team_start nothing is posted: the board is made at once, named '
+      + '"#<id>_<title>" unless you pass name, the item its main (with its parent and children as related items) and a first cycle that does '
+      + 'not record (cycle NEW; RECORD starts recording into it, NONE makes none). Ask the user for the project when you do not know it. '
+      + 'Nothing is written to the tracker.',
+    inputSchema: {
+      id: Id,
+      conn: Conn,
+      askedIn: z.string().min(1).max(40),
+      project: z.string().min(1).max(200),
+      name: z.string().max(120).optional().describe('Default "#<id>_<title>"'),
+      main: z.boolean().default(true).describe('The item as the main of the board (a related item when it is the main of another board already)'),
+      cycle: z.enum(['NEW', 'RECORD', 'NONE']).default('NEW'),
+      attachments: z.boolean().default(false).describe('Fetch the attachments of the item to the board'),
+      remember: z.boolean().default(false).describe('Save project as the mapping for the squad (or area) of the item'),
+    },
+  }, (input) => run(async () => {
+    const ref = itemRef(input.id);
+    const c = await pickConnection(client, input.conn ?? ref.conn);
+    const r = await client.post<{ boardId: string; project: string; name: string; main: boolean; cycle: string;
+      files: { attached: string[]; notAttached: string[] } | null; note: string | null }>(
+      `/teamboards/items/${seg(c.id)}/${seg(ref.id)}/board`, { body: { project: input.project, name: input.name ?? null, main: input.main,
+        cycle: input.cycle, attachments: input.attachments, remember: input.remember, askedIn: input.askedIn }, ...AS_CLAUDE });
+    return ok({ board: r.boardId, project: r.project, name: r.name, main: r.main, cycle: r.cycle,
+      attached: r.files?.attached ?? [], notAttached: r.files?.notAttached ?? [], ...(r.note ? { note: r.note } : {}) });
+  }));
+
   server.registerTool('team_start', {
     description: 'Start a board from a work item - the same as the Start button - ONLY when the user asked for it (in a board chat or '
       + 'this terminal); askedIn is the id of that chat message or "terminal". It posts /alfred-setup for the item in the chat of the mapped board. '

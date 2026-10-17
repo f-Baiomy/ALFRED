@@ -88,6 +88,19 @@ public class TeamStartController {
         };
     }
 
+    record NewBoardDto(@Size(max = 200) String project, @Size(max = 400) String name, Boolean main, @Size(max = 10) String cycle, boolean attachments,
+                       boolean remember, @Size(max = 40) String askedIn) {
+    }
+
+    /** A board made from the item now (specs/029): the board, a first cycle and the main link together. */
+    @PostMapping("/teamboards/items/{conn}/{extId}/board")
+    public ResponseEntity<?> newBoard(@PathVariable String conn, @PathVariable String extId, @Valid @RequestBody NewBoardDto body,
+                                      @RequestHeader(value = TeamboardsController.ACTOR_HEADER, required = false) String actor) {
+        var r = starts.newBoard(Who.of(actor), conn, extId, new StartFromItemUseCase.NewBoardIn(body.project(), body.name(),
+                body.main() == null || body.main(), body.cycle(), body.attachments(), body.remember(), body.askedIn()));
+        return ResponseEntity.status(HttpStatus.CREATED).body(r);
+    }
+
     /** The start waiting for this item (204: none). */
     @GetMapping("/teamboards/items/{conn}/{extId}/start")
     public ResponseEntity<?> waiting(@PathVariable String conn, @PathVariable String extId) {

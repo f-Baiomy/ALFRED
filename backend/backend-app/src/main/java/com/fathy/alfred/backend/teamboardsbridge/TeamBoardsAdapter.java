@@ -120,6 +120,26 @@ public class TeamBoardsAdapter implements TeamBoardsPort {
     }
 
     @Override
+    public MadeBoard createBoard(String project, String name, FirstCycle cycle, boolean asClaude, String askedIn) {
+        ManageBoardsUseCase.Result r = boards.create(asClaude ? Actor.CLAUDE : Actor.USER, new ManageBoardsUseCase.NewBoard(project, name, List.of(),
+                null, cycle == FirstCycle.RECORD, askedIn, cycle == FirstCycle.NEW));
+        return r.board() == null ? new MadeBoard(null, r.message()) : new MadeBoard(r.board().id(), null);
+    }
+
+    @Override
+    public void deleteBoard(String boardId) {
+        boards.delete(Actor.USER, boardId);
+    }
+
+    @Override
+    public Optional<String> boardNamed(String project, String name) {
+        String key = name.strip().toLowerCase(Locale.ROOT);
+        return boards.list(project, EnumSet.of(BoardState.OPEN), null, ManageBoardsUseCase.MAX_LIMIT).stream()
+                .filter(s -> project.equals(s.board().project()) && !s.board().isDefault() && s.board().name().strip().toLowerCase(Locale.ROOT).equals(key))
+                .map(s -> s.board().id()).findFirst();
+    }
+
+    @Override
     public Optional<Long> postStart(String project, String boardId, String text) {
         if (boardId != null && !projectOf(boardId).map(project::equals).orElse(false)) {
             return Optional.empty();
