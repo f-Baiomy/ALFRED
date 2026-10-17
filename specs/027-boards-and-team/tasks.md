@@ -270,8 +270,8 @@ Aliases used in task paths (all relative to the repo root):
   - `docs/architecture.md`: the teamboards family and its ArchUnit rules;
   - `docs/mcp.md`: the new tools;
   - `CLAUDE.md` and `AGENTS.md`: the new slice and its rules.
-- [ ] T085 Run the full suites once: `cd backend && mvn test` (Docker JDK 21), `cd frontend && npm test && npm run build`, and the skills test; fix failures
-- [ ] T086 Walk through quickstart.md §2–§5 on a scratch install with a copy of real data and a read-only Azure PAT; record measurements for SC-002, SC-005, SC-006, SC-006a and the plan's card-list target (< 300 ms for one board at 5,000 cards, own + related)
+- [X] T085 Run the full suites once: `cd backend && mvn test` (Docker JDK 21), `cd frontend && npm test && npm run build`, and the skills test; fix failures
+- [ ] T086 Walk through quickstart.md §2–§5 on a scratch install with a copy of real data and a read-only Azure PAT; record measurements for SC-002, SC-005, SC-006, SC-006a and the plan's card-list target (< 300 ms for one board at 5,000 cards, own + related) *(open: needs the owner's read-only Azure PAT and a copy of real data. Measured in tests so far: 20,000 cached items listed and searched under 1 s (`SqliteTeamCacheRepositoryTest`); the rest waits for the walkthrough)*
 
 ---
 
