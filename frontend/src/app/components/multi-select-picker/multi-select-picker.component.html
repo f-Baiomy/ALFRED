@@ -5,7 +5,7 @@
       <span class="multi-picker-empty">{{ emptyLabel() }}</span>
     } @else if (compact()) {
       <span class="multi-picker-sum">{{ labelOf(values()[0]) }}{{ values().length > 1 ? ' +' + (values().length - 1) : '' }}</span>
-      <span class="multi-picker-count">{{ values().length }}</span>
+      @if (values().length > 1) { <span class="multi-picker-count">{{ values().length }}</span> }
     } @else {
       @for (value of values(); track value) {
         <span class="multi-chip">{{ labelOf(value) }}</span>

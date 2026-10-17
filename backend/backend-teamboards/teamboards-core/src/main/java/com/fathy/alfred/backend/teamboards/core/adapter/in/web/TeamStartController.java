@@ -88,6 +88,12 @@ public class TeamStartController {
         };
     }
 
+    /** The start waiting for this item (204: none). */
+    @GetMapping("/teamboards/items/{conn}/{extId}/start")
+    public ResponseEntity<?> waiting(@PathVariable String conn, @PathVariable String extId) {
+        return starts.waiting(conn, extId).<ResponseEntity<?>>map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.noContent().build());
+    }
+
     @GetMapping("/teamboards/items/{conn}/{extId}/target")
     public ResponseEntity<?> target(@PathVariable String conn, @PathVariable String extId) {
         Target t = starts.targetOf(conn, extId);

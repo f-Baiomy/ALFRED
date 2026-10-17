@@ -259,6 +259,14 @@ public class StartService implements StartFromItemUseCase {
     }
 
     @Override
+    public Optional<Waiting> waiting(String conn, String extId) {
+        return cache.start(conn, extId).filter(r -> WAITING.equals(r.state())).map(r -> {
+            String[] t = r.target() == null ? new String[0] : r.target().split("\\|", -1);
+            return new Waiting(t.length > 0 && !t[0].isEmpty() ? t[0] : null, t.length > 1 && !t[1].isEmpty() ? t[1] : null, r.chatMessageId(), r.at());
+        });
+    }
+
+    @Override
     public boolean isWaiting(String conn, String extId) {
         return cache.start(conn, extId).filter(r -> WAITING.equals(r.state())).isPresent();
     }

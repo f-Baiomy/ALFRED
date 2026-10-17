@@ -5,7 +5,7 @@ import { AppConfigService } from '../services/app-config.service';
 import { reconnectingSocket } from '../state/reconnecting-socket';
 import {
   BoardItemsView, CardItem, ConnectorInfo, HookInfo, IncomingRow, MainSummary, MappingKind, Markers, MineView, PersonCard, SearchResult,
-  SeedTarget, StartAnswer, StartTarget, SyncRow, TeamConnection, TeamFieldMap, TeamItemView, TeamLists, TeamMapping, TeamMe, TeamPerson,
+  SeedTarget, StartAnswer, StartWaiting, StartTarget, SyncRow, TeamConnection, TeamFieldMap, TeamItemView, TeamLists, TeamMapping, TeamMe, TeamPerson,
   TeamScope, TeamSearch, TeamSocketEvent, TeamSprint, TeamSquad, TeamBoard, TokenStatus, TypeKind, WatchRule, WriteBundle, WriteStep,
 } from './team.models';
 
@@ -339,6 +339,11 @@ export class TeamApiService {
   /** The user's Start: 202 WAITING, 409 NEEDS_TARGET / ALREADY_STARTED. The live token also fetches the attachments. */
   start(conn: string, extId: string, target: StartTarget | null): Observable<StartAnswer> {
     return this.http.post<StartAnswer>(`${this.base}/items/${e(conn)}/${e(extId)}/start`, { target });
+  }
+
+  /** The start waiting for this item, or null (204). */
+  waitingStart(conn: string, extId: string): Observable<StartWaiting | null> {
+    return this.http.get<StartWaiting | null>(`${this.base}/items/${e(conn)}/${e(extId)}/start`);
   }
 
   cancelStart(conn: string, extId: string): Observable<void> {

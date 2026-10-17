@@ -353,7 +353,13 @@ class TeamServicesTest {
                 "b1", false));
         assertThat(started.outcome().name()).isEqualTo("WAITING");
         assertThat(f.boards.chat.get(0)).startsWith("/alfred-setup c1/101");
+        // the item shows "waiting" wherever it is opened again, with where it was posted
+        assertThat(f.starts.waiting(CONN, "101")).get().satisfies(w -> {
+            assertThat(w.project()).isEqualTo("odeysys");
+            assertThat(w.boardId()).isEqualTo("b1");
+        });
         f.starts.link("b1", CONN, "101");
+        assertThat(f.starts.waiting(CONN, "101")).isEmpty();
         assertThat(f.cache.main("b1")).get().extracting(BoardItemRow::item).isEqualTo("101");
         f.vault.forget(CONN);
         var seed = f.seeds.seed(CONN, "101").orElseThrow();

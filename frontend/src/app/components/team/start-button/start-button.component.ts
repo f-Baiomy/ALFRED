@@ -1,4 +1,4 @@
-import { Component, computed, inject, input, output, signal } from '@angular/core';
+import { Component, ElementRef, computed, effect, inject, input, output, signal, untracked, viewChild } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
@@ -8,7 +8,7 @@ import { BoardApiService } from '../../../core/services/board-api.service';
 import { DbCaptureApiService } from '../../../core/services/db-capture-api.service';
 import { TeamApiService } from '../../../core/team/team-api.service';
 import { TeamStateService } from '../../../core/team/team-state.service';
-import { StartTarget, TeamItem } from '../../../core/team/team.models';
+import { StartTarget, StartWaiting, TeamItem } from '../../../core/team/team.models';
 
 /**
  * Start (specs/027 US8): opens the item's Alfred board by posting /alfred-setup to the mapped board's chat - the
@@ -32,7 +32,9 @@ import { StartTarget, TeamItem } from '../../../core/team/team.models';
         }
       </span>
     } @else if (waiting()) {
-      <span class="tsb-wait">⏳ Waiting for /alfred-setup in the board chat…</span>
+      <span class="tsb-wait" [title]="'Claude sets the board up when it answers that chat: run /alfred-live for ' + (where()?.project ?? 'the project') + ' in a terminal if nothing happens'">
+        ⏳ Waiting for /alfred-setup in the {{ where()?.boardId ? 'board' : (where()?.project ?? 'project') }} chat{{ since() }}</span>
+      @if (where()?.project) { <button type="button" class="action-btn" (click)="openChat()">Open chat</button> }
       <button type="button" class="action-btn" (click)="cancel()">Cancel</button>
     } @else {
       <button type="button" class="action-btn primary" [disabled]="busy()" (click)="start(null)"
@@ -40,9 +42,9 @@ import { StartTarget, TeamItem } from '../../../core/team/team.models';
     }
     @if (message()) { <span class="tsb-msg" [class.err]="error()">{{ message() }}</span> }
 
+    <dialog #dlg class="tsb-dialog" aria-label="Where does this board go?" (close)="asking.set(false)" (click)="$event.target === dlg && dlg.close()">
     @if (asking()) {
-      <div class="tsb-backdrop" (click)="asking.set(false)"></div>
-      <form class="tsb-dialog" role="dialog" aria-modal="true" aria-label="Where does this board go?" (submit)="$event.preventDefault(); pick()">
+      <form class="tsb-form" (submit)="$event.preventDefault(); pick()">
         <h4>Where does the board for {{ item().extId }} go?</h4>
         <p class="tsb-dim">No mapping names an Alfred project for its {{ state.ui().word('sprint').toLowerCase() }},
           {{ state.ui().word('squad').toLowerCase() }}, area or project.</p>
@@ -62,10 +64,11 @@ import { StartTarget, TeamItem } from '../../../core/team/team.models';
           Remember for {{ item().squad ? state.ui().word('squad').toLowerCase() + ' ' + item().squad : 'this area' }}</label>
         <div class="tsb-actions">
           <button type="submit" class="action-btn primary" [disabled]="!project">Start</button>
-          <button type="button" class="action-btn" (click)="asking.set(false)">Cancel</button>
+          <button type="button" class="action-btn" (click)="dlg.close()">Cancel</button>
         </div>
       </form>
-    }`,
+    }
+    </dialog>`,
   styles: [`
     :host { display: inline-flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
     .tsb-menu { position: relative; }
@@ -76,17 +79,19 @@ import { StartTarget, TeamItem } from '../../../core/team/team.models';
     .tsb-wait { font-size: .82rem; color: var(--amber); }
     .tsb-msg { font-size: .8rem; color: var(--green); }
     .tsb-msg.err { color: var(--red); }
-    .tsb-backdrop { position: fixed; inset: 0; z-index: 70; background: rgba(0,0,0,.4); }
-    .tsb-dialog { position: fixed; z-index: 71; top: 20vh; left: 50%; transform: translateX(-50%); width: min(440px, 92vw); display: grid; gap: .5rem;
-      padding: 1rem; background: var(--popover-solid); border: 1px solid var(--border-strong); border-radius: 10px; }
-    .tsb-dialog h4 { margin: 0; }
-    .tsb-dialog label { display: grid; gap: .2rem; font-size: .82rem; }
-    .tsb-dialog select { padding: .3rem .5rem; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--card-inner); color: inherit; }
-    .tsb-check { display: flex !important; gap: .4rem; align-items: center; }
+    .tsb-dialog { width: min(440px, 92vw); padding: 0; color: var(--text); background: var(--popover-solid); border: 1px solid var(--border-strong);
+      border-radius: 10px; box-shadow: 0 20px 60px rgba(0,0,0,.5); }
+    .tsb-dialog::backdrop { background: rgba(0,0,0,.45); }
+    .tsb-form { display: grid; gap: .6rem; padding: 1rem 1.1rem; }
+    .tsb-form h4 { margin: 0; font-size: .95rem; }
+    .tsb-form label { display: grid; gap: .25rem; font-size: .8rem; color: var(--text-dim); }
+    .tsb-form select { box-sizing: border-box; width: 100%; height: 2rem; padding: .25rem .5rem; border: 1px solid var(--border-strong); border-radius: 6px;
+      background: var(--card-inner); color: var(--text); font: inherit; font-size: .84rem; }
+    .tsb-check { display: flex !important; gap: .4rem; align-items: center; color: var(--text) !important; }
     .tsb-dim { color: var(--text-dim); font-size: .8rem; margin: 0; }
-    .tsb-actions { display: flex; gap: .4rem; }
+    .tsb-actions { display: flex; gap: .4rem; justify-content: flex-end; }
   `],
-  host: { '(document:keydown.escape)': 'menu.set(false); asking.set(false)' },
+  host: { '(document:keydown.escape)': 'menu.set(false)' },
 })
 export class TeamStartButtonComponent {
   readonly state = inject(TeamStateService);
@@ -106,6 +111,7 @@ export class TeamStartButtonComponent {
 
   readonly menu = signal(false);
   readonly asking = signal(false);
+  private readonly dlg = viewChild<ElementRef<HTMLDialogElement>>('dlg');
   readonly busy = signal(false);
   readonly message = signal<string | null>(null);
   readonly error = signal(false);
@@ -114,8 +120,52 @@ export class TeamStartButtonComponent {
   readonly projects = toSignal(this.db.projects().pipe(map((ps) => ps.map((p) => p.project)), catchError(() => of([] as string[]))),
     { initialValue: [] as string[] });
 
+  /** The start waiting for this item, read whenever the item opens or a start changes - not only right after a click. */
+  readonly where = signal<StartWaiting | null>(null);
+
   readonly board = computed(() => this.linkedBoard());
-  readonly waiting = computed(() => this.started() === 'WAITING' || (this.started() !== 'CANCELLED' && this.startState() === 'WAITING'));
+  readonly waiting = computed(() => this.started() === 'WAITING'
+    || (this.started() !== 'CANCELLED' && (this.startState() === 'WAITING' || this.where() !== null)));
+
+  constructor() {
+    // the question opens as a modal <dialog> (the top layer: no drawer or transform can misplace it) and closes with it
+    effect(() => {
+      const d = this.dlg()?.nativeElement;
+      if (!d) return;
+      if (this.asking() && !d.open) d.showModal?.();
+      else if (!this.asking() && d.open) d.close();
+    });
+    effect(() => {
+      const conn = this.conn();
+      const id = this.item().extId;
+      this.state.startVersion();
+      untracked(() => this.readWaiting(conn, id));
+    });
+  }
+
+  private readWaiting(conn: string, id: string): void {
+    this.api.waitingStart(conn, id).subscribe({
+      next: (w) => {
+        if (this.conn() !== conn || this.item().extId !== id) return;
+        this.where.set(w ?? null);
+        if (!w && this.started() === 'WAITING') this.started.set(null); // answered or cancelled elsewhere
+      },
+      error: () => this.where.set(null),
+    });
+  }
+
+  since(): string {
+    const at = this.where()?.at;
+    if (!at) return '…';
+    const min = Math.round((Date.now() - Date.parse(at)) / 60000);
+    return Number.isFinite(min) ? ` - posted ${min < 1 ? 'just now' : min < 60 ? min + ' min ago' : Math.round(min / 60) + ' h ago'}` : '…';
+  }
+
+  openChat(): void {
+    const w = this.where();
+    if (!w?.project) return;
+    void this.router.navigate(['/board'], { queryParams: { project: w.project, ...(w.boardId ? { board: w.boardId } : {}) } });
+  }
 
   project = '';
   boardId = '';
@@ -135,6 +185,7 @@ export class TeamStartButtonComponent {
         this.busy.set(false);
         this.asking.set(false);
         this.started.set('WAITING');
+        this.where.set({ project: r.project, boardId: r.boardId, messageId: r.messageId, at: new Date().toISOString() });
         const fetched = r.attachmentsFetched ? `${r.attachmentsFetched} attachment(s) fetched for the board` : '';
         const who = r.answeredBy ? `Set up by ${r.answeredBy}` : r.message || '';
         this.say([who, fetched].filter(Boolean).join(' · ') || null);
@@ -173,6 +224,7 @@ export class TeamStartButtonComponent {
     this.api.cancelStart(this.conn(), i.extId).subscribe({
       next: () => {
         this.started.set('CANCELLED');
+        this.where.set(null);
         this.changed.emit();
       },
       error: (e) => this.say(e?.error?.message || 'Nothing is waiting any more - it may have started', true),

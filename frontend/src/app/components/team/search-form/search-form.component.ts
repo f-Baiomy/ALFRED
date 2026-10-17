@@ -70,7 +70,7 @@ type ListKey = 'types' | 'states' | 'teams' | 'iterations' | 'areas' | 'assigned
             <app-multi-select-picker [compact]="true" [searchable]="true" [options]="parentOptions()" [values]="v().parents" emptyLabel="Any"
                                      [allowCustom]="true" [custom]="isId" unknownNote="typed" (valuesChange)="set('parents', $event)" /></div>
           <label class="tsf-f"><span class="tsf-l">Changed within</span>
-            <select [(ngModel)]="changedWithinDays" name="changed" (ngModelChange)="recount()">
+            <select [(ngModel)]="changedWithinDays" name="changed" (ngModelChange)="recount()" [class.tsf-any]="!changedWithinDays">
               <option [ngValue]="null">Any time</option>
               @for (d of [1, 3, 7, 14, 30, 90]; track d) { <option [ngValue]="d">{{ d }} day{{ d > 1 ? 's' : '' }}</option> }
             </select>
@@ -113,6 +113,9 @@ type ListKey = 'types' | 'states' | 'teams' | 'iterations' | 'areas' | 'assigned
     .tsf-f ::ng-deep .multi-picker-btn { box-sizing: border-box; width: 100%; min-height: 2rem; padding: .25rem .5rem; border: 1px solid var(--border-strong);
       border-radius: 6px; background: var(--card-inner); color: var(--text); font-size: .82rem; font-weight: 400; }
     .tsf-f ::ng-deep .multi-picker-btn::after { display: none; }
+    .tsf-f ::ng-deep .multi-picker-empty { font-style: normal; color: var(--text-dim); }
+    .tsf-f ::ng-deep .multi-picker-caret { font-size: .7rem; }
+    .tsf-f select.tsf-any { color: var(--text-dim); }
     .tsf-f select { box-sizing: border-box; width: 100%; min-width: 0; height: 2rem; margin: 0; padding: .25rem .45rem; border: 1px solid var(--border-strong);
       border-radius: 6px; background: var(--card-inner); color: var(--text); font: inherit; font-size: .82rem; }
     .tsf-chips { display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; margin-top: .5rem; }

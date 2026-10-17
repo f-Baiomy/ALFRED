@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Saved searches</title>
+<style>
+  :root {
+    --bg: #15161a; --panel: #1c1d22; --panel2: #22232a; --border: rgba(255,255,255,.08); --border-strong: rgba(255,255,255,.16);
+    --text: #e7e7ec; --dim: #9b9ca6; --faint: #676873; --purple: #8b5cf6; --purple-l: #b9a5ff; --blue: #8fb2f7;
+    --green: #6fd38a; --amber: #f2b552; --red: #f07a7a; --sk: rgba(255,255,255,.06); --sk2: rgba(255,255,255,.12);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 "Segoe UI", system-ui, sans-serif; padding: 16px 16px 80px; }
+  h1 { font-size: 1.25rem; margin: 0 0 .2rem; }
+  h3 { font-size: .9rem; margin: 1.2rem 0 .4rem; color: var(--purple-l); }
+  .lead { color: var(--dim); max-width: 110ch; margin: 0 0 .8rem; font-size: .88rem; }
+  code { font: .78rem Consolas, monospace; background: rgba(255,255,255,.07); padding: 0 .3rem; border-radius: 4px; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  input { background: var(--panel2); border: 1px solid var(--border-strong); border-radius: 6px; color: var(--text); padding: .3rem .5rem; font: .82rem "Segoe UI", system-ui; }
+  .layout { display: grid; grid-template-columns: minmax(0,1fr) 270px; gap: 1rem; max-width: 1500px; margin: 0 auto; }
+  @media (max-width: 900px) { .layout { grid-template-columns: minmax(0,1fr); } }
+  .ctl { position: sticky; top: 12px; align-self: start; background: var(--panel); border: 1px dashed rgba(242,181,82,.5); border-radius: 10px; padding: .7rem .8rem; font-size: .78rem; }
+  .ctl h2 { font-size: .8rem; color: var(--amber); margin: 0 0 .4rem; text-transform: uppercase; letter-spacing: .05em; }
+  .ctl .cases div { margin: .3rem 0; color: var(--dim); }
+  .ctl .cases div::before { content: "• "; color: var(--faint); }
+  .app { border: 1px solid var(--border-strong); border-radius: 12px; background: var(--panel); min-width: 0; }
+  .appbar { display: flex; gap: 1.1rem; padding: .5rem 1rem 0; border-bottom: 1px solid var(--border); font-size: .86rem; color: var(--dim); flex-wrap: wrap; }
+  .appbar span { padding-bottom: .45rem; } .appbar .on { color: var(--text); border-bottom: 2px solid var(--purple); }
+  .body { padding: .8rem 1rem 1rem; min-height: 600px; }
+  .row { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+  .grow { flex: 1; }
+  .btn { background: var(--panel2); border: 1px solid var(--border-strong); border-radius: 6px; padding: .22rem .62rem; font-size: .8rem; white-space: nowrap; }
+  .btn:hover { border-color: var(--purple-l); }
+  .btn.pri { background: var(--purple); border-color: var(--purple); color: #fff; }
+  .btn.sm { font-size: .72rem; padding: .1rem .45rem; }
+  .btn.ghost { background: none; border-color: transparent; color: var(--dim); }
+  .search { flex: 1 1 260px; padding: .4rem .6rem; }
+  .dim { color: var(--dim); } .faint { color: var(--faint); } .small { font-size: .74rem; }
+
+  /* saved searches: a row of pills */
+  .saved { display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; margin: .55rem 0 .2rem; }
+  .saved .lbl { color: var(--faint); font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; margin-right: .1rem; }
+  .pill { position: relative; display: inline-flex; align-items: center; border: 1px solid var(--border-strong); border-radius: 999px; background: var(--panel2);
+    font-size: .78rem; overflow: visible; }
+  .pill .run { border: 0; background: none; padding: .12rem .3rem .12rem .65rem; display: inline-flex; gap: .35rem; align-items: center; }
+  .pill .n { font-size: .66rem; color: var(--faint); }
+  .pill .more { border: 0; background: none; color: var(--faint); padding: .12rem .45rem .12rem .2rem; }
+  .pill:hover { border-color: var(--purple-l); }
+  .pill.on { background: rgba(139,92,246,.22); border-color: var(--purple); }
+  .pill.on .n { color: var(--purple-l); }
+  .pill.editing { border-style: dashed; border-color: var(--amber); }
+  .pill .menu { display: none; position: absolute; z-index: 20; top: 115%; left: 0; min-width: 190px; padding: .25rem; background: #26272e;
+    border: 1px solid var(--border-strong); border-radius: 8px; box-shadow: 0 10px 28px rgba(0,0,0,.45); }
+  .pill.open .menu { display: grid; }
+  .menu button { border: 0; background: none; text-align: left; padding: .32rem .5rem; border-radius: 5px; font-size: .8rem; }
+  .menu button:hover { background: rgba(139,92,246,.15); }
+  .menu .danger { color: var(--red); }
+  .menu hr { border: 0; border-top: 1px solid var(--border); margin: .2rem 0; }
+  .shared { font-size: .62rem; color: var(--blue); border: 1px solid rgba(143,178,247,.4); border-radius: 4px; padding: 0 .25rem; }
+
+  .chips { display: flex; gap: .35rem; flex-wrap: wrap; margin: .45rem 0; align-items: center; }
+  .chip { border: 1px solid var(--border-strong); border-radius: 14px; padding: .04rem .55rem; font-size: .74rem; background: var(--panel2); }
+  .chip b { font-weight: 500; color: var(--dim); }
+  .or { color: var(--faint); font-size: .66rem; }
+
+  /* the save / edit bar */
+  .savebar { display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; padding: .45rem .6rem; border: 1px solid rgba(139,92,246,.45);
+    background: rgba(139,92,246,.07); border-radius: 8px; margin: .45rem 0; font-size: .8rem; }
+  .savebar.edit { border-color: rgba(242,181,82,.5); background: rgba(242,181,82,.06); }
+  .savebar input[type=text] { width: 220px; }
+  .savebar label { display: inline-flex; gap: .3rem; align-items: center; color: var(--dim); }
+
+  table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+  th { text-align: left; color: var(--dim); font-weight: 500; font-size: .74rem; padding: .35rem .45rem; border-bottom: 1px solid var(--border-strong); white-space: nowrap; }
+  td { padding: .4rem .45rem; border-bottom: 1px solid var(--border); vertical-align: middle; height: 2.3rem; }
+  .st { padding: 0 .35rem; border-radius: 4px; background: var(--panel2); white-space: nowrap; }
+  .st.p { color: var(--blue); }
+  .pp { display: inline-flex; align-items: center; gap: .3rem; border: 1px solid var(--border); border-radius: 999px; padding: 0 .45rem 0 .1rem; font-size: .76rem; background: var(--panel2); white-space: nowrap; }
+  .av { width: 1.15rem; height: 1.15rem; border-radius: 50%; display: inline-grid; place-items: center; background: #4b3b77; color: #fff; font-size: .56rem; font-weight: 600; }
+  .head { display: flex; gap: .5rem; align-items: center; font-size: .82rem; color: var(--dim); margin: .4rem 0; flex-wrap: wrap; }
+
+  /* the loading skeleton: grey bars in the table's own shape, a soft sheen passing over them */
+  .sk { display: inline-block; height: .7rem; border-radius: 4px; background: var(--sk); position: relative; overflow: hidden; vertical-align: middle; }
+  .sk::after { content: ""; position: absolute; inset: 0; transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, var(--sk2), transparent); animation: sheen 1.3s ease-in-out infinite; }
+  .sk.round { height: 1.15rem; border-radius: 999px; }
+  .sk.pill { height: 1rem; border-radius: 4px; }
+  tr.skrow td { border-bottom-color: rgba(255,255,255,.04); }
+  tr.skrow:nth-child(2) .sk::after { animation-delay: .08s; } tr.skrow:nth-child(3) .sk::after { animation-delay: .16s; }
+  tr.skrow:nth-child(4) .sk::after { animation-delay: .24s; } tr.skrow:nth-child(5) .sk::after { animation-delay: .32s; }
+  tr.skrow:nth-child(6) .sk::after { animation-delay: .4s; } tr.skrow:nth-child(7) .sk::after { animation-delay: .48s; }
+  @keyframes sheen { to { transform: translateX(100%); } }
+  @media (prefers-reduced-motion: reduce) { .sk::after { animation: none; } .sk { animation: none; } }
+  .dotsearch::after { content: "…"; }
+  .note { border-left: 3px solid var(--amber); background: rgba(242,181,82,.07); padding: .4rem .7rem; color: var(--dim); font-size: .8rem; margin: .5rem 0; }
+  .dec { width: 100%; border-collapse: collapse; font-size: .8rem; display: block; overflow-x: auto; }
+  .dec td, .dec th { border-bottom: 1px solid var(--border); padding: .35rem .45rem; vertical-align: top; height: auto; }
+</style>
+</head>
+<body>
+<h1>Team search - saved searches and a loading skeleton</h1>
+<p class="lead">Mock for review. A search (text, every filter, Open only, Show) can be <b>saved under a name</b>; saved searches sit as
+<b>pills above the results</b> - one click runs it. Each pill's <b>⋯</b> edits it (the form fills, you change it, <i>Save changes</i>), renames,
+reorders or deletes it. While a search reads Azure, the table shows <b>grey skeleton rows</b> in its own shape. Click the pills, ⋯ and the buttons; the right panel switches states.</p>
+
+<div class="layout">
+<div>
+  <div class="app">
+    <div class="appbar"><span>Live Calls</span><span>Session Cycles</span><span>Board</span><span class="on">Team</span><span>Profiles</span><span>Settings</span></div>
+    <div class="body">
+      <div class="row small dim"><b style="color:var(--text);font-size:.9rem">◆ azure</b><span class="grow"></span><span style="color:var(--green)">● token live</span></div>
+      <div class="row" style="margin-top:.6rem">
+        <input class="search" id="text" placeholder="Search title, description, comments… or an id / URL">
+        <button class="btn pri" id="go">Search</button>
+        <label class="small"><input type="checkbox" checked> Open only</label>
+        <button class="btn">Filters (2) ▾</button>
+        <button class="btn" id="saveBtn" title="Save this search as a pill">☆ Save search</button>
+      </div>
+
+      <div class="saved" id="saved"></div>
+      <div id="bar"></div>
+      <div class="chips" id="chips"></div>
+
+      <div class="head" id="head"></div>
+      <table>
+        <thead><tr><th>Id</th><th>Type</th><th>Title</th><th>State</th><th>Assigned</th><th>Iteration</th><th>Changed</th><th></th></tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <h3>Decisions in this mock</h3>
+  <table class="dec">
+    <tr><th>What</th><th>How</th></tr>
+    <tr><td>What a saved search holds</td><td>The whole search: text, every filter with its values and modes (sub-areas, tags any/all), Open only, sort, and Show (items / parents / tree). Not the page - it always opens on page 1.</td></tr>
+    <tr><td>Where it is kept</td><td>In Alfred (<code>teamboards.db</code>, per connection) - so it is there on every browser and machine, and Claude can run it (<code>team_search saved: "My open bugs"</code>). Everyone using this Alfred sees the same pills, like the rest of the Team tab.</td></tr>
+    <tr><td>Save</td><td><b>☆ Save search</b> next to Filters opens a small bar: name (required, unique per connection) → Save. The new pill is added at the end and lit.</td></tr>
+    <tr><td>Run</td><td>Click a pill: the form fills with it, the search runs, the pill stays lit. Change anything in the form and the pill un-lights with a "changed" dot - the saved one is untouched until you save.</td></tr>
+    <tr><td>Edit</td><td>⋯ → <b>Edit</b>: the form fills, the pill turns dashed amber, an "Editing" bar shows <i>Save changes</i> / <i>Save as new…</i> / <i>Cancel</i>. Change filters, run as often as you like, then save.</td></tr>
+    <tr><td>Rename, reorder, delete</td><td>⋯ → Rename (inline), ← Move left / Move right →, Delete (asks once, says the name). No drag-and-drop on touch screens; the arrows work everywhere.</td></tr>
+    <tr><td>Count on the pill</td><td>The number of matches from the last time it ran (dim), so a pill says "7" before you click it. Not re-counted in the background (no polling).</td></tr>
+    <tr><td>Saved watch rules</td><td>Untouched - a watch rule is a search that runs on its own for a board; a saved search is a shortcut you click. A pill's ⋯ offers <i>Watch on a board…</i> to turn it into a rule.</td></tr>
+    <tr><td>Loading</td><td>From the click until Azure answers: the table keeps its header and shows 8 skeleton rows (grey bars sized like id, type, title, state pill, person pill, iteration, age); the sheen sweeps left to right, each row a little later. The count line says "Searching…". With "reduce motion" the bars stay still. A search under 150 ms never flashes the skeleton.</td></tr>
+    <tr><td>Paging and Show</td><td>Next/Prev and switching Show also show the skeleton; in tree mode the skeleton rows are indented in steps.</td></tr>
+    <tr><td>MCP</td><td><code>team_saved</code> lists the saved searches; <code>team_search</code> takes <code>saved: "name"</code> (and any filter given beside it overrides that one). Claude does not create, change or delete them.</td></tr>
+  </table>
+</div>
+
+<div class="ctl">
+  <h2>Mock controls</h2>
+  <div class="row" style="gap:.3rem">
+    <button class="btn sm" id="cLoad">Show loading</button>
+    <button class="btn sm" id="cTree">Loading (tree)</button>
+    <button class="btn sm" id="cEdit">Edit "My open bugs"</button>
+    <button class="btn sm" id="cSave">Save bar</button>
+  </div>
+  <div class="cases">
+    <div>Pill click = run. ⋯ = edit, rename, move, delete, watch.</div>
+    <div>Lit pill = the search shown is exactly that saved one.</div>
+    <div>Changed after running a pill: dot on the pill, "Save changes" offered.</div>
+    <div>No saved searches yet: the row is hidden; ☆ Save search is the way in.</div>
+    <div>Name taken: "A saved search is already called that".</div>
+  </div>
+</div>
+</div>
+
+<script>
+let saved = [
+  { id: 1, name: 'My open bugs', n: 7, chips: [['Type', ['Bug']], ['Assigned', ['me']]] },
+  { id: 2, name: 'Refund · this sprint', n: 23, chips: [['Text', ['refund']], ['Iteration', ['Current']]] },
+  { id: 3, name: 'Unassigned NDC1', n: 12, chips: [['Team', ['NDC1 - Commandos']], ['Assigned', ['Unassigned']]] },
+  { id: 4, name: 'UAT blockers', n: 3, chips: [['Tags', ['uat-blocker']], ['State', ['Active', 'Ready for UAT']]] },
+];
+let lit = 1, editing = null, openMenu = null, bar = null, changed = false;
+const ROWS = [
+  ['62123', 'Task', 'enhance refund filters implementation', 'New', 'f.biomy', 'NDC1 ( Commandos ) - Sprint 1', '3 d'],
+  ['61813', 'Bug', 'Refunded Requests filters - All Agencies, All Branches, Branch multi-select', 'Active', 'Omar Mohamed', 'NDC1 ( Commandos ) - Sprint 1', '2 d'],
+  ['60122', 'Bug', '[Import Booked PNR][TravelportNDC] Incorrect Number of Stops', 'Active', 'f.biomy', 'NDC1-Sprint59', '13 d'],
+  ['59415', 'Bug', '[Admin][Import Booked PNR][Void/Cancel] Booking Status Remains "Booked"', 'Review', 'f.biomy', 'NDC1-Sprint59', '13 d'],
+  ['62121', 'Task', 'Qc support for import booked pnr', 'Active', 'f.biomy', 'NDC1 ( Commandos ) - Sprint 1', '3 d'],
+];
+function pills() {
+  const el = document.getElementById('saved');
+  if (!saved.length) { el.innerHTML = ''; return; }
+  el.innerHTML = '<span class="lbl">Saved</span>' + saved.map((s, i) =>
+    '<span class="pill' + (lit === s.id && !changed ? ' on' : '') + (editing === s.id ? ' editing' : '') + (openMenu === s.id ? ' open' : '') + '">' +
+    '<button class="run" data-run="' + s.id + '" title="Run: ' + s.chips.map(c => c[0] + ' ' + c[1].join('/')).join(' · ') + '">' + s.name +
+    (lit === s.id && changed ? ' <span style="color:var(--amber)">●</span>' : '') + ' <span class="n">' + s.n + '</span></button>' +
+    '<button class="more" data-more="' + s.id + '" aria-label="More for ' + s.name + '">⋯</button>' +
+    '<span class="menu">' +
+      '<button data-edit="' + s.id + '">✎ Edit filters</button><button data-rename="' + s.id + '">Rename…</button>' +
+      (i > 0 ? '<button data-left="' + s.id + '">← Move left</button>' : '') + (i < saved.length - 1 ? '<button data-right="' + s.id + '">Move right →</button>' : '') +
+      '<button>Watch on a board…</button><button>Copy as a link</button><hr><button class="danger" data-del="' + s.id + '">Delete "' + s.name + '"</button>' +
+    '</span></span>').join('') + '<button class="btn sm ghost" id="addPill">＋</button>';
+}
+function chips() {
+  const s = saved.find(x => x.id === (editing ?? lit));
+  document.getElementById('chips').innerHTML = s ? s.chips.map(c => '<span class="chip"><b>' + c[0] + ':</b> ' + c[1].join(' <span class="or">or</span> ') + '</span>').join('') +
+    (changed ? '<span class="chip" style="border-color:rgba(242,181,82,.5)"><b>State:</b> Active</span>' : '') : '';
+}
+function barHtml() {
+  const el = document.getElementById('bar');
+  if (bar === 'save') {
+    el.innerHTML = '<div class="savebar"><b>Save this search</b><input type="text" id="nm" placeholder="Name, e.g. My open bugs" value="">' +
+      '<label><input type="checkbox" checked> with Show: Full tree</label><span class="grow"></span>' +
+      '<button class="btn pri" id="doSave">Save</button><button class="btn" id="cancelBar">Cancel</button>' +
+      '<span class="small faint" style="flex-basis:100%">Saves the text, every filter, Open only, sort and Show. Shared with everyone using this Alfred.</span></div>';
+  } else if (editing) {
+    const s = saved.find(x => x.id === editing);
+    el.innerHTML = '<div class="savebar edit"><b>Editing "' + s.name + '"</b><span class="dim">change the filters and run it as often as you like</span><span class="grow"></span>' +
+      '<button class="btn pri" id="doUpdate">Save changes</button><button class="btn" id="saveNew">Save as new…</button><button class="btn" id="cancelBar">Cancel</button></div>';
+  } else if (changed && lit) {
+    el.innerHTML = '<div class="savebar"><span class="dim">You changed "' + saved.find(x => x.id === lit).name + '"</span><span class="grow"></span>' +
+      '<button class="btn sm pri" id="doUpdate">Save changes</button><button class="btn sm" id="saveNew">Save as new…</button></div>';
+  } else el.innerHTML = '';
+}
+function skeleton(tree) {
+  const W = [[46, 40, 78, 44, 92, 70, 26], [46, 34, 62, 52, 80, 74, 26], [46, 40, 88, 40, 96, 62, 22], [46, 30, 55, 48, 76, 70, 26],
+    [46, 40, 72, 44, 88, 66, 22], [46, 34, 66, 52, 84, 70, 26], [46, 40, 80, 40, 92, 58, 22], [46, 30, 58, 48, 80, 70, 26]];
+  return W.map((w, i) => '<tr class="skrow"><td><span class="sk" style="width:' + w[0] + 'px"></span></td><td><span class="sk" style="width:' + w[1] + 'px"></span></td>' +
+    '<td><span style="display:inline-block;width:' + (tree ? [0, 1.1, 2.2, 2.2, 0, 1.1, 2.2, 1.1][i] : 0) + 'rem"></span><span class="sk" style="width:' + w[2] + '%;height:.75rem"></span></td>' +
+    '<td><span class="sk pill" style="width:' + w[3] + 'px"></span></td><td><span class="sk round" style="width:' + w[4] + 'px"></span></td>' +
+    '<td><span class="sk" style="width:' + w[5] + '%"></span></td><td><span class="sk" style="width:' + w[6] + 'px"></span></td>' +
+    '<td><span class="sk pill" style="width:44px"></span></td></tr>').join('');
+}
+function rows() {
+  return ROWS.map(r => '<tr><td class="dim">' + r[0] + '</td><td>' + r[1] + '</td><td>' + r[2] + '</td><td><span class="st' + (r[3] !== 'New' ? ' p' : '') + '">' + r[3] + '</span></td>' +
+    '<td><span class="pp"><span class="av">' + r[4].split(/[\s.]/).map(x => x[0]).slice(0, 2).join('').toUpperCase() + '</span>' + r[4] + '</span></td><td class="dim">' + r[5] + '</td><td class="dim">' + r[6] + '</td>' +
+    '<td><button class="btn sm">Add ▾</button></td></tr>').join('');
+}
+let timer = null;
+function run(tree) {
+  clearTimeout(timer);
+  document.getElementById('head').innerHTML = '<span class="dotsearch">Searching</span>';
+  document.getElementById('tbody').innerHTML = skeleton(tree);
+  timer = setTimeout(() => {
+    const s = saved.find(x => x.id === lit);
+    document.getElementById('head').innerHTML = (s ? s.n : 5) + ' found';
+    document.getElementById('tbody').innerHTML = rows();
+  }, 1600);
+}
+function render() { pills(); chips(); barHtml(); }
+document.addEventListener('click', (e) => {
+  const t = e.target.closest('button');
+  if (!t) { if (openMenu) { openMenu = null; render(); } return; }
+  const d = t.dataset;
+  if (d.run) { lit = +d.run; changed = false; editing = null; openMenu = null; render(); run(); }
+  else if (d.more) { openMenu = openMenu === +d.more ? null : +d.more; render(); }
+  else if (d.edit) { editing = +d.edit; lit = editing; openMenu = null; changed = false; render(); run(); }
+  else if (d.rename) { const s = saved.find(x => x.id === +d.rename); const n = prompt('Rename', s.name); if (n) s.name = n; openMenu = null; render(); }
+  else if (d.left || d.right) { const id = +(d.left || d.right); const i = saved.findIndex(x => x.id === id); const j = d.left ? i - 1 : i + 1;
+    [saved[i], saved[j]] = [saved[j], saved[i]]; openMenu = null; render(); }
+  else if (d.del) { const s = saved.find(x => x.id === +d.del); if (confirm('Delete the saved search "' + s.name + '"?')) { saved = saved.filter(x => x !== s); if (lit === s.id) lit = null; } openMenu = null; render(); }
+  else if (t.id === 'saveBtn' || t.id === 'addPill' || t.id === 'cSave' || t.id === 'saveNew') { bar = 'save'; editing = null; render(); setTimeout(() => document.getElementById('nm')?.focus()); }
+  else if (t.id === 'doSave') { const n = document.getElementById('nm').value.trim() || 'New search'; const id = Date.now(); saved.push({ id, name: n, n: 5, chips: [['Text', ['refund']]] }); lit = id; bar = null; changed = false; render(); run(); }
+  else if (t.id === 'doUpdate') { editing = null; changed = false; render(); }
+  else if (t.id === 'cancelBar') { bar = null; editing = null; render(); }
+  else if (t.id === 'go') { if (lit) changed = true; render(); run(); }
+  else if (t.id === 'cLoad') run(false);
+  else if (t.id === 'cTree') run(true);
+  else if (t.id === 'cEdit') { editing = 1; lit = 1; bar = null; render(); }
+});
+render();
+run();
+</script>
+</body>
+</html>

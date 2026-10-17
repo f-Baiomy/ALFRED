@@ -1,3 +1,4 @@
+import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { of, throwError } from 'rxjs';
@@ -13,9 +14,10 @@ const ITEM: TeamItem = { extId: '7', type: 'Bug', customType: false, title: 'Ref
   identities: {}, project: 'Shop' };
 
 describe('TeamStartButtonComponent (specs/027 US8)', () => {
-  function setUp(linkedBoard: string | null = null, startState: string | null = null) {
+  function setUp(linkedBoard: string | null = null, startState: string | null = null, waiting: unknown = null) {
     const api = {
       start: jasmine.createSpy('start'),
+      waitingStart: jasmine.createSpy('waitingStart').and.returnValue(of(waiting)),
       cancelStart: jasmine.createSpy('cancelStart').and.returnValue(of(undefined)),
     };
     const boards = { boards: jasmine.createSpy('boards').and.returnValue(of([])), board: () => of({ board: { project: 'odeysys' } }),
@@ -27,7 +29,7 @@ describe('TeamStartButtonComponent (specs/027 US8)', () => {
         { provide: TeamApiService, useValue: api },
         { provide: BoardApiService, useValue: boards },
         { provide: DbCaptureApiService, useValue: { projects: () => of([{ project: 'odeysys' }]) } },
-        { provide: TeamStateService, useValue: { ui: () => ({ word: (w: string) => w }), tokens: { has: () => false } } },
+        { provide: TeamStateService, useValue: { ui: () => ({ word: (w: string) => w }), tokens: { has: () => false }, startVersion: signal(0) } },
       ],
     });
     const f = TestBed.createComponent(TeamStartButtonComponent);
@@ -46,12 +48,12 @@ describe('TeamStartButtonComponent (specs/027 US8)', () => {
         message: 'Nobody is live for odeysys: start /alfred-live there' }));
     f.componentInstance.start(null);
     f.detectChanges();
-    expect(el.querySelector('.tsb-dialog')).toBeTruthy();
+    expect(el.querySelector('.tsb-form')).toBeTruthy();
 
     f.componentInstance.pick();
     f.detectChanges();
     expect(api.start.calls.mostRecent().args).toEqual(['c1', '7', { project: 'odeysys', boardId: null, remember: true }]);
-    expect(el.querySelector('.tsb-dialog')).toBeNull();
+    expect(el.querySelector('.tsb-form')).toBeNull();
     expect(el.textContent).toContain('Waiting for /alfred-setup');
     expect(el.textContent).toContain('Nobody is live for odeysys');
   });
@@ -67,5 +69,13 @@ describe('TeamStartButtonComponent (specs/027 US8)', () => {
     TestBed.resetTestingModule();
     const linked = setUp('b-refund');
     expect(linked.el.textContent).toContain('Open task ▾');
+  });
+
+  it('a start posted earlier shows as waiting when the item is opened again, with its chat', () => {
+    const { f, el } = setUp(null, null, { project: 'odeysys', boardId: null, messageId: 9, at: new Date(Date.now() - 5 * 60000).toISOString() });
+    f.detectChanges();
+    expect(f.componentInstance.waiting()).toBeTrue();
+    expect(el.textContent).toContain('Waiting for /alfred-setup in the odeysys chat - posted 5 min ago');
+    expect(Array.from(el.querySelectorAll('button')).some((b) => b.textContent?.includes('Open chat'))).toBeTrue();
   });
 });

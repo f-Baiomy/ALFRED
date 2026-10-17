@@ -33,6 +33,13 @@ public interface StartFromItemUseCase {
     /** A start of this item waits for /alfred-setup (what lets Claude link the board it sets up). */
     boolean isWaiting(String conn, String extId);
 
+    /** The start waiting for this item: where it was posted (project, and board when one was named) and when. */
+    record Waiting(String project, String boardId, Long messageId, java.time.Instant at) {
+    }
+
+    /** The waiting start of this item, if any - so the item shows "waiting" wherever it is opened. */
+    java.util.Optional<Waiting> waiting(String conn, String extId);
+
     /** Whether {@code askedIn} names a request of the user (a USER chat message, or "terminal"). */
     boolean askedByUser(String askedIn);
 

@@ -200,6 +200,10 @@ class AzureClient {
         if (status == 401 || status == 203) { // 203: Azure's sign-in page for a bad token
             throw new ProviderException(Kind.TOKEN_REJECTED, "Azure DevOps refused the token");
         }
+        if (status >= 300 && status < 400) { // an API call sent to the sign-in page: a refused token, or not the organisation's URL
+            throw new ProviderException(Kind.TOKEN_REJECTED, "Azure DevOps sent the sign-in page (" + status + "): the token was refused, or the base URL "
+                    + "is not the organisation (https://dev.azure.com/<org>)");
+        }
         if (status == 403) { // the token is fine; its owner may not do this one thing
             throw new ProviderException(Kind.BAD_RESPONSE, "Azure DevOps does not allow this for the token's owner (403)");
         }

@@ -495,6 +495,14 @@ export interface StartAnswer {
   readonly message: string | null;
 }
 
+/** A start waiting for /alfred-setup: where it was posted. */
+export interface StartWaiting {
+  readonly project: string | null;
+  readonly boardId: string | null;
+  readonly messageId: number | null;
+  readonly at: string | null;
+}
+
 /** "Open in Alfred" for a person mention: `@[person:<conn>/<id>|Name]`. */
 export function personRef(conn: string, p: TeamPerson): string {
   return `@[person:${conn}/${p.extId ?? p.email ?? p.name}|${(p.name || '').replace(/[\]|]/g, ' ')}]`;
