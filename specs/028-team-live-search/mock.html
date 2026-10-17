@@ -1,0 +1,813 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Team live search</title>
+<style>
+  :root {
+    --bg: #15161a; --panel: #1c1d22; --panel2: #22232a; --border: rgba(255,255,255,.08); --border-strong: rgba(255,255,255,.16);
+    --text: #e7e7ec; --dim: #9b9ca6; --faint: #676873; --purple: #8b5cf6; --purple-l: #b9a5ff; --blue: #8fb2f7;
+    --green: #6fd38a; --amber: #f2b552; --red: #f07a7a; --code: rgba(255,255,255,.07);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 "Segoe UI", system-ui, sans-serif; padding: 16px 16px 80px; }
+  h1 { font-size: 1.25rem; margin: 0 0 .2rem; }
+  .lead { color: var(--dim); max-width: 110ch; margin: 0 0 .8rem; font-size: .88rem; }
+  code { font: .78rem Consolas, monospace; background: var(--code); padding: 0 .3rem; border-radius: 4px; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  input, select, textarea { background: var(--panel2); border: 1px solid var(--border-strong); border-radius: 6px; color: var(--text); padding: .25rem .45rem; font: .8rem "Segoe UI", system-ui; }
+  .dim { color: var(--dim); } .faint { color: var(--faint); } .small { font-size: .74rem; }
+  .layout { display: grid; grid-template-columns: minmax(0,1fr) 260px; gap: 1rem; max-width: 1500px; margin: 0 auto; }
+  .note { border-left: 3px solid var(--amber); background: rgba(242,181,82,.07); padding: .4rem .7rem; color: var(--dim); font-size: .8rem; margin: .5rem 0; }
+  .note b { color: var(--amber); }
+  .banner { border-radius: 7px; padding: .45rem .7rem; font-size: .8rem; margin: .4rem 0 .6rem; display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; }
+  .banner.info { border: 1px solid rgba(143,178,247,.4); background: rgba(143,178,247,.08); }
+  .banner.warn { border: 1px solid rgba(242,181,82,.45); background: rgba(242,181,82,.08); }
+  .banner.err { border: 1px solid rgba(240,122,122,.45); background: rgba(240,122,122,.08); }
+  .banner.ok { border: 1px solid rgba(111,211,138,.4); background: rgba(111,211,138,.07); }
+  .ctl { position: sticky; top: 12px; align-self: start; background: var(--panel); border: 1px dashed rgba(242,181,82,.5); border-radius: 10px; padding: .7rem .8rem; font-size: .78rem; max-height: calc(100vh - 24px); overflow-y: auto; }
+  .ctl h2 { font-size: .8rem; color: var(--amber); margin: 0 0 .4rem; text-transform: uppercase; letter-spacing: .05em; }
+  .ctl label { display: block; color: var(--faint); margin: .55rem 0 .15rem; font-size: .7rem; text-transform: uppercase; letter-spacing: .04em; }
+  .ctl select { width: 100%; }
+  .ctl .cases { margin-top: .6rem; border-top: 1px solid var(--border); padding-top: .4rem; color: var(--dim); }
+  .ctl .cases div::before { content: "• "; color: var(--faint); }
+  .app { border: 1px solid var(--border-strong); border-radius: 12px; background: var(--panel); overflow: hidden; min-width: 0; }
+  .appbar { display: flex; gap: 1.1rem; padding: .5rem 1rem 0; border-bottom: 1px solid var(--border); font-size: .86rem; color: var(--dim); flex-wrap: wrap; }
+  .appbar span { padding-bottom: .45rem; cursor: pointer; } .appbar .on { color: var(--text); border-bottom: 2px solid var(--purple); }
+  .body { padding: .8rem 1rem 1rem; min-height: 560px; }
+  .row { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+  .spacer { flex: 1; }
+  .btn { background: var(--panel2); border: 1px solid var(--border-strong); border-radius: 6px; padding: .2rem .62rem; font-size: .8rem; white-space: nowrap; }
+  .btn:hover { border-color: var(--purple-l); }
+  .btn.pri { background: var(--purple); border-color: var(--purple); color: #fff; }
+  .btn.ok { border-color: rgba(111,211,138,.5); color: var(--green); }
+  .btn.danger { border-color: rgba(240,122,122,.6); color: var(--red); }
+  .btn.sm { font-size: .72rem; padding: .08rem .45rem; }
+  .tabs { display: flex; gap: .2rem; border-bottom: 1px solid var(--border); margin: .5rem 0 .7rem; }
+  .tabs span { padding: .3rem .8rem; cursor: pointer; color: var(--dim); font-size: .86rem; }
+  .tabs .on { color: var(--text); border-bottom: 2px solid var(--blue); }
+  .count { font-size: .64rem; background: rgba(143,178,247,.2); color: var(--blue); border-radius: 8px; padding: 0 .35rem; margin-left: .25rem; }
+  .chips { display: flex; gap: .35rem; flex-wrap: wrap; margin: .5rem 0; }
+  .chip { border: 1px solid var(--border-strong); border-radius: 14px; padding: .08rem .55rem; font-size: .76rem; display: inline-flex; gap: .3rem; align-items: center; background: var(--panel2); }
+  .chip b { font-weight: 500; color: var(--blue); }
+  .chip.on { border-color: rgba(111,211,138,.5); }
+  .chip .x { color: var(--faint); cursor: pointer; }
+  table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+  th { text-align: left; color: var(--dim); font-weight: 500; padding: .35rem .5rem; border-bottom: 1px solid var(--border-strong); white-space: nowrap; }
+  td { padding: .38rem .5rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+  tr.click:hover td { background: rgba(255,255,255,.03); cursor: pointer; }
+  tr.sel td { background: rgba(139,92,246,.1); }
+  .ty { font-size: .7rem; border-radius: 4px; padding: 0 .35rem; }
+  .ty.Bug { background: rgba(240,122,122,.15); color: var(--red); }
+  .ty.PBI { background: rgba(143,178,247,.15); color: var(--blue); }
+  .ty.Feature { background: rgba(185,165,255,.15); color: var(--purple-l); }
+  .ty.Task { background: rgba(242,181,82,.15); color: var(--amber); }
+  .on-board { font-size: .7rem; color: var(--green); border: 1px solid rgba(111,211,138,.35); border-radius: 4px; padding: 0 .3rem; margin-right: .2rem; white-space: nowrap; }
+  .split { display: grid; grid-template-columns: minmax(0,1fr) 380px; gap: .8rem; }
+  .drawer { border: 1px solid var(--border-strong); border-radius: 10px; background: var(--panel2); padding: .7rem .8rem; font-size: .82rem; }
+  .drawer h4 { margin: 0 0 .2rem; font-size: .95rem; font-weight: 500; }
+  .kv { display: grid; grid-template-columns: 90px minmax(0,1fr); gap: .15rem .5rem; font-size: .78rem; margin: .5rem 0; }
+  .kv span:nth-child(odd) { color: var(--faint); }
+  .sec { border-top: 1px solid var(--border); margin-top: .6rem; padding-top: .5rem; }
+  .sec h5 { margin: 0 0 .3rem; font-size: .76rem; color: var(--dim); text-transform: uppercase; letter-spacing: .04em; font-weight: 500; }
+  .tree div { padding: .08rem 0; }
+  .cm { background: rgba(0,0,0,.25); border-radius: 6px; padding: .35rem .5rem; margin: .3rem 0; font-size: .78rem; }
+  .cm .who { color: var(--faint); font-size: .7rem; }
+  .diff del { color: var(--red); text-decoration: line-through; } .diff ins { color: var(--green); text-decoration: none; }
+  .consent { border: 1px solid rgba(242,181,82,.55); border-radius: 10px; background: rgba(242,181,82,.06); padding: .7rem .8rem; margin: .7rem 0; font-size: .82rem; }
+  .consent pre { white-space: pre-wrap; background: rgba(0,0,0,.3); padding: .5rem; border-radius: 6px; font: .78rem Consolas, monospace; margin: .4rem 0; }
+  .star { color: var(--amber); }
+  .pager { display: flex; justify-content: space-between; align-items: center; margin-top: .5rem; font-size: .78rem; color: var(--dim); }
+  .hidden { display: none !important; }
+  .kanban.k4 { grid-template-columns: minmax(0,1.3fr) repeat(3, minmax(0,1fr)); }
+  .col.inc { border-color: rgba(143,178,247,.45); background: rgba(143,178,247,.05); }
+  .prop { border: 1px dashed rgba(185,165,255,.6); border-radius: 6px; padding: .3rem .45rem; margin-top: .35rem; font-size: .76rem; color: var(--purple-l); }
+  .menu { position: absolute; right: 0; top: 100%; z-index: 4; min-width: 230px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--panel); padding: .25rem; box-shadow: 0 8px 24px rgba(0,0,0,.5); }
+  .menu div { padding: .3rem .5rem; border-radius: 5px; font-size: .8rem; cursor: pointer; } .menu div:hover { background: rgba(255,255,255,.06); }
+  .menu .faint { cursor: default; }
+  .scr { display: flex; gap: .3rem; flex-wrap: wrap; margin-bottom: .5rem; }
+  .scr span { border: 1px solid var(--border-strong); border-radius: 16px; padding: .2rem .75rem; cursor: pointer; font-size: .82rem; color: var(--dim); background: var(--panel); }
+  .scr span.on { border-color: var(--amber); color: var(--amber); }
+  #v-all tbody tr[data-to] { cursor: pointer; } #v-all tbody tr[data-to]:hover td { background: rgba(255,255,255,.04); }
+  .tabs span[data-to] { cursor: pointer; }
+  .wi { display: inline-flex; gap: .3rem; align-items: center; border: 1px solid rgba(143,178,247,.45); border-radius: 6px; padding: 0 .4rem; font-size: .78rem; background: rgba(143,178,247,.07); cursor: pointer; }
+  .strip { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; border: 1px solid rgba(143,178,247,.35); background: rgba(143,178,247,.06); border-radius: 8px; padding: .35rem .6rem; font-size: .8rem; margin: .4rem 0; }
+  .kanban { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: .6rem; }
+  .col { border: 1px solid var(--border); border-radius: 8px; padding: .5rem; background: rgba(0,0,0,.15); }
+  .col h6 { margin: 0 0 .4rem; font-size: .74rem; color: var(--dim); text-transform: uppercase; letter-spacing: .04em; font-weight: 500; }
+  .kc { border: 1px solid var(--border-strong); border-radius: 7px; padding: .4rem .5rem; margin-bottom: .4rem; background: var(--panel2); font-size: .8rem; }
+  .act { border-left: 2px solid var(--border-strong); padding: .2rem .6rem; margin: .35rem 0; font-size: .8rem; }
+  .act.az { border-left-color: var(--blue); }
+  .step { display: flex; gap: .5rem; align-items: flex-start; padding: .35rem 0; border-bottom: 1px solid var(--border); }
+  .pp { display: inline-flex; align-items: center; gap: .3rem; border: 1px solid var(--border-strong); border-radius: 14px; padding: 0 .5rem 0 0; font-size: .78rem; background: var(--panel2); cursor: pointer; white-space: nowrap; margin: .1rem .15rem .1rem 0; }
+  .pp i { font-style: normal; font-size: .62rem; background: rgba(143,178,247,.25); color: var(--blue); border-radius: 50%; width: 1.35rem; height: 1.35rem; display: inline-flex; align-items: center; justify-content: center; }
+  .pp.me { border-color: rgba(111,211,138,.6); } .pp.me i { background: rgba(111,211,138,.25); color: var(--green); }
+  .metag { font-size: .6rem; background: var(--green); color: #102016; border-radius: 3px; padding: 0 .25rem; font-weight: 600; }
+  .pcard { position: absolute; z-index: 5; width: 330px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--panel); padding: .7rem .8rem; font-size: .8rem; box-shadow: 0 8px 24px rgba(0,0,0,.5); }
+  tr.grp td { color: var(--dim); font-size: .76rem; text-transform: uppercase; letter-spacing: .04em; padding-top: .7rem; border-bottom: 1px solid var(--border-strong); }
+  .ty.Meet { background: rgba(95,211,198,.15); color: #5fd3c6; } .ty.Other { background: rgba(255,255,255,.08); color: var(--dim); }
+  .stat { border: 1px solid var(--border-strong); border-radius: 14px; padding: .1rem .6rem; font-size: .76rem; }
+  .src { border: 1px solid rgba(143,178,247,.4); border-radius: 14px; padding: .1rem .6rem; font-size: .8rem; }
+  .badge-rec { color: var(--red); border: 1px solid rgba(240,122,122,.5); border-radius: 4px; padding: 0 .4rem; font-size: .7rem; }
+  .badge-p { color: var(--dim); border: 1px solid var(--border-strong); border-radius: 4px; padding: 0 .4rem; font-size: .7rem; }
+  .ba { display: flex; gap: .4rem; align-items: center; margin-bottom: .6rem; flex-wrap: wrap; }
+  .ba span[data-ba] { border: 1px solid var(--border-strong); border-radius: 6px; padding: .2rem .8rem; cursor: pointer; font-size: .84rem; color: var(--dim); }
+  .ba span[data-ba].on { background: var(--purple); border-color: var(--purple); color: #fff; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: .8rem; }
+  .card { border: 1px solid var(--border); border-radius: 8px; padding: .5rem .7rem; background: var(--panel2); font-size: .82rem; }
+  .card .row + .row { margin-top: .25rem; }
+  @media (max-width: 1100px) { .layout, .split, .grid2 { grid-template-columns: 1fr; } .ctl { position: static; } }
+</style>
+</head>
+<body>
+<h1>Team trackers and Alfred boards</h1>
+<p class="lead">Every screen of the change is in the row of buttons below; Before / After compares with today. Start at <b>Every decision</b>: each of the 62 decisions links to the screen that shows it. Cards and their Azure links are on <b>3 Board · Cards and Azure</b>; inside a board, its tabs (Cards, Cycles, Chat, Related items) switch screens too.</p>
+
+<div class="layout">
+<div>
+<div class="scr"><span data-scr="all">Every decision</span><span data-scr="team">1 Team search</span><span data-scr="board">2 Board · Related items</span><span data-scr="cards">3 Board · Cards and Azure</span><span data-scr="watch">4 Watch rules and hook</span><span data-scr="mcp">5 Chat and MCP</span><span data-scr="cycle">6 Session cycle page</span><span data-scr="cycles">7 Session cycles list</span><span data-scr="skills">8 Skills</span></div>
+<div class="ba">
+  <span data-ba="before">Before (today)</span><span data-ba="after" class="on">After</span>
+  <span class="small dim" id="ba-note">What changes: search live instead of fetching everything; a board holds many work items.</span>
+</div>
+<div class="app">
+  <div class="appbar">
+    <span>Live Calls</span><span>Session Cycles</span><span data-go="board">Board</span><span data-go="team" class="on">Team</span><span>Profiles</span><span>Settings</span>
+  </div>
+
+  <!-- ============================== TEAM TAB ============================== -->
+  <div class="body" id="v-team">
+    <div class="row">
+      <b>◆ azure</b><span class="dim small">Fake org · dev.azure.com/fake-org</span>
+      <span class="spacer"></span>
+      <span id="tok-live" class="small" style="color:var(--green)">● token live · Test User A · 7 h 12 min left</span>
+      <span id="tok-none" class="small hidden" style="color:var(--amber)">○ no token in memory</span>
+      <button class="btn sm" id="tok-btn">Forget token</button>
+    </div>
+
+    <div class="banner info small"><span><b>Upgraded:</b> Team data from the old fetch-everything cache was deleted (7,392 items, their history and the changes feed) and old board links were dropped - nothing is migrated. Link items again from a search.</span><button class="btn sm">Got it</button></div>
+    <div class="banner warn hidden" id="b-notoken">
+      <span>Searching needs your personal access token (Work Items: Read &amp; Write). Alfred keeps it in memory for 8 hours, never on disk; a restart forgets it. Claude's searches use it too while it is live.</span>
+      <input type="password" placeholder="Personal access token" style="width:220px"><button class="btn pri sm">Use token</button>
+    </div>
+
+    <div class="tabs">
+      <span class="on" data-tt="search">Search</span>
+      <span data-tt="teams">Teams</span>
+      <span data-tt="iter">Boards &amp; Iterations</span>
+    </div>
+
+    <!-- search -->
+    <div id="tt-search">
+      <div class="row">
+        <input id="q" value="refund timeout" style="flex:1;min-width:240px" placeholder="Words in the title, description, repro steps or comments; or an id">
+        <button class="btn pri" id="go">Search</button>
+      </div>
+      <div class="chips">
+        <span class="chip on">Open only <span class="x" title="Include closed and removed">✕</span></span>
+        <span class="chip">Type <b>Bug, PBI</b> <span class="x">✕</span></span>
+        <span class="chip">Team <b>Payments</b> <span class="x">✕</span></span>
+        <span class="chip">Iteration <b>@current</b> <span class="x">✕</span></span>
+        <span class="chip">Assigned <b>anyone</b></span>
+        <span class="chip" id="mine-chip" style="cursor:pointer">Mine ▾</span>
+        <span class="chip">Changed <b>last 30 days</b> <span class="x">✕</span></span>
+        <span class="chip">State <b>any open</b></span>
+        <span class="chip">Tags</span>
+        <span class="chip">Parent</span>
+        <span class="chip">Area</span>
+      </div>
+
+      <div class="drawer hidden" id="mine-box" style="margin:.2rem 0 .6rem">
+        <div class="row"><b>Mine</b> <span class="small dim">me = <span class="pp me " data-person="Test User A"><i>TA</i>Test User A <b class="metag">me</b></span> <span class="faint">(owner of the token you entered · change on any pill)</span></span></div>
+        <div class="chips">
+          <span class="chip on">Assigned to me <b>12</b></span><span class="chip on">Created by me <b>4</b></span><span class="chip on">Changed by me <b>9</b></span>
+          <span class="chip on">@mentioned in Azure <b>3</b></span><span class="chip on">I follow <b>5</b></span>
+          <span class="chip on">Boards whose items are mine <b>2</b></span><span class="chip on">Cards I own <b>6</b></span><span class="chip on">Cards that mention me <b>4</b></span>
+        </div>
+        <div class="small faint">The first five ask Azure live; the last three come from Alfred's boards. Claude gets the same with <code>team_search mine=true</code> and <code>board_search mine=true</code>.</div>
+      </div>
+      <div class="banner info hidden" id="b-wiql"><span>Azure's full-text search is off for this organisation: words are matched in titles only (WIQL <code>CONTAINS</code>).</span></div>
+      <div class="banner err hidden" id="b-err"><span>Azure DevOps answered 400 to wiql: TF51005: The query references a field that does not exist.</span></div>
+
+      <div class="split">
+        <div>
+          <div id="res">
+            <div class="banner info small" style="margin:0 0 .4rem"><span><b>Links survive every search.</b> The green board badges come from Alfred's own links (connection + id → board), matched to each live result - so 4521 shows <b>★ Refund flow</b> after /alfred-setup, on every new search, with no search result stored.</span></div>
+            <div class="row small dim" style="margin-bottom:.3rem"><span>83 open items · searched 2 s ago · full text</span><span class="spacer"></span><span>sorted by <select><option>last changed</option><option>id</option><option>priority</option></select></span></div>
+            <table>
+              <thead><tr><th>Id</th><th>Type</th><th>Title</th><th>State</th><th>Assigned</th><th>Iteration</th><th></th></tr></thead>
+              <tbody>
+                <tr class="click sel" data-item="4521"><td>4521</td><td><span class="ty Bug">Bug</span></td><td>Refund times out after 30 s on card payments<div class="small"><span class="on-board">★ Refund flow</span><span class="small" style="color:var(--amber)">Azure changed since the board's copy (rev 5 → 7)</span></div></td><td>Active</td><td><span class="pp me " data-person="Test User A"><i>TA</i>Test User A <b class="metag">me</b></span></td><td class="small dim">Sprint 42</td><td style="position:relative"><button class="btn sm" data-addmenu>Add ▾</button></td></tr>
+                <tr class="click" data-item="4630"><td>4630</td><td><span class="ty PBI">PBI</span></td><td>Refund to the original card<div class="small"><span class="on-board">Refund flow</span><span class="on-board">Sprint 42 triage</span></div></td><td>New</td><td><span class="pp " data-person="Test User B"><i>TB</i>Test User B</span></td><td class="small dim">Sprint 42</td><td style="position:relative"><button class="btn sm" data-addmenu>Add ▾</button></td></tr>
+                <tr class="click" data-item="4702"><td>4702</td><td><span class="ty Bug">Bug</span></td><td>Timeout banner shows the wrong text</td><td>Active</td><td class="faint">unassigned</td><td class="small dim">Sprint 42</td><td><button class="btn sm pri">Start board</button></td></tr>
+                <tr class="click" data-item="4711"><td>4711</td><td><span class="ty Task">Task</span></td><td>Raise refund gateway timeout to 60 s</td><td>Active</td><td>Test User A</td><td class="small dim">Sprint 42</td><td style="position:relative"><button class="btn sm" data-addmenu>Add ▾</button></td></tr>
+              </tbody>
+            </table>
+            <div class="pager"><span>1–50 of 83</span><span><button class="btn sm">◂ Prev</button> <button class="btn sm">Next ▸</button></span></div>
+          </div>
+          <div id="empty" class="hidden dim" style="padding:1.2rem .5rem">No open item matches. Try fewer filters, or switch off Open only.</div>
+        </div>
+
+        <!-- item drawer -->
+        <div class="drawer" id="drawer">
+          <div class="row"><span class="ty Bug">Bug</span><b>4521</b><span class="spacer"></span><a href="#" class="small" style="color:var(--blue)">Open in Azure ↗</a></div>
+          <h4>Refund times out after 30 s on card payments</h4>
+          <div class="kv">
+            <span>State</span><span><select id="state"><option>New</option><option selected>Active</option><option>Resolved</option><option>Closed</option></select> <button class="btn sm ok hidden" id="state-save">Move</button></span>
+            <span>Assigned</span><span><span class="pp me " data-person="Test User A"><i>TA</i>Test User A <b class="metag">me</b></span></span>
+            <span>Team / area</span><span>Payments · Odeysys\Payments</span>
+            <span>Iteration</span><span>Odeysys\Sprint 42</span>
+            <span>Changed</span><span>today 09:14 by Test User B · rev 7</span>
+            <span>Tags</span><span>refund, gateway</span>
+            <span>On boards</span><span><span class="on-board">★ Refund flow</span></span>
+          </div>
+          <div class="sec"><h5>Description</h5><div class="small">A card refund over 200 waits on the gateway and fails after 30 s. Repro: pay 250, refund from the order page.</div></div>
+          <div class="sec"><h5>Related</h5>
+            <div class="tree small">
+              <div>▲ Parent <span class="ty Feature">Feature</span> 4519 Refunds v2 · Active</div>
+              <div>▼ Child <span class="ty Task">Task</span> 4711 Raise refund gateway timeout · Active</div>
+              <div>↔ Related <span class="ty PBI">PBI</span> 4630 Refund to the original card · New</div>
+            </div>
+          </div>
+          <div class="sec"><h5>Comments (2) · history (7)</h5>
+            <div class="cm"><div class="who">Test User B · today 09:14</div>Seen again on the staging build 1.42.</div>
+            <div class="cm"><div class="who">Test User A · yesterday</div>Gateway logs show the call waiting on the bank.</div>
+            <textarea rows="2" style="width:100%;margin-top:.3rem" placeholder="Add a comment (goes to Azure as you)"></textarea>
+            <div class="row" style="margin-top:.3rem"><span class="small faint">Ends with "via Alfred: board Refund flow ↗"</span><span class="spacer"></span><button class="btn sm pri">Comment</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="pcard hidden" id="pcard">
+      <div class="row"><span class="pp me" style="font-size:.9rem"><i>TA</i>Test User A <b class="metag">me</b></span><span class="spacer"></span><span class="x faint" id="pclose" style="cursor:pointer">✕</span></div>
+      <div class="kv">
+        <span>Email</span><span>a@example.test</span>
+        <span>Azure id</span><span><code>0509158a-cca9-47ad-9b4e-0452ccb00a85</code></span>
+        <span>Connection</span><span>azure · Fake org</span>
+        <span>Teams</span><span>Payments · Checkout</span>
+        <span>Alfred projects</span><span>odeysys</span>
+        <span>Assigned in Azure</span><span><a href="#" style="color:var(--blue)">12 open items</a> (live)</span>
+        <span>On Alfred</span><span>owns 6 cards · mentioned on 4 · 2 boards</span>
+      </div>
+      <div class="row"><button class="btn sm">Search their items</button><button class="btn sm">Copy mention</button><button class="btn sm ok">✓ This is me</button><a href="#" class="small" style="color:var(--blue);margin-left:auto">Open in Azure ↗</a></div>
+      <div class="small faint" style="margin-top:.3rem">Me = the owner of the live token (Azure's connectionData), set automatically; "This is me" on another pill changes it for this browser and the MCP until the token changes.</div>
+    </div>
+
+    <div class="menu hidden" id="addmenu">
+      <div>＋ New card on board… <span class="faint small">pick board · kind from the type</span></div>
+      <div>🔗 Link to card… <span class="faint small">close matches first</span></div>
+      <div>⧉ Related items only <span class="faint small">no card</span></div>
+      <div>▶ Start board <span class="faint small">/alfred-setup</span></div>
+      <div class="faint small" style="border-top:1px solid var(--border);margin-top:.2rem">Each choice saves the item with its tree and one hop of links</div>
+    </div>
+
+    <!-- teams browser -->
+    <div id="tt-teams" class="hidden">
+      <p class="small dim">From the cached lists (refreshed when the tab opens). Members are person pills - hover or click one. Click a team to search its open items.</p>
+      <table>
+        <thead><tr><th>Team</th><th>Members</th><th>Alfred project</th><th></th></tr></thead>
+        <tbody>
+          <tr><td><b>Payments</b><div class="small dim">Odeysys\Payments</div></td><td><span class="pp me " data-person="Test User A"><i>TA</i>Test User A <b class="metag">me</b></span><span class="pp " data-person="Test User B"><i>TB</i>Test User B</span><span class="pp " data-person="Test User C"><i>TC</i>Test User C</span></td><td><select><option>odeysys</option></select></td><td><button class="btn sm">Search its items</button></td></tr>
+          <tr><td><b>Checkout</b><div class="small dim">Odeysys\Checkout</div></td><td><span class="pp " data-person="Test User B"><i>TB</i>Test User B</span><span class="pp " data-person="Test User D"><i>TD</i>Test User D</span></td><td><select><option>Not mapped</option></select></td><td><button class="btn sm">Search its items</button></td></tr>
+        </tbody>
+      </table>
+      <div class="banner err small" style="margin-top:.6rem"><span><b>Before:</b> members showed as raw Azure ids (0509158a-cca9-47ad-…) because people were never resolved to names.</span></div>
+    </div>
+
+    <!-- iterations browser -->
+    <div id="tt-iter" class="hidden">
+      <p class="small dim">Iterations per team. Click one to search the items in it.</p>
+      <table><thead><tr><th>Iteration</th><th>Team</th><th>Dates</th><th></th></tr></thead><tbody>
+        <tr><td>Sprint 42 <span class="small" style="color:var(--green)">current</span></td><td>Payments</td><td class="small dim">6 Oct – 19 Oct</td><td><button class="btn sm">Search its items</button></td></tr>
+        <tr><td>Sprint 43</td><td>Payments</td><td class="small dim">20 Oct – 2 Nov</td><td><button class="btn sm">Search its items</button></td></tr>
+      </tbody></table>
+    </div>
+  </div>
+
+  <!-- ============================== BOARD: RELATED ITEMS ============================== -->
+  <div class="body hidden" id="v-board">
+    <div class="row"><b>Refund flow</b><span class="dim small">board of odeysys · from azure/4521 ★</span><span class="spacer"></span><button class="btn sm">● Record a cycle</button></div>
+    <div class="tabs">
+      <span data-to="cards">Cards</span><span>Task</span><span data-to="cycles">Cycles <span class="count">2</span></span><span data-to="mcp">Chat</span><span class="on">Related items <span class="count">12</span></span>
+    </div>
+    <div class="card" style="margin:.4rem 0">
+      <div class="row small"><b>#35</b><span class="ty Bug">BUG</span><span>Refund over 200 times out</span><span class="spacer"></span><span class="dim">owner</span><span class="pp me " data-person="Test User A"><i>TA</i>Test User A <b class="metag">me</b></span></div>
+      <div class="small" style="margin-top:.3rem">Comment: <span class="pp " data-person="Test User B"><i>TB</i>Test User B</span> saw it on staging 1.42 - <span class="pp me " data-person="Test User A"><i>TA</i>Test User A <b class="metag">me</b></span> please re-test after the gateway change. <span class="faint">(stored as <code>@[person:azure/0509158a…|Test User A]</code>)</span></div>
+    </div>
+    <div class="note"><b>Everything belongs to the board:</b> cards, the task (brief, spec, requirements), the chat and the related items live here. A cycle only holds calls; the Cycles tab lists the cycles recorded for this board. The Task tab's brief and Acceptance items are seeded from the main item (its description, acceptance criteria, and its children as steps).</div>
+
+    <div class="banner warn hidden" id="bb-notoken"><span>No token in memory: showing the snapshots from the last fetch. Enter your token in the Team tab to fetch them again.</span></div>
+
+    <div class="row" style="margin-bottom:.5rem">
+      <input placeholder="Add by id or Azure URL, e.g. 4519 or https://dev.azure.com/…/_workitems/edit/4519" style="flex:1;min-width:280px"><button class="btn">Add</button>
+      <span class="small faint">The ★ main is saved in full; its tree is kept as references (id, type, title, state) and opened live on click</span>
+      <button class="btn">Find in Team ↗</button>
+      <button class="btn" id="refresh-all">↻ Refresh all</button>
+      <span class="small dim" id="fetched">fetched 40 s ago</span>
+    </div>
+    <div class="strip" style="border-color:rgba(242,181,82,.55);background:rgba(242,181,82,.06)">
+      <b style="color:var(--amber)">★ Main item</b>
+      <span class="wi"><span class="ty Bug">Bug</span> 4521 Refund times out after 30 s</span>
+      <span class="small dim">what this board is about · the first item linked or the one Start used · any type: Epic, Feature, User Story, Task, Bug, custom</span>
+      <span class="spacer"></span>
+      <select id="main-pick"><option value="bug">Bug 4521 (now)</option><option value="feature">Feature 4519 Refunds v2</option><option value="epic">Epic 4400 Payments reliability</option><option value="task">Task 4711 Raise timeout</option></select>
+    </div>
+    <div class="banner info small hidden" id="main-changed"><span>Main changed to <b id="main-name">Feature 4519 Refunds v2</b>: the tree re-roots on it - its ancestors as context, all its descendants as references (38 items); the new main is saved in full, the old one becomes a reference unless a card links it. The Task tab offers to re-seed the brief and Acceptance items from it.</span><button class="btn sm ok">Re-seed the Task tab</button><button class="btn sm">Keep the Task tab</button></div>
+    <div class="banner warn small"><span>The main's acceptance criteria changed in Azure (rev 6 → 7). Update the board's Acceptance items?</span><button class="btn sm">Show the change</button><button class="btn sm ok">Update</button><button class="btn sm">Keep mine</button></div>
+    <div class="row" style="margin:.3rem 0 .5rem">
+      <span class="ba" style="margin:0"><span data-rv="tree" class="on" style="border:1px solid var(--border-strong);border-radius:6px;padding:.15rem .7rem;cursor:pointer;font-size:.8rem">Tree</span><span data-rv="type" style="border:1px solid var(--border-strong);border-radius:6px;padding:.15rem .7rem;cursor:pointer;font-size:.8rem">By type</span></span>
+      <span class="chip">Open only</span><span class="chip">Changed since last look <b>2</b></span>
+      <span class="spacer"></span><span class="small dim">12 items · 2 full copies (★ main, card #35's item) · 10 references</span>
+    </div>
+
+    <div id="rv-tree">
+      <table>
+        <thead><tr><th>Item</th><th>State</th><th>Assigned</th><th>Iteration</th><th>Kept</th><th></th></tr></thead>
+        <tbody>
+          <tr class="grp"><td colspan="6">Tree of the main ★ 4521 - ancestors as context, every descendant saved</td></tr>
+          <tr><td><span class="ty Other">Epic</span> 4400 Payments reliability <a href="#" style="color:var(--blue)">↗</a> <span class="small faint">via 4521 · ancestor</span></td><td>Active</td><td>Test User C</td><td class="small dim">2026</td><td><span class="small faint">reference</span></td><td><button class="btn sm">☆ Make main</button></td></tr>
+          <tr><td style="padding-left:1.6rem">└ <span class="ty Feature">Feature</span> 4519 Refunds v2 <a href="#" style="color:var(--blue)">↗</a> <span class="small faint">via 4521 · parent</span></td><td>Active</td><td>Test User A</td><td class="small dim">Q4</td><td><span class="small faint">reference</span></td><td><button class="btn sm">☆ Make main</button></td></tr>
+          <tr><td style="padding-left:3rem">├ <span class="ty PBI">User Story</span> 4644 Refund receipt by email <a href="#" style="color:var(--blue)">↗</a> <span class="small faint">via 4521 · sibling, not in the tree</span></td><td>Active</td><td>Test User B</td><td class="small dim">Sprint 42</td><td class="small faint">-</td><td><button class="btn sm">+ Add</button></td></tr>
+          <tr style="background:rgba(139,92,246,.08)"><td style="padding-left:3rem">└ <span class="star">★</span> <span class="ty Bug">Bug</span> <b>4521</b> Refund times out after 30 s <a href="#" style="color:var(--blue)">↗</a></td><td>Resolved <span class="small" style="color:var(--amber)">was Active</span></td><td>Test User A</td><td class="small dim">Sprint 42</td><td><span class="small" style="color:var(--amber)">◆ full copy</span> <span class="small" style="color:var(--amber)">changed</span></td><td><button class="btn sm">What changed</button></td></tr>
+          <tr><td style="padding-left:4.4rem">├ <span class="ty Task">Task</span> 4711 Raise refund gateway timeout to 60 s <a href="#" style="color:var(--blue)">↗</a> <span class="small faint">child</span></td><td>Active</td><td>Test User A</td><td class="small dim">Sprint 42</td><td><span class="small faint">reference</span></td><td><button class="btn sm">☆ Make main</button></td></tr>
+          <tr><td style="padding-left:5.8rem">└ <span class="ty Task">Task</span> 4720 Load-test the new timeout <a href="#" style="color:var(--blue)">↗</a> <span class="small faint">grandchild</span></td><td>New</td><td>Test User C</td><td class="small dim">Sprint 43</td><td><span class="small faint">reference</span> <span class="small" style="color:var(--green)">new on sync</span></td><td></td></tr>
+          <tr><td style="padding-left:4.4rem">└ <span class="ty Task">Task</span> 4712 Add a refund timeout alert <a href="#" style="color:var(--blue)">↗</a> <span class="small faint">child</span></td><td>New</td><td>Test User A</td><td class="small dim">Sprint 43</td><td><span class="small faint">reference</span></td><td></td></tr>
+          <tr class="grp"><td colspan="6">Linked to 4521 (one hop, references)</td></tr>
+          <tr><td>↔ <span class="ty PBI">PBI</span> 4630 Refund to the original card <a href="#" style="color:var(--blue)">↗</a> <span class="small faint">Related</span></td><td>New</td><td>Test User B</td><td class="small dim">Sprint 42</td><td><span class="small faint">reference</span></td><td></td></tr>
+          <tr><td>⧉ <span class="ty Bug">Bug</span> 4702 Timeout banner shows the wrong text <a href="#" style="color:var(--blue)">↗</a> <span class="small faint">Duplicate · linked to card #35</span></td><td>Active</td><td class="faint">unassigned</td><td class="small dim">Sprint 42</td><td><span class="small" style="color:var(--amber)">◆ full copy</span></td><td></td></tr>
+          <tr><td>✓ <span class="ty Other">Test Case</span> 4740 Refund over 200 with a saved card <a href="#" style="color:var(--blue)">↗</a> <span class="small faint">Tested by</span></td><td>Design</td><td>Test User A</td><td class="small dim">Sprint 42</td><td><span class="small faint">reference</span></td><td></td></tr>
+          <tr class="grp"><td colspan="6">Left the tree</td></tr>
+          <tr><td><span class="ty Task">Task</span> 4705 Retry refunds on 504 <a href="#" style="color:var(--blue)">↗</a> <span class="small" style="color:var(--amber)">moved under 4800 on Oct 16 · kept until you unlink</span></td><td>Active</td><td>Test User D</td><td class="small dim">Sprint 42</td><td></td><td><button class="btn sm danger">Unlink</button></td></tr>
+          <tr class="grp"><td colspan="6">Added by you</td></tr>
+          <tr><td><span class="ty Meet">Meeting</span> 4730 Refund design review, 14 Oct <a href="#" style="color:var(--blue)">↗</a></td><td>Done</td><td>Test User B</td><td class="small dim">Sprint 42</td><td><span class="small faint">reference</span></td><td><button class="btn sm danger">Unlink</button></td></tr>
+        </tbody>
+      </table>
+      <p class="small faint">Saved in full: only the ★ main and the items linked to cards (fields, description, comments, requirements, history, attachments list, syncs). Every other item is a reference - id, type, title, state - refreshed on each sync, so the tree draws with no token live. Click any reference: Azure is asked live for the whole item and nothing is kept.</p>
+    </div>
+
+    <div class="drawer" id="live" style="margin:.5rem 0">
+      <div class="row"><span class="ty Task">Task</span><b>4711 Raise refund gateway timeout to 60 s</b><span class="spacer"></span><span class="small" style="color:var(--blue)">● fetched live from Azure just now · not kept</span><a href="#" class="small" style="color:var(--blue)">Open in Azure ↗</a></div>
+      <div class="kv"><span>State</span><span>Active</span><span>Assigned</span><span><span class="pp me"><i>TA</i>Test User A <b class="metag">me</b></span></span><span>Parent</span><span>4521 ★ Refund times out</span><span>Changed</span><span>today 08:40 · rev 3</span></div>
+      <div class="sec"><h5>Description</h5><div class="small">Raise the gateway client timeout from 30 s to 60 s and make it a setting.</div></div>
+      <div class="sec"><h5>Comments (1)</h5><div class="cm"><div class="who">Test User A · today</div>PR 812 open.</div></div>
+      <div class="row" style="margin-top:.4rem"><button class="btn sm">☆ Make main</button><button class="btn sm">Link to card…</button><button class="btn sm">New card</button><span class="small faint">With no token live: "Enter your token in the Team tab to open it".</span></div>
+    </div>
+
+    <table id="rv-type" class="hidden">
+      <thead><tr><th></th><th>Id</th><th>Type</th><th>Title</th><th>State</th><th>Assigned</th><th>Iteration</th><th>Fetched</th><th></th></tr></thead>
+      <tbody><tr class="grp"><td colspan="9">Features and epics <span class="count">1</span></td></tr><tr class="click"><td class="star"></td><td>4519</td><td><span class="ty Feature">Feature</span></td><td>Refunds v2 <a href="#" style="color:var(--blue)">↗</a> <span class="small faint">parent of 4521</span></td><td>Active</td><td>Test User A</td><td class="small dim">Q4</td><td class="small"><span class="dim">no change</span></td><td><button class="btn sm">☆ Star</button> <button class="btn sm danger">Unlink</button></td></tr><tr class="grp"><td colspan="9">User stories and backlog items <span class="count">2</span></td></tr><tr class="click"><td class="star"></td><td>4630</td><td><span class="ty PBI">PBI</span></td><td>Refund to the original card <a href="#" style="color:var(--blue)">↗</a></td><td>New</td><td>Test User B</td><td class="small dim">Sprint 42</td><td class="small"><span class="dim">no change</span></td><td><button class="btn sm">☆ Star</button> <button class="btn sm danger">Unlink</button></td></tr><tr class="click"><td class="star"></td><td>4644</td><td><span class="ty PBI">User Story</span></td><td>Refund receipt by email <a href="#" style="color:var(--blue)">↗</a></td><td>Active</td><td>Test User B</td><td class="small dim">Sprint 42</td><td class="small"><span class="dim">no change</span></td><td><button class="btn sm">☆ Star</button> <button class="btn sm danger">Unlink</button></td></tr><tr class="grp"><td colspan="9">Bugs <span class="count">2</span></td></tr><tr class="click"><td class="star">★</td><td>4521</td><td><span class="ty Bug">Bug</span></td><td>Refund times out after 30 s on card payments <a href="#" style="color:var(--blue)">↗</a></td><td>Resolved <span class="small" style="color:var(--amber)">was Active</span></td><td>Test User A</td><td class="small dim">Sprint 42</td><td class="small"><span style="color:var(--amber)">changed</span></td><td><button class="btn sm" data-diff>What changed</button> <button class="btn sm">↻</button></td></tr><tr class="click"><td class="star"></td><td>4702</td><td><span class="ty Bug">Bug</span></td><td>Timeout banner shows the wrong text <a href="#" style="color:var(--blue)">↗</a> <span class="small faint">related to 4521</span></td><td>Active</td><td><span class="faint">unassigned</span></td><td class="small dim">Sprint 42</td><td class="small"><span class="dim">no change</span></td><td><button class="btn sm">☆ Star</button> <button class="btn sm danger">Unlink</button></td></tr><tr class="grp"><td colspan="9">Tasks <span class="count">2</span></td></tr><tr class="click"><td class="star"></td><td>4711</td><td><span class="ty Task">Task</span></td><td>Raise refund gateway timeout to 60 s <a href="#" style="color:var(--blue)">↗</a> <span class="small faint">child of 4521</span></td><td>Active</td><td>Test User A</td><td class="small dim">Sprint 42</td><td class="small"><span class="dim">no change</span></td><td><button class="btn sm">☆ Star</button> <button class="btn sm danger">Unlink</button></td></tr><tr class="click"><td class="star"></td><td>4712</td><td><span class="ty Task">Task</span></td><td>Add a refund timeout alert <a href="#" style="color:var(--blue)">↗</a></td><td>New</td><td>Test User A</td><td class="small dim">Sprint 43</td><td class="small"><span class="dim">no change</span></td><td><button class="btn sm">☆ Star</button> <button class="btn sm danger">Unlink</button></td></tr><tr class="grp"><td colspan="9">Meetings <span class="count">1</span></td></tr><tr class="click"><td class="star"></td><td>4730</td><td><span class="ty Meet">Meeting</span></td><td>Refund design review, 14 Oct <a href="#" style="color:var(--blue)">↗</a> <span class="small faint">custom type</span></td><td>Done</td><td>Test User B</td><td class="small dim">Sprint 42</td><td class="small"><span class="dim">no change</span></td><td><button class="btn sm">☆ Star</button> <button class="btn sm danger">Unlink</button></td></tr><tr class="grp"><td colspan="9">Test cases and others <span class="count">1</span></td></tr><tr class="click"><td class="star"></td><td>4740</td><td><span class="ty Other">Test Case</span></td><td>Refund over 200 with a saved card <a href="#" style="color:var(--blue)">↗</a></td><td>Design</td><td>Test User A</td><td class="small dim">Sprint 42</td><td class="small"><span class="dim">no change</span></td><td><button class="btn sm">☆ Star</button> <button class="btn sm danger">Unlink</button></td></tr></tbody>
+    </table>
+    <p class="small faint">Grouped by the tracker's own type, custom types (Meeting, Spike, Risk…) included. Each row keeps connection, id, type, title, state, assignee, area, iteration, URL, rev and the snapshot of its last fetch - enough for you or Claude (<code>team_board_items</code>, <code>team_refresh_item</code>) to find it again and update it. Opening this tab fetches them again when a token is live, at most once a minute.</p>
+
+    <div class="split" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr);margin-top:.6rem">
+      <div class="drawer" id="saved">
+        <div class="row"><span class="star">★</span><span class="ty Bug">Bug</span><b>azure/4521</b><span class="spacer"></span><a href="#" class="small" style="color:var(--blue)">Open in Azure ↗</a></div>
+        <h4>Refund times out after 30 s on card payments</h4>
+        <div class="small dim">Saved with the link · rev 5 · linked by /alfred-setup on Oct 15 14:02 · last sync Oct 16 10:30</div>
+        <div class="kv">
+          <span>State</span><span>Active</span>
+          <span>Assigned</span><span>Test User A</span>
+          <span>Created by</span><span>Test User B · Oct 12</span>
+          <span>Area</span><span>Odeysys\Payments</span>
+          <span>Iteration</span><span>Odeysys\Sprint 42</span>
+          <span>Priority · severity</span><span>2 · 2 - High</span>
+          <span>Tags</span><span>refund, gateway</span>
+          <span>Custom fields</span><span>Customer: ACME · Release: 1.42</span>
+        </div>
+        <div class="sec"><h5>Description</h5><div class="small">A card refund over 200 waits on the gateway and fails after 30 s.</div></div>
+        <div class="sec"><h5>Repro steps</h5><div class="small">1. Pay 250 by card. 2. Refund from the order page. 3. Wait.</div></div>
+        <div class="sec"><h5>Acceptance criteria</h5><div class="small">A refund over 200 finishes or fails with a clear message within 60 s.</div></div>
+        <div class="sec"><h5>Comments (2)</h5>
+          <div class="cm"><div class="who">Test User A · Oct 14</div>Gateway logs show the call waiting on the bank.</div>
+          <div class="cm"><div class="who">Test User B · Oct 13</div>Happens only for saved cards?</div>
+        </div>
+        <div class="sec"><h5>Related (3) · attachments (2)</h5>
+          <div class="tree small"><div>▲ Parent 4519 Refunds v2</div><div>▼ Child 4711 Raise refund gateway timeout</div><div>↔ Related 4630 Refund to the original card</div><div>📎 gateway-log.txt (14 KB) · screenshot.png (210 KB) - on the board's files</div></div>
+        </div>
+        <div class="sec"><h5>Syncs</h5><div class="small dim">Oct 16 10:30 · 2 changes kept · Oct 15 14:02 · linked</div></div>
+      </div>
+
+      <div class="drawer" id="diff">
+        <div class="row"><b>Sync 4521</b><span class="spacer"></span><span class="small dim">saved rev 5 → Azure rev 7</span><button class="btn sm">↻ Sync now</button></div>
+        <table class="small" style="margin-top:.4rem">
+          <thead><tr><th>Field</th><th>Saved on the board</th><th>Azure now</th></tr></thead>
+          <tbody class="diff">
+            <tr><td>State</td><td><del>Active</del></td><td><ins>Resolved</ins> <span class="faint">Test User B, today 09:14</span></td></tr>
+            <tr><td>Repro steps</td><td>1. Pay 250 <del>by card</del>. 2. Refund …</td><td>1. Pay 250 <ins>with a saved card</ins>. 2. Refund …</td></tr>
+            <tr><td>Comments</td><td>2</td><td><ins>+1</ins> "Seen again on the staging build 1.42." <span class="faint">Test User B</span></td></tr>
+            <tr><td>Tags</td><td>refund, gateway</td><td>refund, gateway, <ins>saved-card</ins></td></tr>
+            <tr><td>Attachments</td><td>2</td><td><ins>+1</ins> staging-har.json (88 KB)</td></tr>
+            <tr><td>Children</td><td>4711, 4712</td><td>4711 <ins>(+ grandchild 4720, added as a reference)</ins>, 4712</td></tr>
+            <tr><td>Tree</td><td>4705 under 4519</td><td><del>4705</del> moved under 4800 - marked "left the tree"</td></tr>
+            <tr><td class="faint" colspan="3">Description, acceptance criteria, assignee, area, iteration, priority: unchanged</td></tr>
+          </tbody>
+        </table>
+        <div class="row" style="margin-top:.5rem"><button class="btn sm ok">Keep Azure's version</button><button class="btn sm">Fetch the new attachment</button><span class="spacer"></span><span class="small faint">Keeping replaces the board's copy; each sync is kept in the item's history</span></div>
+        <div class="note"><b>What is saved:</b> only the board's ★ main and items linked to cards, each as the whole item as Azure has it - every field (custom ones too), description, repro steps, acceptance criteria, comments, relations, the attachment list and each sync. A search result is never saved; linking is what saves it.</div>
+      </div>
+    </div>
+
+    <!-- Claude's proposed write -->
+    <div class="consent" id="consent">
+      <div class="row"><b style="color:var(--amber)">Claude asks to write to Azure</b><span class="spacer"></span><span class="small dim">from the board chat · 2 min ago</span></div>
+      <div class="small" style="margin-top:.3rem">Move <b>4521</b> from <b>Resolved</b> to <b>Active</b>, and add this comment:</div>
+      <pre>Re-tested on build 1.43: the refund still times out when the gateway waits more than 30 s (call #812, 30.4 s, HTTP 504).
+
+via Alfred: board Refund flow ↗</pre>
+      <div class="row"><button class="btn ok" id="approve">Approve and send</button><button class="btn">Edit</button><button class="btn danger" id="reject">Reject</button><span class="spacer"></span><span class="small faint">Sent as Test User A (the live token)</span></div>
+    </div>
+    <div class="banner ok hidden" id="sent"><span>Sent: 4521 is Active again, comment added. The row updates from Azure's answer.</span></div>
+  </div>
+
+<!-- ============================== BEFORE: TEAM TAB ============================== -->
+  <div class="body hidden" id="v-team-before">
+    <div class="row">
+      <b>◆ azure</b><span class="dim small">fetched 4 min ago by someone</span>
+      <span class="spacer"></span><button class="btn pri sm">↻ Refresh</button><button class="btn sm">Forget token</button>
+    </div>
+    <div class="small" style="color:var(--green);margin:.3rem 0">7392 items changed</div>
+    <div class="tabs"><span class="on">Work items</span><span>Boards &amp; Iterations</span><span>Teams</span><span>Changes <span class="count">6892</span></span></div>
+    <div class="row" style="margin-bottom:.5rem">
+      <input placeholder="Search titles or ids…" style="width:240px"><input placeholder="Type" style="width:110px"><input placeholder="State" style="width:110px"><input placeholder="Team" style="width:110px"><input placeholder="Assigned to" style="width:110px">
+      <span class="spacer"></span><span class="small dim">7392 work items</span>
+    </div>
+    <table><thead><tr><th>Id</th><th>Type</th><th>Title</th><th>State</th><th>Assigned</th><th>Team</th><th>Iteration</th><th>Changed</th></tr></thead><tbody>
+      <tr><td>4521</td><td><span class="ty Bug">Bug</span></td><td>Refund times out after 30 s on card payments</td><td>Active</td><td>Test User A</td><td>Payments</td><td class="small dim">Sprint 42</td><td class="small dim">today</td></tr>
+      <tr><td>4630</td><td><span class="ty PBI">PBI</span></td><td>Refund to the original card</td><td>New</td><td>Test User B</td><td>Payments</td><td class="small dim">Sprint 42</td><td class="small dim">yesterday</td></tr>
+      <tr><td class="faint" colspan="8">… 7,390 more rows, all copied into teamboards.db</td></tr>
+    </tbody></table>
+    <div class="note"><b>Today:</b> Refresh copies every open item of the scope into <code>teamboards.db</code> (fields, links, revisions, a change feed) and filters that copy. A first fetch reads thousands of items; Claude reads the copy with <code>team_items</code> / <code>team_changes</code>, never Azure. Nothing can be written back.</div>
+  </div>
+
+  <!-- ============================== BEFORE: BOARD ============================== -->
+  <div class="body hidden" id="v-board-before">
+    <div class="row"><b>Refund flow</b><span class="dim small">board of odeysys</span></div>
+    <div class="tabs"><span>Cards</span><span class="on">Task</span><span>Calls</span><span>Chat</span></div>
+    <div class="card" style="max-width:640px">
+      <div class="row"><span class="ty Bug">Bug</span><b>azure/4521</b><span>Refund times out after 30 s on card payments</span></div>
+      <div class="row small dim">Linked work item · snapshot at setup · <span style="color:var(--amber)">changed since setup</span> <button class="btn sm">See changes</button> <button class="btn sm">Fetch attachments</button> <button class="btn sm danger">Unlink</button></div>
+    </div>
+    <div class="note"><b>Today:</b> a board links to exactly one work item, shown on the Task tab. Its parent, children or related items cannot be added; a second item needs a second board.</div>
+  </div>
+
+<!-- ============================== SESSION CYCLE ============================== -->
+  <div class="body hidden" id="v-cycle-before">
+    <div class="row"><b style="font-size:1.05rem">hey board</b><span class="spacer"></span><span class="stat">0 calls</span><span class="stat" style="color:var(--green)">0 2xx/3xx</span><span class="stat" style="color:var(--amber)">0 4xx</span><span class="stat" style="color:var(--red)">0 errors/5xx</span></div>
+    <div class="small dim">Captured calls for this session cycle</div>
+    <div class="row" style="margin:.5rem 0"><input placeholder="Search URL, status, headers, body…" style="flex:1"><button class="btn">Waterfall</button><button class="btn">Nested</button><button class="btn">Flat</button><button class="btn">Filters ▾</button></div>
+    <div class="row small"><span class="faint">SHOW</span><span class="src">External</span><span class="src">odeysys IN SQL LOG RDS</span><span class="src">core-service IN</span></div>
+    <div class="tabs"><span class="on">Calls</span><span>Board</span><span>Task</span></div>
+    <div class="dim" style="padding:1.5rem;text-align:center">No calls logged yet — waiting for traffic through Alfred.</div>
+    <div class="note"><b>Today (wrong):</b> the cycle page still carries its own Board and Task tabs, as before specs/027 - so a cycle looks like the task, cards and briefs seem to belong to the recording, and nothing says which Alfred board it was recorded for.</div>
+  </div>
+  <div class="body hidden" id="v-cycle">
+    <div class="row"><b style="font-size:1.05rem">hey board</b><span class="spacer"></span><span class="stat">0 calls</span><span class="stat" style="color:var(--green)">0 2xx/3xx</span><span class="stat" style="color:var(--amber)">0 4xx</span><span class="stat" style="color:var(--red)">0 errors/5xx</span></div>
+    <div class="small dim">Captured calls for this session cycle</div>
+    <div class="row" style="margin:.5rem 0"><input placeholder="Search URL, status, headers, body…" style="flex:1"><button class="btn">Waterfall</button><button class="btn">Nested</button><button class="btn">Flat</button><button class="btn">Filters ▾</button></div>
+    <div class="row small"><span class="faint">SHOW</span><span class="src">External</span><span class="src">odeysys IN SQL LOG RDS</span><span class="src">core-service IN</span></div>
+    <div class="banner info"><span>Recorded for board <b>Refund flow</b> ↗ (odeysys) · also on <b>Sprint 42 triage</b> ↗</span><span class="spacer"></span><button class="btn sm">+ Add to a board</button></div>
+    <div class="dim" style="padding:1.5rem;text-align:center">No calls logged yet — waiting for traffic through Alfred.</div>
+    <div class="note"><b>After:</b> a cycle page shows calls only - no Board or Task tabs. The boards it belongs to are links at the top; cards, task, chat and related items are on the board. A cycle on no board says so and offers "Add to a board".</div>
+  </div>
+
+  <!-- ============================== CYCLES LIST ============================== -->
+  <div class="body hidden" id="v-cycles-before">
+    <div class="row"><input placeholder="Cycle name" style="width:220px"><button class="btn">Unassigned</button><button class="btn pri">+ New Cycle</button><button class="btn">Import calls</button></div>
+    <div class="row" style="margin:.6rem 0"><span class="dim">Group by</span><button class="btn pri sm">Board</button><button class="btn sm">None</button><span class="small faint">A cycle only stores calls; it relates to any number of boards (a board is the task).</span></div>
+    <div class="dim" style="padding:2rem;text-align:center">(empty)</div>
+    <div class="note"><b>Today (wrong):</b> grouping by board shows nothing when cycles are on no board - six cycles vanish. Recording a new cycle does not ask which board it is for.</div>
+  </div>
+  <div class="body hidden" id="v-cycles">
+    <div class="row"><input placeholder="Cycle name" style="width:220px"><select><option>for board: Refund flow</option><option>no board</option></select><button class="btn pri">+ New Cycle</button><button class="btn">Import calls</button></div>
+    <div class="row" style="margin:.6rem 0"><span class="dim">Group by</span><button class="btn pri sm">Board</button><button class="btn sm">None</button></div>
+    <table>
+      <thead><tr><th>Name</th><th>Status</th><th>Created</th><th></th></tr></thead>
+      <tbody>
+        <tr class="grp"><td colspan="4">Refund flow <span class="small faint">odeysys</span> <span class="count">2</span></td></tr>
+        <tr><td>hey board</td><td><span class="badge-rec">RECORDING</span></td><td class="small dim">Oct 17, 11:09</td><td><button class="btn sm">Pause</button> <button class="btn sm">Open</button></td></tr>
+        <tr><td>Re-test #44</td><td><span class="badge-p">PAUSED</span></td><td class="small dim">Oct 15, 14:40</td><td><button class="btn sm">Record</button> <button class="btn sm">Open</button></td></tr>
+        <tr class="grp"><td colspan="4">Not on a board <span class="count">4</span></td></tr>
+        <tr><td>Re-test #44</td><td><span class="badge-p">PAUSED</span></td><td class="small dim">Oct 15, 14:35</td><td><button class="btn sm">+ Add to a board</button></td></tr>
+        <tr><td>61813 Refunded Requests filters</td><td><span class="badge-p">PAUSED</span></td><td class="small dim">Oct 14, 17:45</td><td><button class="btn sm">+ Add to a board</button></td></tr>
+      </tbody>
+    </table>
+    <div class="note"><b>After:</b> every cycle shows, under each board it is on and under "Not on a board". A new cycle is made for a board (the current board by default).</div>
+  </div>
+
+<!-- ============================== BOARD: CARDS AND AZURE ============================== -->
+  <div class="body hidden" id="v-cards-before">
+    <div class="row"><b>Refund flow</b><span class="dim small">board of odeysys</span></div>
+    <div class="tabs"><span class="on">Cards</span><span>Task</span><span>Chat</span></div>
+    <div class="kc" style="max-width:520px"><b>#35</b> <span class="ty Bug">BUG</span> Refund over 200 times out<div class="small dim">No tie to Azure: the team's bug 4521 lives only in Azure; when #35 is verified you copy the result there by hand.</div></div>
+    <div class="note"><b>Today:</b> a card knows nothing of Azure. New Azure bugs never reach the board; a verified fix is never told to Azure.</div>
+  </div>
+
+  <div class="body hidden" id="v-cards">
+    <div class="row"><b>Refund flow</b><span class="dim small">board of odeysys</span><span class="spacer"></span><button class="btn sm" data-go2="watch">Watch rules (2)</button></div>
+    <div class="tabs"><span class="on">Cards</span><span>Task</span><span data-to="cycles">Cycles</span><span data-to="mcp">Chat</span><span data-to="board">Related items <span class="count">12</span></span></div>
+
+    <div class="kanban k4">
+      <div class="col inc"><h6>Incoming from Azure 3 · no card yet</h6>
+        <div class="kc" style="border-color:rgba(242,181,82,.55)">
+          <div class="small dim">from watch rule "Bugs in Payments" · Test User B · 08:52</div>
+          <div><span class="wi"><span class="ty Bug">Bug</span> 4790 Refund fails for split payments</span></div>
+          <div class="small" style="color:var(--amber);margin-top:.3rem">Looks like <b>#35</b> Refund over 200 times out (83 % similar)</div>
+          <div class="prop">✦ Claude proposes: <b>link to #35</b> - same gateway call (POST /api/refunds) and the same 30 s timeout in the repro. <button class="btn sm ok">Accept</button></div>
+          <div class="row" style="margin-top:.35rem"><button class="btn sm ok">Link to #35</button><button class="btn sm">Link to card…</button><button class="btn sm">New card</button><button class="btn sm">Ignore</button></div>
+        </div>
+        <div class="kc">
+          <div class="small dim">new child of 4521 (tree sync) · Test User C</div>
+          <div><span class="wi"><span class="ty Task">Task</span> 4720 Load-test the new timeout</span></div>
+          <div class="prop">✦ Claude proposes: <b>new TASK card</b> - no card covers load testing yet. <button class="btn sm ok">Accept</button></div>
+          <div class="row" style="margin-top:.35rem"><button class="btn sm">New card</button><button class="btn sm">Link to card…</button><button class="btn sm">Ignore</button></div>
+        </div>
+        <div class="kc">
+          <div class="small dim">hook ping · Test User D · 09:30</div>
+          <div><span class="wi"><span class="ty Bug">Bug</span> 4801 Refund mail has no order number</span></div>
+          <div class="row" style="margin-top:.35rem"><button class="btn sm">New card</button><button class="btn sm" id="pick-btn">Link to card…</button><button class="btn sm">Ignore</button></div>
+          <div class="drawer" id="picker" style="margin-top:.35rem;padding:.4rem .5rem">
+            <input placeholder="Search cards on this board, or #number" style="width:100%">
+            <div class="small faint" style="margin:.3rem 0 .2rem">Close matches first</div>
+            <div class="small" style="padding:.15rem 0"><b>#52</b> Wrong currency on refund mail <span class="faint">41 %</span> <button class="btn sm">Link</button></div>
+            <div class="small" style="padding:.15rem 0"><b>#47</b> Refund mail sent twice <span class="faint">22 %</span> <button class="btn sm">Link</button></div>
+            <div class="small faint" style="padding:.15rem 0">or a card on another board ▾</div>
+          </div>
+        </div>
+        <div class="small faint">Nothing becomes a card or a link until you choose. Ignored items stay out until they change in Azure. Claude proposes with <code>team_propose_card</code>; you accept.</div>
+      </div>
+      <div class="col"><h6>Inbox 1</h6>
+        <div class="kc">
+          <div class="row small"><span class="ty Task">TASK</span><b>#61</b><span class="dim">made from Azure 4720 · by you</span></div>
+          <div>Load-test the new timeout</div>
+          <div class="small"><span class="wi"><span class="ty Task">Task</span> 4720 </span></div>
+        </div>
+      </div>
+      <div class="col"><h6>In progress 1</h6>
+        <div class="kc" style="border-color:var(--purple-l)" id="k35">
+          <div class="row small"><span class="ty Bug">BUG</span><b>#35</b><span class="spacer"></span><span class="pp me"><i>TA</i>Test User A <b class="metag">me</b></span></div>
+          <div>Refund over 200 times out</div>
+          <div class="small" style="color:var(--blue)">◆ Azure 4521 · Resolved in Azure · changed</div>
+        </div>
+      </div>
+      <div class="col"><h6>Fixed 1</h6>
+        <div class="kc"><div class="row small"><span class="ty Bug">BUG</span><b>#52</b></div><div>Wrong currency on refund mail</div><div class="small faint">not linked · <a href="#" style="color:var(--blue)">Link to Azure…</a></div></div>
+      </div>
+    </div>
+
+    <!-- open card -->
+    <div class="drawer" style="margin-top:.7rem">
+      <div class="row"><span class="ty Bug">BUG</span><b>#35 Refund over 200 times out</b><span class="spacer"></span><span class="dim small">owner</span><span class="pp me"><i>TA</i>Test User A <b class="metag">me</b></span></div>
+      <div class="strip">
+        <b style="color:var(--blue)">◆ Linked in Azure</b>
+        <span class="wi"><span class="ty Bug">Bug</span> 4521 Refund times out after 30 s</span>
+        <span>Azure state <b>Resolved</b> by Test User B · 09:14</span>
+        <span style="color:var(--amber)">changed since your copy (rev 5 → 7)</span>
+        <span class="spacer"></span><button class="btn sm">↻ Sync</button><button class="btn sm">+ Link another item</button><button class="btn sm">Create in Azure</button>
+      </div>
+      <div class="banner warn small"><span>Resolved in Azure by Test User B. Move #35 to Fixed?</span><button class="btn sm ok">Move to Fixed</button><button class="btn sm">Not now</button></div>
+      <div class="sec"><h5>Description</h5>
+        <div class="small"><span class="wi"><span class="ty Bug">Bug</span> 4521 Refund times out after 30 s</span> A card refund over 200 waits on the gateway and fails after 30 s. Reported in Azure by <span class="pp"><i>TB</i>Test User B</span>.</div>
+        <div class="small faint" style="margin-top:.2rem">Click the pill: the item's full saved copy (fields, comments, tree, attachments) opens from Related items.</div>
+      </div>
+      <div class="sec"><h5>Activity</h5>
+        <div class="act az"><span class="small" style="color:var(--blue)">from Azure · Test User B · 09:14</span><br>Seen again on the staging build 1.42.</div>
+        <div class="act"><span class="small faint">Claude · Found · 10:02</span><br>The gateway call waits 30.4 s and the app gives up at 30 s (call #812).</div>
+        <div class="act"><span class="small faint">You · 10:20</span><br>Gateway timeout raised to 60 s, needs a re-test. <label class="small" style="margin-left:.5rem"><input type="checkbox"> Also post to Azure</label></div>
+      </div>
+    </div>
+
+    <!-- verified: prefilled Azure update, bundled -->
+    <div class="consent">
+      <div class="row"><b style="color:var(--amber)">Tell Azure</b><span class="small dim">#35 was verified · or Claude, asked in chat: "update the bug on Azure, attach the calls and comment what you found"</span></div>
+      <div class="step"><input type="checkbox" checked><div><b>Move 4521</b> Resolved → <select><option>Closed</option><option>Active</option></select> <span class="small faint">(states of the Bug type in this process)</span></div></div>
+      <div class="step"><input type="checkbox" checked><div style="flex:1"><b>Comment</b>
+        <pre>Verified in Alfred on build 1.43 (card #35, board Refund flow).
+Re-test: 6 refund calls over 200 - all 200 OK, 4.1-9.8 s, no ERROR lines.
+Before the fix: call #812 POST /api/refunds 504 after 30.4 s.
+Cause: gateway timeout 30 s; raised to 60 s (task 4711).
+
+Alfred card: https://alfred.example.test/board/refund-flow/35</pre></div></div>
+      <div class="step"><input type="checkbox" checked><div><b>Attach</b> refund-retest-calls.html <span class="small dim">(412 KB · 7 calls · redactions applied: 3 tokens, 2 card numbers masked)</span> <a href="#" class="small" style="color:var(--blue)">Preview</a> <label class="small" style="margin-left:.4rem;color:var(--red)"><input type="checkbox"> send unmasked</label></div></div>
+      <div class="step"><input type="checkbox" checked><div><b>Hyperlink</b> "Alfred card #35 · Refund flow" and tag <code>alfred</code> <span class="small faint">(already there - skipped)</span></div></div>
+      <div class="row" style="margin-top:.5rem"><button class="btn ok">Approve 3 steps</button><button class="btn">Edit</button><button class="btn danger">Reject</button><span class="spacer"></span><span class="small faint">Sent in order as Test User A; each step reports its result</span></div>
+    </div>
+
+    <div class="consent">
+      <div class="row"><b style="color:var(--amber)">Clean up Azure?</b><span class="small dim">you unlinked #41 from 4655 (or closed #41 as Not in this flow)</span></div>
+      <div class="step"><input type="checkbox" checked><div>Remove the hyperlink "Alfred card #41 · Refund flow" from 4655</div></div>
+      <div class="step"><input type="checkbox" checked><div>Remove the tag <code>alfred</code> <span class="small faint">(no other card links 4655)</span></div></div>
+      <div class="step"><input type="checkbox"><div>Comment: "Closed in Alfred as Not in this flow (card #41)."</div></div>
+      <div class="row" style="margin-top:.4rem"><button class="btn ok">Approve 2 steps</button><button class="btn">Skip</button></div>
+    </div>
+
+    <div class="consent">
+      <div class="row"><b style="color:var(--amber)">Link #52 to Azure 4655?</b><span class="small dim">Claude proposed it in chat; you can also link from the card yourself</span></div>
+      <div class="step"><input type="checkbox" checked><div>Link in Alfred (saves 4655 in full - it is linked to a card; its parents, children and links as references)</div></div>
+      <div class="step"><input type="checkbox" checked><div>In Azure: hyperlink to card #52, comment "Linked to Alfred card #52 on board Refund flow", tag <code>alfred</code></div></div>
+      <div class="row" style="margin-top:.4rem"><button class="btn ok">Approve 2 steps</button><button class="btn danger">Reject</button></div>
+    </div>
+
+    <!-- card to Azure: create -->
+    <div class="drawer" style="margin-top:.7rem">
+      <div class="row"><b>#52 → Azure</b><span class="spacer"></span><span class="ba" style="margin:0"><span data-ba2 class="on" style="border:1px solid var(--purple);background:var(--purple);color:#fff;border-radius:6px;padding:.1rem .6rem;font-size:.78rem">Create new</span><span style="border:1px solid var(--border-strong);border-radius:6px;padding:.1rem .6rem;font-size:.78rem">Link existing</span></span></div>
+      <div class="kv">
+        <span>Type</span><span><select><option>Bug</option><option>Task</option></select></span>
+        <span>Title</span><span><input value="Wrong currency on refund mail" style="width:100%"></span>
+        <span>Area · iteration</span><span><select><option>Odeysys\Payments</option></select> <select><option>@current · Sprint 42</option></select></span>
+        <span>Assign to</span><span><span class="pp me"><i>TA</i>Test User A <b class="metag">me</b></span></span>
+        <span>Repro / description</span><span class="small dim">From the card's description and its calls (summary, redacted)</span>
+      </div>
+      <div class="row"><button class="btn pri sm">Create and link</button><span class="small faint">Writes: new Bug, hyperlink to #52, comment, tag alfred - shown for your approval first</span></div>
+    </div>
+  </div>
+
+  <!-- ============================== MCP / CHAT ============================== -->
+  <div class="body hidden" id="v-mcp">
+    <div class="row"><b>Board chat · Refund flow</b><span class="dim small">answered by the project's live runner</span></div>
+    <div class="act"><span class="small faint">You · 10:40</span><br>what's on me this sprint? then update 4521 on Azure: attach the re-test calls as html and comment what you found</div>
+    <div class="act"><span class="small faint">Claude · 10:41</span><br>On you (<span class="pp me"><i>TA</i>Test User A <b class="metag">me</b></span>): 12 Azure items assigned, 4 created, 9 changed, 3 mention you, 5 you follow; 2 boards whose items are yours, 6 cards you own, 4 that mention you.
+      <div class="small faint" style="margin-top:.2rem">team_search mine=true iteration=@current · board_search mine=true</div>
+      I prepared the Azure update for 4521 - it waits for your approval below.</div>
+    <div class="consent"><div class="row"><b style="color:var(--amber)">Claude asks to write to Azure</b><span class="small dim">one card, 3 steps: move to Closed · comment · attach refund-retest-calls.html (redacted)</span><span class="spacer"></span><button class="btn sm ok">Review</button></div></div>
+
+    <h4 style="margin:1rem 0 .3rem;font-weight:500">MCP tools</h4>
+    <table>
+      <thead><tr><th>Tool</th><th>Does</th><th>Approval</th></tr></thead>
+      <tbody>
+        <tr><td><code>team_search</code></td><td>Live search with every Team filter, text, paging, <code>mine=true</code> (the eight sources)</td><td class="small dim">read</td></tr>
+        <tr><td><code>team_query</code></td><td>Raw WIQL, SELECT only</td><td class="small dim">read</td></tr>
+        <tr><td><code>team_item</code></td><td>Any item live - main, card-linked or a reference in the tree: every field, description, repro, acceptance, comments, history, relations, attachments list. <code>include=</code> picks parts. A reference is fetched and nothing is kept; for a full copy it also returns the saved copy and the diff</td><td class="small dim">read</td></tr>
+        <tr><td><code>team_tree</code></td><td>The tree of a board's main (or of any item): ancestors, descendants, one hop of links, as references; <code>expand=</code> ids or types (e.g. all Bugs) are fetched live in full in the same call; <code>depth=</code>, <code>types=</code>, <code>state=</code> filters</td><td class="small dim">read</td></tr>
+        <tr><td><code>team_items_live</code></td><td>Many items live in one call (up to 200 ids), same parts as team_item - for reading a whole tree's bugs or tasks at once</td><td class="small dim">read</td></tr>
+        <tr><td><code>team_attachment</code></td><td>One attachment's content, fetched live (size-capped), for Claude to read logs or screenshots</td><td class="small dim">read</td></tr>
+        <tr><td><code>team_people</code></td><td>Person pills: name, email, id, teams, projects; who "me" is</td><td class="small dim">read</td></tr>
+        <tr><td><code>team_board_items</code></td><td>A board's related items: the main and card-linked items with their saved copies, the rest as references (tree or by type)</td><td class="small dim">read</td></tr>
+        <tr><td><code>team_card_items</code></td><td>The Azure items linked to a card</td><td class="small dim">read</td></tr>
+        <tr><td><code>team_refresh_item</code></td><td>Sync one item (and its tree) and return the diff</td><td class="small dim">read (updates the saved copy)</td></tr>
+        <tr><td><code>team_board_link</code> / <code>team_board_unlink</code></td><td>Add an item (with its tree and one hop) to a board, or drop it</td><td style="color:var(--amber)">consent card; askedIn</td></tr>
+        <tr><td><code>team_propose_card</code></td><td>Propose for an Azure item: new card, or link to card #n (or an existing card to an Azure item), with a reason; shown on the Incoming entry and in chat</td><td style="color:var(--amber)">you accept</td></tr>
+        <tr><td><code>team_incoming</code></td><td>The Incoming lane: Azure items waiting for New card / Link / Ignore</td><td class="small dim">read</td></tr>
+        <tr><td><code>team_link_card</code> / <code>team_unlink_card</code></td><td>Link a card to an Azure item, with the Azure markers</td><td style="color:var(--amber)">consent card</td></tr>
+        <tr><td><code>team_create_item</code></td><td>Create a Bug or Task in Azure from a card</td><td style="color:var(--amber)">consent card</td></tr>
+        <tr><td><code>team_comment</code> / <code>team_move_state</code></td><td>Comment (with attachments, redacted) or move the state of an item</td><td style="color:var(--amber)">consent card, one per bundle</td></tr>
+        <tr><td><code>team_watch_rules</code> / <code>team_watch_run</code></td><td>List or run a board's watch rules; new matches become Inbox cards</td><td class="small dim">read / Inbox cards</td></tr>
+        <tr><td><code>team_start</code> / <code>team_link</code></td><td>Start a board from an item (/alfred-setup) - kept</td><td style="color:var(--amber)">askedIn, as today</td></tr>
+      </tbody>
+    </table>
+    <p class="small faint">Removed: <code>team_items</code>, <code>team_changes</code>, <code>team_squads</code> (they read the old cache). Searches use the token in memory; with none live they say "enter your token in the Team tab". The /alfred-* skills are updated with the tool names.</p>
+  </div>
+
+  <!-- ============================== EVERY DECISION ============================== -->
+  <div class="body hidden" id="v-all">
+    <div class="row"><b>Every decision, and where the mock shows it</b><span class="spacer"></span><span class="small dim">62 decisions</span></div>
+    <table style="margin-top:.5rem"><thead><tr><th>Decision</th><th>Screen</th></tr></thead><tbody><tr class="grp"><td colspan="2">Search <span class="count">10</span></td></tr><tr data-to="team"><td>Live search, nothing from a search is stored</td><td class="small dim">team →</td></tr><tr data-to="team"><td>Search on button press, 50 per page, sort</td><td class="small dim">team →</td></tr><tr data-to="team"><td>Filters: text, type, state, team/area, iteration @current, assigned, changed within, tags, parent; Open only by default</td><td class="small dim">team →</td></tr><tr data-to="team"><td>Full-text search, WIQL CONTAINS fallback when it is off</td><td class="small dim">team · Search result: Full-text off →</td></tr><tr data-to="team"><td>Azure errors show the call and Azure's reason</td><td class="small dim">team · Search result: Azure refused →</td></tr><tr data-to="team"><td>Only filter lists cached (teams, iterations, types/states, people)</td><td class="small dim">team · Teams / Boards & Iterations →</td></tr><tr data-to="team"><td>Teams and Iterations stay as browsers; click runs a search</td><td class="small dim">team · Teams / Boards & Iterations →</td></tr><tr data-to="team"><td>Board links on every result, from Alfred's links</td><td class="small dim">team →</td></tr><tr data-to="team"><td>Upgrade deletes the old cache and old links; nothing migrated</td><td class="small dim">team →</td></tr><tr data-to="team"><td>Removed: Changes tab, refresh suggestions, reconcile</td><td class="small dim">team · Before vs After →</td></tr><tr class="grp"><td colspan="2">Token <span class="count">3</span></td></tr><tr data-to="team"><td>Token in backend memory, 8 h, one per connection, never on disk or logs</td><td class="small dim">team · Token →</td></tr><tr data-to="team"><td>Its owner is shown; restart or Forget clears it</td><td class="small dim">team · Token →</td></tr><tr data-to="mcp"><td>MCP uses the live token; none live = asks you to enter it</td><td class="small dim">mcp →</td></tr><tr class="grp"><td colspan="2">Board and related items <span class="count">16</span></td></tr><tr data-to="board"><td>Related items is the last board tab</td><td class="small dim">board →</td></tr><tr data-to="board"><td>Many items per board, one ★; an item on several boards</td><td class="small dim">board · team →</td></tr><tr data-to="board"><td>Tree view and By type view; custom types (Meeting) included</td><td class="small dim">board →</td></tr><tr data-to="board"><td>Tree: all ancestors and descendants of the main plus one hop of other links, kept as references (id, type, title, state)</td><td class="small dim">board →</td></tr><tr data-to="board"><td>Sync follows the tree: new children added, moved ones "left the tree"</td><td class="small dim">board →</td></tr><tr data-to="board"><td>Full copy of the main and of card-linked items: all fields, description, repro, acceptance, comments, relations, attachments, sync history</td><td class="small dim">board →</td></tr><tr data-to="board"><td>Sync diff field by field; keep Azure's version</td><td class="small dim">board →</td></tr><tr data-to="board"><td>Refetch on opening the tab (once a minute) and Refresh</td><td class="small dim">board →</td></tr><tr data-to="board"><td>Add by id or URL; Find in Team</td><td class="small dim">board →</td></tr><tr data-to="board"><td>Unlinking ★ asks about the items it brought</td><td class="small dim">board →</td></tr><tr data-to="watch"><td>No saved searches on boards (watch rules instead)</td><td class="small dim">watch →</td></tr><tr data-to="board"><td>A main item (★) of any type - Epic, Feature, User Story, Task, Bug, custom - is what the board is about; there is always one once an item is linked (the first linked, or Start's)</td><td class="small dim">board →</td></tr><tr data-to="board"><td>You change the main from its row; the tree re-roots on it</td><td class="small dim">board →</td></tr><tr data-to="board"><td>Only the main and card-linked items are saved in full; clicking a reference fetches it live and keeps nothing</td><td class="small dim">board →</td></tr><tr data-to="mcp"><td>The MCP reads any item live too - references included: team_item, team_tree (expand nodes live), team_items_live (many at once), team_attachment</td><td class="small dim">mcp →</td></tr><tr data-to="board"><td>The main seeds the Task tab (brief, Acceptance items); a change in Azure offers an update, never silent</td><td class="small dim">board →</td></tr><tr class="grp"><td colspan="2">Cycles <span class="count">3</span></td></tr><tr data-to="cycle"><td>A cycle page shows calls only; its boards are links; Add to a board</td><td class="small dim">cycle →</td></tr><tr data-to="cycles"><td>Cycles list groups by board plus "Not on a board"; a new cycle is for a board</td><td class="small dim">cycles →</td></tr><tr data-to="board"><td>Board has a Cycles tab</td><td class="small dim">board →</td></tr><tr class="grp"><td colspan="2">People <span class="count">6</span></td></tr><tr data-to="team"><td>Members as person pills (no raw ids)</td><td class="small dim">team · Teams →</td></tr><tr data-to="team"><td>Hover card: name, email, id, teams, projects, items, boards</td><td class="small dim">team · Teams (click a pill) →</td></tr><tr data-to="team"><td>Me = token owner, automatic; "This is me" overrides for the browser and the MCP</td><td class="small dim">team · Teams (click a pill) →</td></tr><tr data-to="board"><td>@person mentions everywhere, stored as @[person:azure/id|Name]</td><td class="small dim">board →</td></tr><tr data-to="board"><td>Card owner field</td><td class="small dim">board · cards →</td></tr><tr data-to="team"><td>Mine: assigned, created, changed, @mentioned in Azure, followed, boards whose items are mine, cards I own, cards that mention me</td><td class="small dim">team · Mine chip · mcp →</td></tr><tr class="grp"><td colspan="2">Cards and Azure <span class="count">19</span></td></tr><tr data-to="cards"><td>Cards and items link many to many</td><td class="small dim">cards →</td></tr><tr data-to="cards"><td>Pill in the description and a Linked in Azure strip; the pill opens the saved copy</td><td class="small dim">cards →</td></tr><tr data-to="cards"><td>Link an existing item or create one in Azure from a card</td><td class="small dim">cards →</td></tr><tr data-to="cards"><td>Azure markers on approval: hyperlink, comment, tag alfred</td><td class="small dim">cards →</td></tr><tr data-to="watch"><td>Public Alfred address setting for the hyperlink</td><td class="small dim">watch →</td></tr><tr data-to="cards"><td>New items arrive by tree sync, watch rules, the hook, by hand and the MCP</td><td class="small dim">cards · watch · mcp →</td></tr><tr data-to="watch"><td>Signed hook route; ids wait while no token is live</td><td class="small dim">watch →</td></tr><tr data-to="watch"><td>Type to card kind mapping; Features and Epics stay in Related items</td><td class="small dim">watch →</td></tr><tr data-to="cards"><td>Arrivals wait in "Incoming from Azure" (no card yet): New card, Link to card… (close matches first), Ignore</td><td class="small dim">cards →</td></tr><tr data-to="cards"><td>Claude proposes New card or Link to #n with a reason (team_propose_card); you accept</td><td class="small dim">cards · mcp →</td></tr><tr data-to="team"><td>Search rows: Add ▾ New card on board, Link to card, Related items only, Start board</td><td class="small dim">team →</td></tr><tr data-to="cards"><td>Close match asks "Link to #35 or a new card"</td><td class="small dim">cards →</td></tr><tr data-to="cards"><td>Azure comments show on the card; yours go out with "Also post to Azure"</td><td class="small dim">cards →</td></tr><tr data-to="cards"><td>Closed or reopened in Azure: badge and a proposal</td><td class="small dim">cards →</td></tr><tr data-to="cards"><td>Verified: prefilled state move and evidence comment for your approval</td><td class="small dim">cards →</td></tr><tr data-to="cards"><td>One consent card per bundle, a tick per step; exports redacted, unmasked only by your tick</td><td class="small dim">cards · mcp →</td></tr><tr data-to="cards"><td>Unlink or close as Not in this flow: propose cleaning up Azure</td><td class="small dim">cards →</td></tr><tr data-to="team"><td>Your own comments and moves in the Team tab go straight to Azure</td><td class="small dim">team (item drawer) →</td></tr><tr data-to="team"><td>Comments end with "via Alfred: board …"</td><td class="small dim">team (item drawer) →</td></tr><tr class="grp"><td colspan="2">Skills <span class="count">3</span></td></tr><tr data-to="skills"><td>Every /alfred-* skill and the shared rules updated for live reads, the main item, references, Incoming, card links and Tell Azure</td><td class="small dim">skills →</td></tr><tr data-to="skills"><td>A new /alfred-team skill for the tracker side (search, link, Incoming, sync, Tell Azure, watch rules)</td><td class="small dim">skills →</td></tr><tr data-to="skills"><td>Skills change in the same change as the tools (the skill test checks every tool name)</td><td class="small dim">skills →</td></tr><tr class="grp"><td colspan="2">Kept <span class="count">2</span></td></tr><tr data-to="team"><td>Start a board from an item (/alfred-setup) and the sprint/squad/area mappings</td><td class="small dim">team (Start board) · Teams (project) →</td></tr><tr><td>The board .json export carries the related items, their saved copies and card links</td><td class="small dim">-</td></tr></tbody></table>
+  </div>
+
+  <!-- ============================== SKILLS ============================== -->
+  <div class="body hidden" id="v-skills">
+    <div class="row"><b>The /alfred-* skills after this change</b><span class="spacer"></span><span class="small dim">16 updated · 1 new</span></div>
+    <table style="margin-top:.5rem"><thead><tr><th>Skill</th><th>What changes</th></tr></thead><tbody><tr><td style="white-space:nowrap"><code>_shared/rules.md</code><div class="small faint">all skills</div></td><td><ul style="margin:0;padding-left:1.1rem"><li class="small" style="margin:.1rem 0">Token: Alfred holds it in memory; Claude never sees or asks for it. A team_* read with no live token: tell the user "enter your token in the Team tab", never guess from old data.</li><li class="small" style="margin:.1rem 0">Work items are read live (team_search, team_item, team_tree, team_items_live); the old cache tools (team_items, team_changes, team_squads) are gone.</li><li class="small" style="margin:.1rem 0">Full copy vs reference: the board's ★ main and card-linked items have saved copies and diffs; every other item is a reference - read it live, quote nothing from memory.</li><li class="small" style="margin:.1rem 0">Every Azure write (comment, state, create, link, tag, attachment) is a proposal in one consent card; say what is in it and that it waits for the user. Never write bodies, headers, SQL values or log lines into Azure; exports go redacted.</li><li class="small" style="margin:.1rem 0">Person mentions @[person:azure/<id>|Name]; "me" is the person Alfred reports (team_people), never a guess from a name.</li><li class="small" style="margin:.1rem 0">Azure arrivals are proposals too: team_propose_card (New card or Link to #n, with a reason); nothing is created or linked until the user accepts.</li></ul></td></tr><tr><td style="white-space:nowrap"><code>/alfred-setup</code><div class="small faint">start a task</div></td><td><ul style="margin:0;padding-left:1.1rem"><li class="small" style="margin:.1rem 0">From "AB#4521", a Team search row (Start board) or a pasted Azure URL: team_item live, then team_tree of it.</li><li class="small" style="margin:.1rem 0">The started item becomes the ★ main; the brief and Acceptance items are seeded from it (description, acceptance criteria, children as steps).</li><li class="small" style="margin:.1rem 0">Links the main with team_board_link (askedIn); its tree stays as references. Offers watch rules ("new bugs under this item", "bugs in this area") as a proposal.</li><li class="small" style="margin:.1rem 0">The first cycle is recorded for this board; the cycle page shows calls only.</li></ul></td></tr><tr><td style="white-space:nowrap"><code>/alfred-triage</code><div class="small faint">sort the Inbox</div></td><td><ul style="margin:0;padding-left:1.1rem"><li class="small" style="margin:.1rem 0">Sorts the Incoming from Azure lane first: per item, team_item live + board_similar, then team_propose_card - Link to #n (with the matching call or line) or New card (kind from the type mapping) or Ignore.</li><li class="small" style="margin:.1rem 0">Then the Inbox as today; a card that matches an open Azure bug gets a proposal to link it (team_link_card, consent).</li></ul></td></tr><tr><td style="white-space:nowrap"><code>/alfred-fix</code><div class="small faint">fix cards</div></td><td><ul style="margin:0;padding-left:1.1rem"><li class="small" style="margin:.1rem 0">Reads the card's Azure items (team_card_items, team_item) - repro, acceptance, Azure comments - before the plan.</li><li class="small" style="margin:.1rem 0">May propose "Also post to Azure" for its Did/Found comment; never moves the Azure state (that follows Verified).</li></ul></td></tr><tr><td style="white-space:nowrap"><code>/alfred-verify</code><div class="small faint">verify fixes</div></td><td><ul style="margin:0;padding-left:1.1rem"><li class="small" style="margin:.1rem 0">For each card it marks ready, prepares the Tell Azure bundle: state move (per the item's process), evidence comment (call summary, card link), the re-test calls as a redacted .html - one consent card per Azure item.</li><li class="small" style="margin:.1rem 0">A card whose Azure item was closed by someone else: reports it and proposes the card move instead.</li></ul></td></tr><tr><td style="white-space:nowrap"><code>/alfred-sync</code><div class="small faint">catch up</div></td><td><ul style="margin:0;padding-left:1.1rem"><li class="small" style="margin:.1rem 0">Also catches up with Azure: team_refresh_item on the main and every card-linked item, reports each diff (state, text, comments, tree), proposes card moves for Azure closes/reopens and a brief update when the main's text changed.</li></ul></td></tr><tr><td style="white-space:nowrap"><code>/alfred-status</code><div class="small faint">where things stand</div></td><td><ul style="margin:0;padding-left:1.1rem"><li class="small" style="margin:.1rem 0">Adds: Incoming from Azure (count, oldest), consent cards waiting on the user, Azure changes on the main and card items since the last look, and "on you" (team_search mine + board_search mine).</li></ul></td></tr><tr><td style="white-space:nowrap"><code>/alfred-live</code><div class="small faint">board chat</div></td><td><ul style="margin:0;padding-left:1.1rem"><li class="small" style="margin:.1rem 0">Handles chat asks about Azure: "what's on me", "find the bugs in Payments", "update the bug on Azure with what you found" - reads live, writes only as one bundled consent card.</li></ul></td></tr><tr><td style="white-space:nowrap"><code>/alfred-listen and /alfred-review</code><div class="small faint">check calls</div></td><td><ul style="margin:0;padding-left:1.1rem"><li class="small" style="margin:.1rem 0">A finding that matches an open Azure bug (team_search by endpoint, error text): propose linking the new card to it; a finding with no Azure item: propose Create in Azure only when the user asks for Azure tracking on this board.</li></ul></td></tr><tr><td style="white-space:nowrap"><code>/alfred-spec</code><div class="small faint">brief and specs</div></td><td><ul style="margin:0;padding-left:1.1rem"><li class="small" style="margin:.1rem 0">Seeds or re-seeds Acceptance items from the main item; when the main's acceptance criteria change in Azure, shows before/after and waits.</li></ul></td></tr><tr><td style="white-space:nowrap"><code>/alfred-resume</code><div class="small faint">pick up a task</div></td><td><ul style="margin:0;padding-left:1.1rem"><li class="small" style="margin:.1rem 0">Loads the board's main item (saved copy + diff), its tree as references, and the card links, and says what changed in Azure since the last session.</li></ul></td></tr><tr><td style="white-space:nowrap"><code>/alfred-report</code><div class="small faint">summaries</div></td><td><ul style="margin:0;padding-left:1.1rem"><li class="small" style="margin:.1rem 0">Adds the Azure side per card (item, Azure state, what was sent) and can draft the report as a Tell Azure comment (consent).</li></ul></td></tr><tr><td style="white-space:nowrap"><code>/alfred-ask</code><div class="small faint">questions from the board</div></td><td><ul style="margin:0;padding-left:1.1rem"><li class="small" style="margin:.1rem 0">May read Azure items live (references too) to answer; never writes to Azure from an ask.</li></ul></td></tr><tr><td style="white-space:nowrap"><code>/alfred-guide</code><div class="small faint">teaching</div></td><td><ul style="margin:0;padding-left:1.1rem"><li class="small" style="margin:.1rem 0">Teaches the Team flow: token, search, Start, main item, Related items, Incoming, card links, Tell Azure, watch rules and the hook.</li></ul></td></tr><tr><td style="white-space:nowrap"><code>/alfred-team (new)</code><div class="small faint">suggested new skill</div></td><td><ul style="margin:0;padding-left:1.1rem"><li class="small" style="margin:.1rem 0">One skill for the tracker side when no board task is running: search (mine, by filters, by text), add to a board / link to a card / start, sort Incoming across boards, sync all main and card items, prepare Tell Azure bundles, set up watch rules and the hook. Uses only team_* and board_* tools; every write is a consent card.</li></ul></td></tr><tr><td style="white-space:nowrap"><code>/alfred-connect, /alfred-update-skills</code><div class="small faint">unchanged</div></td><td><ul style="margin:0;padding-left:1.1rem"><li class="small" style="margin:.1rem 0">Only the tool names they list change; the 17 skills ship and install as today (tests/python/test_alfred_skill.py checks every tool a skill names exists - skills change in the same change as the tools).</li></ul></td></tr></tbody></table>
+  </div>
+
+  <!-- ============================== WATCH RULES AND HOOK ============================== -->
+  <div class="body hidden" id="v-watch">
+    <div class="row"><b>Refund flow · watch rules</b><span class="dim small">board settings</span></div>
+    <table style="margin-top:.5rem">
+      <thead><tr><th>Rule</th><th>Matches</th><th>Becomes</th><th>Last run</th><th></th></tr></thead>
+      <tbody>
+        <tr><td>Bugs in Payments</td><td><span class="chip">Type <b>Bug</b></span> <span class="chip">Area <b>Odeysys\Payments</b></span> <span class="chip">Open only</span></td><td>Inbox card</td><td class="small dim">board opened · 10:31 · 1 new</td><td><button class="btn sm">Run now</button></td></tr>
+        <tr><td>Mine in this sprint</td><td><span class="chip">Assigned <b>me</b></span> <span class="chip">Iteration <b>@current</b></span> <span class="chip">Tag <b>refund</b></span></td><td>Inbox card</td><td class="small dim">hook ping · 09:14 · 0 new</td><td><button class="btn sm">Run now</button></td></tr>
+      </tbody>
+    </table>
+    <div class="row" style="margin:.4rem 0"><button class="btn sm">+ Rule from the current Team search</button></div>
+    <p class="small faint">Rules run when the board opens, on Refresh, on an Azure hook ping and from the MCP (<code>team_watch_run</code>). Each Azure item becomes a card once; a close match to an existing card asks "Link or new?" instead. New children and links found by a sync of the board's tree arrive the same way.</p>
+
+    <div class="drawer" style="margin-top:.6rem">
+      <b>Settings · Team · Azure hook and links</b>
+      <div class="kv">
+        <span>Public address</span><span><input value="https://alfred.example.test" style="width:60%"> <span class="small faint">used for the card links written into Azure; empty = comments only</span></span>
+        <span>Hook URL</span><span><code>https://alfred.example.test/teamboards/hooks/azure</code> <button class="btn sm">Copy</button></span>
+        <span>Hook secret</span><span><code>••••••••••••</code> <button class="btn sm">Show once</button> <button class="btn sm">Rotate</button></span>
+        <span>Last ping</span><span class="small">09:14 · work item updated · 4521 · fetched with the live token</span>
+        <span>Waiting ids</span><span class="small dim">none (ids wait here while no token is live)</span>
+        <span>Type → card kind</span><span class="small">Bug → BUG · Task, User Story, PBI → TASK · Issue, Impediment → QUESTION · others → NOTE · Feature, Epic → Related items only <button class="btn sm">Edit</button></span>
+      </div>
+      <div class="small faint">In Azure: Project settings → Service hooks → Web Hooks → "Work item created" and "Work item updated" → the hook URL, with the secret as a basic-auth password. A ping carries ids only; Alfred fetches the items itself.</div>
+    </div>
+  </div>
+</div>
+</div>
+
+
+<!-- ============================== CONTROLS ============================== -->
+<aside class="ctl">
+  <h2>Mock states</h2>
+  <label>Screen</label>
+  <select id="c-screen"><option value="team">Team tab · search</option><option value="board">Board · Related items</option><option value="cycle">Session cycle page</option><option value="cycles">Session cycles list</option><option value="cards">Board · Cards and Azure</option><option value="watch">Board · Watch rules, hook</option><option value="mcp">Chat and MCP tools</option><option value="all">Every decision</option><option value="skills">Skills</option></select>
+  <label>Token</label>
+  <select id="c-token"><option value="live">Live in memory</option><option value="none">None (restart, forgotten or 8 h passed)</option></select>
+  <label>Search result</label>
+  <select id="c-search"><option value="ok">Results</option><option value="empty">No match</option><option value="wiql">Full-text off (title only)</option><option value="err">Azure refused</option></select>
+  <div class="cases">
+    <div>Nothing from a search is stored; filter lists only are cached</div>
+    <div>Open only is on by default</div>
+    <div>An item can sit on several boards; one ★ per board</div>
+    <div>Board tabs: Cards, Task, Cycles, Chat, Related items (last)</div>
+    <div>A cycle page shows calls only; its boards are links</div>
+    <div>Your comment or move goes at once; Claude's waits for Approve</div>
+    <div>MCP: team_search, team_query, team_item, team_board_items, team_refresh_item, team_board_link / unlink</div>
+    <div>Changes tab and refresh suggestions are gone</div>
+    <div>Full copy only for the main and card-linked items; the tree (ancestors, descendants, one hop of links) is references, opened live on click</div>
+    <div>Sync follows the tree: new children added, moved ones marked "left the tree"</div>
+    <div>Cards and Azure items link many to many; the pill sits in the description, the strip on the card</div>
+    <div>New Azure items arrive by tree sync, watch rules, the hook, by hand or the MCP; close matches ask "Link or new?"</div>
+    <div>Every write to Azure is one approval card with a tick per step; exports are redacted unless you tick otherwise</div>
+    <div>People are pills everywhere: Teams, assignees, mentions, card owner</div>
+    <div>Me = token owner (automatic); "This is me" overrides it for the browser and the MCP</div>
+  </div>
+</aside>
+</div>
+
+<script>
+  const $ = (s) => document.querySelector(s);
+  const show = (el, on) => el.classList.toggle('hidden', !on);
+  let side = 'after';
+  function screen(v) {
+    document.querySelectorAll('[data-scr]').forEach((x) => x.classList.toggle('on', x.dataset.scr === v));
+    const after = side === 'after';
+    show($('#v-team'), after && v === 'team'); show($('#v-board'), after && v === 'board');
+    show($('#v-team-before'), !after && v === 'team'); show($('#v-board-before'), !after && v === 'board');
+    show($('#v-cycle'), after && v === 'cycle'); show($('#v-cycle-before'), !after && v === 'cycle');
+    show($('#v-cycles'), after && v === 'cycles'); show($('#v-cycles-before'), !after && v === 'cycles');
+    show($('#v-cards'), after && v === 'cards'); show($('#v-cards-before'), !after && v === 'cards');
+    show($('#v-watch'), v === 'watch'); show($('#v-mcp'), v === 'mcp'); show($('#v-all'), v === 'all'); show($('#v-skills'), v === 'skills');
+    document.querySelectorAll('.appbar span[data-go]').forEach((s) => s.classList.toggle('on', s.dataset.go === v));
+    $('#c-screen').value = v;
+  }
+  document.querySelectorAll('.appbar span[data-go]').forEach((s) => s.onclick = () => screen(s.dataset.go));
+  $('#c-screen').onchange = (e) => screen(e.target.value);
+
+  function token(v) {
+    const live = v === 'live';
+    show($('#tok-live'), live); show($('#tok-none'), !live); show($('#b-notoken'), !live); show($('#bb-notoken'), !live);
+    $('#tok-btn').textContent = live ? 'Forget token' : 'Enter token';
+    $('#go').disabled = !live; $('#refresh-all').disabled = !live;
+    $('#fetched').textContent = live ? 'fetched 40 s ago' : 'snapshots from yesterday 17:02';
+    $('#c-token').value = v;
+  }
+  $('#c-token').onchange = (e) => token(e.target.value);
+  $('#tok-btn').onclick = () => token($('#c-token').value === 'live' ? 'none' : 'live');
+
+  $('#c-search').onchange = (e) => {
+    const v = e.target.value;
+    show($('#res'), v === 'ok' || v === 'wiql'); show($('#empty'), v === 'empty');
+    show($('#b-wiql'), v === 'wiql'); show($('#b-err'), v === 'err'); show($('#drawer'), v === 'ok' || v === 'wiql');
+  };
+
+  document.querySelectorAll('[data-tt]').forEach((t) => t.onclick = () => {
+    document.querySelectorAll('[data-tt]').forEach((x) => x.classList.toggle('on', x === t));
+    ['search', 'teams', 'iter'].forEach((k) => show($('#tt-' + k), k === t.dataset.tt));
+  });
+  document.querySelectorAll('tr[data-item]').forEach((r) => r.onclick = (e) => {
+    if (e.target.tagName === 'BUTTON') return;
+    document.querySelectorAll('tr[data-item]').forEach((x) => x.classList.toggle('sel', x === r));
+  });
+  $('#state').onchange = () => show($('#state-save'), true);
+  $('#approve').onclick = () => { show($('#consent'), false); show($('#sent'), true); };
+  $('#reject').onclick = () => show($('#consent'), false);
+  document.querySelectorAll('[data-ba]').forEach((b) => b.onclick = () => {
+    side = b.dataset.ba;
+    document.querySelectorAll('[data-ba]').forEach((x) => x.classList.toggle('on', x === b));
+    $('#ba-note').textContent = side === 'before' ? 'Today: Refresh copies every open item into teamboards.db; a board links to one item.'
+      : 'What changes: search live instead of fetching everything; a board holds many work items.';
+    screen($('#c-screen').value);
+  });
+  document.querySelectorAll('[data-person]').forEach((el) => el.onclick = (e) => {
+    const c = $('#pcard'); const r = el.getBoundingClientRect(); const host = $('#v-team').getBoundingClientRect();
+    c.style.left = (r.left - host.left + 16) + 'px'; c.style.top = (r.bottom - host.top + 70) + 'px';
+    $('#v-team').style.position = 'relative'; show(c, true); e.stopPropagation();
+  });
+  $('#pclose').onclick = () => show($('#pcard'), false);
+  document.querySelectorAll('[data-rv]').forEach((b) => b.onclick = () => {
+    document.querySelectorAll('[data-rv]').forEach((x) => { const on = x === b; x.classList.toggle('on', on); x.style.background = on ? 'var(--purple)' : ''; x.style.color = on ? '#fff' : ''; });
+    show($('#rv-tree'), b.dataset.rv === 'tree'); show($('#rv-type'), b.dataset.rv === 'type');
+  });
+  document.querySelector('[data-rv=tree]').click();
+  document.querySelectorAll('[data-go2]').forEach((b) => b.onclick = () => screen(b.dataset.go2));
+  document.querySelectorAll('[data-scr]').forEach((b) => b.onclick = () => { screen(b.dataset.scr); window.scrollTo(0, 0); });
+  document.querySelectorAll('[data-to]').forEach((b) => b.onclick = () => { screen(b.dataset.to); window.scrollTo(0, 0); });
+  document.querySelectorAll('[data-addmenu]').forEach((b) => b.onclick = (e) => {
+    const m = $('#addmenu'); b.parentElement.appendChild(m); show(m, m.classList.contains('hidden')); e.stopPropagation();
+  });
+  $('#main-pick').onchange = (e) => {
+    const t = e.target.options[e.target.selectedIndex].text;
+    $('#main-name').textContent = t.replace(' (now)', ''); show($('#main-changed'), e.target.value !== 'bug');
+  };
+  $('#mine-chip').onclick = () => $('#mine-box').classList.toggle('hidden');
+  token('live');
+  screen('all');
+</script>
+</body>
+</html>
