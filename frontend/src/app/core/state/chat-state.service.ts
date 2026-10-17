@@ -348,7 +348,7 @@ export class ChatStateService {
 
   private loadCycles(): void {
     this.cyclesApi.list().subscribe({ next: (c) => this.cycles.set(c), error: () => undefined });
-    this.boardsApi.boards(null).subscribe({ next: (b) => this.boardNames.set(new Map(b.map((x) => [x.board.id, x.board.name]))), error: () => undefined });
+    this.boardsApi.boards(null, ['OPEN', 'DONE', 'ARCHIVED']).subscribe({ next: (b) => this.boardNames.set(new Map(b.map((x) => [x.board.id, x.board.name]))), error: () => undefined });
   }
 
   /** The newest page; older pages the user scrolled to stay loaded below it. */

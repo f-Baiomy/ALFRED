@@ -401,11 +401,15 @@ export class ChatLane {
 
   /** Takes one message: through the MCP tool (masked as the session says) when the runner has it, else straight from Alfred. */
   async take(c) {
+    // a board chat a terminal holds refuses the project runner's take: leave it alone for a minute (specs/027 R6)
+    const refusedAt = (this.refused ??= new Map()).get(c.messageId);
+    if (refusedAt && Date.now() - refusedAt < 60_000) return null;
+    const refuse = () => { if (c.scope !== 'project' && !this.r.o.cycleId) this.refused.set(c.messageId, Date.now()); return null; };
     try {
       if (this.r.o.mcp) {
         const text = await this.r.o.mcp.call('chat_take', { project: c.project, scope: c.scope, messageId: c.messageId, chatId: this.chatId }, 30_000);
         const json = JSON.parse(text);
-        if (!json.take) return null;
+        if (!json.take) return refuse();
         return { messageId: c.messageId, take: json.take, thread: json.thread ?? [], summary: json.summary ?? null, task: c.kind === 'TASK', text: c.text,
           origin: c.origin ?? null };
       }
@@ -415,6 +419,7 @@ export class ChatLane {
       return { messageId: c.messageId, take: line(t.message), thread: (t.thread ?? []).map(line), summary: t.summary ? t.summary.text : null,
         task: c.kind === 'TASK', text: c.text, origin: c.origin ?? null };
     } catch (error) {
+      if (c.scope !== 'project' && !this.r.o.cycleId) return refuse();
       this.r.o.log(`  · chat #${c.messageId} not taken: ${error.message}`);
       return null;
     }

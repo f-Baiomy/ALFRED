@@ -19,6 +19,8 @@ export type CycleSortMode = 'newest' | 'oldest' | 'status';
 export interface BulkDeleteResult {
   readonly deleted: number;
   readonly skippedRecording: number;
+  /** Kept as "kept from …" because boards mention some of their calls (specs/027 FR-017). */
+  readonly kept?: number;
 }
 
 /**
@@ -166,7 +168,7 @@ export class SessionCyclesStateService {
     return this.api.pauseRecording(id).pipe(tap(() => this.refreshNow()));
   }
 
-  delete(id: string): Observable<void> {
+  delete(id: string): Observable<{ kept?: boolean } | null> {
     return this.api.delete(id).pipe(tap(() => this.refreshNow()));
   }
 
@@ -204,7 +206,10 @@ export class SessionCyclesStateService {
     }
     return forkJoin(deletable.map((id) => this.api.delete(id))).pipe(
       tap(() => this.refreshNow()),
-      map(() => ({ deleted: deletable.length, skippedRecording }))
+      map((answers) => {
+        const kept = answers.filter((a) => !!a?.kept).length;
+        return { deleted: deletable.length - kept, skippedRecording, kept };
+      })
     );
   }
 

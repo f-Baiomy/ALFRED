@@ -241,11 +241,12 @@ export class SessionCyclesListComponent {
       `Delete ${ids.length} cycle${ids.length === 1 ? '' : 's'}? This also deletes their captured calls.${skipped ? ` ${skipped} still recording will be skipped.` : ''}`
     );
     if (!confirmed) return;
-    this.state.bulkDelete(ids).subscribe(({ deleted, skippedRecording }) => {
+    this.state.bulkDelete(ids).subscribe(({ deleted, skippedRecording, kept }) => {
       this.state.clearSelection();
       this.bulkActionMessage.set(
         `Deleted ${deleted} cycle${deleted === 1 ? '' : 's'}` +
-          (skippedRecording > 0 ? ` (skipped ${skippedRecording} still recording).` : '.')
+          (skippedRecording > 0 ? ` (skipped ${skippedRecording} still recording).` : '.') +
+          (kept ? ` ${kept} kept as "kept from …": boards mention some of their calls.` : '')
       );
     });
   }

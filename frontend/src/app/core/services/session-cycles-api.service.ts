@@ -89,8 +89,9 @@ export class SessionCyclesApiService {
     return this.http.post<SessionCycle>(`${this.baseUrl}/${id}/pause`, {});
   }
 
-  delete(id: string): Observable<void> {
-    return this.http.delete<void>(`${this.baseUrl}/${id}`);
+  /** null when deleted; {kept: true} when boards mention some of its calls and it was kept with only those (specs/027). */
+  delete(id: string): Observable<{ kept?: boolean } | null> {
+    return this.http.delete<{ kept?: boolean } | null>(`${this.baseUrl}/${id}`);
   }
 
   /** `serviceNames` (internal only - ignored for 'external') narrows the result to just those named projects (plus "unknown"), server-side - see the Sources bar/SessionCycleDetailStateService.selectedSources. Omitted/empty means no filter, every project. */

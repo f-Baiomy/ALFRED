@@ -259,11 +259,12 @@ public class SessionCyclesService implements
                     .map(c -> c.id()).toList();
             List<String> goneOut = capturedCallsStore.findAllByCycle(id).stream().filter(c -> c.call() == null || !mentioned.contains(c.call().id()))
                     .map(c -> c.id()).toList();
-            if (!goneIn.isEmpty()) {
-                capturedInternalCallsStore.removeByIds(id, goneIn);
+            // in chunks: SQLite takes a bounded number of ? per statement
+            for (int i = 0; i < goneIn.size(); i += 500) {
+                capturedInternalCallsStore.removeByIds(id, goneIn.subList(i, Math.min(goneIn.size(), i + 500)));
             }
-            if (!goneOut.isEmpty()) {
-                capturedCallsStore.removeByIds(id, goneOut);
+            for (int i = 0; i < goneOut.size(); i += 500) {
+                capturedCallsStore.removeByIds(id, goneOut.subList(i, Math.min(goneOut.size(), i + 500)));
             }
             spacersStore.deleteAllForCycle(id);
             SessionCycle c = existing.get();
