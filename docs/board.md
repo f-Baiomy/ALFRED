@@ -2,6 +2,41 @@
 
 The board (specs/014-task-board) tracks bugs, tasks, notes and questions next to the traffic they are about. There is one board per project, and each session cycle has a view of its own cards. Claude adds findings to it through the MCP tools. The user sorts them, and the history of every card records what was done.
 
+## Boards (specs/027)
+
+A **board is a task**: its brief, spec files, requirements, chat and cards. Its **session cycles only hold calls** - the
+recordings and re-tests of that task. Each project has a **default board** (`default:<project>`) for cards that belong to
+no task; it is never written until something writes to it (reads use `readDefault`, writes `writable()`).
+
+- **Ids**: a board's id is the task key the slice already used, stored in the old `cycleId` / `cycle_id` columns
+  (research R1 amendment) - so briefs, specs, requirements, chats and card links needed no rename. `ChatKey` maps the
+  default board's id to `''`, the old project chat. A cycle that had a brief became a board with that cycle's id on the
+  first start after the update (`BoardModelMigration`, logged once as MIGRATED).
+- **Relations**: `board_cycles` (a cycle on many boards), `board_boards` (related boards), `cards.board_id` (a card's
+  home) and `card_cycles` (cycles a card is related to beyond its home). A board shows its own cards and, with
+  **Own + related**, the cards of related boards dashed with their home named.
+- **Opening a board is the user's**: from the board picker, from a board chat ("open a board for AB#1234", "open a new
+  board <name>") or from Start on a work item. As Claude, `POST /board/boards` needs `askedIn` - a USER chat message
+  (recent, unless it is a Team Start message, origin `team-start`) or `"terminal"` (`ManageBoardsUseCase.askedBy`).
+- **One recording per project**: `POST /session-cycles/{id}/record?onRunning=ASK|PAUSE_OTHER` answers
+  `409 RECORDING_CONFLICT {running}`; `POST /board/boards/{id}/record {kind: REC|RETEST, onRunning: ASK|JOIN|NEW}` joins
+  the running cycle or pauses it and starts a new one (`RecordingGuardPort`, `BoardRecordingGuardAdapter`).
+- **A shared cycle is judged by every board on it**: `GET /board/cycles/{id}/verdicts` gives each call against each
+  board's requirements; `GET /board/cycles/{id}/home` says where a finding goes (the board whose requirement the call
+  shows, else the only open board, else ask) - `FindingHomeUseCase` / `ListenHomeResolver`.
+- **Board activity** keeps 2000 rows per board, each of Claude's changes with Undo (claimed once, `markUndone`).
+- **Board chats**: a board's chat is answered by the terminal holding that board, else the project's live runner, else
+  it waits (R6). Remove later: the `/board/cycle-chat` alias of `/board/board-chat`, `cycleId` on `/board/live-runner`
+  (now `boardId`), and the runner's `REMOVE-LATER(027)` fork path in `chat.mjs`.
+- **Deleting a cycle** keeps the calls board texts mention: the cycle is kept, renamed "kept from <name>", trimmed to
+  the mentioned calls and paused (`DeleteOutcome.KEPT`, `200 {kept: true}`; research R7 amendment). Its cards stay.
+- **A board opened from a work item** shows it on the Task tab (`WorkItemStripComponent`): the item chip, "<tracker>
+  changed" when it changed after setup (Review shows before/after; Save to brief, or Dismiss - both mark it seen), and
+  "Fetch attachments" for the item's files the board does not hold. Deleting the board removes its link
+  (`LinkedWorkItemPort.boardDeleted`). See [team.md](team.md).
+- **Work item mentions**: `@[workitem:<conn>/<id>|AB#<id> <title>]` - the chip previews the item from the Team cache and
+  opens it on the Team tab.
+
 ## Where it lives
 
 - **Backend**: the leaf slice `backend-board`, with its own `board.db` (`BOARD_DB_FILE`, default `/appdata/board.db`; `board.db` in the native data folder). It exposes REST under `/board` and the `/ws/board` signal. SQLite only: the slice is new, so there is no flat file to migrate (the same reasoning as `backend-triage`).
@@ -603,9 +638,10 @@ clean, with no model and nobody in the way. A feature the calls show is not buil
 ## Cleaning up after a cycle
 
 Deleting a session cycle always removes its board brief, spec files, checklist marks and suggestions, session log and
-test-step marks (`cycleRemoved`). Its **cards** are the user's choice in the delete dialog (`CycleDeleteService`):
-**delete them too** (the default; `DELETE /board/cycles/{cycleId}/cards`, before the cycle) or keep them on the project
-board, marked "◷ cycle deleted". Kept cards are found later with the **◷ Cycle deleted** filter (`cycleDeleted=true`)
+test-step marks (`cycleRemoved`). Since specs/027 a cycle holds only calls: the delete dialog shows the plan
+(`GET /board/cycles/{id}/delete-plan` - which boards it is on, which mentioned calls are kept) and cards are never
+deleted with it; a cycle whose calls board texts mention is kept, trimmed to them (see "Boards"). Cards of a task
+board stay on it; older cards whose cycle went are marked "◷ cycle deleted". Kept cards are found later with the **◷ Cycle deleted** filter (`cycleDeleted=true`)
 and removed with the bulk **🗑 Delete…** (`BulkAction.DELETE`, with a confirm naming the cards). Claude can do neither.
 
 SQLite keeps the pages deleted rows freed and reuses them, but the file does not shrink. **Settings → Storage → Board**
@@ -807,6 +843,12 @@ are this browser's own (localStorage, try/catch). On a cycle's page the chats fo
   answers and summaries are remapped; a message still waiting comes back STOPPED, a record keeps its line but cannot be
   undone here, terminal items come back read; a cycle chat whose cycle is not here lands in the project chat marked
   `[from cycle <name>]`.
+- **Boards in the .json** (specs/027): right after the cards come `board` (id, name, isDefault, state), `board-cycle`,
+  `board-board` (one per pair), `card-cycle` (by card number) and `workitem-snapshot` records; a card carries `boardId`.
+  The import recreates the boards in the target project (a default board is the target's default; an id another
+  project holds here gets a new id and its briefs, specs and marks follow it), relates their cycles and boards, and sends
+  each card home. A file with no board records puts every card on the default board. Snapshots are for reference: the
+  link to the tracker is not recreated.
 - **Cycle export**: "Include brief & specs" and "Include board cards" are both off by default, and with both off the output is identical to before (guarded in `export-build.spec.ts`). When ticked, they append the board to the .md / .html report. With .json, the calls file stays the calls re-import format, and the board is written beside it as its own alfred-board file.
 
 ## Limits and measurements

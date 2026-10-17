@@ -60,6 +60,7 @@ One module per feature. Maven module boundaries make an undeclared cross-slice i
 | `backend-board` | Task board: cards (bug/task/note/question) per project and per session cycle, activity history, `@[type:ref|label]` mentions indexed from text, cycle briefs, spec files, acceptance checklist marks, the live strip; Claude's limits for `X-Alfred-Actor: claude`; a leaf slice with its own `board.db`, wired by `backend-app/boardbridge`, see `docs/board.md` |
 | `backend-relive` | Relive Cycle: builds and runs a controlled replay workflow from recorded calls (LIVE/REPLAY per outbound child, cycle-scoped variables/rules, run history, Live calls log); a leaf slice reached only through `backend-app`'s `relivebridge` |
 | `backend-server` | The native install's settings engine: reads and writes `.env` (comments kept, owner-only, conflict by hash), validation and machine checks, history and revert, the edit-access rule, restart through the supervisor's control API, `/server/**` and `/ws/server`; also run without Spring as `ServerConfigCli` (`alfred config`, the installer). Isolated; `backend-app/serverbridge` applies live settings to other slices. See `docs/server.md` |
+| `backend-teamboards` | Team trackers (specs/027): `teamboards-spi` (read-only connector interface, no Spring), `teamboards-core` (the shared cache `teamboards.db`, `/teamboards` REST, `/ws/teamboards`, Start / links / seed), one module per connector (`teamboards-azure`); a leaf family wired by `backend-app/teamboardsbridge`, see `docs/team.md` |
 | `backend-app` | Composition root: main class, `DatabaseStatsController`, migrations, `interceptionbridge`/`resendbridge`/`relivebridge`/`serverbridge`/`boardbridge`, `mcpbridge` (the `/mcp` relay and `/mcp-exports`), `web/SpaPageFilter` (serves the SPA natively) |
 | `backend-architecture-test` | Test-only, holds the ArchUnit suite |
 
@@ -67,7 +68,7 @@ Isolation rules currently enforced: `calls`, `internal-calls`, `comments`, `prof
 
 ## Frontend routes (`frontend/src/app/`, standalone Angular + signals, no NgModules/NgRx)
 
-Live Calls (`''`, with an outbound/inbound/both source filter), Session Cycles (`cycles`, `cycles/:id` - with Calls / Board / Brief & specs tabs), Board (`board?project=&cycle=&card=` - see `docs/board.md`), Profiles (`profiles`), Settings (`settings`), Relive Cycles (`relive`, `relive/:id` — build and run a controlled replay workflow from recorded calls, see `docs/relive.md`), Logs (`logs`, `logs/new`, `logs/:id`, `logs/:id/structure` — load and explore JSON-per-line logs, see `docs/logs.md`), and `view` (pop-out JSON viewer, outside the tab layout). No separate "Internal Calls" tab — inbound traffic is a filter inside Live Calls, reusing the same components. → `docs/frontend-architecture.md`
+Live Calls (`''`, with an outbound/inbound/both source filter), Session Cycles (`cycles`, `cycles/:id` - with Calls / Board / Brief & specs tabs), Board (`board?project=&board=&card=` - see `docs/board.md`), Team (`team?conn=&item=` - the team tracker, see `docs/team.md`), Profiles (`profiles`), Settings (`settings`), Relive Cycles (`relive`, `relive/:id` — build and run a controlled replay workflow from recorded calls, see `docs/relive.md`), Logs (`logs`, `logs/new`, `logs/:id`, `logs/:id/structure` — load and explore JSON-per-line logs, see `docs/logs.md`), and `view` (pop-out JSON viewer, outside the tab layout). No separate "Internal Calls" tab — inbound traffic is a filter inside Live Calls, reusing the same components. → `docs/frontend-architecture.md`
 
 ## Commands
 
@@ -108,7 +109,8 @@ cd frontend && npm test && npm run build  # Karma/Jasmine; ng build
 - `docs/logs.md` — Logs Explorer: ingest pipeline, storage, LogQuery, settings, measured throughput
 - `docs/db-capture.md` — Database Capture: db-agent, proxy headers, switch flag file, storage, Relive-ready seams
 - `docs/mcp.md` — Using Alfred from Claude: `mcp-server/` is a local stdio MCP server (TypeScript, not a container or compose service) over the existing HTTP API; it imports the frontend's pure utils (findings, exports, masking, spacer layout) rather than re-implementing them
-- `docs/board.md` — the task board: cards, mentions and kept calls, Inbox sorting, cycle briefs/spec files/checklist, Claude's limits, export/import
+- `docs/board.md` — the task board: boards (tasks) and their cycles, cards, mentions and kept calls, Inbox sorting, briefs/spec files/checklist, Claude's limits, export/import
+- `docs/team.md` — the Team tab: connectors, the shared cache and the token rule, Start (a board from a work item), the seed, changed since setup
 - `docs/server.md` — the native install: installers, `.env` and defaults, the Server section and its access rule, the supervisor, `alfred` CLI, `alfred attach` and its limits
 - `wildfly-proxy-toggle/README.md` — the outbound Attach-API tool in full
 - `README.md` — human-facing setup/usage walkthrough
