@@ -109,7 +109,7 @@ class LiveWorkControllerTest {
 
         mvc.perform(put("/board/live-runner").contentType(MediaType.APPLICATION_JSON).content(beat.formatted("chat-b")))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("one chat per cycle")));
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("one chat per board")));
 
         mvc.perform(get("/board/cycle-chat").param("cycleId", "cy9").param("project", "crm"))
                 .andExpect(status().isOk())

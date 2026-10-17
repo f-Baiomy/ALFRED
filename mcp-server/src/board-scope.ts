@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { AlfredError, seg, type AlfredClient } from './alfred-client.ts';
+import { fail, invalid } from './reply.ts';
 
 /**
  * Boards (specs/027 contracts/mcp-and-export.md): a board is a task, and the task routes take its id where they took a
@@ -51,22 +52,30 @@ export function withBoardParam(server: McpServer, client: AlfredClient): McpServ
   const register = server.registerTool.bind(server) as unknown as (name: string, config: Record<string, unknown>, handler: Handler) => unknown;
   const wrapped = (name: string, config: Record<string, unknown>, handler: Handler): unknown => {
     const schema = config['inputSchema'] as Record<string, unknown> | undefined;
-    if (!schema || !('cycleId' in schema) || 'board' in schema) return register(name, config, handler);
+    // only the tools whose cycleId names a task: on the others it is a recording (a re-test cycle, a session log)
+    if (!TASK_TOOLS.has(name) || !schema || !('cycleId' in schema) || 'board' in schema) return register(name, config, handler);
+    const cycleId = schema['cycleId'] as z.ZodTypeAny;
     const withBoard = {
       ...config,
-      inputSchema: { ...schema, board: z.string().min(1).max(200).optional().describe('The board (task) this is about; a board id from board_boards') },
+      inputSchema: {
+        ...schema,
+        cycleId: cycleId.isOptional() ? cycleId : cycleId.optional(),
+        board: z.string().min(1).max(200).optional().describe('The board (task) this is about; a board id from board_boards'),
+      },
     };
+    const required = !cycleId.isOptional();
     return register(name, withBoard, async (input, extra) => {
       const { board, ...rest } = input as { board?: string; cycleId?: string };
-      let cycleId = board ?? rest.cycleId;
-      if (!board && cycleId && TASK_TOOLS.has(name)) {
+      let task = board ?? rest.cycleId;
+      if (!task && required) return fail(invalid('Pass board (a board id from board_boards) or cycleId'));
+      if (!board && task) {
         try {
-          cycleId = await taskOf(client, cycleId);
+          task = await taskOf(client, task);
         } catch (e) {
-          return { content: [{ type: 'text', text: (e as Error).message }], isError: true };
+          return fail(e);
         }
       }
-      return handler(cycleId === undefined ? rest : { ...rest, cycleId }, extra);
+      return handler(task === undefined ? rest : { ...rest, cycleId: task }, extra);
     });
   };
   return new Proxy(server, {

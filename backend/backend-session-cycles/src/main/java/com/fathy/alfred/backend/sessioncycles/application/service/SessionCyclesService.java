@@ -194,9 +194,13 @@ public class SessionCyclesService implements
         }
         if (cycle.get().status() != SessionCycleStatus.RECORDING) {
             for (var guard : guards) {
-                Optional<SessionCycle> running = guard.runningConflict(id).filter(r -> !r.equals(id)).flatMap(metadataStore::findById)
-                        .filter(r -> r.status() == SessionCycleStatus.RECORDING);
-                if (running.isPresent()) {
+                // more than one may record the project (older data): pause each, a bounded number of times
+                for (int round = 0; round < 20; round++) {
+                    Optional<SessionCycle> running = guard.runningConflict(id).filter(r -> !r.equals(id)).flatMap(metadataStore::findById)
+                            .filter(r -> r.status() == SessionCycleStatus.RECORDING);
+                    if (running.isEmpty()) {
+                        break;
+                    }
                     if (!pauseOther) {
                         return Optional.of(new GuardedStart(cycle.get(), running.get()));
                     }

@@ -129,7 +129,23 @@ export function register(server: McpServer, client: AlfredClient): void {
     },
   }, (input) => run(async () => {
     let cycle = await client.post<SessionCycle>('/session-cycles', { body: { name: input.name } });
-    if (input.board) await client.put(`/board/boards/${seg(input.board)}/cycles/${seg(cycle.id)}`);
+    // related paused, then started through the guard: one project records into one cycle at a time (FR-008)
+    if (input.board) {
+      if (cycle.status === 'RECORDING') cycle = await client.post<SessionCycle>(`/session-cycles/${seg(cycle.id)}/pause`);
+      await client.put(`/board/boards/${seg(input.board)}/cycles/${seg(cycle.id)}`);
+      if (input.record) {
+        try {
+          cycle = await client.post<SessionCycle>(`/session-cycles/${seg(cycle.id)}/record`);
+        } catch (e) {
+          if (!(e instanceof AlfredError && e.code === 'RECORDING_CONFLICT')) throw e;
+          const copy = input.calls?.length ? await copyIntoCycle(client, cycle.id, input.calls) : undefined;
+          return ok({ cycle, ...(copy ? { copy } : {}), recording: 'RUNNING',
+            note: e.message.replace(/^Alfred rejected the request \(409\): /, '') + ' - ask the user; start_recording with onRunning PAUSE_OTHER' });
+        }
+      }
+      const copy = input.calls?.length ? await copyIntoCycle(client, cycle.id, input.calls) : undefined;
+      return ok({ cycle, board: input.board, ...(copy ? { copy } : {}) });
+    }
     // Alfred creates a cycle already RECORDING (the UI's "new cycle, then reproduce" flow). A cycle
     // assembled from chosen calls must not also fill up with whatever live traffic happens next.
     if (cycle.status === 'RECORDING' && !input.record) cycle = await client.post<SessionCycle>(`/session-cycles/${seg(cycle.id)}/pause`);

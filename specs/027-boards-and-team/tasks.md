@@ -145,10 +145,10 @@ Aliases used in task paths (all relative to the repo root):
 **Goal**: one chat per board, answered by the board's terminal, else the project runner, else it waits.
 **Independent test**: quickstart §3 step 6.
 
-- [ ] T045 [US4] Re-key the live runner and chat binding in `BOARD/application/service/ChatService.java`, `SkillRunsService.java` and the `LiveWorkController` (`PUT /board/live-runner` takes `boardId`, `cycleId` alias; `GET /board/cycle-chat` → board chat). Keep the fork path with `// REMOVE-LATER(027)`.
-- [ ] T046 [P] [US4] Extend `BOARD_T/application/service/ChatServiceTest.java`: terminal answers its board; project runner fallback; waits when none; project scope → default board
-- [ ] T047 [US4] Update `FE/pages/chat-window/` and the board chat panel to key by board, and show the runner header states and cancel on WAITING
-- [ ] T048 [US4] Update `skills/alfred-live/SKILL.md` and `skills/alfred-live/chat.mjs` to bind `/alfred-live <board>` (heartbeat `boardId`)
+- [X] T045 [US4] Re-key the live runner and chat binding in `BOARD/application/service/ChatService.java`, `SkillRunsService.java` and the `LiveWorkController` (`PUT /board/live-runner` takes `boardId`, `cycleId` alias; `GET /board/cycle-chat` → board chat). Keep the fork path with `// REMOVE-LATER(027)`.
+- [X] T046 [P] [US4] Extend `BOARD_T/application/service/ChatServiceTest.java`: terminal answers its board; project runner fallback; waits when none; project scope → default board
+- [X] T047 [US4] Update `FE/pages/chat-window/` and the board chat panel to key by board, and show the runner header states and cancel on WAITING
+- [X] T048 [US4] Update `skills/alfred-live/SKILL.md` and `skills/alfred-live/chat.mjs` to bind `/alfred-live <board>` (heartbeat `boardId`)
 
 ---
 

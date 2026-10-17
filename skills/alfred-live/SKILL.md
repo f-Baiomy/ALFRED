@@ -30,23 +30,25 @@ the answering (docs/mcp.md "Live answers"):
 ## Start
 
 1. `stop` or `status` as the argument → go to that section.
-2. The project (and cycle) as every skill finds them: the argument, the repo's `CLAUDE.md` (`Alfred project:`), or ask.
+2. The project (and board) as every skill finds them: the argument, the repo's `CLAUDE.md` (`Alfred project:`), or ask.
+   A board is a task (`board_boards` lists them); a cycle id given instead resolves to its board, as the board tools do.
    The Alfred MCP server name (`<server>`) as rules.md "Which Alfred" says: `alfred`, `alfred-lan-83`, ….
 3. Start the runner with Bash, from this session's working folder (the app's repo):
 
    ```bash
-   node "<this skill's folder>/alfred-live.mjs" start --server <server> --project <project> [--cycle <cycleId>] [--model <name>] [--parallel 3]
+   node "<this skill's folder>/alfred-live.mjs" start --server <server> --project <project> [--cycle <boardId>] [--model <name>] [--parallel 3]
    ```
 
-   `--model` **only when the user named one**; otherwise the runs use Claude Code's default model. With `--cycle`, this
-   chat handles that cycle: every ▶ on its cards and every comment that needs an investigation comes into this chat
+   `--model` **only when the user named one**; otherwise the runs use Claude Code's default model. With `--cycle <boardId>`, this
+   chat handles that board (specs/027: the flag kept its name; it takes the board id): every ▶ on its cards and every comment that needs an investigation comes into this chat
    (see "While it runs"); `--no-board-runs` when the user wants answers only. It prints JSON: the
    Alfred it reaches, the log files, and `watch` (the command to follow the chat log). `alreadyRunning` → say so and
    only re-arm the watch (step 4). An error line → show it and stop: `cannot reach Alfred at …`; `does not let this
    machine edit its board` (the board's owner adds this machine to Settings → Server's edit access,
    `ALFRED_SETTINGS_EDIT_FROM`); `older than /alfred-live needs`; `already answers this board from <machine>` (one
-   answerer per board - stop it there, or `--force`); `This cycle already runs in a chat on <machine>` (one chat per
-   cycle - the user stops it in that chat first).
+   answerer per board - stop it there, or `--force`); `This board already runs in a chat on <machine>` (one chat per
+   board - the user stops it in that chat first). Without `--cycle`, the runner also answers every board chat of the
+   project that no terminal holds.
 4. Watch the chat log: the Monitor tool with the returned `watch` command (`tail -n 0 -F "<chat log>"` - the runner's
    short log for this session, not its full one), description "Alfred live · <project>", `timeout_ms` 3600000.
 5. Tell the user in two lines: Claude now answers on the board within seconds and shows each step on the card; stop

@@ -97,7 +97,7 @@ public class RecordForBoardService implements RecordForBoardUseCase {
                     relations.relateCycle(actor, boardId, id);
                     return Optional.of(new Recording(id, null, "joined \"" + nameOf(id) + "\""));
                 }
-                case NEW -> cyclePort().pause(id);
+                case NEW -> { } // paused below, once the new cycle exists - a failed create leaves the running one recording
             }
         }
         String name = board.get().name() + (kind == Kind.RETEST ? " · re-test " : " · rec ") + LocalDate.now(clock.withZone(ZoneOffset.UTC));
@@ -105,6 +105,7 @@ public class RecordForBoardService implements RecordForBoardUseCase {
         if (made.isEmpty()) {
             return Optional.of(new Recording(null, null, "Session cycles are not available here"));
         }
+        running.ifPresent(id -> cyclePort().pause(id));
         relations.relateCycle(actor, boardId, made.get());
         return Optional.of(new Recording(made.get(), null, "started \"" + name + "\""));
     }

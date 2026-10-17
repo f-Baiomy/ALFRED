@@ -1,3 +1,4 @@
+import { BoardApiService } from '../services/board-api.service';
 import { DestroyRef, Injectable, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Observable, Subject, auditTime, buffer, filter } from 'rxjs';
@@ -60,6 +61,7 @@ export class ChatStateService {
   private readonly api = inject(ChatApiService);
   private readonly live = inject(LiveWorkStateService);
   private readonly cyclesApi = inject(SessionCyclesApiService);
+  private readonly boardsApi = inject(BoardApiService);
   private readonly changed$ = new Subject<string | null>();
   private shown = false;
 
@@ -91,7 +93,9 @@ export class ChatStateService {
     for (const w of this.live.all()) if (w.chatMessageId != null) out.set(w.chatMessageId, w);
     return out;
   });
-  readonly cycleNames = computed(() => new Map(this.cycles().map((c) => [c.id, c.name])));
+  /** Chat names by scope: a board chat's scope is its board id (specs/027), an older one a cycle id. */
+  private readonly boardNames = signal<ReadonlyMap<string, string>>(new Map());
+  readonly cycleNames = computed(() => new Map([...this.cycles().map((c) => [c.id, c.name] as const), ...this.boardNames()]));
   readonly rows = computed<BarRow[]>(() => {
     this.draftsVersion();
     return barRows({ project: this.project(), summaries: this.summaries(), inView: this.cycleInView(), seen: this.seen(), mute: this.prefs().mute,
@@ -344,6 +348,7 @@ export class ChatStateService {
 
   private loadCycles(): void {
     this.cyclesApi.list().subscribe({ next: (c) => this.cycles.set(c), error: () => undefined });
+    this.boardsApi.boards(null).subscribe({ next: (b) => this.boardNames.set(new Map(b.map((x) => [x.board.id, x.board.name]))), error: () => undefined });
   }
 
   /** The newest page; older pages the user scrolled to stay loaded below it. */

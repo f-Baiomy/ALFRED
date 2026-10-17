@@ -208,8 +208,13 @@ export class SessionCyclesListComponent {
 
   bulkRecord(): void {
     const ids = this.state.selectedCycles().map((c) => c.id);
-    this.state.bulkStartRecording(ids).subscribe(() => {
-      this.bulkActionMessage.set(`Started recording on ${ids.length} cycle${ids.length === 1 ? '' : 's'}.`);
+    this.state.bulkStartRecording(ids).subscribe({
+      next: (started) => {
+        const skipped = ids.length - started.length;
+        this.bulkActionMessage.set(`Started recording on ${started.length} cycle${started.length === 1 ? '' : 's'}.`
+          + (skipped ? ` ${skipped} skipped: another cycle already records its project.` : ''));
+      },
+      error: () => this.bulkActionMessage.set("Couldn't start recording. Try again."),
     });
   }
 

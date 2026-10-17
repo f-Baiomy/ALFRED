@@ -174,6 +174,8 @@ export class CycleWidgetComponent implements OnDestroy {
     this.busy.set(true);
     this.state.toggleRecording().subscribe({
       next: () => this.busy.set(false),
+      // a start the user cancelled (another cycle records the project) completes without a value
+      complete: () => this.busy.set(false),
       error: () => {
         this.busy.set(false);
         this.state.error.set("Couldn't change recording. Try again.");

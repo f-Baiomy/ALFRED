@@ -616,9 +616,15 @@ class SessionCyclesServiceTest {
 
     @Test
     void aGuardedStartWaitsForAnotherCycleOfTheSameProjectOrPausesIt() {
-        when(metadataStore.findById("c1")).thenReturn(Optional.of(new SessionCycle("c1", "A", "2026-01-01T00:00:00Z", null, SessionCycleStatus.PAUSED)));
-        when(metadataStore.findById("c2")).thenReturn(Optional.of(new SessionCycle("c2", "B", "2026-01-01T00:00:00Z", null, SessionCycleStatus.RECORDING)));
-        when(metadataStore.save(org.mockito.ArgumentMatchers.any())).thenAnswer(inv -> inv.getArgument(0));
+        java.util.Map<String, SessionCycle> rows = new java.util.HashMap<>();
+        rows.put("c1", new SessionCycle("c1", "A", "2026-01-01T00:00:00Z", null, SessionCycleStatus.PAUSED));
+        rows.put("c2", new SessionCycle("c2", "B", "2026-01-01T00:00:00Z", null, SessionCycleStatus.RECORDING));
+        when(metadataStore.findById(org.mockito.ArgumentMatchers.anyString())).thenAnswer(inv -> Optional.ofNullable(rows.get(inv.<String>getArgument(0))));
+        when(metadataStore.save(org.mockito.ArgumentMatchers.any())).thenAnswer(inv -> {
+            SessionCycle c = inv.getArgument(0);
+            rows.put(c.id(), c);
+            return c;
+        });
         service.setRecordingGuards(List.of(id -> "c1".equals(id) ? Optional.of("c2") : Optional.empty()));
 
         var asked = service.startRecording("c1", false).orElseThrow();

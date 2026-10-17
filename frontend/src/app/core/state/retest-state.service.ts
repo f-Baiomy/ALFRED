@@ -147,6 +147,7 @@ export class RetestStateService {
           this.busy.set(false);
           this.refresh$.next();
         },
+        complete: () => this.busy.set(false),
         error: (e) => this.failed(e),
       }),
       error: (e) => this.failed(e),

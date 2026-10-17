@@ -1,4 +1,6 @@
 // The board chat lane of /alfred-live (specs/022, docs/board.md "Chat"). A cycle's chat is answered by the cycle's own
+// REMOVE-LATER(027): the fork path below predates boards; a board's chat is answered by its own terminal or the project
+// runner, and this fork is kept only until docs/board.md "Board chat" drops it.
 // Claude session: the first answer forks the terminal session (`--resume <terminal> --fork-session`) so the chat starts
 // knowing everything the terminal did, and later answers continue that fork (`--resume <fork>`). The terminal session
 // itself is never written to - what the chat did reaches it as lines in this runner's chat log, which the terminal
@@ -101,10 +103,14 @@ export function orderChats(chats) {
   return [...chats].sort((a, b) => Number(!!b.urgent) - Number(!!a.urgent) || (a.seq ?? a.messageId) - (b.seq ?? b.messageId));
 }
 
-/** Which of the board's waiting chat messages this runner answers. */
+/**
+ * Which of the board's waiting chat messages this runner answers (specs/027 R6). A terminal bound to a board
+ * (`/alfred-live <board>`, `cycleId` holding the board id) answers that board's chat. The project's runner answers the
+ * project chat and every board chat of its project that no terminal holds - Alfred refuses its take when one does.
+ */
 export function mineOf(chats, { cycleId = null, project = null, kind = 'live' } = {}) {
   if (kind === 'listen') return [];
-  return (chats ?? []).filter((c) => (cycleId ? c.scope === cycleId : c.scope === 'project' && (project == null || c.project === project)));
+  return (chats ?? []).filter((c) => (cycleId ? c.scope === cycleId : project == null ? c.scope === 'project' : c.project === project));
 }
 
 /**

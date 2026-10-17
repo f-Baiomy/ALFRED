@@ -43,8 +43,9 @@ type Item = { kind: 'msg'; m: ChatMessage; day: string | null; unreadLine: numbe
             <small>
               @if (answering()) { <span class="busy">● answering<span class="bar-typing"><i></i><i></i><i></i></span></span> }
               @else if (claudeOn() && byTerminal()) { <span class="on" title="The terminal session that ran /alfred-live answers here itself">● Answered by your terminal</span> }
+              @else if (claudeOn() && !isProject()) { <span class="on" title="No terminal holds this board: the project's /alfred-live runner answers it">● Answered by the project runner</span> }
               @else if (claudeOn()) { <span class="on">● Claude on</span> }
-              @else if (!isProject()) { <span title="Alfred never starts a terminal itself">○ Terminal offline - messages wait until you run /alfred-live in a terminal</span> }
+              @else if (!isProject()) { <span title="Alfred never starts a terminal itself">○ No terminal and no project runner - messages wait until you run /alfred-live</span> }
               @else { <span>○ Claude off - messages wait</span> }
               @if (summary()?.terminal?.host; as h) { <span> · {{ h }}</span> }
               @if (waitingCount()) { <span> · {{ waitingCount() }} waiting</span> }
@@ -138,7 +139,7 @@ type Item = { kind: 'msg'; m: ChatMessage; day: string | null; unreadLine: numbe
               <div>In a Claude Code session in the app's repo:</div>
               <div class="chat-cmd"><code>{{ projectCommand() }}</code><button type="button" class="action-btn" (click)="copy(projectCommand())">Copy</button></div>
             } @else {
-              <div>In the cycle's terminal session (it answers this chat itself), in the app's repo:</div>
+              <div>In the board's terminal session (it answers this chat itself), in the app's repo:</div>
               <div class="chat-cmd"><code>{{ cycleCommand() }}</code><button type="button" class="action-btn" (click)="copy(cycleCommand())">Copy</button></div>
             }
             <div class="board-dim">Your messages wait and are answered when it starts.</div>
@@ -197,8 +198,8 @@ type Item = { kind: 'msg'; m: ChatMessage; day: string | null; unreadLine: numbe
           @if (thread()?.more) { <div class="chat-day"><button type="button" class="board-link" (click)="state.loadOlder(sc)">Load earlier messages</button></div> }
           @if (!thread()) { <div class="board-empty">Loading…</div> }
           @else if (!items().length) {
-            <div class="board-empty">No messages yet. Ask anything about {{ isProject() ? 'this project' : 'this cycle' }} - Claude answers with
-              {{ isProject() ? "Alfred's view of every cycle" : "everything the cycle's terminal session knows" }}.</div>
+            <div class="board-empty">No messages yet. Ask anything about {{ isProject() ? 'this project' : 'this board' }} - Claude answers with
+              {{ isProject() ? "Alfred's view of every board" : "everything the board's terminal session knows" }}.</div>
           }
           @for (it of items(); track it.kind === 'msg' ? it.m.id : 'f' + it.summary.id) {
             @if (it.day) { <div class="chat-day">{{ it.day }}</div> }
@@ -442,7 +443,7 @@ export class ChatPanelComponent implements AfterViewChecked {
     }
     return null;
   });
-  readonly placeholder = computed(() => (this.isProject() ? 'Message Claude about the project… @ mention · / skills' : 'Message Claude about this cycle… @ mention · / skills'));
+  readonly placeholder = computed(() => (this.isProject() ? 'Message Claude about the project… @ mention · / skills' : 'Message Claude about this board… @ mention · / skills'));
   readonly projectCommand = computed(() => `/alfred-live ${this.state.project() || '""'}`);
   readonly cycleCommand = computed(() => `/alfred-live ${this.state.project() || '""'} ${this.scope()}`);
 

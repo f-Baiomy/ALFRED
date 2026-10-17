@@ -52,8 +52,8 @@ does the listening (docs/mcp.md "Listen runner"):
    `--finish`: the listening ended without Stop (interrupted, closed) - the runner only finishes what is left.
    This chat now handles the cycle: every ▶ on its cards and every comment that needs an investigation comes into
    this chat (see "While it runs"). It prints JSON with the log files and `watch`. `alreadyRunning` → only re-arm the
-   watch. An error line (`cannot reach Alfred at …`; `This cycle already runs in a chat on <machine>` - one chat per
-   cycle, the user stops it there first) → show it and stop.
+   watch. An error line (`cannot reach Alfred at …`; `This board already runs in a chat on <machine>` - one chat per
+   board, the user stops it there first) → show it and stop.
 5. Watch the chat log: the Monitor tool with the returned `watch` command (`tail -n 0 -F "<chat log>"` - the
    runner's short log for this session), description "Alfred listen · <cycle>", `timeout_ms` 3600000.
 6. Tell the user in two lines what is checked (the Acceptance items, the project checks, the test steps), that clean

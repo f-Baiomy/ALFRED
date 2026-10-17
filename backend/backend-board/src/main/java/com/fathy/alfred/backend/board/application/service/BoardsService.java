@@ -166,6 +166,8 @@ public class BoardsService implements ManageBoardsUseCase, RelateCycleUseCase, M
                 if (boards.boardsOfCycle(running).stream().map(boards::board).flatMap(Optional::stream)
                         .anyMatch(o -> o.project().equals(in.project()))) {
                     cyclePort().pause(running);
+                    log(board.id(), actor, Kind.RELATE_CYCLE, "paused cycle " + running + " - it recorded " + in.project()
+                            + ", and one project records into one cycle at a time", null);
                 }
             }
             cyclePort().create(name).ifPresent(cycleId -> {

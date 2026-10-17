@@ -172,7 +172,7 @@ describe('ChatPanelComponent - the window', () => {
   it('says who answers in one header row and keeps the rest in the ⋯ menu', () => {
     const f = render();
     const head: HTMLElement = f.nativeElement.querySelector('.chat-head');
-    expect(head.querySelector('.chat-who small')?.textContent).toContain('Claude on');
+    expect(head.querySelector('.chat-who small')?.textContent).toContain('Answered by the project runner');
     expect(head.querySelector('.chat-who small')?.textContent).toContain('1 waiting');
     expect(f.nativeElement.querySelector('.chat-menu')).toBeNull();
     (head.querySelector('.chat-icon[aria-label="More"]') as HTMLElement).click();
@@ -200,7 +200,7 @@ describe('ChatPanelComponent - the window', () => {
 
   it('a cycle chat with no terminal says the messages wait - Alfred starts nothing itself', () => {
     const f = render({ claudeOn: false });
-    expect(f.nativeElement.querySelector('.chat-who small')?.textContent).toContain('Terminal offline - messages wait');
+    expect(f.nativeElement.querySelector('.chat-who small')?.textContent).toContain('No terminal and no project runner - messages wait');
     f.nativeElement.remove();
   });
 

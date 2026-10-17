@@ -1,7 +1,7 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
-import { EMPTY, Observable, Subject, forkJoin, from, merge, of, timer } from 'rxjs';
-import { catchError, filter, map, share, switchMap, tap } from 'rxjs/operators';
+import { EMPTY, Observable, Subject, concat, forkJoin, from, merge, of, timer } from 'rxjs';
+import { catchError, filter, map, share, switchMap, tap, toArray } from 'rxjs/operators';
 import { reconnectingSocket } from './reconnecting-socket';
 import { SessionCycle } from '../models/call.model';
 import { AppConfigService } from '../services/app-config.service';
@@ -170,10 +170,16 @@ export class SessionCyclesStateService {
     return this.api.delete(id).pipe(tap(() => this.refreshNow()));
   }
 
-  /** Idempotent per cycle (same as the single-cycle action), so it's safe to call on a mixed-status selection. */
+  /**
+   * Idempotent per cycle, so it's safe on a mixed-status selection. One at a time: a cycle whose project another cycle
+   * already records (specs/027 FR-008) is skipped, not started - the answer holds only the cycles that now record.
+   */
   bulkStartRecording(ids: readonly string[]): Observable<SessionCycle[]> {
     if (ids.length === 0) return of([]);
-    return forkJoin(ids.map((id) => this.api.startRecording(id))).pipe(tap(() => this.refreshNow()));
+    return concat(...ids.map((id) => this.api.startRecording(id).pipe(catchError((e) => {
+      if (recordingConflict(e)) return of(null);
+      throw e;
+    })))).pipe(toArray(), map((all) => all.filter((c): c is SessionCycle => !!c)), tap(() => this.refreshNow()));
   }
 
   bulkPauseRecording(ids: readonly string[]): Observable<SessionCycle[]> {

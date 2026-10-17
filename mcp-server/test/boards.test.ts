@@ -22,7 +22,7 @@ test('a task tool given a cycle on several boards asks which board; board picks 
   try {
     w.fake.board.extra = boards;
     const refused = await w.call('get_brief', { cycleId: 'c-shared' });
-    assert.match(refused.text, /on 2 boards - pass board: one of b-refund \("Refund", p\); b-sprint/);
+    assert.match(refused.json.message, /on 2 boards - pass board: one of b-refund \("Refund", p\); b-sprint/);
 
     await w.call('get_brief', { cycleId: 'c-one' });
     assert.ok(w.fake.requests('GET', '/board/cycles/b-refund/brief').length >= 1, 'the cycle resolves to its only board');

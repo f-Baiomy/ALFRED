@@ -38,7 +38,9 @@ test('messages go urgent first, then in waiting order; a runner answers only its
     { messageId: 3, seq: 3, scope: 'project', project: 'p' }, { messageId: 4, seq: 4, scope: 'cy2', project: 'p' }];
   assert.deepEqual(chatLane.orderChats(chats).map((c: any) => c.messageId), [2, 1, 3, 4]);
   assert.deepEqual(chatLane.mineOf(chats, { cycleId: 'cy1' }).map((c: any) => c.messageId), [1, 2]);
-  assert.deepEqual(chatLane.mineOf(chats, { project: 'p' }).map((c: any) => c.messageId), [3]);
+  // specs/027 R6: the project runner also answers board chats no terminal holds (Alfred refuses its take when one does)
+  assert.deepEqual(chatLane.mineOf(chats, { project: 'p' }).map((c: any) => c.messageId), [1, 2, 3, 4]);
+  assert.deepEqual(chatLane.mineOf(chats, {}).map((c: any) => c.messageId), [3]);
   assert.deepEqual(chatLane.mineOf(chats, { project: 'q' }), []);
   assert.deepEqual(chatLane.mineOf(chats, { cycleId: 'cy1', kind: 'listen' }), []);
 });
@@ -140,7 +142,8 @@ const waiting = (c: any, id: number, scope: string, text: string, extra: any = {
 };
 
 test('the project runner answers the project chat\'s waiting messages in one run, with live steps under the message', async () => {
-  const store = { messages: [] as any[], holder: {}, terminal: [] as any[], watches: [], nextId: 50 };
+  // cy1 is held by a terminal: the project runner's take of its message is refused (specs/027 R6)
+  const store = { messages: [] as any[], holder: { cy1: 'term-x' }, terminal: [] as any[], watches: [], nextId: 50 };
   const changes = [waiting(store, 1, 'project', 'first'), waiting(store, 2, 'project', 'second', { urgent: true }), waiting(store, 3, 'cy1', 'not mine')];
   const { w, runner, promptFile, close } = await chatWorld(changes);
   w.fake.board.chats = store;

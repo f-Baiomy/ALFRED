@@ -56,24 +56,31 @@ public class LiveWorkController {
      */
     @PutMapping("/board/live-runner")
     public ResponseEntity<?> beat(@Valid @RequestBody LiveRunnerRequestDto body) {
-        if (body.cycleId() != null && !body.cycleId().isBlank() && body.chatId() != null && !body.chatId().isBlank()) {
-            LiveWorkUseCase.ChatBeat chat = work.chatBeat(body.project(), body.cycleId().strip(), body.chatId().strip(), body.host(), body.cwd(), body.kind(),
+        // specs/027: a terminal holds a board; boardId is the key, cycleId its older name (a migrated board kept its cycle's id)
+        String held = body.boardId() != null && !body.boardId().isBlank() ? body.boardId() : body.cycleId();
+        if (held != null && !held.isBlank() && body.chatId() != null && !body.chatId().isBlank()) {
+            LiveWorkUseCase.ChatBeat chat = work.chatBeat(body.project(), held.strip(), body.chatId().strip(), body.host(), body.cwd(), body.kind(),
                     body.chatAlive() == null || body.chatAlive(), body.stopped(), body.terminalAt());
             if (chat.conflict()) {
                 LiveWorkUseCase.CycleChat c = chat.chat();
-                return BoardWeb.refused(CardChange.Outcome.CONFLICT, "This cycle already runs in a chat on " + c.host() + " (since "
+                return BoardWeb.refused(CardChange.Outcome.CONFLICT, "This board already runs in a chat on " + c.host() + " (since "
                         + c.since().toString().substring(11, 16) + " UTC, " + String.join(" + ", c.kinds().stream().map(k -> "/alfred-" + k).toList())
-                        + ") - one chat per cycle: stop it there first, then start here.");
+                        + ") - one chat per board: stop it there first, then start here.");
             }
         }
         return ResponseEntity.ok(work.beat(body.project(), body.host(), body.model(), body.kind(), body.stopped()));
     }
 
     /** The chat handling a cycle (null when none) and the repo folder the project's last chat ran in. */
-    @GetMapping("/board/cycle-chat")
-    public ResponseEntity<?> cycleChat(@RequestParam String cycleId, @RequestParam(defaultValue = "") String project) {
+    @GetMapping({"/board/cycle-chat", "/board/board-chat"})
+    public ResponseEntity<?> cycleChat(@RequestParam(required = false) String cycleId, @RequestParam(required = false) String boardId,
+                                       @RequestParam(defaultValue = "") String project) {
+        String held = boardId != null && !boardId.isBlank() ? boardId : cycleId;
+        if (held == null || held.isBlank()) {
+            return BoardWeb.refused(CardChange.Outcome.INVALID, "Name the board (boardId)");
+        }
         java.util.Map<String, Object> out = new java.util.LinkedHashMap<>();
-        out.put("chat", work.cycleChat(cycleId.strip()).orElse(null));
+        out.put("chat", work.cycleChat(held.strip()).orElse(null));
         out.put("lastCwd", work.lastCwd(project).orElse(null));
         return ResponseEntity.ok(out);
     }
@@ -89,7 +96,8 @@ public class LiveWorkController {
      */
     public record LiveRunnerRequestDto(@Size(max = 100) String project, @Size(max = 200) String host, @Size(max = 100) String model,
                                        @Size(max = 20) String kind, boolean stopped, @Size(max = 100) String cycleId, @Size(max = 100) String chatId,
-                                       @Size(max = 1000) String cwd, Boolean chatAlive, java.time.Instant terminalAt) {
+                                       @Size(max = 1000) String cwd, Boolean chatAlive, java.time.Instant terminalAt,
+                                       @Size(max = 200) String boardId) {
     }
 
     /** Steps, each step and the outcome are cut to the service's own bounds rather than refused: a long run's report must still land. */

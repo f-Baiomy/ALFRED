@@ -51,8 +51,10 @@ import java.util.Set;
  * once and records what another session needs. Every change signals {@code chat-changed} and wakes {@code board_wait}
  * through the board's change feed - nothing polls.
  *
- * <p>Who answers: a cycle's chat is the chat (runner) holding that cycle ({@link LiveWorkUseCase#cycleChat}); the project
- * chat is the project's live runner. A cycle's runner never takes a project message, and the reverse.
+ * <p>Who answers (specs/027 R6): a board's chat is the terminal (runner) holding that board ({@link LiveWorkUseCase#cycleChat},
+ * keyed by the board id); while no terminal holds it, the project's live runner answers it; with neither it waits. The
+ * project chat is the default board's chat, answered by the project's live runner. A board's terminal never takes a
+ * project message.
  */
 @Service
 public class ChatService implements ChatUseCase, ChatRunnerEventsUseCase {
@@ -133,8 +135,9 @@ public class ChatService implements ChatUseCase, ChatRunnerEventsUseCase {
 
     /** Whether the Claude that answers this chat is running now. */
     boolean claudeOn(ChatKey chat) {
-        return chat.isProject() ? live.runner(chat.project(), LiveWorkUseCase.KIND_LIVE).isPresent()
-                : live.cycleChat(chat.cycleId()).filter(c -> c.project().equals(chat.project())).isPresent();
+        // specs/027 R6: a board's chat is answered by the terminal holding the board, else by the project's live runner
+        return live.runner(chat.project(), LiveWorkUseCase.KIND_LIVE).isPresent()
+                || (!chat.isProject() && live.cycleChat(chat.cycleId()).filter(c -> c.project().equals(chat.project())).isPresent());
     }
 
     @Override

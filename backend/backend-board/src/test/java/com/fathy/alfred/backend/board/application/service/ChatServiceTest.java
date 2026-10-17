@@ -402,4 +402,31 @@ class ChatServiceTest {
         assertThat(f.chat.reply(Actor.CLAUDE, m.id(), new Reply("ok", List.of(), List.of(), extra, null)).outcome()).isEqualTo(Outcome.INVALID);
         assertThat(f.chat.reply(Actor.CLAUDE, m.id(), new Reply("ok", List.of(), List.of(), null, null)).isOk()).isTrue();
     }
+
+    // ------------------------------------------------------------------------------------------------ specs/027 R6
+
+    @Test
+    void aBoardChatIsAnsweredByItsTerminalElseTheProjectRunnerElseItWaits() {
+        ChatMessage m = send(CYCLE, "why 500?");
+        // neither: nobody answers, the message waits
+        assertThat(f.chat.chats("odeysys")).filteredOn(r -> r.summary().scope().equals("c-1")).allMatch(r -> !r.claudeOn());
+
+        // the project's live runner answers a board chat no terminal holds
+        f.live.beat("odeysys", "laptop", null, "live", false);
+        assertThat(f.chat.chats("odeysys")).filteredOn(r -> r.summary().scope().equals("c-1")).allMatch(r -> r.claudeOn());
+        assertThat(f.chat.take(Actor.CLAUDE, m.id(), "runner-1", "c-1").isOk()).isTrue();
+
+        // once a terminal holds the board, only it takes the board's messages
+        ChatMessage next = send(CYCLE, "and now?");
+        holdCycle("term-1");
+        assertThat(f.chat.take(Actor.CLAUDE, next.id(), "runner-1", "c-1").outcome()).isEqualTo(Outcome.CONFLICT);
+        assertThat(f.chat.take(Actor.CLAUDE, next.id(), "term-1", "c-1").isOk()).isTrue();
+    }
+
+    @Test
+    void theDefaultBoardsChatIsTheProjectChat() {
+        assertThat(new ChatKey("odeysys", com.fathy.alfred.backend.board.domain.model.BoardIds.defaultOf("odeysys")))
+                .isEqualTo(new ChatKey("odeysys", ""));
+        assertThat(new ChatKey("odeysys", com.fathy.alfred.backend.board.domain.model.BoardIds.defaultOf("odeysys")).isProject()).isTrue();
+    }
 }
