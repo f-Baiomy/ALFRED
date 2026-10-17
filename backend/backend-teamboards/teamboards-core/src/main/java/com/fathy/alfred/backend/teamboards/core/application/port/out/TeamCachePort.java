@@ -8,6 +8,7 @@ import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.FieldDif
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.FieldMapRow;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.IncomingRow;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.IncomingState;
+import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.MatchRow;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.ItemCopyRow;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.MappingKind;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.MappingRow;
@@ -217,6 +218,18 @@ public interface TeamCachePort {
     boolean arrive(IncomingRow row);
 
     void putIncoming(IncomingRow row);
+
+    // ----------------------------------------------------------------------------------------------------- matches
+
+    List<MatchRow> matchesOfBoard(String boardId);
+
+    List<MatchRow> matchesOfCard(String cardId);
+
+    Optional<MatchRow> match(String cardId, String conn, String item);
+
+    void putMatch(MatchRow row);
+
+    void deleteMatch(String cardId, String conn, String item);
 
     // ------------------------------------------------------------------------------------------------- watch rules
 

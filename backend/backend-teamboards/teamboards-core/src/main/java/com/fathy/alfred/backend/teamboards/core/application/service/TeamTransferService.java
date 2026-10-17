@@ -9,6 +9,8 @@ import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.Incoming
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.IncomingSource;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.IncomingState;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.ItemCopyRow;
+import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.MatchRow;
+import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.MatchState;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.WatchRuleRow;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -25,8 +27,8 @@ import java.util.Set;
 
 /**
  * Writes a board's tracker side into its export and reads it back (specs/028 FR-112). Copies travel whole - never cut - so
- * an imported board shows its main and card items before the first sync; matches and proposals naming a card here are
- * not carried (card ids change on import).
+ * an imported board shows its main and card items before the first sync. Of a card's matches only the rejected ones
+ * travel (by card number, like card links), so an imported board never proposes them again; proposals are found anew.
  */
 @Service
 public class TeamTransferService implements TeamTransferUseCase {
@@ -88,6 +90,21 @@ public class TeamTransferService implements TeamTransferUseCase {
                 cache.copy(l.conn(), l.item()).ifPresent(c -> f.put("copy", copy(c)));
             }
             out.add(new TeamRecord(CARD_LINK, f));
+        }
+        for (MatchRow m : cache.matchesOfBoard(boardId)) {
+            if (m.state() != MatchState.REJECTED) {
+                continue;
+            }
+            Map<String, Object> f = new LinkedHashMap<>();
+            f.put("cardId", m.cardId());
+            f.put("boardId", m.boardId());
+            f.put("conn", m.conn());
+            f.put("item", m.item());
+            f.put("state", m.state().name());
+            put(f, "why", m.why());
+            f.put("score", m.score());
+            put(f, "at", m.at());
+            out.add(new TeamRecord(CARD_MATCH, f));
         }
         for (IncomingRow i : cache.incoming(boardId, IncomingState.WAITING)) {
             Map<String, Object> f = new LinkedHashMap<>();
@@ -155,6 +172,14 @@ public class TeamTransferService implements TeamTransferUseCase {
                         Optional.ofNullable(text(f, "linkedBy")).orElse("USER"), Boolean.TRUE.equals(f.get("hyperlink")), Boolean.TRUE.equals(f.get("tag")),
                         text(f, "commentId")));
                 putCopy(conn, item, f.get("copy"));
+            }
+            case CARD_MATCH -> {
+                if (cardId == null) {
+                    return false;
+                }
+                double score = f.get("score") instanceof Number n ? n.doubleValue() : 0;
+                cache.putMatch(new MatchRow(boardId, cardId, conn, item, MatchState.REJECTED, text(f, "why"), score,
+                        Optional.ofNullable(instant(f, "at")).orElse(now)));
             }
             case INCOMING -> {
                 IncomingSource source;

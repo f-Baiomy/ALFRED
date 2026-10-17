@@ -179,7 +179,7 @@ public class TeamBoardsAdapter implements TeamBoardsPort {
 
     static CardInfo info(Card c) {
         return new CardInfo(c.id(), c.boardId(), c.project(), c.number(), c.kind().name(), c.title(), c.description(), c.status().name(),
-                c.resolution() == null ? null : c.resolution().name());
+                c.resolution() == null ? null : c.resolution().name(), c.createdAt());
     }
 
     @Override

@@ -51,6 +51,7 @@ final class TeamFixture {
     final SeedBuilder seeds;
     final TeamTransferService transfer;
     final SavedSearchesService saved;
+    final MatchService matches;
 
     TeamFixture(Path dir) {
         cache = new SqliteTeamCacheRepository(dir.resolve("teamboards.db"));
@@ -76,7 +77,8 @@ final class TeamFixture {
         Executor now = Runnable::run;
         writes.runner = now;
         boardItems = new BoardItemsService(live, cache, sig, provider(TeamBoardsPort.class), provider(AzureWritesUseCase.class),
-                provider(IncomingUseCase.class), provider(TeamUseCase.class));
+                provider(IncomingUseCase.class), provider(TeamUseCase.class),
+                provider(com.fathy.alfred.backend.teamboards.core.application.port.in.MatchesUseCase.class));
         cardItems = new CardItemsService(live, cache, sig, provider(TeamBoardsPort.class), provider(AzureWritesUseCase.class),
                 provider(BoardItemsUseCase.class));
         incoming = new IncomingService(live, cache, sig, provider(TeamBoardsPort.class), provider(CardItemsUseCase.class), team);
@@ -86,6 +88,8 @@ final class TeamFixture {
         starts = new StartService(live, cache, sig, provider(TeamBoardsPort.class), provider(BoardItemsUseCase.class));
         seeds = new SeedBuilder(live, cache, provider(TeamBoardsPort.class));
         transfer = new TeamTransferService(cache, sig);
+        matches = new MatchService(cache, sig, provider(TeamBoardsPort.class), provider(CardItemsUseCase.class));
+        beans.addBean("matches", matches);
         beans.addBean("team", team);
         beans.addBean("writes", writes);
         beans.addBean("boardItems", boardItems);
@@ -122,7 +126,7 @@ final class TeamFixture {
 
         CardInfo card(String board, String title) {
             String id = "card-" + next;
-            CardInfo c = new CardInfo(id, board, "odeysys", next++, "BUG", title, "", "TO_DO", null);
+            CardInfo c = new CardInfo(id, board, "odeysys", next++, "BUG", title, "", "TO_DO", null, Instant.now());
             cards.put(id, c);
             return c;
         }
@@ -198,13 +202,24 @@ final class TeamFixture {
         }
 
         @Override
+        public List<CardInfo> cardsOfBoard(String boardId, int limit) {
+            List<CardInfo> out = new ArrayList<>();
+            for (CardInfo c : cards.values()) {
+                if (boardId.equals(c.boardId()) && !"CLOSED".equals(c.status())) {
+                    out.add(0, c);
+                }
+            }
+            return out.subList(0, Math.min(limit, out.size()));
+        }
+
+        @Override
         public boolean appendToDescription(String cardId, String text) {
             CardInfo c = cards.get(cardId);
             if (c == null) {
                 return false;
             }
             cards.put(cardId, new CardInfo(c.id(), c.boardId(), c.project(), c.number(), c.kind(), c.title(),
-                    (c.description() + "\n\n" + text).strip(), c.status(), c.resolution()));
+                    (c.description() + "\n\n" + text).strip(), c.status(), c.resolution(), c.createdAt()));
             return true;
         }
 

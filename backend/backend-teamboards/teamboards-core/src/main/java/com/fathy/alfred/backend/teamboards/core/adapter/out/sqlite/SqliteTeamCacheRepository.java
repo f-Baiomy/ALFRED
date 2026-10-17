@@ -13,6 +13,8 @@ import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.FieldMap
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.IncomingRow;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.IncomingSource;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.IncomingState;
+import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.MatchRow;
+import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.MatchState;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.ItemCopyRow;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.MappingKind;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.MappingRow;
@@ -198,6 +200,10 @@ public class SqliteTeamCacheRepository implements TeamCachePort {
                   PRIMARY KEY (board_id, conn, item))""",
                 "CREATE INDEX IF NOT EXISTS idx_incoming_state ON incoming(board_id, state)",
                 """
+                CREATE TABLE IF NOT EXISTS item_matches (board_id TEXT NOT NULL, card_id TEXT NOT NULL, conn TEXT NOT NULL, item TEXT NOT NULL,
+                  state TEXT NOT NULL, why TEXT, score REAL, at INTEGER NOT NULL, PRIMARY KEY (card_id, conn, item))""",
+                "CREATE INDEX IF NOT EXISTS idx_item_matches_board ON item_matches(board_id)",
+                """
                 CREATE TABLE IF NOT EXISTS watch_rules (id INTEGER PRIMARY KEY AUTOINCREMENT, board_id TEXT NOT NULL, conn TEXT NOT NULL,
                   name TEXT NOT NULL, query_json TEXT NOT NULL, created_at INTEGER NOT NULL, last_run_at INTEGER, last_source TEXT,
                   last_new INTEGER NOT NULL DEFAULT 0)""",
@@ -300,7 +306,7 @@ public class SqliteTeamCacheRepository implements TeamCachePort {
         return Boolean.TRUE.equals(tx.execute(s -> {
             for (String table : List.of("people", "squads", "squad_members", "boards", "sprints", "item_states", "areas", "tags", "mappings", "field_maps",
                     "type_kind_map", "start_requests", "pending_attachments", "board_items", "item_copies", "item_syncs", "card_links", "incoming",
-                    "watch_rules", "hook_waiting", "saved_searches")) {
+                    "item_matches", "watch_rules", "hook_waiting", "saved_searches")) {
                 jdbc.update("DELETE FROM " + table + " WHERE conn = ?", id);
             }
             jdbc.update("DELETE FROM azure_write_files WHERE write_id IN (SELECT id FROM azure_writes WHERE conn = ?)", id);
@@ -670,6 +676,7 @@ public class SqliteTeamCacheRepository implements TeamCachePort {
             jdbc.update("DELETE FROM board_items_removed WHERE board_id = ?", boardId);
             jdbc.update("DELETE FROM card_links WHERE board_id = ?", boardId);
             jdbc.update("DELETE FROM incoming WHERE board_id = ?", boardId);
+            jdbc.update("DELETE FROM item_matches WHERE board_id = ?", boardId);
             jdbc.update("DELETE FROM watch_rules WHERE board_id = ?", boardId);
             return held;
         });
@@ -832,6 +839,39 @@ public class SqliteTeamCacheRepository implements TeamCachePort {
                 r.boardId(), r.conn(), r.item(), r.source().name(), millis(r.arrivedAt()), r.rev(), r.type(), r.title(), r.matchCard(), r.matchScore(),
                 r.proposalAction(), r.proposalCard(), r.proposalReason(), r.state().name(), r.ignoredRev(),
                 r.state() == IncomingState.WAITING ? null : System.currentTimeMillis());
+    }
+
+    // ----------------------------------------------------------------------------------------------------- matches
+
+    private static final String MATCHES = "SELECT board_id, card_id, conn, item, state, why, score, at FROM item_matches";
+
+    private final RowMapper<MatchRow> matchRow = (rs, n) -> new MatchRow(rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4),
+            MatchState.valueOf(rs.getString(5)), rs.getString(6), rs.getDouble(7), instant(rs, 8));
+
+    @Override
+    public List<MatchRow> matchesOfBoard(String boardId) {
+        return jdbc.query(MATCHES + " WHERE board_id = ? ORDER BY score DESC, item", matchRow, boardId);
+    }
+
+    @Override
+    public List<MatchRow> matchesOfCard(String cardId) {
+        return jdbc.query(MATCHES + " WHERE card_id = ? ORDER BY score DESC, item", matchRow, cardId);
+    }
+
+    @Override
+    public Optional<MatchRow> match(String cardId, String conn, String item) {
+        return jdbc.query(MATCHES + " WHERE card_id = ? AND conn = ? AND item = ?", matchRow, cardId, conn, item).stream().findFirst();
+    }
+
+    @Override
+    public void putMatch(MatchRow r) {
+        jdbc.update("INSERT OR REPLACE INTO item_matches(board_id, card_id, conn, item, state, why, score, at) VALUES (?,?,?,?,?,?,?,?)",
+                r.boardId(), r.cardId(), r.conn(), r.item(), r.state().name(), r.why(), r.score(), millis(r.at() == null ? Instant.now() : r.at()));
+    }
+
+    @Override
+    public void deleteMatch(String cardId, String conn, String item) {
+        jdbc.update("DELETE FROM item_matches WHERE card_id = ? AND conn = ? AND item = ?", cardId, conn, item);
     }
 
     // --------------------------------------------------------------------------------------------- saved searches

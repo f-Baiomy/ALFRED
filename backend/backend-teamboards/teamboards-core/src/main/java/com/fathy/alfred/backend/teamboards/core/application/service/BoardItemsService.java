@@ -4,6 +4,7 @@ import com.fathy.alfred.backend.teamboards.core.application.port.in.AzureWritesU
 import com.fathy.alfred.backend.teamboards.core.application.port.in.AzureWritesUseCase.NewBundle;
 import com.fathy.alfred.backend.teamboards.core.application.port.in.BoardItemsUseCase;
 import com.fathy.alfred.backend.teamboards.core.application.port.in.IncomingUseCase;
+import com.fathy.alfred.backend.teamboards.core.application.port.in.MatchesUseCase;
 import com.fathy.alfred.backend.teamboards.core.application.port.in.TeamException;
 import com.fathy.alfred.backend.teamboards.core.application.port.in.TeamException.Code;
 import com.fathy.alfred.backend.teamboards.core.application.port.in.TeamUseCase;
@@ -72,6 +73,7 @@ public class BoardItemsService implements BoardItemsUseCase {
     private final ObjectProvider<AzureWritesUseCase> writes;
     private final ObjectProvider<IncomingUseCase> incoming;
     private final ObjectProvider<TeamUseCase> team;
+    private final ObjectProvider<MatchesUseCase> matches;
     private final Clock clock;
     private final Map<String, Instant> lastSync = new ConcurrentHashMap<>();
     private final Set<String> syncing = ConcurrentHashMap.newKeySet();
@@ -83,13 +85,14 @@ public class BoardItemsService implements BoardItemsUseCase {
 
     @Autowired
     public BoardItemsService(Live live, TeamCachePort cache, TeamChangeSignalPort signals, ObjectProvider<TeamBoardsPort> boards,
-                             ObjectProvider<AzureWritesUseCase> writes, ObjectProvider<IncomingUseCase> incoming, ObjectProvider<TeamUseCase> team) {
-        this(live, cache, signals, boards, writes, incoming, team, Clock.systemUTC());
+                             ObjectProvider<AzureWritesUseCase> writes, ObjectProvider<IncomingUseCase> incoming, ObjectProvider<TeamUseCase> team,
+                             ObjectProvider<MatchesUseCase> matches) {
+        this(live, cache, signals, boards, writes, incoming, team, matches, Clock.systemUTC());
     }
 
     BoardItemsService(Live live, TeamCachePort cache, TeamChangeSignalPort signals, ObjectProvider<TeamBoardsPort> boards,
                       ObjectProvider<AzureWritesUseCase> writes, ObjectProvider<IncomingUseCase> incoming, ObjectProvider<TeamUseCase> team,
-                      Clock clock) {
+                      ObjectProvider<MatchesUseCase> matches, Clock clock) {
         this.live = live;
         this.cache = cache;
         this.signals = signals;
@@ -97,6 +100,7 @@ public class BoardItemsService implements BoardItemsUseCase {
         this.writes = writes;
         this.incoming = incoming;
         this.team = team;
+        this.matches = matches;
         this.clock = clock;
     }
 
@@ -348,6 +352,10 @@ public class BoardItemsService implements BoardItemsUseCase {
                 extra.put("newInTree", r.newInTree());
                 extra.put("leftTree", r.leftTree());
                 extra.put("skipped", r.skipped());
+                extra.put("matches", r.matches());
+                if (r.mainState() != null) {
+                    extra.put("mainState", r.mainState());
+                }
                 signals.board(boardId, null, "sync", extra);
             } catch (TeamException e) {
                 signals.board(boardId, null, "sync", Map.of("error", e.code().name(), "message", String.valueOf(e.getMessage())));
@@ -376,6 +384,10 @@ public class BoardItemsService implements BoardItemsUseCase {
         int changed = 0;
         int fresh = 0;
         int left = 0;
+        List<ArrivedItem> arrivedItems = new ArrayList<>();
+        List<ChangedItem> changedItems = new ArrayList<>();
+        MainState mainState = null;
+        Map<String, Item> read = new HashMap<>();
         Map<String, List<BoardItemRow>> byConn = new LinkedHashMap<>();
         for (BoardItemRow r : rows) {
             byConn.computeIfAbsent(r.conn(), k -> new ArrayList<>()).add(r);
@@ -400,15 +412,23 @@ public class BoardItemsService implements BoardItemsUseCase {
             Map<String, Item> now2 = new HashMap<>();
             for (Item i : live.items(c, union(full, refs))) {
                 now2.put(i.extId(), i);
+                read.put(conn + "/" + i.extId(), i);
             }
+            Optional<BoardItemRow> mainRow = cache.main(boardId).filter(m -> m.conn().equals(conn));
             for (String id : full) {
                 Item i = now2.get(id);
                 checked++;
                 if (i == null) {
                     continue;
                 }
-                if (syncFull(c, boardId, i)) {
+                if (mainRow.isPresent() && mainRow.get().item().equals(id)) {
+                    Optional<Item> before = cache.copy(conn, id).flatMap(Copies::item);
+                    mainState = before.map(b -> mainMove(conn, b, i)).orElse(null);
+                }
+                ChangedItem ch = syncFull(c, boardId, i);
+                if (ch != null) {
                     changed++;
+                    changedItems.add(ch);
                 }
             }
             for (BoardItemRow r : e.getValue()) {
@@ -459,6 +479,8 @@ public class BoardItemsService implements BoardItemsUseCase {
                     TeamUseCase t = team.getIfAvailable();
                     for (Item i : arrived) {
                         fresh++;
+                        arrivedItems.add(new ArrivedItem(conn, i.extId(), i.type(), i.title(), i.state()));
+                        read.put(conn + "/" + i.extId(), i);
                         boolean cardKind = t == null || !"NONE".equals(t.kindOf(conn, i.type()));
                         if (in != null && cardKind && cache.cardLinksOfItem(conn, i.extId()).isEmpty()) {
                             in.arrive(boardId, conn, i, IncomingSource.TREE);
@@ -467,7 +489,20 @@ public class BoardItemsService implements BoardItemsUseCase {
                 }
             }
         }
-        return new SyncResult(boardId, checked, changed, fresh, left, false);
+        MatchesUseCase m = matches.getIfAvailable();
+        int proposed = m == null ? 0 : m.propose(boardId, read);
+        return new SyncResult(boardId, checked, changed, fresh, left, false, arrivedItems, changedItems, mainState, proposed);
+    }
+
+    /** The main's state or iteration move between its copy and Azure now; null when neither moved. */
+    MainState mainMove(String conn, Item before, Item now) {
+        boolean state = !java.util.Objects.equals(before.state(), now.state());
+        boolean sprint = !java.util.Objects.equals(before.sprint(), now.sprint());
+        if (!state && !sprint) {
+            return null;
+        }
+        String category = live.category(conn, now.type(), now.state());
+        return new MainState(conn, now.extId(), before.state(), now.state(), category, Live.closed(category), before.sprint(), now.sprint());
     }
 
     private static Set<String> union(Set<String> a, Set<String> b) {
@@ -477,13 +512,13 @@ public class BoardItemsService implements BoardItemsUseCase {
     }
 
     /** A full item against its copy: a sync row when anything differs; the copy stays until the user keeps Azure's version. */
-    boolean syncFull(Ctx c, String boardId, Item now) {
+    ChangedItem syncFull(Ctx c, String boardId, Item now) {
         String conn = c.id();
         Optional<ItemCopyRow> copy = cache.copy(conn, now.extId());
         List<Comment> comments = comments(c, now.extId());
         if (copy.isEmpty()) {
             cache.putCopy(Copies.row(conn, now, comments, clock.instant()));
-            return false;
+            return null;
         }
         Optional<Item> before = Copies.item(copy.get());
         List<FieldDiff> diff = before.map(b -> ItemDiff.diff(b, Copies.comments(copy.get()), now, comments)).orElse(List.of());
@@ -491,7 +526,7 @@ public class BoardItemsService implements BoardItemsUseCase {
             if (now.rev() != copy.get().rev()) {
                 cache.putCopy(Copies.row(conn, now, comments, clock.instant())); // only bookkeeping moved
             }
-            return false;
+            return null;
         }
         List<SyncRow> last = cache.syncs(conn, now.extId(), 1);
         if (last.isEmpty() || last.get(0).toRev() != now.rev() || last.get(0).kept()) {
@@ -499,7 +534,13 @@ public class BoardItemsService implements BoardItemsUseCase {
             // a proposal once per new revision - not again on every sync until the copy is kept
             before.ifPresent(b -> closedOrReopened(conn, boardId, b, now));
         }
-        return true;
+        Set<String> seen = new java.util.HashSet<>();
+        for (Comment k : Copies.comments(copy.get())) {
+            seen.add(k.id());
+        }
+        int newComments = (int) comments.stream().filter(k -> !seen.contains(k.id())).count();
+        List<String> fields = diff.stream().map(FieldDiff::field).distinct().toList();
+        return new ChangedItem(conn, now.extId(), now.title(), fields, newComments);
     }
 
     /** FR-059: a linked item closed or reopened in Azure - the card gets a badge (the diff) and a move proposal. */

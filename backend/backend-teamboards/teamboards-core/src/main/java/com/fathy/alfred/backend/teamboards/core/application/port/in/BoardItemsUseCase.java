@@ -45,7 +45,37 @@ public interface BoardItemsUseCase {
     /** Unlinks an item; the main only with {@code newMain} naming the next one (or when it is the board's only item). */
     View unlink(Who who, String boardId, String conn, String item, String newMain);
 
-    record SyncResult(String boardId, int checked, int changed, int newInTree, int leftTree, boolean skipped) {
+    /**
+     * What a sync found (specs/030 D4): counts, and for "Refresh from Azure" the items new in the main's tree (they went
+     * to Incoming as before), the items whose copy Azure moved past (with how many comments are new), the main's state or
+     * iteration move, and how many card matches are proposed now.
+     */
+    record SyncResult(String boardId, int checked, int changed, int newInTree, int leftTree, boolean skipped, List<ArrivedItem> newItems,
+                      List<ChangedItem> changedItems, MainState mainState, int matches) {
+        public SyncResult {
+            newItems = newItems == null ? List.of() : List.copyOf(newItems);
+            changedItems = changedItems == null ? List.of() : List.copyOf(changedItems);
+        }
+
+        public SyncResult(String boardId, int checked, int changed, int newInTree, int leftTree, boolean skipped) {
+            this(boardId, checked, changed, newInTree, leftTree, skipped, List.of(), List.of(), null, 0);
+        }
+    }
+
+    /** An item that arrived in the main's tree since the last sync. */
+    record ArrivedItem(String conn, String item, String type, String title, String state) {
+    }
+
+    /** A main or card item whose copy Azure moved past: the fields that differ and the comments added since the copy. */
+    record ChangedItem(String conn, String item, String title, List<String> fields, int newComments) {
+    }
+
+    /**
+     * The main's move in this sync: its state (with the state category, Removed / Completed / ...) and its iteration,
+     * before and after. Null in the result when neither moved.
+     */
+    record MainState(String conn, String item, String fromState, String toState, String category, boolean closed, String fromIteration,
+                     String toIteration) {
     }
 
     /** Syncs the main and the card items in full, the references by fields (≤ 1 a minute a board unless {@code force}). */

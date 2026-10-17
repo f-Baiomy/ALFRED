@@ -70,7 +70,11 @@ public interface TeamBoardsPort {
 
     /** A card as the Team slice needs it. {@code status}: INBOX ... CLOSED; {@code resolution} only when closed. */
     record CardInfo(String id, String boardId, String project, int number, String kind, String title, String description, String status,
-                    String resolution) {
+                    String resolution, java.time.Instant createdAt) {
+        public CardInfo(String id, String boardId, String project, int number, String kind, String title, String description, String status,
+                        String resolution) {
+            this(id, boardId, project, number, kind, title, description, status, resolution, null);
+        }
     }
 
     default Optional<CardInfo> card(String cardId) {

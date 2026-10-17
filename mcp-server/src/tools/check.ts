@@ -5,7 +5,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { AlfredError, seg, type AlfredClient } from '../alfred-client.ts';
 import { isErrorLine } from '../call-story.ts';
 import { hydrate } from '../calls.ts';
-import { cycleEntries, findCycle } from '../cycle-calls.ts';
+import { cycleEntries, findCycleOrBoard } from '../cycle-calls.ts';
 import { dbSummaries, loadCapture } from '../db-capture.ts';
 import { FlowIndex, parseBody, writtenColumns, type HopDiff, type Side } from '../flow-diff.ts';
 import { areaOf } from './spacers.ts';
@@ -548,7 +548,7 @@ export function dropIndexesForTests(): void {
 }
 
 const inputShape = {
-  cycle: z.string().min(1).describe('Cycle id or text from its name'),
+  cycle: z.string().min(1).describe('Cycle id or text from its name, or a board (AB#1234, its name or id): its recording cycle, else its newest'),
   sinceCallId: z.string().optional().describe('Check only the calls after this one (the previous reply\'s lastCallId)'),
   untilCallId: z.string().optional().describe('Check only up to this call - pass the first page\'s lastCallId when paging, so the window stays put'),
   sweep: z.boolean().default(false).describe('The whole cycle, but only calls never checked or whose mark changed since (late log lines, statements) - listen\'s last step'),
@@ -928,7 +928,7 @@ export function register(server: McpServer, client: AlfredClient): void {
     const ctx = await maskContext(client, input.mask);
     if (input.sweep && input.sinceCallId) throw invalid('A sweep covers the whole cycle - give sweep or sinceCallId, not both.');
     if (input.waitSec && !input.sinceCallId) throw invalid('waitSec waits for the calls after sinceCallId - pass the previous reply\'s lastCallId.');
-    const found = await findCycle(client, input.cycle);
+    const found = await findCycleOrBoard(client, input.cycle);
     if ('candidates' in found) {
       return ok({ candidates: found.candidates }, `"${input.cycle}" matches ${found.candidates.length} cycles - ask which one, then call check_calls with its id.`);
     }

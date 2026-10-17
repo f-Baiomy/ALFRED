@@ -174,6 +174,18 @@ public final class TeamModels {
                               IncomingState state, Integer ignoredRev) {
     }
 
+    // ------------------------------------------------------------------------------------------------------ matches
+
+    public enum MatchState { PROPOSED, LINKED, REJECTED }
+
+    /**
+     * A tracker item that may be what an unlinked card is about (specs/030 D5), found by code - shared words and endpoint
+     * paths, no model. {@code why}: the code's reason, or Claude's once it judged it. REJECTED is kept so it is never
+     * proposed again for that card.
+     */
+    public record MatchRow(String boardId, String cardId, String conn, String item, MatchState state, String why, double score, Instant at) {
+    }
+
     /** A board's watch rule: a saved search body, run on board open, Refresh, hook ping and the MCP. */
     /** A saved search of one connection (specs/029); {@code position}: its place among the pills. */
     public record SavedSearchRow(long id, String conn, String name, String queryJson, int position, Integer lastCount, Instant updatedAt) {

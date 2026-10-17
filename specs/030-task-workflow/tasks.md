@@ -8,8 +8,10 @@
 
 - Done and tested: seed children/parents/comments (backend + `team_item` parts), board refs (`src/board-ref.ts`), board stage
   (`BoardStage`, `GET /board/boards/{id}/stage`, task_context STAGE/NEXT).
-- Next: T013 (sync result fields), T015-T019 (item matches: table, MatchService, endpoints, `team_card_matches`), then T020.
-- Not run yet: the full backend / MCP / frontend suites and `docker compose build backend` (T020).
+- Phase 1 done (T001-T019): also the refresh result (`newItems`, `changedItems` with new comments, `mainState`, `matches`),
+  card matches (`item_matches`, `MatchService`, `/teamboards/cards/{card}/matches...`, `team_card_matches`), rejected
+  matches in the board export (`team-card-match`), and `check_calls` taking a board.
+- Next: Phase 2 (skills, T021-T031).
 
 ## Phase 1: Backend + MCP
 
@@ -25,7 +27,7 @@
 
 - [X] T006 (not needed: GET /board/boards already gives each board's main as linkedItem; AB# resolves from it) [US2] `GET /teamboards/items/{conn}/{id}/boards` (role per board) in `TeamStartController.java` via `cache.boardsOfItem`; controller test
 - [X] T007 [US2] New `mcp-server/src/board-ref.ts` `resolveTask(client, arg)`: board id → `AB#<id>` / `<conn>/<id>` / URL → name exact → name prefix → cycle id/name; bare `#n` refused; candidates on ambiguity
-- [~] T008 (done: task_context, the board param of every task tool, board_record/home/relate/move_home/cycle_verdicts; open: check_calls' cycle arg) [US2] Use `resolveTask` in `task_context` (`mcp-server/src/tools/task.ts`) and in `board_record`, `board_home`, `board_cycle_verdicts` (`tools/boards.ts`), `get_brief`, `read_spec`, `board_requirements`, `board_steps`, and `check_calls`' cycle arg (board → recording or latest cycle)
+- [X] T008 (task_context, the board param of every task tool, board_record/home/relate/move_home/cycle_verdicts, check_calls' cycle arg via `findCycleOrBoard`) [US2] Use `resolveTask` in `task_context` (`mcp-server/src/tools/task.ts`) and in `board_record`, `board_home`, `board_cycle_verdicts` (`tools/boards.ts`), `get_brief`, `read_spec`, `board_requirements`, `board_steps`, and `check_calls`' cycle arg (board → recording or latest cycle)
 - [X] T009 [US2] Tests `mcp-server/test/board-ref.test.ts`: each form, `#60` refused, `AB#` with no board, task_context with board id 261e0010-shaped id
 
 ### Stage (US8, FR-013)
@@ -36,16 +38,16 @@
 
 ### Refresh (US5, FR-014, FR-017)
 
-- [ ] T013 [US5] Extend the `/teamboards/boards/{board}/sync` result with `newItems`, `comments`, `mainState` (category, iteration move) in `TeamService.java` / `BoardItemsUseCase.java`; new items still go to Incoming
-- [ ] T014 [US5] Tests: new child after the copy, new comment, main moved to Removed, main moved out of its iteration
+- [X] T013 (comments as `changedItems[].newComments`) [US5] Extend the `/teamboards/boards/{board}/sync` result with `newItems`, `comments`, `mainState` (category, iteration move) in `TeamService.java` / `BoardItemsUseCase.java`; new items still go to Incoming
+- [X] T014 [US5] Tests: new child after the copy, new comment, main moved to Removed, main moved out of its iteration
 
 ### Matches (US6, FR-015)
 
-- [ ] T015 [US6] `item_matches` table in `SqliteTeamCacheRepository.java` + port methods in `TeamCachePort`
-- [ ] T016 [US6] `MatchService.java` (core): candidates for unlinked cards (open Bug/Task in the main's tree, created after the card, word overlap, endpoint paths from mentions/text), threshold, REJECTED never re-proposed; called from sync (T013) and on demand
-- [ ] T017 [US6] Endpoints in `TeamCardsController.java`: `GET /teamboards/cards/{card}/matches`, `POST …/matches/{conn}/{item}/link` (card_links + LINKED + drop from other cards), `POST …/reject`, `PUT …/why` (Claude)
-- [ ] T018 [US6] `MatchServiceTest.java`: score, created-before excluded, reject kept, link clears other cards; matches in the board export/import
-- [ ] T019 [US6] MCP `team_card_matches` (list, `why`) in `mcp-server/src/tools/team.ts` + test
+- [X] T015 [US6] `item_matches` table in `SqliteTeamCacheRepository.java` + port methods in `TeamCachePort`
+- [X] T016 [US6] `MatchService.java` (core): candidates for unlinked cards (open Bug/Task in the main's tree, created after the card, word overlap, endpoint paths from mentions/text), threshold, REJECTED never re-proposed; called from sync (T013) and on demand
+- [X] T017 [US6] Endpoints in `TeamCardsController.java`: `GET /teamboards/cards/{card}/matches`, `POST …/matches/{conn}/{item}/link` (card_links + LINKED + drop from other cards), `POST …/reject`, `PUT …/why` (Claude)
+- [X] T018 (only REJECTED rows travel, as `team-card-match` by card number) [US6] `MatchServiceTest.java`: score, created-before excluded, reject kept, link clears other cards; matches in the board export/import
+- [X] T019 [US6] MCP `team_card_matches` (list, `why`) in `mcp-server/src/tools/team.ts` + test
 
 ### Phase 1 close
 

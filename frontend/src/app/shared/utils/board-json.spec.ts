@@ -130,4 +130,14 @@ describe('board .json export (alfred-board/1)', () => {
     expect(parsed.teamRecords.find((r) => r['record'] === 'card-owner')).toEqual({ record: 'card-owner', cardNumber: 1, owner: 'c1/p-1|Sara Ali' });
     expect(parsed.teamRecords.some((r) => r['record'] === 'team-watch-rule')).toBeTrue();
   });
+
+  it('writes a card\'s rejected match by card number, like a card link (specs/030)', () => {
+    const lines = buildBoardJsonLines({
+      ...data,
+      cards: [card(1), card(2)],
+      teamRecords: [{ record: 'team-card-match', cardId: 'id1', boardId: 'b-refund', conn: 'c1', item: '102', state: 'REJECTED', score: 0.75 }],
+    }, '2026-10-10T00:00:00Z');
+    expect(parseBoardJsonLines(lines).teamRecords.filter((r) => r['record'] === 'team-card-match')).toEqual([
+      { record: 'team-card-match', boardId: 'b-refund', conn: 'c1', item: '102', state: 'REJECTED', score: 0.75, cardNumber: 1 }]);
+  });
 });

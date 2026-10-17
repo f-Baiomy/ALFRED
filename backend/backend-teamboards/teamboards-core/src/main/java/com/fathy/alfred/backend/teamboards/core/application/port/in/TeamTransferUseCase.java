@@ -13,6 +13,8 @@ public interface TeamTransferUseCase {
     /** The kinds of record, as the export's {@code record} field. */
     String ITEM = "team-item";
     String CARD_LINK = "team-card-link";
+    /** A match the user rejected for a card (specs/030): kept so it is never proposed again. Proposals are not carried. */
+    String CARD_MATCH = "team-card-match";
     String INCOMING = "team-incoming";
     String RULE = "team-watch-rule";
 

@@ -71,3 +71,17 @@ test('the board param of a task tool takes AB# and a name', async () => {
     assert.ok(w.fake.requests('GET', '/board/cycles/b-export2/brief').length >= 1);
   } finally { await w.close(); }
 });
+
+test('check_calls takes a board as its cycle: the board recording cycle; a board with no cycle says how to start one (specs/030)', async () => {
+  const w = await world();
+  try {
+    w.fake.board.extra = boards;
+    w.fake.addCycle({ id: 'cy-1', name: 'retest one', status: 'PAUSED', createdAt: '2026-10-01T00:00:00Z' });
+    const r = await w.call('check_calls', { cycle: 'AB#61813' });
+    assert.ok(!r.isError, r.text.slice(0, 300));
+    assert.match(r.text, /retest one|cy-1/);
+    const none = await w.call('check_calls', { cycle: 'Export refunds v2' });
+    assert.ok(none.isError);
+    assert.match(none.text, /has no cycle yet - board_record starts one/);
+  } finally { await w.close(); }
+});

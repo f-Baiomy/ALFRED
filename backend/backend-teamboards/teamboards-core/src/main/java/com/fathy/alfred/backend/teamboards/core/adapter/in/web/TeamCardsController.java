@@ -5,6 +5,7 @@ import com.fathy.alfred.backend.teamboards.core.application.port.in.AzureWritesU
 import com.fathy.alfred.backend.teamboards.core.application.port.in.CardItemsUseCase;
 import com.fathy.alfred.backend.teamboards.core.application.port.in.CardItemsUseCase.Markers;
 import com.fathy.alfred.backend.teamboards.core.application.port.in.HookUseCase;
+import com.fathy.alfred.backend.teamboards.core.application.port.in.MatchesUseCase;
 import com.fathy.alfred.backend.teamboards.core.application.port.in.TeamException;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.Who;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.WriteStep;
@@ -43,11 +44,13 @@ public class TeamCardsController {
     private final CardItemsUseCase cards;
     private final AzureWritesUseCase writes;
     private final HookUseCase hook;
+    private final MatchesUseCase matches;
 
-    public TeamCardsController(CardItemsUseCase cards, AzureWritesUseCase writes, HookUseCase hook) {
+    public TeamCardsController(CardItemsUseCase cards, AzureWritesUseCase writes, HookUseCase hook, MatchesUseCase matches) {
         this.cards = cards;
         this.writes = writes;
         this.hook = hook;
+        this.matches = matches;
     }
 
     record MarkersDto(Boolean hyperlink, Boolean comment, Boolean tag) {
@@ -77,6 +80,9 @@ public class TeamCardsController {
     record AddressDto(@Size(max = 300) String publicAddress) {
     }
 
+    record WhyDto(@NotBlank @Size(max = 2000) String why) {
+    }
+
     // -------------------------------------------------------------------------------------------------------- cards
 
     @GetMapping("/teamboards/cards/{card}/items")
@@ -101,6 +107,30 @@ public class TeamCardsController {
     public ResponseEntity<?> unlink(@PathVariable String card, @PathVariable String conn, @PathVariable String item,
                                     @RequestHeader(value = ACTOR, required = false) String actor) {
         return ResponseEntity.ok(cards.unlink(Who.of(actor), card, conn, item));
+    }
+
+    // ------------------------------------------------------------------------------------------------------ matches
+
+    @GetMapping("/teamboards/cards/{card}/matches")
+    public ResponseEntity<?> matches(@PathVariable String card) {
+        return ResponseEntity.ok(matches.matches(card));
+    }
+
+    @PostMapping("/teamboards/cards/{card}/matches/{conn}/{item}/link")
+    public ResponseEntity<?> linkMatch(@PathVariable String card, @PathVariable String conn, @PathVariable String item,
+                                       @RequestHeader(value = ACTOR, required = false) String actor) {
+        return ResponseEntity.ok(matches.link(Who.of(actor), card, conn, item));
+    }
+
+    @PostMapping("/teamboards/cards/{card}/matches/{conn}/{item}/reject")
+    public ResponseEntity<?> rejectMatch(@PathVariable String card, @PathVariable String conn, @PathVariable String item,
+                                         @RequestHeader(value = ACTOR, required = false) String actor) {
+        return ResponseEntity.ok(matches.reject(Who.of(actor), card, conn, item));
+    }
+
+    @PutMapping("/teamboards/cards/{card}/matches/{conn}/{item}/why")
+    public ResponseEntity<?> matchWhy(@PathVariable String card, @PathVariable String conn, @PathVariable String item, @Valid @RequestBody WhyDto body) {
+        return ResponseEntity.ok(matches.why(card, conn, item, body.why()));
     }
 
     // ------------------------------------------------------------------------------------------------------ bundles

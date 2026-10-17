@@ -46,6 +46,12 @@ function team(opts: { token?: boolean; conns?: unknown[] } = {}) {
     if (method === 'POST' && p[1] === 'boards' && p[3] === 'items') {
       return body.askedIn ? [200, { main: null, items: [], syncedAt: null, live: true }] : [409, { error: 'CONFLICT', message: 'Waiting for the user: the link is a bundle' }];
     }
+    if (p[1] === 'cards' && p[3] === 'matches') {
+      const match = (why: string) => ({ row: { boardId: 'b1', cardId: p[2], conn: 'c1', item: '1300', state: 'PROPOSED', why, score: 0.75, at: null },
+        type: 'Bug', title: 'Refund total is wrong', state: 'New' });
+      if (method === 'GET') return [200, [match('shared words: refund, total')]];
+      if (method === 'PUT' && p[6] === 'why') return [200, [match(body.why)]];
+    }
     if (method === 'POST' && p[1] === 'cards' && p[3] === 'items') return [200, { items: [], bundle: { ...BUNDLE, id: 9, title: 'Link card #4 in Azure' } }];
     if (method === 'DELETE' && p[1] === 'cards') return [403, { error: 'USER_ONLY', message: 'Only the user unlinks a card from an item' }];
     if (method === 'POST' && p[1] === 'items' && p[4] === 'start') {
@@ -218,6 +224,28 @@ test('writes are bundles that wait for the user: comment, state, extend, link a 
     assert.ok(un.isError);
     assert.match(un.text, /Only the user unlinks/);
     assert.equal(w.fake.requests('POST', '/teamboards/writes/').filter((r) => r.path.endsWith('/approve')).length, 0, 'Claude never approves');
+  } finally { await w.close(); }
+});
+
+test('team_card_matches lists the proposed items of a card with the reason; why replaces it as Claude, never links (specs/030)', async () => {
+  const w = await world();
+  try {
+    w.fake.team = team();
+    seedCard(w);
+    const m = await w.call('team_card_matches', { project: 'odeysys', number: 4 });
+    assert.deepEqual(m.json.matches, [{ item: 'c1/1300 · Bug · "Refund total is wrong" · New · score 0.75', why: 'shared words: refund, total' }]);
+    assert.match(m.json.note, /Only the user links or rejects/);
+
+    const j = await w.call('team_card_matches', { project: 'odeysys', number: 4, id: 'AB#1300', why: 'Same total screen as the card call' });
+    assert.equal(j.json.matches[0].why, 'Same total screen as the card call');
+    const put = w.fake.requests('PUT', '/teamboards/cards/card-4/matches/c1/1300/why')[0];
+    assert.equal(put.body.why, 'Same total screen as the card call');
+    assert.equal(put.headers?.['x-alfred-actor'], 'claude');
+
+    const none = await w.call('team_card_matches', { project: 'odeysys', number: 4, id: '999', why: 'x' });
+    assert.ok(none.isError);
+    assert.match(none.text, /not a proposed match/);
+    assert.equal(w.fake.requests('POST', '/teamboards/cards/card-4/matches').length, 0, 'Claude never links or rejects');
   } finally { await w.close(); }
 });
 

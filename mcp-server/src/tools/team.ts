@@ -126,6 +126,11 @@ interface CardItemRow {
   readonly comments: readonly { by: string | null; at: string | null; text: string }[];
 }
 
+interface MatchRow {
+  readonly row: { readonly conn: string; readonly item: string; readonly state: string; readonly why: string | null; readonly score: number };
+  readonly type: string | null; readonly title: string; readonly state: string | null;
+}
+
 interface IncomingRow {
   readonly conn: string; readonly item: string; readonly source: string; readonly type: string | null; readonly title: string | null;
   readonly matchCard: string | null; readonly matchScore: number | null; readonly proposalAction: string | null; readonly proposalCard: string | null;
@@ -561,6 +566,30 @@ export function register(server: McpServer, client: AlfredClient): void {
       item: `${i.conn}/${i.item} · ${i.type ?? ''} · "${i.title}" · ${i.state ?? '-'}${i.changed ? ' · CHANGED since the copy' : ''}${i.closedInAzure ? ' · CLOSED in the tracker' : ''}`,
       url: i.url, comments: i.comments.map((c) => `${c.at ?? ''} ${c.by ?? ''}: ${plain(c.text)}`),
     })) });
+  }));
+
+  server.registerTool('team_card_matches', {
+    description: 'Work items that may be what a card with no linked item is about (specs/030): open Bug/Task/Issue items of the board\'s '
+      + 'tree found by code (shared words, the same /api/ endpoint), best first, with the reason. Judge them: pass why (with id) to replace '
+      + 'the code\'s reason with yours. Only the user links one or says "Not this one" (Team panel on the card); a rejected item never '
+      + 'comes back. Refresh from Azure (the board sync) finds them anew.',
+    inputSchema: { ...Card, id: Id.optional().describe('With why: the proposed item to judge (1234, AB#1234, <conn>/1234)'),
+      why: z.string().min(1).max(2000).optional().describe('Your reason this item is (or is not) the card\'s, in a sentence or two') },
+  }, (input) => run(async () => {
+    const card = await cardByNumber(client, input.project, input.number);
+    const base = `/teamboards/cards/${seg(card.id)}/matches`;
+    let rows = await client.get<MatchRow[]>(base);
+    if (input.why !== undefined) {
+      if (!input.id) throw invalid('Name the proposed item to judge with id');
+      const ref = itemRef(input.id);
+      const m = rows.find((r) => r.row.item === ref.id && (!ref.conn || r.row.conn === ref.conn));
+      if (!m) throw notFound(`Item ${input.id} is not a proposed match of card #${card.number}`);
+      rows = await client.put<MatchRow[]>(`${base}/${seg(m.row.conn)}/${seg(m.row.item)}/why`, { body: { why: input.why }, ...AS_CLAUDE });
+    }
+    return ok({ card: `#${card.number} ${card.title}`, matches: rows.map((r) => ({
+      item: `${r.row.conn}/${r.row.item} · ${r.type ?? ''} · "${r.title}" · ${r.state ?? '-'} · score ${r.row.score}`,
+      why: r.row.why,
+    })), ...(rows.length ? { note: 'Only the user links or rejects a match.' } : {}) });
   }));
 
   server.registerTool('team_incoming', {

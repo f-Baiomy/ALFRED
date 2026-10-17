@@ -40,8 +40,8 @@ export interface BoardExport {
   /** The work item each board was opened from, as Alfred's snapshot of it (read back for reference; the tracker stays the source). */
   readonly workItems?: readonly { readonly board: string; readonly conn: string; readonly extId: string; readonly provider: string;
     readonly snapshot: Readonly<Record<string, string>> }[];
-  /** The boards' tracker side (specs/028): team-item (with the full copies), team-card-link (by cardId here, cardNumber in the
-   *  file), team-incoming, team-watch-rule - as the backend exports them; and each card's owner. */
+  /** The boards' tracker side (specs/028): team-item (with the full copies), team-card-link and team-card-match (by cardId here,
+   *  cardNumber in the file), team-incoming, team-watch-rule - as the backend exports them; and each card's owner. */
   readonly teamRecords?: readonly (Record<string, unknown> & { readonly record: string })[];
   readonly owners?: Readonly<Record<string, string>>;
 }
@@ -110,7 +110,7 @@ export function buildBoardJsonLines(data: BoardExport, exportedAt = new Date().t
   }
   const numberOf = new Map(data.cards.map((c) => [c.id, c.number]));
   for (const t of data.teamRecords ?? []) {
-    if (t.record === 'team-card-link') {
+    if (t.record === 'team-card-link' || t.record === 'team-card-match') {
       const { cardId, ...rest } = t as Record<string, unknown> & { record: string; cardId?: string };
       const n = cardId ? numberOf.get(cardId) : undefined;
       if (n !== undefined) lines.push(JSON.stringify({ ...rest, cardNumber: n }));
@@ -187,7 +187,7 @@ export function parseBoardJsonLines(lines: readonly string[]): ParsedBoard {
       case 'board-cycle': out.boardCycles.push({ boardId: r['boardId'] as string, cycleId: r['cycleId'] as string }); break;
       case 'card-cycle': out.cardCycles.push({ cardNumber: r['cardNumber'] as number, cycleId: r['cycleId'] as string }); break;
       case 'workitem-snapshot': out.workItems.push(r); break;
-      case 'team-item': case 'team-card-link': case 'team-incoming': case 'team-watch-rule': case 'card-owner': out.teamRecords.push(r); break;
+      case 'team-item': case 'team-card-link': case 'team-card-match': case 'team-incoming': case 'team-watch-rule': case 'card-owner': out.teamRecords.push(r); break;
     }
   }
   return out;

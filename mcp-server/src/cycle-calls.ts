@@ -1,4 +1,5 @@
-import { seg, type AlfredClient } from './alfred-client.ts';
+import { AlfredError, seg, type AlfredClient } from './alfred-client.ts';
+import { candidatesText, itemOfRef, resolveBoard } from './board-ref.ts';
 import { callTime, toCallRecord, type CallEndpointSource, type CallRecord, type CallSummaryDto, type CycleSpacer, type SessionCycle } from './frontend.ts';
 import { invalid, notFound } from './reply.ts';
 
@@ -160,6 +161,29 @@ export async function findCycle(client: AlfredClient, idOrName: string): Promise
   if (matches.length === 1) return matches[0];
   if (matches.length === 0) throw notFound(`No session cycle with id or name "${idOrName}". Use list_cycles to see them.`);
   return { candidates: matches.map((c) => ({ id: c.id, name: c.name })) };
+}
+
+/**
+ * A cycle named by itself, or by its board (specs/030 FR-009: `AB#1234`, `<conn>/1234`, the item's URL, a board's name or
+ * id) - then the board's recording cycle, else its newest. An item ref is read as a board first; any other ref as a
+ * cycle first, then as a board.
+ */
+export async function findCycleOrBoard(client: AlfredClient, ref: string): Promise<SessionCycle | { candidates: { id: string; name: string }[] }> {
+  if (!itemOfRef(ref)) {
+    try {
+      return await findCycle(client, ref);
+    } catch (e) {
+      if (!(e instanceof AlfredError) || e.kind !== 'not_found') throw e;
+    }
+  }
+  const found = await resolveBoard(client, ref);
+  if (found && 'candidates' in found) throw invalid(candidatesText(ref, found.candidates));
+  if (!found) throw notFound(`No session cycle or board "${ref}". Use list_cycles or board_boards to see them.`);
+  const ids = new Set(found.board.cycleIds);
+  const cycles = (await client.get<SessionCycle[]>('/session-cycles')).filter((c) => ids.has(c.id));
+  if (!cycles.length) throw notFound(`Board "${found.board.board.name}" has no cycle yet - board_record starts one.`);
+  const recording = cycles.find((c) => c.status === 'RECORDING');
+  return recording ?? [...cycles].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
 }
 
 /** A cycle that must be one cycle - several name matches are an error naming them. */

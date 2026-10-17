@@ -266,7 +266,7 @@ public class ImportBoardService implements ImportBoardUseCase {
                 case "shot" -> shot(r, idByOldNumber, newIds, pageIds);
                 case "file" -> file(r, target, idByOldNumber);
                 case "widget" -> widget(r, target);
-                case "team-item", "team-card-link", "team-incoming", "team-watch-rule", "card-owner", "workitem-snapshot" -> team.add(r);
+                case "team-item", "team-card-link", "team-card-match", "team-incoming", "team-watch-rule", "card-owner", "workitem-snapshot" -> team.add(r);
                 case "chat", "chatRecord", "chatTerminal", "chatSettings" -> {
                     if (chats != null) {
                         if (chatImport == null) {
@@ -342,7 +342,7 @@ public class ImportBoardService implements ImportBoardUseCase {
             }
             String old = r.path("boardId").asText("");
             String board = old.isBlank() ? null : BoardIds.isDefault(old) ? BoardIds.defaultOf(target) : boardIds.getOrDefault(old, old);
-            if ("team-card-link".equals(kind) && cardId == null) {
+            if (("team-card-link".equals(kind) || "team-card-match".equals(kind)) && cardId == null) {
                 continue;
             }
             Map<String, Object> fields = json.convertValue(r, Map.class);
