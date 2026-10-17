@@ -39,7 +39,7 @@ class StorageFiles {
                  String comments, String relive, String scenarios, String settings, String profiles, String redactions,
                  String interception) {
         this(calls, internalCalls, dbCapture, logs, triage, sessionCycles, comments, relive, scenarios, settings, profiles,
-                redactions, interception, siblingOf(calls, "board.db"));
+                redactions, interception, siblingOf(calls, "board.db"), siblingOf(calls, "teamboards.db"));
     }
 
     @org.springframework.beans.factory.annotation.Autowired
@@ -56,7 +56,8 @@ class StorageFiles {
                  @Value("${PROFILES_DB_FILE:/appdata/profiles.db}") String profiles,
                  @Value("${REDACTIONS_DB_FILE:/appdata/redactions.db}") String redactions,
                  @Value("${INTERCEPTION_DB_FILE:/appdata/interception.db}") String interception,
-                 @Value("${BOARD_DB_FILE:/appdata/board.db}") String board) {
+                 @Value("${BOARD_DB_FILE:/appdata/board.db}") String board,
+                 @Value("${TEAMBOARDS_DB_FILE:/appdata/teamboards.db}") String teamboards) {
         files.put("calls.db", Paths.get(calls));
         files.put("internal-calls.db", Paths.get(internalCalls));
         files.put("db-capture.db", Paths.get(dbCapture));
@@ -71,6 +72,7 @@ class StorageFiles {
         files.put("redactions.db", Paths.get(redactions));
         files.put("interception.db", Paths.get(interception));
         files.put("board.db", Paths.get(board));
+        files.put("teamboards.db", Paths.get(teamboards));
         Path parent = Paths.get(calls).toAbsolutePath().getParent();
         this.dataDir = parent == null ? Paths.get(".").toAbsolutePath() : parent;
     }

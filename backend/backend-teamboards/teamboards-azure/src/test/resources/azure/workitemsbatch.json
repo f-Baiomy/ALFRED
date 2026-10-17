@@ -1,0 +1,40 @@
+{
+  "count": 2,
+  "value": [
+    {
+      "id": 4521,
+      "rev": 7,
+      "fields": {
+        "System.TeamProject": "Odeysys",
+        "System.WorkItemType": "Bug",
+        "System.Title": "Refund to voucher rounds the amount",
+        "System.State": "Active",
+        "System.AssignedTo": { "displayName": "Test User A", "uniqueName": "a@example.test", "id": "u-a" },
+        "System.AreaPath": "Odeysys\\Payments",
+        "System.IterationPath": "Odeysys\\Sprint 42",
+        "System.ChangedDate": "2026-10-14T09:30:00Z",
+        "System.ChangedBy": { "displayName": "Test User B", "uniqueName": "b@example.test", "id": "u-b" },
+        "System.Description": "<p>Refund <b>to a voucher</b></p>",
+        "Microsoft.VSTS.TCM.ReproSteps": "<ol><li>Open refund</li><li>Pick voucher</li></ol>",
+        "Custom.Severity": 2
+      },
+      "relations": [
+        { "rel": "System.LinkTypes.Hierarchy-Reverse", "url": "https://dev.azure.example/fake-org/_apis/wit/workItems/4400", "attributes": {} },
+        { "rel": "ArtifactLink", "url": "vstfs:///Git/PullRequestId/abc%2F123", "attributes": { "name": "Pull Request" } },
+        { "rel": "AttachedFile", "url": "https://dev.azure.example/fake-org/_apis/wit/attachments/f1", "attributes": { "name": "shot.png", "resourceSize": 10 } }
+      ]
+    },
+    {
+      "id": 4522,
+      "rev": 1,
+      "fields": {
+        "System.TeamProject": "Odeysys",
+        "System.WorkItemType": "Meeting",
+        "System.Title": "Sprint review",
+        "System.State": "New",
+        "System.AreaPath": "Odeysys",
+        "System.ChangedDate": "2026-10-15T10:00:00Z"
+      }
+    }
+  ]
+}

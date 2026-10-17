@@ -374,4 +374,48 @@ class HexagonalArchitectureTest {
                 .should().dependOnClassesThat().resideInAPackage("org.springframework..")
                 .check(classes);
     }
+
+    // teamboards (specs/027 R8) is a leaf family: core + one module per connector over a Spring-free SPI. It reaches no
+    // other slice (backend-app/teamboardsbridge wires it to the board), no slice depends on it, connectors never see
+    // core and core never names a connector, and the SPI declares no write (FR-026: read-only by contract).
+    private static final String[] OTHER_SLICES = {"..backend.calls..", "..backend.comments..", "..backend.export..",
+            "..backend.sessioncycles..", "..backend.profiles..", "..backend.settings..", "..backend.internalcalls..",
+            "..backend.calloverlap..", "..backend.redactions..", "..backend.interception..", "..backend.resend..",
+            "..backend.scenarios..", "..backend.relive..", "..backend.logs..", "..backend.dbcapture..", "..backend.triage..",
+            "..backend.server..", "..backend.board.."};
+
+    @Test
+    void teamboardsMustNotDependOnOtherSlices() {
+        noClasses().that().resideInAPackage("..backend.teamboards..")
+                .should().dependOnClassesThat().resideInAnyPackage(OTHER_SLICES)
+                .check(classes);
+    }
+
+    @Test
+    void noOtherSliceDependsOnTeamboards() {
+        noClasses().that().resideInAnyPackage(OTHER_SLICES)
+                .should().dependOnClassesThat().resideInAPackage("..backend.teamboards..")
+                .check(classes);
+    }
+
+    @Test
+    void connectorsAndCoreDoNotKnowEachOther() {
+        noClasses().that().resideInAPackage("..backend.teamboards.azure..")
+                .should().dependOnClassesThat().resideInAPackage("..backend.teamboards.core..")
+                .check(classes);
+        noClasses().that().resideInAPackage("..backend.teamboards.core..")
+                .should().dependOnClassesThat().resideInAPackage("..backend.teamboards.azure..")
+                .check(classes);
+    }
+
+    @Test
+    void theConnectorSpiHasNoSpringAndNoWrites() {
+        noClasses().that().resideInAPackage("..backend.teamboards.spi..")
+                .should().dependOnClassesThat().resideInAPackage("org.springframework..")
+                .check(classes);
+        com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noMethods().that().areDeclaredInClassesThat().resideInAPackage("..backend.teamboards.spi")
+                .and().areDeclaredInClassesThat().areInterfaces()
+                .should().haveNameMatching("(create|update|delete|put|post|write|save|remove|set|move|assign|close).*")
+                .check(classes);
+    }
 }

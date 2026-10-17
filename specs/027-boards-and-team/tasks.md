@@ -174,30 +174,30 @@ Aliases used in task paths (all relative to the repo root):
 **Goal**: connections, cache, Azure connector, the four views, settings, token in the browser.
 **Independent test**: quickstart §4 steps 1–3, 7, 8.
 
-- [ ] T053 [P] [US7] Create the SPI in `SPI/`: `Connector`, `BoardsReader`, `SprintsReader`, `SquadsReader`, `RevisionsReader`, `AttachmentsReader`, `SeedContributor`, `ProviderException`, `ProviderWords`, and `model/*` records incl. `Token` with a masked `toString()` (contracts/connector-spi.md)
-- [ ] T054 [US7] Create the core domain and ports in `CORE/domain/` and `CORE/application/port/{in,out}/`: `TeamRefreshUseCase`, `ListItemsUseCase`, `GetItemUseCase`, `RevisionsUseCase`, `ManageConnectionsUseCase`, `SquadsUseCase`, `ChangesUseCase`, `MappingsUseCase`, `FieldMapsUseCase`, `LinksUseCase`; `TeamCachePort`; `TeamChangeSignalPort`; outcome enum `RefreshOutcome`
-- [ ] T055 [US7] Create `CORE/adapter/out/sqlite/SqliteTeamCacheRepository.java` with the `teamboards.db` schema from data-model.md (FTS5, indexes, summary list queries without `native_json`, page-wise upsert), eviction per data-model "Retention" (old `changes` by age/rows, then revisions oldest first, then unlinked items; linked items never), `@PostConstruct` writability check
-- [ ] T056 [US7] Create `CORE/application/service/TeamService.java`:
+- [X] T053 [P] [US7] Create the SPI in `SPI/`: `Connector`, `BoardsReader`, `SprintsReader`, `SquadsReader`, `RevisionsReader`, `AttachmentsReader`, `SeedContributor`, `ProviderException`, `ProviderWords`, and `model/*` records incl. `Token` with a masked `toString()` (contracts/connector-spi.md)
+- [X] T054 [US7] Create the core domain and ports in `CORE/domain/` and `CORE/application/port/{in,out}/`: `TeamRefreshUseCase`, `ListItemsUseCase`, `GetItemUseCase`, `RevisionsUseCase`, `ManageConnectionsUseCase`, `SquadsUseCase`, `ChangesUseCase`, `MappingsUseCase`, `FieldMapsUseCase`, `LinksUseCase`; `TeamCachePort`; `TeamChangeSignalPort`; outcome enum `RefreshOutcome` *(built as one `TeamUseCase` with a `Result`/`Outcome` per call: the reads and writes share the connection checks and capability gating)*
+- [X] T055 [US7] Create `CORE/adapter/out/sqlite/SqliteTeamCacheRepository.java` with the `teamboards.db` schema from data-model.md (FTS5, indexes, summary list queries without `native_json`, page-wise upsert), eviction per data-model "Retention" (old `changes` by age/rows, then revisions oldest first, then unlinked items; linked items never), `@PostConstruct` writability check
+- [X] T056 [US7] Create `CORE/application/service/TeamService.java`:
   - capabilities from `instanceof`;
   - incremental refresh (`changedSince = fetchedAt`), streaming pages into the cache;
   - records `fetched_by`;
   - writes `changes` rows;
   - signals `/ws/teamboards`;
   - TOKEN_MISSING / TOKEN_REJECTED / PROVIDER_BUSY outcomes.
-- [ ] T057 [US7] Create `CORE/adapter/in/web/TeamboardsController.java` for the connectors (installed kinds + capabilities; Jira/ClickUp `installed:false`), read, refresh, connections, squads, changes, seen, mappings and field-maps routes in contracts/teamboards-rest.md (`@Valid`, clamped limits, settings edit rule, `404 NOT_SUPPORTED` by capability), plus `/ws/teamboards` change signal
-- [ ] T058 [US7] Create `APP/teamboardsbridge/TeamTokenLogFilter.java` (strips `X-Alfred-Team-Token` from request logs) and the storage-budget share registration in `APP/storage/` for `teamboards.db`
-- [ ] T059 [US7] Implement the Azure connector in `AZ/AzureDevOpsConnector.java`, `AZ/AzureClient.java` (JDK HttpClient, basic auth with the PAT, timeouts 5 s/30 s, one `Retry-After` retry, 401/403 → TOKEN_REJECTED, never logs bodies) and `AZ/AzureMapper.java`:
+- [X] T057 [US7] Create `CORE/adapter/in/web/TeamboardsController.java` for the connectors (installed kinds + capabilities; Jira/ClickUp `installed:false`), read, refresh, connections, squads, changes, seen, mappings and field-maps routes in contracts/teamboards-rest.md (`@Valid`, clamped limits, settings edit rule, `404 NOT_SUPPORTED` by capability), plus `/ws/teamboards` change signal
+- [X] T058 [US7] Create `APP/teamboardsbridge/TeamTokenLogFilter.java` (strips `X-Alfred-Team-Token` from request logs) and the storage-budget share registration in `APP/storage/` for `teamboards.db`
+- [X] T059 [US7] Implement the Azure connector in `AZ/AzureDevOpsConnector.java`, `AZ/AzureClient.java` (JDK HttpClient, basic auth with the PAT, timeouts 5 s/30 s, one `Retry-After` retry, 401/403 → TOKEN_REJECTED, never logs bodies) and `AZ/AzureMapper.java`:
   - changed items: WIQL `System.ChangedDate`, then `workitemsbatch` 200 at a time with relations;
   - revisions, teams + members, iterations, boards, work item types (custom too);
   - `AttachmentsReader`: list an item's attachments and download one (≤ 10 MB each, ≤ 50 MB per item; larger listed by name and link).
-- [ ] T060 [P] [US7] Test `AZ_T/AzureDevOpsConnectorTest.java` against recorded JSON fixtures in `TB/teamboards-azure/src/test/resources/azure/` (paging, custom types, relations, revisions, attachments and size caps, 401, 429). Fixtures are scrubbed: fake org, fake token, no real names or emails
-- [ ] T061 [P] [US7] Test `CORE_T/application/service/TeamServiceTest.java` with a fake connector (incremental refresh, capability gating, outcomes, changes feed, seen shared)
-- [ ] T062 [P] [US7] Test `CORE_T/adapter/out/sqlite/SqliteTeamCacheRepositoryTest.java` (20,000-item list/search < 1 s, eviction order incl. `changes` by age/rows, linked items kept, no `native_json` in list SQL)
-- [ ] T063 [P] [US7] Test `APP_T/teamboardsbridge/TeamTokenNeverStoredTest.java`: a sample token sent on refresh never appears in `teamboards.db`, `board.db`, logs or an export (SC-007)
-- [ ] T064 [US7] Add ArchUnit rules in `ARCH/HexagonalArchitectureTest.java`: teamboards depends on no other slice; `..teamboards.azure..` never imports `..teamboards.core..` and vice versa; spi has no Spring; spi connector interfaces declare no write methods (no `create*`/`update*`/`delete*`, FR-026) (SC-008)
-- [ ] T065 [P] [US7] Create `FE/core/team/connector-ui.ts` (`ConnectorUi`, `TEAM_CONNECTORS`), `FE/core/team/team.models.ts`, `FE/core/team/team-api.service.ts` (adds the token header on `/teamboards/**` only) and `FE/core/team/team-token.store.ts` (localStorage per connection, try/catch)
-- [ ] T066 [P] [US7] Create the Azure UI connector in `FE/components/team/connectors/azure/` (`index.ts` provider, settings component, field renderer for HTML fields through the sanitising markdown view, provider words)
-- [ ] T067 [US7] Create `FE/pages/team/team-page.component.ts` and the views in `FE/components/team/`:
+- [X] T060 [P] [US7] Test `AZ_T/AzureDevOpsConnectorTest.java` against recorded JSON fixtures in `TB/teamboards-azure/src/test/resources/azure/` (paging, custom types, relations, revisions, attachments and size caps, 401, 429). Fixtures are scrubbed: fake org, fake token, no real names or emails
+- [X] T061 [P] [US7] Test `CORE_T/application/service/TeamServiceTest.java` with a fake connector (incremental refresh, capability gating, outcomes, changes feed, seen shared)
+- [X] T062 [P] [US7] Test `CORE_T/adapter/out/sqlite/SqliteTeamCacheRepositoryTest.java` (20,000-item list/search < 1 s, eviction order incl. `changes` by age/rows, linked items kept, no `native_json` in list SQL)
+- [X] T063 [P] [US7] Test `APP_T/teamboardsbridge/TeamTokenNeverStoredTest.java`: a sample token sent on refresh never appears in `teamboards.db`, `board.db`, logs or an export (SC-007)
+- [X] T064 [US7] Add ArchUnit rules in `ARCH/HexagonalArchitectureTest.java`: teamboards depends on no other slice; `..teamboards.azure..` never imports `..teamboards.core..` and vice versa; spi has no Spring; spi connector interfaces declare no write methods (no `create*`/`update*`/`delete*`, FR-026) (SC-008)
+- [X] T065 [P] [US7] Create `FE/core/team/connector-ui.ts` (`ConnectorUi`, `TEAM_CONNECTORS`), `FE/core/team/team.models.ts`, `FE/core/team/team-api.service.ts` (adds the token header on `/teamboards/**` only) and `FE/core/team/team-token.store.ts` (localStorage per connection, try/catch)
+- [X] T066 [P] [US7] Create the Azure UI connector in `FE/components/team/connectors/azure/` (`index.ts` provider, settings component, field renderer for HTML fields through the sanitising markdown view, provider words)
+- [X] T067 [US7] Create `FE/pages/team/team-page.component.ts` and the views in `FE/components/team/`:
   - `connection-switcher` with capabilities and the fetched label;
   - `items-table` with filters and paging;
   - `item-drawer` with fields, mapped targets, links and history on open;
@@ -207,8 +207,8 @@ Aliases used in task paths (all relative to the repo root):
   - no-token and expired banners, capability gating.
 
   Follow mock.html §Team, add the route `/team`, and add the nav tab.
-- [ ] T068 [US7] Create `FE/components/team/connection-settings/` and add it to `FE/pages/settings/`: add connection (installed kinds; Jira/ClickUp "not installed"), PAT save/clear, scope toggles, read-only through the tunnel
-- [ ] T069 [P] [US7] Add `MCP/team.ts` with `team_items`, `team_item`, `team_changes`, `team_squads` (read cache only)
+- [X] T068 [US7] Create `FE/components/team/connection-settings/` and add it to `FE/pages/settings/`: add connection (installed kinds; Jira/ClickUp "not installed"), PAT save/clear, scope toggles, read-only through the tunnel
+- [X] T069 [P] [US7] Add `MCP/team.ts` with `team_items`, `team_item`, `team_changes`, `team_squads` (read cache only)
 
 ---
 

@@ -41,6 +41,14 @@
       <button
         type="button"
         class="settings-nav-item"
+        [class.active]="activePartition() === 'team-trackers'"
+        (click)="setActivePartition('team-trackers')"
+      >
+        Team trackers
+      </button>
+      <button
+        type="button"
+        class="settings-nav-item"
         [class.active]="activePartition() === 'ide'"
         (click)="setActivePartition('ide')"
       >
@@ -73,6 +81,8 @@
         <app-ide-settings />
       } @else if (activePartition() === 'teams') {
         <app-teams-settings />
+      } @else if (activePartition() === 'team-trackers') {
+        <app-connection-settings />
       } @else if (activePartition() === 'storage') {
         <app-storage-settings />
         <app-board-storage />

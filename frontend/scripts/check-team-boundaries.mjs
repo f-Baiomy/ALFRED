@@ -47,7 +47,9 @@ for (const file of files(app)) {
   }
   const text = readFileSync(file, 'utf8');
   for (const m of text.matchAll(/from\s+['"]([^'"]+)['"]/g)) {
-    if (m[1].includes('/team/connectors/') || m[1].includes('connectors/azure')) {
+    // the one registry, components/team/connectors/index.ts, is provided once in app.config.ts
+    const registry = /\/components\/team\/connectors$/.test(m[1]) && file === join(app, 'app.config.ts');
+    if (!registry && (m[1].includes('/team/connectors') || m[1].includes('connectors/azure'))) {
       problems.push(`${relative(process.cwd(), file)} imports a connector (${m[1]}); go through TEAM_CONNECTORS`);
     }
   }

@@ -1,0 +1,9 @@
+{
+  "id": 4521,
+  "rev": 7,
+  "fields": { "System.TeamProject": "Odeysys", "System.WorkItemType": "Bug", "System.Title": "Refund to voucher rounds the amount" },
+  "relations": [
+    { "rel": "AttachedFile", "url": "@BASE@/_apis/wit/attachments/small", "attributes": { "name": "notes.txt", "resourceSize": 5 } },
+    { "rel": "AttachedFile", "url": "@BASE@/_apis/wit/attachments/huge", "attributes": { "name": "video.mp4", "resourceSize": 20971520 } }
+  ]
+}

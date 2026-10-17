@@ -177,6 +177,13 @@ public class StorageService {
                 SqliteFiles.number(triage, "SELECT COUNT(*) FROM call_attention").orElse(0), "marks", tri.totalBytes(),
                 tri.freeBytes(), tri.walBytes(), null, null, null, false));
 
+        // specs/027: the team tracker's cache - its own caps evict old changes and unlinked items, so no share of the budget
+        Path team = files.file("teamboards.db");
+        SqliteFiles.FileStats tm = SqliteFiles.stats(team);
+        stores.add(new Store("teamboards", "Team tracker cache", "work", "work", "teamboards.db",
+                SqliteFiles.number(team, "SELECT COUNT(*) FROM items").orElse(0), "work items", tm.totalBytes(), tm.freeBytes(),
+                tm.walBytes(), null, null, null, false));
+
         SqliteFiles.FileStats lg = SqliteFiles.stats(files.file("logs.db"));
         long lines = 0;
         try {

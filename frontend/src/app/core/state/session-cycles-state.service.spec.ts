@@ -26,7 +26,7 @@ function setup(cycles: SessionCycle[]): SessionCyclesStateService {
     update: (id, request) => of({ ...cycles.find((c) => c.id === id)!, ...request } as SessionCycle),
     startRecording: (id) => of({ ...cycles.find((c) => c.id === id)!, status: 'RECORDING' } as SessionCycle),
     pauseRecording: (id) => of({ ...cycles.find((c) => c.id === id)!, status: 'PAUSED' } as SessionCycle),
-    delete: () => of(undefined),
+    delete: () => of(null),
   };
   TestBed.configureTestingModule({
     providers: [{ provide: SessionCyclesApiService, useValue: apiStub }],
@@ -165,11 +165,11 @@ describe('SessionCyclesStateService', () => {
     const state = setup([recording, paused]);
     tick();
 
-    let result: { deleted: number; skippedRecording: number } | undefined;
+    let result: unknown;
     state.bulkDelete(['recording', 'paused']).subscribe((r) => (result = r));
     tick();
 
-    expect(result).toEqual({ deleted: 1, skippedRecording: 1 });
+    expect(result).toEqual({ deleted: 1, skippedRecording: 1, kept: 0 });
     discardPeriodicTasks();
   }));
 

@@ -210,6 +210,8 @@ function priorityOf(m: AttentionMark, failingChildren: number, minStatus: number
 
 export class FakeAlfred {
   readonly state: FakeState = emptyState();
+  /** /teamboards answers (specs/027), set by a test. */
+  team?: (method: string, p: string[], q: URLSearchParams, body: any) => [number, unknown?] | undefined;
   readonly board: FakeBoard = { cards: [], activity: {}, closedReasons: [], briefs: {}, specs: {}, checklist: {}, refuseCreate: null, agentState: 'WATCHING', liveWork: [], liveStop: new Set(), runner: null,
     changes: { entries: [], cycles: [], cursor: '0.0', more: false }, similar: [], badges: {}, verify: [], suggestions: {},
     nextSteps: { waitingOnUser: [], waitingOnClaude: 0, toDo: 0, inProgress: 0, fixed: 0, inbox: 0 }, log: {}, steps: {}, regressions: [], retest: [], guards: [], plans: {} };
@@ -821,6 +823,7 @@ export class FakeAlfred {
   private route(method: string, p: string[], q: URLSearchParams, body: any): [number, unknown?] {
     const s = this.state;
     if (p[0] === 'board') return this.boardRoute(method, p, q, body);
+    if (p[0] === 'teamboards') return this.team?.(method, p, q, body) ?? [404, { error: 'not-found', message: `fake: no team route ${method} /${p.join('/')}` }];
     if (p[0] === 'lib' && p[1] === 'index.json') {
       return [200, { libs: [{ id: 'echarts', version: '5.5.1', kind: 'script', provides: 'echarts', about: 'Charts', file: 'echarts/5/echarts.min.js' }] }];
     }

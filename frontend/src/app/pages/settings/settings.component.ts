@@ -3,6 +3,7 @@ import { TeamsSettingsComponent } from './teams-settings/teams-settings.componen
 import { ServerSettingsComponent } from './server-settings/server-settings.component';
 import { StorageSettingsComponent } from './storage-settings/storage-settings.component';
 import { BoardStorageComponent } from './board-storage/board-storage.component';
+import { ConnectionSettingsComponent } from '../../components/team/connection-settings/connection-settings.component';
 import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { FilterMode } from '../../core/models/call-filter-settings.model';
 import { CallFilterSettingsStateService } from '../../core/state/call-filter-settings-state.service';
@@ -11,12 +12,12 @@ import { InternalCallServiceDto, InternalLoggingApiService } from '../../core/se
 import { DbCaptureSettingsComponent } from '../../components/db-capture/db-capture-settings.component';
 import { ActivatedRoute } from '@angular/router';
 
-type Partition = 'server' | 'call-filtering' | 'storage' | 'teams' | 'ide' | 'inbound-logging' | 'database-capture';
+type Partition = 'server' | 'call-filtering' | 'storage' | 'teams' | 'team-trackers' | 'ide' | 'inbound-logging' | 'database-capture';
 
 @Component({
   selector: 'app-settings',
   standalone: true,
-  imports: [BoardStorageComponent, ConfirmDialogComponent, IdeSettingsComponent, TeamsSettingsComponent, DbCaptureSettingsComponent, ServerSettingsComponent, StorageSettingsComponent],
+  imports: [BoardStorageComponent, ConnectionSettingsComponent, ConfirmDialogComponent, IdeSettingsComponent, TeamsSettingsComponent, DbCaptureSettingsComponent, ServerSettingsComponent, StorageSettingsComponent],
   templateUrl: './settings.component.html',
 })
 export class SettingsComponent implements OnInit {
@@ -61,6 +62,9 @@ export class SettingsComponent implements OnInit {
     }
     if (section === 'teams') {
       this.activePartition.set('teams');
+    }
+    if (section === 'team-trackers') {
+      this.activePartition.set('team-trackers');
     }
     if (section === 'database-capture') {
       this.activePartition.set('database-capture');

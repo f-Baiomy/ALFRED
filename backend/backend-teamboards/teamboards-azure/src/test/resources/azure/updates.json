@@ -1,0 +1,22 @@
+{
+  "count": 2,
+  "value": [
+    {
+      "id": 1, "rev": 1, "revisedBy": { "displayName": "Test User B" }, "revisedDate": "2026-10-10T08:00:00Z",
+      "fields": {
+        "System.Rev": { "newValue": 1 },
+        "System.State": { "newValue": "New" },
+        "System.ChangedDate": { "newValue": "2026-10-10T08:00:00Z" }
+      }
+    },
+    {
+      "id": 2, "rev": 2, "revisedBy": { "displayName": "Test User A" }, "revisedDate": "9999-01-01T00:00:00Z",
+      "fields": {
+        "System.State": { "oldValue": "New", "newValue": "Active" },
+        "System.AssignedTo": { "oldValue": { "displayName": "Test User B" }, "newValue": { "displayName": "Test User A" } },
+        "System.ChangedDate": { "oldValue": "2026-10-10T08:00:00Z", "newValue": "2026-10-12T08:00:00Z" }
+      }
+    },
+    { "id": 3, "rev": 2, "revisedBy": { "displayName": "Test User A" }, "relations": { "added": [] } }
+  ]
+}

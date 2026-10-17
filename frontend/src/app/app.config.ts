@@ -2,6 +2,7 @@ import { APP_INITIALIZER, ApplicationConfig, inject, provideZoneChangeDetection 
 import { provideHttpClient } from '@angular/common/http';
 import { provideRouter } from '@angular/router';
 import { routes } from './app.routes';
+import { TEAM_CONNECTOR_PROVIDERS } from './components/team/connectors';
 import { CallsStateService } from './core/state/calls-state.service';
 import { SecretValuesService } from './core/services/secret-values.service';
 import { BULK_SELECTION_STATE, CALL_LIST_CONTROLS_STATE, CALL_SELECTION_STATE } from './core/state/call-selection.tokens';
@@ -11,6 +12,8 @@ export const appConfig: ApplicationConfig = {
     provideZoneChangeDetection({ eventCoalescing: true }),
     provideHttpClient(),
     provideRouter(routes),
+    // the Team tab's connectors (specs/027): each folder under components/team/connectors registers itself here
+    ...TEAM_CONNECTOR_PROVIDERS,
     // App-wide default: CallCardComponent/BulkActionsBarComponent/HeaderComponent/
     // StatsBarComponent/CallListComponent/JsonPanelComponent read state through these tokens
     // rather than injecting CallsStateService directly, so a session-cycle detail view can

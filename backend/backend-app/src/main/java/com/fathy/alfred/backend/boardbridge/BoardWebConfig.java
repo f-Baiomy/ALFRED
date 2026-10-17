@@ -9,7 +9,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
-/** Puts the board's edit rule in front of every /board write, and tells the page whether it may edit (GET /board/access). */
+/** Puts the board's edit rule in front of every /board and /teamboards write, and tells the page whether it may edit (GET /board/access). */
 @Configuration
 @RestController
 public class BoardWebConfig implements WebMvcConfigurer {
@@ -22,7 +22,8 @@ public class BoardWebConfig implements WebMvcConfigurer {
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
-        registry.addInterceptor(new BoardEditAccessInterceptor(access)).addPathPatterns("/board/**");
+        // specs/027: the Team tab's writes (connections, refresh, mappings, starts) follow the same rule - never the tunnel
+        registry.addInterceptor(new BoardEditAccessInterceptor(access)).addPathPatterns("/board/**", "/teamboards/**");
     }
 
     @GetMapping("/board/access")
