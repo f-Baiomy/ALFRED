@@ -46,10 +46,11 @@ D1-D10) and [tasks.md](tasks.md) (each task with [X] done / [~] partly / [ ] ope
 
 ### Left
 
-1. The Azure half of the end-to-end on AB#61813 (T039): the user enters the token in the Team tab, then
-   `/alfred-setup AB#61813` (re-define, since the board has a brief) → Save all → `/alfred-triage` → `/alfred-verify` →
-   Record + `/alfred-listen AB#61813` → Refresh from Azure → a card match. Leave every bundle waiting.
-2. Done since: the card's direct "Edit a field" (FIELD step, `ItemWriter.setField`, MCP `team_set_field`).
+1. Done: the Azure half of the end-to-end on AB#61813 (T039, results in tasks.md). The board waits on the user's
+   four Triage answers (#72-#75); after them `/alfred-fix 72` / `73` and `/alfred-verify AB#61813` can draft the Azure
+   updates as bundles. A card match was not seen live (the Task items have no description) - only in `MatchServiceTest`.
+2. Done since: the card's direct "Edit a field" (FIELD step, `ItemWriter.setField`, MCP `team_set_field`); the seed
+   names an unreadable parent (`SeedBuilder.NOT_READABLE`).
 3. Push the branch / open a PR when the user asks.
 
 ## How to run things here

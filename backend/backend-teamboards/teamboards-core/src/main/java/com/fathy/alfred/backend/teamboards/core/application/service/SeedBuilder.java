@@ -42,6 +42,8 @@ public class SeedBuilder implements SeedUseCase {
 
     /** How far up the parent chain the seed reads (an Epic sits 2-3 levels up; a loop never runs away). */
     static final int MAX_PARENTS = 6;
+    /** The title of a parent the token cannot read; the chain stops there. */
+    static final String NOT_READABLE = "not readable with the current token (deleted, or in a project it cannot see)";
 
     private final Live live;
     private final TeamCachePort cache;
@@ -216,7 +218,8 @@ public class SeedBuilder implements SeedUseCase {
             }
             Item p = read(conn, List.of(up), ctx).get(up);
             if (p == null) {
-                out.add(new SeedParent(up, null, null, null, null, null, null));
+                // deleted, or in a project the token cannot see: named, never left blank (specs/030 edge cases)
+                out.add(new SeedParent(up, null, NOT_READABLE, null, null, null, null));
                 break;
             }
             Mapped m = mapped(conn, p, k);

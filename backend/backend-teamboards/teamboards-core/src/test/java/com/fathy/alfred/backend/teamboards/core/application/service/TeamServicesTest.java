@@ -403,6 +403,19 @@ class TeamServicesTest {
         assertThat(seed.parents().get(1).type()).isEqualTo("Epic");
     }
 
+    /** A parent the token cannot read (deleted, another project) is named as such, and the chain stops there. */
+    @Test
+    void anUnreadableParentIsNamedNotLeftBlank() {
+        f.withToken();
+        f.tracker.put(item("100", "Feature", "Refunds", "Active", "50", 3));
+
+        var seed = f.seeds.seed(CONN, "101").orElseThrow();
+
+        assertThat(seed.parents()).extracting(p -> p.id()).containsExactly("100", "50");
+        assertThat(seed.parents().get(1).title()).isEqualTo(SeedBuilder.NOT_READABLE);
+        assertThat(seed.parents().get(1).type()).isNull();
+    }
+
     @Test
     void itemViewShowsTheDiffAgainstTheCopy() {
         f.withToken();

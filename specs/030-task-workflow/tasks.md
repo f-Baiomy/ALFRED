@@ -6,8 +6,7 @@
 
 ## Status (2026-10-17) - see [HANDOFF.md](HANDOFF.md)
 
-- Phases 1-4 built and committed; every suite green. Left: the Azure half of the end-to-end run (T039) - it needs the
-  user's token entered in the Team tab.
+- Phases 1-4 built and committed; every suite green; the end-to-end run (T039) done on AB#61813 with the user's token.
 
 ## Phase 1: Backend + MCP
 
@@ -75,7 +74,7 @@
 ## Phase 4: Docs + end to end
 
 - [X] T038 [P] `docs/team.md`, `docs/board.md`, `docs/mcp.md`, `CLAUDE.md` line
-- [~] T039 (done in Docker without a token: the stage strip on AB#61813 at Code, Refresh says "Enter your token in the Team tab first", the card panel on #71; found and fixed next-steps missing cards homed on a board. Open: the Azure part - setup draft, Save all, triage, verify, listen, Refresh, a card match - needs the user's token in the Team tab) End to end on AB#61813 in Docker: New board (silent) → `/alfred-setup AB#61813` draft → Save all → `/alfred-triage` → `/alfred-verify` → Record + `/alfred-listen` → Refresh → one card match; every bundle left waiting; screenshots
+- [X] T039 (Docker, 2026-10-17. Without a token: the stage strip on AB#61813 at Code, Refresh says "Enter your token in the Team tab first", the card panel on #71; found and fixed next-steps missing cards homed on a board. With the token: the seed read 4 Task children (62123 New, 62126 Testing, 61897 New, 61953 Removed) and parent 62216 unreadable (404) - fixed: the seed names it "not readable with the current token" instead of a blank title; re-define draft saved: cards #72-#75 linked to their items at once (askedIn), a Context section in the brief; stage moved Code → Triage; triage asked a Triage question on each (code look: backend 07e29ec81f and frontend ab70cf5f5/06315fa6a written → Record as fixed; QA → To do; 61953 Removed → Not in this flow); verify's Azure update waits on the user's triage answers; the listener resolves `--board AB#61813` to cycle cdeff93b and refuses `#72`; Refresh from Azure: "No changes in Azure" (first click ~1 min cold, then 1 s); no card match - the Task items have no description, so no 2 shared words. Zero bundles were made, none approved) End to end on AB#61813 in Docker: New board (silent) → `/alfred-setup AB#61813` draft → Save all → `/alfred-triage` → `/alfred-verify` → Record + `/alfred-listen` → Refresh → one card match; every bundle left waiting; screenshots
 - [X] T040 All suites once more; commit "docs: task workflow (specs/030)"
 
 ## Dependencies
