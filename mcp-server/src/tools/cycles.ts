@@ -125,9 +125,11 @@ export function register(server: McpServer, client: AlfredClient): void {
       name: z.string().min(1).max(500),
       calls: z.array(CallRefSchema).max(200).optional(),
       record: z.boolean().default(false).describe('Start recording live calls into it right away'),
+      board: z.string().min(1).max(200).optional().describe('Relate the new cycle to this board (task)'),
     },
   }, (input) => run(async () => {
     let cycle = await client.post<SessionCycle>('/session-cycles', { body: { name: input.name } });
+    if (input.board) await client.put(`/board/boards/${seg(input.board)}/cycles/${seg(cycle.id)}`);
     // Alfred creates a cycle already RECORDING (the UI's "new cycle, then reproduce" flow). A cycle
     // assembled from chosen calls must not also fill up with whatever live traffic happens next.
     if (cycle.status === 'RECORDING' && !input.record) cycle = await client.post<SessionCycle>(`/session-cycles/${seg(cycle.id)}/pause`);
@@ -146,12 +148,23 @@ export function register(server: McpServer, client: AlfredClient): void {
   }));
 
   server.registerTool('start_recording', {
-    description: 'Start recording a session cycle: new calls are captured into it until stop_recording. Several cycles may record at once; the reply lists the others.',
-    inputSchema: { cycleId: z.string().min(1) },
+    description: 'Start recording a session cycle: new calls are captured into it until stop_recording. One project records into one '
+      + 'cycle at a time: when another cycle of the same project records, onRunning ASK (default) answers RUNNING - ask the '
+      + 'user, then call again with PAUSE_OTHER to pause it. The reply lists the other cycles recording.',
+    inputSchema: { cycleId: z.string().min(1), onRunning: z.enum(['ASK', 'PAUSE_OTHER']).default('ASK') },
   }, (input) => run(async () => {
     const cycle = await requireCycle(client, input.cycleId);
     assertEditable(cycle);
-    const after = await client.post<SessionCycle>(`/session-cycles/${seg(cycle.id)}/record`);
+    let after: SessionCycle;
+    try {
+      after = await client.post<SessionCycle>(`/session-cycles/${seg(cycle.id)}/record`, { query: { onRunning: input.onRunning } });
+    } catch (e) {
+      if (e instanceof AlfredError && e.code === 'RECORDING_CONFLICT') {
+        return ok({ result: 'RUNNING', note: e.message.replace(/^Alfred rejected the request \(409\): /, ''),
+          next: 'Ask the user; start_recording again with onRunning PAUSE_OTHER pauses the other one' });
+      }
+      throw e;
+    }
     const others = (await client.get<SessionCycle[]>('/session-cycles')).filter((c) => c.status === 'RECORDING' && c.id !== cycle.id);
     return ok({ cycle: after, changed: cycle.status !== after.status, otherRecording: others.map((c) => ({ id: c.id, name: c.name })) });
   }));

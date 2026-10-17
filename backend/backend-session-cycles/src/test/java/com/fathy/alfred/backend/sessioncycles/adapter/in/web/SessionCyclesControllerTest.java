@@ -174,18 +174,38 @@ class SessionCyclesControllerTest {
 
     @Test
     void recordReturnsNotFoundWhenMissing() throws Exception {
-        when(startRecordingUseCase.startRecording("missing")).thenReturn(Optional.empty());
+        when(startRecordingUseCase.startRecording("missing", false)).thenReturn(Optional.empty());
 
         mockMvc.perform(post("/session-cycles/missing/record")).andExpect(status().isNotFound());
     }
 
     @Test
     void recordReturnsTheUpdatedCycle() throws Exception {
-        when(startRecordingUseCase.startRecording("c1")).thenReturn(Optional.of(cycle("c1", SessionCycleStatus.RECORDING)));
+        when(startRecordingUseCase.startRecording("c1", false)).thenReturn(Optional.of(
+                new com.fathy.alfred.backend.sessioncycles.application.port.in.StartRecordingUseCase.GuardedStart(cycle("c1", SessionCycleStatus.RECORDING), null)));
 
         mockMvc.perform(post("/session-cycles/c1/record"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("RECORDING"));
+    }
+
+    @Test
+    void recordAnswers409WhenAnotherCycleRecordsTheSameProject() throws Exception {
+        when(startRecordingUseCase.startRecording("c1", false)).thenReturn(Optional.of(
+                new com.fathy.alfred.backend.sessioncycles.application.port.in.StartRecordingUseCase.GuardedStart(
+                        cycle("c1", SessionCycleStatus.PAUSED), cycle("c2", SessionCycleStatus.RECORDING))));
+
+        mockMvc.perform(post("/session-cycles/c1/record"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("RECORDING_CONFLICT"))
+                .andExpect(jsonPath("$.running.id").value("c2"));
+    }
+
+    @Test
+    void recordWithPauseOtherAsksForIt() throws Exception {
+        when(startRecordingUseCase.startRecording("c1", true)).thenReturn(Optional.of(
+                new com.fathy.alfred.backend.sessioncycles.application.port.in.StartRecordingUseCase.GuardedStart(cycle("c1", SessionCycleStatus.RECORDING), null)));
+        mockMvc.perform(post("/session-cycles/c1/record").param("onRunning", "PAUSE_OTHER")).andExpect(status().isOk());
     }
 
     @Test

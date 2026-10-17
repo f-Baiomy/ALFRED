@@ -80,8 +80,9 @@ export class SessionCyclesApiService {
     return this.http.patch<SessionCycle>(`${this.baseUrl}/${id}`, request);
   }
 
-  startRecording(id: string): Observable<SessionCycle> {
-    return this.http.post<SessionCycle>(`${this.baseUrl}/${id}/record`, {});
+  /** ASK (default) answers 409 RECORDING_CONFLICT when another cycle records the same project; PAUSE_OTHER pauses it (specs/027). */
+  startRecording(id: string, onRunning: 'ASK' | 'PAUSE_OTHER' = 'ASK'): Observable<SessionCycle> {
+    return this.http.post<SessionCycle>(`${this.baseUrl}/${id}/record`, {}, { params: { onRunning } });
   }
 
   pauseRecording(id: string): Observable<SessionCycle> {

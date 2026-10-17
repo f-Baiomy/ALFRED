@@ -911,3 +911,35 @@ export function defaultBoardId(project: string): string {
 export function isDefaultBoard(id: string | null | undefined): boolean {
   return !!id && id.startsWith('default:');
 }
+
+/** One shared cycle's verdicts (specs/027 US3, GET /board/cycles/{id}/verdicts). */
+export type CallResult = 'CONTRADICTS' | 'WRONG' | 'NO_DATA' | 'MEETS' | 'UNKNOWN' | 'SKIPPED';
+
+export interface ItemMark {
+  readonly fileName: string;
+  readonly key: string;
+  readonly result: CallResult;
+}
+
+export interface BoardMarks {
+  readonly boardId: string;
+  readonly name: string;
+  readonly items: readonly ItemMark[];
+}
+
+export interface CallVerdicts {
+  readonly callId: string;
+  readonly method: string;
+  readonly endpoint: string;
+  readonly status: number | null;
+  readonly ms: number | null;
+  readonly at: string | null;
+  readonly boards: readonly BoardMarks[];
+  readonly cards: readonly { readonly project: string; readonly number: number; readonly title: string | null; readonly home: string | null }[];
+}
+
+export interface CycleVerdicts {
+  readonly cycleId: string;
+  readonly boards: readonly BoardMarks[];
+  readonly calls: readonly CallVerdicts[];
+}

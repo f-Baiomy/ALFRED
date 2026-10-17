@@ -1,7 +1,16 @@
 package com.fathy.alfred.backend.board.adapter.in.web;
 
 import com.fathy.alfred.backend.board.application.port.in.CycleVerdictsUseCase;
-import com.fathy.alfred.backend.board.application.service.ListenHomeResolver;
+import com.fathy.alfred.backend.board.application.port.in.RecordForBoardUseCase;
+import com.fathy.alfred.backend.board.application.port.in.RecordForBoardUseCase.Kind;
+import com.fathy.alfred.backend.board.application.port.in.RecordForBoardUseCase.OnRunning;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
+import java.util.Locale;
+import java.util.Map;
+import com.fathy.alfred.backend.board.application.port.in.FindingHomeUseCase;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -16,11 +25,39 @@ import org.springframework.web.bind.annotation.RestController;
 public class CycleSharingController {
 
     private final CycleVerdictsUseCase verdicts;
-    private final ListenHomeResolver homes;
+    private final FindingHomeUseCase homes;
+    private final RecordForBoardUseCase record;
 
-    public CycleSharingController(CycleVerdictsUseCase verdicts, ListenHomeResolver homes) {
+    public CycleSharingController(CycleVerdictsUseCase verdicts, FindingHomeUseCase homes, RecordForBoardUseCase record) {
         this.verdicts = verdicts;
         this.homes = homes;
+        this.record = record;
+    }
+
+    record RecordDto(String kind, String onRunning) {
+    }
+
+    /** Records for a board (FR-008): 200 {cycleId}, or 409 {running} when ASK meets a cycle recording the project. */
+    @PostMapping("/board/boards/{id}/record")
+    public ResponseEntity<?> record(@RequestHeader(value = BoardWeb.ACTOR_HEADER, required = false) String actor, @PathVariable String id,
+                                    @RequestBody(required = false) RecordDto body) {
+        Kind kind;
+        OnRunning how;
+        try {
+            kind = body == null || body.kind() == null ? Kind.REC : Kind.valueOf(body.kind().strip().toUpperCase(Locale.ROOT));
+            how = body == null || body.onRunning() == null ? OnRunning.ASK : OnRunning.valueOf(body.onRunning().strip().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            return BoardWeb.refused(com.fathy.alfred.backend.board.domain.model.CardChange.Outcome.INVALID, "kind is REC or RETEST; onRunning ASK, JOIN or NEW");
+        }
+        return record.record(BoardWeb.actor(actor), id, kind, how).<ResponseEntity<?>>map(r -> {
+            if (r.conflict()) {
+                return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "RECORDING_CONFLICT", "message", r.message(), "running", r.running()));
+            }
+            if (r.cycleId() == null) {
+                return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of("error", "unavailable", "message", r.message()));
+            }
+            return ResponseEntity.ok(Map.of("cycleId", r.cycleId(), "message", r.message()));
+        }).orElseGet(() -> BoardWeb.refused(com.fathy.alfred.backend.board.domain.model.CardChange.Outcome.NOT_FOUND, "No such board"));
     }
 
     @GetMapping("/board/cycles/{cycleId}/verdicts")

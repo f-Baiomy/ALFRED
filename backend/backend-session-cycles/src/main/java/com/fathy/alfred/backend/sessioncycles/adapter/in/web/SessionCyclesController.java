@@ -170,10 +170,18 @@ public class SessionCyclesController {
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
+    /**
+     * Starts or resumes recording. {@code onRunning} (specs/027 FR-008): ASK (default) answers 409 RECORDING_CONFLICT with
+     * the cycle that already records the same project; PAUSE_OTHER pauses that one first.
+     */
     @PostMapping("/{id}/record")
-    public ResponseEntity<SessionCycle> startRecording(@PathVariable String id) {
-        return startRecordingUseCase.startRecording(id)
-                .map(ResponseEntity::ok)
+    public ResponseEntity<?> startRecording(@PathVariable String id, @RequestParam(defaultValue = "ASK") String onRunning) {
+        boolean pauseOther = "PAUSE_OTHER".equalsIgnoreCase(onRunning.strip());
+        return startRecordingUseCase.startRecording(id, pauseOther)
+                .<ResponseEntity<?>>map(r -> r.conflict()
+                        ? ResponseEntity.status(org.springframework.http.HttpStatus.CONFLICT).body(java.util.Map.of("error", "RECORDING_CONFLICT",
+                                "message", "\"" + r.running().name() + "\" is recording the same project", "running", r.running()))
+                        : ResponseEntity.ok(r.cycle()))
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 

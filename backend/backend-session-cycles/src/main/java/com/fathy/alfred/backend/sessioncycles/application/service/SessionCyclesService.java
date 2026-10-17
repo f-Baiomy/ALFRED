@@ -178,6 +178,35 @@ public class SessionCyclesService implements
         return setStatus(id, SessionCycleStatus.RECORDING);
     }
 
+    /** Asked before a start (specs/027 FR-008); none wired: nothing is in the way. */
+    private List<com.fathy.alfred.backend.sessioncycles.application.port.out.RecordingGuardPort> guards = List.of();
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setRecordingGuards(List<com.fathy.alfred.backend.sessioncycles.application.port.out.RecordingGuardPort> guards) {
+        this.guards = guards == null ? List.of() : guards;
+    }
+
+    @Override
+    public synchronized Optional<GuardedStart> startRecording(String id, boolean pauseOther) {
+        Optional<SessionCycle> cycle = metadataStore.findById(id);
+        if (cycle.isEmpty()) {
+            return Optional.empty();
+        }
+        if (cycle.get().status() != SessionCycleStatus.RECORDING) {
+            for (var guard : guards) {
+                Optional<SessionCycle> running = guard.runningConflict(id).filter(r -> !r.equals(id)).flatMap(metadataStore::findById)
+                        .filter(r -> r.status() == SessionCycleStatus.RECORDING);
+                if (running.isPresent()) {
+                    if (!pauseOther) {
+                        return Optional.of(new GuardedStart(cycle.get(), running.get()));
+                    }
+                    setStatus(running.get().id(), SessionCycleStatus.PAUSED);
+                }
+            }
+        }
+        return startRecording(id).map(c -> new GuardedStart(c, null));
+    }
+
     @Override
     public Optional<SessionCycle> pauseRecording(String id) {
         return setStatus(id, SessionCycleStatus.PAUSED);

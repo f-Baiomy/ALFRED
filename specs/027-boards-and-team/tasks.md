@@ -124,19 +124,19 @@ Aliases used in task paths (all relative to the repo root):
 **Goal**: per-board verdicts, "for this board" filter, one listen with smart homes, record join-or-new.
 **Independent test**: quickstart §3 steps 2–4.
 
-- [ ] T036 [P] [US3] Create the use case `BOARD/application/port/in/CycleVerdictsUseCase.java` and implement `GET /board/cycles/{cycleId}/verdicts` (per call: each related board's item verdicts, cards with homes; `board` filter = items name or cards mention) in `BOARD/application/service/CycleVerdictsService.java` + controller route
-- [ ] T037 [US3] Create `BOARD/application/service/ListenHomeResolver.java`:
+- [X] T036 [P] [US3] Create the use case `BOARD/application/port/in/CycleVerdictsUseCase.java` and implement `GET /board/cycles/{cycleId}/verdicts` (per call: each related board's item verdicts, cards with homes; `board` filter = items name or cards mention) in `BOARD/application/service/CycleVerdictsService.java` + controller route
+- [X] T037 [US3] Create `BOARD/application/service/ListenHomeResolver.java`:
   - a signature match across the cycle's boards adds evidence;
   - else home = the one board whose items name the endpoint;
   - else post a `board_ask` with one option per board to the starting board's chat;
   - with no board naming it, home = the starting board, else the cycle's only board, else its default board (R5).
-- [ ] T038 [US3] Add out-port `CYC/application/port/out/RecordingGuardPort.java` (no-op default), call it from start/resume in `CYC/application/service/SessionCyclesService.java` with `onRunning=ASK|PAUSE_OTHER` (`409 RECORDING_CONFLICT`), and implement it in `APP/boardbridge/BoardRecordingGuardAdapter.java` (RECORDING cycles sharing a project through their boards; a board-less cycle is never blocked) (FR-008, R3). Add `RecordForBoardUseCase` + `POST /board/boards/{id}/record`. With `ASK`, return 409 + the running cycle when a RECORDING cycle is related to a board of the same project; `JOIN` relates it; `NEW` pauses it and creates and starts a new one through `CycleControlPort`.
-- [ ] T039 [P] [US3] Test `BOARD_T/application/service/ListenHomeResolverTest.java` (evidence not duplicate; single home; ask on several; archived boards ignored)
-- [ ] T040 [P] [US3] Test `BOARD_T/application/service/RecordForBoardTest.java` (ask/join/new, pause) and `APP_T/boardbridge/BoardRecordingGuardAdapterTest.java` (Session Cycles start and MCP `start_recording` blocked or pause-other; board-less cycle free)
-- [ ] T041 [P] [US3] Add the pure util `FE/shared/utils/cycle-verdicts.ts` (+ spec) for column and filter logic
-- [ ] T042 [US3] Create `FE/components/board/cycle-verdicts-dialog/` (All / for-board filter, per-board verdict columns, cards with home, ▶ /alfred-listen) and open it from the task-view Cycles pane and session-cycles-list
-- [ ] T043 [US3] Create `FE/components/board/record-dialog/` (from a board: join running vs new + pause; from Session Cycles start/resume: pause the other or cancel), used by task-view and session-cycles-list; update MCP `start_recording` in `MCP/cycles.ts` to pass `onRunning` and report the conflict
-- [ ] T044 [US3] Update the MCP tools: `MCP/check.ts` (`check_calls` / `wait_for_calls` per cycle, related boards in result, homes via the new endpoint), `MCP/board.ts` (`board` param on all tools, `board_add` home resolution, new `board_boards`, `board_relate`, `board_move_home`, `board_record`, `board_open` with `askedIn`), `MCP/task.ts` (`task_context` by board), `MCP/cycles.ts` (`create_cycle` with `board`)
+- [X] T038 [US3] Add out-port `CYC/application/port/out/RecordingGuardPort.java` (no-op default), call it from start/resume in `CYC/application/service/SessionCyclesService.java` with `onRunning=ASK|PAUSE_OTHER` (`409 RECORDING_CONFLICT`), and implement it in `APP/boardbridge/BoardRecordingGuardAdapter.java` (RECORDING cycles sharing a project through their boards; a board-less cycle is never blocked) (FR-008, R3). Add `RecordForBoardUseCase` + `POST /board/boards/{id}/record`. With `ASK`, return 409 + the running cycle when a RECORDING cycle is related to a board of the same project; `JOIN` relates it; `NEW` pauses it and creates and starts a new one through `CycleControlPort`.
+- [X] T039 [P] [US3] Test `BOARD_T/application/service/ListenHomeResolverTest.java` (evidence not duplicate; single home; ask on several; archived boards ignored)
+- [X] T040 [P] [US3] Test `BOARD_T/application/service/RecordForBoardTest.java` (ask/join/new, pause) and `APP_T/boardbridge/BoardRecordingGuardAdapterTest.java` (Session Cycles start and MCP `start_recording` blocked or pause-other; board-less cycle free)
+- [X] T041 [P] [US3] Add the pure util `FE/shared/utils/cycle-verdicts.ts` (+ spec) for column and filter logic
+- [X] T042 [US3] Create `FE/components/board/cycle-verdicts-dialog/` (All / for-board filter, per-board verdict columns, cards with home, ▶ /alfred-listen) and open it from the task-view Cycles pane and session-cycles-list
+- [X] T043 [US3] Create `FE/components/board/record-dialog/` (from a board: join running vs new + pause; from Session Cycles start/resume: pause the other or cancel), used by task-view and session-cycles-list; update MCP `start_recording` in `MCP/cycles.ts` to pass `onRunning` and report the conflict
+- [X] T044 [US3] Update the MCP tools: `MCP/check.ts` (`check_calls` / `wait_for_calls` per cycle, related boards in result, homes via the new endpoint), `MCP/board.ts` (`board` param on all tools, `board_add` home resolution, new `board_boards`, `board_relate`, `board_move_home`, `board_record`, `board_open` with `askedIn`), `MCP/task.ts` (`task_context` by board), `MCP/cycles.ts` (`create_cycle` with `board`)
 
 ---
 

@@ -613,4 +613,21 @@ class SessionCyclesServiceTest {
                 new CallOverlapEntry("id-2024-01-01T00:00:05Z", "external", null, "2024-01-01T00:00:05Z", 1.0, null, null),
                 new CallOverlapEntry("internal-1", "internal", "wildfly", "2024-01-01T00:00:06Z", 2.0, null, null));
     }
+
+    @Test
+    void aGuardedStartWaitsForAnotherCycleOfTheSameProjectOrPausesIt() {
+        when(metadataStore.findById("c1")).thenReturn(Optional.of(new SessionCycle("c1", "A", "2026-01-01T00:00:00Z", null, SessionCycleStatus.PAUSED)));
+        when(metadataStore.findById("c2")).thenReturn(Optional.of(new SessionCycle("c2", "B", "2026-01-01T00:00:00Z", null, SessionCycleStatus.RECORDING)));
+        when(metadataStore.save(org.mockito.ArgumentMatchers.any())).thenAnswer(inv -> inv.getArgument(0));
+        service.setRecordingGuards(List.of(id -> "c1".equals(id) ? Optional.of("c2") : Optional.empty()));
+
+        var asked = service.startRecording("c1", false).orElseThrow();
+        assertThat(asked.conflict()).isTrue();
+        assertThat(asked.running().id()).isEqualTo("c2");
+
+        var paused = service.startRecording("c1", true).orElseThrow();
+        assertThat(paused.conflict()).isFalse();
+        assertThat(paused.cycle().status()).isEqualTo(SessionCycleStatus.RECORDING);
+        org.mockito.Mockito.verify(metadataStore).save(new SessionCycle("c2", "B", "2026-01-01T00:00:00Z", null, SessionCycleStatus.PAUSED));
+    }
 }

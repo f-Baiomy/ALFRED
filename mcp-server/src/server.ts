@@ -26,6 +26,8 @@ import * as boardVisuals from './tools/board-visuals.ts';
 import * as requirements from './tools/requirements.ts';
 import * as ruleProposals from './tools/rule-proposals.ts';
 import * as chat from './tools/chat.ts';
+import * as boards from './tools/boards.ts';
+import { withBoardParam } from './board-scope.ts';
 
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string };
 
@@ -59,6 +61,9 @@ export function createServer(client: AlfredClient = new AlfredClient()): McpServ
       + 'rule_recipes, rule_from_call and rule_preview first; the user switches them on, edits or deletes them; rule_hits shows what one did.',
   });
   registerSessionTool(server);
-  for (const module of [cycles, spacers, calls, db, comments, exportTool, watch, redactions, cycleSearch, diff, rulesRelive, projects, triage, check, task, logs, investigate, redis, board, boardVisuals, requirements, live, ruleProposals, chat]) module.register(server, client);
+  for (const module of [cycles, spacers, calls, db, comments, exportTool, watch, redactions, cycleSearch, diff, rulesRelive, projects, triage, check, logs, investigate, redis, ruleProposals, boards]) module.register(server, client);
+  // specs/027: the task tools also take `board` - a board is a task, its id the task key they always took
+  const boarded = withBoardParam(server, client);
+  for (const module of [task, board, boardVisuals, requirements, live, chat]) module.register(boarded, client);
   return server;
 }

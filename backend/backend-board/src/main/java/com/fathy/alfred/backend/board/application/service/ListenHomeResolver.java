@@ -1,5 +1,6 @@
 package com.fathy.alfred.backend.board.application.service;
 
+import com.fathy.alfred.backend.board.application.port.in.FindingHomeUseCase;
 import com.fathy.alfred.backend.board.application.port.out.BoardModelStorePort;
 import com.fathy.alfred.backend.board.application.port.out.BoardStorePort;
 import com.fathy.alfred.backend.board.application.port.out.RequirementStorePort;
@@ -26,13 +27,7 @@ import java.util.Set;
  * Done and archived boards take no findings. Nothing here writes: the caller adds the card or the evidence.
  */
 @Service
-public class ListenHomeResolver {
-
-    public enum Kind { EVIDENCE, HOME, ASK }
-
-    /** {@code card}: the number to add evidence to (EVIDENCE); {@code boardId}: the home (HOME); {@code options}: ASK. */
-    public record Home(Kind kind, Integer card, String boardId, List<Board> options, String reason) {
-    }
+public class ListenHomeResolver implements FindingHomeUseCase {
 
     private final BoardModelStorePort boards;
     private final BoardStorePort cards;
@@ -44,6 +39,7 @@ public class ListenHomeResolver {
         this.requirements = requirements;
     }
 
+    @Override
     public Home resolve(String project, String cycleId, String endpoint, String signature, String startedFor) {
         List<Board> open = boards.boardsOfCycle(cycleId).stream().map(boards::board).flatMap(Optional::stream)
                 .filter(Board::open).toList();

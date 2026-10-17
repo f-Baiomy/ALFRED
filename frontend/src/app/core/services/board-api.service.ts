@@ -7,7 +7,7 @@ import {
   RetestReport, RetestStep, SessionLogEntry, SpecFileInfo, Team, TeamEdit, TestStep,
   CycleChatInfo, EvidenceCheck, ItemEvidence, RequirementsView, SkillRun, SkillRunRequest, SkillRunsPage, TextVersion,
   ActivityEntry, BoardQuestion, BriefComment, EntryAnswers, LiveRunnerInfo, ItemCall,
-  Board, BoardActivity, BoardState, BoardSummary, NewBoard,
+  Board, BoardActivity, BoardState, BoardSummary, NewBoard, CycleVerdicts,
 } from '../models/board.models';
 import { AppConfigService } from './app-config.service';
 
@@ -86,6 +86,18 @@ export class BoardApiService {
 
   undoBoardActivity(boardId: string, activityId: number): Observable<Board> {
     return this.http.post<Board>(`${this.base}/boards/${encodeURIComponent(boardId)}/activity/${activityId}/undo`, {});
+  }
+
+  /** Records for a board (specs/027 FR-008): ASK answers 409 RECORDING_CONFLICT when a cycle records the project. */
+  recordForBoard(boardId: string, kind: 'REC' | 'RETEST', onRunning: 'ASK' | 'JOIN' | 'NEW'): Observable<{ cycleId: string; message: string }> {
+    return this.http.post<{ cycleId: string; message: string }>(`${this.base}/boards/${encodeURIComponent(boardId)}/record`, { kind, onRunning });
+  }
+
+  /** Every related board's verdicts per call of one cycle; with {@code board}, only the calls that board names or mentions. */
+  cycleVerdicts(cycleId: string, board: string | null = null, limit = 500): Observable<CycleVerdicts> {
+    let params = new HttpParams().set('limit', String(limit));
+    if (board) params = params.set('board', board);
+    return this.http.get<CycleVerdicts>(`${this.base}/cycles/${encodeURIComponent(cycleId)}/verdicts`, { params });
   }
 
   moveHome(cardId: string, boardId: string): Observable<CardDetail> {

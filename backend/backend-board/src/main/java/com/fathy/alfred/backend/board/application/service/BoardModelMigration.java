@@ -37,6 +37,7 @@ public class BoardModelMigration {
     private final ObjectProvider<CycleControlPort> cycles;
     private final Clock clock;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public BoardModelMigration(BoardModelStorePort boards, CycleNamesPort names, ObjectProvider<CycleControlPort> cycles) {
         this(boards, names, cycles, Clock.systemUTC());
     }

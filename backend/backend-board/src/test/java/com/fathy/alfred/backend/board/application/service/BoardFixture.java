@@ -187,7 +187,10 @@ final class BoardFixture implements AutoCloseable {
         boards = new BoardsService(boardModel, store, chatStore, board, briefs, notifications, provider(control),
                 provider(new com.fathy.alfred.backend.board.application.port.out.LinkedWorkItemPort() { }), clock);
         migration = new BoardModelMigration(boardModel, names, provider(control), clock);
+        record = new RecordForBoardService(boardModel, boards, provider(control), provider(names), clock);
     }
+
+    RecordForBoardService record;
 
     static <T> org.springframework.beans.factory.ObjectProvider<T> provider(T bean) {
         org.springframework.beans.factory.support.StaticListableBeanFactory f = new org.springframework.beans.factory.support.StaticListableBeanFactory();

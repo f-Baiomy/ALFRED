@@ -1,10 +1,12 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
-import { Observable, Subject, forkJoin, merge, of, timer } from 'rxjs';
+import { EMPTY, Observable, Subject, forkJoin, from, merge, of, timer } from 'rxjs';
 import { catchError, filter, map, share, switchMap, tap } from 'rxjs/operators';
 import { reconnectingSocket } from './reconnecting-socket';
 import { SessionCycle } from '../models/call.model';
 import { AppConfigService } from '../services/app-config.service';
+import { ConfirmDialogService } from '../services/confirm-dialog.service';
+import { recordingConflict } from '../../shared/utils/recording-conflict';
 import { NewSessionCycleRequest, SessionCycleUpdateRequest, SessionCyclesApiService } from '../services/session-cycles-api.service';
 
 const PAGE_SIZE = 10;
@@ -31,6 +33,7 @@ export interface BulkDeleteResult {
 @Injectable({ providedIn: 'root' })
 export class SessionCyclesStateService {
   private readonly api = inject(SessionCyclesApiService);
+  private readonly confirmDialog = inject(ConfirmDialogService);
   private readonly config = inject(AppConfigService);
 
   private readonly manualRefresh = new Subject<void>();
@@ -143,8 +146,20 @@ export class SessionCyclesStateService {
     return this.api.update(id, request).pipe(tap(() => this.refreshNow()));
   }
 
+  /**
+   * Starts or resumes recording. When another cycle already records the same project (specs/027 FR-008) the user is
+   * asked whether to pause it; "Cancel" starts nothing (the observable completes empty).
+   */
   startRecording(id: string): Observable<SessionCycle> {
-    return this.api.startRecording(id).pipe(tap(() => this.refreshNow()));
+    return this.api.startRecording(id).pipe(
+      catchError((e) => {
+        const running = recordingConflict(e);
+        if (!running) throw e;
+        return from(this.confirmDialog.confirm(`"${running.name}" is recording the same project. Pause it and record this cycle instead?`,
+          'Pause it and record', 'Cancel')).pipe(switchMap((yes) => (yes ? this.api.startRecording(id, 'PAUSE_OTHER') : EMPTY)));
+      }),
+      tap(() => this.refreshNow()),
+    );
   }
 
   pauseRecording(id: string): Observable<SessionCycle> {

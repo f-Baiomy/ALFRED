@@ -12786,3 +12786,5 @@ $cd-x: 0.6rem; // the line, under the middle of the avatar
 /* A card seen through a relation (specs/027 US2): it lives on another board. */
 .board-card.related { border-style: dashed; opacity: .88; }
 .board-home { color: var(--purple-light); font-size: .74rem; }
+.cycle-verdicts-btn { margin-left: .4rem; padding: 0 .45rem; border: 1px dashed var(--border-strong); border-radius: 999px; background: none;
+  color: var(--purple-light); font-size: .72rem; cursor: pointer; }

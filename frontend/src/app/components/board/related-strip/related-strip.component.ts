@@ -1,8 +1,11 @@
 import { Component, computed, inject, input, output, signal } from '@angular/core';
+import { Observable } from 'rxjs';
 import { BoardState, BoardSummary } from '../../../core/models/board.models';
 import { SessionCycle } from '../../../core/models/call.model';
 import { BoardApiService } from '../../../core/services/board-api.service';
 import { ConfirmDialogService } from '../../../core/services/confirm-dialog.service';
+import { recordingConflict } from '../../../shared/utils/recording-conflict';
+import { CycleVerdictsDialogComponent } from '../cycle-verdicts-dialog/cycle-verdicts-dialog.component';
 
 /**
  * Under the board picker (specs/027 FR-003/006, mock §Board): the cycles and boards this board is related to, as chips with
@@ -12,13 +15,14 @@ import { ConfirmDialogService } from '../../../core/services/confirm-dialog.serv
 @Component({
   selector: 'app-related-strip',
   standalone: true,
+  imports: [CycleVerdictsDialogComponent],
   template: `
     @if (summary(); as s) {
       <div class="related-strip">
         <span class="related-label">Cycles:</span>
         @for (c of relatedCycles(); track c.id) {
           <span class="related-chip cyc" [class.rec]="c.status === 'RECORDING'">
-            {{ c.name }}
+            <button type="button" class="related-open" title="Every board's verdicts on this cycle's calls" (click)="verdictsOf.set(c)">{{ c.name }}</button>
             @if (c.status === 'RECORDING') { <span class="related-rec">REC</span> }
             @if (sharedWith(c.id); as others) { @if (others.length) { <span class="related-shared" [title]="'Also on ' + others.join(', ')">shared · {{ others.length }}</span> } }
             @if (editable()) { <button type="button" class="related-x" title="Unrelate (the cycle and its calls stay)" (click)="unrelateCycle(c.id)">✕</button> }
@@ -33,6 +37,7 @@ import { ConfirmDialogService } from '../../../core/services/confirm-dialog.serv
         } @empty { <span class="related-none">none</span> }
         @if (editable()) {
           <button type="button" class="related-chip plus" (click)="relating.set(!relating())">＋ relate cycle or board</button>
+          <button type="button" class="related-chip plus" title="Record this board's calls: joins or replaces a recording of the same project" (click)="record('REC')">● Record</button>
           @if (!s.board.isDefault) {
             <span class="related-state">
               @for (st of states; track st) {
@@ -72,6 +77,9 @@ import { ConfirmDialogService } from '../../../core/services/confirm-dialog.serv
         </div>
       }
       @if (error()) { <div class="related-error">{{ error() }}</div> }
+      @if (verdictsOf(); as v) {
+        <app-cycle-verdicts-dialog [cycleId]="v.id" [cycleName]="v.name" [project]="s.board.project" [forBoard]="s.board.id" (closed)="verdictsOf.set(null)" />
+      }
     }`,
   styles: [`
     .related-strip { display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; margin: .5rem 0 .3rem; font-size: .8rem; }
@@ -96,6 +104,8 @@ import { ConfirmDialogService } from '../../../core/services/confirm-dialog.serv
     .related-pick-row { display: flex; justify-content: space-between; gap: .5rem; align-items: center; padding: .15rem 0; }
     .related-pick-row small { color: var(--text-faint); }
     .related-rec { color: var(--red); font-size: .7rem; }
+    .related-open { border: 0; background: none; color: inherit; font: inherit; padding: 0; cursor: pointer; }
+    .related-open:hover { text-decoration: underline; }
     .related-shared { color: var(--text-faint); font-size: .7rem; }
     .related-error { color: var(--red); font-size: .78rem; }
     @media (max-width: 760px) { .related-pick { grid-template-columns: 1fr; } }
@@ -117,6 +127,7 @@ export class RelatedStripComponent {
   readonly states: readonly BoardState[] = ['OPEN', 'DONE', 'ARCHIVED'];
   readonly relating = signal(false);
   readonly error = signal<string | null>(null);
+  readonly verdictsOf = signal<SessionCycle | null>(null);
 
   readonly relatedCycles = computed(() => {
     const ids = this.summary()?.cycleIds ?? [];
@@ -155,6 +166,27 @@ export class RelatedStripComponent {
     this.call(this.api.relateBoard(this.boardId(), id, false));
   }
 
+  /**
+   * Records for this board (FR-008). When another cycle records the project: join it, or pause it and start a new one -
+   * asked in two steps so Esc never does either.
+   */
+  record(kind: 'REC' | 'RETEST'): void {
+    const id = this.boardId();
+    this.error.set(null);
+    this.api.recordForBoard(id, kind, 'ASK').subscribe({
+      next: () => this.changed.emit(),
+      error: async (e) => {
+        const running = recordingConflict(e);
+        if (!running) return this.fail(e);
+        if (await this.confirmDialog.confirm(`"${running.name}" is recording this project. Record into it for this board too?`, 'Join it', 'Other options')) {
+          this.call(this.api.recordForBoard(id, kind, 'JOIN'));
+        } else if (await this.confirmDialog.confirm(`Pause "${running.name}" and start a new recording for this board?`, 'Pause and start', 'Cancel')) {
+          this.call(this.api.recordForBoard(id, kind, 'NEW'));
+        }
+      },
+    });
+  }
+
   setState(state: BoardState): void {
     this.call(this.api.updateBoard(this.boardId(), { state }));
   }
@@ -170,7 +202,7 @@ export class RelatedStripComponent {
     return this.summary()?.board.id ?? '';
   }
 
-  private call(request: ReturnType<BoardApiService['relateCycle']>): void {
+  private call(request: Observable<unknown>): void {
     this.error.set(null);
     request.subscribe({ next: () => this.changed.emit(), error: (e) => this.fail(e) });
   }

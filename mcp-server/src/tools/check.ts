@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
+import type { BoardRow } from '../board-scope.ts';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { AlfredError, seg, type AlfredClient } from '../alfred-client.ts';
 import { isErrorLine } from '../call-story.ts';
@@ -1029,6 +1030,13 @@ export function register(server: McpServer, client: AlfredClient): void {
       stale, pending: pendingCalls.map((c) => numberOf.get(c.id)!), hiddenOptions, lastCallId,
     }, input.sweep && input.offset > 0);
     if (!kept) mem.page = batch;
-    return text(await renderPage(ctx, input, batch, { board, waited }));
+    // specs/027: one listen per cycle - a cycle on several boards sends each finding to its home (research R5)
+    const boardsOn = await client.get<BoardRow[]>(`/board/cycles/${seg(found.id)}/boards`).catch(() => [] as BoardRow[]);
+    const page = await renderPage(ctx, input, batch, { board, waited });
+    return text(boardsOn.length > 1 ? `${page}
+
+This cycle is on ${boardsOn.length} boards: `
+      + boardsOn.map((b) => `${b.id} ("${b.name}"${b.state === 'OPEN' ? '' : ', ' + b.state.toLowerCase()})`).join(', ')
+      + ' - before board_add, ask board_home where each finding goes (EVIDENCE / HOME / ASK).' : page);
   }));
 }

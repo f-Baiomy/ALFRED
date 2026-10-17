@@ -1,3 +1,4 @@
+import { CycleVerdictsDialogComponent } from '../../components/board/cycle-verdicts-dialog/cycle-verdicts-dialog.component';
 import { DatePipe, NgTemplateOutlet } from '@angular/common';
 import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { filter } from 'rxjs';
@@ -56,6 +57,7 @@ const SORT_OPTIONS: readonly SelectOption[] = [
     ProfilePickerComponent,
     SelectPickerComponent,
     NgTemplateOutlet,
+    CycleVerdictsDialogComponent,
   ],
   templateUrl: './session-cycles-list.component.html',
 })
@@ -79,6 +81,12 @@ export class SessionCyclesListComponent {
   // Grouped by board (specs/027 FR-007): a cycle on two boards shows under both; this browser remembers the choice.
   private readonly boardApi = inject(BoardApiService);
   readonly boards = signal<BoardSummary[]>([]);
+  /** The shared cycle whose verdicts are open (specs/027 US3). */
+  readonly verdictsOf = signal<SessionCycle | null>(null);
+
+  boardsOn(cycleId: string): number {
+    return this.boards().filter((b) => b.cycleIds.includes(cycleId)).length;
+  }
   readonly groupBy = signal<'board' | 'none'>(readGroupBy());
   readonly groups = computed(() => groupCyclesByBoard(this.state.sortedCycles(), this.boards()));
 

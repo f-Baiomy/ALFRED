@@ -94,6 +94,10 @@
             </td>
             <td>{{ cycle.name }}
               @if (alsoOn?.get(cycle.id)?.length) { <span class="cycle-also-on">also on {{ alsoOn.get(cycle.id)!.join(', ') }}</span> }
+              @if (boardsOn(cycle.id) > 1) {
+                <button type="button" class="cycle-verdicts-btn" title="Every board's verdicts on this cycle's calls"
+                        (click)="$event.stopPropagation(); verdictsOf.set(cycle)">verdicts · {{ boardsOn(cycle.id) }} boards</button>
+              }
             </td>
             <td>
               <span class="badge" [class]="statusClass(cycle)">{{ statusLabel(cycle) }}</span>
@@ -172,3 +176,6 @@
 <app-bulk-reassign-dialog />
 <app-import-calls-dialog />
 <app-export-dialog />
+@if (verdictsOf(); as v) {
+  <app-cycle-verdicts-dialog [cycleId]="v.id" [cycleName]="v.name" (closed)="verdictsOf.set(null)" />
+}
