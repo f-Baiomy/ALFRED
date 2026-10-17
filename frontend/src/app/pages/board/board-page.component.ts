@@ -22,6 +22,7 @@ import { BoardCyclesComponent } from '../../components/board/board-cycles/board-
 import { TeamRelatedItemsComponent } from '../../components/team/related-items/related-items.component';
 import { SessionCyclesStateService } from '../../core/state/session-cycles-state.service';
 import { ChatStateService } from '../../core/state/chat-state.service';
+import { StageStripComponent } from '../../components/board/stage-strip/stage-strip.component';
 
 /** The board page's tabs when a board is picked (specs/029); Cards is the default. */
 export type BoardTab = 'cards' | 'calls' | 'task' | 'cycles' | 'items' | 'activity';
@@ -36,7 +37,7 @@ const BOARD_TABS: readonly BoardTab[] = ['cards', 'calls', 'task', 'cycles', 'it
   selector: 'app-board-page',
   standalone: true,
   imports: [SelectPickerComponent, BoardViewComponent, TaskViewComponent, ConfirmDialogComponent, BoardPickerComponent, RelatedStripComponent,
-    BoardActivityComponent, BoardCallsComponent, BoardCyclesComponent, TeamRelatedItemsComponent],
+    BoardActivityComponent, BoardCallsComponent, BoardCyclesComponent, TeamRelatedItemsComponent, StageStripComponent],
   styles: [`
     .bp-tabs { display: flex; gap: 2px; margin: .4rem -1rem 0; padding: 0 .6rem; border-top: 1px solid var(--border);
       border-bottom: 1px solid var(--border); overflow-x: auto; }
@@ -63,6 +64,9 @@ const BOARD_TABS: readonly BoardTab[] = ['cards', 'calls', 'task', 'cycles', 'it
       @if (cycleId(); as id) {
         <app-related-strip [summary]="summary()" [cycles]="cycles()" [allBoards]="allBoards()" [editable]="editable()"
                            (changed)="reloadSummary()" (deleted)="go(project(), null)" />
+        @if (!id.startsWith('default:') && !summary()?.board?.isDefault) {
+          <app-stage-strip [project]="project()" [boardId]="id" [linkedItem]="summary()?.linkedItem ?? null" [editable]="editable()" />
+        }
         <app-task-view [cycleId]="id" [project]="project()" [editable]="editable()" [cycleName]="cycleName()" [nested]="true"
                        [showTask]="tab() === 'task'" (taskAsked)="setTab('task')" (cardOpened)="setTab('cards')">
           <div tvTabs class="bp-tabs" role="tablist" aria-label="Board">

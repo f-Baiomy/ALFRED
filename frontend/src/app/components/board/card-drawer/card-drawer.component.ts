@@ -417,7 +417,7 @@ function writeJson(key: string, value: unknown): void {
 
         <ng-template #linksPart>
           <div class="cd-links">
-            <app-team-card-items [cardId]="c.id" [cardTitle]="c.title" [cardDescription]="c.description" [editable]="editable()"
+            <app-team-card-items [cardId]="c.id" [cardTitle]="c.title" [cardDescription]="c.description" [editable]="editable()" [cardNumber]="c.number" [boardId]="c.boardId ?? c.cycleId ?? null" [project]="c.project"
                                  (linked)="teamItems.set($event)" />
             <div class="cd-lh"><h5>Linked <span class="board-dim">from mentions</span></h5>
               @if (editable()) { <button type="button" class="board-link" (click)="linking.set(!linking())">+ link</button> }</div>

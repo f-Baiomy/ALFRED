@@ -3,7 +3,9 @@ import { Component, computed, effect, inject, input, output, signal, untracked }
 import { FormsModule } from '@angular/forms';
 import { TeamApiService } from '../../../core/team/team-api.service';
 import { TeamStateService } from '../../../core/team/team-state.service';
-import { CardItem, Markers, WriteBundle, closedCategory } from '../../../core/team/team.models';
+import { CardItem, CardMatch, Markers, WriteBundle, closedCategory } from '../../../core/team/team.models';
+import { ChatApiService } from '../../../core/services/chat-api.service';
+
 import { TeamItemDrawerComponent } from '../item-drawer/item-drawer.component';
 import { TeamConsentBundleComponent } from '../consent-bundle/consent-bundle.component';
 
@@ -33,15 +35,64 @@ import { TeamConsentBundleComponent } from '../consent-bundle/consent-bundle.com
             @if (i.closedInAzure) { <span class="tci-warn" title="Closed in the tracker - the card got a proposal">closed in {{ state.ui().label }}</span> }
             @if (i.changed) { <span class="tci-warn" title="Changed since the saved copy">● changed</span> }
             @if (i.comments.length) { <button type="button" class="board-link" (click)="toggleComments(i)">💬 {{ i.comments.length }}</button> }
-            @if (editable()) { <button type="button" class="tci-x" title="Unlink from this card" (click)="unlink(i)">✕</button> }
+            @if (editable()) {
+              <button type="button" class="board-link" [attr.aria-expanded]="panel() === i.conn + i.item"
+                      [title]="'Write to ' + state.ui().label + ' yourself, or draft it with Claude'" (click)="togglePanel(i)">{{ state.ui().label }} ▾</button>
+              <button type="button" class="tci-x" title="Unlink from this card" (click)="unlink(i)">✕</button>
+            }
           </div>
+          @if (panel() === i.conn + i.item) {
+            <div class="tci-panel">
+              <span class="tci-dim">Write it yourself - sent now with your token:</span>
+              <form class="tci-form" (submit)="$event.preventDefault(); sendComment(i)">
+                <textarea [(ngModel)]="comment" name="comment" rows="2" placeholder="A comment on {{ i.type }} {{ i.item }}" aria-label="Comment"></textarea>
+                <button type="submit" class="action-btn" [disabled]="!comment.trim() || busy()">Comment</button>
+              </form>
+              <form class="tci-form" (submit)="$event.preventDefault(); sendState(i)">
+                <label class="tci-dim">State <select [(ngModel)]="newState" name="state" aria-label="State">
+                  @for (s of statesOf(i.type); track s) { <option [value]="s">{{ s }}</option> }</select></label>
+                <button type="submit" class="action-btn" [disabled]="!newState || newState === i.state || busy()">Set state</button>
+              </form>
+              <span class="tci-dim">Or</span>
+              <div class="tci-row">
+                <button type="button" class="action-btn" [disabled]="!canDraft() || busy()" (click)="draftWithClaude()"
+                        [title]="canDraft() ? 'Posts /alfred-team update card #' + cardNumber() + ' to the board chat - Claude drafts a comment and state as a bundle you approve'
+                          : 'Open this card from its board to ask Claude'">Draft with Claude</button>
+                <span class="tci-dim">comment + state from the card's thread, as a bundle you approve</span>
+              </div>
+            </div>
+          }
           @if (showComments() === i.conn + i.item) {
             @for (c of i.comments; track c.id) {
               <div class="tci-comment"><span class="tci-dim">from {{ state.ui().label }} · {{ c.by }} · {{ c.at?.slice(0, 16)?.replace('T', ' ') }}</span>
                 <div>{{ plain(c.text) }}</div></div>
             }
           }
-        } @empty { <span class="tci-dim">Not linked to a work item.</span> }
+        } @empty {
+          @if (matches().length) {
+            <div class="tci-matches">
+              <span class="tci-dim">Looks like an item in {{ state.ui().label }}:</span>
+              @for (m of shownMatches(); track m.row.conn + m.row.item) {
+                <div class="tci-match">
+                  <button type="button" class="tci-open" (click)="opened.set({ conn: m.row.conn, item: m.row.item })" title="Open it live">
+                    <span class="tci-dim">{{ m.type }} {{ m.row.item }}</span> {{ m.title }}</button>
+                  @if (m.state) { <span class="tci-state">{{ m.state }}</span> }
+                  @if (m.row.why) { <div class="tci-why">{{ m.row.why }}</div> }
+                  @if (editable()) {
+                    <div class="tci-row">
+                      <button type="button" class="action-btn primary" [disabled]="busy()" (click)="linkMatch(m.row.conn, m.row.item)">Link</button>
+                      <button type="button" class="action-btn" [disabled]="busy()" (click)="rejectMatch(m.row.conn, m.row.item)">Not this one</button>
+                    </div>
+                  }
+                </div>
+              }
+              @if (matches().length > 1 && !allMatches()) {
+                <button type="button" class="board-link" (click)="allMatches.set(true)">Show others ({{ matches().length - 1 }})</button>
+              }
+              <span class="tci-dim">None is right? "+ create in {{ state.ui().label }}" prepares a bundle that creates it under the board's main item.</span>
+            </div>
+          } @else { <span class="tci-dim">Not linked to a work item.</span> }
+        }
 
         @if (mode() === 'link') {
           <form class="tci-form" (submit)="$event.preventDefault(); link()">
@@ -105,6 +156,10 @@ import { TeamConsentBundleComponent } from '../consent-bundle/consent-bundle.com
     .tci-marks { display: inline-flex; flex-wrap: wrap; gap: .35rem; align-items: center; font-size: .76rem; color: var(--text-dim); }
     .tci-marks label { display: inline-flex !important; gap: .2rem; align-items: center; }
     .tci-row { display: flex; gap: .35rem; }
+    .tci-panel { display: grid; gap: .3rem; margin-left: 1rem; padding: .35rem .5rem; border-left: 2px solid var(--border-strong); }
+    .tci-matches { display: grid; gap: .3rem; }
+    .tci-match { display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; padding: .3rem .45rem; border: 1px dashed var(--border-strong); border-radius: 6px; }
+    .tci-why { flex-basis: 100%; color: var(--text-dim); font-size: .76rem; }
     .tci-msg { color: var(--green); font-size: .78rem; }
     .tci-msg.err { color: var(--red); }
   `],
@@ -117,11 +172,25 @@ export class TeamCardItemsComponent {
   readonly cardId = input.required<string>();
   readonly cardTitle = input('');
   readonly cardDescription = input('');
+  /** The card's number, board and project - "Draft with Claude" posts to that board's chat. */
+  readonly cardNumber = input<number | null>(null);
+  readonly boardId = input<string | null>(null);
+  readonly project = input<string | null>(null);
   readonly editable = input(true);
   /** The card's linked items, for "Also post to the tracker" on the card's comment box. */
   readonly linked = output<CardItem[]>();
 
   readonly items = signal<CardItem[]>([]);
+  /** Items Alfred proposes for a card with none (specs/030 D6), best first. */
+  readonly matches = signal<CardMatch[]>([]);
+  readonly allMatches = signal(false);
+  readonly shownMatches = computed(() => (this.allMatches() ? this.matches() : this.matches().slice(0, 1)));
+  /** The linked item whose Azure panel is open ("<conn><item>"). */
+  readonly panel = signal<string | null>(null);
+  readonly canDraft = computed(() => !!this.cardNumber() && !!this.boardId() && this.project() !== null);
+  private readonly chatApi = inject(ChatApiService);
+  comment = '';
+  newState = '';
   readonly bundles = signal<WriteBundle[]>([]);
   readonly openBundles = computed(() => this.bundles().filter((b) => b.state === 'WAITING' || b.state === 'SENDING'));
   readonly doneBundles = computed(() => this.bundles().filter((b) => b.state !== 'WAITING' && b.state !== 'SENDING'));
@@ -156,6 +225,7 @@ export class TeamCardItemsComponent {
       if (!e) return;
       if ((e.what === 'cards' && (!e['card'] || e['card'] === this.cardId())) || e.what === 'sync') untracked(() => this.load(this.cardId()));
       if (e.what === 'write' && (!e['card'] || e['card'] === this.cardId())) untracked(() => this.loadBundles());
+      if (e.what === 'matches' && (!e['card'] || e['card'] === this.cardId())) untracked(() => this.loadMatches(this.cardId()));
     });
   }
 
@@ -165,12 +235,79 @@ export class TeamCardItemsComponent {
         if (this.cardId() !== id) return;
         this.items.set(i);
         this.linked.emit(i);
+        if (!i.length) this.loadMatches(id); else this.matches.set([]);
       },
       error: () => {
         if (this.cardId() !== id) return;
         this.items.set([]);
         this.linked.emit([]);
       },
+    });
+  }
+
+  loadMatches(id: string): void {
+    this.api.cardMatches(id).subscribe({ next: (m) => this.cardId() === id && this.matches.set(m), error: () => this.matches.set([]) });
+  }
+
+  linkMatch(conn: string, item: string): void {
+    this.busy.set(true);
+    this.api.linkMatch(this.cardId(), conn, item).subscribe({
+      next: (items) => {
+        this.busy.set(false);
+        this.items.set(items);
+        this.linked.emit(items);
+        this.matches.set([]);
+        this.say(`Linked - Alfred keeps a copy of item ${item}. Nothing was written to ${this.state.ui().label}.`);
+      },
+      error: (e) => { this.busy.set(false); this.say(e?.error?.message || 'Could not link it', true); },
+    });
+  }
+
+  rejectMatch(conn: string, item: string): void {
+    this.api.rejectMatch(this.cardId(), conn, item).subscribe({
+      next: (m) => { this.matches.set(m); this.say(`Item ${item} will not be proposed for this card again.`); },
+      error: (e) => this.say(e?.error?.message || 'Could not reject it', true),
+    });
+  }
+
+  togglePanel(i: CardItem): void {
+    const k = i.conn + i.item;
+    this.panel.set(this.panel() === k ? null : k);
+    this.comment = '';
+    this.newState = i.state ?? '';
+  }
+
+  /** The states the item's type has, from the connection's lists; the current one when the lists are not read yet. */
+  statesOf(type: string | null): string[] {
+    const all = (this.state.lists()?.states ?? []).filter((s) => !type || s.type.toLowerCase() === type.toLowerCase()).map((s) => s.name);
+    return [...new Set(all)];
+  }
+
+  /** The user's own direct write (specs/028): sent at once with their token, no bundle. */
+  private direct(i: CardItem, body: { state?: string; comment?: string }, done: string): void {
+    this.busy.set(true);
+    this.api.direct(i.conn, i.item, { ...body, card: this.cardId(), board: this.boardId() }).subscribe({
+      next: () => { this.busy.set(false); this.comment = ''; this.say(done); this.load(this.cardId()); this.loadBundles(); },
+      error: (e) => { this.busy.set(false); this.say(e?.error?.error === 'TOKEN_MISSING' ? 'Enter your token in the Team tab first' : e?.error?.message || 'Not sent', true); },
+    });
+  }
+
+  sendComment(i: CardItem): void {
+    if (this.comment.trim()) this.direct(i, { comment: this.comment.trim() }, `Comment sent to ${i.type} ${i.item}.`);
+  }
+
+  sendState(i: CardItem): void {
+    if (this.newState && this.newState !== i.state) this.direct(i, { state: this.newState }, `${i.type} ${i.item} is now ${this.newState}.`);
+  }
+
+  /** "Draft with Claude": asks the board's chat to prepare the update as a bundle on this card. */
+  draftWithClaude(): void {
+    const board = this.boardId();
+    if (!board || this.project() === null) return;
+    this.busy.set(true);
+    this.chatApi.post(this.project()!, board, { text: `/alfred-team update card #${this.cardNumber()}` }).subscribe({
+      next: () => { this.busy.set(false); this.panel.set(null); this.say('Asked in the board chat - the draft comes back here as a bundle to approve.'); },
+      error: (e) => { this.busy.set(false); this.say(e?.error?.message || 'Not sent', true); },
     });
   }
 

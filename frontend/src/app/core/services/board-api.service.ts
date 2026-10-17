@@ -3,7 +3,7 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import {
   ActivityPage, AgentStatus, LiveWork, BoardAccess, BoardFilters, BoardStorage, BulkAction, CallBadge, CardDetail, CardEdit, CardStatus, CardsPage,
-  CardRetest, ChecklistFile, ChecklistItem, CycleBrief, Expectation, Mark, MentionRef, NewCard, NextSteps, Resolution, RetestCheck, RetestPlan,
+  CardRetest, ChecklistFile, ChecklistItem, CycleBrief, Expectation, Mark, MentionRef, NewCard, NextSteps, BoardStage, Resolution, RetestCheck, RetestPlan,
   RetestReport, RetestStep, SessionLogEntry, SpecFileInfo, Team, TeamEdit, TestStep,
   CycleChatInfo, EvidenceCheck, ItemEvidence, RequirementsView, SkillRun, SkillRunRequest, SkillRunsPage, TextVersion,
   ActivityEntry, BoardQuestion, BriefComment, EntryAnswers, LiveRunnerInfo, ItemCall,
@@ -381,6 +381,11 @@ export class BoardApiService {
 
   setRetestPlan(cardId: string, expectations: readonly Expectation[], steps: readonly RetestStep[]): Observable<RetestPlan> {
     return this.http.put<RetestPlan>(`${this.base}/cards/${encodeURIComponent(cardId)}/retest-plan`, { expectations, steps });
+  }
+
+  /** The board's stage and its next command (specs/030), computed by the backend. */
+  stage(boardId: string): Observable<BoardStage> {
+    return this.http.get<BoardStage>(`${this.base}/boards/${encodeURIComponent(boardId)}/stage`);
   }
 
   nextSteps(project: string, cycleId: string | null): Observable<NextSteps> {

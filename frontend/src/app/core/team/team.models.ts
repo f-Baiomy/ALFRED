@@ -348,6 +348,41 @@ export interface MainSummary {
 
 // ------------------------------------------------------------------------------------------------------------ cards
 
+/** What "Refresh from Azure" found (POST /teamboards/boards/{board}/sync with wait, specs/030). */
+export interface SyncResult {
+  readonly boardId: string;
+  readonly checked: number;
+  readonly changed: number;
+  readonly newInTree: number;
+  readonly leftTree: number;
+  readonly skipped: boolean;
+  readonly newItems?: readonly { readonly conn: string; readonly item: string; readonly type: string | null; readonly title: string | null; readonly state: string | null }[];
+  readonly changedItems?: readonly { readonly conn: string; readonly item: string; readonly title: string | null; readonly fields: readonly string[]; readonly newComments: number }[];
+  readonly mainState?: MainMove | null;
+  readonly matches?: number;
+}
+
+/** The main item's state or iteration move in a refresh. */
+export interface MainMove {
+  readonly conn: string;
+  readonly item: string;
+  readonly fromState: string | null;
+  readonly toState: string | null;
+  readonly category: string | null;
+  readonly closed: boolean;
+  readonly fromIteration: string | null;
+  readonly toIteration: string | null;
+}
+
+/** A tracker item that may be what an unlinked card is about (specs/030 D5): found by code, Claude's reason when it judged it. */
+export interface CardMatch {
+  readonly row: { readonly boardId: string; readonly cardId: string; readonly conn: string; readonly item: string; readonly state: 'PROPOSED' | 'LINKED' | 'REJECTED';
+    readonly why: string | null; readonly score: number; readonly at: string | null };
+  readonly type: string | null;
+  readonly title: string;
+  readonly state: string | null;
+}
+
 export interface CardItem {
   readonly conn: string;
   readonly item: string;

@@ -4,7 +4,7 @@ import { Observable, Subject, share } from 'rxjs';
 import { AppConfigService } from '../services/app-config.service';
 import { reconnectingSocket } from '../state/reconnecting-socket';
 import {
-  BoardItemsView, CardItem, ConnectorInfo, HookInfo, IncomingRow, MainSummary, MappingKind, Markers, MineView, PersonCard, SearchResult,
+  BoardItemsView, CardItem, CardMatch, ConnectorInfo, SyncResult, HookInfo, IncomingRow, MainSummary, MappingKind, Markers, MineView, PersonCard, SearchResult,
   NewBoardBody, NewBoardResult, SeedTarget, SavedSearch, StartAnswer, StartWaiting, StartTarget, SyncRow, TeamConnection, TeamFieldMap, TeamItemView, TeamLists, TeamMapping, TeamMe, TeamPerson,
   TeamScope, TeamSearch, TeamSocketEvent, TeamSprint, TeamSquad, TeamBoard, TokenStatus, TypeKind, WatchRule, WriteBundle, WriteStep,
 } from './team.models';
@@ -180,6 +180,11 @@ export class TeamApiService {
     return this.http.post<{ state: string }>(`${this.base}/boards/${e(board)}/sync`, { force });
   }
 
+  /** "↻ Refresh from Azure" (specs/030): syncs now and answers with what changed. */
+  refresh(board: string): Observable<SyncResult> {
+    return this.http.post<SyncResult>(`${this.base}/boards/${e(board)}/sync`, { force: true, wait: true });
+  }
+
   keep(board: string, conn: string, item: string): Observable<BoardItemsView> {
     return this.http.post<BoardItemsView>(`${this.base}/boards/${e(board)}/items/${e(conn)}/${e(item)}/keep`, {});
   }
@@ -250,6 +255,20 @@ export class TeamApiService {
   createFromCard(card: string, body: { conn: string; type: string; title: string; description?: string; area?: string; iteration?: string;
     assignee?: string; project?: string; markers?: Markers }): Observable<WriteBundle> {
     return this.http.post<WriteBundle>(`${this.base}/cards/${e(card)}/create`, body);
+  }
+
+  /** The items proposed for a card with none (specs/030), best first. */
+  cardMatches(card: string): Observable<CardMatch[]> {
+    return this.http.get<CardMatch[]>(`${this.base}/cards/${e(card)}/matches`);
+  }
+
+  linkMatch(card: string, conn: string, item: string): Observable<CardItem[]> {
+    return this.http.post<CardItem[]>(`${this.base}/cards/${e(card)}/matches/${e(conn)}/${e(item)}/link`, {});
+  }
+
+  /** "Not this one": kept, never proposed again for this card. */
+  rejectMatch(card: string, conn: string, item: string): Observable<CardMatch[]> {
+    return this.http.post<CardMatch[]>(`${this.base}/cards/${e(card)}/matches/${e(conn)}/${e(item)}/reject`, {});
   }
 
   unlinkCard(card: string, conn: string, item: string): Observable<{ items: CardItem[]; bundle: WriteBundle | null }> {

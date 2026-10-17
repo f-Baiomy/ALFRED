@@ -69,12 +69,12 @@
 
 ## Phase 3: Frontend
 
-- [ ] T032 [US8] `core/team` + `core/board` API/models: stage, sync result fields, matches endpoints, item boards
-- [ ] T033 [US8] `components/board/next-steps-bar`: seven-stage strip from the stage endpoint, current marked, command + Copy; spec
-- [ ] T034 [US1] "Not defined yet" banner in the strip at DEFINE: command + Copy, "Ask Claude in chat" (posts `/alfred-setup <ref>` to the board chat) enabled only when a live runner / terminal answers the board; spec
-- [ ] T035 [US5] `pages/board/board-page`: "↻ Refresh from Azure" (board with a main) → sync; result line; main-closed banner; re-read on `/ws/board`; spec
-- [ ] T036 [US6] [US7] `components/team/card-items`: linked → Azure ▾ (Comment / State / Field direct, Draft with Claude); unlinked → matches (Link / Not this one / Show others) then Create in Azure; spec
-- [ ] T037 Frontend suite + `npm run build`; prod Docker frontend build; commit "feat(board): stage strip, Define banner, Refresh from Azure, card Azure panel with matches (specs/030)"
+- [X] T032 [US8] `core/team` + `core/board` API/models: stage, sync result fields, matches endpoints, item boards
+- [X] T033 [US8] `components/board/next-steps-bar`: seven-stage strip from the stage endpoint, current marked, command + Copy; spec
+- [X] T034 [US1] "Not defined yet" banner in the strip at DEFINE: command + Copy, "Ask Claude in chat" (posts `/alfred-setup <ref>` to the board chat) enabled only when a live runner / terminal answers the board; spec
+- [X] T035 [US5] `pages/board/board-page`: "↻ Refresh from Azure" (board with a main) → sync; result line; main-closed banner; re-read on `/ws/board`; spec
+- [X] T036 (direct writes: comment and state; a field edit is not offered - the direct endpoint takes state and comment only) [US6] [US7] `components/team/card-items`: linked → Azure ▾ (Comment / State / Field direct, Draft with Claude); unlinked → matches (Link / Not this one / Show others) then Create in Azure; spec
+- [X] T037 Frontend suite + `npm run build`; prod Docker frontend build; commit "feat(board): stage strip, Define banner, Refresh from Azure, card Azure panel with matches (specs/030)"
 
 ## Phase 4: Docs + end to end
 

@@ -871,6 +871,24 @@ export interface Board {
   readonly updatedAt: string;
 }
 
+/** The seven stages of a task (specs/030); the first, Board, is done once the board exists. */
+export type StageName = 'DEFINE' | 'TRIAGE' | 'CODE' | 'VERIFY' | 'TEST' | 'CLOSE';
+
+/** GET /board/boards/{id}/stage: where the task stands and the one next step with its command. */
+export interface BoardStage {
+  readonly stage: StageName;
+  readonly next: string;
+  readonly ref: string;
+  readonly counts: { readonly brief: boolean; readonly items: number; readonly inbox: number; readonly waitingOnUser: number; readonly toDo: number;
+    readonly inProgress: number; readonly fixed: number; readonly untested: number; readonly failing: number; readonly unmarked: number };
+}
+
+/** The command a stage's next step names ("/alfred-setup AB#1 - ..."), or null when it is an action for the user. */
+export function stageCommand(next: string): string | null {
+  const head = next.split(' - ')[0].trim();
+  return /^\/alfred-[a-z-]+/.test(head) ? head : null;
+}
+
 /** A board in the picker: how many cards live there, what it is related to, the work item it came from. */
 export interface BoardSummary {
   readonly board: Board;
