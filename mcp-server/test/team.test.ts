@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { world } from './harness.ts';
+import { pickState } from '../src/tools/team.ts';
 
 const CONN = { id: 'c1', kind: 'azure', name: 'Contoso', capabilities: ['SEARCH', 'WRITE'] };
 const SARA = { extId: 'p1', name: 'Sara Ali', email: 'sara@x' };
@@ -247,6 +248,46 @@ test('team_card_matches lists the proposed items of a card with the reason; why 
     assert.match(none.text, /not a proposed match/);
     assert.equal(w.fake.requests('POST', '/teamboards/cards/card-4/matches').length, 0, 'Claude never links or rejects');
   } finally { await w.close(); }
+});
+
+test('team_refresh_item on a board syncs now and says what changed, the main move and the matches (specs/030)', async () => {
+  const w = await world();
+  try {
+    const base = team();
+    w.fake.team = (method, p, q, body) => {
+      if (method === 'POST' && p[1] === 'boards' && p[3] === 'sync') {
+        assert.deepEqual(body, { force: true, wait: true });
+        return [200, { boardId: p[2], checked: 3, changed: 1, newInTree: 1, leftTree: 0, skipped: false,
+          newItems: [{ conn: 'c1', item: '1310', type: 'Bug', title: 'Refund twice', state: 'New' }],
+          changedItems: [{ conn: 'c1', item: '1234', title: 'Refund fails', fields: ['System.State', 'comments'], newComments: 2 }],
+          mainState: { conn: 'c1', item: '1234', fromState: 'Active', toState: 'Removed', category: 'Removed', closed: true,
+            fromIteration: 'Sprint 12', toIteration: 'Sprint 12' }, matches: 1 }];
+      }
+      return base(method, p, q, body);
+    };
+    w.fake.board.extra = (method: string, p: string[]) => method === 'GET' && p[1] === 'boards' && p[2] === 'b1'
+      ? [200, { board: { id: 'b1', project: 'odeysys', name: 'Refunds', isDefault: false, state: 'OPEN' }, cards: 0, cycleIds: [], boardIds: [], linkedItem: 'c1/1234' }]
+      : undefined;
+    const r = await w.call('team_refresh_item', { board: 'b1' });
+    assert.equal(r.json.summary, '1 changed · 1 new in the tree · 0 left the tree · 1 possible card matches');
+    assert.deepEqual(r.json.newItems, ['c1/1310 · Bug · "Refund twice" · New (waits in Incoming)']);
+    assert.match(r.json.changedItems[0], /System\.State, comments · 2 new comment/);
+    assert.match(r.json.mainMoved, /Active → Removed \(Removed\) · CLOSED in the tracker/);
+    assert.match(r.json.next, /team_card_matches/);
+  } finally { await w.close(); }
+});
+
+test('a state the type does not have becomes the closest of the same kind, said so (specs/030)', () => {
+  const states = [
+    { type: 'Bug', name: 'Resolved', category: 'Resolved' }, { type: 'Bug', name: 'Closed', category: 'Completed' },
+    { type: 'Task', name: 'Active', category: 'InProgress' }, { type: 'Task', name: 'Done', category: 'Completed' },
+  ];
+  assert.deepEqual(pickState('Resolved', 'Bug', states), { state: 'Resolved' });
+  const task = pickState('Closed', 'Task', states);
+  assert.equal(task.state, 'Done');
+  assert.match(task.note!, /"Closed" is not a state of Task here - proposed "Done" \(Completed\)/);
+  assert.equal(pickState('Resolved', 'Task', states).state, 'Done', 'Resolved falls back to Completed');
+  assert.deepEqual(pickState('Closed', 'Epic', states), { state: 'Closed' }, 'unknown type: as asked');
 });
 
 test('team_people names people and says who "me" is', async () => {

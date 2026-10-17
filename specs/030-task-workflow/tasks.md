@@ -51,21 +51,21 @@
 
 ### Phase 1 close
 
-- [ ] T020 Full backend suite (Docker JDK 21), MCP suite; `docker compose build backend`; commit "feat(team): seed children and parents in full, board refs, board stage, refresh result, card matches (specs/030)"
+- [X] T020 Full backend suite (Docker JDK 21), MCP suite; `docker compose build backend`; commit "feat(team): seed children and parents in full, board refs, board stage, refresh result, card matches (specs/030)"
 
 ## Phase 2: Skills
 
-- [ ] T021 [US1] `skills/_shared/rules.md`: board refs; item-type rules (Epic, Feature/Story, Task, Bug, words); child-type rules (Bug → BUG card with reproduce scenario, Task → TASK card, Investigation/Spike → decisions + data, Meeting → decisions, Test Case → test step, other → context); "Azure says done"; uncovered AC → TASK card; source on every drafted line; the seven stages; matches
-- [ ] T022 [US1] `skills/alfred-setup/SKILL.md`: args; fill an existing board; read `children` + `parents`; draft with cards; one Save all → `board_set_brief`, `board_put_spec`, `board_evidence_put`, `board_add_many`, `team_link_card` (askedIn, no markers); Epic sections + Feature board offers
-- [ ] T023 [US5] `alfred-setup` re-define: before → after per part; removals one at a time (`board_ask` per removal when started from the board chat, conversation questions in the terminal); new cards after `board_similar`; closes via `board_propose`; refresh: read the sync result, judge matches (`team_card_matches` why), propose; main closed → proposals
-- [ ] T024 [P] [US3] `skills/alfred-triage/SKILL.md`: planned cards - where the change goes, owning team, already written (file:line, commit); "Record as fixed?" among the options
-- [ ] T025 [P] [US4] `skills/alfred-verify/SKILL.md`: board args; three-option "Record as fixed?"; bundle = comment (commit, branch) + state Resolved/Closed or closest, said so; read the stage
-- [ ] T026 [P] [US2] `skills/alfred-listen/SKILL.md` + `alfred-listen.mjs`: board args; recording cycle or "press Record on the Cycles tab" and wait
-- [ ] T027 [P] [US2] `alfred-live`, `alfred-review`, `alfred-spec`, `alfred-status`, `alfred-resume`: board args; spec points to rules for the shape
-- [ ] T028 [P] [US8] `skills/alfred-report/SKILL.md`: close bundle for the main item when every card is Verified/closed
-- [ ] T029 [P] [US6] `skills/alfred-team/SKILL.md`: "update card #n" (Draft with Claude) → bundle; matches; create in Azure
-- [ ] T030 [P] `skills/alfred-guide/SKILL.md`: seven stages, all 17 skills, board-page paths, Start vs New board, setup vs spec
-- [ ] T031 Runner tests (`mcp-server/test/live-runner.test.ts`) for board args; `pytest tests/python/test_alfred_skill.py`; `python alfred_skill.py install`; commit "feat(skills): one task workflow - define with cards, triage, verify, listen, close (specs/030)"
+- [X] T021 [US1] `skills/_shared/rules.md`: board refs; item-type rules (Epic, Feature/Story, Task, Bug, words); child-type rules (Bug → BUG card with reproduce scenario, Task → TASK card, Investigation/Spike → decisions + data, Meeting → decisions, Test Case → test step, other → context); "Azure says done"; uncovered AC → TASK card; source on every drafted line; the seven stages; matches
+- [X] T022 [US1] `skills/alfred-setup/SKILL.md`: args; fill an existing board; read `children` + `parents`; draft with cards; one Save all → `board_set_brief`, `board_put_spec`, `board_evidence_put`, `board_add_many`, `team_link_card` (askedIn, no markers); Epic sections + Feature board offers
+- [X] T023 [US5] `alfred-setup` re-define: before → after per part; removals one at a time (`board_ask` per removal when started from the board chat, conversation questions in the terminal); new cards after `board_similar`; closes via `board_propose`; refresh: read the sync result, judge matches (`team_card_matches` why), propose; main closed → proposals
+- [X] T024 [P] [US3] `skills/alfred-triage/SKILL.md`: planned cards - where the change goes, owning team, already written (file:line, commit); "Record as fixed?" among the options
+- [X] T025 [P] [US4] `skills/alfred-verify/SKILL.md`: board args; three-option "Record as fixed?"; bundle = comment (commit, branch) + state Resolved/Closed or closest, said so; read the stage
+- [X] T026 [P] [US2] `skills/alfred-listen/SKILL.md` + `alfred-listen.mjs`: board args; recording cycle or "press Record on the Cycles tab" and wait
+- [X] T027 [P] [US2] `alfred-live`, `alfred-review`, `alfred-spec`, `alfred-status`, `alfred-resume`: board args; spec points to rules for the shape
+- [X] T028 [P] [US8] `skills/alfred-report/SKILL.md`: close bundle for the main item when every card is Verified/closed
+- [X] T029 [P] [US6] `skills/alfred-team/SKILL.md`: "update card #n" (Draft with Claude) → bundle; matches; create in Azure
+- [X] T030 [P] `skills/alfred-guide/SKILL.md`: seven stages, all 17 skills, board-page paths, Start vs New board, setup vs spec
+- [X] T031 Runner tests (`mcp-server/test/live-runner.test.ts`) for board args; `pytest tests/python/test_alfred_skill.py`; `python alfred_skill.py install`; commit "feat(skills): one task workflow - define with cards, triage, verify, listen, close (specs/030)"
 
 ## Phase 3: Frontend
 

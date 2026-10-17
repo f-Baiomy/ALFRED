@@ -1,7 +1,7 @@
 ---
 name: alfred-triage
 description: Sort an Alfred board's Inbox together with the user - one card at a time, swept for duplicates and root-cause groups, worst first, each investigated (earlier cards, the call, code, database, schema, spec, git) before a short summary and a recommendation (Fine, Not in this flow, To do, merge, ask) with the reason and a confidence; the user decides, Claude records each decision on the card. Use when the user says "triage", "sort the inbox", "go through the findings", or "/alfred-triage".
-argument-hint: "[project] [--dry]"
+argument-hint: "[AB#1234 | board name or id | project] [--dry]"
 ---
 
 # Alfred triage
@@ -11,8 +11,9 @@ decides, and you never close a card yourself.
 
 ## 1. The Inbox
 
-`board_search` with the project and `status: [INBOX]`. `board_closed_reasons` to know what the user dismissed before.
-Nothing in the Inbox → say so and give the next step (`/alfred-status`).
+A board given (`AB#1234`, its name or id - rules §0): `task_context` with it, then `board_search` with that `board`
+and `status: [INBOX]`; a project: `board_search` with the project and `status: [INBOX]`. `board_closed_reasons` to
+know what the user dismissed before. Nothing in the Inbox → say so and give the next step from `task_context`'s NEXT.
 
 ### 1a. Sweep the whole Inbox first
 
@@ -81,6 +82,24 @@ board): one `board_ask` per card or group, in severity order, with the triage fi
 
 In chat, the user may answer here instead: record the decision (step 3), then `board_withdraw_question` the card's
 Triage question with "decided in chat: <choice>" so no question stays open on a sorted card.
+
+### 2d. Planned cards - a look at the code (specs/030)
+
+Cards `/alfred-setup` drafted from the work item (a TASK per Task child or uncovered Acceptance item, a BUG per Bug
+child) have no calls yet: judge them from the code, not the traffic. For each, before the Triage question:
+
+- **Where the change goes** - the file or class (`codegraph explore "<words of the card>"` when `.codegraph/` exists,
+  else `locate_source` / search the repo): `@[code:<path>:<line>|File.java:line]`.
+- **Which team owns it** - from where the change goes (rules "Teams"); `board_assign` when it differs.
+- **Is it already written** - the task branch's change (`git diff --stat <base>...HEAD`, then the files that matter) and
+  `git log --since=<the card's creation>` on those files: name the file:line and the commit (`a1b2c3d "add branch
+  filter"`). Written → recommend **Record as fixed** (High only when the code plainly does what the card asks).
+- A card marked "Azure says done" with nothing on the branch → **ask first**: done elsewhere, or still to do?
+
+The Triage question's options for a planned card: `To do`, `To do (another team)` with the team in its `then`,
+`Not in this flow`, and `Record as fixed` when the code is written - its `then`: "`/alfred-fix <n>` records the fix
+(commit, branch) and moves it to Fixed; `/alfred-verify` can prepare the Azure update". The `Checked:` line names the
+file:line and the commit, or "nothing on <branch> yet".
 
 ### 2a. Investigate before you judge
 
@@ -158,6 +177,8 @@ answers reach Claude through `/alfred-live` or `/alfred-sync`, which records the
 
 - To do → `board_move` TO_DO (yours to do), state comment: what the user decided and why, `waitingOn` CLAUDE, next
   `/alfred-fix <n>`.
+- Record as fixed → `board_move` TO_DO, state comment naming the file:line and commit, next "`/alfred-fix <n>` records
+  it" - the fix is recorded by `/alfred-fix` (`board_fix`), never by triage.
 - Fine / Not in this flow / Won't fix → the user closes it (the card's buttons) - offer `board_propose` CLOSED with
   that resolution and the reason so it is one click; note it in the state comment. **Learn from it**: for every
   Fine / Not in this flow, write the rule that would have kept this card out - an `allowed` check line (rules
@@ -188,5 +209,7 @@ Before the Inbox, for each board in scope: `team_incoming` - work items that arr
 rule, hook, by hand). For each waiting one: `board_similar` on its title, then `team_propose_card` - LINK to the card it
 matches (cardId, with the evidence) or NEW, with a one-line reason. Features and Epics stay related items: propose no
 card for them. The user accepts in the lane; you never make the card or the link yourself.
-Then, while sorting the Inbox: a card that matches an open bug in the tracker (`team_search` with its words, types
-[Bug], openOnly) gets a link proposal - `team_link_card` without `askedIn` - and says so in its comment.
+Then, while sorting the Inbox: a card with no Azure item - `team_card_matches` first (Alfred's proposals from the
+board's tree): judge each and write why (`id` + `why`); the user links it on the card. With none, a card that matches
+an open bug in the tracker (`team_search` with its words, types [Bug], openOnly) gets a link proposal -
+`team_link_card` without `askedIn` - and says so in its comment.

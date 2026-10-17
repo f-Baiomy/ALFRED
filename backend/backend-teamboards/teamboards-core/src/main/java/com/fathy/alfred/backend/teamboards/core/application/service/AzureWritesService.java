@@ -474,7 +474,7 @@ public class AzureWritesService implements AzureWritesUseCase {
             case CREATE -> {
                 ItemWriter w = live.cap(c, ItemWriter.class, "create items");
                 NewItem n = new NewItem(p.get("project"), p.get("type").strip(), p.get("title").strip(), p.get("description"), p.get("area"),
-                        p.get("iteration"), p.get("assignee"));
+                        p.get("iteration"), p.get("assignee"), p.get("parent"));
                 String id = live.call(c, () -> w.create(c.connection(), c.token(), n));
                 if (b.cardId() != null) {
                     CardItemsUseCase ci = cardItems.getIfAvailable();

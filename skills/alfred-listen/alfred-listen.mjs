@@ -1155,6 +1155,36 @@ export class ListenRunner {
   }
 }
 
+/**
+ * specs/030: `--board <AB#1234 | conn/1234 | item URL | name or prefix | id>` - the board's recording cycle, else its
+ * newest, and the board's project. A bare `#12` is a card, never a board; several boards named alike are an error naming them.
+ */
+export async function cycleOfBoard(alfred, ref) {
+  const r = String(ref ?? '').trim();
+  if (/^#\d+$/.test(r)) throw new Error(`"${r}" is a card number, not a board - name the board by AB#<item id>, its name or its id`);
+  const boards = await alfred.call('GET', '/board/boards', { query: { state: 'OPEN,DONE' } });
+  const item = /^AB#(\d+)$/i.exec(r) ?? /_workitems\/edit\/(\d+)/i.exec(r);
+  const conn = /^([A-Za-z0-9_-]+)\/(\d+)$/.exec(r);
+  let hits = boards.filter((b) => b.board.id === r);
+  if (!hits.length && (item || conn)) {
+    hits = boards.filter((b) => b.linkedItem && (conn ? b.linkedItem === `${conn[1]}/${conn[2]}` : b.linkedItem.endsWith(`/${item[1]}`)));
+    if (!hits.length) throw new Error(`No board has ${r} as its main item - make one in the Team tab (New board)`);
+  }
+  if (!hits.length) {
+    const needle = r.toLowerCase();
+    hits = boards.filter((b) => b.board.name.trim().toLowerCase() === needle);
+    if (!hits.length) hits = boards.filter((b) => b.board.name.toLowerCase().startsWith(needle));
+  }
+  if (!hits.length) throw new Error(`No board "${r}" - board_boards lists them`);
+  if (hits.length > 1) throw new Error(`"${r}" matches ${hits.length} boards: ${hits.map((b) => `${b.board.id} (${b.board.name})`).join('; ')} - pass its id`);
+  const b = hits[0];
+  const ids = new Set(b.cycleIds ?? []);
+  const cycles = (await alfred.call('GET', '/session-cycles')).filter((c) => ids.has(c.id));
+  if (!cycles.length) throw new Error(`Board "${b.board.name}" has no cycle yet - press Record on its Cycles tab, then start listening again`);
+  const c = cycles.find((x) => x.status === 'RECORDING') ?? [...cycles].sort((x, y) => Date.parse(y.createdAt) - Date.parse(x.createdAt))[0];
+  return { cycleId: c.id, project: b.board.project, board: b.board.id, recording: c.status === 'RECORDING' };
+}
+
 // ------------------------------------------------------------------------------------------------------------- CLI
 
 export async function main(argv) {
@@ -1162,9 +1192,14 @@ export async function main(argv) {
   const command = args._[0] ?? 'status';
   const cwd = resolve(args.cwd ?? process.cwd());
   if (!args.server) throw new Error('--server <the Alfred MCP server name> is needed (claude mcp list shows them)');
-  if (!args.cycle) throw new Error('--cycle <the session cycle id> is needed');
+  if (!args.cycle && !args.board) throw new Error('--cycle <the session cycle id> or --board <AB#1234 | name | id> is needed');
   const entry = serverEntry(args.server, cwd, args.config);
   const url = args.url ?? alfredUrlOf(entry);
+  if (!args.cycle) {
+    const found = await cycleOfBoard(new Alfred(url), args.board);
+    args.cycle = found.cycleId;
+    args.project = args.project ?? found.project;
+  }
   const f = files(url, args.cycle, 'alfred-listen');
   const stateFile = f.pid.replace(/\.pid\.json$/, '.state.json');
   const stopFile = f.pid.replace(/\.pid\.json$/, '.stop');

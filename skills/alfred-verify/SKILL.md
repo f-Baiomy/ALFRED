@@ -1,7 +1,7 @@
 ---
 name: alfred-verify
 description: Verify fixes with Alfred - every Fixed card judged twice, implemented (the code, the branch, the running build, every layer) and worked (the calls), ready for Verified only when both hold; re-test every Fixed card (or the ones named) against the live calls since its fix, or a re-test cycle, by the card's expectations (SQL count, status, log lines, duration, response) with before → after; check each Acceptance item's code layer by layer (backend, frontend, database) in every source this session can reach, on the task branch, and say which layer it cannot reach; check every open card against the code (a fix still there, a To do already written - asks "Record as fixed?"); find Acceptance items added to the spec since the last verify and draft their evidence; catch a fix the running build does not carry yet; runs before testing (is everything built?) and after fixes, and beside a running /alfred-listen; propose Verified or comment "still failing" with the evidence, check guards and regressions of Done cards, and suggest checklist marks. Use when the user says "verify", "check the fixes", "re-test", or "/alfred-verify".
-argument-hint: "[card numbers] [re-test cycle] [project] [--wait] [--tests] [--dry]"
+argument-hint: "[AB#1234 | board name or id] [card numbers] [re-test cycle] [project] [--wait] [--tests] [--dry]"
 ---
 
 # Alfred verify
@@ -12,6 +12,8 @@ Verify on the board the card lives on (its home); the re-test is a cycle of that
 
 ## 1. What to re-test
 
+- **The board**: `AB#1234`, its name or id (rules §0 "Naming a board") → `task_context` with it: its STAGE says which
+  run this is (Code/Verify = before testing, Test = a re-test), its NEXT what follows. A bare `#19` is card 19.
 - **Cards**: numbers in the arguments (`/alfred-verify 19`, `/alfred-verify 18 19`) → only those (step 2 and 2d); none → every Fixed card, and every open card in 2d.
 - **Calls**: by default the **live calls since each fix** - no cycle needed; the user just used the app. A cycle name in
   the arguments (`list_cycles` by name) → only that cycle's calls. An argument in angle brackets (`<re-test cycle>`) is a
@@ -185,9 +187,13 @@ the Inbox, not `Learn:` cards. Same sources and branch as 2c; CodeGraph first, t
   handler, the control, the table. Found → ask on the card, never move it yourself (recording a fix is
   `/alfred-fix`'s):
   - `board_ask` with one question - "The code for this looks written: `<file:line>` (commit `<sha>`, `<date>`). Record
-    it as fixed?" - and two options: **Record as fixed** (`recommended`, `then`: "`/alfred-fix <n>` shows this code,
-    waits for your Go, records it with board_fix and a re-test plan, and moves the card to Fixed"), **Not done yet**
-    (`then`: "I leave the card as it is and look again on the next verify"). A `preview` with the lines found.
+    it as fixed?" - and three options (specs/030): **Record as fixed** (`recommended`, `then`: "`/alfred-fix <n>` shows
+    this code, waits for your Go, records it with board_fix and a re-test plan, and moves the card to Fixed"),
+    **Record + prepare Azure update** - only when the card is linked to a work item (`team_card_items`) - (`then`:
+    "as Record as fixed, and `/alfred-fix <n>` prepares one bundle for the item: a comment naming the commit and
+    branch, and the state Resolved (Bug) or Closed (Task) - it waits for your approval on the card"), **Not done yet**
+    (`then`: "I leave the card as it is and look again on the next verify"). A `preview` with the lines found and,
+    for the second, the comment and the state the bundle will hold.
   - A state comment with the same finding and `next` "`/alfred-fix <n>` - records the code already written", so the
     card's next step is a ▶ on the board; `waitingOn` USER.
   - The same question already open on the card → do not ask twice; mention it in the report.
@@ -272,7 +278,13 @@ with `/alfred-listen <cycle>`. A re-test run: accept the proposals on the board;
 carry; answer "Record as fixed?" (`/alfred-fix <n>` records it); `/alfred-fix` for what still fails;
 `/alfred-verify --wait` to re-test what is left together; `/alfred-report` when done.
 
-## Team tracker (specs/028)
+## Team tracker (specs/028, 030)
+
+**The Azure update** ("Record + prepare Azure update", run by `/alfred-fix` once the fix is recorded): one bundle on
+the card - `team_comment` with the commit, branch and a one-line summary (no secrets), then `team_move_state` with
+`extend` = that bundle and the state **Resolved** for a Bug, **Closed** for a Task. The tool proposes the closest
+allowed state when the item's type lacks that one and says so (`stateNote`): write that in the comment. Never approve
+it; tell the user it waits on the card.
 
 When the user moves a card to Verified or Done, Alfred prepares a "Tell Azure" bundle for each linked item (state,
 comment, an evidence file built masked) - it waits for the user's approval on the card; mention it in the summary, never

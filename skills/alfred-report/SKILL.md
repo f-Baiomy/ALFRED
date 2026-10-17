@@ -1,7 +1,7 @@
 ---
 name: alfred-report
 description: Summarise QA work from the Alfred board for a stand-up, a PR or a hand-over - found, fixed, verified, still open, the decisions the user made, regressions, spec coverage - for one cycle, one task or a time span. Shown in chat; saved as a file only when asked. Use when the user says "report", "summary for stand-up", "what did we do", or "/alfred-report".
-argument-hint: "[cycle | project] [since <date>] [--file]"
+argument-hint: "[AB#1234 | board name or id | cycle | project] [since <date>] [--file]"
 ---
 
 # Alfred report
@@ -42,3 +42,14 @@ Next       answer #14 · re-test step 5
 Add a section per linked work item: its state now, what the cards did about it, and the bundles that told the tracker
 (approved / waiting). When asked to tell the tracker, draft it with `team_comment` (a bundle the user approves, with the
 report's summary - no secrets, no raw bodies) and say it waits on the card.
+
+## Close (specs/030, stage 7)
+
+A board is ready to close when `task_context` shows STAGE Close: every card Verified, Done or closed and every
+Acceptance item marked. Then, after the report, propose **one bundle for the board's main item** (`team_board_items`
+names it) on the board (`board`): `team_comment` with the report's summary - found, fixed, verified, the decisions,
+the commits and branch, no secrets, no raw bodies - then `team_move_state` with `extend` = that bundle and the state
+the item's type closes with (Closed for a Story or Task, Resolved for a Bug; the tool names the closest allowed state
+and says so in `stateNote` - write that in the comment). Masked evidence files are built by the user's browser when
+they open the bundle. Say it waits for their approval on the board - never that it was sent. Not every card closed yet
+→ no bundle: list what is still open and the next command.

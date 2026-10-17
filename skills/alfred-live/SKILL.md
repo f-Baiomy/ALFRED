@@ -1,13 +1,15 @@
 ---
 name: alfred-live
 description: Claude answers you on the Alfred board live while you work - you comment, reply, answer or ask a question, move, close or edit a card, and within seconds the card shows Claude working (each step as it happens, the reply typing in, Stop) and the answer lands in its thread. Runs on this machine as its own background process - Alfred itself may be here or on another machine on the LAN - beside /alfred-listen or anything else, with no model running while you are idle, a warm Claude process so an answer starts at once, cards answered in parallel, and a fresh short run per change, until you stop it; each answer also shows in this chat. Use when the user says "answer me live", "stay on the board", "live sync", or "/alfred-live".
-argument-hint: "[project] [cycle] [--model <name>] [--parallel n] | status | stop"
+argument-hint: "[project] [AB#1234 | board name or id | cycle] [--model <name>] [--parallel n] | status | stop"
 ---
 
 # Alfred live
 
 Read `rules.md` in this skill's folder first. This skill only starts, shows and stops the live runner - the runner does
 the answering (docs/mcp.md "Live answers"):
+
+**Boards** (specs/030): the task may be named as `AB#1234`, its name or its id (rules §0 "Naming a board") - `task_context` resolves it; the runner takes the cycle id `task_context` gives. A bare `#n` is a card.
 
 - The runner is `alfred-live.mjs` in this skill's folder. It runs **on this machine**, beside this session, the app's
   repo and Claude Code - whether Alfred runs here, in Docker, or on another machine (`alfred-lan-83` →

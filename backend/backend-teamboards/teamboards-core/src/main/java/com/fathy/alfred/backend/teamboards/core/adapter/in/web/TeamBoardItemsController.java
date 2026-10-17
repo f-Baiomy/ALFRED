@@ -60,7 +60,8 @@ public class TeamBoardItemsController {
     record MainDto(@NotBlank @Size(max = 100) String conn, @NotBlank @Size(max = 2000) String item, Integer maxRefs) {
     }
 
-    record SyncDto(Boolean force) {
+    /** {@code wait}: sync now and answer with the result (Refresh from Azure, specs/030); else it runs after the call returns. */
+    record SyncDto(Boolean force, @com.fasterxml.jackson.annotation.JsonProperty("wait") Boolean waitForResult) {
     }
 
     record IncomingDto(@NotBlank @Size(max = 100) String conn, @NotBlank @Size(max = 2000) String item) {
@@ -105,7 +106,11 @@ public class TeamBoardItemsController {
 
     @PostMapping("/teamboards/boards/{board}/sync")
     public ResponseEntity<?> sync(@PathVariable String board, @RequestBody(required = false) SyncDto body) {
-        items.syncInBackground(board, body != null && Boolean.TRUE.equals(body.force()));
+        boolean force = body != null && Boolean.TRUE.equals(body.force());
+        if (body != null && Boolean.TRUE.equals(body.waitForResult())) {
+            return ResponseEntity.ok(items.sync(board, force));
+        }
+        items.syncInBackground(board, force);
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(Map.of("state", "STARTED"));
     }
 

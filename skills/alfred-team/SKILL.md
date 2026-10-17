@@ -1,7 +1,7 @@
 ---
 name: alfred-team
 description: Work with the team's tracker (Azure DevOps) from Alfred - search (mine, filters, text), add items to boards or link them to cards, start a board, sort Incoming across boards, sync main and card items, prepare Tell Azure updates and watch rules. Every write waits for the user's approval. Use when the user asks about work items, "what's on me in Azure", AB#1234, "link this to the bug", or "/alfred-team".
-argument-hint: "[search words | AB#id | mine | incoming | sync]"
+argument-hint: "[search words | AB#id | mine | incoming | sync | update card #n | matches #n]"
 ---
 
 # Alfred team
@@ -22,7 +22,9 @@ TOKEN_MISSING, tell the user to enter it in the Team tab and stop.
   it) and `team_tree` for its parents and children.
 - **"incoming"** → for each open board (`board_boards`): `team_incoming`; propose as `/alfred-triage` does
   (`board_similar`, then `team_propose_card`).
-- **"sync"** → `team_refresh_item` per board, then `team_board_items`; report the CHANGED items with their before → after.
+- **"sync"** / "refresh" → `team_refresh_item` per board (it waits for the result: new items, items Azure moved past
+  with new comments, the main's move, possible card matches), then `team_board_items` for the before → after of each
+  CHANGED item. The main closed or moved out of its iteration → propose, as rules §0a says; never act on it.
 - **A person** → `team_people` (by name, or `id` for their card: teams, open items, Alfred cards).
 
 ## 2. Putting it on a board
@@ -37,6 +39,17 @@ TOKEN_MISSING, tell the user to enter it in the Team tab and stop.
   comment, tag) always wait as a bundle.
 - A watch rule ("tell me when new refund bugs come in") → describe the search and ask the user to add it under the
   board's Related items → Watch rules; `team_watch_rules` / `team_watch_run` read and run them.
+
+## 2b. A card and its Azure item (specs/030)
+
+- **"update card #n"** (the card's "Draft with Claude", posted to the board chat): `board_get` the card and
+  `team_card_items` for its linked item; draft what the tracker should hear - a comment (what was found, fixed or
+  decided, the commit and branch), a state when the card's status calls for one, both in one bundle (`team_comment`,
+  then `team_move_state` with `extend`). Show the draft in the reply; the bundle waits on the card.
+- **"matches #n"** or a card with no item: `team_card_matches` - judge each proposal against the card's repro and
+  steps and write why (`id` + `why`); the user clicks Link or Not this one on the card. No proposal and no match by
+  `team_search` → offer "Create in Azure": `team_create_item` (a Bug for a BUG card, a Task for a TASK card) - it goes
+  under the board's main item and is linked to the card once the user approves the bundle.
 
 ## 3. Telling the tracker
 

@@ -1,12 +1,14 @@
 ---
 name: alfred-status
 description: Where everything stands on the Alfred board - what waits on the user (questions, proposals, sorting), what waits on Claude, what needs a re-test, what Claude was doing, and the one next step. Read-only. Use when the user asks "status", "where are we", "what's waiting on me", "resume", or "/alfred-status".
-argument-hint: "[project | cycle]"
+argument-hint: "[project | AB#1234 | board name or id | cycle]"
 ---
 
 # Alfred status
 
 Read `rules.md` in this skill's folder first. This skill only **reads**: no cards, comments, moves or logs.
+
+**Boards** (specs/030): a board named `AB#1234`, by its name or id works like a cycle; say its STAGE and NEXT from `task_context` first (rules §0a).
 
 Boards (specs/027): report per board - its cycles (recording or not), its cards by status, and "<tracker> changed" when its work item changed since setup (rules section 0, "Boards and cycles").
 

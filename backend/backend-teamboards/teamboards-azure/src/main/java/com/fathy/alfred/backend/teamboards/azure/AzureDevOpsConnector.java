@@ -851,6 +851,12 @@ public class AzureDevOpsConnector implements Connector, BoardsReader, SprintsRea
         if (item.assignee() != null && !item.assignee().isBlank()) {
             ops.add(op("add", "/fields/System.AssignedTo", item.assignee()));
         }
+        if (item.parent() != null && !item.parent().isBlank()) {
+            Map<String, Object> rel = new LinkedHashMap<>();
+            rel.put("rel", "System.LinkTypes.Hierarchy-Reverse");
+            rel.put("url", org(c) + "/_apis/wit/workItems/" + encode(item.parent().strip()));
+            ops.add(op("add", "/relations/-", rel));
+        }
         JsonNode r = client.postPatch(at(c, "/" + encode(project) + "/_apis/wit/workitems/$" + encode(item.type())), t, ops);
         String id = r.path("id").asText(null);
         if (id == null) {

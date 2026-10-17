@@ -1,13 +1,15 @@
 ---
 name: alfred-resume
 description: Pick up an Alfred task (session cycle) exactly where it stands - in a new session, on another machine or after a break - from what Alfred holds, never from an old conversation. Loads the task, says in a few lines where it stands as the Task tab shows it (Needs you, Requirements by group, Test plan and Done when, the brief's open comments, Claude's last run), names the one next step and waits for the user's Go. Use when the user says "resume", "continue the task", "pick up 61813", "where did we leave off", or "/alfred-resume".
-argument-hint: "[task name or cycle id]"
+argument-hint: "[AB#1234 | board name or id | cycle]"
 ---
 
 # Alfred resume
 
 Read `rules.md` in this skill's folder first. This skill **reads and proposes**; it starts no work the user did not
 choose (rules §1): every write waits for the user's Go.
+
+**Boards** (specs/030): the task may be named as `AB#1234`, its name or its id (rules §0 "Naming a board"); a bare `#n` is a card. The one next step is `task_context`'s NEXT for the board's STAGE (rules §0a).
 
 Several Alfreds connected (`alfred`, `alfred-docker`, …)? Use the one the user named, else the one whose
 `task_context` finds the task; when more than one does, ask.

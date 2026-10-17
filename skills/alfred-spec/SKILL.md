@@ -1,12 +1,14 @@
 ---
 name: alfred-spec
 description: Add or change a session cycle's brief or spec files in Alfred - write a brief, add test steps, add a spec from pasted text / a file / a ticket, or edit one Acceptance item - always showing a before/after and asking before saving. Use when the user says "add a spec", "update the brief", "change acceptance 3", or "/alfred-spec".
-argument-hint: "<cycle> [brief | add <file> | edit <file>] [\"what to change\"] [--dry]"
+argument-hint: "<AB#1234 | board name or id | cycle> [brief | add <file> | edit <file>] [\"what to change\"] [--dry]"
 ---
 
 # Alfred spec
 
 Read `rules.md` in this skill's folder first and follow it.
+
+**Boards** (specs/030): the task may be named as `AB#1234`, its name or its id (rules §0 "Naming a board"). For the whole shape of a brief or spec - from a work item and its children - follow rules §0a and `/alfred-setup`; this skill is for one targeted change.
 
 ## Find the cycle and what to change
 

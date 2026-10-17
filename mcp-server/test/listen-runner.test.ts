@@ -431,3 +431,24 @@ test('stop --now still writes the session log, with the requirement counts', asy
     assert.match(w.chat.at(-1)!, /Listen stopped without the finish - requirements: 1 missing · 1 not exercised · session log written/);
   } finally { await w.close(); }
 });
+
+test('--board names the board by AB#, name or id and listens to its recording cycle, else its newest (specs/030)', async () => {
+  const boards = [
+    { board: { id: 'b-1', project: 'odeysys', name: '#61813_Refund filters' }, cycleIds: ['cy-old', 'cy-new'], linkedItem: 'c1/61813' },
+    { board: { id: 'b-2', project: 'odeysys', name: 'Export refunds' }, cycleIds: [], linkedItem: null },
+    { board: { id: 'b-3', project: 'odeysys', name: 'Export refunds v2' }, cycleIds: ['cy-rec'], linkedItem: null },
+  ];
+  const cycles = [
+    { id: 'cy-old', status: 'PAUSED', createdAt: '2026-10-01T00:00:00Z' },
+    { id: 'cy-new', status: 'PAUSED', createdAt: '2026-10-10T00:00:00Z' },
+    { id: 'cy-rec', status: 'RECORDING', createdAt: '2026-10-02T00:00:00Z' },
+  ];
+  const alfred = { call: async (_m: string, path: string) => (path === '/board/boards' ? boards : cycles) };
+  assert.deepEqual(await listen.cycleOfBoard(alfred, 'AB#61813'), { cycleId: 'cy-new', project: 'odeysys', board: 'b-1', recording: false });
+  assert.equal((await listen.cycleOfBoard(alfred, 'export refunds v2')).cycleId, 'cy-rec');
+  assert.equal((await listen.cycleOfBoard(alfred, 'b-1')).cycleId, 'cy-new');
+  await assert.rejects(listen.cycleOfBoard(alfred, '#12'), /card number, not a board/);
+  await assert.rejects(listen.cycleOfBoard(alfred, 'AB#999'), /No board has AB#999 as its main item/);
+  await assert.rejects(listen.cycleOfBoard(alfred, 'Export refunds'), /has no cycle yet - press Record/);
+  await assert.rejects(listen.cycleOfBoard(alfred, 'export'), /matches 2 boards/);
+});

@@ -1,12 +1,14 @@
 ---
 name: alfred-review
 description: Review a recorded Alfred session cycle after the fact - check every call against the spec in one pass, fill the board (new cards, new evidence on existing ones, no duplicates), compare with earlier runs of the same flow for regressions, annotate the cycle, tick the test steps and suggest checklist marks. Use when the user says "review cycle X", "check this recording", or "/alfred-review".
-argument-hint: "<cycle> [--dry]"
+argument-hint: "<AB#1234 | board name or id | cycle> [--dry]"
 ---
 
 # Alfred review
 
 Read `rules.md` in this skill's folder first and follow it - especially "What becomes a card" and the card journal.
+
+**Boards** (specs/030): a board (`AB#1234`, its name or id - rules §0 "Naming a board") reviews its newest cycle, or the one the user names; `check_calls` takes the board too.
 
 
 Boards (specs/027): reviewing a board reads every cycle on it; a cycle shared with other boards is reviewed for this board's requirements, and each finding goes where `board_home` says (rules section 0, "Boards and cycles"). `board_cycle_verdicts` shows each call against each board.

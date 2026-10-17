@@ -3,6 +3,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { AlfredError, seg, type AlfredClient, type RequestOptions } from '../alfred-client.ts';
 import { chunkText, invalid, notFound, ok, run } from '../reply.ts';
 import { cardByNumber } from './board.ts';
+import { boardIdOf } from '../board-ref.ts';
 
 /**
  * The team's tracker (specs/028): read LIVE through Alfred with the token the user entered on the Team tab - Claude never
@@ -124,6 +125,33 @@ interface CardItemRow {
   readonly conn: string; readonly item: string; readonly type: string | null; readonly title: string; readonly state: string | null;
   readonly changed: boolean; readonly closedInAzure: boolean; readonly copyRev: number; readonly url: string | null;
   readonly comments: readonly { by: string | null; at: string | null; text: string }[];
+}
+
+/** POST /teamboards/boards/{board}/sync with wait (specs/030): what Refresh from Azure found. */
+export interface SyncResultRow {
+  readonly boardId: string; readonly checked: number; readonly changed: number; readonly newInTree: number; readonly leftTree: number;
+  readonly skipped: boolean;
+  readonly newItems?: readonly { conn: string; item: string; type: string | null; title: string | null; state: string | null }[];
+  readonly changedItems?: readonly { conn: string; item: string; title: string | null; fields: readonly string[]; newComments: number }[];
+  readonly mainState?: { conn: string; item: string; fromState: string | null; toState: string | null; category: string | null; closed: boolean;
+    fromIteration: string | null; toIteration: string | null } | null;
+  readonly matches?: number;
+}
+
+/** The refresh result as lines Claude reads: counts, then each new or changed item, the main's move and the matches. */
+export function syncText(board: string, r: SyncResultRow): Record<string, unknown> {
+  const m = r.mainState;
+  return {
+    board,
+    summary: `${r.changed} changed · ${r.newInTree} new in the tree · ${r.leftTree} left the tree · ${r.matches ?? 0} possible card matches`,
+    newItems: (r.newItems ?? []).map((i) => `${i.conn}/${i.item} · ${i.type ?? ''} · "${i.title ?? ''}" · ${i.state ?? '-'} (waits in Incoming)`),
+    changedItems: (r.changedItems ?? []).map((i) => `${i.conn}/${i.item} "${i.title ?? ''}": ${i.fields.join(', ') || 'fields'}`
+      + (i.newComments ? ` · ${i.newComments} new comment(s)` : '')),
+    ...(m ? { mainMoved: `${m.conn}/${m.item}: ${m.fromState ?? '-'} → ${m.toState ?? '-'}${m.category ? ` (${m.category})` : ''}`
+      + (m.fromIteration !== m.toIteration ? ` · iteration ${m.fromIteration ?? '-'} → ${m.toIteration ?? '-'}` : '')
+      + (m.closed ? ' · CLOSED in the tracker: propose closing the open cards as Not in this flow; the user decides' : '') } : {}),
+    ...(r.matches ? { next: 'team_card_matches on each unlinked card: judge the proposals and write why.' } : {}),
+  };
 }
 
 interface MatchRow {
@@ -284,6 +312,31 @@ function boardItemLine(i: BoardItem): string {
   return `${'  '.repeat(Math.max(0, r.depth + 2))}${r.role === 'MAIN' ? '★ ' : ''}${r.item} · ${r.type ?? ''} · "${r.title ?? ''}" · ${r.state ?? '-'}`
     + ` · ${i.hasCopy ? `full copy rev ${i.copyRev ?? '?'}` : 'reference'}${i.changed ? ' · CHANGED since the copy' : ''}`
     + (r.linkKind ? ` · ${r.linkKind}` : '') + (r.leftTreeAt ? ' · left the tree' : '') + (i.cards.length ? ` · cards ${i.cards.join(', ')}` : '');
+}
+
+/** One state of a type, as the connection's lists give it (category: Proposed, InProgress, Resolved, Completed, Removed). */
+export interface StateRow { readonly type: string; readonly name: string; readonly category: string }
+
+const CATEGORY_OF: Record<string, string> = { resolved: 'Resolved', closed: 'Completed', done: 'Completed', removed: 'Removed',
+  active: 'InProgress', new: 'Proposed', proposed: 'Proposed' };
+
+/**
+ * The state to propose for an item of {@code type} (specs/030 FR-012): the one asked when the type has it, else the first of
+ * the type's states in the same category (Resolved falls back to Completed), with a note saying so. Unknown lists: as asked.
+ */
+export function pickState(wanted: string, type: string | null, states: readonly StateRow[]): { state: string; note?: string } {
+  const mine = type ? states.filter((s) => s.type.toLowerCase() === type.toLowerCase()) : [];
+  if (!mine.length) return { state: wanted };
+  const exact = mine.find((s) => s.name.toLowerCase() === wanted.trim().toLowerCase());
+  if (exact) return { state: exact.name };
+  const category = states.find((s) => s.name.toLowerCase() === wanted.trim().toLowerCase())?.category
+    ?? CATEGORY_OF[wanted.trim().toLowerCase()] ?? null;
+  const order = category === 'Resolved' ? ['Resolved', 'Completed'] : category ? [category] : [];
+  for (const cat of order) {
+    const hit = mine.find((s) => s.category === cat);
+    if (hit) return { state: hit.name, note: `"${wanted}" is not a state of ${type} here - proposed "${hit.name}" (${cat}) instead. Say so in the bundle.` };
+  }
+  return { state: wanted, note: `"${wanted}" is not a state of ${type} here and no state of the same kind was found: ${mine.map((s) => s.name).join(', ')}. Ask the user which.` };
 }
 
 function bundleReply(b: BundleRow): Record<string, unknown> {
@@ -679,7 +732,7 @@ export function register(server: McpServer, client: AlfredClient): void {
   }));
 
   async function step(input: { conn?: string; id: string; board?: string; project?: string; number?: number; askedIn?: string; extend?: number },
-                      kind: 'STATE' | 'COMMENT', payload: Record<string, string>) {
+                      kind: 'STATE' | 'COMMENT', payload: Record<string, string>, extra: Record<string, unknown> = {}) {
     const ref = itemRef(input.id);
     const c = await pickConnection(client, input.conn ?? ref.conn);
     const card = input.number ? await cardByNumber(client, input.project ?? '', input.number) : null;
@@ -689,12 +742,12 @@ export function register(server: McpServer, client: AlfredClient): void {
     if (input.extend) {
       const b = await client.post<BundleRow>('/teamboards/writes', { body: { conn: c.id, item: ref.id, card: card?.id ?? null, board: input.board ?? null,
         steps: [{ kind, payload, ticked: true, unmasked: false }], askedIn: input.askedIn, extend: input.extend }, ...AS_CLAUDE });
-      return ok(bundleReply(b));
+      return ok({ ...bundleReply(b), ...extra });
     }
     const body = kind === 'STATE' ? { state: payload['state'] } : { comment: payload['text'] };
     const b = await client.patch<BundleRow>(`/teamboards/connections/${seg(c.id)}/items/${seg(ref.id)}`,
       { body: { ...body, card: card?.id ?? null, board: input.board ?? null, askedIn: input.askedIn }, ...AS_CLAUDE });
-    return ok(bundleReply(b));
+    return ok({ ...bundleReply(b), ...extra });
   }
 
   server.registerTool('team_comment', {
@@ -708,7 +761,17 @@ export function register(server: McpServer, client: AlfredClient): void {
     description: 'Prepare a state change of a work item (e.g. Resolved). Name the card (project + number) or the board: the user approves the bundle there - never sent by you.',
     inputSchema: { conn: Conn, id: Id, state: z.string().min(1).max(200), board: z.string().min(1).max(200).optional(), project: Card.project.optional(), number: Card.number.optional(), askedIn: AskedIn,
       extend: Extend },
-  }, (input) => run(() => step(input, 'STATE', { state: input.state })));
+  }, (input) => run(async () => {
+    const ref = itemRef(input.id);
+    const c = await pickConnection(client, input.conn ?? ref.conn);
+    // specs/030: a state this item's type does not have becomes the closest one in the same category, said so
+    const [lists, view] = await Promise.all([
+      client.get<{ states?: StateRow[] }>(`/teamboards/connections/${seg(c.id)}/lists`, AS_CLAUDE).catch(() => null),
+      client.get<ItemView>(`/teamboards/connections/${seg(c.id)}/items/${seg(ref.id)}`, { query: { include: '' }, ...AS_CLAUDE }).catch(() => null),
+    ]);
+    const picked = pickState(input.state, view?.item.type ?? null, lists?.states ?? []);
+    return step({ ...input, conn: c.id }, 'STATE', { state: picked.state }, picked.note ? { stateNote: picked.note } : {});
+  }));
 
   // --------------------------------------------------------------------------------------- proposals and runs
 
@@ -727,13 +790,15 @@ export function register(server: McpServer, client: AlfredClient): void {
   }));
 
   server.registerTool('team_refresh_item', {
-    description: 'Sync a board now (its main, card items and tree; diffs saved, new children offered in Incoming) - or read one item live '
+    description: 'Refresh from Azure: sync a board now (board = AB#<id>, its name or id) and say what changed - new items in the tree (they wait in Incoming), items Azure moved past with new comments, the main item\'s state or iteration move, possible card matches. Or read one item live '
       + 'with what changed since Alfred\'s copy.',
     inputSchema: { board: z.string().min(1).max(200).optional(), conn: Conn, id: Id.optional() },
   }, (input) => run(async () => {
     if (input.board) {
-      await live(() => client.post(`/teamboards/boards/${seg(input.board!)}/sync`, { body: { force: true }, ...AS_CLAUDE }));
-      return ok({ syncing: input.board, note: 'Runs in the background; read team_board_items in a moment.' });
+      const board = await boardIdOf(client, input.board);
+      const r = await live(() => client.post<SyncResultRow>(`/teamboards/boards/${seg(board)}/sync`, { body: { force: true, wait: true }, ...AS_CLAUDE }));
+      if (!r || r.newItems === undefined) return ok({ syncing: board, note: 'Runs in the background (an older Alfred); read team_board_items in a moment.' });
+      return ok(syncText(board, r));
     }
     if (!input.id) throw invalid('Pass board, or conn + id');
     const ref = itemRef(input.id);

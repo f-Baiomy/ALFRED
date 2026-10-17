@@ -46,6 +46,9 @@ tests as in 3.2, then `board_fix` as in 3.3 with the commit verify found (it alr
 files and lines, the re-test plan from the linked Acceptance item and the card's evidence, and the root cause "built
 on <branch> in <commit>, not recorded on the board". The code does not do what the card asks → say so in the plan,
 `board_reply` under the question, and fix it the normal way (steps 2-3) only after the user's Go.
+Answered **Record + prepare Azure update** (specs/030): the same, and after `board_fix` prepare the Azure update for
+the card's linked item as `/alfred-verify`'s "Team tracker" section says (`team_comment`, then `team_move_state` with
+`extend`) - it waits for the user on the card; say so.
 
 ## 3. Fix (after Go)
 

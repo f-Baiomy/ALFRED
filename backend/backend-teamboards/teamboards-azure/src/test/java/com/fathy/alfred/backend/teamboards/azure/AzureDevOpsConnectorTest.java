@@ -304,7 +304,10 @@ class AzureDevOpsConnectorTest {
         assertThat(azure.comment(connection, TOKEN, "4521", "Fixed **now**")).isEqualTo("77");
         assertThat(asked).contains("POST /fake-org/Odeysys/_apis/wit/workItems/4521/comments preview.4");
         assertThat(azure.create(connection, TOKEN, new NewItem("Odeysys", "Bug", "New bug", "line 1\nline <2>", null, null, null))).isEqualTo("4999");
-        assertThat(bodies.get(bodies.size() - 1)).contains("<div>line 1<br>line &lt;2&gt;</div>");
+        assertThat(bodies.get(bodies.size() - 1)).contains("<div>line 1<br>line &lt;2&gt;</div>").doesNotContain("relations");
+        azure.create(connection, TOKEN, new NewItem("Odeysys", "Task", "Under the story", null, null, null, null, "61813"));
+        assertThat(bodies.get(bodies.size() - 1)).contains("\"path\":\"/relations/-\"").contains("System.LinkTypes.Hierarchy-Reverse")
+                .contains("/_apis/wit/workItems/61813");
         azure.attach(connection, TOKEN, "4521", "calls.html", "<html>".getBytes(StandardCharsets.UTF_8));
         assertThat(asked).contains("POST /fake-org/_apis/wit/attachments");
         assertThat(bodies.get(bodies.size() - 1)).contains("AttachedFile");

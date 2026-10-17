@@ -112,16 +112,19 @@ public class CardItemsService implements CardItemsUseCase {
         if (cache.cardLinks(cardId).stream().anyMatch(l -> l.conn().equals(conn) && l.item().equals(id))) {
             throw TeamException.invalid("Card #" + card.number() + " already links item " + id);
         }
+        // Claude links in Alfred at once when the user asked for it (specs/030: cards defined from a work item's children
+        // are linked on the user's "Save all"); otherwise the link waits in a bundle. Markers always wait for approval.
+        boolean asked = who == Who.CLAUDE && askedIn != null && !askedIn.isBlank() && port().askedBy(askedIn);
         List<WriteStep> steps = new ArrayList<>();
-        if (who == Who.CLAUDE) {
+        if (who == Who.CLAUDE && !asked) {
             steps.add(new WriteStep(StepKind.LINK_ALFRED, Map.of("card", cardId), true, false, null));
         }
         steps.addAll(markerSteps(card, markers == null ? Markers.NONE : markers));
-        List<CardItem> items = who == Who.USER ? linkInAlfred(cardId, conn, id, "user") : items(cardId);
+        List<CardItem> items = who == Who.USER || asked ? linkInAlfred(cardId, conn, id, who == Who.USER ? "user" : "claude") : items(cardId);
         WriteBundle bundle = null;
         if (!steps.isEmpty()) {
             bundle = writes().create(who, new NewBundle(card.boardId(), cardId, conn, id,
-                    (who == Who.CLAUDE ? "Link item " + id + " to card #" : "Mark item " + id + " as linked to card #") + card.number(), steps, askedIn,
+                    (who == Who.CLAUDE && !asked ? "Link item " + id + " to card #" : "Mark item " + id + " as linked to card #") + card.number(), steps, askedIn,
                     null));
         }
         return new LinkResult(items, bundle);
@@ -201,6 +204,12 @@ public class CardItemsService implements CardItemsUseCase {
         put(p, "area", item.area());
         put(p, "iteration", item.iteration());
         put(p, "assignee", item.assignee());
+        // specs/030: a new item goes under the board's main item unless another parent is named
+        String parent = item.parent();
+        if (parent == null) {
+            parent = cache.main(card.boardId()).filter(m -> m.conn().equals(conn)).map(m -> m.item()).orElse(null);
+        }
+        put(p, "parent", parent);
         List<WriteStep> steps = new ArrayList<>();
         steps.add(new WriteStep(StepKind.CREATE, p, true, false, null));
         steps.addAll(markerSteps(card, markers == null ? Markers.ALL : markers));

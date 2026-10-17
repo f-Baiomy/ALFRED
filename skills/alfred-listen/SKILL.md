@@ -1,7 +1,7 @@
 ---
 name: alfred-listen
 description: Listen to an Alfred session cycle live while the user tests - check every new call (HTTP, ERROR/WARN logs, SQL, supplier calls, Redis, values that drift between the steps of a flow) against the cycle's spec in batches, open cards with evidence and a first state comment, tick the test steps, and answer the user's comments on the board as they come. Runs on this machine as its own background process - Alfred may be here or on another machine on the LAN - with no model running while calls are clean, warm Claude processes so a flagged batch is judged at once, several batches judged in parallel, nothing lost when a run fails; each finding shows in this chat. Use when the user says "listen to cycle X", "watch while I test", or "/alfred-listen".
-argument-hint: "<cycle> [--model <name>] [--parallel n] [--dry] [--finish] | status | stop [--now]"
+argument-hint: "<AB#1234 | board name or id | cycle> [--model <name>] [--parallel n] [--dry] [--finish] | status | stop [--now]"
 ---
 
 # Alfred listen
@@ -38,9 +38,15 @@ Boards (specs/027): a board's cycle is what you listen to - given a board, liste
 ## Start
 
 1. `status` or `stop` as the argument → go to that section.
-2. The cycle (`list_cycles` by name) and the Alfred MCP server name (`<server>`) as rules.md "Which Alfred" says.
-   `get_cycle` with `limit: 1`: its id, its project and whether it is recording - if not, tell the user to press
-   Record (listening still works; it waits for calls).
+2. The Alfred MCP server name (`<server>`) as rules.md "Which Alfred" says, and the cycle:
+   - **A board** (`AB#1234`, its name or id - rules §0 "Naming a board"): `task_context` with it, then the board's
+     cycles (`board_boards`): the one recording now; none recording → its newest, and tell the user "press Record on
+     the board's Cycles tab" - listening still starts and waits for calls. A board with no cycle at all → say "press
+     Record on the board's Cycles tab, then run `/alfred-listen <board>` again" and stop.
+   - **A cycle** (`list_cycles` by name): `get_cycle` with `limit: 1`: its id, its project and whether it is recording
+     - if not, tell the user to press Record (listening still works; it waits for calls).
+   Listen re-tests **Fixed** cards from the new calls; it never asks "Record as fixed?" on To do cards - that is
+   `/alfred-verify`'s.
 3. **Nothing to set up by hand.** Steps are ticked from the calls of the Acceptance items they name (`→ AC6`) and,
    for the rest, from the actions `check_calls` cuts the calls into (pause and area, learned from the cycle) - no
    spacers. Items with no evidence get it drafted by the runner before the first batch, and from then on Alfred judges
@@ -51,7 +57,8 @@ Boards (specs/027): a board's cycle is what you listen to - given a board, liste
    node "<this skill's folder>/alfred-listen.mjs" start --server <server> --cycle <cycle id> --project <project> [--model <name>] [--parallel 3] [--dry] [--finish]
    ```
 
-   `--model` **only when the user named one**. `--dry`: the runs list what they would write and write nothing.
+   `--board <AB#1234 | name | id>` in place of `--cycle` lets the runner pick the board's recording cycle (else its
+   newest) and its project itself. `--model` **only when the user named one**. `--dry`: the runs list what they would write and write nothing.
    `--finish`: the listening ended without Stop (interrupted, closed) - the runner only finishes what is left.
    This chat now handles the cycle: every ▶ on its cards and every comment that needs an investigation comes into
    this chat (see "While it runs"). It prints JSON with the log files and `watch`. `alreadyRunning` → only re-arm the

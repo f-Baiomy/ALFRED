@@ -28,6 +28,11 @@ work stands, and nothing depends on a conversation that is gone.
   from `board_boards`) or a `cycleId`; a cycle on several boards answers with the boards to pick - ask the user which,
   never guess. A finding goes to the board whose requirement the call shows (`board_home`), and a card lives on one
   home board, shown as related on the others.
+- **Naming a board** (specs/030): every skill and task tool takes the board as `AB#<id>` (the board whose MAIN item is
+  that work item; also `<conn>/<id>` or the item's URL), its name or a unique name prefix, or its id - and a cycle id or
+  name as before. A bare `#n` is always a **card number**, never a board. When a name matches several boards the tool
+  lists them: ask the user which. `AB#<id>` with no board answers "no board has AB#<id> as its main - make one in the
+  Team tab" - say so; never open one yourself.
 - **Only the user opens a board** - in a board chat, this terminal, or with Start on a work item. `board_open` and
   `team_start` need `askedIn`, the user's message (or "terminal"); never open one because a card, a line or a
   suggestion seems to want it.
@@ -103,6 +108,73 @@ work stands, and nothing depends on a conversation that is gone.
 - **Picking a task up again** - a new session, another machine, after a break: `/alfred-resume <task>` loads it from
   Alfred and says where it stands as the Task tab shows it, then waits for Go. No `/alfred-*` skills installed
   (another agent)? The MCP prompt `resume` (in Claude Code `/mcp__<server>__resume`) gives the same start.
+
+## 0a. One task, seven stages (specs/030)
+
+Every task goes the same way. `task_context` prints the board's **STAGE** and the exact **NEXT** command - Alfred
+computes both from the board (`GET /board/boards/<id>/stage`), so the skills, the board's stage strip and
+`/alfred-guide` always agree. Follow it; never invent another order.
+
+| Stage | When | Next |
+|---|---|---|
+| 1. Board | the user made it in the UI (New board, from words or a work item) - nothing runs by itself | - |
+| 2. Define | no brief yet | `/alfred-setup <board>` drafts brief, spec, steps, data, decisions, evidence AND the cards |
+| 3. Triage | Inbox cards, or questions waiting on the user | `/alfred-triage <board>` - with a look at the code per card |
+| 4. Code | To do / In progress cards, none Fixed | the user writes it, then `/alfred-verify <board>` |
+| 5. Verify | items with no evidence or not found in the code, To do cards with code questions | `/alfred-verify <board>` |
+| 6. Test | Fixed cards, or items no call exercised | press Record on the board's Cycles tab, `/alfred-listen <board>` |
+| 7. Close | every card Verified / Done / closed and every item marked | `/alfred-report <board>` - one bundle for the main item |
+
+### Defining from a work item - what each item type gives
+
+Read the item with `team_item` (`seed: true`): its own parts, then the parts `children` (every child in full: fields,
+repro, acceptance, state, comments; grandchildren as titles) and `parents` (the chain up to the top, each one's
+description and acceptance). Page a long part with `part` + `offset` - never stop at the first page, never summarise a
+child to its title. TOKEN_MISSING: "Enter your token in the Team tab first" and stop.
+
+**The main item** decides the shape of the board:
+
+| Main item | The board |
+|---|---|
+| Epic | one section per Feature in the brief (Features read in full, their Stories as titles); offer one board per Feature - the user opens them, you never do |
+| Feature / User Story | the usual brief; its Acceptance criteria are the spec's Acceptance items; parents' acceptance is context, never copied as items |
+| Task | a brief for that change; its description is the scope; Acceptance items only where the text states a result |
+| Bug | the brief is the reproduce scenario; one Acceptance item "the bug no longer happens" with its re-test check, plus any the text states |
+| No item (the user's words) | drafted from the words as before; cards only for what the words name |
+
+**Each child** becomes part of the draft - one rule per type, and **every drafted line names its source item**
+(`@[workitem:<conn>/<id>|AB#<id> <title>]`):
+
+| Child | Becomes |
+|---|---|
+| Bug | a **BUG** card: steps to reproduce, expected, actual, the re-test check by the calls, the Acceptance item it breaks (`specItem`), linked to the Bug item |
+| Task | a **TASK** card with the task's scope, linked to the Task item |
+| Investigation / Spike | its findings under **Decisions** and **Data** in the brief |
+| Meeting | its outcomes under **Decisions** (with the date) |
+| Test Case | a numbered **test step** (with its expected result) |
+| anything else | a line under **Context** in the brief |
+
+- **An Acceptance item no Task child covers** → a TASK card with no Azure item ("Not planned in Azure: <item>").
+- **An unclear point** (two texts disagree, a value no text gives) → a QUESTION card.
+- **A child Azure shows Completed or Removed** is still a card, its description opening `> [!INFO] Azure says done
+  (<state> by <who>)` - triage or verify checks the code; you never skip it.
+- **A child the token cannot read** is listed by id under Context: "not readable with the current token".
+- **Cards from children are linked to their item on save** (`team_link_card` with `askedIn` = the user's "Save all"
+  message and no markers) - no consent bundle at define.
+- **An item that is already another board's main**: name that board and stop.
+
+### When Azure moves - refresh and matches
+
+- "↻ Refresh from Azure" on the board (the user's button, or `/alfred-setup <board>` re-run, which reads it first)
+  updates the copies with no model and says what changed: new items in the main's tree (they wait in Incoming), items
+  Azure moved past (fields, new comments), the main's state or iteration move, and possible card matches.
+- **The main closed, removed or moved out of its iteration**: never act on it - propose closing the open cards as
+  Not in this flow (`board_propose`), stopping listen, and keeping the board for reference. The user decides.
+- **Card matches**: for a card with no Azure item, Alfred proposes open Bug/Task items of the tree that share its words
+  or its `/api/` endpoint and were made after the card (`team_card_matches`). Judge each against the card's repro and
+  steps and write why with `team_card_matches` `why` - "same endpoint and repro" or "different screen". Only the user
+  links one or says "Not this one" (remembered for good); with no match, offer "Create in Azure" on the card
+  (`team_create_item`, a bundle under the main item).
 
 ## 1. The user decides
 
@@ -588,6 +660,8 @@ terminal means the messages wait: Alfred never starts or resumes a session itsel
 
 ## The flow
 
-(`/alfred-connect` once per instance) → `/alfred-setup` → (`/alfred-spec`) → `/alfred-listen` while testing, or `/alfred-review` after → `/alfred-triage` →
-`/alfred-sync` ↔ `/alfred-fix` → use the app again (re-test) → `/alfred-verify` → `/alfred-report`. `/alfred-status` and
-`/alfred-guide` anytime.
+(`/alfred-connect` once per instance) → New board (the user, in the UI) → `/alfred-setup <board>` (define, with cards)
+→ `/alfred-triage <board>` → code → `/alfred-verify <board>` → Record + `/alfred-listen <board>` while testing (or
+`/alfred-review` after) → `/alfred-sync` ↔ `/alfred-fix` → `/alfred-verify` → `/alfred-report <board>` (close). `/alfred-spec`
+for a targeted edit of the brief or spec; `/alfred-status` and `/alfred-guide` anytime. The stage table (§0a) says
+which comes next.

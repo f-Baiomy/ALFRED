@@ -215,6 +215,22 @@ class MatchServiceTest {
         }
     }
 
+    // ------------------------------------------------------------------------------------------------------ define
+
+    @Test
+    void claudeLinksADefinedCardAtOnceWhenTheUserSaidSaveAllAndThroughABundleOtherwise() {
+        CardInfo asked = f.boards.card("b1", "Refund total wrong");
+        var r = f.cardItems.link(Who.CLAUDE, asked.id(), CONN, "102", Markers.NONE, "msg-7");
+        assertThat(r.bundle()).isNull();
+        assertThat(f.cache.cardLinks(asked.id())).extracting(l -> l.item()).containsExactly("102");
+        assertThat(f.cache.cardLinks(asked.id()).get(0).linkedBy()).isEqualTo("claude");
+
+        CardInfo unasked = f.boards.card("b1", "Voucher page slow");
+        var u = f.cardItems.link(Who.CLAUDE, unasked.id(), CONN, "105", Markers.NONE, null);
+        assertThat(u.bundle()).isNotNull();
+        assertThat(f.cache.cardLinks(unasked.id())).isEmpty();
+    }
+
     // ------------------------------------------------------------------------------------------------------ score
 
     @Test
