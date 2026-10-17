@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Board workflow mock v2</title>
+<style>
+:root{--bg:#14161b;--card:#1c1f26;--inner:#232731;--border:#2e3340;--text:#e6e8ee;--dim:#9aa1b2;--faint:#6b7285;--accent:#8b5cf6;--green:#4cc38a;--red:#e5534b;--amber:#f0a83a;--blue:#7fb4ff}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,Segoe UI,sans-serif;padding:24px 16px}
+h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:30px 0 10px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em}
+.wrap{max-width:1100px;margin:0 auto}.note{color:var(--faint);font-size:12.5px}
+.box{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px}
+.flow{display:flex;gap:6px;flex-wrap:wrap}.st{flex:1 1 120px;background:var(--inner);border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:13px}
+.st b{display:block;font-size:12px;color:var(--faint)}.st .c{font-family:Consolas,monospace;font-size:11.5px;color:var(--blue)}
+.st.done{border-color:#2f5f48}.st.done b{color:var(--green)}.st.now{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}.st.now b{color:var(--accent)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}@media(max-width:800px){.grid{grid-template-columns:1fr}}
+.btn{display:inline-block;padding:4px 11px;border-radius:6px;border:1px solid var(--border);background:var(--inner);color:var(--text);font-size:12.5px}
+.btn.p{background:var(--accent);border-color:var(--accent)}
+.banner{margin-top:10px;padding:10px;border:1px dashed var(--amber);border-radius:8px}
+.banner .t{color:var(--amber)}
+.cols{display:grid;grid-template-columns:repeat(6,minmax(150px,1fr));gap:8px;overflow-x:auto}
+.col{background:var(--inner);border-radius:8px;padding:8px;min-height:120px}.col h4{margin:0 0 6px;font-size:11.5px;color:var(--faint);letter-spacing:.05em}
+.cd{background:var(--card);border:1px solid var(--border);border-radius:6px;padding:6px;margin-bottom:6px;font-size:12px}
+.cd .k{font-size:10.5px;color:var(--faint)}.cd.bug{border-left:3px solid var(--red)}.cd.task{border-left:3px solid var(--blue)}.cd.q{border-left:3px solid var(--amber)}
+.mv{font-size:10.5px;color:var(--accent)}
+.msg{background:var(--inner);border-radius:8px;padding:10px;margin-top:8px;font-size:13px}.msg .who{font-size:12px;color:var(--faint);margin-bottom:4px}
+.src{font-size:10.5px;color:var(--blue);border:1px solid var(--border);border-radius:999px;padding:0 6px;margin-left:4px}
+table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:6px 8px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top}th{color:var(--faint);font-weight:500}
+code{font-family:Consolas,monospace;color:var(--blue);font-size:12.5px}
+pre{background:var(--inner);border-radius:8px;padding:10px;font:12.5px/1.5 Consolas,monospace;color:var(--dim);overflow-x:auto;margin:6px 0}
+.y{color:var(--green)}.a{color:var(--amber)}.r{color:var(--red)}
+</style></head><body><div class="wrap">
+<h1>The task workflow, v2</h1>
+<div class="note">Mock only, nothing built. Making a board and defining it are separate steps. Cards exist before any code is written. Triage decides; verify and listen move cards from then on.</div>
+
+<h2>The stages (strip under the board header)</h2>
+<div class="box"><div class="flow">
+  <div class="st done"><b>1 Board</b>made, empty<div class="c">UI: New board</div></div>
+  <div class="st now"><b>2 Define</b>brief, spec, steps, data + bug and task cards<div class="c">/alfred-setup #61813</div></div>
+  <div class="st"><b>3 Triage</b>yours / not / close, with a code look<div class="c">/alfred-triage #61813</div></div>
+  <div class="st"><b>4 Code</b>you write it</div>
+  <div class="st"><b>5 Verify</b>code → cards to their column<div class="c">/alfred-verify #61813</div></div>
+  <div class="st"><b>6 Test</b>calls → steps, cards, ACs<div class="c">/alfred-listen #61813</div></div>
+  <div class="st"><b>7 Close</b>report, Azure bundle<div class="c">/alfred-report</div></div>
+</div><p class="note">Steps 4–6 repeat until every card is Verified or closed. <code>/alfred-live #61813</code> may run beside any stage: it answers the board chat and card comments, and it can run the board's commands when you ask in chat.</p></div>
+
+<h2>1 · Board made in the UI: nothing runs</h2>
+<div class="grid">
+  <div class="box">
+    <b>#61813_Q4-INTE-CORE-WT1-T3161…</b> <span class="note">· main AB#61813 (User Story)</span>
+    <div class="banner"><div class="t">Not defined yet: no brief, spec or cards.</div>
+      <div class="note" style="margin:6px 0">Run it in your terminal: <code>/alfred-setup #61813</code> <span class="btn">Copy</span><br>
+      Or, with <code>/alfred-live #61813</code> running: <span class="btn p">Ask Claude in chat</span> (posts <code>/alfred-setup #61813</code> to the board chat)</div></div>
+    <p class="note">The "Ask Claude in chat" button is greyed out until a live runner answers this board ("start /alfred-live #61813 first"). New board never posts anything by itself.</p>
+  </div>
+  <div class="box"><b>Today's ▶ Start</b><p class="note">▶ Start is the same as New board followed by "Ask Claude in chat" in one click. It stays for people who want that.</p></div>
+</div>
+
+<h2>2 · Define: /alfred-setup #61813 (terminal or board chat)</h2>
+<div class="grid">
+  <div class="box">
+<pre>reading AB#61813 · parents to Epic AB#60100 · 7 children in full
+  Task  AB#61820 Backend filter API      <span class="y">→ TASK card</span>
+  Task  AB#61821 Filter panel UI         <span class="y">→ TASK card</span>
+  Bug   AB#61844 Date filter ignores TZ  <span class="y">→ BUG card + repro scenario</span>
+  Inv.  AB#61830 Agency cap 250          <span class="y">→ AC12 + decision</span>
+  Meet. AB#61835 review 10/10            <span class="y">→ decisions (3)</span>
+  Test  AB#61850 Filter by branch        <span class="y">→ test step 6</span>
+  AC4, AC9 have no task in Azure         <span class="a">→ TASK cards (new, no item)</span></pre>
+    <div class="msg"><div class="who">Claude · draft, waits for you</div>
+      Brief · Acceptance (12) · Test steps (11) · Data · Decisions (3) · Evidence<br>
+      Cards to the Inbox (5): 3 TASK, 1 BUG, 1 QUESTION<br><br><span class="btn p">Save all</span> <span class="btn">Change …</span></div>
+  </div>
+  <div class="box"><b>The BUG card it drafts</b>
+    <div class="msg"><div class="who">BUG · Date filter ignores the agency time zone <span class="src">AB#61844</span></div>
+<b>Scenario to reproduce</b>
+<pre>1. Log in as Admin of Agency A (UTC+2)
+2. Refunded Requests → Date 15 Oct
+3. Expected: only 15 Oct rows
+   Actual (AB#61844): rows from 14 Oct 22:00 on</pre>
+<b>Re-test by the calls</b>: GET /refunds/search?date=… every row's createdAt inside 15 Oct (agency time zone)<br>
+<b>Linked to</b> AC9 · AB#61844 (copy kept)</div>
+    <p class="note">A TASK card holds what to build, the ACs it serves, and its Azure item when it has one. All cards land in the Inbox, before any code.</p></div>
+</div>
+
+<h2>3 · Triage: /alfred-triage #61813</h2>
+<div class="box">
+<pre>#60 TASK Backend filter API    code: none yet; FilterService.java is where it goes  → <span class="y">To do · you</span>
+#61 TASK Filter panel UI        code: belongs to the frontend team                   → <span class="a">To do · frontend</span>
+#62 BUG  Date filter TZ         code: RefundQuery.java:88 uses UTC                   → <span class="y">To do · you</span>
+#63 TASK Agency cap 250         code: already in AgencyPicker.ts:40 (commit 9a1c)    → <span class="a">ask "Record as fixed?"</span>
+#64 Q    Export in scope?       not in the story                                     → <span class="r">close: Not in this flow</span></pre>
+<p class="note">Claude recommends one line per card, after looking at the code. You decide each one: To do, another team, close, or ask. Nothing moves without your answer.</p></div>
+
+<h2>5 · Verify and 6 · Listen move cards (after triage)</h2>
+<div class="box"><div class="cols">
+  <div class="col"><h4>INBOX</h4><div class="cd bug"><div class="k">BUG #72 · from listen</div>251st agency accepted</div></div>
+  <div class="col"><h4>TO DO</h4><div class="cd task"><div class="k">TASK #61 · frontend</div>Filter panel UI<div class="mv">verify: no code yet, stays</div></div></div>
+  <div class="col"><h4>IN PROGRESS</h4></div>
+  <div class="col"><h4>FIXED · NOT TESTED</h4><div class="cd task"><div class="k">TASK #60</div>Backend filter API<div class="mv">verify: code found, FilterService.java:31 → Fixed</div></div><div class="cd bug"><div class="k">BUG #62</div>Date filter TZ<div class="mv">verify: RefundQuery.java:88 changed → Fixed</div></div></div>
+  <div class="col"><h4>VERIFIED (YOU ACCEPT)</h4><div class="cd task"><div class="k">TASK #63</div>Agency cap 250<div class="mv">listen: 3 calls pass → Verified proposed</div></div></div>
+  <div class="col"><h4>DONE</h4></div>
+</div>
+<table style="margin-top:12px">
+<tr><th></th><th>/alfred-verify #61813 (reads the code)</th><th>/alfred-listen #61813 (reads new calls)</th></tr>
+<tr><td>To do card</td><td>Code written → asks "Record as fixed?" → Fixed, not tested. No code → stays, with "not found in …"</td><td>A call shows it works → asks "Record as fixed?" as well</td></tr>
+<tr><td>Fixed card</td><td>Re-tests with the live calls since the fix; the build does not carry it → says "restart the app"</td><td>Each new call checked against the card's re-test plan → proposes Verified, or "still failing" back to To do</td></tr>
+<tr><td>Acceptance</td><td>Each AC per layer: built / not found / out of reach</td><td>Each AC judged by its calls → MISSING / WRONG opens a card in the Inbox</td></tr>
+<tr><td>Test steps</td><td>Steps whose ACs are all built: "ready to test"</td><td>Ticks each step from its calls</td></tr>
+<tr><td>End</td><td>Suggests AC marks, proposes Verified</td><td>Stop: finish pass, AC marks, session log</td></tr>
+</table>
+<p class="note">Claude moves cards only to To do, In progress or Fixed. Verified, Done and closing stay yours: it proposes them.</p></div>
+
+<h2>5b · Verify's question on a card with code written</h2>
+<div class="box"><div class="msg"><div class="who">Claude asks on BUG #62 · linked to AB#61844</div>
+The code for this looks written: <code>RefundQuery.java:88</code> (commit 4be21c, branch 61813-filters). Record it as fixed?<br><br>
+<span class="btn p">Record as fixed</span> <span class="btn">Record + prepare Azure update</span> <span class="btn">Not yet</span>
+<p class="note">"Record + prepare Azure update" moves the card to Fixed and leaves a bundle waiting on it: comment "Fixed in 4be21c on 61813-filters, re-test pending" and state Active → <b>Resolved</b> (Bug; a Task goes to Closed, or the closest allowed state, said so). Nothing is sent until you approve the bundle.</p></div></div>
+
+<h2>Re-define and refresh from Azure</h2>
+<div class="grid">
+  <div class="box">
+    <b>#61813_Q4-INTE-CORE-WT1-T3161…</b> <span class="btn">↻ Refresh from Azure</span>
+    <div class="banner"><div class="t">Azure: 3 changes · 1 possible match</div>
+      <div class="note" style="margin-top:6px">+ Bug AB#61902 "251st agency accepted" (QC, yesterday) · 2 new comments on AB#61813 · Task AB#61821 moved to Removed<br>
+      Run <code>/alfred-setup AB#61813</code> to bring them onto the board <span class="btn">Copy</span> <span class="btn">Ask Claude in chat</span></div></div>
+    <div class="banner" style="border-color:var(--red)"><div class="r">AB#61813 was moved to Removed by Sara K. on 16 Oct: "postponed to Q1"</div>
+      <div class="note">On the next setup run Claude proposes closing the 6 open cards as Not in this flow and stopping listen. You decide.</div></div>
+    <p class="note">Refresh reads the tree live and updates the copies. No Claude runs.</p>
+  </div>
+  <div class="box">
+    <div class="msg"><div class="who">Claude · /alfred-setup AB#61813 (re-run) · question 2 of 4</div>
+<pre>Requirements: AC10 "Export the filtered list to Excel"
+  before: in the spec (from AB#61813, 10 Oct)
+  after:  dropped - the story's new comment says export moves to AB#62010
+  loses:  your mark Pass on AC10 · card #66 links to it</pre>
+      <span class="btn p">Remove AC10, close #66 as Not in this flow</span> <span class="btn">Keep AC10</span> <span class="btn">Keep, mark out of scope</span></div>
+    <p class="note">One removal per question. Asked from the board → board questions on the board. Asked from the terminal → questions there. Additions and rewordings come together as one before → after with "Save these?".</p>
+  </div>
+</div>
+
+<h2>The card's Azure panel</h2>
+<div class="grid">
+  <div class="box"><b>BUG #62 · linked to AB#61844</b> <span class="btn">Azure ▾</span>
+    <div class="msg">
+      <b>Write it yourself</b> <span class="note">(sent now with your token)</span><br>
+      <span class="btn">Comment</span> <span class="btn">State: Active ▾</span> <span class="btn">Edit a field ▾</span><br><br>
+      <b>Or</b> <span class="btn p">Draft with Claude</span> <span class="note">comment + state + masked evidence from the card's thread and calls, as a bundle you approve</span>
+    </div></div>
+  <div class="box"><b>BUG #72 · no Azure item</b> <span class="btn">Azure ▾</span>
+    <div class="msg"><div class="who">Looks like an item QC added</div>
+      <b>AB#61902</b> Bug · "251st agency accepted" · QC · 1 day ago<br>
+      <span class="note">Same endpoint (POST /refunds/search), same repro: 251 agencies picked, 200 returned. (Claude)</span><br><br>
+      <span class="btn p">Link</span> <span class="btn">Not this one</span> <span class="btn">Show others (2)</span>
+    </div>
+    <div class="msg"><span class="note">No match, or none is right:</span> <span class="btn">Create in Azure</span> <span class="note">a bundle that creates the Bug under AB#61813 from the card's text and masked evidence, and links it once approved</span></div>
+    <p class="note">Candidates are found by code on every Refresh and on this button. Claude adds the reason on the setup re-run or when you open the panel. "Not this one" is never proposed again for this card.</p></div>
+</div>
+</div></body></html>
