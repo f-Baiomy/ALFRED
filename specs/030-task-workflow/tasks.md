@@ -4,7 +4,7 @@
 **Order**: Backend + MCP → Skills → Frontend → Docs + end to end. One commit per phase; full suites at the end of each.
 **[P]** = can run beside the other [P] tasks of its phase (different files). Story labels map to spec.md's user stories.
 
-## Status (2026-10-17, stopped by the user)
+## Status (2026-10-17, stopped by the user) - see [HANDOFF.md](HANDOFF.md)
 
 - Done and tested: seed children/parents/comments (backend + `team_item` parts), board refs (`src/board-ref.ts`), board stage
   (`BoardStage`, `GET /board/boards/{id}/stage`, task_context STAGE/NEXT).
