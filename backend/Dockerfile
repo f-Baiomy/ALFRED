@@ -25,6 +25,10 @@ COPY backend-db-capture/pom.xml backend-db-capture/pom.xml
 COPY backend-triage/pom.xml backend-triage/pom.xml
 COPY backend-board/pom.xml backend-board/pom.xml
 COPY backend-server/pom.xml backend-server/pom.xml
+COPY backend-teamboards/pom.xml backend-teamboards/pom.xml
+COPY backend-teamboards/teamboards-spi/pom.xml backend-teamboards/teamboards-spi/pom.xml
+COPY backend-teamboards/teamboards-core/pom.xml backend-teamboards/teamboards-core/pom.xml
+COPY backend-teamboards/teamboards-azure/pom.xml backend-teamboards/teamboards-azure/pom.xml
 COPY backend-app/pom.xml backend-app/pom.xml
 COPY backend-architecture-test/pom.xml backend-architecture-test/pom.xml
 RUN mvn -B dependency:go-offline
