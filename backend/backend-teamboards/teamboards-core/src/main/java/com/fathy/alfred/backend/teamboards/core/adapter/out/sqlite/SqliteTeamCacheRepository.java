@@ -234,8 +234,13 @@ public class SqliteTeamCacheRepository implements TeamCachePort {
     }
 
     @Override
-    public void markFetched(String id, Instant at, String by) {
-        jdbc.update("UPDATE connections SET fetched_at = ?, fetched_by = ? WHERE id = ?", millis(at), by, id);
+    public void markFetched(String id, Instant at, String by, Scope scopeUsed) {
+        jdbc.update("UPDATE connections SET fetched_at = ?, fetched_by = ? WHERE id = ? AND scope_json = ?", millis(at), by, id, write(scopeUsed));
+    }
+
+    @Override
+    public void rescope(String id, String name, Scope scope, boolean refetch) {
+        jdbc.update("UPDATE connections SET name = ?, scope_json = ?" + (refetch ? ", fetched_at = NULL" : "") + " WHERE id = ?", name, write(scope), id);
     }
 
     @Override
@@ -301,8 +306,10 @@ public class SqliteTeamCacheRepository implements TeamCachePort {
                 for (Link l : i.links()) {
                     jdbc.update("INSERT OR IGNORE INTO links(conn, from_id, to_id, kind) VALUES (?,?,?,?)", conn, i.extId(), l.toId(), l.kind());
                 }
-                jdbc.update("DELETE FROM items_fts WHERE conn = ? AND ext_id = ?", conn, i.extId());
-                jdbc.update("INSERT INTO items_fts(conn, ext_id, title) VALUES (?,?,?)", conn, i.extId(), i.title() == null ? "" : i.title());
+                // the FTS row shares the item's rowid: replacing it is one indexed delete, not a scan of the FTS table
+                Long rowid = jdbc.queryForObject("SELECT rowid FROM items WHERE conn = ? AND ext_id = ?", Long.class, conn, i.extId());
+                jdbc.update("DELETE FROM items_fts WHERE rowid = ?", rowid);
+                jdbc.update("INSERT INTO items_fts(rowid, conn, ext_id, title) VALUES (?,?,?,?)", rowid, conn, i.extId(), i.title() == null ? "" : i.title());
             }
         });
     }
@@ -327,9 +334,8 @@ public class SqliteTeamCacheRepository implements TeamCachePort {
         if (q.q() != null && !q.q().isBlank()) {
             String fts = ftsQuery(q.q());
             if (!fts.isEmpty()) {
-                where.append(" AND ext_id IN (SELECT ext_id FROM items_fts WHERE items_fts MATCH ? AND conn = ?)");
+                where.append(" AND rowid IN (SELECT rowid FROM items_fts WHERE items_fts MATCH ?)");
                 args.add(fts);
-                args.add(q.conn());
             }
         }
         for (String[] f : new String[][]{{"type", q.type()}, {"squad", q.squad()}, {"state", q.state()}, {"assignee", q.assignee()}, {"sprint", q.sprint()}}) {
@@ -413,7 +419,7 @@ public class SqliteTeamCacheRepository implements TeamCachePort {
             sql.append(" AND ch.id < ?"); // paging older: "after" is the last id the page showed
             args.add(after);
         }
-        sql.append(" ORDER BY ch.at DESC, ch.id DESC LIMIT ?");
+        sql.append(" ORDER BY ch.id DESC LIMIT ?"); // the order the cursor pages by: a provider clock can never skip a row
         args.add(limit);
         return jdbc.query(sql.toString(), (rs, n) -> new ChangeRow(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getInt(4), rs.getString(5),
                 rs.getString(6), instant(rs, 7), rs.getString(8), rs.getString(9), rs.getInt(10) == 1), args.toArray());
@@ -602,7 +608,7 @@ public class SqliteTeamCacheRepository implements TeamCachePort {
         Integer items = jdbc.queryForObject("SELECT COUNT(*) FROM items", Integer.class);
         if (items != null && items > maxItems) {
             List<Map<String, Object>> old = jdbc.queryForList("""
-                    SELECT conn, ext_id FROM items i WHERE NOT EXISTS (SELECT 1 FROM board_links l WHERE l.conn = i.conn AND l.ext_id = i.ext_id)
+                    SELECT rowid AS rid, conn, ext_id FROM items i WHERE NOT EXISTS (SELECT 1 FROM board_links l WHERE l.conn = i.conn AND l.ext_id = i.ext_id)
                     ORDER BY changed_at LIMIT ?""", Math.min(500, items - maxItems));
             int n = old.size();
             tx.executeWithoutResult(s -> {
@@ -611,7 +617,7 @@ public class SqliteTeamCacheRepository implements TeamCachePort {
                     Object e = r.get("ext_id");
                     jdbc.update("DELETE FROM item_fields WHERE conn = ? AND ext_id = ?", c, e);
                     jdbc.update("DELETE FROM links WHERE conn = ? AND from_id = ?", c, e);
-                    jdbc.update("DELETE FROM items_fts WHERE conn = ? AND ext_id = ?", c, e);
+                    jdbc.update("DELETE FROM items_fts WHERE rowid = ?", r.get("rid"));
                     jdbc.update("DELETE FROM revisions WHERE conn = ? AND ext_id = ?", c, e);
                     jdbc.update("DELETE FROM items WHERE conn = ? AND ext_id = ?", c, e);
                 }

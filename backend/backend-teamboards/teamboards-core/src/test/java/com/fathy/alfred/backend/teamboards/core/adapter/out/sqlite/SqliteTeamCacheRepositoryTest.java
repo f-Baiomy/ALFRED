@@ -101,4 +101,20 @@ class SqliteTeamCacheRepositoryTest {
         assertThat(repo.summary("c1", "1")).isEmpty();
         assertThat(repo.items(new ItemQuery("c1", "Item", null, null, null, null, null, 0, 10)).total()).isZero();
     }
+
+    @Test
+    void aRefreshOnTheOldScopeDoesNotMarkAWidenedConnectionFetched() {
+        Scope old = new Scope(List.of(), List.of());
+        repo.markFetched("c1", t0, "Sara", old);
+        assertThat(repo.connection("c1").orElseThrow().fetchedAt()).isEqualTo(t0);
+
+        Scope wider = new Scope(List.of("Odeysys", "Billing"), List.of());
+        repo.rescope("c1", "org", wider, true); // a new scope: everything is fetched again
+        repo.markFetched("c1", t0.plusSeconds(60), "Omar", old); // the refresh that started before the change ends
+        assertThat(repo.connection("c1").orElseThrow().fetchedAt()).as("still a full fetch next time").isNull();
+
+        repo.markFetched("c1", t0.plusSeconds(120), "Omar", wider);
+        assertThat(repo.connection("c1").orElseThrow().fetchedAt()).isEqualTo(t0.plusSeconds(120));
+        assertThat(repo.connection("c1").orElseThrow().fetchedBy()).isEqualTo("Omar");
+    }
 }

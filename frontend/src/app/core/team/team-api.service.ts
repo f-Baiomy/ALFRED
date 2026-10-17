@@ -73,9 +73,10 @@ export class TeamApiService {
     return this.http.get<TeamItemDetail>(`${this.base}/items/${encodeURIComponent(conn)}/${encodeURIComponent(extId)}`);
   }
 
+  /** The cached history; with fetch, first reads it from the provider with this browser's token (a POST: a write). */
   revisions(conn: string, extId: string, fetch = false): Observable<TeamRevision[]> {
-    return this.http.get<TeamRevision[]>(`${this.base}/items/${encodeURIComponent(conn)}/${encodeURIComponent(extId)}/revisions`,
-      { ...this.withToken(conn), params: fetch ? { fetch: 'true' } : {} });
+    const path = `${this.base}/items/${encodeURIComponent(conn)}/${encodeURIComponent(extId)}/revisions`;
+    return fetch ? this.http.post<TeamRevision[]>(`${path}/fetch`, {}, this.withToken(conn)) : this.http.get<TeamRevision[]>(path);
   }
 
   boards(conn: string): Observable<TeamBoard[]> {

@@ -37,7 +37,7 @@ class AzureClient {
     };
 
     AzureClient() {
-        this(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).followRedirects(HttpClient.Redirect.NORMAL).build());
+        this(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).followRedirects(HttpClient.Redirect.NEVER).build());
     }
 
     AzureClient(HttpClient http) {
@@ -85,15 +85,45 @@ class AzureClient {
     }
 
     /** Downloads at most {@code max} bytes; null when the file is bigger. */
+    /**
+     * Downloads an attachment. The token goes only to the URL given (the caller checks its host); a redirect (Azure sends
+     * large files to blob storage with a signed link) is followed once WITHOUT the token, so it never leaves the org.
+     */
     byte[] download(URI uri, Token t, long max) throws ProviderException {
         HttpRequest request = HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(30)).header("Authorization", auth(t)).GET().build();
         HttpResponse<InputStream> r = exchange(request);
+        int status = r.statusCode();
+        if (status == 301 || status == 302 || status == 303 || status == 307 || status == 308) {
+            String to = r.headers().firstValue("location").orElse(null);
+            close(r);
+            if (to == null) {
+                throw new ProviderException(Kind.BAD_RESPONSE, "Azure DevOps redirected the download nowhere");
+            }
+            URI next;
+            try {
+                next = uri.resolve(to);
+            } catch (IllegalArgumentException e) {
+                throw new ProviderException(Kind.BAD_RESPONSE, "Azure DevOps redirected the download to a bad link");
+            }
+            if (!"https".equalsIgnoreCase(next.getScheme()) && !"localhost".equalsIgnoreCase(next.getHost())) {
+                throw new ProviderException(Kind.BAD_RESPONSE, "Azure DevOps redirected the download off https");
+            }
+            r = exchange(HttpRequest.newBuilder(next).timeout(Duration.ofSeconds(30)).GET().build());
+        }
         try (InputStream in = r.body()) {
             check(r.statusCode(), uri);
             byte[] data = in.readNBytes((int) Math.min(Integer.MAX_VALUE - 8, max + 1));
             return data.length > max ? null : data;
         } catch (IOException e) {
             throw new ProviderException(Kind.UNREACHABLE, "The download stopped");
+        }
+    }
+
+    private static void close(HttpResponse<InputStream> r) {
+        try {
+            r.body().close();
+        } catch (IOException e) {
+            // nothing to read from it
         }
     }
 

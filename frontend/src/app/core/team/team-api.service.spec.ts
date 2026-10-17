@@ -27,7 +27,7 @@ describe('TeamApiService', () => {
     http.verify();
   });
 
-  it('sends the token and the name on refresh and on history', () => {
+  it('sends the token and the name on refresh and on a history fetch, not on the cached history', () => {
     api.refresh('c1').subscribe();
     const r = http.expectOne('http://alfred/teamboards/connections/c1/refresh');
     expect(r.request.headers.get('X-Alfred-Team-Token')).toBe('secret-pat');
@@ -35,10 +35,16 @@ describe('TeamApiService', () => {
     r.flush({ changed: 0, fetchedAt: '' });
 
     api.revisions('c1', '7', true).subscribe();
-    const h = http.expectOne((req) => req.url === 'http://alfred/teamboards/items/c1/7/revisions');
+    const h = http.expectOne('http://alfred/teamboards/items/c1/7/revisions/fetch');
+    expect(h.request.method).toBe('POST');
     expect(h.request.headers.get('X-Alfred-Team-Token')).toBe('secret-pat');
-    expect(h.request.params.get('fetch')).toBe('true');
     h.flush([]);
+
+    api.revisions('c1', '7').subscribe();
+    const g = http.expectOne('http://alfred/teamboards/items/c1/7/revisions');
+    expect(g.request.method).toBe('GET');
+    expect(g.request.headers.has('X-Alfred-Team-Token')).toBeFalse();
+    g.flush([]);
   });
 
   it('never sends the token on reads of the cache or on settings writes', () => {

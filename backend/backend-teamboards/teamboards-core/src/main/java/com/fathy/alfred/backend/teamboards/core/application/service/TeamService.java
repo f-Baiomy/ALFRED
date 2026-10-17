@@ -226,9 +226,12 @@ public class TeamService implements TeamUseCase {
         }
         StoredConnection c = found.get();
         boolean widened = scope != null && !scope.equals(c.scope());
-        StoredConnection next = new StoredConnection(c.id(), c.kind(), name == null || name.isBlank() ? c.name() : name.strip(), c.baseUrl(),
-                scope == null ? c.scope() : scope, widened ? null : c.fetchedAt(), c.fetchedBy(), c.seenAt(), c.createdAt());
-        cache.putConnection(next); // a new scope fetches everything again on the next refresh
+        String newName = name == null || name.isBlank() ? c.name() : name.strip();
+        Scope newScope = scope == null ? c.scope() : scope;
+        // only name and scope: a refresh or a "seen" landing meanwhile keeps its own columns
+        cache.rescope(c.id(), newName, newScope, widened); // a new scope fetches everything again on the next refresh
+        StoredConnection next = new StoredConnection(c.id(), c.kind(), newName, c.baseUrl(), newScope, widened ? null : c.fetchedAt(), c.fetchedBy(),
+                c.seenAt(), c.createdAt());
         signals.changed(id, "connections");
         return Result.ok(row(next));
     }
@@ -284,7 +287,7 @@ public class TeamService implements TeamUseCase {
                         .map(s -> new SprintRow(s.extId(), s.name(), s.team(), s.starts(), s.ends())).toList());
             }
             String by = who == null || who.isBlank() ? "someone" : who.strip().substring(0, Math.min(80, who.strip().length()));
-            cache.markFetched(c.id(), started, by);
+            cache.markFetched(c.id(), started, by, c.scope());
             cache.evict(maxItems, maxRevisions, maxChangeRows, clock.instant().minus(Duration.ofDays(changesMaxAgeDays)));
             signals.changed(c.id(), "items");
             if (changed[0] > 0) {

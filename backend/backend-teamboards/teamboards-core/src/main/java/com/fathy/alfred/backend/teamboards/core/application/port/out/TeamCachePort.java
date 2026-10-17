@@ -42,7 +42,11 @@ public interface TeamCachePort {
 
     boolean deleteConnection(String id);
 
-    void markFetched(String id, Instant at, String by);
+    /** Marks a refresh done - unless the scope changed while it ran (then the next refresh fetches everything). */
+    void markFetched(String id, Instant at, String by, Scope scopeUsed);
+
+    /** Renames or rescopes a connection; a new scope clears fetched_at so the next refresh fetches everything. */
+    void rescope(String id, String name, Scope scope, boolean refetch);
 
     void markSeen(String id, Instant at);
 

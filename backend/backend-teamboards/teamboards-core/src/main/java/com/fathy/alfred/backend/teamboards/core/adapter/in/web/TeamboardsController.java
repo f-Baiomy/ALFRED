@@ -12,6 +12,7 @@ import com.fathy.alfred.backend.teamboards.spi.model.Scope;
 import com.fathy.alfred.backend.teamboards.spi.model.Token;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -48,8 +49,8 @@ public class TeamboardsController {
         this.team = team;
     }
 
-    record ScopeDto(@Size(max = Scope.MAX_PROJECTS) List<@Size(max = 200) String> projects,
-                    @Size(max = Scope.MAX_TEAMS) List<@Size(max = 200) String> teams) {
+    record ScopeDto(@Size(max = Scope.MAX_PROJECTS) List<@NotNull @Size(max = 200) String> projects,
+                    @Size(max = Scope.MAX_TEAMS) List<@NotNull @Size(max = 200) String> teams) {
         Scope scope() {
             return new Scope(projects, teams);
         }
@@ -158,11 +159,21 @@ public class TeamboardsController {
                 .orElseGet(() -> error(HttpStatus.NOT_FOUND, "NOT_FOUND", "No such item in the cache - Refresh first"));
     }
 
+    /** The cached history only: a GET never reaches the provider or writes, so it stays read-only through the tunnel. */
     @GetMapping("/teamboards/items/{conn}/{extId}/revisions")
-    public ResponseEntity<?> revisions(@PathVariable String conn, @PathVariable String extId,
-                                       @RequestHeader(value = TOKEN_HEADER, required = false) String token,
-                                       @RequestParam(defaultValue = "false") boolean fetch) {
-        return respond(team.revisions(conn, extId, token(token), fetch));
+    public ResponseEntity<?> revisions(@PathVariable String conn, @PathVariable String extId) {
+        return respond(team.revisions(conn, extId, null, false));
+    }
+
+    /** Fetches the history with the viewer's token into the cache (a write: the edit rule applies). */
+    @PostMapping("/teamboards/items/{conn}/{extId}/revisions/fetch")
+    public ResponseEntity<?> fetchRevisions(@PathVariable String conn, @PathVariable String extId,
+                                            @RequestHeader(value = TOKEN_HEADER, required = false) String token) {
+        Token t = token(token);
+        if (t == null || t.blank()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "TOKEN_MISSING", "message", "Add your personal access token first"));
+        }
+        return respond(team.revisions(conn, extId, t, true));
     }
 
     @GetMapping("/teamboards/connections/{id}/boards")

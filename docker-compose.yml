@@ -289,6 +289,7 @@ services:
       - TRIAGE_DB_FILE=/appdata/triage.db
       # Task board: cards, their history, cycle briefs and spec files (specs/014-task-board; kept until deleted).
       - BOARD_DB_FILE=/appdata/board.db
+      - TEAMBOARDS_DB_FILE=/appdata/teamboards.db
       # Retention target for calls.db - once it exceeds this many bytes, the oldest calls are
       # dropped until back under it. 10GB.
       #

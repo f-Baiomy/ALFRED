@@ -91,7 +91,7 @@ public class AzureDevOpsConnector implements Connector, BoardsReader, SprintsRea
             return c.scope().projects();
         }
         List<String> out = new ArrayList<>();
-        for (JsonNode p : client.get(at(c, "/_apis/projects?$top=500"), t).path("value")) {
+        for (JsonNode p : paged(c, t, "/_apis/projects", 500)) {
             out.add(p.path("name").asText());
         }
         return out;
@@ -170,7 +170,7 @@ public class AzureDevOpsConnector implements Connector, BoardsReader, SprintsRea
         List<TeamRef> out = new ArrayList<>();
         Set<String> wanted = Set.copyOf(c.scope().teams());
         for (String project : projects(c, t)) {
-            for (JsonNode team : client.get(at(c, "/_apis/projects/" + encode(project) + "/teams?$top=500"), t).path("value")) {
+            for (JsonNode team : paged(c, t, "/_apis/projects/" + encode(project) + "/teams", 500)) {
                 String name = team.path("name").asText();
                 if (wanted.isEmpty() || wanted.contains(name)) {
                     out.add(new TeamRef(project, team.path("id").asText(), name));
@@ -193,8 +193,21 @@ public class AzureDevOpsConnector implements Connector, BoardsReader, SprintsRea
         return out;
     }
 
-    private JsonNode members(Connection c, Token t, TeamRef team) throws ProviderException {
-        return client.get(at(c, "/_apis/projects/" + encode(team.project()) + "/teams/" + encode(team.id()) + "/members?$top=1000"), t).path("value");
+    private List<JsonNode> members(Connection c, Token t, TeamRef team) throws ProviderException {
+        return paged(c, t, "/_apis/projects/" + encode(team.project()) + "/teams/" + encode(team.id()) + "/members", 1000);
+    }
+
+    /** Every row of a list, page after page ($top/$skip) until a short page - none silently left out. */
+    private List<JsonNode> paged(Connection c, Token t, String path, int top) throws ProviderException {
+        List<JsonNode> out = new ArrayList<>();
+        for (int skip = 0; skip < 1_000_000; skip += top) {
+            JsonNode page = client.get(at(c, path + "?$top=" + top + "&$skip=" + skip), t).path("value");
+            page.forEach(out::add);
+            if (page.size() < top) {
+                break;
+            }
+        }
+        return out;
     }
 
     @Override
@@ -246,7 +259,7 @@ public class AzureDevOpsConnector implements Connector, BoardsReader, SprintsRea
     @Override
     public List<Revision> revisions(Connection c, Token t, String extId) throws ProviderException {
         List<Revision> out = new ArrayList<>();
-        for (JsonNode u : client.get(at(c, "/_apis/wit/workItems/" + encode(extId) + "/updates?$top=200"), t).path("value")) {
+        for (JsonNode u : paged(c, t, "/_apis/wit/workItems/" + encode(extId) + "/updates", 200)) {
             Revision r = AzureMapper.revision(u);
             if (!r.changes().isEmpty()) {
                 out.add(r);
@@ -266,9 +279,16 @@ public class AzureDevOpsConnector implements Connector, BoardsReader, SprintsRea
             }
             String name = r.path("attributes").path("name").asText("attachment");
             long size = r.path("attributes").path("resourceSize").asLong(-1);
-            URI url = URI.create(r.path("url").asText());
+            URI url;
+            try {
+                url = URI.create(r.path("url").asText());
+            } catch (IllegalArgumentException e) {
+                continue; // a relation with a bad link: nothing to list or fetch
+            }
             byte[] data = null;
-            if (withData && size >= 0 && size <= Attachment.MAX_BYTES && total + size <= Attachment.MAX_PER_ITEM) {
+            // the token goes only to the org's own host - never to a link a relation names elsewhere
+            boolean ours = url.getHost() != null && url.getHost().equalsIgnoreCase(c.baseUrl().getHost());
+            if (withData && ours && size >= 0 && size <= Attachment.MAX_BYTES && total + size <= Attachment.MAX_PER_ITEM) {
                 data = client.download(url, t, Attachment.MAX_BYTES);
                 if (data != null) {
                     total += data.length;

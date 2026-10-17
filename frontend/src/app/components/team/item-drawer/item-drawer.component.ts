@@ -19,7 +19,7 @@ import { TeamItem, TeamItemDetail, TeamRevision } from '../../../core/team/team.
       <div class="tid-head">
         <span class="tid-id">{{ state.ui().word('item') }} {{ shown().extId }} · {{ shown().type }}</span>
         <span class="tid-grow"></span>
-        <a class="action-btn" [href]="shown().url" target="_blank" rel="noopener noreferrer">Open in {{ state.ui().label }} ↗</a>
+        @if (shown().url) { <a class="action-btn" [href]="shown().url" target="_blank" rel="noopener noreferrer">Open in {{ state.ui().label }} ↗</a> }
         <button type="button" class="tid-x" title="Close (Esc)" (click)="closed.emit()">✕</button>
       </div>
       <h3 class="tid-title">{{ shown().title }}</h3>
@@ -116,7 +116,7 @@ export class TeamItemDrawerComponent {
       untracked(() => {
         this.detail.set(null);
         this.history.set([]);
-        this.api.item(i.conn, i.extId).subscribe({ next: (d) => this.detail.set(d), error: () => undefined });
+        this.api.item(i.conn, i.extId).subscribe({ next: (d) => this.isCurrent(i) && this.detail.set(d), error: () => undefined });
         this.loadHistory(false);
       });
     });
@@ -128,14 +128,22 @@ export class TeamItemDrawerComponent {
     this.historyError.set(null);
     this.api.revisions(i.conn, i.extId, fetch).subscribe({
       next: (r) => {
+        if (!this.isCurrent(i)) return; // another item opened meanwhile
+        if (!fetch && !r.length && this.state.hasToken()) return this.loadHistory(true); // nothing cached yet: read it once
         this.history.set(r);
         this.historyLoading.set(false);
       },
       error: (e) => {
+        if (!this.isCurrent(i)) return;
         this.historyLoading.set(false);
         this.historyError.set(e?.error?.error === 'NOT_SUPPORTED' ? 'This tracker gives no history' : e?.error?.message || 'Could not read the history');
       },
     });
+  }
+
+  private isCurrent(i: TeamItem): boolean {
+    const now = this.item();
+    return now.conn === i.conn && now.extId === i.extId;
   }
 
   cut(s: string | null): string {

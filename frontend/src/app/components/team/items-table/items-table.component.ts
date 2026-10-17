@@ -83,6 +83,7 @@ export class TeamItemsTableComponent {
   readonly loading = signal(true);
   private asked = 0;
   private typing: ReturnType<typeof setTimeout> | null = null;
+  private pending: Partial<TeamItemFilters> = {};
 
   readonly conn = computed(() => this.state.picked()?.id ?? null);
 
@@ -98,10 +99,15 @@ export class TeamItemsTableComponent {
 
   set(change: Partial<TeamItemFilters>): void {
     // a short pause while typing (one fetch per word, not per key) - not polling: it fires once per change
+    // edits in several fields within the pause all apply
+    this.pending = { ...this.pending, ...change };
     if (this.typing) clearTimeout(this.typing);
     this.typing = setTimeout(() => {
+      const all = this.pending;
+      this.pending = {};
+      this.typing = null;
       this.offset.set(0);
-      this.filters.update((f) => ({ ...f, ...change }));
+      this.filters.update((f) => ({ ...f, ...all }));
     }, 250);
   }
 

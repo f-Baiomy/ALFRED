@@ -110,7 +110,10 @@ export class ConnectionSwitcherComponent {
         this.busy.set(false);
         this.isError.set(true);
         const code = e?.error?.error;
-        if (code === 'TOKEN_REJECTED') this.rejected.set(true);
+        if (code === 'TOKEN_REJECTED') {
+          this.rejected.set(true);
+          this.state.tokens.clear(c.id); // a refused token is not kept: the banner asks for a new one
+        }
         this.message.set(code === 'PROVIDER_BUSY' ? `${this.state.ui().label} asks to wait ${e.error.retryAfter ?? 30} s - try again then`
           : e?.error?.message || 'Refresh failed');
       },
