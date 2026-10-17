@@ -49,8 +49,7 @@ D1-D10) and [tasks.md](tasks.md) (each task with [X] done / [~] partly / [ ] ope
 1. The Azure half of the end-to-end on AB#61813 (T039): the user enters the token in the Team tab, then
    `/alfred-setup AB#61813` (re-define, since the board has a brief) → Save all → `/alfred-triage` → `/alfred-verify` →
    Record + `/alfred-listen AB#61813` → Refresh from Azure → a card match. Leave every bundle waiting.
-2. A direct "Edit a field" on the card's Azure panel (FR-016) needs a FIELD step kind in `AzureWritesService` and the
-   connector; not built.
+2. Done since: the card's direct "Edit a field" (FIELD step, `ItemWriter.setField`, MCP `team_set_field`).
 3. Push the branch / open a PR when the user asks.
 
 ## How to run things here

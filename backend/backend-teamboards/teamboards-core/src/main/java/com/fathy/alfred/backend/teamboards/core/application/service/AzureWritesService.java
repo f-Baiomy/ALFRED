@@ -47,6 +47,12 @@ import java.util.concurrent.Executors;
 @Service
 public class AzureWritesService implements AzureWritesUseCase {
 
+    /** A field step names a field by its reference name; these are set another way or kept by the tracker. */
+    static final java.util.regex.Pattern FIELD_NAME = java.util.regex.Pattern.compile("[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z0-9_]+)+");
+    static final java.util.Set<String> NOT_A_FIELD_WRITE = java.util.Set.of("system.state", "system.id", "system.rev", "system.changeddate",
+            "system.createddate", "system.changedby", "system.createdby", "system.authorizeddate", "system.reviseddate", "system.watermark",
+            "system.workitemtype", "system.teamproject", "system.history");
+
     private static final Logger log = LoggerFactory.getLogger(AzureWritesService.class);
     static final String CREATED = "$created";
 
@@ -107,7 +113,15 @@ public class AzureWritesService implements AzureWritesUseCase {
                 case TAG, UNTAG -> need(p, "tag");
                 case CREATE -> need(p, "type") != null ? "type" : need(p, "title");
                 case LINK_ALFRED -> p.get("card") == null && p.get("board") == null ? "card or board" : null;
+                case FIELD -> need(p, "field");
             };
+            if (s.kind() == StepKind.FIELD) {
+                String f = p.get("field").strip();
+                if (!FIELD_NAME.matcher(f).matches() || NOT_A_FIELD_WRITE.contains(f.toLowerCase(java.util.Locale.ROOT))) {
+                    throw TeamException.invalid("Set " + f + " another way: a field step takes a field's reference name (e.g. "
+                            + "Microsoft.VSTS.Common.Priority), not the state, id, revision or a date the tracker keeps");
+                }
+            }
             if (missing != null) {
                 throw TeamException.invalid(s.kind() + " needs " + missing);
             }
@@ -459,6 +473,16 @@ public class AzureWritesService implements AzureWritesUseCase {
                 markLink(b, item, l -> new CardLinkRow(l.cardId(), l.boardId(), l.conn(), l.item(), l.linkedAt(), l.linkedBy(), add, l.tag(),
                         l.commentId()), true);
                 yield new StepResult(true, add ? "Link back to Alfred added" : "Link back to Alfred removed", null);
+            }
+            case FIELD -> {
+                ItemWriter w = live.cap(c, ItemWriter.class, "set a field");
+                String field = p.get("field").strip();
+                String value = p.getOrDefault("value", "");
+                live.call(c, () -> {
+                    w.setField(c.connection(), c.token(), item, field, value);
+                    return null;
+                });
+                yield new StepResult(true, value.isBlank() ? field + " cleared" : field + " is now " + value, null);
             }
             case TAG, UNTAG -> {
                 ItemWriter w = live.cap(c, ItemWriter.class, "tag");

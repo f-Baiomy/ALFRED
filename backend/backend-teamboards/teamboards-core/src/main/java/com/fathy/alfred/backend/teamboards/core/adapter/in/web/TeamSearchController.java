@@ -53,9 +53,9 @@ public class TeamSearchController {
     record ItemsDto(List<@NotBlank @Size(max = 100) String> ids, String include) {
     }
 
-    /** The user's own change from the Team tab: state, comment, or both. As Claude, a waiting bundle. */
+    /** The user's own change from the Team tab: state, comment, a field (specs/030), or several. As Claude, a waiting bundle. */
     record DirectDto(@Size(max = 200) String state, @Size(max = 64 * 1024) String comment, @Size(max = 200) String board, @Size(max = 100) String card,
-                     @Size(max = 40) String askedIn) {
+                     @Size(max = 40) String askedIn, @Size(max = 200) String field, @Size(max = 64 * 1024) String value) {
     }
 
     static Set<Part> parts(String include) {
@@ -121,10 +121,17 @@ public class TeamSearchController {
         if (body.comment() != null && !body.comment().isBlank()) {
             steps.add(new WriteStep(StepKind.COMMENT, Map.of("text", body.comment()), true, false, null));
         }
-        if (steps.isEmpty()) {
-            throw TeamException.invalid("Send a state, a comment, or both");
+        if (body.field() != null && !body.field().isBlank()) {
+            Map<String, String> f = new java.util.LinkedHashMap<>();
+            f.put("field", body.field().strip());
+            f.put("value", body.value() == null ? "" : body.value());
+            steps.add(new WriteStep(StepKind.FIELD, f, true, false, null));
         }
-        String title = (body.state() != null && !body.state().isBlank() ? "Move item " + item + " to " + body.state().strip() : "Comment on item " + item);
+        if (steps.isEmpty()) {
+            throw TeamException.invalid("Send a state, a comment, a field, or several");
+        }
+        String title = body.state() != null && !body.state().isBlank() ? "Move item " + item + " to " + body.state().strip()
+                : body.field() != null && !body.field().isBlank() ? "Set " + body.field().strip() + " on item " + item : "Comment on item " + item;
         if (Who.of(actor) == Who.CLAUDE && (body.card() == null || body.card().isBlank()) && (body.board() == null || body.board().isBlank())) {
             throw TeamException.invalid("Name the card or the board this change is for: the user approves it there");
         }

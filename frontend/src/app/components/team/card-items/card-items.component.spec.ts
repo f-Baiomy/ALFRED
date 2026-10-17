@@ -21,6 +21,8 @@ describe('TeamCardItemsComponent - the card\'s Azure panel (specs/030)', () => {
       linkMatch: jasmine.createSpy('linkMatch').and.returnValue(of([{ ...LINKED, item: '61902', title: '251st agency accepted' }])),
       rejectMatch: jasmine.createSpy('rejectMatch').and.returnValue(of(matches.slice(1))),
       direct: jasmine.createSpy('direct').and.returnValue(of({ id: 5, state: 'DONE' })),
+      item: jasmine.createSpy('item').and.returnValue(of({ item: { fields: { 'System.Title': 'Date filter ignores TZ', 'System.State': 'Active',
+        'System.Rev': '3', 'Microsoft.VSTS.Common.Priority': '2' } } })),
     };
     const chat = { post: jasmine.createSpy('post').and.returnValue(of({ id: 1 })) };
     const state = {
@@ -74,7 +76,7 @@ describe('TeamCardItemsComponent - the card\'s Azure panel (specs/030)', () => {
     expect(api.cardMatches).not.toHaveBeenCalled();
     button(el, 'Azure ▾').click();
     f.detectChanges();
-    const options = Array.from(el.querySelectorAll('.tci-panel select option')).map((o) => o.textContent!.trim());
+    const options = Array.from(el.querySelectorAll('.tci-panel select[name="state"] option')).map((o) => o.textContent!.trim());
     expect(options).toEqual(['Active', 'Resolved']);
 
     f.componentInstance.comment = 'Fixed in 4be21c';
@@ -83,6 +85,16 @@ describe('TeamCardItemsComponent - the card\'s Azure panel (specs/030)', () => {
     f.componentInstance.newState = 'Resolved';
     f.componentInstance.sendState(LINKED);
     expect(api.direct).toHaveBeenCalledWith('c1', '61844', { state: 'Resolved', card: 'card-72', board: 'b1' });
+
+    f.detectChanges();
+    const fields = Array.from(el.querySelectorAll('.tci-panel select[name="field"] option')).map((o) => o.getAttribute('value'));
+    expect(fields).toEqual(['', 'Microsoft.VSTS.Common.Priority', 'System.Title'], 'state, rev and the like are never offered');
+    f.componentInstance.pickField('Microsoft.VSTS.Common.Priority');
+    expect(f.componentInstance.fieldValue).toBe('2');
+    f.componentInstance.field = 'Microsoft.VSTS.Common.Priority';
+    f.componentInstance.fieldValue = '1';
+    f.componentInstance.sendField(LINKED);
+    expect(api.direct).toHaveBeenCalledWith('c1', '61844', { field: 'Microsoft.VSTS.Common.Priority', value: '1', card: 'card-72', board: 'b1' });
 
     f.componentInstance.togglePanel(LINKED);
     f.detectChanges();

@@ -290,6 +290,21 @@ test('a state the type does not have becomes the closest of the same kind, said 
   assert.deepEqual(pickState('Closed', 'Epic', states), { state: 'Closed' }, 'unknown type: as asked');
 });
 
+test('team_set_field prepares one field as a bundle on the card, by its reference name only (specs/030)', async () => {
+  const w = await world();
+  try {
+    w.fake.team = team();
+    seedCard(w);
+    const r = await w.call('team_set_field', { id: 'AB#1234', field: 'Microsoft.VSTS.Common.Priority', value: '1', project: 'odeysys', number: 4 });
+    assert.equal(r.json.state, 'WAITING');
+    const patch = w.fake.requests('PATCH', '/teamboards/connections/c1/items/1234').at(-1)!;
+    assert.deepEqual([patch.body.field, patch.body.value, patch.body.card], ['Microsoft.VSTS.Common.Priority', '1', 'card-4']);
+    assert.equal(patch.headers?.['x-alfred-actor'], 'claude');
+    const bad = await w.call('team_set_field', { id: '1234', field: 'Priority', value: '1', project: 'odeysys', number: 4 });
+    assert.ok(bad.isError);
+  } finally { await w.close(); }
+});
+
 test('team_people names people and says who "me" is', async () => {
   const w = await world();
   try {

@@ -208,6 +208,12 @@ class FakeTracker implements Connector, ItemSearcher, ItemReader, TreeReader, Id
     }
 
     @Override
+    public void setField(Connection c, Token t, String id, String field, String value) throws ProviderException {
+        check(t);
+        writes.add("field " + id + " " + field + "=" + value);
+    }
+
+    @Override
     public String create(Connection c, Token t, NewItem item) throws ProviderException {
         check(t);
         String id = String.valueOf(nextId++);

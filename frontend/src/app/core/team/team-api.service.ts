@@ -152,7 +152,8 @@ export class TeamApiService {
   }
 
   /** The user's own change - it goes to the tracker now and is recorded as a bundle. */
-  direct(conn: string, id: string, body: { state?: string; comment?: string; board?: string | null; card?: string | null }): Observable<WriteBundle> {
+  /** The user's own write, sent at once: a state, a comment and/or one field by its reference name (specs/030). */
+  direct(conn: string, id: string, body: { state?: string; comment?: string; field?: string; value?: string; board?: string | null; card?: string | null }): Observable<WriteBundle> {
     return this.http.patch<WriteBundle>(`${this.conn(conn)}/items/${e(id)}`, body);
   }
 

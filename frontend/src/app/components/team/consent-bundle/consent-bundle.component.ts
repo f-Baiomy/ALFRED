@@ -7,7 +7,7 @@ import { StepKind, WriteBundle, WriteStep } from '../../../core/team/team.models
 
 const WORDS: Record<StepKind, string> = {
   STATE: 'Move to', COMMENT: 'Comment', ATTACH: 'Attach', HYPERLINK: 'Link back to Alfred', UNHYPERLINK: 'Remove the link to Alfred',
-  TAG: 'Tag', UNTAG: 'Remove the tag', CREATE: 'Create', LINK_ALFRED: 'Link in Alfred',
+  TAG: 'Tag', UNTAG: 'Remove the tag', CREATE: 'Create', LINK_ALFRED: 'Link in Alfred', FIELD: 'Set',
 };
 
 /**
@@ -47,6 +47,11 @@ const WORDS: Record<StepKind, string> = {
                   <button type="button" class="action-btn" [disabled]="building() === i" (click)="build(i)">{{ building() === i ? 'Building…' : built()[i] ? 'Rebuild' : 'Build the file' }}</button>
                   @if (built()[i]) { <span class="tcb-dim">{{ built()[i] }}</span> }
                 }
+              }
+              @case ('FIELD') {
+                <span>{{ s.payload['field'] }} =</span>
+                @if (open()) { <input [ngModel]="s.payload['value']" (ngModelChange)="edit(i, 'value', $event)" [name]="'f' + i" /> }
+                @else { <span>{{ s.payload['value'] || '(cleared)' }}</span> }
               }
               @case ('CREATE') { <span>{{ s.payload['type'] }}: {{ s.payload['title'] }}</span> }
               @default { <span class="tcb-dim">{{ payloadText(s) }}</span> }

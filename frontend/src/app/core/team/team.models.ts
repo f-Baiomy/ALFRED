@@ -439,7 +439,7 @@ export interface WatchRule {
 
 // --------------------------------------------------------------------------------------------------- write bundles
 
-export type StepKind = 'STATE' | 'COMMENT' | 'ATTACH' | 'HYPERLINK' | 'UNHYPERLINK' | 'TAG' | 'UNTAG' | 'CREATE' | 'LINK_ALFRED';
+export type StepKind = 'STATE' | 'COMMENT' | 'ATTACH' | 'HYPERLINK' | 'UNHYPERLINK' | 'TAG' | 'UNTAG' | 'CREATE' | 'LINK_ALFRED' | 'FIELD';
 export type WriteState = 'WAITING' | 'SENDING' | 'DONE' | 'PARTIAL' | 'REJECTED';
 
 export interface WriteStep {

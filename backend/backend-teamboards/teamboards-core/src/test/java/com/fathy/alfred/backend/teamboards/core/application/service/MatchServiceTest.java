@@ -231,6 +231,31 @@ class MatchServiceTest {
         assertThat(f.cache.cardLinks(unasked.id())).isEmpty();
     }
 
+    // ------------------------------------------------------------------------------------------------ field writes
+
+    @Test
+    void theUsersFieldEditGoesAtOnceClaudesWaitsAndTheStateOrABookkeepingFieldIsRefused() {
+        CardInfo card = f.boards.card("b1", "Refund total wrong");
+        var field = new com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.WriteStep(
+                com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.StepKind.FIELD,
+                Map.of("field", "Microsoft.VSTS.Common.Priority", "value", "1"), true, false, null);
+        var done = f.writes.direct(CONN, "102", "b1", card.id(), "Set priority", List.of(field));
+        assertThat(done.state().name()).isEqualTo("DONE");
+        assertThat(f.tracker.writes).contains("field 102 Microsoft.VSTS.Common.Priority=1");
+
+        int before = f.tracker.writes.size();
+        var waiting = f.writes.create(Who.CLAUDE, new com.fathy.alfred.backend.teamboards.core.application.port.in.AzureWritesUseCase.NewBundle(
+                "b1", card.id(), CONN, "102", "Priority", List.of(field), null, null));
+        assertThat(waiting.state().name()).isEqualTo("WAITING");
+        assertThat(f.tracker.writes).hasSize(before);
+
+        for (String bad : List.of("System.State", "System.Rev", "Priority", "")) {
+            var step = new com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.WriteStep(
+                    com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.StepKind.FIELD, Map.of("field", bad, "value", "x"), true, false, null);
+            assertThatThrownBy(() -> f.writes.direct(CONN, "102", "b1", card.id(), "x", List.of(step))).as(bad).isInstanceOf(TeamException.class);
+        }
+    }
+
     // ------------------------------------------------------------------------------------------------------ score
 
     @Test

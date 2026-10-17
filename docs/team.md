@@ -141,8 +141,10 @@ export, as `team-card-match` records by card number, so an imported board never 
 The card drawer's **Linked in Azure** shows, for a card with no item, the best match with its reason (Link / Not this
 one / Show others), then "+ create in Azure" - a bundle that creates the item **under the board's main item** (a
 `System.LinkTypes.Hierarchy-Reverse` relation; `NewItem.parent`) and links it once approved. For a linked item,
-**Azure ▾** offers the user's own comment and state (sent at once with their token, like the item drawer) and **Draft
-with Claude**, which posts `/alfred-team update card #<n>` to the board's chat; the draft comes back as a bundle.
+**Azure ▾** offers the user's own comment, state and **one field** (picked from the item's fields by reference name -
+the state, id, revision, dates and other fields the tracker keeps are never offered; an empty value clears it), each
+sent at once with their token like the item drawer - a `FIELD` write step (`ItemWriter.setField`, a JSON-patch `add
+/fields/<name>` in Azure) - and **Draft with Claude**, which posts `/alfred-team update card #<n>` to the board's chat; the draft comes back as a bundle.
 
 As Claude, `team_link_card` with an `askedIn` naming the user's request links in Alfred at once (the cards
 `/alfred-setup` drafts from a work item's children, on the user's "Save all"); without it the link is a bundle step.

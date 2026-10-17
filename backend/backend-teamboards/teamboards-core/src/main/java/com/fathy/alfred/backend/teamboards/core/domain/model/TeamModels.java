@@ -199,7 +199,8 @@ public final class TeamModels {
 
     public enum WriteState { WAITING, SENDING, DONE, PARTIAL, REJECTED }
 
-    public enum StepKind { STATE, COMMENT, ATTACH, HYPERLINK, UNHYPERLINK, TAG, UNTAG, CREATE, LINK_ALFRED }
+    /** FIELD (specs/030): one field set by its reference name ({@code field}) to {@code value} - empty clears it. */
+    public enum StepKind { STATE, COMMENT, ATTACH, HYPERLINK, UNHYPERLINK, TAG, UNTAG, CREATE, LINK_ALFRED, FIELD }
 
     public record StepResult(boolean ok, String message, String azureId) {
     }

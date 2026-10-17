@@ -732,7 +732,7 @@ export function register(server: McpServer, client: AlfredClient): void {
   }));
 
   async function step(input: { conn?: string; id: string; board?: string; project?: string; number?: number; askedIn?: string; extend?: number },
-                      kind: 'STATE' | 'COMMENT', payload: Record<string, string>, extra: Record<string, unknown> = {}) {
+                      kind: 'STATE' | 'COMMENT' | 'FIELD', payload: Record<string, string>, extra: Record<string, unknown> = {}) {
     const ref = itemRef(input.id);
     const c = await pickConnection(client, input.conn ?? ref.conn);
     const card = input.number ? await cardByNumber(client, input.project ?? '', input.number) : null;
@@ -744,7 +744,8 @@ export function register(server: McpServer, client: AlfredClient): void {
         steps: [{ kind, payload, ticked: true, unmasked: false }], askedIn: input.askedIn, extend: input.extend }, ...AS_CLAUDE });
       return ok({ ...bundleReply(b), ...extra });
     }
-    const body = kind === 'STATE' ? { state: payload['state'] } : { comment: payload['text'] };
+    const body = kind === 'STATE' ? { state: payload['state'] } : kind === 'FIELD' ? { field: payload['field'], value: payload['value'] }
+      : { comment: payload['text'] };
     const b = await client.patch<BundleRow>(`/teamboards/connections/${seg(c.id)}/items/${seg(ref.id)}`,
       { body: { ...body, card: card?.id ?? null, board: input.board ?? null, askedIn: input.askedIn }, ...AS_CLAUDE });
     return ok({ ...bundleReply(b), ...extra });
@@ -772,6 +773,15 @@ export function register(server: McpServer, client: AlfredClient): void {
     const picked = pickState(input.state, view?.item.type ?? null, lists?.states ?? []);
     return step({ ...input, conn: c.id }, 'STATE', { state: picked.state }, picked.note ? { stateNote: picked.note } : {});
   }));
+
+  server.registerTool('team_set_field', {
+    description: 'Prepare setting one field of a work item by its reference name (e.g. Microsoft.VSTS.Common.Priority; an empty value clears '
+      + 'it) - specs/030. Not the state (team_move_state) nor a field the tracker keeps (id, rev, dates). Name the card (project + number) or '
+      + 'the board: the user approves the bundle there - never sent by you.',
+    inputSchema: { conn: Conn, id: Id, field: z.string().min(3).max(200).regex(/^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$/, 'a reference name such as Microsoft.VSTS.Common.Priority'),
+      value: z.string().max(64_000), board: z.string().min(1).max(200).optional(), project: Card.project.optional(), number: Card.number.optional(),
+      askedIn: AskedIn, extend: Extend },
+  }, (input) => run(() => step(input, 'FIELD', { field: input.field, value: input.value })));
 
   // --------------------------------------------------------------------------------------- proposals and runs
 

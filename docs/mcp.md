@@ -196,7 +196,8 @@ Team tab. `check_calls` given a board checks its recording cycle, else its newes
 `team_card_matches` (a card's proposed items with the reason; `id` + `why` writes Claude's reason - never links or
 rejects); `team_refresh_item` with `board` syncs and prints the refresh result; `team_move_state` proposes the closest
 allowed state of the item's type when the one asked does not exist (`stateNote`); `team_link_card` with `askedIn` links
-in Alfred at once.
+in Alfred at once; `team_set_field` prepares one field by its reference name as a bundle (never the state or a field
+the tracker keeps).
 
 | Area | Tools |
 |---|---|

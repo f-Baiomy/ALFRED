@@ -7,8 +7,7 @@
 ## Status (2026-10-17) - see [HANDOFF.md](HANDOFF.md)
 
 - Phases 1-4 built and committed; every suite green. Left: the Azure half of the end-to-end run (T039) - it needs the
-  user's token entered in the Team tab - and a card's direct "Edit a field" (the direct endpoint takes state and
-  comment only).
+  user's token entered in the Team tab.
 
 ## Phase 1: Backend + MCP
 
@@ -70,7 +69,7 @@
 - [X] T033 [US8] `components/board/next-steps-bar`: seven-stage strip from the stage endpoint, current marked, command + Copy; spec
 - [X] T034 [US1] "Not defined yet" banner in the strip at DEFINE: command + Copy, "Ask Claude in chat" (posts `/alfred-setup <ref>` to the board chat) enabled only when a live runner / terminal answers the board; spec
 - [X] T035 [US5] `pages/board/board-page`: "↻ Refresh from Azure" (board with a main) → sync; result line; main-closed banner; re-read on `/ws/board`; spec
-- [X] T036 (direct writes: comment and state; a field edit is not offered - the direct endpoint takes state and comment only) [US6] [US7] `components/team/card-items`: linked → Azure ▾ (Comment / State / Field direct, Draft with Claude); unlinked → matches (Link / Not this one / Show others) then Create in Azure; spec
+- [X] T036 (direct writes: comment, state and one field - FIELD step, `ItemWriter.setField`; MCP `team_set_field`) [US6] [US7] `components/team/card-items`: linked → Azure ▾ (Comment / State / Field direct, Draft with Claude); unlinked → matches (Link / Not this one / Show others) then Create in Azure; spec
 - [X] T037 Frontend suite + `npm run build`; prod Docker frontend build; commit "feat(board): stage strip, Define banner, Refresh from Azure, card Azure panel with matches (specs/030)"
 
 ## Phase 4: Docs + end to end

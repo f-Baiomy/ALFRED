@@ -53,7 +53,8 @@ TOKEN_MISSING, tell the user to enter it in the Team tab and stop.
 
 ## 3. Telling the tracker
 
-`team_comment`, `team_move_state`, `team_create_item` prepare a **bundle** - on the card when there is one (pass
+`team_comment`, `team_move_state`, `team_set_field` (one field by its reference name, e.g.
+`Microsoft.VSTS.Common.Priority`), `team_create_item` prepare a **bundle** - on the card when there is one (pass
 project + number), else on the board (pass `board`); `extend` to add a step to a waiting one. Text only in your words: no secrets, tokens, cookies or raw
 request bodies; evidence files are built masked by the user's browser when they open the bundle. Say "it waits for your
 approval on card #n" - never that it was sent, never approve it yourself.

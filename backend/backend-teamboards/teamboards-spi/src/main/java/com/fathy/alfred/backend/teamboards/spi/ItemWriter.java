@@ -16,6 +16,11 @@ public interface ItemWriter {
 
     void moveState(Connection c, Token t, String id, String state) throws ProviderException;
 
+    /** Sets one field by its reference name (specs/030); an empty value clears it. A tracker that cannot says so. */
+    default void setField(Connection c, Token t, String id, String field, String value) throws ProviderException {
+        throw new ProviderException(ProviderException.Kind.BAD_RESPONSE, "This tracker cannot set a field from Alfred");
+    }
+
     /** Creates an item; its id. */
     String create(Connection c, Token t, NewItem item) throws ProviderException;
 

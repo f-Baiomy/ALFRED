@@ -301,6 +301,8 @@ class AzureDevOpsConnectorTest {
         int patch = asked.indexOf("PATCH /fake-org/_apis/wit/workitems/4521");
         assertThat(types.get(patch)).isEqualTo("application/json-patch+json");
         assertThat(bodies.get(patch)).contains("\"path\":\"/fields/System.State\"").contains("Resolved");
+        azure.setField(connection, TOKEN, "4521", "Microsoft.VSTS.Common.Priority", "1");
+        assertThat(bodies.get(bodies.size() - 1)).contains("\"path\":\"/fields/Microsoft.VSTS.Common.Priority\"").contains("\"value\":\"1\"");
         assertThat(azure.comment(connection, TOKEN, "4521", "Fixed **now**")).isEqualTo("77");
         assertThat(asked).contains("POST /fake-org/Odeysys/_apis/wit/workItems/4521/comments preview.4");
         assertThat(azure.create(connection, TOKEN, new NewItem("Odeysys", "Bug", "New bug", "line 1\nline <2>", null, null, null))).isEqualTo("4999");

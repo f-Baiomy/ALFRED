@@ -834,6 +834,11 @@ public class AzureDevOpsConnector implements Connector, BoardsReader, SprintsRea
     }
 
     @Override
+    public void setField(Connection c, Token t, String id, String field, String value) throws ProviderException {
+        client.patch(at(c, "/_apis/wit/workitems/" + encode(id)), t, List.of(op("add", "/fields/" + field, value == null ? "" : value)));
+    }
+
+    @Override
     public String create(Connection c, Token t, NewItem item) throws ProviderException {
         String project = item.project() != null && !item.project().isBlank() ? item.project()
                 : projects(c, t).stream().findFirst().orElseThrow(() -> new ProviderException(Kind.BAD_RESPONSE, "No project to create the item in"));

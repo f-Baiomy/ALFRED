@@ -9,6 +9,20 @@ import { ChatApiService } from '../../../core/services/chat-api.service';
 import { TeamItemDrawerComponent } from '../item-drawer/item-drawer.component';
 import { TeamConsentBundleComponent } from '../consent-bundle/consent-bundle.component';
 
+/** Fields the tracker keeps itself, or that are set another way (state, type) - never offered for a direct edit. */
+const KEPT = new Set(['system.state', 'system.id', 'system.rev', 'system.changeddate', 'system.createddate', 'system.changedby', 'system.createdby',
+  'system.authorizeddate', 'system.reviseddate', 'system.watermark', 'system.workitemtype', 'system.teamproject', 'system.history',
+  'system.authorizedas', 'system.personid', 'system.nodename', 'system.areaid', 'system.iterationid', 'system.boardcolumndone',
+  'system.commentcount', 'system.reason']);
+
+/** The fields of an item a person may set from the card (specs/030 FR-016): every field Azure sent but the kept ones, by name. */
+export function editableFields(fields: Readonly<Record<string, string>>): { name: string; label: string; value: string }[] {
+  return Object.entries(fields)
+    .filter(([k]) => /^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$/.test(k) && !KEPT.has(k.toLowerCase()) && !k.toLowerCase().startsWith('system.extension'))
+    .map(([k, v]) => ({ name: k, label: k.split('.').pop()!.replace(/([a-z])([A-Z])/g, '$1 $2') + ' (' + k + ')', value: v ?? '' }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+}
+
 /**
  * A card's "Linked in Azure" (specs/028 US3 FR-057..064): the work items this card is linked to - many to many - each from
  * Alfred's saved copy (opened live on click), changed / closed-in-the-tracker badges, the tracker's comments, Link another
@@ -52,6 +66,13 @@ import { TeamConsentBundleComponent } from '../consent-bundle/consent-bundle.com
                 <label class="tci-dim">State <select [(ngModel)]="newState" name="state" aria-label="State">
                   @for (s of statesOf(i.type); track s) { <option [value]="s">{{ s }}</option> }</select></label>
                 <button type="submit" class="action-btn" [disabled]="!newState || newState === i.state || busy()">Set state</button>
+              </form>
+              <form class="tci-form" (submit)="$event.preventDefault(); sendField(i)">
+                <label class="tci-dim">Field <select [(ngModel)]="field" name="field" aria-label="Field" (ngModelChange)="pickField($event)">
+                  <option value="">Pick a field…</option>
+                  @for (f of fields(); track f.name) { <option [value]="f.name">{{ f.label }}</option> }</select></label>
+                <input [(ngModel)]="fieldValue" name="fieldValue" aria-label="Value" placeholder="New value (empty clears it)" [disabled]="!field" />
+                <button type="submit" class="action-btn" [disabled]="!field || busy()">Set field</button>
               </form>
               <span class="tci-dim">Or</span>
               <div class="tci-row">
@@ -191,6 +212,10 @@ export class TeamCardItemsComponent {
   private readonly chatApi = inject(ChatApiService);
   comment = '';
   newState = '';
+  /** The open item's fields that a person may set (specs/030), by reference name, with their value now. */
+  readonly fields = signal<{ name: string; label: string; value: string }[]>([]);
+  field = '';
+  fieldValue = '';
   readonly bundles = signal<WriteBundle[]>([]);
   readonly openBundles = computed(() => this.bundles().filter((b) => b.state === 'WAITING' || b.state === 'SENDING'));
   readonly doneBundles = computed(() => this.bundles().filter((b) => b.state !== 'WAITING' && b.state !== 'SENDING'));
@@ -275,6 +300,20 @@ export class TeamCardItemsComponent {
     this.panel.set(this.panel() === k ? null : k);
     this.comment = '';
     this.newState = i.state ?? '';
+    this.field = '';
+    this.fieldValue = '';
+    this.fields.set([]);
+    if (this.panel()) {
+      this.api.item(i.conn, i.item, '').subscribe({ next: (v) => this.fields.set(editableFields(v.item.fields)), error: () => this.fields.set([]) });
+    }
+  }
+
+  pickField(name: string): void {
+    this.fieldValue = this.fields().find((f) => f.name === name)?.value ?? '';
+  }
+
+  sendField(i: CardItem): void {
+    if (this.field) this.direct(i, { field: this.field, value: this.fieldValue }, this.fieldValue ? `${this.field} is now ${this.fieldValue}.` : `${this.field} cleared.`);
   }
 
   /** The states the item's type has, from the connection's lists; the current one when the lists are not read yet. */
@@ -284,7 +323,7 @@ export class TeamCardItemsComponent {
   }
 
   /** The user's own direct write (specs/028): sent at once with their token, no bundle. */
-  private direct(i: CardItem, body: { state?: string; comment?: string }, done: string): void {
+  private direct(i: CardItem, body: { state?: string; comment?: string; field?: string; value?: string }, done: string): void {
     this.busy.set(true);
     this.api.direct(i.conn, i.item, { ...body, card: this.cardId(), board: this.boardId() }).subscribe({
       next: () => { this.busy.set(false); this.comment = ''; this.say(done); this.load(this.cardId()); this.loadBundles(); },
