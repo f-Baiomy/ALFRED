@@ -36,3 +36,9 @@ Next       answer #14 · re-test step 5
 
 4. `--file`: save as Markdown where the user says (default: `qa-report-<date>.md` in the repo root) and say the path.
    For a cycle, also `board_session_log` an entry "report written".
+
+## The tracker side (specs/028)
+
+Add a section per linked work item: its state now, what the cards did about it, and the bundles that told the tracker
+(approved / waiting). When asked to tell the tracker, draft it with `team_comment` (a bundle the user approves, with the
+report's summary - no secrets, no raw bodies) and say it waits on the card.

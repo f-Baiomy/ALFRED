@@ -24,24 +24,27 @@ A task is a board: its brief, spec, requirements, chat and cards; its session cy
 - `board_open` with it, `askedIn` = the chat message you are answering (or "terminal"), and `relateTo` = the board
   whose chat asked, when it was not the project's default board. Claude never opens a board on its own - only for
   this user request.
-- A work item that already has a board (`team_item` says `board`): do not open a second one - say which board it has.
+- A work item that is already a board's main item (`team_item` says it is the main of a board): do not open a second one - say which board it has.
 - `board_record` (kind REC) makes the board's first recording only when the user said to start recording; else tell
   them they start it when ready to test.
 
-### From a work item (AB#1234, <conn>/1234, or the Start button's `/alfred-setup <conn>/<id>`)
+### From a work item (AB#1234, <conn>/1234, its URL, or the Start button's `/alfred-setup <conn>/<id>`)
 
-1. `team_item` with the id - the item from Alfred's shared cache, as a seed: purpose, steps, acceptance, context (by
-   the field maps the user set), the parent's acceptance, a Feature's children, attachments by name and link. Read a
-   long part with `part` + `offset`; never shorten it. Not in the cache: say "AB#<id> is not in the cache yet: Refresh
-   the Team tab first" and stop.
-2. Name the board after the item (`AB#1234 <title>`), open it as above, in the project the start was posted to.
-3. Draft the brief and spec from the seed (section 3): Description = purpose and context as given; Test steps from
+1. `team_item` with the id and `seed: true` - the item read live (or from Alfred's copy) as a seed: purpose, steps,
+   acceptance, context (by the field maps the user set), the parent's acceptance, a Feature's children, attachments by
+   name. Read a long part with `part` + `offset`; never shorten it. TOKEN_MISSING: say "Enter your token in the Team tab
+   first" and stop - never ask for the token.
+2. `team_tree` with the id: its parents, children and links, so the brief names where it sits.
+3. Name the board after the item (`AB#1234 <title>`), open it as above, in the project the start was posted to.
+4. Draft the brief and spec from the seed (section 3): Description = purpose and context as given; Test steps from
    steps (or the children, one step each); Acceptance from acceptance, then the parent's acceptance when the item has
    none of its own. Keep the item under Task as a mention, `@[workitem:<conn>/<id>|AB#<id> <title>]`, with its link.
-4. Attachments: you have no token and never fetch them. Name the ones `team_link` says it did not attach, under the
-   brief's Task section, by name and link - the user fetches them with "Fetch attachments" on the board.
-5. Last, `team_link` (board, id): Alfred keeps a snapshot of the item so the board shows when it changes in the tracker,
-   and moves the attachments the user's Start fetched onto the board.
+5. Attachments: you have no token and never fetch them. Name the ones `team_link` says it did not attach, under the
+   brief's Task section, by name - the user fetches them with "Fetch attachments" on the board.
+6. Last, `team_link` (board, id): the item becomes the board's **main** - Alfred keeps its full copy and tree (diffed on
+   each sync, new children offered in Incoming) and moves the attachments the user's Start fetched onto the board.
+7. Offer (do not create) a watch rule for the board when the item's area or tags will keep bringing new work - the user
+   adds it under Related items. Offer the board's first cycle (`board_record`) only as section 2 says.
 
 ## 3. Brief and spec from the description (only when one was given)
 

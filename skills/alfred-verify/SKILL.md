@@ -271,3 +271,10 @@ Next - a before-testing run: build what is NOT_FOUND, answer the "Record as fixe
 with `/alfred-listen <cycle>`. A re-test run: accept the proposals on the board; restart the app for fixes it does not
 carry; answer "Record as fixed?" (`/alfred-fix <n>` records it); `/alfred-fix` for what still fails;
 `/alfred-verify --wait` to re-test what is left together; `/alfred-report` when done.
+
+## Team tracker (specs/028)
+
+When the user moves a card to Verified or Done, Alfred prepares a "Tell Azure" bundle for each linked item (state,
+comment, an evidence file built masked) - it waits for the user's approval on the card; mention it in the summary, never
+approve it. A linked item closed in the tracker before the card was verified: say so ("closed elsewhere by <who>") and
+propose, do not move the card.

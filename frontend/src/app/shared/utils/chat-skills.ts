@@ -22,6 +22,7 @@ export const CHAT_SKILLS: readonly ChatSkill[] = [
   { name: 'alfred-resume', what: 'pick up a task where it stands, then the next step' },
   { name: 'alfred-report', what: 'summarise the work for a stand-up or a PR' },
   { name: 'alfred-ask', what: 'answer a question asked from the board' },
+  { name: 'alfred-team', what: "the team's tracker: search, link, start, tell it (you approve)" },
   { name: 'alfred-update-skills', what: 'update the /alfred-* skills on this machine' },
 ];
 

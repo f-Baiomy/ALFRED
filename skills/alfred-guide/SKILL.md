@@ -96,3 +96,9 @@ stops for the user, and one example command. Take it from the table above and `r
 
 Close, set scope, mark the checklist, move to Verified / Done, or start a fix you did not choose - it proposes and
 asks. Every card it touches says who it waits on.
+
+## The Team tab (specs/028)
+
+Search the tracker live (nothing is stored), add an item to a board as its main (Start, or Related items), link items
+to cards, and approve what Claude prepares for the tracker - nothing goes there without your approval. The token is
+entered once in the Team tab and kept 8 hours in Alfred's memory. `/alfred-team` works with all of it from here.

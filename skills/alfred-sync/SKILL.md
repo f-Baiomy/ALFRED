@@ -50,3 +50,10 @@ session reads them from `task_context` instead of rediscovering them.
 
 Summary per card (one line each) and what now waits on whom. `board_session_log` on the cycle when the cards belong to
 one. Next: `/alfred-fix` for To do cards, or what still waits on the user.
+
+## Team tracker catch-up (specs/028)
+
+For each board in scope: `team_refresh_item` (board) to sync its main, card items and tree, then `team_board_items` -
+for every item marked CHANGED, read `team_item` (its "changedSinceCopy") and comment on the cards it affects with the
+change (before → after). A requirement the change moves: propose the brief or spec edit with `board_brief_comment`.
+New children land in Incoming - leave them to `/alfred-triage`.

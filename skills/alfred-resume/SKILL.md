@@ -83,3 +83,8 @@ Something waiting on the user (a question, a proposal) comes before any of these
 - Never start fixing, re-testing, listening or writing cards before the user's Go.
 - Never mark, accept, close, resolve a brief comment or apply a suggested rewording - those are the user's.
 - Never rely on an earlier conversation: if Alfred does not hold it, it is not known - say so.
+
+## Team tracker (specs/028)
+
+Read the board's main item and tree (`team_board_items`) and say what changed since the copies (CHANGED items, with
+`team_item` "changedSinceCopy"), what waits in Incoming, and the bundles waiting for approval - before proposing a Go.

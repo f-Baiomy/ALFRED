@@ -86,3 +86,9 @@ when the cycle did not cover it).
 
 `board_status` STOPPED. `board_session_log`: did (`120/120 checked · 9 flagged in 4 groups · 3 cards · 1 linked`), found (cards added / updated, regressions, untested
 steps and items), next (what waits on the user). Summary, then: "`/alfred-triage` to sort the Inbox".
+
+## Team tracker (specs/028)
+
+For each new card: an open tracker bug it matches gets a link proposal (`team_link_card`, no `askedIn`); a real defect
+with none may get `team_create_item` - a bundle the user approves, with the card's description, no secrets. Say which
+cards wait on such a bundle in the summary.

@@ -52,3 +52,9 @@ Brief test steps go under `## Test steps` as a numbered list, one action per ste
 
 `board_session_log` on the cycle (did: what changed; found: effects; next). If marks were reset, suggest
 `/alfred-review <cycle>` or `/alfred-verify` to check the changed items again.
+
+## From the board's main item (specs/028)
+
+The board's main work item is the source of a seed: `team_board_items` (main), then `team_item` with `seed: true`.
+When the main changed in the tracker since its copy (`changedSinceCopy`), offer a re-seed: show the before → after of
+each field and the brief / spec edits it means - save only on yes, then the user keeps the new copy on the board.

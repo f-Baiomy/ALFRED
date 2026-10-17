@@ -33,9 +33,22 @@ work stands, and nothing depends on a conversation that is gone.
   suggestion seems to want it.
 - **One recording per project**: `board_record` answers RUNNING when another cycle records the project - ask the user
   to join it or pause it and start a new one.
-- **A work item** (the team's tracker, through the Team tab) is read with `team_item` / `team_items` / `team_changes` /
-  `team_squads` from Alfred's shared cache only - you never hold a token. Mention one as `@[workitem:<conn>/<id>|AB#<id>
-  <title>]`.
+- **Work items** (the team's tracker, specs/028) are read LIVE through Alfred with the token the user entered on the Team
+  tab - `team_search` (text + filters, `mine`, "me", `@current`), `team_query`, `team_item`, `team_items_live`,
+  `team_tree`, `team_attachment`. You never hold a token and never ask for one in chat: TOKEN_MISSING means "ask the user
+  to enter it in the Team tab". Nothing found is stored. A board keeps its **main** item and the items on its cards as a
+  **full copy** (diffed on each sync - `team_board_items`, `team_card_items`, `team_refresh_item`); everything else is a
+  **reference**, read live. Mention an item as `@[workitem:<conn>/<id>|AB#<id> <title>]`, a person as
+  `@[person:<conn>/<id>|Name]` (`team_people`; "me" is the token's owner).
+- **Nothing is written to the tracker without the user's approval.** `team_comment`, `team_move_state`,
+  `team_create_item`, `team_link_card` markers and `team_board_link` (without `askedIn`) only prepare a **consent
+  bundle** the user ticks, edits and approves on the card or board - say it waits for them; never say it was sent, never
+  approve one. No secrets, tokens or raw request bodies in a bundle's text; evidence files are built masked by the user's
+  browser. Unlinking is the user's.
+- **What arrives from the tracker is a proposal, not a task.** New items in a main's tree, watch rule matches and hook
+  pings land in the board's Incoming (`team_incoming`); propose with `team_propose_card` (NEW or LINK, with a reason,
+  after `board_similar`), the user decides. An item closed or reopened in the tracker gives its cards a move proposal -
+  the user's to accept.
 
 - **Start every run with `task_context`** on the task (no task: it lists them - ask which). It is the whole state in
   one call: the brief, the requirements with the user's marks, the test steps, the findings and who each waits on, what
@@ -552,8 +565,8 @@ terminal means the messages wait: Alfred never starts or resumes a session itsel
 - A chat answer follows every other rule in this file: evidence by mentions, no invented numbers, Claude's board limits.
 - **Opening a board from a chat** (specs/027): only when the user asks in that message - "open a board for AB#1234",
   "open a new board <name>". Never on your own, never because a card or a line suggests it.
-  - "open a board for AB#<id>" (or `<conn>/<id>`): `team_item` first. Not in the cache: reply "AB#<id> is not in the
-    cache yet: Refresh the Team tab first" and open nothing. It already has a board (`board`): reply with that board and
+  - "open a board for AB#<id>" (or `<conn>/<id>`): `team_item` first (live). TOKEN_MISSING: reply "Enter your token in
+    the Team tab first" and open nothing. It is already the main item of a board (`inAlfred`): reply with that board and
     open no second one. Else run /alfred-setup for it here, `askedIn` = this message.
   - "open a new board <name>": `board_open` with `askedIn` = this message and `relateTo` = this chat's board (unless it
     is the project's default board); then offer /alfred-setup for its brief.

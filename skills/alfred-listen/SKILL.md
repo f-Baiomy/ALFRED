@@ -94,3 +94,8 @@ current wait (up to a minute), judges what is queued, sweeps and runs the finish
 until the log says `● Listen stopped` (or `⚠ Finish incomplete`: then `/alfred-listen <cycle> --finish` resumes
 it), then stop the watch (TaskStop) and give the user the finish line and: "Sort the Inbox: `/alfred-triage`".
 `stop --now` ends at once without the finish (`--finish` runs it later; nothing queued is lost).
+
+## Team tracker (specs/028)
+
+A finding that matches an open bug in the tracker (`team_search`, types [Bug]): link proposal with `team_link_card`
+(no `askedIn`) and say so in the card - never create an item in the tracker while listening.

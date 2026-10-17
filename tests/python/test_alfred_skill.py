@@ -1,4 +1,4 @@
-"""alfred_skill.py and `alfred skill`: the sixteen /alfred-* Claude Code skills (with their shared rules) copied where
+"""alfred_skill.py and `alfred skill`: the seventeen /alfred-* Claude Code skills (with their shared rules) copied where
 Claude Code finds them (specs/015)."""
 
 import io
@@ -34,12 +34,12 @@ def mcp_tools():
 
 
 TOOL_NAME = re.compile(r"`((?:board|get|read|list|search|problem|investigate|wait|call|log|db|exception|locate|endpoint|add|set|compare|"
-                       r"suggest|create|start|stop|trace|diff|redis|triage|check|task|live)_[a-z_]+)`")
+                       r"suggest|create|start|stop|trace|diff|redis|triage|check|task|live|team)_[a-z_]+)`")
 
 
 class ShippedSkillsTest(unittest.TestCase):
     def test_every_skill_is_in_the_repo_names_itself_and_points_at_the_shared_rules(self):
-        self.assertEqual(16, len(alfred_skill.SKILLS))
+        self.assertEqual(17, len(alfred_skill.SKILLS))
         for name in alfred_skill.SKILLS:
             with open(os.path.join(SKILLS_DIR, name, "SKILL.md"), encoding="utf-8") as f:
                 text = f.read()
@@ -114,7 +114,7 @@ class InstallTest(unittest.TestCase):
 
     def test_user_scope_installs_every_skill_with_the_rules_and_updates_in_place(self):
         lines = alfred_skill.install(SKILLS_DIR, version="1.0.0")
-        self.assertEqual(16, len([l for l in lines if l.startswith("installed")]))
+        self.assertEqual(17, len([l for l in lines if l.startswith("installed")]))
         for name in alfred_skill.SKILLS:
             dest = os.path.join(self.skills_root(), name)
             self.assertTrue(os.path.isfile(os.path.join(dest, "SKILL.md")))
@@ -147,7 +147,7 @@ class InstallTest(unittest.TestCase):
         alfred_skill.install(SKILLS_DIR, "project", repo, "1.0.0")
         self.assertTrue(os.path.isfile(os.path.join(repo, ".claude", "skills", "alfred-fix", "rules.md")))
         lines = alfred_skill.remove("project", repo)
-        self.assertEqual(16, len([l for l in lines if l.startswith("removed")]))
+        self.assertEqual(17, len([l for l in lines if l.startswith("removed")]))
         self.assertEqual([], os.listdir(os.path.join(repo, ".claude", "skills")))
 
     def test_a_skill_of_the_same_name_someone_else_wrote_is_left_alone(self):

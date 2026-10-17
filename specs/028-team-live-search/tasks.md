@@ -137,23 +137,23 @@
 
 ## Phase 10: US8 - MCP (P2)
 
-- [ ] T059 [US8] Rewrite `MCP/team.ts`: `team_search`, `team_query`, `team_item`, `team_tree`, `team_items_live`, `team_attachment`, `team_people`, `team_board_items`, `team_card_items`, `team_incoming`, `team_watch_rules`; writes `team_board_link/unlink`, `team_link_card/unlink_card`, `team_create_item`, `team_comment`, `team_move_state` (bundle create/extend, "waits for the user"); `team_propose_card`, `team_refresh_item`, `team_watch_run`; keep `team_start`, `team_link`; remove `team_items`, `team_changes`, `team_squads`
-- [ ] T060 [US8] `MCP/board.ts`: `board_search mine`, owner in `board_get`/`board_edit`
-- [ ] T061 [US8] mcp-server tests (each tool's REST call and the TOKEN_MISSING message) and `npx tsc --noEmit`
+- [X] T059 [US8] Rewrite `MCP/team.ts`: `team_search`, `team_query`, `team_item`, `team_tree`, `team_items_live`, `team_attachment`, `team_people`, `team_board_items`, `team_card_items`, `team_incoming`, `team_watch_rules`; writes `team_board_link/unlink`, `team_link_card/unlink_card`, `team_create_item`, `team_comment`, `team_move_state` (bundle create/extend, "waits for the user"); `team_propose_card`, `team_refresh_item`, `team_watch_run`; keep `team_start`, `team_link`; remove `team_items`, `team_changes`, `team_squads`
+- [X] T060 [US8] `MCP/board.ts`: `board_search mine`, owner in `board_get`/`board_edit`
+- [X] T061 [US8] mcp-server tests (each tool's REST call and the TOKEN_MISSING message) and `npx tsc --noEmit`
 
 ---
 
 ## Phase 11: US9 - Skills (P3) - same commit as Phase 10
 
-- [ ] T062 [US9] `SK/_shared/rules.md`: token rule, live reads, full copy vs reference, consent-only writes with no bodies/secrets, person mentions and me, Azure arrivals as proposals; drop the cache tools
-- [ ] T063 [P] [US9] `SK/alfred-setup`: Start/AB#/URL → team_item + team_tree, main + seed, team_board_link, watch-rule proposal, first cycle for the board
-- [ ] T064 [P] [US9] `SK/alfred-triage`: Incoming first (team_incoming, board_similar, team_propose_card), then the Inbox; link proposals for cards matching open Azure bugs
-- [ ] T065 [P] [US9] `SK/alfred-fix` (reads card items) and `SK/alfred-verify` (Tell Azure bundles; closed-elsewhere handling)
-- [ ] T066 [P] [US9] `SK/alfred-sync` (Azure catch-up, diffs, proposals) and `SK/alfred-status` (Incoming, waiting bundles, Azure changes, on you)
-- [ ] T067 [P] [US9] `SK/alfred-live` (Azure asks in chat, bundles), `SK/alfred-listen`, `SK/alfred-review` (propose links / Create in Azure)
-- [ ] T068 [P] [US9] `SK/alfred-spec` (seed/re-seed from main), `SK/alfred-resume` (main + tree + diffs), `SK/alfred-report` (Azure side, Tell Azure draft), `SK/alfred-ask` (live reads only), `SK/alfred-guide` (Team flow); tool-name touch-ups in `SK/alfred-connect`, `SK/alfred-update-skills`
-- [ ] T069 [US9] New `SK/alfred-team/SKILL.md` (contracts/mcp-and-skills.md) and register it in `alfred_skill.py` / installers
-- [ ] T070 [US9] `python -m pytest -q tests/python` green (SC-008)
+- [X] T062 [US9] `SK/_shared/rules.md`: token rule, live reads, full copy vs reference, consent-only writes with no bodies/secrets, person mentions and me, Azure arrivals as proposals; drop the cache tools
+- [X] T063 [P] [US9] `SK/alfred-setup`: Start/AB#/URL → team_item + team_tree, main + seed, team_board_link, watch-rule proposal, first cycle for the board
+- [X] T064 [P] [US9] `SK/alfred-triage`: Incoming first (team_incoming, board_similar, team_propose_card), then the Inbox; link proposals for cards matching open Azure bugs
+- [X] T065 [P] [US9] `SK/alfred-fix` (reads card items) and `SK/alfred-verify` (Tell Azure bundles; closed-elsewhere handling)
+- [X] T066 [P] [US9] `SK/alfred-sync` (Azure catch-up, diffs, proposals) and `SK/alfred-status` (Incoming, waiting bundles, Azure changes, on you)
+- [X] T067 [P] [US9] `SK/alfred-live` (Azure asks in chat, bundles), `SK/alfred-listen`, `SK/alfred-review` (propose links / Create in Azure)
+- [X] T068 [P] [US9] `SK/alfred-spec` (seed/re-seed from main), `SK/alfred-resume` (main + tree + diffs), `SK/alfred-report` (Azure side, Tell Azure draft), `SK/alfred-ask` (live reads only), `SK/alfred-guide` (Team flow); tool-name touch-ups in `SK/alfred-connect`, `SK/alfred-update-skills`
+- [X] T069 [US9] New `SK/alfred-team/SKILL.md` (contracts/mcp-and-skills.md) and register it in `alfred_skill.py` / installers
+- [X] T070 [US9] `python -m pytest -q tests/python` green (SC-008)
 
 ---
 

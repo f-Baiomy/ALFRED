@@ -70,3 +70,9 @@ on <branch> in <commit>, not recorded on the board". The code does not do what t
 `board_status` STOPPED. Summary: fixed, still in progress (why), skipped (blocked). `board_session_log` on the cycle
 when the cards belong to one. Next: "Use the app as the steps say (no recording needed) - the cards turn green on the
 board - then `/alfred-verify` (or `/alfred-verify <n>` for one card)".
+
+## Team tracker (specs/028)
+
+Read the card's work items first - `team_card_items` (state, the tracker's comments, closed there?) and `team_item` for
+the acceptance in the tracker's words. A card whose item is closed in the tracker: ask the user before fixing it.
+Record the fix on the card as usual; telling the tracker happens on Verified / Done (the user approves that bundle).

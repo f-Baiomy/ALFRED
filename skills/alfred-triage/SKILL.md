@@ -181,3 +181,12 @@ yes.
 Summary: moved to To do, merges proposed (by group), proposed closes waiting for Accept, questions asked, rules saved
 off for reproducing (and whether to remove them), check lines proposed - and how many were accepted as High. `board_session_log` on the cycle when the
 cards belong to one. Next: answer questions on the board, then `/alfred-sync`; or `/alfred-fix`.
+
+## Team tracker: Incoming first (specs/028)
+
+Before the Inbox, for each board in scope: `team_incoming` - work items that arrived (new in the main's tree, watch
+rule, hook, by hand). For each waiting one: `board_similar` on its title, then `team_propose_card` - LINK to the card it
+matches (cardId, with the evidence) or NEW, with a one-line reason. Features and Epics stay related items: propose no
+card for them. The user accepts in the lane; you never make the card or the link yourself.
+Then, while sorting the Inbox: a card that matches an open bug in the tracker (`team_search` with its words, types
+[Bug], openOnly) gets a link proposal - `team_link_card` without `askedIn` - and says so in its comment.

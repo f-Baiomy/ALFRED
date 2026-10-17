@@ -492,6 +492,18 @@ export async function cardByNumber(client: AlfredClient, project: string, number
   return client.get<CardRow>(`/board/cards/by-number/${seg(number)}`, { query: { project }, notFound: `No card #${number} on the ${project || 'No project'} board.` });
 }
 
+/** The user's cards: "me" is the token owner (or the person picked as "This is me") of the first connection that knows. */
+export async function myCards(client: AlfredClient): Promise<{ who: string; owned: CardRow[]; mentioning: CardRow[] }> {
+  const conns = await client.get<{ id: string }[]>('/teamboards/connections').catch(() => [] as { id: string }[]);
+  for (const c of conns) {
+    const me = await client.get<{ person: { extId: string | null; name: string } } | null>(`/teamboards/connections/${seg(c.id)}/me`).catch(() => null);
+    if (!me?.person?.extId) continue;
+    const r = await client.get<{ owned: CardRow[]; mentioning: CardRow[] }>(`/board/people/${seg(c.id)}/${seg(me.person.extId)}/cards`, { query: { limit: 200 } });
+    return { who: me.person.name, owned: r.owned, mentioning: r.mentioning };
+  }
+  throw invalid('Nobody is "me" yet - the user enters their token on the Team tab (or picks "This is me").');
+}
+
 export async function history(client: AlfredClient, cardId: string): Promise<ActivityRow[]> {
   const out: ActivityRow[] = [];
   for (;;) {
@@ -623,6 +635,7 @@ export function register(server: McpServer, client: AlfredClient): void {
       team: z.array(z.string()).optional().describe('Only cards of any of these team ids; "-" for cards with no team'),
       author: z.enum(['USER', 'CLAUDE']).optional(),
       mine: z.boolean().default(false).describe('Only cards Claude created or wrote on'),
+      me: z.boolean().default(false).describe('Only cards the user ("me" on the Team tab) owns or is mentioned on'),
       since: z.string().optional().describe('ISO time: only cards changed since'),
       offset: z.number().int().min(0).default(0),
       limit: z.number().int().min(1).max(200).default(50),
@@ -630,6 +643,11 @@ export function register(server: McpServer, client: AlfredClient): void {
     },
   }, (input) => run(async () => {
     const ctx = await maskContext(client, input.mask);
+    if (input.me) {
+      const mine = await myCards(client);
+      const keep = (c: CardRow) => (!input.project || c.project === input.project) && (!input.status?.length || input.status.includes(c.status as never));
+      return ok({ me: mine.who, owned: mine.owned.filter(keep).map(line), mentioning: mine.mentioning.filter(keep).map(line) });
+    }
     const page = await client.get<{ cards: SearchHit[]; total: number }>('/board/search', {
       query: { project: input.project, cycleId: input.cycleId, q: input.text, status: input.status?.join(','), kind: input.kind?.join(','),
         flag: input.flag?.join(','), team: input.team?.join(','), author: input.author, claudeTouched: input.mine || undefined,
@@ -672,9 +690,11 @@ export function register(server: McpServer, client: AlfredClient): void {
     }
     const mentions = [...seen.values()].map((m) => `${m.type} ${m.ref} - ${maskText(ctx, m.label)} → ${openWith(m.type, m.ref)}`);
     const shownMentions = mentions.slice(0, 40);
+    const owner = await client.get<{ owner: string | null }>(`/board/cards/${seg(card.id)}/owner`).then((o) => o.owner).catch(() => null);
     const head = {
       card: line(card),
       scope: card.scope,
+      ...(owner ? { owner: `${owner} - team_people id ${owner.slice(owner.indexOf('/') + 1)} names them` } : {}),
       ...(card.proposal ? { proposal: `${target(card.proposal)}: ${maskText(ctx, card.proposal.reason)}${card.proposal.evidence ? ` - ${maskText(ctx, card.proposal.evidence)}` : ''}` } : {}),
       description,
       links: (card.links ?? []).map((l) => `${l.type.toLowerCase()} ${l.ref} - ${maskText(ctx, l.label)}`),
@@ -1321,14 +1341,19 @@ export function register(server: McpServer, client: AlfredClient): void {
   }));
 
   server.registerTool('board_edit', {
-    description: 'Rewrite the title, description or kind of one of YOUR cards while it is still in the Inbox. After the user sorts it, comment instead.',
+    description: 'Rewrite the title, description, kind or owner of one of YOUR cards while it is still in the Inbox. After the user sorts it, comment instead. '
+      + 'owner: "<conn>/<person id>" from team_people, or "" for none.',
     inputSchema: {
       project: Project, number: CardNumber, title: z.string().min(1).max(300).optional(), description: z.string().max(256 * 1024).optional(),
-      kind: Kind.optional(),
+      kind: Kind.optional(), owner: z.string().max(300).optional(),
     },
   }, (input) => run(async () => {
-    if (input.title === undefined && input.description === undefined && input.kind === undefined) throw invalid('Nothing to change - give a title, description or kind.');
+    if (input.title === undefined && input.description === undefined && input.kind === undefined && input.owner === undefined) {
+      throw invalid('Nothing to change - give a title, description, kind or owner.');
+    }
     const card = await cardByNumber(client, input.project, input.number);
+    if (input.owner !== undefined) await client.put(`/board/cards/${seg(card.id)}/owner`, { ...AS_CLAUDE, body: { owner: input.owner || null } });
+    if (input.title === undefined && input.description === undefined && input.kind === undefined) return ok({ edited: line(card), owner: input.owner || 'none' });
     const w = writerFor(client, card);
     const description = input.description === undefined ? undefined : boardText(await w.text(input.description)).text;
     const updated = await client.patch<CardRow>(`/board/cards/${seg(card.id)}`, { ...AS_CLAUDE, body: { title: input.title, description, kind: input.kind } });

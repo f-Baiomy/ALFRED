@@ -2,7 +2,7 @@ import { CHAT_SKILLS, skillsMatching, slashSkill } from './chat-skills';
 
 describe('chat-skills', () => {
   it('offers every shipped skill but the two that run the chat', () => {
-    expect(CHAT_SKILLS).toHaveSize(14);
+    expect(CHAT_SKILLS).toHaveSize(15);
     expect(CHAT_SKILLS.some((s) => s.name === 'alfred-live' || s.name === 'alfred-listen')).toBeFalse();
   });
 

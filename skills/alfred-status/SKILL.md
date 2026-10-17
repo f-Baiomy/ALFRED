@@ -35,3 +35,9 @@ Next                    answer #11's question, then /alfred-sync
 
 Flag anything waiting on the user for more than a day. If the user's changes have no state comment yet, say
 "`/alfred-sync` will log them".
+
+## Team tracker (specs/028)
+
+Add, per board: Incoming waiting (`team_incoming`), bundles waiting for approval (they show on the cards -
+`team_card_items` / `board_get`), items CHANGED since their copy (`team_board_items`), and what is on the user:
+`team_search` with `mine: true`, openOnly. No token live: say "enter your token in the Team tab to see the tracker side".

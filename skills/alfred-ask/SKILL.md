@@ -28,3 +28,6 @@ editor, which shows your answer the moment you send it. Keep it fast - one answe
 
 When you cannot answer (no data, the question needs the app run), answer that in one sentence with what would let you
 answer - the user sees it in place.
+
+Work items asked about are read live (`team_item`, `team_search`); with TOKEN_MISSING answer "enter your token in the
+Team tab" - never ask for the token.

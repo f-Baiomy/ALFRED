@@ -110,3 +110,10 @@ Check lines the user's answers gave are proposed by `/alfred-sync` - offer it.
   <machine>)` - the runner's heartbeat is in Alfred. Listen's own live lane stands down while this runner answers,
   and takes over when it stops.
 - One runner per board: a second `start` on this machine only re-arms the watch; on another machine it is refused.
+
+## Team tracker in the chat (specs/028)
+
+"What's on me in Azure", "find the refund bugs": `team_search` (mine, text, filters) and answer with mentions. "Comment
+on AB#1234 …", "resolve it": `team_comment` / `team_move_state` - a bundle that waits for the user; reply that it is
+waiting on the card or board, never that it was sent. "Link this card to AB#…" asked in the message: `team_link_card`
+with `askedIn` = that message. "Open a board for AB#…": rules §4.
