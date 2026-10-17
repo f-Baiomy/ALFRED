@@ -23,6 +23,9 @@ function team(opts: { token?: boolean; conns?: unknown[] } = {}) {
   return (method: string, p: string[], _q: URLSearchParams, body?: any): [number, unknown?] | undefined => {
     const missing: [number, unknown] = [401, { error: 'TOKEN_MISSING', message: 'Enter your token in the Team tab' }];
     if (method === 'GET' && p[1] === 'connections' && p.length === 2) return [200, opts.conns ?? [CONN]];
+    if (method === 'GET' && p[3] === 'saved') {
+      return [200, [{ id: 5, name: 'My open bugs', lastCount: 7, query: { types: ['Bug'], assigned: ['me'], openOnly: true, show: 'ITEMS', tagsAll: true, tags: ['uat', 'refund'] } }]];
+    }
     if (method === 'POST' && p[3] === 'search' && body.show === 'TREE') {
       return [200, { items: [{ ...ROW, parent: '99' }], total: 1, fullText: true, page: 0, pageSize: 50, show: 'TREE',
         context: [{ ...ROW, id: '99', title: 'Refunds epic', type: 'Epic', parent: null, boards: [] }, { ...ROW, id: '1300', title: 'Fix it', type: 'Task', parent: '1234', boards: [] }],
@@ -91,6 +94,22 @@ test('team_search takes several values per filter and shows the tree with contex
     assert.match(r.json.tree[1], /^  1234 · Bug · "Refund fails"/);
     assert.doesNotMatch(r.json.tree[1], /\((parent|child)\)$/);
     assert.match(r.json.tree[2], /^    1300 · Task · "Fix it".*\(child\)$/);
+  } finally { await w.close(); }
+});
+
+test('team_saved lists the pills; team_search saved runs one, a filter beside it replacing that filter', async () => {
+  const w = await world();
+  try {
+    w.fake.team = team();
+    const l = await w.call('team_saved', {});
+    assert.deepEqual(l.json.saved, ['"My open bugs" (7 last time): type: Bug · assigned: me · tags: uat and refund']);
+    await w.call('team_search', { saved: 'my open BUGS', states: ['Active'] });
+    const req = w.fake.requests('POST', '/teamboards/connections/c1/search')[0];
+    assert.deepEqual([req.body.types, req.body.assigned, req.body.states, req.body.saved, req.body.tagsAll, req.body.show],
+      [['Bug'], ['me'], ['Active'], 5, true, 'ITEMS']);
+    const none = await w.call('team_search', { saved: 'nope' });
+    assert.ok(none.isError);
+    assert.match(none.json.message, /No saved search "nope" - saved: "My open bugs"/);
   } finally { await w.close(); }
 });
 

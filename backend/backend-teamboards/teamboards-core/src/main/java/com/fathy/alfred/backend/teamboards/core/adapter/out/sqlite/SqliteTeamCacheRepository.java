@@ -23,6 +23,7 @@ import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.SquadRow
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.StateRow;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.SyncRow;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.TypeKindRow;
+import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.SavedSearchRow;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.WatchRuleRow;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.WriteBundle;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.WriteState;
@@ -202,6 +203,10 @@ public class SqliteTeamCacheRepository implements TeamCachePort {
                   last_new INTEGER NOT NULL DEFAULT 0)""",
                 "CREATE INDEX IF NOT EXISTS idx_watch_rules_board ON watch_rules(board_id)",
                 """
+                CREATE TABLE IF NOT EXISTS saved_searches (id INTEGER PRIMARY KEY AUTOINCREMENT, conn TEXT NOT NULL, name TEXT NOT NULL,
+                  query_json TEXT NOT NULL, position INTEGER NOT NULL DEFAULT 0, last_count INTEGER, updated_at INTEGER NOT NULL)""",
+                "CREATE INDEX IF NOT EXISTS idx_saved_searches_conn ON saved_searches(conn, position)",
+                """
                 CREATE TABLE IF NOT EXISTS azure_writes (id INTEGER PRIMARY KEY AUTOINCREMENT, board_id TEXT, card_id TEXT, conn TEXT NOT NULL,
                   item TEXT, origin TEXT NOT NULL, asked_in TEXT, title TEXT NOT NULL, steps_json TEXT NOT NULL, state TEXT NOT NULL,
                   created_at INTEGER NOT NULL, decided_at INTEGER, decided_by TEXT)""",
@@ -295,7 +300,7 @@ public class SqliteTeamCacheRepository implements TeamCachePort {
         return Boolean.TRUE.equals(tx.execute(s -> {
             for (String table : List.of("people", "squads", "squad_members", "boards", "sprints", "item_states", "areas", "tags", "mappings", "field_maps",
                     "type_kind_map", "start_requests", "pending_attachments", "board_items", "item_copies", "item_syncs", "card_links", "incoming",
-                    "watch_rules", "hook_waiting")) {
+                    "watch_rules", "hook_waiting", "saved_searches")) {
                 jdbc.update("DELETE FROM " + table + " WHERE conn = ?", id);
             }
             jdbc.update("DELETE FROM azure_write_files WHERE write_id IN (SELECT id FROM azure_writes WHERE conn = ?)", id);
@@ -827,6 +832,66 @@ public class SqliteTeamCacheRepository implements TeamCachePort {
                 r.boardId(), r.conn(), r.item(), r.source().name(), millis(r.arrivedAt()), r.rev(), r.type(), r.title(), r.matchCard(), r.matchScore(),
                 r.proposalAction(), r.proposalCard(), r.proposalReason(), r.state().name(), r.ignoredRev(),
                 r.state() == IncomingState.WAITING ? null : System.currentTimeMillis());
+    }
+
+    // --------------------------------------------------------------------------------------------- saved searches
+
+    private static final String SAVED = "SELECT id, conn, name, query_json, position, last_count, updated_at FROM saved_searches";
+
+    private final RowMapper<SavedSearchRow> savedRow = (rs, n) -> new SavedSearchRow(rs.getLong(1), rs.getString(2), rs.getString(3),
+            rs.getString(4), rs.getInt(5), rs.getObject(6) == null ? null : rs.getInt(6), instant(rs, 7));
+
+    @Override
+    public List<SavedSearchRow> savedSearches(String conn) {
+        return jdbc.query(SAVED + " WHERE conn = ? ORDER BY position, id", savedRow, conn);
+    }
+
+    @Override
+    public Optional<SavedSearchRow> savedSearch(long id) {
+        return jdbc.query(SAVED + " WHERE id = ?", savedRow, id).stream().findFirst();
+    }
+
+    @Override
+    public SavedSearchRow putSavedSearch(SavedSearchRow r) {
+        long at = (r.updatedAt() == null ? Instant.now() : r.updatedAt()).toEpochMilli();
+        if (r.id() > 0) {
+            jdbc.update("UPDATE saved_searches SET name = ?, query_json = ?, position = ?, last_count = ?, updated_at = ? WHERE id = ?",
+                    r.name(), r.queryJson(), r.position(), r.lastCount(), at, r.id());
+            return savedSearch(r.id()).orElse(r);
+        }
+        GeneratedKeyHolder keys = new GeneratedKeyHolder();
+        jdbc.update(c -> {
+            PreparedStatement ps = c.prepareStatement("INSERT INTO saved_searches(conn, name, query_json, position, last_count, updated_at) "
+                    + "VALUES (?,?,?,?,?,?)", Statement.RETURN_GENERATED_KEYS);
+            ps.setString(1, r.conn());
+            ps.setString(2, r.name());
+            ps.setString(3, r.queryJson());
+            ps.setInt(4, r.position());
+            ps.setObject(5, r.lastCount());
+            ps.setLong(6, at);
+            return ps;
+        }, keys);
+        Number k = keys.getKey();
+        return savedSearch(k == null ? 0 : k.longValue()).orElse(r);
+    }
+
+    @Override
+    public boolean deleteSavedSearch(long id) {
+        return jdbc.update("DELETE FROM saved_searches WHERE id = ?", id) > 0;
+    }
+
+    @Override
+    public void orderSavedSearches(String conn, List<Long> ids) {
+        tx.executeWithoutResult(s -> {
+            for (int i = 0; i < ids.size(); i++) {
+                jdbc.update("UPDATE saved_searches SET position = ? WHERE id = ? AND conn = ?", i, ids.get(i), conn);
+            }
+        });
+    }
+
+    @Override
+    public void countSavedSearch(long id, int count) {
+        jdbc.update("UPDATE saved_searches SET last_count = ? WHERE id = ?", count, id);
     }
 
     // ------------------------------------------------------------------------------------------------- watch rules

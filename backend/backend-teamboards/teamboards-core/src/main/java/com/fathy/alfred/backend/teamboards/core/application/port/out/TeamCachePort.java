@@ -17,6 +17,7 @@ import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.SquadRow
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.StateRow;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.SyncRow;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.TypeKindRow;
+import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.SavedSearchRow;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.WatchRuleRow;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.WriteBundle;
 import com.fathy.alfred.backend.teamboards.spi.model.Scope;
@@ -94,6 +95,22 @@ public interface TeamCachePort {
     List<String> areas(String conn);
 
     void replaceTags(String conn, List<String> tags);
+
+    // saved searches (specs/029)
+
+    List<SavedSearchRow> savedSearches(String conn);
+
+    Optional<SavedSearchRow> savedSearch(long id);
+
+    /** Inserts (id 0) or updates; the row as stored. */
+    SavedSearchRow putSavedSearch(SavedSearchRow r);
+
+    boolean deleteSavedSearch(long id);
+
+    /** The pills' order: these ids get positions 0, 1, 2... */
+    void orderSavedSearches(String conn, List<Long> ids);
+
+    void countSavedSearch(long id, int count);
 
     List<String> tags(String conn);
 

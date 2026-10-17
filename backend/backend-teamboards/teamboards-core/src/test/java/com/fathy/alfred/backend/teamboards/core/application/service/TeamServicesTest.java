@@ -9,6 +9,7 @@ import com.fathy.alfred.backend.teamboards.core.application.port.in.TeamExceptio
 import com.fathy.alfred.backend.teamboards.core.application.port.in.TeamSearchUseCase.Part;
 import com.fathy.alfred.backend.teamboards.core.application.port.in.TeamSearchUseCase.SearchIn;
 import com.fathy.alfred.backend.teamboards.core.application.port.in.TeamSearchUseCase.Show;
+import com.fathy.alfred.backend.teamboards.core.application.port.in.SavedSearchesUseCase;
 import com.fathy.alfred.backend.teamboards.core.application.port.out.TeamBoardsPort.CardInfo;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.BoardItemRow;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.IncomingRow;
@@ -62,7 +63,7 @@ class TeamServicesTest {
     }
 
     static SearchIn text(String t) {
-        return new SearchIn(t, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 0, 50, null, null);
+        return new SearchIn(t, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 0, 50, null, null, null);
     }
 
     // ------------------------------------------------------------------------------------------------------- token
@@ -515,7 +516,8 @@ class TeamServicesTest {
 
     static SearchIn show(SearchIn in, Show s, Integer depth) {
         return new SearchIn(in.text(), in.types(), in.states(), in.openOnly(), in.areas(), in.areaExact(), in.teams(), in.iterations(), in.assigned(),
-                in.createdBy(), in.changedWithinDays(), in.tags(), in.tagsAll(), in.parents(), in.mine(), in.sort(), in.page(), in.pageSize(), s, depth);
+                in.createdBy(), in.changedWithinDays(), in.tags(), in.tagsAll(), in.parents(), in.mine(), in.sort(), in.page(), in.pageSize(), s, depth,
+                in.saved());
     }
 
     /** A saved watch rule written before specs/029 (one person, "parent") still reads. */
@@ -526,5 +528,40 @@ class TeamServicesTest {
         assertThat(in.assigned()).containsExactly("me");
         assertThat(in.createdBy()).containsExactly("sara@example.com");
         assertThat(in.parents()).containsExactly("7");
+    }
+
+    // ------------------------------------------------------------------------------------------ 029 saved searches
+
+    /** Saved under a unique name, kept as page 1, ordered, renamed, counted when run, deleted - and never by Claude. */
+    @Test
+    void savedSearchesAreTheUsersAndCountWhenRun() {
+        f.withToken();
+        SearchIn bugs = show(text("refund"), Show.TREE, 0).page(3, 20);
+        var a = f.saved.create(Who.USER, CONN, "  My   open bugs ", bugs);
+        assertThat(a.name()).isEqualTo("My open bugs");
+        assertThat(a.query().page()).isZero();
+        assertThat(a.query().show()).isEqualTo(Show.TREE);
+        assertThat(a.lastCount()).isNull();
+        assertThatThrownBy(() -> f.saved.create(Who.USER, CONN, "my OPEN bugs", bugs)).extracting(e -> ((TeamException) e).code()).isEqualTo(Code.CONFLICT);
+        assertThatThrownBy(() -> f.saved.create(Who.CLAUDE, CONN, "Claude's", bugs)).extracting(e -> ((TeamException) e).code())
+                .isEqualTo(Code.USER_ONLY);
+        var b = f.saved.create(Who.USER, CONN, "Sprint", text(null));
+        assertThat(f.saved.list(CONN)).extracting(SavedSearchesUseCase.Saved::name).containsExactly("My open bugs", "Sprint");
+
+        assertThat(f.saved.move(Who.USER, b.id(), -1)).extracting(SavedSearchesUseCase.Saved::name).containsExactly("Sprint", "My open bugs");
+        f.search.search(CONN, text("refund").saved(a.id()));
+        assertThat(f.saved.get(a.id()).lastCount()).isNotNull();
+        var renamed = f.saved.update(Who.USER, a.id(), "Refunds", null);
+        assertThat(renamed.lastCount()).isNotNull(); // a new name keeps the count; a new search clears it
+        assertThat(f.saved.update(Who.USER, a.id(), null, text("void")).lastCount()).isNull();
+        assertThat(signalsInclude("saved")).isTrue();
+
+        assertThatThrownBy(() -> f.saved.delete(Who.CLAUDE, a.id())).isInstanceOf(TeamException.class);
+        assertThat(f.saved.delete(Who.USER, a.id())).isTrue();
+        assertThat(f.saved.list(CONN)).extracting(SavedSearchesUseCase.Saved::name).containsExactly("Sprint");
+    }
+
+    private boolean signalsInclude(String what) {
+        return f.signals.contains(what);
     }
 }

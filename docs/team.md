@@ -71,6 +71,17 @@ relations, one batch per level, never stored. They come back as `context` (rows 
 (`contextLeftOut` counts the rest); the table draws the tree (matches bold, context dimmed and tagged parent/child,
 branches fold) and `team_search` answers it as indented lines. The choice is remembered per browser.
 
+**Saved searches** (`GET/POST .../connections/{id}/saved`, `PATCH/DELETE /teamboards/saved/{sid}`, `POST .../saved/{sid}/move`;
+`saved_searches` in teamboards.db, per connection, at most 50): a search - text, every filter with its modes, Open only,
+sort and Show, always page 1 - kept under a unique name and shown as a pill above the results. One click fills the form
+and runs it (the search names it as `saved`, so the pill keeps the last count); ⋯ edits (the pill turns dashed amber,
+*Save changes* / *Save as new*), renames, moves left/right or deletes it. A search changed after its pill ran shows a dot
+and *Save changes*. "The same search" is `searchKey` (values in any order; page, Show and the id do not count). Every
+browser sees the same pills, read again on the `saved` signal. Only the user saves, changes, moves or deletes one;
+Claude lists them (`team_saved`) and runs one (`team_search saved: "<name>"`, a filter given beside it replacing that
+filter). While a search reads Azure for more than 150 ms the table shows eight skeleton rows in its own shape (indented
+in tree mode), still with "reduce motion".
+
 **Lists** (`GET .../lists`): types, states with categories, areas, teams with members, iterations, people, tags, the
 tracker's boards - read in the background when the tab opens and they are older than 10 minutes (or on ↻ Refresh
 lists). They feed the filters, the person pills (a person is named, never a raw id) and the browsers - a team, a member

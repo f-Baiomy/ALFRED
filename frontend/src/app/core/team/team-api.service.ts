@@ -5,7 +5,7 @@ import { AppConfigService } from '../services/app-config.service';
 import { reconnectingSocket } from '../state/reconnecting-socket';
 import {
   BoardItemsView, CardItem, ConnectorInfo, HookInfo, IncomingRow, MainSummary, MappingKind, Markers, MineView, PersonCard, SearchResult,
-  SeedTarget, StartAnswer, StartWaiting, StartTarget, SyncRow, TeamConnection, TeamFieldMap, TeamItemView, TeamLists, TeamMapping, TeamMe, TeamPerson,
+  SeedTarget, SavedSearch, StartAnswer, StartWaiting, StartTarget, SyncRow, TeamConnection, TeamFieldMap, TeamItemView, TeamLists, TeamMapping, TeamMe, TeamPerson,
   TeamScope, TeamSearch, TeamSocketEvent, TeamSprint, TeamSquad, TeamBoard, TokenStatus, TypeKind, WatchRule, WriteBundle, WriteStep,
 } from './team.models';
 
@@ -339,6 +339,28 @@ export class TeamApiService {
   /** The user's Start: 202 WAITING, 409 NEEDS_TARGET / ALREADY_STARTED. The live token also fetches the attachments. */
   start(conn: string, extId: string, target: StartTarget | null): Observable<StartAnswer> {
     return this.http.post<StartAnswer>(`${this.base}/items/${e(conn)}/${e(extId)}/start`, { target });
+  }
+
+  // ------------------------------------------------------------------------------------------ saved searches (029)
+
+  savedSearches(conn: string): Observable<SavedSearch[]> {
+    return this.http.get<SavedSearch[]>(`${this.base}/connections/${e(conn)}/saved`);
+  }
+
+  createSaved(conn: string, name: string, query: TeamSearch): Observable<SavedSearch> {
+    return this.http.post<SavedSearch>(`${this.base}/connections/${e(conn)}/saved`, { name, query });
+  }
+
+  updateSaved(id: number, body: { name?: string; query?: TeamSearch }): Observable<SavedSearch> {
+    return this.http.patch<SavedSearch>(`${this.base}/saved/${id}`, body);
+  }
+
+  moveSaved(id: number, by: -1 | 1): Observable<SavedSearch[]> {
+    return this.http.post<SavedSearch[]>(`${this.base}/saved/${id}/move`, { by });
+  }
+
+  deleteSaved(id: number): Observable<void> {
+    return this.http.delete<void>(`${this.base}/saved/${id}`);
   }
 
   /** The start waiting for this item, or null (204). */

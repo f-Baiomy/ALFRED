@@ -227,7 +227,13 @@ export class TeamStartButtonComponent {
         this.where.set(null);
         this.changed.emit();
       },
-      error: (e) => this.say(e?.error?.message || 'Nothing is waiting any more - it may have started', true),
+      error: (e) => {
+        this.say(e?.error?.message || 'Nothing is waiting any more - it may have started', true);
+        // the screen was behind: read what is true now (answered, taken, or cancelled elsewhere)
+        this.started.set(null);
+        this.readWaiting(this.conn(), i.extId);
+        this.changed.emit();
+      },
     });
   }
 

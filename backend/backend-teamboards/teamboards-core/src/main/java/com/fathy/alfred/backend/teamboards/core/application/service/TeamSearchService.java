@@ -1,5 +1,6 @@
 package com.fathy.alfred.backend.teamboards.core.application.service;
 
+import com.fathy.alfred.backend.teamboards.core.application.port.in.SavedSearchesUseCase;
 import com.fathy.alfred.backend.teamboards.core.application.port.in.TeamException;
 import com.fathy.alfred.backend.teamboards.core.application.port.in.TeamException.Code;
 import com.fathy.alfred.backend.teamboards.core.application.port.in.TeamSearchUseCase;
@@ -52,12 +53,15 @@ public class TeamSearchService implements TeamSearchUseCase {
     private final TeamCachePort cache;
     private final TeamUseCase team;
     private final ObjectProvider<TeamBoardsPort> boards;
+    private final ObjectProvider<SavedSearchesUseCase> saved;
 
-    public TeamSearchService(Live live, TeamCachePort cache, TeamUseCase team, ObjectProvider<TeamBoardsPort> boards) {
+    public TeamSearchService(Live live, TeamCachePort cache, TeamUseCase team, ObjectProvider<TeamBoardsPort> boards,
+                             ObjectProvider<SavedSearchesUseCase> saved) {
         this.live = live;
         this.cache = cache;
         this.team = team;
         this.boards = boards;
+        this.saved = saved;
     }
 
     static List<String> clean(List<String> in, int max) {
@@ -123,6 +127,12 @@ public class TeamSearchService implements TeamSearchUseCase {
         ItemQuery q = query(conn, in);
         ItemSearcher s = live.cap(c, ItemSearcher.class, "search");
         ItemPage page = live.call(c, () -> s.search(c.connection(), c.token(), q));
+        if (in != null && in.saved() != null) {
+            SavedSearchesUseCase saved = this.saved.getIfAvailable();
+            if (saved != null) {
+                saved.counted(in.saved(), page.total());
+            }
+        }
         Show show = in == null || in.show() == null ? Show.ITEMS : in.show();
         List<SearchRow> rows = rows(conn, page.items());
         if (show == Show.ITEMS || page.items().isEmpty()) {

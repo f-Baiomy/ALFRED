@@ -50,6 +50,7 @@ final class TeamFixture {
     final StartService starts;
     final SeedBuilder seeds;
     final TeamTransferService transfer;
+    final SavedSearchesService saved;
 
     TeamFixture(Path dir) {
         cache = new SqliteTeamCacheRepository(dir.resolve("teamboards.db"));
@@ -67,7 +68,9 @@ final class TeamFixture {
         };
         beans.addBean("boards", boards);
         team = new TeamService(live, cache, sig, provider(HookUseCase.class));
-        search = new TeamSearchService(live, cache, team, provider(TeamBoardsPort.class));
+        search = new TeamSearchService(live, cache, team, provider(TeamBoardsPort.class),
+                provider(com.fathy.alfred.backend.teamboards.core.application.port.in.SavedSearchesUseCase.class));
+        saved = new SavedSearchesService(cache, sig, live);
         writes = new AzureWritesService(live, cache, sig, provider(TeamBoardsPort.class), provider(CardItemsUseCase.class),
                 provider(BoardItemsUseCase.class));
         Executor now = Runnable::run;
@@ -90,6 +93,7 @@ final class TeamFixture {
         beans.addBean("incoming", incoming);
         beans.addBean("rules", rules);
         beans.addBean("hook", hook);
+        beans.addBean("saved", saved);
         cache.putConnection(new StoredConnection(CONN, "fake", "Fake", "https://t", new Scope(List.of(), List.of()), null, Instant.now()));
     }
 

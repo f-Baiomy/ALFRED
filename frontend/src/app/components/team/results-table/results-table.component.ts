@@ -88,7 +88,28 @@ export function treeLines(r: SearchResult, folded: ReadonlySet<string>): TreeLin
   standalone: true,
   imports: [PersonPillComponent],
   template: `
-    @if (result(); as r) {
+    @if (loading()) {
+      <div class="trt-head" role="status"><span class="trt-searching">Searching</span></div>
+      <table class="trt" aria-busy="true">
+        <thead><tr><th>Id</th><th>Type</th><th>Title</th><th>State</th><th>Assigned</th><th>{{ state.ui().word('sprint') }}</th><th>Changed</th><th>In Alfred</th><th></th></tr></thead>
+        <tbody>
+          @for (w of skeleton; track $index) {
+            <tr class="trt-sk" aria-hidden="true">
+              <td><span class="sk" [style.width.px]="w[0]"></span></td>
+              <td><span class="sk" [style.width.px]="w[1]"></span></td>
+              <td><span class="sk-in" [style.width.rem]="show() === 'ITEMS' ? 0 : w[7] * 1.15"></span><span class="sk sk-t" [style.width.px]="w[2] * 3.4"></span></td>
+              <td><span class="sk sk-box" [style.width.px]="w[3]"></span></td>
+              <td><span class="sk sk-round" [style.width.px]="w[4]"></span></td>
+              <td><span class="sk" [style.width.%]="w[5]"></span></td>
+              <td><span class="sk" [style.width.px]="w[6]"></span></td>
+              <td></td>
+              <td><span class="sk sk-box" style="width: 44px"></span></td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    } @else if (result()) {
+      @let r = result()!;
       <div class="trt-head">
         <span>{{ r.total }} found{{ r.total > r.items.length ? ' · page ' + (r.page + 1) + ' of ' + pages(r) : '' }}</span>
         @if (!r.fullText) { <span class="trt-warn" title="This tracker has no full-text search (Search is off for the organisation)">titles only</span> }
@@ -179,6 +200,24 @@ export function treeLines(r: SearchResult, folded: ReadonlySet<string>): TreeLin
     .trt tr.closed td { opacity: .6; }
     .trt-id { font-variant-numeric: tabular-nums; color: var(--text-dim); }
     .trt-title { max-width: 520px; }
+    /* the loading skeleton: grey bars in the table's own shape, a soft sheen passing over each row a little later */
+    .trt-searching::after { content: '…'; }
+    .trt-sk td { height: 2.2rem; border-bottom-color: color-mix(in srgb, var(--border) 50%, transparent); }
+    .trt-sk td:nth-child(3) { min-width: 240px; white-space: nowrap; }
+    .trt-sk td:nth-child(3) .sk-t { max-width: calc(100% - 2.5rem); }
+    .sk { display: inline-block; height: .7rem; border-radius: 4px; background: rgba(255,255,255,.06); position: relative; overflow: hidden; vertical-align: middle; }
+    .sk::after { content: ''; position: absolute; inset: 0; transform: translateX(-100%);
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,.11), transparent); animation: trt-sheen 1.3s ease-in-out infinite; }
+    .sk-t { height: .75rem; }
+    .sk-box { height: 1rem; }
+    .sk-round { height: 1.15rem; border-radius: 999px; }
+    .sk-in { display: inline-block; }
+    .trt-sk:nth-child(2) .sk::after { animation-delay: .08s; } .trt-sk:nth-child(3) .sk::after { animation-delay: .16s; }
+    .trt-sk:nth-child(4) .sk::after { animation-delay: .24s; } .trt-sk:nth-child(5) .sk::after { animation-delay: .32s; }
+    .trt-sk:nth-child(6) .sk::after { animation-delay: .4s; } .trt-sk:nth-child(7) .sk::after { animation-delay: .48s; }
+    .trt-sk:nth-child(8) .sk::after { animation-delay: .56s; }
+    @keyframes trt-sheen { to { transform: translateX(100%); } }
+    @media (prefers-reduced-motion: reduce) { .sk::after { animation: none; } }
     .trt-show-l { color: var(--text-faint); font-size: .74rem; }
     .trt-seg { display: inline-flex; border: 1px solid var(--border-strong); border-radius: 7px; overflow: hidden; }
     .trt-seg button { border: 0; border-right: 1px solid var(--border); background: none; color: var(--text-dim); font-size: .74rem; padding: .18rem .55rem; cursor: pointer; }
@@ -220,6 +259,12 @@ export class TeamResultsTableComponent {
   readonly show = input<ShowMode>('ITEMS');
   readonly childDepth = input<number>(1);
   readonly showChange = output<ShowMode>();
+  /** Azure is being read: skeleton rows instead of the (older) result. */
+  readonly loading = input(false);
+  /** Bar widths per skeleton row: id, type, title %, state, person, iteration %, age, tree depth. */
+  readonly skeleton: readonly (readonly number[])[] = [[46, 40, 78, 44, 92, 70, 26, 0], [46, 34, 62, 52, 80, 74, 26, 1], [46, 40, 88, 40, 96, 62, 22, 2],
+    [46, 30, 55, 48, 76, 70, 26, 2], [46, 40, 72, 44, 88, 66, 22, 0], [46, 34, 66, 52, 84, 70, 26, 1], [46, 40, 80, 40, 92, 58, 22, 2],
+    [46, 30, 58, 48, 80, 70, 26, 1]];
   readonly depthChange = output<number>();
   readonly opened = output<SearchRow>();
   readonly page = output<number>();

@@ -2,13 +2,14 @@ import { Component, computed, effect, inject, signal, untracked } from '@angular
 import { ActivatedRoute } from '@angular/router';
 import { TeamApiService } from '../../core/team/team-api.service';
 import { TeamStateService } from '../../core/team/team-state.service';
-import { MineView, SearchResult, SearchRow, ShowMode, TeamSearch } from '../../core/team/team.models';
+import { MineView, SavedSearch, SearchResult, SearchRow, ShowMode, TeamSearch, searchKey } from '../../core/team/team.models';
 import { ConnectionSwitcherComponent } from '../../components/team/connection-switcher/connection-switcher.component';
 import { TeamSearchFormComponent } from '../../components/team/search-form/search-form.component';
 import { RowAction, TeamResultsTableComponent } from '../../components/team/results-table/results-table.component';
 import { TeamItemDrawerComponent } from '../../components/team/item-drawer/item-drawer.component';
 import { TeamBoardsSprintsComponent } from '../../components/team/boards-sprints/boards-sprints.component';
 import { TeamSquadsComponent } from '../../components/team/squads/squads.component';
+import { TeamSavedSearchesComponent } from '../../components/team/saved-searches/saved-searches.component';
 import { PickedTarget, TeamBoardPickerComponent } from '../../components/team/board-picker/board-picker.component';
 
 type View = 'search' | 'mine' | 'teams' | 'iterations';
@@ -41,7 +42,7 @@ const PICKER: Record<Exclude<RowAction, 'START'>, { title: string; action: strin
   selector: 'app-team-page',
   standalone: true,
   imports: [ConnectionSwitcherComponent, TeamSearchFormComponent, TeamResultsTableComponent, TeamItemDrawerComponent, TeamBoardsSprintsComponent,
-    TeamSquadsComponent, TeamBoardPickerComponent],
+    TeamSquadsComponent, TeamBoardPickerComponent, TeamSavedSearchesComponent],
   template: `
     <div class="team-page">
       <app-connection-switcher />
@@ -58,9 +59,12 @@ const PICKER: Record<Exclude<RowAction, 'START'>, { title: string; action: strin
         @if (note()) { <div class="team-note" [class.err]="noteErr()" role="status">{{ note() }} <button type="button" class="team-x" (click)="note.set(null)">✕</button></div> }
         @switch (view()) {
           @case ('search') {
-            <app-team-search-form [preset]="preset()" [busy]="searching()" (search)="run($event)" />
+            <app-team-search-form [preset]="preset()" [busy]="searching()" (search)="run($event)" (saveAsked)="pills.openSave()" />
+            <app-team-saved-searches #pills [conn]="c.id" [current]="current()" [lit]="lit()" [editing]="editing()" [changed]="litChanged()"
+                                     (run)="runSaved($event)" (edit)="editSaved($event)" (created)="savedNow($event)" (updated)="savedNow($event)"
+                                     (cancelEdit)="editing.set(null)" />
             @if (searchError()) { <div class="team-err" role="alert">{{ searchError() }}</div> }
-            <app-team-results-table [result]="result()" [openOnly]="last()?.openOnly ?? true" [show]="showMode()" [childDepth]="childDepth()"
+            <app-team-results-table [result]="result()" [loading]="skeleton()" [openOnly]="last()?.openOnly ?? true" [show]="showMode()" [childDepth]="childDepth()"
                                     (showChange)="setShow($event)" (depthChange)="setDepth($event)" (opened)="open($event.id)" (page)="page($event)"
                                     (action)="act($event.action, $event.row.id)" />
           }
@@ -120,6 +124,21 @@ export class TeamPageComponent {
   readonly preset = signal<TeamSearch | null>(null);
   readonly last = signal<TeamSearch | null>(null);
   readonly result = signal<SearchResult | null>(null);
+  /** Skeleton rows: only once a search has taken longer than 150 ms, so a fast one never flashes. */
+  readonly skeleton = signal(false);
+  private skeletonTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The saved search on screen (its pill lit), the one being edited, and its query as saved. */
+  readonly lit = signal<number | null>(null);
+  readonly editing = signal<number | null>(null);
+  private readonly litQuery = signal<TeamSearch | null>(null);
+  readonly litChanged = computed(() => this.lit() !== null && !!this.last() && searchKey(this.last()) !== searchKey(this.litQuery()));
+  /** What ☆ Save / Save changes keeps: the search on screen with its Show. */
+  readonly current = computed<TeamSearch | null>(() => {
+    const s = this.last();
+    if (!s) return null;
+    const { page: _p, saved: _s, ...rest } = s;
+    return { ...rest, show: this.showMode(), childDepth: this.childDepth() };
+  });
   readonly showMode = signal<ShowMode>(remembered().show);
   readonly childDepth = signal<number>(remembered().depth);
   readonly searching = signal(false);
@@ -187,15 +206,24 @@ export class TeamPageComponent {
     this.searching.set(true);
     this.searchError.set(null);
     const mine = ++this.asked;
-    this.api.search(c.id, { ...s, show: this.showMode(), childDepth: this.childDepth() }).subscribe({
+    if (this.skeletonTimer) clearTimeout(this.skeletonTimer);
+    this.skeletonTimer = setTimeout(() => this.skeleton.set(this.searching()), 150);
+    const done = () => {
+      this.searching.set(false);
+      this.skeleton.set(false);
+      if (this.skeletonTimer) clearTimeout(this.skeletonTimer);
+    };
+    // the lit pill's own search keeps its count
+    const saved = this.lit() !== null && searchKey(s) === searchKey(this.litQuery()) ? this.lit() : null;
+    this.api.search(c.id, { ...s, show: this.showMode(), childDepth: this.childDepth(), saved }).subscribe({
       next: (r) => {
         if (mine !== this.asked) return; // a newer search (or another connection) went out since
-        this.searching.set(false);
+        done();
         this.result.set(r);
       },
       error: (e) => {
         if (mine !== this.asked) return;
-        this.searching.set(false);
+        done();
         this.searchError.set(e?.error?.message || 'The search failed');
       },
     });
@@ -207,6 +235,29 @@ export class TeamPageComponent {
     if (/^(AB#)?\d+$/i.test(t)) return t.replace(/^AB#/i, '');
     const m = /\/_workitems\/edit\/(\d+)/.exec(t) ?? /[?&]workitem=(\d+)/i.exec(t);
     return m ? m[1] : null;
+  }
+
+  /** A pill clicked: its search fills the form and runs, with its Show. */
+  runSaved(s: SavedSearch): void {
+    this.lit.set(s.id);
+    this.litQuery.set(s.query);
+    this.editing.set(null);
+    if (s.query.show) this.showMode.set(s.query.show);
+    if (s.query.childDepth !== undefined && s.query.childDepth !== null) this.childDepth.set(s.query.childDepth);
+    this.remember();
+    this.preset.set({ ...s.query });
+  }
+
+  editSaved(s: SavedSearch): void {
+    this.runSaved(s);
+    this.editing.set(s.id);
+  }
+
+  /** Saved (new, or changes): its pill is lit and matches the screen. */
+  savedNow(s: SavedSearch): void {
+    this.lit.set(s.id);
+    this.litQuery.set(s.query);
+    this.editing.set(null);
   }
 
   setShow(m: ShowMode): void {

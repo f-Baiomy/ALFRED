@@ -131,6 +131,34 @@ export interface TeamSearch {
   show?: ShowMode;
   /** 1 (default) or 0 for every level - with show TREE. */
   childDepth?: number;
+  /** The saved search this run is: its pill keeps the count. */
+  saved?: number | null;
+}
+
+/** A saved search (specs/029): a pill above the results; one click runs it. */
+export interface SavedSearch {
+  readonly id: number;
+  readonly conn: string;
+  readonly name: string;
+  readonly query: TeamSearch;
+  readonly position: number;
+  /** Matches the last time it ran; null: never ran. */
+  readonly lastCount: number | null;
+  readonly updatedAt: string | null;
+}
+
+/**
+ * What makes two searches the same search: text, filters with their values (any order), modes, Open only and sort -
+ * not the page, the page size, Show or the saved id. Empty and missing are the same.
+ */
+export function searchKey(raw: TeamSearch | null | undefined): string {
+  const q = normalizeSearch((raw ?? {}) as TeamSearch);
+  const list = (v: readonly string[] | undefined) => [...(v ?? [])].sort();
+  return JSON.stringify({
+    text: (q.text ?? '').trim(), types: list(q.types), states: list(q.states), openOnly: q.openOnly ?? true, areas: list(q.areas),
+    areaExact: !!q.areaExact, teams: list(q.teams), iterations: list(q.iterations), assigned: list(q.assigned), createdBy: list(q.createdBy),
+    changed: q.changedWithinDays ?? null, tags: list(q.tags), tagsAll: !!q.tagsAll, parents: list(q.parents), mine: list(q.mine), sort: q.sort ?? 'CHANGED',
+  });
 }
 
 /** A saved search may be older than specs/029: one person as a string, `parent` for `parents`. */

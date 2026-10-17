@@ -59,6 +59,19 @@ describe('TeamResultsTableComponent (specs/028 US1)', () => {
     expect(opened).toEqual([]);
   });
 
+  it('while Azure is read, skeleton rows stand in for the results (specs/029)', () => {
+    const { f, el } = setUp({ items: [ROW], total: 1, fullText: true, page: 0, pageSize: 50 });
+    f.componentRef.setInput('loading', true);
+    f.detectChanges();
+    expect(el.querySelectorAll('tr.trt-sk').length).toBe(8);
+    expect(el.querySelector('table')?.getAttribute('aria-busy')).toBe('true');
+    expect(el.textContent).not.toContain('Refund fails');
+    f.componentRef.setInput('loading', false);
+    f.detectChanges();
+    expect(el.querySelectorAll('tr.trt-sk').length).toBe(0);
+    expect(el.textContent).toContain('Refund fails');
+  });
+
   describe('tree (specs/029)', () => {
     const r = (id: string, parent: string | null, title = 'Item ' + id): SearchRow => ({ ...ROW, id, parent, title, boards: [] });
     // matches 62123 and 59851; 61800/61000 are parents, 61814 a child of 61813 (a match too)

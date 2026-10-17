@@ -175,6 +175,10 @@ public final class TeamModels {
     }
 
     /** A board's watch rule: a saved search body, run on board open, Refresh, hook ping and the MCP. */
+    /** A saved search of one connection (specs/029); {@code position}: its place among the pills. */
+    public record SavedSearchRow(long id, String conn, String name, String queryJson, int position, Integer lastCount, Instant updatedAt) {
+    }
+
     public record WatchRuleRow(long id, String boardId, String conn, String name, String queryJson, Instant createdAt, Instant lastRunAt,
                                String lastSource, int lastNew) {
     }

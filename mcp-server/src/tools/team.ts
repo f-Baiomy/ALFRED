@@ -263,12 +263,44 @@ const SearchFilters = {
   show: z.enum(['items', 'parents', 'tree']).default('items')
     .describe('items: the matches; parents: each under its parent chain; tree: parents and children (context items are marked)'),
   childDepth: z.number().int().min(0).max(1).default(1).describe('With show tree: 1 = one level of children, 0 = every level'),
+  saved: z.string().min(1).max(80).optional()
+    .describe('Run a saved search by its name (team_saved lists them); a filter given beside it replaces that filter of the saved one'),
   mine: z.union([z.boolean(), z.array(z.enum(['ASSIGNED', 'CREATED', 'CHANGED', 'MENTIONED', 'FOLLOWED']))]).optional()
     .describe('true: assigned to, created by, changed by, mentioning or followed by "me"; or a list of those sources'),
   sort: z.enum(['CHANGED', 'ID', 'PRIORITY']).default('CHANGED'),
   page: z.number().int().min(0).default(0),
   pageSize: z.number().int().min(1).max(50).default(50),
 };
+
+interface SavedRow { readonly id: number; readonly name: string; readonly query: Record<string, unknown>; readonly lastCount: number | null }
+
+/** team_search's defaults: left as they are beside a saved search's name, they do not replace its own. */
+const SEARCH_DEFAULTS: Record<string, unknown> = { openOnly: true, areaExact: false, tagsAll: false, sort: 'CHANGED', page: 0, pageSize: 50,
+  childDepth: 1, show: 'ITEMS' };
+
+/** A saved search in one line: its filters as the Team tab's chips say them. */
+export function savedLine(s: SavedRow): string {
+  const q = s.query;
+  const parts: string[] = [];
+  const add = (label: string, v: unknown, join = ' or ') => {
+    const a = Array.isArray(v) ? v : typeof v === 'string' && v ? [v] : [];
+    if (a.length) parts.push(`${label}: ${a.join(join)}`);
+  };
+  if (typeof q['text'] === 'string' && q['text']) parts.push(`"${q['text']}"`);
+  add('type', q['types']);
+  add('state', q['states']);
+  add('team', q['teams']);
+  add('iteration', q['iterations']);
+  add(q['areaExact'] ? 'area (only)' : 'area', q['areas']);
+  add('assigned', q['assigned']);
+  add('created by', q['createdBy']);
+  add('tags', q['tags'], q['tagsAll'] ? ' and ' : ' or ');
+  add('under', q['parents']);
+  if (q['changedWithinDays']) parts.push(`changed in ${q['changedWithinDays']} d`);
+  if (q['openOnly'] === false) parts.push('closed too');
+  if (q['show'] && q['show'] !== 'ITEMS') parts.push(`show ${String(q['show']).toLowerCase()}`);
+  return `"${s.name}"${s.lastCount === null ? '' : ` (${s.lastCount} last time)`}: ${parts.join(' · ') || 'everything open'}`;
+}
 
 export function register(server: McpServer, client: AlfredClient): void {
   // ------------------------------------------------------------------------------------------------------ reads
@@ -282,18 +314,41 @@ export function register(server: McpServer, client: AlfredClient): void {
     inputSchema: { conn: Conn, ...SearchFilters },
   }, (input) => run(async () => {
     const c = await pickConnection(client, input.conn);
-    const { conn: _c, mine, assigned, createdBy, parent, show, ...rest } = input;
+    const { conn: _c, mine, assigned, createdBy, parent, show, saved: savedName, ...rest } = input;
     const list = (v: string | string[] | undefined) => (v === undefined ? [] : Array.isArray(v) ? v : [v]);
-    const body = { ...rest, assigned: list(assigned), createdBy: list(createdBy), parents: list(parent), show: show.toUpperCase(),
-      mine: mine === true ? ['ASSIGNED', 'CREATED', 'CHANGED', 'MENTIONED', 'FOLLOWED'] : mine === false ? [] : mine ?? [] };
+    const asked: Record<string, unknown> = { ...rest, show: show.toUpperCase(),
+      ...(assigned !== undefined ? { assigned: list(assigned) } : {}), ...(createdBy !== undefined ? { createdBy: list(createdBy) } : {}),
+      ...(parent !== undefined ? { parents: list(parent) } : {}),
+      ...(mine !== undefined ? { mine: mine === true ? ['ASSIGNED', 'CREATED', 'CHANGED', 'MENTIONED', 'FOLLOWED'] : mine === false ? [] : mine } : {}) };
+    let body: Record<string, unknown> = { assigned: [], createdBy: [], parents: [], mine: [], ...asked };
+    if (savedName) {
+      const all = await client.get<SavedRow[]>(`/teamboards/connections/${seg(c.id)}/saved`, AS_CLAUDE);
+      const s = all.find((x) => x.name.toLowerCase() === savedName.trim().toLowerCase());
+      if (!s) {
+        throw new Error(`No saved search "${savedName}" - ${all.length ? 'saved: ' + all.map((x) => `"${x.name}"`).join(', ') : 'none saved yet (the user saves them in the Team tab)'}`);
+      }
+      // what was given beside the name replaces that filter; a default left as it is keeps the saved one's
+      const given = Object.fromEntries(Object.entries(asked).filter(([k, v]) => v !== undefined && !(k in SEARCH_DEFAULTS && SEARCH_DEFAULTS[k] === v)));
+      body = { ...s.query, ...given, page: input.page, saved: s.id };
+    }
     const r = await live(() => client.post<SearchPage>(`/teamboards/connections/${seg(c.id)}/search`, { body, ...AS_CLAUDE }));
     const pages = Math.max(1, Math.ceil(r.total / Math.max(1, r.pageSize)));
     const head = { connection: c.name, total: r.total, page: `${r.page + 1} of ${pages}`,
       ...(r.fullText ? {} : { note: 'No full-text search here: titles were matched' }) };
     const more = r.page + 1 < pages ? { more: `page ${r.page + 1}` } : {};
-    if (show === 'items' || !r.context) return ok({ ...head, items: r.items.map(rowLine), ...more });
+    if (body['show'] === 'ITEMS' || !r.context) return ok({ ...head, items: r.items.map(rowLine), ...more });
     return ok({ ...head, tree: treeText(r.items, r.context),
       ...(r.contextLeftOut ? { contextLeftOut: `${r.contextLeftOut} more parents/children not read (500 a page)` } : {}), ...more });
+  }));
+
+  server.registerTool('team_saved', {
+    description: 'The saved searches of the Team tab (the user\'s pills): name, last count, and what each searches for. Run one with '
+      + 'team_search saved: "<name>". Only the user saves, changes or deletes them.',
+    inputSchema: { conn: Conn },
+  }, (input) => run(async () => {
+    const c = await pickConnection(client, input.conn);
+    const all = await client.get<SavedRow[]>(`/teamboards/connections/${seg(c.id)}/saved`, AS_CLAUDE);
+    return ok({ connection: c.name, saved: all.map(savedLine), ...(all.length ? {} : { note: 'None saved yet - the user saves searches in the Team tab (☆ Save search)' }) });
   }));
 
   server.registerTool('team_query', {

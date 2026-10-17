@@ -33,6 +33,7 @@ type ListKey = 'types' | 'states' | 'teams' | 'iterations' | 'areas' | 'assigned
         <label class="tsf-check"><input type="checkbox" [(ngModel)]="openOnly" name="openOnly" (ngModelChange)="run()" /> Open only</label>
         <button type="button" class="action-btn" (click)="more.set(!more())" [attr.aria-expanded]="more()">Filters{{ count() ? ' (' + count() + ')' : '' }} ▾</button>
         @if (count()) { <button type="button" class="action-btn" (click)="clear()">Clear</button> }
+        <button type="button" class="action-btn" (click)="saveAsked.emit()" title="Save this search as a pill above the results">☆ Save search</button>
       </div>
       @if (more()) {
         <div class="tsf-grid">
@@ -137,6 +138,8 @@ export class TeamSearchFormComponent {
   readonly preset = input<TeamSearch | null>(null);
   readonly busy = input(false);
   readonly search = output<TeamSearch>();
+  /** ☆ Save search: the page opens the save bar for what is on screen. */
+  readonly saveAsked = output<void>();
 
   readonly more = signal(false);
   readonly lists = this.state.lists;

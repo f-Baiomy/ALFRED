@@ -24,7 +24,7 @@ public interface TeamSearchUseCase {
      * {@code assigned}, {@code createdBy} and {@code parents} take one value or a list (a saved watch rule may hold the
      * older single value; {@code parent} is the older name of {@code parents}). {@code show}: ITEMS (default), PARENTS
      * (each match under its parent chain) or TREE (parents and children); {@code childDepth}: 1 (default) or 0 for every
-     * level.
+     * level. {@code saved}: the saved search being run - its pill keeps the count.
      */
     record SearchIn(String text, List<String> types, List<String> states, Boolean openOnly, List<String> areas, Boolean areaExact,
                     List<String> teams, List<String> iterations,
@@ -32,18 +32,24 @@ public interface TeamSearchUseCase {
                     @JsonFormat(with = JsonFormat.Feature.ACCEPT_SINGLE_VALUE_AS_ARRAY) List<String> createdBy,
                     Integer changedWithinDays, List<String> tags, Boolean tagsAll,
                     @JsonAlias("parent") @JsonFormat(with = JsonFormat.Feature.ACCEPT_SINGLE_VALUE_AS_ARRAY) List<String> parents,
-                    Set<Mine> mine, Sort sort, int page, int pageSize, Show show, Integer childDepth) {
+                    Set<Mine> mine, Sort sort, int page, int pageSize, Show show, Integer childDepth, Long saved) {
 
         /** Only the paging changed. */
         public SearchIn page(int p, int size) {
             return new SearchIn(text, types, states, openOnly, areas, areaExact, teams, iterations, assigned, createdBy, changedWithinDays, tags,
-                    tagsAll, parents, mine, sort, p, size, show, childDepth);
+                    tagsAll, parents, mine, sort, p, size, show, childDepth, saved);
+        }
+
+        /** The saved search this run is (its pill shows the count), or null. */
+        public SearchIn saved(Long id) {
+            return new SearchIn(text, types, states, openOnly, areas, areaExact, teams, iterations, assigned, createdBy, changedWithinDays, tags,
+                    tagsAll, parents, mine, sort, page, pageSize, show, childDepth, id);
         }
 
         /** A plain search: these people's open items (or {@code mine}'s). */
         public static SearchIn people(List<String> assigned, Set<Mine> mine, int pageSize) {
             return new SearchIn(null, null, null, true, null, null, null, null, assigned, null, null, null, null, null, mine, null, 0, pageSize,
-                    null, null);
+                    null, null, null);
         }
     }
 

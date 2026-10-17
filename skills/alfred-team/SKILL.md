@@ -14,7 +14,8 @@ TOKEN_MISSING, tell the user to enter it in the Team tab and stop.
 
 - **Words, filters, "mine"** → `team_search` (openOnly unless they ask for closed ones; `mine: true` or `assigned: "me"`
   for "on me"; `iterations: ["@current"]` for "this sprint"). Every filter takes several values (any of them);
-`show: "tree"` when they ask what an item sits under or what is below it. Answer with one line per item as a mention
+`show: "tree"` when they ask what an item sits under or what is below it. "Run my <name> search" → `team_saved` for the
+  names, then `team_search` with `saved: "<name>"` (saving and changing them is the user's, in the Team tab). Answer with one line per item as a mention
   `@[workitem:<conn>/<id>|AB#<id> <title>]`, its state, who has it, and where it already sits in Alfred. More than one
   page: say how many, offer the next page.
 - **AB#id, an id or a URL** → `team_item` (fields, comments, attachments by name, "changedSinceCopy" when Alfred keeps

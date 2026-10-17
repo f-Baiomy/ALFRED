@@ -26,6 +26,8 @@ export class TeamStateService {
   readonly listsVersion = signal(0);
   readonly mappingsVersion = signal(0);
   readonly startVersion = signal(0);
+  /** Bumped when a saved search is added, changed, moved, counted or deleted. */
+  readonly savedVersion = signal(0);
   /** Every board-side change (items, sync, cards, incoming, write, rules) - the event itself for who wants its board. */
   readonly boardEvent = signal<TeamSocketEvent | null>(null);
   readonly hookVersion = signal(0);
@@ -68,6 +70,9 @@ export class TeamStateService {
         break;
       case 'start':
         this.startVersion.update((v) => v + 1);
+        break;
+      case 'saved':
+        this.savedVersion.update((v) => v + 1);
         break;
       case 'hook':
         this.hookVersion.update((v) => v + 1);
