@@ -56,8 +56,9 @@ list from the tracker removes nothing.
 **Refresh in the background**: the Team tab sends `POST .../refresh?background=true` - `202 STARTED` at once, and the
 outcome (`OK` with the changed count, `TOKEN_REJECTED`, `PROVIDER_BUSY` with `retryAfter`, `UNREACHABLE`) arrives on
 `/ws/teamboards` as `{what:"refresh", outcome, ...}`, so a first fetch of a big project never meets a proxy's timeout.
-Without the parameter the call still answers when the refresh is done. Changes are read by `ChangedDate` and id, so
-items changed in the same second as the window's last one are never skipped.
+Without the parameter the call still answers when the refresh is done. Changes are read in `ChangedDate` windows: Azure refuses
+any WIQL query matching more than 20,000 items, `$top` or not (VS402337), so a refused window is split in halves until
+each answers. A refused Azure call shows which call and Azure's own message.
 
 ## Start: a board from a work item
 

@@ -25,6 +25,7 @@ import com.fathy.alfred.backend.teamboards.spi.model.Token;
 import org.springframework.stereotype.Component;
 
 import java.net.URI;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -42,15 +43,13 @@ import static com.fathy.alfred.backend.teamboards.azure.AzureMapper.text;
 /**
  * Azure DevOps, read-only (specs/027 US7, research R9). The connection's base URL is the organisation
  * ({@code https://dev.azure.com/<org>}); its scope names the projects and teams (none: every project the token sees).
- * Changed items come from WIQL on {@code System.ChangedDate}, then {@code workitemsbatch} 200 at a time with relations.
+ * Changed items come from WIQL on {@code System.ChangedDate} in windows of at most 20,000, then {@code workitemsbatch} 200 at a time with relations.
  */
 @Component
 public class AzureDevOpsConnector implements Connector, BoardsReader, SprintsReader, SquadsReader, RevisionsReader, AttachmentsReader,
         SeedContributor, ItemIdsReader {
 
     static final int BATCH = 200;
-    /** WIQL answers at most 20,000 ids: a bigger first fetch goes on in date windows. */
-    static final int WIQL_MAX = 19_999;
 
     private final AzureClient client;
 
@@ -102,49 +101,67 @@ public class AzureDevOpsConnector implements Connector, BoardsReader, SprintsRea
 
     @Override
     public void changedItems(Connection c, Token t, Instant since, Consumer<List<Item>> page) throws ProviderException {
+        Instant from = since == null ? FIRST : since.truncatedTo(ChronoUnit.SECONDS);
         for (String project : projects(c, t)) {
-            String inProject = "[System.TeamProject] = '" + project.replace("'", "''") + "'";
-            Instant from = since == null ? null : since.truncatedTo(ChronoUnit.SECONDS);
-            while (true) {
-                String where = inProject + (from == null ? "" : " AND [System.ChangedDate] >= '" + from + "'");
-                List<Integer> ids = wiqlIds(c, t, project, where, "[System.ChangedDate] ASC, [System.Id] ASC");
-                Instant last = read(c, t, ids, page);
-                // a full window: the next one starts at the newest change read (items read twice are upserts, not changes)
-                if (ids.size() <= WIQL_MAX || last == null) {
-                    break;
-                }
-                Instant next = last.truncatedTo(ChronoUnit.SECONDS);
-                if (from != null && !next.isAfter(from)) {
-                    // more than one window changed within one second: that second is read by id, then the windows go on after it
-                    sameSecond(c, t, project, inProject, from, page);
-                    next = from.plusSeconds(1);
-                }
-                from = next;
-            }
+            windows(c, t, project, from, until(), ids -> read(c, t, ids, page));
         }
     }
 
-    /** Every item changed within the second starting at {@code second}, in id order, window after window. */
-    private void sameSecond(Connection c, Token t, String project, String inProject, Instant second, Consumer<List<Item>> page)
-            throws ProviderException {
-        int after = 0;
-        while (true) {
-            String where = inProject + " AND [System.ChangedDate] >= '" + second + "' AND [System.ChangedDate] < '" + second.plusSeconds(1)
-                    + "' AND [System.Id] > " + after;
-            List<Integer> ids = wiqlIds(c, t, project, where, "[System.Id] ASC");
-            read(c, t, ids, page);
-            if (ids.size() <= WIQL_MAX) {
-                return;
-            }
-            after = ids.get(ids.size() - 1);
+    /** Every item id of the scope, ids only: what the cache still holds and Azure no longer has goes. */
+    @Override
+    public Set<String> allIds(Connection c, Token t) throws ProviderException {
+        Set<String> out = new java.util.HashSet<>();
+        for (String project : projects(c, t)) {
+            windows(c, t, project, FIRST, until(), ids -> ids.forEach(id -> out.add(String.valueOf(id))));
         }
+        return out;
     }
 
-    /** One WIQL query's ids (at most WIQL_MAX + 1); times compared to the second ({@code timePrecision}), not the day. */
-    private List<Integer> wiqlIds(Connection c, Token t, String project, String where, String order) throws ProviderException {
-        String wiql = "SELECT [System.Id] FROM WorkItems WHERE " + where + " ORDER BY " + order;
-        JsonNode found = client.post(at(c, "/" + encode(project) + "/_apis/wit/wiql?timePrecision=true&$top=" + (WIQL_MAX + 1)), t,
-                Map.of("query", wiql));
+    /** Before any Azure DevOps item: the start of a first fetch. */
+    static final Instant FIRST = Instant.parse("2000-01-01T00:00:00Z");
+
+    /** The end of a fetch's last window: a little ahead, for a server clock ahead of ours. */
+    private static Instant until() {
+        return Instant.now().plus(1, ChronoUnit.HOURS).truncatedTo(ChronoUnit.SECONDS);
+    }
+
+    interface IdsHandler {
+        void accept(List<Integer> ids) throws ProviderException;
+    }
+
+    /**
+     * The ids of the items changed in {@code [from, to)}, oldest window first. Azure refuses a query matching more than
+     * 20,000 items whatever {@code $top} says (VS402337), so a window it refuses is split in two halves, down to one
+     * second. Ids only come back, so a window never holds more than one answer in memory.
+     */
+    void windows(Connection c, Token t, String project, Instant from, Instant to, IdsHandler handler) throws ProviderException {
+        String where = "[System.TeamProject] = '" + project.replace("'", "''") + "' AND [System.ChangedDate] >= '" + from
+                + "' AND [System.ChangedDate] < '" + to + "'";
+        List<Integer> ids;
+        try {
+            ids = wiqlIds(c, t, project, where);
+        } catch (ProviderException e) {
+            long seconds = Duration.between(from, to).getSeconds();
+            if (!tooMany(e) || seconds < 2) {
+                throw e;
+            }
+            Instant middle = from.plusSeconds(seconds / 2);
+            windows(c, t, project, from, middle, handler);
+            windows(c, t, project, middle, to, handler);
+            return;
+        }
+        handler.accept(ids);
+    }
+
+    /** Azure's "more than 20,000 work items" refusal (VS402337). */
+    static boolean tooMany(ProviderException e) {
+        return e.getMessage() != null && e.getMessage().contains("VS402337");
+    }
+
+    /** One WIQL query's ids; times compared to the second ({@code timePrecision}), not the day. */
+    private List<Integer> wiqlIds(Connection c, Token t, String project, String where) throws ProviderException {
+        String wiql = "SELECT [System.Id] FROM WorkItems WHERE " + where + " ORDER BY [System.Id] ASC";
+        JsonNode found = client.post(at(c, "/" + encode(project) + "/_apis/wit/wiql?timePrecision=true"), t, Map.of("query", wiql));
         List<Integer> ids = new ArrayList<>();
         for (JsonNode w : found.path("workItems")) {
             ids.add(w.path("id").asInt());
@@ -152,38 +169,11 @@ public class AzureDevOpsConnector implements Connector, BoardsReader, SprintsRea
         return ids;
     }
 
-    /** The items of {@code ids}, 200 at a time, handed on page by page; the newest change time read. */
-    private Instant read(Connection c, Token t, List<Integer> ids, Consumer<List<Item>> page) throws ProviderException {
-        Instant last = null;
+    /** The items of {@code ids}, 200 at a time, handed on page by page. */
+    private void read(Connection c, Token t, List<Integer> ids, Consumer<List<Item>> page) throws ProviderException {
         for (int i = 0; i < ids.size(); i += BATCH) {
-            List<Item> items = batch(c, t, ids.subList(i, Math.min(ids.size(), i + BATCH)));
-            for (Item item : items) {
-                if (item.changedAt() != null && (last == null || item.changedAt().isAfter(last))) {
-                    last = item.changedAt();
-                }
-            }
-            page.accept(items);
+            page.accept(batch(c, t, ids.subList(i, Math.min(ids.size(), i + BATCH))));
         }
-        return last;
-    }
-
-    /** Every item id of the scope, ids only, window after window by id: what the cache still holds and Azure no longer has goes. */
-    @Override
-    public Set<String> allIds(Connection c, Token t) throws ProviderException {
-        Set<String> out = new java.util.HashSet<>();
-        for (String project : projects(c, t)) {
-            String inProject = "[System.TeamProject] = '" + project.replace("'", "''") + "'";
-            int after = 0;
-            while (true) {
-                List<Integer> ids = wiqlIds(c, t, project, inProject + " AND [System.Id] > " + after, "[System.Id] ASC");
-                ids.forEach(id -> out.add(String.valueOf(id)));
-                if (ids.size() <= WIQL_MAX) {
-                    break;
-                }
-                after = ids.get(ids.size() - 1);
-            }
-        }
-        return out;
     }
 
     private List<Item> batch(Connection c, Token t, List<Integer> ids) throws ProviderException {

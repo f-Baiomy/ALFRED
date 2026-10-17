@@ -36,6 +36,9 @@ class AzureDevOpsConnectorTest {
     final List<String> asked = new ArrayList<>();
     final AtomicInteger busyOnce = new AtomicInteger();
     String wiqlRefusal;
+    /** Refuse (VS402337) every WIQL query whose window is longer than this, as Azure does past 20,000 matches. */
+    java.time.Duration tooManyOver;
+    final List<String> queries = new ArrayList<>();
     AzureDevOpsConnector azure;
     Connection connection;
 
@@ -69,6 +72,19 @@ class AzureDevOpsConnectorTest {
                 return;
             }
             if (path.endsWith("/_apis/wit/wiql")) {
+                String query = new String(x.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+                queries.add(query);
+                if (tooManyOver != null) {
+                    java.util.regex.Matcher m = java.util.regex.Pattern.compile("'(\\d{4}-[^']+)'").matcher(query);
+                    List<java.time.Instant> at = new ArrayList<>();
+                    while (m.find()) {
+                        at.add(java.time.Instant.parse(m.group(1)));
+                    }
+                    if (at.size() == 2 && java.time.Duration.between(at.get(0), at.get(1)).compareTo(tooManyOver) > 0) {
+                        answer(x, 400, "{\"message\":\"VS402337: The number of work items returned exceeds the size limit of 20000.\"}");
+                        return;
+                    }
+                }
                 if (wiqlRefusal != null) {
                     answer(x, 400, wiqlRefusal);
                     return;
@@ -105,6 +121,31 @@ class AzureDevOpsConnectorTest {
     @AfterEach
     void stop() {
         server.stop(0);
+    }
+
+    @Test
+    void aWindowAzureFindsTooBigIsSplitInHalvesUntilEachAnswers() throws Exception {
+        tooManyOver = java.time.Duration.ofDays(3650);
+        List<Item> got = new ArrayList<>();
+        azure.changedItems(connection, TOKEN, null, got::addAll);
+
+        assertThat(queries).allMatch(q -> q.contains("[System.ChangedDate] >= '") && q.contains("[System.ChangedDate] < '"));
+        assertThat(queries.get(0)).as("a first fetch starts before any item").contains(">= '2000-01-01T00:00:00Z'");
+        int answered = got.size() / 2; // each window that answers holds the fake's two items
+        assertThat(answered).as("the 26-year window halves down to windows of at most ten years").isBetween(3, 4);
+        assertThat(queries.size() - answered).as("the windows Azure refused").isPositive();
+
+        queries.clear();
+        tooManyOver = null;
+        assertThat(azure.allIds(connection, TOKEN)).containsExactlyInAnyOrder("4521", "4522");
+        assertThat(queries).hasSize(1);
+    }
+
+    @Test
+    void aWindowOfOneSecondStillRefusedIsTheError() {
+        tooManyOver = java.time.Duration.ZERO;
+        assertThatThrownBy(() -> azure.changedItems(connection, TOKEN, java.time.Instant.now().plusSeconds(3598), page -> { }))
+                .hasMessageContaining("VS402337");
     }
 
     @Test
