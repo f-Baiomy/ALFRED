@@ -221,6 +221,19 @@ no new popup: each is one of the mention types above, drawn by `MentionChipCompo
 - **Acceptance checklist**: the list items under a spec file's first heading that contains "acceptance". The user marks each one pass, fail or can't tell, with evidence. A mark is keyed by the SHA-256 of the item's normalized text, so it survives a replace that leaves the item unchanged. Claude never marks an item; it **suggests** a mark with evidence (`checklist_suggestions`, `PUT .../checklist/{file}/{item}/suggestion`). The suggestion shows grey under the item with Accept and dismiss. Accepting writes the user's own mark with Claude's evidence. Any mark the user sets clears the suggestion.
 - **Deleting a cycle** removes its brief, spec files and marks. Its cards stay on the project board, marked "cycle deleted".
 
+## The board page's tabs
+
+A picked board (`/board?project=&board=`) shows one header - the task view's (title, ▶ Next, Run, stage bar, Needs
+you) - and below it the page's tabs (specs/029), kept in the address as `?tab=` (none = Cards): **Cards** (the board),
+**Calls** (`BoardCallsComponent`: every captured call of every cycle on the board, both directions, newest first or
+grouped by cycle, a divider where the cycle changes, filtered by cycle / text / direction / problems; a row opens the
+call popup through `BoardMentionsService.callToShow`; read when the tab opens, on `cycle-content-changed` or ↻ - never
+polled), **Task** (the task view's own tabs: Requirements, Test plan, Brief, Claude's runs, Spec & files), **Cycles**,
+**Related items** and **Activity**. The live strips (who answers, Claude stopped, new build) stay under the tabs on
+every tab: `BoardViewComponent` is always there and `showBody` hides only its cards. "All cards" (no board) is just the
+board. The board's chat is not a tab: opening a board folds its chat beside the Chats pill (`ChatDockComponent.foldIn`,
+once per board opened, so × holds), even before its first message, and **💬 Chat** opens it.
+
 ## The Task tab
 
 A session cycle is a task (skills/_shared/rules.md §0). The cycle page's **Task** tab and the Board's cycle view show it

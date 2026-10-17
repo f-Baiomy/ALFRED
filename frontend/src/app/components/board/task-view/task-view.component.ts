@@ -130,6 +130,11 @@ const BAR: readonly ReqGroup[] = ['MET', 'BUG', 'MISSING', 'FIXED', 'DECIDE', 'C
         </div>
       }
 
+      <!-- the board page's tabs (Cards, Calls, Task, …): the header above stays, one part shows below -->
+      <ng-content select="[tvTabs]" />
+      <!-- the page's panes (the live strips first), then this view's own Task tab -->
+      <ng-content />
+      <div class="tv-task" [hidden]="!showTask()">
       <div class="tv-tabs" role="tablist">
         @for (t of tabs(); track t.key) {
           <button type="button" role="tab" class="tv-tab" [class.on]="tab() === t.key" [attr.aria-selected]="tab() === t.key" (click)="setTab(t.key)">
@@ -237,6 +242,7 @@ const BAR: readonly ReqGroup[] = ['MET', 'BUG', 'MISSING', 'FIXED', 'DECIDE', 'C
         <app-cycle-brief [hidden]="tab() !== 'brief'" [cycleId]="cycleId()" [project]="project()" [editable]="editable()" [cycleName]="cycleName()"
                          (briefChange)="brief.set($event)" (commentsChange)="comments.set($event)" />
       </div>
+      </div>
       @if (error()) { <div class="board-error">{{ error() }}</div> }
     </div>`,
 })
@@ -249,6 +255,12 @@ export class TaskViewComponent {
   readonly cycleName = input<string | null>(null);
   /** A card was asked for - a host without the board on screen (the cycle page) switches to its Board tab. */
   readonly cardOpened = output<void>();
+  /** On the board page (specs/029): Cycles and Related items are the page's own tabs, not this one's. */
+  readonly nested = input(false);
+  /** The page's Task tab is the one showing; the header always shows. */
+  readonly showTask = input(true);
+  /** A Needs-you item or a guide link went to one of this view's tabs: the page shows its Task tab. */
+  readonly taskAsked = output<void>();
 
   readonly brief = signal<CycleBrief | null>(null);
   readonly comments = signal<readonly BriefComment[]>([]);
@@ -307,7 +319,7 @@ export class TaskViewComponent {
       { key: 'cycles', label: 'Cycles', n: '', warn: false },
       { key: 'items', label: 'Related items', n: '', warn: false },
     ];
-    return t;
+    return this.nested() ? t.filter((x) => x.key !== 'cycles' && x.key !== 'items') : t;
   });
 
   /** A tab's guide is open until the user hides it, then stays hidden (per tab, in this browser). */
@@ -324,7 +336,7 @@ export class TaskViewComponent {
       const id = this.cycleId();
       untracked(() => {
         const t = stored(TAB_KEY + id) as TaskTab | null;
-        this.tab.set(t && TAB_GUIDES[t] ? t : 'req');
+        this.tab.set(t && TAB_GUIDES[t] && !(this.nested() && (t === 'cycles' || t === 'items')) ? t : 'req');
         this.reqFilter.set('all');
         this.menu.set(false);
         this.load(id);
@@ -349,6 +361,7 @@ export class TaskViewComponent {
 
   go(t: TaskTab, f?: ReqFilter): void {
     this.setTab(t);
+    this.taskAsked.emit();
     if (f) this.reqFilter.set(f);
   }
 

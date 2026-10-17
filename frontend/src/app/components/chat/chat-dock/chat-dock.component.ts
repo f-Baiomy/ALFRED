@@ -97,14 +97,30 @@ export class ChatDockComponent {
     });
   }
 
-  /** The project and the cycle in view from the URL: /board?project=&cycle=, /cycles/<id>. */
+  /** The board whose chat was last folded in on opening it: × keeps it closed until another board is opened. */
+  private foldedFor: string | null = null;
+
+  /** The project and the cycle (or board) in view from the URL: /board?project=&board=, /board?cycle=, /cycles/<id>. */
+  /**
+   * Opening a board puts its chat beside the pill, folded (specs/029) - even before its first message, when the chat
+   * list would not show it - unless that chat is open already. Once per board opened, so × is not undone by a ?card=.
+   */
+  private foldIn(board: string | null): void {
+    if (board === this.foldedFor) return;
+    this.foldedFor = board;
+    if (!board || board === this.state.openScope() || board === this.state.splitScope()) return;
+    this.state.minimize(board);
+  }
+
   private follow(url: string): void {
     const u = new URL(url, 'http://x');
-    const cycle = /^\/cycles\/([^/?#]+)/.exec(u.pathname)?.[1] ?? u.searchParams.get('cycle');
+    const board = u.pathname.startsWith('/board') ? u.searchParams.get('board') : null;
+    const cycle = /^\/cycles\/([^/?#]+)/.exec(u.pathname)?.[1] ?? board ?? u.searchParams.get('cycle');
     const project = u.searchParams.get('project');
     if (project != null) {
       try { localStorage.setItem(LAST_PROJECT, project); } catch { /* private mode */ }
       this.state.show(project, cycle);
+      this.foldIn(board);
       return;
     }
     let last: string | null = null;

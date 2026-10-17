@@ -128,6 +128,8 @@ export class ChatStateService {
       if (!this.cycles().length) this.loadCycles();
     }
     this.cycleInView.set(cycleId);
+    // a board made since the names were read (a new board's chat) shows its name, not its id
+    if (cycleId && !this.cycleNames().has(cycleId)) this.loadCycles();
   }
 
   /** The chat list above the floating pill is open. */

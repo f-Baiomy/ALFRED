@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Board Tabs Mock</title>
+<style>
+  :root { --bg:#141416; --card:#1c1c20; --inner:#232328; --border:#2e2e35; --text:#e6e6ea; --dim:#9a9aa5; --faint:#6c6c77;
+    --blue:#5b8def; --violet:#8b5cf6; --amber:#f0a83a; --green:#3fb97a; --red:#e5534b; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, Segoe UI, sans-serif; }
+  .wrap { max-width: 1280px; margin: 0 auto; padding: 16px; }
+  .nav { display: flex; gap: 22px; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--border); color: var(--dim); }
+  .nav b { color: var(--blue); letter-spacing: .08em; } .nav .on { color: var(--blue); border-bottom: 2px solid var(--blue); padding-bottom: 6px; }
+  .head { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 6px 0 10px; }
+  .head h1 { margin: 0 8px 0 0; font-size: 20px; }
+  .pick { padding: 6px 10px; border: 1px solid var(--border); border-radius: 7px; background: var(--card); }
+  .task { border: 1px solid var(--border); border-radius: 10px; background: var(--card); }
+  .title { padding: 14px 16px 6px; display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap; }
+  .title h2 { margin: 0; font-size: 17px; flex: 1 1 420px; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; padding: 0 16px 10px; align-items: center; font-size: 12px; }
+  .chip { padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--dim); }
+  .chip.main { color: var(--blue); border-color: #34508a; }
+  .chip.rec { color: var(--red); border-color: #6b2b28; }
+  .chip.ok { color: var(--green); border-color: #255a3f; }
+  .btn { padding: 5px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--inner); color: var(--text); font: inherit; font-size: 12.5px; cursor: pointer; }
+  .btn.pri { background: var(--blue); border-color: var(--blue); color: #fff; }
+  .tabs { display: flex; gap: 2px; padding: 0 10px; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); overflow-x: auto; }
+  .tab { padding: 10px 14px; color: var(--dim); cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; background: none; border-top: 0; border-left: 0; border-right: 0; font: inherit; }
+  .tab.on { color: var(--text); border-bottom-color: var(--blue); }
+  .tab .n { font-size: 11px; margin-left: 5px; padding: 0 6px; border-radius: 999px; background: var(--inner); color: var(--dim); }
+  .tab .n.hot { background: #3a2a10; color: var(--amber); }
+  .pane { padding: 14px 16px; min-height: 320px; }
+  .hide { display: none; }
+  .sub { display: flex; gap: 14px; font-size: 13px; color: var(--dim); margin-bottom: 12px; flex-wrap: wrap; }
+  .sub span.on { color: var(--text); text-decoration: underline; text-underline-offset: 5px; }
+  .box { border: 1px dashed var(--border); border-radius: 8px; padding: 14px; color: var(--dim); background: var(--inner); }
+  .cols { display: grid; grid-template-columns: repeat(6, minmax(150px, 1fr)); gap: 10px; overflow-x: auto; }
+  .col { border: 1px solid var(--border); border-radius: 8px; padding: 8px; min-height: 180px; background: var(--inner); }
+  .col h4 { margin: 0 0 8px; font-size: 11.5px; letter-spacing: .06em; color: var(--dim); display: flex; justify-content: space-between; }
+  .card { border: 1px solid var(--border); border-radius: 6px; padding: 7px; font-size: 12.5px; background: var(--card); margin-bottom: 6px; }
+  .bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+  .bar input { flex: 1 1 220px; padding: 6px 9px; border-radius: 6px; border: 1px solid var(--border); background: var(--inner); color: var(--text); }
+  .row { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .row .t { color: var(--faint); width: 120px; flex: none; }
+  .live { display: flex; gap: 8px; align-items: center; padding: 7px 16px; font-size: 12.5px; color: var(--dim); border-top: 1px solid var(--border); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
+  .calls { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .calls th { text-align: left; color: var(--faint); font-weight: 500; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  .calls td { padding: 6px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  .calls tr:hover td { background: var(--inner); cursor: pointer; }
+  .calls tr.bad td { background: rgba(229,83,75,.08); }
+  .calls tr.gap td { color: var(--faint); font-size: 11.5px; padding: 4px 8px; background: none; cursor: default; }
+  .calls .ok { color: var(--green); } .calls .er { color: var(--red); }
+  .cy { padding: 1px 7px; border-radius: 999px; font-size: 11.5px; border: 1px solid var(--border); }
+  .c1 { color: #7fb4ff; } .c2 { color: #c39bff; } .c3 { color: var(--amber); }
+  .on-c { color: var(--text); border-color: var(--blue); }
+  .pane#p-calls { overflow-x: auto; }
+  .dock { position: fixed; right: 18px; bottom: 16px; display: flex; gap: 8px; align-items: center; }
+  .fold { display: flex; gap: 8px; align-items: center; padding: 7px 12px; border: 1px solid var(--border); border-radius: 999px; background: #1f1f24; font-weight: 600; font-size: 13px; box-shadow: 0 6px 18px rgba(0,0,0,.4); cursor: pointer; }
+  .fold .x { color: var(--faint); font-weight: 400; margin-left: 4px; }
+  .av { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; background: #23343a; color: #6fd3c0; }
+  .notes { margin-top: 26px; border-top: 1px solid var(--border); padding-top: 14px; color: var(--dim); font-size: 13px; }
+  .notes h3 { color: var(--text); font-size: 15px; margin: 0 0 8px; }
+  .notes table { border-collapse: collapse; width: 100%; }
+  .notes td { padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .notes td:first-child { color: var(--text); width: 210px; }
+  @media (max-width: 700px) { .cols { grid-template-columns: repeat(6, 160px); } .notes td:first-child { width: 120px; } }
+</style>
+</head>
+<body>
+<div class="nav"><b>ALFRED</b><span>Live Calls</span><span>Session Cycles</span><span class="on">Board</span><span>Team</span><span>Settings</span></div>
+<div class="wrap">
+  <div class="head">
+    <h1>Board</h1>
+    <span class="pick">#61813_Q4-INTE-CORE-WT1-T3161-037 Enhance Refunded… ▾</span>
+    <span class="pick">odeysys ▾</span>
+  </div>
+
+  <div class="task">
+    <div class="title">
+      <h2>#61813_Q4-INTE-CORE-WT1-T3161-037 Enhance Refunded Requests Filters – All Agencies, All Branches &amp; Branch Multi-Select</h2>
+      <span style="color:var(--dim);font-size:12.5px">▶ Next: <b style="color:var(--text)">Write the requirements</b></span>
+      <button class="btn">💬 Chat</button>
+      <button class="btn">Run ▾</button>
+    </div>
+    <div class="chips">
+      <span class="chip main">★ AB#61813 · User Story · Active</span>
+      <span class="chip">◷ cycle #61813_… · paused</span>
+      <button class="btn">● Record</button>
+      <span class="chip">Coded › Verifying › Fixed › Re-tested › Done</span>
+    </div>
+
+    <div class="tabs" role="tablist" id="tabs">
+      <button class="tab on" data-p="cards">Cards <span class="n">0 open</span></button>
+      <button class="tab" data-p="calls">Calls <span class="n">23 · 3 cycles</span></button>
+      <button class="tab" data-p="task">Task <span class="n hot">no requirements</span></button>
+      <button class="tab" data-p="cycles">Cycles <span class="n">1</span></button>
+      <button class="tab" data-p="items">Related items <span class="n">5</span></button>
+      <button class="tab" data-p="activity">Activity <span class="n">2</span></button>
+    </div>
+
+    <div class="pane" id="p-cards">
+      <div class="bar"><input placeholder="Quick add:  bug! discount not applied"><button class="btn">Add</button>
+        <button class="btn">▦ Board</button><button class="btn">☰ List</button><button class="btn">Export ▾</button><button class="btn">Filters ▾</button></div>
+      <div class="cols">
+        <div class="col"><h4>INBOX <span>0</span></h4><div class="box">Inbox clear ✓</div></div>
+        <div class="col"><h4>TO DO <span>1</span></h4><div class="card">BUG #4 · Branch filter ignores 2nd branch</div></div>
+        <div class="col"><h4>IN PROGRESS <span>0</span></h4></div>
+        <div class="col"><h4>FIXED <span>0</span></h4></div>
+        <div class="col"><h4>VERIFIED <span>0</span></h4></div>
+        <div class="col"><h4>DONE <span>0</span></h4></div>
+      </div>
+    </div>
+    <div class="pane hide" id="p-calls">
+      <div class="bar">
+        <input placeholder="Search path, status, body…">
+        <span class="chip on-c">All cycles</span><span class="chip c1">● login-flow · 9</span><span class="chip c2">● filters-retest · 11</span><span class="chip c3">● #61813_… · 3 · paused</span>
+        <button class="btn">Inbound ▾</button><button class="btn">Problems only</button>
+      </div>
+      <table class="calls">
+        <thead><tr><th>Time</th><th>Cycle</th><th>Method</th><th>Path</th><th>Status</th><th>ms</th><th>DB</th><th>Logs</th></tr></thead>
+        <tbody>
+          <tr><td>17 Oct 18:04:12</td><td><span class="cy c3">#61813_…</span></td><td>POST</td><td>/api/refunds/search</td><td class="ok">200</td><td>184</td><td>12</td><td>4</td></tr>
+          <tr><td>17 Oct 18:04:09</td><td><span class="cy c3">#61813_…</span></td><td>GET</td><td>/api/branches?agency=all</td><td class="ok">200</td><td>61</td><td>3</td><td>1</td></tr>
+          <tr class="bad"><td>17 Oct 18:03:58</td><td><span class="cy c3">#61813_…</span></td><td>POST</td><td>/api/refunds/search</td><td class="er">500</td><td>412</td><td>18</td><td>⚠ 2</td></tr>
+          <tr class="gap"><td colspan="8">── filters-retest · 16 Oct 15:20 – 15:41 ──</td></tr>
+          <tr><td>16 Oct 15:41:03</td><td><span class="cy c2">filters-retest</span></td><td>POST</td><td>/api/refunds/search</td><td class="ok">200</td><td>203</td><td>12</td><td>4</td></tr>
+          <tr><td>16 Oct 15:40:51</td><td><span class="cy c2">filters-retest</span></td><td>GET</td><td>/api/agencies</td><td class="ok">200</td><td>45</td><td>2</td><td>0</td></tr>
+          <tr class="gap"><td colspan="8">── login-flow · 15 Oct 10:02 – 10:09 ──</td></tr>
+          <tr><td>15 Oct 10:09:44</td><td><span class="cy c1">login-flow</span></td><td>POST</td><td>/api/auth/login</td><td class="ok">200</td><td>320</td><td>6</td><td>2</td></tr>
+        </tbody>
+      </table>
+      <div style="margin-top:10px;font-size:12.5px;color:var(--dim)">Newest first. A row opens the call (the same popup as Live Calls and a cycle). <button class="btn">Group by cycle</button> <button class="btn">Export ▾</button></div>
+    </div>
+    <div class="pane hide" id="p-task">
+      <div class="sub"><span class="on">Requirements</span><span>Test plan</span><span>Brief</span><span>Claude's runs</span><span>Spec &amp; files</span></div>
+      <div class="box">Does the code match the task? <b style="color:var(--text)">No requirements yet</b> - add the ticket or a spec with an Acceptance list, or Run → Write the requirements.</div>
+    </div>
+    <div class="pane hide" id="p-cycles">
+      <div class="row"><span class="t">paused</span><span>#61813_Q4-INTE-CORE-WT1-T3161-037 … · 0 calls</span><span style="margin-left:auto"><button class="btn">● Record</button> <button class="btn">Open calls</button></span></div>
+      <div style="margin-top:10px"><button class="btn">＋ Attach a cycle…</button> <button class="btn">＋ New cycle</button></div>
+    </div>
+    <div class="pane hide" id="p-items">
+      <div class="row"><span class="t">★ main</span><span>AB#61813 Enhance Refunded Requests Filters…</span></div>
+      <div class="row"><span class="t">∘ parent</span><span>AB#62216 Refund Requests</span></div>
+      <div class="row"><span class="t">∘ child</span><span>AB#61920 BE Implementation</span></div>
+    </div>
+    <div class="pane hide" id="p-activity">
+      <div class="row"><span class="t">17 Oct 17:52</span><span>you made the board from AB#61813</span></div>
+      <div class="row"><span class="t">17 Oct 17:52</span><span>made its first cycle (not recording)</span></div>
+    </div>
+
+    <div class="live"><span class="dot"></span>No chat live · the strip stays one line under the tabs</div>
+  </div>
+
+  <div class="notes">
+    <h3>What changes</h3>
+    <table>
+      <tr><td>One header, then tabs</td><td>The board's title, next step, main item, cycle and stage bar stay on top. Everything else moves into tabs, so only one part shows at a time.</td></tr>
+      <tr><td>Cards first</td><td>Cards is the default tab: the board you came for. The tab shows the open count.</td></tr>
+      <tr><td>Calls</td><td>Every call of every cycle on the board, in one list, newest first. Each row shows its cycle as a coloured tag, and a thin divider marks where one cycle's recording ends. Chips filter to one cycle, plus search, direction and "Problems only". A row opens the usual call popup. "Group by cycle" folds the list under each cycle instead. A cycle on several boards shows on each. Read on demand and refreshed by the calls signal, never polled.</td></tr>
+      <tr><td>Task</td><td>Today's Task panel (Requirements, Test plan, Brief, Claude's runs, Spec &amp; files) becomes one tab, with its own sub-tabs. The tab shows what needs you ("no requirements", "2 to check").</td></tr>
+      <tr><td>Cycles, Related items</td><td>Move out of the Task panel and the top strip into their own tabs.</td></tr>
+      <tr><td>Chat</td><td>Stays in the chat panel at the bottom, not in a tab. Opening a board puts its chat there folded (the tab beside the Chats pill, as in your screenshot) - even before its first message, so a new board's chat is always one click away. A click opens it; × closes it until the board is opened again. If you already have it open, it stays open. 💬 Chat in the header opens it too.</td></tr>
+      <tr><td>Activity</td><td>The "Board activity" fold becomes a tab. The live strips (who answers, Claude stopped, new build) stay one line under the tabs.</td></tr>
+      <tr><td>Remembered</td><td>The tab is in the address (?tab=task), so a link or a reload opens the same tab. Old links without ?tab open Cards.</td></tr>
+      <tr><td>All cards</td><td>With no board picked (All cards), the page is unchanged: just the cards.</td></tr>
+    </table>
+  </div>
+</div>
+<div class="dock">
+  <span class="fold"><span class="av">#6</span>#61813_Q4-INTE-CORE-WT1… <span class="x">×</span></span>
+  <span class="fold">💬 Chats <span class="av">6R</span><span class="av" style="background:#262a3a;color:#9db2ff">PR</span></span>
+</div>
+<script>
+document.getElementById('tabs').addEventListener('click', (e) => {
+  const t = e.target.closest('.tab'); if (!t) return;
+  document.querySelectorAll('.tab').forEach((x) => x.classList.toggle('on', x === t));
+  document.querySelectorAll('.pane').forEach((p) => p.classList.toggle('hide', p.id !== 'p-' + t.dataset.p));
+});
+</script>
+</body>
+</html>

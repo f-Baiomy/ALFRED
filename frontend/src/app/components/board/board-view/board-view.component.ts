@@ -48,6 +48,7 @@ import { BoardPagesComponent } from '../visuals/board-pages.component';
     @if (!windowMode()) {
     <app-live-strip [status]="state.agent()" [project]="project()" [cycleId]="cycleId()" [editable]="state.editable()" (action)="state.agentAction($event)" />
     <app-retest-strip [project]="project()" [editable]="state.editable()" />
+    <div class="board-body" [hidden]="!showBody()">
     <div class="board-top">
       @if (state.editable()) {
         <app-quick-add #quick (added)="state.quickAdd($event)" />
@@ -146,6 +147,7 @@ import { BoardPagesComponent } from '../visuals/board-pages.component';
     }
     @if (help()) { <app-board-help (closed)="help.set(false)" /> }
     @if (answering(); as id) { <app-quick-answer [cardId]="id" (closed)="answering.set(null)" /> }
+    </div>
     }
     @if (state.openCardId(); as id) {
       <app-card-drawer [cardId]="id" [version]="state.openCardVersion()" [editable]="state.editable()" [inCycle]="!!cycleId()" [layout]="layout()"
@@ -169,6 +171,8 @@ export class BoardViewComponent {
   readonly onlyCycleDeleted = input(false);
   /** A card window (↗ Window): only the opened card is shown, the whole window. */
   readonly windowMode = input(false);
+  /** The board page's other tabs (specs/029) hide the cards; the live strips above them stay. */
+  readonly showBody = input(true);
   private readonly cardMode = inject(CardViewModeService);
   readonly teamsState = inject(TeamsStateService);
   readonly noTeam = NO_TEAM;

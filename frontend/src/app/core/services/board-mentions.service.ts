@@ -298,6 +298,11 @@ export class BoardMentionsService {
     return r;
   }
 
+  /** Every captured call of a cycle, both directions, read now (not the numbered cache): the board's Calls tab. */
+  cycleCalls(cycleId: string): Observable<CallRecord[]> {
+    return forkJoin([this.allCalls(cycleId, 'external'), this.allCalls(cycleId, 'internal')]).pipe(map(([out, inn]) => [...out, ...inn]));
+  }
+
   /** Every captured call of one direction, page by page (each answer holds at most the server's page limit). */
   private allCalls(cycleId: string, source: CallEndpointSource): Observable<CallRecord[]> {
     const pageSize = 200;

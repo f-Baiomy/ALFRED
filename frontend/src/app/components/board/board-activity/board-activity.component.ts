@@ -1,4 +1,4 @@
-import { Component, DestroyRef, effect, inject, input, signal, untracked } from '@angular/core';
+import { Component, DestroyRef, effect, inject, input, output, signal, untracked } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { filter } from 'rxjs';
 import { BoardActivity } from '../../../core/models/board.models';
@@ -14,8 +14,8 @@ import { BoardSocketService } from '../../../core/services/board-socket.service'
   standalone: true,
   imports: [DatePipe],
   template: `
-    <details class="board-activity" [open]="open()" (toggle)="toggled($event)">
-      <summary>Board activity @if (items().length) { <span class="board-activity-n">{{ items().length }}</span> }</summary>
+    <details class="board-activity" [open]="flat() || open()" (toggle)="toggled($event)">
+      <summary [hidden]="flat()">Board activity @if (items().length) { <span class="board-activity-n">{{ items().length }}</span> }</summary>
       @for (a of items(); track a.id) {
         <div class="board-activity-row" [class.undone]="a.undoneAt">
           <span class="board-activity-at" [title]="a.at">{{ a.at | date: 'd MMM HH:mm' }}</span>
@@ -43,6 +43,10 @@ export class BoardActivityComponent {
 
   readonly boardId = input.required<string>();
   readonly editable = input(true);
+  /** On the board page's Activity tab (specs/029): always open, no fold. */
+  readonly flat = input(false);
+  /** How many entries, for the tab's count. */
+  readonly count = output<number>();
   readonly items = signal<BoardActivity[]>([]);
   readonly open = signal(false);
 
@@ -66,6 +70,9 @@ export class BoardActivityComponent {
   }
 
   private load(id: string): void {
-    this.api.boardActivity(id).subscribe({ next: (a) => this.items.set(a), error: () => this.items.set([]) });
+    this.api.boardActivity(id).subscribe({
+      next: (a) => { this.items.set(a); this.count.emit(a.length); },
+      error: () => { this.items.set([]); this.count.emit(0); },
+    });
   }
 }
