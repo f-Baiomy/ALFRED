@@ -76,6 +76,10 @@ class AzureClient {
                     }
                     throw new ProviderException(Kind.BUSY, "Azure DevOps asks to wait " + wait + " s", wait);
                 }
+                if (status == 400 || status == 409 || status >= 500) {
+                    throw new ProviderException(Kind.BAD_RESPONSE, "Azure DevOps answered " + status + " to " + call(request.uri())
+                            + reason(in));
+                }
                 check(status, request.uri());
                 return json.readTree(in);
             } catch (IOException e) {
@@ -135,6 +139,30 @@ class AzureClient {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new ProviderException(Kind.UNREACHABLE, "Interrupted");
+        }
+    }
+
+    /** The call in a few words ("wiql", "workitemsbatch", "teams"): the last word of the path. */
+    static String call(URI uri) {
+        String path = uri.getPath() == null ? "" : uri.getPath();
+        String last = path.substring(path.lastIndexOf('/') + 1);
+        return last.isEmpty() ? "the request" : last;
+    }
+
+    /**
+     * Azure's own words for a refused request ({@code {"message": "TF51005: ..."}}): what a 400 means is in them. Only the
+     * message, flattened and capped - never the request, so never the token.
+     */
+    String reason(InputStream in) {
+        try {
+            byte[] head = in.readNBytes(16 * 1024);
+            String message = json.readTree(head).path("message").asText("").replaceAll("\\s+", " ").strip();
+            if (message.isEmpty()) {
+                return "";
+            }
+            return ": " + (message.length() > 300 ? message.substring(0, 299) + "…" : message);
+        } catch (IOException | RuntimeException e) {
+            return "";
         }
     }
 

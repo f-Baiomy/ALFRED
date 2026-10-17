@@ -35,6 +35,7 @@ class AzureDevOpsConnectorTest {
     String base;
     final List<String> asked = new ArrayList<>();
     final AtomicInteger busyOnce = new AtomicInteger();
+    String wiqlRefusal;
     AzureDevOpsConnector azure;
     Connection connection;
 
@@ -68,6 +69,10 @@ class AzureDevOpsConnectorTest {
                 return;
             }
             if (path.endsWith("/_apis/wit/wiql")) {
+                if (wiqlRefusal != null) {
+                    answer(x, 400, wiqlRefusal);
+                    return;
+                }
                 if (busyOnce.getAndDecrement() > 0) {
                     x.getResponseHeaders().add("Retry-After", "1");
                     answer(x, 429, "{}");
@@ -100,6 +105,17 @@ class AzureDevOpsConnectorTest {
     @AfterEach
     void stop() {
         server.stop(0);
+    }
+
+    @Test
+    void aRefusedRequestSaysWhichCallAndAzuresReason() {
+        wiqlRefusal = "{\"$id\":\"1\",\"message\":\"TF51005: The query references a field\\n that does not exist.\",\"typeKey\":\"x\"}";
+        assertThatThrownBy(() -> azure.changedItems(connection, TOKEN, null, page -> { }))
+                .isInstanceOf(ProviderException.class)
+                .hasMessage("Azure DevOps answered 400 to wiql: TF51005: The query references a field that does not exist.")
+                .hasMessageNotContaining(TOKEN.value());
+        wiqlRefusal = "not json";
+        assertThatThrownBy(() -> azure.changedItems(connection, TOKEN, null, page -> { })).hasMessage("Azure DevOps answered 400 to wiql");
     }
 
     @Test
