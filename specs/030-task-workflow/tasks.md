@@ -4,14 +4,11 @@
 **Order**: Backend + MCP → Skills → Frontend → Docs + end to end. One commit per phase; full suites at the end of each.
 **[P]** = can run beside the other [P] tasks of its phase (different files). Story labels map to spec.md's user stories.
 
-## Status (2026-10-17, stopped by the user) - see [HANDOFF.md](HANDOFF.md)
+## Status (2026-10-17) - see [HANDOFF.md](HANDOFF.md)
 
-- Done and tested: seed children/parents/comments (backend + `team_item` parts), board refs (`src/board-ref.ts`), board stage
-  (`BoardStage`, `GET /board/boards/{id}/stage`, task_context STAGE/NEXT).
-- Phase 1 done (T001-T019): also the refresh result (`newItems`, `changedItems` with new comments, `mainState`, `matches`),
-  card matches (`item_matches`, `MatchService`, `/teamboards/cards/{card}/matches...`, `team_card_matches`), rejected
-  matches in the board export (`team-card-match`), and `check_calls` taking a board.
-- Next: Phase 2 (skills, T021-T031).
+- Phases 1-4 built and committed; every suite green. Left: the Azure half of the end-to-end run (T039) - it needs the
+  user's token entered in the Team tab - and a card's direct "Edit a field" (the direct endpoint takes state and
+  comment only).
 
 ## Phase 1: Backend + MCP
 
@@ -78,9 +75,9 @@
 
 ## Phase 4: Docs + end to end
 
-- [ ] T038 [P] `docs/team.md`, `docs/board.md`, `docs/mcp.md`, `CLAUDE.md` line
-- [ ] T039 End to end on AB#61813 in Docker: New board (silent) → `/alfred-setup AB#61813` draft → Save all → `/alfred-triage` → `/alfred-verify` → Record + `/alfred-listen` → Refresh → one card match; every bundle left waiting; screenshots
-- [ ] T040 All suites once more; commit "docs: task workflow (specs/030)"
+- [X] T038 [P] `docs/team.md`, `docs/board.md`, `docs/mcp.md`, `CLAUDE.md` line
+- [~] T039 (done in Docker without a token: the stage strip on AB#61813 at Code, Refresh says "Enter your token in the Team tab first", the card panel on #71; found and fixed next-steps missing cards homed on a board. Open: the Azure part - setup draft, Save all, triage, verify, listen, Refresh, a card match - needs the user's token in the Team tab) End to end on AB#61813 in Docker: New board (silent) → `/alfred-setup AB#61813` draft → Save all → `/alfred-triage` → `/alfred-verify` → Record + `/alfred-listen` → Refresh → one card match; every bundle left waiting; screenshots
+- [X] T040 All suites once more; commit "docs: task workflow (specs/030)"
 
 ## Dependencies
 

@@ -125,6 +125,19 @@ class BoardWaitingTest {
     }
 
     @Test
+    void aBoardsNextStepsCountTheCardsHomedOnItWhateverRecordingTheyCameFrom() {
+        // specs/030: the stage strip and task_context read a board's next steps by its id; its cards keep their cycle's id
+        String todo = f.add(Actor.USER, "p", CardKind.BUG, "fix me", "").card().id();
+        f.board.move(Actor.USER, todo, CardStatus.TO_DO);
+        var card = f.store.find(todo).orElseThrow();
+        f.store.update(card.withCycleId("cy-rec").withBoard("board-1", f.clock.instant(), Actor.USER));
+
+        assertThat(f.insights.nextSteps("p", "board-1").toDo()).isEqualTo(1);
+        assertThat(f.insights.nextSteps("p", "cy-rec").toDo()).isEqualTo(1);
+        assertThat(f.insights.nextSteps("p", "board-2").toDo()).isZero();
+    }
+
+    @Test
     void claudeWritesTheBriefAndASpec_theUserRestoresThePreviousVersion() {
         f.briefs.putBrief(Actor.USER, "cy", "mine");
         f.briefs.putBrief(Actor.CLAUDE, "cy", "Claude's");

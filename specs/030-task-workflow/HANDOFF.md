@@ -1,4 +1,4 @@
-# Handoff - specs/030 task workflow (phase 1 done 2026-10-17)
+# Handoff - specs/030 task workflow (phases 1-4 done 2026-10-17)
 
 Read this first, then [spec.md](spec.md) (the 28 agreed decisions are under Clarifications), [plan.md](plan.md) (design
 D1-D10) and [tasks.md](tasks.md) (each task with [X] done / [~] partly / [ ] open). The mock is
@@ -33,14 +33,25 @@ D1-D10) and [tasks.md](tasks.md) (each task with [X] done / [~] partly / [ ] ope
 | T018 | `MatchServiceTest` (11). Only REJECTED rows travel in the board export, as `team-card-match` by card number (backend `TeamTransferService`, `ImportBoardService`; frontend `board-json.ts` + spec) | |
 | T019 | MCP `team_card_matches` (list; `id` + `why` to judge; never links) | `mcp-server/src/tools/team.ts`, test in `team.test.ts` |
 
-### Next, in order
+### Done after phase 1 (same day)
 
-1. T020 leftovers if the commit is not there yet: full backend suite, `docker compose build backend` (no new module this phase, so no Dockerfile line), commit.
-2. Phase 2 (skills, T021-T031) - the skills name `team_card_matches`, the seed parts and board refs; add `team_card_matches` to
-   the skills' allowed tool lists; `pytest tests/python/test_alfred_skill.py`.
-3. Phase 3 (frontend, T032-T037): the sync result is on `/ws/teamboards` (what `sync`, extra `matches`, `mainState`) and in the
-   `POST /teamboards/boards/{board}/sync` body; matches under `/teamboards/cards/{card}/matches`.
-4. Phase 4 (docs + end to end on AB#61813, T038-T040).
+- Phase 2 (skills, `12d92c67`): rules §0 board refs and §0a (stages, item and child rules, refresh, matches); setup
+  defines with cards and re-defines; triage's code look; verify's three-option question and Azure update; report's close
+  bundle; team's card flows; guide's stages and 17 skills; board args everywhere. Backend: sync `wait`, Claude's
+  asked link at once, new items under the main. MCP: refresh result, closest allowed state, listen runner `--board`.
+- Phase 3 (frontend, `9a20cc5c`): `StageStripComponent` (stages, Define banner, Ask Claude in chat, Refresh from Azure,
+  main-moved banner), the card's Azure panel in `card-items` (matches; direct comment/state; Draft with Claude).
+- Phase 4 (docs + e2e): docs/team.md, board.md, mcp.md, CLAUDE.md; next-steps now count a board's home cards
+  (`SqliteBoardRepository.nextSteps`) - the stage of AB#61813 read Test instead of Code before.
+
+### Left
+
+1. The Azure half of the end-to-end on AB#61813 (T039): the user enters the token in the Team tab, then
+   `/alfred-setup AB#61813` (re-define, since the board has a brief) → Save all → `/alfred-triage` → `/alfred-verify` →
+   Record + `/alfred-listen AB#61813` → Refresh from Azure → a card match. Leave every bundle waiting.
+2. A direct "Edit a field" on the card's Azure panel (FR-016) needs a FIELD step kind in `AzureWritesService` and the
+   connector; not built.
+3. Push the branch / open a PR when the user asks.
 
 ## How to run things here
 

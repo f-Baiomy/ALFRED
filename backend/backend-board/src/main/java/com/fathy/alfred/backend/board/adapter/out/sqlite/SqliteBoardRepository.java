@@ -1180,8 +1180,9 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort,
 
     @Override
     public NextSteps nextSteps(String project, String cycleId) {
-        String scope = cycleId != null ? "c.cycle_id = ?" : "c.project = ?";
-        Object arg = cycleId != null ? cycleId : (project == null ? "" : project);
+        // a board's id names its home cards too (specs/027): cards homed on the board whose cycle_id is one of its recordings
+        String scope = cycleId != null ? "(c.cycle_id = ? OR c.board_id = ?)" : "c.project = ?";
+        Object[] arg = cycleId != null ? new Object[]{cycleId, cycleId} : new Object[]{project == null ? "" : project};
         List<NextSteps.Item> mine = jdbc.query("SELECT c.project, c.number, c.title, c.status, w.since, CASE "
                         + "WHEN EXISTS (SELECT 1 FROM proposals p WHERE p.card_id = c.id) THEN 'proposal' "
                         + "WHEN (',' || c.flags || ',') LIKE '%,NEEDS_DECISION,%' THEN 'question' "

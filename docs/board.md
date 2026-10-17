@@ -234,6 +234,30 @@ every tab: `BoardViewComponent` is always there and `showBody` hides only its ca
 board. The board's chat is not a tab: opening a board folds its chat beside the Chats pill (`ChatDockComponent.foldIn`,
 once per board opened, so × holds), even before its first message, and **💬 Chat** opens it.
 
+## The task's stages (specs/030)
+
+Every task goes Board → Define → Triage → Code → Verify → Test → Close. The stage is computed, never stored:
+`BoardStage.of` in `backend-board` (served at `GET /board/boards/{id}/stage` with the next command, the board's `ref` -
+`AB#<main id>` when it has a main, else its name - and the counts it was worked out from), the first rule that holds:
+no brief → DEFINE (`/alfred-setup`); a brief but no Acceptance item and no card → DEFINE (`/alfred-spec`); Inbox cards
+→ TRIAGE; questions or proposals waiting on the user → TRIAGE; To do / In progress → CODE; Fixed → VERIFY; items
+failing or not tested by the calls → TEST; items the user has not marked → VERIFY; else CLOSE (`/alfred-report`).
+`task_context` prints the same STAGE / NEXT and `/alfred-guide` reads it, so all three agree.
+
+The **stage strip** (`StageStripComponent`, between the related strip and the tabs, never on a default board) shows
+the seven stages with the current one marked and the next step with ⧉ Copy. At DEFINE with no brief it shows **Not
+defined yet** with `/alfred-setup <ref>` and **Ask Claude in chat**, which posts that command as the user's message to
+the board's chat - enabled only while someone answers it (a terminal holding the board, or the project's live runner).
+New board posts nothing; ▶ Start is New board + that message in one click. For a board with a main item the strip
+also has **↻ Refresh from Azure** (docs/team.md "Refresh from Azure"). It re-reads on `/ws/board` signals - no timer.
+
+**Defining** (`/alfred-setup <board>`): one draft - brief, spec, evidence, test steps, data, decisions and the cards (a
+BUG per Bug child with a reproduce scenario, a TASK per Task child and per Acceptance item no task covers, a QUESTION
+per unclear point; a child Azure shows done is still a card, marked "Azure says done") - saved with one "Save all"; the
+cards land in the Inbox before any code, each child's card linked to its item with no bundle. Re-run on a defined
+board it shows before → after and asks each removal one at a time (board questions from the board chat, the
+conversation in the terminal). The child-type and item-type rules live once in `skills/_shared/rules.md` §0a.
+
 ## The Task tab
 
 A session cycle is a task (skills/_shared/rules.md §0). The cycle page's **Task** tab and the Board's cycle view show it

@@ -145,6 +145,14 @@ After `docker compose up -d --build backend`, the gateway may keep the old conta
   temporary) in an `@for` `track` expression - Angular compiles it to an undefined `tmp_N` and the list does not render
   (it hid every cycle on no board).
 
+- **One task, seven stages** (specs/030, docs/board.md "The task's stages", docs/team.md "Refresh from Azure", "Card
+  matches"): Board → Define → Triage → Code → Verify → Test → Close, the stage computed once by `BoardStage.of`
+  (`GET /board/boards/{id}/stage`) for `task_context`'s NEXT, the stage strip and `/alfred-guide` - never a second rule.
+  A board is named `AB#<id>` / name / id everywhere (`mcp-server/src/board-ref.ts`); a bare `#n` is always a card.
+  Define drafts the cards too (rules §0a: child-type rules live only in `skills/_shared/rules.md`), linked in Alfred on
+  the user's Save all with no bundle. Card matches are code only (`MatchService`, `item_matches`); REJECTED is kept for
+  good and is the only state the board export carries (`team-card-match`). Refresh from Azure is the sync with `wait`.
+
 ## Detailed docs (read only when relevant)
 - docs/architecture.md — backend module/slice design, persistence/caching, pagination
 - docs/frontend-architecture.md — frontend state, WebSocket-driven fetch-on-demand, component-sharing patterns

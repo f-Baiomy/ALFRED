@@ -113,6 +113,41 @@ in the tracker (a hyperlink back to Alfred, a comment, a tag) are always a bundl
 from a card prepares the new item as a bundle; once approved it is linked to the card. Unlinking (the user's only)
 offers a cleanup bundle. "Also post to <item>" sends the user's own card comment to each linked item.
 
+## Refresh from Azure (specs/030)
+
+"↻ Refresh from Azure" on a board with a main item (the stage strip, `POST /teamboards/boards/{board}/sync` with
+`{"force": true, "wait": true}`) syncs now and answers with what it found, with no Claude run: `newItems` (new in the
+main's tree - they still go to Incoming), `changedItems` (copies Azure moved past: the fields that differ and
+`newComments`), `mainState` (the main's state before → after with its category, and its iteration move) and `matches`
+(proposed card matches after this sync). Without `wait` the sync runs in the background as before and its counts
+arrive on `/ws/teamboards` (what `sync`, now with `matches` and `mainState`). A main Closed, Removed or moved out of
+its iteration shows a banner; `/alfred-setup <board>` re-run proposes closing the open cards - the user decides.
+MCP: `team_refresh_item` with `board` (a board ref) prints the same result.
+
+## Card matches and the card's Azure panel (specs/030)
+
+A card with no Azure item gets **matches** found by code (`MatchService`, table `item_matches` in `teamboards.db`, run
+at the end of every sync): open Bug / Task / Issue items of the board's tree that no card of the board links, not made
+before the card (`System.CreatedDate`), scored by the share of words the two texts have in common (stop words, tags and
+numbers out) plus 0.5 for each `/api/...` path both name (numbers and `{x}` segments read as `{id}`). A match needs two
+shared words and 0.3, or a shared path; at most five per card. The item's text is what the sync read live, else its
+copy, else its title. A `REJECTED` ("Not this one") or `LINKED` row is never proposed again; a proposal whose card or
+item no longer qualifies goes. Claude writes its reason with `team_card_matches` (`why`) - it survives re-scoring.
+
+`GET /teamboards/cards/{card}/matches`, `POST …/matches/{conn}/{item}/link` (the user's own link, no bundle; the item
+leaves every other card's proposals), `POST …/reject` (user only), `PUT …/why`. Only REJECTED rows travel in the board
+export, as `team-card-match` records by card number, so an imported board never proposes them again.
+
+The card drawer's **Linked in Azure** shows, for a card with no item, the best match with its reason (Link / Not this
+one / Show others), then "+ create in Azure" - a bundle that creates the item **under the board's main item** (a
+`System.LinkTypes.Hierarchy-Reverse` relation; `NewItem.parent`) and links it once approved. For a linked item,
+**Azure ▾** offers the user's own comment and state (sent at once with their token, like the item drawer) and **Draft
+with Claude**, which posts `/alfred-team update card #<n>` to the board's chat; the draft comes back as a bundle.
+
+As Claude, `team_link_card` with an `askedIn` naming the user's request links in Alfred at once (the cards
+`/alfred-setup` drafts from a work item's children, on the user's "Save all"); without it the link is a bundle step.
+Tracker markers are always a bundle.
+
 ## Incoming, watch rules, the service hook
 
 **Incoming** (per board): items that arrived - new in the main's tree (TREE), a watch rule (RULE), the hook (HOOK), by
@@ -166,6 +201,13 @@ related items (or a related item, with a note, when it is another board's main a
 `NEW` (made, then paused before it joins the board, so it records nothing), `RECORD` (records now; the project's
 running recording pauses) or `NONE`. The item is read live first, so an unknown item makes nothing, and a failure to
 link it deletes the board just made. ▶ Start stays the way to have Claude set a board up.
+
+**The seed in full** (specs/030): besides purpose, steps, acceptance, context and the parent's acceptance, the seed
+holds `childItems` - every child in full (its fields by the field maps, repro, acceptance, state and category, `done`
+when Completed/Removed, its comments, its own children as title lines) - `parents`, the chain up to the top (cap 6,
+loop-guarded; each one's description and acceptance), and the item's comments. The old one-line `children` list stays
+for older clients. MCP `team_item` (`seed: true`) pages each long part with `part` + `offset` (`children`, `parents`,
+`comments`), never cut; `/alfred-setup` turns them into the brief, spec and cards (skills rules §0a).
 
 ## Export and import
 

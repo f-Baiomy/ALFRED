@@ -183,6 +183,21 @@ server.
 
 ## Tools
 
+**Naming a board** (specs/030, `src/board-ref.ts`): `task_context`, the `board` argument of every task tool,
+`board_record` / `board_home` / `board_relate` / `board_move_home` / `board_cycle_verdicts`, `team_refresh_item` and
+`check_calls`' `cycle` take a board as its id, `AB#<id>` / `<conn>/<id>` / the item's URL (the board whose MAIN is that
+item), or its name (exact, then a unique prefix) - and a cycle id or name as before. A bare `#12` is refused: it is a
+card number. Several boards named alike answer with the candidates; `AB#<id>` with no board says to make one in the
+Team tab. `check_calls` given a board checks its recording cycle, else its newest. `task_context` prints the board's
+**STAGE** and **NEXT** from `GET /board/boards/{id}/stage` (docs/board.md "The task's stages"). The listen runner takes
+`--board` the same way (`cycleOfBoard` in `alfred-listen.mjs`).
+
+**Team tools added by specs/030**: `team_item` seed parts `children`, `parents`, `comments` (paged, never cut);
+`team_card_matches` (a card's proposed items with the reason; `id` + `why` writes Claude's reason - never links or
+rejects); `team_refresh_item` with `board` syncs and prints the refresh result; `team_move_state` proposes the closest
+allowed state of the item's type when the one asked does not exist (`stateNote`); `team_link_card` with `askedIn` links
+in Alfred at once.
+
 | Area | Tools |
 |---|---|
 | Session | `session_settings` - mask secrets in replies on/off; default export folder; `sourceRoot` (the project call chains resolve in) |
