@@ -1,7 +1,11 @@
 <div class="assigned-to-filter select-picker multi-picker">
-  <button type="button" class="theme-picker-btn multi-picker-btn" (click)="togglePanel()">
+  <button type="button" class="theme-picker-btn multi-picker-btn" [class.multi-picker-compact]="compact()" [class.multi-picker-has]="values().length > 0"
+          (click)="togglePanel()" [attr.title]="values().length ? summaryTitle() : null">
     @if (values().length === 0) {
       <span class="multi-picker-empty">{{ emptyLabel() }}</span>
+    } @else if (compact()) {
+      <span class="multi-picker-sum">{{ labelOf(values()[0]) }}{{ values().length > 1 ? ' +' + (values().length - 1) : '' }}</span>
+      <span class="multi-picker-count">{{ values().length }}</span>
     } @else {
       @for (value of values(); track value) {
         <span class="multi-chip">{{ labelOf(value) }}</span>
@@ -25,10 +29,16 @@
           spellcheck="false"
           [value]="query()"
           (input)="onQuery($event)"
+          (keydown.enter)="$event.preventDefault(); addTyped()"
         />
       }
 
       <div class="filter-option-list">
+        @if (typedValue(); as typed) {
+          <button type="button" class="filter-option-item multi-option" (click)="addTyped()">
+            <span class="multi-check">＋</span> Add “{{ typed }}”
+          </button>
+        }
         @for (option of visibleOptions(); track option.value) {
           <button
             type="button"
@@ -40,7 +50,7 @@
             {{ option.label }}
           </button>
         } @empty {
-          <div class="status-picker-empty">Nothing matches.</div>
+          @if (!typedValue()) { <div class="status-picker-empty">Nothing matches.</div> }
         }
 
         <!-- A selected value the list no longer offers - a project since removed from
@@ -49,7 +59,7 @@
         @for (value of unknownSelections(); track value) {
           <button type="button" class="filter-option-item multi-option unknown" (click)="toggle(value)">
             <span class="multi-check">☑</span>
-            {{ value }} <em>— not configured any more</em>
+            {{ value }} <em>— {{ unknownNote() }}</em>
           </button>
         }
       </div>

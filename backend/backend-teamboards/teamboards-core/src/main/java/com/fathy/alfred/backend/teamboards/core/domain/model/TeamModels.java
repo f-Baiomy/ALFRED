@@ -66,7 +66,7 @@ public final class TeamModels {
 
     /** The filter lists the Team tab and Mine need: the only Team data kept besides saved copies (FR-013). */
     public record Lists(List<String> types, List<StateRow> states, List<String> areas, List<SquadRow> teams, List<SprintRow> iterations,
-                        List<PersonRow> people, List<BoardRow> boards, Instant at) {
+                        List<PersonRow> people, List<BoardRow> boards, Instant at, List<String> tags) {
     }
 
     public enum MappingKind { SPRINT, SQUAD, AREA, PROJECT }
@@ -93,12 +93,20 @@ public final class TeamModels {
         }
     }
 
-    /** One live search row (never stored). */
+    /** One live search row (never stored); {@code parent}: its parent's id when the tracker gave one. */
     public record SearchRow(String id, String type, String title, String state, String stateCategory, PersonRow assigned, String iteration,
-                            String area, Instant changedAt, int rev, String url, List<BoardBadge> boards, List<String> cards) {
+                            String area, Instant changedAt, int rev, String url, List<BoardBadge> boards, List<String> cards, String parent) {
     }
 
-    public record SearchResult(List<SearchRow> items, int total, boolean fullText, int page, int pageSize) {
+    /**
+     * A page of matches. With show PARENTS or TREE, {@code context} holds the parents (and children) that did not match,
+     * read live for this page only; {@code contextLeftOut} counts those past the cap.
+     */
+    public record SearchResult(List<SearchRow> items, int total, boolean fullText, int page, int pageSize, String show, List<SearchRow> context,
+                               int contextLeftOut) {
+        public SearchResult(List<SearchRow> items, int total, boolean fullText, int page, int pageSize) {
+            this(items, total, fullText, page, pageSize, "ITEMS", List.of(), 0);
+        }
     }
 
     /** A field that differs between the saved copy and Azure now. */

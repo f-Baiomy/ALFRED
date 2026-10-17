@@ -5,6 +5,9 @@ import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.SearchRe
 import com.fathy.alfred.backend.teamboards.spi.model.ItemQuery.Mine;
 import com.fathy.alfred.backend.teamboards.spi.model.ItemQuery.Sort;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
+import com.fasterxml.jackson.annotation.JsonFormat;
+
 import java.util.List;
 import java.util.Set;
 
@@ -16,11 +19,39 @@ public interface TeamSearchUseCase {
 
     int MAX_ITEMS = 200;
 
-    /** The search body (contracts/teamboards-rest.md); null lists mean "any", {@code openOnly} null means true. */
-    record SearchIn(String text, List<String> types, List<String> states, Boolean openOnly, List<String> areas, List<String> teams,
-                    List<String> iterations, String assigned, String createdBy, Integer changedWithinDays, List<String> tags, String parent,
-                    Set<Mine> mine, Sort sort, int page, int pageSize) {
+    /**
+     * The search body (contracts/teamboards-rest.md, specs/029); null lists mean "any", {@code openOnly} null means true.
+     * {@code assigned}, {@code createdBy} and {@code parents} take one value or a list (a saved watch rule may hold the
+     * older single value; {@code parent} is the older name of {@code parents}). {@code show}: ITEMS (default), PARENTS
+     * (each match under its parent chain) or TREE (parents and children); {@code childDepth}: 1 (default) or 0 for every
+     * level.
+     */
+    record SearchIn(String text, List<String> types, List<String> states, Boolean openOnly, List<String> areas, Boolean areaExact,
+                    List<String> teams, List<String> iterations,
+                    @JsonFormat(with = JsonFormat.Feature.ACCEPT_SINGLE_VALUE_AS_ARRAY) List<String> assigned,
+                    @JsonFormat(with = JsonFormat.Feature.ACCEPT_SINGLE_VALUE_AS_ARRAY) List<String> createdBy,
+                    Integer changedWithinDays, List<String> tags, Boolean tagsAll,
+                    @JsonAlias("parent") @JsonFormat(with = JsonFormat.Feature.ACCEPT_SINGLE_VALUE_AS_ARRAY) List<String> parents,
+                    Set<Mine> mine, Sort sort, int page, int pageSize, Show show, Integer childDepth) {
+
+        /** Only the paging changed. */
+        public SearchIn page(int p, int size) {
+            return new SearchIn(text, types, states, openOnly, areas, areaExact, teams, iterations, assigned, createdBy, changedWithinDays, tags,
+                    tagsAll, parents, mine, sort, p, size, show, childDepth);
+        }
+
+        /** A plain search: these people's open items (or {@code mine}'s). */
+        public static SearchIn people(List<String> assigned, Set<Mine> mine, int pageSize) {
+            return new SearchIn(null, null, null, true, null, null, null, null, assigned, null, null, null, null, null, mine, null, 0, pageSize,
+                    null, null);
+        }
     }
+
+    /** How a page of matches is shown: alone, under their parents, or with their parents and children. */
+    enum Show { ITEMS, PARENTS, TREE }
+
+    /** Parents and children read for one page, at most (the matches themselves are not counted). */
+    int MAX_CONTEXT = 500;
 
     /** What an item read includes besides its fields and relations: comments, history, attachments. */
     enum Part { COMMENTS, HISTORY, ATTACHMENTS }

@@ -2,7 +2,7 @@ import { Component, computed, effect, inject, signal, untracked } from '@angular
 import { ActivatedRoute } from '@angular/router';
 import { TeamApiService } from '../../core/team/team-api.service';
 import { TeamStateService } from '../../core/team/team-state.service';
-import { MineView, SearchResult, SearchRow, TeamSearch } from '../../core/team/team.models';
+import { MineView, SearchResult, SearchRow, ShowMode, TeamSearch } from '../../core/team/team.models';
 import { ConnectionSwitcherComponent } from '../../components/team/connection-switcher/connection-switcher.component';
 import { TeamSearchFormComponent } from '../../components/team/search-form/search-form.component';
 import { RowAction, TeamResultsTableComponent } from '../../components/team/results-table/results-table.component';
@@ -12,6 +12,19 @@ import { TeamSquadsComponent } from '../../components/team/squads/squads.compone
 import { PickedTarget, TeamBoardPickerComponent } from '../../components/team/board-picker/board-picker.component';
 
 type View = 'search' | 'mine' | 'teams' | 'iterations';
+
+/** The Show choice and children depth, remembered per browser (a convenience; nothing breaks without storage). */
+const SHOW_KEY = 'alfred.team.show';
+
+function remembered(): { show: ShowMode; depth: number } {
+  try {
+    const v = JSON.parse(localStorage.getItem(SHOW_KEY) ?? 'null');
+    if (v && ['ITEMS', 'PARENTS', 'TREE'].includes(v.show)) return { show: v.show, depth: v.depth === 0 ? 0 : 1 };
+  } catch {
+    // no storage here: the defaults
+  }
+  return { show: 'ITEMS', depth: 1 };
+}
 
 const PICKER: Record<Exclude<RowAction, 'START'>, { title: string; action: string; card: boolean }> = {
   NEW_CARD: { title: 'New card on which board?', action: 'Create card', card: false },
@@ -47,7 +60,8 @@ const PICKER: Record<Exclude<RowAction, 'START'>, { title: string; action: strin
           @case ('search') {
             <app-team-search-form [preset]="preset()" [busy]="searching()" (search)="run($event)" />
             @if (searchError()) { <div class="team-err" role="alert">{{ searchError() }}</div> }
-            <app-team-results-table [result]="result()" [openOnly]="last()?.openOnly ?? true" (opened)="open($event.id)" (page)="page($event)"
+            <app-team-results-table [result]="result()" [openOnly]="last()?.openOnly ?? true" [show]="showMode()" [childDepth]="childDepth()"
+                                    (showChange)="setShow($event)" (depthChange)="setDepth($event)" (opened)="open($event.id)" (page)="page($event)"
                                     (action)="act($event.action, $event.row.id)" />
           }
           @case ('mine') {
@@ -106,6 +120,8 @@ export class TeamPageComponent {
   readonly preset = signal<TeamSearch | null>(null);
   readonly last = signal<TeamSearch | null>(null);
   readonly result = signal<SearchResult | null>(null);
+  readonly showMode = signal<ShowMode>(remembered().show);
+  readonly childDepth = signal<number>(remembered().depth);
   readonly searching = signal(false);
   readonly searchError = signal<string | null>(null);
   readonly refreshing = signal(false);
@@ -136,7 +152,7 @@ export class TeamPageComponent {
     if (item) this.opened.set(item);
     const person = q?.get('person');
     const text = q?.get('q');
-    if (person) this.preset.set({ assigned: person, openOnly: true });
+    if (person) this.preset.set({ assigned: [person], openOnly: true });
     else if (text) this.preset.set({ text, openOnly: true });
     // a new token, or another connection: search again
     effect(() => {
@@ -171,7 +187,7 @@ export class TeamPageComponent {
     this.searching.set(true);
     this.searchError.set(null);
     const mine = ++this.asked;
-    this.api.search(c.id, s).subscribe({
+    this.api.search(c.id, { ...s, show: this.showMode(), childDepth: this.childDepth() }).subscribe({
       next: (r) => {
         if (mine !== this.asked) return; // a newer search (or another connection) went out since
         this.searching.set(false);
@@ -191,6 +207,32 @@ export class TeamPageComponent {
     if (/^(AB#)?\d+$/i.test(t)) return t.replace(/^AB#/i, '');
     const m = /\/_workitems\/edit\/(\d+)/.exec(t) ?? /[?&]workitem=(\d+)/i.exec(t);
     return m ? m[1] : null;
+  }
+
+  setShow(m: ShowMode): void {
+    this.showMode.set(m);
+    this.remember();
+    this.again();
+  }
+
+  setDepth(d: number): void {
+    this.childDepth.set(d);
+    this.remember();
+    this.again();
+  }
+
+  private remember(): void {
+    try {
+      localStorage.setItem(SHOW_KEY, JSON.stringify({ show: this.showMode(), depth: this.childDepth() }));
+    } catch {
+      // private window: not remembered
+    }
+  }
+
+  /** The same page, read again in the new shape. */
+  private again(): void {
+    const s = this.last();
+    if (s) this.run({ ...s, page: this.result()?.page ?? 0 });
   }
 
   page(n: number): void {

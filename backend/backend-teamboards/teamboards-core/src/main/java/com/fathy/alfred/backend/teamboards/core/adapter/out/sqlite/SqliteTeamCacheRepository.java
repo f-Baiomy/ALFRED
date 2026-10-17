@@ -156,6 +156,7 @@ public class SqliteTeamCacheRepository implements TeamCachePort {
                 CREATE TABLE IF NOT EXISTS item_states (conn TEXT NOT NULL, project TEXT NOT NULL, type TEXT NOT NULL, name TEXT NOT NULL,
                   category TEXT, sort INTEGER NOT NULL, PRIMARY KEY (conn, project, type, name))""",
                 "CREATE TABLE IF NOT EXISTS areas (conn TEXT NOT NULL, path TEXT NOT NULL, PRIMARY KEY (conn, path))",
+                "CREATE TABLE IF NOT EXISTS tags (conn TEXT NOT NULL, name TEXT NOT NULL, PRIMARY KEY (conn, name))",
                 """
                 CREATE TABLE IF NOT EXISTS mappings (id INTEGER PRIMARY KEY AUTOINCREMENT, conn TEXT NOT NULL, kind TEXT NOT NULL,
                   ext_value TEXT NOT NULL, alfred_project TEXT NOT NULL, alfred_board TEXT, UNIQUE (conn, kind, ext_value))""",
@@ -292,7 +293,7 @@ public class SqliteTeamCacheRepository implements TeamCachePort {
     @Override
     public boolean deleteConnection(String id) {
         return Boolean.TRUE.equals(tx.execute(s -> {
-            for (String table : List.of("people", "squads", "squad_members", "boards", "sprints", "item_states", "areas", "mappings", "field_maps",
+            for (String table : List.of("people", "squads", "squad_members", "boards", "sprints", "item_states", "areas", "tags", "mappings", "field_maps",
                     "type_kind_map", "start_requests", "pending_attachments", "board_items", "item_copies", "item_syncs", "card_links", "incoming",
                     "watch_rules", "hook_waiting")) {
                 jdbc.update("DELETE FROM " + table + " WHERE conn = ?", id);
@@ -471,6 +472,21 @@ public class SqliteTeamCacheRepository implements TeamCachePort {
     @Override
     public List<String> areas(String conn) {
         return jdbc.queryForList("SELECT path FROM areas WHERE conn = ? ORDER BY path", String.class, conn);
+    }
+
+    @Override
+    public void replaceTags(String conn, List<String> tags) {
+        tx.executeWithoutResult(s -> {
+            jdbc.update("DELETE FROM tags WHERE conn = ?", conn);
+            for (String t : tags) {
+                jdbc.update("INSERT OR IGNORE INTO tags(conn, name) VALUES (?,?)", conn, t);
+            }
+        });
+    }
+
+    @Override
+    public List<String> tags(String conn) {
+        return jdbc.queryForList("SELECT name FROM tags WHERE conn = ? ORDER BY name COLLATE NOCASE", String.class, conn);
     }
 
     // ------------------------------------------------------------------------------------- mappings, maps, kinds

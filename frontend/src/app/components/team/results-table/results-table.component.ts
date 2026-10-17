@@ -1,9 +1,82 @@
-import { Component, inject, input, output, signal } from '@angular/core';
+import { Component, computed, inject, input, output, signal } from '@angular/core';
 import { TeamStateService } from '../../../core/team/team-state.service';
-import { SearchResult, SearchRow, closedCategory } from '../../../core/team/team.models';
+import { SearchResult, SearchRow, ShowMode, closedCategory } from '../../../core/team/team.models';
 import { PersonPillComponent } from '../person-pill/person-pill.component';
 
 export type RowAction = 'NEW_CARD' | 'LINK_CARD' | 'RELATED' | 'MAIN' | 'START';
+
+/** One table line: a match or a parent / child shown for context, at its depth in the tree. */
+export interface TreeLine {
+  readonly row: SearchRow;
+  readonly depth: number;
+  readonly match: boolean;
+  /** Context only: an ancestor of a match, or below one. */
+  readonly role: 'parent' | 'child' | null;
+  readonly kids: number;
+}
+
+/**
+ * The page's matches and their context as a tree (specs/029): a row goes under its parent when the parent is on the page,
+ * else it is a root; roots and siblings keep the search's order (matches first). Folded ids hide their subtree.
+ */
+export function treeLines(r: SearchResult, folded: ReadonlySet<string>): TreeLine[] {
+  const show = r.show ?? 'ITEMS';
+  if (show === 'ITEMS') return r.items.map((row) => ({ row, depth: 0, match: true, role: null, kids: 0 }));
+  const all = new Map<string, SearchRow>();
+  const order = new Map<string, number>();
+  const matches = new Set(r.items.map((i) => i.id));
+  for (const row of [...r.items, ...(r.context ?? [])]) {
+    if (all.has(row.id)) continue;
+    all.set(row.id, row);
+    order.set(row.id, order.size);
+  }
+  const kids = new Map<string, string[]>();
+  const roots: string[] = [];
+  for (const [id, row] of all) {
+    const p = row.parent;
+    if (p && p !== id && all.has(p)) kids.set(p, [...(kids.get(p) ?? []), id]);
+    else roots.push(id);
+  }
+  const ancestors = new Set<string>();
+  for (const id of matches) {
+    let p = all.get(id)?.parent;
+    for (let hop = 0; p && all.has(p) && !ancestors.has(p) && hop < 50; hop++) {
+      ancestors.add(p);
+      p = all.get(p)?.parent;
+    }
+  }
+  // a branch is placed where its first match was in the search's order
+  const first = new Map<string, number>();
+  const firstMatch = (id: string, seen: Set<string>): number => {
+    if (first.has(id)) return first.get(id)!;
+    if (seen.has(id)) return Number.MAX_SAFE_INTEGER;
+    seen.add(id);
+    let best = matches.has(id) ? order.get(id)! : Number.MAX_SAFE_INTEGER;
+    for (const k of kids.get(id) ?? []) best = Math.min(best, firstMatch(k, seen));
+    first.set(id, best);
+    return best;
+  };
+  const rank = (id: string) => [firstMatch(id, new Set()), order.get(id)!] as const;
+  const byRank = (a: string, b: string) => {
+    const [fa, oa] = rank(a);
+    const [fb, ob] = rank(b);
+    return fa - fb || oa - ob;
+  };
+  const out: TreeLine[] = [];
+  const placed = new Set<string>();
+  const walk = (id: string, depth: number) => {
+    if (placed.has(id)) return;
+    placed.add(id);
+    const row = all.get(id)!;
+    const children = (kids.get(id) ?? []).slice().sort(byRank);
+    const match = matches.has(id);
+    out.push({ row, depth, match, role: match ? null : ancestors.has(id) ? 'parent' : 'child', kids: children.length });
+    if (folded.has(id)) return;
+    children.forEach((k) => walk(k, depth + 1));
+  };
+  roots.sort(byRank).forEach((id) => walk(id, 0));
+  return out;
+}
 
 /**
  * Search results (specs/028 US1, FR-012..014, FR-060): 50 a page, read live; each row says where it already sits in
@@ -21,20 +94,53 @@ export type RowAction = 'NEW_CARD' | 'LINK_CARD' | 'RELATED' | 'MAIN' | 'START';
         @if (!r.fullText) { <span class="trt-warn" title="This tracker has no full-text search (Search is off for the organisation)">titles only</span> }
         @if (r.page > 0) { <button type="button" class="action-btn" (click)="page.emit(r.page - 1)">‹ Prev</button> }
         @if (r.page + 1 < pages(r)) { <button type="button" class="action-btn" (click)="page.emit(r.page + 1)">Next ›</button> }
+        @if (mode() !== 'ITEMS' && r.context) {
+          <span>+{{ r.context.length }} {{ mode() === 'TREE' ? 'parents and children' : 'parents' }} for context</span>
+          @if (r.contextLeftOut) { <span class="trt-warn" title="Only the first 500 parents and children of a page are read">{{ r.contextLeftOut }} more not read</span> }
+        }
+        <span class="trt-grow"></span>
+        <span class="trt-show-l">Show</span>
+        <span class="trt-seg" role="radiogroup" aria-label="Show">
+          @for (m of modes; track m.id) {
+            <button type="button" role="radio" [class.on]="mode() === m.id" [attr.aria-checked]="mode() === m.id" (click)="showChange.emit(m.id)">{{ m.label }}</button>
+          }
+        </span>
+        @if (mode() === 'TREE') {
+          <span class="trt-seg" role="radiogroup" aria-label="Children">
+            <button type="button" role="radio" [class.on]="childDepth() !== 0" [attr.aria-checked]="childDepth() !== 0" (click)="depthChange.emit(1)">Children: 1 level</button>
+            <button type="button" role="radio" [class.on]="childDepth() === 0" [attr.aria-checked]="childDepth() === 0" (click)="depthChange.emit(0)">all levels</button>
+          </span>
+        }
+        @if (mode() !== 'ITEMS') {
+          <button type="button" class="action-btn" (click)="foldAll()">{{ folded().size ? 'Expand all' : 'Collapse all' }}</button>
+        }
       </div>
       <table class="trt">
         <thead><tr><th>Id</th><th>Type</th><th>Title</th><th>State</th><th>Assigned</th><th>{{ state.ui().word('sprint') }}</th><th>Changed</th><th>In Alfred</th><th></th></tr></thead>
         <tbody>
-          @for (row of r.items; track row.id) {
-            <tr [class.closed]="closed(row)" (click)="opened.emit(row)">
+          @for (l of lines(); track l.row.id) {
+            @let row = l.row;
+            <tr [class.closed]="closed(row)" [class.ctx]="!l.match" (click)="opened.emit(row)">
               <td class="trt-id">{{ row.id }}</td>
               <td>{{ row.type }}</td>
-              <td class="trt-title">{{ row.title }}</td>
+              <td class="trt-title">
+                @if (mode() === 'ITEMS') { {{ row.title }} }
+                @else {
+                  <span class="trt-tree" [style.padding-left.rem]="l.depth * 1.15">
+                    @if (l.kids) {
+                      <button type="button" class="trt-fold" (click)="$event.stopPropagation(); fold(row.id)" [attr.aria-expanded]="!folded().has(row.id)"
+                              [attr.aria-label]="(folded().has(row.id) ? 'Expand ' : 'Collapse ') + row.id">{{ folded().has(row.id) ? '▸' : '▾' }}</button>
+                    } @else { <span class="trt-fold-pad"></span> }
+                    <span [class.trt-match]="l.match">{{ row.title }}</span>
+                    @if (l.role) { <span class="trt-ctx" [title]="l.role === 'parent' ? 'A parent of a match - it did not match the search itself' : 'Below a match - it did not match the search itself'">{{ l.role }}</span> }
+                  </span>
+                }
+              </td>
               <td><span class="trt-state" [attr.data-cat]="row.stateCategory">{{ row.state || '-' }}</span></td>
               <td (click)="$event.stopPropagation()"><app-person-pill [person]="row.assigned" [conn]="state.picked()?.id ?? null" /></td>
               <td class="trt-dim">{{ last(row.iteration) }}</td>
               <td class="trt-dim" [title]="row.changedAt ?? ''">{{ ago(row.changedAt) }}</td>
-              <td><div class="trt-badges">
+              <td class="trt-badges-td"><div class="trt-badges">
                 @for (b of row.boards; track b.boardId) {
                   <span class="trt-badge" [class.main]="b.role === 'MAIN'" [class.changed]="b.changed"
                         [title]="(b.role === 'MAIN' ? 'Main item of ' : b.role === 'CARD' ? 'On a card of ' : 'Related item of ') + (b.name ?? b.boardId) + (b.changed ? ' - changed since the saved copy' : '')">
@@ -72,7 +178,19 @@ export type RowAction = 'NEW_CARD' | 'LINK_CARD' | 'RELATED' | 'MAIN' | 'START';
     .trt tbody tr:hover { background: rgba(139,92,246,.07); }
     .trt tr.closed td { opacity: .6; }
     .trt-id { font-variant-numeric: tabular-nums; color: var(--text-dim); }
-    .trt-title { max-width: 420px; }
+    .trt-title { max-width: 520px; }
+    .trt-show-l { color: var(--text-faint); font-size: .74rem; }
+    .trt-seg { display: inline-flex; border: 1px solid var(--border-strong); border-radius: 7px; overflow: hidden; }
+    .trt-seg button { border: 0; border-right: 1px solid var(--border); background: none; color: var(--text-dim); font-size: .74rem; padding: .18rem .55rem; cursor: pointer; }
+    .trt-seg button:last-child { border-right: 0; }
+    .trt-seg button.on { background: rgba(139,92,246,.22); color: var(--text); }
+    .trt-tree { display: flex; align-items: center; gap: .25rem; }
+    .trt-fold { flex: none; align-self: flex-start; width: 1.1rem; border: 0; background: none; color: var(--text-faint); cursor: pointer; padding: 0; line-height: 1.4; }
+    .trt-fold:hover { color: var(--text); }
+    .trt-fold-pad { flex: none; width: 1.1rem; }
+    .trt-match { font-weight: 500; }
+    .trt-ctx { flex: none; margin-left: .3rem; padding: 0 .3rem; border: 1px dashed var(--border-strong); border-radius: 4px; color: var(--text-faint); font-size: .62rem; }
+    .trt tr.ctx td:not(.trt-badges-td):not(.trt-add) { opacity: .62; }
     .trt-dim { color: var(--text-dim); white-space: nowrap; }
     .trt-state { padding: 0 .35rem; border-radius: 4px; background: var(--card-inner); white-space: nowrap; }
     .trt-state[data-cat='InProgress'] { color: var(--blue, #60a5fa); }
@@ -98,11 +216,44 @@ export class TeamResultsTableComponent {
 
   readonly result = input<SearchResult | null>(null);
   readonly openOnly = input(true);
+  /** The Show switch and the children depth, owned by the page (a change searches again). */
+  readonly show = input<ShowMode>('ITEMS');
+  readonly childDepth = input<number>(1);
+  readonly showChange = output<ShowMode>();
+  readonly depthChange = output<number>();
   readonly opened = output<SearchRow>();
   readonly page = output<number>();
   readonly action = output<{ action: RowAction; row: SearchRow }>();
 
   readonly menu = signal<string | null>(null);
+  readonly folded = signal<ReadonlySet<string>>(new Set());
+  readonly modes: { id: ShowMode; label: string }[] = [
+    { id: 'ITEMS', label: 'Items only' }, { id: 'PARENTS', label: 'With parents' }, { id: 'TREE', label: 'Full tree' },
+  ];
+  /** What the shown result was read as (a click on Show re-reads; until then the old shape stays). */
+  readonly mode = computed<ShowMode>(() => this.result()?.show ?? 'ITEMS');
+  readonly lines = computed(() => {
+    const r = this.result();
+    return r ? treeLines(r, this.folded()) : [];
+  });
+
+  fold(id: string): void {
+    this.folded.update((f) => {
+      const next = new Set(f);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+  }
+
+  foldAll(): void {
+    if (this.folded().size) {
+      this.folded.set(new Set());
+      return;
+    }
+    const r = this.result();
+    const all = treeLines(r!, new Set()).filter((l) => l.kids > 0).map((l) => l.row.id);
+    this.folded.set(new Set(all));
+  }
 
   pages(r: SearchResult): number {
     return Math.max(1, Math.ceil(r.total / Math.max(1, r.pageSize)));

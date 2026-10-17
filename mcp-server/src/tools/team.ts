@@ -32,9 +32,53 @@ interface SearchRow {
   readonly url: string | null;
   readonly boards: readonly BadgeRow[];
   readonly cards: readonly string[];
+  readonly parent?: string | null;
 }
 
-interface SearchPage { readonly items: readonly SearchRow[]; readonly total: number; readonly fullText: boolean; readonly page: number; readonly pageSize: number }
+interface SearchPage {
+  readonly items: readonly SearchRow[];
+  readonly total: number;
+  readonly fullText: boolean;
+  readonly page: number;
+  readonly pageSize: number;
+  readonly context?: readonly SearchRow[];
+  readonly contextLeftOut?: number;
+}
+
+/**
+ * Matches and their context as indented lines (specs/029): a row under its parent when the parent is on the page;
+ * context rows end with "(parent)" or "(child)" - they did not match the search.
+ */
+export function treeText(items: readonly SearchRow[], context: readonly SearchRow[]): string[] {
+  const all = new Map<string, SearchRow>();
+  for (const r of [...items, ...context]) if (!all.has(r.id)) all.set(r.id, r);
+  const matches = new Set(items.map((i) => i.id));
+  const kids = new Map<string, string[]>();
+  const roots: string[] = [];
+  for (const [id, r] of all) {
+    if (r.parent && r.parent !== id && all.has(r.parent)) kids.set(r.parent, [...(kids.get(r.parent) ?? []), id]);
+    else roots.push(id);
+  }
+  const above = new Set<string>();
+  for (const id of matches) {
+    let p = all.get(id)?.parent;
+    for (let hop = 0; p && all.has(p) && !above.has(p) && hop < 50; hop++) {
+      above.add(p);
+      p = all.get(p)?.parent;
+    }
+  }
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const walk = (id: string, depth: number) => {
+    if (seen.has(id)) return;
+    seen.add(id);
+    const tag = matches.has(id) ? '' : above.has(id) ? ' (parent)' : ' (child)';
+    out.push('  '.repeat(depth) + rowLine(all.get(id)!) + tag);
+    (kids.get(id) ?? []).forEach((k) => walk(k, depth + 1));
+  };
+  roots.forEach((id) => walk(id, 0));
+  return out;
+}
 
 interface ItemRow {
   readonly extId: string;
@@ -204,13 +248,21 @@ const SearchFilters = {
   states: z.array(z.string().max(100)).max(30).optional(),
   openOnly: z.boolean().default(true).describe('Hide items whose state is Completed or Removed (default on)'),
   areas: z.array(z.string().max(300)).max(20).optional(),
+  areaExact: z.boolean().default(false).describe('Areas match only themselves (default: the area and its sub-areas)'),
   teams: z.array(z.string().max(300)).max(20).optional().describe('"Project\\\\Team" names'),
-  iterations: z.array(z.string().max(300)).max(20).optional().describe('Iteration paths, or "@current"'),
-  assigned: z.string().max(200).optional().describe('A unique name (email), or "me"'),
-  createdBy: z.string().max(200).optional().describe('A unique name (email), or "me"'),
+  iterations: z.array(z.string().max(300)).max(20).optional().describe('Iteration paths, or "@current" (each picked team\'s current sprint)'),
+  assigned: z.union([z.string().max(200), z.array(z.string().max(200)).max(50)]).optional()
+    .describe('Unique names (emails), "me", or "none" for unassigned - one or several (any of them)'),
+  createdBy: z.union([z.string().max(200), z.array(z.string().max(200)).max(50)]).optional()
+    .describe('Unique names (emails) or "me" - one or several (any of them)'),
   changedWithinDays: z.number().int().min(1).max(3650).optional(),
   tags: z.array(z.string().max(100)).max(20).optional(),
-  parent: z.string().max(100).optional().describe('Only items under this parent id'),
+  tagsAll: z.boolean().default(false).describe('Every tag must be on the item (default: any one)'),
+  parent: z.union([z.string().max(100), z.array(z.string().max(100)).max(50)]).optional()
+    .describe('Only direct children of these parent ids (one or several)'),
+  show: z.enum(['items', 'parents', 'tree']).default('items')
+    .describe('items: the matches; parents: each under its parent chain; tree: parents and children (context items are marked)'),
+  childDepth: z.number().int().min(0).max(1).default(1).describe('With show tree: 1 = one level of children, 0 = every level'),
   mine: z.union([z.boolean(), z.array(z.enum(['ASSIGNED', 'CREATED', 'CHANGED', 'MENTIONED', 'FOLLOWED']))]).optional()
     .describe('true: assigned to, created by, changed by, mentioning or followed by "me"; or a list of those sources'),
   sort: z.enum(['CHANGED', 'ID', 'PRIORITY']).default('CHANGED'),
@@ -222,18 +274,26 @@ export function register(server: McpServer, client: AlfredClient): void {
   // ------------------------------------------------------------------------------------------------------ reads
 
   server.registerTool('team_search', {
-    description: 'Search the team\'s tracker (Azure DevOps) LIVE: text plus filters (types, states, areas, teams, iterations or @current, '
-      + 'assigned/createdBy incl. "me", changed within, tags, parent, mine). Open only by default. Each row says where it already sits in Alfred. '
-      + '50 a page. Nothing found is stored. Needs the user\'s token to be live (TOKEN_MISSING otherwise).',
+    description: 'Search the team\'s tracker (Azure DevOps) LIVE: text plus filters, each taking several values (ORed; filters ANDed): '
+      + 'types, states, areas (areaExact), teams, iterations or @current, assigned incl. "me"/"none", createdBy incl. "me", changed within, '
+      + 'tags (tagsAll), parent ids, mine. Open only by default. show: items, parents or tree (matches under their parents, with children). '
+      + 'Each row says where it already sits in Alfred. 50 matches a page. Nothing found is stored. Needs the user\'s token to be live '
+      + '(TOKEN_MISSING otherwise).',
     inputSchema: { conn: Conn, ...SearchFilters },
   }, (input) => run(async () => {
     const c = await pickConnection(client, input.conn);
-    const { conn: _c, mine, ...rest } = input;
-    const body = { ...rest, mine: mine === true ? ['ASSIGNED', 'CREATED', 'CHANGED', 'MENTIONED', 'FOLLOWED'] : mine === false ? [] : mine ?? [] };
+    const { conn: _c, mine, assigned, createdBy, parent, show, ...rest } = input;
+    const list = (v: string | string[] | undefined) => (v === undefined ? [] : Array.isArray(v) ? v : [v]);
+    const body = { ...rest, assigned: list(assigned), createdBy: list(createdBy), parents: list(parent), show: show.toUpperCase(),
+      mine: mine === true ? ['ASSIGNED', 'CREATED', 'CHANGED', 'MENTIONED', 'FOLLOWED'] : mine === false ? [] : mine ?? [] };
     const r = await live(() => client.post<SearchPage>(`/teamboards/connections/${seg(c.id)}/search`, { body, ...AS_CLAUDE }));
     const pages = Math.max(1, Math.ceil(r.total / Math.max(1, r.pageSize)));
-    return ok({ connection: c.name, total: r.total, page: `${r.page + 1} of ${pages}`, ...(r.fullText ? {} : { note: 'No full-text search here: titles were matched' }),
-      items: r.items.map(rowLine), ...(r.page + 1 < pages ? { more: `page ${r.page + 1}` } : {}) });
+    const head = { connection: c.name, total: r.total, page: `${r.page + 1} of ${pages}`,
+      ...(r.fullText ? {} : { note: 'No full-text search here: titles were matched' }) };
+    const more = r.page + 1 < pages ? { more: `page ${r.page + 1}` } : {};
+    if (show === 'items' || !r.context) return ok({ ...head, items: r.items.map(rowLine), ...more });
+    return ok({ ...head, tree: treeText(r.items, r.context),
+      ...(r.contextLeftOut ? { contextLeftOut: `${r.contextLeftOut} more parents/children not read (500 a page)` } : {}), ...more });
   }));
 
   server.registerTool('team_query', {

@@ -26,6 +26,7 @@ import com.fathy.alfred.backend.teamboards.spi.model.Comment;
 import com.fathy.alfred.backend.teamboards.spi.model.Item;
 import com.fathy.alfred.backend.teamboards.spi.model.ItemPage;
 import com.fathy.alfred.backend.teamboards.spi.model.ItemQuery;
+import com.fathy.alfred.backend.teamboards.spi.model.Link;
 import com.fathy.alfred.backend.teamboards.spi.model.Person;
 import com.fathy.alfred.backend.teamboards.spi.model.Revision;
 import org.springframework.beans.factory.ObjectProvider;
@@ -33,6 +34,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -74,7 +76,7 @@ public class TeamSearchService implements TeamSearchUseCase {
     /** The search with "me" resolved: the token's owner stays "me" (the tracker's own @Me); a "This is me" person by name. */
     ItemQuery query(String conn, SearchIn in) {
         if (in == null) {
-            in = new SearchIn(null, null, null, true, null, null, null, null, null, null, null, null, null, null, 0, 50);
+            in = SearchIn.people(null, null, 50);
         }
         if (in.text() != null && in.text().length() > 500) {
             throw TeamException.invalid("Search text is at most 500 characters");
@@ -85,7 +87,7 @@ public class TeamSearchService implements TeamSearchUseCase {
         if (in.changedWithinDays() != null && (in.changedWithinDays() < 1 || in.changedWithinDays() > 3650)) {
             throw TeamException.invalid("changedWithinDays is 1 to 3650");
         }
-        boolean wantsMe = "me".equalsIgnoreCase(in.assigned()) || "me".equalsIgnoreCase(in.createdBy()) || (in.mine() != null && !in.mine().isEmpty());
+        boolean wantsMe = hasMe(in.assigned()) || hasMe(in.createdBy()) || (in.mine() != null && !in.mine().isEmpty());
         String meName = null;
         if (wantsMe) {
             Optional<Me> me = team.me(conn);
@@ -98,13 +100,21 @@ public class TeamSearchService implements TeamSearchUseCase {
             }
         }
         String text = in.text() == null || in.text().isBlank() ? null : in.text().strip();
+        List<String> parents = clean(in.parents(), 50);
+        if (parents.stream().anyMatch(x -> !x.replace("#", "").matches("\\d{1,9}"))) {
+            throw TeamException.invalid("Under parent takes item ids (numbers)");
+        }
+        if (in.childDepth() != null && in.childDepth() < 0) {
+            throw TeamException.invalid("childDepth is 1 (one level) or 0 (every level)");
+        }
         return new ItemQuery(text, clean(in.types(), 50), clean(in.states(), 50), in.openOnly() == null || in.openOnly(), clean(in.areas(), 50),
-                clean(in.teams(), 20), clean(in.iterations(), 20), blank(in.assigned()), blank(in.createdBy()), in.changedWithinDays(),
-                clean(in.tags(), 20), blank(in.parent()), in.mine(), meName, in.sort(), in.page(), in.pageSize());
+                Boolean.TRUE.equals(in.areaExact()), clean(in.teams(), 20), clean(in.iterations(), 20), clean(in.assigned(), 50),
+                clean(in.createdBy(), 50), in.changedWithinDays(), clean(in.tags(), 20), Boolean.TRUE.equals(in.tagsAll()), parents, in.mine(), meName,
+                in.sort(), in.page(), in.pageSize());
     }
 
-    private static String blank(String s) {
-        return s == null || s.isBlank() ? null : s.strip();
+    private static boolean hasMe(List<String> who) {
+        return who != null && who.stream().anyMatch("me"::equalsIgnoreCase);
     }
 
     @Override
@@ -113,7 +123,69 @@ public class TeamSearchService implements TeamSearchUseCase {
         ItemQuery q = query(conn, in);
         ItemSearcher s = live.cap(c, ItemSearcher.class, "search");
         ItemPage page = live.call(c, () -> s.search(c.connection(), c.token(), q));
-        return new SearchResult(rows(conn, page.items()), page.total(), page.fullText(), q.page(), q.pageSize());
+        Show show = in == null || in.show() == null ? Show.ITEMS : in.show();
+        List<SearchRow> rows = rows(conn, page.items());
+        if (show == Show.ITEMS || page.items().isEmpty()) {
+            return new SearchResult(rows, page.total(), page.fullText(), q.page(), q.pageSize(), show.name(), List.of(), 0);
+        }
+        int depth = in.childDepth() != null && in.childDepth() == 0 ? MAX_HOPS : Math.max(1, in.childDepth() == null ? 1 : in.childDepth());
+        Context ctx = context(c, page.items(), show == Show.TREE ? depth : 0);
+        return new SearchResult(rows, page.total(), page.fullText(), q.page(), q.pageSize(), show.name(), rows(conn, ctx.items()), ctx.leftOut());
+    }
+
+    /** How far up (and, for every level, down) a tree is followed - deeper than any real backlog, short of a link loop. */
+    static final int MAX_HOPS = 12;
+
+    record Context(List<Item> items, int leftOut) {
+    }
+
+    /**
+     * The parents of a page's matches up to the top, then (when {@code childDepth} > 0) their children that many levels
+     * down - read live a level at a time, one batch each, never stored. At most {@link #MAX_CONTEXT} items; the rest
+     * are counted, not read.
+     */
+    Context context(Ctx c, List<Item> matches, int childDepth) {
+        Set<String> known = new LinkedHashSet<>();
+        matches.forEach(i -> known.add(i.extId()));
+        List<Item> extra = new ArrayList<>();
+        int[] leftOut = {0};
+        List<Item> level = matches;
+        for (int hop = 0; hop < MAX_HOPS && !level.isEmpty(); hop++) {
+            level = more(c, level, "Parent", known, extra, leftOut);
+        }
+        level = matches;
+        for (int hop = 0; hop < childDepth && !level.isEmpty(); hop++) {
+            level = more(c, level, "Child", known, extra, leftOut);
+        }
+        return new Context(extra, leftOut[0]);
+    }
+
+    private List<Item> more(Ctx c, List<Item> level, String kind, Set<String> known, List<Item> extra, int[] leftOut) {
+        List<String> want = new ArrayList<>();
+        for (Item i : level) {
+            for (Link l : i.links()) {
+                if (kind.equals(l.kind()) && l.toId() != null && !known.contains(l.toId()) && !want.contains(l.toId())) {
+                    want.add(l.toId());
+                }
+            }
+        }
+        int room = MAX_CONTEXT - extra.size();
+        if (want.size() > room) {
+            leftOut[0] += want.size() - Math.max(0, room);
+            want = want.subList(0, Math.max(0, room));
+        }
+        if (want.isEmpty()) {
+            return List.of();
+        }
+        known.addAll(want); // an id the tracker hides is asked once, not again
+        List<Item> got = live.items(c, want);
+        extra.addAll(got);
+        return got;
+    }
+
+    /** An item's parent id, when the tracker gave its relations. */
+    static String parentOf(Item i) {
+        return i.links().stream().filter(l -> "Parent".equals(l.kind())).map(Link::toId).findFirst().orElse(null);
     }
 
     @Override
@@ -145,7 +217,7 @@ public class TeamSearchService implements TeamSearchUseCase {
             }
             List<String> cards = cache.cardLinksOfItem(conn, i.extId()).stream().map(CardLinkRow::cardId).toList();
             out.add(new SearchRow(i.extId(), i.type(), i.title(), i.state(), live.category(conn, i.type(), i.state()), person(i), i.sprint(), i.area(),
-                    i.changedAt(), i.rev(), i.url() == null ? null : i.url().toString(), b, cards));
+                    i.changedAt(), i.rev(), i.url() == null ? null : i.url().toString(), b, cards, parentOf(i)));
         }
         return out;
     }

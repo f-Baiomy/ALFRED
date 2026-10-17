@@ -61,8 +61,7 @@ public class PeopleService implements PeopleUseCase {
         Integer open = null;
         if (live.vault().token(conn).isPresent() && p.email() != null) {
             try {
-                SearchResult r = search.search(conn, new SearchIn(null, null, null, true, null, null, null, p.email(), null, null, null, null, null,
-                        null, 0, 1));
+                SearchResult r = search.search(conn, SearchIn.people(List.of(p.email()), null, 1));
                 open = r.total();
             } catch (TeamException e) {
                 open = null;
@@ -104,8 +103,7 @@ public class PeopleService implements PeopleUseCase {
                 continue;
             }
             try {
-                SearchResult r = search.search(conn, new SearchIn(null, null, null, true, null, null, null, null, null, null, null, null, Set.of(m), null,
-                        0, FIRST));
+                SearchResult r = search.search(conn, SearchIn.people(null, Set.of(m), FIRST));
                 sources.add(new MineSource(m.name(), r.total(), r.items(), List.of(), List.of()));
             } catch (TeamException e) {
                 if (e.code() == Code.TOKEN_MISSING || e.code() == Code.TOKEN_REJECTED) {

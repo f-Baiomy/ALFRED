@@ -129,6 +129,8 @@ class AzureDevOpsConnectorTest {
                 answer(x, 200, "{\"value\":[{\"id\":\"u-c\",\"providerDisplayName\":\"Test User C\",\"properties\":{\"Mail\":{\"$value\":\"c@example.test\"}}}]}");
             } else if (path.endsWith("/teamfieldvalues")) {
                 answer(x, 200, "{\"values\":[{\"value\":\"Odeysys\\\\Payments\",\"includeChildren\":true}]}");
+            } else if (path.endsWith("/_apis/wit/tags")) {
+                answer(x, 200, "{\"value\":[{\"name\":\"uat\"},{\"name\":\"Refund\"},{\"name\":\"refund\"}]}");
             } else if (path.endsWith("/classificationnodes/Areas")) {
                 answer(x, 200, "{\"path\":\"\\\\Odeysys\\\\Area\",\"children\":[{\"path\":\"\\\\Odeysys\\\\Area\\\\Payments\"}]}");
             } else if (path.endsWith("/_apis/wit/workitemtypes")) {
@@ -158,8 +160,8 @@ class AzureDevOpsConnectorTest {
     }
 
     static ItemQuery query(String text, boolean open, Set<Mine> mine, List<String> teams, List<String> iterations) {
-        return new ItemQuery(text, List.of(), List.of(), open, List.of(), teams, iterations, null, null, null, List.of(), null, mine, null,
-                ItemQuery.Sort.CHANGED, 0, 50);
+        return new ItemQuery(text, List.of(), List.of(), open, List.of(), false, teams, iterations, List.of(), List.of(), null, List.of(), false,
+                List.of(), mine, null, ItemQuery.Sort.CHANGED, 0, 50);
     }
 
     private String lastWiql() {
@@ -201,6 +203,32 @@ class AzureDevOpsConnectorTest {
         assertThat(w).contains("[System.AssignedTo] = @Me").contains("[System.ChangedBy] EVER @Me").contains("@RecentMentions").contains("@Follows")
                 .contains("[System.AreaPath] UNDER 'Odeysys\\\\Payments'").contains("@CurrentIteration('[Odeysys]\\\\Payments')");
         assertThat(asked).contains("POST /fake-org/Odeysys/Payments/_apis/wit/wiql");
+    }
+
+    /** specs/029: inside a filter the values are ORed, between filters ANDed; every value quoted. */
+    @Test
+    void everyFilterTakesSeveralValues() {
+        ItemQuery q = new ItemQuery(null, List.of("Bug", "Task"), List.of("Active", "New"), false, List.of("Odeysys\\Refunds", "Odeysys\\PNR"), true,
+                List.of(), List.of("@current", "Odeysys\\Sprint 59"), List.of("me", "o'neil@example.com", "none"), List.of("me", "sara@example.com"),
+                null, List.of("refund", "uat"), true, List.of("59415", "#61200", "x"), Set.of(), null, ItemQuery.Sort.CHANGED, 0, 50);
+        String w = AzureWiql.where(q, List.of(), Set.of(), java.util.Map.of(),
+                List.of("@CurrentIteration('[Odeysys]\\Commandos')", "@CurrentIteration('[Odeysys]\\Uplogs')"));
+        assertThat(w).contains("[System.WorkItemType] IN ('Bug', 'Task')").contains("[System.State] IN ('Active', 'New')")
+                .contains("([System.AreaPath] = 'Odeysys\\Refunds' OR [System.AreaPath] = 'Odeysys\\PNR')")
+                .contains("([System.IterationPath] = @CurrentIteration('[Odeysys]\\Commandos') OR [System.IterationPath] = @CurrentIteration('[Odeysys]\\Uplogs')"
+                        + " OR [System.IterationPath] UNDER 'Odeysys\\Sprint 59')")
+                .contains("([System.AssignedTo] IN (@Me, 'o''neil@example.com') OR [System.AssignedTo] = '')")
+                .contains("[System.CreatedBy] IN (@Me, 'sara@example.com')")
+                .contains("([System.Tags] CONTAINS 'refund' AND [System.Tags] CONTAINS 'uat')")
+                .contains("[System.Parent] IN (59415, 61200)").doesNotContain("'x'");
+        assertThat(AzureWiql.searchable(q)).isFalse();
+
+        ItemQuery any = new ItemQuery("refund", List.of(), List.of(), false, List.of("Odeysys\\Refunds"), false, List.of(), List.of(),
+                List.of("none"), List.of(), null, List.of("a", "b"), false, List.of("7"), Set.of(), null, ItemQuery.Sort.CHANGED, 0, 50);
+        String w2 = AzureWiql.where(any, List.of(), Set.of(), java.util.Map.of(), List.of("@CurrentIteration"));
+        assertThat(w2).contains("[System.AreaPath] UNDER 'Odeysys\\Refunds'").contains("[System.AssignedTo] = ''")
+                .contains("([System.Tags] CONTAINS 'a' OR [System.Tags] CONTAINS 'b')").contains("[System.Parent] = 7");
+        assertThat(AzureWiql.searchable(any)).isFalse(); // unassigned and sub-areas need WIQL
     }
 
     @Test
@@ -263,6 +291,7 @@ class AzureDevOpsConnectorTest {
     void statesAndAreasForTheLists() throws Exception {
         assertThat(azure.states(connection, TOKEN)).extracting(t -> t.type()).containsExactly("Bug", "Product Backlog Item");
         assertThat(azure.areas(connection, TOKEN)).containsExactly("Odeysys", "Odeysys\\Payments");
+        assertThat(azure.tags(connection, TOKEN)).containsExactly("Refund", "uat");
         assertThat(AzureDevOpsConnector.areaPath("\\Odeysys\\Area\\Payments\\Refunds")).isEqualTo("Odeysys\\Payments\\Refunds");
     }
 

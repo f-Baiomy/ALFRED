@@ -297,7 +297,8 @@ public class TeamService implements TeamUseCase {
     private Lists cached(String conn, Instant at) {
         List<StateRow> states = cache.states(conn);
         List<String> types = states.stream().map(StateRow::type).distinct().sorted().toList();
-        return new Lists(types, states, cache.areas(conn), cache.squads(conn), cache.sprints(conn), cache.people(conn), cache.boards(conn), at);
+        return new Lists(types, states, cache.areas(conn), cache.squads(conn), cache.sprints(conn), cache.people(conn), cache.boards(conn), at,
+                cache.tags(conn));
     }
 
     private void listsInBackground(String conn) {
@@ -338,6 +339,7 @@ public class TeamService implements TeamUseCase {
                 cache.replaceStates(conn, rows);
             });
             attempt(c, failed, "areas", () -> cache.replaceAreas(conn, sc.areas(c.connection(), c.token())));
+            attempt(c, failed, "tags", () -> cache.replaceTags(conn, sc.tags(c.connection(), c.token())));
         } else {
             attempt(c, failed, "types", () -> {
                 List<StateRow> rows = new ArrayList<>();

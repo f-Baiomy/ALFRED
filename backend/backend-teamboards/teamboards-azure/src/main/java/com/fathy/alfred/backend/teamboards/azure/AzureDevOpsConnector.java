@@ -175,8 +175,8 @@ public class AzureDevOpsConnector implements Connector, BoardsReader, SprintsRea
         if (!q.states().isEmpty()) {
             filters.put("System.State", q.states());
         }
-        if (q.assigned() != null) {
-            filters.put("System.AssignedTo", List.of(q.assigned()));
+        if (!q.assigned().isEmpty()) {
+            filters.put("System.AssignedTo", q.assigned());
         }
         if (!q.areas().isEmpty()) {
             filters.put("System.AreaPath", q.areas());
@@ -253,7 +253,9 @@ public class AzureDevOpsConnector implements Connector, BoardsReader, SprintsRea
     ItemPage wiqlPage(Connection c, Token t, ItemQuery q) throws ProviderException {
         List<String> projects = c.scope().projects();
         String team = q.teams().size() == 1 ? q.teams().get(0) : null;
-        String current = team == null ? "@CurrentIteration" : "@CurrentIteration(" + AzureWiql.quote(bracket(team)) + ")";
+        // "current" is each picked team's own sprint; with no team picked, the plain macro (the scope's team, or the default)
+        List<String> current = q.teams().isEmpty() ? List.of("@CurrentIteration")
+                : q.teams().stream().map(x -> "@CurrentIteration(" + AzureWiql.quote(bracket(x)) + ")").toList();
         String where = AzureWiql.where(q, projects, q.openOnly() && q.states().isEmpty() ? closedStates(c, t) : Set.of(), areasOf(c, t, q.teams()),
                 current);
         String wiql = "SELECT [System.Id] FROM WorkItems WHERE " + where + AzureWiql.order(q.sort());
@@ -468,6 +470,20 @@ public class AzureDevOpsConnector implements Connector, BoardsReader, SprintsRea
             }
         }
         return out;
+    }
+
+    @Override
+    public List<String> tags(Connection c, Token t) throws ProviderException {
+        Set<String> out = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        for (String project : projects(c, t)) {
+            for (JsonNode n : client.get(URI.create(org(c) + "/" + encode(project) + "/_apis/wit/tags?api-version=7.1-preview.1"), t).path("value")) {
+                String name = n.path("name").asText("");
+                if (!name.isBlank() && out.size() < 5000) {
+                    out.add(name);
+                }
+            }
+        }
+        return List.copyOf(out);
     }
 
     /** "\\Odeysys\\Area\\Payments" -> "Odeysys\\Payments" (the classification path to the work item's Area Path). */

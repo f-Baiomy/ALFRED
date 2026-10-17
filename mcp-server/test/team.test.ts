@@ -23,6 +23,11 @@ function team(opts: { token?: boolean; conns?: unknown[] } = {}) {
   return (method: string, p: string[], _q: URLSearchParams, body?: any): [number, unknown?] | undefined => {
     const missing: [number, unknown] = [401, { error: 'TOKEN_MISSING', message: 'Enter your token in the Team tab' }];
     if (method === 'GET' && p[1] === 'connections' && p.length === 2) return [200, opts.conns ?? [CONN]];
+    if (method === 'POST' && p[3] === 'search' && body.show === 'TREE') {
+      return [200, { items: [{ ...ROW, parent: '99' }], total: 1, fullText: true, page: 0, pageSize: 50, show: 'TREE',
+        context: [{ ...ROW, id: '99', title: 'Refunds epic', type: 'Epic', parent: null, boards: [] }, { ...ROW, id: '1300', title: 'Fix it', type: 'Task', parent: '1234', boards: [] }],
+        contextLeftOut: 0 }];
+    }
     if (method === 'POST' && p[3] === 'search') return token ? [200, { items: [ROW], total: 120, fullText: false, page: body.page ?? 0, pageSize: 50 }] : missing;
     if (method === 'GET' && p[3] === 'items' && p[4] === '1234') return token ? [200, VIEW] : missing;
     if (method === 'POST' && p[1] === 'connections' && p[3] === 'items' && p.length === 4) return [200, [{ ...VIEW, item: { ...VIEW.item, extId: '99', title: 'Refunds epic', type: 'Epic' } }]];
@@ -69,6 +74,23 @@ test('team_search reads live as Claude, says titles-only and pages, and shows wh
     assert.equal(req.body.openOnly, true);
     assert.equal(req.headers?.['x-alfred-actor'], 'claude');
     assert.ok(!JSON.stringify(req.headers ?? {}).toLowerCase().includes('team-token'), 'no token header from Claude');
+  } finally { await w.close(); }
+});
+
+test('team_search takes several values per filter and shows the tree with context marked', async () => {
+  const w = await world();
+  try {
+    w.fake.team = team();
+    const r = await w.call('team_search', { assigned: ['me', 'none'], createdBy: 'me', parent: '59415', tagsAll: true, show: 'tree' });
+    const req = w.fake.requests('POST', '/teamboards/connections/c1/search')[0];
+    assert.deepEqual([req.body.assigned, req.body.createdBy, req.body.parents, req.body.show, req.body.tagsAll, req.body.childDepth],
+      [['me', 'none'], ['me'], ['59415'], 'TREE', true, 1]);
+    assert.equal(req.body.parent, undefined);
+    assert.equal(r.json.tree.length, 3);
+    assert.match(r.json.tree[0], /^99 · Epic · "Refunds epic".*\(parent\)$/);
+    assert.match(r.json.tree[1], /^  1234 · Bug · "Refund fails"/);
+    assert.doesNotMatch(r.json.tree[1], /\((parent|child)\)$/);
+    assert.match(r.json.tree[2], /^    1300 · Task · "Fix it".*\(child\)$/);
   } finally { await w.close(); }
 });
 

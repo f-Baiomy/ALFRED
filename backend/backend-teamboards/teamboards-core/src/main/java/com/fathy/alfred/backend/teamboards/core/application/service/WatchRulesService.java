@@ -146,8 +146,7 @@ public class WatchRulesService implements WatchRulesUseCase {
         int found = 0;
         int seen = 0;
         for (int page = 0; seen < MAX_MATCHES; page++) {
-            SearchIn paged = new SearchIn(in.text(), in.types(), in.states(), in.openOnly(), in.areas(), in.teams(), in.iterations(), in.assigned(),
-                    in.createdBy(), in.changedWithinDays(), in.tags(), in.parent(), in.mine(), in.sort(), page, ItemQuery.MAX_PAGE_SIZE);
+            SearchIn paged = in.page(page, ItemQuery.MAX_PAGE_SIZE);
             ItemQuery q = search.query(r.conn(), paged);
             ItemPage got = live.call(c, () -> s.search(c.connection(), c.token(), q));
             for (Item i : got.items()) {

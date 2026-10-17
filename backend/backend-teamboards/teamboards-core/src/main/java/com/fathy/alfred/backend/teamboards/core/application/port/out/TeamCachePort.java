@@ -93,6 +93,10 @@ public interface TeamCachePort {
 
     List<String> areas(String conn);
 
+    void replaceTags(String conn, List<String> tags);
+
+    List<String> tags(String conn);
+
     // ------------------------------------------------------------------------------------- mappings, maps, kinds
 
     List<MappingRow> mappings(String conn);

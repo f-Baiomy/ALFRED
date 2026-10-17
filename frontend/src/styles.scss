@@ -7391,6 +7391,34 @@ h1.page-title {
   font-size: 0.65rem;
 }
 
+/* compact: one line, "first +2" and a count - the Team search's filter columns */
+.multi-picker-btn.multi-picker-compact {
+  flex-wrap: nowrap;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.multi-picker-btn.multi-picker-compact.multi-picker-has {
+  border-color: color-mix(in srgb, var(--purple) 55%, transparent);
+}
+
+.multi-picker-sum {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.multi-picker-count {
+  flex: none;
+  background: var(--purple);
+  color: #fff;
+  border-radius: 8px;
+  padding: 0 0.35rem;
+  font-size: 0.66rem;
+}
+
 .multi-chip {
   background: color-mix(in srgb, var(--purple) 22%, transparent);
   border: 1px solid color-mix(in srgb, var(--purple) 38%, transparent);

@@ -32,6 +32,13 @@ export class MultiSelectPickerComponent {
   readonly emptyLabel = input<string>('Any');
   /** Shows a filter box; pointless for six methods, necessary for thirty projects. */
   readonly searchable = input<boolean>(false);
+  /** The closed button says "first +2" with a count instead of every chip - for a narrow filter column. */
+  readonly compact = input<boolean>(false);
+  /** Lets a value not in the list be typed and added with Enter (an item id, a new tag); `custom` checks it. */
+  readonly allowCustom = input<boolean>(false);
+  readonly custom = input<(v: string) => boolean>(() => true);
+  /** How a picked value the list no longer offers is described. */
+  readonly unknownNote = input<string>('not configured any more');
   readonly valuesChange = output<readonly string[]>();
 
   readonly panelOpen = signal(false);
@@ -56,6 +63,15 @@ export class MultiSelectPickerComponent {
     const known = new Set(this.options().map((o) => o.value));
     return this.values().filter((v) => !known.has(v));
   });
+
+  /** The typed text, when it can be added as a value of its own. */
+  readonly typedValue = computed(() => {
+    const t = this.query().trim();
+    if (!this.allowCustom() || !t || this.selected().has(t) || !this.custom()(t)) return null;
+    return this.options().some((o) => o.value === t || o.label.toLowerCase() === t.toLowerCase()) ? null : t;
+  });
+
+  readonly summaryTitle = computed(() => this.values().map((v) => this.labelOf(v)).join(', '));
 
   private stopTracking: (() => void) | null = null;
 
@@ -94,6 +110,13 @@ export class MultiSelectPickerComponent {
       ? this.values().filter((v) => v !== value)
       : [...this.values(), value];
     this.valuesChange.emit(next);
+  }
+
+  addTyped(): void {
+    const t = this.typedValue();
+    if (!t) return;
+    this.valuesChange.emit([...this.values(), t]);
+    this.query.set('');
   }
 
   /** Stays open: picking three projects should not mean reopening the panel three times. */

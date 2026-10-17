@@ -39,12 +39,34 @@ final class AzureWiql {
         return "me".equalsIgnoreCase(who) ? me(q) : quote(who);
     }
 
+    /** {@code field IN (...)} over people, "me" resolved; with {@code none} also the unassigned (an empty field). */
+    static String people(ItemQuery q, String field, List<String> who, boolean noneMeansEmpty) {
+        List<String> names = new ArrayList<>();
+        boolean none = false;
+        for (String w : who) {
+            if (noneMeansEmpty && "none".equalsIgnoreCase(w)) {
+                none = true;
+            } else if (!names.contains(person(q, w))) {
+                names.add(person(q, w));
+            }
+        }
+        List<String> or = new ArrayList<>();
+        if (!names.isEmpty()) {
+            or.add(field + (names.size() == 1 ? " = " + names.get(0) : " IN (" + String.join(", ", names) + ")"));
+        }
+        if (none) {
+            or.add(field + " = ''");
+        }
+        return or.size() == 1 ? or.get(0) : "(" + String.join(" OR ", or) + ")";
+    }
+
     /**
      * The WHERE of a search. {@code projects}: the scope (empty: every project the token sees); {@code closedStates}: the
      * states whose category is Completed or Removed (Open only); {@code teamAreas}: each team's area paths, with
-     * {@code true} for "and its children"; {@code currentIteration}: the @CurrentIteration macro to use.
+     * {@code true} for "and its children"; {@code currentIterations}: the @CurrentIteration macros "@current" stands for
+     * (one per picked team, or the plain macro).
      */
-    static String where(ItemQuery q, List<String> projects, Set<String> closedStates, Map<String, Boolean> teamAreas, String currentIteration) {
+    static String where(ItemQuery q, List<String> projects, Set<String> closedStates, Map<String, Boolean> teamAreas, List<String> currentIterations) {
         List<String> and = new ArrayList<>();
         if (!projects.isEmpty()) {
             and.add("[System.TeamProject] IN " + in(projects));
@@ -68,7 +90,7 @@ final class AzureWiql {
         if (!q.areas().isEmpty()) {
             List<String> or = new ArrayList<>();
             for (String a : q.areas()) {
-                or.add("[System.AreaPath] UNDER " + quote(a));
+                or.add("[System.AreaPath] " + (q.areaExact() ? "= " : "UNDER ") + quote(a));
             }
             and.add("(" + String.join(" OR ", or) + ")");
         }
@@ -80,24 +102,35 @@ final class AzureWiql {
         if (!q.iterations().isEmpty()) {
             List<String> or = new ArrayList<>();
             for (String i : q.iterations()) {
-                or.add("@current".equalsIgnoreCase(i) ? "[System.IterationPath] = " + currentIteration : "[System.IterationPath] UNDER " + quote(i));
+                if ("@current".equalsIgnoreCase(i)) {
+                    for (String macro : currentIterations) {
+                        or.add("[System.IterationPath] = " + macro);
+                    }
+                } else {
+                    or.add("[System.IterationPath] UNDER " + quote(i));
+                }
             }
             and.add("(" + String.join(" OR ", or) + ")");
         }
-        if (q.assigned() != null) {
-            and.add("none".equalsIgnoreCase(q.assigned()) ? "[System.AssignedTo] = ''" : "[System.AssignedTo] = " + person(q, q.assigned()));
+        if (!q.assigned().isEmpty()) {
+            and.add(people(q, "[System.AssignedTo]", q.assigned(), true));
         }
-        if (q.createdBy() != null) {
-            and.add("[System.CreatedBy] = " + person(q, q.createdBy()));
+        if (!q.createdBy().isEmpty()) {
+            and.add(people(q, "[System.CreatedBy]", q.createdBy(), false));
         }
         if (q.changedWithinDays() != null) {
             and.add("[System.ChangedDate] >= @Today - " + q.changedWithinDays());
         }
-        for (String t : q.tags()) {
-            and.add("[System.Tags] CONTAINS " + quote(t));
+        if (!q.tags().isEmpty()) {
+            List<String> each = new ArrayList<>();
+            for (String t : q.tags()) {
+                each.add("[System.Tags] CONTAINS " + quote(t));
+            }
+            and.add(each.size() == 1 ? each.get(0) : "(" + String.join(q.tagsAll() ? " AND " : " OR ", each) + ")");
         }
-        if (q.parent() != null && q.parent().matches("\\d{1,9}")) {
-            and.add("[System.Parent] = " + q.parent());
+        List<String> parents = q.parents().stream().map(x -> x.replace("#", "").strip()).filter(x -> x.matches("\\d{1,9}")).distinct().toList();
+        if (!parents.isEmpty()) {
+            and.add("[System.Parent] " + (parents.size() == 1 ? "= " + parents.get(0) : "IN (" + String.join(", ", parents) + ")"));
         }
         if (!q.mine().isEmpty()) {
             List<String> or = new ArrayList<>();
@@ -133,9 +166,13 @@ final class AzureWiql {
         };
     }
 
-    /** Whether the full-text Search API can answer the query (it filters project, type, state, assignee and area only). */
+    /**
+     * Whether the full-text Search API can answer the query: it filters project, type, state, assignee (by name) and area
+     * (that exact path) only - "me", unassigned and sub-areas need WIQL.
+     */
     static boolean searchable(ItemQuery q) {
-        return q.text() != null && q.iterations().isEmpty() && q.createdBy() == null && q.changedWithinDays() == null && q.tags().isEmpty()
-                && q.parent() == null && q.mine().isEmpty() && q.teams().isEmpty() && (q.assigned() == null || !"me".equalsIgnoreCase(q.assigned()));
+        return q.text() != null && q.iterations().isEmpty() && q.createdBy().isEmpty() && q.changedWithinDays() == null && q.tags().isEmpty()
+                && q.parents().isEmpty() && q.mine().isEmpty() && q.teams().isEmpty() && (q.areas().isEmpty() || q.areaExact())
+                && q.assigned().stream().noneMatch(a -> "me".equalsIgnoreCase(a) || "none".equalsIgnoreCase(a));
     }
 }

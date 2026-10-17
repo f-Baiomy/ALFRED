@@ -1,0 +1,390 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Team search: multi filters and tree</title>
+<style>
+  :root {
+    --bg: #15161a; --panel: #1c1d22; --panel2: #22232a; --border: rgba(255,255,255,.08); --border-strong: rgba(255,255,255,.16);
+    --text: #e7e7ec; --dim: #9b9ca6; --faint: #676873; --purple: #8b5cf6; --purple-l: #b9a5ff; --blue: #8fb2f7;
+    --green: #6fd38a; --amber: #f2b552; --red: #f07a7a; --code: rgba(255,255,255,.07);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 "Segoe UI", system-ui, sans-serif; padding: 16px 16px 80px; }
+  h1 { font-size: 1.25rem; margin: 0 0 .2rem; }
+  h3 { font-size: .9rem; margin: 1.2rem 0 .4rem; color: var(--purple-l); }
+  .lead { color: var(--dim); max-width: 110ch; margin: 0 0 .8rem; font-size: .88rem; }
+  code { font: .78rem Consolas, monospace; background: var(--code); padding: 0 .3rem; border-radius: 4px; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  input { background: var(--panel2); border: 1px solid var(--border-strong); border-radius: 6px; color: var(--text); padding: .3rem .45rem; font: .8rem "Segoe UI", system-ui; }
+  .dim { color: var(--dim); } .faint { color: var(--faint); } .small { font-size: .74rem; }
+  .layout { display: grid; grid-template-columns: minmax(0,1fr) 280px; gap: 1rem; max-width: 1500px; margin: 0 auto; }
+  @media (max-width: 900px) { .layout { grid-template-columns: minmax(0,1fr); } }
+  .note { border-left: 3px solid var(--amber); background: rgba(242,181,82,.07); padding: .4rem .7rem; color: var(--dim); font-size: .8rem; margin: .5rem 0; }
+  .note b { color: var(--amber); }
+  .ctl { position: sticky; top: 12px; align-self: start; background: var(--panel); border: 1px dashed rgba(242,181,82,.5); border-radius: 10px; padding: .7rem .8rem; font-size: .78rem; max-height: calc(100vh - 24px); overflow-y: auto; }
+  .ctl h2 { font-size: .8rem; color: var(--amber); margin: 0 0 .4rem; text-transform: uppercase; letter-spacing: .05em; }
+  .ctl label { display: block; color: var(--faint); margin: .55rem 0 .15rem; font-size: .7rem; text-transform: uppercase; letter-spacing: .04em; }
+  .ctl .cases { margin-top: .6rem; border-top: 1px solid var(--border); padding-top: .4rem; color: var(--dim); }
+  .ctl .cases div { margin: .25rem 0; }
+  .ctl .cases div::before { content: "• "; color: var(--faint); }
+  .app { overflow: visible; border: 1px solid var(--border-strong); border-radius: 12px; background: var(--panel); min-width: 0; }
+  .appbar { display: flex; gap: 1.1rem; padding: .5rem 1rem 0; border-bottom: 1px solid var(--border); font-size: .86rem; color: var(--dim); flex-wrap: wrap; }
+  .appbar span { padding-bottom: .45rem; } .appbar .on { color: var(--text); border-bottom: 2px solid var(--purple); }
+  .body { padding: .8rem 1rem 1rem; min-height: 560px; }
+  .row { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+  .spacer { flex: 1; }
+  .btn { background: var(--panel2); border: 1px solid var(--border-strong); border-radius: 6px; padding: .22rem .62rem; font-size: .8rem; white-space: nowrap; }
+  .btn:hover { border-color: var(--purple-l); }
+  .btn.pri { background: var(--purple); border-color: var(--purple); color: #fff; }
+  .btn.sm { font-size: .72rem; padding: .08rem .45rem; }
+  .search { flex: 1 1 280px; padding: .4rem .6rem; }
+
+  /* filter grid: every control the same multi-select picker */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: .55rem .8rem; align-items: start; margin-top: .55rem;
+    padding: .65rem; border: 1px solid var(--border); border-radius: 8px; }
+  .f { display: grid; gap: .2rem; min-width: 0; font-size: .74rem; color: var(--dim); position: relative; }
+  .f .lbl { display: flex; align-items: center; gap: .35rem; }
+  .f .lbl .mode { margin-left: auto; font-size: .66rem; color: var(--faint); border: 1px solid var(--border); border-radius: 4px; padding: 0 .3rem; cursor: pointer; }
+  .f .lbl .mode.on { color: var(--blue); border-color: rgba(143,178,247,.4); }
+  .pick { display: flex; align-items: center; gap: .3rem; min-height: 2rem; padding: .2rem .45rem; border: 1px solid var(--border-strong); border-radius: 6px;
+    background: var(--panel2); color: var(--text); font-size: .8rem; cursor: pointer; overflow: hidden; }
+  .pick.has { border-color: rgba(139,92,246,.55); }
+  .pick .sum { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pick .sum.any { color: var(--dim); }
+  .pick .n { font-size: .66rem; background: var(--purple); color: #fff; border-radius: 8px; padding: 0 .35rem; }
+  .pick .car { color: var(--faint); font-size: .7rem; }
+  .single .pick .n { display: none; }
+  .panel { position: absolute; z-index: 20; top: 100%; left: 0; margin-top: .25rem; width: max(100%, 260px); max-width: 320px; background: #26272e;
+    border: 1px solid var(--border-strong); border-radius: 8px; box-shadow: 0 10px 28px rgba(0,0,0,.45); padding: .35rem; display: none; }
+  .f.open .panel { display: block; }
+  .panel input { width: 100%; margin-bottom: .3rem; }
+  .panel .opts { max-height: 220px; overflow-y: auto; }
+  .opt { display: flex; gap: .45rem; align-items: center; padding: .22rem .4rem; border-radius: 5px; color: var(--text); font-size: .8rem; cursor: pointer; }
+  .opt:hover { background: rgba(139,92,246,.15); }
+  .opt .box { width: 14px; height: 14px; border: 1px solid var(--border-strong); border-radius: 3px; display: inline-grid; place-items: center; font-size: .6rem; flex: none; }
+  .opt.on .box { background: var(--purple); border-color: var(--purple); color: #fff; }
+  .opt .sub { margin-left: auto; color: var(--faint); font-size: .7rem; }
+  .opt.special { color: var(--blue); }
+  .panel .foot { display: flex; gap: .3rem; justify-content: space-between; border-top: 1px solid var(--border); margin-top: .3rem; padding-top: .3rem; font-size: .72rem; }
+  .panel .foot a { color: var(--blue); cursor: pointer; }
+  .panel .grp { color: var(--faint); font-size: .66rem; text-transform: uppercase; letter-spacing: .04em; padding: .3rem .4rem .1rem; }
+
+  /* active filter chips */
+  .chips { display: flex; gap: .35rem; flex-wrap: wrap; margin: .55rem 0 .2rem; align-items: center; }
+  .chip { border: 1px solid var(--border-strong); border-radius: 14px; padding: .06rem .55rem; font-size: .74rem; display: inline-flex; gap: .3rem; align-items: center; background: var(--panel2); }
+  .chip b { font-weight: 500; color: var(--dim); }
+  .chip .or { color: var(--faint); font-size: .66rem; }
+  .chip .x { color: var(--faint); cursor: pointer; }
+
+  /* view switch */
+  .seg { display: inline-flex; border: 1px solid var(--border-strong); border-radius: 7px; overflow: hidden; }
+  .seg span { padding: .2rem .6rem; font-size: .76rem; color: var(--dim); cursor: pointer; border-right: 1px solid var(--border); }
+  .seg span:last-child { border-right: 0; }
+  .seg span.on { background: rgba(139,92,246,.22); color: var(--text); }
+  .warn { padding: 0 .4rem; border-radius: 4px; border: 1px solid var(--amber); color: var(--amber); font-size: .7rem; }
+
+  table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+  th { text-align: left; color: var(--dim); font-weight: 500; font-size: .74rem; padding: .35rem .45rem; border-bottom: 1px solid var(--border-strong); white-space: nowrap; }
+  td { padding: .34rem .45rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  tr:hover td { background: rgba(139,92,246,.06); }
+  .id { color: var(--dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .title { display: flex; align-items: flex-start; gap: .3rem; min-width: 280px; }
+  .tw { display: inline-block; width: 1rem; flex: none; color: var(--faint); cursor: pointer; text-align: center; }
+  .ctx td { opacity: .55; }
+  .ctx td.keep { opacity: 1; }
+  .ctxtag { font-size: .62rem; color: var(--faint); border: 1px dashed var(--border-strong); border-radius: 4px; padding: 0 .3rem; margin-left: .3rem; white-space: nowrap; }
+  .type { display: inline-flex; gap: .3rem; align-items: center; white-space: nowrap; }
+  .dot { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+  .st { padding: 0 .35rem; border-radius: 4px; background: var(--panel2); white-space: nowrap; }
+  .st.p { color: var(--blue); } .st.r { color: var(--green); }
+  .pill { display: inline-flex; align-items: center; gap: .3rem; border: 1px solid var(--border); border-radius: 999px; padding: 0 .45rem 0 .1rem; font-size: .76rem; background: var(--panel2); white-space: nowrap; }
+  .pill.me { border-color: var(--purple-l); }
+  .av { width: 1.15rem; height: 1.15rem; border-radius: 50%; display: inline-grid; place-items: center; background: #4b3b77; color: #fff; font-size: .56rem; font-weight: 600; }
+  .mebadge { font-size: .6rem; background: var(--purple-l); color: #fff; border-radius: 4px; padding: 0 .28rem; }
+  .un { color: var(--faint); font-size: .74rem; }
+  .addb { font-size: .72rem; padding: .08rem .45rem; }
+  .wiql { white-space: pre-wrap; font: .74rem/1.45 Consolas, monospace; background: #111216; border: 1px solid var(--border); border-radius: 8px; padding: .6rem .7rem; color: #cfd0d8; overflow-x: auto; }
+  .wiql .k { color: var(--purple-l); } .wiql .s { color: var(--green); } .wiql .c { color: var(--faint); }
+  .dec { display: block; overflow-x: auto; width: 100%; border-collapse: collapse; font-size: .8rem; }
+  .dec td, .dec th { border-bottom: 1px solid var(--border); padding: .35rem .45rem; vertical-align: top; }
+</style>
+</head>
+<body>
+<h1>Team search - every filter multi-select, and a tree view</h1>
+<p class="lead">Mock for review. Every filter in the Team tab's search picks <b>several values</b> (one shared picker, the same <code>app-multi-select-picker</code> the rule editor uses), each sent to Azure as an <code>IN (...)</code> or an <code>OR</code> group. The results can be shown as <b>items only</b>, <b>with their parents</b>, or as the <b>full tree</b> (parents and children). Click the pickers and the view switch; the panel on the right sets the states.</p>
+
+<div class="layout">
+<div>
+  <div class="app">
+    <div class="appbar"><span>Live Calls</span><span>Session Cycles</span><span>Board</span><span class="on">Team</span><span>Profiles</span><span>Settings</span></div>
+    <div class="body">
+      <div class="row small dim"><b style="color:var(--text);font-size:.9rem">◆ azure</b><span class="spacer"></span><span style="color:var(--green)">● token live</span><span class="pill me"><span class="av">FB</span>f.biomy@tildetech.ae <span class="mebadge">me</span></span><span>7 h 51 min left</span></div>
+      <div class="row" style="margin-top:.6rem">
+        <input class="search" placeholder="Search title, description, comments… or an id / URL" value="refund">
+        <button class="btn pri">Search</button>
+        <label class="small"><input type="checkbox" checked> Open only</label>
+        <button class="btn" id="fbtn">Filters (6) ▾</button>
+        <button class="btn">Clear</button>
+      </div>
+
+      <div class="grid" id="grid"></div>
+
+      <div class="chips" id="chips"></div>
+
+      <div class="row" style="margin:.6rem 0 .3rem">
+        <span class="small dim" id="found"></span>
+        <span class="warn" title="Full-text search is off for this organisation">titles only</span>
+        <button class="btn sm">Next ›</button>
+        <span class="spacer"></span>
+        <span class="small faint">Show</span>
+        <div class="seg" id="seg">
+          <span data-v="items" class="on">Items only</span>
+          <span data-v="parents">With parents</span>
+          <span data-v="tree">Full tree</span>
+        </div>
+        <span class="seg" id="depthSeg" style="display:none"><span data-d="1" class="on">Children: 1 level</span><span data-d="all">all levels</span></span>
+        <button class="btn sm" id="expand" style="display:none">Collapse all</button>
+      </div>
+      <div style="overflow-x:auto">
+      <table>
+        <thead><tr><th>Id</th><th>Title</th><th>Type</th><th>State</th><th>Assigned</th><th>Iteration</th><th>Changed</th><th>In Alfred</th><th></th></tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+      </div>
+      <div class="note" id="treeNote" style="display:none"></div>
+    </div>
+  </div>
+
+  <h3>What goes to Azure (WIQL) for the filters above</h3>
+  <div class="wiql" id="wiql"></div>
+
+  <h3>Decisions in this mock</h3>
+  <table class="dec">
+    <tr><th>Filter</th><th>Picks</th><th>Sent as</th></tr>
+    <tr><td>Type, State</td><td>several</td><td><code>[System.WorkItemType] IN (...)</code>, <code>[System.State] IN (...)</code> - as today, but a dropdown picker instead of the native list box</td></tr>
+    <tr><td>Team</td><td>several</td><td>OR of each team's area paths (its "include sub-areas" setting kept)</td></tr>
+    <tr><td>Iteration</td><td>several, plus <b>Current</b> per team</td><td><code>[System.IterationPath] UNDER a OR UNDER b</code>; Current = <code>@CurrentIteration('[Proj]\Team')</code> for each picked team (or every team when none)</td></tr>
+    <tr><td>Area Path</td><td>several; <b>⊂ sub-areas</b> toggle (on by default)</td><td><code>UNDER</code> when on, <code>=</code> when off, ORed</td></tr>
+    <tr><td>Assigned to</td><td>several, plus <b>me</b> and <b>Unassigned</b></td><td><code>[System.AssignedTo] IN (...)</code>; Unassigned adds <code>OR [System.AssignedTo] = ''</code></td></tr>
+    <tr><td>Created by</td><td>several, plus <b>me</b></td><td><code>[System.CreatedBy] IN (...)</code></td></tr>
+    <tr><td>Tags</td><td>several, picked from the organisation's tags (typing a new one allowed); <b>any / all</b> toggle</td><td><code>CONTAINS</code> each, joined by OR (any) or AND (all)</td></tr>
+    <tr><td>Under parent</td><td>several ids</td><td><code>[System.Parent] IN (...)</code> (direct children); in Full tree the picked parents become the roots</td></tr>
+    <tr><td>Changed within, Sort</td><td>one (stays single: a range and an order are one value)</td><td>unchanged</td></tr>
+    <tr><td>Inside one filter</td><td colspan="2">values are <b>OR</b>; between filters <b>AND</b>. The chip row reads that way ("State: Active or New").</td></tr>
+    <tr><td>Show: Items only</td><td colspan="2">today's flat table, 50 matches a page.</td></tr>
+    <tr><td>Show: With parents</td><td colspan="2">each match under its parent chain up to the top (Epic → Feature → Story); parents that did not match are shown dimmed with a <i>context</i> tag. Matches sharing a parent are grouped under it once.</td></tr>
+    <tr><td>Show: Full tree</td><td colspan="2">parents as above, plus each match's children (1 level, or all levels). The page still holds 50 <b>matches</b>; context items are extra, capped at 500 per page with a note when cut.</td></tr>
+    <tr><td>Reading the tree</td><td colspan="2">one Azure call for the parent/child links of the page's matches (<code>WorkItemLinks ... MODE (Recursive)</code> on <code>System.LinkTypes.Hierarchy</code>) plus one batch read of the context items' fields - nothing stored, read live like the search.</td></tr>
+    <tr><td>Remembered</td><td colspan="2">the Show choice and the children depth per browser (a convenience, like the picked tab).</td></tr>
+    <tr><td>MCP</td><td colspan="2"><code>team_search</code> takes arrays for every filter, <code>areaExact</code>, <code>tagsAll</code>, and <code>show: items | parents | tree</code> (tree answered as indented lines with the context marked).</td></tr>
+  </table>
+</div>
+
+<div class="ctl">
+  <h2>Mock controls</h2>
+  <label>Open picker</label>
+  <div class="row" style="gap:.25rem" id="openBtns"></div>
+  <label>Show</label>
+  <div class="row" style="gap:.25rem">
+    <button class="btn sm" data-show="items">Items only</button>
+    <button class="btn sm" data-show="parents">With parents</button>
+    <button class="btn sm" data-show="tree">Full tree</button>
+  </div>
+  <div class="cases">
+    <div>Empty picker = "Any" (dimmed), never a blank box.</div>
+    <div>One value: its name. Several: first name + "+2" and a count badge; hover lists them all.</div>
+    <div>A value no longer offered (a renamed sprint) stays picked and removable, marked "not in the lists".</div>
+    <div>Chips under the bar: one per filter, × removes the whole filter, click opens its picker.</div>
+    <div>Tree: ▸/▾ folds a branch; matches bold, context dimmed; "In Alfred" and Add ▾ work on every row, context rows too.</div>
+    <div>A match whose parent is outside the project (no read access) shows "parent not readable" instead of a parent row.</div>
+  </div>
+</div>
+</div>
+
+<script>
+const ppl = ['me', 'Unassigned', 'Abdullah Ramadan', 'Omar Mohamed', 'Omar Ragab', 'Mohamed Abdellatif', 'Taha Mohamed', 'm.nasir tildetech.ae', 'f.biomy tildetech.ae'];
+const F = [
+  { k: 'type', l: 'Type', o: ['Bug', 'Code Review Request', 'Code Review Response', 'Epic', 'Feature', 'Task', 'Thread', 'User Story'], v: ['Bug', 'Task'] },
+  { k: 'state', l: 'State', o: ['Accepted', 'Active', 'Blocked', 'Closed', 'New', 'Ready for UAT', 'Resolved', 'Review'], v: ['Active', 'New', 'Ready for UAT'] },
+  { k: 'team', l: 'Team', o: ['Commandos', 'Uplogs', 'Core', 'NDC Squad'], v: [] },
+  { k: 'iter', l: 'Iteration', o: ['Current (each team)', 'NDC1 ( Commandos ) - Sprint 1', 'NDC3 ( Uplogs ) - Sprint1', 'NDC1-Sprint59', 'NDC1-Sprint58'], v: ['Current (each team)', 'NDC1-Sprint59'], special: 1 },
+  { k: 'area', l: 'Area Path', o: ['NDC', 'NDC\\Booking', 'NDC\\Refunds', 'NDC\\Import PNR'], v: ['NDC\\Refunds', 'NDC\\Import PNR'], mode: '⊂ sub-areas', modeOn: true },
+  { k: 'assigned', l: 'Assigned to', o: ppl, v: ['me', 'Omar Mohamed'], special: 2 },
+  { k: 'created', l: 'Created by', o: ppl.filter(p => p !== 'Unassigned'), v: [], special: 1 },
+  { k: 'changed', l: 'Changed within', o: ['Any time', '1 day', '3 days', '7 days', '14 days', '30 days', '90 days'], v: ['14 days'], single: true },
+  { k: 'tags', l: 'Tags', o: ['refund', 'uat-blocker', 'regression', 'travelport', 'hotfix'], v: ['refund', 'regression'], mode: 'any', modeOn: false, modeAlt: 'all' },
+  { k: 'parent', l: 'Under parent', o: ['59415', '61200', '62000'], v: [], ids: true },
+  { k: 'sort', l: 'Sort', o: ['Last changed', 'Id', 'Priority'], v: ['Last changed'], single: true },
+];
+let open = null;
+function sum(f) {
+  if (!f.v.length) return '<span class="sum any">' + (f.k === 'assigned' || f.k === 'created' ? 'Anyone' : 'Any') + '</span>';
+  const first = f.v[0] + (f.v.length > 1 ? ' +' + (f.v.length - 1) : '');
+  return '<span class="sum" title="' + f.v.join(', ') + '">' + first + '</span><span class="n">' + f.v.length + '</span>';
+}
+function renderGrid() {
+  document.getElementById('grid').innerHTML = F.map((f, i) => {
+    const opts = f.o.map((o, j) => {
+      const on = f.v.includes(o);
+      const sp = f.special && j < f.special ? ' special' : '';
+      const box = f.single ? (on ? '●' : '') : (on ? '✓' : '');
+      return (j === f.special && f.special ? '<div class="grp">People</div>' : '') +
+        '<div class="opt' + (on ? ' on' : '') + sp + '" data-f="' + i + '" data-o="' + j + '"><span class="box">' + box + '</span>' + o + '</div>';
+    }).join('');
+    const mode = f.mode ? '<span class="mode' + (f.modeOn ? ' on' : '') + '" data-mode="' + i + '" title="' + (f.k === 'area' ? 'Include sub-areas (UNDER) or this area only (=)' : 'Match any of the tags, or all of them') + '">' + (f.modeAlt && f.modeOn ? f.modeAlt : f.mode) + '</span>' : '';
+    return '<div class="f' + (f.single ? ' single' : '') + (open === i ? ' open' : '') + '"><span class="lbl">' + f.l + mode + '</span>' +
+      '<div class="pick' + (f.v.length && !f.single ? ' has' : '') + '" data-pick="' + i + '">' + sum(f) + '<span class="car">▾</span></div>' +
+      '<div class="panel">' + (f.single ? '' : '<input placeholder="' + (f.ids ? 'Type an id and Enter' : 'Filter…') + '">') + '<div class="opts">' + opts + '</div>' +
+      (f.single ? '' : '<div class="foot"><a data-all="' + i + '">Select shown</a><a data-none="' + i + '">Clear</a></div>') + '</div></div>';
+  }).join('');
+  const chips = F.filter(f => f.v.length && !f.single).map(f => '<span class="chip"><b>' + f.l + ':</b> ' +
+    f.v.join(' <span class="or">or</span> ') + (f.k === 'tags' && f.modeOn ? ' <span class="or">(all)</span>' : '') + ' <span class="x">×</span></span>');
+  const ch = F.find(f => f.k === 'changed');
+  if (ch.v[0] && ch.v[0] !== 'Any time') chips.push('<span class="chip"><b>Changed:</b> last ' + ch.v[0] + ' <span class="x">×</span></span>');
+  document.getElementById('chips').innerHTML = chips.join('') + '<span class="small faint">values inside a filter are OR, filters are AND</span>';
+  document.getElementById('fbtn').textContent = 'Filters (' + F.filter(f => f.v.length && !(f.single && (f.v[0] === 'Any time' || f.k === 'sort'))).length + ') ▾';
+  renderWiql();
+}
+document.addEventListener('click', (e) => {
+  const t = e.target.closest('[data-pick],[data-f],[data-mode],[data-all],[data-none],[data-v],[data-d],[data-show],[data-open]');
+  if (!t) { if (!e.target.closest('.panel')) { open = null; renderGrid(); } return; }
+  if (t.dataset.pick !== undefined) { const i = +t.dataset.pick; open = open === i ? null : i; renderGrid(); }
+  else if (t.dataset.f !== undefined) {
+    const f = F[+t.dataset.f], o = f.o[+t.dataset.o];
+    if (f.single) { f.v = [o]; open = null; }
+    else f.v = f.v.includes(o) ? f.v.filter(x => x !== o) : [...f.v, o];
+    renderGrid();
+  }
+  else if (t.dataset.mode !== undefined) { const f = F[+t.dataset.mode]; f.modeOn = !f.modeOn; renderGrid(); }
+  else if (t.dataset.all !== undefined) { const f = F[+t.dataset.all]; f.v = [...f.o]; renderGrid(); }
+  else if (t.dataset.none !== undefined) { F[+t.dataset.none].v = []; renderGrid(); }
+  else if (t.dataset.v) setShow(t.dataset.v);
+  else if (t.dataset.show) setShow(t.dataset.show);
+  else if (t.dataset.d) { depth = t.dataset.d; renderTable(); }
+  else if (t.dataset.open !== undefined) { open = +t.dataset.open; renderGrid(); }
+});
+document.getElementById('openBtns').innerHTML = F.filter(f => !f.single).map(f => '<button class="btn sm" data-open="' + F.indexOf(f) + '">' + f.l + '</button>').join('');
+
+function q(s) { return "'" + s.replace(/'/g, "''") + "'"; }
+function renderWiql() {
+  const g = (k) => F.find(f => f.k === k);
+  const L = ['<span class="k">SELECT</span> [System.Id] <span class="k">FROM</span> WorkItems <span class="k">WHERE</span> [System.TeamProject] = @project'];
+  const t = g('type'), s = g('state'), a = g('area'), it = g('iter'), as = g('assigned'), cr = g('created'), tg = g('tags'), tm = g('team'), pa = g('parent');
+  if (t.v.length) L.push('  <span class="k">AND</span> [System.WorkItemType] <span class="k">IN</span> (' + t.v.map(q).map(x => '<span class="s">' + x + '</span>').join(', ') + ')');
+  if (s.v.length) L.push('  <span class="k">AND</span> [System.State] <span class="k">IN</span> (' + s.v.map(x => '<span class="s">' + q(x) + '</span>').join(', ') + ')');
+  if (tm.v.length) L.push('  <span class="k">AND</span> (' + tm.v.map(x => '[System.AreaPath] <span class="k">UNDER</span> <span class="s">' + q('NDC\\' + x) + '</span>').join(' <span class="k">OR</span> ') + ')  <span class="c">-- each team\'s areas</span>');
+  if (a.v.length) L.push('  <span class="k">AND</span> (' + a.v.map(x => '[System.AreaPath] ' + (a.modeOn ? '<span class="k">UNDER</span> ' : '= ') + '<span class="s">' + q(x) + '</span>').join(' <span class="k">OR</span> ') + ')');
+  if (it.v.length) L.push('  <span class="k">AND</span> (' + it.v.map(x => x.startsWith('Current') ? (tm.v.length ? tm.v : ['Commandos', 'Uplogs']).map(n => '[System.IterationPath] = @CurrentIteration(<span class="s">' + q('[NDC]\\' + n) + '</span>)').join(' <span class="k">OR</span> ') : '[System.IterationPath] <span class="k">UNDER</span> <span class="s">' + q(x) + '</span>').join(' <span class="k">OR</span> ') + ')');
+  if (as.v.length) {
+    const ppl = as.v.filter(x => x !== 'Unassigned').map(x => x === 'me' ? '@Me' : '<span class="s">' + q(x) + '</span>');
+    const parts = [];
+    if (ppl.length) parts.push('[System.AssignedTo] <span class="k">IN</span> (' + ppl.join(', ') + ')');
+    if (as.v.includes('Unassigned')) parts.push("[System.AssignedTo] = <span class=\"s\">''</span>");
+    L.push('  <span class="k">AND</span> (' + parts.join(' <span class="k">OR</span> ') + ')  <span class="c">-- @Me = the token owner, or your "This is me" pick</span>');
+  }
+  if (cr.v.length) L.push('  <span class="k">AND</span> [System.CreatedBy] <span class="k">IN</span> (' + cr.v.map(x => x === 'me' ? '@Me' : '<span class="s">' + q(x) + '</span>').join(', ') + ')');
+  if (tg.v.length) L.push('  <span class="k">AND</span> (' + tg.v.map(x => '[System.Tags] <span class="k">CONTAINS</span> <span class="s">' + q(x) + '</span>').join(tg.modeOn ? ' <span class="k">AND</span> ' : ' <span class="k">OR</span> ') + ')');
+  if (pa.v.length) L.push('  <span class="k">AND</span> [System.Parent] <span class="k">IN</span> (' + pa.v.join(', ') + ')');
+  const ch = g('changed').v[0];
+  if (ch && ch !== 'Any time') L.push('  <span class="k">AND</span> [System.ChangedDate] >= @Today - ' + parseInt(ch, 10));
+  L.push('  <span class="k">AND</span> [System.State] <span class="k">NOT IN</span> (<span class="c">closed and removed states</span>)  <span class="c">-- Open only</span>');
+  L.push('<span class="k">ORDER BY</span> [System.ChangedDate] <span class="k">DESC</span>');
+  if (show !== 'items') {
+    L.push('');
+    L.push('<span class="c">-- then, for the page\'s 50 matches only (' + (show === 'tree' ? 'parents and children' : 'parents') + '):</span>');
+    L.push('<span class="k">SELECT</span> [System.Id] <span class="k">FROM</span> WorkItemLinks <span class="k">WHERE</span> [System.Links.LinkType] = <span class="s">\'System.LinkTypes.Hierarchy-Forward\'</span>');
+    L.push('  <span class="k">AND</span> ' + (show === 'tree' ? '([Source].[System.Id] <span class="k">IN</span> (<span class="c">matches</span>) <span class="k">OR</span> [Target].[System.Id] <span class="k">IN</span> (<span class="c">matches</span>))' : '[Target].[System.Id] <span class="k">IN</span> (<span class="c">matches</span>)'));
+    L.push('  <span class="k">MODE</span> (Recursive' + (show === 'parents' ? ', ReturnMatchingChildren' : '') + ')');
+    L.push('<span class="c">-- + one batch read of the context items\' fields (GET _apis/wit/workitemsbatch)</span>');
+  }
+  document.getElementById('wiql').innerHTML = L.join('\n');
+}
+
+/* the results: m = matched the search; others are context */
+const DOT = { Epic: '#ff9d00', Feature: '#773b93', 'User Story': '#009ccc', Bug: '#cc293d', Task: '#f2cb1d', Thread: '#8fb2f7' };
+const tree = [
+  { id: 58000, t: 'Import Booked PNR', ty: 'Epic', st: 'Active', as: 'Omar Mohamed', it: 'NDC', ch: '40 d', kids: [
+    { id: 59100, t: 'Import booked PNR - Travelport NDC', ty: 'Feature', st: 'Active', as: 'Omar Mohamed', it: 'NDC1-Sprint58', ch: '20 d', kids: [
+      { id: 59415, m: 1, t: '[Admin][Import Booked PNR][Void/Cancel] Booking Status Remains "Booked" After Successful Void', ty: 'Bug', st: 'Review', as: 'me', it: 'NDC1-Sprint59', ch: '13 d', alfred: '★ Refund void', kids: [
+        { id: 59420, t: 'Fix void status update', ty: 'Task', st: 'Active', as: 'me', it: 'NDC1-Sprint59', ch: '13 d' },
+        { id: 59421, t: 'Regression test void flow', ty: 'Task', st: 'New', as: 'Omar Mohamed', it: 'NDC1-Sprint59', ch: '13 d' } ] },
+      { id: 60122, m: 1, t: '[Import Booked PNR][TravelportNDC] Incorrect Number of Stops Is Displayed', ty: 'Bug', st: 'Blocked', as: 'me', it: 'NDC1-Sprint59', ch: '13 d', kids: [] },
+      { id: 62121, m: 1, t: 'Qc support for import booked pnr', ty: 'Task', st: 'Active', as: 'me', it: 'NDC1 ( Commandos ) - Sprint 1', ch: '3 d', kids: [] } ] } ] },
+  { id: 61000, t: 'Refunds', ty: 'Epic', st: 'Active', as: null, it: 'NDC', ch: '60 d', kids: [
+    { id: 61800, t: 'Refund filters and totals', ty: 'User Story', st: 'Active', as: 'Omar Mohamed', it: 'NDC1 ( Commandos ) - Sprint 1', ch: '5 d', alfred: '▣ 1 card', kids: [
+      { id: 62123, m: 1, t: 'enhance refund filters implementation', ty: 'Task', st: 'New', as: 'me', it: 'NDC1 ( Commandos ) - Sprint 1', ch: '3 d', kids: [] },
+      { id: 61813, m: 1, t: 'Refunded Requests filters - All Agencies, All Branches, Branch multi-select', ty: 'Bug', st: 'Active', as: 'Omar Mohamed', it: 'NDC1 ( Commandos ) - Sprint 1', ch: '2 d', alfred: '∘ Refund void', kids: [
+        { id: 61814, t: 'Branch multi-select API', ty: 'Task', st: 'Active', as: 'Omar Mohamed', it: 'NDC1 ( Commandos ) - Sprint 1', ch: '2 d', kids: [
+          { id: 61815, t: 'Unit tests', ty: 'Task', st: 'New', as: null, it: 'NDC1 ( Commandos ) - Sprint 1', ch: '2 d' } ] } ] } ] } ] },
+  { id: 59851, m: 1, t: 'Q4-INTE-CORE-015 Baggage Bundle Choice Display & Ancillary Clarification "Air Arabia"', ty: 'Thread', st: 'Ready for UAT', as: 'me', it: 'NDC1 ( Commandos ) - Sprint 1', ch: '3 d', orphan: true, kids: [] },
+];
+let show = 'items', depth = '1';
+const folded = new Set();
+function pill(p) {
+  if (!p) return '<span class="un">Unassigned</span>';
+  if (p === 'me') return '<span class="pill me"><span class="av">FB</span>f.biomy tildetech.ae <span class="mebadge">me</span></span>';
+  return '<span class="pill"><span class="av">' + p.split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase() + '</span>' + p + '</span>';
+}
+function stc(s) { return s === 'Active' || s === 'Review' || s === 'Blocked' ? 'p' : s === 'Ready for UAT' || s === 'Resolved' ? 'r' : ''; }
+function rowHtml(n, lvl, hasKids, ctx) {
+  const tw = hasKids ? '<span class="tw" data-fold="' + n.id + '">' + (folded.has(n.id) ? '▸' : '▾') + '</span>' : '<span class="tw"></span>';
+  const indent = show === 'items' ? '' : '<span style="display:inline-block;width:' + (lvl * 1.15) + 'rem;flex:none"></span>' + tw;
+  const tag = ctx ? '<span class="ctxtag">' + ctx + '</span>' : '';
+  return '<tr class="' + (ctx ? 'ctx' : '') + '"><td class="id">' + n.id + '</td><td><div class="title">' + indent + '<span style="' + (ctx ? '' : 'font-weight:500') + '">' + n.t + tag +
+    (n.orphan && show !== 'items' ? '<span class="ctxtag">no parent</span>' : '') + '</span></div></td>' +
+    '<td><span class="type"><span class="dot" style="background:' + (DOT[n.ty] || '#888') + '"></span>' + n.ty + '</span></td>' +
+    '<td><span class="st ' + stc(n.st) + '">' + n.st + '</span></td><td>' + pill(n.as) + '</td><td class="dim" style="white-space:nowrap">' + n.it + '</td>' +
+    '<td class="dim">' + n.ch + '</td><td class="keep small">' + (n.alfred ? '<span class="chip" style="padding:0 .4rem">' + n.alfred + '</span>' : '') + '</td>' +
+    '<td class="keep" style="text-align:right"><button class="btn addb">Add ▾</button></td></tr>';
+}
+function hasMatch(n) { return n.m || (n.kids || []).some(hasMatch); }
+function walk(n, lvl, out, underMatch, matchDepth) {
+  if (show === 'parents' && !hasMatch(n)) return 0;
+  let ctx = null, ctxCount = 0;
+  if (!n.m) {
+    if (underMatch) { if (show !== 'tree' || (depth === '1' && matchDepth > 1)) return 0; ctx = 'child'; }
+    else ctx = 'parent';
+    ctxCount = 1;
+  }
+  const kids = (n.kids || []).filter(k => show === 'tree' ? true : hasMatch(k));
+  const visibleKids = kids.filter(k => k.m || hasMatch(k) || (show === 'tree' && (n.m || underMatch) && (depth === 'all' || (n.m ? 1 : matchDepth + 1) <= 1)));
+  out.push(rowHtml(n, lvl, visibleKids.length > 0, ctx));
+  if (folded.has(n.id)) return ctxCount;
+  for (const k of visibleKids) ctxCount += walk(k, lvl + 1, out, underMatch || !!n.m, n.m ? 1 : matchDepth + 1);
+  return ctxCount;
+}
+function flat(n, out) { if (n.m) out.push(rowHtml(n, 0, false, null)); (n.kids || []).forEach(k => flat(k, out)); }
+function renderTable() {
+  const out = [];
+  let ctx = 0;
+  if (show === 'items') tree.forEach(n => flat(n, out));
+  else tree.forEach(n => { ctx += walk(n, 0, out, false, 0); });
+  document.getElementById('tbody').innerHTML = out.join('');
+  document.getElementById('found').textContent = '6 found · page 1 of 1' + (show === 'items' ? '' : ' · +' + ctx + ' ' + (show === 'tree' ? 'parents and children' : 'parents') + ' for context');
+  document.querySelectorAll('#depthSeg span').forEach(s => s.classList.toggle('on', s.dataset.d === depth));
+  document.getElementById('depthSeg').style.display = show === 'tree' ? 'inline-flex' : 'none';
+  document.getElementById('expand').style.display = show === 'items' ? 'none' : 'inline-block';
+  const note = document.getElementById('treeNote');
+  note.style.display = show === 'items' ? 'none' : 'block';
+  note.innerHTML = show === 'parents'
+    ? '<b>With parents:</b> each of the 6 matches sits under its Epic → Feature / Story chain; dimmed rows are parents that did not match the filters. 59851 has no parent, so it stays at the top level.'
+    : '<b>Full tree:</b> parents as in "With parents", plus the matches\' children (' + (depth === '1' ? '1 level - switch to "all levels" to see 61815 under 61814' : 'all levels') + '). Context is capped at 500 items a page; past that a note says how many were left out.';
+  renderWiql();
+}
+function setShow(v) { show = v; document.querySelectorAll('#seg span').forEach(s => s.classList.toggle('on', s.dataset.v === v)); renderTable(); }
+document.addEventListener('click', (e) => {
+  const f = e.target.closest('[data-fold]');
+  if (f) { const id = +f.dataset.fold; folded.has(id) ? folded.delete(id) : folded.add(id); renderTable(); }
+  if (e.target.id === 'expand') {
+    if (folded.size) { folded.clear(); e.target.textContent = 'Collapse all'; }
+    else { tree.forEach(function add(n) { if (n.kids && n.kids.length) { folded.add(n.id); n.kids.forEach(add); } }); e.target.textContent = 'Expand all'; }
+    renderTable();
+  }
+});
+renderGrid();
+renderTable();
+</script>
+</body>
+</html>

@@ -53,14 +53,25 @@ Tests: `TeamServicesTest.theTokenIsNeverWrittenToTheDatabase` (no file, status, 
 
 `POST /teamboards/connections/{id}/search`: text plus filters - types, states, Open only (default on: states whose
 category is not Completed or Removed, read from the process), areas, teams (`Project\Team`, by the team's own area
-paths), iterations (or `@current`), assigned / created by (a unique name, or `me`), changed within, tags, parent, and
-Mine (assigned, created, changed, mentioned, followed - OR'ed). Azure's Search API (`almsearch.dev.azure.com`) does
+paths), iterations (or `@current`: each picked team's current sprint), assigned (unique names, `me`, `none` for
+unassigned), created by (unique names, `me`), changed within, tags, parent ids, and Mine (assigned, created, changed,
+mentioned, followed - OR'ed). Since specs/029 every filter takes several values: inside a filter they are OR'ed, filters
+are AND'ed; `areaExact` makes an area match only itself (default: with its sub-areas, WIQL `UNDER`), `tagsAll` asks for
+every tag (default: any). `assigned`, `createdBy` and `parents` also accept a single value, and `parent` is read as
+`parents`, so watch rules saved before keep working. The Team tab picks each filter with the shared
+`app-multi-select-picker` (compact, typed values for ids and tags) and shows a chip per filter in use. Azure's Search API (`almsearch.dev.azure.com`) does
 full-text; where the organisation has none (404) the connection falls back to WIQL title matching and the answer says
 `fullText: false`. 50 a page; each row carries where it already sits in Alfred (main of board X, on card #n, related)
 and whether the tracker moved past Alfred's copy. `POST .../query` runs a WIQL SELECT (≤ 200). Every WIQL value is
 quoted.
 
-**Lists** (`GET .../lists`): types, states with categories, areas, teams with members, iterations, people, the
+**Show** (`show`: `ITEMS` default, `PARENTS`, `TREE`; `childDepth` 1 or 0 for every level): with PARENTS each match of
+the page is read with its parent chain up to the top, with TREE also its children - level by level from the items'
+relations, one batch per level, never stored. They come back as `context` (rows with `parent`), at most 500 a page
+(`contextLeftOut` counts the rest); the table draws the tree (matches bold, context dimmed and tagged parent/child,
+branches fold) and `team_search` answers it as indented lines. The choice is remembered per browser.
+
+**Lists** (`GET .../lists`): types, states with categories, areas, teams with members, iterations, people, tags, the
 tracker's boards - read in the background when the tab opens and they are older than 10 minutes (or on ↻ Refresh
 lists). They feed the filters, the person pills (a person is named, never a raw id) and the browsers - a team, a member
 or an iteration clicked runs a search.

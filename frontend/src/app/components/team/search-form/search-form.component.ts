@@ -1,22 +1,29 @@
 import { Component, computed, inject, input, output, signal, effect, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { TeamStateService } from '../../../core/team/team-state.service';
-import { MineSource, SortBy, TeamSearch } from '../../../core/team/team.models';
+import { MineSource, SortBy, TeamSearch, normalizeSearch } from '../../../core/team/team.models';
+import { MultiSelectPickerComponent } from '../../multi-select-picker/multi-select-picker.component';
+import { SelectOption } from '../../select-picker/select-picker.component';
 
 /** "me" as the assigned / created-by value: the backend resolves it to the token owner (or the "This is me" pick). */
 export const ME = 'me';
-/** The iteration value for each team's current sprint. */
+/** Assigned to nobody. */
+export const NONE = 'none';
+/** The iteration value for each picked team's current sprint. */
 export const CURRENT = '@current';
 
+type ListKey = 'types' | 'states' | 'teams' | 'iterations' | 'areas' | 'assigned' | 'createdBy' | 'tags' | 'parents';
+
 /**
- * The Team tab's search (specs/028 US1, FR-010..016): free text plus filter chips, every one read from the cached lists
- * (types, states, areas, teams, iterations, people). Open only is on by default. Nothing found is stored - each Search
- * reads the tracker live.
+ * The Team tab's search (specs/028 US1, specs/029): free text plus filters, every one picking several values from the
+ * cached lists (types, states, teams, iterations, areas, people, tags) with the shared multi-select picker. Inside a
+ * filter the values are ORed, between filters ANDed - the chip row under the bar reads that way. Open only is on by
+ * default. Nothing found is stored - each Search reads the tracker live.
  */
 @Component({
   selector: 'app-team-search-form',
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, MultiSelectPickerComponent],
   template: `
     <form class="tsf" (submit)="$event.preventDefault(); run()" role="search" aria-label="Search work items">
       <div class="tsf-main">
@@ -29,58 +36,46 @@ export const CURRENT = '@current';
       </div>
       @if (more()) {
         <div class="tsf-grid">
-          <label>Type
-            <select multiple [(ngModel)]="types" name="types" size="4">
-              @for (t of lists()?.types ?? []; track t) { <option [value]="t">{{ t }}</option> }
-            </select>
-          </label>
-          <label>State
-            <select multiple [(ngModel)]="states" name="states" size="4">
-              @for (s of stateNames(); track s) { <option [value]="s">{{ s }}</option> }
-            </select>
-          </label>
-          <label>{{ state.ui().word('squad') }}
-            <select [(ngModel)]="team" name="team">
-              <option value="">Any</option>
-              @for (t of lists()?.teams ?? []; track t.extId) { <option [value]="teamValue(t)">{{ t.name }}</option> }
-            </select>
-          </label>
-          <label>{{ state.ui().word('sprint') }}
-            <select [(ngModel)]="iteration" name="iteration">
-              <option value="">Any</option>
-              <option [value]="CURRENT">Current ({{ CURRENT }})</option>
-              @for (i of lists()?.iterations ?? []; track i.extId) { <option [value]="i.name">{{ i.name }}</option> }
-            </select>
-          </label>
-          <label>{{ state.ui().word('area') }}
-            <select [(ngModel)]="area" name="area">
-              <option value="">Any</option>
-              @for (a of lists()?.areas ?? []; track a) { <option [value]="a">{{ a }}</option> }
-            </select>
-          </label>
-          <label>Assigned to
-            <select [(ngModel)]="assigned" name="assigned">
-              <option value="">Anyone</option>
-              <option [value]="ME">me</option>
-              @for (p of lists()?.people ?? []; track $index) { <option [value]="p.email ?? p.extId">{{ p.name }}</option> }
-            </select>
-          </label>
-          <label>Created by
-            <select [(ngModel)]="createdBy" name="createdBy">
-              <option value="">Anyone</option>
-              <option [value]="ME">me</option>
-              @for (p of lists()?.people ?? []; track $index) { <option [value]="p.email ?? p.extId">{{ p.name }}</option> }
-            </select>
-          </label>
-          <label>Changed within
-            <select [(ngModel)]="changedWithinDays" name="changed">
+          <div class="tsf-f"><span class="tsf-l">Type</span>
+            <app-multi-select-picker [compact]="true" [searchable]="true" [options]="typeOptions()" [values]="v().types" emptyLabel="Any"
+                                     unknownNote="not in the lists" (valuesChange)="set('types', $event)" /></div>
+          <div class="tsf-f"><span class="tsf-l">State</span>
+            <app-multi-select-picker [compact]="true" [searchable]="true" [options]="stateOptions()" [values]="v().states" emptyLabel="Any"
+                                     unknownNote="not in the lists" (valuesChange)="set('states', $event)" /></div>
+          <div class="tsf-f"><span class="tsf-l">{{ state.ui().word('squad') }}</span>
+            <app-multi-select-picker [compact]="true" [searchable]="true" [options]="teamOptions()" [values]="v().teams" emptyLabel="Any"
+                                     unknownNote="not in the lists" (valuesChange)="set('teams', $event)" /></div>
+          <div class="tsf-f"><span class="tsf-l">{{ state.ui().word('sprint') }}</span>
+            <app-multi-select-picker [compact]="true" [searchable]="true" [options]="iterationOptions()" [values]="v().iterations" emptyLabel="Any"
+                                     unknownNote="not in the lists" (valuesChange)="set('iterations', $event)" /></div>
+          <div class="tsf-f"><span class="tsf-l">{{ state.ui().word('area') }}
+              <button type="button" class="tsf-mode" [class.on]="!areaExact()" (click)="areaExact.set(!areaExact())"
+                      [title]="areaExact() ? 'Only the picked area itself (click to include its sub-areas)' : 'The picked area and its sub-areas (click for the area only)'">
+                {{ areaExact() ? '= area only' : '⊂ sub-areas' }}</button></span>
+            <app-multi-select-picker [compact]="true" [searchable]="true" [options]="areaOptions()" [values]="v().areas" emptyLabel="Any"
+                                     unknownNote="not in the lists" (valuesChange)="set('areas', $event)" /></div>
+          <div class="tsf-f"><span class="tsf-l">Assigned to</span>
+            <app-multi-select-picker [compact]="true" [searchable]="true" [options]="assignedOptions()" [values]="v().assigned" emptyLabel="Anyone"
+                                     [allowCustom]="true" [custom]="isPerson" unknownNote="not in the people list" (valuesChange)="set('assigned', $event)" /></div>
+          <div class="tsf-f"><span class="tsf-l">Created by</span>
+            <app-multi-select-picker [compact]="true" [searchable]="true" [options]="createdOptions()" [values]="v().createdBy" emptyLabel="Anyone"
+                                     [allowCustom]="true" [custom]="isPerson" unknownNote="not in the people list" (valuesChange)="set('createdBy', $event)" /></div>
+          <div class="tsf-f"><span class="tsf-l">Tags
+              <button type="button" class="tsf-mode" [class.on]="tagsAll()" (click)="tagsAll.set(!tagsAll())"
+                      [title]="tagsAll() ? 'Every picked tag must be there (click for any one)' : 'Any one of the picked tags (click for all of them)'">
+                {{ tagsAll() ? 'all' : 'any' }}</button></span>
+            <app-multi-select-picker [compact]="true" [searchable]="true" [options]="tagOptions()" [values]="v().tags" emptyLabel="Any"
+                                     [allowCustom]="true" unknownNote="typed" (valuesChange)="set('tags', $event)" /></div>
+          <div class="tsf-f"><span class="tsf-l">Under parent</span>
+            <app-multi-select-picker [compact]="true" [searchable]="true" [options]="parentOptions()" [values]="v().parents" emptyLabel="Any"
+                                     [allowCustom]="true" [custom]="isId" unknownNote="typed" (valuesChange)="set('parents', $event)" /></div>
+          <label class="tsf-f"><span class="tsf-l">Changed within</span>
+            <select [(ngModel)]="changedWithinDays" name="changed" (ngModelChange)="recount()">
               <option [ngValue]="null">Any time</option>
               @for (d of [1, 3, 7, 14, 30, 90]; track d) { <option [ngValue]="d">{{ d }} day{{ d > 1 ? 's' : '' }}</option> }
             </select>
           </label>
-          <label>Tags <input [(ngModel)]="tags" name="tags" placeholder="comma separated" /></label>
-          <label>Under parent <input [(ngModel)]="parent" name="parent" placeholder="id" inputmode="numeric" /></label>
-          <label>Sort
+          <label class="tsf-f"><span class="tsf-l">Sort</span>
             <select [(ngModel)]="sort" name="sort">
               <option value="CHANGED">Last changed</option>
               <option value="ID">Id</option>
@@ -89,23 +84,45 @@ export const CURRENT = '@current';
           </label>
         </div>
       }
+      @if (chips().length) {
+        <div class="tsf-chips" aria-label="Filters in use">
+          @for (c of chips(); track c.key) {
+            <span class="tsf-chip"><b>{{ c.label }}:</b>
+              @for (x of c.values; track $index; let last = $last) { {{ x }}@if (!last) { <span class="tsf-or">{{ c.join }}</span> } }
+              <button type="button" class="tsf-x" (click)="drop(c.key)" [attr.aria-label]="'Remove the ' + c.label + ' filter'">×</button></span>
+          }
+          <span class="tsf-hint">values inside a filter are OR, filters are AND</span>
+        </div>
+      }
     </form>`,
   styles: [`
     .tsf { margin: .3rem 0 .6rem; }
     .tsf-main { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
-    .tsf-text { flex: 1 1 280px; padding: .35rem .55rem; border: 1px solid var(--border-strong); border-radius: 7px; background: var(--card-inner); color: inherit; }
+    .tsf-text { flex: 1 1 260px; min-width: 0; padding: .35rem .55rem; border: 1px solid var(--border-strong); border-radius: 7px; background: var(--card-inner); color: inherit; }
     .tsf-check { font-size: .82rem; display: inline-flex; gap: .25rem; align-items: center; }
-    .tsf-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: .5rem .8rem; align-items: start; margin-top: .5rem;
+    .tsf-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: .55rem .8rem; align-items: start; margin-top: .5rem;
       padding: .6rem; border: 1px solid var(--border); border-radius: 8px; }
-    /* a label never stretches its control to the row's height (the multi-selects make the row tall), and a long option
-       (an iteration path, a person's name) never pushes the control past its column */
-    .tsf-grid label { display: grid; gap: .2rem; align-content: start; min-width: 0; font-size: .76rem; color: var(--text-dim); }
-    .tsf-grid select, .tsf-grid input { box-sizing: border-box; width: 100%; min-width: 0; height: auto; margin: 0; padding: .3rem .45rem;
-      border: 1px solid var(--border-strong); border-radius: 6px; background: var(--card-inner); color: var(--text); font: inherit;
-      font-size: .82rem; line-height: 1.3; text-overflow: ellipsis; }
-    .tsf-grid select:not([multiple]) { height: 2rem; }
-    .tsf-grid select[multiple] { padding: .2rem; }
-    .tsf-grid select[multiple] option { padding: .1rem .3rem; border-radius: 4px; }
+    .tsf-f { display: grid; gap: .2rem; align-content: start; min-width: 0; font-size: .76rem; color: var(--text-dim); }
+    .tsf-l { display: flex; align-items: center; gap: .35rem; min-height: 1.2rem; }
+    .tsf-mode { margin-left: auto; border: 1px solid var(--border); border-radius: 4px; background: none; color: var(--text-faint); font-size: .66rem;
+      padding: 0 .3rem; cursor: pointer; }
+    .tsf-mode.on { color: var(--blue, #8fb2f7); border-color: color-mix(in srgb, var(--blue, #8fb2f7) 45%, transparent); }
+    .tsf-f app-multi-select-picker { display: block; min-width: 0; }
+    /* the picker fills its column like the selects beside it; its own caret only (the select-picker's ::after is a second one) */
+    .tsf-f ::ng-deep .multi-picker { display: flex; width: 100%; }
+    .tsf-f ::ng-deep .multi-picker-btn { box-sizing: border-box; width: 100%; min-height: 2rem; padding: .25rem .5rem; border: 1px solid var(--border-strong);
+      border-radius: 6px; background: var(--card-inner); color: var(--text); font-size: .82rem; font-weight: 400; }
+    .tsf-f ::ng-deep .multi-picker-btn::after { display: none; }
+    .tsf-f select { box-sizing: border-box; width: 100%; min-width: 0; height: 2rem; margin: 0; padding: .25rem .45rem; border: 1px solid var(--border-strong);
+      border-radius: 6px; background: var(--card-inner); color: var(--text); font: inherit; font-size: .82rem; }
+    .tsf-chips { display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; margin-top: .5rem; }
+    .tsf-chip { display: inline-flex; flex-wrap: wrap; gap: .25rem; align-items: center; max-width: 100%; padding: .05rem .2rem .05rem .55rem;
+      border: 1px solid var(--border-strong); border-radius: 14px; background: var(--card-inner); font-size: .74rem; }
+    .tsf-chip b { font-weight: 500; color: var(--text-dim); }
+    .tsf-or { color: var(--text-faint); font-size: .66rem; }
+    .tsf-x { border: 0; background: none; color: var(--text-faint); cursor: pointer; padding: 0 .3rem; font-size: .9rem; line-height: 1; }
+    .tsf-x:hover { color: var(--text); }
+    .tsf-hint { color: var(--text-faint); font-size: .7rem; }
   `],
 })
 export class TeamSearchFormComponent {
@@ -120,24 +137,73 @@ export class TeamSearchFormComponent {
 
   readonly more = signal(false);
   readonly lists = this.state.lists;
-  readonly stateNames = computed(() => [...new Set((this.lists()?.states ?? []).map((s) => s.name))].sort());
+
+  /** Every multi-value filter, as one signal so the pickers and chips stay in step. */
+  readonly v = signal<Record<ListKey, string[]>>(empty());
+  readonly areaExact = signal(false);
+  readonly tagsAll = signal(false);
 
   text = '';
   openOnly = true;
-  types: string[] = [];
-  states: string[] = [];
-  team = '';
-  iteration = '';
-  area = '';
-  assigned = '';
-  createdBy = '';
   changedWithinDays: number | null = null;
-  tags = '';
-  parent = '';
   sort: SortBy = 'CHANGED';
   mine: MineSource[] = [];
 
   readonly count = signal(0);
+
+  readonly isPerson = (s: string): boolean => s.length <= 200;
+  readonly isId = (s: string): boolean => /^#?\d{1,9}$/.test(s);
+
+  private readonly plain = (xs: readonly string[] | undefined): SelectOption[] => (xs ?? []).map((x) => ({ value: x, label: x }));
+  readonly typeOptions = computed(() => this.plain(this.lists()?.types));
+  readonly stateOptions = computed(() => this.plain([...new Set((this.lists()?.states ?? []).map((s) => s.name))].sort()));
+  readonly teamOptions = computed<SelectOption[]>(() => (this.lists()?.teams ?? []).map((t) => ({ value: this.teamValue(t), label: t.name })));
+  readonly iterationOptions = computed<SelectOption[]>(() => [
+    { value: CURRENT, label: 'Current (each picked ' + this.state.ui().word('squad').toLowerCase() + ')' },
+    ...this.plain([...new Set((this.lists()?.iterations ?? []).map((i) => i.name))]),
+  ]);
+  readonly areaOptions = computed(() => this.plain(this.lists()?.areas));
+  private readonly people = computed<SelectOption[]>(() => {
+    const seen = new Set<string>();
+    const out: SelectOption[] = [];
+    for (const p of this.lists()?.people ?? []) {
+      const value = p.email ?? p.extId ?? p.name;
+      if (!value || seen.has(value)) continue;
+      seen.add(value);
+      out.push({ value, label: p.name });
+    }
+    return out.sort((a, b) => a.label.localeCompare(b.label));
+  });
+  readonly assignedOptions = computed<SelectOption[]>(() => [{ value: ME, label: 'me' }, { value: NONE, label: 'Unassigned' }, ...this.people()]);
+  readonly createdOptions = computed<SelectOption[]>(() => [{ value: ME, label: 'me' }, ...this.people()]);
+  readonly tagOptions = computed(() => this.plain(this.lists()?.tags));
+  /** Ids already picked stay listed; others are typed. */
+  readonly parentOptions = computed(() => this.plain(this.v().parents));
+
+  /** One chip per filter in use, in the words of its picker. */
+  readonly chips = computed(() => {
+    const v = this.v();
+    this.count(); // the single-value filters are plain fields: re-read when the count says something changed
+    const label = (opts: SelectOption[], x: string) => opts.find((o) => o.value === x)?.label ?? x;
+    const ui = this.state.ui();
+    const rows: { key: ListKey | 'changed'; label: string; values: string[]; join: string }[] = [];
+    const add = (key: ListKey, name: string, opts: SelectOption[], join = 'or') => {
+      if (v[key].length) rows.push({ key, label: name, values: v[key].map((x) => label(opts, x)), join });
+    };
+    add('types', 'Type', this.typeOptions());
+    add('states', 'State', this.stateOptions());
+    add('teams', ui.word('squad'), this.teamOptions());
+    add('iterations', ui.word('sprint'), this.iterationOptions());
+    add('areas', ui.word('area') + (this.areaExact() ? ' (only)' : ''), this.areaOptions());
+    add('assigned', 'Assigned', this.assignedOptions());
+    add('createdBy', 'Created by', this.createdOptions());
+    add('tags', 'Tags', this.tagOptions(), this.tagsAll() ? 'and' : 'or');
+    add('parents', 'Under', this.parentOptions());
+    if (this.changedWithinDays) {
+      rows.push({ key: 'changed', label: 'Changed', values: ['last ' + this.changedWithinDays + ' day' + (this.changedWithinDays > 1 ? 's' : '')], join: '' });
+    }
+    return rows;
+  });
 
   constructor() {
     effect(() => {
@@ -151,39 +217,56 @@ export class TeamSearchFormComponent {
     return t.project && !t.name.includes(String.fromCharCode(92)) ? t.project + String.fromCharCode(92) + t.name : t.name;
   }
 
-  fill(p: TeamSearch): void {
+  set(key: ListKey, values: readonly string[]): void {
+    const clean = key === 'parents' ? values.map((x) => x.replace('#', '')) : [...values];
+    this.v.update((v) => ({ ...v, [key]: clean }));
+    this.recount();
+  }
+
+  drop(key: ListKey | 'changed'): void {
+    if (key === 'changed') this.changedWithinDays = null;
+    else this.set(key, []);
+    this.run();
+  }
+
+  recount(): void {
+    this.count.set(this.filterCount());
+  }
+
+  fill(raw: TeamSearch): void {
+    const p = normalizeSearch(raw);
     this.text = p.text ?? '';
     this.openOnly = p.openOnly ?? true;
-    this.types = [...(p.types ?? [])];
-    this.states = [...(p.states ?? [])];
-    this.team = p.teams?.[0] ?? '';
-    this.iteration = p.iterations?.[0] ?? '';
-    this.area = p.areas?.[0] ?? '';
-    this.assigned = p.assigned ?? '';
-    this.createdBy = p.createdBy ?? '';
+    this.v.set({
+      types: [...(p.types ?? [])], states: [...(p.states ?? [])], teams: [...(p.teams ?? [])], iterations: [...(p.iterations ?? [])],
+      areas: [...(p.areas ?? [])], assigned: [...(p.assigned ?? [])], createdBy: [...(p.createdBy ?? [])], tags: [...(p.tags ?? [])],
+      parents: [...(p.parents ?? [])],
+    });
+    this.areaExact.set(!!p.areaExact);
+    this.tagsAll.set(!!p.tagsAll);
     this.changedWithinDays = p.changedWithinDays ?? null;
-    this.tags = (p.tags ?? []).join(', ');
-    this.parent = p.parent ?? '';
     this.sort = p.sort ?? 'CHANGED';
     this.mine = [...(p.mine ?? [])];
     if (this.filterCount() > 0) this.more.set(true);
   }
 
   value(): TeamSearch {
-    const tags = this.tags.split(',').map((t) => t.trim()).filter(Boolean);
+    const v = this.v();
     return {
       text: this.text.trim() || null,
       openOnly: this.openOnly,
-      types: this.types,
-      states: this.states,
-      teams: this.team ? [this.team] : [],
-      iterations: this.iteration ? [this.iteration] : [],
-      areas: this.area ? [this.area] : [],
-      assigned: this.assigned || null,
-      createdBy: this.createdBy || null,
+      types: v.types,
+      states: v.states,
+      teams: v.teams,
+      iterations: v.iterations,
+      areas: v.areas,
+      areaExact: this.areaExact(),
+      assigned: v.assigned,
+      createdBy: v.createdBy,
       changedWithinDays: this.changedWithinDays,
-      tags,
-      parent: this.parent.trim() || null,
+      tags: v.tags,
+      tagsAll: this.tagsAll(),
+      parents: v.parents,
       mine: this.mine,
       sort: this.sort,
       page: 0,
@@ -191,13 +274,12 @@ export class TeamSearchFormComponent {
   }
 
   private filterCount(): number {
-    return this.types.length + this.states.length + (this.team ? 1 : 0) + (this.iteration ? 1 : 0) + (this.area ? 1 : 0) +
-      (this.assigned ? 1 : 0) + (this.createdBy ? 1 : 0) + (this.changedWithinDays ? 1 : 0) + (this.tags.trim() ? 1 : 0) +
-      (this.parent.trim() ? 1 : 0) + this.mine.length;
+    const v = this.v();
+    return (Object.keys(v) as ListKey[]).filter((k) => v[k].length).length + (this.changedWithinDays ? 1 : 0) + this.mine.length;
   }
 
   run(): void {
-    this.count.set(this.filterCount());
+    this.recount();
     this.search.emit(this.value());
   }
 
@@ -205,4 +287,8 @@ export class TeamSearchFormComponent {
     this.fill({ text: this.text });
     this.run();
   }
+}
+
+function empty(): Record<ListKey, string[]> {
+  return { types: [], states: [], teams: [], iterations: [], areas: [], assigned: [], createdBy: [], tags: [], parents: [] };
 }

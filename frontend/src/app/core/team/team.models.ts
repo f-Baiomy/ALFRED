@@ -93,29 +93,51 @@ export interface TeamLists {
   readonly people: readonly TeamPerson[];
   readonly boards: readonly TeamBoard[];
   readonly at: string | null;
+  /** Every tag used in the scope (specs/029); absent from an older Alfred. */
+  readonly tags?: readonly string[];
 }
 
 export type MineSource = 'ASSIGNED' | 'CREATED' | 'CHANGED' | 'MENTIONED' | 'FOLLOWED';
 export type SortBy = 'CHANGED' | 'ID' | 'PRIORITY';
 
-/** The search body: every list optional; openOnly defaults to true. */
+/** How a page of matches is shown: alone, under their parents, or with parents and children (specs/029). */
+export type ShowMode = 'ITEMS' | 'PARENTS' | 'TREE';
+
+/**
+ * The search body: every list optional (values inside one filter are ORed, filters ANDed); openOnly defaults to true.
+ * `assigned` may hold "me" and "none" (unassigned), `createdBy` "me", `iterations` "@current".
+ */
 export interface TeamSearch {
   text?: string | null;
   types?: string[];
   states?: string[];
   openOnly?: boolean;
   areas?: string[];
+  /** Areas match only themselves, not their sub-areas. */
+  areaExact?: boolean;
   teams?: string[];
   iterations?: string[];
-  assigned?: string | null;
-  createdBy?: string | null;
+  assigned?: string[];
+  createdBy?: string[];
   changedWithinDays?: number | null;
   tags?: string[];
-  parent?: string | null;
+  /** Every tag must be on the item (else any one). */
+  tagsAll?: boolean;
+  parents?: string[];
   mine?: MineSource[];
   sort?: SortBy;
   page?: number;
   pageSize?: number;
+  show?: ShowMode;
+  /** 1 (default) or 0 for every level - with show TREE. */
+  childDepth?: number;
+}
+
+/** A saved search may be older than specs/029: one person as a string, `parent` for `parents`. */
+export function normalizeSearch(q: TeamSearch & { assigned?: unknown; createdBy?: unknown; parent?: unknown }): TeamSearch {
+  const list = (v: unknown): string[] => (Array.isArray(v) ? v.map(String) : typeof v === 'string' && v ? [v] : []);
+  const { parent, ...rest } = q;
+  return { ...rest, assigned: list(q.assigned), createdBy: list(q.createdBy), parents: [...list(q.parents), ...list(parent)] };
 }
 
 /** Where a result already sits on Alfred. */
@@ -142,6 +164,8 @@ export interface SearchRow {
   readonly url: string | null;
   readonly boards: readonly BoardBadge[];
   readonly cards: readonly string[];
+  /** The parent's id, when the tracker gave one. */
+  readonly parent?: string | null;
 }
 
 export interface SearchResult {
@@ -151,6 +175,11 @@ export interface SearchResult {
   readonly fullText: boolean;
   readonly page: number;
   readonly pageSize: number;
+  readonly show?: ShowMode;
+  /** Parents (and children) of this page's matches that did not match themselves - shown for context. */
+  readonly context?: readonly SearchRow[];
+  /** Context items past the cap, counted but not read. */
+  readonly contextLeftOut?: number;
 }
 
 export interface TeamItemLink {

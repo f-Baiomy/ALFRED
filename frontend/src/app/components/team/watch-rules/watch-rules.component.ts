@@ -2,7 +2,7 @@ import { Component, effect, inject, input, signal, untracked } from '@angular/co
 import { FormsModule } from '@angular/forms';
 import { TeamApiService } from '../../../core/team/team-api.service';
 import { TeamStateService } from '../../../core/team/team-state.service';
-import { TeamSearch, WatchRule } from '../../../core/team/team.models';
+import { TeamSearch, WatchRule, normalizeSearch } from '../../../core/team/team.models';
 
 /**
  * A board's watch rules (specs/028 US5 FR-065..069): saved searches run when the board opens, on Refresh, on a hook ping
@@ -89,9 +89,10 @@ export class TeamWatchRulesComponent {
 
   describe(r: WatchRule): string {
     try {
-      const q = JSON.parse(r.queryJson) as TeamSearch;
+      const q = normalizeSearch(JSON.parse(r.queryJson));
       return [q.text && `"${q.text}"`, q.types?.length && q.types.join('/'), q.areas?.length && 'under ' + q.areas.join(', '),
-        q.tags?.length && 'tags ' + q.tags.join(', '), q.assigned && 'assigned ' + q.assigned].filter(Boolean).join(' · ');
+        q.tags?.length && 'tags ' + q.tags.join(q.tagsAll ? ' and ' : ', '), q.assigned?.length && 'assigned ' + q.assigned.join(', ')]
+        .filter(Boolean).join(' · ');
     } catch {
       return '';
     }

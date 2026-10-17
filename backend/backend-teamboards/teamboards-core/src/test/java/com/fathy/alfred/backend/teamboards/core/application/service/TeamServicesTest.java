@@ -8,12 +8,14 @@ import com.fathy.alfred.backend.teamboards.core.application.port.in.TeamExceptio
 import com.fathy.alfred.backend.teamboards.core.application.port.in.TeamException.Code;
 import com.fathy.alfred.backend.teamboards.core.application.port.in.TeamSearchUseCase.Part;
 import com.fathy.alfred.backend.teamboards.core.application.port.in.TeamSearchUseCase.SearchIn;
+import com.fathy.alfred.backend.teamboards.core.application.port.in.TeamSearchUseCase.Show;
 import com.fathy.alfred.backend.teamboards.core.application.port.out.TeamBoardsPort.CardInfo;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.BoardItemRow;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.IncomingRow;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.IncomingSource;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.IncomingState;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.SearchResult;
+import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.SearchRow;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.StepKind;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.Who;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.WriteBundle;
@@ -60,7 +62,7 @@ class TeamServicesTest {
     }
 
     static SearchIn text(String t) {
-        return new SearchIn(t, null, null, null, null, null, null, null, null, null, null, null, null, null, 0, 50);
+        return new SearchIn(t, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 0, 50, null, null);
     }
 
     // ------------------------------------------------------------------------------------------------------- token
@@ -126,8 +128,7 @@ class TeamServicesTest {
         assertThat(r.pageSize()).isEqualTo(50);
         assertThat(f.cache.boardsWithItems()).isEmpty();
         assertThat(f.cache.copy(CONN, "101")).isEmpty();
-        assertThatThrownBy(() -> f.search.search(CONN, new SearchIn(null, null, null, null, null, null, null, null, null, null, null, null, null, null,
-                0, 51))).isInstanceOf(TeamException.class);
+        assertThatThrownBy(() -> f.search.search(CONN, text(null).page(0, 51))).isInstanceOf(TeamException.class);
     }
 
     @Test
@@ -476,5 +477,48 @@ class TeamServicesTest {
         assertThat(f.incoming.list("b1", false)).extracting(IncomingRow::item).doesNotContain("103");
         f.boardItems.add(Who.USER, "b1", CONN, "103", false, 0, null); // added by hand again: it is back
         assertThat(f.cache.boardItem("b1", CONN, "103")).isPresent();
+    }
+
+    // ------------------------------------------------------------------------------------------ 029 tree
+
+    /** With parents: each match's chain up to the top; full tree adds its children, one level or every level. */
+    @Test
+    void aPageShowsItsParentsAndChildrenOnlyWhenAsked() {
+        f.withToken();
+        f.tracker.put(item("900", "Epic", "Import booked PNR", "Active", null, 1));
+        f.tracker.put(item("901", "Feature", "Travelport", "Active", "900", 1));
+        f.tracker.put(item("902", "Bug", "Zebra stops wrong", "Active", "901", 1));
+        f.tracker.put(item("903", "Task", "Fix stops", "Active", "902", 1));
+        f.tracker.put(item("904", "Task", "Unit tests", "Active", "903", 1));
+
+        SearchResult flat = f.search.search(CONN, text("zebra"));
+        assertThat(flat.items()).extracting(SearchRow::id).containsExactly("902");
+        assertThat(flat.items().get(0).parent()).isEqualTo("901");
+        assertThat(flat.context()).isEmpty();
+
+        SearchResult parents = f.search.search(CONN, show(text("zebra"), Show.PARENTS, null));
+        assertThat(parents.show()).isEqualTo("PARENTS");
+        assertThat(parents.context()).extracting(SearchRow::id).containsExactly("901", "900");
+
+        SearchResult tree = f.search.search(CONN, show(text("zebra"), Show.TREE, null));
+        assertThat(tree.context()).extracting(SearchRow::id).containsExactly("901", "900", "903");
+        SearchResult all = f.search.search(CONN, show(text("zebra"), Show.TREE, 0));
+        assertThat(all.context()).extracting(SearchRow::id).containsExactly("901", "900", "903", "904");
+        assertThat(all.contextLeftOut()).isZero();
+    }
+
+    static SearchIn show(SearchIn in, Show s, Integer depth) {
+        return new SearchIn(in.text(), in.types(), in.states(), in.openOnly(), in.areas(), in.areaExact(), in.teams(), in.iterations(), in.assigned(),
+                in.createdBy(), in.changedWithinDays(), in.tags(), in.tagsAll(), in.parents(), in.mine(), in.sort(), in.page(), in.pageSize(), s, depth);
+    }
+
+    /** A saved watch rule written before specs/029 (one person, "parent") still reads. */
+    @Test
+    void anOlderSavedSearchStillReads() throws Exception {
+        SearchIn in = Copies.JSON.readValue("{\"assigned\":\"me\",\"createdBy\":\"sara@example.com\",\"parent\":\"7\",\"page\":0,\"pageSize\":50}",
+                SearchIn.class);
+        assertThat(in.assigned()).containsExactly("me");
+        assertThat(in.createdBy()).containsExactly("sara@example.com");
+        assertThat(in.parents()).containsExactly("7");
     }
 }

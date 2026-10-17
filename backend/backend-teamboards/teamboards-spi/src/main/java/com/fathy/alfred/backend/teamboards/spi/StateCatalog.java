@@ -14,4 +14,9 @@ public interface StateCatalog {
     default List<String> areas(Connection c, Token t) throws ProviderException {
         return List.of();
     }
+
+    /** Every tag used in the scope, for the search's Tags filter (specs/029). */
+    default List<String> tags(Connection c, Token t) throws ProviderException {
+        return List.of();
+    }
 }

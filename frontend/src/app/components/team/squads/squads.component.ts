@@ -83,7 +83,7 @@ export class TeamSquadsComponent {
 
   searchPerson(p: TeamPerson): void {
     const who = p.email ?? p.extId;
-    if (who) this.search.emit({ assigned: who, openOnly: true });
+    if (who) this.search.emit({ assigned: [who], openOnly: true });
   }
 
   map(s: TeamSquad, project: string | null, team: string | null): void {
