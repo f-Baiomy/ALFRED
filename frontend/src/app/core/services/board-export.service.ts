@@ -69,7 +69,7 @@ export class BoardExportService {
       const chats = ids === null ? await this.chats(project, cycleId) : [];
       const boards = await this.boards(project, cycleId);
       downloadBlob(await exportBlob(buildBoardJsonLines({ ...data, images: await this.images(data), chats, ...boards,
-        cardCycles: await this.cardCycles(data) }), false), name);
+        cardCycles: await this.cardCycles(data), owners: await this.owners(data) }), false), name);
     } else if (format === 'md') {
       downloadBlob(new Blob(buildBoardMarkdownLines(data, title).map((l) => `${l}\n`), { type: 'text/markdown' }), name);
     } else {
@@ -81,7 +81,7 @@ export class BoardExportService {
    * The boards (specs/027): every board of the project for a whole-board export, the one board for a board's, each with
    * the work item it was opened from. Unreadable (an older Alfred, no Team slice) → none; the cards still export.
    */
-  async boards(project: string, boardId: string | null): Promise<Pick<BoardExport, 'boards' | 'workItems'>> {
+  async boards(project: string, boardId: string | null): Promise<Pick<BoardExport, 'boards' | 'workItems' | 'teamRecords'>> {
     let boards: BoardSummary[] = [];
     try {
       boards = boardId ? [await lastValueFrom(this.api.board(boardId))]
@@ -98,7 +98,28 @@ export class BoardExportService {
         // the link stays readable on the board; the export goes on
       }
     }
-    return { boards, workItems };
+    // each board's tracker side (specs/028): related items with their full copies, card links, Incoming, watch rules
+    const teamRecords: NonNullable<BoardExport['teamRecords']>[number][] = [];
+    for (const s of boards) {
+      try {
+        teamRecords.push(...await lastValueFrom(this.team.boardExport(s.board.id)));
+      } catch {
+        // no Team slice, or nothing here: the board exports without its tracker side
+      }
+    }
+    return { boards, workItems, teamRecords };
+  }
+
+  /** Each card's owner (specs/028), in pages of 200 ids. */
+  async owners(data: BoardExport): Promise<Record<string, string>> {
+    const out: Record<string, string> = {};
+    const ids = data.cards.map((c) => c.id);
+    try {
+      for (let i = 0; i < ids.length; i += 200) Object.assign(out, await lastValueFrom(this.api.cardOwners(ids.slice(i, i + 200))));
+    } catch {
+      // an Alfred without owners: none exported
+    }
+    return out;
   }
 
   /** The cycles related to each card beyond its home, in pages of 1000 ids. */

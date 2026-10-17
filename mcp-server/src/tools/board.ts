@@ -694,7 +694,7 @@ export function register(server: McpServer, client: AlfredClient): void {
     const head = {
       card: line(card),
       scope: card.scope,
-      ...(owner ? { owner: `${owner} - team_people id ${owner.slice(owner.indexOf('/') + 1)} names them` } : {}),
+      ...(owner ? { owner: `${owner.slice(owner.indexOf('|') + 1)} (${owner.slice(0, owner.indexOf('|'))})` } : {}),
       ...(card.proposal ? { proposal: `${target(card.proposal)}: ${maskText(ctx, card.proposal.reason)}${card.proposal.evidence ? ` - ${maskText(ctx, card.proposal.evidence)}` : ''}` } : {}),
       description,
       links: (card.links ?? []).map((l) => `${l.type.toLowerCase()} ${l.ref} - ${maskText(ctx, l.label)}`),
@@ -1342,7 +1342,7 @@ export function register(server: McpServer, client: AlfredClient): void {
 
   server.registerTool('board_edit', {
     description: 'Rewrite the title, description, kind or owner of one of YOUR cards while it is still in the Inbox. After the user sorts it, comment instead. '
-      + 'owner: "<conn>/<person id>" from team_people, or "" for none.',
+      + 'owner: "<conn>/<person id>|<name>" from team_people, or "" for none.',
     inputSchema: {
       project: Project, number: CardNumber, title: z.string().min(1).max(300).optional(), description: z.string().max(256 * 1024).optional(),
       kind: Kind.optional(), owner: z.string().max(300).optional(),

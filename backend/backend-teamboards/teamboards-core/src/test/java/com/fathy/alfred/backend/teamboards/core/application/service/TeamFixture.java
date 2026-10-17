@@ -49,6 +49,7 @@ final class TeamFixture {
     final PeopleService people;
     final StartService starts;
     final SeedBuilder seeds;
+    final TeamTransferService transfer;
 
     TeamFixture(Path dir) {
         cache = new SqliteTeamCacheRepository(dir.resolve("teamboards.db"));
@@ -81,6 +82,7 @@ final class TeamFixture {
         people = new PeopleService(live, cache, team, search, provider(TeamBoardsPort.class));
         starts = new StartService(live, cache, sig, provider(TeamBoardsPort.class), provider(BoardItemsUseCase.class));
         seeds = new SeedBuilder(live, cache, provider(TeamBoardsPort.class));
+        transfer = new TeamTransferService(cache, sig);
         beans.addBean("team", team);
         beans.addBean("writes", writes);
         beans.addBean("boardItems", boardItems);

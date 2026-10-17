@@ -256,4 +256,23 @@ class ImportBoardServiceTest {
         assertThat(f.briefs.brief(mine.id()).text()).isEqualTo("mine");
         assertThat(f.board.getByNumber("dest", 1).orElseThrow().card().cycleId()).as("its card follows the new key").isEqualTo(mine.id());
     }
+
+    /** specs/028 FR-112: owners come back in this slice; the tracker records go to the Team slice with the ids they have here. */
+    @Test
+    void cardOwnersComeBackAndTheTrackerRecordsGoToTheTeamSliceWithTheirIdsHere() throws Exception {
+        java.util.List<String> seen = new java.util.ArrayList<>();
+        f.imports.setTeamRecords((kind, boardId, cardId, fields) -> seen.add(kind + " " + boardId + " " + cardId + " " + fields.get("item")));
+        String home = card(1, "Refund", "").replace("\"updatedBy\":\"USER\"}", "\"updatedBy\":\"USER\",\"boardId\":\"b-refund\"}");
+        run(home,
+                "{\"record\":\"board\",\"board\":{\"id\":\"b-refund\",\"name\":\"Refund flow\",\"isDefault\":false,\"state\":\"OPEN\"}}",
+                "{\"record\":\"card-owner\",\"cardNumber\":1,\"owner\":\"c1/p-1|Sara Ali\"}",
+                "{\"record\":\"card-owner\",\"cardNumber\":1,\"owner\":\"not an owner\"}",
+                "{\"record\":\"team-item\",\"boardId\":\"b-refund\",\"conn\":\"c1\",\"item\":\"101\",\"role\":\"MAIN\"}",
+                "{\"record\":\"team-card-link\",\"cardNumber\":1,\"boardId\":\"b-refund\",\"conn\":\"c1\",\"item\":\"102\"}",
+                "{\"record\":\"team-card-link\",\"cardNumber\":9,\"boardId\":\"b-refund\",\"conn\":\"c1\",\"item\":\"103\"}",
+                "{\"record\":\"workitem-snapshot\",\"boardId\":\"b-refund\",\"conn\":\"c1\",\"extId\":\"7\",\"snapshot\":{\"title\":\"Old\"}}");
+        String id = f.board.getByNumber("dest", 1).orElseThrow().card().id();
+        assertThat(f.store.owner(id)).contains("c1/p-1|Sara Ali");
+        assertThat(seen).containsExactly("team-item b-refund null 101", "team-card-link b-refund " + id + " 102", "team-item b-refund null 7");
+    }
 }

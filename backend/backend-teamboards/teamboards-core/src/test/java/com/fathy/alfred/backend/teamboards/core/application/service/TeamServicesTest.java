@@ -87,12 +87,16 @@ class TeamServicesTest {
     @Test
     void theTokenIsNeverWrittenToTheDatabase() throws Exception {
         f.tracker.goodToken = "pat-very-secret-0987654321";
-        f.team.putToken(CONN, new Token(f.tracker.goodToken));
-        f.search.search(CONN, text("refund"));
+        var status = f.team.putToken(CONN, new Token(f.tracker.goodToken));
+        // no answer echoes it: the token status, a search, a bundle, the vault's own text
+        assertThat(String.valueOf(status)).doesNotContain("pat-very-secret");
+        assertThat(String.valueOf(f.search.search(CONN, text("refund")))).doesNotContain("pat-very-secret");
+        assertThat(String.valueOf(f.vault)).doesNotContain("pat-very-secret");
+        assertThat(String.valueOf(new Token(f.tracker.goodToken))).doesNotContain("pat-very-secret");
         f.boardItems.add(Who.USER, "b1", CONN, "101", false, 0, null);
         WriteBundle b = f.writes.create(Who.CLAUDE, new NewBundle("b1", null, CONN, "102", "x", List.of(
                 new WriteStep(StepKind.COMMENT, Map.of("text", "hi"), true, false, null)), null, null));
-        f.writes.approve(Who.USER, b.id());
+        assertThat(String.valueOf(f.writes.approve(Who.USER, b.id()))).doesNotContain("pat-very-secret");
         f.close();
         for (java.nio.file.Path p : java.nio.file.Files.list(dir).toList()) {
             String bytes = new String(java.nio.file.Files.readAllBytes(p), java.nio.charset.StandardCharsets.ISO_8859_1);
@@ -366,5 +370,45 @@ class TeamServicesTest {
         assertThat(view.copyRev()).isEqualTo(5);
         assertThat(view.diff()).extracting(d -> d.field()).contains("System.State");
         assertThat(view.item().nativeJson()).isNull();
+    }
+
+    /** specs/028 FR-112: a board's tracker side goes into its export and comes back on another Alfred, copies whole. */
+    @Test
+    void aBoardsTrackerSideTravelsInItsExportAndComesBack(@TempDir Path other) {
+        f.withToken();
+        f.boardItems.add(Who.USER, "b1", CONN, "101", false, 0, null);
+        CardInfo card = f.boards.card("b1", "Refund total");
+        f.cardItems.link(Who.USER, card.id(), CONN, "102", Markers.NONE, null);
+        var exported = f.transfer.export("b1");
+        assertThat(exported).extracting(r -> r.kind()).contains("team-item", "team-card-link");
+        assertThat(exported.stream().filter(r -> "101".equals(r.fields().get("item"))).findFirst().orElseThrow().fields()).containsKey("copy");
+
+        TeamFixture there = new TeamFixture(other);
+        try {
+            for (var r : exported) {
+                there.transfer.importRecord(r.kind(), "b2", "team-card-link".equals(r.kind()) ? "card-new" : null, r.fields());
+            }
+            assertThat(there.cache.main("b2")).get().extracting(BoardItemRow::item).isEqualTo("101");
+            assertThat(there.cache.copy(CONN, "101")).isPresent();
+            assertThat(there.cache.copy(CONN, "102")).isPresent();
+            assertThat(there.cache.cardLinks("card-new")).singleElement().extracting(l -> l.item()).isEqualTo("102");
+            // a record naming a connection this Alfred does not have is skipped
+            assertThat(there.transfer.importRecord("team-item", "b2", null, Map.of("conn", "elsewhere", "item", "5"))).isFalse();
+        } finally {
+            there.close();
+        }
+    }
+
+    /** specs/028 T073: syncs keep the newest 50 per item; nothing waiting or recent is trimmed. */
+    @Test
+    void retentionKeepsTheNewestFiftySyncsPerItem() {
+        Instant now = Instant.parse("2026-10-17T10:00:00Z");
+        for (int i = 0; i < 60; i++) {
+            f.cache.addSync(CONN, "101", i, i + 1, now.minusSeconds(60L * (60 - i)), List.of());
+        }
+        f.cache.addSync(CONN, "102", 1, 2, now, List.of());
+        f.cache.trim(now);
+        assertThat(f.cache.syncs(CONN, "101", 100)).hasSize(50).first().extracting(r -> r.toRev()).isEqualTo(60);
+        assertThat(f.cache.syncs(CONN, "102", 100)).hasSize(1);
     }
 }

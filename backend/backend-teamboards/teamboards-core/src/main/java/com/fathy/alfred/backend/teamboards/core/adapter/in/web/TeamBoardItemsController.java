@@ -4,6 +4,7 @@ import com.fathy.alfred.backend.teamboards.core.application.port.in.BoardItemsUs
 import com.fathy.alfred.backend.teamboards.core.application.port.in.IncomingUseCase;
 import com.fathy.alfred.backend.teamboards.core.application.port.in.TeamException;
 import com.fathy.alfred.backend.teamboards.core.application.port.in.TeamSearchUseCase.SearchIn;
+import com.fathy.alfred.backend.teamboards.core.application.port.in.TeamTransferUseCase;
 import com.fathy.alfred.backend.teamboards.core.application.port.in.WatchRulesUseCase;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.Who;
 import jakarta.validation.Valid;
@@ -32,11 +33,24 @@ public class TeamBoardItemsController {
     private final BoardItemsUseCase items;
     private final IncomingUseCase incoming;
     private final WatchRulesUseCase rules;
+    private final TeamTransferUseCase transfer;
 
-    public TeamBoardItemsController(BoardItemsUseCase items, IncomingUseCase incoming, WatchRulesUseCase rules) {
+    public TeamBoardItemsController(BoardItemsUseCase items, IncomingUseCase incoming, WatchRulesUseCase rules, TeamTransferUseCase transfer) {
         this.items = items;
         this.incoming = incoming;
         this.rules = rules;
+        this.transfer = transfer;
+    }
+
+    /** The board's tracker side for a board export (specs/028 FR-112): one record per line of the export. */
+    @GetMapping("/teamboards/boards/{board}/export")
+    public ResponseEntity<?> export(@PathVariable String board) {
+        return ResponseEntity.ok(transfer.export(board).stream().map(r -> {
+            java.util.Map<String, Object> m = new java.util.LinkedHashMap<>();
+            m.put("record", r.kind());
+            m.putAll(r.fields());
+            return m;
+        }).toList());
     }
 
     record AddDto(@NotBlank @Size(max = 100) String conn, @Size(max = 100) String item, @Size(max = 2000) String url, Boolean asMain, Integer maxRefs,

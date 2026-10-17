@@ -40,6 +40,10 @@ export interface BoardExport {
   /** The work item each board was opened from, as Alfred's snapshot of it (read back for reference; the tracker stays the source). */
   readonly workItems?: readonly { readonly board: string; readonly conn: string; readonly extId: string; readonly provider: string;
     readonly snapshot: Readonly<Record<string, string>> }[];
+  /** The boards' tracker side (specs/028): team-item (with the full copies), team-card-link (by cardId here, cardNumber in the
+   *  file), team-incoming, team-watch-rule - as the backend exports them; and each card's owner. */
+  readonly teamRecords?: readonly (Record<string, unknown> & { readonly record: string })[];
+  readonly owners?: Readonly<Record<string, string>>;
 }
 
 export interface BoardImageData {
@@ -77,7 +81,7 @@ function directLinks(card: CardDetail, history: readonly ActivityEntry[]): Menti
 
 export function buildBoardJsonLines(data: BoardExport, exportedAt = new Date().toISOString()): string[] {
   const lines: string[] = [JSON.stringify({ format: BOARD_FORMAT, exportedAt, project: data.project, cards: data.cards.length,
-    guide: 'One record per line: card, then board, board-cycle, board-board, card-cycle (by cardNumber), workitem-snapshot, activity (by cardNumber), brief, briefComment, spec, mark, image (base64), page (with every version), state, shot (PNG, base64), '
+    guide: 'One record per line: card, then board, board-cycle, board-board, card-cycle (by cardNumber), workitem-snapshot, team-item / team-card-link (by cardNumber) / team-incoming / team-watch-rule / card-owner, activity (by cardNumber), brief, briefComment, spec, mark, image (base64), page (with every version), state, shot (PNG, base64), '
       + 'file (base64), widget, chatSettings, chat, chatRecord, chatTerminal. Texts are Markdown or HTML. Import with Board → Import .json.' })];
   for (const card of data.cards) {
     const fields: Record<string, unknown> = {};
@@ -103,6 +107,20 @@ export function buildBoardJsonLines(data: BoardExport, exportedAt = new Date().t
   }
   for (const w of data.workItems ?? []) {
     lines.push(JSON.stringify({ record: 'workitem-snapshot', boardId: w.board, conn: w.conn, extId: w.extId, provider: w.provider, snapshot: w.snapshot }));
+  }
+  const numberOf = new Map(data.cards.map((c) => [c.id, c.number]));
+  for (const t of data.teamRecords ?? []) {
+    if (t.record === 'team-card-link') {
+      const { cardId, ...rest } = t as Record<string, unknown> & { record: string; cardId?: string };
+      const n = cardId ? numberOf.get(cardId) : undefined;
+      if (n !== undefined) lines.push(JSON.stringify({ ...rest, cardNumber: n }));
+    } else {
+      lines.push(JSON.stringify(t));
+    }
+  }
+  for (const card of data.cards) {
+    const owner = data.owners?.[card.id];
+    if (owner) lines.push(JSON.stringify({ record: 'card-owner', cardNumber: card.number, owner }));
   }
   for (const card of data.cards) {
     for (const e of data.activity[card.id] ?? []) {
@@ -144,6 +162,7 @@ export interface ParsedBoard {
   readonly boardCycles: readonly { readonly boardId: string; readonly cycleId: string }[];
   readonly cardCycles: readonly { readonly cardNumber: number; readonly cycleId: string }[];
   readonly workItems: readonly Record<string, unknown>[];
+  readonly teamRecords: readonly Record<string, unknown>[];
 }
 
 export function parseBoardJsonLines(lines: readonly string[]): ParsedBoard {
@@ -153,7 +172,8 @@ export function parseBoardJsonLines(lines: readonly string[]): ParsedBoard {
   const out = { project: head.project ?? '', cards: [] as ParsedBoard['cards'][number][], activity: [] as ParsedBoard['activity'][number][],
     briefs: [] as Record<string, unknown>[], briefComments: [] as Record<string, unknown>[], specs: [] as BoardSpecFile[],
     marks: [] as Record<string, unknown>[], boards: [] as Record<string, unknown>[], boardCycles: [] as ParsedBoard['boardCycles'][number][],
-    cardCycles: [] as ParsedBoard['cardCycles'][number][], workItems: [] as Record<string, unknown>[] };
+    cardCycles: [] as ParsedBoard['cardCycles'][number][], workItems: [] as Record<string, unknown>[],
+    teamRecords: [] as Record<string, unknown>[] };
   for (const line of rest) {
     const r = JSON.parse(line) as Record<string, unknown> & { record: string };
     switch (r.record) {
@@ -167,6 +187,7 @@ export function parseBoardJsonLines(lines: readonly string[]): ParsedBoard {
       case 'board-cycle': out.boardCycles.push({ boardId: r['boardId'] as string, cycleId: r['cycleId'] as string }); break;
       case 'card-cycle': out.cardCycles.push({ cardNumber: r['cardNumber'] as number, cycleId: r['cycleId'] as string }); break;
       case 'workitem-snapshot': out.workItems.push(r); break;
+      case 'team-item': case 'team-card-link': case 'team-incoming': case 'team-watch-rule': case 'card-owner': out.teamRecords.push(r); break;
     }
   }
   return out;

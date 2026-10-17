@@ -188,6 +188,11 @@ export class TeamApiService {
     return this.http.get<SyncRow[]>(`${this.base}/boards/${e(board)}/items/${e(conn)}/${e(item)}/syncs`);
   }
 
+  /** A board's tracker side for its export (specs/028 FR-112): one record per line. */
+  boardExport(board: string): Observable<(Record<string, unknown> & { record: string })[]> {
+    return this.http.get<(Record<string, unknown> & { record: string })[]>(`${this.base}/boards/${e(board)}/export`);
+  }
+
   mainOf(board: string): Observable<MainSummary | null> {
     return this.http.get<MainSummary | null>(`${this.base}/boards/${e(board)}/main`);
   }

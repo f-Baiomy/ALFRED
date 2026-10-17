@@ -107,4 +107,27 @@ describe('board .json export (alfred-board/1)', () => {
     expect(parsed.cardCycles).toEqual([{ cardNumber: 1, cycleId: 'cy9' }]);
     expect(parsed.workItems[0]['snapshot']).toEqual({ title: 'Refund', state: 'Active' });
   });
+
+  it('writes the tracker side of each board whole - copies uncut, card links by card number - and the owners (specs/028)', () => {
+    const copy = { rev: 4, itemJson: JSON.stringify({ extId: '101', description: 'x'.repeat(50_000) }), savedAt: '2026-10-01T09:00:00Z' };
+    const lines = buildBoardJsonLines({
+      ...data,
+      cards: [card(1), card(2)],
+      teamRecords: [
+        { record: 'team-item', boardId: 'b-refund', conn: 'c1', item: '101', role: 'MAIN', relation: 'ROOT', copy },
+        { record: 'team-card-link', cardId: 'id2', boardId: 'b-refund', conn: 'c1', item: '102' },
+        { record: 'team-card-link', cardId: 'gone', boardId: 'b-refund', conn: 'c1', item: '103' },
+        { record: 'team-watch-rule', boardId: 'b-refund', conn: 'c1', name: 'New refund bugs', queryJson: '{"text":"refund"}' },
+      ],
+      owners: { id1: 'c1/p-1|Sara Ali' },
+    }, '2026-10-10T00:00:00Z');
+    const parsed = parseBoardJsonLines(lines);
+    const item = parsed.teamRecords.find((r) => r['record'] === 'team-item')!;
+    expect((item['copy'] as { itemJson: string }).itemJson).toBe(copy.itemJson);
+    const links = parsed.teamRecords.filter((r) => r['record'] === 'team-card-link');
+    expect(links).withContext('a link to a card not in the file is left out').toEqual([
+      { record: 'team-card-link', boardId: 'b-refund', conn: 'c1', item: '102', cardNumber: 2 }]);
+    expect(parsed.teamRecords.find((r) => r['record'] === 'card-owner')).toEqual({ record: 'card-owner', cardNumber: 1, owner: 'c1/p-1|Sara Ali' });
+    expect(parsed.teamRecords.some((r) => r['record'] === 'team-watch-rule')).toBeTrue();
+  });
 });

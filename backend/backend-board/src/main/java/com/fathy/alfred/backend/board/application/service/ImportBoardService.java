@@ -103,6 +103,13 @@ public class ImportBoardService implements ImportBoardUseCase {
     }
 
     private com.fathy.alfred.backend.board.application.port.out.BriefCommentStorePort briefComments;
+    private com.fathy.alfred.backend.board.application.port.out.TeamRecordsImportPort teamRecords;
+
+    /** The board's tracker side comes back too (specs/028 FR-112) where the Team slice is present. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setTeamRecords(com.fathy.alfred.backend.board.application.port.out.TeamRecordsImportPort teamRecords) {
+        this.teamRecords = teamRecords;
+    }
 
     /** The briefs' comments come back too (specs/024) where their store is present. */
     @org.springframework.beans.factory.annotation.Autowired(required = false)
@@ -150,6 +157,7 @@ public class ImportBoardService implements ImportBoardUseCase {
         ChatTransfer.Importer chatImport = null;
         Map<Integer, String> homes = new HashMap<>(); // an exported card number -> the board it lived on there
         Map<String, String> boardIds = new HashMap<>(); // an exported board id -> its id here
+        List<JsonNode> team = new ArrayList<>(); // team-* and card-owner records: written once boards and cards have ids here
         String line;
         while ((line = lines.readLine()) != null) {
             bytes += line.getBytes(StandardCharsets.UTF_8).length + 1L;
@@ -258,6 +266,7 @@ public class ImportBoardService implements ImportBoardUseCase {
                 case "shot" -> shot(r, idByOldNumber, newIds, pageIds);
                 case "file" -> file(r, target, idByOldNumber);
                 case "widget" -> widget(r, target);
+                case "team-item", "team-card-link", "team-incoming", "team-watch-rule", "card-owner", "workitem-snapshot" -> team.add(r);
                 case "chat", "chatRecord", "chatTerminal", "chatSettings" -> {
                     if (chats != null) {
                         if (chatImport == null) {
@@ -303,12 +312,64 @@ public class ImportBoardService implements ImportBoardUseCase {
         }
         cardImages.forEach((cardId, ids) -> store.attachImages(ids, cardId, null));
         cycleImages.forEach((cycleId, ids) -> store.attachImages(ids, null, cycleId));
+        teamRecords(team, boardIds, idByOldNumber, target);
         mentionedCalls.mentionedCallsChanged();
         notifications.changed(target, null, null, "card");
         if (chatImport != null && chatImport.count() > 0) {
             notifications.chatChanged(target, null, null);
         }
         return new ImportResult(pending.size(), renumbered);
+    }
+
+    /**
+     * The tracker side (specs/028): card owners stay in this slice; the team-* records go to the Team slice with the board
+     * and card ids they have here. A card link names its card by its exported number; the default board is the target's.
+     */
+    @SuppressWarnings("unchecked")
+    private void teamRecords(List<JsonNode> team, Map<String, String> boardIds, Map<Integer, String> idByOldNumber, String target) {
+        for (JsonNode r : team) {
+            String kind = r.path("record").asText();
+            String cardId = r.hasNonNull("cardNumber") ? idByOldNumber.get(r.path("cardNumber").asInt(-1)) : null;
+            if ("card-owner".equals(kind)) {
+                String owner = r.path("owner").asText("");
+                if (cardId != null && CardOwnerService.OWNER.matcher(owner).matches()) {
+                    store.putOwner(cardId, owner);
+                }
+                continue;
+            }
+            if (teamRecords == null) {
+                continue;
+            }
+            String old = r.path("boardId").asText("");
+            String board = old.isBlank() ? null : BoardIds.isDefault(old) ? BoardIds.defaultOf(target) : boardIds.getOrDefault(old, old);
+            if ("team-card-link".equals(kind) && cardId == null) {
+                continue;
+            }
+            Map<String, Object> fields = json.convertValue(r, Map.class);
+            fields.remove("record");
+            fields.remove("cardNumber");
+            if ("workitem-snapshot".equals(kind)) {
+                // a 027 export: the work item a board was opened from becomes its main item, read again on the first sync
+                Map<String, Object> snap = fields.get("snapshot") instanceof Map<?, ?> m ? (Map<String, Object>) m : Map.of();
+                Map<String, Object> item = new HashMap<>();
+                item.put("conn", fields.get("conn"));
+                item.put("item", fields.get("extId"));
+                item.put("role", "MAIN");
+                item.put("relation", "ROOT");
+                for (String k : List.of("type", "title", "state")) {
+                    if (snap.get(k) != null) {
+                        item.put(k, snap.get(k));
+                    }
+                }
+                kind = "team-item";
+                fields = item;
+            }
+            try {
+                teamRecords.imported(kind, board, cardId, fields);
+            } catch (RuntimeException e) {
+                // one bad record never stops the import
+            }
+        }
     }
 
     /** A board's task key here: a board renamed on the way in takes its briefs, specs and marks along. */

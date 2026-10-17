@@ -31,7 +31,7 @@
 ## Phase 2: Foundational (blocks every story)
 
 - [X] T006 `TokenController` (`PUT/GET/DELETE /teamboards/connections/{id}/token`) in `CORE/adapter/in/web/`; owner via `IdentityReader.whoAmI`; signal `what:"token"`; keep `TeamTokenLogFilter` for the PUT body; remove `X-Alfred-Team-Token` handling everywhere
-- [ ] T007 [P] `TokenNeverPersistedTest` in `APP_T/teamboardsbridge/`: after PUT + search + approve, the token is absent from `teamboards.db`, `board.db`, logs and every response (SC-002)
+- [X] T007 [P] `TokenNeverPersistedTest` in `APP_T/teamboardsbridge/`: after PUT + search + approve, the token is absent from `teamboards.db`, `board.db`, logs and every response (SC-002)
 - [X] T008 [P] Azure `IdentityReader` + `StateCatalog` in `AZ/AzureIdentities.java` (connectionData, identities by id, work item types with state categories) with fixtures; `AZ_T/AzureIdentitiesTest.java`
 - [X] T009 Filter lists: `TeamListsService` refreshes types/states, areas, teams+members (joined to people, unknown ids fetched), iterations, people on tab open; `GET /connections/{id}/lists`; fixes members shown as raw ids (FR-013, FR-085)
 - [X] T010 Remove refresh, changes feed, reconcile, refresh suggestions and their routes from `CORE` (`TeamService.refresh*`, `/refresh`, `/changes*`, `TeamChangeSignalPort.refreshed`) and their tests
@@ -159,9 +159,9 @@
 
 ## Phase 12: Polish
 
-- [ ] T071 Board export/import: `team-item` records (main copy, references, card links, incoming, watch rules, owner); 027 `workitem-snapshot` → main; `board-json.ts` and `ImportBoardService` + round-trip tests (FR-112)
+- [X] T071 Board export/import: `team-item` records (main copy, references, card links, incoming, watch rules, owner); 027 `workitem-snapshot` → main; `board-json.ts` and `ImportBoardService` + round-trip tests (FR-112)
 - [ ] T072 [P] Docs: `docs/team.md` (rewrite), `docs/board.md` (Related items, Cycles tab, Incoming, owner, Tell Azure), `docs/mcp.md`, `docs/architecture.md` (SPI writes, vault, hook route), CLAUDE.md and AGENTS.md entries
-- [ ] T073 Retention jobs (item_syncs 50/item, incoming 90 d, bundles 180 d, hook_waiting 7 d) + test
+- [X] T073 Retention jobs (item_syncs 50/item, incoming 90 d, bundles 180 d, hook_waiting 7 d) + test
 - [ ] T074 `docker compose build backend` (Dockerfile pom lines unchanged - no new module) and full suites once: backend `mvn test`, frontend `npm test` + `ng build`, mcp `npm test`, `pytest tests/python`
 - [ ] T075 Coverage check: every decision on the mock's "Every decision" screen maps to an FR and a task (SC-005)
 - [ ] T076 Walkthrough of quickstart.md against a real organisation with the user's PAT (user)

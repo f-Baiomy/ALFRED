@@ -17,7 +17,7 @@ import { PersonPillComponent } from '../person-pill/person-pill.component';
       <span class="tco">
         <span class="tco-k">Owner</span>
         @if (owner(); as o) {
-          <app-person-pill [personId]="o.person" [conn]="o.conn" />
+          <app-person-pill [person]="state.personOf(o.person) ?? { extId: o.person, name: o.name ?? o.person, email: null }" [conn]="o.conn" />
           @if (editable()) { <button type="button" class="tco-x" title="No owner" (click)="set(null)">✕</button> }
         } @else if (editable()) {
           @if (picking()) {
@@ -50,10 +50,13 @@ export class TeamCardOwnerComponent {
 
   private readonly raw = signal<string | null>(null);
   readonly picking = signal(false);
+  /** "<conn>/<person id>|<name>". */
   readonly owner = computed(() => {
     const r = this.raw();
     const slash = r?.indexOf('/') ?? -1;
-    return r && slash > 0 ? { conn: r.slice(0, slash), person: r.slice(slash + 1) } : null;
+    if (!r || slash <= 0) return null;
+    const bar = r.indexOf('|', slash);
+    return { conn: r.slice(0, slash), person: bar > 0 ? r.slice(slash + 1, bar) : r.slice(slash + 1), name: bar > 0 ? r.slice(bar + 1) : null };
   });
   readonly meId = computed(() => this.state.me()?.person?.extId ?? null);
 
@@ -70,7 +73,9 @@ export class TeamCardOwnerComponent {
 
   set(person: string | null): void {
     const conn = this.state.picked()?.id;
-    const owner = person && conn ? `${conn}/${person}` : null;
+    const name = (this.state.lists()?.people.find((p) => p.extId === person)?.name ?? (person === this.meId() ? this.state.me()?.person?.name : null) ?? person ?? '')
+      .replace(/[|\]\r\n]/g, ' ').trim();
+    const owner = person && conn ? `${conn}/${person}|${name || person}` : null;
     this.picking.set(false);
     this.api.setCardOwner(this.cardId(), owner).subscribe({ next: () => this.raw.set(owner), error: () => undefined });
   }
