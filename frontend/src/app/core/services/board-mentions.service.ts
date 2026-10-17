@@ -385,12 +385,21 @@ export class BoardMentionsService {
       case 'cycle':
         return this.cycles.get(ref.ref).pipe(map((c) => ({ lines: [c.name, c.status], removed: false })), catchError(gone));
       case 'workitem': {
-        // specs/027: `<conn>/<itemId>`, from the Team cache (what the last Refresh fetched)
+        // specs/028: `<conn>/<itemId>`, read live with the token in Alfred's memory (none: the saved label)
         const w = workItemOf(ref);
         if (!w) return gone();
-        return this.team.item(w.conn, w.extId).pipe(
+        return this.team.item(w.conn, w.extId, '').pipe(
           map((d) => ({ lines: [`${d.item.extId} ${d.item.title}`, [d.item.type, d.item.state, d.item.assignee].filter(Boolean).join(' · ')], removed: false })),
-          catchError(gone));
+          catchError((e) => (e?.status === 404 ? gone() : of({ lines: [ref.label, 'Enter the token on the Team tab to read it live'], removed: false }))));
+      }
+      case 'person': {
+        // specs/028 FR-088: `<conn>/<personId>`, from the Team lists
+        const w = workItemOf(ref);
+        if (!w) return gone();
+        return this.team.person(w.conn, w.extId).pipe(
+          map((p) => ({ lines: [p.person.name + (p.me ? ' (me)' : ''), [p.person.email, p.teams.map((t) => t.name).join(', ')].filter(Boolean).join(' · '),
+            `${p.assignedOpen ?? '?'} open items · ${p.cardsOwned.length} cards owned`], removed: false })),
+          catchError(() => of({ lines: [ref.label], removed: false })));
       }
       default:
         return of({ lines: [ref.label, ref.ref], removed: false });
@@ -469,6 +478,11 @@ export class BoardMentionsService {
     if (type === 'workitem') {
       const w = workItemOf(ref);
       if (w) void this.router.navigate(['/team'], { queryParams: { conn: w.conn, item: w.extId } });
+      return;
+    }
+    if (type === 'person') {
+      const w = workItemOf(ref);
+      if (w) void this.router.navigate(['/team'], { queryParams: { conn: w.conn, person: w.extId } });
       return;
     }
     if (type === 'chat') {

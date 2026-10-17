@@ -137,6 +137,25 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
         this.clock = clock;
     }
 
+    /** specs/028: the Team slice hears a card's status change (Tell Azure, cleanup). Optional; never changes the move. */
+    private com.fathy.alfred.backend.board.application.port.out.CardStatusChangedPort statusListener;
+
+    @Autowired(required = false)
+    void setStatusListener(com.fathy.alfred.backend.board.application.port.out.CardStatusChangedPort statusListener) {
+        this.statusListener = statusListener;
+    }
+
+    private void statusChanged(Card next, CardStatus from, Actor actor) {
+        if (statusListener == null) {
+            return;
+        }
+        try {
+            statusListener.statusChanged(next, from, actor);
+        } catch (RuntimeException e) {
+            org.slf4j.LoggerFactory.getLogger(BoardService.class).warn("Card status listener failed: {}", e.getClass().getSimpleName());
+        }
+    }
+
     /** Boards (specs/027): where a new card lives. Optional, so tests build this service without it. */
     private com.fathy.alfred.backend.board.application.port.out.BoardModelStorePort boardModel;
 
@@ -422,6 +441,7 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
         store.update(next);
         record(card.id(), actor, ActivityKind.STATUS, null, card.status().name(), status.name());
         afterStatus(card.id(), status, actor);
+        statusChanged(next, card.status(), actor);
         return next;
     }
 
@@ -522,6 +542,7 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
         }
         record(card.id(), actor, ActivityKind.RESOLUTION, null, previousState(card), resolution.name());
         waitOn(card.id(), Waiting.NONE, actor);
+        statusChanged(next, card.status(), actor);
         return next;
     }
 

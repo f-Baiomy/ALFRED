@@ -1,48 +1,45 @@
 package com.fathy.alfred.backend.teamboards.core.application.service;
 
+import com.fathy.alfred.backend.teamboards.core.application.port.in.TeamException;
 import com.fathy.alfred.backend.teamboards.core.application.port.in.TeamUseCase;
 import com.fathy.alfred.backend.teamboards.core.application.port.out.TeamCachePort;
+import com.fathy.alfred.backend.teamboards.core.application.port.out.TeamCachePort.MeOverride;
+import com.fathy.alfred.backend.teamboards.core.application.port.out.TeamCachePort.SquadIn;
 import com.fathy.alfred.backend.teamboards.core.application.port.out.TeamCachePort.StoredConnection;
 import com.fathy.alfred.backend.teamboards.core.application.port.out.TeamChangeSignalPort;
+import com.fathy.alfred.backend.teamboards.core.application.service.Live.Ctx;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.BoardRow;
-import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.ChangeRow;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.ConnectionRow;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.ConnectorInfo;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.FieldMapRow;
-import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.ItemDetail;
-import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.ItemField;
-import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.ItemQuery;
-import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.ItemSummary;
-import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.ItemsPage;
+import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.Lists;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.MappingKind;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.MappingRow;
+import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.Me;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.PersonRow;
-import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.RefreshOutcome;
-import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.RefreshResult;
-import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.RevisionRow;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.SprintRow;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.SquadRow;
-import com.fathy.alfred.backend.teamboards.spi.AttachmentsReader;
+import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.StateRow;
+import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.TokenStatus;
+import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.TypeKindRow;
 import com.fathy.alfred.backend.teamboards.spi.BoardsReader;
 import com.fathy.alfred.backend.teamboards.spi.Connector;
-import com.fathy.alfred.backend.teamboards.spi.ItemIdsReader;
+import com.fathy.alfred.backend.teamboards.spi.IdentityReader;
 import com.fathy.alfred.backend.teamboards.spi.ProviderException;
 import com.fathy.alfred.backend.teamboards.spi.ProviderWords;
-import com.fathy.alfred.backend.teamboards.spi.RevisionsReader;
-import com.fathy.alfred.backend.teamboards.spi.SeedContributor;
 import com.fathy.alfred.backend.teamboards.spi.SprintsReader;
 import com.fathy.alfred.backend.teamboards.spi.SquadsReader;
+import com.fathy.alfred.backend.teamboards.spi.StateCatalog;
 import com.fathy.alfred.backend.teamboards.spi.model.Capability;
-import com.fathy.alfred.backend.teamboards.spi.model.Connection;
-import com.fathy.alfred.backend.teamboards.spi.model.Item;
-import com.fathy.alfred.backend.teamboards.spi.model.Revision;
+import com.fathy.alfred.backend.teamboards.spi.model.ItemTypeInfo;
+import com.fathy.alfred.backend.teamboards.spi.model.Person;
 import com.fathy.alfred.backend.teamboards.spi.model.Scope;
+import com.fathy.alfred.backend.teamboards.spi.model.Squad;
 import com.fathy.alfred.backend.teamboards.spi.model.Token;
+import com.fathy.alfred.backend.teamboards.spi.model.TypeStates;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import com.fathy.alfred.backend.teamboards.core.application.port.in.StartFromItemUseCase;
-import com.fathy.alfred.backend.teamboards.core.application.port.out.TeamBoardsPort;
-import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.net.URI;
@@ -50,55 +47,58 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.EnumSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
- * The Team tab's service (specs/027 US7, research R8-R11). Capabilities come from the interfaces a connector implements,
- * so none can be claimed. A refresh asks only for what changed since the last one and writes page by page; every new
- * revision becomes a line of the shared changes feed. The token is used for the call and dropped.
+ * Connections, the token, the filter lists, me, and where items open their boards (specs/028 FR-001..018, FR-085..087).
+ * The lists are the only Team data kept besides a board's saved copies; work items are read live elsewhere.
  */
 @Service
 public class TeamService implements TeamUseCase {
 
-    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(TeamService.class);
+    private static final Logger log = LoggerFactory.getLogger(TeamService.class);
 
     /** Connectors Alfred knows of but does not ship yet: listed so Settings can say "not installed". */
     static final Map<String, String> KNOWN = Map.of("azure", "Azure DevOps", "jira", "Jira", "clickup", "ClickUp");
 
-    private final Map<String, Connector> connectors = new LinkedHashMap<>();
+    /** FR-056: the default card kind of a type; Feature and Epic stay in Related items. */
+    static final Map<String, String> DEFAULT_KINDS = Map.of("bug", "BUG", "task", "TASK", "user story", "TASK", "product backlog item", "TASK",
+            "issue", "QUESTION", "impediment", "QUESTION", "feature", "NONE", "epic", "NONE");
+    static final Set<String> KINDS = Set.of("BUG", "TASK", "QUESTION", "NOTE", "NONE");
+
+    private final Live live;
     private final TeamCachePort cache;
     private final TeamChangeSignalPort signals;
     private final Clock clock;
-    /** One refresh per connection at a time: a second click joins nothing, it is refused as busy. */
-    private final Set<String> refreshing = ConcurrentHashMap.newKeySet();
+    private final Set<String> reading = ConcurrentHashMap.newKeySet();
+    private final ExecutorService background = Executors.newFixedThreadPool(2, r -> {
+        Thread t = new Thread(r, "team-lists");
+        t.setDaemon(true);
+        return t;
+    });
 
-    @Value("${alfred.teamboards.max-items:100000}")
-    int maxItems = 100_000;
-    @Value("${alfred.teamboards.max-revisions:200000}")
-    int maxRevisions = 200_000;
-    @Value("${alfred.teamboards.changes-max-rows:50000}")
-    int maxChangeRows = 50_000;
-    @Value("${alfred.teamboards.changes-max-age-days:90}")
-    int changesMaxAgeDays = 90;
+    /** The hook's waiting ids are read once a token is there; optional so tests build this service alone. */
+    private org.springframework.beans.factory.ObjectProvider<com.fathy.alfred.backend.teamboards.core.application.port.in.HookUseCase> hook;
 
     @Autowired
-    public TeamService(List<Connector> connectors, TeamCachePort cache, TeamChangeSignalPort signals) {
-        this(connectors, cache, signals, Clock.systemUTC());
+    public TeamService(Live live, TeamCachePort cache, TeamChangeSignalPort signals,
+                       org.springframework.beans.factory.ObjectProvider<com.fathy.alfred.backend.teamboards.core.application.port.in.HookUseCase> hook) {
+        this(live, cache, signals, Clock.systemUTC());
+        this.hook = hook;
     }
 
-    TeamService(List<Connector> connectors, TeamCachePort cache, TeamChangeSignalPort signals, Clock clock) {
-        for (Connector c : connectors == null ? List.<Connector>of() : connectors) {
-            this.connectors.put(c.kind(), c);
-        }
+    TeamService(Live live, TeamCachePort cache, TeamChangeSignalPort signals, Clock clock) {
+        this.live = live;
         this.cache = cache;
         this.signals = signals;
         this.clock = clock;
@@ -106,31 +106,19 @@ public class TeamService implements TeamUseCase {
 
     // ------------------------------------------------------------------------------------------------------ connectors
 
-    static Set<Capability> capabilitiesOf(Connector c) {
-        Set<Capability> out = EnumSet.of(Capability.CUSTOM_TYPES);
-        if (c instanceof BoardsReader) out.add(Capability.BOARDS);
-        if (c instanceof SprintsReader) out.add(Capability.SPRINTS);
-        if (c instanceof SquadsReader) out.add(Capability.SQUADS);
-        if (c instanceof RevisionsReader) out.add(Capability.REVISIONS);
-        if (c instanceof AttachmentsReader) out.add(Capability.ATTACHMENTS);
-        if (c instanceof SeedContributor) out.add(Capability.SEED);
-        return out;
-    }
-
     @Override
     public List<Capability> capabilities(String kind) {
-        Connector c = connectors.get(kind);
-        return c == null ? List.of() : List.copyOf(capabilitiesOf(c));
+        return live.connector(kind).map(c -> List.copyOf(Live.capabilitiesOf(c))).orElse(List.of());
     }
 
     @Override
     public List<ConnectorInfo> connectors() {
         List<ConnectorInfo> out = new ArrayList<>();
-        for (Connector c : connectors.values()) {
-            out.add(new ConnectorInfo(c.kind(), c.displayName(), true, capabilitiesOf(c), words(c.words())));
+        for (Connector c : live.connectors().values()) {
+            out.add(new ConnectorInfo(c.kind(), c.displayName(), true, Live.capabilitiesOf(c), words(c.words())));
         }
         KNOWN.forEach((kind, name) -> {
-            if (!connectors.containsKey(kind)) {
+            if (!live.connectors().containsKey(kind)) {
                 out.add(new ConnectorInfo(kind, name, false, Set.of(), words(ProviderWords.NEUTRAL)));
             }
         });
@@ -151,9 +139,8 @@ public class TeamService implements TeamUseCase {
     }
 
     private ConnectionRow row(StoredConnection c) {
-        Connector k = connectors.get(c.kind());
-        return new ConnectionRow(c.id(), c.kind(), c.name(), c.baseUrl(), c.scope(), c.fetchedAt(), c.fetchedBy(), c.seenAt(), c.createdAt(),
-                k == null ? Set.of() : capabilitiesOf(k), cache.changesAfter(c.id(), c.seenAt()));
+        return new ConnectionRow(c.id(), c.kind(), c.name(), c.baseUrl(), c.scope(), c.listsAt(), c.createdAt(),
+                live.connector(c.kind()).map(Live::capabilitiesOf).orElse(Set.of()));
     }
 
     /** https anywhere; http only on this machine (a local mock of a provider). */
@@ -193,371 +180,236 @@ public class TeamService implements TeamUseCase {
     }
 
     @Override
-    public Result<ConnectionRow> createConnection(NewConnection in) {
-        if (in == null || in.kind() == null || !connectors.containsKey(in.kind())) {
-            return Result.no(Outcome.INVALID, KNOWN.containsKey(in == null ? "" : String.valueOf(in.kind()))
-                    ? KNOWN.get(in.kind()) + " is not installed in this Alfred" : "Unknown connector");
+    public ConnectionRow createConnection(NewConnection in) {
+        if (in == null || in.kind() == null || !live.connectors().containsKey(in.kind())) {
+            String kind = in == null ? "" : String.valueOf(in.kind());
+            throw TeamException.invalid(KNOWN.containsKey(kind) ? KNOWN.get(kind) + " is not installed in this Alfred" : "Unknown connector");
         }
         String url = validUrl(in.baseUrl());
         if (url == null) {
-            return Result.no(Outcome.INVALID, "The address must be https (http only on localhost)");
+            throw TeamException.invalid("The address must be https (http only on localhost)");
         }
         String problem = scopeProblem(in.scope());
         if (problem != null) {
-            return Result.no(Outcome.INVALID, problem);
+            throw TeamException.invalid(problem);
         }
         String name = in.name() == null || in.name().isBlank() ? URI.create(url).getHost() : in.name().strip();
         if (name.length() > 120) {
-            return Result.no(Outcome.INVALID, "A connection's name is at most 120 characters");
+            throw TeamException.invalid("A connection's name is at most 120 characters");
         }
         StoredConnection c = new StoredConnection(UUID.randomUUID().toString().substring(0, 8), in.kind(), name, url,
-                in.scope() == null ? new Scope(List.of(), List.of()) : in.scope(), null, null, null, clock.instant());
+                in.scope() == null ? new Scope(List.of(), List.of()) : in.scope(), null, clock.instant());
         cache.putConnection(c);
         signals.changed(c.id(), "connections");
-        return Result.ok(row(c));
+        return row(c);
     }
 
     @Override
-    public Result<ConnectionRow> updateConnection(String id, String name, Scope scope) {
-        Optional<StoredConnection> found = cache.connection(id);
-        if (found.isEmpty()) {
-            return Result.no(Outcome.NOT_FOUND, "No such connection");
-        }
+    public ConnectionRow updateConnection(String id, String name, Scope scope) {
+        StoredConnection c = live.stored(id);
         String problem = scopeProblem(scope);
         if (problem != null) {
-            return Result.no(Outcome.INVALID, problem);
+            throw TeamException.invalid(problem);
         }
         if (name != null && name.strip().length() > 120) {
-            return Result.no(Outcome.INVALID, "A connection's name is at most 120 characters");
+            throw TeamException.invalid("A connection's name is at most 120 characters");
         }
-        StoredConnection c = found.get();
-        boolean widened = scope != null && !scope.equals(c.scope());
         String newName = name == null || name.isBlank() ? c.name() : name.strip();
         Scope newScope = scope == null ? c.scope() : scope;
-        // only name and scope: a refresh or a "seen" landing meanwhile keeps its own columns
-        cache.rescope(c.id(), newName, newScope, widened); // a new scope fetches everything again on the next refresh
-        StoredConnection next = new StoredConnection(c.id(), c.kind(), newName, c.baseUrl(), newScope, widened ? null : c.fetchedAt(), c.fetchedBy(),
-                c.seenAt(), c.createdAt());
+        cache.rescope(c.id(), newName, newScope);
         signals.changed(id, "connections");
-        return Result.ok(row(next));
+        if (!newScope.equals(c.scope())) {
+            listsInBackground(id); // a new scope reads its lists again
+        }
+        return row(new StoredConnection(c.id(), c.kind(), newName, c.baseUrl(), newScope, c.listsAt(), c.createdAt()));
     }
 
     @Override
     public boolean deleteConnection(String id) {
         boolean gone = cache.deleteConnection(id);
+        live.vault().forget(id);
         if (gone) {
             signals.changed(id, "connections");
         }
         return gone;
     }
 
-    // --------------------------------------------------------------------------------------------------------- refresh
+    // ---------------------------------------------------------------------------------------------------------- token
 
-    private static Connection conn(StoredConnection c) {
-        return new Connection(c.id(), c.kind(), c.name(), URI.create(c.baseUrl()), c.scope());
+    static PersonRow person(Person p) {
+        return p == null ? null : new PersonRow(p.extId(), p.name() == null || p.name().isBlank() ? p.extId() : p.name(), p.email());
     }
 
     @Override
-    public RefreshResult refresh(String id, Token token, String who) {
-        Optional<StoredConnection> found = cache.connection(id);
-        if (found.isEmpty()) {
-            return RefreshResult.of(RefreshOutcome.NOT_FOUND, "No such connection");
+    public TokenStatus putToken(String conn, Token token) {
+        if (token == null || token.blank() || token.value().length() > 1000) {
+            throw TeamException.invalid("Paste a personal access token");
         }
-        Connector k = connectors.get(found.get().kind());
-        if (k == null) {
-            return RefreshResult.of(RefreshOutcome.NOT_FOUND, "The " + found.get().kind() + " connector is not installed");
+        Ctx c = live.ctx(conn, new Token(token.value().strip()));
+        PersonRow owner = null;
+        if (c.connector() instanceof IdentityReader r) {
+            owner = person(live.call(c, () -> r.whoAmI(c.connection(), c.token())));
+        } else {
+            live.call(c, () -> c.connector().types(c.connection(), c.token())); // any read proves the token works
         }
-        if (token == null || token.blank()) {
-            return RefreshResult.of(RefreshOutcome.TOKEN_MISSING, "Add your personal access token for " + found.get().name() + " first");
+        Optional<PersonRow> before = live.vault().put(conn, c.token(), owner);
+        if (owner != null) {
+            cache.upsertPeople(conn, List.of(owner));
+            PersonRow o = owner;
+            // "This is me" holds until the token changes hands (FR-087)
+            cache.meOverride(conn).filter(m -> before.isPresent() || (m.tokenOwner() != null && !m.tokenOwner().equals(o.extId())))
+                    .ifPresent(m -> cache.clearMeOverride(conn));
         }
-        if (!refreshing.add(id)) {
-            return new RefreshResult(RefreshOutcome.PROVIDER_BUSY, 0, null, 5, "A refresh of this connection is already running");
+        signals.changed(conn, "token");
+        listsInBackground(conn);
+        var h = hook == null ? null : hook.getIfAvailable();
+        if (h != null) {
+            h.drain(conn);
         }
-        try {
-            StoredConnection c = found.get();
-            Connection connection = conn(c);
-            Instant started = clock.instant();
-            int[] changed = {0};
-            List<ItemSummaryRef> fresh = new ArrayList<>();
-            k.changedItems(connection, token, c.fetchedAt(), page -> changed[0] += store(c.id(), page, started, fresh));
-            if (k instanceof ItemIdsReader r) {
-                changed[0] += reconcile(c.id(), r.allIds(connection, token), started);
-            }
-            if (k instanceof SquadsReader r) {
-                cache.replaceSquads(c.id(), r.squads(connection, token).stream()
-                        .map(s -> new SquadRow(c.id(), s.extId(), s.name(), s.project(), null, null, s.memberIds())).toList());
-            }
-            cache.replacePeople(c.id(), k.people(connection, token).stream().map(p -> new PersonRow(p.extId(), p.name(), p.email())).toList());
-            if (k instanceof BoardsReader r) {
-                cache.replaceBoards(c.id(), r.boards(connection, token).stream()
-                        .map(b -> new BoardRow(b.extId(), b.name(), b.project(), b.team(), b.columns())).toList());
-            }
-            if (k instanceof SprintsReader r) {
-                cache.replaceSprints(c.id(), r.sprints(connection, token).stream()
-                        .map(s -> new SprintRow(s.extId(), s.name(), s.team(), s.starts(), s.ends())).toList());
-            }
-            String by = who == null || who.isBlank() ? "someone" : who.strip().substring(0, Math.min(80, who.strip().length()));
-            cache.markFetched(c.id(), started, by, c.scope());
-            cache.evict(maxItems, maxRevisions, maxChangeRows, clock.instant().minus(Duration.ofDays(changesMaxAgeDays)));
-            signals.changed(c.id(), "items");
-            if (c.fetchedAt() != null) {
-                suggest(c.id(), fresh); // not after a first (full) fetch: every item would be new
-            }
-            if (changed[0] > 0) {
-                signals.changed(c.id(), "changes");
-            }
-            return new RefreshResult(RefreshOutcome.OK, changed[0], started, null, null);
-        } catch (ProviderException e) {
-            return switch (e.kind()) {
-                case TOKEN_REJECTED -> RefreshResult.of(RefreshOutcome.TOKEN_REJECTED, "The provider refused the token - it may have expired");
-                case BUSY -> new RefreshResult(RefreshOutcome.PROVIDER_BUSY, 0, null, e.retryAfterSeconds(), "The provider asks to wait");
-                case NOT_FOUND -> RefreshResult.of(RefreshOutcome.NOT_FOUND, e.getMessage());
-                case UNREACHABLE -> RefreshResult.of(RefreshOutcome.UNREACHABLE, e.getMessage());
-                case BAD_RESPONSE -> RefreshResult.of(RefreshOutcome.BAD_RESPONSE, e.getMessage());
-            };
-        } finally {
-            refreshing.remove(id);
-        }
+        return tokenStatus(conn);
     }
 
-    /**
-     * An incremental fetch never sees an item go: what the cache holds and the tracker no longer has (deleted, or moved
-     * out of the scope) leaves the cache, with a line in the changes feed. An empty answer removes nothing - a token
-     * that suddenly sees nothing must not empty everyone's cache.
-     */
-    int reconcile(String conn, Set<String> present, Instant at) {
-        if (present == null || present.isEmpty()) {
-            return 0;
-        }
-        List<TeamCachePort.RemovedItem> gone = cache.removeAbsent(conn, present);
-        for (TeamCachePort.RemovedItem r : gone) {
-            cache.addChange(conn, r.extId(), r.rev(), null, r.squad(), at,
-                    "removed from the tracker or its scope: " + r.type() + " \"" + (r.title() == null ? "" : r.title()) + "\"");
-        }
-        return gone.size();
-    }
-
-    /**
-     * A refresh that runs on after the request returns (a first fetch can outlast a proxy's timeout): the checks that
-     * need no provider answer at once; the outcome arrives on /ws/teamboards ({@code what: refresh}). The token lives
-     * only as long as the run, in memory.
-     */
     @Override
-    public RefreshResult refreshInBackground(String id, Token token, String who) {
-        Optional<StoredConnection> found = cache.connection(id);
-        if (found.isEmpty()) {
-            return RefreshResult.of(RefreshOutcome.NOT_FOUND, "No such connection");
-        }
-        if (!connectors.containsKey(found.get().kind())) {
-            return RefreshResult.of(RefreshOutcome.NOT_FOUND, "The " + found.get().kind() + " connector is not installed");
-        }
-        if (token == null || token.blank()) {
-            return RefreshResult.of(RefreshOutcome.TOKEN_MISSING, "Add your personal access token for " + found.get().name() + " first");
-        }
-        if (refreshing.contains(id)) {
-            return new RefreshResult(RefreshOutcome.PROVIDER_BUSY, 0, null, 5, "A refresh of this connection is already running");
-        }
-        Thread.ofVirtual().name("teamboards-refresh-" + id).start(() -> {
-            RefreshResult r;
-            try {
-                r = refresh(id, token, who);
-            } catch (RuntimeException e) {
-                log.warn("Refresh of {} failed: {}", id, e.getClass().getSimpleName());
-                r = RefreshResult.of(RefreshOutcome.BAD_RESPONSE, "The refresh stopped - try again");
-            }
-            signals.refreshed(id, r);
-        });
-        return new RefreshResult(RefreshOutcome.STARTED, 0, null, null, "Refreshing - the lists update as it goes");
+    public TokenStatus tokenStatus(String conn) {
+        live.stored(conn);
+        return live.vault().entry(conn).map(e -> new TokenStatus(true, e.owner(), e.expiresAt())).orElse(new TokenStatus(false, null, null));
     }
 
-    /** A new item seen by a refresh: what Claude's suggestion names. */
-    record ItemSummaryRef(String extId, String type, String title) {
+    @Override
+    public boolean forgetToken(String conn) {
+        boolean was = live.vault().forget(conn);
+        signals.changed(conn, "token");
+        return was;
     }
 
-    /** At most this many suggestions per refresh, so a busy backlog does not fill the chats. */
-    static final int MAX_SUGGESTIONS = 5;
+    // ------------------------------------------------------------------------------------------------------- the lists
 
-    private ObjectProvider<TeamBoardsPort> boards;
-    private ObjectProvider<StartFromItemUseCase> starts;
-
-    @Autowired
-    void wireStarts(ObjectProvider<TeamBoardsPort> boards, ObjectProvider<StartFromItemUseCase> starts) {
-        this.boards = boards;
-        this.starts = starts;
+    @Override
+    public Lists lists(String conn, int maxAgeMinutes) {
+        StoredConnection c = live.stored(conn);
+        boolean stale = c.listsAt() == null || c.listsAt().isBefore(clock.instant().minus(Duration.ofMinutes(Math.max(0, maxAgeMinutes))));
+        if (stale && live.vault().token(conn).isPresent()) {
+            listsInBackground(conn);
+        }
+        return cached(conn, c.listsAt());
     }
 
-    /**
-     * FR-036: a new item whose mapping names a board gets Claude's suggestion in that board's chat - only when a runner
-     * is live there to act on the user's yes. Claude never starts it; the user's Yes does.
-     */
-    void suggest(String conn, List<ItemSummaryRef> fresh) {
-        TeamBoardsPort port = boards == null ? null : boards.getIfAvailable();
-        StartFromItemUseCase s = starts == null ? null : starts.getIfAvailable();
-        if (port == null || s == null || fresh.isEmpty()) {
+    private Lists cached(String conn, Instant at) {
+        List<StateRow> states = cache.states(conn);
+        List<String> types = states.stream().map(StateRow::type).distinct().sorted().toList();
+        return new Lists(types, states, cache.areas(conn), cache.squads(conn), cache.sprints(conn), cache.people(conn), cache.boards(conn), at);
+    }
+
+    private void listsInBackground(String conn) {
+        if (live.vault().token(conn).isEmpty() || !reading.add(conn)) {
             return;
         }
-        int posted = 0;
-        for (ItemSummaryRef i : fresh) {
-            if (posted >= MAX_SUGGESTIONS) {
-                break;
-            }
+        background.submit(() -> {
             try {
-                StartFromItemUseCase.Target t = s.targetOf(conn, i.extId());
-                if (t != null && port.suggest(t.project(), t.boardId(), conn, i.extId(),
-                        "New " + i.type() + " " + i.extId() + ": " + i.title() + " - open a board for it?")) {
-                    posted++;
-                }
+                readLists(conn);
+            } catch (TeamException e) {
+                log.info("Team lists of {} not read: {}", conn, e.code());
             } catch (RuntimeException e) {
-                log.debug("No suggestion for {} {}: {}", conn, i.extId(), e.getMessage());
+                log.warn("Team lists of {} not read: {}", conn, e.getClass().getSimpleName());
+            } finally {
+                reading.remove(conn);
             }
-        }
+        });
     }
 
-    /** One page into the cache, and a feed line for every item that is new or has a newer revision. Items changed. */
-    int store(String conn, List<Item> page, Instant fetchedAt) {
-        return store(conn, page, fetchedAt, new ArrayList<>());
+    @Override
+    public Lists refreshLists(String conn) {
+        return readLists(conn);
     }
 
-    /** {@code fresh} collects the items the cache did not have before. */
-    int store(String conn, List<Item> page, Instant fetchedAt, List<ItemSummaryRef> fresh) {
-        if (page == null || page.isEmpty()) {
-            return 0;
+    /** Each list is read on its own: one the tracker refuses (a scope the token lacks) leaves the others current. */
+    Lists readLists(String conn) {
+        Ctx c = live.ctx(conn);
+        Connector k = c.connector();
+        List<String> failed = new ArrayList<>();
+        if (k instanceof StateCatalog sc) {
+            attempt(c, failed, "states", () -> {
+                List<StateRow> rows = new ArrayList<>();
+                for (TypeStates ts : sc.states(c.connection(), c.token())) {
+                    for (TypeStates.State s : ts.states()) {
+                        rows.add(new StateRow(ts.project(), ts.type(), s.name(), s.category()));
+                    }
+                }
+                cache.replaceStates(conn, rows);
+            });
+            attempt(c, failed, "areas", () -> cache.replaceAreas(conn, sc.areas(c.connection(), c.token())));
+        } else {
+            attempt(c, failed, "types", () -> {
+                List<StateRow> rows = new ArrayList<>();
+                for (ItemTypeInfo t : k.types(c.connection(), c.token())) {
+                    rows.add(new StateRow("", t.name(), "", ""));
+                }
+                cache.replaceStates(conn, rows);
+            });
         }
-        Map<String, Integer> before = cache.revs(conn, page.stream().map(Item::extId).toList());
-        List<String[]> lines = new ArrayList<>();
-        for (Item i : page) {
-            Integer old = before.get(i.extId());
-            if (old != null && old >= i.rev()) {
-                continue;
+        attempt(c, failed, "people", () -> cache.upsertPeople(conn, k.people(c.connection(), c.token()).stream().map(TeamService::person).toList()));
+        if (k instanceof SquadsReader r) {
+            attempt(c, failed, "teams", () -> {
+                List<Squad> squads = r.squads(c.connection(), c.token());
+                cache.replaceSquads(conn, squads.stream().map(s -> new SquadIn(s.extId(), s.name(), s.project(), s.memberIds())).toList());
+                Set<String> members = new LinkedHashSet<>();
+                squads.forEach(s -> members.addAll(s.memberIds()));
+                List<String> unknown = cache.unknownPeople(conn, members);
+                if (!unknown.isEmpty() && k instanceof IdentityReader ir) {
+                    // FR-085: members show as people, never as raw ids
+                    for (int i = 0; i < unknown.size(); i += 100) {
+                        List<String> chunk = unknown.subList(i, Math.min(unknown.size(), i + 100));
+                        cache.upsertPeople(conn, ir.peopleById(c.connection(), c.token(), chunk).stream().map(TeamService::person).toList());
+                    }
+                }
+            });
+        }
+        if (k instanceof SprintsReader r) {
+            attempt(c, failed, "iterations", () -> cache.replaceSprints(conn, r.sprints(c.connection(), c.token()).stream()
+                    .map(s -> new SprintRow(s.extId(), s.name(), s.team(), s.starts(), s.ends())).toList()));
+        }
+        if (k instanceof BoardsReader r) {
+            attempt(c, failed, "boards", () -> cache.replaceBoards(conn, r.boards(c.connection(), c.token()).stream()
+                    .map(b -> new BoardRow(b.extId(), b.name(), b.project(), b.team(), b.columns())).toList()));
+        }
+        Instant at = clock.instant();
+        cache.markLists(conn, at);
+        signals.board(null, conn, "lists", failed.isEmpty() ? Map.of() : Map.of("failed", String.join(", ", failed)));
+        return cached(conn, at);
+    }
+
+    interface Step {
+        void run() throws ProviderException;
+    }
+
+    private void attempt(Ctx c, List<String> failed, String what, Step step) {
+        try {
+            step.run();
+        } catch (ProviderException e) {
+            if (e.kind() == ProviderException.Kind.TOKEN_REJECTED) {
+                live.vault().rejected(c.id(), c.token());
+                throw TeamException.of(e);
             }
-            lines.add(new String[]{i.extId(), summaryOf(old == null ? null : cache.summary(conn, i.extId()).orElse(null), i)});
-            if (old == null) {
-                fresh.add(new ItemSummaryRef(i.extId(), i.type(), i.title()));
-            }
+            failed.add(what + " (" + e.getMessage() + ")");
         }
-        cache.upsertItems(conn, page, fetchedAt);
-        Map<String, Item> byId = new LinkedHashMap<>();
-        page.forEach(i -> byId.put(i.extId(), i));
-        for (String[] l : lines) {
-            Item i = byId.get(l[0]);
-            cache.addChange(conn, i.extId(), i.rev(), i.changedBy(), i.squad(), i.changedAt() == null ? fetchedAt : i.changedAt(), l[1]);
-        }
-        return lines.size();
-    }
-
-    /** "created", or what changed among the neutral fields: "State Active → Resolved; Assignee A → B". */
-    static String summaryOf(ItemSummary old, Item now) {
-        if (old == null) {
-            return "created " + now.type() + (now.state() == null ? "" : " (" + now.state() + ")");
-        }
-        List<String> parts = new ArrayList<>();
-        diff(parts, "Title", old.title(), now.title());
-        diff(parts, "State", old.state(), now.state());
-        diff(parts, "Assignee", old.assignee(), now.assignee());
-        diff(parts, "Sprint", old.sprint(), now.sprint());
-        diff(parts, "Squad", old.squad(), now.squad());
-        diff(parts, "Area", old.area(), now.area());
-        return parts.isEmpty() ? "edited" : String.join("; ", parts);
-    }
-
-    private static void diff(List<String> parts, String name, String a, String b) {
-        if (!Objects.equals(a, b)) {
-            parts.add(name + " " + (a == null || a.isBlank() ? "-" : cut(a)) + " → " + (b == null || b.isBlank() ? "-" : cut(b)));
-        }
-    }
-
-    private static String cut(String s) {
-        return s.length() > 60 ? s.substring(0, 59) + "…" : s;
-    }
-
-    // ----------------------------------------------------------------------------------------------------------- reads
-
-    @Override
-    public ItemsPage items(ItemQuery q) {
-        int limit = Math.max(1, Math.min(q.limit() <= 0 ? 50 : q.limit(), MAX_LIMIT));
-        String text = q.q() == null ? null : q.q().strip();
-        if (text != null && text.length() > 200) {
-            text = text.substring(0, 200);
-        }
-        return cache.items(new ItemQuery(q.conn(), text, q.type(), q.squad(), q.state(), q.assignee(), q.sprint(), Math.max(0, q.offset()), limit));
     }
 
     @Override
-    public Optional<ItemDetail> item(String conn, String extId) {
-        Optional<ItemSummary> s = cache.summary(conn, extId);
-        if (s.isEmpty()) {
-            return Optional.empty();
-        }
-        Map<String, String> maps = new LinkedHashMap<>();
-        for (FieldMapRow m : cache.fieldMaps(conn)) {
-            if (m.itemType().equals("*") || m.itemType().equalsIgnoreCase(s.get().type())) {
-                maps.put(m.field(), m.target().name());
-            }
-        }
-        List<ItemField> fields = new ArrayList<>();
-        cache.fields(conn, extId).forEach((k, v) -> fields.add(new ItemField(k, v, maps.getOrDefault(k, defaultTarget(k)))));
-        String board = cache.linkOfItem(conn, extId).map(l -> l.alfredBoard()).orElse(null);
-        String start = board != null ? null : cache.start(conn, extId).map(r -> r.state()).orElse(null);
-        return Optional.of(new ItemDetail(s.get(), fields, cache.links(conn, extId), board, start));
-    }
-
-    /** Where a field goes in a seed when nobody mapped it (the neutral names every connector fills). */
-    static String defaultTarget(String key) {
-        String k = key.toLowerCase(Locale.ROOT);
-        if (k.endsWith("description")) return "PURPOSE";
-        if (k.contains("reprosteps") || k.endsWith("steps")) return "STEPS";
-        if (k.contains("acceptancecriteria")) return "ACCEPTANCE";
-        return null;
+    public List<BoardRow> boards(String conn) {
+        live.stored(conn);
+        return cache.boards(conn);
     }
 
     @Override
-    public Result<List<RevisionRow>> revisions(String conn, String extId, Token token, boolean fetch) {
-        Optional<StoredConnection> c = cache.connection(conn);
-        if (c.isEmpty() || cache.summary(conn, extId).isEmpty()) {
-            return Result.no(Outcome.NOT_FOUND, "No such item in the cache");
-        }
-        Connector k = connectors.get(c.get().kind());
-        if (!(k instanceof RevisionsReader r)) {
-            return Result.no(Outcome.NOT_SUPPORTED, "This connector does not read history");
-        }
-        List<RevisionRow> cached = cache.revisions(conn, extId);
-        if ((cached.isEmpty() || fetch) && token != null && !token.blank()) {
-            try {
-                List<Revision> got = r.revisions(conn(c.get()), token, extId);
-                cache.putRevisions(conn, extId, got.stream().map(v -> new RevisionRow(v.rev(), v.by(), v.at(), v.changes())).toList());
-                cached = cache.revisions(conn, extId);
-            } catch (ProviderException e) {
-                // the cached history (maybe none) is still the answer; the token problem shows on the next refresh
-            }
-        }
-        return Result.ok(cached);
-    }
-
-    private <T> Result<List<T>> gated(String conn, Capability cap, java.util.function.Supplier<List<T>> read) {
-        Optional<StoredConnection> c = cache.connection(conn);
-        if (c.isEmpty()) {
-            return Result.no(Outcome.NOT_FOUND, "No such connection");
-        }
-        Connector k = connectors.get(c.get().kind());
-        if (k == null || !capabilitiesOf(k).contains(cap)) {
-            return Result.no(Outcome.NOT_SUPPORTED, "This connector does not read " + cap.name().toLowerCase(Locale.ROOT));
-        }
-        return Result.ok(read.get());
+    public List<SprintRow> sprints(String conn) {
+        live.stored(conn);
+        return cache.sprints(conn);
     }
 
     @Override
-    public Result<List<BoardRow>> boards(String conn) {
-        return gated(conn, Capability.BOARDS, () -> cache.boards(conn));
-    }
-
-    @Override
-    public Result<List<SprintRow>> sprints(String conn) {
-        return gated(conn, Capability.SPRINTS, () -> cache.sprints(conn));
-    }
-
-    @Override
-    public Result<List<SquadRow>> squads(String conn) {
-        return gated(conn, Capability.SQUADS, () -> cache.squads(conn));
+    public List<SquadRow> squads(String conn) {
+        live.stored(conn);
+        return cache.squads(conn);
     }
 
     @Override
@@ -566,31 +418,48 @@ public class TeamService implements TeamUseCase {
     }
 
     @Override
-    public Result<SquadRow> mapSquad(String conn, String extId, String alfredProject, String alfredTeam) {
+    public SquadRow mapSquad(String conn, String extId, String alfredProject, String alfredTeam) {
         if ((alfredProject != null && alfredProject.length() > 200) || (alfredTeam != null && alfredTeam.length() > 200)) {
-            return Result.no(Outcome.INVALID, "Names are at most 200 characters");
+            throw TeamException.invalid("Names are at most 200 characters");
         }
         if (!cache.mapSquad(conn, extId, blankToNull(alfredProject), blankToNull(alfredTeam))) {
-            return Result.no(Outcome.NOT_FOUND, "No such squad");
+            throw TeamException.notFound("No such team");
         }
-        signals.changed(conn, "squads");
-        return cache.squads(conn).stream().filter(s -> s.extId().equals(extId)).findFirst().map(Result::ok)
-                .orElseGet(() -> Result.no(Outcome.NOT_FOUND, "No such squad"));
+        signals.changed(conn, "lists");
+        return cache.squads(conn).stream().filter(s -> s.extId().equals(extId)).findFirst().orElseThrow(() -> TeamException.notFound("No such team"));
+    }
+
+    // ------------------------------------------------------------------------------------------------------------ me
+
+    @Override
+    public Optional<Me> me(String conn) {
+        Optional<MeOverride> o = cache.meOverride(conn);
+        Optional<PersonRow> owner = live.vault().owner(conn);
+        if (o.isPresent()) {
+            // a token of someone else since "This is me" was set: the override no longer holds
+            if (owner.isPresent() && o.get().tokenOwner() != null && !o.get().tokenOwner().equals(owner.get().extId())) {
+                cache.clearMeOverride(conn);
+            } else {
+                PersonRow p = cache.person(conn, o.get().person()).orElse(new PersonRow(o.get().person(), o.get().person(), null));
+                return Optional.of(new Me(p, "OVERRIDE"));
+            }
+        }
+        return owner.map(p -> new Me(p, "TOKEN_OWNER"));
     }
 
     @Override
-    public List<ChangeRow> changes(String conn, String squad, String person, Long after, int limit) {
-        return cache.changes(conn, blankToNull(squad), blankToNull(person), after, Math.max(1, Math.min(limit <= 0 ? 100 : limit, MAX_LIMIT)));
+    public Me putMe(String conn, String person) {
+        live.stored(conn);
+        PersonRow p = cache.person(conn, person == null ? "" : person.strip()).orElseThrow(() -> TeamException.notFound("No such person " + person));
+        cache.putMeOverride(new MeOverride(conn, p.extId(), live.vault().owner(conn).map(PersonRow::extId).orElse(null), clock.instant()));
+        signals.changed(conn, "me");
+        return new Me(p, "OVERRIDE");
     }
 
     @Override
-    public boolean markSeen(String conn) {
-        if (cache.connection(conn).isEmpty()) {
-            return false;
-        }
-        cache.markSeen(conn, clock.instant());
-        signals.changed(conn, "changes");
-        return true;
+    public void clearMe(String conn) {
+        cache.clearMeOverride(conn);
+        signals.changed(conn, "me");
     }
 
     // ------------------------------------------------------------------------------------------------ mappings, fields
@@ -601,17 +470,15 @@ public class TeamService implements TeamUseCase {
     }
 
     @Override
-    public Result<MappingRow> putMapping(String conn, MappingKind kind, String extValue, String alfredProject, String alfredBoard) {
-        if (cache.connection(conn).isEmpty()) {
-            return Result.no(Outcome.NOT_FOUND, "No such connection");
-        }
+    public MappingRow putMapping(String conn, MappingKind kind, String extValue, String alfredProject, String alfredBoard) {
+        live.stored(conn);
         if (kind == null || extValue == null || extValue.isBlank() || extValue.length() > 300 || alfredProject == null || alfredProject.isBlank()
                 || alfredProject.length() > 200 || (alfredBoard != null && alfredBoard.length() > 200)) {
-            return Result.no(Outcome.INVALID, "A mapping names the kind, the provider value and an Alfred project");
+            throw TeamException.invalid("A mapping names the kind, the provider value and an Alfred project");
         }
         MappingRow row = cache.putMapping(conn, kind, extValue.strip(), alfredProject.strip(), blankToNull(alfredBoard));
         signals.changed(conn, "mappings");
-        return Result.ok(row);
+        return row;
     }
 
     @Override
@@ -629,17 +496,18 @@ public class TeamService implements TeamUseCase {
     }
 
     @Override
-    public Result<FieldMapRow> putFieldMap(FieldMapRow row) {
-        if (row == null || cache.connection(row.conn()).isEmpty()) {
-            return Result.no(Outcome.NOT_FOUND, "No such connection");
+    public FieldMapRow putFieldMap(FieldMapRow row) {
+        if (row == null) {
+            throw TeamException.invalid("No field map");
         }
+        live.stored(row.conn());
         if (row.target() == null || row.field() == null || row.field().isBlank() || row.field().length() > 200 || row.itemType() == null
                 || row.itemType().isBlank() || row.itemType().length() > 200) {
-            return Result.no(Outcome.INVALID, "A field map names the item type (or *), the field and its target");
+            throw TeamException.invalid("A field map names the item type (or *), the field and its target");
         }
         cache.putFieldMap(row);
         signals.changed(row.conn(), "mappings");
-        return Result.ok(row);
+        return row;
     }
 
     @Override
@@ -651,16 +519,67 @@ public class TeamService implements TeamUseCase {
         return gone;
     }
 
-    private static String blankToNull(String s) {
+    static String defaultKind(String type) {
+        return type == null ? "NOTE" : DEFAULT_KINDS.getOrDefault(type.strip().toLowerCase(Locale.ROOT), "NOTE");
+    }
+
+    @Override
+    public List<TypeKindRow> typeKinds(String conn) {
+        live.stored(conn);
+        Map<String, TypeKindRow> out = new LinkedHashMap<>();
+        for (StateRow s : cache.states(conn)) {
+            out.putIfAbsent(s.type().toLowerCase(Locale.ROOT), new TypeKindRow(conn, s.type(), defaultKind(s.type())));
+        }
+        for (TypeKindRow r : cache.typeKinds(conn)) {
+            out.put(r.type().toLowerCase(Locale.ROOT), r);
+        }
+        return out.values().stream().sorted((a, b) -> a.type().compareToIgnoreCase(b.type())).toList();
+    }
+
+    @Override
+    public TypeKindRow putTypeKind(String conn, String type, String kind) {
+        live.stored(conn);
+        String k = kind == null ? "" : kind.strip().toUpperCase(Locale.ROOT);
+        if (type == null || type.isBlank() || type.length() > 200 || !KINDS.contains(k)) {
+            throw TeamException.invalid("A type maps to BUG, TASK, QUESTION, NOTE or NONE");
+        }
+        TypeKindRow row = new TypeKindRow(conn, type.strip(), k);
+        cache.putTypeKind(row);
+        signals.changed(conn, "mappings");
+        return row;
+    }
+
+    @Override
+    public String kindOf(String conn, String type) {
+        for (TypeKindRow r : cache.typeKinds(conn)) {
+            if (r.type().equalsIgnoreCase(type)) {
+                return r.kind();
+            }
+        }
+        return defaultKind(type);
+    }
+
+    @Override
+    public boolean upgradeNotice() {
+        return cache.upgradeNotice();
+    }
+
+    @Override
+    public void dismissUpgradeNotice() {
+        cache.dismissUpgradeNotice();
+        signals.changed(null, "connections");
+    }
+
+    static String blankToNull(String s) {
         return s == null || s.isBlank() ? null : s.strip();
     }
 
-    /** For the connector modules' own wiring checks and the bridge. */
-    public Optional<Connector> connector(String kind) {
-        return Optional.ofNullable(connectors.get(kind));
-    }
-
-    Optional<StoredConnection> stored(String id) {
-        return cache.connection(id);
+    /** Where a field goes in a seed when nobody mapped it (the neutral names every connector fills). */
+    static String defaultTarget(String key) {
+        String k = key.toLowerCase(Locale.ROOT);
+        if (k.endsWith("description")) return "PURPOSE";
+        if (k.contains("reprosteps") || k.endsWith("steps")) return "STEPS";
+        if (k.contains("acceptancecriteria")) return "ACCEPTANCE";
+        return null;
     }
 }

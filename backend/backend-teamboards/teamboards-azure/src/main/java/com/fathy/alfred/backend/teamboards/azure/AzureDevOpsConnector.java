@@ -1,20 +1,35 @@
 package com.fathy.alfred.backend.teamboards.azure;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fathy.alfred.backend.teamboards.spi.AttachmentWriter;
 import com.fathy.alfred.backend.teamboards.spi.AttachmentsReader;
 import com.fathy.alfred.backend.teamboards.spi.BoardsReader;
 import com.fathy.alfred.backend.teamboards.spi.Connector;
+import com.fathy.alfred.backend.teamboards.spi.HookReader;
+import com.fathy.alfred.backend.teamboards.spi.IdentityReader;
+import com.fathy.alfred.backend.teamboards.spi.ItemReader;
+import com.fathy.alfred.backend.teamboards.spi.ItemSearcher;
+import com.fathy.alfred.backend.teamboards.spi.ItemWriter;
 import com.fathy.alfred.backend.teamboards.spi.ProviderException;
+import com.fathy.alfred.backend.teamboards.spi.ProviderException.Kind;
 import com.fathy.alfred.backend.teamboards.spi.ProviderWords;
+import com.fathy.alfred.backend.teamboards.spi.QueryRunner;
 import com.fathy.alfred.backend.teamboards.spi.RevisionsReader;
-import com.fathy.alfred.backend.teamboards.spi.ItemIdsReader;
 import com.fathy.alfred.backend.teamboards.spi.SeedContributor;
 import com.fathy.alfred.backend.teamboards.spi.SprintsReader;
 import com.fathy.alfred.backend.teamboards.spi.SquadsReader;
+import com.fathy.alfred.backend.teamboards.spi.StateCatalog;
+import com.fathy.alfred.backend.teamboards.spi.TreeReader;
 import com.fathy.alfred.backend.teamboards.spi.model.Attachment;
+import com.fathy.alfred.backend.teamboards.spi.model.Comment;
 import com.fathy.alfred.backend.teamboards.spi.model.Connection;
 import com.fathy.alfred.backend.teamboards.spi.model.Item;
+import com.fathy.alfred.backend.teamboards.spi.model.ItemPage;
+import com.fathy.alfred.backend.teamboards.spi.model.ItemQuery;
 import com.fathy.alfred.backend.teamboards.spi.model.ItemTypeInfo;
+import com.fathy.alfred.backend.teamboards.spi.model.Link;
+import com.fathy.alfred.backend.teamboards.spi.model.NewItem;
 import com.fathy.alfred.backend.teamboards.spi.model.Person;
 import com.fathy.alfred.backend.teamboards.spi.model.ProviderBoard;
 import com.fathy.alfred.backend.teamboards.spi.model.Revision;
@@ -22,36 +37,55 @@ import com.fathy.alfred.backend.teamboards.spi.model.SeedPart;
 import com.fathy.alfred.backend.teamboards.spi.model.Sprint;
 import com.fathy.alfred.backend.teamboards.spi.model.Squad;
 import com.fathy.alfred.backend.teamboards.spi.model.Token;
+import com.fathy.alfred.backend.teamboards.spi.model.TreeRef;
+import com.fathy.alfred.backend.teamboards.spi.model.TypeStates;
 import org.springframework.stereotype.Component;
 
 import java.net.URI;
-import java.time.Duration;
-import java.time.Instant;
-import java.time.temporal.ChronoUnit;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Deque;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.function.Consumer;
+import java.util.TreeSet;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static com.fathy.alfred.backend.teamboards.azure.AzureClient.API;
 import static com.fathy.alfred.backend.teamboards.azure.AzureMapper.encode;
-import static com.fathy.alfred.backend.teamboards.azure.AzureMapper.text;
 
 /**
- * Azure DevOps, read-only (specs/027 US7, research R9). The connection's base URL is the organisation
+ * Azure DevOps (specs/027, 028 contracts/connector-spi.md). The connection's base URL is the organisation
  * ({@code https://dev.azure.com/<org>}); its scope names the projects and teams (none: every project the token sees).
- * Changed items come from WIQL on {@code System.ChangedDate} in windows of at most 20,000, then {@code workitemsbatch} 200 at a time with relations.
+ * Everything is read live; the only memory is a few minutes of each connection's closed states and team areas, so a
+ * search costs one WIQL (or Search) call and one batch. Writes happen only when core asks for an approved step.
  */
 @Component
 public class AzureDevOpsConnector implements Connector, BoardsReader, SprintsReader, SquadsReader, RevisionsReader, AttachmentsReader,
-        SeedContributor, ItemIdsReader {
+        SeedContributor, ItemSearcher, QueryRunner, ItemReader, TreeReader, IdentityReader, StateCatalog, ItemWriter, AttachmentWriter, HookReader {
 
     static final int BATCH = 200;
+    static final long MEMORY_MS = 10 * 60_000L;
+    static final Set<String> CLOSED_CATEGORIES = Set.of("Completed", "Removed");
 
     private final AzureClient client;
+    private final ObjectMapper json = new ObjectMapper();
+    /** Per connection: the closed state names and when they were read. */
+    private final Map<String, Remembered<Set<String>>> closed = new ConcurrentHashMap<>();
+    private final Map<String, Remembered<Map<String, Boolean>>> teamAreas = new ConcurrentHashMap<>();
+    /** Connections whose organisation has no Search extension (404): they use WIQL. */
+    private final Set<String> noSearch = ConcurrentHashMap.newKeySet();
+
+    record Remembered<T>(T value, long at) {
+        boolean fresh() {
+            return System.currentTimeMillis() - at < MEMORY_MS;
+        }
+    }
 
     public AzureDevOpsConnector() {
         this(new AzureClient());
@@ -76,13 +110,27 @@ public class AzureDevOpsConnector implements Connector, BoardsReader, SprintsRea
         return new ProviderWords("Iteration", "Team", "Area Path", "Work item");
     }
 
-    private static URI org(Connection c) {
+    static URI org(Connection c) {
         String s = c.baseUrl().toString();
         return URI.create(s.endsWith("/") ? s.substring(0, s.length() - 1) : s);
     }
 
     private static URI at(Connection c, String path) {
         return URI.create(org(c) + path + (path.contains("?") ? "&" : "?") + API);
+    }
+
+    /** Another Azure service of the same organisation: dev.azure.com/x -> {service}.dev.azure.com/x; elsewhere the org itself. */
+    static URI service(Connection c, String service) {
+        URI o = org(c);
+        String host = o.getHost() == null ? "" : o.getHost().toLowerCase(Locale.ROOT);
+        if (host.equals("dev.azure.com")) {
+            return URI.create("https://" + service + ".dev.azure.com" + o.getPath());
+        }
+        if (host.endsWith(".visualstudio.com")) {
+            String name = host.substring(0, host.indexOf('.'));
+            return URI.create("https://" + name + "." + service + ".visualstudio.com");
+        }
+        return o;
     }
 
     /** The scope's projects, or every project the token can read. */
@@ -97,124 +145,205 @@ public class AzureDevOpsConnector implements Connector, BoardsReader, SprintsRea
         return out;
     }
 
-    // ---------------------------------------------------------------------------------------------------------- items
+    // ---------------------------------------------------------------------------------------------------- search
 
     @Override
-    public void changedItems(Connection c, Token t, Instant since, Consumer<List<Item>> page) throws ProviderException {
-        Instant from = since == null ? FIRST : since.truncatedTo(ChronoUnit.SECONDS);
-        for (String project : projects(c, t)) {
-            windows(c, t, project, openOnly(c, t, project), from, until(), ids -> read(c, t, ids, page));
-        }
-    }
-
-    /** Every item id of the scope, ids only: what the cache still holds and Azure no longer has goes. */
-    @Override
-    public Set<String> allIds(Connection c, Token t) throws ProviderException {
-        Set<String> out = new java.util.HashSet<>();
-        for (String project : projects(c, t)) {
-            windows(c, t, project, openOnly(c, t, project), FIRST, until(), ids -> ids.forEach(id -> out.add(String.valueOf(id))));
-        }
-        return out;
-    }
-
-    /** Before any Azure DevOps item: the start of a first fetch. */
-    static final Instant FIRST = Instant.parse("2000-01-01T00:00:00Z");
-
-    /** The end of a fetch's last window: a little ahead, for a server clock ahead of ours. */
-    private static Instant until() {
-        return Instant.now().plus(1, ChronoUnit.HOURS).truncatedTo(ChronoUnit.SECONDS);
-    }
-
-    interface IdsHandler {
-        void accept(List<Integer> ids) throws ProviderException;
-    }
-
-    /**
-     * The ids of the items changed in {@code [from, to)}, oldest window first. Azure refuses a query matching more than
-     * 20,000 items whatever {@code $top} says (VS402337), so a window it refuses is split in two halves, down to one
-     * second. Ids only come back, so a window never holds more than one answer in memory.
-     */
-    void windows(Connection c, Token t, String project, String open, Instant from, Instant to, IdsHandler handler) throws ProviderException {
-        String where = "[System.TeamProject] = '" + project.replace("'", "''") + "'" + open + " AND [System.ChangedDate] >= '" + from
-                + "' AND [System.ChangedDate] < '" + to + "'";
-        List<Integer> ids;
-        try {
-            ids = wiqlIds(c, t, project, where);
-        } catch (ProviderException e) {
-            long seconds = Duration.between(from, to).getSeconds();
-            if (!tooMany(e) || seconds < 2) {
-                throw e;
-            }
-            Instant middle = from.plusSeconds(seconds / 2);
-            windows(c, t, project, open, from, middle, handler);
-            windows(c, t, project, open, middle, to, handler);
-            return;
-        }
-        handler.accept(ids);
-    }
-
-    /**
-     * Only open items are fetched: the WIQL condition leaving out every state whose category is Completed or Removed
-     * (Closed, Done, Removed, or a process's own names for them), read from the project's work item types - so it holds
-     * for Agile, Scrum, Basic, CMMI and custom processes alike. An item closed after it was cached leaves the cache at the
-     * next refresh, since {@link #allIds} no longer lists it.
-     */
-    String openOnly(Connection c, Token t, String project) throws ProviderException {
-        java.util.TreeSet<String> closed = new java.util.TreeSet<>();
-        for (JsonNode type : client.get(at(c, "/" + encode(project) + "/_apis/wit/workitemtypes"), t).path("value")) {
-            for (JsonNode state : type.path("states")) {
-                String category = state.path("category").asText("");
-                if (CLOSED_CATEGORIES.contains(category) && !state.path("name").asText("").isBlank()) {
-                    closed.add(state.path("name").asText());
+    public ItemPage search(Connection c, Token t, ItemQuery q) throws ProviderException {
+        if (AzureWiql.searchable(q) && !noSearch.contains(c.id())) {
+            try {
+                return fullText(c, t, q);
+            } catch (ProviderException e) {
+                if (e.kind() != Kind.NOT_FOUND) {
+                    throw e;
                 }
+                noSearch.add(c.id()); // no Search extension here: WIQL from now on
             }
         }
-        if (closed.isEmpty()) {
-            return "";
-        }
-        StringBuilder in = new StringBuilder(" AND [System.State] NOT IN (");
-        String sep = "";
-        for (String name : closed) {
-            in.append(sep).append("'").append(name.replace("'", "''")).append("'");
-            sep = ", ";
-        }
-        return in.append(')').toString();
+        return wiqlPage(c, t, q);
     }
 
-    static final Set<String> CLOSED_CATEGORIES = Set.of("Completed", "Removed");
-
-    /** Azure's "more than 20,000 work items" refusal (VS402337). */
-    static boolean tooMany(ProviderException e) {
-        return e.getMessage() != null && e.getMessage().contains("VS402337");
+    /** The Search API (full text over title, description, comments...), then one batch for the page's items. */
+    ItemPage fullText(Connection c, Token t, ItemQuery q) throws ProviderException {
+        Map<String, Object> filters = new LinkedHashMap<>();
+        List<String> projects = c.scope().projects();
+        if (!projects.isEmpty()) {
+            filters.put("System.TeamProject", projects);
+        }
+        if (!q.types().isEmpty()) {
+            filters.put("System.WorkItemType", q.types());
+        }
+        if (!q.states().isEmpty()) {
+            filters.put("System.State", q.states());
+        }
+        if (q.assigned() != null) {
+            filters.put("System.AssignedTo", List.of(q.assigned()));
+        }
+        if (!q.areas().isEmpty()) {
+            filters.put("System.AreaPath", q.areas());
+        }
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("searchText", q.text());
+        body.put("$skip", q.page() * q.pageSize());
+        // Open only is applied after: the Search API filters by state names, and closed ones differ per process
+        int top = q.openOnly() && q.states().isEmpty() ? Math.min(1000, q.pageSize() * 4) : q.pageSize();
+        body.put("$top", top);
+        body.put("filters", filters);
+        body.put("includeFacets", false);
+        body.put("$orderBy", List.of(Map.of("field", q.sort() == ItemQuery.Sort.ID ? "system.id" : "system.changeddate", "sortOrder", "DESC")));
+        JsonNode found = client.post(URI.create(service(c, "almsearch") + "/_apis/search/workitemsearchresults?" + API), t, body);
+        List<String> ids = new ArrayList<>();
+        for (JsonNode r : found.path("results")) {
+            String id = r.path("fields").path("system.id").asText(null);
+            if (id != null) {
+                ids.add(id);
+            }
+        }
+        List<Item> items = items(c, t, ids);
+        int total = found.path("count").asInt(items.size());
+        if (q.openOnly() && q.states().isEmpty()) {
+            Set<String> shut = closedStates(c, t);
+            int before = items.size();
+            items = items.stream().filter(i -> i.state() == null || !shut.contains(i.state())).limit(q.pageSize()).toList();
+            total = Math.max(items.size(), total - (before - items.size()));
+        }
+        return new ItemPage(items, total, true);
     }
 
-    /** One WIQL query's ids; times compared to the second ({@code timePrecision}), not the day. */
-    private List<Integer> wiqlIds(Connection c, Token t, String project, String where) throws ProviderException {
-        String wiql = "SELECT [System.Id] FROM WorkItems WHERE " + where + " ORDER BY [System.Id] ASC";
-        JsonNode found = client.post(at(c, "/" + encode(project) + "/_apis/wit/wiql?timePrecision=true"), t, Map.of("query", wiql));
-        List<Integer> ids = new ArrayList<>();
+    /** WIQL: every id that matches (ordered), then the page's items in one batch. */
+    ItemPage wiqlPage(Connection c, Token t, ItemQuery q) throws ProviderException {
+        List<String> projects = c.scope().projects();
+        String team = q.teams().size() == 1 ? q.teams().get(0) : null;
+        String current = team == null ? "@CurrentIteration" : "@CurrentIteration(" + AzureWiql.quote(bracket(team)) + ")";
+        String where = AzureWiql.where(q, projects, q.openOnly() && q.states().isEmpty() ? closedStates(c, t) : Set.of(), areasOf(c, t, q.teams()),
+                current);
+        String wiql = "SELECT [System.Id] FROM WorkItems WHERE " + where + AzureWiql.order(q.sort());
+        List<String> ids = wiqlIds(c, t, wiql, team);
+        int from = Math.min(ids.size(), q.page() * q.pageSize());
+        List<String> page = ids.subList(from, Math.min(ids.size(), from + q.pageSize()));
+        return new ItemPage(items(c, t, page), ids.size(), false);
+    }
+
+    /** "Project\Team" -> "[Project]\Team" (the macro's own form). */
+    static String bracket(String team) {
+        int cut = team.indexOf('\\');
+        return cut < 0 ? team : "[" + team.substring(0, cut) + "]\\" + team.substring(cut + 1);
+    }
+
+    /** One WIQL call's ids; times to the second ({@code timePrecision}). {@code team}: "Project\Team" for @CurrentIteration. */
+    List<String> wiqlIds(Connection c, Token t, String wiql, String team) throws ProviderException {
+        String path = "/_apis/wit/wiql?timePrecision=true";
+        if (team != null && team.contains("\\")) {
+            String[] pt = team.split("\\\\", 2);
+            path = "/" + encode(pt[0]) + "/" + encode(pt[1]) + path;
+        } else if (c.scope().projects().size() == 1) {
+            path = "/" + encode(c.scope().projects().get(0)) + path;
+        }
+        JsonNode found;
+        try {
+            found = client.post(at(c, path), t, Map.of("query", wiql));
+        } catch (ProviderException e) {
+            if (e.getMessage() != null && e.getMessage().contains("VS402337")) {
+                throw new ProviderException(Kind.BAD_RESPONSE, "More than 20,000 work items match - add a filter (type, state, area, iteration…)");
+            }
+            throw e;
+        }
+        List<String> ids = new ArrayList<>();
         for (JsonNode w : found.path("workItems")) {
-            ids.add(w.path("id").asInt());
+            ids.add(w.path("id").asText());
         }
         return ids;
     }
 
-    /** The items of {@code ids}, 200 at a time, handed on page by page. */
-    private void read(Connection c, Token t, List<Integer> ids, Consumer<List<Item>> page) throws ProviderException {
-        for (int i = 0; i < ids.size(); i += BATCH) {
-            page.accept(batch(c, t, ids.subList(i, Math.min(ids.size(), i + BATCH))));
+    /** The state names whose category is Completed or Removed, for Open only (remembered 10 minutes). */
+    Set<String> closedStates(Connection c, Token t) throws ProviderException {
+        Remembered<Set<String>> r = closed.get(c.id());
+        if (r != null && r.fresh()) {
+            return r.value();
         }
+        Set<String> out = new TreeSet<>();
+        for (TypeStates ts : states(c, t)) {
+            for (TypeStates.State s : ts.states()) {
+                if (CLOSED_CATEGORIES.contains(s.category())) {
+                    out.add(s.name());
+                }
+            }
+        }
+        closed.put(c.id(), new Remembered<>(out, System.currentTimeMillis()));
+        return out;
     }
 
-    private List<Item> batch(Connection c, Token t, List<Integer> ids) throws ProviderException {
+    /** Each team's own area paths ({@code teamfieldvalues}), with whether their children count. */
+    Map<String, Boolean> areasOf(Connection c, Token t, List<String> teams) throws ProviderException {
+        Map<String, Boolean> out = new LinkedHashMap<>();
+        for (String team : teams) {
+            String key = c.id() + "|" + team;
+            Remembered<Map<String, Boolean>> r = teamAreas.get(key);
+            if (r == null || !r.fresh()) {
+                String[] pt = team.split("\\\\", 2);
+                if (pt.length < 2) {
+                    throw new ProviderException(Kind.BAD_RESPONSE, "A team is named \"Project\\Team\" (got " + team + ")");
+                }
+                Map<String, Boolean> areas = new LinkedHashMap<>();
+                JsonNode v = client.get(at(c, "/" + encode(pt[0]) + "/" + encode(pt[1]) + "/_apis/work/teamsettings/teamfieldvalues"), t);
+                for (JsonNode a : v.path("values")) {
+                    areas.put(a.path("value").asText(), a.path("includeChildren").asBoolean(false));
+                }
+                r = new Remembered<>(areas, System.currentTimeMillis());
+                teamAreas.put(key, r);
+            }
+            out.putAll(r.value());
+        }
+        return out;
+    }
+
+    @Override
+    public List<Item> query(Connection c, Token t, String query, int max) throws ProviderException {
+        List<String> ids = wiqlIds(c, t, query, null);
+        return items(c, t, ids.subList(0, Math.min(ids.size(), Math.max(1, max))));
+    }
+
+    // ----------------------------------------------------------------------------------------------------- items
+
+    @Override
+    public List<Item> items(Connection c, Token t, List<String> ids) throws ProviderException {
+        List<Item> out = new ArrayList<>();
+        for (int i = 0; i < ids.size(); i += BATCH) {
+            out.addAll(batch(c, t, ids.subList(i, Math.min(ids.size(), i + BATCH))));
+        }
+        return out;
+    }
+
+    private List<Item> batch(Connection c, Token t, List<String> ids) throws ProviderException {
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+        List<Integer> numbers = new ArrayList<>();
+        for (String id : ids) {
+            try {
+                numbers.add(Integer.parseInt(id.strip()));
+            } catch (NumberFormatException e) {
+                // not an Azure id: left out
+            }
+        }
+        if (numbers.isEmpty()) {
+            return List.of();
+        }
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("ids", ids);
+        body.put("ids", numbers);
         body.put("$expand", "Relations");
         body.put("errorPolicy", "Omit");
-        List<Item> out = new ArrayList<>();
+        Map<String, Item> byId = new HashMap<>();
         for (JsonNode w : client.post(at(c, "/_apis/wit/workitemsbatch"), t, body).path("value")) {
             if (!w.isNull() && w.has("id")) {
-                out.add(AzureMapper.item(w, org(c)));
+                Item i = AzureMapper.item(w, org(c));
+                byId.put(i.extId(), i);
+            }
+        }
+        List<Item> out = new ArrayList<>();
+        for (Integer n : numbers) {
+            Item i = byId.get(String.valueOf(n));
+            if (i != null) {
+                out.add(i);
             }
         }
         return out;
@@ -223,6 +352,35 @@ public class AzureDevOpsConnector implements Connector, BoardsReader, SprintsRea
     @Override
     public Item item(Connection c, Token t, String extId) throws ProviderException {
         return AzureMapper.item(client.get(at(c, "/_apis/wit/workitems/" + encode(extId) + "?$expand=relations"), t), org(c));
+    }
+
+    private String projectOf(Connection c, Token t, String id) throws ProviderException {
+        JsonNode w = client.get(at(c, "/_apis/wit/workitems/" + encode(id) + "?fields=System.TeamProject"), t);
+        String p = w.path("fields").path("System.TeamProject").asText(null);
+        if (p == null) {
+            throw new ProviderException(Kind.NOT_FOUND, "Azure DevOps has no work item " + id);
+        }
+        return p;
+    }
+
+    @Override
+    public List<Comment> comments(Connection c, Token t, String id) throws ProviderException {
+        String project = projectOf(c, t, id);
+        List<Comment> out = new ArrayList<>();
+        String token = null;
+        for (int page = 0; page < 20; page++) {
+            String path = "/" + encode(project) + "/_apis/wit/workItems/" + encode(id) + "/comments?$top=200&order=asc"
+                    + (token == null ? "" : "&continuationToken=" + encode(token)) + "&api-version=7.1-preview.4";
+            JsonNode r = client.get(URI.create(org(c) + path), t);
+            for (JsonNode n : r.path("comments")) {
+                out.add(AzureMapper.comment(n));
+            }
+            token = r.path("continuationToken").asText(null);
+            if (token == null || token.isBlank()) {
+                break;
+            }
+        }
+        return out;
     }
 
     @Override
@@ -234,6 +392,167 @@ public class AzureDevOpsConnector implements Connector, BoardsReader, SprintsRea
             }
         }
         return names.stream().map(n -> new ItemTypeInfo(n, !AzureMapper.STANDARD_TYPES.contains(n))).toList();
+    }
+
+    @Override
+    public List<TypeStates> states(Connection c, Token t) throws ProviderException {
+        List<TypeStates> out = new ArrayList<>();
+        for (String project : projects(c, t)) {
+            for (JsonNode type : client.get(at(c, "/" + encode(project) + "/_apis/wit/workitemtypes"), t).path("value")) {
+                List<TypeStates.State> states = new ArrayList<>();
+                for (JsonNode s : type.path("states")) {
+                    if (!s.path("name").asText("").isBlank()) {
+                        states.add(new TypeStates.State(s.path("name").asText(), s.path("category").asText("")));
+                    }
+                }
+                out.add(new TypeStates(project, type.path("name").asText(), states));
+            }
+        }
+        return out;
+    }
+
+    @Override
+    public List<String> areas(Connection c, Token t) throws ProviderException {
+        List<String> out = new ArrayList<>();
+        for (String project : projects(c, t)) {
+            JsonNode root = client.get(at(c, "/" + encode(project) + "/_apis/wit/classificationnodes/Areas?$depth=10"), t);
+            Deque<JsonNode> todo = new ArrayDeque<>();
+            todo.add(root);
+            while (!todo.isEmpty() && out.size() < 5000) {
+                JsonNode n = todo.poll();
+                String path = areaPath(n.path("path").asText(""));
+                if (!path.isEmpty()) {
+                    out.add(path);
+                }
+                n.path("children").forEach(todo::add);
+            }
+        }
+        return out;
+    }
+
+    /** "\\Odeysys\\Area\\Payments" -> "Odeysys\\Payments" (the classification path to the work item's Area Path). */
+    static String areaPath(String nodePath) {
+        String p = nodePath.startsWith("\\") ? nodePath.substring(1) : nodePath;
+        String[] parts = p.split("\\\\");
+        if (parts.length >= 2 && parts[1].equalsIgnoreCase("Area")) {
+            List<String> keep = new ArrayList<>();
+            keep.add(parts[0]);
+            for (int i = 2; i < parts.length; i++) {
+                keep.add(parts[i]);
+            }
+            return String.join("\\", keep);
+        }
+        return p;
+    }
+
+    // ------------------------------------------------------------------------------------------------------ tree
+
+    @Override
+    public List<TreeRef> tree(Connection c, Token t, String rootId, int max) throws ProviderException {
+        Item root = item(c, t, rootId);
+        List<TreeRef> out = new ArrayList<>();
+        // ancestors: walk Parent up (at most 20 hops)
+        String parent = parentOf(root);
+        int depth = -1;
+        Set<String> seen = new LinkedHashSet<>(List.of(rootId));
+        while (parent != null && depth >= -20 && seen.add(parent)) {
+            out.add(new TreeRef(parent, TreeRef.ANCESTOR, depth, null, null));
+            Item up;
+            try {
+                up = item(c, t, parent);
+            } catch (ProviderException e) {
+                if (e.kind() == Kind.NOT_FOUND || e.kind() == Kind.TOKEN_REJECTED) {
+                    break; // a parent this token may not read: the walk stops there
+                }
+                throw e;
+            }
+            parent = parentOf(up);
+            depth--;
+        }
+        // fix each ancestor's own parent now that the chain is known
+        for (int i = 0; i < out.size(); i++) {
+            TreeRef a = out.get(i);
+            String above = i + 1 < out.size() ? out.get(i + 1).id() : null;
+            out.set(i, new TreeRef(a.id(), a.relation(), a.depth(), above, null));
+        }
+        // descendants: one recursive link query
+        String wiql = "SELECT [System.Id] FROM WorkItemLinks WHERE [Source].[System.Id] = " + Integer.parseInt(rootId.strip())
+                + " AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Forward' MODE (Recursive)";
+        String path = root.project() == null ? "/_apis/wit/wiql" : "/" + encode(root.project()) + "/_apis/wit/wiql";
+        JsonNode links = client.post(at(c, path), t, Map.of("query", wiql));
+        Map<String, Integer> depthOf = new HashMap<>();
+        depthOf.put(rootId, 0);
+        for (JsonNode r : links.path("workItemRelations")) {
+            if (r.path("source").isMissingNode() || r.path("source").isNull()) {
+                continue; // the root itself
+            }
+            String from = r.path("source").path("id").asText();
+            String to = r.path("target").path("id").asText();
+            int d = depthOf.getOrDefault(from, 0) + 1;
+            if (depthOf.putIfAbsent(to, d) == null && seen.add(to)) {
+                out.add(new TreeRef(to, TreeRef.DESCENDANT, d, from, null));
+                if (out.size() > max) {
+                    return out;
+                }
+            }
+        }
+        // one hop of the root's other links
+        for (Link l : root.links()) {
+            if (l.kind().equals("Parent") || l.kind().equals("Child") || !l.toId().matches("\\d+")) {
+                continue;
+            }
+            if (seen.add(l.toId())) {
+                out.add(new TreeRef(l.toId(), TreeRef.LINK, 1, rootId, l.kind()));
+                if (out.size() > max) {
+                    return out;
+                }
+            }
+        }
+        return out;
+    }
+
+    private static String parentOf(Item i) {
+        for (Link l : i.links()) {
+            if ("Parent".equals(l.kind()) && l.toId().matches("\\d+")) {
+                return l.toId();
+            }
+        }
+        String f = i.fields().get("System.Parent");
+        return f == null || f.isBlank() ? null : f;
+    }
+
+    // ------------------------------------------------------------------------------------------------ identities
+
+    @Override
+    public Person whoAmI(Connection c, Token t) throws ProviderException {
+        JsonNode r = client.get(URI.create(org(c) + "/_apis/connectionData"), t);
+        JsonNode u = r.path("authenticatedUser");
+        String id = u.path("id").asText(null);
+        if (id == null) {
+            throw new ProviderException(Kind.TOKEN_REJECTED, "Azure DevOps did not say whose token this is");
+        }
+        String name = u.path("providerDisplayName").asText(u.path("customDisplayName").asText(id));
+        String mail = u.path("properties").path("Account").path("$value").asText(null);
+        return new Person(id, name, mail);
+    }
+
+    @Override
+    public List<Person> peopleById(Connection c, Token t, Collection<String> ids) throws ProviderException {
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+        JsonNode r = client.get(URI.create(service(c, "vssps") + "/_apis/identities?identityIds=" + encode(String.join(",", ids)) + "&" + API), t);
+        List<Person> out = new ArrayList<>();
+        for (JsonNode n : r.path("value")) {
+            String id = n.path("id").asText(null);
+            if (id == null) {
+                continue;
+            }
+            String name = n.path("providerDisplayName").asText(n.path("customDisplayName").asText(id));
+            String mail = n.path("properties").path("Mail").path("$value").asText(n.path("properties").path("Account").path("$value").asText(null));
+            out.add(new Person(id, name, mail));
+        }
+        return out;
     }
 
     // ---------------------------------------------------------------------------------------------- teams and people
@@ -304,7 +623,7 @@ public class AzureDevOpsConnector implements Connector, BoardsReader, SprintsRea
         for (TeamRef team : teams(c, t)) {
             JsonNode it = client.get(at(c, "/" + encode(team.project()) + "/" + encode(team.id()) + "/_apis/work/teamsettings/iterations"), t);
             for (JsonNode s : it.path("value")) {
-                out.add(new Sprint(s.path("id").asText(), s.path("path").asText(s.path("name").asText()), team.name(),
+                out.add(new Sprint(s.path("id").asText(), s.path("path").asText(s.path("name").asText()), team.project() + "\\" + team.name(),
                         AzureMapper.instant(s.path("attributes").path("startDate").asText(null)),
                         AzureMapper.instant(s.path("attributes").path("finishDate").asText(null))));
             }
@@ -348,34 +667,50 @@ public class AzureDevOpsConnector implements Connector, BoardsReader, SprintsRea
         JsonNode w = client.get(at(c, "/_apis/wit/workitems/" + encode(extId) + "?$expand=relations"), t);
         List<Attachment> out = new ArrayList<>();
         long total = 0;
+        for (Attachment a : listed(w)) {
+            byte[] data = null;
+            if (withData && ours(c, a.url()) && a.size() >= 0 && a.size() <= Attachment.MAX_BYTES && total + a.size() <= Attachment.MAX_PER_ITEM) {
+                data = client.download(a.url(), t, Attachment.MAX_BYTES);
+                if (data != null) {
+                    total += data.length;
+                }
+            }
+            out.add(new Attachment(a.name(), a.mime(), a.size(), a.url(), data));
+        }
+        return out;
+    }
+
+    /** The token goes only to the org's own host - never to a link a relation names elsewhere. */
+    static boolean ours(Connection c, URI url) {
+        return url != null && url.getHost() != null && url.getHost().equalsIgnoreCase(c.baseUrl().getHost());
+    }
+
+    @Override
+    public byte[] content(Connection c, Token t, Attachment a) throws ProviderException {
+        if (!ours(c, a.url())) {
+            return null;
+        }
+        return client.download(a.url(), t, Attachment.MAX_BYTES);
+    }
+
+    private static List<Attachment> listed(JsonNode w) {
+        List<Attachment> out = new ArrayList<>();
         for (JsonNode r : w.path("relations")) {
             if (!"AttachedFile".equals(r.path("rel").asText())) {
                 continue;
             }
             String name = r.path("attributes").path("name").asText("attachment");
-            long size = r.path("attributes").path("resourceSize").asLong(-1);
-            URI url;
             try {
-                url = URI.create(r.path("url").asText());
+                out.add(new Attachment(name, mime(name), r.path("attributes").path("resourceSize").asLong(-1), URI.create(r.path("url").asText()), null));
             } catch (IllegalArgumentException e) {
-                continue; // a relation with a bad link: nothing to list or fetch
+                // a relation with a bad link is left out
             }
-            byte[] data = null;
-            // the token goes only to the org's own host - never to a link a relation names elsewhere
-            boolean ours = url.getHost() != null && url.getHost().equalsIgnoreCase(c.baseUrl().getHost());
-            if (withData && ours && size >= 0 && size <= Attachment.MAX_BYTES && total + size <= Attachment.MAX_PER_ITEM) {
-                data = client.download(url, t, Attachment.MAX_BYTES);
-                if (data != null) {
-                    total += data.length;
-                }
-            }
-            out.add(new Attachment(name, mime(name), size, url, data));
         }
         return out;
     }
 
     static String mime(String name) {
-        String n = name.toLowerCase(java.util.Locale.ROOT);
+        String n = name.toLowerCase(Locale.ROOT);
         if (n.endsWith(".png")) return "image/png";
         if (n.endsWith(".jpg") || n.endsWith(".jpeg")) return "image/jpeg";
         if (n.endsWith(".gif")) return "image/gif";
@@ -383,31 +718,20 @@ public class AzureDevOpsConnector implements Connector, BoardsReader, SprintsRea
         if (n.endsWith(".md")) return "text/markdown";
         if (n.endsWith(".txt") || n.endsWith(".log")) return "text/plain";
         if (n.endsWith(".json")) return "application/json";
+        if (n.endsWith(".html") || n.endsWith(".htm")) return "text/html";
         return "application/octet-stream";
     }
 
     @Override
     public List<Attachment> listedIn(Item item) {
-        List<Attachment> out = new ArrayList<>();
         if (item.nativeJson() == null || item.nativeJson().isBlank()) {
-            return out;
+            return List.of();
         }
         try {
-            for (JsonNode r : new com.fasterxml.jackson.databind.ObjectMapper().readTree(item.nativeJson()).path("relations")) {
-                if (!"AttachedFile".equals(r.path("rel").asText())) {
-                    continue;
-                }
-                String name = r.path("attributes").path("name").asText("attachment");
-                try {
-                    out.add(new Attachment(name, mime(name), r.path("attributes").path("resourceSize").asLong(-1), URI.create(r.path("url").asText()), null));
-                } catch (IllegalArgumentException e) {
-                    // a relation with a bad link is left out
-                }
-            }
+            return listed(json.readTree(item.nativeJson()));
         } catch (java.io.IOException e) {
-            // an unreadable raw item lists nothing
+            return List.of();
         }
-        return out;
     }
 
     // ----------------------------------------------------------------------------------------------------------- seed
@@ -417,5 +741,141 @@ public class AzureDevOpsConnector implements Connector, BoardsReader, SprintsRea
         Map<String, String> f = item.fields();
         return new SeedPart(f.get("System.Description"), f.get("Microsoft.VSTS.TCM.ReproSteps"), f.get("Microsoft.VSTS.Common.AcceptanceCriteria"),
                 null);
+    }
+
+    // --------------------------------------------------------------------------------------------------------- writes
+
+    private static Map<String, Object> op(String op, String path, Object value) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("op", op);
+        m.put("path", path);
+        if (value != null) {
+            m.put("value", value);
+        }
+        return m;
+    }
+
+    @Override
+    public String comment(Connection c, Token t, String id, String text) throws ProviderException {
+        String project = projectOf(c, t, id);
+        JsonNode r = client.post(URI.create(org(c) + "/" + encode(project) + "/_apis/wit/workItems/" + encode(id)
+                + "/comments?format=markdown&api-version=7.1-preview.4"), t, Map.of("text", text));
+        return r.path("id").asText(null);
+    }
+
+    @Override
+    public void moveState(Connection c, Token t, String id, String state) throws ProviderException {
+        client.patch(at(c, "/_apis/wit/workitems/" + encode(id)), t, List.of(op("add", "/fields/System.State", state)));
+    }
+
+    @Override
+    public String create(Connection c, Token t, NewItem item) throws ProviderException {
+        String project = item.project() != null && !item.project().isBlank() ? item.project()
+                : projects(c, t).stream().findFirst().orElseThrow(() -> new ProviderException(Kind.BAD_RESPONSE, "No project to create the item in"));
+        List<Map<String, Object>> ops = new ArrayList<>();
+        ops.add(op("add", "/fields/System.Title", item.title()));
+        if (item.description() != null && !item.description().isBlank()) {
+            ops.add(op("add", "/fields/System.Description", html(item.description())));
+        }
+        if (item.area() != null && !item.area().isBlank()) {
+            ops.add(op("add", "/fields/System.AreaPath", item.area()));
+        }
+        if (item.iteration() != null && !item.iteration().isBlank()) {
+            ops.add(op("add", "/fields/System.IterationPath", item.iteration()));
+        }
+        if (item.assignee() != null && !item.assignee().isBlank()) {
+            ops.add(op("add", "/fields/System.AssignedTo", item.assignee()));
+        }
+        JsonNode r = client.postPatch(at(c, "/" + encode(project) + "/_apis/wit/workitems/$" + encode(item.type())), t, ops);
+        String id = r.path("id").asText(null);
+        if (id == null) {
+            throw new ProviderException(Kind.BAD_RESPONSE, "Azure DevOps created no work item");
+        }
+        return id;
+    }
+
+    /** Description is an HTML field: text that is not HTML already is escaped, its lines kept. */
+    static String html(String text) {
+        String s = text.strip();
+        if (s.startsWith("<") && s.endsWith(">")) {
+            return s;
+        }
+        String e = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+        return "<div>" + e.replace("\r\n", "\n").replace("\n", "<br>") + "</div>";
+    }
+
+    @Override
+    public void hyperlink(Connection c, Token t, String id, URI url, String label, boolean add) throws ProviderException {
+        if (add) {
+            Map<String, Object> rel = new LinkedHashMap<>();
+            rel.put("rel", "Hyperlink");
+            rel.put("url", url.toString());
+            rel.put("attributes", Map.of("comment", label == null ? "Alfred" : label));
+            client.patch(at(c, "/_apis/wit/workitems/" + encode(id)), t, List.of(op("add", "/relations/-", rel)));
+            return;
+        }
+        JsonNode w = client.get(at(c, "/_apis/wit/workitems/" + encode(id) + "?$expand=relations"), t);
+        int i = 0;
+        for (JsonNode r : w.path("relations")) {
+            if ("Hyperlink".equals(r.path("rel").asText()) && url.toString().equals(r.path("url").asText())) {
+                client.patch(at(c, "/_apis/wit/workitems/" + encode(id)), t, List.of(op("test", "/rev", w.path("rev").asInt()),
+                        op("remove", "/relations/" + i, null)));
+                return;
+            }
+            i++;
+        }
+        // not there any more: nothing to remove
+    }
+
+    @Override
+    public void tag(Connection c, Token t, String id, String tag, boolean add) throws ProviderException {
+        JsonNode w = client.get(at(c, "/_apis/wit/workitems/" + encode(id) + "?fields=System.Tags"), t);
+        Set<String> tags = new LinkedHashSet<>();
+        for (String s : w.path("fields").path("System.Tags").asText("").split(";")) {
+            if (!s.isBlank()) {
+                tags.add(s.strip());
+            }
+        }
+        boolean had = tags.stream().anyMatch(x -> x.equalsIgnoreCase(tag));
+        if (add == had) {
+            return;
+        }
+        if (add) {
+            tags.add(tag);
+        } else {
+            tags.removeIf(x -> x.equalsIgnoreCase(tag));
+        }
+        client.patch(at(c, "/_apis/wit/workitems/" + encode(id)), t, List.of(op("add", "/fields/System.Tags", String.join("; ", tags))));
+    }
+
+    @Override
+    public void attach(Connection c, Token t, String id, String name, byte[] data) throws ProviderException {
+        JsonNode up = client.postBytes(at(c, "/_apis/wit/attachments?fileName=" + encode(name)), t, data);
+        String url = up.path("url").asText(null);
+        if (url == null) {
+            throw new ProviderException(Kind.BAD_RESPONSE, "Azure DevOps did not take the file " + name);
+        }
+        Map<String, Object> rel = new LinkedHashMap<>();
+        rel.put("rel", "AttachedFile");
+        rel.put("url", url);
+        rel.put("attributes", Map.of("comment", "via Alfred"));
+        client.patch(at(c, "/_apis/wit/workitems/" + encode(id)), t, List.of(op("add", "/relations/-", rel)));
+    }
+
+    // ----------------------------------------------------------------------------------------------------------- hook
+
+    /** A service hook's body: {@code resource.workItemId} (updated, commented) or {@code resource.id} (created). Nothing else. */
+    @Override
+    public List<String> ids(String body) {
+        try {
+            JsonNode r = json.readTree(body).path("resource");
+            String id = r.path("workItemId").asText(null);
+            if (id == null || id.isBlank()) {
+                id = r.path("id").asText(null);
+            }
+            return id != null && id.matches("\\d{1,9}") ? List.of(id) : List.of();
+        } catch (java.io.IOException | RuntimeException e) {
+            return List.of();
+        }
     }
 }

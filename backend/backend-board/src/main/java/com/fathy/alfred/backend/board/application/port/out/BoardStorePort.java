@@ -136,6 +136,29 @@ public interface BoardStorePort {
     /** Ids of cards whose own text, comments or links mention the spec file {@code cycleId/name}. */
     List<String> cardsMentioningSpec(String cycleId, String name);
 
+    /** specs/028 FR-089: a card's owner ({@code <conn>/<personId>|Name}), set apart from the card's own fields. */
+    default java.util.Optional<String> owner(String cardId) {
+        return java.util.Optional.empty();
+    }
+
+    /** Sets the owner; null or blank clears it. */
+    default void putOwner(String cardId, String owner) {
+    }
+
+    default Map<String, String> owners(Collection<String> cardIds) {
+        return Map.of();
+    }
+
+    /** Ids of the cards owned by {@code <conn>/<personId>}. */
+    default List<String> cardsOwnedBy(String personRef) {
+        return List.of();
+    }
+
+    /** Ids of the cards whose own text, comments or links mention {@code type:ref} (lower-case type). */
+    default List<String> cardsMentioning(String type, String ref) {
+        return List.of();
+    }
+
     /** Cards shown on calls of a cycle: mentions with that cycle, or on that cycle's cards. */
     Map<String, List<CallBadge>> badgesOfCycle(String cycleId);
 

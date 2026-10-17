@@ -92,8 +92,8 @@ export class BoardExportService {
     const workItems: NonNullable<BoardExport['workItems']>[number][] = [];
     for (const s of boards.filter((b) => b.linkedItem)) {
       try {
-        const l = await lastValueFrom(this.team.link(s.board.id));
-        if (l) workItems.push({ board: l.board, conn: l.conn, extId: l.extId, provider: l.provider, snapshot: l.snapshot });
+        const l = await lastValueFrom(this.team.mainOf(s.board.id));
+        if (l) workItems.push({ board: s.board.id, conn: l.conn, extId: l.item, provider: l.provider, snapshot: l.snapshot });
       } catch {
         // the link stays readable on the board; the export goes on
       }

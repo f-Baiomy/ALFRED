@@ -75,35 +75,30 @@
   (toggleSource)="state.toggleSource($event)"
   (toggleServiceLogging)="state.toggleServiceLogging($event.name, $event.enabled)"
 >
-  @if (tab() === 'calls') {
-    <app-stats-bar headerSide [stats]="state.stats()" />
-  }
+  <app-stats-bar headerSide [stats]="state.stats()" />
 </app-header>
 
-<!-- The cycle's board lives here too (specs/014-task-board US6): the same cards as the Board tab's Cycle board. -->
-<div class="cycle-tabs" role="tablist">
-  <button type="button" role="tab" [class.on]="tab() === 'calls'" (click)="selectTab('calls')">Calls</button>
-  <button type="button" role="tab" [class.on]="tab() === 'board'" (click)="selectTab('board')">Board
-    @if (openCardCount()) { <span class="cycle-tab-count">{{ openCardCount() }} open</span> }
-  </button>
-  <button type="button" role="tab" [class.on]="tab() === 'brief'" title="The task this cycle checks: brief, requirements, specs" (click)="selectTab('brief')">Task</button>
-</div>
-
-@if (tab() === 'calls') {
-  <main>
-    <app-bulk-actions-bar />
-    <div class="call-list">
-      <app-call-list />
-    </div>
-  </main>
-} @else if (tab() === 'board' && state.cycleId()) {
-  <app-board-view [project]="cycleProject()" [cycleId]="state.cycleId()" [cycleName]="cycle()?.name ?? null" />
-} @else if (tab() === 'brief' && state.cycleId()) {
-  <div class="task-page">
-    <app-task-view [cycleId]="state.cycleId()" [project]="cycleProject()" [editable]="boardEditable()" [cycleName]="cycle()?.name ?? null"
-                   (cardOpened)="selectTab('board')" />
+<!-- A cycle holds only calls (specs/028 US7): the boards it was recorded for or added to are links, not tabs. -->
+@if (state.cycleId() && !runCycle()) {
+  <div class="cycle-boards" role="note">
+    @for (b of cycleBoards(); track b.board.id; let first = $first) {
+      <span>{{ first ? 'Recorded for board' : '· also on' }}
+        <a [routerLink]="['/board']" [queryParams]="{ project: b.board.project, board: b.board.id }">{{ b.board.name }} ↗</a></span>
+    } @empty { <span class="cycle-boards-none">Not on a board</span> }
+    @if (boardEditable()) { <button type="button" class="action-btn" (click)="pickingBoard.set(true)">+ Add to a board</button> }
+    @if (boardsMessage()) { <span class="cycle-boards-msg">{{ boardsMessage() }}</span> }
   </div>
 }
+@if (pickingBoard()) {
+  <app-team-board-picker title="Add this cycle to which board?" action="Add" (picked)="addToBoard($event.board.board.id)" (closed)="pickingBoard.set(false)" />
+}
+
+<main>
+  <app-bulk-actions-bar />
+  <div class="call-list">
+    <app-call-list />
+  </div>
+</main>
 
 <app-export-dialog />
 <app-copy-to-cycles-dialog />

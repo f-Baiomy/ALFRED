@@ -281,8 +281,8 @@ export function needsYou(cards: readonly CardSummary[]): { card: CardSummary; wh
 // --------------------------------------------------------------------------------------------- the Task tab (specs/024)
 
 /** The Task tab's sections, Requirements first. */
-export type TaskTab = 'req' | 'test' | 'brief' | 'runs' | 'files';
-export const TASK_TABS: readonly TaskTab[] = ['req', 'test', 'brief', 'runs', 'files'];
+export type TaskTab = 'req' | 'test' | 'brief' | 'runs' | 'files' | 'cycles' | 'items';
+export const TASK_TABS: readonly TaskTab[] = ['req', 'test', 'brief', 'runs', 'files', 'cycles', 'items'];
 
 /** A requirement's group in the list: one Claude suggests a mark for is decided first, whatever its state. */
 export type ReqGroup = 'DECIDE' | ReqState;
@@ -489,5 +489,23 @@ export const TAB_GUIDES: Record<TaskTab, { title: string; lead: string; points: 
     lead: 'A spec file (.md or .txt) holds the ticket\'s Acceptance lines - each becomes a row in Requirements. Drop the ticket\'s spec here, '
       + 'or let Run → Write the requirements draft one from the brief. Replacing a file keeps the previous one. Files attached here go with the task.',
     points: [],
+  },
+  cycles: {
+    title: 'Cycles - the recordings of this task',
+    lead: 'A cycle only holds calls: what the app did while you tested. The task - brief, requirements, cards - lives on this board. '
+      + 'Record a cycle while you do the Test plan; a re-test cycle checks a fix.',
+    points: [
+      { if: 'another cycle records this project', then: 'pause it first - one recording per project.' },
+    ],
+  },
+  items: {
+    title: 'Related items - the work items this task is for',
+    lead: 'The main work item and its tree (parents above, children below, one hop of links), plus items added by hand. The main and the '
+      + 'items on cards are kept in full and compared on each sync; the rest are read live. New items in the tree, watch rule matches and hook '
+      + 'pings arrive in Incoming - you decide: a new card, a link, or Ignore.',
+    points: [
+      { if: 'an item shows ● changed', then: 'review what changed; Keep the new copy when you have read it.' },
+      { if: 'something arrives in Incoming', then: 'New card, Link to card, or Ignore - Claude only proposes.' },
+    ],
   },
 };

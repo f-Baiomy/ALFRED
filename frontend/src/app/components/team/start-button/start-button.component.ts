@@ -96,6 +96,8 @@ export class TeamStartButtonComponent {
   private readonly router = inject(Router);
 
   readonly item = input.required<TeamItem>();
+  /** The connection the item is read from. */
+  readonly conn = input.required<string>();
   /** The item's board (from its detail), or null. */
   readonly linkedBoard = input<string | null>(null);
   /** WAITING while a start waits for /alfred-setup. */
@@ -128,7 +130,7 @@ export class TeamStartButtonComponent {
     const i = this.item();
     this.busy.set(true);
     this.say(null);
-    this.api.start(i.conn, i.extId, target).subscribe({
+    this.api.start(this.conn(), i.extId, target).subscribe({
       next: (r) => {
         this.busy.set(false);
         this.asking.set(false);
@@ -168,7 +170,7 @@ export class TeamStartButtonComponent {
 
   cancel(): void {
     const i = this.item();
-    this.api.cancelStart(i.conn, i.extId).subscribe({
+    this.api.cancelStart(this.conn(), i.extId).subscribe({
       next: () => {
         this.started.set('CANCELLED');
         this.changed.emit();

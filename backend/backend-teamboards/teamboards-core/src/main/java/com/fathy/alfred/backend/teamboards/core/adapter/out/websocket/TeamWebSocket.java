@@ -20,7 +20,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArraySet;
 
-/** /ws/teamboards: broadcast-only "something changed" ({conn, what}). Lists refetch on it; nothing polls (FR-025). */
+/** /ws/teamboards: broadcast-only "something changed" ({type, conn, board?, what, ...}). Pages refetch on it; nothing polls. */
 @Configuration
 @EnableWebSocket
 public class TeamWebSocket extends TextWebSocketHandler implements WebSocketConfigurer, TeamChangeSignalPort {
@@ -35,7 +35,7 @@ public class TeamWebSocket extends TextWebSocketHandler implements WebSocketConf
 
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
-        registry.addHandler(this, "/ws/teamboards").setAllowedOriginPatterns(allowedOrigins.split("\s*,\s*"));
+        registry.addHandler(this, "/ws/teamboards").setAllowedOriginPatterns(allowedOrigins.split("\\s*,\\s*"));
     }
 
     @Override
@@ -50,24 +50,21 @@ public class TeamWebSocket extends TextWebSocketHandler implements WebSocketConf
 
     @Override
     public void changed(String conn, String what) {
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("type", "team-changed");
-        body.put("conn", conn);
-        body.put("what", what);
-        send(body);
+        board(null, conn, what, Map.of());
     }
 
-    /** {what: refresh, outcome, changed, retryAfter, message} - never the token. */
     @Override
-    public void refreshed(String conn, com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.RefreshResult r) {
+    public void board(String boardId, String conn, String what, Map<String, Object> extra) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("type", "team-changed");
         body.put("conn", conn);
-        body.put("what", "refresh");
-        body.put("outcome", r.outcome().name());
-        body.put("changed", r.changed());
-        body.put("retryAfter", r.retryAfter());
-        body.put("message", r.message());
+        if (boardId != null) {
+            body.put("board", boardId);
+        }
+        body.put("what", what);
+        if (extra != null) {
+            extra.forEach(body::putIfAbsent);
+        }
         send(body);
     }
 

@@ -19,4 +19,9 @@ public interface AttachmentsReader {
     default List<Attachment> listedIn(Item item) {
         return List.of();
     }
+
+    /** One listed attachment's content (at most {@link Attachment#MAX_BYTES}); null when it is bigger or not the provider's. */
+    default byte[] content(Connection c, Token t, Attachment a) throws ProviderException {
+        return null;
+    }
 }

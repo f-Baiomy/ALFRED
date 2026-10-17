@@ -373,6 +373,9 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort,
         // Short names (specs/021): what a mention of a card or an Acceptance item reads, "one-branch search (AC8)".
         jdbc.execute("CREATE TABLE IF NOT EXISTS short_names (kind TEXT NOT NULL, owner TEXT NOT NULL, short TEXT NOT NULL, PRIMARY KEY (kind, owner))");
         jdbc.execute("CREATE TABLE IF NOT EXISTS board_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
+        // specs/028 FR-089: a card's owner, a tracker person "<conn>/<personId>|Name" (its own table: no new card field)
+        jdbc.execute("CREATE TABLE IF NOT EXISTS card_owners (card_id TEXT PRIMARY KEY REFERENCES cards(id) ON DELETE CASCADE, owner TEXT NOT NULL, "
+                + "at INTEGER NOT NULL)");
         Integer seeded = jdbc.queryForObject("SELECT COUNT(*) FROM board_meta WHERE key = 'teams_seeded'", Integer.class);
         if (seeded == null || seeded == 0) {
             DefaultTeams.ALL.forEach(this::putTeam);
@@ -1004,6 +1007,42 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort,
     public Set<String> mentionedLiveCallIds() {
         // a captured call keeps its live call's id: a mentioned copy keeps the live call (its statements, Redis, log lines) too (specs/027 R7)
         return new LinkedHashSet<>(jdbc.queryForList("SELECT DISTINCT call_id FROM mentions WHERE call_id IS NOT NULL", String.class));
+    }
+
+    @Override
+    public java.util.Optional<String> owner(String cardId) {
+        return jdbc.queryForList("SELECT owner FROM card_owners WHERE card_id = ?", String.class, cardId).stream().findFirst();
+    }
+
+    @Override
+    public void putOwner(String cardId, String owner) {
+        if (owner == null || owner.isBlank()) {
+            jdbc.update("DELETE FROM card_owners WHERE card_id = ?", cardId);
+        } else {
+            jdbc.update("INSERT OR REPLACE INTO card_owners(card_id, owner, at) VALUES (?,?,?)", cardId, owner, System.currentTimeMillis());
+        }
+    }
+
+    @Override
+    public Map<String, String> owners(Collection<String> cardIds) {
+        Map<String, String> out = new LinkedHashMap<>();
+        for (List<String> chunk : chunks(cardIds)) {
+            jdbc.query("SELECT card_id, owner FROM card_owners WHERE card_id IN (" + marks(chunk.size()) + ")",
+                    rs -> { out.put(rs.getString(1), rs.getString(2)); }, chunk.toArray());
+        }
+        return out;
+    }
+
+    @Override
+    public List<String> cardsOwnedBy(String personRef) {
+        String like = personRef.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "|%";
+        return jdbc.queryForList("SELECT card_id FROM card_owners WHERE owner = ? OR owner LIKE ? ESCAPE '\\' LIMIT 5000", String.class, personRef, like);
+    }
+
+    @Override
+    public List<String> cardsMentioning(String type, String ref) {
+        return jdbc.queryForList("SELECT DISTINCT card_id FROM mentions WHERE card_id IS NOT NULL AND type = ? AND ref = ? LIMIT 5000", String.class,
+                type, ref);
     }
 
     @Override

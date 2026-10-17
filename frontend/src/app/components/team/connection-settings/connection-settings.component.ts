@@ -1,9 +1,10 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ConfirmDialogService } from '../../../core/services/confirm-dialog.service';
 import { TeamApiService } from '../../../core/team/team-api.service';
 import { TeamStateService } from '../../../core/team/team-state.service';
 import { TeamConnection } from '../../../core/team/team.models';
+import { TeamHookSettingsComponent } from '../hook-settings/hook-settings.component';
 
 interface Draft {
   id: string | null;
@@ -15,21 +16,22 @@ interface Draft {
 }
 
 /**
- * Settings -> Team trackers (specs/027 US7): add, scope and remove the connections everyone shares, and keep this
- * browser's token for each. The token is never sent here - only to refresh and history, in a header Alfred never stores.
+ * Settings -> Team trackers (specs/027 US7, 028): add, scope and remove the connections everyone shares; whether a token
+ * is live (entered on the Team tab, held in Alfred's memory) with Forget; the service hook and the type -> card kind map.
  */
 @Component({
   selector: 'app-connection-settings',
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, TeamHookSettingsComponent],
   template: `
     <section class="panel settings-panel">
       <h3>Team trackers</h3>
       <p class="sub">The team's tracker (Azure DevOps; Jira and ClickUp later), read into a cache every Alfred user shares on the Team tab.
-        Each person keeps their own personal access token in their browser - Alfred never stores or logs it.</p>
+        Search reads it live. The personal access token is entered on the Team tab and kept 8 hours in Alfred's memory only - never on disk,
+        in a log or in a browser; everyone here searches with the last token entered.</p>
       @if (message()) { <div class="tc-msg" [class.err]="isError()">{{ message() }}</div> }
       <table class="tc-table">
-        <thead><tr><th>Name</th><th>Tracker</th><th>Scope</th><th>Token in this browser</th><th></th></tr></thead>
+        <thead><tr><th>Name</th><th>Tracker</th><th>Scope</th><th>Token (in Alfred's memory)</th><th></th></tr></thead>
         <tbody>
           @for (c of state.connections(); track c.id) {
             <tr>
@@ -37,21 +39,16 @@ interface Draft {
               <td>{{ state.uiOf(c.kind).icon }} {{ state.uiOf(c.kind).label }}</td>
               <td class="tc-dim">{{ c.scope.projects.join(', ') || 'every project' }}@if (c.scope.teams.length) { · {{ c.scope.teams.join(', ') }} }</td>
               <td>
-                @if (hasToken(c)) {
-                  <span class="tc-ok">✓ saved</span> <button type="button" class="action-btn" (click)="forget(c)">Forget</button>
-                } @else {
-                  <form class="tc-token" (submit)="$event.preventDefault(); saveToken(c)">
-                    <input type="password" autocomplete="off" [(ngModel)]="tokenDraft[c.id]" [name]="'t-' + c.id" placeholder="Personal access token"
-                           aria-label="Personal access token" />
-                    <button type="submit" class="action-btn" [disabled]="!tokenDraft[c.id]?.trim()">Save</button>
-                  </form>
-                }
+                @if (live()[c.id]) { <span class="tc-ok">● live</span> <button type="button" class="action-btn" (click)="forget(c)">Forget</button> }
+                @else { <span class="tc-dim">Enter it on the Team tab</span> }
               </td>
               <td class="tc-actions">
+                <button type="button" class="action-btn" (click)="hookOf.set(hookOf() === c.id ? null : c.id)">Hook &amp; kinds</button>
                 <button type="button" class="action-btn" (click)="edit(c)">Edit</button>
                 <button type="button" class="action-btn danger" (click)="remove(c)">Remove</button>
               </td>
             </tr>
+            @if (hookOf() === c.id) { <tr><td colspan="5"><app-team-hook-settings [conn]="c.id" /></td></tr> }
           } @empty { <tr><td colspan="5" class="tc-dim">No tracker connected.</td></tr> }
         </tbody>
       </table>
@@ -105,7 +102,9 @@ export class ConnectionSettingsComponent {
   readonly draft = signal<Draft | null>(null);
   readonly message = signal<string | null>(null);
   readonly isError = signal(false);
-  tokenDraft: Record<string, string | undefined> = {};
+  readonly hookOf = signal<string | null>(null);
+  /** Whether each connection has a live token. */
+  readonly live = signal<Record<string, boolean>>({});
 
   readonly valid = computed(() => {
     const d = this.draft();
@@ -114,11 +113,15 @@ export class ConnectionSettingsComponent {
 
   constructor() {
     this.state.load();
-  }
-
-  hasToken(c: TeamConnection): boolean {
-    this.state.tokens.version();
-    return this.state.tokens.has(c.id);
+    effect(() => {
+      const all = this.state.connections();
+      this.state.token();
+      untracked(() => {
+        for (const c of all) {
+          this.api.tokenStatus(c.id).subscribe({ next: (t) => this.live.update((m) => ({ ...m, [c.id]: t.live })), error: () => undefined });
+        }
+      });
+    });
   }
 
   add(): void {
@@ -153,27 +156,22 @@ export class ConnectionSettingsComponent {
 
   async remove(c: TeamConnection): Promise<void> {
     const ok = await this.confirm.confirm(
-      `Remove ${c.name}? Its cached items, changes and mappings are deleted for everyone. Alfred boards opened from its items stay.`, 'Remove');
+      `Remove ${c.name}? Its saved lists, board items, card links and mappings are deleted for everyone. Alfred boards opened from its items stay.`, 'Remove');
     if (!ok) return;
     this.api.deleteConnection(c.id).subscribe({
-      next: () => {
-        this.state.tokens.clear(c.id);
-        this.state.load();
-      },
+      next: () => this.state.load(),
       error: (e) => this.say(e?.error?.message || 'Could not remove it', true),
     });
   }
 
-  saveToken(c: TeamConnection): void {
-    const t = this.tokenDraft[c.id]?.trim();
-    if (!t) return;
-    this.state.tokens.set(c.id, t);
-    this.tokenDraft[c.id] = '';
-    this.say('Token saved in this browser', false);
-  }
-
   forget(c: TeamConnection): void {
-    this.state.tokens.clear(c.id);
+    this.api.forgetToken(c.id).subscribe({
+      next: () => {
+        this.live.update((m) => ({ ...m, [c.id]: false }));
+        this.state.readToken();
+      },
+      error: (e) => this.say(e?.error?.message || 'Could not forget it', true),
+    });
   }
 
   private say(m: string, err: boolean): void {

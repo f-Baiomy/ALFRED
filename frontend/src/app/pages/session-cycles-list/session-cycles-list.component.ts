@@ -88,6 +88,9 @@ export class SessionCyclesListComponent {
     return this.boards().filter((b) => b.cycleIds.includes(cycleId)).length;
   }
   readonly groupBy = signal<'board' | 'none'>(readGroupBy());
+  /** New Cycle asks which board it records for (specs/028 FR-096); none is allowed. */
+  readonly newBoard = signal('');
+  readonly openBoards = computed(() => this.boards().filter((b) => b.board.state === 'OPEN'));
   readonly groups = computed(() => groupCyclesByBoard(this.state.sortedCycles(), this.boards()));
 
   constructor() {
@@ -149,10 +152,12 @@ export class SessionCyclesListComponent {
     const name = this.newName().trim();
     if (!name) return;
     this.creating.set(true);
-    this.state.create({ name, assignedTo: this.newAssignedTo() }).subscribe(() => {
+    const board = this.newBoard();
+    this.state.create({ name, assignedTo: this.newAssignedTo() }).subscribe((c) => {
       this.creating.set(false);
       this.newName.set('');
       this.newAssignedTo.set(null);
+      if (board) this.boardApi.relateCycle(board, c.id, true).subscribe({ next: () => this.loadBoards(), error: () => undefined });
     });
   }
 

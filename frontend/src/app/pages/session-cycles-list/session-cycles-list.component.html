@@ -12,6 +12,10 @@
       (input)="newName.set($any($event.target).value)"
     />
     <app-profile-picker [value]="newAssignedTo()" (valueChange)="newAssignedTo.set($event)" />
+    <select class="new-cycle-board" [value]="newBoard()" (change)="newBoard.set($any($event.target).value)" aria-label="For which board">
+      <option value="">On no board</option>
+      @for (b of openBoards(); track b.board.id) { <option [value]="b.board.id">For {{ b.board.name }} ({{ b.board.project }})</option> }
+    </select>
     <button type="submit" class="bulk-btn" [disabled]="creating() || !newName().trim()">
       {{ creating() ? 'Creating...' : '+ New Cycle' }}
     </button>
@@ -144,7 +148,7 @@
       </table>
     </ng-template>
     @if (groupBy() === 'board') {
-      @for (g of groups(); track g.board?.board?.id ?? '-') {
+      @for (g of groups(); track $index) {
         <section class="cycle-group">
           <div class="cycle-group-head">
             @if (g.board; as b) {
@@ -152,7 +156,7 @@
               <span class="cycle-group-meta">{{ b.board.project }}{{ b.board.isDefault ? ' · default' : '' }} · {{ g.cycles.length }} cycle(s)</span>
               <button type="button" class="action-btn" (click)="openBoard(b.board.project, b.board.id)">Open board</button>
             } @else {
-              <span class="cycle-group-board">Not on any board</span>
+              <span class="cycle-group-board">Not on a board</span>
               <span class="cycle-group-meta">{{ g.cycles.length }} cycle(s) · relate them from a board, or delete</span>
             }
           </div>

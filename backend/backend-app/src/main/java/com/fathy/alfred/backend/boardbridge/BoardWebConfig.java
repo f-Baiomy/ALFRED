@@ -22,8 +22,10 @@ public class BoardWebConfig implements WebMvcConfigurer {
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
-        // specs/027: the Team tab's writes (connections, refresh, mappings, starts) follow the same rule - never the tunnel
-        registry.addInterceptor(new BoardEditAccessInterceptor(access)).addPathPatterns("/board/**", "/teamboards/**");
+        // specs/027: the Team tab's writes (connections, mappings, starts) follow the same rule - never the tunnel. The one
+        // exception (specs/028 FR-082) is the tracker's service hook, which proves itself with its own secret.
+        registry.addInterceptor(new BoardEditAccessInterceptor(access)).addPathPatterns("/board/**", "/teamboards/**")
+                .excludePathPatterns("/teamboards/hooks/**");
     }
 
     @GetMapping("/board/access")

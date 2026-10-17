@@ -1,21 +1,22 @@
 package com.fathy.alfred.backend.teamboards.core.application.service;
 
+import com.fathy.alfred.backend.teamboards.core.application.port.in.BoardItemsUseCase;
 import com.fathy.alfred.backend.teamboards.core.application.port.in.StartFromItemUseCase;
+import com.fathy.alfred.backend.teamboards.core.application.port.in.TeamException;
 import com.fathy.alfred.backend.teamboards.core.application.port.out.TeamBoardsPort;
 import com.fathy.alfred.backend.teamboards.core.application.port.out.TeamCachePort;
 import com.fathy.alfred.backend.teamboards.core.application.port.out.TeamCachePort.PendingFile;
 import com.fathy.alfred.backend.teamboards.core.application.port.out.TeamCachePort.StartRow;
-import com.fathy.alfred.backend.teamboards.core.application.port.out.TeamCachePort.StoredConnection;
 import com.fathy.alfred.backend.teamboards.core.application.port.out.TeamChangeSignalPort;
-import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.ItemSummary;
+import com.fathy.alfred.backend.teamboards.core.application.service.Live.Ctx;
+import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.BoardItemRow;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.MappingKind;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.MappingRow;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.SquadRow;
+import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.Who;
 import com.fathy.alfred.backend.teamboards.spi.AttachmentsReader;
-import com.fathy.alfred.backend.teamboards.spi.Connector;
-import com.fathy.alfred.backend.teamboards.spi.ProviderException;
 import com.fathy.alfred.backend.teamboards.spi.model.Attachment;
-import com.fathy.alfred.backend.teamboards.spi.model.Token;
+import com.fathy.alfred.backend.teamboards.spi.model.Item;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -25,12 +26,13 @@ import org.springframework.stereotype.Service;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
- * Start (specs/027 US8, FR-034): where the item's board goes (the mapping of its sprint, then squad, then area, then
- * project; else the user picks), one start per item, and the waiting /alfred-setup message in that board's chat.
+ * Start (specs/027 US8, FR-034; 028 FR-114): where the item's board goes (the mapping of its sprint, then squad, then
+ * area, then project; else the user picks), one start per item, the waiting /alfred-setup message in that board's chat,
+ * and - when the setup links the board - the item as the board's main.
  */
 @Service
 public class StartService implements StartFromItemUseCase {
@@ -39,22 +41,26 @@ public class StartService implements StartFromItemUseCase {
     static final String WAITING = "WAITING";
     static final String DONE = "DONE";
 
-    private final Map<String, Connector> connectors;
+    private final Live live;
     private final TeamCachePort cache;
     private final TeamChangeSignalPort signals;
     private final ObjectProvider<TeamBoardsPort> boards;
+    private final ObjectProvider<BoardItemsUseCase> boardItems;
     private final Clock clock;
 
     @Autowired
-    public StartService(List<Connector> connectors, TeamCachePort cache, TeamChangeSignalPort signals, ObjectProvider<TeamBoardsPort> boards) {
-        this(connectors, cache, signals, boards, Clock.systemUTC());
+    public StartService(Live live, TeamCachePort cache, TeamChangeSignalPort signals, ObjectProvider<TeamBoardsPort> boards,
+                        ObjectProvider<BoardItemsUseCase> boardItems) {
+        this(live, cache, signals, boards, boardItems, Clock.systemUTC());
     }
 
-    StartService(List<Connector> connectors, TeamCachePort cache, TeamChangeSignalPort signals, ObjectProvider<TeamBoardsPort> boards, Clock clock) {
-        this.connectors = CachedItems.byKind(connectors);
+    StartService(Live live, TeamCachePort cache, TeamChangeSignalPort signals, ObjectProvider<TeamBoardsPort> boards,
+                 ObjectProvider<BoardItemsUseCase> boardItems, Clock clock) {
+        this.live = live;
         this.cache = cache;
         this.signals = signals;
         this.boards = boards;
+        this.boardItems = boardItems;
         this.clock = clock;
     }
 
@@ -67,16 +73,25 @@ public class StartService implements StartFromItemUseCase {
         return cut < 0 ? area : area.substring(0, cut);
     }
 
-    @Override
-    public Target targetOf(String conn, String extId) {
-        return cache.summary(conn, extId).map(s -> mapped(conn, s)).orElse(null);
+    /** The item from a board's copy, else live when a token is there. */
+    Optional<Item> known(String conn, String extId) {
+        Optional<Item> copy = cache.copy(conn, extId).flatMap(Copies::item);
+        if (copy.isPresent()) {
+            return copy;
+        }
+        return live.ctxIfLive(conn).map(c -> live.item(c, extId));
     }
 
-    /** Sprint, then squad, then area, then project (FR-034); then a squad the Squads view mapped to a project. */
-    Target mapped(String conn, ItemSummary s) {
+    @Override
+    public Target targetOf(String conn, String extId) {
+        return known(conn, extId).map(i -> mapped(conn, i)).orElse(null);
+    }
+
+    /** Sprint, then squad, then area, then project (FR-034); then a squad the Teams view mapped to a project. */
+    Target mapped(String conn, Item s) {
         List<MappingRow> all = cache.mappings(conn);
         String[][] order = {{MappingKind.SPRINT.name(), s.sprint()}, {MappingKind.SQUAD.name(), s.squad()}, {MappingKind.AREA.name(), s.area()},
-                {MappingKind.PROJECT.name(), valueFor(MappingKind.PROJECT, s)}};
+                {MappingKind.PROJECT.name(), valueFor(MappingKind.PROJECT, conn, s)}};
         for (String[] o : order) {
             if (o[1] == null || o[1].isBlank()) {
                 continue;
@@ -97,19 +112,18 @@ public class StartService implements StartFromItemUseCase {
         return null;
     }
 
-    /** What a remembered target is saved as: the most specific thing the item has. */
-    static MappingKind rememberAs(ItemSummary s) {
+    static MappingKind rememberAs(Item s) {
         if (s.squad() != null && !s.squad().isBlank()) return MappingKind.SQUAD;
         if (s.area() != null && !s.area().isBlank()) return MappingKind.AREA;
         return MappingKind.PROJECT;
     }
 
-    static String valueFor(MappingKind kind, ItemSummary s) {
+    static String valueFor(MappingKind kind, String conn, Item s) {
         return switch (kind) {
             case SQUAD -> s.squad();
             case AREA -> s.area();
             case SPRINT -> s.sprint();
-            case PROJECT -> projectOfArea(s.area()) == null ? s.conn() : projectOfArea(s.area());
+            case PROJECT -> s.project() != null ? s.project() : projectOfArea(s.area()) == null ? conn : projectOfArea(s.area());
         };
     }
 
@@ -117,7 +131,7 @@ public class StartService implements StartFromItemUseCase {
      * The start message: the command, then the item on one line. The title comes from the tracker (anyone can write it),
      * so it is flattened and capped - /alfred-setup reads the item itself through team_item.
      */
-    static String setupText(String conn, ItemSummary s) {
+    static String setupText(String conn, Item s) {
         String title = s.title() == null ? "" : s.title().replaceAll("[\\r\\n\\t]+", " ").strip();
         if (title.length() > 120) {
             title = title.substring(0, 119) + "…";
@@ -126,22 +140,28 @@ public class StartService implements StartFromItemUseCase {
     }
 
     @Override
-    public StartResult start(String conn, String extId, Target target, Token token) {
-        Optional<StoredConnection> c = cache.connection(conn);
-        Optional<ItemSummary> found = cache.summary(conn, extId);
-        if (c.isEmpty() || found.isEmpty()) {
-            return StartResult.of(StartOutcome.NOT_FOUND, "Item " + extId + " is not in the cache yet: Refresh the Team tab first");
+    public StartResult start(String conn, String extId, Target target) {
+        Ctx c = live.ctx(conn);
+        Item s;
+        try {
+            s = live.item(c, extId);
+        } catch (TeamException e) {
+            if (e.code() == TeamException.Code.NOT_FOUND) {
+                return StartResult.of(StartOutcome.NOT_FOUND, "Item " + extId + " is not in " + c.stored().name());
+            }
+            throw e;
         }
-        ItemSummary s = found.get();
-        Optional<String> linked = cache.linkOfItem(conn, extId).map(l -> l.alfredBoard());
-        if (linked.isPresent()) {
-            return new StartResult(StartOutcome.ALREADY_STARTED, null, linked.get(), null, null, "This item already has a board", 0);
+        Optional<String> mainOf = cache.boardsOfItem(conn, s.extId()).stream().filter(r -> "MAIN".equals(r.role())).map(BoardItemRow::boardId)
+                .findFirst();
+        if (mainOf.isPresent()) {
+            return new StartResult(StartOutcome.ALREADY_STARTED, null, mainOf.get(), null, null,
+                    "This item is the main of a board already - open it, or add the item to another board from Add", 0, null);
         }
-        Optional<StartRow> waiting = cache.start(conn, extId).filter(r -> WAITING.equals(r.state()));
+        Optional<StartRow> waiting = cache.start(conn, s.extId()).filter(r -> WAITING.equals(r.state()));
         if (waiting.isPresent()) {
             String[] t = waiting.get().target().split("\\|", -1);
             return new StartResult(StartOutcome.WAITING, t[0], t.length > 1 && !t[1].isEmpty() ? t[1] : null, waiting.get().chatMessageId(), null,
-                    "Already waiting for /alfred-setup", 0);
+                    "Already waiting for /alfred-setup", 0, null);
         }
         TeamBoardsPort port = boards.getIfAvailable();
         if (port == null) {
@@ -151,11 +171,11 @@ public class StartService implements StartFromItemUseCase {
         if (target != null && target.project() != null && !target.project().isBlank()) {
             String project = target.project().strip();
             String board = target.boardId() == null || target.boardId().isBlank() ? null : target.boardId().strip();
-            if (board != null && !port.projectOf(board).map(project::equals).orElse(false)) {
-                return StartResult.of(StartOutcome.INVALID, "Board " + board + " is not a board of " + project);
-            }
             if (project.length() > 200) {
                 return StartResult.of(StartOutcome.INVALID, "A project name is at most 200 characters");
+            }
+            if (board != null && !port.projectOf(board).map(project::equals).orElse(false)) {
+                return StartResult.of(StartOutcome.INVALID, "Board " + board + " is not a board of " + project);
             }
             if (!port.projectExists(project)) {
                 return StartResult.of(StartOutcome.INVALID, "Alfred has no project " + project);
@@ -163,25 +183,23 @@ public class StartService implements StartFromItemUseCase {
             where = new Target(project, board, target.remember());
             if (target.remember()) {
                 MappingKind kind = rememberAs(s);
-                cache.putMapping(conn, kind, valueFor(kind, s), project, board);
+                cache.putMapping(conn, kind, valueFor(kind, conn, s), project, board);
                 signals.changed(conn, "mappings");
             }
         } else {
             where = mapped(conn, s);
             if (where == null) {
                 return new StartResult(StartOutcome.NEEDS_TARGET, null, null, null, null,
-                        "Pick the Alfred project (and board) this item's board goes to", 0);
+                        "Pick the Alfred project (and board) this item's board goes to", 0, null);
             }
         }
-        // claim first (one start per item, two clicks at once included), fetch, and only then post: the runner may take
-        // the message at once, and its team_link must find the start and its files
         String targetKey = where.project() + "|" + (where.boardId() == null ? "" : where.boardId());
-        if (!cache.claimStart(new StartRow(conn, extId, targetKey, null, WAITING, clock.instant()))) {
-            Optional<StartRow> other = cache.start(conn, extId);
+        if (!cache.claimStart(new StartRow(conn, s.extId(), targetKey, null, WAITING, clock.instant()))) {
+            Optional<StartRow> other = cache.start(conn, s.extId());
             return new StartResult(StartOutcome.WAITING, where.project(), where.boardId(), other.map(StartRow::chatMessageId).orElse(null), null,
-                    "Already waiting for /alfred-setup", 0);
+                    "Already waiting for /alfred-setup", 0, null);
         }
-        int fetched = token == null || token.blank() ? 0 : fetchPending(c.get(), s, token);
+        int fetched = fetchPending(c, s);
         Optional<Long> message;
         try {
             message = port.postStart(where.project(), where.boardId(), setupText(conn, s));
@@ -189,11 +207,11 @@ public class StartService implements StartFromItemUseCase {
             message = Optional.empty();
         }
         if (message.isEmpty()) {
-            cache.deleteStart(conn, extId);
-            cache.takePending(conn, extId);
+            cache.deleteStart(conn, s.extId());
+            cache.takePending(conn, s.extId());
             return StartResult.of(StartOutcome.INVALID, "Could not post the start to the board chat");
         }
-        cache.putStart(new StartRow(conn, extId, targetKey, message.get(), WAITING, clock.instant()));
+        cache.putStart(new StartRow(conn, s.extId(), targetKey, message.get(), WAITING, clock.instant()));
         signals.changed(conn, "start");
         String who = port.whoAnswers(where.project(), where.boardId());
         return new StartResult(StartOutcome.WAITING, where.project(), where.boardId(), message.get(), null,
@@ -201,22 +219,22 @@ public class StartService implements StartFromItemUseCase {
                         + "the setup waits until then" : null, fetched, who);
     }
 
-    /** FR-037a: with the viewer's token, the attachments come down now and wait for the board (24 h at most). */
-    private int fetchPending(StoredConnection c, ItemSummary s, Token token) {
-        if (!(connectors.get(c.kind()) instanceof AttachmentsReader r)) {
+    /** FR-037a: the attachments come down now and wait for the board (24 h at most). */
+    private int fetchPending(Ctx c, Item s) {
+        if (!(c.connector() instanceof AttachmentsReader r)) {
             return 0;
         }
         try {
             List<PendingFile> files = new ArrayList<>();
-            for (Attachment a : r.attachments(CachedItems.connection(c), token, s.extId(), true)) {
+            for (Attachment a : live.call(c, () -> r.attachments(c.connection(), c.token(), s.extId(), true))) {
                 if (a.data() != null) {
                     files.add(new PendingFile(a.name(), a.mime(), a.data().length, a.data()));
                 }
             }
             cache.putPending(c.id(), s.extId(), files);
             return files.size();
-        } catch (ProviderException e) {
-            log.info("Start of {} {}: attachments not fetched ({})", c.id(), s.extId(), e.kind()); // the board lists them to fetch later
+        } catch (TeamException e) {
+            log.info("Start of {} {}: attachments not fetched ({})", c.id(), s.extId(), e.code());
             return 0;
         } catch (RuntimeException e) {
             log.warn("Start of {} {}: attachments not fetched ({})", c.id(), s.extId(), e.getClass().getSimpleName());
@@ -232,7 +250,7 @@ public class StartService implements StartFromItemUseCase {
         }
         TeamBoardsPort port = boards.getIfAvailable();
         if (port != null && row.get().chatMessageId() != null && !port.withdrawStart(row.get().chatMessageId())) {
-            return CancelOutcome.TAKEN; // the setup has begun: it finishes and links the board
+            return CancelOutcome.TAKEN;
         }
         cache.deleteStart(conn, extId);
         cache.takePending(conn, extId);
@@ -249,5 +267,66 @@ public class StartService implements StartFromItemUseCase {
     public boolean askedByUser(String askedIn) {
         TeamBoardsPort port = boards.getIfAvailable();
         return port != null && askedIn != null && !askedIn.isBlank() && port.askedBy(askedIn.strip());
+    }
+
+    @Override
+    public LinkResult link(String boardId, String conn, String extId) {
+        TeamBoardsPort port = boards.getIfAvailable();
+        BoardItemsUseCase bi = boardItems.getIfAvailable();
+        if (port == null || bi == null || port.projectOf(boardId).isEmpty()) {
+            throw TeamException.notFound("No board " + boardId);
+        }
+        bi.add(Who.USER, boardId, conn, extId, true, BoardItemsUseCase.MAX_REFS_ASKED, null);
+        cache.start(conn, extId).ifPresent(r -> cache.putStart(new StartRow(r.conn(), r.extId(), r.target(), r.chatMessageId(), DONE, r.at())));
+        List<String> attached = new ArrayList<>();
+        List<String> notAttached = new ArrayList<>();
+        Set<String> held = port.files(boardId);
+        // each file leaves the store only once the board holds it; one refused never loses the others
+        for (PendingFile f : cache.pending(conn, extId)) {
+            if (held.contains(f.name())) {
+                cache.deletePending(conn, extId, f.name());
+                continue;
+            }
+            String why;
+            try {
+                why = port.attach(boardId, f.name(), f.data());
+            } catch (RuntimeException e) {
+                why = "not stored";
+            }
+            if (why == null) {
+                attached.add(f.name());
+                cache.deletePending(conn, extId, f.name());
+            } else {
+                notAttached.add(f.name() + " (" + why + ")");
+            }
+        }
+        signals.changed(conn, "start");
+        return new LinkResult(attached, notAttached);
+    }
+
+    @Override
+    public LinkResult fetchAttachments(String boardId) {
+        TeamBoardsPort port = boards.getIfAvailable();
+        BoardItemRow main = cache.main(boardId).orElseThrow(() -> TeamException.notFound("Board " + boardId + " has no main item"));
+        if (port == null) {
+            throw TeamException.notFound("Boards are not wired in this Alfred");
+        }
+        Ctx c = live.ctx(main.conn());
+        AttachmentsReader r = live.cap(c, AttachmentsReader.class, "read attachments");
+        Set<String> held = port.files(boardId);
+        List<String> attached = new ArrayList<>();
+        List<String> notAttached = new ArrayList<>();
+        for (Attachment a : live.call(c, () -> r.attachments(c.connection(), c.token(), main.item(), true))) {
+            if (held.contains(a.name())) {
+                continue;
+            }
+            if (a.data() == null) {
+                notAttached.add(a.name() + " (over the size limit - open it in the tracker)");
+                continue;
+            }
+            String why = port.attach(boardId, a.name(), a.data());
+            if (why == null) attached.add(a.name()); else notAttached.add(a.name() + " (" + why + ")");
+        }
+        return new LinkResult(attached, notAttached);
     }
 }

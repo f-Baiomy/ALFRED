@@ -1,11 +1,11 @@
 package com.fathy.alfred.backend.teamboards.core.application.port.in;
 
-import com.fathy.alfred.backend.teamboards.spi.model.Token;
+import java.util.List;
 
 /**
- * Start (specs/027 US8): the user opens an Alfred board from a work item. Only the user starts - from the Team tab, a
- * board chat or the terminal; Claude may suggest, never start. The start is a waiting /alfred-setup message in the
- * target board's chat, answered by the terminal holding that board or the project's runner.
+ * Start (specs/027 US8, 028 FR-114): the user opens an Alfred board from a work item. Only the user starts - from the
+ * Team tab, a board chat or the terminal; Claude may suggest, never start. The start is a waiting /alfred-setup message
+ * in the target board's chat; when /alfred-setup links the board (team_link), the item becomes the board's main.
  */
 public interface StartFromItemUseCase {
 
@@ -15,26 +15,19 @@ public interface StartFromItemUseCase {
     record Target(String project, String boardId, boolean remember) {
     }
 
-    /** {@code suggestedProject}: with NEEDS_TARGET, a project the item's squad points to, else null. */
     /** {@code answeredBy}: who will run /alfred-setup now (null: nobody is live - it waits). */
     record StartResult(StartOutcome outcome, String project, String boardId, Long messageId, String suggestedProject, String message,
                        int attachmentsFetched, String answeredBy) {
-        public StartResult(StartOutcome outcome, String project, String boardId, Long messageId, String suggestedProject, String message,
-                           int attachmentsFetched) {
-            this(outcome, project, boardId, messageId, suggestedProject, message, attachmentsFetched, null);
-        }
-
         public static StartResult of(StartOutcome outcome, String message) {
             return new StartResult(outcome, null, null, null, null, message, 0, null);
         }
     }
 
-    /** The token, when the browser has one, also downloads the item's attachments for the board (within the caps). */
-    StartResult start(String conn, String extId, Target target, Token token);
+    /** With the vault's token: reads the item live and downloads its attachments for the board (within the caps). */
+    StartResult start(String conn, String extId, Target target);
 
     enum CancelOutcome { CANCELLED, NOT_WAITING, TAKEN }
 
-    /** Cancels a start nobody took yet; TAKEN when the terminal or runner is already setting it up (it then goes on). */
     CancelOutcome cancel(String conn, String extId);
 
     /** A start of this item waits for /alfred-setup (what lets Claude link the board it sets up). */
@@ -45,4 +38,14 @@ public interface StartFromItemUseCase {
 
     /** Where an item's board would go without asking: its mapping, or null. */
     Target targetOf(String conn, String extId);
+
+    /** {@code attached}: files now on the board; {@code notAttached}: name and why. */
+    record LinkResult(List<String> attached, List<String> notAttached) {
+    }
+
+    /** /alfred-setup links the board: the item becomes its main, the start is done, its fetched files go to the board. */
+    LinkResult link(String boardId, String conn, String extId);
+
+    /** Downloads the main item's attachments the board does not hold yet (vault token). */
+    LinkResult fetchAttachments(String boardId);
 }

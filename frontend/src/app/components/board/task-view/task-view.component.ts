@@ -19,6 +19,8 @@ import { RunSkillComponent } from '../run-skill/run-skill.component';
 import { SpecFilesComponent } from '../spec-files/spec-files.component';
 import { ReqFilter, TaskRequirementsComponent } from '../task-requirements/task-requirements.component';
 import { BoardFilesComponent } from '../visuals/board-files.component';
+import { BoardCyclesComponent } from '../board-cycles/board-cycles.component';
+import { TeamRelatedItemsComponent } from '../../team/related-items/related-items.component';
 
 const TAB_KEY = 'alfred.task.tab.';
 const GUIDE_KEY = 'alfred.task.guide.';
@@ -59,7 +61,7 @@ const BAR: readonly ReqGroup[] = ['MET', 'BUG', 'MISSING', 'FIXED', 'DECIDE', 'C
   selector: 'app-task-view',
   standalone: true,
   host: { '(document:click)': 'outside($event)' },
-  imports: [BoardFilesComponent, CycleBriefComponent, RunSkillComponent, SpecFilesComponent, TaskRequirementsComponent, WorkItemStripComponent],
+  imports: [BoardFilesComponent, CycleBriefComponent, RunSkillComponent, SpecFilesComponent, TaskRequirementsComponent, WorkItemStripComponent, BoardCyclesComponent, TeamRelatedItemsComponent],
   template: `
     <div class="tv">
       <div class="tv-hd">
@@ -219,6 +221,8 @@ const BAR: readonly ReqGroup[] = ['MET', 'BUG', 'MISSING', 'FIXED', 'DECIDE', 'C
             }
             @if (!log().length) { <div class="board-dim tv-empty">No runs yet - each /alfred-* skill run on this task leaves one entry here.</div> }
           }
+          @case ('cycles') { <app-board-cycles [boardId]="cycleId()" [editable]="editable()" /> }
+          @case ('items') { <app-team-related-items [boardId]="cycleId()" [editable]="editable()" /> }
           @case ('files') {
             <div class="tv-two">
               <app-spec-files [cycleId]="cycleId()" [editable]="editable()" />
@@ -300,6 +304,8 @@ export class TaskViewComponent {
       { key: 'brief', label: 'Brief', n: threads.open.length ? `💬 ${threads.open.length}` : '', warn: threads.open.some((x) => x.asksYou) },
       { key: 'runs', label: "Claude's runs", n: this.log().length ? String(this.log().length) : '', warn: false },
       { key: 'files', label: 'Spec & files', n: this.specCount() ? String(this.specCount()) : '', warn: false },
+      { key: 'cycles', label: 'Cycles', n: '', warn: false },
+      { key: 'items', label: 'Related items', n: '', warn: false },
     ];
     return t;
   });

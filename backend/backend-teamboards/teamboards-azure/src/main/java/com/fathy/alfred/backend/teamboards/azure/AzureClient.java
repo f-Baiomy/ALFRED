@@ -62,8 +62,33 @@ class AzureClient {
         return send(HttpRequest.newBuilder(uri).header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(text)), t);
     }
 
+    /** A JSON-Patch (work item updates and creates). */
+    JsonNode patch(URI uri, Token t, Object ops) throws ProviderException {
+        return sendJson(uri, t, "PATCH", "application/json-patch+json", ops);
+    }
+
+    /** A JSON-Patch POST (create a work item of a type). */
+    JsonNode postPatch(URI uri, Token t, Object ops) throws ProviderException {
+        return sendJson(uri, t, "POST", "application/json-patch+json", ops);
+    }
+
+    private JsonNode sendJson(URI uri, Token t, String method, String type, Object body) throws ProviderException {
+        String text;
+        try {
+            text = json.writeValueAsString(body);
+        } catch (IOException e) {
+            throw new ProviderException(Kind.BAD_RESPONSE, "Could not write the request");
+        }
+        return send(HttpRequest.newBuilder(uri).header("Content-Type", type).method(method, HttpRequest.BodyPublishers.ofString(text)), t);
+    }
+
+    /** Raw bytes (an attachment upload). */
+    JsonNode postBytes(URI uri, Token t, byte[] data) throws ProviderException {
+        return send(HttpRequest.newBuilder(uri).header("Content-Type", "application/octet-stream").POST(HttpRequest.BodyPublishers.ofByteArray(data)), t);
+    }
+
     private JsonNode send(HttpRequest.Builder b, Token t) throws ProviderException {
-        HttpRequest request = b.timeout(Duration.ofSeconds(30)).header("Authorization", auth(t)).header("Accept", "application/json").build();
+        HttpRequest request = b.timeout(Duration.ofSeconds(60)).header("Authorization", auth(t)).header("Accept", "application/json").build();
         for (int attempt = 0; ; attempt++) {
             HttpResponse<InputStream> r = exchange(request);
             int status = r.statusCode();
@@ -81,7 +106,8 @@ class AzureClient {
                             + reason(in));
                 }
                 check(status, request.uri());
-                return json.readTree(in);
+                JsonNode n = json.readTree(in);
+                return n == null ? json.missingNode() : n;
             } catch (IOException e) {
                 throw new ProviderException(Kind.BAD_RESPONSE, "Azure DevOps sent an answer that is not JSON");
             }

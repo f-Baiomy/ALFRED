@@ -45,7 +45,7 @@ public class BoardEditAccess {
                 tunnel ? "The shared tunnel link is view-only. Open Alfred on its own machine to change the board." : access.howToEdit());
     }
 
-    static boolean viaTunnel(HttpServletRequest request) {
+    public static boolean viaTunnel(HttpServletRequest request) {
         return Collections.list(request.getHeaderNames()).stream()
                 .anyMatch(h -> AccessRule.TUNNEL_HEADERS.contains(h.toLowerCase(Locale.ROOT)));
     }

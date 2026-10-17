@@ -1,13 +1,13 @@
 package com.fathy.alfred.backend.teamboards.core.adapter.in.web;
 
+import com.fathy.alfred.backend.teamboards.core.application.port.in.PeopleUseCase;
+import com.fathy.alfred.backend.teamboards.core.application.port.in.TeamException;
 import com.fathy.alfred.backend.teamboards.core.application.port.in.TeamUseCase;
 import com.fathy.alfred.backend.teamboards.core.application.port.in.TeamUseCase.NewConnection;
-import com.fathy.alfred.backend.teamboards.core.application.port.in.TeamUseCase.Result;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.FieldMapRow;
-import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.ItemQuery;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.MappingKind;
-import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.RefreshResult;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.SeedTarget;
+import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.Who;
 import com.fathy.alfred.backend.teamboards.spi.model.Scope;
 import com.fathy.alfred.backend.teamboards.spi.model.Token;
 import jakarta.validation.Valid;
@@ -33,20 +33,21 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * The Team tab's API (specs/027 contracts/teamboards-rest.md). The token comes in {@code X-Alfred-Team-Token} on the
- * calls that reach the provider, is used and dropped - never logged, stored or echoed. Writes sit behind the edit rule
- * (backend-app), so the tunnel can never make them.
+ * The Team tab's connections, token, filter lists, people and mappings (specs/028 contracts/teamboards-rest.md). The
+ * token comes in once, in a PUT body, and lives in the backend's memory; it is never echoed, logged or stored. Writes sit
+ * behind the edit rule (backend-app), so the tunnel can never make them.
  */
 @RestController
 public class TeamboardsController {
 
-    public static final String TOKEN_HEADER = "X-Alfred-Team-Token";
-    public static final String WHO_HEADER = "X-Alfred-Team-Who";
+    public static final String ACTOR_HEADER = "X-Alfred-Actor";
 
     private final TeamUseCase team;
+    private final PeopleUseCase people;
 
-    public TeamboardsController(TeamUseCase team) {
+    public TeamboardsController(TeamUseCase team, PeopleUseCase people) {
         this.team = team;
+        this.people = people;
     }
 
     record ScopeDto(@Size(max = Scope.MAX_PROJECTS) List<@NotNull @Size(max = 200) String> projects,
@@ -63,6 +64,13 @@ public class TeamboardsController {
     record UpdateConnectionDto(@Size(max = 120) String name, @Valid ScopeDto scope) {
     }
 
+    record TokenDto(@NotBlank @Size(max = 1000) String token) {
+        @Override
+        public String toString() {
+            return "TokenDto[***]";
+        }
+    }
+
     record SquadMapDto(@Size(max = 200) String alfredProject, @Size(max = 200) String alfredTeam) {
     }
 
@@ -73,24 +81,14 @@ public class TeamboardsController {
     record FieldMapDto(@NotBlank String target) {
     }
 
-    private static Token token(String header) {
-        return header == null || header.isBlank() ? null : new Token(header.strip());
+    record MeDto(@NotBlank @Size(max = 200) String person) {
     }
 
-    static ResponseEntity<?> error(HttpStatus status, String code, String message) {
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("error", code);
-        body.put("message", message == null ? "" : message);
-        return ResponseEntity.status(status).body(body);
+    record TypeKindDto(@NotBlank @Size(max = 200) String type, @NotBlank @Size(max = 20) String kind) {
     }
 
-    static <T> ResponseEntity<?> respond(Result<T> r) {
-        return switch (r.outcome()) {
-            case OK -> ResponseEntity.ok(r.value());
-            case NOT_FOUND -> error(HttpStatus.NOT_FOUND, "NOT_FOUND", r.message());
-            case NOT_SUPPORTED -> error(HttpStatus.NOT_FOUND, "NOT_SUPPORTED", r.message());
-            case INVALID -> error(HttpStatus.BAD_REQUEST, "INVALID", r.message());
-        };
+    static Who who(String actor) {
+        return Who.of(actor);
     }
 
     // ----------------------------------------------------------------------------------------------------- connections
@@ -105,92 +103,83 @@ public class TeamboardsController {
         return ResponseEntity.ok(team.connections());
     }
 
+    @GetMapping("/teamboards/upgrade-notice")
+    public ResponseEntity<?> upgradeNotice() {
+        return ResponseEntity.ok(Map.of("show", team.upgradeNotice()));
+    }
+
+    @DeleteMapping("/teamboards/upgrade-notice")
+    public ResponseEntity<?> dismissUpgradeNotice() {
+        team.dismissUpgradeNotice();
+        return ResponseEntity.noContent().build();
+    }
+
     @PostMapping("/teamboards/connections")
     public ResponseEntity<?> create(@Valid @RequestBody NewConnectionDto body) {
-        Result<?> r = team.createConnection(new NewConnection(body.kind().strip().toLowerCase(Locale.ROOT), body.name(), body.baseUrl(),
-                body.scope() == null ? null : body.scope().scope()));
-        return r.outcome() == TeamUseCase.Outcome.OK ? ResponseEntity.status(HttpStatus.CREATED).body(r.value()) : respond(r);
+        return ResponseEntity.status(HttpStatus.CREATED).body(team.createConnection(new NewConnection(body.kind().strip().toLowerCase(Locale.ROOT),
+                body.name(), body.baseUrl(), body.scope() == null ? null : body.scope().scope())));
     }
 
     @PatchMapping("/teamboards/connections/{id}")
     public ResponseEntity<?> update(@PathVariable String id, @Valid @RequestBody UpdateConnectionDto body) {
-        return respond(team.updateConnection(id, body.name(), body.scope() == null ? null : body.scope().scope()));
+        return ResponseEntity.ok(team.updateConnection(id, body.name(), body.scope() == null ? null : body.scope().scope()));
     }
 
     @DeleteMapping("/teamboards/connections/{id}")
     public ResponseEntity<?> delete(@PathVariable String id) {
-        return team.deleteConnection(id) ? ResponseEntity.noContent().build() : error(HttpStatus.NOT_FOUND, "NOT_FOUND", "No such connection");
-    }
-
-    @PostMapping("/teamboards/connections/{id}/refresh")
-    public ResponseEntity<?> refresh(@PathVariable String id, @RequestHeader(value = TOKEN_HEADER, required = false) String token,
-                                     @RequestHeader(value = WHO_HEADER, required = false) String who,
-                                     @RequestParam(defaultValue = "false") boolean background) {
-        RefreshResult r = background ? team.refreshInBackground(id, token(token), who) : team.refresh(id, token(token), who);
-        return switch (r.outcome()) {
-            case OK -> ResponseEntity.ok(Map.of("changed", r.changed(), "fetchedAt", r.fetchedAt().toString()));
-            case STARTED -> ResponseEntity.status(HttpStatus.ACCEPTED).body(Map.of("state", "STARTED", "message", r.message()));
-            case TOKEN_MISSING -> error(HttpStatus.UNAUTHORIZED, "TOKEN_MISSING", r.message());
-            case TOKEN_REJECTED -> error(HttpStatus.FORBIDDEN, "TOKEN_REJECTED", r.message());
-            case PROVIDER_BUSY -> {
-                Map<String, Object> body = new LinkedHashMap<>();
-                body.put("error", "PROVIDER_BUSY");
-                body.put("message", r.message());
-                body.put("retryAfter", r.retryAfter() == null ? 30 : r.retryAfter());
-                yield ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(body);
-            }
-            case NOT_FOUND -> error(HttpStatus.NOT_FOUND, "NOT_FOUND", r.message());
-            case UNREACHABLE -> error(HttpStatus.BAD_GATEWAY, "UNREACHABLE", r.message());
-            case BAD_RESPONSE -> error(HttpStatus.BAD_GATEWAY, "BAD_RESPONSE", r.message());
-        };
-    }
-
-    // ----------------------------------------------------------------------------------------------------------- items
-
-    @GetMapping("/teamboards/connections/{id}/items")
-    public ResponseEntity<?> items(@PathVariable String id, @RequestParam(required = false) String q, @RequestParam(required = false) String type,
-                                   @RequestParam(required = false) String squad, @RequestParam(required = false) String state,
-                                   @RequestParam(required = false) String assignee, @RequestParam(required = false) String sprint,
-                                   @RequestParam(defaultValue = "0") int offset, @RequestParam(defaultValue = "50") int limit) {
-        return ResponseEntity.ok(team.items(new ItemQuery(id, q, type, squad, state, assignee, sprint, offset, limit)));
-    }
-
-    @GetMapping("/teamboards/items/{conn}/{extId}")
-    public ResponseEntity<?> item(@PathVariable String conn, @PathVariable String extId) {
-        return team.item(conn, extId).<ResponseEntity<?>>map(ResponseEntity::ok)
-                .orElseGet(() -> error(HttpStatus.NOT_FOUND, "NOT_FOUND", "No such item in the cache - Refresh first"));
-    }
-
-    /** The cached history only: a GET never reaches the provider or writes, so it stays read-only through the tunnel. */
-    @GetMapping("/teamboards/items/{conn}/{extId}/revisions")
-    public ResponseEntity<?> revisions(@PathVariable String conn, @PathVariable String extId) {
-        return respond(team.revisions(conn, extId, null, false));
-    }
-
-    /** Fetches the history with the viewer's token into the cache (a write: the edit rule applies). */
-    @PostMapping("/teamboards/items/{conn}/{extId}/revisions/fetch")
-    public ResponseEntity<?> fetchRevisions(@PathVariable String conn, @PathVariable String extId,
-                                            @RequestHeader(value = TOKEN_HEADER, required = false) String token) {
-        Token t = token(token);
-        if (t == null || t.blank()) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "TOKEN_MISSING", "message", "Add your personal access token first"));
+        if (!team.deleteConnection(id)) {
+            throw TeamException.notFound("No such connection");
         }
-        return respond(team.revisions(conn, extId, t, true));
+        return ResponseEntity.noContent().build();
+    }
+
+    // ---------------------------------------------------------------------------------------------------------- token
+
+    @PutMapping("/teamboards/connections/{id}/token")
+    public ResponseEntity<?> putToken(@PathVariable String id, @Valid @RequestBody TokenDto body,
+                                      @RequestHeader(value = ACTOR_HEADER, required = false) String actor) {
+        if (who(actor) == Who.CLAUDE) {
+            throw TeamException.userOnly("Claude never holds a token - the user enters it in the Team tab");
+        }
+        return ResponseEntity.ok(team.putToken(id, new Token(body.token())));
+    }
+
+    @GetMapping("/teamboards/connections/{id}/token")
+    public ResponseEntity<?> tokenStatus(@PathVariable String id) {
+        return ResponseEntity.ok(team.tokenStatus(id));
+    }
+
+    @DeleteMapping("/teamboards/connections/{id}/token")
+    public ResponseEntity<?> forget(@PathVariable String id) {
+        team.forgetToken(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    // ------------------------------------------------------------------------------------------------------- the lists
+
+    @GetMapping("/teamboards/connections/{id}/lists")
+    public ResponseEntity<?> lists(@PathVariable String id, @RequestParam(defaultValue = "10") int maxAgeMinutes) {
+        return ResponseEntity.ok(team.lists(id, maxAgeMinutes));
+    }
+
+    @PostMapping("/teamboards/connections/{id}/lists/refresh")
+    public ResponseEntity<?> refreshLists(@PathVariable String id) {
+        return ResponseEntity.ok(team.refreshLists(id));
     }
 
     @GetMapping("/teamboards/connections/{id}/boards")
     public ResponseEntity<?> boards(@PathVariable String id) {
-        return respond(team.boards(id));
+        return ResponseEntity.ok(team.boards(id));
     }
 
     @GetMapping("/teamboards/connections/{id}/sprints")
     public ResponseEntity<?> sprints(@PathVariable String id) {
-        return respond(team.sprints(id));
+        return ResponseEntity.ok(team.sprints(id));
     }
 
     @GetMapping("/teamboards/connections/{id}/squads")
     public ResponseEntity<?> squads(@PathVariable String id) {
-        return respond(team.squads(id));
+        return ResponseEntity.ok(team.squads(id));
     }
 
     @GetMapping("/teamboards/connections/{id}/people")
@@ -198,21 +187,41 @@ public class TeamboardsController {
         return ResponseEntity.ok(team.people(id));
     }
 
+    @GetMapping("/teamboards/connections/{id}/people/{person}")
+    public ResponseEntity<?> person(@PathVariable String id, @PathVariable String person) {
+        return ResponseEntity.ok(people.person(id, person));
+    }
+
     @PatchMapping("/teamboards/squads/{conn}/{extId}")
     public ResponseEntity<?> mapSquad(@PathVariable String conn, @PathVariable String extId, @Valid @RequestBody SquadMapDto body) {
-        return respond(team.mapSquad(conn, extId, body.alfredProject(), body.alfredTeam()));
+        return ResponseEntity.ok(team.mapSquad(conn, extId, body.alfredProject(), body.alfredTeam()));
     }
 
-    @GetMapping("/teamboards/connections/{id}/changes")
-    public ResponseEntity<?> changes(@PathVariable String id, @RequestParam(required = false) String squad,
-                                     @RequestParam(required = false) String person, @RequestParam(required = false) Long after,
-                                     @RequestParam(defaultValue = "100") int limit) {
-        return ResponseEntity.ok(team.changes(id, squad, person, after, limit));
+    // ------------------------------------------------------------------------------------------------------------ me
+
+    @GetMapping("/teamboards/connections/{id}/me")
+    public ResponseEntity<?> me(@PathVariable String id) {
+        return team.me(id).<ResponseEntity<?>>map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.noContent().build());
     }
 
-    @PostMapping("/teamboards/connections/{id}/seen")
-    public ResponseEntity<?> seen(@PathVariable String id) {
-        return team.markSeen(id) ? ResponseEntity.noContent().build() : error(HttpStatus.NOT_FOUND, "NOT_FOUND", "No such connection");
+    @PutMapping("/teamboards/connections/{id}/me")
+    public ResponseEntity<?> putMe(@PathVariable String id, @Valid @RequestBody MeDto body,
+                                   @RequestHeader(value = ACTOR_HEADER, required = false) String actor) {
+        if (who(actor) == Who.CLAUDE) {
+            throw TeamException.userOnly("Only the user says who they are");
+        }
+        return ResponseEntity.ok(team.putMe(id, body.person()));
+    }
+
+    @DeleteMapping("/teamboards/connections/{id}/me")
+    public ResponseEntity<?> clearMe(@PathVariable String id) {
+        team.clearMe(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/teamboards/connections/{id}/mine")
+    public ResponseEntity<?> mine(@PathVariable String id) {
+        return ResponseEntity.ok(people.mine(id));
     }
 
     // ------------------------------------------------------------------------------------------------ mappings, fields
@@ -228,14 +237,17 @@ public class TeamboardsController {
         try {
             kind = MappingKind.valueOf(body.kind().strip().toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException e) {
-            return error(HttpStatus.BAD_REQUEST, "INVALID", "kind is SPRINT, SQUAD, AREA or PROJECT");
+            throw TeamException.invalid("kind is SPRINT, SQUAD, AREA or PROJECT");
         }
-        return respond(team.putMapping(id, kind, body.extValue(), body.alfredProject(), body.alfredBoard()));
+        return ResponseEntity.ok(team.putMapping(id, kind, body.extValue(), body.alfredProject(), body.alfredBoard()));
     }
 
     @DeleteMapping("/teamboards/connections/{id}/mappings/{mid}")
     public ResponseEntity<?> deleteMapping(@PathVariable String id, @PathVariable long mid) {
-        return team.deleteMapping(id, mid) ? ResponseEntity.noContent().build() : error(HttpStatus.NOT_FOUND, "NOT_FOUND", "No such mapping");
+        if (!team.deleteMapping(id, mid)) {
+            throw TeamException.notFound("No such mapping");
+        }
+        return ResponseEntity.noContent().build();
     }
 
     @GetMapping("/teamboards/connections/{id}/field-maps")
@@ -250,14 +262,34 @@ public class TeamboardsController {
         try {
             target = SeedTarget.valueOf(body.target().strip().toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException e) {
-            return error(HttpStatus.BAD_REQUEST, "INVALID", "target is PURPOSE, STEPS, ACCEPTANCE or CONTEXT");
+            throw TeamException.invalid("target is PURPOSE, STEPS, ACCEPTANCE or CONTEXT");
         }
-        return respond(team.putFieldMap(new FieldMapRow(id, type, field, target)));
+        return ResponseEntity.ok(team.putFieldMap(new FieldMapRow(id, type, field, target)));
     }
 
     @DeleteMapping("/teamboards/connections/{id}/field-maps/{type}/{field}")
     public ResponseEntity<?> deleteFieldMap(@PathVariable String id, @PathVariable String type, @PathVariable String field) {
-        return team.deleteFieldMap(id, type, field) ? ResponseEntity.noContent().build()
-                : error(HttpStatus.NOT_FOUND, "NOT_FOUND", "No such field map");
+        if (!team.deleteFieldMap(id, type, field)) {
+            throw TeamException.notFound("No such field map");
+        }
+        return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/teamboards/connections/{id}/type-kinds")
+    public ResponseEntity<?> typeKinds(@PathVariable String id) {
+        return ResponseEntity.ok(team.typeKinds(id));
+    }
+
+    @PutMapping("/teamboards/connections/{id}/type-kinds")
+    public ResponseEntity<?> putTypeKind(@PathVariable String id, @Valid @RequestBody TypeKindDto body) {
+        return ResponseEntity.ok(team.putTypeKind(id, body.type(), body.kind()));
+    }
+
+    static Map<String, Object> map(Object... kv) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        for (int i = 0; i + 1 < kv.length; i += 2) {
+            out.put(String.valueOf(kv[i]), kv[i + 1]);
+        }
+        return out;
     }
 }

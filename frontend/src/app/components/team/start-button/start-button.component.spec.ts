@@ -8,8 +8,9 @@ import { TeamStateService } from '../../../core/team/team-state.service';
 import { TeamItem } from '../../../core/team/team.models';
 import { TeamStartButtonComponent } from './start-button.component';
 
-const ITEM: TeamItem = { conn: 'c1', extId: '7', type: 'Bug', customType: false, title: 'Refund fails', state: 'Active', assignee: null,
-  squad: 'Payments', sprint: null, area: null, url: 'https://x/7', rev: 1, changedAt: null };
+const ITEM: TeamItem = { extId: '7', type: 'Bug', customType: false, title: 'Refund fails', state: 'Active', assignee: null,
+  squad: 'Payments', sprint: null, area: null, url: 'https://x/7', rev: 1, changedAt: null, changedBy: null, fields: {}, links: [],
+  identities: {}, project: 'Shop' };
 
 describe('TeamStartButtonComponent (specs/027 US8)', () => {
   function setUp(linkedBoard: string | null = null, startState: string | null = null) {
@@ -31,6 +32,7 @@ describe('TeamStartButtonComponent (specs/027 US8)', () => {
     });
     const f = TestBed.createComponent(TeamStartButtonComponent);
     f.componentRef.setInput('item', ITEM);
+    f.componentRef.setInput('conn', 'c1');
     f.componentRef.setInput('linkedBoard', linkedBoard);
     f.componentRef.setInput('startState', startState);
     f.detectChanges();

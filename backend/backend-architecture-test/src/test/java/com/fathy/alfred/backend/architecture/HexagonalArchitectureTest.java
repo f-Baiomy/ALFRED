@@ -377,7 +377,7 @@ class HexagonalArchitectureTest {
 
     // teamboards (specs/027 R8) is a leaf family: core + one module per connector over a Spring-free SPI. It reaches no
     // other slice (backend-app/teamboardsbridge wires it to the board), no slice depends on it, connectors never see
-    // core and core never names a connector, and the SPI declares no write (FR-026: read-only by contract).
+    // core and core never names a connector, and the SPI writes only through ItemWriter / AttachmentWriter (028 R9).
     private static final String[] OTHER_SLICES = {"..backend.calls..", "..backend.comments..", "..backend.export..",
             "..backend.sessioncycles..", "..backend.profiles..", "..backend.settings..", "..backend.internalcalls..",
             "..backend.calloverlap..", "..backend.redactions..", "..backend.interception..", "..backend.resend..",
@@ -409,13 +409,28 @@ class HexagonalArchitectureTest {
     }
 
     @Test
-    void theConnectorSpiHasNoSpringAndNoWrites() {
+    void theConnectorSpiHasNoSpringAndWritesOnlyInItsWriters() {
         noClasses().that().resideInAPackage("..backend.teamboards.spi..")
                 .should().dependOnClassesThat().resideInAPackage("org.springframework..")
                 .check(classes);
+        // specs/028 R9: writes exist only in ItemWriter and AttachmentWriter
         com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noMethods().that().areDeclaredInClassesThat().resideInAPackage("..backend.teamboards.spi")
                 .and().areDeclaredInClassesThat().areInterfaces()
-                .should().haveNameMatching("(create|update|delete|put|post|write|save|remove|set|move|assign|close).*")
+                .and().areDeclaredInClassesThat().doNotHaveSimpleName("ItemWriter")
+                .and().areDeclaredInClassesThat().doNotHaveSimpleName("AttachmentWriter")
+                .should().haveNameMatching("(create|update|delete|put|post|write|save|remove|set|move|assign|close|attach|comment|tag|hyperlink)([A-Z].*)?")
+                .check(classes);
+    }
+
+    @Test
+    void onlyTheConsentBundlesCallTheTrackerWriters() {
+        // every write to a tracker is a step of a bundle the user approved, or the user's own action recorded as one
+        noClasses().that().resideInAPackage("..backend.teamboards.core..")
+                .and().doNotHaveSimpleName("AzureWritesService")
+                .should().callMethodWhere(com.tngtech.archunit.core.domain.JavaCall.Predicates.target(
+                        com.tngtech.archunit.core.domain.properties.HasOwner.Predicates.With.owner(
+                                com.tngtech.archunit.base.DescribedPredicate.describe("a tracker writer", o -> o.getSimpleName().equals("ItemWriter")
+                                        || o.getSimpleName().equals("AttachmentWriter")))))
                 .check(classes);
     }
 }

@@ -11777,11 +11777,12 @@ app-run-skill { display: inline-flex; flex-direction: column; align-items: flex-
 .board-call-badge-fixed { color: var(--cyan); border-color: var(--cyan); }
 .board-call-badge-open { color: var(--purple-light); border-color: var(--purple); }
 
-.cycle-tabs { display: flex; gap: 0.25rem; margin: 0.5rem 1.25rem 0.75rem; border-bottom: 1px solid var(--border);
-  button { background: none; border: 0; border-bottom: 2px solid transparent; padding: 0.45rem 0.9rem; color: var(--text-dim); cursor: pointer; font: inherit; font-size: 0.85rem; }
-  button.on { color: var(--text); border-bottom-color: var(--purple); }
+// A cycle's boards (specs/028 US7): links above its calls, never tabs.
+.cycle-boards { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; margin: 0.4rem 1.25rem 0.6rem; font-size: 0.82rem; color: var(--text-dim);
+  a { color: var(--purple-light); }
 }
-.cycle-tab-count { font-size: 0.65rem; background: color-mix(in srgb, var(--red) 20%, transparent); color: var(--red); border-radius: 99px; padding: 0 0.4rem; margin-left: 0.25rem; }
+.cycle-boards-none { font-style: italic; }
+.cycle-boards-msg { color: var(--red); }
 // Bottom room like the Board tab (.board-page): the columns never run into the window edge.
 app-board-view { display: block; padding: 0 1.25rem 6rem; }
 .board-page app-board-view { padding: 0; }

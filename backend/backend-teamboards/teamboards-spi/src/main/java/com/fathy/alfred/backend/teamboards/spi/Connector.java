@@ -6,14 +6,14 @@ import com.fathy.alfred.backend.teamboards.spi.model.ItemTypeInfo;
 import com.fathy.alfred.backend.teamboards.spi.model.Person;
 import com.fathy.alfred.backend.teamboards.spi.model.Token;
 
-import java.time.Instant;
 import java.util.List;
-import java.util.function.Consumer;
 
 /**
- * A team-tracker connector (specs/027 R8): read-only by contract - no interface here or in the optional readers declares
- * a write (FR-026). A connector module depends on this SPI only and registers itself as a Spring component; core gets
- * {@code List<Connector>} and derives capabilities from the optional reader interfaces it implements.
+ * A team-tracker connector (specs/027 R8, 028). It reads here and through the optional readers, and writes only through
+ * {@link ItemWriter} / {@link AttachmentWriter}, which core calls for an approved bundle step or the user's own action.
+ * A connector module depends on this SPI only and registers itself as a Spring component; core gets
+ * {@code List<Connector>} and derives capabilities from the optional interfaces it implements. Nothing is cached: every
+ * read is live, with the token core holds in memory.
  */
 public interface Connector {
 
@@ -24,9 +24,7 @@ public interface Connector {
 
     ProviderWords words();
 
-    /** Items of the scope changed after {@code since} (null = full first fetch), page by page so nothing big sits in memory. */
-    void changedItems(Connection c, Token t, Instant since, Consumer<List<Item>> page) throws ProviderException;
-
+    /** One item, every field and its relations. */
     Item item(Connection c, Token t, String extId) throws ProviderException;
 
     /** Every work item type, custom ones included. */

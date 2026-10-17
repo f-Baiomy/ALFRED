@@ -1,9 +1,11 @@
 package com.fathy.alfred.backend.teamboards.azure;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fathy.alfred.backend.teamboards.spi.model.Comment;
 import com.fathy.alfred.backend.teamboards.spi.model.FieldChange;
 import com.fathy.alfred.backend.teamboards.spi.model.Item;
 import com.fathy.alfred.backend.teamboards.spi.model.Link;
+import com.fathy.alfred.backend.teamboards.spi.model.Person;
 import com.fathy.alfred.backend.teamboards.spi.model.Revision;
 
 import java.net.URI;
@@ -81,9 +83,37 @@ final class AzureMapper {
         }
         String area = text(f.get("System.AreaPath"));
         URI url = URI.create(org.toString() + "/" + (project == null ? "" : encode(project) + "/") + "_workitems/edit/" + id);
+        Map<String, Person> identities = new LinkedHashMap<>();
+        putIdentity(identities, "assigned", f.get("System.AssignedTo"));
+        putIdentity(identities, "created", f.get("System.CreatedBy"));
+        putIdentity(identities, "changed", f.get("System.ChangedBy"));
         return new Item(id, type == null ? "Item" : type, type != null && !STANDARD_TYPES.contains(type), text(f.get("System.Title")),
                 text(f.get("System.State")), text(f.get("System.AssignedTo")), leaf(area), text(f.get("System.IterationPath")), area, url,
-                w.path("rev").asInt(0), instant(text(f.get("System.ChangedDate"))), text(f.get("System.ChangedBy")), fields, links, w.toString());
+                w.path("rev").asInt(0), instant(text(f.get("System.ChangedDate"))), text(f.get("System.ChangedBy")), fields, links, w.toString(),
+                identities, project);
+    }
+
+    /** An identity field ({id, displayName, uniqueName}) as a person. */
+    static Person person(JsonNode n) {
+        if (n == null || !n.isObject()) {
+            return null;
+        }
+        String id = n.path("id").asText(null);
+        String name = n.path("displayName").asText(null);
+        String unique = n.path("uniqueName").asText(null);
+        return id == null && unique == null ? null : new Person(id == null ? unique : id, name == null ? unique : name, unique);
+    }
+
+    private static void putIdentity(Map<String, Person> out, String key, JsonNode n) {
+        Person p = person(n);
+        if (p != null) {
+            out.put(key, p);
+        }
+    }
+
+    /** One comment of {@code .../comments} (7.1-preview.4). */
+    static Comment comment(JsonNode c) {
+        return new Comment(c.path("id").asText(), text(c.get("createdBy")), instant(c.path("createdDate").asText(null)), c.path("text").asText(""));
     }
 
     static String encode(String s) {

@@ -3,13 +3,11 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { AppConfigService } from '../services/app-config.service';
 import { TeamApiService } from './team-api.service';
-import { TeamTokenStore } from './team-token.store';
 
-/** specs/027 R10: the viewer's token rides only on the calls that reach the provider (refresh, history). */
+/** specs/028 FR-001: the token goes to Alfred once, in a PUT body; no other call carries it, and the browser keeps none. */
 describe('TeamApiService', () => {
   let http: HttpTestingController;
   let api: TeamApiService;
-  let tokens: TeamTokenStore;
 
   beforeEach(() => {
     TestBed.configureTestingModule({
@@ -17,50 +15,43 @@ describe('TeamApiService', () => {
     });
     http = TestBed.inject(HttpTestingController);
     api = TestBed.inject(TeamApiService);
-    tokens = TestBed.inject(TeamTokenStore);
-    tokens.set('c1', 'secret-pat');
-    tokens.setWho('Sara');
   });
 
-  afterEach(() => {
-    tokens.clear('c1');
-    http.verify();
+  afterEach(() => http.verify());
+
+  it('puts the token in the body of the token PUT only', () => {
+    api.putToken('c1', 'secret-pat').subscribe();
+    const t = http.expectOne('http://alfred/teamboards/connections/c1/token');
+    expect(t.request.method).toBe('PUT');
+    expect(t.request.body).toEqual({ token: 'secret-pat' });
+    t.flush({ live: true, owner: null, expiresAt: null });
+
+    api.search('c1', { text: 'refund' }).subscribe();
+    const s = http.expectOne('http://alfred/teamboards/connections/c1/search');
+    expect(s.request.method).toBe('POST');
+    expect(s.request.headers.has('X-Alfred-Team-Token')).toBeFalse();
+    expect(JSON.stringify(s.request.body)).not.toContain('secret-pat');
+    s.flush({ items: [], total: 0, fullText: true, page: 0, pageSize: 50 });
   });
 
-  it('sends the token and the name on refresh and on a history fetch, not on the cached history', () => {
-    api.refresh('c1').subscribe();
-    const r = http.expectOne('http://alfred/teamboards/connections/c1/refresh');
-    expect(r.request.headers.get('X-Alfred-Team-Token')).toBe('secret-pat');
-    expect(r.request.headers.get('X-Alfred-Team-Who')).toBe('Sara');
-    r.flush({ changed: 0, fetchedAt: '' });
-
-    api.revisions('c1', '7', true).subscribe();
-    const h = http.expectOne('http://alfred/teamboards/items/c1/7/revisions/fetch');
-    expect(h.request.method).toBe('POST');
-    expect(h.request.headers.get('X-Alfred-Team-Token')).toBe('secret-pat');
-    h.flush([]);
-
-    api.revisions('c1', '7').subscribe();
-    const g = http.expectOne('http://alfred/teamboards/items/c1/7/revisions');
-    expect(g.request.method).toBe('GET');
-    expect(g.request.headers.has('X-Alfred-Team-Token')).toBeFalse();
-    g.flush([]);
+  it('keeps nothing in browser storage', () => {
+    const before = { local: localStorage.length, session: sessionStorage.length };
+    api.putToken('c1', 'secret-pat').subscribe();
+    http.expectOne('http://alfred/teamboards/connections/c1/token').flush({ live: true, owner: null, expiresAt: null });
+    expect(localStorage.length).toBe(before.local);
+    expect(sessionStorage.length).toBe(before.session);
+    for (let i = 0; i < localStorage.length; i++) expect(localStorage.getItem(localStorage.key(i)!) ?? '').not.toContain('secret-pat');
   });
 
-  it('never sends the token on reads of the cache or on settings writes', () => {
-    api.items('c1', { q: 'refund', squad: '' }).subscribe();
-    const i = http.expectOne((req) => req.url === 'http://alfred/teamboards/connections/c1/items');
-    expect(i.request.headers.has('X-Alfred-Team-Token')).toBeFalse();
-    expect(i.request.params.get('q')).toBe('refund');
-    expect(i.request.params.has('squad')).toBeFalse();
-    i.flush({ items: [], total: 0 });
+  it('reads an item with what to include, and a direct change as PATCH', () => {
+    api.item('c1', '7', 'history').subscribe();
+    const i = http.expectOne((r) => r.url === 'http://alfred/teamboards/connections/c1/items/7');
+    expect(i.request.params.get('include')).toBe('history');
+    i.flush({});
 
-    api.item('c1', '7').subscribe();
-    expect(http.expectOne('http://alfred/teamboards/items/c1/7').request.headers.has('X-Alfred-Team-Token')).toBeFalse();
-
-    api.createConnection({ kind: 'azure', name: 'X', baseUrl: 'https://dev.azure.com/x', scope: { projects: [], teams: [] } }).subscribe();
-    const c = http.expectOne('http://alfred/teamboards/connections');
-    expect(c.request.headers.has('X-Alfred-Team-Token')).toBeFalse();
-    expect(JSON.stringify(c.request.body)).not.toContain('secret-pat');
+    api.direct('c1', '7', { state: 'Resolved' }).subscribe();
+    const d = http.expectOne('http://alfred/teamboards/connections/c1/items/7');
+    expect(d.request.method).toBe('PATCH');
+    d.flush({});
   });
 });

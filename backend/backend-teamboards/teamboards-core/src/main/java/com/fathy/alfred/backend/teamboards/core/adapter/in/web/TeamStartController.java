@@ -1,12 +1,12 @@
 package com.fathy.alfred.backend.teamboards.core.adapter.in.web;
 
-import com.fathy.alfred.backend.teamboards.core.application.port.in.LinksUseCase;
-import com.fathy.alfred.backend.teamboards.core.application.port.in.LinksUseCase.LinkResult;
 import com.fathy.alfred.backend.teamboards.core.application.port.in.SeedUseCase;
 import com.fathy.alfred.backend.teamboards.core.application.port.in.StartFromItemUseCase;
+import com.fathy.alfred.backend.teamboards.core.application.port.in.StartFromItemUseCase.LinkResult;
 import com.fathy.alfred.backend.teamboards.core.application.port.in.StartFromItemUseCase.StartResult;
 import com.fathy.alfred.backend.teamboards.core.application.port.in.StartFromItemUseCase.Target;
-import com.fathy.alfred.backend.teamboards.spi.model.Token;
+import com.fathy.alfred.backend.teamboards.core.application.port.in.TeamException;
+import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.Who;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -26,20 +26,18 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Start, the seed and board links (specs/027 contracts/teamboards-rest.md, US8/US9). A start is the user's: a call as
- * Claude (X-Alfred-Actor: claude) needs {@code askedIn}, the chat message or "terminal" where the user asked.
+ * Start, the seed and the setup link (specs/027 US8, 028 FR-114). A start is the user's: as Claude
+ * (X-Alfred-Actor: claude) it needs {@code askedIn}, the chat message or "terminal" where the user asked.
  */
 @RestController
 @Validated
 public class TeamStartController {
 
     private final StartFromItemUseCase starts;
-    private final LinksUseCase links;
     private final SeedUseCase seeds;
 
-    public TeamStartController(StartFromItemUseCase starts, LinksUseCase links, SeedUseCase seeds) {
+    public TeamStartController(StartFromItemUseCase starts, SeedUseCase seeds) {
         this.starts = starts;
-        this.links = links;
         this.seeds = seeds;
     }
 
@@ -52,25 +50,16 @@ public class TeamStartController {
     record LinkDto(@NotBlank @Size(max = 100) String conn, @NotBlank @Size(max = 100) String extId, @Size(max = 40) String askedIn) {
     }
 
-    private static Token token(String header) {
-        return header == null || header.isBlank() ? null : new Token(header.strip());
-    }
-
-    private static ResponseEntity<?> error(HttpStatus status, String code, String message) {
-        return TeamboardsController.error(status, code, message);
-    }
-
     @PostMapping("/teamboards/items/{conn}/{extId}/start")
     public ResponseEntity<?> start(@PathVariable String conn, @PathVariable String extId, @Valid @RequestBody(required = false) StartDto body,
-                                   @RequestHeader(value = TeamboardsController.TOKEN_HEADER, required = false) String token,
-                                   @RequestHeader(value = "X-Alfred-Actor", required = false) String actor) {
-        if ("claude".equalsIgnoreCase(actor) && (body == null || !starts.askedByUser(body.askedIn()))) {
-            return error(HttpStatus.FORBIDDEN, "USER_ONLY",
-                    "Only the user starts a board from a work item: askedIn must name the chat message (or \"terminal\") where the user asked");
+                                   @RequestHeader(value = TeamboardsController.ACTOR_HEADER, required = false) String actor) {
+        if (Who.of(actor) == Who.CLAUDE && (body == null || !starts.askedByUser(body.askedIn()))) {
+            throw TeamException.userOnly("Only the user starts a board from a work item: askedIn must name the chat message (or \"terminal\") "
+                    + "where the user asked");
         }
         Target target = body == null || body.target() == null ? null
                 : new Target(body.target().project(), body.target().boardId(), body.target().remember());
-        StartResult r = starts.start(conn, extId, target, token(token));
+        StartResult r = starts.start(conn, extId, target);
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("state", r.outcome().name());
         out.put("project", r.project());
@@ -85,8 +74,8 @@ public class TeamStartController {
                 out.put("error", r.outcome().name());
                 yield ResponseEntity.status(HttpStatus.CONFLICT).body(out);
             }
-            case NOT_FOUND -> error(HttpStatus.NOT_FOUND, "NOT_FOUND", r.message());
-            case INVALID -> error(HttpStatus.BAD_REQUEST, "INVALID", r.message());
+            case NOT_FOUND -> throw TeamException.notFound(r.message());
+            case INVALID -> throw TeamException.invalid(r.message());
         };
     }
 
@@ -94,8 +83,8 @@ public class TeamStartController {
     public ResponseEntity<?> cancel(@PathVariable String conn, @PathVariable String extId) {
         return switch (starts.cancel(conn, extId)) {
             case CANCELLED -> ResponseEntity.noContent().build();
-            case NOT_WAITING -> error(HttpStatus.NOT_FOUND, "NOT_FOUND", "No start is waiting for this item");
-            case TAKEN -> error(HttpStatus.CONFLICT, "TAKEN", "The setup has already begun - it finishes and opens the board");
+            case NOT_WAITING -> throw TeamException.notFound("No start is waiting for this item");
+            case TAKEN -> throw new TeamException(TeamException.Code.CONFLICT, "The setup has already begun - it finishes and opens the board");
         };
     }
 
@@ -108,51 +97,23 @@ public class TeamStartController {
     @GetMapping("/teamboards/items/{conn}/{extId}/seed")
     public ResponseEntity<?> seed(@PathVariable String conn, @PathVariable String extId) {
         return seeds.seed(conn, extId).<ResponseEntity<?>>map(ResponseEntity::ok)
-                .orElseGet(() -> error(HttpStatus.NOT_FOUND, "NOT_FOUND", "Item " + extId + " is not in the cache yet: Refresh the Team tab first"));
+                .orElseThrow(() -> TeamException.notFound("Item " + extId + " could not be read"));
     }
 
-    // --------------------------------------------------------------------------------------------------------- links
-
-    @GetMapping("/teamboards/links/{board}")
-    public ResponseEntity<?> link(@PathVariable String board) {
-        return links.linkOf(board).<ResponseEntity<?>>map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.noContent().build());
-    }
-
+    /** /alfred-setup's link (team_link): the item becomes the board's main and the start's files move onto the board. */
     @PutMapping("/teamboards/links/{board}")
     public ResponseEntity<?> putLink(@PathVariable String board, @Valid @RequestBody LinkDto body,
-                                     @RequestHeader(value = "X-Alfred-Actor", required = false) String actor) {
-        // Claude links only the board it set up for a waiting start, or one the user asked for
-        if ("claude".equalsIgnoreCase(actor) && !starts.isWaiting(body.conn(), body.extId()) && !starts.askedByUser(body.askedIn())) {
-            return error(HttpStatus.FORBIDDEN, "USER_ONLY", "No start waits for this item: link it only when the user asked (askedIn)");
+                                     @RequestHeader(value = TeamboardsController.ACTOR_HEADER, required = false) String actor) {
+        if (Who.of(actor) == Who.CLAUDE && !starts.isWaiting(body.conn(), body.extId()) && !starts.askedByUser(body.askedIn())) {
+            throw TeamException.userOnly("No start waits for this item: link it only when the user asked (askedIn)");
         }
-        return linkResult(links.link(board, body.conn(), body.extId()));
-    }
-
-    @DeleteMapping("/teamboards/links/{board}")
-    public ResponseEntity<?> unlink(@PathVariable String board) {
-        return links.unlink(board) ? ResponseEntity.noContent().build() : error(HttpStatus.NOT_FOUND, "NOT_FOUND", "Board " + board + " has no link");
-    }
-
-    @PostMapping("/teamboards/links/{board}/seen")
-    public ResponseEntity<?> seen(@PathVariable String board) {
-        return links.seen(board) ? ResponseEntity.noContent().build() : error(HttpStatus.NOT_FOUND, "NOT_FOUND", "Board " + board + " has no link");
+        LinkResult r = starts.link(board, body.conn(), body.extId());
+        return ResponseEntity.ok(Map.of("attached", r.attached(), "notAttached", r.notAttached()));
     }
 
     @PostMapping("/teamboards/links/{board}/attachments/fetch")
-    public ResponseEntity<?> fetchAttachments(@PathVariable String board,
-                                              @RequestHeader(value = TeamboardsController.TOKEN_HEADER, required = false) String token) {
-        return linkResult(links.fetchAttachments(board, token(token)));
-    }
-
-    private static ResponseEntity<?> linkResult(LinkResult r) {
-        return switch (r.outcome()) {
-            case OK -> ResponseEntity.ok(Map.of("attached", r.attached(), "notAttached", r.notAttached()));
-            case NOT_FOUND -> error(HttpStatus.NOT_FOUND, "NOT_FOUND", r.message());
-            case ALREADY_LINKED -> error(HttpStatus.CONFLICT, "ALREADY_LINKED", r.message());
-            case INVALID -> error(HttpStatus.BAD_REQUEST, "INVALID", r.message());
-            case TOKEN_MISSING -> error(HttpStatus.UNAUTHORIZED, "TOKEN_MISSING", r.message());
-            case TOKEN_REJECTED -> error(HttpStatus.FORBIDDEN, "TOKEN_REJECTED", r.message());
-            case UNREACHABLE -> error(HttpStatus.BAD_GATEWAY, "UNREACHABLE", r.message());
-        };
+    public ResponseEntity<?> fetchAttachments(@PathVariable String board) {
+        LinkResult r = starts.fetchAttachments(board);
+        return ResponseEntity.ok(Map.of("attached", r.attached(), "notAttached", r.notAttached()));
     }
 }

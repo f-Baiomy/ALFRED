@@ -1,18 +1,27 @@
-import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { TeamApiService } from '../../../core/team/team-api.service';
 import { TeamStateService } from '../../../core/team/team-state.service';
+import { PersonPillComponent } from '../person-pill/person-pill.component';
 
 /**
- * The Team tab's head (specs/027 mock §Team): which connection, when it was last fetched and by whom, Refresh (with this
- * browser's token), and the banners for a missing or refused token. A refresh fills the shared cache for everyone.
+ * The Team tab's head (specs/028 FR-001..004): which connection, the token - entered once, kept 8 hours in Alfred's
+ * memory, never on disk or in this browser - whose it is and how long it lasts, Forget, and the one-time notice that the
+ * old cache was deleted by the upgrade.
  */
 @Component({
   selector: 'app-connection-switcher',
   standalone: true,
-  imports: [FormsModule, RouterLink],
+  imports: [FormsModule, RouterLink, PersonPillComponent],
   template: `
+    @if (state.upgradeNotice()) {
+      <div class="team-banner info" role="status">
+        <b>The Team tab now searches your tracker live.</b> The old cache of every work item and the old board links were deleted by
+        the upgrade - nothing was migrated. Search, then add items to boards again from the results.
+        <button type="button" class="action-btn" (click)="state.dismissUpgrade()">Got it</button>
+      </div>
+    }
     <div class="team-head">
       @if (state.connections().length > 1) {
         <select class="team-conn" [ngModel]="state.picked()?.id" (ngModelChange)="state.pick($event)" aria-label="Connection">
@@ -22,28 +31,29 @@ import { TeamStateService } from '../../../core/team/team-state.service';
         <b class="team-conn-one">{{ state.ui().icon }} {{ state.picked()?.name }}</b>
       }
       @if (state.picked(); as c) {
-        <span class="team-fetched">{{ c.fetchedAt ? 'fetched ' + ago(c.fetchedAt) + (c.fetchedBy ? ' by ' + c.fetchedBy : '') : 'never fetched' }}</span>
         <span class="team-grow"></span>
-        @if (state.hasToken()) {
-          <button type="button" class="action-btn primary" [disabled]="busy()" (click)="refresh()">{{ busy() ? 'Refreshing…' : '↻ Refresh' }}</button>
-          <button type="button" class="action-btn" title="Forget the token in this browser" (click)="state.tokens.clear(c.id)">Forget token</button>
+        @if (state.token()?.live) {
+          <span class="team-live" title="Kept in Alfred's memory only - a restart or Forget drops it">● token live ·</span>
+          <app-person-pill [person]="state.token()?.owner ?? null" [conn]="c.id" />
+          <span class="team-dim">· {{ left() }} left</span>
+          <button type="button" class="action-btn" (click)="forget(c.id)">Forget</button>
         }
       }
     </div>
     @if (state.picked(); as c) {
-      @if (!state.hasToken() || rejected()) {
+      @if (!state.token()?.live) {
         <div class="team-banner" role="alert">
-          <b>{{ rejected() ? 'Your token was refused - it may have expired.' : 'Add your personal access token to refresh.' }}</b>
-          Everyone sees what anyone fetched; the token stays in this browser and Alfred never stores it.
-          <form class="team-token" (submit)="$event.preventDefault(); saveToken()">
+          <b>Enter your personal access token to search {{ state.ui().label }}.</b>
+          Alfred keeps it 8 hours in memory only - never on disk, in a log or in this browser - and drops it on a restart or Forget.
+          Everyone using this Alfred searches with the last token entered; its owner is "me".
+          <form class="team-token" (submit)="$event.preventDefault(); save(c.id)">
             <input type="password" [(ngModel)]="token" name="token" autocomplete="off" placeholder="Personal access token" aria-label="Personal access token" />
-            <input [(ngModel)]="who" name="who" maxlength="80" placeholder="Your name (shown as fetched by)" aria-label="Your name" />
-            <button type="submit" class="action-btn primary" [disabled]="!token.trim()">Save and refresh</button>
+            <button type="submit" class="action-btn primary" [disabled]="!token.trim() || busy()">{{ busy() ? 'Checking…' : 'Use this token' }}</button>
           </form>
           @if (state.ui().help) { <small class="team-help">{{ state.ui().help }}</small> }
         </div>
       }
-      @if (message()) { <div class="team-msg" [class.err]="isError()">{{ message() }}</div> }
+      @if (message()) { <div class="team-msg err" role="alert">{{ message() }}</div> }
     } @else if (state.loaded()) {
       <div class="team-empty">
         <b>No team tracker connected yet.</b> Add Azure DevOps (Jira and ClickUp later) in
@@ -51,15 +61,17 @@ import { TeamStateService } from '../../../core/team/team-state.service';
       </div>
     }`,
   styles: [`
-    .team-head { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; margin-bottom: .5rem; }
+    .team-head { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-bottom: .5rem; }
     .team-conn { padding: .3rem .5rem; border: 1px solid var(--border-strong); border-radius: 7px; background: var(--card-inner); color: inherit; }
-    .team-fetched { color: var(--text-dim); font-size: .82rem; }
     .team-grow { flex: 1; }
+    .team-live { color: var(--green); font-size: .8rem; }
+    .team-dim { color: var(--text-dim); font-size: .8rem; }
     .team-banner { margin: .4rem 0 .8rem; padding: .6rem .8rem; border: 1px solid var(--amber); border-radius: 8px; font-size: .84rem; }
+    .team-banner.info { border-color: var(--purple-light); display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
     .team-token { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .4rem; }
-    .team-token input { flex: 1 1 200px; padding: .3rem .5rem; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--card-inner); color: inherit; }
+    .team-token input { flex: 1 1 240px; padding: .3rem .5rem; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--card-inner); color: inherit; }
     .team-help { display: block; margin-top: .35rem; color: var(--text-dim); }
-    .team-msg { margin: .3rem 0; font-size: .82rem; color: var(--green); }
+    .team-msg { margin: .3rem 0; font-size: .82rem; }
     .team-msg.err { color: var(--red); }
     .team-empty { padding: 1.2rem; border: 1px dashed var(--border-strong); border-radius: 10px; color: var(--text-dim); }
   `],
@@ -70,94 +82,34 @@ export class ConnectionSwitcherComponent {
 
   readonly busy = signal(false);
   readonly message = signal<string | null>(null);
-  readonly isError = signal(false);
-  readonly rejected = signal(false);
   token = '';
-  who = this.state.tokens.who();
 
-  readonly picked = computed(() => this.state.picked());
-  /** The connection this browser is refreshing in the background, until its outcome arrives. */
-  private running: string | null = null;
+  readonly left = computed(() => {
+    const at = this.state.token()?.expiresAt;
+    if (!at) return '';
+    const min = Math.max(0, Math.round((Date.parse(at) - Date.now()) / 60000));
+    return min >= 60 ? `${Math.floor(min / 60)} h ${min % 60} min` : `${min} min`;
+  });
 
-  constructor() {
-    const sub = this.api.events$.subscribe((e) => {
-      if (e.what !== 'refresh' || !e.conn || e.conn !== this.running) return;
-      this.running = null;
-      this.done(e.conn, e.outcome ?? 'OK', e.changed ?? 0, e.message ?? null, e.retryAfter ?? null);
-    });
-    // the socket dropped: the outcome may have gone by - stop waiting; the lists still refill on their own signals
-    const again = this.api.reconnected$.subscribe(() => {
-      if (!this.running) return;
-      this.running = null;
-      this.busy.set(false);
-      this.message.set('The connection to Alfred was interrupted - the refresh may still be running');
-    });
-    inject(DestroyRef).onDestroy(() => {
-      sub.unsubscribe();
-      again.unsubscribe();
-    });
-  }
-
-  private done(conn: string, outcome: string, changed: number, message: string | null, retryAfter: number | null): void {
-    this.busy.set(false);
-    if (outcome === 'OK') {
-      this.isError.set(false);
-      this.message.set(changed ? `${changed} item${changed === 1 ? '' : 's'} changed` : 'Up to date');
-      return;
-    }
-    this.isError.set(true);
-    if (outcome === 'TOKEN_REJECTED') {
-      this.rejected.set(true);
-      this.state.tokens.clear(conn); // a refused token is not kept: the banner asks for a new one
-    }
-    this.message.set(outcome === 'PROVIDER_BUSY' ? `${this.state.ui().label} asks to wait ${retryAfter ?? 30} s - try again then`
-      : message || 'Refresh failed');
-  }
-
-  ago(iso: string): string {
-    const s = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 1000));
-    if (s < 60) return 'just now';
-    if (s < 3600) return `${Math.round(s / 60)} min ago`;
-    if (s < 86400) return `${Math.round(s / 3600)} h ago`;
-    return `${Math.round(s / 86400)} d ago`;
-  }
-
-  saveToken(): void {
-    const c = this.picked();
-    if (!c || !this.token.trim()) return;
-    this.state.tokens.set(c.id, this.token);
-    if (this.who.trim()) this.state.tokens.setWho(this.who);
-    this.token = '';
-    this.rejected.set(false);
-    this.refresh();
-  }
-
-  refresh(): void {
-    const c = this.picked();
-    if (!c) return;
+  save(conn: string): void {
+    if (!this.token.trim()) return;
     this.busy.set(true);
     this.message.set(null);
-    this.api.refresh(c.id, true).subscribe({
-      next: (r) => {
-        if (r.state === 'STARTED') {
-          this.running = c.id; // the outcome comes on /ws/teamboards; the lists refill as pages land
-          this.message.set(r.message ?? 'Refreshing…');
-          this.isError.set(false);
-          return;
-        }
-        this.done(c.id, 'OK', r.changed ?? 0, null, null);
+    this.api.putToken(conn, this.token).subscribe({
+      next: (t) => {
+        this.token = '';
+        this.busy.set(false);
+        this.state.token.set(t);
+        this.state.readMe();
       },
       error: (e) => {
         this.busy.set(false);
-        this.isError.set(true);
-        const code = e?.error?.error;
-        if (code === 'TOKEN_REJECTED') {
-          this.rejected.set(true);
-          this.state.tokens.clear(c.id); // a refused token is not kept: the banner asks for a new one
-        }
-        this.message.set(code === 'PROVIDER_BUSY' ? `${this.state.ui().label} asks to wait ${e.error.retryAfter ?? 30} s - try again then`
-          : e?.error?.message || 'Refresh failed');
+        this.message.set(e?.error?.message || 'The token was not accepted');
       },
     });
+  }
+
+  forget(conn: string): void {
+    this.api.forgetToken(conn).subscribe({ next: () => this.state.readToken(), error: () => this.state.readToken() });
   }
 }

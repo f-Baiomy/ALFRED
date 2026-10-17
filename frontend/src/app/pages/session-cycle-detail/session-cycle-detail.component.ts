@@ -40,12 +40,11 @@ import { ScenarioCycleChainPanelComponent } from '../../components/scenario-cycl
 import { ScenarioCycleSourceService } from '../../core/services/scenario-cycle-source.service';
 import { CallRecord, SessionCycle } from '../../core/models/call.model';
 import { findCallRow, pointAtCall } from '../../shared/utils/call-reveal';
-import { CardSummary, NO_FILTERS } from '../../core/models/board.models';
+import { BoardSummary } from '../../core/models/board.models';
 import { BoardApiService } from '../../core/services/board-api.service';
 import { BoardSocketService } from '../../core/services/board-socket.service';
 import { ChatStateService } from '../../core/state/chat-state.service';
-import { BoardViewComponent } from '../../components/board/board-view/board-view.component';
-import { TaskViewComponent } from '../../components/board/task-view/task-view.component';
+import { TeamBoardPickerComponent } from '../../components/team/board-picker/board-picker.component';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
 /**
@@ -60,7 +59,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
   selector: 'app-session-cycle-detail',
   standalone: true,
   imports: [RouterLink, ActionMenuComponent, HeaderComponent, StatsBarComponent, CallListComponent, BulkActionsBarComponent, ExportDialogComponent, CopyToCyclesDialogComponent, ReliveSelectionDialogComponent, ImportCallsDialogComponent, EditCycleDialogComponent, ConfirmDialogComponent, ScenarioCycleChainPanelComponent,
-    BoardViewComponent, TaskViewComponent],
+    TeamBoardPickerComponent],
   providers: [
     SessionCycleDetailStateService,
     { provide: CALL_SELECTION_STATE, useExisting: SessionCycleDetailStateService },
@@ -102,17 +101,10 @@ export class SessionCycleDetailComponent {
   /** A Relive run's own cycle: it holds what the run made, so nothing is recorded or added to it. */
   readonly runCycle = computed(() => !!this.cycle()?.reliveRunId);
   readonly clearingCalls = signal(false);
-  readonly tab = signal<'calls' | 'board' | 'brief'>('calls');
-  private readonly tabRouter = inject(Router);
-
-  /** Shows a tab and puts it in the address (?tab=), replacing the history entry rather than adding one. */
-  selectTab(t: 'calls' | 'board' | 'brief'): void {
-    this.tab.set(t);
-    void this.tabRouter.navigate([], { queryParams: { tab: t === 'calls' ? null : t }, queryParamsHandling: 'merge', replaceUrl: true });
-  }
-  /** The cycle's cards, for the Board tab's open count - fetched on open and on each /ws/board signal. */
-  readonly boardCards = signal<readonly CardSummary[]>([]);
-  readonly openCardCount = computed(() => this.boardCards().filter((c) => c.status !== 'CLOSED' && c.status !== 'DONE').length);
+  /** The boards this cycle is on (specs/028 US7) - links, read on open and on each /ws/board signal. */
+  readonly cycleBoards = signal<readonly BoardSummary[]>([]);
+  readonly pickingBoard = signal(false);
+  readonly boardsMessage = signal<string | null>(null);
   readonly boardEditable = signal(true);
   /** Where a card made here is filed: the cycle's first project (a cycle has no project of its own - research R16). */
   readonly cycleProject = computed(() => this.state.internalServices()[0]?.name ?? '');
@@ -132,7 +124,7 @@ export class SessionCycleDetailComponent {
     this.boardApi.access().subscribe({ next: (a) => this.boardEditable.set(a.editable), error: () => undefined });
     effect(() => {
       const id = this.state.cycleId();
-      untracked(() => this.loadBoardCards(id));
+      untracked(() => this.loadBoards(id));
     });
     // The chats bar follows the cycle's project, the one its Board tab files cards in - not the last project a page showed,
     // or the cycle's chat (kept under its project) opens empty with the wrong start command.
@@ -144,7 +136,7 @@ export class SessionCycleDetailComponent {
     });
     inject(BoardSocketService).events$.pipe(takeUntilDestroyed()).subscribe((e) => {
       if (e.type === 'board-changed' && (e.cycleId === this.state.cycleId() || (!e.cycleId && e.project !== undefined))) {
-        this.loadBoardCards(this.state.cycleId());
+        this.loadBoards(this.state.cycleId());
       }
     });
     effect(() => {
@@ -167,25 +159,6 @@ export class SessionCycleDetailComponent {
       if (!id) return;
       untracked(() => focus.applyTo(this.state, id, wanted));
     });
-    // A call asked for ("Open in its cycle" from a card's call popup, "Show in cycle") is on the Calls tab - switch
-    // to it even when this page was showing the cycle's Board, where that popup was opened. Only a new request
-    // switches: a ?requestId= left in the URL must not pull the user off a tab they chose afterwards.
-    effect(() => {
-      const asked = focus.lastRequest();
-      const id = this.state.cycleId();
-      if (!asked || !id || asked.cycleId !== id) return;
-      untracked(() => {
-        this.tab.set('calls');
-        focus.lastRequest.set(null); // handled - a later visit (a way back to ?tab=board) keeps its own tab
-      });
-    });
-    // ?tab=board|brief: the tab is part of the address, so a way back ("⇄ Back to card") lands on it again.
-    const tabParam = computed(() => requestId()?.get('tab') ?? null);
-    effect(() => {
-      const t = tabParam();
-      if (t === 'board' || t === 'brief' || t === 'calls') untracked(() => this.tab.set(t));
-    });
-
     // `/cycles/<id>?reveal=<callId>` - the cycle widget's "Show in cycle": every call listed, this one
     // pointed at. See CallFocusService.revealIn.
     const router = inject(Router);
@@ -326,11 +299,24 @@ export class SessionCycleDetailComponent {
     this.state.clearAllCalls().subscribe(() => this.clearingCalls.set(false));
   }
 
-  private loadBoardCards(cycleId: string | null): void {
+  private loadBoards(cycleId: string | null): void {
     if (!cycleId) {
-      this.boardCards.set([]);
+      this.cycleBoards.set([]);
       return;
     }
-    this.boardApi.cards('', cycleId, NO_FILTERS).subscribe({ next: (p) => this.boardCards.set(p.cards), error: () => undefined });
+    this.boardApi.boardsOfCycle(cycleId).subscribe({ next: (b) => this.state.cycleId() === cycleId && this.cycleBoards.set(b), error: () => this.cycleBoards.set([]) });
+  }
+
+  addToBoard(boardId: string): void {
+    const id = this.state.cycleId();
+    this.pickingBoard.set(false);
+    if (!id) return;
+    this.boardApi.relateCycle(boardId, id, true).subscribe({
+      next: () => {
+        this.boardsMessage.set(null);
+        this.loadBoards(id);
+      },
+      error: (e) => this.boardsMessage.set(e?.error?.message || 'Could not add it - the board may be read-only from here'),
+    });
   }
 }

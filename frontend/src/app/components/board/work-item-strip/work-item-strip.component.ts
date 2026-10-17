@@ -3,49 +3,45 @@ import { switchMap } from 'rxjs';
 import { BoardApiService } from '../../../core/services/board-api.service';
 import { TeamApiService } from '../../../core/team/team-api.service';
 import { TeamStateService } from '../../../core/team/team-state.service';
-import { TeamLink } from '../../../core/team/team.models';
+import { MainSummary } from '../../../core/team/team.models';
 
 /**
- * The work item a board was opened from (specs/027 US8/US9), on the board's Task tab: its chip, "<tracker> changed"
- * when it changed after setup (Review shows before and after; Save adds it to the brief, Dismiss just marks it seen),
- * and the attachments the board does not hold yet (Fetch attachments, with this browser's token).
+ * The board's main work item (specs/028 US2, was 027's linked item), on the board's Task tab: its chip, "<tracker>
+ * changed" when the last sync found it changed since the saved copy (Review shows before and after; Save adds it to the
+ * brief and keeps the new copy, Dismiss just keeps it), and Fetch attachments while a token is live.
  */
 @Component({
   selector: 'app-work-item-strip',
   standalone: true,
   template: `
-    @if (link(); as l) {
+    @if (main(); as l) {
       <div class="wis">
-        <a class="tv-chip wis-chip" [href]="l.snapshot['url'] || null" target="_blank" rel="noopener noreferrer" [title]="l.provider + ' work item'">
-          {{ ui().icon }} {{ l.extId }} · {{ l.snapshot['type'] }} · {{ l.snapshot['state'] }}</a>
-        @if (l.changedSinceSetup.length) {
+        <a class="tv-chip wis-chip" [href]="l.snapshot['url'] || null" target="_blank" rel="noopener noreferrer" [title]="l.provider + ' work item - the main item of this board'">
+          ★ {{ ui().icon }} {{ l.item }} · {{ l.snapshot['type'] }} · {{ l.snapshot['state'] }}</a>
+        @if (l.changes.length) {
           <button type="button" class="wis-changed" (click)="reviewing.set(!reviewing())" [attr.aria-expanded]="reviewing()">
-            ⚠ {{ ui().label }} changed · {{ l.changedSinceSetup.length }} field{{ l.changedSinceSetup.length === 1 ? '' : 's' }} · Review</button>
+            ⚠ {{ ui().label }} changed · {{ l.changes.length }} field{{ l.changes.length === 1 ? '' : 's' }} · Review</button>
         }
-        @if (missing().length) {
-          @if (state.tokens.has(l.conn)) {
-            <button type="button" class="action-btn" [disabled]="busy() || !editable()" (click)="fetch(l)"
-                    [title]="missing().join(', ')">⇩ Fetch attachments ({{ missing().length }})</button>
-          } @else {
-            <span class="wis-dim" [title]="missing().join(', ')">{{ missing().length }} attachment(s) not on the board - add your token on the Team tab to fetch them</span>
-          }
+        @if (state.hasToken()) {
+          <button type="button" class="action-btn" [disabled]="busy() || !editable()" (click)="fetch()">⇩ Fetch attachments</button>
+        } @else {
+          <span class="wis-dim">Enter a token on the Team tab to fetch its attachments</span>
         }
         @if (message()) { <span class="wis-msg" [class.err]="error()">{{ message() }}</span> }
       </div>
-      @if (reviewing() && l.changedSinceSetup.length) {
+      @if (reviewing() && l.changes.length) {
         <div class="wis-review">
           <table>
-            <thead><tr><th>Field</th><th>At setup</th><th>Now</th><th>By</th></tr></thead>
+            <thead><tr><th>Field</th><th>Saved</th><th>Now</th></tr></thead>
             <tbody>
-              @for (c of l.changedSinceSetup; track c.field) {
-                <tr><td>{{ c.field }}</td><td class="wis-before">{{ plain(c.from) || '-' }}</td><td class="wis-after">{{ plain(c.to) || '-' }}</td>
-                  <td class="wis-dim">{{ c.by || '' }} {{ c.at ? c.at.slice(0, 16).replace('T', ' ') : '' }}</td></tr>
+              @for (c of l.changes; track c.field) {
+                <tr><td>{{ c.field }}</td><td class="wis-before">{{ plain(c.from) || '-' }}</td><td class="wis-after">{{ plain(c.to) || '-' }}</td></tr>
               }
             </tbody>
           </table>
           <div class="wis-acts">
             <button type="button" class="action-btn primary" [disabled]="busy() || !editable()" (click)="save(l)"
-                    title="Adds what changed to the brief, then marks it seen">Save to brief</button>
+                    title="Adds what changed to the brief, then keeps the new copy">Save to brief</button>
             <button type="button" class="action-btn" [disabled]="busy() || !editable()" (click)="dismiss(l)">Dismiss</button>
           </div>
         </div>
@@ -74,7 +70,7 @@ export class WorkItemStripComponent {
   readonly boardId = input.required<string>();
   readonly editable = input(true);
 
-  readonly link = signal<TeamLink | null>(null);
+  readonly main = signal<MainSummary | null>(null);
   readonly reviewing = signal(false);
   readonly busy = signal(false);
   readonly message = signal<string | null>(null);
@@ -82,25 +78,25 @@ export class WorkItemStripComponent {
   private asked = 0;
 
   readonly ui = computed(() => {
-    const l = this.link();
+    const l = this.main();
     const kind = this.state.connections().find((c) => c.id === l?.conn)?.kind ?? '';
     return this.state.uiOf(kind);
   });
-  readonly missing = computed(() => (this.link()?.attachments ?? []).filter((a) => !a.held).map((a) => a.name));
 
   constructor() {
     if (!this.state.loaded()) this.state.load();
     effect(() => {
       const id = this.boardId();
-      this.state.startVersion(); // a link, seen or new revision signalled on /ws/teamboards
-      this.state.itemsVersion();
+      this.state.startVersion();
+      const e = this.state.boardEvent();
+      if (e && e.board && e.board !== id) return;
       untracked(() => this.load(id));
     });
   }
 
   private load(id: string): void {
     const mine = ++this.asked;
-    this.team.link(id).subscribe({ next: (l) => mine === this.asked && this.link.set(l), error: () => mine === this.asked && this.link.set(null) });
+    this.team.mainOf(id).subscribe({ next: (l) => mine === this.asked && this.main.set(l), error: () => mine === this.asked && this.main.set(null) });
   }
 
   private say(m: string | null, err = false): void {
@@ -113,16 +109,16 @@ export class WorkItemStripComponent {
   }
 
   /** What changed, as a brief section: each field before and after, nothing cut. */
-  section(l: TeamLink): string {
-    const lines = l.changedSinceSetup.map((c) => `- **${c.field}**: ${this.plain(c.from) || '-'} → ${this.plain(c.to) || '-'}${c.by ? ` (${c.by})` : ''}`);
+  section(l: MainSummary): string {
+    const lines = l.changes.map((c) => `- **${c.field}**: ${this.plain(c.from) || '-'} → ${this.plain(c.to) || '-'}`);
     return `## Changed in ${this.ui().label} (${new Date().toISOString().slice(0, 10)})\n${lines.join('\n')}`;
   }
 
-  save(l: TeamLink): void {
+  save(l: MainSummary): void {
     this.busy.set(true);
     this.board.brief(this.boardId()).pipe(
       switchMap((b) => this.board.putBrief(this.boardId(), `${b.text.trimEnd()}\n\n${this.section(l)}\n`)),
-      switchMap(() => this.team.linkSeen(this.boardId())),
+      switchMap(() => this.team.keep(this.boardId(), l.conn, l.item)),
     ).subscribe({
       next: () => {
         this.busy.set(false);
@@ -137,9 +133,9 @@ export class WorkItemStripComponent {
     });
   }
 
-  dismiss(l: TeamLink): void {
+  dismiss(l: MainSummary): void {
     this.busy.set(true);
-    this.team.linkSeen(l.board).subscribe({
+    this.team.keep(this.boardId(), l.conn, l.item).subscribe({
       next: () => {
         this.busy.set(false);
         this.reviewing.set(false);
@@ -147,23 +143,22 @@ export class WorkItemStripComponent {
       },
       error: (e) => {
         this.busy.set(false);
-        this.say(e?.error?.message || 'Could not mark it seen', true);
+        this.say(e?.error?.message || 'Could not keep the new copy', true);
       },
     });
   }
 
-  fetch(l: TeamLink): void {
+  fetch(): void {
     this.busy.set(true);
     this.say(null);
-    this.team.fetchAttachments(l.board, l.conn).subscribe({
+    this.team.fetchAttachments(this.boardId()).subscribe({
       next: (r) => {
         this.busy.set(false);
         this.say(`${r.attached.length} attached${r.notAttached.length ? ' · not attached: ' + r.notAttached.join(', ') : ''}`, r.notAttached.length > 0);
-        this.load(this.boardId());
       },
       error: (e) => {
         this.busy.set(false);
-        if (e?.error?.error === 'TOKEN_REJECTED') this.state.tokens.clear(l.conn);
+        if (e?.error?.error === 'TOKEN_MISSING' || e?.error?.error === 'TOKEN_REJECTED') this.state.readToken();
         this.say(e?.error?.message || 'Could not fetch the attachments', true);
       },
     });
