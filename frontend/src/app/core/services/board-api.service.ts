@@ -7,7 +7,7 @@ import {
   RetestReport, RetestStep, SessionLogEntry, SpecFileInfo, Team, TeamEdit, TestStep,
   CycleChatInfo, EvidenceCheck, ItemEvidence, RequirementsView, SkillRun, SkillRunRequest, SkillRunsPage, TextVersion,
   ActivityEntry, BoardQuestion, BriefComment, EntryAnswers, LiveRunnerInfo, ItemCall,
-  Board, BoardActivity, BoardState, BoardSummary, NewBoard, CycleVerdicts,
+  Board, BoardActivity, BoardState, BoardSummary, NewBoard, CycleVerdicts, CycleDeletePlan,
 } from '../models/board.models';
 import { AppConfigService } from './app-config.service';
 
@@ -98,6 +98,11 @@ export class BoardApiService {
     let params = new HttpParams().set('limit', String(limit));
     if (board) params = params.set('board', board);
     return this.http.get<CycleVerdicts>(`${this.base}/cycles/${encodeURIComponent(cycleId)}/verdicts`, { params });
+  }
+
+  /** What deleting a cycle keeps (specs/027 FR-017): the calls board texts mention, per board. */
+  cycleDeletePlan(cycleId: string): Observable<CycleDeletePlan> {
+    return this.http.get<CycleDeletePlan>(`${this.base}/cycles/${encodeURIComponent(cycleId)}/delete-plan`);
   }
 
   moveHome(cardId: string, boardId: string): Observable<CardDetail> {

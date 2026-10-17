@@ -178,6 +178,16 @@ public class SessionCyclesService implements
         return setStatus(id, SessionCycleStatus.RECORDING);
     }
 
+    static final String KEPT_PREFIX = "kept from ";
+
+    /** Asked before a delete (specs/027 FR-017); none wired: nothing is kept. */
+    private List<com.fathy.alfred.backend.sessioncycles.application.port.out.CycleRescuePort> rescuers = List.of();
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setRescuers(List<com.fathy.alfred.backend.sessioncycles.application.port.out.CycleRescuePort> rescuers) {
+        this.rescuers = rescuers == null ? List.of() : rescuers;
+    }
+
     /** Asked before a start (specs/027 FR-008); none wired: nothing is in the way. */
     private List<com.fathy.alfred.backend.sessioncycles.application.port.out.RecordingGuardPort> guards = List.of();
 
@@ -239,6 +249,31 @@ public class SessionCyclesService implements
         }
         if (existing.get().status() == SessionCycleStatus.RECORDING) {
             return DeleteOutcome.BLOCKED_RECORDING;
+        }
+        // specs/027 FR-017: what a board mentions stays - the cycle keeps those calls only, under a name that says so
+        java.util.Set<String> mentioned = new java.util.HashSet<>();
+        rescuers.forEach(r -> mentioned.addAll(r.mentionedCalls(id)));
+        if (!mentioned.isEmpty()) {
+            // mentions name the call's id; the stores remove by the captured row's id
+            List<String> goneIn = capturedInternalCallsStore.findAllByCycle(id).stream().filter(c -> c.call() == null || !mentioned.contains(c.call().id()))
+                    .map(c -> c.id()).toList();
+            List<String> goneOut = capturedCallsStore.findAllByCycle(id).stream().filter(c -> c.call() == null || !mentioned.contains(c.call().id()))
+                    .map(c -> c.id()).toList();
+            if (!goneIn.isEmpty()) {
+                capturedInternalCallsStore.removeByIds(id, goneIn);
+            }
+            if (!goneOut.isEmpty()) {
+                capturedCallsStore.removeByIds(id, goneOut);
+            }
+            spacersStore.deleteAllForCycle(id);
+            SessionCycle c = existing.get();
+            String name = c.name().startsWith(KEPT_PREFIX) ? c.name() : KEPT_PREFIX + c.name();
+            metadataStore.save(new SessionCycle(c.id(), name.length() > 500 ? name.substring(0, 500) : name, c.createdAt(), c.assignedTo(),
+                    SessionCycleStatus.PAUSED));
+            rescuers.forEach(r -> r.kept(id));
+            notificationPort.notifyCycleContentChanged(id);
+            notificationPort.notifySessionCyclesChanged();
+            return DeleteOutcome.KEPT;
         }
         metadataStore.deleteById(id);
         capturedCallsStore.deleteAllForCycle(id);

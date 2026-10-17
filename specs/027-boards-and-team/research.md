@@ -78,6 +78,15 @@ Renaming them all would be a large, risky change that adds no behaviour. So the 
 - **Keeping the data alive**: a live call that a card mentions is already kept out of the storage limits (`CommentedCallsKept.BoardMentions`). The rewritten mentions point at the kept cycle's copy, so the protection must also follow the copy back to its live inbound call id. `BoardMentions` is extended to return the live call ids of mentioned captured calls. That keeps the live call, its statements, Redis commands and log lines for as long as any card mentions the copy (FR-017).
 - **Rationale**: Reuses the copy, cascade and kept-calls paths that exist. The dialog's numbers come from the same plan call (dry run).
 - **To verify in tasks**: with a real `db-capture.db`, statements are reached after a copy, and storage-limit eviction skips the live call while a card mentions the kept copy.
+- **Implementation amendment (2026-10-17)**: copying the mentioned calls into new cycles would leave every `@[call:in:<id>@<old>|…]`
+  in board texts pointing at a deleted cycle, and the texts are the source of truth for mentions (they are re-indexed on
+  every save), so the copy would also need every card, comment, brief, checklist mark and chat text rewritten. Instead the
+  cycle itself is kept: `SessionCyclesService.delete` asks the new `CycleRescuePort` (boardbridge `BoardCycleRescueAdapter`
+  -> `CycleDeletePlanUseCase`) which call ids boards mention; when there are any, it removes the other calls and spacers,
+  renames the cycle "kept from <name>", pauses it and answers `200 {kept: true}` (DeleteOutcome.KEPT) instead of deleting.
+  The boards that mention none of its calls are unrelated from it. One kept cycle serves every board that mentions it
+  (not one per board). `mentionedLiveCallIds` now returns captured mentions too: a captured call keeps its live call's
+  id, so the live call and its statements, Redis commands and log lines stay out of the storage limits.
 
 ### R8. Team connector module shape
 

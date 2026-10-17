@@ -87,6 +87,13 @@ public interface BoardModelStorePort {
     /** Every distinct project with cards or chat messages. */
     List<String> knownProjects();
 
+    /** A call of a session cycle some board text mentions: the board it is on (null when none says), the card (0 when none). */
+    record CycleMention(String callId, String boardId, int cardNumber) {
+    }
+
+    /** Every mention of a call captured in {@code cycleId} (specs/027 FR-017), at most 100,000. */
+    List<CycleMention> mentionsInCycle(String cycleId);
+
     /** Task keys (old cycle ids) that hold a brief, spec files, evidence or a chat - what becomes a board. */
     List<String> briefedTaskKeys();
 

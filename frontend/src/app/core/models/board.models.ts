@@ -943,3 +943,10 @@ export interface CycleVerdicts {
   readonly boards: readonly BoardMarks[];
   readonly calls: readonly CallVerdicts[];
 }
+
+/** What deleting a cycle keeps (specs/027 FR-017, GET /board/cycles/{id}/delete-plan). */
+export interface CycleDeletePlan {
+  readonly cycleId: string;
+  readonly keep: readonly { readonly boardId: string | null; readonly name: string; readonly callIds: readonly string[]; readonly cards: readonly number[] }[];
+  readonly callIds: readonly string[];
+}

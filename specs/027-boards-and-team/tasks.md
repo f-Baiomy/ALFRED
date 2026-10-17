@@ -157,15 +157,15 @@ Aliases used in task paths (all relative to the repo root):
 **Goal**: rescue mentioned data into "kept from" cycles per board; delete the rest.
 **Independent test**: quickstart §3 step 5.
 
-- [ ] T049 [P] [US6] Create the use case `BOARD/application/port/in/CycleDeletePlanUseCase.java` + `GET /board/cycles/{cycleId}/delete-plan` (per board: mentioned call ids, statements, log lines, cards; deleteCalls; originCards) in `BoardRelationsService.java`
-- [ ] T050 [US6] Implement the rescue in `APP/boardbridge/BoardCycleRemovedAdapter.java` + new `APP/boardbridge/BoardCycleDeletePlanAdapter.java`:
+- [X] T049 [P] [US6] Create the use case `BOARD/application/port/in/CycleDeletePlanUseCase.java` + `GET /board/cycles/{cycleId}/delete-plan` (per board: mentioned call ids, statements, log lines, cards; deleteCalls; originCards) in `BoardRelationsService.java`
+- [X] T050 [US6] (amended, research.md R7: the cycle is kept as "kept from <name>" with only the mentioned calls - no copy, no rewrite) Implement the rescue in `APP/boardbridge/BoardCycleRemovedAdapter.java` + new `APP/boardbridge/BoardCycleDeletePlanAdapter.java`:
   - before the session-cycles delete, copy each board's mentioned calls into a new cycle "kept from <name>" via `copyInto` / `CopyInternalCallsToCycleUseCase`;
   - relate it to the board;
   - rewrite the board's `mentions.cycle_id`;
   - then let the delete proceed and mark origin cards `cycle_deleted`;
   - extend `CommentedCallsKept.BoardMentions` (in `APP`) to return the live inbound call ids of mentioned captured calls, so rescued calls keep their statements, Redis commands and log lines under storage limits (FR-017, R7).
-- [ ] T051 [P] [US6] Test `APP_T/boardbridge/CycleDeleteRescueTest.java` with real `@TempDir` SQLite stores: kept per board, rest deleted, statements still reachable from a copied call, and storage-limit eviction skips the live call while a card mentions the kept copy (R7)
-- [ ] T052 [US6] Update the delete dialog in `FE/pages/session-cycles-list/` and `FE/pages/session-cycle-detail/` to show the plan (kept per board vs deleted) before confirm
+- [X] T051 [P] [US6] (as `CycleDeletePlanTest` + `SessionCyclesServiceTest`) Test `APP_T/boardbridge/CycleDeleteRescueTest.java` with real `@TempDir` SQLite stores: kept per board, rest deleted, statements still reachable from a copied call, and storage-limit eviction skips the live call while a card mentions the kept copy (R7)
+- [X] T052 [US6] Update the delete dialog in `FE/pages/session-cycles-list/` and `FE/pages/session-cycle-detail/` to show the plan (kept per board vs deleted) before confirm
 
 ---
 

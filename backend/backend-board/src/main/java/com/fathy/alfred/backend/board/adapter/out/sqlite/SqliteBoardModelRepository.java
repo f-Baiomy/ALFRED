@@ -280,6 +280,23 @@ public class SqliteBoardModelRepository implements BoardModelStorePort {
     }
 
     @Override
+    public List<CycleMention> mentionsInCycle(String cycleId) {
+        // the board a mention is on: its card's home; a brief's or checklist mark's own task key; a chat message's board
+        return jdbc.query("""
+                SELECT m.call_id,
+                  CASE WHEN m.card_id IS NOT NULL THEN c.board_id
+                       WHEN m.owner_type = 'BRIEF' THEN m.owner_id
+                       WHEN m.owner_type = 'CHECKLIST' AND instr(m.owner_id, '/') > 0 THEN substr(m.owner_id, 1, instr(m.owner_id, '/') - 1)
+                       WHEN m.owner_type = 'CHAT' THEN (SELECT CASE WHEN ch.cycle_id = '' THEN 'default:' || ch.project ELSE ch.cycle_id END
+                                                        FROM chat_messages ch WHERE ch.id = CAST(m.owner_id AS INTEGER))
+                  END,
+                  COALESCE(c.number, 0)
+                FROM mentions m LEFT JOIN cards c ON c.id = m.card_id
+                WHERE m.cycle_id = ? AND m.call_id IS NOT NULL LIMIT 100000
+                """, (rs, n) -> new CycleMention(rs.getString(1), rs.getString(2), rs.getInt(3)), cycleId);
+    }
+
+    @Override
     public List<String> knownProjects() {
         return jdbc.queryForList("""
                 SELECT project FROM cards UNION SELECT project FROM chat_messages UNION SELECT project FROM item_evidence

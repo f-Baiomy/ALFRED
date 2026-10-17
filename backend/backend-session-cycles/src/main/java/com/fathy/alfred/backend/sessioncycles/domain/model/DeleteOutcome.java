@@ -4,5 +4,7 @@ package com.fathy.alfred.backend.sessioncycles.domain.model;
 public enum DeleteOutcome {
     DELETED,
     NOT_FOUND,
-    BLOCKED_RECORDING
+    BLOCKED_RECORDING,
+    /** Boards mention some of its calls (specs/027 FR-017): it now holds only those, renamed "kept from &lt;name&gt;". */
+    KEPT
 }

@@ -55,11 +55,12 @@ class BoardServiceMentionsTest {
     }
 
     @Test
-    void onlyLiveCallsAreKeptAndEveryChangeOfThemIsAnnounced() {
+    void mentionedCallsAreKeptAndEveryChangeOfTheLiveOnesIsAnnounced() {
         int before = f.mentionedCallsChanged;
         String id = f.add(Actor.USER, "p", CardKind.BUG, "t", "@[call:in:live1|x] @[call:out:cap1@c-1|captured]").card().id();
         assertThat(f.mentionedCallsChanged).isEqualTo(before + 1);
-        assertThat(f.board.mentionedLiveCallIds()).containsExactly("live1");
+        // a captured copy keeps its live call's id, so the live call stays too (specs/027 R7)
+        assertThat(f.board.mentionedLiveCallIds()).containsExactlyInAnyOrder("live1", "cap1");
 
         f.board.delete(Actor.USER, id);
 

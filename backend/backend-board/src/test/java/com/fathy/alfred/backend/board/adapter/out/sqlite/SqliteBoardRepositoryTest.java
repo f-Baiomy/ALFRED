@@ -110,7 +110,7 @@ class SqliteBoardRepositoryTest {
         repo.insert(c);
         repo.replaceMentions(MentionOwner.CARD, c.id(), c.id(), List.of(new MentionRef(MentionType.CALL, "in:x1@c-9", "POST")));
 
-        assertThat(repo.mentionedLiveCallIds()).isEmpty();
+        assertThat(repo.mentionedLiveCallIds()).containsExactly("x1"); // a captured copy keeps its live call (specs/027 R7)
         assertThat(repo.badgesOfCycle("c-9")).containsOnlyKeys("x1");
         assertThat(repo.badgesOfCycle("c-1")).containsOnlyKeys("x1"); // the card's own cycle
         assertThat(repo.badgesOfCalls(List.of("x1", "nope"))).containsOnlyKeys("x1");

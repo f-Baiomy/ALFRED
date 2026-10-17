@@ -1,59 +1,43 @@
 import { TestBed } from '@angular/core/testing';
 import { of } from 'rxjs';
+import { CycleDeletePlan } from '../models/board.models';
 import { BoardApiService } from './board-api.service';
 import { ConfirmDialogService } from './confirm-dialog.service';
-import { CycleDeleteService } from './cycle-delete.service';
+import { CycleDeleteService, keptText } from './cycle-delete.service';
 
 describe('CycleDeleteService', () => {
-  let deleteCycleCards: jasmine.Spy;
-  let totals: Record<string, { total: number; open: number }>;
+  let plans: Record<string, CycleDeletePlan>;
   let dialog: ConfirmDialogService;
 
   beforeEach(() => {
-    totals = {};
-    deleteCycleCards = jasmine.createSpy('deleteCycleCards').and.returnValue(of({ deleted: 1 }));
+    plans = {};
     TestBed.configureTestingModule({ providers: [{ provide: BoardApiService, useValue: {
-      cards: (_p: string, cycleId: string) => of({ cards: [], total: totals[cycleId]?.total ?? 0, counts: { open: totals[cycleId]?.open ?? 0, fixed: 0, done: 0 } }),
-      deleteCycleCards,
+      cycleDeletePlan: (id: string) => of(plans[id] ?? { cycleId: id, keep: [], callIds: [] }),
     } }] });
     dialog = TestBed.inject(ConfirmDialogService);
   });
 
-  it('asks plainly when the cycle has no cards', async () => {
-    const asked = TestBed.inject(CycleDeleteService).confirmAndClean(['c1'], 'Delete "x"?');
-    await Promise.resolve();
-    await new Promise((r) => setTimeout(r));
-    expect(dialog.state()?.choices).toBeUndefined();
-    dialog.respond(true);
-    expect(await asked).toBeTrue();
-    expect(deleteCycleCards).not.toHaveBeenCalled();
-  });
-
-  it('offers to delete the cards, picked by default, and deletes them first', async () => {
-    totals['c1'] = { total: 6, open: 2 };
+  it('asks plainly when no board mentions its calls', async () => {
     const asked = TestBed.inject(CycleDeleteService).confirmAndClean(['c1'], 'Delete "x"?');
     await new Promise((r) => setTimeout(r));
-    const s = dialog.state()!;
-    expect(s.chosen).toBe('delete');
-    expect(s.choices!.map((c) => c.label)).toEqual(['Delete its 6 cards too', 'Keep its 6 cards on the project board']);
-    expect(s.choices![0].hint).toContain('2 open, 4 closed');
+    expect(dialog.state()?.message).toBe('Delete "x"?');
     dialog.respond(true);
     expect(await asked).toBeTrue();
-    expect(deleteCycleCards).toHaveBeenCalledWith('c1');
   });
 
-  it('keeps the cards when asked, and deletes nothing on Cancel', async () => {
-    totals['c1'] = { total: 2, open: 0 };
-    const service = TestBed.inject(CycleDeleteService);
-    let asked = service.confirmAndClean(['c1'], 'Delete?');
+  it('says what each board keeps before the user confirms; Cancel deletes nothing', async () => {
+    plans['c1'] = { cycleId: 'c1', callIds: ['a1', 'a2'], keep: [{ boardId: 'b1', name: 'Refund', callIds: ['a1', 'a2'], cards: [12, 14] }] };
+    const asked = TestBed.inject(CycleDeleteService).confirmAndClean(['c1'], 'Delete "x"?');
     await new Promise((r) => setTimeout(r));
-    dialog.pick('keep');
-    dialog.respond(true);
-    expect(await asked).toBeTrue();
-    asked = service.confirmAndClean(['c1'], 'Delete?');
-    await new Promise((r) => setTimeout(r));
+    expect(dialog.state()?.message).toContain('Refund (2 calls, #12 #14)');
+    expect(dialog.state()?.message).toContain('kept from');
     dialog.respond(false);
     expect(await asked).toBeFalse();
-    expect(deleteCycleCards).not.toHaveBeenCalled();
+  });
+
+  it('counts a call two boards mention once', () => {
+    expect(keptText([{ cycleId: 'c1', callIds: ['a1'], keep: [
+      { boardId: 'b1', name: 'Refund', callIds: ['a1'], cards: [] }, { boardId: 'b2', name: 'Sprint', callIds: ['a1'], cards: [3] }] }]))
+      .toContain('Boards mention 1 of the calls - Refund (1 call), Sprint (1 call, #3)');
   });
 });

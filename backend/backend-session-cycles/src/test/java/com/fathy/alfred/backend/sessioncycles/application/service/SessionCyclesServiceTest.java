@@ -636,4 +636,37 @@ class SessionCyclesServiceTest {
         assertThat(paused.cycle().status()).isEqualTo(SessionCycleStatus.RECORDING);
         org.mockito.Mockito.verify(metadataStore).save(new SessionCycle("c2", "B", "2026-01-01T00:00:00Z", null, SessionCycleStatus.PAUSED));
     }
+
+    @Test
+    void aCycleBoardsMentionIsKeptWithOnlyTheMentionedCalls() {
+        SessionCycle c1 = new SessionCycle("c1", "rec 14 Oct", "2026-01-01T00:00:00Z", null, SessionCycleStatus.PAUSED);
+        when(metadataStore.findById("c1")).thenReturn(Optional.of(c1));
+        var in1 = new com.fathy.alfred.backend.sessioncycles.domain.model.CapturedInternalCall("row-1", "t",
+                org.mockito.Mockito.mock(com.fathy.alfred.backend.internalcalls.domain.model.CallRecord.class));
+        var in2 = new com.fathy.alfred.backend.sessioncycles.domain.model.CapturedInternalCall("row-2", "t",
+                org.mockito.Mockito.mock(com.fathy.alfred.backend.internalcalls.domain.model.CallRecord.class));
+        when(in1.call().id()).thenReturn("a1");
+        when(in2.call().id()).thenReturn("a2");
+        when(capturedInternalCallsStore.findAllByCycle("c1")).thenReturn(List.of(in1, in2));
+        when(capturedCallsStore.findAllByCycle("c1")).thenReturn(List.of());
+        List<String> told = new java.util.ArrayList<>();
+        service.setRescuers(List.of(new com.fathy.alfred.backend.sessioncycles.application.port.out.CycleRescuePort() {
+            @Override
+            public java.util.Set<String> mentionedCalls(String cycleId) {
+                return java.util.Set.of("a1");
+            }
+
+            @Override
+            public void kept(String cycleId) {
+                told.add(cycleId);
+            }
+        }));
+
+        assertThat(service.delete("c1")).isEqualTo(com.fathy.alfred.backend.sessioncycles.domain.model.DeleteOutcome.KEPT);
+
+        verify(capturedInternalCallsStore).removeByIds("c1", List.of("row-2"));
+        verify(metadataStore).save(new SessionCycle("c1", "kept from rec 14 Oct", "2026-01-01T00:00:00Z", null, SessionCycleStatus.PAUSED));
+        verify(metadataStore, never()).deleteById("c1");
+        assertThat(told).containsExactly("c1");
+    }
 }

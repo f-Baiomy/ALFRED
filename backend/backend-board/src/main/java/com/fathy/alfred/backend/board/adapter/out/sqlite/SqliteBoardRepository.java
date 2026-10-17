@@ -1002,7 +1002,8 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort,
 
     @Override
     public Set<String> mentionedLiveCallIds() {
-        return new LinkedHashSet<>(jdbc.queryForList("SELECT DISTINCT call_id FROM mentions WHERE live = 1 AND call_id IS NOT NULL", String.class));
+        // a captured call keeps its live call's id: a mentioned copy keeps the live call (its statements, Redis, log lines) too (specs/027 R7)
+        return new LinkedHashSet<>(jdbc.queryForList("SELECT DISTINCT call_id FROM mentions WHERE call_id IS NOT NULL", String.class));
     }
 
     @Override

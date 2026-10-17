@@ -27,11 +27,20 @@ public class CycleSharingController {
     private final CycleVerdictsUseCase verdicts;
     private final FindingHomeUseCase homes;
     private final RecordForBoardUseCase record;
+    private final com.fathy.alfred.backend.board.application.port.in.CycleDeletePlanUseCase deletePlan;
 
-    public CycleSharingController(CycleVerdictsUseCase verdicts, FindingHomeUseCase homes, RecordForBoardUseCase record) {
+    public CycleSharingController(CycleVerdictsUseCase verdicts, FindingHomeUseCase homes, RecordForBoardUseCase record,
+                                  com.fathy.alfred.backend.board.application.port.in.CycleDeletePlanUseCase deletePlan) {
         this.verdicts = verdicts;
         this.homes = homes;
         this.record = record;
+        this.deletePlan = deletePlan;
+    }
+
+    /** What deleting the cycle keeps (FR-017): the calls board texts mention, per board - the delete dialog's dry run. */
+    @GetMapping("/board/cycles/{cycleId}/delete-plan")
+    public ResponseEntity<?> deletePlan(@PathVariable String cycleId) {
+        return ResponseEntity.ok(deletePlan.plan(cycleId));
     }
 
     record RecordDto(String kind, String onRunning) {

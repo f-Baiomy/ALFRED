@@ -192,11 +192,14 @@ public class SessionCyclesController {
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
+    /** 204 deleted; 200 {kept: true} when boards mention some of its calls and it was kept with only those (specs/027). */
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> delete(@PathVariable String id) {
+    public ResponseEntity<?> delete(@PathVariable String id) {
         DeleteOutcome outcome = deleteSessionCycleUseCase.delete(id);
         return switch (outcome) {
             case DELETED -> ResponseEntity.noContent().build();
+            case KEPT -> ResponseEntity.ok(java.util.Map.of("kept", true, "message",
+                    "Boards mention some of its calls: it now holds only those, as \"kept from …\""));
             case NOT_FOUND -> ResponseEntity.notFound().build();
             case BLOCKED_RECORDING -> ResponseEntity.status(HttpStatus.CONFLICT).build();
         };
