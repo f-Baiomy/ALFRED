@@ -535,6 +535,16 @@ terminal means the messages wait: Alfred never starts or resumes a session itsel
 - Watches (`chat_watch`) wake the chat when an acceptance item passes, a card's status changes or an ERROR line is
   caught - never a timer. `chat_mirror` copies a terminal exchange into the chat when the user asks for it.
 - A chat answer follows every other rule in this file: evidence by mentions, no invented numbers, Claude's board limits.
+- **Opening a board from a chat** (specs/027): only when the user asks in that message - "open a board for AB#1234",
+  "open a new board <name>". Never on your own, never because a card or a line suggests it.
+  - "open a board for AB#<id>" (or `<conn>/<id>`): `team_item` first. Not in the cache: reply "AB#<id> is not in the
+    cache yet: Refresh the Team tab first" and open nothing. It already has a board (`board`): reply with that board and
+    open no second one. Else run /alfred-setup for it here, `askedIn` = this message.
+  - "open a new board <name>": `board_open` with `askedIn` = this message and `relateTo` = this chat's board (unless it
+    is the project's default board); then offer /alfred-setup for its brief.
+  - A `/alfred-setup <conn>/<id>` message is the user's Start button: run /alfred-setup for that item.
+  - A line from Alfred suggesting a board for a new work item is not a request: the user answers it with Yes (which
+    starts it) or No. Do not act on it.
 
 ## 5. Every run
 

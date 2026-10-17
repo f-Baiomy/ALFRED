@@ -1,6 +1,7 @@
 package com.fathy.alfred.backend.teamboards.spi;
 
 import com.fathy.alfred.backend.teamboards.spi.model.Attachment;
+import com.fathy.alfred.backend.teamboards.spi.model.Item;
 import com.fathy.alfred.backend.teamboards.spi.model.Connection;
 import com.fathy.alfred.backend.teamboards.spi.model.Token;
 
@@ -13,4 +14,9 @@ import java.util.List;
 public interface AttachmentsReader {
 
     List<Attachment> attachments(Connection c, Token t, String extId, boolean withData) throws ProviderException;
+
+    /** The attachments the cached item names (no network, no token, no data): what a board lists before anyone fetches them. */
+    default List<Attachment> listedIn(Item item) {
+        return List.of();
+    }
 }

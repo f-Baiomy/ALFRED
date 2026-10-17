@@ -1,9 +1,9 @@
 import { NgComponentOutlet } from '@angular/common';
 import { Component, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
-import { Router } from '@angular/router';
 import { TeamApiService } from '../../../core/team/team-api.service';
 import { TeamStateService } from '../../../core/team/team-state.service';
 import { TeamItem, TeamItemDetail, TeamRevision } from '../../../core/team/team.models';
+import { TeamStartButtonComponent } from '../start-button/start-button.component';
 
 /**
  * One work item (specs/027 US7): every field (with where it goes in a board's seed), its links, its history (read from
@@ -12,7 +12,7 @@ import { TeamItem, TeamItemDetail, TeamRevision } from '../../../core/team/team.
 @Component({
   selector: 'app-team-item-drawer',
   standalone: true,
-  imports: [NgComponentOutlet],
+  imports: [NgComponentOutlet, TeamStartButtonComponent],
   template: `
     <div class="tid-backdrop" (click)="closed.emit()"></div>
     <aside class="tid" role="dialog" aria-modal="true" [attr.aria-label]="shown().title">
@@ -29,8 +29,11 @@ import { TeamItem, TeamItemDetail, TeamRevision } from '../../../core/team/team.
         <span><b>{{ state.ui().word('squad') }}</b> {{ shown().squad || '-' }}</span>
         <span><b>{{ state.ui().word('sprint') }}</b> {{ shown().sprint || '-' }}</span>
       </div>
-      @if (detail()?.board; as b) {
-        <div class="tid-board">▦ This item has an Alfred board. <button type="button" class="action-btn" (click)="openBoard(b)">Open board</button></div>
+      @if (detail(); as d) {
+        <div class="tid-board">
+          <span>{{ d.board ? '▦ This item has an Alfred board.' : 'Open an Alfred board for this item: /alfred-setup writes its brief and spec from it.' }}</span>
+          <app-team-start-button [item]="shown()" [linkedBoard]="d.board" [startState]="d.startState" (changed)="reload()" />
+        </div>
       }
       <div class="tid-tabs" role="tablist">
         @for (t of tabs; track t) {
@@ -77,7 +80,7 @@ import { TeamItem, TeamItemDetail, TeamRevision } from '../../../core/team/team.
     .tid-title { margin: .5rem 0; }
     .tid-props { display: flex; flex-wrap: wrap; gap: .3rem 1rem; font-size: .82rem; }
     .tid-props b { color: var(--text-dim); font-weight: 500; margin-right: .2rem; }
-    .tid-board { margin: .6rem 0; padding: .4rem .6rem; border: 1px solid var(--border-strong); border-radius: 7px; font-size: .84rem; }
+    .tid-board { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; justify-content: space-between; margin: .6rem 0; padding: .4rem .6rem; border: 1px solid var(--border-strong); border-radius: 7px; font-size: .84rem; }
     .tid-tabs { display: flex; gap: .3rem; margin: .8rem 0 .5rem; border-bottom: 1px solid var(--border); }
     .tid-tabs button { border: 0; background: none; color: var(--text-dim); padding: .3rem .6rem; cursor: pointer; }
     .tid-tabs button.on { color: var(--text); border-bottom: 2px solid var(--purple-light); }
@@ -95,7 +98,6 @@ import { TeamItem, TeamItemDetail, TeamRevision } from '../../../core/team/team.
 export class TeamItemDrawerComponent {
   readonly state = inject(TeamStateService);
   private readonly api = inject(TeamApiService);
-  private readonly router = inject(Router);
 
   readonly item = input.required<TeamItem>();
   readonly closed = output<void>();
@@ -119,6 +121,10 @@ export class TeamItemDrawerComponent {
         this.api.item(i.conn, i.extId).subscribe({ next: (d) => this.isCurrent(i) && this.detail.set(d), error: () => undefined });
         this.loadHistory(false);
       });
+    });
+    // a start, cancel or link (by anyone) changes the item's board state
+    effect(() => {
+      if (this.state.startVersion()) untracked(() => this.reload());
     });
   }
 
@@ -152,7 +158,9 @@ export class TeamItemDrawerComponent {
     return plain.length > 140 ? plain.slice(0, 139) + '…' : plain;
   }
 
-  openBoard(boardId: string): void {
-    this.router.navigate(['/board'], { queryParams: { board: boardId } });
+  /** After a start or cancel: the item's board and start state again. */
+  reload(): void {
+    const i = this.item();
+    this.api.item(i.conn, i.extId).subscribe({ next: (d) => this.isCurrent(i) && this.detail.set(d), error: () => undefined });
   }
 }

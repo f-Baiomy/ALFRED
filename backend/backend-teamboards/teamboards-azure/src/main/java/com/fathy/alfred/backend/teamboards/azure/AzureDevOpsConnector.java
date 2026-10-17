@@ -311,6 +311,30 @@ public class AzureDevOpsConnector implements Connector, BoardsReader, SprintsRea
         return "application/octet-stream";
     }
 
+    @Override
+    public List<Attachment> listedIn(Item item) {
+        List<Attachment> out = new ArrayList<>();
+        if (item.nativeJson() == null || item.nativeJson().isBlank()) {
+            return out;
+        }
+        try {
+            for (JsonNode r : new com.fasterxml.jackson.databind.ObjectMapper().readTree(item.nativeJson()).path("relations")) {
+                if (!"AttachedFile".equals(r.path("rel").asText())) {
+                    continue;
+                }
+                String name = r.path("attributes").path("name").asText("attachment");
+                try {
+                    out.add(new Attachment(name, mime(name), r.path("attributes").path("resourceSize").asLong(-1), URI.create(r.path("url").asText()), null));
+                } catch (IllegalArgumentException e) {
+                    // a relation with a bad link is left out
+                }
+            }
+        } catch (java.io.IOException e) {
+            // an unreadable raw item lists nothing
+        }
+        return out;
+    }
+
     // ----------------------------------------------------------------------------------------------------------- seed
 
     @Override

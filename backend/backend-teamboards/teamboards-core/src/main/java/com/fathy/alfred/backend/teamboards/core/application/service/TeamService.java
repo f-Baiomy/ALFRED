@@ -38,6 +38,9 @@ import com.fathy.alfred.backend.teamboards.spi.model.Revision;
 import com.fathy.alfred.backend.teamboards.spi.model.Scope;
 import com.fathy.alfred.backend.teamboards.spi.model.Token;
 import org.springframework.beans.factory.annotation.Autowired;
+import com.fathy.alfred.backend.teamboards.core.application.port.in.StartFromItemUseCase;
+import com.fathy.alfred.backend.teamboards.core.application.port.out.TeamBoardsPort;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -64,6 +67,8 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 @Service
 public class TeamService implements TeamUseCase {
+
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(TeamService.class);
 
     /** Connectors Alfred knows of but does not ship yet: listed so Settings can say "not installed". */
     static final Map<String, String> KNOWN = Map.of("azure", "Azure DevOps", "jira", "Jira", "clickup", "ClickUp");
@@ -272,7 +277,8 @@ public class TeamService implements TeamUseCase {
             Connection connection = conn(c);
             Instant started = clock.instant();
             int[] changed = {0};
-            k.changedItems(connection, token, c.fetchedAt(), page -> changed[0] += store(c.id(), page, started));
+            List<ItemSummaryRef> fresh = new ArrayList<>();
+            k.changedItems(connection, token, c.fetchedAt(), page -> changed[0] += store(c.id(), page, started, fresh));
             if (k instanceof SquadsReader r) {
                 cache.replaceSquads(c.id(), r.squads(connection, token).stream()
                         .map(s -> new SquadRow(c.id(), s.extId(), s.name(), s.project(), null, null, s.memberIds())).toList());
@@ -290,6 +296,9 @@ public class TeamService implements TeamUseCase {
             cache.markFetched(c.id(), started, by, c.scope());
             cache.evict(maxItems, maxRevisions, maxChangeRows, clock.instant().minus(Duration.ofDays(changesMaxAgeDays)));
             signals.changed(c.id(), "items");
+            if (c.fetchedAt() != null) {
+                suggest(c.id(), fresh); // not after a first (full) fetch: every item would be new
+            }
             if (changed[0] > 0) {
                 signals.changed(c.id(), "changes");
             }
@@ -308,7 +317,55 @@ public class TeamService implements TeamUseCase {
     }
 
     /** One page into the cache, and a feed line for every item that is new or has a newer revision. Items changed. */
+    /** A new item seen by a refresh: what Claude's suggestion names. */
+    record ItemSummaryRef(String extId, String type, String title) {
+    }
+
+    /** At most this many suggestions per refresh, so a busy backlog does not fill the chats. */
+    static final int MAX_SUGGESTIONS = 5;
+
+    private ObjectProvider<TeamBoardsPort> boards;
+    private ObjectProvider<StartFromItemUseCase> starts;
+
+    @Autowired
+    void wireStarts(ObjectProvider<TeamBoardsPort> boards, ObjectProvider<StartFromItemUseCase> starts) {
+        this.boards = boards;
+        this.starts = starts;
+    }
+
+    /**
+     * FR-036: a new item whose mapping names a board gets Claude's suggestion in that board's chat - only when a runner
+     * is live there to act on the user's yes. Claude never starts it; the user's Yes does.
+     */
+    void suggest(String conn, List<ItemSummaryRef> fresh) {
+        TeamBoardsPort port = boards == null ? null : boards.getIfAvailable();
+        StartFromItemUseCase s = starts == null ? null : starts.getIfAvailable();
+        if (port == null || s == null || fresh.isEmpty()) {
+            return;
+        }
+        int posted = 0;
+        for (ItemSummaryRef i : fresh) {
+            if (posted >= MAX_SUGGESTIONS) {
+                break;
+            }
+            try {
+                StartFromItemUseCase.Target t = s.targetOf(conn, i.extId());
+                if (t != null && port.suggest(t.project(), t.boardId(), conn, i.extId(),
+                        "New " + i.type() + " " + i.extId() + ": " + i.title() + " - open a board for it?")) {
+                    posted++;
+                }
+            } catch (RuntimeException e) {
+                log.debug("No suggestion for {} {}: {}", conn, i.extId(), e.getMessage());
+            }
+        }
+    }
+
     int store(String conn, List<Item> page, Instant fetchedAt) {
+        return store(conn, page, fetchedAt, new ArrayList<>());
+    }
+
+    /** {@code fresh} collects the items the cache did not have before. */
+    int store(String conn, List<Item> page, Instant fetchedAt, List<ItemSummaryRef> fresh) {
         if (page == null || page.isEmpty()) {
             return 0;
         }
@@ -320,6 +377,9 @@ public class TeamService implements TeamUseCase {
                 continue;
             }
             lines.add(new String[]{i.extId(), summaryOf(old == null ? null : cache.summary(conn, i.extId()).orElse(null), i)});
+            if (old == null) {
+                fresh.add(new ItemSummaryRef(i.extId(), i.type(), i.title()));
+            }
         }
         cache.upsertItems(conn, page, fetchedAt);
         Map<String, Item> byId = new LinkedHashMap<>();
@@ -383,7 +443,8 @@ public class TeamService implements TeamUseCase {
         List<ItemField> fields = new ArrayList<>();
         cache.fields(conn, extId).forEach((k, v) -> fields.add(new ItemField(k, v, maps.getOrDefault(k, defaultTarget(k)))));
         String board = cache.linkOfItem(conn, extId).map(l -> l.alfredBoard()).orElse(null);
-        return Optional.of(new ItemDetail(s.get(), fields, cache.links(conn, extId), board, null));
+        String start = board != null ? null : cache.start(conn, extId).map(r -> r.state()).orElse(null);
+        return Optional.of(new ItemDetail(s.get(), fields, cache.links(conn, extId), board, start));
     }
 
     /** Where a field goes in a seed when nobody mapped it (the neutral names every connector fills). */

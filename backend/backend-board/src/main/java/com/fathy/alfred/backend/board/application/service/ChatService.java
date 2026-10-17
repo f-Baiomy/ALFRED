@@ -871,6 +871,25 @@ public class ChatService implements ChatUseCase, ChatRunnerEventsUseCase {
     }
 
     @Override
+    public Result<ChatMessage> suggestStart(ChatKey chat, String conn, String itemId, String text) {
+        if (conn == null || itemId == null || !conn.matches("^[A-Za-z0-9._-]{1,100}$") || !itemId.matches("^[A-Za-z0-9._-]{1,100}$")
+                || text == null || text.isBlank()) {
+            return Result.no(Outcome.INVALID, "A suggestion names a connection, an item and a line");
+        }
+        String origin = TEAM_SUGGEST + conn + "/" + itemId;
+        if (origin.length() > 60) {
+            return Result.no(Outcome.INVALID, "The item reference is too long");
+        }
+        if (chats.page(chat, null, 200).stream().anyMatch(m -> origin.equals(m.origin()))) {
+            return Result.no(Outcome.INVALID, "Already suggested in this chat");
+        }
+        ChatMessage line = chats.insert(new ChatMessage(0, chat, null, Author.ALFRED, Kind.SYSTEM, cut(text.strip(), 500), State.DONE, false, false,
+                origin, List.of(), null, null, Map.of(), null, null, null, false, clock.instant(), null));
+        changed(chat, line.id());
+        return Result.ok(line);
+    }
+
+    @Override
     public Result<ChatWatch> watch(Actor actor, ChatKey chat, ChatWatch.Kind kind, String target, String label, Long messageId) {
         if (kind == null || target == null || target.isBlank() || label == null || label.isBlank()) {
             return Result.no(Outcome.INVALID, "A watch needs its kind, target and label");

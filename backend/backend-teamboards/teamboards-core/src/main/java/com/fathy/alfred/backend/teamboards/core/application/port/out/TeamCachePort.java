@@ -122,4 +122,27 @@ public interface TeamCachePort {
 
     /** Trims the cache to its limits (data-model "Retention"); items a board links are never removed. Rows removed. */
     int evict(int maxItems, int maxRevisions, int maxChangeRows, Instant changesOlderThan);
+
+    // starts and attachments fetched with a start (specs/027 US8)
+    /** A start the user asked for: where it goes ("project|boardId", board empty = the project's chat) and its state. */
+    record StartRow(String conn, String extId, String target, Long chatMessageId, String state, Instant at) {
+    }
+
+    Optional<StartRow> start(String conn, String extId);
+
+    void putStart(StartRow row);
+
+    boolean deleteStart(String conn, String extId);
+
+    /** An attachment downloaded with a start, kept until /alfred-setup links the board (24 h at most). */
+    record PendingFile(String name, String mime, long size, byte[] data) {
+    }
+
+    void putPending(String conn, String extId, List<PendingFile> files);
+
+    /** The item's pending files, removed from the store as they are read. */
+    List<PendingFile> takePending(String conn, String extId);
+
+    /** The raw item as fetched, for a connector's own seed part. */
+    Optional<String> nativeJson(String conn, String extId);
 }

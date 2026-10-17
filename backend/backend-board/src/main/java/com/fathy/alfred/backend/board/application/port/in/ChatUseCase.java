@@ -194,6 +194,15 @@ public interface ChatUseCase {
     /** A line from the runner in the chat ("↻ caught up", "↳ answered your comment on #12") - no answer, no record. */
     Result<ChatMessage> systemLine(Actor actor, ChatKey chat, String text);
 
+    /** The origin of a start suggestion: "team-suggest:<conn>/<itemId>" - the chat panel shows Yes / No on it (specs/027 FR-036). */
+    String TEAM_SUGGEST = "team-suggest:";
+
+    /**
+     * Alfred's line suggesting a board for a new work item (specs/027 FR-036): shown with Yes / No; the user's Yes starts it.
+     * Never a start itself, and never twice for one item in one chat.
+     */
+    Result<ChatMessage> suggestStart(ChatKey chat, String conn, String itemId, String text);
+
     Result<ChatWatch> watch(Actor actor, ChatKey chat, ChatWatch.Kind kind, String target, String label, Long messageId);
 
     Result<Void> cancelWatch(Actor actor, long id);

@@ -81,6 +81,9 @@ the answering (docs/mcp.md "Live answers"):
   - A long job (a skill like /speckit-plan, a big fix) - ask once in the reply first ("Run it here? ~20 min"), unless
     the message already asked for it. A decision you need mid-task → a reply that asks it (or `board_ask` on a card),
     then pause that job: the answer comes back as a new `✉` line.
+  - "open a board for AB#1234" / "open a new board <name>", or a `/alfred-setup <conn>/<id>` message (the user's Start
+    button): open it as rules.md "Board chat" says - `askedIn` = that message, the new board related back to this chat's
+    board, never a second board for one item, and "not in the cache yet: Refresh the Team tab first" when it is missing.
   - `↪ handed over: …` - another terminal session answers the cycle now: stop the Monitor watch, answer nothing more.
   - After starting in a cycle that already has a chat: read the chat's summary and the brief (`chat_read`,
     `get_brief`) before the first answer - they are what this session did not see.

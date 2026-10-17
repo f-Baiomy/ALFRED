@@ -217,14 +217,14 @@ Aliases used in task paths (all relative to the repo root):
 **Goal**: Start / chat / Claude-suggested, mapping, seed, Open task menu.
 **Independent test**: quickstart §4 steps 4–5.
 
-- [ ] T070 [US8] Add `StartFromItemUseCase` + `StartOutcome` in `CORE/application/port/in/`. Implement start/cancel in `CORE/application/service/StartService.java`:
+- [X] T070 [US8] Add `StartFromItemUseCase` + `StartOutcome` in `CORE/application/port/in/`. Implement start/cancel in `CORE/application/service/StartService.java`:
   - mapping lookup in order SPRINT → SQUAD → AREA → PROJECT;
   - `NEEDS_TARGET` + remember;
   - `ALREADY_STARTED`;
   - `start_requests` state;
   - when the request carries a token, download the item's attachments into `pending_attachments` (size caps, 24 h cleanup) (FR-037a).
-- [ ] T071 [US8] Implement `APP/teamboardsbridge/TeamStartToChatAdapter.java` (posts a WAITING `/alfred-setup <conn>/<id>` message to the target board's chat through `ChatUseCase`) and `APP/teamboardsbridge/LinkedWorkItemAdapter.java` (implements `LinkedWorkItemPort` from `board_links`); on board delete (a new `BoardDeletedPort` called by `BoardsService`), remove that board's `board_links` row so the item shows Start again (spec Edge Cases); on `team_link`, move the item's `pending_attachments` into the board as spec files; add `POST /teamboards/links/{board}/attachments/fetch` and a "Fetch attachments" button in `FE/components/board/task-view/` shown when the board lists attachments it does not hold yet (FR-037a)
-- [ ] T072 [US8] Implement the seed builder in `CORE/application/service/SeedBuilder.java`:
+- [X] T071 [US8] Implement `APP/teamboardsbridge/TeamStartToChatAdapter.java` (posts a WAITING `/alfred-setup <conn>/<id>` message to the target board's chat through `ChatUseCase`) and `APP/teamboardsbridge/LinkedWorkItemAdapter.java` (implements `LinkedWorkItemPort` from `board_links`); on board delete (a new `BoardDeletedPort` called by `BoardsService`), remove that board's `board_links` row so the item shows Start again (spec Edge Cases); on `team_link`, move the item's `pending_attachments` into the board as spec files; add `POST /teamboards/links/{board}/attachments/fetch` and a "Fetch attachments" button in `FE/components/board/task-view/` shown when the board lists attachments it does not hold yet (FR-037a)
+- [X] T072 [US8] Implement the seed builder in `CORE/application/service/SeedBuilder.java`:
   - neutral fields;
   - field maps → Purpose / Steps / Acceptance / Context;
   - the parent's acceptance criteria;
@@ -233,8 +233,8 @@ Aliases used in task paths (all relative to the repo root):
   - `SeedContributor` hook.
 
   Add `team_item` seed output, plus `team_link` and `team_start` (user-asked only) in `MCP/team.ts`.
-- [ ] T073 [P] [US8] Test `CORE_T/application/service/StartServiceTest.java` and `SeedBuilderTest.java` (mapping order, unmapped, already started, Feature children, custom field maps, attachments pending with a token and listed without one)
-- [ ] T074 [US8] Update `skills/alfred-setup/SKILL.md`:
+- [X] T073 [P] [US8] Test `CORE_T/application/service/StartServiceTest.java` and `SeedBuilderTest.java` (mapping order, unmapped, already started, Feature children, custom field maps, attachments pending with a token and listed without one)
+- [X] T074 [US8] Update `skills/alfred-setup/SKILL.md`:
   - accept `AB#id` / `<conn>/<id>`;
   - read `team_item`;
   - create the board with `board_open` (askedIn) and the first recording with `board_record`;
@@ -242,9 +242,9 @@ Aliases used in task paths (all relative to the repo root):
   - write brief and spec;
   - never fetch attachments (no token): list any not yet on the board by name and link;
   - call `team_link`.
-- [ ] T075 [US8] Create `FE/components/team/start-button/` (Start → waiting/cancel → running → Open task ▾ with Open board / New re-test cycle / /alfred-resume) and the unmapped-target dialog
-- [ ] T076 [US8] Handle "open a board for AB#id" / "open a new board <name>" in board chats in the chat answering rules: `skills/_shared/rules.md` and `skills/alfred-live/SKILL.md` (new board relates back to the chat's board; refuses a second board for one item; when the item is not in the cache, replies "AB#id is not in the cache yet: Refresh the Team tab first" and opens nothing)
-- [ ] T077 [US8] Post the Claude suggestion on Refresh: when Refresh brings new items and the mapped board has a runner, post a chat message with Yes/No options through the bridge (`APP/teamboardsbridge/TeamSuggestAdapter.java`); render Yes/No in the board chat panel; Yes calls start
+- [X] T075 [US8] Create `FE/components/team/start-button/` (Start → waiting/cancel → running → Open task ▾ with Open board / New re-test cycle / /alfred-resume) and the unmapped-target dialog
+- [X] T076 [US8] Handle "open a board for AB#id" / "open a new board <name>" in board chats in the chat answering rules: `skills/_shared/rules.md` and `skills/alfred-live/SKILL.md` (new board relates back to the chat's board; refuses a second board for one item; when the item is not in the cache, replies "AB#id is not in the cache yet: Refresh the Team tab first" and opens nothing)
+- [X] T077 [US8] Post the Claude suggestion on Refresh: when Refresh brings new items and the mapped board has a runner, post a chat message with Yes/No options through the bridge (`APP/teamboardsbridge/TeamSuggestAdapter.java`); render Yes/No in the board chat panel; Yes calls start
 
 ---
 
@@ -253,9 +253,9 @@ Aliases used in task paths (all relative to the repo root):
 **Goal**: "Azure changed" badge, before/after review, save or dismiss.
 **Independent test**: quickstart §4 step 6.
 
-- [ ] T078 [US9] Compute `changedSinceSetup` from revisions after `seen_rev` in `CORE/application/service/LinksService.java`; `POST /teamboards/links/{board}/seen`
-- [ ] T079 [US9] Show the "<provider> changed" banner (label from `ConnectorUi.label`, e.g. "Azure changed") in `FE/components/board/task-view/` via `LinkedWorkItemPort` data; Review opens a before/after; Save goes through the brief/spec save path, then marks seen; Dismiss marks seen
-- [ ] T080 [P] [US9] Test `CORE_T/application/service/LinksServiceTest.java` (changes after seen_rev only; seen resets)
+- [X] T078 [US9] Compute `changedSinceSetup` from revisions after `seen_rev` in `CORE/application/service/LinksService.java`; `POST /teamboards/links/{board}/seen`
+- [X] T079 [US9] Show the "<provider> changed" banner (label from `ConnectorUi.label`, e.g. "Azure changed") in `FE/components/board/task-view/` via `LinkedWorkItemPort` data; Review opens a before/after; Save goes through the brief/spec save path, then marks seen; Dismiss marks seen
+- [X] T080 [P] [US9] Test `CORE_T/application/service/LinksServiceTest.java` (changes after seen_rev only; seen resets) *(covered in `StartServiceTest.changedSinceSetupIsTheSnapshotAgainstTheItemNowAndSeenResetsIt`: changes are the snapshot against the item now, who/when from revisions after seen_rev)*
 
 ---
 

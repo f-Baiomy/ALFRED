@@ -1,3 +1,4 @@
+import { WorkItemStripComponent } from '../work-item-strip/work-item-strip.component';
 import { Component, DestroyRef, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { debounceTime, filter } from 'rxjs';
@@ -58,7 +59,7 @@ const BAR: readonly ReqGroup[] = ['MET', 'BUG', 'MISSING', 'FIXED', 'DECIDE', 'C
   selector: 'app-task-view',
   standalone: true,
   host: { '(document:click)': 'outside($event)' },
-  imports: [BoardFilesComponent, CycleBriefComponent, RunSkillComponent, SpecFilesComponent, TaskRequirementsComponent],
+  imports: [BoardFilesComponent, CycleBriefComponent, RunSkillComponent, SpecFilesComponent, TaskRequirementsComponent, WorkItemStripComponent],
   template: `
     <div class="tv">
       <div class="tv-hd">
@@ -68,6 +69,7 @@ const BAR: readonly ReqGroup[] = ['MET', 'BUG', 'MISSING', 'FIXED', 'DECIDE', 'C
             @if (refs().branch) { <span class="tv-chip" title="The task's branch">{{ refs().branch }}</span> }
           </div>
           <h2 class="tv-title">{{ title() }}</h2>
+          <app-work-item-strip [boardId]="cycleId()" [editable]="editable()" />
         </div>
         <div class="tv-hd-acts">
           <div class="tv-next" [title]="'Picked from where the task stands: ' + next().why">

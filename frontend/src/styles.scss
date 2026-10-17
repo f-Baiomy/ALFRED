@@ -12414,6 +12414,11 @@ html.chat-fullscreen .board-drawer { z-index: 940; }
 .chat-thread-toggle { background: none; border: 0; color: var(--purple-light); cursor: pointer; padding: 0; font-size: .72rem; }
 .chat-sys { display: flex; align-items: center; gap: .5rem; font-size: .7rem; color: var(--text-faint); margin: .7rem 0; text-align: center; }
 .chat-sys::before, .chat-sys::after { content: ""; flex: 1; border-top: 1px dashed var(--border-strong); }
+/* specs/027 FR-036: Alfred's suggestion of a board for a new work item, answered Yes / No */
+.chat-sys.chat-suggest { font-size: .78rem; color: var(--text-dim); flex-wrap: wrap; justify-content: center; }
+.chat-sys.chat-suggest::before, .chat-sys.chat-suggest::after { display: none; }
+.chat-suggest-done { color: var(--green); }
+.chat-suggest-err { color: var(--red); }
 .chat-newline { display: flex; align-items: center; gap: .5rem; font-size: .68rem; font-weight: 700; color: var(--red); margin: .6rem 0; }
 .chat-newline::before, .chat-newline::after { content: ""; flex: 1; border-top: 1px solid color-mix(in srgb, var(--red) 55%, transparent); }
 // Last in the stream, held at its bottom edge while the user reads further up (the composer's height varies). It takes no

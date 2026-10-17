@@ -6,7 +6,7 @@ import { reconnectingSocket } from '../state/reconnecting-socket';
 import { TeamTokenStore } from './team-token.store';
 import {
   ConnectorInfo, MappingKind, SeedTarget, TeamBoard, TeamChange, TeamConnection, TeamFieldMap, TeamItemDetail, TeamItemFilters,
-  TeamItemsPage, TeamMapping, TeamPerson, TeamRevision, TeamScope, TeamSocketEvent, TeamSprint, TeamSquad,
+  TeamItemsPage, TeamMapping, TeamPerson, TeamRevision, TeamScope, TeamSocketEvent, TeamSprint, TeamSquad, StartTarget, StartAnswer, TeamLink,
 } from './team.models';
 
 /**
@@ -132,5 +132,31 @@ export class TeamApiService {
 
   deleteFieldMap(conn: string, itemType: string, field: string): Observable<void> {
     return this.http.delete<void>(`${this.base}/connections/${encodeURIComponent(conn)}/field-maps/${encodeURIComponent(itemType)}/${encodeURIComponent(field)}`);
+  }
+
+  // ------------------------------------------------------------------------------------- start and links (specs/027 US8/US9)
+
+  /** The user's Start: 202 WAITING, 409 NEEDS_TARGET / ALREADY_STARTED. The token (when kept) also fetches the attachments. */
+  start(conn: string, extId: string, target: StartTarget | null): Observable<StartAnswer> {
+    return this.http.post<StartAnswer>(`${this.base}/items/${encodeURIComponent(conn)}/${encodeURIComponent(extId)}/start`, { target },
+      this.withToken(conn));
+  }
+
+  cancelStart(conn: string, extId: string): Observable<void> {
+    return this.http.delete<void>(`${this.base}/items/${encodeURIComponent(conn)}/${encodeURIComponent(extId)}/start`);
+  }
+
+  /** The board an Alfred board was opened from; null (204) when none. */
+  link(boardId: string): Observable<TeamLink | null> {
+    return this.http.get<TeamLink | null>(`${this.base}/links/${encodeURIComponent(boardId)}`);
+  }
+
+  linkSeen(boardId: string): Observable<void> {
+    return this.http.post<void>(`${this.base}/links/${encodeURIComponent(boardId)}/seen`, {});
+  }
+
+  fetchAttachments(boardId: string, conn: string): Observable<{ attached: string[]; notAttached: string[] }> {
+    return this.http.post<{ attached: string[]; notAttached: string[] }>(`${this.base}/links/${encodeURIComponent(boardId)}/attachments/fetch`, {},
+      this.withToken(conn));
   }
 }

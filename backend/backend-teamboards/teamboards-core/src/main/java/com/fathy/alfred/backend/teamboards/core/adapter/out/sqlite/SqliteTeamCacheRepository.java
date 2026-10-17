@@ -368,6 +368,7 @@ public class SqliteTeamCacheRepository implements TeamCachePort {
     }
 
     /** The raw item, for the drawer's "raw" view and the seed builder - never a list. */
+    @Override
     public Optional<String> nativeJson(String conn, String extId) {
         return jdbc.queryForList("SELECT native_json FROM items WHERE conn = ? AND ext_id = ?", String.class, conn, extId).stream().findFirst();
     }
@@ -635,5 +636,46 @@ public class SqliteTeamCacheRepository implements TeamCachePort {
         } catch (IOException e) {
             return 0;
         }
+    }
+
+    // ------------------------------------------------------------------------------------------- starts, pending files
+
+    @Override
+    public Optional<StartRow> start(String conn, String extId) {
+        return jdbc.query("SELECT conn, ext_id, alfred_board_target, chat_message_id, state, at FROM start_requests WHERE conn = ? AND ext_id = ?",
+                (rs, n) -> new StartRow(rs.getString(1), rs.getString(2), rs.getString(3), rs.getObject(4) == null ? null : rs.getLong(4),
+                        rs.getString(5), instant(rs, 6)), conn, extId).stream().findFirst();
+    }
+
+    @Override
+    public void putStart(StartRow row) {
+        jdbc.update("INSERT OR REPLACE INTO start_requests(conn, ext_id, alfred_board_target, chat_message_id, state, at) VALUES (?,?,?,?,?,?)",
+                row.conn(), row.extId(), row.target(), row.chatMessageId(), row.state(), millis(row.at()));
+    }
+
+    @Override
+    public boolean deleteStart(String conn, String extId) {
+        return jdbc.update("DELETE FROM start_requests WHERE conn = ? AND ext_id = ?", conn, extId) > 0;
+    }
+
+    @Override
+    public void putPending(String conn, String extId, List<PendingFile> files) {
+        long now = System.currentTimeMillis();
+        tx.executeWithoutResult(s -> {
+            for (PendingFile f : files) {
+                jdbc.update("INSERT OR REPLACE INTO pending_attachments(conn, ext_id, name, mime, size, data, fetched_at) VALUES (?,?,?,?,?,?,?)",
+                        conn, extId, f.name(), f.mime(), f.size(), f.data(), now);
+            }
+        });
+    }
+
+    @Override
+    public List<PendingFile> takePending(String conn, String extId) {
+        return tx.execute(s -> {
+            List<PendingFile> out = jdbc.query("SELECT name, mime, size, data FROM pending_attachments WHERE conn = ? AND ext_id = ? ORDER BY name",
+                    (rs, n) -> new PendingFile(rs.getString(1), rs.getString(2), rs.getLong(3), rs.getBytes(4)), conn, extId);
+            jdbc.update("DELETE FROM pending_attachments WHERE conn = ? AND ext_id = ?", conn, extId);
+            return out;
+        });
     }
 }

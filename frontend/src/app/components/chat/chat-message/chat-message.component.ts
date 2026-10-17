@@ -6,6 +6,7 @@ import { ChatProposalsComponent } from './chat-proposals.component';
 import { ChatConsentComponent } from './chat-consent.component';
 import { BoardApiService } from '../../../core/services/board-api.service';
 import { Router } from '@angular/router';
+import { TeamApiService } from '../../../core/team/team-api.service';
 import { ChatStateService } from '../../../core/state/chat-state.service';
 import { MarkdownViewComponent } from '../../board/markdown-view/markdown-view.component';
 import { MentionEditorComponent } from '../../board/mention-editor/mention-editor.component';
@@ -27,7 +28,21 @@ import { messageOf } from '../../../core/state/board-state.service';
   imports: [MarkdownViewComponent, MentionEditorComponent, LiveWorkBoxComponent, MentionChipComponent, ChatQuestionsComponent, ChatProposalsComponent, ChatConsentComponent],
   template: `
     @let m = message();
-    @if (m.kind === 'SYSTEM') {
+    @if (m.kind === 'SYSTEM' && suggestion(m.origin); as ref) {
+      <!-- specs/027 FR-036: Alfred suggests a board for a new work item; only the user's Yes starts it -->
+      <div class="chat-sys chat-suggest" [attr.data-chat-id]="m.id">
+        <span>◆ {{ plain(m.text) }}</span>
+        @switch (suggested()) {
+          @case ('started') { <span class="chat-suggest-done">▶ started - /alfred-setup waits in the board chat</span> }
+          @case ('no') { <span class="chat-suggest-done">not now</span> }
+          @default {
+            <button type="button" class="action-btn primary" (click)="acceptSuggestion(ref.conn, ref.extId)">Yes</button>
+            <button type="button" class="action-btn" (click)="suggested.set('no')">No</button>
+          }
+        }
+        @if (suggestError()) { <span class="chat-suggest-err">{{ suggestError() }}</span> }
+      </div>
+    } @else if (m.kind === 'SYSTEM') {
       <div class="chat-sys" [attr.data-chat-id]="m.id">{{ plain(m.text) }}</div>
     } @else if (m.kind === 'TASK') {
       <div class="chat-sys" [attr.data-chat-id]="m.id">
@@ -177,6 +192,7 @@ export class ChatMessageComponent {
   private readonly api = inject(ChatApiService);
   private readonly board = inject(BoardApiService);
   private readonly router = inject(Router);
+  private readonly team = inject(TeamApiService);
   readonly state = inject(ChatStateService);
 
   readonly message = input.required<ChatMessage>();
@@ -294,6 +310,26 @@ export class ChatMessageComponent {
 
   time(iso: string): string {
     return new Date(iso).toTimeString().slice(0, 5);
+  }
+
+  /** "team-suggest:<conn>/<itemId>" - Alfred's suggestion of a board for a new work item. */
+  suggestion(origin: string | null): { conn: string; extId: string } | null {
+    const m = origin?.match(/^team-suggest:([^/]+)\/(.+)$/);
+    return m ? { conn: m[1], extId: m[2] } : null;
+  }
+
+  readonly suggested = signal<'started' | 'no' | null>(null);
+  readonly suggestError = signal<string | null>(null);
+
+  acceptSuggestion(conn: string, extId: string): void {
+    this.suggestError.set(null);
+    this.team.start(conn, extId, null).subscribe({
+      next: () => this.suggested.set('started'),
+      error: (e) => {
+        if (e?.error?.error === 'ALREADY_STARTED') return this.suggested.set('started');
+        this.suggestError.set(e?.error?.error === 'NEEDS_TARGET' ? 'Its mapping is gone - start it from the Team tab' : e?.error?.message || 'Could not start it');
+      },
+    });
   }
 
   origin(o: string): string {

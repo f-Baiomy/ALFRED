@@ -429,4 +429,17 @@ class ChatServiceTest {
                 .isEqualTo(new ChatKey("odeysys", ""));
         assertThat(new ChatKey("odeysys", com.fathy.alfred.backend.board.domain.model.BoardIds.defaultOf("odeysys")).isProject()).isTrue();
     }
+
+    /** specs/027 FR-036: Alfred's suggestion of a board for a new item - a line with its origin, once per chat, never a start. */
+    @Test
+    void aStartSuggestionIsALineOncePerItemAndNeverWaitsForClaude() {
+        Result<ChatMessage> r = f.chat.suggestStart(PROJECT, "c1", "1234", "New Bug 1234: Refund fails - open a board for it?");
+        assertThat(r.isOk()).as(r.message()).isTrue();
+        assertThat(r.value().origin()).isEqualTo("team-suggest:c1/1234");
+        assertThat(r.value().author()).isEqualTo(ChatMessage.Author.ALFRED);
+        assertThat(r.value().state()).isEqualTo(ChatMessage.State.DONE);
+        assertThat(f.chat.suggestStart(PROJECT, "c1", "1234", "again").isOk()).as("once per item").isFalse();
+        assertThat(f.chat.suggestStart(PROJECT, "c1", "12 34", "bad id").isOk()).isFalse();
+        assertThat(f.chat.suggestStart(CYCLE, "c1", "1234", "another chat").isOk()).isTrue();
+    }
 }

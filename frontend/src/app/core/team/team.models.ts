@@ -57,7 +57,7 @@ export interface TeamItemField {
   readonly mappedTo: SeedTarget | null;
 }
 
-export interface TeamLink {
+export interface TeamItemLink {
   readonly toId: string;
   readonly kind: string;
 }
@@ -65,7 +65,7 @@ export interface TeamLink {
 export interface TeamItemDetail {
   readonly item: TeamItem;
   readonly fields: readonly TeamItemField[];
-  readonly links: readonly TeamLink[];
+  readonly links: readonly TeamItemLink[];
   /** The Alfred board this item opened, or null. */
   readonly board: string | null;
   readonly startState: string | null;
@@ -155,4 +155,30 @@ export interface TeamSocketEvent {
   readonly type: 'team-changed';
   readonly conn: string | null;
   readonly what: string;
+}
+
+export interface StartTarget {
+  readonly project: string;
+  readonly boardId: string | null;
+  readonly remember: boolean;
+}
+
+export interface StartAnswer {
+  readonly state: 'WAITING' | 'NEEDS_TARGET' | 'ALREADY_STARTED';
+  readonly project: string | null;
+  readonly boardId: string | null;
+  readonly messageId: number | null;
+  readonly attachmentsFetched: number;
+  readonly message: string | null;
+}
+
+/** An Alfred board's work item (GET /teamboards/links/{board}). */
+export interface TeamLink {
+  readonly board: string;
+  readonly conn: string;
+  readonly extId: string;
+  readonly provider: string;
+  readonly snapshot: Readonly<Record<string, string>>;
+  readonly changedSinceSetup: readonly { field: string; from: string | null; to: string | null; by: string | null; at: string | null }[];
+  readonly attachments: readonly { name: string; size: number; url: string; held: boolean }[];
 }

@@ -1,7 +1,7 @@
 ---
 name: alfred-setup
-description: Start a QA task with Alfred - check Alfred is connected and capturing (logs, SQL, Redis) for the project, create the session cycle, and from the user's description write the cycle brief (purpose, numbered test steps, data) and a spec file with an Acceptance list. Use when the user starts a task, says "set up a cycle for X", or "/alfred-setup".
-argument-hint: "[project] [\"what the task is\"] [--dry]"
+description: Start a QA task with Alfred - check Alfred is connected and capturing (logs, SQL, Redis) for the project, open the task's board with its first recording, and from the user's description or a work item (AB#1234, <conn>/1234) write the board brief (purpose, numbered test steps, data) and a spec file with an Acceptance list. Use when the user starts a task, says "set up a board for X", presses Start on a work item, or "/alfred-setup".
+argument-hint: "[project] [\"what the task is\" | AB#1234 | <conn>/1234] [--dry]"
 ---
 
 # Alfred setup
@@ -16,10 +16,32 @@ Read `rules.md` in this skill's folder first and follow it.
    If one is off, say what it means ("no log lines will be checked") and **ask** before turning it on
    (`set_inbound_logging`, `set_log_capture`, `set_db_capture`); report old → new.
 
-## 2. The cycle
+## 2. The board
 
-Ask for a short name if none is obvious from the description (e.g. "ODY-482 import PNR"). `create_cycle` with it.
-Do not start recording - the user does that when they are ready to test (say so).
+A task is a board: its brief, spec, requirements, chat and cards; its session cycles are its recordings.
+
+- Ask for a short name if none is obvious from the description (e.g. "ODY-482 import PNR").
+- `board_open` with it, `askedIn` = the chat message you are answering (or "terminal"), and `relateTo` = the board
+  whose chat asked, when it was not the project's default board. Claude never opens a board on its own - only for
+  this user request.
+- A work item that already has a board (`team_item` says `board`): do not open a second one - say which board it has.
+- `board_record` (kind REC) makes the board's first recording only when the user said to start recording; else tell
+  them they start it when ready to test.
+
+### From a work item (AB#1234, <conn>/1234, or the Start button's `/alfred-setup <conn>/<id>`)
+
+1. `team_item` with the id - the item from Alfred's shared cache, as a seed: purpose, steps, acceptance, context (by
+   the field maps the user set), the parent's acceptance, a Feature's children, attachments by name and link. Read a
+   long part with `part` + `offset`; never shorten it. Not in the cache: say "AB#<id> is not in the cache yet: Refresh
+   the Team tab first" and stop.
+2. Name the board after the item (`AB#1234 <title>`), open it as above, in the project the start was posted to.
+3. Draft the brief and spec from the seed (section 3): Description = purpose and context as given; Test steps from
+   steps (or the children, one step each); Acceptance from acceptance, then the parent's acceptance when the item has
+   none of its own. Keep the item's link under Task.
+4. Attachments: you have no token and never fetch them. Name the ones `team_link` says it did not attach, under the
+   brief's Task section, by name and link - the user fetches them with "Fetch attachments" on the board.
+5. Last, `team_link` (board, id): Alfred keeps a snapshot of the item so the board shows when it changes in the tracker,
+   and moves the attachments the user's Start fetched onto the board.
 
 ## 3. Brief and spec from the description (only when one was given)
 
@@ -84,6 +106,6 @@ Draft both, **show them, and ask "Save these?"** - edit them as the user says, s
 - No `## Alfred checks` in the repo's `CLAUDE.md` and the task carries data across steps (search → book, cart →
   order)? Offer once to add the project checks (rules "Project checks") for that flow - draft the lines, show them,
   save only on yes.
-- `board_session_log` on the cycle: did (created, brief/spec saved), found (capture state), next.
+- `board_session_log` on the board: did (opened, brief/spec saved, linked), found (capture state), next.
 - Tell the user: start recording, then `/alfred-listen <cycle>` while testing - or record first and
   `/alfred-review <cycle>` after.

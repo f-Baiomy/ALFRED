@@ -20,6 +20,8 @@ export class TeamStateService {
   readonly itemsVersion = signal(0);
   readonly changesVersion = signal(0);
   readonly squadsVersion = signal(0);
+  /** Bumped when a start, cancel, link or seen changed an item's board state. */
+  readonly startVersion = signal(0);
 
   readonly picked = computed<TeamConnection | null>(() => this.connections().find((c) => c.id === this.pickedId()) ?? this.connections()[0] ?? null);
   readonly ui = computed(() => connectorUi(this.uis, this.picked()?.kind ?? ''));
@@ -41,6 +43,7 @@ export class TeamStateService {
         this.load();
       }
       if (e.what === 'squads' || e.what === 'mappings') this.squadsVersion.update((v) => v + 1);
+      if (e.what === 'start') this.startVersion.update((v) => v + 1);
     });
     const again = this.api.reconnected$.subscribe(() => {
       this.load();
