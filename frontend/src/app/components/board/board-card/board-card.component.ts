@@ -6,10 +6,11 @@ import {
 import { MentionChipComponent } from '../mention-chip/mention-chip.component';
 import { RefTextComponent } from '../mention-chip/ref-text.component';
 import { proposalTarget } from '../../../shared/utils/board-activity';
-import { skillFor, waitingText } from '../../../shared/utils/board-skills';
+import { skillFor, waitingPill } from '../../../shared/utils/board-skills';
 import { BoardSeenService } from '../../../core/services/board-seen.service';
 import { TeamChipsComponent } from '../team-chips/team-chips.component';
 import { RunSkillComponent } from '../run-skill/run-skill.component';
+import type { WaitingAnchor } from '../waiting-bar/waiting-bar.component';
 import { LiveWorkStateService, currentStep } from '../../../core/state/live-work-state.service';
 import { copyToClipboard } from '../../../shared/utils/clipboard';
 import { actionText, adviceAction, confidenceLabel, confidenceOf } from '../../../shared/utils/triage-advice';
@@ -82,7 +83,8 @@ export type CardAction =
         <div class="board-card-live" role="status"><span class="live-spinner"></span>✦ {{ liveStep(lw) }}</div>
       }
       @if (waiting(); as w) {
-        <div class="board-card-row"><span class="board-wait" [class]="'board-wait board-wait-' + card().waiting!.who">{{ w }}</span></div>
+        <div class="board-card-row"><button type="button" class="board-wait board-wait-btn" [class]="'board-wait board-wait-btn board-wait-' + card().waiting!.who"
+                [title]="'What this card waits on - decide or discuss here'" aria-haspopup="dialog" (click)="openWaiting($event)">{{ w }} ▾</button></div>
       }
       @if (checks(); as two) {
         <!-- specs/026: a Fixed card is ready for Verified when it is implemented AND it worked -->
@@ -159,11 +161,19 @@ export class BoardCardComponent {
   readonly action = output<CardAction>();
   /** Answer from the board (specs/015 FR-5): the card has a question waiting on the user. */
   readonly answer = output<void>();
+  /** The waiting pill clicked: open the waiting bar under it (the host draws it, like the questions dialog). */
+  readonly waitingOpen = output<WaitingAnchor>();
 
   private readonly seen = inject(BoardSeenService);
   private readonly live = inject(LiveWorkStateService);
   /** /alfred-live working on this card right now. */
   readonly copied = signal(false);
+
+  openWaiting(e: MouseEvent): void {
+    e.stopPropagation();
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    this.waitingOpen.emit({ top: r.top, bottom: r.bottom, left: r.left });
+  }
 
   /** The number pill copies `#53` - the way the board and Claude mention a card - without opening the card. */
   copyNumber(e: Event): void {
@@ -177,7 +187,7 @@ export class BoardCardComponent {
   readonly liveWork = computed(() => this.live.working().find((w) => w.project === this.card().project && w.cardNumber === this.card().number) ?? null);
   readonly liveStep = currentStep;
   readonly unread = computed(() => this.seen.isUnread(this.card()));
-  readonly waiting = computed(() => waitingText(this.card().waiting, this.now()));
+  readonly waiting = computed(() => waitingPill(this.card(), this.now()));
   readonly skill = computed(() => skillFor(this.card()));
   readonly chip = computed(() => {
     const r = this.retest();

@@ -75,7 +75,7 @@ public final class BoardRequests {
                                     @Size(max = MAX_TEXT) String found, @Size(max = MAX_TEXT) String next,
                                     @Size(max = MAX_TEXT) String impact, @Size(max = MAX_TEXT) String reply,
                                     @Size(max = MAX_TEXT) String question, Long replyTo, Boolean clearDecision,
-                                    com.fathy.alfred.backend.board.domain.model.Waiting waitingOn) {
+                                    com.fathy.alfred.backend.board.domain.model.Waiting waitingOn, Boolean keepOpen) {
     }
 
     /** {@code kind}: STATUS (default - status and, for CLOSED, resolution), MERGE (into card #{@code intoNumber}) or REOPEN. */

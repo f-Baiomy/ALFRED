@@ -846,7 +846,10 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
             }
         }
         long entryId = store.append(new ActivityEntry(0, id, actor, ActivityKind.COMMENT, text, null, null, clock.instant(), replyTo, answers));
-        boolean answersQuestion = actor == Actor.USER && replyTo != null && store.activityEntry(replyTo).map(ActivityEntry::isQuestion).orElse(false);
+        boolean toQuestion = replyTo != null && store.activityEntry(replyTo).map(ActivityEntry::isQuestion).orElse(false);
+        // The user asking back on Claude's question ("Ask first") leaves it open; any other reply to it answers it in words.
+        boolean asksBack = actor == Actor.USER && toQuestion && comment.keepOpen();
+        boolean answersQuestion = actor == Actor.USER && toQuestion && !comment.keepOpen();
         if (question) {
             indexQuestions(id, entryId, text, clock.instant(), null);
         } else if (answersQuestion) {
@@ -865,6 +868,13 @@ public class BoardService implements CreateCardUseCase, QuickAddCardUseCase, Upd
             next = syncDecision(next, actor, comment.clearDecision());
             if (unansweredQuestions(id) == 0) {
                 waitOn(id, Waiting.CLAUDE, actor); // every question answered: Claude's turn
+            }
+        } else if (asksBack) {
+            waitOn(id, Waiting.CLAUDE, actor); // Claude owes the user an answer; the question stays open
+        } else if (actor == Actor.CLAUDE && !blank(comment.reply()) && comment.waitingOn() == null) {
+            ensureIndexed();
+            if (unansweredQuestions(id) > 0) {
+                waitOn(id, Waiting.USER, actor); // Claude answered the user's ask-back: the open question is the user's again
             }
         }
         if (comment.waitingOn() != null) {

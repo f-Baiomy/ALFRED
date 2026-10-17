@@ -2,6 +2,7 @@ import { Component, computed, input, output } from '@angular/core';
 import { CdkDrag, CdkDragDrop, CdkDropList, CdkDropListGroup } from '@angular/cdk/drag-drop';
 import { ALL_STATUSES, CardStatus, CardSummary, RetestCheck, STATUS_LABELS } from '../../../core/models/board.models';
 import { BoardCardComponent, CardAction } from '../board-card/board-card.component';
+import type { WaitingAnchor } from '../waiting-bar/waiting-bar.component';
 import { highCards, worstFirst } from '../../../shared/utils/triage-advice';
 
 /** A move a drop asks for. Dropping on Closed is not a move - closing needs a resolution, so it opens the card. */
@@ -44,7 +45,8 @@ export interface CardDrop {
           @for (c of col.cards; track c.id) {
             <app-board-card cdkDrag [cdkDragData]="c" [cdkDragDisabled]="!editable()" [card]="c" [editable]="editable()"
                             [selected]="selected().has(c.id)" [focused]="focusedId() === c.id" [showCycle]="showCycle()" [now]="now()" [retest]="retests().get(c.number) ?? null" [viewBoard]="viewBoard()" [boardNames]="boardNames()"
-                            (opened)="opened.emit(c)" (toggled)="toggled.emit(c)" (action)="$event.kind === 'retest' ? retest.emit([c.number]) : action.emit({ card: c, action: $event })" (answer)="answer.emit(c)" />
+                            (opened)="opened.emit(c)" (toggled)="toggled.emit(c)" (action)="$event.kind === 'retest' ? retest.emit([c.number]) : action.emit({ card: c, action: $event })" (answer)="answer.emit(c)"
+                            (waitingOpen)="waiting.emit({ card: c, anchor: $event })" />
           } @empty {
             <div class="board-empty">{{ col.status === 'INBOX' ? 'Inbox clear ✓ - new findings land here' : 'Drop cards here' }}</div>
           }
@@ -70,6 +72,8 @@ export class BoardColumnsComponent {
   readonly action = output<{ card: CardSummary; action: CardAction }>();
   readonly triage = output<void>();
   readonly answer = output<CardSummary>();
+  /** A tile's waiting pill was clicked: the host opens the waiting bar under it. */
+  readonly waiting = output<{ card: CardSummary; anchor: WaitingAnchor }>();
   /** "Accept all High" (triage): the Inbox cards whose advice Claude gave with High confidence. */
   readonly acceptHigh = output<readonly CardSummary[]>();
 

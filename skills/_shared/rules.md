@@ -226,6 +226,11 @@ question, whenever the answer is a choice:
 - The user answers some and sends them together; the rest stay open or come back later. Act **only on the answered
   ones** - an open or "later" question is not an answer, and never ask it again. `board_get` shows each question's
   state (`questions: Steps ANSWERED · Checks OPEN`).
+- **The user's words decide too** (the waiting bar's Discuss, a comment while the card waits on them). An answer in
+  "Something else", or a reply to your question, IS the answer: act on what it says as you would on a picked option.
+  A plain comment the user handed to you ("Hands the card to Claude") is an instruction: do it, or ask one question
+  if it is unclear. A reply that **asks back** (the question stays open, the card waits on you) gets a `board_reply`
+  under it in the same thread that answers it - nothing else; the question goes back to the user by itself.
 - A question the evidence or another answer settled: `board_withdraw_question` with the reason, never leave it open
   and never clear Needs decision by hand while a question is open (refused).
 - A command started from the board (▶, `board_run_take`) leaves its result on the board: advice the user must act on

@@ -14,21 +14,28 @@ public interface CommentOnCardUseCase {
     /**
      * {@code replyTo}: the comment (history entry id) this one answers, or null. {@code clearDecision}: on the user's
      * answer to Claude's question, take the card's Needs decision flag off when no other question stays unanswered.
+     * {@code keepOpen}: the user's reply to Claude's question that asks back instead of answering (the waiting pill's
+     * "Ask first") - the question stays open and the card waits on Claude until it replies.
      */
     record Comment(String text, String did, String found, String next, String impact, String reply, String question,
-                   Long replyTo, boolean clearDecision, Waiting waitingOn) {
+                   Long replyTo, boolean clearDecision, Waiting waitingOn, boolean keepOpen) {
+
+        public Comment(String text, String did, String found, String next, String impact, String reply, String question,
+                       Long replyTo, boolean clearDecision, Waiting waitingOn) {
+            this(text, did, found, next, impact, reply, question, replyTo, clearDecision, waitingOn, false);
+        }
 
         public Comment(String text, String did, String found, String next, String impact, String reply, String question,
                        Long replyTo, boolean clearDecision) {
-            this(text, did, found, next, impact, reply, question, replyTo, clearDecision, null);
+            this(text, did, found, next, impact, reply, question, replyTo, clearDecision, null, false);
         }
 
         public Comment(String text, String did, String found, String next, String impact) {
-            this(text, did, found, next, impact, null, null, null, false, null);
+            this(text, did, found, next, impact, null, null, null, false, null, false);
         }
 
         public Comment(String text, String did, String found, String next, String impact, String reply, String question) {
-            this(text, did, found, next, impact, reply, question, null, false, null);
+            this(text, did, found, next, impact, reply, question, null, false, null, false);
         }
     }
 

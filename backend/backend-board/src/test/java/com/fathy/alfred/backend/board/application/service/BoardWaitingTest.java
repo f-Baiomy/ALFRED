@@ -7,6 +7,7 @@ import com.fathy.alfred.backend.board.domain.model.CardKind;
 import com.fathy.alfred.backend.board.domain.model.CardQuery;
 import com.fathy.alfred.backend.board.domain.model.CardStatus;
 import com.fathy.alfred.backend.board.domain.model.NextSteps;
+import com.fathy.alfred.backend.board.domain.model.QuestionState;
 import com.fathy.alfred.backend.board.domain.model.Resolution;
 import com.fathy.alfred.backend.board.domain.model.Waiting;
 import org.junit.jupiter.api.AfterEach;
@@ -61,6 +62,23 @@ class BoardWaitingTest {
         answer(id, q1);
         assertThat(waiting(id)).isEqualTo(Waiting.USER);
         answer(id, q2);
+        assertThat(waiting(id)).isEqualTo(Waiting.CLAUDE);
+    }
+
+    /** The waiting pill's "Ask first": the user asks back, the question stays open, Claude replies and it is the user's again. */
+    @Test
+    void askingBackKeepsTheQuestionOpenAndWaitsOnClaudeUntilItReplies() {
+        String id = f.add(Actor.CLAUDE, "p", CardKind.TASK, "Global support", "").card().id();
+        long q = ask(id, "Close it as Not in this flow?");
+        f.board.comment(Actor.USER, id, new CommentOnCardUseCase.Comment("why not To do?", null, null, null, null, null, null, q, false, null, true));
+        assertThat(f.board.questions(id)).singleElement().satisfies(r -> assertThat(r.state()).isEqualTo(QuestionState.OPEN));
+        assertThat(waiting(id)).as("Claude owes an answer").isEqualTo(Waiting.CLAUDE);
+
+        f.board.comment(Actor.CLAUDE, id, new CommentOnCardUseCase.Comment(null, null, null, null, null, "It is Removed in Azure.", null, q, false));
+        assertThat(waiting(id)).as("the open question is the user's again").isEqualTo(Waiting.USER);
+
+        answer(id, q);
+        assertThat(f.board.questions(id)).singleElement().satisfies(r -> assertThat(r.state()).isEqualTo(QuestionState.ANSWERED));
         assertThat(waiting(id)).isEqualTo(Waiting.CLAUDE);
     }
 

@@ -34,6 +34,24 @@ export function waitingText(w: WaitingOn | null | undefined, now: number): strin
   return `waiting on ${WAITING_LABELS[w.who]} · ${ageText(w.since, now)}`;
 }
 
+/**
+ * The waiting pill as a button (the waiting bar): what the user is asked for, not only who is next - "waiting on you:
+ * 1 decision · 3 min", "waiting on you: a proposal", "sort it", "your reply"; "waiting on Claude: your question" after the
+ * user asked back on an open question. Null for nobody / not set.
+ */
+export function waitingPill(card: Pick<CardSummary, 'waiting' | 'openQuestions' | 'proposal' | 'status'>, now: number): string | null {
+  const w = card.waiting;
+  if (!w || w.who === 'NONE') return null;
+  const age = ageText(w.since, now);
+  const n = card.openQuestions ?? 0;
+  if (w.who === 'USER') {
+    const what = n ? `${n} decision${n === 1 ? '' : 's'}` : card.proposal ? 'a proposal' : card.status === 'INBOX' ? 'sort it' : 'your reply';
+    return `waiting on you: ${what} · ${age}`;
+  }
+  if (w.who === 'CLAUDE' && n) return `waiting on Claude: your question · ${age}`;
+  return waitingText(w, now);
+}
+
 /** Mentions as their labels, for plain text that leaves Alfred. */
 function plain(text: string | null | undefined): string {
   return parseMentions(textAsMarkdown(text)).map((s) => ('mention' in s ? s.mention.label : s.text)).join('');

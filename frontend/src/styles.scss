@@ -11152,6 +11152,32 @@ app-variable-pill { position: relative; display: inline; unicode-bidi: isolate; 
 .board-wait-USER { border-color: var(--amber); color: var(--amber); }
 .board-wait-CLAUDE { border-color: var(--purple); color: var(--purple-light); }
 .board-wait-RETEST { border-color: var(--cyan); color: var(--cyan); }
+/* The waiting pill is a button: it opens the waiting bar (decide or discuss in place). */
+.board-wait-btn { cursor: pointer; background: transparent; font: inherit; font-size: 0.66rem; line-height: 1.5;
+  &:hover { background: color-mix(in srgb, currentColor 12%, transparent); }
+  &:focus-visible { outline: 2px solid currentColor; outline-offset: 1px; } }
+.wbar-layer { position: fixed; inset: 0; z-index: 1200; }
+.wbar { position: fixed; max-height: min(560px, calc(100vh - 16px)); overflow-y: auto; background: var(--popover-solid);
+  border: 1px solid var(--border-strong); border-radius: 12px; padding: 0.75rem 0.9rem; font-size: 0.82rem;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35); display: flex; flex-direction: column; gap: 0.45rem;
+  textarea { width: 100%; resize: vertical; font: inherit; } }
+.wbar-head { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; b { font-size: 0.86rem; } }
+.wbar-q { line-height: 1.45; }
+.wbar-dim { color: var(--text-dim); font-size: 0.75rem; }
+.wbar-opt { display: flex; flex-direction: column; align-items: flex-start; gap: 0.15rem; width: 100%; text-align: left; padding: 0.45rem 0.6rem;
+  border: 1px solid var(--border); border-radius: 8px; background: transparent; color: inherit; font: inherit; cursor: pointer;
+  &:hover:not(:disabled) { border-color: var(--border-strong); background: color-mix(in srgb, var(--green) 6%, transparent); }
+  &.rec { border-color: color-mix(in srgb, var(--green) 55%, transparent); }
+  &:disabled { opacity: 0.6; cursor: default; } }
+.wbar-ol { font-weight: 600; display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap; }
+.wbar-rec { font-size: 0.68rem; font-weight: 700; color: var(--green); border: 1px solid color-mix(in srgb, var(--green) 45%, transparent); border-radius: 99px; padding: 0 0.45rem; }
+.wbar-then { font-size: 0.75rem; color: var(--text-dim); }
+.wbar-acts { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+.wbar-disc { border-top: 1px solid var(--border); padding-top: 0.5rem; display: flex; flex-direction: column; gap: 0.35rem; }
+.wbar-dt { font-weight: 600; font-size: 0.78rem; }
+.wbar-line { border-left: 2px solid var(--purple); padding-left: 0.5rem; font-size: 0.78rem; &.me { border-left-color: var(--amber); } }
+.wbar-sent { padding: 0.4rem 0.6rem; border-radius: 8px; border: 1px solid color-mix(in srgb, var(--green) 45%, transparent); color: var(--green); font-size: 0.78rem; }
+.wbar-foot { display: flex; justify-content: flex-end; }
 .board-card.blocked { border-style: dashed; opacity: 0.85; }
 .board-card-lock { font-size: 0.68rem; color: var(--text-faint); margin-top: 0.2rem; b { color: var(--amber); } }
 .board-unread { position: absolute; top: 0.4rem; right: 0.45rem; width: 7px; height: 7px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 5px var(--cyan); }

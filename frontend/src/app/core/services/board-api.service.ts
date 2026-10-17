@@ -7,7 +7,7 @@ import {
   RetestReport, RetestStep, SessionLogEntry, SpecFileInfo, Team, TeamEdit, TestStep,
   CycleChatInfo, EvidenceCheck, ItemEvidence, RequirementsView, SkillRun, SkillRunRequest, SkillRunsPage, TextVersion,
   ActivityEntry, BoardQuestion, BriefComment, EntryAnswers, LiveRunnerInfo, ItemCall,
-  Board, BoardActivity, BoardState, BoardSummary, NewBoard, CycleVerdicts, CycleDeletePlan,
+  Board, BoardActivity, BoardState, BoardSummary, NewBoard, CycleVerdicts, CycleDeletePlan, Waiting,
 } from '../models/board.models';
 import { AppConfigService } from './app-config.service';
 
@@ -242,10 +242,16 @@ export class BoardApiService {
     return this.http.get<ActivityPage>(`${this.base}/cards/${encodeURIComponent(id)}/activity`, { params: { offset, limit } });
   }
 
-  /** A comment, or with `replyTo` a reply to one; `clearDecision` on an answer to Claude's question takes Needs decision off. */
-  comment(id: string, text: string, replyTo?: number, clearDecision?: boolean): Observable<unknown> {
-    return this.http.post(`${this.base}/cards/${encodeURIComponent(id)}/comments`,
-      replyTo == null ? { text } : { text, replyTo, clearDecision: !!clearDecision });
+  /**
+   * A comment, or with `replyTo` a reply to one; `clearDecision` on an answer to Claude's question takes Needs decision off.
+   * `keepOpen`: a reply to Claude's question that asks back instead of answering (the question stays open, Claude's turn);
+   * `waitingOn`: who the card waits on after it (the waiting bar hands a plain comment to Claude).
+   */
+  comment(id: string, text: string, replyTo?: number, clearDecision?: boolean, opts?: { keepOpen?: boolean; waitingOn?: Waiting }): Observable<unknown> {
+    const body = replyTo == null ? { text } : { text, replyTo, clearDecision: !!clearDecision };
+    return this.http.post(`${this.base}/cards/${encodeURIComponent(id)}/comments`, {
+      ...body, ...(opts?.keepOpen ? { keepOpen: true } : {}), ...(opts?.waitingOn ? { waitingOn: opts.waitingOn } : {}),
+    });
   }
 
   /** Who answers the user on a project's board now - /alfred-live or /alfred-listen's live lane - or null (specs/020). */

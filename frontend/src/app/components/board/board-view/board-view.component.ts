@@ -9,6 +9,7 @@ import { ConfirmDialogService } from '../../../core/services/confirm-dialog.serv
 import { BoardSeenService } from '../../../core/services/board-seen.service';
 import { NextStepsBarComponent } from '../next-steps-bar/next-steps-bar.component';
 import { QuickAnswerComponent } from '../quick-answer/quick-answer.component';
+import { WaitingAnchor, WaitingBarComponent } from '../waiting-bar/waiting-bar.component';
 import { BoardApiService } from '../../../core/services/board-api.service';
 import { BoardExportFormat, BoardExportService } from '../../../core/services/board-export.service';
 import { BoardMentionsService } from '../../../core/services/board-mentions.service';
@@ -42,7 +43,7 @@ import { BoardPagesComponent } from '../visuals/board-pages.component';
   standalone: true,
   providers: [BoardStateService, RetestStateService],
   imports: [ActionMenuComponent, BoardPagesComponent, BoardColumnsComponent, BoardHelpComponent, BoardListViewComponent, BoardProgressComponent,
-    BulkBarComponent, CardDrawerComponent, LiveStripComponent, NextStepsBarComponent, QuickAddComponent, QuickAnswerComponent, RetestStripComponent, TriageDialogComponent,
+    BulkBarComponent, CardDrawerComponent, LiveStripComponent, NextStepsBarComponent, QuickAddComponent, QuickAnswerComponent, WaitingBarComponent, RetestStripComponent, TriageDialogComponent,
     UndoToastComponent],
   template: `
     @if (!windowMode()) {
@@ -133,7 +134,7 @@ import { BoardPagesComponent } from '../visuals/board-pages.component';
                          [showCycle]="!cycleId()" [now]="now()" [retests]="retest.byNumber()" [viewBoard]="cycleId()" [boardNames]="boardNames()" (retest)="retest.start($event)"
                          (moved)="onMoved($event)" (opened)="openCard($event)" (toggled)="state.toggleSelected($event.id)"
                          (action)="onAction($event.card, $event.action)" (triage)="startTriage()" (acceptHigh)="acceptHigh($event)"
-                         (answer)="answering.set($event.id)" />
+                         (answer)="answering.set($event.id)" (waiting)="waitingBar.set({ id: $event.card.id, anchor: $event.anchor })" />
     } @else {
       <app-board-list-view [cards]="sortedForList()" [editable]="state.editable()" [selected]="state.selected()" [focusedId]="state.focusedId()"
                            [now]="now()" (opened)="openCard($event)" (toggled)="state.toggleSelected($event.id)" />
@@ -147,6 +148,11 @@ import { BoardPagesComponent } from '../visuals/board-pages.component';
     }
     @if (help()) { <app-board-help (closed)="help.set(false)" /> }
     @if (answering(); as id) { <app-quick-answer [cardId]="id" (closed)="answering.set(null)" /> }
+    @if (waitingCard(); as wb) {
+      <app-waiting-bar [card]="wb.card" [anchor]="wb.anchor" [editable]="state.editable()" (closed)="waitingBar.set(null)"
+                       (action)="onAction(wb.card, $event)" (openCard)="waitingBar.set(null); openCard(wb.card)"
+                       (allQuestions)="waitingBar.set(null); answering.set(wb.card.id)" />
+    }
     </div>
     }
     @if (state.openCardId(); as id) {
@@ -187,6 +193,13 @@ export class BoardViewComponent {
   readonly triageQueue = signal<readonly CardSummary[] | null>(null);
   /** The card whose questions are being answered from the board (specs/015 FR-5). */
   readonly answering = signal<string | null>(null);
+  /** The waiting bar open under a tile's pill: the card by id, so it follows the board's live copy. */
+  readonly waitingBar = signal<{ id: string; anchor: WaitingAnchor } | null>(null);
+  readonly waitingCard = computed(() => {
+    const w = this.waitingBar();
+    const card = w ? this.state.cards().find((c) => c.id === w.id) : undefined;
+    return w && card ? { card, anchor: w.anchor } : null;
+  });
   private readonly verifyGuard = inject(VerifyGuardService);
   /** Cards shown with Claude's questions open (specs/019), the oldest change first. */
   readonly questionCards = computed(() => this.state.cards().filter((c) => (c.openQuestions ?? 0) > 0)

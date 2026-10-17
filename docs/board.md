@@ -544,6 +544,17 @@ The MCP tools built on these are listed in docs/mcp.md: `board_search`, `board_c
   CLAUDE, To do / In progress → CLAUDE, Fixed → RETEST, Verified / Done / closed → NONE, reopen or back to the Inbox →
   USER - and Claude sets it explicitly with `waitingOn` on a comment. The "since" time stays while it does not change.
   Cards show "waiting on you · 2 d"; the board filters Waiting on me / on Claude / Needs re-test.
+- **The waiting bar**: the waiting pill is a button and says what is asked - "waiting on you: 1 decision", "a
+  proposal", "sort it", "your reply"; "waiting on Claude: your question" after the user asked back. Clicking it (tile
+  or drawer) opens `WaitingBarComponent` under it: Claude's oldest open question with its options (the recommended
+  one first, with how sure Claude is and what it checked) - one click answers it; a proposal's Accept / Dismiss; the
+  Inbox sort; or Claude's latest Next. Under it, **Discuss**: the question's thread and a box. **Decide with this**
+  answers the question in the user's words (Something else), or, with no question, posts the comment with `waitingOn`
+  CLAUDE. **Ask first** posts a reply with `keepOpen`: the question stays open and the card waits on Claude; Claude's
+  `board_reply` in that thread hands it back to the user (`BoardService.comment`). The bar says whether a Claude
+  session answers now (`/board/live-runner`). In the drawer, a comment while the card waits on the user decides too:
+  "Answers Claude's question" (on by default) sends it as the answer in words, "Hands the card to Claude" with
+  `waitingOn` CLAUDE; "Explain more" asks back.
 - **Next-step bar** (`GET /board/next-steps`): what waits on the user oldest first (why: question, proposal, inbox),
   To do, Fixed needing a re-test, Inbox - each with its `/alfred-*` command as a run button with copy beside it (see
   "Run from the board"). Every card has one for its next skill; the Task tab for `/alfred-review`, `/alfred-listen`,

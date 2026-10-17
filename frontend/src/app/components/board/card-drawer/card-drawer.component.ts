@@ -12,9 +12,11 @@ import { BoardApiService } from '../../../core/services/board-api.service';
 import { BoardMentionsService } from '../../../core/services/board-mentions.service';
 import { ConfirmDialogService } from '../../../core/services/confirm-dialog.service';
 import { messageOf } from '../../../core/state/board-state.service';
-import { proposalText } from '../board-card/board-card.component';
+import { CardAction, proposalText } from '../board-card/board-card.component';
 import { BoardSeenService } from '../../../core/services/board-seen.service';
-import { issueMarkdown, skillFor, waitingText } from '../../../shared/utils/board-skills';
+import { issueMarkdown, skillFor, waitingPill } from '../../../shared/utils/board-skills';
+import { WaitingAnchor, WaitingBarComponent } from '../waiting-bar/waiting-bar.component';
+import { isOpenNow } from '../../../shared/utils/question-blocks';
 import { CardRetestComponent } from '../card-retest/card-retest.component';
 import { LiveWorkBoxComponent } from '../live-work-box/live-work-box.component';
 import { ActivityTimelineComponent, TimelineReply } from '../activity-timeline/activity-timeline.component';
@@ -87,7 +89,7 @@ function writeJson(key: string, value: unknown): void {
 @Component({
   selector: 'app-card-drawer',
   standalone: true,
-  imports: [TeamCardItemsComponent, TeamCardOwnerComponent, CardHomeComponent, BoardPagesComponent, BoardFilesComponent, BoardPinnedComponent, NgTemplateOutlet, SelectPickerComponent, ActivityTimelineComponent, CardRetestComponent, LiveWorkBoxComponent, MarkdownViewComponent, MentionChipComponent, RefTextComponent, MentionEditorComponent, MentionPickerComponent, RunSkillComponent, RunHistoryComponent, QuickAnswerComponent],
+  imports: [TeamCardItemsComponent, TeamCardOwnerComponent, CardHomeComponent, BoardPagesComponent, BoardFilesComponent, BoardPinnedComponent, NgTemplateOutlet, SelectPickerComponent, ActivityTimelineComponent, CardRetestComponent, LiveWorkBoxComponent, MarkdownViewComponent, MentionChipComponent, RefTextComponent, MentionEditorComponent, MentionPickerComponent, RunSkillComponent, RunHistoryComponent, QuickAnswerComponent, WaitingBarComponent],
   template: `
     <ng-template #modeSwitch>
       <div class="board-seg board-drawer-modes cd-modes" role="group" aria-label="Show the card as">
@@ -119,7 +121,10 @@ function writeJson(key: string, value: unknown): void {
               <span class="board-kind" [class]="'board-kind board-kind-' + c.kind">{{ c.kind }}</span>
               @if (c.author === 'CLAUDE') { <span class="board-ai" title="Found by Claude">✦ Claude</span> }
               @if (c.cycleId) { <span class="cd-cycle" [title]="'Cycle ' + c.cycleId">◷ {{ c.cycleDeleted ? 'cycle deleted' : cycleName() ?? c.cycleId.slice(0, 8) }}</span> }
-              @if (waiting(); as w) { <span class="board-wait" [class]="'board-wait board-wait-' + c.waiting!.who">{{ w }}</span> }
+              @if (waiting(); as w) {
+                <button type="button" [class]="'board-wait board-wait-btn board-wait-' + c.waiting!.who" title="What this card waits on - decide or discuss here"
+                        aria-haspopup="dialog" (click)="openWaiting($event)">{{ w }} ▾</button>
+              }
               @if (c.openQuestions; as n) {
                 <button type="button" class="board-qpill" [disabled]="!editable()" title="Claude's open questions - answer them in one go"
                         (click)="answering.set(true)">❓ {{ n }}</button>
@@ -239,7 +244,7 @@ function writeJson(key: string, value: unknown): void {
                 @if (q.goAhead) { <button type="button" class="cd-qr" title="✅ on Claude's latest comment - your go-ahead" (click)="goAhead()">✅ Go ahead</button> }
                 @if (c.openQuestions; as n) { <button type="button" class="cd-qr" (click)="answering.set(true)">❓ Answer the {{ n === 1 ? 'question' : n + ' questions' }}</button> }
                 @if (q.replyTo !== null) {
-                  <button type="button" class="cd-qr" (click)="quickReply('Explain more, please.')">Explain more</button>
+                  <button type="button" class="cd-qr" title="Asks back - an open question stays open" (click)="quickReply('Explain more, please.', true)">Explain more</button>
                   <button type="button" class="cd-qr" (click)="quickReply('Not now.')">Not now</button>
                 }
               </div>
@@ -247,6 +252,11 @@ function writeJson(key: string, value: unknown): void {
             <app-mention-editor #composer [value]="draft()" (valueChange)="draft.set($event)" [project]="c.project" [cycleId]="c.cycleId" [compact]="true" [rows]="1"
                                 placeholder="Write a comment… @ to mention, / for blocks" [contextMentions]="c.links" [card]="pickTarget()" pickField="comment"
                                 [attach]="{ card: c.id }" [draftKey]="'comment:' + c.id" (submitted)="comment($event)" />
+            @if (commentDecides(); as what) {
+              <label class="cd-also" [title]="decidesText[what].title">
+                <input type="checkbox" [checked]="asAnswer()" (change)="asAnswer.set($any($event.target).checked)" />
+                {{ decidesText[what].label }}</label>
+            }
             @if (teamItems().length && editable()) {
               <label class="cd-also" title="Your own comment - posted to each linked item at once, with the via Alfred footer">
                 <input type="checkbox" [checked]="alsoTracker()" (change)="alsoTracker.set($any($event.target).checked)" />
@@ -256,6 +266,10 @@ function writeJson(key: string, value: unknown): void {
         }
         @if (error()) { <div class="board-error">{{ error() }}</div> }
         @if (answering()) { <app-quick-answer [cardId]="c.id" (closed)="answering.set(false); load(c.id)" /> }
+        @if (waitingAt(); as at) {
+          <app-waiting-bar [card]="c" [anchor]="at" [editable]="editable()" (closed)="waitingAt.set(null); load(c.id)" (action)="waitingAction($event)"
+                           (openCard)="waitingAt.set(null)" (allQuestions)="waitingAt.set(null); answering.set(true)" />
+        }
         @if (keysOpen()) {
           <div class="run-dialog-bg dialog-backdrop" (click)="keysOpen.set(false)">
             <div class="run-dialog cd-keys" role="dialog" aria-label="Keyboard shortcuts" (click)="$event.stopPropagation()">
@@ -476,8 +490,37 @@ export class CardDrawerComponent {
     untracked(() => {
       this.teamItems.set([]);
       this.alsoTracker.set(false);
+      this.asAnswer.set(true);
+      this.waitingAt.set(null);
     });
   });
+  /** The waiting bar open under the header's pill. */
+  readonly waitingAt = signal<WaitingAnchor | null>(null);
+  /** "The comments decide": a comment while the card waits on the user answers Claude's question or hands the card to Claude. */
+  readonly asAnswer = signal(true);
+  readonly commentDecides = computed<'answer' | 'handoff' | null>(() => {
+    const c = this.card();
+    if (!c || !this.editable()) return null;
+    if (c.openQuestions) return 'answer';
+    return c.waiting?.who === 'USER' && c.status !== 'INBOX' ? 'handoff' : null;
+  });
+
+  readonly decidesText = {
+    answer: { label: "Answers Claude's question", title: "Your comment is the answer to Claude's open question - Claude acts on it" },
+    handoff: { label: 'Hands the card to Claude', title: 'Your comment hands the card to Claude - it acts on what you wrote' },
+  } as const;
+
+  openWaiting(e: MouseEvent): void {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    this.waitingAt.set({ top: r.top, bottom: r.bottom, left: r.left });
+  }
+
+  waitingAction(a: CardAction): void {
+    const c = this.card();
+    if (!c) return;
+    if (a.kind === 'close') this.apply(this.api.close(c.id, a.resolution));
+    else if (a.kind === 'move') this.apply(this.api.move(c.id, a.status));
+  }
   private readonly confirm = inject(ConfirmDialogService);
   private readonly mentions = inject(BoardMentionsService);
 
@@ -524,7 +567,7 @@ export class CardDrawerComponent {
   private readonly seen = inject(BoardSeenService);
   /** "Now" for the waiting time, taken when the card is read - no clock of its own. */
   private readonly readAt = signal(Date.now());
-  readonly waiting = computed(() => waitingText(this.card()?.waiting, this.readAt()));
+  readonly waiting = computed(() => { const c = this.card(); return c ? waitingPill(c, this.readAt()) : null; });
   readonly skill = computed(() => {
     const c = this.card();
     return c ? skillFor(c) : null;
@@ -965,9 +1008,12 @@ export class CardDrawerComponent {
     this.api.react(c.id, target.id, '✅').subscribe({ next: () => this.load(c.id), error: (e) => this.error.set(messageOf(e)) });
   }
 
-  quickReply(text: string): void {
+  quickReply(text: string, keepOpen = false): void {
+    const c = this.card();
     const to = this.quickReplies()?.replyTo;
-    if (to != null) this.reply({ text, replyTo: to, clearDecision: false });
+    if (!c || to == null) return;
+    if (!keepOpen) { this.reply({ text, replyTo: to, clearDecision: false }); return; }
+    this.api.comment(c.id, text, to, false, { keepOpen: true }).subscribe({ next: () => this.load(c.id), error: (e) => this.error.set(messageOf(e)) });
   }
 
   constructor() {
@@ -1203,12 +1249,25 @@ export class CardDrawerComponent {
   comment(text: string): void {
     const c = this.card();
     if (!c) return;
-    this.api.comment(c.id, text).subscribe({
-      next: () => {
-        this.draft.set('');
-        this.load(c.id);
-        if (this.alsoTracker()) this.postToTracker(c.id, c.cycleId, text);
-      },
+    const posted = () => {
+      this.draft.set('');
+      this.load(c.id);
+      if (this.alsoTracker()) this.postToTracker(c.id, c.cycleId, text);
+    };
+    const decides = this.asAnswer() ? this.commentDecides() : null;
+    if (decides === 'answer') {
+      // The comment answers Claude's oldest open question in words (Claude acts on it, like Something else).
+      this.api.questions(c.id).subscribe({
+        next: (rows) => {
+          const q = [...rows].filter((r) => isOpenNow(r)).sort((a, b) => a.entryId - b.entryId)[0];
+          this.api.comment(c.id, text, q?.entryId, true).subscribe({ next: posted, error: (e) => this.error.set(messageOf(e)) });
+        },
+        error: (e) => this.error.set(messageOf(e)),
+      });
+      return;
+    }
+    this.api.comment(c.id, text, undefined, false, decides === 'handoff' ? { waitingOn: 'CLAUDE' } : undefined).subscribe({
+      next: posted,
       error: (e) => this.error.set(messageOf(e)),
     });
   }

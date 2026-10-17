@@ -253,7 +253,8 @@ public class BoardController {
                                      @Valid @RequestBody CommentRequestDto body) {
         CommentOnCardUseCase.CommentOutcome outcome = comments.comment(BoardWeb.actor(actor), id,
                 new CommentOnCardUseCase.Comment(body.text(), body.did(), body.found(), body.next(), body.impact(),
-                        body.reply(), body.question(), body.replyTo(), Boolean.TRUE.equals(body.clearDecision()), body.waitingOn()));
+                        body.reply(), body.question(), body.replyTo(), Boolean.TRUE.equals(body.clearDecision()), body.waitingOn(),
+                        Boolean.TRUE.equals(body.keepOpen())));
         if (outcome.outcome() != CardChange.Outcome.OK) {
             return BoardWeb.refused(outcome.outcome(), outcome.message());
         }
