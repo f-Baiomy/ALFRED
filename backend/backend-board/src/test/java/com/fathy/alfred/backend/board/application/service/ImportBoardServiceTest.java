@@ -211,4 +211,48 @@ class ImportBoardServiceTest {
         run(card(1, "Q", ""));
         assertThat(f.chat.page(new ChatKey("dest", ""), null, 100).messages()).extracting(ChatMessage::text).containsExactly("mine");
     }
+
+    /** specs/027 T081: boards, their cycles and related boards, card homes and related cycles come back; the default stays the default. */
+    @Test
+    void boardsTheirRelationsAndCardHomesComeBack() throws Exception {
+        String home = card(1, "Refund", "").replace("\"updatedBy\":\"USER\"}", "\"updatedBy\":\"USER\",\"boardId\":\"b-refund\"}");
+        String onDefault = card(2, "Other", "").replace("\"updatedBy\":\"USER\"}", "\"updatedBy\":\"USER\",\"boardId\":\"default:src\"}");
+        run(home, onDefault,
+                "{\"record\":\"board\",\"board\":{\"id\":\"default:src\",\"name\":\"src\",\"isDefault\":true,\"state\":\"OPEN\"}}",
+                "{\"record\":\"board\",\"board\":{\"id\":\"b-refund\",\"name\":\"Refund flow\",\"isDefault\":false,\"state\":\"OPEN\","
+                        + "\"createdAt\":\"2026-10-01T10:00:00Z\"}}",
+                "{\"record\":\"board\",\"board\":{\"id\":\"b-sprint\",\"name\":\"Sprint\",\"isDefault\":false,\"state\":\"DONE\"}}",
+                "{\"record\":\"board-cycle\",\"boardId\":\"b-refund\",\"cycleId\":\"c-1\"}",
+                "{\"record\":\"board-board\",\"boardId\":\"b-refund\",\"otherId\":\"b-sprint\"}",
+                "{\"record\":\"card-cycle\",\"cardNumber\":1,\"cycleId\":\"c-9\"}",
+                "{\"record\":\"workitem-snapshot\",\"boardId\":\"b-refund\",\"conn\":\"c1\",\"extId\":\"7\",\"snapshot\":{}}",
+                "{\"record\":\"brief\",\"cycleId\":\"b-refund\",\"text\":\"The refund task\",\"updatedAt\":\"2026-10-01T10:00:00Z\"}");
+
+        var refund = f.boardModel.board("b-refund").orElseThrow();
+        assertThat(refund.project()).isEqualTo("dest");
+        assertThat(refund.name()).isEqualTo("Refund flow");
+        assertThat(f.boardModel.board("b-sprint").orElseThrow().state()).isEqualTo(com.fathy.alfred.backend.board.domain.model.BoardState.DONE);
+        assertThat(f.boardModel.cyclesOf("b-refund")).containsExactly("c-1");
+        assertThat(f.boardModel.relatedBoards("b-refund")).containsExactly("b-sprint");
+        String id1 = f.board.getByNumber("dest", 1).orElseThrow().card().id();
+        String id2 = f.board.getByNumber("dest", 2).orElseThrow().card().id();
+        assertThat(f.boardModel.cardCounts(java.util.List.of("b-refund"))).containsEntry("b-refund", 1);
+        assertThat(f.boardModel.cardCycles(id1)).containsExactly("c-9");
+        assertThat(f.boardModel.cardCycles(id2)).isEmpty();
+        assertThat(f.briefs.brief("b-refund").text()).isEqualTo("The refund task");
+    }
+
+    @Test
+    void aBoardIdOfAnotherProjectHereIsRenamedAndItsBriefFollows() throws Exception {
+        f.boardModel.putBoard(new com.fathy.alfred.backend.board.domain.model.Board("b-x", "elsewhere", "Theirs", false,
+                com.fathy.alfred.backend.board.domain.model.BoardState.OPEN, null, java.time.Instant.now(), java.time.Instant.now(),
+                com.fathy.alfred.backend.board.domain.model.Actor.USER));
+        run(card(1, "A", ""),
+                "{\"record\":\"board\",\"board\":{\"id\":\"b-x\",\"name\":\"Mine\",\"isDefault\":false,\"state\":\"OPEN\"}}",
+                "{\"record\":\"brief\",\"cycleId\":\"b-x\",\"text\":\"mine\",\"updatedAt\":\"2026-10-01T10:00:00Z\"}");
+        assertThat(f.boardModel.board("b-x").orElseThrow().name()).isEqualTo("Theirs");
+        var mine = f.boardModel.boards("dest", java.util.Set.of(com.fathy.alfred.backend.board.domain.model.BoardState.OPEN), null, 50).stream()
+                .filter(b -> b.name().equals("Mine")).findFirst().orElseThrow();
+        assertThat(f.briefs.brief(mine.id()).text()).isEqualTo("mine");
+    }
 }

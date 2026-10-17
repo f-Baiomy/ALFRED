@@ -1,3 +1,4 @@
+import { TeamApiService } from '../team/team-api.service';
 import { PAGE_SCROLLERS, POPUP_SCROLLERS, ReturnPointService, captureScrolls } from './return-point.service';
 import { Injectable, Signal, WritableSignal, effect, inject, signal, untracked } from '@angular/core';
 import { Router } from '@angular/router';
@@ -109,6 +110,7 @@ export class BoardMentionsService {
   private readonly board = inject(BoardApiService);
   private readonly calls = inject(CallsApiService);
   private readonly cycles = inject(SessionCyclesApiService);
+  private readonly team = inject(TeamApiService);
   private readonly db = inject(DbCaptureApiService);
   private readonly logs = inject(CallLogsApiService);
   private readonly focus = inject(CallFocusService);
@@ -382,6 +384,14 @@ export class BoardMentionsService {
       }
       case 'cycle':
         return this.cycles.get(ref.ref).pipe(map((c) => ({ lines: [c.name, c.status], removed: false })), catchError(gone));
+      case 'workitem': {
+        // specs/027: `<conn>/<itemId>`, from the Team cache (what the last Refresh fetched)
+        const w = workItemOf(ref);
+        if (!w) return gone();
+        return this.team.item(w.conn, w.extId).pipe(
+          map((d) => ({ lines: [`${d.item.extId} ${d.item.title}`, [d.item.type, d.item.state, d.item.assignee].filter(Boolean).join(' · ')], removed: false })),
+          catchError(gone));
+      }
       default:
         return of({ lines: [ref.label, ref.ref], removed: false });
     }
@@ -456,6 +466,11 @@ export class BoardMentionsService {
       void this.router.navigate(['/interception']);
       return;
     }
+    if (type === 'workitem') {
+      const w = workItemOf(ref);
+      if (w) void this.router.navigate(['/team'], { queryParams: { conn: w.conn, item: w.extId } });
+      return;
+    }
     if (type === 'chat') {
       // specs/022: `<project>/<scope>#<message id>` - the chat opens at that message, which flashes
       const m = /^(.*)\/([^/#]+)#(\d+)$/.exec(ref.ref);
@@ -464,6 +479,12 @@ export class BoardMentionsService {
     }
     void copyToClipboard(ref.ref);
   }
+}
+
+/** A work item mention's connection and id: `<conn>/<itemId>`. */
+export function workItemOf(ref: MentionRef): { conn: string; extId: string } | null {
+  const m = /^([^/]+)\/(.+)$/.exec(ref.ref);
+  return m ? { conn: m[1], extId: m[2] } : null;
 }
 
 /** A picked call as a call mention: `in:<id>` / `out:<id>`, with `@<cycle>` when it was picked inside a cycle. */

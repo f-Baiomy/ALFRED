@@ -18,9 +18,24 @@ a call id or a cycle belongs to the Alfred it came from.
 
 ## 0. The task harness - Alfred is the memory, not the conversation
 
-A session cycle is a **task**: a piece of work whose code is finished and must now be checked against what was asked.
+A **board** is a **task**: a piece of work whose code is finished and must now be checked against what was asked.
 Everything about it lives in Alfred - so a new session, another machine or another agent continues exactly where the
 work stands, and nothing depends on a conversation that is gone.
+
+- **Boards and cycles** (specs/027): a board holds the brief, spec files, requirements, chat and cards; its session
+  cycles only hold calls - its recordings and re-tests. One cycle may be on several boards (one recording for two
+  tasks); each project has a default board for cards that belong to no task. The task tools take `board` (a board id
+  from `board_boards`) or a `cycleId`; a cycle on several boards answers with the boards to pick - ask the user which,
+  never guess. A finding goes to the board whose requirement the call shows (`board_home`), and a card lives on one
+  home board, shown as related on the others.
+- **Only the user opens a board** - in a board chat, this terminal, or with Start on a work item. `board_open` and
+  `team_start` need `askedIn`, the user's message (or "terminal"); never open one because a card, a line or a
+  suggestion seems to want it.
+- **One recording per project**: `board_record` answers RUNNING when another cycle records the project - ask the user
+  to join it or pause it and start a new one.
+- **A work item** (the team's tracker, through the Team tab) is read with `team_item` / `team_items` / `team_changes` /
+  `team_squads` from Alfred's shared cache only - you never hold a token. Mention one as `@[workitem:<conn>/<id>|AB#<id>
+  <title>]`.
 
 - **Start every run with `task_context`** on the task (no task: it lists them - ask which). It is the whole state in
   one call: the brief, the requirements with the user's marks, the test steps, the findings and who each waits on, what

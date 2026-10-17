@@ -15,4 +15,16 @@ public interface MoveCardHomeUseCase {
     CardChange unrelateCardCycle(Actor actor, String cardId, String cycleId);
 
     List<String> relatedCycles(String cardId);
+
+    /** The related cycles of many cards at once (the board export, specs/027 T081); cards with none are left out. */
+    default java.util.Map<String, List<String>> relatedCycles(java.util.Collection<String> cardIds) {
+        java.util.Map<String, List<String>> out = new java.util.LinkedHashMap<>();
+        for (String id : cardIds) {
+            List<String> c = relatedCycles(id);
+            if (!c.isEmpty()) {
+                out.put(id, c);
+            }
+        }
+        return out;
+    }
 }

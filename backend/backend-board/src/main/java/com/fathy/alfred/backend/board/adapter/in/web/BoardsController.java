@@ -163,6 +163,15 @@ public class BoardsController {
         return ResponseEntity.ok(homes.relatedCycles(id));
     }
 
+    record CardIdsDto(@jakarta.validation.constraints.NotNull @jakarta.validation.constraints.Size(max = 5000) java.util.List<String> ids) {
+    }
+
+    /** The related cycles of many cards (the board export); a read, so a POST only for the size of the id list. */
+    @PostMapping("/board/cards/cycles")
+    public ResponseEntity<?> cardsCycles(@Valid @RequestBody CardIdsDto body) {
+        return ResponseEntity.ok(homes.relatedCycles(body.ids()));
+    }
+
     @PutMapping("/board/cards/{id}/cycles/{cycleId}")
     public ResponseEntity<?> relateCardCycle(@RequestHeader(value = ACTOR, required = false) String actor, @PathVariable String id,
                                              @PathVariable String cycleId) {

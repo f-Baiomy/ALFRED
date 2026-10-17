@@ -9,7 +9,7 @@ export type Flag = 'URGENT' | 'RISK' | 'BLOCKER' | 'AFFECTS_PROJECT' | 'NEEDS_DE
 export type Scope = 'NOT_DECIDED' | 'IN_SCOPE' | 'OUT_OF_SCOPE';
 export type Actor = 'USER' | 'CLAUDE';
 /** Lower-case in text (`@[call:...]`), upper-case in JSON - compare through {@link mentionTypeOf}. */
-export type MentionType = 'call' | 'stmt' | 'log' | 'redis' | 'spec' | 'code' | 'cycle' | 'spacer' | 'card' | 'rule' | 'chat';
+export type MentionType = 'call' | 'stmt' | 'log' | 'redis' | 'spec' | 'code' | 'cycle' | 'spacer' | 'card' | 'rule' | 'chat' | 'workitem';
 export type ActivityKind = 'COMMENT' | 'CREATED' | 'STATUS' | 'KIND' | 'SCOPE' | 'FLAGS' | 'RESOLUTION' | 'REASON' | 'TITLE'
   | 'DESCRIPTION' | 'LINK_ADDED' | 'LINK_REMOVED' | 'CYCLE' | 'PROJECT' | 'SPEC_REPLACED' | 'REOPENED' | 'IMPORTED' | 'DELETED'
   | 'PROPOSED' | 'PROPOSAL_ACCEPTED' | 'PROPOSAL_DISMISSED' | 'MERGED' | 'BLOCKED' | 'UNBLOCKED' | 'SPEC_ITEM' | 'TEAMS'
@@ -22,7 +22,7 @@ export const OPEN_STATUSES: readonly CardStatus[] = ['INBOX', 'TO_DO', 'IN_PROGR
 export const ALL_STATUSES: readonly CardStatus[] = [...OPEN_STATUSES, 'CLOSED'];
 export const KINDS: readonly CardKind[] = ['BUG', 'TASK', 'NOTE', 'QUESTION'];
 export const FLAGS: readonly Flag[] = ['URGENT', 'RISK', 'BLOCKER', 'AFFECTS_PROJECT', 'NEEDS_DECISION'];
-export const MENTION_TYPES: readonly MentionType[] = ['call', 'stmt', 'log', 'redis', 'spec', 'code', 'cycle', 'spacer', 'card', 'rule', 'chat'];
+export const MENTION_TYPES: readonly MentionType[] = ['call', 'stmt', 'log', 'redis', 'spec', 'code', 'cycle', 'spacer', 'card', 'rule', 'chat', 'workitem'];
 
 export const STATUS_LABELS: Record<CardStatus, string> = {
   INBOX: 'Inbox', TO_DO: 'To do', IN_PROGRESS: 'In progress', FIXED: 'Fixed', VERIFIED: 'Verified', DONE: 'Done', CLOSED: 'Closed',
@@ -39,7 +39,7 @@ export const FLAG_LABELS: Record<Flag, string> = {
 export const SCOPE_LABELS: Record<Scope, string> = { NOT_DECIDED: 'Not decided', IN_SCOPE: 'In scope', OUT_OF_SCOPE: 'Out of scope' };
 export const MARK_LABELS: Record<Mark, string> = { PASS: '✓ Pass', FAIL: '✗ Fail', CANT_TELL: "? Can't tell" };
 export const MENTION_ICONS: Record<MentionType, string> = {
-  call: '⇄', stmt: '◆', log: '▤', redis: '⬢', spec: '📄', code: '{ }', cycle: '◷', spacer: '┃', card: '▣', rule: '⚙', chat: '💬',
+  call: '⇄', stmt: '◆', log: '▤', redis: '⬢', spec: '📄', code: '{ }', cycle: '◷', spacer: '┃', card: '▣', rule: '⚙', chat: '💬', workitem: '◆',
 };
 
 export interface MentionRef {

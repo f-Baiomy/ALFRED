@@ -8,6 +8,9 @@ argument-hint: "<cycle> [--dry]"
 
 Read `rules.md` in this skill's folder first and follow it - especially "What becomes a card" and the card journal.
 
+
+Boards (specs/027): reviewing a board reads every cycle on it; a cycle shared with other boards is reviewed for this board's requirements, and each finding goes where `board_home` says (rules section 0, "Boards and cycles"). `board_cycle_verdicts` shows each call against each board.
+
 ## 1. Context
 
 `task_context` on the cycle (rules §0) - the task, its description, scope, decisions, requirements with the user's

@@ -37,7 +37,7 @@ A task is a board: its brief, spec, requirements, chat and cards; its session cy
 2. Name the board after the item (`AB#1234 <title>`), open it as above, in the project the start was posted to.
 3. Draft the brief and spec from the seed (section 3): Description = purpose and context as given; Test steps from
    steps (or the children, one step each); Acceptance from acceptance, then the parent's acceptance when the item has
-   none of its own. Keep the item's link under Task.
+   none of its own. Keep the item under Task as a mention, `@[workitem:<conn>/<id>|AB#<id> <title>]`, with its link.
 4. Attachments: you have no token and never fetch them. Name the ones `team_link` says it did not attach, under the
    brief's Task section, by name and link - the user fetches them with "Fetch attachments" on the board.
 5. Last, `team_link` (board, id): Alfred keeps a snapshot of the item so the board shows when it changes in the tracker,

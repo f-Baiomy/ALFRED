@@ -9,6 +9,8 @@ argument-hint: "[anything you want to know - 'what next', 'walk me through it', 
 Read `rules.md` in this skill's folder first: it is what every Alfred skill follows, so your explanations match.
 This skill only **reads** - never create cards, cycles, comments, briefs or anything else here.
 
+Boards (specs/027): a board is a task with its own brief, spec, chat and cards; its cycles are its recordings. Open one only when the user asks (rules section 0, "Boards and cycles"); the Team tab's Start opens one from a work item.
+
 Answer in the user's language, at the depth they asked: one line for a quick question, a walkthrough when they want
 to learn. Always end with the exact next command.
 

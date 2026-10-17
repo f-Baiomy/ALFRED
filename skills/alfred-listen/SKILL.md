@@ -32,6 +32,9 @@ does the listening (docs/mcp.md "Listen runner"):
 - Every event is a line in the runner's full log; only each judged batch's findings (with their evidence), the live
   lane's answers, failures, start and stop go to its chat log, which this session watches. A clean batch adds nothing.
 
+
+Boards (specs/027): a board's cycle is what you listen to - given a board, listen to the cycle it records into (`board_boards` lists its cycles; `board_record` starts one). A cycle shared by several boards judges every board's requirements; each finding goes where `board_home` says (rules section 0, "Boards and cycles").
+
 ## Start
 
 1. `status` or `stop` as the argument → go to that section.

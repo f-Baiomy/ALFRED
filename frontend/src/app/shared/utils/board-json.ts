@@ -1,4 +1,4 @@
-import { ActivityEntry, BriefComment, CardDetail, ChecklistMark, CycleBrief, MentionRef } from '../../core/models/board.models';
+import { ActivityEntry, BoardSummary, BriefComment, CardDetail, ChecklistMark, CycleBrief, MentionRef } from '../../core/models/board.models';
 import { mentionsIn } from './mention-syntax';
 import { BoardVisuals, visualRecords } from './board-visuals-export';
 
@@ -33,6 +33,13 @@ export interface BoardExport {
   readonly visuals?: BoardVisuals;
   /** The board chats' records as the backend writes them (specs/022: chat, chatRecord, chatTerminal, chatSettings) - .json only. */
   readonly chats?: readonly unknown[];
+  /** The boards (specs/027): each with its cycles and related boards - .json only. Older exports have none (all cards on the default board). */
+  readonly boards?: readonly BoardSummary[];
+  /** The cycles related to a card beyond its home, by card id. */
+  readonly cardCycles?: Readonly<Record<string, readonly string[]>>;
+  /** The work item each board was opened from, as Alfred's snapshot of it (read back for reference; the tracker stays the source). */
+  readonly workItems?: readonly { readonly board: string; readonly conn: string; readonly extId: string; readonly provider: string;
+    readonly snapshot: Readonly<Record<string, string>> }[];
 }
 
 export interface BoardImageData {
@@ -57,7 +64,7 @@ export function boardImageIds(data: BoardExport): string[] {
 }
 
 const CARD_FIELDS = ['project', 'number', 'kind', 'title', 'description', 'status', 'resolution', 'reason', 'flags', 'teams', 'scope', 'author',
-  'cycleId', 'cycleDeleted', 'signature', 'createdAt', 'updatedAt', 'updatedBy'] as const;
+  'cycleId', 'cycleDeleted', 'signature', 'createdAt', 'updatedAt', 'updatedBy', 'boardId'] as const;
 
 /** A card's links that no text of it writes - those come back from the text itself on import. */
 function directLinks(card: CardDetail, history: readonly ActivityEntry[]): MentionRef[] {
@@ -70,12 +77,32 @@ function directLinks(card: CardDetail, history: readonly ActivityEntry[]): Menti
 
 export function buildBoardJsonLines(data: BoardExport, exportedAt = new Date().toISOString()): string[] {
   const lines: string[] = [JSON.stringify({ format: BOARD_FORMAT, exportedAt, project: data.project, cards: data.cards.length,
-    guide: 'One record per line: card, then activity (by cardNumber), brief, briefComment, spec, mark, image (base64), page (with every version), state, shot (PNG, base64), '
+    guide: 'One record per line: card, then board, board-cycle, board-board, card-cycle (by cardNumber), workitem-snapshot, activity (by cardNumber), brief, briefComment, spec, mark, image (base64), page (with every version), state, shot (PNG, base64), '
       + 'file (base64), widget, chatSettings, chat, chatRecord, chatTerminal. Texts are Markdown or HTML. Import with Board → Import .json.' })];
   for (const card of data.cards) {
     const fields: Record<string, unknown> = {};
     for (const f of CARD_FIELDS) fields[f] = card[f];
     lines.push(JSON.stringify({ record: 'card', card: fields, links: directLinks(card, data.activity[card.id] ?? []) }));
+  }
+  // specs/027: right after the cards, before the briefs and specs that are keyed by a board's id
+  const pairs = new Set<string>();
+  for (const s of data.boards ?? []) {
+    const b = s.board;
+    lines.push(JSON.stringify({ record: 'board', board: { id: b.id, name: b.name, isDefault: b.isDefault, state: b.state, migratedFrom: b.migratedFrom,
+      createdAt: b.createdAt } }));
+    for (const c of s.cycleIds) lines.push(JSON.stringify({ record: 'board-cycle', boardId: b.id, cycleId: c }));
+    for (const o of s.boardIds) {
+      const key = [b.id, o].sort().join('\n');
+      if (pairs.has(key)) continue;
+      pairs.add(key);
+      lines.push(JSON.stringify({ record: 'board-board', boardId: b.id, otherId: o }));
+    }
+  }
+  for (const card of data.cards) {
+    for (const c of data.cardCycles?.[card.id] ?? []) lines.push(JSON.stringify({ record: 'card-cycle', cardNumber: card.number, cycleId: c }));
+  }
+  for (const w of data.workItems ?? []) {
+    lines.push(JSON.stringify({ record: 'workitem-snapshot', boardId: w.board, conn: w.conn, extId: w.extId, provider: w.provider, snapshot: w.snapshot }));
   }
   for (const card of data.cards) {
     for (const e of data.activity[card.id] ?? []) {
@@ -113,6 +140,10 @@ export interface ParsedBoard {
   readonly briefComments: readonly Record<string, unknown>[];
   readonly specs: readonly BoardSpecFile[];
   readonly marks: readonly Record<string, unknown>[];
+  readonly boards: readonly Record<string, unknown>[];
+  readonly boardCycles: readonly { readonly boardId: string; readonly cycleId: string }[];
+  readonly cardCycles: readonly { readonly cardNumber: number; readonly cycleId: string }[];
+  readonly workItems: readonly Record<string, unknown>[];
 }
 
 export function parseBoardJsonLines(lines: readonly string[]): ParsedBoard {
@@ -121,7 +152,8 @@ export function parseBoardJsonLines(lines: readonly string[]): ParsedBoard {
   if (head.format !== BOARD_FORMAT) throw new SyntaxError(`Not an ${BOARD_FORMAT} file`);
   const out = { project: head.project ?? '', cards: [] as ParsedBoard['cards'][number][], activity: [] as ParsedBoard['activity'][number][],
     briefs: [] as Record<string, unknown>[], briefComments: [] as Record<string, unknown>[], specs: [] as BoardSpecFile[],
-    marks: [] as Record<string, unknown>[] };
+    marks: [] as Record<string, unknown>[], boards: [] as Record<string, unknown>[], boardCycles: [] as ParsedBoard['boardCycles'][number][],
+    cardCycles: [] as ParsedBoard['cardCycles'][number][], workItems: [] as Record<string, unknown>[] };
   for (const line of rest) {
     const r = JSON.parse(line) as Record<string, unknown> & { record: string };
     switch (r.record) {
@@ -131,6 +163,10 @@ export function parseBoardJsonLines(lines: readonly string[]): ParsedBoard {
       case 'briefComment': out.briefComments.push(r); break;
       case 'spec': out.specs.push(r as unknown as BoardSpecFile); break;
       case 'mark': out.marks.push(r); break;
+      case 'board': out.boards.push(r['board'] as Record<string, unknown>); break;
+      case 'board-cycle': out.boardCycles.push({ boardId: r['boardId'] as string, cycleId: r['cycleId'] as string }); break;
+      case 'card-cycle': out.cardCycles.push({ cardNumber: r['cardNumber'] as number, cycleId: r['cycleId'] as string }); break;
+      case 'workitem-snapshot': out.workItems.push(r); break;
     }
   }
   return out;

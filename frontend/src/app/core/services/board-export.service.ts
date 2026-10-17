@@ -1,6 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { Observable, expand, forkJoin, from, lastValueFrom, map, mergeMap, of, reduce, toArray, EMPTY, catchError } from 'rxjs';
-import { ActivityEntry, BriefComment, CardSummary, ChecklistMark, CycleBrief, NO_FILTERS } from '../models/board.models';
+import { ActivityEntry, BoardSummary, BriefComment, CardSummary, ChecklistMark, CycleBrief, NO_FILTERS } from '../models/board.models';
 import { BoardExport, BoardImageData, BoardSpecFile, boardImageIds, boardJsonFilename, buildBoardJsonLines } from '../../shared/utils/board-json';
 import { buildBoardHtmlParts } from '../../shared/utils/board-html-builder';
 import { buildBoardMarkdownLines } from '../../shared/utils/board-md-builder';
@@ -9,6 +9,7 @@ import { exportBlob } from '../../shared/utils/export-file-io';
 import { BoardApiService } from './board-api.service';
 import { ChatApiService } from './chat-api.service';
 import { SnippetsApiService } from './snippets-api.service';
+import { TeamApiService } from '../team/team-api.service';
 import { BoardVisuals, ExportedFile, ExportedPage, ExportedShot, ExportedState, exportedSnippetId } from '../../shared/utils/board-visuals-export';
 import { WidgetInfo } from '../models/snippet.models';
 import { FrameKit, textSnippets } from '../../shared/utils/board-visuals-render';
@@ -35,6 +36,7 @@ export class BoardExportService {
   private readonly shelf = inject(SnippetShelfService);
   private readonly dataSource = inject(SnippetDataService);
   private readonly chatApi = inject(ChatApiService);
+  private readonly team = inject(TeamApiService);
 
   /** The whole board (or a cycle's cards), or only `ids` when given. */
   gather(project: string, cycleId: string | null, ids: readonly string[] | null = null): Promise<BoardExport> {
@@ -65,12 +67,50 @@ export class BoardExportService {
     const name = boardJsonFilename(project, cycleId ? title : null).replace(/\.json$/, `.${format}`);
     if (format === 'json') {
       const chats = ids === null ? await this.chats(project, cycleId) : [];
-      downloadBlob(await exportBlob(buildBoardJsonLines({ ...data, images: await this.images(data), chats }), false), name);
+      const boards = await this.boards(project, cycleId);
+      downloadBlob(await exportBlob(buildBoardJsonLines({ ...data, images: await this.images(data), chats, ...boards,
+        cardCycles: await this.cardCycles(data) }), false), name);
     } else if (format === 'md') {
       downloadBlob(new Blob(buildBoardMarkdownLines(data, title).map((l) => `${l}\n`), { type: 'text/markdown' }), name);
     } else {
       downloadBlob(new Blob(buildBoardHtmlParts(data, title, await this.frameKit(data)), { type: 'text/html' }), name);
     }
+  }
+
+  /**
+   * The boards (specs/027): every board of the project for a whole-board export, the one board for a board's, each with
+   * the work item it was opened from. Unreadable (an older Alfred, no Team slice) → none; the cards still export.
+   */
+  async boards(project: string, boardId: string | null): Promise<Pick<BoardExport, 'boards' | 'workItems'>> {
+    let boards: BoardSummary[] = [];
+    try {
+      boards = boardId ? [await lastValueFrom(this.api.board(boardId))]
+        : await lastValueFrom(this.api.boards(project, ['OPEN', 'DONE', 'ARCHIVED']));
+    } catch {
+      return {};
+    }
+    const workItems: NonNullable<BoardExport['workItems']>[number][] = [];
+    for (const s of boards.filter((b) => b.linkedItem)) {
+      try {
+        const l = await lastValueFrom(this.team.link(s.board.id));
+        if (l) workItems.push({ board: l.board, conn: l.conn, extId: l.extId, provider: l.provider, snapshot: l.snapshot });
+      } catch {
+        // the link stays readable on the board; the export goes on
+      }
+    }
+    return { boards, workItems };
+  }
+
+  /** The cycles related to each card beyond its home, in pages of 1000 ids. */
+  async cardCycles(data: BoardExport): Promise<Record<string, readonly string[]>> {
+    const out: Record<string, readonly string[]> = {};
+    const ids = data.cards.map((c) => c.id);
+    try {
+      for (let i = 0; i < ids.length; i += 1000) Object.assign(out, await lastValueFrom(this.api.cardsCycles(ids.slice(i, i + 1000))));
+    } catch {
+      // an older Alfred, or read-only through the tunnel: the homes still export
+    }
+    return out;
   }
 
   /**

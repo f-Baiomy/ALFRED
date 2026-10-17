@@ -109,6 +109,11 @@ export class BoardApiService {
     return this.http.put<CardDetail>(`${this.base}/cards/${encodeURIComponent(cardId)}/home`, { boardId });
   }
 
+  /** The related cycles of many cards at once (the export); cards with none are left out. */
+  cardsCycles(ids: readonly string[]): Observable<Record<string, string[]>> {
+    return this.http.post<Record<string, string[]>>(`${this.base}/cards/cycles`, { ids });
+  }
+
   cardCycles(cardId: string): Observable<string[]> {
     return this.http.get<string[]>(`${this.base}/cards/${encodeURIComponent(cardId)}/cycles`);
   }

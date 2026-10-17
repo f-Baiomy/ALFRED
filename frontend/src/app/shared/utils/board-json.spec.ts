@@ -81,4 +81,30 @@ describe('board .json export (alfred-board/1)', () => {
   it('refuses a file that is not a board export', () => {
     expect(() => parseBoardJsonLines(['{"format":"alfred-calls/3"}'])).toThrowError(SyntaxError);
   });
+
+  it('writes the boards, their relations, card homes and related cycles, and the work item snapshots (specs/027)', () => {
+    const b = (id: string, isDefault = false) => ({ id, project: 'odeysys', name: id, isDefault, state: 'OPEN' as const, migratedFrom: null,
+      createdAt: '2026-10-01T09:00:00Z', updatedAt: '2026-10-01T09:00:00Z' });
+    const lines = buildBoardJsonLines({
+      ...data,
+      cards: [card(1, { boardId: 'b-refund' }), card(2)],
+      boards: [
+        { board: b('default:odeysys', true), cards: 1, cycleIds: [], boardIds: [], linkedItem: null },
+        { board: b('b-refund'), cards: 1, cycleIds: ['cy1', 'cy2'], boardIds: ['b-sprint'], linkedItem: 'c1/7' },
+        { board: b('b-sprint'), cards: 0, cycleIds: [], boardIds: ['b-refund'], linkedItem: null },
+      ],
+      cardCycles: { id1: ['cy9'] },
+      workItems: [{ board: 'b-refund', conn: 'c1', extId: '7', provider: 'Azure DevOps', snapshot: { title: 'Refund', state: 'Active' } }],
+    }, '2026-10-10T00:00:00Z');
+    const records = lines.slice(1).map((l) => JSON.parse(l).record as string);
+    expect(records.indexOf('board')).toBeGreaterThan(records.lastIndexOf('card'));
+    expect(records.indexOf('board')).toBeLessThan(records.indexOf('brief'));
+    const parsed = parseBoardJsonLines(lines);
+    expect(parsed.cards[0]['boardId']).toBe('b-refund');
+    expect(parsed.boards.map((x) => x['id'])).toEqual(['default:odeysys', 'b-refund', 'b-sprint']);
+    expect(parsed.boardCycles).toEqual([{ boardId: 'b-refund', cycleId: 'cy1' }, { boardId: 'b-refund', cycleId: 'cy2' }]);
+    expect(records.filter((r) => r === 'board-board').length).withContext('one record per related pair').toBe(1);
+    expect(parsed.cardCycles).toEqual([{ cardNumber: 1, cycleId: 'cy9' }]);
+    expect(parsed.workItems[0]['snapshot']).toEqual({ title: 'Refund', state: 'Active' });
+  });
 });

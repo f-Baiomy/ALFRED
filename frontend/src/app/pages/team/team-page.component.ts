@@ -1,4 +1,6 @@
 import { Component, computed, inject, signal } from '@angular/core';
+import { ActivatedRoute } from '@angular/router';
+import { TeamApiService } from '../../core/team/team-api.service';
 import { ConnectionSwitcherComponent } from '../../components/team/connection-switcher/connection-switcher.component';
 import { TeamItemsTableComponent } from '../../components/team/items-table/items-table.component';
 import { TeamItemDrawerComponent } from '../../components/team/item-drawer/item-drawer.component';
@@ -64,8 +66,17 @@ export class TeamPageComponent {
   /** A view the picked connection cannot give falls back to the items. */
   readonly current = computed<View>(() => (this.views().some((v) => v.id === this.view()) ? this.view() : 'items'));
 
+  private readonly route = inject(ActivatedRoute, { optional: true });
+  private readonly api = inject(TeamApiService);
+
   constructor() {
     this.state.load();
+    // ?conn=&item= (a work item mention on the board): that connection, with the item's drawer open
+    const q = this.route?.snapshot.queryParamMap;
+    const conn = q?.get('conn');
+    const item = q?.get('item');
+    if (conn) this.state.pick(conn);
+    if (conn && item) this.api.item(conn, item).subscribe({ next: (d) => this.opened.set(d.item), error: () => undefined });
   }
 
   open(i: TeamItem): void {

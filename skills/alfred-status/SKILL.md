@@ -8,6 +8,8 @@ argument-hint: "[project | cycle]"
 
 Read `rules.md` in this skill's folder first. This skill only **reads**: no cards, comments, moves or logs.
 
+Boards (specs/027): report per board - its cycles (recording or not), its cards by status, and "<tracker> changed" when its work item changed since setup (rules section 0, "Boards and cycles").
+
 0. A task named, or one task in play (rules §0): `task_context` on it first - it gives the task's state and the next
    step in one call; the steps below add the rest of the board. No task named and several open: `task_context` with no
    task lists them.

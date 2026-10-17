@@ -261,9 +261,9 @@ Aliases used in task paths (all relative to the repo root):
 
 ## Phase 12: Polish and cross-cutting
 
-- [ ] T081 Add the board export records (`board`, `board-cycle`, `board-board`, `workitem-snapshot`; cards `boardId`, `relatedCycles`) in `FE/shared/utils/board-json.ts` and import in `BOARD/application/service/ImportBoardService.java` (no board records → default board; unknown types skipped), with tests in `board-json.spec.ts` and `ImportBoardServiceTest.java`
-- [ ] T082 [P] Add work-item mention `@[workitem:<conn>/<id>|title]` to the mention parser/index in `BOARD` and render it through the existing `FE/components/board/mention-chip/` with the snapshot popup
-- [ ] T083 [P] Update the remaining skills for boards: `skills/alfred-{listen,review,resume,status,report,verify,guide}/SKILL.md` and `skills/_shared/rules.md`; run `python -m pytest tests/python/test_alfred_skill.py`
+- [X] T081 Add the board export records (`board`, `board-cycle`, `board-board`, `workitem-snapshot`; cards `boardId`, `relatedCycles`) in `FE/shared/utils/board-json.ts` and import in `BOARD/application/service/ImportBoardService.java` (no board records → default board; unknown types skipped), with tests in `board-json.spec.ts` and `ImportBoardServiceTest.java`
+- [X] T082 [P] Add work-item mention `@[workitem:<conn>/<id>|title]` to the mention parser/index in `BOARD` and render it through the existing `FE/components/board/mention-chip/` with the snapshot popup
+- [X] T083 [P] Update the remaining skills for boards: `skills/alfred-{listen,review,resume,status,report,verify,guide}/SKILL.md` and `skills/_shared/rules.md`; run `python -m pytest tests/python/test_alfred_skill.py`
 - [ ] T084 [P] Update the docs:
   - `docs/board.md`: boards, relations, chat key, migration, aliases and fork path "remove later";
   - new `docs/team.md`;

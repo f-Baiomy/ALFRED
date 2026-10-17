@@ -6,7 +6,9 @@ argument-hint: "[card numbers] [re-test cycle] [project] [--wait] [--tests] [--d
 
 # Alfred verify
 
-Read `rules.md` in this skill's folder first and follow it. Verified and Done are the user's: you propose.
+Read `rules.md` in this skill's folder first and follow it.
+
+Verify on the board the card lives on (its home); the re-test is a cycle of that board - `board_record` with kind RETEST (rules §0 "Boards and cycles"). (specs/027) Verified and Done are the user's: you propose.
 
 ## 1. What to re-test
 

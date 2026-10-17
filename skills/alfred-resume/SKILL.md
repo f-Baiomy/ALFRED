@@ -12,6 +12,9 @@ choose (rules §1): every write waits for the user's Go.
 Several Alfreds connected (`alfred`, `alfred-docker`, …)? Use the one the user named, else the one whose
 `task_context` finds the task; when more than one does, ask.
 
+
+Boards (specs/027): the argument may be a board id or a cycle id; with a cycle on several boards, ask which board to resume (rules section 0, "Boards and cycles"). Resume reads that board's brief, chat summary and cards.
+
 ## 1. Load the task
 
 - No task named: `task_context` with no task lists the tasks, newest first. Show the first few (name, status, last

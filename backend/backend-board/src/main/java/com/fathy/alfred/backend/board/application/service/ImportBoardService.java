@@ -20,6 +20,7 @@ import com.fathy.alfred.backend.board.application.port.out.CycleNamesPort;
 import com.fathy.alfred.backend.board.application.port.out.MentionedCallsChangedPort;
 import com.fathy.alfred.backend.board.domain.MentionParser;
 import com.fathy.alfred.backend.board.domain.RichText;
+import com.fathy.alfred.backend.board.domain.model.BoardIds;
 import com.fathy.alfred.backend.board.domain.model.BoardImage;
 import com.fathy.alfred.backend.board.domain.model.ActivityEntry;
 import com.fathy.alfred.backend.board.domain.model.ActivityKind;
@@ -41,6 +42,7 @@ import org.springframework.stereotype.Service;
 
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.util.Optional;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -86,6 +88,13 @@ public class ImportBoardService implements ImportBoardUseCase {
 
     private ChatStorePort chats;
     private CycleNamesPort cycleNames;
+    private com.fathy.alfred.backend.board.application.port.out.BoardModelStorePort boards;
+
+    /** The boards come back too (specs/027 T081) where their store is present; else every card lands on the default board. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setBoards(com.fathy.alfred.backend.board.application.port.out.BoardModelStorePort boards) {
+        this.boards = boards;
+    }
 
     /** The board chats come back too (specs/022 T052) where the chat store is present. */
     @org.springframework.beans.factory.annotation.Autowired(required = false)
@@ -139,6 +148,8 @@ public class ImportBoardService implements ImportBoardUseCase {
         boolean cardsWritten = false;
         Map<String, String> pageIds = new HashMap<>(); // an exported page id -> its id here
         ChatTransfer.Importer chatImport = null;
+        Map<Integer, String> homes = new HashMap<>(); // an exported card number -> the board it lived on there
+        Map<String, String> boardIds = new HashMap<>(); // an exported board id -> its id here
         String line;
         while ((line = lines.readLine()) != null) {
             bytes += line.getBytes(StandardCharsets.UTF_8).length + 1L;
@@ -156,6 +167,9 @@ public class ImportBoardService implements ImportBoardUseCase {
                     sourceProject = c.path("project").asText("");
                 }
                 pending.add(new PendingCard(card(c, target), links(r.path("links")), c.path("shortName").isTextual() ? c.path("shortName").asText() : null));
+                if (c.hasNonNull("boardId")) {
+                    homes.put(c.path("number").asInt(0), c.path("boardId").asText());
+                }
                 continue;
             }
             if (!cardsWritten) {
@@ -186,9 +200,9 @@ public class ImportBoardService implements ImportBoardUseCase {
                 }
                 case "brief" -> {
                     String text = RichText.clean(r.path("text").asText(""));
-                    cycleImages.computeIfAbsent(r.path("cycleId").asText(), k -> new java.util.HashSet<>()).addAll(RichText.imageIds(text));
-                    store.putBrief(new CycleBrief(r.path("cycleId").asText(), text, instant(r.path("updatedAt").asText())));
-                    store.replaceMentions(MentionOwner.BRIEF, r.path("cycleId").asText(), null, MentionParser.mentions(text));
+                    cycleImages.computeIfAbsent(key(boardIds, r.path("cycleId").asText()), k -> new java.util.HashSet<>()).addAll(RichText.imageIds(text));
+                    store.putBrief(new CycleBrief(key(boardIds, r.path("cycleId").asText()), text, instant(r.path("updatedAt").asText())));
+                    store.replaceMentions(MentionOwner.BRIEF, key(boardIds, r.path("cycleId").asText()), null, MentionParser.mentions(text));
                 }
                 case "briefComment" -> {
                     if (briefComments != null) {
@@ -198,10 +212,10 @@ public class ImportBoardService implements ImportBoardUseCase {
                         boolean resolved = r.hasNonNull("resolvedAt");
                         Instant created = instant(r.path("createdAt").asText());
                         // the same file imported twice does not repeat a comment
-                        Long same = briefComments.briefComments(r.path("cycleId").asText()).stream()
+                        Long same = briefComments.briefComments(key(boardIds, r.path("cycleId").asText())).stream()
                                 .filter(x -> x.createdAt().equals(created) && x.text().equals(text)).map(x -> x.id()).findFirst().orElse(null);
                         long id = same != null ? same : briefComments.addBriefComment(new com.fathy.alfred.backend.board.domain.model.BriefComment(0,
-                                r.path("cycleId").asText(), replyTo == null ? text(r, "quote") : null, actor(r.path("actor").asText()), text,
+                                key(boardIds, r.path("cycleId").asText()), replyTo == null ? text(r, "quote") : null, actor(r.path("actor").asText()), text,
                                 replyTo, r.path("asks").asBoolean(false), text(r, "suggestFrom"), text(r, "suggestTo"),
                                 created, resolved ? instant(r.path("resolvedAt").asText()) : null,
                                 resolved ? actor(r.path("resolvedBy").asText()) : null));
@@ -212,12 +226,32 @@ public class ImportBoardService implements ImportBoardUseCase {
                 }
                 case "spec" -> {
                     String content = RichText.clean(r.path("content").asText(""));
-                    store.putSpec(new SpecFile(r.path("cycleId").asText(), r.path("name").asText(), content,
+                    store.putSpec(new SpecFile(key(boardIds, r.path("cycleId").asText()), r.path("name").asText(), content,
                             content.getBytes(StandardCharsets.UTF_8).length, instant(r.path("uploadedAt").asText())));
                 }
-                case "mark" -> store.putMark(new ChecklistMark(r.path("cycleId").asText(), r.path("fileName").asText(),
+                case "mark" -> store.putMark(new ChecklistMark(key(boardIds, r.path("cycleId").asText()), r.path("fileName").asText(),
                         r.path("itemKey").asText(), Mark.valueOf(r.path("mark").asText()), actor(r.path("actor").asText()),
                         RichText.clean(r.path("evidence").asText("")), List.of(), instant(r.path("updatedAt").asText())));
+                case "board" -> board(r.path("board"), target, boardIds);
+                case "board-cycle" -> {
+                    String b = boardIds.get(r.path("boardId").asText());
+                    if (boards != null && b != null && !r.path("cycleId").asText("").isBlank()) {
+                        boards.relateCycle(b, r.path("cycleId").asText(), Actor.USER, Instant.now());
+                    }
+                }
+                case "board-board" -> {
+                    String a = boardIds.get(r.path("boardId").asText());
+                    String b = boardIds.get(r.path("otherId").asText());
+                    if (boards != null && a != null && b != null && !a.equals(b)) {
+                        boards.relateBoards(a, b);
+                    }
+                }
+                case "card-cycle" -> {
+                    String cardId = idByOldNumber.get(r.path("cardNumber").asInt(-1));
+                    if (boards != null && cardId != null && !r.path("cycleId").asText("").isBlank()) {
+                        boards.relateCardCycle(cardId, r.path("cycleId").asText());
+                    }
+                }
                 case "image" -> image(r);
                 case "page" -> page(r, target, idByOldNumber, pageIds);
                 case "state" -> state(r, idByOldNumber, newIds, pageIds);
@@ -247,6 +281,16 @@ public class ImportBoardService implements ImportBoardUseCase {
                 cardImages.computeIfAbsent(id, k -> new java.util.HashSet<>()).addAll(RichText.imageIds(p.card().description()));
             }
         }
+        // a card goes home to its board when that board came along; else it stays on the project's default board
+        if (boards != null) {
+            homes.forEach((number, board) -> {
+                String cardId = idByOldNumber.get(number);
+                String here = boardIds.get(board);
+                if (cardId != null && here != null && !BoardIds.isDefault(here)) {
+                    boards.setHome(cardId, here, Instant.now(), Actor.USER);
+                }
+            });
+        }
         cardImages.forEach((cardId, ids) -> store.attachImages(ids, cardId, null));
         cycleImages.forEach((cycleId, ids) -> store.attachImages(ids, null, cycleId));
         mentionedCalls.mentionedCallsChanged();
@@ -255,6 +299,50 @@ public class ImportBoardService implements ImportBoardUseCase {
             notifications.chatChanged(target, null, null);
         }
         return new ImportResult(pending.size(), renumbered);
+    }
+
+    /** A board's task key here: a board renamed on the way in takes its briefs, specs and marks along. */
+    private static String key(Map<String, String> boardIds, String cycleId) {
+        return boardIds.getOrDefault(cycleId, cycleId);
+    }
+
+    /**
+     * A board of the file (specs/027): the default board is the target's default; one that exists here in the target
+     * project is kept; a new one keeps its id, or gets a new id when that id belongs to another project here.
+     */
+    private void board(JsonNode b, String target, Map<String, String> boardIds) {
+        String id = b.path("id").asText("");
+        if (id.isBlank() || id.length() > 200) {
+            return;
+        }
+        if (b.path("isDefault").asBoolean(false) || BoardIds.isDefault(id)) {
+            boardIds.put(id, BoardIds.defaultOf(target));
+            return;
+        }
+        if (boards == null) {
+            return;
+        }
+        Optional<com.fathy.alfred.backend.board.domain.model.Board> here = boards.board(id);
+        if (here.isPresent() && here.get().project().equals(target)) {
+            boardIds.put(id, id);
+            return;
+        }
+        String newId = here.isPresent() ? UUID.randomUUID().toString() : id;
+        String name = b.path("name").asText("Imported board").strip();
+        if (name.isEmpty() || name.length() > com.fathy.alfred.backend.board.domain.model.Board.MAX_NAME) {
+            name = name.isEmpty() ? "Imported board" : name.substring(0, com.fathy.alfred.backend.board.domain.model.Board.MAX_NAME);
+        }
+        com.fathy.alfred.backend.board.domain.model.BoardState state;
+        try {
+            state = com.fathy.alfred.backend.board.domain.model.BoardState.valueOf(b.path("state").asText("OPEN"));
+        } catch (IllegalArgumentException e) {
+            state = com.fathy.alfred.backend.board.domain.model.BoardState.OPEN;
+        }
+        Instant now = Instant.now();
+        Instant created = b.hasNonNull("createdAt") ? instant(b.path("createdAt").asText()) : now;
+        boards.putBoard(new com.fathy.alfred.backend.board.domain.model.Board(newId, target, name, false, state, null, created == null ? now : created,
+                now, Actor.USER));
+        boardIds.put(id, newId);
     }
 
     private void writeCards(String target, String sourceProject, List<PendingCard> pending, Map<String, Integer> numbers,

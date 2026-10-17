@@ -9,6 +9,8 @@ argument-hint: "[cycle | project] [since <date>] [--file]"
 Read `rules.md` in this skill's folder first. This skill only reads the board; it writes a file only when the user
 asks (`--file`, or "save it").
 
+Boards (specs/027): a report covers one board - its brief, requirements, cards (home and related), and every cycle on it (rules section 0, "Boards and cycles").
+
 1. Scope: a cycle (`get_brief`, its cards via `board_search` with `cycleId`), a project, and a time span ("today",
    "since Monday" → `board_search` / `board_changes` with `since`).
 2. Gather: `board_search` for every card in scope (with its last comment), `board_get` for the ones whose decisions

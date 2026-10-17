@@ -145,6 +145,7 @@ final class BoardFixture implements AutoCloseable {
         boardModel = TestRepositories.boardModel(store, json);
         board.setBoardModel(boardModel);
         briefs.setBoardModel(boardModel);
+        imports.setBoards(boardModel);
         com.fathy.alfred.backend.board.application.port.out.CycleControlPort control = new com.fathy.alfred.backend.board.application.port.out.CycleControlPort() {
             private int n;
 
