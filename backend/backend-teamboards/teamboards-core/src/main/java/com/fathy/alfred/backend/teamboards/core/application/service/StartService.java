@@ -270,6 +270,29 @@ public class StartService implements StartFromItemUseCase {
     }
 
     @Override
+    public LinkResult link(com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.Who who, String boardId, String conn, String extId) {
+        if (who == com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.Who.CLAUDE) {
+            TeamBoardsPort port = boards.getIfAvailable();
+            Optional<String> project = port == null ? Optional.empty() : port.projectOf(boardId);
+            Optional<StartRow> start = cache.start(conn, extId).filter(r -> WAITING.equals(r.state()));
+            if (start.isPresent() && start.get().target() != null) {
+                String[] t = start.get().target().split("\\|", -1);
+                boolean projectOk = project.isPresent() && project.get().equals(t[0]);
+                boolean boardOk = t.length < 2 || t[1].isBlank() || t[1].equals(boardId);
+                if (!projectOk || !boardOk) {
+                    throw TeamException.userOnly("The start of " + extId + " was posted for " + (t.length > 1 && !t[1].isBlank() ? "board " + t[1]
+                            : "project " + t[0]) + " - link it there");
+                }
+            }
+            Optional<BoardItemRow> main = cache.main(boardId);
+            if (main.isPresent() && !(main.get().conn().equals(conn) && main.get().item().equals(extId))) {
+                throw TeamException.userOnly("Board " + boardId + " already has main item " + main.get().item() + " - only the user changes it");
+            }
+        }
+        return link(boardId, conn, extId);
+    }
+
+    @Override
     public LinkResult link(String boardId, String conn, String extId) {
         TeamBoardsPort port = boards.getIfAvailable();
         BoardItemsUseCase bi = boardItems.getIfAvailable();

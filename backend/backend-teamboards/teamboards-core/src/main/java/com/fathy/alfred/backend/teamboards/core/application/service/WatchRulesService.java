@@ -100,8 +100,19 @@ public class WatchRulesService implements WatchRulesUseCase {
     @Override
     public int run(String boardId, String source) {
         int found = 0;
+        TeamException first = null;
+        int ran = 0;
         for (WatchRuleRow r : cache.rules(boardId)) {
-            found += runOne(r, source);
+            try {
+                found += runOne(r, source);
+                ran++;
+            } catch (TeamException e) {
+                log.info("Watch rule {} not run: {}", r.id(), e.code());
+                first = first == null ? e : first;
+            }
+        }
+        if (ran == 0 && first != null) {
+            throw first; // nothing ran (no token, the tracker down): say why
         }
         return found;
     }

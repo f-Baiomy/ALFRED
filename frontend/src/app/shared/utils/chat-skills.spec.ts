@@ -14,7 +14,7 @@ describe('chat-skills', () => {
   });
 
   it('narrows the list by what follows the slash', () => {
-    expect(skillsMatching('/').length).toBe(14);
+    expect(skillsMatching('/').length).toBe(15);
     expect(skillsMatching('/fi').map((s) => s.name)).toEqual(['alfred-fix']);
     expect(skillsMatching('/alfred-s').map((s) => s.name)).toEqual(['alfred-setup', 'alfred-spec', 'alfred-sync', 'alfred-status']);
     expect(skillsMatching('hello')).toEqual([]);

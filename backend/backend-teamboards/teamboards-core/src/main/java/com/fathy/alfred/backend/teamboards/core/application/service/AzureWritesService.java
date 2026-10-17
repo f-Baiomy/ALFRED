@@ -152,6 +152,10 @@ public class AzureWritesService implements AzureWritesUseCase {
             if (old.state() != WriteState.WAITING) {
                 throw new TeamException(Code.CONFLICT, "Bundle " + old.id() + " is " + old.state() + " - start another");
             }
+            if (who == Who.CLAUDE && (!Who.CLAUDE.name().equals(old.origin()) || !old.conn().equals(in.conn())
+                    || !java.util.Objects.equals(old.item(), blank(in.item())) || !java.util.Objects.equals(old.cardId(), blank(in.cardId())))) {
+                throw TeamException.userOnly("Claude extends only its own waiting bundle for the same item and card - start another");
+            }
             List<WriteStep> steps = new ArrayList<>(old.steps());
             for (WriteStep s : in.steps()) {
                 steps.add(fresh(s, who));
@@ -232,9 +236,26 @@ public class AzureWritesService implements AzureWritesUseCase {
             throw TeamException.userOnly("Only the user edits a bundle - Claude extends it (extend) or starts another");
         }
         WriteBundle b = waiting(id);
-        List<WriteStep> next = steps == null ? b.steps() : steps.stream().map(s -> new WriteStep(s.kind(), s.payload(), s.ticked(), s.unmasked(), null))
-                .toList();
+        List<WriteStep> next = new ArrayList<>(steps == null ? b.steps()
+                : steps.stream().map(s -> new WriteStep(s.kind(), s.payload(), s.ticked(), s.unmasked(), null)).toList());
         check(next);
+        // a built file belongs to its step as it was built: a changed step (or its "send unmasked") needs it built again
+        for (int i = 0; i < next.size(); i++) {
+            WriteStep s = next.get(i);
+            if (s.kind() != StepKind.ATTACH) {
+                continue;
+            }
+            WriteStep was = i < b.steps().size() ? b.steps().get(i) : null;
+            boolean built = was != null && was.kind() == StepKind.ATTACH && "1".equals(was.payload().get("built"));
+            boolean same = built && String.valueOf(s.unmasked()).equals(was.payload().get("builtUnmasked"))
+                    && stripBuilt(s.payload()).equals(stripBuilt(was.payload()));
+            if (same) {
+                next.set(i, new WriteStep(s.kind(), was.payload(), s.ticked(), s.unmasked(), null));
+            } else {
+                cache.deleteBundleFile(id, i);
+                next.set(i, new WriteStep(s.kind(), stripBuilt(s.payload()), s.ticked(), s.unmasked(), null));
+            }
+        }
         WriteBundle out = new WriteBundle(b.id(), b.boardId(), b.cardId(), b.conn(), b.item(), b.origin(), b.askedIn(),
                 title == null || title.isBlank() ? b.title() : title.strip(), next, WriteState.WAITING, b.createdAt(), null, null);
         cache.updateBundle(out);
@@ -242,8 +263,19 @@ public class AzureWritesService implements AzureWritesUseCase {
         return out;
     }
 
+    private static Map<String, String> stripBuilt(Map<String, String> p) {
+        Map<String, String> out = new LinkedHashMap<>(p);
+        out.remove("built");
+        out.remove("builtUnmasked");
+        out.remove("size");
+        return out;
+    }
+
     @Override
     public WriteBundle putFile(Who who, long id, int step, String name, byte[] data) {
+        if (who != Who.USER) {
+            throw TeamException.userOnly("Only the user's browser builds an evidence file - it masks it there");
+        }
         WriteBundle b = waiting(id);
         if (step < 0 || step >= b.steps().size() || b.steps().get(step).kind() != StepKind.ATTACH) {
             throw TeamException.invalid("Step " + step + " is not an attachment step");
@@ -262,7 +294,8 @@ public class AzureWritesService implements AzureWritesUseCase {
         p.put("name", n);
         p.put("size", String.valueOf(data.length));
         p.put("built", "1");
-        steps.set(step, new WriteStep(s.kind(), p, s.ticked(), who == Who.USER ? s.unmasked() : false, null));
+        p.put("builtUnmasked", String.valueOf(s.unmasked()));
+        steps.set(step, new WriteStep(s.kind(), p, s.ticked(), s.unmasked(), null));
         WriteBundle out = new WriteBundle(b.id(), b.boardId(), b.cardId(), b.conn(), b.item(), b.origin(), b.askedIn(), b.title(), steps,
                 WriteState.WAITING, b.createdAt(), null, null);
         cache.updateBundle(out);
@@ -281,6 +314,10 @@ public class AzureWritesService implements AzureWritesUseCase {
             if (s.ticked() && s.kind() == StepKind.ATTACH && cache.bundleFile(id, i).isEmpty()) {
                 throw TeamException.invalid("Step " + (i + 1) + " (" + s.payload().get("name") + ") has no file yet - build it first, or untick it");
             }
+            if (s.ticked() && s.kind() == StepKind.ATTACH && !String.valueOf(s.unmasked()).equals(s.payload().get("builtUnmasked"))) {
+                throw TeamException.invalid("Step " + (i + 1) + " (" + s.payload().get("name") + ") was built "
+                        + (s.unmasked() ? "masked" : "unmasked") + " - build it again");
+            }
         }
         if (b.steps().stream().noneMatch(WriteStep::ticked)) {
             throw TeamException.invalid("Tick at least one step, or reject the bundle");
@@ -288,7 +325,9 @@ public class AzureWritesService implements AzureWritesUseCase {
         Ctx c = live.ctx(b.conn()); // TOKEN_MISSING keeps it waiting
         WriteBundle sending = new WriteBundle(b.id(), b.boardId(), b.cardId(), b.conn(), b.item(), b.origin(), b.askedIn(), b.title(), b.steps(),
                 WriteState.SENDING, b.createdAt(), clock.instant(), "user");
-        cache.updateBundle(sending);
+        if (!cache.claimSending(id, sending.decidedAt(), "user")) {
+            throw new TeamException(Code.CONFLICT, "Bundle " + id + " is already being sent");
+        }
         signal(sending);
         runner.execute(() -> {
             try {
@@ -327,6 +366,7 @@ public class AzureWritesService implements AzureWritesUseCase {
         List<WriteStep> steps = new ArrayList<>(b.steps());
         String item = b.item();
         boolean failed = false;
+        boolean tokenStop = false;
         for (int i = 0; i < steps.size(); i++) {
             WriteStep s = steps.get(i);
             if (!s.ticked()) {
@@ -347,7 +387,7 @@ public class AzureWritesService implements AzureWritesUseCase {
                 if (e.code() == Code.TOKEN_REJECTED || e.code() == Code.TOKEN_MISSING) {
                     // the rest would fail the same way: they are left unsent for another approve
                     steps.set(i, new WriteStep(s.kind(), s.payload(), s.ticked(), s.unmasked(), r));
-                    failed = true;
+                    tokenStop = true;
                     break;
                 }
             } catch (RuntimeException e) {
@@ -357,6 +397,19 @@ public class AzureWritesService implements AzureWritesUseCase {
             steps.set(i, new WriteStep(s.kind(), s.payload(), s.ticked(), s.unmasked(), r));
             cache.updateBundle(new WriteBundle(b.id(), b.boardId(), b.cardId(), b.conn(), item, b.origin(), b.askedIn(), b.title(), steps,
                     WriteState.SENDING, b.createdAt(), b.decidedAt(), b.decidedBy()));
+        }
+        if (tokenStop) {
+            // the token went: the bundle waits again - what was sent unticked, its files kept - for the next approve
+            List<WriteStep> left = new ArrayList<>();
+            for (WriteStep s : steps) {
+                boolean sent = s.result() != null && s.result().ok();
+                left.add(new WriteStep(s.kind(), s.payload(), s.ticked() && !sent, s.unmasked(), s.result()));
+            }
+            WriteBundle again = new WriteBundle(b.id(), b.boardId(), b.cardId(), b.conn(), item, b.origin(), b.askedIn(), b.title(), left,
+                    WriteState.WAITING, b.createdAt(), null, null);
+            cache.updateBundle(again);
+            signal(again);
+            return again;
         }
         WriteBundle out = new WriteBundle(b.id(), b.boardId(), b.cardId(), b.conn(), item, b.origin(), b.askedIn(), b.title(), steps,
                 failed ? WriteState.PARTIAL : WriteState.DONE, b.createdAt(), b.decidedAt() == null ? clock.instant() : b.decidedAt(),

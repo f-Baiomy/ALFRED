@@ -122,6 +122,10 @@ test('writes are bundles that wait for the user: comment, state, extend, link a 
     const patch = w.fake.requests('PATCH', '/teamboards/connections/c1/items/1234')[0];
     assert.deepEqual([patch.body.comment, patch.body.card], ['Fixed in build 41', 'card-4']);
 
+    const none = await w.call('team_move_state', { id: '1234', state: 'Resolved' });
+    assert.match(none.text, /Name the card/);
+    assert.equal(w.fake.requests('PATCH', '/teamboards/connections/c1/items/1234').length, 1);
+
     const s = await w.call('team_move_state', { id: '1234', state: 'Resolved', extend: 7 });
     assert.equal(s.json.bundle, 7);
     assert.equal(w.fake.requests('POST', '/teamboards/writes')[0].body.steps[0].kind, 'STATE');

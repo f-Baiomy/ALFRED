@@ -471,6 +471,13 @@ export class CardDrawerComponent {
   /** The card's linked work items (from "Linked in …") and whether a comment also goes to them. */
   readonly teamItems = signal<CardItem[]>([]);
   readonly alsoTracker = signal(false);
+  private readonly teamReset = effect(() => {
+    this.card()?.id;
+    untracked(() => {
+      this.teamItems.set([]);
+      this.alsoTracker.set(false);
+    });
+  });
   private readonly confirm = inject(ConfirmDialogService);
   private readonly mentions = inject(BoardMentionsService);
 

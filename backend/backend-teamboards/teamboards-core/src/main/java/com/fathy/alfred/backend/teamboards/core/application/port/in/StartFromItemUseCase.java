@@ -46,6 +46,14 @@ public interface StartFromItemUseCase {
     /** /alfred-setup links the board: the item becomes its main, the start is done, its fetched files go to the board. */
     LinkResult link(String boardId, String conn, String extId);
 
+    /**
+     * As Claude (/alfred-setup's team_link): only onto the board the start was posted for (its project, and its board
+     * when the start named one), and only a board with no main or with this item as its main.
+     */
+    default LinkResult link(com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.Who who, String boardId, String conn, String extId) {
+        return link(boardId, conn, extId);
+    }
+
     /** Downloads the main item's attachments the board does not hold yet (vault token). */
     LinkResult fetchAttachments(String boardId);
 }

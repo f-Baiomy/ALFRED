@@ -139,6 +139,10 @@ class AzureClient {
                 throw new ProviderException(Kind.BAD_RESPONSE, "Azure DevOps redirected the download off https");
             }
             r = exchange(HttpRequest.newBuilder(next).timeout(Duration.ofSeconds(30)).GET().build());
+            if (r.statusCode() == 401 || r.statusCode() == 403) {
+                close(r);
+                throw new ProviderException(Kind.BAD_RESPONSE, "The attachment's storage refused the download (" + r.statusCode() + ")");
+            }
         }
         try (InputStream in = r.body()) {
             check(r.statusCode(), uri);
@@ -193,8 +197,11 @@ class AzureClient {
     }
 
     private static void check(int status, URI uri) throws ProviderException {
-        if (status == 401 || status == 403 || status == 203) { // 203: Azure's sign-in page for a bad token
+        if (status == 401 || status == 203) { // 203: Azure's sign-in page for a bad token
             throw new ProviderException(Kind.TOKEN_REJECTED, "Azure DevOps refused the token");
+        }
+        if (status == 403) { // the token is fine; its owner may not do this one thing
+            throw new ProviderException(Kind.BAD_RESPONSE, "Azure DevOps does not allow this for the token's owner (403)");
         }
         if (status == 404) {
             throw new ProviderException(Kind.NOT_FOUND, "Azure DevOps has no " + uri.getPath());

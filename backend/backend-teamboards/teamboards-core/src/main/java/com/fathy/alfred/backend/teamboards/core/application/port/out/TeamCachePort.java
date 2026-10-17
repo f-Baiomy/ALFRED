@@ -137,6 +137,14 @@ public interface TeamCachePort {
     /** Drops a board's tree references (REF rows with relation ANCESTOR/DESCENDANT/LINK) - before a re-root. */
     int deleteTreeRefs(String boardId);
 
+    /** A tree reference the user removed from a board: a later sync does not bring it back (028 review). */
+    void markRemoved(String boardId, String conn, String item, Instant at);
+
+    boolean removed(String boardId, String conn, String item);
+
+    /** Forgets one removal (the user added the item again), or all of a board's ({@code item} null). */
+    void clearRemoved(String boardId, String conn, String item);
+
     void markLeftTree(String boardId, String conn, String item, Instant at);
 
     /** A board is gone: its items, card links, incoming and watch rules go. The (conn, item) pairs it held. */
@@ -219,6 +227,12 @@ public interface TeamCachePort {
     Optional<byte[]> bundleFile(long bundleId, int step);
 
     void deleteBundleFiles(long bundleId);
+
+    /** One step's built file goes (its step changed after it was built). */
+    void deleteBundleFile(long bundleId, int step);
+
+    /** WAITING -> SENDING as one compare-and-swap: false when another approve got there first. */
+    boolean claimSending(long bundleId, java.time.Instant at, String by);
 
     // ------------------------------------------------------------------------------------------------------- hook
 

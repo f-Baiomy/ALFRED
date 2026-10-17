@@ -478,32 +478,35 @@ export function register(server: McpServer, client: AlfredClient): void {
     return ok(bundleReply(b));
   }));
 
-  async function step(input: { conn?: string; id: string; project?: string; number?: number; askedIn?: string; extend?: number }, kind: 'STATE' | 'COMMENT',
-                      payload: Record<string, string>) {
+  async function step(input: { conn?: string; id: string; board?: string; project?: string; number?: number; askedIn?: string; extend?: number },
+                      kind: 'STATE' | 'COMMENT', payload: Record<string, string>) {
     const ref = itemRef(input.id);
     const c = await pickConnection(client, input.conn ?? ref.conn);
     const card = input.number ? await cardByNumber(client, input.project ?? '', input.number) : null;
+    if (!card && !input.board && !input.extend) {
+      throw new Error('Name the card (project + number) or the board this change is for: the user approves it there');
+    }
     if (input.extend) {
-      const b = await client.post<BundleRow>('/teamboards/writes', { body: { conn: c.id, item: ref.id, card: card?.id ?? null,
+      const b = await client.post<BundleRow>('/teamboards/writes', { body: { conn: c.id, item: ref.id, card: card?.id ?? null, board: input.board ?? null,
         steps: [{ kind, payload, ticked: true, unmasked: false }], askedIn: input.askedIn, extend: input.extend }, ...AS_CLAUDE });
       return ok(bundleReply(b));
     }
     const body = kind === 'STATE' ? { state: payload['state'] } : { comment: payload['text'] };
     const b = await client.patch<BundleRow>(`/teamboards/connections/${seg(c.id)}/items/${seg(ref.id)}`,
-      { body: { ...body, card: card?.id ?? null, askedIn: input.askedIn }, ...AS_CLAUDE });
+      { body: { ...body, card: card?.id ?? null, board: input.board ?? null, askedIn: input.askedIn }, ...AS_CLAUDE });
     return ok(bundleReply(b));
   }
 
   server.registerTool('team_comment', {
-    description: 'Prepare a comment on a work item (Alfred adds the "via Alfred" footer). A bundle the user approves - never sent by you. '
-      + 'No secrets, tokens or raw request bodies in the text; evidence files are built (masked) by the user\'s browser on the card.',
-    inputSchema: { conn: Conn, id: Id, text: z.string().min(1).max(64_000), project: Card.project.optional(), number: Card.number.optional(), askedIn: AskedIn,
+    description: 'Prepare a comment on a work item (Alfred adds the "via Alfred" footer). Name the card (project + number) or the board: the user approves '
+      + 'the bundle there - never sent by you. No secrets, tokens or raw request bodies in the text; evidence files are built (masked) by the user\'s browser on the card.',
+    inputSchema: { conn: Conn, id: Id, text: z.string().min(1).max(64_000), board: z.string().min(1).max(200).optional(), project: Card.project.optional(), number: Card.number.optional(), askedIn: AskedIn,
       extend: Extend },
   }, (input) => run(() => step(input, 'COMMENT', { text: input.text })));
 
   server.registerTool('team_move_state', {
-    description: 'Prepare a state change of a work item (e.g. Resolved). A bundle the user approves - never sent by you.',
-    inputSchema: { conn: Conn, id: Id, state: z.string().min(1).max(200), project: Card.project.optional(), number: Card.number.optional(), askedIn: AskedIn,
+    description: 'Prepare a state change of a work item (e.g. Resolved). Name the card (project + number) or the board: the user approves the bundle there - never sent by you.',
+    inputSchema: { conn: Conn, id: Id, state: z.string().min(1).max(200), board: z.string().min(1).max(200).optional(), project: Card.project.optional(), number: Card.number.optional(), askedIn: AskedIn,
       extend: Extend },
   }, (input) => run(() => step(input, 'STATE', { state: input.state })));
 

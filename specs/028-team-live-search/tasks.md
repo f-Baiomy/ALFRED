@@ -162,8 +162,8 @@
 - [X] T071 Board export/import: `team-item` records (main copy, references, card links, incoming, watch rules, owner); 027 `workitem-snapshot` → main; `board-json.ts` and `ImportBoardService` + round-trip tests (FR-112)
 - [X] T072 [P] Docs: `docs/team.md` (rewrite), `docs/board.md` (Related items, Cycles tab, Incoming, owner, Tell Azure), `docs/mcp.md`, `docs/architecture.md` (SPI writes, vault, hook route), CLAUDE.md and AGENTS.md entries
 - [X] T073 Retention jobs (item_syncs 50/item, incoming 90 d, bundles 180 d, hook_waiting 7 d) + test
-- [ ] T074 `docker compose build backend` (Dockerfile pom lines unchanged - no new module) and full suites once: backend `mvn test`, frontend `npm test` + `ng build`, mcp `npm test`, `pytest tests/python`
-- [ ] T075 Coverage check: every decision on the mock's "Every decision" screen maps to an FR and a task (SC-005)
+- [X] T074 `docker compose build backend` (Dockerfile pom lines unchanged - no new module) and full suites once: backend `mvn test`, frontend `npm test` + `ng build`, mcp `npm test`, `pytest tests/python`
+- [X] T075 Coverage check: every decision on the mock's "Every decision" screen maps to an FR and a task (SC-005)
 - [ ] T076 Walkthrough of quickstart.md against a real organisation with the user's PAT (user)
 
 ## Decision coverage (mock "Every decision" → FR → tasks)

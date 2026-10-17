@@ -145,6 +145,8 @@ export class TeamCardItemsComponent {
     effect(() => {
       const id = this.cardId();
       untracked(() => {
+        this.items.set([]);
+        this.linked.emit([]);
         this.load(id);
         this.loadBundles();
       });
@@ -164,7 +166,11 @@ export class TeamCardItemsComponent {
         this.items.set(i);
         this.linked.emit(i);
       },
-      error: () => this.items.set([]),
+      error: () => {
+        if (this.cardId() !== id) return;
+        this.items.set([]);
+        this.linked.emit([]);
+      },
     });
   }
 

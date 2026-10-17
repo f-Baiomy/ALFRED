@@ -125,6 +125,9 @@ public class TeamSearchController {
             throw TeamException.invalid("Send a state, a comment, or both");
         }
         String title = (body.state() != null && !body.state().isBlank() ? "Move item " + item + " to " + body.state().strip() : "Comment on item " + item);
+        if (Who.of(actor) == Who.CLAUDE && (body.card() == null || body.card().isBlank()) && (body.board() == null || body.board().isBlank())) {
+            throw TeamException.invalid("Name the card or the board this change is for: the user approves it there");
+        }
         WriteBundle b = Who.of(actor) == Who.CLAUDE
                 ? writes.create(Who.CLAUDE, new NewBundle(body.board(), body.card(), id, item, title, steps, body.askedIn(), null))
                 : writes.direct(id, item, body.board(), body.card(), title, steps);

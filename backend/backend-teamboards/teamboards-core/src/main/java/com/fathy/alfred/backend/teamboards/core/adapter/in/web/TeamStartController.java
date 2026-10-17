@@ -107,7 +107,7 @@ public class TeamStartController {
         if (Who.of(actor) == Who.CLAUDE && !starts.isWaiting(body.conn(), body.extId()) && !starts.askedByUser(body.askedIn())) {
             throw TeamException.userOnly("No start waits for this item: link it only when the user asked (askedIn)");
         }
-        LinkResult r = starts.link(board, body.conn(), body.extId());
+        LinkResult r = starts.link(Who.of(actor), board, body.conn(), body.extId());
         return ResponseEntity.ok(Map.of("attached", r.attached(), "notAttached", r.notAttached()));
     }
 

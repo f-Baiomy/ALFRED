@@ -113,6 +113,7 @@ export class TeamPageComponent {
   readonly mineError = signal<string | null>(null);
   readonly note = signal<string | null>(null);
   readonly noteErr = signal(false);
+  private asked = 0;
   readonly picking = signal<{ title: string; action: string; card: boolean; what: RowAction; item: string } | null>(null);
 
   readonly views = computed(() => {
@@ -169,12 +170,15 @@ export class TeamPageComponent {
     }
     this.searching.set(true);
     this.searchError.set(null);
+    const mine = ++this.asked;
     this.api.search(c.id, s).subscribe({
       next: (r) => {
+        if (mine !== this.asked) return; // a newer search (or another connection) went out since
         this.searching.set(false);
         this.result.set(r);
       },
       error: (e) => {
+        if (mine !== this.asked) return;
         this.searching.set(false);
         this.searchError.set(e?.error?.message || 'The search failed');
       },
@@ -209,7 +213,7 @@ export class TeamPageComponent {
     this.api.refreshLists(conn).subscribe({
       next: (l) => {
         this.refreshing.set(false);
-        this.state.lists.set(l);
+        if (this.state.picked()?.id === conn) this.state.lists.set(l);
       },
       error: (e) => {
         this.refreshing.set(false);

@@ -172,6 +172,9 @@ public class BoardItemsService implements BoardItemsUseCase {
                     List.of(new WriteStep(StepKind.LINK_ALFRED, p, true, false, null)), null, null));
             throw new TeamException(Code.CONFLICT, "Waiting for the user: the link to item " + id + " is a bundle they approve on the board");
         }
+        if (who == Who.CLAUDE && asMain && cache.main(boardId).filter(m -> !(m.conn().equals(conn) && m.item().equals(id))).isPresent()) {
+            throw TeamException.userOnly("Only the user changes a board's main item - propose it in the chat");
+        }
         Ctx c = live.ctx(conn);
         Item item = live.item(c, id);
         Optional<BoardItemRow> main = cache.main(boardId);
@@ -184,6 +187,7 @@ public class BoardItemsService implements BoardItemsUseCase {
         } else if (existing.isEmpty()) {
             cache.putBoardItem(row(boardId, conn, item, REF, "ADDED", null, null, 0, who));
         }
+        cache.clearRemoved(boardId, conn, item.extId());
         signals.board(boardId, conn, "items", Map.of());
         return list(boardId);
     }
@@ -260,6 +264,9 @@ public class BoardItemsService implements BoardItemsUseCase {
                 continue; // removed or hidden from this token
             }
             Optional<BoardItemRow> had = cache.boardItem(boardId, conn, t.id());
+            if (had.isEmpty() && cache.removed(boardId, conn, t.id())) {
+                continue; // the user took it off this board
+            }
             String role = had.map(BoardItemRow::role).filter(r -> CARD.equals(r)).orElse(REF);
             if (had.isEmpty() && report && TreeRef.DESCENDANT.equals(t.relation())) {
                 fresh.add(i);
@@ -301,7 +308,10 @@ public class BoardItemsService implements BoardItemsUseCase {
                     || REF.equals(r.role()) && !"ADDED".equals(r.relation()));
             if (newMain != null && !newMain.isBlank()) {
                 setMain(who, boardId, conn, newMain, MAX_REFS);
-                cache.deleteBoardItem(boardId, conn, item);
+                boolean linkedByCard = cache.cardLinksOfBoard(boardId).stream().anyMatch(l -> l.conn().equals(conn) && l.item().equals(item));
+                if (!linkedByCard) {
+                    cache.deleteBoardItem(boardId, conn, item);
+                }
             } else if (alone) {
                 cache.deleteTreeRefs(boardId);
                 cache.deleteBoardItem(boardId, conn, item);
@@ -314,6 +324,9 @@ public class BoardItemsService implements BoardItemsUseCase {
                 throw TeamException.invalid("A card links item " + item + ": unlink it from the card");
             }
             cache.deleteBoardItem(boardId, conn, item);
+            if (Set.of(TreeRef.ANCESTOR, TreeRef.DESCENDANT, TreeRef.LINK).contains(row.relation())) {
+                cache.markRemoved(boardId, conn, item, clock.instant());
+            }
         }
         cache.dropCopyIfUnused(conn, item);
         signals.board(boardId, conn, "items", Map.of());
@@ -411,10 +424,19 @@ public class BoardItemsService implements BoardItemsUseCase {
                         i.type(), i.title(), i.state(), live.category(conn, i.type(), i.state()), i.rev(), r.leftTreeAt(), r.addedAt(), r.addedBy()));
             }
             Optional<BoardItemRow> main = cache.main(boardId).filter(m -> m.conn().equals(conn));
+            if (main.isPresent() && !now2.containsKey(main.get().item())) {
+                // deleted in the tracker or hidden from this token: its copy stays; the user picks a new main
+                if (main.get().leftTreeAt() == null) {
+                    cache.markLeftTree(boardId, conn, main.get().item(), now);
+                    signals.board(boardId, conn, "items", Map.of("mainGone", main.get().item()));
+                }
+                main = Optional.empty();
+            }
             if (main.isPresent()) {
                 List<TreeRef> tree;
                 try {
-                    tree = tree(c, main.get().item(), MAX_REFS_ASKED);
+                    int holds = (int) cache.boardItems(boardId).stream().filter(r -> REF.equals(r.role())).count();
+                    tree = tree(c, main.get().item(), Math.min(MAX_REFS_ASKED, Math.max(MAX_REFS, holds + 20)));
                 } catch (TeamException ask) {
                     if (ask.code() != Code.ASK) {
                         throw ask;
@@ -474,8 +496,9 @@ public class BoardItemsService implements BoardItemsUseCase {
         List<SyncRow> last = cache.syncs(conn, now.extId(), 1);
         if (last.isEmpty() || last.get(0).toRev() != now.rev() || last.get(0).kept()) {
             cache.addSync(conn, now.extId(), copy.get().rev(), now.rev(), clock.instant(), diff);
+            // a proposal once per new revision - not again on every sync until the copy is kept
+            before.ifPresent(b -> closedOrReopened(conn, boardId, b, now));
         }
-        before.ifPresent(b -> closedOrReopened(conn, boardId, b, now));
         return true;
     }
 
@@ -491,6 +514,9 @@ public class BoardItemsService implements BoardItemsUseCase {
             return;
         }
         for (CardLinkRow l : cache.cardLinksOfItem(conn, now.extId())) {
+            if (boardId != null && l.boardId() != null && !boardId.equals(l.boardId())) {
+                continue; // that board's own sync proposes for its cards
+            }
             Optional<CardInfo> card = p.card(l.cardId());
             if (card.isEmpty()) {
                 continue;

@@ -212,7 +212,9 @@ public class SqliteTeamCacheRepository implements TeamCachePort {
                 CREATE TABLE IF NOT EXISTS hook_settings (conn TEXT PRIMARY KEY, secret_hash TEXT, rotated_at INTEGER, last_ping_at INTEGER,
                   last_event TEXT, bad_pings INTEGER NOT NULL DEFAULT 0, public_address TEXT)""",
                 "CREATE TABLE IF NOT EXISTS hook_waiting (conn TEXT NOT NULL, item TEXT NOT NULL, event TEXT, at INTEGER NOT NULL, PRIMARY KEY (conn, item))",
-                "CREATE TABLE IF NOT EXISTS me_override (conn TEXT PRIMARY KEY, person TEXT NOT NULL, token_owner TEXT, at INTEGER NOT NULL)")) {
+                "CREATE TABLE IF NOT EXISTS me_override (conn TEXT PRIMARY KEY, person TEXT NOT NULL, token_owner TEXT, at INTEGER NOT NULL)",
+                "CREATE TABLE IF NOT EXISTS board_items_removed (board_id TEXT NOT NULL, conn TEXT NOT NULL, item TEXT NOT NULL, at INTEGER NOT NULL, "
+                        + "PRIMARY KEY (board_id, conn, item))")) {
             jdbc.execute(ddl);
         }
         if (!columnExists("connections", "lists_at")) {
@@ -606,7 +608,28 @@ public class SqliteTeamCacheRepository implements TeamCachePort {
     }
 
     @Override
+    public void markRemoved(String boardId, String conn, String item, Instant at) {
+        jdbc.update("INSERT OR REPLACE INTO board_items_removed(board_id, conn, item, at) VALUES (?,?,?,?)", boardId, conn, item, millis(at));
+    }
+
+    @Override
+    public boolean removed(String boardId, String conn, String item) {
+        return !jdbc.queryForList("SELECT 1 FROM board_items_removed WHERE board_id = ? AND conn = ? AND item = ?", Integer.class, boardId, conn, item)
+                .isEmpty();
+    }
+
+    @Override
+    public void clearRemoved(String boardId, String conn, String item) {
+        if (item == null) {
+            jdbc.update("DELETE FROM board_items_removed WHERE board_id = ?", boardId);
+        } else {
+            jdbc.update("DELETE FROM board_items_removed WHERE board_id = ? AND conn = ? AND item = ?", boardId, conn, item);
+        }
+    }
+
+    @Override
     public int deleteTreeRefs(String boardId) {
+        jdbc.update("DELETE FROM board_items_removed WHERE board_id = ?", boardId);
         return jdbc.update("DELETE FROM board_items WHERE board_id = ? AND role = 'REF' AND relation IN ('ANCESTOR', 'DESCENDANT', 'LINK')", boardId);
     }
 
@@ -623,6 +646,7 @@ public class SqliteTeamCacheRepository implements TeamCachePort {
             jdbc.query("SELECT conn, item FROM board_items WHERE board_id = ? UNION SELECT conn, item FROM card_links WHERE board_id = ?",
                     rs -> { held.add(new String[]{rs.getString(1), rs.getString(2)}); }, boardId, boardId);
             jdbc.update("DELETE FROM board_items WHERE board_id = ?", boardId);
+            jdbc.update("DELETE FROM board_items_removed WHERE board_id = ?", boardId);
             jdbc.update("DELETE FROM card_links WHERE board_id = ?", boardId);
             jdbc.update("DELETE FROM incoming WHERE board_id = ?", boardId);
             jdbc.update("DELETE FROM watch_rules WHERE board_id = ?", boardId);
@@ -923,6 +947,17 @@ public class SqliteTeamCacheRepository implements TeamCachePort {
         jdbc.update("DELETE FROM azure_write_files WHERE write_id = ?", bundleId);
     }
 
+    @Override
+    public void deleteBundleFile(long bundleId, int step) {
+        jdbc.update("DELETE FROM azure_write_files WHERE write_id = ? AND step = ?", bundleId, step);
+    }
+
+    @Override
+    public boolean claimSending(long bundleId, Instant at, String by) {
+        return jdbc.update("UPDATE azure_writes SET state = 'SENDING', decided_at = ?, decided_by = ? WHERE id = ? AND state = 'WAITING'",
+                millis(at), by, bundleId) == 1;
+    }
+
     // ------------------------------------------------------------------------------------------------------- hook
 
     @Override
@@ -978,7 +1013,9 @@ public class SqliteTeamCacheRepository implements TeamCachePort {
     public List<String> takeWaiting(String conn) {
         return tx.execute(s -> {
             List<String> out = waiting(conn);
-            jdbc.update("DELETE FROM hook_waiting WHERE conn = ?", conn);
+            for (String item : out) {
+                jdbc.update("DELETE FROM hook_waiting WHERE conn = ? AND item = ?", conn, item); // only what is returned: the rest wait
+            }
             return out;
         });
     }

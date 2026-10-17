@@ -150,7 +150,10 @@ public class TeamboardsController {
     }
 
     @DeleteMapping("/teamboards/connections/{id}/token")
-    public ResponseEntity<?> forget(@PathVariable String id) {
+    public ResponseEntity<?> forget(@PathVariable String id, @RequestHeader(value = ACTOR_HEADER, required = false) String actor) {
+        if (Who.of(actor) == Who.CLAUDE) {
+            throw TeamException.userOnly("Only the user forgets the token");
+        }
         team.forgetToken(id);
         return ResponseEntity.noContent().build();
     }
@@ -214,7 +217,10 @@ public class TeamboardsController {
     }
 
     @DeleteMapping("/teamboards/connections/{id}/me")
-    public ResponseEntity<?> clearMe(@PathVariable String id) {
+    public ResponseEntity<?> clearMe(@PathVariable String id, @RequestHeader(value = ACTOR_HEADER, required = false) String actor) {
+        if (Who.of(actor) == Who.CLAUDE) {
+            throw TeamException.userOnly("Only the user says who \"me\" is");
+        }
         team.clearMe(id);
         return ResponseEntity.noContent().build();
     }

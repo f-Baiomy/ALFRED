@@ -31,7 +31,8 @@ export class AzureEvidenceService {
       ));
     }));
     const found = read.filter((c): c is CallRecord => !!c);
-    const user = await lastValueFrom(this.redactions.listAll().pipe(catchError(() => of([]))));
+    // without the user's own redactions the file would leak what they chose to hide: no file then
+    const user = await lastValueFrom(this.redactions.listAll());
     const html = azureEvidenceHtml(found, user, unmasked, `#${card.number} ${card.title}`);
     return { blob: new Blob([html], { type: 'text/html' }), calls: found.length, missing: read.length - found.length };
   }

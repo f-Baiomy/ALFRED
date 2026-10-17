@@ -13,6 +13,8 @@ import { TeamItemDrawerComponent } from '../item-drawer/item-drawer.component';
 import { PickedTarget, TeamBoardPickerComponent } from '../board-picker/board-picker.component';
 import { TeamIncomingLaneComponent } from '../incoming-lane/incoming-lane.component';
 import { TeamWatchRulesComponent } from '../watch-rules/watch-rules.component';
+import { TeamConsentBundleComponent } from '../consent-bundle/consent-bundle.component';
+import { WriteBundle } from '../../../core/team/team.models';
 
 /**
  * A board's Related items (specs/028 US2, FR-030..041): its main work item and that item's tree - ancestors, descendants,
@@ -22,7 +24,7 @@ import { TeamWatchRulesComponent } from '../watch-rules/watch-rules.component';
 @Component({
   selector: 'app-team-related-items',
   standalone: true,
-  imports: [NgTemplateOutlet, FormsModule, RouterLink, TeamItemDrawerComponent, TeamBoardPickerComponent, TeamIncomingLaneComponent, TeamWatchRulesComponent],
+  imports: [NgTemplateOutlet, FormsModule, RouterLink, TeamItemDrawerComponent, TeamBoardPickerComponent, TeamIncomingLaneComponent, TeamWatchRulesComponent, TeamConsentBundleComponent],
   template: `
     <div class="tri">
       <div class="tri-main">
@@ -111,6 +113,12 @@ import { TeamWatchRulesComponent } from '../watch-rules/watch-rules.component';
         }
       </ng-template>
 
+      @if (boardBundles().length) {
+        <section class="tri-bundles">
+          <h4>Waiting for your approval</h4>
+          @for (w of boardBundles(); track w.id) { <app-team-consent-bundle [bundle]="w" [editable]="editable()" (changed)="loadBundles()" /> }
+        </section>
+      }
       <app-team-incoming-lane [boardId]="boardId()" [editable]="editable()" />
       <app-team-watch-rules [boardId]="boardId()" [editable]="editable()" />
     </div>
@@ -176,6 +184,8 @@ export class TeamRelatedItemsComponent {
   ref = '';
   private asked = 0;
 
+  /** Bundles for the board that no card shows (Claude's link proposals, changes that name only the board). */
+  readonly boardBundles = signal<WriteBundle[]>([]);
   readonly lines = computed(() => layoutTree(this.view()?.main ?? null, this.view()?.items ?? []));
   readonly groups = computed(() => byType(this.lines().map((l) => l.item)));
   readonly changedCount = computed(() => this.lines().filter((l) => l.item.changed).length);
@@ -186,6 +196,7 @@ export class TeamRelatedItemsComponent {
       const id = this.boardId();
       untracked(() => {
         this.load(id);
+        this.loadBundles();
         if (this.state.hasToken()) this.sync(false);
       });
     });
@@ -198,7 +209,16 @@ export class TeamRelatedItemsComponent {
           if (e['error']) this.say(String(e['message'] ?? 'The sync failed'), true);
         }
         if (['items', 'sync', 'cards'].includes(e.what)) this.load(this.boardId());
+        if (e.what === 'write') this.loadBundles();
       });
+    });
+  }
+
+  loadBundles(): void {
+    const id = this.boardId();
+    this.api.bundles({ board: id, state: 'WAITING' }).subscribe({
+      next: (b) => this.boardId() === id && this.boardBundles.set(b.filter((x) => !x.cardId)),
+      error: () => this.boardBundles.set([]),
     });
   }
 

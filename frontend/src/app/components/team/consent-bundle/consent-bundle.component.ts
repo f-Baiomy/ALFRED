@@ -162,8 +162,9 @@ export class TeamConsentBundleComponent {
 
   async build(i: number): Promise<void> {
     const s = this.steps()[i];
-    const card = s.payload['card'] ?? this.bundle().cardId;
-    if (!card) return this.say('This attachment names no card to build it from', true);
+    const card = this.bundle().cardId;
+    if (!card) return this.say('This bundle is on no card: there are no calls to build the file from', true);
+    if (s.payload['card'] && s.payload['card'] !== card) return this.say('This attachment names another card - reject the bundle', true);
     this.building.set(i);
     try {
       const r = await this.evidence.build(card, s.unmasked);

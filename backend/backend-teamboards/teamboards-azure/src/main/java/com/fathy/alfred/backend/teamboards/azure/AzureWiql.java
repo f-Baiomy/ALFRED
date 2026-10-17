@@ -119,9 +119,8 @@ final class AzureWiql {
                     }
                 }
             }
-            if (!or.isEmpty()) {
-                and.add("(" + String.join(" OR ", or) + ")");
-            }
+            // mentioned / followed only exist for the token's owner: for a picked "me" they match nothing, never everything
+            and.add(or.isEmpty() ? "[System.Id] < 0" : "(" + String.join(" OR ", or) + ")");
         }
         return and.isEmpty() ? "[System.Id] > 0" : String.join(" AND ", and);
     }

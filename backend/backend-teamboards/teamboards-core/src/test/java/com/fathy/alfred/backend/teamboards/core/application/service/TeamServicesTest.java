@@ -411,4 +411,70 @@ class TeamServicesTest {
         assertThat(f.cache.syncs(CONN, "101", 100)).hasSize(50).first().extracting(r -> r.toRev()).isEqualTo(60);
         assertThat(f.cache.syncs(CONN, "102", 100)).hasSize(1);
     }
+
+    // ------------------------------------------------------------------------------------------ 028 review fixes
+
+    /** A file built unmasked never goes out once the user unticks "send unmasked": the edit drops it, approve wants it rebuilt. */
+    @Test
+    void untickingSendUnmaskedDropsTheBuiltFile() {
+        f.withToken();
+        WriteBundle b = f.writes.create(Who.CLAUDE, new NewBundle("b1", null, CONN, "102", "Evidence", List.of(
+                new WriteStep(StepKind.ATTACH, Map.of("name", "calls.html"), true, false, null)), null, null));
+        WriteBundle unmasked = f.writes.edit(Who.USER, b.id(), null, List.of(new WriteStep(StepKind.ATTACH, Map.of("name", "calls.html"), true, true, null)));
+        f.writes.putFile(Who.USER, unmasked.id(), 0, "calls.html", "Authorization: secret".getBytes());
+        assertThat(f.cache.bundleFile(b.id(), 0)).isPresent();
+        WriteBundle masked = f.cache.bundle(b.id()).orElseThrow();
+        f.writes.edit(Who.USER, b.id(), null, List.of(new WriteStep(StepKind.ATTACH, masked.steps().get(0).payload(), true, false, null)));
+        assertThat(f.cache.bundleFile(b.id(), 0)).isEmpty();
+        assertThatThrownBy(() -> f.writes.approve(Who.USER, b.id())).isInstanceOf(TeamException.class);
+        assertThat(f.tracker.writes).isEmpty();
+        assertThatThrownBy(() -> f.writes.putFile(Who.CLAUDE, b.id(), 0, "calls.html", "x".getBytes())).isInstanceOf(TeamException.class);
+    }
+
+    /** Claude never changes a board's main - not through add(asMain), not through team_link onto another board. */
+    @Test
+    void claudeNeverReplacesAMain() {
+        f.withToken();
+        f.boardItems.add(Who.USER, "b1", CONN, "101", false, 0, null);
+        assertThatThrownBy(() -> f.boardItems.add(Who.CLAUDE, "b1", CONN, "100", true, 0, "msg-7")).extracting(e -> ((TeamException) e).code())
+                .isEqualTo(Code.USER_ONLY);
+        assertThatThrownBy(() -> f.starts.link(Who.CLAUDE, "b1", CONN, "100")).extracting(e -> ((TeamException) e).code()).isEqualTo(Code.USER_ONLY);
+        assertThat(f.cache.main("b1")).get().extracting(BoardItemRow::item).isEqualTo("101");
+    }
+
+    /** Claude extends only its own bundle for the same item. */
+    @Test
+    void claudeExtendsOnlyItsOwnBundleForTheSameItem() {
+        f.withToken();
+        WriteBundle mine = f.writes.create(Who.USER, new NewBundle("b1", null, CONN, "102", "x", List.of(
+                new WriteStep(StepKind.COMMENT, Map.of("text", "hi"), true, false, null)), null, null));
+        assertThatThrownBy(() -> f.writes.create(Who.CLAUDE, new NewBundle("b1", null, CONN, "102", "x", List.of(
+                new WriteStep(StepKind.COMMENT, Map.of("text", "more"), true, false, null)), null, mine.id()))).isInstanceOf(TeamException.class);
+        WriteBundle claudes = f.writes.create(Who.CLAUDE, new NewBundle("b1", null, CONN, "102", "x", List.of(
+                new WriteStep(StepKind.COMMENT, Map.of("text", "a"), true, false, null)), null, null));
+        assertThatThrownBy(() -> f.writes.create(Who.CLAUDE, new NewBundle("b1", null, CONN, "103", "x", List.of(
+                new WriteStep(StepKind.COMMENT, Map.of("text", "b"), true, false, null)), null, claudes.id()))).isInstanceOf(TeamException.class);
+        assertThat(f.writes.create(Who.CLAUDE, new NewBundle("b1", null, CONN, "102", "x", List.of(
+                new WriteStep(StepKind.COMMENT, Map.of("text", "c"), true, false, null)), null, claudes.id())).steps()).hasSize(2);
+    }
+
+    /** A closed item proposes the move once per revision, not on every sync; a removed tree reference stays removed. */
+    @Test
+    void aCloseProposesOnceAndARemovedReferenceStaysRemoved() {
+        f.withToken();
+        f.boardItems.add(Who.USER, "b1", CONN, "101", false, 0, null);
+        CardInfo card = f.boards.card("b1", "Refund total");
+        f.cardItems.link(Who.USER, card.id(), CONN, "102", Markers.NONE, null);
+        f.tracker.put(item("102", "Bug", "Refund total is wrong", "Closed", "101", 9));
+        f.boardItems.sync("b1", true);
+        f.boardItems.sync("b1", true);
+        assertThat(f.boards.proposals).hasSize(1);
+
+        f.boardItems.unlink(Who.USER, "b1", CONN, "103", null);
+        f.boardItems.sync("b1", true);
+        assertThat(f.cache.boardItem("b1", CONN, "103")).isEmpty();
+        assertThat(f.incoming.list("b1", false)).extracting(IncomingRow::item).doesNotContain("103");
+        f.boardItems.add(Who.USER, "b1", CONN, "103", false, 0, null); // added by hand again: it is back
+        assertThat(f.cache.boardItem("b1", CONN, "103")).isPresent();
+    }
 }

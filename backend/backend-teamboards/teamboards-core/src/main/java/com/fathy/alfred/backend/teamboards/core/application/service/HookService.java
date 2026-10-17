@@ -108,6 +108,7 @@ public class HookService implements HookUseCase {
         byte[] salt = new byte[16];
         random.nextBytes(salt);
         cache.putHookSecret(conn, hash(secret, salt, ITERATIONS), clock.instant());
+        verified.remove(conn);
         signals.changed(conn, "hook");
         return secret;
     }
@@ -145,17 +146,33 @@ public class HookService implements HookUseCase {
 
     @Override
     public Ping ping(String kind, String secret, String body) {
-        if (!allow("route:" + kind, 2 * PER_MINUTE)) {
-            return Ping.TOO_MANY; // checked before any hashing: a flood of bad secrets costs nothing
+        if (kind == null || live.connector(kind).isEmpty()) {
+            return Ping.NOT_SUPPORTED; // before anything is counted: a made-up kind never grows the buckets
         }
         StoredConnection conn = null;
         Connector k = null;
+        // a secret already verified is recognised by a cheap digest, so a flood of bad secrets never locks out the real hook
+        byte[] quick = sha256(secret);
         for (StoredConnection c : cache.connections()) {
+            byte[] known = verified.get(c.id());
+            if (c.kind().equals(kind) && known != null && quick != null && java.security.MessageDigest.isEqual(known, quick)) {
+                conn = c;
+                k = live.connector(c.kind()).orElse(null);
+                break;
+            }
+        }
+        if (conn == null && !allow("route:" + kind, 2 * PER_MINUTE)) {
+            return Ping.TOO_MANY; // checked before any hashing: a flood of bad secrets costs nothing
+        }
+        for (StoredConnection c : conn != null ? List.<StoredConnection>of() : cache.connections()) {
             if (!c.kind().equals(kind)) {
                 continue;
             }
             Optional<HookRow> h = cache.hook(c.id());
             if (h.isPresent() && matches(secret, h.get().secretHash())) {
+                if (quick != null) {
+                    verified.put(c.id(), quick);
+                }
                 conn = c;
                 k = live.connector(c.kind()).orElse(null);
                 break;
@@ -197,6 +214,20 @@ public class HookService implements HookUseCase {
         }
         java.util.regex.Matcher m = java.util.regex.Pattern.compile("\"eventType\"\\s*:\\s*\"([A-Za-z0-9._-]{1,60})\"").matcher(body);
         return m.find() ? m.group(1) : null;
+    }
+
+    /** Per connection: the SHA-256 of the secret last verified (memory only; cleared when the secret is rotated). */
+    private final Map<String, byte[]> verified = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private static byte[] sha256(String s) {
+        if (s == null || s.isEmpty() || s.length() > 1000) {
+            return null;
+        }
+        try {
+            return java.security.MessageDigest.getInstance("SHA-256").digest(s.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        } catch (java.security.NoSuchAlgorithmException e) {
+            return null;
+        }
     }
 
     private boolean allow(String conn, int max) {
@@ -242,8 +273,13 @@ public class HookService implements HookUseCase {
             BoardItemsUseCase bi = boardItems.getIfAvailable();
             if (bi != null) {
                 for (String b : boards) {
-                    bi.sync(b, true);
-                    signals.board(b, conn, "sync", Map.of("source", "hook"));
+                    try {
+                        bi.sync(b, true);
+                        signals.board(b, conn, "sync", Map.of("source", "hook"));
+                    } catch (RuntimeException e) {
+                        // one board that cannot sync never keeps the others (or the rules) from theirs
+                        log.info("Hook sync of board {} stopped: {}", b, e instanceof TeamException t ? t.code() : e.getClass().getSimpleName());
+                    }
                 }
             }
             WatchRulesUseCase w = rules.getIfAvailable();

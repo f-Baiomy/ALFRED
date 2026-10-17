@@ -181,16 +181,64 @@ public class AzureDevOpsConnector implements Connector, BoardsReader, SprintsRea
         if (!q.areas().isEmpty()) {
             filters.put("System.AreaPath", q.areas());
         }
+        Object order = List.of(Map.of("field", q.sort() == ItemQuery.Sort.ID ? "system.id" : "system.changeddate", "sortOrder", "DESC"));
+        URI url = URI.create(service(c, "almsearch") + "/_apis/search/workitemsearchresults?" + API);
+        if (!(q.openOnly() && q.states().isEmpty())) {
+            JsonNode found = client.post(url, t, searchBody(q.text(), filters, order, q.page() * q.pageSize(), q.pageSize()));
+            List<Item> items = items(c, t, searchIds(found));
+            return new ItemPage(items, found.path("count").asInt(items.size()), true);
+        }
+        // Open only is applied after (the Search API filters by state names, and closed ones differ per process): the
+        // raw results are read in order and the open ones counted until this page is full, so pages never repeat or skip
+        Set<String> shut = closedStates(c, t);
+        int want = (q.page() + 1) * q.pageSize();
+        List<Item> open = new ArrayList<>();
+        int skip = 0;
+        int count = 0;
+        int closed = 0;
+        boolean end = false;
+        while (open.size() < want && skip < RAW_LIMIT) {
+            JsonNode found = client.post(url, t, searchBody(q.text(), filters, order, skip, RAW_BATCH));
+            count = found.path("count").asInt(count);
+            List<String> ids = searchIds(found);
+            if (ids.isEmpty()) {
+                end = true;
+                break;
+            }
+            for (Item i : items(c, t, ids)) {
+                if (i.state() == null || !shut.contains(i.state())) {
+                    open.add(i);
+                } else {
+                    closed++;
+                }
+            }
+            skip += ids.size();
+            if (ids.size() < RAW_BATCH || skip >= count) {
+                end = true;
+                break;
+            }
+        }
+        int from = Math.min(open.size(), q.page() * q.pageSize());
+        List<Item> page = open.subList(from, Math.min(open.size(), from + q.pageSize()));
+        int total = end ? open.size() : Math.max(open.size(), count - closed);
+        return new ItemPage(List.copyOf(page), total, true);
+    }
+
+    private static final int RAW_BATCH = 200;
+    private static final int RAW_LIMIT = 2000;
+
+    private static Map<String, Object> searchBody(String text, Map<String, Object> filters, Object order, int skip, int top) {
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("searchText", q.text());
-        body.put("$skip", q.page() * q.pageSize());
-        // Open only is applied after: the Search API filters by state names, and closed ones differ per process
-        int top = q.openOnly() && q.states().isEmpty() ? Math.min(1000, q.pageSize() * 4) : q.pageSize();
+        body.put("searchText", text);
+        body.put("$skip", skip);
         body.put("$top", top);
         body.put("filters", filters);
         body.put("includeFacets", false);
-        body.put("$orderBy", List.of(Map.of("field", q.sort() == ItemQuery.Sort.ID ? "system.id" : "system.changeddate", "sortOrder", "DESC")));
-        JsonNode found = client.post(URI.create(service(c, "almsearch") + "/_apis/search/workitemsearchresults?" + API), t, body);
+        body.put("$orderBy", order);
+        return body;
+    }
+
+    private static List<String> searchIds(JsonNode found) {
         List<String> ids = new ArrayList<>();
         for (JsonNode r : found.path("results")) {
             String id = r.path("fields").path("system.id").asText(null);
@@ -198,15 +246,7 @@ public class AzureDevOpsConnector implements Connector, BoardsReader, SprintsRea
                 ids.add(id);
             }
         }
-        List<Item> items = items(c, t, ids);
-        int total = found.path("count").asInt(items.size());
-        if (q.openOnly() && q.states().isEmpty()) {
-            Set<String> shut = closedStates(c, t);
-            int before = items.size();
-            items = items.stream().filter(i -> i.state() == null || !shut.contains(i.state())).limit(q.pageSize()).toList();
-            total = Math.max(items.size(), total - (before - items.size()));
-        }
-        return new ItemPage(items, total, true);
+        return ids;
     }
 
     /** WIQL: every id that matches (ordered), then the page's items in one batch. */
@@ -682,7 +722,16 @@ public class AzureDevOpsConnector implements Connector, BoardsReader, SprintsRea
 
     /** The token goes only to the org's own host - never to a link a relation names elsewhere. */
     static boolean ours(Connection c, URI url) {
-        return url != null && url.getHost() != null && url.getHost().equalsIgnoreCase(c.baseUrl().getHost());
+        if (url == null || url.getHost() == null || !url.getHost().equalsIgnoreCase(c.baseUrl().getHost())) {
+            return false;
+        }
+        boolean local = "localhost".equalsIgnoreCase(url.getHost()) || "127.0.0.1".equals(url.getHost());
+        if (!"https".equalsIgnoreCase(url.getScheme()) && !local) {
+            return false; // never Basic auth in clear text
+        }
+        String org = c.baseUrl().getPath() == null ? "" : c.baseUrl().getPath().replaceAll("/+$", "");
+        String path = url.getPath() == null ? "" : url.getPath();
+        return org.isEmpty() || path.equalsIgnoreCase(org) || path.toLowerCase(java.util.Locale.ROOT).startsWith(org.toLowerCase(java.util.Locale.ROOT) + "/");
     }
 
     @Override

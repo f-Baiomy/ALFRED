@@ -30,6 +30,7 @@ public class TeamTunnelGuard implements WebMvcConfigurer, HandlerInterceptor {
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(this).addPathPatterns("/teamboards/connections/*/search", "/teamboards/connections/*/query",
                 "/teamboards/connections/*/items/**", "/teamboards/connections/*/items", "/teamboards/connections/*/people/*",
+                "/teamboards/connections/*/people", "/teamboards/connections/*/lists", "/teamboards/connections/*/lists/refresh",
                 "/teamboards/connections/*/mine", "/teamboards/items/*/*/seed", "/teamboards/items/*/*/target");
     }
 

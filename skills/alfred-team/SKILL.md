@@ -26,7 +26,7 @@ TOKEN_MISSING, tell the user to enter it in the Team tab and stop.
 ## 2. Putting it on a board
 
 - "Add AB#… to <board>" asked in this message → `team_board_link` with `askedIn` (= the chat message id, or "terminal"),
-  `asMain` when they say "main" or the board has none. Not asked in words → the same tool without `askedIn`: a proposal
+  `asMain` only when the board has no main yet (changing a main is the user's). Not asked in words → the same tool without `askedIn`: a proposal
   the user approves on the board.
 - "Start a board for AB#…" → `team_start` with `askedIn` (rules: only the user opens a board).
 - "Link it to card #n" → `team_link_card` (with `askedIn` when asked in words). The tracker markers (link back,
@@ -37,7 +37,7 @@ TOKEN_MISSING, tell the user to enter it in the Team tab and stop.
 ## 3. Telling the tracker
 
 `team_comment`, `team_move_state`, `team_create_item` prepare a **bundle** - on the card when there is one (pass
-project + number), `extend` to add a step to a waiting one. Text only in your words: no secrets, tokens, cookies or raw
+project + number), else on the board (pass `board`); `extend` to add a step to a waiting one. Text only in your words: no secrets, tokens, cookies or raw
 request bodies; evidence files are built masked by the user's browser when they open the bundle. Say "it waits for your
 approval on card #n" - never that it was sent, never approve it yourself.
 
