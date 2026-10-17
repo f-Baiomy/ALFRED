@@ -103,7 +103,7 @@ public class AzureDevOpsConnector implements Connector, BoardsReader, SprintsRea
     public void changedItems(Connection c, Token t, Instant since, Consumer<List<Item>> page) throws ProviderException {
         Instant from = since == null ? FIRST : since.truncatedTo(ChronoUnit.SECONDS);
         for (String project : projects(c, t)) {
-            windows(c, t, project, from, until(), ids -> read(c, t, ids, page));
+            windows(c, t, project, openOnly(c, t, project), from, until(), ids -> read(c, t, ids, page));
         }
     }
 
@@ -112,7 +112,7 @@ public class AzureDevOpsConnector implements Connector, BoardsReader, SprintsRea
     public Set<String> allIds(Connection c, Token t) throws ProviderException {
         Set<String> out = new java.util.HashSet<>();
         for (String project : projects(c, t)) {
-            windows(c, t, project, FIRST, until(), ids -> ids.forEach(id -> out.add(String.valueOf(id))));
+            windows(c, t, project, openOnly(c, t, project), FIRST, until(), ids -> ids.forEach(id -> out.add(String.valueOf(id))));
         }
         return out;
     }
@@ -134,8 +134,8 @@ public class AzureDevOpsConnector implements Connector, BoardsReader, SprintsRea
      * 20,000 items whatever {@code $top} says (VS402337), so a window it refuses is split in two halves, down to one
      * second. Ids only come back, so a window never holds more than one answer in memory.
      */
-    void windows(Connection c, Token t, String project, Instant from, Instant to, IdsHandler handler) throws ProviderException {
-        String where = "[System.TeamProject] = '" + project.replace("'", "''") + "' AND [System.ChangedDate] >= '" + from
+    void windows(Connection c, Token t, String project, String open, Instant from, Instant to, IdsHandler handler) throws ProviderException {
+        String where = "[System.TeamProject] = '" + project.replace("'", "''") + "'" + open + " AND [System.ChangedDate] >= '" + from
                 + "' AND [System.ChangedDate] < '" + to + "'";
         List<Integer> ids;
         try {
@@ -146,12 +146,42 @@ public class AzureDevOpsConnector implements Connector, BoardsReader, SprintsRea
                 throw e;
             }
             Instant middle = from.plusSeconds(seconds / 2);
-            windows(c, t, project, from, middle, handler);
-            windows(c, t, project, middle, to, handler);
+            windows(c, t, project, open, from, middle, handler);
+            windows(c, t, project, open, middle, to, handler);
             return;
         }
         handler.accept(ids);
     }
+
+    /**
+     * Only open items are fetched: the WIQL condition leaving out every state whose category is Completed or Removed
+     * (Closed, Done, Removed, or a process's own names for them), read from the project's work item types - so it holds
+     * for Agile, Scrum, Basic, CMMI and custom processes alike. An item closed after it was cached leaves the cache at the
+     * next refresh, since {@link #allIds} no longer lists it.
+     */
+    String openOnly(Connection c, Token t, String project) throws ProviderException {
+        java.util.TreeSet<String> closed = new java.util.TreeSet<>();
+        for (JsonNode type : client.get(at(c, "/" + encode(project) + "/_apis/wit/workitemtypes"), t).path("value")) {
+            for (JsonNode state : type.path("states")) {
+                String category = state.path("category").asText("");
+                if (CLOSED_CATEGORIES.contains(category) && !state.path("name").asText("").isBlank()) {
+                    closed.add(state.path("name").asText());
+                }
+            }
+        }
+        if (closed.isEmpty()) {
+            return "";
+        }
+        StringBuilder in = new StringBuilder(" AND [System.State] NOT IN (");
+        String sep = "";
+        for (String name : closed) {
+            in.append(sep).append("'").append(name.replace("'", "''")).append("'");
+            sep = ", ";
+        }
+        return in.append(')').toString();
+    }
+
+    static final Set<String> CLOSED_CATEGORIES = Set.of("Completed", "Removed");
 
     /** Azure's "more than 20,000 work items" refusal (VS402337). */
     static boolean tooMany(ProviderException e) {

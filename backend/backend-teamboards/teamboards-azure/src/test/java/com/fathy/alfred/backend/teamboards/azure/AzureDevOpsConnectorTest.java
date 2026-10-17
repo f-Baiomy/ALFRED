@@ -103,6 +103,12 @@ class AzureDevOpsConnectorTest {
                 answer(x, 200, fixture("item-with-attachments.json").replace("@BASE@", base));
             } else if (path.endsWith("/attachments/small")) {
                 answer(x, 200, "hello");
+            } else if (path.endsWith("/_apis/wit/workitemtypes")) {
+                answer(x, 200, "{\"value\":[{\"name\":\"Bug\",\"states\":[{\"name\":\"New\",\"category\":\"Proposed\"},"
+                        + "{\"name\":\"Active\",\"category\":\"InProgress\"},{\"name\":\"Resolved\",\"category\":\"Resolved\"},"
+                        + "{\"name\":\"Closed\",\"category\":\"Completed\"},{\"name\":\"Removed\",\"category\":\"Removed\"}]},"
+                        + "{\"name\":\"Product Backlog Item\",\"states\":[{\"name\":\"Done\",\"category\":\"Completed\"},"
+                        + "{\"name\":\"Won't fix\",\"category\":\"Removed\"}]}]}");
             } else if (path.endsWith("/teams")) {
                 answer(x, 200, "{\"value\":[{\"id\":\"t1\",\"name\":\"Payments\"},{\"id\":\"t2\",\"name\":\"Other\"}]}");
             } else if (path.endsWith("/members")) {
@@ -121,6 +127,17 @@ class AzureDevOpsConnectorTest {
     @AfterEach
     void stop() {
         server.stop(0);
+    }
+
+    @Test
+    void onlyItemsNotClosedOrRemovedAreFetchedWhateverTheProcessCallsThoseStates() throws Exception {
+        azure.changedItems(connection, TOKEN, null, page -> { });
+        assertThat(queries).hasSize(1);
+        assertThat(queries.get(0)).contains("[System.State] NOT IN ('Closed', 'Done', 'Removed', 'Won''t fix')")
+                .doesNotContain("'Resolved'").doesNotContain("'Active'");
+        queries.clear();
+        azure.allIds(connection, TOKEN);
+        assertThat(queries.get(0)).as("an item closed since leaves the cache").contains("NOT IN ('Closed'");
     }
 
     @Test

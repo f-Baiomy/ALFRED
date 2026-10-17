@@ -56,7 +56,9 @@ list from the tracker removes nothing.
 **Refresh in the background**: the Team tab sends `POST .../refresh?background=true` - `202 STARTED` at once, and the
 outcome (`OK` with the changed count, `TOKEN_REJECTED`, `PROVIDER_BUSY` with `retryAfter`, `UNREACHABLE`) arrives on
 `/ws/teamboards` as `{what:"refresh", outcome, ...}`, so a first fetch of a big project never meets a proxy's timeout.
-Without the parameter the call still answers when the refresh is done. Changes are read in `ChangedDate` windows: Azure refuses
+Without the parameter the call still answers when the refresh is done. **Open items only**: Azure is asked only for items whose state is not in a Completed or Removed category (Closed,
+Done, Removed, or a custom process's names for them, read from the project's work item types). An item closed or
+removed after it was cached leaves the cache at the next refresh, unless a board links it. Changes are read in `ChangedDate` windows: Azure refuses
 any WIQL query matching more than 20,000 items, `$top` or not (VS402337), so a refused window is split in halves until
 each answers. A refused Azure call shows which call and Azure's own message.
 
