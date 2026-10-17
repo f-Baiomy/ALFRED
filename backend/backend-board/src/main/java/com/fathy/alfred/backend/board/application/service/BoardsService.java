@@ -47,6 +47,8 @@ public class BoardsService implements ManageBoardsUseCase, RelateCycleUseCase, M
 
     /** How old the user's asking chat message may be when Claude opens a board for it. */
     static final Duration ASKED_WINDOW = Duration.ofMinutes(30);
+    /** The origin of the user's Start message (backend-app/teamboardsbridge posts it). */
+    public static final String TEAM_START_ORIGIN = "team-start";
     static final String ASKED_IN_TERMINAL = "terminal";
 
     private final BoardModelStorePort boards;
@@ -180,7 +182,8 @@ public class BoardsService implements ManageBoardsUseCase, RelateCycleUseCase, M
     }
 
     /** What Claude's opening is recorded with; empty when {@code askedIn} names no recent request of the user. */
-    private Optional<String> askedBy(String askedIn) {
+    @Override
+    public Optional<String> askedBy(String askedIn) {
         if (askedIn == null || askedIn.isBlank()) {
             return Optional.empty();
         }
@@ -194,8 +197,10 @@ public class BoardsService implements ManageBoardsUseCase, RelateCycleUseCase, M
             return Optional.empty();
         }
         Optional<ChatMessage> m = chats.find(id);
+        // a Start from the Team tab (specs/027) waits for its runner as long as it takes: its age is no reason to refuse it
+        boolean start = TEAM_START_ORIGIN.equals(m.map(ChatMessage::origin).orElse(null));
         if (m.isEmpty() || m.get().author() != ChatMessage.Author.USER || m.get().createdAt() == null
-                || m.get().createdAt().isBefore(clock.instant().minus(ASKED_WINDOW))) {
+                || (!start && m.get().createdAt().isBefore(clock.instant().minus(ASKED_WINDOW)))) {
             return Optional.empty();
         }
         return Optional.of("as you asked in chat #" + id);

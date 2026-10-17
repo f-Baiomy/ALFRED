@@ -269,6 +269,13 @@ public class SqliteChatRepository implements ChatStorePort {
     }
 
     @Override
+    public boolean hasOrigin(ChatKey chat, String origin) {
+        Integer n = jdbc.queryForObject("SELECT COUNT(*) FROM chat_messages WHERE project = ? AND cycle_id = ? AND origin = ?", Integer.class,
+                chat.project(), chat.cycleId(), origin);
+        return n != null && n > 0;
+    }
+
+    @Override
     public int countAfter(ChatKey chat, long afterId) {
         Integer n = jdbc.queryForObject("SELECT COUNT(*) FROM chat_messages WHERE project = ? AND cycle_id = ? AND id > ? "
                 + "AND kind IN ('TEXT', 'DIGEST')", Integer.class, chat.project(), chat.cycleId(), afterId);

@@ -116,6 +116,9 @@ public interface TeamCachePort {
 
     void putLink(BoardLinkRow row);
 
+    /** A new link: false when the board or the item is linked already (checked by the store, not before it). */
+    boolean insertLink(BoardLinkRow row);
+
     void markLinkSeen(String alfredBoard, int rev);
 
     boolean deleteLink(String alfredBoard);
@@ -132,6 +135,9 @@ public interface TeamCachePort {
 
     void putStart(StartRow row);
 
+    /** Claims an item's start: false when a start row is there already (one start per item, even for two clicks at once). */
+    boolean claimStart(StartRow row);
+
     boolean deleteStart(String conn, String extId);
 
     /** An attachment downloaded with a start, kept until /alfred-setup links the board (24 h at most). */
@@ -142,6 +148,11 @@ public interface TeamCachePort {
 
     /** The item's pending files, removed from the store as they are read. */
     List<PendingFile> takePending(String conn, String extId);
+
+    /** The item's pending files, kept. */
+    List<PendingFile> pending(String conn, String extId);
+
+    void deletePending(String conn, String extId, String name);
 
     /** The raw item as fetched, for a connector's own seed part. */
     Optional<String> nativeJson(String conn, String extId);

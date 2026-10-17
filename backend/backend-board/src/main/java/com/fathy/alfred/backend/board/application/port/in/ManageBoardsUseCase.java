@@ -45,6 +45,12 @@ public interface ManageBoardsUseCase {
 
     Result delete(Actor actor, String id);
 
+    /**
+     * Where the user asked for what Claude is about to do ({@code askedIn}: a USER chat message id, recent unless it is a
+     * Start from the Team tab, or "terminal"); empty when it names no such request.
+     */
+    Optional<String> askedBy(String askedIn);
+
     List<BoardActivity> activity(String id, long after, int limit);
 
     /** Undoes one of Claude's changes on {@code boardId} (null: any board). */

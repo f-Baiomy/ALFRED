@@ -63,8 +63,13 @@ public class TeamBoardsAdapter implements TeamBoardsPort {
     }
 
     @Override
-    public void withdrawStart(long messageId) {
-        chats.cancel(Actor.USER, messageId);
+    public boolean withdrawStart(long messageId) {
+        return chats.cancel(Actor.USER, messageId).outcome() == CardChange.Outcome.OK; // refused once the setup was taken
+    }
+
+    @Override
+    public boolean askedBy(String askedIn) {
+        return boards.askedBy(askedIn).isPresent();
     }
 
     @Override

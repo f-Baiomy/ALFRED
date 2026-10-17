@@ -26,8 +26,16 @@ public interface StartFromItemUseCase {
     /** The token, when the browser has one, also downloads the item's attachments for the board (within the caps). */
     StartResult start(String conn, String extId, Target target, Token token);
 
-    /** Cancels a start nobody took yet. False when there is none waiting. */
-    boolean cancel(String conn, String extId);
+    enum CancelOutcome { CANCELLED, NOT_WAITING, TAKEN }
+
+    /** Cancels a start nobody took yet; TAKEN when the terminal or runner is already setting it up (it then goes on). */
+    CancelOutcome cancel(String conn, String extId);
+
+    /** A start of this item waits for /alfred-setup (what lets Claude link the board it sets up). */
+    boolean isWaiting(String conn, String extId);
+
+    /** Whether {@code askedIn} names a request of the user (a USER chat message, or "terminal"). */
+    boolean askedByUser(String askedIn);
 
     /** Where an item's board would go without asking: its mapping, or null. */
     Target targetOf(String conn, String extId);

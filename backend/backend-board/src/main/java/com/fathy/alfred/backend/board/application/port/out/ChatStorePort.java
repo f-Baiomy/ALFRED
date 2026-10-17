@@ -81,6 +81,11 @@ public interface ChatStorePort {
     /** How many messages a chat gained after {@code afterId} (summaries and system lines not counted). */
     int countAfter(ChatKey chat, long afterId);
 
+    /** Whether a message of the chat has this origin (one Alfred suggestion per item, specs/027). */
+    default boolean hasOrigin(ChatKey chat, String origin) {
+        return page(chat, null, 1000).stream().anyMatch(m -> origin.equals(m.origin()));
+    }
+
     /** One row per chat of the project that has a message (the bar adds the chats without one). */
     List<ChatSummary> summaries(String project);
 

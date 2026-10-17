@@ -49,7 +49,7 @@ public class TeamStartController {
     record StartDto(@Valid TargetDto target, @Size(max = 40) String askedIn) {
     }
 
-    record LinkDto(@NotBlank @Size(max = 100) String conn, @NotBlank @Size(max = 100) String extId) {
+    record LinkDto(@NotBlank @Size(max = 100) String conn, @NotBlank @Size(max = 100) String extId, @Size(max = 40) String askedIn) {
     }
 
     private static Token token(String header) {
@@ -64,8 +64,9 @@ public class TeamStartController {
     public ResponseEntity<?> start(@PathVariable String conn, @PathVariable String extId, @Valid @RequestBody(required = false) StartDto body,
                                    @RequestHeader(value = TeamboardsController.TOKEN_HEADER, required = false) String token,
                                    @RequestHeader(value = "X-Alfred-Actor", required = false) String actor) {
-        if ("claude".equalsIgnoreCase(actor) && (body == null || body.askedIn() == null || body.askedIn().isBlank())) {
-            return error(HttpStatus.FORBIDDEN, "USER_ONLY", "Only the user starts a board from a work item: pass askedIn, where the user asked");
+        if ("claude".equalsIgnoreCase(actor) && (body == null || !starts.askedByUser(body.askedIn()))) {
+            return error(HttpStatus.FORBIDDEN, "USER_ONLY",
+                    "Only the user starts a board from a work item: askedIn must name the chat message (or \"terminal\") where the user asked");
         }
         Target target = body == null || body.target() == null ? null
                 : new Target(body.target().project(), body.target().boardId(), body.target().remember());
@@ -90,8 +91,11 @@ public class TeamStartController {
 
     @DeleteMapping("/teamboards/items/{conn}/{extId}/start")
     public ResponseEntity<?> cancel(@PathVariable String conn, @PathVariable String extId) {
-        return starts.cancel(conn, extId) ? ResponseEntity.noContent().build()
-                : error(HttpStatus.NOT_FOUND, "NOT_FOUND", "No start is waiting for this item");
+        return switch (starts.cancel(conn, extId)) {
+            case CANCELLED -> ResponseEntity.noContent().build();
+            case NOT_WAITING -> error(HttpStatus.NOT_FOUND, "NOT_FOUND", "No start is waiting for this item");
+            case TAKEN -> error(HttpStatus.CONFLICT, "TAKEN", "The setup has already begun - it finishes and opens the board");
+        };
     }
 
     @GetMapping("/teamboards/items/{conn}/{extId}/target")
@@ -114,7 +118,12 @@ public class TeamStartController {
     }
 
     @PutMapping("/teamboards/links/{board}")
-    public ResponseEntity<?> putLink(@PathVariable String board, @Valid @RequestBody LinkDto body) {
+    public ResponseEntity<?> putLink(@PathVariable String board, @Valid @RequestBody LinkDto body,
+                                     @RequestHeader(value = "X-Alfred-Actor", required = false) String actor) {
+        // Claude links only the board it set up for a waiting start, or one the user asked for
+        if ("claude".equalsIgnoreCase(actor) && !starts.isWaiting(body.conn(), body.extId()) && !starts.askedByUser(body.askedIn())) {
+            return error(HttpStatus.FORBIDDEN, "USER_ONLY", "No start waits for this item: link it only when the user asked (askedIn)");
+        }
         return linkResult(links.link(board, body.conn(), body.extId()));
     }
 

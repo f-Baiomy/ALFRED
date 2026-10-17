@@ -880,7 +880,7 @@ public class ChatService implements ChatUseCase, ChatRunnerEventsUseCase {
         if (origin.length() > 60) {
             return Result.no(Outcome.INVALID, "The item reference is too long");
         }
-        if (chats.page(chat, null, 200).stream().anyMatch(m -> origin.equals(m.origin()))) {
+        if (chats.hasOrigin(chat, origin)) {
             return Result.no(Outcome.INVALID, "Already suggested in this chat");
         }
         ChatMessage line = chats.insert(new ChatMessage(0, chat, null, Author.ALFRED, Kind.SYSTEM, cut(text.strip(), 500), State.DONE, false, false,

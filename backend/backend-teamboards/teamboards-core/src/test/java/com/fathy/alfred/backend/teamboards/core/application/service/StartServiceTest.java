@@ -5,6 +5,7 @@ import com.fathy.alfred.backend.teamboards.core.application.port.in.LinksUseCase
 import com.fathy.alfred.backend.teamboards.core.application.port.in.LinksUseCase.LinkResult;
 import com.fathy.alfred.backend.teamboards.core.application.port.in.LinksUseCase.LinkView;
 import com.fathy.alfred.backend.teamboards.core.application.port.in.SeedUseCase.Seed;
+import com.fathy.alfred.backend.teamboards.core.application.port.in.StartFromItemUseCase.CancelOutcome;
 import com.fathy.alfred.backend.teamboards.core.application.port.in.StartFromItemUseCase.StartOutcome;
 import com.fathy.alfred.backend.teamboards.core.application.port.in.StartFromItemUseCase.StartResult;
 import com.fathy.alfred.backend.teamboards.core.application.port.in.StartFromItemUseCase.Target;
@@ -107,7 +108,15 @@ class StartServiceTest {
             return Optional.of(next++);
         }
 
-        public void withdrawStart(long messageId) { withdrawn.add(messageId); }
+        boolean taken;
+
+        public boolean withdrawStart(long messageId) {
+            if (taken) return false;
+            withdrawn.add(messageId);
+            return true;
+        }
+
+        public boolean askedBy(String askedIn) { return "terminal".equals(askedIn) || "41".equals(askedIn); }
 
         public Set<String> files(String boardId) { return files.getOrDefault(boardId, Set.of()); }
 
@@ -181,9 +190,15 @@ class StartServiceTest {
         assertThat(again.messageId()).isEqualTo(first.messageId());
         assertThat(boards.posted).hasSize(1);
 
-        assertThat(starts.cancel("c1", "7")).isTrue();
+        boards.taken = true;
+        assertThat(starts.cancel("c1", "7")).as("the setup has begun").isEqualTo(CancelOutcome.TAKEN);
+        assertThat(starts.isWaiting("c1", "7")).isTrue();
+        boards.taken = false;
+        assertThat(starts.cancel("c1", "7")).isEqualTo(CancelOutcome.CANCELLED);
         assertThat(boards.withdrawn).containsExactly(first.messageId());
-        assertThat(starts.cancel("c1", "7")).isFalse();
+        assertThat(starts.cancel("c1", "7")).isEqualTo(CancelOutcome.NOT_WAITING);
+        assertThat(starts.askedByUser("41")).isTrue();
+        assertThat(starts.askedByUser("1")).isFalse();
     }
 
     @Test
@@ -204,6 +219,7 @@ class StartServiceTest {
         assertThat(l.attached()).containsExactly("trace.txt");
         assertThat(boards.files.get("b-refund")).containsExactly("trace.txt");
         assertThat(links.link("b-refund", "c1", "7").attached()).as("taken once").isEmpty();
+        assertThat(cache.pending("c1", "7")).isEmpty();
     }
 
     @Test

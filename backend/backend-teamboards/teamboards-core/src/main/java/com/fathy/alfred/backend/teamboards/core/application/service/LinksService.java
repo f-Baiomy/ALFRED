@@ -104,17 +104,32 @@ public class LinksService implements LinksUseCase {
         if (mine.isPresent()) {
             return LinkResult.of(LinkOutcome.ALREADY_LINKED, "Board " + board + " is already linked to item " + mine.get().extId());
         }
-        cache.putLink(new BoardLinkRow(board, conn, extId, write(snapshot(conn, s.get())), s.get().rev()));
+        boolean again = cache.link(board).isPresent(); // the same board and item again: only the files are moved
+        if (!again && !cache.insertLink(new BoardLinkRow(board, conn, extId, write(snapshot(conn, s.get())), s.get().rev()))) {
+            return LinkResult.of(LinkOutcome.ALREADY_LINKED, "Item " + extId + " or board " + board + " was linked meanwhile");
+        }
         cache.start(conn, extId).ifPresent(r -> cache.putStart(new StartRow(r.conn(), r.extId(), r.target(), r.chatMessageId(), StartService.DONE, r.at())));
         List<String> attached = new ArrayList<>();
         List<String> notAttached = new ArrayList<>();
         Set<String> held = port.files(board);
-        for (PendingFile f : cache.takePending(conn, extId)) {
+        // each file leaves the store only once the board holds it; one refused or failing never loses the others
+        for (PendingFile f : cache.pending(conn, extId)) {
             if (held.contains(f.name())) {
+                cache.deletePending(conn, extId, f.name());
                 continue;
             }
-            String why = port.attach(board, f.name(), f.data());
-            if (why == null) attached.add(f.name()); else notAttached.add(f.name() + " (" + why + ")");
+            String why;
+            try {
+                why = port.attach(board, f.name(), f.data());
+            } catch (RuntimeException e) {
+                why = "not stored";
+            }
+            if (why == null) {
+                attached.add(f.name());
+                cache.deletePending(conn, extId, f.name());
+            } else {
+                notAttached.add(f.name() + " (" + why + ")");
+            }
         }
         signals.changed(conn, "start");
         return new LinkResult(LinkOutcome.OK, null, attached, notAttached);
@@ -156,21 +171,21 @@ public class LinksService implements LinksUseCase {
                 continue;
             }
             String by = null;
-            String at = null;
+            java.time.Instant newest = null;
             for (RevisionRow r : revs) {
                 if (r.rev() <= l.seenRev()) {
                     continue;
                 }
                 for (FieldChange f : r.changes()) {
                     if (f.field().equals(k) || (NEUTRAL.contains(k) && f.field().toLowerCase(java.util.Locale.ROOT).endsWith("." + k))) {
-                        if (at == null || (r.at() != null && r.at().toString().compareTo(at) > 0)) {
+                        if (newest == null || (r.at() != null && r.at().isAfter(newest))) {
                             by = r.by();
-                            at = r.at() == null ? null : r.at().toString();
+                            newest = r.at();
                         }
                     }
                 }
             }
-            out.add(new FieldChangeRow(k, a, b, by, at));
+            out.add(new FieldChangeRow(k, a, b, by, newest == null ? null : newest.toString()));
         }
         return out;
     }

@@ -18,8 +18,11 @@ public interface TeamBoardsPort {
      */
     Optional<Long> postStart(String project, String boardId, String text);
 
-    /** Withdraws a waiting start's message (the user cancelled it before anyone took it). */
-    void withdrawStart(long messageId);
+    /** Withdraws a waiting start's message (the user cancelled it before anyone took it). False when it was taken already. */
+    boolean withdrawStart(long messageId);
+
+    /** Whether {@code askedIn} names a request of the user: a USER chat message, or "terminal" (the board's own rule). */
+    boolean askedBy(String askedIn);
 
     /** The names of the files a board already holds. */
     Set<String> files(String boardId);

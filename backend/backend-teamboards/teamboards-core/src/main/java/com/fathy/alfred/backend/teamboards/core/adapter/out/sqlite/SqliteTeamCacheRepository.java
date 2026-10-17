@@ -654,6 +654,37 @@ public class SqliteTeamCacheRepository implements TeamCachePort {
     }
 
     @Override
+    public boolean claimStart(StartRow row) {
+        try {
+            return jdbc.update("INSERT INTO start_requests(conn, ext_id, alfred_board_target, chat_message_id, state, at) VALUES (?,?,?,?,?,?)",
+                    row.conn(), row.extId(), row.target(), row.chatMessageId(), row.state(), millis(row.at())) == 1;
+        } catch (org.springframework.dao.DataIntegrityViolationException e) {
+            return false;
+        }
+    }
+
+    @Override
+    public List<PendingFile> pending(String conn, String extId) {
+        return jdbc.query("SELECT name, mime, size, data FROM pending_attachments WHERE conn = ? AND ext_id = ? ORDER BY name",
+                (rs, n) -> new PendingFile(rs.getString(1), rs.getString(2), rs.getLong(3), rs.getBytes(4)), conn, extId);
+    }
+
+    @Override
+    public void deletePending(String conn, String extId, String name) {
+        jdbc.update("DELETE FROM pending_attachments WHERE conn = ? AND ext_id = ? AND name = ?", conn, extId, name);
+    }
+
+    @Override
+    public boolean insertLink(BoardLinkRow row) {
+        try {
+            return jdbc.update("INSERT INTO board_links(alfred_board, conn, ext_id, snapshot_json, seen_rev) VALUES (?,?,?,?,?)", row.alfredBoard(),
+                    row.conn(), row.extId(), row.snapshotJson(), row.seenRev()) == 1;
+        } catch (org.springframework.dao.DataIntegrityViolationException e) {
+            return false;
+        }
+    }
+
+    @Override
     public boolean deleteStart(String conn, String extId) {
         return jdbc.update("DELETE FROM start_requests WHERE conn = ? AND ext_id = ?", conn, extId) > 0;
     }

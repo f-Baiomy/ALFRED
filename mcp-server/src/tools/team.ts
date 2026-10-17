@@ -188,12 +188,17 @@ export function register(server: McpServer, client: AlfredClient): void {
     description: 'Link a board to the work item it was set up from (/alfred-setup does this last). Alfred keeps a snapshot of the item, '
       + 'so the board shows what changes in the tracker later, and moves onto the board the attachments that the Start of the user fetched. '
       + 'Refused when the item already has another board.',
-    inputSchema: { board: z.string().min(1).max(200), id: z.string().min(1).max(200).describe('1234, AB#1234 or <conn>/1234'), conn: Conn },
+    inputSchema: {
+      board: z.string().min(1).max(200),
+      id: z.string().min(1).max(200).describe('1234, AB#1234 or <conn>/1234'),
+      conn: Conn,
+      askedIn: z.string().min(1).max(40).optional().describe('Only when no Start waits for the item: the chat message id (or "terminal") where the user asked'),
+    },
   }, (input) => run(async () => {
     const ref = itemRef(input.id);
     const c = await pickConnection(client, input.conn ?? ref.conn);
     const r = await client.put<{ attached: string[]; notAttached: string[] }>(`/teamboards/links/${seg(input.board)}`,
-      { body: { conn: c.id, extId: ref.id }, ...AS_CLAUDE });
+      { body: { conn: c.id, extId: ref.id, askedIn: input.askedIn }, ...AS_CLAUDE });
     return ok({ linked: `${input.board} ↔ ${c.id}/${ref.id}`, attached: r.attached, notAttached: r.notAttached,
       ...(r.notAttached.length ? { note: 'List the files not attached in the brief by name and link; the user fetches them with "Fetch attachments".' } : {}) });
   }));

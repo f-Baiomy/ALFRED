@@ -76,7 +76,7 @@ public class StartService implements StartFromItemUseCase {
     Target mapped(String conn, ItemSummary s) {
         List<MappingRow> all = cache.mappings(conn);
         String[][] order = {{MappingKind.SPRINT.name(), s.sprint()}, {MappingKind.SQUAD.name(), s.squad()}, {MappingKind.AREA.name(), s.area()},
-                {MappingKind.PROJECT.name(), projectOfArea(s.area())}};
+                {MappingKind.PROJECT.name(), valueFor(MappingKind.PROJECT, s)}};
         for (String[] o : order) {
             if (o[1] == null || o[1].isBlank()) {
                 continue;
@@ -113,8 +113,16 @@ public class StartService implements StartFromItemUseCase {
         };
     }
 
+    /**
+     * The start message: the command, then the item on one line. The title comes from the tracker (anyone can write it),
+     * so it is flattened and capped - /alfred-setup reads the item itself through team_item.
+     */
     static String setupText(String conn, ItemSummary s) {
-        return "/alfred-setup " + conn + "/" + s.extId() + "\n" + s.type() + " " + s.extId() + ": " + s.title();
+        String title = s.title() == null ? "" : s.title().replaceAll("[\\r\\n\\t]+", " ").strip();
+        if (title.length() > 120) {
+            title = title.substring(0, 119) + "…";
+        }
+        return "/alfred-setup " + conn + "/" + s.extId() + "\n" + s.type() + " " + s.extId() + ": " + title;
     }
 
     @Override
@@ -162,13 +170,27 @@ public class StartService implements StartFromItemUseCase {
                         "Pick the Alfred project (and board) this item's board goes to", 0);
             }
         }
-        Optional<Long> message = port.postStart(where.project(), where.boardId(), setupText(conn, s));
+        // claim first (one start per item, two clicks at once included), fetch, and only then post: the runner may take
+        // the message at once, and its team_link must find the start and its files
+        String targetKey = where.project() + "|" + (where.boardId() == null ? "" : where.boardId());
+        if (!cache.claimStart(new StartRow(conn, extId, targetKey, null, WAITING, clock.instant()))) {
+            Optional<StartRow> other = cache.start(conn, extId);
+            return new StartResult(StartOutcome.WAITING, where.project(), where.boardId(), other.map(StartRow::chatMessageId).orElse(null), null,
+                    "Already waiting for /alfred-setup", 0);
+        }
+        int fetched = token == null || token.blank() ? 0 : fetchPending(c.get(), s, token);
+        Optional<Long> message;
+        try {
+            message = port.postStart(where.project(), where.boardId(), setupText(conn, s));
+        } catch (RuntimeException e) {
+            message = Optional.empty();
+        }
         if (message.isEmpty()) {
+            cache.deleteStart(conn, extId);
+            cache.takePending(conn, extId);
             return StartResult.of(StartOutcome.INVALID, "Could not post the start to the board chat");
         }
-        cache.putStart(new StartRow(conn, extId, where.project() + "|" + (where.boardId() == null ? "" : where.boardId()), message.get(), WAITING,
-                clock.instant()));
-        int fetched = token == null || token.blank() ? 0 : fetchPending(c.get(), s, token);
+        cache.putStart(new StartRow(conn, extId, targetKey, message.get(), WAITING, clock.instant()));
         signals.changed(conn, "start");
         return new StartResult(StartOutcome.WAITING, where.project(), where.boardId(), message.get(), null, null, fetched);
     }
@@ -190,22 +212,36 @@ public class StartService implements StartFromItemUseCase {
         } catch (ProviderException e) {
             log.info("Start of {} {}: attachments not fetched ({})", c.id(), s.extId(), e.kind()); // the board lists them to fetch later
             return 0;
+        } catch (RuntimeException e) {
+            log.warn("Start of {} {}: attachments not fetched ({})", c.id(), s.extId(), e.getClass().getSimpleName());
+            return 0;
         }
     }
 
     @Override
-    public boolean cancel(String conn, String extId) {
+    public CancelOutcome cancel(String conn, String extId) {
         Optional<StartRow> row = cache.start(conn, extId).filter(r -> WAITING.equals(r.state()));
         if (row.isEmpty()) {
-            return false;
+            return CancelOutcome.NOT_WAITING;
         }
         TeamBoardsPort port = boards.getIfAvailable();
-        if (port != null && row.get().chatMessageId() != null) {
-            port.withdrawStart(row.get().chatMessageId());
+        if (port != null && row.get().chatMessageId() != null && !port.withdrawStart(row.get().chatMessageId())) {
+            return CancelOutcome.TAKEN; // the setup has begun: it finishes and links the board
         }
         cache.deleteStart(conn, extId);
         cache.takePending(conn, extId);
         signals.changed(conn, "start");
-        return true;
+        return CancelOutcome.CANCELLED;
+    }
+
+    @Override
+    public boolean isWaiting(String conn, String extId) {
+        return cache.start(conn, extId).filter(r -> WAITING.equals(r.state())).isPresent();
+    }
+
+    @Override
+    public boolean askedByUser(String askedIn) {
+        TeamBoardsPort port = boards.getIfAvailable();
+        return port != null && askedIn != null && !askedIn.isBlank() && port.askedBy(askedIn.strip());
     }
 }
