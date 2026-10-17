@@ -2,6 +2,8 @@ import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { seg, type AlfredClient } from '../alfred-client.ts';
 import { cycleCallCount, findCycle } from '../cycle-calls.ts';
+import { boardRefText, candidatesText, resolveBoard, type BoardSummaryRow } from '../board-ref.ts';
+import { taskOf } from '../board-scope.ts';
 import type { SessionCycle } from '../frontend.ts';
 import { maskContext, maskMeta, maskText, type MaskContext } from '../masking.ts';
 import { ok, REPLY_BUDGET, run, text } from '../reply.ts';
@@ -120,7 +122,32 @@ async function listTasks(client: AlfredClient): Promise<string> {
     'Call task_context with the task\'s name or id to load it. Ask the user which task they mean when it is not clear.'].join('\n');
 }
 
-async function taskText(client: AlfredClient, ctx: MaskContext, cycle: SessionCycle): Promise<string> {
+/** What task_context shows about the task itself - a session cycle (the old task) or a board (specs/027, 030). */
+interface TaskHead {
+  readonly id: string;
+  readonly name: string;
+  readonly status: string;
+  readonly createdAt: string | null;
+  /** The board's project, when the task is a board (else it is read from the cards). */
+  readonly project?: string;
+  /** The board's recordings; a cycle task counts its own calls. */
+  readonly cycleIds?: readonly string[];
+  /** How skills name it: AB#<main id> or the board's name. */
+  readonly ref?: string;
+}
+
+function headOfBoard(b: BoardSummaryRow): TaskHead {
+  return { id: b.board.id, name: b.board.name, status: b.board.state, createdAt: b.board.createdAt ?? null, project: b.board.project,
+    cycleIds: b.cycleIds, ref: boardRefText(b) };
+}
+
+async function callsOf(client: AlfredClient, task: TaskHead): Promise<number | null> {
+  if (!task.cycleIds) return cycleCallCount(client, task.id).catch(() => null);
+  const counts = await Promise.all(task.cycleIds.map((c) => cycleCallCount(client, c).catch(() => 0)));
+  return counts.reduce((a, b) => a + b, 0);
+}
+
+async function taskText(client: AlfredClient, ctx: MaskContext, cycle: TaskHead): Promise<string> {
   const id = cycle.id;
   const [brief, checklist, steps, cardsPage, log, calls, verdicts] = await Promise.all([
     client.get<{ text: string; updatedAt: string | null; updatedBy?: string }>(`/board/cycles/${seg(id)}/brief`).catch(() => ({ text: '', updatedAt: null })),
@@ -128,18 +155,20 @@ async function taskText(client: AlfredClient, ctx: MaskContext, cycle: SessionCy
     client.get<StepRow[]>(`/board/cycles/${seg(id)}/steps`).catch(() => [] as StepRow[]),
     client.get<{ cards: CardHit[]; total: number }>('/board/search', { query: { cycleId: id, limit: 200 } }).catch(() => ({ cards: [] as CardHit[], total: 0 })),
     client.get<LogEntry[]>(`/board/cycles/${seg(id)}/log`, { query: { limit: 3 } }).catch(() => [] as LogEntry[]),
-    cycleCallCount(client, id).catch(() => null),
+    callsOf(client, cycle),
     readRequirements(client, id).catch(() => null as RequirementsView | null),
   ]);
   const briefComments = await client.get<BriefCommentRow[]>(`/board/cycles/${seg(id)}/brief/comments`).catch(() => [] as BriefCommentRow[]);
   const cards = cardsPage.cards;
   // specs/018: each item's verdict by the calls, worked out by Alfred in code
   const verdictOf = new Map((verdicts?.items ?? []).map((r) => [`${r.fileName}\n${r.itemKey}`, r]));
-  const project = cards.find((c) => c.project)?.project ?? '';
-  const [next, agent, chat] = await Promise.all([
+  const project = cycle.project ?? cards.find((c) => c.project)?.project ?? '';
+  const [next, agent, chat, stage] = await Promise.all([
     client.get<NextSteps>('/board/next-steps', { query: { project, cycleId: id } }).catch(() => null),
     client.get<AgentStatus | null>('/board/agent-status', { query: { project } }).catch(() => null),
     client.get<ChatContext>(`/board/chats/${seg(id)}/context`, { query: { project } }).catch(() => null),
+    // specs/030: one rule for the stage strip, task_context and /alfred-guide (an older Alfred has none - the order below)
+    cycle.cycleIds ? client.get<{ stage: string; next: string }>(`/board/boards/${seg(id)}/stage`).catch(() => null) : Promise.resolve(null),
   ]);
   const plainOf = (t: string) => maskText(ctx, t.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim());
   const chatTalk = (chat?.after ?? []).filter((m) => m.kind === 'TEXT');
@@ -185,7 +214,8 @@ async function taskText(client: AlfredClient, ctx: MaskContext, cycle: SessionCy
 
   const render = (l: Limits): string => {
     const out: string[] = [];
-    out.push(`TASK "${taskName}" (cycle ${id})${project ? ` · project ${project}` : ''} · ${cycle.status}${calls != null ? ` · ${calls} calls recorded` : ''} · created ${ago(cycle.createdAt)} ago`);
+    const what = cycle.cycleIds ? `board ${id}${cycle.ref && cycle.ref !== cycle.name ? ' · ' + cycle.ref : ''} · cycles: ${cycle.cycleIds.length ? cycle.cycleIds.join(', ') : 'none yet'}` : `cycle ${id}`;
+    out.push(`TASK "${taskName}" (${what})${project ? ` · project ${project}` : ''} · ${cycle.status}${calls != null ? ` · ${calls} calls recorded` : ''}${cycle.createdAt ? ` · created ${ago(cycle.createdAt)} ago` : ''}`);
     out.push('Alfred holds this task\'s state - this is the shared memory across sessions, machines and agents. Work from it, write progress back '
       + '(board_comment did/found/next, board_session_log), and never rely on an earlier conversation.');
 
@@ -249,7 +279,8 @@ async function taskText(client: AlfredClient, ctx: MaskContext, cycle: SessionCy
     }
     if (agent && agent.cycleId === id && agent.state !== 'STOPPED') out.push('', `NOW: Claude ${agent.state.toLowerCase()}${agent.step ? ` - ${agent.step}` : ''} (${ago(agent.updatedAt)} ago)`);
 
-    out.push('', `NEXT: ${nextStep(cycle.name, sections.length > 0, items.length > 0, next, cards)}`);
+    out.push('', ...(stage ? [`STAGE: ${stage.stage} (Board → Define → Triage → Code → Verify → Test → Close)`] : []),
+      `NEXT: ${stage ? stage.next : nextStep(cycle.ref ?? cycle.name, sections.length > 0, items.length > 0, next, cards)}`);
     out.push('', 'TOOLS: check_calls (check the recorded calls) · get_brief / read_spec (the full text) · board_get (a card in full) · board_changes '
       + '(what changed since your last entry, cursor "claude") · the /alfred-* skills when installed (/alfred-guide explains them).');
     return out.join('\n');
@@ -275,17 +306,27 @@ export function register(server: McpServer, client: AlfredClient): void {
       + 'requirements (spec Acceptance items with the user\'s marks), the test steps, the findings (bugs, missing work, notes, questions) with '
       + 'who each waits on, what the user decided, Claude\'s earlier runs, and the one next step. Without a task: lists the tasks (newest first).',
     inputSchema: {
-      task: z.string().optional().describe('The task: its cycle id, or text from its name. Omit to list the tasks.'),
+      task: z.string().optional().describe('The task: AB#<item id> (the board whose main item it is), the board\'s name or id, or a cycle id or '
+        + 'name. A bare #12 is a card number, not a task. Omit to list the tasks.'),
       mask: MaskSchema,
     },
   }, (input) => run(async () => {
     if (!input.task) return text(await listTasks(client));
+    const ctx0 = await maskContext(client, input.mask);
+    const board = await resolveBoard(client, input.task);
+    if (board && 'candidates' in board) return ok({ candidates: board.candidates.map((b) => b.board.id) }, candidatesText(input.task, board.candidates));
+    if (board) return text(await taskText(client, ctx0, headOfBoard(board.board)));
     const found = await findCycle(client, input.task);
     if ('candidates' in found) {
       return ok({ candidates: found.candidates }, `"${input.task}" matches ${found.candidates.length} tasks - ask the user which one, then call task_context with its id.`);
     }
-    const ctx = await maskContext(client, input.mask);
-    return text(await taskText(client, ctx, found));
+    // a cycle on a board: the board is the task (specs/027) - its brief, spec and cards live there
+    const home = await taskOf(client, found.id);
+    if (home !== found.id) {
+      const b = await resolveBoard(client, home);
+      if (b && 'board' in b) return text(await taskText(client, ctx0, headOfBoard(b.board)));
+    }
+    return text(await taskText(client, ctx0, found));
   }));
 
   // An MCP prompt is a slash command in any MCP client (in Claude Code: /mcp__alfred__resume) - the harness for an

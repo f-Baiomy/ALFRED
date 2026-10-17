@@ -57,6 +57,16 @@ function team(opts: { token?: boolean; conns?: unknown[] } = {}) {
         files: { attached: [], notAttached: [] }, note: null, askedIn: body.askedIn }];
     }
     if (method === 'PUT' && p[1] === 'links') return [200, { attached: ['trace.txt'], notAttached: ['huge.zip (over the size limit)'] }];
+    if (method === 'GET' && p[1] === 'items' && p[4] === 'seed') {
+      return [200, { item: VIEW.item, provider: 'Azure DevOps', purpose: 'Refund throws 500', steps: null, acceptance: '1. Refund works', context: null,
+        parentAcceptance: 'Epic acceptance', children: ['1300 · Bug · Fix it · Active'], attachments: [], links: [], board: 'b1',
+        childItems: [{ id: '1300', type: 'Bug', title: 'Fix it', state: 'Resolved', category: 'Resolved', done: true, assignee: 'Omar', url: null,
+          purpose: '<p>Broken</p>', steps: LONG, acceptance: null, context: null, comments: [{ by: 'QC', at: '2026-10-16T11:00:00Z', text: 'Seen' }],
+          grandchildren: ['1301 · Task · Sub · New'] }],
+        parents: [{ id: '99', type: 'Feature', title: 'Refunds', state: 'Active', url: null, purpose: 'Refunds', acceptance: 'F1' },
+          { id: '9', type: 'Epic', title: 'Refunds 2026', state: 'Active', url: null, purpose: null, acceptance: 'E1' }],
+        comments: [{ by: 'Sara', at: '2026-10-15T09:00:00Z', text: 'Agreed in review' }] }];
+    }
     return undefined;
   };
 }
@@ -140,6 +150,28 @@ test('team_item reads fields as text, pages a long field, and shows the diff aga
     assert.equal(r.json.assigned, 'Sara Ali <sara@x>');
     const part = await w.call('team_item', { id: '1234', field: 'Microsoft.VSTS.TCM.ReproSteps', offset: 12_000 });
     assert.equal(part.json.text.length, 8_000);
+  } finally { await w.close(); }
+});
+
+test('team_item seed has every child in full, the parents up to the top and the comments, each paged, never cut (specs/030)', async () => {
+  const w = await world();
+  try {
+    w.fake.team = team();
+    const r = await w.call('team_item', { id: '1234', seed: true });
+    assert.deepEqual(r.json.counts, { children: 1, done: 1, parents: 2, comments: 1 });
+    assert.match(r.json.seed.children, /^### 1300 · Bug · Fix it · Resolved · DONE in the tracker · Omar\nPurpose:\nBroken\nSteps:\nx+/);
+    assert.match(r.json.seed.children, /more characters: team_item seed part "children" offset \d+\]$/);
+    assert.match(r.json.seed.parents, /### up · 99 · Feature · Refunds · Active[\s\S]*### up up · 9 · Epic · Refunds 2026 · Active\nAcceptance:\nE1/);
+    assert.match(r.json.seed.comments, /Sara \(2026-10-15\): Agreed in review/);
+    const all: string[] = [];
+    for (let offset = 0; offset !== null;) {
+      const part = await w.call('team_item', { id: '1234', seed: true, part: 'children', offset });
+      all.push(part.json.text);
+      offset = part.json.nextOffset;
+    }
+    const text = all.join('');
+    assert.ok(text.includes('x'.repeat(20_000)), 'the long repro is whole across the parts');
+    assert.match(text, /Comments:\n {2}- QC \(2026-10-16\): Seen\nIts children: 1301 · Task · Sub · New$/);
   } finally { await w.close(); }
 });
 

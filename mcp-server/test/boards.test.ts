@@ -43,7 +43,7 @@ test('board_record answers RUNNING with the options when another cycle records t
           ? [409, { error: 'RECORDING_CONFLICT', message: '"rec 14 Oct" is recording p: join it or pause it and start a new one' }]
           : [200, { cycleId: 'c-run', message: 'joined "rec 14 Oct"' }];
       }
-      return undefined;
+      return boards(method, p);
     };
     const asked = await w.call('board_record', { board: 'b-sprint' });
     assert.equal(asked.json.result, 'RUNNING');

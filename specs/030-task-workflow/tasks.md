@@ -4,28 +4,35 @@
 **Order**: Backend + MCP → Skills → Frontend → Docs + end to end. One commit per phase; full suites at the end of each.
 **[P]** = can run beside the other [P] tasks of its phase (different files). Story labels map to spec.md's user stories.
 
+## Status (2026-10-17, stopped by the user)
+
+- Done and tested: seed children/parents/comments (backend + `team_item` parts), board refs (`src/board-ref.ts`), board stage
+  (`BoardStage`, `GET /board/boards/{id}/stage`, task_context STAGE/NEXT).
+- Next: T013 (sync result fields), T015-T019 (item matches: table, MatchService, endpoints, `team_card_matches`), then T020.
+- Not run yet: the full backend / MCP / frontend suites and `docker compose build backend` (T020).
+
 ## Phase 1: Backend + MCP
 
 ### Seed (US1, FR-003)
 
-- [ ] T001 [US1] Add `SeedChild` and `SeedParent` records and `children`/`parents`/`childrenLines` to the `Seed` record in `backend/backend-teamboards/teamboards-core/src/main/java/com/fathy/alfred/backend/teamboards/core/application/port/in/SeedUseCase.java`
-- [ ] T002 [US1] In `SeedBuilder.java`, build each child through `maps(conn, type)` + `SeedContributor` (purpose, steps, acceptance, context), with state, assignedTo, `closed` from `item_states` category, and its comments
-- [ ] T003 [US1] In `SeedBuilder.java`, walk `Parent` links to the top (cap 6, loop guard; copy first, else live) into `parents`; grandchildren as title lines from each child's `Child` links in one `live.items` batch
-- [ ] T004 [US1] Tests in `TeamServicesTest.java` + `TeamFixture.java`: story with Epic/Feature parents and one child of each type (Bug with repro, Task closed, Investigation, Meeting, Test Case); every child's fields present, closed flagged, parents chained, grandchildren titles, nothing cut
-- [ ] T005 [US1] `mcp-server/src/tools/team.ts`: seed parts `children` and `parents` in `SEED_PARTS`, paged with `part` + `offset`; head shows counts; test in `mcp-server/test/team.test.ts`
+- [X] T001 [US1] Add `SeedChild` and `SeedParent` records and `children`/`parents`/`childrenLines` to the `Seed` record in `backend/backend-teamboards/teamboards-core/src/main/java/com/fathy/alfred/backend/teamboards/core/application/port/in/SeedUseCase.java`
+- [X] T002 [US1] In `SeedBuilder.java`, build each child through `maps(conn, type)` + `SeedContributor` (purpose, steps, acceptance, context), with state, assignedTo, `closed` from `item_states` category, and its comments
+- [X] T003 [US1] In `SeedBuilder.java`, walk `Parent` links to the top (cap 6, loop guard; copy first, else live) into `parents`; grandchildren as title lines from each child's `Child` links in one `live.items` batch
+- [X] T004 [US1] Tests in `TeamServicesTest.java` + `TeamFixture.java`: story with Epic/Feature parents and one child of each type (Bug with repro, Task closed, Investigation, Meeting, Test Case); every child's fields present, closed flagged, parents chained, grandchildren titles, nothing cut
+- [X] T005 [US1] `mcp-server/src/tools/team.ts`: seed parts `children` and `parents` in `SEED_PARTS`, paged with `part` + `offset`; head shows counts; test in `mcp-server/test/team.test.ts`
 
 ### Board refs (US2, FR-009)
 
-- [ ] T006 [US2] `GET /teamboards/items/{conn}/{id}/boards` (role per board) in `TeamStartController.java` via `cache.boardsOfItem`; controller test
-- [ ] T007 [US2] New `mcp-server/src/board-ref.ts` `resolveTask(client, arg)`: board id → `AB#<id>` / `<conn>/<id>` / URL → name exact → name prefix → cycle id/name; bare `#n` refused; candidates on ambiguity
-- [ ] T008 [US2] Use `resolveTask` in `task_context` (`mcp-server/src/tools/task.ts`) and in `board_record`, `board_home`, `board_cycle_verdicts` (`tools/boards.ts`), `get_brief`, `read_spec`, `board_requirements`, `board_steps`, and `check_calls`' cycle arg (board → recording or latest cycle)
-- [ ] T009 [US2] Tests `mcp-server/test/board-ref.test.ts`: each form, `#60` refused, `AB#` with no board, task_context with board id 261e0010-shaped id
+- [X] T006 (not needed: GET /board/boards already gives each board's main as linkedItem; AB# resolves from it) [US2] `GET /teamboards/items/{conn}/{id}/boards` (role per board) in `TeamStartController.java` via `cache.boardsOfItem`; controller test
+- [X] T007 [US2] New `mcp-server/src/board-ref.ts` `resolveTask(client, arg)`: board id → `AB#<id>` / `<conn>/<id>` / URL → name exact → name prefix → cycle id/name; bare `#n` refused; candidates on ambiguity
+- [~] T008 (done: task_context, the board param of every task tool, board_record/home/relate/move_home/cycle_verdicts; open: check_calls' cycle arg) [US2] Use `resolveTask` in `task_context` (`mcp-server/src/tools/task.ts`) and in `board_record`, `board_home`, `board_cycle_verdicts` (`tools/boards.ts`), `get_brief`, `read_spec`, `board_requirements`, `board_steps`, and `check_calls`' cycle arg (board → recording or latest cycle)
+- [X] T009 [US2] Tests `mcp-server/test/board-ref.test.ts`: each form, `#60` refused, `AB#` with no board, task_context with board id 261e0010-shaped id
 
 ### Stage (US8, FR-013)
 
-- [ ] T010 [US8] `backend/backend-board/.../application/service/BoardStage.java` (DEFINE, TRIAGE, CODE, VERIFY, TEST, CLOSE with next command and `<ref>`), port + `GET /board/boards/{id}/stage` in `BoardInsightsController.java`
-- [ ] T011 [US8] `BoardStageTest.java`: one board per stage, and the order when several hold
-- [ ] T012 [US8] `nextStep` in `mcp-server/src/tools/task.ts` reads the stage endpoint, falls back to its own order; test
+- [X] T010 [US8] `backend/backend-board/.../application/service/BoardStage.java` (DEFINE, TRIAGE, CODE, VERIFY, TEST, CLOSE with next command and `<ref>`), port + `GET /board/boards/{id}/stage` in `BoardInsightsController.java`
+- [X] T011 [US8] `BoardStageTest.java`: one board per stage, and the order when several hold
+- [X] T012 [US8] `nextStep` in `mcp-server/src/tools/task.ts` reads the stage endpoint, falls back to its own order; test
 
 ### Refresh (US5, FR-014, FR-017)
 

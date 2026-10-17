@@ -3,6 +3,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { AlfredError, seg, type AlfredClient } from '../alfred-client.ts';
 import { ok, run } from '../reply.ts';
 import type { BoardRow } from '../board-scope.ts';
+import { boardIdOf } from '../board-ref.ts';
 import { cardByNumber } from './board.ts';
 
 /**
@@ -37,7 +38,8 @@ interface CycleVerdictsRow {
 }
 
 const Project = z.string().min(1).max(200);
-const BoardId = z.string().min(1).max(200).describe('A board id (board_boards); a project\'s default board is "default:<project>"');
+const BoardId = z.string().min(1).max(200).describe('The board: AB#<item id> (the board whose main item it is), its name or its id (board_boards); '
+  + 'a project\'s default board is "default:<project>"');
 
 export function boardLine(s: BoardSummaryRow): string {
   const b = s.board;
@@ -101,10 +103,12 @@ export function register(server: McpServer, client: AlfredClient): void {
     },
   }, (input) => run(async () => {
     if (!input.cycleId === !input.otherBoard) throw new AlfredError('invalid', 'Pass exactly one of cycleId or otherBoard');
-    const path = input.cycleId ? `/board/boards/${seg(input.board)}/cycles/${seg(input.cycleId)}`
-      : `/board/boards/${seg(input.board)}/boards/${seg(input.otherBoard!)}`;
+    const board = await boardIdOf(client, input.board);
+    const other = input.otherBoard ? await boardIdOf(client, input.otherBoard) : undefined;
+    const path = input.cycleId ? `/board/boards/${seg(board)}/cycles/${seg(input.cycleId)}`
+      : `/board/boards/${seg(board)}/boards/${seg(other!)}`;
     if (input.remove) await client.del(path); else await client.put(path);
-    const s = await client.get<BoardSummaryRow>(`/board/boards/${seg(input.board)}`);
+    const s = await client.get<BoardSummaryRow>(`/board/boards/${seg(board)}`);
     return ok({ board: boardLine(s) });
   }));
 
@@ -114,7 +118,7 @@ export function register(server: McpServer, client: AlfredClient): void {
     inputSchema: { project: Project, number: z.number().int().positive(), board: BoardId },
   }, (input) => run(async () => {
     const card = await cardByNumber(client, input.project, input.number);
-    await client.put(`/board/cards/${seg(card.id)}/home`, { body: { boardId: input.board } });
+    await client.put(`/board/cards/${seg(card.id)}/home`, { body: { boardId: await boardIdOf(client, input.board) } });
     return ok({ moved: `${input.project}#${input.number} → ${input.board}` });
   }));
 
@@ -129,7 +133,7 @@ export function register(server: McpServer, client: AlfredClient): void {
     },
   }, (input) => run(async () => {
     try {
-      const r = await client.post<{ cycleId: string; message: string }>(`/board/boards/${seg(input.board)}/record`,
+      const r = await client.post<{ cycleId: string; message: string }>(`/board/boards/${seg(await boardIdOf(client, input.board))}/record`,
         { body: { kind: input.kind, onRunning: input.onRunning } });
       return ok({ recording: r.cycleId, note: r.message });
     } catch (e) {
@@ -154,7 +158,7 @@ export function register(server: McpServer, client: AlfredClient): void {
     },
   }, (input) => run(async () => {
     const h = await client.get<HomeRow>(`/board/cycles/${seg(input.cycleId)}/home`,
-      { query: { project: input.project, endpoint: input.endpoint, signature: input.signature, board: input.board } });
+      { query: { project: input.project, endpoint: input.endpoint, signature: input.signature, board: input.board ? await boardIdOf(client, input.board) : undefined } });
     return ok({ kind: h.kind, ...(h.card ? { card: h.card } : {}), ...(h.boardId ? { board: h.boardId } : {}),
       ...(h.options.length ? { options: h.options.map((b) => `${b.id} ("${b.name}")`) } : {}), why: h.reason });
   }));
@@ -164,7 +168,7 @@ export function register(server: McpServer, client: AlfredClient): void {
       + 'mention it with their home. board narrows to the calls that board\'s items name or its cards mention.',
     inputSchema: { cycleId: z.string().min(1).max(200), board: BoardId.optional(), limit: z.number().int().min(1).max(2000).default(200) },
   }, (input) => run(async () => {
-    const v = await client.get<CycleVerdictsRow>(`/board/cycles/${seg(input.cycleId)}/verdicts`, { query: { board: input.board, limit: input.limit } });
+    const v = await client.get<CycleVerdictsRow>(`/board/cycles/${seg(input.cycleId)}/verdicts`, { query: { board: input.board ? await boardIdOf(client, input.board) : undefined, limit: input.limit } });
     return ok({ boards: v.boards.map((b) => `${b.boardId} ("${b.name}")`), calls: verdictLines(v) });
   }));
 }

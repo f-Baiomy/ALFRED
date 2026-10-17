@@ -146,10 +146,54 @@ interface SeedRow {
   readonly attachments: readonly { name: string; size: number; url: string; held: boolean }[];
   readonly links: readonly { toId: string; kind: string }[];
   readonly board: string | null;
+  readonly childItems?: readonly SeedChildRow[];
+  readonly parents?: readonly SeedParentRow[];
+  readonly comments?: readonly SeedCommentRow[];
+}
+
+interface SeedCommentRow { readonly by: string | null; readonly at: string | null; readonly text: string }
+interface SeedChildRow {
+  readonly id: string; readonly type: string; readonly title: string; readonly state: string | null; readonly category: string | null;
+  readonly done: boolean; readonly assignee: string | null; readonly url: string | null;
+  readonly purpose: string | null; readonly steps: string | null; readonly acceptance: string | null; readonly context: string | null;
+  readonly comments: readonly SeedCommentRow[]; readonly grandchildren: readonly string[];
+}
+interface SeedParentRow {
+  readonly id: string; readonly type: string | null; readonly title: string | null; readonly state: string | null; readonly url: string | null;
+  readonly purpose: string | null; readonly acceptance: string | null;
+}
+
+function commentsText(cs: readonly SeedCommentRow[], indent = ''): string[] {
+  return cs.map((c) => `${indent}- ${c.by ?? 'someone'}${c.at ? ' (' + c.at.slice(0, 10) + ')' : ''}: ${plain(c.text)}`);
+}
+
+/** Every child in full as one text (specs/030): a section per child with its parts, comments and its own children. */
+export function seedChildrenText(kids: readonly SeedChildRow[]): string {
+  return kids.map((k) => {
+    const out = [`### ${k.id} · ${k.type} · ${k.title} · ${k.state ?? '-'}${k.done ? ' · DONE in the tracker' : ''}${k.assignee ? ' · ' + k.assignee : ''}`];
+    for (const [name, v] of [['Purpose', k.purpose], ['Steps', k.steps], ['Acceptance', k.acceptance], ['Context', k.context]] as const) {
+      if (v) out.push(`${name}:`, plain(v));
+    }
+    if (k.comments.length) out.push('Comments:', ...commentsText(k.comments, '  '));
+    if (k.grandchildren.length) out.push('Its children: ' + k.grandchildren.join('; '));
+    return out.join('\n');
+  }).join('\n\n');
+}
+
+/** The parent chain, nearest first, up to the top. */
+export function seedParentsText(ps: readonly SeedParentRow[]): string {
+  return ps.map((p, i) => {
+    const out = [`### ${'up '.repeat(i + 1).trim()} · ${p.id} · ${p.type ?? '?'} · ${p.title ?? '(not readable)'} · ${p.state ?? '-'}`];
+    if (p.purpose) out.push('Purpose:', plain(p.purpose));
+    if (p.acceptance) out.push('Acceptance:', plain(p.acceptance));
+    return out.join('\n');
+  }).join('\n\n');
 }
 
 const AS_CLAUDE: Pick<RequestOptions, 'headers'> = { headers: { 'X-Alfred-Actor': 'claude' } };
 const SEED_PARTS = ['purpose', 'steps', 'acceptance', 'context', 'parentAcceptance'] as const;
+/** Read in parts like the fields: every child in full, the parent chain, the item's own comments (specs/030). */
+const SEED_TREE_PARTS = ['children', 'parents', 'comments'] as const;
 
 /** "AB#1234", "#1234" or "1234" -> "1234"; "conn/1234" names the connection too; an item URL -> its id. */
 export function itemRef(ref: string): { conn?: string; id: string } {
@@ -370,8 +414,9 @@ export function register(server: McpServer, client: AlfredClient): void {
       include: z.array(z.enum(['comments', 'history', 'attachments'])).default(['comments', 'attachments']),
       field: z.string().min(1).max(300).optional().describe('Read one field in parts (with offset)'),
       seed: z.boolean().default(false).describe('The item as a board seed (/alfred-setup): purpose, steps, acceptance, context by the field maps, '
-        + 'the parent acceptance, children, attachments - from the copy Alfred keeps, else live'),
-      part: z.enum(SEED_PARTS).optional().describe('With seed: read one long seed part in parts (with offset)'),
+        + 'the parent acceptance, children, attachments - from the copy Alfred keeps, else live. Since specs/030 also every child in full '
+        + '(part "children"), the parent chain up to the top (part "parents") and the item\'s comments (part "comments")'),
+      part: z.enum([...SEED_PARTS, ...SEED_TREE_PARTS]).optional().describe('With seed: read one long seed part in parts (with offset)'),
       offset: z.number().int().min(0).default(0),
     },
   }, (input) => run(async () => {
@@ -379,16 +424,27 @@ export function register(server: McpServer, client: AlfredClient): void {
     const c = await pickConnection(client, input.conn ?? ref.conn);
     if (input.seed || input.part) {
       const s = await live(() => client.get<SeedRow>(`/teamboards/items/${seg(c.id)}/${seg(ref.id)}/seed`, AS_CLAUDE));
-      if (input.part) return ok({ part: input.part, ...chunkText(s[input.part] ?? '', input.offset, 12_000) });
+      const tree: Record<(typeof SEED_TREE_PARTS)[number], string> = {
+        children: seedChildrenText(s.childItems ?? []),
+        parents: seedParentsText(s.parents ?? []),
+        comments: commentsText(s.comments ?? []).join('\n'),
+      };
+      if (input.part) {
+        const text = (SEED_TREE_PARTS as readonly string[]).includes(input.part)
+          ? tree[input.part as (typeof SEED_TREE_PARTS)[number]] : s[input.part as (typeof SEED_PARTS)[number]] ?? '';
+        return ok({ part: input.part, ...chunkText(text, input.offset, 12_000) });
+      }
       const seed: Record<string, string | null> = {};
-      for (const p of SEED_PARTS) {
-        const v = s[p];
+      for (const p of [...SEED_PARTS, ...SEED_TREE_PARTS]) {
+        const v = (SEED_TREE_PARTS as readonly string[]).includes(p) ? tree[p as (typeof SEED_TREE_PARTS)[number]] : s[p as (typeof SEED_PARTS)[number]];
         if (!v) { seed[p] = null; continue; }
         const head = chunkText(v, 0, FIELD_PART);
         seed[p] = head.nextOffset === null ? v : `${head.text} [… ${head.totalLength - head.length} more characters: team_item seed part "${p}" offset ${head.nextOffset}]`;
       }
       return ok({ item: `${s.item.extId} · ${s.item.type} · "${s.item.title}" · ${s.item.state ?? '-'}`, conn: c.id, provider: s.provider, url: s.item.url,
-        board: s.board ?? 'none', seed, children: s.children, links: s.links.map((l) => `${l.kind} → ${l.toId}`),
+        board: s.board ?? 'none', seed, children: s.children,
+        counts: { children: (s.childItems ?? []).length, done: (s.childItems ?? []).filter((k) => k.done).length, parents: (s.parents ?? []).length,
+          comments: (s.comments ?? []).length }, links: s.links.map((l) => `${l.kind} → ${l.toId}`),
         attachments: s.attachments.map((a) => `${a.name} (${a.size >= 0 ? a.size + ' bytes' : 'size unknown'})${a.held ? ' · on the board' : ''}`) });
     }
     const v = await live(() => client.get<ItemView>(`/teamboards/connections/${seg(c.id)}/items/${seg(ref.id)}`,

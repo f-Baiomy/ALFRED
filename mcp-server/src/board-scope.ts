@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { AlfredError, seg, type AlfredClient } from './alfred-client.ts';
 import { fail, invalid } from './reply.ts';
+import { candidatesText, resolveBoard } from './board-ref.ts';
 
 /**
  * Boards (specs/027 contracts/mcp-and-export.md): a board is a task, and the task routes take its id where they took a
@@ -42,6 +43,12 @@ export async function taskOf(client: AlfredClient, cycleId: string): Promise<str
     throw new AlfredError('invalid', `Cycle ${cycleId} is on ${boards.length} boards - pass board: one of `
       + boards.map((b) => `${b.id} ("${b.name}", ${b.project}${b.state === 'OPEN' ? '' : ', ' + b.state.toLowerCase()})`).join('; '));
   }
+  if (boards.length === 0 && !/^[0-9a-f-]{8,}$/i.test(cycleId)) {
+    // not an id: AB#1234 or a board's name (specs/030)
+    const found = await resolveBoard(client, cycleId);
+    if (found && 'candidates' in found) throw new AlfredError('invalid', candidatesText(cycleId, found.candidates));
+    if (found) return found.board.board.id;
+  }
   return cycleId;
 }
 
@@ -60,7 +67,7 @@ export function withBoardParam(server: McpServer, client: AlfredClient): McpServ
       inputSchema: {
         ...schema,
         cycleId: cycleId.isOptional() ? cycleId : cycleId.optional(),
-        board: z.string().min(1).max(200).optional().describe('The board (task) this is about; a board id from board_boards'),
+        board: z.string().min(1).max(200).optional().describe('The board (task) this is about: AB#<item id> (the board whose main item it is), its name or its id'),
       },
     };
     const required = !cycleId.isOptional();
@@ -68,12 +75,17 @@ export function withBoardParam(server: McpServer, client: AlfredClient): McpServ
       const { board, ...rest } = input as { board?: string; cycleId?: string };
       let task = board ?? rest.cycleId;
       if (!task && required) return fail(invalid('Pass board (a board id from board_boards) or cycleId'));
-      if (!board && task) {
-        try {
+      try {
+        if (board) {
+          // AB#1234, the board's name or its id (specs/030)
+          const found = await resolveBoard(client, board);
+          if (found && 'candidates' in found) return fail(invalid(candidatesText(board, found.candidates)));
+          if (found) task = found.board.board.id;
+        } else if (task) {
           task = await taskOf(client, task);
-        } catch (e) {
-          return fail(e);
         }
+      } catch (e) {
+        return fail(e);
       }
       return handler(task === undefined ? rest : { ...rest, cycleId: task }, extra);
     });

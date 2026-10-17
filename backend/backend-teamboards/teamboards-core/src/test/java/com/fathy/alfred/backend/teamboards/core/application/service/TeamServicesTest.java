@@ -23,6 +23,7 @@ import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.WriteBun
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.WriteState;
 import com.fathy.alfred.backend.teamboards.core.domain.model.TeamModels.WriteStep;
 import com.fathy.alfred.backend.teamboards.spi.model.Comment;
+import com.fathy.alfred.backend.teamboards.spi.model.Item;
 import com.fathy.alfred.backend.teamboards.spi.model.Token;
 import com.fathy.alfred.backend.teamboards.core.application.port.in.StartFromItemUseCase;
 import org.junit.jupiter.api.AfterEach;
@@ -368,6 +369,38 @@ class TeamServicesTest {
         assertThat(seed.purpose()).isEqualTo("About Refund a card payment");
         assertThat(seed.children()).anyMatch(c -> c.startsWith("102 · Bug"));
         assertThat(seed.board()).isEqualTo("b1");
+    }
+
+    @Test
+    void theSeedReadsEveryChildInFullAndTheParentsUpToTheTop() {
+        f.withToken();
+        Item epic = item("50", "Epic", "Refunds 2026", "Active", null, 1);
+        Item feature = item("100", "Feature", "Refunds", "Active", "50", 3);
+        java.util.Map<String, String> bugFields = new java.util.LinkedHashMap<>(item("102", "Bug", "Refund total is wrong", "New", "101", 2).fields());
+        bugFields.put("Microsoft.VSTS.TCM.ReproSteps", "1. Refund 10\n2. See 100");
+        Item bug = item("102", "Bug", "Refund total is wrong", "New", "101", 2);
+        bug = new Item(bug.extId(), bug.type(), false, bug.title(), bug.state(), bug.assignee(), bug.squad(), bug.sprint(), bug.area(), bug.url(), bug.rev(),
+                bug.changedAt(), bug.changedBy(), bugFields, bug.links(), bug.nativeJson(), bug.identities(), bug.project());
+        f.tracker.put(epic).put(feature).put(bug)
+                .put(item("104", "Investigation", "Refund cap", "Active", "101", 1))
+                .put(item("105", "Task", "Grandchild task", "New", "102", 1));
+        f.tracker.comments.put("102", List.of(new Comment("c1", "QC", java.time.Instant.parse("2026-10-02T00:00:00Z"), "Seen on prod too")));
+
+        var seed = f.seeds.seed(CONN, "101").orElseThrow();
+
+        // every child in full, not a title line: its own parts, its comments, done or not, its children as lines
+        assertThat(seed.childItems()).extracting(c -> c.id()).containsExactly("102", "103", "104");
+        var b = seed.childItems().get(0);
+        assertThat(b.steps()).contains("2. See 100");
+        assertThat(b.purpose()).isEqualTo("About Refund total is wrong");
+        assertThat(b.comments()).singleElement().satisfies(c -> assertThat(c.text()).isEqualTo("Seen on prod too"));
+        assertThat(b.done()).isFalse();
+        assertThat(b.grandchildren()).containsExactly("105 · Task · Grandchild task · New");
+        assertThat(seed.childItems().get(1).done()).as("a Closed task is done in the tracker").isTrue();
+        assertThat(seed.children()).as("the old lines stay for older readers").anyMatch(c -> c.startsWith("102 · Bug"));
+        // the parent chain, nearest first, up to the top
+        assertThat(seed.parents()).extracting(p -> p.id()).containsExactly("100", "50");
+        assertThat(seed.parents().get(1).type()).isEqualTo("Epic");
     }
 
     @Test
