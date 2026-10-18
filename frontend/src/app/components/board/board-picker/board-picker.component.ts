@@ -15,7 +15,7 @@ import { BoardSocketService } from '../../../core/services/board-socket.service'
   standalone: true,
   imports: [FormsModule],
   template: `
-    <div class="board-picker">
+    <div class="board-pick">
       <button type="button" class="board-picker-btn" (click)="open.set(!open())" [attr.aria-expanded]="open()" aria-haspopup="listbox">
         <span aria-hidden="true">▦</span>
         <b>{{ label() }}</b>
@@ -61,7 +61,8 @@ import { BoardSocketService } from '../../../core/services/board-socket.service'
       }
     </div>`,
   styles: [`
-    .board-picker { position: relative; }
+    /* not .board-picker: that global class is the mention picker's popover (overflow: hidden) and cut this menu off */
+    .board-pick { position: relative; display: inline-block; }
     .board-picker-btn { display: inline-flex; gap: .45rem; align-items: center; padding: .3rem .7rem; border: 1px solid var(--border-strong);
       border-radius: 7px; background: var(--card-inner); color: inherit; cursor: pointer; }
     .board-picker-sub { color: var(--text-dim); font-size: .82rem; }
