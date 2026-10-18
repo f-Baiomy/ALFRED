@@ -1,5 +1,6 @@
 import { APP_INITIALIZER, ApplicationConfig, inject, provideZoneChangeDetection } from '@angular/core';
-import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClient, withInterceptors } from '@angular/common/http';
+import { alfredKeyInterceptor } from './core/services/alfred-key';
 import { provideRouter } from '@angular/router';
 import { routes } from './app.routes';
 import { TEAM_CONNECTOR_PROVIDERS } from './components/team/connectors';
@@ -10,7 +11,8 @@ import { BULK_SELECTION_STATE, CALL_LIST_CONTROLS_STATE, CALL_SELECTION_STATE } 
 export const appConfig: ApplicationConfig = {
   providers: [
     provideZoneChangeDetection({ eventCoalescing: true }),
-    provideHttpClient(),
+    // specs/031: a paired browser names its user with X-Alfred-Key on every request to Alfred (the board lock)
+    provideHttpClient(withInterceptors([alfredKeyInterceptor])),
     provideRouter(routes),
     // the Team tab's connectors (specs/027): each folder under components/team/connectors registers itself here
     ...TEAM_CONNECTOR_PROVIDERS,

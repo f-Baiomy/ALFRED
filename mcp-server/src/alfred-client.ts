@@ -61,7 +61,19 @@ export class AlfredClient {
   private clockOffsetMs = 0;
   private clockSetAt = 0;
 
-  constructor(readonly baseUrl: string = alfredUrl()) {}
+  /**
+   * {@code identity}: the user's key and the session it writes through (specs/031 board lock) - sent as X-Alfred-Key and
+   * X-Alfred-Via with every request. Defaults to ALFRED_KEY / ALFRED_VIA, which the helper sets for the sessions it starts.
+   */
+  private readonly identityHeaders: Readonly<Record<string, string>>;
+
+  constructor(readonly baseUrl: string = alfredUrl(),
+    identity: { readonly key: string; readonly via: string } = { key: process.env['ALFRED_KEY'] ?? '', via: process.env['ALFRED_VIA'] ?? '' }) {
+    const h: Record<string, string> = {};
+    if (identity.key) h['X-Alfred-Key'] = identity.key;
+    if (identity.via) h['X-Alfred-Via'] = identity.via;
+    this.identityHeaders = h;
+  }
 
   /**
    * Alfred's current time. A call's timestamp is Alfred's clock; with Alfred on another machine (a LAN host, a tunnel) this
@@ -122,7 +134,7 @@ export class AlfredClient {
         method,
         headers: { ...(options.rawBody !== undefined ? { 'Content-Type': 'text/plain; charset=utf-8', Accept: 'application/json' }
           : options.body !== undefined ? { 'Content-Type': 'application/json', Accept: 'application/json' } : { Accept: 'application/json' }),
-          ...(options.headers ?? {}) },
+          ...this.identityHeaders, ...(options.headers ?? {}) },
         body: options.rawBody !== undefined ? options.rawBody : options.body !== undefined ? JSON.stringify(options.body) : undefined,
         signal: AbortSignal.timeout(options.timeoutMs ?? TIMEOUT_MS),
       });

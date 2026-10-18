@@ -43,7 +43,12 @@ main and of each card's item, references for the rest).
 The user enters a personal access token once on the Team tab (`PUT /teamboards/connections/{id}/token`, in the body).
 Alfred checks it (`whoAmI` names its owner - "me") and keeps it **8 hours in memory only** (`TokenVault`): never on
 disk, in a log, in a response or in a browser; a restart or **Forget** drops it, and a token the tracker refuses is
-dropped at once. Everyone using this Alfred reads the tracker with the last token entered. Claude never holds a token:
+dropped at once. **Since specs/031 a token is one per user**: a user paired with their Alfred helper keeps their token
+on their own PC (`alfred helper token set`, encrypted with Windows DPAPI for their user), and the helper hands it to
+Alfred's memory (`PUT /teamboards/me/token`) while it runs - used for that user's requests only (their X-Alfred-Key,
+`TeamCallerPort`), never read by another user. A request from an unpaired browser reads with the shared token as before
+(the last one entered without a user); work outside a request (lists, hooks, watch rules) uses the connection's newest
+live token. Tests: `TokenVaultPerUserTest`. Claude never holds a token:
 with none live its tools answer `TOKEN_MISSING` and tell it to ask the user to enter one. Through the Cloudflare tunnel
 no live read is served (`TeamTunnelGuard`) - a tunnel viewer cannot read the tracker with the owner's token.
 Tests: `TeamServicesTest.theTokenIsNeverWrittenToTheDatabase` (no file, status, search, bundle or vault text holds it),

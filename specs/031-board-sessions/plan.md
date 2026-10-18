@@ -1,6 +1,15 @@
 # 031 - One Claude session per board
 
-Status: draft, not started. Mock: [mock.html](mock.html) (21 steps).
+Status: built on branch `031-board-sessions` (2026-10-18). Mock: [mock.html](mock.html) (23 steps).
+
+What landed: `backend-sessions` (keys, pairing, holders, requests, hand-over, away rule, commenters' queue, sessions,
+helper commands, My settings, audit) with the lock in `boardbridge` (`BoardLockInterceptor`, `BoardWriteTargets`); the
+Azure token per user (`TokenVault` + `TeamCallerPort`, `PUT /teamboards/me/token`); the MCP server, its relay and the
+live runner passing `X-Alfred-Key`; `helper/alfred-helper.mjs` (`alfred helper`); the frontend ▶ alfred-live button,
+the held banner, the chat's lock and commenters' queue, one-click start from a ▶ run, 👤 Me (My settings).
+Not built: moving a transcript between PCs (refused with "continue from Alfred's copy"); toasts for questions, drafts
+and listen findings (requests, starts, failures and the budget toast are built); a per-board budget (the budget is per
+user per day).
 
 ## Goal
 

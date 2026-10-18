@@ -398,6 +398,24 @@ class HexagonalArchitectureTest {
                 .check(classes);
     }
 
+    // sessions (specs/031) is a leaf slice: keys, the board lock, the boards' Claude sessions, helper commands, user
+    // settings and the board audit. backend-app/boardbridge applies the lock to board writes; nothing else knows it.
+    @Test
+    void sessionsSliceMustNotDependOnOtherSlices() {
+        noClasses().that().resideInAPackage("..backend.sessions..")
+                .should().dependOnClassesThat().resideInAnyPackage(OTHER_SLICES)
+                .orShould().dependOnClassesThat().resideInAPackage("..backend.teamboards..")
+                .check(classes);
+    }
+
+    @Test
+    void noOtherSliceDependsOnSessions() {
+        noClasses().that().resideInAnyPackage(OTHER_SLICES)
+                .or().resideInAPackage("..backend.teamboards..")
+                .should().dependOnClassesThat().resideInAPackage("..backend.sessions..")
+                .check(classes);
+    }
+
     @Test
     void connectorsAndCoreDoNotKnowEachOther() {
         noClasses().that().resideInAPackage("..backend.teamboards.azure..")

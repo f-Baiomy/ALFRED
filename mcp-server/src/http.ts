@@ -13,7 +13,17 @@ export const MAX_BODY_BYTES = 10 * 1024 * 1024;
  * session, as the SDK requires, on 127.0.0.1 only - the backend relays /mcp to it. {@code port} 0 picks a free port
  * (the tests' HTTP run).
  */
-export async function serveHttp(port: number, makeServer: () => McpServer): Promise<{ port: number; close: () => Promise<void> }> {
+/**
+ * Who the client says it is (specs/031): its `X-Alfred-Key` and `X-Alfred-Via` on the initialize request, kept for the
+ * whole MCP session and sent with every request that session makes to Alfred - so a user's own Claude may write on a
+ * board they hold.
+ */
+export interface ClientIdentity {
+  readonly key?: string;
+  readonly via?: string;
+}
+
+export async function serveHttp(port: number, makeServer: (identity: ClientIdentity) => McpServer): Promise<{ port: number; close: () => Promise<void> }> {
   const sessions = new Map<string, StreamableHTTPServerTransport>();
 
   const http: Server = createHttpServer(async (req, res) => {
@@ -38,7 +48,7 @@ export async function serveHttp(port: number, makeServer: () => McpServer): Prom
             sessions.delete(session.sessionId);
           }
         };
-        await makeServer().connect(session);
+        await makeServer({ key: header(req, 'x-alfred-key'), via: header(req, 'x-alfred-via') }).connect(session);
         await session.handleRequest(req, res, body);
         return;
       }

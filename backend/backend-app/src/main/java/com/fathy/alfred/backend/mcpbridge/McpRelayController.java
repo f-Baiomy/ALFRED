@@ -31,8 +31,9 @@ public class McpRelayController {
     /** Request bodies above this are refused, as the MCP server itself does. */
     static final long MAX_BODY_BYTES = 10L * 1024 * 1024;
 
+    /** x-alfred-key / x-alfred-via (specs/031): the user's own Claude names itself, so it may write on a board they hold. */
     private static final List<String> REQUEST_HEADERS = List.of("content-type", "accept", "mcp-session-id",
-            "mcp-protocol-version", "last-event-id");
+            "mcp-protocol-version", "last-event-id", "x-alfred-key", "x-alfred-via");
     private static final List<String> RESPONSE_HEADERS = List.of("content-type", "mcp-session-id", "mcp-protocol-version",
             "cache-control");
 

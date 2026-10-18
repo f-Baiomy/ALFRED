@@ -430,6 +430,9 @@ def stage_app(root, target, version_text, java_out, mcp_out):
     # The /alfred-* Claude Code skills (and their shared rules), installed with `alfred skill install` (docs/mcp.md).
     shutil.copytree(os.path.join(ROOT, "skills"), os.path.join(app, "skills"), dirs_exist_ok=True,
                     ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    # specs/031: the helper that runs board sessions on a user's PC (`alfred helper ...`); its tests stay in the repo.
+    os.makedirs(os.path.join(app, "helper"), exist_ok=True)
+    shutil.copy2(os.path.join(ROOT, "helper", "alfred-helper.mjs"), os.path.join(app, "helper", "alfred-helper.mjs"))
     shutil.copy2(os.path.join(ROOT, "backend", "backend-server", "src", "main", "resources", "settings-env-map.json"),
                  os.path.join(app, "settings-env-map.json"))
     with open(os.path.join(app, "VERSION"), "w", encoding="utf-8", newline="\n") as f:

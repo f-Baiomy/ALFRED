@@ -390,6 +390,37 @@ claude mcp add --transport http alfred http://localhost:3000/mcp
 
 Use whatever address you open the UI on. Exports come back as `/mcp-exports/<name>` downloads. See docs/mcp.md.
 
+## The helper (specs/031)
+
+The helper runs on each user's **own PC** - not on Alfred's server - and is what lets a board's **▶ alfred-live** start a
+Claude Code session there (docs/board.md "Board sessions"). It connects OUT to an Alfred, here or on the LAN
+(`http://192.168.1.80:3000`); Alfred never connects into a PC. It takes only the commands the user queued for that PC and
+maps each kind to its own fixed action - never a command line from the server. `helper/alfred-helper.mjs`, Node 18+, no
+dependencies; natively `alfred helper ...` runs it with the bundled Node (`app/helper/`).
+
+```bash
+alfred helper install --server http://192.168.1.80:3000 --user you@company.com [--machine NAME] [--mcp alfred-lan-80] [--autostart]
+alfred helper pair          # a six-digit code for two minutes: enter it in Alfred ▸ 👤 Me to pair this browser
+alfred helper start         # in the background (stop, status); `run` in the foreground
+alfred helper token set     # the Azure DevOps token, from stdin: kept on this PC (DPAPI), handed to Alfred for you only
+```
+
+- **Install** registers the PC (`POST /board/helpers/register`, from a machine allowed to edit the board) and keeps the
+  key in `%APPDATA%\alfred-helper\config.json` (`~/.config/alfred-helper`, mode 600, elsewhere). On Windows it also
+  registers the `alfred-helper://` link (the browser's "Start helper") and, with `--autostart`, starts with Windows -
+  both under HKCU only.
+- **What it needs on the PC**: Claude Code signed in, the `/alfred-*` skills (`alfred skill install`) and Alfred's MCP
+  server registered for that Alfred (`claude mcp add --transport http alfred-lan-80 http://192.168.1.80:3000/mcp`; found
+  by its address in `~/.claude.json`).
+- **Heartbeat** every 30 s (`PUT /board/helpers/heartbeat`): version, Claude account, Desktop found, MCP name, whether an
+  Azure token is kept; where each of its sessions is open (Desktop / terminal), tokens used today; toasts for new
+  requests on the user's boards; over the daily budget it stops the user's runners on that PC (WAITING_BUDGET).
+- **Commands** (`POST /board/helper-commands/claim`, a 50 s long poll): START, RESUME, ATTACH, CONTINUE_FROM_COPY,
+  OPEN_DESKTOP, OPEN_TERMINAL, SYNC, LISTEN, STOP_LISTEN, STOP, STOP_ALL, HANDOVER, PICK_FOLDER (a folder picker on that
+  PC). Each result is reported back (`PUT /board/helper-commands/{id}`) and shown on the board.
+- It passes the user's key to what it starts (`ALFRED_KEY`, and `ALFRED_VIA` = the session id): the `/alfred-live` and
+  `/alfred-listen` runners and the MCP server they start send it, so their writes count as the holder's.
+
 ## Uninstall
 
 `alfred uninstall` removes the service and the program and asks before deleting `data/`; `--keep-data` keeps it.

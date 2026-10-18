@@ -1,3 +1,7 @@
+import { FormsModule } from '@angular/forms';
+import { SessionsStateService } from '../../../core/state/sessions-state.service';
+import { PendingMessage, boardOfScope } from '../../../core/models/sessions.models';
+import { SessionsApiService } from '../../../core/services/sessions-api.service';
 import { AfterViewChecked, Component, ElementRef, HostListener, computed, effect, inject, input, signal, untracked, viewChild } from '@angular/core';
 import { ChatMessage, ChatRecord, ChatSearchFilter, ChatSettings, ChatSharedGroup, ChatWatch, DEFAULT_CHAT_SETTINGS, PROJECT_SCOPE, TerminalItem } from '../../../core/models/chat.models';
 import { ChatApiService } from '../../../core/services/chat-api.service';
@@ -30,7 +34,7 @@ type Item = { kind: 'msg'; m: ChatMessage; day: string | null; unreadLine: numbe
 @Component({
   selector: 'app-chat-panel',
   standalone: true,
-  imports: [ChatMessageComponent, MentionEditorComponent, MarkdownViewComponent, MentionChipComponent, SelectPickerComponent],
+  imports: [ChatMessageComponent, MentionEditorComponent, MarkdownViewComponent, MentionChipComponent, SelectPickerComponent, FormsModule],
   template: `
     @if (scope(); as sc) {
       <aside class="chat-dock" [class.wide]="view() === 'expanded'" [class.full]="view() === 'full' || inWindow()"
@@ -131,7 +135,26 @@ type Item = { kind: 'msg'; m: ChatMessage; day: string | null; unreadLine: numbe
           </div>
         }
 
-        @if (!editable()) { <div class="chat-banner view">View only from here - {{ howToEdit() }}</div> }
+        @if (!editable() && !asCommenter()) { <div class="chat-banner view">View only from here - {{ howToEdit() }}</div> }
+        <!-- specs/031: the holder lets Claude answer a commenter's message, or declines it -->
+        @if (waitingForMe().length) {
+          <div class="chat-banner start">
+            <h6>Waiting for your OK</h6>
+            @for (p of waitingForMe(); track p.id) {
+              <div class="chat-crow"><span><b>{{ p.user }}</b>: {{ p.text }}</span>
+                <button type="button" class="action-btn" (click)="resolvePending(p.id, true)">Let Claude answer</button>
+                <button type="button" class="action-btn" (click)="resolvePending(p.id, false)">Decline</button></div>
+            }
+          </div>
+        }
+        @if (asCommenter()) {
+          <div class="chat-composer">
+            <div class="chat-hint">You are a commenter here: your message waits for {{ heldBy()!.user }}'s OK before Claude answers it.</div>
+            @for (p of myPending(); track p.id) { <div class="chat-hint">⏳ {{ p.text }}</div> }
+            <textarea rows="2" [(ngModel)]="pendingText" style="width:100%" placeholder="Message for this board's Claude…"></textarea>
+            <button type="button" class="action-btn primary" [disabled]="!pendingText.trim()" (click)="submitPending()">Send for OK</button>
+          </div>
+        }
         @if (!claudeOn() && editable()) {
           <div class="chat-banner start">
             <h6>Start Claude for this chat</h6>
@@ -366,8 +389,47 @@ export class ChatPanelComponent implements AfterViewChecked {
   readonly title = computed(() => (this.isProject() ? (this.state.project() || 'No project') : this.state.cycleNames().get(this.scope() ?? '') ?? this.scope() ?? ''));
   readonly claudeOn = computed(() => this.summary()?.claudeOn ?? false);
   readonly access = signal({ editable: true, howToEdit: '' });
-  readonly editable = computed(() => this.access().editable);
-  readonly howToEdit = computed(() => this.access().howToEdit || 'open Alfred on its own machine to write');
+  /** specs/031: a chat whose board another user holds is read-only here, whatever the edit rule says. */
+  private readonly sessionsState = inject(SessionsStateService);
+  readonly heldBy = computed(() => this.sessionsState.heldByOther(boardOfScope(this.state.project(), this.scope())));
+  readonly editable = computed(() => this.access().editable && !this.heldBy());
+  /** A commenter the holder named: their chat message waits in the holder's queue. */
+  readonly asCommenter = computed(() => !!this.heldBy() && !!this.sessionsState.user() && this.heldBy()!.commenters.includes(this.sessionsState.user()!));
+  private readonly sessionsApi = inject(SessionsApiService);
+  readonly pendingList = signal<readonly PendingMessage[]>([]);
+  readonly waitingForMe = computed(() => (this.sessionsState.heldByMe(this.boardIdOf()) ? this.pendingList() : []));
+  readonly myPending = computed(() => this.pendingList().filter((p) => p.user === this.sessionsState.user()));
+  pendingText = '';
+  private boardIdOf(): string {
+    return boardOfScope(this.state.project(), this.scope());
+  }
+  private readonly loadPending = effect(() => {
+    const board = this.boardIdOf();
+    this.sessionsState.holders();
+    const held = this.sessionsState.holderOf(board);
+    untracked(() => {
+      if (!held || !this.sessionsState.user()) { this.pendingList.set([]); return; }
+      this.sessionsApi.pending(board).subscribe({ next: (p) => this.pendingList.set(p), error: () => this.pendingList.set([]) });
+    });
+  });
+
+  submitPending(): void {
+    const text = this.pendingText.trim();
+    if (!text) return;
+    this.sessionsApi.submitPending(this.boardIdOf(), this.state.project(), this.scope() ?? 'project', text)
+      .subscribe({ next: () => { this.pendingText = ''; }, error: () => undefined });
+  }
+
+  resolvePending(id: number, yes: boolean): void {
+    this.sessionsApi.resolvePending(id, yes).subscribe({
+      next: (r) => {
+        const sc = this.scope();
+        if (yes && r.post && sc != null) this.state.send(sc, { text: r.post, quote: null, urgent: false });
+      },
+      error: () => undefined,
+    });
+  }
+  readonly howToEdit = computed(() => this.heldBy() ? `held by ${this.heldBy()!.user} - ask them for the board` : this.access().howToEdit || 'open Alfred on its own machine to write');
   readonly settings = signal<ChatSettings>(DEFAULT_CHAT_SETTINGS);
   readonly mute = computed<ChatMute>(() => this.state.prefs().mute[`${this.state.project()}/${this.scope()}`] ?? 'all');
 

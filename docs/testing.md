@@ -19,6 +19,13 @@ No test suite/linter for `proxy` beyond the Docker build itself.
 - `npm run build` (`ng build`) is the production build; output in `dist/frontend/browser`.
 - **`call-card.component.spec.ts` is the first full-component (`TestBed.createComponent` + `HttpTestingController`) test in this codebase** - everything else tests pure functions or services in isolation. Justified here because the behavior under test (an `IntersectionObserver`-gated fetch) only exists as an interaction between a real DOM element, a real component lifecycle, and a real HTTP call - there's no smaller unit to extract it into. It mocks the global `window.IntersectionObserver` (capturing each instance's callback so a test can invoke it manually) since Karma's test fixtures aren't attached to a visible viewport, so a real browser `IntersectionObserver` never reports true intersection there - a bug gated on "don't fetch until visible" would otherwise pass its tests while being broken live (which is exactly what happened once - see docs/frontend-architecture.md).
 
+## The helper (`node --test helper/test/alfred-helper.test.mjs`)
+
+specs/031's helper on the user's PC: server addresses, a project's folder per PC, the MCP server found by Alfred's address,
+the Desktop record's shape, transcripts and today's tokens, the per-board git worktree (a real `git` in a temp folder), and
+START / NOT_HERE through a fake Alfred. Name the file - `node --test helper/test/` fails on Windows. The board lock itself
+is covered by `backend-sessions` (keys, holders, sessions, commenters' queue, away rule) and `BoardWriteTargetsTest`.
+
 ## Inbound E2E (`sh tests/e2e/run_inbound_e2e.sh [E1 ... E10]`)
 
 - Drives the real proxies and backend end to end on an **isolated Docker stack**: the shipped `docker-compose.yml`

@@ -288,6 +288,15 @@ export function alfredUrlOf(entry) {
   return String(entry.env?.ALFRED_URL || 'http://localhost:3000').replace(/\/+$/, '');
 }
 
+/**
+ * The user and session this runner answers for (specs/031 board lock): the helper that starts a board's session sets
+ * ALFRED_KEY (the user's key) and ALFRED_VIA (the session id), so the runner's writes on a board the user holds go
+ * through. Unset: no headers, as before.
+ */
+export function identityHeaders(env = process.env) {
+  return { ...(env.ALFRED_KEY ? { 'X-Alfred-Key': env.ALFRED_KEY } : {}), ...(env.ALFRED_VIA ? { 'X-Alfred-Via': env.ALFRED_VIA } : {}) };
+}
+
 export class Alfred {
   constructor(url) {
     this.url = url;
@@ -306,7 +315,7 @@ export class Alfred {
     for (const [k, v] of Object.entries(query ?? {})) if (v !== undefined && v !== null) u.searchParams.set(k, String(v));
     const res = await fetch(u, {
       method, signal: AbortSignal.any([AbortSignal.timeout(timeoutMs), this.stopper.signal]),
-      headers: { Accept: 'application/json', 'X-Alfred-Actor': 'claude', ...(body ? { 'Content-Type': 'application/json' } : {}) },
+      headers: { Accept: 'application/json', 'X-Alfred-Actor': 'claude', ...identityHeaders(), ...(body ? { 'Content-Type': 'application/json' } : {}) },
       ...(body ? { body: JSON.stringify(body) } : {}),
     });
     if (res.status === 204) return null;
@@ -465,7 +474,7 @@ export class McpClient {
     const res = await fetch(this.entry.url, {
       method: 'POST', signal: AbortSignal.any([AbortSignal.timeout(timeoutMs), this.stopper.signal]),
       headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', ...(this.entry.headers ?? {}),
-        ...(this.session ? { 'mcp-session-id': this.session } : {}) },
+        ...identityHeaders(), ...(this.session ? { 'mcp-session-id': this.session } : {}) },
       body: JSON.stringify(msg),
     });
     const sid = res.headers.get('mcp-session-id');

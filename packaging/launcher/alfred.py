@@ -684,6 +684,20 @@ def cmd_skill(layout, args):
     return CONFLICT if any(line.startswith("skipped") for line in lines) else OK
 
 
+def cmd_helper(layout, args):
+    """The Alfred helper (specs/031): on the user's own PC, between Alfred (here or on the LAN) and that PC's Claude -
+    install, pair, start, stop, status, token. Runs app/helper/alfred-helper.mjs with the bundled Node."""
+    script = os.path.join(layout.app, "helper", "alfred-helper.mjs")
+    if not os.path.isfile(script):
+        print("alfred helper: not in this install (app/helper/alfred-helper.mjs)", file=sys.stderr)
+        return ERROR
+    argv = list(args)
+    if argv and argv[0] == "run" and "--skills" not in argv:
+        argv += ["--skills", os.path.join(layout.app, "skills")]
+    node = layout.node if os.path.isfile(layout.node) else "node"
+    return subprocess.call([node, script] + argv)
+
+
 def backend_json(layout, method, path, timeout=30, body=None):
     """A call to THIS install's running backend, as the OS user (the identity check of own_backend first)."""
     ok, other = own_backend(layout)
@@ -1335,12 +1349,12 @@ COMMANDS = {
     "run": cmd_run, "start": cmd_start, "stop": cmd_stop, "restart": cmd_restart, "status": cmd_status,
     "logs": cmd_logs, "version": cmd_version, "update": cmd_update, "uninstall": cmd_uninstall, "_init-env": cmd_init_env,
     "doctor": cmd_doctor, "panel": lambda layout, args: cmd_panel(layout, args) or USAGE,
-    "_wait-health": cmd_wait_health, "_record-upgrade": cmd_record_upgrade, "skill": cmd_skill,
+    "_wait-health": cmd_wait_health, "_record-upgrade": cmd_record_upgrade, "skill": cmd_skill, "helper": cmd_helper,
 }
 
 
 # Commands that work without reading data/ or .env. Every other one needs the account that may read them.
-NO_DATA_NEEDED = {"version", "jvms", "skill"}
+NO_DATA_NEEDED = {"version", "jvms", "skill", "helper"}
 
 
 def is_admin():
@@ -1403,7 +1417,8 @@ HELP_GROUPS = [
                            ("detach", "<pid>", "let it go")]),
     ("Settings", [("config", "list | get | set <KEY> <value>", "settings in .env"),
                   ("project", "list | add | remove ...", "the projects the reverse proxy fronts")]),
-    ("Claude", [("skill", "install | remove | status [--project F]", "the /alfred-* QA skills for Claude Code")]),
+    ("Claude", [("skill", "install | remove | status [--project F]", "the /alfred-* QA skills for Claude Code"),
+                ("helper", "install | pair | start | stop | status | token ...", "board sessions on this PC: Claude for each board, in Desktop")]),
     ("Look after it", [("doctor", "[--json]", "check processes, ports, projects, agent, disk, storage, updates"),
                        ("update", "[--check | --cancel | --version X]", "install a new release · Ctrl+C pauses or cancels"),
                        ("version", "", "the version here"),

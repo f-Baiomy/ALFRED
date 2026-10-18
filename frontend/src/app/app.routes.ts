@@ -31,6 +31,8 @@ export const routes: Routes = [
       { path: 'logs/:id/structure', loadComponent: () => import('./pages/logs/log-structure-page.component').then((m) => m.LogStructurePageComponent) },
       { path: 'logs/:id', loadComponent: () => import('./pages/logs/logs-explorer.component').then((m) => m.LogsExplorerComponent) },
       { path: 'settings', loadComponent: () => import('./pages/settings/settings.component').then((m) => m.SettingsComponent) },
+      // specs/031: My settings - this user's own (folders per PC, where sessions open, devices, sessions). `me` is no backend prefix.
+      { path: 'me', loadComponent: () => import('./pages/me/me-page.component').then((m) => m.MePageComponent) },
     ],
   },
   // Stays outside the tab-nav layout - opened via window.open, wants the full page to itself.

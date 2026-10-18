@@ -1,3 +1,4 @@
+import { SessionsStateService } from '../../../core/state/sessions-state.service';
 import { Component, DestroyRef, ElementRef, HostListener, Injector, computed, effect, inject, input, output, signal } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { CardSummary, SkillRun } from '../../../core/models/board.models';
@@ -66,7 +67,14 @@ type View = 'idle' | 'copy' | 'start' | 'sending' | 'sent' | 'busy' | 'closed' |
       <div class="run-dialog-bg" (click)="starting.set(false)">
         <div class="run-dialog run-start-steps" role="dialog" aria-label="Start a chat for this cycle" (click)="$event.stopPropagation()">
           <div class="run-dialog-head">No chat is handling {{ cycleLabel() }} yet</div>
-          <div class="run-dim">Board requests run in the Claude Code chat that listens on this cycle - with its context, model and account. Start one:</div>
+          <!-- specs/031: one click - the user's helper starts the board's session on their PC and the run follows -->
+          @if (sessions.paired() && sessions.targetHelper(); as pc) {
+            <div class="run-dialog-row"><button type="button" class="board-copy primary" (click)="startSessionAndRun()">▶ Start this board's session on {{ pc.machine }} and run it</button></div>
+            <div class="run-dim">Or start one yourself:</div>
+          } @else {
+            <div class="run-dim">Pair this browser with your Alfred helper (<a href="/me">My settings</a>) and ▶ starts the board's session on your PC for you. Or start one yourself:</div>
+          }
+          <div class="run-dim">Board requests run in the Claude Code chat that listens on this cycle - with its context, model and account.</div>
           <ol class="run-steps">
             <li>Open Claude Code in the app's repo
               <button type="button" class="run-cmdline" (click)="copyText(steps().cd, 'cd')">{{ steps().cd }} <b>{{ copied() === 'cd' ? '✓' : '⧉' }}</b></button></li>
@@ -124,6 +132,7 @@ export class RunSkillComponent {
   /** A card the run wrote ("open #36"). */
   readonly opened = output<number>();
 
+  readonly sessions = inject(SessionsStateService);
   readonly menu = signal(false);
   /** Where the menu opens: fixed to the viewport at the ▾, so a card's overflow never clips it. */
   readonly menuAt = signal({ top: 0, left: 0 });
@@ -309,6 +318,16 @@ export class RunSkillComponent {
   stop(): void {
     const r = this.run();
     if (r) this.state.stop(r);
+  }
+
+  /** specs/031: the board's session is started on the user's PC; once it answers, the helper queues this run for it. */
+  startSessionAndRun(): void {
+    const board = this.cycleId();
+    if (!board) return;
+    this.sessions.start();
+    this.starting.set(false);
+    this.sessions.send('START', { boardId: board, project: this.project(), args: { title: this.cycleName() ?? board, boardRef: board,
+      thenRun: { command: this.command(), prompt: this.prompt(), cardNumber: this.card()?.number ?? null } } }).subscribe();
   }
 
   copyPrompt(): void {

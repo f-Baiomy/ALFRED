@@ -227,7 +227,7 @@ public class TeamService implements TeamUseCase {
     @Override
     public boolean deleteConnection(String id) {
         boolean gone = cache.deleteConnection(id);
-        live.vault().forget(id);
+        live.vault().forgetAll(id);
         if (gone) {
             signals.changed(id, "connections");
         }

@@ -144,6 +144,36 @@ public class TeamboardsController {
         return ResponseEntity.ok(team.putToken(id, new Token(body.token())));
     }
 
+    record MyTokenDto(@NotBlank @Size(max = 1000) String token, @Size(max = 200) String connectionId) {
+        @Override
+        public String toString() {
+            return "MyTokenDto[***]";
+        }
+    }
+
+    /**
+     * A paired user's own token (specs/031), handed over by their helper from the PC where it is kept encrypted: used for
+     * that user's requests only. The connection named, else the first one.
+     */
+    @PutMapping("/teamboards/me/token")
+    public ResponseEntity<?> putMyToken(@Valid @RequestBody MyTokenDto body, @RequestHeader(value = ACTOR_HEADER, required = false) String actor) {
+        if (who(actor) == Who.CLAUDE) {
+            throw TeamException.userOnly("Claude never holds a token");
+        }
+        String conn = body.connectionId() != null && !body.connectionId().isBlank() ? body.connectionId()
+                : team.connections().stream().findFirst().map(c -> c.id()).orElseThrow(() -> TeamException.notFound("No tracker connection yet"));
+        return ResponseEntity.ok(team.putToken(conn, new Token(body.token())));
+    }
+
+    @DeleteMapping("/teamboards/me/token")
+    public ResponseEntity<?> forgetMyToken(@RequestHeader(value = ACTOR_HEADER, required = false) String actor) {
+        if (Who.of(actor) == Who.CLAUDE) {
+            throw TeamException.userOnly("Only the user forgets the token");
+        }
+        team.connections().forEach(c -> team.forgetToken(c.id()));
+        return ResponseEntity.noContent().build();
+    }
+
     @GetMapping("/teamboards/connections/{id}/token")
     public ResponseEntity<?> tokenStatus(@PathVariable String id) {
         return ResponseEntity.ok(team.tokenStatus(id));

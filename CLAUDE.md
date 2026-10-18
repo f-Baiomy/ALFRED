@@ -133,7 +133,8 @@ After `docker compose up -d --build backend`, the gateway may keep the old conta
   028, docs/team.md): the Team tab and the `team_*` tools read the tracker live - nothing a search finds is stored; a
   board keeps its main item and its cards' items as full copies (diffed on sync), the rest as references. The token is
   entered once (`PUT .../token`, in the body) and kept 8 hours in `TokenVault`'s memory - never on disk, in a log, a
-  response or a browser; everyone reads with the last token entered, Claude never holds one (`TOKEN_MISSING` tells it to
+  response or a browser; a paired user's token is theirs alone (kept on their PC by the helper, handed to memory per user -
+  specs/031), an unpaired browser reads with the shared last-entered one, Claude never holds one (`TOKEN_MISSING` tells it to
   ask the user), and `TeamTunnelGuard` refuses live reads through the tunnel. Every write to the tracker except the
   user's own direct state/comment is a **consent bundle** the user approves (`AzureWritesService`, the only caller of
   `ItemWriter`/`AttachmentWriter` - ArchUnit); evidence files are built in the browser with the always-masked
@@ -152,6 +153,20 @@ After `docker compose up -d --build backend`, the gateway may keep the old conta
   Define drafts the cards too (rules §0a: child-type rules live only in `skills/_shared/rules.md`), linked in Alfred on
   the user's Save all with no bundle. Card matches are code only (`MatchService`, `item_matches`); REJECTED is kept for
   good and is the only state the board export carries (`team-card-match`). Refresh from Azure is the sync with `wait`.
+
+- **One Claude session per board, one holder per board** (specs/031, docs/board.md "Board sessions", docs/server.md "The
+  helper"): `backend-sessions` (leaf slice, `sessions.db`) knows who is who - a user is the email their **helper**
+  registered with (`alfred helper install`, one key per PC, kept only as a SHA-256), and each browser is paired with it by a
+  6-digit code (`X-Alfred-Key` on every request, `alfredKeyInterceptor`). A held board takes writes only from its holder:
+  `boardbridge/BoardLockInterceptor` maps every /board write to its board(s) (`BoardWriteTargets`: path, then body fields;
+  session plumbing is never locked) and answers 409 HELD otherwise; a board nobody holds behaves as before. Commenters may
+  comment; their chat messages wait in the holder's queue. The helper runs on the user's PC, connects OUT to Alfred (LAN or
+  local), claims the commands the user queued for that PC (never a command line), starts `claude` in a per-board git
+  worktree and shows the session in Claude Desktop by writing the record the official `/desktop` writes (Desktop reads it
+  on restart and needs the folder trusted). **One writer per session**: a session open in Desktop or a terminal is never
+  written to by the helper - two writers fork the transcript (spike S2). The helper, the runners and the MCP server pass
+  the user's key on (`ALFRED_KEY`/`ALFRED_VIA`, the MCP relay forwards `x-alfred-key`). Admin = whoever may change server
+  settings: revoke a user, force-release a board.
 
 ## Detailed docs (read only when relevant)
 - docs/architecture.md — backend module/slice design, persistence/caching, pagination

@@ -11,6 +11,10 @@ the answering (docs/mcp.md "Live answers"):
 
 **Boards** (specs/030): the task may be named as `AB#1234`, its name or its id (rules §0 "Naming a board") - `task_context` resolves it; the runner takes the cycle id `task_context` gives. A bare `#n` is a card.
 
+**Board sessions** (specs/031): the board's own **▶ alfred-live** button does all of this for the user - their Alfred
+helper starts the board's session on their PC and this runner with it. A board another user holds refuses writes
+(HELD, with who holds it): say so and that the user can ask for it from the 🔒 button - never retry.
+
 - The runner is `alfred-live.mjs` in this skill's folder. It runs **on this machine**, beside this session, the app's
   repo and Claude Code - whether Alfred runs here, in Docker, or on another machine (`alfred-lan-83` →
   `http://192.168.1.83:3000`). It reaches Alfred over HTTP; a local Alfred MCP server is started once by the runner and

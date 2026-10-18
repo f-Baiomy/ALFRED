@@ -823,7 +823,8 @@ are this browser's own (localStorage, try/catch). On a cycle's page the chats fo
   steps between. A decision needed mid-task is an ordinary reply that asks it; the job waits for the answer. The
   session marker (`chatSessionId` = `forkedFrom` = the terminal's id) says so: the header shows "Answered by your
   terminal", there is nothing to catch up and nothing is mirrored back. A busy terminal: messages wait. A closed one:
-  "Terminal offline - messages wait" - Alfred never starts or resumes a session itself. The newest `/alfred-live` for a
+  "Terminal offline - messages wait" - Alfred never starts or resumes a session itself, except when the user presses
+  ▶ alfred-live (its own button, through their helper - "Board sessions" below). The newest `/alfred-live` for a
   cycle takes it over: the old session gets `↪ handed over` in its log and stops listening, the messages it held are
   queued again for the new one, which starts from the chat's summary and the brief. Cards of other cycles and the
   project chat stay with the project's live runner, answered as before (a fork, below, still applies to an older runner).
@@ -950,3 +951,66 @@ On the running Docker stack (2026-10-10 quickstart walk-through), a change made 
   first exchange almost all of it is cache reads (114-118k read, about 2k written), about $0.46-0.55 per exchange.
 - Monitor events per exchange: one 💬 line in the runner's chat log per exchange, plus one ⚡ line when the user wrote
   "@terminal" (6 exchanges gave 6 💬 and 1 ⚡); a compact sends one pointer line.
+
+## Board sessions (specs/031)
+
+One Claude Code session per board (and one for the project chat, whose board is `default:<project>`), started from the
+board's **▶ alfred-live** button, run on the user's own PC by their **Alfred helper**, shown in Claude Desktop and
+resumable in a terminal. The board's chat, its card comments and every ▶ run go to that session. Mock and plan:
+`specs/031-board-sessions/mock.html`, `plan.md`; the helper: docs/server.md "The helper".
+
+**Who is who.** Alfred has no logins. A user is the email their helper registered with (`alfred helper install --server
+<Alfred> --user <email>`): one key per PC, given once, kept by Alfred only as a SHA-256 (`backend-sessions`, `sessions.db`).
+A browser writes as that user once it is **paired**: `alfred helper pair` shows a six-digit code for two minutes, the user
+enters it in **👤 Me** (My settings), and the browser keeps its own key (localStorage) and sends it as `X-Alfred-Key` with
+every request (`alfredKeyInterceptor`, Alfred's origin only). Five wrong codes burn the open one; at most 30 wrong codes a
+minute in all. A reinstall on the same PC revokes the old key and its browsers.
+
+**The board lock.** ▶ alfred-live (or a listen) takes a free board: its **holder** is that user. While held, every /board
+write on it - chat messages, card edits and moves, comments, brief, spec, ▶ runs, asks, and other users' Claude through
+MCP - is refused with **409 HELD** unless it carries one of the holder's keys (any of their PCs and browsers).
+`backend-app/boardbridge/BoardLockInterceptor` runs after the edit rule (IP, tunnel) and finds the board(s) a write is
+about with `BoardWriteTargets`: the path first (`/board/boards/{id}`, `/board/cycles/{id}`, a card, a chat scope, a chat
+message or record, a snippet, file, ask or run - through `BoardOfUseCase`), then the request's own fields (boardId,
+cycleId, cardId, project + cardNumber; a project-wide card/run/ask/page without one is the project's default board). A
+write naming no board (teams, widgets, storage, an undo token, import) is no single board's and goes through; the
+sessions' own plumbing (keys, holders, sessions, helper commands, runner heartbeats and claims) is never locked, so a held
+board can always be asked for. A board nobody holds is written exactly as before. Reads are never locked.
+
+- **Ask, hand over, release, keep.** Another user sees "🔒 Held by …" and can only ask (`POST /board/holders/request`,
+  with a note). The holder gets the request on the button (and a toast from their helper) and answers: **Hand over**
+  (their session writes a handover note card first, then the requester holds the board and their ▶ starts with
+  `/alfred-resume`, which reads it), **Release** (free for whoever starts first) or **Keep**.
+- **Away rule** (My settings): when the holder's helpers have been quiet longer than they allowed, a request is accepted
+  at once or the board released.
+- **Commenters** (Boards I hold): named users may comment on cards; their chat messages wait in the holder's queue
+  (`/board/holders/pending`) until the holder lets Claude answer (the holder's page posts it, quoted with who wrote it) or
+  declines. Card edits stay the holder's.
+- **Admin** = whoever may change the server's settings (the settings edit rule, never the tunnel): Settings ▸ Users lists
+  users and PCs - never their settings or tokens - and can revoke a user's helpers (which frees their boards) or **force
+  release** a board. Every change is a line in the board's **audit** (`GET /board/audit`), and so is every write that
+  went through on a board: who, from which PC, through which session or browser.
+
+**The session.** ▶ queues a `START` command for the PC (`POST /board/helper-commands`, only the user's own PCs); the
+helper claims it (a long poll woken by the queueing, never polling), makes the board's git worktree
+(`<repo>/.alfred-worktrees/<board>` on branch `alfred/<board>`, excluded in `.git/info/exclude`), creates the session with
+one turn (`claude -p --session-id <new id> "/alfred-resume <board>"`, read-only tools), takes the board, starts the
+`/alfred-live` runner for it (`--chat <session id>`: answers in forks of the session) and reports the session
+(`PUT /board/sessions`). With "open in Claude Desktop" it writes the record the official `/desktop` command writes
+(`local_<id>`, adopted from another surface): **Desktop shows it after a restart** and asks once to trust each folder
+(spikes S1-S3, plan.md). Its menu: open in Desktop, open in a terminal (`claude --resume <id>`), sync, listen to a cycle
+(a background lane on the same PC, forks only), a new session, switch session, stop answering (the session is kept),
+release, audit.
+
+**One writer per session.** While a session is open in Desktop or a terminal (a `claude` process naming it, not `-p`),
+the helper never writes a turn into it - two writers fork the transcript. Board answers then come from the runner's
+forks as always, and the user can run `/alfred-live` in that window to answer there.
+
+**Somewhere else.** A board whose session lives on another PC shows "Session on WORK-PC"; its popup offers: resume it
+there (that PC's helper is online), **continue here from Alfred's copy** (a new session started with `/alfred-resume`,
+which reads the brief, decisions and chat), pick another of the board's sessions, or enter any local session id
+(`ATTACH`). Moving a transcript between PCs is not built.
+
+**Routing.** Board chat, card comments, ✦ asks and ▶ runs on a board → the board's session; the project chat and
+off-board asks → the project session. A ▶ on a board with no session offers "Start this board's session on <PC> and run
+it" (the helper queues the run once the session answers).

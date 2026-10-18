@@ -23,6 +23,8 @@ import { TeamRelatedItemsComponent } from '../../components/team/related-items/r
 import { SessionCyclesStateService } from '../../core/state/session-cycles-state.service';
 import { ChatStateService } from '../../core/state/chat-state.service';
 import { StageStripComponent } from '../../components/board/stage-strip/stage-strip.component';
+import { BoardSessionButtonComponent } from '../../components/board-session/board-session-button.component';
+import { SessionsStateService } from '../../core/state/sessions-state.service';
 
 /** The board page's tabs when a board is picked (specs/029); Cards is the default. */
 export type BoardTab = 'cards' | 'calls' | 'task' | 'cycles' | 'items' | 'activity';
@@ -37,7 +39,7 @@ const BOARD_TABS: readonly BoardTab[] = ['cards', 'calls', 'task', 'cycles', 'it
   selector: 'app-board-page',
   standalone: true,
   imports: [SelectPickerComponent, BoardViewComponent, TaskViewComponent, ConfirmDialogComponent, BoardPickerComponent, RelatedStripComponent,
-    BoardActivityComponent, BoardCallsComponent, BoardCyclesComponent, TeamRelatedItemsComponent, StageStripComponent],
+    BoardActivityComponent, BoardCallsComponent, BoardCyclesComponent, TeamRelatedItemsComponent, StageStripComponent, BoardSessionButtonComponent],
   styles: [`
     .bp-tabs { display: flex; gap: 2px; margin: .4rem -1rem 0; padding: 0 .6rem; border-top: 1px solid var(--border);
       border-bottom: 1px solid var(--border); overflow-x: auto; }
@@ -47,6 +49,8 @@ const BOARD_TABS: readonly BoardTab[] = ['cards', 'calls', 'task', 'cycles', 'it
     .bp-tab.on { color: var(--text); border-bottom-color: var(--accent-blue, #5b8def); }
     .bp-n { margin-left: .35rem; padding: 0 .4rem; border-radius: 999px; background: var(--card-inner); color: var(--text-dim); font-size: .72rem; }
     .bp-pane { padding-top: .7rem; }
+    .bp-held { margin: .4rem 0; padding: .5rem .75rem; border: 1px solid var(--border); border-radius: 8px; background: var(--card-inner);
+      font-size: .88rem; }
   `],
   template: `
     @if (windowMode()) {
@@ -60,7 +64,14 @@ const BOARD_TABS: readonly BoardTab[] = ['cards', 'calls', 'task', 'cycles', 'it
         @if (cycleId(); as id) {
           <button type="button" class="action-btn" title="This board's chat, in the chat panel" (click)="chat.openChat(id)">💬 Chat</button>
         }
+        @if (project()) {
+          <app-board-session-button [project]="project()" [boardId]="cycleId() ?? ('default:' + project())" [title]="cycleName()" [cycles]="boardCycles()" />
+        }
       </div>
+      @if (heldByOther(); as h) {
+        <div class="bp-held" role="status">🔒 This board is held by <b>{{ h.user }}</b>@if (h.machine) { on {{ h.machine }} }. You can read it;
+          writing waits until they hand it over or release it - ask from the 🔒 button.</div>
+      }
       @if (cycleId(); as id) {
         <app-related-strip [summary]="summary()" [cycles]="cycles()" [allBoards]="allBoards()" [editable]="editable()"
                            (changed)="reloadSummary()" (deleted)="go(project(), null)" />
@@ -120,7 +131,11 @@ export class BoardPageComponent {
   readonly summary = signal<BoardSummary | null>(null);
   readonly allBoards = signal<BoardSummary[]>([]);
   readonly cycleName = computed(() => this.summary()?.board.name ?? this.cycles().find((c) => c.id === this.cycleId())?.name ?? null);
-  readonly editable = signal(true);
+  /** The edit rule (IP, tunnel) - and, since specs/031, the board lock: a board another user holds is read-only here. */
+  readonly accessEditable = signal(true);
+  private readonly sessions = inject(SessionsStateService);
+  readonly heldByOther = computed(() => this.sessions.heldByOther(this.cycleId() ?? (this.project() ? `default:${this.project()}` : null)));
+  readonly editable = computed(() => this.accessEditable() && !this.heldByOther());
   readonly chat = inject(ChatStateService);
   private readonly cycleState = inject(SessionCyclesStateService);
   /** The open tab (?tab=), Cards when none or unknown. */
@@ -150,7 +165,7 @@ export class BoardPageComponent {
   constructor() {
     effect(() => document.body.classList.toggle('card-window', this.windowMode()));
     inject(DestroyRef).onDestroy(() => document.body.classList.remove('card-window'));
-    this.board.access().subscribe({ next: (a) => this.editable.set(a.editable), error: () => undefined });
+    this.board.access().subscribe({ next: (a) => this.accessEditable.set(a.editable), error: () => undefined });
     effect(() => {
       const id = this.cycleId();
       untracked(() => this.reloadSummary(id));
