@@ -1277,7 +1277,18 @@ export async function main(argv) {
     process.on('SIGINT', () => signal('SIGINT'));
     process.on('SIGHUP', () => signal('SIGHUP'));
     process.on('exit', (code) => { if (!runner.stopping) log(`  ■ process exit ${code} without a stop`); });
-    const watch = setInterval(onStop, 2000);
+    // listen started from a chat ends with that chat: it finishes (sweep, review) once the chat has been closed a while
+    let chatGoneAt = null;
+    const chatCheck = () => {
+      if (!args['chat-pid'] || runner.stopping) return;
+      chatGoneAt = live.alive(Number(args['chat-pid'])) ? null : chatGoneAt ?? Date.now();
+      if (live.chatGone?.(chatGoneAt)) {
+        log('  ■ the chat that started listen has been closed for a while - finishing');
+        chat?.(`● The chat that started /alfred-listen has been closed for ${Math.round((Date.now() - chatGoneAt) / 60_000)} min - finishing.`);
+        runner.stop(false);
+      }
+    };
+    const watch = setInterval(() => { onStop(); chatCheck(); }, 2000);
     if (args.finish === 'true') runner.stop(false);
     try {
       await runner.run();

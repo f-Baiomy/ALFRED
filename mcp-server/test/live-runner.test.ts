@@ -329,6 +329,27 @@ test('with a chat the heartbeat says the chat handles the cycle and whether it i
   } finally { await close(); }
 });
 
+test('a runner whose chat stays closed stops itself and tells the board, instead of answering for days', async () => {
+  const { w, runner, close } = await runnerWorld();
+  try {
+    runner.o.chatId = 'chat-a';
+    runner.o.cycleId = 'cy1';
+    runner.o.chatPid = 999_999_9;
+    runner.o.chatGoneMs = 60_000;
+    await runner.beat();
+    assert.equal(runner.stopped, false, 'a chat closed just now may come back (a terminal restart)');
+    runner.chatGoneAt = Date.now() - 61_000;
+    await runner.beat();
+    assert.equal(runner.stopped, true);
+    runner.o.chatPid = process.pid; // an open chat never stops it
+    runner.stopped = false;
+    runner.chatGoneAt = Date.now() - 10 * 60_000;
+    await runner.beat();
+    assert.equal(runner.stopped, false);
+    assert.equal(runner.chatGoneAt, null);
+  } finally { await close(); }
+});
+
 test('the heartbeat is in Alfred and beats while runs are long: board_wait in any session sees the runner', async () => {
   const { w, runner, close } = await runnerWorld();
   try {

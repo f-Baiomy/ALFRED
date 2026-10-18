@@ -11,6 +11,9 @@ import { runDuration } from '../../../shared/utils/skill-prompt';
 /** A status not updated for this long reads as "Claude stopped" (the backend reads it the same way). */
 export const AGENT_EXPIRY_MS = 10 * 60 * 1000;
 
+/** A runner whose heartbeat is older than this no longer answers (the backend's RUNNER_ALIVE, plus a little slack). */
+export const RUNNER_EXPIRY_MS = 2 * 60 * 1000 + 5000;
+
 /**
  * What Claude is doing on this board (FR-044): watching (with what it checked and added), paused, or stopped - and
  * Pause / Resume / Stop. Driven by /ws/board agent-status messages; one timer to the expiry deadline flips it to
@@ -109,6 +112,8 @@ export class LiveStripComponent implements OnDestroy {
 
   private readonly expired = signal(false);
   private timer: ReturnType<typeof setTimeout> | null = null;
+  /** One delay to the answerer's expiry: a runner that was killed sends no last "stopped" beat, so no signal comes. */
+  private answererTimer: ReturnType<typeof setTimeout> | null = null;
 
   readonly state = computed(() => {
     const s = this.status();
@@ -149,7 +154,19 @@ export class LiveStripComponent implements OnDestroy {
 
   private loadAnswerer(project: string): void {
     // an Alfred without the heartbeat answers 404: no line
-    this.api.liveRunner(project).subscribe({ next: (r) => this.answerer.set(r ?? null), error: () => this.answerer.set(null) });
+    this.api.liveRunner(project).subscribe({ next: (r) => this.setAnswerer(r ?? null), error: () => this.setAnswerer(null) });
+  }
+
+  private setAnswerer(r: LiveRunnerInfo | null): void {
+    if (this.answererTimer) clearTimeout(this.answererTimer);
+    this.answererTimer = null;
+    const left = r?.lastSeen ? Date.parse(r.lastSeen) + RUNNER_EXPIRY_MS - Date.now() : Infinity;
+    if (left <= 0) {
+      this.answerer.set(null);
+      return;
+    }
+    this.answerer.set(r);
+    if (Number.isFinite(left)) this.answererTimer = setTimeout(() => this.answerer.set(null), left);
   }
 
   time(iso: string): string {
@@ -158,6 +175,7 @@ export class LiveStripComponent implements OnDestroy {
 
   ngOnDestroy(): void {
     if (this.timer) clearTimeout(this.timer);
+    if (this.answererTimer) clearTimeout(this.answererTimer);
   }
 }
 

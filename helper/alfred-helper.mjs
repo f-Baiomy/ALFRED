@@ -26,7 +26,7 @@ import { homedir, hostname, platform, tmpdir, userInfo } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const VERSION = '1.6.1';
+export const VERSION = '1.6.3';
 
 // The helper runs in the background with no console of its own: on Windows every tool it starts (PowerShell, where, git,
 // reg, claude) would flash a console window unless hidden. Hidden by default; only what the user should see - a folder
@@ -694,6 +694,7 @@ export class Helper {
     const res = await fetch(`${this.server}/board/connect/alfred-helper.mjs`, { signal: AbortSignal.timeout(60_000) });
     const text = res.ok ? await res.text() : '';
     if (shortHash(text) !== versions.helper) return; // changed again meanwhile: the next heartbeat takes it
+    if (this.busy) return; // a command started while the new file was downloading: the next heartbeat updates
     writeFileSync(self, text);
     log('helper updated from Alfred - restarting');
     spawn(process.execPath, [self, 'run', '--server', this.server], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
@@ -775,10 +776,13 @@ export class Helper {
     if (!create && openInteractively(cliSessionId)) throw new Error('The session is open in Claude Desktop or a terminal - it answers there; nothing was written into it');
     const args = ['-p', create ? '--session-id' : '--resume', cliSessionId];
     if (model) args.push('--model', model);
-    if (readOnly) args.push('--allowedTools', 'mcp__*', 'Read', 'Grep', 'Glob');
-    args.push(prompt);
+    // Claude Code allows a wildcard only after a named server (mcp__<server>__*), never a bare mcp__*
+    if (readOnly) args.push('--allowedTools', ...(this.mcp ? [`mcp__${this.mcp}__*`] : []), 'Read', 'Grep', 'Glob');
     const run = claudeInvocation(this.claude, args);
-    const r = spawnSync(run.command, run.args, { cwd, encoding: 'utf8', timeout: 15 * 60_000, env: { ...process.env, ...this.env(cliSessionId) }, shell: run.shell });
+    // the prompt goes on stdin: --allowedTools takes a list and swallowed a prompt given after it ("Input must be
+    // provided"), and on Windows a cmd shell would re-read a prompt's quotes and characters
+    const r = spawnSync(run.command, run.args, { cwd, input: prompt, encoding: 'utf8', timeout: 15 * 60_000,
+      env: { ...process.env, ...this.env(cliSessionId) }, shell: run.shell });
     if (r.status !== 0) throw new Error(`claude exited ${r.status}: ${(r.stderr || r.stdout || '').trim().slice(0, 300)}`);
     return r.stdout.trim();
   }
@@ -945,7 +949,14 @@ export class Helper {
     await this.api.call('POST', '/board/holders/take', { body: { boardId: c.boardId, project: c.project, sessionId: cliSessionId } });
     const first = args.firstPrompt || (isProject ? `You are the Alfred project chat session for ${c.project}. Read the project with task_context and wait.`
       : `/alfred-resume ${args.boardRef || c.boardId}`);
-    this.turn(cliSessionId, first, { create: true, cwd: place.cwd, model });
+    try {
+      this.turn(cliSessionId, first, { create: true, cwd: place.cwd, model });
+    } catch (e) {
+      // a session whose first turn failed never existed: GONE, so the board is not "Starting…" for ever and ▶ starts afresh
+      await this.report(cliSessionId, { state: 'GONE' }).catch(() => {});
+      this.sessions.delete(cliSessionId);
+      throw e;
+    }
     const problem = this.startRunner(cliSessionId);
     let desktopId = null;
     if (where.openIn === 'DESKTOP' || where.openIn === 'BOTH') {
@@ -995,10 +1006,26 @@ export class Helper {
     return process.cwd();
   }
 
+  /**
+   * Commands this helper's key took but no running helper is doing: this key runs in one process, so after a restart
+   * every TAKEN one is an orphan - most often handed to the claim a restarting helper left waiting on the server (the
+   * server cannot tell it was gone). They go back to the queue and are done now, instead of "Resuming…" for ever.
+   */
+  async requeueOrphans() {
+    const mine = this.api.key ? String(this.api.key).replace(/^ak_/, '').split('.')[0] : null;
+    const all = await this.api.call('GET', '/board/helper-commands').catch(() => []);
+    for (const c of Array.isArray(all) ? all : all?.commands ?? []) {
+      if (c.state !== 'TAKEN' || (mine && c.helperKeyId !== mine)) continue;
+      await this.api.call('PUT', `/board/helper-commands/${c.id}`, { body: { state: 'QUEUED', result: 'the helper restarted - done again' } })
+        .then(() => log(`↺ ${c.kind} back in the queue (taken before a restart)`)).catch(() => {});
+    }
+  }
+
   async loop() {
     let beat = null;
     const tick = () => this.heartbeat().catch((e) => log(`heartbeat failed: ${e.message}`));
     await tick();
+    await this.requeueOrphans();
     beat = setInterval(tick, HEARTBEAT_MS);
     log(`helper ${VERSION} for ${this.server} as ${this.machine} - waiting for commands`);
     try {

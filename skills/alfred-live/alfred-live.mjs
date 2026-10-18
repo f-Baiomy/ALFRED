@@ -1009,6 +1009,15 @@ export class Runner {
     const chatAlive = this.o.chatPid ? alive(Number(this.o.chatPid)) : true;
     if (!chatAlive && this.lastChatAlive) this.o.log('  ⚠ the chat that started this runner seems closed - the board says so; ▶ runs wait for it');
     this.lastChatAlive = chatAlive;
+    // a runner whose chat stays closed ends: nobody reads its answers there, and the board kept saying "Answering you"
+    // for a day after the terminal was gone
+    this.chatGoneAt = chatAlive ? null : this.chatGoneAt ?? Date.now();
+    if (!stopped && !this.stopped && chatGone(this.chatGoneAt, this.o.chatGoneMs)) {
+      this.say(`● The chat that started this runner has been closed for ${Math.round((Date.now() - this.chatGoneAt) / 60_000)} min - stopping.`
+        + ' Run /alfred-live again from an open chat to answer the board.');
+      this.stop();
+      return Promise.resolve(null);
+    }
     return this.o.alfred.call('PUT', '/board/live-runner', {
       body: { project: this.o.project ?? '', host: this.o.host ?? hostname(), model: this.o.model ?? null, stopped, kind: this.o.kind ?? 'live',
         ...(this.o.chatId && this.o.cycleId ? { cycleId: this.o.cycleId, chatId: this.o.chatId, cwd: this.o.cwd ?? null, chatAlive,
@@ -1405,6 +1414,14 @@ export function writers(f) {
     return String(line).split('\n').map((l) => `${t} ${l}`).join('\n') + '\n';
   };
   return { log: (line) => appendFileSync(f.log, stamp(line)), chat: (line) => appendFileSync(f.chat, String(line).replace(/\s*\n\s*/g, ' ') + '\n') };
+}
+
+/** How long a runner keeps going after the chat that started it closed (a restart of the terminal comes back sooner). */
+export const CHAT_GONE_MS = 30 * 60_000;
+
+/** The chat closed at {@code since} has been gone long enough for its runner to end. */
+export function chatGone(since, ms = CHAT_GONE_MS) {
+  return since != null && Date.now() - since >= ms;
 }
 
 export function alive(pid) {

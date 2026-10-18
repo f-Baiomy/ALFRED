@@ -338,3 +338,63 @@ test("session records go to the account Claude Desktop is signed in with now, ev
   assert.equal(desktopAccount(root, home).email, 'me@x.ae'); // Claude Code's own account
   assert.equal(desktopAccountDir(root, undefined), work); // an older Desktop: the newest record wins
 });
+
+test("a turn gives Claude its prompt on stdin and allows only Alfred's own MCP tools by name", () => {
+  const dir = tmp();
+  const out = join(dir, 'out.json');
+  writeFileSync(join(dir, 'fake.mjs'), `import { writeFileSync, readFileSync } from 'node:fs';
+writeFileSync(${JSON.stringify(out)}, JSON.stringify({ argv: process.argv.slice(2), stdin: readFileSync(0, 'utf8') }));
+process.stdout.write('done');`);
+  let claude;
+  if (process.platform === 'win32') {
+    claude = join(dir, 'claude.cmd');
+    writeFileSync(claude, `@"${process.execPath}" "%~dp0fake.mjs" %*\r\n`);
+  } else {
+    claude = join(dir, 'claude');
+    writeFileSync(claude, `#!/bin/sh\nexec "${process.execPath}" "$(dirname "$0")/fake.mjs" "$@"\n`);
+    spawnSync('chmod', ['+x', claude]);
+  }
+  const h = quietHelper({ server: 'http://a:3000', api: new FakeApi(), machine: 'PC', mcp: 'alfred-docker', claude });
+
+  const said = h.turn('11111111-2222-3333-4444-555555555555', '/alfred-resume "AB#1" & more', { create: true, cwd: dir });
+
+  assert.equal(said, 'done');
+  const seen = JSON.parse(readFileSync(out, 'utf8'));
+  assert.equal(seen.stdin, '/alfred-resume "AB#1" & more');
+  assert.deepEqual(seen.argv, ['-p', '--session-id', '11111111-2222-3333-4444-555555555555', '--allowedTools', 'mcp__alfred-docker__*', 'Read', 'Grep', 'Glob']);
+});
+
+test('a START whose first turn fails leaves the session gone, not starting', async () => {
+  const repo = tmp();
+  const api = new FakeApi({ projects: [{ project: 'odeysys', machine: 'PC', folder: repo, openIn: 'BACKGROUND', worktrees: false }] });
+  const h = quietHelper({ server: 'http://a:3000', api, machine: 'PC', mcp: 'alfred', primary: true });
+  h.turn = () => { throw new Error('claude exited 1: Error: Input must be provided'); };
+
+  await assert.rejects(h.handle({ kind: 'START', boardId: 'b1', project: 'odeysys', args: '{}' }), /claude exited 1/);
+
+  const reports = api.calls.filter((c) => c.path === '/board/sessions' && c.method === 'PUT');
+  assert.deepEqual(reports.map((r) => r.body.state), ['STARTING', 'GONE']);
+  assert.equal(reports[1].body.boardId, 'b1');
+  assert.equal(h.sessions.size, 0);
+});
+
+test("on start, commands this helper's key took before a restart go back to the queue - never another helper's", async () => {
+  const api = new FakeApi();
+  api.call = async function (method, path, o = {}) {
+    this.calls.push({ method, path, body: o.body });
+    if (path === '/board/helper-commands' && method === 'GET') {
+      return [
+        { id: 'c1', kind: 'RESUME', state: 'TAKEN', helperKeyId: '0123456789abcdef' },
+        { id: 'c2', kind: 'START', state: 'TAKEN', helperKeyId: 'fedcba9876543210' },
+        { id: 'c3', kind: 'STOP', state: 'DONE', helperKeyId: '0123456789abcdef' },
+      ];
+    }
+    return {};
+  };
+  const h = quietHelper({ server: 'http://a:3000', api, machine: 'PC' });
+
+  await h.requeueOrphans();
+
+  const puts = api.calls.filter((c) => c.method === 'PUT');
+  assert.deepEqual(puts.map((c) => [c.path, c.body.state]), [['/board/helper-commands/c1', 'QUEUED']]);
+});

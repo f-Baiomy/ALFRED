@@ -149,7 +149,8 @@ export class SessionsStateService {
 
   currentSession(boardId: string | null | undefined): BoardSessionRow | null {
     if (!boardId) return null;
-    const all = this.sessions().filter((s) => s.boardId === boardId);
+    // a GONE session never started (or its transcript is lost): the board has no session to resume
+    const all = this.sessions().filter((s) => s.boardId === boardId && s.state !== 'GONE');
     return all.find((s) => s.current) ?? all[0] ?? null;
   }
 

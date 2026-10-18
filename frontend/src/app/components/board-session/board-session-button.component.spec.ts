@@ -81,6 +81,12 @@ describe('BoardSessionButtonComponent (specs/031)', () => {
     expect(f.nativeElement.querySelector('.main').textContent).toContain('Session on LAPTOP-2');
   });
 
+  it('offers a fresh start when the only session never started (gone), instead of resuming it', () => {
+    state.sessions.set([{ ...SESSION, state: 'GONE' }]);
+    const f = render();
+    expect(f.nativeElement.querySelector('.main').textContent).toContain('alfred-live');
+  });
+
   it('says a session of another Windows user on this same PC is not here', () => {
     state.helpers.set([{ ...HELPER, osUser: 'work' }, { ...HELPER, keyId: 'h2', osUser: 'OMEN' }]);
     state.sessions.set([{ ...SESSION, helperKeyId: 'h2' }]);
