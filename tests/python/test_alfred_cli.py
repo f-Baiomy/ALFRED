@@ -355,7 +355,8 @@ class DoctorTest(unittest.TestCase):
 
         def backend_json(layout, method, path, timeout=30, body=None):
             return (backend or {})[path]
-        usage = disk or shutil.disk_usage(self.home)
+        # a roomy disk unless a test says otherwise: the real one made these tests fail on a nearly full PC
+        usage = disk or shutil._ntuple_diskusage(500 * 2**30, 100 * 2**30, 400 * 2**30)
         out = io.StringIO()
         with mock.patch.object(alfred, "call_supervisor", call), mock.patch.object(alfred, "own_backend", lambda layout, timeout=2: own), \
                 mock.patch.object(self.layout, "settings", lambda: settings or {}), mock.patch.object(alfred, "backend_json", backend_json), \
