@@ -122,7 +122,9 @@ import { BoardPagesComponent } from '../visuals/board-pages.component';
               (click)="answering.set(questionCards()[0].id)">❓ {{ questionTotal() }} open question{{ questionTotal() === 1 ? '' : 's' }}
         on {{ questionCards().length }} card{{ questionCards().length === 1 ? '' : 's' }}</button>
     }
-    <app-next-steps-bar [project]="project()" [cycleId]="cycleId()" [cycleName]="cycleName()" [version]="state.page()" (opened)="openNumber($event)" />
+    @if (showNextSteps()) {
+      <app-next-steps-bar [project]="project()" [cycleId]="cycleId()" [cycleName]="cycleName()" [version]="state.page()" (opened)="openNumber($event)" />
+    }
     @if (showPages() && project() && !cycleId()) {
       <app-board-pages class="board-project-pages" [owner]="'project:' + project()" [canEdit]="state.editable()" [context]="{ project: project() }" />
     }
@@ -179,6 +181,8 @@ export class BoardViewComponent {
   readonly windowMode = input(false);
   /** The board page's other tabs (specs/029) hide the cards; the live strips above them stay. */
   readonly showBody = input(true);
+  /** The next-steps bar: on the project's default board and All cards; a task board's Next card owns guidance (specs/032 D1). */
+  readonly showNextSteps = input(true);
   private readonly cardMode = inject(CardViewModeService);
   readonly teamsState = inject(TeamsStateService);
   readonly noTeam = NO_TEAM;

@@ -2,6 +2,7 @@ package com.fathy.alfred.backend.board.domain.model;
 
 import com.fathy.alfred.backend.board.domain.model.BoardStage.Counts;
 import com.fathy.alfred.backend.board.domain.model.BoardStage.Stage;
+import com.fathy.alfred.backend.board.domain.model.BoardStage.StepKind;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -46,6 +47,29 @@ class BoardStageTest {
             assertThat(s.stage()).isEqualTo(Stage.CLOSE);
             assertThat(s.next()).startsWith("/alfred-report AB#61813");
         });
+    }
+
+    @Test
+    void eachBranchCarriesItsStructuredStepNextToTheUnchangedText() {
+        record Want(BoardStage s, StepKind kind, String skill, int count) {
+        }
+        java.util.List<Want> all = java.util.List.of(
+                new Want(at(false, 0, 0, 0, 0, 0, 0, 0, 0, 0), StepKind.CLAUDE, "alfred-setup", 0),
+                new Want(at(true, 0, 0, 0, 0, 0, 0, 0, 0, 0), StepKind.CLAUDE, "alfred-spec", 0),
+                new Want(at(true, 12, 5, 5, 0, 0, 0, 12, 0, 12), StepKind.CLAUDE, "alfred-triage", 5),
+                new Want(at(true, 12, 0, 2, 3, 0, 0, 12, 0, 12), StepKind.USER, null, 2),
+                new Want(at(true, 12, 0, 0, 3, 1, 0, 12, 0, 12), StepKind.CLAUDE, "alfred-fix", 4),
+                new Want(at(true, 12, 0, 0, 0, 0, 2, 12, 0, 12), StepKind.CLAUDE, "alfred-verify", 2),
+                new Want(at(true, 12, 0, 0, 0, 0, 0, 4, 0, 12), StepKind.RECORD, "alfred-listen", 4),
+                new Want(at(true, 12, 0, 0, 0, 0, 0, 0, 2, 12), StepKind.RECORD, "alfred-listen", 2),
+                new Want(at(true, 12, 0, 0, 0, 0, 0, 0, 0, 3), StepKind.CLAUDE, "alfred-verify", 3),
+                new Want(at(true, 12, 0, 0, 0, 0, 0, 0, 0, 0), StepKind.CLAUDE, "alfred-report", 0));
+        for (Want w : all) {
+            assertThat(w.s().step().kind()).as(w.s().next()).isEqualTo(w.kind());
+            assertThat(w.s().step().skill()).as(w.s().next()).isEqualTo(w.skill());
+            assertThat(w.s().step().count()).as(w.s().next()).isEqualTo(w.count());
+            assertThat(w.s().step().command()).isEqualTo(w.skill() == null ? null : "/" + w.skill() + " AB#61813");
+        }
     }
 
     @Test

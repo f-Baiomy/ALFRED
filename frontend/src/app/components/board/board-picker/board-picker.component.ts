@@ -1,7 +1,11 @@
 import { Component, DestroyRef, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { filter } from 'rxjs';
-import { BoardState, BoardSummary } from '../../../core/models/board.models';
+import { BoardStage, BoardState, BoardSummary } from '../../../core/models/board.models';
+import { SessionsStateService } from '../../../core/state/sessions-state.service';
+import { boardRefChip, plainBoardTitle } from '../../../shared/utils/board-title';
+import { shortUser } from '../../../shared/utils/claude-mode';
+import { STAGES } from '../stage-strip/stage-strip.component';
 import { BoardApiService } from '../../../core/services/board-api.service';
 import { BoardSocketService } from '../../../core/services/board-socket.service';
 
@@ -16,10 +20,8 @@ import { BoardSocketService } from '../../../core/services/board-socket.service'
   imports: [FormsModule],
   template: `
     <div class="board-pick">
-      <button type="button" class="board-picker-btn" (click)="open.set(!open())" [attr.aria-expanded]="open()" aria-haspopup="listbox">
-        <span aria-hidden="true">▦</span>
-        <b>{{ label() }}</b>
-        <span class="board-picker-sub">{{ project() || 'No project' }}{{ current()?.board?.isDefault ? ' · default' : '' }} ▾</span>
+      <button type="button" class="board-picker-btn" (click)="toggle()" [attr.aria-expanded]="open()" aria-haspopup="listbox" [title]="'Boards of ' + (project() || 'this project') + ' - now: ' + label()">
+        <span aria-hidden="true">▦</span> Boards <span class="board-picker-car">▼</span>
       </button>
       @if (open()) {
         <div class="board-picker-menu" role="listbox" aria-label="Boards">
@@ -34,9 +36,9 @@ import { BoardSocketService } from '../../../core/services/board-socket.service'
           }
           <div class="board-picker-group">Task boards</div>
           @for (b of tasks(); track b.board.id) {
-            <button type="button" class="board-picker-item" [class.on]="b.board.id === selected()" (click)="pick(b.board.id)">
-              {{ b.board.name }}
-              <small>{{ stateLabel(b.board.state) }}{{ b.linkedItem ? '◆ ' + b.linkedItem + ' · ' : '' }}{{ b.cycleIds.length }} cycles · {{ b.cards }} cards</small>
+            <button type="button" class="board-picker-item col" [class.on]="b.board.id === selected()" [title]="b.board.name" (click)="pick(b.board.id)">
+              <span>{{ refOf(b) ? refOf(b) + ' · ' : '' }}{{ titleOf(b) }}</span>
+              <small>{{ b.board.project }} · {{ stageOf(b) }}{{ stateLabel(b.board.state) ? ' · ' + stateLabel(b.board.state).replace(' · ', '') : '' }} · {{ holderOf(b) }}</small>
             </button>
           } @empty {
             <div class="board-picker-empty">No task boards yet</div>
@@ -63,9 +65,11 @@ import { BoardSocketService } from '../../../core/services/board-socket.service'
   styles: [`
     /* not .board-picker: that global class is the mention picker's popover (overflow: hidden) and cut this menu off */
     .board-pick { position: relative; display: inline-block; }
-    .board-picker-btn { display: inline-flex; gap: .45rem; align-items: center; padding: .3rem .7rem; border: 1px solid var(--border-strong);
-      border-radius: 7px; background: var(--card-inner); color: inherit; cursor: pointer; }
-    .board-picker-sub { color: var(--text-dim); font-size: .82rem; }
+    .board-picker-btn { display: inline-flex; gap: 8px; align-items: center; padding: 6px 10px; border: 1px solid var(--border);
+      border-radius: 8px; background: var(--bg-2, var(--card-inner)); color: inherit; font: inherit; font-size: 13px; white-space: nowrap; cursor: pointer; }
+    .board-picker-btn:hover { border-color: var(--border-strong); }
+    .board-picker-car { color: var(--text-faint); font-size: 10px; }
+    .board-picker-item.col { flex-direction: column; gap: 1px; }
     .board-picker-menu { position: absolute; z-index: 30; top: 2.4rem; left: 0; min-width: 320px; max-height: 70vh; overflow: auto; padding: .4rem;
       border: 1px solid var(--border-strong); border-radius: 8px; background: var(--popover-solid); box-shadow: 0 10px 30px rgba(0,0,0,.4); }
     .board-picker-group { margin: .4rem .4rem .15rem; font-size: .68rem; letter-spacing: .05em; text-transform: uppercase; color: var(--text-dim); }
@@ -120,6 +124,36 @@ export class BoardPickerComponent {
       sub.unsubscribe();
       again.unsubscribe();
     });
+  }
+
+  private readonly sessions = inject(SessionsStateService);
+  /** Each task board's stage, read when the menu opens (one request per board, on demand - never on a timer). */
+  readonly stages = signal<ReadonlyMap<string, BoardStage['stage']>>(new Map());
+
+  toggle(): void {
+    this.open.set(!this.open());
+    if (!this.open()) return;
+    for (const b of this.tasks()) {
+      this.api.stage(b.board.id).subscribe({ next: (st) => this.stages.set(new Map(this.stages()).set(b.board.id, st.stage)), error: () => undefined });
+    }
+  }
+
+  refOf(b: BoardSummary): string | null {
+    return boardRefChip(null, b.linkedItem);
+  }
+
+  titleOf(b: BoardSummary): string {
+    return plainBoardTitle(b.board.name, this.refOf(b));
+  }
+
+  stageOf(b: BoardSummary): string {
+    const st = this.stages().get(b.board.id);
+    return st ? STAGES.find((s) => s.key === st)?.label ?? st : `${b.cards} cards`;
+  }
+
+  holderOf(b: BoardSummary): string {
+    const h = this.sessions.holderOf(b.board.id);
+    return !h ? 'free' : h.user === this.sessions.user() ? 'you' : shortUser(h.user);
   }
 
   stateLabel(state: BoardState): string {

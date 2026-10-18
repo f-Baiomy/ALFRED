@@ -241,6 +241,10 @@ export interface SessionCycle {
    *  and is never listed with the session cycles. */
   readonly reliveRunId?: string | null;
   readonly reliveCycleId?: string | null;
+  /** The user's text about the cycle - what it is for, its steps (`- [ ] step`), what is expected (specs/033). */
+  readonly description?: string | null;
+  /** Claude's own note, written when a recording pauses - never mixed into the description (specs/033). */
+  readonly summary?: string | null;
 }
 
 /** POST /session-cycles/relive-runs/{runId} - the run's cycle, and whether this created it. */

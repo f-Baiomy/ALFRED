@@ -1,3 +1,4 @@
+import { BoardCycleRow, CardCycleVerdict, RecordSpec } from '../models/cycles-tab.models';
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
@@ -103,8 +104,30 @@ export class BoardApiService {
   }
 
   /** Records for a board (specs/027 FR-008): ASK answers 409 RECORDING_CONFLICT when a cycle records the project. */
-  recordForBoard(boardId: string, kind: 'REC' | 'RETEST', onRunning: 'ASK' | 'JOIN' | 'NEW'): Observable<{ cycleId: string; message: string }> {
-    return this.http.post<{ cycleId: string; message: string }>(`${this.base}/boards/${encodeURIComponent(boardId)}/record`, { kind, onRunning });
+  recordForBoard(boardId: string, kind: 'REC' | 'RETEST', onRunning: 'ASK' | 'JOIN' | 'NEW', spec?: RecordSpec): Observable<{ cycleId: string; message: string }> {
+    return this.http.post<{ cycleId: string; message: string }>(`${this.base}/boards/${encodeURIComponent(boardId)}/record`, { kind, onRunning, ...(spec ?? {}) });
+  }
+
+  /** The board's cycles with kind, ⚑ baseline, archived and the cards each re-test tests (specs/033). */
+  cycleRows(boardId: string): Observable<BoardCycleRow[]> {
+    return this.http.get<BoardCycleRow[]>(`${this.base}/boards/${encodeURIComponent(boardId)}/cycle-rows`);
+  }
+
+  /** A card's verdict in every cycle that checked it (specs/033). */
+  cardCycleVerdicts(cardId: string): Observable<CardCycleVerdict[]> {
+    return this.http.get<CardCycleVerdict[]>(`${this.base}/cards/${encodeURIComponent(cardId)}/cycle-verdicts`);
+  }
+
+  setCycleFlags(boardId: string, cycleId: string, flags: { baseline?: boolean; archived?: boolean }): Observable<unknown> {
+    return this.http.put(`${this.base}/boards/${encodeURIComponent(boardId)}/cycles/${encodeURIComponent(cycleId)}/flags`, flags);
+  }
+
+  cyclePrefs(boardId: string): Observable<{ claudeSummaries: boolean }> {
+    return this.http.get<{ claudeSummaries: boolean }>(`${this.base}/boards/${encodeURIComponent(boardId)}/cycle-prefs`);
+  }
+
+  setCyclePrefs(boardId: string, claudeSummaries: boolean): Observable<{ claudeSummaries: boolean }> {
+    return this.http.put<{ claudeSummaries: boolean }>(`${this.base}/boards/${encodeURIComponent(boardId)}/cycle-prefs`, { claudeSummaries });
   }
 
   /** Every related board's verdicts per call of one cycle; with {@code board}, only the calls that board names or mentions. */

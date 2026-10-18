@@ -46,6 +46,22 @@ class SessionsServiceTest {
     }
 
     @Test
+    void progressIsKeptOnlyWhileStarting() {
+        BoardSession s = f.sessions.report(me, new SessionsUseCase.Report(null, "b1", "odeysys", "cli-p", null, null, null,
+                BoardSession.State.STARTING, null, null, null, null, "Making the worktree"));
+        assertThat(s.progress()).isEqualTo("Making the worktree");
+        s = f.sessions.report(me, new SessionsUseCase.Report(null, "b1", null, "cli-p", null, null, null, null, null, null, null, null,
+                "Reading the task"));
+        assertThat(s.progress()).isEqualTo("Reading the task");
+        s = f.sessions.report(me, new SessionsUseCase.Report(null, "b1", null, "cli-p", null, null, null, null, null, null, null, null));
+        assertThat(s.progress()).as("a report without progress keeps the last step").isEqualTo("Reading the task");
+        s = f.sessions.report(me, new SessionsUseCase.Report(null, "b1", null, "cli-p", null, null, null,
+                BoardSession.State.ANSWERING, null, null, null, null, "ignored"));
+        assertThat(s.progress()).isNull();
+        assertThat(f.store.session(s.id()).orElseThrow().progress()).isNull();
+    }
+
+    @Test
     void aReportUpdatesTheSameSessionByItsClaudeId() {
         BoardSession a = f.sessions.report(me, report("b1", "cli-a"));
         BoardSession again = f.sessions.report(me, new SessionsUseCase.Report(null, "b1", null, "cli-a", null, null, null,

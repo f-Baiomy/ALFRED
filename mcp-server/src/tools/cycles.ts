@@ -163,6 +163,25 @@ export function register(server: McpServer, client: AlfredClient): void {
     return ok(await client.patch<SessionCycle>(`/session-cycles/${seg(cycle.id)}`, { body: { name: input.name } }));
   }));
 
+  server.registerTool('cycle_summary', {
+    description: "Write Claude's summary of a session cycle (specs/033): 2-4 sentences under the user's description - which cards "
+      + 'pass, what still fails (with the call and the line), what was not reached. Never changes the description; replaces '
+      + "your earlier summary. Refused when the user switched Claude's summaries off on the board.",
+    inputSchema: {
+      cycleId: z.string().min(1),
+      summary: z.string().min(1).max(8000),
+      board: z.string().min(1).max(200).optional().describe("The board you write it for - its \"Claude's summaries\" switch is checked"),
+    },
+  }, (input) => run(async () => {
+    const cycle = await requireCycle(client, input.cycleId);
+    if (input.board) {
+      const prefs = await client.get<{ claudeSummaries: boolean }>(`/board/boards/${seg(input.board)}/cycle-prefs`).catch(() => ({ claudeSummaries: true }));
+      if (!prefs.claudeSummaries) throw invalid("The user switched Claude's cycle summaries off on this board - write nothing");
+    }
+    const saved = await client.put<SessionCycle>(`/session-cycles/${seg(cycle.id)}/notes`, { body: { summary: input.summary } });
+    return ok({ cycleId: saved.id, summary: saved.summary });
+  }));
+
   server.registerTool('start_recording', {
     description: 'Start recording a session cycle: new calls are captured into it until stop_recording. One project records into one '
       + 'cycle at a time: when another cycle of the same project records, onRunning ASK (default) answers RUNNING - ask the '

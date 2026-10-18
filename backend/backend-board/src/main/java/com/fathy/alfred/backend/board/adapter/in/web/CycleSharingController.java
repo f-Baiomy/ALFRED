@@ -43,7 +43,7 @@ public class CycleSharingController {
         return ResponseEntity.ok(deletePlan.plan(cycleId));
     }
 
-    record RecordDto(String kind, String onRunning) {
+    record RecordDto(String kind, String onRunning, java.util.List<Integer> cards, String name, String description) {
     }
 
     /** Records for a board (FR-008): 200 {cycleId}, or 409 {running} when ASK meets a cycle recording the project. */
@@ -58,7 +58,9 @@ public class CycleSharingController {
         } catch (IllegalArgumentException e) {
             return BoardWeb.refused(com.fathy.alfred.backend.board.domain.model.CardChange.Outcome.INVALID, "kind is REC or RETEST; onRunning ASK, JOIN or NEW");
         }
-        return record.record(BoardWeb.actor(actor), id, kind, how).<ResponseEntity<?>>map(r -> {
+        RecordForBoardUseCase.Spec spec = body == null ? RecordForBoardUseCase.Spec.NONE
+                : new RecordForBoardUseCase.Spec(body.cards(), body.name(), body.description());
+        return record.record(BoardWeb.actor(actor), id, kind, how, spec).<ResponseEntity<?>>map(r -> {
             if (r.conflict()) {
                 return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "RECORDING_CONFLICT", "message", r.message(), "running", r.running()));
             }

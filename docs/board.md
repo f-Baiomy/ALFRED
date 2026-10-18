@@ -244,12 +244,39 @@ no brief → DEFINE (`/alfred-setup`); a brief but no Acceptance item and no car
 failing or not tested by the calls → TEST; items the user has not marked → VERIFY; else CLOSE (`/alfred-report`).
 `task_context` prints the same STAGE / NEXT and `/alfred-guide` reads it, so all three agree.
 
-The **stage strip** (`StageStripComponent`, between the related strip and the tabs, never on a default board) shows
-the seven stages with the current one marked and the next step with ⧉ Copy. At DEFINE with no brief it shows **Not
-defined yet** with `/alfred-setup <ref>` and **Ask Claude in chat**, which posts that command as the user's message to
-the board's chat - enabled only while someone answers it (a terminal holding the board, or the project's live runner).
-New board posts nothing; ▶ Start is New board + that message in one click. For a board with a main item the strip
-also has **↻ Refresh from Azure** (docs/team.md "Refresh from Azure"). It re-reads on `/ws/board` signals - no timer.
+The stage also comes structured: `step` = `{kind, skill, command, count}` - `CLAUDE` (a skill Claude runs, e.g.
+`alfred-triage` with the 4 Inbox cards), `RECORD` (Test: record, then `/alfred-listen`) or `USER` (questions and
+proposals only the user answers), with the number the step is about. `task_context` prints it as a `STEP:` line under
+NEXT. The `next` text is kept unchanged for older readers.
+
+### The board header (specs/032)
+
+A task board's page opens with one header that answers "what is this, where does it stand, what do I do next" - mock
+and prototype: `specs/032-board-header/mock.html`, `prototype.html`. Every part reads the one `GET .../stage` (D1).
+
+- **One row**: **▦ Boards ▾** (each board as "<ref> · <plain title>" with "<project> · <stage> · <holder or free>"
+  under it - the stages read when the menu opens), the **AB#<id>** chip, the plain title (`plainBoardTitle`: the
+  `#<id>_<code>_` prefix dropped, the full name in the tooltip), the project, **● Open ▾** (`BoardStateMenuComponent`:
+  Mark done, Archive, Reopen, Delete board… - each with what it does; delete still confirms), 💬 Chat and the **Claude
+  button**. Under 1150 px the title takes its own line.
+- **Facts line** (`BoardFactsComponent`): "Work item <type> · <state>", the cards, "⚑ N wait on you" (opens the first),
+  the stage's own count in amber ("2 Fixed waiting") and **Azure ▾**: ↻ Refresh from Azure (docs/team.md "Refresh
+  from Azure"), ⇩ Fetch attachments, ↗ Open in Azure. Results go to the **banner** under it (`BoardBannerService`:
+  one line, replaced by the next, dismissed by the user).
+- **Stage line** (`StageStripComponent`): the seven stages as circles joined by lines - done ✓ green, the current one
+  filled with its number - and from Code on the Coded → Done ladder (`phaseOf`, from the Task tab's data) on the right.
+  It only shows where the task stands.
+- **Next card** (`NextStepCardComponent`): the step in plain words (`stage-copy.ts` words the backend's step - it never
+  decides one), one primary button - "▶ Ask Claude to <verb>" when Claude is on (a skill run in the board's session, or
+  the board chat for a terminal `/alfred-live`), "▶ Resume Claude and <verb>" / "▶ Start Claude and <verb>" (the
+  Claude button starts it with the step to follow: `thenRun` on START and RESUME), "● Record and watch while I test",
+  or "Open them" for the user's own step - then **⧉ Copy for terminal** (the exact command) and **Other steps ▾** (every
+  step, plus Continue on another machine = `/alfred-resume <ref>`).
+- **Recording line** (`RecordLineComponent`): ● Record, or "● Recording · N calls" with Stop. The board's cycles and
+  related boards (the old related strip) are on the **Cycles** tab.
+
+The project's default board shows only the header row and its cards (with the next-steps bar); the live strip shows a
+row only while Claude works - a run, or watching a recording - never an idle "no chat" or "stopped" line.
 
 **Defining** (`/alfred-setup <board>`): one draft - brief, spec, evidence, test steps, data, decisions and the cards (a
 BUG per Bug child with a reproduce scenario, a TASK per Task child and per Acceptance item no task covers, a QUESTION
@@ -265,12 +292,10 @@ with `TaskViewComponent` (redesigned in specs/024). Everything comes from what `
 comments, checklist, requirement verdicts, cards, steps, session log) and is derived in `shared/utils/task-view.ts`.
 It re-fetches on each `/ws/board` signal and never polls.
 
-- **The header, always shown**: the ticket and branch chips, the title (the brief's goal line), **▶ Next** - the one
-  step that fits where the task stands, in plain words with its run button (`nextStepOf`: no requirements → Write the
-  requirements, a bug or missing item → Fix the bug, a fix in → Re-test the fix, Claude suggestions → open them, all
-  done → Hand-over report, else Check while I test) - and **Run ▾** with every skill in plain words plus **Continue
-  anywhere** (`/alfred-resume <task>`). Below them the phase stepper (Coded → Verifying → Fixed → Re-tested →
-  Done, each with its meaning on hover) and the verdict ("does the code match the task?") with a bar coloured by group.
+- **The top of the Task tab**: the ticket and branch chips, the work item (with "changed · Review" and Fetch
+  attachments) and the verdict ("does the code match the task?") with a bar coloured by group. The title, the next step
+  and the Coded → Done ladder are the board header's (specs/032) - the view only emits `phaseChange` for the ladder;
+  there is no second next-step rule.
 - **Needs you**: one strip of everything waiting on the user, each item leading where it is dealt with - Claude's
   suggestions to accept, failed requirements, fixes to re-test, requirements not checked, Claude's questions on the
   brief, cards with a question / proposal / waiting on the user, test steps not done (`needItems`).
@@ -695,6 +720,37 @@ clean, with no model and nobody in the way. A feature the calls show is not buil
 - Versions: the tables are new; verdicts and results are read tolerantly (a later value reads as UNKNOWN), and no
   `Flag`, `Actor` or card field was added, so a board exported from this version imports into an older Alfred.
 
+## The Cycles tab (specs/033)
+
+One compact row per cycle of the board, three lines when closed: the name; one line of facts (● REC or when and how
+long, ↻ re-test, the cards it tests as number chips coloured by their verdict in it, calls · failed, AC met/total,
+shared · N, "vs baseline: …", a status strip of its calls); the description's first line. A click opens it in place:
+**Overview** (the description with its steps, Claude's summary apart from it, the cards with verdicts, hot spots,
+facts with ◆ SQL counts, "Ask Claude about this cycle"), **Story** (its calls grouped by spacers through
+`layoutSpacers`, else by pauses over 90 s, the failing step open), **Calls**, **Requirements**.
+
+- **Re-test cards…** (● Record ▾): pick cards (Fixed ticked); the cycle is named after them by `CycleNaming` - one card
+  `Re-test #76 · <title>`, several `Re-test #76 #81 #83 · 3 cards` (`+N` past three) - related to each
+  (`card_cycles`) and described. `POST /board/boards/{id}/record` takes `cards`, `name`, `description`.
+- **Description and summary** live on the cycle (`session_cycles.description` / `summary`, `PUT
+  /session-cycles/{id}/notes`; a missing field is left alone, "" clears it; rename and status keep them). Steps are
+  `- [ ] text`; one naming `METHOD /path` (a trailing `*` matches a prefix) ticks itself when a call to it succeeded;
+  `[x]` / `[-]` are the user's own marks and win. Claude writes only the summary (`cycle_summary`), when a recording
+  it answers for pauses (a queued run, only while a runner answers the board) - switched off per board with
+  "Stop Claude's summaries" (`/board/boards/{id}/cycle-prefs`).
+- **The board's choices about a cycle** are on its link (`board_cycles.kind`, `baseline`, `archived`): one ⚑ baseline
+  per board, used by Compare and "vs"; Archive hides a cycle and keeps everything (Restore under "N archived").
+- **What a cycle caught**: `GET /session-cycles/{id}/summary` counts the captured calls of both directions without
+  bodies - calls, failed (4xx/5xx or an error), endpoints (METHOD + path), hosts (the environment tag and filter), the
+  last 300 calls in time order. Compare (two cycles, the older or the baseline first) is computed in the browser from
+  two summaries: totals, status changed, slower by more than half, only in one.
+- **A card's timeline**: a click on a card chip shows every cycle that checked it, oldest first
+  (`GET /board/cards/{id}/cycle-verdicts`, the card's re-test check per cycle).
+- **Kept quiet**: nothing opens unless clicked; "N fixed after the last re-test" is one line, hidden per card until
+  another card is fixed; "Pause the recording?" shows once per cycle when every card it tests was checked and never
+  pauses by itself; keys (↑ ↓ Enter Space o ? Esc) never fire while typing. Rows reload on the board and
+  session-cycle signals - no timer.
+
 ## Cleaning up after a cycle
 
 Deleting a session cycle always removes its board brief, spec files, checklist marks and suggestions, session log and
@@ -824,7 +880,7 @@ are this browser's own (localStorage, try/catch). On a cycle's page the chats fo
   session marker (`chatSessionId` = `forkedFrom` = the terminal's id) says so: the header shows "Answered by your
   terminal", there is nothing to catch up and nothing is mirrored back. A busy terminal: messages wait. A closed one:
   "Terminal offline - messages wait" - Alfred never starts or resumes a session itself, except when the user presses
-  ▶ alfred-live (its own button, through their helper - "Board sessions" below). The newest `/alfred-live` for a
+  ▶ Start Claude (its own button, through their helper - "Board sessions" below). The newest `/alfred-live` for a
   cycle takes it over: the old session gets `↪ handed over` in its log and stops listening, the messages it held are
   queued again for the new one, which starts from the chat's summary and the brief. Cards of other cycles and the
   project chat stay with the project's live runner, answered as before (a fork, below, still applies to an older runner).
@@ -955,20 +1011,20 @@ On the running Docker stack (2026-10-10 quickstart walk-through), a change made 
 ## Board sessions (specs/031)
 
 One Claude Code session per board (and one for the project chat, whose board is `default:<project>`), started from the
-board's **▶ alfred-live** button, run on the user's own PC by their **Alfred helper**, shown in Claude Desktop and
+board's **Claude button** (▶ Start Claude), run on the user's own PC by their **Alfred helper**, shown in Claude Desktop and
 resumable in a terminal. The board's chat, its card comments and every ▶ run go to that session. Mock and plan:
 `specs/031-board-sessions/mock.html`, `plan.md`; the helper: docs/server.md "The helper".
 
 **Who is who.** Alfred has no logins. A user is the Claude account their PC is signed in with, registered by the helper
 on that PC: one key per PC, given once, kept by Alfred only as a SHA-256 (`backend-sessions`, `sessions.db`). The normal
-way in is **⬇ Connect this PC** (▶ alfred-live or 👤 Me): one downloaded file, run once, installs the helper, the skills
+way in is **⬇ Connect this PC** (▶ Start Claude or 👤 Me): one downloaded file, run once, installs the helper, the skills
 and Alfred's MCP server and pairs that browser - docs/server.md "Connect this PC". The browser keeps its own key
 (localStorage) and sends it as `X-Alfred-Key` with every request (`alfredKeyInterceptor`, Alfred's origin only). Another
 browser on a connected PC may also pair by code: `alfred helper pair` shows six digits for two minutes, entered in 👤 Me;
 five wrong codes burn the open one, at most 30 wrong codes a minute in all. Connecting or installing again on the same PC
 replaces its key; its browsers and sessions move to the new one.
 
-**The board lock.** ▶ alfred-live (or a listen) takes a free board: its **holder** is that user. While held, every /board
+**The board lock.** ▶ Start Claude (or a listen) takes a free board: its **holder** is that user. While held, every /board
 write on it - chat messages, card edits and moves, comments, brief, spec, ▶ runs, asks, and other users' Claude through
 MCP - is refused with **409 HELD** unless it carries one of the holder's keys (any of their PCs and browsers).
 `backend-app/boardbridge/BoardLockInterceptor` runs after the edit rule (IP, tunnel) and finds the board(s) a write is
@@ -979,10 +1035,10 @@ write naming no board (teams, widgets, storage, an undo token, import) is no sin
 sessions' own plumbing (keys, holders, sessions, helper commands, runner heartbeats and claims) is never locked, so a held
 board can always be asked for. A board nobody holds is written exactly as before. Reads are never locked.
 
-- **Ask, hand over, release, keep.** Another user sees "🔒 Held by …" and can only ask (`POST /board/holders/request`,
+- **Ask, hand over, release, keep.** Another user sees "🔒 <name>'s Claude" and can only ask (`POST /board/holders/request`,
   with a note). The holder gets the request on the button (and a toast from their helper) and answers: **Hand over**
   (their session writes a handover note card first, then the requester holds the board and their ▶ starts with
-  `/alfred-resume`, which reads it), **Release** (free for whoever starts first) or **Keep**.
+  `/alfred-resume`, which reads it), **Hand it back** (free for whoever starts first) or **Keep**.
 - **Away rule** (My settings): when the holder's helpers have been quiet longer than they allowed, a request is accepted
   at once or the board released.
 - **Commenters** (Boards I hold): named users may comment on cards; their chat messages wait in the holder's queue
@@ -1000,19 +1056,38 @@ one turn (`claude -p --session-id <new id> "/alfred-resume <board>"`, read-only 
 `/alfred-live` runner for it (`--chat <session id>`: answers in forks of the session) and reports the session
 (`PUT /board/sessions`). With "open in Claude Desktop" it writes the record the official `/desktop` command writes
 (`local_<id>`, adopted from another surface): **Desktop shows it after a restart** and asks once to trust each folder
-(spikes S1-S3, plan.md). Its menu: open in Desktop, open in a terminal (`claude --resume <id>`), sync, listen to a cycle
-(a background lane on the same PC, forks only), a new session, switch session, stop answering (the session is kept),
-release, audit.
+(spikes S1-S3, plan.md). While it starts, the helper
+reports what it does (`progress`: Making the worktree, Reading the task, Starting to answer the board, Opening in Claude
+Desktop) as the button's tooltip; a start that fails is reported GONE and the button says "⚠ Claude didn't start" with
+the reason in plain words (`failure-line.ts`) and ↻ Try again.
+
+**The Claude button** (specs/032 D4, `claudeView` in `shared/utils/claude-mode.ts` - the Next card reads the same one):
+▶ Start Claude · ◌ Starting Claude… / Resuming… / Pausing… / Handing back… / Waiting for your PC… · ● Claude on ·
+▶ Resume Claude · ⚠ Claude didn't start · 🔒 <name>'s Claude · Claude on <PC> · ● Claude on · terminal. ▾ opens its
+panel, which closes on an outside click or Escape, never on mouseleave. On: ⏸ Pause Claude and ↩ Hand the board back on
+top, then See the conversation (Open in Claude Desktop - with "Restart Desktop" when it is not in Desktop's list - and
+Open in a terminal), While you test (Watch a recording / Stop watching), This session (Start fresh, Earlier sessions),
+and Who did what, Copy session id, My settings. Paused: Resume and catch up on N messages (RESUME reads them first with
+`/alfred-resume` - no separate sync), Hand back, Start fresh, Read it in Claude Desktop. Start, with no folder for the
+project on this PC: the folder (Browse… opens a folder window on the PC), where to show the conversation, asked once.
+
+**Pause and Hand back** (D5/D6). ⏸ Pause = `STOP`: the button says Pausing… at once; a PC still busy after 4 s gets
+"Waiting for your PC to pause Claude"; then the banner says "Claude is paused" with Resume now. With the PC offline the
+STOP waits there and the banner says so, offering Hand back instead. ↩ Hand back asks first (what happens, and "Leave a
+note for whoever continues", on by default) and sends `RELEASE` to the PC: Claude writes a **Handover note** card, the
+runner stops, the session is reported STOPPED and the board is released - one action. With the PC offline Alfred
+releases the board itself ("Handed back without a note"). Every refusal shows the server's message - never a silent
+`error: () => undefined`.
 
 **One writer per session.** While a session is open in Desktop or a terminal (a `claude` process naming it, not `-p`),
 the helper never writes a turn into it - two writers fork the transcript. Board answers then come from the runner's
 forks as always, and the user can run `/alfred-live` in that window to answer there.
 
-**Somewhere else.** A board whose session lives on another PC shows "Session on WORK-PC"; its popup offers: resume it
+**Somewhere else.** A board whose session lives on another PC shows "Claude on WORK-PC"; its popup offers: resume it
 there (that PC's helper is online), **continue here from Alfred's copy** (a new session started with `/alfred-resume`,
 which reads the brief, decisions and chat), pick another of the board's sessions, or enter any local session id
 (`ATTACH`). Moving a transcript between PCs is not built.
 
 **Routing.** Board chat, card comments, ✦ asks and ▶ runs on a board → the board's session; the project chat and
-off-board asks → the project session. A ▶ on a board with no session offers "Start this board's session on <PC> and run
+off-board asks → the project session. A ▶ on a board with no session offers "▶ Start Claude on <PC> and run
 it" (the helper queues the run once the session answers).

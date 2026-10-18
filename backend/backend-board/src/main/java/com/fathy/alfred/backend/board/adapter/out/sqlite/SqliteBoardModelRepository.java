@@ -139,6 +139,44 @@ public class SqliteBoardModelRepository implements BoardModelStorePort {
     }
 
     @Override
+    public List<com.fathy.alfred.backend.board.domain.model.BoardCycleLink> cycleLinks(String boardId) {
+        return jdbc.query("SELECT cycle_id, kind, baseline, archived, related_at FROM board_cycles WHERE board_id = ? ORDER BY related_at LIMIT " + RELATIONS,
+                (rs, i) -> new com.fathy.alfred.backend.board.domain.model.BoardCycleLink(rs.getString(1), rs.getString(2), rs.getInt(3) == 1,
+                        rs.getInt(4) == 1, Instant.ofEpochMilli(rs.getLong(5))), boardId);
+    }
+
+    @Override
+    public boolean setCycleKind(String boardId, String cycleId, String kind) {
+        return jdbc.update("UPDATE board_cycles SET kind = ? WHERE board_id = ? AND cycle_id = ?", kind, boardId, cycleId) > 0;
+    }
+
+    @Override
+    public boolean setCycleFlags(String boardId, String cycleId, Boolean baseline, Boolean archived) {
+        Boolean done = tx.execute(s -> {
+            Integer has = jdbc.queryForObject("SELECT COUNT(*) FROM board_cycles WHERE board_id = ? AND cycle_id = ?", Integer.class, boardId, cycleId);
+            if (has == null || has == 0) {
+                return false;
+            }
+            if (Boolean.TRUE.equals(baseline)) {
+                jdbc.update("UPDATE board_cycles SET baseline = 0 WHERE board_id = ?", boardId);
+            }
+            if (baseline != null) {
+                jdbc.update("UPDATE board_cycles SET baseline = ? WHERE board_id = ? AND cycle_id = ?", baseline ? 1 : 0, boardId, cycleId);
+            }
+            if (archived != null) {
+                jdbc.update("UPDATE board_cycles SET archived = ? WHERE board_id = ? AND cycle_id = ?", archived ? 1 : 0, boardId, cycleId);
+            }
+            return true;
+        });
+        return Boolean.TRUE.equals(done);
+    }
+
+    @Override
+    public List<String> cardsOfCycle(String cycleId) {
+        return jdbc.queryForList("SELECT card_id FROM card_cycles WHERE cycle_id = ? LIMIT " + RELATIONS, String.class, cycleId);
+    }
+
+    @Override
     public List<String> boardsOfCycle(String cycleId) {
         return jdbc.queryForList("SELECT board_id FROM board_cycles WHERE cycle_id = ? ORDER BY related_at LIMIT " + RELATIONS,
                 String.class, cycleId);
@@ -277,6 +315,11 @@ public class SqliteBoardModelRepository implements BoardModelStorePort {
     @Override
     public void markDone(String step) {
         jdbc.update("INSERT OR REPLACE INTO board_meta(key, value) VALUES (?, '1')", step);
+    }
+
+    @Override
+    public void unmark(String key) {
+        jdbc.update("DELETE FROM board_meta WHERE key = ?", key);
     }
 
     @Override

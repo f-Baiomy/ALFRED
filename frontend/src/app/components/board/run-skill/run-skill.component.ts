@@ -69,10 +69,10 @@ type View = 'idle' | 'copy' | 'start' | 'sending' | 'sent' | 'busy' | 'closed' |
           <div class="run-dialog-head">No chat is handling {{ cycleLabel() }} yet</div>
           <!-- specs/031: one click - the user's helper starts the board's session on their PC and the run follows -->
           @if (sessions.paired() && sessions.targetHelper(); as pc) {
-            <div class="run-dialog-row"><button type="button" class="board-copy primary" (click)="startSessionAndRun()">▶ Start this board's session on {{ pc.machine }} and run it</button></div>
+            <div class="run-dialog-row"><button type="button" class="board-copy primary" (click)="startSessionAndRun()">▶ Start Claude on {{ pc.machine }} and run it</button></div>
             <div class="run-dim">Or start one yourself:</div>
           } @else {
-            <div class="run-dim">Pair this browser with your Alfred helper (<a href="/me">My settings</a>) and ▶ starts the board's session on your PC for you. Or start one yourself:</div>
+            <div class="run-dim">Pair this browser with your Alfred helper (<a href="/me">My settings</a>) and ▶ starts Claude on your PC for you. Or start one yourself:</div>
           }
           <div class="run-dim">Board requests run in the Claude Code chat that listens on this cycle - with its context, model and account.</div>
           <ol class="run-steps">

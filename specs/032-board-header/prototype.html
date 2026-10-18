@@ -364,7 +364,7 @@ function bannerHtml() {
     <span class="spacer"></span><button class="btn" data-act="pause">↻ Try again</button><button class="btn ghost" data-act="askRelease">Hand back instead</button><button class="btn ghost" data-act="dismiss">✕</button></div>`;
   if (b === 'pauseWait') return `<div class="banner wait"><span class="spin" style="color:var(--amber)"></span><span><b>Waiting for your PC</b> to pause Claude - it finishes the answer it is writing first (up to a minute).</span></div>`;
   if (b === 'paused') return `<div class="banner ok">⏸ <span><b>Claude is paused.</b> Messages you send now wait. <b>▶ Resume</b> continues the same conversation.</span><span class="spacer"></span><button class="btn" data-act="resume">▶ Resume now</button><button class="btn ghost" data-act="dismiss">✕</button></div>`;
-  if (b === 'released') return `<div class="banner ok">↩ <span><b>You handed the board back.</b> Claude stopped answering; your session is kept${S.note ? ' and it left a note on where things stand in the brief' : ''}. Anyone may take the board now.</span><span class="spacer"></span><button class="btn" data-act="takeBack">Take it again</button><button class="btn ghost" data-act="dismiss">✕</button></div>`;
+  if (b === 'released') return `<div class="banner ok">↩ <span><b>You handed the board back.</b> Claude stopped answering; your session is kept${S.note ? ' (and it left a Handover note)' : ''}. Anyone may take the board now.</span><span class="spacer"></span><button class="btn" data-act="takeBack">Take it again</button><button class="btn ghost" data-act="dismiss">✕</button></div>`;
   if (b === 'releaseFail') return `<div class="banner bad">⚠ <span><b>Couldn't hand the board back:</b> Alfred said "Nobody holds this board" - someone may have taken it already. Reload to see who holds it now.</span><span class="spacer"></span><button class="btn" data-act="dismiss">OK</button></div>`;
   return '';
 }
@@ -376,7 +376,7 @@ function dialogHtml() {
     <ul><li><b>Claude stops answering</b> this board on LAPTOP-34BNETR7.</li>
       <li><b>Your session is kept</b> - you or anyone can continue it later from Earlier sessions.</li>
       <li><b>Anyone may take the board</b> and write on it; until then it is free.</li></ul>
-    <label class="chk"><input type="checkbox" id="noteChk" ${S.note ? 'checked' : ''}><span>Leave a note for whoever continues<small>Claude writes where things stand and the next step into the brief before it stops</small></span></label>
+    <label class="chk"><input type="checkbox" id="noteChk" ${S.note ? 'checked' : ''}><span>Leave a note for whoever continues<small>Claude writes where things stand and the next step as a Handover note card before it stops</small></span></label>
     <div class="df"><button class="btn ghost lg" data-act="closeDlg">Cancel</button><button class="btn primary lg" data-act="release">↩ Hand back</button></div>
   </div></div>`;
 }
@@ -479,7 +479,7 @@ document.addEventListener('click', (e) => {
     case 'stopWork': S.working = null; render(); log('Stopped this run. Claude stays on for the next message.'); break;
     case 'release':
       S.note = !!$('noteChk')?.checked; S.dialog = null; S.open = null; S.claude = 'releasing'; render();
-      log(`<b>Handing back…</b>${S.note ? ' Claude writes its note into the brief, then' : ''} the session stops and the board is freed.`);
+      log(`<b>Handing back…</b>${S.note ? ' Claude writes a Handover note card, then' : ''} the session stops and the board is freed.`);
       setTimeout(() => { S.claude = 'none'; S.firstStart = false; S.listen = false; S.working = null; S.banner = 'released'; render();
         log('<b>Handed back</b>: a green banner confirms it, with Take it again. Your session is kept in Earlier sessions.'); }, 1500); break;
     case 'audit': log('<b>Who did what</b>: every write on this board - who, from which PC, browser or session.'); break;

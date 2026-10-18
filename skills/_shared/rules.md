@@ -28,6 +28,10 @@ work stands, and nothing depends on a conversation that is gone.
   from `board_boards`) or a `cycleId`; a cycle on several boards answers with the boards to pick - ask the user which,
   never guess. A finding goes to the board whose requirement the call shows (`board_home`), and a card lives on one
   home board, shown as related on the others.
+- **A cycle's description is the user's** (specs/033): what it is for, its steps (`- [ ] Search POST /api/search` -
+  a step with an endpoint ticks itself), what is expected; `get_cycle` shows it first - read it before judging the
+  cycle. Never change it. Your own note goes in `cycle_summary` (2-4 sentences, when asked or when a recording you
+  answer for pauses); it is refused when the user switched summaries off - then write nothing.
 - **Naming a board** (specs/030): every skill and task tool takes the board as `AB#<id>` (the board whose MAIN item is
   that work item; also `<conn>/<id>` or the item's URL), its name or a unique name prefix, or its id - and a cycle id or
   name as before. A bare `#n` is always a **card number**, never a board. When a name matches several boards the tool
@@ -112,8 +116,8 @@ work stands, and nothing depends on a conversation that is gone.
 ## 0a. One task, seven stages (specs/030)
 
 Every task goes the same way. `task_context` prints the board's **STAGE** and the exact **NEXT** command - Alfred
-computes both from the board (`GET /board/boards/<id>/stage`), so the skills, the board's stage strip and
-`/alfred-guide` always agree. Follow it; never invent another order.
+computes both from the board (`GET /board/boards/<id>/stage`), so the skills, the board's stage line and Next card,
+and `/alfred-guide` always agree. Follow it; never invent another order.
 
 | Stage | When | Next |
 |---|---|---|

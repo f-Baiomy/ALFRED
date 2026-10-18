@@ -109,6 +109,9 @@ public class SqliteSessionsRepository implements SessionsStorePort {
                   tokens_day TEXT, current INTEGER NOT NULL, created_at INTEGER NOT NULL, last_active INTEGER NOT NULL)
                 """);
         jdbc.execute("CREATE INDEX IF NOT EXISTS idx_board_sessions_board ON board_sessions(board_id, last_active)");
+        if (jdbc.queryForList("SELECT name FROM pragma_table_info('board_sessions') WHERE name = 'progress'", String.class).isEmpty()) {
+            jdbc.execute("ALTER TABLE board_sessions ADD COLUMN progress TEXT");
+        }
         jdbc.execute("CREATE INDEX IF NOT EXISTS idx_board_sessions_cli ON board_sessions(cli_session_id)");
         jdbc.execute("""
                 CREATE TABLE IF NOT EXISTS helper_commands (id TEXT PRIMARY KEY, helper_key_id TEXT NOT NULL, user TEXT NOT NULL,
@@ -295,7 +298,7 @@ public class SqliteSessionsRepository implements SessionsStorePort {
             rs.getString("project"), rs.getString("cli_session_id"), rs.getString("desktop_id"), rs.getString("user"), rs.getString("machine"),
             rs.getString("helper_key_id"), rs.getString("cwd"), rs.getString("title"), state(rs.getString("state")), openIn(rs.getString("open_in")),
             rs.getLong("last_chat_seq"), rs.getLong("tokens_today"), rs.getString("tokens_day"), rs.getInt("current") != 0,
-            instant(rs, "created_at"), instant(rs, "last_active"));
+            instant(rs, "created_at"), instant(rs, "last_active"), rs.getString("progress"));
 
     private static BoardSession.State state(String s) {
         try {
@@ -316,10 +319,10 @@ public class SqliteSessionsRepository implements SessionsStorePort {
     @Override
     public void putSession(BoardSession s) {
         jdbc.update("INSERT OR REPLACE INTO board_sessions(id, board_id, project, cli_session_id, desktop_id, user, machine, helper_key_id, cwd, "
-                        + "title, state, open_in, last_chat_seq, tokens_today, tokens_day, current, created_at, last_active) "
-                        + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", s.id(), s.boardId(), s.project() == null ? "" : s.project(),
+                        + "title, state, open_in, last_chat_seq, tokens_today, tokens_day, current, created_at, last_active, progress) "
+                        + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", s.id(), s.boardId(), s.project() == null ? "" : s.project(),
                 s.cliSessionId(), s.desktopId(), s.user(), s.machine(), s.helperKeyId(), s.cwd(), s.title(), s.state().name(), s.openIn().name(),
-                s.lastChatSeq(), s.tokensToday(), s.tokensDay(), s.current() ? 1 : 0, millis(s.createdAt()), millis(s.lastActive()));
+                s.lastChatSeq(), s.tokensToday(), s.tokensDay(), s.current() ? 1 : 0, millis(s.createdAt()), millis(s.lastActive()), s.progress());
     }
 
     @Override

@@ -212,7 +212,11 @@ export async function cycleStory(client: AlfredClient, input: StoryInput): Promi
     + `${hiddenOptions ? ` (+${hiddenOptions} OPTIONS preflights hidden - includeOptions: true shows them)` : ''}, created ${cycle.createdAt}`;
   const attention = marks ? attentionLine(calls.flatMap((c) => (marks[c.id] ? [{ n: numberOf.get(c.id)!, entry: marks[c.id] }] : []))
     .filter((x) => !(x.entry.direction === 'OUTBOUND' && x.entry.parentCallId && numberOf.has(x.entry.parentCallId)))) : '';
-  const out: string[] = attention ? [head, maskText(ctx, attention), ''] : [head, ''];
+  // specs/033: the user's description (what the cycle is for, its steps) and Claude's own summary, on the first page
+  const notes: string[] = [];
+  if (input.offset === 0 && cycle.description) notes.push("Description (the user's):", maskText(ctx, cycle.description), '');
+  if (input.offset === 0 && cycle.summary) notes.push("Claude's summary:", maskText(ctx, cycle.summary), '');
+  const out: string[] = [...(attention ? [head, maskText(ctx, attention), ''] : [head, '']), ...notes];
   let size = head.length + 400;
   let shown = 0;
   for (const block of blocks) {

@@ -7,7 +7,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
 
-/** The board's stage in the workflow and its next step (specs/030): the stage strip, task_context's NEXT, /alfred-guide. */
+/** The board's stage in the workflow and its next step (specs/030, step since specs/032): the board header, task_context's NEXT/STEP, /alfred-guide. */
 @RestController
 public class BoardStageController {
 

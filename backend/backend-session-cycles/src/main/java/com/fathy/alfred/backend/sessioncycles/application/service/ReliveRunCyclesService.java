@@ -109,8 +109,7 @@ public class ReliveRunCyclesService implements ReliveRunCyclesUseCase {
             if (Objects.equals(nextName, cycle.name()) && Objects.equals(nextCycleId, cycle.reliveCycleId())) {
                 return new ReliveRunCycle(cycle, false);
             }
-            SessionCycle renamed = new SessionCycle(cycle.id(), nextName, cycle.createdAt(), cycle.assignedTo(), cycle.status(),
-                    cycle.reliveRunId(), nextCycleId);
+            SessionCycle renamed = cycle.withName(nextName).withReliveCycleId(nextCycleId);
             return new ReliveRunCycle(metadataStore.save(renamed), false);
         }
         String shortId = runId.length() > 8 ? runId.substring(0, 8) : runId;

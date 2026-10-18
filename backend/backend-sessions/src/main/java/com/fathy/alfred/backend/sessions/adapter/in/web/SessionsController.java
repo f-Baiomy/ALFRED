@@ -331,7 +331,7 @@ public class SessionsController {
         try {
             return ResponseEntity.ok(sessions.report(c.get(), new SessionsUseCase.Report(body.id(), body.boardId(), body.project(),
                     body.cliSessionId(), body.desktopId(), body.cwd(), body.title(), body.state(), body.openIn(), body.lastChatSeq(),
-                    body.tokensToday(), body.makeCurrent())));
+                    body.tokensToday(), body.makeCurrent(), body.progress())));
         } catch (IllegalArgumentException e) {
             return refused(HttpStatus.BAD_REQUEST, "INVALID", e.getMessage());
         }
@@ -533,7 +533,7 @@ public class SessionsController {
     public record SessionDto(@Size(max = 100) String id, @Size(max = 200) String boardId, @Size(max = 100) String project,
                              @Size(max = 100) String cliSessionId, @Size(max = 120) String desktopId, @Size(max = 1000) String cwd,
                              @Size(max = 300) String title, BoardSession.State state, BoardSession.OpenIn openIn, Long lastChatSeq,
-                             Long tokensToday, Boolean makeCurrent) {
+                             Long tokensToday, Boolean makeCurrent, @Size(max = 300) String progress) {
     }
 
     public record CommandDto(@Size(max = 40) String helperKeyId, HelperCommand.Kind kind, @Size(max = 200) String boardId,

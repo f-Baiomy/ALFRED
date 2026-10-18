@@ -1,16 +1,14 @@
 import { Component, computed, inject, input, output, signal } from '@angular/core';
 import { Observable } from 'rxjs';
-import { BoardState, BoardSummary } from '../../../core/models/board.models';
+import { BoardSummary } from '../../../core/models/board.models';
 import { SessionCycle } from '../../../core/models/call.model';
 import { BoardApiService } from '../../../core/services/board-api.service';
-import { ConfirmDialogService } from '../../../core/services/confirm-dialog.service';
-import { recordingConflict } from '../../../shared/utils/recording-conflict';
 import { CycleVerdictsDialogComponent } from '../cycle-verdicts-dialog/cycle-verdicts-dialog.component';
 
 /**
- * Under the board picker (specs/027 FR-003/006, mock §Board): the cycles and boards this board is related to, as chips with
- * ✕ to unrelate (the cycle and its calls stay), "＋ relate" for any cycle or board of any project, the board's state
- * (Open / Done / Archive) and Delete for task boards, and the "migrated from cycle" banner.
+ * On the board's Cycles tab (specs/027 FR-003/006, moved there by specs/032 D11): the cycles and boards this board is related
+ * to, as chips with ✕ to unrelate (the cycle and its calls stay), "＋ relate" for any cycle or board of any project, and the
+ * "migrated from cycle" banner. The board's state and Record are in the header now (board-state-menu, record-line).
  */
 @Component({
   selector: 'app-related-strip',
@@ -19,6 +17,7 @@ import { CycleVerdictsDialogComponent } from '../cycle-verdicts-dialog/cycle-ver
   template: `
     @if (summary(); as s) {
       <div class="related-strip">
+        @if (showCycles()) {
         <span class="related-label">Cycles:</span>
         @for (c of relatedCycles(); track c.id) {
           <span class="related-chip cyc" [class.rec]="c.status === 'RECORDING'">
@@ -28,7 +27,8 @@ import { CycleVerdictsDialogComponent } from '../cycle-verdicts-dialog/cycle-ver
             @if (editable()) { <button type="button" class="related-x" title="Unrelate (the cycle and its calls stay)" (click)="unrelateCycle(c.id)">✕</button> }
           </span>
         } @empty { <span class="related-none">none</span> }
-        <span class="related-label">Boards:</span>
+        }
+        <span class="related-label">Related boards:</span>
         @for (b of relatedBoards(); track b.board.id) {
           <span class="related-chip brd">
             {{ b.board.name }}
@@ -37,15 +37,6 @@ import { CycleVerdictsDialogComponent } from '../cycle-verdicts-dialog/cycle-ver
         } @empty { <span class="related-none">none</span> }
         @if (editable()) {
           <button type="button" class="related-chip plus" (click)="relating.set(!relating())">＋ relate cycle or board</button>
-          <button type="button" class="related-chip plus" title="Record this board's calls: joins or replaces a recording of the same project" (click)="record('REC')">● Record</button>
-          @if (!s.board.isDefault) {
-            <span class="related-state">
-              @for (st of states; track st) {
-                <button type="button" class="related-state-btn" [class.on]="s.board.state === st" (click)="setState(st)">{{ stateName(st) }}</button>
-              }
-              <button type="button" class="related-state-btn danger" (click)="remove()">Delete…</button>
-            </span>
-          }
         }
       </div>
       @if (s.board.migratedFrom) {
@@ -93,11 +84,6 @@ import { CycleVerdictsDialogComponent } from '../cycle-verdicts-dialog/cycle-ver
     .related-chip.plus { border-style: dashed; color: var(--purple-light); cursor: pointer; }
     .related-x { border: 0; background: none; color: var(--text-faint); cursor: pointer; padding: 0; }
     .related-x:hover { color: var(--red); }
-    .related-state { display: inline-flex; gap: .2rem; margin-left: auto; }
-    .related-state-btn { padding: .05rem .5rem; border: 1px solid var(--border-strong); border-radius: 6px; background: none; color: var(--text-dim);
-      font: inherit; font-size: .76rem; cursor: pointer; }
-    .related-state-btn.on { background: rgba(139,92,246,.25); color: var(--text); }
-    .related-state-btn.danger { color: var(--red); }
     .related-banner { margin: .3rem 0; padding: .4rem .7rem; border: 1px solid var(--border-strong); border-radius: 7px; font-size: .8rem; color: var(--text-dim); }
     .related-pick { display: grid; grid-template-columns: 1fr 1fr; gap: .8rem; margin: .3rem 0 .6rem; padding: .5rem .7rem;
       border: 1px solid var(--border); border-radius: 8px; background: var(--card-inner); font-size: .8rem; }
@@ -113,7 +99,6 @@ import { CycleVerdictsDialogComponent } from '../cycle-verdicts-dialog/cycle-ver
 })
 export class RelatedStripComponent {
   private readonly api = inject(BoardApiService);
-  private readonly confirmDialog = inject(ConfirmDialogService);
 
   readonly summary = input<BoardSummary | null>(null);
   /** Every session cycle (names, recording state). */
@@ -121,10 +106,10 @@ export class RelatedStripComponent {
   /** Every board of every project, for relating boards. */
   readonly allBoards = input<readonly BoardSummary[]>([]);
   readonly editable = input(true);
+  /** specs/033: the Cycles tab lists the cycles itself - the strip then shows only the related boards. */
+  readonly showCycles = input(true);
   readonly changed = output<void>();
-  readonly deleted = output<string>();
 
-  readonly states: readonly BoardState[] = ['OPEN', 'DONE', 'ARCHIVED'];
   readonly relating = signal(false);
   readonly error = signal<string | null>(null);
   readonly verdictsOf = signal<SessionCycle | null>(null);
@@ -146,10 +131,6 @@ export class RelatedStripComponent {
 
   readonly otherBoards = computed(() => this.allBoards().filter((b) => b.board.id !== this.summary()?.board.id));
 
-  stateName(s: BoardState): string {
-    return s === 'OPEN' ? 'Open' : s === 'DONE' ? 'Done' : 'Archive';
-  }
-
   relateCycle(id: string): void {
     this.call(this.api.relateCycle(this.boardId(), id, true));
   }
@@ -164,38 +145,6 @@ export class RelatedStripComponent {
 
   unrelateBoard(id: string): void {
     this.call(this.api.relateBoard(this.boardId(), id, false));
-  }
-
-  /**
-   * Records for this board (FR-008). When another cycle records the project: join it, or pause it and start a new one -
-   * asked in two steps so Esc never does either.
-   */
-  record(kind: 'REC' | 'RETEST'): void {
-    const id = this.boardId();
-    this.error.set(null);
-    this.api.recordForBoard(id, kind, 'ASK').subscribe({
-      next: () => this.changed.emit(),
-      error: async (e) => {
-        const running = recordingConflict(e);
-        if (!running) return this.fail(e);
-        if (await this.confirmDialog.confirm(`"${running.name}" is recording this project. Record into it for this board too?`, 'Join it', 'Other options')) {
-          this.call(this.api.recordForBoard(id, kind, 'JOIN'));
-        } else if (await this.confirmDialog.confirm(`Pause "${running.name}" and start a new recording for this board?`, 'Pause and start', 'Cancel')) {
-          this.call(this.api.recordForBoard(id, kind, 'NEW'));
-        }
-      },
-    });
-  }
-
-  setState(state: BoardState): void {
-    this.call(this.api.updateBoard(this.boardId(), { state }));
-  }
-
-  async remove(): Promise<void> {
-    const s = this.summary();
-    if (!s || !(await this.confirmDialog.confirm(`Delete board "${s.board.name}"? Its cycles and their calls stay and its cards move to `
-      + "the project's default board. Its brief, spec files, requirements and chat are deleted."))) return;
-    this.api.deleteBoard(s.board.id).subscribe({ next: () => this.deleted.emit(s.board.id), error: (e) => this.fail(e) });
   }
 
   private boardId(): string {

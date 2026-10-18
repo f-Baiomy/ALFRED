@@ -67,6 +67,41 @@ class RecordForBoardTest {
     }
 
     @Test
+    void aReTestIsNamedAfterItsCardsRelatedToEachAndDescribed() {
+        f.recordingHere.clear();
+        int a = f.create(Actor.USER, "odeysys", "Ancillaries 500 for G9", List.of()).card().card().number();
+        int b = f.create(Actor.USER, "odeysys", "Extra Baggage not renamed", List.of()).card().card().number();
+        Recording one = f.record.record(Actor.USER, sprint, Kind.RETEST, OnRunning.NEW,
+                new com.fathy.alfred.backend.board.application.port.in.RecordForBoardUseCase.Spec(List.of(a), null, "- [ ] Search")).orElseThrow();
+        assertThat(f.cycleNames.get(one.cycleId())).isEqualTo("Re-test #" + a + " · Ancillaries 500 for G9");
+        assertThat(f.cycleDescriptions.get(one.cycleId())).isEqualTo("- [ ] Search");
+        assertThat(f.boardModel.cycleLinks(sprint)).anySatisfy(l -> {
+            assertThat(l.cycleId()).isEqualTo(one.cycleId());
+            assertThat(l.kind()).isEqualTo("RETEST");
+        });
+        assertThat(f.boardModel.cardsOfCycle(one.cycleId())).hasSize(1);
+
+        f.recordingHere.clear();
+        Recording two = f.record.record(Actor.USER, sprint, Kind.RETEST, OnRunning.NEW,
+                new com.fathy.alfred.backend.board.application.port.in.RecordForBoardUseCase.Spec(List.of(a, b, 999), null, null)).orElseThrow();
+        assertThat(f.cycleNames.get(two.cycleId())).isEqualTo("Re-test #" + a + " #" + b + " · 2 cards");
+        assertThat(f.boardModel.cardsOfCycle(two.cycleId())).hasSize(2);
+    }
+
+    @Test
+    void aBaselineIsOnePerBoardAndArchiveKeepsTheLink() {
+        String c = refundCycle();
+        f.cyclesHere.add("other");
+        f.boardModel.relateCycle(refund, "other", Actor.USER, java.time.Instant.now());
+        assertThat(f.boardModel.setCycleFlags(refund, c, true, null)).isTrue();
+        assertThat(f.boardModel.setCycleFlags(refund, "other", true, true)).isTrue();
+        assertThat(f.boardModel.cycleLinks(refund)).filteredOn(com.fathy.alfred.backend.board.domain.model.BoardCycleLink::baseline)
+                .extracting(com.fathy.alfred.backend.board.domain.model.BoardCycleLink::cycleId).containsExactly("other");
+        assertThat(f.boardModel.cycleLinks(refund)).filteredOn(com.fathy.alfred.backend.board.domain.model.BoardCycleLink::archived).hasSize(1);
+        assertThat(f.boardModel.setCycleFlags(refund, "not-on-it", true, null)).isFalse();
+    }
+
+    @Test
     void aCycleOnNoBoardIsNeverInTheWay() {
         f.cyclesHere.add("loose");
         f.recordingHere.add("loose");

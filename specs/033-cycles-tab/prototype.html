@@ -1,0 +1,609 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cycles tab prototype</title>
+<style>
+:root {
+  --bg: #15171c; --panel: #1c1f26; --inner: #232731; --border: #2e333f; --border-strong: #3a4050;
+  --text: #e6e8ee; --dim: #9aa1b2; --faint: #6b7283; --blue: #4f8cff; --green: #3fbf7f; --red: #ef5a5a; --amber: #f0b44a; --violet: #a98bff;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, Segoe UI, sans-serif; }
+.wrap { max-width: 1180px; margin: 0 auto; padding: 16px; }
+.note { font-size: 12px; color: var(--faint); margin-bottom: 10px; }
+.note b { color: var(--dim); font-weight: 500; }
+.tabs { display: flex; gap: 28px; border-bottom: 1px solid var(--border); margin-bottom: 14px; overflow-x: auto; }
+.tabs span { padding: 8px 0; color: var(--dim); white-space: nowrap; }
+.tabs span.on { color: var(--text); border-bottom: 2px solid var(--blue); }
+.tabs small { background: var(--inner); border-radius: 8px; padding: 0 6px; margin-left: 4px; }
+button { font: inherit; color: inherit; background: var(--inner); border: 1px solid var(--border-strong); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+button:hover { border-color: var(--blue); }
+button:focus-visible, .cy:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+button.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+button.ghost { background: none; border-color: transparent; color: var(--dim); }
+button.ghost:hover { color: var(--text); border-color: var(--border-strong); }
+button.mini { font-size: 12px; padding: 1px 8px; }
+button.link { background: none; border: 0; padding: 0; color: var(--blue); }
+button.link:hover { text-decoration: underline; }
+.grow { flex: 1; }
+/* header */
+.head { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 10px; }
+.stats { display: flex; gap: 16px; flex-wrap: wrap; }
+.stat b { font-size: 18px; display: block; }
+.stat span { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: .04em; }
+.split { position: relative; display: inline-flex; }
+.split > button:first-child { border-radius: 6px 0 0 6px; }
+.split > button:nth-child(2) { border-radius: 0 6px 6px 0; border-left: 1px solid rgba(255,255,255,.25); padding: 4px 7px; }
+.menu { position: absolute; top: 110%; right: 0; z-index: 5; background: var(--panel); border: 1px solid var(--border-strong); border-radius: 8px; min-width: 250px; padding: 4px; box-shadow: 0 8px 24px rgba(0,0,0,.4); display: none; }
+.menu.open { display: block; }
+.menu div { padding: 6px 10px; border-radius: 6px; cursor: pointer; }
+.menu div:hover { background: var(--inner); }
+.menu small { display: block; color: var(--dim); font-size: 11px; }
+.menu hr { border: 0; border-top: 1px solid var(--border); margin: 4px 0; }
+/* the nudge: one quiet line, dismissible */
+.nudge { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 13px; padding: 7px 12px; border-radius: 8px;
+  border: 1px solid rgba(169,139,255,.45); background: rgba(169,139,255,.08); margin-bottom: 10px; }
+.nudge .x { margin-left: auto; }
+/* toolbar */
+.toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+input[type=search], input.ask { background: var(--inner); border: 1px solid var(--border-strong); border-radius: 6px; color: var(--text); padding: 5px 10px; min-width: 200px; font: inherit; }
+.chip { border-radius: 999px; padding: 2px 10px; font-size: 12px; }
+.chip.on { background: rgba(79,140,255,.18); border-color: var(--blue); }
+select { background: var(--inner); color: var(--text); border: 1px solid var(--border-strong); border-radius: 6px; padding: 4px 8px; font: inherit; }
+.bulk { display: none; gap: 8px; align-items: center; background: rgba(79,140,255,.12); border: 1px solid var(--blue); border-radius: 8px; padding: 6px 10px; margin-bottom: 10px; }
+.bulk.show { display: flex; flex-wrap: wrap; }
+/* rows */
+.list { display: grid; gap: 8px; }
+.cy { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; }
+.cy.rec { border-color: rgba(239,90,90,.5); }
+.cy-top { display: grid; grid-template-columns: auto auto 1fr auto; gap: 4px 10px; align-items: start; padding: 9px 12px; cursor: pointer; }
+.cy-top:hover { background: rgba(255,255,255,.02); border-radius: 10px; }
+.cy-top input { margin-top: 4px; }
+.chev { color: var(--faint); width: 14px; transition: transform .15s; }
+.cy.open .chev { transform: rotate(90deg); }
+.cy-main { min-width: 0; }
+.cy-title { display: flex; gap: 8px; align-items: center; min-width: 0; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--amber); flex: none; }
+.cy.rec .dot { background: var(--red); animation: pulse 1.4s infinite; }
+@keyframes pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .cy.rec .dot { animation: none; } }
+.cy-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cy-name a { color: inherit; text-decoration: none; }
+.cy-name a:hover { text-decoration: underline; }
+.tag { font-size: 11px; padding: 0 7px; border-radius: 999px; border: 1px solid var(--border-strong); color: var(--dim); white-space: nowrap; }
+.tag.base { color: var(--amber); border-color: rgba(240,180,74,.6); }
+.cy-sub { display: flex; gap: 6px 14px; flex-wrap: wrap; align-items: center; font-size: 12px; color: var(--dim); margin-top: 3px; }
+.recpill { color: var(--red); font-weight: 600; }
+.live { font-variant-numeric: tabular-nums; }
+.live.bump { color: var(--text); transition: color .6s; }
+.kind { color: var(--violet); }
+.bad-t { color: var(--red); } .ok-t { color: var(--green); } .unk-t { color: var(--faint); }
+.cdots { display: inline-flex; gap: 4px; }
+.cdot { font: inherit; font-size: 11px; padding: 0 6px; border-radius: 999px; background: var(--inner); border: 1px solid var(--border-strong); color: var(--text); cursor: pointer; }
+.cdot.ok { border-color: rgba(63,191,127,.6); } .cdot.ok::after { content: ' ✓'; color: var(--green); }
+.cdot.bad { border-color: rgba(239,90,90,.6); } .cdot.bad::after { content: ' ✗'; color: var(--red); }
+.cdot.unk::after { content: ' ?'; color: var(--faint); }
+.spark { display: inline-flex; gap: 2px; align-items: flex-end; height: 14px; }
+.spark i { width: 4px; background: var(--green); border-radius: 1px; opacity: .85; }
+.spark i.e { background: var(--red); } .spark i.w { background: var(--amber); }
+.cy-desc { font-size: 12.5px; color: var(--faint); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cy.open .cy-desc { display: none; }
+.suggest { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 12.5px; color: var(--dim); margin-top: 6px; }
+.suggest b { color: var(--text); font-weight: 500; }
+.cy-acts { display: flex; gap: 4px; position: relative; }
+.more { position: relative; }
+.cy-body { display: none; border-top: 1px solid var(--border); padding: 0 12px 12px 48px; }
+.cy.open .cy-body { display: block; }
+.subtabs { display: flex; gap: 18px; border-bottom: 1px solid var(--border); margin-bottom: 10px; overflow-x: auto; }
+.subtabs span { padding: 7px 0; font-size: 13px; color: var(--dim); cursor: pointer; white-space: nowrap; }
+.subtabs span.on { color: var(--text); border-bottom: 2px solid var(--blue); }
+.pane { display: none; } .pane.on { display: block; }
+.ov { display: grid; grid-template-columns: 1.5fr 1fr; gap: 18px; }
+h4 { margin: 0 0 6px; font-size: 12px; color: var(--dim); font-weight: 500; text-transform: uppercase; letter-spacing: .04em; display: flex; align-items: center; gap: 8px; }
+.sec + .sec { margin-top: 14px; }
+.desc-text { font-size: 13px; line-height: 1.5; }
+.desc-text.empty { color: var(--faint); }
+.desc-by { font-size: 11px; color: var(--faint); margin-top: 4px; }
+.steps { list-style: none; padding: 0; margin: 6px 0 0; font-size: 13px; display: grid; gap: 3px; }
+.steps li { display: flex; gap: 8px; align-items: baseline; }
+.steps .box { width: 15px; height: 15px; border-radius: 4px; border: 1px solid var(--border-strong); display: inline-grid; place-items: center; font-size: 10px; flex: none; }
+.steps .done .box { background: var(--green); border-color: var(--green); color: #102; }
+.steps .done span:last-child { color: var(--dim); }
+.steps small { color: var(--faint); }
+.summary { background: rgba(79,140,255,.07); border: 1px solid rgba(79,140,255,.3); border-radius: 8px; padding: 8px 10px; font-size: 13px; }
+.summary .who { font-size: 11px; color: var(--faint); display: flex; gap: 6px; align-items: center; margin-bottom: 3px; }
+.clist { display: grid; font-size: 13px; }
+.clist div { display: grid; grid-template-columns: 42px 1fr auto; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--border); }
+.clist .n { color: var(--dim); }
+.clist small { color: var(--faint); }
+.facts { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; font-size: 12.5px; margin: 0; }
+.facts dt { color: var(--faint); } .facts dd { margin: 0; }
+.hot { display: grid; gap: 4px; font-size: 12.5px; }
+.hot button { display: grid; grid-template-columns: 1fr auto; gap: 8px; text-align: left; background: var(--inner); border-color: var(--border); }
+.askrow { display: flex; gap: 6px; margin-top: 12px; }
+.askrow input { flex: 1; min-width: 0; }
+table { width: 100%; border-collapse: collapse; font-size: 12px; }
+td, th { padding: 4px 6px; border-bottom: 1px solid var(--border); text-align: left; }
+th { color: var(--dim); font-weight: 500; }
+.s2 { color: var(--green); } .s4, .s5 { color: var(--red); }
+.ac { font-size: 12.5px; display: grid; gap: 4px; }
+.ac div { display: flex; gap: 6px; }
+.v { padding: 0 6px; border-radius: 4px; }
+.v.ok { background: rgba(63,191,127,.15); color: var(--green); }
+.v.bad { background: rgba(239,90,90,.15); color: var(--red); }
+.v.unk { background: var(--inner); color: var(--dim); }
+/* story */
+.story { display: grid; gap: 8px; }
+.step { border: 1px solid var(--border); border-radius: 8px; }
+.step-h { display: flex; gap: 8px; align-items: center; padding: 6px 10px; font-size: 13px; cursor: pointer; }
+.step-h .t { color: var(--faint); font-size: 12px; }
+.step-b { display: none; padding: 0 10px 8px; }
+.step.open .step-b { display: block; }
+.step.fail { border-color: rgba(239,90,90,.5); }
+.callrow { display: grid; grid-template-columns: 62px 1fr 44px 52px auto; gap: 8px; font-size: 12px; padding: 3px 0; border-bottom: 1px solid var(--border); align-items: center; }
+.callrow.fail { background: rgba(239,90,90,.06); }
+.callrow .why { grid-column: 2 / -1; color: var(--dim); font-size: 12px; }
+/* popover: a card's verdict timeline */
+.pop { position: absolute; z-index: 15; background: var(--panel); border: 1px solid var(--border-strong); border-radius: 10px; padding: 10px 12px; width: 320px; box-shadow: 0 10px 28px rgba(0,0,0,.45); display: none; font-size: 13px; }
+.pop.open { display: block; }
+.tl { display: flex; align-items: center; gap: 0; margin: 10px 0 6px; }
+.tl .p { display: grid; justify-items: center; gap: 2px; font-size: 11px; color: var(--dim); min-width: 62px; }
+.tl .p b { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; }
+.tl .p b.ok { background: rgba(63,191,127,.2); color: var(--green); } .tl .p b.bad { background: rgba(239,90,90,.2); color: var(--red); } .tl .p b.unk { background: var(--inner); color: var(--faint); }
+.tl .ln { flex: 1; height: 2px; background: var(--border-strong); margin-bottom: 16px; }
+/* related, archived, footer */
+.related { margin-top: 16px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+.related .chips { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 6px; }
+.rchip { border: 1px solid var(--border-strong); border-radius: 999px; padding: 2px 10px; font-size: 12px; }
+.foot { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--faint); margin-top: 10px; }
+.archived { display: none; margin-top: 8px; } .archived.open { display: grid; gap: 6px; }
+.arow { display: flex; gap: 10px; align-items: center; font-size: 13px; color: var(--dim); background: var(--panel); border: 1px dashed var(--border-strong); border-radius: 10px; padding: 7px 12px; }
+/* dialogs */
+.shade { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: none; align-items: center; justify-content: center; z-index: 20; padding: 16px; }
+.shade.open { display: flex; }
+.dialog { background: var(--panel); border: 1px solid var(--border-strong); border-radius: 12px; width: min(820px, 100%); max-height: 90vh; overflow: auto; padding: 16px; }
+.dialog h3 { margin: 0 0 10px; }
+.dlg-foot { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; margin-top: 12px; }
+.cmp { display: grid; grid-template-columns: 1.3fr 1fr 1fr; font-size: 13px; }
+.cmp > div { padding: 6px 8px; border-bottom: 1px solid var(--border); }
+.cmp .h { color: var(--dim); font-size: 12px; }
+.cmp .g { grid-column: 1 / -1; color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; padding-top: 12px; }
+.up { color: var(--red); } .down { color: var(--green); }
+.pick { display: grid; gap: 6px; margin: 10px 0; }
+.pick label { display: flex; gap: 8px; align-items: flex-start; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; }
+.pick label small { color: var(--dim); margin-left: auto; }
+.pick .st { font-size: 11px; color: var(--dim); }
+.preview { background: var(--inner); border: 1px dashed var(--border-strong); border-radius: 8px; padding: 8px 10px; font-size: 13px; }
+.preview small { display: block; color: var(--faint); font-size: 11px; margin-bottom: 2px; }
+textarea.full { width: 100%; min-height: 70px; background: var(--inner); border: 1px solid var(--border-strong); border-radius: 8px; color: var(--text); font: inherit; padding: 8px; }
+kbd { background: var(--inner); border: 1px solid var(--border-strong); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; font-size: 11px; }
+.keys { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 13px; }
+.toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--inner); border: 1px solid var(--border-strong); padding: 8px 14px; border-radius: 8px; display: none; z-index: 30; max-width: calc(100% - 32px); }
+.legend { font-size: 12px; color: var(--faint); border: 1px dashed var(--border-strong); border-radius: 8px; padding: 8px 10px; margin-bottom: 12px; }
+.legend ol { margin: 4px 0 0; padding-left: 18px; columns: 2; }
+@media (max-width: 720px) {
+  .cy-top { grid-template-columns: auto 1fr auto; }
+  .cy-top .chev { display: none; }
+  .cy-body { padding-left: 12px; }
+  .ov { grid-template-columns: 1fr; }
+  .cy-title { flex-wrap: wrap; }
+  .cy-name { flex: 1 1 calc(100% - 20px); white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .legend ol { columns: 1; }
+  .pop { width: calc(100vw - 32px); left: 16px !important; }
+  .callrow { grid-template-columns: 56px 1fr 40px; }
+  .callrow .ms, .callrow .go { display: none; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="note">Prototype · specs/033 Cycles tab · sample data · every button works · <b>?</b> shows the keys</div>
+  <details class="legend"><summary>Where each enhancement is in this mock (and why it stays quiet)</summary>
+    <ol>
+      <li>Verdict timeline - click a card chip (#81) on a row</li>
+      <li>Ready to re-test - the violet line above the list; ✕ hides it until another card is fixed</li>
+      <li>Pause suggestion - on the recording row, once, when every card was checked; never pauses by itself</li>
+      <li>Steps from the description - Overview, ticked by the calls; you can untick</li>
+      <li>Story - the Story sub-tab, the failing step opened</li>
+      <li>Diff vs baseline - "vs baseline" link on a row, Compare dialog</li>
+      <li>Hot spots - Overview, click one to see its calls</li>
+      <li>Ask about this cycle - the box at the bottom of Overview</li>
+      <li>Claude's summary - Overview, only after a pause; edit or remove; off in ⋯ for good</li>
+      <li>⚑ Baseline - the tag on a row; set from ⋯</li>
+      <li>Environment - the "env 80" tag and the Environment filter</li>
+      <li>Archive - ⋯ Archive; "2 archived" at the bottom</li>
+      <li>Evidence pack - ⋯ Evidence pack…</li>
+      <li>Keyboard - ↑ ↓ Enter Space x, ? for the list</li>
+      <li>Live counters - the recording row's calls count up as calls arrive</li>
+    </ol>
+  </details>
+  <div class="tabs"><span>Cards</span><span>Calls <small>3</small></span><span>Task</span><span class="on">Cycles <small>3</small></span><span>Related items</span><span>Activity <small>4</small></span></div>
+
+  <div class="head">
+    <div class="stats">
+      <div class="stat"><b>3</b><span>cycles</span></div>
+      <div class="stat"><b class="live" id="totalCalls">61</b><span>calls</span></div>
+      <div class="stat"><b style="color:var(--red)">4</b><span>failed calls</span></div>
+      <div class="stat"><b>5 / 8</b><span>requirements met</span></div>
+    </div>
+    <span class="grow"></span>
+    <div class="split">
+      <button class="primary" onclick="toast('Recording “AB#59851 · rec 13:42” for this board')">● Record</button>
+      <button class="primary" onclick="toggle('recMenu')" aria-label="More ways to record">▾</button>
+      <div class="menu" id="recMenu">
+        <div onclick="toast('Recording a new cycle')">● Record a new cycle<small>Calls you make now are captured for this board</small></div>
+        <div onclick="openRetest()">↻ Re-test cards…<small>Pick the fixed cards - the cycle is named after them</small></div>
+        <div onclick="toast('Joined the cycle that records odeysys now')">⇢ Join the running recording<small>Another board records odeysys now - share it</small></div>
+      </div>
+    </div>
+    <button onclick="openDlg('addDlg')">＋ Add existing cycle</button>
+  </div>
+
+  <!-- 2: ready to re-test, one line, only when a card was fixed after the last re-test -->
+  <div class="nudge" id="nudge">
+    <span>↻ <b>#84</b> was fixed after the last re-test.</span>
+    <button class="mini primary" onclick="openRetest(['#84'])">Re-test it</button>
+    <button class="ghost mini x" title="Hide until another card is fixed" onclick="hideNudge()">✕</button>
+  </div>
+
+  <div class="toolbar">
+    <input type="search" placeholder="Search cycles, endpoints…" oninput="filterList(this.value)">
+    <button class="chip on" onclick="chip(this)">All</button>
+    <button class="chip" onclick="chip(this)">Recording</button>
+    <button class="chip" onclick="chip(this)">Re-tests</button>
+    <button class="chip" onclick="chip(this)">With failures</button>
+    <span class="grow"></span>
+    <select aria-label="Environment"><option>All environments</option><option>env 80</option><option>STG</option></select>
+    <select aria-label="Sort"><option>Newest first</option><option>Oldest first</option><option>Most failures</option><option>Most calls</option></select>
+  </div>
+
+  <div class="bulk" id="bulk">
+    <b id="selN">0 selected</b>
+    <button onclick="openDlg('cmpDlg')">⇄ Compare</button>
+    <button onclick="openDlg('packDlg')">📦 Evidence pack</button>
+    <button onclick="toast('Asked Claude in the board chat to compare them')">✦ Ask Claude</button>
+    <button onclick="toast('Archived - find them under “archived” below')">🗄 Archive</button>
+    <span class="grow"></span>
+    <button class="ghost" onclick="clearSel()">Clear</button>
+  </div>
+
+  <div class="list" id="list">
+
+    <!-- cycle 1: recording re-test of three cards -->
+    <div class="cy rec" tabindex="0">
+      <div class="cy-top" onclick="cyToggle(event, this)">
+        <input type="checkbox" onchange="sel()" aria-label="Select">
+        <span class="chev">▸</span>
+        <div class="cy-main">
+          <div class="cy-title"><span class="dot"></span><span class="cy-name"><a href="#" onclick="toast('Opening the cycle');return false">Re-test #76 #81 #83 · baggage fixes after 4f4139a</a></span><span class="tag">env 80</span></div>
+          <div class="cy-sub">
+            <span class="recpill">● REC 12:04</span><span class="kind">↻ re-test</span>
+            <span class="cdots"><button class="cdot ok" onclick="pop(event,'#76')">#76</button><button class="cdot bad" onclick="pop(event,'#81')">#81</button><button class="cdot unk" onclick="pop(event,'#83')">#83</button></span>
+            <span><span class="live" id="liveCalls">23</span> calls · <span class="bad-t">2 failed</span></span><span>AC 4/8</span>
+            <span class="spark" id="liveSpark"><i style="height:6px"></i><i style="height:9px"></i><i style="height:5px"></i><i class="w" style="height:11px"></i><i style="height:7px"></i><i style="height:8px"></i><i class="e" style="height:13px"></i><i style="height:7px"></i><i style="height:9px"></i></span>
+          </div>
+          <div class="cy-desc">Re-test on env 80 after 4f4139a (labels) and the ancillaries mapper fix…</div>
+          <!-- 3: a suggestion, once - never pauses by itself -->
+          <div class="suggest" id="pauseHint"><span>✓ All 3 cards were checked in this cycle. <b>Pause the recording?</b></span>
+            <button class="mini" onclick="event.stopPropagation();toast('Paused');this.parentElement.remove()">⏸ Pause</button>
+            <button class="ghost mini" onclick="event.stopPropagation();this.parentElement.remove()">Keep recording</button></div>
+        </div>
+        <div class="cy-acts">
+          <button class="mini" onclick="toast('Paused - Resume continues the same cycle')">⏸ Pause</button>
+          <div class="more"><button class="ghost" onclick="toggle('m1')" aria-label="More">⋯</button>
+            <div class="menu" id="m1">
+              <div onclick="toast('Renaming')">✎ Rename</div>
+              <div onclick="toast('This cycle is the baseline now')">⚑ Set as baseline</div>
+              <div onclick="toast('Requirement verdicts per call')">✓ Verdicts per call</div>
+              <div onclick="openDlg('packDlg')">📦 Evidence pack…</div>
+              <div onclick="toast('Assigned')">👤 Assign to…</div>
+              <hr>
+              <div onclick="toast('Claude no longer writes a summary on this board')">✦ Stop Claude's summaries here</div>
+              <div onclick="toast('Removed from this board - the cycle and its calls stay')">Remove from board</div>
+            </div></div>
+        </div>
+      </div>
+      <div class="cy-body">
+        <div class="subtabs"><span class="on" onclick="subtab(this,0)">Overview</span><span onclick="subtab(this,1)">Story</span><span onclick="subtab(this,2)">Calls · 23</span><span onclick="subtab(this,3)">Requirements</span></div>
+        <div class="pane on"><div class="ov">
+          <div>
+            <div class="sec">
+              <h4>Description <span class="grow"></span><button class="ghost mini" onclick="toast('Claude drafted it from the cards and the calls - review and save')">✦ Draft</button><button class="ghost mini" onclick="toast('Editing - lines starting “- [ ]” become steps')">✎ Edit</button></h4>
+              <div class="desc-text">Re-test on env 80 after <b>4f4139a</b> (labels) and the ancillaries mapper fix. Expected: the same allowance on both pages, no 500 from /api/ancillaries, “Extra Baggage” shows as “Add more baggage”.</div>
+              <!-- 4: steps from the description, ticked by the calls -->
+              <ul class="steps">
+                <li class="done"><span class="box">✓</span><span>Search Air Arabia VALUE <small>· call 1, 13:16</small></span></li>
+                <li class="done"><span class="box">✓</span><span>Open Flight Details <small>· call 2, 13:16</small></span></li>
+                <li class="done"><span class="box">✓</span><span>Open Ancillaries <small>· call 3, 13:17</small></span></li>
+                <li><span class="box" title="Ticks itself when a call to /api/baggage/select succeeds"></span><span>Add Extra Baggage <small>· not done yet</small></span></li>
+              </ul>
+              <div class="desc-by">you · 13:16 · Claude reads it with the cycle</div>
+            </div>
+            <!-- 9: Claude's summary, after a pause only -->
+            <div class="sec">
+              <h4>Claude's summary <span class="grow"></span><button class="ghost mini" onclick="toast('Editing the summary')">✎</button><button class="ghost mini" onclick="this.closest('.sec').remove()">Remove</button></h4>
+              <div class="summary"><div class="who">✦ Claude · written when you paused at 13:29 · your description is not changed</div>
+                2 of 3 cards pass. <b>#81 still fails</b>: /api/ancillaries answers 500 for G9 - the mapper reads <code>bundleCode</code> before it is set (AncillaryMapper.java:58). #83 not reached - the last step was not done.</div>
+            </div>
+          </div>
+          <div>
+            <div class="sec"><h4>Cards <span class="grow"></span><button class="ghost mini" onclick="toast('Link a card')">＋ link</button></h4>
+              <div class="clist">
+                <div><span class="n">#76</span><span>Baggage differs Flight Details ↔ Ancillaries<br><small>Fixed</small></span><span class="ok-t">✓ passes</span></div>
+                <div><span class="n">#81</span><span>Ancillaries 500 for G9<br><small>Fixed</small></span><span class="bad-t">✗ still fails</span></div>
+                <div><span class="n">#83</span><span>“Extra Baggage” not renamed<br><small>Fixed</small></span><span class="unk-t">? not reached</span></div>
+              </div></div>
+            <!-- 7: hot spots -->
+            <div class="sec"><h4>Hot spots</h4>
+              <div class="hot">
+                <button onclick="toast('Calls tab filtered to /api/ancillaries')"><span>GET /api/ancillaries</span><span class="bad-t">2 × 500 · 1.9 s</span></button>
+                <button onclick="toast('Calls tab filtered to /api/baggage/select')"><span>POST /api/baggage/select</span><span class="bad-t">409</span></button>
+                <button onclick="toast('Calls tab filtered to /api/search/flights')"><span>POST /api/search/flights</span><span>slowest · 812 ms</span></button>
+              </div></div>
+            <div class="sec"><h4>Facts</h4><dl class="facts">
+              <dt>Started</dt><dd>13:16 · recording 12 min</dd><dt>Calls</dt><dd>23 · 9 endpoints · last 2 min ago</dd>
+              <dt>Captured</dt><dd>◆ 412 SQL · ▤ 1.2k log lines</dd><dt>Environment</dt><dd>env 80 (from the calls' host)</dd>
+              <dt>Assigned</dt><dd>you</dd><dt>Also on</dt><dd>no other board</dd></dl></div>
+          </div>
+        </div>
+          <!-- 8: ask about this cycle -->
+          <div class="askrow"><input class="ask" placeholder="Ask Claude about this cycle - e.g. why does #81 still fail?" onkeydown="if(event.key==='Enter'){toast('Sent to the board chat, tagged with this cycle');this.value=''}">
+            <button onclick="toast('Sent to the board chat, tagged with this cycle')">✦ Ask</button></div>
+        </div>
+        <!-- 5: story -->
+        <div class="pane"><div class="story">
+          <div class="step"><div class="step-h" onclick="this.parentElement.classList.toggle('open')">▸ <b>1 · Search</b><span class="t">13:16 · 3 calls · all 2xx</span></div>
+            <div class="step-b"><div class="callrow"><span>13:16:02</span><span>POST /api/search/flights</span><span class="s2">200</span><span class="ms">812</span><span class="go"></span></div></div></div>
+          <div class="step"><div class="step-h" onclick="this.parentElement.classList.toggle('open')">▸ <b>2 · Flight Details</b><span class="t">13:16 · 4 calls · all 2xx</span></div>
+            <div class="step-b"><div class="callrow"><span>13:16:40</span><span>GET /api/flight-details/G9-401</span><span class="s2">200</span><span class="ms">230</span><span class="go"></span></div></div></div>
+          <div class="step fail open"><div class="step-h" onclick="this.parentElement.classList.toggle('open')">▾ <b>3 · Ancillaries</b><span class="t">13:17 · 6 calls · <span class="bad-t">1 × 500</span></span></div>
+            <div class="step-b">
+              <div class="callrow"><span>13:17:01</span><span>GET /api/bundles?carrier=G9</span><span class="s2">200</span><span class="ms">140</span><span class="go"></span></div>
+              <div class="callrow fail"><span>13:17:05</span><span>GET /api/ancillaries?carrier=G9</span><span class="s5">500</span><span class="ms">1 904</span>
+                <span class="go"><button class="ghost mini" onclick="toast('Opening the call with its log lines')">▤ logs</button><button class="ghost mini" onclick="toast('Opening its 14 SQL statements')">◆ SQL</button></span>
+                <span class="why">NullPointerException at AncillaryMapper.java:58 · logged 2 ERROR lines just before</span></div>
+            </div></div>
+          <div class="step"><div class="step-h" onclick="this.parentElement.classList.toggle('open')">▸ <b>4 · Add baggage</b><span class="t">13:17 · 1 call · <span class="bad-t">409</span></span></div>
+            <div class="step-b"><div class="callrow"><span>13:17:31</span><span>POST /api/baggage/select</span><span class="s4">409</span><span class="ms">140</span><span class="go"></span></div></div></div>
+          <div class="foot" style="margin-top:0">Steps come from the cycle's spacers; without spacers, from pauses between calls.</div>
+        </div></div>
+        <div class="pane"><table><tr><th>Time</th><th>Call</th><th>Status</th><th>ms</th></tr>
+          <tr><td>13:16:02</td><td>POST /api/search/flights</td><td class="s2">200</td><td>812</td></tr><tr><td>13:16:40</td><td>GET /api/flight-details/G9-401</td><td class="s2">200</td><td>230</td></tr>
+          <tr><td>13:17:05</td><td>GET /api/ancillaries?carrier=G9</td><td class="s5">500</td><td>1 904</td></tr><tr><td>13:17:31</td><td>POST /api/baggage/select</td><td class="s4">409</td><td>140</td></tr></table>
+          <button class="ghost" style="margin-top:6px" onclick="toast('Opening every call')">All calls →</button></div>
+        <div class="pane"><div class="ac">
+          <div><span class="v ok">✓</span>AC1 VALUE bundle shows the included bag</div><div><span class="v ok">✓</span>AC2 Flight Details label “Baggage You Want”</div>
+          <div><span class="v bad">✗</span>AC4 Ancillaries returns the same allowance</div><div><span class="v unk">?</span>AC6 Extra Baggage renamed</div></div></div>
+      </div>
+    </div>
+
+    <!-- cycle 2: one card, the baseline -->
+    <div class="cy" tabindex="0">
+      <div class="cy-top" onclick="cyToggle(event, this)">
+        <input type="checkbox" onchange="sel()" aria-label="Select">
+        <span class="chev">▸</span>
+        <div class="cy-main">
+          <div class="cy-title"><span class="dot"></span><span class="cy-name"><a href="#" onclick="toast('Opening the cycle');return false">Re-test #76 · Air Arabia baggage differs between Flight Details and Ancillaries</a></span><span class="tag base" title="Compare and “vs baseline” use this cycle">⚑ baseline</span><span class="tag">env 80</span></div>
+          <div class="cy-sub"><span>12:32 · 26 min</span><span class="kind">↻ re-test</span>
+            <span class="cdots"><button class="cdot bad" onclick="pop(event,'#76')">#76</button></span>
+            <span>21 calls · <span class="bad-t">1 failed</span></span><span>AC 5/8</span><span style="color:var(--blue)">shared · 1</span>
+            <span class="spark"><i style="height:7px"></i><i style="height:9px"></i><i style="height:6px"></i><i style="height:8px"></i><i style="height:10px"></i><i class="w" style="height:9px"></i><i style="height:6px"></i></span></div>
+          <div class="cy-desc">First re-test of the label fix only - before the ancillaries mapper change.</div>
+        </div>
+        <div class="cy-acts">
+          <button class="mini" onclick="toast('Recording again into this cycle')">● Resume</button>
+          <div class="more"><button class="ghost" onclick="toggle('m2')" aria-label="More">⋯</button>
+            <div class="menu" id="m2">
+              <div onclick="toast('Renaming')">✎ Rename</div><div onclick="toast('No baseline on this board now')">⚑ Unset baseline</div>
+              <div onclick="openDlg('packDlg')">📦 Evidence pack…</div>
+              <div onclick="toast('Archived')">🗄 Archive</div><hr>
+              <div onclick="toast('Removed from this board - the cycle and its calls stay')">Remove from board</div>
+              <div onclick="openDlg('delDlg')" style="color:var(--red)">🗑 Delete cycle…</div>
+            </div></div>
+        </div>
+      </div>
+      <div class="cy-body"><div class="subtabs"><span class="on">Overview</span><span>Story</span><span>Calls · 21</span><span>Requirements</span></div>
+        <div class="pane on"><div class="desc-text">First re-test of the label fix only - before the ancillaries mapper change.</div><div class="desc-by">Claude · 12:32 · from /alfred-verify #76</div></div></div>
+    </div>
+
+    <!-- cycle 3: the first recording -->
+    <div class="cy" tabindex="0">
+      <div class="cy-top" onclick="cyToggle(event, this)">
+        <input type="checkbox" onchange="sel()" aria-label="Select">
+        <span class="chev">▸</span>
+        <div class="cy-main">
+          <div class="cy-title"><span class="dot"></span><span class="cy-name"><a href="#" onclick="toast('Opening the cycle');return false">AB#59851 · first recording of the task</a></span><span class="tag">env 80</span></div>
+          <div class="cy-sub"><span>12:01 · 19 min</span><span>found</span>
+            <span class="cdots"><button class="cdot" onclick="pop(event,'#76')">#76</button><button class="cdot" onclick="pop(event,'#81')">#81</button><button class="cdot" onclick="pop(event,'#83')">#83</button></span>
+            <span>17 calls · <span class="bad-t">4 failed</span></span><span>AC 2/8</span>
+            <!-- 6: vs baseline -->
+            <button class="link" style="font-size:12px" onclick="event.stopPropagation();openDlg('cmpDlg')">vs baseline: 3 more failures →</button>
+            <span class="spark"><i style="height:7px"></i><i class="e" style="height:13px"></i><i style="height:6px"></i><i class="e" style="height:12px"></i><i style="height:9px"></i><i class="w" style="height:8px"></i></span></div>
+        </div>
+        <div class="cy-acts">
+          <button class="mini" onclick="toast('Recording again into this cycle')">● Resume</button>
+          <div class="more"><button class="ghost" onclick="toggle('m3')" aria-label="More">⋯</button>
+            <div class="menu" id="m3">
+              <div onclick="openRetest(['#76','#81','#83'])">↻ Re-test its cards…</div><div onclick="toast('This cycle is the baseline now')">⚑ Set as baseline</div>
+              <div onclick="openDlg('packDlg')">📦 Evidence pack…</div><div onclick="toast('Archived')">🗄 Archive</div><hr>
+              <div onclick="openDlg('delDlg')" style="color:var(--red)">🗑 Delete cycle…</div>
+            </div></div>
+        </div>
+      </div>
+      <div class="cy-body"><div class="subtabs"><span class="on">Overview</span><span>Story</span><span>Calls · 17</span><span>Requirements</span></div>
+        <div class="pane on"><div class="desc-text empty">No description yet - what this cycle is for, the steps (“- [ ] step”), what you expect.</div></div></div>
+    </div>
+  </div>
+
+  <!-- 12: archived, out of the way -->
+  <div class="foot"><button class="link" onclick="document.getElementById('arch').classList.toggle('open')">2 archived</button><span>·</span><button class="link" onclick="openDlg('keysDlg')">keyboard: ?</button></div>
+  <div class="archived" id="arch">
+    <div class="arow">🗄 AB#59851 · smoke 2026-10-16 <span class="grow"></span>8 calls <button class="mini" onclick="toast('Back in the list')">Restore</button></div>
+    <div class="arow">🗄 AB#59851 · rec 2026-10-15 <span class="grow"></span>31 calls <button class="mini" onclick="toast('Back in the list')">Restore</button></div>
+  </div>
+
+  <div class="related">
+    <b>Related boards</b> <span style="color:var(--dim);font-size:12px">boards this task is linked to - their cycles are not listed above</span>
+    <div class="chips"><span class="rchip">AB#59852 Baggage pricing ✕</span><button class="chip" onclick="openDlg('addDlg')">＋ relate a board</button></div>
+  </div>
+</div>
+
+<!-- 1: a card's verdict timeline -->
+<div class="pop" id="pop">
+  <div style="display:flex;gap:8px;align-items:center"><b id="popTitle">#81 Ancillaries 500 for G9</b><span class="grow"></span><button class="ghost mini" onclick="closePop()" aria-label="Close">✕</button></div>
+  <div style="font-size:12px;color:var(--dim)">Fixed · every cycle that checked it, oldest first</div>
+  <div class="tl" id="popTl"></div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="mini" onclick="toast('Opening the card');closePop()">Open card</button><button class="mini" onclick="openRetest([document.getElementById('popTitle').textContent.split(' ')[0]]);closePop()">↻ Re-test it</button></div>
+</div>
+
+<!-- 6: compare, the baseline on the left -->
+<div class="shade" id="cmpDlg" onclick="if(event.target===this)closeDlg('cmpDlg')"><div class="dialog">
+  <h3>Compare with the baseline</h3>
+  <div class="cmp">
+    <div class="h"></div><div class="h">⚑ re-test 12:32 (baseline)</div><div class="h">first recording 12:01</div>
+    <div class="g">Totals</div>
+    <div>Calls</div><div>21</div><div>17</div>
+    <div>Failed (4xx/5xx)</div><div>1</div><div class="up">4 ▲</div>
+    <div>Median time</div><div>410 ms</div><div class="up">520 ms ▲</div>
+    <div>Requirements met</div><div>5</div><div class="up">2 ▼</div>
+    <div class="g">What changed</div>
+    <div>Status changed</div><div>GET /api/ancillaries 200</div><div class="up">500</div>
+    <div>Slower by &gt; 50%</div><div>POST /api/search/flights 790 ms</div><div class="up">1 410 ms</div>
+    <div>Response shape</div><div>bundle.allowance: number</div><div class="up">bundle.allowance missing</div>
+    <div>Only in one</div><div>GET /api/bundles</div><div>—</div>
+  </div>
+  <div class="dlg-foot"><button onclick="toast('Asked Claude in the board chat: why did /api/ancillaries turn 500?')">✦ Ask Claude why</button><button onclick="closeDlg('cmpDlg')">Close</button></div>
+</div></div>
+
+<!-- re-test cards -->
+<div class="shade" id="retestDlg" onclick="if(event.target===this)closeDlg('retestDlg')"><div class="dialog">
+  <h3>Re-test cards</h3>
+  <p style="color:var(--dim);margin:0 0 6px">The cycle is named after the cards it tests and linked to each - every card shows this re-test and its verdict.</p>
+  <div class="pick" id="rtCards">
+    <label><input type="checkbox" value="#84" data-t="Seat map blank after back" onchange="rtName()"><span>#84 Seat map blank after back<br><span class="st">Fixed after the last re-test</span></span></label>
+    <label><input type="checkbox" value="#76" data-t="Baggage differs between Flight Details and Ancillaries" onchange="rtName()"><span>#76 Baggage differs between Flight Details and Ancillaries<br><span class="st">Fixed · passed 13:16</span></span></label>
+    <label><input type="checkbox" value="#81" data-t="Ancillaries 500 for G9" onchange="rtName()"><span>#81 Ancillaries 500 for G9<br><span class="st">Fixed · still failed 13:16</span></span></label>
+    <label><input type="checkbox" value="#83" data-t="Extra Baggage not renamed" onchange="rtName()"><span>#83 “Extra Baggage” not renamed<br><span class="st">Fixed · not reached</span></span></label>
+  </div>
+  <div class="preview"><small>Name</small><span id="rtName" contenteditable="true"></span></div>
+  <h4 style="margin-top:10px">Description</h4>
+  <textarea class="full">Re-test on env 80 after the fixes.
+- [ ] Search Air Arabia VALUE
+- [ ] Open Flight Details, then Ancillaries
+- [ ] Add Extra Baggage</textarea>
+  <div class="dlg-foot">
+    <button class="ghost" onclick="toast('Claude drafted the steps from the cards’ re-test plans')">✦ Draft with Claude</button>
+    <button onclick="closeDlg('retestDlg')">Cancel</button>
+    <button class="primary" onclick="closeDlg('retestDlg');toast('Recording “' + document.getElementById('rtName').textContent + '”')">● Start re-test</button>
+  </div>
+</div></div>
+
+<!-- 13: evidence pack -->
+<div class="shade" id="packDlg" onclick="if(event.target===this)closeDlg('packDlg')"><div class="dialog">
+  <h3>Evidence pack</h3>
+  <p style="color:var(--dim);margin:0 0 8px">One file with the description, the steps, the card verdicts and every failing call in full - nothing cut.</p>
+  <div class="pick">
+    <label><input type="radio" name="fmt" checked> .html <small>for people</small></label>
+    <label><input type="radio" name="fmt"> .md <small>for a ticket</small></label>
+    <label><input type="radio" name="fmt"> .json <small>re-importable</small></label>
+    <label><input type="checkbox" checked> Mask credentials <small>headers and tokens</small></label>
+    <label><input type="checkbox"> Attach to Azure AB#59851 <small>waits for your approval</small></label>
+  </div>
+  <div class="dlg-foot"><button onclick="closeDlg('packDlg')">Cancel</button><button class="primary" onclick="closeDlg('packDlg');toast('Saved evidence-AB59851-re-test.html')">Save</button></div>
+</div></div>
+
+<!-- add existing -->
+<div class="shade" id="addDlg" onclick="if(event.target===this)closeDlg('addDlg')"><div class="dialog">
+  <h3>Add an existing cycle or board</h3>
+  <input type="search" placeholder="Search every project's cycles and boards…" style="width:100%">
+  <div class="pick">
+    <label><input type="checkbox"> odeysys · rec 2026-10-17 · Baggage pricing<small>34 calls · on AB#59852</small></label>
+    <label><input type="checkbox"> odeysys · login smoke test<small>8 calls · on no board</small></label>
+    <label><input type="checkbox"> board · AB#60011 Seat map<small>board</small></label>
+  </div>
+  <div class="dlg-foot"><button onclick="closeDlg('addDlg')">Cancel</button><button class="primary" onclick="closeDlg('addDlg');toast('Added to this board')">Add</button></div>
+</div></div>
+
+<!-- delete -->
+<div class="shade" id="delDlg" onclick="if(event.target===this)closeDlg('delDlg')"><div class="dialog">
+  <h3>Delete “re-test #76”?</h3>
+  <p>It is also on <b>AB#59852</b>. Board texts mention <b>3 calls</b> of it (cards #76, #81) - those 3 are kept; the other 18 calls and their SQL and log lines go. <b>Archive</b> keeps everything and only hides it.</p>
+  <div class="dlg-foot"><button onclick="closeDlg('delDlg');toast('Archived instead')">Archive instead</button><button onclick="closeDlg('delDlg')">Cancel</button><button style="background:var(--red);border-color:var(--red);color:#fff" onclick="closeDlg('delDlg');toast('Deleted - 3 mentioned calls kept')">Delete</button></div>
+</div></div>
+
+<!-- 14: keys -->
+<div class="shade" id="keysDlg" onclick="if(event.target===this)closeDlg('keysDlg')"><div class="dialog" style="width:min(420px,100%)">
+  <h3>Keyboard</h3>
+  <div class="keys"><span><kbd>↑</kbd> <kbd>↓</kbd></span><span>move between cycles</span><span><kbd>Enter</kbd></span><span>open or close the cycle</span>
+    <span><kbd>Space</kbd></span><span>select it</span><span><kbd>o</kbd></span><span>open its page</span><span><kbd>?</kbd></span><span>this list</span><span><kbd>Esc</kbd></span><span>close a menu or dialog</span></div>
+  <div class="dlg-foot"><button onclick="closeDlg('keysDlg')">Close</button></div>
+</div></div>
+
+<div class="toast" id="toast" role="status"></div>
+<script>
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+function closeMenus(except) { $$('.menu.open').forEach(m => { if (m.id !== except) m.classList.remove('open'); }); }
+function toggle(id) { event.stopPropagation(); closeMenus(id); $('#' + id).classList.toggle('open'); }
+document.addEventListener('click', e => { if (!e.target.closest('.split,.more')) closeMenus(); if (!e.target.closest('.pop,.cdot')) closePop(); });
+function toast(t) { const el = $('#toast'); el.textContent = t; el.style.display = 'block'; clearTimeout(window._t); window._t = setTimeout(() => el.style.display = 'none', 2400); closeMenus(); }
+function cyToggle(e, top) { if (e.target.closest('a,button,input,.menu')) return; top.parentElement.classList.toggle('open'); }
+function subtab(tab, i) { const body = tab.closest('.cy-body'); $$('.subtabs span', body).forEach((t, j) => t.classList.toggle('on', j === i)); $$('.pane', body).forEach((p, j) => p.classList.toggle('on', j === i)); }
+function chip(b) { $$('.chip', b.parentElement).forEach(c => c.classList.remove('on')); b.classList.add('on'); }
+function filterList(q) { q = q.toLowerCase(); $$('.cy').forEach(c => c.style.display = !q || c.textContent.toLowerCase().includes(q) ? '' : 'none'); }
+function sel() { const n = $$('.cy-top input:checked').length; $('#selN').textContent = n + ' selected'; $('#bulk').classList.toggle('show', n > 0); }
+function clearSel() { $$('.cy-top input:checked').forEach(i => i.checked = false); sel(); }
+function openDlg(id) { closeMenus(); closePop(); $('#' + id).classList.add('open'); }
+function closeDlg(id) { $('#' + id).classList.remove('open'); }
+function hideNudge() { $('#nudge').remove(); toast('Hidden until another card is fixed'); }
+// 1: verdict timeline
+const TL = {
+  '#76': ['Baggage differs Flight Details ↔ Ancillaries', [['bad', '12:01', 'found'], ['bad', '12:32', 're-test'], ['ok', '13:16', 're-test']]],
+  '#81': ['Ancillaries 500 for G9', [['bad', '12:01', 'found'], ['unk', '12:32', 'not reached'], ['bad', '13:16', 're-test']]],
+  '#83': ['“Extra Baggage” not renamed', [['bad', '12:01', 'found'], ['unk', '13:16', 'not reached']]],
+};
+function pop(e, n) {
+  e.stopPropagation();
+  const [title, pts] = TL[n]; const p = $('#pop');
+  $('#popTitle').textContent = n + ' ' + title;
+  $('#popTl').innerHTML = pts.map(([c, t, w], i) => (i ? '<span class="ln"></span>' : '') + `<span class="p"><b class="${c}">${c === 'ok' ? '✓' : c === 'bad' ? '✗' : '?'}</b>${t}<span>${w}</span></span>`).join('');
+  const r = e.target.getBoundingClientRect();
+  p.style.top = (r.bottom + window.scrollY + 6) + 'px'; p.style.left = Math.min(r.left + window.scrollX, window.innerWidth - 340) + 'px';
+  p.classList.add('open');
+}
+function closePop() { $('#pop').classList.remove('open'); }
+// re-test dialog
+function rtName() {
+  const on = $$('#rtCards input:checked'); const el = $('#rtName');
+  el.textContent = !on.length ? 'Re-test of the task' : on.length === 1 ? `Re-test ${on[0].value} · ${on[0].dataset.t}`
+    : `Re-test ${on.slice(0, 3).map(i => i.value).join(' ')}${on.length > 3 ? ' +' + (on.length - 3) : ''} · ${on.length} cards`;
+}
+function openRetest(cards) {
+  const want = cards ?? $$('#rtCards input').map(i => i.value);
+  $$('#rtCards input').forEach(i => i.checked = want.includes(i.value)); rtName(); openDlg('retestDlg');
+}
+// 15: live counters - a call arrives on the WebSocket signal (simulated)
+setInterval(() => {
+  const c = $('#liveCalls'), t = $('#totalCalls'); if (!c) return;
+  c.textContent = +c.textContent + 1; t.textContent = +t.textContent + 1;
+  c.classList.add('bump'); setTimeout(() => c.classList.remove('bump'), 700);
+  const i = document.createElement('i'); i.style.height = (5 + Math.round(Math.random() * 6)) + 'px'; $('#liveSpark').append(i);
+  if ($('#liveSpark').children.length > 14) $('#liveSpark').firstElementChild.remove();
+}, 6000);
+// 14: keyboard
+document.addEventListener('keydown', e => {
+  if (e.target.matches('input,textarea,[contenteditable]')) return;
+  if (e.key === 'Escape') { closeMenus(); closePop(); $$('.shade.open').forEach(s => s.classList.remove('open')); return; }
+  if (e.key === '?') { openDlg('keysDlg'); return; }
+  const rows = $$('.cy'); const i = rows.indexOf(document.activeElement);
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); rows[Math.max(0, Math.min(rows.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1)))]?.focus(); }
+  if (i < 0) return;
+  if (e.key === 'Enter') rows[i].classList.toggle('open');
+  if (e.key === ' ') { e.preventDefault(); const b = $('.cy-top input', rows[i]); b.checked = !b.checked; sel(); }
+  if (e.key === 'o') toast('Opening the cycle');
+});
+</script>
+</body>
+</html>

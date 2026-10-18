@@ -83,6 +83,11 @@ words. Measured on AB#59851 (2026-10-18):
   Azure move into `Azure ▾`.
 - **D12 - No polling.** Every state change arrives on the existing `/ws/sessions`, `/ws/board` signals; the only timers
   are single deadlines (runner expiry, already in `live-strip`).
+- **D13 - With Claude Desktop the board's session is a visible Desktop chat** (added 2026-10-18 after live testing: answers
+  from a hidden copy never showed in Desktop). The helper opens `claude://code/new?q=&folder=` - Desktop sends the first
+  message itself - asking the chat to run `/alfred-resume` then `/alfred-live`; the chat answers everything in its own
+  conversation, as when the user typed `/alfred-live`. The helper reads the chat's id from Desktop's record and never
+  writes into it. Headless copies remain for no Desktop, project chats and terminals.
 
 ## Stop and Release today (found 2026-10-18, fixed by D5-D7)
 

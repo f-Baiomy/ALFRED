@@ -153,20 +153,13 @@ public class SessionCyclesService implements
     @Override
     public Optional<SessionCycle> update(String id, SessionCycleUpdate update) {
         return metadataStore.findById(id).map(existing -> {
-            SessionCycle updated = new SessionCycle(
-                    existing.id(),
-                    update.name() != null ? update.name() : existing.name(),
-                    existing.createdAt(),
-                    // Unlike name, assignedTo is always applied exactly as given rather than
-                    // "null means leave alone" - every caller (the edit dialog, bulk reassign)
-                    // always sends the assignedTo it wants, including null to explicitly clear
-                    // it back to unassigned, so treating null as "unchanged" here silently
-                    // dropped that clear.
-                    update.assignedTo(),
-                    existing.status(),
-                    existing.reliveRunId(),
-                    existing.reliveCycleId()
-            );
+            // Unlike name, assignedTo is always applied exactly as given rather than
+            // "null means leave alone" - every caller (the edit dialog, bulk reassign)
+            // always sends the assignedTo it wants, including null to explicitly clear
+            // it back to unassigned, so treating null as "unchanged" here silently
+            // dropped that clear. The notes (description, summary) are kept: they change only through updateNotes.
+            SessionCycle updated = existing.withName(update.name() != null ? update.name() : existing.name())
+                    .withAssignedTo(update.assignedTo());
             SessionCycle saved = metadataStore.save(updated);
             notificationPort.notifySessionCyclesChanged();
             return saved;
@@ -232,9 +225,7 @@ public class SessionCyclesService implements
             if (existing.status() == status || existing.reliveRunId() != null) {
                 return existing;
             }
-            SessionCycle updated = new SessionCycle(
-                    existing.id(), existing.name(), existing.createdAt(), existing.assignedTo(), status
-            );
+            SessionCycle updated = existing.withStatus(status);
             SessionCycle saved = metadataStore.save(updated);
             notificationPort.notifySessionCyclesChanged();
             return saved;
@@ -269,8 +260,7 @@ public class SessionCyclesService implements
             spacersStore.deleteAllForCycle(id);
             SessionCycle c = existing.get();
             String name = c.name().startsWith(KEPT_PREFIX) ? c.name() : KEPT_PREFIX + c.name();
-            metadataStore.save(new SessionCycle(c.id(), name.length() > 500 ? name.substring(0, 500) : name, c.createdAt(), c.assignedTo(),
-                    SessionCycleStatus.PAUSED));
+            metadataStore.save(c.withName(name.length() > 500 ? name.substring(0, 500) : name).withStatus(SessionCycleStatus.PAUSED));
             rescuers.forEach(r -> r.kept(id));
             notificationPort.notifyCycleContentChanged(id);
             notificationPort.notifySessionCyclesChanged();

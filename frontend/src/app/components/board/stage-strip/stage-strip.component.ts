@@ -1,23 +1,26 @@
-import { Component, DestroyRef, computed, effect, inject, input, signal, untracked } from '@angular/core';
-import { HttpErrorResponse } from '@angular/common/http';
-import { debounceTime, filter } from 'rxjs';
-import { BoardStage, stageCommand } from '../../../core/models/board.models';
-import { BoardApiService } from '../../../core/services/board-api.service';
-import { BoardSocketService } from '../../../core/services/board-socket.service';
-import { ChatApiService } from '../../../core/services/chat-api.service';
-import { TeamApiService } from '../../../core/team/team-api.service';
+import { Component, computed, input } from '@angular/core';
+import { BoardStage } from '../../../core/models/board.models';
 import { SyncResult } from '../../../core/team/team.models';
+import { PHASES } from '../../../shared/utils/task-view';
 
 /** The seven stages of a task (specs/030 FR-013); the first, Board, is done once the board exists. */
 export const STAGES = [
   { key: 'BOARD', label: 'Board', hint: 'Made in the UI - nothing runs by itself' },
-  { key: 'DEFINE', label: 'Define', hint: 'Brief, spec, steps, data and the cards: /alfred-setup' },
-  { key: 'TRIAGE', label: 'Triage', hint: 'Yours, another team\'s, or close - with a look at the code: /alfred-triage' },
-  { key: 'CODE', label: 'Code', hint: 'You write it' },
-  { key: 'VERIFY', label: 'Verify', hint: 'The code moves cards: /alfred-verify' },
-  { key: 'TEST', label: 'Test', hint: 'Record, then the calls tick steps and re-test cards: /alfred-listen' },
-  { key: 'CLOSE', label: 'Close', hint: 'The report and one update for the main item: /alfred-report' },
+  { key: 'DEFINE', label: 'Define', hint: 'Brief, requirements, test steps and the cards - Claude drafts them, you save' },
+  { key: 'TRIAGE', label: 'Triage', hint: 'Each new card: yours, another team\'s, or fine - decided with you' },
+  { key: 'CODE', label: 'Code', hint: 'The fixes - Claude after your Go, or you' },
+  { key: 'VERIFY', label: 'Verify', hint: 'Each fix checked in the code and in the calls' },
+  { key: 'TEST', label: 'Test', hint: 'Record while you use the app; the calls tick the requirements' },
+  { key: 'CLOSE', label: 'Close', hint: 'The summary and one update for the work item' },
 ] as const;
+
+const PHASE_TIPS: Record<string, string> = {
+  Coded: 'the change is in', Verifying: 'calls checked against the requirements', Fixed: 'the bugs found were fixed',
+  'Re-tested': 'the fixes checked again', Done: 'every requirement met and marked by you',
+};
+
+/** The ladder shows once there is code to judge (specs/032 D3). */
+const LADDER_FROM = ['CODE', 'VERIFY', 'TEST', 'CLOSE'];
 
 /** One line for what a refresh found: "3 changes · 1 new in the tree · 1 possible match". */
 export function refreshLine(r: SyncResult): string {
@@ -33,168 +36,61 @@ export function refreshLine(r: SyncResult): string {
 }
 
 /**
- * The stage strip under the board header (specs/030 D7): the seven stages with the current one marked and its exact
- * command (Copy); "Not defined yet" with the setup command and "Ask Claude in chat" (only while someone answers the
- * board's chat); and "↻ Refresh from Azure" for a board with a main item - the copies updated with no Claude run, the
- * result in one line, a banner when the main moved. Re-read on the board's socket signals, never on a timer.
+ * The stage line (specs/032 D1/D3): the seven stages as circles joined by lines - done ones ✓ green, the current one
+ * filled with its number - and, from Code on, the Coded → Done ladder on the right. Only shows where the task stands:
+ * the next step and its buttons are the Next card's (`BoardStage.of` decides both, once).
  */
 @Component({
   selector: 'app-stage-strip',
   standalone: true,
   styles: [`
-    .ss { display: flex; flex-wrap: wrap; gap: .3rem; align-items: center; margin: .45rem 0 .2rem; font-size: .8rem; }
-    .bs { padding: .1rem .5rem; border: 1px solid var(--border); border-radius: 999px; color: var(--text-dim); white-space: nowrap; }
-    .bs.done { opacity: .7; }
-    .bs.done::before { content: '✓ '; }
-    .bs.on { color: var(--text); border-color: var(--accent-blue, #5b8def); background: var(--card-inner); font-weight: 600; }
-    .ss-next { flex: 1 1 16rem; color: var(--text-dim); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .ss-box { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin: .2rem 0 .4rem; padding: .45rem .7rem;
-      border: 1px dashed var(--border-strong); border-radius: 8px; font-size: .84rem; }
-    .ss-box code { padding: 0 .3rem; border-radius: 4px; background: var(--card-inner); }
-    .ss-warn { border-style: solid; border-color: var(--amber); }
-    .ss-err { color: var(--red); }
-    .ss-dim { color: var(--text-dim); }
+    .stages { display: flex; align-items: center; flex-wrap: wrap; row-gap: 8px; margin: 4px 0 12px; }
+    .stg { display: flex; align-items: center; gap: 7px; padding: 2px 4px; font-size: 12.5px; color: var(--text-faint); cursor: default; }
+    .stg i { display: inline-grid; place-items: center; width: 21px; height: 21px; border-radius: 50%; border: 1px solid var(--border-strong);
+      font-style: normal; font-size: 11px; }
+    .stg.done { color: var(--text-dim); }
+    .stg.done i { background: color-mix(in srgb, var(--green) 18%, transparent); border-color: color-mix(in srgb, var(--green) 50%, transparent); color: var(--green); }
+    .stg.now { color: var(--text); font-weight: 600; }
+    .stg.now i { background: var(--purple); border-color: var(--purple); color: #fff; }
+    .line { flex: 1; height: 1px; min-width: 12px; max-width: 54px; background: var(--border); }
+    .line.done { background: color-mix(in srgb, var(--green) 45%, transparent); }
+    .spacer { flex: 1; }
+    .ladder { display: flex; gap: 6px; align-items: center; margin-left: 16px; font-size: 12px; }
+    .ladder span { padding: 2px 9px; border: 1px solid var(--border); border-radius: 999px; color: var(--text-faint); white-space: nowrap; }
+    .ladder .done { color: var(--green); border-color: color-mix(in srgb, var(--green) 40%, transparent); }
+    .ladder .now { color: #111; background: var(--amber); border-color: var(--amber); font-weight: 700; }
+    @media (max-width: 760px) { .ladder { margin-left: 0; } .spacer { flex-basis: 100%; } }
   `],
   template: `
     @if (stage(); as st) {
-      <div class="ss" role="list" aria-label="Task stages">
+      <div class="stages" role="list" aria-label="Where the task stands">
         @for (s of stages; track s.key; let i = $index) {
-          <span role="listitem" class="bs" [class.done]="i < at()" [class.on]="i === at()" [title]="s.hint">{{ i + 1 }} {{ s.label }}</span>
+          @if (i) { <span class="line" [class.done]="i <= at()" aria-hidden="true"></span> }
+          <span role="listitem" class="stg" [class.done]="i < at()" [class.now]="i === at()" [title]="s.label + ': ' + s.hint"
+                [attr.aria-current]="i === at() ? 'step' : null"><i>{{ i < at() ? '✓' : i + 1 }}</i>{{ s.label }}</span>
         }
-        <span class="ss-next" [title]="st.next">Next: {{ st.next }}</span>
-        @if (command(); as cmd) {
-          <button type="button" class="board-copy" [title]="'Copy ' + cmd + ' - paste it into Claude Code'" (click)="copy(cmd)">{{ copied() === cmd ? '✓ Copied' : '⧉ Copy' }}</button>
-        }
-        @if (linkedItem() && editable()) {
-          <button type="button" class="action-btn" [disabled]="refreshing()" title="Read the main item's tree live and update the copies - no Claude run"
-                  (click)="refresh()">{{ refreshing() ? 'Refreshing…' : '↻ Refresh from Azure' }}</button>
+        @if (ladder()) {
+          <span class="spacer"></span>
+          <span class="ladder" title="Does the code match the task?" aria-label="Does the code match the task?">
+            @for (ph of phases; track ph; let i = $index) {
+              <span [class.done]="i < phase()!" [class.now]="i === phase()" [title]="ph + ': ' + tips[ph]">{{ i < phase()! ? '✓ ' : '' }}{{ ph }}</span>
+            }
+          </span>
         }
       </div>
-      @if (st.stage === 'DEFINE' && !st.counts.brief) {
-        <div class="ss-box" role="note">
-          <b>Not defined yet:</b> no brief, spec or cards. Run it in your terminal: <code>{{ setupCmd() }}</code>
-          <button type="button" class="board-copy" (click)="copy(setupCmd())">{{ copied() === setupCmd() ? '✓ Copied' : '⧉ Copy' }}</button>
-          <span class="ss-dim">or</span>
-          <button type="button" class="action-btn" [disabled]="!answered() || !editable() || asking()" [title]="askTitle()" (click)="ask()">Ask Claude in chat</button>
-          @if (asked()) { <span class="ss-dim">{{ asked() }}</span> }
-        </div>
-      }
-    }
-    @if (result(); as r) {
-      <div class="ss-box" role="status">
-        <span>Azure: {{ line() }}</span>
-        @if (r.newItems?.length || r.changedItems?.length || r.matches) {
-          <span class="ss-dim">Run <code>{{ setupCmd() }}</code> to bring them onto the board</span>
-          <button type="button" class="board-copy" (click)="copy(setupCmd())">{{ copied() === setupCmd() ? '✓ Copied' : '⧉ Copy' }}</button>
-        }
-        <button type="button" class="board-link" (click)="result.set(null)">✕</button>
-      </div>
-      @if (r.mainState; as m) {
-        <div class="ss-box ss-warn" role="alert">
-          <b>AB#{{ m.item }}</b>
-          @if (m.fromState !== m.toState) { <span>moved {{ m.fromState }} → {{ m.toState }}@if (m.category) { ({{ m.category }})}</span> }
-          @if (m.fromIteration !== m.toIteration) { <span>· iteration {{ m.fromIteration || '-' }} → {{ m.toIteration || '-' }}</span> }
-          @if (m.closed || m.fromIteration !== m.toIteration) {
-            <span class="ss-dim">On the next setup run Claude proposes closing the open cards as Not in this flow and stopping listen. You decide.</span>
-          }
-        </div>
-      }
-    }
-    @if (error()) { <div class="ss-err" role="alert">{{ error() }}</div> }`,
+    }`,
 })
 export class StageStripComponent {
-  private readonly api = inject(BoardApiService);
-  private readonly chatApi = inject(ChatApiService);
-  private readonly team = inject(TeamApiService);
-
-  readonly project = input('');
-  readonly boardId = input.required<string>();
-  /** The board's main item ("<conn>/<id>"), when it has one: Refresh from Azure shows only then. */
-  readonly linkedItem = input<string | null>(null);
-  readonly editable = input(true);
+  readonly stage = input<BoardStage | null>(null);
+  /** 0 Coded … 4 Done (`phaseOf`, from the task's requirements and cards); null while not known. */
+  readonly phase = input<number | null>(null);
 
   readonly stages = STAGES;
-  readonly stage = signal<BoardStage | null>(null);
+  readonly phases = PHASES;
+  readonly tips = PHASE_TIPS;
   readonly at = computed(() => {
     const st = this.stage();
-    return st ? this.stages.findIndex((s) => s.key === st.stage) : 0;
+    return st ? Math.max(1, this.stages.findIndex((s) => s.key === st.stage)) : 0;
   });
-  readonly command = computed(() => (this.stage() ? stageCommand(this.stage()!.next) : null));
-  readonly setupCmd = computed(() => `/alfred-setup ${this.stage()?.ref ?? ''}`.trimEnd());
-  readonly copied = signal<string | null>(null);
-  /** Someone answers this board's chat now: a terminal holding it, or the project's live runner. */
-  readonly answered = signal(false);
-  readonly askTitle = computed(() => (this.answered() ? `Posts ${this.setupCmd()} to the board chat - the runner answering it drafts the task`
-    : `Start /alfred-live ${this.stage()?.ref ?? ''} first - nobody answers the board chat now`));
-  readonly asking = signal(false);
-  readonly asked = signal<string | null>(null);
-  readonly refreshing = signal(false);
-  readonly result = signal<SyncResult | null>(null);
-  readonly line = computed(() => (this.result() ? refreshLine(this.result()!) : ''));
-  readonly error = signal<string | null>(null);
-
-  constructor() {
-    effect(() => {
-      const id = this.boardId();
-      untracked(() => {
-        this.result.set(null);
-        this.asked.set(null);
-        this.load(id);
-      });
-    });
-    const sub = inject(BoardSocketService).events$.pipe(
-      filter((e) => (e.type === 'board-changed' && (!e.project || e.project === this.project()))
-        || ((e.type === 'live-runner' || e.type === 'cycle-chat') && e.project === this.project())),
-      debounceTime(400),
-    ).subscribe(() => this.load(this.boardId()));
-    inject(DestroyRef).onDestroy(() => sub.unsubscribe());
-  }
-
-  load(id: string): void {
-    this.api.stage(id).subscribe({
-      next: (st) => {
-        if (this.boardId() !== id) return;
-        this.stage.set(st);
-        if (st.stage === 'DEFINE' && !st.counts.brief) this.readAnswerer(id);
-      },
-      error: () => this.stage.set(null),
-    });
-  }
-
-  private readAnswerer(boardId: string): void {
-    const project = this.project();
-    this.chatApi.summaries(project).subscribe({ next: (all) => {
-      const s = all.find((x) => x.scope === boardId);
-      if (s?.terminal?.open || s?.claudeOn) this.answered.set(true);
-    }, error: () => undefined });
-    this.api.liveRunner(project).subscribe({ next: (r) => { if (r) this.answered.set(true); }, error: () => undefined });
-  }
-
-  copy(text: string): void {
-    void navigator.clipboard?.writeText(text).then(() => {
-      this.copied.set(text);
-      setTimeout(() => this.copied.set(null), 1500);
-    }, () => undefined);
-  }
-
-  /** "Ask Claude in chat": the setup command as the user's own message in the board's chat. */
-  ask(): void {
-    this.asking.set(true);
-    this.chatApi.post(this.project(), this.boardId(), { text: this.setupCmd() }).subscribe({
-      next: () => { this.asking.set(false); this.asked.set('Sent to the board chat - the draft comes back there'); },
-      error: (e: HttpErrorResponse) => { this.asking.set(false); this.asked.set(e?.error?.message ?? 'Not sent'); },
-    });
-  }
-
-  refresh(): void {
-    this.refreshing.set(true);
-    this.error.set(null);
-    this.team.refresh(this.boardId()).subscribe({
-      next: (r) => { this.refreshing.set(false); this.result.set(r); this.load(this.boardId()); },
-      error: (e: HttpErrorResponse) => {
-        this.refreshing.set(false);
-        this.error.set(e?.error?.error === 'TOKEN_MISSING' ? 'Enter your token in the Team tab first' : (e?.error?.message ?? 'The refresh failed'));
-      },
-    });
-  }
+  readonly ladder = computed(() => this.phase() !== null && LADDER_FROM.includes(this.stage()?.stage ?? ''));
 }

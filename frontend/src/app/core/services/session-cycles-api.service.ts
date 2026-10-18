@@ -1,3 +1,4 @@
+import { CycleSummary } from '../models/cycles-tab.models';
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable, forkJoin, map } from 'rxjs';
@@ -83,6 +84,16 @@ export class SessionCyclesApiService {
   /** ASK (default) answers 409 RECORDING_CONFLICT when another cycle records the same project; PAUSE_OTHER pauses it (specs/027). */
   startRecording(id: string, onRunning: 'ASK' | 'PAUSE_OTHER' = 'ASK'): Observable<SessionCycle> {
     return this.http.post<SessionCycle>(`${this.baseUrl}/${id}/record`, {}, { params: { onRunning } });
+  }
+
+  /** specs/033: a missing field is left alone, "" clears it. */
+  putNotes(id: string, notes: { description?: string; summary?: string }): Observable<SessionCycle> {
+    return this.http.put<SessionCycle>(`${this.baseUrl}/${encodeURIComponent(id)}/notes`, notes);
+  }
+
+  /** What the cycle caught - counts, endpoints and its calls in time order, no bodies (specs/033). */
+  summary(id: string): Observable<CycleSummary> {
+    return this.http.get<CycleSummary>(`${this.baseUrl}/${encodeURIComponent(id)}/summary`);
   }
 
   pauseRecording(id: string): Observable<SessionCycle> {

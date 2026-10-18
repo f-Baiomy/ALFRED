@@ -98,10 +98,10 @@ public class HoldersService implements HoldersUseCase {
     public synchronized Result release(Caller caller, String boardId) {
         Optional<Holder> h = store.holder(boardId);
         if (h.isEmpty()) {
-            return Result.refused("NOT_FOUND", "Nobody holds this board");
+            return Result.refused("NOT_FOUND", "Nobody holds this board any more - it was handed back already");
         }
         if (!h.get().user().equals(caller.user())) {
-            return Result.refused("HELD", "Only " + h.get().user() + " can release it");
+            return Result.refused("HELD", h.get().user() + " holds this board now - only they can hand it back");
         }
         store.removeHolder(boardId);
         audit(boardId, "Board released", caller.user(), caller.machine(), "");

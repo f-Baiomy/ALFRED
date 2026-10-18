@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import {
   Helper, boardWorktree, claudeAppDataDirs, desktopAccount, desktopAccountDir, desktopSessionsRoot, ensureMcp, installSkills, mcpDefaultName, mcpNameFor, normalizeServer, parseArgs, projectFolder, serverOf, shortHash,
-  slug, tokensToday, transcriptOf, writeDesktopRecord,
+  slug, tokensToday, transcriptOf, writeDesktopRecord, desktopHasRecord, DESKTOP_RESTART, findDesktopChat, desktopChatUrl,
 } from '../alfred-helper.mjs';
 
 const tmp = () => mkdtempSync(join(tmpdir(), 'alfred-helper-'));
@@ -373,7 +373,8 @@ test('a START whose first turn fails leaves the session gone, not starting', asy
   await assert.rejects(h.handle({ kind: 'START', boardId: 'b1', project: 'odeysys', args: '{}' }), /claude exited 1/);
 
   const reports = api.calls.filter((c) => c.path === '/board/sessions' && c.method === 'PUT');
-  assert.deepEqual(reports.map((r) => r.body.state), ['STARTING', 'GONE']);
+  assert.deepEqual([...new Set(reports.map((r) => r.body.state))], ['STARTING', 'GONE']);
+  assert.equal(reports.at(-1).body.state, 'GONE');
   assert.equal(reports[1].body.boardId, 'b1');
   assert.equal(h.sessions.size, 0);
 });
@@ -397,4 +398,139 @@ test("on start, commands this helper's key took before a restart go back to the 
 
   const puts = api.calls.filter((c) => c.method === 'PUT');
   assert.deepEqual(puts.map((c) => [c.path, c.body.state]), [['/board/helper-commands/c1', 'QUEUED']]);
+});
+
+test('START says what it is doing while it starts, in order (specs/032)', async () => {
+  const repo = tmp();
+  const api = new FakeApi({ projects: [{ project: 'odeysys', machine: 'PC', folder: repo, openIn: 'BACKGROUND', worktrees: false }] });
+  const h = quietHelper({ server: 'http://a:3000', api, machine: 'PC', mcp: 'alfred', primary: true });
+  h.turn = () => 'ok';
+  h.startRunner = () => null;
+
+  await h.handle({ kind: 'START', boardId: 'b1', project: 'odeysys', args: '{}' });
+
+  const reports = api.calls.filter((c) => c.path === '/board/sessions' && c.method === 'PUT').map((c) => c.body);
+  assert.deepEqual(reports.filter((r) => r.progress).map((r) => r.progress), ['Getting ready', 'Reading the task', 'Starting to answer the board']);
+  assert.equal(reports.at(-1).state, 'ANSWERING');
+});
+
+test('RELEASE writes the note when asked, stops Claude, then hands the board back (specs/032)', async () => {
+  const api = new FakeApi();
+  const h = quietHelper({ server: 'http://a:3000', api, machine: 'PC', mcp: 'alfred' });
+  const session = { id: 's1', boardId: 'b1', project: 'odeysys', cliSessionId: '11111111-2222-3333-4444-555555555555', cwd: tmp() };
+  h.known = async () => session;
+  const order = [];
+  h.turn = (id, prompt) => { order.push(prompt.includes('Handover note') ? 'note' : 'turn'); return 'ok'; };
+  h.stopRunner = () => order.push('stop');
+  const realCall = api.call.bind(api);
+  api.call = async (m, p, o) => { if (p === '/board/holders/release') order.push('release'); return realCall(m, p, o); };
+
+  const withNote = await h.handle({ kind: 'RELEASE', boardId: 'b1', project: 'odeysys', args: '{"note":true,"boardRef":"AB#1"}' });
+  assert.deepEqual(order, ['note', 'stop', 'release']);
+  assert.match(withNote, /Handover note card/);
+
+  order.length = 0;
+  h.turn = () => { throw new Error('claude exited 1: weekly limit'); };
+  const failedNote = await h.handle({ kind: 'RELEASE', boardId: 'b1', project: 'odeysys', args: '{"note":true}' });
+  assert.deepEqual(order, ['stop', 'release'], 'a failed note still hands the board back');
+  assert.match(failedNote, /no note \(claude exited 1/);
+});
+
+test('RESUME reads the messages sent while paused in the same command, and only then (specs/032)', async () => {
+  const api = new FakeApi();
+  const h = quietHelper({ server: 'http://a:3000', api, machine: 'PC', mcp: 'alfred' });
+  const session = { id: 's1', boardId: 'b1', project: 'odeysys', cliSessionId: '11111111-2222-3333-4444-555555555555', cwd: tmp() };
+  h.known = async () => session;
+  h.startRunner = () => null;
+  const turns = [];
+  h.turn = (id, prompt) => { turns.push(prompt); return 'ok'; };
+
+  const r = await h.handle({ kind: 'RESUME', boardId: 'b1', project: 'odeysys', args: '{"unread":3,"boardRef":"AB#1","chatSeq":42}' });
+  assert.deepEqual(turns, ['/alfred-resume AB#1']);
+  assert.match(r, /read the 3 message/);
+  const last = api.calls.filter((c) => c.path === '/board/sessions' && c.method === 'PUT').at(-1).body;
+  assert.equal(last.lastChatSeq, 42);
+
+  turns.length = 0;
+  await h.handle({ kind: 'RESUME', boardId: 'b1', project: 'odeysys', args: '{}' });
+  assert.deepEqual(turns, []);
+  assert.equal(api.calls.filter((c) => c.path === '/board/skill-runs').length, 0);
+
+  // "Resume Claude and verify": the step is queued for the session once it answers again
+  await h.handle({ kind: 'RESUME', boardId: 'b1', project: 'odeysys', args: '{"thenRun":{"command":"/alfred-verify AB#1"}}' });
+  const runs = api.calls.filter((c) => c.path === '/board/skill-runs');
+  assert.equal(runs.length, 1);
+  assert.equal(runs[0].body.command, '/alfred-verify AB#1');
+  assert.equal(runs[0].body.cycleId, 'b1');
+});
+
+test('a session Desktop has not read is never deep-linked - the board offers Restart Desktop instead (2026-10-18)', async () => {
+  const dir = tmp();
+  const id = writeDesktopRecord({ cliSessionId: '79143edc-0000-0000-0000-000000000000', cwd: 'C:/w', title: 't' }, dir);
+  const made = JSON.parse(readFileSync(join(dir, `${id}.json`), 'utf8')).createdAt;
+  assert.equal(desktopHasRecord(id, { dir, startedAt: made - 60_000 }), false, 'Desktop started before the record: not in its list');
+  assert.equal(desktopHasRecord(id, { dir, startedAt: made + 60_000 }), true, 'started after it: read');
+  assert.equal(desktopHasRecord(id, { dir, startedAt: null }), true, 'not running: opening it starts it and reads it');
+  writeFileSync(join(dir, `${id}.json`), JSON.stringify({ createdAt: made, gitAnchorsFolderRealpath: 'C:/w' }));
+  assert.equal(desktopHasRecord(id, { dir, startedAt: made - 60_000 }), true, 'Desktop rewrote it with its own fields: read');
+
+  const api = new FakeApi();
+  const opened = [];
+  const h = quietHelper({ server: 'http://a:3000', api, machine: 'PC', mcp: 'alfred',
+    desktop: { record: () => 'local_x', open: (u) => opened.push(u), terminal: () => {}, has: () => false } });
+  h.known = async () => ({ id: 's1', boardId: 'b1', project: 'odeysys', cliSessionId: 'x', cwd: tmp() });
+  const r = await h.handle({ kind: 'OPEN_DESKTOP', boardId: 'b1', project: 'odeysys', args: '{}' });
+  assert.equal(r, DESKTOP_RESTART);
+  assert.deepEqual(opened, [], 'no link to a page that says the session cannot be found');
+});
+
+test('START opens the board as a Claude Desktop chat that runs it itself - visible answers, nothing written into it (specs/032 D13)', async () => {
+  const repo = tmp();
+  const api = new FakeApi({ projects: [{ project: 'odeysys', machine: 'PC', folder: repo, openIn: 'DESKTOP', worktrees: false }] });
+  const chats = [];
+  const h = quietHelper({ server: 'http://a:3000', api, machine: 'PC', mcp: 'alfred', primary: true,
+    desktop: { record: () => null, open: () => {}, terminal: () => {}, available: () => true,
+      chat: (o) => chats.push(o), waitChat: async () => ({ sessionId: 'local_d1', cliSessionId: 'c1c1c1c1-0000-0000-0000-000000000000', cwd: repo }) } });
+  h.turn = () => { throw new Error('nothing may be written into the chat'); };
+  let runnerStarted = false;
+  h.startRunner = () => { runnerStarted = true; return null; };
+
+  const result = await h.handle({ kind: 'START', boardId: 'b1', project: 'odeysys', args: '{"title":"AB#1","boardRef":"AB#1"}' });
+
+  assert.match(result, /Claude Desktop chat/);
+  assert.equal(chats.length, 1);
+  assert.equal(chats[0].cwd, repo);
+  assert.doesNotMatch(chats[0].prompt, /^\//, "Desktop's link refuses a prompt starting with /");
+  assert.match(chats[0].prompt, /\/alfred-resume AB#1/);
+  assert.match(chats[0].prompt, /\/alfred-live odeysys b1/);
+  assert.equal(runnerStarted, false, 'the chat starts its own runner through /alfred-live');
+  const take = api.calls.find((c) => c.path === '/board/holders/take');
+  assert.equal(take.body.sessionId, 'c1c1c1c1-0000-0000-0000-000000000000');
+  const reports = api.calls.filter((c) => c.path === '/board/sessions' && c.method === 'PUT');
+  assert.ok(reports.some((r) => r.body.state === 'GONE' && r.body.cliSessionId !== 'c1c1c1c1-0000-0000-0000-000000000000'), 'the placeholder row goes');
+  const last = reports.at(-1).body;
+  assert.equal(last.cliSessionId, 'c1c1c1c1-0000-0000-0000-000000000000');
+  assert.equal(last.state, 'ANSWERING');
+  assert.equal(last.desktopId, 'local_d1');
+  assert.equal(h.sessions.get('c1c1c1c1-0000-0000-0000-000000000000').chat, true);
+});
+
+test('a Desktop chat that never opens (the folder not trusted) leaves no session and says what to do', async () => {
+  const repo = tmp();
+  const api = new FakeApi({ projects: [{ project: 'odeysys', machine: 'PC', folder: repo, openIn: 'DESKTOP', worktrees: false }] });
+  const h = quietHelper({ server: 'http://a:3000', api, machine: 'PC', mcp: 'alfred', primary: true,
+    desktop: { record: () => null, open: () => {}, terminal: () => {}, available: () => true, chat: () => {}, waitChat: async () => null } });
+  await assert.rejects(h.handle({ kind: 'START', boardId: 'b1', project: 'odeysys', args: '{}' }), /press Trust/);
+  assert.equal(h.sessions.size, 0);
+});
+
+test("Desktop's own chats are found by folder and time, never a record the helper wrote", () => {
+  const dir = tmp();
+  writeDesktopRecord({ cliSessionId: 'aaaaaaaa-0000-0000-0000-000000000000', cwd: 'C:/w', title: 't' }, dir);
+  assert.equal(findDesktopChat({ cwd: 'C:/w', since: 0 }, dir), null, 'adopted from the helper: not a Desktop chat');
+  writeFileSync(join(dir, 'local_b.json'), JSON.stringify({ sessionId: 'local_b', cliSessionId: 'bbbb', cwd: 'C:\\W', createdAt: 2000 }));
+  assert.equal(findDesktopChat({ cwd: 'c:/w', since: 1000 }, dir)?.cliSessionId, 'bbbb');
+  assert.equal(findDesktopChat({ cwd: 'c:/w', since: 3000 }, dir), null, 'older than the link');
+  assert.equal(findDesktopChat({ cliSessionId: 'bbbb' }, dir)?.sessionId, 'local_b');
+  assert.match(desktopChatUrl({ cwd: 'C:\\w x', prompt: 'a b' }), /^claude:\/\/code\/new\?q=a%20b&folder=C%3A%5Cw%20x$/);
 });

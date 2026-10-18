@@ -1,5 +1,5 @@
 import { SelectOption, SelectPickerComponent } from '../../components/select-picker/select-picker.component';
-import { Component, DestroyRef, computed, effect, inject, signal, untracked } from '@angular/core';
+import { Component, DestroyRef, ViewChild, computed, effect, inject, signal, untracked } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { catchError, map, of } from 'rxjs';
@@ -13,10 +13,17 @@ import { BoardApiService } from '../../core/services/board-api.service';
 import { ConfirmDialogComponent } from '../../components/confirm-dialog/confirm-dialog.component';
 import { BoardPickerComponent } from '../../components/board/board-picker/board-picker.component';
 import { RelatedStripComponent } from '../../components/board/related-strip/related-strip.component';
+import { BoardFactsComponent } from '../../components/board/board-facts/board-facts.component';
+import { BoardStateMenuComponent } from '../../components/board/board-state-menu/board-state-menu.component';
+import { NextStepCardComponent } from '../../components/board/next-step-card/next-step-card.component';
+import { RecordLineComponent } from '../../components/board/record-line/record-line.component';
+import { BannerComponent } from '../../shared/components/banner/banner.component';
+import { BoardBannerService } from '../../core/state/board-banner.service';
+import { boardRefChip, plainBoardTitle } from '../../shared/utils/board-title';
 import { BoardActivityComponent } from '../../components/board/board-activity/board-activity.component';
-import { BoardSummary } from '../../core/models/board.models';
+import { BoardStage, BoardSummary } from '../../core/models/board.models';
 import { BoardSocketService } from '../../core/services/board-socket.service';
-import { filter } from 'rxjs';
+import { debounceTime, filter } from 'rxjs';
 import { BoardCallsComponent } from '../../components/board/board-calls/board-calls.component';
 import { BoardCyclesComponent } from '../../components/board/board-cycles/board-cycles.component';
 import { TeamRelatedItemsComponent } from '../../components/team/related-items/related-items.component';
@@ -31,17 +38,26 @@ export type BoardTab = 'cards' | 'calls' | 'task' | 'cycles' | 'items' | 'activi
 const BOARD_TABS: readonly BoardTab[] = ['cards', 'calls', 'task', 'cycles', 'items', 'activity'];
 
 /**
- * The Board tab (specs/014-task-board US1, specs/027): every card of a project ("All cards"), or one board - a task - with
- * its related cycles and boards, its brief, spec files, requirements and chat above its cards. The board id travels as the
+ * The Board tab (specs/014-task-board US1, specs/027): every card of a project ("All cards"), or one board - a task. Its
+ * header (specs/032) is one row (Boards ▾, the work item, the plain title, project, state, Chat, Claude), the facts line,
+ * the stage line, the Next card and the recording line; then the tabs. The project's default board shows only the header
+ * and its cards. The board id travels as the
  * task key (?cycle=<board id>; a migrated board's id is its old cycle's), so old links still land on the right task.
  */
 @Component({
   selector: 'app-board-page',
   standalone: true,
   imports: [SelectPickerComponent, BoardViewComponent, TaskViewComponent, ConfirmDialogComponent, BoardPickerComponent, RelatedStripComponent,
-    BoardActivityComponent, BoardCallsComponent, BoardCyclesComponent, TeamRelatedItemsComponent, StageStripComponent, BoardSessionButtonComponent],
+    BoardActivityComponent, BoardCallsComponent, BoardCyclesComponent, TeamRelatedItemsComponent, StageStripComponent, BoardSessionButtonComponent,
+    BoardFactsComponent, BoardStateMenuComponent, NextStepCardComponent, RecordLineComponent, BannerComponent],
   styles: [`
-    .bp-tabs { display: flex; gap: 2px; margin: .4rem -1rem 0; padding: 0 .6rem; border-top: 1px solid var(--border);
+    .bp-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .bp-id { padding: 2px 7px; border: 1px solid color-mix(in srgb, var(--purple) 35%, transparent); border-radius: 6px;
+      background: color-mix(in srgb, var(--purple) 14%, transparent); color: var(--purple-light); font: 600 12px ui-monospace, Consolas, monospace; white-space: nowrap; }
+    .bp-title { flex: 1 1 0; min-width: 0; margin: 0; overflow: hidden; font-size: 18px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+    @media (max-width: 1150px) { .bp-title { order: 10; flex-basis: 100%; white-space: normal; } }
+    /* inside the task panel (.tv, bordered, no padding): no bleed past its border (it showed 16px outside, 2026-10-18) */
+    .bp-tabs { display: flex; gap: 2px; margin: .4rem 0 0; padding: 0 .6rem; border-top: 1px solid var(--border);
       border-bottom: 1px solid var(--border); overflow-x: auto; }
     .bp-tab { padding: .6rem .85rem; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--text-dim);
       font: inherit; font-size: .9rem; cursor: pointer; white-space: nowrap; }
@@ -57,29 +73,44 @@ const BOARD_TABS: readonly BoardTab[] = ['cards', 'calls', 'task', 'cycles', 'it
       <app-board-view [project]="project()" [cycleId]="cycleId()" [windowMode]="true" />
     } @else {
     <div class="board-page">
-      <div class="board-head">
-        <h1>Board</h1>
+      <!-- one header row (specs/032 T040): Boards ▾, the work item, the plain title, project, state, Chat, Claude -->
+      <div class="bp-head">
         <app-board-picker [project]="project()" [selected]="cycleId()" [editable]="editable()" (picked)="go(project(), $event)" />
+        @if (refChip(); as r) { <span class="bp-id" [title]="cycleName() ?? r">{{ r }}</span> }
+        <h2 class="bp-title" [title]="fullTitle()">{{ plainTitle() }}</h2>
         <app-select-picker [options]="projectOptions()" [value]="project()" ariaLabel="Project" (valueChange)="go($event, null)" />
+        @if (taskBoard()) {
+          <app-board-state-menu [summary]="summary()" [editable]="editable()" (changed)="reloadSummary()" (deleted)="go(project(), null)" />
+        }
         @if (cycleId(); as id) {
-          <button type="button" class="action-btn" title="This board's chat, in the chat panel" (click)="chat.openChat(id)">💬 Chat</button>
+          <button type="button" class="action-btn bp-chat" title="This board's chat, in the chat panel" (click)="chat.openChat(id)">💬 Chat</button>
         }
         @if (project()) {
-          <app-board-session-button [project]="project()" [boardId]="cycleId() ?? ('default:' + project())" [title]="cycleName()" [cycles]="boardCycles()" />
+          <app-board-session-button #claude [project]="project()" [boardId]="sessionBoard()" [title]="cycleName()" [ref]="stage()?.ref ?? null"
+                                    [cycles]="boardCycles()" [terminalOn]="terminalOn()" [unread]="chatSummary()?.waiting ?? 0"
+                                    [chatSeq]="chatSummary()?.lastId ?? null" />
         }
       </div>
+      @if (taskBoard(); as id) {
+        <app-board-facts [project]="project()" [boardId]="id" [stage]="stage()" [cards]="summary()?.cards ?? 0" [editable]="editable()" />
+      }
+      @if (bannerHere(); as b) {
+        <app-banner [tone]="b.tone" [text]="b.text" [detail]="b.detail ?? null" [action]="b.action ?? null" [dismissable]="b.dismissable !== false"
+                    (act)="b.onAction?.()" (dismiss)="banner.clear()" />
+      }
       @if (heldByOther(); as h) {
-        <div class="bp-held" role="status">🔒 This board is held by <b>{{ h.user }}</b>@if (h.machine) { on {{ h.machine }} }. You can read it;
-          writing waits until they hand it over or release it - ask from the 🔒 button.</div>
+        <div class="bp-held" role="status">🔒 <b>{{ h.user }}</b> holds this board@if (h.machine) { (on {{ h.machine }}) }. You can read it;
+          writing waits until they hand it over - ask from the 🔒 button.</div>
       }
       @if (cycleId(); as id) {
-        <app-related-strip [summary]="summary()" [cycles]="cycles()" [allBoards]="allBoards()" [editable]="editable()"
-                           (changed)="reloadSummary()" (deleted)="go(project(), null)" />
-        @if (!id.startsWith('default:') && !summary()?.board?.isDefault) {
-          <app-stage-strip [project]="project()" [boardId]="id" [linkedItem]="summary()?.linkedItem ?? null" [editable]="editable()" />
+        @if (taskBoard()) {
+          <app-stage-strip [stage]="stage()" [phase]="phase()" />
+          <app-next-step-card [project]="project()" [boardId]="id" [boardName]="cycleName()" [stage]="stage()" [terminalOn]="terminalOn()"
+                              [cycles]="boardCycles()" [editable]="editable()" (askClaude)="claude?.runAfterStart($event)" />
+          <app-record-line [boardId]="id" [cycles]="boardCycles()" [editable]="editable()" (changed)="reloadSummary()" />
         }
         <app-task-view [cycleId]="id" [project]="project()" [editable]="editable()" [cycleName]="cycleName()" [nested]="true"
-                       [showTask]="tab() === 'task'" (taskAsked)="setTab('task')" (cardOpened)="setTab('cards')">
+                       [showTask]="tab() === 'task'" (taskAsked)="setTab('task')" (cardOpened)="setTab('cards')" (phaseChange)="phase.set($event)">
           <div tvTabs class="bp-tabs" role="tablist" aria-label="Board">
             @for (t of tabs(); track t.key) {
               <button type="button" role="tab" class="bp-tab" [class.on]="tab() === t.key" [attr.aria-selected]="tab() === t.key" (click)="setTab(t.key)">
@@ -88,10 +119,14 @@ const BOARD_TABS: readonly BoardTab[] = ['cards', 'calls', 'task', 'cycles', 'it
           </div>
           <div class="bp-pane">
             <app-board-view [project]="project()" [cycleId]="id" [cycleName]="cycleName()" [onlyCycleDeleted]="onlyCycleDeleted()"
-                            [showBody]="tab() === 'cards'" />
+                            [showBody]="tab() === 'cards'" [showNextSteps]="!taskBoard()" />
             @switch (tab()) {
               @case ('calls') { <app-board-calls [cycles]="boardCycles()" /> }
-              @case ('cycles') { <app-board-cycles [boardId]="id" [editable]="editable()" /> }
+              @case ('cycles') {
+                <!-- the board's recordings (specs/033), then its related boards -->
+                <app-board-cycles [boardId]="id" [editable]="editable()" />
+                <app-related-strip [summary]="summary()" [cycles]="cycles()" [allBoards]="allBoards()" [editable]="editable()" [showCycles]="false" (changed)="reloadSummary()" />
+              }
               @case ('items') { <app-team-related-items [boardId]="id" [editable]="editable()" /> }
             }
             <div [hidden]="tab() !== 'activity'">
@@ -144,6 +179,40 @@ export class BoardPageComponent {
     return t && BOARD_TABS.includes(t) ? t : 'cards';
   });
   readonly activityCount = signal(0);
+  readonly banner = inject(BoardBannerService);
+  @ViewChild('claude') claude?: BoardSessionButtonComponent;
+  /** A task board (not All cards, not the project's default board): it has a stage, facts and a Next card. */
+  readonly taskBoard = computed(() => {
+    const id = this.cycleId();
+    return id && !id.startsWith('default:') && !this.summary()?.board?.isDefault ? id : null;
+  });
+  /** The board the Claude control is for: the one in view, else the project's default board. */
+  readonly sessionBoard = computed(() => this.cycleId() ?? `default:${this.project()}`);
+  /** Where the task stands (`BoardStage.of`, the one rule): the stage line, the facts and the Next card all read it. */
+  readonly stage = signal<BoardStage | null>(null);
+  /** 0 Coded … 4 Done, from the task view (where the requirements and cards are read). */
+  readonly phase = signal<number | null>(null);
+  readonly refChip = computed(() => (this.taskBoard() ? boardRefChip(this.stage()?.ref, this.summary()?.linkedItem) : null));
+  readonly fullTitle = computed(() => (this.cycleId() ? this.cycleName() ?? '' : 'All cards'));
+  readonly plainTitle = computed(() => {
+    if (!this.cycleId()) return 'All cards';
+    if (!this.taskBoard()) return this.project() || this.cycleName() || '';
+    return plainBoardTitle(this.cycleName(), this.refChip());
+  });
+  /** The board chat's summary: who answers it (a terminal /alfred-live) and what waits for Claude. */
+  readonly chatSummary = computed(() => {
+    const scope = this.cycleId();
+    return this.chat.summaries().find((s) => s.scope === scope) ?? null;
+  });
+  readonly terminalOn = computed(() => {
+    const s = this.chatSummary();
+    return !!(s?.terminal?.open || s?.claudeOn);
+  });
+  /** The banner, only on the board it is about. */
+  readonly bannerHere = computed(() => {
+    const b = this.banner.current();
+    return b && (!b.boardId || b.boardId === this.cycleId() || b.boardId === this.sessionBoard()) ? b : null;
+  });
   /** The board's cycles with their names and state (the live list, so a new cycle or a recording shows). */
   readonly boardCycles = computed(() => {
     const ids = this.summary()?.cycleIds ?? [];
@@ -154,7 +223,7 @@ export class BoardPageComponent {
     const cycles = this.boardCycles().length;
     return [
       { key: 'cards' as const, label: 'Cards', n: '' },
-      { key: 'calls' as const, label: 'Calls', n: cycles ? `${cycles} cycle${cycles === 1 ? '' : 's'}` : '' },
+      { key: 'calls' as const, label: 'Calls', n: cycles ? String(cycles) : '' },
       { key: 'task' as const, label: 'Task', n: '' },
       { key: 'cycles' as const, label: 'Cycles', n: cycles ? String(cycles) : '' },
       { key: 'items' as const, label: 'Related items', n: '' },
@@ -168,12 +237,21 @@ export class BoardPageComponent {
     this.board.access().subscribe({ next: (a) => this.accessEditable.set(a.editable), error: () => undefined });
     effect(() => {
       const id = this.cycleId();
-      untracked(() => this.reloadSummary(id));
+      untracked(() => {
+        this.reloadSummary(id);
+        this.phase.set(null);
+        this.loadStage(id);
+        const b = this.banner.current();
+        if (b?.boardId && b.boardId !== id) this.banner.clear();
+      });
     });
     const socket = inject(BoardSocketService);
     const sub = socket.events$.pipe(filter((e) => e.type === 'board-changed' && (e.what === 'boards' || e.what === 'deleted')))
       .subscribe(() => this.reloadSummary());
-    inject(DestroyRef).onDestroy(() => sub.unsubscribe());
+    // the stage follows the board's cards, brief and requirements - re-read on its signals, never on a timer
+    const stageSub = socket.events$.pipe(filter((e) => e.type === 'board-changed' && (!e.project || e.project === this.project())), debounceTime(400))
+      .subscribe(() => this.loadStage(this.cycleId()));
+    inject(DestroyRef).onDestroy(() => { sub.unsubscribe(); stageSub.unsubscribe(); });
     effect(() => {
       const card = this.query().get('card');
       if (!card) return;
@@ -189,6 +267,11 @@ export class BoardPageComponent {
   setTab(t: BoardTab): void {
     if (t === this.tab()) return;
     void this.router.navigate([], { relativeTo: this.route, queryParams: { tab: t === 'cards' ? null : t }, queryParamsHandling: 'merge', replaceUrl: true });
+  }
+
+  loadStage(id: string | null): void {
+    if (!id || id.startsWith('default:')) { this.stage.set(null); return; }
+    this.board.stage(id).subscribe({ next: (st) => this.cycleId() === id && this.stage.set(st), error: () => this.stage.set(null) });
   }
 
   reloadSummary(id: string | null = this.cycleId()): void {

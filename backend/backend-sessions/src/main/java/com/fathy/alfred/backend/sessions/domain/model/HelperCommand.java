@@ -12,7 +12,7 @@ public record HelperCommand(String id, String helperKeyId, String user, Kind kin
                             String args, State state, String result, Instant createdAt, Instant updatedAt) {
 
     public enum Kind { START, RESUME, OPEN_DESKTOP, OPEN_TERMINAL, STOP, STOP_ALL, PICK_FOLDER, BRING_TRANSCRIPT, SEND_TRANSCRIPT, SYNC,
-        CONTINUE_FROM_COPY, ATTACH, LISTEN, STOP_LISTEN, HANDOVER, RESTART_DESKTOP }
+        CONTINUE_FROM_COPY, ATTACH, LISTEN, STOP_LISTEN, HANDOVER, RESTART_DESKTOP, RELEASE }
 
     public enum State { QUEUED, TAKEN, DONE, FAILED, CANCELLED }
 

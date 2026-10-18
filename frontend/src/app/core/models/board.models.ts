@@ -881,6 +881,18 @@ export interface BoardStage {
   readonly ref: string;
   readonly counts: { readonly brief: boolean; readonly items: number; readonly inbox: number; readonly waitingOnUser: number; readonly toDo: number;
     readonly inProgress: number; readonly fixed: number; readonly untested: number; readonly failing: number; readonly unmarked: number };
+  /** specs/032: the same next step, structured - missing from an older Alfred (then stage-copy derives it from `next`). */
+  readonly step?: StageStep | null;
+}
+
+/** Who does the next step: a skill run Claude does, Record then listen, or something only the user does. Unknown → USER. */
+export type StepKind = 'CLAUDE' | 'RECORD' | 'USER';
+
+export interface StageStep {
+  readonly kind: StepKind | string;
+  readonly skill: string | null;
+  readonly command: string | null;
+  readonly count: number;
 }
 
 /** The command a stage's next step names ("/alfred-setup AB#1 - ..."), or null when it is an action for the user. */

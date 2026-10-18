@@ -91,10 +91,12 @@ export interface BoardSessionRow {
   readonly current: boolean;
   readonly createdAt: string;
   readonly lastActive: string;
+  /** What a STARTING session is doing now ("Making the worktree"), specs/032. */
+  readonly progress?: string | null;
 }
 
 export type CommandKind = 'START' | 'RESUME' | 'OPEN_DESKTOP' | 'OPEN_TERMINAL' | 'STOP' | 'STOP_ALL' | 'PICK_FOLDER' | 'BRING_TRANSCRIPT'
-  | 'SEND_TRANSCRIPT' | 'SYNC' | 'CONTINUE_FROM_COPY' | 'ATTACH' | 'LISTEN' | 'STOP_LISTEN' | 'HANDOVER' | 'RESTART_DESKTOP';
+  | 'SEND_TRANSCRIPT' | 'SYNC' | 'CONTINUE_FROM_COPY' | 'ATTACH' | 'LISTEN' | 'STOP_LISTEN' | 'HANDOVER' | 'RESTART_DESKTOP' | 'RELEASE';
 export type CommandState = 'QUEUED' | 'TAKEN' | 'DONE' | 'FAILED' | 'CANCELLED';
 
 export interface HelperCommand {

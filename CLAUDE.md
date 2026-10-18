@@ -148,11 +148,19 @@ After `docker compose up -d --build backend`, the gateway may keep the old conta
 
 - **One task, seven stages** (specs/030, docs/board.md "The task's stages", docs/team.md "Refresh from Azure", "Card
   matches"): Board → Define → Triage → Code → Verify → Test → Close, the stage computed once by `BoardStage.of`
-  (`GET /board/boards/{id}/stage`) for `task_context`'s NEXT, the stage strip and `/alfred-guide` - never a second rule.
+  (`GET /board/boards/{id}/stage`, with a structured `step`) for `task_context`'s NEXT/STEP, the board header's stage line and
+  Next card (specs/032) and `/alfred-guide` - never a second rule (the frontend only words it: `stage-copy.ts`).
   A board is named `AB#<id>` / name / id everywhere (`mcp-server/src/board-ref.ts`); a bare `#n` is always a card.
   Define drafts the cards too (rules §0a: child-type rules live only in `skills/_shared/rules.md`), linked in Alfred on
   the user's Save all with no bundle. Card matches are code only (`MatchService`, `item_matches`); REJECTED is kept for
   good and is the only state the board export carries (`team-card-match`). Refresh from Azure is the sync with `wait`.
+
+- **The Cycles tab: a cycle's description is the user's, its summary Claude's** (specs/033, docs/board.md "The Cycles
+  tab"): `session_cycles.description`/`summary` (`PUT /session-cycles/{id}/notes`; rename and status keep them - build
+  a changed cycle with `SessionCycle.with*`, never the 7-arg constructor), what it caught from `GET
+  /session-cycles/{id}/summary` (no bodies), the board's own choices on `board_cycles` (`kind`, one `baseline`,
+  `archived`). Re-tests are named after their cards in one place, `CycleNaming`. Suggestions stay one dismissible line;
+  nothing opens or pauses by itself.
 
 - **One Claude session per board, one holder per board** (specs/031, docs/board.md "Board sessions", docs/server.md "The
   helper"): `backend-sessions` (leaf slice, `sessions.db`) knows who is who - a user is the email their **helper**
@@ -172,7 +180,9 @@ After `docker compose up -d --build backend`, the gateway may keep the old conta
   on restart and needs the folder trusted). **One writer per session**: a session open in Desktop or a terminal is never
   written to by the helper - two writers fork the transcript (spike S2). The helper, the runners and the MCP server pass
   the user's key on (`ALFRED_KEY`/`ALFRED_VIA`, the MCP relay forwards `x-alfred-key`). Admin = whoever may change server
-  settings: revoke a user, force-release a board.
+  settings: revoke a user, force-release a board. **One Claude control** (specs/032, `claude-mode.ts`): Pause = STOP (the session
+  is kept), **Hand back = RELEASE** on the PC (Handover note card, stop, release) or a direct release when the PC is offline;
+  every outcome is said in the board banner, menus close on outside click / Escape, never on mouseleave.
 
 ## Detailed docs (read only when relevant)
 - docs/architecture.md — backend module/slice design, persistence/caching, pagination

@@ -26,8 +26,25 @@ public interface RecordForBoardUseCase {
         }
     }
 
+    /**
+     * What a new cycle is for (specs/033): the cards a re-test tests (by number, on the board's project - the cycle is
+     * named after them and related to each), a name that replaces the made one, and a description. All optional.
+     */
+    record Spec(List<Integer> cards, String name, String description) {
+        public static final Spec NONE = new Spec(List.of(), null, null);
+
+        public Spec {
+            cards = cards == null ? List.of() : cards.stream().filter(java.util.Objects::nonNull).distinct().limit(50).toList();
+        }
+    }
+
     /** Empty when the board does not exist. */
-    Optional<Recording> record(Actor actor, String boardId, Kind kind, OnRunning onRunning);
+    default Optional<Recording> record(Actor actor, String boardId, Kind kind, OnRunning onRunning) {
+        return record(actor, boardId, kind, onRunning, Spec.NONE);
+    }
+
+    /** Empty when the board does not exist. Joining a running cycle ignores the spec's name and description. */
+    Optional<Recording> record(Actor actor, String boardId, Kind kind, OnRunning onRunning, Spec spec);
 
     /** Another RECORDING cycle sharing a project with {@code cycleId} through their boards; empty for a cycle on no board. */
     Optional<String> recordingConflict(String cycleId);

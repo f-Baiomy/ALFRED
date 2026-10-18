@@ -11,8 +11,8 @@ import { BoardSocketService } from '../../../core/services/board-socket.service'
 import { messageOf } from '../../../core/state/board-state.service';
 import { skillArg } from '../../../shared/utils/board-skills';
 import {
-  NeedItem, PHASES, REQ_GROUPS, ReqGroup, TAB_GUIDES, TASK_SKILLS, TaskTab, briefParts, briefThreads, doneWhen, groupOf, itemsOf,
-  needItems, nextStepOf, notesOf, phaseOf, requirementsOf, taskRefs, verdictOf,
+  NeedItem, REQ_GROUPS, ReqGroup, TAB_GUIDES, TaskTab, briefParts, briefThreads, doneWhen, groupOf, itemsOf,
+  needItems, notesOf, phaseOf, requirementsOf, taskRefs, verdictOf,
 } from '../../../shared/utils/task-view';
 import { CycleBriefComponent } from '../cycle-brief/cycle-brief.component';
 import { RunSkillComponent } from '../run-skill/run-skill.component';
@@ -41,18 +41,13 @@ function store(key: string, value: string): void {
   }
 }
 
-const PHASE_TIPS: Record<string, string> = {
-  Coded: 'the change is in', Verifying: 'calls checked against the requirements', Fixed: 'the bugs found were fixed',
-  'Re-tested': 'the fixes checked again', Done: 'Done when is all ✓ and every requirement is marked by you',
-};
-
 /** The bar's colour per group, worst first. */
 const BAR: readonly ReqGroup[] = ['MET', 'BUG', 'MISSING', 'FIXED', 'DECIDE', 'CANT_TELL', 'UNTESTED'];
 
 /**
- * A session cycle as the task it is (skills/_shared/rules.md §0, specs/024). On top, always: the ticket and title, the
- * one next step in plain words (and Run ▾ with every skill), where the task stands, the answer to "does the code match
- * the task?" with a bar, and what needs the user. Below, tabs: Requirements (the Acceptance items with the calls'
+ * A session cycle as the task it is (skills/_shared/rules.md §0, specs/024). The board page's header owns the title, the
+ * stage, the Coded → Done ladder (from {@link phaseChange}) and the one next step (specs/032). Its Task tab opens with the
+ * ticket chips, the work item, the answer to "does the code match the task?" with a bar, and what needs the user; then tabs: Requirements (the Acceptance items with the calls'
  * verdict and one mark control each), Test plan (steps, data, Done when), Brief (with its comments), Claude's runs,
  * Spec & files. Each tab has "ⓘ How this works". Everything comes from what /board already holds - the same things the
  * MCP's task_context gives any Claude session - and is re-fetched on each /ws/board signal, never polled.
@@ -60,67 +55,33 @@ const BAR: readonly ReqGroup[] = ['MET', 'BUG', 'MISSING', 'FIXED', 'DECIDE', 'C
 @Component({
   selector: 'app-task-view',
   standalone: true,
-  host: { '(document:click)': 'outside($event)' },
   imports: [BoardFilesComponent, CycleBriefComponent, RunSkillComponent, SpecFilesComponent, TaskRequirementsComponent, WorkItemStripComponent, BoardCyclesComponent, TeamRelatedItemsComponent],
   template: `
     <div class="tv">
+      <!-- the board page's tabs (Cards, Calls, Task, …): the header above stays, one part shows below -->
+      <ng-content select="[tvTabs]" />
+      <!-- the page's panes (the live strips first), then this view's own Task tab -->
+      <ng-content />
+      <div class="tv-task" [hidden]="!showTask()">
+      <!-- the task's own facts; its next step, stage and ladder are in the board header (specs/032 D1/D3) -->
       <div class="tv-hd">
-        <div class="tv-hd-main">
+        @if (refs().tickets.length || refs().branch) {
           <div class="tv-ids">
             @for (t of refs().tickets; track t) { <span class="tv-chip">{{ t }}</span> }
             @if (refs().branch) { <span class="tv-chip" title="The task's branch">{{ refs().branch }}</span> }
           </div>
-          <h2 class="tv-title">{{ title() }}</h2>
-          <app-work-item-strip [boardId]="cycleId()" [editable]="editable()" />
-        </div>
-        <div class="tv-hd-acts">
-          <div class="tv-next" [title]="'Picked from where the task stands: ' + next().why">
-            <span class="tv-next-l">▶ Next: <b>{{ next().label }}</b></span>
-            @if (next().skill; as sk) {
-              <app-run-skill [command]="command(sk)" [project]="project()" [cycleId]="cycleId()" [cycleName]="cycleName()" [editable]="editable()" (opened)="open(project(), $event)" />
-            } @else {
-              <button type="button" class="tv-btn tv-primary" (click)="go('req', 'DECIDE')">Open them</button>
-            }
-          </div>
-          <div class="tv-menu">
-            <button type="button" class="tv-btn" [attr.aria-expanded]="menu()" (click)="menu.set(!menu())">Run ▾</button>
-            @if (menu()) {
-              <div class="tv-menu-pop" role="menu">
-                @for (s of skills; track s.skill) {
-                  <div class="tv-mi">
-                    <div class="tv-mi-t">{{ s.label }}<small>{{ s.what }}</small></div>
-                    <app-run-skill [command]="command(s.skill)" [project]="project()" [cycleId]="cycleId()" [cycleName]="cycleName()" [editable]="editable()" (opened)="open(project(), $event)" />
-                  </div>
-                }
-                <div class="tv-sep"></div>
-                <div class="tv-mi">
-                  <div class="tv-mi-t">Continue anywhere<small>a new session or another machine picks the task up where it stands</small></div>
-                  <app-run-skill [command]="resume()" [project]="project()" [cycleId]="cycleId()" [cycleName]="cycleName()" [copyOnly]="true" />
-                </div>
-                <button type="button" class="board-link tv-menu-x" (click)="menu.set(false)">close</button>
-              </div>
-            }
-          </div>
-        </div>
-        <div class="tv-stand">
-          <div class="tv-stepper" aria-label="Where the task stands">
-            @for (ph of phases; track ph; let i = $index) {
-              @if (i) { <i>›</i> }
-              <span [class.done]="i < phase()" [class.now]="i === phase()" [title]="ph + ': ' + phaseTips[ph]">{{ i < phase() ? '✓ ' : '' }}{{ ph }}</span>
-            }
-          </div>
-          <div class="tv-verdict">
-            <span>Does the code match the task? <b [class]="'task-tone-' + verdict().tone">{{ verdict().head }}</b> - {{ verdict().detail }}
-              <span class="tv-info" title="Counted from Requirements: met when the calls or your Pass show it works. Bar: green met, red bug or missing, amber re-test, violet Claude suggests, grey can't tell, faint not checked.">ⓘ</span></span>
-            @if (bar().length) {
-              <span class="tv-bar" aria-hidden="true">
-                @for (b of bar(); track b.key) { <i [class]="'tv-g-' + b.key" [style.width.%]="b.pct" [title]="b.n + ' ' + b.label"></i> }
-              </span>
-            }
-          </div>
+        }
+        <app-work-item-strip [boardId]="cycleId()" [editable]="editable()" />
+        <div class="tv-verdict">
+          <span>Does the code match the task? <b [class]="'task-tone-' + verdict().tone">{{ verdict().head }}</b> - {{ verdict().detail }}
+            <span class="tv-info" title="Counted from Requirements: met when the calls or your Pass show it works. Bar: green met, red bug or missing, amber re-test, violet Claude suggests, grey can't tell, faint not checked.">ⓘ</span></span>
+          @if (bar().length) {
+            <span class="tv-bar" aria-hidden="true">
+              @for (b of bar(); track b.key) { <i [class]="'tv-g-' + b.key" [style.width.%]="b.pct" [title]="b.n + ' ' + b.label"></i> }
+            </span>
+          }
         </div>
       </div>
-
       @if (needs().length) {
         <div class="tv-needs">
           <b>Needs you</b><span class="tv-info" title="Everything on this task waiting for you; click one to go there.">ⓘ</span>
@@ -129,12 +90,6 @@ const BAR: readonly ReqGroup[] = ['MET', 'BUG', 'MISSING', 'FIXED', 'DECIDE', 'C
           }
         </div>
       }
-
-      <!-- the board page's tabs (Cards, Calls, Task, …): the header above stays, one part shows below -->
-      <ng-content select="[tvTabs]" />
-      <!-- the page's panes (the live strips first), then this view's own Task tab -->
-      <ng-content />
-      <div class="tv-task" [hidden]="!showTask()">
       <div class="tv-tabs" role="tablist">
         @for (t of tabs(); track t.key) {
           <button type="button" role="tab" class="tv-tab" [class.on]="tab() === t.key" [attr.aria-selected]="tab() === t.key" (click)="setTab(t.key)">
@@ -261,6 +216,8 @@ export class TaskViewComponent {
   readonly showTask = input(true);
   /** A Needs-you item or a guide link went to one of this view's tabs: the page shows its Task tab. */
   readonly taskAsked = output<void>();
+  /** 0 Coded … 4 Done, for the board header's ladder (specs/032 D3) - computed here, where the task's data is read. */
+  readonly phaseChange = output<number>();
 
   readonly brief = signal<CycleBrief | null>(null);
   readonly comments = signal<readonly BriefComment[]>([]);
@@ -274,18 +231,13 @@ export class TaskViewComponent {
   readonly error = signal<string | null>(null);
   readonly tab = signal<TaskTab>('req');
   readonly reqFilter = signal<ReqFilter>('all');
-  readonly menu = signal(false);
   private readonly guideState = signal<Readonly<Record<string, boolean>>>({});
 
-  readonly phases = PHASES;
-  readonly phaseTips = PHASE_TIPS;
   readonly guides = TAB_GUIDES;
-  readonly skills = TASK_SKILLS;
   readonly groupInfo = REQ_GROUPS;
 
   readonly parts = computed(() => briefParts(this.brief()?.text ?? ''));
   readonly refs = computed(() => taskRefs(this.parts().sections['task']));
-  readonly title = computed(() => this.parts().goal.split(/\r?\n/)[0]?.replace(/[*_`#]/g, '').trim() || this.cycleName() || 'This task');
   readonly data = computed(() => itemsOf(this.parts().sections['data']));
   readonly reqs = computed(() => requirementsOf(this.files(), this.cards()));
   readonly notes = computed(() => notesOf(this.cards(), this.reqs()));
@@ -293,7 +245,6 @@ export class TaskViewComponent {
   readonly phase = computed(() => phaseOf(this.reqs(), this.cards(), this.steps(), this.log()));
   readonly done = computed(() => doneWhen(this.reqs(), this.cards()));
   readonly ready = computed(() => this.done().every((d) => d.ok));
-  readonly next = computed(() => nextStepOf(this.reqs(), this.done()));
   readonly threads = computed(() => briefThreads(this.comments()));
   readonly needs = computed(() => needItems(this.reqs(), this.cards(), this.steps(), this.threads().open.filter((t) => t.asksYou).length));
   readonly seen = computed(() => this.steps().filter((s) => s.state === 'SEEN').length);
@@ -329,16 +280,15 @@ export class TaskViewComponent {
   });
 
   readonly arg = computed(() => skillArg(this.cycleName() ?? this.cycleId()));
-  readonly resume = computed(() => `/alfred-resume ${this.arg()}`);
 
   constructor() {
+    effect(() => this.phaseChange.emit(this.phase()));
     effect(() => {
       const id = this.cycleId();
       untracked(() => {
         const t = stored(TAB_KEY + id) as TaskTab | null;
         this.tab.set(t && TAB_GUIDES[t] && !(this.nested() && (t === 'cycles' || t === 'items')) ? t : 'req');
         this.reqFilter.set('all');
-        this.menu.set(false);
         this.load(id);
       });
     });
@@ -408,8 +358,4 @@ export class TaskViewComponent {
     return new Date(iso).toLocaleString();
   }
 
-  /** Run ▾ closes on a click outside it. */
-  outside(e: MouseEvent): void {
-    if (this.menu() && !(e.target as HTMLElement | null)?.closest?.('.tv-menu')) this.menu.set(false);
-  }
 }

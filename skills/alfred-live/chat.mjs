@@ -243,6 +243,8 @@ export function terminalEvents(text) {
         if (c?.type === 'tool_use') out.push({ kind: 'tool', name: c.name, input: c.input ?? {} });
         else if (c?.type === 'thinking') out.push({ kind: 'thinking' });
       }
+      // the turn's last answer: whatever the terminal took up in that turn is done, however it answered
+      if (e.message.stop_reason === 'end_turn') out.push({ kind: 'turnEnd' });
     }
   }
   return out;
@@ -324,7 +326,8 @@ export class ChatLane {
    * the terminal's transcript is not watched.
    */
   async start() {
-    if (!this.r.o.chatId || !this.r.o.cycleId) return;
+    // a headless board session (started by the Alfred helper) is not a terminal: its chat answers in copies of it
+    if (!this.r.o.chatId || !this.r.o.cycleId || this.r.o.headless) return;
     await this.r.o.alfred.call('PUT', `/board/chats/${encodeURIComponent(this.r.o.cycleId)}/session`, {
       query: { project: this.r.o.project ?? '' }, headers: { 'X-Alfred-Actor': 'claude' },
       body: { chatSessionId: this.r.o.chatId, forkedFrom: this.r.o.chatId, host: this.host, forkedAt: null, seenUpTo: null },
@@ -377,6 +380,12 @@ export class ChatLane {
         // inside a later turn, often with no event of its own, and its row then stayed "queued" after the reply
         if (ev.kind === 'tool' && p.done(ev.name, ev.input)) {
           this.untrack(p.key, { state: 'DONE', outcome: 'answered by your terminal' });
+          continue;
+        }
+        // a turn that took it up and ended without the expected reply (it commented, moved the card, or decided
+        // nothing was needed) still finished it - the row said "working" for ever before (2026-10-18, #76)
+        if (ev.kind === 'turnEnd' && p.picked) {
+          this.untrack(p.key, { state: 'DONE', outcome: 'handled by your terminal' });
           continue;
         }
         if (!p.picked) continue;
@@ -432,15 +441,19 @@ export class ChatLane {
     const project = list[0].project;
     const taken = (await Promise.all(list.map((c) => this.take(c)))).filter(Boolean);
     if (!taken.length) return; // FR-055h: nothing to answer, no run
-    if (scope !== 'project' && this.r.o.chatId) return this.toTerminal(scope, project, list, taken);
+    // a terminal that ran /alfred-live answers its chat itself; a headless board session (the helper's, specs/032) has no
+    // terminal reading the chat log - the runner answers in a copy of it instead, or nothing ever answered
+    if (scope !== 'project' && this.r.o.chatId && !this.r.o.headless) return this.toTerminal(scope, project, list, taken);
     const ctx = await alfred.call('GET', `/board/chats/${encodeURIComponent(scope)}/context`, { query: { project } }).catch(() => null);
     const refork = taken.some((t) => t.task && /^Refresh from the terminal/.test(t.text ?? ''));
     const isCycle = scope !== 'project';
     const terminalId = isCycle ? this.r.o.chatId ?? null : null;
     const path = terminalId ? transcriptPath(this.r.o.cwd ?? process.cwd(), terminalId) : null;
     const lines = path && existsSync(path) ? readFileSync(path, 'utf8').split('\n') : [];
-    const session = ctx?.session?.chatSessionId && ctx.session.chatSessionId !== 'null'
+    const stored = ctx?.session?.chatSessionId && ctx.session.chatSessionId !== 'null'
       ? { chatSessionId: ctx.session.chatSessionId, host: ctx.session.host === 'null' ? null : ctx.session.host } : null;
+    // headless: never continue the board's session itself (it may be open in Claude Desktop - one writer), only a copy
+    const session = this.r.o.headless && stored?.chatSessionId === terminalId ? null : stored;
     // what the copy has read of the terminal: this runner's own memory, else Alfred's (a restarted runner)
     const seenUpTo = this.seenUpTo?.get(scope) ?? (Date.parse(ctx?.session?.seenUpTo ?? '') || 0);
     const delta = session && path ? deltaOf(lines, seenUpTo) : { text: '', at: seenUpTo, entries: 0 };

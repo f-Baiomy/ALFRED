@@ -513,12 +513,21 @@ export class McpClient {
  * entry (a LAN Alfred's /mcp) is used as it is. A server whose command does not answer in HTTP mode within 15 s is
  * closed and the entry is used as it is (each run then starts its own server, as before).
  */
+/** An http MCP entry with the runner's identity headers (ALFRED_KEY / ALFRED_VIA) added; a stdio one inherits the env. */
+export function withIdentity(entry, env = process.env) {
+  if (!entry?.url) return entry;
+  const ids = identityHeaders(env);
+  return Object.keys(ids).length ? { ...entry, headers: { ...(entry.headers ?? {}), ...ids } } : entry;
+}
+
 export class McpHost {
   constructor(entry, { cwd, log = () => {} } = {}) {
     this.given = entry;
     this.cwd = cwd;
     this.log = log;
-    this.entry = entry;
+    // an http server (Alfred's /mcp relay) gets the user's key on every call: Claude sends only the headers its config
+    // names, and without them every board write through MCP was refused HELD on a board this user holds (specs/032)
+    this.entry = withIdentity(entry);
     this.proc = null;
     this.closed = false;
   }
@@ -526,7 +535,7 @@ export class McpHost {
   async start() {
     if (this.given.url || !this.given.command) return this.entry;
     const url = await this.spawn().catch((error) => { this.log(`  ⚠ shared MCP server not started (${error.message}) - each run starts its own`); return null; });
-    this.entry = url ? { type: 'http', url } : this.given;
+    this.entry = withIdentity(url ? { type: 'http', url } : this.given);
     return this.entry;
   }
 
@@ -555,7 +564,7 @@ export class McpHost {
         // It died under us: start it again so the runs keep their server (check_calls' memory is gone - the listen
         // runner notices through its client's restarts count and sweeps at stop).
         this.log('  ⚠ the shared MCP server ended - starting it again');
-        this.spawn().then((url) => { this.entry = { type: 'http', url }; this.onRestart?.(url); }).catch((e) => this.log(`  ⚠ ${e.message}`));
+        this.spawn().then((url) => { this.entry = withIdentity({ type: 'http', url }); this.onRestart?.(url); }).catch((e) => this.log(`  ⚠ ${e.message}`));
       });
     });
   }
@@ -980,6 +989,7 @@ export class Runner {
           break;
         }
         for (const run of taken ?? []) {
+          if (this.o.headless) { await this.runHeadless(run); continue; }
           this.o.log(`▶ ${run.command} - from the board, sent to the chat${run.note ? ` (note: ${run.note.slice(0, 120)})` : ''}`);
           this.o.chat?.(boardRunLine(run));
         }
@@ -990,6 +1000,32 @@ export class Runner {
         await this.sleep(5000);
       }
     }
+  }
+
+  /**
+   * A ▶ run on a headless board session (specs/032): nobody reads the chat log there, so the runner runs it - in a copy of
+   * the board's session (`--resume <session> --fork-session`: its whole context, and never a second writer into the session
+   * itself, which may be open in Claude Desktop), with the skill's slash command expanded, and ends the run with what it
+   * said. One at a time, in the order the board queued them.
+   */
+  async runHeadless(run) {
+    const alfred = this.o.alfred;
+    const put = (body) => alfred.call('PUT', `/board/skill-runs/${encodeURIComponent(run.id)}`, { body }).catch((error) => {
+      this.o.log(`  (run ${run.id} not updated: ${error.message})`);
+      return null;
+    });
+    const taken = await put({ state: 'RUNNING' });
+    if (taken && taken.state && taken.state !== 'RUNNING') { this.o.log(`▶ ${run.command}: ${String(taken.state).toLowerCase()} - not run`); return; }
+    this.o.log(`▶ ${run.command} - from the board, running in a copy of the board's session`);
+    const runner = this.o.runHeadless ?? headlessRun;
+    const r = await runner({ claude: this.o.claude, cwd: this.o.cwd, server: this.o.server, mcpConfigFile: this.o.mcpConfigFile, model: this.o.model,
+      sessionId: this.o.chatId, prompt: run.prompt || run.command, timeoutMs: this.o.runTimeoutMs ?? 30 * 60_000,
+      onChild: (child) => { this.headlessChild = child; } });
+    this.headlessChild = null;
+    if (this.stopped) { await put({ state: 'CANCELLED', outcome: 'the runner stopped' }); return; }
+    const outcome = r.ok ? (summaryOfRun(r.text) ?? 'done') : (r.error || 'it stopped without saying why');
+    await put({ state: r.ok ? 'DONE' : 'FAILED', outcome: outcome.slice(0, 300), result: r.text ? r.text.slice(0, 20_000) : null });
+    this.o.log(`  ${r.ok ? '✓' : '✕'} ${run.command}: ${outcome.slice(0, 200)}`);
   }
 
   /**
@@ -1066,6 +1102,7 @@ export class Runner {
     this.stopped = true;
     for (const wake of [...(this.sleepers ?? [])]) wake();
     for (const h of this.handles) h.kill();
+    if (this.headlessChild) killTree(this.headlessChild);
     const waiting = this.waiting;
     this.waiting = [];
     if (abort) this.o.alfred.abort?.();
@@ -1319,17 +1356,18 @@ export class Runner {
       return;
     }
 
-    if (this.o.chatId && this.o.cycleId && this.o.chat && this.chatLane && attempt === 0) {
+    if (this.o.chatId && this.o.cycleId && this.o.chat && this.chatLane && attempt === 0 && !this.o.headless) {
       // plan-terminal-answers.md: every change on a card of the cycle goes to the terminal session that answers the cycle -
       // the same session as its chat, no copy and no run here; it answers on the card when its turn is free.
       // its progress follows the terminal's transcript until the terminal's reply on the card
       this.chatLane.track({ key: `c:${first.number}`, marker: `✉ #${first.number} `, reporter,
-        done: (name, input) => /(^|__)board_reply$/.test(name) && Number(input.number) === first.number });
+        // any write the terminal makes on this card answers it - a reply, a comment, a move, a question, a fix
+        done: (name, input) => CARD_ANSWER_TOOLS.test(name) && Number(input.number) === first.number });
       this.o.log(`  → ✉ ${label} handed to the terminal session`);
       this.o.chat(cardLine(first, changes, head));
       return;
     }
-    if (this.o.chatId && this.o.chat && attempt === 0 && forTheChat(changes)) {
+    if (this.o.chatId && this.o.chat && attempt === 0 && forTheChat(changes) && !this.o.headless) {
       // Needs the code or an investigation: the chat that handles the cycle answers it, with what it already knows.
       await reporter.end({ steps: changes.map(youDid), state: 'DONE', outcome: 'sent to the chat that handles this cycle - it answers on the card' });
       this.o.log(`  → 💬 ${label} sent to the chat`);
@@ -1397,6 +1435,48 @@ export class Runner {
 
 // ------------------------------------------------------------------------------------------------------------- CLI
 
+/** The first line of what a run said, as its outcome. */
+export function summaryOfRun(text) {
+  const line = String(text ?? '').split('\n').map((l) => l.trim()).find((l) => l && !/^#+\s*$/.test(l));
+  return line ? line.replace(/^#+\s*/, '').slice(0, 300) : null;
+}
+
+/** The tools a ▶ run gets in a headless session: Alfred's, reading the code, git's read commands, and the skills. */
+export const HEADLESS_TOOLS = ['Read', 'Grep', 'Glob', 'Skill', 'Bash(git diff:*)', 'Bash(git log:*)', 'Bash(git show:*)', 'Bash(git status:*)',
+  'Bash(codegraph explore:*)'];
+
+/**
+ * One `claude -p` turn in a copy of a session: the prompt on stdin (a variadic --allowedTools would take it as a tool
+ * name), slash commands on so `/alfred-setup AB#1` runs its skill. Resolves { ok, text, error }.
+ */
+export function headlessRun({ claude, cwd, server, mcpConfigFile, model, sessionId, prompt, timeoutMs = 30 * 60_000, onChild = () => {} }) {
+  const bin = findClaude(claude ?? 'claude');
+  const args = ['-p', '--resume', sessionId, '--fork-session', '--output-format', 'json', '--mcp-config', mcpConfigFile, '--strict-mcp-config',
+    '--allowedTools', `mcp__${server}__*`, ...HEADLESS_TOOLS, ...(model ? ['--model', model] : [])];
+  const useShell = process.platform === 'win32' && /\.(cmd|bat)$/i.test(bin);
+  const quote = (a) => (useShell && /[\s"*()]/.test(a) ? `"${a.replace(/"/g, '\\"')}"` : a);
+  return new Promise((resolveRun) => {
+    let out = '';
+    let err = '';
+    const child = spawn(useShell ? quote(bin) : bin, useShell ? args.map(quote) : args, { cwd, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, shell: useShell });
+    onChild(child);
+    const timer = setTimeout(() => killTree(child), timeoutMs);
+    child.stdout.on('data', (d) => { out += d.toString(); });
+    child.stderr.on('data', (d) => { err = (err + d.toString()).slice(-3000); });
+    child.on('error', (error) => { clearTimeout(timer); resolveRun({ ok: false, text: '', error: error.message }); });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      let json = null;
+      try { json = JSON.parse(out.trim().split('\n').filter(Boolean).at(-1) ?? ''); } catch { /* not json: an error printed instead */ }
+      const text = typeof json?.result === 'string' ? json.result : '';
+      const failed = code !== 0 || !json || json.is_error;
+      resolveRun({ ok: !failed, text, error: failed ? (text || err.trim() || out.trim() || `claude exited ${code}`).slice(0, 500) : null });
+    });
+    child.stdin.on('error', () => { /* it ended before reading */ });
+    child.stdin.end(prompt);
+  });
+}
+
 export function parseArgs(argv) {
   const out = { _: [] };
   for (let i = 0; i < argv.length; i++) {
@@ -1445,6 +1525,9 @@ export function tail(path, n) {
 export function claudeOf(args) {
   return /\.m?js$/i.test(args.claude ?? '') ? { claude: process.execPath, claudeArgs: [resolve(args.claude)] } : { claude: args.claude ?? 'claude' };
 }
+
+/** The board tools whose call on a card means the terminal answered the change handed to it. */
+export const CARD_ANSWER_TOOLS = /(^|__)board_(reply|comment|move|ask|fix|propose|edit|flag|block|assign|suggest_mark|verify)$/;
 
 export async function main(argv) {
   const args = parseArgs(argv);
@@ -1544,8 +1627,8 @@ export async function main(argv) {
     const mcp = new McpClient(mcpEntry, { cwd, name: 'alfred-live' });
     const runner = new Runner({ alfred: new Alfred(url), server: args.server, mcpEntry, project, cycleId: args.cycle, model: args.model,
       cwd, ...claudeOf(args), log, chat, mcpConfigFile: f.mcp, mcp, parallel: Number(args.parallel ?? 3), cursorFile: f.cursor, kind: 'live',
-      chatId: args.chat, chatPid: args['chat-pid'], boardRuns: args['no-board-runs'] !== 'true' });
-    host.onRestart = (u) => { mcp.entry = { type: 'http', url: u }; mcp.session = null; writeFileSync(f.mcp, JSON.stringify({ mcpServers: { [args.server]: { type: 'http', url: u } } })); };
+      chatId: args.chat, chatPid: args['chat-pid'], boardRuns: args['no-board-runs'] !== 'true', headless: args.headless === 'true' });
+    host.onRestart = () => { mcp.entry = host.entry; mcp.session = null; writeFileSync(f.mcp, JSON.stringify({ mcpServers: { [args.server]: host.entry } })); };
     const end = (why) => { if (!runner.stopped) log(`  ■ stopping: ${why}`); runner.stop(); };
     process.on('SIGTERM', () => end('SIGTERM'));
     process.on('SIGINT', () => end('SIGINT'));

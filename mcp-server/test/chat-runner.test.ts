@@ -189,6 +189,42 @@ test('a cycle chat is answered by the terminal session itself: the message becom
   } finally { await close(); }
 });
 
+test('a headless board session (the helper session) answers its chat itself in a copy - no ✉ line nobody reads (specs/032)', async () => {
+  const store = { messages: [] as any[], holder: {} as Record<string, string>, terminal: [] as any[], watches: [], nextId: 50 };
+  const changes = [waiting(store, 4, 'cy1', 'can you hear me?')];
+  const { w, runner, chat, promptFile, close } = await chatWorld(changes);
+  w.fake.board.chats = store;
+  try {
+    runner.o.chatId = 'sess-1';
+    runner.o.cycleId = 'cy1';
+    runner.o.headless = true;
+    await runner.chatLane.start();
+    assert.equal(w.fake.log.some((l) => l.method === 'PUT' && l.path === '/board/chats/cy1/session'), false, 'no "the terminal answers" claim');
+    await runner.once('0.0.0');
+    await Promise.all([...runner.chatLane.chains.values()]);
+    const sent = JSON.parse(readFileSync(promptFile, 'utf8'));
+    assert.match(sent.prompt, /can you hear me\?/);
+    assert.ok(!sent.args.includes('sess-1') || sent.args.includes('--fork-session'), 'never the board session itself - only a copy');
+    assert.equal(chat.some((l: string) => l.startsWith('✉ board chat #4')), false);
+  } finally { await close(); }
+});
+
+test('a headless ▶ run is run by the runner and ended with what it said; a failure says why (specs/032)', async () => {
+  const puts: any[] = [];
+  const self: any = { o: { alfred: { call: async (_m: string, path: string, o: any) => { puts.push({ path, body: o.body }); return { state: o.body.state }; } },
+    log: () => {}, chatId: 'sess-1', server: 'alfred', cwd: '.', mcpConfigFile: 'm.json',
+    runHeadless: async (a: any) => { assert.equal(a.sessionId, 'sess-1'); assert.equal(a.prompt, 'P'); return { ok: true, text: '## Drafted the brief\nmore' }; } } };
+  await live.Runner.prototype.runHeadless.call(self, { id: 'r1', command: '/alfred-setup AB#1', prompt: 'P' });
+  assert.deepEqual(puts.map((p) => p.body.state), ['RUNNING', 'DONE']);
+  assert.equal(puts[1].body.outcome, 'Drafted the brief');
+  self.o.runHeadless = async () => ({ ok: false, text: '', error: "You've hit your weekly limit" });
+  puts.length = 0;
+  await live.Runner.prototype.runHeadless.call(self, { id: 'r2', command: '/alfred-fix AB#1', prompt: 'P' });
+  assert.deepEqual(puts.map((p) => p.body.state), ['RUNNING', 'FAILED']);
+  assert.match(puts[1].body.outcome, /weekly limit/);
+  assert.ok(live.HEADLESS_TOOLS.includes('Skill'));
+});
+
 test('a message handed to the terminal shows its progress from the transcript: queued, on it, each step, then answered', () => {
   const sent: any[] = [];
   const reporter: any = { report: (b: any) => sent.push({ ...b }), end: async (b: any) => { sent.push({ ...b, ended: true }); } };
@@ -211,6 +247,25 @@ test('a message handed to the terminal shows its progress from the transcript: q
   lane.onTerminal(line({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'mcp__alfred-docker__chat_reply', input: { messageId: 7 } }] } }));
   assert.equal(sent.at(-1).ended, true);
   assert.equal(sent.at(-1).outcome, 'answered by your terminal');
+  assert.equal(lane.pending.size, 0);
+});
+
+test('a card change the terminal took up ends on any write to that card, or when its turn ends (2026-10-18, #76)', () => {
+  assert.ok(live.CARD_ANSWER_TOOLS.test('mcp__alfred-docker__board_comment'));
+  assert.ok(live.CARD_ANSWER_TOOLS.test('mcp__alfred__board_move'));
+  assert.ok(!live.CARD_ANSWER_TOOLS.test('mcp__alfred__board_get'));
+  const sent: any[] = [];
+  const reporter: any = { report: (b: any) => sent.push({ ...b }), end: async (b: any) => { sent.push({ ...b, ended: true }); } };
+  const lane = new chatLane.ChatLane({ o: { chatId: null, log: () => {}, chat: () => {} } });
+  lane.track({ key: 'c:76', marker: '✉ #76 ', reporter, done: () => false });
+  const line = (o: any) => JSON.stringify(o);
+  lane.onTerminal(line({ type: 'assistant', message: { stop_reason: 'end_turn', content: [{ type: 'text', text: 'other work' }] } }));
+  assert.equal(lane.pending.size, 1, 'a turn that never took it up does not end it');
+  lane.onTerminal([line({ type: 'user', message: { content: '<event>✉ #76 "Air Arabia"</event>' } }),
+    line({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'mcp__alfred-docker__board_comment', input: { number: 76 } }] } }),
+    line({ type: 'assistant', message: { stop_reason: 'end_turn', content: [{ type: 'text', text: 'I moved #76' }] } })].join('\n'));
+  assert.equal(sent.at(-1).ended, true);
+  assert.equal(sent.at(-1).outcome, 'handled by your terminal');
   assert.equal(lane.pending.size, 0);
 });
 
@@ -277,4 +332,12 @@ test('the chat Claude is taught to draw: the visuals guide, the design kit and t
   assert.match(chatLane.CHAT_RULES, /await alfred\.calls\(/);
   assert.match(chatLane.CHAT_RULES, /<script type="module">/);
   for (const tool of ['board_lib', 'board_snippet_view', 'board_page_get', 'board_files', 'board_file']) assert.ok(chatLane.chatTools().includes(tool), tool);
+});
+
+test('an http MCP server gets the user key on every call - without it the board lock refused every write as HELD (specs/032)', () => {
+  const entry = { type: 'http', url: 'http://localhost:3000/mcp' };
+  assert.deepEqual(live.withIdentity(entry, { ALFRED_KEY: 'ak_1', ALFRED_VIA: 'sess-1' }).headers, { 'X-Alfred-Key': 'ak_1', 'X-Alfred-Via': 'sess-1' });
+  assert.equal(live.withIdentity(entry, {}), entry, 'no key: unchanged');
+  const stdio = { command: 'node', args: ['x.js'] };
+  assert.equal(live.withIdentity(stdio, { ALFRED_KEY: 'ak_1' }), stdio, 'a stdio server inherits the env instead');
 });

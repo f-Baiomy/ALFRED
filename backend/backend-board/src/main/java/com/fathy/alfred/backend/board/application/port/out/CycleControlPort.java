@@ -32,6 +32,11 @@ public interface CycleControlPort {
         return List.of();
     }
 
+    /** Writes the cycle's description (specs/033); false when cycles cannot be written here. */
+    default boolean describe(String cycleId, String description) {
+        return false;
+    }
+
     /** False when no such cycle exists. */
     default boolean exists(String cycleId) {
         return false;

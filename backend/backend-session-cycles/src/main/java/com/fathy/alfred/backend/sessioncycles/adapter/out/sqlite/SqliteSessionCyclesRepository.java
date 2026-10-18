@@ -448,7 +448,7 @@ public class SqliteSessionCyclesRepository {
      *  session_cycles first shipped, so CREATE TABLE IF NOT EXISTS won't add them. */
     private void addReliveRunColumnsIfMissing() {
         List<String> columns = jdbcTemplate.query("PRAGMA table_info(session_cycles)", (rs, rowNum) -> rs.getString("name"));
-        for (String column : List.of("relive_run_id", "relive_cycle_id")) {
+        for (String column : List.of("relive_run_id", "relive_cycle_id", "description", "summary")) {
             if (!columns.contains(column)) {
                 jdbcTemplate.execute("ALTER TABLE session_cycles ADD COLUMN " + column + " TEXT");
             }
@@ -467,14 +467,15 @@ public class SqliteSessionCyclesRepository {
 
     public SessionCycle saveCycle(SessionCycle cycle) {
         jdbcTemplate.update("""
-                INSERT INTO session_cycles (id, name, created_at, assigned_to, status, relive_run_id, relive_cycle_id)
-                VALUES (?,?,?,?,?,?,?)
+                INSERT INTO session_cycles (id, name, created_at, assigned_to, status, relive_run_id, relive_cycle_id, description, summary)
+                VALUES (?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(id) DO UPDATE SET name = excluded.name, created_at = excluded.created_at,
                     assigned_to = excluded.assigned_to, status = excluded.status,
-                    relive_run_id = excluded.relive_run_id, relive_cycle_id = excluded.relive_cycle_id
+                    relive_run_id = excluded.relive_run_id, relive_cycle_id = excluded.relive_cycle_id,
+                    description = excluded.description, summary = excluded.summary
                 """,
                 cycle.id(), cycle.name(), cycle.createdAt(), cycle.assignedTo(), cycle.status().name(),
-                cycle.reliveRunId(), cycle.reliveCycleId());
+                cycle.reliveRunId(), cycle.reliveCycleId(), cycle.description(), cycle.summary());
         return cycle;
     }
 
@@ -944,7 +945,7 @@ public class SqliteSessionCyclesRepository {
     private final RowMapper<SessionCycle> CYCLE_ROW_MAPPER = (rs, rowNum) -> new SessionCycle(
             rs.getString("id"), rs.getString("name"), rs.getString("created_at"),
             rs.getString("assigned_to"), SessionCycleStatus.valueOf(rs.getString("status")),
-            rs.getString("relive_run_id"), rs.getString("relive_cycle_id"));
+            rs.getString("relive_run_id"), rs.getString("relive_cycle_id"), rs.getString("description"), rs.getString("summary"));
 
     private final RowMapper<CapturedCall> CAPTURED_ROW_MAPPER = (rs, rowNum) -> {
         Map<String, String> requestHeaders = fromJson(rs.getString("request_headers"));

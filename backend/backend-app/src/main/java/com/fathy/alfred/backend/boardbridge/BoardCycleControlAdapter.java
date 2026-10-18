@@ -2,6 +2,7 @@ package com.fathy.alfred.backend.boardbridge;
 
 import com.fathy.alfred.backend.board.application.port.out.CycleControlPort;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.CreateSessionCycleUseCase;
+import com.fathy.alfred.backend.sessioncycles.application.port.in.CycleNotesUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.GetSessionCycleUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.ListSessionCyclesUseCase;
 import com.fathy.alfred.backend.sessioncycles.application.port.in.PauseRecordingUseCase;
@@ -22,6 +23,20 @@ public class BoardCycleControlAdapter implements CycleControlPort {
     private final PauseRecordingUseCase pause;
     private final GetSessionCycleUseCase get;
     private final ListSessionCyclesUseCase list;
+    private CycleNotesUseCase notes;
+
+    /** A re-test's description (specs/033); without it, a recording starts without one. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setNotes(CycleNotesUseCase notes) {
+        this.notes = notes;
+    }
+
+    @Override
+    public boolean describe(String cycleId, String description) {
+        if (notes == null || description == null) return false;
+        String text = description.length() > CycleNotesUseCase.DESCRIPTION_MAX ? description.substring(0, CycleNotesUseCase.DESCRIPTION_MAX) : description;
+        return notes.updateNotes(cycleId, text, null).isPresent();
+    }
 
     public BoardCycleControlAdapter(CreateSessionCycleUseCase create, StartRecordingUseCase start, PauseRecordingUseCase pause,
                                     GetSessionCycleUseCase get, ListSessionCyclesUseCase list) {

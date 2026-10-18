@@ -1263,7 +1263,7 @@ export async function main(argv) {
       cwd, ...claudeOf(args), model: args.model, dry: args.dry === 'true', log, chat, mcpConfigFile: f.mcp, stateFile, parallel: Number(args.parallel ?? 3),
       waitSec: args.wait ? Number(args.wait) : undefined, settleSec: args.settle ? Number(args.settle) : undefined, liveLane: args['no-live'] !== 'true',
       chatId: args.chat, chatPid: args['chat-pid'] });
-    host.onRestart = (u) => { mcp.entry = { type: 'http', url: u }; mcp.session = null; writeFileSync(f.mcp, JSON.stringify({ mcpServers: { [args.server]: { type: 'http', url: u } } })); };
+    host.onRestart = () => { mcp.entry = host.entry; mcp.session = null; writeFileSync(f.mcp, JSON.stringify({ mcpServers: { [args.server]: host.entry } })); };
     const onStop = () => {
       if (!existsSync(stopFile)) return;
       const how = readFileSync(stopFile, 'utf8').trim();

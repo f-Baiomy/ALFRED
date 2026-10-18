@@ -11,9 +11,15 @@ the answering (docs/mcp.md "Live answers"):
 
 **Boards** (specs/030): the task may be named as `AB#1234`, its name or its id (rules §0 "Naming a board") - `task_context` resolves it; the runner takes the cycle id `task_context` gives. A bare `#n` is a card.
 
-**Board sessions** (specs/031): the board's own **▶ alfred-live** button does all of this for the user - their Alfred
-helper starts the board's session on their PC and this runner with it. A board another user holds refuses writes
-(HELD, with who holds it): say so and that the user can ask for it from the 🔒 button - never retry.
+**Board sessions** (specs/031, specs/032): the board's **Claude button** (▶ Start Claude) does all of this for the user -
+their Alfred helper starts the board's session on their PC and this runner with it; the button then says **● Claude on**,
+and its panel has **⏸ Pause Claude** (stops this runner, keeps the session - ▶ Resume Claude continues it) and **↩ Hand
+the board back** (a Handover note card, then stop and release). Started from a terminal instead, the button says
+**● Claude on · terminal** and tells the user to stop it with `/alfred-live stop`. With Claude Desktop (the default), ▶
+Start Claude opens a **Desktop chat** in the board's folder whose first message asks it to read the task and run this
+skill - that chat is the board's session and answers everything here, visibly. **⏸ Pause** from the board stops only
+the runner: keep the Monitor watch on (no reply), because ▶ Resume starts the runner again on the same chat log. A board another user holds refuses
+writes (HELD, with who holds it): say so and that the user can ask for it from the 🔒 button - never retry.
 
 - The runner is `alfred-live.mjs` in this skill's folder. It runs **on this machine**, beside this session, the app's
   repo and Claude Code - whether Alfred runs here, in Docker, or on another machine (`alfred-lan-83` →

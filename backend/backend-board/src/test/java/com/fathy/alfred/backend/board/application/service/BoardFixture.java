@@ -184,12 +184,21 @@ final class BoardFixture implements AutoCloseable {
             public boolean exists(String cycleId) {
                 return cyclesHere.contains(cycleId);
             }
+
+            @Override
+            public boolean describe(String cycleId, String description) {
+                cycleDescriptions.put(cycleId, description);
+                return true;
+            }
         };
         boards = new BoardsService(boardModel, store, chatStore, board, briefs, notifications, provider(control),
                 provider(new com.fathy.alfred.backend.board.application.port.out.LinkedWorkItemPort() { }), clock);
         migration = new BoardModelMigration(boardModel, names, provider(control), clock);
         record = new RecordForBoardService(boardModel, boards, provider(control), provider(names), clock);
+        record.setCards(store);
     }
+
+    final java.util.Map<String, String> cycleDescriptions = new java.util.HashMap<>();
 
     RecordForBoardService record;
 

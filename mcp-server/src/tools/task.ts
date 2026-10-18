@@ -168,7 +168,7 @@ async function taskText(client: AlfredClient, ctx: MaskContext, cycle: TaskHead)
     client.get<AgentStatus | null>('/board/agent-status', { query: { project } }).catch(() => null),
     client.get<ChatContext>(`/board/chats/${seg(id)}/context`, { query: { project } }).catch(() => null),
     // specs/030: one rule for the stage strip, task_context and /alfred-guide (an older Alfred has none - the order below)
-    cycle.cycleIds ? client.get<{ stage: string; next: string }>(`/board/boards/${seg(id)}/stage`).catch(() => null) : Promise.resolve(null),
+    cycle.cycleIds ? client.get<{ stage: string; next: string; step?: { kind: string; command: string | null } | null }>(`/board/boards/${seg(id)}/stage`).catch(() => null) : Promise.resolve(null),
   ]);
   const plainOf = (t: string) => maskText(ctx, t.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim());
   const chatTalk = (chat?.after ?? []).filter((m) => m.kind === 'TEXT');
@@ -280,7 +280,9 @@ async function taskText(client: AlfredClient, ctx: MaskContext, cycle: TaskHead)
     if (agent && agent.cycleId === id && agent.state !== 'STOPPED') out.push('', `NOW: Claude ${agent.state.toLowerCase()}${agent.step ? ` - ${agent.step}` : ''} (${ago(agent.updatedAt)} ago)`);
 
     out.push('', ...(stage ? [`STAGE: ${stage.stage} (Board → Define → Triage → Code → Verify → Test → Close)`] : []),
-      `NEXT: ${stage ? stage.next : nextStep(cycle.ref ?? cycle.name, sections.length > 0, items.length > 0, next, cards)}`);
+      `NEXT: ${stage ? stage.next : nextStep(cycle.ref ?? cycle.name, sections.length > 0, items.length > 0, next, cards)}`,
+      // specs/032: the same step, structured - who does it and the exact command
+      ...(stage?.step ? [`STEP: ${stage.step.kind}${stage.step.command ? ` ${stage.step.command}` : ''}`] : []));
     out.push('', 'TOOLS: check_calls (check the recorded calls) · get_brief / read_spec (the full text) · board_get (a card in full) · board_changes '
       + '(what changed since your last entry, cursor "claude") · the /alfred-* skills when installed (/alfred-guide explains them).');
     return out.join('\n');

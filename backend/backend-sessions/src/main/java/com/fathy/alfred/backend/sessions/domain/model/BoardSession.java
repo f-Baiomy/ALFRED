@@ -8,11 +8,19 @@ import java.time.Instant;
  * {@code desktopId} its Claude Desktop row when it has one, {@code cwd} the folder (a board worktree) it works in.
  * {@code openIn} says where it runs interactively right now - while it is open there, that session answers the board
  * itself and the helper writes no turns into it (a second writer forks the transcript, spike S2). {@code current}: the
- * board's session that jobs go to; a board may have older ones.
+ * board's session that jobs go to; a board may have older ones. {@code progress}: what a STARTING session is doing now
+ * ("Making the worktree", specs/032) - kept only while it starts.
  */
 public record BoardSession(String id, String boardId, String project, String cliSessionId, String desktopId, String user, String machine,
                            String helperKeyId, String cwd, String title, State state, OpenIn openIn, long lastChatSeq, long tokensToday,
-                           String tokensDay, boolean current, Instant createdAt, Instant lastActive) {
+                           String tokensDay, boolean current, Instant createdAt, Instant lastActive, String progress) {
+
+    public BoardSession(String id, String boardId, String project, String cliSessionId, String desktopId, String user, String machine,
+                        String helperKeyId, String cwd, String title, State state, OpenIn openIn, long lastChatSeq, long tokensToday,
+                        String tokensDay, boolean current, Instant createdAt, Instant lastActive) {
+        this(id, boardId, project, cliSessionId, desktopId, user, machine, helperKeyId, cwd, title, state, openIn, lastChatSeq, tokensToday,
+                tokensDay, current, createdAt, lastActive, null);
+    }
 
     public enum State { STARTING, ANSWERING, IDLE, WAITING_BUDGET, WAITING_LIMIT, STOPPED, GONE }
 

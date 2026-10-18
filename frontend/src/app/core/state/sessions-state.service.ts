@@ -7,6 +7,7 @@ import { reconnectingSocket } from './reconnecting-socket';
 import {
   BoardSessionRow, CommandKind, ConnectStart, HelperCommand, HelperInfo, HelperRow, Holder, Me, MySettings, SessionsEvent,
 } from '../models/sessions.models';
+import { ClaudeView, START_KINDS, claudeView } from '../../shared/utils/claude-mode';
 
 /**
  * Who this browser is, who holds which board, the boards' Claude sessions and the commands sent to the user's PCs
@@ -160,6 +161,31 @@ export class SessionsStateService {
 
   pendingFor(boardId: string | null | undefined): HelperCommand | null {
     return this.commands().find((c) => c.boardId === boardId && (c.state === 'QUEUED' || c.state === 'TAKEN')) ?? null;
+  }
+
+  /** The newest command that starts Claude on this board, when it FAILED (a missing folder or session asks instead). */
+  failedStart(boardId: string | null | undefined): HelperCommand | null {
+    const last = this.commands().filter((c) => c.boardId === boardId && START_KINDS.includes(c.kind))
+      .reduce<HelperCommand | null>((a, c) => (!a || Date.parse(c.createdAt) > Date.parse(a.createdAt) ? c : a), null);
+    return last?.state === 'FAILED' && !/^(NO_FOLDER|NOT_HERE)/.test(last.result ?? '') ? last : null;
+  }
+
+  /** The session runs on another PC - or under another Windows user's helper on this one: its sessions are not here. */
+  elsewhere(s: BoardSessionRow | null): boolean {
+    const here = this.targetHelper();
+    if (!s || !here) return false;
+    const otherHelper = this.helpers().some((h) => h.keyId === s.helperKeyId);
+    return s.helperKeyId !== here.keyId && (s.machine !== here.machine || otherHelper);
+  }
+
+  /** The board's Claude control (specs/032 D4) - the button and the Next card read the same one. */
+  claude(boardId: string | null | undefined, terminalOn: boolean, dismissedFailure: string | null = null): ClaudeView {
+    const session = this.currentSession(boardId);
+    const failed = this.failedStart(boardId);
+    return claudeView({ held: this.heldByOther(boardId), pending: this.pendingFor(boardId), session,
+      mine: !!session && session.user === this.user(), elsewhere: this.elsewhere(session),
+      failed: failed && failed.id !== dismissedFailure ? failed : null, terminalOn,
+      pcOffline: !!session && !this.onlineHelpers().some((h) => h.keyId === session.helperKeyId) });
   }
 
   helperInfo(h: HelperRow | null): HelperInfo {

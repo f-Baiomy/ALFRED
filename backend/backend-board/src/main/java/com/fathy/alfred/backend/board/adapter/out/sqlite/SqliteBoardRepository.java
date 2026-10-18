@@ -370,6 +370,10 @@ public class SqliteBoardRepository implements BoardStorePort, SkillRunStorePort,
         addColumn("card_questions", "recommended", "TEXT");
         // Triage facts that come with the advice (confidence, checked, severity, group), JSON from the ```questions block.
         addColumn("card_questions", "advice_meta", "TEXT");
+        // specs/033: what the board made the cycle for (REC / RETEST) and the board's own choices about it
+        addColumn("board_cycles", "kind", "TEXT");
+        addColumn("board_cycles", "baseline", "INTEGER NOT NULL DEFAULT 0");
+        addColumn("board_cycles", "archived", "INTEGER NOT NULL DEFAULT 0");
         // Short names (specs/021): what a mention of a card or an Acceptance item reads, "one-branch search (AC8)".
         jdbc.execute("CREATE TABLE IF NOT EXISTS short_names (kind TEXT NOT NULL, owner TEXT NOT NULL, short TEXT NOT NULL, PRIMARY KEY (kind, owner))");
         jdbc.execute("CREATE TABLE IF NOT EXISTS board_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)");

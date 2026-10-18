@@ -1,7 +1,7 @@
 import { CardSummary, ChecklistFile, ChecklistItem } from '../../core/models/board.models';
 import { BriefComment } from '../../core/models/board.models';
 import {
-  briefParts, briefThreads, callPill, countStates, decisionsOf, doneWhen, findLoose, groupOf, itemsOf, needItems, needsYou, nextStepOf, notesOf,
+  briefParts, briefThreads, callPill, countStates, decisionsOf, doneWhen, findLoose, groupOf, itemsOf, needItems, needsYou, notesOf,
   phaseOf, requirementsOf, taskRefs, verdictOf,
 } from './task-view';
 
@@ -174,20 +174,6 @@ free text`;
       expect(callPill({ verdict: 'WRONG', reason: 'sent 948' })!.tone).toBe('bad');
       expect(callPill(null)).toBeNull();
       expect(callPill({ verdict: 'LATER_KIND', reason: null })).toBeNull();
-    });
-
-    it('picks the one next step from where the task stands', () => {
-      expect(nextStepOf([], []).skill).toBe('alfred-spec');
-      const untested = requirementsOf(files([item('a')]), []);
-      expect(nextStepOf(untested, doneWhen(untested, [])).skill).toBe('alfred-listen');
-      const suggested = requirementsOf(files([item('a', { suggestion: suggestion('PASS') })]), []);
-      expect(nextStepOf(suggested, doneWhen(suggested, []))).toEqual(jasmine.objectContaining({ skill: null, label: 'Review Claude\'s suggestions' }));
-      const bug = requirementsOf(files([item('a', { cards: [ref(3, 'TO_DO')] })]), [card(3, 'BUG', 'TO_DO')]);
-      expect(nextStepOf(bug, doneWhen(bug, [card(3, 'BUG', 'TO_DO')])).skill).toBe('alfred-fix');
-      const fixed = requirementsOf(files([item('a', { cards: [ref(3, 'FIXED')] })]), [card(3, 'BUG', 'FIXED')]);
-      expect(nextStepOf(fixed, doneWhen(fixed, [card(3, 'BUG', 'FIXED')])).skill).toBe('alfred-verify');
-      const done = requirementsOf(files([item('a', { mark: mark('PASS') })]), []);
-      expect(nextStepOf(done, doneWhen(done, [])).skill).toBe('alfred-report');
     });
 
     it('lists what needs the user, each leading where it is dealt with', () => {

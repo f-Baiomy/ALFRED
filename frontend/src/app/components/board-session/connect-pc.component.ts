@@ -5,7 +5,7 @@ import { SessionsStateService } from '../../core/state/sessions-state.service';
 /**
  * "Connect this PC" (specs/031): one download and one double-click. The file installs the Alfred helper on this PC (with
  * Node when it has none), registers it as the Claude account this PC is signed in with, pairs THIS browser, installs the
- * /alfred-* skills and Alfred's MCP server, and keeps them current. Shared by ▶ alfred-live and 👤 Me - one panel.
+ * /alfred-* skills and Alfred's MCP server, and keeps them current. Shared by ▶ Start Claude and 👤 Me - one panel.
  * A browser on a PC that is already connected can still pair with the six-digit code (`alfred helper pair`).
  */
 @Component({

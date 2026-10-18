@@ -43,6 +43,30 @@ public interface BoardModelStorePort {
 
     List<String> boardsOfCycle(String cycleId);
 
+    /** The board's cycles with what the board keeps about each (specs/033), oldest relation first. */
+    default List<com.fathy.alfred.backend.board.domain.model.BoardCycleLink> cycleLinks(String boardId) {
+        return cyclesOf(boardId).stream().map(id -> new com.fathy.alfred.backend.board.domain.model.BoardCycleLink(id, null, false, false, null)).toList();
+    }
+
+    /** REC or RETEST - what the board recorded the cycle for. */
+    default boolean setCycleKind(String boardId, String cycleId, String kind) {
+        return false;
+    }
+
+    /** null leaves a flag as it is; a baseline set clears the board's other one. True when the relation exists. */
+    default boolean setCycleFlags(String boardId, String cycleId, Boolean baseline, Boolean archived) {
+        return false;
+    }
+
+    /** Removes a board_meta key (a board preference switched back). */
+    default void unmark(String key) {
+    }
+
+    /** The cards related to a cycle (beyond their home cycle). */
+    default List<String> cardsOfCycle(String cycleId) {
+        return List.of();
+    }
+
     boolean relateBoards(String a, String b);
 
     boolean unrelateBoards(String a, String b);

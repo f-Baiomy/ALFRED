@@ -22,7 +22,8 @@ function boards(method: string, p: string[]): [number, unknown?] | undefined {
   }
   if (method === 'GET' && p[1] === 'cycles' && p[3] === 'boards') return [200, p[2] === 'cy-1' ? [FILTERS] : []];
   if (method === 'GET' && p[1] === 'boards' && p[3] === 'stage') {
-    return [200, { stage: 'DEFINE', next: '/alfred-setup AB#61813 - Claude reads the task', ref: 'AB#61813', counts: {} }];
+    return [200, { stage: 'DEFINE', next: '/alfred-setup AB#61813 - Claude reads the task', ref: 'AB#61813', counts: {},
+      step: { kind: 'CLAUDE', skill: 'alfred-setup', command: '/alfred-setup AB#61813', count: 0 } }];
   }
   return undefined;
 }
@@ -44,6 +45,7 @@ test('task_context takes a board by id, AB#, name or prefix - and a cycle on a b
       assert.match(r.text, /TASK "#61813_Refunded Requests Filters" \(board 261e0010-aaaa-bbbb-cccc-000000000001 · AB#61813 · cycles: cy-1\) · project odeysys/,
         `${ref}: ${r.text.slice(0, 300)}`);
       assert.match(r.text, /STAGE: DEFINE \(Board → Define[^\n]*\nNEXT: \/alfred-setup AB#61813/);
+      assert.match(r.text, /\nSTEP: CLAUDE \/alfred-setup AB#61813\n/);
     }
   } finally { await w.close(); }
 });

@@ -153,7 +153,7 @@ type Section = 'devices' | 'projects' | 'claude' | 'azure' | 'boards' | 'session
                       <td><button type="button" class="action-btn" (click)="removePlace($index)">Remove</button></td>
                     </tr>
                   } @empty {
-                    <tr><td colspan="6" class="muted">None yet - the first ▶ alfred-live of a project asks for its folder on your PC and keeps it here.</td></tr>
+                    <tr><td colspan="6" class="muted">None yet - the first ▶ Start Claude of a project asks for its folder on your PC and keeps it here.</td></tr>
                   }
                 </table></div>
                 <button type="button" class="action-btn add" (click)="addPlace()">＋ Add a project folder</button>
@@ -223,8 +223,8 @@ type Section = 'devices' | 'projects' | 'claude' | 'azure' | 'boards' | 'session
                       <td>{{ h.project }}</td><td>{{ h.since | date:'short' }}</td>
                       <td>@if (h.request; as r) { {{ r.user }} <span class="muted">{{ r.note }}</span> } @else { - }</td>
                       <td><input type="text" class="wide" [ngModel]="h.commenters.join(', ')" #cm (change)="setCommenters(h.boardId, cm.value)" placeholder="ahmed@company.com"></td>
-                      <td><button type="button" class="action-btn" (click)="release(h.boardId)">Release</button></td></tr>
-                  } @empty { <tr><td colspan="6" class="muted">You hold no board. ▶ alfred-live on a board takes it.</td></tr> }
+                      <td><button type="button" class="action-btn" (click)="release(h.boardId)">Hand back</button></td></tr>
+                  } @empty { <tr><td colspan="6" class="muted">You hold no board. ▶ Start Claude on a board takes it.</td></tr> }
                 </table>
                 <p class="muted">Commenters may chat and comment on your board; Claude answers them only after you let it. Card edits stay yours.</p>
               </div>

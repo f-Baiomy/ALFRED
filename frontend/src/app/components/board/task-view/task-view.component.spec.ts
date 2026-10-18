@@ -116,30 +116,28 @@ describe('TaskViewComponent (specs/024)', () => {
     return Array.from(el.querySelectorAll('.tv-tab')).find((t) => t.textContent?.includes(label)) as HTMLButtonElement;
   }
 
-  it('the header says the task, the next step, where it stands and the verdict with a bar', () => {
-    const el: HTMLElement = render().nativeElement;
-    expect(el.querySelector('.tv-title')?.textContent).toContain('Bookings keep every passenger and the confirmed fare.');
-    expect(Array.from(el.querySelectorAll('.tv-chip')).map((c) => c.textContent?.trim())).toEqual(['ODY-482', 'feature/ODY-482']);
-    expect(el.querySelector('.tv-stepper .now')?.textContent).toBe('Verifying');
-    expect(el.querySelector('.tv-verdict')?.textContent).toContain('Not yet - 1 bug, 1 requirement missing');
-    expect(Array.from(el.querySelectorAll('.tv-bar i')).map((i) => i.className)).toEqual(['tv-g-MET', 'tv-g-BUG', 'tv-g-MISSING', 'tv-g-DECIDE']);
-    // a bug is open: the next step is fixing it
-    expect(el.querySelector('.tv-next-l')?.textContent).toContain('Fix the bug');
-    expect(el.querySelector('.tv-next .run-cmd')?.textContent).toBe('/alfred-fix "ODY-482 booking"');
-  });
-
-  it('Run ▾ lists every skill in plain words and Continue anywhere; a click outside closes it', () => {
+  it('the Task tab opens with the ticket chips and the verdict with a bar; the next step and the ladder are in the header', () => {
     const f = render();
     const el: HTMLElement = f.nativeElement;
-    (Array.from(el.querySelectorAll('.tv-menu > .tv-btn'))[0] as HTMLButtonElement).click();
+    expect(Array.from(el.querySelectorAll('.tv-chip')).map((c) => c.textContent?.trim())).toEqual(['ODY-482', 'feature/ODY-482']);
+    expect(el.querySelector('.tv-verdict')?.textContent).toContain('Not yet - 1 bug, 1 requirement missing');
+    expect(Array.from(el.querySelectorAll('.tv-bar i')).map((i) => i.className)).toEqual(['tv-g-MET', 'tv-g-BUG', 'tv-g-MISSING', 'tv-g-DECIDE']);
+    // no second next step, Run menu, stepper or title here (specs/032 D1/D3)
+    expect(el.querySelector('.tv-next')).toBeNull();
+    expect(el.querySelector('.tv-menu')).toBeNull();
+    expect(el.querySelector('.tv-stepper')).toBeNull();
+    expect(el.querySelector('.tv-title')).toBeNull();
+  });
+
+  it('tells the header where the task stands (the Coded → Done ladder)', () => {
+    const f = TestBed.createComponent(TaskViewComponent);
+    const phases: number[] = [];
+    f.componentInstance.phaseChange.subscribe((p) => phases.push(p));
+    f.componentRef.setInput('cycleId', 'cy');
+    f.componentRef.setInput('project', 'p');
     f.detectChanges();
-    const items = Array.from(el.querySelectorAll('.tv-mi .tv-mi-t')).map((m) => m.firstChild?.textContent?.trim());
-    expect(items).toEqual(['Check while I test', 'Review what was recorded', 'Write the requirements', 'Fix the bugs', 'Re-test the fixes',
-      'Hand-over report', 'Continue anywhere']);
-    expect(el.textContent).toContain('/alfred-resume "ODY-482 booking"');
-    document.body.click();
     f.detectChanges();
-    expect(el.querySelector('.tv-menu-pop')).toBeNull();
+    expect(phases.at(-1)).toBe(1); // Verifying
   });
 
   it('Needs you leads where each thing is dealt with', () => {
@@ -205,7 +203,7 @@ describe('TaskViewComponent (specs/024)', () => {
     expect(runs[1].querySelector('.tv-nx')?.textContent).toContain('fix #38');
   });
 
-  it('the brief stays loaded behind its tab, so the title and the asks count come from it', () => {
+  it('the brief stays loaded behind its tab, so the asks count comes from it', () => {
     const el: HTMLElement = render().nativeElement;
     expect((el.querySelector('app-cycle-brief') as HTMLElement).hidden).toBeTrue();
     expect(api.brief).toHaveBeenCalledTimes(1);

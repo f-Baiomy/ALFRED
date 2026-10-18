@@ -61,6 +61,10 @@ public class SessionsService implements SessionsUseCase {
         BoardSession b = before.orElse(null);
         boolean first = store.sessions("", r.boardId(), 1).isEmpty();
         long tokens = r.tokensToday() != null ? r.tokensToday() : b != null && today.equals(b.tokensDay()) ? b.tokensToday() : 0;
+        BoardSession.State state = r.state() != null ? r.state() : b != null ? b.state() : BoardSession.State.STARTING;
+        // what a starting session is doing now; gone once it is past starting
+        String progress = state != BoardSession.State.STARTING ? null
+                : r.progress() != null && !r.progress().isBlank() ? clipProgress(r.progress()) : b != null ? b.progress() : null;
         BoardSession next = new BoardSession(
                 b != null ? b.id() : UUID.randomUUID().toString(),
                 r.boardId().strip(),
@@ -70,12 +74,12 @@ public class SessionsService implements SessionsUseCase {
                 helper.user(), helper.machine(), helper.keyId(),
                 text(r.cwd(), b == null ? null : b.cwd()),
                 text(r.title(), b == null ? null : b.title()),
-                r.state() != null ? r.state() : b != null ? b.state() : BoardSession.State.STARTING,
+                state,
                 r.openIn() != null ? r.openIn() : b != null ? b.openIn() : BoardSession.OpenIn.NONE,
                 r.lastChatSeq() != null ? r.lastChatSeq() : b != null ? b.lastChatSeq() : 0,
                 tokens, today,
                 b != null && b.current(),
-                b != null ? b.createdAt() : now, now);
+                b != null ? b.createdAt() : now, now, progress);
         store.putSession(next);
         if (first || Boolean.TRUE.equals(r.makeCurrent())) {
             store.makeCurrent(next.boardId(), next.id());
@@ -195,5 +199,10 @@ public class SessionsService implements SessionsUseCase {
 
     private static String clip(String s) {
         return text(s, "");
+    }
+
+    private static String clipProgress(String p) {
+        String v = p.strip().replaceAll("[\\r\\n\\t]", " ");
+        return v.length() > 120 ? v.substring(0, 120) : v;
     }
 }

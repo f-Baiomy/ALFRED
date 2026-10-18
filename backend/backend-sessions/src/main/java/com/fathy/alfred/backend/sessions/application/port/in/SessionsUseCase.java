@@ -18,7 +18,13 @@ public interface SessionsUseCase {
     BoardSession report(Caller helper, Report report);
 
     record Report(String id, String boardId, String project, String cliSessionId, String desktopId, String cwd, String title,
-                  BoardSession.State state, BoardSession.OpenIn openIn, Long lastChatSeq, Long tokensToday, Boolean makeCurrent) {
+                  BoardSession.State state, BoardSession.OpenIn openIn, Long lastChatSeq, Long tokensToday, Boolean makeCurrent,
+                  String progress) {
+
+        public Report(String id, String boardId, String project, String cliSessionId, String desktopId, String cwd, String title,
+                      BoardSession.State state, BoardSession.OpenIn openIn, Long lastChatSeq, Long tokensToday, Boolean makeCurrent) {
+            this(id, boardId, project, cliSessionId, desktopId, cwd, title, state, openIn, lastChatSeq, tokensToday, makeCurrent, null);
+        }
     }
 
     List<BoardSession> sessions(String project, String boardId, int limit);

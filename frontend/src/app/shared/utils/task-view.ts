@@ -348,35 +348,6 @@ export function callPill(v: { verdict: string; reason: string | null } | null | 
   }
 }
 
-export interface NextStep {
-  /** In plain words. */
-  readonly label: string;
-  /** The skill to run, or null when the step is the user's own (review Claude's suggestions). */
-  readonly skill: string | null;
-  readonly why: string;
-}
-
-/** The one thing to do next, from where the task stands. */
-export function nextStepOf(reqs: readonly Requirement[], done: readonly DoneCheck[]): NextStep {
-  if (!reqs.length) return { label: 'Write the requirements', skill: 'alfred-spec', why: 'No requirement yet: Claude drafts the spec file\'s Acceptance list from the brief.' };
-  if (done.every((d) => d.ok)) return { label: 'Hand-over report', skill: 'alfred-report', why: 'Every requirement is marked and nothing is open: write the hand-over for QA.' };
-  const c = countStates(reqs);
-  if (c.BUG || c.MISSING) return { label: 'Fix the bug', skill: 'alfred-fix', why: 'A requirement failed or is missing: Claude fixes it on its card, then you re-test.' };
-  if (c.FIXED) return { label: 'Re-test the fix', skill: 'alfred-verify', why: 'A fix is in: use the app as its card says, then Claude checks the calls since the fix.' };
-  if (reqs.some((r) => r.suggested)) return { label: 'Review Claude\'s suggestions', skill: null, why: 'Claude answered requirements from the code or the calls - accept or mark them yourself.' };
-  return { label: 'Check while I test', skill: 'alfred-listen', why: 'Use the app while Claude listens and judges each requirement from the calls.' };
-}
-
-/** Every skill of a task, in plain words - the Run menu. */
-export const TASK_SKILLS: readonly { skill: string; label: string; what: string }[] = [
-  { skill: 'alfred-listen', label: 'Check while I test', what: 'follows the calls live, judges each requirement' },
-  { skill: 'alfred-review', label: 'Review what was recorded', what: 'goes through the cycle\'s calls once' },
-  { skill: 'alfred-spec', label: 'Write the requirements', what: 'drafts or changes the spec file from the brief' },
-  { skill: 'alfred-fix', label: 'Fix the bugs', what: 'fixes the To do cards you choose, after a plan' },
-  { skill: 'alfred-verify', label: 'Re-test the fixes', what: 'checks the calls since each fix' },
-  { skill: 'alfred-report', label: 'Hand-over report', what: 'found, fixed, verified, still open - for QA' },
-];
-
 export interface NeedItem {
   readonly text: string;
   /** Where it leads: a tab (with a Requirements filter) or a card. */
