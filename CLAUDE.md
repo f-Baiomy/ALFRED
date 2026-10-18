@@ -156,7 +156,9 @@ After `docker compose up -d --build backend`, the gateway may keep the old conta
 
 - **One Claude session per board, one holder per board** (specs/031, docs/board.md "Board sessions", docs/server.md "The
   helper"): `backend-sessions` (leaf slice, `sessions.db`) knows who is who - a user is the email their **helper**
-  registered with (its PC's Claude account; one key per PC, kept only as a SHA-256), and each browser is paired with it
+  registered with (its PC's Claude account, or the person whose paired browser downloaded the connect file - one person,
+  several Claude accounts; one key per PC **and Windows user** (`os_user`), a repair never revokes another Windows user's
+  helper; kept only as a SHA-256), and each browser is paired with it
   (`X-Alfred-Key` on every request, `alfredKeyInterceptor`). **Nobody installs anything by hand**: ⬇ Connect this PC gives a
   file with a one-time token (`ConnectController`, never in a URL); run once, it fetches the helper (and node.exe) FROM
   ALFRED, registers, pairs the browser that downloaded it (collected on the /ws/sessions signal), installs the skills and

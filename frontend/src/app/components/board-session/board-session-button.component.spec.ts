@@ -81,6 +81,24 @@ describe('BoardSessionButtonComponent (specs/031)', () => {
     expect(f.nativeElement.querySelector('.main').textContent).toContain('Session on LAPTOP-2');
   });
 
+  it('says a session of another Windows user on this same PC is not here', () => {
+    state.helpers.set([{ ...HELPER, osUser: 'work' }, { ...HELPER, keyId: 'h2', osUser: 'OMEN' }]);
+    state.sessions.set([{ ...SESSION, helperKeyId: 'h2' }]);
+    const f = render();
+    expect(f.nativeElement.querySelector('.main').textContent).toContain('Session on WORK-PC');
+  });
+
+  it("asks for a folder when only another Windows user on this PC has one", () => {
+    const send = spyOn(state, 'send').and.returnValue(of(null));
+    state.helpers.set([{ ...HELPER, osUser: 'work' }]);
+    state.settings.set({ projects: [{ project: 'odeysys', machine: 'WORK-PC', osUser: 'OMEN', folder: 'C:/Users/OMEN/o', openIn: 'DESKTOP', worktrees: true }] });
+    const f = render();
+    (f.nativeElement.querySelector('.main') as HTMLButtonElement).click();
+    f.detectChanges();
+    expect(send).not.toHaveBeenCalled();
+    expect(f.nativeElement.textContent).toContain("Where is odeysys's code on WORK-PC?");
+  });
+
   it('asks a browser on a PC that is not connected to connect it, then goes on by itself', () => {
     const send = spyOn(state, 'send').and.returnValue(of(null));
     state.me.set({ ...ME, user: null });

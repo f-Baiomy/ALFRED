@@ -46,7 +46,7 @@ public class KeysService implements KeysUseCase {
     }
 
     /** A "Connect this PC" file not yet run: its token, the browser that waits for it, and that browser's key once ready. */
-    private record Connect(String connectId, String collectHash, String label, Instant expiresAt, Issued[] ready) {
+    private record Connect(String connectId, String collectHash, String label, String owner, Instant expiresAt, Issued[] ready) {
     }
 
     static final Duration CONNECT_LIFE = Duration.ofMinutes(30);
@@ -72,24 +72,31 @@ public class KeysService implements KeysUseCase {
     }
 
     @Override
-    public synchronized Issued registerHelper(String user, String machine, String claudeAccount, String ip, String connectToken) {
-        String u = Keys.user(user);
-        String m = clip(machine);
-        if (u.isEmpty() || !u.contains("@") || m.isEmpty()) {
-            throw new IllegalArgumentException("A helper registers with the user's email and the PC's name");
-        }
+    public synchronized Issued registerHelper(String user, String machine, String osUser, String claudeAccount, String ip,
+                                              String connectToken) {
         Instant now = clock.instant();
         Connect connect = null;
         if (connectToken != null && !connectToken.isBlank()) {
             dropExpiredConnects(now);
-            connect = connectsByToken.remove(connectToken.strip());
+            connect = connectsByToken.get(connectToken.strip());
             if (connect == null) {
                 throw new IllegalArgumentException("This connect file was used or has expired - download a new one from Alfred (Connect this PC)");
             }
         }
+        // a connect file asked by a browser that is already someone's connects the PC as that person, whatever Claude
+        // account is signed in there (one person, several Claude accounts or Windows users)
+        String u = Keys.user(connect != null && connect.owner() != null ? connect.owner() : user);
+        String m = clip(machine);
+        String os = clip(osUser);
+        if (u.isEmpty() || !u.contains("@") || m.isEmpty()) {
+            throw new IllegalArgumentException("A helper registers with the user's email and the PC's name");
+        }
+        if (connect != null) {
+            connectsByToken.remove(connectToken.strip());
+        }
         Keys.New key = Keys.generate();
-        store.addHelper(new Helper(key.keyId(), clip(u), m, clip(claudeAccount), clip(ip), "{}", now, now, null), key.hash());
-        store.revokeHelpersOn(u, m, key.keyId(), now);
+        store.addHelper(new Helper(key.keyId(), clip(u), m, clip(claudeAccount), clip(ip), "{}", now, now, null, os), key.hash());
+        store.revokeHelpersOn(u, m, os, key.keyId(), now);
         if (connect != null) {
             Keys.New browser = Keys.generate();
             store.addBrowser(new BrowserKey(browser.keyId(), key.keyId(), u, clip(connect.label()), now, now, null), browser.hash());
@@ -101,7 +108,7 @@ public class KeysService implements KeysUseCase {
     }
 
     @Override
-    public synchronized ConnectStart connectStart(String label) {
+    public synchronized ConnectStart connectStart(String label, String owner) {
         Instant now = clock.instant();
         dropExpiredConnects(now);
         if (connectsById.size() >= MAX_OPEN_CONNECTS) {
@@ -110,7 +117,8 @@ public class KeysService implements KeysUseCase {
         String connectId = Keys.token().substring(0, 16);
         String secret = Keys.token();
         String token = Keys.token();
-        Connect c = new Connect(connectId, Keys.hash(secret), label, now.plus(CONNECT_LIFE), new Issued[1]);
+        String o = owner == null || owner.isBlank() ? null : Keys.user(owner);
+        Connect c = new Connect(connectId, Keys.hash(secret), label, o, now.plus(CONNECT_LIFE), new Issued[1]);
         connectsByToken.put(token, c);
         connectsById.put(connectId, c);
         return new ConnectStart(connectId, secret, token, c.expiresAt());
@@ -171,7 +179,7 @@ public class KeysService implements KeysUseCase {
     }
 
     @Override
-    public Helper heartbeat(Caller helper, String ip, String info) {
+    public Helper heartbeat(Caller helper, String ip, String info, String osUser) {
         requireHelper(helper);
         String body = info == null || info.isBlank() ? "{}" : info;
         if (body.length() > 64 * 1024) {
@@ -181,6 +189,9 @@ public class KeysService implements KeysUseCase {
         Optional<Helper> before = store.helper(helper.keyId());
         boolean wasOnline = before.map(h -> h.online(now)).orElse(false);
         store.helperSeen(helper.keyId(), now, clip(ip), body);
+        if (osUser != null && !clip(osUser).isEmpty() && before.map(h -> h.osUser() == null || h.osUser().isEmpty()).orElse(false)) {
+            store.helperOsUser(helper.keyId(), clip(osUser));
+        }
         seen.put(helper.keyId(), now);
         // came online, or says something new about its PC (a token kept, Desktop found): the devices pages follow
         if (!wasOnline || !body.equals(before.map(Helper::info).orElse(null))) {

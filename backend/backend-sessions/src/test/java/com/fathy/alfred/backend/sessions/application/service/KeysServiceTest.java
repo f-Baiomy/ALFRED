@@ -144,6 +144,49 @@ class KeysServiceTest {
     }
 
     @Test
+    void twoWindowsUsersOnOnePcEachKeepTheirOwnHelper() {
+        Issued work = f.keys.registerHelper("me@x.ae", "LAPTOP", "work", "me@x.ae", "", null);
+        Caller workBrowser = f.browser(f.keys.authenticate(work.key()).orElseThrow());
+
+        Issued omen = f.keys.registerHelper("me@x.ae", "LAPTOP", "OMEN", "me@x.ae", "", null);
+
+        assertThat(f.keys.authenticate(work.key())).isPresent();
+        assertThat(f.keys.authenticate(omen.key())).isPresent();
+        assertThat(f.keys.authenticate(f.browserKeys.get(workBrowser.keyId())).orElseThrow().helperKeyId()).isEqualTo(work.keyId());
+        assertThat(f.keys.helpersOf("me@x.ae")).extracting(h -> h.osUser()).containsExactlyInAnyOrder("work", "OMEN");
+
+        Issued workAgain = f.keys.registerHelper("me@x.ae", "LAPTOP", "work", "me@x.ae", "", null); // a repair replaces only its own
+        assertThat(f.keys.authenticate(work.key())).isEmpty();
+        assertThat(f.keys.authenticate(omen.key())).isPresent();
+        assertThat(f.keys.authenticate(f.browserKeys.get(workBrowser.keyId())).orElseThrow().helperKeyId()).isEqualTo(workAgain.keyId());
+    }
+
+    @Test
+    void aHelperFromBeforeWindowsUsersLearnsItsUserFromItsHeartbeat() {
+        Issued old = f.keys.registerHelper("me@x.ae", "LAPTOP", "me@x.ae", "");
+        f.keys.heartbeat(f.keys.authenticate(old.key()).orElseThrow(), "", "{}", "work");
+
+        f.keys.registerHelper("me@x.ae", "LAPTOP", "OMEN", "me@x.ae", "", null);
+
+        assertThat(f.keys.authenticate(old.key())).isPresent();
+        assertThat(f.store.helper(old.keyId()).orElseThrow().osUser()).isEqualTo("work");
+    }
+
+    @Test
+    void aConnectFileFromAPairedBrowserConnectsAsThatPersonWhateverClaudeAccountIsSignedIn() {
+        Issued first = f.keys.registerHelper("me@x.ae", "WORK-PC", "work", "me@x.ae", "", null);
+        Caller browser = f.browser(f.keys.authenticate(first.key()).orElseThrow());
+        KeysService.ConnectStart start = f.keys.connectStart("Chrome", browser.user());
+
+        Issued helper = f.keys.registerHelper("second@x.ae", "WORK-PC", "OMEN", "second@x.ae", "", start.token());
+
+        assertThat(helper.user()).isEqualTo("me@x.ae");
+        assertThat(f.store.helper(helper.keyId()).orElseThrow().claudeAccount()).isEqualTo("second@x.ae");
+        assertThat(f.keys.helpersOf("me@x.ae")).hasSize(2);
+        assertThat(f.keys.helpersOf("second@x.ae")).isEmpty();
+    }
+
+    @Test
     void aConnectFileExpiresAfterHalfAnHour() {
         KeysService.ConnectStart start = f.keys.connectStart("Chrome");
         f.clock.plusMinutes(KeysService.CONNECT_LIFE.toMinutes() + 1);

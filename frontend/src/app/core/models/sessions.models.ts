@@ -14,7 +14,11 @@ export interface Me {
 
 export interface HelperInfo {
   readonly version?: string;
+  readonly osUser?: string;
+  /** Claude Code's account on that PC (~/.claude.json): board sessions run with it. */
   readonly claudeAccount?: string;
+  /** Claude Desktop's account there now (email, else its id) - it can differ from Claude Code's. */
+  readonly desktopAccount?: string;
   readonly desktop?: boolean;
   readonly mcp?: string | null;
   readonly azureToken?: boolean;
@@ -26,6 +30,8 @@ export interface HelperRow {
   readonly keyId: string;
   readonly user: string;
   readonly machine: string;
+  /** The Windows user the helper runs as - one PC may carry a helper per Windows user ("" when not known). */
+  readonly osUser?: string;
   readonly online: boolean;
   readonly lastSeen: string | null;
   readonly createdAt: string;
@@ -127,6 +133,8 @@ export interface UserLine {
 export interface ProjectPlace {
   readonly project: string;
   readonly machine: string;
+  /** The Windows user on that PC this row is for; missing = every Windows user there. */
+  readonly osUser?: string;
   readonly folder: string;
   readonly openIn: 'DESKTOP' | 'TERMINAL' | 'BOTH' | 'BACKGROUND';
   readonly worktrees: boolean;

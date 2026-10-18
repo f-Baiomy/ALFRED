@@ -321,7 +321,9 @@ export class BoardSessionButtonComponent {
     const s = this.session();
     if (!s || !this.mine()) return 'start';
     const here = this.target();
-    if (here && s.helperKeyId !== here.keyId && s.machine !== here.machine) return 'elsewhere';
+    // another live helper of this user on the same PC is another Windows user there: its sessions are not here
+    const otherHelper = this.state.helpers().some((h) => h.keyId === s.helperKeyId);
+    if (here && s.helperKeyId !== here.keyId && (s.machine !== here.machine || otherHelper)) return 'elsewhere';
     return 'live';
   });
   readonly busyLabel = computed(() => {
@@ -405,9 +407,14 @@ export class BoardSessionButtonComponent {
     this.dialog.set(null);
   }
 
+  /** This PC's folder row, the way the helper picks it: this PC and Windows user, then this PC, then any PC. */
   private placeHere(): ProjectPlace | null {
     const machine = this.target()?.machine?.toLowerCase();
-    return (this.state.settings().projects ?? []).find((p) => p.project === this.project() && (!p.machine || p.machine.toLowerCase() === machine)) ?? null;
+    const os = (this.target()?.osUser ?? '').toLowerCase();
+    const rows = (this.state.settings().projects ?? []).filter((p) => p.project === this.project());
+    const here = rows.filter((p) => p.machine?.toLowerCase() === machine);
+    return (os ? here.find((p) => p.osUser?.toLowerCase() === os) : undefined) ?? here.find((p) => !p.osUser)
+      ?? rows.find((p) => !p.machine) ?? null;
   }
 
   restartDesktop(): void {
@@ -532,9 +539,10 @@ export class BoardSessionButtonComponent {
 
   saveFolderAndStart(): void {
     const machine = this.target()?.machine ?? '';
+    const osUser = this.target()?.osUser || undefined;
     const s: MySettings = this.state.settings();
-    const rest = (s.projects ?? []).filter((p) => !(p.project === this.project() && p.machine === machine));
-    const place: ProjectPlace = { project: this.project(), machine, folder: this.folder.trim(), openIn: this.openIn, worktrees: true };
+    const rest = (s.projects ?? []).filter((p) => !(p.project === this.project() && p.machine === machine && (p.osUser || undefined) === osUser));
+    const place: ProjectPlace = { project: this.project(), machine, osUser, folder: this.folder.trim(), openIn: this.openIn, worktrees: true };
     this.state.saveSettings({ ...s, projects: [...rest, place] }).subscribe((saved) => {
       if (!saved) { this.notice.set('Could not save My settings'); return; }
       this.dialog.set(null);

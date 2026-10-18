@@ -45,7 +45,9 @@ import { SessionsStateService } from '../../core/state/sessions-state.service';
         <button type="button" class="action-btn primary" [disabled]="busy()" (click)="connect()">⬇ Connect this PC</button>
         @if (failed()) { <span class="bad">Alfred did not give a connect file - try again</span> }
       </div>
-      <p class="muted">Claude Code must be installed and signed in on this PC; your Claude account is who you are in Alfred.
+      <p class="muted">Claude Code must be installed and signed in on this PC.
+        @if (state.user(); as me) { The file connects it as you ({{ me }}), whatever Claude account or Windows user runs it. }
+        @else { Your Claude account is who you are in Alfred. }
         Nothing else to install or update - the skills and Alfred's MCP server come with it and stay current.</p>
       @if (!showCode()) {
         <button type="button" class="link" (click)="showCode.set(true)">This PC is already connected - pair with a code instead</button>

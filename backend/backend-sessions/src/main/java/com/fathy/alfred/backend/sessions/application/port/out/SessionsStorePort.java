@@ -33,10 +33,14 @@ public interface SessionsStorePort {
     void helperSeen(String keyId, Instant at, String ip, String info);
 
     /**
-     * Revokes the user's other live helpers on that machine (a re-install or a new Connect replaces the old key); their
-     * browsers and board sessions move to {@code exceptKeyId}. Returns the revoked ids.
+     * Revokes the user's other live helpers on that machine run by the same OS user (a re-install or a new Connect replaces
+     * the old key) - a helper with no OS user recorded counts as the same one; their browsers and board sessions move to
+     * {@code exceptKeyId}. Another OS user's helper on the PC is left alone. Returns the revoked ids.
      */
-    List<String> revokeHelpersOn(String user, String machine, String exceptKeyId, Instant at);
+    List<String> revokeHelpersOn(String user, String machine, String osUser, String exceptKeyId, Instant at);
+
+    /** Records the OS user of a helper that has none yet (registered before Alfred asked). */
+    void helperOsUser(String keyId, String osUser);
 
     void addBrowser(BrowserKey key, String hash);
 

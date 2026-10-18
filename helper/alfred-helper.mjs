@@ -22,11 +22,11 @@
 import * as childProcess from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
-import { homedir, hostname, platform, tmpdir } from 'node:os';
+import { homedir, hostname, platform, tmpdir, userInfo } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const VERSION = '1.5.0';
+export const VERSION = '1.6.1';
 
 // The helper runs in the background with no console of its own: on Windows every tool it starts (PowerShell, where, git,
 // reg, claude) would flash a console window unless hidden. Hidden by default; only what the user should see - a folder
@@ -132,6 +132,18 @@ export class AlfredApi {
 }
 
 // --------------------------------------------------------------------------------------------- this PC: Claude, Desktop
+
+/**
+ * The Windows (or OS) user this helper runs as. One PC can carry a helper per Windows user, each with its own config,
+ * Claude sign-in and folders, so Alfred tells them apart by PC name + this.
+ */
+export function osUser(env = process.env) {
+  try {
+    return userInfo().username || env.USERNAME || env.USER || '';
+  } catch {
+    return env.USERNAME || env.USER || '';
+  }
+}
 
 /** The Claude account this PC's Claude Code is signed in with, from ~/.claude.json - never its credentials. */
 export function claudeAccount(home = homedir()) {
@@ -291,16 +303,65 @@ export function desktopSessionsRoot(env = process.env) {
   return null; // no Claude Desktop on Linux
 }
 
-/** The account/org folder of the signed-in Desktop account: the one holding the most recently written session record. */
-export function desktopAccountDir(root = desktopSessionsRoot()) {
+/**
+ * The account Claude Desktop is signed in with - it can differ from Claude Code's (~/.claude.json), and the user may
+ * switch it at any time. Its id is config.json's lastKnownAccountUuid (only that field is read; the token cache next
+ * to it is never used or sent); its email when this PC has it: Claude Code's own account when it is the same one, else
+ * the .claude.json Desktop leaves in a local agent session of that account. Null without Desktop.
+ */
+export function desktopAccount(root = desktopSessionsRoot(), home = homedir()) {
+  if (!root) return null;
+  const data = dirname(root);
+  let uuid = '';
+  try {
+    uuid = String(JSON.parse(readFileSync(join(data, 'config.json'), 'utf8')).lastKnownAccountUuid ?? '');
+  } catch { /* no Desktop config */ }
+  if (!/^[0-9a-f-]{8,64}$/i.test(uuid)) return null;
+  return { uuid, email: accountEmail(uuid, data, home) };
+}
+
+function accountEmail(uuid, data, home) {
+  const of = (file) => {
+    try {
+      const a = JSON.parse(readFileSync(file, 'utf8')).oauthAccount;
+      return a?.accountUuid === uuid ? a.emailAddress ?? '' : '';
+    } catch {
+      return '';
+    }
+  };
+  const cli = of(join(home, '.claude.json'));
+  if (cli) return cli;
+  const base = join(data, 'local-agent-mode-sessions', uuid);
+  try {
+    for (const o of readdirSync(base)) {
+      const od = join(base, o);
+      if (!statSync(od).isDirectory()) continue;
+      for (const s of readdirSync(od)) {
+        const email = of(join(od, s, '.claude', '.claude.json'));
+        if (email) return email;
+      }
+    }
+  } catch { /* none */ }
+  return '';
+}
+
+/**
+ * The account/org folder new session records go to: inside the account Desktop is signed in with now (a record in
+ * another account's folder never shows), the org folder holding its most recently written session record. Without a
+ * known account (an older Desktop), the folder of the newest record of any account.
+ */
+export function desktopAccountDir(root = desktopSessionsRoot(), account = desktopAccount(root)?.uuid) {
   if (!root || !existsSync(root)) return null;
+  const accounts = account && existsSync(join(root, account)) ? [account] : readdirSync(root);
   let best = null;
-  for (const a of readdirSync(root)) {
+  let anyOrg = null;
+  for (const a of accounts) {
     const ad = join(root, a);
     if (!statSync(ad).isDirectory()) continue;
     for (const o of readdirSync(ad)) {
       const od = join(ad, o);
       if (!statSync(od).isDirectory()) continue;
+      anyOrg = anyOrg ?? od;
       for (const f of readdirSync(od)) {
         if (!/^local_.*\.json$/.test(f)) continue;
         const t = statSync(join(od, f)).mtimeMs;
@@ -308,7 +369,8 @@ export function desktopAccountDir(root = desktopSessionsRoot()) {
       }
     }
   }
-  return best?.dir ?? null;
+  // the signed-in account has no Code session yet: its org folder still is where Desktop looks
+  return best?.dir ?? (accounts.length === 1 ? anyOrg : null);
 }
 
 /**
@@ -526,10 +588,16 @@ export function boardWorktree(repo, name, run = (args) => spawnSync('git', ['-C'
 
 // --------------------------------------------------------------------------------------------- settings from Alfred
 
-/** This PC's folder for a project, from My settings: {projects: [{project, machine, folder, openIn}]}. */
-export function projectFolder(settings, project, machine) {
+/**
+ * This PC's folder for a project, from My settings: {projects: [{project, machine, osUser, folder, openIn}]}. A row for
+ * this PC and this Windows user wins, then one for this PC naming no Windows user, then one naming no PC.
+ */
+export function projectFolder(settings, project, machine, os = '') {
   const rows = Array.isArray(settings?.projects) ? settings.projects : [];
-  const mine = rows.find((r) => r.project === project && String(r.machine ?? '').toLowerCase() === machine.toLowerCase())
+  const same = (a, b) => String(a ?? '').toLowerCase() === String(b ?? '').toLowerCase();
+  const here = rows.filter((r) => r.project === project && same(r.machine, machine));
+  const mine = (os ? here.find((r) => same(r.osUser, os)) : undefined)
+    ?? here.find((r) => !r.osUser)
     ?? rows.find((r) => r.project === project && !r.machine);
   return mine ? { folder: mine.folder, openIn: mine.openIn ?? 'DESKTOP', worktrees: mine.worktrees !== false } : null;
 }
@@ -547,6 +615,7 @@ export class Helper {
     this.primary = primary ?? (readConfig().default ?? server) === server;
     this.api = api;
     this.machine = machine;
+    this.osUser = osUser();
     this.mcp = mcp;
     this.skillsDir = skillsDir;
     this.claude = claude;
@@ -567,7 +636,9 @@ export class Helper {
   }
 
   async heartbeat() {
-    const info = { version: VERSION, claudeAccount: claudeAccount(), desktop: !!desktopAccountDir(), node: process.version,
+    const desktopNow = desktopAccount();
+    const info = { version: VERSION, osUser: this.osUser, claudeAccount: claudeAccount(),
+      desktopAccount: desktopNow ? desktopNow.email || desktopNow.uuid : '', desktop: !!desktopAccountDir(), node: process.version,
       platform: platform(), mcp: this.mcp, azureToken: existsSync(tokenFile(this.server)), // not decrypted: no PowerShell per heartbeat
       sessions: [...this.sessions.entries()].map(([id, s]) => ({ cliSessionId: id, boardId: s.boardId })) };
     const me = await this.api.call('PUT', '/board/helpers/heartbeat', { body: info });
@@ -847,7 +918,7 @@ export class Helper {
     this.notify('Alfred', `Pick the repo folder for ${project} on ${this.machine}`);
     const folder = this.pickFolder(`Pick the repo folder of ${project} - Alfred starts its Claude sessions there`);
     if (!folder) throw new Error(`NO_FOLDER: no repo folder for ${project} on ${this.machine} - pick one, or set it in 👤 Me`);
-    const projects = [...(settings?.projects ?? []), { project, machine: this.machine, folder, openIn: 'DESKTOP', worktrees: true }];
+    const projects = [...(settings?.projects ?? []), { project, machine: this.machine, osUser: this.osUser, folder, openIn: 'DESKTOP', worktrees: true }];
     await this.api.call('PUT', '/board/me/settings', { body: { ...(settings ?? {}), projects } });
     return { folder, openIn: 'DESKTOP', worktrees: true };
   }
@@ -857,7 +928,7 @@ export class Helper {
     const max = Number(settings?.maxSessions ?? 4);
     if ([...this.sessions.values()].filter((s) => s.runner).length >= max) throw new Error(`${max} sessions already run on ${this.machine} (My settings ▸ Max at once)`);
     let where = args.folder ? { folder: args.folder, openIn: args.openIn ?? 'DESKTOP', worktrees: args.worktrees !== false }
-      : projectFolder(settings, c.project, this.machine);
+      : projectFolder(settings, c.project, this.machine, this.osUser);
     if (!where?.folder) where = await this.askFolder(c.project, settings);
     if (!existsSync(where.folder)) throw new Error(`NO_FOLDER: ${where.folder} does not exist on ${this.machine}`);
     const title = args.title || c.boardId;
@@ -1021,15 +1092,19 @@ async function connect(config, args) {
   if (!server || !args.token) throw new Error('This is run by the file Alfred gives you (Connect this PC) - download a new one');
   const claude = findClaude();
   if (!claude) throw new Error('Claude Code is not on this PC. Install it (https://claude.com/claude-code), sign in, then run this file again.');
-  const user = args.user || claudeAccount();
-  if (!user) throw new Error('Claude Code on this PC is not signed in. Run claude (or open Claude Desktop), sign in, then run this file again.');
-  const machine = args.machine || hostname();
-  console.log(`  you        ${user} (the Claude account signed in here)`);
-  console.log(`  this PC    ${machine}`);
-  const issued = await new AlfredApi(server, null).call('POST', '/board/helpers/register',
-    { body: { user, machine, claudeAccount: claudeAccount(), connectToken: args.token } });
   config.servers = config.servers ?? {};
   const old = config.servers[server] ?? {};
+  const account = claudeAccount();
+  // a repair keeps who this Windows user already is in Alfred, even when another Claude account is signed in now; a file
+  // downloaded by a browser that is already someone's connects as that person whatever is sent here (Alfred decides)
+  const user = args.user || old.user || account;
+  if (!user) throw new Error('Claude Code on this PC is not signed in. Run claude (or open Claude Desktop), sign in, then run this file again.');
+  const machine = args.machine || hostname();
+  const windowsUser = osUser();
+  const issued = await new AlfredApi(server, null).call('POST', '/board/helpers/register',
+    { body: { user, machine, osUser: windowsUser, claudeAccount: account, connectToken: args.token } });
+  console.log(`  you        ${issued.user}${account && account.toLowerCase() !== String(issued.user).toLowerCase() ? ` (Claude here is signed in as ${account})` : ' (the Claude account signed in here)'}`);
+  console.log(`  this PC    ${machine}${windowsUser ? `, Windows user ${windowsUser}` : ''}`);
   config.servers[server] = { ...old, keyId: issued.keyId, key: issued.key, user: issued.user, machine: issued.machine, claude };
   config.default = config.default && config.servers[config.default] ? config.default : server;
   writeConfig(config);
@@ -1079,7 +1154,7 @@ async function main(argv) {
     const server = normalizeServer(args.server);
     if (!server || !args.user) throw new Error('alfred helper install --server <Alfred address> --user <your email>');
     const machine = args.machine || hostname();
-    const issued = await new AlfredApi(server, null).call('POST', '/board/helpers/register', { body: { user: args.user, machine, claudeAccount: claudeAccount() } });
+    const issued = await new AlfredApi(server, null).call('POST', '/board/helpers/register', { body: { user: args.user, machine, osUser: osUser(), claudeAccount: claudeAccount() } });
     config.servers = config.servers ?? {};
     config.servers[server] = { keyId: issued.keyId, key: issued.key, user: issued.user, machine: issued.machine, mcp: args.mcp || mcpNameFor(server) };
     config.default = config.default ?? server;

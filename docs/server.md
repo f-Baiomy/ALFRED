@@ -432,6 +432,21 @@ file and board worktrees (`.alfred-worktrees/lan-80-<board>` for every Alfred bu
 helper script and `~/.claude/skills` - follow the **first-connected (primary) Alfred** only; the others never rewrite
 them, so two Alfreds at different versions cannot swap them back and forth. Each browser origin keeps its own key.
 
+**Several Windows users or Claude accounts on one PC**: a PC is its name **and** the Windows user the helper runs as
+(`os_user` in `sessions.db`, sent on register and on every heartbeat; a helper registered before that learns it from its
+next heartbeat). Each Windows user runs its own helper, with its own config, Claude sign-in and Desktop sessions; a
+connect or repair replaces only that Windows user's older key, never another's. My settings shows the Windows user under
+the PC name and, where one PC carries several helpers, a folder row per Windows user (`osUser` on the row; a row without
+one serves every Windows user on that PC). The person is not the Claude account: a connect file downloaded by a browser
+that is already someone's connects the PC **as that person** (`POST /board/connect` reads the browser's key), whatever
+Claude account is signed in there, which is kept only as the PC's "Claude signed in" line; a repair from an unpaired
+browser keeps the user the helper config already names. So one person with a second Claude account (for the usage
+limit, say) or a second Windows user stays one user in Alfred, with the same boards, settings and token. Claude Code
+(`~/.claude.json`, what board sessions run with) and Claude Desktop (`config.json`'s `lastKnownAccountUuid`, only that
+field read) can be signed in with different accounts; the heartbeat reports both (`claudeAccount`, `desktopAccount`) and
+My settings shows both. Session records go into the folder of the account Desktop is signed in with now - a record in
+another account's folder never shows.
+
 What Alfred hands out: Docker mounts `./helper` and `./skills` read-only at `/opt/alfred-connect/` and bakes `node.exe`
 (build-versions.json's Node, checksummed) into the backend image; natively the supervisor points `ALFRED_CONNECT_HELPER`,
 `ALFRED_CONNECT_SKILLS` and `ALFRED_CONNECT_NODE` at `app/helper`, `app/skills` and the bundled Node (Windows only).
@@ -440,7 +455,8 @@ What cannot be automatic: Claude Code must be installed and signed in; Claude De
 reads new sessions only when it starts (▶ menu ▸ **Restart Claude Desktop to show it**, `RESTART_DESKTOP`: stops only
 Desktop's own `Claude.exe`, never a claude CLI, and reopens it on the session).
 
-The identity is what the PC says (its Claude account); Alfred does not check it with Anthropic. Anyone who can reach
+The identity is what the PC says (its Claude account), or the person whose browser downloaded the connect file; Alfred
+does not check it with Anthropic. Anyone who can reach
 Alfred can connect a PC as any email - keep Alfred on a network you trust, and revoke unknown users (Settings ▸ Users).
 
 ### By hand

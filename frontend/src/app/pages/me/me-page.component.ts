@@ -96,9 +96,13 @@ type Section = 'devices' | 'projects' | 'claude' | 'azure' | 'boards' | 'session
                   <tr><th>PC</th><th>State</th><th>Claude</th><th>Desktop</th><th>MCP</th><th>Helper</th><th></th></tr>
                   @for (h of devices().helpers; track h.keyId) {
                     <tr>
-                      <td class="nowrap"><b>{{ h.machine }}</b>@if (h.keyId === state.me()?.helperKeyId) { <br><span class="tag">this browser's PC</span> }</td>
+                      <td class="nowrap"><b>{{ h.machine }}</b>@if (osUserOf(h); as u) { <br><span class="muted">Windows user {{ u }}</span> }
+                        @if (h.keyId === state.me()?.helperKeyId) { <br><span class="tag">this browser's PC</span> }</td>
                       <td class="nowrap">@if (h.online) { <span class="tag ok">● online</span> } @else { <span class="tag">○ last seen {{ h.lastSeen | date:'short' }}</span> }</td>
-                      <td>{{ info(h).claudeAccount || h.claudeAccount || '-' }}</td>
+                      <td>@for (a of claudeAccounts(h); track a.where) {
+                          <div>{{ a.account }} <span class="muted">· {{ a.where }}</span></div>
+                        } @empty { - }
+                        @if (otherClaude(h)) { <span class="muted">another Claude account - still you</span> }</td>
                       <td>{{ info(h).desktop ? '✓ found' : 'not found' }}</td>
                       <td>{{ info(h).mcp || '-' }}</td>
                       <td>{{ info(h).version || '-' }}</td>
@@ -106,7 +110,8 @@ type Section = 'devices' | 'projects' | 'claude' | 'azure' | 'boards' | 'session
                     </tr>
                   } @empty { <tr><td colspan="7" class="muted">No helper yet.</td></tr> }
                 </table></div>
-                <p class="muted">A revoked helper stops working at once; its browsers are unpaired with it.</p>
+                <p class="muted">A revoked helper stops working at once; its browsers are unpaired with it. Each Windows user on a PC runs its own
+                  helper - connecting one never replaces another's.</p>
               </div>
               <div class="card">
                 <h2>Connect another PC, or repair this one</h2>
@@ -135,12 +140,12 @@ type Section = 'devices' | 'projects' | 'claude' | 'azure' | 'boards' | 'session
                     <tr>
                       <td><select [ngModel]="p.project" (ngModelChange)="setPlace($index, { project: $event })" aria-label="Project">
                         @for (o of projectChoices(p.project); track o) { <option [value]="o">{{ o }}</option> }</select></td>
-                      <td><select [ngModel]="p.machine" (ngModelChange)="setPlace($index, { machine: $event })" aria-label="PC">
-                        @for (m of machineChoices(p.machine); track m) { <option [value]="m">{{ m || 'Any PC' }}</option> }</select></td>
+                      <td><select [ngModel]="placeKey(p)" (ngModelChange)="setPc($index, $event)" aria-label="PC">
+                        @for (m of pcChoices(p); track m.key) { <option [value]="m.key">{{ m.label }}</option> }</select></td>
                       <td class="folder"><div class="folder-row">
                         <input type="text" [ngModel]="p.folder" (ngModelChange)="setPlace($index, { folder: $event })" placeholder="C:\\work\\odeysys" aria-label="Repo folder">
-                        <button type="button" class="action-btn" (click)="pickFolder($index)" [disabled]="!pickerFor(p.machine)"
-                          [title]="pickerTitle(p.machine)">Pick…</button></div></td>
+                        <button type="button" class="action-btn" (click)="pickFolder($index)" [disabled]="!pickerFor(p)"
+                          [title]="pickerTitle(p)">Pick…</button></div></td>
                       <td><select [ngModel]="p.openIn" (ngModelChange)="setPlace($index, { openIn: $event })" aria-label="Open sessions in">
                         <option value="DESKTOP">Claude Desktop</option><option value="TERMINAL">Terminal</option><option value="BOTH">Both</option>
                         <option value="BACKGROUND">Background only</option></select></td>
@@ -184,7 +189,7 @@ type Section = 'devices' | 'projects' | 'claude' | 'azure' | 'boards' | 'session
                   <span>Your token</span><span class="row">
                     @if (tokenSet()) { <span class="tag ok">✓ in use now - for your searches only</span> }
                     @for (h of devices().helpers; track h.keyId) {
-                      @if (info(h).azureToken) { <span class="tag ok">🔐 kept on {{ h.machine }}</span> }
+                      @if (info(h).azureToken) { <span class="tag ok">🔐 kept on {{ pcLabel(h) }}</span> }
                     }
                     @if (!tokenSet() && !azureOnSomePc()) { <span class="tag warn">not set</span> }</span>
                   <span>Set or replace</span><span class="folder-row">
@@ -193,13 +198,13 @@ type Section = 'devices' | 'projects' | 'claude' | 'azure' | 'boards' | 'session
                   <span>Keep it on</span><span>
                     <select [(ngModel)]="tokenPc" aria-label="Keep the token on">
                       @for (h of devices().helpers; track h.keyId) {
-                        <option [value]="h.keyId" [disabled]="!h.online">{{ h.machine }}{{ h.online ? '' : ' (offline)' }}</option>
+                        <option [value]="h.keyId" [disabled]="!h.online">{{ pcLabel(h) }}{{ h.online ? '' : ' (offline)' }}</option>
                       }
                       <option value="">no PC - only until Alfred restarts</option>
                     </select></span>
                   <span>Forget it</span><span class="row">
                     @for (h of devices().helpers; track h.keyId) {
-                      @if (info(h).azureToken) { <button type="button" class="action-btn" (click)="clearToken(h.keyId)" [disabled]="!h.online">Remove from {{ h.machine }}</button> }
+                      @if (info(h).azureToken) { <button type="button" class="action-btn" (click)="clearToken(h.keyId)" [disabled]="!h.online">Remove from {{ pcLabel(h) }}</button> }
                     }
                     <button type="button" class="action-btn" (click)="clearToken(null)">Stop using it now</button></span>
                   <span>Where it is kept</span><span class="muted">On the PC you choose, encrypted for your Windows user; that PC's helper hands it to Alfred
@@ -228,7 +233,7 @@ type Section = 'devices' | 'projects' | 'claude' | 'azure' | 'boards' | 'session
               <div class="card">
                 <div class="head"><h2 style="margin:0">Sessions</h2><span class="tag">today {{ tokensToday() | number }} tokens</span>
                   <span style="flex:1"></span>
-                  @if (state.targetHelper(); as t) { <button type="button" class="action-btn danger" (click)="stopAll()">■ Stop all on {{ t.machine }}</button> }</div>
+                  @if (state.targetHelper(); as t) { <button type="button" class="action-btn danger" (click)="stopAll()">■ Stop all on {{ pcLabel(t) }}</button> }</div>
                 <div class="scroll"><table>
                   <tr><th>Board</th><th>Session</th><th>Where</th><th>State</th><th>Today</th><th></th></tr>
                   @for (s of state.sessions(); track s.id) {
@@ -324,7 +329,7 @@ export class MePageComponent {
   ]);
   readonly mine = computed(() => this.state.holders().filter((h) => h.user === this.state.user()));
   readonly tokensToday = computed(() => this.state.sessions().filter((s) => s.user === this.state.user()).reduce((n, s) => n + s.tokensToday, 0));
-  readonly azureOnSomePc = computed(() => this.devices().helpers.filter((h) => this.info(h).azureToken).map((h) => h.machine).join(', '));
+  readonly azureOnSomePc = computed(() => this.devices().helpers.filter((h) => this.info(h).azureToken).map((h) => this.pcLabel(h)).join(', '));
 
   constructor() {
     this.state.start();
@@ -366,14 +371,61 @@ export class MePageComponent {
     return this.state.helperInfo(h);
   }
 
-  helperOf(machine: string): HelperRow | undefined {
-    return this.devices().helpers.find((h) => h.machine === machine);
+  /** The Windows user a helper runs as, from Alfred's record or its last heartbeat. */
+  osUserOf(h: HelperRow): string {
+    return h.osUser || this.info(h).osUser || '';
   }
 
-  /** The PCs a row may name: "Any PC", each of this user's PCs, and the row's own value even when that PC is gone. */
-  machineChoices(current: string | undefined): string[] {
-    const all = ['', ...this.devices().helpers.map((h) => h.machine)];
-    return [...new Set(current && !all.includes(current) ? [...all, current] : all)];
+  /** A PC as people tell it apart: its name, and the Windows user when that PC carries more than one helper. */
+  pcLabel(h: HelperRow): string {
+    const u = this.osUserOf(h);
+    const shared = this.devices().helpers.filter((x) => x.machine.toLowerCase() === h.machine.toLowerCase()).length > 1;
+    return u && shared ? `${h.machine} · ${u}` : h.machine;
+  }
+
+  /**
+   * The Claude accounts signed in on that PC: Claude Code's (board sessions run with it) and Claude Desktop's when it is
+   * another one - each can be switched on the PC at any time.
+   */
+  claudeAccounts(h: HelperRow): { account: string; where: string }[] {
+    const code = this.info(h).claudeAccount || h.claudeAccount || '';
+    const desktop = this.info(h).desktopAccount || '';
+    if (desktop && desktop.toLowerCase() !== code.toLowerCase()) {
+      return [...(code ? [{ account: code, where: 'Claude Code' }] : []), { account: desktop, where: 'Claude Desktop' }];
+    }
+    return code ? [{ account: code, where: desktop ? 'Code and Desktop' : 'Claude Code' }] : [];
+  }
+
+  /** Claude on that PC is signed in with another account than the one this user connected as. */
+  otherClaude(h: HelperRow): boolean {
+    return this.claudeAccounts(h).some((a) => a.account.includes('@') && a.account.toLowerCase() !== h.user.toLowerCase());
+  }
+
+  helperOf(machine: string, osUser?: string): HelperRow | undefined {
+    const here = this.devices().helpers.filter((h) => h.machine.toLowerCase() === machine.toLowerCase());
+    return (osUser ? here.find((h) => this.osUserOf(h).toLowerCase() === osUser.toLowerCase()) : undefined) ?? here[0];
+  }
+
+  /** A row's PC as one select value: machine and Windows user. */
+  placeKey(p: ProjectPlace): string {
+    return `${p.machine ?? ''}|${p.osUser ?? ''}`;
+  }
+
+  /** The PCs a row may name: "Any PC", each of this user's PCs (one per Windows user), and the row's own even when gone. */
+  pcChoices(p: ProjectPlace): { key: string; label: string }[] {
+    const out = new Map<string, string>([['|', 'Any PC']]);
+    for (const h of this.devices().helpers) {
+      const shared = this.devices().helpers.filter((x) => x.machine.toLowerCase() === h.machine.toLowerCase()).length > 1;
+      out.set(`${h.machine}|${shared ? this.osUserOf(h) : ''}`, this.pcLabel(h));
+    }
+    const mine = this.placeKey(p);
+    if (!out.has(mine)) out.set(mine, p.osUser ? `${p.machine} · ${p.osUser}` : p.machine);
+    return [...out].map(([key, label]) => ({ key, label }));
+  }
+
+  setPc(i: number, key: string): void {
+    const [machine, osUser] = key.split('|');
+    this.setPlace(i, { machine, osUser: osUser || undefined });
   }
 
   projectChoices(current: string): string[] {
@@ -382,14 +434,14 @@ export class MePageComponent {
   }
 
   /** The online PC a folder picker opens on: the row's PC, or for "Any PC" this browser's own. */
-  pickerFor(machine: string | undefined): HelperRow | null {
-    const h = machine ? this.helperOf(machine) : this.state.targetHelper() ?? undefined;
+  pickerFor(p: ProjectPlace): HelperRow | null {
+    const h = p.machine ? this.helperOf(p.machine, p.osUser) : this.state.targetHelper() ?? undefined;
     return h?.online ? h : null;
   }
 
-  pickerTitle(machine: string | undefined): string {
-    const h = this.pickerFor(machine);
-    return h ? `Opens a folder picker on ${h.machine}` : 'That PC is not online';
+  pickerTitle(p: ProjectPlace): string {
+    const h = this.pickerFor(p);
+    return h ? `Opens a folder picker on ${this.pcLabel(h)}` : 'That PC is not online';
   }
 
   private loadDevices(): void {
@@ -420,8 +472,10 @@ export class MePageComponent {
   }
 
   addPlace(): void {
-    const machine = this.state.targetHelper()?.machine ?? this.devices().helpers[0]?.machine ?? '';
-    this.places.set([...this.places(), { project: this.projects()[0] ?? '', machine, folder: '', openIn: 'DESKTOP', worktrees: true }]);
+    const h = this.state.targetHelper() ?? this.devices().helpers[0];
+    const machine = h?.machine ?? '';
+    const osUser = h && this.devices().helpers.filter((x) => x.machine === h.machine).length > 1 ? this.osUserOf(h) || undefined : undefined;
+    this.places.set([...this.places(), { project: this.projects()[0] ?? '', machine, osUser, folder: '', openIn: 'DESKTOP', worktrees: true }]);
     this.touch();
   }
 
@@ -436,7 +490,7 @@ export class MePageComponent {
   }
 
   pickFolder(i: number): void {
-    const h = this.pickerFor(this.places()[i].machine);
+    const h = this.pickerFor(this.places()[i]);
     if (!h) return;
     this.pickingRow = i;
     this.state.send('PICK_FOLDER', { helperKeyId: h.keyId }).subscribe();

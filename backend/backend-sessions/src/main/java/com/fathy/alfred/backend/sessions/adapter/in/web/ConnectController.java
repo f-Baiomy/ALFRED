@@ -2,6 +2,9 @@ package com.fathy.alfred.backend.sessions.adapter.in.web;
 
 import com.fathy.alfred.backend.sessions.application.port.in.ConnectUseCase;
 import com.fathy.alfred.backend.sessions.application.port.in.KeysUseCase;
+import com.fathy.alfred.backend.sessions.domain.Keys;
+import com.fathy.alfred.backend.sessions.domain.model.Caller;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Size;
 import org.springframework.core.io.FileSystemResource;
@@ -35,14 +38,17 @@ public class ConnectController {
     }
 
     @PostMapping("/board/connect")
-    public ResponseEntity<?> start(@Valid @RequestBody StartDto body) {
+    public ResponseEntity<?> start(@Valid @RequestBody StartDto body, HttpServletRequest request) {
         try {
-            KeysUseCase.ConnectStart s = keys.connectStart(body.label());
+            // a browser that is already someone's connects the PC as that person (another Claude account, another Windows user)
+            String owner = keys.authenticate(request.getHeader(Keys.HEADER)).map(Caller::user).orElse(null);
+            KeysUseCase.ConnectStart s = keys.connectStart(body.label(), owner);
             ConnectUseCase.Script script = connect.script(body.server(), s.token(), body.os());
             Map<String, Object> out = new LinkedHashMap<>();
             out.put("connectId", s.connectId());
             out.put("collectSecret", s.collectSecret());
             out.put("expiresAt", s.expiresAt());
+            out.put("as", owner);
             out.put("fileName", script.fileName());
             out.put("script", script.text());
             out.put("run", script.run());

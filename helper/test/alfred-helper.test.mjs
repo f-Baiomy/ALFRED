@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import {
-  Helper, boardWorktree, claudeAppDataDirs, desktopSessionsRoot, ensureMcp, installSkills, mcpDefaultName, mcpNameFor, normalizeServer, parseArgs, projectFolder, serverOf, shortHash,
+  Helper, boardWorktree, claudeAppDataDirs, desktopAccount, desktopAccountDir, desktopSessionsRoot, ensureMcp, installSkills, mcpDefaultName, mcpNameFor, normalizeServer, parseArgs, projectFolder, serverOf, shortHash,
   slug, tokensToday, transcriptOf, writeDesktopRecord,
 } from '../alfred-helper.mjs';
 
@@ -36,6 +36,18 @@ test("a project's folder is this PC's row, else a row for every PC", () => {
   assert.equal(projectFolder(s, 'alfred', 'ANY').worktrees, false);
   assert.equal(projectFolder(s, 'nothing', 'WORK-PC'), null);
   assert.equal(projectFolder({}, 'odeysys', 'WORK-PC'), null);
+});
+
+test("two Windows users on one PC each get their own folder, and an older row without one still serves", () => {
+  const s = { projects: [
+    { project: 'odeysys', machine: 'LAPTOP', folder: 'C:/old' },
+    { project: 'odeysys', machine: 'LAPTOP', osUser: 'OMEN', folder: 'C:/Users/OMEN/odeysys' },
+    { project: 'odeysys', machine: 'LAPTOP', osUser: 'work', folder: 'C:/Users/work/odeysys' },
+  ] };
+  assert.equal(projectFolder(s, 'odeysys', 'laptop', 'work').folder, 'C:/Users/work/odeysys');
+  assert.equal(projectFolder(s, 'odeysys', 'LAPTOP', 'omen').folder, 'C:/Users/OMEN/odeysys');
+  assert.equal(projectFolder(s, 'odeysys', 'LAPTOP', 'guest').folder, 'C:/old');
+  assert.equal(projectFolder(s, 'odeysys', 'LAPTOP').folder, 'C:/old');
 });
 
 test("the Alfred MCP server is found by Alfred's address in ~/.claude.json", () => {
@@ -164,7 +176,7 @@ test('the first START of a project on a PC asks for its folder here and keeps it
   await h.handle({ kind: 'START', boardId: 'default:odeysys', project: 'odeysys', args: '{}' });
 
   const saved = api.calls.find((c) => c.path === '/board/me/settings' && c.method === 'PUT');
-  assert.deepEqual(saved.body.projects, [{ project: 'odeysys', machine: 'PC', folder: repo, openIn: 'DESKTOP', worktrees: true }]);
+  assert.deepEqual(saved.body.projects, [{ project: 'odeysys', machine: 'PC', osUser: h.osUser, folder: repo, openIn: 'DESKTOP', worktrees: true }]);
 });
 
 test('a command for a session that is not on this PC says NOT_HERE', async () => {
@@ -301,4 +313,28 @@ test('the Windows folder window comes from wscript (no console), says which proj
   assert.match(seen.script, /BrowseForFolder\(0, "Pick the repo folder of odeysys"/);
   assert.equal(pickFolder('x', answer('')), null); // cancelled
   assert.equal(pickFolder('x', answer('::{20D04FE0-3AEA-1069-A2D8-08002B30309D}')), null); // "This PC"
+});
+
+test("session records go to the account Claude Desktop is signed in with now, even when another one wrote last", () => {
+  const data = tmp();
+  const home = tmp();
+  const root = join(data, 'claude-code-sessions');
+  const work = join(root, 'aaaa1111-0000-0000-0000-000000000001', 'org1');
+  const gmail = join(root, 'bbbb2222-0000-0000-0000-000000000002', 'org2');
+  mkdirSync(work, { recursive: true });
+  mkdirSync(gmail, { recursive: true });
+  writeFileSync(join(gmail, 'local_old.json'), '{}');
+  writeFileSync(join(work, 'local_newer.json'), '{}');
+  writeFileSync(join(home, '.claude.json'), JSON.stringify({ oauthAccount: { accountUuid: 'aaaa1111-0000-0000-0000-000000000001', emailAddress: 'me@x.ae' } }));
+  const agent = join(data, 'local-agent-mode-sessions', 'bbbb2222-0000-0000-0000-000000000002', 'org2', 'local_1', '.claude');
+  mkdirSync(agent, { recursive: true });
+  writeFileSync(join(agent, '.claude.json'), JSON.stringify({ oauthAccount: { accountUuid: 'bbbb2222-0000-0000-0000-000000000002', emailAddress: 'me@gmail.com' } }));
+
+  writeFileSync(join(data, 'config.json'), JSON.stringify({ lastKnownAccountUuid: 'bbbb2222-0000-0000-0000-000000000002', 'oauth:tokenCache': 'secret' }));
+  assert.deepEqual(desktopAccount(root, home), { uuid: 'bbbb2222-0000-0000-0000-000000000002', email: 'me@gmail.com' });
+  assert.equal(desktopAccountDir(root, 'bbbb2222-0000-0000-0000-000000000002'), gmail);
+
+  writeFileSync(join(data, 'config.json'), JSON.stringify({ lastKnownAccountUuid: 'aaaa1111-0000-0000-0000-000000000001' }));
+  assert.equal(desktopAccount(root, home).email, 'me@x.ae'); // Claude Code's own account
+  assert.equal(desktopAccountDir(root, undefined), work); // an older Desktop: the newest record wins
 });

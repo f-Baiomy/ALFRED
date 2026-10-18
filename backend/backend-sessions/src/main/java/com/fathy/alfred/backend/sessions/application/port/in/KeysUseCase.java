@@ -20,17 +20,29 @@ public interface KeysUseCase {
         return registerHelper(user, machine, claudeAccount, ip, null);
     }
 
+    default Issued registerHelper(String user, String machine, String claudeAccount, String ip, String connectToken) {
+        return registerHelper(user, machine, "", claudeAccount, ip, connectToken);
+    }
+
     /**
-     * {@link #registerHelper(String, String, String, String)} from a "Connect this PC" file: a live {@code connectToken}
-     * also pairs the browser that downloaded the file, which then collects its key ({@link #collect}).
+     * A helper for {@code user} on {@code machine}, run by the OS user {@code osUser}: a new key; the user's older helper
+     * of that same OS user on that machine is revoked (a re-install or a repair), never another OS user's helper on the PC.
+     * A live {@code connectToken} ("Connect this PC") also pairs the browser that downloaded the file, which then collects
+     * its key ({@link #collect}); when that browser was already someone's, the helper registers as that user whatever
+     * Claude account the PC is signed in with - one person, several Claude accounts.
      */
-    Issued registerHelper(String user, String machine, String claudeAccount, String ip, String connectToken);
+    Issued registerHelper(String user, String machine, String osUser, String claudeAccount, String ip, String connectToken);
 
     /**
      * "Connect this PC" (one click, no code): a one-time token that goes into the file the browser downloads, and the
      * id + secret only that browser holds to collect its key once the helper on the PC has registered with the token.
      */
-    ConnectStart connectStart(String label);
+    default ConnectStart connectStart(String label) {
+        return connectStart(label, null);
+    }
+
+    /** {@link #connectStart(String)} asked by a browser that is already {@code owner}'s: the PC connects as that user. */
+    ConnectStart connectStart(String label, String owner);
 
     record ConnectStart(String connectId, String collectSecret, String token, Instant expiresAt) {
     }
@@ -42,7 +54,12 @@ public interface KeysUseCase {
     Optional<Caller> authenticate(String rawKey);
 
     /** The helper's heartbeat: it is online, from {@code ip}, and {@code info} (JSON) is what it says about its PC. */
-    Helper heartbeat(Caller helper, String ip, String info);
+    default Helper heartbeat(Caller helper, String ip, String info) {
+        return heartbeat(helper, ip, info, null);
+    }
+
+    /** {@link #heartbeat(Caller, String, String)} that also names the OS user, kept for a helper registered without one. */
+    Helper heartbeat(Caller helper, String ip, String info, String osUser);
 
     /** A six-digit code that pairs one browser with this helper, valid two minutes. Helpers only. */
     PairCode pairCode(Caller helper);

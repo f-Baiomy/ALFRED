@@ -77,8 +77,8 @@ public class SessionsController {
     @PostMapping("/board/helpers/register")
     public ResponseEntity<?> register(@Valid @RequestBody RegisterDto body, HttpServletRequest request) {
         try {
-            return ResponseEntity.status(HttpStatus.CREATED).body(keys.registerHelper(body.user(), body.machine(), body.claudeAccount(),
-                    request.getRemoteAddr(), body.connectToken()));
+            return ResponseEntity.status(HttpStatus.CREATED).body(keys.registerHelper(body.user(), body.machine(), body.osUser(),
+                    body.claudeAccount(), request.getRemoteAddr(), body.connectToken()));
         } catch (IllegalArgumentException e) {
             return refused(HttpStatus.BAD_REQUEST, "INVALID", e.getMessage());
         }
@@ -92,7 +92,9 @@ public class SessionsController {
         }
         try {
             String json = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(info == null ? Map.of() : info);
-            Map<String, Object> out = helperView(keys.heartbeat(c.get(), request.getRemoteAddr(), json), true);
+            Object osUser = info == null ? null : info.get("osUser");
+            Map<String, Object> out = helperView(keys.heartbeat(c.get(), request.getRemoteAddr(), json,
+                    osUser instanceof String s ? s : null), true);
             ConnectUseCase cu = connect.getIfAvailable();
             if (cu != null) {
                 out.put("versions", cu.versions()); // the helper updates itself and the skills when these change
@@ -452,6 +454,7 @@ public class SessionsController {
         m.put("keyId", h.keyId());
         m.put("user", h.user());
         m.put("machine", h.machine());
+        m.put("osUser", nz(h.osUser()));
         m.put("online", h.online(Instant.now()));
         m.put("lastSeen", h.lastSeen());
         m.put("createdAt", h.createdAt());
@@ -506,7 +509,7 @@ public class SessionsController {
     }
 
     public record RegisterDto(@Size(max = 200) String user, @Size(max = 200) String machine, @Size(max = 200) String claudeAccount,
-                              @Size(max = 200) String connectToken) {
+                              @Size(max = 200) String connectToken, @Size(max = 200) String osUser) {
     }
 
     public record PcTokenDto(@Size(max = 40) String helperKeyId, @Size(max = 2000) String token) {

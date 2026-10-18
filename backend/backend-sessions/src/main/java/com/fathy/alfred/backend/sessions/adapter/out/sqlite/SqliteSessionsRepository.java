@@ -89,6 +89,9 @@ public class SqliteSessionsRepository implements SessionsStorePort {
                   ip TEXT, info TEXT NOT NULL, hash TEXT NOT NULL, created_at INTEGER NOT NULL, last_seen INTEGER, revoked_at INTEGER)
                 """);
         jdbc.execute("CREATE INDEX IF NOT EXISTS idx_helpers_user ON helpers(user)");
+        if (jdbc.queryForList("SELECT name FROM pragma_table_info('helpers') WHERE name = 'os_user'", String.class).isEmpty()) {
+            jdbc.execute("ALTER TABLE helpers ADD COLUMN os_user TEXT NOT NULL DEFAULT ''");
+        }
         jdbc.execute("""
                 CREATE TABLE IF NOT EXISTS browser_keys (key_id TEXT PRIMARY KEY, helper_key_id TEXT NOT NULL, user TEXT NOT NULL,
                   label TEXT, hash TEXT NOT NULL, paired_at INTEGER NOT NULL, last_seen INTEGER, revoked_at INTEGER)
@@ -140,16 +143,16 @@ public class SqliteSessionsRepository implements SessionsStorePort {
 
     private final RowMapper<Helper> helperRow = (rs, n) -> new Helper(rs.getString("key_id"), rs.getString("user"), rs.getString("machine"),
             rs.getString("claude_account"), rs.getString("ip"), rs.getString("info"), instant(rs, "created_at"), instant(rs, "last_seen"),
-            instant(rs, "revoked_at"));
+            instant(rs, "revoked_at"), rs.getString("os_user"));
 
     private final RowMapper<BrowserKey> browserRow = (rs, n) -> new BrowserKey(rs.getString("key_id"), rs.getString("helper_key_id"),
             rs.getString("user"), rs.getString("label"), instant(rs, "paired_at"), instant(rs, "last_seen"), instant(rs, "revoked_at"));
 
     @Override
     public void addHelper(Helper h, String hash) {
-        jdbc.update("INSERT INTO helpers(key_id, user, machine, claude_account, ip, info, hash, created_at, last_seen, revoked_at) "
-                        + "VALUES (?,?,?,?,?,?,?,?,?,?)", h.keyId(), h.user(), h.machine(), h.claudeAccount(), h.ip(), h.info(), hash,
-                millis(h.createdAt()), millis(h.lastSeen()), millis(h.revokedAt()));
+        jdbc.update("INSERT INTO helpers(key_id, user, machine, claude_account, ip, info, hash, created_at, last_seen, revoked_at, os_user) "
+                        + "VALUES (?,?,?,?,?,?,?,?,?,?,?)", h.keyId(), h.user(), h.machine(), h.claudeAccount(), h.ip(), h.info(), hash,
+                millis(h.createdAt()), millis(h.lastSeen()), millis(h.revokedAt()), h.osUser() == null ? "" : h.osUser());
     }
 
     @Override
@@ -179,15 +182,22 @@ public class SqliteSessionsRepository implements SessionsStorePort {
     }
 
     @Override
+    public void helperOsUser(String keyId, String osUser) {
+        jdbc.update("UPDATE helpers SET os_user = ? WHERE key_id = ? AND os_user = ''", osUser, keyId);
+    }
+
+    @Override
     public void helperSeen(String keyId, Instant at, String ip, String info) {
         jdbc.update("UPDATE helpers SET last_seen = ?, ip = COALESCE(?, ip), info = COALESCE(?, info) WHERE key_id = ?", millis(at), ip, info, keyId);
     }
 
     @Override
-    public List<String> revokeHelpersOn(String user, String machine, String exceptKeyId, Instant at) {
+    public List<String> revokeHelpersOn(String user, String machine, String osUser, String exceptKeyId, Instant at) {
+        String os = osUser == null ? "" : osUser;
         return tx.execute(s -> {
-            List<String> ids = jdbc.queryForList("SELECT key_id FROM helpers WHERE user = ? AND machine = ? AND key_id <> ? AND revoked_at IS NULL",
-                    String.class, user, machine, exceptKeyId);
+            // one OS user's helper replaces only its own older key: another Windows user on the PC keeps its helper
+            List<String> ids = jdbc.queryForList("SELECT key_id FROM helpers WHERE user = ? AND machine = ? AND key_id <> ? AND revoked_at IS NULL "
+                    + "AND (os_user = ? OR os_user = '' OR ? = '')", String.class, user, machine, exceptKeyId, os, os);
             for (String id : ids) {
                 // the new key takes over the PC: its browsers stay paired and its sessions stay on this PC
                 jdbc.update("UPDATE browser_keys SET helper_key_id = ? WHERE helper_key_id = ? AND revoked_at IS NULL", exceptKeyId, id);
